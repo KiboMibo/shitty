@@ -10,11 +10,33 @@ project(
 )
 
 cpp = meson.get_compiler('cpp')
+python = import('python').find_installation('python3')
+glslang = find_program('glslangValidator', required: true)
 
 freetype_dep = dependency('freetype2', required: true)
 sdl_dep = dependency('sdl3', version: '>=3.2.0', required: true)
 vulkan_dep = dependency('vulkan', required: true)
 threads_dep = dependency('threads', required: true)
+
+render_spv = custom_target(
+  'render-spv',
+  input: 'render.comp',
+  output: 'render.comp.spv',
+  command: [
+    glslang,
+    '--target-env', 'vulkan1.1',
+    '-V', '-S', 'comp',
+    '-o', '@OUTPUT@',
+    '@INPUT@',
+  ],
+)
+
+render_spv_header = custom_target(
+  'render-spv-header',
+  input: render_spv,
+  output: 'render_spv.h',
+  command: [python, files('embed_spirv.py'), '@INPUT@', '@OUTPUT@'],
+)
 
 compile_args = cpp.get_supported_arguments(
   '-fno-omit-frame-pointer',
@@ -46,6 +68,7 @@ zutty_sources = files(
   'vkpresenter.cc',
   'vterm.cc',
 )
+zutty_sources += render_spv_header
 
 executable(
   'zutty',

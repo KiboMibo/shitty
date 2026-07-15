@@ -3,6 +3,7 @@
 pkgs.mkShell {
   packages = with pkgs; [
     freetype
+    glslang
     meson
     ninja
     pkg-config

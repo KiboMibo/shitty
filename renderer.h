@@ -31,8 +31,8 @@ namespace zutty
       void update (const Frame& frame);
 
    private:
-      VulkanPresenter presenter;
       CharVdev charVdev;
+      VulkanPresenter presenter;
       bool delta = false;
    };
 

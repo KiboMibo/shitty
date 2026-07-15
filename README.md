@@ -8,11 +8,11 @@ is presented with raw Vulkan. There is no X11 backend or fallback.
 
 The terminal engine is the mature part of the project. It implements the
 commonly used VT52 through VT5xx command families, xterm extensions, a
-scrollback ring buffer, mouse protocols, selection and 256/true colour. The
-Wayland/Vulkan frontend is a new port and is usable, but still in transition:
-glyphs are currently rasterized on the CPU into an RGBA image and Vulkan
-uploads that image to the swapchain. Moving cell composition back to a GPU
-compute pipeline is the next substantial renderer milestone.
+scrollback ring buffer, mouse protocols, selection and 256/true colour. Its
+Vulkan renderer consumes the compact cell buffer and FreeType atlases in a
+compute shader, writes a persistent RGBA8 storage image and blits that image
+into the Wayland swapchain. No full-size terminal image is rasterized or
+uploaded by the CPU.
 
 ## Design boundaries
 
@@ -40,6 +40,7 @@ compute pipeline is the next substantial renderer milestone.
 - X10, VT200, UTF-8, SGR and urxvt mouse reporting.
 - Wayland primary selection and clipboard integration.
 - Scalable TTF, OTF and TTC fonts, plus PCF and compressed PCF bitmap fonts.
+- Dirty-cell Vulkan compute rendering over GPU-resident font atlases.
 - High-density windows and resize-aware Vulkan swapchain recreation.
 
 ## Requirements
@@ -48,6 +49,7 @@ Build-time requirements are:
 
 - a C++17 compiler;
 - Meson 1.2 or newer and Ninja;
+- Python 3 and `glslangValidator` for embedding the compute shader;
 - pkg-config;
 - FreeType 2;
 - SDL 3.2 or newer;
@@ -233,36 +235,40 @@ supported through `-dwfont`.
     Vterm             VT parser, keyboard encoder, terminal modes
       ⇅
     Frame             cells, damage, selection, circular scrollback
-      ↓
-   Renderer           copies changed 12-byte cells
-      ↓
-   CharVdev           FreeType atlases, currently CPU → RGBA rasterization
-      ↓
- VulkanPresenter      staging buffers, swapchain, fences and presentation
-      ↓
- Wayland compositor   SDL3 supplies window, events, IME and clipboard glue
+      ↓ changed cells
+   CharVdev           host mirror of compact 12-byte cells
+      ↓ SSBO                         Fontpack
+ VulkanPresenter  ← atlas/map textures ┘
+      ↓ compute shader (`render.comp`)
+ persistent RGBA8 storage image
+      ↓ image blit
+ Wayland swapchain    SDL3 supplies surface, events, IME and clipboard glue
 ```
 
 `Frame` keeps the visible screen and history in circular storage, so a scroll
 normally changes an offset rather than moving every cell. `Renderer` consumes
-damage deltas after the first full frame. `VulkanPresenter` keeps two frames in
-flight, handles RGBA/BGRA swapchain formats and recreates presentation state
-when the Wayland surface changes.
+damage deltas after the first full frame and clears dirty bits after a
+successful submission. The compute shader skips clean cells while still
+redrawing cursor and selection damage. Font variants occupy four layers of an
+R8 atlas; a 256×256 integer lookup image maps BMP code points to atlas cells,
+with an independent atlas/map pair for double-width glyphs.
 
-The current CPU image between `CharVdev` and `VulkanPresenter` is a correctness
-bridge, not the intended endpoint. The natural Vulkan renderer is a compute
-pipeline consuming the compact cell buffer and font atlases directly, writing
-a storage image for presentation without building and uploading a full RGBA
-frame on the CPU.
+`VulkanPresenter` keeps two cell buffers and command submissions in flight.
+Presentation-complete semaphores belong to swapchain images rather than frame
+slots, so they are not reused while the compositor still owns them. The
+renderer handles RGBA/BGRA swapchain formats, preserves a GPU-side output image
+between delta frames and recreates size-dependent resources when the surface
+changes.
 
 Source map:
 
 - `vterm.*` — parser, terminal state and input encoding;
 - `frame.*` — screen, history, damage and selection;
 - `font.*`, `fontpack.*` — FreeType loading and glyph atlases;
-- `charvdev.*` — compact cell representation and current rasterizer;
+- `charvdev.*` — compact cell representation and host-side video memory;
 - `renderer.*` — terminal-to-presenter bridge;
-- `vkpresenter.*` — Vulkan instance, device, buffers and swapchain;
+- `vkpresenter.*` — Vulkan resources, compute dispatch and swapchain;
+- `render.comp` — cell compositor compiled to embedded SPIR-V by Meson;
 - `main.cc` — SDL/Wayland event loop, PTY integration and clipboard;
 - `options.*` — command-line configuration.
 

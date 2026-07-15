@@ -22,8 +22,8 @@
 
 namespace zutty
 {
-   // Character video device. It keeps the terminal's compact cell buffer and
-   // rasterizes it into an RGBA8 image consumed by the Vulkan presenter.
+   // Host-side mirror of the compact character video memory consumed by the
+   // Vulkan compute renderer.
    class CharVdev
    {
    public:
@@ -31,12 +31,10 @@ namespace zutty
       ~CharVdev () = default;
 
       bool resize (uint16_t pxWidth_, uint16_t pxHeight_);
-      void draw ();
-
-      const uint8_t* pixelData () const { return pixels.data (); }
-      size_t pixelBytes () const { return pixels.size (); }
       uint16_t pixelWidth () const { return pxWidth; }
       uint16_t pixelHeight () const { return pxHeight; }
+      uint16_t columns () const { return nCols; }
+      uint16_t rows () const { return nRows; }
 
       struct Cell
       {
@@ -96,6 +94,10 @@ namespace zutty
 
       Mapping getMapping ();
 
+      const Cell* cellData () const { return cellStorage.data (); }
+      size_t cellCount () const { return cellStorage.size (); }
+      void clearDirty ();
+
       struct Cursor
       {
          Color color = opts.cr;
@@ -113,10 +115,10 @@ namespace zutty
 
       void setCursor (const Cursor& cursor_);
       void setSelection (const Rect& selection_);
-      void setDeltaFrame (bool delta_);
+      const Cursor& getCursor () const { return cursor; }
+      const Rect& getSelection () const { return selection; }
 
    private:
-      Fontpack* fontpk;
       uint16_t px;
       uint16_t py;
       uint16_t nCols = 0;
@@ -125,21 +127,10 @@ namespace zutty
       uint16_t pxHeight = 0;
 
       std::vector <Cell> cellStorage;
-      std::vector <uint8_t> pixels;
       Cell* cells = nullptr;
 
       Cursor cursor;
       Rect selection;
-      bool delta = false;
-
-      const Font& fontFor (const Cell& cell) const;
-      const Font::AtlasPos& glyphPosition (const Font& font,
-                                           uint16_t codepoint) const;
-      bool isSelected (int col, int row) const;
-      void renderCell (int col, int row, Cell& cell);
-      void putPixel (int x, int y, const Color& color);
-      void putBlendedPixel (int x, int y, const Color& fg,
-                            const Color& bg, uint8_t alpha);
    };
 
 } // namespace zutty

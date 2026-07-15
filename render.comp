@@ -1,0 +1,234 @@
+#version 450
+
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout (set = 0, binding = 0, rgba8) uniform writeonly image2D outputImage;
+
+struct Cell
+{
+   uint charData;
+   uint fg;
+   uint bg;
+};
+
+layout (std430, set = 0, binding = 1) readonly buffer CellBuffer
+{
+   Cell cells[];
+};
+
+layout (set = 0, binding = 2) uniform sampler2DArray atlas;
+layout (set = 0, binding = 3) uniform usampler2D atlasMap;
+layout (set = 0, binding = 4) uniform sampler2DArray doubleWidthAtlas;
+layout (set = 0, binding = 5) uniform usampler2D doubleWidthAtlasMap;
+
+layout (push_constant) uniform PushConstants
+{
+   uint glyphWidth;
+   uint glyphHeight;
+   uint columns;
+   uint rows;
+   uint outputWidth;
+   uint outputHeight;
+   uint border;
+   uint cursorColor;
+   int cursorX;
+   int cursorY;
+   uint cursorStyle;
+   uint reserved;
+   int selectionLeft;
+   int selectionTop;
+   int selectionRight;
+   int selectionBottom;
+   uint rectangularSelection;
+   uint showWraps;
+   uint hasDoubleWidth;
+   int previousCursorX;
+   int previousCursorY;
+   uint deltaFrame;
+   uint selectionChanged;
+} parameters;
+
+vec3 unpackColor (uint color)
+{
+   return vec3 (
+      float (bitfieldExtract (color, 0, 8)),
+      float (bitfieldExtract (color, 8, 8)),
+      float (bitfieldExtract (color, 16, 8))) / 255.0;
+}
+
+void storePixel (ivec2 position, vec3 color)
+{
+   if (position.x < 0 || position.y < 0 ||
+       position.x >= int (parameters.outputWidth) ||
+       position.y >= int (parameters.outputHeight))
+      return;
+   imageStore (outputImage, position, vec4 (color, 1.0));
+}
+
+bool selected (ivec2 cellPosition)
+{
+   if (parameters.rectangularSelection != 0)
+   {
+      return cellPosition.y >= parameters.selectionTop &&
+             cellPosition.y <= parameters.selectionBottom &&
+             cellPosition.x >= parameters.selectionLeft &&
+             cellPosition.x < parameters.selectionRight;
+   }
+
+   return
+      (cellPosition.y > parameters.selectionTop &&
+       cellPosition.y < parameters.selectionBottom) ||
+      (cellPosition.y == parameters.selectionTop &&
+       cellPosition.x >= parameters.selectionLeft &&
+       (cellPosition.y < parameters.selectionBottom ||
+        cellPosition.x < parameters.selectionRight)) ||
+      (cellPosition.y == parameters.selectionBottom &&
+       cellPosition.x < parameters.selectionRight &&
+       (cellPosition.y > parameters.selectionTop ||
+        cellPosition.x > parameters.selectionLeft));
+}
+
+void main ()
+{
+   uvec2 globalPosition = gl_GlobalInvocationID.xy;
+   if (globalPosition.x >= parameters.columns ||
+       globalPosition.y >= parameters.rows)
+      return;
+
+   ivec2 cellPosition = ivec2 (globalPosition);
+   uint index = parameters.columns * globalPosition.y + globalPosition.x;
+   Cell cell = cells [index];
+
+   if (parameters.deltaFrame != 0)
+   {
+      uint dirty = bitfieldExtract (cell.charData, 23, 1);
+      bool currentCursor = cellPosition.x == parameters.cursorX &&
+                           cellPosition.y == parameters.cursorY;
+      bool previousCursor =
+         cellPosition.x == parameters.previousCursorX &&
+         cellPosition.y == parameters.previousCursorY;
+      if (dirty == 0 && !currentCursor && !previousCursor &&
+          parameters.selectionChanged == 0)
+         return;
+   }
+
+   uint doubleWidth = bitfieldExtract (cell.charData, 16, 1);
+   uint doubleWidthContinuation = bitfieldExtract (cell.charData, 17, 1);
+   if (doubleWidthContinuation != 0)
+      return;
+
+   if (doubleWidth != 0 && globalPosition.x + 1 < parameters.columns)
+   {
+      if (bitfieldExtract (cells [index + 1].charData, 17, 1) == 0)
+         doubleWidth = 0;
+   }
+   else if (globalPosition.x + 1 >= parameters.columns)
+      doubleWidth = 0;
+
+   uint fontIndex = doubleWidth == 0
+      ? bitfieldExtract (cell.charData, 18, 2)
+      : 0;
+   uint underline = bitfieldExtract (cell.charData, 20, 1);
+   uint inverse = bitfieldExtract (cell.charData, 21, 1);
+   uint wrap = bitfieldExtract (cell.charData, 22, 1);
+   uint codepoint = bitfieldExtract (cell.charData, 0, 16);
+   ivec2 mapPosition = ivec2 (int (codepoint & 255), int (codepoint >> 8));
+
+   uvec2 atlasPosition = doubleWidth == 0
+      ? texelFetch (atlasMap, mapPosition, 0).rg
+      : texelFetch (doubleWidthAtlasMap, mapPosition, 0).rg;
+
+   vec3 foreground = unpackColor (cell.fg);
+   vec3 background = unpackColor (cell.bg);
+   vec3 cursor = unpackColor (parameters.cursorColor);
+
+   if (selected (cellPosition))
+      inverse ^= 1;
+   if (inverse != 0)
+   {
+      vec3 temporary = foreground;
+      foreground = background;
+      background = temporary;
+   }
+   if (all (equal (cursor, background)))
+      cursor = vec3 (1.0) - cursor;
+
+   bool cursorHere = cellPosition.x == parameters.cursorX &&
+                     cellPosition.y == parameters.cursorY;
+   if (cursorHere && parameters.cursorStyle == 1)
+   {
+      foreground = background;
+      background = cursor;
+   }
+
+   uint cellWidth = parameters.glyphWidth * (doubleWidth != 0 ? 2 : 1);
+   ivec2 outputOrigin = ivec2 (
+      int (parameters.border + globalPosition.x * parameters.glyphWidth),
+      int (parameters.border + globalPosition.y * parameters.glyphHeight));
+
+   if (doubleWidth == 0 || parameters.hasDoubleWidth != 0)
+   {
+      for (uint y = 0; y < parameters.glyphHeight; ++y)
+      {
+         for (uint x = 0; x < cellWidth; ++x)
+         {
+            ivec2 atlasPixel = ivec2 (
+               atlasPosition.x * cellWidth + x,
+               atlasPosition.y * parameters.glyphHeight + y);
+            float coverage = doubleWidth == 0
+               ? texelFetch (
+                    atlas, ivec3 (atlasPixel, int (fontIndex)), 0).r
+               : texelFetch (
+                    doubleWidthAtlas, ivec3 (atlasPixel, 0), 0).r;
+            vec3 color = foreground * coverage +
+                         background * (1.0 - coverage);
+            storePixel (outputOrigin + ivec2 (x, y), color);
+         }
+      }
+   }
+   else
+   {
+      for (uint y = 0; y < parameters.glyphHeight; ++y)
+      {
+         for (uint x = 0; x < cellWidth; ++x)
+         {
+            bool box = x == 1 || x + 2 == cellWidth ||
+                       y == 1 || y + 2 == parameters.glyphHeight;
+            float coverage = box ? 0.7 : 0.0;
+            vec3 color = foreground * coverage +
+                         background * (1.0 - coverage);
+            storePixel (outputOrigin + ivec2 (x, y), color);
+         }
+      }
+   }
+
+   if (underline != 0)
+   {
+      for (uint x = 0; x < cellWidth; ++x)
+         storePixel (
+            outputOrigin + ivec2 (x, parameters.glyphHeight - 1),
+            foreground);
+   }
+
+   if (parameters.showWraps != 0 && wrap != 0)
+   {
+      for (uint y = 0; y < parameters.glyphHeight; y += 2)
+         storePixel (
+            outputOrigin + ivec2 (cellWidth - 1, y), foreground);
+   }
+
+   if (cursorHere && parameters.cursorStyle == 2)
+   {
+      for (uint x = 0; x < cellWidth; ++x)
+      {
+         storePixel (outputOrigin + ivec2 (x, 0), cursor);
+         storePixel (
+            outputOrigin + ivec2 (x, parameters.glyphHeight - 1), cursor);
+      }
+      for (uint y = 1; y + 1 < parameters.glyphHeight; ++y)
+      {
+         storePixel (outputOrigin + ivec2 (0, y), cursor);
+         storePixel (outputOrigin + ivec2 (cellWidth - 1, y), cursor);
+      }
+   }
+}

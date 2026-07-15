@@ -14,8 +14,8 @@
 namespace zutty
 {
    Renderer::Renderer (SDL_Window* window, Fontpack* fontpk)
-      : presenter (window)
-      , charVdev (fontpk)
+      : charVdev (fontpk)
+      , presenter (window, fontpk)
    {
    }
 
@@ -40,13 +40,15 @@ namespace zutty
             currentFrame.fullCopyCells (mapping.cells);
       }
 
-      charVdev.setDeltaFrame (delta);
       charVdev.setCursor (frame.getCursor ());
       charVdev.setSelection (frame.getSnappedSelection ());
-      charVdev.draw ();
-      presenter.present (charVdev.pixelData (), charVdev.pixelWidth (),
-                         charVdev.pixelHeight ());
-      delta = true;
+      if (presenter.present (charVdev, delta))
+      {
+         charVdev.clearDirty ();
+         delta = true;
+      }
+      else
+         delta = false;
    }
 
 } // namespace zutty
