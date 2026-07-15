@@ -12,6 +12,7 @@
 #include "fontpack.h"
 #include "log.h"
 
+#include <fontconfig/fontconfig.h>
 #include <ftw.h>
 //#include <stdio.h> // DEBUG
 #include <string.h>
@@ -174,6 +175,67 @@ namespace
       return 0;
    }
 
+   std::string
+   fcFindFile (const std::string& family, int weight, int slant)
+   {
+      FcPattern* pat = FcPatternCreate ();
+      if (! pat)
+         return "";
+      FcPatternAddString (pat, FC_FAMILY,
+                          reinterpret_cast <const FcChar8*> (family.c_str ()));
+      FcPatternAddInteger (pat, FC_WEIGHT, weight);
+      FcPatternAddInteger (pat, FC_SLANT, slant);
+      FcConfigSubstitute (nullptr, pat, FcMatchPattern);
+      FcDefaultSubstitute (pat);
+
+      FcResult res;
+      FcPattern* match = FcFontMatch (nullptr, pat, &res);
+      FcPatternDestroy (pat);
+      if (! match)
+         return "";
+
+      std::string path;
+      FcChar8* file = nullptr;
+      if (FcPatternGetString (match, FC_FILE, 0, &file) == FcResultMatch)
+         path = reinterpret_cast <const char*> (file);
+      FcChar8* fam = nullptr;
+      if (FcPatternGetString (match, FC_FAMILY, 0, &fam) == FcResultMatch)
+         logT << "fontconfig match for '" << family
+              << "' (weight=" << weight << ", slant=" << slant
+              << "): family='" << reinterpret_cast <const char*> (fam)
+              << "'; file=" << path << std::endl;
+      FcPatternDestroy (match);
+      return path;
+   }
+
+   bool
+   fcFindVariants (const std::string& fontname)
+   {
+      std::string regular =
+         fcFindFile (fontname, FC_WEIGHT_REGULAR, FC_SLANT_ROMAN);
+      if (! regular.size ())
+         return false;
+
+      sstate.regular = regular;
+      logI << "fontconfig resolved '" << fontname << "' to "
+           << sstate.regular << std::endl;
+
+      // Only accept variant files distinct from the regular one, so that a
+      // family lacking e.g. a bold face does not get its regular file
+      // installed as fake bold (fontconfig always returns a best match).
+      std::string f = fcFindFile (fontname, FC_WEIGHT_BOLD, FC_SLANT_ROMAN);
+      if (f.size () && f != sstate.regular)
+         sstate.bold = f;
+      f = fcFindFile (fontname, FC_WEIGHT_REGULAR, FC_SLANT_ITALIC);
+      if (f.size () && f != sstate.regular)
+         sstate.italic = f;
+      f = fcFindFile (fontname, FC_WEIGHT_BOLD, FC_SLANT_ITALIC);
+      if (f.size () && f != sstate.regular &&
+          f != sstate.bold && f != sstate.italic)
+         sstate.boldItalic = f;
+      return true;
+   }
+
 } // namespace
 
 namespace zutty
@@ -212,6 +274,13 @@ namespace zutty
          }
 
       } while (!sstate.regular.size () && nextpos != std::string::npos);
+
+      if (! sstate.regular.size ())
+      {
+         logI << "No files matching '" << fontname << "' found under '"
+              << fontpath << "'; trying fontconfig" << std::endl;
+         fcFindVariants (fontname);
+      }
 
       if (! sstate.regular.size ())
       {
@@ -295,6 +364,14 @@ namespace zutty
          }
 
       } while (!sstate.regular.size () && nextpos != std::string::npos);
+
+      if (! sstate.regular.size () && dwfontname != "")
+      {
+         logI << "No files matching '" << dwfontname << "' found under '"
+              << fontpath << "'; trying fontconfig" << std::endl;
+         sstate.regular =
+            fcFindFile (dwfontname, FC_WEIGHT_REGULAR, FC_SLANT_ROMAN);
+      }
 
       try
       {

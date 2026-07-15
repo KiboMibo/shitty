@@ -14,6 +14,7 @@ python = import('python').find_installation('python3')
 glslang = find_program('glslangValidator', required: true)
 
 freetype_dep = dependency('freetype2', required: true)
+fontconfig_dep = dependency('fontconfig', required: true)
 sdl_dep = dependency('sdl3', version: '>=3.2.0', required: true)
 vulkan_dep = dependency('vulkan', required: true)
 threads_dep = dependency('threads', required: true)
@@ -76,6 +77,7 @@ executable(
   cpp_args: compile_args,
   dependencies: [
     freetype_dep,
+    fontconfig_dep,
     sdl_dep,
     vulkan_dep,
     threads_dep,

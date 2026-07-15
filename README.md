@@ -159,11 +159,16 @@ zutty -altSendsEscape false -modifyOtherKeys 2 \
 
 ## Fonts
 
-`-font` and `-dwfont` are case-insensitive filename prefixes, not fontconfig
-family queries. Zutty walks each root in `-fontpath` until it finds a regular
-face. Beside that face it recognizes common filename suffixes for bold,
-italic/oblique and bold italic variants; missing variants gracefully fall back
-to the regular face.
+`-font` and `-dwfont` are primarily case-insensitive filename prefixes. Zutty
+walks each root in `-fontpath` until it finds a regular face. Beside that face
+it recognizes common filename suffixes for bold, italic/oblique and bold
+italic variants; missing variants gracefully fall back to the regular face.
+
+If no file under `-fontpath` matches the prefix, the name is resolved through
+fontconfig as a family query instead, so names like `monospace`,
+`DejaVu Sans Mono` or any installed family (including aliases) also work.
+Fontconfig picks the best match, which may be a substitute family if the
+requested one is not installed.
 
 Supported files are `.ttf`, `.otf`, `.ttc`, `.pcf` and `.pcf.gz`. Good primary
 font candidates commonly available on Linux include `DejaVuSansMono`,

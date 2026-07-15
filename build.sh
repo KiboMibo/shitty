@@ -1,6 +1,6 @@
 #!/bin/sh
 # Simple build script for zutty. Assumes all required headers and libraries
-# (freetype2, SDL3, vulkan) are reachable via the compiler's default search
+# (freetype2, fontconfig, SDL3, vulkan) are reachable via the compiler's default search
 # paths and/or CPPFLAGS/CXXFLAGS/LDFLAGS from the environment.
 set -eu
 
@@ -26,6 +26,6 @@ python3 embed_spirv.py "$BUILDDIR/render.comp.spv" "$BUILDDIR/render_spv.h"
     charvdev.cc font.cc fontpack.cc frame.cc log.cc main.cc \
     options.cc pty.cc renderer.cc vkpresenter.cc vterm.cc \
     -o "$BUILDDIR/zutty" \
-    ${LDFLAGS:-} ${CTRFLAGS} -lfreetype -lSDL3 -lvulkan -lpthread
+    ${LDFLAGS:-} ${CTRFLAGS} -lfreetype -lfontconfig -lSDL3 -lvulkan -lpthread
 
 echo "Built $BUILDDIR/zutty"
