@@ -1360,6 +1360,8 @@ namespace zutty
             case '\x1b': setState (InputState::Normal); break;
             case 'h': csi_privSM (); break;
             case 'l': csi_privRM (); break;
+            case 's': csi_privSave (); break;
+            case 'r': csi_privRestore (); break;
             IGNORE_SEQUENCE_ON_BAD_PARAMS;
             default: unhandledInput (ch); break;
             }

@@ -16,6 +16,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 
 namespace zutty
@@ -293,6 +294,10 @@ namespace zutty
       void csi_RM ();        // Reset Mode
       void csi_privSM ();    // Set Mode (private)
       void csi_privRM ();    // Reset Mode (private)
+      void csi_privSave ();     // Save DEC private modes (XTSAVE)
+      void csi_privRestore ();  // Restore DEC private modes (XTRESTORE)
+      void setPrivMode (uint32_t mode, bool set);
+      bool getPrivMode (uint32_t mode) const;
       void csi_SGR ();       // Select Graphic Rendition
 
       void csi_ecma48_SL (); // Shift Left
@@ -379,6 +384,7 @@ namespace zutty
       bool altScrollMode = false;
       bool altSendsEscape = true;
       uint8_t modifyOtherKeys = 1;
+      std::map <uint32_t, bool> savedPrivModes; // XTSAVE/XTRESTORE
 
       bool horizMarginMode = false;
       uint16_t nColsEff = 0;

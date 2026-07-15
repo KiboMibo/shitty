@@ -215,6 +215,7 @@ namespace zutty
       altScrollMode = opts.altScrollMode;
       altSendsEscape = opts.altSendsEscape;
       modifyOtherKeys = opts.modifyOtherKeys;
+      savedPrivModes.clear ();
 
       horizMarginMode = false;
       hMargin = 0;
@@ -1410,13 +1411,10 @@ namespace zutty
    }
 
    inline void
-   Vterm::csi_privSM ()
+   Vterm::setPrivMode (uint32_t arg, bool set)
    {
-      TRACE_FUN;
-      for (size_t k = 0; k < nInputOps; ++k)
+      if (set)
       {
-         const auto& arg = inputOps [k];
-
          switch (arg)
          {
          case 1: cursorKeyMode = CursorKeyMode::Application; break;
@@ -1455,17 +1453,8 @@ namespace zutty
             break;
          }
       }
-      setState (InputState::Normal);
-   }
-
-   inline void
-   Vterm::csi_privRM ()
-   {
-      TRACE_FUN;
-      for (size_t k = 0; k < nInputOps; ++k)
+      else
       {
-         const auto& arg = inputOps [k];
-
          switch (arg)
          {
          case 1: cursorKeyMode = CursorKeyMode::ANSI; break;
@@ -1500,6 +1489,89 @@ namespace zutty
             logU << "reset priv mode " << arg << std::endl;
             break;
          }
+      }
+   }
+
+   inline bool
+   Vterm::getPrivMode (uint32_t arg) const
+   {
+      switch (arg)
+      {
+      case 1: return cursorKeyMode == CursorKeyMode::Application;
+      case 3: return colMode == ColMode::C132;
+      case 6: return originMode == OriginMode::ScrollingRegion;
+      case 7: return autoWrapMode;
+      case 9: return mouseTrk.mode == MouseTrackingMode::X10_Compat;
+      case 25: return showCursorMode;
+      case 47: case 1047: return altScreenBufferMode;
+      case 67: return !bkspSendsDel;
+      case 69: return horizMarginMode;
+      case 1000: return mouseTrk.mode == MouseTrackingMode::VT200;
+      case 1001: return false; // Highlight mouse tracking not implemented
+      case 1002: return mouseTrk.mode == MouseTrackingMode::VT200_ButtonEvent;
+      case 1003: return mouseTrk.mode == MouseTrackingMode::VT200_AnyEvent;
+      case 1004: return mouseTrk.focusEventMode;
+      case 1005: return mouseTrk.enc == MouseTrackingEnc::UTF8;
+      case 1006: return mouseTrk.enc == MouseTrackingEnc::SGR;
+      case 1007: return altScrollMode;
+      case 1015: return mouseTrk.enc == MouseTrackingEnc::URXVT;
+      case 1036: case 1039: return altSendsEscape;
+      case 2004: return bracketedPasteMode;
+      default: return false;
+      }
+   }
+
+   inline void
+   Vterm::csi_privSM ()
+   {
+      TRACE_FUN;
+      for (size_t k = 0; k < nInputOps; ++k)
+         setPrivMode (inputOps [k], true);
+      setState (InputState::Normal);
+   }
+
+   inline void
+   Vterm::csi_privRM ()
+   {
+      TRACE_FUN;
+      for (size_t k = 0; k < nInputOps; ++k)
+         setPrivMode (inputOps [k], false);
+      setState (InputState::Normal);
+   }
+
+   inline void
+   Vterm::csi_privSave ()
+   {
+      TRACE_FUN;
+      for (size_t k = 0; k < nInputOps; ++k)
+      {
+         const auto& arg = inputOps [k];
+         switch (arg)
+         {
+         case 2: case 1048: case 1049: // not expressible as a saved boolean
+            logU << "save priv mode " << arg << std::endl;
+            break;
+         default:
+            savedPrivModes [arg] = getPrivMode (arg);
+            break;
+         }
+      }
+      setState (InputState::Normal);
+   }
+
+   inline void
+   Vterm::csi_privRestore ()
+   {
+      TRACE_FUN;
+      for (size_t k = 0; k < nInputOps; ++k)
+      {
+         const auto& arg = inputOps [k];
+         const auto it = savedPrivModes.find (arg);
+         if (it != savedPrivModes.end ())
+            setPrivMode (arg, it->second);
+         else
+            logU << "restore priv mode " << arg << " (never saved)"
+                 << std::endl;
       }
       setState (InputState::Normal);
    }
