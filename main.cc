@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cassert>
+#include <cctype>
 #include <cerrno>
 #include <cmath>
 #include <condition_variable>
@@ -832,6 +833,45 @@ namespace
       return result;
    }
 
+   // Convert an OSC 7 argument (a file:// URL, possibly with a hostname
+   // and percent-encoded characters, or a plain absolute path) to a path.
+   // Returns an empty string if the argument cannot be parsed.
+   std::string oscCwdToPath (const std::string& argument)
+   {
+      constexpr const char scheme [] = "file://";
+      constexpr const size_t schemeLen = sizeof (scheme) - 1;
+
+      std::string url = argument;
+      if (url.compare (0, schemeLen, scheme) == 0)
+      {
+         const size_t pathStart = url.find ('/', schemeLen);
+         if (pathStart == std::string::npos)
+            return {};
+         url = url.substr (pathStart);
+      }
+      if (url.empty () || url [0] != '/')
+         return {};
+
+      std::string path;
+      path.reserve (url.size ());
+      for (size_t k = 0; k < url.size (); ++k)
+      {
+         if (url [k] == '%' && k + 2 < url.size () &&
+             isxdigit (static_cast <unsigned char> (url [k + 1])) &&
+             isxdigit (static_cast <unsigned char> (url [k + 2])))
+         {
+            path.push_back (static_cast <char> (
+               std::stoi (url.substr (k + 1, 2), nullptr, 16)));
+            k += 2;
+         }
+         else
+            path.push_back (url [k]);
+      }
+      return path;
+   }
+
+   bool appTitleSet = false;
+
    void handleOsc (int command, const std::string& argument)
    {
       switch (command)
@@ -839,8 +879,22 @@ namespace
       case 0:
       case 1:
       case 2:
+         // Resetting the title to the default (e.g. on RIS) re-enables
+         // OSC 7 driven titles.
+         appTitleSet = argument != opts.title;
          SDL_SetWindowTitle (window, argument.c_str ());
          return;
+      case 7:
+      {
+         // Shell reports its current working directory; reflect it in the
+         // window title unless the application has set an explicit title.
+         const std::string cwd = oscCwdToPath (argument);
+         if (cwd.empty ())
+            logW << "OSC 7: cannot parse '" << argument << "'" << std::endl;
+         else if (! appTitleSet)
+            SDL_SetWindowTitle (window, cwd.c_str ());
+         return;
+      }
       case 52:
          break;
       default:
