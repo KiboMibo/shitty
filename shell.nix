@@ -2,6 +2,7 @@
 
 pkgs.mkShell {
   packages = with pkgs; [
+    fontconfig
     freetype
     glslang
     meson

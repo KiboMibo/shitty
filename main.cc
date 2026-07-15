@@ -733,7 +733,7 @@ namespace
          {
             if (!SDL_SetPrimarySelectionText (selection.c_str ()))
             {
-               logW << "Could not set Wayland primary selection: "
+               logW << "Could not set primary selection: "
                     << SDL_GetError () << std::endl;
             }
             if (opts.autoCopyMode &&
@@ -1076,14 +1076,20 @@ namespace
       }
 
       SDL_SetAppMetadata ("Zutty", ZUTTY_VERSION, "org.zutty.Zutty");
-      SDL_SetHint (SDL_HINT_VIDEO_DRIVER, "wayland");
+      const char* waylandDisplay = getenv ("WAYLAND_DISPLAY");
+      const char* requestedDriver =
+         waylandDisplay != nullptr && waylandDisplay [0] != '\0'
+            ? "wayland"
+            : "x11";
+      SDL_SetHint (SDL_HINT_VIDEO_DRIVER, requestedDriver);
       if (!SDL_Init (SDL_INIT_VIDEO | SDL_INIT_EVENTS))
          throw std::runtime_error (
             std::string ("SDL_Init failed: ") + SDL_GetError ());
       const char* driver = SDL_GetCurrentVideoDriver ();
-      if (driver == nullptr || std::strcmp (driver, "wayland") != 0)
+      if (driver == nullptr || std::strcmp (driver, requestedDriver) != 0)
          throw std::runtime_error (
-            std::string ("Wayland SDL driver required, got: ") +
+            std::string ("SDL video driver '") + requestedDriver +
+            "' required, got: " +
             (driver != nullptr ? driver : "none"));
 
       const int initialWidth = std::max (
@@ -1099,7 +1105,7 @@ namespace
             std::string ("SDL_CreateWindow failed: ") + SDL_GetError ());
       if (!SDL_ShowWindow (window) || !SDL_SyncWindow (window))
          throw std::runtime_error (
-            std::string ("Could not map Wayland window: ") + SDL_GetError ());
+            std::string ("Could not map window: ") + SDL_GetError ());
 
       const float density = std::max (
          1.0f, SDL_GetWindowPixelDensity (window));
@@ -1127,7 +1133,7 @@ namespace
       if (!SDL_SetWindowSize (window, desiredWidth, desiredHeight) ||
           !SDL_SyncWindow (window))
          throw std::runtime_error (
-            std::string ("Could not size Wayland window: ") + SDL_GetError ());
+            std::string ("Could not size window: ") + SDL_GetError ());
 
       int pixelWidth = 0;
       int pixelHeight = 0;

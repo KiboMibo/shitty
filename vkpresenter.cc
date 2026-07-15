@@ -272,7 +272,7 @@ namespace zutty
 
       if (physicalDevice == VK_NULL_HANDLE)
          throw std::runtime_error (
-            "No Vulkan device supports compute rendering and Wayland "
+            "No Vulkan device supports compute rendering and window-system "
             "presentation");
 
       if (opts.vulkanInfo)
@@ -883,7 +883,7 @@ namespace zutty
       if (!(capabilities.supportedUsageFlags &
             VK_IMAGE_USAGE_TRANSFER_DST_BIT))
          throw std::runtime_error (
-            "Vulkan Wayland surface cannot be used as a transfer target");
+            "Vulkan surface cannot be used as a transfer target");
 
       uint32_t formatCount = 0;
       checkVk (vkGetPhysicalDeviceSurfaceFormatsKHR (

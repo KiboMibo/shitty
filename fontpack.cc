@@ -200,10 +200,12 @@ namespace
          path = reinterpret_cast <const char*> (file);
       FcChar8* fam = nullptr;
       if (FcPatternGetString (match, FC_FAMILY, 0, &fam) == FcResultMatch)
+      {
          logT << "fontconfig match for '" << family
               << "' (weight=" << weight << ", slant=" << slant
               << "): family='" << reinterpret_cast <const char*> (fam)
               << "'; file=" << path << std::endl;
+      }
       FcPatternDestroy (match);
       return path;
    }
