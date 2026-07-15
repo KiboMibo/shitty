@@ -11,15 +11,13 @@
 
 #include "options.h"
 
-#include <X11/Xlib.h>
-#include <X11/Xatom.h>
-#include <X11/Xmu/Atoms.h>
-
 #include <stdlib.h>
 
+#include <algorithm>
 #include <cstring>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <sstream>
 #include <stdexcept>
 
@@ -27,147 +25,116 @@ namespace
 {
    using namespace zutty;
 
-   Display* dpy = nullptr;
+   // std::map keeps references to stored values stable. Options keeps several
+   // const char* pointers into this storage for the lifetime of the process.
+   std::map <std::string, std::string> commandLine;
 
-   XrmDatabase xrmOptionsDb = nullptr;
+   const OptionDesc*
+   findOption (const char* prefix)
+   {
+      // Keep the long-standing -v shorthand after adding -vulkanInfo.
+      if (strcmp (prefix, "v") == 0)
+         prefix = "verbose";
 
-   // Used as storage for strings that will be freed on exit
-   std::vector <std::string> strRefs;
+      const OptionDesc* found = nullptr;
+      const size_t n = strlen (prefix);
 
-   std::vector <XrmOptionDescRec> xrmOptionsTable =
-      [] {
-         // prevent realloc that would invalidate ptrs
-         strRefs.reserve (4 * optionsTable.size ());
-         std::vector <XrmOptionDescRec> rv;
-         for (const auto& e: optionsTable)
-         {
-            XrmOptionDescRec rec;
-            strRefs.push_back (std::string ("-") + e.option);
-            rec.option = (char *)strRefs.back ().c_str ();
-            strRefs.push_back (std::string (".") + e.option);
-            rec.specifier = (char *)strRefs.back ().c_str ();
-            rec.argKind = e.parseType;
-            rec.value = nullptr;
-            if (e.implValue)
-            {
-               strRefs.push_back (std::string (e.implValue));
-               rec.value = (XPointer)strRefs.back ().c_str ();
-            }
-            rv.push_back (rec);
+      for (const auto& option: optionsTable)
+      {
+         if (strncmp (option.option, prefix, n) != 0)
+            continue;
 
-            // For boolean options, generate sibling option to negate value
-            // (activated via +option). Reuse already populated rec.
-            if (e.parseType == XrmoptionNoArg)
-            {
-               if (strcmp (e.implValue, "true") == 0)
-               {
-                  strRefs.push_back (std::string ("+") + e.option);
-                  rec.option = (char *)strRefs.back ().c_str ();
-                  rec.value = (XPointer)"false";
-                  rv.push_back (rec);
-               }
-               else if (strcmp (e.implValue, "false") == 0)
-               {
-                  strRefs.push_back (std::string ("+") + e.option);
-                  rec.option = (char *)strRefs.back ().c_str ();
-                  rec.value = (XPointer)"true";
-                  rv.push_back (rec);
-               }
-            }
-         }
-         return rv;
-      } ();
+         if (strlen (option.option) == n)
+            return &option;
+         if (found != nullptr)
+            throw std::runtime_error (
+               std::string ("ambiguous option: ") + prefix);
+         found = &option;
+      }
+      return found;
+   }
+
+   bool
+   isAdvancedOption (const char* name)
+   {
+      for (const auto& resource: resourceTable)
+         if (strcmp (resource.resource, name) == 0)
+            return true;
+      return false;
+   }
 
    const char*
    get (const char* name, const char* fallback = nullptr,
         OptionSource* src = nullptr)
    {
-      XrmValue xrmValue;
-      char* xrmType;
-      char buf [80] = "zutty.";
-      strncat (buf, name, sizeof (buf) - 1);
-
-      auto withSource = [=] (const OptionSource s, const char* rv)
+      auto withSource = [=] (const OptionSource source, const char* value)
       {
-         if (src)
-            *src = s;
-         return rv;
+         if (src != nullptr)
+            *src = source;
+         return value;
       };
 
-      if (XrmGetResource (xrmOptionsDb, buf, opts.name, &xrmType, &xrmValue))
-         return withSource (OptionSource::CmdLine, xrmValue.addr);
-      const char* xDefault = dpy ? XGetDefault (dpy, opts.name, name) : nullptr;
-      if (xDefault)
-         return withSource (OptionSource::ResourceCfg, xDefault);
-      else
-      {
-         for (const auto& e: optionsTable)
-            if (strcmp (e.option, name) == 0 && e.hardDefault)
-               return withSource (OptionSource::HardDefault, e.hardDefault);
-         for (const auto& r: resourceTable)
-            if (strcmp (r.resource, name) == 0 && r.hardDefault)
-               return withSource (OptionSource::HardDefault, r.hardDefault);
-      }
+      const auto parsed = commandLine.find (name);
+      if (parsed != commandLine.end ())
+         return withSource (OptionSource::CmdLine, parsed->second.c_str ());
+
+      for (const auto& option: optionsTable)
+         if (strcmp (option.option, name) == 0 && option.hardDefault != nullptr)
+            return withSource (OptionSource::HardDefault, option.hardDefault);
+
+      for (const auto& resource: resourceTable)
+         if (strcmp (resource.resource, name) == 0 && resource.hardDefault != nullptr)
+            return withSource (OptionSource::HardDefault, resource.hardDefault);
+
       return withSource (OptionSource::NONE, fallback);
    }
 
    void
    getBorder (uint16_t& outBorder)
    {
-      const char* opt = get ("border");
-      if (!opt)
-         throw std::runtime_error ("-border: missing value");
-
-      std::stringstream iss (opt);
-      int bw;
-      iss >> bw;
-      if (iss.fail () || bw < 0 || bw > 3000)
+      const char* option = get ("border");
+      std::stringstream input (option != nullptr ? option : "");
+      int border;
+      input >> border;
+      if (input.fail () || border < 0 || border > 3000)
          throw std::runtime_error ("-border: expected unsigned, max. 3000");
-      outBorder = bw;
+      outBorder = border;
    }
 
    void
    getSaveLines (uint16_t& outSaveLines)
    {
-      const char* opt = get ("saveLines");
-      if (!opt)
-         throw std::runtime_error ("-saveLines: missing value");
-
-      std::stringstream iss (opt);
-      int sl;
-      iss >> sl;
-      if (iss.fail () || sl < 0 || sl > 50000)
+      const char* option = get ("saveLines");
+      std::stringstream input (option != nullptr ? option : "");
+      int lines;
+      input >> lines;
+      if (input.fail () || lines < 0 || lines > 50000)
          throw std::runtime_error ("-saveLines: expected unsigned, max. 50000");
-      outSaveLines = sl;
+      outSaveLines = lines;
    }
 
    void
    getFontsize (uint8_t& outFontsize)
    {
-      const char* opt = get ("fontsize");
-      if (!opt)
-         throw std::runtime_error ("-fontsize: missing value");
-
-      std::stringstream iss (opt);
-      int fs;
-      iss >> fs;
-      if (iss.fail () || fs < 1 || fs > 255)
+      const char* option = get ("fontsize");
+      std::stringstream input (option != nullptr ? option : "");
+      int size;
+      input >> size;
+      if (input.fail () || size < 1 || size > 255)
          throw std::runtime_error ("-fontsize: expected integer within 1..255");
-      outFontsize = fs;
+      outFontsize = size;
    }
 
    void
    getGeometry (uint16_t& outCols, uint16_t& outRows)
    {
-      const char* opt = get ("geometry");
-      if (!opt)
-         throw std::runtime_error ("-geometry: missing value");
-
-      std::stringstream iss (opt);
-      int cols, rows;
-      char fill;
-      iss >> cols >> fill >> rows;
-      if (iss.fail () || fill != 'x' || cols < 1 || rows < 1)
+      const char* option = get ("geometry");
+      std::stringstream input (option != nullptr ? option : "");
+      int cols;
+      int rows;
+      char separator;
+      input >> cols >> separator >> rows;
+      if (input.fail () || separator != 'x' || cols < 1 || rows < 1)
          throw std::runtime_error ("-geometry: expected format <COLS>x<ROWS>");
       outCols = cols;
       outRows = rows;
@@ -178,37 +145,33 @@ namespace
    {
       if (ch >= '0' && ch <= '9')
          return ch - '0';
-
       if (ch >= 'a' && ch <= 'f')
          return ch - 'a' + 10;
-
       if (ch >= 'A' && ch <= 'F')
          return ch - 'A' + 10;
 
       throw std::runtime_error (std::string ("-") + name +
-                                ": illegal hex digit '" + ch +
-                                "'; expected hex RGB color");
+                                ": illegal hex digit; expected hex RGB color");
    }
 
    void
-   convColor (const char* name, const char* opt, zutty::Color& outColor)
+   convColor (const char* name, const char* option, zutty::Color& outColor)
    {
-      const char* val = (opt [0] == '#') ? opt + 1 : opt;
-      switch (strlen (val))
+      const char* value = option [0] == '#' ? option + 1 : option;
+      switch (strlen (value))
       {
       case 3:
-         // N.B.: 17 == (1 << 4) + 1
-         outColor.red = 17 * convHexDigit (name, val [0]);
-         outColor.green =  17 * convHexDigit (name, val [1]);
-         outColor.blue = 17 * convHexDigit (name, val [2]);
+         outColor.red = 17 * convHexDigit (name, value [0]);
+         outColor.green = 17 * convHexDigit (name, value [1]);
+         outColor.blue = 17 * convHexDigit (name, value [2]);
          break;
       case 6:
-         outColor.red =
-            (convHexDigit (name, val [0]) << 4) + convHexDigit (name, val [1]);
-         outColor.green =
-            (convHexDigit (name, val [2]) << 4) + convHexDigit (name, val [3]);
-         outColor.blue =
-            (convHexDigit (name, val [4]) << 4) + convHexDigit (name, val [5]);
+         outColor.red = (convHexDigit (name, value [0]) << 4) +
+                        convHexDigit (name, value [1]);
+         outColor.green = (convHexDigit (name, value [2]) << 4) +
+                          convHexDigit (name, value [3]);
+         outColor.blue = (convHexDigit (name, value [4]) << 4) +
+                         convHexDigit (name, value [5]);
          break;
       default:
          throw std::runtime_error (std::string ("-") + name +
@@ -225,62 +188,96 @@ namespace zutty
    void
    Options::initialize (int* argc, char** argv)
    {
-      XrmInitialize ();
-      XrmParseCommand (&xrmOptionsDb,
-                       xrmOptionsTable.data (), xrmOptionsTable.size (),
-                       "zutty", argc, argv);
+      int output = 1;
 
-      display = get ("display", getenv ("DISPLAY"));
-      if (display)
-         setenv ("DISPLAY", display, 1);
+      for (int input = 1; input < *argc; ++input)
+      {
+         const char* argument = argv [input];
+         if ((argument [0] != '-' && argument [0] != '+') || argument [1] == '\0')
+         {
+            argv [output++] = argv [input];
+            continue;
+         }
 
-      name = get ("name", getenv ("RESOURCE_NAME"));
-      if (name && (strchr (name, '.') || strchr (name, '*')))
-         throw std::runtime_error ("-name: supplied value contains "
-                                   "illegal characters");
-      if (!name)
-         name = "Zutty";
-   }
+         const bool enabled = argument [0] == '-';
+         const char* name = argument + 1;
 
-   void
-   Options::setDisplay (Display* dpy_)
-   {
-      dpy = dpy_;
+         if (strcmp (name, "e") == 0)
+         {
+            while (input < *argc)
+               argv [output++] = argv [input++];
+            break;
+         }
+
+         const OptionDesc* option = findOption (name);
+         if (option == nullptr)
+         {
+            if (!isAdvancedOption (name))
+               throw std::runtime_error (std::string ("unknown option: ") + argument);
+
+            if (input + 1 >= *argc)
+               throw std::runtime_error (std::string (argument) + ": missing value");
+            commandLine [name] = argv [++input];
+            continue;
+         }
+
+         switch (option->parseType)
+         {
+         case OptionKind::NoArg:
+            commandLine [option->option] = enabled ? option->implValue : "false";
+            break;
+         case OptionKind::SepArg:
+            if (!enabled)
+               throw std::runtime_error (std::string (argument) + ": '+' is invalid here");
+            if (input + 1 >= *argc)
+               throw std::runtime_error (std::string (argument) + ": missing value");
+            commandLine [option->option] = argv [++input];
+            break;
+         case OptionKind::SkipLine:
+            break;
+         }
+      }
+
+      *argc = output;
+      argv [output] = nullptr;
    }
 
    bool
    Options::getBool (const char* name, bool defaultValue)
    {
-      const char* opt = get (name);
-      if (!opt)
+      const char* option = get (name);
+      if (option == nullptr)
          return defaultValue;
-      return strcmp (opt, "true") == 0;
+      if (strcmp (option, "true") == 0)
+         return true;
+      if (strcmp (option, "false") == 0)
+         return false;
+      throw std::runtime_error (std::string ("-") + name +
+                                ": expected true or false");
    }
 
    void
    Options::getColor (const char* name, zutty::Color& outColor)
    {
-      const char* opt = get (name);
-      if (!opt)
-         throw std::runtime_error (std::string ("-") + name +
-                                   ": missing value");
-      convColor (name, opt, outColor);
+      const char* option = get (name);
+      if (option == nullptr)
+         throw std::runtime_error (std::string ("-") + name + ": missing value");
+      convColor (name, option, outColor);
    }
 
    int
    Options::getInteger (const char* name, int min, int max)
    {
-      const char* opt = get (name);
-      if (!opt)
+      const char* option = get (name);
+      if (option == nullptr)
          return min;
 
-      std::stringstream iss (opt);
-      int ret;
-      iss >> ret;
-      if (iss.fail ())
-         return min;
-
-      return std::min (std::max (min, ret), max);
+      std::stringstream input (option);
+      int result;
+      input >> result;
+      if (input.fail ())
+         throw std::runtime_error (std::string ("-") + name + ": expected integer");
+      return std::min (std::max (min, result), max);
    }
 
    void
@@ -291,7 +288,6 @@ namespace zutty
          printUsage ();
          exit (0);
       }
-
       if (getBool ("listres"))
       {
          printResources ();
@@ -312,9 +308,9 @@ namespace zutty
          fontpath = get ("fontpath");
          getFontsize (fontsize);
          getGeometry (nCols, nRows);
-         glinfo = getBool ("glinfo");
+         vulkanInfo = getBool ("vulkanInfo");
          shell = get ("shell", getenv ("SHELL"));
-         if (!shell)
+         if (shell == nullptr)
             shell = "bash";
          title = get ("title", nullptr, &titleSource);
          getColor ("fg", fg);
@@ -322,7 +318,7 @@ namespace zutty
          rv = getBool ("rv");
          if (rv)
             std::swap (fg, bg);
-         if (get ("cr"))
+         if (get ("cr") != nullptr)
             getColor ("cr", cr);
          else
             cr = fg;
@@ -336,9 +332,9 @@ namespace zutty
          verbose = getBool ("verbose");
          modifyOtherKeys = getInteger ("modifyOtherKeys", 0, 2);
       }
-      catch (const std::exception& e)
+      catch (const std::exception& error)
       {
-         std::cout << "Error: " << e.what () << "!\n"
+         std::cout << "Error: " << error.what () << "!\n"
                    << "Try -help for usage options." << std::endl;
          exit (-1);
       }
@@ -362,20 +358,15 @@ namespace zutty
       std::cout << "Usage:\n"
                 << "  zutty [-option ...] [shell]\n\n"
                 << "Options:\n";
-      size_t maxw = 0;
-      for (const auto& e: optionsTable)
-         maxw = std::max (maxw, strlen (e.option));
-      for (const auto& e: optionsTable)
+      size_t maxWidth = 0;
+      for (const auto& option: optionsTable)
+         maxWidth = std::max (maxWidth, strlen (option.option));
+      for (const auto& option: optionsTable)
       {
-         std::cout << "  -" << std::left << std::setw (maxw + 3) << e.option;
-         std::cout << e.helpDescr;
-         const char* xDefault = dpy
-                              ? XGetDefault (dpy, opts.name, e.option)
-                              : nullptr;
-         if (xDefault)
-            std::cout << " (configured: " << xDefault << ")";
-         else if (e.hardDefault && e.parseType != XrmoptionNoArg)
-            std::cout << " (default: " << e.hardDefault << ")";
+         std::cout << "  -" << std::left << std::setw (maxWidth + 3)
+                   << option.option << option.helpDescr;
+         if (option.hardDefault != nullptr && option.parseType != OptionKind::NoArg)
+            std::cout << " (default: " << option.hardDefault << ")";
          std::cout << "\n";
       }
       std::cout << std::endl;
@@ -385,21 +376,16 @@ namespace zutty
    Options::printResources () const
    {
       printVersion ();
-      std::cout << "Resources:\n";
-      size_t maxw = 0;
-      for (const auto& r: resourceTable)
-         maxw = std::max (maxw, strlen (r.resource));
-      for (const auto& r: resourceTable)
+      std::cout << "Advanced options:\n";
+      size_t maxWidth = 0;
+      for (const auto& resource: resourceTable)
+         maxWidth = std::max (maxWidth, strlen (resource.resource));
+      for (const auto& resource: resourceTable)
       {
-         std::cout << "  " << std::left << std::setw (maxw + 3) << r.resource;
-         std::cout << r.helpDescr;
-         const char* xDefault = dpy
-                              ? XGetDefault (dpy, opts.name, r.resource)
-                              : nullptr;
-         if (xDefault)
-            std::cout << " (configured: " << xDefault << ")";
-         else if (r.hardDefault)
-            std::cout << " (default: " << r.hardDefault << ")";
+         std::cout << "  -" << std::left << std::setw (maxWidth + 3)
+                   << resource.resource << resource.helpDescr;
+         if (resource.hardDefault != nullptr)
+            std::cout << " (default: " << resource.hardDefault << ")";
          std::cout << "\n";
       }
       std::cout << std::endl;

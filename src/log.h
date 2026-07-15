@@ -99,7 +99,7 @@ namespace zutty
          {
          case '\a': os << "\\a"; break;
          case '\b': os << "\\b"; break;
-         case '\e': os << "\\e"; break;
+         case '\x1b': os << "\\x1b"; break;
          case '\f': os << "\\f"; break;
          case '\n': os << "\\n"; break;
          case '\r': os << "\\r"; break;

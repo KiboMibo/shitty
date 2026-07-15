@@ -766,7 +766,7 @@ namespace zutty
             ch = ctrlmap [ch];
          }
 
-         uint8_t wbuf [16] = { '\e', '[', '2', '7', ';', '_', ';' };
+         uint8_t wbuf [16] = { '\x1b', '[', '2', '7', ';', '_', ';' };
          wbuf [5] = '0' + getModifierCode (modifiers);
          uint8_t pos = 7;
 
@@ -794,7 +794,7 @@ namespace zutty
       {
          if (altSendsEscape)
          {
-            static uint8_t wbuf [2] = { '\e', '\0' };
+            static uint8_t wbuf [2] = { '\x1b', '\0' };
             wbuf [1] = ch;
             return writePty (wbuf, 2, userInput);
          }
@@ -1031,7 +1031,7 @@ namespace zutty
             {
             case '\x00': // ignore NUL
                break;
-            case '\e':
+            case '\x1b':
                setState (compatLevel == CompatibilityLevel::VT52
                          ? InputState::Escape_VT52
                          : InputState::Escape);
@@ -1063,7 +1063,7 @@ namespace zutty
             {
             case '\x18': case '\x1a': // CAN and SUB interrupts ESC sequence
                setState (InputState::Normal); break;
-            case '\e': // ESC restarts ESC sequence
+            case '\x1b': // ESC restarts ESC sequence
                inputOps [0] = 0;
                nInputOps = 1;
                lastEscBegin = readPos;
@@ -1098,7 +1098,7 @@ namespace zutty
             case 'J': csi_ED (); break;
             case 'K': csi_EL (); break;
             case 'Y': setState (InputState::VT52_CUP_Arg1); break;
-            case 'Z': writePty ("\e/Z"); break;
+            case 'Z': writePty ("\x1b/Z"); break;
             case 'c': esc_RIS (); break; // allow "reset" command to escape VT52
             default: unhandledInput (ch); break;
             }
@@ -1118,7 +1118,7 @@ namespace zutty
             case '\x18': case '\x1a': // CAN and SUB interrupts ESC sequence
                setState (InputState::Normal);
                break;
-            case '\e': // ESC restarts ESC sequence
+            case '\x1b': // ESC restarts ESC sequence
                inputOps [0] = 0;
                nInputOps = 1;
                lastEscBegin = readPos;
@@ -1244,7 +1244,7 @@ namespace zutty
             switch (ch)
             {
             COLLECT_NUMERIC_PARAMS;
-            case '\e': setState (InputState::Normal); break;
+            case '\x1b': setState (InputState::Normal); break;
             case 'A': csi_CUU (); break;
             case 'B': csi_CUD (); break;
             case 'C': csi_CUF (); break;
@@ -1357,7 +1357,7 @@ namespace zutty
             switch (ch)
             {
             COLLECT_NUMERIC_PARAMS;
-            case '\e': setState (InputState::Normal); break;
+            case '\x1b': setState (InputState::Normal); break;
             case 'h': csi_privSM (); break;
             case 'l': csi_privRM (); break;
             IGNORE_SEQUENCE_ON_BAD_PARAMS;
@@ -1367,7 +1367,7 @@ namespace zutty
          case InputState::DCS:
             switch (ch)
             {
-            case '\e': setState (InputState::DCS_Esc); break;
+            case '\x1b': setState (InputState::DCS_Esc); break;
             default:
                if (argBuf.size () < 4095)
                   argBuf.push_back (ch);
@@ -1384,7 +1384,7 @@ namespace zutty
             {
             case '\\': handle_DCS (); break;
             default:
-               argBuf.push_back ('\e');
+               argBuf.push_back ('\x1b');
                argBuf.push_back (ch);
                setState (InputState::DCS);
                break;
@@ -1394,7 +1394,7 @@ namespace zutty
             switch (ch)
             {
             case '\a': handle_OSC (); break;
-            case '\e': setState (InputState::OSC_Esc); break;
+            case '\x1b': setState (InputState::OSC_Esc); break;
             default:
                if (argBuf.size () < 4095)
                   argBuf.push_back (ch);
@@ -1411,7 +1411,7 @@ namespace zutty
             {
             case '\\': handle_OSC (); break;
             default:
-               argBuf.push_back ('\e');
+               argBuf.push_back ('\x1b');
                argBuf.push_back (ch);
                setState (InputState::OSC);
                break;
@@ -1604,13 +1604,13 @@ namespace zutty
       std::ostringstream oss;
 
       if (bracketedPasteMode)
-         oss << "\e[200~";
+         oss << "\x1b[200~";
 
       for (const auto ch: utf8_selection)
          oss << (ch == '\n' ? '\r' : ch);
 
       if (bracketedPasteMode)
-         oss << "\e[201~";
+         oss << "\x1b[201~";
 
       if (oss.str ().size ())
          writePty (oss.str ().c_str (), true);

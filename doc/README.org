@@ -9,21 +9,17 @@ Homepage: https://tomscii.sig7.se/zutty \\
 Source: https://github.com/tomscii/zutty
 #+END_CENTER
 
-Zutty is a terminal emulator for the X Window System, functionally
-similar to several other X terminal emulators such as =xterm=, =rxvt=
-and countless others. It is also similar to other, much more modern,
-GPU-accelerated terminal emulators such as Alacritty and Kitty. What
-really sets Zutty apart is its radically simple, yet extremely
-efficient rendering implementation, coupled with a sufficiently
-complete feature set to make it useful for a wide range of users.
-Zutty offers high throughput with low latency, and strives to conform
-to relevant (published or de-facto) standards.
+Zutty is a native Wayland terminal emulator. SDL3 provides the thin
+Wayland-facing window, input and clipboard layer; presentation is done
+with Vulkan. There is deliberately no X11 fallback. The terminal core
+substantially emulates the commonly used subsets of VT52 through VT520
+and a number of de-facto xterm extensions.
 
-Zutty is written in straightforward C++ and only relies on OpenGL ES
-3.1 for rendering, making it trivially portable to windowing systems
-other than X and operating systems other than Linux. Zutty provides a
-clean implementation written from scratch, resulting in a minimal,
-maintainable, modern codebase unencumbered by historical baggage.
+Zutty is written in straightforward C++ and keeps the platform layer
+small. Character cells are rasterized from FreeType-built font atlases
+into an RGBA image and transferred to the compositor through a Vulkan
+swapchain. This keeps the implementation easy to inspect while the
+renderer can evolve independently of the VT state machine.
 
 Zutty is released under the GNU General Public License (GPL) v3 or (at
 your option) any later version. Please refer to the file LICENSE for
@@ -42,25 +38,16 @@ More about Zutty:
 
 - [[https://github.com/tomscii/zutty/wiki/Screenshots][Screenshots]]: Zutty in action
 - [[https://github.com/tomscii/zutty/wiki/FAQ][FAQ]]: What you never thought you'd need to know about Zutty
-- [[https://tomscii.sig7.se/2020/11/How-Zutty-works][How Zutty works]]: Rendering a terminal with an OpenGL Compute Shader
+- [[https://tomscii.sig7.se/2020/11/How-Zutty-works][How original Zutty worked]]: the historical OpenGL Compute Shader renderer
 - [[https://tomscii.sig7.se/2020/12/A-totally-biased-comparison-of-Zutty][A totally biased comparison of Zutty]] (to some better-known X terminal emulators)
 - [[https://tomscii.sig7.se/2021/01/Typing-latency-of-Zutty][Measured: Typing latency of Zutty]] (compared to others)
 
 ** Current status
 
-Zutty started out as a concept to prove the feasibility of using a
-GLES Compute Shader to render a fixed-width text grid entirely in
-graphics hardware. From its modest beginnings as a technological proof
-of concept, Zutty has evolved considerably and is now perfectly
-capable of serving as the main terminal emulator for heavy users of
-the command line. In particular, this author employs Zutty to run a
-workload of =tmux=, =emacs= (=-nw=), =tig=, =mutt=, =htop=, and a
-bunch of other applications making extensive use of the terminal
-(including its mouse support), with some Zutty instances running for
-months at a time, on a very resource-constrained SBC (ab)used as a
-desktop.  The correctness, performance, and stability of Zutty is
-excellent, as one would rightly expect from something as fundamental
-as a terminal emulator.
+Zutty started out as a GLES Compute Shader experiment and grew a mature
+VT implementation around it. The current backend replaces the original
+X11/EGL/GLES frontend with SDL3/Wayland and Vulkan while retaining that
+terminal state machine, scrollback, selection and font handling.
 
 There is, however, a list of ancillary features that Zutty does not
 presently implement. Completing the ones in scope is more or less a
@@ -70,29 +57,15 @@ proportion to popular user demand.
 
 ** Notable features
 
-*** Radically simple, uniquely performant rendering technology
+*** Small native Wayland/Vulkan rendering stack
 
-The main idea behind Zutty is the implementation of "raw" character
-video memory via OpenGL ES 3.1. This video memory is just an array of
-cells backing all character grid locations, with each cell containing
-Unicode character codes plus color and other visual attributes. This
-memory area, allocated on the GPU, is mapped to make it directly
-writable by the application.  This results in a conceptually similar
-interface as to how one could write to the screen by directly poking
-at physical video memory starting at 0xB8000 on the IBM PC. Zutty
-employs an OpenGL Compute Shader running on the GPU to read this video
-memory and render output pixels. The full name of Zutty (dubbed the
-/Zero-cost Unicode Teletype/) stands for the remarkable fact that its
-image rendering is zero-cost from the host CPU perspective.
-
-Zutty requires OpenGL ES 3.1 because this is precisely the lowest
-version with support for the Compute Shader, the enabling technology
-behind Zutty. We have chosen OpenGL ES over OpenGL to widen the range
-of supported hardware platforms, primarily towards small, low-cost
-Single Board Computers.  These boards are commonly built around an ARM
-SoC with a graphics core supporting OpenGL ES, but not "desktop"
-OpenGL. Zutty is the first GPU-accelerated terminal for such low-cost
-platforms.
+The display path has three explicit stages: the Vterm produces compact
+12-byte cells, CharVdev rasterizes those cells using the font atlases,
+and VulkanPresenter uploads the RGBA result to a Wayland swapchain.
+SDL3 owns window-system policy and input method integration; it is not
+used as a renderer. The backend maintains two upload frames, fences and
+semaphores, handles swapchain invalidation and supports both RGBA and
+BGRA surface formats.
 
 *** Correct (and fairly complete) VT emulation
 
@@ -139,17 +112,16 @@ use a scaled font for CJK along with a fixed main font).
 
 *** True color support
 
-Each grid cell in the virtual video memory emulated via OpenGL has
+Each grid cell in the virtual video memory
 three bytes reserved for the foreground color as well as the
 background color. As such, Zutty naturally supports true color (24
 bits / 16 million colors) on each cell's foreground and background,
 completely independent of each other and all other cells.
 
-*** Traditional X-clipboard / primary selection / copy-paste support
+*** Wayland clipboard / primary selection / copy-paste support
 
-Zutty supports the traditional method of "copy-paste" based on the X
-Selection API, and is accessible via the same GUI mechanisms that
-long-time =xterm= users are familiar with.
+Zutty supports both the Wayland clipboard and primary selection through
+SDL3, with the same familiar terminal gestures.
 
 Zutty faithfully replicates what =xterm= has provided for a very long
 time: starting selections with the left button, adjusting them with

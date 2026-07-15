@@ -13,18 +13,23 @@
 
 #include "base.h"
 
-#include <X11/Xresource.h>
-
 #include <cstdint>
 #include <string>
 #include <vector>
 
 namespace zutty
 {
+   enum class OptionKind
+   {
+      NoArg,
+      SepArg,
+      SkipLine
+   };
+
    struct OptionDesc
    {
       const char* option;
-      XrmOptionKind parseType;
+      OptionKind parseType;
       const char* implValue;
       const char* hardDefault;
       const char* helpDescr;
@@ -40,46 +45,38 @@ namespace zutty
 #if defined(FREEBSD)
    static constexpr const char* fontpath = "/usr/local/share/fonts";
 #elif defined(OPENBSD)
-   static constexpr const char* fontpath = "/usr/X11R6/lib/X11/fonts";
+   static constexpr const char* fontpath = "/usr/local/share/fonts";
 #else
    static constexpr const char* fontpath = "/usr/share/fonts";
 #endif
 
-#define NoArg  XrmoptionNoArg
-#define SepArg XrmoptionSepArg
-#define SkipLn XrmoptionSkipLine
    static const std::vector <OptionDesc> optionsTable = {
-      // option       parseType implValue hardDefault helpDescr
-      {"altScroll",   NoArg,    "true",    "false",   "Alternate scroll mode"},
-      {"autoCopy",    NoArg,    "true",    "false",   "Sync primary to clipboard"},
-      {"bg",          SepArg,   nullptr,   "#000",    "Background color"},
-      {"boldColors",  NoArg,    "true",    "true",    "Enable bright for bold"},
-      {"border",      SepArg,   nullptr,   "2",       "Border width in pixels"},
-      {"cr",          SepArg,   nullptr,   nullptr,   "Cursor color"},
-      {"display",     SepArg,   nullptr,   nullptr,   "Display to connect to"},
-      {"dwfont",      SepArg,   nullptr,   "18x18ja", "Double-width font to use"},
-      {"fg",          SepArg,   nullptr,   "#fff",    "Foreground color"},
-      {"font",        SepArg,   nullptr,   "9x18",    "Font to use"},
-      {"fontsize",    SepArg,   nullptr,   "16",      "Font size"},
-      {"fontpath",    SepArg,   nullptr,   fontpath,  "Font search path"},
-      {"geometry",    SepArg,   nullptr,   "80x24",   "Terminal size in chars"},
-      {"glinfo",      NoArg,    "true",    "false",   "Print OpenGL information"},
-      {"help",        NoArg,    "true",    "false",   "Print usage listing and quit"},
-      {"listres",     NoArg,    "true",    "false",   "Print resource listing and quit"},
-      {"login",       NoArg,    "true",    "false",   "Start shell as a login shell"},
-      {"name",        SepArg,   nullptr,   nullptr,   "Instance name for Xrdb and WM_CLASS"},
-      {"rv",          NoArg,    "true",    "false",   "Reverse video"},
-      {"saveLines",   SepArg,   nullptr,   "500",     "Lines of scrollback history"},
-      {"shell",       SepArg,   nullptr,   nullptr,   "Shell program to run"},
-      {"showWraps",   NoArg,    "true",    "false",   "Show wrap marks at right margin"},
-      {"title",       SepArg,   nullptr,   "Zutty",   "Window title"},
-      {"quiet",       NoArg,    "true",    "false",   "Silence logging output"},
-      {"verbose",     NoArg,    "true",    "false",   "Output info messages"},
-      {"e",           SkipLn,   nullptr,   nullptr,   "Command line to run"},
+      // option       parseType            implValue hardDefault helpDescr
+      {"altScroll",   OptionKind::NoArg,    "true",   "false",   "Alternate scroll mode"},
+      {"autoCopy",    OptionKind::NoArg,    "true",   "false",   "Sync primary to clipboard"},
+      {"bg",          OptionKind::SepArg,   nullptr,  "#000",    "Background color"},
+      {"boldColors",  OptionKind::NoArg,    "true",   "true",    "Enable bright for bold"},
+      {"border",      OptionKind::SepArg,   nullptr,  "2",       "Border width in pixels"},
+      {"cr",          OptionKind::SepArg,   nullptr,  nullptr,   "Cursor color"},
+      {"dwfont",      OptionKind::SepArg,   nullptr,  "18x18ja", "Double-width font to use"},
+      {"fg",          OptionKind::SepArg,   nullptr,  "#fff",    "Foreground color"},
+      {"font",        OptionKind::SepArg,   nullptr,  "9x18",    "Font to use"},
+      {"fontsize",    OptionKind::SepArg,   nullptr,  "16",      "Font size"},
+      {"fontpath",    OptionKind::SepArg,   nullptr,  fontpath,   "Font search path"},
+      {"geometry",    OptionKind::SepArg,   nullptr,  "80x24",   "Terminal size in chars"},
+      {"vulkanInfo",  OptionKind::NoArg,    "true",   "false",   "Print Vulkan information"},
+      {"help",        OptionKind::NoArg,    "true",   "false",   "Print usage listing and quit"},
+      {"listres",     OptionKind::NoArg,    "true",   "false",   "Print advanced option listing and quit"},
+      {"login",       OptionKind::NoArg,    "true",   "false",   "Start shell as a login shell"},
+      {"rv",          OptionKind::NoArg,    "true",   "false",   "Reverse video"},
+      {"saveLines",   OptionKind::SepArg,   nullptr,  "500",     "Lines of scrollback history"},
+      {"shell",       OptionKind::SepArg,   nullptr,  nullptr,   "Shell program to run"},
+      {"showWraps",   OptionKind::NoArg,    "true",   "false",   "Show wrap marks at right margin"},
+      {"title",       OptionKind::SepArg,   nullptr,  "Zutty",   "Window title"},
+      {"quiet",       OptionKind::NoArg,    "true",   "false",   "Silence logging output"},
+      {"verbose",     OptionKind::NoArg,    "true",   "false",   "Output info messages"},
+      {"e",           OptionKind::SkipLine, nullptr,  nullptr,   "Command line to run"},
    };
-#undef NoArg
-#undef SepArg
-#undef SkipL
 
    static const std::vector <ResourceDesc> resourceTable = {
       // resource           hardDefault    helpDescr
@@ -104,24 +101,24 @@ namespace zutty
    };
 
    enum class OptionSource
-   {  // in order of increasing precedence:
-      NONE, HardDefault, ResourceCfg, CmdLine
+   {
+      NONE,
+      HardDefault,
+      CmdLine
    };
 
    struct Options
    {
-      // N.B.: no static initializers - will decode hardDefault fields above!
+      // N.B.: no static initializers - parse() decodes the defaults above.
       uint8_t fontsize;
       uint8_t modifyOtherKeys;
       uint16_t border;
       uint16_t nCols;
       uint16_t nRows;
       uint16_t saveLines;
-      const char* display;
       const char* dwfontname;
       const char* fontname;
       const char* fontpath;
-      const char* name;
       const char* shell;
       const char* title;
       OptionSource titleSource = OptionSource::NONE;
@@ -132,7 +129,7 @@ namespace zutty
       bool altSendsEscape;
       bool autoCopyMode;
       bool boldColors;
-      bool glinfo;
+      bool vulkanInfo;
       bool login;
       bool showWraps;
       bool quiet;
@@ -140,7 +137,6 @@ namespace zutty
       bool verbose;
 
       void initialize (int* argc, char** argv);
-      void setDisplay (Display* dpy);
       void handlePrintOpts ();
       void parse ();
 
@@ -148,7 +144,6 @@ namespace zutty
       void printUsage () const;
       void printResources () const;
 
-      // getters for resources not automatically parsed by parse ()
       bool getBool (const char* name, bool defaultValue = false);
       void getColor (const char* name, zutty::Color& outColor);
       int getInteger (const char* name, int min, int max);

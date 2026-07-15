@@ -13,25 +13,30 @@
 
 #include "base.h"
 #include "fontpack.h"
-#include "gl.h"
 #include "options.h"
-#include "utf8.h"
 
 #include <cstdint>
+#include <cstring>
 #include <memory>
-#include <string>
+#include <vector>
 
 namespace zutty
 {
+   // Character video device. It keeps the terminal's compact cell buffer and
+   // rasterizes it into an RGBA8 image consumed by the Vulkan presenter.
    class CharVdev
    {
    public:
       explicit CharVdev (Fontpack* fontpk);
-
-      ~CharVdev ();
+      ~CharVdev () = default;
 
       bool resize (uint16_t pxWidth_, uint16_t pxHeight_);
       void draw ();
+
+      const uint8_t* pixelData () const { return pixels.data (); }
+      size_t pixelBytes () const { return pixels.size (); }
+      uint16_t pixelWidth () const { return pxWidth; }
+      uint16_t pixelHeight () const { return pxHeight; }
 
       struct Cell
       {
@@ -65,7 +70,7 @@ namespace zutty
 
          bool operator != (const Cell& rhs) const
          {
-            return ! operator == (rhs);
+            return !operator == (rhs);
          }
       };
       static_assert (sizeof (Cell) == 12, "Cell size mismatch");
@@ -80,6 +85,9 @@ namespace zutty
       {
          Mapping (uint16_t nCols_, uint16_t nRows_, Cell *& cells_);
          ~Mapping ();
+
+         Mapping (const Mapping&) = delete;
+         Mapping& operator= (const Mapping&) = delete;
 
          uint16_t nCols;
          uint16_t nRows;
@@ -103,37 +111,35 @@ namespace zutty
          Style style = Style::hidden;
       };
 
-      void setCursor (const Cursor& cursor);
-      void setSelection (const Rect& selection);
-      void setDeltaFrame (bool delta);
+      void setCursor (const Cursor& cursor_);
+      void setSelection (const Rect& selection_);
+      void setDeltaFrame (bool delta_);
 
    private:
+      Fontpack* fontpk;
       uint16_t px;
       uint16_t py;
-      uint16_t nCols;
-      uint16_t nRows;
-      uint16_t pxWidth;
-      uint16_t pxHeight;
-      bool hasDoubleWidth = false;
+      uint16_t nCols = 0;
+      uint16_t nRows = 0;
+      uint16_t pxWidth = 0;
+      uint16_t pxHeight = 0;
 
-      // GL ids of programs, buffers, textures, attributes and uniforms:
-      GLuint P_compute, P_draw;
-      GLuint B_text = 0;
-      GLuint T_atlas = 0;
-      GLuint T_atlasMap = 0;
-      GLuint T_atlas_dw = 0;
-      GLuint T_atlasMap_dw = 0;
-      GLuint T_output = 0;
-      GLint A_pos, A_vertexTexCoord;
-      GLint compU_glyphPixels, compU_sizeChars, compU_cursorColor;
-      GLint compU_cursorPos, compU_cursorStyle;
-      GLint compU_selectRect, compU_selectRectMode, compU_selectDamage;
-      GLint compU_deltaFrame, compU_showWraps, compU_hasDoubleWidth;
-      GLint drawU_viewPixels;
+      std::vector <Cell> cellStorage;
+      std::vector <uint8_t> pixels;
+      Cell* cells = nullptr;
 
-      Cell * cells = nullptr; // valid pointer if mapped, else nullptr
+      Cursor cursor;
+      Rect selection;
+      bool delta = false;
 
-      void createShaders ();
+      const Font& fontFor (const Cell& cell) const;
+      const Font::AtlasPos& glyphPosition (const Font& font,
+                                           uint16_t codepoint) const;
+      bool isSelected (int col, int row) const;
+      void renderCell (int col, int row, Cell& cell);
+      void putPixel (int x, int y, const Color& color);
+      void putBlendedPixel (int x, int y, const Color& fg,
+                            const Color& bg, uint8_t alpha);
    };
 
 } // namespace zutty

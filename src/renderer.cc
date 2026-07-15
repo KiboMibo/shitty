@@ -5,8 +5,6 @@
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- *
- * See the file LICENSE for the full license.
  */
 
 #include "renderer.h"
@@ -15,93 +13,40 @@
 
 namespace zutty
 {
-   Renderer::Renderer (const std::function <void ()>& initDisplay,
-                       const std::function <void ()>& swapBuffers_,
-                       Fontpack* fontpk)
-      : swapBuffers {swapBuffers_}
-      , thr (&Renderer::renderThread, this, initDisplay, fontpk)
+   Renderer::Renderer (SDL_Window* window, Fontpack* fontpk)
+      : presenter (window)
+      , charVdev (fontpk)
    {
-   }
-
-   Renderer::~Renderer ()
-   {
-      std::unique_lock <std::mutex> lk (mx);
-      done = true;
-      nextFrame.seqNo = ++seqNo;
-      lk.unlock ();
-      cond.notify_one ();
-      thr.join ();
    }
 
    void
    Renderer::update (const Frame& frame)
    {
-      std::unique_lock <std::mutex> lk (mx);
-      nextFrame = frame;
-      nextFrame.seqNo = ++seqNo;
-      lk.unlock ();
-      cond.notify_one ();
-   }
+      if (!frame)
+         return;
 
-   void
-   Renderer::renderThread (const std::function <void ()>& initDisplay,
-                           Fontpack* fontpk)
-   {
-      initDisplay ();
+      Frame currentFrame = frame;
 
-      charVdev = std::make_unique <CharVdev> (fontpk);
+      if (charVdev.resize (frame.winPx, frame.winPy))
+         delta = false;
 
-      Frame lastFrame;
-      bool delta = false;
-
-      while (1)
       {
-         std::unique_lock <std::mutex> lk (mx);
-         cond.wait (lk,
-                    [&] ()
-                    {
-                       return lastFrame.seqNo != nextFrame.seqNo;
-                    });
-
-         if (done)
-            return;
-
-         if (lastFrame.seqNo + 1 != nextFrame.seqNo)
-            delta = false;
-
-         lastFrame = nextFrame;
-         lk.unlock ();
-
-         if (charVdev->resize (lastFrame.winPx, lastFrame.winPy))
-            delta = false;
-
-         {
-            CharVdev::Mapping m = charVdev->getMapping ();
-            assert (m.nCols == lastFrame.nCols);
-            assert (m.nRows == lastFrame.nRows);
-
-            if (delta)
-               lastFrame.deltaCopyCells (m.cells);
-            else
-               lastFrame.fullCopyCells (m.cells);
-         }
-
-         charVdev->setDeltaFrame (delta);
-         charVdev->setCursor (lastFrame.getCursor ());
-         charVdev->setSelection (lastFrame.getSnappedSelection ());
-
-         if (lastFrame.seqNo == nextFrame.seqNo)
-         {
-            charVdev->draw ();
-            swapBuffers ();
-            delta = true;
-         }
+         CharVdev::Mapping mapping = charVdev.getMapping ();
+         assert (mapping.nCols == frame.nCols);
+         assert (mapping.nRows == frame.nRows);
+         if (delta)
+            currentFrame.deltaCopyCells (mapping.cells);
          else
-         {
-            // skip drawing outdated frame; force full redraw next time
-            delta = false;
-         }
+            currentFrame.fullCopyCells (mapping.cells);
       }
+
+      charVdev.setDeltaFrame (delta);
+      charVdev.setCursor (frame.getCursor ());
+      charVdev.setSelection (frame.getSnappedSelection ());
+      charVdev.draw ();
+      presenter.present (charVdev.pixelData (), charVdev.pixelWidth (),
+                         charVdev.pixelHeight ());
+      delta = true;
    }
 
 } // namespace zutty

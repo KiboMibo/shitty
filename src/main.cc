@@ -5,1440 +5,1156 @@
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- *
- * See the file LICENSE for the full license.
  */
-
-#include <X11/Xlib.h>
-#include <X11/Xatom.h>
-#include <X11/Xutil.h>
-#include <X11/keysym.h>
-#include <X11/Xmu/Error.h>
 
 #include "base.h"
 #include "base64.h"
 #include "fontpack.h"
+#include "log.h"
 #include "options.h"
 #include "pty.h"
 #include "renderer.h"
-#include "selmgr.h"
+#include "utf8.h"
 #include "vterm.h"
-#include "wm_icons.h"
 
+#include <SDL3/SDL.h>
+
+#include <algorithm>
+#include <atomic>
 #include <cassert>
+#include <cerrno>
+#include <cmath>
+#include <condition_variable>
+#include <cstring>
+#include <fcntl.h>
 #include <langinfo.h>
+#include <limits.h>
 #include <memory>
+#include <mutex>
 #include <poll.h>
 #include <pwd.h>
 #include <signal.h>
 #include <sstream>
-#include <stdlib.h>
-#include <string.h>
+#include <stdexcept>
+#include <string>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <thread>
+#include <unistd.h>
+#include <vector>
 
 using zutty::Fontpack;
-using zutty::MouseTrackingState;
-using zutty::MouseTrackingMode;
 using zutty::MouseTrackingEnc;
+using zutty::MouseTrackingMode;
+using zutty::MouseTrackingState;
+using zutty::Renderer;
 using zutty::Vterm;
 using zutty::VtKey;
 using zutty::VtModifier;
-using zutty::Renderer;
-using zutty::SelectionManager;
 
-static std::unique_ptr <Fontpack> fontpk = nullptr;
-static std::unique_ptr <Renderer> renderer = nullptr;
-static std::unique_ptr <Vterm> vt = nullptr;
-static std::unique_ptr <SelectionManager> selMgr = nullptr;
+static std::unique_ptr <Fontpack> fontpk;
+static std::unique_ptr <Renderer> renderer;
+static std::unique_ptr <Vterm> vt;
+static SDL_Window* window = nullptr;
 
-static Display* xDisplay = nullptr;
-static Window xWindow;
-static Atom wmDeleteMessage;
-static XSizeHints sizeHints;
-static Colormap colormap;
-
-static void
-convertColor (const zutty::Color& color, XColor& xcolor)
+namespace
 {
-   std::ostringstream oss;
-   oss << color;
-   if (XParseColor (xDisplay, colormap, oss.str ().c_str (), &xcolor) == 0)
+   class PtyEventSource
    {
-      logE << "XParseColor (): could not resolve " << oss.str () << std::endl;
-   }
-}
-
-static void
-setXCursor ()
-{
-   const static int cursorW = 9;
-   const static int cursorH = 16;
-   const static int cursorHotX = 4;
-   const static int cursorHotY = 7;
-   const static unsigned char cursorBits [] =
-   {
-      0x00, 0x00, 0xee, 0x00, 0x38, 0x00, 0x10, 0x00, 0x10, 0x00, 0x10, 0x00,
-      0x10, 0x00, 0x10, 0x00, 0x10, 0x00, 0x10, 0x00, 0x10, 0x00, 0x10, 0x00,
-      0x10, 0x00, 0x38, 0x00, 0xee, 0x00, 0x00, 0x00
-   };
-   const static unsigned char cursorMaskBits [] =
-   {
-      0xef, 0x01, 0xff, 0x01, 0xff, 0x01, 0x7c, 0x00, 0x38, 0x00, 0x38, 0x00,
-      0x38, 0x00, 0x38, 0x00, 0x38, 0x00, 0x38, 0x00, 0x38, 0x00, 0x38, 0x00,
-      0x7c, 0x00, 0xff, 0x01, 0xff, 0x01, 0xef, 0x01
-   };
-
-   XColor xc_fg;
-   convertColor (opts.fg, xc_fg);
-   XColor xc_bg;
-   convertColor (opts.bg, xc_bg);
-   Window root = DefaultRootWindow (xDisplay);
-   Pixmap pxcur = XCreateBitmapFromData (
-      xDisplay, root, (char *)cursorBits, cursorW, cursorH);
-   Pixmap pxmask = XCreateBitmapFromData(
-      xDisplay, root, (char *)cursorMaskBits, cursorW, cursorH);
-   Cursor cursor = XCreatePixmapCursor(
-      xDisplay, pxcur, pxmask, &xc_fg, &xc_bg, cursorHotX, cursorHotY);
-   XFreePixmap(xDisplay, pxcur);
-   XFreePixmap(xDisplay, pxmask);
-   XRecolorCursor (xDisplay, cursor, &xc_fg, &xc_bg);
-   XDefineCursor (xDisplay, xWindow, cursor);
-}
-
-static void
-makeXWindow (const char* name, int width, int height, int px, int py,
-             EGLDisplay eglDpy, EGLContext& eglCtx, EGLSurface& eglSurface)
-{
-   static const EGLint eglAttrs [] = {
-      EGL_RED_SIZE, 8,
-      EGL_GREEN_SIZE, 8,
-      EGL_BLUE_SIZE, 8,
-      EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-      EGL_NONE
-   };
-   static const EGLint ctxAttrs [] = {
-      EGL_CONTEXT_CLIENT_VERSION, 2,
-      EGL_NONE
-   };
-
-   XSetWindowAttributes attr;
-   unsigned long mask;
-   Window root;
-   XVisualInfo *visInfo, visTemplate;
-   int numVisuals;
-   EGLConfig config;
-   EGLint numConfigs;
-   EGLint vid;
-
-   root = RootWindow (xDisplay, DefaultScreen (xDisplay));
-
-   if (!eglChooseConfig (eglDpy, eglAttrs, &config, 1, &numConfigs)) {
-      logE << "Couldn't get an EGL visual config" << std::endl;
-      exit(1);
-   }
-
-   assert (config);
-   assert (numConfigs > 0);
-
-   if (!eglGetConfigAttrib (eglDpy, config, EGL_NATIVE_VISUAL_ID, &vid)) {
-      logE << "eglGetConfigAttrib() failed" << std::endl;
-      exit (1);
-   }
-
-   // The X window visual must match the EGL config
-   visTemplate.visualid = vid;
-   visInfo = XGetVisualInfo (xDisplay, VisualIDMask, &visTemplate, &numVisuals);
-   if (!visInfo) {
-      logE << "Couldn't get X visual" << std::endl;
-      exit (1);
-   }
-
-   // window attributes
-   colormap = XCreateColormap (xDisplay, root, visInfo->visual, AllocNone);
-   attr.background_pixel = 0;
-   attr.border_pixel = 0;
-   attr.colormap = colormap;
-   attr.event_mask = StructureNotifyMask | ExposureMask | FocusChangeMask |
-      PropertyChangeMask | KeyPressMask | ButtonPressMask | ButtonReleaseMask |
-      PointerMotionMask;
-   mask = CWBackPixel | CWBorderPixel | CWColormap | CWEventMask;
-
-   xWindow = XCreateWindow (xDisplay, root, 0, 0, width, height,
-                            0, visInfo->depth, InputOutput,
-                            visInfo->visual, mask, &attr);
-   logI << "Window ID: " << xWindow << " / 0x" << std::hex << xWindow
-        << std::dec << std::endl;
-   if (setenv ("WINDOWID", std::to_string (xWindow).c_str (), 1) < 0)
-      SYS_ERROR ("setenv (WINDOWID)");
-
-   {
-      XClassHint classHint;
-      classHint.res_name = (char *)opts.name;
-      classHint.res_class = (char *)"Zutty";
-
-      XWMHints wmHints;
-      wmHints.input = true;
-      wmHints.initial_state = NormalState;
-      wmHints.flags = InputHint | StateHint;
-
-      sizeHints.width = width;
-      sizeHints.height = height;
-      sizeHints.base_width = 2 * opts.border;
-      sizeHints.base_height = 2 * opts.border;
-      sizeHints.min_width = 2 * opts.border + px;
-      sizeHints.min_height = 2 * opts.border + py;
-      sizeHints.width_inc = px;
-      sizeHints.height_inc = py;
-      sizeHints.win_gravity = NorthWestGravity;
-      sizeHints.flags = PSize | PMinSize | PBaseSize | PResizeInc | PWinGravity;
-
-      XmbSetWMProperties (xDisplay, xWindow, name, name,
-                          nullptr, 0, &sizeHints, &wmHints, &classHint);
-   }
-
-   {
-      // set NET_WM_PID to the process ID to link the window to the pid
-      Atom _NET_WM_PID = XInternAtom (xDisplay, "_NET_WM_PID", false);
-      pid_t pid = getpid ();
-      XChangeProperty (xDisplay, xWindow, _NET_WM_PID, XA_CARDINAL,
-                       32, PropModeReplace, (unsigned char *)&pid, 1);
-   }
-
-   {
-      // set NET_WM_ICON to wm_icons [] (16x16 and 32x32 32-bit cardinal ARGB)
-      Atom _NET_WM_ICON = XInternAtom (xDisplay, "_NET_WM_ICON", false);
-      XChangeProperty (xDisplay, xWindow, _NET_WM_ICON, XA_CARDINAL,
-                       32, PropModeReplace, (const unsigned char*) wm_icons,
-                       sizeof (wm_icons) / sizeof (wm_icons [0]));
-   }
-
-   wmDeleteMessage = XInternAtom (xDisplay, "WM_DELETE_WINDOW", False);
-   XSetWMProtocols (xDisplay, xWindow, &wmDeleteMessage, 1);
-
-   eglBindAPI (EGL_OPENGL_ES_API);
-
-   eglCtx = eglCreateContext (eglDpy, config, EGL_NO_CONTEXT, ctxAttrs);
-   if (!eglCtx)
-   {
-      logE << "eglCreateContext failed" << std::endl;
-      exit (1);
-   }
-
-   // test eglQueryContext()
-   {
-      EGLint val;
-      eglQueryContext (eglDpy, eglCtx, EGL_CONTEXT_CLIENT_TYPE, &val);
-      assert (val == EGL_OPENGL_ES_API);
-   }
-
-   eglSurface = eglCreateWindowSurface (eglDpy, config,
-                                        (EGLNativeWindowType)xWindow, nullptr);
-   if (! eglSurface) {
-      logE << "eglCreateWindowSurface failed" << std::endl;
-      exit (1);
-   }
-
-   // sanity checks
-   {
-      EGLint val;
-      eglQuerySurface (eglDpy, eglSurface, EGL_WIDTH, &val);
-      assert (val == width);
-      eglQuerySurface (eglDpy, eglSurface, EGL_HEIGHT, &val);
-      assert (val == height);
-      assert (eglGetConfigAttrib (eglDpy, config, EGL_SURFACE_TYPE, &val));
-      assert (val & EGL_WINDOW_BIT);
-   }
-
-   XFree (visInfo);
-
-   setXCursor ();
-}
-
-static void
-resolveShell (char* progPath)
-{
-   char resolvedPath [PATH_MAX];
-   if (progPath [0] == '/')
-      return; // absolute path; we are done
-   else if (progPath [0] == '.' &&
-            realpath (progPath, resolvedPath) != nullptr)
-   {
-      strncpy (progPath, resolvedPath, PATH_MAX);
-      return;
-   }
-
-   // go through PATH and try to resolve our program
-   char* PATH = strdup (getenv ("PATH"));
-   if (PATH)
-   {
-      char testPath [PATH_MAX+1];
-      char* p = strtok (PATH, ":");
-      while (p)
+   public:
+      PtyEventSource (int ptyFd_, Uint32 eventType_)
+         : ptyFd (ptyFd_)
+         , eventType (eventType_)
       {
-         snprintf (testPath, PATH_MAX+1, "%s/%s", p, progPath);
-         if (realpath (testPath, resolvedPath) != nullptr)
+         if (pipe (wakePipe) < 0)
+            throw std::runtime_error (
+               std::string ("pipe failed: ") + std::strerror (errno));
+         for (const int fd: wakePipe)
          {
-            strncpy (progPath, resolvedPath, PATH_MAX);
-            free (PATH);
-            return;
+            const int flags = fcntl (fd, F_GETFD);
+            if (flags >= 0)
+               fcntl (fd, F_SETFD, flags | FD_CLOEXEC);
          }
-         p = strtok (nullptr, ":");
+         worker = std::thread (&PtyEventSource::run, this);
       }
-      free (PATH);
-   }
 
-   // look at $SHELL
-   char* SHELL = getenv ("SHELL");
-   struct stat statbuf;
-   if (SHELL && stat (SHELL, &statbuf) == 0 && (statbuf.st_mode & S_IXOTH))
-   {
-      strncpy (progPath, SHELL, PATH_MAX-1);
-      return;
-   }
-
-   // obtain user's shell from /etc/passwd
-   auto pwent = getpwuid (getuid ());
-   SHELL = pwent->pw_shell;
-   if (SHELL && stat (SHELL, &statbuf) == 0 && (statbuf.st_mode & S_IXOTH))
-   {
-      strncpy (progPath, SHELL, PATH_MAX-1);
-      return;
-   }
-
-   // last resort
-   strcpy (progPath, "/bin/sh");
-}
-
-static void
-validateShell (char* progPath)
-{
-   resolveShell (progPath);
-
-   // validate against entries in /etc/shells
-   char* permShell = getusershell ();
-   while (permShell)
-   {
-      if (strcmp (progPath, permShell) == 0)
+      ~PtyEventSource ()
       {
-         endusershell ();
-         setenv ("SHELL", progPath, 1);
+         {
+            std::lock_guard <std::mutex> lock (mutex);
+            stopping = true;
+            pending = false;
+         }
+         condition.notify_all ();
+         const uint8_t byte = 1;
+         while (write (wakePipe [1], &byte, sizeof (byte)) < 0 &&
+                errno == EINTR)
+            ;
+         if (worker.joinable ())
+            worker.join ();
+         close (wakePipe [0]);
+         close (wakePipe [1]);
+      }
+
+      void acknowledge ()
+      {
+         {
+            std::lock_guard <std::mutex> lock (mutex);
+            pending = false;
+         }
+         condition.notify_one ();
+      }
+
+   private:
+      int ptyFd;
+      Uint32 eventType;
+      int wakePipe [2] {-1, -1};
+      std::thread worker;
+      std::mutex mutex;
+      std::condition_variable condition;
+      bool stopping = false;
+      bool pending = false;
+
+      void run ()
+      {
+         struct pollfd pollSet [] = {
+            {ptyFd, POLLIN | POLLHUP, 0},
+            {wakePipe [0], POLLIN, 0},
+         };
+
+         while (true)
+         {
+            const int result = poll (pollSet, 2, -1);
+            if (result < 0)
+            {
+               if (errno == EINTR)
+                  continue;
+               return;
+            }
+            if (pollSet [1].revents & POLLIN)
+               return;
+            if (!(pollSet [0].revents & (POLLIN | POLLHUP | POLLERR)))
+               continue;
+
+            {
+               std::lock_guard <std::mutex> lock (mutex);
+               if (stopping)
+                  return;
+               pending = true;
+            }
+
+            SDL_Event event {};
+            event.type = eventType;
+            if (!SDL_PushEvent (&event))
+            {
+               std::lock_guard <std::mutex> lock (mutex);
+               pending = false;
+               continue;
+            }
+
+            std::unique_lock <std::mutex> lock (mutex);
+            condition.wait (lock, [this] { return stopping || !pending; });
+            if (stopping)
+               return;
+         }
+      }
+   };
+
+   struct MouseContext
+   {
+      bool selectionOngoing = false;
+   } mouseContext;
+
+   enum class MouseEventType
+   {
+      Press,
+      Release,
+      Motion
+   };
+
+   void resolveShell (char* progPath)
+   {
+      char resolvedPath [PATH_MAX];
+      if (progPath [0] == '/')
+         return;
+      if (progPath [0] == '.' &&
+          realpath (progPath, resolvedPath) != nullptr)
+      {
+         std::strncpy (progPath, resolvedPath, PATH_MAX - 1);
+         progPath [PATH_MAX - 1] = '\0';
          return;
       }
-      permShell = getusershell ();
+
+      const char* pathValue = getenv ("PATH");
+      char* path = pathValue != nullptr ? strdup (pathValue) : nullptr;
+      if (path != nullptr)
+      {
+         char testPath [PATH_MAX + 1];
+         char* part = std::strtok (path, ":");
+         while (part != nullptr)
+         {
+            std::snprintf (testPath, sizeof (testPath), "%s/%s",
+                           part, progPath);
+            if (realpath (testPath, resolvedPath) != nullptr)
+            {
+               std::strncpy (progPath, resolvedPath, PATH_MAX - 1);
+               progPath [PATH_MAX - 1] = '\0';
+               free (path);
+               return;
+            }
+            part = std::strtok (nullptr, ":");
+         }
+         free (path);
+      }
+
+      const char* shell = getenv ("SHELL");
+      struct stat statbuf {};
+      if (shell != nullptr && stat (shell, &statbuf) == 0 &&
+          (statbuf.st_mode & S_IXUSR))
+      {
+         std::strncpy (progPath, shell, PATH_MAX - 1);
+         progPath [PATH_MAX - 1] = '\0';
+         return;
+      }
+
+      const passwd* entry = getpwuid (getuid ());
+      shell = entry != nullptr ? entry->pw_shell : nullptr;
+      if (shell != nullptr && stat (shell, &statbuf) == 0 &&
+          (statbuf.st_mode & S_IXUSR))
+      {
+         std::strncpy (progPath, shell, PATH_MAX - 1);
+         progPath [PATH_MAX - 1] = '\0';
+         return;
+      }
+      std::strcpy (progPath, "/bin/sh");
    }
-   endusershell ();
 
-   // progPath is *not* one of the permitted user shells
-   unsetenv ("SHELL");
-}
-
-static void
-setArgv0 (char* argv0)
-{
-   const char* shbase = strrchr (opts.shell, '/');
-   if (shbase)
-      ++shbase;
-   else
-      shbase = opts.shell;
-
-   if (opts.login)
+   void validateShell (char* progPath)
    {
-      argv0 [0] = '-';
-      strncpy (argv0 + 1, shbase, PATH_MAX-2);
+      resolveShell (progPath);
+      for (char* permitted = getusershell (); permitted != nullptr;
+           permitted = getusershell ())
+      {
+         if (std::strcmp (progPath, permitted) == 0)
+         {
+            endusershell ();
+            setenv ("SHELL", progPath, 1);
+            return;
+         }
+      }
+      endusershell ();
+      unsetenv ("SHELL");
    }
-   else
-   {
-      strncpy (argv0, shbase, PATH_MAX-1);
-   }
-}
 
-static void
-sighandler (int sig, siginfo_t* info, void* ucontext)
-{
-   if (sig == SIGCHLD)
+   void setArgv0 (char* argv0)
    {
-      waitpid (info->si_pid, nullptr, 0);
+      const char* basename = std::strrchr (opts.shell, '/');
+      basename = basename != nullptr ? basename + 1 : opts.shell;
+      if (opts.login)
+      {
+         argv0 [0] = '-';
+         std::strncpy (argv0 + 1, basename, PATH_MAX - 2);
+         argv0 [PATH_MAX - 1] = '\0';
+      }
+      else
+      {
+         std::strncpy (argv0, basename, PATH_MAX - 1);
+         argv0 [PATH_MAX - 1] = '\0';
+      }
    }
-}
 
-static void
-setupSignals ()
-{
-   // The SIGCHLD handler is required to detect that the child process
-   // has quit; its handler ensures we won't create zombies.
+   void childSignalHandler (int signal, siginfo_t* info, void*)
    {
-      struct sigaction sa {};
-      sa.sa_sigaction = sighandler;
-      sa.sa_flags = SA_SIGINFO | SA_RESTART | SA_NOCLDSTOP;
-      if (sigaction (SIGCHLD, &sa, nullptr) < 0)
+      if (signal == SIGCHLD && info != nullptr)
+         waitpid (info->si_pid, nullptr, WNOHANG);
+   }
+
+   void setupSignals ()
+   {
+      struct sigaction childAction {};
+      childAction.sa_sigaction = childSignalHandler;
+      childAction.sa_flags = SA_SIGINFO | SA_RESTART | SA_NOCLDSTOP;
+      sigemptyset (&childAction.sa_mask);
+      if (sigaction (SIGCHLD, &childAction, nullptr) < 0)
          SYS_ERROR ("can't install SIGCHLD handler: sigaction()");
+
+      struct sigaction defaultAction {};
+      defaultAction.sa_handler = SIG_DFL;
+      sigemptyset (&defaultAction.sa_mask);
+      if (sigaction (SIGINT, &defaultAction, nullptr) < 0)
+         SYS_ERROR ("can't reset SIGINT handler: sigaction()");
+      if (sigaction (SIGQUIT, &defaultAction, nullptr) < 0)
+         SYS_ERROR ("can't reset SIGQUIT handler: sigaction()");
    }
 
-   // SIGINT and SIGQUIT might have inherited handlers if Zutty was launched
-   // from an interactive Bash shell. Restore the default handlers to enable
-   // normal functionality (e.g., terminate a program under Zutty with Ctrl-C);
-   // see bash(1) section SIGNALS.
+   int startShell (const char* execPath, const char* const argv[])
    {
-      struct sigaction sa {};
-      sa.sa_handler = SIG_DFL;
-      sa.sa_flags = 0;
-      if (sigaction (SIGINT, &sa, nullptr) < 0)
-         SYS_ERROR ("can't reset SIGINT handler to SIG_DFL: sigaction()");
-      if (sigaction (SIGQUIT, &sa, nullptr) < 0)
-         SYS_ERROR ("can't reset SIGQUIT handler to SIG_DFL: sigaction()");
-   }
-}
-
-static int
-startShell (const char* execPath, const char* const argv[])
-{
-   int ptyFd;
-   pid_t pid;
-
-   pid = zutty::pty_fork (ptyFd, opts.nCols, opts.nRows);
-
-   if (pid < 0)
-   {
-      SYS_ERROR ("fork");
-   }
-   else if (pid == 0) // child:
-   {
-      // N.B.: DISPLAY and WINDOWID are inherited from parent
-      // environment (set elsewhere)
-      if (setenv ("TERM", "xterm-256color", 1) < 0)
-         SYS_ERROR ("setenv TERM");
-
-      if (execvp (execPath, (char * const *) argv) < 0)
-         SYS_ERROR ("execvp of ", execPath);
-   }
-   else // parent:
-   {
+      int ptyFd = -1;
+      const pid_t pid = zutty::pty_fork (ptyFd, opts.nCols, opts.nRows);
+      if (pid < 0)
+         SYS_ERROR ("fork");
+      if (pid == 0)
+      {
+         if (setenv ("TERM", "xterm-256color", 1) < 0)
+            SYS_ERROR ("setenv TERM");
+         if (execvp (execPath, const_cast <char* const*> (argv)) < 0)
+            SYS_ERROR ("execvp of ", execPath);
+      }
       logT << "Shell subprocess started, pid: " << pid << std::endl;
+      return ptyFd;
    }
 
-   return ptyFd;
-}
-
-static VtModifier
-convertKeyState (KeySym ks, unsigned int state)
-{
-   VtModifier mod = VtModifier::none;
-   if (state & ShiftMask)
-      mod = mod | VtModifier::shift;
-   if (state & ControlMask)
-      mod = mod | VtModifier::control;
-   if (state & Mod1Mask)
-      mod = mod | VtModifier::alt;
-   return mod;
-}
-
-static void
-pasteCb (bool success, const std::string& content)
-{
-   if (success)
-      vt->pasteSelection (content);
-}
-
-static bool
-onKeyPress (XEvent& event, XIC& xic, int ptyFd)
-{
-   using Key = VtKey;
-   XKeyEvent& xkevt = event.xkey;
-
-   KeySym ks;
-   char buffer [16];
-   const int avail = sizeof (buffer) - 1;
-   int nbytes = 0;
-
-   if (xic)
+   VtModifier convertModifiers (SDL_Keymod modifiers)
    {
-      Status status;
-      nbytes = XmbLookupString (xic, &xkevt, buffer, avail, &ks, &status);
-      if (status == XBufferOverflow) {
-         logE << "KeyPress event: buffer size " << sizeof (buffer)
-              << " is too small for XmbLookupString, would have needed "
-              << " a buffer with " << nbytes + 1 << " bytes."
-              << std::endl;
-         return true;
-      }
+      VtModifier result = VtModifier::none;
+      if (modifiers & SDL_KMOD_SHIFT)
+         result = result | VtModifier::shift;
+      if (modifiers & SDL_KMOD_CTRL)
+         result = result | VtModifier::control;
+      if ((modifiers & SDL_KMOD_ALT) && !(modifiers & SDL_KMOD_MODE))
+         result = result | VtModifier::alt;
+      return result;
    }
-   else
+
+   SDL_Keymod significantModifiers (SDL_Keymod modifiers)
    {
-      nbytes = XLookupString (&xkevt, buffer, avail, &ks, nullptr);
+      return static_cast <SDL_Keymod> (
+         modifiers & (SDL_KMOD_SHIFT | SDL_KMOD_CTRL | SDL_KMOD_ALT |
+                      SDL_KMOD_MODE));
    }
-   buffer [nbytes] = '\0';
 
-   VtModifier mod = convertKeyState (ks, xkevt.state);
-
-   // Special key combinations that are handled by Zutty itself:
-   if (ks == XK_Page_Up && mod == VtModifier::shift)
+   bool pasteSelection (bool primary)
    {
-      vt->pageUp ();
-      return false;
-   }
-   if (ks == XK_Page_Down && mod == VtModifier::shift)
-   {
-      vt->pageDown ();
-      return false;
-   }
-   if (ks == XK_C && mod == VtModifier::shift_control)
-   {
-      selMgr->copySelection (selMgr->getClipboard (), selMgr->getPrimary ());
-      return false;
-   }
-   if (ks == XK_V && mod == VtModifier::shift_control)
-   {
-      selMgr->getSelection (selMgr->getClipboard (), xkevt.time, pasteCb);
-      return false;
-   }
-   if ((ks == XK_Insert || ks == XK_KP_Insert) && mod == VtModifier::shift)
-   {
-      selMgr->getSelection (selMgr->getPrimary (), xkevt.time, pasteCb);
-      return false;
-   }
-   if ((ks == XK_space || ks == XK_KP_Space) &&
-       (xkevt.state & (Button1Mask | Button3Mask)))
-   {
-      vt->selectRectangularModeToggle ();
-      return false;
-   }
-
-   if (! (xkevt.state & Mod2Mask)) // NumLock is off
-   {
-      // Certain X keysyms are mutated depending on the Shift state,
-      // which is redundant as the Shift modifier state is observed as
-      // well. Here we reverse these transforms.
-      switch (ks)
-      {
-      case XK_KP_Decimal:    ks = XK_KP_Delete; break;
-      case XK_KP_0:          ks = XK_KP_Insert; break;
-      case XK_KP_1:          ks = XK_KP_End;    break;
-      case XK_KP_2:          ks = XK_KP_Down;   break;
-      case XK_KP_3:          ks = XK_KP_Next;   break;
-      case XK_KP_4:          ks = XK_KP_Left;   break;
-      case XK_KP_5:          ks = XK_KP_Begin;  break;
-      case XK_KP_6:          ks = XK_KP_Right;  break;
-      case XK_KP_7:          ks = XK_KP_Home;   break;
-      case XK_KP_8:          ks = XK_KP_Up;     break;
-      case XK_KP_9:          ks = XK_KP_Prior;  break;
-      default:
-         break;
-      }
-   }
-
-   if (XFilterEvent (&event, xkevt.window))
-      return false;
-   if (ks == XK_Num_Lock)
-      return false;
-
-   switch (ks)
-   {
-#define KEYSEND(XKey, VtKey)                    \
-      case XKey:                                \
-         logT << "Key: " #XKey << std::endl;    \
-         vt->writePty (VtKey, mod, true);       \
-         return false
-
-      KEYSEND (XK_0,                Key::K0);
-      KEYSEND (XK_1,                Key::K1);
-      KEYSEND (XK_2,                Key::K2);
-      KEYSEND (XK_3,                Key::K3);
-      KEYSEND (XK_4,                Key::K4);
-      KEYSEND (XK_5,                Key::K5);
-      KEYSEND (XK_6,                Key::K6);
-      KEYSEND (XK_7,                Key::K7);
-      KEYSEND (XK_8,                Key::K8);
-      KEYSEND (XK_9,                Key::K9);
-      KEYSEND (XK_space,            Key::Space);
-      KEYSEND (XK_Return,           Key::Return);
-      KEYSEND (XK_BackSpace,        Key::Backspace);
-      KEYSEND (XK_Tab,              Key::Tab);
-      KEYSEND (XK_ISO_Left_Tab,     Key::Tab);
-      KEYSEND (XK_Insert,           Key::Insert);
-      KEYSEND (XK_Delete,           Key::Delete);
-      KEYSEND (XK_Home,             Key::Home);
-      KEYSEND (XK_End,              Key::End);
-      KEYSEND (XK_Up,               Key::Up);
-      KEYSEND (XK_Down,             Key::Down);
-      KEYSEND (XK_Left,             Key::Left);
-      KEYSEND (XK_Right,            Key::Right);
-      KEYSEND (XK_Page_Up,          Key::PageUp);
-      KEYSEND (XK_Page_Down,        Key::PageDown);
-      KEYSEND (XK_grave,            Key::Backtick);
-      KEYSEND (XK_asciitilde,       Key::Tilde);
-      KEYSEND (XK_F1,               Key::F1);
-      KEYSEND (XK_F2,               Key::F2);
-      KEYSEND (XK_F3,               Key::F3);
-      KEYSEND (XK_F4,               Key::F4);
-      KEYSEND (XK_F5,               Key::F5);
-      KEYSEND (XK_F6,               Key::F6);
-      KEYSEND (XK_F7,               Key::F7);
-      KEYSEND (XK_F8,               Key::F8);
-      KEYSEND (XK_F9,               Key::F9);
-      KEYSEND (XK_F10,              Key::F10);
-      KEYSEND (XK_F11,              Key::F11);
-      KEYSEND (XK_F12,              Key::F12);
-      KEYSEND (XK_F13,              Key::F13);
-      KEYSEND (XK_F14,              Key::F14);
-      KEYSEND (XK_F15,              Key::F15);
-      KEYSEND (XK_F16,              Key::F16);
-      KEYSEND (XK_F17,              Key::F17);
-      KEYSEND (XK_F18,              Key::F18);
-      KEYSEND (XK_F19,              Key::F19);
-      KEYSEND (XK_F20,              Key::F20);
-      KEYSEND (XK_KP_0,             Key::KP_0);
-      KEYSEND (XK_KP_1,             Key::KP_1);
-      KEYSEND (XK_KP_2,             Key::KP_2);
-      KEYSEND (XK_KP_3,             Key::KP_3);
-      KEYSEND (XK_KP_4,             Key::KP_4);
-      KEYSEND (XK_KP_5,             Key::KP_5);
-      KEYSEND (XK_KP_6,             Key::KP_6);
-      KEYSEND (XK_KP_7,             Key::KP_7);
-      KEYSEND (XK_KP_8,             Key::KP_8);
-      KEYSEND (XK_KP_9,             Key::KP_9);
-      KEYSEND (XK_KP_F1,            Key::KP_F1);
-      KEYSEND (XK_KP_F2,            Key::KP_F2);
-      KEYSEND (XK_KP_F3,            Key::KP_F3);
-      KEYSEND (XK_KP_F4,            Key::KP_F4);
-      KEYSEND (XK_KP_Up,            Key::KP_Up);
-      KEYSEND (XK_KP_Down,          Key::KP_Down);
-      KEYSEND (XK_KP_Left,          Key::KP_Left);
-      KEYSEND (XK_KP_Right,         Key::KP_Right);
-      KEYSEND (XK_KP_Page_Up,       Key::KP_PageUp);
-      KEYSEND (XK_KP_Page_Down,     Key::KP_PageDown);
-      KEYSEND (XK_KP_Add,           Key::KP_Plus);
-      KEYSEND (XK_KP_Insert,        Key::KP_Insert);
-      KEYSEND (XK_KP_Delete,        Key::KP_Delete);
-      KEYSEND (XK_KP_Begin,         Key::KP_Begin);
-      KEYSEND (XK_KP_Home,          Key::KP_Home);
-      KEYSEND (XK_KP_End,           Key::KP_End);
-      KEYSEND (XK_KP_Subtract,      Key::KP_Minus);
-      KEYSEND (XK_KP_Multiply,      Key::KP_Star);
-      KEYSEND (XK_KP_Divide,        Key::KP_Slash);
-      KEYSEND (XK_KP_Separator,     Key::KP_Comma);
-      KEYSEND (XK_KP_Decimal,       Key::KP_Dot);
-      KEYSEND (XK_KP_Equal,         Key::KP_Equal);
-      KEYSEND (XK_KP_Space,         Key::KP_Space);
-      KEYSEND (XK_KP_Tab,           Key::KP_Tab);
-      KEYSEND (XK_KP_Enter,         Key::KP_Enter);
-#ifdef DEBUG
-      KEYSEND (XK_Print,            Key::Print);
-#endif
-
-#undef KEYSEND
-
-#define KEYIGN(XKey)                            \
-      case XKey:                                \
-         return false
-
-      // Ignore clauses for modifiers to avoid sending NUL bytes
-      KEYIGN (XK_Shift_L);
-      KEYIGN (XK_Shift_R);
-      KEYIGN (XK_Control_L);
-      KEYIGN (XK_Control_R);
-      KEYIGN (XK_Caps_Lock);
-      KEYIGN (XK_Shift_Lock);
-      KEYIGN (XK_Meta_L);
-      KEYIGN (XK_Meta_R);
-      KEYIGN (XK_Alt_L);
-      KEYIGN (XK_Alt_R);
-      KEYIGN (XK_Super_L);
-      KEYIGN (XK_Super_R);
-      KEYIGN (XK_Hyper_L);
-      KEYIGN (XK_Hyper_R);
-
-      // Ignore some funky keys that cause problems on non-US keyboards
-      KEYIGN (XK_Menu);
-      KEYIGN (XK_ISO_Lock);
-      KEYIGN (XK_ISO_Level2_Latch);
-      KEYIGN (XK_ISO_Level3_Shift);  // AltGr
-      KEYIGN (XK_ISO_Level3_Latch);
-      KEYIGN (XK_ISO_Level3_Lock);
-      KEYIGN (XK_ISO_Level5_Shift);
-      KEYIGN (XK_ISO_Level5_Latch);
-      KEYIGN (XK_ISO_Level5_Lock);
-      KEYIGN (XK_ISO_Group_Shift);
-      KEYIGN (XK_ISO_Group_Latch);
-      KEYIGN (XK_ISO_Group_Lock);
-      KEYIGN (XK_ISO_Next_Group);
-      KEYIGN (XK_ISO_Next_Group_Lock);
-      KEYIGN (XK_ISO_Prev_Group);
-      KEYIGN (XK_ISO_Prev_Group_Lock);
-      KEYIGN (XK_ISO_First_Group);
-      KEYIGN (XK_ISO_First_Group_Lock);
-      KEYIGN (XK_ISO_Last_Group);
-      KEYIGN (XK_ISO_Last_Group_Lock);
-
-#undef KEYIGN
-
-   default:
-      if (nbytes > 1)
-      {
-         if (vt->writePty (buffer, true) < nbytes)
-            return true;
-      }
-      else
-      {
-         if (vt->writePty (buffer [0], mod, true) < 1)
-            return true;
-      }
-      return false;
-   }
-}
-
-// Data shared between mouse event handlers
-struct MouseContext
-{
-   // cycle selection SnapTo behaviour based on double/triple clicks
-   constexpr const static int Multi_Click_Threshold_Ms = 250;
-   Time lastButtonReleasedAt = 0;
-   unsigned int lastButtonReleased = 0;
-   bool selectionOngoing = false;
-};
-static MouseContext mouseCtx;
-
-static inline bool
-isMouseProtocol (unsigned int state, const MouseTrackingState& mouseTrk)
-{
-   return !mouseCtx.selectionOngoing &&
-      !(state & ShiftMask) &&
-      mouseTrk.mode != MouseTrackingMode::Disabled;
-}
-
-static inline void
-mouseProtoSend (MouseTrackingEnc enc, int eventType, unsigned int modstate,
-                int button, int cx, int cy)
-{
-   int cb = 0;
-   if (eventType == MotionNotify)
-   {
-      if (modstate & Button1Mask) cb = 32;
-      else if (modstate & Button2Mask) cb = 33;
-      else if (modstate & Button3Mask) cb = 34;
-      else cb = 35;
-   }
-   else if (eventType == ButtonRelease && enc != MouseTrackingEnc::SGR)
-   {
-      cb = 3;
-   }
-   else // normal button encoding
-   {
-      switch (button)
-      {
-      case 1: cb = 0; break;
-      case 2: cb = 1; break;
-      case 3: cb = 2; break;
-      case 4: cb = 64; break;   // wheel up
-      case 5: cb = 65; break;   // wheel down
-      case 6: cb = 66; break;   // wheel left
-      case 7: cb = 67; break;   // wheel right
-      case 8: cb = 128; break;
-      case 9: cb = 129; break;
-      case 10: cb = 130; break;
-      case 11: cb = 131; break;
-      }
-   }
-
-   if (modstate & ShiftMask) cb += 4;
-   if (modstate & Mod1Mask) cb += 8;
-   if (modstate & ControlMask) cb += 16;
-
-   std::ostringstream oss;
-   switch (enc)
-   {
-   case MouseTrackingEnc::Default:
-      oss << "\e[M" << (char)(32 + cb) << (char)(32 + cx) << (char)(32 + cy);
-      vt->writePty (oss.str ().c_str ());
-      break;
-   case MouseTrackingEnc::UTF8:
-      oss << "\e[M";
-      using zutty::Utf8Encoder;
-      Utf8Encoder::pushUnicode (32 + cb, [&] (char ch) { oss << ch; });
-      Utf8Encoder::pushUnicode (32 + cx, [&] (char ch) { oss << ch; });
-      Utf8Encoder::pushUnicode (32 + cy, [&] (char ch) { oss << ch; });
-      vt->writePty (oss.str ().c_str ());
-      break;
-   case MouseTrackingEnc::SGR:
-      oss << "\e[<" << cb << ";" << cx << ";" << cy
-          << (eventType == ButtonRelease ? "m" : "M");
-      vt->writePty (oss.str ().c_str ());
-      break;
-   case MouseTrackingEnc::URXVT:
-      oss << "\e[" << cb + 32 << ";" << cx << ";" << cy << "M";
-      vt->writePty (oss.str ().c_str ());
-      break;
-   }
-}
-
-static inline void
-mouseProtoConvCoords (int px, int py, uint16_t& out_cx, uint16_t& out_cy)
-{
-   out_cx = std::max (0, (px - opts.border - 1) / fontpk->getPx ()) + 1;
-   out_cy = std::max (0, (py - opts.border - 1) / fontpk->getPy ()) + 1;
-}
-
-static inline void
-onButtonPressMouseProto (XButtonEvent& xbevt,
-                         const MouseTrackingState& mouseTrk)
-{
-   uint16_t cx, cy;
-
-   if (xbevt.button > 11)
-      return;
-
-   switch (mouseTrk.mode)
-   {
-   case MouseTrackingMode::VT200:
-   case MouseTrackingMode::VT200_ButtonEvent:
-   case MouseTrackingMode::VT200_AnyEvent:
-      mouseProtoConvCoords (xbevt.x, xbevt.y, cx, cy);
-      mouseProtoSend (mouseTrk.enc, ButtonPress,
-                      xbevt.state, xbevt.button, cx, cy);
-      break;
-   case MouseTrackingMode::X10_Compat:
-      mouseProtoConvCoords (xbevt.x, xbevt.y, cx, cy);
-      mouseProtoSend (mouseTrk.enc, ButtonPress, 0, xbevt.button, cx, cy);
-      break;
-   case MouseTrackingMode::Disabled:
-      break;
-   }
-}
-
-static inline void
-onButtonReleaseMouseProto (XButtonEvent& xbevt,
-                           const MouseTrackingState& mouseTrk)
-{
-   uint16_t cx, cy;
-
-   if (xbevt.button > 3)
-      return;
-
-   switch (mouseTrk.mode)
-   {
-   case MouseTrackingMode::VT200:
-   case MouseTrackingMode::VT200_ButtonEvent:
-   case MouseTrackingMode::VT200_AnyEvent:
-      mouseProtoConvCoords (xbevt.x, xbevt.y, cx, cy);
-      mouseProtoSend (mouseTrk.enc, ButtonRelease,
-                      xbevt.state, xbevt.button, cx, cy);
-      break;
-   case MouseTrackingMode::X10_Compat:
-   case MouseTrackingMode::Disabled:
-      break;
-   }
-}
-
-static inline void
-onMotionNotifyMouseProto (XMotionEvent& xmoevt,
-                          const MouseTrackingState& mouseTrk)
-{
-   uint16_t cx, cy;
-   static uint16_t lastCx = 65535;
-   static uint16_t lastCy = 65535;
-
-   switch (mouseTrk.mode)
-   {
-   case MouseTrackingMode::VT200_ButtonEvent:
-      if (! (xmoevt.state & (Button1Mask | Button2Mask | Button3Mask)))
-         break;
-      // fall through
-   case MouseTrackingMode::VT200_AnyEvent:
-      mouseProtoConvCoords (xmoevt.x, xmoevt.y, cx, cy);
-      if (cx != lastCx || cy != lastCy)
-      {
-         mouseProtoSend (mouseTrk.enc, MotionNotify,
-                         xmoevt.state, 0, cx, cy);
-         lastCx = cx;
-         lastCy = cy;
-      }
-      break;
-   default:
-      break;
-   }
-}
-
-static void
-onButtonPress (XButtonEvent& xbevt, bool& holdPtyIn)
-{
-   const auto& mouseTrk = vt->getMouseTrackingState ();
-   if (isMouseProtocol (xbevt.state, mouseTrk))
-   {
-      onButtonPressMouseProto (xbevt, mouseTrk);
-      return;
-   }
-
-   const auto& lastReleaseTime = mouseCtx.lastButtonReleasedAt;
-   bool cycleSnapTo =
-      xbevt.button == mouseCtx.lastButtonReleased &&
-      xbevt.time - lastReleaseTime < mouseCtx.Multi_Click_Threshold_Ms;
-   switch (xbevt.button)
-   {
-   case 1:
-      vt->selectStart (xbevt.x, xbevt.y, cycleSnapTo);
-      mouseCtx.selectionOngoing = true;
-      holdPtyIn = true;
-      break;
-   case 3:
-      vt->selectExtend (xbevt.x, xbevt.y, cycleSnapTo);
-      mouseCtx.selectionOngoing = true;
-      holdPtyIn = true;
-      break;
-   default:
-      break;
-   }
-}
-
-static void
-onButtonRelease (XButtonEvent& xbevt, bool& holdPtyIn)
-{
-   const auto& mouseTrk = vt->getMouseTrackingState ();
-   if (isMouseProtocol (xbevt.state, mouseTrk))
-   {
-      onButtonReleaseMouseProto (xbevt, mouseTrk);
-      return;
-   }
-
-   mouseCtx.lastButtonReleased = xbevt.button;
-   mouseCtx.lastButtonReleasedAt = xbevt.time;
-
-   switch (xbevt.button)
-   {
-   case 1: case 3:
-   {
-      std::string utf8_sel;
-      holdPtyIn = false;
-      mouseCtx.selectionOngoing = false;
-      if (vt->selectFinish (utf8_sel))
-      {
-         selMgr->setSelection (selMgr->getPrimary (), xbevt.time, utf8_sel);
-         if (opts.autoCopyMode)
-            selMgr->copySelection (selMgr->getClipboard (),
-                                   selMgr->getPrimary ());
-      }
-   }
-   break;
-   case 2:
-      selMgr->getSelection (selMgr->getPrimary (), xbevt.time, pasteCb);
-      break;
-   case 4: vt->mouseWheelUp (); break;
-   case 5: vt->mouseWheelDown (); break;
-      break;
-   }
-}
-
-static void
-onMotionNotify (XMotionEvent& xmoevt)
-{
-   const auto& mouseTrk = vt->getMouseTrackingState ();
-   if (isMouseProtocol (xmoevt.state, mouseTrk))
-      onMotionNotifyMouseProto (xmoevt, mouseTrk);
-   else if (xmoevt.state & (Button1Mask | Button3Mask))
-      vt->selectUpdate (xmoevt.x, xmoevt.y);
-}
-
-static bool
-x11Event (XEvent& event, XIC& xic, int ptyFd, bool& destroyed, bool& holdPtyIn)
-{
-   static bool exposed = false;
-   bool redraw = false;
-   destroyed = false;
-
-   switch (event.type) {
-   case Expose:
-      exposed = true;
-      redraw = true;
-      break;
-   case ClientMessage:
-      if ((unsigned long) event.xclient.data.l [0] == wmDeleteMessage)
-      {
-         logT << "WM Delete message" << std::endl;
-         destroyed = true;
-         return true;
-      }
-      else
-      {
-         logT << "ClientMessage" << std::endl;
-      }
-      break;
-   case ConfigureNotify:
-      vt->resize (event.xconfigure.width, event.xconfigure.height);
-      if (sizeHints.width != event.xconfigure.width ||
-          sizeHints.height != event.xconfigure.height)
-      {
-         sizeHints.width = event.xconfigure.width;
-         sizeHints.height = event.xconfigure.height;
-         XSetWMNormalHints (xDisplay, xWindow, &sizeHints);
-      }
-      redraw = true;
-      break;
-   case ReparentNotify:
-      logT << "ReparentNotify" << std::endl;
-      redraw = true;
-      break;
-   case MappingNotify:
-      logT << "MappingNotify" << std::endl;
-      break;
-   case MapNotify:
-      logT << "MapNotify" << std::endl;
-      break;
-   case UnmapNotify:
-      logT << "UnmapNotify" << std::endl;
-      break;
-   case DestroyNotify:
-      logT << "DestroyNotify" << std::endl;
-      destroyed = true;
+      char* text = primary ? SDL_GetPrimarySelectionText ()
+                           : SDL_GetClipboardText ();
+      if (text == nullptr)
+         return false;
+      vt->pasteSelection (text);
+      SDL_free (text);
       return true;
-   case KeyPress:
-      return onKeyPress (event, xic, ptyFd);
-   case KeyRelease:
-      break;
-   case ButtonPress:
-      onButtonPress (event.xbutton, holdPtyIn);
-      break;
-   case ButtonRelease:
-      onButtonRelease (event.xbutton, holdPtyIn);
-      break;
-   case MotionNotify:
-      onMotionNotify (event.xmotion);
-      break;
-   case FocusIn:
-      if (vt->getMouseTrackingState ().focusEventMode)
-         vt->writePty ("\e[I");
-      vt->setHasFocus (true);
-      break;
-   case FocusOut:
-      if (vt->getMouseTrackingState ().focusEventMode)
-         vt->writePty ("\e[O");
-      vt->setHasFocus (false);
-      break;
-   case PropertyNotify:
-      selMgr->onPropertyNotify (event.xproperty);
-      break;
-   case SelectionClear:
-      if (event.xselectionclear.selection == selMgr->getPrimary ())
-         vt->selectClear ();
-      selMgr->onSelectionClear (event.xselectionclear);
-      break;
-   case SelectionNotify:
-      selMgr->onSelectionNotify (event.xselection);
-      break;
-   case SelectionRequest:
-      selMgr->onSelectionRequest (event.xselectionrequest);
-      break;
-   default:
-      logT << "X event.type = " << event.type << std::endl;
-      break;
    }
 
-   if (exposed && redraw) {
-      vt->redraw ();
-   }
-
-   return false;
-}
-
-static bool
-eventLoop (XIC& xic, int ptyFd)
-{
-   int x11Fd = XConnectionNumber (xDisplay);
-   logT << "x11Fd = " << x11Fd << std::endl;
-   logT << "ptyFd = " << ptyFd << std::endl;
-
-   struct pollfd pollset [] = {
-      {ptyFd, POLLIN, 0},
-      {x11Fd, POLLIN, 0},
-   };
-
-   bool holdPtyIn = false;
-   while (1)
+   bool copyPrimaryToClipboard ()
    {
-      pollset [0].fd = holdPtyIn ? -ptyFd : ptyFd;
-      if (poll (pollset, 2, -1) < 0)
+      char* text = SDL_GetPrimarySelectionText ();
+      if (text == nullptr)
+         return false;
+      const bool result = SDL_SetClipboardText (text);
+      SDL_free (text);
+      return result;
+   }
+
+   VtKey keypadKey (SDL_Scancode scancode, bool numLock)
+   {
+      using Key = VtKey;
+      if (!numLock)
       {
-         if (errno == EINTR)
-            continue;
-         else
-            return false;
+         switch (scancode)
+         {
+         case SDL_SCANCODE_KP_0: return Key::KP_Insert;
+         case SDL_SCANCODE_KP_1: return Key::KP_End;
+         case SDL_SCANCODE_KP_2: return Key::KP_Down;
+         case SDL_SCANCODE_KP_3: return Key::KP_PageDown;
+         case SDL_SCANCODE_KP_4: return Key::KP_Left;
+         case SDL_SCANCODE_KP_5: return Key::KP_Begin;
+         case SDL_SCANCODE_KP_6: return Key::KP_Right;
+         case SDL_SCANCODE_KP_7: return Key::KP_Home;
+         case SDL_SCANCODE_KP_8: return Key::KP_Up;
+         case SDL_SCANCODE_KP_9: return Key::KP_PageUp;
+         case SDL_SCANCODE_KP_PERIOD: return Key::KP_Delete;
+         default: break;
+         }
       }
 
-      if (pollset [0].revents & (POLLIN | POLLHUP))
-         if (vt->readPty ())
-            return false;
-
-      if (pollset [1].revents & POLLIN)
-         while (XPending (xDisplay))
-         {
-            XEvent event;
-            bool destroyed = false;
-
-            XNextEvent (xDisplay, &event);
-            if (x11Event (event, xic, ptyFd, destroyed, holdPtyIn))
-               return destroyed;
-         }
-   }
-}
-
-static void
-handleOsc (int cmd, const std::string& arg)
-{
-   switch (cmd)
-   {
-   case 0: // Change Icon Name & Window Title
-      XStoreName (xDisplay, xWindow, arg.c_str ());
-      XSetIconName (xDisplay, xWindow, arg.c_str ());
-      break;
-   case 1: // Change Icon Name
-      XSetIconName (xDisplay, xWindow, arg.c_str ());
-      break;
-   case 2: // Change Window Title
-      XStoreName (xDisplay, xWindow, arg.c_str ());
-      break;
-   case 52: // Manipulate Selection Data
-   {
-      std::size_t p = arg.find_first_of(";");
-      if (p == std::string::npos)
+      switch (scancode)
       {
-         logT << "Malformed argument to OSC 52 (missing ';'): '"
-              << arg << "'" << std::endl;
+      case SDL_SCANCODE_KP_0: return Key::KP_0;
+      case SDL_SCANCODE_KP_1: return Key::KP_1;
+      case SDL_SCANCODE_KP_2: return Key::KP_2;
+      case SDL_SCANCODE_KP_3: return Key::KP_3;
+      case SDL_SCANCODE_KP_4: return Key::KP_4;
+      case SDL_SCANCODE_KP_5: return Key::KP_5;
+      case SDL_SCANCODE_KP_6: return Key::KP_6;
+      case SDL_SCANCODE_KP_7: return Key::KP_7;
+      case SDL_SCANCODE_KP_8: return Key::KP_8;
+      case SDL_SCANCODE_KP_9: return Key::KP_9;
+      case SDL_SCANCODE_KP_PERIOD: return Key::KP_Dot;
+      case SDL_SCANCODE_KP_DIVIDE: return Key::KP_Slash;
+      case SDL_SCANCODE_KP_MULTIPLY: return Key::KP_Star;
+      case SDL_SCANCODE_KP_MINUS: return Key::KP_Minus;
+      case SDL_SCANCODE_KP_PLUS: return Key::KP_Plus;
+      case SDL_SCANCODE_KP_ENTER: return Key::KP_Enter;
+      case SDL_SCANCODE_KP_EQUALS: return Key::KP_Equal;
+      case SDL_SCANCODE_KP_COMMA: return Key::KP_Comma;
+      case SDL_SCANCODE_KP_SPACE: return Key::KP_Space;
+      case SDL_SCANCODE_KP_TAB: return Key::KP_Tab;
+      default: return Key::NONE;
+      }
+   }
+
+   VtKey specialKey (const SDL_KeyboardEvent& event)
+   {
+      using Key = VtKey;
+      const Key keypad = keypadKey (
+         event.scancode, (event.mod & SDL_KMOD_NUM) != 0);
+      if (keypad != Key::NONE)
+         return keypad;
+
+      switch (event.key)
+      {
+      case SDLK_RETURN: return Key::Return;
+      case SDLK_BACKSPACE: return Key::Backspace;
+      case SDLK_TAB: return Key::Tab;
+      case SDLK_INSERT: return Key::Insert;
+      case SDLK_DELETE: return Key::Delete;
+      case SDLK_HOME: return Key::Home;
+      case SDLK_END: return Key::End;
+      case SDLK_UP: return Key::Up;
+      case SDLK_DOWN: return Key::Down;
+      case SDLK_LEFT: return Key::Left;
+      case SDLK_RIGHT: return Key::Right;
+      case SDLK_PAGEUP: return Key::PageUp;
+      case SDLK_PAGEDOWN: return Key::PageDown;
+      case SDLK_F1: return Key::F1;
+      case SDLK_F2: return Key::F2;
+      case SDLK_F3: return Key::F3;
+      case SDLK_F4: return Key::F4;
+      case SDLK_F5: return Key::F5;
+      case SDLK_F6: return Key::F6;
+      case SDLK_F7: return Key::F7;
+      case SDLK_F8: return Key::F8;
+      case SDLK_F9: return Key::F9;
+      case SDLK_F10: return Key::F10;
+      case SDLK_F11: return Key::F11;
+      case SDLK_F12: return Key::F12;
+      case SDLK_F13: return Key::F13;
+      case SDLK_F14: return Key::F14;
+      case SDLK_F15: return Key::F15;
+      case SDLK_F16: return Key::F16;
+      case SDLK_F17: return Key::F17;
+      case SDLK_F18: return Key::F18;
+      case SDLK_F19: return Key::F19;
+      case SDLK_F20: return Key::F20;
+#ifdef DEBUG
+      case SDLK_PRINTSCREEN: return Key::Print;
+#endif
+      default: return Key::NONE;
+      }
+   }
+
+   bool controlCharacter (SDL_Keycode key, uint8_t& character)
+   {
+      if (key >= SDLK_A && key <= SDLK_Z)
+      {
+         character = static_cast <uint8_t> (key - SDLK_A + 1);
+         return true;
+      }
+      switch (key)
+      {
+      case SDLK_SPACE: case SDLK_AT: character = 0; return true;
+      case SDLK_2: character = 0; return true;
+      case SDLK_3: character = 27; return true;
+      case SDLK_4: character = 28; return true;
+      case SDLK_5: character = 29; return true;
+      case SDLK_6: character = 30; return true;
+      case SDLK_7: character = 31; return true;
+      case SDLK_8: character = 127; return true;
+      case SDLK_LEFTBRACKET: character = 27; return true;
+      case SDLK_BACKSLASH: character = 28; return true;
+      case SDLK_RIGHTBRACKET: character = 29; return true;
+      case SDLK_CARET: character = 30; return true;
+      case SDLK_UNDERSCORE: character = 31; return true;
+      case SDLK_SLASH: character = 31; return true;
+      case SDLK_QUESTION: character = 127; return true;
+      default:
+         if (key > 0 && key < 128)
+         {
+            character = static_cast <uint8_t> (key);
+            return true;
+         }
+         return false;
+      }
+   }
+
+   void onKeyDown (const SDL_KeyboardEvent& event)
+   {
+      const SDL_Keymod rawModifiers = significantModifiers (event.mod);
+      const VtModifier modifiers = convertModifiers (rawModifiers);
+
+      if (event.key == SDLK_PAGEUP && modifiers == VtModifier::shift)
+      {
+         vt->pageUp ();
+         return;
+      }
+      if (event.key == SDLK_PAGEDOWN && modifiers == VtModifier::shift)
+      {
+         vt->pageDown ();
+         return;
+      }
+      if (event.key == SDLK_C && modifiers == VtModifier::shift_control)
+      {
+         copyPrimaryToClipboard ();
+         return;
+      }
+      if (event.key == SDLK_V && modifiers == VtModifier::shift_control)
+      {
+         pasteSelection (false);
+         return;
+      }
+      if ((event.key == SDLK_INSERT ||
+           event.scancode == SDL_SCANCODE_KP_0) &&
+          modifiers == VtModifier::shift)
+      {
+         pasteSelection (true);
+         return;
+      }
+      if (event.key == SDLK_SPACE && mouseContext.selectionOngoing)
+      {
+         vt->selectRectangularModeToggle ();
+         return;
+      }
+
+      if (event.key == SDLK_ESCAPE)
+      {
+         vt->writePty (static_cast <uint8_t> ('\x1b'), modifiers, true);
+         return;
+      }
+
+      const VtKey key = specialKey (event);
+      if (key != VtKey::NONE)
+      {
+         vt->writePty (key, modifiers, true);
+         return;
+      }
+
+      if (rawModifiers & SDL_KMOD_CTRL)
+      {
+         uint8_t character = 0;
+         if (controlCharacter (event.key, character))
+            vt->writePty (character, modifiers, true);
+      }
+   }
+
+   void onTextInput (const char* text)
+   {
+      if (text == nullptr || text [0] == '\0')
+         return;
+      const SDL_Keymod rawModifiers = significantModifiers (SDL_GetModState ());
+      const VtModifier modifiers = convertModifiers (rawModifiers);
+      const size_t length = std::strlen (text);
+
+      if (length == 1 && static_cast <uint8_t> (text [0]) < 0x80)
+      {
+         vt->writePty (static_cast <uint8_t> (text [0]), modifiers, true);
+         return;
+      }
+
+      if ((rawModifiers & SDL_KMOD_ALT) && !(rawModifiers & SDL_KMOD_MODE) &&
+          opts.altSendsEscape)
+         vt->writePty ("\x1b", true);
+      vt->writePty (text, true);
+   }
+
+   int toPixelX (float x)
+   {
+      return static_cast <int> (std::lround (
+         x * std::max (1.0f, SDL_GetWindowPixelDensity (window))));
+   }
+
+   int toPixelY (float y)
+   {
+      return static_cast <int> (std::lround (
+         y * std::max (1.0f, SDL_GetWindowPixelDensity (window))));
+   }
+
+   bool isMouseProtocol (SDL_Keymod modifiers,
+                         const MouseTrackingState& tracking)
+   {
+      return !mouseContext.selectionOngoing &&
+             !(modifiers & SDL_KMOD_SHIFT) &&
+             tracking.mode != MouseTrackingMode::Disabled;
+   }
+
+   void mouseProtocolCoordinates (int pixelX, int pixelY,
+                                  uint16_t& column, uint16_t& row)
+   {
+      column = std::max (0, (pixelX - opts.border - 1) /
+                            fontpk->getPx ()) + 1;
+      row = std::max (0, (pixelY - opts.border - 1) /
+                         fontpk->getPy ()) + 1;
+   }
+
+   void mouseProtocolSend (MouseTrackingEnc encoding, MouseEventType type,
+                           SDL_Keymod modifiers,
+                           SDL_MouseButtonFlags buttonState,
+                           int button, int column, int row)
+   {
+      int code = 0;
+      if (type == MouseEventType::Motion)
+      {
+         if (buttonState & SDL_BUTTON_LMASK) code = 32;
+         else if (buttonState & SDL_BUTTON_MMASK) code = 33;
+         else if (buttonState & SDL_BUTTON_RMASK) code = 34;
+         else code = 35;
+      }
+      else if (type == MouseEventType::Release &&
+               encoding != MouseTrackingEnc::SGR)
+         code = 3;
+      else
+      {
+         switch (button)
+         {
+         case 1: code = 0; break;
+         case 2: code = 1; break;
+         case 3: code = 2; break;
+         case 4: code = 64; break;
+         case 5: code = 65; break;
+         case 6: code = 66; break;
+         case 7: code = 67; break;
+         case 8: code = 128; break;
+         case 9: code = 129; break;
+         default: return;
+         }
+      }
+
+      if (modifiers & SDL_KMOD_SHIFT) code += 4;
+      if ((modifiers & SDL_KMOD_ALT) && !(modifiers & SDL_KMOD_MODE)) code += 8;
+      if (modifiers & SDL_KMOD_CTRL) code += 16;
+
+      std::ostringstream output;
+      switch (encoding)
+      {
+      case MouseTrackingEnc::Default:
+         output << "\x1b[M" << static_cast <char> (32 + code)
+                << static_cast <char> (32 + column)
+                << static_cast <char> (32 + row);
+         break;
+      case MouseTrackingEnc::UTF8:
+         output << "\x1b[M";
+         zutty::Utf8Encoder::pushUnicode (
+            32 + code, [&output] (char ch) { output << ch; });
+         zutty::Utf8Encoder::pushUnicode (
+            32 + column, [&output] (char ch) { output << ch; });
+         zutty::Utf8Encoder::pushUnicode (
+            32 + row, [&output] (char ch) { output << ch; });
+         break;
+      case MouseTrackingEnc::SGR:
+         output << "\x1b[<" << code << ';' << column << ';' << row
+                << (type == MouseEventType::Release ? 'm' : 'M');
+         break;
+      case MouseTrackingEnc::URXVT:
+         output << "\x1b[" << code + 32 << ';' << column << ';' << row << 'M';
          break;
       }
-      std::string pc = arg.substr (0, p);
-      std::string pd = arg.substr (p + 1);
-      logT << "OSC 52: pc='" << pc << "', pd='" << pd << "'" << std::endl;
+      vt->writePty (output.str ().c_str ());
+   }
 
-      std::vector <Atom> targets {};
-      if (pc == "" || pc.find ('s') != std::string::npos)
+   void sendMouseButtonProtocol (MouseEventType type, int button,
+                                 int pixelX, int pixelY,
+                                 SDL_Keymod modifiers,
+                                 SDL_MouseButtonFlags buttonState,
+                                 const MouseTrackingState& tracking)
+   {
+      if (button > 11 ||
+          (type == MouseEventType::Release && button > 3))
+         return;
+      if (tracking.mode == MouseTrackingMode::Disabled ||
+          (type == MouseEventType::Release &&
+           tracking.mode == MouseTrackingMode::X10_Compat))
+         return;
+
+      uint16_t column = 0;
+      uint16_t row = 0;
+      mouseProtocolCoordinates (pixelX, pixelY, column, row);
+      mouseProtocolSend (
+         tracking.enc, type,
+         tracking.mode == MouseTrackingMode::X10_Compat
+            ? static_cast <SDL_Keymod> (0)
+            : modifiers,
+         buttonState, button, column, row);
+   }
+
+   int terminalButton (Uint8 sdlButton)
+   {
+      switch (sdlButton)
       {
-         targets.push_back (selMgr->getPrimary ());
-         targets.push_back (selMgr->getClipboard ());
+      case SDL_BUTTON_LEFT: return 1;
+      case SDL_BUTTON_MIDDLE: return 2;
+      case SDL_BUTTON_RIGHT: return 3;
+      case SDL_BUTTON_X1: return 8;
+      case SDL_BUTTON_X2: return 9;
+      default: return 0;
+      }
+   }
+
+   void onMouseButton (const SDL_MouseButtonEvent& event, bool pressed,
+                       bool& releasePtyHold)
+   {
+      const int pixelX = toPixelX (event.x);
+      const int pixelY = toPixelY (event.y);
+      const SDL_Keymod modifiers = SDL_GetModState ();
+      const SDL_MouseButtonFlags buttons = SDL_GetMouseState (nullptr, nullptr);
+      const auto& tracking = vt->getMouseTrackingState ();
+      const int protocolButton = terminalButton (event.button);
+
+      if (isMouseProtocol (modifiers, tracking))
+      {
+         sendMouseButtonProtocol (
+            pressed ? MouseEventType::Press : MouseEventType::Release,
+            protocolButton, pixelX, pixelY, modifiers, buttons, tracking);
+         return;
+      }
+
+      if (pressed)
+      {
+         const bool cycleSnapTo = event.clicks > 1;
+         if (event.button == SDL_BUTTON_LEFT)
+         {
+            vt->selectStart (pixelX, pixelY, cycleSnapTo);
+            mouseContext.selectionOngoing = true;
+         }
+         else if (event.button == SDL_BUTTON_RIGHT)
+         {
+            vt->selectExtend (pixelX, pixelY, cycleSnapTo);
+            mouseContext.selectionOngoing = true;
+         }
+         return;
+      }
+
+      if (event.button == SDL_BUTTON_LEFT ||
+          event.button == SDL_BUTTON_RIGHT)
+      {
+         std::string selection;
+         mouseContext.selectionOngoing = false;
+         releasePtyHold = true;
+         if (vt->selectFinish (selection))
+         {
+            if (!SDL_SetPrimarySelectionText (selection.c_str ()))
+            {
+               logW << "Could not set Wayland primary selection: "
+                    << SDL_GetError () << std::endl;
+            }
+            if (opts.autoCopyMode &&
+                !SDL_SetClipboardText (selection.c_str ()))
+            {
+               logW << "Could not set clipboard: "
+                    << SDL_GetError () << std::endl;
+            }
+         }
+      }
+      else if (event.button == SDL_BUTTON_MIDDLE)
+         pasteSelection (true);
+   }
+
+   void onMouseMotion (const SDL_MouseMotionEvent& event)
+   {
+      const int pixelX = toPixelX (event.x);
+      const int pixelY = toPixelY (event.y);
+      const SDL_Keymod modifiers = SDL_GetModState ();
+      const auto& tracking = vt->getMouseTrackingState ();
+      if (isMouseProtocol (modifiers, tracking))
+      {
+         if (tracking.mode == MouseTrackingMode::VT200_ButtonEvent &&
+             !(event.state & (SDL_BUTTON_LMASK | SDL_BUTTON_MMASK |
+                              SDL_BUTTON_RMASK)))
+            return;
+         if (tracking.mode != MouseTrackingMode::VT200_ButtonEvent &&
+             tracking.mode != MouseTrackingMode::VT200_AnyEvent)
+            return;
+
+         static uint16_t lastColumn = UINT16_MAX;
+         static uint16_t lastRow = UINT16_MAX;
+         uint16_t column = 0;
+         uint16_t row = 0;
+         mouseProtocolCoordinates (pixelX, pixelY, column, row);
+         if (column != lastColumn || row != lastRow)
+         {
+            mouseProtocolSend (tracking.enc, MouseEventType::Motion,
+                               modifiers, event.state, 0, column, row);
+            lastColumn = column;
+            lastRow = row;
+         }
+      }
+      else if (event.state & (SDL_BUTTON_LMASK | SDL_BUTTON_RMASK))
+         vt->selectUpdate (pixelX, pixelY);
+   }
+
+   void onMouseWheel (const SDL_MouseWheelEvent& event)
+   {
+      float wheelX = event.x;
+      float wheelY = event.y;
+      if (event.direction == SDL_MOUSEWHEEL_FLIPPED)
+      {
+         wheelX = -wheelX;
+         wheelY = -wheelY;
+      }
+
+      const SDL_Keymod modifiers = SDL_GetModState ();
+      const auto& tracking = vt->getMouseTrackingState ();
+      if (isMouseProtocol (modifiers, tracking))
+      {
+         const int pixelX = toPixelX (event.mouse_x);
+         const int pixelY = toPixelY (event.mouse_y);
+         const SDL_MouseButtonFlags buttons =
+            SDL_GetMouseState (nullptr, nullptr);
+         if (wheelY > 0)
+            sendMouseButtonProtocol (MouseEventType::Press, 4,
+                                     pixelX, pixelY, modifiers,
+                                     buttons, tracking);
+         else if (wheelY < 0)
+            sendMouseButtonProtocol (MouseEventType::Press, 5,
+                                     pixelX, pixelY, modifiers,
+                                     buttons, tracking);
+         if (wheelX < 0)
+            sendMouseButtonProtocol (MouseEventType::Press, 6,
+                                     pixelX, pixelY, modifiers,
+                                     buttons, tracking);
+         else if (wheelX > 0)
+            sendMouseButtonProtocol (MouseEventType::Press, 7,
+                                     pixelX, pixelY, modifiers,
+                                     buttons, tracking);
+      }
+      else if (wheelY > 0)
+         vt->mouseWheelUp ();
+      else if (wheelY < 0)
+         vt->mouseWheelDown ();
+   }
+
+   std::string getSelectionForOsc (bool primary)
+   {
+      char* text = primary ? SDL_GetPrimarySelectionText ()
+                           : SDL_GetClipboardText ();
+      if (text == nullptr)
+         return {};
+      std::string result (text);
+      SDL_free (text);
+      return result;
+   }
+
+   void handleOsc (int command, const std::string& argument)
+   {
+      switch (command)
+      {
+      case 0:
+      case 1:
+      case 2:
+         SDL_SetWindowTitle (window, argument.c_str ());
+         return;
+      case 52:
+         break;
+      default:
+         logU << "unhandled OSC: '" << command << ';' << argument << "'"
+              << std::endl;
+         return;
+      }
+
+      const size_t separator = argument.find (';');
+      if (separator == std::string::npos)
+      {
+         logW << "Malformed OSC 52 argument" << std::endl;
+         return;
+      }
+      const std::string selectors = argument.substr (0, separator);
+      const std::string payload = argument.substr (separator + 1);
+      bool primary = selectors.empty () || selectors.find ('s') != std::string::npos ||
+                     selectors.find ('p') != std::string::npos;
+      bool clipboard = selectors.empty () || selectors.find ('s') != std::string::npos ||
+                       selectors.find ('c') != std::string::npos;
+
+      if (payload == "?")
+      {
+         std::string content;
+         if (primary)
+            content = getSelectionForOsc (true);
+         if (content.empty () && clipboard)
+            content = getSelectionForOsc (false);
+         const std::string reply = "\x1b]52;;" +
+            zutty::base64::encode (content) + "\x1b\\";
+         vt->writePty (reply.c_str ());
+         return;
+      }
+
+      const std::string content = zutty::base64::decode (payload);
+      if (primary && !SDL_SetPrimarySelectionText (content.c_str ()))
+      {
+         logW << "OSC 52: could not set primary selection: "
+              << SDL_GetError () << std::endl;
+      }
+      if (clipboard && !SDL_SetClipboardText (content.c_str ()))
+      {
+         logW << "OSC 52: could not set clipboard: "
+              << SDL_GetError () << std::endl;
+      }
+   }
+
+   bool eventLoop (PtyEventSource& ptySource, Uint32 ptyEventType)
+   {
+      bool ptyPending = false;
+      while (true)
+      {
+         SDL_Event event {};
+         if (!SDL_WaitEvent (&event))
+            throw std::runtime_error (
+               std::string ("SDL_WaitEvent failed: ") + SDL_GetError ());
+
+         bool releasePtyHold = false;
+         if (event.type == ptyEventType)
+         {
+            if (mouseContext.selectionOngoing)
+               ptyPending = true;
+            else
+            {
+               const bool finished = vt->readPty ();
+               ptySource.acknowledge ();
+               if (finished)
+                  return false;
+            }
+         }
+         else switch (event.type)
+         {
+         case SDL_EVENT_QUIT:
+         case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+            return true;
+         case SDL_EVENT_WINDOW_EXPOSED:
+            vt->redraw ();
+            break;
+         case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+            if (event.window.data1 > 0 && event.window.data2 > 0)
+            {
+               const int width = std::min (event.window.data1,
+                                           static_cast <int> (UINT16_MAX));
+               const int height = std::min (event.window.data2,
+                                            static_cast <int> (UINT16_MAX));
+               vt->resize (width, height);
+               vt->redraw ();
+            }
+            break;
+         case SDL_EVENT_WINDOW_FOCUS_GAINED:
+            if (vt->getMouseTrackingState ().focusEventMode)
+               vt->writePty ("\x1b[I");
+            vt->setHasFocus (true);
+            break;
+         case SDL_EVENT_WINDOW_FOCUS_LOST:
+            if (vt->getMouseTrackingState ().focusEventMode)
+               vt->writePty ("\x1b[O");
+            vt->setHasFocus (false);
+            break;
+         case SDL_EVENT_KEY_DOWN:
+            onKeyDown (event.key);
+            break;
+         case SDL_EVENT_TEXT_INPUT:
+            onTextInput (event.text.text);
+            break;
+         case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            onMouseButton (event.button, true, releasePtyHold);
+            break;
+         case SDL_EVENT_MOUSE_BUTTON_UP:
+            onMouseButton (event.button, false, releasePtyHold);
+            break;
+         case SDL_EVENT_MOUSE_MOTION:
+            onMouseMotion (event.motion);
+            break;
+         case SDL_EVENT_MOUSE_WHEEL:
+            onMouseWheel (event.wheel);
+            break;
+         default:
+            break;
+         }
+
+         if (releasePtyHold && ptyPending)
+         {
+            ptyPending = false;
+            const bool finished = vt->readPty ();
+            ptySource.acknowledge ();
+            if (finished)
+               return false;
+         }
+      }
+   }
+
+   void checkLocale ()
+   {
+      const char* locale = setlocale (LC_ALL, "");
+      if (locale == nullptr)
+      {
+         std::cout << "Warning: could not set locale; international input "
+                      "may be broken.\n";
+         return;
+      }
+      if (std::strcmp (nl_langinfo (CODESET), "UTF-8") != 0)
+         std::cout << "Warning: non-UTF-8 locale " << locale
+                   << "; international input may be broken.\n";
+   }
+
+   int run (int argc, char* argv[])
+   {
+      checkLocale ();
+      opts.initialize (&argc, argv);
+      opts.parse ();
+      if (opts.verbose)
+         opts.printVersion ();
+      if (setenv ("ZUTTY_VERSION", ZUTTY_VERSION, 1) < 0)
+         SYS_ERROR ("setenv ZUTTY_VERSION");
+
+      char argv0 [PATH_MAX] {};
+      char progPath [PATH_MAX] {};
+      char* defaultShellArgv [] = {argv0, nullptr};
+      char** shellArgv = defaultShellArgv;
+      if (argc > 2 && std::strcmp (argv [1], "-e") == 0)
+      {
+         shellArgv = argv + 2;
+         if (opts.titleSource != zutty::OptionSource::CmdLine)
+            opts.title = argv [2];
+         std::strncpy (progPath, argv [2], PATH_MAX - 1);
+      }
+      else if (argc == 2)
+      {
+         setArgv0 (argv0);
+         std::strncpy (progPath, argv [1], PATH_MAX - 1);
+         validateShell (progPath);
       }
       else
       {
-         for (auto c: pc)
-            switch (c)
-            {
-            case 'p': targets.push_back (selMgr->getPrimary ()); break;
-            case 'c': targets.push_back (selMgr->getClipboard ()); break;
-            }
+         setArgv0 (argv0);
+         std::strncpy (progPath, opts.shell, PATH_MAX - 1);
+         validateShell (progPath);
       }
 
-      if (pd == "?")
+      SDL_SetAppMetadata ("Zutty", ZUTTY_VERSION, "org.zutty.Zutty");
+      SDL_SetHint (SDL_HINT_VIDEO_DRIVER, "wayland");
+      if (!SDL_Init (SDL_INIT_VIDEO | SDL_INIT_EVENTS))
+         throw std::runtime_error (
+            std::string ("SDL_Init failed: ") + SDL_GetError ());
+      const char* driver = SDL_GetCurrentVideoDriver ();
+      if (driver == nullptr || std::strcmp (driver, "wayland") != 0)
+         throw std::runtime_error (
+            std::string ("Wayland SDL driver required, got: ") +
+            (driver != nullptr ? driver : "none"));
+
+      const int initialWidth = std::max (
+         320, static_cast <int> (opts.nCols) * opts.fontsize / 2);
+      const int initialHeight = std::max (
+         200, static_cast <int> (opts.nRows) * opts.fontsize);
+      window = SDL_CreateWindow (
+         opts.title, initialWidth, initialHeight,
+         SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE |
+         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN);
+      if (window == nullptr)
+         throw std::runtime_error (
+            std::string ("SDL_CreateWindow failed: ") + SDL_GetError ());
+      if (!SDL_ShowWindow (window) || !SDL_SyncWindow (window))
+         throw std::runtime_error (
+            std::string ("Could not map Wayland window: ") + SDL_GetError ());
+
+      const float density = std::max (
+         1.0f, SDL_GetWindowPixelDensity (window));
+      opts.fontsize = static_cast <uint8_t> (std::clamp (
+         static_cast <int> (std::lround (opts.fontsize * density)), 1, 255));
+      opts.border = static_cast <uint16_t> (std::clamp (
+         static_cast <int> (std::lround (opts.border * density)), 0, 3000));
+
+      fontpk = std::make_unique <Fontpack> (
+         opts.fontpath, opts.fontname, opts.dwfontname);
+      const int desiredPixelWidth =
+         2 * opts.border + opts.nCols * fontpk->getPx ();
+      const int desiredPixelHeight =
+         2 * opts.border + opts.nRows * fontpk->getPy ();
+      const int desiredWidth = std::max (
+         1, static_cast <int> (std::ceil (desiredPixelWidth / density)));
+      const int desiredHeight = std::max (
+         1, static_cast <int> (std::ceil (desiredPixelHeight / density)));
+      SDL_SetWindowMinimumSize (
+         window,
+         std::max (1, static_cast <int> (std::ceil (
+            (2 * opts.border + fontpk->getPx ()) / density))),
+         std::max (1, static_cast <int> (std::ceil (
+            (2 * opts.border + fontpk->getPy ()) / density))));
+      if (!SDL_SetWindowSize (window, desiredWidth, desiredHeight) ||
+          !SDL_SyncWindow (window))
+         throw std::runtime_error (
+            std::string ("Could not size Wayland window: ") + SDL_GetError ());
+
+      int pixelWidth = 0;
+      int pixelHeight = 0;
+      if (!SDL_GetWindowSizeInPixels (window, &pixelWidth, &pixelHeight))
+         throw std::runtime_error (
+            std::string ("SDL_GetWindowSizeInPixels failed: ") +
+            SDL_GetError ());
+      if (pixelWidth > UINT16_MAX || pixelHeight > UINT16_MAX)
+         throw std::runtime_error ("Initial window exceeds terminal limits");
+
+      SDL_Cursor* cursor = SDL_CreateSystemCursor (SDL_SYSTEM_CURSOR_TEXT);
+      if (cursor != nullptr)
+         SDL_SetCursor (cursor);
+      if (!SDL_StartTextInput (window))
       {
-         // Iterate through targets via callback in continuation-passing style
-         auto it = targets.begin ();
-         auto iend = targets.end ();
-         SelectionManager::PasteCallbackFn getSelectionCb =
-            [&] (bool success, const std::string& content)
-            {
-               if (success)
-               {
-                  std::ostringstream oss;
-                  oss << "\e]52;;" << zutty::base64::encode (content) << "\e\\";
-                  vt->writePty (oss.str ().c_str ());
-               }
-               else if (++it != iend)
-               {
-                  selMgr->getSelection (*it, CurrentTime,
-                                        std::move (getSelectionCb));
-               }
-            };
-         if (it != iend)
-            selMgr->getSelection (*it, CurrentTime, std::move (getSelectionCb));
+         logW << "SDL_StartTextInput failed: " << SDL_GetError ()
+              << std::endl;
       }
-      else
+
+      renderer = std::make_unique <Renderer> (window, fontpk.get ());
+      setupSignals ();
+      const int ptyFd = startShell (progPath, shellArgv);
+      vt = std::make_unique <Vterm> (
+         fontpk->getPx (), fontpk->getPy (), pixelWidth, pixelHeight, ptyFd);
+      vt->setRefreshHandler (
+         [] (const zutty::Frame& frame) { renderer->update (frame); });
+      vt->setOscHandler (
+         [] (int command, const std::string& argument)
+         { handleOsc (command, argument); });
+      vt->setBellHandler (
+         [] () { SDL_FlashWindow (window, SDL_FLASH_BRIEFLY); });
+      vt->resize (pixelWidth, pixelHeight);
+      vt->redraw ();
+
+      const Uint32 ptyEventType = SDL_RegisterEvents (1);
+      if (ptyEventType == static_cast <Uint32> (-1))
+         throw std::runtime_error (
+            std::string ("SDL_RegisterEvents failed: ") + SDL_GetError ());
+
+      bool windowClosed = false;
       {
-         for (const auto& target: targets)
-         {
-            std::string content = zutty::base64::decode (pd);
-            selMgr->setSelection (target, CurrentTime, content);
-         }
+         PtyEventSource ptySource (ptyFd, ptyEventType);
+         windowClosed = eventLoop (ptySource, ptyEventType);
       }
+
+      vt.reset ();
+      close (ptyFd);
+      renderer.reset ();
+      fontpk.reset ();
+      if (cursor != nullptr)
+         SDL_DestroyCursor (cursor);
+      SDL_DestroyWindow (window);
+      window = nullptr;
+      SDL_Quit ();
+      return windowClosed ? 0 : 0;
    }
-      break;
-   default:
-      logU << "unhandled OSC: '" << cmd << ";" << arg << "'" << std::endl;
-      break;
+
+   void emergencyCleanup ()
+   {
+      vt.reset ();
+      renderer.reset ();
+      fontpk.reset ();
+      if (window != nullptr)
+      {
+         SDL_DestroyWindow (window);
+         window = nullptr;
+      }
+      SDL_Quit ();
    }
 }
 
-static void
-printGLInfo (EGLDisplay eglDpy)
+int main (int argc, char* argv[])
 {
-   std::cout << "\nEGL_VERSION     = " << eglQueryString (eglDpy, EGL_VERSION)
-             << "\nEGL_VENDOR      = " << eglQueryString (eglDpy, EGL_VENDOR)
-             << "\nEGL_EXTENSIONS  = " << eglQueryString (eglDpy, EGL_EXTENSIONS)
-             << "\nEGL_CLIENT_APIS = " << eglQueryString (eglDpy, EGL_CLIENT_APIS)
-             << std::endl;
-
-   std::cout << "\nGL_RENDERER     = " << glGetString (GL_RENDERER)
-             << "\nGL_VERSION      = " << glGetString (GL_VERSION)
-             << "\nGL_VENDOR       = " << glGetString (GL_VENDOR)
-             << "\nGL_EXTENSIONS   = " << glGetString (GL_EXTENSIONS)
-             << std::endl;
-
-   int work_grp_cnt[3];
-   glGetIntegeri_v (GL_MAX_COMPUTE_WORK_GROUP_COUNT, 0, &work_grp_cnt[0]);
-   glGetIntegeri_v (GL_MAX_COMPUTE_WORK_GROUP_COUNT, 1, &work_grp_cnt[1]);
-   glGetIntegeri_v (GL_MAX_COMPUTE_WORK_GROUP_COUNT, 2, &work_grp_cnt[2]);
-   std::cout << "\nCompute shader:\n"
-             << "- max. global (total) work group counts:"
-             << " x=" << work_grp_cnt[0]
-             << " y=" << work_grp_cnt[1]
-             << " z=" << work_grp_cnt[2]
-             << std::endl;
-
-   int work_grp_size[3];
-   glGetIntegeri_v (GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, &work_grp_size[0]);
-   glGetIntegeri_v (GL_MAX_COMPUTE_WORK_GROUP_SIZE, 1, &work_grp_size[1]);
-   glGetIntegeri_v (GL_MAX_COMPUTE_WORK_GROUP_SIZE, 2, &work_grp_size[2]);
-   std::cout << "- max. local (per-shader) work group sizes:"
-             << " x=" << work_grp_size[0]
-             << " y=" << work_grp_size[1]
-             << " z=" << work_grp_size[2]
-             << std::endl;
-
-   int work_grp_inv;
-   glGetIntegerv (GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, &work_grp_inv);
-   std::cout << "- max. local work group invocations: " << work_grp_inv << "\n"
-             << std::endl;
-}
-
-static int
-handleXError (Display* dpy, XErrorEvent* ev)
-{
-   logE << "Exiting on received X error event:" << std::endl;
-   XmuPrintDefaultErrorMessage(dpy, ev, stdout);
-   fflush (stdout);
-
-   renderer = nullptr; // ~Renderer () shuts down renderer thread
-   exit (1);
-   return 0;
-}
-
-static int
-handleXIOError (Display* dpy)
-{
-   int err = errno;
-   logE << "Fatal IO error " << err << " (" << strerror (err)
-        << ") on X server " << DisplayString (dpy) << std::endl;
-
-   renderer = nullptr; // ~Renderer () shuts down renderer thread
-   exit (1);
-   return 0;
-}
-
-int
-main (int argc, char* argv[])
-{
-   EGLSurface eglSurface;
-   EGLContext eglCtx;
-   EGLDisplay eglDpy;
-   EGLint eglMajor, eglMinor;
-   XIC xic = nullptr;
-   XIM xim;
-   XIMStyles* ximStyles;
-   XIMStyle ximStyle = 0;
-   char* imvalret;
-   int i;
-
+   try
    {
-      const char* loc;
-      bool warn = false;
-      loc = setlocale (LC_ALL, "");
-      if (!loc)
-      {
-         std::cout << "Warning: could not set locale!" << std::endl;
-         warn = true;
-      }
-      else if (strcmp (nl_langinfo (CODESET), "UTF-8") != 0)
-      {
-         std::cout << "Warning: non-UTF-8 locale: " << loc << std::endl;
-         warn = true;
-      }
-      if (warn)
-         std::cout << "Expect broken international characters "
-                   << "(or fix your locale)!"
-                   << std::endl;
+      return run (argc, argv);
    }
-
-   if (! XInitThreads ())
+   catch (const std::exception& error)
    {
-      std::cout << "Error: couldn't initialize XLib for multithreaded use"
-                << std::endl;
-      return -1;
+      emergencyCleanup ();
+      std::cerr << "Error: " << error.what () << std::endl;
+      return 1;
    }
-
-   XSetErrorHandler(handleXError);
-   XSetIOErrorHandler(handleXIOError);
-
-   opts.initialize (&argc, argv);
-   if (!opts.display)
-   {
-      opts.handlePrintOpts ();
-      std::cout << "Error: DISPLAY not set!" << std::endl;
-      return -1;
-   }
-
-   xDisplay = XOpenDisplay (opts.display);
-   if (!xDisplay)
-   {
-      opts.handlePrintOpts ();
-      std::cout << "Error: couldn't open display '" << opts.display << "'"
-                << std::endl;
-      return -1;
-   }
-   opts.setDisplay (xDisplay);
-
-   opts.parse ();
-
-   if (opts.verbose)
-      opts.printVersion ();
-
-   if (setenv ("ZUTTY_VERSION", ZUTTY_VERSION, 1) < 0)
-      SYS_ERROR ("setenv (ZUTTY_VERSION)");
-
-   char argv0 [PATH_MAX];
-   char progPath [PATH_MAX];
-   char* defaultShArgv [] = { argv0, nullptr };
-   char** shArgv = defaultShArgv;
-   if (argc > 2 && strcmp (argv [1], "-e") == 0)
-   {
-      shArgv = argv + 2;
-      if (opts.titleSource != zutty::OptionSource::CmdLine)
-         opts.title = argv [2];
-      strncpy (progPath, argv [2], PATH_MAX-1);
-   }
-   else if (argc == 2)
-   {
-      setArgv0 (argv0);
-      strncpy (progPath, argv [1], PATH_MAX-1);
-      validateShell (progPath);
-   }
-   else
-   {
-      setArgv0 (argv0);
-      strncpy (progPath, opts.shell, PATH_MAX-1);
-      validateShell (progPath);
-   }
-
-   eglDpy = eglGetDisplay ((EGLNativeDisplayType)xDisplay);
-   if (!eglDpy)
-   {
-      logE << "eglGetDisplay() failed" << std::endl;
-      return -1;
-   }
-
-   if (!eglInitialize (eglDpy, &eglMajor, &eglMinor))
-   {
-      logE << "eglInitialize() failed" << std::endl;
-      return -1;
-   }
-
-   xim = XOpenIM (xDisplay, nullptr, nullptr, nullptr);
-   if (xim == nullptr)
-   {
-      logW << "XOpenIM failed" << std::endl;
-   }
-
-   if (xim)
-   {
-      imvalret = XGetIMValues (xim, XNQueryInputStyle, &ximStyles, nullptr);
-      if (imvalret != nullptr || ximStyles == nullptr)
-      {
-         logW << "No styles supported by input method" << std::endl;
-      }
-
-      if (ximStyles) {
-         ximStyle = 0;
-         for (i = 0;  i < ximStyles->count_styles;  i++)
-         {
-            if (ximStyles->supported_styles [i] ==
-                (XIMPreeditNothing | XIMStatusNothing))
-            {
-               ximStyle = ximStyles->supported_styles [i];
-               break;
-            }
-         }
-
-         if (ximStyle == 0)
-         {
-            logW << "Insufficient input method support" << std::endl;
-         }
-         XFree (ximStyles);
-      }
-   }
-
-   fontpk = std::make_unique <Fontpack> (opts.fontpath, opts.fontname,
-                                         opts.dwfontname);
-
-   int winWidth = 2 * opts.border + opts.nCols * fontpk->getPx ();
-   int winHeight = 2 * opts.border + opts.nRows * fontpk->getPy ();
-
-   makeXWindow (opts.title,
-                winWidth, winHeight, fontpk->getPx (), fontpk->getPy (),
-                eglDpy, eglCtx, eglSurface);
-
-   XMapWindow (xDisplay, xWindow);
-
-   if (xim && ximStyle)
-   {
-      xic = XCreateIC (xim, XNInputStyle, ximStyle,
-                       XNClientWindow, xWindow, XNFocusWindow, xWindow,
-                       nullptr);
-
-      if (xic == nullptr)
-      {
-         logW << "XCreateIC failed, compose key won't work" << std::endl;
-      }
-   }
-
-   if (!eglMakeCurrent(eglDpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT))
-   {
-      logE << "eglMakeCurrent() failed" << std::endl;
-      return -1;
-   }
-
-   selMgr = std::make_unique <SelectionManager> (xDisplay, xWindow);
-
-   renderer = std::make_unique <Renderer> (
-      [eglDpy, eglSurface, eglCtx] ()
-      {
-         if (!eglMakeCurrent (eglDpy, eglSurface, eglSurface, eglCtx))
-            throw std::runtime_error ("Error: eglMakeCurrent() failed");
-         if (opts.glinfo)
-            printGLInfo (eglDpy);
-      },
-      [eglDpy, eglSurface] ()
-      {
-         eglSwapBuffers (eglDpy, eglSurface);
-      },
-      fontpk.get ());
-
-   setupSignals ();
-   int ptyFd = startShell (progPath, shArgv);
-   vt = std::make_unique <Vterm> (fontpk->getPx (), fontpk->getPy (),
-                                  winWidth, winHeight, ptyFd);
-   vt->setRefreshHandler ([] (const zutty::Frame& f) { renderer->update (f); });
-   vt->setOscHandler ([] (int cmd, const std::string& arg)
-                      { handleOsc (cmd, arg); });
-   vt->setBellHandler ([] () { XBell (xDisplay, 0); });
-
-   // We might not get a ConfigureNotify event when the window first appears:
-   vt->resize (winWidth, winHeight);
-
-   bool destroyed = eventLoop (xic, ptyFd);
-
-   renderer = nullptr; // ~Renderer () shuts down renderer thread
-
-   eglDestroyContext (eglDpy, eglCtx);
-   eglDestroySurface (eglDpy, eglSurface);
-   eglTerminate (eglDpy);
-
-   if (! destroyed)
-      XDestroyWindow (xDisplay, xWindow);
-   XCloseDisplay (xDisplay);
-
-   return 0;
 }

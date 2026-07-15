@@ -1675,7 +1675,7 @@ namespace zutty
    Vterm::csi_priDA ()
    {
       TRACE_FUN;
-      writePty ("\e[?" DEVICE_ID);
+      writePty ("\x1b[?" DEVICE_ID);
       setState (InputState::Normal);
    }
 
@@ -1683,7 +1683,7 @@ namespace zutty
    Vterm::csi_secDA ()
    {
       TRACE_FUN;
-      writePty ("\e[>64;0;0c"); // VT520
+      writePty ("\x1b[>64;0;0c"); // VT520
       setState (InputState::Normal);
    }
 
@@ -1694,15 +1694,15 @@ namespace zutty
       switch (inputOps [0])
       {
       case 5:
-         writePty ("\e[0n"); // device OK
+         writePty ("\x1b[0n"); // device OK
          break;
       case 6:
       {
          std::ostringstream oss;
          if (originMode == OriginMode::Absolute)
-            oss << "\e[" << (posY + 1) << ";" << (posX + 1) << "R";
+            oss << "\x1b[" << (posY + 1) << ";" << (posX + 1) << "R";
          else
-            oss << "\e[" << (posY - marginTop + 1) << ";" << (posX + 1) << "R";
+            oss << "\x1b[" << (posY - marginTop + 1) << ";" << (posX + 1) << "R";
          writePty (oss.str ().c_str ());
       }
          break;
@@ -1775,11 +1775,11 @@ namespace zutty
       {
          // DECSCL
          if (compatLevel == CompatibilityLevel::VT400)
-            writePty ("\eP1$r" DEVICE_ID "\e\\");
+            writePty ("\x1bP1$r" DEVICE_ID "\x1b\\");
       }
       else
       {
-         writePty ("\eP0$r\e\\");
+         writePty ("\x1bP0$r\x1b\\");
       }
    }
 
@@ -1837,7 +1837,7 @@ namespace zutty
          Color c = palette256 [paletteIdx];
 
          std::ostringstream oss;
-         oss << "\e]" << cmd << ";" << paletteIdx << ";" << c << "\e\\";
+         oss << "\x1b]" << cmd << ";" << paletteIdx << ";" << c << "\x1b\\";
          writePty (oss.str ().data (), oss.str ().size ());
       }
    }
@@ -1855,7 +1855,7 @@ namespace zutty
          case 12: c = cf->getCursor ().color; break;
          }
          std::ostringstream oss;
-         oss << "\e]" << cmd << ";" << c << "\e\\";
+         oss << "\x1b]" << cmd << ";" << c << "\x1b\\";
          writePty (oss.str ().data (), oss.str ().size ());
       }
    }
