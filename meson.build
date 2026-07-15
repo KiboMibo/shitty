@@ -34,17 +34,17 @@ if get_option('buildtype') == 'debug'
 endif
 
 zutty_sources = files(
-  'src/charvdev.cc',
-  'src/font.cc',
-  'src/fontpack.cc',
-  'src/frame.cc',
-  'src/log.cc',
-  'src/main.cc',
-  'src/options.cc',
-  'src/pty.cc',
-  'src/renderer.cc',
-  'src/vkpresenter.cc',
-  'src/vterm.cc',
+  'charvdev.cc',
+  'font.cc',
+  'fontpack.cc',
+  'frame.cc',
+  'log.cc',
+  'main.cc',
+  'options.cc',
+  'pty.cc',
+  'renderer.cc',
+  'vkpresenter.cc',
+  'vterm.cc',
 )
 
 executable(
@@ -58,4 +58,15 @@ executable(
     threads_dep,
   ],
   install: true,
+  install_dir: get_option('bindir'),
+)
+
+install_data(
+  'zutty.desktop',
+  install_dir: get_option('datadir') / 'applications',
+)
+
+install_data(
+  'zutty.svg',
+  install_dir: get_option('datadir') / 'icons/hicolor/scalable/apps',
 )

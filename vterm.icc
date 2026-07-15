@@ -1853,6 +1853,7 @@ namespace zutty
          case 10: case 17: c = *fg; break;
          case 11: case 19: c = *bg; break;
          case 12: c = cf->getCursor ().color; break;
+         default: return;
          }
          std::ostringstream oss;
          oss << "\x1b]" << cmd << ";" << c << "\x1b\\";

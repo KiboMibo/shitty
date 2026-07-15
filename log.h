@@ -29,13 +29,22 @@ namespace zutty
    if (opts.quiet || !opts.verbose) {;}         \
    else std::cout
 
-// N.B.: Offset into __FILE__ to skip over path prefix of the source files
-// as seen by the compiler. Since the build is run from build/ and all the
-// sources are under src/, we need to skip the '../src/' prefix (7 chars).
-// THIS IS LIKELY COMPILER DEPENDENT, IT WORKS ON LINUX & GCC BUT YMMV.
-#define plog(Ostream,Prefix)                            \
-   Ostream << Prefix << " [" << (& __FILE__ [7]) << ":" \
-           << std::setw (3) << __LINE__ << "] "
+   constexpr const char*
+   logFileName (const char* path)
+   {
+      const char* name = path;
+      while (*path != '\0')
+      {
+         if (*path == '/' || *path == '\\')
+            name = path + 1;
+         ++path;
+      }
+      return name;
+   }
+
+#define plog(Ostream,Prefix)                                     \
+   Ostream << Prefix << " [" << zutty::logFileName (__FILE__)    \
+           << ":" << std::setw (3) << __LINE__ << "] "
 
 #define logE      plog(zlog, "E") << "Error: "
 #define logW      plog(zlog, "W") << "Warning: "

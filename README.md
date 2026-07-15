@@ -71,8 +71,8 @@ meson compile -C build
 ```
 
 Without Nix, install the dependencies through the system package manager and
-run the same Meson commands. To install the executable using Meson's selected
-prefix:
+run the same Meson commands. To install the executable, desktop entry and
+scalable icon using Meson's selected prefix:
 
 ```sh
 meson install -C build
