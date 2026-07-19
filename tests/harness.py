@@ -224,6 +224,13 @@ class Zutty:
             raise RuntimeError("invalid state response")
         return tuple(map(int, response[1:]))
 
+    def protocol_state(self):
+        self.stream.write(b"PROTOCOL_STATE\n")
+        response = self._readline().split()
+        if len(response) != 6 or response[0] != "OK":
+            raise RuntimeError("invalid protocol state response")
+        return tuple(map(int, response[1:]))
+
     def mouse_encode(
         self,
         encoding,

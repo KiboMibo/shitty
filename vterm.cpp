@@ -1233,6 +1233,7 @@ Vterm::Vterm(uint16_t glyphPx_, uint16_t glyphPy_,
         logI << "* Bell *" << std::endl;
     })
     , onPrinter([](const std::string&) {})
+    , onLed([](uint8_t) {})
     , onNotification([](const std::string&, const std::string&,
                         const std::string&, bool) {})
     , onProgress([](uint32_t, uint32_t) {})
@@ -1299,6 +1300,10 @@ void Vterm::setBellHandler(const BellHandlerFn& onBell_) {
 
 void Vterm::setPrinterHandler(const PrinterHandlerFn& handler) {
     onPrinter = handler;
+}
+
+void Vterm::setLedHandler(const LedHandlerFn& handler) {
+    onLed = handler;
 }
 
 void Vterm::setNotificationHandler(const NotificationHandlerFn& handler) {
@@ -1440,7 +1445,10 @@ int Vterm::writePty(uint8_t ch, VtModifier modifiers, bool userInput) {
         return modifiers != VM::none;
     };
 
-    if ((modifyOtherKeys == 2 && mod2_encode(ch)) ||
+    if (eightBitInput && (modifiers & VM::alt) != VM::none) {
+        ch |= 0x80;
+        return writePty(&ch, 1, userInput);
+    } else if ((modifyOtherKeys == 2 && mod2_encode(ch)) ||
         (modifyOtherKeys == 1 && (modifiers & VM::control) != VM::none &&
          ch > ' ')) {
         if (ch < ' ' && (modifiers & VM::control) != VM::none) {
@@ -2375,6 +2383,9 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         break;
                     case 'n':
                         csi_DSR();
+                        break;
+                    case 'q':
+                        csi_DECLL();
                         break;
                     case 'i':
                         csi_MC(false);

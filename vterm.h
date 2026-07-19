@@ -188,6 +188,14 @@ public:
     using PrinterHandlerFn = std::function<void(const std::string&)>;
     void setPrinterHandler(const PrinterHandlerFn&);
 
+    using LedHandlerFn = std::function<void(uint8_t)>;
+    void setLedHandler(const LedHandlerFn&);
+    bool getScreenReverseVideo() const { return screenReverseVideo; }
+    uint8_t getLedState() const { return ledState; }
+    bool getReverseWrapMode() const { return reverseWrapMode; }
+    bool getNationalReplacementMode() const { return nationalReplacementMode; }
+    bool getMetaMode() const { return eightBitInput; }
+
     using NotificationHandlerFn = std::function<void(
         const std::string&, const std::string&, const std::string&, bool)>;
     void setNotificationHandler(const NotificationHandlerFn&);
@@ -499,6 +507,7 @@ private:
     void csi_DECRQM(bool privateMode);
     void csi_XTVERSION();
     void csi_MC(bool privateMode);
+    void csi_DECLL();
     std::string printableLine(uint16_t row) const;
     void printLine(uint16_t row);
     bool consumePrinterControllerByte(unsigned char ch);
@@ -530,6 +539,7 @@ private:
     bool haveOscHandler = false;
     BellHandlerFn onBell;
     PrinterHandlerFn onPrinter;
+    LedHandlerFn onLed;
     NotificationHandlerFn onNotification;
     ProgressHandlerFn onProgress;
     WindowOpsHandlerFn onWindowOps;
@@ -579,6 +589,7 @@ private:
     int bgPalIx;
     int underlinePalIx = -2;
     bool reverseVideo = false;
+    bool screenReverseVideo = false;
     bool underlineColorDefault = true;
     bool hasFocus = false;
 
@@ -635,6 +646,11 @@ private:
     bool send8BitControls = false;
     bool altScrollMode = false;
     bool altSendsEscape = true;
+    bool eightBitInput = false;
+    bool reverseWrapMode = false;
+    bool extendedReverseWrapMode = false;
+    bool nationalReplacementMode = false;
+    uint8_t ledState = 0;
     uint8_t modifyOtherKeys = 1;
     uint8_t modifyKeyResources[8] = {};
     uint8_t initialModifyKeyResources[8] = {};

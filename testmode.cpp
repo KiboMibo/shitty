@@ -312,6 +312,10 @@ int runTestMode(int controlFd) {
         [&printerOutput](const std::string& output) {
             printerOutput += output;
         });
+    terminal.setLedHandler(
+        [&actions](uint8_t state) {
+            actions += "LEDS " + std::to_string(state) + "\n";
+        });
     terminal.setNotificationHandler(
         [&actions](const std::string& id, const std::string& title,
                    const std::string& body, bool close) {
@@ -518,6 +522,13 @@ int runTestMode(int controlFd) {
                          " " + std::to_string(mouse.focusEventMode) +
                          " " + std::to_string(terminal.getKittyKeyboardFlags()) +
                          "\n");
+            } else if (line == "PROTOCOL_STATE") {
+                writeAll(controlFd,
+                         "OK " + std::to_string(terminal.getScreenReverseVideo()) +
+                         " " + std::to_string(terminal.getLedState()) +
+                         " " + std::to_string(terminal.getReverseWrapMode()) +
+                         " " + std::to_string(terminal.getNationalReplacementMode()) +
+                         " 0\n");
             } else if (line.compare(0, 13, "MOUSE_ENCODE ") == 0) {
                 std::istringstream args(line.substr(13));
                 unsigned encoding;

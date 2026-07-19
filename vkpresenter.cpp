@@ -1207,7 +1207,7 @@ void VulkanPresenter::recordCommands(
         cursor.posX,
         cursor.posY,
         static_cast<uint32_t>(cursor.style),
-        0,
+        sourceFrame.getScreenReverseVideo() ? 1u : 0u,
         selection.tl.x,
         selection.tl.y,
         selection.br.x,

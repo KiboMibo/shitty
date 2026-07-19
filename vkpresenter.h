@@ -70,7 +70,7 @@ private:
         int32_t cursorX;
         int32_t cursorY;
         uint32_t cursorStyle;
-        uint32_t reserved;
+        uint32_t screenReverseVideo;
         int32_t selectionLeft;
         int32_t selectionTop;
         int32_t selectionRight;

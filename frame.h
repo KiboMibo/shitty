@@ -101,6 +101,11 @@ public:
     }
     bool getBlinkVisible() const { return blinkVisible; }
     bool getCursorBlink() const { return cursorBlink; }
+    void setScreenReverseVideo(bool enabled) {
+        screenReverseVideo = enabled;
+        expose();
+    }
+    bool getScreenReverseVideo() const { return screenReverseVideo; }
 
     enum class SelectSnapTo : uint8_t {
         Char = 0,
@@ -159,6 +164,7 @@ private:
     uint8_t selectionColorMask = 0;
     bool blinkVisible = true;
     bool cursorBlink = false;
+    bool screenReverseVideo = false;
     SelectSnapTo snapTo = SelectSnapTo::Char;
 
     struct Damage {

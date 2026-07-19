@@ -429,6 +429,10 @@ namespace {
         if (keyPressed(GLFW_KEY_LEFT_ALT)) {
             modifiers |= GLFW_MOD_ALT;
         }
+        if (keyPressed(GLFW_KEY_LEFT_SUPER) ||
+            keyPressed(GLFW_KEY_RIGHT_SUPER)) {
+            modifiers |= GLFW_MOD_SUPER;
+        }
         return modifiers;
     }
 
@@ -444,11 +448,18 @@ namespace {
             !keyPressed(GLFW_KEY_RIGHT_ALT)) {
             result = result | VtModifier::alt;
         }
+        if ((modifiers & GLFW_MOD_SUPER) && vt != nullptr &&
+            vt->getMetaMode()) {
+            // Xterm resolves Meta through the platform modifier mapping.  GLFW
+            // exposes the closest portable Meta modifier as Super.
+            result = result | VtModifier::alt;
+        }
         return result;
     }
 
     int significantModifiers(int modifiers) {
-        return modifiers & (GLFW_MOD_SHIFT | GLFW_MOD_CONTROL | GLFW_MOD_ALT);
+        return modifiers & (GLFW_MOD_SHIFT | GLFW_MOD_CONTROL | GLFW_MOD_ALT |
+                            GLFW_MOD_SUPER);
     }
 
     uint16_t kittyModifiers(int modifiers) {
