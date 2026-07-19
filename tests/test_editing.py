@@ -11,6 +11,25 @@ class EditingTest(unittest.TestCase):
             terminal.write(b"\x1b[1;3H\x1b[3P")
             self.assertEqual(terminal.snapshot().lines[0], "abdef   ")
 
+    def test_character_editing_never_leaves_split_wide_cells(self):
+        for operation in (b"\x1b[@", b"\x1b[P", b"\x1b[X"):
+            with self.subTest(operation=operation):
+                with Zutty(columns=8, rows=2) as terminal:
+                    terminal.write("A界BC".encode())
+                    terminal.write(b"\x1b[1;3H" + operation)
+                    snapshot = terminal.snapshot()
+                    for column, cell in enumerate(snapshot.cells[:8]):
+                        if cell.double_width:
+                            self.assertLess(column + 1, 8)
+                            self.assertTrue(
+                                snapshot.cell(column + 1, 0).double_width_continuation
+                            )
+                        if cell.double_width_continuation:
+                            self.assertGreater(column, 0)
+                            self.assertTrue(
+                                snapshot.cell(column - 1, 0).double_width
+                            )
+
     def test_erase_characters_and_line(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"abcdefgh\x1b[1;3H\x1b[3X")

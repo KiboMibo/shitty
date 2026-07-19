@@ -515,6 +515,7 @@ Vterm::insertCols(uint16_t startX, uint16_t count) {
     for (uint16_t r = marginTop; r < marginBottom; ++r) {
         cf->moveInRow(r, startX + count, startX, nColsEff - startX - count);
         cf->eraseInRow(r, startX, count, attrs);
+        normalizeWideCells(r);
     }
 }
 
@@ -523,6 +524,33 @@ Vterm::deleteCols(uint16_t startX, uint16_t count) {
     for (uint16_t r = marginTop; r < marginBottom; ++r) {
         cf->moveInRow(r, startX, startX + count, nColsEff - startX - count);
         cf->eraseInRow(r, nColsEff - count, count, attrs);
+        normalizeWideCells(r);
+    }
+}
+
+inline void
+Vterm::clearWideCellAt(uint16_t row, uint16_t column) {
+    auto& cell = cf->getCell(row, column);
+    if (cell.dwidth_cont && column > 0) {
+        cf->eraseInRow(row, column - 1, 1, attrs);
+    } else if (cell.dwidth && column + 1 < nCols) {
+        cf->eraseInRow(row, column + 1, 1, attrs);
+    }
+    cf->eraseInRow(row, column, 1, attrs);
+}
+
+inline void
+Vterm::normalizeWideCells(uint16_t row) {
+    for (uint16_t column = 0; column < nCols; ++column) {
+        auto& cell = cf->getCell(row, column);
+        if (cell.dwidth &&
+            (column + 1 >= nCols ||
+             !cf->getCell(row, column + 1).dwidth_cont)) {
+            cf->eraseInRow(row, column, 1, attrs);
+        } else if (cell.dwidth_cont &&
+                   (column == 0 || !cf->getCell(row, column - 1).dwidth)) {
+            cf->eraseInRow(row, column, 1, attrs);
+        }
     }
 }
 
@@ -578,12 +606,19 @@ Vterm::placeGraphicChar() {
         inp_LF();
     }
 
+    if (w == 2 && posX == nColsEff - 1 && autoWrapMode) {
+        cf->getCell(posY, posX).wrap = 1;
+        inp_CR();
+        inp_LF();
+    }
+
     if (insertMode) {
         nInputOps = 1;
         inputOps[0] = 1;
         csi_ICH();
     }
 
+    clearWideCellAt(posY, posX);
     auto& c = cf->getCell(posY, posX);
     c = attrs;
     c.uc_pt = pt;
@@ -1267,6 +1302,7 @@ Vterm::csi_ICH() {
 
         cf->moveInRow(posY, posX + arg, posX, len);
         cf->eraseInRow(posY, posX, arg, attrs);
+        normalizeWideCells(posY);
     }
     lastCol = false;
     setState(InputState::Normal);
@@ -1283,6 +1319,7 @@ Vterm::csi_DCH() {
 
         cf->moveInRow(posY, posX, posX + arg, len);
         cf->eraseInRow(posY, posX + len, arg, attrs);
+        normalizeWideCells(posY);
     }
     lastCol = false;
     setState(InputState::Normal);
@@ -1295,6 +1332,7 @@ Vterm::csi_ECH() {
     uint32_t len = nColsEff - posX;
     arg = std::min(arg, len);
     cf->eraseInRow(posY, posX, arg, attrs);
+    normalizeWideCells(posY);
     lastCol = false;
     setState(InputState::Normal);
 }

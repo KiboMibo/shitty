@@ -38,6 +38,30 @@ class CellStateTest(unittest.TestCase):
             self.assertTrue(snapshot.cell(0, 0).double_width)
             self.assertTrue(snapshot.cell(1, 0).double_width_continuation)
 
+    def test_wide_character_wraps_before_last_column(self):
+        with Zutty(columns=4, rows=2) as terminal:
+            terminal.write(b"abc" + "界".encode())
+            snapshot = terminal.snapshot()
+
+            self.assertEqual(snapshot.lines, ["abc ", "界   "])
+            self.assertTrue(snapshot.cell(3, 0).wrapped)
+            self.assertTrue(snapshot.cell(0, 1).double_width)
+            self.assertTrue(snapshot.cell(1, 1).double_width_continuation)
+
+    def test_overwriting_wide_cell_half_clears_the_other_half(self):
+        for column in (1, 2):
+            with self.subTest(column=column):
+                with Zutty(columns=6, rows=2) as terminal:
+                    terminal.write("A界B".encode())
+                    terminal.write(f"\x1b[1;{column + 1}H".encode() + b"X")
+                    snapshot = terminal.snapshot()
+
+                    self.assertFalse(snapshot.cell(1, 0).double_width)
+                    self.assertFalse(
+                        snapshot.cell(2, 0).double_width_continuation
+                    )
+                    self.assertEqual(snapshot.cell(column, 0).char, "X")
+
     def test_autowrap_is_recorded_on_last_cell(self):
         with Zutty(columns=4, rows=2) as terminal:
             terminal.write(b"abcde")

@@ -325,6 +325,8 @@ private:
     void deleteRows(uint16_t startY, uint16_t count);
     void insertCols(uint16_t startX, uint16_t count);
     void deleteCols(uint16_t startX, uint16_t count);
+    void clearWideCellAt(uint16_t row, uint16_t column);
+    void normalizeWideCells(uint16_t row);
 
     void showCursor();
     void hideCursor();
