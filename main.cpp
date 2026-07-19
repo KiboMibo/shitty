@@ -169,7 +169,40 @@ namespace {
         int framebufferHeight = 0;
         bool resizePending = false;
         bool redrawPending = false;
+        bool correctingResize = false;
     } windowContext;
+
+    int gridAlignedWindowSize(int framebufferSize, int border,
+                              int cellSize, float scale,
+                              int currentWindowSize) {
+        const int innerSize = framebufferSize - 2 * border;
+        if (innerSize < cellSize || scale <= 0.0f) {
+            return currentWindowSize;
+        }
+
+        // Wayland fractional scale is expressed in units of 1/120. Find the
+        // largest cell-aligned framebuffer size representable by an integer
+        // logical window size.
+        const int scaleNumerator = std::max(
+            120, static_cast<int>(std::lround(scale * 120.0f)));
+        for (int cells = innerSize / cellSize; cells > 0; --cells) {
+            const int framebufferTarget = 2 * border + cells * cellSize;
+            const int windowTarget = static_cast<int>(
+                (static_cast<int64_t>(framebufferTarget) * 120 +
+                 scaleNumerator - 1) / scaleNumerator);
+            if (static_cast<int64_t>(windowTarget) * scaleNumerator / 120 ==
+                framebufferTarget) {
+                return windowTarget;
+            }
+        }
+        return currentWindowSize;
+    }
+
+    void queueFramebufferResize(int width, int height) {
+        windowContext.framebufferWidth = width;
+        windowContext.framebufferHeight = height;
+        windowContext.resizePending = true;
+    }
 
     std::string primarySelection;
     std::exception_ptr callbackError;
@@ -1082,9 +1115,38 @@ namespace {
         if (width <= 0 || height <= 0) {
             return;
         }
-        windowContext.framebufferWidth = width;
-        windowContext.framebufferHeight = height;
-        windowContext.resizePending = true;
+        if (windowContext.correctingResize || fontpk == nullptr ||
+            glfwGetWindowMonitor(window) != nullptr ||
+            glfwGetWindowAttrib(window, GLFW_MAXIMIZED) == GLFW_TRUE) {
+            queueFramebufferResize(width, height);
+            return;
+        }
+
+        int windowWidth = 0;
+        int windowHeight = 0;
+        glfwGetWindowSize(window, &windowWidth, &windowHeight);
+        float xScale = 1.0f;
+        float yScale = 1.0f;
+        glfwGetWindowContentScale(window, &xScale, &yScale);
+
+        const int snappedWidth = gridAlignedWindowSize(
+            width, opts.border, fontpk->getPx(), xScale, windowWidth);
+        const int snappedHeight = gridAlignedWindowSize(
+            height, opts.border, fontpk->getPy(), yScale, windowHeight);
+        if (snappedWidth == windowWidth && snappedHeight == windowHeight) {
+            queueFramebufferResize(width, height);
+            return;
+        }
+
+        windowContext.correctingResize = true;
+        glfwSetWindowSize(window, snappedWidth, snappedHeight);
+        windowContext.correctingResize = false;
+
+        // glfwSetWindowSize currently invokes the framebuffer callback
+        // synchronously on Wayland. Query the final size as well so this
+        // remains correct if that behavior changes.
+        glfwGetFramebufferSize(window, &width, &height);
+        queueFramebufferResize(width, height);
     }
 
     void onWindowRefresh(GLFWwindow*) {
