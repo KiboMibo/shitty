@@ -16,6 +16,7 @@ struct Cell
    int fgIndex;
    int bgIndex;
    int underlineIndex;
+   uint semantic;
 };
 
 layout (std430, set = 0, binding = 1) readonly buffer CellBuffer

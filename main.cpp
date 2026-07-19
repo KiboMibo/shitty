@@ -1323,6 +1323,8 @@ namespace {
             case 8:
                 vt->setHyperlink(argument);
                 return;
+            case 133:
+                return;
             case 52:
                 break;
             default:
@@ -1679,6 +1681,21 @@ namespace {
         vt->setBellHandler(
             []() {
             glfwRequestWindowAttention(window);
+        });
+        vt->setNotificationHandler(
+            [](const std::string&, const std::string& title,
+               const std::string& body, bool close) {
+            if (!close) {
+                logI << "Notification: " << title << ": " << body
+                     << std::endl;
+                glfwRequestWindowAttention(window);
+            }
+        });
+        vt->setProgressHandler(
+            [](uint32_t state, uint32_t) {
+            if (state == 2 || state == 4) {
+                glfwRequestWindowAttention(window);
+            }
         });
         vt->setWindowOpsHandler(
             [](uint32_t operation, uint32_t first, uint32_t second) {

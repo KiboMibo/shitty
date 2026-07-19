@@ -160,7 +160,8 @@ namespace {
                        << std::setw(2) << static_cast<unsigned>(cell.underline_color.red)
                        << std::setw(2) << static_cast<unsigned>(cell.underline_color.green)
                        << std::setw(2) << static_cast<unsigned>(cell.underline_color.blue)
-                       << std::setw(8) << cell.hyperlink;
+                       << std::setw(8) << cell.hyperlink
+                       << std::setw(8) << cell.semantic;
             }
             output << '\n';
             return output.str();
@@ -303,6 +304,21 @@ int runTestMode(int controlFd) {
     terminal.setBellHandler(
         [&actions]() {
         actions += "BELL\n";
+    });
+    terminal.setNotificationHandler(
+        [&actions](const std::string& id, const std::string& title,
+                   const std::string& body, bool close) {
+        if (close) {
+            actions += "NOTIFY_CLOSE " + encodeHex(id) + "\n";
+        } else {
+            actions += "NOTIFY " + encodeHex(id) + " " + encodeHex(title) +
+                       " " + encodeHex(body) + "\n";
+        }
+    });
+    terminal.setProgressHandler(
+        [&actions](uint32_t state, uint32_t percent) {
+        actions += "PROGRESS " + std::to_string(state) + " " +
+                   std::to_string(percent) + "\n";
     });
     terminal.setWindowOpsHandler(
         [&actions](uint32_t operation, uint32_t first, uint32_t second) {

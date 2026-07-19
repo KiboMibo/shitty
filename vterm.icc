@@ -12,6 +12,7 @@
 
 #include "log.h"
 #include "pty.h"
+#include "base64.h"
 
 #include <algorithm>
 #include <charconv>
@@ -312,6 +313,9 @@ Vterm::resetTerminal() {
     hyperlinkIds.clear();
     hyperlinks.clear();
     nextHyperlink = 1;
+    currentSemantic = 0;
+    titleStack.clear();
+    notifications.clear();
 
     horizMarginMode = false;
     hMargin = 0;
@@ -350,6 +354,7 @@ Vterm::resetScreen() {
     localEcho = false;
     bracketedPasteMode = false;
     synchronizedOutputMode = false;
+    inBandResizeMode = false;
     send8BitControls = false;
 
     compatLevel = CompatibilityLevel::VT400;
@@ -725,6 +730,7 @@ Vterm::placeGraphicChar() {
     c = attrs;
     c.uc_pt = pt;
     c.hyperlink = activeHyperlink;
+    c.semantic = currentSemantic;
     if (c.blink) haveBlinkingText = true;
 
     inputGrapheme = {pt};
@@ -1695,6 +1701,10 @@ Vterm::setPrivMode(uint32_t arg, bool set) {
                     std::chrono::steady_clock::now() +
                     std::chrono::milliseconds(150);
                 break;
+            case 2048:
+                inBandResizeMode = true;
+                reportInBandResize();
+                break;
             default:
                 logU << "set priv mode " << arg << std::endl;
                 break;
@@ -1789,6 +1799,9 @@ Vterm::setPrivMode(uint32_t arg, bool set) {
             case 2026:
                 synchronizedOutputMode = false;
                 break;
+            case 2048:
+                inBandResizeMode = false;
+                break;
             default:
                 logU << "reset priv mode " << arg << std::endl;
                 break;
@@ -1843,6 +1856,8 @@ Vterm::getPrivMode(uint32_t arg) const {
             return altSendsEscape;
         case 2004:
             return bracketedPasteMode;
+        case 2048:
+            return inBandResizeMode;
         case 2026:
             return synchronizedOutputMode;
         default:
@@ -2270,6 +2285,7 @@ Vterm::csi_DECRQM(bool privateMode) {
             case 1047:
             case 2004:
             case 2026:
+            case 2048:
                 recognized = true;
                 enabled = mode == 2
                               ? compatLevel != CompatibilityLevel::VT52
@@ -2515,6 +2531,19 @@ Vterm::handle_OSC() {
         logT << "OSC: malformed command string '" << osc << "'" << std::endl;
     } else {
         switch (cmd) {
+            case 0:
+                iconTitle = arg;
+                windowTitle = arg;
+                onOsc(cmd, arg);
+                break;
+            case 1:
+                iconTitle = arg;
+                onOsc(cmd, arg);
+                break;
+            case 2:
+                windowTitle = arg;
+                onOsc(cmd, arg);
+                break;
             case 4:
                 osc_PaletteQuery(cmd, arg);
                 break;
@@ -2575,6 +2604,36 @@ Vterm::handle_OSC() {
                 frame_pri.setSelectionColor(false, selectionBgColor, false);
                 frame_alt.setSelectionColor(false, selectionBgColor, false);
                 break;
+            case 9: {
+                if (arg.compare(0, 2, "4;") == 0) {
+                    const size_t separator = arg.find(';', 2);
+                    uint32_t state = 0;
+                    uint32_t percent = 0;
+                    if (separator != std::string::npos) {
+                        const auto stateResult = std::from_chars(
+                            arg.data() + 2, arg.data() + separator, state);
+                        const auto percentResult = std::from_chars(
+                            arg.data() + separator + 1,
+                            arg.data() + arg.size(), percent);
+                        if (stateResult.ec == std::errc{} &&
+                            stateResult.ptr == arg.data() + separator &&
+                            percentResult.ec == std::errc{} &&
+                            percentResult.ptr == arg.data() + arg.size() &&
+                            state <= 4 && percent <= 100) {
+                            onProgress(state, percent);
+                        }
+                    }
+                } else {
+                    onNotification({}, windowTitle, arg, false);
+                }
+            } break;
+            case 99:
+                osc_Notification(arg);
+                break;
+            case 133:
+                osc_ShellIntegration(arg);
+                onOsc(cmd, arg);
+                break;
 
             default:
                 onOsc(cmd, arg);
@@ -2582,6 +2641,96 @@ Vterm::handle_OSC() {
         }
     }
     setState(InputState::Normal);
+}
+
+inline void
+Vterm::osc_ShellIntegration(const std::string& arg) {
+    if (arg.empty()) return;
+    const size_t separator = arg.find(';');
+    const std::string marker = arg.substr(0, separator);
+    if (marker == "A") currentSemantic = 1;
+    else if (marker == "B") currentSemantic = 2;
+    else if (marker == "C") currentSemantic = 3;
+    else if (marker == "D") currentSemantic = 0;
+}
+
+inline void
+Vterm::osc_Notification(const std::string& arg) {
+    const size_t separator = arg.find(';');
+    if (separator == std::string::npos) return;
+
+    std::string id;
+    std::string payloadType = "title";
+    bool encoded = false;
+    bool finalChunk = true;
+    size_t begin = 0;
+    const std::string metadata = arg.substr(0, separator);
+    while (begin <= metadata.size()) {
+        const size_t end = metadata.find(':', begin);
+        const std::string field = metadata.substr(begin, end - begin);
+        const size_t equal = field.find('=');
+        if (equal != std::string::npos) {
+            const std::string key = field.substr(0, equal);
+            const std::string value = field.substr(equal + 1);
+            if (key == "i") id = value;
+            else if (key == "p") payloadType = value;
+            else if (key == "e") encoded = value == "1";
+            else if (key == "d") finalChunk = value != "0";
+        }
+        if (end == std::string::npos) break;
+        begin = end + 1;
+    }
+
+    if (payloadType == "?") {
+        writePty(("\x1b]99;i=" + id + ":p=?;"
+                  "p=title,body,close,?\x1b\\").c_str());
+        return;
+    }
+    if (id.size() > 256) return;
+    if (payloadType == "close") {
+        onNotification(id, {}, {}, true);
+        notifications.erase(id);
+        return;
+    }
+    if (payloadType != "title" && payloadType != "body") return;
+
+    std::string payload = arg.substr(separator + 1);
+    if (encoded) {
+        std::string decoded;
+        if (!base64::decode(payload, decoded)) return;
+        payload = std::move(decoded);
+    }
+    if (payload.size() > 2048) return;
+    auto& notification = notifications[id];
+    std::string& destination = payloadType == "title"
+                                   ? notification.title
+                                   : notification.body;
+    if (destination.size() + payload.size() > 8192) {
+        notifications.erase(id);
+        return;
+    }
+    destination += payload;
+    if (finalChunk && payloadType == "body") {
+        onNotification(id, notification.title, notification.body, false);
+        notifications.erase(id);
+    }
+}
+
+inline void
+Vterm::reportInBandResize() {
+    std::ostringstream response;
+    response << "48;" << nRows << ';' << nCols << ';'
+             << nRows * glyphPy << ';' << nCols * glyphPx << 't';
+    writeCsiResponse(response.str());
+}
+
+inline void
+Vterm::writeTitleResponse(char kind, const std::string& title) {
+    std::string response = "\x1b]";
+    response.push_back(kind);
+    response += title;
+    response += "\x1b\\";
+    writePty(response.c_str());
 }
 
 inline void
@@ -2766,6 +2915,35 @@ Vterm::csi_XTWINOPS() {
         case 18:
             response << "8;" << nRows << ';' << nCols << 't';
             writeCsiResponse(response.str());
+            break;
+        case 20:
+            writeTitleResponse('L', iconTitle);
+            break;
+        case 21:
+            writeTitleResponse('l', windowTitle);
+            break;
+        case 22: {
+            const uint32_t which = nInputOps > 1 ? inputOps[1] : 0;
+            SavedTitles saved;
+            if (which == 0 || which == 1) saved.icon = iconTitle;
+            if (which == 0 || which == 2) saved.window = windowTitle;
+            titleStack.push_back(std::move(saved));
+            if (titleStack.size() > 10) titleStack.erase(titleStack.begin());
+        } break;
+        case 23:
+            if (!titleStack.empty()) {
+                const uint32_t which = nInputOps > 1 ? inputOps[1] : 0;
+                SavedTitles saved = std::move(titleStack.back());
+                titleStack.pop_back();
+                if ((which == 0 || which == 1) && !saved.icon.empty()) {
+                    iconTitle = saved.icon;
+                    onOsc(1, iconTitle);
+                }
+                if ((which == 0 || which == 2) && !saved.window.empty()) {
+                    windowTitle = saved.window;
+                    onOsc(2, windowTitle);
+                }
+            }
             break;
         default:
             break;

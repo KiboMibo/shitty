@@ -1232,6 +1232,9 @@ Vterm::Vterm(uint16_t glyphPx_, uint16_t glyphPy_,
     , onBell([]() {
         logI << "* Bell *" << std::endl;
     })
+    , onNotification([](const std::string&, const std::string&,
+                        const std::string&, bool) {})
+    , onProgress([](uint32_t, uint32_t) {})
     , onWindowOps([](uint32_t, uint32_t, uint32_t) {})
     , frame_pri(winPx, winPy, nCols, nRows, marginTop, marginBottom,
                 opts.saveLines)
@@ -1254,6 +1257,8 @@ Vterm::Vterm(uint16_t glyphPx_, uint16_t glyphPy_,
     cursorColor = opts.cr;
     selectionFgColor = opts.fg;
     selectionBgColor = opts.bg;
+    windowTitle = opts.title;
+    iconTitle = opts.title;
 
     defaultFgPalIx = -1;
     defaultBgPalIx = -1;
@@ -1276,6 +1281,14 @@ void Vterm::setBellHandler(const BellHandlerFn& onBell_) {
     onBell = onBell_;
 }
 
+void Vterm::setNotificationHandler(const NotificationHandlerFn& handler) {
+    onNotification = handler;
+}
+
+void Vterm::setProgressHandler(const ProgressHandlerFn& handler) {
+    onProgress = handler;
+}
+
 void Vterm::setWindowOpsHandler(const WindowOpsHandlerFn& handler) {
     onWindowOps = handler;
 }
@@ -1290,6 +1303,7 @@ void Vterm::resize(uint16_t winPx_, uint16_t winPy_) {
     if (nCols == nCols_ && nRows == nRows_) {
         cf->winPx = winPx;
         cf->winPy = winPy;
+        if (inBandResizeMode) reportInBandResize();
         return;
     }
 
@@ -1330,6 +1344,7 @@ void Vterm::resize(uint16_t winPx_, uint16_t winPy_) {
     showCursor();
 
     pty_resize(ptyFd, nCols, nRows);
+    if (inBandResizeMode) reportInBandResize();
 }
 
 std::string

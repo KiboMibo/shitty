@@ -68,6 +68,7 @@ public:
         int32_t fg_index = -2;
         int32_t bg_index = -2;
         int32_t underline_index = -2;
+        uint32_t semantic = 0;
 
         Cell()
             : dwidth(0)
@@ -100,7 +101,7 @@ public:
             return !operator==(rhs);
         }
     };
-    static_assert(sizeof(Cell) == 40, "Cell size mismatch");
+    static_assert(sizeof(Cell) == 44, "Cell size mismatch");
     static_assert(offsetof(Cell, uc_pt) == 0, "Cell codepoint offset mismatch");
     static_assert(offsetof(Cell, fg) == 8, "Cell foreground offset mismatch");
     static_assert(offsetof(Cell, bg) == 12, "Cell background offset mismatch");

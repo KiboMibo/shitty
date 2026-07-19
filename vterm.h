@@ -184,6 +184,13 @@ public:
     using BellHandlerFn = std::function<void()>;
     void setBellHandler(const BellHandlerFn&);
 
+    using NotificationHandlerFn = std::function<void(
+        const std::string&, const std::string&, const std::string&, bool)>;
+    void setNotificationHandler(const NotificationHandlerFn&);
+
+    using ProgressHandlerFn = std::function<void(uint32_t, uint32_t)>;
+    void setProgressHandler(const ProgressHandlerFn&);
+
     using WindowOpsHandlerFn =
         std::function<void(uint32_t, uint32_t, uint32_t)>;
     void setWindowOpsHandler(const WindowOpsHandlerFn&);
@@ -457,6 +464,10 @@ private:
 
     void osc_PaletteQuery(int, const std::string&);
     void osc_DynamicColorQuery(int, const std::string&);
+    void osc_ShellIntegration(const std::string&);
+    void osc_Notification(const std::string&);
+    void reportInBandResize();
+    void writeTitleResponse(char, const std::string&);
     void applyPaletteColor(uint16_t index, Color color);
 
     uint16_t winPx;
@@ -473,6 +484,8 @@ private:
     OscHandlerFn onOsc;
     bool haveOscHandler = false;
     BellHandlerFn onBell;
+    NotificationHandlerFn onNotification;
+    ProgressHandlerFn onProgress;
     WindowOpsHandlerFn onWindowOps;
 
     Frame frame_pri;
@@ -500,6 +513,19 @@ private:
     std::map<uint32_t, std::string> hyperlinks;
     uint32_t activeHyperlink = 0;
     uint32_t nextHyperlink = 1;
+    uint32_t currentSemantic = 0;
+    std::string windowTitle;
+    std::string iconTitle;
+    struct SavedTitles {
+        std::string icon;
+        std::string window;
+    };
+    std::vector<SavedTitles> titleStack;
+    struct Notification {
+        std::string title;
+        std::string body;
+    };
+    std::map<std::string, Notification> notifications;
     int defaultFgPalIx;
     int defaultBgPalIx;
     int fgPalIx;
@@ -554,6 +580,7 @@ private:
     bool localEcho = false;
     bool bracketedPasteMode = false;
     bool synchronizedOutputMode = false;
+    bool inBandResizeMode = false;
     std::chrono::steady_clock::time_point synchronizedOutputDeadline;
     bool send8BitControls = false;
     bool altScrollMode = false;

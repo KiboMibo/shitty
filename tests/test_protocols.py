@@ -213,6 +213,100 @@ class ProtocolTest(unittest.TestCase):
                 ["OSC 2 68656c6c6f", "OSC 7 66696c653a2f2f2f746d70", "BELL"],
             )
 
+    def test_title_stack_saves_restores_and_reports_both_titles(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]1;icon-one\x1b\\\x1b]2;window-one\x1b\\"
+                b"\x1b[22;0t"
+                b"\x1b]1;icon-two\x1b\\\x1b]2;window-two\x1b\\"
+                b"\x1b[20t\x1b[21t\x1b[23;0t"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b]Licon-two\x1b\\\x1b]lwindow-two\x1b\\",
+            )
+            self.assertEqual(
+                terminal.read_actions(),
+                [
+                    "OSC 1 69636f6e2d6f6e65",
+                    "OSC 2 77696e646f772d6f6e65",
+                    "OSC 1 69636f6e2d74776f",
+                    "OSC 2 77696e646f772d74776f",
+                    "OSC 1 69636f6e2d6f6e65",
+                    "OSC 2 77696e646f772d6f6e65",
+                ],
+            )
+
+    def test_in_band_resize_reports_enable_and_completed_resizes(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[?2048$p\x1b[?2048h")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[?2048;2$y\x1b[48;2;8;2;8t",
+            )
+            terminal.resize(11, 4)
+            self.assertEqual(
+                terminal.read_input(), b"\x1b[48;4;11;4;11t"
+            )
+            terminal.write(b"\x1b[?2048l")
+            terminal.resize(12, 5)
+            self.assertEqual(terminal.read_input(), b"")
+
+    def test_osc133_marks_prompt_command_and_output_cells(self):
+        with Zutty(columns=16, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]133;A\x1b\\prompt "
+                b"\x1b]133;B\x1b\\command"
+                b"\x1b]133;C\x1b\\output"
+                b"\x1b]133;D;0\x1b\\done"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).semantic, 1)
+            self.assertEqual(snapshot.cell(7, 0).semantic, 2)
+            self.assertEqual(snapshot.cell(14, 0).semantic, 3)
+            self.assertEqual(snapshot.cell(4, 1).semantic, 0)
+
+    def test_osc9_notifications_and_progress_are_dispatched(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]2;build\x1b\\"
+                b"\x1b]9;finished\x1b\\"
+                b"\x1b]9;4;1;37\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_actions(),
+                [
+                    "OSC 2 6275696c64",
+                    "NOTIFY  6275696c64 66696e6973686564",
+                    "PROGRESS 1 37",
+                ],
+            )
+
+    def test_osc99_assembles_chunked_base64_notifications_and_closes(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]99;i=job:p=title:e=1;QnVp\x1b\\"
+                b"\x1b]99;i=job:p=title:e=1;bGQ=\x1b\\"
+                b"\x1b]99;i=job:p=body:d=0;half \x1b\\"
+                b"\x1b]99;i=job:p=body:d=1;done\x1b\\"
+                b"\x1b]99;i=job:p=close;\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_actions(),
+                [
+                    "NOTIFY 6a6f62 4275696c64 68616c6620646f6e65",
+                    "NOTIFY_CLOSE 6a6f62",
+                ],
+            )
+
+    def test_osc99_capability_query_gets_a_protocol_reply(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]99;i=query:p=?;\x1b\\")
+            reply = terminal.read_input()
+            self.assertTrue(reply.startswith(b"\x1b]99;i=query:p=?;"))
+            self.assertIn(b"title", reply)
+            self.assertTrue(reply.endswith(b"\x1b\\"))
+
     def test_osc8_hyperlinks_are_attached_and_resolved(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(

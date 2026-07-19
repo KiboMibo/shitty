@@ -36,6 +36,7 @@ class Cell:
     background: tuple[int, int, int]
     underline_color: tuple[int, int, int]
     hyperlink: int
+    semantic: int
 
 
 @dataclass
@@ -273,7 +274,7 @@ class Zutty:
             int, response[1:13]
         )
         encoded_cells = response[13]
-        record_size = 38
+        record_size = 46
         expected = columns * rows * record_size
         if len(encoded_cells) != expected:
             raise RuntimeError("invalid snapshot cell count")
@@ -309,6 +310,7 @@ class Zutty:
                         int(record[k : k + 2], 16) for k in (24, 26, 28)
                     ),
                     hyperlink=int(record[30:38], 16),
+                    semantic=int(record[38:46], 16),
                 )
             )
         text = "".join(cell.char for cell in cells)
