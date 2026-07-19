@@ -83,6 +83,30 @@ class ProtocolTest(unittest.TestCase):
                 b"\x1bP!|00000000\x1b\\",
             )
 
+    def test_s7c1t_and_s8c1t_select_response_encoding(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b G\x1b[c")
+            self.assertEqual(
+                terminal.read_input(), b"\x9b?64;9;15;21;22c"
+            )
+
+            terminal.write(b"\x1b F\x1b[c")
+            self.assertEqual(
+                terminal.read_input(), b"\x1b[?64;9;15;21;22c"
+            )
+
+    def test_decscl_selects_response_control_width(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[64;0\"p\x1b[c")
+            self.assertEqual(
+                terminal.read_input(), b"\x9b?64;9;15;21;22c"
+            )
+
+            terminal.write(b"\x1b[64;1\"p\x1b[c")
+            self.assertEqual(
+                terminal.read_input(), b"\x1b[?64;9;15;21;22c"
+            )
+
     def test_decrqss_rejects_unsupported_queries(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1bP$qz\x1b\\")

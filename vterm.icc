@@ -164,7 +164,7 @@ inline void
 Vterm::setHasFocus(bool hasFocus_) {
     hasFocus = hasFocus_;
     if (mouseTrk.focusEventMode) {
-        writePty(hasFocus ? "\x1b[I" : "\x1b[O");
+        writeCsiResponse(hasFocus ? "I" : "O");
     }
     showCursor();
     redraw();
@@ -283,6 +283,7 @@ Vterm::resetScreen() {
     localEcho = false;
     bracketedPasteMode = false;
     synchronizedOutputMode = false;
+    send8BitControls = false;
 
     compatLevel = CompatibilityLevel::VT400;
     cursorKeyMode = CursorKeyMode::ANSI;
@@ -1964,28 +1965,28 @@ Vterm::csi_SGR() {
 inline void
 Vterm::csi_priDA() {
     TRACE_FUN;
-    writePty("\x1b[?" DEVICE_ID);
+    writeCsiResponse("?" DEVICE_ID);
     setState(InputState::Normal);
 }
 
 inline void
 Vterm::csi_secDA() {
     TRACE_FUN;
-    writePty("\x1b[>41;14;0c");
+    writeCsiResponse(">41;14;0c");
     setState(InputState::Normal);
 }
 
 inline void
 Vterm::csi_terDA() {
     TRACE_FUN;
-    writePty("\x1bP!|00000000\x1b\\");
+    writeDcsResponse("!|00000000");
     setState(InputState::Normal);
 }
 
 inline void
 Vterm::csi_XTVERSION() {
     TRACE_FUN;
-    writePty("\x1bP>|Zutty " ZUTTY_VERSION "\x1b\\");
+    writeDcsResponse(">|Zutty " ZUTTY_VERSION);
     setState(InputState::Normal);
 }
 
@@ -2055,10 +2056,9 @@ Vterm::csi_DECRQM(bool privateMode) {
     }
 
     std::ostringstream oss;
-    oss << "\x1b[" << (privateMode ? "?" : "") << mode << ";"
+    oss << (privateMode ? "?" : "") << mode << ";"
         << (recognized ? (enabled ? 1 : 2) : 0) << "$y";
-    const std::string reply = oss.str();
-    writePty(reinterpret_cast<const uint8_t*>(reply.data()), reply.size());
+    writeCsiResponse(oss.str());
     setState(InputState::Normal);
 }
 
@@ -2067,17 +2067,17 @@ Vterm::csi_DSR() {
     TRACE_FUN;
     switch (inputOps[0]) {
         case 5:
-            writePty("\x1b[0n");
+            writeCsiResponse("0n");
             break;
         case 6: {
             std::ostringstream oss;
             if (originMode == OriginMode::Absolute) {
-                oss << "\x1b[" << (posY + 1) << ";" << (posX + 1) << "R";
+                oss << (posY + 1) << ";" << (posX + 1) << "R";
             } else {
-                oss << "\x1b[" << (posY - marginTop + 1) << ";"
+                oss << (posY - marginTop + 1) << ";"
                     << (posX - hMargin + 1) << "R";
             }
-            writePty(oss.str().c_str());
+            writeCsiResponse(oss.str());
         } break;
         default:
             break;
@@ -2187,12 +2187,11 @@ Vterm::dcs_DECRQSS(const std::string& arg) {
     } else if (query == "\"q") {
         value << "0\"q";
     } else {
-        writePty("\x1bP0$r\x1b\\");
+        writeDcsResponse("0$r");
         return;
     }
 
-    const std::string reply = "\x1bP1$r" + value.str() + "\x1b\\";
-    writePty(reinterpret_cast<const uint8_t*>(reply.data()), reply.size());
+    writeDcsResponse("1$r" + value.str());
 }
 
 inline void
@@ -2238,13 +2237,11 @@ Vterm::dcs_XTGETTCAP(const std::string& request) {
         else if (name == "RGB") value = "8";
         else found = false;
 
-        std::string reply = "\x1bP" + std::string(found ? "1+r" : "0+r") +
-                            encoded;
+        std::string reply = std::string(found ? "1+r" : "0+r") + encoded;
         if (found) {
             reply += "=" + hexValue(value);
         }
-        reply += "\x1b\\";
-        writePty(reinterpret_cast<const uint8_t*>(reply.data()), reply.size());
+        writeDcsResponse(reply);
         if (end == std::string::npos) break;
         begin = end + 1;
     }
@@ -2305,8 +2302,8 @@ Vterm::osc_PaletteQuery(int cmd, const std::string& arg) {
         Color c = palette256[paletteIdx];
 
         std::ostringstream oss;
-        oss << "\x1b]" << cmd << ";" << paletteIdx << ";" << c << "\x1b\\";
-        writePty(oss.str().data(), oss.str().size());
+        oss << cmd << ";" << paletteIdx << ";" << c;
+        writeOscResponse(oss.str());
     }
 }
 
@@ -2330,8 +2327,8 @@ Vterm::osc_DynamicColorQuery(int cmd, const std::string& arg) {
                 return;
         }
         std::ostringstream oss;
-        oss << "\x1b]" << cmd << ";" << c << "\x1b\\";
-        writePty(oss.str().data(), oss.str().size());
+        oss << cmd << ";" << c;
+        writeOscResponse(oss.str());
     }
 }
 
@@ -2364,12 +2361,15 @@ Vterm::csiq_DECSCL() {
         switch (inputOps[1]) {
             case 0:
                 logT << "DECSCL: 8-bit controls" << std::endl;
+                send8BitControls = true;
                 break;
             case 1:
                 logT << "DECSCL: 7-bit controls" << std::endl;
+                send8BitControls = false;
                 break;
             case 2:
                 logT << "DECSCL: 8-bit controls" << std::endl;
+                send8BitControls = true;
                 break;
             default:
                 logU << "DECSCL: C1 control transmission mode: "
@@ -2491,8 +2491,7 @@ inline void
 Vterm::csi_kittyKeyboardQuery() {
     TRACE_FUN;
     std::ostringstream reply;
-    reply << "\x1b[?" << static_cast<unsigned>(getKittyKeyboardFlags())
-          << 'u';
-    writePty(reply.str().c_str());
+    reply << "?" << static_cast<unsigned>(getKittyKeyboardFlags()) << 'u';
+    writeCsiResponse(reply.str());
     setState(InputState::Normal);
 }

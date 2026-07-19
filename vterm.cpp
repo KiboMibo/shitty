@@ -1466,6 +1466,29 @@ int Vterm::writePty(const char* cstr, bool userInput) {
     return writePty(ucstr, strlen(cstr), userInput);
 }
 
+void Vterm::writeCsiResponse(const std::string& payload) {
+    const std::string response =
+        (send8BitControls ? std::string("\x9b") : std::string("\x1b[")) +
+        payload;
+    writePty(reinterpret_cast<const uint8_t*>(response.data()), response.size());
+}
+
+void Vterm::writeDcsResponse(const std::string& payload) {
+    const std::string response =
+        (send8BitControls ? std::string("\x90") : std::string("\x1bP")) +
+        payload +
+        (send8BitControls ? std::string("\x9c") : std::string("\x1b\\"));
+    writePty(reinterpret_cast<const uint8_t*>(response.data()), response.size());
+}
+
+void Vterm::writeOscResponse(const std::string& payload) {
+    const std::string response =
+        (send8BitControls ? std::string("\x9d") : std::string("\x1b]")) +
+        payload +
+        (send8BitControls ? std::string("\x9c") : std::string("\x1b\\"));
+    writePty(reinterpret_cast<const uint8_t*>(response.data()), response.size());
+}
+
 int Vterm::writePty(const uint8_t* ucstr, size_t len, bool userInput) {
     if (userInput && keyboardLocked) {
         logT << "pty write: discarding due to keyboard lock (DECKAM): "
@@ -1738,6 +1761,47 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         nInputOps = 1;
                         lastEscBegin = readPos;
                         break;
+                    case 0x84:
+                        esc_IND();
+                        break;
+                    case 0x85:
+                        esc_NEL();
+                        break;
+                    case 0x88:
+                        esc_HTS();
+                        break;
+                    case 0x8d:
+                        esc_RI();
+                        break;
+                    case 0x8e:
+                        charsetState.ss = 2;
+                        break;
+                    case 0x8f:
+                        charsetState.ss = 3;
+                        break;
+                    case 0x90:
+                        argBuf.clear();
+                        argBufOverflowed = false;
+                        setState(InputState::DCS);
+                        break;
+                    case 0x98:
+                    case 0x9e:
+                    case 0x9f:
+                        setState(InputState::String);
+                        break;
+                    case 0x9b:
+                        inputOps[0] = 0;
+                        nInputOps = 1;
+                        csiPrefixAllowed = true;
+                        setState(InputState::CSI);
+                        break;
+                    case 0x9c:
+                        break;
+                    case 0x9d:
+                        argBuf.clear();
+                        argBufOverflowed = false;
+                        setState(InputState::OSC);
+                        break;
                     case '\r':
                         traceNormalInput();
                         inp_CR();
@@ -1990,10 +2054,12 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                 switch (ch) {
                     case 'F':
                         logU << "S7C1T: Send 7-bit controls" << std::endl;
+                        send8BitControls = false;
                         setState(InputState::Normal);
                         break;
                     case 'G':
                         logU << "S8C1T: Send 8-bit controls" << std::endl;
+                        send8BitControls = true;
                         setState(InputState::Normal);
                         break;
                     case 'L':
@@ -2390,6 +2456,13 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                 break;
             case InputState::DCS:
                 switch (ch) {
+                    case 0x9c:
+                        if (argBufOverflowed) {
+                            setState(InputState::Normal);
+                        } else {
+                            handle_DCS();
+                        }
+                        break;
                     case '\x1b':
                         setState(InputState::DCS_Esc);
                         break;
@@ -2425,6 +2498,13 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                 break;
             case InputState::OSC:
                 switch (ch) {
+                    case 0x9c:
+                        if (argBufOverflowed) {
+                            setState(InputState::Normal);
+                        } else {
+                            handle_OSC();
+                        }
+                        break;
                     case '\a':
                         if (argBufOverflowed) {
                             setState(InputState::Normal);
@@ -2466,7 +2546,9 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                 }
                 break;
             case InputState::String:
-                if (ch == '\x1b') {
+                if (ch == 0x9c) {
+                    setState(InputState::Normal);
+                } else if (ch == '\x1b') {
                     setState(InputState::String_Esc);
                 }
                 break;

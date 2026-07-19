@@ -141,6 +141,31 @@ class ParserStreamingTest(unittest.TestCase):
                     terminal.write(b"A" + sequence + b"B")
                     self.assertEqual(terminal.snapshot().lines[0], "AB      ")
 
+    def test_eight_bit_c1_sequences_match_seven_bit_forms(self):
+        with Zutty(columns=8, rows=3) as terminal:
+            terminal.write(
+                b"\x9b2;3HX"
+                b"\x9d2;eight bit title\x9c"
+                b"\x90$q\"p\x9c"
+            )
+            snapshot = terminal.snapshot()
+
+            self.assertEqual(snapshot.cell(2, 1).char, "X")
+            self.assertEqual(
+                terminal.read_actions(),
+                ["OSC 2 656967687420626974207469746c65"],
+            )
+            self.assertEqual(
+                terminal.read_input(), b"\x1bP1$r64;1\"p\x1b\\"
+            )
+
+    def test_eight_bit_string_protocols_are_ignored_through_st(self):
+        for sequence in (b"\x9fignored\x9c", b"\x9eignored\x9c", b"\x98ignored\x9c"):
+            with self.subTest(sequence=sequence):
+                with Zutty(columns=8, rows=2) as terminal:
+                    terminal.write(b"A" + sequence + b"B")
+                    self.assertEqual(terminal.snapshot().lines[0], "AB      ")
+
 
 if __name__ == "__main__":
     unittest.main()

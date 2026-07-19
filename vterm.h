@@ -229,6 +229,9 @@ private:
     void processInput(const std::string& str);
 
     int writePty(const uint8_t* ucstr, size_t len, bool userInput = false);
+    void writeCsiResponse(const std::string& payload);
+    void writeDcsResponse(const std::string& payload);
+    void writeOscResponse(const std::string& payload);
 
     struct InputSpecTable {
         std::function<bool()> predicate;
@@ -491,6 +494,7 @@ private:
     bool localEcho = false;
     bool bracketedPasteMode = false;
     bool synchronizedOutputMode = false;
+    bool send8BitControls = false;
     bool altScrollMode = false;
     bool altSendsEscape = true;
     uint8_t modifyOtherKeys = 1;
