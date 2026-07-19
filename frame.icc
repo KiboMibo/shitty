@@ -90,14 +90,25 @@ Frame::scrollUp(uint16_t count) {
             scrollHead = marginTop;
         }
     }
-    historyRows = std::min(historyRows + count, (int)saveLines);
-    scrollRows += count;
+    if (!margins) {
+        historyRows = std::min(historyRows + count, (int)saveLines);
+        scrollRows += count;
+    }
     damage.add(marginTop * nCols, marginBottom * nCols);
 }
 
 inline void
-Frame::scrollDown(uint16_t count) {
+Frame::scrollDown(uint16_t count, bool consumeHistory) {
     vscrollSelection(count);
+    if (!margins && !consumeHistory) {
+        unwrapCellStorage();
+        const uint32_t rowCells = static_cast<uint32_t>(nCols);
+        const uint32_t moveCount = (nRows - count) * rowCells;
+        memmove(cells.get() + count * rowCells,
+                cells.get(), moveCount * cellSize);
+        damage.add(0, nRows * rowCells);
+        return;
+    }
     for (uint16_t k = 0; k < count; ++k) {
         if (scrollHead >= marginTop + 1) {
             --scrollHead;
@@ -105,8 +116,10 @@ Frame::scrollDown(uint16_t count) {
             scrollHead = marginBottom - 1;
         }
     }
-    historyRows = std::max(0, historyRows - count);
-    scrollRows -= count;
+    if (!margins && consumeHistory) {
+        historyRows = std::max(0, historyRows - count);
+        scrollRows -= count;
+    }
     damage.add(marginTop * nCols, marginBottom * nCols);
 }
 

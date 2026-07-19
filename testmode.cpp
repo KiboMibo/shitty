@@ -303,6 +303,12 @@ int runTestMode(int controlFd) {
             } else if (line == "PAGE_DOWN") {
                 terminal.pageDown();
                 writeAll(controlFd, "OK\n");
+            } else if (line == "WHEEL_UP") {
+                terminal.mouseWheelUp();
+                writeAll(controlFd, "OK\n");
+            } else if (line == "WHEEL_DOWN") {
+                terminal.mouseWheelDown();
+                writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 7, "RESIZE ") == 0) {
                 std::istringstream args(line.substr(7));
                 unsigned columns;

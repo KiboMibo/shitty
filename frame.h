@@ -53,7 +53,7 @@ public:
                  uint16_t count);
 
     void scrollUp(uint16_t count);
-    void scrollDown(uint16_t count);
+    void scrollDown(uint16_t count, bool consumeHistory = false);
 
     void pageUp(uint16_t count);
     void pageDown(uint16_t count);

@@ -1272,7 +1272,7 @@ void Vterm::resize(uint16_t winPx_, uint16_t winPy_) {
 
         if (nRows < nRows_) {
             int nScroll = std::min(nRows_ - nRows, (int)cf->getHistoryRows());
-            cf->scrollDown(nScroll);
+            cf->scrollDown(nScroll, true);
             posY += nScroll;
         }
 
