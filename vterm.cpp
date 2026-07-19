@@ -2469,6 +2469,10 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                     case '~':
                         csi_DECDC();
                         break;
+                    case 'z': csi_DECELR(); break;
+                    case '{': csi_DECSLE(); break;
+                    case '|': csi_DECRQLP(); break;
+                    case 'w': csi_DECEFR(); break;
                         IGNORE_SEQUENCE_ON_BAD_PARAMS;
                     default:
                         unhandledInput(ch);

@@ -21,6 +21,23 @@ class MouseProtocolTest(unittest.TestCase):
             self.assertEqual(
                 terminal.read_input(), b"\x1b[<2;1;5;3;5;3T"
             )
+
+    def test_dec_locator_query_buttons_pixels_and_one_shot(self):
+        with Zutty(columns=10, rows=4) as terminal:
+            terminal.locator_position(4, 2, 40, 20)
+            terminal.write(b"\x1b[1;2'z\x1b[1;3'{\x1b['|")
+            self.assertEqual(terminal.read_input(), b"\x1b[1;0;2;4;0&w")
+            terminal.locator_button(1, True)
+            terminal.locator_button(1, False)
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[2;4;2;4;0&w\x1b[3;0;2;4;0&w",
+            )
+
+            terminal.write(b"\x1b[2;1'z\x1b['|")
+            self.assertEqual(terminal.read_input(), b"\x1b[1;0;20;40;0&w")
+            terminal.write(b"\x1b['|")
+            self.assertEqual(terminal.read_input(), b"\x1b[0&w")
     def test_default_encoding_press_and_release(self):
         with Zutty(columns=8, rows=2) as terminal:
             self.assertEqual(

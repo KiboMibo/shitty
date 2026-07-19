@@ -256,6 +256,10 @@ public:
     const MouseTrackingState& getMouseTrackingState() const;
     bool mouseHighlightRelease(uint16_t endX, uint16_t endY,
                                uint16_t mouseX, uint16_t mouseY);
+    void setLocatorPosition(uint16_t column, uint16_t row,
+                            uint16_t pixelX, uint16_t pixelY,
+                            uint8_t buttons = 0);
+    void reportLocatorButton(uint8_t button, bool pressed);
 
     void setHasFocus(bool);
     void setHyperlink(const std::string& parametersAndUri);
@@ -479,6 +483,10 @@ private:
     void csiq_DECSCL();
     void csi_XTWINOPS();
     void csi_XTHIMOUSE();
+    void csi_DECELR();
+    void csi_DECSLE();
+    void csi_DECRQLP();
+    void csi_DECEFR();
     void csi_XTMODKEYS();
     void csi_XTQMODKEYS();
     void csi_kittyKeyboardPush();
@@ -725,6 +733,22 @@ private:
         uint16_t firstRow = 1;
         uint16_t lastRow = 1;
     } mouseHighlight;
+    struct LocatorState {
+        uint8_t enabled = 0;
+        bool pixels = false;
+        bool reportDown = false;
+        bool reportUp = false;
+        uint8_t buttons = 0;
+        uint16_t column = 1;
+        uint16_t row = 1;
+        uint16_t pixelX = 1;
+        uint16_t pixelY = 1;
+        bool filter = false;
+        uint16_t filterTop = 1;
+        uint16_t filterLeft = 1;
+        uint16_t filterBottom = 1;
+        uint16_t filterRight = 1;
+    } locator;
 
 #ifdef DEBUG
     void traceFunction(const char* func);

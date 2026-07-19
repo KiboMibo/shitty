@@ -239,6 +239,46 @@ Vterm::mouseHighlightRelease(uint16_t endX, uint16_t endY,
     return true;
 }
 
+inline void
+Vterm::setLocatorPosition(uint16_t column, uint16_t row,
+                          uint16_t pixelX, uint16_t pixelY, uint8_t buttons) {
+    locator.column = std::max<uint16_t>(1, column);
+    locator.row = std::max<uint16_t>(1, row);
+    locator.pixelX = std::max<uint16_t>(1, pixelX);
+    locator.pixelY = std::max<uint16_t>(1, pixelY);
+    locator.buttons = buttons & 15;
+    if (locator.enabled && locator.filter) {
+        const uint16_t x = locator.pixels ? locator.pixelX : locator.column;
+        const uint16_t y = locator.pixels ? locator.pixelY : locator.row;
+        if (y < locator.filterTop || y > locator.filterBottom ||
+            x < locator.filterLeft || x > locator.filterRight) {
+            std::ostringstream response;
+            response << "10;" << static_cast<unsigned>(locator.buttons) << ';'
+                     << y << ';' << x << ";0&w";
+            writeCsiResponse(response.str());
+            locator.filter = false;
+            if (locator.enabled == 2) locator.enabled = 0;
+        }
+    }
+}
+
+inline void
+Vterm::reportLocatorButton(uint8_t button, bool pressed) {
+    if (!locator.enabled || (pressed ? !locator.reportDown : !locator.reportUp) ||
+        button < 1 || button > 4) return;
+    const uint8_t bits[] = {0, 4, 2, 1, 8};
+    if (pressed) locator.buttons |= bits[button];
+    else locator.buttons &= ~bits[button];
+    const uint32_t event = 2 + (button - 1) * 2 + (pressed ? 0 : 1);
+    const uint16_t x = locator.pixels ? locator.pixelX : locator.column;
+    const uint16_t y = locator.pixels ? locator.pixelY : locator.row;
+    std::ostringstream response;
+    response << event << ';' << static_cast<unsigned>(locator.buttons) << ';'
+             << y << ';' << x << ";0&w";
+    writeCsiResponse(response.str());
+    if (locator.enabled == 2) locator.enabled = 0;
+}
+
 inline Vterm::KittyKeyboardState&
 Vterm::kittyKeyboardState() {
     return altScreenBufferMode ? kittyKeyboardAlt : kittyKeyboardPri;
@@ -405,6 +445,7 @@ Vterm::resetScreen() {
     savedCursor_DEC->isSet = false;
 
     mouseTrk = MouseTrackingState{};
+    locator = LocatorState{};
 
     tabStops.clear();
     tabStopsCustomized = false;
@@ -3286,6 +3327,60 @@ Vterm::csi_XTHIMOUSE() {
     } else {
         mouseHighlight.active = false;
     }
+    setState(InputState::Normal);
+}
+
+inline void
+Vterm::csi_DECELR() {
+    const uint32_t mode = inputOps[0];
+    locator.enabled = mode <= 2 ? mode : 0;
+    locator.pixels = nInputOps > 1 && inputOps[1] == 1;
+    locator.filter = false;
+    setState(InputState::Normal);
+}
+
+inline void
+Vterm::csi_DECSLE() {
+    for (size_t k = 0; k < nInputOps; ++k) {
+        switch (inputOps[k]) {
+            case 0: locator.reportDown = locator.reportUp = false;
+                    locator.filter = false; break;
+            case 1: locator.reportDown = true; break;
+            case 2: locator.reportDown = false; break;
+            case 3: locator.reportUp = true; break;
+            case 4: locator.reportUp = false; break;
+        }
+    }
+    setState(InputState::Normal);
+}
+
+inline void
+Vterm::csi_DECRQLP() {
+    if (locator.enabled) {
+        const uint16_t x = locator.pixels ? locator.pixelX : locator.column;
+        const uint16_t y = locator.pixels ? locator.pixelY : locator.row;
+        std::ostringstream response;
+        response << "1;" << static_cast<unsigned>(locator.buttons) << ';'
+                 << y << ';' << x << ";0&w";
+        writeCsiResponse(response.str());
+        if (locator.enabled == 2) locator.enabled = 0;
+    } else {
+        writeCsiResponse("0&w");
+    }
+    setState(InputState::Normal);
+}
+
+inline void
+Vterm::csi_DECEFR() {
+    const auto value = [this](size_t k, uint16_t current) {
+        return k < nInputOps && inputOps[k] ?
+                   static_cast<uint16_t>(inputOps[k]) : current;
+    };
+    locator.filterTop = value(0, locator.pixels ? locator.pixelY : locator.row);
+    locator.filterLeft = value(1, locator.pixels ? locator.pixelX : locator.column);
+    locator.filterBottom = value(2, locator.filterTop);
+    locator.filterRight = value(3, locator.filterLeft);
+    locator.filter = locator.enabled != 0;
     setState(InputState::Normal);
 }
 

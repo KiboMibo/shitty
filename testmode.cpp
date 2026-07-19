@@ -443,6 +443,20 @@ int runTestMode(int controlFd) {
                 }
                 terminal.mouseHighlightRelease(endX, endY, mouseX, mouseY);
                 writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 17, "LOCATOR_POSITION ") == 0) {
+                std::istringstream args(line.substr(17));
+                unsigned column, row, pixelX, pixelY, buttons;
+                if (!(args >> column >> row >> pixelX >> pixelY >> buttons))
+                    throw std::runtime_error("invalid locator position");
+                terminal.setLocatorPosition(column, row, pixelX, pixelY, buttons);
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 15, "LOCATOR_BUTTON ") == 0) {
+                std::istringstream args(line.substr(15));
+                unsigned button, pressed;
+                if (!(args >> button >> pressed))
+                    throw std::runtime_error("invalid locator button");
+                terminal.reportLocatorButton(button, pressed != 0);
+                writeAll(controlFd, "OK\n");
             } else if (line == "SYNC_TIMEOUT") {
                 terminal.expireSynchronizedOutput(true);
                 writeAll(controlFd, "OK\n");

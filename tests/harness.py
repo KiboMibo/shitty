@@ -168,6 +168,14 @@ class Zutty:
             f"HIGHLIGHT_RELEASE {end_x} {end_y} {mouse_x} {mouse_y}"
         )
 
+    def locator_position(self, column, row, pixel_x, pixel_y, buttons=0):
+        self.command(
+            f"LOCATOR_POSITION {column} {row} {pixel_x} {pixel_y} {buttons}"
+        )
+
+    def locator_button(self, button, pressed):
+        self.command(f"LOCATOR_BUTTON {button} {int(pressed)}")
+
     def sync_timeout(self):
         self.command("SYNC_TIMEOUT")
 

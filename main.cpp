@@ -1119,6 +1119,16 @@ namespace {
         }
         const auto& tracking = vt->getMouseTrackingState();
         const int protocolButton = terminalButton(button);
+        uint16_t locatorColumn = 1;
+        uint16_t locatorRow = 1;
+        mouseProtocolCoordinates(
+            MouseTrackingEnc::Default, pixelX, pixelY,
+            locatorColumn, locatorRow);
+        vt->setLocatorPosition(locatorColumn, locatorRow,
+                               std::max(1, pixelX + 1),
+                               std::max(1, pixelY + 1));
+        if (protocolButton >= 1 && protocolButton <= 4)
+            vt->reportLocatorButton(protocolButton, pressed);
 
         if (!pressed && button == GLFW_MOUSE_BUTTON_LEFT &&
             mouseContext.hyperlinkClick) {
@@ -1174,6 +1184,14 @@ namespace {
         const int pixelX = toPixelX(x);
         const int pixelY = toPixelY(y);
         const int modifiers = keyboardModifiers();
+        uint16_t locatorColumn = 1;
+        uint16_t locatorRow = 1;
+        mouseProtocolCoordinates(
+            MouseTrackingEnc::Default, pixelX, pixelY,
+            locatorColumn, locatorRow);
+        vt->setLocatorPosition(locatorColumn, locatorRow,
+                               std::max(1, pixelX + 1),
+                               std::max(1, pixelY + 1));
         const bool overHyperlink = (modifiers & GLFW_MOD_CONTROL) &&
                                    !vt->getHyperlink(pixelX, pixelY).empty();
         glfwSetCursor(window, overHyperlink && hyperlinkCursor != nullptr
