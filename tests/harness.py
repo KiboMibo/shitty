@@ -59,6 +59,18 @@ class Snapshot:
         return self.cells[row * self.columns + column]
 
 
+@dataclass
+class RenderState:
+    screen_reverse: bool
+    blink_visible: bool
+    cursor_blink: bool
+    selection_mask: int
+    selection_foreground: tuple[int, int, int]
+    selection_background: tuple[int, int, int]
+    grapheme_cells: int
+    grapheme_codepoints: int
+
+
 class Zutty:
     def __init__(self, columns=80, rows=24, save_lines=500):
         parent, child = socket.socketpair()
@@ -237,6 +249,23 @@ class Zutty:
         if len(response) != 6 or response[0] != "OK":
             raise RuntimeError("invalid protocol state response")
         return tuple(map(int, response[1:]))
+
+    def render_state(self):
+        self.stream.write(b"RENDER_STATE\n")
+        response = self._readline().split()
+        if len(response) != 13 or response[0] != "OK":
+            raise RuntimeError("invalid renderer state response")
+        values = tuple(map(int, response[1:]))
+        return RenderState(
+            bool(values[0]),
+            bool(values[1]),
+            bool(values[2]),
+            values[3],
+            values[4:7],
+            values[7:10],
+            values[10],
+            values[11],
+        )
 
     def mouse_encode(
         self,

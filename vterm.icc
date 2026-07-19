@@ -3099,14 +3099,14 @@ Vterm::handle_OSC() {
                 frame_alt.setCursorColor(cursorColor);
                 break;
             case 117:
-                selectionFgColor = opts.fg;
-                frame_pri.setSelectionColor(true, selectionFgColor, false);
-                frame_alt.setSelectionColor(true, selectionFgColor, false);
-                break;
-            case 119:
                 selectionBgColor = opts.bg;
                 frame_pri.setSelectionColor(false, selectionBgColor, false);
                 frame_alt.setSelectionColor(false, selectionBgColor, false);
+                break;
+            case 119:
+                selectionFgColor = opts.fg;
+                frame_pri.setSelectionColor(true, selectionFgColor, false);
+                frame_alt.setSelectionColor(true, selectionFgColor, false);
                 break;
             case 9: {
                 if (arg.compare(0, 2, "4;") == 0) {
@@ -3286,10 +3286,10 @@ Vterm::osc_DynamicColorQuery(int cmd, const std::string& arg) {
                 c = cursorColor;
                 break;
             case 17:
-                c = selectionFgColor;
+                c = selectionBgColor;
                 break;
             case 19:
-                c = selectionBgColor;
+                c = selectionFgColor;
                 break;
             default:
                 return;
@@ -3323,14 +3323,14 @@ Vterm::osc_DynamicColorQuery(int cmd, const std::string& arg) {
                 frame_alt.setCursorColor(color);
                 break;
             case 17:
-                selectionFgColor = color;
-                frame_pri.setSelectionColor(true, color, true);
-                frame_alt.setSelectionColor(true, color, true);
-                break;
-            case 19:
                 selectionBgColor = color;
                 frame_pri.setSelectionColor(false, color, true);
                 frame_alt.setSelectionColor(false, color, true);
+                break;
+            case 19:
+                selectionFgColor = color;
+                frame_pri.setSelectionColor(true, color, true);
+                frame_alt.setSelectionColor(true, color, true);
                 break;
         }
     }

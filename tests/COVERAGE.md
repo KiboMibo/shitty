@@ -20,11 +20,17 @@ Covered now:
 - Codex-style synchronized redraws plus a slow reference scrolling model;
 - SGR flags, truecolor, wide cells, wrap markers and DEC line drawing;
 - DA, DSR, DECRQSS, palette and dynamic-color replies;
+- renderer input state for blink phases, cursor blink, screen reverse video,
+  dynamic palette, selection colors and grapheme payloads;
 - OSC actions, bell, OSC 7 paths, OSC 8 hyperlinks and OSC 52 clipboard data;
 - legacy/application keyboard, modifiers, function keys, paste and kitty keys;
 - mouse/focus negotiation plus default, UTF-8, SGR and URXVT encodings;
 - linear/rectangular selection and selection while scrolled;
 - growing/shrinking both primary and alternate screens.
+
+The optional compatibility tier additionally runs an upstream `vttest`
+process on Zutty's real PTY and records the same query set under Zutty, xterm,
+foot and kitty when those terminals are installed.
 
 Still requiring a platform boundary before it can be tested headlessly:
 

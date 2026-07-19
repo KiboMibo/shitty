@@ -123,6 +123,21 @@ namespace {
             cursor = frame.getCursor();
             selection = frame.getSelectionForView();
             viewOffset = frame.getViewOffset();
+            screenReverse = frame.getScreenReverseVideo();
+            blinkVisible = frame.getBlinkVisible();
+            cursorBlink = frame.getCursorBlink();
+            selectionForeground = frame.getSelectionForeground();
+            selectionBackground = frame.getSelectionBackground();
+            selectionColorMask = frame.getSelectionColorMask();
+            graphemeCells = 0;
+            graphemeCodepoints = 0;
+            for (const auto& cell : cells) {
+                if (!cell.grapheme) continue;
+                const auto& grapheme = frame.getGrapheme(cell.grapheme);
+                if (grapheme.empty()) continue;
+                ++graphemeCells;
+                graphemeCodepoints += grapheme.size();
+            }
             ++refreshCount;
             delta = true;
         }
@@ -172,12 +187,35 @@ namespace {
             return output.str();
         }
 
+        std::string renderState() const {
+            std::ostringstream output;
+            output << "OK " << screenReverse << ' '
+                   << blinkVisible << ' ' << cursorBlink << ' '
+                   << static_cast<unsigned>(selectionColorMask) << ' '
+                   << static_cast<unsigned>(selectionForeground.red) << ' '
+                   << static_cast<unsigned>(selectionForeground.green) << ' '
+                   << static_cast<unsigned>(selectionForeground.blue) << ' '
+                   << static_cast<unsigned>(selectionBackground.red) << ' '
+                   << static_cast<unsigned>(selectionBackground.green) << ' '
+                   << static_cast<unsigned>(selectionBackground.blue) << ' '
+                   << graphemeCells << ' ' << graphemeCodepoints << '\n';
+            return output.str();
+        }
+
     private:
         uint16_t columns = 0;
         uint16_t rows = 0;
         uint16_t viewOffset = 0;
         uint64_t refreshCount = 0;
         bool delta = false;
+        bool screenReverse = false;
+        bool blinkVisible = true;
+        bool cursorBlink = false;
+        Color selectionForeground;
+        Color selectionBackground;
+        uint8_t selectionColorMask = 0;
+        size_t graphemeCells = 0;
+        size_t graphemeCodepoints = 0;
         CharVdev::Cursor cursor;
         Rect selection;
         std::vector<CharVdev::Cell> cells;
@@ -580,6 +618,8 @@ int runTestMode(int controlFd) {
                          " " + std::to_string(terminal.getReverseWrapMode()) +
                          " " + std::to_string(terminal.getNationalReplacementMode()) +
                          " 0\n");
+            } else if (line == "RENDER_STATE") {
+                writeAll(controlFd, display.renderState());
             } else if (line.compare(0, 13, "MOUSE_ENCODE ") == 0) {
                 std::istringstream args(line.substr(13));
                 unsigned encoding;
