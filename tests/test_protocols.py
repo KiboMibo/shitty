@@ -119,6 +119,44 @@ class ProtocolTest(unittest.TestCase):
             self.assertIn(b"\x1b]4;1;rgb:", reply)
             self.assertIn(b"\x1b]10;rgb:", reply)
 
+    def test_palette_can_be_set_queried_and_reset_in_batches(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]4;1;#010203;2;rgb:0404/0505/0606\x1b\\"
+                b"\x1b]4;1;?;2;?\x1b\\"
+            )
+            reply = terminal.read_input()
+            self.assertIn(b"\x1b]4;1;rgb:0101/0202/0303\x1b\\", reply)
+            self.assertIn(b"\x1b]4;2;rgb:0404/0505/0606\x1b\\", reply)
+
+            terminal.write(b"\x1b]104;1;2\x1b\\\x1b]4;1;?;2;?\x1b\\")
+            self.assertNotEqual(terminal.read_input(), reply)
+
+    def test_dynamic_color_queries_are_independent_of_sgr(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]10;#010203\x1b\\"
+                b"\x1b]11;#040506\x1b\\"
+                b"\x1b]12;#070809\x1b\\"
+                b"\x1b]17;#0a0b0c\x1b\\"
+                b"\x1b]19;#0d0e0f\x1b\\"
+                b"\x1b[31;42m"
+                b"\x1b]10;?\x1b\\\x1b]11;?\x1b\\\x1b]12;?\x1b\\"
+                b"\x1b]17;?\x1b\\\x1b]19;?\x1b\\"
+            )
+            reply = terminal.read_input()
+            for command, color in (
+                (10, b"0101/0202/0303"),
+                (11, b"0404/0505/0606"),
+                (12, b"0707/0808/0909"),
+                (17, b"0a0a/0b0b/0c0c"),
+                (19, b"0d0d/0e0e/0f0f"),
+            ):
+                self.assertIn(
+                    f"\x1b]{command};rgb:".encode() + color + b"\x1b\\",
+                    reply,
+                )
+
     def test_osc_title_cwd_and_bell_are_reported_as_actions(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b]2;hello\a\x1b]7;file:///tmp\x1b\\\a")

@@ -1220,6 +1220,13 @@ Vterm::Vterm(uint16_t glyphPx_, uint16_t glyphPy_,
     , hMargin(0)
 {
     makePalette256(palette256);
+    std::copy(std::begin(palette256), std::end(palette256),
+              std::begin(originalPalette256));
+    defaultFgColor = opts.fg;
+    defaultBgColor = opts.bg;
+    cursorColor = opts.cr;
+    selectionFgColor = opts.fg;
+    selectionBgColor = opts.bg;
 
     defaultFgPalIx = (opts.fg == palette256[15]) ? 15 : -1;
     defaultBgPalIx = (opts.bg == palette256[0]) ? 0 : -1;

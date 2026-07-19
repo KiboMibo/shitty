@@ -39,6 +39,11 @@ Frame::setCursorStyle(CharVdev::Cursor::Style cs) {
 }
 
 inline void
+Frame::setCursorColor(Color color) {
+    cursor.color = color;
+}
+
+inline void
 Frame::pageUp(uint16_t count) {
     uint16_t viewOffset_ = std::min<size_t>(viewOffset + count, history.size());
     viewOffset = viewOffset_;

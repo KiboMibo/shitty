@@ -18,6 +18,43 @@
 
 #include <chrono>
 #include <thread>
+
+inline bool parseOscColor(const std::string& spec, Color& color) {
+    const auto hexDigit = [](unsigned char ch) -> int {
+        if (ch >= '0' && ch <= '9') return ch - '0';
+        if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+        if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+        return -1;
+    };
+    const auto component = [&](const std::string& value, uint8_t& out) {
+        if (value.empty() || value.size() > 4) return false;
+        unsigned parsed = 0;
+        for (unsigned char ch : value) {
+            const int digit = hexDigit(ch);
+            if (digit < 0) return false;
+            parsed = parsed * 16 + digit;
+        }
+        const unsigned maximum = (1u << (4 * value.size())) - 1;
+        out = static_cast<uint8_t>((parsed * 255 + maximum / 2) / maximum);
+        return true;
+    };
+
+    if (spec.size() == 7 && spec[0] == '#') {
+        return component(spec.substr(1, 2), color.red) &&
+               component(spec.substr(3, 2), color.green) &&
+               component(spec.substr(5, 2), color.blue);
+    }
+    if (spec.compare(0, 4, "rgb:") != 0) return false;
+    const size_t first = spec.find('/', 4);
+    const size_t second = first == std::string::npos
+                              ? std::string::npos
+                              : spec.find('/', first + 1);
+    return first != std::string::npos && second != std::string::npos &&
+           spec.find('/', second + 1) == std::string::npos &&
+           component(spec.substr(4, first - 4), color.red) &&
+           component(spec.substr(first + 1, second - first - 1), color.green) &&
+           component(spec.substr(second + 1), color.blue);
+}
 #include <sys/types.h>
 #include <signal.h>
 
@@ -1701,7 +1738,7 @@ Vterm::csi_privRestore() {
 inline void
 Vterm::setFgFromPalIx() {
     if (fgPalIx < 0) {
-        *fg = opts.fg;
+        *fg = defaultFgColor;
     } else if (fgPalIx > 255) {
         return;
     } else if (opts.boldColors && attrs.bold && fgPalIx >= 0 && fgPalIx <= 7) {
@@ -1717,7 +1754,7 @@ Vterm::setFgFromPalIx() {
 inline void
 Vterm::setBgFromPalIx() {
     if (bgPalIx < 0) {
-        *bg = opts.bg;
+        *bg = defaultBgColor;
     } else if (bgPalIx > 255) {
         return;
     } else {
@@ -2286,12 +2323,48 @@ Vterm::handle_OSC() {
             case 4:
                 osc_PaletteQuery(cmd, arg);
                 break;
+            case 104: {
+                if (arg.empty()) {
+                    std::copy(std::begin(originalPalette256),
+                              std::end(originalPalette256),
+                              std::begin(palette256));
+                } else {
+                    std::stringstream indices(arg);
+                    std::string value;
+                    while (std::getline(indices, value, ';')) {
+                        std::stringstream parser(value);
+                        int index = -1;
+                        parser >> index;
+                        if (!parser.fail() && index >= 0 && index <= 255)
+                            palette256[index] = originalPalette256[index];
+                    }
+                }
+            } break;
             case 10:
             case 11:
             case 12:
             case 17:
             case 19:
                 osc_DynamicColorQuery(cmd, arg);
+                break;
+            case 110:
+                defaultFgColor = opts.fg;
+                defaultFgPalIx = defaultFgColor == palette256[15] ? 15 : -1;
+                break;
+            case 111:
+                defaultBgColor = opts.bg;
+                defaultBgPalIx = defaultBgColor == palette256[0] ? 0 : -1;
+                break;
+            case 112:
+                cursorColor = opts.cr;
+                frame_pri.setCursorColor(cursorColor);
+                frame_alt.setCursorColor(cursorColor);
+                break;
+            case 117:
+                selectionFgColor = opts.fg;
+                break;
+            case 119:
+                selectionBgColor = opts.bg;
                 break;
 
             default:
@@ -2304,25 +2377,23 @@ Vterm::handle_OSC() {
 
 inline void
 Vterm::osc_PaletteQuery(int cmd, const std::string& arg) {
-    std::size_t p = arg.find_first_of(";");
-    if (p == std::string::npos) {
-        return;
-    }
-    std::string pc = arg.substr(0, p);
-    std::string ps = arg.substr(p + 1);
-
-    if (ps == "?") {
-        std::stringstream iss(pc);
-        int paletteIdx;
-        iss >> paletteIdx;
-        if (iss.fail() || paletteIdx < 0 || paletteIdx > 255) {
-            return;
+    std::stringstream fields(arg);
+    std::string indexText;
+    std::string spec;
+    while (std::getline(fields, indexText, ';') &&
+           std::getline(fields, spec, ';')) {
+        std::stringstream parser(indexText);
+        int paletteIdx = -1;
+        parser >> paletteIdx;
+        if (parser.fail() || paletteIdx < 0 || paletteIdx > 255) continue;
+        if (spec == "?") {
+            std::ostringstream reply;
+            reply << cmd << ";" << paletteIdx << ";" << palette256[paletteIdx];
+            writeOscResponse(reply.str());
+        } else {
+            Color color;
+            if (parseOscColor(spec, color)) palette256[paletteIdx] = color;
         }
-        Color c = palette256[paletteIdx];
-
-        std::ostringstream oss;
-        oss << cmd << ";" << paletteIdx << ";" << c;
-        writeOscResponse(oss.str());
     }
 }
 
@@ -2332,15 +2403,19 @@ Vterm::osc_DynamicColorQuery(int cmd, const std::string& arg) {
         Color c;
         switch (cmd) {
             case 10:
-            case 17:
-                c = *fg;
+                c = defaultFgColor;
                 break;
             case 11:
-            case 19:
-                c = *bg;
+                c = defaultBgColor;
                 break;
             case 12:
-                c = cf->getCursor().color;
+                c = cursorColor;
+                break;
+            case 17:
+                c = selectionFgColor;
+                break;
+            case 19:
+                c = selectionBgColor;
                 break;
             default:
                 return;
@@ -2348,6 +2423,32 @@ Vterm::osc_DynamicColorQuery(int cmd, const std::string& arg) {
         std::ostringstream oss;
         oss << cmd << ";" << c;
         writeOscResponse(oss.str());
+    } else {
+        Color color;
+        if (!parseOscColor(arg, color)) return;
+        switch (cmd) {
+            case 10:
+                defaultFgColor = color;
+                defaultFgPalIx = -1;
+                if (fgPalIx < 0) setFgFromPalIx();
+                break;
+            case 11:
+                defaultBgColor = color;
+                defaultBgPalIx = -1;
+                if (bgPalIx < 0) setBgFromPalIx();
+                break;
+            case 12:
+                cursorColor = color;
+                frame_pri.setCursorColor(color);
+                frame_alt.setCursorColor(color);
+                break;
+            case 17:
+                selectionFgColor = color;
+                break;
+            case 19:
+                selectionBgColor = color;
+                break;
+        }
     }
 }
 

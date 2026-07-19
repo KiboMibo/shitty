@@ -448,6 +448,12 @@ private:
     Color* fg = &attrs.fg;
     Color* bg = &attrs.bg;
     Color palette256[256];
+    Color originalPalette256[256];
+    Color defaultFgColor;
+    Color defaultBgColor;
+    Color cursorColor;
+    Color selectionFgColor;
+    Color selectionBgColor;
     std::map<std::string, uint32_t> hyperlinkIds;
     std::map<uint32_t, std::string> hyperlinks;
     uint32_t activeHyperlink = 0;

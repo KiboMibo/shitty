@@ -79,6 +79,7 @@ public:
     CharVdev::Cursor getCursor() const;
     void setCursorPos(uint16_t pY, uint16_t pX);
     void setCursorStyle(CharVdev::Cursor::Style cs);
+    void setCursorColor(Color color);
 
     enum class SelectSnapTo : uint8_t {
         Char = 0,
