@@ -15,11 +15,13 @@
 #include "utf8.h"
 
 #include <deque>
+#include <map>
 #include <set>
 #include <vector>
 
 class Frame {
 public:
+    using Grapheme = std::vector<uint32_t>;
     Frame();
 
     Frame(uint16_t winPx_, uint16_t winPy_,
@@ -47,6 +49,9 @@ public:
     const CharVdev::Cell& getCell(uint16_t pY, uint16_t pX) const;
     CharVdev::Cell& getCell(uint16_t pY, uint16_t pX);
     const CharVdev::Cell& getViewCell(uint16_t pY, uint16_t pX) const;
+
+    uint32_t internGrapheme(const Grapheme& codepoints);
+    const Grapheme& getGrapheme(uint32_t id) const;
 
     void eraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
                     const CharVdev::Cell& attrs);
@@ -117,11 +122,18 @@ public:
     uint16_t saveLines = 0;
 
 private:
+    struct GraphemeStore {
+        std::vector<Grapheme> values = {Grapheme{}};
+        std::map<Grapheme, uint32_t> ids;
+    };
+
     using RowId = uint32_t;
 
     uint16_t viewOffset;
 
     CharVdev::Cell::Ptr cells = nullptr;
+    std::shared_ptr<GraphemeStore> graphemes =
+        std::make_shared<GraphemeStore>();
     // Every allocated row belongs to exactly one of these containers.
     std::vector<RowId> screen;
     std::deque<RowId> history;

@@ -354,6 +354,7 @@ private:
     void hideCursor();
     void inputGraphicChar(unsigned char ch);
     void placeGraphicChar();
+    void resetGraphemeInput();
     void jumpToNextTabStop();
     void setFgFromPalIx();
     void setBgFromPalIx();
@@ -508,6 +509,10 @@ private:
     unsigned char inputSeparators[maxEscOps] = {};
     size_t nInputOps = 0;
     Utf8Decoder utf8dec;
+    Frame::Grapheme inputGrapheme;
+    Frame* inputGraphemeFrame = nullptr;
+    uint16_t inputGraphemeX = 0;
+    uint16_t inputGraphemeY = 0;
     std::vector<unsigned char> argBuf;
     bool argBufOverflowed = false;
     unsigned char scsDst;

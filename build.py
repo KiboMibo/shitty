@@ -13,6 +13,7 @@ freetype = pkg_config("freetype2")
 fontconfig = pkg_config("fontconfig")
 glfw = pkg_config("glfw3 >= 3.4")
 vulkan = pkg_config("vulkan")
+brotli_common = pkg_config("libbrotlicommon", required=False)
 threads = dependency(ldflags=["-pthread"])
 
 
@@ -41,7 +42,7 @@ render_spv = command(
 
 zutty = program(
     srcs=build.glob("$(S)/*.cpp"),
-    deps=[freetype, fontconfig, glfw, vulkan, threads],
+    deps=[freetype, fontconfig, glfw, vulkan, threads, brotli_common],
 )
 
 

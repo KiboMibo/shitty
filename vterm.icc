@@ -434,6 +434,7 @@ Vterm::setState(InputState newState) {
         inputOps[0] = 0;
         lastNormalBegin = readPos + 1;
     } else if (inputState == InputState::Normal) {
+        resetGraphemeInput();
         traceNormalInput();
     }
 
@@ -594,12 +595,79 @@ Vterm::inputGraphicChar(unsigned char ch) {
     }
 }
 
+inline bool
+isRegionalIndicator(uint32_t pt) {
+    return pt >= 0x1f1e6 && pt <= 0x1f1ff;
+}
+
+inline bool
+isEmojiModifier(uint32_t pt) {
+    return pt >= 0x1f3fb && pt <= 0x1f3ff;
+}
+
+inline bool
+isVariationSelector(uint32_t pt) {
+    return (pt >= 0xfe00 && pt <= 0xfe0f) ||
+           (pt >= 0xe0100 && pt <= 0xe01ef);
+}
+
+inline int
+hangulSyllableType(uint32_t pt) {
+    if ((pt >= 0x1100 && pt <= 0x115f) ||
+        (pt >= 0xa960 && pt <= 0xa97c)) return 1;
+    if ((pt >= 0x1160 && pt <= 0x11a7) ||
+        (pt >= 0xd7b0 && pt <= 0xd7c6)) return 2;
+    if ((pt >= 0x11a8 && pt <= 0x11ff) ||
+        (pt >= 0xd7cb && pt <= 0xd7fb)) return 3;
+    if (pt >= 0xac00 && pt <= 0xd7a3) {
+        return ((pt - 0xac00) % 28) == 0 ? 4 : 5;
+    }
+    return 0;
+}
+
+inline bool
+continuesGrapheme(const Frame::Grapheme& current, uint32_t pt) {
+    if (current.empty()) return false;
+    const uint32_t previous = current.back();
+
+    if (wcwidth(pt) == 0 || isVariationSelector(pt) ||
+        isEmojiModifier(pt) || previous == 0x200d) {
+        return true;
+    }
+
+    if (isRegionalIndicator(pt)) {
+        size_t count = 0;
+        for (auto it = current.rbegin();
+             it != current.rend() && isRegionalIndicator(*it); ++it) {
+            ++count;
+        }
+        return (count & 1) != 0;
+    }
+
+    const int lhs = hangulSyllableType(previous);
+    const int rhs = hangulSyllableType(pt);
+    return (lhs == 1 && (rhs == 1 || rhs == 2 || rhs == 4 || rhs == 5)) ||
+           ((lhs == 2 || lhs == 4) && (rhs == 2 || rhs == 3)) ||
+           ((lhs == 3 || lhs == 5) && rhs == 3);
+}
+
+inline void
+Vterm::resetGraphemeInput() {
+    inputGrapheme.clear();
+    inputGraphemeFrame = nullptr;
+}
+
 inline void
 Vterm::placeGraphicChar() {
     auto pt = utf8dec.getUnicode();
     auto w = wcwidth(pt);
 
-    if (!w) {
+    if (inputGraphemeFrame == cf &&
+        continuesGrapheme(inputGrapheme, pt)) {
+        inputGrapheme.push_back(pt);
+        auto& cell = cf->getCell(inputGraphemeY, inputGraphemeX);
+        cell.grapheme = cf->internGrapheme(inputGrapheme);
+        cf->expose();
         return;
     }
 
@@ -626,11 +694,22 @@ Vterm::placeGraphicChar() {
         csi_ICH();
     }
 
+    if (w == 0) {
+        w = 1;
+    }
+
+    const uint16_t clusterX = posX;
+    const uint16_t clusterY = posY;
     clearWideCellAt(posY, posX);
     auto& c = cf->getCell(posY, posX);
     c = attrs;
     c.uc_pt = pt;
     c.hyperlink = activeHyperlink;
+
+    inputGrapheme = {pt};
+    inputGraphemeFrame = cf;
+    inputGraphemeX = clusterX;
+    inputGraphemeY = clusterY;
 
     if (w == 2 && posX < nColsEff - 1) {
         c.dwidth = 1;

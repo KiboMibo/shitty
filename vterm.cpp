@@ -1806,6 +1806,10 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                     inputGraphicChar(ch);
                     break;
                 }
+                if (ch < 0x20 || ch == 0x7f ||
+                    (ch >= 0x80 && ch <= 0x9f)) {
+                    resetGraphemeInput();
+                }
                 switch (ch) {
                     case '\x00':
                         break;

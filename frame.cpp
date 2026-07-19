@@ -15,6 +15,27 @@
 Frame::Frame() {
 }
 
+uint32_t Frame::internGrapheme(const Grapheme& codepoints) {
+    if (codepoints.size() < 2) {
+        return 0;
+    }
+    const auto found = graphemes->ids.find(codepoints);
+    if (found != graphemes->ids.end()) {
+        return found->second;
+    }
+    const uint32_t id = graphemes->values.size();
+    graphemes->values.push_back(codepoints);
+    graphemes->ids.emplace(codepoints, id);
+    return id;
+}
+
+const Frame::Grapheme& Frame::getGrapheme(uint32_t id) const {
+    if (id >= graphemes->values.size()) {
+        return graphemes->values.front();
+    }
+    return graphemes->values[id];
+}
+
 Frame::Frame(uint16_t winPx_, uint16_t winPy_,
              uint16_t nCols_, uint16_t nRows_,
              uint16_t& marginTop_, uint16_t& marginBottom_,
@@ -211,7 +232,12 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
         for (uint16_t x = x1; x < x2; ++x) {
             const auto& cell = cp[x];
             if (!cell.dwidth_cont) {
-                line.push_back(cell.uc_pt);
+                const auto& grapheme = getGrapheme(cell.grapheme);
+                if (grapheme.empty()) {
+                    line.push_back(cell.uc_pt);
+                } else {
+                    line.insert(line.end(), grapheme.begin(), grapheme.end());
+                }
             }
             if (cell.wrap) {
                 wrap = true;

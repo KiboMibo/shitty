@@ -34,6 +34,55 @@ class UnicodeTest(unittest.TestCase):
             terminal.select_update(2, 0)
             self.assertEqual(terminal.select_finish(), "😀".encode())
 
+    def test_combining_sequence_is_one_cell_and_copies_verbatim(self):
+        text = "e\N{COMBINING ACUTE ACCENT}X"
+        with Zutty(columns=6, rows=2) as terminal:
+            terminal.write(text.encode())
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (2, 0))
+            self.assertEqual(snapshot.cell(0, 0).char, "e")
+            self.assertEqual(snapshot.cell(1, 0).char, "X")
+
+            terminal.select_start(0, 0)
+            terminal.select_update(1, 0)
+            self.assertEqual(
+                terminal.select_finish(),
+                "e\N{COMBINING ACUTE ACCENT}".encode(),
+            )
+
+    def test_variation_selector_is_preserved_in_cluster(self):
+        text = "\N{HEAVY BLACK HEART}\N{VARIATION SELECTOR-16}"
+        with Zutty(columns=6, rows=2) as terminal:
+            terminal.write((text + "X").encode())
+            self.assertEqual(terminal.snapshot().cursor_x, 2)
+            terminal.select_start(0, 0)
+            terminal.select_update(1, 0)
+            self.assertEqual(terminal.select_finish(), text.encode())
+
+    def test_zwj_emoji_sequence_occupies_one_wide_cluster(self):
+        family = "👩\N{ZERO WIDTH JOINER}👩\N{ZERO WIDTH JOINER}👧"
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write((family + "X").encode())
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cursor_x, 3)
+            self.assertTrue(snapshot.cell(0, 0).double_width)
+            self.assertTrue(snapshot.cell(1, 0).double_width_continuation)
+            self.assertEqual(snapshot.cell(2, 0).char, "X")
+
+            terminal.select_start(0, 0)
+            terminal.select_update(2, 0)
+            self.assertEqual(terminal.select_finish(), family.encode())
+
+    def test_grapheme_survives_editing_scrollback_and_resize(self):
+        cluster = "a\N{COMBINING DIAERESIS}"
+        with Zutty(columns=5, rows=2, save_lines=5) as terminal:
+            terminal.write((cluster + "bcde\r\n12345\r\n67890").encode())
+            terminal.resize(6, 3)
+            terminal.page_up()
+            terminal.select_start(0, 0)
+            terminal.select_update(1, 0)
+            self.assertEqual(terminal.select_finish(), cluster.encode())
+
     def test_invalid_utf8_is_replaced_without_aliasing_unicode(self):
         cases = (
             (b"\xc0\xafX", "��X"),
