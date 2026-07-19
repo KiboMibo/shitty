@@ -326,6 +326,13 @@ void Options::parse() {
         altScrollMode = getBool("altScroll");
         altSendsEscape = getBool("altSendsEscape");
         autoCopyMode = getBool("autoCopy");
+        allowOsc52Read = getBool("allowOsc52Read");
+        const std::string osc52Select = get("osc52Select");
+        if (osc52Select != "primary" && osc52Select != "clipboard") {
+            throw std::runtime_error(
+                "-osc52Select: expected primary or clipboard");
+        }
+        osc52SelectClipboard = osc52Select == "clipboard";
         boldColors = getBool("boldColors");
         login = getBool("login");
         showWraps = getBool("showWraps");

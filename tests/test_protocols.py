@@ -206,6 +206,26 @@ class ProtocolTest(unittest.TestCase):
                 ["OSC 52 633b534756736247383d"],
             )
 
+    def test_osc52_accepts_clipboard_larger_than_legacy_parser_limit(self):
+        payload = b"A" * 16384
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]52;c;" + payload + b"\x1b\\")
+            self.assertEqual(
+                terminal.read_actions(),
+                ["OSC 52 " + (b"c;" + payload).hex()],
+            )
+
+    def test_unused_hyperlink_metadata_is_reclaimed(self):
+        output = bytearray()
+        for number in range(600):
+            output.extend(
+                f"\x1b]8;id={number};https://example.test/{number}\x1b\\X\r".encode()
+            )
+        output.extend(b"\x1b]8;;\x1b\\")
+        with Zutty(columns=2, rows=1, save_lines=1) as terminal:
+            terminal.write(bytes(output))
+            self.assertLess(terminal.hyperlink_count(), 256)
+
 
 if __name__ == "__main__":
     unittest.main()

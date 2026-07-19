@@ -4,7 +4,7 @@
 
 #include <cctype>
 
-Osc52Request parseOsc52(const std::string& argument) {
+Osc52Request parseOsc52(const std::string& argument, bool selectClipboard) {
     Osc52Request request;
     const size_t separator = argument.find(';');
     if (separator == std::string::npos) {
@@ -15,10 +15,17 @@ Osc52Request parseOsc52(const std::string& argument) {
     const std::string payload = argument.substr(separator + 1);
     request.valid = true;
     request.primary = selectors.empty() ||
-                      selectors.find('s') != std::string::npos ||
+                      (!selectClipboard && selectors.find('s') != std::string::npos) ||
                       selectors.find('p') != std::string::npos;
     request.clipboard = selectors.empty() ||
+                        (selectClipboard && selectors.find('s') != std::string::npos) ||
                         selectors.find('c') != std::string::npos;
+    for (char selector : selectors) {
+        if (selector == 's' || selector == 'p' || selector == 'c') {
+            request.replySelector.assign(1, selector);
+            break;
+        }
+    }
     request.query = payload == "?";
     if (!request.query) {
         if (!base64::decode(payload, request.content)) {
@@ -28,8 +35,9 @@ Osc52Request parseOsc52(const std::string& argument) {
     return request;
 }
 
-std::string encodeOsc52Reply(const std::string& content) {
-    return "\x1b]52;;" + base64::encode(content) + "\x1b\\";
+std::string encodeOsc52Reply(const std::string& selector,
+                             const std::string& content) {
+    return "\x1b]52;" + selector + ";" + base64::encode(content) + "\x1b\\";
 }
 
 std::string oscCwdToPath(const std::string& argument) {

@@ -2524,7 +2524,7 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         setState(InputState::OSC_Esc);
                         break;
                     default:
-                        if (argBuf.size() < 4095) {
+                        if (argBuf.size() < maxOscBytes) {
                             argBuf.push_back(ch);
                         } else if (!argBufOverflowed) {
                             logE << "OSC argument string overflow" << std::endl;
@@ -2543,7 +2543,8 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         }
                         break;
                     default:
-                        if (!argBufOverflowed && argBuf.size() <= 4093) {
+                        if (!argBufOverflowed &&
+                            argBuf.size() <= maxOscBytes - 2) {
                             argBuf.push_back('\x1b');
                             argBuf.push_back(ch);
                         } else {
@@ -2585,6 +2586,10 @@ void Vterm::setHyperlink(const std::string& parametersAndUri) {
         return;
     }
 
+    if (hyperlinks.size() >= 256 && hyperlinks.size() % 256 == 0) {
+        pruneHyperlinks();
+    }
+
     std::string identity = "uri=" + uri;
     size_t begin = 0;
     while (begin <= parameters.size()) {
@@ -2613,6 +2618,26 @@ void Vterm::setHyperlink(const std::string& parametersAndUri) {
     activeHyperlink = nextHyperlink++;
     hyperlinkIds.emplace(identity, activeHyperlink);
     hyperlinks.emplace(activeHyperlink, uri);
+}
+
+void Vterm::pruneHyperlinks() {
+    std::set<uint32_t> used;
+    frame_pri.collectHyperlinkIds(used);
+    frame_alt.collectHyperlinkIds(used);
+    if (activeHyperlink != 0) used.insert(activeHyperlink);
+
+    for (auto it = hyperlinks.begin(); it != hyperlinks.end();) {
+        if (used.count(it->first)) {
+            ++it;
+            continue;
+        }
+        const uint32_t id = it->first;
+        it = hyperlinks.erase(it);
+        for (auto key = hyperlinkIds.begin(); key != hyperlinkIds.end();) {
+            if (key->second == id) key = hyperlinkIds.erase(key);
+            else ++key;
+        }
+    }
 }
 
 std::string Vterm::getHyperlink(int pX, int pY) const {

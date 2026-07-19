@@ -182,6 +182,13 @@ class Zutty:
     def hyperlink(self, column, row):
         return self._read_hex_response(f"HYPERLINK {column} {row}").decode()
 
+    def hyperlink_count(self):
+        self.stream.write(b"HYPERLINK_COUNT\n")
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid hyperlink count response")
+        return int(response[1])
+
     def read_actions(self):
         return self._read_hex_response("READ_ACTIONS").decode().splitlines()
 
@@ -217,8 +224,10 @@ class Zutty:
         content = bytes.fromhex(response[5]) if len(response) == 6 else b""
         return fields + (content,)
 
-    def osc52_reply(self, content):
-        return self._read_hex_response("OSC52_REPLY " + content.hex())
+    def osc52_reply(self, content, selector=b""):
+        return self._read_hex_response(
+            "OSC52_REPLY " + selector.hex() + " " + content.hex()
+        )
 
     def osc7_cwd(self, argument):
         return self._read_hex_response("OSC7_CWD " + argument.hex())

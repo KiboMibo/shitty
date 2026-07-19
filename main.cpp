@@ -1264,7 +1264,8 @@ namespace {
                 return;
         }
 
-        const Osc52Request request = parseOsc52(argument);
+        const Osc52Request request = parseOsc52(
+            argument, opts.osc52SelectClipboard);
         if (!request.valid) {
             logW << "Malformed OSC 52 argument" << std::endl;
             return;
@@ -1272,13 +1273,19 @@ namespace {
 
         if (request.query) {
             std::string content;
-            if (request.primary) {
-                content = getSelectionForOsc(true);
+            if (opts.allowOsc52Read) {
+                if (request.primary) {
+                    content = getSelectionForOsc(true);
+                }
+                if (content.empty() && request.clipboard) {
+                    content = getSelectionForOsc(false);
+                }
+            } else {
+                logW << "OSC 52 clipboard read blocked; set "
+                        "allowOsc52Read=true to enable" << std::endl;
             }
-            if (content.empty() && request.clipboard) {
-                content = getSelectionForOsc(false);
-            }
-            const std::string reply = encodeOsc52Reply(content);
+            const std::string reply = encodeOsc52Reply(
+                request.replySelector, content);
             vt->writePty(reply.c_str());
             return;
         }

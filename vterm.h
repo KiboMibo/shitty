@@ -208,6 +208,9 @@ public:
     void setHasFocus(bool);
     void setHyperlink(const std::string& parametersAndUri);
     std::string getHyperlink(int pX, int pY) const;
+    size_t getHyperlinkCount() const {
+        return hyperlinks.size();
+    }
     void mouseWheelUp(uint16_t count = 1);
     void mouseWheelDown(uint16_t count = 1);
     void pageUp();
@@ -251,6 +254,7 @@ private:
     void resetScreen();
     void clearScreen();
     void fillScreen(uint16_t ch);
+    void pruneHyperlinks();
 
     enum class InputState : uint8_t {
         Normal,
@@ -480,6 +484,7 @@ private:
     // escape sequence at any byte.
     bool csiPrefixAllowed = false;
     constexpr const static size_t maxEscOps = 32;
+    constexpr const static size_t maxOscBytes = 1024 * 1024;
     uint32_t inputOps[maxEscOps];
     unsigned char inputSeparators[maxEscOps] = {};
     size_t nInputOps = 0;

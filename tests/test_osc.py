@@ -45,6 +45,10 @@ class OscProtocolTest(unittest.TestCase):
                 terminal.osc52_reply(b"hello\x00world"),
                 b"\x1b]52;;aGVsbG8Ad29ybGQ=\x1b\\",
             )
+            self.assertEqual(
+                terminal.osc52_reply(b"clipboard", b"c"),
+                b"\x1b]52;c;Y2xpcGJvYXJk\x1b\\",
+            )
 
     def test_osc7_file_url_and_percent_decoding(self):
         with Zutty(columns=8, rows=2) as terminal:

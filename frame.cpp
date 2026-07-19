@@ -52,6 +52,19 @@ void Frame::dropScrollbackHistory() {
     expose();
 }
 
+void Frame::collectHyperlinkIds(std::set<uint32_t>& ids) const {
+    const auto collectRow = [&](RowId row) {
+        const CharVdev::Cell* first = cells.get() + row * nCols;
+        for (uint16_t column = 0; column < nCols; ++column) {
+            if (first[column].hyperlink != 0) {
+                ids.insert(first[column].hyperlink);
+            }
+        }
+    };
+    for (RowId row : screen) collectRow(row);
+    for (RowId row : history) collectRow(row);
+}
+
 void Frame::resize(uint16_t winPx_, uint16_t winPy_,
                    uint16_t nCols_, uint16_t nRows_,
                    uint16_t& marginTop_, uint16_t& marginBottom_) {

@@ -425,6 +425,9 @@ int runTestMode(int controlFd) {
                 }
                 writeAll(controlFd, "OK " + encodeHex(terminal.getHyperlink(
                     opts.border + column, opts.border + row)) + "\n");
+            } else if (line == "HYPERLINK_COUNT") {
+                writeAll(controlFd, "OK " +
+                         std::to_string(terminal.getHyperlinkCount()) + "\n");
             } else if (line == "READ_ACTIONS") {
                 writeAll(controlFd, "OK " + encodeHex(actions) + "\n");
                 actions.clear();
@@ -463,8 +466,13 @@ int runTestMode(int controlFd) {
                          std::to_string(request.clipboard) + " " +
                          encodeHex(request.content) + "\n");
             } else if (line.compare(0, 12, "OSC52_REPLY ") == 0) {
+                const size_t separator = line.find(' ', 12);
+                if (separator == std::string::npos) {
+                    throw std::runtime_error("invalid OSC 52 reply");
+                }
                 writeAll(controlFd, "OK " + encodeHex(encodeOsc52Reply(
-                    decodeHex(line.substr(12)))) + "\n");
+                    decodeHex(line.substr(12, separator - 12)),
+                    decodeHex(line.substr(separator + 1)))) + "\n");
             } else if (line.compare(0, 9, "OSC7_CWD ") == 0) {
                 writeAll(controlFd, "OK " + encodeHex(oscCwdToPath(
                     decodeHex(line.substr(9)))) + "\n");

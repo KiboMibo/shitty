@@ -15,6 +15,7 @@
 #include "utf8.h"
 
 #include <deque>
+#include <set>
 #include <vector>
 
 class Frame {
@@ -68,6 +69,7 @@ public:
     uint16_t getViewOffset() const {
         return viewOffset;
     };
+    void collectHyperlinkIds(std::set<uint32_t>& ids) const;
 
     void expose() {
         damage.expose();

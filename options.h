@@ -77,6 +77,8 @@ static const std::vector<ResourceDesc> resourceTable = {
 
     {"altSendsEscape", "true", "Encode Alt key as ESC prefix"},
     {"modifyOtherKeys", "1", "Key modifier encoding level; 0..2"},
+    {"allowOsc52Read", "false", "Allow applications to read clipboard via OSC 52"},
+    {"osc52Select", "primary", "Selection used by OSC 52 selector s: primary or clipboard"},
     {"color0", "#000000", "Palette color 0"},
     {"color1", "#cd0000", "Palette color 1"},
     {"color2", "#00cd00", "Palette color 2"},
@@ -120,6 +122,8 @@ struct Options {
     bool altScrollMode;
     bool altSendsEscape;
     bool autoCopyMode;
+    bool allowOsc52Read;
+    bool osc52SelectClipboard;
     bool boldColors;
     bool vulkanInfo;
     bool login;

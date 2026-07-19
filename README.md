@@ -162,6 +162,10 @@ zutty -altSendsEscape false -modifyOtherKeys 2 \
 
 `altSendsEscape` accepts `true` or `false`; `modifyOtherKeys` accepts levels
 0 through 2. `color0` through `color15` replace the base palette.
+`allowOsc52Read` defaults to `false`, preventing applications (including
+remote applications) from reading local clipboard contents. `osc52Select`
+chooses whether the generic OSC 52 `s` selector names `primary` (the default)
+or `clipboard`.
 
 ## Fonts
 

@@ -119,7 +119,7 @@ class ParserStreamingTest(unittest.TestCase):
 
     def test_oversized_osc_and_dcs_are_discarded_through_st(self):
         sequences = (
-            b"\x1b]2;" + b"x" * 5000 + b"\x1b\\",
+            b"\x1b]2;" + b"x" * (1024 * 1024 + 1) + b"\x1b\\",
             b"\x1bP$q" + b"x" * 5000 + b"\x1b\\",
         )
         for sequence in sequences:
