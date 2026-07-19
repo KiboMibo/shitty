@@ -32,6 +32,14 @@ class EditingTest(unittest.TestCase):
                 ["one  ", "two  ", "three", "     "],
             )
 
+    def test_insert_and_delete_lines_preserve_cursor_column(self):
+        for operation in (b"\x1b[L", b"\x1b[M"):
+            with self.subTest(operation=operation):
+                with Zutty(columns=8, rows=4) as terminal:
+                    terminal.write(b"one\r\ntwo\r\nthree\x1b[2;5H")
+                    terminal.write(operation + b"X")
+                    self.assertEqual(terminal.snapshot().cell(4, 1).char, "X")
+
     def test_erase_display(self):
         with Zutty(columns=5, rows=3) as terminal:
             terminal.write(b"one\r\ntwo\r\nthree\x1b[2;2H\x1b[J")
@@ -95,6 +103,14 @@ class EditingTest(unittest.TestCase):
             terminal.write(b"one\r\ntwo\r\nthree\r\nfour\x1b[3J")
             terminal.page_up()
             self.assertEqual(terminal.snapshot().view_offset, 0)
+
+    def test_erase_saved_lines_preserves_live_screen(self):
+        with Zutty(columns=8, rows=3, save_lines=8) as terminal:
+            terminal.write(b"one\r\ntwo\r\nthree\r\nfour")
+            before = terminal.snapshot().lines
+            terminal.write(b"\x1b[3J")
+
+            self.assertEqual(terminal.snapshot().lines, before)
 
 
 if __name__ == "__main__":

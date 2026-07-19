@@ -30,6 +30,21 @@ class CursorAndMovementTest(unittest.TestCase):
             terminal.write(b"\x1b[2;3H\x1b[s\x1b[3;6HZ\x1b[uX")
             self.assertEqual(terminal.snapshot().cell(2, 1).char, "X")
 
+    def test_saved_cursor_can_be_restored_repeatedly(self):
+        sequences = (b"\x1b7", b"\x1b[s")
+        restores = (b"\x1b8", b"\x1b[u")
+        for save, restore in zip(sequences, restores):
+            with self.subTest(save=save):
+                with Zutty(columns=8, rows=3) as terminal:
+                    terminal.write(
+                        b"\x1b[2;3H" + save +
+                        b"\x1b[3;6H" + restore + b"A" +
+                        b"\x1b[1;1H" + restore + b"B"
+                    )
+                    snapshot = terminal.snapshot()
+                    self.assertEqual(snapshot.cell(2, 1).char, "B")
+                    self.assertEqual(snapshot.cell(5, 2).char, " ")
+
     def test_scrolling_region_scrolls_without_moving_outer_rows(self):
         with Zutty(columns=5, rows=4) as terminal:
             terminal.write(

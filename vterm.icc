@@ -226,6 +226,7 @@ Vterm::mouseWheelDown(uint16_t count) {
 
 inline void
 Vterm::resetTerminal() {
+    switchScreenBufferMode(false);
     resetScreen();
     resetAttrs();
 
@@ -243,6 +244,8 @@ Vterm::resetTerminal() {
     savedPrivModes.clear();
     kittyKeyboardPri = {};
     kittyKeyboardAlt = {};
+    savedCursor_DEC_pri.isSet = false;
+    savedCursor_DEC_alt.isSet = false;
     activeHyperlink = 0;
     hyperlinkIds.clear();
     hyperlinks.clear();
@@ -864,7 +867,6 @@ Vterm::csi_SCORC() {
         posX = savedCursor_SCO.posX;
         posY = savedCursor_SCO.posY;
         normalizeCursorPos();
-        savedCursor_SCO.isSet = false;
     }
     setState(InputState::Normal);
 }
@@ -896,7 +898,6 @@ Vterm::esc_DECRC() {
         attrs = savedCursor_DEC->attrs;
         originMode = savedCursor_DEC->originMode;
         charsetState = savedCursor_DEC->charsetState;
-        savedCursor_DEC->isSet = false;
     }
     setState(InputState::Normal);
 }
@@ -1145,6 +1146,7 @@ Vterm::csi_ED() {
             break;
         case 3:
             cf->dropScrollbackHistory();
+            break;
 
         case 2:
             for (uint16_t pY = 0; pY < nRows; ++pY) {
@@ -1188,7 +1190,7 @@ Vterm::csi_IL() {
         int arg = inputOps[0] ? inputOps[0] : 1;
         arg = std::min(arg, marginBottom - posY);
         insertRows(posY, arg);
-        inp_CR();
+        lastCol = false;
     }
     setState(InputState::Normal);
 }
@@ -1200,7 +1202,7 @@ Vterm::csi_DL() {
         int arg = inputOps[0] ? inputOps[0] : 1;
         arg = std::min(arg, marginBottom - posY);
         deleteRows(posY, arg);
-        inp_CR();
+        lastCol = false;
     }
     setState(InputState::Normal);
 }
@@ -1256,12 +1258,10 @@ Vterm::csi_ECH() {
 inline void
 Vterm::csi_STBM() {
     TRACE_FUN;
-    if (nInputOps == 1 && inputOps[0] == 0) {
-        marginTop = 0;
-        marginBottom = nRows;
-    } else if (nInputOps == 2) {
+    if (nInputOps <= 2) {
         uint16_t newMarginTop = inputOps[0] > 0 ? inputOps[0] - 1 : 0;
-        uint16_t newMarginBottom = inputOps[1];
+        uint16_t newMarginBottom =
+            nInputOps < 2 || inputOps[1] == 0 ? nRows : inputOps[1];
 
         if (newMarginBottom < newMarginTop + 2 || nRows < newMarginBottom) {
             logI << "Illegal arguments to SetTopBottomMargins: top="
@@ -1286,12 +1286,10 @@ Vterm::csi_STBM() {
 inline void
 Vterm::csi_SLRM() {
     TRACE_FUN;
-    if (nInputOps == 1 && inputOps[0] == 0) {
-        hMargin = 0;
-        nColsEff = nCols;
-    } else if (nInputOps == 2) {
+    if (nInputOps <= 2) {
         uint16_t newMarginLeft = inputOps[0] > 0 ? inputOps[0] - 1 : 0;
-        uint16_t newMarginRight = inputOps[1];
+        uint16_t newMarginRight =
+            nInputOps < 2 || inputOps[1] == 0 ? nCols : inputOps[1];
 
         if (newMarginRight < newMarginLeft + 2 || nCols < newMarginRight) {
             logI << "Illegal arguments to SetLeftRightMargins: left="
@@ -1984,7 +1982,8 @@ Vterm::csi_DSR() {
             if (originMode == OriginMode::Absolute) {
                 oss << "\x1b[" << (posY + 1) << ";" << (posX + 1) << "R";
             } else {
-                oss << "\x1b[" << (posY - marginTop + 1) << ";" << (posX + 1) << "R";
+                oss << "\x1b[" << (posY - marginTop + 1) << ";"
+                    << (posX - hMargin + 1) << "R";
             }
             writePty(oss.str().c_str());
         } break;
@@ -2024,6 +2023,14 @@ Vterm::csi_DECSTR() {
     TRACE_FUN;
     resetScreen();
     resetAttrs();
+    marginTop = 0;
+    marginBottom = nRows;
+    horizMarginMode = false;
+    hMargin = 0;
+    nColsEff = nCols;
+    posX = 0;
+    posY = 0;
+    lastCol = false;
     setState(InputState::Normal);
 }
 

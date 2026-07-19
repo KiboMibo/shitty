@@ -67,6 +67,39 @@ class DecProtocolTest(unittest.TestCase):
             self.assertEqual(snapshot.lines, ["        ", "        "])
             self.assertEqual(terminal.state(), (0, 0, 0, 0))
 
+    def test_ris_from_alternate_screen_clears_primary_screen(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"primary\x1b[?1049halt\x1bc")
+            snapshot = terminal.snapshot()
+
+            self.assertEqual(snapshot.lines, ["        ", "        "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
+
+    def test_decstr_restores_default_margins(self):
+        with Zutty(columns=10, rows=6) as terminal:
+            terminal.write(
+                b"\x1b[2;5r\x1b[?69h\x1b[3;8s\x1b[?6h"
+                b"\x1b[!p\x1b[?6hX"
+            )
+            snapshot = terminal.snapshot()
+
+            self.assertEqual(snapshot.cell(0, 0).char, "X")
+
+    def test_single_margin_parameter_uses_screen_end_default(self):
+        with Zutty(columns=10, rows=6) as terminal:
+            terminal.write(b"\x1b[3r\x1b[?6hX")
+            self.assertEqual(terminal.snapshot().cell(0, 2).char, "X")
+
+            terminal.write(b"\x1b[?6l\x1b[r\x1b[?69h\x1b[4s\x1b[?6hY")
+            self.assertEqual(terminal.snapshot().cell(3, 0).char, "Y")
+
+    def test_origin_mode_cpr_is_relative_to_both_margins(self):
+        with Zutty(columns=10, rows=6) as terminal:
+            terminal.write(
+                b"\x1b[2;5r\x1b[?69h\x1b[3;8s\x1b[?6h\x1b[6n"
+            )
+            self.assertEqual(terminal.read_input(), b"\x1b[1;1R")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -307,7 +307,7 @@ class ScrollbackTest(unittest.TestCase):
 
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.view_offset, 0)
-            self.assertEqual(snapshot.lines, ["        ", "        ", "        "])
+            self.assertEqual(snapshot.lines, ["B       ", "C       ", "D       "])
 
     def test_top_anchored_scroll_preserves_cell_attributes(self):
         with Zutty(columns=8, rows=4, save_lines=8) as terminal:
