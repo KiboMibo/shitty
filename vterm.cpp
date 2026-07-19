@@ -1230,6 +1230,7 @@ Vterm::Vterm(uint16_t glyphPx_, uint16_t glyphPy_,
     , onBell([]() {
         logI << "* Bell *" << std::endl;
     })
+    , onWindowOps([](uint32_t, uint32_t, uint32_t) {})
     , frame_pri(winPx, winPy, nCols, nRows, marginTop, marginBottom,
                 opts.saveLines)
     , cf(&frame_pri)
@@ -1267,6 +1268,10 @@ void Vterm::setOscHandler(const OscHandlerFn& onOsc_) {
 
 void Vterm::setBellHandler(const BellHandlerFn& onBell_) {
     onBell = onBell_;
+}
+
+void Vterm::setWindowOpsHandler(const WindowOpsHandlerFn& handler) {
+    onWindowOps = handler;
 }
 
 void Vterm::resize(uint16_t winPx_, uint16_t winPy_) {

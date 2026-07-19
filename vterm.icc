@@ -2548,7 +2548,42 @@ Vterm::csiq_DECSCL() {
 inline void
 Vterm::csi_XTWINOPS() {
     TRACE_FUN;
-
+    const uint32_t operation = inputOps[0];
+    std::ostringstream response;
+    switch (operation) {
+        case 1:
+        case 2:
+        case 3:
+        case 4:
+        case 5:
+        case 6:
+        case 7:
+        case 8:
+        case 9:
+        case 10:
+            onWindowOps(operation,
+                        nInputOps > 1 ? inputOps[1] : 0,
+                        nInputOps > 2 ? inputOps[2] : 0);
+            break;
+        case 11:
+            writeCsiResponse("1t");
+            break;
+        case 14:
+            response << "4;" << nRows * glyphPy << ';'
+                     << nCols * glyphPx << 't';
+            writeCsiResponse(response.str());
+            break;
+        case 16:
+            response << "6;" << glyphPy << ';' << glyphPx << 't';
+            writeCsiResponse(response.str());
+            break;
+        case 18:
+            response << "8;" << nRows << ';' << nCols << 't';
+            writeCsiResponse(response.str());
+            break;
+        default:
+            break;
+    }
     setState(InputState::Normal);
 }
 

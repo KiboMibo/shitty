@@ -302,8 +302,14 @@ int runTestMode(int controlFd) {
         });
     terminal.setBellHandler(
         [&actions]() {
-            actions += "BELL\n";
-        });
+        actions += "BELL\n";
+    });
+    terminal.setWindowOpsHandler(
+        [&actions](uint32_t operation, uint32_t first, uint32_t second) {
+        actions += "WINDOW " + std::to_string(operation) + " " +
+                   std::to_string(first) + " " +
+                   std::to_string(second) + "\n";
+    });
     terminal.redraw();
     writeAll(controlFd, "READY\n");
 

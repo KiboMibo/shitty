@@ -1634,6 +1634,56 @@ namespace {
             []() {
             glfwRequestWindowAttention(window);
         });
+        vt->setWindowOpsHandler(
+            [](uint32_t operation, uint32_t first, uint32_t second) {
+            switch (operation) {
+                case 1:
+                    glfwRestoreWindow(window);
+                    return;
+                case 2:
+                    glfwIconifyWindow(window);
+                    return;
+                case 3:
+                    glfwSetWindowPos(window,
+                                     static_cast<int>(first),
+                                     static_cast<int>(second));
+                    return;
+                case 5:
+                    glfwFocusWindow(window);
+                    return;
+                case 7:
+                    windowContext.redrawPending = true;
+                    glfwPostEmptyEvent();
+                    return;
+                case 9:
+                    if (first == 0) glfwRestoreWindow(window);
+                    else if (first == 1) glfwMaximizeWindow(window);
+                    return;
+                default:
+                    break;
+            }
+
+            int pixelWidth = 0;
+            int pixelHeight = 0;
+            if (operation == 4 && first && second) {
+                pixelHeight = static_cast<int>(first);
+                pixelWidth = static_cast<int>(second);
+            } else if (operation == 8 && first && second) {
+                pixelHeight = 2 * opts.border +
+                              static_cast<int>(first) * fontpk->getPy();
+                pixelWidth = 2 * opts.border +
+                             static_cast<int>(second) * fontpk->getPx();
+            } else {
+                return;
+            }
+            float xScale = 1.0f;
+            float yScale = 1.0f;
+            glfwGetWindowContentScale(window, &xScale, &yScale);
+            glfwSetWindowSize(
+                window,
+                std::max(1, static_cast<int>(std::ceil(pixelWidth / xScale))),
+                std::max(1, static_cast<int>(std::ceil(pixelHeight / yScale))));
+        });
         setupCallbacks();
         vt->setHasFocus(
             glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_TRUE);

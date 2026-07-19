@@ -183,6 +183,10 @@ public:
     using BellHandlerFn = std::function<void()>;
     void setBellHandler(const BellHandlerFn&);
 
+    using WindowOpsHandlerFn =
+        std::function<void(uint32_t, uint32_t, uint32_t)>;
+    void setWindowOpsHandler(const WindowOpsHandlerFn&);
+
     void resize(uint16_t winPx, uint16_t winPy);
 
     void redraw();
@@ -449,6 +453,7 @@ private:
     OscHandlerFn onOsc;
     bool haveOscHandler = false;
     BellHandlerFn onBell;
+    WindowOpsHandlerFn onWindowOps;
 
     Frame frame_pri;
     Frame frame_alt;

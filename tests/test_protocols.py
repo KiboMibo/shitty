@@ -83,6 +83,24 @@ class ProtocolTest(unittest.TestCase):
                 b"\x1bP!|00000000\x1b\\",
             )
 
+    def test_xtwinops_reports_terminal_and_cell_dimensions(self):
+        with Zutty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[14t\x1b[16t\x1b[18t")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[4;4;10t"
+                b"\x1b[6;1;1t"
+                b"\x1b[8;4;10t",
+            )
+
+    def test_xtwinops_resize_requests_reach_window_backend(self):
+        with Zutty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[8;6;20t\x1b[4;120;320t")
+            self.assertEqual(
+                terminal.read_actions(),
+                ["WINDOW 8 6 20", "WINDOW 4 120 320"],
+            )
+
     def test_s7c1t_and_s8c1t_select_response_encoding(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b G\x1b[c")
