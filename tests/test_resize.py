@@ -12,6 +12,7 @@ class ResizeTest(unittest.TestCase):
             self.assertEqual((snapshot.columns, snapshot.rows), (7, 3))
             self.assertEqual(snapshot.lines, ["abcde  ", "123    ", "       "])
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (3, 1))
+            self.assertEqual(terminal.winsize(), (7, 3))
 
     def test_shrinking_clips_cells_and_cursor(self):
         with Zutty(columns=7, rows=3) as terminal:
@@ -29,6 +30,10 @@ class ResizeTest(unittest.TestCase):
             snapshot = terminal.snapshot()
             self.assertEqual((snapshot.columns, snapshot.rows), (7, 3))
             self.assertEqual(snapshot.lines[0], "main   ")
+
+    def test_initial_pty_winsize_matches_grid(self):
+        with Zutty(columns=11, rows=7) as terminal:
+            self.assertEqual(terminal.winsize(), (11, 7))
 
 
 if __name__ == "__main__":

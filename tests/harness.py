@@ -109,6 +109,13 @@ class Zutty:
     def resize(self, columns, rows):
         self.command(f"RESIZE {columns} {rows}")
 
+    def winsize(self):
+        self.stream.write(b"WINSIZE\n")
+        response = self._readline().split()
+        if len(response) != 3 or response[0] != "OK":
+            raise RuntimeError("invalid winsize response")
+        return tuple(map(int, response[1:]))
+
     def key(self, name, modifiers=0):
         self.command(f"KEY {name} {modifiers}")
 

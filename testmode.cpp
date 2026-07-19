@@ -2,6 +2,7 @@
 
 #include "options.h"
 #include "mouseprotocol.h"
+#include "pty.h"
 #include "vterm.h"
 
 #include <cerrno>
@@ -266,6 +267,7 @@ int runTestMode(int controlFd) {
     const uint16_t width = 2 * opts.border + opts.nCols;
     const uint16_t height = 2 * opts.border + opts.nRows;
     Vterm terminal(1, 1, width, height, io[0]);
+    pty_resize(io[0], opts.nCols, opts.nRows);
     TestDisplay display;
     terminal.setRefreshHandler(
         [&display](const Frame& frame) {
@@ -311,6 +313,14 @@ int runTestMode(int controlFd) {
                                 2 * opts.border + rows);
                 terminal.redraw();
                 writeAll(controlFd, "OK\n");
+            } else if (line == "WINSIZE") {
+                winsize size{};
+                if (ioctl(io[0], TIOCGWINSZ, &size) < 0) {
+                    throw std::runtime_error("test TIOCGWINSZ failed");
+                }
+                writeAll(controlFd,
+                         "OK " + std::to_string(size.ws_col) + " " +
+                         std::to_string(size.ws_row) + "\n");
             } else if (line.compare(0, 4, "KEY ") == 0) {
                 std::istringstream args(line.substr(4));
                 std::string name;

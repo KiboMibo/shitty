@@ -1705,6 +1705,26 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
     hideCursor();
     for (readPos = 0; readPos < inputSize; ++readPos) {
         const unsigned char& ch = input[readPos];
+        if ((ch == '\x18' || ch == '\x1a') &&
+            inputState != InputState::Normal) {
+            setState(InputState::Normal);
+            continue;
+        }
+        if (ch == '\x1b' && inputState != InputState::Normal &&
+            inputState != InputState::Escape &&
+            inputState != InputState::Escape_VT52 &&
+            inputState != InputState::DCS &&
+            inputState != InputState::DCS_Esc &&
+            inputState != InputState::OSC &&
+            inputState != InputState::OSC_Esc) {
+            setState(compatLevel == CompatibilityLevel::VT52
+                         ? InputState::Escape_VT52
+                         : InputState::Escape);
+            inputOps[0] = 0;
+            nInputOps = 1;
+            lastEscBegin = readPos;
+            continue;
+        }
         switch (inputState) {
             case InputState::Normal:
                 switch (ch) {
