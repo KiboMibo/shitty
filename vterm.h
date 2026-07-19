@@ -497,6 +497,7 @@ private:
     uint16_t hMargin = 0;
 
     std::vector<uint16_t> tabStops;
+    bool tabStopsCustomized = false;
 
     enum class CompatibilityLevel : uint8_t {
         VT52,

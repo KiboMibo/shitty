@@ -268,6 +268,7 @@ Vterm::resetScreen() {
     mouseTrk = MouseTrackingState{};
 
     tabStops.clear();
+    tabStopsCustomized = false;
     cf->getSelection().clear();
 }
 
@@ -558,7 +559,7 @@ Vterm::inp_CR() {
 
 inline void
 Vterm::jumpToNextTabStop() {
-    if (tabStops.empty()) {
+    if (!tabStopsCustomized) {
         auto margin = isCursorInsideMargins() ? hMargin : 0;
         do {
             posX = ((posX / 8) + 1) * 8;
@@ -800,8 +801,16 @@ Vterm::esc_NEL() {
 inline void
 Vterm::esc_HTS() {
     TRACE_FUN;
-    tabStops.push_back(posX);
-    std::sort(tabStops.begin(), tabStops.end());
+    if (!tabStopsCustomized) {
+        for (unsigned column = 8; column < nCols; column += 8) {
+            tabStops.push_back(static_cast<uint16_t>(column));
+        }
+        tabStopsCustomized = true;
+    }
+    if (std::find(tabStops.begin(), tabStops.end(), posX) == tabStops.end()) {
+        tabStops.push_back(posX);
+        std::sort(tabStops.begin(), tabStops.end());
+    }
     setState(InputState::Normal);
 }
 
@@ -996,13 +1005,17 @@ Vterm::csi_CUP() {
     switch (originMode) {
         case OriginMode::Absolute:
             row = std::max((uint16_t)1, std::min(row, nRows)) - 1;
+            col = std::max((uint16_t)1, std::min(col, nCols)) - 1;
             break;
         case OriginMode::ScrollingRegion:
-            row = std::max((uint16_t)1, std::min(row, marginBottom)) - 1;
-            row += marginTop;
+            row = marginTop + std::max(
+                (uint16_t)1,
+                std::min<uint16_t>(row, marginBottom - marginTop)) - 1;
+            col = hMargin + std::max(
+                (uint16_t)1,
+                std::min<uint16_t>(col, nColsEff - hMargin)) - 1;
             break;
     }
-    col = std::max((uint16_t)1, std::min(col, nCols)) - 1;
 
     posX = col;
     posY = row;
@@ -1061,7 +1074,7 @@ Vterm::csi_CBT() {
     TRACE_FUN;
     uint16_t arg = inputOps[0] ? inputOps[0] : 1;
     for (uint16_t k = 0; k < arg; ++k) {
-        if (tabStops.empty()) {
+        if (!tabStopsCustomized) {
             if (posX > 0 && posX % 8 == 0) {
                 posX -= 8;
             } else {
@@ -1289,6 +1302,12 @@ Vterm::csi_TBC() {
     TRACE_FUN;
     switch (inputOps[0]) {
         case 0: {
+            if (!tabStopsCustomized) {
+                for (unsigned column = 8; column < nCols; column += 8) {
+                    tabStops.push_back(static_cast<uint16_t>(column));
+                }
+                tabStopsCustomized = true;
+            }
             auto it = std::find(tabStops.begin(), tabStops.end(), posX);
             if (it != tabStops.end()) {
                 tabStops.erase(it);
@@ -1296,6 +1315,7 @@ Vterm::csi_TBC() {
         } break;
         case 3:
             tabStops.clear();
+            tabStopsCustomized = true;
             break;
         default:
             break;
@@ -1379,6 +1399,9 @@ Vterm::setPrivMode(uint32_t arg, bool set) {
                 break;
             case 6:
                 originMode = OriginMode::ScrollingRegion;
+                posX = hMargin;
+                posY = marginTop;
+                lastCol = false;
                 break;
             case 7:
                 autoWrapMode = true;
@@ -1476,6 +1499,9 @@ Vterm::setPrivMode(uint32_t arg, bool set) {
                 break;
             case 6:
                 originMode = OriginMode::Absolute;
+                posX = 0;
+                posY = 0;
+                lastCol = false;
                 break;
             case 7:
                 autoWrapMode = false;
