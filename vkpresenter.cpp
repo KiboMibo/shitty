@@ -27,6 +27,23 @@
 #include <string>
 
 namespace {
+    struct GpuCell {
+        uint32_t codepoint;
+        uint32_t attributes;
+        uint32_t foreground;
+        uint32_t background;
+        uint32_t underlineColor;
+        uint32_t hyperlink;
+        uint32_t grapheme;
+        int32_t foregroundIndex;
+        int32_t backgroundIndex;
+        int32_t underlineIndex;
+        uint32_t semantic;
+        uint32_t lineAttribute;
+    };
+    static_assert(sizeof(GpuCell) == 48,
+                  "Vulkan cell layout mismatch");
+
     [[noreturn]] void
     failVk(const char* operation, VkResult result) {
         throw std::runtime_error(
@@ -107,6 +124,24 @@ namespace {
         throw std::runtime_error(
             "Vulkan surface has no composite alpha mode");
     }
+}
+
+uint32_t VulkanPresenter::packCellAttributes(const CharVdev::Cell& cell) {
+    return
+        (static_cast<uint32_t>(cell.bold) << 2) |
+        (static_cast<uint32_t>(cell.italic) << 3) |
+        (static_cast<uint32_t>(cell.underline) << 4) |
+        (static_cast<uint32_t>(cell.inverse) << 5) |
+        (static_cast<uint32_t>(cell.wrap) << 6) |
+        (static_cast<uint32_t>(cell.faint) << 8) |
+        (static_cast<uint32_t>(cell.blink) << 9) |
+        (static_cast<uint32_t>(cell.conceal) << 10) |
+        (static_cast<uint32_t>(cell.strike) << 11) |
+        (static_cast<uint32_t>(cell.overline) << 12) |
+        (static_cast<uint32_t>(cell.underline_style) << 13) |
+        (static_cast<uint32_t>(cell.dwidth) << 16) |
+        (static_cast<uint32_t>(cell.dwidth_cont) << 17) |
+        (static_cast<uint32_t>(cell.dirty) << 23);
 }
 
 VulkanPresenter::VulkanPresenter(
@@ -1340,28 +1375,39 @@ bool VulkanPresenter::present(
         failVk("vkAcquireNextImageKHR", result);
     }
 
-    std::vector<CharVdev::Cell> gpuCells(
-        charVdev.cellData(),
-        charVdev.cellData() + charVdev.cellCount());
+    std::vector<GpuCell> gpuCells;
+    gpuCells.reserve(charVdev.cellCount());
     std::vector<uint32_t> graphemeData = {0};
-    for (auto& cell : gpuCells) {
-        cell.line_attribute = cell.line_attr;
-        if (!cell.grapheme) {
-            continue;
+    for (size_t index = 0; index < charVdev.cellCount(); ++index) {
+        const CharVdev::Cell& cell = charVdev.cellData()[index];
+        uint32_t graphemeIndex = 0;
+        if (cell.grapheme) {
+            const auto& grapheme = sourceFrame.getGrapheme(cell.grapheme);
+            if (!grapheme.empty()) {
+                graphemeIndex = graphemeData.size();
+                graphemeData.push_back(grapheme.size());
+                graphemeData.insert(
+                    graphemeData.end(), grapheme.begin(), grapheme.end());
+            }
         }
-        const auto& grapheme = sourceFrame.getGrapheme(cell.grapheme);
-        if (grapheme.empty()) {
-            cell.grapheme = 0;
-            continue;
-        }
-        cell.grapheme = graphemeData.size();
-        graphemeData.push_back(grapheme.size());
-        graphemeData.insert(
-            graphemeData.end(), grapheme.begin(), grapheme.end());
+        gpuCells.push_back({
+            cell.uc_pt,
+            packCellAttributes(cell),
+            packColor(cell.fg),
+            packColor(cell.bg),
+            packColor(cell.underline_color),
+            cell.hyperlink,
+            graphemeIndex,
+            cell.fg_index,
+            cell.bg_index,
+            cell.underline_index,
+            cell.semantic,
+            cell.line_attr,
+        });
     }
 
     const size_t cellBytes =
-        gpuCells.size() * sizeof(CharVdev::Cell);
+        gpuCells.size() * sizeof(GpuCell);
     ensureCellBuffer(frame, cellBytes);
     std::memcpy(frame.cells, gpuCells.data(), cellBytes);
     const size_t graphemeBytes = graphemeData.size() * sizeof(uint32_t);

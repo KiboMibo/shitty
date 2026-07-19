@@ -4,6 +4,7 @@
 #include "mouseprotocol.h"
 #include "oscprotocol.h"
 #include "pty.h"
+#include "vkpresenter.h"
 #include "vterm.h"
 
 #include <cerrno>
@@ -486,6 +487,23 @@ int runTestMode(int controlFd) {
             } else if (line == "READ_PTY") {
                 writeAll(controlFd,
                          "OK " + std::to_string(terminal.readPty()) + "\n");
+            } else if (line == "GPU_ATTRIBUTE_MASKS") {
+                CharVdev::Cell cell;
+                cell.dwidth = true;
+                const uint32_t doubleWidth =
+                    VulkanPresenter::packCellAttributes(cell);
+                cell.dwidth = false;
+                cell.dwidth_cont = true;
+                const uint32_t continuation =
+                    VulkanPresenter::packCellAttributes(cell);
+                cell.dwidth_cont = false;
+                cell.dirty = true;
+                const uint32_t dirty =
+                    VulkanPresenter::packCellAttributes(cell);
+                writeAll(controlFd,
+                         "OK " + std::to_string(doubleWidth) + " " +
+                         std::to_string(continuation) + " " +
+                         std::to_string(dirty) + "\n");
             } else if (line == "POLL_CHILD") {
                 pumpChild();
                 writeAll(controlFd,

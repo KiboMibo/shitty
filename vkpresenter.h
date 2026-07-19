@@ -32,6 +32,7 @@ public:
 
     bool present(const CharVdev& charVdev, const Frame& sourceFrame,
                  bool delta);
+    static uint32_t packCellAttributes(const CharVdev::Cell& cell);
 
 private:
     struct ImageResource {

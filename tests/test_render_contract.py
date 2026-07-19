@@ -4,6 +4,13 @@ from harness import Zutty
 
 
 class RenderContractTest(unittest.TestCase):
+    def test_gpu_cell_flags_match_compute_shader_abi(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            self.assertEqual(
+                terminal.gpu_attribute_masks(),
+                (1 << 16, 1 << 17, 1 << 23),
+            )
+
     def test_blink_and_reverse_screen_reach_renderer(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[1 q\x1b[5mX\x1b[?5h")

@@ -142,6 +142,13 @@ class Zutty:
             raise RuntimeError("invalid PTY read response")
         return bool(int(response[1]))
 
+    def gpu_attribute_masks(self):
+        self.stream.write(b"GPU_ATTRIBUTE_MASKS\n")
+        response = self._readline().split()
+        if len(response) != 4 or response[0] != "OK":
+            raise RuntimeError("invalid GPU attribute response")
+        return tuple(map(int, response[1:]))
+
     def child_status(self):
         self.stream.write(b"CHILD_STATUS\n")
         response = self._readline().split()
