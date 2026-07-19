@@ -142,15 +142,24 @@ namespace {
                     (cell.italic << 3) |
                     (cell.underline << 4) |
                     (cell.inverse << 5) |
-                    (cell.wrap << 6);
+                    (cell.wrap << 6) |
+                    (cell.faint << 7) |
+                    (cell.blink << 8) |
+                    (cell.conceal << 9) |
+                    (cell.strike << 10) |
+                    (cell.overline << 11) |
+                    (cell.underline_style << 12);
                 output << std::setw(4) << cell.uc_pt
-                       << std::setw(2) << flags
+                       << std::setw(4) << flags
                        << std::setw(2) << static_cast<unsigned>(cell.fg.red)
                        << std::setw(2) << static_cast<unsigned>(cell.fg.green)
                        << std::setw(2) << static_cast<unsigned>(cell.fg.blue)
                        << std::setw(2) << static_cast<unsigned>(cell.bg.red)
                        << std::setw(2) << static_cast<unsigned>(cell.bg.green)
                        << std::setw(2) << static_cast<unsigned>(cell.bg.blue)
+                       << std::setw(2) << static_cast<unsigned>(cell.underline_color.red)
+                       << std::setw(2) << static_cast<unsigned>(cell.underline_color.green)
+                       << std::setw(2) << static_cast<unsigned>(cell.underline_color.blue)
                        << std::setw(8) << cell.hyperlink;
             }
             output << '\n';

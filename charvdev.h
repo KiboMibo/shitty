@@ -49,11 +49,18 @@ public:
         uint8_t inverse : 1;
         uint8_t wrap : 1;
         uint8_t dirty : 1;
-        uint16_t _fill0 : 8;
+        uint8_t faint : 1;
+        uint8_t blink : 1;
+        uint8_t conceal : 1;
+        uint8_t strike : 1;
+        uint8_t overline : 1;
+        uint8_t underline_style : 3;
         Color fg;
         uint8_t _fill1;
         Color bg;
         uint8_t _fill2;
+        Color underline_color;
+        uint8_t _fill3;
         uint32_t hyperlink = 0;
 
         Cell()
@@ -65,8 +72,15 @@ public:
             , inverse(0)
             , wrap(0)
             , dirty(0)
+            , faint(0)
+            , blink(0)
+            , conceal(0)
+            , strike(0)
+            , overline(0)
+            , underline_style(0)
             , fg(opts.fg)
             , bg(opts.bg)
+            , underline_color(opts.fg)
         {
         }
 
@@ -80,7 +94,7 @@ public:
             return !operator==(rhs);
         }
     };
-    static_assert(sizeof(Cell) == 16, "Cell size mismatch");
+    static_assert(sizeof(Cell) == 20, "Cell size mismatch");
 
     static Cell::Ptr make_cells(uint16_t nCols, uint16_t nRows) {
         return std::shared_ptr<Cell>(new Cell[nRows * nCols],

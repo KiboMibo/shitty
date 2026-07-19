@@ -1672,7 +1672,6 @@ Vterm::getInputSpec(Key key) {
 }
 
 #define IGNORE_SEQUENCE_ON_BAD_PARAMS         \
-    case ':':                                 \
     case '<':                                 \
     case '=':                                 \
     case '>':                                 \
@@ -1701,10 +1700,12 @@ Vterm::getInputSpec(Key key) {
         }                                                            \
         break;                                                       \
     case ';':                                                        \
+    case ':':                                                        \
         csiPrefixAllowed = false;                                    \
-        if (nInputOps < maxEscOps)                                   \
+        if (nInputOps < maxEscOps) {                                 \
+            inputSeparators[nInputOps] = ch;                         \
             inputOps[nInputOps++] = 0;                               \
-        else {                                                       \
+        } else {                                                     \
             logE << "inputOps full, increase maxEscOps (currently: " \
                  << maxEscOps << ")!" << std::endl;                  \
             setState(InputState::IgnoreSequence);                    \
@@ -1744,6 +1745,7 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                          ? InputState::Escape_VT52
                          : InputState::Escape);
             inputOps[0] = 0;
+            inputSeparators[0] = 0;
             nInputOps = 1;
             lastEscBegin = readPos;
             continue;
@@ -1758,6 +1760,7 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                                      ? InputState::Escape_VT52
                                      : InputState::Escape);
                         inputOps[0] = 0;
+                        inputSeparators[0] = 0;
                         nInputOps = 1;
                         lastEscBegin = readPos;
                         break;
@@ -1791,6 +1794,7 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         break;
                     case 0x9b:
                         inputOps[0] = 0;
+                        inputSeparators[0] = 0;
                         nInputOps = 1;
                         csiPrefixAllowed = true;
                         setState(InputState::CSI);
@@ -2300,9 +2304,6 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         break;
                     case '$':
                         setState(InputState::CSI_Dollar);
-                        break;
-                    case ':':
-                        setState(InputState::IgnoreSequence);
                         break;
                     default:
                         unhandledInput(ch);

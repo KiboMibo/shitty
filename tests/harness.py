@@ -24,10 +24,17 @@ class Cell:
     bold: bool
     italic: bool
     underline: bool
+    underline_style: int
+    faint: bool
+    blink: bool
+    conceal: bool
+    strike: bool
+    overline: bool
     inverse: bool
     wrapped: bool
     foreground: tuple[int, int, int]
     background: tuple[int, int, int]
+    underline_color: tuple[int, int, int]
     hyperlink: int
 
 
@@ -241,7 +248,7 @@ class Zutty:
             int, response[1:13]
         )
         encoded_cells = response[13]
-        record_size = 26
+        record_size = 34
         expected = columns * rows * record_size
         if len(encoded_cells) != expected:
             raise RuntimeError("invalid snapshot cell count")
@@ -250,7 +257,7 @@ class Zutty:
             record = encoded_cells[
                 offset_in_cells : offset_in_cells + record_size
             ]
-            flags = int(record[4:6], 16)
+            flags = int(record[4:8], 16)
             cells.append(
                 Cell(
                     char=chr(int(record[0:4], 16)),
@@ -259,15 +266,24 @@ class Zutty:
                     bold=bool(flags & 4),
                     italic=bool(flags & 8),
                     underline=bool(flags & 16),
+                    underline_style=(flags >> 12) & 7,
+                    faint=bool(flags & 128),
+                    blink=bool(flags & 256),
+                    conceal=bool(flags & 512),
+                    strike=bool(flags & 1024),
+                    overline=bool(flags & 2048),
                     inverse=bool(flags & 32),
                     wrapped=bool(flags & 64),
                     foreground=tuple(
-                        int(record[k : k + 2], 16) for k in (6, 8, 10)
+                        int(record[k : k + 2], 16) for k in (8, 10, 12)
                     ),
                     background=tuple(
-                        int(record[k : k + 2], 16) for k in (12, 14, 16)
+                        int(record[k : k + 2], 16) for k in (14, 16, 18)
                     ),
-                    hyperlink=int(record[18:26], 16),
+                    underline_color=tuple(
+                        int(record[k : k + 2], 16) for k in (20, 22, 24)
+                    ),
+                    hyperlink=int(record[26:34], 16),
                 )
             )
         text = "".join(cell.char for cell in cells)

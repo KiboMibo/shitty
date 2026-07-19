@@ -457,6 +457,7 @@ private:
     int fgPalIx;
     int bgPalIx;
     bool reverseVideo = false;
+    bool underlineColorDefault = true;
     bool hasFocus = false;
 
     unsigned char inputBuf[32 * 1024];
@@ -470,8 +471,9 @@ private:
     // parser state, rather than an input-buffer offset: PTY reads may split an
     // escape sequence at any byte.
     bool csiPrefixAllowed = false;
-    constexpr const static size_t maxEscOps = 16;
+    constexpr const static size_t maxEscOps = 32;
     uint32_t inputOps[maxEscOps];
+    unsigned char inputSeparators[maxEscOps] = {};
     size_t nInputOps = 0;
     Utf8Decoder utf8dec;
     std::vector<unsigned char> argBuf;

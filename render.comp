@@ -9,6 +9,7 @@ struct Cell
    uint charData;
    uint fg;
    uint bg;
+   uint underlineColor;
    uint hyperlink;
 };
 
@@ -306,6 +307,11 @@ void main ()
    uint underline = bitfieldExtract (cell.charData, 20, 1);
    uint inverse = bitfieldExtract (cell.charData, 21, 1);
    uint wrap = bitfieldExtract (cell.charData, 22, 1);
+   uint faint = bitfieldExtract (cell.charData, 24, 1);
+   uint conceal = bitfieldExtract (cell.charData, 26, 1);
+   uint strike = bitfieldExtract (cell.charData, 27, 1);
+   uint overline = bitfieldExtract (cell.charData, 28, 1);
+   uint underlineStyle = bitfieldExtract (cell.charData, 29, 3);
    uint codepoint = bitfieldExtract (cell.charData, 0, 16);
    ivec2 mapPosition = ivec2 (int (codepoint & 255), int (codepoint >> 8));
 
@@ -316,6 +322,7 @@ void main ()
    vec3 foreground = unpackColor (cell.fg);
    vec3 background = unpackColor (cell.bg);
    vec3 cursor = unpackColor (parameters.cursorColor);
+   vec3 underlineColor = unpackColor (cell.underlineColor);
 
    if (selected (cellPosition))
       inverse ^= 1;
@@ -325,6 +332,10 @@ void main ()
       foreground = background;
       background = temporary;
    }
+   if (faint != 0)
+      foreground = mix (foreground, background, 0.5);
+   if (conceal != 0)
+      foreground = background;
    if (all (equal (cursor, background)))
       cursor = vec3 (1.0) - cursor;
 
@@ -399,10 +410,31 @@ void main ()
    if (underline != 0)
    {
       for (uint x = 0; x < cellWidth; ++x)
-         storePixel (
-            outputOrigin + ivec2 (x, parameters.glyphHeight - 1),
-            foreground);
+      {
+         bool draw = underlineStyle != 4 || (x & 1u) == 0u;
+         draw = draw && (underlineStyle != 5 || (x % 6u) < 4u);
+         uint waveY = underlineStyle == 3 ? (x & 1u) : 0u;
+         if (draw)
+            storePixel (
+               outputOrigin + ivec2 (
+                  x, parameters.glyphHeight - 1 - int (waveY)),
+               underlineColor);
+         if (underlineStyle == 2 && parameters.glyphHeight > 2)
+            storePixel (
+               outputOrigin + ivec2 (x, parameters.glyphHeight - 3),
+               underlineColor);
+      }
    }
+
+   if (strike != 0)
+      for (uint x = 0; x < cellWidth; ++x)
+         storePixel (
+            outputOrigin + ivec2 (x, parameters.glyphHeight / 2),
+            foreground);
+
+   if (overline != 0)
+      for (uint x = 0; x < cellWidth; ++x)
+         storePixel (outputOrigin + ivec2 (x, 0), foreground);
 
    if (parameters.showWraps != 0 && wrap != 0)
    {

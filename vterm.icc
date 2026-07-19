@@ -94,7 +94,7 @@ Vterm::unhandledInput(unsigned char ch) {
          << ") in state " << strInputState(inputState)
          << ". Escape sequence so far: "
          << dumpBuffer(inputBuf + lastEscBegin, inputBuf + readPos + 1);
-    if (ch >= 0x20 && ch <= 0x2f) {
+    if ((ch >= 0x20 && ch <= 0x2f) || ch == ':') {
         switch (inputState) {
             case InputState::CSI:
             case InputState::CSI_priv:
@@ -1709,6 +1709,9 @@ Vterm::setFgFromPalIx() {
     } else {
         *fg = palette256[fgPalIx];
     }
+    if (underlineColorDefault) {
+        attrs.underline_color = *fg;
+    }
 }
 
 inline void
@@ -1725,6 +1728,51 @@ Vterm::setBgFromPalIx() {
 inline void
 Vterm::csi_SGR() {
     TRACE_FUN;
+    const auto parseColor = [this](size_t& k, Color& color, int* palette) {
+        if (k + 1 >= nInputOps) {
+            return false;
+        }
+        const bool colon = inputSeparators[k + 1] == ':';
+        const uint32_t mode = inputOps[++k];
+        if (mode == 5) {
+            if (k + 1 >= nInputOps || inputOps[k + 1] > 255) {
+                return false;
+            }
+            const unsigned index = inputOps[++k];
+            color = palette256[index];
+            if (palette) {
+                *palette = index;
+            }
+            return true;
+        }
+        if (mode != 2) {
+            return false;
+        }
+
+        size_t first = k + 1;
+        if (colon) {
+            size_t end = first;
+            while (end < nInputOps && inputSeparators[end] == ':') {
+                ++end;
+            }
+            if (end - first == 4) {
+                ++first;
+            }
+        }
+        if (first + 2 >= nInputOps || inputOps[first] > 255 ||
+            inputOps[first + 1] > 255 || inputOps[first + 2] > 255) {
+            return false;
+        }
+        color.red = inputOps[first];
+        color.green = inputOps[first + 1];
+        color.blue = inputOps[first + 2];
+        k = first + 2;
+        if (palette) {
+            *palette = -1;
+        }
+        return true;
+    };
+
     for (size_t k = 0; k < nInputOps; ++k) {
         const auto& attr = inputOps[k];
 
@@ -1732,8 +1780,14 @@ Vterm::csi_SGR() {
             case 0:
                 attrs.uc_pt = ' ';
                 attrs.bold = 0;
+                attrs.faint = 0;
                 attrs.italic = 0;
                 attrs.underline = 0;
+                attrs.underline_style = 0;
+                attrs.blink = 0;
+                attrs.conceal = 0;
+                attrs.strike = 0;
+                attrs.overline = 0;
                 attrs.inverse = 0;
                 reverseVideo = false;
                 fg = &attrs.fg;
@@ -1742,22 +1796,30 @@ Vterm::csi_SGR() {
                 setFgFromPalIx();
                 bgPalIx = defaultBgPalIx;
                 setBgFromPalIx();
+                underlineColorDefault = true;
+                attrs.underline_color = *fg;
                 break;
             case 1:
                 attrs.bold = 1;
                 setFgFromPalIx();
                 break;
             case 2:
-                attrs.bold = 0;
-                setFgFromPalIx();
+                attrs.faint = 1;
                 break;
             case 3:
                 attrs.italic = 1;
                 break;
             case 4:
                 attrs.underline = 1;
+                attrs.underline_style = 1;
+                if (k + 1 < nInputOps && inputSeparators[k + 1] == ':') {
+                    attrs.underline_style = std::min(inputOps[++k], 5u);
+                    attrs.underline = attrs.underline_style != 0;
+                }
                 break;
-            case 5: /* blink on */
+            case 5:
+            case 6:
+                attrs.blink = 1;
                 break;
             case 7:
                 if (!reverseVideo) {
@@ -1769,49 +1831,40 @@ Vterm::csi_SGR() {
                 }
                 break;
             case 8:
-                logU << "attr.: concealed" << std::endl;
+                attrs.conceal = 1;
+                break;
+            case 9:
+                attrs.strike = 1;
                 break;
             case 10:
-                attrs.bold = 0;
-                attrs.italic = 0;
-                setFgFromPalIx();
-                break;
             case 11:
-                attrs.bold = 1;
-                attrs.italic = 0;
-                setFgFromPalIx();
-                break;
             case 12:
-                attrs.bold = 0;
-                attrs.italic = 1;
-                setFgFromPalIx();
-                break;
             case 13:
-                attrs.bold = 1;
-                attrs.italic = 1;
-                setFgFromPalIx();
-                break;
             case 14:
             case 15:
             case 16:
             case 17:
             case 18:
             case 19:
-                attrs.bold = 0;
-                attrs.italic = 0;
-                setFgFromPalIx();
+                break;
+            case 21:
+                attrs.underline = 1;
+                attrs.underline_style = 2;
                 break;
             case 22:
                 attrs.bold = 0;
+                attrs.faint = 0;
                 setFgFromPalIx();
                 break;
             case 23:
                 attrs.italic = 0;
                 break;
-            case 25: /* blink off */
+            case 25:
+                attrs.blink = 0;
                 break;
             case 24:
                 attrs.underline = 0;
+                attrs.underline_style = 0;
                 break;
             case 27:
                 if (reverseVideo) {
@@ -1823,7 +1876,10 @@ Vterm::csi_SGR() {
                 }
                 break;
             case 28:
-                logU << "attr.: revealed (conceal off)" << std::endl;
+                attrs.conceal = 0;
+                break;
+            case 29:
+                attrs.strike = 0;
                 break;
 
             case 30:
@@ -1836,42 +1892,17 @@ Vterm::csi_SGR() {
             case 37:
                 fgPalIx = attr - 30;
                 setFgFromPalIx();
+                if (underlineColorDefault) attrs.underline_color = *fg;
                 break;
 
             case 38:
-                if (k >= nInputOps - 1) {
-                    break;
-                }
-                switch (inputOps[++k]) {
-                    case 5:
-                        if (k >= nInputOps - 1) {
-                            break;
-                        }
-                        if (inputOps[++k] <= 255) {
-                            fgPalIx = inputOps[k];
-                            setFgFromPalIx();
-                        }
-                        break;
-                    case 2:
-                        if (k >= nInputOps - 3) {
-                            break;
-                        }
-                        if (inputOps[k + 1] <= 255 &&
-                            inputOps[k + 2] <= 255 &&
-                            inputOps[k + 3] <= 255) {
-                            (*fg).red = inputOps[k + 1];
-                            (*fg).green = inputOps[k + 2];
-                            (*fg).blue = inputOps[k + 3];
-                        }
-                        k += 3;
-                        break;
-                    default:
-                        break;
-                }
+                if (parseColor(k, *fg, &fgPalIx) && underlineColorDefault)
+                    attrs.underline_color = *fg;
                 break;
             case 39:
                 fgPalIx = defaultFgPalIx;
                 setFgFromPalIx();
+                if (underlineColorDefault) attrs.underline_color = *fg;
                 break;
 
             case 40:
@@ -1887,39 +1918,27 @@ Vterm::csi_SGR() {
                 break;
 
             case 48:
-                if (k >= nInputOps - 1) {
-                    break;
-                }
-                switch (inputOps[++k]) {
-                    case 5:
-                        if (k >= nInputOps - 1) {
-                            break;
-                        }
-                        if (inputOps[++k] <= 255) {
-                            bgPalIx = inputOps[k];
-                            setBgFromPalIx();
-                        }
-                        break;
-                    case 2:
-                        if (k >= nInputOps - 3) {
-                            break;
-                        }
-                        if (inputOps[k + 1] <= 255 &&
-                            inputOps[k + 2] <= 255 &&
-                            inputOps[k + 3] <= 255) {
-                            (*bg).red = inputOps[k + 1];
-                            (*bg).green = inputOps[k + 2];
-                            (*bg).blue = inputOps[k + 3];
-                        }
-                        k += 3;
-                        break;
-                    default:
-                        break;
-                }
+                parseColor(k, *bg, &bgPalIx);
                 break;
             case 49:
                 bgPalIx = defaultBgPalIx;
                 setBgFromPalIx();
+                break;
+
+            case 58:
+                if (parseColor(k, attrs.underline_color, nullptr))
+                    underlineColorDefault = false;
+                break;
+            case 59:
+                underlineColorDefault = true;
+                attrs.underline_color = *fg;
+                break;
+
+            case 53:
+                attrs.overline = 1;
+                break;
+            case 55:
+                attrs.overline = 0;
                 break;
 
             case 90:

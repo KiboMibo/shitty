@@ -88,6 +88,50 @@ class CellStateTest(unittest.TestCase):
             self.assertEqual(cell.foreground, (205, 0, 0))
             self.assertEqual(cell.background, (0, 205, 0))
 
+    def test_extended_sgr_attributes_and_resets(self):
+        with Zutty(columns=12, rows=2) as terminal:
+            terminal.write(b"\x1b[1;2;5;8;9;53mA\x1b[22;25;28;29;55mB")
+            first = terminal.snapshot().cell(0, 0)
+            second = terminal.snapshot().cell(1, 0)
+
+            self.assertTrue(first.bold)
+            self.assertTrue(first.faint)
+            self.assertTrue(first.blink)
+            self.assertTrue(first.conceal)
+            self.assertTrue(first.strike)
+            self.assertTrue(first.overline)
+            self.assertFalse(second.bold)
+            self.assertFalse(second.faint)
+            self.assertFalse(second.blink)
+            self.assertFalse(second.conceal)
+            self.assertFalse(second.strike)
+            self.assertFalse(second.overline)
+
+    def test_colon_sgr_colors_and_underline_styles(self):
+        with Zutty(columns=12, rows=2) as terminal:
+            terminal.write(
+                b"\x1b[4:3;38:2::1:2:3;48:5:21;58:2::4:5:6mA"
+                b"\x1b[4:0;59mB"
+            )
+            first = terminal.snapshot().cell(0, 0)
+            second = terminal.snapshot().cell(1, 0)
+
+            self.assertEqual(first.underline_style, 3)
+            self.assertEqual(first.foreground, (1, 2, 3))
+            self.assertEqual(first.background, (0, 0, 255))
+            self.assertEqual(first.underline_color, (4, 5, 6))
+            self.assertEqual(second.underline_style, 0)
+            self.assertEqual(second.underline_color, second.foreground)
+
+    def test_alternative_font_sgr_does_not_change_weight_or_slant(self):
+        with Zutty(columns=12, rows=2) as terminal:
+            terminal.write(b"\x1b[1;3mA\x1b[10mB\x1b[19mC")
+            snapshot = terminal.snapshot()
+
+            for column in range(3):
+                self.assertTrue(snapshot.cell(column, 0).bold)
+                self.assertTrue(snapshot.cell(column, 0).italic)
+
 
 if __name__ == "__main__":
     unittest.main()
