@@ -4,6 +4,13 @@ from harness import Zutty
 
 
 class ModeTest(unittest.TestCase):
+    def test_blinking_text_drives_periodic_refresh(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[2 q\x1b[5mX")
+            before = terminal.snapshot().refresh_count
+            terminal.blink_tick()
+            self.assertGreater(terminal.snapshot().refresh_count, before)
+
     def test_autowrap_can_be_disabled_and_restored(self):
         with Zutty(columns=4, rows=2) as terminal:
             terminal.write(b"\x1b[?7labcde")

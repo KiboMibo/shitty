@@ -409,6 +409,9 @@ int runTestMode(int controlFd) {
             } else if (line == "SYNC_TIMEOUT") {
                 terminal.expireSynchronizedOutput(true);
                 writeAll(controlFd, "OK\n");
+            } else if (line == "BLINK_TICK") {
+                if (terminal.advanceAnimation(true)) terminal.redraw();
+                writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 13, "SELECT_START ") == 0 ||
                        line.compare(0, 14, "SELECT_UPDATE ") == 0) {
                 const bool start = line.compare(0, 13, "SELECT_START ") == 0;

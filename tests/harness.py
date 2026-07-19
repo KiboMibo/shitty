@@ -163,6 +163,9 @@ class Zutty:
     def sync_timeout(self):
         self.command("SYNC_TIMEOUT")
 
+    def blink_tick(self):
+        self.command("BLINK_TICK")
+
     def select_start(self, column, row):
         self.command(f"SELECT_START {column} {row}")
 

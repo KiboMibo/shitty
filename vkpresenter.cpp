@@ -1111,7 +1111,7 @@ bool VulkanPresenter::sameSelection(const Rect& lhs, const Rect& rhs) {
 
 void VulkanPresenter::recordCommands(
     FrameResources& frame, uint32_t imageIndex,
-    const CharVdev& charVdev, bool delta) {
+    const CharVdev& charVdev, const Frame& sourceFrame, bool delta) {
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -1219,6 +1219,11 @@ void VulkanPresenter::recordCommands(
         previousCursor.posY,
         delta ? 1u : 0u,
         !sameSelection(selection, previousSelection) ? 1u : 0u,
+        packColor(sourceFrame.getSelectionForeground()),
+        packColor(sourceFrame.getSelectionBackground()),
+        sourceFrame.getSelectionColorMask(),
+        sourceFrame.getBlinkVisible() ? 1u : 0u,
+        sourceFrame.getCursorBlink() ? 1u : 0u,
     };
     vkCmdBindPipeline(
         frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
@@ -1366,7 +1371,7 @@ bool VulkanPresenter::present(
             "vkResetFences");
     checkVk(vkResetCommandBuffer(frame.commandBuffer, 0),
             "vkResetCommandBuffer");
-    recordCommands(frame, imageIndex, charVdev, delta);
+    recordCommands(frame, imageIndex, charVdev, sourceFrame, delta);
 
     const VkPipelineStageFlags waitStage =
         VK_PIPELINE_STAGE_TRANSFER_BIT;

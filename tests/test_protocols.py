@@ -150,6 +150,36 @@ class ProtocolTest(unittest.TestCase):
             terminal.write(b"\x1b]104;1;2\x1b\\\x1b]4;1;?;2;?\x1b\\")
             self.assertNotEqual(terminal.read_input(), reply)
 
+    def test_palette_changes_recolor_existing_indexed_cells_only(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1b[38;5;1mI"
+                b"\x1b[38;2;205;0;0mT"
+                b"\x1b]4;1;#010203\x1b\\"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).foreground, (1, 2, 3))
+            self.assertEqual(snapshot.cell(1, 0).foreground, (205, 0, 0))
+
+            terminal.write(b"\x1b]104;1\x1b\\")
+            self.assertEqual(
+                terminal.snapshot().cell(0, 0).foreground,
+                (205, 0, 0),
+            )
+
+    def test_dynamic_defaults_recolor_existing_default_cells(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"D\x1b[31;42mI\x1b[39;49m"
+                b"\x1b]10;#010203\x1b\\"
+                b"\x1b]11;#040506\x1b\\"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).foreground, (1, 2, 3))
+            self.assertEqual(snapshot.cell(0, 0).background, (4, 5, 6))
+            self.assertNotEqual(snapshot.cell(1, 0).foreground, (1, 2, 3))
+            self.assertNotEqual(snapshot.cell(1, 0).background, (4, 5, 6))
+
     def test_dynamic_color_queries_are_independent_of_sgr(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(

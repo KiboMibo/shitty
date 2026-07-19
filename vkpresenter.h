@@ -82,8 +82,13 @@ private:
         int32_t previousCursorY;
         uint32_t deltaFrame;
         uint32_t selectionChanged;
+        uint32_t selectionForeground;
+        uint32_t selectionBackground;
+        uint32_t selectionColorMask;
+        uint32_t blinkVisible;
+        uint32_t cursorBlink;
     };
-    static_assert(sizeof(PushConstants) == 92,
+    static_assert(sizeof(PushConstants) == 112,
                   "Vulkan push constant layout mismatch");
 
     static constexpr uint32_t framesInFlight = 2;
@@ -158,7 +163,8 @@ private:
     void updateCellDescriptor(FrameResources& frame);
     void updateGraphemeDescriptor(FrameResources& frame);
     void recordCommands(FrameResources& frame, uint32_t imageIndex,
-                        const CharVdev& charVdev, bool delta);
+                        const CharVdev& charVdev,
+                        const Frame& sourceFrame, bool delta);
 
     static std::vector<uint8_t> makeAtlasMap(const Font& font);
     static uint32_t packColor(const Color& color);

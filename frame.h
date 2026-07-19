@@ -75,6 +75,8 @@ public:
         return viewOffset;
     };
     void collectHyperlinkIds(std::set<uint32_t>& ids) const;
+    void recolorPalette(uint16_t index, Color color);
+    void recolorDefault(bool foreground, Color color);
 
     void expose() {
         damage.expose();
@@ -87,6 +89,16 @@ public:
     void setCursorPos(uint16_t pY, uint16_t pX);
     void setCursorStyle(CharVdev::Cursor::Style cs);
     void setCursorColor(Color color);
+    void setSelectionColor(bool foreground, Color color, bool enabled);
+    Color getSelectionForeground() const { return selectionForeground; }
+    Color getSelectionBackground() const { return selectionBackground; }
+    uint8_t getSelectionColorMask() const { return selectionColorMask; }
+    void setBlinkState(bool visible, bool cursor) {
+        blinkVisible = visible;
+        cursorBlink = cursor;
+    }
+    bool getBlinkVisible() const { return blinkVisible; }
+    bool getCursorBlink() const { return cursorBlink; }
 
     enum class SelectSnapTo : uint8_t {
         Char = 0,
@@ -140,6 +152,11 @@ private:
     std::vector<RowId> freeRows;
     CharVdev::Cursor cursor;
     Rect selection;
+    Color selectionForeground = opts.fg;
+    Color selectionBackground = opts.bg;
+    uint8_t selectionColorMask = 0;
+    bool blinkVisible = true;
+    bool cursorBlink = false;
     SelectSnapTo snapTo = SelectSnapTo::Char;
 
     struct Damage {

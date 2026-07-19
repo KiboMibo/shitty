@@ -1249,8 +1249,8 @@ Vterm::Vterm(uint16_t glyphPx_, uint16_t glyphPy_,
     selectionFgColor = opts.fg;
     selectionBgColor = opts.bg;
 
-    defaultFgPalIx = (opts.fg == palette256[15]) ? 15 : -1;
-    defaultBgPalIx = (opts.bg == palette256[0]) ? 0 : -1;
+    defaultFgPalIx = -1;
+    defaultBgPalIx = -1;
     fgPalIx = defaultFgPalIx;
     bgPalIx = defaultBgPalIx;
 

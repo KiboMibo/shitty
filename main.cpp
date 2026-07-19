@@ -1450,7 +1450,7 @@ namespace {
 
     bool eventLoop(PtyEventSource& ptySource) {
         while (!glfwWindowShouldClose(window)) {
-            if (vt->synchronizedOutputActive()) {
+            if (vt->synchronizedOutputActive() || vt->animationActive()) {
                 glfwWaitEventsTimeout(0.05);
             } else {
                 glfwWaitEvents();
@@ -1462,6 +1462,9 @@ namespace {
                 return true;
             }
             vt->expireSynchronizedOutput();
+            if (vt->advanceAnimation()) {
+                windowContext.redrawPending = true;
+            }
             if (windowContext.resizePending) {
                 const int width = std::min(
                     windowContext.framebufferWidth,

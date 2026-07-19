@@ -15,6 +15,16 @@
 Frame::Frame() {
 }
 
+void Frame::setSelectionColor(
+    bool foreground, Color color, bool enabled) {
+    const uint8_t bit = foreground ? 1 : 2;
+    if (foreground) selectionForeground = color;
+    else selectionBackground = color;
+    if (enabled) selectionColorMask |= bit;
+    else selectionColorMask &= ~bit;
+    expose();
+}
+
 uint32_t Frame::internGrapheme(const Grapheme& codepoints) {
     if (codepoints.size() < 2) {
         return 0;
@@ -84,6 +94,33 @@ void Frame::collectHyperlinkIds(std::set<uint32_t>& ids) const {
     };
     for (RowId row : screen) collectRow(row);
     for (RowId row : history) collectRow(row);
+}
+
+void Frame::recolorPalette(uint16_t index, Color color) {
+    if (!cells) return;
+    const size_t count = static_cast<size_t>(nCols) * (nRows + saveLines);
+    for (size_t i = 0; i < count; ++i) {
+        auto& cell = cells.get()[i];
+        if (cell.fg_index == index) cell.fg = color;
+        if (cell.bg_index == index) cell.bg = color;
+        if (cell.underline_index == index) cell.underline_color = color;
+    }
+    expose();
+}
+
+void Frame::recolorDefault(bool foreground, Color color) {
+    if (!cells) return;
+    const size_t count = static_cast<size_t>(nCols) * (nRows + saveLines);
+    for (size_t i = 0; i < count; ++i) {
+        auto& cell = cells.get()[i];
+        if (foreground) {
+            if (cell.fg_index == -2) cell.fg = color;
+            if (cell.underline_index == -2) cell.underline_color = color;
+        } else if (cell.bg_index == -2) {
+            cell.bg = color;
+        }
+    }
+    expose();
 }
 
 void Frame::resize(uint16_t winPx_, uint16_t winPy_,

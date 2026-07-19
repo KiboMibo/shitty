@@ -195,6 +195,10 @@ public:
         return synchronizedOutputMode;
     }
     bool expireSynchronizedOutput(bool force = false);
+    bool animationActive() const {
+        return haveBlinkingText || cursorBlinkMode;
+    }
+    bool advanceAnimation(bool force = false);
 
     struct InputSpec {
         VtKey key;
@@ -446,6 +450,7 @@ private:
 
     void osc_PaletteQuery(int, const std::string&);
     void osc_DynamicColorQuery(int, const std::string&);
+    void applyPaletteColor(uint16_t index, Color color);
 
     uint16_t winPx;
     uint16_t winPy;
@@ -473,6 +478,8 @@ private:
     CharVdev::Cell attrs;
     Color* fg = &attrs.fg;
     Color* bg = &attrs.bg;
+    int32_t* fgIndex = &attrs.fg_index;
+    int32_t* bgIndex = &attrs.bg_index;
     Color palette256[256];
     Color originalPalette256[256];
     Color defaultFgColor;
@@ -488,6 +495,7 @@ private:
     int defaultBgPalIx;
     int fgPalIx;
     int bgPalIx;
+    int underlinePalIx = -2;
     bool reverseVideo = false;
     bool underlineColorDefault = true;
     bool hasFocus = false;
@@ -524,6 +532,10 @@ private:
     CharVdev::Cursor::Style cursorShape =
         CharVdev::Cursor::Style::filled_block;
     uint8_t cursorStyleParam = 2;
+    bool cursorBlinkMode = false;
+    bool haveBlinkingText = false;
+    bool blinkVisible = true;
+    std::chrono::steady_clock::time_point nextBlink;
     bool altScreenBufferMode = false;
     bool autoWrapMode = true;
     bool autoNewlineMode = false;

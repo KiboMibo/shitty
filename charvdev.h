@@ -65,6 +65,9 @@ public:
         uint8_t _fill3;
         uint32_t hyperlink = 0;
         uint32_t grapheme = 0;
+        int32_t fg_index = -2;
+        int32_t bg_index = -2;
+        int32_t underline_index = -2;
 
         Cell()
             : dwidth(0)
@@ -97,7 +100,7 @@ public:
             return !operator==(rhs);
         }
     };
-    static_assert(sizeof(Cell) == 28, "Cell size mismatch");
+    static_assert(sizeof(Cell) == 40, "Cell size mismatch");
     static_assert(offsetof(Cell, uc_pt) == 0, "Cell codepoint offset mismatch");
     static_assert(offsetof(Cell, fg) == 8, "Cell foreground offset mismatch");
     static_assert(offsetof(Cell, bg) == 12, "Cell background offset mismatch");
@@ -107,6 +110,8 @@ public:
                   "Cell hyperlink offset mismatch");
     static_assert(offsetof(Cell, grapheme) == 24,
                   "Cell grapheme offset mismatch");
+    static_assert(offsetof(Cell, fg_index) == 28,
+                  "Cell foreground source offset mismatch");
 
     static Cell::Ptr make_cells(uint16_t nCols, uint16_t nRows) {
         return std::shared_ptr<Cell>(new Cell[nRows * nCols],

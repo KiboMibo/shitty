@@ -13,6 +13,9 @@ struct Cell
    uint underlineColor;
    uint hyperlink;
    uint grapheme;
+   int fgIndex;
+   int bgIndex;
+   int underlineIndex;
 };
 
 layout (std430, set = 0, binding = 1) readonly buffer CellBuffer
@@ -55,6 +58,11 @@ layout (push_constant) uniform PushConstants
    int previousCursorY;
    uint deltaFrame;
    uint selectionChanged;
+   uint selectionForeground;
+   uint selectionBackground;
+   uint selectionColorMask;
+   uint blinkVisible;
+   uint cursorBlink;
 } parameters;
 
 vec3 unpackColor (uint color)
@@ -357,6 +365,7 @@ void main ()
    uint inverse = bitfieldExtract (cell.charData, 5, 1);
    uint wrap = bitfieldExtract (cell.charData, 6, 1);
    uint faint = bitfieldExtract (cell.charData, 8, 1);
+   uint blink = bitfieldExtract (cell.charData, 9, 1);
    uint conceal = bitfieldExtract (cell.charData, 10, 1);
    uint strike = bitfieldExtract (cell.charData, 11, 1);
    uint overline = bitfieldExtract (cell.charData, 12, 1);
@@ -367,23 +376,41 @@ void main ()
    vec3 cursor = unpackColor (parameters.cursorColor);
    vec3 underlineColor = unpackColor (cell.underlineColor);
 
-   if (selected (cellPosition))
-      inverse ^= 1;
    if (inverse != 0)
    {
       vec3 temporary = foreground;
       foreground = background;
       background = temporary;
    }
+   if (selected (cellPosition))
+   {
+      if (parameters.selectionColorMask == 0)
+      {
+         vec3 temporary = foreground;
+         foreground = background;
+         background = temporary;
+      }
+      else
+      {
+         if ((parameters.selectionColorMask & 1u) != 0)
+            foreground = unpackColor (parameters.selectionForeground);
+         if ((parameters.selectionColorMask & 2u) != 0)
+            background = unpackColor (parameters.selectionBackground);
+      }
+   }
    if (faint != 0)
       foreground = mix (foreground, background, 0.5);
    if (conceal != 0)
+      foreground = background;
+   if (blink != 0 && parameters.blinkVisible == 0)
       foreground = background;
    if (all (equal (cursor, background)))
       cursor = vec3 (1.0) - cursor;
 
    bool cursorHere = cellPosition.x == parameters.cursorX &&
                      cellPosition.y == parameters.cursorY;
+   cursorHere = cursorHere &&
+      (parameters.cursorBlink == 0 || parameters.blinkVisible != 0);
    if (cursorHere && parameters.cursorStyle == 1)
    {
       foreground = background;
