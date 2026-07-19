@@ -9,6 +9,8 @@
 
 #include "vkpresenter.h"
 
+#include "frame.h"
+
 #include "log.h"
 #include "options.h"
 #include "render_spv.h"
@@ -165,6 +167,15 @@ VulkanPresenter::~VulkanPresenter() {
         }
         if (frame.cellMemory != VK_NULL_HANDLE) {
             vkFreeMemory(device, frame.cellMemory, nullptr);
+        }
+        if (frame.graphemes != nullptr) {
+            vkUnmapMemory(device, frame.graphemeMemory);
+        }
+        if (frame.graphemeBuffer != VK_NULL_HANDLE) {
+            vkDestroyBuffer(device, frame.graphemeBuffer, nullptr);
+        }
+        if (frame.graphemeMemory != VK_NULL_HANDLE) {
+            vkFreeMemory(device, frame.graphemeMemory, nullptr);
         }
         if (frame.imageAvailable != VK_NULL_HANDLE) {
             vkDestroySemaphore(device, frame.imageAvailable, nullptr);
@@ -665,7 +676,7 @@ void VulkanPresenter::createFontResources(Fontpack* fontpk) {
 }
 
 void VulkanPresenter::createDescriptors() {
-    std::array<VkDescriptorSetLayoutBinding, 6> bindings{};
+    std::array<VkDescriptorSetLayoutBinding, 7> bindings{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     bindings[0].descriptorCount = 1;
@@ -674,13 +685,17 @@ void VulkanPresenter::createDescriptors() {
     bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[1].descriptorCount = 1;
     bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    for (uint32_t binding = 2; binding < bindings.size(); ++binding) {
+    for (uint32_t binding = 2; binding < 6; ++binding) {
         bindings[binding].binding = binding;
         bindings[binding].descriptorType =
             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[binding].descriptorCount = 1;
         bindings[binding].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     }
+    bindings[6].binding = 6;
+    bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[6].descriptorCount = 1;
+    bindings[6].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType =
@@ -693,7 +708,7 @@ void VulkanPresenter::createDescriptors() {
 
     const VkDescriptorPoolSize poolSizes[] = {
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, framesInFlight},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, framesInFlight},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2 * framesInFlight},
         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
          4 * framesInFlight},
     };
@@ -782,6 +797,20 @@ void VulkanPresenter::updateCellDescriptor(FrameResources& frame) {
     write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     write.dstSet = frame.descriptorSet;
     write.dstBinding = 1;
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    write.pBufferInfo = &bufferInfo;
+    vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+}
+
+void VulkanPresenter::updateGraphemeDescriptor(FrameResources& frame) {
+    VkDescriptorBufferInfo bufferInfo{};
+    bufferInfo.buffer = frame.graphemeBuffer;
+    bufferInfo.range = frame.graphemeCapacity;
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = frame.descriptorSet;
+    write.dstBinding = 6;
     write.descriptorCount = 1;
     write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     write.pBufferInfo = &bufferInfo;
@@ -1037,6 +1066,37 @@ void VulkanPresenter::ensureCellBuffer(
     updateCellDescriptor(frame);
 }
 
+void VulkanPresenter::ensureGraphemeBuffer(
+    FrameResources& frame, size_t bytes) {
+    bytes = std::max(bytes, sizeof(uint32_t));
+    if (frame.graphemeCapacity >= bytes) {
+        return;
+    }
+
+    if (frame.graphemes != nullptr) {
+        vkUnmapMemory(device, frame.graphemeMemory);
+        frame.graphemes = nullptr;
+    }
+    if (frame.graphemeBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device, frame.graphemeBuffer, nullptr);
+    }
+    if (frame.graphemeMemory != VK_NULL_HANDLE) {
+        vkFreeMemory(device, frame.graphemeMemory, nullptr);
+    }
+
+    createBuffer(
+        bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        frame.graphemeBuffer, frame.graphemeMemory);
+    checkVk(vkMapMemory(
+                device, frame.graphemeMemory, 0, bytes, 0,
+                &frame.graphemes),
+            "vkMapMemory");
+    frame.graphemeCapacity = bytes;
+    updateGraphemeDescriptor(frame);
+}
+
 uint32_t
 VulkanPresenter::packColor(const Color& color) {
     return static_cast<uint32_t>(color.red) |
@@ -1124,6 +1184,14 @@ void VulkanPresenter::recordCommands(
         frame.commandBuffer, VK_PIPELINE_STAGE_HOST_BIT,
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
         0, nullptr, 1, &cellsForCompute, 0, nullptr);
+
+    VkBufferMemoryBarrier graphemesForCompute = cellsForCompute;
+    graphemesForCompute.buffer = frame.graphemeBuffer;
+    graphemesForCompute.size = frame.graphemeCapacity;
+    vkCmdPipelineBarrier(
+        frame.commandBuffer, VK_PIPELINE_STAGE_HOST_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
+        0, nullptr, 1, &graphemesForCompute, 0, nullptr);
 
     const auto& cursor = charVdev.getCursor();
     const auto& selection = charVdev.getSelection();
@@ -1230,7 +1298,8 @@ void VulkanPresenter::recordCommands(
             "vkEndCommandBuffer");
 }
 
-bool VulkanPresenter::present(const CharVdev& charVdev, bool delta) {
+bool VulkanPresenter::present(
+    const CharVdev& charVdev, const Frame& sourceFrame, bool delta) {
     const uint32_t width = charVdev.pixelWidth();
     const uint32_t height = charVdev.pixelHeight();
     if (charVdev.cellData() == nullptr ||
@@ -1266,10 +1335,32 @@ bool VulkanPresenter::present(const CharVdev& charVdev, bool delta) {
         failVk("vkAcquireNextImageKHR", result);
     }
 
+    std::vector<CharVdev::Cell> gpuCells(
+        charVdev.cellData(),
+        charVdev.cellData() + charVdev.cellCount());
+    std::vector<uint32_t> graphemeData = {0};
+    for (auto& cell : gpuCells) {
+        if (!cell.grapheme) {
+            continue;
+        }
+        const auto& grapheme = sourceFrame.getGrapheme(cell.grapheme);
+        if (grapheme.empty()) {
+            cell.grapheme = 0;
+            continue;
+        }
+        cell.grapheme = graphemeData.size();
+        graphemeData.push_back(grapheme.size());
+        graphemeData.insert(
+            graphemeData.end(), grapheme.begin(), grapheme.end());
+    }
+
     const size_t cellBytes =
-        charVdev.cellCount() * sizeof(CharVdev::Cell);
+        gpuCells.size() * sizeof(CharVdev::Cell);
     ensureCellBuffer(frame, cellBytes);
-    std::memcpy(frame.cells, charVdev.cellData(), cellBytes);
+    std::memcpy(frame.cells, gpuCells.data(), cellBytes);
+    const size_t graphemeBytes = graphemeData.size() * sizeof(uint32_t);
+    ensureGraphemeBuffer(frame, graphemeBytes);
+    std::memcpy(frame.graphemes, graphemeData.data(), graphemeBytes);
 
     checkVk(vkResetFences(device, 1, &frame.fence),
             "vkResetFences");

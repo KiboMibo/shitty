@@ -41,7 +41,7 @@ void Renderer::update(const Frame& frame) {
 
     charVdev.setCursor(frame.getCursor());
     charVdev.setSelection(frame.getSnappedSelection());
-    if (presenter.present(charVdev, delta)) {
+    if (presenter.present(charVdev, frame, delta)) {
         charVdev.clearDirty();
         delta = true;
     } else {

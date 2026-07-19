@@ -20,6 +20,7 @@
 #include <vector>
 
 struct GLFWwindow;
+class Frame;
 
 class VulkanPresenter {
 public:
@@ -29,7 +30,8 @@ public:
     VulkanPresenter(const VulkanPresenter&) = delete;
     VulkanPresenter& operator=(const VulkanPresenter&) = delete;
 
-    bool present(const CharVdev& charVdev, bool delta);
+    bool present(const CharVdev& charVdev, const Frame& sourceFrame,
+                 bool delta);
 
 private:
     struct ImageResource {
@@ -47,6 +49,10 @@ private:
         VkDeviceMemory cellMemory = VK_NULL_HANDLE;
         void* cells = nullptr;
         size_t cellCapacity = 0;
+        VkBuffer graphemeBuffer = VK_NULL_HANDLE;
+        VkDeviceMemory graphemeMemory = VK_NULL_HANDLE;
+        void* graphemes = nullptr;
+        size_t graphemeCapacity = 0;
         VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
         VkSemaphore imageAvailable = VK_NULL_HANDLE;
         VkFence fence = VK_NULL_HANDLE;
@@ -133,6 +139,7 @@ private:
     void destroySwapchain();
     void createOutputImage(uint32_t width, uint32_t height);
     void ensureCellBuffer(FrameResources& frame, size_t bytes);
+    void ensureGraphemeBuffer(FrameResources& frame, size_t bytes);
 
     ImageResource createImage(
         uint32_t width, uint32_t height, uint32_t layers,
@@ -149,6 +156,7 @@ private:
     void updateStaticDescriptors();
     void updateOutputDescriptors();
     void updateCellDescriptor(FrameResources& frame);
+    void updateGraphemeDescriptor(FrameResources& frame);
     void recordCommands(FrameResources& frame, uint32_t imageIndex,
                         const CharVdev& charVdev, bool delta);
 
