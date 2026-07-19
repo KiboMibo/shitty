@@ -12,7 +12,6 @@
 #include "charvdev.h"
 #include "fontpack.h"
 
-#include <SDL3/SDL.h>
 #include <vulkan/vulkan.h>
 
 #include <array>
@@ -20,9 +19,11 @@
 #include <cstdint>
 #include <vector>
 
+struct GLFWwindow;
+
 class VulkanPresenter {
 public:
-    VulkanPresenter(SDL_Window* window, Fontpack* fontpk);
+    VulkanPresenter(GLFWwindow* window, Fontpack* fontpk);
     ~VulkanPresenter();
 
     VulkanPresenter(const VulkanPresenter&) = delete;
@@ -81,7 +82,7 @@ private:
 
     static constexpr uint32_t framesInFlight = 2;
 
-    SDL_Window* window = nullptr;
+    GLFWwindow* window = nullptr;
     uint32_t glyphWidth = 0;
     uint32_t glyphHeight = 0;
     bool hasDoubleWidth = false;

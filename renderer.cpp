@@ -11,7 +11,7 @@
 
 #include <cassert>
 
-Renderer::Renderer(SDL_Window* window, Fontpack* fontpk)
+Renderer::Renderer(GLFWwindow* window, Fontpack* fontpk)
     : charVdev(fontpk)
     , presenter(window, fontpk)
 {

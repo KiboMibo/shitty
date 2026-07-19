@@ -1,6 +1,6 @@
 #!/bin/sh
 # Simple build script for zutty. Assumes all required headers and libraries
-# (freetype2, fontconfig, SDL3, vulkan) are reachable via the compiler's default search
+# (freetype2, fontconfig, GLFW, vulkan) are reachable via the compiler's default search
 # paths and/or CPPFLAGS/CXXFLAGS/LDFLAGS from the environment.
 set -eu
 
@@ -11,13 +11,12 @@ BUILDDIR="${BUILDDIR:-build}"
 VERSION=0.14
 
 # IX exports the whole development set through LDFLAGS, including SDL3 and
-# its Wayland dependencies. Keep SDL3 at the end of the static link so the
-# Wayland interface tables already provided by libwayland are not pulled from
-# SDL3 a second time.
+# GLFW. Drop the unused SDL3 library and keep GLFW at the end of the static
+# link after the application objects.
 LINK_FLAGS=
 for flag in ${LDFLAGS:-}; do
     case "$flag" in
-        -lSDL3) ;;
+        -lSDL3 | -lglfw3) ;;
         *) LINK_FLAGS="$LINK_FLAGS $flag" ;;
     esac
 done
@@ -38,6 +37,6 @@ python3 embed_spirv.py "$BUILDDIR/render.comp.spv" "$BUILDDIR/render_spv.h"
     charvdev.cpp font.cpp fontpack.cpp frame.cpp log.cpp main.cpp \
     options.cpp pty.cpp renderer.cpp vkpresenter.cpp vterm.cpp \
     -o "$BUILDDIR/zutty" \
-    ${LINK_FLAGS} ${CTRFLAGS} -lfreetype -lfontconfig -lSDL3 -lvulkan -lpthread
+    ${LINK_FLAGS} ${CTRFLAGS} -lfreetype -lfontconfig -lglfw3 -lvulkan -lpthread
 
 echo "Built $BUILDDIR/zutty"

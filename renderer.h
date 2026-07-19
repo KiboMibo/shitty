@@ -13,13 +13,11 @@
 #include "frame.h"
 #include "vkpresenter.h"
 
-#include <SDL3/SDL.h>
-
 #include <cstdint>
 
 class Renderer {
 public:
-    Renderer(SDL_Window* window, Fontpack* fontpk);
+    Renderer(GLFWwindow* window, Fontpack* fontpk);
     ~Renderer() = default;
 
     Renderer(const Renderer&) = delete;

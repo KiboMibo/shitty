@@ -5,11 +5,11 @@ pkgs.mkShell {
     fontconfig
     freetype
     glslang
+    glfw
     meson
     ninja
     pkg-config
     python3
-    sdl3
     vulkan-loader
   ];
 }

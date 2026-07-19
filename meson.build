@@ -15,7 +15,7 @@ glslang = find_program('glslangValidator', required: true)
 
 freetype_dep = dependency('freetype2', required: true)
 fontconfig_dep = dependency('fontconfig', required: true)
-sdl_dep = dependency('sdl3', version: '>=3.2.0', required: true)
+glfw_dep = dependency('glfw3', version: '>=3.4', required: true)
 vulkan_dep = dependency('vulkan', required: true)
 threads_dep = dependency('threads', required: true)
 
@@ -78,7 +78,7 @@ executable(
   dependencies: [
     freetype_dep,
     fontconfig_dep,
-    sdl_dep,
+    glfw_dep,
     vulkan_dep,
     threads_dep,
   ],

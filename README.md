@@ -3,7 +3,7 @@
 **Zero-cost Unicode Teletype — a high-end terminal for low-end systems.**
 
 Zutty is a compact C++ terminal emulator with a deliberately small platform
-surface: SDL3 handles the Wayland or X11 window, input and clipboard, while
+surface: GLFW handles the Wayland window, input and clipboard, while
 the image is presented with raw Vulkan.
 
 The terminal engine is the mature part of the project. It implements the
@@ -16,9 +16,8 @@ uploaded by the CPU.
 
 ## Design boundaries
 
-- Native Wayland with X11 fallback. If `WAYLAND_DISPLAY` is non-empty, Zutty
-  selects SDL's Wayland video driver; otherwise it selects SDL's X11 driver.
-- Vulkan only. SDL creates the surface, but does not render the terminal.
+- Native Wayland. GLFW creates the window and Vulkan surface, but does not
+  render the terminal.
 - UTF-8 only. Legacy host encodings are intentionally outside the scope.
 - Configuration is command-line only; there is no Xresources compatibility
   layer or configuration file parser.
@@ -38,7 +37,7 @@ uploaded by the CPU.
 - O(1) scrolling over a circular screen/scrollback store.
 - VT/xterm keyboard modes and xterm-style modifier encoding.
 - X10, VT200, UTF-8, SGR and urxvt mouse reporting.
-- Primary selection and clipboard integration on Wayland and X11.
+- Local select-to-paste and system clipboard integration on Wayland.
 - Scalable TTF, OTF and TTC fonts, plus PCF and compressed PCF bitmap fonts.
 - Dirty-cell Vulkan compute rendering over GPU-resident font atlases.
 - High-density windows and resize-aware Vulkan swapchain recreation.
@@ -52,14 +51,13 @@ Build-time requirements are:
 - Python 3 and `glslangValidator` for embedding the compute shader;
 - pkg-config;
 - FreeType 2;
-- SDL 3.2 or newer;
+- GLFW 3.4 or newer, built with Wayland support;
 - Vulkan headers and loader;
 - POSIX threads.
 
-At runtime Zutty needs either a Wayland session or an X server, an SDL3 build
-with the corresponding video backend, and a Vulkan driver capable of
-presenting to that window system. In practice that means a working Vulkan ICD
-in addition to the loader.
+At runtime Zutty needs a Wayland session, a GLFW build with its Wayland backend
+and a Vulkan driver capable of presenting to Wayland. In practice that means a
+working Vulkan ICD in addition to the loader.
 
 ## Build
 
@@ -218,7 +216,7 @@ reports, VT52 mode, insert/delete operations, soft and hard reset, ISO 6429
 colour and xterm alternate-screen, title and mouse extensions.
 
 This is compatibility context, not a claim of a current automated conformance
-suite: the old screenshot harness was removed during the port and an SDL3
+suite: the old screenshot harness was removed during the port and a frontend
 regression suite has not replaced it yet.
 
 Known limits include:
@@ -248,7 +246,7 @@ supported through `-dwfont`.
       ↓ compute shader (`render.comp`)
  persistent RGBA8 storage image
       ↓ image blit
- WSI swapchain        SDL3 supplies the Wayland/X11 platform integration
+ WSI swapchain        GLFW supplies the Wayland platform integration
 ```
 
 `Frame` keeps the visible screen and history in circular storage, so a scroll
@@ -275,7 +273,7 @@ Source map:
 - `renderer.*` — terminal-to-presenter bridge;
 - `vkpresenter.*` — Vulkan resources, compute dispatch and swapchain;
 - `render.comp` — cell compositor compiled to embedded SPIR-V by Meson;
-- `main.cpp` — SDL Wayland/X11 event loop, PTY integration and clipboard;
+- `main.cpp` — GLFW Wayland event loop, PTY integration and clipboard;
 - `options.*` — command-line configuration.
 
 ## Development notes
@@ -296,8 +294,7 @@ sequence cases, especially across resize, alternate screen and scrollback.
 
 Zutty was created by Tom Szilagyi as a lightweight X11/OpenGL terminal. This
 tree retains its terminal engine and low-overhead cell model while replacing
-the old frontend with SDL3 and Vulkan, using Wayland natively and X11 as a
-fallback.
+the old frontend with GLFW and Vulkan on Wayland.
 
 Copyright © 2020 Tom Szilagyi and subsequent Zutty contributors. Zutty is free
 software under the GNU General Public License, version 3 or later. See

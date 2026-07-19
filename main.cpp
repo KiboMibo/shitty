@@ -17,16 +17,17 @@
 #include "utf8.h"
 #include "vterm.h"
 
-#include <SDL3/SDL.h>
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
 
 #include <algorithm>
-#include <atomic>
 #include <cassert>
 #include <cctype>
 #include <cerrno>
 #include <cmath>
 #include <condition_variable>
 #include <cstring>
+#include <exception>
 #include <fcntl.h>
 #include <langinfo.h>
 #include <limits.h>
@@ -48,14 +49,15 @@
 static std::unique_ptr<Fontpack> fontpk;
 static std::unique_ptr<Renderer> renderer;
 static std::unique_ptr<Vterm> vt;
-static SDL_Window* window = nullptr;
+static GLFWwindow* window = nullptr;
+static GLFWcursor* cursor = nullptr;
+static bool glfwInitialized = false;
 
 namespace {
     class PtyEventSource {
     public:
-        PtyEventSource(int ptyFd_, Uint32 eventType_)
+        explicit PtyEventSource(int ptyFd_)
             : ptyFd(ptyFd_)
-            , eventType(eventType_)
         {
             if (pipe(wakePipe) < 0) {
                 throw std::runtime_error(
@@ -96,9 +98,13 @@ namespace {
             condition.notify_one();
         }
 
+        bool isPending() {
+            std::lock_guard<std::mutex> lock(mutex);
+            return pending;
+        }
+
     private:
         int ptyFd;
-        Uint32 eventType;
         int wakePipe[2]{-1, -1};
         std::thread worker;
         std::mutex mutex;
@@ -135,13 +141,7 @@ namespace {
                     pending = true;
                 }
 
-                SDL_Event event{};
-                event.type = eventType;
-                if (!SDL_PushEvent(&event)) {
-                    std::lock_guard<std::mutex> lock(mutex);
-                    pending = false;
-                    continue;
-                }
+                glfwPostEmptyEvent();
 
                 std::unique_lock<std::mutex> lock(mutex);
                 condition.wait(lock, [this] {
@@ -156,7 +156,23 @@ namespace {
 
     struct MouseContext {
         bool selectionOngoing = false;
+        unsigned buttonState = 0;
+        int lastButton = -1;
+        int clickCount = 0;
+        double lastClickTime = 0.0;
+        double lastClickX = 0.0;
+        double lastClickY = 0.0;
     } mouseContext;
+
+    struct WindowContext {
+        int framebufferWidth = 0;
+        int framebufferHeight = 0;
+        bool resizePending = false;
+        bool redrawPending = false;
+    } windowContext;
+
+    std::string primarySelection;
+    std::exception_ptr callbackError;
 
     enum class MouseEventType {
         Press,
@@ -286,202 +302,215 @@ namespace {
         return ptyFd;
     }
 
-    VtModifier convertModifiers(SDL_Keymod modifiers) {
+    bool keyPressed(int key) {
+        return glfwGetKey(window, key) == GLFW_PRESS;
+    }
+
+    int keyboardModifiers() {
+        int modifiers = 0;
+        if (keyPressed(GLFW_KEY_LEFT_SHIFT) ||
+            keyPressed(GLFW_KEY_RIGHT_SHIFT)) {
+            modifiers |= GLFW_MOD_SHIFT;
+        }
+        if (keyPressed(GLFW_KEY_LEFT_CONTROL) ||
+            keyPressed(GLFW_KEY_RIGHT_CONTROL)) {
+            modifiers |= GLFW_MOD_CONTROL;
+        }
+        if (keyPressed(GLFW_KEY_LEFT_ALT)) {
+            modifiers |= GLFW_MOD_ALT;
+        }
+        return modifiers;
+    }
+
+    VtModifier convertModifiers(int modifiers) {
         VtModifier result = VtModifier::none;
-        if (modifiers & SDL_KMOD_SHIFT) {
+        if (modifiers & GLFW_MOD_SHIFT) {
             result = result | VtModifier::shift;
         }
-        if (modifiers & SDL_KMOD_CTRL) {
+        if (modifiers & GLFW_MOD_CONTROL) {
             result = result | VtModifier::control;
         }
-        if ((modifiers & SDL_KMOD_ALT) && !(modifiers & SDL_KMOD_MODE)) {
+        if ((modifiers & GLFW_MOD_ALT) &&
+            !keyPressed(GLFW_KEY_RIGHT_ALT)) {
             result = result | VtModifier::alt;
         }
         return result;
     }
 
-    SDL_Keymod significantModifiers(SDL_Keymod modifiers) {
-        return static_cast<SDL_Keymod>(
-            modifiers & (SDL_KMOD_SHIFT | SDL_KMOD_CTRL | SDL_KMOD_ALT |
-                         SDL_KMOD_MODE));
+    int significantModifiers(int modifiers) {
+        return modifiers & (GLFW_MOD_SHIFT | GLFW_MOD_CONTROL | GLFW_MOD_ALT);
     }
 
     bool pasteSelection(bool primary) {
-        char* text = primary ? SDL_GetPrimarySelectionText()
-                             : SDL_GetClipboardText();
-        if (text == nullptr)
-                         {
+        const char* text = nullptr;
+        if (primary) {
+            text = primarySelection.c_str();
+        } else {
+            text = glfwGetClipboardString(window);
+        }
+        if (text == nullptr) {
             return false;
         }
         vt->pasteSelection(text);
-        SDL_free(text);
         return true;
     }
 
     bool copyPrimaryToClipboard() {
-        char* text = SDL_GetPrimarySelectionText();
-        if (text == nullptr) {
+        if (primarySelection.empty()) {
             return false;
         }
-        const bool result = SDL_SetClipboardText(text);
-        SDL_free(text);
-        return result;
+        glfwSetClipboardString(window, primarySelection.c_str());
+        return true;
     }
 
-    VtKey keypadKey(SDL_Scancode scancode, bool numLock) {
+    VtKey keypadKey(int key, bool numLock) {
         using Key = VtKey;
         if (!numLock) {
-            switch (scancode) {
-                case SDL_SCANCODE_KP_0:
+            switch (key) {
+                case GLFW_KEY_KP_0:
                     return Key::KP_Insert;
-                case SDL_SCANCODE_KP_1:
+                case GLFW_KEY_KP_1:
                     return Key::KP_End;
-                case SDL_SCANCODE_KP_2:
+                case GLFW_KEY_KP_2:
                     return Key::KP_Down;
-                case SDL_SCANCODE_KP_3:
+                case GLFW_KEY_KP_3:
                     return Key::KP_PageDown;
-                case SDL_SCANCODE_KP_4:
+                case GLFW_KEY_KP_4:
                     return Key::KP_Left;
-                case SDL_SCANCODE_KP_5:
+                case GLFW_KEY_KP_5:
                     return Key::KP_Begin;
-                case SDL_SCANCODE_KP_6:
+                case GLFW_KEY_KP_6:
                     return Key::KP_Right;
-                case SDL_SCANCODE_KP_7:
+                case GLFW_KEY_KP_7:
                     return Key::KP_Home;
-                case SDL_SCANCODE_KP_8:
+                case GLFW_KEY_KP_8:
                     return Key::KP_Up;
-                case SDL_SCANCODE_KP_9:
+                case GLFW_KEY_KP_9:
                     return Key::KP_PageUp;
-                case SDL_SCANCODE_KP_PERIOD:
+                case GLFW_KEY_KP_DECIMAL:
                     return Key::KP_Delete;
                 default:
                     break;
             }
         }
 
-        switch (scancode) {
-            case SDL_SCANCODE_KP_0:
+        switch (key) {
+            case GLFW_KEY_KP_0:
                 return Key::KP_0;
-            case SDL_SCANCODE_KP_1:
+            case GLFW_KEY_KP_1:
                 return Key::KP_1;
-            case SDL_SCANCODE_KP_2:
+            case GLFW_KEY_KP_2:
                 return Key::KP_2;
-            case SDL_SCANCODE_KP_3:
+            case GLFW_KEY_KP_3:
                 return Key::KP_3;
-            case SDL_SCANCODE_KP_4:
+            case GLFW_KEY_KP_4:
                 return Key::KP_4;
-            case SDL_SCANCODE_KP_5:
+            case GLFW_KEY_KP_5:
                 return Key::KP_5;
-            case SDL_SCANCODE_KP_6:
+            case GLFW_KEY_KP_6:
                 return Key::KP_6;
-            case SDL_SCANCODE_KP_7:
+            case GLFW_KEY_KP_7:
                 return Key::KP_7;
-            case SDL_SCANCODE_KP_8:
+            case GLFW_KEY_KP_8:
                 return Key::KP_8;
-            case SDL_SCANCODE_KP_9:
+            case GLFW_KEY_KP_9:
                 return Key::KP_9;
-            case SDL_SCANCODE_KP_PERIOD:
+            case GLFW_KEY_KP_DECIMAL:
                 return Key::KP_Dot;
-            case SDL_SCANCODE_KP_DIVIDE:
+            case GLFW_KEY_KP_DIVIDE:
                 return Key::KP_Slash;
-            case SDL_SCANCODE_KP_MULTIPLY:
+            case GLFW_KEY_KP_MULTIPLY:
                 return Key::KP_Star;
-            case SDL_SCANCODE_KP_MINUS:
+            case GLFW_KEY_KP_SUBTRACT:
                 return Key::KP_Minus;
-            case SDL_SCANCODE_KP_PLUS:
+            case GLFW_KEY_KP_ADD:
                 return Key::KP_Plus;
-            case SDL_SCANCODE_KP_ENTER:
+            case GLFW_KEY_KP_ENTER:
                 return Key::KP_Enter;
-            case SDL_SCANCODE_KP_EQUALS:
+            case GLFW_KEY_KP_EQUAL:
                 return Key::KP_Equal;
-            case SDL_SCANCODE_KP_COMMA:
-                return Key::KP_Comma;
-            case SDL_SCANCODE_KP_SPACE:
-                return Key::KP_Space;
-            case SDL_SCANCODE_KP_TAB:
-                return Key::KP_Tab;
             default:
                 return Key::NONE;
         }
     }
 
-    VtKey specialKey(const SDL_KeyboardEvent& event) {
+    VtKey specialKey(int key, int modifiers) {
         using Key = VtKey;
         const Key keypad = keypadKey(
-            event.scancode, (event.mod & SDL_KMOD_NUM) != 0);
+            key, (modifiers & GLFW_MOD_NUM_LOCK) != 0);
         if (keypad != Key::NONE) {
             return keypad;
         }
 
-        switch (event.key) {
-            case SDLK_RETURN:
+        switch (key) {
+            case GLFW_KEY_ENTER:
                 return Key::Return;
-            case SDLK_BACKSPACE:
+            case GLFW_KEY_BACKSPACE:
                 return Key::Backspace;
-            case SDLK_TAB:
+            case GLFW_KEY_TAB:
                 return Key::Tab;
-            case SDLK_INSERT:
+            case GLFW_KEY_INSERT:
                 return Key::Insert;
-            case SDLK_DELETE:
+            case GLFW_KEY_DELETE:
                 return Key::Delete;
-            case SDLK_HOME:
+            case GLFW_KEY_HOME:
                 return Key::Home;
-            case SDLK_END:
+            case GLFW_KEY_END:
                 return Key::End;
-            case SDLK_UP:
+            case GLFW_KEY_UP:
                 return Key::Up;
-            case SDLK_DOWN:
+            case GLFW_KEY_DOWN:
                 return Key::Down;
-            case SDLK_LEFT:
+            case GLFW_KEY_LEFT:
                 return Key::Left;
-            case SDLK_RIGHT:
+            case GLFW_KEY_RIGHT:
                 return Key::Right;
-            case SDLK_PAGEUP:
+            case GLFW_KEY_PAGE_UP:
                 return Key::PageUp;
-            case SDLK_PAGEDOWN:
+            case GLFW_KEY_PAGE_DOWN:
                 return Key::PageDown;
-            case SDLK_F1:
+            case GLFW_KEY_F1:
                 return Key::F1;
-            case SDLK_F2:
+            case GLFW_KEY_F2:
                 return Key::F2;
-            case SDLK_F3:
+            case GLFW_KEY_F3:
                 return Key::F3;
-            case SDLK_F4:
+            case GLFW_KEY_F4:
                 return Key::F4;
-            case SDLK_F5:
+            case GLFW_KEY_F5:
                 return Key::F5;
-            case SDLK_F6:
+            case GLFW_KEY_F6:
                 return Key::F6;
-            case SDLK_F7:
+            case GLFW_KEY_F7:
                 return Key::F7;
-            case SDLK_F8:
+            case GLFW_KEY_F8:
                 return Key::F8;
-            case SDLK_F9:
+            case GLFW_KEY_F9:
                 return Key::F9;
-            case SDLK_F10:
+            case GLFW_KEY_F10:
                 return Key::F10;
-            case SDLK_F11:
+            case GLFW_KEY_F11:
                 return Key::F11;
-            case SDLK_F12:
+            case GLFW_KEY_F12:
                 return Key::F12;
-            case SDLK_F13:
+            case GLFW_KEY_F13:
                 return Key::F13;
-            case SDLK_F14:
+            case GLFW_KEY_F14:
                 return Key::F14;
-            case SDLK_F15:
+            case GLFW_KEY_F15:
                 return Key::F15;
-            case SDLK_F16:
+            case GLFW_KEY_F16:
                 return Key::F16;
-            case SDLK_F17:
+            case GLFW_KEY_F17:
                 return Key::F17;
-            case SDLK_F18:
+            case GLFW_KEY_F18:
                 return Key::F18;
-            case SDLK_F19:
+            case GLFW_KEY_F19:
                 return Key::F19;
-            case SDLK_F20:
+            case GLFW_KEY_F20:
                 return Key::F20;
 #ifdef DEBUG
-            case SDLK_PRINTSCREEN:
+            case GLFW_KEY_PRINT_SCREEN:
                 return Key::Print;
 #endif
             default:
@@ -489,57 +518,46 @@ namespace {
         }
     }
 
-    bool controlCharacter(SDL_Keycode key, uint8_t& character) {
-        if (key >= SDLK_A && key <= SDLK_Z) {
-            character = static_cast<uint8_t>(key - SDLK_A + 1);
+    bool controlCharacter(int key, int modifiers, uint8_t& character) {
+        if (key >= GLFW_KEY_A && key <= GLFW_KEY_Z) {
+            character = static_cast<uint8_t>(key - GLFW_KEY_A + 1);
             return true;
         }
         switch (key) {
-            case SDLK_SPACE:
-            case SDLK_AT:
+            case GLFW_KEY_SPACE:
+            case GLFW_KEY_2:
                 character = 0;
                 return true;
-            case SDLK_2:
-                character = 0;
-                return true;
-            case SDLK_3:
+            case GLFW_KEY_3:
+            case GLFW_KEY_LEFT_BRACKET:
                 character = 27;
                 return true;
-            case SDLK_4:
+            case GLFW_KEY_4:
+            case GLFW_KEY_BACKSLASH:
                 character = 28;
                 return true;
-            case SDLK_5:
+            case GLFW_KEY_5:
+            case GLFW_KEY_RIGHT_BRACKET:
                 character = 29;
                 return true;
-            case SDLK_6:
+            case GLFW_KEY_6:
                 character = 30;
                 return true;
-            case SDLK_7:
+            case GLFW_KEY_7:
                 character = 31;
                 return true;
-            case SDLK_8:
+            case GLFW_KEY_8:
                 character = 127;
                 return true;
-            case SDLK_LEFTBRACKET:
-                character = 27;
-                return true;
-            case SDLK_BACKSLASH:
-                character = 28;
-                return true;
-            case SDLK_RIGHTBRACKET:
-                character = 29;
-                return true;
-            case SDLK_CARET:
-                character = 30;
-                return true;
-            case SDLK_UNDERSCORE:
+            case GLFW_KEY_MINUS:
+                if (!(modifiers & GLFW_MOD_SHIFT)) {
+                    character = static_cast<uint8_t>(key);
+                    return true;
+                }
                 character = 31;
                 return true;
-            case SDLK_SLASH:
-                character = 31;
-                return true;
-            case SDLK_QUESTION:
-                character = 127;
+            case GLFW_KEY_SLASH:
+                character = modifiers & GLFW_MOD_SHIFT ? 127 : 31;
                 return true;
             default:
                 if (key > 0 && key < 128) {
@@ -550,90 +568,115 @@ namespace {
         }
     }
 
-    void onKeyDown(const SDL_KeyboardEvent& event) {
-        const SDL_Keymod rawModifiers = significantModifiers(event.mod);
+    void onKeyDown(int key, int rawModifiers) {
+        const int keyModifiers = rawModifiers;
+        rawModifiers = significantModifiers(rawModifiers);
         const VtModifier modifiers = convertModifiers(rawModifiers);
 
-        if (event.key == SDLK_PAGEUP && modifiers == VtModifier::shift) {
+        if (key == GLFW_KEY_PAGE_UP && modifiers == VtModifier::shift) {
             vt->pageUp();
             return;
         }
-        if (event.key == SDLK_PAGEDOWN && modifiers == VtModifier::shift) {
+        if (key == GLFW_KEY_PAGE_DOWN && modifiers == VtModifier::shift) {
             vt->pageDown();
             return;
         }
-        if (event.key == SDLK_C && modifiers == VtModifier::shift_control) {
+        if (key == GLFW_KEY_C && modifiers == VtModifier::shift_control) {
             copyPrimaryToClipboard();
             return;
         }
-        if (event.key == SDLK_V && modifiers == VtModifier::shift_control) {
+        if (key == GLFW_KEY_V && modifiers == VtModifier::shift_control) {
             pasteSelection(false);
             return;
         }
-        if ((event.key == SDLK_INSERT ||
-             event.scancode == SDL_SCANCODE_KP_0) &&
+        if ((key == GLFW_KEY_INSERT || key == GLFW_KEY_KP_0) &&
             modifiers == VtModifier::shift) {
             pasteSelection(true);
             return;
         }
-        if (event.key == SDLK_SPACE && mouseContext.selectionOngoing) {
+        if (key == GLFW_KEY_SPACE && mouseContext.selectionOngoing) {
             vt->selectRectangularModeToggle();
             return;
         }
 
-        if (event.key == SDLK_ESCAPE) {
+        if (key == GLFW_KEY_ESCAPE) {
             vt->writePty(static_cast<uint8_t>('\x1b'), modifiers, true);
             return;
         }
 
-        const VtKey key = specialKey(event);
-        if (key != VtKey::NONE) {
-            vt->writePty(key, modifiers, true);
+        const VtKey special = specialKey(key, keyModifiers);
+        if (special != VtKey::NONE) {
+            vt->writePty(special, modifiers, true);
             return;
         }
 
-        if (rawModifiers & SDL_KMOD_CTRL) {
+        if (rawModifiers & GLFW_MOD_CONTROL) {
             uint8_t character = 0;
-            if (controlCharacter(event.key, character)) {
+            if (controlCharacter(key, rawModifiers, character)) {
                 vt->writePty(character, modifiers, true);
             }
         }
     }
 
-    void onTextInput(const char* text) {
-        if (text == nullptr || text[0] == '\0') {
+    void onTextInput(uint32_t codepoint) {
+        if (codepoint == 0) {
             return;
         }
-        const SDL_Keymod rawModifiers = significantModifiers(SDL_GetModState());
+        const int rawModifiers = keyboardModifiers();
         const VtModifier modifiers = convertModifiers(rawModifiers);
-        const size_t length = std::strlen(text);
 
-        if (length == 1 && static_cast<uint8_t>(text[0]) < 0x80) {
-            vt->writePty(static_cast<uint8_t>(text[0]), modifiers, true);
+        if (codepoint < 0x80) {
+            vt->writePty(static_cast<uint8_t>(codepoint), modifiers, true);
             return;
         }
 
-        if ((rawModifiers & SDL_KMOD_ALT) && !(rawModifiers & SDL_KMOD_MODE) &&
-            opts.altSendsEscape) {
+        std::string text;
+        Utf8Encoder::pushUnicode(
+            codepoint, [&text](uint8_t byte) {
+            text.push_back(static_cast<char>(byte));
+        });
+        if ((rawModifiers & GLFW_MOD_ALT) && opts.altSendsEscape) {
             vt->writePty("\x1b", true);
         }
-        vt->writePty(text, true);
+        vt->writePty(text.c_str(), true);
     }
 
-    int toPixelX(float x) {
-        return static_cast<int>(std::lround(
-            x * std::max(1.0f, SDL_GetWindowPixelDensity(window))));
+    double pixelScaleX() {
+        int windowWidth = 0;
+        int framebufferWidth = 0;
+        glfwGetWindowSize(window, &windowWidth, nullptr);
+        glfwGetFramebufferSize(window, &framebufferWidth, nullptr);
+        if (windowWidth <= 0) {
+            return 1.0;
+        }
+        return std::max(
+            1.0, static_cast<double>(framebufferWidth) / windowWidth);
     }
 
-    int toPixelY(float y) {
-        return static_cast<int>(std::lround(
-            y * std::max(1.0f, SDL_GetWindowPixelDensity(window))));
+    double pixelScaleY() {
+        int windowHeight = 0;
+        int framebufferHeight = 0;
+        glfwGetWindowSize(window, nullptr, &windowHeight);
+        glfwGetFramebufferSize(window, nullptr, &framebufferHeight);
+        if (windowHeight <= 0) {
+            return 1.0;
+        }
+        return std::max(
+            1.0, static_cast<double>(framebufferHeight) / windowHeight);
     }
 
-    bool isMouseProtocol(SDL_Keymod modifiers,
+    int toPixelX(double x) {
+        return static_cast<int>(std::lround(x * pixelScaleX()));
+    }
+
+    int toPixelY(double y) {
+        return static_cast<int>(std::lround(y * pixelScaleY()));
+    }
+
+    bool isMouseProtocol(int modifiers,
                          const MouseTrackingState& tracking) {
         return !mouseContext.selectionOngoing &&
-               !(modifiers & SDL_KMOD_SHIFT) &&
+               !(modifiers & GLFW_MOD_SHIFT) &&
                tracking.mode != MouseTrackingMode::Disabled;
     }
 
@@ -648,16 +691,15 @@ namespace {
     }
 
     void mouseProtocolSend(MouseTrackingEnc encoding, MouseEventType type,
-                           SDL_Keymod modifiers,
-                           SDL_MouseButtonFlags buttonState,
+                           int modifiers, unsigned buttonState,
                            int button, int column, int row) {
         int code = 0;
         if (type == MouseEventType::Motion) {
-            if (buttonState & SDL_BUTTON_LMASK) {
+            if (buttonState & (1u << GLFW_MOUSE_BUTTON_LEFT)) {
                 code = 32;
-            } else if (buttonState & SDL_BUTTON_MMASK) {
+            } else if (buttonState & (1u << GLFW_MOUSE_BUTTON_MIDDLE)) {
                 code = 33;
-            } else if (buttonState & SDL_BUTTON_RMASK) {
+            } else if (buttonState & (1u << GLFW_MOUSE_BUTTON_RIGHT)) {
                 code = 34;
             } else {
                 code = 35;
@@ -699,13 +741,14 @@ namespace {
             }
         }
 
-        if (modifiers & SDL_KMOD_SHIFT) {
+        if (modifiers & GLFW_MOD_SHIFT) {
             code += 4;
         }
-        if ((modifiers & SDL_KMOD_ALT) && !(modifiers & SDL_KMOD_MODE)) {
+        if ((modifiers & GLFW_MOD_ALT) &&
+            !keyPressed(GLFW_KEY_RIGHT_ALT)) {
             code += 8;
         }
-        if (modifiers & SDL_KMOD_CTRL) {
+        if (modifiers & GLFW_MOD_CONTROL) {
             code += 16;
         }
 
@@ -744,8 +787,7 @@ namespace {
 
     void sendMouseButtonProtocol(MouseEventType type, int button,
                                  int pixelX, int pixelY,
-                                 SDL_Keymod modifiers,
-                                 SDL_MouseButtonFlags buttonState,
+                                 int modifiers, unsigned buttonState,
                                  const MouseTrackingState& tracking) {
         if (button > 11 ||
             (type == MouseEventType::Release && button > 3)) {
@@ -760,89 +802,104 @@ namespace {
         uint16_t column = 0;
         uint16_t row = 0;
         mouseProtocolCoordinates(pixelX, pixelY, column, row);
+        const int protocolModifiers =
+            tracking.mode == MouseTrackingMode::X10_Compat ? 0 : modifiers;
         mouseProtocolSend(
-            tracking.enc, type,
-            tracking.mode == MouseTrackingMode::X10_Compat
-                ? static_cast<SDL_Keymod>(0)
-                : modifiers,
+            tracking.enc, type, protocolModifiers,
             buttonState, button, column, row);
     }
 
-    int terminalButton(Uint8 sdlButton) {
-        switch (sdlButton) {
-            case SDL_BUTTON_LEFT:
+    int terminalButton(int button) {
+        switch (button) {
+            case GLFW_MOUSE_BUTTON_LEFT:
                 return 1;
-            case SDL_BUTTON_MIDDLE:
+            case GLFW_MOUSE_BUTTON_MIDDLE:
                 return 2;
-            case SDL_BUTTON_RIGHT:
+            case GLFW_MOUSE_BUTTON_RIGHT:
                 return 3;
-            case SDL_BUTTON_X1:
-                return 8;
-            case SDL_BUTTON_X2:
-                return 9;
             default:
-                return 0;
+                if (button < GLFW_MOUSE_BUTTON_4) {
+                    return 0;
+                }
+                return button - GLFW_MOUSE_BUTTON_4 + 8;
         }
     }
 
-    void onMouseButton(const SDL_MouseButtonEvent& event, bool pressed,
-                       bool& releasePtyHold) {
-        const int pixelX = toPixelX(event.x);
-        const int pixelY = toPixelY(event.y);
-        const SDL_Keymod modifiers = SDL_GetModState();
-        const SDL_MouseButtonFlags buttons = SDL_GetMouseState(nullptr, nullptr);
+    bool isMultipleClick(int button, double x, double y) {
+        const double now = glfwGetTime();
+        const bool repeated = button == mouseContext.lastButton &&
+                              now - mouseContext.lastClickTime <= 0.5 &&
+                              std::abs(x - mouseContext.lastClickX) <= 4.0 &&
+                              std::abs(y - mouseContext.lastClickY) <= 4.0;
+        mouseContext.clickCount = repeated ? mouseContext.clickCount + 1 : 1;
+        mouseContext.lastButton = button;
+        mouseContext.lastClickTime = now;
+        mouseContext.lastClickX = x;
+        mouseContext.lastClickY = y;
+        return mouseContext.clickCount > 1;
+    }
+
+    void onMouseButton(int button, bool pressed, int modifiers) {
+        double x = 0.0;
+        double y = 0.0;
+        glfwGetCursorPos(window, &x, &y);
+        const int pixelX = toPixelX(x);
+        const int pixelY = toPixelY(y);
+        const unsigned buttonMask = 1u << button;
+        if (pressed) {
+            mouseContext.buttonState |= buttonMask;
+        } else {
+            mouseContext.buttonState &= ~buttonMask;
+        }
         const auto& tracking = vt->getMouseTrackingState();
-        const int protocolButton = terminalButton(event.button);
+        const int protocolButton = terminalButton(button);
 
         if (isMouseProtocol(modifiers, tracking)) {
             sendMouseButtonProtocol(
                 pressed ? MouseEventType::Press : MouseEventType::Release,
-                protocolButton, pixelX, pixelY, modifiers, buttons, tracking);
+                protocolButton, pixelX, pixelY, modifiers,
+                mouseContext.buttonState, tracking);
             return;
         }
 
         if (pressed) {
-            const bool cycleSnapTo = event.clicks > 1;
-            if (event.button == SDL_BUTTON_LEFT) {
+            const bool cycleSnapTo = isMultipleClick(button, x, y);
+            if (button == GLFW_MOUSE_BUTTON_LEFT) {
                 vt->selectStart(pixelX, pixelY, cycleSnapTo);
                 mouseContext.selectionOngoing = true;
-            } else if (event.button == SDL_BUTTON_RIGHT) {
+            } else if (button == GLFW_MOUSE_BUTTON_RIGHT) {
                 vt->selectExtend(pixelX, pixelY, cycleSnapTo);
                 mouseContext.selectionOngoing = true;
             }
             return;
         }
 
-        if (event.button == SDL_BUTTON_LEFT ||
-            event.button == SDL_BUTTON_RIGHT) {
+        if (button == GLFW_MOUSE_BUTTON_LEFT ||
+            button == GLFW_MOUSE_BUTTON_RIGHT) {
             std::string selection;
             mouseContext.selectionOngoing = false;
-            releasePtyHold = true;
             if (vt->selectFinish(selection)) {
-                if (!SDL_SetPrimarySelectionText(selection.c_str())) {
-                    logW << "Could not set primary selection: "
-                         << SDL_GetError() << std::endl;
-                }
-                if (opts.autoCopyMode &&
-                    !SDL_SetClipboardText(selection.c_str())) {
-                    logW << "Could not set clipboard: "
-                         << SDL_GetError() << std::endl;
+                primarySelection = selection;
+                if (opts.autoCopyMode) {
+                    glfwSetClipboardString(window, selection.c_str());
                 }
             }
-        } else if (event.button == SDL_BUTTON_MIDDLE) {
+        } else if (button == GLFW_MOUSE_BUTTON_MIDDLE) {
             pasteSelection(true);
         }
     }
 
-    void onMouseMotion(const SDL_MouseMotionEvent& event) {
-        const int pixelX = toPixelX(event.x);
-        const int pixelY = toPixelY(event.y);
-        const SDL_Keymod modifiers = SDL_GetModState();
+    void onMouseMotion(double x, double y) {
+        const int pixelX = toPixelX(x);
+        const int pixelY = toPixelY(y);
+        const int modifiers = keyboardModifiers();
         const auto& tracking = vt->getMouseTrackingState();
         if (isMouseProtocol(modifiers, tracking)) {
             if (tracking.mode == MouseTrackingMode::VT200_ButtonEvent &&
-                !(event.state & (SDL_BUTTON_LMASK | SDL_BUTTON_MMASK |
-                                 SDL_BUTTON_RMASK))) {
+                !(mouseContext.buttonState &
+                  ((1u << GLFW_MOUSE_BUTTON_LEFT) |
+                   (1u << GLFW_MOUSE_BUTTON_MIDDLE) |
+                   (1u << GLFW_MOUSE_BUTTON_RIGHT)))) {
                 return;
             }
             if (tracking.mode != MouseTrackingMode::VT200_ButtonEvent &&
@@ -857,47 +914,44 @@ namespace {
             mouseProtocolCoordinates(pixelX, pixelY, column, row);
             if (column != lastColumn || row != lastRow) {
                 mouseProtocolSend(tracking.enc, MouseEventType::Motion,
-                                  modifiers, event.state, 0, column, row);
+                                  modifiers, mouseContext.buttonState,
+                                  0, column, row);
                 lastColumn = column;
                 lastRow = row;
             }
-        } else if (event.state & (SDL_BUTTON_LMASK | SDL_BUTTON_RMASK)) {
+        } else if (mouseContext.buttonState &
+                   ((1u << GLFW_MOUSE_BUTTON_LEFT) |
+                    (1u << GLFW_MOUSE_BUTTON_RIGHT))) {
             vt->selectUpdate(pixelX, pixelY);
         }
     }
 
-    void onMouseWheel(const SDL_MouseWheelEvent& event) {
-        float wheelX = event.x;
-        float wheelY = event.y;
-        if (event.direction == SDL_MOUSEWHEEL_FLIPPED) {
-            wheelX = -wheelX;
-            wheelY = -wheelY;
-        }
-
-        const SDL_Keymod modifiers = SDL_GetModState();
+    void onMouseWheel(double wheelX, double wheelY) {
+        const int modifiers = keyboardModifiers();
         const auto& tracking = vt->getMouseTrackingState();
         if (isMouseProtocol(modifiers, tracking)) {
-            const int pixelX = toPixelX(event.mouse_x);
-            const int pixelY = toPixelY(event.mouse_y);
-            const SDL_MouseButtonFlags buttons =
-                SDL_GetMouseState(nullptr, nullptr);
+            double x = 0.0;
+            double y = 0.0;
+            glfwGetCursorPos(window, &x, &y);
+            const int pixelX = toPixelX(x);
+            const int pixelY = toPixelY(y);
             if (wheelY > 0) {
                 sendMouseButtonProtocol(MouseEventType::Press, 4,
                                         pixelX, pixelY, modifiers,
-                                        buttons, tracking);
+                                        mouseContext.buttonState, tracking);
             } else if (wheelY < 0) {
                 sendMouseButtonProtocol(MouseEventType::Press, 5,
                                         pixelX, pixelY, modifiers,
-                                        buttons, tracking);
+                                        mouseContext.buttonState, tracking);
             }
             if (wheelX < 0) {
                 sendMouseButtonProtocol(MouseEventType::Press, 6,
                                         pixelX, pixelY, modifiers,
-                                        buttons, tracking);
+                                        mouseContext.buttonState, tracking);
             } else if (wheelX > 0) {
                 sendMouseButtonProtocol(MouseEventType::Press, 7,
                                         pixelX, pixelY, modifiers,
-                                        buttons, tracking);
+                                        mouseContext.buttonState, tracking);
             }
         } else if (wheelY > 0) {
             vt->mouseWheelUp();
@@ -907,14 +961,14 @@ namespace {
     }
 
     std::string getSelectionForOsc(bool primary) {
-        char* text = primary ? SDL_GetPrimarySelectionText()
-                             : SDL_GetClipboardText();
+        if (primary) {
+            return primarySelection;
+        }
+        const char* text = glfwGetClipboardString(window);
         if (text == nullptr) {
             return {};
         }
-        std::string result(text);
-        SDL_free(text);
-        return result;
+        return text;
     }
 
     std::string oscCwdToPath(const std::string& argument) {
@@ -958,14 +1012,14 @@ namespace {
             case 2:
 
                 appTitleSet = argument != opts.title;
-                SDL_SetWindowTitle(window, argument.c_str());
+                glfwSetWindowTitle(window, argument.c_str());
                 return;
             case 7: {
                 const std::string cwd = oscCwdToPath(argument);
                 if (cwd.empty()) {
                     logW << "OSC 7: cannot parse '" << argument << "'" << std::endl;
                 } else if (!appTitleSet) {
-                    SDL_SetWindowTitle(window, cwd.c_str());
+                    glfwSetWindowTitle(window, cwd.c_str());
                 }
                 return;
             }
@@ -1004,91 +1058,126 @@ namespace {
         }
 
         const std::string content = base64::decode(payload);
-        if (primary && !SDL_SetPrimarySelectionText(content.c_str())) {
-            logW << "OSC 52: could not set primary selection: "
-                 << SDL_GetError() << std::endl;
+        if (primary) {
+            primarySelection = content;
         }
-        if (clipboard && !SDL_SetClipboardText(content.c_str())) {
-            logW << "OSC 52: could not set clipboard: "
-                 << SDL_GetError() << std::endl;
+        if (clipboard) {
+            glfwSetClipboardString(window, content.c_str());
         }
     }
 
-    bool eventLoop(PtyEventSource& ptySource, Uint32 ptyEventType) {
-        bool ptyPending = false;
-        while (true) {
-            SDL_Event event{};
-            if (!SDL_WaitEvent(&event)) {
-                throw std::runtime_error(
-                    std::string("SDL_WaitEvent failed: ") + SDL_GetError());
-            }
+    template <typename Fn>
+    void guardCallback(Fn&& callback) {
+        if (callbackError != nullptr) {
+            return;
+        }
+        try {
+            callback();
+        } catch (...) {
+            callbackError = std::current_exception();
+        }
+    }
 
-            bool releasePtyHold = false;
-            if (event.type == ptyEventType) {
-                if (mouseContext.selectionOngoing) {
-                    ptyPending = true;
-                } else {
-                    const bool finished = vt->readPty();
-                    ptySource.acknowledge();
-                    if (finished) {
-                        return false;
-                    }
-                }
-            } else {
-                switch (event.type) {
-                    case SDL_EVENT_QUIT:
-                    case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
-                        return true;
-                    case SDL_EVENT_WINDOW_EXPOSED:
-                        vt->redraw();
-                        break;
-                    case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-                        if (event.window.data1 > 0 && event.window.data2 > 0) {
-                            const int width = std::min(event.window.data1,
-                                                       static_cast<int>(UINT16_MAX));
-                            const int height = std::min(event.window.data2,
-                                                        static_cast<int>(UINT16_MAX));
-                            vt->resize(width, height);
-                            vt->redraw();
-                        }
-                        break;
-                    case SDL_EVENT_WINDOW_FOCUS_GAINED:
-                        if (vt->getMouseTrackingState().focusEventMode) {
-                            vt->writePty("\x1b[I");
-                        }
-                        vt->setHasFocus(true);
-                        break;
-                    case SDL_EVENT_WINDOW_FOCUS_LOST:
-                        if (vt->getMouseTrackingState().focusEventMode) {
-                            vt->writePty("\x1b[O");
-                        }
-                        vt->setHasFocus(false);
-                        break;
-                    case SDL_EVENT_KEY_DOWN:
-                        onKeyDown(event.key);
-                        break;
-                    case SDL_EVENT_TEXT_INPUT:
-                        onTextInput(event.text.text);
-                        break;
-                    case SDL_EVENT_MOUSE_BUTTON_DOWN:
-                        onMouseButton(event.button, true, releasePtyHold);
-                        break;
-                    case SDL_EVENT_MOUSE_BUTTON_UP:
-                        onMouseButton(event.button, false, releasePtyHold);
-                        break;
-                    case SDL_EVENT_MOUSE_MOTION:
-                        onMouseMotion(event.motion);
-                        break;
-                    case SDL_EVENT_MOUSE_WHEEL:
-                        onMouseWheel(event.wheel);
-                        break;
-                    default:
-                        break;
-                }
-            }
+    void onFramebufferSize(GLFWwindow*, int width, int height) {
+        if (width <= 0 || height <= 0) {
+            return;
+        }
+        windowContext.framebufferWidth = width;
+        windowContext.framebufferHeight = height;
+        windowContext.resizePending = true;
+    }
 
-            if (releasePtyHold && ptyPending) {
-                ptyPending = false;
+    void onWindowRefresh(GLFWwindow*) {
+        windowContext.redrawPending = true;
+    }
+
+    void onWindowFocus(GLFWwindow*, int focused) {
+        guardCallback(
+            [focused]() {
+            if (vt == nullptr) {
+                return;
+            }
+            if (vt->getMouseTrackingState().focusEventMode) {
+                vt->writePty(focused ? "\x1b[I" : "\x1b[O");
+            }
+            if (!focused) {
+                mouseContext.buttonState = 0;
+            }
+            vt->setHasFocus(focused == GLFW_TRUE);
+        });
+    }
+
+    void onKey(GLFWwindow*, int key, int, int action, int modifiers) {
+        if (action != GLFW_PRESS && action != GLFW_REPEAT) {
+            return;
+        }
+        guardCallback([key, modifiers]() {
+            onKeyDown(key, modifiers);
+        });
+    }
+
+    void onCharacter(GLFWwindow*, unsigned codepoint) {
+        guardCallback([codepoint]() {
+            onTextInput(codepoint);
+        });
+    }
+
+    void onMouseButtonCallback(GLFWwindow*, int button, int action,
+                               int modifiers) {
+        guardCallback([button, action, modifiers]() {
+            onMouseButton(button, action == GLFW_PRESS, modifiers);
+        });
+    }
+
+    void onCursorPosition(GLFWwindow*, double x, double y) {
+        guardCallback([x, y]() {
+            onMouseMotion(x, y);
+        });
+    }
+
+    void onScroll(GLFWwindow*, double x, double y) {
+        guardCallback([x, y]() {
+            onMouseWheel(x, y);
+        });
+    }
+
+    void setupCallbacks() {
+        glfwSetFramebufferSizeCallback(window, onFramebufferSize);
+        glfwSetWindowRefreshCallback(window, onWindowRefresh);
+        glfwSetWindowFocusCallback(window, onWindowFocus);
+        glfwSetKeyCallback(window, onKey);
+        glfwSetCharCallback(window, onCharacter);
+        glfwSetMouseButtonCallback(window, onMouseButtonCallback);
+        glfwSetCursorPosCallback(window, onCursorPosition);
+        glfwSetScrollCallback(window, onScroll);
+    }
+
+    bool eventLoop(PtyEventSource& ptySource) {
+        while (!glfwWindowShouldClose(window)) {
+            glfwWaitEvents();
+            if (callbackError != nullptr) {
+                std::rethrow_exception(callbackError);
+            }
+            if (glfwWindowShouldClose(window)) {
+                return true;
+            }
+            if (windowContext.resizePending) {
+                const int width = std::min(
+                    windowContext.framebufferWidth,
+                    static_cast<int>(UINT16_MAX));
+                const int height = std::min(
+                    windowContext.framebufferHeight,
+                    static_cast<int>(UINT16_MAX));
+                windowContext.resizePending = false;
+                windowContext.redrawPending = false;
+                vt->resize(width, height);
+                vt->redraw();
+            } else if (windowContext.redrawPending) {
+                windowContext.redrawPending = false;
+                vt->redraw();
+            }
+            if (ptySource.isPending() &&
+                !mouseContext.selectionOngoing) {
                 const bool finished = vt->readPty();
                 ptySource.acknowledge();
                 if (finished) {
@@ -1096,6 +1185,7 @@ namespace {
                 }
             }
         }
+        return true;
     }
 
     void checkLocale() {
@@ -1109,6 +1199,22 @@ namespace {
             std::cout << "Warning: non-UTF-8 locale " << locale
                       << "; international input may be broken.\n";
         }
+    }
+
+    std::string glfwFailure(const char* operation) {
+        const char* description = nullptr;
+        const int code = glfwGetError(&description);
+        std::string message = operation;
+        message += " failed";
+        if (description != nullptr) {
+            message += ": ";
+            message += description;
+        } else if (code != GLFW_NO_ERROR) {
+            message += " (GLFW error ";
+            message += std::to_string(code);
+            message += ')';
+        }
+        return message;
     }
 
     int run(int argc, char* argv[]) {
@@ -1142,44 +1248,33 @@ namespace {
             validateShell(progPath);
         }
 
-        SDL_SetAppMetadata("Zutty", ZUTTY_VERSION, "org.zutty.Zutty");
-        const char* waylandDisplay = getenv("WAYLAND_DISPLAY");
-        const char* requestedDriver =
-            waylandDisplay != nullptr && waylandDisplay[0] != '\0'
-                ? "wayland"
-                : "x11";
-        SDL_SetHint(SDL_HINT_VIDEO_DRIVER, requestedDriver);
-        if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
-            throw std::runtime_error(
-                std::string("SDL_Init failed: ") + SDL_GetError());
+        glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_WAYLAND);
+        if (!glfwInit()) {
+            throw std::runtime_error(glfwFailure("glfwInit"));
         }
-        const char* driver = SDL_GetCurrentVideoDriver();
-        if (driver == nullptr || std::strcmp(driver, requestedDriver) != 0) {
-            throw std::runtime_error(
-                std::string("SDL video driver '") + requestedDriver +
-                "' required, got: " +
-                (driver != nullptr ? driver : "none"));
-        }
+        glfwInitialized = true;
+
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+        glfwWindowHint(GLFW_SCALE_FRAMEBUFFER, GLFW_TRUE);
+        glfwWindowHintString(GLFW_WAYLAND_APP_ID, "org.zutty.Zutty");
 
         const int initialWidth = std::max(
             320, static_cast<int>(opts.nCols) * opts.fontsize / 2);
         const int initialHeight = std::max(
             200, static_cast<int>(opts.nRows) * opts.fontsize);
-        window = SDL_CreateWindow(
-            opts.title, initialWidth, initialHeight,
-            SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE |
-                SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN);
+        window = glfwCreateWindow(
+            initialWidth, initialHeight, opts.title, nullptr, nullptr);
         if (window == nullptr) {
-            throw std::runtime_error(
-                std::string("SDL_CreateWindow failed: ") + SDL_GetError());
+            throw std::runtime_error(glfwFailure("glfwCreateWindow"));
         }
-        if (!SDL_ShowWindow(window) || !SDL_SyncWindow(window)) {
-            throw std::runtime_error(
-                std::string("Could not map window: ") + SDL_GetError());
-        }
+        glfwSetInputMode(window, GLFW_LOCK_KEY_MODS, GLFW_TRUE);
 
-        const float density = std::max(
-            1.0f, SDL_GetWindowPixelDensity(window));
+        float xScale = 1.0f;
+        float yScale = 1.0f;
+        glfwGetWindowContentScale(window, &xScale, &yScale);
+        const float density = std::max({1.0f, xScale, yScale});
         opts.fontsize = static_cast<uint8_t>(std::clamp(
             static_cast<int>(std::lround(opts.fontsize * density)), 1, 255));
         opts.border = static_cast<uint16_t>(std::clamp(
@@ -1195,36 +1290,30 @@ namespace {
             1, static_cast<int>(std::ceil(desiredPixelWidth / density)));
         const int desiredHeight = std::max(
             1, static_cast<int>(std::ceil(desiredPixelHeight / density)));
-        SDL_SetWindowMinimumSize(
+        glfwSetWindowSizeLimits(
             window,
             std::max(1, static_cast<int>(std::ceil(
                             (2 * opts.border + fontpk->getPx()) / density))),
             std::max(1, static_cast<int>(std::ceil(
-                            (2 * opts.border + fontpk->getPy()) / density))));
-        if (!SDL_SetWindowSize(window, desiredWidth, desiredHeight) ||
-            !SDL_SyncWindow(window)) {
-            throw std::runtime_error(
-                std::string("Could not size window: ") + SDL_GetError());
-        }
+                            (2 * opts.border + fontpk->getPy()) / density))),
+            GLFW_DONT_CARE, GLFW_DONT_CARE);
+        glfwSetWindowSize(window, desiredWidth, desiredHeight);
+        glfwShowWindow(window);
+        glfwPollEvents();
 
         int pixelWidth = 0;
         int pixelHeight = 0;
-        if (!SDL_GetWindowSizeInPixels(window, &pixelWidth, &pixelHeight)) {
-            throw std::runtime_error(
-                std::string("SDL_GetWindowSizeInPixels failed: ") +
-                SDL_GetError());
+        glfwGetFramebufferSize(window, &pixelWidth, &pixelHeight);
+        if (pixelWidth <= 0 || pixelHeight <= 0) {
+            throw std::runtime_error("Initial framebuffer has invalid size");
         }
         if (pixelWidth > UINT16_MAX || pixelHeight > UINT16_MAX) {
             throw std::runtime_error("Initial window exceeds terminal limits");
         }
 
-        SDL_Cursor* cursor = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_TEXT);
+        cursor = glfwCreateStandardCursor(GLFW_IBEAM_CURSOR);
         if (cursor != nullptr) {
-            SDL_SetCursor(cursor);
-        }
-        if (!SDL_StartTextInput(window)) {
-            logW << "SDL_StartTextInput failed: " << SDL_GetError()
-                 << std::endl;
+            glfwSetCursor(window, cursor);
         }
 
         renderer = std::make_unique<Renderer>(window, fontpk.get());
@@ -1233,8 +1322,7 @@ namespace {
         vt = std::make_unique<Vterm>(
             fontpk->getPx(), fontpk->getPy(), pixelWidth, pixelHeight, ptyFd);
         vt->setRefreshHandler(
-            [](const Frame& frame)
-            {
+            [](const Frame& frame) {
             renderer->update(frame);
         });
         vt->setOscHandler(
@@ -1243,21 +1331,17 @@ namespace {
         });
         vt->setBellHandler(
             []() {
-            SDL_FlashWindow(window, SDL_FLASH_BRIEFLY);
+            glfwRequestWindowAttention(window);
         });
+        setupCallbacks();
+        vt->setHasFocus(
+            glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_TRUE);
         vt->resize(pixelWidth, pixelHeight);
         vt->redraw();
 
-        const Uint32 ptyEventType = SDL_RegisterEvents(1);
-        if (ptyEventType == static_cast<Uint32>(-1)) {
-            throw std::runtime_error(
-                std::string("SDL_RegisterEvents failed: ") + SDL_GetError());
-        }
-
-        bool windowClosed = false;
         {
-            PtyEventSource ptySource(ptyFd, ptyEventType);
-            windowClosed = eventLoop(ptySource, ptyEventType);
+            PtyEventSource ptySource(ptyFd);
+            eventLoop(ptySource);
         }
 
         vt.reset();
@@ -1265,23 +1349,32 @@ namespace {
         renderer.reset();
         fontpk.reset();
         if (cursor != nullptr) {
-            SDL_DestroyCursor(cursor);
+            glfwDestroyCursor(cursor);
+            cursor = nullptr;
         }
-        SDL_DestroyWindow(window);
+        glfwDestroyWindow(window);
         window = nullptr;
-        SDL_Quit();
-        return windowClosed ? 0 : 0;
+        glfwTerminate();
+        glfwInitialized = false;
+        return 0;
     }
 
     void emergencyCleanup() {
         vt.reset();
         renderer.reset();
         fontpk.reset();
+        if (cursor != nullptr) {
+            glfwDestroyCursor(cursor);
+            cursor = nullptr;
+        }
         if (window != nullptr) {
-            SDL_DestroyWindow(window);
+            glfwDestroyWindow(window);
             window = nullptr;
         }
-        SDL_Quit();
+        if (glfwInitialized) {
+            glfwTerminate();
+            glfwInitialized = false;
+        }
     }
 }
 

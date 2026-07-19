@@ -14,7 +14,8 @@
 #include "render_spv.h"
 #include "utf8.h"
 
-#include <SDL3/SDL_vulkan.h>
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
 
 #include <algorithm>
 #include <cstring>
@@ -107,18 +108,16 @@ namespace {
 }
 
 VulkanPresenter::VulkanPresenter(
-    SDL_Window* window_, Fontpack* fontpk)
+    GLFWwindow* window_, Fontpack* fontpk)
     : window(window_)
     , glyphWidth(fontpk->getPx())
     , glyphHeight(fontpk->getPy())
     , hasDoubleWidth(fontpk->hasDoubleWidth())
 {
     createInstance();
-    if (!SDL_Vulkan_CreateSurface(window, instance, nullptr, &surface)) {
-        throw std::runtime_error(
-            std::string("SDL_Vulkan_CreateSurface failed: ") +
-            SDL_GetError());
-    }
+    checkVk(glfwCreateWindowSurface(
+                instance, window, nullptr, &surface),
+            "glfwCreateWindowSurface");
     selectPhysicalDevice();
     createDevice();
     createCommandResources();
@@ -182,7 +181,7 @@ VulkanPresenter::~VulkanPresenter() {
         vkDestroyDevice(device, nullptr);
     }
     if (surface != VK_NULL_HANDLE) {
-        SDL_Vulkan_DestroySurface(instance, surface, nullptr);
+        vkDestroySurfaceKHR(instance, surface, nullptr);
     }
     if (instance != VK_NULL_HANDLE) {
         vkDestroyInstance(instance, nullptr);
@@ -190,13 +189,15 @@ VulkanPresenter::~VulkanPresenter() {
 }
 
 void VulkanPresenter::createInstance() {
-    Uint32 extensionCount = 0;
+    uint32_t extensionCount = 0;
     const char* const* extensions =
-        SDL_Vulkan_GetInstanceExtensions(&extensionCount);
+        glfwGetRequiredInstanceExtensions(&extensionCount);
     if (extensions == nullptr) {
+        const char* description = nullptr;
+        glfwGetError(&description);
         throw std::runtime_error(
-            std::string("SDL_Vulkan_GetInstanceExtensions failed: ") +
-            SDL_GetError());
+            std::string("glfwGetRequiredInstanceExtensions failed") +
+            (description != nullptr ? ": " + std::string(description) : ""));
     }
 
     VkApplicationInfo appInfo{};
