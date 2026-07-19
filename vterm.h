@@ -323,6 +323,7 @@ private:
         CSI_DblQuote,
         CSI_Bang,
         CSI_SPC,
+        CSI_Asterisk,
         CSI_GT,
         CSI_LT,
         CSI_EQ,
@@ -354,6 +355,7 @@ private:
                 "CSI_DblQuote",
                 "CSI_Bang",
                 "CSI_SPC",
+                "CSI_Asterisk",
                 "CSI_GT",
                 "CSI_LT",
                 "CSI_EQ",
@@ -435,6 +437,11 @@ private:
     void csi_DECSED();
     void csi_DECSEL();
     void csi_DECSCA();
+    void csi_DECFRA();
+    void csi_DECCRA();
+    void csi_DECERA(bool selective = false);
+    void csi_DECCARA(bool reverse);
+    void csi_DECRQCRA();
     void csi_IL();
     void csi_DL();
     void csi_ICH();

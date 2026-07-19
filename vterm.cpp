@@ -2396,6 +2396,9 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                     case ' ':
                         setState(InputState::CSI_SPC);
                         break;
+                    case '*':
+                        setState(InputState::CSI_Asterisk);
+                        break;
                     case '>':
                         setState(csiPrefixAllowed
                                      ? InputState::CSI_GT
@@ -2589,11 +2592,20 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                 }
                 break;
             case InputState::CSI_Dollar:
-                if (ch == 'p') {
-                    csi_DECRQM(false);
-                } else {
-                    unhandledInput(ch);
+                switch (ch) {
+                    case 'p': csi_DECRQM(false); break;
+                    case 'r': csi_DECCARA(false); break;
+                    case 't': csi_DECCARA(true); break;
+                    case 'v': csi_DECCRA(); break;
+                    case 'x': csi_DECFRA(); break;
+                    case 'z': csi_DECERA(); break;
+                    case '{': csi_DECERA(true); break;
+                    default: unhandledInput(ch); break;
                 }
+                break;
+            case InputState::CSI_Asterisk:
+                if (ch == 'y') csi_DECRQCRA();
+                else unhandledInput(ch);
                 break;
             case InputState::CSI_priv_Dollar:
                 if (ch == 'p') {

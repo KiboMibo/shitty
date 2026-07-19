@@ -23,6 +23,36 @@ class EditingTest(unittest.TestCase):
                 b"\x1b[1;3H\x1b[?J"
             )
             self.assertEqual(terminal.snapshot().lines, ["AB   ", " G   "])
+
+    def test_rectangular_fill_erase_and_overlap_safe_copy(self):
+        with Zutty(columns=6, rows=3) as terminal:
+            terminal.write(b"abcdef\x1b[2;1Hghijkl\x1b[3;1Hmnopqr")
+            terminal.write(b"\x1b[88;1;2;2;3$x")
+            self.assertEqual(
+                terminal.snapshot().lines, ["aXXdef", "gXXjkl", "mnopqr"]
+            )
+            terminal.write(b"\x1b[2;2;2;4$z")
+            self.assertEqual(terminal.snapshot().lines[1], "g   kl")
+            terminal.write(b"\x1b[1;1;2;3;1;2;3;1$v")
+            self.assertEqual(terminal.snapshot().lines[1], "g aXXl")
+
+    def test_rectangular_attribute_change_and_reverse(self):
+        with Zutty(columns=6, rows=2) as terminal:
+            terminal.write(b"abcdef\x1b[1;2;1;4;1;4;7$r")
+            snapshot = terminal.snapshot()
+            self.assertTrue(snapshot.cell(1, 0).bold)
+            self.assertTrue(snapshot.cell(1, 0).underline)
+            self.assertTrue(snapshot.cell(1, 0).inverse)
+            terminal.write(b"\x1b[1;2;1;4;1;4;7$t")
+            snapshot = terminal.snapshot()
+            self.assertFalse(snapshot.cell(1, 0).bold)
+            self.assertFalse(snapshot.cell(1, 0).underline)
+            self.assertFalse(snapshot.cell(1, 0).inverse)
+
+    def test_rectangular_checksum_reply_is_stable(self):
+        with Zutty(columns=4, rows=2) as terminal:
+            terminal.write(b"AB\x1b[7;1;1;1;1;2*y")
+            self.assertEqual(terminal.read_input(), b"\x1bP7!~FF7D\x1b\\")
     def test_insert_and_delete_characters(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"abcdef\x1b[1;3H\x1b[2@XY")
