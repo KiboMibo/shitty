@@ -28,6 +28,7 @@
 #include <cerrno>
 #include <cmath>
 #include <condition_variable>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
@@ -57,6 +58,7 @@ static GLFWwindow* window = nullptr;
 static GLFWcursor* cursor = nullptr;
 static GLFWcursor* hyperlinkCursor = nullptr;
 static bool glfwInitialized = false;
+static FILE* printerPipe = nullptr;
 
 extern char** environ;
 
@@ -1698,6 +1700,22 @@ namespace {
             []() {
             glfwRequestWindowAttention(window);
         });
+        if (opts.printerCommand != nullptr && opts.printerCommand[0] != '\0') {
+            printerPipe = popen(opts.printerCommand, "w");
+            if (printerPipe == nullptr)
+                throw std::runtime_error("Cannot start printer command");
+            vt->setPrinterHandler(
+                [](const std::string& output) {
+                    if (printerPipe == nullptr || output.empty()) return;
+                    const size_t written = fwrite(
+                        output.data(), 1, output.size(), printerPipe);
+                    if (written != output.size()) {
+                        logE << "Printer command stopped accepting output"
+                             << std::endl;
+                    }
+                    fflush(printerPipe);
+                });
+        }
         vt->setNotificationHandler(
             [](const std::string&, const std::string& title,
                const std::string& body, bool close) {
@@ -1835,6 +1853,10 @@ namespace {
         }
 
         vt.reset();
+        if (printerPipe != nullptr) {
+            pclose(printerPipe);
+            printerPipe = nullptr;
+        }
         close(ptyFd);
         renderer.reset();
         fontpk.reset();
@@ -1855,6 +1877,10 @@ namespace {
 
     void emergencyCleanup() {
         vt.reset();
+        if (printerPipe != nullptr) {
+            pclose(printerPipe);
+            printerPipe = nullptr;
+        }
         renderer.reset();
         fontpk.reset();
         if (cursor != nullptr) {

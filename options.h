@@ -79,6 +79,7 @@ static const std::vector<ResourceDesc> resourceTable = {
     {"modifyOtherKeys", "1", "Key modifier encoding level; 0..2"},
     {"allowOsc52Read", "false", "Allow applications to read clipboard via OSC 52"},
     {"osc52Select", "primary", "Selection used by OSC 52 selector s: primary or clipboard"},
+    {"printerCommand", "", "Command receiving DEC printer output on stdin"},
     {"color0", "#000000", "Palette color 0"},
     {"color1", "#cd0000", "Palette color 1"},
     {"color2", "#00cd00", "Palette color 2"},
@@ -115,6 +116,7 @@ struct Options {
     const char* fontpath;
     const char* shell;
     const char* title;
+    const char* printerCommand;
     OptionSource titleSource = OptionSource::NONE;
     Color bg;
     Color cr;

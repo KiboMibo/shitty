@@ -312,6 +312,7 @@ void Options::parse() {
             shell = "bash";
         }
         title = get("title", nullptr, &titleSource);
+        printerCommand = get("printerCommand");
         getColor("fg", fg);
         getColor("bg", bg);
         rv = getBool("rv");

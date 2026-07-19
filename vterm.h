@@ -185,6 +185,9 @@ public:
     using BellHandlerFn = std::function<void()>;
     void setBellHandler(const BellHandlerFn&);
 
+    using PrinterHandlerFn = std::function<void(const std::string&)>;
+    void setPrinterHandler(const PrinterHandlerFn&);
+
     using NotificationHandlerFn = std::function<void(
         const std::string&, const std::string&, const std::string&, bool)>;
     void setNotificationHandler(const NotificationHandlerFn&);
@@ -495,6 +498,10 @@ private:
     void csi_kittyKeyboardQuery();
     void csi_DECRQM(bool privateMode);
     void csi_XTVERSION();
+    void csi_MC(bool privateMode);
+    std::string printableLine(uint16_t row) const;
+    void printLine(uint16_t row);
+    bool consumePrinterControllerByte(unsigned char ch);
 
     void dcs_DECRQSS(const std::string&);
     void dcs_XTGETTCAP(const std::string&);
@@ -522,6 +529,7 @@ private:
     OscHandlerFn onOsc;
     bool haveOscHandler = false;
     BellHandlerFn onBell;
+    PrinterHandlerFn onPrinter;
     NotificationHandlerFn onNotification;
     ProgressHandlerFn onProgress;
     WindowOpsHandlerFn onWindowOps;
@@ -620,6 +628,9 @@ private:
     bool bracketedPasteMode = false;
     bool synchronizedOutputMode = false;
     bool inBandResizeMode = false;
+    bool printerControllerMode = false;
+    bool autoPrintMode = false;
+    std::string printerControllerPending;
     std::chrono::steady_clock::time_point synchronizedOutputDeadline;
     bool send8BitControls = false;
     bool altScrollMode = false;

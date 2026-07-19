@@ -214,6 +214,9 @@ class Zutty:
     def read_actions(self):
         return self._read_hex_response("READ_ACTIONS").decode().splitlines()
 
+    def read_printer(self):
+        return self._read_hex_response("READ_PRINTER")
+
     def state(self):
         self.stream.write(b"STATE\n")
         response = self._readline().split()

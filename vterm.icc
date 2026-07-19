@@ -968,6 +968,7 @@ Vterm::esc_DCS(unsigned char fin) {
 inline bool
 Vterm::esc_IND() {
     TRACE_FUN;
+    if (autoPrintMode) printLine(posY);
     bool scrolled = false;
     if (posY == marginBottom - 1) {
         nInputOps = 1;
@@ -980,6 +981,76 @@ Vterm::esc_IND() {
     }
     setState(InputState::Normal);
     return scrolled;
+}
+
+inline std::string
+Vterm::printableLine(uint16_t row) const {
+    std::vector<uint32_t> codepoints;
+    for (uint16_t column = 0; column < nCols; ++column) {
+        const auto& cell = cf->getCell(row, column);
+        if (cell.dwidth_cont) continue;
+        const auto& grapheme = cf->getGrapheme(cell.grapheme);
+        if (grapheme.empty()) codepoints.push_back(cell.uc_pt);
+        else codepoints.insert(codepoints.end(), grapheme.begin(), grapheme.end());
+    }
+    while (!codepoints.empty() && codepoints.back() == ' ') codepoints.pop_back();
+    std::string result;
+    const auto sink = [&result](char ch) { result.push_back(ch); };
+    for (const uint32_t codepoint : codepoints)
+        Utf8Encoder::pushUnicode(codepoint, sink);
+    result.push_back('\n');
+    return result;
+}
+
+inline void
+Vterm::printLine(uint16_t row) {
+    onPrinter(printableLine(std::min<uint16_t>(row, nRows - 1)));
+}
+
+inline void
+Vterm::csi_MC(bool privateMode) {
+    TRACE_FUN;
+    const uint32_t operation = inputOps[0];
+    if (privateMode) {
+        if (operation == 1) printLine(posY);
+        else if (operation == 4) autoPrintMode = false;
+        else if (operation == 5) autoPrintMode = true;
+    } else {
+        if (operation == 0) {
+            std::string screen;
+            for (uint16_t row = 0; row < nRows; ++row)
+                screen += printableLine(row);
+            onPrinter(screen);
+        } else if (operation == 4) {
+            printerControllerMode = false;
+            printerControllerPending.clear();
+        } else if (operation == 5) {
+            printerControllerMode = true;
+            printerControllerPending.clear();
+        }
+    }
+    setState(InputState::Normal);
+}
+
+inline bool
+Vterm::consumePrinterControllerByte(unsigned char ch) {
+    printerControllerPending.push_back(static_cast<char>(ch));
+    static const std::string terminators[] = {"\x1b[4i", "\x9b" "4i"};
+    for (;;) {
+        for (const auto& terminator : terminators) {
+            if (printerControllerPending == terminator) {
+                printerControllerPending.clear();
+                printerControllerMode = false;
+                return true;
+            }
+            if (terminator.compare(0, printerControllerPending.size(),
+                                   printerControllerPending) == 0)
+                return true;
+        }
+        onPrinter(printerControllerPending.substr(0, 1));
+        printerControllerPending.erase(0, 1);
+        if (printerControllerPending.empty()) return true;
+    }
 }
 
 inline void

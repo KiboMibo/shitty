@@ -295,6 +295,7 @@ int runTestMode(int controlFd) {
             display.update(frame);
         });
     std::string actions;
+    std::string printerOutput;
     terminal.setOscHandler(
         [&terminal, &actions](int command, const std::string& argument) {
             actions += "OSC " + std::to_string(command) + " " +
@@ -307,6 +308,10 @@ int runTestMode(int controlFd) {
         [&actions]() {
         actions += "BELL\n";
     });
+    terminal.setPrinterHandler(
+        [&printerOutput](const std::string& output) {
+            printerOutput += output;
+        });
     terminal.setNotificationHandler(
         [&actions](const std::string& id, const std::string& title,
                    const std::string& body, bool close) {
@@ -502,6 +507,9 @@ int runTestMode(int controlFd) {
             } else if (line == "READ_ACTIONS") {
                 writeAll(controlFd, "OK " + encodeHex(actions) + "\n");
                 actions.clear();
+            } else if (line == "READ_PRINTER") {
+                writeAll(controlFd, "OK " + encodeHex(printerOutput) + "\n");
+                printerOutput.clear();
             } else if (line == "STATE") {
                 const auto& mouse = terminal.getMouseTrackingState();
                 writeAll(controlFd,

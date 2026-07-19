@@ -1232,6 +1232,7 @@ Vterm::Vterm(uint16_t glyphPx_, uint16_t glyphPy_,
     , onBell([]() {
         logI << "* Bell *" << std::endl;
     })
+    , onPrinter([](const std::string&) {})
     , onNotification([](const std::string&, const std::string&,
                         const std::string&, bool) {})
     , onProgress([](uint32_t, uint32_t) {})
@@ -1294,6 +1295,10 @@ void Vterm::setOscHandler(const OscHandlerFn& onOsc_) {
 
 void Vterm::setBellHandler(const BellHandlerFn& onBell_) {
     onBell = onBell_;
+}
+
+void Vterm::setPrinterHandler(const PrinterHandlerFn& handler) {
+    onPrinter = handler;
 }
 
 void Vterm::setNotificationHandler(const NotificationHandlerFn& handler) {
@@ -1854,6 +1859,9 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
     hideCursor();
     for (readPos = 0; readPos < inputSize; ++readPos) {
         const unsigned char& ch = input[readPos];
+        if (printerControllerMode && consumePrinterControllerByte(ch)) {
+            continue;
+        }
         if ((ch == '\x18' || ch == '\x1a') &&
             inputState != InputState::Normal) {
             setState(InputState::Normal);
@@ -2368,6 +2376,9 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                     case 'n':
                         csi_DSR();
                         break;
+                    case 'i':
+                        csi_MC(false);
+                        break;
                     case 'r':
                         csi_STBM();
                         break;
@@ -2587,6 +2598,9 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         break;
                     case 'K':
                         csi_DECSEL();
+                        break;
+                    case 'i':
+                        csi_MC(true);
                         break;
                     case '$':
                         setState(InputState::CSI_priv_Dollar);
