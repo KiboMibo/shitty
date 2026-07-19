@@ -74,6 +74,16 @@ class ModeTest(unittest.TestCase):
             self.assertGreater(after.refresh_count, before)
             self.assertEqual(after.lines[0], "hidden  ")
 
+    def test_synchronized_output_watchdog_releases_stuck_frame(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            before = terminal.snapshot().refresh_count
+            terminal.write(b"\x1b[?2026hstuck")
+            self.assertEqual(terminal.snapshot().refresh_count, before)
+            terminal.sync_timeout()
+            after = terminal.snapshot()
+            self.assertGreater(after.refresh_count, before)
+            self.assertEqual(after.lines[0], "stuck   ")
+
 
 if __name__ == "__main__":
     unittest.main()

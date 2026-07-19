@@ -406,6 +406,9 @@ int runTestMode(int controlFd) {
             } else if (line.compare(0, 6, "FOCUS ") == 0) {
                 terminal.setHasFocus(line.substr(6) == "1");
                 writeAll(controlFd, "OK\n");
+            } else if (line == "SYNC_TIMEOUT") {
+                terminal.expireSynchronizedOutput(true);
+                writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 13, "SELECT_START ") == 0 ||
                        line.compare(0, 14, "SELECT_UPDATE ") == 0) {
                 const bool start = line.compare(0, 13, "SELECT_START ") == 0;

@@ -160,6 +160,9 @@ class Zutty:
     def focus(self, focused):
         self.command(f"FOCUS {int(focused)}")
 
+    def sync_timeout(self):
+        self.command("SYNC_TIMEOUT")
+
     def select_start(self, column, row):
         self.command(f"SELECT_START {column} {row}")
 

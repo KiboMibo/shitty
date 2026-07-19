@@ -15,6 +15,7 @@
 #include "utf8.h"
 
 #include <cstdint>
+#include <chrono>
 #include <functional>
 #include <map>
 #include <memory>
@@ -190,6 +191,10 @@ public:
     void resize(uint16_t winPx, uint16_t winPy);
 
     void redraw();
+    bool synchronizedOutputActive() const {
+        return synchronizedOutputMode;
+    }
+    bool expireSynchronizedOutput(bool force = false);
 
     struct InputSpec {
         VtKey key;
@@ -523,6 +528,7 @@ private:
     bool localEcho = false;
     bool bracketedPasteMode = false;
     bool synchronizedOutputMode = false;
+    std::chrono::steady_clock::time_point synchronizedOutputDeadline;
     bool send8BitControls = false;
     bool altScrollMode = false;
     bool altSendsEscape = true;

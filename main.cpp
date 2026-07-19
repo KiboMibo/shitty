@@ -1450,13 +1450,18 @@ namespace {
 
     bool eventLoop(PtyEventSource& ptySource) {
         while (!glfwWindowShouldClose(window)) {
-            glfwWaitEvents();
+            if (vt->synchronizedOutputActive()) {
+                glfwWaitEventsTimeout(0.05);
+            } else {
+                glfwWaitEvents();
+            }
             if (callbackError != nullptr) {
                 std::rethrow_exception(callbackError);
             }
             if (glfwWindowShouldClose(window)) {
                 return true;
             }
+            vt->expireSynchronizedOutput();
             if (windowContext.resizePending) {
                 const int width = std::min(
                     windowContext.framebufferWidth,

@@ -178,6 +178,17 @@ Vterm::redraw() {
     cf->resetDamage();
 }
 
+inline bool Vterm::expireSynchronizedOutput(bool force) {
+    if (!synchronizedOutputMode ||
+        (!force && std::chrono::steady_clock::now() <
+                       synchronizedOutputDeadline)) {
+        return false;
+    }
+    synchronizedOutputMode = false;
+    redraw();
+    return true;
+}
+
 inline const MouseTrackingState&
 Vterm::getMouseTrackingState() const {
     return mouseTrk;
@@ -1570,6 +1581,9 @@ Vterm::setPrivMode(uint32_t arg, bool set) {
                 break;
             case 2026:
                 synchronizedOutputMode = true;
+                synchronizedOutputDeadline =
+                    std::chrono::steady_clock::now() +
+                    std::chrono::milliseconds(150);
                 break;
             default:
                 logU << "set priv mode " << arg << std::endl;
