@@ -37,6 +37,7 @@ class Cell:
     underline_color: tuple[int, int, int]
     hyperlink: int
     semantic: int
+    protected: bool
 
 
 @dataclass
@@ -316,6 +317,7 @@ class Zutty:
                     ),
                     hyperlink=int(record[30:38], 16),
                     semantic=int(record[38:46], 16),
+                    protected=bool(flags & 32768),
                 )
             )
         text = "".join(cell.char for cell in cells)

@@ -197,6 +197,25 @@ Frame::eraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
 }
 
 inline void
+Frame::selectiveEraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
+                           const CharVdev::Cell& attrs) {
+    CharVdev::Cell erased = attrs;
+    erased.uc_pt = ' ';
+    erased.protected_char = 0;
+    erased.hyperlink = 0;
+    erased.grapheme = 0;
+    for (uint16_t x = startX; x < startX + count; ++x) {
+        auto& cell = getCell(pY, x);
+        if (!cell.protected_char) {
+            cell = erased;
+            cell.dirty = 1;
+        }
+    }
+    invalidateSelection(Rect(startX, pY, startX + count, pY));
+    expose();
+}
+
+inline void
 Frame::moveInRow(uint16_t pY, uint16_t dstX, uint16_t srcX,
                  uint16_t count) {
     if (!count) {

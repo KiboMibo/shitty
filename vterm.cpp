@@ -2475,6 +2475,9 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                     case 'p':
                         csiq_DECSCL();
                         break;
+                    case 'q':
+                        csi_DECSCA();
+                        break;
                         IGNORE_SEQUENCE_ON_BAD_PARAMS;
                     default:
                         unhandledInput(ch);
@@ -2569,6 +2572,12 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         break;
                     case 'm':
                         csi_XTQMODKEYS();
+                        break;
+                    case 'J':
+                        csi_DECSED();
+                        break;
+                    case 'K':
+                        csi_DECSEL();
                         break;
                     case '$':
                         setState(InputState::CSI_priv_Dollar);

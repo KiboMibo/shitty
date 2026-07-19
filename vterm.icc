@@ -1418,6 +1418,46 @@ Vterm::csi_EL() {
 }
 
 inline void
+Vterm::csi_DECSED() {
+    TRACE_FUN;
+    normalizeCursorPos();
+    if (inputOps[0] == 0 || inputOps[0] == 2) {
+        const uint16_t firstRow = inputOps[0] == 2 ? 0 : posY;
+        const uint16_t lastRow = nRows - 1;
+        for (uint16_t row = firstRow; row <= lastRow; ++row) {
+            const uint16_t first = row == posY && inputOps[0] == 0 ? posX : 0;
+            cf->selectiveEraseInRow(row, first, nCols - first, attrs);
+        }
+    } else if (inputOps[0] == 1) {
+        for (uint16_t row = 0; row <= posY; ++row) {
+            const uint16_t count = row == posY ? posX + 1 : nCols;
+            cf->selectiveEraseInRow(row, 0, count, attrs);
+        }
+    }
+    setState(InputState::Normal);
+}
+
+inline void
+Vterm::csi_DECSEL() {
+    TRACE_FUN;
+    normalizeCursorPos();
+    if (inputOps[0] == 0)
+        cf->selectiveEraseInRow(posY, posX, nCols - posX, attrs);
+    else if (inputOps[0] == 1)
+        cf->selectiveEraseInRow(posY, 0, posX + 1, attrs);
+    else if (inputOps[0] == 2)
+        cf->selectiveEraseInRow(posY, 0, nCols, attrs);
+    setState(InputState::Normal);
+}
+
+inline void
+Vterm::csi_DECSCA() {
+    TRACE_FUN;
+    attrs.protected_char = inputOps[0] == 1;
+    setState(InputState::Normal);
+}
+
+inline void
 Vterm::csi_IL() {
     TRACE_FUN;
     if (isCursorInsideMargins()) {

@@ -55,6 +55,8 @@ public:
 
     void eraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
                     const CharVdev::Cell& attrs);
+    void selectiveEraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
+                             const CharVdev::Cell& attrs);
     void moveInRow(uint16_t pY, uint16_t dstX, uint16_t srcX,
                    uint16_t count);
     void copyRow(uint16_t dstY, uint16_t srcY, uint16_t startX,

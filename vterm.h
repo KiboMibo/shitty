@@ -432,6 +432,9 @@ private:
 
     void csi_ED();
     void csi_EL();
+    void csi_DECSED();
+    void csi_DECSEL();
+    void csi_DECSCA();
     void csi_IL();
     void csi_DL();
     void csi_ICH();

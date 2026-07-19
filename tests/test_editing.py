@@ -4,6 +4,25 @@ from harness import Zutty
 
 
 class EditingTest(unittest.TestCase):
+    def test_selective_erase_preserves_decsca_protected_cells(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"ab\x1b[1\"qCD\x1b[0\"qefgh"
+                b"\x1b[1;4H\x1b[?2K"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "  CD    ")
+            self.assertTrue(snapshot.cell(2, 0).protected)
+            self.assertFalse(snapshot.cell(0, 0).protected)
+
+    def test_selective_display_erase_obeys_cursor_and_defaults(self):
+        with Zutty(columns=5, rows=2) as terminal:
+            terminal.write(
+                b"A\x1b[1\"qB\x1b[0\"qCDE\r\n"
+                b"F\x1b[1\"qG\x1b[0\"qHIJ"
+                b"\x1b[1;3H\x1b[?J"
+            )
+            self.assertEqual(terminal.snapshot().lines, ["AB   ", " G   "])
     def test_insert_and_delete_characters(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"abcdef\x1b[1;3H\x1b[2@XY")

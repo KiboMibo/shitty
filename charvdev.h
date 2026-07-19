@@ -56,7 +56,8 @@ public:
         uint8_t strike : 1;
         uint8_t overline : 1;
         uint8_t underline_style : 3;
-        uint16_t _fill0 = 0;
+        uint8_t protected_char = 0;
+        uint8_t _fill0 = 0;
         Color fg;
         uint8_t _fill1;
         Color bg;
