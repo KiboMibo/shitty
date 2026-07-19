@@ -275,7 +275,7 @@ Source map:
 - `renderer.*` — terminal-to-presenter bridge;
 - `vkpresenter.*` — Vulkan resources, compute dispatch and swapchain;
 - `render.comp` — cell compositor compiled to embedded SPIR-V by Meson;
-- `main.cc` — SDL Wayland/X11 event loop, PTY integration and clipboard;
+- `main.cpp` — SDL Wayland/X11 event loop, PTY integration and clipboard;
 - `options.*` — command-line configuration.
 
 ## Development notes

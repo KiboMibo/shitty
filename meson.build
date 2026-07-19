@@ -57,17 +57,17 @@ if get_option('buildtype') == 'debug'
 endif
 
 zutty_sources = files(
-  'charvdev.cc',
-  'font.cc',
-  'fontpack.cc',
-  'frame.cc',
-  'log.cc',
-  'main.cc',
-  'options.cc',
-  'pty.cc',
-  'renderer.cc',
-  'vkpresenter.cc',
-  'vterm.cc',
+  'charvdev.cpp',
+  'font.cpp',
+  'fontpack.cpp',
+  'frame.cpp',
+  'log.cpp',
+  'main.cpp',
+  'options.cpp',
+  'pty.cpp',
+  'renderer.cpp',
+  'vkpresenter.cpp',
+  'vterm.cpp',
 )
 zutty_sources += render_spv_header
 

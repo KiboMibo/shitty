@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
-SOURCE_PATTERNS = ("*.cc", "*.h", "*.icc")
+SOURCE_PATTERNS = ("*.cpp", "*.h", "*.icc")
 INITIALIZER_LIST = re.compile(r"^(?P<indent> +):(?=\s)")
 
 

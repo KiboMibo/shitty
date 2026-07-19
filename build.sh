@@ -35,8 +35,8 @@ python3 embed_spirv.py "$BUILDDIR/render.comp.spv" "$BUILDDIR/render_spv.h"
     -DZUTTY_VERSION="\"$VERSION\"" \
     -I"$BUILDDIR" \
     ${CPPFLAGS:-} ${CXXFLAGS:-} \
-    charvdev.cc font.cc fontpack.cc frame.cc log.cc main.cc \
-    options.cc pty.cc renderer.cc vkpresenter.cc vterm.cc \
+    charvdev.cpp font.cpp fontpack.cpp frame.cpp log.cpp main.cpp \
+    options.cpp pty.cpp renderer.cpp vkpresenter.cpp vterm.cpp \
     -o "$BUILDDIR/zutty" \
     ${LINK_FLAGS} ${CTRFLAGS} -lfreetype -lfontconfig -lSDL3 -lvulkan -lpthread
 

@@ -91,10 +91,10 @@ not clang-format directly.
 ## Functions and headers
 
 - Keep non-template methods longer than one trivial statement out of headers.
-  Headers describe interfaces; implementation belongs in the paired `.cc` or
+  Headers describe interfaces; implementation belongs in the paired `.cpp` or
   `.icc` file.
 - Avoid heavyweight includes in headers when a forward declaration suffices.
-- A `.cc` file includes its own header first, then related project headers,
+- A `.cpp` file includes its own header first, then related project headers,
   then third-party and system headers. Preserve meaningful blank groups; do
   not sort includes mechanically.
 - File-local declarations belong in an anonymous namespace. Shared program
