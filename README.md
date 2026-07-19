@@ -124,7 +124,7 @@ notably useful for defaults such as `+boldColors`.
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `-geometry COLSxROWS` | `80x24` | Initial terminal geometry in cells |
-| `-font NAME` | `9x18` | Primary font filename prefix |
+| `-font NAME` | `monospace` | Primary font filename prefix |
 | `-dwfont NAME` | `18x18ja` | Double-width font filename prefix |
 | `-fontsize PX` | `16` | Requested font height |
 | `-fontpath PATHS` | `/usr/share/fonts` | Colon-separated search roots |

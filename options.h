@@ -55,7 +55,7 @@ static const std::vector<OptionDesc> optionsTable = {
     {"cr", OptionKind::SepArg, nullptr, nullptr, "Cursor color"},
     {"dwfont", OptionKind::SepArg, nullptr, "18x18ja", "Double-width font to use"},
     {"fg", OptionKind::SepArg, nullptr, "#fff", "Foreground color"},
-    {"font", OptionKind::SepArg, nullptr, "9x18", "Font to use"},
+    {"font", OptionKind::SepArg, nullptr, "monospace", "Font to use"},
     {"fontsize", OptionKind::SepArg, nullptr, "16", "Font size"},
     {"fontpath", OptionKind::SepArg, nullptr, fontpath, "Font search path"},
     {"geometry", OptionKind::SepArg, nullptr, "80x24", "Terminal size in chars"},
