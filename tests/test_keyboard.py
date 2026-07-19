@@ -11,6 +11,26 @@ class KeyboardTest(unittest.TestCase):
             terminal.key("UP")
             self.assertEqual(terminal.read_input(), b"\x1b[A\x1bOA")
 
+    def test_application_keypad_encodes_numeric_key_aliases(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b=")
+            terminal.key("KP_0")
+            terminal.key("KP_1")
+            terminal.key("KP_5")
+            terminal.key("KP_9")
+            terminal.key("KP_DOT")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1bOp\x1bOq\x1bOu\x1bOy\x1bOn",
+            )
+
+    def test_vt52_application_keypad(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[?2l\x1b=")
+            terminal.key("KP_1")
+            terminal.key("KP_PLUS")
+            self.assertEqual(terminal.read_input(), b"\x1b?q\x1b?k")
+
     def test_function_key_and_modified_arrow(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.key("F5")
@@ -36,6 +56,36 @@ class KeyboardTest(unittest.TestCase):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.paste(b"one\ntwo")
             self.assertEqual(terminal.read_input(), b"one\rtwo")
+
+    def test_keyboard_lock_discards_user_input(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[2h")
+            terminal.char("x")
+            terminal.key("UP")
+            self.assertEqual(terminal.read_input(), b"")
+            terminal.write(b"\x1b[2l")
+            terminal.char("x")
+            self.assertEqual(terminal.read_input(), b"x")
+
+    def test_local_echo_renders_control_notation(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[12l")
+            terminal.char(3)
+            self.assertEqual(terminal.read_input(), b"\x03")
+            self.assertEqual(terminal.snapshot().lines[0][:2], "^C")
+
+    def test_newline_mode_appends_line_feed_to_return(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[20h")
+            terminal.key("RETURN")
+            self.assertEqual(terminal.read_input(), b"\r\n")
+
+    def test_backarrow_key_mode_switches_backspace_byte(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.key("BACKSPACE")
+            terminal.write(b"\x1b[?67h")
+            terminal.key("BACKSPACE")
+            self.assertEqual(terminal.read_input(), b"\x7f\x08")
 
     def test_kitty_key_flags_control_optional_fields(self):
         with Zutty(columns=8, rows=2) as terminal:
