@@ -47,8 +47,8 @@ uploaded by the CPU.
 Build-time requirements are:
 
 - a C++17 compiler;
-- Meson 1.2 or newer and Ninja;
-- Python 3 and `glslangValidator` for embedding the compute shader;
+- Python 3 and `glslangValidator` for compiling and embedding the compute
+  shader;
 - pkg-config;
 - FreeType 2;
 - GLFW 3.4 or newer, built with Wayland support;
@@ -66,25 +66,29 @@ libraries:
 
 ```sh
 nix-shell
-meson setup build --buildtype=release -Db_lto=true
-meson compile -C build
-./build/zutty
+./build zutty
+./zutty
 ```
 
 Without Nix, install the dependencies through the system package manager and
-run the same Meson commands. To install the executable, desktop entry and
-scalable icon using Meson's selected prefix:
+run the same build command. The explicit `zutty` target publishes `./zutty` as
+a symlink to the executable in the content-addressed `.build` cache. Running
+`./build` without an explicit target builds the executable without publishing
+the symlink.
+
+To install the executable, desktop entry and scalable icon:
 
 ```sh
-meson install -C build
+install -Dm755 ./zutty /usr/local/bin/zutty
+install -Dm644 zutty.desktop /usr/local/share/applications/zutty.desktop
+install -Dm644 zutty.svg /usr/local/share/icons/hicolor/scalable/apps/zutty.svg
 ```
 
 For a development build with assertions and VT parser stepping enabled:
 
 ```sh
-meson setup build-debug --buildtype=debug -Dwerror=true
-meson compile -C build-debug
-./build-debug/zutty -verbose
+CPPFLAGS=-DDEBUG ./build zutty
+./zutty -verbose
 ```
 
 ## Run
@@ -93,20 +97,20 @@ The built-in bitmap defaults are not installed on every system, so explicitly
 choosing an available monospace font is often the best first run:
 
 ```sh
-./build/zutty -font DejaVuSansMono -fontsize 16
+./zutty -font DejaVuSansMono -fontsize 16
 ```
 
 Other examples:
 
 ```sh
 # A larger terminal and scrollback buffer
-./build/zutty -geometry 120x36 -saveLines 5000
+./zutty -geometry 120x36 -saveLines 5000
 
 # Run a command instead of the login shell
-./build/zutty -font LiberationMono -e tmux new-session
+./zutty -font LiberationMono -e tmux new-session
 
 # Inspect the selected Vulkan device
-./build/zutty -vulkanInfo -font DejaVuSansMono
+./zutty -vulkanInfo -font DejaVuSansMono
 ```
 
 Zutty sets `TERM=xterm-256color` and exports its version as `ZUTTY_VERSION` to
@@ -272,7 +276,7 @@ Source map:
 - `charvdev.*` — compact cell representation and host-side video memory;
 - `renderer.*` — terminal-to-presenter bridge;
 - `vkpresenter.*` — Vulkan resources, compute dispatch and swapchain;
-- `render.comp` — cell compositor compiled to embedded SPIR-V by Meson;
+- `render.comp` — cell compositor compiled to embedded SPIR-V by `build`;
 - `main.cpp` — GLFW Wayland event loop, PTY integration and clipboard;
 - `options.*` — command-line configuration.
 

@@ -6,8 +6,6 @@ pkgs.mkShell {
     freetype
     glslang
     glfw
-    meson
-    ninja
     pkg-config
     python3
     vulkan-loader
