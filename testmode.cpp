@@ -326,6 +326,17 @@ int runTestMode(int controlFd) {
                    std::to_string(first) + " " +
                    std::to_string(second) + "\n";
     });
+    terminal.setWindowInfoHandler(
+        []() {
+        Vterm::WindowInfo info;
+        info.x = 10;
+        info.y = 20;
+        info.pixelWidth = opts.nCols + 2 * opts.border;
+        info.pixelHeight = opts.nRows + 2 * opts.border;
+        info.screenPixelWidth = 1920;
+        info.screenPixelHeight = 1080;
+        return info;
+    });
     terminal.redraw();
     writeAll(controlFd, "READY\n");
 
@@ -421,6 +432,14 @@ int runTestMode(int controlFd) {
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 6, "FOCUS ") == 0) {
                 terminal.setHasFocus(line.substr(6) == "1");
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 18, "HIGHLIGHT_RELEASE ") == 0) {
+                std::istringstream args(line.substr(18));
+                unsigned endX, endY, mouseX, mouseY;
+                if (!(args >> endX >> endY >> mouseX >> mouseY)) {
+                    throw std::runtime_error("invalid highlight release");
+                }
+                terminal.mouseHighlightRelease(endX, endY, mouseX, mouseY);
                 writeAll(controlFd, "OK\n");
             } else if (line == "SYNC_TIMEOUT") {
                 terminal.expireSynchronizedOutput(true);

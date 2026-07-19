@@ -146,7 +146,8 @@ enum class MouseTrackingMode : uint8_t {
     X10_Compat,
     VT200,
     VT200_ButtonEvent,
-    VT200_AnyEvent
+    VT200_AnyEvent,
+    VT200_Highlight
 };
 enum class MouseTrackingEnc : uint8_t {
     Default = 0,
@@ -194,6 +195,19 @@ public:
     using WindowOpsHandlerFn =
         std::function<void(uint32_t, uint32_t, uint32_t)>;
     void setWindowOpsHandler(const WindowOpsHandlerFn&);
+    struct WindowInfo {
+        int32_t x = 0;
+        int32_t y = 0;
+        uint32_t pixelWidth = 0;
+        uint32_t pixelHeight = 0;
+        uint32_t screenPixelWidth = 0;
+        uint32_t screenPixelHeight = 0;
+        bool iconified = false;
+        bool maximized = false;
+        bool fullscreen = false;
+    };
+    using WindowInfoHandlerFn = std::function<WindowInfo()>;
+    void setWindowInfoHandler(const WindowInfoHandlerFn&);
 
     void resize(uint16_t winPx, uint16_t winPy);
 
@@ -240,6 +254,8 @@ public:
     void feedPtyOutput(const std::string& output);
 
     const MouseTrackingState& getMouseTrackingState() const;
+    bool mouseHighlightRelease(uint16_t endX, uint16_t endY,
+                               uint16_t mouseX, uint16_t mouseY);
 
     void setHasFocus(bool);
     void setHyperlink(const std::string& parametersAndUri);
@@ -451,6 +467,7 @@ private:
     void handle_OSC();
     void csiq_DECSCL();
     void csi_XTWINOPS();
+    void csi_XTHIMOUSE();
     void csi_XTMODKEYS();
     void csi_XTQMODKEYS();
     void csi_kittyKeyboardPush();
@@ -488,6 +505,7 @@ private:
     NotificationHandlerFn onNotification;
     ProgressHandlerFn onProgress;
     WindowOpsHandlerFn onWindowOps;
+    WindowInfoHandlerFn onWindowInfo;
 
     Frame frame_pri;
     Frame frame_alt;
@@ -686,6 +704,13 @@ private:
     bool selectUpdatesLeft = false;
 
     MouseTrackingState mouseTrk;
+    struct MouseHighlightState {
+        bool active = false;
+        uint16_t startX = 1;
+        uint16_t startY = 1;
+        uint16_t firstRow = 1;
+        uint16_t lastRow = 1;
+    } mouseHighlight;
 
 #ifdef DEBUG
     void traceFunction(const char* func);

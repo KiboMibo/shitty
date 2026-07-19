@@ -206,6 +206,38 @@ Vterm::getMouseTrackingState() const {
     return mouseTrk;
 }
 
+inline bool
+Vterm::mouseHighlightRelease(uint16_t endX, uint16_t endY,
+                             uint16_t mouseX, uint16_t mouseY) {
+    if (mouseTrk.mode != MouseTrackingMode::VT200_Highlight ||
+        !mouseHighlight.active) return false;
+    mouseHighlight.active = false;
+    endY = std::clamp(endY, mouseHighlight.firstRow,
+                     mouseHighlight.lastRow);
+    std::ostringstream response;
+    if (mouseTrk.enc == MouseTrackingEnc::SGR ||
+        mouseTrk.enc == MouseTrackingEnc::SGRPixels) {
+        response << '<' << mouseHighlight.startX << ';'
+                 << mouseHighlight.startY << ';' << endX << ';' << endY
+                 << ';' << mouseX << ';' << mouseY << 'T';
+        writeCsiResponse(response.str());
+    } else {
+        const auto coordinate = [](uint16_t value) {
+            return static_cast<char>(32 + std::clamp<uint16_t>(value, 1, 223));
+        };
+        response << (mouseHighlight.startX == endX &&
+                     mouseHighlight.startY == endY ? 't' : 'T')
+                 << coordinate(mouseHighlight.startX)
+                 << coordinate(mouseHighlight.startY);
+        if (mouseHighlight.startX != endX || mouseHighlight.startY != endY) {
+            response << coordinate(endX) << coordinate(endY)
+                     << coordinate(mouseX) << coordinate(mouseY);
+        }
+        writeCsiResponse(response.str());
+    }
+    return true;
+}
+
 inline Vterm::KittyKeyboardState&
 Vterm::kittyKeyboardState() {
     return altScreenBufferMode ? kittyKeyboardAlt : kittyKeyboardPri;
@@ -1656,6 +1688,8 @@ Vterm::setPrivMode(uint32_t arg, bool set) {
                 mouseTrk.mode = MouseTrackingMode::VT200;
                 break;
             case 1001:
+                mouseTrk.mode = MouseTrackingMode::VT200_Highlight;
+                mouseHighlight.active = false;
                 break;
             case 1002:
                 mouseTrk.mode = MouseTrackingMode::VT200_ButtonEvent;
@@ -1744,9 +1778,11 @@ Vterm::setPrivMode(uint32_t arg, bool set) {
                 break;
             case 9:
             case 1000:
+            case 1001:
             case 1002:
             case 1003:
                 mouseTrk.mode = MouseTrackingMode::Disabled;
+                mouseHighlight.active = false;
                 break;
             case 12:
                 cursorBlinkMode = false;
@@ -1767,8 +1803,6 @@ Vterm::setPrivMode(uint32_t arg, bool set) {
                 horizMarginMode = false;
                 hMargin = 0;
                 nColsEff = nCols;
-                break;
-            case 1001:
                 break;
             case 1004:
                 mouseTrk.focusEventMode = false;
@@ -1837,7 +1871,7 @@ Vterm::getPrivMode(uint32_t arg) const {
         case 1000:
             return mouseTrk.mode == MouseTrackingMode::VT200;
         case 1001:
-            return false;
+            return mouseTrk.mode == MouseTrackingMode::VT200_Highlight;
         case 1002:
             return mouseTrk.mode == MouseTrackingMode::VT200_ButtonEvent;
         case 1003:
@@ -2275,6 +2309,7 @@ Vterm::csi_DECRQM(bool privateMode) {
             case 67:
             case 69:
             case 1000:
+            case 1001:
             case 1002:
             case 1003:
             case 1004:
@@ -2904,13 +2939,30 @@ Vterm::csi_XTWINOPS() {
                         nInputOps > 2 ? inputOps[2] : 0);
             break;
         case 11:
-            writeCsiResponse("1t");
+            writeCsiResponse(onWindowInfo().iconified ? "2t" : "1t");
             break;
+        case 13: {
+            const auto info = onWindowInfo();
+            response << "3;" << info.x << ';' << info.y << 't';
+            writeCsiResponse(response.str());
+        } break;
         case 14:
-            response << "4;" << nRows * glyphPy << ';'
-                     << nCols * glyphPx << 't';
+            if (nInputOps > 1 && inputOps[1] == 2) {
+                const auto info = onWindowInfo();
+                response << "4;" << info.pixelHeight << ';'
+                         << info.pixelWidth << 't';
+            } else {
+                response << "4;" << nRows * glyphPy << ';'
+                         << nCols * glyphPx << 't';
+            }
             writeCsiResponse(response.str());
             break;
+        case 15: {
+            const auto info = onWindowInfo();
+            response << "5;" << info.screenPixelHeight << ';'
+                     << info.screenPixelWidth << 't';
+            writeCsiResponse(response.str());
+        } break;
         case 16:
             response << "6;" << glyphPy << ';' << glyphPx << 't';
             writeCsiResponse(response.str());
@@ -2919,6 +2971,12 @@ Vterm::csi_XTWINOPS() {
             response << "8;" << nRows << ';' << nCols << 't';
             writeCsiResponse(response.str());
             break;
+        case 19: {
+            const auto info = onWindowInfo();
+            response << "9;" << info.screenPixelHeight / glyphPy << ';'
+                     << info.screenPixelWidth / glyphPx << 't';
+            writeCsiResponse(response.str());
+        } break;
         case 20:
             writeTitleResponse('L', iconTitle);
             break;
@@ -2950,6 +3008,23 @@ Vterm::csi_XTWINOPS() {
             break;
         default:
             break;
+    }
+    setState(InputState::Normal);
+}
+
+inline void
+Vterm::csi_XTHIMOUSE() {
+    TRACE_FUN;
+    if (mouseTrk.mode == MouseTrackingMode::VT200_Highlight &&
+        nInputOps == 5 && inputOps[0] != 0) {
+        mouseHighlight.active = true;
+        mouseHighlight.startX = std::max<uint32_t>(1, inputOps[1]);
+        mouseHighlight.startY = std::max<uint32_t>(1, inputOps[2]);
+        mouseHighlight.firstRow = std::max<uint32_t>(1, inputOps[3]);
+        mouseHighlight.lastRow = std::max<uint32_t>(
+            mouseHighlight.firstRow, inputOps[4]);
+    } else {
+        mouseHighlight.active = false;
     }
     setState(InputState::Normal);
 }

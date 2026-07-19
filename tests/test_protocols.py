@@ -93,6 +93,17 @@ class ProtocolTest(unittest.TestCase):
                 b"\x1b[8;4;10t",
             )
 
+    def test_xtwinops_reports_position_window_and_monitor_geometry(self):
+        with Zutty(columns=10, rows=4) as terminal:
+            terminal.write(
+                b"\x1b[11t\x1b[13t\x1b[14;2t\x1b[15t\x1b[19t"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[1t\x1b[3;10;20t\x1b[4;8;14t"
+                b"\x1b[5;1080;1920t\x1b[9;1080;1920t",
+            )
+
     def test_xtwinops_resize_requests_reach_window_backend(self):
         with Zutty(columns=10, rows=4) as terminal:
             terminal.write(b"\x1b[8;6;20t\x1b[4;120;320t")

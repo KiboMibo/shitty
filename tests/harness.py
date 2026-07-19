@@ -161,6 +161,11 @@ class Zutty:
     def focus(self, focused):
         self.command(f"FOCUS {int(focused)}")
 
+    def highlight_release(self, end_x, end_y, mouse_x, mouse_y):
+        self.command(
+            f"HIGHLIGHT_RELEASE {end_x} {end_y} {mouse_x} {mouse_y}"
+        )
+
     def sync_timeout(self):
         self.command("SYNC_TIMEOUT")
 

@@ -225,6 +225,9 @@ namespace {
         double lastClickY = 0.0;
         double scrollRemainderX = 0.0;
         double scrollRemainderY = 0.0;
+        uint16_t lastReportColumn = UINT16_MAX;
+        uint16_t lastReportRow = UINT16_MAX;
+        bool cursorInside = true;
     } mouseContext;
 
     struct WindowContext {
@@ -233,6 +236,10 @@ namespace {
         bool resizePending = false;
         bool redrawPending = false;
         bool correctingResize = false;
+        int restoredX = 0;
+        int restoredY = 0;
+        int restoredWidth = 800;
+        int restoredHeight = 600;
     } windowContext;
 
     unsigned suppressedTextInputs = 0;
@@ -1041,6 +1048,11 @@ namespace {
         uint16_t column = 0;
         uint16_t row = 0;
         mouseProtocolCoordinates(tracking.enc, pixelX, pixelY, column, row);
+        if (tracking.mode == MouseTrackingMode::VT200_Highlight &&
+            type == MouseEventType::Release) {
+            vt->mouseHighlightRelease(column, row, column, row);
+            return;
+        }
         const int protocolModifiers =
             tracking.mode == MouseTrackingMode::X10_Compat ? 0 : modifiers;
         mouseProtocolSend(
@@ -1181,17 +1193,16 @@ namespace {
                 return;
             }
 
-            static uint16_t lastColumn = UINT16_MAX;
-            static uint16_t lastRow = UINT16_MAX;
             uint16_t column = 0;
             uint16_t row = 0;
             mouseProtocolCoordinates(tracking.enc, pixelX, pixelY, column, row);
-            if (column != lastColumn || row != lastRow) {
+            if (column != mouseContext.lastReportColumn ||
+                row != mouseContext.lastReportRow) {
                 mouseProtocolSend(tracking.enc, MouseEventType::Motion,
                                   modifiers, mouseContext.buttonState,
                                   0, column, row);
-                lastColumn = column;
-                lastRow = row;
+                mouseContext.lastReportColumn = column;
+                mouseContext.lastReportRow = row;
             }
         } else if (mouseContext.buttonState &
                    ((1u << GLFW_MOUSE_BUTTON_LEFT) |
@@ -1439,6 +1450,14 @@ namespace {
         });
     }
 
+    void onCursorEnter(GLFWwindow*, int entered) {
+        guardCallback([entered]() {
+            mouseContext.cursorInside = entered == GLFW_TRUE;
+            mouseContext.lastReportColumn = UINT16_MAX;
+            mouseContext.lastReportRow = UINT16_MAX;
+        });
+    }
+
     void onScroll(GLFWwindow*, double x, double y) {
         guardCallback([x, y]() {
             onMouseWheel(x, y);
@@ -1453,6 +1472,7 @@ namespace {
         glfwSetCharCallback(window, onCharacter);
         glfwSetMouseButtonCallback(window, onMouseButtonCallback);
         glfwSetCursorPosCallback(window, onCursorPosition);
+        glfwSetCursorEnterCallback(window, onCursorEnter);
         glfwSetScrollCallback(window, onScroll);
     }
 
@@ -1699,7 +1719,40 @@ namespace {
                 case 9:
                     if (first == 0) glfwRestoreWindow(window);
                     else if (first == 1) glfwMaximizeWindow(window);
+                    else if (first == 2) {
+                        if (glfwGetWindowAttrib(window, GLFW_MAXIMIZED))
+                            glfwRestoreWindow(window);
+                        else
+                            glfwMaximizeWindow(window);
+                    }
                     return;
+                case 10: {
+                    const bool fullscreen = glfwGetWindowMonitor(window) != nullptr;
+                    const bool enable = first == 1 || (first == 2 && !fullscreen);
+                    if (enable == fullscreen) return;
+                    if (enable) {
+                        glfwGetWindowPos(window, &windowContext.restoredX,
+                                         &windowContext.restoredY);
+                        glfwGetWindowSize(window, &windowContext.restoredWidth,
+                                          &windowContext.restoredHeight);
+                        GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+                        const GLFWvidmode* mode = monitor != nullptr
+                                                      ? glfwGetVideoMode(monitor)
+                                                      : nullptr;
+                        if (monitor != nullptr && mode != nullptr) {
+                            glfwSetWindowMonitor(window, monitor, 0, 0,
+                                                 mode->width, mode->height,
+                                                 mode->refreshRate);
+                        }
+                    } else {
+                        glfwSetWindowMonitor(
+                            window, nullptr, windowContext.restoredX,
+                            windowContext.restoredY,
+                            windowContext.restoredWidth,
+                            windowContext.restoredHeight, GLFW_DONT_CARE);
+                    }
+                    return;
+                }
                 default:
                     break;
             }
@@ -1724,6 +1777,33 @@ namespace {
                 window,
                 std::max(1, static_cast<int>(std::ceil(pixelWidth / xScale))),
                 std::max(1, static_cast<int>(std::ceil(pixelHeight / yScale))));
+        });
+        vt->setWindowInfoHandler(
+            []() {
+            Vterm::WindowInfo info;
+            int x = 0;
+            int y = 0;
+            glfwGetWindowPos(window, &x, &y);
+            info.x = x;
+            info.y = y;
+            int width = 0;
+            int height = 0;
+            glfwGetFramebufferSize(window, &width, &height);
+            info.pixelWidth = std::max(0, width);
+            info.pixelHeight = std::max(0, height);
+            GLFWmonitor* monitor = glfwGetWindowMonitor(window);
+            if (monitor == nullptr) monitor = glfwGetPrimaryMonitor();
+            const GLFWvidmode* mode = monitor != nullptr
+                                          ? glfwGetVideoMode(monitor)
+                                          : nullptr;
+            if (mode != nullptr) {
+                info.screenPixelWidth = mode->width;
+                info.screenPixelHeight = mode->height;
+            }
+            info.iconified = glfwGetWindowAttrib(window, GLFW_ICONIFIED);
+            info.maximized = glfwGetWindowAttrib(window, GLFW_MAXIMIZED);
+            info.fullscreen = glfwGetWindowMonitor(window) != nullptr;
+            return info;
         });
         setupCallbacks();
         vt->setHasFocus(

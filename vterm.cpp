@@ -1236,6 +1236,14 @@ Vterm::Vterm(uint16_t glyphPx_, uint16_t glyphPy_,
                         const std::string&, bool) {})
     , onProgress([](uint32_t, uint32_t) {})
     , onWindowOps([](uint32_t, uint32_t, uint32_t) {})
+    , onWindowInfo([this]() {
+        WindowInfo info;
+        info.pixelWidth = winPx;
+        info.pixelHeight = winPy;
+        info.screenPixelWidth = winPx;
+        info.screenPixelHeight = winPy;
+        return info;
+    })
     , frame_pri(winPx, winPy, nCols, nRows, marginTop, marginBottom,
                 opts.saveLines)
     , cf(&frame_pri)
@@ -1298,6 +1306,10 @@ void Vterm::setProgressHandler(const ProgressHandlerFn& handler) {
 
 void Vterm::setWindowOpsHandler(const WindowOpsHandlerFn& handler) {
     onWindowOps = handler;
+}
+
+void Vterm::setWindowInfoHandler(const WindowInfoHandlerFn& handler) {
+    onWindowInfo = handler;
 }
 
 void Vterm::resize(uint16_t winPx_, uint16_t winPy_) {
@@ -2306,7 +2318,11 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         csi_SU();
                         break;
                     case 'T':
-                        csi_SD();
+                        if (nInputOps == 5 &&
+                            mouseTrk.mode == MouseTrackingMode::VT200_Highlight)
+                            csi_XTHIMOUSE();
+                        else
+                            csi_SD();
                         break;
                     case 'X':
                         csi_ECH();

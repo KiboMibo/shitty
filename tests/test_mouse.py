@@ -4,6 +4,23 @@ from harness import Zutty
 
 
 class MouseProtocolTest(unittest.TestCase):
+    def test_highlight_tracking_reports_same_and_extended_ranges(self):
+        with Zutty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[?1001h\x1b[1;2;1;1;4T")
+            terminal.highlight_release(2, 1, 2, 1)
+            self.assertEqual(terminal.read_input(), b"\x1b[t\"!")
+
+            terminal.write(b"\x1b[1;2;1;1;4T")
+            terminal.highlight_release(5, 3, 5, 3)
+            self.assertEqual(terminal.read_input(), b"\x1b[T\"!%#%#")
+
+    def test_highlight_tracking_uses_sgr_coordinates(self):
+        with Zutty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[?1001h\x1b[?1006h\x1b[1;2;1;1;4T")
+            terminal.highlight_release(5, 3, 5, 3)
+            self.assertEqual(
+                terminal.read_input(), b"\x1b[<2;1;5;3;5;3T"
+            )
     def test_default_encoding_press_and_release(self):
         with Zutty(columns=8, rows=2) as terminal:
             self.assertEqual(
