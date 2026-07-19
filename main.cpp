@@ -237,6 +237,13 @@ namespace {
 
     unsigned suppressedTextInputs = 0;
     bool locallyConsumedKeys[GLFW_KEY_LAST + 1]{};
+    struct PendingKittyTextKey {
+        bool active = false;
+        uint32_t primary = 0;
+        uint32_t base = 0;
+        uint16_t modifiers = 0;
+        Vterm::KeyEventType event = Vterm::KeyEventType::Press;
+    } pendingKittyTextKey;
 
     int gridAlignedWindowSize(int framebufferSize, int border,
                               int cellSize, float scale,
@@ -499,56 +506,12 @@ namespace {
         return 0;
     }
 
-    uint32_t shiftedKey(uint32_t key) {
-        if (key >= 'a' && key <= 'z') {
-            return key - 'a' + 'A';
-        }
-        switch (key) {
-            case '`':
-                return '~';
-            case '1':
-                return '!';
-            case '2':
-                return '@';
-            case '3':
-                return '#';
-            case '4':
-                return '$';
-            case '5':
-                return '%';
-            case '6':
-                return '^';
-            case '7':
-                return '&';
-            case '8':
-                return '*';
-            case '9':
-                return '(';
-            case '0':
-                return ')';
-            case '-':
-                return '_';
-            case '=':
-                return '+';
-            case '[':
-                return '{';
-            case ']':
-                return '}';
-            case '\\':
-                return '|';
-            case ';':
-                return ':';
-            case '\'':
-                return '"';
-            case ',':
-                return '<';
-            case '.':
-                return '>';
-            case '/':
-                return '?';
-            default:
-                return 0;
-        }
+    void flushPendingKittyTextKey() {
+        if (!pendingKittyTextKey.active) return;
+        const auto pending = pendingKittyTextKey;
+        pendingKittyTextKey.active = false;
+        vt->writeKittyKey(pending.primary, 0, pending.base,
+                          pending.modifiers, pending.event);
     }
 
     bool pasteSelection(bool primary) {
@@ -803,6 +766,7 @@ namespace {
     }
 
     void onKeyEvent(int key, int scancode, int action, int rawModifiers) {
+        flushPendingKittyTextKey();
         const int keyModifiers = rawModifiers;
         const int legacyModifiers = significantModifiers(rawModifiers);
         const VtModifier modifiers = convertModifiers(legacyModifiers);
@@ -888,11 +852,14 @@ namespace {
             const uint16_t textMods = kittyMods & ~(64 | 128);
             if (primaryKey &&
                 ((textMods & (2 | 4 | 8)) || (kittyFlags & 0x08))) {
-                const uint32_t alternate = textMods & 1
-                                               ? shiftedKey(primaryKey)
-                                               : 0;
-                vt->writeKittyKey(primaryKey, alternate, baseKey,
-                                  textMods, event);
+                if (pressed && !(textMods & (2 | 4 | 8))) {
+                    pendingKittyTextKey = {
+                        true, primaryKey, baseKey, textMods, event};
+                    return;
+                } else {
+                    vt->writeKittyKey(primaryKey, 0, baseKey,
+                                      textMods, event);
+                }
                 if (pressed &&
                     (((textMods & (2 | 8)) && !(textMods & 4)) ||
                      (kittyFlags & 0x08))) {
@@ -926,6 +893,15 @@ namespace {
     }
 
     void onTextInput(uint32_t codepoint) {
+        if (pendingKittyTextKey.active) {
+            const auto pending = pendingKittyTextKey;
+            pendingKittyTextKey.active = false;
+            const uint32_t alternate = codepoint != pending.primary
+                                           ? codepoint : 0;
+            vt->writeKittyKey(pending.primary, alternate, pending.base,
+                              pending.modifiers, pending.event);
+            return;
+        }
         if (suppressedTextInputs) {
             --suppressedTextInputs;
             return;
@@ -1430,6 +1406,7 @@ namespace {
             if (!focused) {
                 mouseContext.buttonState = 0;
                 suppressedTextInputs = 0;
+                pendingKittyTextKey.active = false;
                 std::fill_n(locallyConsumedKeys, GLFW_KEY_LAST + 1, false);
             }
             vt->setHasFocus(focused == GLFW_TRUE);
@@ -1490,6 +1467,7 @@ namespace {
             if (callbackError != nullptr) {
                 std::rethrow_exception(callbackError);
             }
+            flushPendingKittyTextKey();
             if (glfwWindowShouldClose(window)) {
                 return true;
             }

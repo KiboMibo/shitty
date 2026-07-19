@@ -211,6 +211,28 @@ class KeyboardTest(unittest.TestCase):
             terminal.char("a", modifiers=1)
             self.assertEqual(terminal.read_input(), b"\x1b[27;2;97~")
 
+    def test_xtmodkeys_sets_queries_and_resets_every_resource(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1b[>0;4m\x1b[>1;0m\x1b[>2;0m"
+                b"\x1b[>3;4m\x1b[>4;2m\x1b[>6;3m\x1b[>7;1m"
+                b"\x1b[?0m\x1b[?1m\x1b[?2m\x1b[?3m"
+                b"\x1b[?4m\x1b[?6m\x1b[?7m"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[>0;4m\x1b[>1;0m\x1b[>2;0m"
+                b"\x1b[>3;4m\x1b[>4;2m\x1b[>6;3m\x1b[>7;1m",
+            )
+            terminal.key("LEFT", modifiers=1)
+            terminal.key("F5", modifiers=4)
+            self.assertEqual(terminal.read_input(), b"\x1b[D\x1b[15~")
+
+            terminal.write(b"\x1b[>1m\x1b[?1m\x1b[>m\x1b[?4m")
+            self.assertEqual(
+                terminal.read_input(), b"\x1b[>1;2m\x1b[>4;1m"
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

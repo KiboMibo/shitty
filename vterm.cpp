@@ -1257,6 +1257,13 @@ Vterm::Vterm(uint16_t glyphPx_, uint16_t glyphPy_,
     cursorColor = opts.cr;
     selectionFgColor = opts.fg;
     selectionBgColor = opts.bg;
+    initialModifyKeyResources[0] = 0;
+    initialModifyKeyResources[1] = 2;
+    initialModifyKeyResources[2] = 2;
+    initialModifyKeyResources[3] = 0;
+    initialModifyKeyResources[4] = opts.modifyOtherKeys;
+    initialModifyKeyResources[6] = 0;
+    initialModifyKeyResources[7] = 0;
     windowTitle = opts.title;
     iconTitle = opts.title;
 
@@ -1689,7 +1696,7 @@ Vterm::getInputSpecTable() {
              is_VT52_FunctionKeys},
 
             {[this]() {
-        return (modifiers != Mod::none &&
+        return (modifiers != Mod::none && modifyKeyResources[3] != 0 &&
                 keypadMode == KeypadMode::Application);
     },
              is_Mod_Appl_KeypadKeys},
@@ -1698,7 +1705,7 @@ Vterm::getInputSpecTable() {
     },
              is_Appl_KeypadKeys},
             {[this]() {
-        return (modifiers != Mod::none);
+        return (modifiers != Mod::none && modifyKeyResources[1] != 0);
     },
              is_Mod_CursorKeys},
             {[this]() {
@@ -1707,11 +1714,11 @@ Vterm::getInputSpecTable() {
              is_Appl_CursorKeys},
 
             {[this]() {
-        return (modifiers != Mod::none);
+        return (modifiers != Mod::none && modifyKeyResources[0] != 0);
     },
              is_Mod_Ansi},
             {[this]() {
-        return (modifiers != Mod::none);
+        return (modifiers != Mod::none && modifyKeyResources[2] != 0);
     },
              is_Mod_Ansi_FunctionKeys},
 
@@ -1790,6 +1797,7 @@ Vterm::getInputSpec(Key key) {
     case '7':                                                        \
     case '8':                                                        \
     case '9':                                                        \
+        csiHadParams = true;                                         \
         csiPrefixAllowed = false;                                    \
         if (inputOps[nInputOps - 1] >                                \
             (UINT32_MAX - static_cast<uint32_t>(ch - '0')) / 10) {   \
@@ -1801,6 +1809,7 @@ Vterm::getInputSpec(Key key) {
         break;                                                       \
     case ';':                                                        \
     case ':':                                                        \
+        csiHadParams = true;                                         \
         csiPrefixAllowed = false;                                    \
         if (nInputOps < maxEscOps) {                                 \
             inputSeparators[nInputOps] = ch;                         \
@@ -1904,6 +1913,7 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         inputOps[0] = 0;
                         inputSeparators[0] = 0;
                         nInputOps = 1;
+                        csiHadParams = false;
                         csiPrefixAllowed = true;
                         setState(InputState::CSI);
                         break;
@@ -2056,6 +2066,7 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         setState(InputState::Esc_Pct);
                         break;
                     case '[':
+                        csiHadParams = false;
                         csiPrefixAllowed = true;
                         setState(InputState::CSI);
                         break;
@@ -2539,6 +2550,9 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         break;
                     case 'u':
                         csi_kittyKeyboardQuery();
+                        break;
+                    case 'm':
+                        csi_XTQMODKEYS();
                         break;
                     case '$':
                         setState(InputState::CSI_priv_Dollar);

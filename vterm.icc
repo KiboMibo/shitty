@@ -304,6 +304,9 @@ Vterm::resetTerminal() {
     altScrollMode = opts.altScrollMode;
     altSendsEscape = opts.altSendsEscape;
     modifyOtherKeys = opts.modifyOtherKeys;
+    std::copy(std::begin(initialModifyKeyResources),
+              std::end(initialModifyKeyResources),
+              std::begin(modifyKeyResources));
     savedPrivModes.clear();
     kittyKeyboardPri = {};
     kittyKeyboardAlt = {};
@@ -2954,47 +2957,34 @@ Vterm::csi_XTWINOPS() {
 inline void
 Vterm::csi_XTMODKEYS() {
     TRACE_FUN;
-
-    switch (nInputOps) {
-        case 0:
-
-            break;
-        case 1:
-            inputOps[1] = 0;
-
-        case 2:
-            switch (inputOps[0]) {
-                case 0:
-                    if (inputOps[1] != 0) {
-                        logU << "XTMODKEYS: modifyKeyboard = " << inputOps[1]
-                             << std::endl;
-                    }
-                    break;
-                case 1:
-                    if (inputOps[1] != 2) {
-                        logU << "XTMODKEYS: modifyCursorKeys = " << inputOps[1]
-                             << std::endl;
-                    }
-                    break;
-                case 2:
-                    if (inputOps[1] != 2) {
-                        logU << "XTMODKEYS: modifyFunctionKeys = " << inputOps[1]
-                             << std::endl;
-                    }
-                    break;
-                case 4:
-                    if (inputOps[1] <= 2) {
-                        modifyOtherKeys = inputOps[1];
-                        logT << "XTMODKEYS: modifyOtherKeys set to "
-                             << (int)modifyOtherKeys << std::endl;
-                    } else {
-                        logI << "XTMODKEYS: illegal argument for modifyOtherKeys: "
-                             << inputOps[1] << std::endl;
-                    }
-                    break;
-            }
+    const auto supported = [](uint32_t resource) {
+        return resource <= 4 || resource == 6 || resource == 7;
+    };
+    if (!csiHadParams) {
+        std::copy(std::begin(initialModifyKeyResources),
+                  std::end(initialModifyKeyResources),
+                  std::begin(modifyKeyResources));
+    } else if (supported(inputOps[0])) {
+        const uint32_t resource = inputOps[0];
+        const uint32_t value = nInputOps > 1
+                                   ? inputOps[1]
+                                   : initialModifyKeyResources[resource];
+        if (value <= 4) modifyKeyResources[resource] = value;
     }
+    modifyOtherKeys = modifyKeyResources[4];
+    setState(InputState::Normal);
+}
 
+inline void
+Vterm::csi_XTQMODKEYS() {
+    TRACE_FUN;
+    const uint32_t resource = inputOps[0];
+    if (resource <= 4 || resource == 6 || resource == 7) {
+        std::ostringstream response;
+        response << '>' << resource << ';'
+                 << static_cast<unsigned>(modifyKeyResources[resource]) << 'm';
+        writeCsiResponse(response.str());
+    }
     setState(InputState::Normal);
 }
 

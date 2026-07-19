@@ -452,6 +452,7 @@ private:
     void csiq_DECSCL();
     void csi_XTWINOPS();
     void csi_XTMODKEYS();
+    void csi_XTQMODKEYS();
     void csi_kittyKeyboardPush();
     void csi_kittyKeyboardPop();
     void csi_kittyKeyboardSet();
@@ -586,6 +587,9 @@ private:
     bool altScrollMode = false;
     bool altSendsEscape = true;
     uint8_t modifyOtherKeys = 1;
+    uint8_t modifyKeyResources[8] = {};
+    uint8_t initialModifyKeyResources[8] = {};
+    bool csiHadParams = false;
     std::map<uint32_t, bool> savedPrivModes;
 
     struct KittyKeyboardState {
