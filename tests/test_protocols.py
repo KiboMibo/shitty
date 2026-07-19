@@ -9,8 +9,8 @@ class ProtocolTest(unittest.TestCase):
             terminal.write(b"\x1b[2;4H\x1b[c\x1b[>c\x1b[5n\x1b[6n")
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[?64;1;9;15;21;22c"
-                b"\x1b[>64;0;0c"
+                b"\x1b[?64;9;15;21;22c"
+                b"\x1b[>41;14;0c"
                 b"\x1b[0n"
                 b"\x1b[2;4R",
             )
@@ -20,12 +20,72 @@ class ProtocolTest(unittest.TestCase):
             terminal.write(b"\x1bP$q\"p\x1b\\")
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1bP1$r64;1;9;15;21;22c\x1b\\",
+                b"\x1bP1$r64;1\"p\x1b\\",
+            )
+
+    def test_decrqss_reports_current_terminal_state(self):
+        with Zutty(columns=10, rows=6) as terminal:
+            terminal.write(
+                b"\x1b[1;3;4;31;42m"
+                b"\x1b[2;5r"
+                b"\x1b[?69h\x1b[3;8s"
+                b"\x1b[5 q"
+                b"\x1bP$qm\x1b\\"
+                b"\x1bP$qr\x1b\\"
+                b"\x1bP$qs\x1b\\"
+                b"\x1bP$q q\x1b\\"
+                b"\x1bP$q\"q\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1bP1$r0;1;3;4;38;5;1;48;5;2m\x1b\\"
+                b"\x1bP1$r2;5r\x1b\\"
+                b"\x1bP1$r3;8s\x1b\\"
+                b"\x1bP1$r5 q\x1b\\"
+                b"\x1bP1$r0\"q\x1b\\",
+            )
+
+    def test_decrqm_reports_ansi_and_private_mode_state(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1b[?7$p"
+                b"\x1b[?7l\x1b[?7$p"
+                b"\x1b[4$p"
+                b"\x1b[4h\x1b[4$p"
+                b"\x1b[?9999$p"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[?7;1$y"
+                b"\x1b[?7;2$y"
+                b"\x1b[4;2$y"
+                b"\x1b[4;1$y"
+                b"\x1b[?9999;0$y",
+            )
+
+    def test_xtgettcap_reports_declared_capabilities(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1bP+q544e;436f;524742;626f677573\x1b\\")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1bP1+r544e=787465726d2d323536636f6c6f72\x1b\\"
+                b"\x1bP1+r436f=323536\x1b\\"
+                b"\x1bP1+r524742=38\x1b\\"
+                b"\x1bP0+r626f677573\x1b\\",
+            )
+
+    def test_version_and_tertiary_device_attributes(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[>q\x1b[=c")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1bP>|Zutty 0.14\x1b\\"
+                b"\x1bP!|00000000\x1b\\",
             )
 
     def test_decrqss_rejects_unsupported_queries(self):
         with Zutty(columns=8, rows=2) as terminal:
-            terminal.write(b"\x1bP$qm\x1b\\")
+            terminal.write(b"\x1bP$qz\x1b\\")
             self.assertEqual(terminal.read_input(), b"\x1bP0$r\x1b\\")
 
     def test_palette_and_dynamic_color_queries_reply(self):

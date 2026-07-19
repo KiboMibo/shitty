@@ -2232,6 +2232,9 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                                      : InputState::IgnoreSequence);
                         csiPrefixAllowed = false;
                         break;
+                    case '$':
+                        setState(InputState::CSI_Dollar);
+                        break;
                     case ':':
                         setState(InputState::IgnoreSequence);
                         break;
@@ -2305,6 +2308,9 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                     case 'u':
                         csi_kittyKeyboardPush();
                         break;
+                    case 'q':
+                        csi_XTVERSION();
+                        break;
                         IGNORE_SEQUENCE_ON_BAD_PARAMS;
                     default:
                         unhandledInput(ch);
@@ -2328,6 +2334,9 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                     COLLECT_NUMERIC_PARAMS;
                     case 'u':
                         csi_kittyKeyboardSet();
+                        break;
+                    case 'c':
+                        csi_terDA();
                         break;
                         IGNORE_SEQUENCE_ON_BAD_PARAMS;
                     default:
@@ -2356,10 +2365,27 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                     case 'u':
                         csi_kittyKeyboardQuery();
                         break;
+                    case '$':
+                        setState(InputState::CSI_priv_Dollar);
+                        break;
                         IGNORE_SEQUENCE_ON_BAD_PARAMS;
                     default:
                         unhandledInput(ch);
                         break;
+                }
+                break;
+            case InputState::CSI_Dollar:
+                if (ch == 'p') {
+                    csi_DECRQM(false);
+                } else {
+                    unhandledInput(ch);
+                }
+                break;
+            case InputState::CSI_priv_Dollar:
+                if (ch == 'p') {
+                    csi_DECRQM(true);
+                } else {
+                    unhandledInput(ch);
                 }
                 break;
             case InputState::DCS:

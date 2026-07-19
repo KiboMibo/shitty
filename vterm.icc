@@ -105,6 +105,8 @@ Vterm::unhandledInput(unsigned char ch) {
             case InputState::CSI_GT:
             case InputState::CSI_LT:
             case InputState::CSI_EQ:
+            case InputState::CSI_Dollar:
+            case InputState::CSI_priv_Dollar:
                 setState(InputState::IgnoreSequence);
                 return;
             default:
@@ -272,6 +274,7 @@ inline void
 Vterm::resetScreen() {
     showCursorMode = true;
     cursorShape = CharVdev::Cursor::Style::filled_block;
+    cursorStyleParam = 2;
     autoWrapMode = true;
     autoNewlineMode = false;
     keyboardLocked = false;
@@ -749,14 +752,17 @@ Vterm::csi_DECSCUSR() {
         case 0:
         case 1:
         case 2:
+            cursorStyleParam = inputOps[0] == 0 ? 1 : inputOps[0];
             cursorShape = CS::filled_block;
             break;
         case 3:
         case 4:
+            cursorStyleParam = inputOps[0];
             cursorShape = CS::underline;
             break;
         case 5:
         case 6:
+            cursorStyleParam = inputOps[0];
             cursorShape = CS::bar;
             break;
         default:
@@ -1948,13 +1954,12 @@ Vterm::csi_SGR() {
 }
 
 /* 64 - VT420 family
-    *  1 - 132 columns
     *  9 - National Replacement Character-sets
     * 15 - DEC technical set
     * 21 - horizontal scrolling
     * 22 - color
     */
-#define DEVICE_ID "64;1;9;15;21;22c"
+#define DEVICE_ID "64;9;15;21;22c"
 
 inline void
 Vterm::csi_priDA() {
@@ -1966,7 +1971,94 @@ Vterm::csi_priDA() {
 inline void
 Vterm::csi_secDA() {
     TRACE_FUN;
-    writePty("\x1b[>64;0;0c");
+    writePty("\x1b[>41;14;0c");
+    setState(InputState::Normal);
+}
+
+inline void
+Vterm::csi_terDA() {
+    TRACE_FUN;
+    writePty("\x1bP!|00000000\x1b\\");
+    setState(InputState::Normal);
+}
+
+inline void
+Vterm::csi_XTVERSION() {
+    TRACE_FUN;
+    writePty("\x1bP>|Zutty " ZUTTY_VERSION "\x1b\\");
+    setState(InputState::Normal);
+}
+
+inline void
+Vterm::csi_DECRQM(bool privateMode) {
+    TRACE_FUN;
+    const uint32_t mode = inputOps[0];
+    bool recognized = false;
+    bool enabled = false;
+
+    if (privateMode) {
+        switch (mode) {
+            case 1:
+            case 2:
+            case 3:
+            case 6:
+            case 7:
+            case 9:
+            case 25:
+            case 47:
+            case 67:
+            case 69:
+            case 1000:
+            case 1002:
+            case 1003:
+            case 1004:
+            case 1005:
+            case 1006:
+            case 1007:
+            case 1015:
+            case 1036:
+            case 1039:
+            case 1047:
+            case 2004:
+            case 2026:
+                recognized = true;
+                enabled = mode == 2
+                              ? compatLevel != CompatibilityLevel::VT52
+                              : getPrivMode(mode);
+                break;
+            case 1049:
+                recognized = true;
+                enabled = altScreenBufferMode;
+                break;
+            default:
+                break;
+        }
+    } else {
+        recognized = true;
+        switch (mode) {
+            case 2:
+                enabled = keyboardLocked;
+                break;
+            case 4:
+                enabled = insertMode;
+                break;
+            case 12:
+                enabled = !localEcho;
+                break;
+            case 20:
+                enabled = autoNewlineMode;
+                break;
+            default:
+                recognized = false;
+                break;
+        }
+    }
+
+    std::ostringstream oss;
+    oss << "\x1b[" << (privateMode ? "?" : "") << mode << ";"
+        << (recognized ? (enabled ? 1 : 2) : 0) << "$y";
+    const std::string reply = oss.str();
+    writePty(reinterpret_cast<const uint8_t*>(reply.data()), reply.size());
     setState(InputState::Normal);
 }
 
@@ -2040,6 +2132,8 @@ Vterm::handle_DCS() {
     auto arg = std::string((char*)argBuf.data(), argBuf.size());
     if (arg.substr(0, 2) == "$q") {
         dcs_DECRQSS(arg);
+    } else if (arg.substr(0, 2) == "+q") {
+        dcs_XTGETTCAP(arg.substr(2));
     } else {
         logU << "DCS: '" << arg << "'" << std::endl;
     }
@@ -2050,12 +2144,109 @@ inline void
 Vterm::dcs_DECRQSS(const std::string& arg) {
     TRACE_FUN;
 
-    if (arg == "$q\"p") {
-        if (compatLevel == CompatibilityLevel::VT400) {
-            writePty("\x1bP1$r" DEVICE_ID "\x1b\\");
+    std::ostringstream value;
+    const std::string query = arg.substr(2);
+    if (query == "\"p") {
+        value << (compatLevel == CompatibilityLevel::VT100 ? 61 : 64)
+              << ";1\"p";
+    } else if (query == "m") {
+        value << "0";
+        if (attrs.bold) {
+            value << ";1";
         }
+        if (attrs.italic) {
+            value << ";3";
+        }
+        if (attrs.underline) {
+            value << ";4";
+        }
+        if (reverseVideo) {
+            value << ";7";
+        }
+        if (fgPalIx >= 0) {
+            value << ";38;5;" << fgPalIx;
+        } else {
+            value << ";38;2;" << static_cast<unsigned>(attrs.fg.red)
+                  << ";" << static_cast<unsigned>(attrs.fg.green)
+                  << ";" << static_cast<unsigned>(attrs.fg.blue);
+        }
+        if (bgPalIx >= 0) {
+            value << ";48;5;" << bgPalIx;
+        } else {
+            value << ";48;2;" << static_cast<unsigned>(attrs.bg.red)
+                  << ";" << static_cast<unsigned>(attrs.bg.green)
+                  << ";" << static_cast<unsigned>(attrs.bg.blue);
+        }
+        value << "m";
+    } else if (query == "r") {
+        value << marginTop + 1 << ";" << marginBottom << "r";
+    } else if (query == "s") {
+        value << hMargin + 1 << ";" << nColsEff << "s";
+    } else if (query == " q") {
+        value << static_cast<unsigned>(cursorStyleParam) << " q";
+    } else if (query == "\"q") {
+        value << "0\"q";
     } else {
         writePty("\x1bP0$r\x1b\\");
+        return;
+    }
+
+    const std::string reply = "\x1bP1$r" + value.str() + "\x1b\\";
+    writePty(reinterpret_cast<const uint8_t*>(reply.data()), reply.size());
+}
+
+inline void
+Vterm::dcs_XTGETTCAP(const std::string& request) {
+    TRACE_FUN;
+    const auto hexValue = [](const std::string& value) {
+        static constexpr char hex[] = "0123456789abcdef";
+        std::string result;
+        result.reserve(value.size() * 2);
+        for (unsigned char ch : value) {
+            result.push_back(hex[ch >> 4]);
+            result.push_back(hex[ch & 0x0f]);
+        }
+        return result;
+    };
+    const auto decodeHex = [](const std::string& value, std::string& result) {
+        const auto digit = [](unsigned char ch) -> int {
+            if (ch >= '0' && ch <= '9') return ch - '0';
+            if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+            if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+            return -1;
+        };
+        if (value.size() % 2 != 0) return false;
+        result.clear();
+        for (size_t pos = 0; pos < value.size(); pos += 2) {
+            const int high = digit(value[pos]);
+            const int low = digit(value[pos + 1]);
+            if (high < 0 || low < 0) return false;
+            result.push_back(static_cast<char>((high << 4) | low));
+        }
+        return true;
+    };
+
+    size_t begin = 0;
+    while (begin <= request.size()) {
+        const size_t end = request.find(';', begin);
+        const std::string encoded = request.substr(begin, end - begin);
+        std::string name;
+        std::string value;
+        bool found = decodeHex(encoded, name);
+        if (name == "TN") value = "xterm-256color";
+        else if (name == "Co" || name == "colors") value = "256";
+        else if (name == "RGB") value = "8";
+        else found = false;
+
+        std::string reply = "\x1bP" + std::string(found ? "1+r" : "0+r") +
+                            encoded;
+        if (found) {
+            reply += "=" + hexValue(value);
+        }
+        reply += "\x1b\\";
+        writePty(reinterpret_cast<const uint8_t*>(reply.data()), reply.size());
+        if (end == std::string::npos) break;
+        begin = end + 1;
     }
 }
 

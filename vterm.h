@@ -267,6 +267,8 @@ private:
         CSI_GT,
         CSI_LT,
         CSI_EQ,
+        CSI_Dollar,
+        CSI_priv_Dollar,
         DCS,
         DCS_Esc,
         OSC,
@@ -296,6 +298,8 @@ private:
                 "CSI_GT",
                 "CSI_LT",
                 "CSI_EQ",
+                "CSI_Dollar",
+                "CSI_priv_Dollar",
                 "DCS",
                 "DCS_Esc",
                 "OSC",
@@ -394,6 +398,7 @@ private:
 
     void csi_priDA();
     void csi_secDA();
+    void csi_terDA();
     void csi_DSR();
     void esch_DECALN();
     void handle_DCS();
@@ -405,8 +410,11 @@ private:
     void csi_kittyKeyboardPop();
     void csi_kittyKeyboardSet();
     void csi_kittyKeyboardQuery();
+    void csi_DECRQM(bool privateMode);
+    void csi_XTVERSION();
 
     void dcs_DECRQSS(const std::string&);
+    void dcs_XTGETTCAP(const std::string&);
 
     void osc_PaletteQuery(int, const std::string&);
     void osc_DynamicColorQuery(int, const std::string&);
@@ -473,6 +481,7 @@ private:
     bool showCursorMode = true;
     CharVdev::Cursor::Style cursorShape =
         CharVdev::Cursor::Style::filled_block;
+    uint8_t cursorStyleParam = 2;
     bool altScreenBufferMode = false;
     bool autoWrapMode = true;
     bool autoNewlineMode = false;
