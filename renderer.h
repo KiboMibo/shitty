@@ -17,23 +17,21 @@
 
 #include <cstdint>
 
-namespace zutty
-{
-   class Renderer
-   {
-   public:
-      Renderer (SDL_Window* window, Fontpack* fontpk);
-      ~Renderer () = default;
+namespace zutty {
+    class Renderer {
+    public:
+        Renderer(SDL_Window* window, Fontpack* fontpk);
+        ~Renderer() = default;
 
-      Renderer (const Renderer&) = delete;
-      Renderer& operator= (const Renderer&) = delete;
+        Renderer(const Renderer&) = delete;
+        Renderer& operator=(const Renderer&) = delete;
 
-      void update (const Frame& frame);
+        void update(const Frame& frame);
 
-   private:
-      CharVdev charVdev;
-      VulkanPresenter presenter;
-      bool delta = false;
-   };
+    private:
+        CharVdev charVdev;
+        VulkanPresenter presenter;
+        bool delta = false;
+    };
 
 } // namespace zutty

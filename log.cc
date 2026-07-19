@@ -14,44 +14,41 @@
 #include <string.h>
 #include <unistd.h>
 
-namespace zutty
-{
-   int origFds [3] = {0, 0, 0};
-   int targetFds [3] = {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO};
+namespace zutty {
+    int origFds[3] = {0, 0, 0};
+    int targetFds[3] = {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO};
 
-   void saveFds ()
-   {
-      for (int i = 0; i < 3; ++i)
-      {
-         origFds [i] = dup (targetFds [i]);
-         if (origFds [i] < 0)
-            SYS_ERROR ("dup ", i);
-      }
-   }
+    void saveFds() {
+        for (int i = 0; i < 3; ++i) {
+            origFds[i] = dup(targetFds[i]);
+            if (origFds[i] < 0) {
+                SYS_ERROR("dup ", i);
+            }
+        }
+    }
 
-   void
-   restoreFds ()
-   {
-      for (int i = 0; i < 3; ++i)
-      {
-         if (origFds [i])
-         {
-            dup2 (origFds [i], targetFds [i]);
-            close (origFds [i]);
-         }
-      }
-   }
+    void
+    restoreFds() {
+        for (int i = 0; i < 3; ++i) {
+            if (origFds[i]) {
+                dup2(origFds[i], targetFds[i]);
+                close(origFds[i]);
+            }
+        }
+    }
 
-   void redirectFds (int fd)
-   {
-      saveFds ();
+    void redirectFds(int fd) {
+        saveFds();
 
-      for (int i = 0; i < 3; ++i)
-         if (dup2 (fd, targetFds [i]) != targetFds [i])
-            SYS_ERROR ("dup2 to ", i);
+        for (int i = 0; i < 3; ++i) {
+            if (dup2(fd, targetFds[i]) != targetFds[i]) {
+                SYS_ERROR("dup2 to ", i);
+            }
+        }
 
-      if (fd != targetFds [0] && fd != targetFds [1] && fd != targetFds [2])
-         close (fd);
-   }
+        if (fd != targetFds[0] && fd != targetFds[1] && fd != targetFds[2]) {
+            close(fd);
+        }
+    }
 
 } // namespace zutty

@@ -17,121 +17,140 @@
 #include <iostream>
 #include <sstream>
 
-namespace zutty
-{
+namespace zutty {
 // log streams that are runtime switchable via command line options
 // [ -quiet = none; default = zlog only; -verbose = both ]
-#define zlog                                    \
-   if (opts.quiet) {;}                          \
-   else std::cout
+#define zlog          \
+    if (opts.quiet) { \
+        ;             \
+    } else            \
+        std::cout
 
-#define vlog                                    \
-   if (opts.quiet || !opts.verbose) {;}         \
-   else std::cout
+#define vlog                           \
+    if (opts.quiet || !opts.verbose) { \
+        ;                              \
+    } else                             \
+        std::cout
 
-   constexpr const char*
-   logFileName (const char* path)
-   {
-      const char* name = path;
-      while (*path != '\0')
-      {
-         if (*path == '/' || *path == '\\')
-            name = path + 1;
-         ++path;
-      }
-      return name;
-   }
+    constexpr const char*
+    logFileName(const char* path) {
+        const char* name = path;
+        while (*path != '\0') {
+            if (*path == '/' || *path == '\\') {
+                name = path + 1;
+            }
+            ++path;
+        }
+        return name;
+    }
 
-#define plog(Ostream,Prefix)                                     \
-   Ostream << Prefix << " [" << zutty::logFileName (__FILE__)    \
-           << ":" << std::setw (3) << __LINE__ << "] "
+#define plog(Ostream, Prefix)                                 \
+    Ostream << Prefix << " [" << zutty::logFileName(__FILE__) \
+            << ":" << std::setw(3) << __LINE__ << "] "
 
-#define logE      plog(zlog, "E") << "Error: "
-#define logW      plog(zlog, "W") << "Warning: "
-#define logU      plog(zlog, "W") << "(Unimplemented) "
-#define logI      plog(vlog, "I")
+#define logE plog(zlog, "E") << "Error: "
+#define logW plog(zlog, "W") << "Warning: "
+#define logU plog(zlog, "W") << "(Unimplemented) "
+#define logI plog(vlog, "I")
 
 // trace logs are only present (and consume CPU) if compiled in:
 #ifdef DEBUG
-   #define logT      plog(vlog, "T")
+    #define logT plog(vlog, "T")
 #else
-   #define logT      false && std::cout
+    #define logT false && std::cout
 #endif // DEBUG
 
-   inline void
-   printArgs ()
-   {
-      zlog << std::endl;
-   }
+    inline void
+    printArgs() {
+        zlog << std::endl;
+    }
 
-   template <typename T, typename... Args>
-   inline void
-   printArgs (T arg, Args... args)
-   {
-      zlog << arg;
-      printArgs (args...);
-   }
+    template <typename T, typename... Args>
+    inline void
+    printArgs(T arg, Args... args) {
+        zlog << arg;
+        printArgs(args...);
+    }
 
-   void redirectFds (int fd);
-   void restoreFds ();
+    void redirectFds(int fd);
+    void restoreFds();
 
-#define logSysE(...)    logE; zutty::printArgs(__VA_ARGS__)
-#define logSysW(...)    logW; zutty::printArgs(__VA_ARGS__)
+#define logSysE(...) \
+    logE;            \
+    zutty::printArgs(__VA_ARGS__)
+#define logSysW(...) \
+    logW;            \
+    zutty::printArgs(__VA_ARGS__)
 
-#define SYS_ERROR(...)                                                  \
-   do {                                                                 \
-      const auto ec = errno;                                            \
-      zutty::restoreFds ();                                             \
-      logSysE(__VA_ARGS__, ": ", strerror(ec), " (errno=", ec, ")");    \
-      exit(1);                                                          \
-   } while (0);
+#define SYS_ERROR(...)                                                 \
+    do {                                                               \
+        const auto ec = errno;                                         \
+        zutty::restoreFds();                                           \
+        logSysE(__VA_ARGS__, ": ", strerror(ec), " (errno=", ec, ")"); \
+        exit(1);                                                       \
+    } while (0);
 
-#define SYS_WARN(...)                                                   \
-   do {                                                                 \
-      const auto ec = errno;                                            \
-      logSysW(__VA_ARGS__, ": ", strerror(ec), " (errno=", ec, ")");    \
-   } while (0);
+#define SYS_WARN(...)                                                  \
+    do {                                                               \
+        const auto ec = errno;                                         \
+        logSysW(__VA_ARGS__, ": ", strerror(ec), " (errno=", ec, ")"); \
+    } while (0);
 
+    inline std::string
+    dumpBuffer(const unsigned char* start, const unsigned char* end) {
+        if (opts.quiet) {
+            return "";
+        }
 
-   inline std::string
-   dumpBuffer (const unsigned char* start, const unsigned char* end)
-   {
-      if (opts.quiet)
-         return "";
-
-      std::ostringstream os;
-      int count = 0;
-      os << "'";
-      for (auto it = start; it != end; ++it)
-      {
-         switch (*it)
-         {
-         case '\a': os << "\\a"; break;
-         case '\b': os << "\\b"; break;
-         case '\x1b': os << "\\x1b"; break;
-         case '\f': os << "\\f"; break;
-         case '\n': os << "\\n"; break;
-         case '\r': os << "\\r"; break;
-         case '\t': os << "\\t"; break;
-         case '\v': os << "\\v"; break;
-         case '\x7f': os << "\\x7f"; break; // DEL
-         default:
-            if (*it < ' ' || *it >= 0x80)
-               os << "\\x" << std::hex << std::setw(2) << std::setfill('0')
-                  << (unsigned int)*it;
-            else
-               os << *it;
-            break;
-         }
-         ++count;
-      }
-      if (count)
-      {
-         os << "' (" << count << " bytes)" << std::endl;
-         return os.str ();
-      }
-      else
-         return "";
-   }
+        std::ostringstream os;
+        int count = 0;
+        os << "'";
+        for (auto it = start; it != end; ++it) {
+            switch (*it) {
+                case '\a':
+                    os << "\\a";
+                    break;
+                case '\b':
+                    os << "\\b";
+                    break;
+                case '\x1b':
+                    os << "\\x1b";
+                    break;
+                case '\f':
+                    os << "\\f";
+                    break;
+                case '\n':
+                    os << "\\n";
+                    break;
+                case '\r':
+                    os << "\\r";
+                    break;
+                case '\t':
+                    os << "\\t";
+                    break;
+                case '\v':
+                    os << "\\v";
+                    break;
+                case '\x7f':
+                    os << "\\x7f";
+                    break; // DEL
+                default:
+                    if (*it < ' ' || *it >= 0x80) {
+                        os << "\\x" << std::hex << std::setw(2) << std::setfill('0')
+                           << (unsigned int)*it;
+                    } else {
+                        os << *it;
+                    }
+                    break;
+            }
+            ++count;
+        }
+        if (count) {
+            os << "' (" << count << " bytes)" << std::endl;
+            return os.str();
+        } else {
+            return "";
+        }
+    }
 
 } // namespace zutty
