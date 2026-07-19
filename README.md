@@ -149,6 +149,9 @@ notably useful for defaults such as `+boldColors`.
 
 Colours accept `RGB` or `RRGGBB`, with an optional leading `#`.
 
+`ZUTTY_FONT_SIZE` can be used to set the font size when `-fontsize` is not
+specified. The command-line option takes precedence over the environment.
+
 Advanced options are regular command-line arguments despite the historical
 name “resources” in `-listres` output:
 

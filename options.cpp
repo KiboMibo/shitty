@@ -117,12 +117,19 @@ namespace {
 
     void
     getFontsize(uint8_t& outFontsize) {
-        const char* option = get("fontsize");
+        const char* option = nullptr;
+        const auto parsed = commandLine.find("fontsize");
+        if (parsed != commandLine.end()) {
+            option = parsed->second.c_str();
+        } else if ((option = getenv("ZUTTY_FONT_SIZE")) == nullptr) {
+            option = get("fontsize");
+        }
         std::stringstream input(option != nullptr ? option : "");
         int size;
         input >> size;
         if (input.fail() || size < 1 || size > 255) {
-            throw std::runtime_error("-fontsize: expected integer within 1..255");
+            throw std::runtime_error(
+                "-fontsize/ZUTTY_FONT_SIZE: expected integer within 1..255");
         }
         outFontsize = size;
     }
