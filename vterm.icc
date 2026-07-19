@@ -211,7 +211,8 @@ Vterm::resetTerminal() {
     switchColMode(ColMode::C80);
 
     cf->dropScrollbackHistory();
-    cf->resetMargins(marginTop, marginBottom);
+    marginTop = 0;
+    marginBottom = nRows;
     clearScreen();
 
     switchScreenBufferMode(false);
@@ -1033,7 +1034,7 @@ Vterm::csi_SU() {
     if (horizMarginMode) {
         deleteRows(marginTop, arg);
     } else {
-        cf->scrollUp(arg);
+        cf->scrollUp(marginTop, marginBottom, arg);
         eraseRows(marginBottom - arg, arg);
         lastCol = false;
     }
@@ -1048,7 +1049,7 @@ Vterm::csi_SD() {
     if (horizMarginMode) {
         insertRows(marginTop, arg);
     } else {
-        cf->scrollDown(arg);
+        cf->scrollDown(marginTop, marginBottom, arg);
         eraseRows(marginTop, arg);
         lastCol = false;
     }
@@ -1235,9 +1236,8 @@ inline void
 Vterm::csi_STBM() {
     TRACE_FUN;
     if (nInputOps == 1 && inputOps[0] == 0) {
-        if (marginTop != 0 || marginBottom != nRows) {
-            cf->resetMargins(marginTop, marginBottom);
-        }
+        marginTop = 0;
+        marginBottom = nRows;
     } else if (nInputOps == 2) {
         uint16_t newMarginTop = inputOps[0] > 0 ? inputOps[0] - 1 : 0;
         uint16_t newMarginBottom = inputOps[1];
@@ -1248,11 +1248,6 @@ Vterm::csi_STBM() {
         } else if (newMarginTop != marginTop || newMarginBottom != marginBottom) {
             marginTop = newMarginTop;
             marginBottom = newMarginBottom;
-            if (marginTop == 0 && marginBottom == nRows) {
-                cf->resetMargins(marginTop, marginBottom);
-            } else {
-                cf->setMargins(marginTop, marginBottom);
-            }
         }
     }
 

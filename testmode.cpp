@@ -118,7 +118,7 @@ namespace {
                 cell.dirty = 0;
             }
             cursor = frame.getCursor();
-            selection = frame.getSelection();
+            selection = frame.getSelectionForView();
             viewOffset = frame.getViewOffset();
             ++refreshCount;
             delta = true;

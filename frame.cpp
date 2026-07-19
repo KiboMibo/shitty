@@ -24,15 +24,17 @@ Frame::Frame(uint16_t winPx_, uint16_t winPy_,
     , nCols(nCols_)
     , nRows(nRows_)
     , saveLines(saveLines_)
-    , scrollHead(0)
-    , marginTop(0)
-    , marginBottom(nRows + saveLines)
-    , historyRows(0)
     , viewOffset(0)
-    , margins(false)
     , cells(CharVdev::make_cells(nCols, nRows + saveLines))
+    , screen(nRows)
 {
-    marginTop_ = marginTop;
+    for (RowId row = 0; row < nRows; ++row) {
+        screen[row] = row;
+    }
+    for (RowId row = nRows; row < nRows + saveLines; ++row) {
+        freeRows.push_back(row);
+    }
+    marginTop_ = 0;
     marginBottom_ = nRows;
     damage.totalCells = nCols * (nRows + saveLines);
     highMemUsageReport();
@@ -40,24 +42,13 @@ Frame::Frame(uint16_t winPx_, uint16_t winPy_,
 
 void Frame::dropScrollbackHistory() {
     viewOffset = 0;
-    historyRows = 0;
-    expose();
-}
-
-void Frame::setMargins(uint16_t marginTop_, uint16_t marginBottom_) {
-    unwrapCellStorage();
-    scrollHead = marginTop = marginTop_;
-    marginBottom = marginBottom_;
-    margins = true;
-    expose();
-}
-
-void Frame::resetMargins(uint16_t& marginTop_, uint16_t& marginBottom_) {
-    unwrapCellStorage();
-    scrollHead = marginTop = marginTop_ = 0;
-    marginBottom = nRows + saveLines;
-    marginBottom_ = nRows;
-    margins = false;
+    if (!selection.null() && selection.tl.y < 0) {
+        selection.clear();
+    }
+    while (!history.empty()) {
+        freeRows.push_back(history.front());
+        history.pop_front();
+    }
     expose();
 }
 
@@ -75,32 +66,42 @@ void Frame::resize(uint16_t winPx_, uint16_t winPy_,
         return;
     }
 
-    auto newCells = CharVdev::make_cells(nCols_, nRows_ + saveLines);
-    CharVdev::Cell* dst = newCells.get();
-
+    const uint16_t historyCount = history.size();
     const int rowLen = std::min(nCols, nCols_);
     const int nCopyRows = std::min(nRows, nRows_);
-    CharVdev::Cell* p = dst;
+    auto newCells = CharVdev::make_cells(nCols_, nRows_ + saveLines);
+    CharVdev::Cell* p = newCells.get();
     for (int pY = 0; pY < nCopyRows; ++pY) {
-        memcpy(p, getPhysRowPtr(pY), rowLen * cellSize);
+        memcpy(p, getLogicalRowPtr(pY), rowLen * cellSize);
         p += nCols_;
     }
-    p = dst + (nRows_ + saveLines - historyRows) * nCols_;
-    for (int pY = -historyRows; pY < 0; ++pY) {
-        memcpy(p, getPhysRowPtr(pY), rowLen * cellSize);
+    p = newCells.get() + nRows_ * nCols_;
+    for (int pY = -historyCount; pY < 0; ++pY) {
+        memcpy(p, getLogicalRowPtr(pY), rowLen * cellSize);
         p += nCols_;
     }
 
     cells = std::move(newCells);
     nCols = nCols_;
     nRows = nRows_;
-    scrollHead = 0;
-    marginTop = marginTop_ = 0;
+    screen.resize(nRows);
+    for (RowId row = 0; row < nRows; ++row) {
+        screen[row] = row;
+    }
+    history.clear();
+    for (RowId row = nRows; row < nRows + historyCount; ++row) {
+        history.push_back(row);
+    }
+    freeRows.clear();
+    for (RowId row = nRows + historyCount;
+         row < nRows + saveLines; ++row) {
+        freeRows.push_back(row);
+    }
+    marginTop_ = 0;
     marginBottom_ = nRows;
-    marginBottom = nRows + saveLines;
-    margins = false;
     viewOffset = 0;
     damage.totalCells = nCols * (nRows + saveLines);
+    expose();
     highMemUsageReport();
 }
 
@@ -115,9 +116,18 @@ void Frame::fullCopyCells(CharVdev::Cell* const dst) {
 void Frame::deltaCopyCells(CharVdev::Cell* const dst) {
     CharVdev::Cell* p = dst;
     for (int pY = -viewOffset; pY < nRows - viewOffset; ++pY) {
-        damageDeltaCopy(p, nCols * getPhysicalRow(pY), nCols);
+        damageDeltaCopy(p, nCols * getLogicalRow(pY), nCols);
         p += nCols;
     }
+}
+
+Rect Frame::getSelectionForView() const {
+    Rect ret = selection;
+    if (!ret.null()) {
+        ret.tl.y += viewOffset;
+        ret.br.y += viewOffset;
+    }
+    return ret;
 }
 
 Rect Frame::getSnappedSelection() const {
@@ -127,7 +137,9 @@ Rect Frame::getSnappedSelection() const {
         return ret;
     }
 
-    if (selection.rectangular) {
+    if (ret.empty() || selection.rectangular) {
+        ret.tl.y += viewOffset;
+        ret.br.y += viewOffset;
         return ret;
     }
 
@@ -135,7 +147,7 @@ Rect Frame::getSnappedSelection() const {
         case SelectSnapTo::Char:
             break;
         case SelectSnapTo::Word: {
-            const auto* cp = getViewRowPtr(ret.tl.y);
+            const auto* cp = getLogicalRowPtr(ret.tl.y);
             while (ret.tl.x < nCols && cp[ret.tl.x].uc_pt == ' ') {
                 ++ret.tl.x;
             }
@@ -143,7 +155,7 @@ Rect Frame::getSnappedSelection() const {
                 --ret.tl.x;
             }
 
-            cp = getViewRowPtr(ret.br.y);
+            cp = getLogicalRowPtr(ret.br.y);
             while (ret.br.x > 0 && cp[ret.br.x].uc_pt == ' ') {
                 --ret.br.x;
             }
@@ -159,15 +171,19 @@ Rect Frame::getSnappedSelection() const {
             break;
     }
 
+    ret.tl.y += viewOffset;
+    ret.br.y += viewOffset;
     return ret;
 }
 
 bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
-    const Rect sel = getSnappedSelection();
+    Rect sel = getSnappedSelection();
 
     if (sel.empty()) {
         return false;
     }
+    sel.tl.y -= viewOffset;
+    sel.br.y -= viewOffset;
 
     using utf16str = std::vector<uint16_t>;
     std::vector<utf16str> lines;
@@ -178,7 +194,7 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
         utf16str line;
         bool wrapBack = wrap;
         wrap = false;
-        const auto* cp = getViewRowPtr(y);
+        const auto* cp = getLogicalRowPtr(y);
         for (uint16_t x = x1; x < x2; ++x) {
             const auto& cell = cp[x];
             if (!cell.dwidth_cont) {
@@ -271,30 +287,6 @@ Frame::damageDeltaCopy(CharVdev::Cell* dst, uint32_t start, uint32_t count) {
             dst[i].dirty = 1;
         }
     }
-}
-
-void Frame::copyAllCells(CharVdev::Cell* const dst) {
-    CharVdev::Cell* p = dst;
-    for (int pY = 0; pY < nRows; ++pY) {
-        memcpy(p, getPhysRowPtr(pY), nCols * cellSize);
-        p += nCols;
-    }
-    p = dst + (nRows + saveLines - historyRows) * nCols;
-    for (int pY = -historyRows; pY < 0; ++pY) {
-        memcpy(p, getPhysRowPtr(pY), nCols * cellSize);
-        p += nCols;
-    }
-}
-
-void Frame::unwrapCellStorage() {
-    if (scrollHead == marginTop) {
-        return;
-    }
-
-    auto newCells = CharVdev::make_cells(nCols, nRows + saveLines);
-    copyAllCells(newCells.get());
-    cells = std::move(newCells);
-    scrollHead = marginTop;
 }
 
 void Frame::highMemUsageReport() {

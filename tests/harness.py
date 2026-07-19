@@ -9,6 +9,13 @@ ROOT = Path(__file__).resolve().parents[1]
 ZUTTY = Path(os.environ.get("ZUTTY_TEST_BINARY", ROOT / "zutty"))
 
 
+def put_rows(*values):
+    return b"".join(
+        f"\x1b[{row};1H".encode() + value
+        for row, value in enumerate(values, 1)
+    )
+
+
 @dataclass
 class Cell:
     char: str

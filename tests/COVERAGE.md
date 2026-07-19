@@ -11,6 +11,12 @@ Covered now:
 - autowrap, alternate screen, synchronized output and cursor modes;
 - insert/delete/erase operations and insert mode;
 - scrollback on primary and alternate screens, including output while scrolled;
+- full, top-anchored and middle scrolling regions, with fixed outer rows;
+- scroll-up capture, reverse scroll, history capacity rollover and zero capacity;
+- linefeed/index capture at a region boundary and large-count clamping;
+- scrollback cell attributes, hyperlinks, selection lifetime and viewport anchoring;
+- shrink-to-history and grow-from-history resize behavior;
+- Codex-style synchronized redraws plus a slow reference scrolling model;
 - SGR flags, truecolor, wide cells, wrap markers and DEC line drawing;
 - DA, DSR, DECRQSS, palette and dynamic-color replies;
 - OSC actions, bell, OSC 7 paths, OSC 8 hyperlinks and OSC 52 clipboard data;

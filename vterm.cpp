@@ -1263,7 +1263,7 @@ void Vterm::resize(uint16_t winPx_, uint16_t winPy_) {
     } else {
         if (nRows_ < posY + 1) {
             int nScroll = nRows - nRows_;
-            cf->scrollUp(nScroll);
+            cf->scrollUp(0, nRows, nScroll);
             posY -= nScroll;
         }
 
@@ -1272,7 +1272,7 @@ void Vterm::resize(uint16_t winPx_, uint16_t winPy_) {
 
         if (nRows < nRows_) {
             int nScroll = std::min(nRows_ - nRows, (int)cf->getHistoryRows());
-            cf->scrollDown(nScroll, true);
+            cf->restoreHistory(nScroll);
             posY += nScroll;
         }
 
@@ -1697,8 +1697,6 @@ void Vterm::feedPtyOutput(const std::string& output) {
 }
 
 void Vterm::processInput(const unsigned char* const input, int inputSize) {
-    Frame* const outputFrame = cf;
-    const auto viewport = outputFrame->useLiveScreen();
     lastEscBegin = 0;
     lastNormalBegin = 0;
     lastStopPos = 0;
@@ -2416,7 +2414,6 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
     }
     traceNormalInput();
     showCursor();
-    outputFrame->restoreViewport(viewport);
     redraw();
 }
 
@@ -2462,7 +2459,7 @@ std::string Vterm::getHyperlink(int pX, int pY) const {
         return {};
     }
 
-    const uint32_t id = cf->getCell(row, column).hyperlink;
+    const uint32_t id = cf->getViewCell(row, column).hyperlink;
     const auto link = hyperlinks.find(id);
     return link == hyperlinks.end() ? std::string{} : link->second;
 }
@@ -2478,7 +2475,7 @@ void Vterm::selectStart(int pX, int pY, bool cycleSnapTo) {
 
     pX = std::min(std::max(0, pX - opts.border), winPx - 2 * opts.border);
     pY = std::min(std::max(0, pY - opts.border), winPy - 2 * opts.border);
-    Point pt(pX / glyphPx, pY / glyphPy);
+    Point pt = cf->getLogicalPoint(Point(pX / glyphPx, pY / glyphPy));
 
     Rect& selection = cf->getSelection();
     cf->setSelectSnapTo(Frame::SelectSnapTo::Char);
@@ -2497,7 +2494,7 @@ void Vterm::selectExtend(int pX, int pY, bool cycleSnapTo) {
 
     pX = std::min(std::max(0, pX - opts.border), winPx - 2 * opts.border);
     pY = std::min(std::max(0, pY - opts.border), winPy - 2 * opts.border);
-    Point pt(pX / glyphPx, pY / glyphPy);
+    Point pt = cf->getLogicalPoint(Point(pX / glyphPx, pY / glyphPy));
 
     Rect& selection = cf->getSelection();
     if (cycleSnapTo) {
@@ -2532,7 +2529,7 @@ void Vterm::selectUpdate(int pX, int pY) {
 
     pX = std::min(std::max(0, pX - opts.border), winPx - 2 * opts.border);
     pY = std::min(std::max(0, pY - opts.border), winPy - 2 * opts.border);
-    Point pt(pX / glyphPx, pY / glyphPy);
+    Point pt = cf->getLogicalPoint(Point(pX / glyphPx, pY / glyphPy));
 
     Rect& selection = cf->getSelection();
 

@@ -1,6 +1,6 @@
 import unittest
 
-from harness import Zutty
+from harness import Zutty, put_rows
 
 
 class SelectionTest(unittest.TestCase):
@@ -30,6 +30,29 @@ class SelectionTest(unittest.TestCase):
             terminal.select_update(3, 0)
             terminal.write(b"\r\nfive")
             self.assertEqual(terminal.select_finish(), b"one")
+
+    def test_selection_in_fixed_rows_survives_partial_scroll(self):
+        with Zutty(columns=8, rows=6, save_lines=8) as terminal:
+            terminal.write(put_rows(b"A", b"B", b"C", b"D", b"E", b"F"))
+            terminal.select_start(0, 5)
+            terminal.select_update(1, 5)
+
+            terminal.write(b"\x1b[1;4r\x1b[S\x1b[r")
+
+            self.assertEqual(terminal.snapshot().selection, (0, 5, 1, 5))
+            self.assertEqual(terminal.select_finish(), b"F")
+
+    def test_clearing_history_invalidates_history_selection(self):
+        with Zutty(columns=8, rows=3, save_lines=8) as terminal:
+            terminal.write(b"one\r\ntwo\r\nthree\r\nfour")
+            terminal.page_up()
+            terminal.select_start(0, 0)
+            terminal.select_update(3, 0)
+
+            terminal.write(b"\x1b[3J")
+
+            self.assertEqual(terminal.snapshot().selection, (-1, -1, -1, -1))
+            self.assertEqual(terminal.select_finish(), b"")
 
 
 if __name__ == "__main__":

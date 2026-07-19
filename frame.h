@@ -14,6 +14,9 @@
 #include "charvdev.h"
 #include "utf8.h"
 
+#include <deque>
+#include <vector>
+
 class Frame {
 public:
     Frame();
@@ -28,8 +31,6 @@ public:
                 uint16_t& marginTop_, uint16_t& marginBottom_);
 
     void dropScrollbackHistory();
-    void setMargins(uint16_t marginTop_, uint16_t marginBottom_);
-    void resetMargins(uint16_t& marginTop_, uint16_t& marginBottom_);
 
     void fillCells(uint16_t ch, const CharVdev::Cell& attrs);
     void fullCopyCells(CharVdev::Cell* const dest);
@@ -44,6 +45,7 @@ public:
 
     const CharVdev::Cell& getCell(uint16_t pY, uint16_t pX) const;
     CharVdev::Cell& getCell(uint16_t pY, uint16_t pX);
+    const CharVdev::Cell& getViewCell(uint16_t pY, uint16_t pX) const;
 
     void eraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
                     const CharVdev::Cell& attrs);
@@ -52,22 +54,16 @@ public:
     void copyRow(uint16_t dstY, uint16_t srcY, uint16_t startX,
                  uint16_t count);
 
-    void scrollUp(uint16_t count);
-    void scrollDown(uint16_t count, bool consumeHistory = false);
+    void scrollUp(uint16_t top, uint16_t bottom, uint16_t count);
+    void scrollDown(uint16_t top, uint16_t bottom, uint16_t count);
+    void restoreHistory(uint16_t count);
 
     void pageUp(uint16_t count);
     void pageDown(uint16_t count);
     bool pageToBottom();
 
-    struct ViewportState {
-        uint16_t offset;
-        int64_t scrollRows;
-    };
-
-    ViewportState useLiveScreen();
-    void restoreViewport(const ViewportState& state);
     uint16_t getHistoryRows() const {
-        return historyRows;
+        return history.size();
     };
     uint16_t getViewOffset() const {
         return viewOffset;
@@ -80,9 +76,7 @@ public:
         damage.reset();
     };
 
-    const CharVdev::Cursor& getCursor() const {
-        return cursor;
-    };
+    CharVdev::Cursor getCursor() const;
     void setCursorPos(uint16_t pY, uint16_t pX);
     void setCursorStyle(CharVdev::Cursor::Style cs);
 
@@ -104,8 +98,10 @@ public:
     const Rect& getSelection() const {
         return selection;
     };
+    Rect getSelectionForView() const;
     Rect getSnappedSelection() const;
     bool getSelectedUtf8(std::string& utf8_selection) const;
+    Point getLogicalPoint(Point point) const;
 
     constexpr const static size_t cellSize = sizeof(CharVdev::Cell);
 
@@ -118,15 +114,15 @@ public:
     uint16_t saveLines = 0;
 
 private:
-    uint16_t scrollHead;
-    uint16_t marginTop;
-    uint16_t marginBottom;
-    uint16_t historyRows;
+    using RowId = uint32_t;
+
     uint16_t viewOffset;
-    int64_t scrollRows = 0;
-    bool margins = false;
 
     CharVdev::Cell::Ptr cells = nullptr;
+    // Every allocated row belongs to exactly one of these containers.
+    std::vector<RowId> screen;
+    std::deque<RowId> history;
+    std::vector<RowId> freeRows;
     CharVdev::Cursor cursor;
     Rect selection;
     SelectSnapTo snapTo = SelectSnapTo::Char;
@@ -142,8 +138,8 @@ private:
     };
     Damage damage;
 
-    int getPhysicalRow(int pY) const;
-    const CharVdev::Cell* getPhysRowPtr(int pY) const;
+    RowId getLogicalRow(int pY) const;
+    const CharVdev::Cell* getLogicalRowPtr(int pY) const;
     const CharVdev::Cell* getViewRowPtr(int pY) const;
     uint32_t getIdx(uint16_t pY, uint16_t pX) const;
     const CharVdev::Cell& operator[](uint32_t idx) const;
@@ -155,8 +151,6 @@ private:
     void moveCells(uint32_t dstIx, uint32_t srcIx, uint32_t count);
 
     void damageDeltaCopy(CharVdev::Cell* dst, uint32_t start, uint32_t count);
-    void copyAllCells(CharVdev::Cell* const dest);
-    void unwrapCellStorage();
 
     static SelectSnapTo cycleSelectSnapTo(SelectSnapTo& snapTo) {
         return static_cast<SelectSnapTo>(
@@ -164,7 +158,8 @@ private:
             static_cast<uint8_t>(SelectSnapTo::COUNT));
     }
 
-    void vscrollSelection(int vertOffset);
+    void vscrollSelection(uint16_t top, uint16_t bottom,
+                          int vertOffset, bool captureHistory);
     void invalidateSelection(const Rect&& damage);
 
     void highMemUsageReport();
