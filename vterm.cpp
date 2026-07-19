@@ -1387,6 +1387,12 @@ int Vterm::writePty(VtKey key, VtModifier modifiers_, bool userInput) {
         return 0;
     }
 #endif
+    const auto userDefined = userDefinedKeys.find(key);
+    if (userDefined != userDefinedKeys.end()) {
+        return writePty(
+            reinterpret_cast<const uint8_t*>(userDefined->second.data()),
+            userDefined->second.size(), userInput);
+    }
     modifiers = modifiers_;
     const auto& spec = getInputSpec(key);
     if (modifiers == VtModifier::none) {

@@ -490,6 +490,7 @@ private:
 
     void dcs_DECRQSS(const std::string&);
     void dcs_XTGETTCAP(const std::string&);
+    void dcs_DECUDK(const std::string&);
 
     void osc_PaletteQuery(int, const std::string&);
     void osc_DynamicColorQuery(int, const std::string&);
@@ -620,6 +621,8 @@ private:
     uint8_t initialModifyKeyResources[8] = {};
     bool csiHadParams = false;
     std::map<uint32_t, bool> savedPrivModes;
+    std::map<VtKey, std::string> userDefinedKeys;
+    bool userDefinedKeysLocked = false;
 
     struct KittyKeyboardState {
         uint8_t flags = 0;

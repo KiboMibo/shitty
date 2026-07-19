@@ -233,6 +233,18 @@ class KeyboardTest(unittest.TestCase):
                 terminal.read_input(), b"\x1b[>1;2m\x1b[>4;1m"
             )
 
+    def test_dec_user_defined_keys_program_preserve_and_lock(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1bP0;1|17/6869\x1b\\")
+            terminal.key("F6")
+            self.assertEqual(terminal.read_input(), b"hi")
+
+            terminal.write(b"\x1bP1;0|18/58\x1b\\")
+            terminal.write(b"\x1bP1;1|17/6e6f\x1b\\")
+            terminal.key("F6")
+            terminal.key("F7")
+            self.assertEqual(terminal.read_input(), b"hiX")
+
 
 if __name__ == "__main__":
     unittest.main()
