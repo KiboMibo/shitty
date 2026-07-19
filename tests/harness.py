@@ -241,6 +241,16 @@ class Zutty:
     def read_input(self):
         return self._read_hex_response("READ_INPUT")
 
+    def pending_output(self):
+        self.stream.write(b"PENDING_OUTPUT\n")
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid pending output response")
+        return int(response[1])
+
+    def flush_output(self):
+        self.command("FLUSH_OUTPUT")
+
     def snapshot(self):
         self.stream.write(b"SNAPSHOT\n")
         response = self._readline().split(" ", 13)

@@ -99,6 +99,10 @@ namespace {
                     fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
                 }
             }
+            const int wakeFlags = fcntl(wakePipe[0], F_GETFL, 0);
+            if (wakeFlags >= 0) {
+                fcntl(wakePipe[0], F_SETFL, wakeFlags | O_NONBLOCK);
+            }
             worker = std::thread(&PtyEventSource::run, this);
         }
 
@@ -106,7 +110,7 @@ namespace {
             {
                 std::lock_guard<std::mutex> lock(mutex);
                 stopping = true;
-                pending = false;
+                pendingEvents = 0;
             }
             condition.notify_all();
             const uint8_t byte = 1;
@@ -123,14 +127,26 @@ namespace {
         void acknowledge() {
             {
                 std::lock_guard<std::mutex> lock(mutex);
-                pending = false;
+                pendingEvents = 0;
             }
             condition.notify_one();
         }
 
-        bool isPending() {
+        short events() {
             std::lock_guard<std::mutex> lock(mutex);
-            return pending;
+            return pendingEvents;
+        }
+
+        void setWriteInterest(bool enabled) {
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+                if (wantWritable == enabled) return;
+                wantWritable = enabled;
+            }
+            const uint8_t byte = 1;
+            while (write(wakePipe[1], &byte, sizeof(byte)) < 0 &&
+                   errno == EINTR)
+                ;
         }
 
     private:
@@ -140,15 +156,21 @@ namespace {
         std::mutex mutex;
         std::condition_variable condition;
         bool stopping = false;
-        bool pending = false;
+        short pendingEvents = 0;
+        bool wantWritable = false;
 
         void run() {
             struct pollfd pollSet[] = {
-                {ptyFd, POLLIN | POLLHUP, 0},
+                {ptyFd, 0, 0},
                 {wakePipe[0], POLLIN, 0},
             };
 
             while (true) {
+                {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    pollSet[0].events = POLLIN | POLLHUP |
+                        (wantWritable ? POLLOUT : 0);
+                }
                 const int result = poll(pollSet, 2, -1);
                 if (result < 0) {
                     if (errno == EINTR) {
@@ -157,9 +179,16 @@ namespace {
                     return;
                 }
                 if (pollSet[1].revents & POLLIN) {
-                    return;
+                    uint8_t bytes[64];
+                    while (read(wakePipe[0], bytes, sizeof(bytes)) > 0)
+                        ;
+                    std::lock_guard<std::mutex> lock(mutex);
+                    if (stopping) return;
+                    continue;
                 }
-                if (!(pollSet[0].revents & (POLLIN | POLLHUP | POLLERR))) {
+                const short ready = pollSet[0].revents &
+                    (POLLIN | POLLOUT | POLLHUP | POLLERR);
+                if (!ready) {
                     continue;
                 }
 
@@ -168,14 +197,14 @@ namespace {
                     if (stopping) {
                         return;
                     }
-                    pending = true;
+                    pendingEvents = ready;
                 }
 
                 glfwPostEmptyEvent();
 
                 std::unique_lock<std::mutex> lock(mutex);
                 condition.wait(lock, [this] {
-                    return stopping || !pending;
+                    return stopping || !pendingEvents;
                 });
                 if (stopping) {
                     return;
@@ -1450,6 +1479,7 @@ namespace {
 
     bool eventLoop(PtyEventSource& ptySource) {
         while (!glfwWindowShouldClose(window)) {
+            ptySource.setWriteInterest(vt->hasPendingPtyOutput());
             if (vt->synchronizedOutputActive() || vt->animationActive()) {
                 glfwWaitEventsTimeout(0.05);
             } else {
@@ -1480,14 +1510,22 @@ namespace {
                 windowContext.redrawPending = false;
                 vt->redraw();
             }
-            if (ptySource.isPending() &&
+            const short ptyEvents = ptySource.events();
+            if (ptyEvents & POLLOUT) {
+                vt->flushPtyOutput();
+            }
+            if ((ptyEvents & (POLLIN | POLLHUP | POLLERR)) &&
                 !mouseContext.selectionOngoing) {
                 const bool finished = vt->readPty();
                 ptySource.acknowledge();
                 if (finished) {
                     return false;
                 }
+            } else if (ptyEvents &&
+                       !(ptyEvents & (POLLIN | POLLHUP | POLLERR))) {
+                ptySource.acknowledge();
             }
+            ptySource.setWriteInterest(vt->hasPendingPtyOutput());
         }
         return true;
     }

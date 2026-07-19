@@ -500,6 +500,12 @@ int runTestMode(int controlFd) {
                 writeAll(controlFd, display.snapshot());
             } else if (line == "READ_INPUT") {
                 writeAll(controlFd, "OK " + encodeHex(drainInput(io[1])) + "\n");
+            } else if (line == "PENDING_OUTPUT") {
+                writeAll(controlFd, "OK " + std::to_string(
+                    terminal.pendingPtyOutputBytes()) + "\n");
+            } else if (line == "FLUSH_OUTPUT") {
+                terminal.flushPtyOutput();
+                writeAll(controlFd, "OK\n");
             } else if (line == "QUIT") {
                 writeAll(controlFd, "OK\n");
                 break;

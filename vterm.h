@@ -215,6 +215,13 @@ public:
     int writePty(uint8_t ch, VtModifier modifiers = VtModifier::none,
                  bool userInput = false);
     int writePty(const char* cstr, bool userInput = false);
+    bool flushPtyOutput();
+    bool hasPendingPtyOutput() const {
+        return ptyOutputOffset < ptyOutput.size();
+    }
+    size_t pendingPtyOutputBytes() const {
+        return ptyOutput.size() - ptyOutputOffset;
+    }
     int writeKittyKey(VtKey key, uint16_t modifiers,
                       KeyEventType event);
     int writeKittyKey(uint32_t key, uint32_t shiftedKey,
@@ -459,6 +466,8 @@ private:
     uint16_t glyphPx;
     uint16_t glyphPy;
     int ptyFd;
+    std::vector<uint8_t> ptyOutput;
+    size_t ptyOutputOffset = 0;
 
     RefreshHandlerFn onRefresh;
     OscHandlerFn onOsc;

@@ -14,6 +14,8 @@
 #include "vterm.h"
 
 #include <cstring>
+#include <cerrno>
+#include <fcntl.h>
 
 namespace {
     using Key = VtKey;
@@ -1240,6 +1242,10 @@ Vterm::Vterm(uint16_t glyphPx_, uint16_t glyphPy_,
     , nColsEff(nCols)
     , hMargin(0)
 {
+    const int ptyFlags = fcntl(ptyFd, F_GETFL, 0);
+    if (ptyFlags < 0 || fcntl(ptyFd, F_SETFL, ptyFlags | O_NONBLOCK) < 0) {
+        SYS_ERROR("cannot make PTY nonblocking");
+    }
     makePalette256(palette256);
     std::copy(std::begin(palette256), std::end(palette256),
               std::begin(originalPalette256));
@@ -1554,7 +1560,36 @@ int Vterm::writePty(const uint8_t* ucstr, size_t len, bool userInput) {
     if (userInput && localEcho) {
         processInput(getLocalEcho(ucstr, ucstr + len));
     }
-    return write(ptyFd, ucstr, len);
+    if (ptyOutputOffset == ptyOutput.size()) {
+        ptyOutput.clear();
+        ptyOutputOffset = 0;
+    }
+    ptyOutput.insert(ptyOutput.end(), ucstr, ucstr + len);
+    flushPtyOutput();
+    return len;
+}
+
+bool Vterm::flushPtyOutput() {
+    while (ptyOutputOffset < ptyOutput.size()) {
+        const ssize_t count = write(
+            ptyFd, ptyOutput.data() + ptyOutputOffset,
+            ptyOutput.size() - ptyOutputOffset);
+        if (count > 0) {
+            ptyOutputOffset += static_cast<size_t>(count);
+            continue;
+        }
+        if (count < 0 && errno == EINTR) continue;
+        if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            return false;
+        }
+        if (count < 0) {
+            SYS_WARN("pty write");
+        }
+        return false;
+    }
+    ptyOutput.clear();
+    ptyOutputOffset = 0;
+    return true;
 }
 
 using Key = VtKey;

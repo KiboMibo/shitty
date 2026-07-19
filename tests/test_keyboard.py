@@ -4,6 +4,19 @@ from harness import Zutty
 
 
 class KeyboardTest(unittest.TestCase):
+    def test_large_paste_is_queued_without_blocking_control_loop(self):
+        payload = b"0123456789abcdef" * 16384
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.paste(payload)
+            self.assertGreater(terminal.pending_output(), 0)
+
+            received = bytearray()
+            while terminal.pending_output():
+                received.extend(terminal.read_input())
+                terminal.flush_output()
+            received.extend(terminal.read_input())
+            self.assertEqual(received, payload)
+
     def test_cursor_key_normal_and_application_modes(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.key("UP")
