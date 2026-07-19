@@ -319,7 +319,7 @@ Vterm::switchScreenBufferMode(bool altScreenBufferMode_) {
     if (altScreenBufferMode_) {
         kittyKeyboardAlt = {};
         frame_alt = Frame(winPx, winPy, nCols, nRows,
-                          marginTop, marginBottom);
+                          marginTop, marginBottom, opts.saveLines);
         cf = &frame_alt;
         cf->expose();
 

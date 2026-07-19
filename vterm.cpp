@@ -1226,7 +1226,7 @@ void Vterm::resize(uint16_t winPx_, uint16_t winPy_) {
 
     if (altScreenBufferMode) {
         frame_alt = Frame(winPx, winPy, nCols_, nRows_,
-                          marginTop, marginBottom);
+                          marginTop, marginBottom, opts.saveLines);
     } else {
         if (nRows_ < posY + 1) {
             int nScroll = nRows - nRows_;
@@ -1683,6 +1683,10 @@ Vterm::getInputSpec(Key key) {
 
 void Vterm::processInput(const std::string& str) {
     processInput((unsigned char*)str.c_str(), str.length());
+}
+
+void Vterm::feedPtyOutput(const std::string& output) {
+    processInput(output);
 }
 
 void Vterm::processInput(const unsigned char* const input, int inputSize) {

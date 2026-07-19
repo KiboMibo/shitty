@@ -14,6 +14,7 @@
 #include "options.h"
 #include "pty.h"
 #include "renderer.h"
+#include "testmode.h"
 #include "utf8.h"
 #include "vterm.h"
 
@@ -26,6 +27,7 @@
 #include <cerrno>
 #include <cmath>
 #include <condition_variable>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <fcntl.h>
@@ -58,6 +60,29 @@ static bool glfwInitialized = false;
 extern char** environ;
 
 namespace {
+    int takeTestFd(int& argc, char* argv[]) {
+        for (int k = 1; k < argc; ++k) {
+            if (std::strcmp(argv[k], "--test-fd") != 0) {
+                continue;
+            }
+            if (k + 1 >= argc) {
+                throw std::runtime_error("--test-fd requires a descriptor");
+            }
+            char* end = nullptr;
+            const long fd = std::strtol(argv[k + 1], &end, 10);
+            if (end == argv[k + 1] || *end || fd < 0 || fd > INT_MAX) {
+                throw std::runtime_error("invalid --test-fd descriptor");
+            }
+            for (int j = k; j + 2 < argc; ++j) {
+                argv[j] = argv[j + 2];
+            }
+            argc -= 2;
+            argv[argc] = nullptr;
+            return static_cast<int>(fd);
+        }
+        return -1;
+    }
+
     class PtyEventSource {
     public:
         explicit PtyEventSource(int ptyFd_)
@@ -1526,6 +1551,7 @@ namespace {
     }
 
     int run(int argc, char* argv[]) {
+        const int testFd = takeTestFd(argc, argv);
         checkLocale();
         opts.initialize(&argc, argv);
         opts.parse();
@@ -1534,6 +1560,9 @@ namespace {
         }
         if (setenv("ZUTTY_VERSION", ZUTTY_VERSION, 1) < 0) {
             SYS_ERROR("setenv ZUTTY_VERSION");
+        }
+        if (testFd >= 0) {
+            return runTestMode(testFd);
         }
 
         char argv0[PATH_MAX]{};

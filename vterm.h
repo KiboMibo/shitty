@@ -201,6 +201,7 @@ public:
     uint8_t getKittyKeyboardFlags() const;
 
     bool readPty();
+    void feedPtyOutput(const std::string& output);
 
     const MouseTrackingState& getMouseTrackingState() const;
 

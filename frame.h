@@ -69,6 +69,9 @@ public:
     uint16_t getHistoryRows() const {
         return historyRows;
     };
+    uint16_t getViewOffset() const {
+        return viewOffset;
+    };
 
     void expose() {
         damage.expose();
