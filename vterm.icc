@@ -699,7 +699,7 @@ Vterm::inputGraphicChar(unsigned char ch) {
         if (cs == Charset::UTF8) {
             utf8dec.onUnicode(ch < 127 ? ch : 0);
         } else if (ch >= 32 && (cs == Charset::IsoLatin1 || ch < 127)) {
-            utf8dec.onUnicode(charCodes[(uint8_t)cs][ch - 32]);
+            utf8dec.onUnicode(translateCharset(cs, ch));
         }
     } else {
         Charset cs = charsetState.g[charsetState.gr];
@@ -961,15 +961,41 @@ Vterm::esc_DCS(unsigned char fin) {
             cs = Charset::DecSpec;
             break;
         case '5':
-            if (scsMod == '%') {
-                cs = Charset::DecSuppl;
-            }
+            if (scsMod == '%') cs = Charset::DecSuppl;
+            else if (scsMod == '&') cs = Charset::NrcRussian;
+            else cs = Charset::NrcFinnish;
             break;
         case '<':
             cs = Charset::DecUserPref;
             break;
         case '>':
-            cs = Charset::DecTechn;
+            cs = scsMod == '"' ? Charset::NrcGreek : Charset::DecTechn;
+            break;
+        case '4': cs = Charset::NrcDutch; break;
+        case 'C': cs = Charset::NrcFinnish; break;
+        case 'R':
+        case 'f': cs = Charset::NrcFrench; break;
+        case '9':
+        case 'Q': cs = Charset::NrcFrenchCanadian; break;
+        case 'K': cs = Charset::NrcGerman; break;
+        case 'Y': cs = Charset::NrcItalian; break;
+        case '`':
+        case 'E':
+        case '6':
+            cs = scsMod == '%' ? Charset::NrcPortuguese
+                               : Charset::NrcNorwegianDanish;
+            break;
+        case 'Z': cs = Charset::NrcSpanish; break;
+        case '7':
+        case 'H': cs = Charset::NrcSwedish; break;
+        case '=':
+            cs = scsMod == '%' ? Charset::NrcHebrew : Charset::NrcSwiss;
+            break;
+        case '3':
+            if (scsMod == '%') cs = Charset::NrcSerboCroatian;
+            break;
+        case '2':
+            if (scsMod == '%') cs = Charset::NrcTurkish;
             break;
     }
 

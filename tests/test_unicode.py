@@ -4,6 +4,29 @@ from harness import Zutty
 
 
 class UnicodeTest(unittest.TestCase):
+    def test_full_nrcs_family_and_decnrcm(self):
+        samples = [
+            (b"4", b"#", "£"), (b"5", b"[", "Ä"),
+            (b"R", b"@", "à"), (b"9", b"@", "à"),
+            (b"K", b"@", "§"), (b"Y", b"[", "°"),
+            (b"E", b"[", "Æ"), (b"%6", b"[", "Ã"),
+            (b"Z", b"[", "¡"), (b"7", b"@", "É"),
+            (b"=", b"#", "ù"), (b'">', b"a", "Α"),
+            (b"%=", b"`", "א"), (b"&5", b"`", "Ю"),
+            (b"%3", b"@", "Ž"), (b"%2", b"&", "ğ"),
+        ]
+        with Zutty(columns=len(samples), rows=2) as terminal:
+            terminal.write(b"\x1b[?42h")
+            for designation, source, _ in samples:
+                terminal.write(b"\x1b(" + designation + source)
+            self.assertEqual(
+                terminal.snapshot().lines[0],
+                "".join(expected for _, _, expected in samples),
+            )
+
+            terminal.write(b"\x1b[?42l\x1b[2;1H\x1b(4#")
+            self.assertEqual(terminal.snapshot().cell(0, 1).char, "#")
+
     def test_utf8_decoder_survives_every_byte_boundary(self):
         text = "aé界z".encode()
         with Zutty(columns=8, rows=2) as terminal:

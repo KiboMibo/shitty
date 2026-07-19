@@ -717,7 +717,23 @@ private:
         DecUserPref,
         DecTechn,
         IsoLatin1,
-        IsoUK
+        IsoUK,
+        NrcDutch,
+        NrcFinnish,
+        NrcFrench,
+        NrcFrenchCanadian,
+        NrcGerman,
+        NrcItalian,
+        NrcNorwegianDanish,
+        NrcPortuguese,
+        NrcSpanish,
+        NrcSwedish,
+        NrcSwiss,
+        NrcGreek,
+        NrcHebrew,
+        NrcRussian,
+        NrcSerboCroatian,
+        NrcTurkish
     };
 
     struct CharsetState {
@@ -732,6 +748,7 @@ private:
     CharsetState charsetState;
 
     static const uint16_t* charCodes[];
+    uint32_t translateCharset(Charset charset, unsigned char ch) const;
 
     struct SavedCursor_SCO {
         bool isSet = false;

@@ -1215,6 +1215,105 @@ const uint16_t* Vterm::charCodes[] =
         uc_IsoLatin1,
         uc_IsoUK};
 
+uint32_t Vterm::translateCharset(Charset charset, unsigned char ch) const {
+    if (charset <= Charset::IsoUK)
+        return charCodes[static_cast<uint8_t>(charset)][ch - 32];
+    if (!nationalReplacementMode) return ch;
+
+    const auto lookup = [ch](const std::pair<uint8_t, uint16_t>* table,
+                             size_t size) -> uint32_t {
+        for (size_t index = 0; index < size; ++index)
+            if (table[index].first == ch) return table[index].second;
+        return ch;
+    };
+#define NRC_TABLE(name, ...) \
+    static const std::pair<uint8_t, uint16_t> name[] = {__VA_ARGS__}
+    NRC_TABLE(dutch, {'#', 0x00a3}, {'@', 0x00be}, {'[', 0x0133},
+              {'\\', 0x00bd}, {']', 0x007c}, {'{', 0x00a8},
+              {'|', 0x0192}, {'}', 0x00bc}, {'~', 0x00b4});
+    NRC_TABLE(finnish, {'[', 0x00c4}, {'\\', 0x00d6}, {']', 0x00c5},
+              {'^', 0x00dc}, {'`', 0x00e9}, {'{', 0x00e4},
+              {'|', 0x00f6}, {'}', 0x00e5}, {'~', 0x00fc});
+    NRC_TABLE(french, {'#', 0x00a3}, {'@', 0x00e0}, {'[', 0x00b0},
+              {'\\', 0x00e7}, {']', 0x00a7}, {'{', 0x00e9},
+              {'|', 0x00f9}, {'}', 0x00e8}, {'~', 0x00a8});
+    NRC_TABLE(frenchCanadian, {'@', 0x00e0}, {'[', 0x00e2},
+              {'\\', 0x00e7}, {']', 0x00ea}, {'^', 0x00ee},
+              {'`', 0x00f4}, {'{', 0x00e9}, {'|', 0x00f9},
+              {'}', 0x00e8}, {'~', 0x00fb});
+    NRC_TABLE(german, {'@', 0x00a7}, {'[', 0x00c4}, {'\\', 0x00d6},
+              {']', 0x00dc}, {'{', 0x00e4}, {'|', 0x00f6},
+              {'}', 0x00fc}, {'~', 0x00df});
+    NRC_TABLE(italian, {'#', 0x00a3}, {'@', 0x00a7}, {'[', 0x00b0},
+              {'\\', 0x00e7}, {']', 0x00e9}, {'`', 0x00f9},
+              {'{', 0x00e0}, {'|', 0x00f2}, {'}', 0x00e8},
+              {'~', 0x00ec});
+    NRC_TABLE(norwegian, {'@', 0x00c4}, {'[', 0x00c6}, {'\\', 0x00d8},
+              {']', 0x00c5}, {'^', 0x00dc}, {'`', 0x00e4},
+              {'{', 0x00e6}, {'|', 0x00f8}, {'}', 0x00e5},
+              {'~', 0x00fc});
+    NRC_TABLE(portuguese, {'[', 0x00c3}, {'\\', 0x00c7}, {']', 0x00d5},
+              {'{', 0x00e3}, {'|', 0x00e7}, {'}', 0x00f5});
+    NRC_TABLE(spanish, {'#', 0x00a3}, {'@', 0x00a7}, {'[', 0x00a1},
+              {'\\', 0x00d1}, {']', 0x00bf}, {'{', 0x00b0},
+              {'|', 0x00f1}, {'}', 0x00e7});
+    NRC_TABLE(swedish, {'@', 0x00c9}, {'[', 0x00c4}, {'\\', 0x00d6},
+              {']', 0x00c5}, {'^', 0x00dc}, {'`', 0x00e9},
+              {'{', 0x00e4}, {'|', 0x00f6}, {'}', 0x00e5},
+              {'~', 0x00fc});
+    NRC_TABLE(swiss, {'#', 0x00f9}, {'@', 0x00e0}, {'[', 0x00e9},
+              {'\\', 0x00e7}, {']', 0x00ea}, {'^', 0x00ee},
+              {'_', 0x00e8}, {'`', 0x00f4}, {'{', 0x00e4},
+              {'|', 0x00f6}, {'}', 0x00fc}, {'~', 0x00fb});
+    NRC_TABLE(serboCroatian, {'@', 0x017d}, {'[', 0x0160},
+              {'\\', 0x0110}, {']', 0x0106}, {'^', 0x010c},
+              {'`', 0x017e}, {'{', 0x0161}, {'|', 0x0111},
+              {'}', 0x0107}, {'~', 0x010d});
+    NRC_TABLE(turkish, {'&', 0x011f}, {'@', 0x0130}, {'[', 0x015e},
+              {'\\', 0x00d6}, {']', 0x00c7}, {'^', 0x00dc},
+              {'`', 0x011e}, {'{', 0x015f}, {'|', 0x00f6},
+              {'}', 0x00e7}, {'~', 0x00fc});
+#undef NRC_TABLE
+
+#define LOOKUP(name) return lookup(name, sizeof(name) / sizeof(name[0]))
+    switch (charset) {
+        case Charset::NrcDutch: LOOKUP(dutch);
+        case Charset::NrcFinnish: LOOKUP(finnish);
+        case Charset::NrcFrench: LOOKUP(french);
+        case Charset::NrcFrenchCanadian: LOOKUP(frenchCanadian);
+        case Charset::NrcGerman: LOOKUP(german);
+        case Charset::NrcItalian: LOOKUP(italian);
+        case Charset::NrcNorwegianDanish: LOOKUP(norwegian);
+        case Charset::NrcPortuguese: LOOKUP(portuguese);
+        case Charset::NrcSpanish: LOOKUP(spanish);
+        case Charset::NrcSwedish: LOOKUP(swedish);
+        case Charset::NrcSwiss: LOOKUP(swiss);
+        case Charset::NrcSerboCroatian: LOOKUP(serboCroatian);
+        case Charset::NrcTurkish: LOOKUP(turkish);
+        case Charset::NrcGreek: {
+            static const uint16_t greek[] = {
+                0x0391, 0x0392, 0x0393, 0x0394, 0x0395, 0x0396, 0x0397,
+                0x0398, 0x0399, 0x039a, 0x039b, 0x039c, 0x039d, 0x03a7,
+                0x039f, 0x03a0, 0x03a1, 0x03a3, 0x03a4, 0x03a5, 0x03a6,
+                0x039e, 0x03a8, 0x03a9};
+            return ch >= 'a' && ch <= 'x' ? greek[ch - 'a'] : ch;
+        }
+        case Charset::NrcHebrew:
+            return ch >= '`' && ch <= 'z' ? 0x05d0 + ch - '`' : ch;
+        case Charset::NrcRussian: {
+            static const uint16_t russian[] = {
+                0x042e, 0x0410, 0x0411, 0x0426, 0x0414, 0x0415, 0x0424,
+                0x0413, 0x0425, 0x0418, 0x0419, 0x041a, 0x041b, 0x041c,
+                0x041d, 0x041e, 0x041f, 0x042f, 0x0420, 0x0421, 0x0422,
+                0x0423, 0x0416, 0x0412, 0x042c, 0x042b, 0x0417, 0x0428,
+                0x042d, 0x0429, 0x0427};
+            return ch >= '`' && ch <= '~' ? russian[ch - '`'] : ch;
+        }
+        default: return ch;
+    }
+#undef LOOKUP
+}
+
 Vterm::Vterm(uint16_t glyphPx_, uint16_t glyphPy_,
              uint16_t winPx_, uint16_t winPy_,
              int ptyFd_)
