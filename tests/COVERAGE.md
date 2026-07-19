@@ -28,9 +28,10 @@ Covered now:
 - linear/rectangular selection and selection while scrolled;
 - growing/shrinking both primary and alternate screens.
 
-The optional compatibility tier additionally runs an upstream `vttest`
-process on Zutty's real PTY and records the same query set under Zutty, xterm,
-foot and kitty when those terminals are installed.
+The optional compatibility tier additionally drives the complete top-level
+upstream `vttest` suite to a clean exit on Zutty's real PTY. It also records and
+validates the same query set under Zutty, xterm, foot and kitty when those
+terminals are installed.
 
 Still requiring a platform boundary before it can be tested headlessly:
 

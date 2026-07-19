@@ -1,45 +1,15 @@
-# Оставшийся протокольный план Zutty
+# Отложенные работы Zutty
 
-Уже закрытые пункты из первоначального аудита удалены. Графические протоколы
-оставлены отдельным отложенным блоком: текущая задача их не включает.
+Активная не-графическая часть протокольного плана закрыта. Ниже оставлены
+только работы, исключённые из текущего прохода.
 
-## Protocol core и безопасность
+## Sanitizers
 
-- Довести parser до общего ECMA-48 dispatcher с отдельными parameter,
-  intermediate и final bytes. Текущий parser уже безопасно игнорирует
-  неизвестные и переполненные последовательности, но всё ещё состоит из
-  специализированных состояний.
-- Добавить fuzz target для parser. ASan/UBSan прогнать позднее в окружении не
-  на musl.
+- Прогнать parser fuzz target под ASan/UBSan в окружении не на musl.
 
-## Совместимость с `xterm-256color`
+## Графические протоколы
 
-Проверить всю локальную terminfo, а оставшиеся рекламируемые возможности либо
-реализовать, либо перестать объявлять:
-
-- visual bell через `DECSCNM`;
-- printer controls;
-- meta mode `?1034`;
-
-## DEC/xterm completeness
-
-- Printer controls.
-- LED controls.
-- Full NRCS family и DECNRCM.
-- Reverse wraparound.
 - Tektronix emulation.
-
-## Тестирование
-
-- Полная default-parameter matrix для CSI/DEC operations.
-- Differential traces против xterm, foot и kitty.
-- Актуальный автоматический `vttest`.
-- Parser fuzzing и sanitizer-прогоны в подходящем окружении.
-- Renderer/integration tests для blink, dynamic palette, selection colors и
-  grapheme shaping.
-
-## Отложено: графика
-
 - Sixel.
 - Kitty graphics.
 - iTerm2 inline/multipart images.
