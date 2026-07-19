@@ -94,6 +94,23 @@ Vterm::unhandledInput(unsigned char ch) {
          << ") in state " << strInputState(inputState)
          << ". Escape sequence so far: "
          << dumpBuffer(inputBuf + lastEscBegin, inputBuf + readPos + 1);
+    if (ch >= 0x20 && ch <= 0x2f) {
+        switch (inputState) {
+            case InputState::CSI:
+            case InputState::CSI_priv:
+            case InputState::CSI_Quote:
+            case InputState::CSI_DblQuote:
+            case InputState::CSI_Bang:
+            case InputState::CSI_SPC:
+            case InputState::CSI_GT:
+            case InputState::CSI_LT:
+            case InputState::CSI_EQ:
+                setState(InputState::IgnoreSequence);
+                return;
+            default:
+                break;
+        }
+    }
     setState(InputState::Normal);
 }
 
@@ -1680,6 +1697,8 @@ inline void
 Vterm::setFgFromPalIx() {
     if (fgPalIx < 0) {
         *fg = opts.fg;
+    } else if (fgPalIx > 255) {
+        return;
     } else if (opts.boldColors && attrs.bold && fgPalIx >= 0 && fgPalIx <= 7) {
         *fg = palette256[fgPalIx + 8];
     } else {
@@ -1691,6 +1710,8 @@ inline void
 Vterm::setBgFromPalIx() {
     if (bgPalIx < 0) {
         *bg = opts.bg;
+    } else if (bgPalIx > 255) {
+        return;
     } else {
         *bg = palette256[bgPalIx];
     }
@@ -1821,16 +1842,23 @@ Vterm::csi_SGR() {
                         if (k >= nInputOps - 1) {
                             break;
                         }
-                        fgPalIx = inputOps[++k];
-                        setFgFromPalIx();
+                        if (inputOps[++k] <= 255) {
+                            fgPalIx = inputOps[k];
+                            setFgFromPalIx();
+                        }
                         break;
                     case 2:
                         if (k >= nInputOps - 3) {
                             break;
                         }
-                        (*fg).red = inputOps[++k];
-                        (*fg).green = inputOps[++k];
-                        (*fg).blue = inputOps[++k];
+                        if (inputOps[k + 1] <= 255 &&
+                            inputOps[k + 2] <= 255 &&
+                            inputOps[k + 3] <= 255) {
+                            (*fg).red = inputOps[k + 1];
+                            (*fg).green = inputOps[k + 2];
+                            (*fg).blue = inputOps[k + 3];
+                        }
+                        k += 3;
                         break;
                     default:
                         break;
@@ -1862,16 +1890,23 @@ Vterm::csi_SGR() {
                         if (k >= nInputOps - 1) {
                             break;
                         }
-                        bgPalIx = inputOps[++k];
-                        setBgFromPalIx();
+                        if (inputOps[++k] <= 255) {
+                            bgPalIx = inputOps[k];
+                            setBgFromPalIx();
+                        }
                         break;
                     case 2:
                         if (k >= nInputOps - 3) {
                             break;
                         }
-                        (*bg).red = inputOps[++k];
-                        (*bg).green = inputOps[++k];
-                        (*bg).blue = inputOps[++k];
+                        if (inputOps[k + 1] <= 255 &&
+                            inputOps[k + 2] <= 255 &&
+                            inputOps[k + 3] <= 255) {
+                            (*bg).red = inputOps[k + 1];
+                            (*bg).green = inputOps[k + 2];
+                            (*bg).blue = inputOps[k + 3];
+                        }
+                        k += 3;
                         break;
                     default:
                         break;

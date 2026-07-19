@@ -66,6 +66,28 @@ class CellStateTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(1, 0).foreground, (255, 255, 255))
             self.assertEqual(snapshot.cell(1, 0).background, (0, 0, 0))
 
+    def test_out_of_range_extended_colors_are_ignored(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1b[31;42m"
+                b"\x1b[38;5;256;48;5;4294967295mX"
+            )
+            cell = terminal.snapshot().cell(0, 0)
+
+            self.assertEqual(cell.foreground, (205, 0, 0))
+            self.assertEqual(cell.background, (0, 205, 0))
+
+    def test_out_of_range_truecolor_components_are_ignored(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1b[31;42m"
+                b"\x1b[38;2;256;2;3;48;2;4;5;999mX"
+            )
+            cell = terminal.snapshot().cell(0, 0)
+
+            self.assertEqual(cell.foreground, (205, 0, 0))
+            self.assertEqual(cell.background, (0, 205, 0))
+
 
 if __name__ == "__main__":
     unittest.main()

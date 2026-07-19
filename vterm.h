@@ -271,6 +271,8 @@ private:
         DCS_Esc,
         OSC,
         OSC_Esc,
+        String,
+        String_Esc,
         VT52_CUP_Arg1,
         VT52_CUP_Arg2
     };
@@ -298,6 +300,8 @@ private:
                 "DCS_Esc",
                 "OSC",
                 "OSC_Esc",
+                "String",
+                "String_Esc",
                 "VT52_CUP_Arg1",
                 "VT52_CUP_Arg2"};
         return enumerators[(int)is];
@@ -460,6 +464,7 @@ private:
     size_t nInputOps = 0;
     Utf8Decoder utf8dec;
     std::vector<unsigned char> argBuf;
+    bool argBufOverflowed = false;
     unsigned char scsDst;
     unsigned char scsMod;
 

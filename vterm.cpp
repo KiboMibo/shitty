@@ -1669,12 +1669,12 @@ Vterm::getInputSpec(Key key) {
     case '8':                                                        \
     case '9':                                                        \
         csiPrefixAllowed = false;                                    \
-        if (inputOps[nInputOps - 1] < 429496704) {                   \
+        if (inputOps[nInputOps - 1] >                                \
+            (UINT32_MAX - static_cast<uint32_t>(ch - '0')) / 10) {   \
+            inputOps[nInputOps - 1] = UINT32_MAX;                    \
+        } else {                                                     \
             inputOps[nInputOps - 1] *= 10;                           \
             inputOps[nInputOps - 1] += ch - '0';                     \
-        } else {                                                     \
-            logE << "inputOp overflow!" << std::endl;                \
-            setState(InputState::Normal);                            \
         }                                                            \
         break;                                                       \
     case ';':                                                        \
@@ -1684,7 +1684,7 @@ Vterm::getInputSpec(Key key) {
         else {                                                       \
             logE << "inputOps full, increase maxEscOps (currently: " \
                  << maxEscOps << ")!" << std::endl;                  \
-            setState(InputState::Normal);                            \
+            setState(InputState::IgnoreSequence);                    \
         }                                                            \
         break
 
@@ -1714,7 +1714,9 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
             inputState != InputState::DCS &&
             inputState != InputState::DCS_Esc &&
             inputState != InputState::OSC &&
-            inputState != InputState::OSC_Esc) {
+            inputState != InputState::OSC_Esc &&
+            inputState != InputState::String &&
+            inputState != InputState::String_Esc) {
             setState(compatLevel == CompatibilityLevel::VT52
                          ? InputState::Escape_VT52
                          : InputState::Escape);
@@ -1883,7 +1885,13 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         break;
                     case ']':
                         argBuf.clear();
+                        argBufOverflowed = false;
                         setState(InputState::OSC);
+                        break;
+                    case 'X':
+                    case '^':
+                    case '_':
+                        setState(InputState::String);
                         break;
                     case '(':
                     case ')':
@@ -1920,6 +1928,7 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         break;
                     case 'P':
                         argBuf.clear();
+                        argBufOverflowed = false;
                         setState(InputState::DCS);
                         break;
                     case 'c':
@@ -2361,9 +2370,9 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                     default:
                         if (argBuf.size() < 4095) {
                             argBuf.push_back(ch);
-                        } else {
+                        } else if (!argBufOverflowed) {
                             logE << "DCS argument string overflow" << std::endl;
-                            setState(InputState::Normal);
+                            argBufOverflowed = true;
                         }
                         break;
                 }
@@ -2371,11 +2380,19 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
             case InputState::DCS_Esc:
                 switch (ch) {
                     case '\\':
-                        handle_DCS();
+                        if (argBufOverflowed) {
+                            setState(InputState::Normal);
+                        } else {
+                            handle_DCS();
+                        }
                         break;
                     default:
-                        argBuf.push_back('\x1b');
-                        argBuf.push_back(ch);
+                        if (!argBufOverflowed && argBuf.size() <= 4093) {
+                            argBuf.push_back('\x1b');
+                            argBuf.push_back(ch);
+                        } else {
+                            argBufOverflowed = true;
+                        }
                         setState(InputState::DCS);
                         break;
                 }
@@ -2383,7 +2400,11 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
             case InputState::OSC:
                 switch (ch) {
                     case '\a':
-                        handle_OSC();
+                        if (argBufOverflowed) {
+                            setState(InputState::Normal);
+                        } else {
+                            handle_OSC();
+                        }
                         break;
                     case '\x1b':
                         setState(InputState::OSC_Esc);
@@ -2391,9 +2412,9 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                     default:
                         if (argBuf.size() < 4095) {
                             argBuf.push_back(ch);
-                        } else {
+                        } else if (!argBufOverflowed) {
                             logE << "OSC argument string overflow" << std::endl;
-                            setState(InputState::Normal);
+                            argBufOverflowed = true;
                         }
                         break;
                 }
@@ -2401,14 +2422,31 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
             case InputState::OSC_Esc:
                 switch (ch) {
                     case '\\':
-                        handle_OSC();
+                        if (argBufOverflowed) {
+                            setState(InputState::Normal);
+                        } else {
+                            handle_OSC();
+                        }
                         break;
                     default:
-                        argBuf.push_back('\x1b');
-                        argBuf.push_back(ch);
+                        if (!argBufOverflowed && argBuf.size() <= 4093) {
+                            argBuf.push_back('\x1b');
+                            argBuf.push_back(ch);
+                        } else {
+                            argBufOverflowed = true;
+                        }
                         setState(InputState::OSC);
                         break;
                 }
+                break;
+            case InputState::String:
+                if (ch == '\x1b') {
+                    setState(InputState::String_Esc);
+                }
+                break;
+            case InputState::String_Esc:
+                setState(ch == '\\' ? InputState::Normal
+                                     : InputState::String);
                 break;
         }
     }

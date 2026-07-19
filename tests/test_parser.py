@@ -93,6 +93,54 @@ class ParserStreamingTest(unittest.TestCase):
             self.assertEqual(terminal.read_actions(), [])
             self.assertEqual(terminal.snapshot().cell(0, 0).char, "X")
 
+    def test_unknown_csi_intermediates_are_ignored_as_a_unit(self):
+        sequences = (
+            b"\x1b[?1$p",
+            b"\x1b[1;2;3;4$x",
+            b"\x1b[1;2&z",
+        )
+        for sequence in sequences:
+            with self.subTest(sequence=sequence):
+                with Zutty(columns=8, rows=2) as terminal:
+                    terminal.write(b"A" + sequence + b"B")
+                    self.assertEqual(terminal.snapshot().lines[0], "AB      ")
+
+    def test_unknown_string_protocols_are_ignored_through_st(self):
+        sequences = (
+            b"\x1b_Gi=31;QUJDRA==\x1b\\",
+            b"\x1b^private message\x1b\\",
+            b"\x1bXstart of string\x1b\\",
+        )
+        for sequence in sequences:
+            with self.subTest(sequence=sequence):
+                with Zutty(columns=8, rows=2) as terminal:
+                    terminal.write(b"A" + sequence + b"B")
+                    self.assertEqual(terminal.snapshot().lines[0], "AB      ")
+
+    def test_oversized_osc_and_dcs_are_discarded_through_st(self):
+        sequences = (
+            b"\x1b]2;" + b"x" * 5000 + b"\x1b\\",
+            b"\x1bP$q" + b"x" * 5000 + b"\x1b\\",
+        )
+        for sequence in sequences:
+            with self.subTest(sequence=sequence[:3]):
+                with Zutty(columns=8, rows=2) as terminal:
+                    terminal.write(b"A" + sequence + b"B")
+                    self.assertEqual(terminal.snapshot().lines[0], "AB      ")
+                    self.assertEqual(terminal.read_actions(), [])
+                    self.assertEqual(terminal.read_input(), b"")
+
+    def test_overflowing_csi_parameters_do_not_leak_as_text(self):
+        sequences = (
+            b"\x1b[999999999999999999999A",
+            b"\x1b[" + b"1;" * 32 + b"1m",
+        )
+        for sequence in sequences:
+            with self.subTest(sequence=sequence[:16]):
+                with Zutty(columns=8, rows=2) as terminal:
+                    terminal.write(b"A" + sequence + b"B")
+                    self.assertEqual(terminal.snapshot().lines[0], "AB      ")
+
 
 if __name__ == "__main__":
     unittest.main()
