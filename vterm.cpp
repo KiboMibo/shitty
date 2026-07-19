@@ -483,7 +483,7 @@ namespace {
                 return {1, 'Q'};
             case Key::F3:
             case Key::KP_F3:
-                return {13, '~'};
+                return {1, 'R'};
             case Key::F4:
             case Key::KP_F4:
                 return {1, 'S'};
@@ -1377,34 +1377,6 @@ int Vterm::writePty(uint8_t ch, VtModifier modifiers, bool userInput) {
 
 int Vterm::writeKittyKey(VtKey key, uint16_t modifiers,
                          KeyEventType event) {
-    if (key == VtKey::Return || key == VtKey::Tab ||
-        key == VtKey::Backspace) {
-        if (event == KeyEventType::Release) {
-            return 0;
-        }
-
-        std::string encoded;
-        if (modifiers & 2) {
-            encoded.push_back('\x1b');
-        }
-        if (key == VtKey::Return) {
-            encoded.push_back('\r');
-            if (autoNewlineMode) {
-                encoded.push_back('\n');
-            }
-        } else if (key == VtKey::Tab) {
-            encoded += modifiers & 1 ? "\x1b[Z" : "\t";
-        } else {
-            const char backspace = modifiers & 4
-                                       ? '\b'
-                                       : (bkspSendsDel ? '\x7f' : '\b');
-            encoded.push_back(backspace);
-        }
-        return writePty(
-            reinterpret_cast<const uint8_t*>(encoded.data()),
-            encoded.size(), true);
-    }
-
     const KittyKeySpec spec = kittyKeySpec(key);
     if (!spec.code) {
         return 0;

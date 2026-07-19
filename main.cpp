@@ -11,6 +11,7 @@
 #include "base64.h"
 #include "fontpack.h"
 #include "log.h"
+#include "mouseprotocol.h"
 #include "options.h"
 #include "pty.h"
 #include "renderer.h"
@@ -240,12 +241,6 @@ namespace {
 
     std::string primarySelection;
     std::exception_ptr callbackError;
-
-    enum class MouseEventType {
-        Press,
-        Release,
-        Motion
-    };
 
     void resolveShell(char* progPath) {
         char resolvedPath[PATH_MAX];
@@ -959,96 +954,28 @@ namespace {
     void mouseProtocolSend(MouseTrackingEnc encoding, MouseEventType type,
                            int modifiers, unsigned buttonState,
                            int button, int column, int row) {
-        int code = 0;
-        if (type == MouseEventType::Motion) {
-            if (buttonState & (1u << GLFW_MOUSE_BUTTON_LEFT)) {
-                code = 32;
-            } else if (buttonState & (1u << GLFW_MOUSE_BUTTON_MIDDLE)) {
-                code = 33;
-            } else if (buttonState & (1u << GLFW_MOUSE_BUTTON_RIGHT)) {
-                code = 34;
-            } else {
-                code = 35;
-            }
-        } else if (type == MouseEventType::Release &&
-                   encoding != MouseTrackingEnc::SGR) {
-            code = 3;
-        } else {
-            switch (button) {
-                case 1:
-                    code = 0;
-                    break;
-                case 2:
-                    code = 1;
-                    break;
-                case 3:
-                    code = 2;
-                    break;
-                case 4:
-                    code = 64;
-                    break;
-                case 5:
-                    code = 65;
-                    break;
-                case 6:
-                    code = 66;
-                    break;
-                case 7:
-                    code = 67;
-                    break;
-                case 8:
-                    code = 128;
-                    break;
-                case 9:
-                    code = 129;
-                    break;
-                default:
-                    return;
-            }
-        }
-
+        unsigned protocolModifiers = 0;
         if (modifiers & GLFW_MOD_SHIFT) {
-            code += 4;
+            protocolModifiers |= MouseShift;
         }
         if ((modifiers & GLFW_MOD_ALT) &&
             !keyPressed(GLFW_KEY_RIGHT_ALT)) {
-            code += 8;
+            protocolModifiers |= MouseAlt;
         }
         if (modifiers & GLFW_MOD_CONTROL) {
-            code += 16;
+            protocolModifiers |= MouseControl;
         }
-
-        std::ostringstream output;
-        switch (encoding) {
-            case MouseTrackingEnc::Default:
-                output << "\x1b[M" << static_cast<char>(32 + code)
-                       << static_cast<char>(32 + column)
-                       << static_cast<char>(32 + row);
-                break;
-            case MouseTrackingEnc::UTF8:
-                output << "\x1b[M";
-                Utf8Encoder::pushUnicode(
-                    32 + code, [&output](char ch) {
-                    output << ch;
-                });
-                Utf8Encoder::pushUnicode(
-                    32 + column, [&output](char ch) {
-                    output << ch;
-                });
-                Utf8Encoder::pushUnicode(
-                    32 + row, [&output](char ch) {
-                    output << ch;
-                });
-                break;
-            case MouseTrackingEnc::SGR:
-                output << "\x1b[<" << code << ';' << column << ';' << row
-                       << (type == MouseEventType::Release ? 'm' : 'M');
-                break;
-            case MouseTrackingEnc::URXVT:
-                output << "\x1b[" << code + 32 << ';' << column << ';' << row << 'M';
-                break;
+        int motionButton = 0;
+        if (buttonState & (1u << GLFW_MOUSE_BUTTON_LEFT)) {
+            motionButton = 1;
+        } else if (buttonState & (1u << GLFW_MOUSE_BUTTON_MIDDLE)) {
+            motionButton = 2;
+        } else if (buttonState & (1u << GLFW_MOUSE_BUTTON_RIGHT)) {
+            motionButton = 3;
         }
-        vt->writePty(output.str().c_str());
+        vt->writePty(encodeMouseProtocol(
+            encoding, type, protocolModifiers, motionButton,
+            button, column, row).c_str());
     }
 
     void sendMouseButtonProtocol(MouseEventType type, int button,
@@ -1429,9 +1356,6 @@ namespace {
             [focused]() {
             if (vt == nullptr) {
                 return;
-            }
-            if (vt->getMouseTrackingState().focusEventMode) {
-                vt->writePty(focused ? "\x1b[I" : "\x1b[O");
             }
             if (!focused) {
                 mouseContext.buttonState = 0;

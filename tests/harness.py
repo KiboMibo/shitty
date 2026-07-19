@@ -122,6 +122,9 @@ class Zutty:
             f"KITTY_KEY {key} {shifted} {base} {modifiers} {event}"
         )
 
+    def kitty_special(self, name, modifiers=0, event=1):
+        self.command(f"KITTY_SPECIAL {name} {modifiers} {event}")
+
     def paste(self, data):
         self.command("PASTE " + data.hex())
 
@@ -159,6 +162,22 @@ class Zutty:
         if len(response) != 5 or response[0] != "OK":
             raise RuntimeError("invalid state response")
         return tuple(map(int, response[1:]))
+
+    def mouse_encode(
+        self,
+        encoding,
+        event,
+        modifiers,
+        motion_button,
+        button,
+        column,
+        row,
+    ):
+        return self._read_hex_response(
+            "MOUSE_ENCODE "
+            f"{encoding} {event} {modifiers} {motion_button} "
+            f"{button} {column} {row}"
+        )
 
     def read_input(self):
         return self._read_hex_response("READ_INPUT")

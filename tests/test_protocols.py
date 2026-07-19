@@ -55,6 +55,14 @@ class ProtocolTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(5, 0).hyperlink, 0)
             self.assertEqual(terminal.hyperlink(1, 0), "https://example.test")
 
+    def test_osc52_clipboard_request_is_forwarded(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]52;c;SGVsbG8=\x1b\\")
+            self.assertEqual(
+                terminal.read_actions(),
+                ["OSC 52 633b534756736247383d"],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

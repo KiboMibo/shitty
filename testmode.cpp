@@ -1,6 +1,7 @@
 #include "testmode.h"
 
 #include "options.h"
+#include "mouseprotocol.h"
 #include "vterm.h"
 
 #include <cerrno>
@@ -203,13 +204,32 @@ namespace {
             {"F7", VtKey::F7}, {"F8", VtKey::F8},
             {"F9", VtKey::F9}, {"F10", VtKey::F10},
             {"F11", VtKey::F11}, {"F12", VtKey::F12},
+            {"F13", VtKey::F13}, {"F14", VtKey::F14},
+            {"F15", VtKey::F15}, {"F16", VtKey::F16},
+            {"F17", VtKey::F17}, {"F18", VtKey::F18},
+            {"F19", VtKey::F19}, {"F20", VtKey::F20},
             {"KP_PLUS", VtKey::KP_Plus}, {"KP_MINUS", VtKey::KP_Minus},
-            {"KP_ENTER", VtKey::KP_Enter}, {"KP_0", VtKey::KP_0},
+            {"KP_STAR", VtKey::KP_Star}, {"KP_SLASH", VtKey::KP_Slash},
+            {"KP_COMMA", VtKey::KP_Comma}, {"KP_DOT", VtKey::KP_Dot},
+            {"KP_EQUAL", VtKey::KP_Equal}, {"KP_TAB", VtKey::KP_Tab},
+            {"KP_SPACE", VtKey::KP_Space}, {"KP_ENTER", VtKey::KP_Enter},
+            {"KP_LEFT", VtKey::KP_Left}, {"KP_RIGHT", VtKey::KP_Right},
+            {"KP_UP", VtKey::KP_Up}, {"KP_DOWN", VtKey::KP_Down},
+            {"KP_HOME", VtKey::KP_Home}, {"KP_END", VtKey::KP_End},
+            {"KP_PAGE_UP", VtKey::KP_PageUp},
+            {"KP_PAGE_DOWN", VtKey::KP_PageDown},
+            {"KP_INSERT", VtKey::KP_Insert},
+            {"KP_DELETE", VtKey::KP_Delete},
+            {"KP_BEGIN", VtKey::KP_Begin}, {"KP_0", VtKey::KP_0},
             {"KP_1", VtKey::KP_1}, {"KP_2", VtKey::KP_2},
             {"KP_3", VtKey::KP_3}, {"KP_4", VtKey::KP_4},
             {"KP_5", VtKey::KP_5}, {"KP_6", VtKey::KP_6},
             {"KP_7", VtKey::KP_7}, {"KP_8", VtKey::KP_8},
             {"KP_9", VtKey::KP_9},
+            {"CAPS_LOCK", VtKey::CapsLock},
+            {"SCROLL_LOCK", VtKey::ScrollLock},
+            {"NUM_LOCK", VtKey::NumLock}, {"PRINT", VtKey::Print},
+            {"PAUSE", VtKey::Pause}, {"MENU", VtKey::Menu},
         };
         const auto found = keys.find(name);
         if (found == keys.end()) {
@@ -327,6 +347,19 @@ int runTestMode(int controlFd) {
                     key, shifted, base, modifiers,
                     static_cast<Vterm::KeyEventType>(event));
                 writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 14, "KITTY_SPECIAL ") == 0) {
+                std::istringstream args(line.substr(14));
+                std::string name;
+                unsigned modifiers;
+                unsigned event;
+                if (!(args >> name >> modifiers >> event) ||
+                    event < 1 || event > 3) {
+                    throw std::runtime_error("invalid kitty special key");
+                }
+                terminal.writeKittyKey(
+                    parseKey(name), modifiers,
+                    static_cast<Vterm::KeyEventType>(event));
+                writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 6, "PASTE ") == 0) {
                 terminal.pasteSelection(decodeHex(line.substr(6)));
                 writeAll(controlFd, "OK\n");
@@ -377,6 +410,23 @@ int runTestMode(int controlFd) {
                          " " + std::to_string(mouse.focusEventMode) +
                          " " + std::to_string(terminal.getKittyKeyboardFlags()) +
                          "\n");
+            } else if (line.compare(0, 13, "MOUSE_ENCODE ") == 0) {
+                std::istringstream args(line.substr(13));
+                unsigned encoding;
+                unsigned type;
+                unsigned modifiers;
+                int motionButton;
+                int button;
+                int column;
+                int row;
+                if (!(args >> encoding >> type >> modifiers >> motionButton >>
+                      button >> column >> row) || encoding > 3 || type > 2) {
+                    throw std::runtime_error("invalid mouse event");
+                }
+                writeAll(controlFd, "OK " + encodeHex(encodeMouseProtocol(
+                    static_cast<MouseTrackingEnc>(encoding),
+                    static_cast<MouseEventType>(type), modifiers,
+                    motionButton, button, column, row)) + "\n");
             } else if (line == "SNAPSHOT") {
                 writeAll(controlFd, display.snapshot());
             } else if (line == "READ_INPUT") {

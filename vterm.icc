@@ -144,6 +144,9 @@ Vterm::getKittyKeyboardFlags() const {
 inline void
 Vterm::setHasFocus(bool hasFocus_) {
     hasFocus = hasFocus_;
+    if (mouseTrk.focusEventMode) {
+        writePty(hasFocus ? "\x1b[I" : "\x1b[O");
+    }
     showCursor();
     redraw();
 }

@@ -33,6 +33,36 @@ class ModeTest(unittest.TestCase):
             terminal.write(b"\x1b[?1003l\x1b[?1006l\x1b[?1004l")
             self.assertEqual(terminal.state()[:3], (0, 0, 0))
 
+    def test_focus_reporting_protocol(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.focus(True)
+            self.assertEqual(terminal.read_input(), b"")
+            terminal.write(b"\x1b[?1004h")
+            terminal.focus(False)
+            terminal.focus(True)
+            self.assertEqual(terminal.read_input(), b"\x1b[O\x1b[I")
+
+    def test_private_modes_can_be_saved_and_restored(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1b[?1003;1006;1004h"
+                b"\x1b[?1003;1006;1004s"
+                b"\x1b[?1003;1006;1004l"
+            )
+            self.assertEqual(terminal.state()[:3], (0, 0, 0))
+            terminal.write(b"\x1b[?1003;1006;1004r")
+            self.assertEqual(terminal.state()[:3], (4, 2, 1))
+
+    def test_alternate_scroll_mode_sends_cursor_keys(self):
+        with Zutty(columns=8, rows=4) as terminal:
+            terminal.write(b"\x1b[?1007h\x1b[?1049h")
+            terminal.page_up()
+            terminal.page_down()
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[A\x1b[A\x1b[B\x1b[B",
+            )
+
     def test_synchronized_output_defers_refresh(self):
         with Zutty(columns=8, rows=2) as terminal:
             before = terminal.snapshot().refresh_count

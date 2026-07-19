@@ -46,6 +46,26 @@ class CellStateTest(unittest.TestCase):
             self.assertEqual(snapshot.lines, ["abcd", "e   "])
             self.assertTrue(snapshot.cell(3, 0).wrapped)
 
+    def test_ansi_bright_and_256_color_palette(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[91;104mA\x1b[38;5;196;48;5;21mB")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).foreground, (255, 0, 0))
+            self.assertEqual(snapshot.cell(0, 0).background, (92, 92, 255))
+            self.assertEqual(snapshot.cell(1, 0).foreground, (255, 0, 0))
+            self.assertEqual(snapshot.cell(1, 0).background, (0, 0, 255))
+
+    def test_default_colors_can_be_restored(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[31;42mA\x1b[39;49mB")
+            snapshot = terminal.snapshot()
+            self.assertNotEqual(
+                snapshot.cell(0, 0).foreground,
+                snapshot.cell(1, 0).foreground,
+            )
+            self.assertEqual(snapshot.cell(1, 0).foreground, (255, 255, 255))
+            self.assertEqual(snapshot.cell(1, 0).background, (0, 0, 0))
+
 
 if __name__ == "__main__":
     unittest.main()
