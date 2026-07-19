@@ -22,7 +22,6 @@
 #include <stdexcept>
 
 namespace {
-    using namespace zutty;
 
     // std::map keeps references to stored values stable. Options keeps several
     // const char* pointers into this storage for the lifetime of the process.
@@ -163,7 +162,7 @@ namespace {
     }
 
     void
-    convColor(const char* name, const char* option, zutty::Color& outColor) {
+    convColor(const char* name, const char* option, Color& outColor) {
         const char* value = option[0] == '#' ? option + 1 : option;
         switch (strlen(value)) {
             case 3:
@@ -187,210 +186,198 @@ namespace {
 
 } // namespace
 
-zutty::Options opts;
+Options opts;
 
-namespace zutty {
-    void
-    Options::initialize(int* argc, char** argv) {
-        int output = 1;
+void Options::initialize(int* argc, char** argv) {
+    int output = 1;
 
-        for (int input = 1; input < *argc; ++input) {
-            const char* argument = argv[input];
-            if ((argument[0] != '-' && argument[0] != '+') || argument[1] == '\0') {
-                argv[output++] = argv[input];
-                continue;
+    for (int input = 1; input < *argc; ++input) {
+        const char* argument = argv[input];
+        if ((argument[0] != '-' && argument[0] != '+') || argument[1] == '\0') {
+            argv[output++] = argv[input];
+            continue;
+        }
+
+        const bool enabled = argument[0] == '-';
+        const char* name = argument + 1;
+
+        if (strcmp(name, "e") == 0) {
+            while (input < *argc) {
+                argv[output++] = argv[input++];
+            }
+            break;
+        }
+
+        const OptionDesc* option = findOption(name);
+        if (option == nullptr) {
+            if (!isAdvancedOption(name)) {
+                throw std::runtime_error(std::string("unknown option: ") + argument);
             }
 
-            const bool enabled = argument[0] == '-';
-            const char* name = argument + 1;
+            if (input + 1 >= *argc) {
+                throw std::runtime_error(std::string(argument) + ": missing value");
+            }
+            commandLine[name] = argv[++input];
+            continue;
+        }
 
-            if (strcmp(name, "e") == 0) {
-                while (input < *argc) {
-                    argv[output++] = argv[input++];
-                }
+        switch (option->parseType) {
+            case OptionKind::NoArg:
+                commandLine[option->option] = enabled ? option->implValue : "false";
                 break;
-            }
-
-            const OptionDesc* option = findOption(name);
-            if (option == nullptr) {
-                if (!isAdvancedOption(name)) {
-                    throw std::runtime_error(std::string("unknown option: ") + argument);
+            case OptionKind::SepArg:
+                if (!enabled) {
+                    throw std::runtime_error(std::string(argument) + ": '+' is invalid here");
                 }
-
                 if (input + 1 >= *argc) {
                     throw std::runtime_error(std::string(argument) + ": missing value");
                 }
-                commandLine[name] = argv[++input];
-                continue;
-            }
-
-            switch (option->parseType) {
-                case OptionKind::NoArg:
-                    commandLine[option->option] = enabled ? option->implValue : "false";
-                    break;
-                case OptionKind::SepArg:
-                    if (!enabled) {
-                        throw std::runtime_error(std::string(argument) + ": '+' is invalid here");
-                    }
-                    if (input + 1 >= *argc) {
-                        throw std::runtime_error(std::string(argument) + ": missing value");
-                    }
-                    commandLine[option->option] = argv[++input];
-                    break;
-                case OptionKind::SkipLine:
-                    break;
-            }
-        }
-
-        *argc = output;
-        argv[output] = nullptr;
-    }
-
-    bool
-    Options::getBool(const char* name, bool defaultValue) {
-        const char* option = get(name);
-        if (option == nullptr) {
-            return defaultValue;
-        }
-        if (strcmp(option, "true") == 0) {
-            return true;
-        }
-        if (strcmp(option, "false") == 0) {
-            return false;
-        }
-        throw std::runtime_error(std::string("-") + name +
-                                 ": expected true or false");
-    }
-
-    void
-    Options::getColor(const char* name, zutty::Color& outColor) {
-        const char* option = get(name);
-        if (option == nullptr) {
-            throw std::runtime_error(std::string("-") + name + ": missing value");
-        }
-        convColor(name, option, outColor);
-    }
-
-    int
-    Options::getInteger(const char* name, int min, int max) {
-        const char* option = get(name);
-        if (option == nullptr) {
-            return min;
-        }
-
-        std::stringstream input(option);
-        int result;
-        input >> result;
-        if (input.fail()) {
-            throw std::runtime_error(std::string("-") + name + ": expected integer");
-        }
-        return std::min(std::max(min, result), max);
-    }
-
-    void
-    Options::handlePrintOpts() {
-        if (getBool("help")) {
-            printUsage();
-            exit(0);
-        }
-        if (getBool("listres")) {
-            printResources();
-            exit(0);
+                commandLine[option->option] = argv[++input];
+                break;
+            case OptionKind::SkipLine:
+                break;
         }
     }
 
-    void
-    Options::parse() {
-        handlePrintOpts();
-        try {
-            getBorder(border);
-            getSaveLines(saveLines);
-            dwfontname = get("dwfont");
-            fontname = get("font");
-            fontpath = get("fontpath");
-            getFontsize(fontsize);
-            getGeometry(nCols, nRows);
-            vulkanInfo = getBool("vulkanInfo");
-            shell = get("shell", getenv("SHELL"));
-            if (shell == nullptr) {
-                shell = "bash";
-            }
-            title = get("title", nullptr, &titleSource);
-            getColor("fg", fg);
-            getColor("bg", bg);
-            rv = getBool("rv");
-            if (rv) {
-                std::swap(fg, bg);
-            }
-            if (get("cr") != nullptr) {
-                getColor("cr", cr);
-            } else {
-                cr = fg;
-            }
-            altScrollMode = getBool("altScroll");
-            altSendsEscape = getBool("altSendsEscape");
-            autoCopyMode = getBool("autoCopy");
-            boldColors = getBool("boldColors");
-            login = getBool("login");
-            showWraps = getBool("showWraps");
-            quiet = getBool("quiet");
-            verbose = getBool("verbose");
-            modifyOtherKeys = getInteger("modifyOtherKeys", 0, 2);
-        } catch (const std::exception& error) {
-            std::cout << "Error: " << error.what() << "!\n"
-                      << "Try -help for usage options." << std::endl;
-            exit(-1);
-        }
+    *argc = output;
+    argv[output] = nullptr;
+}
+
+bool Options::getBool(const char* name, bool defaultValue) {
+    const char* option = get(name);
+    if (option == nullptr) {
+        return defaultValue;
+    }
+    if (strcmp(option, "true") == 0) {
+        return true;
+    }
+    if (strcmp(option, "false") == 0) {
+        return false;
+    }
+    throw std::runtime_error(std::string("-") + name +
+                             ": expected true or false");
+}
+
+void Options::getColor(const char* name, Color& outColor) {
+    const char* option = get(name);
+    if (option == nullptr) {
+        throw std::runtime_error(std::string("-") + name + ": missing value");
+    }
+    convColor(name, option, outColor);
+}
+
+int Options::getInteger(const char* name, int min, int max) {
+    const char* option = get(name);
+    if (option == nullptr) {
+        return min;
     }
 
-    void
-    Options::printVersion() const {
-        std::cout << "Zutty " ZUTTY_VERSION "\n"
-                  << "Copyright (C) 2020 Tom Szilagyi\n\n"
-                  << "This program comes with ABSOLUTELY NO WARRANTY.\n"
-                  << "Zutty is free software, and you are welcome to redistribute it\n"
-                  << "under the terms and conditions of the GNU GPL v3 (or later).\n"
-                  << std::endl;
+    std::stringstream input(option);
+    int result;
+    input >> result;
+    if (input.fail()) {
+        throw std::runtime_error(std::string("-") + name + ": expected integer");
     }
+    return std::min(std::max(min, result), max);
+}
 
-    void
-    Options::printUsage() const {
-        printVersion();
-        std::cout << "Usage:\n"
-                  << "  zutty [-option ...] [shell]\n\n"
-                  << "Options:\n";
-        size_t maxWidth = 0;
-        for (const auto& option : optionsTable) {
-            maxWidth = std::max(maxWidth, strlen(option.option));
-        }
-        for (const auto& option : optionsTable) {
-            std::cout << "  -" << std::left << std::setw(maxWidth + 3)
-                      << option.option << option.helpDescr;
-            if (option.hardDefault != nullptr && option.parseType != OptionKind::NoArg) {
-                std::cout << " (default: " << option.hardDefault << ")";
-            }
-            std::cout << "\n";
-        }
-        std::cout << std::endl;
+void Options::handlePrintOpts() {
+    if (getBool("help")) {
+        printUsage();
+        exit(0);
     }
-
-    void
-    Options::printResources() const {
-        printVersion();
-        std::cout << "Advanced options:\n";
-        size_t maxWidth = 0;
-        for (const auto& resource : resourceTable) {
-            maxWidth = std::max(maxWidth, strlen(resource.resource));
-        }
-        for (const auto& resource : resourceTable) {
-            std::cout << "  -" << std::left << std::setw(maxWidth + 3)
-                      << resource.resource << resource.helpDescr;
-            if (resource.hardDefault != nullptr) {
-                std::cout << " (default: " << resource.hardDefault << ")";
-            }
-            std::cout << "\n";
-        }
-        std::cout << std::endl;
+    if (getBool("listres")) {
+        printResources();
+        exit(0);
     }
+}
 
-} // namespace zutty
+void Options::parse() {
+    handlePrintOpts();
+    try {
+        getBorder(border);
+        getSaveLines(saveLines);
+        dwfontname = get("dwfont");
+        fontname = get("font");
+        fontpath = get("fontpath");
+        getFontsize(fontsize);
+        getGeometry(nCols, nRows);
+        vulkanInfo = getBool("vulkanInfo");
+        shell = get("shell", getenv("SHELL"));
+        if (shell == nullptr) {
+            shell = "bash";
+        }
+        title = get("title", nullptr, &titleSource);
+        getColor("fg", fg);
+        getColor("bg", bg);
+        rv = getBool("rv");
+        if (rv) {
+            std::swap(fg, bg);
+        }
+        if (get("cr") != nullptr) {
+            getColor("cr", cr);
+        } else {
+            cr = fg;
+        }
+        altScrollMode = getBool("altScroll");
+        altSendsEscape = getBool("altSendsEscape");
+        autoCopyMode = getBool("autoCopy");
+        boldColors = getBool("boldColors");
+        login = getBool("login");
+        showWraps = getBool("showWraps");
+        quiet = getBool("quiet");
+        verbose = getBool("verbose");
+        modifyOtherKeys = getInteger("modifyOtherKeys", 0, 2);
+    } catch (const std::exception& error) {
+        std::cout << "Error: " << error.what() << "!\n"
+                  << "Try -help for usage options." << std::endl;
+        exit(-1);
+    }
+}
+
+void Options::printVersion() const {
+    std::cout << "Zutty " ZUTTY_VERSION "\n"
+              << "Copyright (C) 2020 Tom Szilagyi\n\n"
+              << "This program comes with ABSOLUTELY NO WARRANTY.\n"
+              << "Zutty is free software, and you are welcome to redistribute it\n"
+              << "under the terms and conditions of the GNU GPL v3 (or later).\n"
+              << std::endl;
+}
+
+void Options::printUsage() const {
+    printVersion();
+    std::cout << "Usage:\n"
+              << "  zutty [-option ...] [shell]\n\n"
+              << "Options:\n";
+    size_t maxWidth = 0;
+    for (const auto& option : optionsTable) {
+        maxWidth = std::max(maxWidth, strlen(option.option));
+    }
+    for (const auto& option : optionsTable) {
+        std::cout << "  -" << std::left << std::setw(maxWidth + 3)
+                  << option.option << option.helpDescr;
+        if (option.hardDefault != nullptr && option.parseType != OptionKind::NoArg) {
+            std::cout << " (default: " << option.hardDefault << ")";
+        }
+        std::cout << "\n";
+    }
+    std::cout << std::endl;
+}
+
+void Options::printResources() const {
+    printVersion();
+    std::cout << "Advanced options:\n";
+    size_t maxWidth = 0;
+    for (const auto& resource : resourceTable) {
+        maxWidth = std::max(maxWidth, strlen(resource.resource));
+    }
+    for (const auto& resource : resourceTable) {
+        std::cout << "  -" << std::left << std::setw(maxWidth + 3)
+                  << resource.resource << resource.helpDescr;
+        if (resource.hardDefault != nullptr) {
+            std::cout << " (default: " << resource.hardDefault << ")";
+        }
+        std::cout << "\n";
+    }
+    std::cout << std::endl;
+}

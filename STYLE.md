@@ -38,18 +38,18 @@ prefix such as `m_`, `p_`, `str_` or `is_`.
   `#`.
 
 ```cpp
-namespace zutty {
-    struct Example: public Interface {
-        void run() override {
-            if (ready) {
-                consume();
-            }
+struct Example: public Interface {
+    void run() override {
+        if (ready) {
+            consume();
         }
-    };
-}
+    }
+};
 ```
 
-Do not add comments to namespace-closing braces.
+Zutty is a program, not a library. Do not wrap its code in a project namespace.
+Use anonymous namespaces for translation-unit-local declarations, and do not
+add comments to namespace-closing braces.
 
 ## Constructors
 
@@ -97,8 +97,8 @@ not clang-format directly.
 - A `.cc` file includes its own header first, then related project headers,
   then third-party and system headers. Preserve meaningful blank groups; do
   not sort includes mechanically.
-- File-local declarations belong in an anonymous namespace. Public API belongs
-  in `namespace zutty`.
+- File-local declarations belong in an anonymous namespace. Shared program
+  declarations live in the global namespace.
 - Avoid non-trivial global objects. Make ownership and lifetime explicit.
 
 ## Comments and formatting

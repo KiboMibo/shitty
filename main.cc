@@ -45,15 +45,6 @@
 #include <unistd.h>
 #include <vector>
 
-using zutty::Fontpack;
-using zutty::MouseTrackingEnc;
-using zutty::MouseTrackingMode;
-using zutty::MouseTrackingState;
-using zutty::Renderer;
-using zutty::Vterm;
-using zutty::VtKey;
-using zutty::VtModifier;
-
 static std::unique_ptr<Fontpack> fontpk;
 static std::unique_ptr<Renderer> renderer;
 static std::unique_ptr<Vterm> vt;
@@ -279,7 +270,7 @@ namespace {
 
     int startShell(const char* execPath, const char* const argv[]) {
         int ptyFd = -1;
-        const pid_t pid = zutty::pty_fork(ptyFd, opts.nCols, opts.nRows);
+        const pid_t pid = pty_fork(ptyFd, opts.nCols, opts.nRows);
         if (pid < 0) {
             SYS_ERROR("fork");
         }
@@ -727,15 +718,15 @@ namespace {
                 break;
             case MouseTrackingEnc::UTF8:
                 output << "\x1b[M";
-                zutty::Utf8Encoder::pushUnicode(
+                Utf8Encoder::pushUnicode(
                     32 + code, [&output](char ch) {
                     output << ch;
                 });
-                zutty::Utf8Encoder::pushUnicode(
+                Utf8Encoder::pushUnicode(
                     32 + column, [&output](char ch) {
                     output << ch;
                 });
-                zutty::Utf8Encoder::pushUnicode(
+                Utf8Encoder::pushUnicode(
                     32 + row, [&output](char ch) {
                     output << ch;
                 });
@@ -1013,12 +1004,12 @@ namespace {
                 content = getSelectionForOsc(false);
             }
             const std::string reply = "\x1b]52;;" +
-                                      zutty::base64::encode(content) + "\x1b\\";
+                                      base64::encode(content) + "\x1b\\";
             vt->writePty(reply.c_str());
             return;
         }
 
-        const std::string content = zutty::base64::decode(payload);
+        const std::string content = base64::decode(payload);
         if (primary && !SDL_SetPrimarySelectionText(content.c_str())) {
             logW << "OSC 52: could not set primary selection: "
                  << SDL_GetError() << std::endl;
@@ -1143,7 +1134,7 @@ namespace {
         char** shellArgv = defaultShellArgv;
         if (argc > 2 && std::strcmp(argv[1], "-e") == 0) {
             shellArgv = argv + 2;
-            if (opts.titleSource != zutty::OptionSource::CmdLine) {
+            if (opts.titleSource != OptionSource::CmdLine) {
                 opts.title = argv[2];
             }
             std::strncpy(progPath, argv[2], PATH_MAX - 1);
@@ -1248,7 +1239,7 @@ namespace {
         vt = std::make_unique<Vterm>(
             fontpk->getPx(), fontpk->getPy(), pixelWidth, pixelHeight, ptyFd);
         vt->setRefreshHandler(
-            [](const zutty::Frame& frame)
+            [](const Frame& frame)
             {
             renderer->update(frame);
         });

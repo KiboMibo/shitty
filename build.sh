@@ -10,6 +10,18 @@ CXX="${CXX:-c++}"
 BUILDDIR="${BUILDDIR:-build}"
 VERSION=0.14
 
+# IX exports the whole development set through LDFLAGS, including SDL3 and
+# its Wayland dependencies. Keep SDL3 at the end of the static link so the
+# Wayland interface tables already provided by libwayland are not pulled from
+# SDL3 a second time.
+LINK_FLAGS=
+for flag in ${LDFLAGS:-}; do
+    case "$flag" in
+        -lSDL3) ;;
+        *) LINK_FLAGS="$LINK_FLAGS $flag" ;;
+    esac
+done
+
 mkdir -p "$BUILDDIR"
 
 # Compile the compute shader to SPIR-V and embed it as a C++ header.
@@ -26,6 +38,6 @@ python3 embed_spirv.py "$BUILDDIR/render.comp.spv" "$BUILDDIR/render_spv.h"
     charvdev.cc font.cc fontpack.cc frame.cc log.cc main.cc \
     options.cc pty.cc renderer.cc vkpresenter.cc vterm.cc \
     -o "$BUILDDIR/zutty" \
-    ${LDFLAGS:-} ${CTRFLAGS} -lfreetype -lfontconfig -lSDL3 -lvulkan -lpthread
+    ${LINK_FLAGS} ${CTRFLAGS} -lfreetype -lfontconfig -lSDL3 -lvulkan -lpthread
 
 echo "Built $BUILDDIR/zutty"

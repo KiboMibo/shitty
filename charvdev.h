@@ -20,132 +20,129 @@
 #include <memory>
 #include <vector>
 
-namespace zutty {
-    // Host-side mirror of the compact character video memory consumed by the
-    // Vulkan compute renderer.
-    class CharVdev {
-    public:
-        explicit CharVdev(Fontpack* fontpk);
-        ~CharVdev() = default;
+// Host-side mirror of the compact character video memory consumed by the
+// Vulkan compute renderer.
+class CharVdev {
+public:
+    explicit CharVdev(Fontpack* fontpk);
+    ~CharVdev() = default;
 
-        bool resize(uint16_t pxWidth_, uint16_t pxHeight_);
-        uint16_t pixelWidth() const {
-            return pxWidth;
-        }
-        uint16_t pixelHeight() const {
-            return pxHeight;
-        }
-        uint16_t columns() const {
-            return nCols;
-        }
-        uint16_t rows() const {
-            return nRows;
-        }
+    bool resize(uint16_t pxWidth_, uint16_t pxHeight_);
+    uint16_t pixelWidth() const {
+        return pxWidth;
+    }
+    uint16_t pixelHeight() const {
+        return pxHeight;
+    }
+    uint16_t columns() const {
+        return nCols;
+    }
+    uint16_t rows() const {
+        return nRows;
+    }
 
-        struct Cell {
-            uint16_t uc_pt = ' ';
-            uint8_t dwidth : 1;
-            uint8_t dwidth_cont : 1;
-            uint8_t bold : 1;
-            uint8_t italic : 1;
-            uint8_t underline : 1;
-            uint8_t inverse : 1;
-            uint8_t wrap : 1;
-            uint8_t dirty : 1;
-            uint16_t _fill0 : 8;
-            Color fg;
-            uint8_t _fill1;
-            Color bg;
-            uint8_t _fill2;
+    struct Cell {
+        uint16_t uc_pt = ' ';
+        uint8_t dwidth : 1;
+        uint8_t dwidth_cont : 1;
+        uint8_t bold : 1;
+        uint8_t italic : 1;
+        uint8_t underline : 1;
+        uint8_t inverse : 1;
+        uint8_t wrap : 1;
+        uint8_t dirty : 1;
+        uint16_t _fill0 : 8;
+        Color fg;
+        uint8_t _fill1;
+        Color bg;
+        uint8_t _fill2;
 
-            Cell()
-                : dwidth(0)
-                , dwidth_cont(0)
-                , bold(0)
-                , italic(0)
-                , underline(0)
-                , inverse(0)
-                , wrap(0)
-                , dirty(0)
-                , fg(opts.fg)
-                , bg(opts.bg)
-            {
-            }
-
-            using Ptr = std::shared_ptr<Cell>;
-
-            bool operator==(const Cell& rhs) const {
-                return memcmp(this, &rhs, sizeof(Cell)) == 0;
-            }
-
-            bool operator!=(const Cell& rhs) const {
-                return !operator==(rhs);
-            }
-        };
-        static_assert(sizeof(Cell) == 12, "Cell size mismatch");
-
-        static Cell::Ptr make_cells(uint16_t nCols, uint16_t nRows) {
-            return std::shared_ptr<Cell>(new Cell[nRows * nCols],
-                                         std::default_delete<Cell[]>());
+        Cell()
+            : dwidth(0)
+            , dwidth_cont(0)
+            , bold(0)
+            , italic(0)
+            , underline(0)
+            , inverse(0)
+            , wrap(0)
+            , dirty(0)
+            , fg(opts.fg)
+            , bg(opts.bg)
+        {
         }
 
-        struct Mapping {
-            Mapping(uint16_t nCols_, uint16_t nRows_, Cell*& cells_);
-            ~Mapping();
+        using Ptr = std::shared_ptr<Cell>;
 
-            Mapping(const Mapping&) = delete;
-            Mapping& operator=(const Mapping&) = delete;
-
-            uint16_t nCols;
-            uint16_t nRows;
-            Cell*& cells;
-        };
-
-        Mapping getMapping();
-
-        const Cell* cellData() const {
-            return cellStorage.data();
-        }
-        size_t cellCount() const {
-            return cellStorage.size();
-        }
-        void clearDirty();
-
-        struct Cursor {
-            Color color = opts.cr;
-            uint16_t posX = 0;
-            uint16_t posY = 0;
-
-            enum class Style : uint8_t {
-                hidden = 0,
-                filled_block = 1,
-                hollow_block = 2
-            };
-            Style style = Style::hidden;
-        };
-
-        void setCursor(const Cursor& cursor_);
-        void setSelection(const Rect& selection_);
-        const Cursor& getCursor() const {
-            return cursor;
-        }
-        const Rect& getSelection() const {
-            return selection;
+        bool operator==(const Cell& rhs) const {
+            return memcmp(this, &rhs, sizeof(Cell)) == 0;
         }
 
-    private:
-        uint16_t px;
-        uint16_t py;
-        uint16_t nCols = 0;
-        uint16_t nRows = 0;
-        uint16_t pxWidth = 0;
-        uint16_t pxHeight = 0;
+        bool operator!=(const Cell& rhs) const {
+            return !operator==(rhs);
+        }
+    };
+    static_assert(sizeof(Cell) == 12, "Cell size mismatch");
 
-        std::vector<Cell> cellStorage;
-        Cell* cells = nullptr;
+    static Cell::Ptr make_cells(uint16_t nCols, uint16_t nRows) {
+        return std::shared_ptr<Cell>(new Cell[nRows * nCols],
+                                     std::default_delete<Cell[]>());
+    }
 
-        Cursor cursor;
-        Rect selection;
+    struct Mapping {
+        Mapping(uint16_t nCols_, uint16_t nRows_, Cell*& cells_);
+        ~Mapping();
+
+        Mapping(const Mapping&) = delete;
+        Mapping& operator=(const Mapping&) = delete;
+
+        uint16_t nCols;
+        uint16_t nRows;
+        Cell*& cells;
     };
 
-} // namespace zutty
+    Mapping getMapping();
+
+    const Cell* cellData() const {
+        return cellStorage.data();
+    }
+    size_t cellCount() const {
+        return cellStorage.size();
+    }
+    void clearDirty();
+
+    struct Cursor {
+        Color color = opts.cr;
+        uint16_t posX = 0;
+        uint16_t posY = 0;
+
+        enum class Style : uint8_t {
+            hidden = 0,
+            filled_block = 1,
+            hollow_block = 2
+        };
+        Style style = Style::hidden;
+    };
+
+    void setCursor(const Cursor& cursor_);
+    void setSelection(const Rect& selection_);
+    const Cursor& getCursor() const {
+        return cursor;
+    }
+    const Rect& getSelection() const {
+        return selection;
+    }
+
+private:
+    uint16_t px;
+    uint16_t py;
+    uint16_t nCols = 0;
+    uint16_t nRows = 0;
+    uint16_t pxWidth = 0;
+    uint16_t pxHeight = 0;
+
+    std::vector<Cell> cellStorage;
+    Cell* cells = nullptr;
+
+    Cursor cursor;
+    Rect selection;
+};

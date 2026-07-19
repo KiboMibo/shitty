@@ -14,9 +14,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-namespace zutty {
-    pid_t pty_fork(int& o_ptyFd, int cols, int rows);
+pid_t pty_fork(int& o_ptyFd, int cols, int rows);
 
-    void pty_resize(int ptyFd, int cols, int rows);
-
-} // namespace zutty
+void pty_resize(int ptyFd, int cols, int rows);

@@ -15,7 +15,7 @@ def main() -> None:
     for offset in range(0, len(words), 8):
         chunk = words[offset:offset + 8]
         values = ", ".join(f"0x{word:08x}u" for word in chunk)
-        rows.append(f"   {values},")
+        rows.append(f"    {values},")
 
     output = "\n".join([
         "#pragma once",
@@ -23,14 +23,10 @@ def main() -> None:
         "#include <cstddef>",
         "#include <cstdint>",
         "",
-        "namespace zutty",
-        "{",
-        "   inline constexpr uint32_t renderShaderSpv [] = {",
+        "inline constexpr uint32_t renderShaderSpv[] = {",
         *rows,
-        "   };",
-        "   inline constexpr size_t renderShaderSpvSize =",
-        "      sizeof (renderShaderSpv);",
-        "}",
+        "};",
+        "inline constexpr size_t renderShaderSpvSize = sizeof(renderShaderSpv);",
         "",
     ])
     Path(sys.argv[2]).write_text(output, encoding="utf-8")

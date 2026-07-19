@@ -16,7 +16,6 @@
 #include <cstring>
 
 namespace {
-    using namespace zutty;
     using Key = VtKey;
     using InputSpec = Vterm::InputSpec;
 
@@ -1004,427 +1003,417 @@ namespace {
 
 } // namespace
 
-namespace zutty {
-    const uint16_t* Vterm::charCodes[] =
-        {
-            // Sync this with enumerators of Charset!
-            nullptr, // Dummy slot for UTF-8 (handled differently)
-            uc_DecSpec,
-            uc_DecSuppl,
-            uc_DecSuppl, // Slot for 'User-preferred supplemental'
-            uc_DecTechn,
-            uc_IsoLatin1,
-            uc_IsoUK};
-
-    Vterm::Vterm(uint16_t glyphPx_, uint16_t glyphPy_,
-                 uint16_t winPx_, uint16_t winPy_,
-                 int ptyFd_)
-        : winPx(winPx_)
-        , winPy(winPy_)
-        , nCols((winPx - 2 * opts.border) / glyphPx_)
-        , nRows((winPy - 2 * opts.border) / glyphPy_)
-        , glyphPx(glyphPx_)
-        , glyphPy(glyphPy_)
-        , ptyFd(ptyFd_)
-        , onRefresh([](const Frame&) {})
-        , onOsc([](int cmd, const std::string& arg) {
-            logU << "OSC: '" << cmd << ";" << arg << "'" << std::endl;
-        })
-        , onBell([]() {
-            logI << "* Bell *" << std::endl;
-        })
-        , frame_pri(winPx, winPy, nCols, nRows, marginTop, marginBottom,
-                    opts.saveLines)
-        , cf(&frame_pri)
-        , utf8dec([this]() {
-            placeGraphicChar();
-        })
-        , nColsEff(nCols)
-        , hMargin(0)
+const uint16_t* Vterm::charCodes[] =
     {
-        makePalette256(palette256);
+        // Sync this with enumerators of Charset!
+        nullptr, // Dummy slot for UTF-8 (handled differently)
+        uc_DecSpec,
+        uc_DecSuppl,
+        uc_DecSuppl, // Slot for 'User-preferred supplemental'
+        uc_DecTechn,
+        uc_IsoLatin1,
+        uc_IsoUK};
 
-        defaultFgPalIx = (opts.fg == palette256[15]) ? 15 : -1;
-        defaultBgPalIx = (opts.bg == palette256[0]) ? 0 : -1;
-        fgPalIx = defaultFgPalIx;
-        bgPalIx = defaultBgPalIx;
+Vterm::Vterm(uint16_t glyphPx_, uint16_t glyphPy_,
+             uint16_t winPx_, uint16_t winPy_,
+             int ptyFd_)
+    : winPx(winPx_)
+    , winPy(winPy_)
+    , nCols((winPx - 2 * opts.border) / glyphPx_)
+    , nRows((winPy - 2 * opts.border) / glyphPy_)
+    , glyphPx(glyphPx_)
+    , glyphPy(glyphPy_)
+    , ptyFd(ptyFd_)
+    , onRefresh([](const Frame&) {})
+    , onOsc([](int cmd, const std::string& arg) {
+        logU << "OSC: '" << cmd << ";" << arg << "'" << std::endl;
+    })
+    , onBell([]() {
+        logI << "* Bell *" << std::endl;
+    })
+    , frame_pri(winPx, winPy, nCols, nRows, marginTop, marginBottom,
+                opts.saveLines)
+    , cf(&frame_pri)
+    , utf8dec([this]() {
+        placeGraphicChar();
+    })
+    , nColsEff(nCols)
+    , hMargin(0)
+{
+    makePalette256(palette256);
 
-        resetTerminal();
+    defaultFgPalIx = (opts.fg == palette256[15]) ? 15 : -1;
+    defaultBgPalIx = (opts.bg == palette256[0]) ? 0 : -1;
+    fgPalIx = defaultFgPalIx;
+    bgPalIx = defaultBgPalIx;
+
+    resetTerminal();
+}
+
+void Vterm::setRefreshHandler(const RefreshHandlerFn& onRefresh_) {
+    onRefresh = onRefresh_;
+}
+
+void Vterm::setOscHandler(const OscHandlerFn& onOsc_) {
+    haveOscHandler = true;
+    onOsc = onOsc_;
+}
+
+void Vterm::setBellHandler(const BellHandlerFn& onBell_) {
+    onBell = onBell_;
+}
+
+void Vterm::resize(uint16_t winPx_, uint16_t winPy_) {
+    winPx = winPx_;
+    winPy = winPy_;
+
+    uint16_t nCols_ = std::max(1, (winPx - 2 * opts.border) / glyphPx);
+    uint16_t nRows_ = std::max(1, (winPy - 2 * opts.border) / glyphPy);
+
+    if (nCols == nCols_ && nRows == nRows_) {
+        cf->winPx = winPx;
+        cf->winPy = winPy;
+        return;
     }
 
-    void
-    Vterm::setRefreshHandler(const RefreshHandlerFn& onRefresh_) {
-        onRefresh = onRefresh_;
-    }
+    hideCursor();
 
-    void
-    Vterm::setOscHandler(const OscHandlerFn& onOsc_) {
-        haveOscHandler = true;
-        onOsc = onOsc_;
-    }
-
-    void
-    Vterm::setBellHandler(const BellHandlerFn& onBell_) {
-        onBell = onBell_;
-    }
-
-    void
-    Vterm::resize(uint16_t winPx_, uint16_t winPy_) {
-        winPx = winPx_;
-        winPy = winPy_;
-
-        uint16_t nCols_ = std::max(1, (winPx - 2 * opts.border) / glyphPx);
-        uint16_t nRows_ = std::max(1, (winPy - 2 * opts.border) / glyphPy);
-
-        if (nCols == nCols_ && nRows == nRows_) {
-            cf->winPx = winPx;
-            cf->winPy = winPy;
-            return;
+    if (altScreenBufferMode) {
+        frame_alt = Frame(winPx, winPy, nCols_, nRows_,
+                          marginTop, marginBottom);
+    } else {
+        if (nRows_ < posY + 1) {
+            int nScroll = nRows - nRows_;
+            cf->scrollUp(nScroll);
+            posY -= nScroll;
         }
 
-        hideCursor();
+        frame_pri.resize(winPx, winPy, nCols_, nRows_,
+                         marginTop, marginBottom);
 
-        if (altScreenBufferMode) {
-            frame_alt = Frame(winPx, winPy, nCols_, nRows_,
-                              marginTop, marginBottom);
+        if (nRows < nRows_) {
+            int nScroll = std::min(nRows_ - nRows, (int)cf->getHistoryRows());
+            cf->scrollDown(nScroll);
+            posY += nScroll;
+        }
+
+        frame_alt.freeCells();
+    }
+    nCols = nCols_;
+    nRows = nRows_;
+
+    if (horizMarginMode) {
+        nColsEff = std::min(nColsEff, nCols);
+        hMargin = std::max(0, std::min((int)hMargin, nColsEff - 2));
+    } else {
+        nColsEff = nCols;
+        hMargin = 0;
+    }
+    normalizeCursorPos();
+    showCursor();
+
+    pty_resize(ptyFd, nCols, nRows);
+}
+
+std::string
+Vterm::getLocalEcho(const unsigned char* const begin,
+                    const unsigned char* const end) {
+    std::ostringstream oss;
+    for (const unsigned char* p = begin; p < end; ++p) {
+        if (*p == '\r' || *p >= ' ') {
+            oss << *p;
         } else {
-            if (nRows_ < posY + 1) {
-                int nScroll = nRows - nRows_;
-                cf->scrollUp(nScroll);
-                posY -= nScroll;
-            }
-
-            frame_pri.resize(winPx, winPy, nCols_, nRows_,
-                             marginTop, marginBottom);
-
-            if (nRows < nRows_) {
-                int nScroll = std::min(nRows_ - nRows, (int)cf->getHistoryRows());
-                cf->scrollDown(nScroll);
-                posY += nScroll;
-            }
-
-            frame_alt.freeCells();
+            oss << '^' << (char)(*p + 0x40);
         }
-        nCols = nCols_;
-        nRows = nRows_;
-
-        if (horizMarginMode) {
-            nColsEff = std::min(nColsEff, nCols);
-            hMargin = std::max(0, std::min((int)hMargin, nColsEff - 2));
-        } else {
-            nColsEff = nCols;
-            hMargin = 0;
-        }
-        normalizeCursorPos();
-        showCursor();
-
-        pty_resize(ptyFd, nCols, nRows);
     }
+    return oss.str();
+}
 
-    std::string
-    Vterm::getLocalEcho(const unsigned char* const begin,
-                        const unsigned char* const end) {
-        std::ostringstream oss;
-        for (const unsigned char* p = begin; p < end; ++p) {
-            if (*p == '\r' || *p >= ' ') {
-                oss << *p;
-            } else {
-                oss << '^' << (char)(*p + 0x40);
-            }
-        }
-        return oss.str();
-    }
-
-    int
-    Vterm::writePty(VtKey key, VtModifier modifiers_, bool userInput) {
+int Vterm::writePty(VtKey key, VtModifier modifiers_, bool userInput) {
 #ifdef DEBUG
-        if (key == VtKey::Print) {
-            debugKey();
-            return 0;
-        }
+    if (key == VtKey::Print) {
+        debugKey();
+        return 0;
+    }
 #endif
-        modifiers = modifiers_;
-        const auto& spec = getInputSpec(key);
-        if (modifiers == VtModifier::none) {
-            return writePty((const uint8_t*)spec.input, spec.getLength(),
-                            userInput);
-        } else {
-            // substitute the MC token with the actual modifier code
-            static uint8_t buf[32];
-            int k = 0;
-            const char* end = spec.input + spec.getLength();
-            for (const char* p = spec.input; p != end; ++p) {
-                if (*p == *MC) {
-                    buf[k++] = '0' + getModifierCode(modifiers);
-                } else {
-                    buf[k++] = *p;
-                }
-            }
-            buf[k] = '\0';
-            return writePty(buf, k, userInput);
-        }
-    }
-
-    int
-    Vterm::writePty(uint8_t ch, VtModifier modifiers, bool userInput) {
-        using VM = VtModifier;
-
-        auto uch = (unsigned char*)&ch;
-        logT << "pty write (mod=" << (int)modifiers << "): "
-             << dumpBuffer(uch, uch + 1);
-
-        const auto& mod2_encode =
-            [&](uint8_t ch) {
-            const char* exempt = "!#$%&*()-+=?.,:;<>'\"";
-            auto x = const_cast<char*>(exempt);
-
-            while (*x) {
-                if (ch == *x++) {
-                    return (modifiers & VM::control_alt) != VM::none;
-                }
-            }
-
-            return modifiers != VM::none;
-        };
-
-        if ((modifyOtherKeys == 2 && mod2_encode(ch)) ||
-            (modifyOtherKeys == 1 && (modifiers & VM::control) != VM::none &&
-             ch > ' ')) {
-            if (ch < ' ' && (modifiers & VM::control) != VM::none) {
-                const char* ctrlmap = ((modifiers & VM::shift) != VM::none)
-                                          ? "@ABCDEFGHIJKLMNOPQRSTUVWXYZ{|}^/"
-                                          : " abcdefghijklmnopqrstuvwxyz[\\]^/";
-                ch = ctrlmap[ch];
-            }
-
-            uint8_t wbuf[16] = {'\x1b', '[', '2', '7', ';', '_', ';'};
-            wbuf[5] = '0' + getModifierCode(modifiers);
-            uint8_t pos = 7;
-
-            if (ch > 99) {
-                wbuf[pos] = ch / 100;
-                ch -= 100 * wbuf[pos];
-                wbuf[pos] += '0';
-                ++pos;
-            }
-            if (pos > 7 || ch > 9) {
-                wbuf[pos] = ch / 10;
-                ch -= 10 * wbuf[pos];
-                wbuf[pos] += '0';
-                ++pos;
-            }
-            wbuf[pos++] = '0' + ch;
-            wbuf[pos++] = '~';
-            wbuf[pos] = '\0';
-
-            return writePty(wbuf, pos, userInput);
-        } else if ((modifiers & VM::alt) != VM::none) {
-            if (altSendsEscape) {
-                static uint8_t wbuf[2] = {'\x1b', '\0'};
-                wbuf[1] = ch;
-                return writePty(wbuf, 2, userInput);
+    modifiers = modifiers_;
+    const auto& spec = getInputSpec(key);
+    if (modifiers == VtModifier::none) {
+        return writePty((const uint8_t*)spec.input, spec.getLength(),
+                        userInput);
+    } else {
+        // substitute the MC token with the actual modifier code
+        static uint8_t buf[32];
+        int k = 0;
+        const char* end = spec.input + spec.getLength();
+        for (const char* p = spec.input; p != end; ++p) {
+            if (*p == *MC) {
+                buf[k++] = '0' + getModifierCode(modifiers);
             } else {
-                std::vector<char> utf8_out;
-                auto sinkFn = [&](char ch)
-                                      {
-                    utf8_out.push_back(ch);
-                };
-                Utf8Encoder::pushUnicode(ch | 0x80, sinkFn);
-                return writePty((const uint8_t*)utf8_out.data(),
-                                utf8_out.size(), userInput);
+                buf[k++] = *p;
             }
+        }
+        buf[k] = '\0';
+        return writePty(buf, k, userInput);
+    }
+}
+
+int Vterm::writePty(uint8_t ch, VtModifier modifiers, bool userInput) {
+    using VM = VtModifier;
+
+    auto uch = (unsigned char*)&ch;
+    logT << "pty write (mod=" << (int)modifiers << "): "
+         << dumpBuffer(uch, uch + 1);
+
+    const auto& mod2_encode =
+        [&](uint8_t ch) {
+        const char* exempt = "!#$%&*()-+=?.,:;<>'\"";
+        auto x = const_cast<char*>(exempt);
+
+        while (*x) {
+            if (ch == *x++) {
+                return (modifiers & VM::control_alt) != VM::none;
+            }
+        }
+
+        return modifiers != VM::none;
+    };
+
+    if ((modifyOtherKeys == 2 && mod2_encode(ch)) ||
+        (modifyOtherKeys == 1 && (modifiers & VM::control) != VM::none &&
+         ch > ' ')) {
+        if (ch < ' ' && (modifiers & VM::control) != VM::none) {
+            const char* ctrlmap = ((modifiers & VM::shift) != VM::none)
+                                      ? "@ABCDEFGHIJKLMNOPQRSTUVWXYZ{|}^/"
+                                      : " abcdefghijklmnopqrstuvwxyz[\\]^/";
+            ch = ctrlmap[ch];
+        }
+
+        uint8_t wbuf[16] = {'\x1b', '[', '2', '7', ';', '_', ';'};
+        wbuf[5] = '0' + getModifierCode(modifiers);
+        uint8_t pos = 7;
+
+        if (ch > 99) {
+            wbuf[pos] = ch / 100;
+            ch -= 100 * wbuf[pos];
+            wbuf[pos] += '0';
+            ++pos;
+        }
+        if (pos > 7 || ch > 9) {
+            wbuf[pos] = ch / 10;
+            ch -= 10 * wbuf[pos];
+            wbuf[pos] += '0';
+            ++pos;
+        }
+        wbuf[pos++] = '0' + ch;
+        wbuf[pos++] = '~';
+        wbuf[pos] = '\0';
+
+        return writePty(wbuf, pos, userInput);
+    } else if ((modifiers & VM::alt) != VM::none) {
+        if (altSendsEscape) {
+            static uint8_t wbuf[2] = {'\x1b', '\0'};
+            wbuf[1] = ch;
+            return writePty(wbuf, 2, userInput);
         } else {
-            return writePty(uch, 1, userInput);
+            std::vector<char> utf8_out;
+            auto sinkFn = [&](char ch)
+                                  {
+                utf8_out.push_back(ch);
+            };
+            Utf8Encoder::pushUnicode(ch | 0x80, sinkFn);
+            return writePty((const uint8_t*)utf8_out.data(),
+                            utf8_out.size(), userInput);
         }
+    } else {
+        return writePty(uch, 1, userInput);
+    }
+}
+
+int Vterm::writePty(const char* cstr, bool userInput) {
+    auto ucstr = (unsigned char*)cstr;
+    return writePty(ucstr, strlen(cstr), userInput);
+}
+
+int Vterm::writePty(const uint8_t* ucstr, size_t len, bool userInput) {
+    if (userInput && keyboardLocked) {
+        logT << "pty write: discarding due to keyboard lock (DECKAM): "
+             << dumpBuffer(ucstr, ucstr + len);
+        return len;
     }
 
-    int
-    Vterm::writePty(const char* cstr, bool userInput) {
-        auto ucstr = (unsigned char*)cstr;
-        return writePty(ucstr, strlen(cstr), userInput);
+    logT << "pty write: " << dumpBuffer(ucstr, ucstr + len);
+    if (userInput && localEcho) {
+        processInput(getLocalEcho(ucstr, ucstr + len));
     }
+    return write(ptyFd, ucstr, len);
+}
 
-    int
-    Vterm::writePty(const uint8_t* ucstr, size_t len, bool userInput) {
-        if (userInput && keyboardLocked) {
-            logT << "pty write: discarding due to keyboard lock (DECKAM): "
-                 << dumpBuffer(ucstr, ucstr + len);
-            return len;
-        }
+using Key = VtKey;
+using Mod = VtModifier;
 
-        logT << "pty write: " << dumpBuffer(ucstr, ucstr + len);
-        if (userInput && localEcho) {
-            processInput(getLocalEcho(ucstr, ucstr + len));
-        }
-        return write(ptyFd, ucstr, len);
+Vterm::InputSpecTable*
+Vterm::getInputSpecTable() {
+    static InputSpecTable ist[] =
+        {
+            {[this]() {
+        return (autoNewlineMode == true);
+    },
+             is_ReturnKey_ANL},
+
+            {[this]() {
+        return ((modifiers & Mod::alt) != Mod::none &&
+                bkspSendsDel == false);
+    },
+             is_Alt_BackspaceKey_BkSp},
+
+            {[this]() {
+        return (modifyOtherKeys == 2 &&
+                modifiers != Mod::none);
+    },
+             is_modOtherKeys2},
+
+            {[this]() {
+        return (modifyOtherKeys > 0 && modifiers != Mod::none);
+    },
+             is_modOtherKeys},
+
+            {[this]() {
+        return (modifyOtherKeys > 0 &&
+                (modifiers & Mod::control) != Mod::none);
+    },
+             is_Control_modOtherKeys},
+
+            {[this]() {
+        return (altSendsEscape &&
+                (modifiers & Mod::control_alt) == Mod::control_alt);
+    },
+             is_ControlAlt_altSendsEscape},
+
+            {[this]() {
+        return (altSendsEscape &&
+                (modifiers & Mod::alt) != Mod::none);
+    },
+             is_Alt_altSendsEscape},
+
+            {[this]() {
+        return ((modifiers & Mod::alt) != Mod::none);
+    },
+             is_Alt},
+
+            {[this]() {
+        return ((modifiers & Mod::control) != Mod::none);
+    },
+             is_Control},
+
+            {[this]() {
+        return ((modifiers & Mod::shift) != Mod::none);
+    },
+             is_Shift},
+
+            {[this]() {
+        return (bkspSendsDel == false);
+    },
+             is_BackspaceKey_BkSp},
+
+            {[this]() {
+        return (compatLevel == CompatibilityLevel::VT52 &&
+                keypadMode == KeypadMode::Application);
+    },
+             is_VT52_KeypadKeys},
+            {[this]() {
+        return (compatLevel == CompatibilityLevel::VT52);
+    },
+             is_VT52_CursorKeys},
+            {[this]() {
+        return (compatLevel == CompatibilityLevel::VT52);
+    },
+             is_VT52_FunctionKeys},
+
+            {[this]() {
+        return (modifiers != Mod::none &&
+                keypadMode == KeypadMode::Application);
+    },
+             is_Mod_Appl_KeypadKeys},
+            {[this]() {
+        return (keypadMode == KeypadMode::Application);
+    },
+             is_Appl_KeypadKeys},
+            {[this]() {
+        return (modifiers != Mod::none);
+    },
+             is_Mod_CursorKeys},
+            {[this]() {
+        return (cursorKeyMode == CursorKeyMode::Application);
+    },
+             is_Appl_CursorKeys},
+
+            {[this]() {
+        return (modifiers != Mod::none);
+    },
+             is_Mod_Ansi},
+            {[this]() {
+        return (modifiers != Mod::none);
+    },
+             is_Mod_Ansi_FunctionKeys},
+
+            // default entries
+            {[]() {
+        return true;
+    }, is_Ansi},
+            {[]() {
+        return true;
+    }, is_Ansi_CursorKeys},
+            {[]() {
+        return true;
+    }, is_Ansi_FunctionKeys},
+            {[]() {
+        return true;
+    }, is_Ansi_KeypadKeys},
+
+            // end marker to delimit iteration
+            {[]() {
+        return true;
+    }, nullptr}};
+    return ist;
+}
+
+void Vterm::resetInputSpecTable() {
+    for (InputSpecTable* e = getInputSpecTable(); e->specs != nullptr; ++e) {
+        e->visited = false;
     }
+}
 
-    using Key = VtKey;
-    using Mod = VtModifier;
-
-    Vterm::InputSpecTable*
-    Vterm::getInputSpecTable() {
-        static InputSpecTable ist[] =
-            {
-                {[this]() {
-            return (autoNewlineMode == true);
-        },
-                 is_ReturnKey_ANL},
-
-                {[this]() {
-            return ((modifiers & Mod::alt) != Mod::none &&
-                    bkspSendsDel == false);
-        },
-                 is_Alt_BackspaceKey_BkSp},
-
-                {[this]() {
-            return (modifyOtherKeys == 2 &&
-                    modifiers != Mod::none);
-        },
-                 is_modOtherKeys2},
-
-                {[this]() {
-            return (modifyOtherKeys > 0 && modifiers != Mod::none);
-        },
-                 is_modOtherKeys},
-
-                {[this]() {
-            return (modifyOtherKeys > 0 &&
-                    (modifiers & Mod::control) != Mod::none);
-        },
-                 is_Control_modOtherKeys},
-
-                {[this]() {
-            return (altSendsEscape &&
-                    (modifiers & Mod::control_alt) == Mod::control_alt);
-        },
-                 is_ControlAlt_altSendsEscape},
-
-                {[this]() {
-            return (altSendsEscape &&
-                    (modifiers & Mod::alt) != Mod::none);
-        },
-                 is_Alt_altSendsEscape},
-
-                {[this]() {
-            return ((modifiers & Mod::alt) != Mod::none);
-        },
-                 is_Alt},
-
-                {[this]() {
-            return ((modifiers & Mod::control) != Mod::none);
-        },
-                 is_Control},
-
-                {[this]() {
-            return ((modifiers & Mod::shift) != Mod::none);
-        },
-                 is_Shift},
-
-                {[this]() {
-            return (bkspSendsDel == false);
-        },
-                 is_BackspaceKey_BkSp},
-
-                {[this]() {
-            return (compatLevel == CompatibilityLevel::VT52 &&
-                    keypadMode == KeypadMode::Application);
-        },
-                 is_VT52_KeypadKeys},
-                {[this]() {
-            return (compatLevel == CompatibilityLevel::VT52);
-        },
-                 is_VT52_CursorKeys},
-                {[this]() {
-            return (compatLevel == CompatibilityLevel::VT52);
-        },
-                 is_VT52_FunctionKeys},
-
-                {[this]() {
-            return (modifiers != Mod::none &&
-                    keypadMode == KeypadMode::Application);
-        },
-                 is_Mod_Appl_KeypadKeys},
-                {[this]() {
-            return (keypadMode == KeypadMode::Application);
-        },
-                 is_Appl_KeypadKeys},
-                {[this]() {
-            return (modifiers != Mod::none);
-        },
-                 is_Mod_CursorKeys},
-                {[this]() {
-            return (cursorKeyMode == CursorKeyMode::Application);
-        },
-                 is_Appl_CursorKeys},
-
-                {[this]() {
-            return (modifiers != Mod::none);
-        },
-                 is_Mod_Ansi},
-                {[this]() {
-            return (modifiers != Mod::none);
-        },
-                 is_Mod_Ansi_FunctionKeys},
-
-                // default entries
-                {[]() {
-            return true;
-        }, is_Ansi},
-                {[]() {
-            return true;
-        }, is_Ansi_CursorKeys},
-                {[]() {
-            return true;
-        }, is_Ansi_FunctionKeys},
-                {[]() {
-            return true;
-        }, is_Ansi_KeypadKeys},
-
-                // end marker to delimit iteration
-                {[]() {
-            return true;
-        }, nullptr}};
-        return ist;
-    }
-
-    void
-    Vterm::resetInputSpecTable() {
-        for (InputSpecTable* e = getInputSpecTable(); e->specs != nullptr; ++e) {
-            e->visited = false;
-        }
-    }
-
-    const Vterm::InputSpec*
-    Vterm::selectInputSpecs() {
-        InputSpecTable* ist = getInputSpecTable();
-        for (auto e = ist; e->specs != nullptr; ++e) {
-            if (!e->visited) {
-                e->visited = true;
-                if (e->predicate()) {
-                    return e->specs;
-                }
+const Vterm::InputSpec*
+Vterm::selectInputSpecs() {
+    InputSpecTable* ist = getInputSpecTable();
+    for (auto e = ist; e->specs != nullptr; ++e) {
+        if (!e->visited) {
+            e->visited = true;
+            if (e->predicate()) {
+                return e->specs;
             }
         }
-        return nullptr;
     }
+    return nullptr;
+}
 
-    const Vterm::InputSpec&
-    Vterm::getInputSpec(Key key) {
-        static InputSpec nullSpec = {Key::NONE, ""};
+const Vterm::InputSpec&
+Vterm::getInputSpec(Key key) {
+    static InputSpec nullSpec = {Key::NONE, ""};
 
-        resetInputSpecTable();
-        const InputSpec* specs;
-        while ((specs = selectInputSpecs()) != nullptr) {
-            for (int k = 0; specs[k].key != Key::NONE; ++k) {
-                if (specs[k].key == key) {
-                    return specs[k];
-                }
+    resetInputSpecTable();
+    const InputSpec* specs;
+    while ((specs = selectInputSpecs()) != nullptr) {
+        for (int k = 0; specs[k].key != Key::NONE; ++k) {
+            if (specs[k].key == key) {
+                return specs[k];
             }
         }
-
-        return nullSpec;
     }
+
+    return nullSpec;
+}
 
 #define IGNORE_SEQUENCE_ON_BAD_PARAMS         \
     case ':':                                 \
@@ -1464,712 +1453,750 @@ namespace zutty {
         }                                                            \
         break
 
-    void
-    Vterm::processInput(const std::string& str) {
-        processInput((unsigned char*)str.c_str(), str.length());
-    }
+void Vterm::processInput(const std::string& str) {
+    processInput((unsigned char*)str.c_str(), str.length());
+}
 
-    void
-    Vterm::processInput(const unsigned char* const input, int inputSize) {
-        lastEscBegin = 0;
-        lastNormalBegin = 0;
-        lastStopPos = 0;
-        hideCursor();
-        cf->pageToBottom();
-        for (readPos = 0; readPos < inputSize; ++readPos) {
-            const unsigned char& ch = input[readPos];
-            switch (inputState) {
-                case InputState::Normal:
-                    switch (ch) {
-                        case '\x00': // ignore NUL
-                            break;
-                        case '\x1b':
-                            setState(compatLevel == CompatibilityLevel::VT52
-                                         ? InputState::Escape_VT52
-                                         : InputState::Escape);
-                            inputOps[0] = 0;
-                            nInputOps = 1;
-                            lastEscBegin = readPos;
-                            break;
-                        case '\r':
-                            traceNormalInput();
-                            inp_CR();
-                            break;
-                        case '\f': // fall through, treat as LineFeed ('\n')
-                        case '\v': // fall through, treat as LineFeed ('\n')
-                        case '\n':
-                            traceNormalInput();
-                            esc_IND();
-                            break;
-                        case '\t':
-                            traceNormalInput();
-                            inp_HT();
-                            break;
-                        case '\b':
-                            traceNormalInput();
-                            csi_CUB();
-                            break;
-                        case '\a':
-                            traceNormalInput();
-                            onBell();
-                            break;
-                        case '\x0e':
-                            traceNormalInput();
-                            charsetState.gl = 1;
-                            break;
-                        case '\x0f':
-                            traceNormalInput();
-                            charsetState.gl = 0;
-                            break;
-                        case '\x05': // ENQ - Enquiry
-                            traceNormalInput();
-                            break;
-                        default:
-                            inputGraphicChar(ch);
-                    }
-                    break;
-                case InputState::IgnoreSequence:
-                    if (ch >= '\x40' && ch <= '\x7e') { // DEC-STD-070: final chars
+void Vterm::processInput(const unsigned char* const input, int inputSize) {
+    lastEscBegin = 0;
+    lastNormalBegin = 0;
+    lastStopPos = 0;
+    hideCursor();
+    cf->pageToBottom();
+    for (readPos = 0; readPos < inputSize; ++readPos) {
+        const unsigned char& ch = input[readPos];
+        switch (inputState) {
+            case InputState::Normal:
+                switch (ch) {
+                    case '\x00': // ignore NUL
+                        break;
+                    case '\x1b':
+                        setState(compatLevel == CompatibilityLevel::VT52
+                                     ? InputState::Escape_VT52
+                                     : InputState::Escape);
+                        inputOps[0] = 0;
+                        nInputOps = 1;
+                        lastEscBegin = readPos;
+                        break;
+                    case '\r':
+                        traceNormalInput();
+                        inp_CR();
+                        break;
+                    case '\f': // fall through, treat as LineFeed ('\n')
+                    case '\v': // fall through, treat as LineFeed ('\n')
+                    case '\n':
+                        traceNormalInput();
+                        esc_IND();
+                        break;
+                    case '\t':
+                        traceNormalInput();
+                        inp_HT();
+                        break;
+                    case '\b':
+                        traceNormalInput();
+                        csi_CUB();
+                        break;
+                    case '\a':
+                        traceNormalInput();
+                        onBell();
+                        break;
+                    case '\x0e':
+                        traceNormalInput();
+                        charsetState.gl = 1;
+                        break;
+                    case '\x0f':
+                        traceNormalInput();
+                        charsetState.gl = 0;
+                        break;
+                    case '\x05': // ENQ - Enquiry
+                        traceNormalInput();
+                        break;
+                    default:
+                        inputGraphicChar(ch);
+                }
+                break;
+            case InputState::IgnoreSequence:
+                if (ch >= '\x40' && ch <= '\x7e') { // DEC-STD-070: final chars
+                    setState(InputState::Normal);
+                }
+                break;
+            case InputState::Escape_VT52:
+                switch (ch) {
+                    case '\x18':
+                    case '\x1a': // CAN and SUB interrupts ESC sequence
                         setState(InputState::Normal);
-                    }
-                    break;
-                case InputState::Escape_VT52:
-                    switch (ch) {
-                        case '\x18':
-                        case '\x1a': // CAN and SUB interrupts ESC sequence
-                            setState(InputState::Normal);
-                            break;
-                        case '\x1b': // ESC restarts ESC sequence
-                            inputOps[0] = 0;
-                            nInputOps = 1;
-                            lastEscBegin = readPos;
-                            break;
-                        case '=':
-                            keypadMode = KeypadMode::Application;
-                            setState(InputState::Normal);
-                            break;
-                        case '>':
-                            keypadMode = KeypadMode::Normal;
-                            setState(InputState::Normal);
-                            break;
-                        case '<':
-                            compatLevel = CompatibilityLevel::VT100;
-                            setState(InputState::Normal);
-                            break;
-                        case 'A':
-                            csi_CUU();
-                            break;
-                        case 'B':
-                            csi_CUD();
-                            break;
-                        case 'C':
-                            csi_CUF();
-                            break;
-                        case 'D':
-                            csi_CUB();
-                            break;
-                        case 'F':
-                            charsetState = CharsetState{};
-                            charsetState.g[charsetState.gl] = Charset::DecSpec;
-                            setState(InputState::Normal);
-                            break;
-                        case 'G':
-                            charsetState = CharsetState{};
-                            setState(InputState::Normal);
-                            break;
-                        case 'H':
-                            csi_CUP();
-                            break;
-                        case 'I':
-                            esc_RI();
-                            break;
-                        case 'J':
-                            csi_ED();
-                            break;
-                        case 'K':
-                            csi_EL();
-                            break;
-                        case 'Y':
-                            setState(InputState::VT52_CUP_Arg1);
-                            break;
-                        case 'Z':
-                            writePty("\x1b/Z");
-                            break;
-                        case 'c':
-                            esc_RIS();
-                            break; // allow "reset" command to escape VT52
-                        default:
-                            unhandledInput(ch);
-                            break;
-                    }
-                    break;
-                case InputState::VT52_CUP_Arg1:
-                    inputOps[0] = input[readPos] - 31;
-                    setState(InputState::VT52_CUP_Arg2);
-                    break;
-                case InputState::VT52_CUP_Arg2:
-                    inputOps[1] = input[readPos] - 31;
-                    nInputOps = 2;
-                    csi_CUP();
-                    break;
-                case InputState::Escape:
-                    switch (ch) {
-                        case '\x18':
-                        case '\x1a': // CAN and SUB interrupts ESC sequence
-                            setState(InputState::Normal);
-                            break;
-                        case '\x1b': // ESC restarts ESC sequence
-                            inputOps[0] = 0;
-                            nInputOps = 1;
-                            lastEscBegin = readPos;
-                            break;
-                        case ' ':
-                            setState(InputState::Esc_SPC);
-                            break;
-                        case '#':
-                            setState(InputState::Esc_Hash);
-                            break;
-                        case '%':
-                            setState(InputState::Esc_Pct);
-                            break;
-                        case '[':
-                            setState(InputState::CSI);
-                            break;
-                        case ']':
-                            argBuf.clear();
-                            setState(InputState::OSC);
-                            break;
-                        case '(':
-                        case ')':
-                        case '*':
-                        case '+':
-                        case '-':
-                        case '.':
-                        case '/':
-                        case ',':
-                        case '$': // from ISO/IEC 2022 (absorbed, treat as no-op)
-                            scsDst = ch;
-                            scsMod = '\0';
-                            setState(InputState::SelectCharset);
-                            break;
-                        case 'D':
-                            esc_IND();
-                            break;
-                        case 'M':
-                            esc_RI();
-                            break;
-                        case 'E':
-                            esc_NEL();
-                            break;
-                        case 'H':
-                            esc_HTS();
-                            break;
-                        case 'N':
-                            charsetState.ss = 2;
-                            setState(InputState::Normal);
-                            break;
-                        case 'O':
-                            charsetState.ss = 3;
-                            setState(InputState::Normal);
-                            break;
-                        case 'P':
-                            argBuf.clear();
-                            setState(InputState::DCS);
-                            break;
-                        case 'c':
-                            esc_RIS();
-                            break;
-                        case '6':
-                            esc_BI();
-                            break;
-                        case '7':
-                            esc_DECSC();
-                            break;
-                        case '8':
-                            esc_DECRC();
-                            break;
-                        case '9':
-                            esc_FI();
-                            break;
-                        case '=':
-                            keypadMode = KeypadMode::Application;
-                            setState(InputState::Normal);
-                            break;
-                        case '>':
-                            keypadMode = KeypadMode::Normal;
-                            setState(InputState::Normal);
-                            break;
-                        case '<':
-                            compatLevel = CompatibilityLevel::VT400;
-                            setState(InputState::Normal);
-                            break;
-                        case '~':
-                            charsetState.gr = 1;
-                            setState(InputState::Normal);
-                            break;
-                        case 'n':
-                            charsetState.gl = 2;
-                            setState(InputState::Normal);
-                            break;
-                        case '}':
-                            charsetState.gr = 2;
-                            setState(InputState::Normal);
-                            break;
-                        case 'o':
-                            charsetState.gl = 3;
-                            setState(InputState::Normal);
-                            break;
-                        case '|':
-                            charsetState.gr = 3;
-                            setState(InputState::Normal);
-                            break;
-                        case '\\':
-                            setState(InputState::Normal);
-                            break; // ignore lone ST
-                        default:
-                            unhandledInput(ch);
-                            break;
-                    }
-                    break;
-                case InputState::Esc_SPC:
-                    switch (ch) {
-                        case 'F':
-                            logU << "S7C1T: Send 7-bit controls" << std::endl;
-                            setState(InputState::Normal);
-                            break;
-                        case 'G':
-                            logU << "S8C1T: Send 8-bit controls" << std::endl;
-                            setState(InputState::Normal);
-                            break;
-                        case 'L':
-                            logU << "Set ANSI conformance level 1" << std::endl;
-                            setState(InputState::Normal);
-                            break;
-                        case 'M':
-                            logU << "Set ANSI conformance level 2" << std::endl;
-                            setState(InputState::Normal);
-                            break;
-                        case 'N':
-                            logU << "Set ANSI conformance level 3" << std::endl;
-                            setState(InputState::Normal);
-                            break;
-                        default:
-                            unhandledInput(ch);
-                            break;
-                    }
-                    break;
-                case InputState::Esc_Hash:
-                    switch (ch) {
-                        case '3':
-                            logU << "DECDHL: Double-height, top half" << std::endl;
-                            setState(InputState::Normal);
-                            break;
-                        case '4':
-                            logU << "DECDHL: Double-height, bottom half" << std::endl;
-                            setState(InputState::Normal);
-                            break;
-                        case '5':
-                            logU << "DECSWL: Single-width line" << std::endl;
-                            setState(InputState::Normal);
-                            break;
-                        case '6':
-                            logU << "DECDWL: Double-width line" << std::endl;
-                            setState(InputState::Normal);
-                            break;
-                        case '8':
-                            esch_DECALN();
-                            break;
-                        default:
-                            unhandledInput(ch);
-                            break;
-                    }
-                    break;
-                case InputState::Esc_Pct:
-                    switch (ch) {
-                        case '@':
-                            logT << "Select charset: default (ISO-8859-1)" << std::endl;
-                            charsetState = CharsetState{};
-                            charsetState.g[charsetState.gr] = Charset::IsoLatin1;
-                            setState(InputState::Normal);
-                            break;
-                        case 'G':
-                            logT << "Select charset: UTF-8" << std::endl;
-                            charsetState = CharsetState{};
-                            setState(InputState::Normal);
-                            break;
-                        default:
-                            unhandledInput(ch);
-                            break;
-                    }
-                    break;
-                case InputState::SelectCharset:
-                    if (ch < 0x30) { // intermediate
-                        scsMod = ch;
-                    } else {
-                        esc_DCS(ch);
-                    }
-                    break;
-                case InputState::CSI:
-                    switch (ch) {
-                        COLLECT_NUMERIC_PARAMS;
-                        case '\x1b':
-                            setState(InputState::Normal);
-                            break;
-                        case 'A':
-                            csi_CUU();
-                            break;
-                        case 'B':
-                            csi_CUD();
-                            break;
-                        case 'C':
-                            csi_CUF();
-                            break;
-                        case 'D':
-                            csi_CUB();
-                            break;
-                        case 'E':
-                            csi_CNL();
-                            break;
-                        case 'F':
-                            csi_CPL();
-                            break;
-                        case 'G':
-                            csi_CHA();
-                            break;
-                        case 'H':
-                        case 'f':
-                            csi_CUP();
-                            break;
-                        case 'I':
-                            csi_CHT();
-                            break;
-                        case 'J':
-                            csi_ED();
-                            break;
-                        case 'K':
-                            csi_EL();
-                            break;
-                        case 'L':
-                            csi_IL();
-                            break;
-                        case 'M':
-                            csi_DL();
-                            break;
-                        case 'P':
-                            csi_DCH();
-                            break;
-                        case 'S':
-                            csi_SU();
-                            break;
-                        case 'T':
-                            csi_SD();
-                            break;
-                        case 'X':
-                            csi_ECH();
-                            break;
-                        case 'Z':
-                            csi_CBT();
-                            break;
-                        case '@':
-                            csi_ICH();
-                            break;
-                        case '`':
-                            csi_HPA();
-                            break;
-                        case 'a':
-                            csi_HPR();
-                            break;
-                        case 'b':
-                            csi_REP();
-                            break;
-                        case 'c':
-                            csi_priDA();
-                            break;
-                        case 'd':
-                            csi_VPA();
-                            break;
-                        case 'e':
-                            csi_VPR();
-                            break;
-                        case 'g':
-                            csi_TBC();
-                            break;
-                        case 'h':
-                            csi_SM();
-                            break;
-                        case 'l':
-                            csi_RM();
-                            break;
-                        case 'm':
-                            csi_SGR();
-                            break;
-                        case 'n':
-                            csi_DSR();
-                            break;
-                        case 'r':
-                            csi_STBM();
-                            break;
-                        case 's':
-                            csi_SCOSC_SLRM();
-                            break;
-                        case 't':
-                            csi_XTWINOPS();
-                            break;
-                        case 'u':
-                            csi_SCORC();
-                            break;
-                        case '\'':
-                            setState(InputState::CSI_Quote);
-                            break;
-                        case '\"':
-                            setState(InputState::CSI_DblQuote);
-                            break;
-                        case '!':
-                            setState(InputState::CSI_Bang);
-                            break;
-                        case '?':
-                            setState(readPos == lastEscBegin + 2
-                                         ? InputState::CSI_priv
-                                         : InputState::IgnoreSequence);
-                            break;
-                        case ' ':
-                            setState(InputState::CSI_SPC);
-                            break;
-                        case '>':
-                            setState(readPos == lastEscBegin + 2
-                                         ? InputState::CSI_GT
-                                         : InputState::IgnoreSequence);
-                            break;
-                        case '\a':
-                            break; // ignore
-                        case '\b': // undo last character in CSI sequence:
-                            if (readPos && input[readPos - 1] == ';') {
-                                --nInputOps;
-                            } else {
-                                inputOps[nInputOps - 1] /= 10;
-                            }
-                            break;
-                        case '\t':
-                            inp_HT();
-                            setState(InputState::CSI);
-                            break;
-                        case '\r':
-                            inp_CR();
-                            setState(InputState::CSI);
-                            break;
-                        case '\f': // fall through
-                        case '\v':
-                            esc_IND();
-                            setState(InputState::CSI);
-                            break;
-                        // N.B. '>' and '?' above, so no IGNORE_SEQUENCE_ON_BAD_PARAMS:
-                        case ':':
-                        case '<':
-                        case '=':
-                            setState(InputState::IgnoreSequence);
-                            break;
-                        default:
-                            unhandledInput(ch);
-                            break;
-                    }
-                    break;
-                case InputState::CSI_Bang:
-                    switch (ch) {
-                        case 'p':
-                            csi_DECSTR();
-                            break;
-                            IGNORE_SEQUENCE_ON_BAD_PARAMS;
-                        default:
-                            unhandledInput(ch);
-                            break;
-                    }
-                    break;
-                case InputState::CSI_Quote:
-                    switch (ch) {
-                        case '}':
-                            csi_DECIC();
-                            break;
-                        case '~':
-                            csi_DECDC();
-                            break;
-                            IGNORE_SEQUENCE_ON_BAD_PARAMS;
-                        default:
-                            unhandledInput(ch);
-                            break;
-                    }
-                    break;
-                case InputState::CSI_DblQuote:
-                    switch (ch) {
-                        case 'p':
-                            csiq_DECSCL();
-                            break;
-                            IGNORE_SEQUENCE_ON_BAD_PARAMS;
-                        default:
-                            unhandledInput(ch);
-                            break;
-                    }
-                    break;
-                case InputState::CSI_SPC:
-                    switch (ch) {
-                        case '@':
-                            csi_ecma48_SL();
-                            break;
-                        case 'A':
-                            csi_ecma48_SR();
-                            break;
-                            IGNORE_SEQUENCE_ON_BAD_PARAMS;
-                        default:
-                            unhandledInput(ch);
-                            break;
-                    }
-                    break;
-                case InputState::CSI_GT:
-                    switch (ch) {
-                        COLLECT_NUMERIC_PARAMS;
-                        case 'c':
-                            csi_secDA();
-                            break;
-                        case 'm':
-                            csi_XTMODKEYS();
-                            break;
-                            IGNORE_SEQUENCE_ON_BAD_PARAMS;
-                        default:
-                            unhandledInput(ch);
-                            break;
-                    }
-                    break;
-                case InputState::CSI_priv:
-                    switch (ch) {
-                        COLLECT_NUMERIC_PARAMS;
-                        case '\x1b':
-                            setState(InputState::Normal);
-                            break;
-                        case 'h':
-                            csi_privSM();
-                            break;
-                        case 'l':
-                            csi_privRM();
-                            break;
-                        case 's':
-                            csi_privSave();
-                            break;
-                        case 'r':
-                            csi_privRestore();
-                            break;
-                            IGNORE_SEQUENCE_ON_BAD_PARAMS;
-                        default:
-                            unhandledInput(ch);
-                            break;
-                    }
-                    break;
-                case InputState::DCS:
-                    switch (ch) {
-                        case '\x1b':
-                            setState(InputState::DCS_Esc);
-                            break;
-                        default:
-                            if (argBuf.size() < 4095) {
-                                argBuf.push_back(ch);
-                            } else {
-                                logE << "DCS argument string overflow" << std::endl;
-                                setState(InputState::Normal);
-                            }
-                            break;
-                    }
-                    break;
-                case InputState::DCS_Esc:
-                    switch (ch) {
-                        case '\\':
-                            handle_DCS();
-                            break;
-                        default:
-                            argBuf.push_back('\x1b');
+                        break;
+                    case '\x1b': // ESC restarts ESC sequence
+                        inputOps[0] = 0;
+                        nInputOps = 1;
+                        lastEscBegin = readPos;
+                        break;
+                    case '=':
+                        keypadMode = KeypadMode::Application;
+                        setState(InputState::Normal);
+                        break;
+                    case '>':
+                        keypadMode = KeypadMode::Normal;
+                        setState(InputState::Normal);
+                        break;
+                    case '<':
+                        compatLevel = CompatibilityLevel::VT100;
+                        setState(InputState::Normal);
+                        break;
+                    case 'A':
+                        csi_CUU();
+                        break;
+                    case 'B':
+                        csi_CUD();
+                        break;
+                    case 'C':
+                        csi_CUF();
+                        break;
+                    case 'D':
+                        csi_CUB();
+                        break;
+                    case 'F':
+                        charsetState = CharsetState{};
+                        charsetState.g[charsetState.gl] = Charset::DecSpec;
+                        setState(InputState::Normal);
+                        break;
+                    case 'G':
+                        charsetState = CharsetState{};
+                        setState(InputState::Normal);
+                        break;
+                    case 'H':
+                        csi_CUP();
+                        break;
+                    case 'I':
+                        esc_RI();
+                        break;
+                    case 'J':
+                        csi_ED();
+                        break;
+                    case 'K':
+                        csi_EL();
+                        break;
+                    case 'Y':
+                        setState(InputState::VT52_CUP_Arg1);
+                        break;
+                    case 'Z':
+                        writePty("\x1b/Z");
+                        break;
+                    case 'c':
+                        esc_RIS();
+                        break; // allow "reset" command to escape VT52
+                    default:
+                        unhandledInput(ch);
+                        break;
+                }
+                break;
+            case InputState::VT52_CUP_Arg1:
+                inputOps[0] = input[readPos] - 31;
+                setState(InputState::VT52_CUP_Arg2);
+                break;
+            case InputState::VT52_CUP_Arg2:
+                inputOps[1] = input[readPos] - 31;
+                nInputOps = 2;
+                csi_CUP();
+                break;
+            case InputState::Escape:
+                switch (ch) {
+                    case '\x18':
+                    case '\x1a': // CAN and SUB interrupts ESC sequence
+                        setState(InputState::Normal);
+                        break;
+                    case '\x1b': // ESC restarts ESC sequence
+                        inputOps[0] = 0;
+                        nInputOps = 1;
+                        lastEscBegin = readPos;
+                        break;
+                    case ' ':
+                        setState(InputState::Esc_SPC);
+                        break;
+                    case '#':
+                        setState(InputState::Esc_Hash);
+                        break;
+                    case '%':
+                        setState(InputState::Esc_Pct);
+                        break;
+                    case '[':
+                        setState(InputState::CSI);
+                        break;
+                    case ']':
+                        argBuf.clear();
+                        setState(InputState::OSC);
+                        break;
+                    case '(':
+                    case ')':
+                    case '*':
+                    case '+':
+                    case '-':
+                    case '.':
+                    case '/':
+                    case ',':
+                    case '$': // from ISO/IEC 2022 (absorbed, treat as no-op)
+                        scsDst = ch;
+                        scsMod = '\0';
+                        setState(InputState::SelectCharset);
+                        break;
+                    case 'D':
+                        esc_IND();
+                        break;
+                    case 'M':
+                        esc_RI();
+                        break;
+                    case 'E':
+                        esc_NEL();
+                        break;
+                    case 'H':
+                        esc_HTS();
+                        break;
+                    case 'N':
+                        charsetState.ss = 2;
+                        setState(InputState::Normal);
+                        break;
+                    case 'O':
+                        charsetState.ss = 3;
+                        setState(InputState::Normal);
+                        break;
+                    case 'P':
+                        argBuf.clear();
+                        setState(InputState::DCS);
+                        break;
+                    case 'c':
+                        esc_RIS();
+                        break;
+                    case '6':
+                        esc_BI();
+                        break;
+                    case '7':
+                        esc_DECSC();
+                        break;
+                    case '8':
+                        esc_DECRC();
+                        break;
+                    case '9':
+                        esc_FI();
+                        break;
+                    case '=':
+                        keypadMode = KeypadMode::Application;
+                        setState(InputState::Normal);
+                        break;
+                    case '>':
+                        keypadMode = KeypadMode::Normal;
+                        setState(InputState::Normal);
+                        break;
+                    case '<':
+                        compatLevel = CompatibilityLevel::VT400;
+                        setState(InputState::Normal);
+                        break;
+                    case '~':
+                        charsetState.gr = 1;
+                        setState(InputState::Normal);
+                        break;
+                    case 'n':
+                        charsetState.gl = 2;
+                        setState(InputState::Normal);
+                        break;
+                    case '}':
+                        charsetState.gr = 2;
+                        setState(InputState::Normal);
+                        break;
+                    case 'o':
+                        charsetState.gl = 3;
+                        setState(InputState::Normal);
+                        break;
+                    case '|':
+                        charsetState.gr = 3;
+                        setState(InputState::Normal);
+                        break;
+                    case '\\':
+                        setState(InputState::Normal);
+                        break; // ignore lone ST
+                    default:
+                        unhandledInput(ch);
+                        break;
+                }
+                break;
+            case InputState::Esc_SPC:
+                switch (ch) {
+                    case 'F':
+                        logU << "S7C1T: Send 7-bit controls" << std::endl;
+                        setState(InputState::Normal);
+                        break;
+                    case 'G':
+                        logU << "S8C1T: Send 8-bit controls" << std::endl;
+                        setState(InputState::Normal);
+                        break;
+                    case 'L':
+                        logU << "Set ANSI conformance level 1" << std::endl;
+                        setState(InputState::Normal);
+                        break;
+                    case 'M':
+                        logU << "Set ANSI conformance level 2" << std::endl;
+                        setState(InputState::Normal);
+                        break;
+                    case 'N':
+                        logU << "Set ANSI conformance level 3" << std::endl;
+                        setState(InputState::Normal);
+                        break;
+                    default:
+                        unhandledInput(ch);
+                        break;
+                }
+                break;
+            case InputState::Esc_Hash:
+                switch (ch) {
+                    case '3':
+                        logU << "DECDHL: Double-height, top half" << std::endl;
+                        setState(InputState::Normal);
+                        break;
+                    case '4':
+                        logU << "DECDHL: Double-height, bottom half" << std::endl;
+                        setState(InputState::Normal);
+                        break;
+                    case '5':
+                        logU << "DECSWL: Single-width line" << std::endl;
+                        setState(InputState::Normal);
+                        break;
+                    case '6':
+                        logU << "DECDWL: Double-width line" << std::endl;
+                        setState(InputState::Normal);
+                        break;
+                    case '8':
+                        esch_DECALN();
+                        break;
+                    default:
+                        unhandledInput(ch);
+                        break;
+                }
+                break;
+            case InputState::Esc_Pct:
+                switch (ch) {
+                    case '@':
+                        logT << "Select charset: default (ISO-8859-1)" << std::endl;
+                        charsetState = CharsetState{};
+                        charsetState.g[charsetState.gr] = Charset::IsoLatin1;
+                        setState(InputState::Normal);
+                        break;
+                    case 'G':
+                        logT << "Select charset: UTF-8" << std::endl;
+                        charsetState = CharsetState{};
+                        setState(InputState::Normal);
+                        break;
+                    default:
+                        unhandledInput(ch);
+                        break;
+                }
+                break;
+            case InputState::SelectCharset:
+                if (ch < 0x30) { // intermediate
+                    scsMod = ch;
+                } else {
+                    esc_DCS(ch);
+                }
+                break;
+            case InputState::CSI:
+                switch (ch) {
+                    COLLECT_NUMERIC_PARAMS;
+                    case '\x1b':
+                        setState(InputState::Normal);
+                        break;
+                    case 'A':
+                        csi_CUU();
+                        break;
+                    case 'B':
+                        csi_CUD();
+                        break;
+                    case 'C':
+                        csi_CUF();
+                        break;
+                    case 'D':
+                        csi_CUB();
+                        break;
+                    case 'E':
+                        csi_CNL();
+                        break;
+                    case 'F':
+                        csi_CPL();
+                        break;
+                    case 'G':
+                        csi_CHA();
+                        break;
+                    case 'H':
+                    case 'f':
+                        csi_CUP();
+                        break;
+                    case 'I':
+                        csi_CHT();
+                        break;
+                    case 'J':
+                        csi_ED();
+                        break;
+                    case 'K':
+                        csi_EL();
+                        break;
+                    case 'L':
+                        csi_IL();
+                        break;
+                    case 'M':
+                        csi_DL();
+                        break;
+                    case 'P':
+                        csi_DCH();
+                        break;
+                    case 'S':
+                        csi_SU();
+                        break;
+                    case 'T':
+                        csi_SD();
+                        break;
+                    case 'X':
+                        csi_ECH();
+                        break;
+                    case 'Z':
+                        csi_CBT();
+                        break;
+                    case '@':
+                        csi_ICH();
+                        break;
+                    case '`':
+                        csi_HPA();
+                        break;
+                    case 'a':
+                        csi_HPR();
+                        break;
+                    case 'b':
+                        csi_REP();
+                        break;
+                    case 'c':
+                        csi_priDA();
+                        break;
+                    case 'd':
+                        csi_VPA();
+                        break;
+                    case 'e':
+                        csi_VPR();
+                        break;
+                    case 'g':
+                        csi_TBC();
+                        break;
+                    case 'h':
+                        csi_SM();
+                        break;
+                    case 'l':
+                        csi_RM();
+                        break;
+                    case 'm':
+                        csi_SGR();
+                        break;
+                    case 'n':
+                        csi_DSR();
+                        break;
+                    case 'r':
+                        csi_STBM();
+                        break;
+                    case 's':
+                        csi_SCOSC_SLRM();
+                        break;
+                    case 't':
+                        csi_XTWINOPS();
+                        break;
+                    case 'u':
+                        csi_SCORC();
+                        break;
+                    case '\'':
+                        setState(InputState::CSI_Quote);
+                        break;
+                    case '\"':
+                        setState(InputState::CSI_DblQuote);
+                        break;
+                    case '!':
+                        setState(InputState::CSI_Bang);
+                        break;
+                    case '?':
+                        setState(readPos == lastEscBegin + 2
+                                     ? InputState::CSI_priv
+                                     : InputState::IgnoreSequence);
+                        break;
+                    case ' ':
+                        setState(InputState::CSI_SPC);
+                        break;
+                    case '>':
+                        setState(readPos == lastEscBegin + 2
+                                     ? InputState::CSI_GT
+                                     : InputState::IgnoreSequence);
+                        break;
+                    case '\a':
+                        break; // ignore
+                    case '\b': // undo last character in CSI sequence:
+                        if (readPos && input[readPos - 1] == ';') {
+                            --nInputOps;
+                        } else {
+                            inputOps[nInputOps - 1] /= 10;
+                        }
+                        break;
+                    case '\t':
+                        inp_HT();
+                        setState(InputState::CSI);
+                        break;
+                    case '\r':
+                        inp_CR();
+                        setState(InputState::CSI);
+                        break;
+                    case '\f': // fall through
+                    case '\v':
+                        esc_IND();
+                        setState(InputState::CSI);
+                        break;
+                    // N.B. '>' and '?' above, so no IGNORE_SEQUENCE_ON_BAD_PARAMS:
+                    case ':':
+                    case '<':
+                    case '=':
+                        setState(InputState::IgnoreSequence);
+                        break;
+                    default:
+                        unhandledInput(ch);
+                        break;
+                }
+                break;
+            case InputState::CSI_Bang:
+                switch (ch) {
+                    case 'p':
+                        csi_DECSTR();
+                        break;
+                        IGNORE_SEQUENCE_ON_BAD_PARAMS;
+                    default:
+                        unhandledInput(ch);
+                        break;
+                }
+                break;
+            case InputState::CSI_Quote:
+                switch (ch) {
+                    case '}':
+                        csi_DECIC();
+                        break;
+                    case '~':
+                        csi_DECDC();
+                        break;
+                        IGNORE_SEQUENCE_ON_BAD_PARAMS;
+                    default:
+                        unhandledInput(ch);
+                        break;
+                }
+                break;
+            case InputState::CSI_DblQuote:
+                switch (ch) {
+                    case 'p':
+                        csiq_DECSCL();
+                        break;
+                        IGNORE_SEQUENCE_ON_BAD_PARAMS;
+                    default:
+                        unhandledInput(ch);
+                        break;
+                }
+                break;
+            case InputState::CSI_SPC:
+                switch (ch) {
+                    case '@':
+                        csi_ecma48_SL();
+                        break;
+                    case 'A':
+                        csi_ecma48_SR();
+                        break;
+                        IGNORE_SEQUENCE_ON_BAD_PARAMS;
+                    default:
+                        unhandledInput(ch);
+                        break;
+                }
+                break;
+            case InputState::CSI_GT:
+                switch (ch) {
+                    COLLECT_NUMERIC_PARAMS;
+                    case 'c':
+                        csi_secDA();
+                        break;
+                    case 'm':
+                        csi_XTMODKEYS();
+                        break;
+                        IGNORE_SEQUENCE_ON_BAD_PARAMS;
+                    default:
+                        unhandledInput(ch);
+                        break;
+                }
+                break;
+            case InputState::CSI_priv:
+                switch (ch) {
+                    COLLECT_NUMERIC_PARAMS;
+                    case '\x1b':
+                        setState(InputState::Normal);
+                        break;
+                    case 'h':
+                        csi_privSM();
+                        break;
+                    case 'l':
+                        csi_privRM();
+                        break;
+                    case 's':
+                        csi_privSave();
+                        break;
+                    case 'r':
+                        csi_privRestore();
+                        break;
+                        IGNORE_SEQUENCE_ON_BAD_PARAMS;
+                    default:
+                        unhandledInput(ch);
+                        break;
+                }
+                break;
+            case InputState::DCS:
+                switch (ch) {
+                    case '\x1b':
+                        setState(InputState::DCS_Esc);
+                        break;
+                    default:
+                        if (argBuf.size() < 4095) {
                             argBuf.push_back(ch);
-                            setState(InputState::DCS);
-                            break;
-                    }
-                    break;
-                case InputState::OSC:
-                    switch (ch) {
-                        case '\a':
-                            handle_OSC();
-                            break;
-                        case '\x1b':
-                            setState(InputState::OSC_Esc);
-                            break;
-                        default:
-                            if (argBuf.size() < 4095) {
-                                argBuf.push_back(ch);
-                            } else {
-                                logE << "OSC argument string overflow" << std::endl;
-                                setState(InputState::Normal);
-                            }
-                            break;
-                    }
-                    break;
-                case InputState::OSC_Esc:
-                    switch (ch) {
-                        case '\\':
-                            handle_OSC();
-                            break;
-                        default:
-                            argBuf.push_back('\x1b');
+                        } else {
+                            logE << "DCS argument string overflow" << std::endl;
+                            setState(InputState::Normal);
+                        }
+                        break;
+                }
+                break;
+            case InputState::DCS_Esc:
+                switch (ch) {
+                    case '\\':
+                        handle_DCS();
+                        break;
+                    default:
+                        argBuf.push_back('\x1b');
+                        argBuf.push_back(ch);
+                        setState(InputState::DCS);
+                        break;
+                }
+                break;
+            case InputState::OSC:
+                switch (ch) {
+                    case '\a':
+                        handle_OSC();
+                        break;
+                    case '\x1b':
+                        setState(InputState::OSC_Esc);
+                        break;
+                    default:
+                        if (argBuf.size() < 4095) {
                             argBuf.push_back(ch);
-                            setState(InputState::OSC);
-                            break;
-                    }
-                    break;
-            }
+                        } else {
+                            logE << "OSC argument string overflow" << std::endl;
+                            setState(InputState::Normal);
+                        }
+                        break;
+                }
+                break;
+            case InputState::OSC_Esc:
+                switch (ch) {
+                    case '\\':
+                        handle_OSC();
+                        break;
+                    default:
+                        argBuf.push_back('\x1b');
+                        argBuf.push_back(ch);
+                        setState(InputState::OSC);
+                        break;
+                }
+                break;
         }
-        traceNormalInput();
-        showCursor();
-        redraw();
+    }
+    traceNormalInput();
+    showCursor();
+    redraw();
+}
+
+void Vterm::selectStart(int pX, int pY, bool cycleSnapTo) {
+    logT << "selectStart (" << pX << "," << pY
+         << "), cycleSnapTo=" << cycleSnapTo << std::endl;
+
+    if (cycleSnapTo) {
+        selectExtend(pX, pY, true);
+        return;
     }
 
-    void
-    Vterm::selectStart(int pX, int pY, bool cycleSnapTo) {
-        logT << "selectStart (" << pX << "," << pY
-             << "), cycleSnapTo=" << cycleSnapTo << std::endl;
+    pX = std::min(std::max(0, pX - opts.border), winPx - 2 * opts.border);
+    pY = std::min(std::max(0, pY - opts.border), winPy - 2 * opts.border);
+    Point pt(pX / glyphPx, pY / glyphPy);
 
-        if (cycleSnapTo) {
-            selectExtend(pX, pY, true);
-            return;
-        }
+    Rect& selection = cf->getSelection();
+    cf->setSelectSnapTo(Frame::SelectSnapTo::Char);
+    selection.tl = pt;
+    selection.br = pt;
+    selectUpdatesTop = false;
+    selectUpdatesLeft = false;
 
-        pX = std::min(std::max(0, pX - opts.border), winPx - 2 * opts.border);
-        pY = std::min(std::max(0, pY - opts.border), winPy - 2 * opts.border);
-        Point pt(pX / glyphPx, pY / glyphPy);
+    hideCursor();
+    redraw();
+}
 
-        Rect& selection = cf->getSelection();
-        cf->setSelectSnapTo(Frame::SelectSnapTo::Char);
+void Vterm::selectExtend(int pX, int pY, bool cycleSnapTo) {
+    logT << "selectExtend (" << pX << "," << pY
+         << "), cycleSnapTo=" << cycleSnapTo << std::endl;
+
+    pX = std::min(std::max(0, pX - opts.border), winPx - 2 * opts.border);
+    pY = std::min(std::max(0, pY - opts.border), winPy - 2 * opts.border);
+    Point pt(pX / glyphPx, pY / glyphPy);
+
+    Rect& selection = cf->getSelection();
+    if (cycleSnapTo) {
+        cf->cycleSelectSnapTo();
+    }
+
+    if (selection.rectangular) {
+        selectUpdatesLeft = pt.x < selection.mid().x;
+        selectUpdatesTop = pt.y < selection.mid().y;
+    } else {
+        selectUpdatesLeft = selectUpdatesTop = pt < selection.mid();
+    }
+
+    if (selectUpdatesTop && selectUpdatesLeft) {
         selection.tl = pt;
+    } else if (selectUpdatesTop) {
+        selection.br.x = pt.x;
+        selection.tl.y = pt.y;
+    } else if (selectUpdatesLeft) {
+        selection.tl.x = pt.x;
+        selection.br.y = pt.y;
+    } else {
         selection.br = pt;
-        selectUpdatesTop = false;
-        selectUpdatesLeft = false;
-
-        hideCursor();
-        redraw();
     }
 
-    void
-    Vterm::selectExtend(int pX, int pY, bool cycleSnapTo) {
-        logT << "selectExtend (" << pX << "," << pY
-             << "), cycleSnapTo=" << cycleSnapTo << std::endl;
+    hideCursor();
+    redraw();
+}
 
-        pX = std::min(std::max(0, pX - opts.border), winPx - 2 * opts.border);
-        pY = std::min(std::max(0, pY - opts.border), winPy - 2 * opts.border);
-        Point pt(pX / glyphPx, pY / glyphPy);
+void Vterm::selectUpdate(int pX, int pY) {
+    logT << "selectUpdate (" << pX << "," << pY << ")" << std::endl;
 
-        Rect& selection = cf->getSelection();
-        if (cycleSnapTo) {
-            cf->cycleSelectSnapTo();
+    pX = std::min(std::max(0, pX - opts.border), winPx - 2 * opts.border);
+    pY = std::min(std::max(0, pY - opts.border), winPy - 2 * opts.border);
+    Point pt(pX / glyphPx, pY / glyphPy);
+
+    Rect& selection = cf->getSelection();
+
+    if (selection.rectangular) {
+        if (selectUpdatesLeft && pt.x > selection.br.x) {
+            std::swap(selection.tl.x, selection.br.x);
+            selectUpdatesLeft = false;
+        } else if (!selectUpdatesLeft && pt.x < selection.tl.x) {
+            std::swap(selection.tl.x, selection.br.x);
+            selectUpdatesLeft = true;
         }
 
-        if (selection.rectangular) {
-            selectUpdatesLeft = pt.x < selection.mid().x;
-            selectUpdatesTop = pt.y < selection.mid().y;
-        } else {
-            selectUpdatesLeft = selectUpdatesTop = pt < selection.mid();
+        if (selectUpdatesTop && pt.y > selection.br.y) {
+            std::swap(selection.tl.y, selection.br.y);
+            selectUpdatesTop = false;
+        } else if (!selectUpdatesTop && pt.y < selection.tl.y) {
+            std::swap(selection.tl.y, selection.br.y);
+            selectUpdatesTop = true;
         }
 
         if (selectUpdatesTop && selectUpdatesLeft) {
@@ -2183,112 +2210,63 @@ namespace zutty {
         } else {
             selection.br = pt;
         }
-
-        hideCursor();
-        redraw();
-    }
-
-    void
-    Vterm::selectUpdate(int pX, int pY) {
-        logT << "selectUpdate (" << pX << "," << pY << ")" << std::endl;
-
-        pX = std::min(std::max(0, pX - opts.border), winPx - 2 * opts.border);
-        pY = std::min(std::max(0, pY - opts.border), winPy - 2 * opts.border);
-        Point pt(pX / glyphPx, pY / glyphPy);
-
-        Rect& selection = cf->getSelection();
-
-        if (selection.rectangular) {
-            if (selectUpdatesLeft && pt.x > selection.br.x) {
-                std::swap(selection.tl.x, selection.br.x);
-                selectUpdatesLeft = false;
-            } else if (!selectUpdatesLeft && pt.x < selection.tl.x) {
-                std::swap(selection.tl.x, selection.br.x);
-                selectUpdatesLeft = true;
-            }
-
-            if (selectUpdatesTop && pt.y > selection.br.y) {
-                std::swap(selection.tl.y, selection.br.y);
-                selectUpdatesTop = false;
-            } else if (!selectUpdatesTop && pt.y < selection.tl.y) {
-                std::swap(selection.tl.y, selection.br.y);
-                selectUpdatesTop = true;
-            }
-
-            if (selectUpdatesTop && selectUpdatesLeft) {
-                selection.tl = pt;
-            } else if (selectUpdatesTop) {
-                selection.br.x = pt.x;
-                selection.tl.y = pt.y;
-            } else if (selectUpdatesLeft) {
-                selection.tl.x = pt.x;
-                selection.br.y = pt.y;
-            } else {
-                selection.br = pt;
-            }
-        } else if (selectUpdatesTop) {
-            if (selection.br < pt) {
-                selection.tl = selection.br;
-                selection.br = pt;
-                selectUpdatesTop = selectUpdatesLeft = false;
-            } else {
-                selection.tl = pt;
-            }
+    } else if (selectUpdatesTop) {
+        if (selection.br < pt) {
+            selection.tl = selection.br;
+            selection.br = pt;
+            selectUpdatesTop = selectUpdatesLeft = false;
         } else {
-            if (pt < selection.tl) {
-                selection.br = selection.tl;
-                selection.tl = pt;
-                selectUpdatesTop = selectUpdatesLeft = true;
-            } else {
-                selection.br = pt;
-            }
+            selection.tl = pt;
         }
-        redraw();
-    }
-
-    bool
-    Vterm::selectFinish(std::string& utf8_selection) {
-        logT << "selectFinish ()" << std::endl;
-
-        showCursor();
-        redraw();
-
-        return cf->getSelectedUtf8(utf8_selection);
-    }
-
-    void
-    Vterm::selectClear() {
-        logT << "selectClear ()" << std::endl;
-        cf->getSelection().clear();
-        redraw();
-    }
-
-    void
-    Vterm::selectRectangularModeToggle() {
-        logT << "selectRectangularModeToggle ()" << std::endl;
-        cf->getSelection().toggleRectangular();
-        redraw();
-    }
-
-    void
-    Vterm::pasteSelection(const std::string& utf8_selection) {
-        std::ostringstream oss;
-
-        if (bracketedPasteMode) {
-            oss << "\x1b[200~";
-        }
-
-        for (const auto ch : utf8_selection) {
-            oss << (ch == '\n' ? '\r' : ch);
-        }
-
-        if (bracketedPasteMode) {
-            oss << "\x1b[201~";
-        }
-
-        if (oss.str().size()) {
-            writePty(oss.str().c_str(), true);
+    } else {
+        if (pt < selection.tl) {
+            selection.br = selection.tl;
+            selection.tl = pt;
+            selectUpdatesTop = selectUpdatesLeft = true;
+        } else {
+            selection.br = pt;
         }
     }
+    redraw();
+}
 
-} // namespace zutty
+bool Vterm::selectFinish(std::string& utf8_selection) {
+    logT << "selectFinish ()" << std::endl;
+
+    showCursor();
+    redraw();
+
+    return cf->getSelectedUtf8(utf8_selection);
+}
+
+void Vterm::selectClear() {
+    logT << "selectClear ()" << std::endl;
+    cf->getSelection().clear();
+    redraw();
+}
+
+void Vterm::selectRectangularModeToggle() {
+    logT << "selectRectangularModeToggle ()" << std::endl;
+    cf->getSelection().toggleRectangular();
+    redraw();
+}
+
+void Vterm::pasteSelection(const std::string& utf8_selection) {
+    std::ostringstream oss;
+
+    if (bracketedPasteMode) {
+        oss << "\x1b[200~";
+    }
+
+    for (const auto ch : utf8_selection) {
+        oss << (ch == '\n' ? '\r' : ch);
+    }
+
+    if (bracketedPasteMode) {
+        oss << "\x1b[201~";
+    }
+
+    if (oss.str().size()) {
+        writePty(oss.str().c_str(), true);
+    }
+}

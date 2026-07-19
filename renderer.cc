@@ -11,44 +11,40 @@
 
 #include <cassert>
 
-namespace zutty {
-    Renderer::Renderer(SDL_Window* window, Fontpack* fontpk)
-        : charVdev(fontpk)
-        , presenter(window, fontpk)
+Renderer::Renderer(SDL_Window* window, Fontpack* fontpk)
+    : charVdev(fontpk)
+    , presenter(window, fontpk)
+{
+}
+
+void Renderer::update(const Frame& frame) {
+    if (!frame) {
+        return;
+    }
+
+    Frame currentFrame = frame;
+
+    if (charVdev.resize(frame.winPx, frame.winPy)) {
+        delta = false;
+    }
+
     {
-    }
-
-    void
-    Renderer::update(const Frame& frame) {
-        if (!frame) {
-            return;
-        }
-
-        Frame currentFrame = frame;
-
-        if (charVdev.resize(frame.winPx, frame.winPy)) {
-            delta = false;
-        }
-
-        {
-            CharVdev::Mapping mapping = charVdev.getMapping();
-            assert(mapping.nCols == frame.nCols);
-            assert(mapping.nRows == frame.nRows);
-            if (delta) {
-                currentFrame.deltaCopyCells(mapping.cells);
-            } else {
-                currentFrame.fullCopyCells(mapping.cells);
-            }
-        }
-
-        charVdev.setCursor(frame.getCursor());
-        charVdev.setSelection(frame.getSnappedSelection());
-        if (presenter.present(charVdev, delta)) {
-            charVdev.clearDirty();
-            delta = true;
+        CharVdev::Mapping mapping = charVdev.getMapping();
+        assert(mapping.nCols == frame.nCols);
+        assert(mapping.nRows == frame.nRows);
+        if (delta) {
+            currentFrame.deltaCopyCells(mapping.cells);
         } else {
-            delta = false;
+            currentFrame.fullCopyCells(mapping.cells);
         }
     }
 
-} // namespace zutty
+    charVdev.setCursor(frame.getCursor());
+    charVdev.setSelection(frame.getSnappedSelection());
+    if (presenter.present(charVdev, delta)) {
+        charVdev.clearDirty();
+        delta = true;
+    } else {
+        delta = false;
+    }
+}
