@@ -247,6 +247,8 @@ public:
     int writePty(uint8_t ch, VtModifier modifiers = VtModifier::none,
                  bool userInput = false);
     int writePty(const char* cstr, bool userInput = false);
+    int writePty(const uint8_t* ucstr, size_t len,
+                 bool userInput = false);
     bool flushPtyOutput();
     bool hasPendingPtyOutput() const {
         return ptyOutputOffset < ptyOutput.size();
@@ -298,7 +300,6 @@ private:
     void processInput(const unsigned char* const input, int size);
     void processInput(const std::string& str);
 
-    int writePty(const uint8_t* ucstr, size_t len, bool userInput = false);
     void writeCsiResponse(const std::string& payload);
     void writeDcsResponse(const std::string& payload);
     void writeOscResponse(const std::string& payload);

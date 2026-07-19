@@ -56,6 +56,9 @@ def validate(name, trace):
         "primary_da": rb"(?:\x1b\[|\x9b)\?[^c]*c",
         "secondary_da": rb"(?:\x1b\[|\x9b)>[^c]*c",
         "cursor_position": rb"(?:\x1b\[|\x9b)3;7R",
+        "cursor_mode": rb"(?:\x1b\[|\x9b)\?25;[12]\$y",
+        "default_foreground": rb"(?:\x1b\]|\x9d)10;rgb:",
+        "palette_red": rb"(?:\x1b\]|\x9d)4;1;rgb:",
     }
     for key, pattern in required.items():
         if re.search(pattern, decoded[key]) is None:

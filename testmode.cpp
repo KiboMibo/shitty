@@ -202,6 +202,19 @@ namespace {
             return output.str();
         }
 
+        std::string screenText() const {
+            std::string output;
+            output.reserve(cells.size() + rows);
+            for (size_t index = 0; index < cells.size(); ++index) {
+                const uint32_t codepoint = cells[index].uc_pt;
+                output.push_back(codepoint >= 0x20 && codepoint <= 0x7e
+                                     ? static_cast<char>(codepoint)
+                                     : ' ');
+                if ((index + 1) % columns == 0) output.push_back('\n');
+            }
+            return output;
+        }
+
     private:
         uint16_t columns = 0;
         uint16_t rows = 0;
@@ -338,6 +351,7 @@ int runTestMode(int controlFd) {
     std::string actions;
     std::string printerOutput;
     pid_t childPid = -1;
+    int childExitStatus = -1;
     terminal.setOscHandler(
         [&terminal, &actions](int command, const std::string& argument) {
             actions += "OSC " + std::to_string(command) + " " +
@@ -393,12 +407,41 @@ int runTestMode(int controlFd) {
     terminal.redraw();
     writeAll(controlFd, "READY\n");
 
+    const auto pumpChild = [&]() {
+        terminal.flushPtyOutput();
+        pollfd source{io[0], POLLIN, 0};
+        while (poll(&source, 1, 0) > 0 &&
+               (source.revents & POLLIN)) {
+            terminal.readPty();
+            source.revents = 0;
+        }
+        terminal.flushPtyOutput();
+        terminal.redraw();
+        int status = 0;
+        if (childPid > 0 &&
+            waitpid(childPid, &status, WNOHANG) == childPid) {
+            childPid = -1;
+            if (WIFEXITED(status))
+                childExitStatus = WEXITSTATUS(status);
+            else if (WIFSIGNALED(status))
+                childExitStatus = 128 + WTERMSIG(status);
+            else
+                childExitStatus = 255;
+        }
+    };
+
     std::string buffered;
     std::string line;
     while (readLine(controlFd, buffered, line)) {
         try {
             if (line.compare(0, 6, "WRITE ") == 0) {
                 terminal.feedPtyOutput(decodeHex(line.substr(6)));
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 6, "INPUT ") == 0) {
+                const std::string input = decodeHex(line.substr(6));
+                terminal.writePty(
+                    reinterpret_cast<const uint8_t*>(input.data()),
+                    input.size(), false);
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 6, "SPAWN ") == 0) {
                 if (childPid > 0) throw std::runtime_error("child already running");
@@ -415,6 +458,7 @@ int runTestMode(int controlFd) {
                 }
                 if (arguments.empty() || arguments[0].empty())
                     throw std::runtime_error("empty child command");
+                childExitStatus = -1;
                 childPid = fork();
                 if (childPid < 0) throw std::runtime_error("test fork failed");
                 if (childPid == 0) {
@@ -437,16 +481,18 @@ int runTestMode(int controlFd) {
                 }
                 writeAll(controlFd, "OK\n");
             } else if (line == "PUMP") {
-                pollfd source{io[0], POLLIN, 0};
-                while (poll(&source, 1, 10) > 0 &&
-                       (source.revents & POLLIN)) {
-                    terminal.readPty();
-                    source.revents = 0;
-                }
-                terminal.redraw();
-                if (childPid > 0 && waitpid(childPid, nullptr, WNOHANG) == childPid)
-                    childPid = -1;
+                pumpChild();
                 writeAll(controlFd, "OK\n");
+            } else if (line == "POLL_CHILD") {
+                pumpChild();
+                writeAll(controlFd,
+                         "OK " + std::to_string(childPid > 0) + " " +
+                         std::to_string(childExitStatus) + " " +
+                         encodeHex(display.screenText()) + "\n");
+            } else if (line == "CHILD_STATUS") {
+                writeAll(controlFd,
+                         "OK " + std::to_string(childPid > 0) + " " +
+                         std::to_string(childExitStatus) + "\n");
             } else if (line == "PAGE_UP") {
                 terminal.pageUp();
                 writeAll(controlFd, "OK\n");
@@ -659,6 +705,9 @@ int runTestMode(int controlFd) {
                     decodeHex(line.substr(9)))) + "\n");
             } else if (line == "SNAPSHOT") {
                 writeAll(controlFd, display.snapshot());
+            } else if (line == "SCREEN_TEXT") {
+                writeAll(controlFd,
+                         "OK " + encodeHex(display.screenText()) + "\n");
             } else if (line == "READ_INPUT") {
                 writeAll(controlFd, "OK " + encodeHex(drainInput(io[1])) + "\n");
             } else if (line == "PENDING_OUTPUT") {
@@ -669,7 +718,7 @@ int runTestMode(int controlFd) {
                 writeAll(controlFd, "OK\n");
             } else if (line == "QUIT") {
                 if (childPid > 0) {
-                    kill(childPid, SIGTERM);
+                    kill(childPid, SIGKILL);
                     waitpid(childPid, nullptr, 0);
                     childPid = -1;
                 }

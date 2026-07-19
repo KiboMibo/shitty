@@ -125,12 +125,30 @@ class Zutty:
     def write(self, output):
         self.command("WRITE " + output.hex())
 
+    def input(self, data):
+        self.command("INPUT " + data.hex())
+
     def spawn(self, *arguments):
         encoded = b"\0".join(os.fsencode(argument) for argument in arguments)
         self.command("SPAWN " + encoded.hex())
 
     def pump(self):
         self.command("PUMP")
+
+    def child_status(self):
+        self.stream.write(b"CHILD_STATUS\n")
+        response = self._readline().split()
+        if len(response) != 3 or response[0] != "OK":
+            raise RuntimeError("invalid child status response")
+        return None if bool(int(response[1])) else int(response[2])
+
+    def poll_child(self):
+        self.stream.write(b"POLL_CHILD\n")
+        response = self._readline().split(" ", 3)
+        if len(response) != 4 or response[0] != "OK":
+            raise RuntimeError("invalid child poll response")
+        status = None if bool(int(response[1])) else int(response[2])
+        return status, bytes.fromhex(response[3]).decode("ascii")
 
     def write_chunks(self, *chunks):
         for chunk in chunks:
@@ -302,6 +320,9 @@ class Zutty:
 
     def read_input(self):
         return self._read_hex_response("READ_INPUT")
+
+    def screen_text(self):
+        return self._read_hex_response("SCREEN_TEXT").decode("ascii")
 
     def pending_output(self):
         self.stream.write(b"PENDING_OUTPUT\n")
