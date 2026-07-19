@@ -702,6 +702,22 @@ namespace {
                 return Key::Pause;
             case GLFW_KEY_MENU:
                 return Key::Menu;
+            case GLFW_KEY_LEFT_SHIFT:
+                return Key::LeftShift;
+            case GLFW_KEY_LEFT_CONTROL:
+                return Key::LeftControl;
+            case GLFW_KEY_LEFT_ALT:
+                return Key::LeftAlt;
+            case GLFW_KEY_LEFT_SUPER:
+                return Key::LeftSuper;
+            case GLFW_KEY_RIGHT_SHIFT:
+                return Key::RightShift;
+            case GLFW_KEY_RIGHT_CONTROL:
+                return Key::RightControl;
+            case GLFW_KEY_RIGHT_ALT:
+                return Key::RightAlt;
+            case GLFW_KEY_RIGHT_SUPER:
+                return Key::RightSuper;
             default:
                 return Key::NONE;
         }
@@ -841,14 +857,16 @@ namespace {
                 primaryKey = baseKey;
             }
             const uint16_t textMods = kittyMods & ~(64 | 128);
-            if (primaryKey && (textMods & (2 | 4 | 8))) {
+            if (primaryKey &&
+                ((textMods & (2 | 4 | 8)) || (kittyFlags & 0x08))) {
                 const uint32_t alternate = textMods & 1
                                                ? shiftedKey(primaryKey)
                                                : 0;
                 vt->writeKittyKey(primaryKey, alternate, baseKey,
                                   textMods, event);
-                if (pressed && (textMods & (2 | 8)) &&
-                    !(textMods & 4)) {
+                if (pressed &&
+                    (((textMods & (2 | 8)) && !(textMods & 4)) ||
+                     (kittyFlags & 0x08))) {
                     ++suppressedTextInputs;
                 }
                 return;

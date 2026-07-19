@@ -110,7 +110,15 @@ enum class VtKey {
     NumLock,
     Pause,
     Menu,
-    Print
+    Print,
+    LeftShift,
+    LeftControl,
+    LeftAlt,
+    LeftSuper,
+    RightShift,
+    RightControl,
+    RightAlt,
+    RightSuper
 };
 
 enum class VtModifier : uint8_t {

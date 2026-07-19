@@ -2605,7 +2605,7 @@ Vterm::csi_kittyKeyboardPush() {
         state.stack.erase(state.stack.begin());
     }
     state.stack.push_back(state.flags);
-    state.flags = inputOps[0] & 0x07;
+    state.flags = inputOps[0] & 0x1f;
     setState(InputState::Normal);
 }
 
@@ -2629,7 +2629,7 @@ inline void
 Vterm::csi_kittyKeyboardSet() {
     TRACE_FUN;
     auto& state = kittyKeyboardState();
-    const uint8_t flags = inputOps[0] & 0x07;
+    const uint8_t flags = inputOps[0] & 0x1f;
     const uint32_t mode = nInputOps > 1 && inputOps[1]
                               ? inputOps[1]
                               : 1;

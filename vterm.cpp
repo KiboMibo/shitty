@@ -478,6 +478,10 @@ namespace {
         char final = 'u';
     };
 
+    bool isKittyModifierKey(VtKey key) {
+        return key >= VtKey::LeftShift && key <= VtKey::RightSuper;
+    }
+
     KittyKeySpec
     kittyKeySpec(VtKey key) {
         using Key = VtKey;
@@ -622,6 +626,22 @@ namespace {
                 return {57362, 'u'};
             case Key::Menu:
                 return {57363, 'u'};
+            case Key::LeftShift:
+                return {57441, 'u'};
+            case Key::LeftControl:
+                return {57442, 'u'};
+            case Key::LeftAlt:
+                return {57443, 'u'};
+            case Key::LeftSuper:
+                return {57444, 'u'};
+            case Key::RightShift:
+                return {57447, 'u'};
+            case Key::RightControl:
+                return {57448, 'u'};
+            case Key::RightAlt:
+                return {57449, 'u'};
+            case Key::RightSuper:
+                return {57450, 'u'};
             default:
                 return {};
         }
@@ -1422,6 +1442,11 @@ int Vterm::writeKittyKey(VtKey key, uint16_t modifiers,
         return 0;
     }
 
+    if (isKittyModifierKey(key) &&
+        !(getKittyKeyboardFlags() & 0x08)) {
+        return 0;
+    }
+
     if (event == KeyEventType::Release &&
         !(getKittyKeyboardFlags() & 0x02)) {
         return 0;
@@ -1431,6 +1456,12 @@ int Vterm::writeKittyKey(VtKey key, uint16_t modifiers,
     sequence << "\x1b[" << spec.code << ';' << modifiers + 1;
     if (getKittyKeyboardFlags() & 0x02) {
         sequence << ':' << static_cast<unsigned>(event);
+    }
+    if ((getKittyKeyboardFlags() & 0x10) &&
+        event != KeyEventType::Release &&
+        (key == VtKey::Return || key == VtKey::Tab ||
+         key == VtKey::Backspace)) {
+        sequence << ';' << spec.code;
     }
     sequence << spec.final;
     const std::string encoded = sequence.str();
@@ -1461,6 +1492,13 @@ int Vterm::writeKittyKey(uint32_t key, uint32_t shiftedKey,
     sequence << ';' << modifiers + 1;
     if (getKittyKeyboardFlags() & 0x02) {
         sequence << ':' << static_cast<unsigned>(event);
+    }
+    if ((getKittyKeyboardFlags() & 0x10) &&
+        event != KeyEventType::Release) {
+        const uint32_t text = (modifiers & 1) && shiftedKey
+                                  ? shiftedKey
+                                  : key;
+        sequence << ';' << text;
     }
     sequence << 'u';
     const std::string encoded = sequence.str();

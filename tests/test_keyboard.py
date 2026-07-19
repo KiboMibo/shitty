@@ -94,6 +94,32 @@ class KeyboardTest(unittest.TestCase):
             terminal.kitty_key(ord("a"), shifted=ord("A"), modifiers=1)
             self.assertEqual(terminal.read_input(), b"\x1b[97:65;2:1u")
 
+    def test_kitty_supports_all_defined_enhancement_flags(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[>31u\x1b[?u")
+            self.assertEqual(terminal.state()[3], 31)
+            self.assertEqual(terminal.read_input(), b"\x1b[?31u")
+
+    def test_kitty_associated_text_is_reported_for_text_keys(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[>28u")
+            terminal.kitty_key(ord("a"))
+            terminal.kitty_key(ord("a"), shifted=ord("A"), modifiers=1)
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[97;1;97u\x1b[97:65;2;65u",
+            )
+
+    def test_kitty_reports_modifier_keys_with_all_keys_flag(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[>10u")
+            terminal.kitty_special("LEFT_SHIFT", event=1)
+            terminal.kitty_special("LEFT_SHIFT", event=3)
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[57441;1:1u\x1b[57441;1:3u",
+            )
+
     def test_kitty_keyboard_stack_is_screen_local(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[>3u")

@@ -241,6 +241,14 @@ namespace {
             {"SCROLL_LOCK", VtKey::ScrollLock},
             {"NUM_LOCK", VtKey::NumLock}, {"PRINT", VtKey::Print},
             {"PAUSE", VtKey::Pause}, {"MENU", VtKey::Menu},
+            {"LEFT_SHIFT", VtKey::LeftShift},
+            {"LEFT_CONTROL", VtKey::LeftControl},
+            {"LEFT_ALT", VtKey::LeftAlt},
+            {"LEFT_SUPER", VtKey::LeftSuper},
+            {"RIGHT_SHIFT", VtKey::RightShift},
+            {"RIGHT_CONTROL", VtKey::RightControl},
+            {"RIGHT_ALT", VtKey::RightAlt},
+            {"RIGHT_SUPER", VtKey::RightSuper},
         };
         const auto found = keys.find(name);
         if (found == keys.end()) {
