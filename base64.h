@@ -55,25 +55,53 @@ namespace base64 {
         return out;
     }
 
-    static std::string
-    decode(const std::string& in) {
-        std::string out;
+    static bool
+    decode(const std::string& in, std::string& out) {
+        out.clear();
         out.reserve(in.size() * 3 / 4);
 
-        int val = 0;
-        int valb = -8;
-        for (unsigned char c : in) {
-            if (rtab[c] == -1) {
-                break;
-            }
-            val = (val << 6) + rtab[c];
-            valb += 6;
-            if (valb >= 0) {
-                out.push_back((val >> valb) & 0xFF);
-                valb -= 8;
+        size_t dataSize = in.size();
+        size_t padding = 0;
+        while (dataSize > 0 && in[dataSize - 1] == '=') {
+            --dataSize;
+            ++padding;
+        }
+        if (padding > 2 || (padding && in.size() % 4 != 0) ||
+            dataSize % 4 == 1) {
+            return false;
+        }
+        for (size_t k = 0; k < dataSize; ++k) {
+            if (rtab[static_cast<unsigned char>(in[k])] < 0) {
+                return false;
             }
         }
-        return out;
+        for (size_t k = dataSize; k < in.size(); ++k) {
+            if (in[k] != '=') {
+                return false;
+            }
+        }
+        if ((padding == 1 && dataSize % 4 != 3) ||
+            (padding == 2 && dataSize % 4 != 2)) {
+            return false;
+        }
+
+        uint32_t value = 0;
+        int bits = 0;
+        for (size_t k = 0; k < dataSize; ++k) {
+            value = (value << 6) |
+                    static_cast<uint32_t>(rtab[static_cast<unsigned char>(in[k])]);
+            bits += 6;
+            if (bits >= 8) {
+                bits -= 8;
+                out.push_back(static_cast<char>((value >> bits) & 0xff));
+                value &= bits == 0 ? 0 : (uint32_t{1} << bits) - 1;
+            }
+        }
+        if (value != 0) {
+            out.clear();
+            return false;
+        }
+        return true;
     }
 
 }

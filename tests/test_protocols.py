@@ -177,6 +177,27 @@ class ProtocolTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(5, 0).hyperlink, 0)
             self.assertEqual(terminal.hyperlink(1, 0), "https://example.test")
 
+    def test_osc8_explicit_ids_distinguish_equal_uris(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]8;id=first;https://example.test\x1b\\A"
+                b"\x1b]8;id=second;https://example.test\x1b\\B"
+                b"\x1b]8;;\x1b\\"
+            )
+            snapshot = terminal.snapshot()
+            self.assertNotEqual(
+                snapshot.cell(0, 0).hyperlink,
+                snapshot.cell(1, 0).hyperlink,
+            )
+
+    def test_large_osc_command_reaches_dispatcher(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]133;A\x1b\\\x1b]777;notify\x1b\\")
+            self.assertEqual(
+                terminal.read_actions(),
+                ["OSC 133 41", "OSC 777 6e6f74696679"],
+            )
+
     def test_osc52_clipboard_request_is_forwarded(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b]52;c;SGVsbG8=\x1b\\")

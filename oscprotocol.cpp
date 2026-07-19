@@ -18,11 +18,12 @@ Osc52Request parseOsc52(const std::string& argument) {
                       selectors.find('s') != std::string::npos ||
                       selectors.find('p') != std::string::npos;
     request.clipboard = selectors.empty() ||
-                        selectors.find('s') != std::string::npos ||
                         selectors.find('c') != std::string::npos;
     request.query = payload == "?";
     if (!request.query) {
-        request.content = base64::decode(payload);
+        if (!base64::decode(payload, request.content)) {
+            request = {};
+        }
     }
     return request;
 }

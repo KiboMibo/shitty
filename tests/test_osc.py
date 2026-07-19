@@ -7,7 +7,7 @@ class OscProtocolTest(unittest.TestCase):
     def test_osc52_selectors(self):
         cases = {
             b";WA==": (True, True),
-            b"s;WA==": (True, True),
+            b"s;WA==": (True, False),
             b"p;WA==": (True, False),
             b"c;WA==": (False, True),
             b"pc;WA==": (True, True),
@@ -32,6 +32,10 @@ class OscProtocolTest(unittest.TestCase):
             )
             self.assertEqual(
                 terminal.osc52(b"missing-separator"),
+                (False, False, False, False, b""),
+            )
+            self.assertEqual(
+                terminal.osc52(b"c;SGVsbG8!"),
                 (False, False, False, False, b""),
             )
 

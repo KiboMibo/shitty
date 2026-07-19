@@ -14,6 +14,7 @@
 #include "pty.h"
 
 #include <algorithm>
+#include <charconv>
 #include <sstream>
 
 #include <chrono>
@@ -2351,10 +2352,13 @@ Vterm::handle_OSC() {
         arg = osc.substr(p + 1);
     }
 
-    std::stringstream iss(osc);
-    int cmd;
-    iss >> cmd;
-    if (iss.fail() || cmd < 0 || cmd > 120) {
+    int cmd = -1;
+    const char* commandEnd = p == std::string::npos
+                                 ? osc.data() + osc.size()
+                                 : osc.data() + p;
+    const auto parsed = std::from_chars(osc.data(), commandEnd, cmd);
+    if (osc.empty() || parsed.ec != std::errc{} ||
+        parsed.ptr != commandEnd || cmd < 0) {
         logT << "OSC: malformed command string '" << osc << "'" << std::endl;
     } else {
         switch (cmd) {

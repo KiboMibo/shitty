@@ -2578,13 +2578,27 @@ void Vterm::setHyperlink(const std::string& parametersAndUri) {
         return;
     }
 
+    const std::string parameters = parametersAndUri.substr(0, separator);
     const std::string uri = parametersAndUri.substr(separator + 1);
     if (uri.empty()) {
         activeHyperlink = 0;
         return;
     }
 
-    const auto known = hyperlinkIds.find(uri);
+    std::string identity = "uri=" + uri;
+    size_t begin = 0;
+    while (begin <= parameters.size()) {
+        const size_t end = parameters.find(':', begin);
+        const std::string parameter = parameters.substr(begin, end - begin);
+        if (parameter.compare(0, 3, "id=") == 0) {
+            identity = parameter + ";uri=" + uri;
+            break;
+        }
+        if (end == std::string::npos) break;
+        begin = end + 1;
+    }
+
+    const auto known = hyperlinkIds.find(identity);
     if (known != hyperlinkIds.end()) {
         activeHyperlink = known->second;
         return;
@@ -2597,7 +2611,7 @@ void Vterm::setHyperlink(const std::string& parametersAndUri) {
     }
 
     activeHyperlink = nextHyperlink++;
-    hyperlinkIds.emplace(uri, activeHyperlink);
+    hyperlinkIds.emplace(identity, activeHyperlink);
     hyperlinks.emplace(activeHyperlink, uri);
 }
 
