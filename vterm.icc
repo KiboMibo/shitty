@@ -180,25 +180,29 @@ Vterm::pageDown() {
 }
 
 inline void
-Vterm::mouseWheelUp() {
+Vterm::mouseWheelUp(uint16_t count) {
     if (altScrollMode && altScreenBufferMode) {
         inputOps[0] = 1;
         nInputOps = 1;
-        writePty(VtKey::Up);
+        for (uint16_t k = 0; k < count; ++k) {
+            writePty(VtKey::Up);
+        }
     } else {
-        cf->pageUp(5);
+        cf->pageUp(count);
         redraw();
     }
 }
 
 inline void
-Vterm::mouseWheelDown() {
+Vterm::mouseWheelDown(uint16_t count) {
     if (altScrollMode && altScreenBufferMode) {
         inputOps[0] = 1;
         nInputOps = 1;
-        writePty(VtKey::Down);
+        for (uint16_t k = 0; k < count; ++k) {
+            writePty(VtKey::Down);
+        }
     } else {
-        cf->pageDown(5);
+        cf->pageDown(count);
         redraw();
     }
 }

@@ -113,11 +113,13 @@ class Zutty:
     def page_down(self):
         self.command("PAGE_DOWN")
 
-    def wheel_up(self):
-        self.command("WHEEL_UP")
+    def wheel_up(self, count=1):
+        for _ in range(count):
+            self.command("WHEEL_UP")
 
-    def wheel_down(self):
-        self.command("WHEEL_DOWN")
+    def wheel_down(self, count=1):
+        for _ in range(count):
+            self.command("WHEEL_DOWN")
 
     def resize(self, columns, rows):
         self.command(f"RESIZE {columns} {rows}")

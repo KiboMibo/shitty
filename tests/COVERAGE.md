@@ -15,6 +15,7 @@ Covered now:
 - scroll-up capture, reverse scroll, history capacity rollover and zero capacity;
 - linefeed/index capture at a region boundary and large-count clamping;
 - scrollback cell attributes, hyperlinks, selection lifetime and viewport anchoring;
+- one-line local wheel steps and symmetric wheel-up/wheel-down movement;
 - shrink-to-history and grow-from-history resize behavior;
 - Codex-style synchronized redraws plus a slow reference scrolling model;
 - SGR flags, truecolor, wide cells, wrap markers and DEC line drawing;

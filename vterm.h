@@ -208,8 +208,8 @@ public:
     void setHasFocus(bool);
     void setHyperlink(const std::string& parametersAndUri);
     std::string getHyperlink(int pX, int pY) const;
-    void mouseWheelUp();
-    void mouseWheelDown();
+    void mouseWheelUp(uint16_t count = 1);
+    void mouseWheelDown(uint16_t count = 1);
     void pageUp();
     void pageDown();
 

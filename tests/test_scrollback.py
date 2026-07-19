@@ -4,6 +4,22 @@ from harness import Zutty, put_rows
 
 
 class ScrollbackTest(unittest.TestCase):
+    def test_wheel_unit_moves_exactly_one_line(self):
+        with Zutty(columns=8, rows=3, save_lines=8) as terminal:
+            terminal.write(
+                put_rows(b"A", b"B", b"C")
+                + b"\x1b[S\x1b[3;1HD"
+                + b"\x1b[S\x1b[3;1HE"
+                + b"\x1b[S\x1b[3;1HF"
+            )
+
+            terminal.wheel_up()
+            self.assertEqual(terminal.snapshot().view_offset, 1)
+            terminal.wheel_up()
+            self.assertEqual(terminal.snapshot().view_offset, 2)
+            terminal.wheel_down()
+            self.assertEqual(terminal.snapshot().view_offset, 1)
+
     def test_new_output_preserves_scrolled_view(self):
         with Zutty(columns=8, rows=3, save_lines=8) as terminal:
             terminal.write(b"one\r\ntwo\r\nthree\r\nfour")
@@ -76,7 +92,7 @@ class ScrollbackTest(unittest.TestCase):
                 put_rows(b"A", b"B", b"C", b"D", b"E", b"F")
                 + b"\x1b[1;4r\x1b[2S\x1b[r"
             )
-            terminal.wheel_up()
+            terminal.wheel_up(2)
 
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.view_offset, 2)
@@ -116,7 +132,7 @@ class ScrollbackTest(unittest.TestCase):
                 put_rows(b"A", b"B", b"C", b"FIXED")
                 + b"\x1b[1;3r\x1b[99S\x1b[r"
             )
-            terminal.wheel_up()
+            terminal.wheel_up(3)
 
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.view_offset, 3)
@@ -149,7 +165,7 @@ class ScrollbackTest(unittest.TestCase):
                 + put_rows(b"A", b"B", b"C", b"D", b"E", b"F")
                 + b"\x1b[2;5r\x1b[2S\x1b[r"
             )
-            terminal.wheel_up()
+            terminal.wheel_up(2)
 
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.view_offset, 2)
@@ -167,7 +183,7 @@ class ScrollbackTest(unittest.TestCase):
                 + put_rows(b"A", b"B", b"C", b"D", b"E", b"F")
                 + b"\x1b[2T"
             )
-            terminal.wheel_up()
+            terminal.wheel_up(2)
 
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.view_offset, 2)
@@ -185,7 +201,7 @@ class ScrollbackTest(unittest.TestCase):
                 + put_rows(b"A", b"B", b"C", b"D", b"E", b"F")
                 + b"\x1b[1;4r\x1b[T\x1b[r"
             )
-            terminal.wheel_up()
+            terminal.wheel_up(2)
 
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.view_offset, 2)
@@ -204,7 +220,7 @@ class ScrollbackTest(unittest.TestCase):
                 + b"\x1b[S\x1b[3;1HF"
                 + b"\x1b[S\x1b[3;1HG"
             )
-            terminal.wheel_up()
+            terminal.wheel_up(3)
 
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.view_offset, 3)
@@ -218,7 +234,7 @@ class ScrollbackTest(unittest.TestCase):
                 + b"\x1b[S\x1b[3;1HE"
                 + b"\x1b[S\x1b[3;1HF"
             )
-            terminal.wheel_up()
+            terminal.wheel_up(3)
             self.assertEqual(
                 terminal.snapshot().lines,
                 ["A       ", "B       ", "C       "],
@@ -237,7 +253,7 @@ class ScrollbackTest(unittest.TestCase):
                 + b"\x1b[S\x1b[3;1HD"
                 + b"\x1b[S\x1b[3;1HE"
             )
-            terminal.wheel_up()
+            terminal.wheel_up(2)
             before = terminal.snapshot()
 
             terminal.write(b"\x1b[2;1HX")
@@ -245,7 +261,7 @@ class ScrollbackTest(unittest.TestCase):
             after = terminal.snapshot()
             self.assertEqual(after.view_offset, 2)
             self.assertEqual(after.lines, before.lines)
-            terminal.wheel_down()
+            terminal.wheel_down(2)
             self.assertEqual(
                 terminal.snapshot().lines,
                 ["C       ", "X       ", "E       "],
@@ -345,7 +361,7 @@ class ScrollbackTest(unittest.TestCase):
         with Zutty(columns=8, rows=4, save_lines=8) as terminal:
             terminal.write(put_rows(b"A", b"B", b"C", b"D"))
             terminal.resize(8, 2)
-            terminal.wheel_up()
+            terminal.wheel_up(2)
 
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.view_offset, 2)
@@ -374,7 +390,7 @@ class ScrollbackTest(unittest.TestCase):
                 + b"\x1b[3;6r\x1b[3;1H\x1bM\x1bM"
                 + b"\x1b[r\x1b[?2026l"
             )
-            terminal.wheel_up()
+            terminal.wheel_up(2)
 
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.view_offset, 2)
@@ -435,7 +451,7 @@ class ScrollbackTest(unittest.TestCase):
                     [value.ljust(4) for value in screen],
                 )
 
-                terminal.wheel_up()
+                terminal.wheel_up(len(history))
                 viewed = terminal.snapshot()
                 self.assertEqual(viewed.view_offset, len(history))
                 expected = (history + screen)[:rows]
@@ -443,7 +459,7 @@ class ScrollbackTest(unittest.TestCase):
                     viewed.lines,
                     [value.ljust(4) for value in expected],
                 )
-                terminal.wheel_down()
+                terminal.wheel_down(len(history))
 
     def test_codex_partial_reverse_index_preserves_real_history(self):
         with Zutty(columns=8, rows=6, save_lines=20) as terminal:
@@ -452,8 +468,7 @@ class ScrollbackTest(unittest.TestCase):
                 b"line5\r\nline6\r\nline7\r\nline8\r\n"
                 b"line9\r\nline10\r\nline11\r\nline12"
             )
-            terminal.wheel_up()
-            terminal.wheel_up()
+            terminal.wheel_up(6)
             before = terminal.snapshot()
             self.assertEqual(before.view_offset, 6)
             self.assertEqual(
@@ -461,8 +476,7 @@ class ScrollbackTest(unittest.TestCase):
                 ["line1   ", "line2   ", "line3   ",
                  "line4   ", "line5   ", "line6   "],
             )
-            terminal.wheel_down()
-            terminal.wheel_down()
+            terminal.wheel_down(6)
 
             terminal.write(
                 b"\x1b[?2026h"
@@ -471,8 +485,7 @@ class ScrollbackTest(unittest.TestCase):
                 + b"\x1b[r"
                 b"\x1b[?2026l"
             )
-            terminal.wheel_up()
-            terminal.wheel_up()
+            terminal.wheel_up(6)
 
             after = terminal.snapshot()
             self.assertEqual(after.view_offset, 6)
@@ -485,11 +498,9 @@ class ScrollbackTest(unittest.TestCase):
                 b"line5\r\nline6\r\nline7\r\nline8\r\n"
                 b"line9\r\nline10\r\nline11\r\nline12"
             )
-            terminal.wheel_up()
-            terminal.wheel_up()
+            terminal.wheel_up(6)
             before = terminal.snapshot()
-            terminal.wheel_down()
-            terminal.wheel_down()
+            terminal.wheel_down(6)
 
             terminal.write(
                 b"\x1b[?2026h"
@@ -498,8 +509,7 @@ class ScrollbackTest(unittest.TestCase):
                 + b"\x1b[r"
                 b"\x1b[?2026l"
             )
-            terminal.wheel_up()
-            terminal.wheel_up()
+            terminal.wheel_up(6)
 
             after = terminal.snapshot()
             self.assertEqual(after.view_offset, 6)

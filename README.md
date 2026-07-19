@@ -201,7 +201,7 @@ Local bindings are deliberately short:
 | Action | Input |
 | --- | --- |
 | Scroll half a page | `Shift+PageUp`, `Shift+PageDown` |
-| Scroll five lines | Mouse wheel |
+| Scroll one line per wheel unit | Mouse wheel / touchpad |
 | Begin/adjust selection | Left drag / right drag |
 | Select by word or line | Double / triple click |
 | Toggle rectangular selection | `Space` while selecting |
