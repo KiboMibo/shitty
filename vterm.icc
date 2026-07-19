@@ -16,7 +16,6 @@
 #include <algorithm>
 #include <sstream>
 
-// for the debug/step facility:
 #include <chrono>
 #include <thread>
 #include <sys/types.h>
@@ -87,7 +86,7 @@ Vterm::debugBreak() {
 #else
     #define DEBUG_BREAK
     #define TRACE_FUN
-#endif // DEBUG
+#endif
 
 inline void
 Vterm::unhandledInput(unsigned char ch) {
@@ -109,7 +108,7 @@ Vterm::traceNormalInput() {
         }
     }
     lastNormalBegin = readPos + 1;
-#endif // DEBUG
+#endif
 }
 
 inline void
@@ -206,7 +205,6 @@ Vterm::resetTerminal() {
     setState(InputState::Normal);
 
     if (haveOscHandler) {
-        // reset title
         argBuf.clear();
         argBuf.push_back('0');
         argBuf.push_back(';');
@@ -342,10 +340,6 @@ Vterm::readPty() {
     }
 
     if (first) {
-        // Mitigate the race condition between shell process startup
-        // and first window size configuration happening in parallel:
-        // the signal could get delivered before the shell is ready
-        // for it, and thus get lost.
         pty_resize(ptyFd, nCols, nRows);
         first = false;
     }
@@ -392,7 +386,6 @@ Vterm::copyRow(uint16_t dstY, uint16_t srcY) {
     cf->copyRow(dstY, srcY, hMargin, nColsEff - hMargin);
 }
 
-// insert blank rows at and below startY, within the scrolling area
 inline void
 Vterm::insertRows(uint16_t startY, uint16_t count) {
     for (uint16_t pY = marginBottom - count - 1; pY >= startY; --pY) {
@@ -407,7 +400,6 @@ Vterm::insertRows(uint16_t startY, uint16_t count) {
     }
 }
 
-// delete rows at and below startY, within the scrolling area
 inline void
 Vterm::deleteRows(uint16_t startY, uint16_t count) {
     for (uint16_t pY = startY; pY < marginBottom - count; ++pY) {
@@ -419,7 +411,6 @@ Vterm::deleteRows(uint16_t startY, uint16_t count) {
     }
 }
 
-// insert blank cols at and to the right of startX, within the scrolling area
 inline void
 Vterm::insertCols(uint16_t startX, uint16_t count) {
     for (uint16_t r = marginTop; r < marginBottom; ++r) {
@@ -428,7 +419,6 @@ Vterm::insertCols(uint16_t startX, uint16_t count) {
     }
 }
 
-// delete cols at and to the right of startX, within the scrolling area
 inline void
 Vterm::deleteCols(uint16_t startX, uint16_t count) {
     for (uint16_t r = marginTop; r < marginBottom; ++r) {
@@ -442,7 +432,6 @@ Vterm::inputGraphicChar(unsigned char ch) {
     if ((ch & 0x80) == 0) {
         utf8dec.checkPrematureEOS();
 
-        // GL range
         Charset cs;
         if (charsetState.ss) {
             cs = charsetState.g[charsetState.ss];
@@ -457,7 +446,6 @@ Vterm::inputGraphicChar(unsigned char ch) {
             utf8dec.onUnicode(charCodes[(uint8_t)cs][ch - 32]);
         }
     } else {
-        // GR range
         Charset cs = charsetState.g[charsetState.gr];
         if (cs == Charset::UTF8) {
             utf8dec.pushByte(ch);
@@ -472,18 +460,15 @@ Vterm::placeGraphicChar() {
     auto pt = utf8dec.getUnicode();
     auto w = wcwidth(pt);
 
-    if (!w) { // zero-width code
+    if (!w) {
         return;
     }
 
     if (pt > 0xffff) {
-        // Code outside the Unicode BMP -- not supported.
-        // Would get truncated anyway; this is safer and more deterministic.
         pt = Missing_Glyph_Marker;
     }
 
     if (w < 0) {
-        // Render codes with no visual representation as a Unicode RC
         w = 1;
         pt = Unicode_Replacement_Character;
     }
@@ -538,14 +523,12 @@ Vterm::inp_CR() {
 inline void
 Vterm::jumpToNextTabStop() {
     if (tabStops.empty()) {
-        // Hard default of 8 chars limited to right margin
         auto margin = isCursorInsideMargins() ? hMargin : 0;
         do {
             posX = ((posX / 8) + 1) * 8;
         } while (posX < margin);
         posX = std::min((int)posX, nColsEff - 1);
     } else {
-        // Next tabstop column set, or the right margin
         auto ts = std::lower_bound(tabStops.begin(), tabStops.end(), posX);
         posX = (ts == tabStops.end()) ? nCols - 1 : *ts;
     }
@@ -1023,7 +1006,6 @@ Vterm::csi_CBT() {
                 posX = (posX / 8) * 8;
             }
         } else {
-            // Set posX to previous tab stop
             auto ts = std::lower_bound(tabStops.begin(), tabStops.end(), posX);
             if (ts != tabStops.begin()) {
                 posX = *(--ts);
@@ -1052,22 +1034,22 @@ Vterm::csi_ED() {
     TRACE_FUN;
     normalizeCursorPos();
     switch (inputOps[0]) {
-        case 0: // clear from cursor to end of screen
+        case 0:
             cf->eraseInRow(posY, posX, nCols - posX, attrs);
             for (uint16_t pY = posY + 1; pY < nRows; ++pY) {
                 eraseRow(pY);
             }
             break;
-        case 1: // clear from beginning of screen to cursor
+        case 1:
             for (uint16_t pY = 0; pY < posY; ++pY) {
                 eraseRow(pY);
             }
             cf->eraseInRow(posY, 0, posX + 1, attrs);
             break;
-        case 3: // clear entire screen including scrollback buffer (xterm)
+        case 3:
             cf->dropScrollbackHistory();
-            // fallthrough
-        case 2: // clear entire screen
+
+        case 2:
             for (uint16_t pY = 0; pY < nRows; ++pY) {
                 eraseRow(pY);
             }
@@ -1085,13 +1067,13 @@ Vterm::csi_EL() {
     TRACE_FUN;
     normalizeCursorPos();
     switch (inputOps[0]) {
-        case 0: // clear from cursor to end of line
+        case 0:
             cf->eraseInRow(posY, posX, nCols - posX, attrs);
             break;
-        case 1: // clear from cursor to beginning of line
+        case 1:
             cf->eraseInRow(posY, 0, posX + 1, attrs);
             break;
-        case 2: // clear entire line
+        case 2:
             cf->eraseInRow(posY, 0, nCols, attrs);
             break;
         default:
@@ -1136,7 +1118,6 @@ Vterm::csi_ICH() {
         len -= arg;
 
         if (len > 0 && cf->getCell(posY, posX + arg + len - 1).wrap) {
-            // maintain wrap bit invariance at EOL
             cf->getCell(posY, posX + arg + len - 1).wrap = 0;
             cf->getCell(posY, posX + len - 1).wrap = 1;
         }
@@ -1524,7 +1505,7 @@ Vterm::getPrivMode(uint32_t arg) const {
         case 1000:
             return mouseTrk.mode == MouseTrackingMode::VT200;
         case 1001:
-            return false; // Highlight mouse tracking not implemented
+            return false;
         case 1002:
             return mouseTrk.mode == MouseTrackingMode::VT200_ButtonEvent;
         case 1003:
@@ -1575,7 +1556,7 @@ Vterm::csi_privSave() {
         switch (arg) {
             case 2:
             case 1048:
-            case 1049: // not expressible as a saved boolean
+            case 1049:
                 logU << "save priv mode " << arg << std::endl;
                 break;
             default:
@@ -1726,7 +1707,6 @@ Vterm::csi_SGR() {
                 logU << "attr.: revealed (conceal off)" << std::endl;
                 break;
 
-            // standard foregrounds (bright if bold)
             case 30:
             case 31:
             case 32:
@@ -1768,7 +1748,6 @@ Vterm::csi_SGR() {
                 setFgFromPalIx();
                 break;
 
-            // standard backgrounds
             case 40:
             case 41:
             case 42:
@@ -1810,7 +1789,6 @@ Vterm::csi_SGR() {
                 setBgFromPalIx();
                 break;
 
-            // bright colored foregrounds
             case 90:
             case 91:
             case 92:
@@ -1823,7 +1801,6 @@ Vterm::csi_SGR() {
                 setFgFromPalIx();
                 break;
 
-            // bright colored backgrounds
             case 100:
             case 101:
             case 102:
@@ -1863,7 +1840,7 @@ Vterm::csi_priDA() {
 inline void
 Vterm::csi_secDA() {
     TRACE_FUN;
-    writePty("\x1b[>64;0;0c"); // VT520
+    writePty("\x1b[>64;0;0c");
     setState(InputState::Normal);
 }
 
@@ -1872,7 +1849,7 @@ Vterm::csi_DSR() {
     TRACE_FUN;
     switch (inputOps[0]) {
         case 5:
-            writePty("\x1b[0n"); // device OK
+            writePty("\x1b[0n");
             break;
         case 6: {
             std::ostringstream oss;
@@ -1893,7 +1870,6 @@ inline void
 Vterm::esch_DECALN() {
     TRACE_FUN;
 
-    // Save current attrs
     CharVdev::Cell origAttrs = attrs;
     Color* origFg = &attrs.fg;
     Color* origBg = &attrs.bg;
@@ -1901,7 +1877,6 @@ Vterm::esch_DECALN() {
     resetAttrs();
     fillScreen('E');
 
-    // Restore attrs
     fg = origFg;
     bg = origBg;
     attrs = origAttrs;
@@ -1941,7 +1916,6 @@ Vterm::dcs_DECRQSS(const std::string& arg) {
     TRACE_FUN;
 
     if (arg == "$q\"p") {
-        // DECSCL
         if (compatLevel == CompatibilityLevel::VT400) {
             writePty("\x1bP1$r" DEVICE_ID "\x1b\\");
         }
@@ -1978,7 +1952,6 @@ Vterm::handle_OSC() {
                 osc_DynamicColorQuery(cmd, arg);
                 break;
 
-            // Other cases handed over to external OSC handler:
             default:
                 onOsc(cmd, arg);
                 break;
@@ -1991,7 +1964,7 @@ inline void
 Vterm::osc_PaletteQuery(int cmd, const std::string& arg) {
     std::size_t p = arg.find_first_of(";");
     if (p == std::string::npos) {
-        return; // malformed argument, missing ';'
+        return;
     }
     std::string pc = arg.substr(0, p);
     std::string ps = arg.substr(p + 1);
@@ -2084,7 +2057,7 @@ Vterm::csiq_DECSCL() {
 inline void
 Vterm::csi_XTWINOPS() {
     TRACE_FUN;
-    // ignore
+
     setState(InputState::Normal);
 }
 
@@ -2094,11 +2067,11 @@ Vterm::csi_XTMODKEYS() {
 
     switch (nInputOps) {
         case 0:
-            // Reset all options to initial values
+
             break;
         case 1:
             inputOps[1] = 0;
-            // fall through
+
         case 2:
             switch (inputOps[0]) {
                 case 0:

@@ -20,8 +20,6 @@
 #include <memory>
 #include <vector>
 
-// Host-side mirror of the compact character video memory consumed by the
-// Vulkan compute renderer.
 class CharVdev {
 public:
     explicit CharVdev(Fontpack* fontpk);

@@ -54,17 +54,16 @@ int ptym_open(char* pts_name, int pts_namesz) {
     if ((fdm = posix_openpt(O_RDWR)) < 0) {
         SYS_ERROR("can't open master pty: posix_openpt()");
     }
-    if (grantpt(fdm) < 0) { // grant access to slave
+    if (grantpt(fdm) < 0) {
         SYS_ERROR("can't open master pty: grantpt()");
     }
-    if (unlockpt(fdm) < 0) { // clear slave's lock flag
+    if (unlockpt(fdm) < 0) {
         SYS_ERROR("can't open master pty: unlockpt()");
     }
-    if ((ptr = ptsname(fdm)) == nullptr) { // get slave's name
+    if ((ptr = ptsname(fdm)) == nullptr) {
         SYS_ERROR("can't open master pty: ptsname()");
     }
 
-    // Return slave name, null-terminated to handle strlen(ptr) > pts_namesz.
     strncpy(pts_name, ptr, pts_namesz);
     pts_name[pts_namesz - 1] = '\0';
     return fdm;
@@ -77,7 +76,7 @@ int ptys_open(char* pts_name) {
     }
 
 #if defined(SOLARIS)
-    // Check if stream is already set up by autopush facility.
+
     int setup;
     if ((setup = ioctl(fds, I_FIND, "ldterm")) < 0) {
         SYS_ERROR("can't open slave pty: ioctl(I_FIND, ldterm)");
@@ -107,32 +106,28 @@ pid_t pty_fork(int& o_ptyFd, int cols, int rows) {
 
     if (pid < 0) {
         return pid;
-    } else if (pid == 0) // child process
-    {
+    } else if (pid == 0) {
         if (setsid() < 0) {
             SYS_ERROR("setsid");
         }
 
-        // System V acquires controlling terminal on open ().
         int fds = ptys_open(pts_name);
 
-        close(fdm); // all done with master in child
+        close(fdm);
 
 #if defined(BSD)
-        // TIOCSCTTY is the BSD way to acquire a controlling terminal.
+
         if (ioctl(fds, TIOCSCTTY, nullptr) < 0) {
             SYS_ERROR("TIOCSCTTY");
         }
 #endif
 
-        // Set the pty slave's window size.
         pty_resize(fds, cols, rows);
 
-        // Slave becomes stdin/stdout/stderr of child.
         redirectFds(fds);
 
 #if defined(LINUX) || defined(MACOS)
-        // Setup terminal attributes
+
         struct termios term;
         if (tcgetattr(STDIN_FILENO, &term) < 0) {
             SYS_ERROR("tcgetattr");
@@ -142,8 +137,7 @@ pid_t pty_fork(int& o_ptyFd, int cols, int rows) {
             SYS_ERROR("tcsetattr");
         }
 #endif
-    } else // parent process
-    {
+    } else {
         o_ptyFd = fdm;
     }
     return pid;

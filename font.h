@@ -93,13 +93,13 @@ private:
     std::string filename;
     bool overlay = false;
     bool dwidth = false;
-    uint16_t px = 0;               // glyph width in pixels
-    uint16_t py = 0;               // glyph height in pixels
-    uint16_t baseline = 0;         // number of pixels above baseline
-    uint16_t nx = 0;               // number of glyphs in atlas texture per row
-    uint16_t ny = 0;               // number of rows in atlas texture
-    std::vector<uint8_t> atlasBuf; // loaded atlas data
-    AtlasMap atlasMap;             // unicode -> atlas position
+    uint16_t px = 0;
+    uint16_t py = 0;
+    uint16_t baseline = 0;
+    uint16_t nx = 0;
+    uint16_t ny = 0;
+    std::vector<uint8_t> atlasBuf;
+    AtlasMap atlasMap;
 
     /* Start with 1 so as to leave a blank glyph at (0,0).
        * That blank will get referenced for any out-of-bounds text position

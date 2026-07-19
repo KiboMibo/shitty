@@ -167,7 +167,6 @@ public:
 
     void redraw();
 
-    // mapping of a certain VtKey to a sequence of input characters
     struct InputSpec {
         VtKey key;
         const char* input;
@@ -211,7 +210,6 @@ private:
 
     int writePty(const uint8_t* ucstr, size_t len, bool userInput = false);
 
-    // table entry for deciding which set of InputSpecs to use
     struct InputSpecTable {
         std::function<bool()> predicate;
         const InputSpec* specs = nullptr;
@@ -301,82 +299,81 @@ private:
     void setFgFromPalIx();
     void setBgFromPalIx();
 
-    // DEC control sequence handlers, prefixed with input state
-    void inp_LF(); // Line Feed
-    void inp_CR(); // Carriage Return
-    void inp_HT(); // Horizontal Tab
+    void inp_LF();
+    void inp_CR();
+    void inp_HT();
 
-    void esc_DCS(unsigned char fin); // Designate Character Set
-    bool esc_IND();                  // Index
-    void esc_RI();                   // Reverse Index
-    void esc_NEL();                  // Next Line
-    void esc_BI();                   // Back Index
-    void esc_FI();                   // Forward Index
-    void esc_HTS();                  // Horizontal Tab Set
-    void csi_SCOSC_SLRM();           // disambiguation
-    void csi_SCOSC();                // Save Cursor Position
-    void csi_SCORC();                // Restore Cursor Position
-    void esc_DECSC();                // Save Cursor and Attributes
-    void esc_DECRC();                // Restore Cursor and Attributes
-    void esc_RIS();                  // Reset to Initial State
-    void csi_DECSTR();               // DEC Soft Terminal Reset
+    void esc_DCS(unsigned char fin);
+    bool esc_IND();
+    void esc_RI();
+    void esc_NEL();
+    void esc_BI();
+    void esc_FI();
+    void esc_HTS();
+    void csi_SCOSC_SLRM();
+    void csi_SCOSC();
+    void csi_SCORC();
+    void esc_DECSC();
+    void esc_DECRC();
+    void esc_RIS();
+    void csi_DECSTR();
 
-    void csi_CUU(); // Cursor Up
-    void csi_CUD(); // Cursor Down
-    void csi_CUF(); // Cursor Forward
-    void csi_CUB(); // Cursor Backward
-    void csi_CNL(); // Cursor Next Line
-    void csi_CPL(); // Cursor Previous Line
-    void csi_CHA(); // Cursor Character Absolute
-    void csi_HPA(); // Character Position Absolute
-    void csi_HPR(); // Character Position Relative
-    void csi_VPA(); // Line Position Absolute
-    void csi_VPR(); // Line Position Relative
-    void csi_CUP(); // Cursor Position a.k.a. HVP
-    void csi_SU();  // Pan Down / Scroll Up
-    void csi_SD();  // Pan Up / Scroll Down
-    void csi_CHT(); // Character Tabulation
-    void csi_CBT(); // Character Backwards Tabulation
-    void csi_REP(); // Repeat last graphic character
+    void csi_CUU();
+    void csi_CUD();
+    void csi_CUF();
+    void csi_CUB();
+    void csi_CNL();
+    void csi_CPL();
+    void csi_CHA();
+    void csi_HPA();
+    void csi_HPR();
+    void csi_VPA();
+    void csi_VPR();
+    void csi_CUP();
+    void csi_SU();
+    void csi_SD();
+    void csi_CHT();
+    void csi_CBT();
+    void csi_REP();
 
-    void csi_ED();    // Erase in Display
-    void csi_EL();    // Erase in Line
-    void csi_IL();    // Insert Line
-    void csi_DL();    // Delete Line
-    void csi_ICH();   // Insert Characters
-    void csi_DCH();   // Delete Characters
-    void csi_ECH();   // Erase Characters
-    void csi_DECIC(); // Insert Column
-    void csi_DECDC(); // Delete Column
+    void csi_ED();
+    void csi_EL();
+    void csi_IL();
+    void csi_DL();
+    void csi_ICH();
+    void csi_DCH();
+    void csi_ECH();
+    void csi_DECIC();
+    void csi_DECDC();
 
-    void csi_STBM(); // Set Top and Bottom Margins
-    void csi_SLRM(); // Set Left and Right Margins
-    void csi_TBC();  // Tabulation Clear
+    void csi_STBM();
+    void csi_SLRM();
+    void csi_TBC();
 
-    void csi_SM();          // Set Mode
-    void csi_RM();          // Reset Mode
-    void csi_privSM();      // Set Mode (private)
-    void csi_privRM();      // Reset Mode (private)
-    void csi_privSave();    // Save DEC private modes (XTSAVE)
-    void csi_privRestore(); // Restore DEC private modes (XTRESTORE)
+    void csi_SM();
+    void csi_RM();
+    void csi_privSM();
+    void csi_privRM();
+    void csi_privSave();
+    void csi_privRestore();
     void setPrivMode(uint32_t mode, bool set);
     bool getPrivMode(uint32_t mode) const;
-    void csi_SGR(); // Select Graphic Rendition
+    void csi_SGR();
 
-    void csi_ecma48_SL(); // Shift Left
-    void csi_ecma48_SR(); // Shift Right
+    void csi_ecma48_SL();
+    void csi_ecma48_SR();
 
-    void csi_priDA();     // Device Attributes (Primary)
-    void csi_secDA();     // Device Attributes (Secondary)
-    void csi_DSR();       // Device State Report
-    void esch_DECALN();   // DEC Alignment Pattern Generator
-    void handle_DCS();    // Device Control String
-    void handle_OSC();    // Operating System Command
-    void csiq_DECSCL();   // DEC Set Compatibility Level
-    void csi_XTWINOPS();  // Xterm window operations
-    void csi_XTMODKEYS(); // Xterm key modifier options
+    void csi_priDA();
+    void csi_secDA();
+    void csi_DSR();
+    void esch_DECALN();
+    void handle_DCS();
+    void handle_OSC();
+    void csiq_DECSCL();
+    void csi_XTWINOPS();
+    void csi_XTMODKEYS();
 
-    void dcs_DECRQSS(const std::string&); // DEC Request Status String
+    void dcs_DECRQSS(const std::string&);
 
     void osc_PaletteQuery(int, const std::string&);
     void osc_DynamicColorQuery(int, const std::string&);
@@ -394,23 +391,21 @@ private:
     bool haveOscHandler = false;
     BellHandlerFn onBell;
 
-    // Cell storage, display and input state
-
     Frame frame_pri;
     Frame frame_alt;
-    Frame* cf;             // current frame (primary or alternative)
-    uint16_t posX = 0;     // current cursor horizontal position (on-screen)
-    uint16_t posY = 0;     // current cursor vertical position (on-screen)
-    uint16_t marginTop;    // current margin top (copy of frame field)
-    uint16_t marginBottom; // current margin bottom (copy of frame field)
+    Frame* cf;
+    uint16_t posX = 0;
+    uint16_t posY = 0;
+    uint16_t marginTop;
+    uint16_t marginBottom;
     bool lastCol = false;
 
-    CharVdev::Cell attrs; // prototype cell with current attributes
+    CharVdev::Cell attrs;
     Color* fg = &attrs.fg;
     Color* bg = &attrs.bg;
     Color palette256[256];
-    int defaultFgPalIx; // if -1, set from opts.fg, else idx into palette256
-    int defaultBgPalIx; // if -1, set from opts.bg, else idx into palette256
+    int defaultFgPalIx;
+    int defaultBgPalIx;
     int fgPalIx;
     int bgPalIx;
     bool reverseVideo = false;
@@ -428,12 +423,10 @@ private:
     size_t nInputOps = 0;
     Utf8Decoder utf8dec;
     std::vector<unsigned char> argBuf;
-    unsigned char scsDst; // Select charset / destination designator
-    unsigned char scsMod; // Select charset / selector (intermediate)
+    unsigned char scsDst;
+    unsigned char scsMod;
 
     VtModifier modifiers = VtModifier::none;
-
-    // Terminal state - N.B.: keep resetTerminal () in sync with this!
 
     bool showCursorMode = true;
     bool altScreenBufferMode = false;
@@ -447,7 +440,7 @@ private:
     bool altScrollMode = false;
     bool altSendsEscape = true;
     uint8_t modifyOtherKeys = 1;
-    std::map<uint32_t, bool> savedPrivModes; // XTSAVE/XTRESTORE
+    std::map<uint32_t, bool> savedPrivModes;
 
     bool horizMarginMode = false;
     uint16_t nColsEff = 0;
@@ -489,8 +482,7 @@ private:
     void switchColMode(ColMode colMode);
     void switchScreenBufferMode(bool altScreenBufferMode);
 
-    enum class Charset : uint8_t // sync w/charCodes definition!
-    {
+    enum class Charset : uint8_t {
         UTF8,
         DecSpec,
         DecSuppl,
@@ -504,17 +496,13 @@ private:
         Charset g[4] =
             {Charset::UTF8, Charset::UTF8, Charset::UTF8, Charset::UTF8};
 
-        // Locking shift states (index into g[]):
-        uint8_t gl = 0; // G0 in GL
-        uint8_t gr = 2; // G2 in GR
+        uint8_t gl = 0;
+        uint8_t gr = 2;
 
-        // Single shift state (0 if none active):
-        // 0 - not active; 2: G2 in GL; 3: G3 in GL
         uint8_t ss = 0;
     };
     CharsetState charsetState;
 
-    // address with Charset; point to array of 96 unicode points:
     static const uint16_t* charCodes[];
 
     struct SavedCursor_SCO {
@@ -527,7 +515,6 @@ private:
         CharVdev::Cell attrs;
         OriginMode originMode = OriginMode::Absolute;
         CharsetState charsetState = CharsetState{};
-        // NYI: selective erase mode
     };
     SavedCursor_SCO savedCursor_SCO;
     SavedCursor_DEC savedCursor_DEC_pri;
@@ -541,12 +528,12 @@ private:
 
 #ifdef DEBUG
     void traceFunction(const char* func);
-    // step debugger facilities
+
     int debugStep = 0;
     int debugCnt = 0;
     void debugKey();
     void debugBreak();
-#endif // DEBUG
+#endif
 };
 
 #include "vterm.icc"

@@ -14,17 +14,15 @@
 
 #include <fontconfig/fontconfig.h>
 #include <ftw.h>
-//#include <stdio.h> // DEBUG
+
 #include <string.h>
 #include <strings.h>
 
 namespace {
     struct SearchState {
-        // input
         const char* fontname = nullptr;
         size_t fontnamelen = 0;
 
-        // output
         int level = 0;
         std::string ext;
         std::string regular;
@@ -53,16 +51,12 @@ namespace {
     int
     fontFileFilter(const char* fpath, const struct stat* sb,
                    int tflag, struct FTW* ftwbuf) {
-        // If we have just emerged from a directory where fonts were found,
-        // time to call it a day.
         if (tflag == FTW_D &&
             sstate.level > 0 && ftwbuf->level == sstate.level - 1 &&
             sstate.regular.size() > 0) {
             return 1;
         }
 
-        // In a less ideal case, where some candidates were found in this dir,
-        // but no regular variant, clear partial results and proceed.
         if (tflag == FTW_D && sstate.level > 0) {
             logT << "Some candidates found but no regular variant; continuing"
                  << std::endl;
@@ -75,12 +69,10 @@ namespace {
             return 0;
         }
 
-        // Filter by file type - only regular files and symlinks
         if (tflag != FTW_F && tflag != FTW_SL) {
             return 0;
         }
 
-        // Filter by extension
         const char* fname = fpath + ftwbuf->base;
         const char* ext = strrchr(fname, '.');
         if (!ext) {
@@ -100,25 +92,19 @@ namespace {
             return 0;
         }
 
-        // Filter by font name
         if (strncasecmp(fname, sstate.fontname, sstate.fontnamelen) != 0) {
             return 0;
         }
 
-        // At this point we only need to consider the mid part between font name
-        // and extension. This is either matched to one of the face variants,
-        // or we reject the file.
         const char* mid = fname + sstate.fontnamelen;
         size_t midlen = ext - mid;
 
-        // Discard optional hyphen, underscore or space between name and midpart
         if (midlen > 0 &&
             (mid[0] == '-' || mid[0] == '_' || mid[0] == ' ')) {
             ++mid;
             --midlen;
         }
 
-        // Apply some simple heuristics to identify font variants
         if (midlen == 0 ||
             strncasecmp(mid, "R", midlen) == 0 ||
             strncasecmp(mid, "Regular", midlen) == 0) {
@@ -152,7 +138,7 @@ namespace {
         }
 
 #if 0
-      // TODO remove the below printouts along with the include of stdio.h
+
       printf("%-3s %2d ",
              (tflag == FTW_D) ?   "d"   : (tflag == FTW_DNR) ? "dnr" :
              (tflag == FTW_DP) ?  "dp"  : (tflag == FTW_F) ?   "f" :
@@ -219,9 +205,6 @@ namespace {
         logI << "fontconfig resolved '" << fontname << "' to "
              << sstate.regular << std::endl;
 
-        // Only accept variant files distinct from the regular one, so that a
-        // family lacking e.g. a bold face does not get its regular file
-        // installed as fake bold (fontconfig always returns a best match).
         std::string f = fcFindFile(fontname, FC_WEIGHT_BOLD, FC_SLANT_ROMAN);
         if (f.size() && f != sstate.regular) {
             sstate.bold = f;
@@ -238,7 +221,7 @@ namespace {
         return true;
     }
 
-} // namespace
+}
 
 Fontpack::Fontpack(const std::string& fontpath,
                    const std::string& fontname,
@@ -247,8 +230,6 @@ Fontpack::Fontpack(const std::string& fontpath,
          << "; fontname=" << fontname
          << "; dwfontname=" << dwfontname
          << std::endl;
-
-    // Look for & initialize the regular font (with variants)
 
     sstate.fontname = fontname.data();
     sstate.fontnamelen = fontname.size();
@@ -319,8 +300,6 @@ Fontpack::Fontpack(const std::string& fontpath,
         fontBoldItalic = nullptr;
         logW << "Failed to load boldItalic variant: " << e.what() << std::endl;
     }
-
-    // Look for & initialize the double-width font
 
     sstate.level = 0;
     sstate.ext = "";

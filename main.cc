@@ -917,9 +917,6 @@ namespace {
         return result;
     }
 
-    // Convert an OSC 7 argument (a file:// URL, possibly with a hostname
-    // and percent-encoded characters, or a plain absolute path) to a path.
-    // Returns an empty string if the argument cannot be parsed.
     std::string oscCwdToPath(const std::string& argument) {
         constexpr const char scheme[] = "file://";
         constexpr const size_t schemeLen = sizeof(scheme) - 1;
@@ -959,14 +956,11 @@ namespace {
             case 0:
             case 1:
             case 2:
-                // Resetting the title to the default (e.g. on RIS) re-enables
-                // OSC 7 driven titles.
+
                 appTitleSet = argument != opts.title;
                 SDL_SetWindowTitle(window, argument.c_str());
                 return;
             case 7: {
-                // Shell reports its current working directory; reflect it in the
-                // window title unless the application has set an explicit title.
                 const std::string cwd = oscCwdToPath(argument);
                 if (cwd.empty()) {
                     logW << "OSC 7: cannot parse '" << argument << "'" << std::endl;

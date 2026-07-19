@@ -17,8 +17,6 @@
 #include <iostream>
 #include <sstream>
 
-// log streams that are runtime switchable via command line options
-// [ -quiet = none; default = zlog only; -verbose = both ]
 #define zlog          \
     if (opts.quiet) { \
         ;             \
@@ -52,12 +50,11 @@ logFileName(const char* path) {
 #define logU plog(zlog, "W") << "(Unimplemented) "
 #define logI plog(vlog, "I")
 
-// trace logs are only present (and consume CPU) if compiled in:
 #ifdef DEBUG
     #define logT plog(vlog, "T")
 #else
     #define logT false && std::cout
-#endif // DEBUG
+#endif
 
 inline void
 printArgs() {
@@ -132,7 +129,7 @@ dumpBuffer(const unsigned char* start, const unsigned char* end) {
                 break;
             case '\x7f':
                 os << "\\x7f";
-                break; // DEL
+                break;
             default:
                 if (*it < ' ' || *it >= 0x80) {
                     os << "\\x" << std::hex << std::setw(2) << std::setfill('0')

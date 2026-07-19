@@ -14,9 +14,8 @@
 #include <cstdint>
 #include <functional>
 
-// The glyph to display instead of valid codes with no available glyph
 constexpr const uint16_t Missing_Glyph_Marker = 0x0000;
-// The "question mark" to display in place of invalid/unsupported unicode
+
 constexpr const uint16_t Unicode_Replacement_Character = 0xfffd;
 
 struct Utf8Encoder {
@@ -78,18 +77,17 @@ public:
     }
 
     void pushByte(unsigned char ch) {
-        if ((ch >> 6) == 0x2) // 10xx'xxxx
-        {
+        if ((ch >> 6) == 0x2) {
             if (remaining > 0) {
                 if (1 < remaining && remaining < 3 &&
                     (!ch || (unicode == 0 && ch < 0xa0))) {
-                    valid = false; // reject overlong encodings
+                    valid = false;
                 }
                 unicode <<= 6;
                 unicode += ch & 0x3f;
                 --remaining;
             } else {
-                valid = false; // unexpected UTF-8 continuation byte
+                valid = false;
             }
 
             if (remaining == 0) {
@@ -98,38 +96,32 @@ public:
                 }
                 cpSink();
             }
-        } else if ((ch >> 5) == 0x6) // 110x'xxxx
-        {
+        } else if ((ch >> 5) == 0x6) {
             checkPrematureEOS();
             unicode = ch & 0x1f;
             remaining = 1;
-            valid = unicode > 1;     // reject overlong encodings
-        } else if ((ch >> 4) == 0xe) // 1110'xxxx
-        {
+            valid = unicode > 1;
+        } else if ((ch >> 4) == 0xe) {
             checkPrematureEOS();
             unicode = ch & 0x0f;
             remaining = 2;
             valid = true;
-        } else if ((ch >> 3) == 0x1e) // 1111'0xxx
-        {
+        } else if ((ch >> 3) == 0x1e) {
             checkPrematureEOS();
             unicode = ch & 0x07;
             remaining = 3;
             valid = true;
-        } else if ((ch >> 2) == 0x3e) // 1111'10xx
-        {
+        } else if ((ch >> 2) == 0x3e) {
             checkPrematureEOS();
             unicode = ch & 0x03;
             remaining = 4;
-            valid = false;            // not supported
-        } else if ((ch >> 1) == 0x7e) // 1111'110x
-        {
+            valid = false;
+        } else if ((ch >> 1) == 0x7e) {
             checkPrematureEOS();
             unicode = ch & 0x01;
             remaining = 5;
-            valid = false; // not supported
+            valid = false;
         } else if (ch == 0xfe || ch == 0xff) {
-            // illegal UTF-8 characters
             unicode = Unicode_Replacement_Character;
             remaining = 0;
             valid = false;

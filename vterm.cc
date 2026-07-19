@@ -22,7 +22,7 @@ namespace {
 #define ESC "\x1b"
 #define CSI ESC "["
 #define SS3 ESC "O"
-// magic byte to act as a placeholder for the Modifier Code:
+
 #define MC "\xff"
 
     const InputSpec is_modOtherKeys2[] =
@@ -45,7 +45,7 @@ namespace {
 
     const InputSpec is_Alt[] =
         {
-            // UTF-8 encoded:
+
             {Key::K0, "\xc2\xb0"},
             {Key::K1, "\xc2\xb1"},
             {Key::K2, "\xc2\xb2"},
@@ -442,7 +442,6 @@ namespace {
 
     void
     makePalette256(Color p[]) {
-        // Standard colors
         opts.getColor("color0", p[0]);
         opts.getColor("color1", p[1]);
         opts.getColor("color2", p[2]);
@@ -460,7 +459,6 @@ namespace {
         opts.getColor("color14", p[14]);
         opts.getColor("color15", p[15]);
 
-        // 216 colors
         for (uint8_t r = 0; r < 6; ++r) {
             for (uint8_t g = 0; g < 6; ++g) {
                 for (uint8_t b = 0; b < 6; ++b) {
@@ -472,7 +470,6 @@ namespace {
             }
         }
 
-        // Grayscale colors
         for (uint8_t s = 0; s < 24; ++s) {
             uint8_t i = 8 + 10 * s;
             p[232 + s] = {i, i, i};
@@ -486,7 +483,6 @@ namespace {
     * These tables are referenced by Vterm::charCodes (see below).
     */
 
-    // Ref: https://en.wikipedia.org/wiki/DEC_Special_Graphics
     const uint16_t uc_DecSpec[] =
         {
             0x0020,
@@ -589,7 +585,6 @@ namespace {
             0x0020,
     };
 
-    // Ref: https://en.wikipedia.org/wiki/Multinational_Character_Set
     const uint16_t uc_DecSuppl[] =
         {
             0x0020,
@@ -692,7 +687,6 @@ namespace {
             0x007f,
     };
 
-    // Ref: https://en.wikipedia.org/wiki/DEC_Technical_Character_Set
     const uint16_t uc_DecTechn[] =
         {
             0x0020,
@@ -795,7 +789,6 @@ namespace {
             0x007f,
     };
 
-    // Ref: https://en.wikipedia.org/wiki/ISO/IEC_8859-1
     const uint16_t uc_IsoLatin1[] =
         {
             0x00a0,
@@ -898,7 +891,6 @@ namespace {
             0x00ff,
     };
 
-    // Same as ASCII, but with Pound sign (0x00a3 in place of 0x0023)
     const uint16_t uc_IsoUK[] =
         {
             0x0020,
@@ -1001,15 +993,15 @@ namespace {
             0x007f,
     };
 
-} // namespace
+}
 
 const uint16_t* Vterm::charCodes[] =
     {
-        // Sync this with enumerators of Charset!
-        nullptr, // Dummy slot for UTF-8 (handled differently)
+
+        nullptr,
         uc_DecSpec,
         uc_DecSuppl,
-        uc_DecSuppl, // Slot for 'User-preferred supplemental'
+        uc_DecSuppl,
         uc_DecTechn,
         uc_IsoLatin1,
         uc_IsoUK};
@@ -1142,7 +1134,6 @@ int Vterm::writePty(VtKey key, VtModifier modifiers_, bool userInput) {
         return writePty((const uint8_t*)spec.input, spec.getLength(),
                         userInput);
     } else {
-        // substitute the MC token with the actual modifier code
         static uint8_t buf[32];
         int k = 0;
         const char* end = spec.input + spec.getLength();
@@ -1357,7 +1348,6 @@ Vterm::getInputSpecTable() {
     },
              is_Mod_Ansi_FunctionKeys},
 
-            // default entries
             {[]() {
         return true;
     }, is_Ansi},
@@ -1371,7 +1361,6 @@ Vterm::getInputSpecTable() {
         return true;
     }, is_Ansi_KeypadKeys},
 
-            // end marker to delimit iteration
             {[]() {
         return true;
     }, nullptr}};
@@ -1468,7 +1457,7 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
         switch (inputState) {
             case InputState::Normal:
                 switch (ch) {
-                    case '\x00': // ignore NUL
+                    case '\x00':
                         break;
                     case '\x1b':
                         setState(compatLevel == CompatibilityLevel::VT52
@@ -1482,8 +1471,8 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         traceNormalInput();
                         inp_CR();
                         break;
-                    case '\f': // fall through, treat as LineFeed ('\n')
-                    case '\v': // fall through, treat as LineFeed ('\n')
+                    case '\f':
+                    case '\v':
                     case '\n':
                         traceNormalInput();
                         esc_IND();
@@ -1508,7 +1497,7 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         traceNormalInput();
                         charsetState.gl = 0;
                         break;
-                    case '\x05': // ENQ - Enquiry
+                    case '\x05':
                         traceNormalInput();
                         break;
                     default:
@@ -1516,17 +1505,17 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                 }
                 break;
             case InputState::IgnoreSequence:
-                if (ch >= '\x40' && ch <= '\x7e') { // DEC-STD-070: final chars
+                if (ch >= '\x40' && ch <= '\x7e') {
                     setState(InputState::Normal);
                 }
                 break;
             case InputState::Escape_VT52:
                 switch (ch) {
                     case '\x18':
-                    case '\x1a': // CAN and SUB interrupts ESC sequence
+                    case '\x1a':
                         setState(InputState::Normal);
                         break;
-                    case '\x1b': // ESC restarts ESC sequence
+                    case '\x1b':
                         inputOps[0] = 0;
                         nInputOps = 1;
                         lastEscBegin = readPos;
@@ -1584,7 +1573,7 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         break;
                     case 'c':
                         esc_RIS();
-                        break; // allow "reset" command to escape VT52
+                        break;
                     default:
                         unhandledInput(ch);
                         break;
@@ -1602,10 +1591,10 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
             case InputState::Escape:
                 switch (ch) {
                     case '\x18':
-                    case '\x1a': // CAN and SUB interrupts ESC sequence
+                    case '\x1a':
                         setState(InputState::Normal);
                         break;
-                    case '\x1b': // ESC restarts ESC sequence
+                    case '\x1b':
                         inputOps[0] = 0;
                         nInputOps = 1;
                         lastEscBegin = readPos;
@@ -1634,7 +1623,7 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                     case '.':
                     case '/':
                     case ',':
-                    case '$': // from ISO/IEC 2022 (absorbed, treat as no-op)
+                    case '$':
                         scsDst = ch;
                         scsMod = '\0';
                         setState(InputState::SelectCharset);
@@ -1712,7 +1701,7 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         break;
                     case '\\':
                         setState(InputState::Normal);
-                        break; // ignore lone ST
+                        break;
                     default:
                         unhandledInput(ch);
                         break;
@@ -1790,7 +1779,7 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                 }
                 break;
             case InputState::SelectCharset:
-                if (ch < 0x30) { // intermediate
+                if (ch < 0x30) {
                     scsMod = ch;
                 } else {
                     esc_DCS(ch);
@@ -1928,8 +1917,8 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                                      : InputState::IgnoreSequence);
                         break;
                     case '\a':
-                        break; // ignore
-                    case '\b': // undo last character in CSI sequence:
+                        break;
+                    case '\b':
                         if (readPos && input[readPos - 1] == ';') {
                             --nInputOps;
                         } else {
@@ -1944,12 +1933,12 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         inp_CR();
                         setState(InputState::CSI);
                         break;
-                    case '\f': // fall through
+                    case '\f':
                     case '\v':
                         esc_IND();
                         setState(InputState::CSI);
                         break;
-                    // N.B. '>' and '?' above, so no IGNORE_SEQUENCE_ON_BAD_PARAMS:
+
                     case ':':
                     case '<':
                     case '=':

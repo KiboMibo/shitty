@@ -178,8 +178,6 @@ Frame::copyRow(uint16_t dstY, uint16_t srcY, uint16_t startX,
     invalidateSelection(Rect(startX, dstY, startX + count, dstY));
 }
 
-// private functions
-
 inline void
 Frame::invalidateSelection(const Rect&& damage) {
     if (selection.empty()) {
@@ -250,9 +248,6 @@ inline uint32_t
 Frame::getIdx(uint16_t pY, uint16_t pX) const {
 #ifdef DEBUG
     if (nCols <= pX || nRows <= pY) {
-        // N.B.: Vterm code is allowed to set pX to nCols,
-        // but not allowed to dereference a cell at such a coordinate.
-
         std::ostringstream oss;
         oss << "Frame::getIdx (pY=" << pY << " pX=" << pX
             << ") out of bounds, nCols=" << nCols << ", nRows=" << nRows;
@@ -314,8 +309,7 @@ Frame::Damage::add(uint32_t start_, uint32_t end_) {
         end_ = totalCells;
     }
 
-    if (start == end) // null state
-    {
+    if (start == end) {
         start = start_;
         end = end_;
     } else {

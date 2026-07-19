@@ -15,8 +15,6 @@
 #include <string>
 #include <vector>
 
-// Inspired by: https://stackoverflow.com/a/34571089
-
 namespace {
     static constexpr const char* syms =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -78,4 +76,4 @@ namespace base64 {
         return out;
     }
 
-} // namespace base64
+}

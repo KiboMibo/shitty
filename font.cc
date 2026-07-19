@@ -51,8 +51,6 @@ Font::Font(const std::string& filename_, const Font& priFont, DoubleWidth_)
     load();
 }
 
-// private methods
-
 bool Font::isLoadableChar(FT_ULong c) {
     if (c == Missing_Glyph_Marker) {
         return true;
@@ -232,8 +230,6 @@ void Font::loadFixed(const FT_Face& face) {
     }
 
     if (!overlay && face->height) {
-        // If we are loading a fixed bitmap strike of an otherwise scaled
-        // font, we need the baseline metric.
         baseline = round(py * (double)face->ascender / face->height);
     }
 }
@@ -284,17 +280,14 @@ void Font::loadFace(const FT_Face& face, FT_ULong c, const AtlasPos& apos) {
             std::to_string(c));
     }
 
-    // destination pixel offset
     int dx = face->glyph->bitmap_left;
     int dy = baseline > 0 ? baseline - face->glyph->bitmap_top : 0;
 
-    // source skip horiz and vert
     const int sh = std::max(0, -dy);
     const int sw = std::max(0, -dx);
     dx += sw;
     dy += sh;
 
-    // raw/rasterized bitmap dimensions
     const auto& bmp = face->glyph->bitmap;
     const int bh = std::min({(int)bmp.rows, (int)py, py - dy + sh});
     const int bw = std::min({(int)bmp.width, (int)px, px - dx + sw});
@@ -303,8 +296,7 @@ void Font::loadFace(const FT_Face& face, FT_ULong c, const AtlasPos& apos) {
     const int atlas_glyph_offset = apos.y * atlas_row_offset + apos.x * px;
     const int atlas_write_offset = atlas_glyph_offset + nx * px * dy + dx;
 
-    if (overlay) // clear glyph area, as we are overwriting an existing glyph
-    {
+    if (overlay) {
         for (int j = 0; j < bh; ++j) {
             uint8_t* atl_dst_row =
                 atlasBuf.data() + atlas_glyph_offset + j * nx * px;

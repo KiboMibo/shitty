@@ -173,7 +173,6 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
     std::vector<utf16str> lines;
     bool wrap = false;
 
-    // save lines from the selected range of the frame cell buffer
     auto addLine =
         [&](int y, uint16_t x1, uint16_t x2) {
         utf16str line;
@@ -192,7 +191,7 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
         }
 
         while (!wrap && line.size() && line.back() == ' ') {
-            line.pop_back(); // discard trailing whitespace
+            line.pop_back();
         }
 
         if (wrapBack && lines.size()) {
@@ -217,7 +216,6 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
         addLine(sel.br.y, 0, sel.br.x);
     }
 
-    // convert to UTF-8
     std::vector<char> utf8_out;
     auto sinkFn = [&](char ch) {
         utf8_out.push_back(ch);
@@ -229,7 +227,7 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
         utf8_out.push_back('\n');
     }
     while (utf8_out.size() && utf8_out.back() == '\n') {
-        utf8_out.pop_back(); // discard trailing empty lines
+        utf8_out.pop_back();
     }
 
     utf8_selection = std::string(utf8_out.data(), utf8_out.size());
@@ -244,18 +242,16 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
              << utf8_selection.substr(utf8_selection.size() - 40) << "'"
              << std::endl;
     }
-#endif // DEBUG
+#endif
     return true;
 }
-
-// private functions
 
 inline void
 Frame::damageDeltaCopy(CharVdev::Cell* dst, uint32_t start, uint32_t count) {
     uint32_t end = start + count;
 
     if (damage.end <= start || end <= damage.start) {
-        return; // no intersection
+        return;
     }
 
     if (start < damage.start) {

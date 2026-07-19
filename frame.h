@@ -75,7 +75,6 @@ public:
     void setCursorPos(uint16_t pY, uint16_t pX);
     void setCursorStyle(CharVdev::Cursor::Style cs);
 
-    // selection state
     enum class SelectSnapTo : uint8_t {
         Char = 0,
         Word,
@@ -99,7 +98,7 @@ public:
 
     constexpr const static size_t cellSize = sizeof(CharVdev::Cell);
 
-    uint64_t seqNo = 0; // update counter (used by Renderer)
+    uint64_t seqNo = 0;
 
     uint16_t winPx = 0;
     uint16_t winPy = 0;
@@ -108,12 +107,12 @@ public:
     uint16_t saveLines = 0;
 
 private:
-    uint16_t scrollHead;   // row offset of scrolling area's logical top row
-    uint16_t marginTop;    // current margin top (number of rows above)
-    uint16_t marginBottom; // current margin bottom (number of rows above + 1)
-    uint16_t historyRows;  // number of history (off-screen) rows with data
-    uint16_t viewOffset;   // how many rows above top row does the view start?
-    bool margins = false;  // are there (non-default) top/bottom margins set?
+    uint16_t scrollHead;
+    uint16_t marginTop;
+    uint16_t marginBottom;
+    uint16_t historyRows;
+    uint16_t viewOffset;
+    bool margins = false;
 
     CharVdev::Cell::Ptr cells = nullptr;
     CharVdev::Cursor cursor;

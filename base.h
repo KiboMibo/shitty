@@ -28,7 +28,7 @@ struct Color {
 inline std::ostream&
 operator<<(std::ostream& os, const Color& c) {
     os << "rgb:" << std::hex << std::setfill('0')
-       // N.B.: Output components as 32-bit for compatibility
+
        << std::setw(2) << (int)c.red << std::setw(2) << (int)c.red << "/"
        << std::setw(2) << (int)c.green << std::setw(2) << (int)c.green << "/"
        << std::setw(2) << (int)c.blue << std::setw(2) << (int)c.blue;
@@ -67,8 +67,8 @@ operator<<(std::ostream& os, const Point& p) {
 }
 
 struct Rect {
-    Point tl; // top left corner
-    Point br; // bottom right corner
+    Point tl;
+    Point br;
     bool rectangular = false;
 
     Rect() = default;

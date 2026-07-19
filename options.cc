@@ -23,13 +23,10 @@
 
 namespace {
 
-    // std::map keeps references to stored values stable. Options keeps several
-    // const char* pointers into this storage for the lifetime of the process.
     std::map<std::string, std::string> commandLine;
 
     const OptionDesc*
     findOption(const char* prefix) {
-        // Keep the long-standing -v shorthand after adding -vulkanInfo.
         if (strcmp(prefix, "v") == 0) {
             prefix = "verbose";
         }
@@ -184,7 +181,7 @@ namespace {
         }
     }
 
-} // namespace
+}
 
 Options opts;
 

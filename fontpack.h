@@ -97,8 +97,8 @@ public:
     }
 
 private:
-    uint16_t px = 0; // glyph width in pixels
-    uint16_t py = 0; // glyph height in pixels
+    uint16_t px = 0;
+    uint16_t py = 0;
     std::unique_ptr<Font> fontRegular = nullptr;
     std::unique_ptr<Font> fontBold = nullptr;
     std::unique_ptr<Font> fontItalic = nullptr;

@@ -46,7 +46,7 @@ static constexpr const char* fontpath = "/usr/share/fonts";
 #endif
 
 static const std::vector<OptionDesc> optionsTable = {
-    // option       parseType            implValue hardDefault helpDescr
+
     {"altScroll", OptionKind::NoArg, "true", "false", "Alternate scroll mode"},
     {"autoCopy", OptionKind::NoArg, "true", "false", "Sync primary to clipboard"},
     {"bg", OptionKind::SepArg, nullptr, "#000", "Background color"},
@@ -74,7 +74,7 @@ static const std::vector<OptionDesc> optionsTable = {
 };
 
 static const std::vector<ResourceDesc> resourceTable = {
-    // resource           hardDefault    helpDescr
+
     {"altSendsEscape", "true", "Encode Alt key as ESC prefix"},
     {"modifyOtherKeys", "1", "Key modifier encoding level; 0..2"},
     {"color0", "#000000", "Palette color 0"},
@@ -102,7 +102,6 @@ enum class OptionSource {
 };
 
 struct Options {
-    // N.B.: no static initializers - parse() decodes the defaults above.
     uint8_t fontsize;
     uint8_t modifyOtherKeys;
     uint16_t border;
