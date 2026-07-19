@@ -82,6 +82,25 @@ parser_fuzz = command(
 )
 
 
+vttest_profile = command(
+    inputs=["$(S)/tests/vttest.py", "$(S)/tests/harness.py"],
+    outputs=["$(B)/vttest.stamp"],
+    deps=[zutty],
+    cmd=[
+        ["python3", "tests/vttest.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; Path(r'$(B)/vttest.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+    descr="VTTEST",
+    color="blue",
+)
+
+
 install(zutty)
 install(test_suite)
 install(parser_fuzz)
+install(vttest_profile)

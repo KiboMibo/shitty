@@ -113,6 +113,13 @@ class Zutty:
     def write(self, output):
         self.command("WRITE " + output.hex())
 
+    def spawn(self, *arguments):
+        encoded = b"\0".join(os.fsencode(argument) for argument in arguments)
+        self.command("SPAWN " + encoded.hex())
+
+    def pump(self):
+        self.command("PUMP")
+
     def write_chunks(self, *chunks):
         for chunk in chunks:
             self.write(chunk)

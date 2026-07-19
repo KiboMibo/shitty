@@ -11,10 +11,13 @@
 #include <fcntl.h>
 #include <iomanip>
 #include <map>
+#include <poll.h>
+#include <signal.h>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <sys/ioctl.h>
+#include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
 #include <vector>
@@ -296,6 +299,7 @@ int runTestMode(int controlFd) {
         });
     std::string actions;
     std::string printerOutput;
+    pid_t childPid = -1;
     terminal.setOscHandler(
         [&terminal, &actions](int command, const std::string& argument) {
             actions += "OSC " + std::to_string(command) + " " +
@@ -357,6 +361,53 @@ int runTestMode(int controlFd) {
         try {
             if (line.compare(0, 6, "WRITE ") == 0) {
                 terminal.feedPtyOutput(decodeHex(line.substr(6)));
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 6, "SPAWN ") == 0) {
+                if (childPid > 0) throw std::runtime_error("child already running");
+                const std::string encoded = decodeHex(line.substr(6));
+                std::vector<std::string> arguments;
+                size_t start = 0;
+                while (start < encoded.size()) {
+                    const size_t end = encoded.find('\0', start);
+                    arguments.push_back(encoded.substr(
+                        start, end == std::string::npos
+                                   ? std::string::npos : end - start));
+                    if (end == std::string::npos) break;
+                    start = end + 1;
+                }
+                if (arguments.empty() || arguments[0].empty())
+                    throw std::runtime_error("empty child command");
+                childPid = fork();
+                if (childPid < 0) throw std::runtime_error("test fork failed");
+                if (childPid == 0) {
+                    setsid();
+                    ioctl(io[1], TIOCSCTTY, 0);
+                    const int childFlags = fcntl(io[1], F_GETFL, 0);
+                    if (childFlags >= 0)
+                        fcntl(io[1], F_SETFL, childFlags & ~O_NONBLOCK);
+                    dup2(io[1], STDIN_FILENO);
+                    dup2(io[1], STDOUT_FILENO);
+                    dup2(io[1], STDERR_FILENO);
+                    close(io[0]);
+                    if (io[1] > STDERR_FILENO) close(io[1]);
+                    std::vector<char*> argv;
+                    for (auto& argument : arguments)
+                        argv.push_back(argument.data());
+                    argv.push_back(nullptr);
+                    execvp(argv[0], argv.data());
+                    _exit(127);
+                }
+                writeAll(controlFd, "OK\n");
+            } else if (line == "PUMP") {
+                pollfd source{io[0], POLLIN, 0};
+                while (poll(&source, 1, 10) > 0 &&
+                       (source.revents & POLLIN)) {
+                    terminal.readPty();
+                    source.revents = 0;
+                }
+                terminal.redraw();
+                if (childPid > 0 && waitpid(childPid, nullptr, WNOHANG) == childPid)
+                    childPid = -1;
                 writeAll(controlFd, "OK\n");
             } else if (line == "PAGE_UP") {
                 terminal.pageUp();
@@ -577,6 +628,11 @@ int runTestMode(int controlFd) {
                 terminal.flushPtyOutput();
                 writeAll(controlFd, "OK\n");
             } else if (line == "QUIT") {
+                if (childPid > 0) {
+                    kill(childPid, SIGTERM);
+                    waitpid(childPid, nullptr, 0);
+                    childPid = -1;
+                }
                 writeAll(controlFd, "OK\n");
                 break;
             } else {
