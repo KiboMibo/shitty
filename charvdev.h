@@ -16,6 +16,7 @@
 #include "options.h"
 
 #include <cstdint>
+#include <cstddef>
 #include <cstring>
 #include <memory>
 #include <vector>
@@ -40,7 +41,7 @@ public:
     }
 
     struct Cell {
-        uint16_t uc_pt = ' ';
+        uint32_t uc_pt = ' ';
         uint8_t dwidth : 1;
         uint8_t dwidth_cont : 1;
         uint8_t bold : 1;
@@ -55,6 +56,7 @@ public:
         uint8_t strike : 1;
         uint8_t overline : 1;
         uint8_t underline_style : 3;
+        uint16_t _fill0 = 0;
         Color fg;
         uint8_t _fill1;
         Color bg;
@@ -94,7 +96,14 @@ public:
             return !operator==(rhs);
         }
     };
-    static_assert(sizeof(Cell) == 20, "Cell size mismatch");
+    static_assert(sizeof(Cell) == 24, "Cell size mismatch");
+    static_assert(offsetof(Cell, uc_pt) == 0, "Cell codepoint offset mismatch");
+    static_assert(offsetof(Cell, fg) == 8, "Cell foreground offset mismatch");
+    static_assert(offsetof(Cell, bg) == 12, "Cell background offset mismatch");
+    static_assert(offsetof(Cell, underline_color) == 16,
+                  "Cell underline offset mismatch");
+    static_assert(offsetof(Cell, hyperlink) == 20,
+                  "Cell hyperlink offset mismatch");
 
     static Cell::Ptr make_cells(uint16_t nCols, uint16_t nRows) {
         return std::shared_ptr<Cell>(new Cell[nRows * nCols],

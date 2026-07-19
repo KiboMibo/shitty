@@ -6,6 +6,7 @@ layout (set = 0, binding = 0, rgba8) uniform writeonly image2D outputImage;
 
 struct Cell
 {
+   uint codepoint;
    uint charData;
    uint fg;
    uint bg;
@@ -302,18 +303,18 @@ void main ()
       doubleWidth = 0;
 
    uint fontIndex = doubleWidth == 0
-      ? bitfieldExtract (cell.charData, 18, 2)
+      ? bitfieldExtract (cell.charData, 2, 2)
       : 0;
-   uint underline = bitfieldExtract (cell.charData, 20, 1);
-   uint inverse = bitfieldExtract (cell.charData, 21, 1);
-   uint wrap = bitfieldExtract (cell.charData, 22, 1);
-   uint faint = bitfieldExtract (cell.charData, 24, 1);
-   uint conceal = bitfieldExtract (cell.charData, 26, 1);
-   uint strike = bitfieldExtract (cell.charData, 27, 1);
-   uint overline = bitfieldExtract (cell.charData, 28, 1);
-   uint underlineStyle = bitfieldExtract (cell.charData, 29, 3);
-   uint codepoint = bitfieldExtract (cell.charData, 0, 16);
-   ivec2 mapPosition = ivec2 (int (codepoint & 255), int (codepoint >> 8));
+   uint underline = bitfieldExtract (cell.charData, 4, 1);
+   uint inverse = bitfieldExtract (cell.charData, 5, 1);
+   uint wrap = bitfieldExtract (cell.charData, 6, 1);
+   uint faint = bitfieldExtract (cell.charData, 8, 1);
+   uint conceal = bitfieldExtract (cell.charData, 10, 1);
+   uint strike = bitfieldExtract (cell.charData, 11, 1);
+   uint overline = bitfieldExtract (cell.charData, 12, 1);
+   uint underlineStyle = bitfieldExtract (cell.charData, 13, 3);
+   uint codepoint = cell.codepoint;
+   ivec2 mapPosition = ivec2 (int (codepoint & 511), int (codepoint >> 9));
 
    uvec2 atlasPosition = doubleWidth == 0
       ? texelFetch (atlasMap, mapPosition, 0).rg

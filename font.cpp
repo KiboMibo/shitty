@@ -165,12 +165,6 @@ void Font::load() {
         charcode = FT_Get_Next_Char(face, charcode, &gindex);
     }
 
-    if (loadSkipCount) {
-        logI << "Skipped loading " << loadSkipCount << " code point(s) "
-             << "outside the Basic Multilingual Plane"
-             << std::endl;
-    }
-
     FT_Done_Face(face);
     FT_Done_FreeType(ft);
 }
@@ -265,15 +259,6 @@ void Font::loadFace(const FT_Face& face, FT_ULong c) {
 }
 
 void Font::loadFace(const FT_Face& face, FT_ULong c, const AtlasPos& apos) {
-    if (c > std::numeric_limits<uint16_t>::max()) {
-#ifdef DEBUG
-        logT << "Skip loading code point 0x" << std::hex << c << std::dec
-             << " outside the Basic Multilingual Plane" << std::endl;
-#endif
-        ++loadSkipCount;
-        return;
-    }
-
     if (FT_Load_Char(face, c, FT_LOAD_RENDER)) {
         throw std::runtime_error(
             std::string("FreeType: Failed to load glyph for char ") +

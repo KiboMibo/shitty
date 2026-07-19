@@ -52,14 +52,16 @@ public:
     void checkPrematureEOS() {
         if (remaining > 0) {
             remaining = 0;
-            valid = false;
-            unicode = Unicode_Replacement_Character;
-            cpSink();
+            emitReplacement();
         }
     }
 
     uint32_t getUnicode() const {
         return unicode;
+    }
+
+    bool expectsContinuation() const {
+        return remaining != 0;
     }
 
     void setUnicode(uint32_t cp) {
@@ -72,66 +74,53 @@ public:
         }
 
         unicode = ch;
-        valid = true;
         cpSink();
     }
 
     void pushByte(unsigned char ch) {
-        if ((ch >> 6) == 0x2) {
-            if (remaining > 0) {
-                if (1 < remaining && remaining < 3 &&
-                    (!ch || (unicode == 0 && ch < 0xa0))) {
-                    valid = false;
-                }
-                unicode <<= 6;
-                unicode += ch & 0x3f;
-                --remaining;
-            } else {
-                valid = false;
-            }
-
+        if ((ch & 0xc0) == 0x80) {
             if (remaining == 0) {
-                if (!valid) {
-                    unicode = Unicode_Replacement_Character;
-                }
-                cpSink();
+                emitReplacement();
+                return;
             }
-        } else if ((ch >> 5) == 0x6) {
+            unicode = (unicode << 6) | (ch & 0x3f);
+            if (--remaining == 0) {
+                if (unicode < minimum || unicode > 0x10ffff ||
+                    (unicode >= 0xd800 && unicode <= 0xdfff)) {
+                    emitReplacement();
+                } else {
+                    cpSink();
+                }
+            }
+        } else if (ch >= 0xc2 && ch <= 0xdf) {
             checkPrematureEOS();
             unicode = ch & 0x1f;
             remaining = 1;
-            valid = unicode > 1;
-        } else if ((ch >> 4) == 0xe) {
+            minimum = 0x80;
+        } else if (ch >= 0xe0 && ch <= 0xef) {
             checkPrematureEOS();
             unicode = ch & 0x0f;
             remaining = 2;
-            valid = true;
-        } else if ((ch >> 3) == 0x1e) {
+            minimum = 0x800;
+        } else if (ch >= 0xf0 && ch <= 0xf4) {
             checkPrematureEOS();
             unicode = ch & 0x07;
             remaining = 3;
-            valid = true;
-        } else if ((ch >> 2) == 0x3e) {
+            minimum = 0x10000;
+        } else {
             checkPrematureEOS();
-            unicode = ch & 0x03;
-            remaining = 4;
-            valid = false;
-        } else if ((ch >> 1) == 0x7e) {
-            checkPrematureEOS();
-            unicode = ch & 0x01;
-            remaining = 5;
-            valid = false;
-        } else if (ch == 0xfe || ch == 0xff) {
-            unicode = Unicode_Replacement_Character;
-            remaining = 0;
-            valid = false;
-            cpSink();
+            emitReplacement();
         }
     }
 
 private:
+    void emitReplacement() {
+        unicode = Unicode_Replacement_Character;
+        cpSink();
+    }
+
     uint32_t unicode = 0;
-    bool valid = false;
+    uint32_t minimum = 0;
     uint8_t remaining = 0;
     CodepointSink cpSink;
 };

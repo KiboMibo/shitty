@@ -84,7 +84,7 @@ public:
         uint8_t x = 0;
         uint8_t y = 0;
     };
-    using AtlasMap = std::map<uint16_t, AtlasPos>;
+    using AtlasMap = std::map<uint32_t, AtlasPos>;
     const AtlasMap& getAtlasMap() const {
         return atlasMap;
     };
@@ -109,8 +109,6 @@ private:
        * character code does not exist in the atlas.
        */
     uint16_t atlas_seq = 1;
-
-    int loadSkipCount = 0;
 
     /* Load font from glyph bitmaps rasterized by FreeType.
        * Store the bitmaps into an atlas bitmap stored in atlasBuf.

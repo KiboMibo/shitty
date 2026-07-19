@@ -1797,6 +1797,10 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
         }
         switch (inputState) {
             case InputState::Normal:
+                if (utf8dec.expectsContinuation() && ch >= 0x80) {
+                    inputGraphicChar(ch);
+                    break;
+                }
                 switch (ch) {
                     case '\x00':
                         break;

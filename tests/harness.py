@@ -257,7 +257,7 @@ class Zutty:
             int, response[1:13]
         )
         encoded_cells = response[13]
-        record_size = 34
+        record_size = 38
         expected = columns * rows * record_size
         if len(encoded_cells) != expected:
             raise RuntimeError("invalid snapshot cell count")
@@ -266,10 +266,10 @@ class Zutty:
             record = encoded_cells[
                 offset_in_cells : offset_in_cells + record_size
             ]
-            flags = int(record[4:8], 16)
+            flags = int(record[8:12], 16)
             cells.append(
                 Cell(
-                    char=chr(int(record[0:4], 16)),
+                    char=chr(int(record[0:8], 16)),
                     double_width=bool(flags & 1),
                     double_width_continuation=bool(flags & 2),
                     bold=bool(flags & 4),
@@ -284,15 +284,15 @@ class Zutty:
                     inverse=bool(flags & 32),
                     wrapped=bool(flags & 64),
                     foreground=tuple(
-                        int(record[k : k + 2], 16) for k in (8, 10, 12)
+                        int(record[k : k + 2], 16) for k in (12, 14, 16)
                     ),
                     background=tuple(
-                        int(record[k : k + 2], 16) for k in (14, 16, 18)
+                        int(record[k : k + 2], 16) for k in (18, 20, 22)
                     ),
                     underline_color=tuple(
-                        int(record[k : k + 2], 16) for k in (20, 22, 24)
+                        int(record[k : k + 2], 16) for k in (24, 26, 28)
                     ),
-                    hyperlink=int(record[26:34], 16),
+                    hyperlink=int(record[30:38], 16),
                 )
             )
         text = "".join(cell.char for cell in cells)

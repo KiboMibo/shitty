@@ -592,10 +592,6 @@ Vterm::placeGraphicChar() {
         return;
     }
 
-    if (pt > 0xffff) {
-        pt = Missing_Glyph_Marker;
-    }
-
     if (w < 0) {
         w = 1;
         pt = Unicode_Replacement_Character;

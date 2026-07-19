@@ -547,7 +547,8 @@ void VulkanPresenter::uploadImage(
 
 std::vector<uint8_t>
 VulkanPresenter::makeAtlasMap(const Font& font) {
-    std::vector<uint8_t> result(2 * 256 * 256, 0);
+    constexpr uint32_t unicodeCount = 0x110000;
+    std::vector<uint8_t> result(2 * unicodeCount, 0);
     const auto end = font.getAtlasMap().end();
 
     Font::AtlasPos replacement{};
@@ -564,7 +565,7 @@ VulkanPresenter::makeAtlasMap(const Font& font) {
         missing = missingIt->second;
     }
 
-    for (uint32_t codepoint = 0; codepoint < 256 * 256; ++codepoint) {
+    for (uint32_t codepoint = 0; codepoint < unicodeCount; ++codepoint) {
         const auto& position =
             (codepoint >= 0xd800 && codepoint < 0xe000) ||
                     codepoint >= 0xfffe
@@ -575,8 +576,10 @@ VulkanPresenter::makeAtlasMap(const Font& font) {
     }
 
     for (const auto& entry : font.getAtlasMap()) {
-        result[2 * entry.first] = entry.second.x;
-        result[2 * entry.first + 1] = entry.second.y;
+        if (entry.first < unicodeCount) {
+            result[2 * entry.first] = entry.second.x;
+            result[2 * entry.first + 1] = entry.second.y;
+        }
     }
     return result;
 }
@@ -619,7 +622,7 @@ void VulkanPresenter::createFontResources(Fontpack* fontpk) {
 
     const auto mapData = makeAtlasMap(regular);
     atlasMap = createImage(
-        256, 256, 1, VK_FORMAT_R8G8_UINT,
+        512, 2176, 1, VK_FORMAT_R8G8_UINT,
         VK_IMAGE_USAGE_TRANSFER_DST_BIT |
             VK_IMAGE_USAGE_SAMPLED_BIT);
     uploadImage(atlasMap, mapData.data(), mapData.size());
@@ -639,7 +642,7 @@ void VulkanPresenter::createFontResources(Fontpack* fontpk) {
 
         const auto wideMapData = makeAtlasMap(wide);
         doubleWidthAtlasMap = createImage(
-            256, 256, 1, VK_FORMAT_R8G8_UINT,
+            512, 2176, 1, VK_FORMAT_R8G8_UINT,
             VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                 VK_IMAGE_USAGE_SAMPLED_BIT);
         uploadImage(

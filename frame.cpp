@@ -198,13 +198,13 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
     sel.tl.y -= viewOffset;
     sel.br.y -= viewOffset;
 
-    using utf16str = std::vector<uint16_t>;
-    std::vector<utf16str> lines;
+    using unicodeString = std::vector<uint32_t>;
+    std::vector<unicodeString> lines;
     bool wrap = false;
 
     auto addLine =
         [&](int y, uint16_t x1, uint16_t x2) {
-        utf16str line;
+        unicodeString line;
         bool wrapBack = wrap;
         wrap = false;
         const auto* cp = getLogicalRowPtr(y);
@@ -249,8 +249,8 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
     auto sinkFn = [&](char ch) {
         utf8_out.push_back(ch);
     };
-    for (const auto& u16s : lines) {
-        for (uint16_t cp : u16s) {
+    for (const auto& codepoints : lines) {
+        for (uint32_t cp : codepoints) {
             Utf8Encoder::pushUnicode(cp, sinkFn);
         }
         utf8_out.push_back('\n');
