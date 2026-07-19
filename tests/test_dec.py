@@ -4,6 +4,19 @@ from harness import Zutty
 
 
 class DecProtocolTest(unittest.TestCase):
+    def test_double_width_and_double_height_line_attributes_persist(self):
+        with Zutty(columns=8, rows=3) as terminal:
+            terminal.write(b"AB\x1b#6\x1b[2K")
+            snapshot = terminal.snapshot()
+            self.assertTrue(all(snapshot.cell(x, 0).line_attribute == 3 for x in range(8)))
+
+            terminal.write(b"\x1b[2;1Htop\x1b#3\x1b[3;1Hbottom\x1b#4")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 1).line_attribute, 1)
+            self.assertEqual(snapshot.cell(0, 2).line_attribute, 2)
+
+            terminal.write(b"\x1b[1;1H\x1b#5")
+            self.assertEqual(terminal.snapshot().cell(0, 0).line_attribute, 0)
     def test_origin_mode_addresses_relative_to_vertical_margins(self):
         with Zutty(columns=8, rows=6) as terminal:
             terminal.write(b"\x1b[2;5r\x1b[?6hX\x1b[4;1HY")

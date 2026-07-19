@@ -737,13 +737,16 @@ Vterm::placeGraphicChar() {
         pt = Unicode_Replacement_Character;
     }
 
+    const uint16_t lineCols = cf->getCell(posY, 0).line_attr
+                                  ? std::max<uint16_t>(1, nColsEff / 2)
+                                  : nColsEff;
     if (autoWrapMode && lastCol) {
         cf->getCell(posY, posX).wrap = 1;
         inp_CR();
         inp_LF();
     }
 
-    if (w == 2 && posX == nColsEff - 1 && autoWrapMode) {
+    if (w == 2 && posX == lineCols - 1 && autoWrapMode) {
         cf->getCell(posY, posX).wrap = 1;
         inp_CR();
         inp_LF();
@@ -767,6 +770,7 @@ Vterm::placeGraphicChar() {
     c.uc_pt = pt;
     c.hyperlink = activeHyperlink;
     c.semantic = currentSemantic;
+    c.line_attr = cf->getCell(posY, 0).line_attr;
     if (c.blink) haveBlinkingText = true;
 
     inputGrapheme = {pt};
@@ -774,7 +778,7 @@ Vterm::placeGraphicChar() {
     inputGraphemeX = clusterX;
     inputGraphemeY = clusterY;
 
-    if (w == 2 && posX < nColsEff - 1) {
+    if (w == 2 && posX < lineCols - 1) {
         c.dwidth = 1;
         auto& continuation = cf->getCell(posY, ++posX);
         continuation = attrs;
@@ -782,7 +786,7 @@ Vterm::placeGraphicChar() {
         continuation.hyperlink = activeHyperlink;
     }
 
-    if (posX == nColsEff - 1) {
+    if (posX == lineCols - 1) {
         lastCol = true;
     } else {
         ++posX;
@@ -1469,7 +1473,9 @@ Vterm::csi_DECFRA() {
         for (uint16_t y = top; y < bottom; ++y) {
             for (uint16_t x = left; x < right; ++x) {
                 auto& cell = cf->getCell(y, x);
+                const uint8_t lineAttribute = cell.line_attr;
                 cell = attrs;
+                cell.line_attr = lineAttribute;
                 cell.uc_pt = inputOps[0];
                 cell.dirty = 1;
             }
@@ -2574,6 +2580,19 @@ Vterm::esch_DECALN() {
     bg = origBg;
     attrs = origAttrs;
 
+    setState(InputState::Normal);
+}
+
+inline void
+Vterm::setLineAttribute(uint8_t attribute) {
+    TRACE_FUN;
+    for (uint16_t x = 0; x < nCols; ++x) {
+        auto& cell = cf->getCell(posY, x);
+        cell.line_attr = attribute;
+        cell.dirty = 1;
+    }
+    if (attribute) posX = std::min<uint16_t>(posX, std::max(1, nCols / 2) - 1);
+    cf->expose();
     setState(InputState::Normal);
 }
 

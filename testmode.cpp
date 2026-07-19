@@ -149,9 +149,10 @@ namespace {
                     (cell.strike << 10) |
                     (cell.overline << 11) |
                     (cell.underline_style << 12) |
-                    (cell.protected_char << 15);
+                    (cell.protected_char << 15) |
+                    (cell.line_attr << 16);
                 output << std::setw(8) << cell.uc_pt
-                       << std::setw(4) << flags
+                       << std::setw(8) << flags
                        << std::setw(2) << static_cast<unsigned>(cell.fg.red)
                        << std::setw(2) << static_cast<unsigned>(cell.fg.green)
                        << std::setw(2) << static_cast<unsigned>(cell.fg.blue)

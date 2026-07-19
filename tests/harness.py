@@ -38,6 +38,7 @@ class Cell:
     hyperlink: int
     semantic: int
     protected: bool
+    line_attribute: int
 
 
 @dataclass
@@ -280,7 +281,7 @@ class Zutty:
             int, response[1:13]
         )
         encoded_cells = response[13]
-        record_size = 46
+        record_size = 50
         expected = columns * rows * record_size
         if len(encoded_cells) != expected:
             raise RuntimeError("invalid snapshot cell count")
@@ -289,7 +290,7 @@ class Zutty:
             record = encoded_cells[
                 offset_in_cells : offset_in_cells + record_size
             ]
-            flags = int(record[8:12], 16)
+            flags = int(record[8:16], 16)
             cells.append(
                 Cell(
                     char=chr(int(record[0:8], 16)),
@@ -307,17 +308,18 @@ class Zutty:
                     inverse=bool(flags & 32),
                     wrapped=bool(flags & 64),
                     foreground=tuple(
-                        int(record[k : k + 2], 16) for k in (12, 14, 16)
+                        int(record[k : k + 2], 16) for k in (16, 18, 20)
                     ),
                     background=tuple(
-                        int(record[k : k + 2], 16) for k in (18, 20, 22)
+                        int(record[k : k + 2], 16) for k in (22, 24, 26)
                     ),
                     underline_color=tuple(
-                        int(record[k : k + 2], 16) for k in (24, 26, 28)
+                        int(record[k : k + 2], 16) for k in (28, 30, 32)
                     ),
-                    hyperlink=int(record[30:38], 16),
-                    semantic=int(record[38:46], 16),
+                    hyperlink=int(record[34:42], 16),
+                    semantic=int(record[42:50], 16),
                     protected=bool(flags & 32768),
+                    line_attribute=(flags >> 16) & 3,
                 )
             )
         text = "".join(cell.char for cell in cells)

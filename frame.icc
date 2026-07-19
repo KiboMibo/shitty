@@ -192,7 +192,9 @@ Frame::eraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
     }
 #endif
     uint32_t idx = getIdx(pY, startX);
-    eraseRange(idx, idx + count, attrs);
+    CharVdev::Cell erased = attrs;
+    erased.line_attr = getCell(pY, 0).line_attr;
+    eraseRange(idx, idx + count, erased);
     invalidateSelection(Rect(startX, pY, startX + count, pY));
 }
 
@@ -207,6 +209,7 @@ Frame::selectiveEraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
     for (uint16_t x = startX; x < startX + count; ++x) {
         auto& cell = getCell(pY, x);
         if (!cell.protected_char) {
+            erased.line_attr = cell.line_attr;
             cell = erased;
             cell.dirty = 1;
         }

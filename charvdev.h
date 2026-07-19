@@ -57,7 +57,7 @@ public:
         uint8_t overline : 1;
         uint8_t underline_style : 3;
         uint8_t protected_char = 0;
-        uint8_t _fill0 = 0;
+        uint8_t line_attr = 0;
         Color fg;
         uint8_t _fill1;
         Color bg;
@@ -70,6 +70,7 @@ public:
         int32_t bg_index = -2;
         int32_t underline_index = -2;
         uint32_t semantic = 0;
+        uint32_t line_attribute = 0;
 
         Cell()
             : dwidth(0)
@@ -102,7 +103,7 @@ public:
             return !operator==(rhs);
         }
     };
-    static_assert(sizeof(Cell) == 44, "Cell size mismatch");
+    static_assert(sizeof(Cell) == 48, "Cell size mismatch");
     static_assert(offsetof(Cell, uc_pt) == 0, "Cell codepoint offset mismatch");
     static_assert(offsetof(Cell, fg) == 8, "Cell foreground offset mismatch");
     static_assert(offsetof(Cell, bg) == 12, "Cell background offset mismatch");

@@ -2217,20 +2217,16 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
             case InputState::Esc_Hash:
                 switch (ch) {
                     case '3':
-                        logU << "DECDHL: Double-height, top half" << std::endl;
-                        setState(InputState::Normal);
+                        setLineAttribute(1);
                         break;
                     case '4':
-                        logU << "DECDHL: Double-height, bottom half" << std::endl;
-                        setState(InputState::Normal);
+                        setLineAttribute(2);
                         break;
                     case '5':
-                        logU << "DECSWL: Single-width line" << std::endl;
-                        setState(InputState::Normal);
+                        setLineAttribute(0);
                         break;
                     case '6':
-                        logU << "DECDWL: Double-width line" << std::endl;
-                        setState(InputState::Normal);
+                        setLineAttribute(3);
                         break;
                     case '8':
                         esch_DECALN();

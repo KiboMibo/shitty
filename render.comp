@@ -17,6 +17,7 @@ struct Cell
    int bgIndex;
    int underlineIndex;
    uint semantic;
+   uint lineAttribute;
 };
 
 layout (std430, set = 0, binding = 1) readonly buffer CellBuffer
@@ -316,7 +317,8 @@ float glyphCoverage (uint codepoint, uint doubleWidth, uint fontIndex,
       return 0.0;
    ivec2 atlasPixel = ivec2 (
       int (atlasPosition.x) * glyphWidth + x,
-      int (atlasPosition.y * parameters.glyphHeight) + pixel.y);
+      int (atlasPosition.y * parameters.glyphHeight) +
+         pixel.y * int (parameters.glyphHeight) / max (1, cellSize.y));
    return doubleWidth == 0
       ? texelFetch (atlas, ivec3 (atlasPixel, int (fontIndex)), 0).r
       : texelFetch (doubleWidthAtlas, ivec3 (atlasPixel, 0), 0).r;
@@ -329,8 +331,12 @@ void main ()
        globalPosition.y >= parameters.rows)
       return;
 
-   ivec2 cellPosition = ivec2 (globalPosition);
-   uint index = parameters.columns * globalPosition.y + globalPosition.x;
+   uint rowIndex = parameters.columns * globalPosition.y;
+   uint lineAttribute = cells [rowIndex].lineAttribute;
+   bool doubleLine = lineAttribute != 0;
+   uint sourceColumn = doubleLine ? globalPosition.x / 2 : globalPosition.x;
+   ivec2 cellPosition = ivec2 (sourceColumn, globalPosition.y);
+   uint index = rowIndex + sourceColumn;
    Cell cell = cells [index];
 
    if (parameters.deltaFrame != 0)
@@ -346,17 +352,17 @@ void main ()
          return;
    }
 
-   uint doubleWidth = bitfieldExtract (cell.charData, 16, 1);
-   uint doubleWidthContinuation = bitfieldExtract (cell.charData, 17, 1);
+   uint doubleWidth = doubleLine ? 1u : bitfieldExtract (cell.charData, 16, 1);
+   uint doubleWidthContinuation = doubleLine ? 0u : bitfieldExtract (cell.charData, 17, 1);
    if (doubleWidthContinuation != 0)
       return;
 
-   if (doubleWidth != 0 && globalPosition.x + 1 < parameters.columns)
+   if (!doubleLine && doubleWidth != 0 && globalPosition.x + 1 < parameters.columns)
    {
       if (bitfieldExtract (cells [index + 1].charData, 17, 1) == 0)
          doubleWidth = 0;
    }
-   else if (globalPosition.x + 1 >= parameters.columns)
+   else if (!doubleLine && globalPosition.x + 1 >= parameters.columns)
       doubleWidth = 0;
 
    uint fontIndex = doubleWidth == 0
@@ -418,7 +424,8 @@ void main ()
       background = cursor;
    }
 
-   uint cellWidth = parameters.glyphWidth * (doubleWidth != 0 ? 2 : 1);
+   uint cellWidth = parameters.glyphWidth *
+                    (doubleWidth != 0 && !doubleLine ? 2 : 1);
    ivec2 outputOrigin = ivec2 (
       int (parameters.border + globalPosition.x * parameters.glyphWidth),
       int (parameters.border + globalPosition.y * parameters.glyphHeight));
@@ -427,8 +434,14 @@ void main ()
    {
       for (uint x = 0; x < cellWidth; ++x)
       {
-         ivec2 pixel = ivec2 (x, y);
-         ivec2 size = ivec2 (cellWidth, parameters.glyphHeight);
+         ivec2 pixel = ivec2 (
+            int (x + (doubleLine ? (globalPosition.x & 1u) *
+                                  parameters.glyphWidth : 0u)),
+            int (y + (lineAttribute == 2u ? parameters.glyphHeight : 0u)));
+         ivec2 size = ivec2 (
+            doubleLine ? parameters.glyphWidth * 2u : cellWidth,
+            lineAttribute == 1u || lineAttribute == 2u
+               ? parameters.glyphHeight * 2u : parameters.glyphHeight);
          float coverage = 0.0;
          if (cell.grapheme == 0)
          {

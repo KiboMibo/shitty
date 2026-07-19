@@ -1345,6 +1345,7 @@ bool VulkanPresenter::present(
         charVdev.cellData() + charVdev.cellCount());
     std::vector<uint32_t> graphemeData = {0};
     for (auto& cell : gpuCells) {
+        cell.line_attribute = cell.line_attr;
         if (!cell.grapheme) {
             continue;
         }

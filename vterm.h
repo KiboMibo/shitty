@@ -473,6 +473,7 @@ private:
     void csi_terDA();
     void csi_DSR();
     void esch_DECALN();
+    void setLineAttribute(uint8_t attribute);
     void handle_DCS();
     void handle_OSC();
     void csiq_DECSCL();
