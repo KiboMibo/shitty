@@ -513,6 +513,7 @@ private:
     uint16_t glyphPx;
     uint16_t glyphPy;
     int ptyFd;
+    bool ptyReceivedInput = false;
     std::vector<uint8_t> ptyOutput;
     size_t ptyOutputOffset = 0;
 

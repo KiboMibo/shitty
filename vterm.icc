@@ -549,22 +549,35 @@ Vterm::setState(InputState newState) {
 
 inline bool
 Vterm::readPty() {
-    static bool first = true;
-    ssize_t n = read(ptyFd, inputBuf, sizeof(inputBuf));
-    if (n < 0) {
+    // Coalesce a normal burst, but yield back to the window loop if a child
+    // produces output continuously.
+    constexpr size_t maxBurstBytes = 256 * 1024;
+    size_t burstBytes = 0;
+    while (burstBytes < maxBurstBytes) {
+        const ssize_t n = read(ptyFd, inputBuf, sizeof(inputBuf));
+        if (n > 0) {
+            if (!ptyReceivedInput) {
+                pty_resize(ptyFd, nCols, nRows);
+                ptyReceivedInput = true;
+            }
+
+            logT << "pty read: " << dumpBuffer(inputBuf, inputBuf + n);
+            processInput(inputBuf, n);
+            burstBytes += static_cast<size_t>(n);
+            continue;
+        }
+        if (n == 0) {
+            return ptyReceivedInput;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return false;
+        }
+        SYS_WARN("pty read");
         return true;
-    } else if (n == 0) {
-        return !first;
     }
-
-    if (first) {
-        pty_resize(ptyFd, nCols, nRows);
-        first = false;
-    }
-
-    logT << "pty read: " << dumpBuffer(inputBuf, inputBuf + n);
-    processInput(inputBuf, n);
-
     return false;
 }
 

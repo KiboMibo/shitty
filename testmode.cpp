@@ -483,6 +483,9 @@ int runTestMode(int controlFd) {
             } else if (line == "PUMP") {
                 pumpChild();
                 writeAll(controlFd, "OK\n");
+            } else if (line == "READ_PTY") {
+                writeAll(controlFd,
+                         "OK " + std::to_string(terminal.readPty()) + "\n");
             } else if (line == "POLL_CHILD") {
                 pumpChild();
                 writeAll(controlFd,

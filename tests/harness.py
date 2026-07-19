@@ -135,6 +135,13 @@ class Zutty:
     def pump(self):
         self.command("PUMP")
 
+    def read_pty(self):
+        self.stream.write(b"READ_PTY\n")
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid PTY read response")
+        return bool(int(response[1]))
+
     def child_status(self):
         self.stream.write(b"CHILD_STATUS\n")
         response = self._readline().split()
