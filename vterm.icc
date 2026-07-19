@@ -113,6 +113,10 @@ Vterm::traceNormalInput() {
 
 inline void
 Vterm::redraw() {
+    if (synchronizedOutputMode) {
+        return;
+    }
+
     onRefresh(*cf);
     cf->resetDamage();
 }
@@ -120,6 +124,21 @@ Vterm::redraw() {
 inline const MouseTrackingState&
 Vterm::getMouseTrackingState() const {
     return mouseTrk;
+}
+
+inline Vterm::KittyKeyboardState&
+Vterm::kittyKeyboardState() {
+    return altScreenBufferMode ? kittyKeyboardAlt : kittyKeyboardPri;
+}
+
+inline const Vterm::KittyKeyboardState&
+Vterm::kittyKeyboardState() const {
+    return altScreenBufferMode ? kittyKeyboardAlt : kittyKeyboardPri;
+}
+
+inline uint8_t
+Vterm::getKittyKeyboardFlags() const {
+    return kittyKeyboardState().flags;
 }
 
 inline void
@@ -197,6 +216,12 @@ Vterm::resetTerminal() {
     altSendsEscape = opts.altSendsEscape;
     modifyOtherKeys = opts.modifyOtherKeys;
     savedPrivModes.clear();
+    kittyKeyboardPri = {};
+    kittyKeyboardAlt = {};
+    activeHyperlink = 0;
+    hyperlinkIds.clear();
+    hyperlinks.clear();
+    nextHyperlink = 1;
 
     horizMarginMode = false;
     hMargin = 0;
@@ -218,6 +243,7 @@ Vterm::resetTerminal() {
 inline void
 Vterm::resetScreen() {
     showCursorMode = true;
+    cursorShape = CharVdev::Cursor::Style::filled_block;
     autoWrapMode = true;
     autoNewlineMode = false;
     keyboardLocked = false;
@@ -225,6 +251,7 @@ Vterm::resetScreen() {
     bkspSendsDel = true;
     localEcho = false;
     bracketedPasteMode = false;
+    synchronizedOutputMode = false;
 
     compatLevel = CompatibilityLevel::VT400;
     cursorKeyMode = CursorKeyMode::ANSI;
@@ -290,6 +317,7 @@ Vterm::switchScreenBufferMode(bool altScreenBufferMode_) {
     }
 
     if (altScreenBufferMode_) {
+        kittyKeyboardAlt = {};
         frame_alt = Frame(winPx, winPy, nCols, nRows,
                           marginTop, marginBottom);
         cf = &frame_alt;
@@ -488,10 +516,14 @@ Vterm::placeGraphicChar() {
     auto& c = cf->getCell(posY, posX);
     c = attrs;
     c.uc_pt = pt;
+    c.hyperlink = activeHyperlink;
 
     if (w == 2 && posX < nColsEff - 1) {
         c.dwidth = 1;
-        cf->getCell(posY, ++posX).dwidth_cont = 1;
+        auto& continuation = cf->getCell(posY, ++posX);
+        continuation = attrs;
+        continuation.dwidth_cont = 1;
+        continuation.hyperlink = activeHyperlink;
     }
 
     if (posX == nColsEff - 1) {
@@ -549,7 +581,7 @@ Vterm::showCursor() {
     if (showCursorMode && inputState == InputState::Normal) {
         cf->setCursorPos(posY, posX);
         using CS = CharVdev::Cursor::Style;
-        cf->setCursorStyle(hasFocus ? CS::filled_block : CS::hollow_block);
+        cf->setCursorStyle(hasFocus ? cursorShape : CS::hollow_block);
     }
 }
 
@@ -676,6 +708,32 @@ Vterm::csi_ecma48_SR() {
     int arg = inputOps[0] ? inputOps[0] : 1u;
     arg = std::min(arg, nColsEff - hMargin);
     insertCols(hMargin, arg);
+    setState(InputState::Normal);
+}
+
+inline void
+Vterm::csi_DECSCUSR() {
+    TRACE_FUN;
+    using CS = CharVdev::Cursor::Style;
+    switch (inputOps[0]) {
+        case 0:
+        case 1:
+        case 2:
+            cursorShape = CS::filled_block;
+            break;
+        case 3:
+        case 4:
+            cursorShape = CS::underline;
+            break;
+        case 5:
+        case 6:
+            cursorShape = CS::bar;
+            break;
+        default:
+            logI << "DECSCUSR with illegal param: "
+                 << inputOps[0] << std::endl;
+            break;
+    }
     setState(InputState::Normal);
 }
 
@@ -1348,7 +1406,6 @@ Vterm::setPrivMode(uint32_t arg, bool set) {
                 mouseTrk.mode = MouseTrackingMode::VT200;
                 break;
             case 1001:
-                logU << "Set VT200 Highlight Mouse mode" << std::endl;
                 break;
             case 1002:
                 mouseTrk.mode = MouseTrackingMode::VT200_ButtonEvent;
@@ -1387,6 +1444,9 @@ Vterm::setPrivMode(uint32_t arg, bool set) {
                 break;
             case 2004:
                 bracketedPasteMode = true;
+                break;
+            case 2026:
+                synchronizedOutputMode = true;
                 break;
             default:
                 logU << "set priv mode " << arg << std::endl;
@@ -1443,7 +1503,6 @@ Vterm::setPrivMode(uint32_t arg, bool set) {
                 nColsEff = nCols;
                 break;
             case 1001:
-                logU << "Reset VT200 Highlight Mouse mode" << std::endl;
                 break;
             case 1004:
                 mouseTrk.focusEventMode = false;
@@ -1472,6 +1531,9 @@ Vterm::setPrivMode(uint32_t arg, bool set) {
                 break;
             case 2004:
                 bracketedPasteMode = false;
+                break;
+            case 2026:
+                synchronizedOutputMode = false;
                 break;
             default:
                 logU << "reset priv mode " << arg << std::endl;
@@ -1525,6 +1587,8 @@ Vterm::getPrivMode(uint32_t arg) const {
             return altSendsEscape;
         case 2004:
             return bracketedPasteMode;
+        case 2026:
+            return synchronizedOutputMode;
         default:
             return false;
     }
@@ -2105,5 +2169,68 @@ Vterm::csi_XTMODKEYS() {
             }
     }
 
+    setState(InputState::Normal);
+}
+
+inline void
+Vterm::csi_kittyKeyboardPush() {
+    TRACE_FUN;
+    constexpr size_t maxStackDepth = 16;
+    auto& state = kittyKeyboardState();
+    if (state.stack.size() == maxStackDepth) {
+        state.stack.erase(state.stack.begin());
+    }
+    state.stack.push_back(state.flags);
+    state.flags = inputOps[0] & 0x07;
+    setState(InputState::Normal);
+}
+
+inline void
+Vterm::csi_kittyKeyboardPop() {
+    TRACE_FUN;
+    auto& state = kittyKeyboardState();
+    const uint32_t count = inputOps[0] ? inputOps[0] : 1;
+    for (uint32_t k = 0; k < count; ++k) {
+        if (state.stack.empty()) {
+            state.flags = 0;
+            break;
+        }
+        state.flags = state.stack.back();
+        state.stack.pop_back();
+    }
+    setState(InputState::Normal);
+}
+
+inline void
+Vterm::csi_kittyKeyboardSet() {
+    TRACE_FUN;
+    auto& state = kittyKeyboardState();
+    const uint8_t flags = inputOps[0] & 0x07;
+    const uint32_t mode = nInputOps > 1 && inputOps[1]
+                              ? inputOps[1]
+                              : 1;
+    switch (mode) {
+        case 1:
+            state.flags = flags;
+            break;
+        case 2:
+            state.flags |= flags;
+            break;
+        case 3:
+            state.flags &= ~flags;
+            break;
+        default:
+            break;
+    }
+    setState(InputState::Normal);
+}
+
+inline void
+Vterm::csi_kittyKeyboardQuery() {
+    TRACE_FUN;
+    std::ostringstream reply;
+    reply << "\x1b[?" << static_cast<unsigned>(getKittyKeyboardFlags())
+          << 'u';
+    writePty(reply.str().c_str());
     setState(InputState::Normal);
 }

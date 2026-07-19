@@ -36,6 +36,7 @@
 #include <poll.h>
 #include <pwd.h>
 #include <signal.h>
+#include <spawn.h>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -51,7 +52,10 @@ static std::unique_ptr<Renderer> renderer;
 static std::unique_ptr<Vterm> vt;
 static GLFWwindow* window = nullptr;
 static GLFWcursor* cursor = nullptr;
+static GLFWcursor* hyperlinkCursor = nullptr;
 static bool glfwInitialized = false;
+
+extern char** environ;
 
 namespace {
     class PtyEventSource {
@@ -156,6 +160,7 @@ namespace {
 
     struct MouseContext {
         bool selectionOngoing = false;
+        bool hyperlinkClick = false;
         unsigned buttonState = 0;
         int lastButton = -1;
         int clickCount = 0;
@@ -171,6 +176,9 @@ namespace {
         bool redrawPending = false;
         bool correctingResize = false;
     } windowContext;
+
+    unsigned suppressedTextInputs = 0;
+    bool locallyConsumedKeys[GLFW_KEY_LAST + 1]{};
 
     int gridAlignedWindowSize(int framebufferSize, int border,
                               int cellSize, float scale,
@@ -189,7 +197,8 @@ namespace {
             const int framebufferTarget = 2 * border + cells * cellSize;
             const int windowTarget = static_cast<int>(
                 (static_cast<int64_t>(framebufferTarget) * 120 +
-                 scaleNumerator - 1) / scaleNumerator);
+                 scaleNumerator - 1) /
+                scaleNumerator);
             if (static_cast<int64_t>(windowTarget) * scaleNumerator / 120 ==
                 framebufferTarget) {
                 return windowTarget;
@@ -374,6 +383,122 @@ namespace {
         return modifiers & (GLFW_MOD_SHIFT | GLFW_MOD_CONTROL | GLFW_MOD_ALT);
     }
 
+    uint16_t kittyModifiers(int modifiers) {
+        uint16_t result = 0;
+        if (modifiers & GLFW_MOD_SHIFT) {
+            result |= 1;
+        }
+        if ((modifiers & GLFW_MOD_ALT) &&
+            !keyPressed(GLFW_KEY_RIGHT_ALT)) {
+            result |= 2;
+        }
+        if (modifiers & GLFW_MOD_CONTROL) {
+            result |= 4;
+        }
+        if (modifiers & GLFW_MOD_SUPER) {
+            result |= 8;
+        }
+        if (modifiers & GLFW_MOD_CAPS_LOCK) {
+            result |= 64;
+        }
+        if (modifiers & GLFW_MOD_NUM_LOCK) {
+            result |= 128;
+        }
+        return result;
+    }
+
+    uint32_t decodeKeyName(const char* name) {
+        if (name == nullptr || !*name) {
+            return 0;
+        }
+        const auto* bytes = reinterpret_cast<const unsigned char*>(name);
+        if (bytes[0] < 0x80) {
+            return bytes[0];
+        }
+        if ((bytes[0] & 0xe0) == 0xc0 && bytes[1]) {
+            return ((bytes[0] & 0x1f) << 6) | (bytes[1] & 0x3f);
+        }
+        if ((bytes[0] & 0xf0) == 0xe0 && bytes[1] && bytes[2]) {
+            return ((bytes[0] & 0x0f) << 12) |
+                   ((bytes[1] & 0x3f) << 6) | (bytes[2] & 0x3f);
+        }
+        if ((bytes[0] & 0xf8) == 0xf0 &&
+            bytes[1] && bytes[2] && bytes[3]) {
+            return ((bytes[0] & 0x07) << 18) |
+                   ((bytes[1] & 0x3f) << 12) |
+                   ((bytes[2] & 0x3f) << 6) | (bytes[3] & 0x3f);
+        }
+        return 0;
+    }
+
+    uint32_t baseLayoutKey(int key) {
+        if (key >= GLFW_KEY_A && key <= GLFW_KEY_Z) {
+            return key - GLFW_KEY_A + 'a';
+        }
+        if ((key >= GLFW_KEY_0 && key <= GLFW_KEY_9) ||
+            key == GLFW_KEY_SPACE || key == GLFW_KEY_APOSTROPHE ||
+            key == GLFW_KEY_COMMA || key == GLFW_KEY_MINUS ||
+            key == GLFW_KEY_PERIOD || key == GLFW_KEY_SLASH ||
+            key == GLFW_KEY_SEMICOLON || key == GLFW_KEY_EQUAL ||
+            key == GLFW_KEY_LEFT_BRACKET || key == GLFW_KEY_BACKSLASH ||
+            key == GLFW_KEY_RIGHT_BRACKET || key == GLFW_KEY_GRAVE_ACCENT) {
+            return key;
+        }
+        return 0;
+    }
+
+    uint32_t shiftedKey(uint32_t key) {
+        if (key >= 'a' && key <= 'z') {
+            return key - 'a' + 'A';
+        }
+        switch (key) {
+            case '`':
+                return '~';
+            case '1':
+                return '!';
+            case '2':
+                return '@';
+            case '3':
+                return '#';
+            case '4':
+                return '$';
+            case '5':
+                return '%';
+            case '6':
+                return '^';
+            case '7':
+                return '&';
+            case '8':
+                return '*';
+            case '9':
+                return '(';
+            case '0':
+                return ')';
+            case '-':
+                return '_';
+            case '=':
+                return '+';
+            case '[':
+                return '{';
+            case ']':
+                return '}';
+            case '\\':
+                return '|';
+            case ';':
+                return ':';
+            case '\'':
+                return '"';
+            case ',':
+                return '<';
+            case '.':
+                return '>';
+            case '/':
+                return '?';
+            default:
+                return 0;
+        }
+    }
+
     bool pasteSelection(bool primary) {
         const char* text = nullptr;
         if (primary) {
@@ -542,10 +667,18 @@ namespace {
                 return Key::F19;
             case GLFW_KEY_F20:
                 return Key::F20;
-#ifdef DEBUG
+            case GLFW_KEY_CAPS_LOCK:
+                return Key::CapsLock;
+            case GLFW_KEY_SCROLL_LOCK:
+                return Key::ScrollLock;
+            case GLFW_KEY_NUM_LOCK:
+                return Key::NumLock;
             case GLFW_KEY_PRINT_SCREEN:
                 return Key::Print;
-#endif
+            case GLFW_KEY_PAUSE:
+                return Key::Pause;
+            case GLFW_KEY_MENU:
+                return Key::Menu;
             default:
                 return Key::NONE;
         }
@@ -601,34 +734,105 @@ namespace {
         }
     }
 
-    void onKeyDown(int key, int rawModifiers) {
+    void onKeyEvent(int key, int scancode, int action, int rawModifiers) {
         const int keyModifiers = rawModifiers;
-        rawModifiers = significantModifiers(rawModifiers);
-        const VtModifier modifiers = convertModifiers(rawModifiers);
+        const int legacyModifiers = significantModifiers(rawModifiers);
+        const VtModifier modifiers = convertModifiers(legacyModifiers);
+        const bool pressed = action != GLFW_RELEASE;
+        const bool validKey = key >= 0 && key <= GLFW_KEY_LAST;
+        if (!pressed && validKey && locallyConsumedKeys[key]) {
+            locallyConsumedKeys[key] = false;
+            return;
+        }
+        const auto runLocal = [&](const auto& operation) {
+            if (pressed) {
+                if (validKey) {
+                    locallyConsumedKeys[key] = true;
+                }
+                operation();
+            }
+        };
 
         if (key == GLFW_KEY_PAGE_UP && modifiers == VtModifier::shift) {
-            vt->pageUp();
+            runLocal([&]() {
+                vt->pageUp();
+            });
             return;
         }
         if (key == GLFW_KEY_PAGE_DOWN && modifiers == VtModifier::shift) {
-            vt->pageDown();
+            runLocal([&]() {
+                vt->pageDown();
+            });
             return;
         }
         if (key == GLFW_KEY_C && modifiers == VtModifier::shift_control) {
-            copyPrimaryToClipboard();
+            runLocal([&]() {
+                copyPrimaryToClipboard();
+            });
             return;
         }
         if (key == GLFW_KEY_V && modifiers == VtModifier::shift_control) {
-            pasteSelection(false);
+            runLocal([&]() {
+                pasteSelection(false);
+            });
             return;
         }
         if ((key == GLFW_KEY_INSERT || key == GLFW_KEY_KP_0) &&
             modifiers == VtModifier::shift) {
-            pasteSelection(true);
+            runLocal([&]() {
+                pasteSelection(true);
+            });
             return;
         }
         if (key == GLFW_KEY_SPACE && mouseContext.selectionOngoing) {
-            vt->selectRectangularModeToggle();
+            runLocal([&]() {
+                vt->selectRectangularModeToggle();
+            });
+            return;
+        }
+
+        const uint8_t kittyFlags = vt->getKittyKeyboardFlags();
+        const uint16_t kittyMods = kittyModifiers(rawModifiers);
+        const auto event = action == GLFW_RELEASE
+                               ? Vterm::KeyEventType::Release
+                           : action == GLFW_REPEAT
+                               ? Vterm::KeyEventType::Repeat
+                               : Vterm::KeyEventType::Press;
+
+        if (kittyFlags) {
+            if (key == GLFW_KEY_ESCAPE) {
+                vt->writeKittyKey(27, 0, 0, kittyMods, event);
+                return;
+            }
+
+            const VtKey special = specialKey(key, keyModifiers);
+            if (special != VtKey::NONE) {
+                vt->writeKittyKey(special, kittyMods, event);
+                return;
+            }
+
+            const uint32_t baseKey = baseLayoutKey(key);
+            uint32_t primaryKey = decodeKeyName(
+                glfwGetKeyName(key, scancode));
+            if (!primaryKey) {
+                primaryKey = baseKey;
+            }
+            const uint16_t textMods = kittyMods & ~(64 | 128);
+            if (primaryKey && (textMods & (2 | 4 | 8))) {
+                const uint32_t alternate = textMods & 1
+                                               ? shiftedKey(primaryKey)
+                                               : 0;
+                vt->writeKittyKey(primaryKey, alternate, baseKey,
+                                  textMods, event);
+                if (pressed && (textMods & (2 | 8)) &&
+                    !(textMods & 4)) {
+                    ++suppressedTextInputs;
+                }
+                return;
+            }
+        }
+
+        if (!pressed) {
             return;
         }
 
@@ -643,15 +847,19 @@ namespace {
             return;
         }
 
-        if (rawModifiers & GLFW_MOD_CONTROL) {
+        if (legacyModifiers & GLFW_MOD_CONTROL) {
             uint8_t character = 0;
-            if (controlCharacter(key, rawModifiers, character)) {
+            if (controlCharacter(key, legacyModifiers, character)) {
                 vt->writePty(character, modifiers, true);
             }
         }
     }
 
     void onTextInput(uint32_t codepoint) {
+        if (suppressedTextInputs) {
+            --suppressedTextInputs;
+            return;
+        }
         if (codepoint == 0) {
             return;
         }
@@ -872,6 +1080,21 @@ namespace {
         return mouseContext.clickCount > 1;
     }
 
+    void openHyperlink(const std::string& uri) {
+        pid_t pid = -1;
+        char* const argv[] = {
+            const_cast<char*>("xdg-open"),
+            const_cast<char*>(uri.c_str()),
+            nullptr,
+        };
+        const int error = posix_spawnp(
+            &pid, argv[0], nullptr, nullptr, argv, environ);
+        if (error != 0) {
+            logW << "Cannot open hyperlink '" << uri
+                 << "': " << strerror(error) << std::endl;
+        }
+    }
+
     void onMouseButton(int button, bool pressed, int modifiers) {
         double x = 0.0;
         double y = 0.0;
@@ -886,6 +1109,21 @@ namespace {
         }
         const auto& tracking = vt->getMouseTrackingState();
         const int protocolButton = terminalButton(button);
+
+        if (!pressed && button == GLFW_MOUSE_BUTTON_LEFT &&
+            mouseContext.hyperlinkClick) {
+            mouseContext.hyperlinkClick = false;
+            return;
+        }
+        if (pressed && button == GLFW_MOUSE_BUTTON_LEFT &&
+            (modifiers & GLFW_MOD_CONTROL)) {
+            const std::string uri = vt->getHyperlink(pixelX, pixelY);
+            if (!uri.empty()) {
+                mouseContext.hyperlinkClick = true;
+                openHyperlink(uri);
+                return;
+            }
+        }
 
         if (isMouseProtocol(modifiers, tracking)) {
             sendMouseButtonProtocol(
@@ -926,6 +1164,11 @@ namespace {
         const int pixelX = toPixelX(x);
         const int pixelY = toPixelY(y);
         const int modifiers = keyboardModifiers();
+        const bool overHyperlink = (modifiers & GLFW_MOD_CONTROL) &&
+                                   !vt->getHyperlink(pixelX, pixelY).empty();
+        glfwSetCursor(window, overHyperlink && hyperlinkCursor != nullptr
+                                  ? hyperlinkCursor
+                                  : cursor);
         const auto& tracking = vt->getMouseTrackingState();
         if (isMouseProtocol(modifiers, tracking)) {
             if (tracking.mode == MouseTrackingMode::VT200_ButtonEvent &&
@@ -1056,6 +1299,9 @@ namespace {
                 }
                 return;
             }
+            case 8:
+                vt->setHyperlink(argument);
+                return;
             case 52:
                 break;
             default:
@@ -1164,17 +1410,17 @@ namespace {
             }
             if (!focused) {
                 mouseContext.buttonState = 0;
+                suppressedTextInputs = 0;
+                std::fill_n(locallyConsumedKeys, GLFW_KEY_LAST + 1, false);
             }
             vt->setHasFocus(focused == GLFW_TRUE);
         });
     }
 
-    void onKey(GLFWwindow*, int key, int, int action, int modifiers) {
-        if (action != GLFW_PRESS && action != GLFW_REPEAT) {
-            return;
-        }
-        guardCallback([key, modifiers]() {
-            onKeyDown(key, modifiers);
+    void onKey(GLFWwindow*, int key, int scancode,
+               int action, int modifiers) {
+        guardCallback([key, scancode, action, modifiers]() {
+            onKeyEvent(key, scancode, action, modifiers);
         });
     }
 
@@ -1374,6 +1620,7 @@ namespace {
         }
 
         cursor = glfwCreateStandardCursor(GLFW_IBEAM_CURSOR);
+        hyperlinkCursor = glfwCreateStandardCursor(GLFW_HAND_CURSOR);
         if (cursor != nullptr) {
             glfwSetCursor(window, cursor);
         }
@@ -1414,6 +1661,10 @@ namespace {
             glfwDestroyCursor(cursor);
             cursor = nullptr;
         }
+        if (hyperlinkCursor != nullptr) {
+            glfwDestroyCursor(hyperlinkCursor);
+            hyperlinkCursor = nullptr;
+        }
         glfwDestroyWindow(window);
         window = nullptr;
         glfwTerminate();
@@ -1428,6 +1679,10 @@ namespace {
         if (cursor != nullptr) {
             glfwDestroyCursor(cursor);
             cursor = nullptr;
+        }
+        if (hyperlinkCursor != nullptr) {
+            glfwDestroyCursor(hyperlinkCursor);
+            hyperlinkCursor = nullptr;
         }
         if (window != nullptr) {
             glfwDestroyWindow(window);

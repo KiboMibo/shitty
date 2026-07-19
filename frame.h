@@ -57,7 +57,15 @@ public:
 
     void pageUp(uint16_t count);
     void pageDown(uint16_t count);
-    void pageToBottom();
+    bool pageToBottom();
+
+    struct ViewportState {
+        uint16_t offset;
+        int64_t scrollRows;
+    };
+
+    ViewportState useLiveScreen();
+    void restoreViewport(const ViewportState& state);
     uint16_t getHistoryRows() const {
         return historyRows;
     };
@@ -112,6 +120,7 @@ private:
     uint16_t marginBottom;
     uint16_t historyRows;
     uint16_t viewOffset;
+    int64_t scrollRows = 0;
     bool margins = false;
 
     CharVdev::Cell::Ptr cells = nullptr;

@@ -247,8 +247,8 @@ Fontpack::Fontpack(const std::string& fontpath,
         pos = nextpos + 1;
 
         int flags = FTW_DEPTH;
-        if (nftw(fontpath1.c_str(), fontFileFilter, 32, flags) == -1)
-                     {
+        if (nftw(fontpath1.c_str(), fontFileFilter, 32, flags) == -1 &&
+            errno != ENOENT) {
             SYS_WARN("Cannot walk file tree at ", fontpath1);
         }
 
@@ -325,8 +325,8 @@ Fontpack::Fontpack(const std::string& fontpath,
         pos = nextpos + 1;
 
         int flags = FTW_DEPTH;
-        if (nftw(fontpath1.c_str(), fontFileFilter, 32, flags) == -1)
-                     {
+        if (nftw(fontpath1.c_str(), fontFileFilter, 32, flags) == -1 &&
+            errno != ENOENT) {
             SYS_WARN("Cannot walk file tree at ", fontpath1);
         }
 

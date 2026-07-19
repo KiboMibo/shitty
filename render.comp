@@ -9,6 +9,7 @@ struct Cell
    uint charData;
    uint fg;
    uint bg;
+   uint hyperlink;
 };
 
 layout (std430, set = 0, binding = 1) readonly buffer CellBuffer
@@ -422,6 +423,25 @@ void main ()
       {
          storePixel (outputOrigin + ivec2 (0, y), cursor);
          storePixel (outputOrigin + ivec2 (cellWidth - 1, y), cursor);
+      }
+   }
+   else if (cursorHere && parameters.cursorStyle == 3)
+   {
+      uint thickness = max (1u, parameters.glyphHeight / 8u);
+      for (uint y = parameters.glyphHeight - thickness;
+           y < parameters.glyphHeight; ++y)
+      {
+         for (uint x = 0; x < cellWidth; ++x)
+            storePixel (outputOrigin + ivec2 (x, y), cursor);
+      }
+   }
+   else if (cursorHere && parameters.cursorStyle == 4)
+   {
+      uint thickness = max (1u, parameters.glyphWidth / 6u);
+      for (uint y = 0; y < parameters.glyphHeight; ++y)
+      {
+         for (uint x = 0; x < thickness; ++x)
+            storePixel (outputOrigin + ivec2 (x, y), cursor);
       }
    }
 }

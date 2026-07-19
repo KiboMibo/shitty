@@ -47,10 +47,10 @@ Frame::pageDown(uint16_t count) {
     expose();
 }
 
-inline void
+inline bool
 Frame::pageToBottom() {
     if (!viewOffset) {
-        return;
+        return false;
     }
 
     cursor.posY -= viewOffset;
@@ -58,6 +58,27 @@ Frame::pageToBottom() {
     selection.tl.y -= viewOffset;
     viewOffset = 0;
     expose();
+    return true;
+}
+
+inline Frame::ViewportState
+Frame::useLiveScreen() {
+    const ViewportState state{viewOffset, scrollRows};
+    pageToBottom();
+    return state;
+}
+
+inline void
+Frame::restoreViewport(const ViewportState& state) {
+    if (!state.offset) {
+        return;
+    }
+
+    const int64_t rowsAdded = scrollRows - state.scrollRows;
+    const int64_t offset = std::clamp<int64_t>(
+        static_cast<int64_t>(state.offset) + rowsAdded,
+        0, historyRows);
+    pageUp(static_cast<uint16_t>(offset));
 }
 
 inline void
@@ -70,6 +91,7 @@ Frame::scrollUp(uint16_t count) {
         }
     }
     historyRows = std::min(historyRows + count, (int)saveLines);
+    scrollRows += count;
     damage.add(marginTop * nCols, marginBottom * nCols);
 }
 
@@ -84,6 +106,7 @@ Frame::scrollDown(uint16_t count) {
         }
     }
     historyRows = std::max(0, historyRows - count);
+    scrollRows -= count;
     damage.add(marginTop * nCols, marginBottom * nCols);
 }
 

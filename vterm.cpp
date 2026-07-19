@@ -440,6 +440,160 @@ namespace {
         return 0;
     }
 
+    struct KittyKeySpec {
+        uint32_t code = 0;
+        char final = 'u';
+    };
+
+    KittyKeySpec
+    kittyKeySpec(VtKey key) {
+        using Key = VtKey;
+        switch (key) {
+            case Key::Return:
+                return {13, 'u'};
+            case Key::Backspace:
+                return {127, 'u'};
+            case Key::Tab:
+                return {9, 'u'};
+            case Key::Insert:
+                return {2, '~'};
+            case Key::Delete:
+                return {3, '~'};
+            case Key::Up:
+                return {1, 'A'};
+            case Key::Down:
+                return {1, 'B'};
+            case Key::Right:
+                return {1, 'C'};
+            case Key::Left:
+                return {1, 'D'};
+            case Key::Home:
+                return {1, 'H'};
+            case Key::End:
+                return {1, 'F'};
+            case Key::PageUp:
+                return {5, '~'};
+            case Key::PageDown:
+                return {6, '~'};
+            case Key::F1:
+            case Key::KP_F1:
+                return {1, 'P'};
+            case Key::F2:
+            case Key::KP_F2:
+                return {1, 'Q'};
+            case Key::F3:
+            case Key::KP_F3:
+                return {13, '~'};
+            case Key::F4:
+            case Key::KP_F4:
+                return {1, 'S'};
+            case Key::F5:
+                return {15, '~'};
+            case Key::F6:
+                return {17, '~'};
+            case Key::F7:
+                return {18, '~'};
+            case Key::F8:
+                return {19, '~'};
+            case Key::F9:
+                return {20, '~'};
+            case Key::F10:
+                return {21, '~'};
+            case Key::F11:
+                return {23, '~'};
+            case Key::F12:
+                return {24, '~'};
+            case Key::F13:
+                return {57376, 'u'};
+            case Key::F14:
+                return {57377, 'u'};
+            case Key::F15:
+                return {57378, 'u'};
+            case Key::F16:
+                return {57379, 'u'};
+            case Key::F17:
+                return {57380, 'u'};
+            case Key::F18:
+                return {57381, 'u'};
+            case Key::F19:
+                return {57382, 'u'};
+            case Key::F20:
+                return {57383, 'u'};
+            case Key::KP_0:
+                return {57399, 'u'};
+            case Key::KP_1:
+                return {57400, 'u'};
+            case Key::KP_2:
+                return {57401, 'u'};
+            case Key::KP_3:
+                return {57402, 'u'};
+            case Key::KP_4:
+                return {57403, 'u'};
+            case Key::KP_5:
+                return {57404, 'u'};
+            case Key::KP_6:
+                return {57405, 'u'};
+            case Key::KP_7:
+                return {57406, 'u'};
+            case Key::KP_8:
+                return {57407, 'u'};
+            case Key::KP_9:
+                return {57408, 'u'};
+            case Key::KP_Dot:
+                return {57409, 'u'};
+            case Key::KP_Slash:
+                return {57410, 'u'};
+            case Key::KP_Star:
+                return {57411, 'u'};
+            case Key::KP_Minus:
+                return {57412, 'u'};
+            case Key::KP_Plus:
+                return {57413, 'u'};
+            case Key::KP_Enter:
+                return {57414, 'u'};
+            case Key::KP_Equal:
+                return {57415, 'u'};
+            case Key::KP_Comma:
+                return {57416, 'u'};
+            case Key::KP_Left:
+                return {57417, 'u'};
+            case Key::KP_Right:
+                return {57418, 'u'};
+            case Key::KP_Up:
+                return {57419, 'u'};
+            case Key::KP_Down:
+                return {57420, 'u'};
+            case Key::KP_PageUp:
+                return {57421, 'u'};
+            case Key::KP_PageDown:
+                return {57422, 'u'};
+            case Key::KP_Home:
+                return {57423, 'u'};
+            case Key::KP_End:
+                return {57424, 'u'};
+            case Key::KP_Insert:
+                return {57425, 'u'};
+            case Key::KP_Delete:
+                return {57426, 'u'};
+            case Key::KP_Begin:
+                return {57427, 'u'};
+            case Key::CapsLock:
+                return {57358, 'u'};
+            case Key::ScrollLock:
+                return {57359, 'u'};
+            case Key::NumLock:
+                return {57360, 'u'};
+            case Key::Print:
+                return {57361, 'u'};
+            case Key::Pause:
+                return {57362, 'u'};
+            case Key::Menu:
+                return {57363, 'u'};
+            default:
+                return {};
+        }
+    }
+
     void
     makePalette256(Color p[]) {
         opts.getColor("color0", p[0]);
@@ -1221,6 +1375,87 @@ int Vterm::writePty(uint8_t ch, VtModifier modifiers, bool userInput) {
     }
 }
 
+int Vterm::writeKittyKey(VtKey key, uint16_t modifiers,
+                         KeyEventType event) {
+    if (key == VtKey::Return || key == VtKey::Tab ||
+        key == VtKey::Backspace) {
+        if (event == KeyEventType::Release) {
+            return 0;
+        }
+
+        std::string encoded;
+        if (modifiers & 2) {
+            encoded.push_back('\x1b');
+        }
+        if (key == VtKey::Return) {
+            encoded.push_back('\r');
+            if (autoNewlineMode) {
+                encoded.push_back('\n');
+            }
+        } else if (key == VtKey::Tab) {
+            encoded += modifiers & 1 ? "\x1b[Z" : "\t";
+        } else {
+            const char backspace = modifiers & 4
+                                       ? '\b'
+                                       : (bkspSendsDel ? '\x7f' : '\b');
+            encoded.push_back(backspace);
+        }
+        return writePty(
+            reinterpret_cast<const uint8_t*>(encoded.data()),
+            encoded.size(), true);
+    }
+
+    const KittyKeySpec spec = kittyKeySpec(key);
+    if (!spec.code) {
+        return 0;
+    }
+
+    if (event == KeyEventType::Release &&
+        !(getKittyKeyboardFlags() & 0x02)) {
+        return 0;
+    }
+
+    std::ostringstream sequence;
+    sequence << "\x1b[" << spec.code << ';' << modifiers + 1;
+    if (getKittyKeyboardFlags() & 0x02) {
+        sequence << ':' << static_cast<unsigned>(event);
+    }
+    sequence << spec.final;
+    const std::string encoded = sequence.str();
+    return writePty(reinterpret_cast<const uint8_t*>(encoded.data()),
+                    encoded.size(), true);
+}
+
+int Vterm::writeKittyKey(uint32_t key, uint32_t shiftedKey,
+                         uint32_t baseLayoutKey, uint16_t modifiers,
+                         KeyEventType event) {
+    if (!key || (event == KeyEventType::Release &&
+                 !(getKittyKeyboardFlags() & 0x02))) {
+        return 0;
+    }
+
+    std::ostringstream sequence;
+    sequence << "\x1b[" << key;
+    if (getKittyKeyboardFlags() & 0x04) {
+        if (shiftedKey) {
+            sequence << ':' << shiftedKey;
+            if (baseLayoutKey && baseLayoutKey != key) {
+                sequence << ':' << baseLayoutKey;
+            }
+        } else if (baseLayoutKey && baseLayoutKey != key) {
+            sequence << "::" << baseLayoutKey;
+        }
+    }
+    sequence << ';' << modifiers + 1;
+    if (getKittyKeyboardFlags() & 0x02) {
+        sequence << ':' << static_cast<unsigned>(event);
+    }
+    sequence << 'u';
+    const std::string encoded = sequence.str();
+    return writePty(reinterpret_cast<const uint8_t*>(encoded.data()),
+                    encoded.size(), true);
+}
+
 int Vterm::writePty(const char* cstr, bool userInput) {
     auto ucstr = (unsigned char*)cstr;
     return writePty(ucstr, strlen(cstr), userInput);
@@ -1231,6 +1466,10 @@ int Vterm::writePty(const uint8_t* ucstr, size_t len, bool userInput) {
         logT << "pty write: discarding due to keyboard lock (DECKAM): "
              << dumpBuffer(ucstr, ucstr + len);
         return len;
+    }
+
+    if (userInput && cf->pageToBottom()) {
+        redraw();
     }
 
     logT << "pty write: " << dumpBuffer(ucstr, ucstr + len);
@@ -1447,11 +1686,12 @@ void Vterm::processInput(const std::string& str) {
 }
 
 void Vterm::processInput(const unsigned char* const input, int inputSize) {
+    Frame* const outputFrame = cf;
+    const auto viewport = outputFrame->useLiveScreen();
     lastEscBegin = 0;
     lastNormalBegin = 0;
     lastStopPos = 0;
     hideCursor();
-    cf->pageToBottom();
     for (readPos = 0; readPos < inputSize; ++readPos) {
         const unsigned char& ch = input[readPos];
         switch (inputState) {
@@ -1939,9 +2179,17 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         setState(InputState::CSI);
                         break;
 
-                    case ':':
                     case '<':
+                        setState(readPos == lastEscBegin + 2
+                                     ? InputState::CSI_LT
+                                     : InputState::IgnoreSequence);
+                        break;
                     case '=':
+                        setState(readPos == lastEscBegin + 2
+                                     ? InputState::CSI_EQ
+                                     : InputState::IgnoreSequence);
+                        break;
+                    case ':':
                         setState(InputState::IgnoreSequence);
                         break;
                     default:
@@ -1993,6 +2241,9 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                     case 'A':
                         csi_ecma48_SR();
                         break;
+                    case 'q':
+                        csi_DECSCUSR();
+                        break;
                         IGNORE_SEQUENCE_ON_BAD_PARAMS;
                     default:
                         unhandledInput(ch);
@@ -2007,6 +2258,33 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         break;
                     case 'm':
                         csi_XTMODKEYS();
+                        break;
+                    case 'u':
+                        csi_kittyKeyboardPush();
+                        break;
+                        IGNORE_SEQUENCE_ON_BAD_PARAMS;
+                    default:
+                        unhandledInput(ch);
+                        break;
+                }
+                break;
+            case InputState::CSI_LT:
+                switch (ch) {
+                    COLLECT_NUMERIC_PARAMS;
+                    case 'u':
+                        csi_kittyKeyboardPop();
+                        break;
+                        IGNORE_SEQUENCE_ON_BAD_PARAMS;
+                    default:
+                        unhandledInput(ch);
+                        break;
+                }
+                break;
+            case InputState::CSI_EQ:
+                switch (ch) {
+                    COLLECT_NUMERIC_PARAMS;
+                    case 'u':
+                        csi_kittyKeyboardSet();
                         break;
                         IGNORE_SEQUENCE_ON_BAD_PARAMS;
                     default:
@@ -2031,6 +2309,9 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         break;
                     case 'r':
                         csi_privRestore();
+                        break;
+                    case 'u':
+                        csi_kittyKeyboardQuery();
                         break;
                         IGNORE_SEQUENCE_ON_BAD_PARAMS;
                     default:
@@ -2099,7 +2380,55 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
     }
     traceNormalInput();
     showCursor();
+    outputFrame->restoreViewport(viewport);
     redraw();
+}
+
+void Vterm::setHyperlink(const std::string& parametersAndUri) {
+    const size_t separator = parametersAndUri.find(';');
+    if (separator == std::string::npos) {
+        logW << "Malformed OSC 8 argument" << std::endl;
+        return;
+    }
+
+    const std::string uri = parametersAndUri.substr(separator + 1);
+    if (uri.empty()) {
+        activeHyperlink = 0;
+        return;
+    }
+
+    const auto known = hyperlinkIds.find(uri);
+    if (known != hyperlinkIds.end()) {
+        activeHyperlink = known->second;
+        return;
+    }
+
+    if (nextHyperlink == 0) {
+        logW << "OSC 8 hyperlink identifier space exhausted" << std::endl;
+        activeHyperlink = 0;
+        return;
+    }
+
+    activeHyperlink = nextHyperlink++;
+    hyperlinkIds.emplace(uri, activeHyperlink);
+    hyperlinks.emplace(activeHyperlink, uri);
+}
+
+std::string Vterm::getHyperlink(int pX, int pY) const {
+    if (pX < opts.border || pY < opts.border ||
+        pX >= winPx - opts.border || pY >= winPy - opts.border) {
+        return {};
+    }
+
+    const uint16_t column = (pX - opts.border) / glyphPx;
+    const uint16_t row = (pY - opts.border) / glyphPy;
+    if (column >= cf->nCols || row >= cf->nRows) {
+        return {};
+    }
+
+    const uint32_t id = cf->getCell(row, column).hyperlink;
+    const auto link = hyperlinks.find(id);
+    return link == hyperlinks.end() ? std::string{} : link->second;
 }
 
 void Vterm::selectStart(int pX, int pY, bool cycleSnapTo) {

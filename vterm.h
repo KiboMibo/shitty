@@ -105,6 +105,11 @@ enum class VtKey {
     KP_8,
     KP_9,
 
+    CapsLock,
+    ScrollLock,
+    NumLock,
+    Pause,
+    Menu,
     Print
 };
 
@@ -148,6 +153,12 @@ struct MouseTrackingState {
 
 class Vterm {
 public:
+    enum class KeyEventType : uint8_t {
+        Press = 1,
+        Repeat = 2,
+        Release = 3
+    };
+
     Vterm(uint16_t glyphPx, uint16_t glyphPy,
           uint16_t winPx, uint16_t winPy,
           int ptyFd);
@@ -182,12 +193,20 @@ public:
     int writePty(uint8_t ch, VtModifier modifiers = VtModifier::none,
                  bool userInput = false);
     int writePty(const char* cstr, bool userInput = false);
+    int writeKittyKey(VtKey key, uint16_t modifiers,
+                      KeyEventType event);
+    int writeKittyKey(uint32_t key, uint32_t shiftedKey,
+                      uint32_t baseLayoutKey, uint16_t modifiers,
+                      KeyEventType event);
+    uint8_t getKittyKeyboardFlags() const;
 
     bool readPty();
 
     const MouseTrackingState& getMouseTrackingState() const;
 
     void setHasFocus(bool);
+    void setHyperlink(const std::string& parametersAndUri);
+    std::string getHyperlink(int pX, int pY) const;
     void mouseWheelUp();
     void mouseWheelDown();
     void pageUp();
@@ -245,6 +264,8 @@ private:
         CSI_Bang,
         CSI_SPC,
         CSI_GT,
+        CSI_LT,
+        CSI_EQ,
         DCS,
         DCS_Esc,
         OSC,
@@ -270,6 +291,8 @@ private:
                 "CSI_Bang",
                 "CSI_SPC",
                 "CSI_GT",
+                "CSI_LT",
+                "CSI_EQ",
                 "DCS",
                 "DCS_Esc",
                 "OSC",
@@ -362,6 +385,7 @@ private:
 
     void csi_ecma48_SL();
     void csi_ecma48_SR();
+    void csi_DECSCUSR();
 
     void csi_priDA();
     void csi_secDA();
@@ -372,6 +396,10 @@ private:
     void csiq_DECSCL();
     void csi_XTWINOPS();
     void csi_XTMODKEYS();
+    void csi_kittyKeyboardPush();
+    void csi_kittyKeyboardPop();
+    void csi_kittyKeyboardSet();
+    void csi_kittyKeyboardQuery();
 
     void dcs_DECRQSS(const std::string&);
 
@@ -404,6 +432,10 @@ private:
     Color* fg = &attrs.fg;
     Color* bg = &attrs.bg;
     Color palette256[256];
+    std::map<std::string, uint32_t> hyperlinkIds;
+    std::map<uint32_t, std::string> hyperlinks;
+    uint32_t activeHyperlink = 0;
+    uint32_t nextHyperlink = 1;
     int defaultFgPalIx;
     int defaultBgPalIx;
     int fgPalIx;
@@ -429,6 +461,8 @@ private:
     VtModifier modifiers = VtModifier::none;
 
     bool showCursorMode = true;
+    CharVdev::Cursor::Style cursorShape =
+        CharVdev::Cursor::Style::filled_block;
     bool altScreenBufferMode = false;
     bool autoWrapMode = true;
     bool autoNewlineMode = false;
@@ -437,10 +471,21 @@ private:
     bool bkspSendsDel = true;
     bool localEcho = false;
     bool bracketedPasteMode = false;
+    bool synchronizedOutputMode = false;
     bool altScrollMode = false;
     bool altSendsEscape = true;
     uint8_t modifyOtherKeys = 1;
     std::map<uint32_t, bool> savedPrivModes;
+
+    struct KittyKeyboardState {
+        uint8_t flags = 0;
+        std::vector<uint8_t> stack;
+    };
+    KittyKeyboardState kittyKeyboardPri;
+    KittyKeyboardState kittyKeyboardAlt;
+
+    KittyKeyboardState& kittyKeyboardState();
+    const KittyKeyboardState& kittyKeyboardState() const;
 
     bool horizMarginMode = false;
     uint16_t nColsEff = 0;

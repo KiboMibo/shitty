@@ -54,6 +54,7 @@ public:
         uint8_t _fill1;
         Color bg;
         uint8_t _fill2;
+        uint32_t hyperlink = 0;
 
         Cell()
             : dwidth(0)
@@ -79,7 +80,7 @@ public:
             return !operator==(rhs);
         }
     };
-    static_assert(sizeof(Cell) == 12, "Cell size mismatch");
+    static_assert(sizeof(Cell) == 16, "Cell size mismatch");
 
     static Cell::Ptr make_cells(uint16_t nCols, uint16_t nRows) {
         return std::shared_ptr<Cell>(new Cell[nRows * nCols],
@@ -116,7 +117,9 @@ public:
         enum class Style : uint8_t {
             hidden = 0,
             filled_block = 1,
-            hollow_block = 2
+            hollow_block = 2,
+            underline = 3,
+            bar = 4
         };
         Style style = Style::hidden;
     };
