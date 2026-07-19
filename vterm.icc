@@ -137,16 +137,6 @@ Vterm::unhandledInput(unsigned char ch) {
     if ((ch >= 0x20 && ch <= 0x2f) || ch == ':') {
         switch (inputState) {
             case InputState::CSI:
-            case InputState::CSI_priv:
-            case InputState::CSI_Quote:
-            case InputState::CSI_DblQuote:
-            case InputState::CSI_Bang:
-            case InputState::CSI_SPC:
-            case InputState::CSI_GT:
-            case InputState::CSI_LT:
-            case InputState::CSI_EQ:
-            case InputState::CSI_Dollar:
-            case InputState::CSI_priv_Dollar:
                 setState(InputState::IgnoreSequence);
                 return;
             default:
@@ -2650,7 +2640,7 @@ Vterm::csi_SGR() {
     * 21 - horizontal scrolling
     * 22 - color
     */
-#define DEVICE_ID "64;9;15;21;22c"
+#define DEVICE_ID "64;1;2;6;8;9;15;21;22;28;29c"
 
 inline void
 Vterm::csi_priDA() {

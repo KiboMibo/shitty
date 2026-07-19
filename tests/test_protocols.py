@@ -9,7 +9,7 @@ class ProtocolTest(unittest.TestCase):
             terminal.write(b"\x1b[2;4H\x1b[c\x1b[>c\x1b[5n\x1b[6n")
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[?64;9;15;21;22c"
+            b"\x1b[?64;1;2;6;8;9;15;21;22;28;29c"
                 b"\x1b[>41;14;0c"
                 b"\x1b[0n"
                 b"\x1b[2;4R",
@@ -116,24 +116,24 @@ class ProtocolTest(unittest.TestCase):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b G\x1b[c")
             self.assertEqual(
-                terminal.read_input(), b"\x9b?64;9;15;21;22c"
+                terminal.read_input(), b"\x9b?64;1;2;6;8;9;15;21;22;28;29c"
             )
 
             terminal.write(b"\x1b F\x1b[c")
             self.assertEqual(
-                terminal.read_input(), b"\x1b[?64;9;15;21;22c"
+                terminal.read_input(), b"\x1b[?64;1;2;6;8;9;15;21;22;28;29c"
             )
 
     def test_decscl_selects_response_control_width(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[64;0\"p\x1b[c")
             self.assertEqual(
-                terminal.read_input(), b"\x9b?64;9;15;21;22c"
+                terminal.read_input(), b"\x9b?64;1;2;6;8;9;15;21;22;28;29c"
             )
 
             terminal.write(b"\x1b[64;1\"p\x1b[c")
             self.assertEqual(
-                terminal.read_input(), b"\x1b[?64;9;15;21;22c"
+                terminal.read_input(), b"\x1b[?64;1;2;6;8;9;15;21;22;28;29c"
             )
 
     def test_decrqss_rejects_unsupported_queries(self):

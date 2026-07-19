@@ -333,17 +333,6 @@ private:
         Esc_Pct,
         SelectCharset,
         CSI,
-        CSI_priv,
-        CSI_Quote,
-        CSI_DblQuote,
-        CSI_Bang,
-        CSI_SPC,
-        CSI_Asterisk,
-        CSI_GT,
-        CSI_LT,
-        CSI_EQ,
-        CSI_Dollar,
-        CSI_priv_Dollar,
         DCS,
         DCS_Esc,
         OSC,
@@ -365,17 +354,6 @@ private:
                 "Esc_Pct",
                 "SelectCharset",
                 "CSI",
-                "CSI_priv",
-                "CSI_Quote",
-                "CSI_DblQuote",
-                "CSI_Bang",
-                "CSI_SPC",
-                "CSI_Asterisk",
-                "CSI_GT",
-                "CSI_LT",
-                "CSI_EQ",
-                "CSI_Dollar",
-                "CSI_priv_Dollar",
                 "DCS",
                 "DCS_Esc",
                 "OSC",
@@ -388,6 +366,9 @@ private:
     }
 
     void setState(InputState inputState);
+    void beginCsi();
+    void processCsiByte(unsigned char ch);
+    void dispatchCsi(unsigned char finalByte);
 
     void normalizeCursorPos();
     bool isCursorInsideMargins();
@@ -604,6 +585,8 @@ private:
     // parser state, rather than an input-buffer offset: PTY reads may split an
     // escape sequence at any byte.
     bool csiPrefixAllowed = false;
+    std::string csiPrivatePrefix;
+    std::string csiIntermediates;
     constexpr const static size_t maxEscOps = 32;
     constexpr const static size_t maxOscBytes = 1024 * 1024;
     uint32_t inputOps[maxEscOps];

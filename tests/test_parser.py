@@ -34,6 +34,24 @@ def observable(terminal):
 
 
 class ParserStreamingTest(unittest.TestCase):
+    def test_parameter_intermediate_and_final_bytes_are_independent(self):
+        with Zutty(columns=6, rows=2) as terminal:
+            terminal.write_chunks(b"\x1b[1;", b"2", b"\"", b"q", b"X")
+            self.assertTrue(terminal.snapshot().cell(0, 0).protected)
+
+            terminal.write(b"\x1b[1!2pY")
+            self.assertEqual(terminal.snapshot().cell(1, 0).char, "Y")
+
+    def test_unknown_multi_intermediate_csi_is_ignored_atomically(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"a\x1b[12 !~b")
+            self.assertEqual(terminal.snapshot().lines[0][:2], "ab")
+
+    def test_private_prefix_after_numeric_parameters_is_rejected(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"a\x1b[1?25hb")
+            self.assertEqual(terminal.snapshot().lines[0][:2], "ab")
+
     def assert_all_splits_match(self, sequence, suffix=b"X"):
         with Zutty(columns=8, rows=3) as terminal:
             terminal.write(sequence + suffix)

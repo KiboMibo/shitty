@@ -1959,6 +1959,156 @@ void Vterm::feedPtyOutput(const std::string& output) {
     processInput(output);
 }
 
+void Vterm::beginCsi() {
+    inputOps[0] = 0;
+    inputSeparators[0] = 0;
+    nInputOps = 1;
+    csiHadParams = false;
+    csiPrefixAllowed = true;
+    csiPrivatePrefix.clear();
+    csiIntermediates.clear();
+    setState(InputState::CSI);
+}
+
+void Vterm::dispatchCsi(unsigned char finalByte) {
+    const std::string key = csiPrivatePrefix + csiIntermediates +
+                            static_cast<char>(finalByte);
+    if (key == "A") csi_CUU();
+    else if (key == "B") csi_CUD();
+    else if (key == "C") csi_CUF();
+    else if (key == "D") csi_CUB();
+    else if (key == "E") csi_CNL();
+    else if (key == "F") csi_CPL();
+    else if (key == "G") csi_CHA();
+    else if (key == "H" || key == "f") csi_CUP();
+    else if (key == "I") csi_CHT();
+    else if (key == "J") csi_ED();
+    else if (key == "K") csi_EL();
+    else if (key == "L") csi_IL();
+    else if (key == "M") csi_DL();
+    else if (key == "P") csi_DCH();
+    else if (key == "S") csi_SU();
+    else if (key == "T") {
+        if (nInputOps == 5 &&
+            mouseTrk.mode == MouseTrackingMode::VT200_Highlight)
+            csi_XTHIMOUSE();
+        else csi_SD();
+    }
+    else if (key == "X") csi_ECH();
+    else if (key == "Z") csi_CBT();
+    else if (key == "@") csi_ICH();
+    else if (key == "`") csi_HPA();
+    else if (key == "a") csi_HPR();
+    else if (key == "b") csi_REP();
+    else if (key == "c") csi_priDA();
+    else if (key == "d") csi_VPA();
+    else if (key == "e") csi_VPR();
+    else if (key == "g") csi_TBC();
+    else if (key == "h") csi_SM();
+    else if (key == "l") csi_RM();
+    else if (key == "m") csi_SGR();
+    else if (key == "n") csi_DSR();
+    else if (key == "q") csi_DECLL();
+    else if (key == "i") csi_MC(false);
+    else if (key == "r") csi_STBM();
+    else if (key == "s") csi_SCOSC_SLRM();
+    else if (key == "t") csi_XTWINOPS();
+    else if (key == "u") csi_SCORC();
+    else if (key == "!p") csi_DECSTR();
+    else if (key == "'}") csi_DECIC();
+    else if (key == "'~") csi_DECDC();
+    else if (key == "'z") csi_DECELR();
+    else if (key == "'{") csi_DECSLE();
+    else if (key == "'|") csi_DECRQLP();
+    else if (key == "'w") csi_DECEFR();
+    else if (key == "\"p") csiq_DECSCL();
+    else if (key == "\"q") csi_DECSCA();
+    else if (key == " @") csi_ecma48_SL();
+    else if (key == " A") csi_ecma48_SR();
+    else if (key == " q") csi_DECSCUSR();
+    else if (key == ">c") csi_secDA();
+    else if (key == ">m") csi_XTMODKEYS();
+    else if (key == ">u") csi_kittyKeyboardPush();
+    else if (key == ">q") csi_XTVERSION();
+    else if (key == "<u") csi_kittyKeyboardPop();
+    else if (key == "=u") csi_kittyKeyboardSet();
+    else if (key == "=c") csi_terDA();
+    else if (key == "?h") csi_privSM();
+    else if (key == "?l") csi_privRM();
+    else if (key == "?s") csi_privSave();
+    else if (key == "?r") csi_privRestore();
+    else if (key == "?u") csi_kittyKeyboardQuery();
+    else if (key == "?m") csi_XTQMODKEYS();
+    else if (key == "?J") csi_DECSED();
+    else if (key == "?K") csi_DECSEL();
+    else if (key == "?i") csi_MC(true);
+    else if (key == "$p") csi_DECRQM(false);
+    else if (key == "$r") csi_DECCARA(false);
+    else if (key == "$t") csi_DECCARA(true);
+    else if (key == "$v") csi_DECCRA();
+    else if (key == "$x") csi_DECFRA();
+    else if (key == "$z") csi_DECERA();
+    else if (key == "${") csi_DECERA(true);
+    else if (key == "*y") csi_DECRQCRA();
+    else if (key == "?$p") csi_DECRQM(true);
+    else setState(InputState::Normal);
+}
+
+void Vterm::processCsiByte(unsigned char ch) {
+    if (ch >= '0' && ch <= '9') {
+        if (!csiIntermediates.empty()) {
+            setState(InputState::IgnoreSequence);
+            return;
+        }
+        csiHadParams = true;
+        csiPrefixAllowed = false;
+        if (inputOps[nInputOps - 1] >
+            (UINT32_MAX - static_cast<uint32_t>(ch - '0')) / 10)
+            inputOps[nInputOps - 1] = UINT32_MAX;
+        else inputOps[nInputOps - 1] =
+            inputOps[nInputOps - 1] * 10 + ch - '0';
+        return;
+    }
+    if (ch == ';' || ch == ':') {
+        if (!csiIntermediates.empty() || nInputOps >= maxEscOps) {
+            setState(InputState::IgnoreSequence);
+            return;
+        }
+        csiHadParams = true;
+        csiPrefixAllowed = false;
+        inputSeparators[nInputOps] = ch;
+        inputOps[nInputOps++] = 0;
+        return;
+    }
+    if (ch >= '<' && ch <= '?' && csiPrefixAllowed &&
+        csiPrivatePrefix.empty()) {
+        csiPrivatePrefix.push_back(static_cast<char>(ch));
+        return;
+    }
+    if (ch >= 0x20 && ch <= 0x2f) {
+        csiPrefixAllowed = false;
+        if (csiIntermediates.size() >= 4) {
+            setState(InputState::IgnoreSequence);
+            return;
+        }
+        csiIntermediates.push_back(static_cast<char>(ch));
+        return;
+    }
+    if (ch >= 0x40 && ch <= 0x7e) {
+        dispatchCsi(ch);
+        return;
+    }
+    switch (ch) {
+        case '\a': break;
+        case '\b': csi_CUB(); setState(InputState::CSI); break;
+        case '\t': inp_HT(); setState(InputState::CSI); break;
+        case '\r': inp_CR(); setState(InputState::CSI); break;
+        case '\f':
+        case '\v': esc_IND(); setState(InputState::CSI); break;
+        default: setState(InputState::IgnoreSequence); break;
+    }
+}
+
 void Vterm::processInput(const unsigned char* const input, int inputSize) {
     lastEscBegin = 0;
     lastNormalBegin = 0;
@@ -2043,12 +2193,7 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         setState(InputState::String);
                         break;
                     case 0x9b:
-                        inputOps[0] = 0;
-                        inputSeparators[0] = 0;
-                        nInputOps = 1;
-                        csiHadParams = false;
-                        csiPrefixAllowed = true;
-                        setState(InputState::CSI);
+                        beginCsi();
                         break;
                     case 0x9c:
                         break;
@@ -2199,9 +2344,7 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         setState(InputState::Esc_Pct);
                         break;
                     case '[':
-                        csiHadParams = false;
-                        csiPrefixAllowed = true;
-                        setState(InputState::CSI);
+                        beginCsi();
                         break;
                     case ']':
                         argBuf.clear();
@@ -2383,366 +2526,7 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                 }
                 break;
             case InputState::CSI:
-                switch (ch) {
-                    COLLECT_NUMERIC_PARAMS;
-                    case '\x1b':
-                        setState(InputState::Normal);
-                        break;
-                    case 'A':
-                        csi_CUU();
-                        break;
-                    case 'B':
-                        csi_CUD();
-                        break;
-                    case 'C':
-                        csi_CUF();
-                        break;
-                    case 'D':
-                        csi_CUB();
-                        break;
-                    case 'E':
-                        csi_CNL();
-                        break;
-                    case 'F':
-                        csi_CPL();
-                        break;
-                    case 'G':
-                        csi_CHA();
-                        break;
-                    case 'H':
-                    case 'f':
-                        csi_CUP();
-                        break;
-                    case 'I':
-                        csi_CHT();
-                        break;
-                    case 'J':
-                        csi_ED();
-                        break;
-                    case 'K':
-                        csi_EL();
-                        break;
-                    case 'L':
-                        csi_IL();
-                        break;
-                    case 'M':
-                        csi_DL();
-                        break;
-                    case 'P':
-                        csi_DCH();
-                        break;
-                    case 'S':
-                        csi_SU();
-                        break;
-                    case 'T':
-                        if (nInputOps == 5 &&
-                            mouseTrk.mode == MouseTrackingMode::VT200_Highlight)
-                            csi_XTHIMOUSE();
-                        else
-                            csi_SD();
-                        break;
-                    case 'X':
-                        csi_ECH();
-                        break;
-                    case 'Z':
-                        csi_CBT();
-                        break;
-                    case '@':
-                        csi_ICH();
-                        break;
-                    case '`':
-                        csi_HPA();
-                        break;
-                    case 'a':
-                        csi_HPR();
-                        break;
-                    case 'b':
-                        csi_REP();
-                        break;
-                    case 'c':
-                        csi_priDA();
-                        break;
-                    case 'd':
-                        csi_VPA();
-                        break;
-                    case 'e':
-                        csi_VPR();
-                        break;
-                    case 'g':
-                        csi_TBC();
-                        break;
-                    case 'h':
-                        csi_SM();
-                        break;
-                    case 'l':
-                        csi_RM();
-                        break;
-                    case 'm':
-                        csi_SGR();
-                        break;
-                    case 'n':
-                        csi_DSR();
-                        break;
-                    case 'q':
-                        csi_DECLL();
-                        break;
-                    case 'i':
-                        csi_MC(false);
-                        break;
-                    case 'r':
-                        csi_STBM();
-                        break;
-                    case 's':
-                        csi_SCOSC_SLRM();
-                        break;
-                    case 't':
-                        csi_XTWINOPS();
-                        break;
-                    case 'u':
-                        csi_SCORC();
-                        break;
-                    case '\'':
-                        setState(InputState::CSI_Quote);
-                        break;
-                    case '\"':
-                        setState(InputState::CSI_DblQuote);
-                        break;
-                    case '!':
-                        setState(InputState::CSI_Bang);
-                        break;
-                    case '?':
-                        setState(csiPrefixAllowed
-                                     ? InputState::CSI_priv
-                                     : InputState::IgnoreSequence);
-                        csiPrefixAllowed = false;
-                        break;
-                    case ' ':
-                        setState(InputState::CSI_SPC);
-                        break;
-                    case '*':
-                        setState(InputState::CSI_Asterisk);
-                        break;
-                    case '>':
-                        setState(csiPrefixAllowed
-                                     ? InputState::CSI_GT
-                                     : InputState::IgnoreSequence);
-                        csiPrefixAllowed = false;
-                        break;
-                    case '\a':
-                        break;
-                    case '\b':
-                        if (readPos && input[readPos - 1] == ';') {
-                            --nInputOps;
-                        } else {
-                            inputOps[nInputOps - 1] /= 10;
-                        }
-                        break;
-                    case '\t':
-                        inp_HT();
-                        setState(InputState::CSI);
-                        break;
-                    case '\r':
-                        inp_CR();
-                        setState(InputState::CSI);
-                        break;
-                    case '\f':
-                    case '\v':
-                        esc_IND();
-                        setState(InputState::CSI);
-                        break;
-
-                    case '<':
-                        setState(csiPrefixAllowed
-                                     ? InputState::CSI_LT
-                                     : InputState::IgnoreSequence);
-                        csiPrefixAllowed = false;
-                        break;
-                    case '=':
-                        setState(csiPrefixAllowed
-                                     ? InputState::CSI_EQ
-                                     : InputState::IgnoreSequence);
-                        csiPrefixAllowed = false;
-                        break;
-                    case '$':
-                        setState(InputState::CSI_Dollar);
-                        break;
-                    default:
-                        unhandledInput(ch);
-                        break;
-                }
-                break;
-            case InputState::CSI_Bang:
-                switch (ch) {
-                    case 'p':
-                        csi_DECSTR();
-                        break;
-                        IGNORE_SEQUENCE_ON_BAD_PARAMS;
-                    default:
-                        unhandledInput(ch);
-                        break;
-                }
-                break;
-            case InputState::CSI_Quote:
-                switch (ch) {
-                    case '}':
-                        csi_DECIC();
-                        break;
-                    case '~':
-                        csi_DECDC();
-                        break;
-                    case 'z': csi_DECELR(); break;
-                    case '{': csi_DECSLE(); break;
-                    case '|': csi_DECRQLP(); break;
-                    case 'w': csi_DECEFR(); break;
-                        IGNORE_SEQUENCE_ON_BAD_PARAMS;
-                    default:
-                        unhandledInput(ch);
-                        break;
-                }
-                break;
-            case InputState::CSI_DblQuote:
-                switch (ch) {
-                    case 'p':
-                        csiq_DECSCL();
-                        break;
-                    case 'q':
-                        csi_DECSCA();
-                        break;
-                        IGNORE_SEQUENCE_ON_BAD_PARAMS;
-                    default:
-                        unhandledInput(ch);
-                        break;
-                }
-                break;
-            case InputState::CSI_SPC:
-                switch (ch) {
-                    case '@':
-                        csi_ecma48_SL();
-                        break;
-                    case 'A':
-                        csi_ecma48_SR();
-                        break;
-                    case 'q':
-                        csi_DECSCUSR();
-                        break;
-                        IGNORE_SEQUENCE_ON_BAD_PARAMS;
-                    default:
-                        unhandledInput(ch);
-                        break;
-                }
-                break;
-            case InputState::CSI_GT:
-                switch (ch) {
-                    COLLECT_NUMERIC_PARAMS;
-                    case 'c':
-                        csi_secDA();
-                        break;
-                    case 'm':
-                        csi_XTMODKEYS();
-                        break;
-                    case 'u':
-                        csi_kittyKeyboardPush();
-                        break;
-                    case 'q':
-                        csi_XTVERSION();
-                        break;
-                        IGNORE_SEQUENCE_ON_BAD_PARAMS;
-                    default:
-                        unhandledInput(ch);
-                        break;
-                }
-                break;
-            case InputState::CSI_LT:
-                switch (ch) {
-                    COLLECT_NUMERIC_PARAMS;
-                    case 'u':
-                        csi_kittyKeyboardPop();
-                        break;
-                        IGNORE_SEQUENCE_ON_BAD_PARAMS;
-                    default:
-                        unhandledInput(ch);
-                        break;
-                }
-                break;
-            case InputState::CSI_EQ:
-                switch (ch) {
-                    COLLECT_NUMERIC_PARAMS;
-                    case 'u':
-                        csi_kittyKeyboardSet();
-                        break;
-                    case 'c':
-                        csi_terDA();
-                        break;
-                        IGNORE_SEQUENCE_ON_BAD_PARAMS;
-                    default:
-                        unhandledInput(ch);
-                        break;
-                }
-                break;
-            case InputState::CSI_priv:
-                switch (ch) {
-                    COLLECT_NUMERIC_PARAMS;
-                    case '\x1b':
-                        setState(InputState::Normal);
-                        break;
-                    case 'h':
-                        csi_privSM();
-                        break;
-                    case 'l':
-                        csi_privRM();
-                        break;
-                    case 's':
-                        csi_privSave();
-                        break;
-                    case 'r':
-                        csi_privRestore();
-                        break;
-                    case 'u':
-                        csi_kittyKeyboardQuery();
-                        break;
-                    case 'm':
-                        csi_XTQMODKEYS();
-                        break;
-                    case 'J':
-                        csi_DECSED();
-                        break;
-                    case 'K':
-                        csi_DECSEL();
-                        break;
-                    case 'i':
-                        csi_MC(true);
-                        break;
-                    case '$':
-                        setState(InputState::CSI_priv_Dollar);
-                        break;
-                        IGNORE_SEQUENCE_ON_BAD_PARAMS;
-                    default:
-                        unhandledInput(ch);
-                        break;
-                }
-                break;
-            case InputState::CSI_Dollar:
-                switch (ch) {
-                    case 'p': csi_DECRQM(false); break;
-                    case 'r': csi_DECCARA(false); break;
-                    case 't': csi_DECCARA(true); break;
-                    case 'v': csi_DECCRA(); break;
-                    case 'x': csi_DECFRA(); break;
-                    case 'z': csi_DECERA(); break;
-                    case '{': csi_DECERA(true); break;
-                    default: unhandledInput(ch); break;
-                }
-                break;
-            case InputState::CSI_Asterisk:
-                if (ch == 'y') csi_DECRQCRA();
-                else unhandledInput(ch);
-                break;
-            case InputState::CSI_priv_Dollar:
-                if (ch == 'p') {
-                    csi_DECRQM(true);
-                } else {
-                    unhandledInput(ch);
-                }
+                processCsiByte(ch);
                 break;
             case InputState::DCS:
                 switch (ch) {
