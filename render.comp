@@ -88,6 +88,180 @@ bool selected (ivec2 cellPosition)
         cellPosition.x > parameters.selectionLeft));
 }
 
+const uint boxDrawingData [128] = uint [128] (
+   0x0005u, 0x000au, 0x0050u, 0x00a0u,
+   0x6005u, 0x600au, 0x6050u, 0x60a0u,
+   0x8005u, 0x800au, 0x8050u, 0x80a0u,
+   0x0044u, 0x0048u, 0x0084u, 0x0088u,
+   0x0041u, 0x0042u, 0x0081u, 0x0082u,
+   0x0014u, 0x0018u, 0x0024u, 0x0028u,
+   0x0011u, 0x0012u, 0x0021u, 0x0022u,
+   0x0054u, 0x0058u, 0x0064u, 0x0094u,
+   0x00a4u, 0x0068u, 0x0098u, 0x00a8u,
+   0x0051u, 0x0052u, 0x0061u, 0x0091u,
+   0x00a1u, 0x0062u, 0x0092u, 0x00a2u,
+   0x0045u, 0x0046u, 0x0049u, 0x004au,
+   0x0085u, 0x0086u, 0x0089u, 0x008au,
+   0x0015u, 0x0016u, 0x0019u, 0x001au,
+   0x0025u, 0x0026u, 0x0029u, 0x002au,
+   0x0055u, 0x0056u, 0x0059u, 0x005au,
+   0x0065u, 0x0095u, 0x00a5u, 0x0066u,
+   0x0069u, 0x0096u, 0x0099u, 0x006au,
+   0x009au, 0x00a6u, 0x00a9u, 0x00aau,
+   0x4005u, 0x400au, 0x4050u, 0x40a0u,
+   0x000fu, 0x00f0u, 0x004cu, 0x00c4u,
+   0x00ccu, 0x0043u, 0x00c1u, 0x00c3u,
+   0x001cu, 0x0034u, 0x003cu, 0x0013u,
+   0x0031u, 0x0033u, 0x005cu, 0x00f4u,
+   0x00fcu, 0x0053u, 0x00f1u, 0x00f3u,
+   0x004fu, 0x00c5u, 0x00cfu, 0x001fu,
+   0x0035u, 0x003fu, 0x005fu, 0x00f5u,
+   0x00ffu, 0x0444u, 0x0441u, 0x0411u,
+   0x0414u, 0x0800u, 0x1000u, 0x1800u,
+   0x0001u, 0x0010u, 0x0004u, 0x0040u,
+   0x0002u, 0x0020u, 0x0008u, 0x0080u,
+   0x0009u, 0x0090u, 0x0006u, 0x0060u);
+
+bool inBand (int coordinate, int center, int thickness)
+{
+   int first = center - (thickness - 1) / 2;
+   return coordinate >= first && coordinate < first + thickness;
+}
+
+bool inDash (int coordinate, int length, uint count)
+{
+   if (count == 0)
+      return true;
+
+   int partCount = int (count * 2 - 1);
+   int part = coordinate * partCount / length;
+   return (part & 1) == 0;
+}
+
+bool inStroke (int coordinate, int center, uint weight,
+               int lightThickness, int heavyThickness)
+{
+   if (weight == 1)
+      return inBand (coordinate, center, lightThickness);
+   if (weight == 2)
+      return inBand (coordinate, center, heavyThickness);
+   return false;
+}
+
+bool directionGraph (ivec2 pixel, ivec2 center, uint data, int thickness)
+{
+   uint left = bitfieldExtract (data, 0, 2);
+   uint right = bitfieldExtract (data, 2, 2);
+   uint up = bitfieldExtract (data, 4, 2);
+   uint down = bitfieldExtract (data, 6, 2);
+   return
+      (left == 3 && pixel.x <= center.x &&
+       inBand (pixel.y, center.y, thickness)) ||
+      (right == 3 && pixel.x >= center.x &&
+       inBand (pixel.y, center.y, thickness)) ||
+      (up == 3 && pixel.y <= center.y &&
+       inBand (pixel.x, center.x, thickness)) ||
+      (down == 3 && pixel.y >= center.y &&
+       inBand (pixel.x, center.x, thickness));
+}
+
+float diagonalCoverage (ivec2 pixel, ivec2 size, uint data,
+                        int lightThickness)
+{
+   vec2 position = vec2 (pixel) + vec2 (0.5);
+   vec2 dimensions = vec2 (size);
+   float normalLength = length (dimensions);
+   float distance = dimensions.y * position.x -
+                    dimensions.x * position.y;
+   float otherDistance = dimensions.y * position.x +
+                         dimensions.x * position.y -
+                         dimensions.x * dimensions.y;
+   float nearest = 1e10;
+   if ((data & 0x0800u) != 0)
+      nearest = min (nearest, abs (otherDistance) / normalLength);
+   if ((data & 0x1000u) != 0)
+      nearest = min (nearest, abs (distance) / normalLength);
+   float halfWidth = float (lightThickness) * 0.5;
+   return 1.0 - smoothstep (halfWidth, halfWidth + 1.0, nearest);
+}
+
+float arcCoverage (ivec2 pixel, ivec2 size, uint data,
+                   int lightThickness)
+{
+   int centerX = size.x / 2;
+   int centerY = size.y / 2;
+   bool left = (data & 0x0003u) != 0;
+   bool up = (data & 0x0030u) != 0;
+   vec2 corner = vec2 (left ? 0 : size.x, up ? 0 : size.y);
+   vec2 radius = vec2 (
+      left ? centerX : size.x - centerX,
+      up ? centerY : size.y - centerY);
+   vec2 position = vec2 (pixel) + vec2 (0.5);
+   vec2 direction = (position - corner) / radius;
+   bool quadrant =
+      (left ? position.x <= centerX : position.x >= centerX) &&
+      (up ? position.y <= centerY : position.y >= centerY);
+   if (!quadrant)
+      return 0.0;
+   float distance = abs (length (direction) - 1.0) *
+                    min (radius.x, radius.y);
+   float halfWidth = float (lightThickness) * 0.5;
+   return 1.0 - smoothstep (halfWidth, halfWidth + 1.0, distance);
+}
+
+float boxDrawingCoverage (uint codepoint, ivec2 pixel, ivec2 size)
+{
+   uint data = boxDrawingData [codepoint - 0x2500u];
+   int centerX = size.x / 2;
+   int centerY = size.y / 2;
+   int lightThickness = max (1, min (size.x, size.y) / 12);
+   int heavyThickness = max (lightThickness + 1, lightThickness * 2);
+
+   if ((data & 0x1800u) != 0)
+      return diagonalCoverage (pixel, size, data, lightThickness);
+   if ((data & 0x0400u) != 0)
+      return arcCoverage (pixel, size, data, lightThickness);
+
+   uint dashCount = bitfieldExtract (data, 13, 3);
+   uint left = bitfieldExtract (data, 0, 2);
+   uint right = bitfieldExtract (data, 2, 2);
+   uint up = bitfieldExtract (data, 4, 2);
+   uint down = bitfieldExtract (data, 6, 2);
+   bool horizontalDash = inDash (
+      pixel.x, size.x, dashCount);
+   bool verticalDash = inDash (
+      pixel.y, size.y, dashCount);
+
+   bool covered =
+      (left != 0 && pixel.x <= centerX && horizontalDash &&
+       inStroke (
+          pixel.y, centerY, left, lightThickness, heavyThickness)) ||
+      (right != 0 && pixel.x >= centerX && horizontalDash &&
+       inStroke (
+          pixel.y, centerY, right, lightThickness, heavyThickness)) ||
+      (up != 0 && pixel.y <= centerY && verticalDash &&
+       inStroke (
+          pixel.x, centerX, up, lightThickness, heavyThickness)) ||
+      (down != 0 && pixel.y >= centerY && verticalDash &&
+       inStroke (
+          pixel.x, centerX, down, lightThickness, heavyThickness));
+   ivec2 center = ivec2 (centerX, centerY);
+   bool doubleOuter = directionGraph (
+      pixel, center, data, lightThickness * 3);
+   bool doubleInner = directionGraph (
+      pixel, center, data, lightThickness);
+   covered = covered || (doubleOuter && !doubleInner);
+   return covered ? 1.0 : 0.0;
+}
+
+float scanLineCoverage (uint codepoint, ivec2 pixel, ivec2 size)
+{
+   const int positions [4] = int [4] (1, 3, 7, 9);
+   int center = size.y * positions [codepoint - 0x23bau] / 10;
+   int thickness = max (1, min (size.x, size.y) / 12);
+   return inBand (pixel.y, center, thickness) ? 1.0 : 0.0;
+}
+
 void main ()
 {
    uvec2 globalPosition = gl_GlobalInvocationID.xy;
@@ -166,7 +340,26 @@ void main ()
       int (parameters.border + globalPosition.x * parameters.glyphWidth),
       int (parameters.border + globalPosition.y * parameters.glyphHeight));
 
-   if (doubleWidth == 0 || parameters.hasDoubleWidth != 0)
+   bool boxDrawing = codepoint >= 0x2500u && codepoint <= 0x257fu;
+   bool scanLine = codepoint >= 0x23bau && codepoint <= 0x23bdu;
+   if (boxDrawing || scanLine)
+   {
+      for (uint y = 0; y < parameters.glyphHeight; ++y)
+      {
+         for (uint x = 0; x < cellWidth; ++x)
+         {
+            ivec2 pixel = ivec2 (x, y);
+            ivec2 size = ivec2 (cellWidth, parameters.glyphHeight);
+            float coverage = boxDrawing
+               ? boxDrawingCoverage (codepoint, pixel, size)
+               : scanLineCoverage (codepoint, pixel, size);
+            vec3 color = foreground * coverage +
+                         background * (1.0 - coverage);
+            storePixel (outputOrigin + ivec2 (x, y), color);
+         }
+      }
+   }
+   else if (doubleWidth == 0 || parameters.hasDoubleWidth != 0)
    {
       for (uint y = 0; y < parameters.glyphHeight; ++y)
       {
