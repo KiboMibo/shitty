@@ -1029,8 +1029,8 @@ inline void
 Vterm::csi_SU() {
     TRACE_FUN;
     uint16_t arg = inputOps[0] ? inputOps[0] : 1;
+    arg = std::min((int)arg, marginBottom - marginTop);
     if (horizMarginMode) {
-        arg = std::min((int)arg, marginBottom - marginTop);
         deleteRows(marginTop, arg);
     } else {
         cf->scrollUp(arg);
@@ -1044,8 +1044,8 @@ inline void
 Vterm::csi_SD() {
     TRACE_FUN;
     uint16_t arg = inputOps[0] ? inputOps[0] : 1;
+    arg = std::min((int)arg, marginBottom - marginTop);
     if (horizMarginMode) {
-        arg = std::min((int)arg, marginBottom - marginTop);
         insertRows(marginTop, arg);
     } else {
         cf->scrollDown(arg);
