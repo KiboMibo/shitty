@@ -64,5 +64,24 @@ test_suite = command(
 )
 
 
+parser_fuzz = command(
+    inputs=["$(S)/tests/fuzz_parser.py", "$(S)/tests/harness.py"],
+    outputs=["$(B)/parser-fuzz.stamp"],
+    deps=[zutty],
+    cmd=[
+        ["python3", "tests/fuzz_parser.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; Path(r'$(B)/parser-fuzz.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+    descr="FUZZ",
+    color="yellow",
+)
+
+
 install(zutty)
 install(test_suite)
+install(parser_fuzz)
