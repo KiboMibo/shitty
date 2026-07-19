@@ -2,6 +2,7 @@
 
 #include "utf8.h"
 
+#include <algorithm>
 #include <sstream>
 
 std::string encodeMouseProtocol(MouseTrackingEnc encoding,
@@ -59,6 +60,12 @@ std::string encodeMouseProtocol(MouseTrackingEnc encoding,
             case 9:
                 code = 129;
                 break;
+            case 10:
+                code = 130;
+                break;
+            case 11:
+                code = 131;
+                break;
             default:
                 return {};
         }
@@ -77,11 +84,15 @@ std::string encodeMouseProtocol(MouseTrackingEnc encoding,
     std::ostringstream output;
     switch (encoding) {
         case MouseTrackingEnc::Default:
+            column = std::clamp(column, 1, 223);
+            row = std::clamp(row, 1, 223);
             output << "\x1b[M" << static_cast<char>(32 + code)
                    << static_cast<char>(32 + column)
                    << static_cast<char>(32 + row);
             break;
         case MouseTrackingEnc::UTF8:
+            column = std::clamp(column, 1, 2015);
+            row = std::clamp(row, 1, 2015);
             output << "\x1b[M";
             Utf8Encoder::pushUnicode(
                 32 + code, [&output](char ch) {
@@ -97,6 +108,7 @@ std::string encodeMouseProtocol(MouseTrackingEnc encoding,
             });
             break;
         case MouseTrackingEnc::SGR:
+        case MouseTrackingEnc::SGRPixels:
             output << "\x1b[<" << code << ';' << column << ';' << row
                    << (type == MouseEventType::Release ? 'm' : 'M');
             break;

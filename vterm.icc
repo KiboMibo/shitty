@@ -1552,6 +1552,9 @@ Vterm::setPrivMode(uint32_t arg, bool set) {
             case 1015:
                 mouseTrk.enc = MouseTrackingEnc::URXVT;
                 break;
+            case 1016:
+                mouseTrk.enc = MouseTrackingEnc::SGRPixels;
+                break;
             case 1036:
             case 1039:
                 altSendsEscape = true;
@@ -1637,6 +1640,7 @@ Vterm::setPrivMode(uint32_t arg, bool set) {
             case 1005:
             case 1006:
             case 1015:
+            case 1016:
                 mouseTrk.enc = MouseTrackingEnc::Default;
                 break;
             case 1007:
@@ -1709,6 +1713,8 @@ Vterm::getPrivMode(uint32_t arg) const {
             return altScrollMode;
         case 1015:
             return mouseTrk.enc == MouseTrackingEnc::URXVT;
+        case 1016:
+            return mouseTrk.enc == MouseTrackingEnc::SGRPixels;
         case 1036:
         case 1039:
             return altSendsEscape;
@@ -2112,6 +2118,7 @@ Vterm::csi_DECRQM(bool privateMode) {
             case 1006:
             case 1007:
             case 1015:
+            case 1016:
             case 1036:
             case 1039:
             case 1047:

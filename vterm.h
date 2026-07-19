@@ -151,7 +151,8 @@ enum class MouseTrackingEnc : uint8_t {
     Default = 0,
     UTF8,
     SGR,
-    URXVT
+    URXVT,
+    SGRPixels
 };
 struct MouseTrackingState {
     MouseTrackingMode mode = MouseTrackingMode::Disabled;

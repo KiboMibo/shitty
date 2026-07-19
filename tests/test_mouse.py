@@ -51,6 +51,35 @@ class MouseProtocolTest(unittest.TestCase):
                 terminal.mouse_encode(2, 0, 0, 0, 8, 1, 1),
                 b"\x1b[<128;1;1M",
             )
+            self.assertEqual(
+                terminal.mouse_encode(2, 0, 0, 0, 10, 1, 1),
+                b"\x1b[<130;1;1M",
+            )
+            self.assertEqual(
+                terminal.mouse_encode(2, 0, 0, 0, 11, 1, 1),
+                b"\x1b[<131;1;1M",
+            )
+
+    def test_sgr_pixel_encoding_and_mode(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[?1016h\x1b[?1016$p")
+            self.assertEqual(terminal.state()[1], 4)
+            self.assertEqual(terminal.read_input(), b"\x1b[?1016;1$y")
+            self.assertEqual(
+                terminal.mouse_encode(4, 0, 0, 0, 1, 321, 123),
+                b"\x1b[<0;321;123M",
+            )
+
+    def test_legacy_coordinate_encodings_are_clamped(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            self.assertEqual(
+                terminal.mouse_encode(0, 0, 0, 0, 1, 999, -4),
+                b"\x1b[M \xff!",
+            )
+            self.assertEqual(
+                terminal.mouse_encode(1, 0, 0, 0, 1, 9999, -4),
+                b"\x1b[M \xdf\xbf!",
+            )
 
     def test_urxvt_encoding(self):
         with Zutty(columns=8, rows=2) as terminal:
@@ -62,7 +91,7 @@ class MouseProtocolTest(unittest.TestCase):
     def test_invalid_button_is_ignored(self):
         with Zutty(columns=8, rows=2) as terminal:
             self.assertEqual(
-                terminal.mouse_encode(2, 0, 0, 0, 10, 1, 1),
+                terminal.mouse_encode(2, 0, 0, 0, 12, 1, 1),
                 b"",
             )
 

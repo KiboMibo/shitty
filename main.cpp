@@ -962,14 +962,34 @@ namespace {
                tracking.mode != MouseTrackingMode::Disabled;
     }
 
-    void mouseProtocolCoordinates(int pixelX, int pixelY,
+    void mouseProtocolCoordinates(MouseTrackingEnc encoding,
+                                  int pixelX, int pixelY,
                                   uint16_t& column, uint16_t& row) {
-        column = std::max(0, (pixelX - opts.border - 1) /
-                                 fontpk->getPx()) +
-                 1;
-        row = std::max(0, (pixelY - opts.border - 1) /
-                              fontpk->getPy()) +
-              1;
+        const int contentWidth = std::max(
+            1, windowContext.framebufferWidth -
+                   2 * static_cast<int>(opts.border));
+        const int contentHeight = std::max(
+            1, windowContext.framebufferHeight -
+                   2 * static_cast<int>(opts.border));
+        if (encoding == MouseTrackingEnc::SGRPixels) {
+            column = std::clamp(
+                pixelX - static_cast<int>(opts.border) + 1,
+                1, contentWidth);
+            row = std::clamp(
+                pixelY - static_cast<int>(opts.border) + 1,
+                1, contentHeight);
+            return;
+        }
+        const int columns = std::max(1, contentWidth / fontpk->getPx());
+        const int rows = std::max(1, contentHeight / fontpk->getPy());
+        column = std::clamp(
+            (pixelX - static_cast<int>(opts.border) - 1) /
+                fontpk->getPx() + 1,
+            1, columns);
+        row = std::clamp(
+            (pixelY - static_cast<int>(opts.border) - 1) /
+                fontpk->getPy() + 1,
+            1, rows);
     }
 
     void mouseProtocolSend(MouseTrackingEnc encoding, MouseEventType type,
@@ -1015,7 +1035,7 @@ namespace {
 
         uint16_t column = 0;
         uint16_t row = 0;
-        mouseProtocolCoordinates(pixelX, pixelY, column, row);
+        mouseProtocolCoordinates(tracking.enc, pixelX, pixelY, column, row);
         const int protocolModifiers =
             tracking.mode == MouseTrackingMode::X10_Compat ? 0 : modifiers;
         mouseProtocolSend(
@@ -1160,7 +1180,7 @@ namespace {
             static uint16_t lastRow = UINT16_MAX;
             uint16_t column = 0;
             uint16_t row = 0;
-            mouseProtocolCoordinates(pixelX, pixelY, column, row);
+            mouseProtocolCoordinates(tracking.enc, pixelX, pixelY, column, row);
             if (column != lastColumn || row != lastRow) {
                 mouseProtocolSend(tracking.enc, MouseEventType::Motion,
                                   modifiers, mouseContext.buttonState,

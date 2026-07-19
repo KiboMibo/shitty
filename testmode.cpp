@@ -457,7 +457,7 @@ int runTestMode(int controlFd) {
                 int column;
                 int row;
                 if (!(args >> encoding >> type >> modifiers >> motionButton >>
-                      button >> column >> row) || encoding > 3 || type > 2) {
+                      button >> column >> row) || encoding > 4 || type > 2) {
                     throw std::runtime_error("invalid mouse event");
                 }
                 writeAll(controlFd, "OK " + encodeHex(encodeMouseProtocol(
