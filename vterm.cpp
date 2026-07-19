@@ -1663,6 +1663,7 @@ Vterm::getInputSpec(Key key) {
     case '7':                                                        \
     case '8':                                                        \
     case '9':                                                        \
+        csiPrefixAllowed = false;                                    \
         if (inputOps[nInputOps - 1] < 429496704) {                   \
             inputOps[nInputOps - 1] *= 10;                           \
             inputOps[nInputOps - 1] += ch - '0';                     \
@@ -1672,6 +1673,7 @@ Vterm::getInputSpec(Key key) {
         }                                                            \
         break;                                                       \
     case ';':                                                        \
+        csiPrefixAllowed = false;                                    \
         if (nInputOps < maxEscOps)                                   \
             inputOps[nInputOps++] = 0;                               \
         else {                                                       \
@@ -1853,6 +1855,7 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         setState(InputState::Esc_Pct);
                         break;
                     case '[':
+                        csiPrefixAllowed = true;
                         setState(InputState::CSI);
                         break;
                     case ']':
@@ -2148,17 +2151,19 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         setState(InputState::CSI_Bang);
                         break;
                     case '?':
-                        setState(readPos == lastEscBegin + 2
+                        setState(csiPrefixAllowed
                                      ? InputState::CSI_priv
                                      : InputState::IgnoreSequence);
+                        csiPrefixAllowed = false;
                         break;
                     case ' ':
                         setState(InputState::CSI_SPC);
                         break;
                     case '>':
-                        setState(readPos == lastEscBegin + 2
+                        setState(csiPrefixAllowed
                                      ? InputState::CSI_GT
                                      : InputState::IgnoreSequence);
+                        csiPrefixAllowed = false;
                         break;
                     case '\a':
                         break;
@@ -2184,14 +2189,16 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
                         break;
 
                     case '<':
-                        setState(readPos == lastEscBegin + 2
+                        setState(csiPrefixAllowed
                                      ? InputState::CSI_LT
                                      : InputState::IgnoreSequence);
+                        csiPrefixAllowed = false;
                         break;
                     case '=':
-                        setState(readPos == lastEscBegin + 2
+                        setState(csiPrefixAllowed
                                      ? InputState::CSI_EQ
                                      : InputState::IgnoreSequence);
+                        csiPrefixAllowed = false;
                         break;
                     case ':':
                         setState(InputState::IgnoreSequence);

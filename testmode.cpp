@@ -7,14 +7,18 @@
 #include <cstdint>
 #include <fcntl.h>
 #include <iomanip>
+#include <map>
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <termios.h>
 #include <unistd.h>
 #include <vector>
 
 namespace {
+    extern "C" int openpty(int*, int*, char*, const termios*, const winsize*);
+
     void writeAll(int fd, const std::string& data) {
         size_t offset = 0;
         while (offset < data.size()) {
@@ -111,7 +115,9 @@ namespace {
                 cell.dirty = 0;
             }
             cursor = frame.getCursor();
+            selection = frame.getSelection();
             viewOffset = frame.getViewOffset();
+            ++refreshCount;
             delta = true;
         }
 
@@ -120,10 +126,29 @@ namespace {
             output << "OK " << columns << ' ' << rows << ' '
                    << cursor.posX << ' ' << cursor.posY << ' '
                    << static_cast<unsigned>(cursor.style) << ' '
-                   << viewOffset << ' ';
+                   << viewOffset << ' ' << refreshCount << ' '
+                   << selection.tl.x << ' ' << selection.tl.y << ' '
+                   << selection.br.x << ' ' << selection.br.y << ' '
+                   << selection.rectangular << ' ';
             output << std::hex << std::setfill('0');
             for (const auto& cell : cells) {
-                output << std::setw(4) << cell.uc_pt;
+                const unsigned flags =
+                    (cell.dwidth << 0) |
+                    (cell.dwidth_cont << 1) |
+                    (cell.bold << 2) |
+                    (cell.italic << 3) |
+                    (cell.underline << 4) |
+                    (cell.inverse << 5) |
+                    (cell.wrap << 6);
+                output << std::setw(4) << cell.uc_pt
+                       << std::setw(2) << flags
+                       << std::setw(2) << static_cast<unsigned>(cell.fg.red)
+                       << std::setw(2) << static_cast<unsigned>(cell.fg.green)
+                       << std::setw(2) << static_cast<unsigned>(cell.fg.blue)
+                       << std::setw(2) << static_cast<unsigned>(cell.bg.red)
+                       << std::setw(2) << static_cast<unsigned>(cell.bg.green)
+                       << std::setw(2) << static_cast<unsigned>(cell.bg.blue)
+                       << std::setw(8) << cell.hyperlink;
             }
             output << '\n';
             return output.str();
@@ -133,8 +158,10 @@ namespace {
         uint16_t columns = 0;
         uint16_t rows = 0;
         uint16_t viewOffset = 0;
+        uint64_t refreshCount = 0;
         bool delta = false;
         CharVdev::Cursor cursor;
+        Rect selection;
         std::vector<CharVdev::Cell> cells;
     };
 
@@ -160,12 +187,54 @@ namespace {
         }
         return output;
     }
+
+    VtKey parseKey(const std::string& name) {
+        static const std::map<std::string, VtKey> keys = {
+            {"SPACE", VtKey::Space}, {"RETURN", VtKey::Return},
+            {"BACKSPACE", VtKey::Backspace}, {"TAB", VtKey::Tab},
+            {"UP", VtKey::Up}, {"DOWN", VtKey::Down},
+            {"LEFT", VtKey::Left}, {"RIGHT", VtKey::Right},
+            {"INSERT", VtKey::Insert}, {"DELETE", VtKey::Delete},
+            {"HOME", VtKey::Home}, {"END", VtKey::End},
+            {"PAGE_UP", VtKey::PageUp}, {"PAGE_DOWN", VtKey::PageDown},
+            {"F1", VtKey::F1}, {"F2", VtKey::F2},
+            {"F3", VtKey::F3}, {"F4", VtKey::F4},
+            {"F5", VtKey::F5}, {"F6", VtKey::F6},
+            {"F7", VtKey::F7}, {"F8", VtKey::F8},
+            {"F9", VtKey::F9}, {"F10", VtKey::F10},
+            {"F11", VtKey::F11}, {"F12", VtKey::F12},
+            {"KP_PLUS", VtKey::KP_Plus}, {"KP_MINUS", VtKey::KP_Minus},
+            {"KP_ENTER", VtKey::KP_Enter}, {"KP_0", VtKey::KP_0},
+            {"KP_1", VtKey::KP_1}, {"KP_2", VtKey::KP_2},
+            {"KP_3", VtKey::KP_3}, {"KP_4", VtKey::KP_4},
+            {"KP_5", VtKey::KP_5}, {"KP_6", VtKey::KP_6},
+            {"KP_7", VtKey::KP_7}, {"KP_8", VtKey::KP_8},
+            {"KP_9", VtKey::KP_9},
+        };
+        const auto found = keys.find(name);
+        if (found == keys.end()) {
+            throw std::runtime_error("unknown key");
+        }
+        return found->second;
+    }
 }
 
 int runTestMode(int controlFd) {
     int io[2];
-    if (socketpair(AF_UNIX, SOCK_STREAM, 0, io) < 0) {
-        throw std::runtime_error("test socketpair failed");
+    if (openpty(&io[0], &io[1], nullptr, nullptr, nullptr) < 0) {
+        throw std::runtime_error("test openpty failed");
+    }
+    termios ttyAttrs;
+    if (tcgetattr(io[1], &ttyAttrs) < 0) {
+        close(io[0]);
+        close(io[1]);
+        throw std::runtime_error("test tcgetattr failed");
+    }
+    cfmakeraw(&ttyAttrs);
+    if (tcsetattr(io[1], TCSANOW, &ttyAttrs) < 0) {
+        close(io[0]);
+        close(io[1]);
+        throw std::runtime_error("test tcsetattr failed");
     }
     const int flags = fcntl(io[1], F_GETFL, 0);
     if (flags < 0 || fcntl(io[1], F_SETFL, flags | O_NONBLOCK) < 0) {
@@ -181,6 +250,19 @@ int runTestMode(int controlFd) {
     terminal.setRefreshHandler(
         [&display](const Frame& frame) {
             display.update(frame);
+        });
+    std::string actions;
+    terminal.setOscHandler(
+        [&terminal, &actions](int command, const std::string& argument) {
+            actions += "OSC " + std::to_string(command) + " " +
+                       encodeHex(argument) + "\n";
+            if (command == 8) {
+                terminal.setHyperlink(argument);
+            }
+        });
+    terminal.setBellHandler(
+        [&actions]() {
+            actions += "BELL\n";
         });
     terminal.redraw();
     writeAll(controlFd, "READY\n");
@@ -198,6 +280,103 @@ int runTestMode(int controlFd) {
             } else if (line == "PAGE_DOWN") {
                 terminal.pageDown();
                 writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 7, "RESIZE ") == 0) {
+                std::istringstream args(line.substr(7));
+                unsigned columns;
+                unsigned rows;
+                if (!(args >> columns >> rows) || !columns || !rows) {
+                    throw std::runtime_error("invalid resize");
+                }
+                terminal.resize(2 * opts.border + columns,
+                                2 * opts.border + rows);
+                terminal.redraw();
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 4, "KEY ") == 0) {
+                std::istringstream args(line.substr(4));
+                std::string name;
+                unsigned modifiers;
+                if (!(args >> name >> modifiers) || modifiers > 7) {
+                    throw std::runtime_error("invalid key");
+                }
+                terminal.writePty(parseKey(name),
+                                  static_cast<VtModifier>(modifiers), true);
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 5, "CHAR ") == 0) {
+                std::istringstream args(line.substr(5));
+                unsigned character;
+                unsigned modifiers;
+                if (!(args >> character >> modifiers) || character > 255 ||
+                    modifiers > 7) {
+                    throw std::runtime_error("invalid char");
+                }
+                terminal.writePty(static_cast<uint8_t>(character),
+                                  static_cast<VtModifier>(modifiers), true);
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 10, "KITTY_KEY ") == 0) {
+                std::istringstream args(line.substr(10));
+                uint32_t key;
+                uint32_t shifted;
+                uint32_t base;
+                unsigned modifiers;
+                unsigned event;
+                if (!(args >> key >> shifted >> base >> modifiers >> event) ||
+                    event < 1 || event > 3) {
+                    throw std::runtime_error("invalid kitty key");
+                }
+                terminal.writeKittyKey(
+                    key, shifted, base, modifiers,
+                    static_cast<Vterm::KeyEventType>(event));
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 6, "PASTE ") == 0) {
+                terminal.pasteSelection(decodeHex(line.substr(6)));
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 6, "FOCUS ") == 0) {
+                terminal.setHasFocus(line.substr(6) == "1");
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 13, "SELECT_START ") == 0 ||
+                       line.compare(0, 14, "SELECT_UPDATE ") == 0) {
+                const bool start = line.compare(0, 13, "SELECT_START ") == 0;
+                std::istringstream args(line.substr(start ? 13 : 14));
+                int column;
+                int row;
+                if (!(args >> column >> row)) {
+                    throw std::runtime_error("invalid selection point");
+                }
+                if (start) {
+                    terminal.selectStart(opts.border + column,
+                                         opts.border + row, false);
+                } else {
+                    terminal.selectUpdate(opts.border + column,
+                                          opts.border + row);
+                }
+                writeAll(controlFd, "OK\n");
+            } else if (line == "SELECT_RECTANGULAR") {
+                terminal.selectRectangularModeToggle();
+                writeAll(controlFd, "OK\n");
+            } else if (line == "SELECT_FINISH") {
+                std::string selection;
+                terminal.selectFinish(selection);
+                writeAll(controlFd, "OK " + encodeHex(selection) + "\n");
+            } else if (line.compare(0, 10, "HYPERLINK ") == 0) {
+                std::istringstream args(line.substr(10));
+                int column;
+                int row;
+                if (!(args >> column >> row)) {
+                    throw std::runtime_error("invalid hyperlink point");
+                }
+                writeAll(controlFd, "OK " + encodeHex(terminal.getHyperlink(
+                    opts.border + column, opts.border + row)) + "\n");
+            } else if (line == "READ_ACTIONS") {
+                writeAll(controlFd, "OK " + encodeHex(actions) + "\n");
+                actions.clear();
+            } else if (line == "STATE") {
+                const auto& mouse = terminal.getMouseTrackingState();
+                writeAll(controlFd,
+                         "OK " + std::to_string(static_cast<unsigned>(mouse.mode)) +
+                         " " + std::to_string(static_cast<unsigned>(mouse.enc)) +
+                         " " + std::to_string(mouse.focusEventMode) +
+                         " " + std::to_string(terminal.getKittyKeyboardFlags()) +
+                         "\n");
             } else if (line == "SNAPSHOT") {
                 writeAll(controlFd, display.snapshot());
             } else if (line == "READ_INPUT") {

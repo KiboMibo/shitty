@@ -45,4 +45,23 @@ zutty = program(
 )
 
 
+test_suite = command(
+    inputs=build.glob("$(S)/tests/*.py"),
+    outputs=["$(B)/tests.stamp"],
+    deps=[zutty],
+    cmd=[
+        ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; Path(r'$(B)/tests.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+    descr="TEST",
+    color="cyan",
+)
+
+
 install(zutty)
+install(test_suite)

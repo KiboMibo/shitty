@@ -1,0 +1,49 @@
+import unittest
+
+from harness import Zutty
+
+
+class ModeTest(unittest.TestCase):
+    def test_autowrap_can_be_disabled_and_restored(self):
+        with Zutty(columns=4, rows=2) as terminal:
+            terminal.write(b"\x1b[?7labcde")
+            self.assertEqual(terminal.snapshot().lines, ["abce", "    "])
+            terminal.write(b"\x1b[?7h\r12345")
+            self.assertEqual(terminal.snapshot().lines, ["1234", "5   "])
+
+    def test_cursor_visibility_and_shape(self):
+        with Zutty(columns=4, rows=2) as terminal:
+            terminal.write(b"\x1b[?25l")
+            self.assertEqual(terminal.snapshot().cursor_style, 0)
+            terminal.focus(True)
+            terminal.write(b"\x1b[5 q\x1b[?25h")
+            self.assertEqual(terminal.snapshot().cursor_style, 4)
+
+    def test_alternate_screen_restores_primary_contents_and_cursor(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"primary\x1b[?1049halt\x1b[?1049l")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "primary ")
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (7, 0))
+
+    def test_mouse_tracking_modes_are_reported(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[?1003h\x1b[?1006h\x1b[?1004h")
+            self.assertEqual(terminal.state()[:3], (4, 2, 1))
+            terminal.write(b"\x1b[?1003l\x1b[?1006l\x1b[?1004l")
+            self.assertEqual(terminal.state()[:3], (0, 0, 0))
+
+    def test_synchronized_output_defers_refresh(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            before = terminal.snapshot().refresh_count
+            terminal.write(b"\x1b[?2026hhidden")
+            during = terminal.snapshot()
+            self.assertEqual(during.refresh_count, before)
+            terminal.write(b"\x1b[?2026l")
+            after = terminal.snapshot()
+            self.assertGreater(after.refresh_count, before)
+            self.assertEqual(after.lines[0], "hidden  ")
+
+
+if __name__ == "__main__":
+    unittest.main()

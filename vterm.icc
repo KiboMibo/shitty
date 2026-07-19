@@ -347,6 +347,7 @@ Vterm::setState(InputState newState) {
 
     if (newState == InputState::Normal) {
         DEBUG_BREAK;
+        csiPrefixAllowed = false;
         nInputOps = 0;
         inputOps[0] = 0;
         lastNormalBegin = readPos + 1;

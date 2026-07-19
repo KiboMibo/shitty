@@ -451,6 +451,10 @@ private:
     int lastStopPos = 0;
 
     InputState inputState = InputState::Normal;
+    // Whether a private/intermediate CSI prefix may still occur.  This is
+    // parser state, rather than an input-buffer offset: PTY reads may split an
+    // escape sequence at any byte.
+    bool csiPrefixAllowed = false;
     constexpr const static size_t maxEscOps = 16;
     uint32_t inputOps[maxEscOps];
     size_t nInputOps = 0;
