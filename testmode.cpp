@@ -2,6 +2,7 @@
 
 #include "options.h"
 #include "mouseprotocol.h"
+#include "oscprotocol.h"
 #include "pty.h"
 #include "vterm.h"
 
@@ -437,6 +438,21 @@ int runTestMode(int controlFd) {
                     static_cast<MouseTrackingEnc>(encoding),
                     static_cast<MouseEventType>(type), modifiers,
                     motionButton, button, column, row)) + "\n");
+            } else if (line.compare(0, 6, "OSC52 ") == 0) {
+                const Osc52Request request = parseOsc52(
+                    decodeHex(line.substr(6)));
+                writeAll(controlFd,
+                         "OK " + std::to_string(request.valid) + " " +
+                         std::to_string(request.query) + " " +
+                         std::to_string(request.primary) + " " +
+                         std::to_string(request.clipboard) + " " +
+                         encodeHex(request.content) + "\n");
+            } else if (line.compare(0, 12, "OSC52_REPLY ") == 0) {
+                writeAll(controlFd, "OK " + encodeHex(encodeOsc52Reply(
+                    decodeHex(line.substr(12)))) + "\n");
+            } else if (line.compare(0, 9, "OSC7_CWD ") == 0) {
+                writeAll(controlFd, "OK " + encodeHex(oscCwdToPath(
+                    decodeHex(line.substr(9)))) + "\n");
             } else if (line == "SNAPSHOT") {
                 writeAll(controlFd, display.snapshot());
             } else if (line == "READ_INPUT") {

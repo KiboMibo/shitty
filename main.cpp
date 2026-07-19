@@ -8,10 +8,10 @@
  */
 
 #include "base.h"
-#include "base64.h"
 #include "fontpack.h"
 #include "log.h"
 #include "mouseprotocol.h"
+#include "oscprotocol.h"
 #include "options.h"
 #include "pty.h"
 #include "renderer.h"
@@ -1199,38 +1199,6 @@ namespace {
         return text;
     }
 
-    std::string oscCwdToPath(const std::string& argument) {
-        constexpr const char scheme[] = "file://";
-        constexpr const size_t schemeLen = sizeof(scheme) - 1;
-
-        std::string url = argument;
-        if (url.compare(0, schemeLen, scheme) == 0) {
-            const size_t pathStart = url.find('/', schemeLen);
-            if (pathStart == std::string::npos) {
-                return {};
-            }
-            url = url.substr(pathStart);
-        }
-        if (url.empty() || url[0] != '/') {
-            return {};
-        }
-
-        std::string path;
-        path.reserve(url.size());
-        for (size_t k = 0; k < url.size(); ++k) {
-            if (url[k] == '%' && k + 2 < url.size() &&
-                isxdigit(static_cast<unsigned char>(url[k + 1])) &&
-                isxdigit(static_cast<unsigned char>(url[k + 2]))) {
-                path.push_back(static_cast<char>(
-                    std::stoi(url.substr(k + 1, 2), nullptr, 16)));
-                k += 2;
-            } else {
-                path.push_back(url[k]);
-            }
-        }
-        return path;
-    }
-
     bool appTitleSet = false;
 
     void handleOsc(int command, const std::string& argument) {
@@ -1262,38 +1230,30 @@ namespace {
                 return;
         }
 
-        const size_t separator = argument.find(';');
-        if (separator == std::string::npos) {
+        const Osc52Request request = parseOsc52(argument);
+        if (!request.valid) {
             logW << "Malformed OSC 52 argument" << std::endl;
             return;
         }
-        const std::string selectors = argument.substr(0, separator);
-        const std::string payload = argument.substr(separator + 1);
-        bool primary = selectors.empty() || selectors.find('s') != std::string::npos ||
-                       selectors.find('p') != std::string::npos;
-        bool clipboard = selectors.empty() || selectors.find('s') != std::string::npos ||
-                         selectors.find('c') != std::string::npos;
 
-        if (payload == "?") {
+        if (request.query) {
             std::string content;
-            if (primary) {
+            if (request.primary) {
                 content = getSelectionForOsc(true);
             }
-            if (content.empty() && clipboard) {
+            if (content.empty() && request.clipboard) {
                 content = getSelectionForOsc(false);
             }
-            const std::string reply = "\x1b]52;;" +
-                                      base64::encode(content) + "\x1b\\";
+            const std::string reply = encodeOsc52Reply(content);
             vt->writePty(reply.c_str());
             return;
         }
 
-        const std::string content = base64::decode(payload);
-        if (primary) {
-            primarySelection = content;
+        if (request.primary) {
+            primarySelection = request.content;
         }
-        if (clipboard) {
-            glfwSetClipboardString(window, content.c_str());
+        if (request.clipboard) {
+            glfwSetClipboardString(window, request.content.c_str());
         }
     }
 

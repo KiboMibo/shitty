@@ -186,6 +186,21 @@ class Zutty:
             f"{button} {column} {row}"
         )
 
+    def osc52(self, argument):
+        self.stream.write(b"OSC52 " + argument.hex().encode() + b"\n")
+        response = self._readline().split()
+        if len(response) not in (5, 6) or response[0] != "OK":
+            raise RuntimeError("invalid OSC 52 response")
+        fields = tuple(bool(int(value)) for value in response[1:5])
+        content = bytes.fromhex(response[5]) if len(response) == 6 else b""
+        return fields + (content,)
+
+    def osc52_reply(self, content):
+        return self._read_hex_response("OSC52_REPLY " + content.hex())
+
+    def osc7_cwd(self, argument):
+        return self._read_hex_response("OSC7_CWD " + argument.hex())
+
     def read_input(self):
         return self._read_hex_response("READ_INPUT")
 
