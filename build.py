@@ -6,13 +6,6 @@ build.cppflags += ['-DZUTTY_VERSION="0.14"']
 build.cxxflags += [
     "-std=c++17",
     "-Og" if "-DDEBUG" in build.cppflags else "-O2",
-    "-fno-omit-frame-pointer",
-    "-fsigned-char",
-    "-Wall",
-    "-Wextra",
-    "-Wpedantic",
-    "-Wsign-compare",
-    "-Wno-unused-parameter",
 ]
 
 
