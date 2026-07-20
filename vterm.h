@@ -387,6 +387,16 @@ private:
     void clearWideCellAt(uint16_t row, uint16_t column);
     void normalizeWideCells(uint16_t row);
 
+    struct Rectangle {
+        uint16_t top;
+        uint16_t left;
+        uint16_t bottom;
+        uint16_t right;
+    };
+    bool rectangleFromParams(size_t offset, Rectangle& rectangle) const;
+    void rectangleOrigin(uint16_t& rowBase, uint16_t& columnBase,
+                         uint16_t& rowLimit, uint16_t& columnLimit) const;
+
     void showCursor();
     void hideCursor();
     void inputGraphicChar(unsigned char ch);

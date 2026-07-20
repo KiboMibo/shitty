@@ -4,11 +4,11 @@
 
 Сейчас:
 
-- 253 теста;
-- 20 файлов `test_*.py`;
-- 2938 строк непосредственно тестов;
-- 504 assertions;
-- 3709 строк всего Python в `tests/`, включая harness и утилиты.
+- 289 тестов;
+- 22 файла `test_*.py`;
+- 3310 строк непосредственно тестов;
+- 579 assertions;
+- 4081 строк всего Python в `tests/`, включая harness и утилиты.
 
 Сборка уже использует `tests/*.py` и `unittest discover`, поэтому количество файлов ничем не ограничено: [build.py](/home/pg/monorepo/zutty/build.py:50). Список будущих имён фиксировать не буду. Останется только требование плоской `tests/`.
 
@@ -19,33 +19,13 @@
 - renderer/present contract — 4;
 - selection — 5;
 - OSC — 5;
-- cursor movement — 6;
 - printer — 3.
 
 При этом [COVERAGE.md](/home/pg/monorepo/zutty/tests/COVERAGE.md) несколько переоценивает покрытие: перечисление «поддержано» часто означает один проверенный вариант.
 
 ## Главные пробелы
 
-1. Cursor, margins и editing
-
-Реализовано много отдельных команд: `CUU/CUD/CUF/CUB`, `CNL/CPL`, `CHA/HPA/HPR`, `VPA/VPR`, `CHT/CBT`, но прямо тестируется лишь небольшая часть.
-
-Для каждой нужны варианты:
-
-- параметр отсутствует;
-- `0`;
-- `1`;
-- большое значение;
-- clipping;
-- origin mode;
-- вертикальные и горизонтальные margins;
-- курсор внутри и снаружи margins;
-- wide/grapheme cell на границе;
-- сохранение `lastCol` и autowrap-состояния.
-
-То же относится к прямоугольным операциям: clipping, перекрывающее копирование во всех направлениях, protected cells, обратные координаты, margins и wide cells.
-
-2. Modes и reset
+1. Modes и reset
 
 Сейчас нет полной таблицы состояний для поддерживаемых ANSI/DEC modes.
 
@@ -66,7 +46,7 @@
 
 DEC определяет отдельные результаты DECRQM: unknown, set, reset, permanently set/reset. Нужна полная таблица, а не несколько выбранных режимов: [VT510 mode tables](https://vt100.net/docs/vt510-rm/chapter4.html).
 
-3. SGR и цвета
+2. SGR и цвета
 
 Нужна декартова матрица для foreground/background/underline:
 
@@ -88,7 +68,7 @@ DEC определяет отдельные результаты DECRQM: unknown
 
 Отдельно надо проверять DECRQSS после каждого сочетания атрибутов. Уже вижу подозрительное место: запрос DECSCA сейчас всегда возвращает `0"q`, независимо от реально установленной защиты.
 
-4. DCS, OSC и window operations
+3. DCS, OSC и window operations
 
 Каждая ветка сейчас требует собственной таблицы:
 
@@ -105,7 +85,7 @@ DEC определяет отдельные результаты DECRQM: unknown
 
 Текущий OSC 99 реализует только часть опубликованного протокола; тесты должны чётко зафиксировать заявленный subset и не позволять отвечать поддержкой того, чего нет: [kitty notifications](https://sw.kovidgoyal.net/kitty/desktop-notifications/).
 
-5. Keyboard и mouse
+4. Keyboard и mouse
 
 24 keyboard-теста — мало относительно таблицы реализации.
 
@@ -136,7 +116,7 @@ Kitty требует согласованной реализации progressive
 
 Так мы закроем fractional scrolling, смену reporting/local scrolling, Shift override, cell dedupe, horizontal wheel и double/triple click.
 
-6. Unicode и charsets
+5. Unicode и charsets
 
 Текущий grapheme-код реализует выбранный subset правил, но не полный UAX #29. Нужны представительные официальные vectors:
 
@@ -157,7 +137,7 @@ Unicode публикует и правила, и официальный `Graphem
 
 Отдельная матрица нужна для G0–G3, GL/GR, locking/single shifts, NRC sets, DEC Special/Technical и возврата из VT52.
 
-7. Resize, selection и scrollback
+6. Resize, selection и scrollback
 
 Scrollback дальше раздувать просто ради числа не надо. Добавлять только новые взаимодействия:
 
@@ -174,7 +154,7 @@ Scrollback дальше раздувать просто ради числа не
 - same-grid pixel-only resize;
 - in-band resize response.
 
-8. PTY, presentation и lifecycle
+7. PTY, presentation и lifecycle
 
 Сейчас практически отсутствуют:
 
@@ -194,7 +174,7 @@ Scrollback дальше раздувать просто ради числа не
 
 Synchronized output должен продолжать менять модель терминала, сохраняя предыдущую представленную картинку до `2026l`: [protocol specification](https://github.com/contour-terminal/vt-extensions/blob/master/synchronized-output.md).
 
-9. Options, fonts и startup
+8. Options, fonts и startup
 
 Это почти белое пятно:
 
@@ -242,7 +222,6 @@ Offscreen Vulkan на этом проходе не нужен: логическ�
 
 | Область | Новых тестов |
 |---|---:|
-| Cursor/margins/editing | 35 |
 | Modes/reset/reports | 35 |
 | SGR/colors | 30 |
 | DCS/OSC/window protocols | 45 |
@@ -251,7 +230,7 @@ Offscreen Vulkan на этом проходе не нужен: логическ�
 | Unicode/charsets | 30 |
 | Resize/selection/scrollback interactions | 25 |
 | PTY/present/options/fonts/startup | 30 |
-| Итого | около 310 |
+| Итого | около 275 |
 
 То есть итог, вероятно, будет ближе к 550–560 тестам, а не ровно к формальному удвоению.
 

@@ -698,6 +698,41 @@ Vterm::normalizeWideCells(uint16_t row) {
 }
 
 inline void
+Vterm::rectangleOrigin(uint16_t& rowBase, uint16_t& columnBase,
+                       uint16_t& rowLimit, uint16_t& columnLimit) const {
+    if (originMode == OriginMode::ScrollingRegion) {
+        rowBase = marginTop;
+        columnBase = hMargin;
+        rowLimit = marginBottom;
+        columnLimit = nColsEff;
+    } else {
+        rowBase = 0;
+        columnBase = 0;
+        rowLimit = nRows;
+        columnLimit = nCols;
+    }
+}
+
+inline bool
+Vterm::rectangleFromParams(size_t offset, Rectangle& rectangle) const {
+    uint16_t rowBase, columnBase, rowLimit, columnLimit;
+    rectangleOrigin(rowBase, columnBase, rowLimit, columnLimit);
+    const uint32_t rows = rowLimit - rowBase;
+    const uint32_t columns = columnLimit - columnBase;
+    const uint32_t rawTop = inputOps[offset] ? inputOps[offset] : 1;
+    const uint32_t rawLeft = inputOps[offset + 1] ? inputOps[offset + 1] : 1;
+    const uint32_t rawBottom = inputOps[offset + 2] ? inputOps[offset + 2] : rows;
+    const uint32_t rawRight = inputOps[offset + 3] ? inputOps[offset + 3] : columns;
+    if (rawTop > rawBottom || rawLeft > rawRight) return false;
+
+    rectangle.top = rowBase + std::min(rawTop, rows) - 1;
+    rectangle.left = columnBase + std::min(rawLeft, columns) - 1;
+    rectangle.bottom = rowBase + std::min(rawBottom, rows);
+    rectangle.right = columnBase + std::min(rawRight, columns);
+    return true;
+}
+
+inline void
 Vterm::inputGraphicChar(unsigned char ch) {
     if ((ch & 0x80) == 0) {
         utf8dec.checkPrematureEOS();
@@ -1137,18 +1172,18 @@ Vterm::esc_RI() {
 inline void
 Vterm::csi_ecma48_SL() {
     TRACE_FUN;
-    int arg = inputOps[0] ? inputOps[0] : 1u;
-    arg = std::min(arg, nColsEff - hMargin);
-    deleteCols(hMargin, arg);
+    uint32_t arg = inputOps[0] ? inputOps[0] : 1u;
+    arg = std::min<uint32_t>(arg, nColsEff - hMargin);
+    deleteCols(hMargin, static_cast<uint16_t>(arg));
     setState(InputState::Normal);
 }
 
 inline void
 Vterm::csi_ecma48_SR() {
     TRACE_FUN;
-    int arg = inputOps[0] ? inputOps[0] : 1u;
-    arg = std::min(arg, nColsEff - hMargin);
-    insertCols(hMargin, arg);
+    uint32_t arg = inputOps[0] ? inputOps[0] : 1u;
+    arg = std::min<uint32_t>(arg, nColsEff - hMargin);
+    insertCols(hMargin, static_cast<uint16_t>(arg));
     setState(InputState::Normal);
 }
 
@@ -1190,10 +1225,10 @@ Vterm::csi_DECSCUSR() {
 inline void
 Vterm::csi_DECIC() {
     TRACE_FUN;
-    int arg = inputOps[0] ? inputOps[0] : 1u;
+    uint32_t arg = inputOps[0] ? inputOps[0] : 1u;
     if (isCursorInsideMargins()) {
-        arg = std::min(arg, nColsEff - posX);
-        insertCols(posX, arg);
+        arg = std::min<uint32_t>(arg, nColsEff - posX);
+        insertCols(posX, static_cast<uint16_t>(arg));
     }
     setState(InputState::Normal);
 }
@@ -1201,10 +1236,10 @@ Vterm::csi_DECIC() {
 inline void
 Vterm::csi_DECDC() {
     TRACE_FUN;
-    int arg = inputOps[0] ? inputOps[0] : 1u;
+    uint32_t arg = inputOps[0] ? inputOps[0] : 1u;
     if (isCursorInsideMargins()) {
-        arg = std::min(arg, nColsEff - posX);
-        deleteCols(posX, arg);
+        arg = std::min<uint32_t>(arg, nColsEff - posX);
+        deleteCols(posX, static_cast<uint16_t>(arg));
     }
     setState(InputState::Normal);
 }
@@ -1483,13 +1518,13 @@ Vterm::csi_CUP() {
 inline void
 Vterm::csi_SU() {
     TRACE_FUN;
-    uint16_t arg = inputOps[0] ? inputOps[0] : 1;
-    arg = std::min((int)arg, marginBottom - marginTop);
+    uint32_t arg = inputOps[0] ? inputOps[0] : 1;
+    arg = std::min<uint32_t>(arg, marginBottom - marginTop);
     if (horizMarginMode) {
-        deleteRows(marginTop, arg);
+        deleteRows(marginTop, static_cast<uint16_t>(arg));
     } else {
-        cf->scrollUp(marginTop, marginBottom, arg);
-        eraseRows(marginBottom - arg, arg);
+        cf->scrollUp(marginTop, marginBottom, static_cast<uint16_t>(arg));
+        eraseRows(marginBottom - arg, static_cast<uint16_t>(arg));
         lastCol = false;
     }
     setState(InputState::Normal);
@@ -1498,13 +1533,13 @@ Vterm::csi_SU() {
 inline void
 Vterm::csi_SD() {
     TRACE_FUN;
-    uint16_t arg = inputOps[0] ? inputOps[0] : 1;
-    arg = std::min((int)arg, marginBottom - marginTop);
+    uint32_t arg = inputOps[0] ? inputOps[0] : 1;
+    arg = std::min<uint32_t>(arg, marginBottom - marginTop);
     if (horizMarginMode) {
-        insertRows(marginTop, arg);
+        insertRows(marginTop, static_cast<uint16_t>(arg));
     } else {
-        cf->scrollDown(marginTop, marginBottom, arg);
-        eraseRows(marginTop, arg);
+        cf->scrollDown(marginTop, marginBottom, static_cast<uint16_t>(arg));
+        eraseRows(marginTop, static_cast<uint16_t>(arg));
         lastCol = false;
     }
     setState(InputState::Normal);
@@ -1553,8 +1588,14 @@ Vterm::csi_CBT() {
 inline void
 Vterm::csi_REP() {
     TRACE_FUN;
-    uint16_t arg = inputOps[0] ? inputOps[0] : 1;
-    for (int k = 0; k < arg; ++k) {
+    uint32_t arg = inputOps[0] ? inputOps[0] : 1;
+    const uint64_t observableCells =
+        (static_cast<uint64_t>(opts.saveLines) + nRows + 1) * nCols;
+    if (arg > observableCells) {
+        arg = static_cast<uint32_t>(observableCells +
+                                    (arg - observableCells) % nCols);
+    }
+    for (uint32_t k = 0; k < arg; ++k) {
         placeGraphicChar();
     }
     utf8dec.setUnicode(' ');
@@ -1661,12 +1702,13 @@ inline void
 Vterm::csi_DECFRA() {
     TRACE_FUN;
     if (nInputOps >= 5 && inputOps[0] >= 32 && inputOps[0] <= 0x10ffff) {
-        const uint16_t top = std::clamp<uint32_t>(inputOps[1] ? inputOps[1] : 1, 1, nRows) - 1;
-        const uint16_t left = std::clamp<uint32_t>(inputOps[2] ? inputOps[2] : 1, 1, nCols) - 1;
-        const uint16_t bottom = std::clamp<uint32_t>(inputOps[3] ? inputOps[3] : nRows, top + 1, nRows);
-        const uint16_t right = std::clamp<uint32_t>(inputOps[4] ? inputOps[4] : nCols, left + 1, nCols);
-        for (uint16_t y = top; y < bottom; ++y) {
-            for (uint16_t x = left; x < right; ++x) {
+        Rectangle rectangle;
+        if (!rectangleFromParams(1, rectangle)) {
+            setState(InputState::Normal);
+            return;
+        }
+        for (uint16_t y = rectangle.top; y < rectangle.bottom; ++y) {
+            for (uint16_t x = rectangle.left; x < rectangle.right; ++x) {
                 auto& cell = cf->getCell(y, x);
                 const uint8_t lineAttribute = cell.line_attr;
                 cell = attrs;
@@ -1674,6 +1716,7 @@ Vterm::csi_DECFRA() {
                 cell.uc_pt = inputOps[0];
                 cell.dirty = 1;
             }
+            normalizeWideCells(y);
         }
         cf->expose();
     }
@@ -1684,15 +1727,19 @@ inline void
 Vterm::csi_DECERA(bool selective) {
     TRACE_FUN;
     if (nInputOps >= 4) {
-        const uint16_t top = std::clamp<uint32_t>(inputOps[0] ? inputOps[0] : 1, 1, nRows) - 1;
-        const uint16_t left = std::clamp<uint32_t>(inputOps[1] ? inputOps[1] : 1, 1, nCols) - 1;
-        const uint16_t bottom = std::clamp<uint32_t>(inputOps[2] ? inputOps[2] : nRows, top + 1, nRows);
-        const uint16_t right = std::clamp<uint32_t>(inputOps[3] ? inputOps[3] : nCols, left + 1, nCols);
-        for (uint16_t y = top; y < bottom; ++y) {
+        Rectangle rectangle;
+        if (!rectangleFromParams(0, rectangle)) {
+            setState(InputState::Normal);
+            return;
+        }
+        for (uint16_t y = rectangle.top; y < rectangle.bottom; ++y) {
             if (selective)
-                cf->selectiveEraseInRow(y, left, right - left, attrs);
+                cf->selectiveEraseInRow(y, rectangle.left,
+                                        rectangle.right - rectangle.left, attrs);
             else
-                cf->eraseInRow(y, left, right - left, attrs);
+                cf->eraseInRow(y, rectangle.left,
+                               rectangle.right - rectangle.left, attrs);
+            normalizeWideCells(y);
         }
     }
     setState(InputState::Normal);
@@ -1701,26 +1748,38 @@ Vterm::csi_DECERA(bool selective) {
 inline void
 Vterm::csi_DECCRA() {
     TRACE_FUN;
-    if (nInputOps >= 8 && inputOps[4] <= 1 && inputOps[7] <= 1) {
-        const uint16_t top = std::clamp<uint32_t>(inputOps[0] ? inputOps[0] : 1, 1, nRows) - 1;
-        const uint16_t left = std::clamp<uint32_t>(inputOps[1] ? inputOps[1] : 1, 1, nCols) - 1;
-        const uint16_t bottom = std::clamp<uint32_t>(inputOps[2] ? inputOps[2] : nRows, top + 1, nRows);
-        const uint16_t right = std::clamp<uint32_t>(inputOps[3] ? inputOps[3] : nCols, left + 1, nCols);
-        const uint16_t targetTop = std::clamp<uint32_t>(inputOps[5] ? inputOps[5] : 1, 1, nRows) - 1;
-        const uint16_t targetLeft = std::clamp<uint32_t>(inputOps[6] ? inputOps[6] : 1, 1, nCols) - 1;
-        const uint16_t height = std::min<uint16_t>(bottom - top, nRows - targetTop);
-        const uint16_t width = std::min<uint16_t>(right - left, nCols - targetLeft);
+    if (nInputOps >= 8) {
+        Rectangle source;
+        if (!rectangleFromParams(0, source)) {
+            setState(InputState::Normal);
+            return;
+        }
+        uint16_t rowBase, columnBase, rowLimit, columnLimit;
+        rectangleOrigin(rowBase, columnBase, rowLimit, columnLimit);
+        const uint32_t targetRow = inputOps[5] ? inputOps[5] : 1;
+        const uint32_t targetColumn = inputOps[6] ? inputOps[6] : 1;
+        const uint16_t targetTop =
+            rowBase + std::min<uint32_t>(targetRow, rowLimit - rowBase) - 1;
+        const uint16_t targetLeft =
+            columnBase + std::min<uint32_t>(targetColumn, columnLimit - columnBase) - 1;
+        const uint16_t height = std::min<uint16_t>(
+            source.bottom - source.top, rowLimit - targetTop);
+        const uint16_t width = std::min<uint16_t>(
+            source.right - source.left, columnLimit - targetLeft);
         std::vector<CharVdev::Cell> copied;
         copied.reserve(height * width);
         for (uint16_t y = 0; y < height; ++y)
             for (uint16_t x = 0; x < width; ++x)
-                copied.push_back(cf->getCell(top + y, left + x));
+                copied.push_back(cf->getCell(source.top + y, source.left + x));
         for (uint16_t y = 0; y < height; ++y) {
             for (uint16_t x = 0; x < width; ++x) {
                 auto& cell = cf->getCell(targetTop + y, targetLeft + x);
+                const uint8_t lineAttribute = cell.line_attr;
                 cell = copied[y * width + x];
+                cell.line_attr = lineAttribute;
                 cell.dirty = 1;
             }
+            normalizeWideCells(targetTop + y);
         }
         cf->expose();
     }
@@ -1731,10 +1790,11 @@ inline void
 Vterm::csi_DECCARA(bool reverse) {
     TRACE_FUN;
     if (nInputOps >= 5) {
-        const uint16_t top = std::clamp<uint32_t>(inputOps[0] ? inputOps[0] : 1, 1, nRows) - 1;
-        const uint16_t left = std::clamp<uint32_t>(inputOps[1] ? inputOps[1] : 1, 1, nCols) - 1;
-        const uint16_t bottom = std::clamp<uint32_t>(inputOps[2] ? inputOps[2] : nRows, top + 1, nRows);
-        const uint16_t right = std::clamp<uint32_t>(inputOps[3] ? inputOps[3] : nCols, left + 1, nCols);
+        Rectangle rectangle;
+        if (!rectangleFromParams(0, rectangle)) {
+            setState(InputState::Normal);
+            return;
+        }
         const auto apply = [reverse](CharVdev::Cell& cell, uint32_t mode) {
             switch (mode) {
                 case 0:
@@ -1755,8 +1815,8 @@ Vterm::csi_DECCARA(bool reverse) {
                 case 28: if (!reverse) cell.conceal = 0; break;
             }
         };
-        for (uint16_t y = top; y < bottom; ++y) {
-            for (uint16_t x = left; x < right; ++x) {
+        for (uint16_t y = rectangle.top; y < rectangle.bottom; ++y) {
+            for (uint16_t x = rectangle.left; x < rectangle.right; ++x) {
                 auto& cell = cf->getCell(y, x);
                 for (size_t k = 4; k < nInputOps; ++k) apply(cell, inputOps[k]);
                 cell.dirty = 1;
@@ -1770,14 +1830,15 @@ Vterm::csi_DECCARA(bool reverse) {
 inline void
 Vterm::csi_DECRQCRA() {
     TRACE_FUN;
-    if (nInputOps >= 6 && inputOps[1] <= 1) {
-        const uint16_t top = std::clamp<uint32_t>(inputOps[2] ? inputOps[2] : 1, 1, nRows) - 1;
-        const uint16_t left = std::clamp<uint32_t>(inputOps[3] ? inputOps[3] : 1, 1, nCols) - 1;
-        const uint16_t bottom = std::clamp<uint32_t>(inputOps[4] ? inputOps[4] : nRows, top + 1, nRows);
-        const uint16_t right = std::clamp<uint32_t>(inputOps[5] ? inputOps[5] : nCols, left + 1, nCols);
+    if (nInputOps >= 6) {
+        Rectangle rectangle;
+        if (!rectangleFromParams(2, rectangle)) {
+            setState(InputState::Normal);
+            return;
+        }
         uint16_t checksum = 0;
-        for (uint16_t y = top; y < bottom; ++y)
-            for (uint16_t x = left; x < right; ++x) {
+        for (uint16_t y = rectangle.top; y < rectangle.bottom; ++y)
+            for (uint16_t x = rectangle.left; x < rectangle.right; ++x) {
                 const auto& cell = cf->getCell(y, x);
                 if (cell.uc_pt != ' ') checksum += cell.uc_pt & 0xff;
             }
@@ -1794,9 +1855,9 @@ inline void
 Vterm::csi_IL() {
     TRACE_FUN;
     if (isCursorInsideMargins()) {
-        int arg = inputOps[0] ? inputOps[0] : 1;
-        arg = std::min(arg, marginBottom - posY);
-        insertRows(posY, arg);
+        uint32_t arg = inputOps[0] ? inputOps[0] : 1;
+        arg = std::min<uint32_t>(arg, marginBottom - posY);
+        insertRows(posY, static_cast<uint16_t>(arg));
         lastCol = false;
     }
     setState(InputState::Normal);
@@ -1806,9 +1867,9 @@ inline void
 Vterm::csi_DL() {
     TRACE_FUN;
     if (isCursorInsideMargins()) {
-        int arg = inputOps[0] ? inputOps[0] : 1;
-        arg = std::min(arg, marginBottom - posY);
-        deleteRows(posY, arg);
+        uint32_t arg = inputOps[0] ? inputOps[0] : 1;
+        arg = std::min<uint32_t>(arg, marginBottom - posY);
+        deleteRows(posY, static_cast<uint16_t>(arg));
         lastCol = false;
     }
     setState(InputState::Normal);
@@ -1869,16 +1930,17 @@ inline void
 Vterm::csi_STBM() {
     TRACE_FUN;
     if (nInputOps <= 2) {
-        uint16_t newMarginTop = inputOps[0] > 0 ? inputOps[0] - 1 : 0;
-        uint16_t newMarginBottom =
+        uint32_t newMarginTop = inputOps[0] > 0 ? inputOps[0] - 1 : 0;
+        uint32_t newMarginBottom =
             nInputOps < 2 || inputOps[1] == 0 ? nRows : inputOps[1];
 
-        if (newMarginBottom < newMarginTop + 2 || nRows < newMarginBottom) {
+        if (newMarginTop >= nRows || newMarginBottom > nRows ||
+            newMarginBottom <= newMarginTop + 1) {
             logI << "Illegal arguments to SetTopBottomMargins: top="
                  << inputOps[0] << ", bottom=" << inputOps[1] << std::endl;
         } else if (newMarginTop != marginTop || newMarginBottom != marginBottom) {
-            marginTop = newMarginTop;
-            marginBottom = newMarginBottom;
+            marginTop = static_cast<uint16_t>(newMarginTop);
+            marginBottom = static_cast<uint16_t>(newMarginBottom);
         }
     }
 
@@ -1897,16 +1959,17 @@ inline void
 Vterm::csi_SLRM() {
     TRACE_FUN;
     if (nInputOps <= 2) {
-        uint16_t newMarginLeft = inputOps[0] > 0 ? inputOps[0] - 1 : 0;
-        uint16_t newMarginRight =
+        uint32_t newMarginLeft = inputOps[0] > 0 ? inputOps[0] - 1 : 0;
+        uint32_t newMarginRight =
             nInputOps < 2 || inputOps[1] == 0 ? nCols : inputOps[1];
 
-        if (newMarginRight < newMarginLeft + 2 || nCols < newMarginRight) {
+        if (newMarginLeft >= nCols || newMarginRight > nCols ||
+            newMarginRight <= newMarginLeft + 1) {
             logI << "Illegal arguments to SetLeftRightMargins: left="
                  << inputOps[0] << ", right=" << inputOps[1] << std::endl;
         } else if (newMarginLeft != hMargin || newMarginRight != nColsEff) {
-            hMargin = newMarginLeft;
-            nColsEff = newMarginRight;
+            hMargin = static_cast<uint16_t>(newMarginLeft);
+            nColsEff = static_cast<uint16_t>(newMarginRight);
         }
     }
 
