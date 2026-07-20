@@ -14,6 +14,7 @@
 #include <cerrno>
 #include <cstdint>
 #include <cstdlib>
+#include <deque>
 #include <fcntl.h>
 #include <iomanip>
 #include <map>
@@ -379,6 +380,12 @@ int runTestMode(int controlFd) {
     std::string printerOutput;
     pid_t childPid = -1;
     int childExitStatus = -1;
+    struct ScriptedPtyRead {
+        std::string data;
+        int error = 0;
+        bool eof = false;
+    };
+    std::deque<ScriptedPtyRead> scriptedPtyReads;
     MouseFrontendState mouseFrontend;
     std::string primarySelection;
     terminal.setOscHandler(
@@ -557,6 +564,54 @@ int runTestMode(int controlFd) {
             } else if (line == "READ_PTY") {
                 writeAll(controlFd,
                          "OK " + std::to_string(terminal.readPty()) + "\n");
+            } else if (line.compare(0, 16, "PTY_READ_SCRIPT ") == 0) {
+                scriptedPtyReads.clear();
+                std::istringstream args(line.substr(16));
+                std::string token;
+                while (args >> token) {
+                    if (token == "z") {
+                        scriptedPtyReads.push_back({"", 0, true});
+                    } else if (token.size() > 1 && token[0] == 'd') {
+                        scriptedPtyReads.push_back(
+                            {decodeHex(token.substr(1)), 0, false});
+                    } else if (token.size() > 1 && token[0] == 'e') {
+                        size_t consumed = 0;
+                        const int error = std::stoi(
+                            token.substr(1), &consumed);
+                        if (consumed != token.size() - 1 || error <= 0) {
+                            throw std::runtime_error("invalid PTY errno");
+                        }
+                        scriptedPtyReads.push_back({"", error, false});
+                    } else {
+                        throw std::runtime_error("invalid PTY read script");
+                    }
+                }
+                if (scriptedPtyReads.empty()) {
+                    throw std::runtime_error("empty PTY read script");
+                }
+                terminal.setPtyReadHandler(
+                    [&scriptedPtyReads](uint8_t* buffer, size_t size) {
+                        if (scriptedPtyReads.empty()) {
+                            errno = EAGAIN;
+                            return static_cast<ssize_t>(-1);
+                        }
+                        auto& item = scriptedPtyReads.front();
+                        if (item.eof) {
+                            scriptedPtyReads.pop_front();
+                            return static_cast<ssize_t>(0);
+                        }
+                        if (item.error) {
+                            errno = item.error;
+                            scriptedPtyReads.pop_front();
+                            return static_cast<ssize_t>(-1);
+                        }
+                        const size_t count = std::min(size, item.data.size());
+                        std::copy_n(item.data.data(), count, buffer);
+                        item.data.erase(0, count);
+                        if (item.data.empty()) scriptedPtyReads.pop_front();
+                        return static_cast<ssize_t>(count);
+                    });
+                writeAll(controlFd, "OK\n");
             } else if (line == "WAIT_READ_PTY") {
                 pollfd source{io[0], POLLIN, 0};
                 int ready = 0;

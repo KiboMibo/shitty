@@ -29,7 +29,6 @@
 
 Сейчас практически отсутствуют:
 
-- EOF/HUP/error;
 - child exit status и signal exit;
 - partial output writes и backpressure;
 - порядок `POLLIN/POLLOUT`;

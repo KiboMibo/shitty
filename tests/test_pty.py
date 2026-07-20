@@ -1,10 +1,35 @@
 import sys
+import errno
 import unittest
 
 from harness import Zutty
 
 
 class PtyTest(unittest.TestCase):
+    def test_eof_finishes_even_before_the_first_payload(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.script_pty_reads("eof")
+            before = terminal.snapshot().refresh_count
+            self.assertTrue(terminal.read_pty())
+            self.assertEqual(terminal.snapshot().refresh_count, before)
+
+    def test_hangup_error_drains_preceding_payload_and_presents_it(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.script_pty_reads(b"before-hup", ("error", errno.EIO))
+            before = terminal.snapshot().refresh_count
+            self.assertTrue(terminal.read_pty())
+            after = terminal.snapshot()
+            self.assertEqual(after.lines[0], "before-h")
+            self.assertEqual(after.lines[1], "up      ")
+            self.assertEqual(after.refresh_count, before + 1)
+
+    def test_fatal_read_error_finishes_without_presenting(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.script_pty_reads(("error", errno.EBADF))
+            before = terminal.snapshot().refresh_count
+            self.assertTrue(terminal.read_pty())
+            self.assertEqual(terminal.snapshot().refresh_count, before)
+
     def test_nonblocking_read_without_data_is_not_eof(self):
         with Zutty(columns=8, rows=2) as terminal:
             self.assertFalse(terminal.read_pty())

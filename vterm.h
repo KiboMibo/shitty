@@ -20,6 +20,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <sys/types.h>
 
 enum class VtKey {
     NONE,
@@ -281,6 +282,8 @@ public:
     uint8_t getKittyKeyboardFlags() const;
 
     bool readPty();
+    using PtyReadHandlerFn = std::function<ssize_t(uint8_t*, size_t)>;
+    void setPtyReadHandler(const PtyReadHandlerFn& handler);
     void feedPtyOutput(const std::string& output);
 
     const MouseTrackingState& getMouseTrackingState() const;
@@ -543,6 +546,7 @@ private:
     uint16_t glyphPy;
     int ptyFd;
     bool ptyReceivedInput = false;
+    PtyReadHandlerFn onPtyRead;
     std::vector<uint8_t> ptyOutput;
     size_t ptyOutputOffset = 0;
 

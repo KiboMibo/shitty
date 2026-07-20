@@ -161,6 +161,25 @@ class Zutty:
             raise RuntimeError("invalid PTY read response")
         return bool(int(response[1]))
 
+    def script_pty_reads(self, *outcomes):
+        tokens = []
+        for outcome in outcomes:
+            if isinstance(outcome, bytes):
+                tokens.append("d" + outcome.hex())
+            elif outcome == "eof":
+                tokens.append("z")
+            elif (
+                isinstance(outcome, tuple)
+                and len(outcome) == 2
+                and outcome[0] == "error"
+            ):
+                tokens.append("e" + str(outcome[1]))
+            else:
+                raise ValueError(f"invalid PTY read outcome: {outcome!r}")
+        if not tokens:
+            raise ValueError("empty PTY read script")
+        self.command("PTY_READ_SCRIPT " + " ".join(tokens))
+
     def wait_read_pty(self):
         self.command("WAIT_READ_PTY")
 

@@ -1342,6 +1342,9 @@ Vterm::Vterm(uint16_t glyphPx_, uint16_t glyphPy_,
     , glyphPx(glyphPx_)
     , glyphPy(glyphPy_)
     , ptyFd(ptyFd_)
+    , onPtyRead([this](uint8_t* buffer, size_t size) {
+        return read(ptyFd, buffer, size);
+    })
     , onRefresh([](const Frame&) { return true; })
     , onOsc([](int cmd, const std::string& arg) {
         logU << "OSC: '" << cmd << ";" << arg << "'" << std::endl;
@@ -1404,6 +1407,10 @@ Vterm::Vterm(uint16_t glyphPx_, uint16_t glyphPy_,
 
 void Vterm::setRefreshHandler(const RefreshHandlerFn& onRefresh_) {
     onRefresh = onRefresh_;
+}
+
+void Vterm::setPtyReadHandler(const PtyReadHandlerFn& handler) {
+    onPtyRead = handler;
 }
 
 void Vterm::setOscHandler(const OscHandlerFn& onOsc_) {
