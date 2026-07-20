@@ -1421,40 +1421,33 @@ void VulkanPresenter::recordRepaintCommands(
             "vkEndCommandBuffer");
 }
 
-bool VulkanPresenter::repaint() {
-    if (!outputInitialized || renderExtent.width == 0 ||
-        renderExtent.height == 0) {
-        return false;
-    }
-    if (swapchain == VK_NULL_HANDLE) {
-        createSwapchain(renderExtent.width, renderExtent.height);
-    }
-    if (swapchain == VK_NULL_HANDLE) {
-        return false;
-    }
-
-    FrameResources& frame = frames[currentFrame];
+bool VulkanPresenter::acquirePresentFrame(
+    uint32_t width, uint32_t height, FrameResources*& frame,
+    uint32_t& imageIndex, bool& recreateAfterPresent) {
+    frame = &frames[currentFrame];
     checkVk(vkWaitForFences(
-                device, 1, &frame.fence, VK_TRUE, UINT64_MAX),
+                device, 1, &frame->fence, VK_TRUE, UINT64_MAX),
             "vkWaitForFences");
-    uint32_t imageIndex = 0;
     VkResult result = vkAcquireNextImageKHR(
-        device, swapchain, UINT64_MAX, frame.imageAvailable,
+        device, swapchain, UINT64_MAX, frame->imageAvailable,
         VK_NULL_HANDLE, &imageIndex);
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-        createSwapchain(renderExtent.width, renderExtent.height);
+        createSwapchain(width, height);
         return false;
     }
-    const bool recreateAfterPresent = result == VK_SUBOPTIMAL_KHR;
+    recreateAfterPresent = result == VK_SUBOPTIMAL_KHR;
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         failVk("vkAcquireNextImageKHR", result);
     }
-
-    checkVk(vkResetFences(device, 1, &frame.fence), "vkResetFences");
-    checkVk(vkResetCommandBuffer(frame.commandBuffer, 0),
+    checkVk(vkResetFences(device, 1, &frame->fence), "vkResetFences");
+    checkVk(vkResetCommandBuffer(frame->commandBuffer, 0),
             "vkResetCommandBuffer");
-    recordRepaintCommands(frame, imageIndex);
+    return true;
+}
 
+bool VulkanPresenter::submitPresentFrame(
+    uint32_t width, uint32_t height, FrameResources& frame,
+    uint32_t imageIndex, bool recreateAfterPresent) {
     const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1476,7 +1469,7 @@ bool VulkanPresenter::repaint() {
     presentInfo.swapchainCount = 1;
     presentInfo.pSwapchains = &swapchain;
     presentInfo.pImageIndices = &imageIndex;
-    result = vkQueuePresentKHR(queue, &presentInfo);
+    VkResult result = vkQueuePresentKHR(queue, &presentInfo);
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR &&
         result != VK_ERROR_OUT_OF_DATE_KHR) {
         failVk("vkQueuePresentKHR", result);
@@ -1486,9 +1479,34 @@ bool VulkanPresenter::repaint() {
     currentFrame = (currentFrame + 1) % framesInFlight;
     if (recreateAfterPresent || result == VK_SUBOPTIMAL_KHR ||
         result == VK_ERROR_OUT_OF_DATE_KHR) {
-        createSwapchain(renderExtent.width, renderExtent.height);
+        createSwapchain(width, height);
     }
     return presented;
+}
+
+bool VulkanPresenter::repaint() {
+    const uint32_t width = renderExtent.width;
+    const uint32_t height = renderExtent.height;
+    if (!outputInitialized || width == 0 || height == 0) {
+        return false;
+    }
+    if (swapchain == VK_NULL_HANDLE) {
+        createSwapchain(width, height);
+    }
+    if (swapchain == VK_NULL_HANDLE) {
+        return false;
+    }
+
+    FrameResources* frame = nullptr;
+    uint32_t imageIndex = 0;
+    bool recreateAfterPresent = false;
+    if (!acquirePresentFrame(
+            width, height, frame, imageIndex, recreateAfterPresent)) {
+        return false;
+    }
+    recordRepaintCommands(*frame, imageIndex);
+    return submitPresentFrame(
+        width, height, *frame, imageIndex, recreateAfterPresent);
 }
 
 bool VulkanPresenter::present(
@@ -1510,22 +1528,12 @@ bool VulkanPresenter::present(
 
     delta = delta && outputInitialized && previousStateValid;
 
-    FrameResources& frame = frames[currentFrame];
-    checkVk(vkWaitForFences(
-                device, 1, &frame.fence, VK_TRUE, UINT64_MAX),
-            "vkWaitForFences");
-
+    FrameResources* frame = nullptr;
     uint32_t imageIndex = 0;
-    VkResult result = vkAcquireNextImageKHR(
-        device, swapchain, UINT64_MAX, frame.imageAvailable,
-        VK_NULL_HANDLE, &imageIndex);
-    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-        createSwapchain(width, height);
+    bool recreateAfterPresent = false;
+    if (!acquirePresentFrame(
+            width, height, frame, imageIndex, recreateAfterPresent)) {
         return false;
-    }
-    const bool recreateAfterPresent = result == VK_SUBOPTIMAL_KHR;
-    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-        failVk("vkAcquireNextImageKHR", result);
     }
 
     std::vector<GpuCell> gpuCells;
@@ -1561,55 +1569,17 @@ bool VulkanPresenter::present(
 
     const size_t cellBytes =
         gpuCells.size() * sizeof(GpuCell);
-    ensureCellBuffer(frame, cellBytes);
-    std::memcpy(frame.cells, gpuCells.data(), cellBytes);
+    ensureCellBuffer(*frame, cellBytes);
+    std::memcpy(frame->cells, gpuCells.data(), cellBytes);
     const size_t graphemeBytes = graphemeData.size() * sizeof(uint32_t);
-    ensureGraphemeBuffer(frame, graphemeBytes);
-    std::memcpy(frame.graphemes, graphemeData.data(), graphemeBytes);
+    ensureGraphemeBuffer(*frame, graphemeBytes);
+    std::memcpy(frame->graphemes, graphemeData.data(), graphemeBytes);
 
-    checkVk(vkResetFences(device, 1, &frame.fence),
-            "vkResetFences");
-    checkVk(vkResetCommandBuffer(frame.commandBuffer, 0),
-            "vkResetCommandBuffer");
-    recordCommands(frame, imageIndex, charVdev, sourceFrame, delta);
-
-    const VkPipelineStageFlags waitStage =
-        VK_PIPELINE_STAGE_TRANSFER_BIT;
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.waitSemaphoreCount = 1;
-    submitInfo.pWaitSemaphores = &frame.imageAvailable;
-    submitInfo.pWaitDstStageMask = &waitStage;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &frame.commandBuffer;
-    submitInfo.signalSemaphoreCount = 1;
-    submitInfo.pSignalSemaphores = &presentSemaphores[imageIndex];
-    checkVk(vkQueueSubmit(queue, 1, &submitInfo, frame.fence),
-            "vkQueueSubmit");
+    recordCommands(*frame, imageIndex, charVdev, sourceFrame, delta);
     outputInitialized = true;
     previousCursor = charVdev.getCursor();
     previousSelection = charVdev.getSelection();
     previousStateValid = true;
-    imageInitialized[imageIndex] = true;
-
-    VkPresentInfoKHR presentInfo{};
-    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    presentInfo.waitSemaphoreCount = 1;
-    presentInfo.pWaitSemaphores = &presentSemaphores[imageIndex];
-    presentInfo.swapchainCount = 1;
-    presentInfo.pSwapchains = &swapchain;
-    presentInfo.pImageIndices = &imageIndex;
-    result = vkQueuePresentKHR(queue, &presentInfo);
-    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR &&
-        result != VK_ERROR_OUT_OF_DATE_KHR) {
-        failVk("vkQueuePresentKHR", result);
-    }
-
-    const bool presented = result != VK_ERROR_OUT_OF_DATE_KHR;
-    currentFrame = (currentFrame + 1) % framesInFlight;
-    if (recreateAfterPresent || result == VK_SUBOPTIMAL_KHR ||
-        result == VK_ERROR_OUT_OF_DATE_KHR) {
-        createSwapchain(width, height);
-    }
-    return presented;
+    return submitPresentFrame(
+        width, height, *frame, imageIndex, recreateAfterPresent);
 }

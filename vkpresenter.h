@@ -169,6 +169,12 @@ private:
                         const Frame& sourceFrame, bool delta);
     void recordRepaintCommands(
         FrameResources& frame, uint32_t imageIndex);
+    bool acquirePresentFrame(
+        uint32_t width, uint32_t height, FrameResources*& frame,
+        uint32_t& imageIndex, bool& recreateAfterPresent);
+    bool submitPresentFrame(
+        uint32_t width, uint32_t height, FrameResources& frame,
+        uint32_t imageIndex, bool recreateAfterPresent);
 
     static std::vector<uint8_t> makeAtlasMap(const Font& font);
     static uint32_t packColor(const Color& color);
