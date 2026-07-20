@@ -5,6 +5,17 @@ from harness import Zutty
 
 
 class PtyOutputTest(unittest.TestCase):
+    def test_simultaneous_read_and_write_flushes_older_bytes_before_reply(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.script_pty_writes(("error", errno.EAGAIN))
+            terminal.input(b"older")
+            terminal.script_pty_writes(64)
+            terminal.script_pty_reads(b"\x1b[5n", ("error", errno.EAGAIN))
+
+            self.assertFalse(terminal.service_pty(readable=True, writable=True))
+            self.assertEqual(terminal.read_written_pty(), b"older")
+            self.assertEqual(terminal.pending_output(), len(b"\x1b[0n"))
+
     def test_partial_writes_resume_at_exact_unsent_byte_after_backpressure(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.script_pty_writes(2, 3, ("error", errno.EAGAIN))

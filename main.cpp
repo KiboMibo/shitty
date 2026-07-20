@@ -1420,14 +1420,12 @@ namespace {
                 }
             }
             const short ptyEvents = ptySource.events();
-            bool readPtyInput = false;
-            if (ptyEvents & POLLOUT) {
-                vt->flushPtyOutput();
-            }
-            if ((ptyEvents & (POLLIN | POLLHUP | POLLERR)) &&
-                !mouseContext.frontend.selectionOngoing()) {
-                const bool finished = vt->readPty();
-                readPtyInput = true;
+            const bool readPtyInput =
+                (ptyEvents & (POLLIN | POLLHUP | POLLERR)) &&
+                !mouseContext.frontend.selectionOngoing();
+            const bool finished = vt->servicePty(
+                readPtyInput, ptyEvents & POLLOUT);
+            if (readPtyInput) {
                 ptySource.acknowledge();
                 if (finished) {
                     return false;

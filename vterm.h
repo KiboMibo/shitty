@@ -285,6 +285,7 @@ public:
     uint8_t getKittyKeyboardFlags() const;
 
     bool readPty();
+    bool servicePty(bool readable, bool writable);
     using PtyReadHandlerFn = std::function<ssize_t(uint8_t*, size_t)>;
     void setPtyReadHandler(const PtyReadHandlerFn& handler);
     void feedPtyOutput(const std::string& output);

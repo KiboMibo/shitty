@@ -1420,6 +1420,15 @@ void Vterm::setPtyWriteHandler(const PtyWriteHandlerFn& handler) {
     onPtyWrite = handler;
 }
 
+bool Vterm::servicePty(bool readable, bool writable) {
+    // Bytes already queued by the frontend precede replies generated while
+    // parsing newly readable PTY input.
+    if (writable) {
+        flushPtyOutput();
+    }
+    return readable && readPty();
+}
+
 void Vterm::setOscHandler(const OscHandlerFn& onOsc_) {
     haveOscHandler = true;
     onOsc = onOsc_;

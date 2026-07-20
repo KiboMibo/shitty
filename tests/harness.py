@@ -514,6 +514,15 @@ class Zutty:
     def read_written_pty(self):
         return self._read_hex_response("READ_WRITTEN_PTY")
 
+    def service_pty(self, readable=False, writable=False):
+        self.stream.write(
+            f"SERVICE_PTY {int(readable)} {int(writable)}\n".encode()
+        )
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid PTY service response")
+        return bool(int(response[1]))
+
     def snapshot(self):
         self.stream.write(b"SNAPSHOT\n")
         response = self._readline().split(" ", 13)

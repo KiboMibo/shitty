@@ -1172,6 +1172,16 @@ int runTestMode(int controlFd) {
             } else if (line == "READ_WRITTEN_PTY") {
                 writeAll(controlFd, "OK " + encodeHex(writtenPtyData) + "\n");
                 writtenPtyData.clear();
+            } else if (line.compare(0, 12, "SERVICE_PTY ") == 0) {
+                std::istringstream args(line.substr(12));
+                int readable;
+                int writable;
+                if (!(args >> readable >> writable) || readable < 0 ||
+                    readable > 1 || writable < 0 || writable > 1) {
+                    throw std::runtime_error("invalid PTY service event");
+                }
+                writeAll(controlFd, "OK " + std::to_string(
+                    terminal.servicePty(readable, writable)) + "\n");
             } else if (line == "QUIT") {
                 if (childPid > 0) {
                     kill(childPid, SIGKILL);
