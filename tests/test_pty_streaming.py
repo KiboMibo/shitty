@@ -5,6 +5,27 @@ from harness import Zutty
 
 
 class PtyStreamingTest(unittest.TestCase):
+    def test_synchronized_update_spans_multiple_pty_readiness_cycles(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            before = terminal.snapshot()
+            terminal.script_pty_reads(
+                b"\x1b[?2026hfirst", ("error", errno.EAGAIN)
+            )
+            self.assertFalse(terminal.read_pty())
+            self.assertEqual(terminal.snapshot(), before)
+
+            terminal.script_pty_reads(b"+second", ("error", errno.EAGAIN))
+            self.assertFalse(terminal.read_pty())
+            self.assertEqual(terminal.snapshot(), before)
+
+            terminal.script_pty_reads(
+                b"\x1b[?2026l", ("error", errno.EAGAIN)
+            )
+            self.assertFalse(terminal.read_pty())
+            after = terminal.snapshot()
+            self.assertEqual(after.lines, ["first+se", "cond    "])
+            self.assertEqual(after.refresh_count, before.refresh_count + 1)
+
     def test_csi_split_across_readiness_cycles_keeps_parser_state(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.script_pty_reads(b"\x1b[3", ("error", errno.EAGAIN))

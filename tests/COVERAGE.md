@@ -23,6 +23,8 @@ Covered now:
 - failed presentation retry with intervening damage, preserving the union of
   both updates in the next accepted frame;
 - cursor-only and selection-only frames with unchanged cell payloads;
+- synchronized output spanning multiple PTY readiness cycles, retaining the
+  previous committed frame until one combined release frame;
 - C0 controls, cursor movement, save/restore, tabs and scrolling regions;
 - autowrap, alternate screen, synchronized output and cursor modes;
 - insert/delete/erase operations and insert mode;

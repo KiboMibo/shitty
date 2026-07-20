@@ -29,7 +29,6 @@
 
 Сейчас практически отсутствуют:
 
-- synchronized update через несколько PTY reads;
 - timeout synchronized output;
 - resize между failed present и retry;
 - отсутствие spurious frames при неполной escape sequence.
