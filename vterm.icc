@@ -2498,11 +2498,48 @@ Vterm::csi_SGR() {
         }
         const bool colon = inputSeparators[k + 1] == ':';
         const uint32_t mode = inputOps[++k];
+        if (colon) {
+            const size_t first = k + 1;
+            size_t end = k;
+            while (end + 1 < nInputOps && inputSeparators[end + 1] == ':') {
+                ++end;
+            }
+            k = end;
+
+            if (mode == 5) {
+                if (end - first + 1 != 1 || inputOps[first] > 255) {
+                    return false;
+                }
+                color = palette256[inputOps[first]];
+                if (palette) {
+                    *palette = inputOps[first];
+                }
+                return true;
+            }
+            // ISO 8613-6 direct color is 2:Pi:Pr:Pg:Pb.  Pi is the
+            // color-space identifier and is currently ignored, as in xterm.
+            if (mode != 2 || end - first + 1 != 4 ||
+                inputOps[first + 1] > 255 || inputOps[first + 2] > 255 ||
+                inputOps[first + 3] > 255) {
+                return false;
+            }
+            color.red = inputOps[first + 1];
+            color.green = inputOps[first + 2];
+            color.blue = inputOps[first + 3];
+            if (palette) {
+                *palette = -1;
+            }
+            return true;
+        }
+
         if (mode == 5) {
-            if (k + 1 >= nInputOps || inputOps[k + 1] > 255) {
+            if (k + 1 >= nInputOps) {
                 return false;
             }
             const unsigned index = inputOps[++k];
+            if (index > 255) {
+                return false;
+            }
             color = palette256[index];
             if (palette) {
                 *palette = index;
@@ -2513,17 +2550,10 @@ Vterm::csi_SGR() {
             return false;
         }
 
-        size_t first = k + 1;
-        if (colon) {
-            size_t end = first;
-            while (end < nInputOps && inputSeparators[end] == ':') {
-                ++end;
-            }
-            if (end - first == 4) {
-                ++first;
-            }
-        }
-        if (first + 2 >= nInputOps || inputOps[first] > 255 ||
+        const size_t first = k + 1;
+        const size_t available = nInputOps - first;
+        k += std::min<size_t>(available, 3);
+        if (available < 3 || inputOps[first] > 255 ||
             inputOps[first + 1] > 255 || inputOps[first + 2] > 255) {
             return false;
         }
@@ -2577,11 +2607,15 @@ Vterm::csi_SGR() {
                 attrs.italic = 1;
                 break;
             case 4:
-                attrs.underline = 1;
-                attrs.underline_style = 1;
                 if (k + 1 < nInputOps && inputSeparators[k + 1] == ':') {
-                    attrs.underline_style = std::min(inputOps[++k], 5u);
-                    attrs.underline = attrs.underline_style != 0;
+                    const uint32_t style = inputOps[++k];
+                    if (style <= 5) {
+                        attrs.underline_style = style;
+                        attrs.underline = style != 0;
+                    }
+                } else {
+                    attrs.underline = 1;
+                    attrs.underline_style = 1;
                 }
                 break;
             case 5:
@@ -2750,6 +2784,10 @@ Vterm::csi_SGR() {
                 logU << "attribute: " << attr << std::endl;
                 break;
         }
+    }
+    if (underlineColorDefault) {
+        attrs.underline_color = attrs.fg;
+        attrs.underline_index = attrs.fg_index;
     }
     setState(InputState::Normal);
 }
@@ -3065,28 +3103,58 @@ Vterm::dcs_DECRQSS(const std::string& arg) {
         if (attrs.bold) {
             value << ";1";
         }
+        if (attrs.faint) {
+            value << ";2";
+        }
         if (attrs.italic) {
             value << ";3";
         }
         if (attrs.underline) {
             value << ";4";
+            if (attrs.underline_style > 1) {
+                value << ":" << static_cast<unsigned>(attrs.underline_style);
+            }
+        }
+        if (attrs.blink) {
+            value << ";5";
         }
         if (reverseVideo) {
             value << ";7";
         }
+        if (attrs.conceal) {
+            value << ";8";
+        }
+        if (attrs.strike) {
+            value << ";9";
+        }
+        if (attrs.overline) {
+            value << ";53";
+        }
         if (fgPalIx >= 0) {
             value << ";38;5;" << fgPalIx;
-        } else {
-            value << ";38;2;" << static_cast<unsigned>(attrs.fg.red)
-                  << ";" << static_cast<unsigned>(attrs.fg.green)
-                  << ";" << static_cast<unsigned>(attrs.fg.blue);
+        } else if (*fgIndex != -2) {
+            value << ";38;2;" << static_cast<unsigned>(fg->red)
+                  << ";" << static_cast<unsigned>(fg->green)
+                  << ";" << static_cast<unsigned>(fg->blue);
         }
         if (bgPalIx >= 0) {
             value << ";48;5;" << bgPalIx;
-        } else {
-            value << ";48;2;" << static_cast<unsigned>(attrs.bg.red)
-                  << ";" << static_cast<unsigned>(attrs.bg.green)
-                  << ";" << static_cast<unsigned>(attrs.bg.blue);
+        } else if (*bgIndex != -2) {
+            value << ";48;2;" << static_cast<unsigned>(bg->red)
+                  << ";" << static_cast<unsigned>(bg->green)
+                  << ";" << static_cast<unsigned>(bg->blue);
+        }
+        if (!underlineColorDefault) {
+            if (underlinePalIx >= 0) {
+                value << ";58;5;" << underlinePalIx;
+            } else {
+                value << ";58;2;"
+                      << static_cast<unsigned>(attrs.underline_color.red)
+                      << ";"
+                      << static_cast<unsigned>(attrs.underline_color.green)
+                      << ";"
+                      << static_cast<unsigned>(attrs.underline_color.blue);
+            }
         }
         value << "m";
     } else if (query == "r") {
@@ -3096,7 +3164,7 @@ Vterm::dcs_DECRQSS(const std::string& arg) {
     } else if (query == " q") {
         value << static_cast<unsigned>(cursorStyleParam) << " q";
     } else if (query == "\"q") {
-        value << "0\"q";
+        value << (attrs.protected_char ? 1 : 0) << "\"q";
     } else {
         writeDcsResponse("0$r");
         return;

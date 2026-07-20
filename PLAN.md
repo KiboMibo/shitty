@@ -4,11 +4,11 @@
 
 Сейчас:
 
-- 325 тестов;
-- 24 файла `test_*.py`;
-- 3738 строк непосредственно тестов;
-- 663 assertions;
-- 4509 строк всего Python в `tests/`, включая harness и утилиты.
+- 360 тестов;
+- 27 файлов `test_*.py`;
+- 4298 строк непосредственно тестов;
+- 759 assertions;
+- 5069 строк всего Python в `tests/`, включая harness и утилиты.
 
 Сборка уже использует `tests/*.py` и `unittest discover`, поэтому количество файлов ничем не ограничено: [build.py](/home/pg/monorepo/zutty/build.py:50). Список будущих имён фиксировать не буду. Останется только требование плоской `tests/`.
 
@@ -25,29 +25,7 @@
 
 ## Главные пробелы
 
-1. SGR и цвета
-
-Нужна декартова матрица для foreground/background/underline:
-
-- 16 цветов;
-- bright;
-- 256;
-- RGB;
-- `;` и `:` формы;
-- пропущенные subparameters;
-- malformed/truncated формы;
-- все индивидуальные resets;
-- underline styles;
-- underline color;
-- bold/faint;
-- inverse/conceal/blink;
-- `boldColors`;
-- динамическое изменение OSC 4/10/11/12/17/19 уже существующих cells;
-- reset OSC 104/110/111/112/117/119.
-
-Отдельно надо проверять DECRQSS после каждого сочетания атрибутов. Уже вижу подозрительное место: запрос DECSCA сейчас всегда возвращает `0"q`, независимо от реально установленной защиты.
-
-2. DCS, OSC и window operations
+1. DCS, OSC и window operations
 
 Каждая ветка сейчас требует собственной таблицы:
 
@@ -64,7 +42,7 @@
 
 Текущий OSC 99 реализует только часть опубликованного протокола; тесты должны чётко зафиксировать заявленный subset и не позволять отвечать поддержкой того, чего нет: [kitty notifications](https://sw.kovidgoyal.net/kitty/desktop-notifications/).
 
-3. Keyboard и mouse
+2. Keyboard и mouse
 
 24 keyboard-теста — мало относительно таблицы реализации.
 
@@ -95,7 +73,7 @@ Kitty требует согласованной реализации progressive
 
 Так мы закроем fractional scrolling, смену reporting/local scrolling, Shift override, cell dedupe, horizontal wheel и double/triple click.
 
-4. Unicode и charsets
+3. Unicode и charsets
 
 Текущий grapheme-код реализует выбранный subset правил, но не полный UAX #29. Нужны представительные официальные vectors:
 
@@ -116,7 +94,7 @@ Unicode публикует и правила, и официальный `Graphem
 
 Отдельная матрица нужна для G0–G3, GL/GR, locking/single shifts, NRC sets, DEC Special/Technical и возврата из VT52.
 
-5. Resize, selection и scrollback
+4. Resize, selection и scrollback
 
 Scrollback дальше раздувать просто ради числа не надо. Добавлять только новые взаимодействия:
 
@@ -133,7 +111,7 @@ Scrollback дальше раздувать просто ради числа не
 - same-grid pixel-only resize;
 - in-band resize response.
 
-6. PTY, presentation и lifecycle
+5. PTY, presentation и lifecycle
 
 Сейчас практически отсутствуют:
 
@@ -153,7 +131,7 @@ Scrollback дальше раздувать просто ради числа не
 
 Synchronized output должен продолжать менять модель терминала, сохраняя предыдущую представленную картинку до `2026l`: [protocol specification](https://github.com/contour-terminal/vt-extensions/blob/master/synchronized-output.md).
 
-7. Options, fonts и startup
+6. Options, fonts и startup
 
 Это почти белое пятно:
 
@@ -201,15 +179,14 @@ Offscreen Vulkan на этом проходе не нужен: логическ�
 
 | Область | Новых тестов |
 |---|---:|
-| SGR/colors | 30 |
 | DCS/OSC/window protocols | 45 |
 | Keyboard/keypad | 45 |
 | Mouse/frontend events | 35 |
 | Unicode/charsets | 30 |
 | Resize/selection/scrollback interactions | 25 |
 | PTY/present/options/fonts/startup | 30 |
-| Итого | около 240 |
+| Итого | около 210 |
 
 То есть итог, вероятно, будет ближе к 550–560 тестам, а не ровно к формальному удвоению.
 
-Имена и существующая раскладка файлов не являются ограничением. Рабочая единица — строка спецификации, состояние автомата или внешний контракт. На каждую такую единицу: минимальный тест, варианты параметров и хотя бы один граничный либо ошибочный сценарий. Уже вижу несколько мест, где новые тесты должны сразу покраснеть: полный UAX #29, DECUDK limits, DECRQSS state reporting, frontend wheel accumulation и строгий разбор числовых опций. Исходники в этом проходе не менял.
+Имена и существующая раскладка файлов не являются ограничением. Рабочая единица — строка спецификации, состояние автомата или внешний контракт. На каждую такую единицу: минимальный тест, варианты параметров и хотя бы один граничный либо ошибочный сценарий. Уже вижу несколько мест, где новые тесты должны сразу покраснеть: полный UAX #29, DECUDK limits, frontend wheel accumulation и строгий разбор числовых опций. Исходники в этом проходе не менял.
