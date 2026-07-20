@@ -20,6 +20,8 @@ Covered now:
 - multi-read PTY draining through the first `EAGAIN`, published as one frame;
 - the 20 MiB per-turn PTY fairness boundary, leaving the next byte and EOF for
   the following event-loop turn;
+- failed presentation retry with intervening damage, preserving the union of
+  both updates in the next accepted frame;
 - C0 controls, cursor movement, save/restore, tabs and scrolling regions;
 - autowrap, alternate screen, synchronized output and cursor modes;
 - insert/delete/erase operations and insert mode;

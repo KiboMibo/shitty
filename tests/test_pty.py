@@ -79,6 +79,18 @@ class PtyTest(unittest.TestCase):
             self.assertEqual(retried.lines[0], "retained")
             self.assertEqual(retried.refresh_count, before.refresh_count + 1)
 
+    def test_damage_after_failed_present_is_merged_into_retry(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            before = terminal.snapshot().refresh_count
+            terminal.fail_next_present()
+            terminal.write(b"first")
+            self.assertEqual(terminal.snapshot().refresh_count, before)
+
+            terminal.write(b"+second")
+            retried = terminal.snapshot()
+            self.assertEqual(retried.lines, ["first+se", "cond    "])
+            self.assertEqual(retried.refresh_count, before + 1)
+
     def test_one_nonblocking_drain_publishes_one_frame(self):
         with Zutty(columns=80, rows=24) as terminal:
             terminal.spawn(

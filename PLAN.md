@@ -29,7 +29,6 @@
 
 Сейчас практически отсутствуют:
 
-- failed present, после которого пришло ещё damage;
 - cursor-only и selection-only damage;
 - synchronized update через несколько PTY reads;
 - timeout synchronized output;
