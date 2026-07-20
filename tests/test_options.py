@@ -118,6 +118,13 @@ class OptionTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 1)
                 self.assertIn(b"ambiguous option", result.stderr)
 
+    def test_fontpath_option_is_removed(self):
+        result = run_startup_failure(
+            extra_arguments=("-fontpath", "/tmp/fonts")
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(b"unknown option", result.stderr)
+
     def test_font_size_accepts_inclusive_one_and_255_boundaries(self):
         for value in (1, 255):
             with self.subTest(source="cli", value=value):

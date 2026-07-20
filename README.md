@@ -126,10 +126,9 @@ notably useful for defaults such as `+boldColors`.
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `-geometry COLSxROWS` | `80x24` | Initial terminal geometry in cells |
-| `-font NAME` | `monospace` | Primary font filename prefix |
-| `-dwfont NAME` | `18x18ja` | Double-width font filename prefix |
+| `-font NAME` | `monospace` | Primary fontconfig family |
+| `-dwfont NAME` | `18x18ja` | Double-width fontconfig family |
 | `-fontsize PX` | `16` | Requested font height |
-| `-fontpath PATHS` | `/usr/share/fonts` | Colon-separated search roots |
 | `-fg RGB`, `-bg RGB` | `#fff`, `#000` | Default foreground and background |
 | `-cr RGB` | foreground | Cursor colour |
 | `-border PX` | `2` | Logical border width |
@@ -169,28 +168,20 @@ or `clipboard`.
 
 ## Fonts
 
-`-font` and `-dwfont` are primarily case-insensitive filename prefixes. Zutty
-walks each root in `-fontpath` until it finds a regular face. Beside that face
-it recognizes common filename suffixes for bold, italic/oblique and bold
-italic variants; missing variants gracefully fall back to the regular face.
+`-font` and `-dwfont` are fontconfig family queries. Names such as `monospace`,
+`DejaVu Sans Mono` or any installed family (including aliases) work. Fontconfig
+selects the regular, bold, italic and bold-italic faces and may substitute a
+family if the requested one is not installed. Missing style variants gracefully
+fall back to the regular face.
 
-If no file under `-fontpath` matches the prefix, the name is resolved through
-fontconfig as a family query instead, so names like `monospace`,
-`DejaVu Sans Mono` or any installed family (including aliases) also work.
-Fontconfig picks the best match, which may be a substitute family if the
-requested one is not installed.
-
-Supported files are `.ttf`, `.otf`, `.ttc`, `.pcf` and `.pcf.gz`. Good primary
-font candidates commonly available on Linux include `DejaVuSansMono`,
-`LiberationMono`, `FreeMono`, `Hack` and `Inconsolata`. The double-width face
+The double-width face
 must rasterize to exactly twice the primary cell width at the same height. If
 it is absent or incompatible, wide characters use the missing-glyph marker.
 
-Example with multiple search roots:
+Example:
 
 ```sh
-zutty -fontpath /usr/local/share/fonts:/usr/share/fonts \
-      -font DejaVuSansMono -dwfont NotoSansMonoCJK
+zutty -font 'DejaVu Sans Mono' -dwfont 'Noto Sans Mono CJK JP'
 ```
 
 ## Keyboard, scrolling and selection

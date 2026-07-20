@@ -1466,8 +1466,7 @@ namespace {
         opts.border = static_cast<uint16_t>(std::clamp(
             static_cast<int>(std::lround(opts.border * density)), 0, 3000));
 
-        fontpk = std::make_unique<Fontpack>(
-            opts.fontpath, opts.fontname, opts.dwfontname);
+        fontpk = std::make_unique<Fontpack>(opts.fontname, opts.dwfontname);
         const int desiredPixelWidth =
             2 * opts.border + opts.nCols * fontpk->getPx();
         const int desiredPixelHeight =

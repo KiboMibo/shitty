@@ -47,20 +47,14 @@ Covered now:
   from the executable actually launched;
 - real child PTY startup with `TERM`, `ZUTTY_VERSION`, initial winsize and
   resize-driven winsize update plus `SIGWINCH` delivery;
-- deterministic recursive font-path traversal across colon-separated roots,
-  nested directories, incomplete families and unrelated files;
-- fontconfig fallback from an absent font tree through successful real
-  FreeType loading and nonzero glyph metrics;
-- case-insensitive regular/bold/italic/bold-italic filename classification,
-  including aliases, plus real four-face fontconfig overlay loading;
+- fontconfig family and generic-alias resolution to existing files, followed
+  by successful real FreeType loading and nonzero glyph metrics;
+- real four-face fontconfig regular/bold/italic/bold-italic overlay loading;
 - rejection of scalable overlay faces whose width, height or baseline metrics
   do not match the primary font;
-- plain and gzip-compressed PCF family resolution, case-insensitive extension
-  handling and prevention of mixed-format style groups;
 - missing/incompatible double-width font fallback while retaining a usable
   primary font and its metrics;
-- absent font directories as an empty tree result, with fallback behavior
-  covered separately;
+- removal of the legacy `-fontpath` option so fontconfig is the only resolver;
 - platform-neutral primary-selection ownership, external clipboard access,
   auto-copy mirroring and destination-specific OSC 52 writes;
 - C0 controls, cursor movement, save/restore, tabs and scrolling regions;

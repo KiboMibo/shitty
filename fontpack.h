@@ -20,15 +20,14 @@
 
 class Fontpack {
 public:
-    /* Initialize a Fontpack by locating and loading fonts under fontpath.
-       * Four styles are looked for: Regular, Bold, Italic and Bold Italic;
+    /* Initialize a Fontpack by resolving and loading fontconfig families.
+       * Four styles are requested: Regular, Bold, Italic and Bold Italic;
        * all but the first are optional. If not even a regular variant of
        * the requested font can be loaded, an exception is thrown.
        * Additionally, a double-width font with the given name is optionally
        * located and initialized.
        */
-    Fontpack(const std::string& fontpath,
-             const std::string& fontname,
+    Fontpack(const std::string& fontname,
              const std::string& dwfontname);
 
     ~Fontpack() = default;

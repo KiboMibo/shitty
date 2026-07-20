@@ -574,17 +574,6 @@ int runTestMode(int controlFd, int argc, char* argv[]) {
                     encoded += argument;
                 }
                 writeAll(controlFd, "OK " + encodeHex(encoded) + "\n");
-            } else if (line.compare(0, 13, "FONT_RESOLVE ") == 0) {
-                const size_t separator = line.find(' ', 13);
-                if (separator == std::string::npos)
-                    throw std::runtime_error("invalid font resolve request");
-                const FontVariants variants = resolveFontTree(
-                    decodeHex(line.substr(13, separator - 13)),
-                    decodeHex(line.substr(separator + 1)));
-                const std::string encoded = variants.regular + '\0' +
-                    variants.bold + '\0' + variants.italic + '\0' +
-                    variants.boldItalic;
-                writeAll(controlFd, "OK " + encodeHex(encoded) + "\n");
             } else if (line.compare(0, 19, "FONTCONFIG_RESOLVE ") == 0) {
                 const FontVariants variants = resolveFontconfig(
                     decodeHex(line.substr(19)));
@@ -595,14 +584,10 @@ int runTestMode(int controlFd, int argc, char* argv[]) {
             } else if (line.compare(0, 10, "FONT_LOAD ") == 0) {
                 const std::string request = decodeHex(line.substr(10));
                 const size_t first = request.find('\0');
-                const size_t second = first == std::string::npos
-                    ? std::string::npos : request.find('\0', first + 1);
-                if (first == std::string::npos || second == std::string::npos)
+                if (first == std::string::npos)
                     throw std::runtime_error("invalid font load request");
                 Fontpack fonts(
-                    request.substr(0, first),
-                    request.substr(first + 1, second - first - 1),
-                    request.substr(second + 1));
+                    request.substr(0, first), request.substr(first + 1));
                 writeAll(controlFd,
                          "OK " + std::to_string(fonts.getPx()) + " " +
                          std::to_string(fonts.getPy()) + " " +

@@ -11,19 +11,12 @@
 #include "fontresolver.h"
 #include "log.h"
 
-Fontpack::Fontpack(const std::string& fontpath,
-                   const std::string& fontname,
+Fontpack::Fontpack(const std::string& fontname,
                    const std::string& dwfontname) {
-    logT << "Fontpack: fontpath=" << fontpath
-         << "; fontname=" << fontname
+    logT << "Fontpack: fontname=" << fontname
          << "; dwfontname=" << dwfontname << std::endl;
 
-    FontVariants variants = resolveFontTree(fontpath, fontname);
-    if (variants.regular.empty()) {
-        logI << "No files matching '" << fontname << "' found under '"
-             << fontpath << "'; trying fontconfig" << std::endl;
-        variants = resolveFontconfig(fontname);
-    }
+    const FontVariants variants = resolveFontconfig(fontname);
     if (variants.regular.empty()) {
         logE << "No Regular variant of the requested font '" << fontname
              << "' could be identified." << std::endl;
@@ -61,12 +54,8 @@ Fontpack::Fontpack(const std::string& fontpath,
              << error.what() << std::endl;
     }
 
-    FontVariants doubleWidth = resolveFontTree(fontpath, dwfontname);
-    if (doubleWidth.regular.empty() && !dwfontname.empty()) {
-        logI << "No files matching '" << dwfontname << "' found under '"
-             << fontpath << "'; trying fontconfig" << std::endl;
-        doubleWidth.regular = resolveFontconfig(dwfontname).regular;
-    }
+    FontVariants doubleWidth;
+    if (!dwfontname.empty()) doubleWidth = resolveFontconfig(dwfontname);
     try {
         if (!doubleWidth.regular.empty()) {
             fontDoubleWidth = std::make_unique<Font>(

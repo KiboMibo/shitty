@@ -195,18 +195,6 @@ class Zutty:
         fields = self._read_hex_response("LAUNCH_COMMAND").split(b"\0")
         return os.fsdecode(fields[0]), [os.fsdecode(value) for value in fields[1:]]
 
-    def resolve_font(self, path, family):
-        encoded = self._read_hex_response(
-            "FONT_RESOLVE " + os.fsencode(path).hex() + " "
-            + os.fsencode(family).hex()
-        ).split(b"\0")
-        if len(encoded) != 4:
-            raise RuntimeError("invalid font resolver response")
-        return dict(zip(
-            ("regular", "bold", "italic", "bold_italic"),
-            (os.fsdecode(value) for value in encoded),
-        ))
-
     def resolve_fontconfig(self, family):
         encoded = self._read_hex_response(
             "FONTCONFIG_RESOLVE " + os.fsencode(family).hex()
@@ -216,8 +204,8 @@ class Zutty:
             (os.fsdecode(value) for value in encoded),
         ))
 
-    def load_font(self, path, family, double_width):
-        request = b"\0".join(map(os.fsencode, (path, family, double_width)))
+    def load_font(self, family, double_width):
+        request = b"\0".join(map(os.fsencode, (family, double_width)))
         self.stream.write(b"FONT_LOAD " + request.hex().encode() + b"\n")
         response = self._readline().split()
         if len(response) != 7 or response[0] != "OK":

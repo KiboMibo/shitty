@@ -37,14 +37,6 @@ struct ResourceDesc {
     const char* helpDescr;
 };
 
-#if defined(FREEBSD)
-static constexpr const char* fontpath = "/usr/local/share/fonts";
-#elif defined(OPENBSD)
-static constexpr const char* fontpath = "/usr/local/share/fonts";
-#else
-static constexpr const char* fontpath = "/usr/share/fonts";
-#endif
-
 static const std::vector<OptionDesc> optionsTable = {
 
     {"altScroll", OptionKind::NoArg, "true", "false", "Alternate scroll mode"},
@@ -57,7 +49,6 @@ static const std::vector<OptionDesc> optionsTable = {
     {"fg", OptionKind::SepArg, nullptr, "#fff", "Foreground color"},
     {"font", OptionKind::SepArg, nullptr, "monospace", "Font to use"},
     {"fontsize", OptionKind::SepArg, nullptr, "16", "Font size"},
-    {"fontpath", OptionKind::SepArg, nullptr, fontpath, "Font search path"},
     {"geometry", OptionKind::SepArg, nullptr, "80x24", "Terminal size in chars"},
     {"vulkanInfo", OptionKind::NoArg, "true", "false", "Print Vulkan information"},
     {"help", OptionKind::NoArg, "true", "false", "Print usage listing and quit"},
@@ -113,7 +104,6 @@ struct Options {
     uint16_t saveLines;
     const char* dwfontname;
     const char* fontname;
-    const char* fontpath;
     const char* shell;
     const char* title;
     const char* printerCommand;
