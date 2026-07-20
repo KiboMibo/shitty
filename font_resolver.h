@@ -10,3 +10,4 @@ struct FontVariants {
 };
 
 FontVariants resolveFontconfig(const std::string& fontname);
+void finalizeFontconfig() noexcept;

@@ -1,7 +1,12 @@
+import os
+import platform
+
 import build
 
 
-build.includes += ["$(B)"]
+std_root = os.path.realpath(os.path.join(os.path.dirname(__file__), "../std"))
+
+build.includes += ["$(B)", std_root]
 build.cppflags += ['-DZUTTY_VERSION="0.14"']
 build.cxxflags += [
     "-std=c++23",
@@ -16,7 +21,20 @@ vulkan = pkg_config("vulkan")
 brotli_common = pkg_config("libbrotlicommon", required=False)
 utf8proc = pkg_config("libutf8proc")
 threads = dependency(ldflags=["-pthread"])
-libstd = dependency(ldflags=["-lstd"])
+
+
+std_sources = [
+    source for source in build.glob(f"{std_root}/std/*/*.cpp")
+    if not source.endswith("_ut.cpp")
+]
+std_cxxflags = ["-std=c++26"]
+if platform.machine() == "x86_64":
+    std_cxxflags.append("-mcx16")
+libstd = library(
+    srcs=std_sources,
+    cxxflags=std_cxxflags,
+    output="$(B)/libstd.a",
+)
 
 
 render_spv = command(

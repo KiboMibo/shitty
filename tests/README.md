@@ -21,3 +21,20 @@ double-width markers, wrap state, text attributes, foreground/background RGB,
 hyperlink id, cursor, selection, scroll offset and refresh count. Other control
 commands cover resize, keyboard and kitty-key events, paste, focus, selection,
 OSC/bell actions, hyperlink lookup, PTY replies and mode state.
+
+Sanitizer builds use separate caches and instrument both Zutty and the complete
+production `libstd`:
+
+```sh
+CXXFLAGS='-fsanitize=address,undefined -fno-sanitize-recover=all \
+  -fno-omit-frame-pointer -g' \
+LDFLAGS='-fsanitize=address,undefined' \
+ASAN_OPTIONS='detect_leaks=1:abort_on_error=1' \
+UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1' \
+./build -B .build-asan-ubsan
+
+CXXFLAGS='-fsanitize=thread -fno-omit-frame-pointer -g' \
+LDFLAGS='-fsanitize=thread' \
+TSAN_OPTIONS='halt_on_error=1:second_deadlock_stack=1' \
+./build -B .build-tsan
+```

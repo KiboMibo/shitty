@@ -415,7 +415,7 @@ class BuildContext:
                 inputs=[src], outputs=[obj],
                 commands=[[compiler, *common, "-c", src, "-o", obj]], deps=deps,
                 descr="CC", color="green", include_roots=include_roots,
-                scan_sources=src.startswith(S + "/"),
+                scan_sources=src.startswith(S + "/") or os.path.isabs(src),
             )
             if src.startswith(S + "/") or os.path.isabs(src):
                 node.source_inputs.add(src)
@@ -713,7 +713,8 @@ class IncludeScanner:
         candidates.extend(root + "/" + target for root in roots)
         for candidate in _uniq(candidates):
             candidate = self._normal_symbolic(candidate)
-            if candidate.startswith(S + "/") and self.context.physical(candidate).is_file():
+            if ((candidate.startswith(S + "/") or os.path.isabs(candidate))
+                    and self.context.physical(candidate).is_file()):
                 result = (candidate, None)
                 self.resolved[key] = result
                 return result

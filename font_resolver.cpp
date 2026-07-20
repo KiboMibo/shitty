@@ -3,7 +3,19 @@
 #include <fontconfig/fontconfig.h>
 
 namespace {
+    bool fontconfigInitialized = false;
+
+    bool initializeFontconfig() {
+        if (!fontconfigInitialized) {
+            fontconfigInitialized = FcInit();
+        }
+        return fontconfigInitialized;
+    }
+
     std::string fontconfigFile(const std::string& family, int weight, int slant) {
+        if (!initializeFontconfig()) {
+            return {};
+        }
         FcPattern* pattern = FcPatternCreate();
         if (!pattern) {
             return {};
@@ -48,4 +60,11 @@ FontVariants resolveFontconfig(const std::string& family) {
         variants.boldItalic = path;
     }
     return variants;
+}
+
+void finalizeFontconfig() noexcept {
+    if (fontconfigInitialized) {
+        FcFini();
+        fontconfigInitialized = false;
+    }
 }

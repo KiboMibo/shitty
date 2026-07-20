@@ -46,10 +46,12 @@ uploaded by the CPU.
 
 Build-time requirements are:
 
-- a C++17 compiler;
+- Clang with C++26 language support;
+- the `std` source tree checked out next to Zutty as `../std`;
 - Python 3 and `glslangValidator` for compiling and embedding the compute
   shader;
 - pkg-config;
+- Brotli and utf8proc;
 - FreeType 2;
 - GLFW 3.4 or newer, built with Wayland support;
 - Vulkan headers and loader;
@@ -61,8 +63,9 @@ working Vulkan ICD in addition to the loader.
 
 ## Build
 
-The repository includes a Nix development shell with the required tools and
-libraries:
+The repository includes a Clang-based Nix development shell with the required
+tools, libraries and deterministic test fonts. The build graph compiles the
+complete production `libstd` from `../std` before linking Zutty:
 
 ```sh
 nix-shell

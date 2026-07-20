@@ -64,8 +64,22 @@ bool Font::isLoadableChar(FT_ULong c) {
 }
 
 void Font::load() {
-    FT_Library ft;
-    FT_Face face;
+    FT_Library ft = nullptr;
+    FT_Face face = nullptr;
+
+    struct Cleanup {
+        FT_Library& library;
+        FT_Face& face;
+
+        ~Cleanup() {
+            if (face) {
+                FT_Done_Face(face);
+            }
+            if (library) {
+                FT_Done_FreeType(library);
+            }
+        }
+    } cleanup{ft, face};
 
     if (FT_Init_FreeType(&ft)) {
         throw std::runtime_error("Could not initialize FreeType library");
@@ -147,9 +161,6 @@ void Font::load() {
         }
         charcode = FT_Get_Next_Char(face, charcode, &gindex);
     }
-
-    FT_Done_Face(face);
-    FT_Done_FreeType(ft);
 }
 
 void Font::loadFixed(const FT_Face& face) {
