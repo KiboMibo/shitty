@@ -72,10 +72,15 @@ class RenderState:
 
 
 class Zutty:
-    def __init__(self, columns=80, rows=24, save_lines=500):
+    def __init__(
+        self, columns=80, rows=24, save_lines=500,
+        glyph_px=1, glyph_py=1,
+    ):
         parent, child = socket.socketpair()
         self.socket = parent
         self.stream = parent.makefile("rwb", buffering=0)
+        child_environment = os.environ.copy()
+        child_environment["ZUTTY_TEST_GLYPH"] = f"{glyph_px}x{glyph_py}"
         self.process = subprocess.Popen(
             [
                 str(ZUTTY),
@@ -88,13 +93,16 @@ class Zutty:
                 "-quiet",
             ],
             pass_fds=(child.fileno(),),
+            env=child_environment,
         )
+        self._glyph_px = glyph_px
+        self._glyph_py = glyph_py
         child.close()
         self._window_info = {
             "x": 10,
             "y": 20,
-            "pixel_width": columns + 4,
-            "pixel_height": rows + 4,
+            "pixel_width": columns * glyph_px + 4,
+            "pixel_height": rows * glyph_py + 4,
             "screen_width": 1920,
             "screen_height": 1080,
             "iconified": False,
@@ -231,8 +239,13 @@ class Zutty:
 
     def resize(self, columns, rows):
         self.command(f"RESIZE {columns} {rows}")
-        self._window_info["pixel_width"] = columns + 4
-        self._window_info["pixel_height"] = rows + 4
+        self._window_info["pixel_width"] = columns * self._glyph_px + 4
+        self._window_info["pixel_height"] = rows * self._glyph_py + 4
+
+    def resize_pixels(self, width, height):
+        self.command(f"RESIZE_PIXELS {width} {height}")
+        self._window_info["pixel_width"] = width
+        self._window_info["pixel_height"] = height
 
     def window_info(self, **values):
         unknown = values.keys() - self._window_info.keys()

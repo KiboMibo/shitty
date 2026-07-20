@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <cstdint>
+#include <cstdlib>
 #include <fcntl.h>
 #include <iomanip>
 #include <map>
@@ -355,9 +356,19 @@ int runTestMode(int controlFd) {
         throw std::runtime_error("test socket setup failed");
     }
 
-    const uint16_t width = 2 * opts.border + opts.nCols;
-    const uint16_t height = 2 * opts.border + opts.nRows;
-    Vterm terminal(1, 1, width, height, io[0]);
+    unsigned glyphPx = 1;
+    unsigned glyphPy = 1;
+    if (const char* geometry = std::getenv("ZUTTY_TEST_GLYPH")) {
+        std::istringstream input(geometry);
+        char separator = 0;
+        if (!(input >> glyphPx >> separator >> glyphPy) || separator != 'x' ||
+            !glyphPx || !glyphPy || input.peek() != EOF) {
+            throw std::runtime_error("invalid test glyph geometry");
+        }
+    }
+    const uint16_t width = 2 * opts.border + opts.nCols * glyphPx;
+    const uint16_t height = 2 * opts.border + opts.nRows * glyphPy;
+    Vterm terminal(glyphPx, glyphPy, width, height, io[0]);
     pty_resize(io[0], opts.nCols, opts.nRows);
     TestDisplay display;
     terminal.setRefreshHandler(
@@ -414,8 +425,8 @@ int runTestMode(int controlFd) {
     Vterm::WindowInfo windowInfo;
     windowInfo.x = 10;
     windowInfo.y = 20;
-    windowInfo.pixelWidth = opts.nCols + 2 * opts.border;
-    windowInfo.pixelHeight = opts.nRows + 2 * opts.border;
+    windowInfo.pixelWidth = width;
+    windowInfo.pixelHeight = height;
     windowInfo.screenPixelWidth = 1920;
     windowInfo.screenPixelHeight = 1080;
     terminal.setWindowInfoHandler([&windowInfo]() { return windowInfo; });
@@ -423,7 +434,8 @@ int runTestMode(int controlFd) {
         return MouseGeometry{
             static_cast<int>(windowInfo.pixelWidth),
             static_cast<int>(windowInfo.pixelHeight),
-            static_cast<int>(opts.border), 1, 1};
+            static_cast<int>(opts.border),
+            static_cast<int>(glyphPx), static_cast<int>(glyphPy)};
     };
     const auto sendMouseButton = [&](MouseEventType type, int button,
                                      int pixelX, int pixelY,
@@ -741,10 +753,24 @@ int runTestMode(int controlFd) {
                 if (!(args >> columns >> rows) || !columns || !rows) {
                     throw std::runtime_error("invalid resize");
                 }
-                terminal.resize(2 * opts.border + columns,
-                                2 * opts.border + rows);
-                windowInfo.pixelWidth = 2 * opts.border + columns;
-                windowInfo.pixelHeight = 2 * opts.border + rows;
+                terminal.resize(2 * opts.border + columns * glyphPx,
+                                2 * opts.border + rows * glyphPy);
+                windowInfo.pixelWidth = 2 * opts.border + columns * glyphPx;
+                windowInfo.pixelHeight = 2 * opts.border + rows * glyphPy;
+                terminal.redraw();
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 14, "RESIZE_PIXELS ") == 0) {
+                std::istringstream args(line.substr(14));
+                unsigned pixelWidth;
+                unsigned pixelHeight;
+                if (!(args >> pixelWidth >> pixelHeight) ||
+                    pixelWidth <= 2 * opts.border ||
+                    pixelHeight <= 2 * opts.border) {
+                    throw std::runtime_error("invalid pixel resize");
+                }
+                terminal.resize(pixelWidth, pixelHeight);
+                windowInfo.pixelWidth = pixelWidth;
+                windowInfo.pixelHeight = pixelHeight;
                 terminal.redraw();
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 12, "WINDOW_INFO ") == 0) {
@@ -905,11 +931,11 @@ int runTestMode(int controlFd) {
                     throw std::runtime_error("invalid selection point");
                 }
                 if (start) {
-                    terminal.selectStart(opts.border + column,
-                                         opts.border + row, false);
+                    terminal.selectStart(opts.border + column * glyphPx,
+                                         opts.border + row * glyphPy, false);
                 } else {
-                    terminal.selectUpdate(opts.border + column,
-                                          opts.border + row);
+                    terminal.selectUpdate(opts.border + column * glyphPx,
+                                          opts.border + row * glyphPy);
                 }
                 writeAll(controlFd, "OK\n");
             } else if (line == "SELECT_RECTANGULAR") {

@@ -27,6 +27,8 @@ Covered now:
   buffers, including inactive alternate preservation during primary resize;
 - scrolled viewport and history-selection anchoring across width/height resize
   and subsequent output;
+- same-grid pixel-only resize with non-unit glyph geometry, refresh, PTY size,
+  selection/history preservation and in-band notification;
 - Codex-style synchronized redraws plus a slow reference scrolling model;
 - SGR flags, truecolor, wide cells, wrap markers and DEC line drawing;
 - ISO 2022 G0-G3 designation, GL/GR locking and single shifts, complete NRC

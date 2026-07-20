@@ -29,7 +29,6 @@
 
 Scrollback дальше раздувать просто ради числа не надо. Добавлять только новые взаимодействия:
 
-- same-grid pixel-only resize;
 - in-band resize response.
 
 2. PTY, presentation и lifecycle
