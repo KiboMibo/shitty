@@ -91,6 +91,23 @@ class ModeTest(unittest.TestCase):
             self.assertGreater(after.refresh_count, before)
             self.assertEqual(after.lines[0], "stuck   ")
 
+    def test_synchronized_output_timeout_is_single_shot_and_reusable(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.sync_timeout()
+            before = terminal.snapshot().refresh_count
+            terminal.write(b"\x1b[?2026htimed")
+            terminal.sync_timeout()
+            released = terminal.snapshot()
+            self.assertEqual(released.lines[0], "timed   ")
+            self.assertEqual(released.refresh_count, before + 1)
+
+            terminal.sync_timeout()
+            self.assertEqual(terminal.snapshot().refresh_count, before + 1)
+            terminal.write(b"\x1b[?2026h-again\x1b[?2026l")
+            after = terminal.snapshot()
+            self.assertEqual(after.lines, ["timed-ag", "ain     "])
+            self.assertEqual(after.refresh_count, before + 2)
+
 
 if __name__ == "__main__":
     unittest.main()

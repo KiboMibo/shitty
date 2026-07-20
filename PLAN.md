@@ -29,7 +29,6 @@
 
 Сейчас практически отсутствуют:
 
-- timeout synchronized output;
 - resize между failed present и retry;
 - отсутствие spurious frames при неполной escape sequence.
 
