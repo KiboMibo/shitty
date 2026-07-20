@@ -629,6 +629,7 @@ private:
     bool blinkVisible = true;
     std::chrono::steady_clock::time_point nextBlink;
     bool altScreenBufferMode = false;
+    bool altScreenInitialized = false;
     bool autoWrapMode = true;
     bool autoNewlineMode = false;
     bool keyboardLocked = false;
@@ -707,7 +708,8 @@ private:
     ColMode colMode = ColMode::C80;
 
     void switchColMode(ColMode colMode);
-    void switchScreenBufferMode(bool altScreenBufferMode);
+    void switchScreenBufferMode(bool altScreenBufferMode,
+                                bool clearAlternate = false);
 
     enum class Charset : uint8_t {
         UTF8,

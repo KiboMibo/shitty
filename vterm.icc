@@ -353,7 +353,7 @@ Vterm::mouseWheelDown(uint16_t count) {
 
 inline void
 Vterm::resetTerminal() {
-    switchScreenBufferMode(false);
+    switchScreenBufferMode(false, true);
     resetScreen();
     resetAttrs();
 
@@ -437,6 +437,8 @@ Vterm::resetScreen() {
     ledState = 0;
     onLed(ledState);
     send8BitControls = false;
+    altScrollMode = opts.altScrollMode;
+    altSendsEscape = opts.altSendsEscape;
 
     compatLevel = CompatibilityLevel::VT400;
     cursorKeyMode = CursorKeyMode::ANSI;
@@ -487,7 +489,6 @@ Vterm::switchColMode(ColMode colMode_) {
         return;
     }
 
-    resetScreen();
     clearScreen();
 
     if (colMode_ == ColMode::C80) {
@@ -500,15 +501,35 @@ Vterm::switchColMode(ColMode colMode_) {
 }
 
 inline void
-Vterm::switchScreenBufferMode(bool altScreenBufferMode_) {
+Vterm::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlternate) {
     if (altScreenBufferMode == altScreenBufferMode_) {
+        if (clearAlternate) {
+            if (altScreenBufferMode_) {
+                kittyKeyboardAlt = {};
+                frame_alt = Frame(winPx, winPy, nCols, nRows,
+                                  marginTop, marginBottom, opts.saveLines);
+                altScreenInitialized = true;
+                cf = &frame_alt;
+                cf->expose();
+            } else if (altScreenInitialized) {
+                frame_alt.freeCells();
+                altScreenInitialized = false;
+                savedCursor_DEC_alt.isSet = false;
+            }
+        }
         return;
     }
 
     if (altScreenBufferMode_) {
-        kittyKeyboardAlt = {};
-        frame_alt = Frame(winPx, winPy, nCols, nRows,
-                          marginTop, marginBottom, opts.saveLines);
+        if (clearAlternate || !altScreenInitialized) {
+            kittyKeyboardAlt = {};
+            frame_alt = Frame(winPx, winPy, nCols, nRows,
+                              marginTop, marginBottom, opts.saveLines);
+            altScreenInitialized = true;
+        } else {
+            frame_alt.resize(winPx, winPy, nCols, nRows,
+                             marginTop, marginBottom);
+        }
         cf = &frame_alt;
         cf->expose();
 
@@ -519,9 +540,11 @@ Vterm::switchScreenBufferMode(bool altScreenBufferMode_) {
                          marginTop, marginBottom);
         cf = &frame_pri;
         cf->expose();
-        frame_alt.freeCells();
-
-        savedCursor_DEC_alt.isSet = false;
+        if (clearAlternate) {
+            frame_alt.freeCells();
+            altScreenInitialized = false;
+            savedCursor_DEC_alt.isSet = false;
+        }
         savedCursor_DEC = &savedCursor_DEC_pri;
         altScreenBufferMode = false;
         cf->getSelection().clear();
@@ -2174,7 +2197,7 @@ Vterm::setPrivMode(uint32_t arg, bool set) {
                 break;
             case 1049:
                 esc_DECSC();
-                switchScreenBufferMode(true);
+                switchScreenBufferMode(true, true);
                 break;
             case 1045:
                 extendedReverseWrapMode = true;
@@ -2282,13 +2305,13 @@ Vterm::setPrivMode(uint32_t arg, bool set) {
                 altSendsEscape = false;
                 break;
             case 1047:
-                switchScreenBufferMode(false);
+                switchScreenBufferMode(false, true);
                 break;
             case 1048:
                 esc_DECRC();
                 break;
             case 1049:
-                switchScreenBufferMode(false);
+                switchScreenBufferMode(false, true);
                 esc_DECRC();
                 break;
             case 1045:
@@ -2323,6 +2346,8 @@ Vterm::getPrivMode(uint32_t arg) const {
             return originMode == OriginMode::ScrollingRegion;
         case 7:
             return autoWrapMode;
+        case 12:
+            return cursorBlinkMode;
         case 42:
             return nationalReplacementMode;
         case 45:
@@ -2767,11 +2792,16 @@ inline void
 Vterm::csi_DECRQM(bool privateMode) {
     TRACE_FUN;
     const uint32_t mode = inputOps[0];
-    bool recognized = false;
-    bool enabled = false;
+    uint8_t state = 0;
 
     if (privateMode) {
         switch (mode) {
+            case 4:
+                state = 4;
+                break;
+            case 8:
+                state = 3;
+                break;
             case 1:
             case 2:
             case 3:
@@ -2779,6 +2809,7 @@ Vterm::csi_DECRQM(bool privateMode) {
             case 6:
             case 7:
             case 9:
+            case 12:
             case 25:
             case 42:
             case 45:
@@ -2803,42 +2834,52 @@ Vterm::csi_DECRQM(bool privateMode) {
             case 2004:
             case 2026:
             case 2048:
-                recognized = true;
-                enabled = mode == 2
-                              ? compatLevel != CompatibilityLevel::VT52
-                              : getPrivMode(mode);
+                state = (mode == 2
+                         ? compatLevel != CompatibilityLevel::VT52
+                         : getPrivMode(mode)) ? 1 : 2;
                 break;
             case 1049:
-                recognized = true;
-                enabled = altScreenBufferMode;
+                state = altScreenBufferMode ? 1 : 2;
                 break;
             default:
                 break;
         }
     } else {
-        recognized = true;
         switch (mode) {
+            case 1:
+            case 3:
+            case 5:
+            case 7:
+            case 10:
+            case 11:
+            case 13:
+            case 14:
+            case 15:
+            case 16:
+            case 17:
+            case 18:
+            case 19:
+                state = 4;
+                break;
             case 2:
-                enabled = keyboardLocked;
+                state = keyboardLocked ? 1 : 2;
                 break;
             case 4:
-                enabled = insertMode;
+                state = insertMode ? 1 : 2;
                 break;
             case 12:
-                enabled = !localEcho;
+                state = !localEcho ? 1 : 2;
                 break;
             case 20:
-                enabled = autoNewlineMode;
+                state = autoNewlineMode ? 1 : 2;
                 break;
-            default:
-                recognized = false;
-                break;
+            default: break;
         }
     }
 
     std::ostringstream oss;
     oss << (privateMode ? "?" : "") << mode << ";"
-        << (recognized ? (enabled ? 1 : 2) : 0) << "$y";
+        << static_cast<unsigned>(state) << "$y";
     writeCsiResponse(oss.str());
     setState(InputState::Normal);
 }
