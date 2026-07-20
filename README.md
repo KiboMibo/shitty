@@ -143,7 +143,7 @@ notably useful for defaults such as `+boldColors`.
 | `-autoCopy` | off | Copy every completed primary selection to the clipboard too |
 | `-showWraps` | off | Mark wrapped lines at the right edge |
 | `-vulkanInfo` | off | Print the chosen Vulkan device and API version |
-| `-quiet`, `-verbose` | off | Adjust diagnostic output |
+| `-quiet`, `-verbose`, `--trace` | off | Adjust diagnostic output |
 | `-listres` | — | Print advanced keyboard and palette options |
 
 Colours accept `RGB` or `RRGGBB`, with an optional leading `#`.

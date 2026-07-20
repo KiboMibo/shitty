@@ -31,20 +31,21 @@
     } else                             \
         std::cout
 
+#define tlog                         \
+    if (opts.quiet || !opts.trace) { \
+        ;                            \
+    } else                           \
+        std::cout
+
 const char* logFileName(const char* path);
 
 #define plog(Ostream, Prefix) Ostream << Prefix << " [" << logFileName(__FILE__) << ":" << std::setw(3) << __LINE__ << "] "
 
 #define logE plog(zlog, "E") << "Error: "
 #define logW plog(zlog, "W") << "Warning: "
-#define logU plog(zlog, "W") << "(Unimplemented) "
+#define logU plog(tlog, "T") << "(Unimplemented) "
 #define logI plog(vlog, "I")
-
-#ifdef DEBUG
-    #define logT plog(vlog, "T")
-#else
-    #define logT false && std::cout
-#endif
+#define logT plog(tlog, "T")
 
 inline void printArgs() {
     zlog << std::endl;

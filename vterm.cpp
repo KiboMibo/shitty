@@ -789,7 +789,7 @@ void VtermImpl::debugBreak() {
 #endif
 
 void VtermImpl::unhandledInput(unsigned char ch) {
-    logE << "Unhandled input char '" << ch << "' (" << (int)ch << ") in state " << strInputState(inputState) << ". Escape sequence so far: " << dumpBuffer(inputBuf + lastEscBegin, inputBuf + readPos + 1);
+    logT << "Unhandled input char '" << ch << "' (" << (int)ch << ") in state " << strInputState(inputState) << ". Escape sequence so far: " << dumpBuffer(inputBuf + lastEscBegin, inputBuf + readPos + 1);
     if ((ch >= 0x20 && ch <= 0x2f) || ch == ':') {
         switch (inputState) {
             case InputState::CSI:
@@ -1229,6 +1229,10 @@ bool VtermImpl::readPty() {
             continue;
         }
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            break;
+        }
+        if (errno == EIO) {
+            finished = true;
             break;
         }
         SYS_WARN("pty read");
@@ -1829,7 +1833,7 @@ void VtermImpl::csi_DECSCUSR() {
             cursorShape = CS::bar;
             break;
         default:
-            logI << "DECSCUSR with illegal param: " << inputOps[0] << std::endl;
+            logT << "DECSCUSR with illegal param: " << inputOps[0] << std::endl;
             break;
     }
     cursorBlinkMode = (cursorStyleParam & 1) != 0;
@@ -1925,7 +1929,7 @@ void VtermImpl::csi_SCOSC() {
 void VtermImpl::csi_SCORC() {
     TRACE_FUN;
     if (!savedCursor_SCO.isSet) {
-        logI << "Asked to restore cursor (SCORC) but it has not been saved." << std::endl;
+        logT << "Asked to restore cursor (SCORC) but it has not been saved." << std::endl;
     } else {
         posX = savedCursor_SCO.posX;
         posY = savedCursor_SCO.posY;
@@ -1949,7 +1953,7 @@ void VtermImpl::esc_DECSC() {
 void VtermImpl::esc_DECRC() {
     TRACE_FUN;
     if (!savedCursor_DEC->isSet) {
-        logI << "Asked to restore cursor (DECRC) but it has not been saved." << std::endl;
+        logT << "Asked to restore cursor (DECRC) but it has not been saved." << std::endl;
     } else {
         posX = savedCursor_DEC->posX;
         posY = savedCursor_DEC->posY;
@@ -2210,7 +2214,7 @@ void VtermImpl::csi_ED() {
             }
             break;
         default:
-            logI << "Erase in Display with illegal param: " << inputOps[0] << std::endl;
+            logT << "Erase in Display with illegal param: " << inputOps[0] << std::endl;
             break;
     }
     setState(InputState::Normal);
@@ -2230,7 +2234,7 @@ void VtermImpl::csi_EL() {
             cf->eraseInRow(posY, 0, nCols, attrs);
             break;
         default:
-            logI << "Erase in Line with illegal param: " << inputOps[0] << std::endl;
+            logT << "Erase in Line with illegal param: " << inputOps[0] << std::endl;
             break;
     }
     setState(InputState::Normal);
@@ -2530,7 +2534,7 @@ void VtermImpl::csi_STBM() {
         u32 newMarginBottom = nInputOps < 2 || inputOps[1] == 0 ? nRows : inputOps[1];
 
         if (newMarginTop >= nRows || newMarginBottom > nRows || newMarginBottom <= newMarginTop + 1) {
-            logI << "Illegal arguments to SetTopBottomMargins: top=" << inputOps[0] << ", bottom=" << inputOps[1] << std::endl;
+            logT << "Illegal arguments to SetTopBottomMargins: top=" << inputOps[0] << ", bottom=" << inputOps[1] << std::endl;
         } else if (newMarginTop != marginTop || newMarginBottom != marginBottom) {
             marginTop = (u16)(newMarginTop);
             marginBottom = (u16)(newMarginBottom);
@@ -2555,7 +2559,7 @@ void VtermImpl::csi_SLRM() {
         u32 newMarginRight = nInputOps < 2 || inputOps[1] == 0 ? nCols : inputOps[1];
 
         if (newMarginLeft >= nCols || newMarginRight > nCols || newMarginRight <= newMarginLeft + 1) {
-            logI << "Illegal arguments to SetLeftRightMargins: left=" << inputOps[0] << ", right=" << inputOps[1] << std::endl;
+            logT << "Illegal arguments to SetLeftRightMargins: left=" << inputOps[0] << ", right=" << inputOps[1] << std::endl;
         } else if (newMarginLeft != hMargin || newMarginRight != nColsEff) {
             hMargin = (u16)(newMarginLeft);
             nColsEff = (u16)(newMarginRight);
@@ -2617,7 +2621,7 @@ void VtermImpl::csi_SM() {
                 autoNewlineMode = true;
                 break;
             default:
-                logW << "Ignored bogus set mode " << arg << std::endl;
+                logT << "Ignored bogus set mode " << arg << std::endl;
                 break;
         }
     }
@@ -2643,7 +2647,7 @@ void VtermImpl::csi_RM() {
                 autoNewlineMode = false;
                 break;
             default:
-                logW << "Ignored bogus reset mode " << arg << std::endl;
+                logT << "Ignored bogus reset mode " << arg << std::endl;
                 break;
         }
     }
@@ -6366,7 +6370,7 @@ const VtermImpl::InputSpec& VtermImpl::getInputSpec(Key key) {
             inputSeparators[nInputOps] = ch;                                                            \
             inputOps[nInputOps++] = 0;                                                                  \
         } else {                                                                                        \
-            logE << "inputOps full, increase maxEscOps (currently: " << maxEscOps << ")!" << std::endl; \
+            logT << "inputOps full, increase maxEscOps (currently: " << maxEscOps << ")!" << std::endl; \
             setState(InputState::IgnoreSequence);                                                       \
         }                                                                                               \
         break
@@ -7149,7 +7153,7 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                         } else if (argBuf.size() < 4095) {
                             argBuf.push_back(ch);
                         } else if (!argBufOverflowed) {
-                            logE << "DCS argument string overflow" << std::endl;
+                            logT << "DCS argument string overflow" << std::endl;
                             argBufOverflowed = true;
                         }
                         break;
@@ -7209,7 +7213,7 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                         } else if (argBuf.size() < maxOscBytes) {
                             argBuf.push_back(ch);
                         } else if (!argBufOverflowed) {
-                            logE << "OSC argument string overflow" << std::endl;
+                            logT << "OSC argument string overflow" << std::endl;
                             argBufOverflowed = true;
                         }
                         break;
@@ -7272,7 +7276,7 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
 void VtermImpl::setHyperlink(const std::string& parametersAndUri) {
     const size_t separator = parametersAndUri.find(';');
     if (separator == std::string::npos) {
-        logW << "Malformed OSC 8 argument" << std::endl;
+        logT << "Malformed OSC 8 argument" << std::endl;
         return;
     }
 

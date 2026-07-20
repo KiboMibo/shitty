@@ -93,6 +93,7 @@ namespace {
         bool refreshPending = false;
         bool committedRepaintPending = false;
         bool terminalHostReady = false;
+        bool attentionRequested = false;
         std::optional<std::chrono::steady_clock::time_point> refreshDeadline;
         ClipboardStore clipboardStore;
 
@@ -162,6 +163,7 @@ namespace {
         void onMouseWheel(double wheelX, double wheelY);
         std::string getSelectionForOsc(bool primary);
         void handleOsc(int command, const std::string& argument);
+        void requestWindowAttention();
 
         template <typename Fn>
         void guardCallback(Fn&& callback);
@@ -953,7 +955,7 @@ void ApplicationImpl::handleOsc(int command, const std::string& argument) {
         case 7: {
             const std::string cwd = oscCwdToPath(argument);
             if (cwd.empty()) {
-                logW << "OSC 7: cannot parse '" << argument << "'" << std::endl;
+                logT << "OSC 7: cannot parse '" << argument << "'" << std::endl;
             } else if (!appTitleSet) {
                 glfwSetWindowTitle(window, cwd.c_str());
             }
@@ -973,7 +975,7 @@ void ApplicationImpl::handleOsc(int command, const std::string& argument) {
 
     const Osc52Request request = parseOsc52(argument, opts.osc52SelectClipboard);
     if (!request.valid) {
-        logW << "Malformed OSC 52 argument" << std::endl;
+        logT << "Malformed OSC 52 argument" << std::endl;
         return;
     }
 
@@ -1018,7 +1020,7 @@ bool ApplicationImpl::handlesOsc() const {
 }
 
 void ApplicationImpl::bell() {
-    glfwRequestWindowAttention(window);
+    requestWindowAttention();
 }
 
 void ApplicationImpl::print(const std::string& output) {
@@ -1040,13 +1042,25 @@ void ApplicationImpl::notify(const std::string&, const std::string& title, const
         return;
     }
     logI << "Notification: " << title << ": " << body << std::endl;
-    glfwRequestWindowAttention(window);
+    requestWindowAttention();
 }
 
 void ApplicationImpl::progress(u32 state, u32) {
     if (state == 2 || state == 4) {
-        glfwRequestWindowAttention(window);
+        requestWindowAttention();
     }
+}
+
+void ApplicationImpl::requestWindowAttention() {
+    if (glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_TRUE) {
+        attentionRequested = false;
+        return;
+    }
+    if (attentionRequested) {
+        return;
+    }
+    attentionRequested = true;
+    glfwRequestWindowAttention(window);
 }
 
 void ApplicationImpl::windowOperation(u32 operation, u32 first, u32 second) {
@@ -1199,6 +1213,9 @@ void ApplicationImpl::onWindowRefresh(GLFWwindow*) {
 
 void ApplicationImpl::onWindowFocus(GLFWwindow*, int focused) {
     guardCallback([this, focused]() {
+        if (focused) {
+            attentionRequested = false;
+        }
         if (vt == nullptr) {
             return;
         }
@@ -1436,6 +1453,11 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     }
     shellArgv.push_back(nullptr);
 
+    setupSignals();
+    const int ptyFd = startShell(launch.executable.c_str(), shellArgv.data());
+    Pty* terminalPty = Pty::adopt(composer, ptyFd);
+    composer.pty = terminalPty;
+
     glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_WAYLAND);
     if (!glfwInit()) {
         throw std::runtime_error(glfwFailure("glfwInit"));
@@ -1499,10 +1521,6 @@ int ApplicationImpl::run(int argc, char* argv[]) {
 
     renderer = Renderer::create(composer, window);
     composer.renderer = renderer;
-    setupSignals();
-    const int ptyFd = startShell(launch.executable.c_str(), shellArgv.data());
-    Pty* terminalPty = Pty::adopt(composer, ptyFd);
-    composer.pty = terminalPty;
     if (opts.printerCommand != nullptr && opts.printerCommand[0] != '\0') {
         printerPipe = popen(opts.printerCommand, "w");
         if (printerPipe == nullptr) {
