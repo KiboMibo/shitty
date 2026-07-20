@@ -8,6 +8,7 @@
  */
 
 #include "base.h"
+#include "clipboard.h"
 #include "fontpack.h"
 #include "keyboard.h"
 #include "log.h"
@@ -68,6 +69,7 @@ static bool refreshAllowed = true;
 static bool refreshPending = false;
 static bool committedRepaintPending = false;
 static std::optional<std::chrono::steady_clock::time_point> refreshDeadline;
+static ClipboardStore clipboardStore;
 
 extern char** environ;
 
@@ -289,7 +291,6 @@ namespace {
         windowContext.resizePending = true;
     }
 
-    std::string primarySelection;
     std::exception_ptr callbackError;
 
     void childSignalHandler(int signal, siginfo_t* info, void*) {
@@ -457,25 +458,14 @@ namespace {
     }
 
     bool pasteSelection(bool primary) {
-        const char* text = nullptr;
-        if (primary) {
-            text = primarySelection.c_str();
-        } else {
-            text = glfwGetClipboardString(window);
-        }
-        if (text == nullptr) {
-            return false;
-        }
+        const std::string text = clipboardStore.get(primary);
+        if (text.empty()) return false;
         vt->pasteSelection(text);
         return true;
     }
 
     bool copyPrimaryToClipboard() {
-        if (primarySelection.empty()) {
-            return false;
-        }
-        glfwSetClipboardString(window, primarySelection.c_str());
-        return true;
+        return clipboardStore.copyPrimaryToClipboard();
     }
 
     VtKey keypadKey(int key, bool numLock) {
@@ -982,10 +972,7 @@ namespace {
             std::string selection;
             mouseContext.frontend.endSelection();
             if (vt->selectFinish(selection)) {
-                primarySelection = selection;
-                if (opts.autoCopyMode) {
-                    glfwSetClipboardString(window, selection.c_str());
-                }
+                clipboardStore.setPrimary(selection, opts.autoCopyMode);
             }
         } else if (button == GLFW_MOUSE_BUTTON_MIDDLE) {
             pasteSelection(true);
@@ -1077,14 +1064,7 @@ namespace {
     }
 
     std::string getSelectionForOsc(bool primary) {
-        if (primary) {
-            return primarySelection;
-        }
-        const char* text = glfwGetClipboardString(window);
-        if (text == nullptr) {
-            return {};
-        }
-        return text;
+        return clipboardStore.get(primary);
     }
 
     bool appTitleSet = false;
@@ -1147,12 +1127,7 @@ namespace {
             return;
         }
 
-        if (request.primary) {
-            primarySelection = request.content;
-        }
-        if (request.clipboard) {
-            glfwSetClipboardString(window, request.content.c_str());
-        }
+        clipboardStore.apply(request);
     }
 
     template <typename Fn>
@@ -1472,6 +1447,14 @@ namespace {
         if (window == nullptr) {
             throw std::runtime_error(glfwFailure("glfwCreateWindow"));
         }
+        clipboardStore.setHandlers(
+            [] {
+                const char* text = glfwGetClipboardString(window);
+                return text != nullptr ? std::string(text) : std::string{};
+            },
+            [](const std::string& text) {
+                glfwSetClipboardString(window, text.c_str());
+            });
         glfwSetInputMode(window, GLFW_LOCK_KEY_MODS, GLFW_TRUE);
 
         float xScale = 1.0f;

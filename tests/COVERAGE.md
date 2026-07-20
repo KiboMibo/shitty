@@ -61,6 +61,8 @@ Covered now:
   primary font and its metrics;
 - absent font directories as an empty tree result, with fallback behavior
   covered separately;
+- platform-neutral primary-selection ownership, external clipboard access,
+  auto-copy mirroring and destination-specific OSC 52 writes;
 - C0 controls, cursor movement, save/restore, tabs and scrolling regions;
 - autowrap, alternate screen, synchronized output and cursor modes;
 - insert/delete/erase operations and insert mode;

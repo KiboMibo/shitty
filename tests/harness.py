@@ -566,6 +566,18 @@ class Zutty:
             + payload.hex()
         )
 
+    def set_primary_selection(self, content, auto_copy=False):
+        self.command(f"SET_PRIMARY {int(auto_copy)} {content.hex()}")
+
+    def set_system_clipboard(self, content):
+        self.command("SET_SYSTEM " + content.hex())
+
+    def get_selection(self, primary):
+        return self._read_hex_response(f"GET_SELECTION {int(primary)}")
+
+    def apply_clipboard_osc52(self, argument):
+        self.command("APPLY_CLIPBOARD_OSC52 " + argument.hex())
+
     def osc7_cwd(self, argument):
         return self._read_hex_response("OSC7_CWD " + argument.hex())
 

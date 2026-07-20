@@ -1,5 +1,6 @@
 #include "testmode.h"
 
+#include "clipboard.h"
 #include "grapheme.h"
 #include "fontresolver.h"
 #include "fontpack.h"
@@ -420,7 +421,13 @@ int runTestMode(int controlFd, int argc, char* argv[]) {
             });
     };
     MouseFrontendState mouseFrontend;
-    std::string primarySelection;
+    ClipboardStore clipboard;
+    std::string systemClipboard;
+    clipboard.setHandlers(
+        [&systemClipboard] { return systemClipboard; },
+        [&systemClipboard](const std::string& content) {
+            systemClipboard = content;
+        });
     terminal.setOscHandler(
         [&terminal, &actions](int command, const std::string& argument) {
             actions += "OSC " + std::to_string(command) + " " +
@@ -944,10 +951,10 @@ int runTestMode(int controlFd, int argc, char* argv[]) {
                 } else if (button == 0 || button == 1) {
                     mouseFrontend.endSelection();
                     if (terminal.selectFinish(selection)) {
-                        primarySelection = selection;
+                        clipboard.setPrimary(selection, opts.autoCopyMode);
                     }
                 } else if (button == 2) {
-                    terminal.pasteSelection(primarySelection);
+                    terminal.pasteSelection(clipboard.get(true));
                 }
                 writeAll(controlFd, "OK " + encodeHex(selection) + "\n");
             } else if (line.compare(0, 7, "RESIZE ") == 0) {
@@ -1246,6 +1253,33 @@ int runTestMode(int controlFd, int argc, char* argv[]) {
                           payload.substr(second + 1))
                     : std::string{};
                 writeAll(controlFd, "OK " + encodeHex(reply) + "\n");
+            } else if (line.compare(0, 12, "SET_PRIMARY ") == 0) {
+                const size_t separator = line.find(' ', 12);
+                if (separator == std::string::npos)
+                    throw std::runtime_error("invalid primary selection");
+                const int autoCopy = std::stoi(
+                    line.substr(12, separator - 12));
+                if (autoCopy < 0 || autoCopy > 1)
+                    throw std::runtime_error("invalid auto-copy state");
+                clipboard.setPrimary(
+                    decodeHex(line.substr(separator + 1)), autoCopy);
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 11, "SET_SYSTEM ") == 0) {
+                clipboard.setClipboard(decodeHex(line.substr(11)));
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 14, "GET_SELECTION ") == 0) {
+                const int primary = std::stoi(line.substr(14));
+                if (primary < 0 || primary > 1)
+                    throw std::runtime_error("invalid selection kind");
+                writeAll(controlFd, "OK " + encodeHex(
+                    clipboard.get(primary)) + "\n");
+            } else if (line.compare(0, 22, "APPLY_CLIPBOARD_OSC52 ") == 0) {
+                const Osc52Request request = parseOsc52(
+                    decodeHex(line.substr(22)), opts.osc52SelectClipboard);
+                if (!request.valid)
+                    throw std::runtime_error("invalid OSC 52 clipboard write");
+                clipboard.apply(request);
+                writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 9, "OSC7_CWD ") == 0) {
                 writeAll(controlFd, "OK " + encodeHex(oscCwdToPath(
                     decodeHex(line.substr(9)))) + "\n");
