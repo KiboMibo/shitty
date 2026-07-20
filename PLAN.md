@@ -29,7 +29,6 @@
 
 Сейчас практически отсутствуют:
 
-- граница 20 MiB и fairness;
 - failed present, после которого пришло ещё damage;
 - cursor-only и selection-only damage;
 - synchronized update через несколько PTY reads;

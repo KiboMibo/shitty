@@ -392,6 +392,30 @@ int runTestMode(int controlFd) {
     };
     std::deque<ScriptedPtyWrite> scriptedPtyWrites;
     std::string writtenPtyData;
+    const auto installScriptedPtyReader = [&]() {
+        terminal.setPtyReadHandler(
+            [&scriptedPtyReads](uint8_t* buffer, size_t size) {
+                if (scriptedPtyReads.empty()) {
+                    errno = EAGAIN;
+                    return static_cast<ssize_t>(-1);
+                }
+                auto& item = scriptedPtyReads.front();
+                if (item.eof) {
+                    scriptedPtyReads.pop_front();
+                    return static_cast<ssize_t>(0);
+                }
+                if (item.error) {
+                    errno = item.error;
+                    scriptedPtyReads.pop_front();
+                    return static_cast<ssize_t>(-1);
+                }
+                const size_t count = std::min(size, item.data.size());
+                std::copy_n(item.data.data(), count, buffer);
+                item.data.erase(0, count);
+                if (item.data.empty()) scriptedPtyReads.pop_front();
+                return static_cast<ssize_t>(count);
+            });
+    };
     MouseFrontendState mouseFrontend;
     std::string primarySelection;
     terminal.setOscHandler(
@@ -595,28 +619,23 @@ int runTestMode(int controlFd) {
                 if (scriptedPtyReads.empty()) {
                     throw std::runtime_error("empty PTY read script");
                 }
-                terminal.setPtyReadHandler(
-                    [&scriptedPtyReads](uint8_t* buffer, size_t size) {
-                        if (scriptedPtyReads.empty()) {
-                            errno = EAGAIN;
-                            return static_cast<ssize_t>(-1);
-                        }
-                        auto& item = scriptedPtyReads.front();
-                        if (item.eof) {
-                            scriptedPtyReads.pop_front();
-                            return static_cast<ssize_t>(0);
-                        }
-                        if (item.error) {
-                            errno = item.error;
-                            scriptedPtyReads.pop_front();
-                            return static_cast<ssize_t>(-1);
-                        }
-                        const size_t count = std::min(size, item.data.size());
-                        std::copy_n(item.data.data(), count, buffer);
-                        item.data.erase(0, count);
-                        if (item.data.empty()) scriptedPtyReads.pop_front();
-                        return static_cast<ssize_t>(count);
-                    });
+                installScriptedPtyReader();
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 16, "PTY_READ_REPEAT ") == 0) {
+                std::istringstream args(line.substr(16));
+                unsigned byte;
+                size_t count;
+                int eof;
+                if (!(args >> byte >> count >> eof) || byte > 255 ||
+                    count == 0 || count > 64 * 1024 * 1024 ||
+                    eof < 0 || eof > 1) {
+                    throw std::runtime_error("invalid repeated PTY input");
+                }
+                scriptedPtyReads.clear();
+                scriptedPtyReads.push_back({
+                    std::string(count, static_cast<char>(byte)), 0, false});
+                if (eof) scriptedPtyReads.push_back({"", 0, true});
+                installScriptedPtyReader();
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 17, "PTY_WRITE_SCRIPT ") == 0) {
                 scriptedPtyWrites.clear();
@@ -1172,6 +1191,12 @@ int runTestMode(int controlFd) {
             } else if (line == "READ_WRITTEN_PTY") {
                 writeAll(controlFd, "OK " + encodeHex(writtenPtyData) + "\n");
                 writtenPtyData.clear();
+            } else if (line == "PENDING_SCRIPTED_PTY_READ_BYTES") {
+                size_t count = 0;
+                for (const auto& item : scriptedPtyReads) {
+                    count += item.data.size();
+                }
+                writeAll(controlFd, "OK " + std::to_string(count) + "\n");
             } else if (line.compare(0, 12, "SERVICE_PTY ") == 0) {
                 std::istringstream args(line.substr(12));
                 int readable;

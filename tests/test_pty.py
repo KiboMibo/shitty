@@ -7,6 +7,16 @@ from harness import Zutty
 
 
 class PtyTest(unittest.TestCase):
+    def test_twenty_mibibyte_drain_limit_yields_with_input_remaining(self):
+        limit = 20 * 1024 * 1024
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.script_pty_repeat(0, limit + 1, eof=True)
+            self.assertFalse(terminal.read_pty())
+            self.assertEqual(terminal.pending_scripted_pty_read_bytes(), 1)
+
+            self.assertTrue(terminal.read_pty())
+            self.assertEqual(terminal.pending_scripted_pty_read_bytes(), 0)
+
     def test_eof_finishes_even_before_the_first_payload(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.script_pty_reads("eof")

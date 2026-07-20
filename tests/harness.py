@@ -181,6 +181,18 @@ class Zutty:
             raise ValueError("empty PTY read script")
         self.command("PTY_READ_SCRIPT " + " ".join(tokens))
 
+    def script_pty_repeat(self, byte, count, eof=False):
+        if not 0 <= byte <= 255 or count <= 0:
+            raise ValueError("invalid repeated PTY input")
+        self.command(f"PTY_READ_REPEAT {byte} {count} {int(eof)}")
+
+    def pending_scripted_pty_read_bytes(self):
+        self.stream.write(b"PENDING_SCRIPTED_PTY_READ_BYTES\n")
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid scripted PTY byte count")
+        return int(response[1])
+
     def wait_read_pty(self):
         self.command("WAIT_READ_PTY")
 
