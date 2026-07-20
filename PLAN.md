@@ -29,7 +29,6 @@
 
 Это почти белое пятно:
 
-- regular/bold/italic/bold-italic selection;
 - несовместимые metrics;
 - PCF/PCF.gz;
 - double-width fallback;

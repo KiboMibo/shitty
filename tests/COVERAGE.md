@@ -51,6 +51,8 @@ Covered now:
   nested directories, incomplete families and unrelated files;
 - fontconfig fallback from an absent font tree through successful real
   FreeType loading and nonzero glyph metrics;
+- case-insensitive regular/bold/italic/bold-italic filename classification,
+  including aliases, plus real four-face fontconfig overlay loading;
 - C0 controls, cursor movement, save/restore, tabs and scrolling regions;
 - autowrap, alternate screen, synchronized output and cursor modes;
 - insert/delete/erase operations and insert mode;
