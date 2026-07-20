@@ -890,7 +890,7 @@ Vterm::jumpToNextTabStop() {
         } while (posX < margin);
         posX = std::min((int)posX, nColsEff - 1);
     } else {
-        auto ts = std::lower_bound(tabStops.begin(), tabStops.end(), posX);
+        auto ts = std::upper_bound(tabStops.begin(), tabStops.end(), posX);
         posX = (ts == tabStops.end()) ? nCols - 1 : *ts;
     }
     lastCol = false;
@@ -1325,11 +1325,11 @@ Vterm::esc_DECRC() {
 inline void
 Vterm::csi_CUU() {
     TRACE_FUN;
-    uint16_t arg = inputOps[0] ? inputOps[0] : 1;
-    if (posY >= marginTop) {
-        arg = std::min((int)arg, posY - marginTop);
+    uint32_t arg = inputOps[0] ? inputOps[0] : 1;
+    if (posY >= marginTop && posY < marginBottom) {
+        arg = std::min<uint32_t>(arg, posY - marginTop);
     } else {
-        arg = std::min(arg, posY);
+        arg = std::min<uint32_t>(arg, posY);
     }
     posY -= arg;
     lastCol = false;
@@ -1339,11 +1339,11 @@ Vterm::csi_CUU() {
 inline void
 Vterm::csi_CUD() {
     TRACE_FUN;
-    int arg = inputOps[0] ? inputOps[0] : 1;
-    if (posY < marginBottom) {
-        arg = std::min(arg, marginBottom - posY - 1);
+    uint32_t arg = inputOps[0] ? inputOps[0] : 1;
+    if (posY >= marginTop && posY < marginBottom) {
+        arg = std::min<uint32_t>(arg, marginBottom - posY - 1);
     } else {
-        arg = std::min(arg, nRows - posY - 1);
+        arg = std::min<uint32_t>(arg, nRows - posY - 1);
     }
     posY += arg;
     lastCol = false;
@@ -1354,7 +1354,9 @@ inline void
 Vterm::csi_CUF() {
     TRACE_FUN;
     uint32_t arg = inputOps[0] ? inputOps[0] : 1;
-    arg = std::min<uint32_t>(arg, nColsEff - posX - 1);
+    const bool insideMargins = posX >= hMargin && posX < nColsEff;
+    const uint16_t right = insideMargins ? nColsEff : nCols;
+    arg = std::min<uint32_t>(arg, right - posX - 1);
     posX += arg;
     lastCol = false;
     setState(InputState::Normal);
@@ -1363,14 +1365,17 @@ Vterm::csi_CUF() {
 inline void
 Vterm::csi_CUB() {
     TRACE_FUN;
-    int arg = inputOps[0] ? inputOps[0] : 1;
+    uint32_t arg = inputOps[0] ? inputOps[0] : 1;
+    const bool insideMargins = posX >= hMargin && posX < nColsEff;
     if (posX == nColsEff) {
-        arg = std::min(arg + 1, (int)posX);
+        arg = std::min<uint32_t>(
+            arg == UINT32_MAX ? arg : arg + 1, posX);
     }
     while (arg > 0) {
-        const uint16_t left = posX >= hMargin ? posX - hMargin : posX;
+        const uint16_t leftEdge = insideMargins ? hMargin : 0;
+        const uint16_t left = posX >= leftEdge ? posX - leftEdge : posX;
         if (left > 0) {
-            const int step = std::min<int>(arg, left);
+            const uint32_t step = std::min<uint32_t>(arg, left);
             posX -= step;
             arg -= step;
             continue;
@@ -1379,7 +1384,7 @@ Vterm::csi_CUB() {
             (!extendedReverseWrapMode &&
              !cf->getCell(posY - 1, nColsEff - 1).wrap)) break;
         --posY;
-        posX = nColsEff;
+        posX = insideMargins ? nColsEff : nCols;
     }
     lastCol = false;
     setState(InputState::Normal);
@@ -1404,8 +1409,8 @@ Vterm::csi_CPL() {
 inline void
 Vterm::csi_CHA() {
     TRACE_FUN;
-    uint16_t col = inputOps[0] ? inputOps[0] : 1;
-    col = std::max((uint16_t)1, std::min(col, nCols));
+    uint32_t col = inputOps[0] ? inputOps[0] : 1;
+    col = std::max<uint32_t>(1, std::min<uint32_t>(col, nCols));
     posX = col - 1;
     lastCol = false;
     setState(InputState::Normal);
@@ -1421,8 +1426,9 @@ Vterm::csi_HPA() {
 inline void
 Vterm::csi_HPR() {
     TRACE_FUN;
-    uint16_t arg = inputOps[0] ? inputOps[0] : 1;
-    inputOps[0] = posX + arg + 1;
+    const uint32_t arg = inputOps[0] ? inputOps[0] : 1;
+    inputOps[0] = std::min<uint64_t>(
+        static_cast<uint64_t>(posX) + arg + 1, UINT32_MAX);
     csi_CHA();
     setState(InputState::Normal);
 }
@@ -1430,8 +1436,8 @@ Vterm::csi_HPR() {
 inline void
 Vterm::csi_VPA() {
     TRACE_FUN;
-    uint16_t row = inputOps[0] ? inputOps[0] : 1;
-    row = std::max((uint16_t)1, std::min(row, nRows));
+    uint32_t row = inputOps[0] ? inputOps[0] : 1;
+    row = std::max<uint32_t>(1, std::min<uint32_t>(row, nRows));
     posY = row - 1;
     lastCol = false;
     setState(InputState::Normal);
@@ -1440,9 +1446,9 @@ Vterm::csi_VPA() {
 inline void
 Vterm::csi_VPR() {
     TRACE_FUN;
-    uint16_t row = inputOps[0] ? inputOps[0] : 1;
-    row += (posY + 1);
-    row = std::max((uint16_t)1, std::min(row, nRows));
+    const uint32_t arg = inputOps[0] ? inputOps[0] : 1;
+    const uint32_t row = std::min<uint64_t>(
+        static_cast<uint64_t>(posY) + arg + 1, nRows);
     posY = row - 1;
     lastCol = false;
     setState(InputState::Normal);
@@ -1451,20 +1457,18 @@ Vterm::csi_VPR() {
 inline void
 Vterm::csi_CUP() {
     TRACE_FUN;
-    uint16_t row = inputOps[0] ? inputOps[0] : 1;
-    uint16_t col = (nInputOps > 1 && inputOps[1]) ? inputOps[1] : 1;
+    uint32_t row = inputOps[0] ? inputOps[0] : 1;
+    uint32_t col = (nInputOps > 1 && inputOps[1]) ? inputOps[1] : 1;
     switch (originMode) {
         case OriginMode::Absolute:
-            row = std::max((uint16_t)1, std::min(row, nRows)) - 1;
-            col = std::max((uint16_t)1, std::min(col, nCols)) - 1;
+            row = std::max<uint32_t>(1, std::min<uint32_t>(row, nRows)) - 1;
+            col = std::max<uint32_t>(1, std::min<uint32_t>(col, nCols)) - 1;
             break;
         case OriginMode::ScrollingRegion:
-            row = marginTop + std::max(
-                (uint16_t)1,
-                std::min<uint16_t>(row, marginBottom - marginTop)) - 1;
-            col = hMargin + std::max(
-                (uint16_t)1,
-                std::min<uint16_t>(col, nColsEff - hMargin)) - 1;
+            row = marginTop + std::max<uint32_t>(
+                1, std::min<uint32_t>(row, marginBottom - marginTop)) - 1;
+            col = hMargin + std::max<uint32_t>(
+                1, std::min<uint32_t>(col, nColsEff - hMargin)) - 1;
             break;
     }
 
@@ -1509,7 +1513,8 @@ Vterm::csi_SD() {
 inline void
 Vterm::csi_CHT() {
     TRACE_FUN;
-    uint16_t arg = inputOps[0] ? inputOps[0] : 1;
+    uint32_t arg = inputOps[0] ? inputOps[0] : 1;
+    arg = std::min<uint32_t>(arg, nCols);
     if (arg == 1) {
         inp_HT();
     } else {
@@ -1523,8 +1528,9 @@ Vterm::csi_CHT() {
 inline void
 Vterm::csi_CBT() {
     TRACE_FUN;
-    uint16_t arg = inputOps[0] ? inputOps[0] : 1;
-    for (uint16_t k = 0; k < arg; ++k) {
+    uint32_t arg = inputOps[0] ? inputOps[0] : 1;
+    arg = std::min<uint32_t>(arg, nCols);
+    for (uint32_t k = 0; k < arg; ++k) {
         if (!tabStopsCustomized) {
             if (posX > 0 && posX % 8 == 0) {
                 posX -= 8;
