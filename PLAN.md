@@ -29,7 +29,6 @@
 
 Сейчас практически отсутствуют:
 
-- cursor-only и selection-only damage;
 - synchronized update через несколько PTY reads;
 - timeout synchronized output;
 - resize между failed present и retry;
