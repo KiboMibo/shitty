@@ -29,7 +29,6 @@
 
 Это почти белое пятно:
 
-- значения 1/255 и выход за границы;
 - trailing garbage вроде `16wat`;
 - geometry, colors, boolean `+/-`, abbreviations и ambiguity;
 - `-e` как окончание разбора;

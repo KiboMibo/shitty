@@ -10,6 +10,34 @@ ROOT = Path(__file__).resolve().parents[1]
 ZUTTY = Path(os.environ.get("ZUTTY_TEST_BINARY", ROOT / "zutty"))
 
 
+def run_startup_failure(font_size_env=None, extra_arguments=()):
+    parent, child = socket.socketpair()
+    environment = os.environ.copy()
+    if font_size_env is None:
+        environment.pop("ZUTTY_FONT_SIZE", None)
+    else:
+        environment["ZUTTY_FONT_SIZE"] = str(font_size_env)
+    try:
+        return subprocess.run(
+            [
+                str(ZUTTY),
+                "--test-fd",
+                str(child.fileno()),
+                "-quiet",
+                *map(str, extra_arguments),
+            ],
+            pass_fds=(child.fileno(),),
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5,
+            check=False,
+        )
+    finally:
+        child.close()
+        parent.close()
+
+
 def put_rows(*values):
     return b"".join(
         f"\x1b[{row};1H".encode() + value

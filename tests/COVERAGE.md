@@ -33,6 +33,8 @@ Covered now:
   parser-driven cursor hiding;
 - startup font-size precedence across command line, `ZUTTY_FONT_SIZE` and the
   compiled default, through the real option parser without GLFW;
+- inclusive font-size boundaries 1/255 and startup rejection below/above the
+  range from both CLI and environment sources;
 - C0 controls, cursor movement, save/restore, tabs and scrolling regions;
 - autowrap, alternate screen, synchronized output and cursor modes;
 - insert/delete/erase operations and insert mode;
