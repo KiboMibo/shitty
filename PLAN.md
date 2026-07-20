@@ -29,7 +29,6 @@
 
 Scrollback дальше раздувать просто ради числа не надо. Добавлять только новые взаимодействия:
 
-- history capacity при повторяющихся resize;
 - resize при поднятом viewport;
 - same-grid pixel-only resize;
 - in-band resize response.

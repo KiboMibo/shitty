@@ -1455,29 +1455,25 @@ void Vterm::resize(uint16_t winPx_, uint16_t winPy_) {
 
     hideCursor();
 
-    if (altScreenBufferMode) {
-        frame_alt = Frame(winPx, winPy, nCols_, nRows_,
-                          marginTop, marginBottom, opts.saveLines);
-    } else {
-        if (nRows_ < posY + 1) {
-            // Preserve every row above the cursor that still fits.  Scrolling
-            // by the full height delta needlessly discards additional rows
-            // whenever the cursor is not on the old bottom row.
-            const uint16_t nScroll = posY + 1 - nRows_;
-            cf->scrollUp(0, nRows, nScroll);
-            posY -= nScroll;
-        }
+    if (nRows_ < posY + 1) {
+        // Preserve every row above the cursor that still fits.  Scrolling
+        // by the full height delta needlessly discards additional rows
+        // whenever the cursor is not on the old bottom row.
+        const uint16_t nScroll = posY + 1 - nRows_;
+        cf->scrollUp(0, nRows, nScroll);
+        posY -= nScroll;
+    }
 
-        frame_pri.resize(winPx, winPy, nCols_, nRows_,
-                         marginTop, marginBottom);
+    // Both buffers have real history and must obey the same resize contract.
+    // Keeping the inactive alternate allocation also lets mode 47 restore it
+    // after a primary-screen resize instead of dereferencing freed storage.
+    cf->resize(winPx, winPy, nCols_, nRows_, marginTop, marginBottom);
 
-        if (nRows < nRows_) {
-            int nScroll = std::min(nRows_ - nRows, (int)cf->getHistoryRows());
-            cf->restoreHistory(nScroll);
-            posY += nScroll;
-        }
-
-        frame_alt.freeCells();
+    if (nRows < nRows_) {
+        const int nScroll = std::min(
+            nRows_ - nRows, static_cast<int>(cf->getHistoryRows()));
+        cf->restoreHistory(nScroll);
+        posY += nScroll;
     }
     nCols = nCols_;
     nRows = nRows_;

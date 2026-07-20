@@ -23,6 +23,8 @@ Covered now:
   width/height shrink and grow;
 - vertical/horizontal margin reset on resize and default/custom forward and
   backward tab boundaries before and after width changes;
+- exact history capacity across repeated shrink/grow cycles, on both screen
+  buffers, including inactive alternate preservation during primary resize;
 - Codex-style synchronized redraws plus a slow reference scrolling model;
 - SGR flags, truecolor, wide cells, wrap markers and DEC line drawing;
 - ISO 2022 G0-G3 designation, GL/GR locking and single shifts, complete NRC
