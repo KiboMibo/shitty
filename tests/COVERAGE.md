@@ -29,6 +29,8 @@ Covered now:
   and subsequent output;
 - same-grid pixel-only resize with non-unit glyph geometry, refresh, PTY size,
   selection/history preservation and in-band notification;
+- in-band resize reporting for changed dimensions, duplicate suppression,
+  disable/re-enable state, 7-bit/8-bit CSI and non-unit glyph grids;
 - Codex-style synchronized redraws plus a slow reference scrolling model;
 - SGR flags, truecolor, wide cells, wrap markers and DEC line drawing;
 - ISO 2022 G0-G3 designation, GL/GR locking and single shifts, complete NRC

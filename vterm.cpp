@@ -1440,6 +1440,9 @@ void Vterm::setWindowInfoHandler(const WindowInfoHandlerFn& handler) {
 }
 
 void Vterm::resize(uint16_t winPx_, uint16_t winPy_) {
+    if (winPx == winPx_ && winPy == winPy_) {
+        return;
+    }
     winPx = winPx_;
     winPy = winPy_;
 

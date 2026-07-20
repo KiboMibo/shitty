@@ -25,13 +25,7 @@
 
 ## Главные пробелы
 
-1. Resize, selection и scrollback
-
-Scrollback дальше раздувать просто ради числа не надо. Добавлять только новые взаимодействия:
-
-- in-band resize response.
-
-2. PTY, presentation и lifecycle
+1. PTY, presentation и lifecycle
 
 Сейчас практически отсутствуют:
 
@@ -51,7 +45,7 @@ Scrollback дальше раздувать просто ради числа не
 
 Synchronized output должен продолжать менять модель терминала, сохраняя предыдущую представленную картинку до `2026l`: [protocol specification](https://github.com/contour-terminal/vt-extensions/blob/master/synchronized-output.md).
 
-3. Options, fonts и startup
+2. Options, fonts и startup
 
 Это почти белое пятно:
 
