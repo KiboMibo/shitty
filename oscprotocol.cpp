@@ -40,6 +40,18 @@ std::string encodeOsc52Reply(const std::string& selector,
     return "\x1b]52;" + selector + ";" + base64::encode(content) + "\x1b\\";
 }
 
+std::string encodeOsc52QueryReply(const Osc52Request& request,
+                                  bool allowRead,
+                                  const std::string& primary,
+                                  const std::string& clipboard) {
+    std::string content;
+    if (allowRead) {
+        if (request.primary) content = primary;
+        if (content.empty() && request.clipboard) content = clipboard;
+    }
+    return encodeOsc52Reply(request.replySelector, content);
+}
+
 std::string oscCwdToPath(const std::string& argument) {
     constexpr const char scheme[] = "file://";
     constexpr const size_t schemeLen = sizeof(scheme) - 1;
@@ -59,9 +71,12 @@ std::string oscCwdToPath(const std::string& argument) {
     std::string path;
     path.reserve(url.size());
     for (size_t k = 0; k < url.size(); ++k) {
-        if (url[k] == '%' && k + 2 < url.size() &&
-            std::isxdigit(static_cast<unsigned char>(url[k + 1])) &&
-            std::isxdigit(static_cast<unsigned char>(url[k + 2]))) {
+        if (url[k] == '%') {
+            if (k + 2 >= url.size() ||
+                !std::isxdigit(static_cast<unsigned char>(url[k + 1])) ||
+                !std::isxdigit(static_cast<unsigned char>(url[k + 2]))) {
+                return {};
+            }
             const auto hexDigit = [](char ch) {
                 return ch >= '0' && ch <= '9'
                            ? ch - '0'

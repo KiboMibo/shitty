@@ -4,11 +4,11 @@
 
 Сейчас:
 
-- 372 теста;
-- 28 файлов `test_*.py`;
-- 4465 строк непосредственно тестов;
-- 773 assertions;
-- 5236 строк всего Python в `tests/`, включая harness и утилиты.
+- 391 тест;
+- 29 файлов `test_*.py`;
+- 4701 строка непосредственно тестов;
+- 808 assertions;
+- 5486 строк всего Python в `tests/`, включая harness и утилиты.
 
 Сборка уже использует `tests/*.py` и `unittest discover`, поэтому количество файлов ничем не ограничено: [build.py](/home/pg/monorepo/zutty/build.py:50). Список будущих имён фиксировать не буду. Останется только требование плоской `tests/`.
 
@@ -29,10 +29,6 @@
 
 Каждая ветка сейчас требует собственной таблицы:
 
-- OSC 4: несколько пар за один запрос, invalid index/spec между валидными;
-- OSC 7: URI escaping, hostname, malformed URI;
-- OSC 8: id reuse, implicit/explicit ids, закрытие, empty URI, scrollback и очистка hyperlink storage;
-- OSC 52: все selectors, policy, invalid Base64, empty clipboard, query/reply;
 - OSC 99: chunks, ids, Base64, quotas, malformed metadata, query, close и обновление;
 - OSC 133: A/B/C/D, параметры и неправильный порядок;
 - XTWINOPS: все операции 11–23, оба варианта 14, title selectors, пустой stack и rollover после десяти элементов.
@@ -176,13 +172,13 @@ Offscreen Vulkan на этом проходе не нужен: логическ�
 
 | Область | Новых тестов |
 |---|---:|
-| DCS/OSC/window protocols | 33 |
+| DCS/OSC/window protocols | 14 |
 | Keyboard/keypad | 45 |
 | Mouse/frontend events | 35 |
 | Unicode/charsets | 30 |
 | Resize/selection/scrollback interactions | 25 |
 | PTY/present/options/fonts/startup | 30 |
-| Итого | около 198 |
+| Итого | около 179 |
 
 То есть итог, вероятно, будет ближе к 550–560 тестам, а не ровно к формальному удвоению.
 

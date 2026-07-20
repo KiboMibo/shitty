@@ -3287,10 +3287,12 @@ Vterm::handle_OSC() {
                     std::stringstream indices(arg);
                     std::string value;
                     while (std::getline(indices, value, ';')) {
-                        std::stringstream parser(value);
                         int index = -1;
-                        parser >> index;
-                        if (!parser.fail() && index >= 0 && index <= 255) {
+                        const auto parsed = std::from_chars(
+                            value.data(), value.data() + value.size(), index);
+                        if (parsed.ec == std::errc{} &&
+                            parsed.ptr == value.data() + value.size() &&
+                            index >= 0 && index <= 255) {
                             applyPaletteColor(
                                 index, originalPalette256[index]);
                         }
@@ -3481,10 +3483,12 @@ Vterm::osc_PaletteQuery(int cmd, const std::string& arg) {
     std::string spec;
     while (std::getline(fields, indexText, ';') &&
            std::getline(fields, spec, ';')) {
-        std::stringstream parser(indexText);
         int paletteIdx = -1;
-        parser >> paletteIdx;
-        if (parser.fail() || paletteIdx < 0 || paletteIdx > 255) continue;
+        const auto parsed = std::from_chars(
+            indexText.data(), indexText.data() + indexText.size(), paletteIdx);
+        if (parsed.ec != std::errc{} ||
+            parsed.ptr != indexText.data() + indexText.size() ||
+            paletteIdx < 0 || paletteIdx > 255) continue;
         if (spec == "?") {
             std::ostringstream reply;
             reply << cmd << ";" << paletteIdx << ";" << palette256[paletteIdx];

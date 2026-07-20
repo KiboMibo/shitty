@@ -746,6 +746,34 @@ int runTestMode(int controlFd) {
                 writeAll(controlFd, "OK " + encodeHex(encodeOsc52Reply(
                     decodeHex(line.substr(12, separator - 12)),
                     decodeHex(line.substr(separator + 1)))) + "\n");
+            } else if (line.compare(0, 13, "OSC52_POLICY ") == 0) {
+                std::istringstream args(line.substr(13));
+                int allowRead;
+                int selectClipboard;
+                std::string encoded;
+                if (!(args >> allowRead >> selectClipboard >> encoded) ||
+                    allowRead < 0 || allowRead > 1 ||
+                    selectClipboard < 0 || selectClipboard > 1) {
+                    throw std::runtime_error("invalid OSC 52 policy request");
+                }
+                const std::string payload = decodeHex(encoded);
+                const size_t first = payload.find('\0');
+                const size_t second = first == std::string::npos
+                                          ? std::string::npos
+                                          : payload.find('\0', first + 1);
+                if (first == std::string::npos || second == std::string::npos ||
+                    payload.find('\0', second + 1) != std::string::npos) {
+                    throw std::runtime_error("invalid OSC 52 policy payload");
+                }
+                const Osc52Request request = parseOsc52(
+                    payload.substr(0, first), selectClipboard);
+                const std::string reply = request.valid && request.query
+                    ? encodeOsc52QueryReply(
+                          request, allowRead,
+                          payload.substr(first + 1, second - first - 1),
+                          payload.substr(second + 1))
+                    : std::string{};
+                writeAll(controlFd, "OK " + encodeHex(reply) + "\n");
             } else if (line.compare(0, 9, "OSC7_CWD ") == 0) {
                 writeAll(controlFd, "OK " + encodeHex(oscCwdToPath(
                     decodeHex(line.substr(9)))) + "\n");

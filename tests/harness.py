@@ -338,6 +338,20 @@ class Zutty:
             "OSC52_REPLY " + selector.hex() + " " + content.hex()
         )
 
+    def osc52_policy(
+        self,
+        argument,
+        allow_read=False,
+        select_clipboard=False,
+        primary=b"",
+        clipboard=b"",
+    ):
+        payload = b"\0".join((argument, primary, clipboard))
+        return self._read_hex_response(
+            f"OSC52_POLICY {int(allow_read)} {int(select_clipboard)} "
+            + payload.hex()
+        )
+
     def osc7_cwd(self, argument):
         return self._read_hex_response("OSC7_CWD " + argument.hex())
 

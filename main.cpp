@@ -1365,20 +1365,21 @@ namespace {
         }
 
         if (request.query) {
-            std::string content;
+            std::string primary;
+            std::string clipboard;
             if (opts.allowOsc52Read) {
                 if (request.primary) {
-                    content = getSelectionForOsc(true);
+                    primary = getSelectionForOsc(true);
                 }
-                if (content.empty() && request.clipboard) {
-                    content = getSelectionForOsc(false);
+                if (primary.empty() && request.clipboard) {
+                    clipboard = getSelectionForOsc(false);
                 }
             } else {
                 logW << "OSC 52 clipboard read blocked; set "
                         "allowOsc52Read=true to enable" << std::endl;
             }
-            const std::string reply = encodeOsc52Reply(
-                request.replySelector, content);
+            const std::string reply = encodeOsc52QueryReply(
+                request, opts.allowOsc52Read, primary, clipboard);
             vt->writePty(reply.c_str());
             return;
         }
