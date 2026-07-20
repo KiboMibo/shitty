@@ -12,6 +12,7 @@
 #pragma once
 
 #include "frame.h"
+#include "grapheme.h"
 #include "utf8.h"
 
 #include <cstdint>
@@ -631,6 +632,7 @@ private:
     size_t nInputOps = 0;
     Utf8Decoder utf8dec;
     Frame::Grapheme inputGrapheme;
+    GraphemeBreaker inputGraphemeBreaker;
     Frame* inputGraphemeFrame = nullptr;
     uint16_t inputGraphemeX = 0;
     uint16_t inputGraphemeY = 0;

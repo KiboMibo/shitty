@@ -221,6 +221,14 @@ class Zutty:
             f"{modifiers} {time!r} {scale_x!r} {scale_y!r}"
         )
 
+    def grapheme_breaks(self, *codepoints):
+        encoded = " ".join(f"{codepoint:X}" for codepoint in codepoints)
+        self.stream.write(f"GRAPHEME_BREAKS {encoded}\n".encode("ascii"))
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid grapheme break response")
+        return tuple(value == "1" for value in response[1])
+
     def resize(self, columns, rows):
         self.command(f"RESIZE {columns} {rows}")
         self._window_info["pixel_width"] = columns + 4

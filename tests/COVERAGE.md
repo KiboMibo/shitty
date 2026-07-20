@@ -20,6 +20,8 @@ Covered now:
 - shrink-to-history and grow-from-history resize behavior;
 - Codex-style synchronized redraws plus a slow reference scrolling model;
 - SGR flags, truecolor, wide cells, wrap markers and DEC line drawing;
+- Unicode 17 extended grapheme boundaries, including Prepend, SpacingMark,
+  Indic linkers, Hangul, regional indicators and emoji ZWJ sequences;
 - DA, DSR, DECRQSS, palette and dynamic-color replies;
 - renderer input state for blink phases, cursor blink, screen reverse video,
   dynamic palette, selection colors and grapheme payloads;

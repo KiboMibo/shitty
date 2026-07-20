@@ -1,5 +1,6 @@
 #include "testmode.h"
 
+#include "grapheme.h"
 #include "keyboard.h"
 #include "options.h"
 #include "mouseprotocol.h"
@@ -477,6 +478,24 @@ int runTestMode(int controlFd) {
             if (line.compare(0, 6, "WRITE ") == 0) {
                 terminal.feedPtyOutput(decodeHex(line.substr(6)));
                 writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 16, "GRAPHEME_BREAKS ") == 0) {
+                std::istringstream args(line.substr(16));
+                std::string token;
+                std::string boundaries;
+                GraphemeBreaker breaker;
+                while (args >> token) {
+                    size_t consumed = 0;
+                    const unsigned long value = std::stoul(
+                        token, &consumed, 16);
+                    if (consumed != token.size() || value > 0x10ffff) {
+                        throw std::runtime_error("invalid codepoint");
+                    }
+                    boundaries += breaker.breakBefore(value) ? '1' : '0';
+                }
+                if (boundaries.empty()) {
+                    throw std::runtime_error("empty grapheme sequence");
+                }
+                writeAll(controlFd, "OK " + boundaries + "\n");
             } else if (line.compare(0, 6, "INPUT ") == 0) {
                 const std::string input = decodeHex(line.substr(6));
                 terminal.writePty(

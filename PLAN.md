@@ -25,24 +25,7 @@
 
 ## Главные пробелы
 
-1. Unicode и charsets
-
-Текущий grapheme-код реализует выбранный subset правил, но не полный UAX #29. Нужны представительные официальные vectors:
-
-- Prepend;
-- SpacingMark;
-- Hangul;
-- regional indicators;
-- emoji modifiers;
-- Extended Pictographic + ZWJ;
-- variation selectors;
-- keycaps;
-- orphan combining/ZWJ/VS;
-- malformed UTF-8;
-- cluster на правой границе;
-- insert/delete/resize/selection внутри cluster.
-
-Unicode публикует и правила, и официальный `GraphemeBreakTest.txt`, поэтому варианты не придётся придумывать вручную: [UAX #29](https://unicode.org/reports/tr29/), [Unicode 17 test data](https://www.unicode.org/Public/17.0.0/ucd/auxiliary/).
+1. Charsets
 
 Отдельная матрица нужна для G0–G3, GL/GR, locking/single shifts, NRC sets, DEC Special/Technical и возврата из VT52.
 
@@ -121,10 +104,10 @@ Offscreen Vulkan на этом проходе не нужен: логическ�
 
 | Область | Новых тестов |
 |---|---:|
-| Unicode/charsets | 30 |
+| Charsets | 20 |
 | Resize/selection/scrollback interactions | 25 |
 | PTY/present/options/fonts/startup | 30 |
-| Итого | около 85 |
+| Итого | около 75 |
 
 То есть итог, вероятно, будет ближе к 570 тестам, а не ровно к формальному удвоению.
 
