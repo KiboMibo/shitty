@@ -6,6 +6,14 @@ from harness import Zutty
 
 
 class FontResolverTest(unittest.TestCase):
+    def test_fontconfig_fallback_loads_family_when_tree_has_no_match(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = str(Path(directory) / "missing")
+            with Zutty() as terminal:
+                loaded = terminal.load_font(missing, "monospace", "")
+            self.assertGreater(loaded["px"], 0)
+            self.assertGreater(loaded["py"], 0)
+
     def test_font_path_traversal_finds_nested_family_after_missing_roots(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)

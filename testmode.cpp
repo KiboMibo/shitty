@@ -2,6 +2,7 @@
 
 #include "grapheme.h"
 #include "fontresolver.h"
+#include "fontpack.h"
 #include "keyboard.h"
 #include "options.h"
 #include "mouseprotocol.h"
@@ -577,6 +578,24 @@ int runTestMode(int controlFd, int argc, char* argv[]) {
                     variants.bold + '\0' + variants.italic + '\0' +
                     variants.boldItalic;
                 writeAll(controlFd, "OK " + encodeHex(encoded) + "\n");
+            } else if (line.compare(0, 10, "FONT_LOAD ") == 0) {
+                const std::string request = decodeHex(line.substr(10));
+                const size_t first = request.find('\0');
+                const size_t second = first == std::string::npos
+                    ? std::string::npos : request.find('\0', first + 1);
+                if (first == std::string::npos || second == std::string::npos)
+                    throw std::runtime_error("invalid font load request");
+                Fontpack fonts(
+                    request.substr(0, first),
+                    request.substr(first + 1, second - first - 1),
+                    request.substr(second + 1));
+                writeAll(controlFd,
+                         "OK " + std::to_string(fonts.getPx()) + " " +
+                         std::to_string(fonts.getPy()) + " " +
+                         std::to_string(fonts.hasBold()) + " " +
+                         std::to_string(fonts.hasItalic()) + " " +
+                         std::to_string(fonts.hasBoldItalic()) + " " +
+                         std::to_string(fonts.hasDoubleWidth()) + "\n");
             } else if (line.compare(0, 16, "GRAPHEME_BREAKS ") == 0) {
                 std::istringstream args(line.substr(16));
                 std::string token;

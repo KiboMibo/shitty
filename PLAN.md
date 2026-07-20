@@ -29,7 +29,6 @@
 
 Это почти белое пятно:
 
-- fontconfig fallback;
 - regular/bold/italic/bold-italic selection;
 - несовместимые metrics;
 - PCF/PCF.gz;

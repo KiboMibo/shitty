@@ -207,6 +207,18 @@ class Zutty:
             (os.fsdecode(value) for value in encoded),
         ))
 
+    def load_font(self, path, family, double_width):
+        request = b"\0".join(map(os.fsencode, (path, family, double_width)))
+        self.stream.write(b"FONT_LOAD " + request.hex().encode() + b"\n")
+        response = self._readline().split()
+        if len(response) != 7 or response[0] != "OK":
+            raise RuntimeError("invalid font load response")
+        values = tuple(map(int, response[1:]))
+        return dict(zip(
+            ("px", "py", "bold", "italic", "bold_italic", "double_width"),
+            values,
+        ))
+
     def write(self, output):
         self.command("WRITE " + output.hex())
 
