@@ -24,6 +24,7 @@
 class Frame {
 public:
     using Grapheme = std::vector<u32>;
+
     Frame();
 
     Frame(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, u16 saveLines_ = 0);
@@ -46,9 +47,10 @@ public:
 
     const TerminalCell& getCell(u16 pY, u16 pX) const;
     TerminalCell& getCell(u16 pY, u16 pX);
+    TerminalCell* writeSpan(u16 pY, u16 startX, u16 count);
     const TerminalCell& getViewCell(u16 pY, u16 pX) const;
 
-    u32 internGrapheme(const Grapheme& codepoints);
+    u32 internGrapheme(const u32* codepoints, size_t size);
     const Grapheme& getGrapheme(u32 id) const;
 
     void eraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs);
@@ -172,6 +174,9 @@ private:
 
     TerminalCell::Ptr cells = nullptr;
     std::shared_ptr<GraphemeStore> graphemes = std::make_shared<GraphemeStore>();
+    std::vector<TerminalCell> erasedRowTemplate;
+    TerminalCell erasedRowCell;
+    bool erasedRowTemplateValid = false;
     // Every allocated row belongs to exactly one of these containers.
     std::vector<RowId> screen;
     std::deque<RowId> history;

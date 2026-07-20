@@ -23,6 +23,12 @@ bool GraphemeBreaker::breakBefore(u32 codepoint) {
     return boundary;
 }
 
+void GraphemeBreaker::setBoundaryAfter(u32 codepoint) {
+    hasPrevious_ = true;
+    previous_ = (i32)(codepoint);
+    state_ = 0;
+}
+
 void GraphemeBreaker::reset() {
     hasPrevious_ = false;
     previous_ = 0;
