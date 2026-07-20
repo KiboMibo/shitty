@@ -237,12 +237,28 @@ void Font::loadScaled(const FT_Face& face) {
     double tpx = opts.fontsize *
                  (double)face->max_advance_width / face->units_per_EM;
     double tpy = tpx * face->height / face->max_advance_width + 1;
+    const uint16_t facePx = round(tpx);
+    const uint16_t facePy = round(tpy);
+    const uint16_t faceBaseline = round(
+        tpy * face->ascender / face->height);
+    if ((overlay || dwidth) && (px != facePx || py != facePy)) {
+        throw std::runtime_error(
+            filename + ": scaled metric mismatch, expected " +
+            std::to_string(px) + "x" + std::to_string(py) + ", got " +
+            std::to_string(facePx) + "x" + std::to_string(facePy));
+    }
+    if (overlay && baseline != faceBaseline) {
+        throw std::runtime_error(
+            filename + ": scaled baseline mismatch, expected " +
+            std::to_string(baseline) + ", got " +
+            std::to_string(faceBaseline));
+    }
     if (!overlay && !dwidth) {
-        px = round(tpx);
-        py = round(tpy);
+        px = facePx;
+        py = facePy;
     }
     if (!overlay) {
-        baseline = round(tpy * face->ascender / face->height);
+        baseline = faceBaseline;
     }
     logI << "Glyph size " << px << "x" << py << ", baseline " << baseline
          << std::endl;

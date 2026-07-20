@@ -578,6 +578,13 @@ int runTestMode(int controlFd, int argc, char* argv[]) {
                     variants.bold + '\0' + variants.italic + '\0' +
                     variants.boldItalic;
                 writeAll(controlFd, "OK " + encodeHex(encoded) + "\n");
+            } else if (line.compare(0, 19, "FONTCONFIG_RESOLVE ") == 0) {
+                const FontVariants variants = resolveFontconfig(
+                    decodeHex(line.substr(19)));
+                const std::string encoded = variants.regular + '\0' +
+                    variants.bold + '\0' + variants.italic + '\0' +
+                    variants.boldItalic;
+                writeAll(controlFd, "OK " + encodeHex(encoded) + "\n");
             } else if (line.compare(0, 10, "FONT_LOAD ") == 0) {
                 const std::string request = decodeHex(line.substr(10));
                 const size_t first = request.find('\0');

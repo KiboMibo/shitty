@@ -11,55 +11,6 @@
 #include "fontresolver.h"
 #include "log.h"
 
-#include <fontconfig/fontconfig.h>
-
-namespace {
-    std::string fcFindFile(
-        const std::string& family, int weight, int slant) {
-        FcPattern* pattern = FcPatternCreate();
-        if (!pattern) return {};
-        FcPatternAddString(
-            pattern, FC_FAMILY,
-            reinterpret_cast<const FcChar8*>(family.c_str()));
-        FcPatternAddInteger(pattern, FC_WEIGHT, weight);
-        FcPatternAddInteger(pattern, FC_SLANT, slant);
-        FcConfigSubstitute(nullptr, pattern, FcMatchPattern);
-        FcDefaultSubstitute(pattern);
-
-        FcResult result;
-        FcPattern* match = FcFontMatch(nullptr, pattern, &result);
-        FcPatternDestroy(pattern);
-        if (!match) return {};
-
-        std::string path;
-        FcChar8* file = nullptr;
-        if (FcPatternGetString(match, FC_FILE, 0, &file) == FcResultMatch)
-            path = reinterpret_cast<const char*>(file);
-        FcPatternDestroy(match);
-        return path;
-    }
-
-    FontVariants fcFindVariants(const std::string& family) {
-        FontVariants variants;
-        variants.regular = fcFindFile(
-            family, FC_WEIGHT_REGULAR, FC_SLANT_ROMAN);
-        if (variants.regular.empty()) return variants;
-
-        logI << "fontconfig resolved '" << family << "' to "
-             << variants.regular << std::endl;
-        std::string path = fcFindFile(
-            family, FC_WEIGHT_BOLD, FC_SLANT_ROMAN);
-        if (!path.empty() && path != variants.regular) variants.bold = path;
-        path = fcFindFile(family, FC_WEIGHT_REGULAR, FC_SLANT_ITALIC);
-        if (!path.empty() && path != variants.regular) variants.italic = path;
-        path = fcFindFile(family, FC_WEIGHT_BOLD, FC_SLANT_ITALIC);
-        if (!path.empty() && path != variants.regular &&
-            path != variants.bold && path != variants.italic)
-            variants.boldItalic = path;
-        return variants;
-    }
-}
-
 Fontpack::Fontpack(const std::string& fontpath,
                    const std::string& fontname,
                    const std::string& dwfontname) {
@@ -71,7 +22,7 @@ Fontpack::Fontpack(const std::string& fontpath,
     if (variants.regular.empty()) {
         logI << "No files matching '" << fontname << "' found under '"
              << fontpath << "'; trying fontconfig" << std::endl;
-        variants = fcFindVariants(fontname);
+        variants = resolveFontconfig(fontname);
     }
     if (variants.regular.empty()) {
         logE << "No Regular variant of the requested font '" << fontname
@@ -114,8 +65,7 @@ Fontpack::Fontpack(const std::string& fontpath,
     if (doubleWidth.regular.empty() && !dwfontname.empty()) {
         logI << "No files matching '" << dwfontname << "' found under '"
              << fontpath << "'; trying fontconfig" << std::endl;
-        doubleWidth.regular = fcFindFile(
-            dwfontname, FC_WEIGHT_REGULAR, FC_SLANT_ROMAN);
+        doubleWidth.regular = resolveFontconfig(dwfontname).regular;
     }
     try {
         if (!doubleWidth.regular.empty()) {

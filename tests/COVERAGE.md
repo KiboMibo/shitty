@@ -53,6 +53,8 @@ Covered now:
   FreeType loading and nonzero glyph metrics;
 - case-insensitive regular/bold/italic/bold-italic filename classification,
   including aliases, plus real four-face fontconfig overlay loading;
+- rejection of scalable overlay faces whose width, height or baseline metrics
+  do not match the primary font;
 - C0 controls, cursor movement, save/restore, tabs and scrolling regions;
 - autowrap, alternate screen, synchronized output and cursor modes;
 - insert/delete/erase operations and insert mode;

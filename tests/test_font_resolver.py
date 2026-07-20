@@ -1,4 +1,5 @@
 import tempfile
+import os
 import unittest
 from pathlib import Path
 
@@ -6,6 +7,18 @@ from harness import Zutty
 
 
 class FontResolverTest(unittest.TestCase):
+    def test_scaled_overlay_with_incompatible_metrics_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            with Zutty() as terminal:
+                regular = terminal.resolve_fontconfig("Cascadia Code")["regular"]
+                incompatible = terminal.resolve_fontconfig("Arial")["regular"]
+            os.symlink(regular, base / "Clash-Regular.ttf")
+            os.symlink(incompatible, base / "Clash-Bold.ttf")
+            with Zutty() as terminal:
+                loaded = terminal.load_font(str(base), "Clash", "")
+            self.assertEqual(loaded["bold"], 0)
+
     def test_style_suffixes_are_classified_case_insensitively(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)

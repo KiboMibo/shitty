@@ -207,6 +207,15 @@ class Zutty:
             (os.fsdecode(value) for value in encoded),
         ))
 
+    def resolve_fontconfig(self, family):
+        encoded = self._read_hex_response(
+            "FONTCONFIG_RESOLVE " + os.fsencode(family).hex()
+        ).split(b"\0")
+        return dict(zip(
+            ("regular", "bold", "italic", "bold_italic"),
+            (os.fsdecode(value) for value in encoded),
+        ))
+
     def load_font(self, path, family, double_width):
         request = b"\0".join(map(os.fsencode, (path, family, double_width)))
         self.stream.write(b"FONT_LOAD " + request.hex().encode() + b"\n")

@@ -29,7 +29,6 @@
 
 Это почти белое пятно:
 
-- несовместимые metrics;
 - PCF/PCF.gz;
 - double-width fallback;
 - отсутствие font directory.
