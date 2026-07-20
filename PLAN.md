@@ -31,8 +31,6 @@
 
 Нужны:
 
-- все F1–F20 и позднее весь реально поддерживаемый диапазон;
-- arrows/navigation/keypad в normal/application/VT52;
 - каждый modifier и сочетания;
 - Ctrl mapping всей ASCII-таблицы;
 - Alt/eight-bit/`altSendsEscape`;

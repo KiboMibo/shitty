@@ -286,6 +286,8 @@ namespace {
             {"F15", VtKey::F15}, {"F16", VtKey::F16},
             {"F17", VtKey::F17}, {"F18", VtKey::F18},
             {"F19", VtKey::F19}, {"F20", VtKey::F20},
+            {"KP_F1", VtKey::KP_F1}, {"KP_F2", VtKey::KP_F2},
+            {"KP_F3", VtKey::KP_F3}, {"KP_F4", VtKey::KP_F4},
             {"KP_PLUS", VtKey::KP_Plus}, {"KP_MINUS", VtKey::KP_Minus},
             {"KP_STAR", VtKey::KP_Star}, {"KP_SLASH", VtKey::KP_Slash},
             {"KP_COMMA", VtKey::KP_Comma}, {"KP_DOT", VtKey::KP_Dot},
