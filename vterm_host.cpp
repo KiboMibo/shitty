@@ -37,6 +37,10 @@ void VtermHostCallbacks::bell() {
     onBell();
 }
 
+bool VtermHostCallbacks::handlesPrinter() const {
+    return havePrinterHandler;
+}
+
 void VtermHostCallbacks::print(const std::string& output) {
     onPrinter(output);
 }
@@ -75,6 +79,7 @@ void VtermHostCallbacks::setBellHandler(BellHandler handler) {
 }
 
 void VtermHostCallbacks::setPrinterHandler(PrinterHandler handler) {
+    havePrinterHandler = true;
     onPrinter = std::move(handler);
 }
 

@@ -82,13 +82,22 @@ u32 Frame::internGrapheme(const Grapheme& codepoints) {
     if (codepoints.size() < 2) {
         return 0;
     }
-    const auto found = graphemes->ids.find(codepoints);
-    if (found != graphemes->ids.end()) {
-        return found->second;
+
+    size_t hash = 1469598103934665603ull;
+    for (const u32 codepoint : codepoints) {
+        hash ^= codepoint;
+        hash *= 1099511628211ull;
     }
+    const auto [begin, end] = graphemes->ids.equal_range(hash);
+    for (auto item = begin; item != end; ++item) {
+        if (graphemes->values[item->second] == codepoints) {
+            return item->second;
+        }
+    }
+
     const u32 id = graphemes->values.size();
     graphemes->values.push_back(codepoints);
-    graphemes->ids.emplace(codepoints, id);
+    graphemes->ids.emplace(hash, id);
     return id;
 }
 

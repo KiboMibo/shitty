@@ -72,6 +72,7 @@ namespace {
         void osc(int command, const std::string& argument) override;
         bool handlesOsc() const override;
         void bell() override;
+        bool handlesPrinter() const override;
         void print(const std::string& output) override;
         void leds(u8) override;
         void notify(const std::string&, const std::string& title, const std::string& body, bool close) override;
@@ -1021,6 +1022,10 @@ bool ApplicationImpl::handlesOsc() const {
 
 void ApplicationImpl::bell() {
     requestWindowAttention();
+}
+
+bool ApplicationImpl::handlesPrinter() const {
+    return printerPipe != nullptr;
 }
 
 void ApplicationImpl::print(const std::string& output) {

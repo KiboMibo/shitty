@@ -15,9 +15,10 @@
 #include "terminal_types.h"
 #include "utf8.h"
 
+#include <cstddef>
 #include <deque>
-#include <map>
 #include <set>
+#include <unordered_map>
 #include <vector>
 
 class Frame {
@@ -162,7 +163,7 @@ public:
 private:
     struct GraphemeStore {
         std::vector<Grapheme> values = {Grapheme{}};
-        std::map<Grapheme, u32> ids;
+        std::unordered_multimap<size_t, u32> ids;
     };
 
     using RowId = u32;

@@ -206,7 +206,7 @@ namespace {
         void deleteRows(u16 startY, u16 count);
         void insertCols(u16 startX, u16 count);
         void deleteCols(u16 startX, u16 count);
-        void clearWideCellAt(u16 row, u16 column);
+        TerminalCell& prepareCellAt(u16 row, u16 column);
         void normalizeWideCells(u16 row);
 
         struct Rectangle {
@@ -328,7 +328,7 @@ namespace {
         void csi_DECLL();
         std::string printableLine(u16 row) const;
         void printLine(u16 row);
-        bool consumePrinterControllerByte(unsigned char ch);
+        size_t consumePrinterController(const u8* input, size_t size);
 
         void dcs_DECRQSS(const std::string&);
         void dcs_XTGETTCAP(const std::string&);
@@ -434,6 +434,7 @@ namespace {
         size_t nInputOps = 0;
         Utf8Decoder utf8dec;
         Frame::Grapheme inputGrapheme;
+        u32 inputGraphemeBase = 0;
         GraphemeBreaker inputGraphemeBreaker;
         Frame* inputGraphemeFrame = nullptr;
         u16 inputGraphemeX = 0;
@@ -465,7 +466,17 @@ namespace {
         bool inBandResizeMode = false;
         bool printerControllerMode = false;
         bool autoPrintMode = false;
-        std::string printerControllerPending;
+
+        enum class PrinterControllerState : u8 {
+            Normal,
+            Escape,
+            EscapeBracket,
+            EscapeBracket4,
+            Csi,
+            Csi4
+        };
+        PrinterControllerState printerControllerState = PrinterControllerState::Normal;
+
         std::chrono::steady_clock::time_point synchronizedOutputDeadline;
         bool send8BitControls = false;
         bool altScrollMode = false;
@@ -1061,7 +1072,7 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     inBandResizeMode = false;
     printerControllerMode = false;
     autoPrintMode = false;
-    printerControllerPending.clear();
+    printerControllerState = PrinterControllerState::Normal;
     screenReverseVideo = false;
     frame_pri.setScreenReverseVideo(false);
     frame_alt.setScreenReverseVideo(false);
@@ -1314,14 +1325,14 @@ void VtermImpl::deleteCols(u16 startX, u16 count) {
     }
 }
 
-void VtermImpl::clearWideCellAt(u16 row, u16 column) {
+TerminalCell& VtermImpl::prepareCellAt(u16 row, u16 column) {
     auto& cell = cf->getCell(row, column);
     if (cell.dwidth_cont && column > 0) {
         cf->eraseInRow(row, column - 1, 1, attrs);
     } else if (cell.dwidth && column + 1 < nCols) {
         cf->eraseInRow(row, column + 1, 1, attrs);
     }
-    cf->eraseInRow(row, column, 1, attrs);
+    return cell;
 }
 
 void VtermImpl::normalizeWideCells(u16 row) {
@@ -1404,19 +1415,23 @@ void VtermImpl::inputGraphicChar(unsigned char ch) {
 
 void VtermImpl::resetGraphemeInput() {
     inputGrapheme.clear();
+    inputGraphemeBase = 0;
     inputGraphemeBreaker.reset();
     inputGraphemeFrame = nullptr;
 }
 
 void VtermImpl::placeGraphicChar() {
     auto pt = utf8dec.getUnicode();
-    auto w = wcwidth(pt);
+    auto w = pt >= 0x20 && pt < 0x7f ? 1 : wcwidth(pt);
 
     if (inputGraphemeFrame != cf) {
         inputGraphemeBreaker.reset();
     }
     const bool graphemeBoundary = inputGraphemeBreaker.breakBefore(pt);
     if (inputGraphemeFrame == cf && !graphemeBoundary) {
+        if (inputGrapheme.empty()) {
+            inputGrapheme.push_back(inputGraphemeBase);
+        }
         inputGrapheme.push_back(pt);
         auto& cell = cf->getCell(inputGraphemeY, inputGraphemeX);
         cell.grapheme = cf->internGrapheme(inputGrapheme);
@@ -1429,11 +1444,14 @@ void VtermImpl::placeGraphicChar() {
         pt = Unicode_Replacement_Character;
     }
 
-    const u16 lineCols = cf->getCell(posY, 0).line_attr ? std::max<u16>(1, nColsEff / 2) : nColsEff;
+    const u8 lineAttribute = static_cast<const Frame&>(*cf).getCell(posY, 0).line_attr;
+    const u16 lineCols = lineAttribute ? std::max<u16>(1, nColsEff / 2) : nColsEff;
+    bool changedRow = false;
     if (autoWrapMode && lastCol) {
         cf->getCell(posY, posX).wrap = 1;
         inp_CR();
         inp_LF();
+        changedRow = true;
     }
 
     if (w == 2 && posX == lineCols - 1 && autoWrapMode) {
@@ -1444,6 +1462,7 @@ void VtermImpl::placeGraphicChar() {
         cf->getCell(posY, wrapColumn).wrap = 1;
         inp_CR();
         inp_LF();
+        changedRow = true;
     }
 
     if (insertMode) {
@@ -1458,18 +1477,18 @@ void VtermImpl::placeGraphicChar() {
 
     const u16 clusterX = posX;
     const u16 clusterY = posY;
-    clearWideCellAt(posY, posX);
-    auto& c = cf->getCell(posY, posX);
+    auto& c = prepareCellAt(posY, posX);
     c = attrs;
     c.uc_pt = pt;
     c.hyperlink = activeHyperlink;
     c.semantic = currentSemantic;
-    c.line_attr = cf->getCell(posY, 0).line_attr;
+    c.line_attr = changedRow ? static_cast<const Frame&>(*cf).getCell(posY, 0).line_attr : lineAttribute;
     if (c.blink) {
         haveBlinkingText = true;
     }
 
-    inputGrapheme = {pt};
+    inputGrapheme.clear();
+    inputGraphemeBase = pt;
     inputGraphemeFrame = cf;
     inputGraphemeX = clusterX;
     inputGraphemeY = clusterY;
@@ -1732,10 +1751,10 @@ void VtermImpl::csi_MC(bool privateMode) {
             host.print(screen);
         } else if (operation == 4) {
             printerControllerMode = false;
-            printerControllerPending.clear();
+            printerControllerState = PrinterControllerState::Normal;
         } else if (operation == 5) {
             printerControllerMode = true;
-            printerControllerPending.clear();
+            printerControllerState = PrinterControllerState::Normal;
         }
     }
     setState(InputState::Normal);
@@ -1757,30 +1776,117 @@ void VtermImpl::csi_DECLL() {
     setState(InputState::Normal);
 }
 
-bool VtermImpl::consumePrinterControllerByte(unsigned char ch) {
-    printerControllerPending.push_back((char)(ch));
-    static const std::string terminators[] = {
-        "\x1b[4i",
-        "\x9b"
-        "4i"
-    };
-    for (;;) {
-        for (const auto& terminator : terminators) {
-            if (printerControllerPending == terminator) {
-                printerControllerPending.clear();
-                printerControllerMode = false;
-                return true;
-            }
-            if (terminator.compare(0, printerControllerPending.size(), printerControllerPending) == 0) {
-                return true;
+size_t VtermImpl::consumePrinterController(const u8* input, size_t size) {
+    const bool handlesPrinter = host.handlesPrinter();
+    std::string output;
+    if (handlesPrinter) {
+        output.reserve(size);
+    }
+
+    const auto beginPrefix = [&](u8 ch) {
+        if (ch == 0x1b) {
+            printerControllerState = PrinterControllerState::Escape;
+        } else if (ch == 0x9b) {
+            printerControllerState = PrinterControllerState::Csi;
+        } else {
+            printerControllerState = PrinterControllerState::Normal;
+            if (handlesPrinter) {
+                output.push_back((char)(ch));
             }
         }
-        host.print(printerControllerPending.substr(0, 1));
-        printerControllerPending.erase(0, 1);
-        if (printerControllerPending.empty()) {
-            return true;
+    };
+    const auto appendPrefix = [&](const char* prefix, size_t prefixSize) {
+        if (handlesPrinter) {
+            output.append(prefix, prefixSize);
+        }
+    };
+
+    size_t consumed = 0;
+    while (consumed < size) {
+        if (printerControllerState == PrinterControllerState::Normal) {
+            const u8* const begin = input + consumed;
+            const size_t remaining = size - consumed;
+            const u8* const escape = (const u8*)(std::memchr(begin, 0x1b, remaining));
+            const u8* const csi = (const u8*)(std::memchr(begin, 0x9b, remaining));
+            const u8* next = escape;
+            if (next == nullptr || (csi != nullptr && csi < next)) {
+                next = csi;
+            }
+            if (next == nullptr) {
+                if (handlesPrinter) {
+                    output.append((const char*)(begin), remaining);
+                }
+                consumed = size;
+                break;
+            }
+            if (handlesPrinter) {
+                output.append((const char*)(begin), next - begin);
+            }
+            consumed += next - begin + 1;
+            beginPrefix(*next);
+            continue;
+        }
+
+        const u8 ch = input[consumed++];
+        switch (printerControllerState) {
+            case PrinterControllerState::Escape:
+                if (ch == '[') {
+                    printerControllerState = PrinterControllerState::EscapeBracket;
+                } else {
+                    appendPrefix("\x1b", 1);
+                    beginPrefix(ch);
+                }
+                break;
+            case PrinterControllerState::EscapeBracket:
+                if (ch == '4') {
+                    printerControllerState = PrinterControllerState::EscapeBracket4;
+                } else {
+                    appendPrefix("\x1b[", 2);
+                    beginPrefix(ch);
+                }
+                break;
+            case PrinterControllerState::EscapeBracket4:
+                if (ch == 'i') {
+                    printerControllerState = PrinterControllerState::Normal;
+                    printerControllerMode = false;
+                } else {
+                    appendPrefix("\x1b[4", 3);
+                    beginPrefix(ch);
+                }
+                break;
+            case PrinterControllerState::Csi:
+                if (ch == '4') {
+                    printerControllerState = PrinterControllerState::Csi4;
+                } else {
+                    appendPrefix("\x9b", 1);
+                    beginPrefix(ch);
+                }
+                break;
+            case PrinterControllerState::Csi4:
+                if (ch == 'i') {
+                    printerControllerState = PrinterControllerState::Normal;
+                    printerControllerMode = false;
+                } else {
+                    appendPrefix(
+                        "\x9b"
+                        "4",
+                        2
+                    );
+                    beginPrefix(ch);
+                }
+                break;
+            case PrinterControllerState::Normal:
+                break;
+        }
+        if (!printerControllerMode) {
+            break;
         }
     }
+
+    if (!output.empty()) {
+        host.print(output);
+    }
+    return consumed;
 }
 
 void VtermImpl::esc_RI() {
@@ -6435,21 +6541,39 @@ bool VtermImpl::executeC0InSequence(unsigned char ch) {
         return false;
     }
 
+    if (ch == '\a') {
+        host.bell();
+        return true;
+    }
+    if (ch == '\x0e') {
+        charsetState.gl = 1;
+        return true;
+    }
+    if (ch == '\x0f') {
+        charsetState.gl = 0;
+        return true;
+    }
+    if (ch != '\b' && ch != '\t' && ch != '\n' && ch != '\v' && ch != '\f' && ch != '\r') {
+        return true;
+    }
+
     const InputState savedState = inputState;
+    const bool restoreCsi = savedState == InputState::CSI;
     const size_t savedInputOps = nInputOps;
     const bool savedHadParams = csiHadParams;
     const bool savedPrefixAllowed = csiPrefixAllowed;
-    const std::string savedPrivatePrefix = csiPrivatePrefix;
-    const std::string savedIntermediates = csiIntermediates;
+    std::string savedPrivatePrefix;
+    std::string savedIntermediates;
     u32 savedOps[maxEscOps];
     unsigned char savedSeparators[maxEscOps];
-    std::copy(inputOps, inputOps + savedInputOps, savedOps);
-    std::copy(inputSeparators, inputSeparators + savedInputOps, savedSeparators);
+    if (restoreCsi) {
+        savedPrivatePrefix = csiPrivatePrefix;
+        savedIntermediates = csiIntermediates;
+        std::copy(inputOps, inputOps + savedInputOps, savedOps);
+        std::copy(inputSeparators, inputSeparators + savedInputOps, savedSeparators);
+    }
 
     switch (ch) {
-        case '\a':
-            host.bell();
-            break;
         case '\b':
             nInputOps = 1;
             inputOps[0] = 1;
@@ -6466,24 +6590,20 @@ bool VtermImpl::executeC0InSequence(unsigned char ch) {
         case '\r':
             inp_CR();
             break;
-        case '\x0e':
-            charsetState.gl = 1;
-            break;
-        case '\x0f':
-            charsetState.gl = 0;
-            break;
         default:
             break;
     }
 
     inputState = savedState;
-    nInputOps = savedInputOps;
-    csiHadParams = savedHadParams;
-    csiPrefixAllowed = savedPrefixAllowed;
-    csiPrivatePrefix = savedPrivatePrefix;
-    csiIntermediates = savedIntermediates;
-    std::copy(savedOps, savedOps + savedInputOps, inputOps);
-    std::copy(savedSeparators, savedSeparators + savedInputOps, inputSeparators);
+    if (restoreCsi) {
+        nInputOps = savedInputOps;
+        csiHadParams = savedHadParams;
+        csiPrefixAllowed = savedPrefixAllowed;
+        csiPrivatePrefix = savedPrivatePrefix;
+        csiIntermediates = savedIntermediates;
+        std::copy(savedOps, savedOps + savedInputOps, inputOps);
+        std::copy(savedSeparators, savedSeparators + savedInputOps, inputSeparators);
+    }
     return true;
 }
 
@@ -6701,7 +6821,14 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
     hideCursor();
     for (readPos = 0; readPos < inputSize; ++readPos) {
         const u8& ch = input[readPos];
-        if (printerControllerMode && consumePrinterControllerByte(ch)) {
+        if (printerControllerMode) {
+            const size_t consumed = consumePrinterController(input + readPos, inputSize - readPos);
+            readPos += (int)(consumed)-1;
+            continue;
+        }
+        if (inputState == InputState::Normal && ch >= 0x20 && ch < 0x7f && !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8) {
+            utf8dec.setUnicode(ch);
+            placeGraphicChar();
             continue;
         }
         if ((ch == '\x18' || ch == '\x1a') && inputState != InputState::Normal) {

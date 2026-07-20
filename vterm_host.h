@@ -32,6 +32,7 @@ struct VtermHost {
     virtual void osc(int command, const std::string& argument) = 0;
     virtual bool handlesOsc() const = 0;
     virtual void bell() = 0;
+    virtual bool handlesPrinter() const = 0;
     virtual void print(const std::string& output) = 0;
     virtual void leds(u8 state) = 0;
     virtual void notify(const std::string& id, const std::string& title, const std::string& body, bool close) = 0;
@@ -64,6 +65,7 @@ public:
     }
 
     void bell() override;
+    bool handlesPrinter() const override;
     void print(const std::string& output) override;
     void leds(u8 state) override;
     void notify(const std::string& id, const std::string& title, const std::string& body, bool close) override;
@@ -87,6 +89,7 @@ private:
     bool haveOscHandler = false;
     BellHandler onBell;
     PrinterHandler onPrinter;
+    bool havePrinterHandler = false;
     LedHandler onLed;
     NotificationHandler onNotification;
     ProgressHandler onProgress;
