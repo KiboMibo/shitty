@@ -783,7 +783,12 @@ Vterm::inputGraphicChar(unsigned char ch) {
         if (cs == Charset::UTF8) {
             utf8dec.pushByte(ch);
         } else if (ch >= 160 && (cs == Charset::IsoLatin1 || ch < 255)) {
-            utf8dec.onUnicode(charCodes[(uint8_t)cs][ch - 160]);
+            // ISO 2022 invokes a 94/96-character G-set in GR by moving its
+            // 7-bit code positions into the right half.  Strip that bit and
+            // use the same translation path as GL; NRC sets are deliberately
+            // outside charCodes, so indexing the table directly was both
+            // incorrect and out of bounds for LS1R/LS2R/LS3R.
+            utf8dec.onUnicode(translateCharset(cs, ch & 0x7f));
         }
     }
 }

@@ -25,11 +25,7 @@
 
 ## Главные пробелы
 
-1. Charsets
-
-Отдельная матрица нужна для G0–G3, GL/GR, locking/single shifts, NRC sets, DEC Special/Technical и возврата из VT52.
-
-2. Resize, selection и scrollback
+1. Resize, selection и scrollback
 
 Scrollback дальше раздувать просто ради числа не надо. Добавлять только новые взаимодействия:
 
@@ -46,7 +42,7 @@ Scrollback дальше раздувать просто ради числа не
 - same-grid pixel-only resize;
 - in-band resize response.
 
-3. PTY, presentation и lifecycle
+2. PTY, presentation и lifecycle
 
 Сейчас практически отсутствуют:
 
@@ -66,7 +62,7 @@ Scrollback дальше раздувать просто ради числа не
 
 Synchronized output должен продолжать менять модель терминала, сохраняя предыдущую представленную картинку до `2026l`: [protocol specification](https://github.com/contour-terminal/vt-extensions/blob/master/synchronized-output.md).
 
-4. Options, fonts и startup
+3. Options, fonts и startup
 
 Это почти белое пятно:
 

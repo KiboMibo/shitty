@@ -20,6 +20,8 @@ Covered now:
 - shrink-to-history and grow-from-history resize behavior;
 - Codex-style synchronized redraws plus a slow reference scrolling model;
 - SGR flags, truecolor, wide cells, wrap markers and DEC line drawing;
+- ISO 2022 G0-G3 designation, GL/GR locking and single shifts, complete NRC
+  replacement variants, DEC Special/Technical/Supplemental and VT52 changes;
 - Unicode 17 extended grapheme boundaries, including Prepend, SpacingMark,
   Indic linkers, Hangul, regional indicators and emoji ZWJ sequences;
 - DA, DSR, DECRQSS, palette and dynamic-color replies;
