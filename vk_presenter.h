@@ -9,8 +9,8 @@
 
 #pragma once
 
-#include "charvdev.h"
-#include "fontpack.h"
+#include "char_vdev.h"
+#include "font_pack.h"
 
 #include <vulkan/vulkan.h>
 

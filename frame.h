@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "charvdev.h"
+#include "char_vdev.h"
 #include "utf8.h"
 
 #include <deque>

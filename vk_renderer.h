@@ -9,9 +9,9 @@
 
 #pragma once
 
-#include "charvdev.h"
+#include "char_vdev.h"
 #include "frame.h"
-#include "vkpresenter.h"
+#include "vk_presenter.h"
 
 #include <cstdint>
 

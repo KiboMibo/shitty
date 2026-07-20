@@ -7,8 +7,8 @@
  * (at your option) any later version.
  */
 
-#include "fontpack.h"
-#include "fontresolver.h"
+#include "font_pack.h"
+#include "font_resolver.h"
 #include "log.h"
 
 Fontpack::Fontpack(const std::string& fontname,

@@ -270,10 +270,10 @@ Source map:
 
 - `vterm.*` — parser, terminal state and input encoding;
 - `frame.*` — screen, history, damage and selection;
-- `font.*`, `fontpack.*` — FreeType loading and glyph atlases;
-- `charvdev.*` — compact cell representation and host-side video memory;
-- `renderer.*` — terminal-to-presenter bridge;
-- `vkpresenter.*` — Vulkan resources, compute dispatch and swapchain;
+- `font.*`, `font_pack.*` — FreeType loading and glyph atlases;
+- `char_vdev.*` — compact cell representation and host-side video memory;
+- `vk_renderer.*` — terminal-to-presenter bridge;
+- `vk_presenter.*` — Vulkan resources, compute dispatch and swapchain;
 - `render.comp` — cell compositor compiled to embedded SPIR-V by `build`;
 - `main.cpp` — GLFW Wayland event loop, PTY integration and clipboard;
 - `options.*` — command-line configuration.

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mouseprotocol.h"
+#include "mouse_protocol.h"
 
 enum FrontendModifier : unsigned {
     FrontendShift = 1,

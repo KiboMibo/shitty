@@ -1,4 +1,4 @@
-#include "mouseprotocol.h"
+#include "mouse_protocol.h"
 
 #include "utf8.h"
 

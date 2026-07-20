@@ -12,7 +12,7 @@
 #pragma once
 
 #include "base.h"
-#include "fontpack.h"
+#include "font_pack.h"
 #include "options.h"
 
 #include <cstdint>

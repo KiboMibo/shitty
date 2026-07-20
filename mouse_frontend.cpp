@@ -1,4 +1,4 @@
-#include "mousefrontend.h"
+#include "mouse_frontend.h"
 
 #include <algorithm>
 #include <climits>

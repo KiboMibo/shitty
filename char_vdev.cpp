@@ -9,7 +9,7 @@
  * See the file LICENSE for the full license.
  */
 
-#include "charvdev.h"
+#include "char_vdev.h"
 #include "log.h"
 
 #include <algorithm>

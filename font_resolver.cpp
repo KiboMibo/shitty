@@ -1,4 +1,4 @@
-#include "fontresolver.h"
+#include "font_resolver.h"
 
 #include <fontconfig/fontconfig.h>
 
