@@ -176,7 +176,9 @@ public:
 
     ~Vterm() = default;
 
-    using RefreshHandlerFn = std::function<void(const Frame&)>;
+    // Return true only after the frame has been accepted for presentation.
+    // Damage remains pending when the handler asks for a retry.
+    using RefreshHandlerFn = std::function<bool(const Frame&)>;
     void setRefreshHandler(const RefreshHandlerFn&);
 
     using OscHandlerFn = std::function<void(int, const std::string&)>;
@@ -297,7 +299,8 @@ public:
 private:
     std::string getLocalEcho(const unsigned char* const begin,
                              const unsigned char* const end);
-    void processInput(const unsigned char* const input, int size);
+    void processInput(
+        const unsigned char* const input, int size, bool refresh = true);
     void processInput(const std::string& str);
 
     void writeCsiResponse(const std::string& payload);

@@ -23,7 +23,8 @@ public:
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
 
-    void update(const Frame& frame);
+    bool update(const Frame& frame);
+    bool repaint();
 
 private:
     CharVdev charVdev;

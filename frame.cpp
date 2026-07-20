@@ -176,7 +176,7 @@ void Frame::resize(uint16_t winPx_, uint16_t winPy_,
     highMemUsageReport();
 }
 
-void Frame::fullCopyCells(CharVdev::Cell* const dst) {
+void Frame::fullCopyCells(CharVdev::Cell* const dst) const {
     CharVdev::Cell* p = dst;
     for (int pY = 0; pY < nRows; ++pY) {
         memcpy(p, getViewRowPtr(pY), nCols * cellSize);
@@ -184,7 +184,7 @@ void Frame::fullCopyCells(CharVdev::Cell* const dst) {
     }
 }
 
-void Frame::deltaCopyCells(CharVdev::Cell* const dst) {
+void Frame::deltaCopyCells(CharVdev::Cell* const dst) const {
     CharVdev::Cell* p = dst;
     for (int pY = -viewOffset; pY < nRows - viewOffset; ++pY) {
         damageDeltaCopy(p, nCols * getLogicalRow(pY), nCols);
@@ -339,7 +339,8 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
 }
 
 inline void
-Frame::damageDeltaCopy(CharVdev::Cell* dst, uint32_t start, uint32_t count) {
+Frame::damageDeltaCopy(
+    CharVdev::Cell* dst, uint32_t start, uint32_t count) const {
     uint32_t end = start + count;
 
     if (damage.end <= start || end <= damage.start) {

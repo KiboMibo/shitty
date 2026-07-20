@@ -17,12 +17,10 @@ Renderer::Renderer(GLFWwindow* window, Fontpack* fontpk)
 {
 }
 
-void Renderer::update(const Frame& frame) {
+bool Renderer::update(const Frame& frame) {
     if (!frame) {
-        return;
+        return false;
     }
-
-    Frame currentFrame = frame;
 
     if (charVdev.resize(frame.winPx, frame.winPy)) {
         delta = false;
@@ -33,9 +31,9 @@ void Renderer::update(const Frame& frame) {
         assert(mapping.nCols == frame.nCols);
         assert(mapping.nRows == frame.nRows);
         if (delta) {
-            currentFrame.deltaCopyCells(mapping.cells);
+            frame.deltaCopyCells(mapping.cells);
         } else {
-            currentFrame.fullCopyCells(mapping.cells);
+            frame.fullCopyCells(mapping.cells);
         }
     }
 
@@ -44,7 +42,13 @@ void Renderer::update(const Frame& frame) {
     if (presenter.present(charVdev, frame, delta)) {
         charVdev.clearDirty();
         delta = true;
+        return true;
     } else {
         delta = false;
+        return false;
     }
+}
+
+bool Renderer::repaint() {
+    return presenter.repaint();
 }

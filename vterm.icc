@@ -166,8 +166,9 @@ Vterm::redraw() {
         return;
     }
 
-    onRefresh(*cf);
-    cf->resetDamage();
+    if (onRefresh(*cf)) {
+        cf->resetDamage();
+    }
 }
 
 inline bool Vterm::advanceAnimation(bool force) {
@@ -549,11 +550,15 @@ Vterm::setState(InputState newState) {
 
 inline bool
 Vterm::readPty() {
-    // Coalesce a normal burst, but yield back to the window loop if a child
-    // produces output continuously.
-    constexpr size_t maxBurstBytes = 256 * 1024;
-    size_t burstBytes = 0;
-    while (burstBytes < maxBurstBytes) {
+    // Drain everything already available. PTYs do not preserve application
+    // update boundaries, so individual read() calls must not become frames.
+    // The cap only prevents a producer that never reaches EAGAIN from
+    // monopolizing the window thread indefinitely.
+    constexpr size_t maxDrainBytes = 20 * 1024 * 1024;
+    size_t drainBytes = 0;
+    bool received = false;
+    bool finished = false;
+    while (drainBytes < maxDrainBytes) {
         const ssize_t n = read(ptyFd, inputBuf, sizeof(inputBuf));
         if (n > 0) {
             if (!ptyReceivedInput) {
@@ -562,23 +567,29 @@ Vterm::readPty() {
             }
 
             logT << "pty read: " << dumpBuffer(inputBuf, inputBuf + n);
-            processInput(inputBuf, n);
-            burstBytes += static_cast<size_t>(n);
+            processInput(inputBuf, n, false);
+            received = true;
+            drainBytes += static_cast<size_t>(n);
             continue;
         }
         if (n == 0) {
-            return ptyReceivedInput;
+            finished = ptyReceivedInput;
+            break;
         }
         if (errno == EINTR) {
             continue;
         }
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            return false;
+            break;
         }
         SYS_WARN("pty read");
-        return true;
+        finished = true;
+        break;
     }
-    return false;
+    if (received) {
+        redraw();
+    }
+    return finished;
 }
 
 inline void

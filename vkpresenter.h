@@ -32,6 +32,7 @@ public:
 
     bool present(const CharVdev& charVdev, const Frame& sourceFrame,
                  bool delta);
+    bool repaint();
     static uint32_t packCellAttributes(const CharVdev::Cell& cell);
 
 private:
@@ -166,6 +167,8 @@ private:
     void recordCommands(FrameResources& frame, uint32_t imageIndex,
                         const CharVdev& charVdev,
                         const Frame& sourceFrame, bool delta);
+    void recordRepaintCommands(
+        FrameResources& frame, uint32_t imageIndex);
 
     static std::vector<uint8_t> makeAtlasMap(const Font& font);
     static uint32_t packColor(const Color& color);

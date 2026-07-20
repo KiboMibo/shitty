@@ -27,6 +27,7 @@
 #include <cctype>
 #include <cerrno>
 #include <cmath>
+#include <chrono>
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
@@ -37,6 +38,7 @@
 #include <limits.h>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <poll.h>
 #include <pwd.h>
 #include <signal.h>
@@ -59,6 +61,10 @@ static GLFWcursor* cursor = nullptr;
 static GLFWcursor* hyperlinkCursor = nullptr;
 static bool glfwInitialized = false;
 static FILE* printerPipe = nullptr;
+static bool refreshAllowed = true;
+static bool refreshPending = false;
+static bool committedRepaintPending = false;
+static std::optional<std::chrono::steady_clock::time_point> refreshDeadline;
 
 extern char** environ;
 
@@ -1508,10 +1514,32 @@ namespace {
     }
 
     bool eventLoop(PtyEventSource& ptySource) {
+        using Clock = std::chrono::steady_clock;
+        constexpr auto resizeGrace = std::chrono::milliseconds(10);
+        constexpr auto retryDelay = std::chrono::milliseconds(10);
         while (!glfwWindowShouldClose(window)) {
             ptySource.setWriteInterest(vt->hasPendingPtyOutput());
-            if (vt->synchronizedOutputActive() || vt->animationActive()) {
-                glfwWaitEventsTimeout(0.05);
+            refreshAllowed = false;
+            double timeout =
+                (vt->synchronizedOutputActive() || vt->animationActive())
+                    ? 0.05
+                    : -1.0;
+            if (refreshPending || committedRepaintPending) {
+                const auto now = Clock::now();
+                const double refreshTimeout = refreshDeadline
+                    ? std::max(
+                          0.0,
+                          std::chrono::duration<double>(
+                              *refreshDeadline - now).count())
+                    : 0.0;
+                timeout = timeout < 0.0
+                    ? refreshTimeout
+                    : std::min(timeout, refreshTimeout);
+            }
+            if (timeout == 0.0) {
+                glfwPollEvents();
+            } else if (timeout > 0.0) {
+                glfwWaitEventsTimeout(timeout);
             } else {
                 glfwWaitEvents();
             }
@@ -1526,6 +1554,7 @@ namespace {
             if (vt->advanceAnimation()) {
                 windowContext.redrawPending = true;
             }
+            bool resized = false;
             if (windowContext.resizePending) {
                 const int width = std::min(
                     windowContext.framebufferWidth,
@@ -1537,17 +1566,26 @@ namespace {
                 windowContext.redrawPending = false;
                 vt->resize(width, height);
                 vt->redraw();
+                committedRepaintPending = vt->synchronizedOutputActive();
+                resized = true;
+                refreshDeadline = Clock::now() + resizeGrace;
             } else if (windowContext.redrawPending) {
                 windowContext.redrawPending = false;
-                vt->redraw();
+                if (vt->synchronizedOutputActive()) {
+                    committedRepaintPending = true;
+                } else {
+                    vt->redraw();
+                }
             }
             const short ptyEvents = ptySource.events();
+            bool readPtyInput = false;
             if (ptyEvents & POLLOUT) {
                 vt->flushPtyOutput();
             }
             if ((ptyEvents & (POLLIN | POLLHUP | POLLERR)) &&
                 !mouseContext.selectionOngoing) {
                 const bool finished = vt->readPty();
+                readPtyInput = true;
                 ptySource.acknowledge();
                 if (finished) {
                     return false;
@@ -1557,7 +1595,41 @@ namespace {
                 ptySource.acknowledge();
             }
             ptySource.setWriteInterest(vt->hasPendingPtyOutput());
+
+            // A child responding to SIGWINCH is part of the same visual
+            // update. Give it a short opportunity to redraw, then fall back
+            // to the resized terminal state even if it produces no output.
+            if (readPtyInput) {
+                refreshDeadline.reset();
+            }
+            const auto now = Clock::now();
+            if (!vt->synchronizedOutputActive()) {
+                committedRepaintPending = false;
+            }
+            if (committedRepaintPending &&
+                (!refreshDeadline || now >= *refreshDeadline)) {
+                if (renderer->repaint()) {
+                    committedRepaintPending = false;
+                    refreshDeadline.reset();
+                } else {
+                    refreshDeadline = now + retryDelay;
+                }
+            }
+            if (refreshPending &&
+                (!refreshDeadline || now >= *refreshDeadline)) {
+                refreshAllowed = true;
+                vt->redraw();
+                refreshAllowed = false;
+                if (refreshPending) {
+                    refreshDeadline = now + retryDelay;
+                } else {
+                    refreshDeadline.reset();
+                }
+            } else if (resized && !refreshPending) {
+                refreshDeadline.reset();
+            }
         }
+        refreshAllowed = true;
         return true;
     }
 
@@ -1701,7 +1773,15 @@ namespace {
             fontpk->getPx(), fontpk->getPy(), pixelWidth, pixelHeight, ptyFd);
         vt->setRefreshHandler(
             [](const Frame& frame) {
-            renderer->update(frame);
+            refreshPending = true;
+            if (!refreshAllowed) {
+                return false;
+            }
+            if (!renderer->update(frame)) {
+                return false;
+            }
+            refreshPending = false;
+            return true;
         });
         vt->setOscHandler(
             [](int command, const std::string& argument) {

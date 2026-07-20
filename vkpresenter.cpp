@@ -1338,6 +1338,159 @@ void VulkanPresenter::recordCommands(
             "vkEndCommandBuffer");
 }
 
+void VulkanPresenter::recordRepaintCommands(
+    FrameResources& frame, uint32_t imageIndex) {
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    checkVk(vkBeginCommandBuffer(frame.commandBuffer, &beginInfo),
+            "vkBeginCommandBuffer");
+
+    VkImageMemoryBarrier outputForBlit{};
+    outputForBlit.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    outputForBlit.srcAccessMask =
+        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+    outputForBlit.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    outputForBlit.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    outputForBlit.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    outputForBlit.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    outputForBlit.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    outputForBlit.image = outputImage.image;
+    outputForBlit.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    outputForBlit.subresourceRange.levelCount = 1;
+    outputForBlit.subresourceRange.layerCount = 1;
+    vkCmdPipelineBarrier(
+        frame.commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+        0, nullptr, 0, nullptr, 1, &outputForBlit);
+
+    VkImageMemoryBarrier swapchainForBlit{};
+    swapchainForBlit.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    swapchainForBlit.srcAccessMask = imageInitialized[imageIndex]
+                                         ? VK_ACCESS_MEMORY_READ_BIT
+                                         : 0;
+    swapchainForBlit.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    swapchainForBlit.oldLayout = imageInitialized[imageIndex]
+                                     ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+                                     : VK_IMAGE_LAYOUT_UNDEFINED;
+    swapchainForBlit.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    swapchainForBlit.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    swapchainForBlit.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    swapchainForBlit.image = swapchainImages[imageIndex];
+    swapchainForBlit.subresourceRange.aspectMask =
+        VK_IMAGE_ASPECT_COLOR_BIT;
+    swapchainForBlit.subresourceRange.levelCount = 1;
+    swapchainForBlit.subresourceRange.layerCount = 1;
+    vkCmdPipelineBarrier(
+        frame.commandBuffer,
+        imageInitialized[imageIndex]
+            ? VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT
+            : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+        0, nullptr, 0, nullptr, 1, &swapchainForBlit);
+
+    VkImageBlit blit{};
+    blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blit.srcSubresource.layerCount = 1;
+    blit.srcOffsets[1] = {
+        static_cast<int32_t>(renderExtent.width),
+        static_cast<int32_t>(renderExtent.height), 1};
+    blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blit.dstSubresource.layerCount = 1;
+    blit.dstOffsets[1] = {
+        static_cast<int32_t>(swapchainExtent.width),
+        static_cast<int32_t>(swapchainExtent.height), 1};
+    vkCmdBlitImage(
+        frame.commandBuffer,
+        outputImage.image, VK_IMAGE_LAYOUT_GENERAL,
+        swapchainImages[imageIndex],
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1, &blit, VK_FILTER_NEAREST);
+
+    VkImageMemoryBarrier swapchainForPresent = swapchainForBlit;
+    swapchainForPresent.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    swapchainForPresent.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+    swapchainForPresent.oldLayout =
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    swapchainForPresent.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    vkCmdPipelineBarrier(
+        frame.commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0,
+        0, nullptr, 0, nullptr, 1, &swapchainForPresent);
+    checkVk(vkEndCommandBuffer(frame.commandBuffer),
+            "vkEndCommandBuffer");
+}
+
+bool VulkanPresenter::repaint() {
+    if (!outputInitialized || renderExtent.width == 0 ||
+        renderExtent.height == 0) {
+        return false;
+    }
+    if (swapchain == VK_NULL_HANDLE) {
+        createSwapchain(renderExtent.width, renderExtent.height);
+    }
+    if (swapchain == VK_NULL_HANDLE) {
+        return false;
+    }
+
+    FrameResources& frame = frames[currentFrame];
+    checkVk(vkWaitForFences(
+                device, 1, &frame.fence, VK_TRUE, UINT64_MAX),
+            "vkWaitForFences");
+    uint32_t imageIndex = 0;
+    VkResult result = vkAcquireNextImageKHR(
+        device, swapchain, UINT64_MAX, frame.imageAvailable,
+        VK_NULL_HANDLE, &imageIndex);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        createSwapchain(renderExtent.width, renderExtent.height);
+        return false;
+    }
+    const bool recreateAfterPresent = result == VK_SUBOPTIMAL_KHR;
+    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+        failVk("vkAcquireNextImageKHR", result);
+    }
+
+    checkVk(vkResetFences(device, 1, &frame.fence), "vkResetFences");
+    checkVk(vkResetCommandBuffer(frame.commandBuffer, 0),
+            "vkResetCommandBuffer");
+    recordRepaintCommands(frame, imageIndex);
+
+    const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = &frame.imageAvailable;
+    submitInfo.pWaitDstStageMask = &waitStage;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &frame.commandBuffer;
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = &presentSemaphores[imageIndex];
+    checkVk(vkQueueSubmit(queue, 1, &submitInfo, frame.fence),
+            "vkQueueSubmit");
+    imageInitialized[imageIndex] = true;
+
+    VkPresentInfoKHR presentInfo{};
+    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = &presentSemaphores[imageIndex];
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = &swapchain;
+    presentInfo.pImageIndices = &imageIndex;
+    result = vkQueuePresentKHR(queue, &presentInfo);
+    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR &&
+        result != VK_ERROR_OUT_OF_DATE_KHR) {
+        failVk("vkQueuePresentKHR", result);
+    }
+
+    const bool presented = result != VK_ERROR_OUT_OF_DATE_KHR;
+    currentFrame = (currentFrame + 1) % framesInFlight;
+    if (recreateAfterPresent || result == VK_SUBOPTIMAL_KHR ||
+        result == VK_ERROR_OUT_OF_DATE_KHR) {
+        createSwapchain(renderExtent.width, renderExtent.height);
+    }
+    return presented;
+}
+
 bool VulkanPresenter::present(
     const CharVdev& charVdev, const Frame& sourceFrame, bool delta) {
     const uint32_t width = charVdev.pixelWidth();
@@ -1452,10 +1605,11 @@ bool VulkanPresenter::present(
         failVk("vkQueuePresentKHR", result);
     }
 
+    const bool presented = result != VK_ERROR_OUT_OF_DATE_KHR;
     currentFrame = (currentFrame + 1) % framesInFlight;
     if (recreateAfterPresent || result == VK_SUBOPTIMAL_KHR ||
         result == VK_ERROR_OUT_OF_DATE_KHR) {
         createSwapchain(width, height);
     }
-    return true;
+    return presented;
 }

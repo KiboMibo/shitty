@@ -104,8 +104,11 @@ namespace {
 
     class TestDisplay {
     public:
-        void update(const Frame& frame) {
-            Frame current = frame;
+        bool update(const Frame& frame) {
+            if (failNextUpdate) {
+                failNextUpdate = false;
+                return false;
+            }
             const size_t count = frame.nCols * frame.nRows;
             if (columns != frame.nCols || rows != frame.nRows) {
                 columns = frame.nCols;
@@ -114,9 +117,9 @@ namespace {
                 delta = false;
             }
             if (delta) {
-                current.deltaCopyCells(cells.data());
+                frame.deltaCopyCells(cells.data());
             } else {
-                current.fullCopyCells(cells.data());
+                frame.fullCopyCells(cells.data());
             }
             for (auto& cell : cells) {
                 cell.dirty = 0;
@@ -141,6 +144,11 @@ namespace {
             }
             ++refreshCount;
             delta = true;
+            return true;
+        }
+
+        void failNextPresent() {
+            failNextUpdate = true;
         }
 
         std::string snapshot() const {
@@ -217,6 +225,7 @@ namespace {
         }
 
     private:
+        bool failNextUpdate = false;
         uint16_t columns = 0;
         uint16_t rows = 0;
         uint16_t viewOffset = 0;
@@ -347,7 +356,7 @@ int runTestMode(int controlFd) {
     TestDisplay display;
     terminal.setRefreshHandler(
         [&display](const Frame& frame) {
-            display.update(frame);
+            return display.update(frame);
         });
     std::string actions;
     std::string printerOutput;
@@ -487,6 +496,23 @@ int runTestMode(int controlFd) {
             } else if (line == "READ_PTY") {
                 writeAll(controlFd,
                          "OK " + std::to_string(terminal.readPty()) + "\n");
+            } else if (line == "WAIT_READ_PTY") {
+                pollfd source{io[0], POLLIN, 0};
+                int ready = 0;
+                do {
+                    ready = poll(&source, 1, 1000);
+                } while (ready < 0 && errno == EINTR);
+                if (ready <= 0 || !(source.revents & POLLIN)) {
+                    throw std::runtime_error("PTY input timeout");
+                }
+                terminal.readPty();
+                writeAll(controlFd, "OK\n");
+            } else if (line == "FAIL_NEXT_PRESENT") {
+                display.failNextPresent();
+                writeAll(controlFd, "OK\n");
+            } else if (line == "PRESENT") {
+                terminal.redraw();
+                writeAll(controlFd, "OK\n");
             } else if (line == "GPU_ATTRIBUTE_MASKS") {
                 CharVdev::Cell cell;
                 cell.dwidth = true;

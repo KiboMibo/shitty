@@ -36,8 +36,8 @@ public:
     void dropScrollbackHistory();
 
     void fillCells(uint16_t ch, const CharVdev::Cell& attrs);
-    void fullCopyCells(CharVdev::Cell* const dest);
-    void deltaCopyCells(CharVdev::Cell* const dest);
+    void fullCopyCells(CharVdev::Cell* const dest) const;
+    void deltaCopyCells(CharVdev::Cell* const dest) const;
 
     operator bool() const {
         return cells != nullptr;
@@ -190,7 +190,8 @@ private:
     void copyCells(uint32_t dstIx, uint32_t srcIx, uint32_t count);
     void moveCells(uint32_t dstIx, uint32_t srcIx, uint32_t count);
 
-    void damageDeltaCopy(CharVdev::Cell* dst, uint32_t start, uint32_t count);
+    void damageDeltaCopy(
+        CharVdev::Cell* dst, uint32_t start, uint32_t count) const;
 
     static SelectSnapTo cycleSelectSnapTo(SelectSnapTo& snapTo) {
         return static_cast<SelectSnapTo>(

@@ -1324,7 +1324,7 @@ Vterm::Vterm(uint16_t glyphPx_, uint16_t glyphPy_,
     , glyphPx(glyphPx_)
     , glyphPy(glyphPy_)
     , ptyFd(ptyFd_)
-    , onRefresh([](const Frame&) {})
+    , onRefresh([](const Frame&) { return true; })
     , onOsc([](int cmd, const std::string& arg) {
         logU << "OSC: '" << cmd << ";" << arg << "'" << std::endl;
     })
@@ -2109,7 +2109,8 @@ void Vterm::processCsiByte(unsigned char ch) {
     }
 }
 
-void Vterm::processInput(const unsigned char* const input, int inputSize) {
+void Vterm::processInput(
+    const unsigned char* const input, int inputSize, bool refresh) {
     lastEscBegin = 0;
     lastNormalBegin = 0;
     lastStopPos = 0;
@@ -2635,7 +2636,9 @@ void Vterm::processInput(const unsigned char* const input, int inputSize) {
     }
     traceNormalInput();
     showCursor();
-    redraw();
+    if (refresh) {
+        redraw();
+    }
 }
 
 void Vterm::setHyperlink(const std::string& parametersAndUri) {
