@@ -7,6 +7,7 @@ namespace stl {
 class Fontpack;
 class Renderer;
 struct Pty;
+struct PtyEventSource;
 class Vterm;
 
 // Application wiring. Components copy the dependencies they need during
@@ -16,5 +17,6 @@ struct Composer {
     Fontpack* fonts = nullptr;
     Renderer* renderer = nullptr;
     Pty* pty = nullptr;
+    PtyEventSource* ptyEvents = nullptr;
     Vterm* vterm = nullptr;
 };
