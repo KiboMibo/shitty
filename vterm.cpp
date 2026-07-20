@@ -1345,6 +1345,9 @@ Vterm::Vterm(uint16_t glyphPx_, uint16_t glyphPy_,
     , onPtyRead([this](uint8_t* buffer, size_t size) {
         return read(ptyFd, buffer, size);
     })
+    , onPtyWrite([this](const uint8_t* buffer, size_t size) {
+        return write(ptyFd, buffer, size);
+    })
     , onRefresh([](const Frame&) { return true; })
     , onOsc([](int cmd, const std::string& arg) {
         logU << "OSC: '" << cmd << ";" << arg << "'" << std::endl;
@@ -1411,6 +1414,10 @@ void Vterm::setRefreshHandler(const RefreshHandlerFn& onRefresh_) {
 
 void Vterm::setPtyReadHandler(const PtyReadHandlerFn& handler) {
     onPtyRead = handler;
+}
+
+void Vterm::setPtyWriteHandler(const PtyWriteHandlerFn& handler) {
+    onPtyWrite = handler;
 }
 
 void Vterm::setOscHandler(const OscHandlerFn& onOsc_) {
@@ -1755,8 +1762,8 @@ int Vterm::writePty(const uint8_t* ucstr, size_t len, bool userInput) {
 
 bool Vterm::flushPtyOutput() {
     while (ptyOutputOffset < ptyOutput.size()) {
-        const ssize_t count = write(
-            ptyFd, ptyOutput.data() + ptyOutputOffset,
+        const ssize_t count = onPtyWrite(
+            ptyOutput.data() + ptyOutputOffset,
             ptyOutput.size() - ptyOutputOffset);
         if (count > 0) {
             ptyOutputOffset += static_cast<size_t>(count);

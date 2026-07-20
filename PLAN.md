@@ -29,7 +29,6 @@
 
 Сейчас практически отсутствуют:
 
-- partial output writes и backpressure;
 - порядок `POLLIN/POLLOUT`;
 - последовательность, разрезанная между чтениями;
 - drain до `EAGAIN`;

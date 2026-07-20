@@ -487,6 +487,33 @@ class Zutty:
     def flush_output(self):
         self.command("FLUSH_OUTPUT")
 
+    def flush_output_result(self):
+        self.stream.write(b"FLUSH_OUTPUT_RESULT\n")
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid PTY flush response")
+        return bool(int(response[1]))
+
+    def script_pty_writes(self, *outcomes):
+        tokens = []
+        for outcome in outcomes:
+            if isinstance(outcome, int) and outcome > 0:
+                tokens.append("n" + str(outcome))
+            elif (
+                isinstance(outcome, tuple)
+                and len(outcome) == 2
+                and outcome[0] == "error"
+            ):
+                tokens.append("e" + str(outcome[1]))
+            else:
+                raise ValueError(f"invalid PTY write outcome: {outcome!r}")
+        if not tokens:
+            raise ValueError("empty PTY write script")
+        self.command("PTY_WRITE_SCRIPT " + " ".join(tokens))
+
+    def read_written_pty(self):
+        return self._read_hex_response("READ_WRITTEN_PTY")
+
     def snapshot(self):
         self.stream.write(b"SNAPSHOT\n")
         response = self._readline().split(" ", 13)

@@ -386,6 +386,12 @@ int runTestMode(int controlFd) {
         bool eof = false;
     };
     std::deque<ScriptedPtyRead> scriptedPtyReads;
+    struct ScriptedPtyWrite {
+        size_t count = 0;
+        int error = 0;
+    };
+    std::deque<ScriptedPtyWrite> scriptedPtyWrites;
+    std::string writtenPtyData;
     MouseFrontendState mouseFrontend;
     std::string primarySelection;
     terminal.setOscHandler(
@@ -609,6 +615,53 @@ int runTestMode(int controlFd) {
                         std::copy_n(item.data.data(), count, buffer);
                         item.data.erase(0, count);
                         if (item.data.empty()) scriptedPtyReads.pop_front();
+                        return static_cast<ssize_t>(count);
+                    });
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 17, "PTY_WRITE_SCRIPT ") == 0) {
+                scriptedPtyWrites.clear();
+                writtenPtyData.clear();
+                std::istringstream args(line.substr(17));
+                std::string token;
+                while (args >> token) {
+                    size_t consumed = 0;
+                    if (token.size() > 1 && token[0] == 'n') {
+                        const unsigned long count = std::stoul(
+                            token.substr(1), &consumed);
+                        if (consumed != token.size() - 1 || count == 0) {
+                            throw std::runtime_error("invalid PTY write count");
+                        }
+                        scriptedPtyWrites.push_back({count, 0});
+                    } else if (token.size() > 1 && token[0] == 'e') {
+                        const int error = std::stoi(
+                            token.substr(1), &consumed);
+                        if (consumed != token.size() - 1 || error <= 0) {
+                            throw std::runtime_error("invalid PTY write errno");
+                        }
+                        scriptedPtyWrites.push_back({0, error});
+                    } else {
+                        throw std::runtime_error("invalid PTY write script");
+                    }
+                }
+                if (scriptedPtyWrites.empty()) {
+                    throw std::runtime_error("empty PTY write script");
+                }
+                terminal.setPtyWriteHandler(
+                    [&scriptedPtyWrites, &writtenPtyData](
+                        const uint8_t* buffer, size_t size) {
+                        if (scriptedPtyWrites.empty()) {
+                            errno = EAGAIN;
+                            return static_cast<ssize_t>(-1);
+                        }
+                        const auto item = scriptedPtyWrites.front();
+                        scriptedPtyWrites.pop_front();
+                        if (item.error) {
+                            errno = item.error;
+                            return static_cast<ssize_t>(-1);
+                        }
+                        const size_t count = std::min(size, item.count);
+                        writtenPtyData.append(
+                            reinterpret_cast<const char*>(buffer), count);
                         return static_cast<ssize_t>(count);
                     });
                 writeAll(controlFd, "OK\n");
@@ -1113,6 +1166,12 @@ int runTestMode(int controlFd) {
             } else if (line == "FLUSH_OUTPUT") {
                 terminal.flushPtyOutput();
                 writeAll(controlFd, "OK\n");
+            } else if (line == "FLUSH_OUTPUT_RESULT") {
+                writeAll(controlFd, "OK " + std::to_string(
+                    terminal.flushPtyOutput()) + "\n");
+            } else if (line == "READ_WRITTEN_PTY") {
+                writeAll(controlFd, "OK " + encodeHex(writtenPtyData) + "\n");
+                writtenPtyData.clear();
             } else if (line == "QUIT") {
                 if (childPid > 0) {
                     kill(childPid, SIGKILL);

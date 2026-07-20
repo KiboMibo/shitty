@@ -268,6 +268,9 @@ public:
     int writePty(const uint8_t* ucstr, size_t len,
                  bool userInput = false);
     bool flushPtyOutput();
+    using PtyWriteHandlerFn =
+        std::function<ssize_t(const uint8_t*, size_t)>;
+    void setPtyWriteHandler(const PtyWriteHandlerFn& handler);
     bool hasPendingPtyOutput() const {
         return ptyOutputOffset < ptyOutput.size();
     }
@@ -547,6 +550,7 @@ private:
     int ptyFd;
     bool ptyReceivedInput = false;
     PtyReadHandlerFn onPtyRead;
+    PtyWriteHandlerFn onPtyWrite;
     std::vector<uint8_t> ptyOutput;
     size_t ptyOutputOffset = 0;
 

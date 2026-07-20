@@ -11,6 +11,8 @@ Covered now:
   errors, including frame publication on the final payload;
 - child lifecycle reporting for exact normal exit status and the shell-style
   `128 + signal` convention;
+- PTY output queuing across partial writes, repeated `EINTR`, `EAGAIN`
+  backpressure and retry after a fatal write, without byte loss or duplication;
 - C0 controls, cursor movement, save/restore, tabs and scrolling regions;
 - autowrap, alternate screen, synchronized output and cursor modes;
 - insert/delete/erase operations and insert mode;
