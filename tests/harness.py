@@ -90,6 +90,17 @@ class Zutty:
             pass_fds=(child.fileno(),),
         )
         child.close()
+        self._window_info = {
+            "x": 10,
+            "y": 20,
+            "pixel_width": columns + 4,
+            "pixel_height": rows + 4,
+            "screen_width": 1920,
+            "screen_height": 1080,
+            "iconified": False,
+            "maximized": False,
+            "fullscreen": False,
+        }
         if self._readline() != "READY":
             raise RuntimeError("zutty test mode did not become ready")
 
@@ -193,6 +204,23 @@ class Zutty:
 
     def resize(self, columns, rows):
         self.command(f"RESIZE {columns} {rows}")
+        self._window_info["pixel_width"] = columns + 4
+        self._window_info["pixel_height"] = rows + 4
+
+    def window_info(self, **values):
+        unknown = values.keys() - self._window_info.keys()
+        if unknown:
+            raise ValueError(f"unknown window info fields: {sorted(unknown)}")
+        self._window_info.update(values)
+        info = self._window_info
+        self.command(
+            "WINDOW_INFO "
+            f"{info['x']} {info['y']} "
+            f"{info['pixel_width']} {info['pixel_height']} "
+            f"{info['screen_width']} {info['screen_height']} "
+            f"{int(info['iconified'])} {int(info['maximized'])} "
+            f"{int(info['fullscreen'])}"
+        )
 
     def winsize(self):
         self.stream.write(b"WINSIZE\n")

@@ -25,15 +25,7 @@
 
 ## Главные пробелы
 
-1. DCS, OSC и window operations
-
-Каждая ветка сейчас требует собственной таблицы:
-
-- XTWINOPS: все операции 11–23, оба варианта 14, title selectors, пустой stack и rollover после десяти элементов.
-
-Текущий OSC 99 реализует только часть опубликованного протокола; тесты должны чётко зафиксировать заявленный subset и не позволять отвечать поддержкой того, чего нет: [kitty notifications](https://sw.kovidgoyal.net/kitty/desktop-notifications/).
-
-2. Keyboard и mouse
+1. Keyboard и mouse
 
 24 keyboard-теста — мало относительно таблицы реализации.
 
@@ -64,7 +56,7 @@ Kitty требует согласованной реализации progressive
 
 Так мы закроем fractional scrolling, смену reporting/local scrolling, Shift override, cell dedupe, horizontal wheel и double/triple click.
 
-3. Unicode и charsets
+2. Unicode и charsets
 
 Текущий grapheme-код реализует выбранный subset правил, но не полный UAX #29. Нужны представительные официальные vectors:
 
@@ -85,7 +77,7 @@ Unicode публикует и правила, и официальный `Graphem
 
 Отдельная матрица нужна для G0–G3, GL/GR, locking/single shifts, NRC sets, DEC Special/Technical и возврата из VT52.
 
-4. Resize, selection и scrollback
+3. Resize, selection и scrollback
 
 Scrollback дальше раздувать просто ради числа не надо. Добавлять только новые взаимодействия:
 
@@ -102,7 +94,7 @@ Scrollback дальше раздувать просто ради числа не
 - same-grid pixel-only resize;
 - in-band resize response.
 
-5. PTY, presentation и lifecycle
+4. PTY, presentation и lifecycle
 
 Сейчас практически отсутствуют:
 
@@ -122,7 +114,7 @@ Scrollback дальше раздувать просто ради числа не
 
 Synchronized output должен продолжать менять модель терминала, сохраняя предыдущую представленную картинку до `2026l`: [protocol specification](https://github.com/contour-terminal/vt-extensions/blob/master/synchronized-output.md).
 
-6. Options, fonts и startup
+5. Options, fonts и startup
 
 Это почти белое пятно:
 
@@ -148,7 +140,7 @@ Synchronized output должен продолжать менять модель 
 - raw frontend key/mouse/scroll events;
 - virtual clock для click counting и blink;
 - clipboard ownership;
-- window info/iconified/content scale;
+- content scale;
 - damage snapshot;
 - present success/failure;
 - PTY fault/backpressure injection;
@@ -170,13 +162,12 @@ Offscreen Vulkan на этом проходе не нужен: логическ�
 
 | Область | Новых тестов |
 |---|---:|
-| DCS/OSC/window protocols | 6 |
 | Keyboard/keypad | 45 |
 | Mouse/frontend events | 35 |
 | Unicode/charsets | 30 |
 | Resize/selection/scrollback interactions | 25 |
 | PTY/present/options/fonts/startup | 30 |
-| Итого | около 171 |
+| Итого | около 165 |
 
 То есть итог, вероятно, будет ближе к 550–560 тестам, а не ровно к формальному удвоению.
 

@@ -3730,7 +3730,8 @@ Vterm::csi_XTWINOPS() {
             break;
         case 13: {
             const auto info = onWindowInfo();
-            response << "3;" << info.x << ';' << info.y << 't';
+            response << "3;" << static_cast<uint16_t>(info.x) << ';'
+                     << static_cast<uint16_t>(info.y) << 't';
             writeCsiResponse(response.str());
         } break;
         case 14:
@@ -3772,27 +3773,35 @@ Vterm::csi_XTWINOPS() {
             break;
         case 22: {
             const uint32_t which = nInputOps > 1 ? inputOps[1] : 0;
+            if (which > 2) break;
             SavedTitles saved;
-            if (which == 0 || which == 1) saved.icon = iconTitle;
-            if (which == 0 || which == 2) saved.window = windowTitle;
+            if (which == 0 || which == 1) {
+                saved.hasIcon = true;
+                saved.icon = iconTitle;
+            }
+            if (which == 0 || which == 2) {
+                saved.hasWindow = true;
+                saved.window = windowTitle;
+            }
             titleStack.push_back(std::move(saved));
             if (titleStack.size() > 10) titleStack.erase(titleStack.begin());
         } break;
-        case 23:
+        case 23: {
+            const uint32_t which = nInputOps > 1 ? inputOps[1] : 0;
+            if (which > 2) break;
             if (!titleStack.empty()) {
-                const uint32_t which = nInputOps > 1 ? inputOps[1] : 0;
                 SavedTitles saved = std::move(titleStack.back());
                 titleStack.pop_back();
-                if ((which == 0 || which == 1) && !saved.icon.empty()) {
+                if ((which == 0 || which == 1) && saved.hasIcon) {
                     iconTitle = saved.icon;
                     onOsc(1, iconTitle);
                 }
-                if ((which == 0 || which == 2) && !saved.window.empty()) {
+                if ((which == 0 || which == 2) && saved.hasWindow) {
                     windowTitle = saved.window;
                     onOsc(2, windowTitle);
                 }
             }
-            break;
+        } break;
         default:
             break;
     }

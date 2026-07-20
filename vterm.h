@@ -571,6 +571,8 @@ private:
     std::string windowTitle;
     std::string iconTitle;
     struct SavedTitles {
+        bool hasIcon = false;
+        bool hasWindow = false;
         std::string icon;
         std::string window;
     };
