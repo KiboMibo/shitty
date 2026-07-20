@@ -1,3 +1,5 @@
 #pragma once
 
-int runTestMode(int controlFd, int argc, char* argv[]);
+struct Composer;
+
+int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]);

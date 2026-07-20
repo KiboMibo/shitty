@@ -23,6 +23,7 @@
 #include "test_mode.h"
 #include "utf8.h"
 #include "vterm.h"
+#include "vterm_host.h"
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -62,7 +63,7 @@
 
 static Fontpack* fontpk = nullptr;
 static Renderer* renderer = nullptr;
-static std::unique_ptr<Vterm> vt;
+static Vterm* vt = nullptr;
 static GLFWwindow* window = nullptr;
 static GLFWcursor* cursor = nullptr;
 static GLFWcursor* hyperlinkCursor = nullptr;
@@ -1413,7 +1414,7 @@ namespace {
             SYS_ERROR("setenv ZUTTY_VERSION");
         }
         if (testFd >= 0) {
-            return runTestMode(testFd, argc, argv);
+            return runTestMode(composer, testFd, argc, argv);
         }
 
         LaunchCommand launch = buildLaunchCommand(
@@ -1512,10 +1513,10 @@ namespace {
         const int ptyFd = startShell(
             launch.executable.c_str(), shellArgv.data());
         auto* vtermHost = composer.pool->make<VtermHostCallbacks>();
-        vt = std::make_unique<Vterm>(
-            *vtermHost, fontpk->getPx(), fontpk->getPy(),
+        vt = Vterm::create(
+            composer, *vtermHost, fontpk->getPx(), fontpk->getPy(),
             pixelWidth, pixelHeight, ptyFd);
-        composer.vterm = vt.get();
+        composer.vterm = vt;
         vtermHost->setRefreshHandler(
             [](const Frame& frame) {
             refreshPending = true;
@@ -1688,7 +1689,7 @@ namespace {
             eventLoop(ptySource);
         }
 
-        vt.reset();
+        vt = nullptr;
         composer.vterm = nullptr;
         if (printerPipe != nullptr) {
             pclose(printerPipe);
@@ -1703,7 +1704,7 @@ namespace {
     }
 
     void emergencyCleanup() {
-        vt.reset();
+        vt = nullptr;
         if (printerPipe != nullptr) {
             pclose(printerPipe);
             printerPipe = nullptr;

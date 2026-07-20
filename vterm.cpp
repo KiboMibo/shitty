@@ -9,17 +9,20 @@
  * See the file LICENSE for the full license.
  */
 
+#include "composer.h"
 #include "options.h"
 #include "pty.h"
-#include "vterm.h"
+#include "vterm_impl.h"
 
 #include <cstring>
 #include <cerrno>
 #include <fcntl.h>
 
+#include <std/mem/obj_pool.h>
+
 namespace {
     using Key = VtKey;
-    using InputSpec = Vterm::InputSpec;
+    using InputSpec = VtermImpl::InputSpec;
 
 #define ESC "\x1b"
 #define CSI ESC "["
@@ -707,7 +710,7 @@ namespace {
     * to 16-bit Unicode points. All sets are defined as 96 characters, even
     * those originally designated by DEC as 94-character sets.
     *
-    * These tables are referenced by Vterm::charCodes (see below).
+    * These tables are referenced by VtermImpl::charCodes (see below).
     */
 
     const uint16_t uc_DecSpec[] =
@@ -1222,7 +1225,7 @@ namespace {
 
 }
 
-const uint16_t* Vterm::charCodes[] =
+const uint16_t* VtermImpl::charCodes[] =
     {
 
         nullptr,
@@ -1233,7 +1236,7 @@ const uint16_t* Vterm::charCodes[] =
         uc_IsoLatin1,
         uc_IsoUK};
 
-uint32_t Vterm::translateCharset(Charset charset, unsigned char ch) const {
+uint32_t VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
     if (charset <= Charset::IsoUK)
         return charCodes[static_cast<uint8_t>(charset)][ch - 32];
     if (!nationalReplacementMode) return ch;
@@ -1332,7 +1335,7 @@ uint32_t Vterm::translateCharset(Charset charset, unsigned char ch) const {
 #undef LOOKUP
 }
 
-Vterm::Vterm(VtermHost& host_, uint16_t glyphPx_, uint16_t glyphPy_,
+VtermImpl::VtermImpl(VtermHost& host_, uint16_t glyphPx_, uint16_t glyphPy_,
              uint16_t winPx_, uint16_t winPy_,
              int ptyFd_)
     : host(host_)
@@ -1388,15 +1391,15 @@ Vterm::Vterm(VtermHost& host_, uint16_t glyphPx_, uint16_t glyphPy_,
     resetTerminal();
 }
 
-void Vterm::setPtyReadHandler(const PtyReadHandlerFn& handler) {
+void VtermImpl::setPtyReadHandler(const PtyReadHandlerFn& handler) {
     onPtyRead = handler;
 }
 
-void Vterm::setPtyWriteHandler(const PtyWriteHandlerFn& handler) {
+void VtermImpl::setPtyWriteHandler(const PtyWriteHandlerFn& handler) {
     onPtyWrite = handler;
 }
 
-bool Vterm::servicePty(bool readable, bool writable) {
+bool VtermImpl::servicePty(bool readable, bool writable) {
     // Bytes already queued by the frontend precede replies generated while
     // parsing newly readable PTY input.
     if (writable) {
@@ -1405,7 +1408,7 @@ bool Vterm::servicePty(bool readable, bool writable) {
     return readable && readPty();
 }
 
-void Vterm::resize(uint16_t winPx_, uint16_t winPy_) {
+void VtermImpl::resize(uint16_t winPx_, uint16_t winPy_) {
     if (winPx == winPx_ && winPy == winPy_) {
         return;
     }
@@ -1460,7 +1463,7 @@ void Vterm::resize(uint16_t winPx_, uint16_t winPy_) {
 }
 
 std::string
-Vterm::getLocalEcho(const unsigned char* const begin,
+VtermImpl::getLocalEcho(const unsigned char* const begin,
                     const unsigned char* const end) {
     std::ostringstream oss;
     for (const unsigned char* p = begin; p < end; ++p) {
@@ -1473,7 +1476,7 @@ Vterm::getLocalEcho(const unsigned char* const begin,
     return oss.str();
 }
 
-int Vterm::writePty(VtKey key, VtModifier modifiers_, bool userInput) {
+int VtermImpl::writePty(VtKey key, VtModifier modifiers_, bool userInput) {
 #ifdef DEBUG
     if (key == VtKey::Print) {
         debugKey();
@@ -1507,7 +1510,7 @@ int Vterm::writePty(VtKey key, VtModifier modifiers_, bool userInput) {
     }
 }
 
-int Vterm::writePty(uint8_t ch, VtModifier modifiers, bool userInput) {
+int VtermImpl::writePty(uint8_t ch, VtModifier modifiers, bool userInput) {
     using VM = VtModifier;
 
     auto uch = (unsigned char*)&ch;
@@ -1582,7 +1585,7 @@ int Vterm::writePty(uint8_t ch, VtModifier modifiers, bool userInput) {
     }
 }
 
-int Vterm::writeKittyKey(VtKey key, uint16_t modifiers,
+int VtermImpl::writeKittyKey(VtKey key, uint16_t modifiers,
                          KeyEventType event) {
     const KittyKeySpec spec = kittyKeySpec(key);
     if (!spec.code) {
@@ -1621,7 +1624,7 @@ int Vterm::writeKittyKey(VtKey key, uint16_t modifiers,
                     encoded.size(), true);
 }
 
-int Vterm::writeKittyKey(uint32_t key, uint32_t shiftedKey,
+int VtermImpl::writeKittyKey(uint32_t key, uint32_t shiftedKey,
                          uint32_t baseLayoutKey, uint16_t modifiers,
                          KeyEventType event) {
     if (!key || (event == KeyEventType::Release &&
@@ -1660,19 +1663,19 @@ int Vterm::writeKittyKey(uint32_t key, uint32_t shiftedKey,
                     encoded.size(), true);
 }
 
-int Vterm::writePty(const char* cstr, bool userInput) {
+int VtermImpl::writePty(const char* cstr, bool userInput) {
     auto ucstr = (unsigned char*)cstr;
     return writePty(ucstr, strlen(cstr), userInput);
 }
 
-void Vterm::writeCsiResponse(const std::string& payload) {
+void VtermImpl::writeCsiResponse(const std::string& payload) {
     const std::string response =
         (send8BitControls ? std::string("\x9b") : std::string("\x1b[")) +
         payload;
     writePty(reinterpret_cast<const uint8_t*>(response.data()), response.size());
 }
 
-void Vterm::writeDcsResponse(const std::string& payload) {
+void VtermImpl::writeDcsResponse(const std::string& payload) {
     const std::string response =
         (send8BitControls ? std::string("\x90") : std::string("\x1bP")) +
         payload +
@@ -1680,7 +1683,7 @@ void Vterm::writeDcsResponse(const std::string& payload) {
     writePty(reinterpret_cast<const uint8_t*>(response.data()), response.size());
 }
 
-void Vterm::writeOscResponse(const std::string& payload) {
+void VtermImpl::writeOscResponse(const std::string& payload) {
     const std::string response =
         (send8BitControls ? std::string("\x9d") : std::string("\x1b]")) +
         payload +
@@ -1688,7 +1691,7 @@ void Vterm::writeOscResponse(const std::string& payload) {
     writePty(reinterpret_cast<const uint8_t*>(response.data()), response.size());
 }
 
-int Vterm::writePty(const uint8_t* ucstr, size_t len, bool userInput) {
+int VtermImpl::writePty(const uint8_t* ucstr, size_t len, bool userInput) {
     if (userInput && keyboardLocked) {
         logT << "pty write: discarding due to keyboard lock (DECKAM): "
              << dumpBuffer(ucstr, ucstr + len);
@@ -1712,7 +1715,7 @@ int Vterm::writePty(const uint8_t* ucstr, size_t len, bool userInput) {
     return len;
 }
 
-bool Vterm::flushPtyOutput() {
+bool VtermImpl::flushPtyOutput() {
     while (ptyOutputOffset < ptyOutput.size()) {
         const ssize_t count = onPtyWrite(
             ptyOutput.data() + ptyOutputOffset,
@@ -1738,8 +1741,8 @@ bool Vterm::flushPtyOutput() {
 using Key = VtKey;
 using Mod = VtModifier;
 
-Vterm::InputSpecTable*
-Vterm::getInputSpecTable() {
+VtermImpl::InputSpecTable*
+VtermImpl::getInputSpecTable() {
     static InputSpecTable ist[] =
         {
             {[this]() {
@@ -1862,14 +1865,14 @@ Vterm::getInputSpecTable() {
     return ist;
 }
 
-void Vterm::resetInputSpecTable() {
+void VtermImpl::resetInputSpecTable() {
     for (InputSpecTable* e = getInputSpecTable(); e->specs != nullptr; ++e) {
         e->visited = false;
     }
 }
 
-const Vterm::InputSpec*
-Vterm::selectInputSpecs() {
+const VtermImpl::InputSpec*
+VtermImpl::selectInputSpecs() {
     InputSpecTable* ist = getInputSpecTable();
     for (auto e = ist; e->specs != nullptr; ++e) {
         if (!e->visited) {
@@ -1882,8 +1885,8 @@ Vterm::selectInputSpecs() {
     return nullptr;
 }
 
-const Vterm::InputSpec&
-Vterm::getInputSpec(Key key) {
+const VtermImpl::InputSpec&
+VtermImpl::getInputSpec(Key key) {
     static InputSpec nullSpec = {Key::NONE, ""};
 
     resetInputSpecTable();
@@ -1942,7 +1945,7 @@ Vterm::getInputSpec(Key key) {
         }                                                            \
         break
 
-Vterm::PresentationState Vterm::capturePresentationState() const {
+VtermImpl::PresentationState VtermImpl::capturePresentationState() const {
     return {
         cf,
         cf->getCursor(),
@@ -1959,7 +1962,7 @@ Vterm::PresentationState Vterm::capturePresentationState() const {
     };
 }
 
-bool Vterm::presentationChanged(const PresentationState& before) const {
+bool VtermImpl::presentationChanged(const PresentationState& before) const {
     if (before.frame != cf || cf->hasDamage() ||
         before.columns != cf->nCols || before.rows != cf->nRows ||
         before.viewOffset != cf->getViewOffset() ||
@@ -1984,7 +1987,7 @@ bool Vterm::presentationChanged(const PresentationState& before) const {
            before.selection.rectangular != selection.rectangular;
 }
 
-void Vterm::syncPresentationCursor() {
+void VtermImpl::syncPresentationCursor() {
     cf->setCursorPos(posY, posX);
     using CS = TerminalCursor::Style;
     cf->setCursorStyle(
@@ -1992,15 +1995,15 @@ void Vterm::syncPresentationCursor() {
                        : CS::hidden);
 }
 
-bool Vterm::processInput(const std::string& str) {
+bool VtermImpl::processInput(const std::string& str) {
     return processInput((unsigned char*)str.c_str(), str.length());
 }
 
-void Vterm::feedPtyOutput(const std::string& output) {
+void VtermImpl::feedPtyOutput(const std::string& output) {
     processInput(output);
 }
 
-void Vterm::beginCsi() {
+void VtermImpl::beginCsi() {
     inputOps[0] = 0;
     inputSeparators[0] = 0;
     nInputOps = 1;
@@ -2011,7 +2014,7 @@ void Vterm::beginCsi() {
     setState(InputState::CSI);
 }
 
-bool Vterm::executeC0InSequence(unsigned char ch) {
+bool VtermImpl::executeC0InSequence(unsigned char ch) {
     if (ch >= 0x20 || ch == '\x18' || ch == '\x1a' || ch == '\x1b') {
         return false;
     }
@@ -2070,7 +2073,7 @@ bool Vterm::executeC0InSequence(unsigned char ch) {
     return true;
 }
 
-void Vterm::dispatchCsi(unsigned char finalByte) {
+void VtermImpl::dispatchCsi(unsigned char finalByte) {
     const std::string key = csiPrivatePrefix + csiIntermediates +
                             static_cast<char>(finalByte);
     if (key == "A") csi_CUU();
@@ -2154,7 +2157,7 @@ void Vterm::dispatchCsi(unsigned char finalByte) {
     else setState(InputState::Normal);
 }
 
-void Vterm::processCsiByte(unsigned char ch) {
+void VtermImpl::processCsiByte(unsigned char ch) {
     if (ch == 0x7f || executeC0InSequence(ch)) {
         return;
     }
@@ -2204,7 +2207,7 @@ void Vterm::processCsiByte(unsigned char ch) {
     setState(InputState::IgnoreSequence);
 }
 
-bool Vterm::processInput(
+bool VtermImpl::processInput(
     const unsigned char* const input, int inputSize, bool refresh) {
     const PresentationState presentationBefore = capturePresentationState();
     lastEscBegin = 0;
@@ -2802,7 +2805,7 @@ bool Vterm::processInput(
     return changed;
 }
 
-void Vterm::setHyperlink(const std::string& parametersAndUri) {
+void VtermImpl::setHyperlink(const std::string& parametersAndUri) {
     const size_t separator = parametersAndUri.find(';');
     if (separator == std::string::npos) {
         logW << "Malformed OSC 8 argument" << std::endl;
@@ -2850,7 +2853,7 @@ void Vterm::setHyperlink(const std::string& parametersAndUri) {
     hyperlinks.emplace(activeHyperlink, uri);
 }
 
-void Vterm::pruneHyperlinks() {
+void VtermImpl::pruneHyperlinks() {
     std::set<uint32_t> used;
     frame_pri.collectHyperlinkIds(used);
     frame_alt.collectHyperlinkIds(used);
@@ -2870,7 +2873,7 @@ void Vterm::pruneHyperlinks() {
     }
 }
 
-std::string Vterm::getHyperlink(int pX, int pY) const {
+std::string VtermImpl::getHyperlink(int pX, int pY) const {
     if (pX < opts.border || pY < opts.border ||
         pX >= winPx - opts.border || pY >= winPy - opts.border) {
         return {};
@@ -2887,7 +2890,7 @@ std::string Vterm::getHyperlink(int pX, int pY) const {
     return link == hyperlinks.end() ? std::string{} : link->second;
 }
 
-void Vterm::selectStart(int pX, int pY, bool cycleSnapTo) {
+void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
     logT << "selectStart (" << pX << "," << pY
          << "), cycleSnapTo=" << cycleSnapTo << std::endl;
 
@@ -2911,7 +2914,7 @@ void Vterm::selectStart(int pX, int pY, bool cycleSnapTo) {
     redraw();
 }
 
-void Vterm::selectExtend(int pX, int pY, bool cycleSnapTo) {
+void VtermImpl::selectExtend(int pX, int pY, bool cycleSnapTo) {
     logT << "selectExtend (" << pX << "," << pY
          << "), cycleSnapTo=" << cycleSnapTo << std::endl;
 
@@ -2947,7 +2950,7 @@ void Vterm::selectExtend(int pX, int pY, bool cycleSnapTo) {
     redraw();
 }
 
-void Vterm::selectUpdate(int pX, int pY) {
+void VtermImpl::selectUpdate(int pX, int pY) {
     logT << "selectUpdate (" << pX << "," << pY << ")" << std::endl;
 
     pX = std::min(std::max(0, pX - opts.border), winPx - 2 * opts.border);
@@ -3004,7 +3007,7 @@ void Vterm::selectUpdate(int pX, int pY) {
     redraw();
 }
 
-bool Vterm::selectFinish(std::string& utf8_selection) {
+bool VtermImpl::selectFinish(std::string& utf8_selection) {
     logT << "selectFinish ()" << std::endl;
 
     showCursor();
@@ -3013,13 +3016,13 @@ bool Vterm::selectFinish(std::string& utf8_selection) {
     return cf->getSelectedUtf8(utf8_selection);
 }
 
-void Vterm::selectClear() {
+void VtermImpl::selectClear() {
     logT << "selectClear ()" << std::endl;
     cf->getSelection().clear();
     redraw();
 }
 
-void Vterm::selectRectangularModeToggle() {
+void VtermImpl::selectRectangularModeToggle() {
     logT << "selectRectangularModeToggle ()" << std::endl;
     Rect& selection = cf->getSelection();
     selection.toggleRectangular();
@@ -3034,7 +3037,7 @@ void Vterm::selectRectangularModeToggle() {
     redraw();
 }
 
-void Vterm::pasteSelection(const std::string& utf8_selection) {
+void VtermImpl::pasteSelection(const std::string& utf8_selection) {
     std::ostringstream oss;
 
     if (bracketedPasteMode) {
@@ -3052,4 +3055,11 @@ void Vterm::pasteSelection(const std::string& utf8_selection) {
     if (oss.str().size()) {
         writePty(oss.str().c_str(), true);
     }
+}
+
+Vterm* Vterm::create(Composer& composer, VtermHost& host,
+                     uint16_t glyphPx, uint16_t glyphPy,
+                     uint16_t winPx, uint16_t winPy, int ptyFd) {
+    return composer.pool->make<VtermImpl>(
+        host, glyphPx, glyphPy, winPx, winPy, ptyFd);
 }

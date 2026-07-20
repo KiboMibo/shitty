@@ -5,6 +5,7 @@
 #include "grapheme.h"
 #include "font_resolver.h"
 #include "font_pack.h"
+#include "frame.h"
 #include "keyboard.h"
 #include "options.h"
 #include "mouse_protocol.h"
@@ -14,6 +15,7 @@
 #include "startup.h"
 #include "vk_presenter.h"
 #include "vterm.h"
+#include "vterm_host.h"
 
 #include <algorithm>
 #include <std/mem/obj_pool.h>
@@ -339,7 +341,7 @@ namespace {
     }
 }
 
-int runTestMode(int controlFd, int argc, char* argv[]) {
+int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
     int io[2];
     if (openpty(&io[0], &io[1], nullptr, nullptr, nullptr) < 0) {
         throw std::runtime_error("test openpty failed");
@@ -376,7 +378,8 @@ int runTestMode(int controlFd, int argc, char* argv[]) {
     const uint16_t width = 2 * opts.border + opts.nCols * glyphPx;
     const uint16_t height = 2 * opts.border + opts.nRows * glyphPy;
     VtermHostCallbacks vtermHost;
-    Vterm terminal(vtermHost, glyphPx, glyphPy, width, height, io[0]);
+    Vterm& terminal = *Vterm::create(
+        composer, vtermHost, glyphPx, glyphPy, width, height, io[0]);
     pty_resize(io[0], opts.nCols, opts.nRows);
     TestDisplay display;
     vtermHost.setRefreshHandler(
