@@ -58,9 +58,11 @@ public:
 
     bool present(const Frame& frame) override;
     void osc(int command, const std::string& argument) override;
+
     bool handlesOsc() const override {
         return haveOscHandler;
     }
+
     void bell() override;
     void print(const std::string& output) override;
     void leds(u8 state) override;

@@ -25,6 +25,7 @@ public:
     enum Overlay_ {
         Overlay
     };
+
     enum DoubleWidth_ {
         DoubleWidth
     };
@@ -61,15 +62,19 @@ public:
     u16 getPx() const {
         return px;
     };
+
     u16 getPy() const {
         return py;
     };
+
     u16 getBaseline() const {
         return baseline;
     };
+
     u16 getNx() const {
         return nx;
     };
+
     u16 getNy() const {
         return ny;
     };
@@ -77,6 +82,7 @@ public:
     const std::vector<u8>& getAtlas() const {
         return atlasBuf;
     };
+
     const u8* getAtlasData() const {
         return atlasBuf.data();
     };
@@ -85,7 +91,9 @@ public:
         u8 x = 0;
         u8 y = 0;
     };
+
     using AtlasMap = std::map<u32, AtlasPos>;
+
     const AtlasMap& getAtlasMap() const {
         return atlasMap;
     };

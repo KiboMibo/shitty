@@ -90,6 +90,7 @@ private:
         u32 blinkVisible;
         u32 cursorBlink;
     };
+
     static_assert(sizeof(PushConstants) == 112, "Vulkan push constant layout mismatch");
 
     static constexpr u32 framesInFlight = 2;

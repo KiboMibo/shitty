@@ -41,6 +41,7 @@ namespace {
         u32 semantic;
         u32 lineAttribute;
     };
+
     static_assert(sizeof(GpuCell) == 48, "Vulkan cell layout mismatch");
 
     [[noreturn]] void failVk(const char* operation, VkResult result) {

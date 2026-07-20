@@ -26,15 +26,19 @@ public:
     ~CharVdev() = default;
 
     bool resize(u16 pxWidth_, u16 pxHeight_);
+
     u16 pixelWidth() const {
         return pxWidth;
     }
+
     u16 pixelHeight() const {
         return pxHeight;
     }
+
     u16 columns() const {
         return nCols;
     }
+
     u16 rows() const {
         return nRows;
     }
@@ -56,16 +60,20 @@ public:
     const TerminalCell* cellData() const {
         return cellStorage.data();
     }
+
     size_t cellCount() const {
         return cellStorage.size();
     }
+
     void clearDirty();
 
     void setCursor(const TerminalCursor& cursor_);
     void setSelection(const Rect& selection_);
+
     const TerminalCursor& getCursor() const {
         return cursor;
     }
+
     const Rect& getSelection() const {
         return selection;
     }

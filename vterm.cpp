@@ -141,6 +141,7 @@ namespace {
             Color selectionBackground;
             u8 selectionColorMask;
         };
+
         PresentationState capturePresentationState() const;
         bool presentationChanged(const PresentationState& before) const;
         void syncPresentationCursor();
@@ -214,6 +215,7 @@ namespace {
             u16 bottom;
             u16 right;
         };
+
         bool rectangleFromParams(size_t offset, Rectangle& rectangle) const;
         void rectangleOrigin(u16& rowBase, u16& columnBase, u16& rowLimit, u16& columnLimit) const;
 
@@ -380,21 +382,26 @@ namespace {
         u32 currentSemantic = 0;
         std::string windowTitle;
         std::string iconTitle;
+
         struct SavedTitles {
             bool hasIcon = false;
             bool hasWindow = false;
             std::string icon;
             std::string window;
         };
+
         std::vector<SavedTitles> titleStack;
+
         struct NotificationPart {
             std::string text;
             std::string encoded;
         };
+
         struct Notification {
             NotificationPart title;
             NotificationPart body;
         };
+
         std::map<std::string, Notification> notifications;
         std::set<std::string> activeNotificationIds;
         int defaultFgPalIx;
@@ -480,6 +487,7 @@ namespace {
             u8 flags = 0;
             std::vector<u8> stack;
         };
+
         KittyKeyboardState kittyKeyboardPri;
         KittyKeyboardState kittyKeyboardAlt;
 
@@ -561,6 +569,7 @@ namespace {
 
             u8 ss = 0;
         };
+
         CharsetState charsetState;
 
         static const u16* charCodes[];
@@ -572,11 +581,13 @@ namespace {
             u16 posY = 0;
             bool lastCol = false;
         };
+
         struct SavedCursor_DEC: SavedCursor_SCO {
             TerminalCell attrs;
             OriginMode originMode = OriginMode::Absolute;
             CharsetState charsetState = CharsetState{};
         };
+
         SavedCursor_SCO savedCursor_SCO;
         SavedCursor_DEC savedCursor_DEC_pri;
         SavedCursor_DEC savedCursor_DEC_alt;
@@ -586,6 +597,7 @@ namespace {
         bool selectUpdatesLeft = false;
 
         MouseTrackingState mouseTrk;
+
         struct MouseHighlightState {
             bool active = false;
             u16 startX = 1;
@@ -593,6 +605,7 @@ namespace {
             u16 firstRow = 1;
             u16 lastRow = 1;
         } mouseHighlight;
+
         struct LocatorState {
             u8 enabled = 0;
             bool pixels = false;

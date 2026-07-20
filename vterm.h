@@ -131,9 +131,11 @@ enum class VtModifier : u8 {
     control_alt = 6,
     shift_control_alt = 7
 };
+
 constexpr VtModifier operator|(VtModifier lhs, VtModifier rhs) {
     return (VtModifier)((u8)(lhs) | (u8)(rhs));
 }
+
 constexpr VtModifier operator&(VtModifier lhs, VtModifier rhs) {
     return (VtModifier)((u8)(lhs) & (u8)(rhs));
 }
@@ -153,6 +155,7 @@ enum class MouseTrackingEnc : u8 {
     URXVT,
     SGRPixels
 };
+
 struct MouseTrackingState {
     MouseTrackingMode mode = MouseTrackingMode::Disabled;
     MouseTrackingEnc enc = MouseTrackingEnc::Default;

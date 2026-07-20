@@ -1561,6 +1561,7 @@ void ApplicationImpl::emergencyCleanup() {
         glfwInitialized = false;
     }
 }
+
 Application* Application::create(Composer& composer) {
     return composer.pool->make<ApplicationImpl>(composer);
 }

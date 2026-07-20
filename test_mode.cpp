@@ -454,16 +454,20 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
     std::string printerOutput;
     pid_t childPid = -1;
     int childExitStatus = -1;
+
     struct ScriptedPtyRead {
         std::string data;
         int error = 0;
         bool eof = false;
     };
+
     std::deque<ScriptedPtyRead> scriptedPtyReads;
+
     struct ScriptedPtyWrite {
         size_t count = 0;
         int error = 0;
     };
+
     std::deque<ScriptedPtyWrite> scriptedPtyWrites;
     std::string writtenPtyData;
     const auto installScriptedPtyReader = [&]() {

@@ -17,6 +17,7 @@ IndentExternBlock: Indent
 ColumnLimit: 10000
 MaxEmptyLinesToKeep: 1
 KeepEmptyLinesAtTheStartOfBlocks: false
+SeparateDefinitionBlocks: Always
 
 BreakBeforeBraces: Attach
 BreakConstructorInitializers: BeforeComma

@@ -50,12 +50,15 @@ class MouseFrontendState {
 public:
     bool protocolActive(unsigned modifiers, MouseTrackingMode mode) const;
     void updateButton(int button, bool pressed);
+
     void clearButtons() {
         buttons_ = 0;
     }
+
     unsigned buttons() const {
         return buttons_;
     }
+
     int motionButton() const;
     bool primaryButtonPressed() const;
 
@@ -64,9 +67,11 @@ public:
     void beginSelection() {
         selectionOngoing_ = true;
     }
+
     void endSelection() {
         selectionOngoing_ = false;
     }
+
     bool selectionOngoing() const {
         return selectionOngoing_;
     }

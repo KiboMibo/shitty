@@ -103,6 +103,7 @@ functionCall(
 ```
 
 - Write one statement per line.
+- Separate consecutive function and method definitions with one empty line.
 - Prefer the fixed-width aliases from `<cstdint>` where representation matters.
 
 ## Functions and headers

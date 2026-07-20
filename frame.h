@@ -38,6 +38,7 @@ public:
     operator bool() const {
         return cells != nullptr;
     }
+
     void freeCells() {
         cells = nullptr;
     }
@@ -65,9 +66,11 @@ public:
     u16 getHistoryRows() const {
         return history.size();
     };
+
     u16 getViewOffset() const {
         return viewOffset;
     };
+
     void collectHyperlinkIds(std::set<u32>& ids) const;
     void recolorPalette(u16 index, Color color);
     void recolorDefault(bool foreground, Color color);
@@ -75,9 +78,11 @@ public:
     void expose() {
         damage.expose();
     };
+
     void resetDamage() {
         damage.reset();
     };
+
     bool hasDamage() const {
         return damage.start < damage.end;
     }
@@ -87,23 +92,31 @@ public:
     void setCursorStyle(TerminalCursor::Style cs);
     void setCursorColor(Color color);
     void setSelectionColor(bool foreground, Color color, bool enabled);
+
     Color getSelectionForeground() const {
         return selectionForeground;
     }
+
     Color getSelectionBackground() const {
         return selectionBackground;
     }
+
     u8 getSelectionColorMask() const {
         return selectionColorMask;
     }
+
     void setBlinkState(bool visible, bool cursor);
+
     bool getBlinkVisible() const {
         return blinkVisible;
     }
+
     bool getCursorBlink() const {
         return cursorBlink;
     }
+
     void setScreenReverseVideo(bool enabled);
+
     bool getScreenReverseVideo() const {
         return screenReverseVideo;
     }
@@ -114,18 +127,23 @@ public:
         Line,
         COUNT
     };
+
     void setSelectSnapTo(SelectSnapTo snapTo_) {
         snapTo = snapTo_;
     };
+
     void cycleSelectSnapTo() {
         snapTo = cycleSelectSnapTo(snapTo);
     };
+
     Rect& getSelection() {
         return selection;
     };
+
     const Rect& getSelection() const {
         return selection;
     };
+
     Rect getSelectionForView() const;
     Rect getSnappedSelection() const;
     bool getSelectedUtf8(std::string& utf8_selection) const;
@@ -176,6 +194,7 @@ private:
         void expose();
         void add(u32 start_, u32 end_);
     };
+
     Damage damage;
 
     RowId getLogicalRow(int pY) const;
