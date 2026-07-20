@@ -3033,16 +3033,25 @@ Vterm::dcs_DECUDK(const std::string& request) {
     uint32_t lock = 0;
     const std::string parameters = request.substr(0, bar);
     const size_t separator = parameters.find(';');
-    const auto first = std::from_chars(
-        parameters.data(), parameters.data() +
-        (separator == std::string::npos ? parameters.size() : separator), clear);
-    if (first.ec != std::errc{}) return;
-    if (separator != std::string::npos) {
-        const auto second = std::from_chars(
-            parameters.data() + separator + 1,
-            parameters.data() + parameters.size(), lock);
-        if (second.ec != std::errc{}) return;
-    }
+    if (separator != std::string::npos &&
+        parameters.find(';', separator + 1) != std::string::npos) return;
+    const auto parseParameter = [](const char* begin, const char* end,
+                                   uint32_t& value) {
+        if (begin == end) {
+            value = 0;
+            return true;
+        }
+        const auto result = std::from_chars(begin, end, value);
+        return result.ec == std::errc{} && result.ptr == end && value <= 1;
+    };
+    const char* const parameterBegin = parameters.data();
+    const char* const parameterEnd = parameterBegin + parameters.size();
+    const char* const clearEnd = separator == std::string::npos
+                                     ? parameterEnd
+                                     : parameterBegin + separator;
+    if (!parseParameter(parameterBegin, clearEnd, clear)) return;
+    if (separator != std::string::npos &&
+        !parseParameter(clearEnd + 1, parameterEnd, lock)) return;
     if (clear == 0) userDefinedKeys.clear();
 
     const auto keyForCode = [](uint32_t code) {
@@ -3063,11 +3072,18 @@ Vterm::dcs_DECUDK(const std::string& request) {
         const std::string definition = request.substr(begin, end - begin);
         const size_t slash = definition.find('/');
         uint32_t code = 0;
+        const auto codeResult = slash == std::string::npos
+                                    ? std::from_chars(
+                                          definition.data(), definition.data(), code)
+                                    : std::from_chars(
+                                          definition.data(),
+                                          definition.data() + slash, code);
         if (slash != std::string::npos &&
-            std::from_chars(definition.data(), definition.data() + slash, code).ec ==
-                std::errc{}) {
+            codeResult.ec == std::errc{} &&
+            codeResult.ptr == definition.data() + slash) {
             std::string value;
-            bool valid = (definition.size() - slash - 1) % 2 == 0;
+            const size_t encodedSize = definition.size() - slash - 1;
+            bool valid = encodedSize % 2 == 0 && encodedSize / 2 <= 255;
             for (size_t k = slash + 1; valid && k < definition.size(); k += 2) {
                 const auto digit = [](char ch) -> int {
                     if (ch >= '0' && ch <= '9') return ch - '0';
