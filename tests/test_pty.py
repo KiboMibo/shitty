@@ -9,6 +9,12 @@ class PtyTest(unittest.TestCase):
         with Zutty(columns=8, rows=2) as terminal:
             self.assertFalse(terminal.read_pty())
 
+    def test_pump_without_output_does_not_publish_a_frame(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            before = terminal.snapshot().refresh_count
+            terminal.pump()
+            self.assertEqual(terminal.snapshot().refresh_count, before)
+
     def test_failed_present_keeps_terminal_damage_for_retry(self):
         with Zutty(columns=8, rows=2) as terminal:
             before = terminal.snapshot()

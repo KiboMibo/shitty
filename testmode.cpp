@@ -426,7 +426,6 @@ int runTestMode(int controlFd) {
             source.revents = 0;
         }
         terminal.flushPtyOutput();
-        terminal.redraw();
         int status = 0;
         if (childPid > 0 &&
             waitpid(childPid, &status, WNOHANG) == childPid) {
