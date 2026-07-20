@@ -1491,7 +1491,13 @@ void VtermImpl::placeGraphicChar() {
     }
 
     const u8 lineAttribute = static_cast<const Frame&>(*cf).getCell(posY, 0).line_attr;
-    const u16 lineCols = lineAttribute ? std::max<u16>(1, nColsEff / 2) : nColsEff;
+    const u16 lineCols = lineAttribute
+        ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2)
+        : nColsEff;
+    if (posX >= lineCols) {
+        posX = lineCols - 1;
+        lastCol = false;
+    }
     bool changedRow = false;
     if (autoWrapMode && lastCol) {
         cf->getCell(posY, posX).wrap = 1;
@@ -1578,7 +1584,9 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
 
         const Frame& frame = *cf;
         const u8 lineAttribute = frame.getCell(posY, 0).line_attr;
-        const u16 lineCols = lineAttribute ? std::max<u16>(1, nColsEff / 2) : nColsEff;
+        const u16 lineCols = lineAttribute
+            ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2)
+            : nColsEff;
         if (posX >= lineCols) {
             utf8dec.setUnicode(*input++);
             placeGraphicChar();

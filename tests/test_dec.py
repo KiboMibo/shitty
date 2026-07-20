@@ -17,6 +17,12 @@ class DecProtocolTest(unittest.TestCase):
 
             terminal.write(b"\x1b[1;1H\x1b#5")
             self.assertEqual(terminal.snapshot().cell(0, 0).line_attribute, 0)
+
+    def test_writing_to_double_width_line_clamps_absolute_cursor_position(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b#6\x1b[8GAB")
+            self.assertEqual(terminal.snapshot().lines, ["   A    ", "B       "])
+
     def test_origin_mode_addresses_relative_to_vertical_margins(self):
         with Zutty(columns=8, rows=6) as terminal:
             terminal.write(b"\x1b[2;5r\x1b[?6hX\x1b[4;1HY")
