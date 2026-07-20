@@ -77,6 +77,7 @@ namespace {
         {"altSendsEscape", "true", "Encode Alt key as ESC prefix"},
         {"modifyOtherKeys", "1", "Key modifier encoding level; 0..2"},
         {"allowOsc52Read", "false", "Allow applications to read clipboard via OSC 52"},
+        {"allowWindowOps", "false", "Allow applications to manipulate and query the window"},
         {"osc52Select", "primary", "Selection used by OSC 52 selector s: primary or clipboard"},
         {"printerCommand", "", "Command receiving DEC printer output on stdin"},
         {"color0", "#000000", "Palette color 0"},
@@ -396,6 +397,7 @@ void Options::parse() {
         altSendsEscape = getBool("altSendsEscape");
         autoCopyMode = getBool("autoCopy");
         allowOsc52Read = getBool("allowOsc52Read");
+        allowWindowOps = getBool("allowWindowOps");
         const std::string osc52Select = get("osc52Select");
         if (osc52Select != "primary" && osc52Select != "clipboard") {
             throw std::runtime_error("-osc52Select: expected primary or clipboard");

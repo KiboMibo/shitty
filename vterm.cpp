@@ -4559,6 +4559,10 @@ void VtermImpl::csiq_DECSCL() {
 
 void VtermImpl::csi_XTWINOPS() {
     TRACE_FUN;
+    if (!opts.allowWindowOps) {
+        setState(InputState::Normal);
+        return;
+    }
     const u32 operation = inputOps[0];
     std::ostringstream response;
     switch (operation) {

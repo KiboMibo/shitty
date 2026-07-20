@@ -87,6 +87,7 @@ class OptionTest(unittest.TestCase):
             extra_arguments=(
                 "-altScroll", "+boldColors", "-autoCopy",
                 "-allowOsc52Read", "true",
+                "-allowWindowOps", "true",
             )
         ) as terminal:
             options = terminal.options()
@@ -94,6 +95,7 @@ class OptionTest(unittest.TestCase):
             self.assertEqual(options["bold_colors"], 0)
             self.assertEqual(options["auto_copy"], 1)
             self.assertEqual(options["allow_osc52_read"], 1)
+            self.assertEqual(options["allow_window_ops"], 1)
 
         result = run_startup_failure(
             extra_arguments=("-allowOsc52Read", "yes")

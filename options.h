@@ -43,6 +43,7 @@ struct Options {
     bool altSendsEscape;
     bool autoCopyMode;
     bool allowOsc52Read;
+    bool allowWindowOps;
     bool osc52SelectClipboard;
     bool boldColors;
     bool vulkanInfo;
