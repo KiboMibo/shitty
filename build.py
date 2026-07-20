@@ -4,7 +4,7 @@ import build
 build.includes += ["$(B)"]
 build.cppflags += ['-DZUTTY_VERSION="0.14"']
 build.cxxflags += [
-    "-std=c++17",
+    "-std=c++23",
     "-Og" if "-DDEBUG" in build.cppflags else "-O2",
 ]
 
@@ -16,6 +16,7 @@ vulkan = pkg_config("vulkan")
 brotli_common = pkg_config("libbrotlicommon", required=False)
 utf8proc = pkg_config("libutf8proc")
 threads = dependency(ldflags=["-pthread"])
+libstd = dependency(ldflags=["-lstd"])
 
 
 render_spv = command(
@@ -43,7 +44,7 @@ render_spv = command(
 
 zutty = program(
     srcs=build.glob("$(S)/*.cpp"),
-    deps=[freetype, fontconfig, glfw, vulkan, threads, brotli_common,
+    deps=[freetype, fontconfig, glfw, vulkan, threads, libstd, brotli_common,
           utf8proc],
 )
 

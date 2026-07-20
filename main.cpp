@@ -9,6 +9,7 @@
 
 #include "base.h"
 #include "clipboard.h"
+#include "composer.h"
 #include "font_pack.h"
 #include "keyboard.h"
 #include "log.h"
@@ -56,6 +57,8 @@
 #include <thread>
 #include <unistd.h>
 #include <vector>
+
+#include <std/mem/obj_pool.h>
 
 static std::unique_ptr<Fontpack> fontpk;
 static std::unique_ptr<Renderer> renderer;
@@ -1398,7 +1401,7 @@ namespace {
         return message;
     }
 
-    int run(int argc, char* argv[]) {
+    int run(Composer& composer, int argc, char* argv[]) {
         const int testFd = takeTestFd(argc, argv);
         checkLocale();
         opts.initialize(&argc, argv);
@@ -1467,6 +1470,7 @@ namespace {
             static_cast<int>(std::lround(opts.border * density)), 0, 3000));
 
         fontpk = std::make_unique<Fontpack>(opts.fontname, opts.dwfontname);
+        composer.fonts = fontpk.get();
         const int desiredPixelWidth =
             2 * opts.border + opts.nCols * fontpk->getPx();
         const int desiredPixelHeight =
@@ -1503,11 +1507,13 @@ namespace {
         }
 
         renderer = std::make_unique<Renderer>(window, fontpk.get());
+        composer.renderer = renderer.get();
         setupSignals();
         const int ptyFd = startShell(
             launch.executable.c_str(), shellArgv.data());
         vt = std::make_unique<Vterm>(
             fontpk->getPx(), fontpk->getPy(), pixelWidth, pixelHeight, ptyFd);
+        composer.vterm = vt.get();
         vt->setRefreshHandler(
             [](const Frame& frame) {
             refreshPending = true;
@@ -1681,13 +1687,16 @@ namespace {
         }
 
         vt.reset();
+        composer.vterm = nullptr;
         if (printerPipe != nullptr) {
             pclose(printerPipe);
             printerPipe = nullptr;
         }
         close(ptyFd);
         renderer.reset();
+        composer.renderer = nullptr;
         fontpk.reset();
+        composer.fonts = nullptr;
         if (cursor != nullptr) {
             glfwDestroyCursor(cursor);
             cursor = nullptr;
@@ -1732,7 +1741,10 @@ namespace {
 
 int main(int argc, char* argv[]) {
     try {
-        return run(argc, argv);
+        stl::ObjPool::Ref pool = stl::ObjPool::fromMemory();
+        Composer composer;
+        composer.pool = pool.mutPtr();
+        return run(composer, argc, argv);
     } catch (const std::exception& error) {
         emergencyCleanup();
         std::cerr << "Error: " << error.what() << std::endl;
