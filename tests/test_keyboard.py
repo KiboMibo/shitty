@@ -188,7 +188,7 @@ class KeyboardTest(unittest.TestCase):
             terminal.kitty_special("BACKSPACE")
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[13;1u\x1b[9;1u\x1b[127;1u",
+                b"\r\t\x7f",
             )
 
     def test_kitty_event_types_include_release_when_requested(self):

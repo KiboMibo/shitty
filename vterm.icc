@@ -3948,9 +3948,7 @@ Vterm::csi_kittyKeyboardSet() {
     TRACE_FUN;
     auto& state = kittyKeyboardState();
     const uint8_t flags = inputOps[0] & 0x1f;
-    const uint32_t mode = nInputOps > 1 && inputOps[1]
-                              ? inputOps[1]
-                              : 1;
+    const uint32_t mode = nInputOps > 1 ? inputOps[1] : 1;
     switch (mode) {
         case 1:
             state.flags = flags;

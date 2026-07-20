@@ -25,19 +25,7 @@
 
 ## Главные пробелы
 
-1. Keyboard и mouse
-
-24 keyboard-теста — мало относительно таблицы реализации.
-
-Нужны:
-
-- kitty flags отдельно и в комбинациях;
-- press/repeat/release;
-- shifted/base-layout/associated text;
-- primary и alternate kitty stacks;
-- stack depth, overflow и pop count.
-
-Kitty требует согласованной реализации progressive enhancements, а не нескольких показательных клавиш: [официальная keyboard specification](https://sw.kovidgoyal.net/kitty/keyboard-protocol/).
+1. Mouse
 
 Критичная дыра: wheel-тесты обходят frontend. Они вызывают `Vterm::mouseWheelUp/Down()` напрямую, поэтому не проверяют код дробных дельт и накопления в [main.cpp](/home/pg/monorepo/zutty/main.cpp:1251). Нужны control-команды уровня реальных событий:
 
@@ -156,12 +144,11 @@ Offscreen Vulkan на этом проходе не нужен: логическ�
 
 | Область | Новых тестов |
 |---|---:|
-| Keyboard/keypad | 45 |
 | Mouse/frontend events | 35 |
 | Unicode/charsets | 30 |
 | Resize/selection/scrollback interactions | 25 |
 | PTY/present/options/fonts/startup | 30 |
-| Итого | около 165 |
+| Итого | около 120 |
 
 То есть итог, вероятно, будет ближе к 550–560 тестам, а не ровно к формальному удвоению.
 

@@ -484,6 +484,24 @@ namespace {
         return key >= VtKey::LeftShift && key <= VtKey::RightSuper;
     }
 
+    bool isKittyRecoveryKey(VtKey key) {
+        return key == VtKey::Return || key == VtKey::Tab ||
+               key == VtKey::Backspace;
+    }
+
+    VtModifier kittyToLegacyModifiers(uint16_t modifiers) {
+        VtModifier result = VtModifier::none;
+        if (modifiers & 1) result = result | VtModifier::shift;
+        if (modifiers & 2) result = result | VtModifier::alt;
+        if (modifiers & 4) result = result | VtModifier::control;
+        return result;
+    }
+
+    bool validKittyAssociatedText(uint32_t codepoint) {
+        return codepoint >= 0x20 &&
+               !(codepoint >= 0x7f && codepoint <= 0x9f);
+    }
+
     KittyKeySpec
     kittyKeySpec(VtKey key) {
         using Key = VtKey;
@@ -1605,6 +1623,12 @@ int Vterm::writeKittyKey(VtKey key, uint16_t modifiers,
         return 0;
     }
 
+    if (isKittyRecoveryKey(key) &&
+        !(getKittyKeyboardFlags() & 0x08)) {
+        if (event == KeyEventType::Release) return 0;
+        return writePty(key, kittyToLegacyModifiers(modifiers), true);
+    }
+
     if (isKittyModifierKey(key) &&
         !(getKittyKeyboardFlags() & 0x08)) {
         return 0;
@@ -1622,8 +1646,7 @@ int Vterm::writeKittyKey(VtKey key, uint16_t modifiers,
     }
     if ((getKittyKeyboardFlags() & 0x10) &&
         event != KeyEventType::Release &&
-        (key == VtKey::Return || key == VtKey::Tab ||
-         key == VtKey::Backspace)) {
+        isKittyRecoveryKey(key) && validKittyAssociatedText(spec.code)) {
         sequence << ';' << spec.code;
     }
     sequence << spec.final;
@@ -1643,13 +1666,15 @@ int Vterm::writeKittyKey(uint32_t key, uint32_t shiftedKey,
     std::ostringstream sequence;
     sequence << "\x1b[" << key;
     if (getKittyKeyboardFlags() & 0x04) {
-        if (shiftedKey) {
-            sequence << ':' << shiftedKey;
-            if (baseLayoutKey && baseLayoutKey != key) {
-                sequence << ':' << baseLayoutKey;
+        const uint32_t alternateShifted = shiftedKey != key ? shiftedKey : 0;
+        const uint32_t alternateBase = baseLayoutKey != key ? baseLayoutKey : 0;
+        if (alternateShifted) {
+            sequence << ':' << alternateShifted;
+            if (alternateBase) {
+                sequence << ':' << alternateBase;
             }
-        } else if (baseLayoutKey && baseLayoutKey != key) {
-            sequence << "::" << baseLayoutKey;
+        } else if (alternateBase) {
+            sequence << "::" << alternateBase;
         }
     }
     sequence << ';' << modifiers + 1;
@@ -1661,7 +1686,7 @@ int Vterm::writeKittyKey(uint32_t key, uint32_t shiftedKey,
         const uint32_t text = (modifiers & 1) && shiftedKey
                                   ? shiftedKey
                                   : key;
-        sequence << ';' << text;
+        if (validKittyAssociatedText(text)) sequence << ';' << text;
     }
     sequence << 'u';
     const std::string encoded = sequence.str();
