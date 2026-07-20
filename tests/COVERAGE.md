@@ -59,6 +59,8 @@ Covered now:
   handling and prevention of mixed-format style groups;
 - missing/incompatible double-width font fallback while retaining a usable
   primary font and its metrics;
+- absent font directories as an empty tree result, with fallback behavior
+  covered separately;
 - C0 controls, cursor movement, save/restore, tabs and scrolling regions;
 - autowrap, alternate screen, synchronized output and cursor modes;
 - insert/delete/erase operations and insert mode;

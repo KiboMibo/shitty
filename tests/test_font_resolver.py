@@ -7,6 +7,22 @@ from harness import Zutty
 
 
 class FontResolverTest(unittest.TestCase):
+    def test_absent_font_directories_resolve_empty_without_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            search = ":".join(
+                str(Path(directory) / name) for name in ("one", "two")
+            )
+            with Zutty() as terminal:
+                self.assertEqual(
+                    terminal.resolve_font(search, "Missing"),
+                    {
+                        "regular": "",
+                        "bold": "",
+                        "italic": "",
+                        "bold_italic": "",
+                    },
+                )
+
     def test_missing_or_incompatible_double_width_font_keeps_primary_fallback(self):
         with tempfile.TemporaryDirectory() as directory:
             missing = str(Path(directory) / "missing")
