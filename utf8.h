@@ -21,8 +21,7 @@ constexpr const u16 Unicode_Replacement_Character = 0xfffd;
 
 struct Utf8Encoder {
     template <typename Fn>
-    static void
-    pushUnicode(u32 cp, Fn&& byteSink) {
+    static void pushUnicode(u32 cp, Fn&& byteSink) {
         if (cp < 0x80) {
             byteSink(cp);
         } else if (cp < 0x0800) {
@@ -86,8 +85,7 @@ public:
             }
             unicode = (unicode << 6) | (ch & 0x3f);
             if (--remaining == 0) {
-                if (unicode < minimum || unicode > 0x10ffff ||
-                    (unicode >= 0xd800 && unicode <= 0xdfff)) {
+                if (unicode < minimum || unicode > 0x10ffff || (unicode >= 0xd800 && unicode <= 0xdfff)) {
                     emitReplacement();
                 } else {
                     cpSink();

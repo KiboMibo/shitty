@@ -9,43 +9,37 @@ int mouseFramebufferCoordinate(double logical, double scale) {
         return 0;
     }
     const double pixel = logical * std::max(1.0, scale);
-    return (int)(std::clamp(
-        std::round(pixel), (double)(INT_MIN),
-        (double)(INT_MAX)));
+    return (int)(std::clamp(std::round(pixel), (double)(INT_MIN), (double)(INT_MAX)));
 }
 
-MouseProtocolPoint mouseProtocolPoint(
-    MouseTrackingEnc encoding, int pixelX, int pixelY,
-    const MouseGeometry& geometry) {
-    const int contentWidth = std::max(
-        1, geometry.framebufferWidth - 2 * geometry.border);
-    const int contentHeight = std::max(
-        1, geometry.framebufferHeight - 2 * geometry.border);
+MouseProtocolPoint mouseProtocolPoint(MouseTrackingEnc encoding, int pixelX, int pixelY, const MouseGeometry& geometry) {
+    const int contentWidth = std::max(1, geometry.framebufferWidth - 2 * geometry.border);
+    const int contentHeight = std::max(1, geometry.framebufferHeight - 2 * geometry.border);
     if (encoding == MouseTrackingEnc::SGRPixels) {
         return {
             std::clamp(pixelX - geometry.border + 1, 1, contentWidth),
             std::clamp(pixelY - geometry.border + 1, 1, contentHeight),
         };
     }
-    const int columns = std::max(1, contentWidth /
-                                    std::max(1, geometry.glyphWidth));
-    const int rows = std::max(1, contentHeight /
-                                 std::max(1, geometry.glyphHeight));
+    const int columns = std::max(1, contentWidth / std::max(1, geometry.glyphWidth));
+    const int rows = std::max(1, contentHeight / std::max(1, geometry.glyphHeight));
     return {
-        std::clamp((pixelX - geometry.border - 1) /
-                       std::max(1, geometry.glyphWidth) + 1,
-                   1, columns),
-        std::clamp((pixelY - geometry.border - 1) /
-                       std::max(1, geometry.glyphHeight) + 1,
-                   1, rows),
+        std::clamp((pixelX - geometry.border - 1) / std::max(1, geometry.glyphWidth) + 1, 1, columns),
+        std::clamp((pixelY - geometry.border - 1) / std::max(1, geometry.glyphHeight) + 1, 1, rows),
     };
 }
 
 unsigned mouseProtocolModifiers(unsigned modifiers, bool reportAlt) {
     unsigned result = 0;
-    if (modifiers & FrontendShift) result |= MouseShift;
-    if (reportAlt && (modifiers & FrontendAlt)) result |= MouseAlt;
-    if (modifiers & FrontendControl) result |= MouseControl;
+    if (modifiers & FrontendShift) {
+        result |= MouseShift;
+    }
+    if (reportAlt && (modifiers & FrontendAlt)) {
+        result |= MouseAlt;
+    }
+    if (modifiers & FrontendControl) {
+        result |= MouseControl;
+    }
     return result;
 }
 
@@ -62,13 +56,8 @@ int mouseTerminalButton(int button) {
     }
 }
 
-bool mouseButtonReportAllowed(MouseTrackingMode mode,
-                              MouseEventType type, int button) {
-    return button >= 1 && button <= 11 &&
-           !(type == MouseEventType::Release && button > 3) &&
-           mode != MouseTrackingMode::Disabled &&
-           !(type == MouseEventType::Release &&
-             mode == MouseTrackingMode::X10_Compat);
+bool mouseButtonReportAllowed(MouseTrackingMode mode, MouseEventType type, int button) {
+    return button >= 1 && button <= 11 && !(type == MouseEventType::Release && button > 3) && mode != MouseTrackingMode::Disabled && !(type == MouseEventType::Release && mode == MouseTrackingMode::X10_Compat);
 }
 
 int MouseWheelAccumulator::consumeAxis(double delta, double& remainder) {
@@ -82,8 +71,7 @@ int MouseWheelAccumulator::consumeAxis(double delta, double& remainder) {
     return steps;
 }
 
-MouseWheelSteps MouseWheelAccumulator::consume(
-    double x, double y, bool reporting) {
+MouseWheelSteps MouseWheelAccumulator::consume(double x, double y, bool reporting) {
     if (reporting != reporting_) {
         reporting_ = reporting;
         remainderX_ = 0.0;
@@ -106,10 +94,8 @@ void MouseWheelAccumulator::reset() {
     remainderY_ = 0.0;
 }
 
-bool MouseFrontendState::protocolActive(
-    unsigned modifiers, MouseTrackingMode mode) const {
-    return !selectionOngoing_ && !(modifiers & FrontendShift) &&
-           mode != MouseTrackingMode::Disabled;
+bool MouseFrontendState::protocolActive(unsigned modifiers, MouseTrackingMode mode) const {
+    return !selectionOngoing_ && !(modifiers & FrontendShift) && mode != MouseTrackingMode::Disabled;
 }
 
 void MouseFrontendState::updateButton(int button, bool pressed) {
@@ -125,9 +111,15 @@ void MouseFrontendState::updateButton(int button, bool pressed) {
 }
 
 int MouseFrontendState::motionButton() const {
-    if (buttons_ & (1u << 0)) return 1;
-    if (buttons_ & (1u << 2)) return 2;
-    if (buttons_ & (1u << 1)) return 3;
+    if (buttons_ & (1u << 0)) {
+        return 1;
+    }
+    if (buttons_ & (1u << 2)) {
+        return 2;
+    }
+    if (buttons_ & (1u << 1)) {
+        return 3;
+    }
     return 0;
 }
 
@@ -135,13 +127,9 @@ bool MouseFrontendState::primaryButtonPressed() const {
     return buttons_ & ((1u << 0) | (1u << 1) | (1u << 2));
 }
 
-int MouseFrontendState::registerClick(
-    int button, double x, double y, double time) {
+int MouseFrontendState::registerClick(int button, double x, double y, double time) {
     const double elapsed = time - lastClickTime_;
-    const bool repeated = button == lastButton_ && elapsed >= 0.0 &&
-                          elapsed <= 0.5 &&
-                          std::abs(x - lastClickX_) <= 4.0 &&
-                          std::abs(y - lastClickY_) <= 4.0;
+    const bool repeated = button == lastButton_ && elapsed >= 0.0 && elapsed <= 0.5 && std::abs(x - lastClickX_) <= 4.0 && std::abs(y - lastClickY_) <= 4.0;
     clickCount_ = repeated ? clickCount_ + 1 : 1;
     lastButton_ = button;
     lastClickTime_ = time;
@@ -150,20 +138,15 @@ int MouseFrontendState::registerClick(
     return clickCount_;
 }
 
-bool MouseFrontendState::reportMotion(
-    int column, int row, MouseTrackingMode mode,
-    MouseTrackingEnc encoding, u32 generation) {
-    if (!hasMotionContext_ || mode != lastMotionMode_ ||
-        encoding != lastMotionEncoding_ ||
-        generation != lastMotionGeneration_) {
+bool MouseFrontendState::reportMotion(int column, int row, MouseTrackingMode mode, MouseTrackingEnc encoding, u32 generation) {
+    if (!hasMotionContext_ || mode != lastMotionMode_ || encoding != lastMotionEncoding_ || generation != lastMotionGeneration_) {
         hasMotionContext_ = true;
         lastMotionMode_ = mode;
         lastMotionEncoding_ = encoding;
         lastMotionGeneration_ = generation;
         hasReportedMotion_ = false;
     }
-    if (hasReportedMotion_ && column == lastReportColumn_ &&
-        row == lastReportRow_) {
+    if (hasReportedMotion_ && column == lastReportColumn_ && row == lastReportRow_) {
         return false;
     }
     hasReportedMotion_ = true;

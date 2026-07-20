@@ -9,10 +9,11 @@ bool GraphemeBreaker::breakBefore(u32 codepoint) {
         return true;
     }
 
-    const bool boundary = utf8proc_grapheme_break_stateful(
-        previous_, (i32)(codepoint), &state_);
+    const bool boundary = utf8proc_grapheme_break_stateful(previous_, (i32)(codepoint), &state_);
     previous_ = (i32)(codepoint);
-    if (boundary) state_ = 0;
+    if (boundary) {
+        state_ = 0;
+    }
     return boundary;
 }
 

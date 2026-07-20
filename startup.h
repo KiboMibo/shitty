@@ -8,7 +8,6 @@ struct LaunchCommand {
     std::vector<std::string> arguments;
 };
 
-LaunchCommand buildLaunchCommand(
-    int argc, char* argv[], const char* defaultShell, bool login);
+LaunchCommand buildLaunchCommand(int argc, char* argv[], const char* defaultShell, bool login);
 
 void configureTerminalChildEnvironment();

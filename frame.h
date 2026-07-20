@@ -25,14 +25,9 @@ public:
     using Grapheme = std::vector<u32>;
     Frame();
 
-    Frame(u16 winPx_, u16 winPy_,
-          u16 nCols_, u16 nRows_,
-          u16& marginTop_, u16& marginBottom_,
-          u16 saveLines_ = 0);
+    Frame(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, u16 saveLines_ = 0);
 
-    void resize(u16 winPx_, u16 winPy_,
-                u16 nCols_, u16 nRows_,
-                u16& marginTop_, u16& marginBottom_);
+    void resize(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_);
 
     void dropScrollbackHistory();
 
@@ -54,14 +49,10 @@ public:
     u32 internGrapheme(const Grapheme& codepoints);
     const Grapheme& getGrapheme(u32 id) const;
 
-    void eraseInRow(u16 pY, u16 startX, u16 count,
-                    const TerminalCell& attrs);
-    void selectiveEraseInRow(u16 pY, u16 startX, u16 count,
-                             const TerminalCell& attrs);
-    void moveInRow(u16 pY, u16 dstX, u16 srcX,
-                   u16 count);
-    void copyRow(u16 dstY, u16 srcY, u16 startX,
-                 u16 count);
+    void eraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs);
+    void selectiveEraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs);
+    void moveInRow(u16 pY, u16 dstX, u16 srcX, u16 count);
+    void copyRow(u16 dstY, u16 srcY, u16 startX, u16 count);
 
     void scrollUp(u16 top, u16 bottom, u16 count);
     void scrollDown(u16 top, u16 bottom, u16 count);
@@ -96,20 +87,32 @@ public:
     void setCursorStyle(TerminalCursor::Style cs);
     void setCursorColor(Color color);
     void setSelectionColor(bool foreground, Color color, bool enabled);
-    Color getSelectionForeground() const { return selectionForeground; }
-    Color getSelectionBackground() const { return selectionBackground; }
-    u8 getSelectionColorMask() const { return selectionColorMask; }
+    Color getSelectionForeground() const {
+        return selectionForeground;
+    }
+    Color getSelectionBackground() const {
+        return selectionBackground;
+    }
+    u8 getSelectionColorMask() const {
+        return selectionColorMask;
+    }
     void setBlinkState(bool visible, bool cursor) {
         blinkVisible = visible;
         cursorBlink = cursor;
     }
-    bool getBlinkVisible() const { return blinkVisible; }
-    bool getCursorBlink() const { return cursorBlink; }
+    bool getBlinkVisible() const {
+        return blinkVisible;
+    }
+    bool getCursorBlink() const {
+        return cursorBlink;
+    }
     void setScreenReverseVideo(bool enabled) {
         screenReverseVideo = enabled;
         expose();
     }
-    bool getScreenReverseVideo() const { return screenReverseVideo; }
+    bool getScreenReverseVideo() const {
+        return screenReverseVideo;
+    }
 
     enum class SelectSnapTo : u8 {
         Char = 0,
@@ -155,8 +158,7 @@ private:
     u16 viewOffset;
 
     TerminalCell::Ptr cells = nullptr;
-    std::shared_ptr<GraphemeStore> graphemes =
-        std::make_shared<GraphemeStore>();
+    std::shared_ptr<GraphemeStore> graphemes = std::make_shared<GraphemeStore>();
     // Every allocated row belongs to exactly one of these containers.
     std::vector<RowId> screen;
     std::deque<RowId> history;
@@ -189,22 +191,17 @@ private:
     const TerminalCell& operator[](u32 idx) const;
     TerminalCell& operator[](u32 idx);
 
-    void eraseRange(u32 start, u32 end,
-                    const TerminalCell& attrs);
+    void eraseRange(u32 start, u32 end, const TerminalCell& attrs);
     void copyCells(u32 dstIx, u32 srcIx, u32 count);
     void moveCells(u32 dstIx, u32 srcIx, u32 count);
 
-    void damageDeltaCopy(
-        TerminalCell* dst, u32 start, u32 count) const;
+    void damageDeltaCopy(TerminalCell* dst, u32 start, u32 count) const;
 
     static SelectSnapTo cycleSelectSnapTo(SelectSnapTo& snapTo) {
-        return (SelectSnapTo)(
-            ((u8)(snapTo) + 1) %
-            (u8)(SelectSnapTo::COUNT));
+        return (SelectSnapTo)(((u8)(snapTo) + 1) % (u8)(SelectSnapTo::COUNT));
     }
 
-    void vscrollSelection(u16 top, u16 bottom,
-                          int vertOffset, bool captureHistory);
+    void vscrollSelection(u16 top, u16 bottom, int vertOffset, bool captureHistory);
     void invalidateSelection(const Rect&& damage);
 
     void highMemUsageReport();

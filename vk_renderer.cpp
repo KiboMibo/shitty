@@ -23,34 +23,45 @@
 
 namespace {
 
-class RendererImpl final : public Renderer {
-public:
-    RendererImpl(GLFWwindow* window, Fontpack* fontpk)
-        : charVdev(fontpk)
-        , presenter(window, fontpk)
-    {
-    }
+    class RendererImpl final: public Renderer {
+    public:
+        RendererImpl(GLFWwindow* window, Fontpack* fontpk);
 
-    bool update(const Frame& frame) override;
-    bool repaint() override;
+        bool update(const Frame& frame) override;
+        bool repaint() override;
 
-private:
-    CharVdev charVdev;
-    VulkanPresenter presenter;
-    bool delta = false;
-};
+    private:
+        CharVdev charVdev;
+        VulkanPresenter presenter;
+        bool delta = false;
+    };
+
+}
+
+RendererImpl::RendererImpl(GLFWwindow* window, Fontpack* fontpk)
+    : charVdev(fontpk)
+    , presenter(window, fontpk)
+{
+}
 
 bool RendererImpl::update(const Frame& frame) {
-    if (!frame) return false;
+    if (!frame) {
+        return false;
+    }
 
-    if (charVdev.resize(frame.winPx, frame.winPy)) delta = false;
+    if (charVdev.resize(frame.winPx, frame.winPy)) {
+        delta = false;
+    }
 
     {
         CharVdev::Mapping mapping = charVdev.getMapping();
         assert(mapping.nCols == frame.nCols);
         assert(mapping.nRows == frame.nRows);
-        if (delta) frame.deltaCopyCells(mapping.cells);
-        else frame.fullCopyCells(mapping.cells);
+        if (delta) {
+            frame.deltaCopyCells(mapping.cells);
+        } else {
+            frame.fullCopyCells(mapping.cells);
+        }
     }
 
     charVdev.setCursor(frame.getCursor());
@@ -68,8 +79,6 @@ bool RendererImpl::update(const Frame& frame) {
 bool RendererImpl::repaint() {
     return presenter.repaint();
 }
-
-} // namespace
 
 Renderer* Renderer::create(Composer& composer, GLFWwindow* window) {
     return composer.pool->make<RendererImpl>(window, composer.fonts);

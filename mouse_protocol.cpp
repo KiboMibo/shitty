@@ -5,13 +5,7 @@
 #include <algorithm>
 #include <sstream>
 
-std::string encodeMouseProtocol(MouseTrackingEnc encoding,
-                                MouseEventType type,
-                                unsigned modifiers,
-                                int motionButton,
-                                int button,
-                                int column,
-                                int row) {
+std::string encodeMouseProtocol(MouseTrackingEnc encoding, MouseEventType type, unsigned modifiers, int motionButton, int button, int column, int row) {
     int code = 0;
     if (type == MouseEventType::Motion) {
         switch (motionButton) {
@@ -28,8 +22,7 @@ std::string encodeMouseProtocol(MouseTrackingEnc encoding,
                 code = 35;
                 break;
         }
-    } else if (type == MouseEventType::Release &&
-               encoding != MouseTrackingEnc::SGR) {
+    } else if (type == MouseEventType::Release && encoding != MouseTrackingEnc::SGR) {
         code = 3;
     } else {
         switch (button) {
@@ -86,35 +79,28 @@ std::string encodeMouseProtocol(MouseTrackingEnc encoding,
         case MouseTrackingEnc::Default:
             column = std::clamp(column, 1, 223);
             row = std::clamp(row, 1, 223);
-            output << "\x1b[M" << (char)(32 + code)
-                   << (char)(32 + column)
-                   << (char)(32 + row);
+            output << "\x1b[M" << (char)(32 + code) << (char)(32 + column) << (char)(32 + row);
             break;
         case MouseTrackingEnc::UTF8:
             column = std::clamp(column, 1, 2015);
             row = std::clamp(row, 1, 2015);
             output << "\x1b[M";
-            Utf8Encoder::pushUnicode(
-                32 + code, [&output](char ch) {
+            Utf8Encoder::pushUnicode(32 + code, [&output](char ch) {
                 output << ch;
             });
-            Utf8Encoder::pushUnicode(
-                32 + column, [&output](char ch) {
+            Utf8Encoder::pushUnicode(32 + column, [&output](char ch) {
                 output << ch;
             });
-            Utf8Encoder::pushUnicode(
-                32 + row, [&output](char ch) {
+            Utf8Encoder::pushUnicode(32 + row, [&output](char ch) {
                 output << ch;
             });
             break;
         case MouseTrackingEnc::SGR:
         case MouseTrackingEnc::SGRPixels:
-            output << "\x1b[<" << code << ';' << column << ';' << row
-                   << (type == MouseEventType::Release ? 'm' : 'M');
+            output << "\x1b[<" << code << ';' << column << ';' << row << (type == MouseEventType::Release ? 'm' : 'M');
             break;
         case MouseTrackingEnc::URXVT:
-            output << "\x1b[" << code + 32 << ';' << column << ';' << row
-                   << 'M';
+            output << "\x1b[" << code + 32 << ';' << column << ';' << row << 'M';
             break;
     }
     return output.str();

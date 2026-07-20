@@ -5,18 +5,23 @@
 #include <utility>
 
 VtermHostCallbacks::VtermHostCallbacks()
-    : onRefresh([](const Frame&) { return true; })
+    : onRefresh([](const Frame&) {
+        return true;
+    })
     , onOsc([](int command, const std::string& argument) {
         logU << "OSC: '" << command << ";" << argument << "'" << std::endl;
     })
-    , onBell([] { logI << "* Bell *" << std::endl; })
+    , onBell([] {
+        logI << "* Bell *" << std::endl;
+    })
     , onPrinter([](const std::string&) {})
     , onLed([](u8) {})
-    , onNotification([](const std::string&, const std::string&,
-                        const std::string&, bool) {})
+    , onNotification([](const std::string&, const std::string&, const std::string&, bool) {})
     , onProgress([](u32, u32) {})
     , onWindowOps([](u32, u32, u32) {})
-    , onWindowInfo([] { return VtermWindowInfo{}; })
+    , onWindowInfo([] {
+        return VtermWindowInfo{};
+    })
 {
 }
 
@@ -28,22 +33,27 @@ void VtermHostCallbacks::osc(int command, const std::string& argument) {
     onOsc(command, argument);
 }
 
-void VtermHostCallbacks::bell() { onBell(); }
-void VtermHostCallbacks::print(const std::string& output) { onPrinter(output); }
-void VtermHostCallbacks::leds(u8 state) { onLed(state); }
-void VtermHostCallbacks::notify(
-    const std::string& id, const std::string& title,
-    const std::string& body, bool close) {
+void VtermHostCallbacks::bell() {
+    onBell();
+}
+void VtermHostCallbacks::print(const std::string& output) {
+    onPrinter(output);
+}
+void VtermHostCallbacks::leds(u8 state) {
+    onLed(state);
+}
+void VtermHostCallbacks::notify(const std::string& id, const std::string& title, const std::string& body, bool close) {
     onNotification(id, title, body, close);
 }
 void VtermHostCallbacks::progress(u32 state, u32 percent) {
     onProgress(state, percent);
 }
-void VtermHostCallbacks::windowOperation(
-    u32 operation, u32 first, u32 second) {
+void VtermHostCallbacks::windowOperation(u32 operation, u32 first, u32 second) {
     onWindowOps(operation, first, second);
 }
-VtermWindowInfo VtermHostCallbacks::windowInfo() { return onWindowInfo(); }
+VtermWindowInfo VtermHostCallbacks::windowInfo() {
+    return onWindowInfo();
+}
 
 void VtermHostCallbacks::setRefreshHandler(RefreshHandler handler) {
     onRefresh = std::move(handler);

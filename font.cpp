@@ -60,8 +60,7 @@ bool Font::isLoadableChar(FT_ULong c) {
         return true;
     }
 
-    return ((dwidth && wcwidth(c) == 2) ||
-            (!dwidth && wcwidth(c) < 2));
+    return ((dwidth && wcwidth(c) == 2) || (!dwidth && wcwidth(c) < 2));
 }
 
 void Font::load() {
@@ -71,12 +70,9 @@ void Font::load() {
     if (FT_Init_FreeType(&ft)) {
         throw std::runtime_error("Could not initialize FreeType library");
     }
-    logI << "Loading " << filename << " as "
-         << (overlay ? "overlay" : (dwidth ? "double-width" : "primary"))
-         << std::endl;
+    logI << "Loading " << filename << " as " << (overlay ? "overlay" : (dwidth ? "double-width" : "primary")) << std::endl;
     if (FT_New_Face(ft, filename.c_str(), 0, &face)) {
-        throw std::runtime_error(std::string("Failed to load font ") +
-                                 filename);
+        throw std::runtime_error(std::string("Failed to load font ") + filename);
     }
 
     /* Determine the number of glyphs to actually load, based on wcwidth ()
@@ -94,12 +90,7 @@ void Font::load() {
         }
     }
 
-    logT << "Family: " << face->family_name
-         << "; Style: " << face->style_name
-         << "; Faces: " << face->num_faces
-         << "; Glyphs: " << num_glyphs << " to load ("
-         << face->num_glyphs << " total)"
-         << std::endl;
+    logT << "Family: " << face->family_name << "; Style: " << face->style_name << "; Faces: " << face->num_faces << "; Glyphs: " << num_glyphs << " to load (" << face->num_glyphs << " total)" << std::endl;
 
     if (face->num_fixed_sizes > 0) {
         loadFixed(face);
@@ -128,24 +119,16 @@ void Font::load() {
 
         if (nx > 255 || ny > 255) {
             logE << "Atlas geometry not addressable by single byte coords. "
-                 << "Please report this as a bug with your font attached!"
-                 << std::endl;
+                 << "Please report this as a bug with your font attached!" << std::endl;
             throw std::runtime_error("Impossible atlas geometry");
         }
 
-        logT << "Atlas texture geometry: " << nx << "x" << ny
-             << " glyphs of " << px << "x" << py << " each, "
-             << "yielding pixel size " << nx * px << "x" << ny * py << "."
-             << std::endl;
-        logT << "Atlas holds space for " << nx * ny << " glyphs, "
-             << n_glyphs << " will be used, empty: "
-             << nx * ny - n_glyphs << " ("
-             << 100.0 * (nx * ny - n_glyphs) / (nx * ny)
-             << "%)" << std::endl;
+        logT << "Atlas texture geometry: " << nx << "x" << ny << " glyphs of " << px << "x" << py << " each, "
+             << "yielding pixel size " << nx * px << "x" << ny * py << "." << std::endl;
+        logT << "Atlas holds space for " << nx * ny << " glyphs, " << n_glyphs << " will be used, empty: " << nx * ny - n_glyphs << " (" << 100.0 * (nx * ny - n_glyphs) / (nx * ny) << "%)" << std::endl;
 
         size_t atlas_bytes = nx * px * ny * py;
-        logT << "Allocating " << atlas_bytes << " bytes for atlas buffer"
-             << std::endl;
+        logT << "Allocating " << atlas_bytes << " bytes for atlas buffer" << std::endl;
         atlasBuf.resize(atlas_bytes, 0);
     }
 
@@ -176,8 +159,7 @@ void Font::loadFixed(const FT_Face& face) {
         std::ostringstream oss;
         oss << "Available sizes:";
         for (int i = 0; i < face->num_fixed_sizes; ++i) {
-            oss << " " << face->available_sizes[i].width
-                << "x" << face->available_sizes[i].height;
+            oss << " " << face->available_sizes[i].width << "x" << face->available_sizes[i].height;
 
             int diff = abs(opts.fontsize - face->available_sizes[i].height);
             if (diff < bestHeightDiff) {
@@ -188,15 +170,10 @@ void Font::loadFixed(const FT_Face& face) {
         logT << oss.str() << std::endl;
     }
 
-    logT << "Configured size: " << (int)opts.fontsize
-         << "; Best matching fixed size: "
-         << face->available_sizes[bestIdx].width
-         << "x" << face->available_sizes[bestIdx].height
-         << std::endl;
+    logT << "Configured size: " << (int)opts.fontsize << "; Best matching fixed size: " << face->available_sizes[bestIdx].width << "x" << face->available_sizes[bestIdx].height << std::endl;
 
     if (bestHeightDiff > 1 && face->units_per_EM > 0) {
-        logT << "Size mismatch too large, fallback to rendering outlines."
-             << std::endl;
+        logT << "Size mismatch too large, fallback to rendering outlines." << std::endl;
         loadScaled(face);
         return;
     }
@@ -205,12 +182,10 @@ void Font::loadFixed(const FT_Face& face) {
 
     if (overlay || dwidth) {
         if (px != facesize.width) {
-            throw std::runtime_error(
-                filename + ": size mismatch, expected px=" + std::to_string(px) + ", got: " + std::to_string(facesize.width));
+            throw std::runtime_error(filename + ": size mismatch, expected px=" + std::to_string(px) + ", got: " + std::to_string(facesize.width));
         }
         if (py != facesize.height) {
-            throw std::runtime_error(
-                filename + ": size mismatch, expected py=" + std::to_string(py) + ", got: " + std::to_string(facesize.height));
+            throw std::runtime_error(filename + ": size mismatch, expected py=" + std::to_string(py) + ", got: " + std::to_string(facesize.height));
         }
     } else {
         px = facesize.width;
@@ -234,24 +209,16 @@ void Font::loadScaled(const FT_Face& face) {
         throw std::runtime_error("Could not set pixel sizes");
     }
 
-    double tpx = opts.fontsize *
-                 (double)face->max_advance_width / face->units_per_EM;
+    double tpx = opts.fontsize * (double)face->max_advance_width / face->units_per_EM;
     double tpy = tpx * face->height / face->max_advance_width + 1;
     const u16 facePx = round(tpx);
     const u16 facePy = round(tpy);
-    const u16 faceBaseline = round(
-        tpy * face->ascender / face->height);
+    const u16 faceBaseline = round(tpy * face->ascender / face->height);
     if ((overlay || dwidth) && (px != facePx || py != facePy)) {
-        throw std::runtime_error(
-            filename + ": scaled metric mismatch, expected " +
-            std::to_string(px) + "x" + std::to_string(py) + ", got " +
-            std::to_string(facePx) + "x" + std::to_string(facePy));
+        throw std::runtime_error(filename + ": scaled metric mismatch, expected " + std::to_string(px) + "x" + std::to_string(py) + ", got " + std::to_string(facePx) + "x" + std::to_string(facePy));
     }
     if (overlay && baseline != faceBaseline) {
-        throw std::runtime_error(
-            filename + ": scaled baseline mismatch, expected " +
-            std::to_string(baseline) + ", got " +
-            std::to_string(faceBaseline));
+        throw std::runtime_error(filename + ": scaled baseline mismatch, expected " + std::to_string(baseline) + ", got " + std::to_string(faceBaseline));
     }
     if (!overlay && !dwidth) {
         px = facePx;
@@ -260,8 +227,7 @@ void Font::loadScaled(const FT_Face& face) {
     if (!overlay) {
         baseline = faceBaseline;
     }
-    logI << "Glyph size " << px << "x" << py << ", baseline " << baseline
-         << std::endl;
+    logI << "Glyph size " << px << "x" << py << ", baseline " << baseline << std::endl;
 }
 
 void Font::loadFace(const FT_Face& face, FT_ULong c) {
@@ -276,9 +242,7 @@ void Font::loadFace(const FT_Face& face, FT_ULong c) {
 
 void Font::loadFace(const FT_Face& face, FT_ULong c, const AtlasPos& apos) {
     if (FT_Load_Char(face, c, FT_LOAD_RENDER)) {
-        throw std::runtime_error(
-            std::string("FreeType: Failed to load glyph for char ") +
-            std::to_string(c));
+        throw std::runtime_error(std::string("FreeType: Failed to load glyph for char ") + std::to_string(c));
     }
 
     int dx = face->glyph->bitmap_left;
@@ -299,8 +263,7 @@ void Font::loadFace(const FT_Face& face, FT_ULong c, const AtlasPos& apos) {
 
     if (overlay) {
         for (int j = 0; j < bh; ++j) {
-            u8* atl_dst_row =
-                atlasBuf.data() + atlas_glyph_offset + j * nx * px;
+            u8* atl_dst_row = atlasBuf.data() + atlas_glyph_offset + j * nx * px;
             for (int k = 0; k < bw; ++k) {
                 *atl_dst_row++ = 0;
             }
@@ -345,8 +308,6 @@ void Font::loadFace(const FT_Face& face, FT_ULong c, const AtlasPos& apos) {
             }
             break;
         default:
-            throw std::runtime_error(
-                std::string("Unhandled pixel_type=") +
-                std::to_string(bmp.pixel_mode));
+            throw std::runtime_error(std::string("Unhandled pixel_type=") + std::to_string(bmp.pixel_mode));
     }
 }

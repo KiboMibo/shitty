@@ -26,6 +26,9 @@ prefix such as `m_`, `p_`, `str_` or `is_`.
 ## Braces and indentation
 
 - Use four spaces. Tabs are forbidden.
+- Indent the contents of every namespace, including an anonymous namespace,
+  by one level. The namespace declaration itself remains at its enclosing
+  scope.
 - Opening braces are attached for namespaces, types, functions, lambdas and
   control flow. `else`, `catch` and `while` in a `do` statement stay on the
   same line as the preceding closing brace.
@@ -48,8 +51,8 @@ struct Example: public Interface {
 ```
 
 Zutty is a program, not a library. Do not wrap its code in a project namespace.
-Use anonymous namespaces for translation-unit-local declarations, and do not
-add comments to namespace-closing braces.
+Use anonymous namespaces for translation-unit-local declarations, indent their
+contents, and do not add comments to namespace-closing braces.
 
 ## Constructors
 
@@ -79,12 +82,25 @@ not clang-format directly.
 - Do not put a space between a function name and `(`. Put one after control
   keywords: `call(arg)`, `if (condition)`.
 - Attach `*` and `&` to the type: `const Cell* cell`, `Frame& frame`.
-- Do not put a space before an inheritance colon: `class Frame: public Base`.
+- Attach an inheritance colon to the class name and always state the access:
+  `class Frame: public Base`, never `class Frame : Base`.
 - Put spaces around binary and assignment operators and after commas. Do not
   put spaces just inside parentheses, brackets or template angle brackets.
-- Keep a declaration's type and function name on the same line. Continuation
-  lines use four more spaces or align with the opening delimiter where that
-  makes the structure clearer.
+- Keep a declaration's type and function name on the same line.
+- Keep each statement and expression on one physical line. Do not continue
+  conditions, operators, stream expressions or assignments on later lines.
+- A function call or declaration is the only construct that may be split. If
+  it is split, put every argument or parameter on its own indented line and
+  put the closing parenthesis on its own line:
+
+```cpp
+functionCall(
+    first,
+    second,
+    third
+);
+```
+
 - Write one statement per line.
 - Prefer the fixed-width aliases from `<cstdint>` where representation matters.
 
@@ -93,6 +109,10 @@ not clang-format directly.
 - Keep non-template methods longer than one trivial statement out of headers.
   Headers describe interfaces; implementation belongs in the paired `.cpp` or
   `.icc` file.
+- A class declared in a `.cpp` file contains declarations only. Define every
+  method out of line, including constructors, destructors and trivial accessors.
+  If the class is declared in an anonymous namespace, close that namespace
+  before its qualified method definitions.
 - Avoid heavyweight includes in headers when a forward declaration suffices.
 - A `.cpp` file includes its own header first, then related project headers,
   then third-party and system headers. Preserve meaningful blank groups; do
@@ -107,8 +127,9 @@ not clang-format directly.
   narrate the next line.
 - Keep comments grammatical and current. Do not reflow carefully arranged
   comments or protocol tables merely to fit a column limit.
-- There is no hard column limit. Break long expressions according to their
-  logical structure, not at an arbitrary character count.
+- There is no practical column limit. The large mechanical limit in
+  `.clang-format` exists to collapse accidental statement wrapping; it is not
+  a target line length.
 - Keep at most one empty line between logical blocks and no empty line at the
   start of a block.
 

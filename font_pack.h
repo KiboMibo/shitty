@@ -36,7 +36,5 @@ struct Fontpack {
     // Once the renderer has uploaded all atlases, host memory can go away.
     virtual void releaseFonts() = 0;
 
-    static Fontpack* create(Composer& composer,
-                            const std::string& fontname,
-                            const std::string& dwfontname);
+    static Fontpack* create(Composer& composer, const std::string& fontname, const std::string& dwfontname);
 };

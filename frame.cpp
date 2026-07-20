@@ -16,46 +16,51 @@
 
 namespace {
 
-u32 wordClass(u32 codepoint) {
-    constexpr u32 whitespaceClass = 0x110000;
-    constexpr u32 identifierClass = 0x110001;
-    switch (utf8proc_category(codepoint)) {
-        case UTF8PROC_CATEGORY_LU:
-        case UTF8PROC_CATEGORY_LL:
-        case UTF8PROC_CATEGORY_LT:
-        case UTF8PROC_CATEGORY_LM:
-        case UTF8PROC_CATEGORY_LO:
-        case UTF8PROC_CATEGORY_MN:
-        case UTF8PROC_CATEGORY_MC:
-        case UTF8PROC_CATEGORY_ME:
-        case UTF8PROC_CATEGORY_ND:
-        case UTF8PROC_CATEGORY_NL:
-        case UTF8PROC_CATEGORY_NO:
-        case UTF8PROC_CATEGORY_PC:
-            return identifierClass;
-        case UTF8PROC_CATEGORY_ZS:
-        case UTF8PROC_CATEGORY_ZL:
-        case UTF8PROC_CATEGORY_ZP:
-            return whitespaceClass;
-        default:
-            // Adjacent repetitions of one punctuation/symbol codepoint form
-            // a useful selectable run, while unlike punctuation stays split.
-            return codepoint;
+    u32 wordClass(u32 codepoint) {
+        constexpr u32 whitespaceClass = 0x110000;
+        constexpr u32 identifierClass = 0x110001;
+        switch (utf8proc_category(codepoint)) {
+            case UTF8PROC_CATEGORY_LU:
+            case UTF8PROC_CATEGORY_LL:
+            case UTF8PROC_CATEGORY_LT:
+            case UTF8PROC_CATEGORY_LM:
+            case UTF8PROC_CATEGORY_LO:
+            case UTF8PROC_CATEGORY_MN:
+            case UTF8PROC_CATEGORY_MC:
+            case UTF8PROC_CATEGORY_ME:
+            case UTF8PROC_CATEGORY_ND:
+            case UTF8PROC_CATEGORY_NL:
+            case UTF8PROC_CATEGORY_NO:
+            case UTF8PROC_CATEGORY_PC:
+                return identifierClass;
+            case UTF8PROC_CATEGORY_ZS:
+            case UTF8PROC_CATEGORY_ZL:
+            case UTF8PROC_CATEGORY_ZP:
+                return whitespaceClass;
+            default:
+                // Adjacent repetitions of one punctuation/symbol codepoint form
+                // a useful selectable run, while unlike punctuation stays split.
+                return codepoint;
+        }
     }
-}
 
 }
 
 Frame::Frame() {
 }
 
-void Frame::setSelectionColor(
-    bool foreground, Color color, bool enabled) {
+void Frame::setSelectionColor(bool foreground, Color color, bool enabled) {
     const u8 bit = foreground ? 1 : 2;
-    if (foreground) selectionForeground = color;
-    else selectionBackground = color;
-    if (enabled) selectionColorMask |= bit;
-    else selectionColorMask &= ~bit;
+    if (foreground) {
+        selectionForeground = color;
+    } else {
+        selectionBackground = color;
+    }
+    if (enabled) {
+        selectionColorMask |= bit;
+    } else {
+        selectionColorMask &= ~bit;
+    }
     expose();
 }
 
@@ -80,10 +85,7 @@ const Frame::Grapheme& Frame::getGrapheme(u32 id) const {
     return graphemes->values[id];
 }
 
-Frame::Frame(u16 winPx_, u16 winPy_,
-             u16 nCols_, u16 nRows_,
-             u16& marginTop_, u16& marginBottom_,
-             u16 saveLines_)
+Frame::Frame(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, u16 saveLines_)
     : winPx(winPx_)
     , winPy(winPy_)
     , nCols(nCols_)
@@ -126,30 +128,48 @@ void Frame::collectHyperlinkIds(std::set<u32>& ids) const {
             }
         }
     };
-    for (RowId row : screen) collectRow(row);
-    for (RowId row : history) collectRow(row);
+    for (RowId row : screen) {
+        collectRow(row);
+    }
+    for (RowId row : history) {
+        collectRow(row);
+    }
 }
 
 void Frame::recolorPalette(u16 index, Color color) {
-    if (!cells) return;
+    if (!cells) {
+        return;
+    }
     const size_t count = (size_t)(nCols) * (nRows + saveLines);
     for (size_t i = 0; i < count; ++i) {
         auto& cell = cells.get()[i];
-        if (cell.fg_index == index) cell.fg = color;
-        if (cell.bg_index == index) cell.bg = color;
-        if (cell.underline_index == index) cell.underline_color = color;
+        if (cell.fg_index == index) {
+            cell.fg = color;
+        }
+        if (cell.bg_index == index) {
+            cell.bg = color;
+        }
+        if (cell.underline_index == index) {
+            cell.underline_color = color;
+        }
     }
     expose();
 }
 
 void Frame::recolorDefault(bool foreground, Color color) {
-    if (!cells) return;
+    if (!cells) {
+        return;
+    }
     const size_t count = (size_t)(nCols) * (nRows + saveLines);
     for (size_t i = 0; i < count; ++i) {
         auto& cell = cells.get()[i];
         if (foreground) {
-            if (cell.fg_index == -2) cell.fg = color;
-            if (cell.underline_index == -2) cell.underline_color = color;
+            if (cell.fg_index == -2) {
+                cell.fg = color;
+            }
+            if (cell.underline_index == -2) {
+                cell.underline_color = color;
+            }
         } else if (cell.bg_index == -2) {
             cell.bg = color;
         }
@@ -157,9 +177,7 @@ void Frame::recolorDefault(bool foreground, Color color) {
     expose();
 }
 
-void Frame::resize(u16 winPx_, u16 winPy_,
-                   u16 nCols_, u16 nRows_,
-                   u16& marginTop_, u16& marginBottom_) {
+void Frame::resize(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_) {
     if (winPx == winPx_ && winPy == winPy_) {
         return;
     }
@@ -192,10 +210,8 @@ void Frame::resize(u16 winPx_, u16 winPy_,
     // cell: editing code relies on the same lead/continuation invariant.
     const auto normalizeWideRow = [nCols_](TerminalCell* row) {
         for (u16 column = 0; column < nCols_; ++column) {
-            const bool orphanLead = row[column].dwidth &&
-                (column + 1 == nCols_ || !row[column + 1].dwidth_cont);
-            const bool orphanContinuation = row[column].dwidth_cont &&
-                (column == 0 || !row[column - 1].dwidth);
+            const bool orphanLead = row[column].dwidth && (column + 1 == nCols_ || !row[column + 1].dwidth_cont);
+            const bool orphanContinuation = row[column].dwidth_cont && (column == 0 || !row[column - 1].dwidth);
             if (orphanLead || orphanContinuation) {
                 row[column] = TerminalCell{};
             }
@@ -220,8 +236,7 @@ void Frame::resize(u16 winPx_, u16 winPy_,
         history.push_back(row);
     }
     freeRows.clear();
-    for (RowId row = nRows + historyCount;
-         row < nRows + saveLines; ++row) {
+    for (RowId row = nRows + historyCount; row < nRows + saveLines; ++row) {
         freeRows.push_back(row);
     }
     marginTop_ = 0;
@@ -275,7 +290,7 @@ Rect Frame::getSnappedSelection() const {
             break;
         case SelectSnapTo::Word: {
             const auto cellLead = [this](const TerminalCell* row, int x) {
-                x = std::max(0, std::min(x, (int)(nCols) - 1));
+                x = std::max(0, std::min(x, (int)(nCols)-1));
                 return row[x].dwidth_cont && x > 0 ? x - 1 : x;
             };
             const auto expand = [this, &cellLead](int rowIndex, int x) {
@@ -284,14 +299,18 @@ Rect Frame::getSnappedSelection() const {
                 const u32 selectedClass = wordClass(row[left].uc_pt);
                 while (left > 0) {
                     const int previous = cellLead(row, left - 1);
-                    if (wordClass(row[previous].uc_pt) != selectedClass) break;
+                    if (wordClass(row[previous].uc_pt) != selectedClass) {
+                        break;
+                    }
                     left = previous;
                 }
 
                 int right = left;
                 while (right < nCols) {
                     const int lead = cellLead(row, right);
-                    if (wordClass(row[lead].uc_pt) != selectedClass) break;
+                    if (wordClass(row[lead].uc_pt) != selectedClass) {
+                        break;
+                    }
                     right = lead + (row[lead].dwidth ? 2 : 1);
                 }
                 return std::pair<int, int>{left, right};
@@ -326,8 +345,7 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
     std::vector<unicodeString> lines;
     bool wrap = false;
 
-    auto addLine =
-        [&](int y, u16 x1, u16 x2) {
+    auto addLine = [&](int y, u16 x1, u16 x2) {
         unicodeString line;
         bool wrapBack = wrap;
         wrap = false;
@@ -351,14 +369,12 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
         // Trim screen padding only when a linear selection consumes the rest
         // of the row.  Explicitly selected whitespace (word or rectangle)
         // is data and must survive copying.
-        while (!wrap && !sel.rectangular && x2 == nCols && line.size() &&
-               line.back() == ' ') {
+        while (!wrap && !sel.rectangular && x2 == nCols && line.size() && line.back() == ' ') {
             line.pop_back();
         }
 
         if (wrapBack && lines.size()) {
-            lines.back().insert(lines.back().end(),
-                                line.begin(), line.end());
+            lines.back().insert(lines.back().end(), line.begin(), line.end());
         } else {
             lines.push_back(line);
         }
@@ -396,21 +412,15 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
 
 #if DEBUG
     if (utf8_selection.size() <= 80) {
-        logT << "Selected " << utf8_selection.size() << " bytes:\n'"
-             << utf8_selection << "'" << std::endl;
+        logT << "Selected " << utf8_selection.size() << " bytes:\n'" << utf8_selection << "'" << std::endl;
     } else {
-        logT << "Selected " << utf8_selection.size() << " bytes:\n'"
-             << utf8_selection.substr(0, 40) << "' ...\n'"
-             << utf8_selection.substr(utf8_selection.size() - 40) << "'"
-             << std::endl;
+        logT << "Selected " << utf8_selection.size() << " bytes:\n'" << utf8_selection.substr(0, 40) << "' ...\n'" << utf8_selection.substr(utf8_selection.size() - 40) << "'" << std::endl;
     }
 #endif
     return true;
 }
 
-inline void
-Frame::damageDeltaCopy(
-    TerminalCell* dst, u32 start, u32 count) const {
+inline void Frame::damageDeltaCopy(TerminalCell* dst, u32 start, u32 count) const {
     u32 end = start + count;
 
     if (damage.end <= start || end <= damage.start) {
@@ -440,8 +450,6 @@ void Frame::highMemUsageReport() {
     auto allocKB = damage.totalCells * cellSize / 1024;
     if (allocKB > 8192) {
         logI << "Allocated " << allocKB << " KiB for cell storage; consider "
-             << "decreasing saveLines (current value: " << saveLines
-             << ") to reduce memory usage!"
-             << std::endl;
+             << "decreasing saveLines (current value: " << saveLines << ") to reduce memory usage!" << std::endl;
     }
 }

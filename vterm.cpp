@@ -30,433 +30,408 @@ namespace {
 
 #define MC "\xff"
 
-    const InputSpec is_modOtherKeys2[] =
-        {
-            {Key::K2, CSI "27;" MC ";50~"},
-            {Key::K3, CSI "27;" MC ";51~"},
-            {Key::K4, CSI "27;" MC ";52~"},
-            {Key::K5, CSI "27;" MC ";53~"},
-            {Key::K6, CSI "27;" MC ";54~"},
-            {Key::K7, CSI "27;" MC ";55~"},
-            {Key::K8, CSI "27;" MC ";56~"},
-            {Key::Backtick, CSI "27;" MC ";96~"},
-            {Key::Tilde, CSI "27;" MC ";126~"},
-            {Key::Tab, CSI "27;" MC ";9~"},
-            {Key::Return, CSI "27;" MC ";13~"},
-            {Key::Space, CSI "27;" MC ";32~"},
-            {Key::Backspace, CSI "27;" MC ";127~"},
-            {Key::NONE, nullptr},
+    const InputSpec is_modOtherKeys2[] = {
+        {Key::K2, CSI "27;" MC ";50~"},
+        {Key::K3, CSI "27;" MC ";51~"},
+        {Key::K4, CSI "27;" MC ";52~"},
+        {Key::K5, CSI "27;" MC ";53~"},
+        {Key::K6, CSI "27;" MC ";54~"},
+        {Key::K7, CSI "27;" MC ";55~"},
+        {Key::K8, CSI "27;" MC ";56~"},
+        {Key::Backtick, CSI "27;" MC ";96~"},
+        {Key::Tilde, CSI "27;" MC ";126~"},
+        {Key::Tab, CSI "27;" MC ";9~"},
+        {Key::Return, CSI "27;" MC ";13~"},
+        {Key::Space, CSI "27;" MC ";32~"},
+        {Key::Backspace, CSI "27;" MC ";127~"},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_Alt[] =
-        {
+    const InputSpec is_Alt[] = {
 
-            {Key::K0, "\xc2\xb0"},
-            {Key::K1, "\xc2\xb1"},
-            {Key::K2, "\xc2\xb2"},
-            {Key::K3, "\xc2\xb3"},
-            {Key::K4, "\xc2\xb4"},
-            {Key::K5, "\xc2\xb5"},
-            {Key::K6, "\xc2\xb6"},
-            {Key::K7, "\xc2\xb7"},
-            {Key::K8, "\xc2\xb8"},
-            {Key::K9, "\xc2\xb9"},
-            {Key::Backtick, "\xc3\xa0"},
-            {Key::Tilde, "\xc3\xbe"},
-            {Key::Backspace, "\xc3\xbf"},
-            {Key::NONE, nullptr},
+        {Key::K0, "\xc2\xb0"},
+        {Key::K1, "\xc2\xb1"},
+        {Key::K2, "\xc2\xb2"},
+        {Key::K3, "\xc2\xb3"},
+        {Key::K4, "\xc2\xb4"},
+        {Key::K5, "\xc2\xb5"},
+        {Key::K6, "\xc2\xb6"},
+        {Key::K7, "\xc2\xb7"},
+        {Key::K8, "\xc2\xb8"},
+        {Key::K9, "\xc2\xb9"},
+        {Key::Backtick, "\xc3\xa0"},
+        {Key::Tilde, "\xc3\xbe"},
+        {Key::Backspace, "\xc3\xbf"},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_Alt_altSendsEscape[] =
-        {
-            {Key::K0, ESC "0"},
-            {Key::K1, ESC "1"},
-            {Key::K2, ESC "2"},
-            {Key::K3, ESC "3"},
-            {Key::K4, ESC "4"},
-            {Key::K5, ESC "5"},
-            {Key::K6, ESC "6"},
-            {Key::K7, ESC "7"},
-            {Key::K8, ESC "8"},
-            {Key::K9, ESC "9"},
-            {Key::Backtick, ESC "`"},
-            {Key::Tilde, ESC "~"},
-            {Key::Backspace, ESC "\x7f"},
-            {Key::Space, ESC " "},
-            {Key::Tab, ESC "\t"},
-            {Key::Return, ESC "\n"},
-            {Key::NONE, nullptr},
+    const InputSpec is_Alt_altSendsEscape[] = {
+        {Key::K0, ESC "0"},
+        {Key::K1, ESC "1"},
+        {Key::K2, ESC "2"},
+        {Key::K3, ESC "3"},
+        {Key::K4, ESC "4"},
+        {Key::K5, ESC "5"},
+        {Key::K6, ESC "6"},
+        {Key::K7, ESC "7"},
+        {Key::K8, ESC "8"},
+        {Key::K9, ESC "9"},
+        {Key::Backtick, ESC "`"},
+        {Key::Tilde, ESC "~"},
+        {Key::Backspace, ESC "\x7f"},
+        {Key::Space, ESC " "},
+        {Key::Tab, ESC "\t"},
+        {Key::Return, ESC "\n"},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_Control_modOtherKeys[] =
-        {
-            {Key::K0, CSI "27;" MC ";48~"},
-            {Key::K1, CSI "27;" MC ";49~"},
-            {Key::K9, CSI "27;" MC ";57~"},
-            {Key::Tab, CSI "27;" MC ";9~"},
-            {Key::NONE, nullptr},
+    const InputSpec is_Control_modOtherKeys[] = {
+        {Key::K0, CSI "27;" MC ";48~"},
+        {Key::K1, CSI "27;" MC ";49~"},
+        {Key::K9, CSI "27;" MC ";57~"},
+        {Key::Tab, CSI "27;" MC ";9~"},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_ControlAlt_altSendsEscape[] =
-        {
-            {Key::K2, ESC "\x00", 2},
-            {Key::K3, ESC "\x1b", 2},
-            {Key::K4, ESC "\x1c", 2},
-            {Key::K5, ESC "\x1d", 2},
-            {Key::K6, ESC "\x1e", 2},
-            {Key::K7, ESC "\x1f", 2},
-            {Key::K8, ESC "\x7f", 2},
-            {Key::Backtick, ESC "\x00", 2},
-            {Key::Tilde, ESC "\x1e", 2},
-            {Key::Space, ESC "\x00", 2},
-            {Key::NONE, nullptr},
+    const InputSpec is_ControlAlt_altSendsEscape[] = {
+        {Key::K2, ESC "\x00", 2},
+        {Key::K3, ESC "\x1b", 2},
+        {Key::K4, ESC "\x1c", 2},
+        {Key::K5, ESC "\x1d", 2},
+        {Key::K6, ESC "\x1e", 2},
+        {Key::K7, ESC "\x1f", 2},
+        {Key::K8, ESC "\x7f", 2},
+        {Key::Backtick, ESC "\x00", 2},
+        {Key::Tilde, ESC "\x1e", 2},
+        {Key::Space, ESC "\x00", 2},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_Control[] =
-        {
-            {Key::K2, "\x00", 1},
-            {Key::K3, "\x1b", 1},
-            {Key::K4, "\x1c", 1},
-            {Key::K5, "\x1d", 1},
-            {Key::K6, "\x1e", 1},
-            {Key::K7, "\x1f", 1},
-            {Key::K8, "\x7f", 1},
-            {Key::Backtick, "\x00", 1},
-            {Key::Tilde, "\x1e", 1},
-            {Key::Space, "\x00", 1},
-            {Key::NONE, nullptr},
+    const InputSpec is_Control[] = {
+        {Key::K2, "\x00", 1},
+        {Key::K3, "\x1b", 1},
+        {Key::K4, "\x1c", 1},
+        {Key::K5, "\x1d", 1},
+        {Key::K6, "\x1e", 1},
+        {Key::K7, "\x1f", 1},
+        {Key::K8, "\x7f", 1},
+        {Key::Backtick, "\x00", 1},
+        {Key::Tilde, "\x1e", 1},
+        {Key::Space, "\x00", 1},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_Shift[] =
-        {
-            {Key::Tab, CSI "Z"},
-            {Key::NONE, nullptr},
+    const InputSpec is_Shift[] = {
+        {Key::Tab, CSI "Z"},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_modOtherKeys[] =
-        {
-            {Key::Return, CSI "27;" MC ";13~"},
-            {Key::NONE, nullptr},
+    const InputSpec is_modOtherKeys[] = {
+        {Key::Return, CSI "27;" MC ";13~"},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_Ansi[] =
-        {
-            {Key::K0, "0"},
-            {Key::K1, "1"},
-            {Key::K2, "2"},
-            {Key::K3, "3"},
-            {Key::K4, "4"},
-            {Key::K5, "5"},
-            {Key::K6, "6"},
-            {Key::K7, "7"},
-            {Key::K8, "8"},
-            {Key::K9, "9"},
-            {Key::Backtick, "`"},
-            {Key::Tilde, "~"},
-            {Key::Space, " "},
-            {Key::Backspace, "\x7f"},
-            {Key::Tab, "\t"},
-            {Key::Return, "\r"},
-            {Key::Insert, CSI "2~"},
-            {Key::Delete, CSI "3~"},
-            {Key::PageUp, CSI "5~"},
-            {Key::PageDown, CSI "6~"},
-            {Key::NONE, nullptr},
+    const InputSpec is_Ansi[] = {
+        {Key::K0, "0"},
+        {Key::K1, "1"},
+        {Key::K2, "2"},
+        {Key::K3, "3"},
+        {Key::K4, "4"},
+        {Key::K5, "5"},
+        {Key::K6, "6"},
+        {Key::K7, "7"},
+        {Key::K8, "8"},
+        {Key::K9, "9"},
+        {Key::Backtick, "`"},
+        {Key::Tilde, "~"},
+        {Key::Space, " "},
+        {Key::Backspace, "\x7f"},
+        {Key::Tab, "\t"},
+        {Key::Return, "\r"},
+        {Key::Insert, CSI "2~"},
+        {Key::Delete, CSI "3~"},
+        {Key::PageUp, CSI "5~"},
+        {Key::PageDown, CSI "6~"},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_Mod_Ansi[] =
-        {
-            {Key::Insert, CSI "2;" MC "~"},
-            {Key::Delete, CSI "3;" MC "~"},
-            {Key::PageUp, CSI "5;" MC "~"},
-            {Key::PageDown, CSI "6;" MC "~"},
-            {Key::NONE, nullptr},
+    const InputSpec is_Mod_Ansi[] = {
+        {Key::Insert, CSI "2;" MC "~"},
+        {Key::Delete, CSI "3;" MC "~"},
+        {Key::PageUp, CSI "5;" MC "~"},
+        {Key::PageDown, CSI "6;" MC "~"},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_Ansi_FunctionKeys[] =
-        {
-            {Key::F1, SS3 "P"},
-            {Key::KP_F1, SS3 "P"},
-            {Key::F2, SS3 "Q"},
-            {Key::KP_F2, SS3 "Q"},
-            {Key::F3, SS3 "R"},
-            {Key::KP_F3, SS3 "R"},
-            {Key::F4, SS3 "S"},
-            {Key::KP_F4, SS3 "S"},
-            {Key::F5, CSI "15~"},
-            {Key::F6, CSI "17~"},
-            {Key::F7, CSI "18~"},
-            {Key::F8, CSI "19~"},
-            {Key::F9, CSI "20~"},
-            {Key::F10, CSI "21~"},
-            {Key::F11, CSI "23~"},
-            {Key::F12, CSI "24~"},
-            {Key::F13, CSI "25~"},
-            {Key::F14, CSI "26~"},
-            {Key::F15, CSI "28~"},
-            {Key::F16, CSI "29~"},
-            {Key::F17, CSI "31~"},
-            {Key::F18, CSI "32~"},
-            {Key::F19, CSI "33~"},
-            {Key::F20, CSI "34~"},
-            {Key::NONE, nullptr},
+    const InputSpec is_Ansi_FunctionKeys[] = {
+        {Key::F1, SS3 "P"},
+        {Key::KP_F1, SS3 "P"},
+        {Key::F2, SS3 "Q"},
+        {Key::KP_F2, SS3 "Q"},
+        {Key::F3, SS3 "R"},
+        {Key::KP_F3, SS3 "R"},
+        {Key::F4, SS3 "S"},
+        {Key::KP_F4, SS3 "S"},
+        {Key::F5, CSI "15~"},
+        {Key::F6, CSI "17~"},
+        {Key::F7, CSI "18~"},
+        {Key::F8, CSI "19~"},
+        {Key::F9, CSI "20~"},
+        {Key::F10, CSI "21~"},
+        {Key::F11, CSI "23~"},
+        {Key::F12, CSI "24~"},
+        {Key::F13, CSI "25~"},
+        {Key::F14, CSI "26~"},
+        {Key::F15, CSI "28~"},
+        {Key::F16, CSI "29~"},
+        {Key::F17, CSI "31~"},
+        {Key::F18, CSI "32~"},
+        {Key::F19, CSI "33~"},
+        {Key::F20, CSI "34~"},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_Mod_Ansi_FunctionKeys[] =
-        {
-            {Key::F1, CSI "1;" MC "P"},
-            {Key::KP_F1, CSI "1;" MC "P"},
-            {Key::F2, CSI "1;" MC "Q"},
-            {Key::KP_F2, CSI "1;" MC "Q"},
-            {Key::F3, CSI "1;" MC "R"},
-            {Key::KP_F3, CSI "1;" MC "R"},
-            {Key::F4, CSI "1;" MC "S"},
-            {Key::KP_F4, CSI "1;" MC "S"},
-            {Key::F5, CSI "15;" MC "~"},
-            {Key::F6, CSI "17;" MC "~"},
-            {Key::F7, CSI "18;" MC "~"},
-            {Key::F8, CSI "19;" MC "~"},
-            {Key::F9, CSI "20;" MC "~"},
-            {Key::F10, CSI "21;" MC "~"},
-            {Key::F11, CSI "23;" MC "~"},
-            {Key::F12, CSI "24;" MC "~"},
-            {Key::F13, CSI "25;" MC "~"},
-            {Key::F14, CSI "26;" MC "~"},
-            {Key::F15, CSI "28;" MC "~"},
-            {Key::F16, CSI "29;" MC "~"},
-            {Key::F17, CSI "31;" MC "~"},
-            {Key::F18, CSI "32;" MC "~"},
-            {Key::F19, CSI "33;" MC "~"},
-            {Key::F20, CSI "34;" MC "~"},
-            {Key::NONE, nullptr},
+    const InputSpec is_Mod_Ansi_FunctionKeys[] = {
+        {Key::F1, CSI "1;" MC "P"},
+        {Key::KP_F1, CSI "1;" MC "P"},
+        {Key::F2, CSI "1;" MC "Q"},
+        {Key::KP_F2, CSI "1;" MC "Q"},
+        {Key::F3, CSI "1;" MC "R"},
+        {Key::KP_F3, CSI "1;" MC "R"},
+        {Key::F4, CSI "1;" MC "S"},
+        {Key::KP_F4, CSI "1;" MC "S"},
+        {Key::F5, CSI "15;" MC "~"},
+        {Key::F6, CSI "17;" MC "~"},
+        {Key::F7, CSI "18;" MC "~"},
+        {Key::F8, CSI "19;" MC "~"},
+        {Key::F9, CSI "20;" MC "~"},
+        {Key::F10, CSI "21;" MC "~"},
+        {Key::F11, CSI "23;" MC "~"},
+        {Key::F12, CSI "24;" MC "~"},
+        {Key::F13, CSI "25;" MC "~"},
+        {Key::F14, CSI "26;" MC "~"},
+        {Key::F15, CSI "28;" MC "~"},
+        {Key::F16, CSI "29;" MC "~"},
+        {Key::F17, CSI "31;" MC "~"},
+        {Key::F18, CSI "32;" MC "~"},
+        {Key::F19, CSI "33;" MC "~"},
+        {Key::F20, CSI "34;" MC "~"},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_Ansi_KeypadKeys[] =
-        {
-            {Key::KP_Space, " "},
-            {Key::KP_Tab, "\t"},
-            {Key::KP_Enter, "\r"},
-            {Key::KP_Star, "*"},
-            {Key::KP_Plus, "+"},
-            {Key::KP_Comma, ","},
-            {Key::KP_Minus, "-"},
-            {Key::KP_Slash, "/"},
-            {Key::KP_Delete, "."},
-            {Key::KP_Dot, "."},
-            {Key::KP_Insert, "0"},
-            {Key::KP_0, "0"},
-            {Key::KP_End, "1"},
-            {Key::KP_1, "1"},
-            {Key::KP_Down, "2"},
-            {Key::KP_2, "2"},
-            {Key::KP_PageDown, "3"},
-            {Key::KP_3, "3"},
-            {Key::KP_Left, "4"},
-            {Key::KP_4, "4"},
-            {Key::KP_Begin, "5"},
-            {Key::KP_5, "5"},
-            {Key::KP_Right, "6"},
-            {Key::KP_6, "6"},
-            {Key::KP_Home, "7"},
-            {Key::KP_7, "7"},
-            {Key::KP_Up, "8"},
-            {Key::KP_8, "8"},
-            {Key::KP_PageUp, "9"},
-            {Key::KP_9, "9"},
-            {Key::KP_Equal, "="},
-            {Key::NONE, nullptr},
+    const InputSpec is_Ansi_KeypadKeys[] = {
+        {Key::KP_Space, " "},
+        {Key::KP_Tab, "\t"},
+        {Key::KP_Enter, "\r"},
+        {Key::KP_Star, "*"},
+        {Key::KP_Plus, "+"},
+        {Key::KP_Comma, ","},
+        {Key::KP_Minus, "-"},
+        {Key::KP_Slash, "/"},
+        {Key::KP_Delete, "."},
+        {Key::KP_Dot, "."},
+        {Key::KP_Insert, "0"},
+        {Key::KP_0, "0"},
+        {Key::KP_End, "1"},
+        {Key::KP_1, "1"},
+        {Key::KP_Down, "2"},
+        {Key::KP_2, "2"},
+        {Key::KP_PageDown, "3"},
+        {Key::KP_3, "3"},
+        {Key::KP_Left, "4"},
+        {Key::KP_4, "4"},
+        {Key::KP_Begin, "5"},
+        {Key::KP_5, "5"},
+        {Key::KP_Right, "6"},
+        {Key::KP_6, "6"},
+        {Key::KP_Home, "7"},
+        {Key::KP_7, "7"},
+        {Key::KP_Up, "8"},
+        {Key::KP_8, "8"},
+        {Key::KP_PageUp, "9"},
+        {Key::KP_9, "9"},
+        {Key::KP_Equal, "="},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_Appl_KeypadKeys[] =
-        {
-            {Key::KP_Space, SS3 " "},
-            {Key::KP_Tab, SS3 "I"},
-            {Key::KP_Enter, SS3 "M"},
-            {Key::KP_Star, SS3 "j"},
-            {Key::KP_Plus, SS3 "k"},
-            {Key::KP_Comma, SS3 "l"},
-            {Key::KP_Minus, SS3 "m"},
-            {Key::KP_Delete, SS3 "n"},
-            {Key::KP_Dot, SS3 "n"},
-            {Key::KP_Slash, SS3 "o"},
-            {Key::KP_Insert, SS3 "p"},
-            {Key::KP_0, SS3 "p"},
-            {Key::KP_End, SS3 "q"},
-            {Key::KP_1, SS3 "q"},
-            {Key::KP_Down, SS3 "r"},
-            {Key::KP_2, SS3 "r"},
-            {Key::KP_PageDown, SS3 "s"},
-            {Key::KP_3, SS3 "s"},
-            {Key::KP_Left, SS3 "t"},
-            {Key::KP_4, SS3 "t"},
-            {Key::KP_Begin, SS3 "u"},
-            {Key::KP_5, SS3 "u"},
-            {Key::KP_Right, SS3 "v"},
-            {Key::KP_6, SS3 "v"},
-            {Key::KP_Home, SS3 "w"},
-            {Key::KP_7, SS3 "w"},
-            {Key::KP_Up, SS3 "x"},
-            {Key::KP_8, SS3 "x"},
-            {Key::KP_PageUp, SS3 "y"},
-            {Key::KP_9, SS3 "y"},
-            {Key::KP_Equal, SS3 "X"},
-            {Key::NONE, nullptr},
+    const InputSpec is_Appl_KeypadKeys[] = {
+        {Key::KP_Space, SS3 " "},
+        {Key::KP_Tab, SS3 "I"},
+        {Key::KP_Enter, SS3 "M"},
+        {Key::KP_Star, SS3 "j"},
+        {Key::KP_Plus, SS3 "k"},
+        {Key::KP_Comma, SS3 "l"},
+        {Key::KP_Minus, SS3 "m"},
+        {Key::KP_Delete, SS3 "n"},
+        {Key::KP_Dot, SS3 "n"},
+        {Key::KP_Slash, SS3 "o"},
+        {Key::KP_Insert, SS3 "p"},
+        {Key::KP_0, SS3 "p"},
+        {Key::KP_End, SS3 "q"},
+        {Key::KP_1, SS3 "q"},
+        {Key::KP_Down, SS3 "r"},
+        {Key::KP_2, SS3 "r"},
+        {Key::KP_PageDown, SS3 "s"},
+        {Key::KP_3, SS3 "s"},
+        {Key::KP_Left, SS3 "t"},
+        {Key::KP_4, SS3 "t"},
+        {Key::KP_Begin, SS3 "u"},
+        {Key::KP_5, SS3 "u"},
+        {Key::KP_Right, SS3 "v"},
+        {Key::KP_6, SS3 "v"},
+        {Key::KP_Home, SS3 "w"},
+        {Key::KP_7, SS3 "w"},
+        {Key::KP_Up, SS3 "x"},
+        {Key::KP_8, SS3 "x"},
+        {Key::KP_PageUp, SS3 "y"},
+        {Key::KP_9, SS3 "y"},
+        {Key::KP_Equal, SS3 "X"},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_Mod_Appl_KeypadKeys[] =
-        {
-            {Key::KP_Space, SS3 MC " "},
-            {Key::KP_Tab, SS3 MC "I"},
-            {Key::KP_Enter, SS3 MC "M"},
-            {Key::KP_Star, SS3 MC "j"},
-            {Key::KP_Plus, SS3 MC "k"},
-            {Key::KP_Comma, SS3 MC "l"},
-            {Key::KP_Minus, SS3 MC "m"},
-            {Key::KP_Delete, SS3 MC "n"},
-            {Key::KP_Dot, SS3 MC "n"},
-            {Key::KP_Slash, SS3 MC "o"},
-            {Key::KP_Insert, SS3 MC "p"},
-            {Key::KP_0, SS3 MC "p"},
-            {Key::KP_End, SS3 MC "q"},
-            {Key::KP_1, SS3 MC "q"},
-            {Key::KP_Down, SS3 MC "r"},
-            {Key::KP_2, SS3 MC "r"},
-            {Key::KP_PageDown, SS3 MC "s"},
-            {Key::KP_3, SS3 MC "s"},
-            {Key::KP_Left, SS3 MC "t"},
-            {Key::KP_4, SS3 MC "t"},
-            {Key::KP_Begin, SS3 MC "u"},
-            {Key::KP_5, SS3 MC "u"},
-            {Key::KP_Right, SS3 MC "v"},
-            {Key::KP_6, SS3 MC "v"},
-            {Key::KP_Home, SS3 MC "w"},
-            {Key::KP_7, SS3 MC "w"},
-            {Key::KP_Up, SS3 MC "x"},
-            {Key::KP_8, SS3 MC "x"},
-            {Key::KP_PageUp, SS3 MC "y"},
-            {Key::KP_9, SS3 MC "y"},
-            {Key::KP_Equal, SS3 MC "X"},
-            {Key::NONE, nullptr},
+    const InputSpec is_Mod_Appl_KeypadKeys[] = {
+        {Key::KP_Space, SS3 MC " "},
+        {Key::KP_Tab, SS3 MC "I"},
+        {Key::KP_Enter, SS3 MC "M"},
+        {Key::KP_Star, SS3 MC "j"},
+        {Key::KP_Plus, SS3 MC "k"},
+        {Key::KP_Comma, SS3 MC "l"},
+        {Key::KP_Minus, SS3 MC "m"},
+        {Key::KP_Delete, SS3 MC "n"},
+        {Key::KP_Dot, SS3 MC "n"},
+        {Key::KP_Slash, SS3 MC "o"},
+        {Key::KP_Insert, SS3 MC "p"},
+        {Key::KP_0, SS3 MC "p"},
+        {Key::KP_End, SS3 MC "q"},
+        {Key::KP_1, SS3 MC "q"},
+        {Key::KP_Down, SS3 MC "r"},
+        {Key::KP_2, SS3 MC "r"},
+        {Key::KP_PageDown, SS3 MC "s"},
+        {Key::KP_3, SS3 MC "s"},
+        {Key::KP_Left, SS3 MC "t"},
+        {Key::KP_4, SS3 MC "t"},
+        {Key::KP_Begin, SS3 MC "u"},
+        {Key::KP_5, SS3 MC "u"},
+        {Key::KP_Right, SS3 MC "v"},
+        {Key::KP_6, SS3 MC "v"},
+        {Key::KP_Home, SS3 MC "w"},
+        {Key::KP_7, SS3 MC "w"},
+        {Key::KP_Up, SS3 MC "x"},
+        {Key::KP_8, SS3 MC "x"},
+        {Key::KP_PageUp, SS3 MC "y"},
+        {Key::KP_9, SS3 MC "y"},
+        {Key::KP_Equal, SS3 MC "X"},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_VT52_KeypadKeys[] =
-        {
-            {Key::KP_Space, ESC "? "},
-            {Key::KP_Tab, ESC "?I"},
-            {Key::KP_Enter, ESC "?M"},
-            {Key::KP_Star, ESC "?j"},
-            {Key::KP_Plus, ESC "?k"},
-            {Key::KP_Comma, ESC "?l"},
-            {Key::KP_Minus, ESC "?m"},
-            {Key::KP_Delete, ESC "?n"},
-            {Key::KP_Dot, ESC "?n"},
-            {Key::KP_Slash, ESC "?o"},
-            {Key::KP_Insert, ESC "?p"},
-            {Key::KP_0, ESC "?p"},
-            {Key::KP_End, ESC "?q"},
-            {Key::KP_1, ESC "?q"},
-            {Key::KP_Down, ESC "?r"},
-            {Key::KP_2, ESC "?r"},
-            {Key::KP_PageDown, ESC "?s"},
-            {Key::KP_3, ESC "?s"},
-            {Key::KP_Left, ESC "?t"},
-            {Key::KP_4, ESC "?t"},
-            {Key::KP_Begin, ESC "?u"},
-            {Key::KP_5, ESC "?u"},
-            {Key::KP_Right, ESC "?v"},
-            {Key::KP_6, ESC "?v"},
-            {Key::KP_Home, ESC "?w"},
-            {Key::KP_7, ESC "?w"},
-            {Key::KP_Up, ESC "?x"},
-            {Key::KP_8, ESC "?x"},
-            {Key::KP_PageUp, ESC "?y"},
-            {Key::KP_9, ESC "?y"},
-            {Key::KP_Equal, ESC "?X"},
-            {Key::NONE, nullptr},
+    const InputSpec is_VT52_KeypadKeys[] = {
+        {Key::KP_Space, ESC "? "},
+        {Key::KP_Tab, ESC "?I"},
+        {Key::KP_Enter, ESC "?M"},
+        {Key::KP_Star, ESC "?j"},
+        {Key::KP_Plus, ESC "?k"},
+        {Key::KP_Comma, ESC "?l"},
+        {Key::KP_Minus, ESC "?m"},
+        {Key::KP_Delete, ESC "?n"},
+        {Key::KP_Dot, ESC "?n"},
+        {Key::KP_Slash, ESC "?o"},
+        {Key::KP_Insert, ESC "?p"},
+        {Key::KP_0, ESC "?p"},
+        {Key::KP_End, ESC "?q"},
+        {Key::KP_1, ESC "?q"},
+        {Key::KP_Down, ESC "?r"},
+        {Key::KP_2, ESC "?r"},
+        {Key::KP_PageDown, ESC "?s"},
+        {Key::KP_3, ESC "?s"},
+        {Key::KP_Left, ESC "?t"},
+        {Key::KP_4, ESC "?t"},
+        {Key::KP_Begin, ESC "?u"},
+        {Key::KP_5, ESC "?u"},
+        {Key::KP_Right, ESC "?v"},
+        {Key::KP_6, ESC "?v"},
+        {Key::KP_Home, ESC "?w"},
+        {Key::KP_7, ESC "?w"},
+        {Key::KP_Up, ESC "?x"},
+        {Key::KP_8, ESC "?x"},
+        {Key::KP_PageUp, ESC "?y"},
+        {Key::KP_9, ESC "?y"},
+        {Key::KP_Equal, ESC "?X"},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_VT52_FunctionKeys[] =
-        {
-            {Key::F1, ESC "P"},
-            {Key::KP_F1, ESC "P"},
-            {Key::F2, ESC "Q"},
-            {Key::KP_F2, ESC "Q"},
-            {Key::F3, ESC "R"},
-            {Key::KP_F3, ESC "R"},
-            {Key::F4, ESC "S"},
-            {Key::KP_F4, ESC "S"},
-            {Key::NONE, nullptr},
+    const InputSpec is_VT52_FunctionKeys[] = {
+        {Key::F1, ESC "P"},
+        {Key::KP_F1, ESC "P"},
+        {Key::F2, ESC "Q"},
+        {Key::KP_F2, ESC "Q"},
+        {Key::F3, ESC "R"},
+        {Key::KP_F3, ESC "R"},
+        {Key::F4, ESC "S"},
+        {Key::KP_F4, ESC "S"},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_Ansi_CursorKeys[] =
-        {
-            {Key::Up, CSI "A"},
-            {Key::Down, CSI "B"},
-            {Key::Right, CSI "C"},
-            {Key::Left, CSI "D"},
-            {Key::Home, CSI "H"},
-            {Key::End, CSI "F"},
-            {Key::NONE, nullptr},
+    const InputSpec is_Ansi_CursorKeys[] = {
+        {Key::Up, CSI "A"},
+        {Key::Down, CSI "B"},
+        {Key::Right, CSI "C"},
+        {Key::Left, CSI "D"},
+        {Key::Home, CSI "H"},
+        {Key::End, CSI "F"},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_Appl_CursorKeys[] =
-        {
-            {Key::Up, SS3 "A"},
-            {Key::Down, SS3 "B"},
-            {Key::Right, SS3 "C"},
-            {Key::Left, SS3 "D"},
-            {Key::Home, SS3 "H"},
-            {Key::End, SS3 "F"},
-            {Key::NONE, nullptr},
+    const InputSpec is_Appl_CursorKeys[] = {
+        {Key::Up, SS3 "A"},
+        {Key::Down, SS3 "B"},
+        {Key::Right, SS3 "C"},
+        {Key::Left, SS3 "D"},
+        {Key::Home, SS3 "H"},
+        {Key::End, SS3 "F"},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_Mod_CursorKeys[] =
-        {
-            {Key::Up, CSI "1;" MC "A"},
-            {Key::Down, CSI "1;" MC "B"},
-            {Key::Right, CSI "1;" MC "C"},
-            {Key::Left, CSI "1;" MC "D"},
-            {Key::Home, CSI "1;" MC "H"},
-            {Key::End, CSI "1;" MC "F"},
-            {Key::NONE, nullptr},
+    const InputSpec is_Mod_CursorKeys[] = {
+        {Key::Up, CSI "1;" MC "A"},
+        {Key::Down, CSI "1;" MC "B"},
+        {Key::Right, CSI "1;" MC "C"},
+        {Key::Left, CSI "1;" MC "D"},
+        {Key::Home, CSI "1;" MC "H"},
+        {Key::End, CSI "1;" MC "F"},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_VT52_CursorKeys[] =
-        {
-            {Key::Up, ESC "A"},
-            {Key::Down, ESC "B"},
-            {Key::Right, ESC "C"},
-            {Key::Left, ESC "D"},
-            {Key::Home, ESC "H"},
-            {Key::End, ESC "F"},
-            {Key::NONE, nullptr},
+    const InputSpec is_VT52_CursorKeys[] = {
+        {Key::Up, ESC "A"},
+        {Key::Down, ESC "B"},
+        {Key::Right, ESC "C"},
+        {Key::Left, ESC "D"},
+        {Key::Home, ESC "H"},
+        {Key::End, ESC "F"},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_ReturnKey_ANL[] =
-        {
-            {Key::Return, "\r\n"},
-            {Key::KP_Enter, "\r\n"},
-            {Key::NONE, nullptr},
+    const InputSpec is_ReturnKey_ANL[] = {
+        {Key::Return, "\r\n"},
+        {Key::KP_Enter, "\r\n"},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_BackspaceKey_BkSp[] =
-        {
-            {Key::Backspace, "\b"},
-            {Key::NONE, nullptr},
+    const InputSpec is_BackspaceKey_BkSp[] = {
+        {Key::Backspace, "\b"},
+        {Key::NONE, nullptr},
     };
 
-    const InputSpec is_Alt_BackspaceKey_BkSp[] =
-        {
-            {Key::Backspace, ESC "\b"},
-            {Key::NONE, nullptr},
+    const InputSpec is_Alt_BackspaceKey_BkSp[] = {
+        {Key::Backspace, ESC "\b"},
+        {Key::NONE, nullptr},
     };
 
 #undef ESC
 #undef CSI
 #undef SS3
 
-    inline u8
-    getModifierCode(VtModifier modifiers) {
+    inline u8 getModifierCode(VtModifier modifiers) {
         switch (modifiers) {
             case VtModifier::none:
                 return 0;
@@ -488,25 +463,28 @@ namespace {
     }
 
     bool isKittyRecoveryKey(VtKey key) {
-        return key == VtKey::Return || key == VtKey::Tab ||
-               key == VtKey::Backspace;
+        return key == VtKey::Return || key == VtKey::Tab || key == VtKey::Backspace;
     }
 
     VtModifier kittyToLegacyModifiers(u16 modifiers) {
         VtModifier result = VtModifier::none;
-        if (modifiers & 1) result = result | VtModifier::shift;
-        if (modifiers & 2) result = result | VtModifier::alt;
-        if (modifiers & 4) result = result | VtModifier::control;
+        if (modifiers & 1) {
+            result = result | VtModifier::shift;
+        }
+        if (modifiers & 2) {
+            result = result | VtModifier::alt;
+        }
+        if (modifiers & 4) {
+            result = result | VtModifier::control;
+        }
         return result;
     }
 
     bool validKittyAssociatedText(u32 codepoint) {
-        return codepoint >= 0x20 &&
-               !(codepoint >= 0x7f && codepoint <= 0x9f);
+        return codepoint >= 0x20 && !(codepoint >= 0x7f && codepoint <= 0x9f);
     }
 
-    KittyKeySpec
-    kittyKeySpec(VtKey key) {
+    KittyKeySpec kittyKeySpec(VtKey key) {
         using Key = VtKey;
         switch (key) {
             case Key::Return:
@@ -670,8 +648,7 @@ namespace {
         }
     }
 
-    void
-    makePalette256(Color p[]) {
+    void makePalette256(Color p[]) {
         opts.getColor("color0", p[0]);
         opts.getColor("color1", p[1]);
         opts.getColor("color2", p[2]);
@@ -713,631 +690,601 @@ namespace {
     * These tables are referenced by VtermImpl::charCodes (see below).
     */
 
-    const u16 uc_DecSpec[] =
-        {
-            0x0020,
-            0x0021,
-            0x0022,
-            0x0023,
-            0x0024,
-            0x0025,
-            0x0026,
-            0x0027,
-            0x0028,
-            0x0029,
-            0x002a,
-            0x002b,
-            0x002c,
-            0x002d,
-            0x002e,
-            0x002f,
-            0x0030,
-            0x0031,
-            0x0032,
-            0x0033,
-            0x0034,
-            0x0035,
-            0x0036,
-            0x0037,
-            0x0038,
-            0x0039,
-            0x003a,
-            0x003b,
-            0x003c,
-            0x003d,
-            0x003e,
-            0x003f,
+    const u16 uc_DecSpec[] = {
+        0x0020,
+        0x0021,
+        0x0022,
+        0x0023,
+        0x0024,
+        0x0025,
+        0x0026,
+        0x0027,
+        0x0028,
+        0x0029,
+        0x002a,
+        0x002b,
+        0x002c,
+        0x002d,
+        0x002e,
+        0x002f,
+        0x0030,
+        0x0031,
+        0x0032,
+        0x0033,
+        0x0034,
+        0x0035,
+        0x0036,
+        0x0037,
+        0x0038,
+        0x0039,
+        0x003a,
+        0x003b,
+        0x003c,
+        0x003d,
+        0x003e,
+        0x003f,
 
-            0x0040,
-            0x0041,
-            0x0042,
-            0x0043,
-            0x0044,
-            0x0045,
-            0x0046,
-            0x0047,
-            0x0048,
-            0x0049,
-            0x004a,
-            0x004b,
-            0x004c,
-            0x004d,
-            0x004e,
-            0x004f,
-            0x0050,
-            0x0051,
-            0x0052,
-            0x0053,
-            0x0054,
-            0x0055,
-            0x0056,
-            0x0057,
-            0x0058,
-            0x0059,
-            0x005a,
-            0x005b,
-            0x005c,
-            0x005d,
-            0x005e,
-            0x005f,
+        0x0040,
+        0x0041,
+        0x0042,
+        0x0043,
+        0x0044,
+        0x0045,
+        0x0046,
+        0x0047,
+        0x0048,
+        0x0049,
+        0x004a,
+        0x004b,
+        0x004c,
+        0x004d,
+        0x004e,
+        0x004f,
+        0x0050,
+        0x0051,
+        0x0052,
+        0x0053,
+        0x0054,
+        0x0055,
+        0x0056,
+        0x0057,
+        0x0058,
+        0x0059,
+        0x005a,
+        0x005b,
+        0x005c,
+        0x005d,
+        0x005e,
+        0x005f,
 
-            0x25c6,
-            0x2592,
-            0x2409,
-            0x240c,
-            0x240d,
-            0x240a,
-            0x00b0,
-            0x00b1,
-            0x2424,
-            0x240b,
-            0x2518,
-            0x2510,
-            0x250c,
-            0x2514,
-            0x253c,
-            0x23ba,
-            0x23bb,
-            0x2500,
-            0x23bc,
-            0x23bd,
-            0x251c,
-            0x2524,
-            0x2534,
-            0x252c,
-            0x2502,
-            0x2264,
-            0x2265,
-            0x03c0,
-            0x2260,
-            0x00a3,
-            0x00b7,
-            0x0020,
+        0x25c6,
+        0x2592,
+        0x2409,
+        0x240c,
+        0x240d,
+        0x240a,
+        0x00b0,
+        0x00b1,
+        0x2424,
+        0x240b,
+        0x2518,
+        0x2510,
+        0x250c,
+        0x2514,
+        0x253c,
+        0x23ba,
+        0x23bb,
+        0x2500,
+        0x23bc,
+        0x23bd,
+        0x251c,
+        0x2524,
+        0x2534,
+        0x252c,
+        0x2502,
+        0x2264,
+        0x2265,
+        0x03c0,
+        0x2260,
+        0x00a3,
+        0x00b7,
+        0x0020,
     };
 
-    const u16 uc_DecSuppl[] =
-        {
-            0x0020,
-            0x00a1,
-            0x00a2,
-            0x00a3,
-            0x0024,
-            0x00a5,
-            0x0026,
-            0x00a7,
-            0x00a4,
-            0x00a9,
-            0x00aa,
-            0x00ab,
-            0x002c,
-            0x002d,
-            0x002e,
-            0x002f,
-            0x00b0,
-            0x00b1,
-            0x00b2,
-            0x00b3,
-            0x0034,
-            0x00b5,
-            0x00b6,
-            0x00b7,
-            0x0038,
-            0x00b9,
-            0x00ba,
-            0x00bb,
-            0x00bc,
-            0x00bd,
-            0x003e,
-            0x00bf,
+    const u16 uc_DecSuppl[] = {
+        0x0020,
+        0x00a1,
+        0x00a2,
+        0x00a3,
+        0x0024,
+        0x00a5,
+        0x0026,
+        0x00a7,
+        0x00a4,
+        0x00a9,
+        0x00aa,
+        0x00ab,
+        0x002c,
+        0x002d,
+        0x002e,
+        0x002f,
+        0x00b0,
+        0x00b1,
+        0x00b2,
+        0x00b3,
+        0x0034,
+        0x00b5,
+        0x00b6,
+        0x00b7,
+        0x0038,
+        0x00b9,
+        0x00ba,
+        0x00bb,
+        0x00bc,
+        0x00bd,
+        0x003e,
+        0x00bf,
 
-            0x00c0,
-            0x00c1,
-            0x00c2,
-            0x00c3,
-            0x00c4,
-            0x00c5,
-            0x00c6,
-            0x00c7,
-            0x00c8,
-            0x00c9,
-            0x00ca,
-            0x00cb,
-            0x00cc,
-            0x00cd,
-            0x00ce,
-            0x00cf,
-            0x0050,
-            0x00d1,
-            0x00d2,
-            0x00d3,
-            0x00d4,
-            0x00d5,
-            0x00d6,
-            0x0152,
-            0x00d8,
-            0x00d9,
-            0x00da,
-            0x00db,
-            0x00dc,
-            0x0178,
-            0x005e,
-            0x00df,
+        0x00c0,
+        0x00c1,
+        0x00c2,
+        0x00c3,
+        0x00c4,
+        0x00c5,
+        0x00c6,
+        0x00c7,
+        0x00c8,
+        0x00c9,
+        0x00ca,
+        0x00cb,
+        0x00cc,
+        0x00cd,
+        0x00ce,
+        0x00cf,
+        0x0050,
+        0x00d1,
+        0x00d2,
+        0x00d3,
+        0x00d4,
+        0x00d5,
+        0x00d6,
+        0x0152,
+        0x00d8,
+        0x00d9,
+        0x00da,
+        0x00db,
+        0x00dc,
+        0x0178,
+        0x005e,
+        0x00df,
 
-            0x00e0,
-            0x00e1,
-            0x00e2,
-            0x00e3,
-            0x00e4,
-            0x00e5,
-            0x00e6,
-            0x00e7,
-            0x00e8,
-            0x00e9,
-            0x00ea,
-            0x00eb,
-            0x00ec,
-            0x00ed,
-            0x00ee,
-            0x00ef,
-            0x0070,
-            0x00f1,
-            0x00f2,
-            0x00f3,
-            0x00f4,
-            0x00f5,
-            0x00f6,
-            0x0153,
-            0x00f8,
-            0x00f9,
-            0x00fa,
-            0x00fb,
-            0x00fc,
-            0x00ff,
-            0x007e,
-            0x007f,
+        0x00e0,
+        0x00e1,
+        0x00e2,
+        0x00e3,
+        0x00e4,
+        0x00e5,
+        0x00e6,
+        0x00e7,
+        0x00e8,
+        0x00e9,
+        0x00ea,
+        0x00eb,
+        0x00ec,
+        0x00ed,
+        0x00ee,
+        0x00ef,
+        0x0070,
+        0x00f1,
+        0x00f2,
+        0x00f3,
+        0x00f4,
+        0x00f5,
+        0x00f6,
+        0x0153,
+        0x00f8,
+        0x00f9,
+        0x00fa,
+        0x00fb,
+        0x00fc,
+        0x00ff,
+        0x007e,
+        0x007f,
     };
 
-    const u16 uc_DecTechn[] =
-        {
-            0x0020,
-            0x23b7,
-            0x250c,
-            0x2500,
-            0x2320,
-            0x2321,
-            0x2502,
-            0x23a1,
-            0x23a3,
-            0x23a4,
-            0x23a6,
-            0x239b,
-            0x239d,
-            0x239e,
-            0x23a0,
-            0x23a8,
-            0x23ac,
-            0x0020,
-            0x0020,
-            0x0020,
-            0x0020,
-            0x0020,
-            0x0020,
-            0x0020,
-            0x0020,
-            0x0020,
-            0x0020,
-            0x0020,
-            0x2264,
-            0x2260,
-            0x2265,
-            0x222b,
+    const u16 uc_DecTechn[] = {
+        0x0020,
+        0x23b7,
+        0x250c,
+        0x2500,
+        0x2320,
+        0x2321,
+        0x2502,
+        0x23a1,
+        0x23a3,
+        0x23a4,
+        0x23a6,
+        0x239b,
+        0x239d,
+        0x239e,
+        0x23a0,
+        0x23a8,
+        0x23ac,
+        0x0020,
+        0x0020,
+        0x0020,
+        0x0020,
+        0x0020,
+        0x0020,
+        0x0020,
+        0x0020,
+        0x0020,
+        0x0020,
+        0x0020,
+        0x2264,
+        0x2260,
+        0x2265,
+        0x222b,
 
-            0x2234,
-            0x221d,
-            0x221e,
-            0x00f7,
-            0x0394,
-            0x2207,
-            0x03a6,
-            0x0393,
-            0x223c,
-            0x2243,
-            0x0398,
-            0x00d7,
-            0x039b,
-            0x21d4,
-            0x21d2,
-            0x2261,
-            0x03a0,
-            0x03a8,
-            0x0020,
-            0x03a3,
-            0x0020,
-            0x0020,
-            0x221a,
-            0x03a9,
-            0x039e,
-            0x03a5,
-            0x2282,
-            0x2283,
-            0x2229,
-            0x222a,
-            0x2227,
-            0x2228,
+        0x2234,
+        0x221d,
+        0x221e,
+        0x00f7,
+        0x0394,
+        0x2207,
+        0x03a6,
+        0x0393,
+        0x223c,
+        0x2243,
+        0x0398,
+        0x00d7,
+        0x039b,
+        0x21d4,
+        0x21d2,
+        0x2261,
+        0x03a0,
+        0x03a8,
+        0x0020,
+        0x03a3,
+        0x0020,
+        0x0020,
+        0x221a,
+        0x03a9,
+        0x039e,
+        0x03a5,
+        0x2282,
+        0x2283,
+        0x2229,
+        0x222a,
+        0x2227,
+        0x2228,
 
-            0x00ac,
-            0x03b1,
-            0x03b2,
-            0x03c7,
-            0x03b4,
-            0x03b5,
-            0x03c6,
-            0x03b3,
-            0x03b7,
-            0x03b9,
-            0x03b8,
-            0x03ba,
-            0x03bb,
-            0x0020,
-            0x03bd,
-            0x2202,
-            0x03c0,
-            0x03c8,
-            0x03c1,
-            0x03c3,
-            0x03c4,
-            0x0020,
-            0x0192,
-            0x03c9,
-            0x03be,
-            0x03c5,
-            0x03b6,
-            0x2190,
-            0x2191,
-            0x2192,
-            0x2193,
-            0x007f,
+        0x00ac,
+        0x03b1,
+        0x03b2,
+        0x03c7,
+        0x03b4,
+        0x03b5,
+        0x03c6,
+        0x03b3,
+        0x03b7,
+        0x03b9,
+        0x03b8,
+        0x03ba,
+        0x03bb,
+        0x0020,
+        0x03bd,
+        0x2202,
+        0x03c0,
+        0x03c8,
+        0x03c1,
+        0x03c3,
+        0x03c4,
+        0x0020,
+        0x0192,
+        0x03c9,
+        0x03be,
+        0x03c5,
+        0x03b6,
+        0x2190,
+        0x2191,
+        0x2192,
+        0x2193,
+        0x007f,
     };
 
-    const u16 uc_IsoLatin1[] =
-        {
-            0x00a0,
-            0x00a1,
-            0x00a2,
-            0x00a3,
-            0x00a4,
-            0x00a5,
-            0x00a6,
-            0x00a7,
-            0x00a8,
-            0x00a9,
-            0x00aa,
-            0x00ab,
-            0x00ac,
-            0x00ad,
-            0x00ae,
-            0x00af,
-            0x00b0,
-            0x00b1,
-            0x00b2,
-            0x00b3,
-            0x00b4,
-            0x00b5,
-            0x00b6,
-            0x00b7,
-            0x00b8,
-            0x00b9,
-            0x00ba,
-            0x00bb,
-            0x00bc,
-            0x00bd,
-            0x00be,
-            0x00bf,
+    const u16 uc_IsoLatin1[] = {
+        0x00a0,
+        0x00a1,
+        0x00a2,
+        0x00a3,
+        0x00a4,
+        0x00a5,
+        0x00a6,
+        0x00a7,
+        0x00a8,
+        0x00a9,
+        0x00aa,
+        0x00ab,
+        0x00ac,
+        0x00ad,
+        0x00ae,
+        0x00af,
+        0x00b0,
+        0x00b1,
+        0x00b2,
+        0x00b3,
+        0x00b4,
+        0x00b5,
+        0x00b6,
+        0x00b7,
+        0x00b8,
+        0x00b9,
+        0x00ba,
+        0x00bb,
+        0x00bc,
+        0x00bd,
+        0x00be,
+        0x00bf,
 
-            0x00c0,
-            0x00c1,
-            0x00c2,
-            0x00c3,
-            0x00c4,
-            0x00c5,
-            0x00c6,
-            0x00c7,
-            0x00c8,
-            0x00c9,
-            0x00ca,
-            0x00cb,
-            0x00cc,
-            0x00cd,
-            0x00ce,
-            0x00cf,
-            0x00d0,
-            0x00d1,
-            0x00d2,
-            0x00d3,
-            0x00d4,
-            0x00d5,
-            0x00d6,
-            0x00d7,
-            0x00d8,
-            0x00d9,
-            0x00da,
-            0x00db,
-            0x00dc,
-            0x00dd,
-            0x00de,
-            0x00df,
+        0x00c0,
+        0x00c1,
+        0x00c2,
+        0x00c3,
+        0x00c4,
+        0x00c5,
+        0x00c6,
+        0x00c7,
+        0x00c8,
+        0x00c9,
+        0x00ca,
+        0x00cb,
+        0x00cc,
+        0x00cd,
+        0x00ce,
+        0x00cf,
+        0x00d0,
+        0x00d1,
+        0x00d2,
+        0x00d3,
+        0x00d4,
+        0x00d5,
+        0x00d6,
+        0x00d7,
+        0x00d8,
+        0x00d9,
+        0x00da,
+        0x00db,
+        0x00dc,
+        0x00dd,
+        0x00de,
+        0x00df,
 
-            0x00e0,
-            0x00e1,
-            0x00e2,
-            0x00e3,
-            0x00e4,
-            0x00e5,
-            0x00e6,
-            0x00e7,
-            0x00e8,
-            0x00e9,
-            0x00ea,
-            0x00eb,
-            0x00ec,
-            0x00ed,
-            0x00ee,
-            0x00ef,
-            0x00f0,
-            0x00f1,
-            0x00f2,
-            0x00f3,
-            0x00f4,
-            0x00f5,
-            0x00f6,
-            0x00f7,
-            0x00f8,
-            0x00f9,
-            0x00fa,
-            0x00fb,
-            0x00fc,
-            0x00fd,
-            0x00fe,
-            0x00ff,
+        0x00e0,
+        0x00e1,
+        0x00e2,
+        0x00e3,
+        0x00e4,
+        0x00e5,
+        0x00e6,
+        0x00e7,
+        0x00e8,
+        0x00e9,
+        0x00ea,
+        0x00eb,
+        0x00ec,
+        0x00ed,
+        0x00ee,
+        0x00ef,
+        0x00f0,
+        0x00f1,
+        0x00f2,
+        0x00f3,
+        0x00f4,
+        0x00f5,
+        0x00f6,
+        0x00f7,
+        0x00f8,
+        0x00f9,
+        0x00fa,
+        0x00fb,
+        0x00fc,
+        0x00fd,
+        0x00fe,
+        0x00ff,
     };
 
-    const u16 uc_IsoUK[] =
-        {
-            0x0020,
-            0x0021,
-            0x0022,
-            0x00a3,
-            0x0024,
-            0x0025,
-            0x0026,
-            0x0027,
-            0x0028,
-            0x0029,
-            0x002a,
-            0x002b,
-            0x002c,
-            0x002d,
-            0x002e,
-            0x002f,
-            0x0030,
-            0x0031,
-            0x0032,
-            0x0033,
-            0x0034,
-            0x0035,
-            0x0036,
-            0x0037,
-            0x0038,
-            0x0039,
-            0x003a,
-            0x003b,
-            0x003c,
-            0x003d,
-            0x003e,
-            0x003f,
+    const u16 uc_IsoUK[] = {
+        0x0020,
+        0x0021,
+        0x0022,
+        0x00a3,
+        0x0024,
+        0x0025,
+        0x0026,
+        0x0027,
+        0x0028,
+        0x0029,
+        0x002a,
+        0x002b,
+        0x002c,
+        0x002d,
+        0x002e,
+        0x002f,
+        0x0030,
+        0x0031,
+        0x0032,
+        0x0033,
+        0x0034,
+        0x0035,
+        0x0036,
+        0x0037,
+        0x0038,
+        0x0039,
+        0x003a,
+        0x003b,
+        0x003c,
+        0x003d,
+        0x003e,
+        0x003f,
 
-            0x0040,
-            0x0041,
-            0x0042,
-            0x0043,
-            0x0044,
-            0x0045,
-            0x0046,
-            0x0047,
-            0x0048,
-            0x0049,
-            0x004a,
-            0x004b,
-            0x004c,
-            0x004d,
-            0x004e,
-            0x004f,
-            0x0050,
-            0x0051,
-            0x0052,
-            0x0053,
-            0x0054,
-            0x0055,
-            0x0056,
-            0x0057,
-            0x0058,
-            0x0059,
-            0x005a,
-            0x005b,
-            0x005c,
-            0x005d,
-            0x005e,
-            0x005f,
+        0x0040,
+        0x0041,
+        0x0042,
+        0x0043,
+        0x0044,
+        0x0045,
+        0x0046,
+        0x0047,
+        0x0048,
+        0x0049,
+        0x004a,
+        0x004b,
+        0x004c,
+        0x004d,
+        0x004e,
+        0x004f,
+        0x0050,
+        0x0051,
+        0x0052,
+        0x0053,
+        0x0054,
+        0x0055,
+        0x0056,
+        0x0057,
+        0x0058,
+        0x0059,
+        0x005a,
+        0x005b,
+        0x005c,
+        0x005d,
+        0x005e,
+        0x005f,
 
-            0x0060,
-            0x0061,
-            0x0062,
-            0x0063,
-            0x0064,
-            0x0065,
-            0x0066,
-            0x0067,
-            0x0068,
-            0x0069,
-            0x006a,
-            0x006b,
-            0x006c,
-            0x006d,
-            0x006e,
-            0x006f,
-            0x0070,
-            0x0071,
-            0x0072,
-            0x0073,
-            0x0074,
-            0x0075,
-            0x0076,
-            0x0077,
-            0x0078,
-            0x0079,
-            0x007a,
-            0x007b,
-            0x007c,
-            0x007d,
-            0x007e,
-            0x007f,
+        0x0060,
+        0x0061,
+        0x0062,
+        0x0063,
+        0x0064,
+        0x0065,
+        0x0066,
+        0x0067,
+        0x0068,
+        0x0069,
+        0x006a,
+        0x006b,
+        0x006c,
+        0x006d,
+        0x006e,
+        0x006f,
+        0x0070,
+        0x0071,
+        0x0072,
+        0x0073,
+        0x0074,
+        0x0075,
+        0x0076,
+        0x0077,
+        0x0078,
+        0x0079,
+        0x007a,
+        0x007b,
+        0x007c,
+        0x007d,
+        0x007e,
+        0x007f,
     };
 
 }
 
-const u16* VtermImpl::charCodes[] =
-    {
+const u16* VtermImpl::charCodes[] = {
 
-        nullptr,
-        uc_DecSpec,
-        uc_DecSuppl,
-        uc_DecSuppl,
-        uc_DecTechn,
-        uc_IsoLatin1,
-        uc_IsoUK};
+    nullptr,
+    uc_DecSpec,
+    uc_DecSuppl,
+    uc_DecSuppl,
+    uc_DecTechn,
+    uc_IsoLatin1,
+    uc_IsoUK
+};
 
 u32 VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
-    if (charset <= Charset::IsoUK)
+    if (charset <= Charset::IsoUK) {
         return charCodes[(u8)(charset)][ch - 32];
-    if (!nationalReplacementMode) return ch;
+    }
+    if (!nationalReplacementMode) {
+        return ch;
+    }
 
-    const auto lookup = [ch](const std::pair<u8, u16>* table,
-                             size_t size) -> u32 {
-        for (size_t index = 0; index < size; ++index)
-            if (table[index].first == ch) return table[index].second;
+    const auto lookup = [ch](const std::pair<u8, u16>* table, size_t size) -> u32 {
+        for (size_t index = 0; index < size; ++index) {
+            if (table[index].first == ch) {
+                return table[index].second;
+            }
+        }
         return ch;
     };
-#define NRC_TABLE(name, ...) \
-    static const std::pair<u8, u16> name[] = {__VA_ARGS__}
-    NRC_TABLE(dutch, {'#', 0x00a3}, {'@', 0x00be}, {'[', 0x0133},
-              {'\\', 0x00bd}, {']', 0x007c}, {'{', 0x00a8},
-              {'|', 0x0192}, {'}', 0x00bc}, {'~', 0x00b4});
-    NRC_TABLE(finnish, {'[', 0x00c4}, {'\\', 0x00d6}, {']', 0x00c5},
-              {'^', 0x00dc}, {'`', 0x00e9}, {'{', 0x00e4},
-              {'|', 0x00f6}, {'}', 0x00e5}, {'~', 0x00fc});
-    NRC_TABLE(french, {'#', 0x00a3}, {'@', 0x00e0}, {'[', 0x00b0},
-              {'\\', 0x00e7}, {']', 0x00a7}, {'{', 0x00e9},
-              {'|', 0x00f9}, {'}', 0x00e8}, {'~', 0x00a8});
-    NRC_TABLE(frenchCanadian, {'@', 0x00e0}, {'[', 0x00e2},
-              {'\\', 0x00e7}, {']', 0x00ea}, {'^', 0x00ee},
-              {'`', 0x00f4}, {'{', 0x00e9}, {'|', 0x00f9},
-              {'}', 0x00e8}, {'~', 0x00fb});
-    NRC_TABLE(german, {'@', 0x00a7}, {'[', 0x00c4}, {'\\', 0x00d6},
-              {']', 0x00dc}, {'{', 0x00e4}, {'|', 0x00f6},
-              {'}', 0x00fc}, {'~', 0x00df});
-    NRC_TABLE(italian, {'#', 0x00a3}, {'@', 0x00a7}, {'[', 0x00b0},
-              {'\\', 0x00e7}, {']', 0x00e9}, {'`', 0x00f9},
-              {'{', 0x00e0}, {'|', 0x00f2}, {'}', 0x00e8},
-              {'~', 0x00ec});
-    NRC_TABLE(norwegian, {'@', 0x00c4}, {'[', 0x00c6}, {'\\', 0x00d8},
-              {']', 0x00c5}, {'^', 0x00dc}, {'`', 0x00e4},
-              {'{', 0x00e6}, {'|', 0x00f8}, {'}', 0x00e5},
-              {'~', 0x00fc});
-    NRC_TABLE(portuguese, {'[', 0x00c3}, {'\\', 0x00c7}, {']', 0x00d5},
-              {'{', 0x00e3}, {'|', 0x00e7}, {'}', 0x00f5});
-    NRC_TABLE(spanish, {'#', 0x00a3}, {'@', 0x00a7}, {'[', 0x00a1},
-              {'\\', 0x00d1}, {']', 0x00bf}, {'{', 0x00b0},
-              {'|', 0x00f1}, {'}', 0x00e7});
-    NRC_TABLE(swedish, {'@', 0x00c9}, {'[', 0x00c4}, {'\\', 0x00d6},
-              {']', 0x00c5}, {'^', 0x00dc}, {'`', 0x00e9},
-              {'{', 0x00e4}, {'|', 0x00f6}, {'}', 0x00e5},
-              {'~', 0x00fc});
-    NRC_TABLE(swiss, {'#', 0x00f9}, {'@', 0x00e0}, {'[', 0x00e9},
-              {'\\', 0x00e7}, {']', 0x00ea}, {'^', 0x00ee},
-              {'_', 0x00e8}, {'`', 0x00f4}, {'{', 0x00e4},
-              {'|', 0x00f6}, {'}', 0x00fc}, {'~', 0x00fb});
-    NRC_TABLE(serboCroatian, {'@', 0x017d}, {'[', 0x0160},
-              {'\\', 0x0110}, {']', 0x0106}, {'^', 0x010c},
-              {'`', 0x017e}, {'{', 0x0161}, {'|', 0x0111},
-              {'}', 0x0107}, {'~', 0x010d});
-    NRC_TABLE(turkish, {'&', 0x011f}, {'@', 0x0130}, {'[', 0x015e},
-              {'\\', 0x00d6}, {']', 0x00c7}, {'^', 0x00dc},
-              {'`', 0x011e}, {'{', 0x015f}, {'|', 0x00f6},
-              {'}', 0x00e7}, {'~', 0x00fc});
+#define NRC_TABLE(name, ...) static const std::pair<u8, u16> name[] = {__VA_ARGS__}
+    NRC_TABLE(dutch, {'#', 0x00a3}, {'@', 0x00be}, {'[', 0x0133}, {'\\', 0x00bd}, {']', 0x007c}, {'{', 0x00a8}, {'|', 0x0192}, {'}', 0x00bc}, {'~', 0x00b4});
+    NRC_TABLE(finnish, {'[', 0x00c4}, {'\\', 0x00d6}, {']', 0x00c5}, {'^', 0x00dc}, {'`', 0x00e9}, {'{', 0x00e4}, {'|', 0x00f6}, {'}', 0x00e5}, {'~', 0x00fc});
+    NRC_TABLE(french, {'#', 0x00a3}, {'@', 0x00e0}, {'[', 0x00b0}, {'\\', 0x00e7}, {']', 0x00a7}, {'{', 0x00e9}, {'|', 0x00f9}, {'}', 0x00e8}, {'~', 0x00a8});
+    NRC_TABLE(frenchCanadian, {'@', 0x00e0}, {'[', 0x00e2}, {'\\', 0x00e7}, {']', 0x00ea}, {'^', 0x00ee}, {'`', 0x00f4}, {'{', 0x00e9}, {'|', 0x00f9}, {'}', 0x00e8}, {'~', 0x00fb});
+    NRC_TABLE(german, {'@', 0x00a7}, {'[', 0x00c4}, {'\\', 0x00d6}, {']', 0x00dc}, {'{', 0x00e4}, {'|', 0x00f6}, {'}', 0x00fc}, {'~', 0x00df});
+    NRC_TABLE(italian, {'#', 0x00a3}, {'@', 0x00a7}, {'[', 0x00b0}, {'\\', 0x00e7}, {']', 0x00e9}, {'`', 0x00f9}, {'{', 0x00e0}, {'|', 0x00f2}, {'}', 0x00e8}, {'~', 0x00ec});
+    NRC_TABLE(norwegian, {'@', 0x00c4}, {'[', 0x00c6}, {'\\', 0x00d8}, {']', 0x00c5}, {'^', 0x00dc}, {'`', 0x00e4}, {'{', 0x00e6}, {'|', 0x00f8}, {'}', 0x00e5}, {'~', 0x00fc});
+    NRC_TABLE(portuguese, {'[', 0x00c3}, {'\\', 0x00c7}, {']', 0x00d5}, {'{', 0x00e3}, {'|', 0x00e7}, {'}', 0x00f5});
+    NRC_TABLE(spanish, {'#', 0x00a3}, {'@', 0x00a7}, {'[', 0x00a1}, {'\\', 0x00d1}, {']', 0x00bf}, {'{', 0x00b0}, {'|', 0x00f1}, {'}', 0x00e7});
+    NRC_TABLE(swedish, {'@', 0x00c9}, {'[', 0x00c4}, {'\\', 0x00d6}, {']', 0x00c5}, {'^', 0x00dc}, {'`', 0x00e9}, {'{', 0x00e4}, {'|', 0x00f6}, {'}', 0x00e5}, {'~', 0x00fc});
+    NRC_TABLE(swiss, {'#', 0x00f9}, {'@', 0x00e0}, {'[', 0x00e9}, {'\\', 0x00e7}, {']', 0x00ea}, {'^', 0x00ee}, {'_', 0x00e8}, {'`', 0x00f4}, {'{', 0x00e4}, {'|', 0x00f6}, {'}', 0x00fc}, {'~', 0x00fb});
+    NRC_TABLE(serboCroatian, {'@', 0x017d}, {'[', 0x0160}, {'\\', 0x0110}, {']', 0x0106}, {'^', 0x010c}, {'`', 0x017e}, {'{', 0x0161}, {'|', 0x0111}, {'}', 0x0107}, {'~', 0x010d});
+    NRC_TABLE(turkish, {'&', 0x011f}, {'@', 0x0130}, {'[', 0x015e}, {'\\', 0x00d6}, {']', 0x00c7}, {'^', 0x00dc}, {'`', 0x011e}, {'{', 0x015f}, {'|', 0x00f6}, {'}', 0x00e7}, {'~', 0x00fc});
 #undef NRC_TABLE
 
 #define LOOKUP(name) return lookup(name, sizeof(name) / sizeof(name[0]))
     switch (charset) {
-        case Charset::NrcDutch: LOOKUP(dutch);
-        case Charset::NrcFinnish: LOOKUP(finnish);
-        case Charset::NrcFrench: LOOKUP(french);
-        case Charset::NrcFrenchCanadian: LOOKUP(frenchCanadian);
-        case Charset::NrcGerman: LOOKUP(german);
-        case Charset::NrcItalian: LOOKUP(italian);
-        case Charset::NrcNorwegianDanish: LOOKUP(norwegian);
-        case Charset::NrcPortuguese: LOOKUP(portuguese);
-        case Charset::NrcSpanish: LOOKUP(spanish);
-        case Charset::NrcSwedish: LOOKUP(swedish);
-        case Charset::NrcSwiss: LOOKUP(swiss);
-        case Charset::NrcSerboCroatian: LOOKUP(serboCroatian);
-        case Charset::NrcTurkish: LOOKUP(turkish);
+        case Charset::NrcDutch:
+            LOOKUP(dutch);
+        case Charset::NrcFinnish:
+            LOOKUP(finnish);
+        case Charset::NrcFrench:
+            LOOKUP(french);
+        case Charset::NrcFrenchCanadian:
+            LOOKUP(frenchCanadian);
+        case Charset::NrcGerman:
+            LOOKUP(german);
+        case Charset::NrcItalian:
+            LOOKUP(italian);
+        case Charset::NrcNorwegianDanish:
+            LOOKUP(norwegian);
+        case Charset::NrcPortuguese:
+            LOOKUP(portuguese);
+        case Charset::NrcSpanish:
+            LOOKUP(spanish);
+        case Charset::NrcSwedish:
+            LOOKUP(swedish);
+        case Charset::NrcSwiss:
+            LOOKUP(swiss);
+        case Charset::NrcSerboCroatian:
+            LOOKUP(serboCroatian);
+        case Charset::NrcTurkish:
+            LOOKUP(turkish);
         case Charset::NrcGreek: {
-            static const u16 greek[] = {
-                0x0391, 0x0392, 0x0393, 0x0394, 0x0395, 0x0396, 0x0397,
-                0x0398, 0x0399, 0x039a, 0x039b, 0x039c, 0x039d, 0x03a7,
-                0x039f, 0x03a0, 0x03a1, 0x03a3, 0x03a4, 0x03a5, 0x03a6,
-                0x039e, 0x03a8, 0x03a9};
+            static const u16 greek[] = {0x0391, 0x0392, 0x0393, 0x0394, 0x0395, 0x0396, 0x0397, 0x0398, 0x0399, 0x039a, 0x039b, 0x039c, 0x039d, 0x03a7, 0x039f, 0x03a0, 0x03a1, 0x03a3, 0x03a4, 0x03a5, 0x03a6, 0x039e, 0x03a8, 0x03a9};
             return ch >= 'a' && ch <= 'x' ? greek[ch - 'a'] : ch;
         }
         case Charset::NrcHebrew:
             return ch >= '`' && ch <= 'z' ? 0x05d0 + ch - '`' : ch;
         case Charset::NrcRussian: {
-            static const u16 russian[] = {
-                0x042e, 0x0410, 0x0411, 0x0426, 0x0414, 0x0415, 0x0424,
-                0x0413, 0x0425, 0x0418, 0x0419, 0x041a, 0x041b, 0x041c,
-                0x041d, 0x041e, 0x041f, 0x042f, 0x0420, 0x0421, 0x0422,
-                0x0423, 0x0416, 0x0412, 0x042c, 0x042b, 0x0417, 0x0428,
-                0x042d, 0x0429, 0x0427};
+            static const u16 russian[] = {0x042e, 0x0410, 0x0411, 0x0426, 0x0414, 0x0415, 0x0424, 0x0413, 0x0425, 0x0418, 0x0419, 0x041a, 0x041b, 0x041c, 0x041d, 0x041e, 0x041f, 0x042f, 0x0420, 0x0421, 0x0422, 0x0423, 0x0416, 0x0412, 0x042c, 0x042b, 0x0417, 0x0428, 0x042d, 0x0429, 0x0427};
             return ch >= '`' && ch <= '~' ? russian[ch - '`'] : ch;
         }
-        default: return ch;
+        default:
+            return ch;
     }
 #undef LOOKUP
 }
 
-VtermImpl::VtermImpl(VtermHost& host_, Pty& pty_,
-                     u16 glyphPx_, u16 glyphPy_,
-                     u16 winPx_, u16 winPy_)
+VtermImpl::VtermImpl(VtermHost& host_, Pty& pty_, u16 glyphPx_, u16 glyphPy_, u16 winPx_, u16 winPy_)
     : host(host_)
     , pty(pty_)
     , winPx(winPx_)
@@ -1346,8 +1293,7 @@ VtermImpl::VtermImpl(VtermHost& host_, Pty& pty_,
     , nRows((winPy - 2 * opts.border) / glyphPy_)
     , glyphPx(glyphPx_)
     , glyphPy(glyphPy_)
-    , frame_pri(winPx, winPy, nCols, nRows, marginTop, marginBottom,
-                opts.saveLines)
+    , frame_pri(winPx, winPy, nCols, nRows, marginTop, marginBottom, opts.saveLines)
     , cf(&frame_pri)
     , utf8dec([this]() {
         placeGraphicChar();
@@ -1356,8 +1302,7 @@ VtermImpl::VtermImpl(VtermHost& host_, Pty& pty_,
     , hMargin(0)
 {
     makePalette256(palette256);
-    std::copy(std::begin(palette256), std::end(palette256),
-              std::begin(originalPalette256));
+    std::copy(std::begin(palette256), std::end(palette256), std::begin(originalPalette256));
     defaultFgColor = opts.fg;
     defaultBgColor = opts.bg;
     cursorColor = opts.cr;
@@ -1403,7 +1348,9 @@ void VtermImpl::resize(u16 winPx_, u16 winPy_) {
     if (nCols == nCols_ && nRows == nRows_) {
         cf->winPx = winPx;
         cf->winPy = winPy;
-        if (inBandResizeMode) reportInBandResize();
+        if (inBandResizeMode) {
+            reportInBandResize();
+        }
         return;
     }
 
@@ -1424,8 +1371,7 @@ void VtermImpl::resize(u16 winPx_, u16 winPy_) {
     cf->resize(winPx, winPy, nCols_, nRows_, marginTop, marginBottom);
 
     if (nRows < nRows_) {
-        const int nScroll = std::min(
-            nRows_ - nRows, (int)(cf->getHistoryRows()));
+        const int nScroll = std::min(nRows_ - nRows, (int)(cf->getHistoryRows()));
         cf->restoreHistory(nScroll);
         posY += nScroll;
     }
@@ -1441,12 +1387,12 @@ void VtermImpl::resize(u16 winPx_, u16 winPy_) {
     showCursor();
 
     pty.resize(nCols, nRows);
-    if (inBandResizeMode) reportInBandResize();
+    if (inBandResizeMode) {
+        reportInBandResize();
+    }
 }
 
-std::string
-VtermImpl::getLocalEcho(const u8* const begin,
-                        const u8* const end) {
+std::string VtermImpl::getLocalEcho(const u8* const begin, const u8* const end) {
     std::ostringstream oss;
     for (const u8* p = begin; p < end; ++p) {
         if (*p == '\r' || *p >= ' ') {
@@ -1467,8 +1413,7 @@ int VtermImpl::writePty(VtKey key, VtModifier modifiers_, bool userInput) {
 #endif
     const auto userDefined = userDefinedKeys.find(key);
     if (userDefined != userDefinedKeys.end()) {
-        return writePty(userDefined->second.data(),
-                        userDefined->second.size(), userInput);
+        return writePty(userDefined->second.data(), userDefined->second.size(), userInput);
     }
     modifiers = modifiers_;
     const auto& spec = getInputSpec(key);
@@ -1494,11 +1439,9 @@ int VtermImpl::writePty(u8 ch, VtModifier modifiers, bool userInput) {
     using VM = VtModifier;
 
     auto uch = &ch;
-    logT << "pty write (mod=" << (int)modifiers << "): "
-         << dumpBuffer(uch, uch + 1);
+    logT << "pty write (mod=" << (int)modifiers << "): " << dumpBuffer(uch, uch + 1);
 
-    const auto& mod2_encode =
-        [&](u8 ch) {
+    const auto& mod2_encode = [&](u8 ch) {
         const char* exempt = "!#$%&*()-+=?.,:;<>'\"";
         auto x = (char*)(exempt);
 
@@ -1514,13 +1457,9 @@ int VtermImpl::writePty(u8 ch, VtModifier modifiers, bool userInput) {
     if (eightBitInput && (modifiers & VM::alt) != VM::none) {
         ch |= 0x80;
         return writePty(&ch, 1, userInput);
-    } else if ((modifyOtherKeys == 2 && mod2_encode(ch)) ||
-        (modifyOtherKeys == 1 && (modifiers & VM::control) != VM::none &&
-         ch > ' ')) {
+    } else if ((modifyOtherKeys == 2 && mod2_encode(ch)) || (modifyOtherKeys == 1 && (modifiers & VM::control) != VM::none && ch > ' ')) {
         if (ch < ' ' && (modifiers & VM::control) != VM::none) {
-            const char* ctrlmap = ((modifiers & VM::shift) != VM::none)
-                                      ? "@ABCDEFGHIJKLMNOPQRSTUVWXYZ{|}^/"
-                                      : " abcdefghijklmnopqrstuvwxyz[\\]^/";
+            const char* ctrlmap = ((modifiers & VM::shift) != VM::none) ? "@ABCDEFGHIJKLMNOPQRSTUVWXYZ{|}^/" : " abcdefghijklmnopqrstuvwxyz[\\]^/";
             ch = ctrlmap[ch];
         }
 
@@ -1552,8 +1491,7 @@ int VtermImpl::writePty(u8 ch, VtModifier modifiers, bool userInput) {
             return writePty(wbuf, 2, userInput);
         } else {
             std::vector<char> utf8_out;
-            auto sinkFn = [&](char ch)
-                                  {
+            auto sinkFn = [&](char ch) {
                 utf8_out.push_back(ch);
             };
             Utf8Encoder::pushUnicode(ch | 0x80, sinkFn);
@@ -1564,26 +1502,24 @@ int VtermImpl::writePty(u8 ch, VtModifier modifiers, bool userInput) {
     }
 }
 
-int VtermImpl::writeKittyKey(VtKey key, u16 modifiers,
-                         KeyEventType event) {
+int VtermImpl::writeKittyKey(VtKey key, u16 modifiers, KeyEventType event) {
     const KittyKeySpec spec = kittyKeySpec(key);
     if (!spec.code) {
         return 0;
     }
 
-    if (isKittyRecoveryKey(key) &&
-        !(getKittyKeyboardFlags() & 0x08)) {
-        if (event == KeyEventType::Release) return 0;
+    if (isKittyRecoveryKey(key) && !(getKittyKeyboardFlags() & 0x08)) {
+        if (event == KeyEventType::Release) {
+            return 0;
+        }
         return writePty(key, kittyToLegacyModifiers(modifiers), true);
     }
 
-    if (isKittyModifierKey(key) &&
-        !(getKittyKeyboardFlags() & 0x08)) {
+    if (isKittyModifierKey(key) && !(getKittyKeyboardFlags() & 0x08)) {
         return 0;
     }
 
-    if (event == KeyEventType::Release &&
-        !(getKittyKeyboardFlags() & 0x02)) {
+    if (event == KeyEventType::Release && !(getKittyKeyboardFlags() & 0x02)) {
         return 0;
     }
 
@@ -1592,9 +1528,7 @@ int VtermImpl::writeKittyKey(VtKey key, u16 modifiers,
     if (getKittyKeyboardFlags() & 0x02) {
         sequence << ':' << (unsigned)(event);
     }
-    if ((getKittyKeyboardFlags() & 0x10) &&
-        event != KeyEventType::Release &&
-        isKittyRecoveryKey(key) && validKittyAssociatedText(spec.code)) {
+    if ((getKittyKeyboardFlags() & 0x10) && event != KeyEventType::Release && isKittyRecoveryKey(key) && validKittyAssociatedText(spec.code)) {
         sequence << ';' << spec.code;
     }
     sequence << spec.final;
@@ -1602,11 +1536,8 @@ int VtermImpl::writeKittyKey(VtKey key, u16 modifiers,
     return writePty(encoded.data(), encoded.size(), true);
 }
 
-int VtermImpl::writeKittyKey(u32 key, u32 shiftedKey,
-                         u32 baseLayoutKey, u16 modifiers,
-                         KeyEventType event) {
-    if (!key || (event == KeyEventType::Release &&
-                 !(getKittyKeyboardFlags() & 0x02))) {
+int VtermImpl::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, KeyEventType event) {
+    if (!key || (event == KeyEventType::Release && !(getKittyKeyboardFlags() & 0x02))) {
         return 0;
     }
 
@@ -1628,12 +1559,11 @@ int VtermImpl::writeKittyKey(u32 key, u32 shiftedKey,
     if (getKittyKeyboardFlags() & 0x02) {
         sequence << ':' << (unsigned)(event);
     }
-    if ((getKittyKeyboardFlags() & 0x10) &&
-        event != KeyEventType::Release) {
-        const u32 text = (modifiers & 1) && shiftedKey
-                                  ? shiftedKey
-                                  : key;
-        if (validKittyAssociatedText(text)) sequence << ';' << text;
+    if ((getKittyKeyboardFlags() & 0x10) && event != KeyEventType::Release) {
+        const u32 text = (modifiers & 1) && shiftedKey ? shiftedKey : key;
+        if (validKittyAssociatedText(text)) {
+            sequence << ';' << text;
+        }
     }
     sequence << 'u';
     const std::string encoded = sequence.str();
@@ -1650,32 +1580,23 @@ int VtermImpl::writePty(const char* data, size_t size, bool userInput) {
 }
 
 void VtermImpl::writeCsiResponse(const std::string& payload) {
-    const std::string response =
-        (send8BitControls ? std::string("\x9b") : std::string("\x1b[")) +
-        payload;
+    const std::string response = (send8BitControls ? std::string("\x9b") : std::string("\x1b[")) + payload;
     writePty(response.data(), response.size(), false);
 }
 
 void VtermImpl::writeDcsResponse(const std::string& payload) {
-    const std::string response =
-        (send8BitControls ? std::string("\x90") : std::string("\x1bP")) +
-        payload +
-        (send8BitControls ? std::string("\x9c") : std::string("\x1b\\"));
+    const std::string response = (send8BitControls ? std::string("\x90") : std::string("\x1bP")) + payload + (send8BitControls ? std::string("\x9c") : std::string("\x1b\\"));
     writePty(response.data(), response.size(), false);
 }
 
 void VtermImpl::writeOscResponse(const std::string& payload) {
-    const std::string response =
-        (send8BitControls ? std::string("\x9d") : std::string("\x1b]")) +
-        payload +
-        (send8BitControls ? std::string("\x9c") : std::string("\x1b\\"));
+    const std::string response = (send8BitControls ? std::string("\x9d") : std::string("\x1b]")) + payload + (send8BitControls ? std::string("\x9c") : std::string("\x1b\\"));
     writePty(response.data(), response.size(), false);
 }
 
 int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
     if (userInput && keyboardLocked) {
-        logT << "pty write: discarding due to keyboard lock (DECKAM): "
-             << dumpBuffer(ucstr, ucstr + len);
+        logT << "pty write: discarding due to keyboard lock (DECKAM): " << dumpBuffer(ucstr, ucstr + len);
         return len;
     }
 
@@ -1698,14 +1619,14 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
 
 bool VtermImpl::flushPtyOutput() {
     while (ptyOutputOffset < ptyOutput.size()) {
-        const ssize_t count = pty.write(
-            ptyOutput.data() + ptyOutputOffset,
-            ptyOutput.size() - ptyOutputOffset);
+        const ssize_t count = pty.write(ptyOutput.data() + ptyOutputOffset, ptyOutput.size() - ptyOutputOffset);
         if (count > 0) {
             ptyOutputOffset += (size_t)(count);
             continue;
         }
-        if (count < 0 && errno == EINTR) continue;
+        if (count < 0 && errno == EINTR) {
+            continue;
+        }
         if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             return false;
         }
@@ -1722,127 +1643,99 @@ bool VtermImpl::flushPtyOutput() {
 using Key = VtKey;
 using Mod = VtModifier;
 
-VtermImpl::InputSpecTable*
-VtermImpl::getInputSpecTable() {
-    static InputSpecTable ist[] =
-        {
-            {[this]() {
+VtermImpl::InputSpecTable* VtermImpl::getInputSpecTable() {
+    static InputSpecTable ist[] = {
+        {[this]() {
         return (autoNewlineMode == true);
-    },
-             is_ReturnKey_ANL},
+    }, is_ReturnKey_ANL},
 
-            {[this]() {
-        return ((modifiers & Mod::alt) != Mod::none &&
-                bkspSendsDel == false);
-    },
-             is_Alt_BackspaceKey_BkSp},
+        {[this]() {
+        return ((modifiers & Mod::alt) != Mod::none && bkspSendsDel == false);
+    }, is_Alt_BackspaceKey_BkSp},
 
-            {[this]() {
-        return (modifyOtherKeys == 2 &&
-                modifiers != Mod::none);
-    },
-             is_modOtherKeys2},
+        {[this]() {
+        return (modifyOtherKeys == 2 && modifiers != Mod::none);
+    }, is_modOtherKeys2},
 
-            {[this]() {
+        {[this]() {
         return (modifyOtherKeys > 0 && modifiers != Mod::none);
-    },
-             is_modOtherKeys},
+    }, is_modOtherKeys},
 
-            {[this]() {
-        return (modifyOtherKeys > 0 &&
-                (modifiers & Mod::control) != Mod::none);
-    },
-             is_Control_modOtherKeys},
+        {[this]() {
+        return (modifyOtherKeys > 0 && (modifiers & Mod::control) != Mod::none);
+    }, is_Control_modOtherKeys},
 
-            {[this]() {
-        return (altSendsEscape &&
-                (modifiers & Mod::control_alt) == Mod::control_alt);
-    },
-             is_ControlAlt_altSendsEscape},
+        {[this]() {
+        return (altSendsEscape && (modifiers & Mod::control_alt) == Mod::control_alt);
+    }, is_ControlAlt_altSendsEscape},
 
-            {[this]() {
-        return (altSendsEscape &&
-                (modifiers & Mod::alt) != Mod::none);
-    },
-             is_Alt_altSendsEscape},
+        {[this]() {
+        return (altSendsEscape && (modifiers & Mod::alt) != Mod::none);
+    }, is_Alt_altSendsEscape},
 
-            {[this]() {
+        {[this]() {
         return ((modifiers & Mod::alt) != Mod::none);
-    },
-             is_Alt},
+    }, is_Alt},
 
-            {[this]() {
+        {[this]() {
         return ((modifiers & Mod::control) != Mod::none);
-    },
-             is_Control},
+    }, is_Control},
 
-            {[this]() {
+        {[this]() {
         return ((modifiers & Mod::shift) != Mod::none);
-    },
-             is_Shift},
+    }, is_Shift},
 
-            {[this]() {
+        {[this]() {
         return (bkspSendsDel == false);
-    },
-             is_BackspaceKey_BkSp},
+    }, is_BackspaceKey_BkSp},
 
-            {[this]() {
-        return (compatLevel == CompatibilityLevel::VT52 &&
-                keypadMode == KeypadMode::Application);
-    },
-             is_VT52_KeypadKeys},
-            {[this]() {
+        {[this]() {
+        return (compatLevel == CompatibilityLevel::VT52 && keypadMode == KeypadMode::Application);
+    }, is_VT52_KeypadKeys},
+        {[this]() {
         return (compatLevel == CompatibilityLevel::VT52);
-    },
-             is_VT52_CursorKeys},
-            {[this]() {
+    }, is_VT52_CursorKeys},
+        {[this]() {
         return (compatLevel == CompatibilityLevel::VT52);
-    },
-             is_VT52_FunctionKeys},
+    }, is_VT52_FunctionKeys},
 
-            {[this]() {
-        return (modifiers != Mod::none && modifyKeyResources[3] != 0 &&
-                keypadMode == KeypadMode::Application);
-    },
-             is_Mod_Appl_KeypadKeys},
-            {[this]() {
+        {[this]() {
+        return (modifiers != Mod::none && modifyKeyResources[3] != 0 && keypadMode == KeypadMode::Application);
+    }, is_Mod_Appl_KeypadKeys},
+        {[this]() {
         return (keypadMode == KeypadMode::Application);
-    },
-             is_Appl_KeypadKeys},
-            {[this]() {
+    }, is_Appl_KeypadKeys},
+        {[this]() {
         return (modifiers != Mod::none && modifyKeyResources[1] != 0);
-    },
-             is_Mod_CursorKeys},
-            {[this]() {
+    }, is_Mod_CursorKeys},
+        {[this]() {
         return (cursorKeyMode == CursorKeyMode::Application);
-    },
-             is_Appl_CursorKeys},
+    }, is_Appl_CursorKeys},
 
-            {[this]() {
+        {[this]() {
         return (modifiers != Mod::none && modifyKeyResources[0] != 0);
-    },
-             is_Mod_Ansi},
-            {[this]() {
+    }, is_Mod_Ansi},
+        {[this]() {
         return (modifiers != Mod::none && modifyKeyResources[2] != 0);
-    },
-             is_Mod_Ansi_FunctionKeys},
+    }, is_Mod_Ansi_FunctionKeys},
 
-            {[]() {
+        {[]() {
         return true;
     }, is_Ansi},
-            {[]() {
+        {[]() {
         return true;
     }, is_Ansi_CursorKeys},
-            {[]() {
+        {[]() {
         return true;
     }, is_Ansi_FunctionKeys},
-            {[]() {
+        {[]() {
         return true;
     }, is_Ansi_KeypadKeys},
 
-            {[]() {
+        {[]() {
         return true;
-    }, nullptr}};
+    }, nullptr}
+    };
     return ist;
 }
 
@@ -1852,8 +1745,7 @@ void VtermImpl::resetInputSpecTable() {
     }
 }
 
-const VtermImpl::InputSpec*
-VtermImpl::selectInputSpecs() {
+const VtermImpl::InputSpec* VtermImpl::selectInputSpecs() {
     InputSpecTable* ist = getInputSpecTable();
     for (auto e = ist; e->specs != nullptr; ++e) {
         if (!e->visited) {
@@ -1866,8 +1758,7 @@ VtermImpl::selectInputSpecs() {
     return nullptr;
 }
 
-const VtermImpl::InputSpec&
-VtermImpl::getInputSpec(Key key) {
+const VtermImpl::InputSpec& VtermImpl::getInputSpec(Key key) {
     static InputSpec nullSpec = {Key::NONE, ""};
 
     resetInputSpecTable();
@@ -1891,39 +1782,37 @@ VtermImpl::getInputSpec(Key key) {
         setState(InputState::IgnoreSequence); \
         break
 
-#define COLLECT_NUMERIC_PARAMS                                       \
-    case '0':                                                        \
-    case '1':                                                        \
-    case '2':                                                        \
-    case '3':                                                        \
-    case '4':                                                        \
-    case '5':                                                        \
-    case '6':                                                        \
-    case '7':                                                        \
-    case '8':                                                        \
-    case '9':                                                        \
-        csiHadParams = true;                                         \
-        csiPrefixAllowed = false;                                    \
-        if (inputOps[nInputOps - 1] >                                \
-            (UINT32_MAX - (u32)(ch - '0')) / 10) {   \
-            inputOps[nInputOps - 1] = UINT32_MAX;                    \
-        } else {                                                     \
-            inputOps[nInputOps - 1] *= 10;                           \
-            inputOps[nInputOps - 1] += ch - '0';                     \
-        }                                                            \
-        break;                                                       \
-    case ';':                                                        \
-    case ':':                                                        \
-        csiHadParams = true;                                         \
-        csiPrefixAllowed = false;                                    \
-        if (nInputOps < maxEscOps) {                                 \
-            inputSeparators[nInputOps] = ch;                         \
-            inputOps[nInputOps++] = 0;                               \
-        } else {                                                     \
-            logE << "inputOps full, increase maxEscOps (currently: " \
-                 << maxEscOps << ")!" << std::endl;                  \
-            setState(InputState::IgnoreSequence);                    \
-        }                                                            \
+#define COLLECT_NUMERIC_PARAMS                                                                          \
+    case '0':                                                                                           \
+    case '1':                                                                                           \
+    case '2':                                                                                           \
+    case '3':                                                                                           \
+    case '4':                                                                                           \
+    case '5':                                                                                           \
+    case '6':                                                                                           \
+    case '7':                                                                                           \
+    case '8':                                                                                           \
+    case '9':                                                                                           \
+        csiHadParams = true;                                                                            \
+        csiPrefixAllowed = false;                                                                       \
+        if (inputOps[nInputOps - 1] > (UINT32_MAX - (u32)(ch - '0')) / 10) {                            \
+            inputOps[nInputOps - 1] = UINT32_MAX;                                                       \
+        } else {                                                                                        \
+            inputOps[nInputOps - 1] *= 10;                                                              \
+            inputOps[nInputOps - 1] += ch - '0';                                                        \
+        }                                                                                               \
+        break;                                                                                          \
+    case ';':                                                                                           \
+    case ':':                                                                                           \
+        csiHadParams = true;                                                                            \
+        csiPrefixAllowed = false;                                                                       \
+        if (nInputOps < maxEscOps) {                                                                    \
+            inputSeparators[nInputOps] = ch;                                                            \
+            inputOps[nInputOps++] = 0;                                                                  \
+        } else {                                                                                        \
+            logE << "inputOps full, increase maxEscOps (currently: " << maxEscOps << ")!" << std::endl; \
+            setState(InputState::IgnoreSequence);                                                       \
+        }                                                                                               \
         break
 
 VtermImpl::PresentationState VtermImpl::capturePresentationState() const {
@@ -1944,36 +1833,21 @@ VtermImpl::PresentationState VtermImpl::capturePresentationState() const {
 }
 
 bool VtermImpl::presentationChanged(const PresentationState& before) const {
-    if (before.frame != cf || cf->hasDamage() ||
-        before.columns != cf->nCols || before.rows != cf->nRows ||
-        before.viewOffset != cf->getViewOffset() ||
-        before.screenReverse != cf->getScreenReverseVideo() ||
-        before.blinkVisible != cf->getBlinkVisible() ||
-        before.cursorBlink != cf->getCursorBlink() ||
-        !(before.selectionForeground == cf->getSelectionForeground()) ||
-        !(before.selectionBackground == cf->getSelectionBackground()) ||
-        before.selectionColorMask != cf->getSelectionColorMask()) {
+    if (before.frame != cf || cf->hasDamage() || before.columns != cf->nCols || before.rows != cf->nRows || before.viewOffset != cf->getViewOffset() || before.screenReverse != cf->getScreenReverseVideo() || before.blinkVisible != cf->getBlinkVisible() || before.cursorBlink != cf->getCursorBlink() || !(before.selectionForeground == cf->getSelectionForeground()) || !(before.selectionBackground == cf->getSelectionBackground()) || before.selectionColorMask != cf->getSelectionColorMask()) {
         return true;
     }
     const auto cursor = cf->getCursor();
-    if (before.cursor.posX != cursor.posX ||
-        before.cursor.posY != cursor.posY ||
-        before.cursor.style != cursor.style ||
-        !(before.cursor.color == cursor.color)) {
+    if (before.cursor.posX != cursor.posX || before.cursor.posY != cursor.posY || before.cursor.style != cursor.style || !(before.cursor.color == cursor.color)) {
         return true;
     }
     const Rect selection = cf->getSelectionForView();
-    return !(before.selection.tl == selection.tl) ||
-           !(before.selection.br == selection.br) ||
-           before.selection.rectangular != selection.rectangular;
+    return !(before.selection.tl == selection.tl) || !(before.selection.br == selection.br) || before.selection.rectangular != selection.rectangular;
 }
 
 void VtermImpl::syncPresentationCursor() {
     cf->setCursorPos(posY, posX);
     using CS = TerminalCursor::Style;
-    cf->setCursorStyle(
-        showCursorMode ? (hasFocus ? cursorShape : CS::hollow_block)
-                       : CS::hidden);
+    cf->setCursorStyle(showCursorMode ? (hasFocus ? cursorShape : CS::hollow_block) : CS::hidden);
 }
 
 bool VtermImpl::processInput(const std::string& str) {
@@ -2010,8 +1884,7 @@ bool VtermImpl::executeC0InSequence(unsigned char ch) {
     u32 savedOps[maxEscOps];
     unsigned char savedSeparators[maxEscOps];
     std::copy(inputOps, inputOps + savedInputOps, savedOps);
-    std::copy(inputSeparators, inputSeparators + savedInputOps,
-              savedSeparators);
+    std::copy(inputSeparators, inputSeparators + savedInputOps, savedSeparators);
 
     switch (ch) {
         case '\a':
@@ -2050,93 +1923,165 @@ bool VtermImpl::executeC0InSequence(unsigned char ch) {
     csiPrivatePrefix = savedPrivatePrefix;
     csiIntermediates = savedIntermediates;
     std::copy(savedOps, savedOps + savedInputOps, inputOps);
-    std::copy(savedSeparators, savedSeparators + savedInputOps,
-              inputSeparators);
+    std::copy(savedSeparators, savedSeparators + savedInputOps, inputSeparators);
     return true;
 }
 
 void VtermImpl::dispatchCsi(unsigned char finalByte) {
-    const std::string key = csiPrivatePrefix + csiIntermediates +
-                            (char)(finalByte);
-    if (key == "A") csi_CUU();
-    else if (key == "B") csi_CUD();
-    else if (key == "C") csi_CUF();
-    else if (key == "D") csi_CUB();
-    else if (key == "E") csi_CNL();
-    else if (key == "F") csi_CPL();
-    else if (key == "G") csi_CHA();
-    else if (key == "H" || key == "f") csi_CUP();
-    else if (key == "I") csi_CHT();
-    else if (key == "J") csi_ED();
-    else if (key == "K") csi_EL();
-    else if (key == "L") csi_IL();
-    else if (key == "M") csi_DL();
-    else if (key == "P") csi_DCH();
-    else if (key == "S") csi_SU();
-    else if (key == "T") {
-        if (nInputOps == 5 &&
-            mouseTrk.mode == MouseTrackingMode::VT200_Highlight)
+    const std::string key = csiPrivatePrefix + csiIntermediates + (char)(finalByte);
+    if (key == "A") {
+        csi_CUU();
+    } else if (key == "B") {
+        csi_CUD();
+    } else if (key == "C") {
+        csi_CUF();
+    } else if (key == "D") {
+        csi_CUB();
+    } else if (key == "E") {
+        csi_CNL();
+    } else if (key == "F") {
+        csi_CPL();
+    } else if (key == "G") {
+        csi_CHA();
+    } else if (key == "H" || key == "f") {
+        csi_CUP();
+    } else if (key == "I") {
+        csi_CHT();
+    } else if (key == "J") {
+        csi_ED();
+    } else if (key == "K") {
+        csi_EL();
+    } else if (key == "L") {
+        csi_IL();
+    } else if (key == "M") {
+        csi_DL();
+    } else if (key == "P") {
+        csi_DCH();
+    } else if (key == "S") {
+        csi_SU();
+    } else if (key == "T") {
+        if (nInputOps == 5 && mouseTrk.mode == MouseTrackingMode::VT200_Highlight) {
             csi_XTHIMOUSE();
-        else csi_SD();
+        } else {
+            csi_SD();
+        }
+    } else if (key == "X") {
+        csi_ECH();
+    } else if (key == "Z") {
+        csi_CBT();
+    } else if (key == "@") {
+        csi_ICH();
+    } else if (key == "`") {
+        csi_HPA();
+    } else if (key == "a") {
+        csi_HPR();
+    } else if (key == "b") {
+        csi_REP();
+    } else if (key == "c") {
+        csi_priDA();
+    } else if (key == "d") {
+        csi_VPA();
+    } else if (key == "e") {
+        csi_VPR();
+    } else if (key == "g") {
+        csi_TBC();
+    } else if (key == "h") {
+        csi_SM();
+    } else if (key == "l") {
+        csi_RM();
+    } else if (key == "m") {
+        csi_SGR();
+    } else if (key == "n") {
+        csi_DSR();
+    } else if (key == "q") {
+        csi_DECLL();
+    } else if (key == "i") {
+        csi_MC(false);
+    } else if (key == "r") {
+        csi_STBM();
+    } else if (key == "s") {
+        csi_SCOSC_SLRM();
+    } else if (key == "t") {
+        csi_XTWINOPS();
+    } else if (key == "u") {
+        csi_SCORC();
+    } else if (key == "!p") {
+        csi_DECSTR();
+    } else if (key == "'}") {
+        csi_DECIC();
+    } else if (key == "'~") {
+        csi_DECDC();
+    } else if (key == "'z") {
+        csi_DECELR();
+    } else if (key == "'{") {
+        csi_DECSLE();
+    } else if (key == "'|") {
+        csi_DECRQLP();
+    } else if (key == "'w") {
+        csi_DECEFR();
+    } else if (key == "\"p") {
+        csiq_DECSCL();
+    } else if (key == "\"q") {
+        csi_DECSCA();
+    } else if (key == " @") {
+        csi_ecma48_SL();
+    } else if (key == " A") {
+        csi_ecma48_SR();
+    } else if (key == " q") {
+        csi_DECSCUSR();
+    } else if (key == ">c") {
+        csi_secDA();
+    } else if (key == ">m") {
+        csi_XTMODKEYS();
+    } else if (key == ">u") {
+        csi_kittyKeyboardPush();
+    } else if (key == ">q") {
+        csi_XTVERSION();
+    } else if (key == "<u") {
+        csi_kittyKeyboardPop();
+    } else if (key == "=u") {
+        csi_kittyKeyboardSet();
+    } else if (key == "=c") {
+        csi_terDA();
+    } else if (key == "?h") {
+        csi_privSM();
+    } else if (key == "?l") {
+        csi_privRM();
+    } else if (key == "?s") {
+        csi_privSave();
+    } else if (key == "?r") {
+        csi_privRestore();
+    } else if (key == "?u") {
+        csi_kittyKeyboardQuery();
+    } else if (key == "?m") {
+        csi_XTQMODKEYS();
+    } else if (key == "?J") {
+        csi_DECSED();
+    } else if (key == "?K") {
+        csi_DECSEL();
+    } else if (key == "?i") {
+        csi_MC(true);
+    } else if (key == "$p") {
+        csi_DECRQM(false);
+    } else if (key == "$r") {
+        csi_DECCARA(false);
+    } else if (key == "$t") {
+        csi_DECCARA(true);
+    } else if (key == "$v") {
+        csi_DECCRA();
+    } else if (key == "$x") {
+        csi_DECFRA();
+    } else if (key == "$z") {
+        csi_DECERA();
+    } else if (key == "${") {
+        csi_DECERA(true);
+    } else if (key == "*y") {
+        csi_DECRQCRA();
+    } else if (key == "?$p") {
+        csi_DECRQM(true);
+    } else {
+        setState(InputState::Normal);
     }
-    else if (key == "X") csi_ECH();
-    else if (key == "Z") csi_CBT();
-    else if (key == "@") csi_ICH();
-    else if (key == "`") csi_HPA();
-    else if (key == "a") csi_HPR();
-    else if (key == "b") csi_REP();
-    else if (key == "c") csi_priDA();
-    else if (key == "d") csi_VPA();
-    else if (key == "e") csi_VPR();
-    else if (key == "g") csi_TBC();
-    else if (key == "h") csi_SM();
-    else if (key == "l") csi_RM();
-    else if (key == "m") csi_SGR();
-    else if (key == "n") csi_DSR();
-    else if (key == "q") csi_DECLL();
-    else if (key == "i") csi_MC(false);
-    else if (key == "r") csi_STBM();
-    else if (key == "s") csi_SCOSC_SLRM();
-    else if (key == "t") csi_XTWINOPS();
-    else if (key == "u") csi_SCORC();
-    else if (key == "!p") csi_DECSTR();
-    else if (key == "'}") csi_DECIC();
-    else if (key == "'~") csi_DECDC();
-    else if (key == "'z") csi_DECELR();
-    else if (key == "'{") csi_DECSLE();
-    else if (key == "'|") csi_DECRQLP();
-    else if (key == "'w") csi_DECEFR();
-    else if (key == "\"p") csiq_DECSCL();
-    else if (key == "\"q") csi_DECSCA();
-    else if (key == " @") csi_ecma48_SL();
-    else if (key == " A") csi_ecma48_SR();
-    else if (key == " q") csi_DECSCUSR();
-    else if (key == ">c") csi_secDA();
-    else if (key == ">m") csi_XTMODKEYS();
-    else if (key == ">u") csi_kittyKeyboardPush();
-    else if (key == ">q") csi_XTVERSION();
-    else if (key == "<u") csi_kittyKeyboardPop();
-    else if (key == "=u") csi_kittyKeyboardSet();
-    else if (key == "=c") csi_terDA();
-    else if (key == "?h") csi_privSM();
-    else if (key == "?l") csi_privRM();
-    else if (key == "?s") csi_privSave();
-    else if (key == "?r") csi_privRestore();
-    else if (key == "?u") csi_kittyKeyboardQuery();
-    else if (key == "?m") csi_XTQMODKEYS();
-    else if (key == "?J") csi_DECSED();
-    else if (key == "?K") csi_DECSEL();
-    else if (key == "?i") csi_MC(true);
-    else if (key == "$p") csi_DECRQM(false);
-    else if (key == "$r") csi_DECCARA(false);
-    else if (key == "$t") csi_DECCARA(true);
-    else if (key == "$v") csi_DECCRA();
-    else if (key == "$x") csi_DECFRA();
-    else if (key == "$z") csi_DECERA();
-    else if (key == "${") csi_DECERA(true);
-    else if (key == "*y") csi_DECRQCRA();
-    else if (key == "?$p") csi_DECRQM(true);
-    else setState(InputState::Normal);
 }
 
 void VtermImpl::processCsiByte(unsigned char ch) {
@@ -2150,11 +2095,11 @@ void VtermImpl::processCsiByte(unsigned char ch) {
         }
         csiHadParams = true;
         csiPrefixAllowed = false;
-        if (inputOps[nInputOps - 1] >
-            (UINT32_MAX - (u32)(ch - '0')) / 10)
+        if (inputOps[nInputOps - 1] > (UINT32_MAX - (u32)(ch - '0')) / 10) {
             inputOps[nInputOps - 1] = UINT32_MAX;
-        else inputOps[nInputOps - 1] =
-            inputOps[nInputOps - 1] * 10 + ch - '0';
+        } else {
+            inputOps[nInputOps - 1] = inputOps[nInputOps - 1] * 10 + ch - '0';
+        }
         return;
     }
     if (ch == ';' || ch == ':') {
@@ -2168,8 +2113,7 @@ void VtermImpl::processCsiByte(unsigned char ch) {
         inputOps[nInputOps++] = 0;
         return;
     }
-    if (ch >= '<' && ch <= '?' && csiPrefixAllowed &&
-        csiPrivatePrefix.empty()) {
+    if (ch >= '<' && ch <= '?' && csiPrefixAllowed && csiPrivatePrefix.empty()) {
         csiPrivatePrefix.push_back((char)(ch));
         return;
     }
@@ -2200,26 +2144,15 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
         if (printerControllerMode && consumePrinterControllerByte(ch)) {
             continue;
         }
-        if ((ch == '\x18' || ch == '\x1a') &&
-            inputState != InputState::Normal) {
+        if ((ch == '\x18' || ch == '\x1a') && inputState != InputState::Normal) {
             setState(InputState::Normal);
             continue;
         }
         if (ch == 0x7f) {
             continue;
         }
-        if (ch == '\x1b' && inputState != InputState::Normal &&
-            inputState != InputState::Escape &&
-            inputState != InputState::Escape_VT52 &&
-            inputState != InputState::DCS &&
-            inputState != InputState::DCS_Esc &&
-            inputState != InputState::OSC &&
-            inputState != InputState::OSC_Esc &&
-            inputState != InputState::String &&
-            inputState != InputState::String_Esc) {
-            setState(compatLevel == CompatibilityLevel::VT52
-                         ? InputState::Escape_VT52
-                         : InputState::Escape);
+        if (ch == '\x1b' && inputState != InputState::Normal && inputState != InputState::Escape && inputState != InputState::Escape_VT52 && inputState != InputState::DCS && inputState != InputState::DCS_Esc && inputState != InputState::OSC && inputState != InputState::OSC_Esc && inputState != InputState::String && inputState != InputState::String_Esc) {
+            setState(compatLevel == CompatibilityLevel::VT52 ? InputState::Escape_VT52 : InputState::Escape);
             inputOps[0] = 0;
             inputSeparators[0] = 0;
             nInputOps = 1;
@@ -2242,8 +2175,7 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                     beginCsi();
                     continue;
                 case 0x9c:
-                    if (inputState != InputState::DCS &&
-                        inputState != InputState::OSC) {
+                    if (inputState != InputState::DCS && inputState != InputState::OSC) {
                         setState(InputState::Normal);
                         continue;
                     }
@@ -2261,8 +2193,7 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                     inputGraphicChar(ch);
                     break;
                 }
-                if (ch < 0x20 || ch == 0x7f ||
-                    (ch >= 0x80 && ch <= 0x9f)) {
+                if (ch < 0x20 || ch == 0x7f || (ch >= 0x80 && ch <= 0x9f)) {
                     resetGraphemeInput();
                 }
                 switch (ch) {
@@ -2270,9 +2201,7 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                     case '\x7f':
                         break;
                     case '\x1b':
-                        setState(compatLevel == CompatibilityLevel::VT52
-                                     ? InputState::Escape_VT52
-                                     : InputState::Escape);
+                        setState(compatLevel == CompatibilityLevel::VT52 ? InputState::Escape_VT52 : InputState::Escape);
                         inputOps[0] = 0;
                         inputSeparators[0] = 0;
                         nInputOps = 1;
@@ -2740,16 +2669,14 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                         }
                         break;
                     case '\x1b':
-                        if (!argBufOverflowed &&
-                            argBuf.size() < maxOscBytes) {
+                        if (!argBufOverflowed && argBuf.size() < maxOscBytes) {
                             argBuf.push_back('\x1b');
                         } else {
                             argBufOverflowed = true;
                         }
                         break;
                     default:
-                        if (!argBufOverflowed &&
-                            argBuf.size() <= maxOscBytes - 2) {
+                        if (!argBufOverflowed && argBuf.size() <= maxOscBytes - 2) {
                             argBuf.push_back('\x1b');
                             argBuf.push_back(ch);
                         } else {
@@ -2813,7 +2740,9 @@ void VtermImpl::setHyperlink(const std::string& parametersAndUri) {
             identity = parameter + ";uri=" + uri;
             break;
         }
-        if (end == std::string::npos) break;
+        if (end == std::string::npos) {
+            break;
+        }
         begin = end + 1;
     }
 
@@ -2838,7 +2767,9 @@ void VtermImpl::pruneHyperlinks() {
     std::set<u32> used;
     frame_pri.collectHyperlinkIds(used);
     frame_alt.collectHyperlinkIds(used);
-    if (activeHyperlink != 0) used.insert(activeHyperlink);
+    if (activeHyperlink != 0) {
+        used.insert(activeHyperlink);
+    }
 
     for (auto it = hyperlinks.begin(); it != hyperlinks.end();) {
         if (used.count(it->first)) {
@@ -2848,15 +2779,17 @@ void VtermImpl::pruneHyperlinks() {
         const u32 id = it->first;
         it = hyperlinks.erase(it);
         for (auto key = hyperlinkIds.begin(); key != hyperlinkIds.end();) {
-            if (key->second == id) key = hyperlinkIds.erase(key);
-            else ++key;
+            if (key->second == id) {
+                key = hyperlinkIds.erase(key);
+            } else {
+                ++key;
+            }
         }
     }
 }
 
 std::string VtermImpl::getHyperlink(int pX, int pY) const {
-    if (pX < opts.border || pY < opts.border ||
-        pX >= winPx - opts.border || pY >= winPy - opts.border) {
+    if (pX < opts.border || pY < opts.border || pX >= winPx - opts.border || pY >= winPy - opts.border) {
         return {};
     }
 
@@ -2872,8 +2805,7 @@ std::string VtermImpl::getHyperlink(int pX, int pY) const {
 }
 
 void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
-    logT << "selectStart (" << pX << "," << pY
-         << "), cycleSnapTo=" << cycleSnapTo << std::endl;
+    logT << "selectStart (" << pX << "," << pY << "), cycleSnapTo=" << cycleSnapTo << std::endl;
 
     if (cycleSnapTo) {
         selectExtend(pX, pY, true);
@@ -2896,8 +2828,7 @@ void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
 }
 
 void VtermImpl::selectExtend(int pX, int pY, bool cycleSnapTo) {
-    logT << "selectExtend (" << pX << "," << pY
-         << "), cycleSnapTo=" << cycleSnapTo << std::endl;
+    logT << "selectExtend (" << pX << "," << pY << "), cycleSnapTo=" << cycleSnapTo << std::endl;
 
     pX = std::min(std::max(0, pX - opts.border), winPx - 2 * opts.border);
     pY = std::min(std::max(0, pY - opts.border), winPy - 2 * opts.border);
@@ -3038,9 +2969,6 @@ void VtermImpl::pasteSelection(const std::string& utf8_selection) {
     }
 }
 
-Vterm* Vterm::create(Composer& composer, VtermHost& host, Pty& pty,
-                     u16 glyphPx, u16 glyphPy,
-                     u16 winPx, u16 winPy) {
-    return composer.pool->make<VtermImpl>(
-        host, pty, glyphPx, glyphPy, winPx, winPy);
+Vterm* Vterm::create(Composer& composer, VtermHost& host, Pty& pty, u16 glyphPx, u16 glyphPy, u16 winPx, u16 winPy) {
+    return composer.pool->make<VtermImpl>(host, pty, glyphPx, glyphPy, winPx, winPy);
 }

@@ -24,19 +24,27 @@
 #include <map>
 #include <memory>
 #include <sys/types.h>
-class VtermImpl final : public Vterm {
+class VtermImpl final: public Vterm {
 public:
-    VtermImpl(VtermHost& host, Pty& pty,
-              u16 glyphPx, u16 glyphPy,
-              u16 winPx, u16 winPy);
+    VtermImpl(VtermHost& host, Pty& pty, u16 glyphPx, u16 glyphPy, u16 winPx, u16 winPy);
 
     ~VtermImpl() = default;
 
-    bool getScreenReverseVideo() const { return screenReverseVideo; }
-    u8 getLedState() const { return ledState; }
-    bool getReverseWrapMode() const { return reverseWrapMode; }
-    bool getNationalReplacementMode() const { return nationalReplacementMode; }
-    bool getMetaMode() const { return eightBitInput; }
+    bool getScreenReverseVideo() const {
+        return screenReverseVideo;
+    }
+    u8 getLedState() const {
+        return ledState;
+    }
+    bool getReverseWrapMode() const {
+        return reverseWrapMode;
+    }
+    bool getNationalReplacementMode() const {
+        return nationalReplacementMode;
+    }
+    bool getMetaMode() const {
+        return eightBitInput;
+    }
 
     void resize(u16 winPx, u16 winPy);
 
@@ -60,14 +68,11 @@ public:
         }
     };
 
-    int writePty(VtKey key, VtModifier modifiers = VtModifier::none,
-                 bool userInput = false);
-    int writePty(u8 ch, VtModifier modifiers = VtModifier::none,
-                 bool userInput = false);
+    int writePty(VtKey key, VtModifier modifiers = VtModifier::none, bool userInput = false);
+    int writePty(u8 ch, VtModifier modifiers = VtModifier::none, bool userInput = false);
     int writePty(const char* cstr, bool userInput = false);
     int writePty(const char* data, size_t size, bool userInput);
-    int writePty(const u8* ucstr, size_t len,
-                 bool userInput = false);
+    int writePty(const u8* ucstr, size_t len, bool userInput = false);
     bool flushPtyOutput();
     bool hasPendingPtyOutput() const {
         return ptyOutputOffset < ptyOutput.size();
@@ -75,11 +80,8 @@ public:
     size_t pendingPtyOutputBytes() const {
         return ptyOutput.size() - ptyOutputOffset;
     }
-    int writeKittyKey(VtKey key, u16 modifiers,
-                      KeyEventType event);
-    int writeKittyKey(u32 key, u32 shiftedKey,
-                      u32 baseLayoutKey, u16 modifiers,
-                      KeyEventType event);
+    int writeKittyKey(VtKey key, u16 modifiers, KeyEventType event);
+    int writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, KeyEventType event);
     u8 getKittyKeyboardFlags() const;
 
     bool readPty();
@@ -87,11 +89,8 @@ public:
     void feedPtyOutput(const std::string& output);
 
     const MouseTrackingState& getMouseTrackingState() const;
-    bool mouseHighlightRelease(u16 endX, u16 endY,
-                               u16 mouseX, u16 mouseY);
-    void setLocatorPosition(u16 column, u16 row,
-                            u16 pixelX, u16 pixelY,
-                            u8 buttons = 0);
+    bool mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY);
+    void setLocatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons = 0);
     void reportLocatorButton(u8 button, bool pressed);
 
     void setHasFocus(bool);
@@ -115,8 +114,7 @@ public:
     void pasteSelection(const std::string& utf8_selection);
 
 private:
-    std::string getLocalEcho(const u8* const begin,
-                             const u8* const end);
+    std::string getLocalEcho(const u8* const begin, const u8* const end);
     bool processInput(const u8* input, int size, bool refresh = true);
     bool processInput(const std::string& str);
 
@@ -182,25 +180,7 @@ private:
         VT52_CUP_Arg2
     };
     const char* strInputState(InputState is) {
-        static const char* enumerators[] =
-            {
-                "Normal",
-                "IgnoreSequence",
-                "Escape",
-                "Escape_VT52",
-                "Esc_SPC",
-                "Esc_Hash",
-                "Esc_Pct",
-                "SelectCharset",
-                "CSI",
-                "DCS",
-                "DCS_Esc",
-                "OSC",
-                "OSC_Esc",
-                "String",
-                "String_Esc",
-                "VT52_CUP_Arg1",
-                "VT52_CUP_Arg2"};
+        static const char* enumerators[] = {"Normal", "IgnoreSequence", "Escape", "Escape_VT52", "Esc_SPC", "Esc_Hash", "Esc_Pct", "SelectCharset", "CSI", "DCS", "DCS_Esc", "OSC", "OSC_Esc", "String", "String_Esc", "VT52_CUP_Arg1", "VT52_CUP_Arg2"};
         return enumerators[(int)is];
     }
 
@@ -229,8 +209,7 @@ private:
         u16 right;
     };
     bool rectangleFromParams(size_t offset, Rectangle& rectangle) const;
-    void rectangleOrigin(u16& rowBase, u16& columnBase,
-                         u16& rowLimit, u16& columnLimit) const;
+    void rectangleOrigin(u16& rowBase, u16& columnBase, u16& rowLimit, u16& columnLimit) const;
 
     void showCursor();
     void hideCursor();
@@ -454,8 +433,7 @@ private:
     VtModifier modifiers = VtModifier::none;
 
     bool showCursorMode = true;
-    TerminalCursor::Style cursorShape =
-        TerminalCursor::Style::filled_block;
+    TerminalCursor::Style cursorShape = TerminalCursor::Style::filled_block;
     u8 cursorStyleParam = 2;
     bool cursorBlinkMode = false;
     bool haveBlinkingText = false;
@@ -541,8 +519,7 @@ private:
     ColMode colMode = ColMode::C80;
 
     void switchColMode(ColMode colMode);
-    void switchScreenBufferMode(bool altScreenBufferMode,
-                                bool clearAlternate = false);
+    void switchScreenBufferMode(bool altScreenBufferMode, bool clearAlternate = false);
 
     enum class Charset : u8 {
         UTF8,
@@ -571,8 +548,7 @@ private:
     };
 
     struct CharsetState {
-        Charset g[4] =
-            {Charset::UTF8, Charset::UTF8, Charset::UTF8, Charset::UTF8};
+        Charset g[4] = {Charset::UTF8, Charset::UTF8, Charset::UTF8, Charset::UTF8};
 
         u8 gl = 0;
         u8 gr = 2;

@@ -55,42 +55,55 @@
 
 namespace {
 
-class PtyImpl final : public Pty {
-public:
-    explicit PtyImpl(int fd_)
-        : fd_(fd_)
-    {
-        const int flags = fcntl(fd_, F_GETFL, 0);
-        if (flags < 0 || fcntl(fd_, F_SETFL, flags | O_NONBLOCK) < 0) {
-            const int error = errno;
-            close(fd_);
-            fd_ = -1;
-            throw std::runtime_error(
-                "cannot make PTY nonblocking: " +
-                std::string(strerror(error)));
-        }
-    }
+    class PtyImpl final: public Pty {
+    public:
+        explicit PtyImpl(int fd);
+        ~PtyImpl();
 
-    ~PtyImpl() {
-        if (fd_ >= 0) close(fd_);
-    }
+        int fd() const override;
+        ssize_t read(u8* buffer, size_t size) override;
+        ssize_t write(const u8* buffer, size_t size) override;
+        void resize(u16 columns, u16 rows) override;
 
-    int fd() const override { return fd_; }
-    ssize_t read(u8* buffer, size_t size) override {
-        return ::read(fd_, buffer, size);
-    }
-    ssize_t write(const u8* buffer, size_t size) override {
-        return ::write(fd_, buffer, size);
-    }
-    void resize(u16 columns, u16 rows) override {
-        pty_resize(fd_, columns, rows);
-    }
+    private:
+        int fd_;
+    };
 
-private:
-    int fd_;
-};
+}
 
-} // namespace
+PtyImpl::PtyImpl(int fd)
+    : fd_(fd)
+{
+    const int flags = fcntl(fd_, F_GETFL, 0);
+    if (flags < 0 || fcntl(fd_, F_SETFL, flags | O_NONBLOCK) < 0) {
+        const int error = errno;
+        close(fd_);
+        fd_ = -1;
+        throw std::runtime_error("cannot make PTY nonblocking: " + std::string(strerror(error)));
+    }
+}
+
+PtyImpl::~PtyImpl() {
+    if (fd_ >= 0) {
+        close(fd_);
+    }
+}
+
+int PtyImpl::fd() const {
+    return fd_;
+}
+
+ssize_t PtyImpl::read(u8* buffer, size_t size) {
+    return ::read(fd_, buffer, size);
+}
+
+ssize_t PtyImpl::write(const u8* buffer, size_t size) {
+    return ::write(fd_, buffer, size);
+}
+
+void PtyImpl::resize(u16 columns, u16 rows) {
+    pty_resize(fd_, columns, rows);
+}
 
 Pty* Pty::adopt(Composer& composer, int fd) {
     return composer.pool->make<PtyImpl>(fd);

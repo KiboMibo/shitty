@@ -27,13 +27,10 @@ struct Color {
     }
 };
 
-inline std::ostream&
-operator<<(std::ostream& os, const Color& c) {
+inline std::ostream& operator<<(std::ostream& os, const Color& c) {
     os << "rgb:" << std::hex << std::setfill('0')
 
-       << std::setw(2) << (int)c.red << std::setw(2) << (int)c.red << "/"
-       << std::setw(2) << (int)c.green << std::setw(2) << (int)c.green << "/"
-       << std::setw(2) << (int)c.blue << std::setw(2) << (int)c.blue;
+       << std::setw(2) << (int)c.red << std::setw(2) << (int)c.red << "/" << std::setw(2) << (int)c.green << std::setw(2) << (int)c.green << "/" << std::setw(2) << (int)c.blue << std::setw(2) << (int)c.blue;
     return os;
 }
 
@@ -61,8 +58,7 @@ struct Point {
     }
 };
 
-inline std::ostream&
-operator<<(std::ostream& os, const Point& p) {
+inline std::ostream& operator<<(std::ostream& os, const Point& p) {
     os << "(" << p.x << "," << p.y << ")";
 
     return os;
@@ -112,8 +108,7 @@ struct Rect {
     }
 };
 
-inline std::ostream&
-operator<<(std::ostream& os, const Rect& r) {
+inline std::ostream& operator<<(std::ostream& os, const Rect& r) {
     os << "Rect{tl=" << r.tl << " " << "br=" << r.br;
     if (r.rectangular) {
         os << " rectangular}";

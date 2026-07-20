@@ -19,6 +19,8 @@ public:
 
 private:
     std::string primarySelection;
-    ReadClipboard readClipboard = [] { return std::string{}; };
+    ReadClipboard readClipboard = [] {
+        return std::string{};
+    };
     WriteClipboard writeClipboard = [](const std::string&) {};
 };

@@ -51,6 +51,15 @@ def restore_constructor_braces(path):
                 continue
 
             indent = match.group("indent")
+            previous_number = line_number - 1
+            while previous_number >= 0 and not lines[previous_number].strip():
+                previous_number -= 1
+            if previous_number < 0:
+                continue
+            previous = lines[previous_number]
+            previous_indent = len(previous) - len(previous.lstrip(" "))
+            if previous_indent + 4 != len(indent) or not previous.rstrip().endswith(")"):
+                continue
             body_indent = indent[:-4] if indent.endswith("    ") else ""
             in_initializers = True
             parens = brackets = braces = 0

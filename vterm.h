@@ -24,20 +24,101 @@ struct VtermHost;
 
 enum class VtKey {
     NONE,
-    Space, Return, Backspace, Tab, Backtick, Tilde,
-    Up, Down, Left, Right, Insert, Delete, Home, End, PageUp, PageDown,
-    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10,
-    F11, F12, F13, F14, F15, F16, F17, F18, F19, F20,
-    K0, K1, K2, K3, K4, K5, K6, K7, K8, K9,
-    KP_F1, KP_F2, KP_F3, KP_F4,
-    KP_Insert, KP_Delete, KP_Up, KP_Down, KP_Left, KP_Right,
-    KP_Home, KP_End, KP_PageUp, KP_PageDown, KP_Begin,
-    KP_Plus, KP_Minus, KP_Star, KP_Slash, KP_Comma, KP_Dot,
-    KP_Space, KP_Equal, KP_Tab, KP_Enter,
-    KP_0, KP_1, KP_2, KP_3, KP_4, KP_5, KP_6, KP_7, KP_8, KP_9,
-    CapsLock, ScrollLock, NumLock, Pause, Menu, Print,
-    LeftShift, LeftControl, LeftAlt, LeftSuper,
-    RightShift, RightControl, RightAlt, RightSuper
+    Space,
+    Return,
+    Backspace,
+    Tab,
+    Backtick,
+    Tilde,
+    Up,
+    Down,
+    Left,
+    Right,
+    Insert,
+    Delete,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+    F13,
+    F14,
+    F15,
+    F16,
+    F17,
+    F18,
+    F19,
+    F20,
+    K0,
+    K1,
+    K2,
+    K3,
+    K4,
+    K5,
+    K6,
+    K7,
+    K8,
+    K9,
+    KP_F1,
+    KP_F2,
+    KP_F3,
+    KP_F4,
+    KP_Insert,
+    KP_Delete,
+    KP_Up,
+    KP_Down,
+    KP_Left,
+    KP_Right,
+    KP_Home,
+    KP_End,
+    KP_PageUp,
+    KP_PageDown,
+    KP_Begin,
+    KP_Plus,
+    KP_Minus,
+    KP_Star,
+    KP_Slash,
+    KP_Comma,
+    KP_Dot,
+    KP_Space,
+    KP_Equal,
+    KP_Tab,
+    KP_Enter,
+    KP_0,
+    KP_1,
+    KP_2,
+    KP_3,
+    KP_4,
+    KP_5,
+    KP_6,
+    KP_7,
+    KP_8,
+    KP_9,
+    CapsLock,
+    ScrollLock,
+    NumLock,
+    Pause,
+    Menu,
+    Print,
+    LeftShift,
+    LeftControl,
+    LeftAlt,
+    LeftSuper,
+    RightShift,
+    RightControl,
+    RightAlt,
+    RightSuper
 };
 
 enum class VtModifier : u8 {
@@ -51,12 +132,10 @@ enum class VtModifier : u8 {
     shift_control_alt = 7
 };
 constexpr VtModifier operator|(VtModifier lhs, VtModifier rhs) {
-    return (VtModifier)(
-        (u8)(lhs) | (u8)(rhs));
+    return (VtModifier)((u8)(lhs) | (u8)(rhs));
 }
 constexpr VtModifier operator&(VtModifier lhs, VtModifier rhs) {
-    return (VtModifier)(
-        (u8)(lhs) & (u8)(rhs));
+    return (VtModifier)((u8)(lhs) & (u8)(rhs));
 }
 
 enum class MouseTrackingMode : u8 {
@@ -114,23 +193,15 @@ struct Vterm {
     virtual bool animationActive() const = 0;
     virtual bool advanceAnimation(bool force = false) = 0;
 
-    virtual int writePty(
-        VtKey key, VtModifier modifiers = VtModifier::none,
-        bool userInput = false) = 0;
-    virtual int writePty(
-        u8 ch, VtModifier modifiers = VtModifier::none,
-        bool userInput = false) = 0;
+    virtual int writePty(VtKey key, VtModifier modifiers = VtModifier::none, bool userInput = false) = 0;
+    virtual int writePty(u8 ch, VtModifier modifiers = VtModifier::none, bool userInput = false) = 0;
     virtual int writePty(const char* cstr, bool userInput = false) = 0;
-    virtual int writePty(
-        const u8* data, size_t size, bool userInput = false) = 0;
+    virtual int writePty(const u8* data, size_t size, bool userInput = false) = 0;
     virtual bool flushPtyOutput() = 0;
     virtual bool hasPendingPtyOutput() const = 0;
     virtual size_t pendingPtyOutputBytes() const = 0;
-    virtual int writeKittyKey(
-        VtKey key, u16 modifiers, KeyEventType event) = 0;
-    virtual int writeKittyKey(
-        u32 key, u32 shiftedKey, u32 baseLayoutKey,
-        u16 modifiers, KeyEventType event) = 0;
+    virtual int writeKittyKey(VtKey key, u16 modifiers, KeyEventType event) = 0;
+    virtual int writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, KeyEventType event) = 0;
     virtual u8 getKittyKeyboardFlags() const = 0;
 
     virtual bool readPty() = 0;
@@ -138,12 +209,8 @@ struct Vterm {
     virtual void feedPtyOutput(const std::string& output) = 0;
 
     virtual const MouseTrackingState& getMouseTrackingState() const = 0;
-    virtual bool mouseHighlightRelease(
-        u16 endX, u16 endY,
-        u16 mouseX, u16 mouseY) = 0;
-    virtual void setLocatorPosition(
-        u16 column, u16 row, u16 pixelX, u16 pixelY,
-        u8 buttons = 0) = 0;
+    virtual bool mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY) = 0;
+    virtual void setLocatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons = 0) = 0;
     virtual void reportLocatorButton(u8 button, bool pressed) = 0;
 
     virtual void setHasFocus(bool focused) = 0;
@@ -163,7 +230,5 @@ struct Vterm {
     virtual void selectRectangularModeToggle() = 0;
     virtual void pasteSelection(const std::string& selection) = 0;
 
-    static Vterm* create(Composer& composer, VtermHost& host, Pty& pty,
-                         u16 glyphPx, u16 glyphPy,
-                         u16 winPx, u16 winPy);
+    static Vterm* create(Composer& composer, VtermHost& host, Pty& pty, u16 glyphPx, u16 glyphPy, u16 winPx, u16 winPy);
 };

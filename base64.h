@@ -17,11 +17,9 @@
 #include <vector>
 
 namespace {
-    static constexpr const char* syms =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    static constexpr const char* syms = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-    static std::vector<int> rtab =
-        [] {
+    static std::vector<int> rtab = [] {
         std::vector<int> rt(256, -1);
         for (int i = 0; i < 64; i++) {
             rt[syms[i]] = i;
@@ -32,8 +30,7 @@ namespace {
 
 namespace base64 {
 
-    static std::string
-    encode(const std::string& in) {
+    static std::string encode(const std::string& in) {
         std::string out;
         out.reserve(in.size() * 4 / 3 + 3);
 
@@ -56,8 +53,7 @@ namespace base64 {
         return out;
     }
 
-    static bool
-    decode(const std::string& in, std::string& out) {
+    static bool decode(const std::string& in, std::string& out) {
         out.clear();
         out.reserve(in.size() * 3 / 4);
 
@@ -67,8 +63,7 @@ namespace base64 {
             --dataSize;
             ++padding;
         }
-        if (padding > 2 || (padding && in.size() % 4 != 0) ||
-            dataSize % 4 == 1) {
+        if (padding > 2 || (padding && in.size() % 4 != 0) || dataSize % 4 == 1) {
             return false;
         }
         for (size_t k = 0; k < dataSize; ++k) {
@@ -81,16 +76,14 @@ namespace base64 {
                 return false;
             }
         }
-        if ((padding == 1 && dataSize % 4 != 3) ||
-            (padding == 2 && dataSize % 4 != 2)) {
+        if ((padding == 1 && dataSize % 4 != 3) || (padding == 2 && dataSize % 4 != 2)) {
             return false;
         }
 
         u32 value = 0;
         int bits = 0;
         for (size_t k = 0; k < dataSize; ++k) {
-            value = (value << 6) |
-                    (u32)(rtab[(unsigned char)(in[k])]);
+            value = (value << 6) | (u32)(rtab[(unsigned char)(in[k])]);
             bits += 6;
             if (bits >= 8) {
                 bits -= 8;

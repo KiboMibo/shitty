@@ -31,8 +31,7 @@ public:
     VulkanPresenter(const VulkanPresenter&) = delete;
     VulkanPresenter& operator=(const VulkanPresenter&) = delete;
 
-    bool present(const CharVdev& charVdev, const Frame& sourceFrame,
-                 bool delta);
+    bool present(const CharVdev& charVdev, const Frame& sourceFrame, bool delta);
     bool repaint();
     static u32 packCellAttributes(const TerminalCell& cell);
 
@@ -91,8 +90,7 @@ private:
         u32 blinkVisible;
         u32 cursorBlink;
     };
-    static_assert(sizeof(PushConstants) == 112,
-                  "Vulkan push constant layout mismatch");
+    static_assert(sizeof(PushConstants) == 112, "Vulkan push constant layout mismatch");
 
     static constexpr u32 framesInFlight = 2;
 
@@ -149,33 +147,19 @@ private:
     void ensureCellBuffer(FrameResources& frame, size_t bytes);
     void ensureGraphemeBuffer(FrameResources& frame, size_t bytes);
 
-    ImageResource createImage(
-        u32 width, u32 height, u32 layers,
-        VkFormat format, VkImageUsageFlags usage,
-        bool arrayView = false);
+    ImageResource createImage(u32 width, u32 height, u32 layers, VkFormat format, VkImageUsageFlags usage, bool arrayView = false);
     void destroyImage(ImageResource& image);
-    void uploadImage(const ImageResource& image, const void* data,
-                     size_t bytes);
-    void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
-                      VkMemoryPropertyFlags properties,
-                      VkBuffer& buffer, VkDeviceMemory& memory) const;
-    u32 findMemoryType(u32 allowed,
-                            VkMemoryPropertyFlags properties) const;
+    void uploadImage(const ImageResource& image, const void* data, size_t bytes);
+    void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory) const;
+    u32 findMemoryType(u32 allowed, VkMemoryPropertyFlags properties) const;
     void updateStaticDescriptors();
     void updateOutputDescriptors();
     void updateCellDescriptor(FrameResources& frame);
     void updateGraphemeDescriptor(FrameResources& frame);
-    void recordCommands(FrameResources& frame, u32 imageIndex,
-                        const CharVdev& charVdev,
-                        const Frame& sourceFrame, bool delta);
-    void recordRepaintCommands(
-        FrameResources& frame, u32 imageIndex);
-    bool acquirePresentFrame(
-        u32 width, u32 height, FrameResources*& frame,
-        u32& imageIndex, bool& recreateAfterPresent);
-    bool submitPresentFrame(
-        u32 width, u32 height, FrameResources& frame,
-        u32 imageIndex, bool recreateAfterPresent);
+    void recordCommands(FrameResources& frame, u32 imageIndex, const CharVdev& charVdev, const Frame& sourceFrame, bool delta);
+    void recordRepaintCommands(FrameResources& frame, u32 imageIndex);
+    bool acquirePresentFrame(u32 width, u32 height, FrameResources*& frame, u32& imageIndex, bool& recreateAfterPresent);
+    bool submitPresentFrame(u32 width, u32 height, FrameResources& frame, u32 imageIndex, bool recreateAfterPresent);
 
     static std::vector<u8> makeAtlasMap(const Font& font);
     static u32 packColor(const Color& color);

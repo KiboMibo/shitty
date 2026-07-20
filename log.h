@@ -31,8 +31,7 @@
     } else                             \
         std::cout
 
-constexpr const char*
-logFileName(const char* path) {
+constexpr const char* logFileName(const char* path) {
     const char* name = path;
     while (*path != '\0') {
         if (*path == '/' || *path == '\\') {
@@ -43,9 +42,7 @@ logFileName(const char* path) {
     return name;
 }
 
-#define plog(Ostream, Prefix)                          \
-    Ostream << Prefix << " [" << logFileName(__FILE__) \
-            << ":" << std::setw(3) << __LINE__ << "] "
+#define plog(Ostream, Prefix) Ostream << Prefix << " [" << logFileName(__FILE__) << ":" << std::setw(3) << __LINE__ << "] "
 
 #define logE plog(zlog, "E") << "Error: "
 #define logW plog(zlog, "W") << "Warning: "
@@ -58,14 +55,12 @@ logFileName(const char* path) {
     #define logT false && std::cout
 #endif
 
-inline void
-printArgs() {
+inline void printArgs() {
     zlog << std::endl;
 }
 
 template <typename T, typename... Args>
-inline void
-printArgs(T arg, Args... args) {
+inline void printArgs(T arg, Args... args) {
     zlog << arg;
     printArgs(args...);
 }
@@ -94,8 +89,7 @@ void restoreFds();
         logSysW(__VA_ARGS__, ": ", strerror(ec), " (errno=", ec, ")"); \
     } while (0);
 
-inline std::string
-dumpBuffer(const unsigned char* start, const unsigned char* end) {
+inline std::string dumpBuffer(const unsigned char* start, const unsigned char* end) {
     if (opts.quiet) {
         return "";
     }
@@ -134,8 +128,7 @@ dumpBuffer(const unsigned char* start, const unsigned char* end) {
                 break;
             default:
                 if (*it < ' ' || *it >= 0x80) {
-                    os << "\\x" << std::hex << std::setw(2) << std::setfill('0')
-                       << (unsigned int)*it;
+                    os << "\\x" << std::hex << std::setw(2) << std::setfill('0') << (unsigned int)*it;
                 } else {
                     os << *it;
                 }
@@ -151,8 +144,6 @@ dumpBuffer(const unsigned char* start, const unsigned char* end) {
     }
 }
 
-inline std::string
-dumpBuffer(const u8* start, const u8* end) {
-    return dumpBuffer((const unsigned char*)start,
-                      (const unsigned char*)end);
+inline std::string dumpBuffer(const u8* start, const u8* end) {
+    return dumpBuffer((const unsigned char*)start, (const unsigned char*)end);
 }

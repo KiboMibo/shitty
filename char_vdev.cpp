@@ -29,18 +29,14 @@ bool CharVdev::resize(u16 pxWidth_, u16 pxHeight_) {
 
     pxWidth = pxWidth_;
     pxHeight = pxHeight_;
-    const int contentWidth = std::max(
-        0, (int)(pxWidth) - 2 * opts.border);
-    const int contentHeight = std::max(
-        0, (int)(pxHeight) - 2 * opts.border);
+    const int contentWidth = std::max(0, (int)(pxWidth)-2 * opts.border);
+    const int contentHeight = std::max(0, (int)(pxHeight)-2 * opts.border);
     nCols = std::max(1, contentWidth / px);
     nRows = std::max(1, contentHeight / py);
 
-    logI << "Resize to " << pxWidth << " x " << pxHeight
-         << " pixels, " << nCols << " x " << nRows << " chars"
-         << std::endl;
+    logI << "Resize to " << pxWidth << " x " << pxHeight << " pixels, " << nCols << " x " << nRows << " chars" << std::endl;
 
-    cellStorage.assign((size_t)(nCols) * nRows, TerminalCell{});
+    cellStorage.assign((size_t)(nCols)*nRows, TerminalCell{});
     return true;
 }
 
@@ -56,8 +52,7 @@ CharVdev::Mapping::~Mapping() {
     cells = nullptr;
 }
 
-CharVdev::Mapping
-CharVdev::getMapping() {
+CharVdev::Mapping CharVdev::getMapping() {
     assert(cells == nullptr);
     cells = cellStorage.data();
     return Mapping(nCols, nRows, cells);

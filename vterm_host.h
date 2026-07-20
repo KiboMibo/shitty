@@ -34,43 +34,39 @@ struct VtermHost {
     virtual void bell() = 0;
     virtual void print(const std::string& output) = 0;
     virtual void leds(u8 state) = 0;
-    virtual void notify(const std::string& id, const std::string& title,
-                        const std::string& body, bool close) = 0;
+    virtual void notify(const std::string& id, const std::string& title, const std::string& body, bool close) = 0;
     virtual void progress(u32 state, u32 percent) = 0;
-    virtual void windowOperation(u32 operation, u32 first,
-                                 u32 second) = 0;
+    virtual void windowOperation(u32 operation, u32 first, u32 second) = 0;
     virtual VtermWindowInfo windowInfo() = 0;
 };
 
 // Adapter used while frontends are being migrated to implement VtermHost
 // directly. Vterm itself still depends only on the host interface above.
-class VtermHostCallbacks final : public VtermHost {
+class VtermHostCallbacks final: public VtermHost {
 public:
     using RefreshHandler = std::function<bool(const Frame&)>;
     using OscHandler = std::function<void(int, const std::string&)>;
     using BellHandler = std::function<void()>;
     using PrinterHandler = std::function<void(const std::string&)>;
     using LedHandler = std::function<void(u8)>;
-    using NotificationHandler = std::function<void(
-        const std::string&, const std::string&, const std::string&, bool)>;
+    using NotificationHandler = std::function<void(const std::string&, const std::string&, const std::string&, bool)>;
     using ProgressHandler = std::function<void(u32, u32)>;
-    using WindowOpsHandler =
-        std::function<void(u32, u32, u32)>;
+    using WindowOpsHandler = std::function<void(u32, u32, u32)>;
     using WindowInfoHandler = std::function<VtermWindowInfo()>;
 
     VtermHostCallbacks();
 
     bool present(const Frame& frame) override;
     void osc(int command, const std::string& argument) override;
-    bool handlesOsc() const override { return haveOscHandler; }
+    bool handlesOsc() const override {
+        return haveOscHandler;
+    }
     void bell() override;
     void print(const std::string& output) override;
     void leds(u8 state) override;
-    void notify(const std::string& id, const std::string& title,
-                const std::string& body, bool close) override;
+    void notify(const std::string& id, const std::string& title, const std::string& body, bool close) override;
     void progress(u32 state, u32 percent) override;
-    void windowOperation(u32 operation, u32 first,
-                         u32 second) override;
+    void windowOperation(u32 operation, u32 first, u32 second) override;
     VtermWindowInfo windowInfo() override;
 
     void setRefreshHandler(RefreshHandler handler);

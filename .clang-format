@@ -14,14 +14,14 @@ IndentCaseLabels: true
 IndentPPDirectives: BeforeHash
 IndentExternBlock: Indent
 
-ColumnLimit: 0
+ColumnLimit: 10000
 MaxEmptyLinesToKeep: 1
 KeepEmptyLinesAtTheStartOfBlocks: false
 
 BreakBeforeBraces: Attach
 BreakConstructorInitializers: BeforeComma
 PackConstructorInitializers: Never
-BreakInheritanceList: BeforeColon
+BreakInheritanceList: AfterColon
 SpaceBeforeInheritanceColon: false
 
 AllowShortBlocksOnASingleLine: Never
@@ -49,17 +49,21 @@ SpacesInCStyleCastParentheses: false
 SpaceBeforeCpp11BracedList: false
 Cpp11BracedListStyle: true
 
-AlignAfterOpenBracket: Align
+AlignAfterOpenBracket: BlockIndent
 AlignEscapedNewlines: Left
 AlignOperands: Align
 AlignTrailingComments:
   Kind: Always
   OverEmptyLines: 0
-BinPackArguments: true
-BinPackParameters: BinPack
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+BinPackArguments: false
+BinPackLongBracedList: false
+BinPackParameters: OnePerLine
 BreakBeforeBinaryOperators: None
 BreakBeforeTernaryOperators: true
 AlwaysBreakTemplateDeclarations: Yes
+PenaltyBreakBeforeFirstCallParameter: 0
 
 SortIncludes: Never
 IncludeBlocks: Preserve

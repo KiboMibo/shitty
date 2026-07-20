@@ -23,14 +23,10 @@ struct MouseProtocolPoint {
 };
 
 int mouseFramebufferCoordinate(double logical, double scale);
-MouseProtocolPoint mouseProtocolPoint(MouseTrackingEnc encoding,
-                                      int pixelX, int pixelY,
-                                      const MouseGeometry& geometry);
-unsigned mouseProtocolModifiers(unsigned frontendModifiers,
-                                bool reportAlt = true);
+MouseProtocolPoint mouseProtocolPoint(MouseTrackingEnc encoding, int pixelX, int pixelY, const MouseGeometry& geometry);
+unsigned mouseProtocolModifiers(unsigned frontendModifiers, bool reportAlt = true);
 int mouseTerminalButton(int frontendButton);
-bool mouseButtonReportAllowed(MouseTrackingMode mode,
-                              MouseEventType type, int button);
+bool mouseButtonReportAllowed(MouseTrackingMode mode, MouseEventType type, int button);
 
 struct MouseWheelSteps {
     int x = 0;
@@ -52,23 +48,30 @@ private:
 
 class MouseFrontendState {
 public:
-    bool protocolActive(unsigned modifiers,
-                        MouseTrackingMode mode) const;
+    bool protocolActive(unsigned modifiers, MouseTrackingMode mode) const;
     void updateButton(int button, bool pressed);
-    void clearButtons() { buttons_ = 0; }
-    unsigned buttons() const { return buttons_; }
+    void clearButtons() {
+        buttons_ = 0;
+    }
+    unsigned buttons() const {
+        return buttons_;
+    }
     int motionButton() const;
     bool primaryButtonPressed() const;
 
     int registerClick(int button, double x, double y, double time);
 
-    void beginSelection() { selectionOngoing_ = true; }
-    void endSelection() { selectionOngoing_ = false; }
-    bool selectionOngoing() const { return selectionOngoing_; }
+    void beginSelection() {
+        selectionOngoing_ = true;
+    }
+    void endSelection() {
+        selectionOngoing_ = false;
+    }
+    bool selectionOngoing() const {
+        return selectionOngoing_;
+    }
 
-    bool reportMotion(int column, int row,
-                      MouseTrackingMode mode, MouseTrackingEnc encoding,
-                      u32 generation);
+    bool reportMotion(int column, int row, MouseTrackingMode mode, MouseTrackingEnc encoding, u32 generation);
     void resetMotion();
 
     MouseWheelSteps consumeWheel(double x, double y, bool reporting) {

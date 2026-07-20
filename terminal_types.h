@@ -84,26 +84,18 @@ struct TerminalCell {
     }
 
     static Ptr make(u16 columns, u16 rows) {
-        return Ptr(new TerminalCell[rows * columns],
-                   std::default_delete<TerminalCell[]>());
+        return Ptr(new TerminalCell[rows * columns], std::default_delete<TerminalCell[]>());
     }
 };
 
 static_assert(sizeof(TerminalCell) == 48, "TerminalCell size mismatch");
-static_assert(offsetof(TerminalCell, uc_pt) == 0,
-              "TerminalCell codepoint offset mismatch");
-static_assert(offsetof(TerminalCell, fg) == 8,
-              "TerminalCell foreground offset mismatch");
-static_assert(offsetof(TerminalCell, bg) == 12,
-              "TerminalCell background offset mismatch");
-static_assert(offsetof(TerminalCell, underline_color) == 16,
-              "TerminalCell underline offset mismatch");
-static_assert(offsetof(TerminalCell, hyperlink) == 20,
-              "TerminalCell hyperlink offset mismatch");
-static_assert(offsetof(TerminalCell, grapheme) == 24,
-              "TerminalCell grapheme offset mismatch");
-static_assert(offsetof(TerminalCell, fg_index) == 28,
-              "TerminalCell foreground source offset mismatch");
+static_assert(offsetof(TerminalCell, uc_pt) == 0, "TerminalCell codepoint offset mismatch");
+static_assert(offsetof(TerminalCell, fg) == 8, "TerminalCell foreground offset mismatch");
+static_assert(offsetof(TerminalCell, bg) == 12, "TerminalCell background offset mismatch");
+static_assert(offsetof(TerminalCell, underline_color) == 16, "TerminalCell underline offset mismatch");
+static_assert(offsetof(TerminalCell, hyperlink) == 20, "TerminalCell hyperlink offset mismatch");
+static_assert(offsetof(TerminalCell, grapheme) == 24, "TerminalCell grapheme offset mismatch");
+static_assert(offsetof(TerminalCell, fg_index) == 28, "TerminalCell foreground source offset mismatch");
 
 struct TerminalCursor {
     Color color = opts.cr;

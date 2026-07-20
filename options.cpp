@@ -25,8 +25,7 @@ namespace {
 
     std::map<std::string, std::string> commandLine;
 
-    const OptionDesc*
-    findOption(const char* prefix) {
+    const OptionDesc* findOption(const char* prefix) {
         if (strcmp(prefix, "v") == 0) {
             prefix = "verbose";
         }
@@ -43,16 +42,14 @@ namespace {
                 return &option;
             }
             if (found != nullptr) {
-                throw std::runtime_error(
-                    std::string("ambiguous option: ") + prefix);
+                throw std::runtime_error(std::string("ambiguous option: ") + prefix);
             }
             found = &option;
         }
         return found;
     }
 
-    bool
-    isAdvancedOption(const char* name) {
+    bool isAdvancedOption(const char* name) {
         for (const auto& resource : resourceTable) {
             if (strcmp(resource.resource, name) == 0) {
                 return true;
@@ -61,9 +58,7 @@ namespace {
         return false;
     }
 
-    const char*
-    get(const char* name, const char* fallback = nullptr,
-        OptionSource* src = nullptr) {
+    const char* get(const char* name, const char* fallback = nullptr, OptionSource* src = nullptr) {
         auto withSource = [=](const OptionSource source, const char* value) {
             if (src != nullptr) {
                 *src = source;
@@ -91,8 +86,7 @@ namespace {
         return withSource(OptionSource::NONE, fallback);
     }
 
-    void
-    getBorder(u16& outBorder) {
+    void getBorder(u16& outBorder) {
         const char* option = get("border");
         std::stringstream input(option != nullptr ? option : "");
         int border;
@@ -105,8 +99,7 @@ namespace {
         outBorder = border;
     }
 
-    void
-    getSaveLines(u16& outSaveLines) {
+    void getSaveLines(u16& outSaveLines) {
         const char* option = get("saveLines");
         std::stringstream input(option != nullptr ? option : "");
         int lines;
@@ -119,8 +112,7 @@ namespace {
         outSaveLines = lines;
     }
 
-    void
-    getFontsize(u8& outFontsize) {
+    void getFontsize(u8& outFontsize) {
         const char* option = nullptr;
         const auto parsed = commandLine.find("fontsize");
         if (parsed != commandLine.end()) {
@@ -134,14 +126,12 @@ namespace {
         const bool invalid = input.fail();
         input >> std::ws;
         if (invalid || !input.eof() || size < 1 || size > 255) {
-            throw std::runtime_error(
-                "-fontsize/ZUTTY_FONT_SIZE: expected integer within 1..255");
+            throw std::runtime_error("-fontsize/ZUTTY_FONT_SIZE: expected integer within 1..255");
         }
         outFontsize = size;
     }
 
-    void
-    getGeometry(u16& outCols, u16& outRows) {
+    void getGeometry(u16& outCols, u16& outRows) {
         const char* option = get("geometry");
         std::stringstream input(option != nullptr ? option : "");
         int cols;
@@ -150,17 +140,14 @@ namespace {
         input >> cols >> separator >> rows;
         const bool invalid = input.fail();
         input >> std::ws;
-        if (invalid || !input.eof() || separator != 'x' ||
-            cols < 1 || cols > UINT16_MAX ||
-            rows < 1 || rows > UINT16_MAX) {
+        if (invalid || !input.eof() || separator != 'x' || cols < 1 || cols > UINT16_MAX || rows < 1 || rows > UINT16_MAX) {
             throw std::runtime_error("-geometry: expected format <COLS>x<ROWS>");
         }
         outCols = cols;
         outRows = rows;
     }
 
-    u8
-    convHexDigit(const char* name, const char ch) {
+    u8 convHexDigit(const char* name, const char ch) {
         if (ch >= '0' && ch <= '9') {
             return ch - '0';
         }
@@ -171,12 +158,10 @@ namespace {
             return ch - 'A' + 10;
         }
 
-        throw std::runtime_error(std::string("-") + name +
-                                 ": illegal hex digit; expected hex RGB color");
+        throw std::runtime_error(std::string("-") + name + ": illegal hex digit; expected hex RGB color");
     }
 
-    void
-    convColor(const char* name, const char* option, Color& outColor) {
+    void convColor(const char* name, const char* option, Color& outColor) {
         const char* value = option[0] == '#' ? option + 1 : option;
         switch (strlen(value)) {
             case 3:
@@ -185,16 +170,12 @@ namespace {
                 outColor.blue = 17 * convHexDigit(name, value[2]);
                 break;
             case 6:
-                outColor.red = (convHexDigit(name, value[0]) << 4) +
-                               convHexDigit(name, value[1]);
-                outColor.green = (convHexDigit(name, value[2]) << 4) +
-                                 convHexDigit(name, value[3]);
-                outColor.blue = (convHexDigit(name, value[4]) << 4) +
-                                convHexDigit(name, value[5]);
+                outColor.red = (convHexDigit(name, value[0]) << 4) + convHexDigit(name, value[1]);
+                outColor.green = (convHexDigit(name, value[2]) << 4) + convHexDigit(name, value[3]);
+                outColor.blue = (convHexDigit(name, value[4]) << 4) + convHexDigit(name, value[5]);
                 break;
             default:
-                throw std::runtime_error(std::string("-") + name +
-                                         ": expected hex RGB color");
+                throw std::runtime_error(std::string("-") + name + ": expected hex RGB color");
         }
     }
 
@@ -268,8 +249,7 @@ bool Options::getBool(const char* name, bool defaultValue) {
     if (strcmp(option, "false") == 0) {
         return false;
     }
-    throw std::runtime_error(std::string("-") + name +
-                             ": expected true or false");
+    throw std::runtime_error(std::string("-") + name + ": expected true or false");
 }
 
 void Options::getColor(const char* name, Color& outColor) {
@@ -341,8 +321,7 @@ void Options::parse() {
         allowOsc52Read = getBool("allowOsc52Read");
         const std::string osc52Select = get("osc52Select");
         if (osc52Select != "primary" && osc52Select != "clipboard") {
-            throw std::runtime_error(
-                "-osc52Select: expected primary or clipboard");
+            throw std::runtime_error("-osc52Select: expected primary or clipboard");
         }
         osc52SelectClipboard = osc52Select == "clipboard";
         boldColors = getBool("boldColors");
@@ -377,8 +356,7 @@ void Options::printUsage() const {
         maxWidth = std::max(maxWidth, strlen(option.option));
     }
     for (const auto& option : optionsTable) {
-        std::cout << "  -" << std::left << std::setw(maxWidth + 3)
-                  << option.option << option.helpDescr;
+        std::cout << "  -" << std::left << std::setw(maxWidth + 3) << option.option << option.helpDescr;
         if (option.hardDefault != nullptr && option.parseType != OptionKind::NoArg) {
             std::cout << " (default: " << option.hardDefault << ")";
         }
@@ -395,8 +373,7 @@ void Options::printResources() const {
         maxWidth = std::max(maxWidth, strlen(resource.resource));
     }
     for (const auto& resource : resourceTable) {
-        std::cout << "  -" << std::left << std::setw(maxWidth + 3)
-                  << resource.resource << resource.helpDescr;
+        std::cout << "  -" << std::left << std::setw(maxWidth + 3) << resource.resource << resource.helpDescr;
         if (resource.hardDefault != nullptr) {
             std::cout << " (default: " << resource.hardDefault << ")";
         }
