@@ -81,6 +81,17 @@ class PtyTest(unittest.TestCase):
             after = terminal.snapshot().refresh_count
             self.assertEqual(after, before + 1)
 
+    def test_one_drain_consumes_every_chunk_until_eagain(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.script_pty_reads(
+                b"ab", b"cd", b"ef", ("error", errno.EAGAIN)
+            )
+            before = terminal.snapshot().refresh_count
+            self.assertFalse(terminal.read_pty())
+            after = terminal.snapshot()
+            self.assertEqual(after.lines[0], "abcdef  ")
+            self.assertEqual(after.refresh_count, before + 1)
+
 
 if __name__ == "__main__":
     unittest.main()
