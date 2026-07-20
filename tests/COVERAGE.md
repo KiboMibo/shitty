@@ -27,6 +27,8 @@ Covered now:
   previous committed frame until one combined release frame;
 - synchronized-output watchdog release as a single-shot, reusable transition,
   including no-op expiry outside synchronized mode;
+- resize between failed presentation and retry, rebuilding a full frame for the
+  new grid while retaining earlier uncommitted damage;
 - C0 controls, cursor movement, save/restore, tabs and scrolling regions;
 - autowrap, alternate screen, synchronized output and cursor modes;
 - insert/delete/erase operations and insert mode;

@@ -29,7 +29,6 @@
 
 Сейчас практически отсутствуют:
 
-- resize между failed present и retry;
 - отсутствие spurious frames при неполной escape sequence.
 
 Synchronized output должен продолжать менять модель терминала, сохраняя предыдущую представленную картинку до `2026l`: [protocol specification](https://github.com/contour-terminal/vt-extensions/blob/master/synchronized-output.md).

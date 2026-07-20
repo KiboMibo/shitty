@@ -4,6 +4,20 @@ from harness import Zutty
 
 
 class DamageOnlyFrameTest(unittest.TestCase):
+    def test_resize_between_failed_present_and_retry_rebuilds_full_frame(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"before")
+            before = terminal.snapshot()
+            terminal.fail_next_present()
+            terminal.write(b"+failed")
+            self.assertEqual(terminal.snapshot(), before)
+
+            terminal.resize(5, 3)
+            retried = terminal.snapshot()
+            self.assertEqual((retried.columns, retried.rows), (5, 3))
+            self.assertEqual(retried.lines, ["befor", "ailed", "     "])
+            self.assertEqual(retried.refresh_count, before.refresh_count + 1)
+
     def test_cursor_only_change_publishes_without_cell_damage(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"abcd")
