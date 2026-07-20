@@ -23,6 +23,11 @@ class DecProtocolTest(unittest.TestCase):
             terminal.write(b"\x1b#6\x1b[8GAB")
             self.assertEqual(terminal.snapshot().lines, ["   A    ", "B       "])
 
+    def test_repeat_on_double_width_line_does_not_overflow_cursor(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b#6\x1b[8GA\x1b[2b")
+            self.assertEqual(terminal.snapshot().lines, ["   A    ", "AA      "])
+
     def test_origin_mode_addresses_relative_to_vertical_margins(self):
         with Zutty(columns=8, rows=6) as terminal:
             terminal.write(b"\x1b[2;5r\x1b[?6hX\x1b[4;1HY")
