@@ -552,7 +552,6 @@ Vterm::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlternate) {
         }
         savedCursor_DEC = &savedCursor_DEC_pri;
         altScreenBufferMode = false;
-        cf->getSelection().clear();
     }
 }
 

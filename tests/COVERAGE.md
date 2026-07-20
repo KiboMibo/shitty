@@ -40,6 +40,7 @@ Covered now:
   whitespace, punctuation runs and wide-cell continuations;
 - selection invalidation for insert/delete/erase, including disjoint linear
   and rectangular damage and no-op selective erases of protected cells;
+- independent primary/alternate selections across modes 47, 1047 and 1049;
 - growing/shrinking both primary and alternate screens.
 
 The optional compatibility tier additionally drives the complete top-level
