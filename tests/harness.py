@@ -1,6 +1,7 @@
 import socket
 import subprocess
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -210,6 +211,16 @@ class Zutty:
             raise RuntimeError("invalid child poll response")
         status = None if bool(int(response[1])) else int(response[2])
         return status, bytes.fromhex(response[3]).decode("ascii")
+
+    def wait_child(self, timeout=5):
+        deadline = time.monotonic() + timeout
+        while True:
+            status, screen = self.poll_child()
+            if status is not None:
+                return status, screen
+            if time.monotonic() >= deadline:
+                raise TimeoutError("child did not exit")
+            time.sleep(0.005)
 
     def write_chunks(self, *chunks):
         for chunk in chunks:

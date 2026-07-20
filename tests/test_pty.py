@@ -1,5 +1,6 @@
 import sys
 import errno
+import signal
 import unittest
 
 from harness import Zutty
@@ -29,6 +30,22 @@ class PtyTest(unittest.TestCase):
             before = terminal.snapshot().refresh_count
             self.assertTrue(terminal.read_pty())
             self.assertEqual(terminal.snapshot().refresh_count, before)
+
+    def test_child_exit_status_is_reported_verbatim(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.spawn(sys.executable, "-c", "raise SystemExit(37)")
+            status, _ = terminal.wait_child()
+            self.assertEqual(status, 37)
+
+    def test_child_signal_exit_uses_shell_status_convention(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.spawn(
+                sys.executable,
+                "-c",
+                "import os,signal; os.kill(os.getpid(), signal.SIGTERM)",
+            )
+            status, _ = terminal.wait_child()
+            self.assertEqual(status, 128 + signal.SIGTERM)
 
     def test_nonblocking_read_without_data_is_not_eof(self):
         with Zutty(columns=8, rows=2) as terminal:

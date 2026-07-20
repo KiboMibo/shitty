@@ -9,6 +9,8 @@ Covered now:
 - streaming parser boundaries for CSI, private CSI, OSC, DCS and UTF-8;
 - nonblocking PTY EOF, hangup-style `EIO` after pending data and fatal read
   errors, including frame publication on the final payload;
+- child lifecycle reporting for exact normal exit status and the shell-style
+  `128 + signal` convention;
 - C0 controls, cursor movement, save/restore, tabs and scrolling regions;
 - autowrap, alternate screen, synchronized output and cursor modes;
 - insert/delete/erase operations and insert mode;
