@@ -84,7 +84,11 @@ class ProtocolTest(unittest.TestCase):
             )
 
     def test_xtwinops_reports_terminal_and_cell_dimensions(self):
-        with Zutty(columns=10, rows=4) as terminal:
+        with Zutty(
+            columns=10,
+            rows=4,
+            extra_arguments=("-allowWindowOps", "true"),
+        ) as terminal:
             terminal.write(b"\x1b[14t\x1b[16t\x1b[18t")
             self.assertEqual(
                 terminal.read_input(),
@@ -94,7 +98,11 @@ class ProtocolTest(unittest.TestCase):
             )
 
     def test_xtwinops_reports_position_window_and_monitor_geometry(self):
-        with Zutty(columns=10, rows=4) as terminal:
+        with Zutty(
+            columns=10,
+            rows=4,
+            extra_arguments=("-allowWindowOps", "true"),
+        ) as terminal:
             terminal.write(
                 b"\x1b[11t\x1b[13t\x1b[14;2t\x1b[15t\x1b[19t"
             )
@@ -105,7 +113,11 @@ class ProtocolTest(unittest.TestCase):
             )
 
     def test_xtwinops_resize_requests_reach_window_backend(self):
-        with Zutty(columns=10, rows=4) as terminal:
+        with Zutty(
+            columns=10,
+            rows=4,
+            extra_arguments=("-allowWindowOps", "true"),
+        ) as terminal:
             terminal.write(b"\x1b[8;6;20t\x1b[4;120;320t")
             self.assertEqual(
                 terminal.read_actions(),
@@ -225,7 +237,11 @@ class ProtocolTest(unittest.TestCase):
             )
 
     def test_title_stack_saves_restores_and_reports_both_titles(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Zutty(
+            columns=8,
+            rows=2,
+            extra_arguments=("-allowWindowOps", "true"),
+        ) as terminal:
             terminal.write(
                 b"\x1b]1;icon-one\x1b\\\x1b]2;window-one\x1b\\"
                 b"\x1b[22;0t"

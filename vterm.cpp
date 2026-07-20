@@ -25,6 +25,7 @@
 #include <std/sys/types.h>
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <charconv>
 #include <chrono>
@@ -55,6 +56,21 @@ void MouseTrackingState::setEncoding(MouseTrackingEnc value) {
 }
 
 namespace {
+    class GraphemeBuffer {
+    public:
+        void clear();
+        void push_back(u32 codepoint);
+        bool empty() const;
+        size_t size() const;
+        const u32* data() const;
+
+    private:
+        constexpr static size_t inlineCapacity = 4;
+        std::array<u32, inlineCapacity> inlineValues = {};
+        std::vector<u32> overflowValues;
+        size_t size_ = 0;
+    };
+
     class VtermImpl final: public Vterm {
     public:
         VtermImpl(VtermHost& host, Pty& pty, u16 glyphPx, u16 glyphPy, u16 winPx, u16 winPy);
@@ -206,7 +222,7 @@ namespace {
         void deleteRows(u16 startY, u16 count);
         void insertCols(u16 startX, u16 count);
         void deleteCols(u16 startX, u16 count);
-        void clearWideCellAt(u16 row, u16 column);
+        TerminalCell& prepareCellAt(u16 row, u16 column);
         void normalizeWideCells(u16 row);
 
         struct Rectangle {
@@ -223,6 +239,7 @@ namespace {
         void hideCursor();
         void inputGraphicChar(unsigned char ch);
         void placeGraphicChar();
+        void placeAsciiRun(const u8* input, size_t size);
         void resetGraphemeInput();
         void jumpToNextTabStop();
         void setFgFromPalIx();
@@ -231,6 +248,9 @@ namespace {
         void inp_LF();
         void inp_CR();
         void inp_HT();
+        bool performIndex();
+        void moveCursorBackward(u32 count);
+        void scrollRegionUp(u16 count);
 
         void esc_DCS(unsigned char fin);
         bool esc_IND();
@@ -328,7 +348,7 @@ namespace {
         void csi_DECLL();
         std::string printableLine(u16 row) const;
         void printLine(u16 row);
-        bool consumePrinterControllerByte(unsigned char ch);
+        size_t consumePrinterController(const u8* input, size_t size);
 
         void dcs_DECRQSS(const std::string&);
         void dcs_XTGETTCAP(const std::string&);
@@ -433,7 +453,8 @@ namespace {
         unsigned char inputSeparators[maxEscOps] = {};
         size_t nInputOps = 0;
         Utf8Decoder utf8dec;
-        Frame::Grapheme inputGrapheme;
+        GraphemeBuffer inputGrapheme;
+        u32 inputGraphemeBase = 0;
         GraphemeBreaker inputGraphemeBreaker;
         Frame* inputGraphemeFrame = nullptr;
         u16 inputGraphemeX = 0;
@@ -465,7 +486,17 @@ namespace {
         bool inBandResizeMode = false;
         bool printerControllerMode = false;
         bool autoPrintMode = false;
-        std::string printerControllerPending;
+
+        enum class PrinterControllerState : u8 {
+            Normal,
+            Escape,
+            EscapeBracket,
+            EscapeBracket4,
+            Csi,
+            Csi4
+        };
+        PrinterControllerState printerControllerState = PrinterControllerState::Normal;
+
         std::chrono::steady_clock::time_point synchronizedOutputDeadline;
         bool send8BitControls = false;
         bool altScrollMode = false;
@@ -632,6 +663,34 @@ namespace {
         void debugBreak();
 #endif
     };
+
+    void GraphemeBuffer::clear() {
+        size_ = 0;
+    }
+
+    void GraphemeBuffer::push_back(u32 codepoint) {
+        if (size_ < inlineCapacity) {
+            inlineValues[size_++] = codepoint;
+            return;
+        }
+        if (size_ == inlineCapacity) {
+            overflowValues.assign(inlineValues.begin(), inlineValues.end());
+        }
+        overflowValues.push_back(codepoint);
+        ++size_;
+    }
+
+    bool GraphemeBuffer::empty() const {
+        return size_ == 0;
+    }
+
+    size_t GraphemeBuffer::size() const {
+        return size_;
+    }
+
+    const u32* GraphemeBuffer::data() const {
+        return size_ <= inlineCapacity ? inlineValues.data() : overflowValues.data();
+    }
 }
 
 namespace {
@@ -789,7 +848,7 @@ void VtermImpl::debugBreak() {
 #endif
 
 void VtermImpl::unhandledInput(unsigned char ch) {
-    logE << "Unhandled input char '" << ch << "' (" << (int)ch << ") in state " << strInputState(inputState) << ". Escape sequence so far: " << dumpBuffer(inputBuf + lastEscBegin, inputBuf + readPos + 1);
+    logT << "Unhandled input char '" << ch << "' (" << (int)ch << ") in state " << strInputState(inputState) << ". Escape sequence so far: " << dumpBuffer(inputBuf + lastEscBegin, inputBuf + readPos + 1);
     if ((ch >= 0x20 && ch <= 0x2f) || ch == ':') {
         switch (inputState) {
             case InputState::CSI:
@@ -1061,7 +1120,7 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     inBandResizeMode = false;
     printerControllerMode = false;
     autoPrintMode = false;
-    printerControllerPending.clear();
+    printerControllerState = PrinterControllerState::Normal;
     screenReverseVideo = false;
     frame_pri.setScreenReverseVideo(false);
     frame_alt.setScreenReverseVideo(false);
@@ -1231,6 +1290,10 @@ bool VtermImpl::readPty() {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             break;
         }
+        if (errno == EIO) {
+            finished = true;
+            break;
+        }
         SYS_WARN("pty read");
         finished = true;
         break;
@@ -1310,14 +1373,14 @@ void VtermImpl::deleteCols(u16 startX, u16 count) {
     }
 }
 
-void VtermImpl::clearWideCellAt(u16 row, u16 column) {
+TerminalCell& VtermImpl::prepareCellAt(u16 row, u16 column) {
     auto& cell = cf->getCell(row, column);
     if (cell.dwidth_cont && column > 0) {
         cf->eraseInRow(row, column - 1, 1, attrs);
     } else if (cell.dwidth && column + 1 < nCols) {
         cf->eraseInRow(row, column + 1, 1, attrs);
     }
-    cf->eraseInRow(row, column, 1, attrs);
+    return cell;
 }
 
 void VtermImpl::normalizeWideCells(u16 row) {
@@ -1400,22 +1463,26 @@ void VtermImpl::inputGraphicChar(unsigned char ch) {
 
 void VtermImpl::resetGraphemeInput() {
     inputGrapheme.clear();
+    inputGraphemeBase = 0;
     inputGraphemeBreaker.reset();
     inputGraphemeFrame = nullptr;
 }
 
 void VtermImpl::placeGraphicChar() {
     auto pt = utf8dec.getUnicode();
-    auto w = wcwidth(pt);
+    auto w = pt >= 0x20 && pt < 0x7f ? 1 : wcwidth(pt);
 
     if (inputGraphemeFrame != cf) {
         inputGraphemeBreaker.reset();
     }
     const bool graphemeBoundary = inputGraphemeBreaker.breakBefore(pt);
     if (inputGraphemeFrame == cf && !graphemeBoundary) {
+        if (inputGrapheme.empty()) {
+            inputGrapheme.push_back(inputGraphemeBase);
+        }
         inputGrapheme.push_back(pt);
         auto& cell = cf->getCell(inputGraphemeY, inputGraphemeX);
-        cell.grapheme = cf->internGrapheme(inputGrapheme);
+        cell.grapheme = cf->internGrapheme(inputGrapheme.data(), inputGrapheme.size());
         cf->expose();
         return;
     }
@@ -1425,11 +1492,14 @@ void VtermImpl::placeGraphicChar() {
         pt = Unicode_Replacement_Character;
     }
 
-    const u16 lineCols = cf->getCell(posY, 0).line_attr ? std::max<u16>(1, nColsEff / 2) : nColsEff;
+    const u8 lineAttribute = static_cast<const Frame&>(*cf).getCell(posY, 0).line_attr;
+    const u16 lineCols = lineAttribute ? std::max<u16>(1, nColsEff / 2) : nColsEff;
+    bool changedRow = false;
     if (autoWrapMode && lastCol) {
         cf->getCell(posY, posX).wrap = 1;
         inp_CR();
         inp_LF();
+        changedRow = true;
     }
 
     if (w == 2 && posX == lineCols - 1 && autoWrapMode) {
@@ -1440,6 +1510,7 @@ void VtermImpl::placeGraphicChar() {
         cf->getCell(posY, wrapColumn).wrap = 1;
         inp_CR();
         inp_LF();
+        changedRow = true;
     }
 
     if (insertMode) {
@@ -1454,18 +1525,18 @@ void VtermImpl::placeGraphicChar() {
 
     const u16 clusterX = posX;
     const u16 clusterY = posY;
-    clearWideCellAt(posY, posX);
-    auto& c = cf->getCell(posY, posX);
+    auto& c = prepareCellAt(posY, posX);
     c = attrs;
     c.uc_pt = pt;
     c.hyperlink = activeHyperlink;
     c.semantic = currentSemantic;
-    c.line_attr = cf->getCell(posY, 0).line_attr;
+    c.line_attr = changedRow ? static_cast<const Frame&>(*cf).getCell(posY, 0).line_attr : lineAttribute;
     if (c.blink) {
         haveBlinkingText = true;
     }
 
-    inputGrapheme = {pt};
+    inputGrapheme.clear();
+    inputGraphemeBase = pt;
     inputGraphemeFrame = cf;
     inputGraphemeX = clusterX;
     inputGraphemeY = clusterY;
@@ -1482,6 +1553,82 @@ void VtermImpl::placeGraphicChar() {
         lastCol = true;
     } else {
         ++posX;
+    }
+}
+
+void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
+    if (size == 0) {
+        return;
+    }
+
+    utf8dec.setUnicode(*input++);
+    placeGraphicChar();
+    --size;
+
+    while (size > 0) {
+        if (insertMode) {
+            utf8dec.setUnicode(*input++);
+            placeGraphicChar();
+            --size;
+            continue;
+        }
+        if (autoWrapMode && lastCol) {
+            cf->getCell(posY, posX).wrap = 1;
+            inp_CR();
+            inp_LF();
+        }
+
+        const Frame& frame = *cf;
+        const u8 lineAttribute = frame.getCell(posY, 0).line_attr;
+        const u16 lineCols = lineAttribute ? std::max<u16>(1, nColsEff / 2) : nColsEff;
+        if (posX >= lineCols) {
+            utf8dec.setUnicode(*input++);
+            placeGraphicChar();
+            --size;
+            continue;
+        }
+        const u16 count = std::min<size_t>(size, lineCols - posX);
+        const u16 startX = posX;
+        const u16 endX = startX + count;
+        if (frame.getCell(posY, startX).dwidth_cont && startX > 0) {
+            cf->eraseInRow(posY, startX - 1, 1, attrs);
+        }
+        if (frame.getCell(posY, endX - 1).dwidth && endX < nCols) {
+            cf->eraseInRow(posY, endX, 1, attrs);
+        }
+
+        TerminalCell* cells = cf->writeSpan(posY, startX, count);
+        for (u16 index = 0; index < count; ++index) {
+            auto& cell = cells[index];
+            cell = attrs;
+            cell.uc_pt = input[index];
+            cell.hyperlink = activeHyperlink;
+            cell.semantic = currentSemantic;
+            cell.line_attr = lineAttribute;
+        }
+        if (attrs.blink) {
+            haveBlinkingText = true;
+        }
+
+        const u16 clusterX = endX - 1;
+        const u32 codepoint = input[count - 1];
+        inputGrapheme.clear();
+        inputGraphemeBase = codepoint;
+        inputGraphemeFrame = cf;
+        inputGraphemeX = clusterX;
+        inputGraphemeY = posY;
+        inputGraphemeBreaker.setBoundaryAfter(codepoint);
+        utf8dec.setUnicode(codepoint);
+
+        if (endX == lineCols) {
+            posX = lineCols - 1;
+            lastCol = true;
+        } else {
+            posX = endX;
+            lastCol = false;
+        }
+        input += count;
+        size -= count;
     }
 }
 
@@ -1659,20 +1806,23 @@ void VtermImpl::esc_DCS(unsigned char fin) {
 
 bool VtermImpl::esc_IND() {
     TRACE_FUN;
+    const bool scrolled = performIndex();
+    setState(InputState::Normal);
+    return scrolled;
+}
+
+bool VtermImpl::performIndex() {
     if (autoPrintMode) {
         printLine(posY);
     }
     bool scrolled = false;
     if (posY == marginBottom - 1) {
-        nInputOps = 1;
-        inputOps[0] = 1;
-        csi_SU();
+        scrollRegionUp(1);
         scrolled = true;
     } else if (posY < nRows - 1) {
         ++posY;
         lastCol = false;
     }
-    setState(InputState::Normal);
     return scrolled;
 }
 
@@ -1728,10 +1878,10 @@ void VtermImpl::csi_MC(bool privateMode) {
             host.print(screen);
         } else if (operation == 4) {
             printerControllerMode = false;
-            printerControllerPending.clear();
+            printerControllerState = PrinterControllerState::Normal;
         } else if (operation == 5) {
             printerControllerMode = true;
-            printerControllerPending.clear();
+            printerControllerState = PrinterControllerState::Normal;
         }
     }
     setState(InputState::Normal);
@@ -1753,30 +1903,115 @@ void VtermImpl::csi_DECLL() {
     setState(InputState::Normal);
 }
 
-bool VtermImpl::consumePrinterControllerByte(unsigned char ch) {
-    printerControllerPending.push_back((char)(ch));
-    static const std::string terminators[] = {
-        "\x1b[4i",
-        "\x9b"
-        "4i"
-    };
-    for (;;) {
-        for (const auto& terminator : terminators) {
-            if (printerControllerPending == terminator) {
-                printerControllerPending.clear();
-                printerControllerMode = false;
-                return true;
-            }
-            if (terminator.compare(0, printerControllerPending.size(), printerControllerPending) == 0) {
-                return true;
+size_t VtermImpl::consumePrinterController(const u8* input, size_t size) {
+    const bool handlesPrinter = host.handlesPrinter();
+    std::string output;
+    if (handlesPrinter) {
+        output.reserve(size);
+    }
+
+    const auto beginPrefix = [&](u8 ch) {
+        if (ch == 0x1b) {
+            printerControllerState = PrinterControllerState::Escape;
+        } else if (ch == 0x9b) {
+            printerControllerState = PrinterControllerState::Csi;
+        } else {
+            printerControllerState = PrinterControllerState::Normal;
+            if (handlesPrinter) {
+                output.push_back((char)(ch));
             }
         }
-        host.print(printerControllerPending.substr(0, 1));
-        printerControllerPending.erase(0, 1);
-        if (printerControllerPending.empty()) {
-            return true;
+    };
+    const auto appendPrefix = [&](const char* prefix, size_t prefixSize) {
+        if (handlesPrinter) {
+            output.append(prefix, prefixSize);
+        }
+    };
+
+    size_t consumed = 0;
+    while (consumed < size) {
+        if (printerControllerState == PrinterControllerState::Normal) {
+            const u8* const begin = input + consumed;
+            const size_t remaining = size - consumed;
+            const u8* const escape = static_cast<const u8*>(memchr(begin, 0x1b, remaining));
+            const size_t prefixSize = escape == nullptr ? remaining : escape - begin;
+            const u8* const csi = static_cast<const u8*>(memchr(begin, 0x9b, prefixSize));
+            const u8* const next = csi == nullptr ? escape : csi;
+            if (next == nullptr) {
+                if (handlesPrinter) {
+                    output.append((const char*)(begin), remaining);
+                }
+                consumed = size;
+                break;
+            }
+            if (handlesPrinter) {
+                output.append((const char*)(begin), next - begin);
+            }
+            consumed += next - begin + 1;
+            beginPrefix(*next);
+            continue;
+        }
+
+        const u8 ch = input[consumed++];
+        switch (printerControllerState) {
+            case PrinterControllerState::Escape:
+                if (ch == '[') {
+                    printerControllerState = PrinterControllerState::EscapeBracket;
+                } else {
+                    appendPrefix("\x1b", 1);
+                    beginPrefix(ch);
+                }
+                break;
+            case PrinterControllerState::EscapeBracket:
+                if (ch == '4') {
+                    printerControllerState = PrinterControllerState::EscapeBracket4;
+                } else {
+                    appendPrefix("\x1b[", 2);
+                    beginPrefix(ch);
+                }
+                break;
+            case PrinterControllerState::EscapeBracket4:
+                if (ch == 'i') {
+                    printerControllerState = PrinterControllerState::Normal;
+                    printerControllerMode = false;
+                } else {
+                    appendPrefix("\x1b[4", 3);
+                    beginPrefix(ch);
+                }
+                break;
+            case PrinterControllerState::Csi:
+                if (ch == '4') {
+                    printerControllerState = PrinterControllerState::Csi4;
+                } else {
+                    appendPrefix("\x9b", 1);
+                    beginPrefix(ch);
+                }
+                break;
+            case PrinterControllerState::Csi4:
+                if (ch == 'i') {
+                    printerControllerState = PrinterControllerState::Normal;
+                    printerControllerMode = false;
+                } else {
+                    appendPrefix(
+                        "\x9b"
+                        "4",
+                        2
+                    );
+                    beginPrefix(ch);
+                }
+                break;
+            case PrinterControllerState::Normal:
+                break;
+        }
+        if (!printerControllerMode) {
+            break;
         }
     }
+
+    if (!output.empty()) {
+        host.print(output);
+    }
+    return consumed;
 }
 
 void VtermImpl::esc_RI() {
@@ -1829,7 +2064,7 @@ void VtermImpl::csi_DECSCUSR() {
             cursorShape = CS::bar;
             break;
         default:
-            logI << "DECSCUSR with illegal param: " << inputOps[0] << std::endl;
+            logT << "DECSCUSR with illegal param: " << inputOps[0] << std::endl;
             break;
     }
     cursorBlinkMode = (cursorStyleParam & 1) != 0;
@@ -1925,7 +2160,7 @@ void VtermImpl::csi_SCOSC() {
 void VtermImpl::csi_SCORC() {
     TRACE_FUN;
     if (!savedCursor_SCO.isSet) {
-        logI << "Asked to restore cursor (SCORC) but it has not been saved." << std::endl;
+        logT << "Asked to restore cursor (SCORC) but it has not been saved." << std::endl;
     } else {
         posX = savedCursor_SCO.posX;
         posY = savedCursor_SCO.posY;
@@ -1949,7 +2184,7 @@ void VtermImpl::esc_DECSC() {
 void VtermImpl::esc_DECRC() {
     TRACE_FUN;
     if (!savedCursor_DEC->isSet) {
-        logI << "Asked to restore cursor (DECRC) but it has not been saved." << std::endl;
+        logT << "Asked to restore cursor (DECRC) but it has not been saved." << std::endl;
     } else {
         posX = savedCursor_DEC->posX;
         posY = savedCursor_DEC->posY;
@@ -2001,18 +2236,22 @@ void VtermImpl::csi_CUF() {
 
 void VtermImpl::csi_CUB() {
     TRACE_FUN;
-    u32 arg = inputOps[0] ? inputOps[0] : 1;
+    moveCursorBackward(inputOps[0] ? inputOps[0] : 1);
+    setState(InputState::Normal);
+}
+
+void VtermImpl::moveCursorBackward(u32 count) {
     const bool insideMargins = posX >= hMargin && posX < nColsEff;
     if (posX == nColsEff) {
-        arg = std::min<u32>(arg == UINT32_MAX ? arg : arg + 1, posX);
+        count = std::min<u32>(count == UINT32_MAX ? count : count + 1, posX);
     }
-    while (arg > 0) {
+    while (count > 0) {
         const u16 leftEdge = insideMargins ? hMargin : 0;
         const u16 left = posX >= leftEdge ? posX - leftEdge : posX;
         if (left > 0) {
-            const u32 step = std::min<u32>(arg, left);
+            const u32 step = std::min<u32>(count, left);
             posX -= step;
-            arg -= step;
+            count -= step;
             continue;
         }
         if (!reverseWrapMode || posY == 0 || (!extendedReverseWrapMode && !cf->getCell(posY - 1, nColsEff - 1).wrap)) {
@@ -2022,7 +2261,6 @@ void VtermImpl::csi_CUB() {
         posX = insideMargins ? nColsEff : nCols;
     }
     lastCol = false;
-    setState(InputState::Normal);
 }
 
 void VtermImpl::csi_CNL() {
@@ -2106,14 +2344,18 @@ void VtermImpl::csi_SU() {
     TRACE_FUN;
     u32 arg = inputOps[0] ? inputOps[0] : 1;
     arg = std::min<u32>(arg, marginBottom - marginTop);
+    scrollRegionUp((u16)(arg));
+    setState(InputState::Normal);
+}
+
+void VtermImpl::scrollRegionUp(u16 count) {
     if (horizMarginMode) {
-        deleteRows(marginTop, (u16)(arg));
+        deleteRows(marginTop, count);
     } else {
-        cf->scrollUp(marginTop, marginBottom, (u16)(arg));
-        eraseRows(marginBottom - arg, (u16)(arg));
+        cf->scrollUp(marginTop, marginBottom, count);
+        eraseRows(marginBottom - count, count);
         lastCol = false;
     }
-    setState(InputState::Normal);
 }
 
 void VtermImpl::csi_SD() {
@@ -2210,7 +2452,7 @@ void VtermImpl::csi_ED() {
             }
             break;
         default:
-            logI << "Erase in Display with illegal param: " << inputOps[0] << std::endl;
+            logT << "Erase in Display with illegal param: " << inputOps[0] << std::endl;
             break;
     }
     setState(InputState::Normal);
@@ -2230,7 +2472,7 @@ void VtermImpl::csi_EL() {
             cf->eraseInRow(posY, 0, nCols, attrs);
             break;
         default:
-            logI << "Erase in Line with illegal param: " << inputOps[0] << std::endl;
+            logT << "Erase in Line with illegal param: " << inputOps[0] << std::endl;
             break;
     }
     setState(InputState::Normal);
@@ -2530,7 +2772,7 @@ void VtermImpl::csi_STBM() {
         u32 newMarginBottom = nInputOps < 2 || inputOps[1] == 0 ? nRows : inputOps[1];
 
         if (newMarginTop >= nRows || newMarginBottom > nRows || newMarginBottom <= newMarginTop + 1) {
-            logI << "Illegal arguments to SetTopBottomMargins: top=" << inputOps[0] << ", bottom=" << inputOps[1] << std::endl;
+            logT << "Illegal arguments to SetTopBottomMargins: top=" << inputOps[0] << ", bottom=" << inputOps[1] << std::endl;
         } else if (newMarginTop != marginTop || newMarginBottom != marginBottom) {
             marginTop = (u16)(newMarginTop);
             marginBottom = (u16)(newMarginBottom);
@@ -2555,7 +2797,7 @@ void VtermImpl::csi_SLRM() {
         u32 newMarginRight = nInputOps < 2 || inputOps[1] == 0 ? nCols : inputOps[1];
 
         if (newMarginLeft >= nCols || newMarginRight > nCols || newMarginRight <= newMarginLeft + 1) {
-            logI << "Illegal arguments to SetLeftRightMargins: left=" << inputOps[0] << ", right=" << inputOps[1] << std::endl;
+            logT << "Illegal arguments to SetLeftRightMargins: left=" << inputOps[0] << ", right=" << inputOps[1] << std::endl;
         } else if (newMarginLeft != hMargin || newMarginRight != nColsEff) {
             hMargin = (u16)(newMarginLeft);
             nColsEff = (u16)(newMarginRight);
@@ -2617,7 +2859,7 @@ void VtermImpl::csi_SM() {
                 autoNewlineMode = true;
                 break;
             default:
-                logW << "Ignored bogus set mode " << arg << std::endl;
+                logT << "Ignored bogus set mode " << arg << std::endl;
                 break;
         }
     }
@@ -2643,7 +2885,7 @@ void VtermImpl::csi_RM() {
                 autoNewlineMode = false;
                 break;
             default:
-                logW << "Ignored bogus reset mode " << arg << std::endl;
+                logT << "Ignored bogus reset mode " << arg << std::endl;
                 break;
         }
     }
@@ -4317,6 +4559,10 @@ void VtermImpl::csiq_DECSCL() {
 
 void VtermImpl::csi_XTWINOPS() {
     TRACE_FUN;
+    if (!opts.allowWindowOps) {
+        setState(InputState::Normal);
+        return;
+    }
     const u32 operation = inputOps[0];
     std::ostringstream response;
     switch (operation) {
@@ -6366,7 +6612,7 @@ const VtermImpl::InputSpec& VtermImpl::getInputSpec(Key key) {
             inputSeparators[nInputOps] = ch;                                                            \
             inputOps[nInputOps++] = 0;                                                                  \
         } else {                                                                                        \
-            logE << "inputOps full, increase maxEscOps (currently: " << maxEscOps << ")!" << std::endl; \
+            logT << "inputOps full, increase maxEscOps (currently: " << maxEscOps << ")!" << std::endl; \
             setState(InputState::IgnoreSequence);                                                       \
         }                                                                                               \
         break
@@ -6431,25 +6677,25 @@ bool VtermImpl::executeC0InSequence(unsigned char ch) {
         return false;
     }
 
-    const InputState savedState = inputState;
-    const size_t savedInputOps = nInputOps;
-    const bool savedHadParams = csiHadParams;
-    const bool savedPrefixAllowed = csiPrefixAllowed;
-    const std::string savedPrivatePrefix = csiPrivatePrefix;
-    const std::string savedIntermediates = csiIntermediates;
-    u32 savedOps[maxEscOps];
-    unsigned char savedSeparators[maxEscOps];
-    std::copy(inputOps, inputOps + savedInputOps, savedOps);
-    std::copy(inputSeparators, inputSeparators + savedInputOps, savedSeparators);
+    if (ch == '\a') {
+        host.bell();
+        return true;
+    }
+    if (ch == '\x0e') {
+        charsetState.gl = 1;
+        return true;
+    }
+    if (ch == '\x0f') {
+        charsetState.gl = 0;
+        return true;
+    }
+    if (ch != '\b' && ch != '\t' && ch != '\n' && ch != '\v' && ch != '\f' && ch != '\r') {
+        return true;
+    }
 
     switch (ch) {
-        case '\a':
-            host.bell();
-            break;
         case '\b':
-            nInputOps = 1;
-            inputOps[0] = 1;
-            csi_CUB();
+            moveCursorBackward(1);
             break;
         case '\t':
             inp_HT();
@@ -6457,29 +6703,15 @@ bool VtermImpl::executeC0InSequence(unsigned char ch) {
         case '\n':
         case '\v':
         case '\f':
-            esc_IND();
+            performIndex();
             break;
         case '\r':
             inp_CR();
-            break;
-        case '\x0e':
-            charsetState.gl = 1;
-            break;
-        case '\x0f':
-            charsetState.gl = 0;
             break;
         default:
             break;
     }
 
-    inputState = savedState;
-    nInputOps = savedInputOps;
-    csiHadParams = savedHadParams;
-    csiPrefixAllowed = savedPrefixAllowed;
-    csiPrivatePrefix = savedPrivatePrefix;
-    csiIntermediates = savedIntermediates;
-    std::copy(savedOps, savedOps + savedInputOps, inputOps);
-    std::copy(savedSeparators, savedSeparators + savedInputOps, inputSeparators);
     return true;
 }
 
@@ -6697,7 +6929,45 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
     hideCursor();
     for (readPos = 0; readPos < inputSize; ++readPos) {
         const u8& ch = input[readPos];
-        if (printerControllerMode && consumePrinterControllerByte(ch)) {
+        if (printerControllerMode) {
+            const size_t consumed = consumePrinterController(input + readPos, inputSize - readPos);
+            readPos += (int)(consumed)-1;
+            continue;
+        }
+        if (inputState == InputState::Normal && ch >= 0x20 && ch < 0x7f && !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8) {
+            int end = readPos + 1;
+            while (end < inputSize && input[end] >= 0x20 && input[end] < 0x7f) {
+                ++end;
+            }
+            const int count = end - readPos;
+            if (count >= 4) {
+                placeAsciiRun(input + readPos, count);
+            } else {
+                while (readPos < end) {
+                    utf8dec.setUnicode(input[readPos++]);
+                    placeGraphicChar();
+                }
+            }
+            readPos = end - 1;
+            continue;
+        }
+        if ((inputState == InputState::DCS || inputState == InputState::OSC || inputState == InputState::String) && ch >= 0x20 && ch < 0x7f) {
+            int end = readPos + 1;
+            while (end < inputSize && input[end] >= 0x20 && input[end] < 0x7f) {
+                ++end;
+            }
+            if (inputState != InputState::String && !argBufOverflowed) {
+                const size_t limit = inputState == InputState::DCS ? 4095 : maxOscBytes;
+                const size_t count = end - readPos;
+                const size_t available = argBuf.size() < limit ? limit - argBuf.size() : 0;
+                const size_t append = std::min(count, available);
+                argBuf.insert(argBuf.end(), input + readPos, input + readPos + append);
+                if (append < count) {
+                    logT << (inputState == InputState::DCS ? "DCS" : "OSC") << " argument string overflow" << std::endl;
+                    argBufOverflowed = true;
+                }
+            }
+            readPos = end - 1;
             continue;
         }
         if ((ch == '\x18' || ch == '\x1a') && inputState != InputState::Normal) {
@@ -7149,7 +7419,7 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                         } else if (argBuf.size() < 4095) {
                             argBuf.push_back(ch);
                         } else if (!argBufOverflowed) {
-                            logE << "DCS argument string overflow" << std::endl;
+                            logT << "DCS argument string overflow" << std::endl;
                             argBufOverflowed = true;
                         }
                         break;
@@ -7209,7 +7479,7 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                         } else if (argBuf.size() < maxOscBytes) {
                             argBuf.push_back(ch);
                         } else if (!argBufOverflowed) {
-                            logE << "OSC argument string overflow" << std::endl;
+                            logT << "OSC argument string overflow" << std::endl;
                             argBufOverflowed = true;
                         }
                         break;
@@ -7272,7 +7542,7 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
 void VtermImpl::setHyperlink(const std::string& parametersAndUri) {
     const size_t separator = parametersAndUri.find(';');
     if (separator == std::string::npos) {
-        logW << "Malformed OSC 8 argument" << std::endl;
+        logT << "Malformed OSC 8 argument" << std::endl;
         return;
     }
 

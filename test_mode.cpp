@@ -592,7 +592,7 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                 const auto packedColor = [](Color color) {
                     return ((u32)(color.red) << 16) | ((u32)(color.green) << 8) | color.blue;
                 };
-                writeAll(controlFd, "OK fontsize=" + std::to_string(opts.fontsize) + " border=" + std::to_string(opts.border) + " columns=" + std::to_string(opts.nCols) + " rows=" + std::to_string(opts.nRows) + " save_lines=" + std::to_string(opts.saveLines) + " fg=" + std::to_string(packedColor(opts.fg)) + " bg=" + std::to_string(packedColor(opts.bg)) + " cr=" + std::to_string(packedColor(opts.cr)) + " alt_scroll=" + std::to_string(opts.altScrollMode) + " bold_colors=" + std::to_string(opts.boldColors) + " auto_copy=" + std::to_string(opts.autoCopyMode) + " allow_osc52_read=" + std::to_string(opts.allowOsc52Read) + "\n");
+                writeAll(controlFd, "OK fontsize=" + std::to_string(opts.fontsize) + " border=" + std::to_string(opts.border) + " columns=" + std::to_string(opts.nCols) + " rows=" + std::to_string(opts.nRows) + " save_lines=" + std::to_string(opts.saveLines) + " fg=" + std::to_string(packedColor(opts.fg)) + " bg=" + std::to_string(packedColor(opts.bg)) + " cr=" + std::to_string(packedColor(opts.cr)) + " alt_scroll=" + std::to_string(opts.altScrollMode) + " bold_colors=" + std::to_string(opts.boldColors) + " auto_copy=" + std::to_string(opts.autoCopyMode) + " allow_osc52_read=" + std::to_string(opts.allowOsc52Read) + " allow_window_ops=" + std::to_string(opts.allowWindowOps) + "\n");
             } else if (line == "ARGV") {
                 std::string arguments;
                 for (int index = 0; index < argc; ++index) {

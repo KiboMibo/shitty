@@ -78,17 +78,27 @@ void Frame::setSelectionColor(bool foreground, Color color, bool enabled) {
     expose();
 }
 
-u32 Frame::internGrapheme(const Grapheme& codepoints) {
-    if (codepoints.size() < 2) {
+u32 Frame::internGrapheme(const u32* codepoints, size_t size) {
+    if (size < 2) {
         return 0;
     }
-    const auto found = graphemes->ids.find(codepoints);
-    if (found != graphemes->ids.end()) {
-        return found->second;
+
+    size_t hash = 1469598103934665603ull;
+    for (size_t index = 0; index < size; ++index) {
+        hash ^= codepoints[index];
+        hash *= 1099511628211ull;
     }
+    const auto [begin, end] = graphemes->ids.equal_range(hash);
+    for (auto item = begin; item != end; ++item) {
+        const Grapheme& candidate = graphemes->values[item->second];
+        if (candidate.size() == size && std::equal(candidate.begin(), candidate.end(), codepoints)) {
+            return item->second;
+        }
+    }
+
     const u32 id = graphemes->values.size();
-    graphemes->values.push_back(codepoints);
-    graphemes->ids.emplace(codepoints, id);
+    graphemes->values.emplace_back(codepoints, codepoints + size);
+    graphemes->ids.emplace(hash, id);
     return id;
 }
 
@@ -594,8 +604,19 @@ const TerminalCell& Frame::getCell(u16 pY, u16 pX) const {
 TerminalCell& Frame::getCell(u16 pY, u16 pX) {
     u32 idx = getIdx(pY, pX);
     damage.add(idx, idx + 1);
-    invalidateSelection(Rect(pX, pY));
+    if (!selection.empty()) {
+        invalidateSelection(Rect(pX, pY));
+    }
     return operator[](idx);
+}
+
+TerminalCell* Frame::writeSpan(u16 pY, u16 startX, u16 count) {
+    const u32 idx = getIdx(pY, startX);
+    damage.add(idx, idx + count);
+    if (!selection.empty()) {
+        invalidateSelection(Rect(startX, pY, startX + count, pY));
+    }
+    return cells.get() + idx;
 }
 
 const TerminalCell& Frame::getViewCell(u16 pY, u16 pX) const {
@@ -628,9 +649,21 @@ void Frame::eraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs)
 #endif
     u32 idx = getIdx(pY, startX);
     TerminalCell erased = attrs;
-    erased.line_attr = ((const Frame&)*this).getCell(pY, 0).line_attr;
-    eraseRange(idx, idx + count, erased);
-    invalidateSelection(Rect(startX, pY, startX + count, pY));
+    erased.line_attr = static_cast<const Frame&>(*this).getCell(pY, 0).line_attr;
+    if (startX == 0 && count == nCols) {
+        if (!erasedRowTemplateValid || erasedRowTemplate.size() != nCols || erasedRowCell != erased) {
+            erasedRowTemplate.assign(nCols, erased);
+            erasedRowCell = erased;
+            erasedRowTemplateValid = true;
+        }
+        memcpy(cells.get() + idx, erasedRowTemplate.data(), nCols * cellSize);
+        damage.add(idx, idx + count);
+    } else {
+        eraseRange(idx, idx + count, erased);
+    }
+    if (!selection.empty()) {
+        invalidateSelection(Rect(startX, pY, startX + count, pY));
+    }
 }
 
 void Frame::selectiveEraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs) {
@@ -647,7 +680,9 @@ void Frame::selectiveEraseInRow(u16 pY, u16 startX, u16 count, const TerminalCel
             cell = erased;
             cell.dirty = 1;
             damage.add(index, index + 1);
-            invalidateSelection(Rect(x, pY));
+            if (!selection.empty()) {
+                invalidateSelection(Rect(x, pY));
+            }
         }
     }
     expose();
@@ -668,7 +703,9 @@ void Frame::moveInRow(u16 pY, u16 dstX, u16 srcX, u16 count) {
     u32 dstIdx = getIdx(pY, dstX);
     u32 srcIdx = getIdx(pY, srcX);
     moveCells(dstIdx, srcIdx, count);
-    invalidateSelection(Rect(dstX, pY, dstX + count, pY));
+    if (!selection.empty()) {
+        invalidateSelection(Rect(dstX, pY, dstX + count, pY));
+    }
 }
 
 void Frame::copyRow(u16 dstY, u16 srcY, u16 startX, u16 count) {
@@ -686,7 +723,9 @@ void Frame::copyRow(u16 dstY, u16 srcY, u16 startX, u16 count) {
     u32 dstIdx = getIdx(dstY, startX);
     u32 srcIdx = getIdx(srcY, startX);
     copyCells(dstIdx, srcIdx, count);
-    invalidateSelection(Rect(startX, dstY, startX + count, dstY));
+    if (!selection.empty()) {
+        invalidateSelection(Rect(startX, dstY, startX + count, dstY));
+    }
 }
 
 void Frame::invalidateSelection(const Rect&& damage) {

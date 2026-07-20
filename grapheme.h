@@ -6,6 +6,7 @@
 class GraphemeBreaker {
 public:
     bool breakBefore(u32 codepoint);
+    void setBoundaryAfter(u32 codepoint);
     void reset();
 
 private:

@@ -23,6 +23,19 @@ class PrinterProtocolTest(unittest.TestCase):
             self.assertEqual(terminal.read_printer(), b"hello\r\nworld")
             self.assertEqual(terminal.snapshot().lines[0], "beforeaf")
 
+    def test_printer_controller_tracks_terminators_across_writes(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"before\x1b[5ihello\x1b[")
+            terminal.write(b"4iafter")
+            self.assertEqual(terminal.read_printer(), b"hello")
+            self.assertEqual(terminal.snapshot().lines[0], "beforeaf")
+
+    def test_printer_controller_preserves_false_terminator_prefixes(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"before\x1b[5ia\x1bxb\x9bxc\x9b" b"4iafter")
+            self.assertEqual(terminal.read_printer(), b"a\x1bxb\x9bxc")
+            self.assertEqual(terminal.snapshot().lines[0], "beforeaf")
+
 
 if __name__ == "__main__":
     unittest.main()

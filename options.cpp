@@ -67,6 +67,7 @@ namespace {
         {"showWraps", OptionKind::NoArg, "true", "false", "Show wrap marks at right margin"},
         {"title", OptionKind::SepArg, nullptr, "Zutty", "Window title"},
         {"quiet", OptionKind::NoArg, "true", "false", "Silence logging output"},
+        {"trace", OptionKind::NoArg, "true", "false", "Output terminal protocol trace"},
         {"verbose", OptionKind::NoArg, "true", "false", "Output info messages"},
         {"e", OptionKind::SkipLine, nullptr, nullptr, "Command line to run"},
     };
@@ -76,6 +77,7 @@ namespace {
         {"altSendsEscape", "true", "Encode Alt key as ESC prefix"},
         {"modifyOtherKeys", "1", "Key modifier encoding level; 0..2"},
         {"allowOsc52Read", "false", "Allow applications to read clipboard via OSC 52"},
+        {"allowWindowOps", "false", "Allow applications to manipulate and query the window"},
         {"osc52Select", "primary", "Selection used by OSC 52 selector s: primary or clipboard"},
         {"printerCommand", "", "Command receiving DEC printer output on stdin"},
         {"color0", "#000000", "Palette color 0"},
@@ -268,6 +270,9 @@ void Options::initialize(int* argc, char** argv) {
 
         const bool enabled = argument[0] == '-';
         const char* name = argument + 1;
+        if (strcmp(argument, "--trace") == 0) {
+            name = "trace";
+        }
 
         if (strcmp(name, "e") == 0) {
             while (input < *argc) {
@@ -392,6 +397,7 @@ void Options::parse() {
         altSendsEscape = getBool("altSendsEscape");
         autoCopyMode = getBool("autoCopy");
         allowOsc52Read = getBool("allowOsc52Read");
+        allowWindowOps = getBool("allowWindowOps");
         const std::string osc52Select = get("osc52Select");
         if (osc52Select != "primary" && osc52Select != "clipboard") {
             throw std::runtime_error("-osc52Select: expected primary or clipboard");
@@ -401,7 +407,8 @@ void Options::parse() {
         login = getBool("login");
         showWraps = getBool("showWraps");
         quiet = getBool("quiet");
-        verbose = getBool("verbose");
+        trace = getBool("trace");
+        verbose = getBool("verbose") || trace;
         modifyOtherKeys = getInteger("modifyOtherKeys", 0, 2);
     } catch (const std::exception& error) {
         std::cout << "Error: " << error.what() << "!\n"
