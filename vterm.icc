@@ -3383,9 +3383,9 @@ Vterm::osc_ShellIntegration(const std::string& arg) {
     const size_t separator = arg.find(';');
     const std::string marker = arg.substr(0, separator);
     if (marker == "A") currentSemantic = 1;
-    else if (marker == "B") currentSemantic = 2;
-    else if (marker == "C") currentSemantic = 3;
-    else if (marker == "D") currentSemantic = 0;
+    else if (marker == "B" && currentSemantic == 1) currentSemantic = 2;
+    else if (marker == "C" && currentSemantic == 2) currentSemantic = 3;
+    else if (marker == "D" && currentSemantic == 3) currentSemantic = 0;
 }
 
 inline void

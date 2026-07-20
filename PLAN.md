@@ -4,11 +4,11 @@
 
 Сейчас:
 
-- 408 тестов;
-- 30 файлов `test_*.py`;
-- 4893 строки непосредственно тестов;
-- 833 assertions;
-- 5678 строк всего Python в `tests/`, включая harness и утилиты.
+- 416 тестов;
+- 31 файл `test_*.py`;
+- 5025 строк непосредственно тестов;
+- 846 assertions;
+- 5810 строк всего Python в `tests/`, включая harness и утилиты.
 
 Сборка уже использует `tests/*.py` и `unittest discover`, поэтому количество файлов ничем не ограничено: [build.py](/home/pg/monorepo/zutty/build.py:50). Список будущих имён фиксировать не буду. Останется только требование плоской `tests/`.
 
@@ -29,7 +29,6 @@
 
 Каждая ветка сейчас требует собственной таблицы:
 
-- OSC 133: A/B/C/D, параметры и неправильный порядок;
 - XTWINOPS: все операции 11–23, оба варианта 14, title selectors, пустой stack и rollover после десяти элементов.
 
 Текущий OSC 99 реализует только часть опубликованного протокола; тесты должны чётко зафиксировать заявленный subset и не позволять отвечать поддержкой того, чего нет: [kitty notifications](https://sw.kovidgoyal.net/kitty/desktop-notifications/).
@@ -171,13 +170,13 @@ Offscreen Vulkan на этом проходе не нужен: логическ�
 
 | Область | Новых тестов |
 |---|---:|
-| DCS/OSC/window protocols | 14 |
+| DCS/OSC/window protocols | 6 |
 | Keyboard/keypad | 45 |
 | Mouse/frontend events | 35 |
 | Unicode/charsets | 30 |
 | Resize/selection/scrollback interactions | 25 |
 | PTY/present/options/fonts/startup | 30 |
-| Итого | около 179 |
+| Итого | около 171 |
 
 То есть итог, вероятно, будет ближе к 550–560 тестам, а не ровно к формальному удвоению.
 
