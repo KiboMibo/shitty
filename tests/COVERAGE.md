@@ -38,6 +38,8 @@ Covered now:
   and selection while scrolled;
 - Unicode-aware word snapping for letters, marks, numbers, connectors,
   whitespace, punctuation runs and wide-cell continuations;
+- selection invalidation for insert/delete/erase, including disjoint linear
+  and rectangular damage and no-op selective erases of protected cells;
 - growing/shrinking both primary and alternate screens.
 
 The optional compatibility tier additionally drives the complete top-level

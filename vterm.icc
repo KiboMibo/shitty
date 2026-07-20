@@ -712,14 +712,15 @@ Vterm::clearWideCellAt(uint16_t row, uint16_t column) {
 
 inline void
 Vterm::normalizeWideCells(uint16_t row) {
+    const Frame& frame = *cf;
     for (uint16_t column = 0; column < nCols; ++column) {
-        auto& cell = cf->getCell(row, column);
+        const auto& cell = frame.getCell(row, column);
         if (cell.dwidth &&
             (column + 1 >= nCols ||
-             !cf->getCell(row, column + 1).dwidth_cont)) {
+             !frame.getCell(row, column + 1).dwidth_cont)) {
             cf->eraseInRow(row, column, 1, attrs);
         } else if (cell.dwidth_cont &&
-                   (column == 0 || !cf->getCell(row, column - 1).dwidth)) {
+                   (column == 0 || !frame.getCell(row, column - 1).dwidth)) {
             cf->eraseInRow(row, column, 1, attrs);
         }
     }

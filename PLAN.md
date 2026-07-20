@@ -29,7 +29,6 @@
 
 Scrollback дальше раздувать просто ради числа не надо. Добавлять только новые взаимодействия:
 
-- selection после insert/delete/erase;
 - selection на primary/alternate;
 - cursor/autowrap при shrink/grow;
 - margins и tab stops после resize;

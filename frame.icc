@@ -193,7 +193,7 @@ Frame::eraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
 #endif
     uint32_t idx = getIdx(pY, startX);
     CharVdev::Cell erased = attrs;
-    erased.line_attr = getCell(pY, 0).line_attr;
+    erased.line_attr = static_cast<const Frame&>(*this).getCell(pY, 0).line_attr;
     eraseRange(idx, idx + count, erased);
     invalidateSelection(Rect(startX, pY, startX + count, pY));
 }
@@ -207,14 +207,16 @@ Frame::selectiveEraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
     erased.hyperlink = 0;
     erased.grapheme = 0;
     for (uint16_t x = startX; x < startX + count; ++x) {
-        auto& cell = getCell(pY, x);
+        const uint32_t index = getIdx(pY, x);
+        auto& cell = operator[](index);
         if (!cell.protected_char) {
             erased.line_attr = cell.line_attr;
             cell = erased;
             cell.dirty = 1;
+            damage.add(index, index + 1);
+            invalidateSelection(Rect(x, pY));
         }
     }
-    invalidateSelection(Rect(startX, pY, startX + count, pY));
     expose();
 }
 
@@ -265,6 +267,16 @@ Frame::copyRow(uint16_t dstY, uint16_t srcY, uint16_t startX,
 inline void
 Frame::invalidateSelection(const Rect&& damage) {
     if (selection.empty()) {
+        return;
+    }
+
+    if (selection.rectangular) {
+        const bool outsideRows = damage.tl.y > selection.br.y ||
+            damage.br.y < selection.tl.y;
+        const bool outsideColumns = damage.br.x <= selection.tl.x ||
+            selection.br.x <= damage.tl.x;
+        if (outsideRows || outsideColumns) return;
+        selection.clear();
         return;
     }
 
