@@ -527,6 +527,14 @@ int runTestMode(int controlFd) {
             if (line.compare(0, 6, "WRITE ") == 0) {
                 terminal.feedPtyOutput(decodeHex(line.substr(6)));
                 writeAll(controlFd, "OK\n");
+            } else if (line == "OPTIONS") {
+                writeAll(controlFd,
+                         "OK fontsize=" + std::to_string(opts.fontsize) +
+                         " border=" + std::to_string(opts.border) +
+                         " columns=" + std::to_string(opts.nCols) +
+                         " rows=" + std::to_string(opts.nRows) +
+                         " save_lines=" + std::to_string(opts.saveLines) +
+                         "\n");
             } else if (line.compare(0, 16, "GRAPHEME_BREAKS ") == 0) {
                 std::istringstream args(line.substr(16));
                 std::string token;

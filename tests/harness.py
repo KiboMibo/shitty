@@ -76,12 +76,17 @@ class Zutty:
     def __init__(
         self, columns=80, rows=24, save_lines=500,
         glyph_px=1, glyph_py=1,
+        font_size_env=None, extra_arguments=(),
     ):
         parent, child = socket.socketpair()
         self.socket = parent
         self.stream = parent.makefile("rwb", buffering=0)
         child_environment = os.environ.copy()
         child_environment["ZUTTY_TEST_GLYPH"] = f"{glyph_px}x{glyph_py}"
+        if font_size_env is None:
+            child_environment.pop("ZUTTY_FONT_SIZE", None)
+        else:
+            child_environment["ZUTTY_FONT_SIZE"] = str(font_size_env)
         self.process = subprocess.Popen(
             [
                 str(ZUTTY),
@@ -92,6 +97,7 @@ class Zutty:
                 "-saveLines",
                 str(save_lines),
                 "-quiet",
+                *map(str, extra_arguments),
             ],
             pass_fds=(child.fileno(),),
             env=child_environment,
@@ -141,6 +147,17 @@ class Zutty:
             raise RuntimeError(response[4:])
         if response != "OK":
             raise RuntimeError(f"unexpected response: {response}")
+
+    def options(self):
+        self.stream.write(b"OPTIONS\n")
+        response = self._readline().split()
+        if not response or response[0] != "OK":
+            raise RuntimeError("invalid options response")
+        result = {}
+        for field in response[1:]:
+            name, value = field.split("=", 1)
+            result[name] = int(value)
+        return result
 
     def write(self, output):
         self.command("WRITE " + output.hex())

@@ -29,7 +29,6 @@
 
 Это почти белое пятно:
 
-- приоритет CLI над `ZUTTY_FONT_SIZE`, env над default;
 - значения 1/255 и выход за границы;
 - trailing garbage вроде `16wat`;
 - geometry, colors, boolean `+/-`, abbreviations и ambiguity;
@@ -49,7 +48,6 @@
 Большую часть протокольных тестов можно писать уже сейчас. Для остального добавлю узкие platform-neutral seams и control-команды:
 
 - clipboard ownership;
-- option parsing без запуска GLFW;
 - font resolver с временным деревом файлов.
 
 Offscreen Vulkan на этом проходе не нужен: логический raster contract можно фиксировать отдельно, пиксельные golden tests оставить графическому этапу.
