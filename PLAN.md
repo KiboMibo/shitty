@@ -4,11 +4,11 @@
 
 Сейчас:
 
-- 219 тестов;
-- 19 файлов `test_*.py`;
-- 2665 строк непосредственно тестов;
-- 449 assertions;
-- 3379 строк всего Python в `tests/`, включая harness и утилиты.
+- 253 теста;
+- 20 файлов `test_*.py`;
+- 2938 строк непосредственно тестов;
+- 504 assertions;
+- 3709 строк всего Python в `tests/`, включая harness и утилиты.
 
 Сборка уже использует `tests/*.py` и `unittest discover`, поэтому количество файлов ничем не ограничено: [build.py](/home/pg/monorepo/zutty/build.py:50). Список будущих имён фиксировать не буду. Останется только требование плоской `tests/`.
 
@@ -26,25 +26,7 @@
 
 ## Главные пробелы
 
-1. Parser
-
-Есть отдельные streaming-тесты, но нет систематической матрицы автомата:
-
-- C0 внутри CSI/DCS/OSC;
-- `CAN`/`SUB`, вложенный `ESC`, `DEL`;
-- APC/PM/SOS;
-- 7-битные и 8-битные C1-варианты;
-- каждый возможный разрез последовательности на чанки;
-- точные пределы числа параметров, intermediates и payload;
-- числовой overflow;
-- восстановление после каждого класса ошибочной последовательности;
-- эквивалентность результата независимо от разбиения входа.
-
-ECMA-48 задаёт структуру и допустимые классы байтов, а xterm отдельно описывает восстановление автомата после ошибочного ввода. Именно эти переходы надо превращать в таблицы тестов: [ECMA-48](https://ecma-international.org/publications-and-standards/standards/ecma-48/), [xterm control sequences](https://www.invisible-island.net/xterm/ctlseqs/ctlseqs.html).
-
-Текущий [fuzz_parser.py](/home/pg/monorepo/zutty/tests/fuzz_parser.py) проверяет в основном «не упал и смог восстановиться». Нужны metamorphic-проверки: цельный ввод против произвольного chunking, отсутствие лишних ответов, сохранность guard-строк и детерминированность snapshot.
-
-2. Cursor, margins и editing
+1. Cursor, margins и editing
 
 Реализовано много отдельных команд: `CUU/CUD/CUF/CUB`, `CNL/CPL`, `CHA/HPA/HPR`, `VPA/VPR`, `CHT/CBT`, но прямо тестируется лишь небольшая часть.
 
@@ -63,7 +45,7 @@ ECMA-48 задаёт структуру и допустимые классы б�
 
 То же относится к прямоугольным операциям: clipping, перекрывающее копирование во всех направлениях, protected cells, обратные координаты, margins и wide cells.
 
-3. Modes и reset
+2. Modes и reset
 
 Сейчас нет полной таблицы состояний для поддерживаемых ANSI/DEC modes.
 
@@ -84,7 +66,7 @@ ECMA-48 задаёт структуру и допустимые классы б�
 
 DEC определяет отдельные результаты DECRQM: unknown, set, reset, permanently set/reset. Нужна полная таблица, а не несколько выбранных режимов: [VT510 mode tables](https://vt100.net/docs/vt510-rm/chapter4.html).
 
-4. SGR и цвета
+3. SGR и цвета
 
 Нужна декартова матрица для foreground/background/underline:
 
@@ -106,7 +88,7 @@ DEC определяет отдельные результаты DECRQM: unknown
 
 Отдельно надо проверять DECRQSS после каждого сочетания атрибутов. Уже вижу подозрительное место: запрос DECSCA сейчас всегда возвращает `0"q`, независимо от реально установленной защиты.
 
-5. DCS, OSC и window operations
+4. DCS, OSC и window operations
 
 Каждая ветка сейчас требует собственной таблицы:
 
@@ -123,7 +105,7 @@ DEC определяет отдельные результаты DECRQM: unknown
 
 Текущий OSC 99 реализует только часть опубликованного протокола; тесты должны чётко зафиксировать заявленный subset и не позволять отвечать поддержкой того, чего нет: [kitty notifications](https://sw.kovidgoyal.net/kitty/desktop-notifications/).
 
-6. Keyboard и mouse
+5. Keyboard и mouse
 
 24 keyboard-теста — мало относительно таблицы реализации.
 
@@ -154,7 +136,7 @@ Kitty требует согласованной реализации progressive
 
 Так мы закроем fractional scrolling, смену reporting/local scrolling, Shift override, cell dedupe, horizontal wheel и double/triple click.
 
-7. Unicode и charsets
+6. Unicode и charsets
 
 Текущий grapheme-код реализует выбранный subset правил, но не полный UAX #29. Нужны представительные официальные vectors:
 
@@ -175,7 +157,7 @@ Unicode публикует и правила, и официальный `Graphem
 
 Отдельная матрица нужна для G0–G3, GL/GR, locking/single shifts, NRC sets, DEC Special/Technical и возврата из VT52.
 
-8. Resize, selection и scrollback
+7. Resize, selection и scrollback
 
 Scrollback дальше раздувать просто ради числа не надо. Добавлять только новые взаимодействия:
 
@@ -192,7 +174,7 @@ Scrollback дальше раздувать просто ради числа не
 - same-grid pixel-only resize;
 - in-band resize response.
 
-9. PTY, presentation и lifecycle
+8. PTY, presentation и lifecycle
 
 Сейчас практически отсутствуют:
 
@@ -212,7 +194,7 @@ Scrollback дальше раздувать просто ради числа не
 
 Synchronized output должен продолжать менять модель терминала, сохраняя предыдущую представленную картинку до `2026l`: [protocol specification](https://github.com/contour-terminal/vt-extensions/blob/master/synchronized-output.md).
 
-10. Options, fonts и startup
+9. Options, fonts и startup
 
 Это почти белое пятно:
 
@@ -260,7 +242,6 @@ Offscreen Vulkan на этом проходе не нужен: логическ�
 
 | Область | Новых тестов |
 |---|---:|
-| Parser и streaming | 30 |
 | Cursor/margins/editing | 35 |
 | Modes/reset/reports | 35 |
 | SGR/colors | 30 |
@@ -270,7 +251,7 @@ Offscreen Vulkan на этом проходе не нужен: логическ�
 | Unicode/charsets | 30 |
 | Resize/selection/scrollback interactions | 25 |
 | PTY/present/options/fonts/startup | 30 |
-| Итого | около 340 |
+| Итого | около 310 |
 
 То есть итог, вероятно, будет ближе к 550–560 тестам, а не ровно к формальному удвоению.
 

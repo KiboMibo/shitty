@@ -1353,8 +1353,8 @@ Vterm::csi_CUD() {
 inline void
 Vterm::csi_CUF() {
     TRACE_FUN;
-    int arg = inputOps[0] ? inputOps[0] : 1;
-    arg = std::min(arg, nColsEff - posX - 1);
+    uint32_t arg = inputOps[0] ? inputOps[0] : 1;
+    arg = std::min<uint32_t>(arg, nColsEff - posX - 1);
     posX += arg;
     lastCol = false;
     setState(InputState::Normal);

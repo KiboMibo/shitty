@@ -1970,6 +1970,65 @@ void Vterm::beginCsi() {
     setState(InputState::CSI);
 }
 
+bool Vterm::executeC0InSequence(unsigned char ch) {
+    if (ch >= 0x20 || ch == '\x18' || ch == '\x1a' || ch == '\x1b') {
+        return false;
+    }
+
+    const InputState savedState = inputState;
+    const size_t savedInputOps = nInputOps;
+    const bool savedHadParams = csiHadParams;
+    const bool savedPrefixAllowed = csiPrefixAllowed;
+    const std::string savedPrivatePrefix = csiPrivatePrefix;
+    const std::string savedIntermediates = csiIntermediates;
+    uint32_t savedOps[maxEscOps];
+    unsigned char savedSeparators[maxEscOps];
+    std::copy(inputOps, inputOps + savedInputOps, savedOps);
+    std::copy(inputSeparators, inputSeparators + savedInputOps,
+              savedSeparators);
+
+    switch (ch) {
+        case '\a':
+            onBell();
+            break;
+        case '\b':
+            nInputOps = 1;
+            inputOps[0] = 1;
+            csi_CUB();
+            break;
+        case '\t':
+            inp_HT();
+            break;
+        case '\n':
+        case '\v':
+        case '\f':
+            esc_IND();
+            break;
+        case '\r':
+            inp_CR();
+            break;
+        case '\x0e':
+            charsetState.gl = 1;
+            break;
+        case '\x0f':
+            charsetState.gl = 0;
+            break;
+        default:
+            break;
+    }
+
+    inputState = savedState;
+    nInputOps = savedInputOps;
+    csiHadParams = savedHadParams;
+    csiPrefixAllowed = savedPrefixAllowed;
+    csiPrivatePrefix = savedPrivatePrefix;
+    csiIntermediates = savedIntermediates;
+    std::copy(savedOps, savedOps + savedInputOps, inputOps);
+    std::copy(savedSeparators, savedSeparators + savedInputOps,
+              inputSeparators);
+    return true;
+}
+
 void Vterm::dispatchCsi(unsigned char finalByte) {
     const std::string key = csiPrivatePrefix + csiIntermediates +
                             static_cast<char>(finalByte);
@@ -2055,6 +2114,9 @@ void Vterm::dispatchCsi(unsigned char finalByte) {
 }
 
 void Vterm::processCsiByte(unsigned char ch) {
+    if (ch == 0x7f || executeC0InSequence(ch)) {
+        return;
+    }
     if (ch >= '0' && ch <= '9') {
         if (!csiIntermediates.empty()) {
             setState(InputState::IgnoreSequence);
@@ -2098,15 +2160,7 @@ void Vterm::processCsiByte(unsigned char ch) {
         dispatchCsi(ch);
         return;
     }
-    switch (ch) {
-        case '\a': break;
-        case '\b': csi_CUB(); setState(InputState::CSI); break;
-        case '\t': inp_HT(); setState(InputState::CSI); break;
-        case '\r': inp_CR(); setState(InputState::CSI); break;
-        case '\f':
-        case '\v': esc_IND(); setState(InputState::CSI); break;
-        default: setState(InputState::IgnoreSequence); break;
-    }
+    setState(InputState::IgnoreSequence);
 }
 
 void Vterm::processInput(
@@ -2123,6 +2177,9 @@ void Vterm::processInput(
         if ((ch == '\x18' || ch == '\x1a') &&
             inputState != InputState::Normal) {
             setState(InputState::Normal);
+            continue;
+        }
+        if (ch == 0x7f) {
             continue;
         }
         if (ch == '\x1b' && inputState != InputState::Normal &&
@@ -2143,6 +2200,35 @@ void Vterm::processInput(
             lastEscBegin = readPos;
             continue;
         }
+        if (inputState != InputState::Normal) {
+            switch (ch) {
+                case 0x90:
+                    argBuf.clear();
+                    argBufOverflowed = false;
+                    setState(InputState::DCS);
+                    continue;
+                case 0x98:
+                case 0x9e:
+                case 0x9f:
+                    setState(InputState::String);
+                    continue;
+                case 0x9b:
+                    beginCsi();
+                    continue;
+                case 0x9c:
+                    if (inputState != InputState::DCS &&
+                        inputState != InputState::OSC) {
+                        setState(InputState::Normal);
+                        continue;
+                    }
+                    break;
+                case 0x9d:
+                    argBuf.clear();
+                    argBufOverflowed = false;
+                    setState(InputState::OSC);
+                    continue;
+            }
+        }
         switch (inputState) {
             case InputState::Normal:
                 if (utf8dec.expectsContinuation() && ch >= 0x80) {
@@ -2155,6 +2241,7 @@ void Vterm::processInput(
                 }
                 switch (ch) {
                     case '\x00':
+                    case '\x7f':
                         break;
                     case '\x1b':
                         setState(compatLevel == CompatibilityLevel::VT52
@@ -2241,7 +2328,9 @@ void Vterm::processInput(
                 }
                 break;
             case InputState::IgnoreSequence:
-                if (ch >= '\x40' && ch <= '\x7e') {
+                if (executeC0InSequence(ch)) {
+                    break;
+                } else if (ch >= '\x40' && ch <= '\x7e') {
                     setState(InputState::Normal);
                 }
                 break;
@@ -2541,8 +2630,12 @@ void Vterm::processInput(
                     case '\x1b':
                         setState(InputState::DCS_Esc);
                         break;
+                    case '\x7f':
+                        break;
                     default:
-                        if (argBuf.size() < 4095) {
+                        if (executeC0InSequence(ch)) {
+                            break;
+                        } else if (argBuf.size() < 4095) {
                             argBuf.push_back(ch);
                         } else if (!argBufOverflowed) {
                             logE << "DCS argument string overflow" << std::endl;
@@ -2558,6 +2651,13 @@ void Vterm::processInput(
                             setState(InputState::Normal);
                         } else {
                             handle_DCS();
+                        }
+                        break;
+                    case '\x1b':
+                        if (!argBufOverflowed && argBuf.size() < 4095) {
+                            argBuf.push_back('\x1b');
+                        } else {
+                            argBufOverflowed = true;
                         }
                         break;
                     default:
@@ -2590,8 +2690,12 @@ void Vterm::processInput(
                     case '\x1b':
                         setState(InputState::OSC_Esc);
                         break;
+                    case '\x7f':
+                        break;
                     default:
-                        if (argBuf.size() < maxOscBytes) {
+                        if (executeC0InSequence(ch)) {
+                            break;
+                        } else if (argBuf.size() < maxOscBytes) {
                             argBuf.push_back(ch);
                         } else if (!argBufOverflowed) {
                             logE << "OSC argument string overflow" << std::endl;
@@ -2609,6 +2713,14 @@ void Vterm::processInput(
                             handle_OSC();
                         }
                         break;
+                    case '\x1b':
+                        if (!argBufOverflowed &&
+                            argBuf.size() < maxOscBytes) {
+                            argBuf.push_back('\x1b');
+                        } else {
+                            argBufOverflowed = true;
+                        }
+                        break;
                     default:
                         if (!argBufOverflowed &&
                             argBuf.size() <= maxOscBytes - 2) {
@@ -2622,15 +2734,20 @@ void Vterm::processInput(
                 }
                 break;
             case InputState::String:
-                if (ch == 0x9c) {
+                if (executeC0InSequence(ch)) {
+                    break;
+                } else if (ch == 0x9c) {
                     setState(InputState::Normal);
                 } else if (ch == '\x1b') {
                     setState(InputState::String_Esc);
                 }
                 break;
             case InputState::String_Esc:
-                setState(ch == '\\' ? InputState::Normal
-                                     : InputState::String);
+                if (ch == '\\') {
+                    setState(InputState::Normal);
+                } else if (ch != '\x1b') {
+                    setState(InputState::String);
+                }
                 break;
         }
     }

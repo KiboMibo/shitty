@@ -371,6 +371,7 @@ private:
 
     void setState(InputState inputState);
     void beginCsi();
+    bool executeC0InSequence(unsigned char ch);
     void processCsiByte(unsigned char ch);
     void dispatchCsi(unsigned char finalByte);
 
