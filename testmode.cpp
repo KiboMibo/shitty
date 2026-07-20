@@ -618,6 +618,7 @@ int runTestMode(int controlFd, int argc, char* argv[]) {
                     dup2(io[1], STDERR_FILENO);
                     close(io[0]);
                     if (io[1] > STDERR_FILENO) close(io[1]);
+                    configureTerminalChildEnvironment();
                     std::vector<char*> argv;
                     for (auto& argument : arguments)
                         argv.push_back(argument.data());

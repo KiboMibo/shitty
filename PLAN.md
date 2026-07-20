@@ -29,7 +29,6 @@
 
 Это почти белое пятно:
 
-- `TERM`, `ZUTTY_VERSION`, winsize и SIGWINCH;
 - font path traversal;
 - fontconfig fallback;
 - regular/bold/italic/bold-italic selection;

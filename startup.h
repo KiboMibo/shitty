@@ -10,3 +10,5 @@ struct LaunchCommand {
 
 LaunchCommand buildLaunchCommand(
     int argc, char* argv[], const char* defaultShell, bool login);
+
+void configureTerminalChildEnvironment();

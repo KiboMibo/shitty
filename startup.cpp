@@ -87,3 +87,10 @@ LaunchCommand buildLaunchCommand(
     command.arguments.push_back(shellArgv0(command.executable, login));
     return command;
 }
+
+void configureTerminalChildEnvironment() {
+    if (setenv("TERM", "xterm-256color", 1) < 0 ||
+        setenv("ZUTTY_VERSION", ZUTTY_VERSION, 1) < 0) {
+        throw std::runtime_error("cannot configure terminal child environment");
+    }
+}

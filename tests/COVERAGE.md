@@ -45,6 +45,8 @@ Covered now:
 - shared production/test launch-command construction for default, positional
   and `-e` executables, including login-shell `argv[0]` and basename selection
   from the executable actually launched;
+- real child PTY startup with `TERM`, `ZUTTY_VERSION`, initial winsize and
+  resize-driven winsize update plus `SIGWINCH` delivery;
 - C0 controls, cursor movement, save/restore, tabs and scrolling regions;
 - autowrap, alternate screen, synchronized output and cursor modes;
 - insert/delete/erase operations and insert mode;

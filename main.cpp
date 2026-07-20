@@ -325,9 +325,7 @@ namespace {
             SYS_ERROR("fork");
         }
         if (pid == 0) {
-            if (setenv("TERM", "xterm-256color", 1) < 0) {
-                SYS_ERROR("setenv TERM");
-            }
+            configureTerminalChildEnvironment();
             if (execvp(execPath, const_cast<char* const*>(argv)) < 0) {
                 SYS_ERROR("execvp of ", execPath);
             }
