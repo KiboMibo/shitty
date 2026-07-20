@@ -29,7 +29,6 @@
 
 Это почти белое пятно:
 
-- geometry, colors, boolean `+/-`, abbreviations и ambiguity;
 - `-e` как окончание разбора;
 - shell/login argv;
 - `TERM`, `ZUTTY_VERSION`, winsize и SIGWINCH;

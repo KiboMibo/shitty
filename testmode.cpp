@@ -528,12 +528,25 @@ int runTestMode(int controlFd) {
                 terminal.feedPtyOutput(decodeHex(line.substr(6)));
                 writeAll(controlFd, "OK\n");
             } else if (line == "OPTIONS") {
+                const auto packedColor = [](Color color) {
+                    return (static_cast<uint32_t>(color.red) << 16) |
+                           (static_cast<uint32_t>(color.green) << 8) |
+                           color.blue;
+                };
                 writeAll(controlFd,
                          "OK fontsize=" + std::to_string(opts.fontsize) +
                          " border=" + std::to_string(opts.border) +
                          " columns=" + std::to_string(opts.nCols) +
                          " rows=" + std::to_string(opts.nRows) +
                          " save_lines=" + std::to_string(opts.saveLines) +
+                         " fg=" + std::to_string(packedColor(opts.fg)) +
+                         " bg=" + std::to_string(packedColor(opts.bg)) +
+                         " cr=" + std::to_string(packedColor(opts.cr)) +
+                         " alt_scroll=" + std::to_string(opts.altScrollMode) +
+                         " bold_colors=" + std::to_string(opts.boldColors) +
+                         " auto_copy=" + std::to_string(opts.autoCopyMode) +
+                         " allow_osc52_read=" +
+                             std::to_string(opts.allowOsc52Read) +
                          "\n");
             } else if (line.compare(0, 16, "GRAPHEME_BREAKS ") == 0) {
                 std::istringstream args(line.substr(16));

@@ -37,6 +37,9 @@ Covered now:
   range from both CLI and environment sources;
 - strict whole-value parsing for font size, border, history size, geometry and
   integer resources, rejecting trailing garbage;
+- geometry syntax and `uint16_t` bounds, short/full RGB colors, reverse-video
+  color interaction, boolean `-/+`, advanced booleans, unique abbreviations
+  and ambiguity errors;
 - C0 controls, cursor movement, save/restore, tabs and scrolling regions;
 - autowrap, alternate screen, synchronized output and cursor modes;
 - insert/delete/erase operations and insert mode;

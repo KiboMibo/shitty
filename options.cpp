@@ -151,7 +151,8 @@ namespace {
         const bool invalid = input.fail();
         input >> std::ws;
         if (invalid || !input.eof() || separator != 'x' ||
-            cols < 1 || rows < 1) {
+            cols < 1 || cols > UINT16_MAX ||
+            rows < 1 || rows > UINT16_MAX) {
             throw std::runtime_error("-geometry: expected format <COLS>x<ROWS>");
         }
         outCols = cols;

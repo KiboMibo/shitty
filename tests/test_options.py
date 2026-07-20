@@ -4,6 +4,80 @@ from harness import Zutty, run_startup_failure
 
 
 class OptionTest(unittest.TestCase):
+    def test_geometry_accepts_valid_grid_and_rejects_invalid_or_overflow(self):
+        with Zutty(extra_arguments=("-geometry", "7x3")) as terminal:
+            options = terminal.options()
+            self.assertEqual((options["columns"], options["rows"]), (7, 3))
+
+        for value in ("0x24", "80x0", "80X24", "70000x24", "80x70000"):
+            with self.subTest(value=value):
+                result = run_startup_failure(
+                    extra_arguments=("-geometry", value)
+                )
+                self.assertEqual(result.returncode, 255)
+                self.assertIn(b"-geometry", result.stdout)
+
+    def test_colors_accept_short_and_full_rgb_and_reverse_swaps_defaults(self):
+        with Zutty(
+            extra_arguments=(
+                "-fg", "#1aF", "-bg", "010203", "-cr", "#abcdef"
+            )
+        ) as terminal:
+            options = terminal.options()
+            self.assertEqual(options["fg"], 0x11AAFF)
+            self.assertEqual(options["bg"], 0x010203)
+            self.assertEqual(options["cr"], 0xABCDEF)
+
+        with Zutty(
+            extra_arguments=("-fg", "#123", "-bg", "#456", "-rv")
+        ) as terminal:
+            options = terminal.options()
+            self.assertEqual(options["fg"], 0x445566)
+            self.assertEqual(options["bg"], 0x112233)
+            self.assertEqual(options["cr"], options["fg"])
+
+        for value in ("#12", "#1234", "#ggg", "#1234567"):
+            with self.subTest(value=value):
+                result = run_startup_failure(extra_arguments=("-fg", value))
+                self.assertEqual(result.returncode, 255)
+                self.assertIn(b"-fg", result.stdout)
+
+    def test_boolean_minus_plus_and_advanced_values(self):
+        with Zutty(
+            extra_arguments=(
+                "-altScroll", "+boldColors", "-autoCopy",
+                "-allowOsc52Read", "true",
+            )
+        ) as terminal:
+            options = terminal.options()
+            self.assertEqual(options["alt_scroll"], 1)
+            self.assertEqual(options["bold_colors"], 0)
+            self.assertEqual(options["auto_copy"], 1)
+            self.assertEqual(options["allow_osc52_read"], 1)
+
+        result = run_startup_failure(
+            extra_arguments=("-allowOsc52Read", "yes")
+        )
+        self.assertEqual(result.returncode, 255)
+        self.assertIn(b"expected true or false", result.stdout)
+
+    def test_unique_abbreviations_work_and_ambiguous_ones_fail(self):
+        with Zutty(
+            extra_arguments=("-fontsi", "19", "-geom", "7x3", "-altS")
+        ) as terminal:
+            options = terminal.options()
+            self.assertEqual(options["fontsize"], 19)
+            self.assertEqual((options["columns"], options["rows"]), (7, 3))
+            self.assertEqual(options["alt_scroll"], 1)
+
+        for abbreviation in ("-a", "-b", "-f"):
+            with self.subTest(abbreviation=abbreviation):
+                result = run_startup_failure(
+                    extra_arguments=(abbreviation,)
+                )
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(b"ambiguous option", result.stderr)
+
     def test_font_size_accepts_inclusive_one_and_255_boundaries(self):
         for value in (1, 255):
             with self.subTest(source="cli", value=value):
