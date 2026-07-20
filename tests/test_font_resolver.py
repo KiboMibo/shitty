@@ -7,6 +7,35 @@ from harness import Zutty
 
 
 class FontResolverTest(unittest.TestCase):
+    def test_pcf_and_compressed_pcf_extensions_are_resolved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            plain = base / "plain"
+            compressed = base / "compressed"
+            plain.mkdir()
+            compressed.mkdir()
+            (plain / "Bitmap-Regular.pcf").touch()
+            (plain / "Bitmap-Bold.pcf").touch()
+            (plain / "Bitmap-Italic.pcf.gz").touch()
+            (compressed / "Packed-Regular.PCF.GZ").touch()
+            (compressed / "Packed-Bold.pcf.gz").touch()
+            (compressed / "Packed-Italic.pcf.zip").touch()
+
+            with Zutty() as terminal:
+                bitmap = terminal.resolve_font(str(base), "Bitmap")
+                packed = terminal.resolve_font(str(base), "Packed")
+
+            self.assertEqual(bitmap["regular"], str(plain / "Bitmap-Regular.pcf"))
+            self.assertEqual(bitmap["bold"], str(plain / "Bitmap-Bold.pcf"))
+            self.assertEqual(bitmap["italic"], "")
+            self.assertEqual(
+                packed["regular"], str(compressed / "Packed-Regular.PCF.GZ")
+            )
+            self.assertEqual(
+                packed["bold"], str(compressed / "Packed-Bold.pcf.gz")
+            )
+            self.assertEqual(packed["italic"], "")
+
     def test_scaled_overlay_with_incompatible_metrics_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)

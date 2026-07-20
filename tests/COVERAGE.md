@@ -55,6 +55,8 @@ Covered now:
   including aliases, plus real four-face fontconfig overlay loading;
 - rejection of scalable overlay faces whose width, height or baseline metrics
   do not match the primary font;
+- plain and gzip-compressed PCF family resolution, case-insensitive extension
+  handling and prevention of mixed-format style groups;
 - C0 controls, cursor movement, save/restore, tabs and scrolling regions;
 - autowrap, alternate screen, synchronized output and cursor modes;
 - insert/delete/erase operations and insert mode;

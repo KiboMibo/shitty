@@ -29,7 +29,6 @@
 
 Это почти белое пятно:
 
-- PCF/PCF.gz;
 - double-width fallback;
 - отсутствие font directory.
 
