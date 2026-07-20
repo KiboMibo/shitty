@@ -322,7 +322,7 @@ private:
     void traceNormalInput();
     void resetTerminal();
     void resetAttrs();
-    void resetScreen();
+    void resetScreen(bool resetTabStops = true);
     void clearScreen();
     void fillScreen(uint16_t ch);
     void pruneHyperlinks();

@@ -404,7 +404,7 @@ Vterm::resetTerminal() {
 }
 
 inline void
-Vterm::resetScreen() {
+Vterm::resetScreen(bool resetTabStops) {
     showCursorMode = true;
     cursorShape = CharVdev::Cursor::Style::filled_block;
     cursorStyleParam = 2;
@@ -452,8 +452,10 @@ Vterm::resetScreen() {
     mouseTrk = MouseTrackingState{};
     locator = LocatorState{};
 
-    tabStops.clear();
-    tabStopsCustomized = false;
+    if (resetTabStops) {
+        tabStops.clear();
+        tabStopsCustomized = false;
+    }
     cf->getSelection().clear();
 }
 
@@ -2948,7 +2950,7 @@ Vterm::esc_RIS() {
 inline void
 Vterm::csi_DECSTR() {
     TRACE_FUN;
-    resetScreen();
+    resetScreen(false);
     resetAttrs();
     marginTop = 0;
     marginBottom = nRows;
@@ -2958,6 +2960,13 @@ Vterm::csi_DECSTR() {
     posX = 0;
     posY = 0;
     lastCol = false;
+    savedCursor_DEC->posX = 0;
+    savedCursor_DEC->posY = 0;
+    savedCursor_DEC->lastCol = false;
+    savedCursor_DEC->attrs = attrs;
+    savedCursor_DEC->originMode = OriginMode::Absolute;
+    savedCursor_DEC->charsetState = CharsetState{};
+    savedCursor_DEC->isSet = true;
     setState(InputState::Normal);
 }
 

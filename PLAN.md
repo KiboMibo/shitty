@@ -4,11 +4,11 @@
 
 Сейчас:
 
-- 289 тестов;
-- 22 файла `test_*.py`;
-- 3310 строк непосредственно тестов;
-- 579 assertions;
-- 4081 строк всего Python в `tests/`, включая harness и утилиты.
+- 325 тестов;
+- 24 файла `test_*.py`;
+- 3738 строк непосредственно тестов;
+- 663 assertions;
+- 4509 строк всего Python в `tests/`, включая harness и утилиты.
 
 Сборка уже использует `tests/*.py` и `unittest discover`, поэтому количество файлов ничем не ограничено: [build.py](/home/pg/monorepo/zutty/build.py:50). Список будущих имён фиксировать не буду. Останется только требование плоской `tests/`.
 
@@ -25,28 +25,7 @@
 
 ## Главные пробелы
 
-1. Modes и reset
-
-Сейчас нет полной таблицы состояний для поддерживаемых ANSI/DEC modes.
-
-Нужно проверять для каждого режима:
-
-- исходное состояние;
-- set/reset;
-- `DECRQM`;
-- `XTSAVE/XTRESTORE`;
-- повторный set/reset;
-- `DECSTR`;
-- `RIS`;
-- переход primary/alternate screen;
-- недопустимый номер;
-- восстановление ещё не сохранённого режима.
-
-Особенно слабо различены `47`, `1047`, `1048`, `1049`, mouse modes `9/1000/1001/1002/1003`, encodings `1005/1006/1015/1016`, `1036/1039`, horizontal margins и column mode.
-
-DEC определяет отдельные результаты DECRQM: unknown, set, reset, permanently set/reset. Нужна полная таблица, а не несколько выбранных режимов: [VT510 mode tables](https://vt100.net/docs/vt510-rm/chapter4.html).
-
-2. SGR и цвета
+1. SGR и цвета
 
 Нужна декартова матрица для foreground/background/underline:
 
@@ -68,7 +47,7 @@ DEC определяет отдельные результаты DECRQM: unknown
 
 Отдельно надо проверять DECRQSS после каждого сочетания атрибутов. Уже вижу подозрительное место: запрос DECSCA сейчас всегда возвращает `0"q`, независимо от реально установленной защиты.
 
-3. DCS, OSC и window operations
+2. DCS, OSC и window operations
 
 Каждая ветка сейчас требует собственной таблицы:
 
@@ -85,7 +64,7 @@ DEC определяет отдельные результаты DECRQM: unknown
 
 Текущий OSC 99 реализует только часть опубликованного протокола; тесты должны чётко зафиксировать заявленный subset и не позволять отвечать поддержкой того, чего нет: [kitty notifications](https://sw.kovidgoyal.net/kitty/desktop-notifications/).
 
-4. Keyboard и mouse
+3. Keyboard и mouse
 
 24 keyboard-теста — мало относительно таблицы реализации.
 
@@ -116,7 +95,7 @@ Kitty требует согласованной реализации progressive
 
 Так мы закроем fractional scrolling, смену reporting/local scrolling, Shift override, cell dedupe, horizontal wheel и double/triple click.
 
-5. Unicode и charsets
+4. Unicode и charsets
 
 Текущий grapheme-код реализует выбранный subset правил, но не полный UAX #29. Нужны представительные официальные vectors:
 
@@ -137,7 +116,7 @@ Unicode публикует и правила, и официальный `Graphem
 
 Отдельная матрица нужна для G0–G3, GL/GR, locking/single shifts, NRC sets, DEC Special/Technical и возврата из VT52.
 
-6. Resize, selection и scrollback
+5. Resize, selection и scrollback
 
 Scrollback дальше раздувать просто ради числа не надо. Добавлять только новые взаимодействия:
 
@@ -154,7 +133,7 @@ Scrollback дальше раздувать просто ради числа не
 - same-grid pixel-only resize;
 - in-band resize response.
 
-7. PTY, presentation и lifecycle
+6. PTY, presentation и lifecycle
 
 Сейчас практически отсутствуют:
 
@@ -174,7 +153,7 @@ Scrollback дальше раздувать просто ради числа не
 
 Synchronized output должен продолжать менять модель терминала, сохраняя предыдущую представленную картинку до `2026l`: [protocol specification](https://github.com/contour-terminal/vt-extensions/blob/master/synchronized-output.md).
 
-8. Options, fonts и startup
+7. Options, fonts и startup
 
 Это почти белое пятно:
 
@@ -222,7 +201,6 @@ Offscreen Vulkan на этом проходе не нужен: логическ�
 
 | Область | Новых тестов |
 |---|---:|
-| Modes/reset/reports | 35 |
 | SGR/colors | 30 |
 | DCS/OSC/window protocols | 45 |
 | Keyboard/keypad | 45 |
@@ -230,7 +208,7 @@ Offscreen Vulkan на этом проходе не нужен: логическ�
 | Unicode/charsets | 30 |
 | Resize/selection/scrollback interactions | 25 |
 | PTY/present/options/fonts/startup | 30 |
-| Итого | около 275 |
+| Итого | около 240 |
 
 То есть итог, вероятно, будет ближе к 550–560 тестам, а не ровно к формальному удвоению.
 
