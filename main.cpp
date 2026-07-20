@@ -60,8 +60,8 @@
 
 #include <std/mem/obj_pool.h>
 
-static std::unique_ptr<Fontpack> fontpk;
-static std::unique_ptr<Renderer> renderer;
+static Fontpack* fontpk = nullptr;
+static Renderer* renderer = nullptr;
 static std::unique_ptr<Vterm> vt;
 static GLFWwindow* window = nullptr;
 static GLFWcursor* cursor = nullptr;
@@ -1469,8 +1469,8 @@ namespace {
         opts.border = static_cast<uint16_t>(std::clamp(
             static_cast<int>(std::lround(opts.border * density)), 0, 3000));
 
-        fontpk = std::make_unique<Fontpack>(opts.fontname, opts.dwfontname);
-        composer.fonts = fontpk.get();
+        fontpk = Fontpack::create(composer, opts.fontname, opts.dwfontname);
+        composer.fonts = fontpk;
         const int desiredPixelWidth =
             2 * opts.border + opts.nCols * fontpk->getPx();
         const int desiredPixelHeight =
@@ -1506,8 +1506,8 @@ namespace {
             glfwSetCursor(window, cursor);
         }
 
-        renderer = std::make_unique<Renderer>(window, fontpk.get());
-        composer.renderer = renderer.get();
+        renderer = Renderer::create(composer, window);
+        composer.renderer = renderer;
         setupSignals();
         const int ptyFd = startShell(
             launch.executable.c_str(), shellArgv.data());
@@ -1693,22 +1693,10 @@ namespace {
             printerPipe = nullptr;
         }
         close(ptyFd);
-        renderer.reset();
+        renderer = nullptr;
         composer.renderer = nullptr;
-        fontpk.reset();
+        fontpk = nullptr;
         composer.fonts = nullptr;
-        if (cursor != nullptr) {
-            glfwDestroyCursor(cursor);
-            cursor = nullptr;
-        }
-        if (hyperlinkCursor != nullptr) {
-            glfwDestroyCursor(hyperlinkCursor);
-            hyperlinkCursor = nullptr;
-        }
-        glfwDestroyWindow(window);
-        window = nullptr;
-        glfwTerminate();
-        glfwInitialized = false;
         return 0;
     }
 
@@ -1718,8 +1706,8 @@ namespace {
             pclose(printerPipe);
             printerPipe = nullptr;
         }
-        renderer.reset();
-        fontpk.reset();
+        renderer = nullptr;
+        fontpk = nullptr;
         if (cursor != nullptr) {
             glfwDestroyCursor(cursor);
             cursor = nullptr;
@@ -1741,10 +1729,15 @@ namespace {
 
 int main(int argc, char* argv[]) {
     try {
-        stl::ObjPool::Ref pool = stl::ObjPool::fromMemory();
-        Composer composer;
-        composer.pool = pool.mutPtr();
-        return run(composer, argc, argv);
+        int result = 0;
+        {
+            stl::ObjPool::Ref pool = stl::ObjPool::fromMemory();
+            Composer composer;
+            composer.pool = pool.mutPtr();
+            result = run(composer, argc, argv);
+        }
+        emergencyCleanup();
+        return result;
     } catch (const std::exception& error) {
         emergencyCleanup();
         std::cerr << "Error: " << error.what() << std::endl;

@@ -5,14 +5,61 @@
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
+ *
+ * See the file LICENSE for the full license.
  */
 
 #include "font_pack.h"
+
+#include "composer.h"
 #include "font_resolver.h"
 #include "log.h"
 
-Fontpack::Fontpack(const std::string& fontname,
-                   const std::string& dwfontname) {
+#include <std/mem/obj_pool.h>
+
+#include <memory>
+#include <stdexcept>
+
+namespace {
+
+class FontpackImpl final : public Fontpack {
+public:
+    FontpackImpl(const char* fontname, const char* dwfontname);
+
+    uint16_t getPx() const override { return px; }
+    uint16_t getPy() const override { return py; }
+
+    const Font& getRegular() const override { return *fontRegular; }
+    bool hasBold() const override { return fontBold != nullptr; }
+    const Font& getBold() const override;
+    bool hasItalic() const override { return fontItalic != nullptr; }
+    const Font& getItalic() const override;
+    bool hasBoldItalic() const override { return fontBoldItalic != nullptr; }
+    const Font& getBoldItalic() const override;
+    bool hasDoubleWidth() const override { return fontDoubleWidth != nullptr; }
+    const Font& getDoubleWidth() const override;
+    void releaseFonts() override;
+
+private:
+    FontpackImpl(const std::string& fontname,
+                 const std::string& dwfontname);
+
+    uint16_t px = 0;
+    uint16_t py = 0;
+    std::unique_ptr<Font> fontRegular;
+    std::unique_ptr<Font> fontBold;
+    std::unique_ptr<Font> fontItalic;
+    std::unique_ptr<Font> fontBoldItalic;
+    std::unique_ptr<Font> fontDoubleWidth;
+};
+
+FontpackImpl::FontpackImpl(const char* fontname_, const char* dwfontname_)
+    : FontpackImpl(std::string(fontname_), std::string(dwfontname_))
+{
+}
+
+FontpackImpl::FontpackImpl(const std::string& fontname,
+                           const std::string& dwfontname) {
     logT << "Fontpack: fontname=" << fontname
          << "; dwfontname=" << dwfontname << std::endl;
 
@@ -69,4 +116,44 @@ Fontpack::Fontpack(const std::string& fontname,
         logW << "Failed to load double-width font: "
              << error.what() << std::endl;
     }
+}
+
+const Font& FontpackImpl::getBold() const {
+    if (!hasBold()) throw std::runtime_error("No Bold font variant present!");
+    return *fontBold;
+}
+
+const Font& FontpackImpl::getItalic() const {
+    if (!hasItalic())
+        throw std::runtime_error("No Italic font variant present!");
+    return *fontItalic;
+}
+
+const Font& FontpackImpl::getBoldItalic() const {
+    if (!hasBoldItalic())
+        throw std::runtime_error("No BoldItalic font variant present!");
+    return *fontBoldItalic;
+}
+
+const Font& FontpackImpl::getDoubleWidth() const {
+    if (!hasDoubleWidth())
+        throw std::runtime_error("No DoubleWidth font present!");
+    return *fontDoubleWidth;
+}
+
+void FontpackImpl::releaseFonts() {
+    fontRegular = nullptr;
+    fontBold = nullptr;
+    fontItalic = nullptr;
+    fontBoldItalic = nullptr;
+    fontDoubleWidth = nullptr;
+}
+
+} // namespace
+
+Fontpack* Fontpack::create(Composer& composer,
+                           const std::string& fontname,
+                           const std::string& dwfontname) {
+    return composer.pool->make<FontpackImpl>(
+        fontname.c_str(), dwfontname.c_str());
 }

@@ -14,93 +14,28 @@
 #include "font.h"
 
 #include <cstdint>
-#include <memory>
-#include <stdexcept>
 #include <string>
 
-class Fontpack {
-public:
-    /* Initialize a Fontpack by resolving and loading fontconfig families.
-       * Four styles are requested: Regular, Bold, Italic and Bold Italic;
-       * all but the first are optional. If not even a regular variant of
-       * the requested font can be loaded, an exception is thrown.
-       * Additionally, a double-width font with the given name is optionally
-       * located and initialized.
-       */
-    Fontpack(const std::string& fontname,
-             const std::string& dwfontname);
+struct Composer;
 
-    ~Fontpack() = default;
+struct Fontpack {
+    virtual uint16_t getPx() const = 0;
+    virtual uint16_t getPy() const = 0;
 
-    uint16_t getPx() const {
-        return px;
-    };
-    uint16_t getPy() const {
-        return py;
-    };
+    virtual const Font& getRegular() const = 0;
+    virtual bool hasBold() const = 0;
+    virtual const Font& getBold() const = 0;
+    virtual bool hasItalic() const = 0;
+    virtual const Font& getItalic() const = 0;
+    virtual bool hasBoldItalic() const = 0;
+    virtual const Font& getBoldItalic() const = 0;
+    virtual bool hasDoubleWidth() const = 0;
+    virtual const Font& getDoubleWidth() const = 0;
 
-    const Font& getRegular() const {
-        return *fontRegular.get();
-    };
+    // Once the renderer has uploaded all atlases, host memory can go away.
+    virtual void releaseFonts() = 0;
 
-    bool hasBold() const {
-        return fontBold.get() != nullptr;
-    }
-
-    const Font& getBold() const {
-        if (!hasBold()) {
-            throw std::runtime_error("No Bold font variant present!");
-        }
-        return *fontBold.get();
-    };
-
-    bool hasItalic() const {
-        return fontItalic.get() != nullptr;
-    }
-
-    const Font& getItalic() const {
-        if (!hasItalic()) {
-            throw std::runtime_error("No Italic font variant present!");
-        }
-        return *fontItalic.get();
-    };
-
-    bool hasBoldItalic() const {
-        return fontBoldItalic.get() != nullptr;
-    }
-
-    const Font& getBoldItalic() const {
-        if (!hasBoldItalic()) {
-            throw std::runtime_error("No BoldItalic font variant present!");
-        }
-        return *fontBoldItalic.get();
-    };
-
-    bool hasDoubleWidth() const {
-        return fontDoubleWidth.get() != nullptr;
-    }
-
-    const Font& getDoubleWidth() const {
-        if (!hasDoubleWidth()) {
-            throw std::runtime_error("No DoubleWidth font present!");
-        }
-        return *fontDoubleWidth.get();
-    };
-
-    void releaseFonts() {
-        fontRegular = nullptr;
-        fontBold = nullptr;
-        fontItalic = nullptr;
-        fontBoldItalic = nullptr;
-        fontDoubleWidth = nullptr;
-    }
-
-private:
-    uint16_t px = 0;
-    uint16_t py = 0;
-    std::unique_ptr<Font> fontRegular = nullptr;
-    std::unique_ptr<Font> fontBold = nullptr;
-    std::unique_ptr<Font> fontItalic = nullptr;
-    std::unique_ptr<Font> fontBoldItalic = nullptr;
-    std::unique_ptr<Font> fontDoubleWidth = nullptr;
+    static Fontpack* create(Composer& composer,
+                            const std::string& fontname,
+                            const std::string& dwfontname);
 };

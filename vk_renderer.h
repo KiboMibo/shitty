@@ -5,29 +5,19 @@
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
+ *
+ * See the file LICENSE for the full license.
  */
 
 #pragma once
 
-#include "char_vdev.h"
-#include "frame.h"
-#include "vk_presenter.h"
+struct Composer;
+struct GLFWwindow;
+class Frame;
 
-#include <cstdint>
+struct Renderer {
+    virtual bool update(const Frame& frame) = 0;
+    virtual bool repaint() = 0;
 
-class Renderer {
-public:
-    Renderer(GLFWwindow* window, Fontpack* fontpk);
-    ~Renderer() = default;
-
-    Renderer(const Renderer&) = delete;
-    Renderer& operator=(const Renderer&) = delete;
-
-    bool update(const Frame& frame);
-    bool repaint();
-
-private:
-    CharVdev charVdev;
-    VulkanPresenter presenter;
-    bool delta = false;
+    static Renderer* create(Composer& composer, GLFWwindow* window);
 };

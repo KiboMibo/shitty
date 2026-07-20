@@ -1,6 +1,7 @@
 #include "test_mode.h"
 
 #include "clipboard.h"
+#include "composer.h"
 #include "grapheme.h"
 #include "font_resolver.h"
 #include "font_pack.h"
@@ -15,6 +16,7 @@
 #include "vterm.h"
 
 #include <algorithm>
+#include <std/mem/obj_pool.h>
 #include <cerrno>
 #include <cstdint>
 #include <cstdlib>
@@ -586,15 +588,19 @@ int runTestMode(int controlFd, int argc, char* argv[]) {
                 const size_t first = request.find('\0');
                 if (first == std::string::npos)
                     throw std::runtime_error("invalid font load request");
-                Fontpack fonts(
-                    request.substr(0, first), request.substr(first + 1));
+                stl::ObjPool::Ref fontPool = stl::ObjPool::fromMemory();
+                Composer fontComposer;
+                fontComposer.pool = fontPool.mutPtr();
+                Fontpack* fonts = Fontpack::create(
+                    fontComposer, request.substr(0, first),
+                    request.substr(first + 1));
                 writeAll(controlFd,
-                         "OK " + std::to_string(fonts.getPx()) + " " +
-                         std::to_string(fonts.getPy()) + " " +
-                         std::to_string(fonts.hasBold()) + " " +
-                         std::to_string(fonts.hasItalic()) + " " +
-                         std::to_string(fonts.hasBoldItalic()) + " " +
-                         std::to_string(fonts.hasDoubleWidth()) + "\n");
+                         "OK " + std::to_string(fonts->getPx()) + " " +
+                         std::to_string(fonts->getPy()) + " " +
+                         std::to_string(fonts->hasBold()) + " " +
+                         std::to_string(fonts->hasItalic()) + " " +
+                         std::to_string(fonts->hasBoldItalic()) + " " +
+                         std::to_string(fonts->hasDoubleWidth()) + "\n");
             } else if (line.compare(0, 16, "GRAPHEME_BREAKS ") == 0) {
                 std::istringstream args(line.substr(16));
                 std::string token;
