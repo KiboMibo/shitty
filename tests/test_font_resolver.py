@@ -7,6 +7,22 @@ from harness import Zutty
 
 
 class FontResolverTest(unittest.TestCase):
+    def test_missing_or_incompatible_double_width_font_keeps_primary_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = str(Path(directory) / "missing")
+            with Zutty() as terminal:
+                primary = terminal.load_font(missing, "monospace", "")
+                fallback = terminal.load_font(
+                    missing,
+                    "monospace",
+                    "family-that-does-not-exist",
+                )
+            self.assertEqual(fallback["double_width"], 0)
+            self.assertEqual(
+                (fallback["px"], fallback["py"]),
+                (primary["px"], primary["py"]),
+            )
+
     def test_pcf_and_compressed_pcf_extensions_are_resolved(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)

@@ -57,6 +57,8 @@ Covered now:
   do not match the primary font;
 - plain and gzip-compressed PCF family resolution, case-insensitive extension
   handling and prevention of mixed-format style groups;
+- missing/incompatible double-width font fallback while retaining a usable
+  primary font and its metrics;
 - C0 controls, cursor movement, save/restore, tabs and scrolling regions;
 - autowrap, alternate screen, synchronized output and cursor modes;
 - insert/delete/erase operations and insert mode;

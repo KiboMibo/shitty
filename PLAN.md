@@ -29,7 +29,6 @@
 
 Это почти белое пятно:
 
-- double-width fallback;
 - отсутствие font directory.
 
 ## Что потребуется от harness
