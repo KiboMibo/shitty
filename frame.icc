@@ -136,7 +136,7 @@ Frame::restoreHistory(uint16_t count) {
         screen[0] = incoming;
         freeRows.push_back(outgoing);
     }
-    viewOffset = std::min<size_t>(viewOffset, history.size());
+    viewOffset = viewOffset > count ? viewOffset - count : 0;
     if (!selection.null()) {
         selection.tl.y += count;
         selection.br.y += count;

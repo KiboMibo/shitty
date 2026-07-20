@@ -171,6 +171,7 @@ void Frame::resize(uint16_t winPx_, uint16_t winPy_,
         return;
     }
 
+    const uint16_t oldViewOffset = viewOffset;
     const uint16_t historyCount = history.size();
     const int rowLen = std::min(nCols, nCols_);
     const int nCopyRows = std::min(nRows, nRows_);
@@ -225,7 +226,7 @@ void Frame::resize(uint16_t winPx_, uint16_t winPy_,
     }
     marginTop_ = 0;
     marginBottom_ = nRows;
-    viewOffset = 0;
+    viewOffset = std::min<uint16_t>(oldViewOffset, historyCount);
     damage.totalCells = nCols * (nRows + saveLines);
     expose();
     highMemUsageReport();
