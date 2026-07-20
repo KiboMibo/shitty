@@ -207,6 +207,20 @@ class Zutty:
             f"SCROLL {x!r} {y!r} {modifiers} {pixel_x} {pixel_y}"
         )
 
+    def pointer(self, x, y, modifiers=0, scale_x=1, scale_y=1):
+        self.command(
+            f"POINTER {x!r} {y!r} {modifiers} {scale_x!r} {scale_y!r}"
+        )
+
+    def button(
+        self, button, pressed, x=2, y=2, modifiers=0, time=0,
+        scale_x=1, scale_y=1,
+    ):
+        return self._read_hex_response(
+            f"BUTTON {button} {int(pressed)} {x!r} {y!r} "
+            f"{modifiers} {time!r} {scale_x!r} {scale_y!r}"
+        )
+
     def resize(self, columns, rows):
         self.command(f"RESIZE {columns} {rows}")
         self._window_info["pixel_width"] = columns + 4

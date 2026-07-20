@@ -208,7 +208,7 @@ Rect Frame::getSnappedSelection() const {
         return ret;
     }
 
-    if (ret.empty() || selection.rectangular) {
+    if (selection.rectangular) {
         ret.tl.y += viewOffset;
         ret.br.y += viewOffset;
         return ret;

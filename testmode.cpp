@@ -367,7 +367,8 @@ int runTestMode(int controlFd) {
     std::string printerOutput;
     pid_t childPid = -1;
     int childExitStatus = -1;
-    MouseWheelAccumulator mouseWheel;
+    MouseFrontendState mouseFrontend;
+    std::string primarySelection;
     terminal.setOscHandler(
         [&terminal, &actions](int command, const std::string& argument) {
             actions += "OSC " + std::to_string(command) + " " +
@@ -417,6 +418,33 @@ int runTestMode(int controlFd) {
     windowInfo.screenPixelWidth = 1920;
     windowInfo.screenPixelHeight = 1080;
     terminal.setWindowInfoHandler([&windowInfo]() { return windowInfo; });
+    const auto mouseGeometry = [&]() {
+        return MouseGeometry{
+            static_cast<int>(windowInfo.pixelWidth),
+            static_cast<int>(windowInfo.pixelHeight),
+            static_cast<int>(opts.border), 1, 1};
+    };
+    const auto sendMouseButton = [&](MouseEventType type, int button,
+                                     int pixelX, int pixelY,
+                                     unsigned modifiers) {
+        const auto tracking = terminal.getMouseTrackingState();
+        if (!mouseButtonReportAllowed(tracking.mode, type, button)) return;
+        const MouseProtocolPoint point = mouseProtocolPoint(
+            tracking.enc, pixelX, pixelY, mouseGeometry());
+        if (tracking.mode == MouseTrackingMode::VT200_Highlight &&
+            type == MouseEventType::Release) {
+            terminal.mouseHighlightRelease(
+                point.column, point.row, point.column, point.row);
+            return;
+        }
+        const unsigned protocolModifiers =
+            tracking.mode == MouseTrackingMode::X10_Compat
+                ? 0 : mouseProtocolModifiers(modifiers);
+        terminal.writePty(encodeMouseProtocol(
+            tracking.enc, type, protocolModifiers,
+            mouseFrontend.motionButton(), button,
+            point.column, point.row).c_str());
+    };
     terminal.redraw();
     writeAll(controlFd, "READY\n");
 
@@ -566,9 +594,9 @@ int runTestMode(int controlFd) {
                     throw std::runtime_error("invalid scroll event");
                 }
                 const auto tracking = terminal.getMouseTrackingState();
-                const bool reporting = !(modifiers & 1) &&
-                    tracking.mode != MouseTrackingMode::Disabled;
-                const MouseWheelSteps steps = mouseWheel.consume(
+                const bool reporting = mouseFrontend.protocolActive(
+                    modifiers, tracking.mode);
+                const MouseWheelSteps steps = mouseFrontend.consumeWheel(
                     x, y, reporting);
                 if (!reporting) {
                     if (steps.y > 0) terminal.mouseWheelUp(steps.y);
@@ -577,39 +605,16 @@ int runTestMode(int controlFd) {
                     continue;
                 }
 
-                const int contentWidth = std::max(
-                    1, static_cast<int>(windowInfo.pixelWidth) -
-                       2 * static_cast<int>(opts.border));
-                const int contentHeight = std::max(
-                    1, static_cast<int>(windowInfo.pixelHeight) -
-                       2 * static_cast<int>(opts.border));
-                int column;
-                int row;
-                if (tracking.enc == MouseTrackingEnc::SGRPixels) {
-                    column = std::clamp(
-                        pixelX - static_cast<int>(opts.border) + 1,
-                        1, contentWidth);
-                    row = std::clamp(
-                        pixelY - static_cast<int>(opts.border) + 1,
-                        1, contentHeight);
-                } else {
-                    column = std::clamp(
-                        pixelX - static_cast<int>(opts.border),
-                        1, contentWidth);
-                    row = std::clamp(
-                        pixelY - static_cast<int>(opts.border),
-                        1, contentHeight);
-                }
-                unsigned protocolModifiers = 0;
-                if (modifiers & 1) protocolModifiers |= MouseShift;
-                if (modifiers & 4) protocolModifiers |= MouseAlt;
-                if (modifiers & 2) protocolModifiers |= MouseControl;
+                const MouseProtocolPoint point = mouseProtocolPoint(
+                    tracking.enc, pixelX, pixelY, mouseGeometry());
+                const unsigned protocolModifiers =
+                    mouseProtocolModifiers(modifiers);
                 const auto send = [&](int count, int button) {
                     for (int k = 0; k < count; ++k) {
                         terminal.writePty(encodeMouseProtocol(
                             tracking.enc, MouseEventType::Press,
-                            protocolModifiers, 0, button,
-                            column, row).c_str());
+                            protocolModifiers, mouseFrontend.motionButton(),
+                            button, point.column, point.row).c_str());
                     }
                 };
                 send(std::max(0, steps.y), 4);
@@ -617,6 +622,99 @@ int runTestMode(int controlFd) {
                 send(std::max(0, -steps.x), 6);
                 send(std::max(0, steps.x), 7);
                 writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 8, "POINTER ") == 0) {
+                std::istringstream args(line.substr(8));
+                double x, y, scaleX, scaleY;
+                unsigned modifiers;
+                if (!(args >> x >> y >> modifiers >> scaleX >> scaleY) ||
+                    modifiers > 7) {
+                    throw std::runtime_error("invalid pointer event");
+                }
+                const int pixelX = mouseFramebufferCoordinate(x, scaleX);
+                const int pixelY = mouseFramebufferCoordinate(y, scaleY);
+                const MouseProtocolPoint locator = mouseProtocolPoint(
+                    MouseTrackingEnc::Default, pixelX, pixelY,
+                    mouseGeometry());
+                terminal.setLocatorPosition(
+                    locator.column, locator.row,
+                    std::max(1, pixelX + 1), std::max(1, pixelY + 1));
+                const auto tracking = terminal.getMouseTrackingState();
+                if (mouseFrontend.protocolActive(modifiers, tracking.mode)) {
+                    const bool allowed =
+                        tracking.mode == MouseTrackingMode::VT200_AnyEvent ||
+                        (tracking.mode ==
+                             MouseTrackingMode::VT200_ButtonEvent &&
+                         mouseFrontend.primaryButtonPressed());
+                    if (allowed) {
+                        const MouseProtocolPoint point = mouseProtocolPoint(
+                            tracking.enc, pixelX, pixelY, mouseGeometry());
+                        if (mouseFrontend.reportMotion(
+                                point.column, point.row,
+                                tracking.mode, tracking.enc,
+                                tracking.generation)) {
+                            terminal.writePty(encodeMouseProtocol(
+                                tracking.enc, MouseEventType::Motion,
+                                mouseProtocolModifiers(modifiers),
+                                mouseFrontend.motionButton(), 0,
+                                point.column, point.row).c_str());
+                        }
+                    }
+                } else if (mouseFrontend.buttons() &
+                           ((1u << 0) | (1u << 1))) {
+                    terminal.selectUpdate(pixelX, pixelY);
+                }
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 7, "BUTTON ") == 0) {
+                std::istringstream args(line.substr(7));
+                int button;
+                unsigned pressed, modifiers;
+                double x, y, time, scaleX, scaleY;
+                if (!(args >> button >> pressed >> x >> y >> modifiers >>
+                      time >> scaleX >> scaleY) ||
+                    button < 0 || pressed > 1 || modifiers > 7) {
+                    throw std::runtime_error("invalid button event");
+                }
+                const int pixelX = mouseFramebufferCoordinate(x, scaleX);
+                const int pixelY = mouseFramebufferCoordinate(y, scaleY);
+                mouseFrontend.updateButton(button, pressed != 0);
+                const int protocolButton = mouseTerminalButton(button);
+                const MouseProtocolPoint locator = mouseProtocolPoint(
+                    MouseTrackingEnc::Default, pixelX, pixelY,
+                    mouseGeometry());
+                terminal.setLocatorPosition(
+                    locator.column, locator.row,
+                    std::max(1, pixelX + 1), std::max(1, pixelY + 1));
+                if (protocolButton >= 1 && protocolButton <= 4) {
+                    terminal.reportLocatorButton(
+                        protocolButton, pressed != 0);
+                }
+
+                std::string selection;
+                const auto tracking = terminal.getMouseTrackingState();
+                if (mouseFrontend.protocolActive(modifiers, tracking.mode)) {
+                    sendMouseButton(
+                        pressed ? MouseEventType::Press
+                                : MouseEventType::Release,
+                        protocolButton, pixelX, pixelY, modifiers);
+                } else if (pressed) {
+                    const bool cycle = mouseFrontend.registerClick(
+                        button, x, y, time) > 1;
+                    if (button == 0) {
+                        terminal.selectStart(pixelX, pixelY, cycle);
+                        mouseFrontend.beginSelection();
+                    } else if (button == 1) {
+                        terminal.selectExtend(pixelX, pixelY, cycle);
+                        mouseFrontend.beginSelection();
+                    }
+                } else if (button == 0 || button == 1) {
+                    mouseFrontend.endSelection();
+                    if (terminal.selectFinish(selection)) {
+                        primarySelection = selection;
+                    }
+                } else if (button == 2) {
+                    terminal.pasteSelection(primarySelection);
+                }
+                writeAll(controlFd, "OK " + encodeHex(selection) + "\n");
             } else if (line.compare(0, 7, "RESIZE ") == 0) {
                 std::istringstream args(line.substr(7));
                 unsigned columns;

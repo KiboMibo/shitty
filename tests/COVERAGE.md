@@ -15,7 +15,8 @@ Covered now:
 - scroll-up capture, reverse scroll, history capacity rollover and zero capacity;
 - linefeed/index capture at a region boundary and large-count clamping;
 - scrollback cell attributes, hyperlinks, selection lifetime and viewport anchoring;
-- one-line local wheel steps and symmetric wheel-up/wheel-down movement;
+- fractional frontend wheel accumulation, both axes, local/reporting
+  transitions and Shift override;
 - shrink-to-history and grow-from-history resize behavior;
 - Codex-style synchronized redraws plus a slow reference scrolling model;
 - SGR flags, truecolor, wide cells, wrap markers and DEC line drawing;
@@ -25,6 +26,8 @@ Covered now:
 - OSC actions, bell, OSC 7 paths, OSC 8 hyperlinks and OSC 52 clipboard data;
 - legacy/application keyboard, modifiers, function keys, paste and kitty keys;
 - mouse/focus negotiation plus default, UTF-8, SGR and URXVT encodings;
+- frontend pointer/button policy, content scale, motion dedupe, locator updates,
+  local selection and click snapping with virtual time;
 - linear/rectangular selection and selection while scrolled;
 - growing/shrinking both primary and alternate screens.
 
@@ -36,7 +39,6 @@ terminals are installed.
 Still requiring a platform boundary before it can be tested headlessly:
 
 - GLFW event translation, including physical keyboard layout and IME input;
-- GLFW mouse event policy (selection override, click counting and cell dedupe);
 - clipboard ownership and OSC 52 integration;
 - Vulkan raster output, font fallback and glyph metrics;
 - Wayland/X11 window state, scale and grid-snapped interactive resizing.

@@ -11,8 +11,8 @@
 #include "fontpack.h"
 #include "keyboard.h"
 #include "log.h"
-#include "mouseprotocol.h"
 #include "mousefrontend.h"
+#include "mouseprotocol.h"
 #include "oscprotocol.h"
 #include "options.h"
 #include "pty.h"
@@ -71,6 +71,10 @@ static std::optional<std::chrono::steady_clock::time_point> refreshDeadline;
 extern char** environ;
 
 namespace {
+    static_assert(GLFW_MOD_SHIFT == FrontendShift);
+    static_assert(GLFW_MOD_CONTROL == FrontendControl);
+    static_assert(GLFW_MOD_ALT == FrontendAlt);
+
     int takeTestFd(int& argc, char* argv[]) {
         for (int k = 1; k < argc; ++k) {
             if (std::strcmp(argv[k], "--test-fd") != 0) {
@@ -224,17 +228,8 @@ namespace {
     };
 
     struct MouseContext {
-        bool selectionOngoing = false;
+        MouseFrontendState frontend;
         bool hyperlinkClick = false;
-        unsigned buttonState = 0;
-        int lastButton = -1;
-        int clickCount = 0;
-        double lastClickTime = 0.0;
-        double lastClickX = 0.0;
-        double lastClickY = 0.0;
-        MouseWheelAccumulator wheel;
-        uint16_t lastReportColumn = UINT16_MAX;
-        uint16_t lastReportRow = UINT16_MAX;
         bool cursorInside = true;
     } mouseContext;
 
@@ -792,7 +787,8 @@ namespace {
             });
             return;
         }
-        if (key == GLFW_KEY_SPACE && mouseContext.selectionOngoing) {
+        if (key == GLFW_KEY_SPACE &&
+            mouseContext.frontend.selectionOngoing()) {
             runLocal([&]() {
                 vt->selectRectangularModeToggle();
             });
@@ -930,72 +926,35 @@ namespace {
     }
 
     int toPixelX(double x) {
-        return static_cast<int>(std::lround(x * pixelScaleX()));
+        return mouseFramebufferCoordinate(x, pixelScaleX());
     }
 
     int toPixelY(double y) {
-        return static_cast<int>(std::lround(y * pixelScaleY()));
+        return mouseFramebufferCoordinate(y, pixelScaleY());
     }
 
     bool isMouseProtocol(int modifiers,
                          const MouseTrackingState& tracking) {
-        return !mouseContext.selectionOngoing &&
-               !(modifiers & GLFW_MOD_SHIFT) &&
-               tracking.mode != MouseTrackingMode::Disabled;
+        return mouseContext.frontend.protocolActive(modifiers, tracking.mode);
     }
 
     void mouseProtocolCoordinates(MouseTrackingEnc encoding,
                                   int pixelX, int pixelY,
                                   uint16_t& column, uint16_t& row) {
-        const int contentWidth = std::max(
-            1, windowContext.framebufferWidth -
-                   2 * static_cast<int>(opts.border));
-        const int contentHeight = std::max(
-            1, windowContext.framebufferHeight -
-                   2 * static_cast<int>(opts.border));
-        if (encoding == MouseTrackingEnc::SGRPixels) {
-            column = std::clamp(
-                pixelX - static_cast<int>(opts.border) + 1,
-                1, contentWidth);
-            row = std::clamp(
-                pixelY - static_cast<int>(opts.border) + 1,
-                1, contentHeight);
-            return;
-        }
-        const int columns = std::max(1, contentWidth / fontpk->getPx());
-        const int rows = std::max(1, contentHeight / fontpk->getPy());
-        column = std::clamp(
-            (pixelX - static_cast<int>(opts.border) - 1) /
-                fontpk->getPx() + 1,
-            1, columns);
-        row = std::clamp(
-            (pixelY - static_cast<int>(opts.border) - 1) /
-                fontpk->getPy() + 1,
-            1, rows);
+        const MouseProtocolPoint point = mouseProtocolPoint(
+            encoding, pixelX, pixelY,
+            {windowContext.framebufferWidth,
+             windowContext.framebufferHeight,
+             opts.border, fontpk->getPx(), fontpk->getPy()});
+        column = point.column;
+        row = point.row;
     }
 
     void mouseProtocolSend(MouseTrackingEnc encoding, MouseEventType type,
-                           int modifiers, unsigned buttonState,
-                           int button, int column, int row) {
-        unsigned protocolModifiers = 0;
-        if (modifiers & GLFW_MOD_SHIFT) {
-            protocolModifiers |= MouseShift;
-        }
-        if ((modifiers & GLFW_MOD_ALT) &&
-            !keyPressed(GLFW_KEY_RIGHT_ALT)) {
-            protocolModifiers |= MouseAlt;
-        }
-        if (modifiers & GLFW_MOD_CONTROL) {
-            protocolModifiers |= MouseControl;
-        }
-        int motionButton = 0;
-        if (buttonState & (1u << GLFW_MOUSE_BUTTON_LEFT)) {
-            motionButton = 1;
-        } else if (buttonState & (1u << GLFW_MOUSE_BUTTON_MIDDLE)) {
-            motionButton = 2;
-        } else if (buttonState & (1u << GLFW_MOUSE_BUTTON_RIGHT)) {
-            motionButton = 3;
-        }
+                           int modifiers, int button, int column, int row) {
+        const unsigned protocolModifiers = mouseProtocolModifiers(
+            modifiers, !keyPressed(GLFW_KEY_RIGHT_ALT));
+        const int motionButton = mouseContext.frontend.motionButton();
         vt->writePty(encodeMouseProtocol(
             encoding, type, protocolModifiers, motionButton,
             button, column, row).c_str());
@@ -1003,15 +962,9 @@ namespace {
 
     void sendMouseButtonProtocol(MouseEventType type, int button,
                                  int pixelX, int pixelY,
-                                 int modifiers, unsigned buttonState,
+                                 int modifiers,
                                  const MouseTrackingState& tracking) {
-        if (button > 11 ||
-            (type == MouseEventType::Release && button > 3)) {
-            return;
-        }
-        if (tracking.mode == MouseTrackingMode::Disabled ||
-            (type == MouseEventType::Release &&
-             tracking.mode == MouseTrackingMode::X10_Compat)) {
+        if (!mouseButtonReportAllowed(tracking.mode, type, button)) {
             return;
         }
 
@@ -1026,38 +979,12 @@ namespace {
         const int protocolModifiers =
             tracking.mode == MouseTrackingMode::X10_Compat ? 0 : modifiers;
         mouseProtocolSend(
-            tracking.enc, type, protocolModifiers,
-            buttonState, button, column, row);
-    }
-
-    int terminalButton(int button) {
-        switch (button) {
-            case GLFW_MOUSE_BUTTON_LEFT:
-                return 1;
-            case GLFW_MOUSE_BUTTON_MIDDLE:
-                return 2;
-            case GLFW_MOUSE_BUTTON_RIGHT:
-                return 3;
-            default:
-                if (button < GLFW_MOUSE_BUTTON_4) {
-                    return 0;
-                }
-                return button - GLFW_MOUSE_BUTTON_4 + 8;
-        }
+            tracking.enc, type, protocolModifiers, button, column, row);
     }
 
     bool isMultipleClick(int button, double x, double y) {
-        const double now = glfwGetTime();
-        const bool repeated = button == mouseContext.lastButton &&
-                              now - mouseContext.lastClickTime <= 0.5 &&
-                              std::abs(x - mouseContext.lastClickX) <= 4.0 &&
-                              std::abs(y - mouseContext.lastClickY) <= 4.0;
-        mouseContext.clickCount = repeated ? mouseContext.clickCount + 1 : 1;
-        mouseContext.lastButton = button;
-        mouseContext.lastClickTime = now;
-        mouseContext.lastClickX = x;
-        mouseContext.lastClickY = y;
-        return mouseContext.clickCount > 1;
+        return mouseContext.frontend.registerClick(
+                   button, x, y, glfwGetTime()) > 1;
     }
 
     void openHyperlink(const std::string& uri) {
@@ -1081,14 +1008,9 @@ namespace {
         glfwGetCursorPos(window, &x, &y);
         const int pixelX = toPixelX(x);
         const int pixelY = toPixelY(y);
-        const unsigned buttonMask = 1u << button;
-        if (pressed) {
-            mouseContext.buttonState |= buttonMask;
-        } else {
-            mouseContext.buttonState &= ~buttonMask;
-        }
+        mouseContext.frontend.updateButton(button, pressed);
         const auto& tracking = vt->getMouseTrackingState();
-        const int protocolButton = terminalButton(button);
+        const int protocolButton = mouseTerminalButton(button);
         uint16_t locatorColumn = 1;
         uint16_t locatorRow = 1;
         mouseProtocolCoordinates(
@@ -1118,8 +1040,7 @@ namespace {
         if (isMouseProtocol(modifiers, tracking)) {
             sendMouseButtonProtocol(
                 pressed ? MouseEventType::Press : MouseEventType::Release,
-                protocolButton, pixelX, pixelY, modifiers,
-                mouseContext.buttonState, tracking);
+                protocolButton, pixelX, pixelY, modifiers, tracking);
             return;
         }
 
@@ -1127,10 +1048,10 @@ namespace {
             const bool cycleSnapTo = isMultipleClick(button, x, y);
             if (button == GLFW_MOUSE_BUTTON_LEFT) {
                 vt->selectStart(pixelX, pixelY, cycleSnapTo);
-                mouseContext.selectionOngoing = true;
+                mouseContext.frontend.beginSelection();
             } else if (button == GLFW_MOUSE_BUTTON_RIGHT) {
                 vt->selectExtend(pixelX, pixelY, cycleSnapTo);
-                mouseContext.selectionOngoing = true;
+                mouseContext.frontend.beginSelection();
             }
             return;
         }
@@ -1138,7 +1059,7 @@ namespace {
         if (button == GLFW_MOUSE_BUTTON_LEFT ||
             button == GLFW_MOUSE_BUTTON_RIGHT) {
             std::string selection;
-            mouseContext.selectionOngoing = false;
+            mouseContext.frontend.endSelection();
             if (vt->selectFinish(selection)) {
                 primarySelection = selection;
                 if (opts.autoCopyMode) {
@@ -1170,10 +1091,7 @@ namespace {
         const auto& tracking = vt->getMouseTrackingState();
         if (isMouseProtocol(modifiers, tracking)) {
             if (tracking.mode == MouseTrackingMode::VT200_ButtonEvent &&
-                !(mouseContext.buttonState &
-                  ((1u << GLFW_MOUSE_BUTTON_LEFT) |
-                   (1u << GLFW_MOUSE_BUTTON_MIDDLE) |
-                   (1u << GLFW_MOUSE_BUTTON_RIGHT)))) {
+                !mouseContext.frontend.primaryButtonPressed()) {
                 return;
             }
             if (tracking.mode != MouseTrackingMode::VT200_ButtonEvent &&
@@ -1184,15 +1102,13 @@ namespace {
             uint16_t column = 0;
             uint16_t row = 0;
             mouseProtocolCoordinates(tracking.enc, pixelX, pixelY, column, row);
-            if (column != mouseContext.lastReportColumn ||
-                row != mouseContext.lastReportRow) {
+            if (mouseContext.frontend.reportMotion(
+                    column, row, tracking.mode, tracking.enc,
+                    tracking.generation)) {
                 mouseProtocolSend(tracking.enc, MouseEventType::Motion,
-                                  modifiers, mouseContext.buttonState,
-                                  0, column, row);
-                mouseContext.lastReportColumn = column;
-                mouseContext.lastReportRow = row;
+                                  modifiers, 0, column, row);
             }
-        } else if (mouseContext.buttonState &
+        } else if (mouseContext.frontend.buttons() &
                    ((1u << GLFW_MOUSE_BUTTON_LEFT) |
                     (1u << GLFW_MOUSE_BUTTON_RIGHT))) {
             vt->selectUpdate(pixelX, pixelY);
@@ -1203,7 +1119,7 @@ namespace {
         const int modifiers = keyboardModifiers();
         const auto& tracking = vt->getMouseTrackingState();
         const bool reporting = isMouseProtocol(modifiers, tracking);
-        const MouseWheelSteps steps = mouseContext.wheel.consume(
+        const MouseWheelSteps steps = mouseContext.frontend.consumeWheel(
             wheelX, wheelY, reporting);
         if (reporting) {
             double x = 0.0;
@@ -1213,26 +1129,22 @@ namespace {
             const int pixelY = toPixelY(y);
             for (int k = 0; k < steps.y; ++k) {
                 sendMouseButtonProtocol(MouseEventType::Press, 4,
-                                        pixelX, pixelY, modifiers,
-                                        mouseContext.buttonState, tracking);
+                                        pixelX, pixelY, modifiers, tracking);
             }
             if (steps.y < 0) {
                 for (int k = 0; k < -steps.y; ++k) {
                     sendMouseButtonProtocol(MouseEventType::Press, 5,
                                             pixelX, pixelY, modifiers,
-                                            mouseContext.buttonState,
                                             tracking);
                 }
             }
             for (int k = 0; k < -steps.x; ++k) {
                 sendMouseButtonProtocol(MouseEventType::Press, 6,
-                                        pixelX, pixelY, modifiers,
-                                        mouseContext.buttonState, tracking);
+                                        pixelX, pixelY, modifiers, tracking);
             }
             for (int k = 0; k < steps.x; ++k) {
                 sendMouseButtonProtocol(MouseEventType::Press, 7,
-                                        pixelX, pixelY, modifiers,
-                                        mouseContext.buttonState, tracking);
+                                        pixelX, pixelY, modifiers, tracking);
             }
         } else {
             if (steps.y > 0) {
@@ -1383,7 +1295,7 @@ namespace {
                 return;
             }
             if (!focused) {
-                mouseContext.buttonState = 0;
+                mouseContext.frontend.clearButtons();
                 suppressedTextInputs = 0;
                 pendingKittyTextKey.active = false;
                 std::fill_n(locallyConsumedKeys, GLFW_KEY_LAST + 1, false);
@@ -1421,8 +1333,7 @@ namespace {
     void onCursorEnter(GLFWwindow*, int entered) {
         guardCallback([entered]() {
             mouseContext.cursorInside = entered == GLFW_TRUE;
-            mouseContext.lastReportColumn = UINT16_MAX;
-            mouseContext.lastReportRow = UINT16_MAX;
+            mouseContext.frontend.resetMotion();
         });
     }
 
@@ -1514,7 +1425,7 @@ namespace {
                 vt->flushPtyOutput();
             }
             if ((ptyEvents & (POLLIN | POLLHUP | POLLERR)) &&
-                !mouseContext.selectionOngoing) {
+                !mouseContext.frontend.selectionOngoing()) {
                 const bool finished = vt->readPty();
                 readPtyInput = true;
                 ptySource.acknowledge();

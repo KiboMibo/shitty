@@ -160,6 +160,20 @@ struct MouseTrackingState {
     MouseTrackingMode mode = MouseTrackingMode::Disabled;
     MouseTrackingEnc enc = MouseTrackingEnc::Default;
     bool focusEventMode = false;
+    uint32_t generation = 0;
+
+    void setMode(MouseTrackingMode value) {
+        if (mode != value) {
+            mode = value;
+            ++generation;
+        }
+    }
+    void setEncoding(MouseTrackingEnc value) {
+        if (enc != value) {
+            enc = value;
+            ++generation;
+        }
+    }
 };
 
 class Vterm {

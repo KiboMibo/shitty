@@ -450,7 +450,9 @@ Vterm::resetScreen(bool resetTabStops) {
     savedCursor_SCO.isSet = false;
     savedCursor_DEC->isSet = false;
 
-    mouseTrk = MouseTrackingState{};
+    mouseTrk.setMode(MouseTrackingMode::Disabled);
+    mouseTrk.setEncoding(MouseTrackingEnc::Default);
+    mouseTrk.focusEventMode = false;
     locator = LocatorState{};
 
     if (resetTabStops) {
@@ -2131,7 +2133,7 @@ Vterm::setPrivMode(uint32_t arg, bool set) {
                 reverseWrapMode = true;
                 break;
             case 9:
-                mouseTrk.mode = MouseTrackingMode::X10_Compat;
+                mouseTrk.setMode(MouseTrackingMode::X10_Compat);
                 break;
             case 12:
                 cursorBlinkMode = true;
@@ -2155,35 +2157,35 @@ Vterm::setPrivMode(uint32_t arg, bool set) {
                 nColsEff = nCols;
                 break;
             case 1000:
-                mouseTrk.mode = MouseTrackingMode::VT200;
+                mouseTrk.setMode(MouseTrackingMode::VT200);
                 break;
             case 1001:
-                mouseTrk.mode = MouseTrackingMode::VT200_Highlight;
+                mouseTrk.setMode(MouseTrackingMode::VT200_Highlight);
                 mouseHighlight.active = false;
                 break;
             case 1002:
-                mouseTrk.mode = MouseTrackingMode::VT200_ButtonEvent;
+                mouseTrk.setMode(MouseTrackingMode::VT200_ButtonEvent);
                 break;
             case 1003:
-                mouseTrk.mode = MouseTrackingMode::VT200_AnyEvent;
+                mouseTrk.setMode(MouseTrackingMode::VT200_AnyEvent);
                 break;
             case 1004:
                 mouseTrk.focusEventMode = true;
                 break;
             case 1005:
-                mouseTrk.enc = MouseTrackingEnc::UTF8;
+                mouseTrk.setEncoding(MouseTrackingEnc::UTF8);
                 break;
             case 1006:
-                mouseTrk.enc = MouseTrackingEnc::SGR;
+                mouseTrk.setEncoding(MouseTrackingEnc::SGR);
                 break;
             case 1007:
                 altScrollMode = true;
                 break;
             case 1015:
-                mouseTrk.enc = MouseTrackingEnc::URXVT;
+                mouseTrk.setEncoding(MouseTrackingEnc::URXVT);
                 break;
             case 1016:
-                mouseTrk.enc = MouseTrackingEnc::SGRPixels;
+                mouseTrk.setEncoding(MouseTrackingEnc::SGRPixels);
                 break;
             case 1034:
                 eightBitInput = true;
@@ -2265,7 +2267,7 @@ Vterm::setPrivMode(uint32_t arg, bool set) {
             case 1001:
             case 1002:
             case 1003:
-                mouseTrk.mode = MouseTrackingMode::Disabled;
+                mouseTrk.setMode(MouseTrackingMode::Disabled);
                 mouseHighlight.active = false;
                 break;
             case 12:
@@ -2295,7 +2297,7 @@ Vterm::setPrivMode(uint32_t arg, bool set) {
             case 1006:
             case 1015:
             case 1016:
-                mouseTrk.enc = MouseTrackingEnc::Default;
+                mouseTrk.setEncoding(MouseTrackingEnc::Default);
                 break;
             case 1034:
                 eightBitInput = false;

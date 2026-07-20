@@ -25,19 +25,7 @@
 
 ## Главные пробелы
 
-1. Mouse
-
-Критичная дыра: wheel-тесты обходят frontend. Они вызывают `Vterm::mouseWheelUp/Down()` напрямую, поэтому не проверяют код дробных дельт и накопления в [main.cpp](/home/pg/monorepo/zutty/main.cpp:1251). Нужны control-команды уровня реальных событий:
-
-- движение pointer;
-- button press/release;
-- modifiers;
-- время между кликами;
-- content scale и framebuffer coordinates.
-
-Осталось закрыть cell dedupe и double/triple click.
-
-2. Unicode и charsets
+1. Unicode и charsets
 
 Текущий grapheme-код реализует выбранный subset правил, но не полный UAX #29. Нужны представительные официальные vectors:
 
@@ -58,7 +46,7 @@ Unicode публикует и правила, и официальный `Graphem
 
 Отдельная матрица нужна для G0–G3, GL/GR, locking/single shifts, NRC sets, DEC Special/Technical и возврата из VT52.
 
-3. Resize, selection и scrollback
+2. Resize, selection и scrollback
 
 Scrollback дальше раздувать просто ради числа не надо. Добавлять только новые взаимодействия:
 
@@ -75,7 +63,7 @@ Scrollback дальше раздувать просто ради числа не
 - same-grid pixel-only resize;
 - in-band resize response.
 
-4. PTY, presentation и lifecycle
+3. PTY, presentation и lifecycle
 
 Сейчас практически отсутствуют:
 
@@ -95,7 +83,7 @@ Scrollback дальше раздувать просто ради числа не
 
 Synchronized output должен продолжать менять модель терминала, сохраняя предыдущую представленную картинку до `2026l`: [protocol specification](https://github.com/contour-terminal/vt-extensions/blob/master/synchronized-output.md).
 
-5. Options, fonts и startup
+4. Options, fonts и startup
 
 Это почти белое пятно:
 
@@ -118,10 +106,7 @@ Synchronized output должен продолжать менять модель 
 
 Большую часть протокольных тестов можно писать уже сейчас. Для остального добавлю узкие platform-neutral seams и control-команды:
 
-- raw frontend key/pointer/button events;
-- virtual clock для click counting и blink;
 - clipboard ownership;
-- content scale;
 - damage snapshot;
 - present success/failure;
 - PTY fault/backpressure injection;
@@ -132,23 +117,15 @@ Offscreen Vulkan на этом проходе не нужен: логическ�
 
 ## Количественная цель
 
-Я бы зафиксировал не потолок, а нижнюю границу:
-
-- не менее 450 тестов, ожидаемо около 500;
-- не менее 5500 строк именно `test_*.py`;
-- не менее 900 содержательных assertions;
-- сколько потребуется плоских файлов — столько и будет.
-
-Ориентировочный прирост:
+Оставшийся ориентировочный прирост:
 
 | Область | Новых тестов |
 |---|---:|
-| Mouse/frontend events | 35 |
 | Unicode/charsets | 30 |
 | Resize/selection/scrollback interactions | 25 |
 | PTY/present/options/fonts/startup | 30 |
-| Итого | около 120 |
+| Итого | около 85 |
 
-То есть итог, вероятно, будет ближе к 550–560 тестам, а не ровно к формальному удвоению.
+То есть итог, вероятно, будет ближе к 570 тестам, а не ровно к формальному удвоению.
 
-Имена и существующая раскладка файлов не являются ограничением. Рабочая единица — строка спецификации, состояние автомата или внешний контракт. На каждую такую единицу: минимальный тест, варианты параметров и хотя бы один граничный либо ошибочный сценарий. Уже вижу несколько мест, где новые тесты должны сразу покраснеть: полный UAX #29, frontend wheel accumulation и строгий разбор числовых опций. Исходники в этом проходе не менял.
+Имена и существующая раскладка файлов не являются ограничением. Рабочая единица — строка спецификации, состояние автомата или внешний контракт. На каждую такую единицу: минимальный тест, варианты параметров и хотя бы один граничный либо ошибочный сценарий. Уже вижу несколько мест, где новые тесты должны сразу покраснеть: полный UAX #29 и строгий разбор числовых опций.
