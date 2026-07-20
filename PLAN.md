@@ -29,7 +29,6 @@
 
 Это почти белое пятно:
 
-- `-e` как окончание разбора;
 - shell/login argv;
 - `TERM`, `ZUTTY_VERSION`, winsize и SIGWINCH;
 - font path traversal;

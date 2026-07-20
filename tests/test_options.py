@@ -4,6 +4,21 @@ from harness import Zutty, run_startup_failure
 
 
 class OptionTest(unittest.TestCase):
+    def test_dash_e_ends_option_parsing_and_preserves_command_argv(self):
+        command = (
+            "probe",
+            "-fontsize",
+            "99",
+            "+rv",
+            "-unknown",
+            "plain argument",
+        )
+        with Zutty(
+            extra_arguments=("-fontsize", "18", "-e", *command)
+        ) as terminal:
+            self.assertEqual(terminal.options()["fontsize"], 18)
+            self.assertEqual(terminal.argv()[1:], ["-e", *command])
+
     def test_geometry_accepts_valid_grid_and_rejects_invalid_or_overflow(self):
         with Zutty(extra_arguments=("-geometry", "7x3")) as terminal:
             options = terminal.options()

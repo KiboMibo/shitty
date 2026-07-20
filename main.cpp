@@ -1514,7 +1514,7 @@ namespace {
             SYS_ERROR("setenv ZUTTY_VERSION");
         }
         if (testFd >= 0) {
-            return runTestMode(testFd);
+            return runTestMode(testFd, argc, argv);
         }
 
         char argv0[PATH_MAX]{};

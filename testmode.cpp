@@ -333,7 +333,7 @@ namespace {
     }
 }
 
-int runTestMode(int controlFd) {
+int runTestMode(int controlFd, int argc, char* argv[]) {
     int io[2];
     if (openpty(&io[0], &io[1], nullptr, nullptr, nullptr) < 0) {
         throw std::runtime_error("test openpty failed");
@@ -548,6 +548,13 @@ int runTestMode(int controlFd) {
                          " allow_osc52_read=" +
                              std::to_string(opts.allowOsc52Read) +
                          "\n");
+            } else if (line == "ARGV") {
+                std::string arguments;
+                for (int index = 0; index < argc; ++index) {
+                    if (index) arguments.push_back('\0');
+                    arguments += argv[index];
+                }
+                writeAll(controlFd, "OK " + encodeHex(arguments) + "\n");
             } else if (line.compare(0, 16, "GRAPHEME_BREAKS ") == 0) {
                 std::istringstream args(line.substr(16));
                 std::string token;

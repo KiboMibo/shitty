@@ -40,6 +40,8 @@ Covered now:
 - geometry syntax and `uint16_t` bounds, short/full RGB colors, reverse-video
   color interaction, boolean `-/+`, advanced booleans, unique abbreviations
   and ambiguity errors;
+- `-e` as the hard option-parser boundary, preserving every following command
+  argument including option-like and unknown tokens;
 - C0 controls, cursor movement, save/restore, tabs and scrolling regions;
 - autowrap, alternate screen, synchronized output and cursor modes;
 - insert/delete/erase operations and insert mode;

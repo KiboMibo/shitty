@@ -187,6 +187,10 @@ class Zutty:
             result[name] = int(value)
         return result
 
+    def argv(self):
+        encoded = self._read_hex_response("ARGV")
+        return [os.fsdecode(value) for value in encoded.split(b"\0")]
+
     def write(self, output):
         self.command("WRITE " + output.hex())
 
