@@ -29,7 +29,6 @@
 
 Scrollback дальше раздувать просто ради числа не надо. Добавлять только новые взаимодействия:
 
-- word snapping с Unicode и пунктуацией;
 - selection после insert/delete/erase;
 - selection на primary/alternate;
 - cursor/autowrap при shrink/grow;

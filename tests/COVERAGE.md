@@ -36,6 +36,8 @@ Covered now:
 - linear/rectangular selection in every drag direction, mid-drag mode changes,
   soft-wrapped logical-line copying (including wide pre-wrap), reverse drags
   and selection while scrolled;
+- Unicode-aware word snapping for letters, marks, numbers, connectors,
+  whitespace, punctuation runs and wide-cell continuations;
 - growing/shrinking both primary and alternate screens.
 
 The optional compatibility tier additionally drives the complete top-level

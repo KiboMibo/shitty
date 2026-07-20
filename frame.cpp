@@ -12,6 +12,40 @@
 #include "frame.h"
 #include "log.h"
 
+#include <utf8proc.h>
+
+namespace {
+
+uint32_t wordClass(uint32_t codepoint) {
+    constexpr uint32_t whitespaceClass = 0x110000;
+    constexpr uint32_t identifierClass = 0x110001;
+    switch (utf8proc_category(codepoint)) {
+        case UTF8PROC_CATEGORY_LU:
+        case UTF8PROC_CATEGORY_LL:
+        case UTF8PROC_CATEGORY_LT:
+        case UTF8PROC_CATEGORY_LM:
+        case UTF8PROC_CATEGORY_LO:
+        case UTF8PROC_CATEGORY_MN:
+        case UTF8PROC_CATEGORY_MC:
+        case UTF8PROC_CATEGORY_ME:
+        case UTF8PROC_CATEGORY_ND:
+        case UTF8PROC_CATEGORY_NL:
+        case UTF8PROC_CATEGORY_NO:
+        case UTF8PROC_CATEGORY_PC:
+            return identifierClass;
+        case UTF8PROC_CATEGORY_ZS:
+        case UTF8PROC_CATEGORY_ZL:
+        case UTF8PROC_CATEGORY_ZP:
+            return whitespaceClass;
+        default:
+            // Adjacent repetitions of one punctuation/symbol codepoint form
+            // a useful selectable run, while unlike punctuation stays split.
+            return codepoint;
+    }
+}
+
+}
+
 Frame::Frame() {
 }
 
@@ -239,21 +273,31 @@ Rect Frame::getSnappedSelection() const {
         case SelectSnapTo::Char:
             break;
         case SelectSnapTo::Word: {
-            const auto* cp = getLogicalRowPtr(ret.tl.y);
-            while (ret.tl.x < nCols && cp[ret.tl.x].uc_pt == ' ') {
-                ++ret.tl.x;
-            }
-            while (ret.tl.x > 0 && cp[ret.tl.x - 1].uc_pt != ' ') {
-                --ret.tl.x;
-            }
+            const auto cellLead = [this](const CharVdev::Cell* row, int x) {
+                x = std::max(0, std::min(x, static_cast<int>(nCols) - 1));
+                return row[x].dwidth_cont && x > 0 ? x - 1 : x;
+            };
+            const auto expand = [this, &cellLead](int rowIndex, int x) {
+                const auto* row = getLogicalRowPtr(rowIndex);
+                int left = cellLead(row, x);
+                const uint32_t selectedClass = wordClass(row[left].uc_pt);
+                while (left > 0) {
+                    const int previous = cellLead(row, left - 1);
+                    if (wordClass(row[previous].uc_pt) != selectedClass) break;
+                    left = previous;
+                }
 
-            cp = getLogicalRowPtr(ret.br.y);
-            while (ret.br.x > 0 && cp[ret.br.x].uc_pt == ' ') {
-                --ret.br.x;
-            }
-            while (ret.br.x < nCols && cp[ret.br.x].uc_pt != ' ') {
-                ++ret.br.x;
-            }
+                int right = left;
+                while (right < nCols) {
+                    const int lead = cellLead(row, right);
+                    if (wordClass(row[lead].uc_pt) != selectedClass) break;
+                    right = lead + (row[lead].dwidth ? 2 : 1);
+                }
+                return std::pair<int, int>{left, right};
+            };
+
+            ret.tl.x = expand(ret.tl.y, ret.tl.x).first;
+            ret.br.x = expand(ret.br.y, ret.br.x).second;
         } break;
         case SelectSnapTo::Line:
             ret.tl.x = 0;
@@ -303,7 +347,11 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
             }
         }
 
-        while (!wrap && line.size() && line.back() == ' ') {
+        // Trim screen padding only when a linear selection consumes the rest
+        // of the row.  Explicitly selected whitespace (word or rectangle)
+        // is data and must survive copying.
+        while (!wrap && !sel.rectangular && x2 == nCols && line.size() &&
+               line.back() == ' ') {
             line.pop_back();
         }
 
