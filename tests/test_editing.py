@@ -100,6 +100,12 @@ class EditingTest(unittest.TestCase):
                 ["one  ", "two  ", "three", "     "],
             )
 
+    def test_insert_lines_clamps_count_to_remaining_region(self):
+        with Zutty(columns=5, rows=4) as terminal:
+            terminal.write(b"one\r\ntwo\r\nthree\r\nfour")
+            terminal.write(b"\x1b[1;1H\x1b[999L")
+            self.assertEqual(terminal.snapshot().lines, ["     "] * 4)
+
     def test_insert_and_delete_lines_preserve_cursor_column(self):
         for operation in (b"\x1b[L", b"\x1b[M"):
             with self.subTest(operation=operation):

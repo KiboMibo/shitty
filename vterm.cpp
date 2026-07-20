@@ -1335,11 +1335,9 @@ void VtermImpl::copyRow(u16 dstY, u16 srcY) {
 }
 
 void VtermImpl::insertRows(u16 startY, u16 count) {
-    for (u16 pY = marginBottom - count - 1; pY >= startY; --pY) {
+    for (u16 pY = marginBottom - count; pY > startY;) {
+        --pY;
         copyRow(pY + count, pY);
-        if (!pY) {
-            break;
-        }
     }
 
     for (u16 pY = startY; pY < startY + count; ++pY) {

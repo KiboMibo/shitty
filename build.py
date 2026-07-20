@@ -52,9 +52,10 @@ render_spv = command(
 
 
 main_source = "$(S)/main.cpp"
+fuzz_source = "$(S)/main_fuzz.cpp"
 libzutty_sources = [
     source for source in build.glob("$(S)/*.cpp")
-    if source != main_source
+    if source not in (main_source, fuzz_source)
 ]
 
 
@@ -68,6 +69,12 @@ libzutty = library(
 
 zutty = program(
     srcs=[main_source],
+    deps=[libzutty],
+)
+
+
+main_fuzz = program(
+    srcs=[fuzz_source],
     deps=[libzutty],
 )
 
