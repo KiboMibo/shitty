@@ -47,6 +47,8 @@ Covered now:
   from the executable actually launched;
 - real child PTY startup with `TERM`, `ZUTTY_VERSION`, initial winsize and
   resize-driven winsize update plus `SIGWINCH` delivery;
+- deterministic recursive font-path traversal across colon-separated roots,
+  nested directories, incomplete families and unrelated files;
 - C0 controls, cursor movement, save/restore, tabs and scrolling regions;
 - autowrap, alternate screen, synchronized output and cursor modes;
 - insert/delete/erase operations and insert mode;

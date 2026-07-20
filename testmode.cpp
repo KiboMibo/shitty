@@ -1,6 +1,7 @@
 #include "testmode.h"
 
 #include "grapheme.h"
+#include "fontresolver.h"
 #include "keyboard.h"
 #include "options.h"
 #include "mouseprotocol.h"
@@ -564,6 +565,17 @@ int runTestMode(int controlFd, int argc, char* argv[]) {
                     encoded.push_back('\0');
                     encoded += argument;
                 }
+                writeAll(controlFd, "OK " + encodeHex(encoded) + "\n");
+            } else if (line.compare(0, 13, "FONT_RESOLVE ") == 0) {
+                const size_t separator = line.find(' ', 13);
+                if (separator == std::string::npos)
+                    throw std::runtime_error("invalid font resolve request");
+                const FontVariants variants = resolveFontTree(
+                    decodeHex(line.substr(13, separator - 13)),
+                    decodeHex(line.substr(separator + 1)));
+                const std::string encoded = variants.regular + '\0' +
+                    variants.bold + '\0' + variants.italic + '\0' +
+                    variants.boldItalic;
                 writeAll(controlFd, "OK " + encodeHex(encoded) + "\n");
             } else if (line.compare(0, 16, "GRAPHEME_BREAKS ") == 0) {
                 std::istringstream args(line.substr(16));

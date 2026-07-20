@@ -29,7 +29,6 @@
 
 Это почти белое пятно:
 
-- font path traversal;
 - fontconfig fallback;
 - regular/bold/italic/bold-italic selection;
 - несовместимые metrics;
@@ -42,7 +41,6 @@
 Большую часть протокольных тестов можно писать уже сейчас. Для остального добавлю узкие platform-neutral seams и control-команды:
 
 - clipboard ownership;
-- font resolver с временным деревом файлов.
 
 Offscreen Vulkan на этом проходе не нужен: логический raster contract можно фиксировать отдельно, пиксельные golden tests оставить графическому этапу.
 

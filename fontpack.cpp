@@ -5,222 +5,59 @@
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- *
- * See the file LICENSE for the full license.
  */
 
 #include "fontpack.h"
+#include "fontresolver.h"
 #include "log.h"
 
 #include <fontconfig/fontconfig.h>
-#include <ftw.h>
-
-#include <string.h>
-#include <strings.h>
 
 namespace {
-    struct SearchState {
-        const char* fontname = nullptr;
-        size_t fontnamelen = 0;
+    std::string fcFindFile(
+        const std::string& family, int weight, int slant) {
+        FcPattern* pattern = FcPatternCreate();
+        if (!pattern) return {};
+        FcPatternAddString(
+            pattern, FC_FAMILY,
+            reinterpret_cast<const FcChar8*>(family.c_str()));
+        FcPatternAddInteger(pattern, FC_WEIGHT, weight);
+        FcPatternAddInteger(pattern, FC_SLANT, slant);
+        FcConfigSubstitute(nullptr, pattern, FcMatchPattern);
+        FcDefaultSubstitute(pattern);
 
-        int level = 0;
-        std::string ext;
-        std::string regular;
-        std::string bold;
-        std::string italic;
-        std::string boldItalic;
-    };
-    SearchState sstate;
-
-    int
-    saveCandidate(const char* fpath, const char* ext, int level,
-                  const char* variant, std::string& dest) {
-        logT << variant << ": " << fpath << std::endl;
-        if (sstate.ext != "" && sstate.ext != ext) {
-            logT << "Rejecting candidate because its extension: '" << ext
-                 << "' does not match the other(s): '" << sstate.ext << "'"
-                 << std::endl;
-            return 1;
-        }
-        dest = fpath;
-        sstate.ext = ext;
-        sstate.level = level;
-        return 0;
-    }
-
-    int
-    fontFileFilter(const char* fpath, const struct stat* sb,
-                   int tflag, struct FTW* ftwbuf) {
-        if (tflag == FTW_D &&
-            sstate.level > 0 && ftwbuf->level == sstate.level - 1 &&
-            sstate.regular.size() > 0) {
-            return 1;
-        }
-
-        if (tflag == FTW_D && sstate.level > 0) {
-            logT << "Some candidates found but no regular variant; continuing"
-                 << std::endl;
-            sstate.level = 0;
-            sstate.ext = "";
-            sstate.regular = "";
-            sstate.bold = "";
-            sstate.italic = "";
-            sstate.boldItalic = "";
-            return 0;
-        }
-
-        if (tflag != FTW_F && tflag != FTW_SL) {
-            return 0;
-        }
-
-        const char* fname = fpath + ftwbuf->base;
-        const char* ext = strrchr(fname, '.');
-        if (!ext) {
-            return 0;
-        }
-        if (strcasecmp(ext, ".gz") == 0 && ext > fname) {
-            do {
-                --ext;
-            } while (ext > fname && ext[0] != '.');
-        }
-
-        if (strcasecmp(ext, ".ttc") != 0 &&
-            strcasecmp(ext, ".ttf") != 0 &&
-            strcasecmp(ext, ".otf") != 0 &&
-            strcasecmp(ext, ".pcf") != 0 &&
-            strcasecmp(ext, ".pcf.gz") != 0) {
-            return 0;
-        }
-
-        if (strncasecmp(fname, sstate.fontname, sstate.fontnamelen) != 0) {
-            return 0;
-        }
-
-        const char* mid = fname + sstate.fontnamelen;
-        size_t midlen = ext - mid;
-
-        if (midlen > 0 &&
-            (mid[0] == '-' || mid[0] == '_' || mid[0] == ' ')) {
-            ++mid;
-            --midlen;
-        }
-
-        if (midlen == 0 ||
-            strncasecmp(mid, "R", midlen) == 0 ||
-            strncasecmp(mid, "Regular", midlen) == 0) {
-            if (saveCandidate(fpath, ext, ftwbuf->level,
-                              "Regular", sstate.regular)) {
-                return 0;
-            }
-        } else if (strncasecmp(mid, "B", midlen) == 0 ||
-                   strncasecmp(mid, "Bold", midlen) == 0) {
-            if (saveCandidate(fpath, ext, ftwbuf->level,
-                              "Bold", sstate.bold)) {
-                return 0;
-            }
-        } else if (strncasecmp(mid, "I", midlen) == 0 ||
-                   strncasecmp(mid, "It", midlen) == 0 ||
-                   strncasecmp(mid, "Italic", midlen) == 0 ||
-                   strncasecmp(mid, "O", midlen) == 0 ||
-                   strncasecmp(mid, "Ob", midlen) == 0 ||
-                   strncasecmp(mid, "Oblique", midlen) == 0) {
-            if (saveCandidate(fpath, ext, ftwbuf->level,
-                              "Italic", sstate.italic)) {
-                return 0;
-            }
-        } else if (strncasecmp(mid, "BI", midlen) == 0 ||
-                   strncasecmp(mid, "BoldIt", midlen) == 0 ||
-                   strncasecmp(mid, "BoldItalic", midlen) == 0) {
-            if (saveCandidate(fpath, ext, ftwbuf->level,
-                              "BoldItalic", sstate.boldItalic)) {
-                return 0;
-            }
-        }
-
-#if 0
-
-      printf("%-3s %2d ",
-             (tflag == FTW_D) ?   "d"   : (tflag == FTW_DNR) ? "dnr" :
-             (tflag == FTW_DP) ?  "dp"  : (tflag == FTW_F) ?   "f" :
-             (tflag == FTW_NS) ?  "ns"  : (tflag == FTW_SL) ?  "sl" :
-             (tflag == FTW_SLN) ? "sln" : "???",
-             ftwbuf->level);
-
-      if (tflag == FTW_NS)
-         printf("-------");
-      else
-         printf("%7jd", (intmax_t) sb->st_size);
-
-      printf("   %-40s %d %s\n",
-             fpath, ftwbuf->base, fpath + ftwbuf->base);
-#endif
-        return 0;
-    }
-
-    std::string
-    fcFindFile(const std::string& family, int weight, int slant) {
-        FcPattern* pat = FcPatternCreate();
-        if (!pat) {
-            return "";
-        }
-        FcPatternAddString(pat, FC_FAMILY,
-                           reinterpret_cast<const FcChar8*>(family.c_str()));
-        FcPatternAddInteger(pat, FC_WEIGHT, weight);
-        FcPatternAddInteger(pat, FC_SLANT, slant);
-        FcConfigSubstitute(nullptr, pat, FcMatchPattern);
-        FcDefaultSubstitute(pat);
-
-        FcResult res;
-        FcPattern* match = FcFontMatch(nullptr, pat, &res);
-        FcPatternDestroy(pat);
-        if (!match) {
-            return "";
-        }
+        FcResult result;
+        FcPattern* match = FcFontMatch(nullptr, pattern, &result);
+        FcPatternDestroy(pattern);
+        if (!match) return {};
 
         std::string path;
         FcChar8* file = nullptr;
-        if (FcPatternGetString(match, FC_FILE, 0, &file) == FcResultMatch) {
+        if (FcPatternGetString(match, FC_FILE, 0, &file) == FcResultMatch)
             path = reinterpret_cast<const char*>(file);
-        }
-        FcChar8* fam = nullptr;
-        if (FcPatternGetString(match, FC_FAMILY, 0, &fam) == FcResultMatch) {
-            logT << "fontconfig match for '" << family
-                 << "' (weight=" << weight << ", slant=" << slant
-                 << "): family='" << reinterpret_cast<const char*>(fam)
-                 << "'; file=" << path << std::endl;
-        }
         FcPatternDestroy(match);
         return path;
     }
 
-    bool
-    fcFindVariants(const std::string& fontname) {
-        std::string regular =
-            fcFindFile(fontname, FC_WEIGHT_REGULAR, FC_SLANT_ROMAN);
-        if (!regular.size()) {
-            return false;
-        }
+    FontVariants fcFindVariants(const std::string& family) {
+        FontVariants variants;
+        variants.regular = fcFindFile(
+            family, FC_WEIGHT_REGULAR, FC_SLANT_ROMAN);
+        if (variants.regular.empty()) return variants;
 
-        sstate.regular = regular;
-        logI << "fontconfig resolved '" << fontname << "' to "
-             << sstate.regular << std::endl;
-
-        std::string f = fcFindFile(fontname, FC_WEIGHT_BOLD, FC_SLANT_ROMAN);
-        if (f.size() && f != sstate.regular) {
-            sstate.bold = f;
-        }
-        f = fcFindFile(fontname, FC_WEIGHT_REGULAR, FC_SLANT_ITALIC);
-        if (f.size() && f != sstate.regular) {
-            sstate.italic = f;
-        }
-        f = fcFindFile(fontname, FC_WEIGHT_BOLD, FC_SLANT_ITALIC);
-        if (f.size() && f != sstate.regular &&
-            f != sstate.bold && f != sstate.italic) {
-            sstate.boldItalic = f;
-        }
-        return true;
+        logI << "fontconfig resolved '" << family << "' to "
+             << variants.regular << std::endl;
+        std::string path = fcFindFile(
+            family, FC_WEIGHT_BOLD, FC_SLANT_ROMAN);
+        if (!path.empty() && path != variants.regular) variants.bold = path;
+        path = fcFindFile(family, FC_WEIGHT_REGULAR, FC_SLANT_ITALIC);
+        if (!path.empty() && path != variants.regular) variants.italic = path;
+        path = fcFindFile(family, FC_WEIGHT_BOLD, FC_SLANT_ITALIC);
+        if (!path.empty() && path != variants.regular &&
+            path != variants.bold && path != variants.italic)
+            variants.boldItalic = path;
+        return variants;
     }
-
 }
 
 Fontpack::Fontpack(const std::string& fontpath,
@@ -228,127 +65,69 @@ Fontpack::Fontpack(const std::string& fontpath,
                    const std::string& dwfontname) {
     logT << "Fontpack: fontpath=" << fontpath
          << "; fontname=" << fontname
-         << "; dwfontname=" << dwfontname
-         << std::endl;
+         << "; dwfontname=" << dwfontname << std::endl;
 
-    sstate.fontname = fontname.data();
-    sstate.fontnamelen = fontname.size();
-
-    size_t pos = 0;
-    size_t nextpos = 0;
-    do {
-        nextpos = fontpath.find(':', pos);
-        size_t len = (nextpos == std::string::npos)
-                         ? std::string::npos
-                         : nextpos - pos;
-
-        std::string fontpath1 = fontpath.substr(pos, len);
-        logT << "Looking for candidates under " << fontpath1 << std::endl;
-        pos = nextpos + 1;
-
-        int flags = FTW_DEPTH;
-        if (nftw(fontpath1.c_str(), fontFileFilter, 32, flags) == -1 &&
-            errno != ENOENT) {
-            SYS_WARN("Cannot walk file tree at ", fontpath1);
-        }
-
-    } while (!sstate.regular.size() && nextpos != std::string::npos);
-
-    if (!sstate.regular.size()) {
+    FontVariants variants = resolveFontTree(fontpath, fontname);
+    if (variants.regular.empty()) {
         logI << "No files matching '" << fontname << "' found under '"
              << fontpath << "'; trying fontconfig" << std::endl;
-        fcFindVariants(fontname);
+        variants = fcFindVariants(fontname);
     }
-
-    if (!sstate.regular.size()) {
+    if (variants.regular.empty()) {
         logE << "No Regular variant of the requested font '" << fontname
              << "' could be identified." << std::endl;
-        throw std::runtime_error(std::string("No suitable files for '") +
-                                 fontname + "' found!");
+        throw std::runtime_error(
+            "No suitable files for '" + fontname + "' found!");
     }
 
-    fontRegular = std::make_unique<Font>(sstate.regular);
+    fontRegular = std::make_unique<Font>(variants.regular);
     px = fontRegular->getPx();
     py = fontRegular->getPy();
 
     try {
-        if (sstate.bold.size()) {
+        if (!variants.bold.empty())
             fontBold = std::make_unique<Font>(
-                sstate.bold, *fontRegular.get(), Font::Overlay);
-        }
-    } catch (const std::runtime_error& e) {
+                variants.bold, *fontRegular, Font::Overlay);
+    } catch (const std::runtime_error& error) {
         fontBold = nullptr;
-        logW << "Failed to load bold variant: " << e.what() << std::endl;
+        logW << "Failed to load bold variant: " << error.what() << std::endl;
     }
-
     try {
-        if (sstate.italic.size()) {
+        if (!variants.italic.empty())
             fontItalic = std::make_unique<Font>(
-                sstate.italic, *fontRegular.get(), Font::Overlay);
-        }
-    } catch (const std::runtime_error& e) {
+                variants.italic, *fontRegular, Font::Overlay);
+    } catch (const std::runtime_error& error) {
         fontItalic = nullptr;
-        logW << "Failed to load italic variant: " << e.what() << std::endl;
+        logW << "Failed to load italic variant: " << error.what() << std::endl;
     }
-
     try {
-        if (sstate.boldItalic.size()) {
+        if (!variants.boldItalic.empty())
             fontBoldItalic = std::make_unique<Font>(
-                sstate.boldItalic, *fontRegular.get(), Font::Overlay);
-        }
-    } catch (const std::runtime_error& e) {
+                variants.boldItalic, *fontRegular, Font::Overlay);
+    } catch (const std::runtime_error& error) {
         fontBoldItalic = nullptr;
-        logW << "Failed to load boldItalic variant: " << e.what() << std::endl;
+        logW << "Failed to load boldItalic variant: "
+             << error.what() << std::endl;
     }
 
-    sstate.level = 0;
-    sstate.ext = "";
-    sstate.regular = "";
-    sstate.bold = "";
-    sstate.italic = "";
-    sstate.boldItalic = "";
-
-    sstate.fontname = dwfontname.data();
-    sstate.fontnamelen = dwfontname.size();
-
-    pos = 0;
-    nextpos = 0;
-    do {
-        nextpos = fontpath.find(':', pos);
-        size_t len = (nextpos == std::string::npos)
-                         ? std::string::npos
-                         : nextpos - pos;
-
-        std::string fontpath1 = fontpath.substr(pos, len);
-        logT << "Looking for double-width candidates under " << fontpath1
-             << std::endl;
-        pos = nextpos + 1;
-
-        int flags = FTW_DEPTH;
-        if (nftw(fontpath1.c_str(), fontFileFilter, 32, flags) == -1 &&
-            errno != ENOENT) {
-            SYS_WARN("Cannot walk file tree at ", fontpath1);
-        }
-
-    } while (!sstate.regular.size() && nextpos != std::string::npos);
-
-    if (!sstate.regular.size() && dwfontname != "") {
+    FontVariants doubleWidth = resolveFontTree(fontpath, dwfontname);
+    if (doubleWidth.regular.empty() && !dwfontname.empty()) {
         logI << "No files matching '" << dwfontname << "' found under '"
              << fontpath << "'; trying fontconfig" << std::endl;
-        sstate.regular =
-            fcFindFile(dwfontname, FC_WEIGHT_REGULAR, FC_SLANT_ROMAN);
+        doubleWidth.regular = fcFindFile(
+            dwfontname, FC_WEIGHT_REGULAR, FC_SLANT_ROMAN);
     }
-
     try {
-        if (sstate.regular.size()) {
+        if (!doubleWidth.regular.empty()) {
             fontDoubleWidth = std::make_unique<Font>(
-                sstate.regular, *fontRegular.get(), Font::DoubleWidth);
-        } else if (dwfontname != "") {
+                doubleWidth.regular, *fontRegular, Font::DoubleWidth);
+        } else if (!dwfontname.empty()) {
             logW << "Failed to locate requested double-width font: "
                  << dwfontname << std::endl;
         }
-    } catch (const std::runtime_error& e) {
+    } catch (const std::runtime_error& error) {
         fontDoubleWidth = nullptr;
-        logW << "Failed to load double-width font: " << e.what() << std::endl;
+        logW << "Failed to load double-width font: "
+             << error.what() << std::endl;
     }
 }
