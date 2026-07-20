@@ -566,10 +566,9 @@ class BuildContext:
             cxx = ext in (".cc", ".cpp", ".cxx", ".c++")
             uses_cxx |= cxx
             compiler = self.cxx if cxx else self.cc
-            common = [*self.cppflags, *self.cflags]
+            common = [*include_flags, *self.cppflags, *self.cflags]
             if cxx:
                 common.extend(self.cxxflags)
-            common.extend(include_flags)
             common.extend(self._usage_compile_flags(target.deps, cxx))
             common.extend(target.cppflags)
             common.extend(target.cflags)
