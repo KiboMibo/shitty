@@ -191,6 +191,10 @@ class Zutty:
         encoded = self._read_hex_response("ARGV")
         return [os.fsdecode(value) for value in encoded.split(b"\0")]
 
+    def launch_command(self):
+        fields = self._read_hex_response("LAUNCH_COMMAND").split(b"\0")
+        return os.fsdecode(fields[0]), [os.fsdecode(value) for value in fields[1:]]
+
     def write(self, output):
         self.command("WRITE " + output.hex())
 

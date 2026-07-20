@@ -29,7 +29,6 @@
 
 Это почти белое пятно:
 
-- shell/login argv;
 - `TERM`, `ZUTTY_VERSION`, winsize и SIGWINCH;
 - font path traversal;
 - fontconfig fallback;

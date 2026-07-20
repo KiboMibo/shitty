@@ -7,6 +7,7 @@
 #include "mousefrontend.h"
 #include "oscprotocol.h"
 #include "pty.h"
+#include "startup.h"
 #include "vkpresenter.h"
 #include "vterm.h"
 
@@ -555,6 +556,15 @@ int runTestMode(int controlFd, int argc, char* argv[]) {
                     arguments += argv[index];
                 }
                 writeAll(controlFd, "OK " + encodeHex(arguments) + "\n");
+            } else if (line == "LAUNCH_COMMAND") {
+                const LaunchCommand command = buildLaunchCommand(
+                    argc, argv, opts.shell, opts.login);
+                std::string encoded = command.executable;
+                for (const auto& argument : command.arguments) {
+                    encoded.push_back('\0');
+                    encoded += argument;
+                }
+                writeAll(controlFd, "OK " + encodeHex(encoded) + "\n");
             } else if (line.compare(0, 16, "GRAPHEME_BREAKS ") == 0) {
                 std::istringstream args(line.substr(16));
                 std::string token;

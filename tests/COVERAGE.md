@@ -42,6 +42,9 @@ Covered now:
   and ambiguity errors;
 - `-e` as the hard option-parser boundary, preserving every following command
   argument including option-like and unknown tokens;
+- shared production/test launch-command construction for default, positional
+  and `-e` executables, including login-shell `argv[0]` and basename selection
+  from the executable actually launched;
 - C0 controls, cursor movement, save/restore, tabs and scrolling regions;
 - autowrap, alternate screen, synchronized output and cursor modes;
 - insert/delete/erase operations and insert mode;

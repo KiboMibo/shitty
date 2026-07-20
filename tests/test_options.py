@@ -4,6 +4,31 @@ from harness import Zutty, run_startup_failure
 
 
 class OptionTest(unittest.TestCase):
+    def test_shell_and_login_argv_are_built_from_selected_executable(self):
+        with Zutty(extra_arguments=("-shell", "/bin/sh")) as terminal:
+            self.assertEqual(terminal.launch_command(), ("/bin/sh", ["sh"]))
+
+        with Zutty(
+            extra_arguments=("-shell", "/bin/sh", "-login")
+        ) as terminal:
+            self.assertEqual(terminal.launch_command(), ("/bin/sh", ["-sh"]))
+
+        with Zutty(
+            extra_arguments=("-shell", "/bin/sh", "/bin/bash")
+        ) as terminal:
+            self.assertEqual(
+                terminal.launch_command(),
+                ("/bin/bash", ["bash"]),
+            )
+
+        with Zutty(
+            extra_arguments=("-login", "-e", "/tmp/tool", "one", "two")
+        ) as terminal:
+            self.assertEqual(
+                terminal.launch_command(),
+                ("/tmp/tool", ["/tmp/tool", "one", "two"]),
+            )
+
     def test_dash_e_ends_option_parsing_and_preserves_command_argv(self):
         command = (
             "probe",

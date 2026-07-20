@@ -17,6 +17,7 @@
 #include "options.h"
 #include "pty.h"
 #include "renderer.h"
+#include "startup.h"
 #include "testmode.h"
 #include "utf8.h"
 #include "vterm.h"
@@ -290,84 +291,6 @@ namespace {
 
     std::string primarySelection;
     std::exception_ptr callbackError;
-
-    void resolveShell(char* progPath) {
-        char resolvedPath[PATH_MAX];
-        if (progPath[0] == '/') {
-            return;
-        }
-        if (progPath[0] == '.' &&
-            realpath(progPath, resolvedPath) != nullptr) {
-            std::strncpy(progPath, resolvedPath, PATH_MAX - 1);
-            progPath[PATH_MAX - 1] = '\0';
-            return;
-        }
-
-        const char* pathValue = getenv("PATH");
-        char* path = pathValue != nullptr ? strdup(pathValue) : nullptr;
-        if (path != nullptr) {
-            char testPath[PATH_MAX + 1];
-            char* part = std::strtok(path, ":");
-            while (part != nullptr) {
-                std::snprintf(testPath, sizeof(testPath), "%s/%s",
-                              part, progPath);
-                if (realpath(testPath, resolvedPath) != nullptr) {
-                    std::strncpy(progPath, resolvedPath, PATH_MAX - 1);
-                    progPath[PATH_MAX - 1] = '\0';
-                    free(path);
-                    return;
-                }
-                part = std::strtok(nullptr, ":");
-            }
-            free(path);
-        }
-
-        const char* shell = getenv("SHELL");
-        struct stat statbuf{};
-        if (shell != nullptr && stat(shell, &statbuf) == 0 &&
-            (statbuf.st_mode & S_IXUSR)) {
-            std::strncpy(progPath, shell, PATH_MAX - 1);
-            progPath[PATH_MAX - 1] = '\0';
-            return;
-        }
-
-        const passwd* entry = getpwuid(getuid());
-        shell = entry != nullptr ? entry->pw_shell : nullptr;
-        if (shell != nullptr && stat(shell, &statbuf) == 0 &&
-            (statbuf.st_mode & S_IXUSR)) {
-            std::strncpy(progPath, shell, PATH_MAX - 1);
-            progPath[PATH_MAX - 1] = '\0';
-            return;
-        }
-        std::strcpy(progPath, "/bin/sh");
-    }
-
-    void validateShell(char* progPath) {
-        resolveShell(progPath);
-        for (char* permitted = getusershell(); permitted != nullptr;
-             permitted = getusershell()) {
-            if (std::strcmp(progPath, permitted) == 0) {
-                endusershell();
-                setenv("SHELL", progPath, 1);
-                return;
-            }
-        }
-        endusershell();
-        unsetenv("SHELL");
-    }
-
-    void setArgv0(char* argv0) {
-        const char* basename = std::strrchr(opts.shell, '/');
-        basename = basename != nullptr ? basename + 1 : opts.shell;
-        if (opts.login) {
-            argv0[0] = '-';
-            std::strncpy(argv0 + 1, basename, PATH_MAX - 2);
-            argv0[PATH_MAX - 1] = '\0';
-        } else {
-            std::strncpy(argv0, basename, PATH_MAX - 1);
-            argv0[PATH_MAX - 1] = '\0';
-        }
-    }
 
     void childSignalHandler(int signal, siginfo_t* info, void*) {
         if (signal == SIGCHLD && info != nullptr) {
@@ -1517,25 +1440,18 @@ namespace {
             return runTestMode(testFd, argc, argv);
         }
 
-        char argv0[PATH_MAX]{};
-        char progPath[PATH_MAX]{};
-        char* defaultShellArgv[] = {argv0, nullptr};
-        char** shellArgv = defaultShellArgv;
+        LaunchCommand launch = buildLaunchCommand(
+            argc, argv, opts.shell, opts.login);
         if (argc > 2 && std::strcmp(argv[1], "-e") == 0) {
-            shellArgv = argv + 2;
             if (opts.titleSource != OptionSource::CmdLine) {
                 opts.title = argv[2];
             }
-            std::strncpy(progPath, argv[2], PATH_MAX - 1);
-        } else if (argc == 2) {
-            setArgv0(argv0);
-            std::strncpy(progPath, argv[1], PATH_MAX - 1);
-            validateShell(progPath);
-        } else {
-            setArgv0(argv0);
-            std::strncpy(progPath, opts.shell, PATH_MAX - 1);
-            validateShell(progPath);
         }
+        std::vector<char*> shellArgv;
+        for (auto& argument : launch.arguments) {
+            shellArgv.push_back(argument.data());
+        }
+        shellArgv.push_back(nullptr);
 
         glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_WAYLAND);
         if (!glfwInit()) {
@@ -1608,7 +1524,8 @@ namespace {
 
         renderer = std::make_unique<Renderer>(window, fontpk.get());
         setupSignals();
-        const int ptyFd = startShell(progPath, shellArgv);
+        const int ptyFd = startShell(
+            launch.executable.c_str(), shellArgv.data());
         vt = std::make_unique<Vterm>(
             fontpk->getPx(), fontpk->getPy(), pixelWidth, pixelHeight, ptyFd);
         vt->setRefreshHandler(
