@@ -152,6 +152,27 @@ void Frame::resize(uint16_t winPx_, uint16_t winPy_,
         p += nCols_;
     }
 
+    // A column shrink can copy the leading half of a wide glyph while
+    // clipping its continuation.  Never publish or retain such a partial
+    // cell: editing code relies on the same lead/continuation invariant.
+    const auto normalizeWideRow = [nCols_](CharVdev::Cell* row) {
+        for (uint16_t column = 0; column < nCols_; ++column) {
+            const bool orphanLead = row[column].dwidth &&
+                (column + 1 == nCols_ || !row[column + 1].dwidth_cont);
+            const bool orphanContinuation = row[column].dwidth_cont &&
+                (column == 0 || !row[column - 1].dwidth);
+            if (orphanLead || orphanContinuation) {
+                row[column] = CharVdev::Cell{};
+            }
+        }
+    };
+    for (int row = 0; row < nCopyRows; ++row) {
+        normalizeWideRow(newCells.get() + row * nCols_);
+    }
+    for (int row = 0; row < historyCount; ++row) {
+        normalizeWideRow(newCells.get() + (nRows_ + row) * nCols_);
+    }
+
     cells = std::move(newCells);
     nCols = nCols_;
     nRows = nRows_;
