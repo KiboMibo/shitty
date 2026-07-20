@@ -29,7 +29,6 @@
 
 Scrollback дальше раздувать просто ради числа не надо. Добавлять только новые взаимодействия:
 
-- cursor/autowrap при shrink/grow;
 - margins и tab stops после resize;
 - history capacity при повторяющихся resize;
 - resize при поднятом viewport;

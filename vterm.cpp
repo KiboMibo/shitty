@@ -1460,7 +1460,10 @@ void Vterm::resize(uint16_t winPx_, uint16_t winPy_) {
                           marginTop, marginBottom, opts.saveLines);
     } else {
         if (nRows_ < posY + 1) {
-            int nScroll = nRows - nRows_;
+            // Preserve every row above the cursor that still fits.  Scrolling
+            // by the full height delta needlessly discards additional rows
+            // whenever the cursor is not on the old bottom row.
+            const uint16_t nScroll = posY + 1 - nRows_;
             cf->scrollUp(0, nRows, nScroll);
             posY -= nScroll;
         }

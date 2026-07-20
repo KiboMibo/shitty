@@ -19,6 +19,8 @@ Covered now:
   transitions and Shift override;
 - shrink-to-history and grow-from-history resize behavior, including complete
   wide/grapheme cell invariants across width and height changes;
+- cursor visibility preservation and pending-autowrap cancellation across
+  width/height shrink and grow;
 - Codex-style synchronized redraws plus a slow reference scrolling model;
 - SGR flags, truecolor, wide cells, wrap markers and DEC line drawing;
 - ISO 2022 G0-G3 designation, GL/GR locking and single shifts, complete NRC
