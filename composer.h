@@ -5,6 +5,7 @@ namespace stl {
 }
 
 class Fontpack;
+struct Application;
 class Renderer;
 struct Pty;
 struct PtyEventSource;
@@ -14,6 +15,7 @@ class Vterm;
 // creation; the composer only establishes the graph and its shared lifetime.
 struct Composer {
     stl::ObjPool* pool = nullptr;
+    Application* application = nullptr;
     Fontpack* fonts = nullptr;
     Renderer* renderer = nullptr;
     Pty* pty = nullptr;
