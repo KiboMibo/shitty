@@ -28,6 +28,24 @@ class OptionTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 255)
                 self.assertIn(b"expected integer within 1..255", result.stdout)
 
+    def test_numeric_options_reject_trailing_garbage(self):
+        cases = (
+            ("fontsize", ("-fontsize", "16wat")),
+            ("border", ("-border", "2px")),
+            ("saveLines", ("-saveLines", "500rows")),
+            ("geometry", ("-geometry", "80x24junk")),
+            ("modifyOtherKeys", ("-modifyOtherKeys", "1foo")),
+        )
+        for name, arguments in cases:
+            with self.subTest(name=name):
+                result = run_startup_failure(extra_arguments=arguments)
+                self.assertEqual(result.returncode, 255)
+                self.assertIn(f"-{name}".encode(), result.stdout)
+
+        result = run_startup_failure(font_size_env="16wat")
+        self.assertEqual(result.returncode, 255)
+        self.assertIn(b"ZUTTY_FONT_SIZE", result.stdout)
+
     def test_font_size_source_priority_is_cli_then_env_then_default(self):
         with Zutty(font_size_env=None) as terminal:
             self.assertEqual(terminal.options()["fontsize"], 16)

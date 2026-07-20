@@ -97,7 +97,9 @@ namespace {
         std::stringstream input(option != nullptr ? option : "");
         int border;
         input >> border;
-        if (input.fail() || border < 0 || border > 3000) {
+        const bool invalid = input.fail();
+        input >> std::ws;
+        if (invalid || !input.eof() || border < 0 || border > 3000) {
             throw std::runtime_error("-border: expected unsigned, max. 3000");
         }
         outBorder = border;
@@ -109,7 +111,9 @@ namespace {
         std::stringstream input(option != nullptr ? option : "");
         int lines;
         input >> lines;
-        if (input.fail() || lines < 0 || lines > 50000) {
+        const bool invalid = input.fail();
+        input >> std::ws;
+        if (invalid || !input.eof() || lines < 0 || lines > 50000) {
             throw std::runtime_error("-saveLines: expected unsigned, max. 50000");
         }
         outSaveLines = lines;
@@ -127,7 +131,9 @@ namespace {
         std::stringstream input(option != nullptr ? option : "");
         int size;
         input >> size;
-        if (input.fail() || size < 1 || size > 255) {
+        const bool invalid = input.fail();
+        input >> std::ws;
+        if (invalid || !input.eof() || size < 1 || size > 255) {
             throw std::runtime_error(
                 "-fontsize/ZUTTY_FONT_SIZE: expected integer within 1..255");
         }
@@ -142,7 +148,10 @@ namespace {
         int rows;
         char separator;
         input >> cols >> separator >> rows;
-        if (input.fail() || separator != 'x' || cols < 1 || rows < 1) {
+        const bool invalid = input.fail();
+        input >> std::ws;
+        if (invalid || !input.eof() || separator != 'x' ||
+            cols < 1 || rows < 1) {
             throw std::runtime_error("-geometry: expected format <COLS>x<ROWS>");
         }
         outCols = cols;
@@ -279,7 +288,9 @@ int Options::getInteger(const char* name, int min, int max) {
     std::stringstream input(option);
     int result;
     input >> result;
-    if (input.fail()) {
+    const bool invalid = input.fail();
+    input >> std::ws;
+    if (invalid || !input.eof()) {
         throw std::runtime_error(std::string("-") + name + ": expected integer");
     }
     return std::min(std::max(min, result), max);

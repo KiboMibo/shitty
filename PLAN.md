@@ -29,7 +29,6 @@
 
 Это почти белое пятно:
 
-- trailing garbage вроде `16wat`;
 - geometry, colors, boolean `+/-`, abbreviations и ambiguity;
 - `-e` как окончание разбора;
 - shell/login argv;
