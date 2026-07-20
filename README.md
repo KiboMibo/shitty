@@ -47,7 +47,7 @@ uploaded by the CPU.
 Build-time requirements are:
 
 - Clang with C++26 language support;
-- the `std` source tree checked out next to Zutty as `../std`;
+- the `libstd` submodule, or compatible system `libstd` headers and library;
 - Python 3 and `glslangValidator` for compiling and embedding the compute
   shader;
 - pkg-config;
@@ -64,14 +64,19 @@ working Vulkan ICD in addition to the loader.
 ## Build
 
 The repository includes a Clang-based Nix development shell with the required
-tools, libraries and deterministic test fonts. The build graph compiles the
-complete production `libstd` from `../std` before linking Zutty:
+tools, libraries and deterministic test fonts. Initialise the optional
+`libstd` submodule to compile the complete production library as part of the
+Zutty build:
 
 ```sh
+git submodule update --init third_party/libstd
 nix-shell
 ./build zutty
 ./zutty
 ```
+
+When `third_party/libstd` is not checked out, the build instead uses compatible
+system-installed `libstd` headers and links with `-lstd`.
 
 Without Nix, install the dependencies through the system package manager and
 run the same build command. The explicit `zutty` target publishes `./zutty` as

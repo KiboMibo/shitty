@@ -1,12 +1,11 @@
 import os
-import platform
 
 import build
 
 
-std_root = os.path.realpath(os.path.join(os.path.dirname(__file__), "../std"))
+std_build = os.path.join("third_party", "libstd", "build.py")
 
-build.includes += ["$(B)", std_root]
+build.includes += ["$(B)"]
 build.cppflags += ['-DZUTTY_VERSION="0.14"']
 build.cxxflags += [
     "-std=c++23",
@@ -23,18 +22,10 @@ utf8proc = pkg_config("libutf8proc")
 threads = dependency(ldflags=["-pthread"])
 
 
-std_sources = [
-    source for source in build.glob(f"{std_root}/std/*/*.cpp")
-    if not source.endswith("_ut.cpp")
-]
-std_cxxflags = ["-std=c++26"]
-if platform.machine() == "x86_64":
-    std_cxxflags.append("-mcx16")
-libstd = library(
-    srcs=std_sources,
-    cxxflags=std_cxxflags,
-    output="$(B)/libstd.a",
-)
+if os.path.isfile(os.path.join(os.path.dirname(__file__), std_build)):
+    libstd = import_build(std_build, "libstd.a", extra_cflags=["-Wno-error"])
+else:
+    libstd = dependency(ldflags=["-lstd"])
 
 
 render_spv = command(
