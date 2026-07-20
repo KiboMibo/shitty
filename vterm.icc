@@ -3894,7 +3894,8 @@ Vterm::csi_XTMODKEYS() {
         const uint32_t value = nInputOps > 1
                                    ? inputOps[1]
                                    : initialModifyKeyResources[resource];
-        if (value <= 4) modifyKeyResources[resource] = value;
+        const uint32_t maximum = resource == 4 ? 2 : 4;
+        if (value <= maximum) modifyKeyResources[resource] = value;
     }
     modifyOtherKeys = modifyKeyResources[4];
     setState(InputState::Normal);

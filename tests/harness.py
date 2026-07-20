@@ -237,6 +237,24 @@ class Zutty:
             character = ord(character)
         self.command(f"CHAR {character} {modifiers}")
 
+    def control_character(self, character, shifted=False):
+        if isinstance(character, str):
+            character = ord(character)
+        self.stream.write(
+            f"CONTROL_CHARACTER {character} {int(shifted)}\n".encode()
+        )
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid control character response")
+        return int(response[1])
+
+    def frontend_control(self, character, shifted=False, alt=False):
+        if isinstance(character, str):
+            character = ord(character)
+        self.command(
+            f"FRONTEND_CONTROL {character} {int(shifted)} {int(alt)}"
+        )
+
     def kitty_key(self, key, shifted=0, base=0, modifiers=0, event=1):
         self.command(
             f"KITTY_KEY {key} {shifted} {base} {modifiers} {event}"

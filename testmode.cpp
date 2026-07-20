@@ -1,5 +1,6 @@
 #include "testmode.h"
 
+#include "keyboard.h"
 #include "options.h"
 #include "mouseprotocol.h"
 #include "oscprotocol.h"
@@ -622,6 +623,32 @@ int runTestMode(int controlFd) {
                 }
                 terminal.writePty(static_cast<uint8_t>(character),
                                   static_cast<VtModifier>(modifiers), true);
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 18, "CONTROL_CHARACTER ") == 0) {
+                std::istringstream args(line.substr(18));
+                int key;
+                unsigned shifted;
+                uint8_t character = 0;
+                if (!(args >> key >> shifted) || shifted > 1 ||
+                    !controlCharacter(key, shifted, character)) {
+                    throw std::runtime_error("invalid control character");
+                }
+                writeAll(controlFd,
+                         "OK " + std::to_string(character) + "\n");
+            } else if (line.compare(0, 17, "FRONTEND_CONTROL ") == 0) {
+                std::istringstream args(line.substr(17));
+                int key;
+                unsigned shifted;
+                unsigned alt;
+                uint8_t character = 0;
+                if (!(args >> key >> shifted >> alt) || shifted > 1 ||
+                    alt > 1 || !controlCharacter(key, shifted, character)) {
+                    throw std::runtime_error("invalid frontend control");
+                }
+                VtModifier modifiers = VtModifier::control;
+                if (shifted) modifiers = modifiers | VtModifier::shift;
+                if (alt) modifiers = modifiers | VtModifier::alt;
+                terminal.writePty(character, modifiers, true);
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 10, "KITTY_KEY ") == 0) {
                 std::istringstream args(line.substr(10));

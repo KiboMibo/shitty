@@ -9,6 +9,7 @@
 
 #include "base.h"
 #include "fontpack.h"
+#include "keyboard.h"
 #include "log.h"
 #include "mouseprotocol.h"
 #include "oscprotocol.h"
@@ -741,56 +742,6 @@ namespace {
         }
     }
 
-    bool controlCharacter(int key, int modifiers, uint8_t& character) {
-        if (key >= GLFW_KEY_A && key <= GLFW_KEY_Z) {
-            character = static_cast<uint8_t>(key - GLFW_KEY_A + 1);
-            return true;
-        }
-        switch (key) {
-            case GLFW_KEY_SPACE:
-            case GLFW_KEY_2:
-                character = 0;
-                return true;
-            case GLFW_KEY_3:
-            case GLFW_KEY_LEFT_BRACKET:
-                character = 27;
-                return true;
-            case GLFW_KEY_4:
-            case GLFW_KEY_BACKSLASH:
-                character = 28;
-                return true;
-            case GLFW_KEY_5:
-            case GLFW_KEY_RIGHT_BRACKET:
-                character = 29;
-                return true;
-            case GLFW_KEY_6:
-                character = 30;
-                return true;
-            case GLFW_KEY_7:
-                character = 31;
-                return true;
-            case GLFW_KEY_8:
-                character = 127;
-                return true;
-            case GLFW_KEY_MINUS:
-                if (!(modifiers & GLFW_MOD_SHIFT)) {
-                    character = static_cast<uint8_t>(key);
-                    return true;
-                }
-                character = 31;
-                return true;
-            case GLFW_KEY_SLASH:
-                character = modifiers & GLFW_MOD_SHIFT ? 127 : 31;
-                return true;
-            default:
-                if (key > 0 && key < 128) {
-                    character = static_cast<uint8_t>(key);
-                    return true;
-                }
-                return false;
-        }
-    }
-
     void onKeyEvent(int key, int scancode, int action, int rawModifiers) {
         flushPendingKittyTextKey();
         const int keyModifiers = rawModifiers;
@@ -912,7 +863,8 @@ namespace {
 
         if (legacyModifiers & GLFW_MOD_CONTROL) {
             uint8_t character = 0;
-            if (controlCharacter(key, legacyModifiers, character)) {
+            if (controlCharacter(
+                    key, legacyModifiers & GLFW_MOD_SHIFT, character)) {
                 vt->writePty(character, modifiers, true);
             }
         }

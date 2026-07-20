@@ -31,10 +31,6 @@
 
 Нужны:
 
-- каждый modifier и сочетания;
-- Ctrl mapping всей ASCII-таблицы;
-- Alt/eight-bit/`altSendsEscape`;
-- modifyOtherKeys resources и значения;
 - kitty flags отдельно и в комбинациях;
 - press/repeat/release;
 - shifted/base-layout/associated text;
