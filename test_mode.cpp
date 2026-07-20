@@ -24,6 +24,7 @@
 #include <cstdlib>
 #include <deque>
 #include <fcntl.h>
+#include <functional>
 #include <iomanip>
 #include <map>
 #include <poll.h>
@@ -39,6 +40,49 @@
 
 namespace {
     extern "C" int openpty(int*, int*, char*, const termios*, const winsize*);
+
+    class TestPty final : public Pty {
+    public:
+        explicit TestPty(int fd_)
+            : fd_(fd_)
+            , onRead([this](uint8_t* buffer, size_t size) {
+                return ::read(this->fd_, buffer, size);
+            })
+            , onWrite([this](const uint8_t* buffer, size_t size) {
+                return ::write(this->fd_, buffer, size);
+            })
+        {
+            const int flags = fcntl(fd_, F_GETFL, 0);
+            if (flags < 0 || fcntl(fd_, F_SETFL, flags | O_NONBLOCK) < 0) {
+                throw std::runtime_error("test PTY nonblocking setup failed");
+            }
+        }
+
+        int fd() const override { return fd_; }
+        ssize_t read(uint8_t* buffer, size_t size) override {
+            return onRead(buffer, size);
+        }
+        ssize_t write(const uint8_t* buffer, size_t size) override {
+            return onWrite(buffer, size);
+        }
+        void resize(uint16_t columns, uint16_t rows) override {
+            pty_resize(fd_, columns, rows);
+        }
+
+        void setReadHandler(
+            std::function<ssize_t(uint8_t*, size_t)> handler) {
+            onRead = std::move(handler);
+        }
+        void setWriteHandler(
+            std::function<ssize_t(const uint8_t*, size_t)> handler) {
+            onWrite = std::move(handler);
+        }
+
+    private:
+        int fd_;
+        std::function<ssize_t(uint8_t*, size_t)> onRead;
+        std::function<ssize_t(const uint8_t*, size_t)> onWrite;
+    };
 
     void writeAll(int fd, const std::string& data) {
         size_t offset = 0;
@@ -377,10 +421,12 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
     }
     const uint16_t width = 2 * opts.border + opts.nCols * glyphPx;
     const uint16_t height = 2 * opts.border + opts.nRows * glyphPy;
+    TestPty terminalPty(io[0]);
     VtermHostCallbacks vtermHost;
     Vterm& terminal = *Vterm::create(
-        composer, vtermHost, glyphPx, glyphPy, width, height, io[0]);
-    pty_resize(io[0], opts.nCols, opts.nRows);
+        composer, vtermHost, terminalPty,
+        glyphPx, glyphPy, width, height);
+    terminalPty.resize(opts.nCols, opts.nRows);
     TestDisplay display;
     vtermHost.setRefreshHandler(
         [&display](const Frame& frame) {
@@ -403,7 +449,7 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
     std::deque<ScriptedPtyWrite> scriptedPtyWrites;
     std::string writtenPtyData;
     const auto installScriptedPtyReader = [&]() {
-        terminal.setPtyReadHandler(
+        terminalPty.setReadHandler(
             [&scriptedPtyReads](uint8_t* buffer, size_t size) {
                 if (scriptedPtyReads.empty()) {
                     errno = EAGAIN;
@@ -744,7 +790,7 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                 if (scriptedPtyWrites.empty()) {
                     throw std::runtime_error("empty PTY write script");
                 }
-                terminal.setPtyWriteHandler(
+                terminalPty.setWriteHandler(
                     [&scriptedPtyWrites, &writtenPtyData](
                         const uint8_t* buffer, size_t size) {
                         if (scriptedPtyWrites.empty()) {

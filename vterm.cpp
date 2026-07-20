@@ -1335,23 +1335,17 @@ uint32_t VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
 #undef LOOKUP
 }
 
-VtermImpl::VtermImpl(VtermHost& host_, uint16_t glyphPx_, uint16_t glyphPy_,
-             uint16_t winPx_, uint16_t winPy_,
-             int ptyFd_)
+VtermImpl::VtermImpl(VtermHost& host_, Pty& pty_,
+                     uint16_t glyphPx_, uint16_t glyphPy_,
+                     uint16_t winPx_, uint16_t winPy_)
     : host(host_)
+    , pty(pty_)
     , winPx(winPx_)
     , winPy(winPy_)
     , nCols((winPx - 2 * opts.border) / glyphPx_)
     , nRows((winPy - 2 * opts.border) / glyphPy_)
     , glyphPx(glyphPx_)
     , glyphPy(glyphPy_)
-    , ptyFd(ptyFd_)
-    , onPtyRead([this](uint8_t* buffer, size_t size) {
-        return read(ptyFd, buffer, size);
-    })
-    , onPtyWrite([this](const uint8_t* buffer, size_t size) {
-        return write(ptyFd, buffer, size);
-    })
     , frame_pri(winPx, winPy, nCols, nRows, marginTop, marginBottom,
                 opts.saveLines)
     , cf(&frame_pri)
@@ -1361,10 +1355,6 @@ VtermImpl::VtermImpl(VtermHost& host_, uint16_t glyphPx_, uint16_t glyphPy_,
     , nColsEff(nCols)
     , hMargin(0)
 {
-    const int ptyFlags = fcntl(ptyFd, F_GETFL, 0);
-    if (ptyFlags < 0 || fcntl(ptyFd, F_SETFL, ptyFlags | O_NONBLOCK) < 0) {
-        SYS_ERROR("cannot make PTY nonblocking");
-    }
     makePalette256(palette256);
     std::copy(std::begin(palette256), std::end(palette256),
               std::begin(originalPalette256));
@@ -1389,14 +1379,6 @@ VtermImpl::VtermImpl(VtermHost& host_, uint16_t glyphPx_, uint16_t glyphPy_,
     bgPalIx = defaultBgPalIx;
 
     resetTerminal();
-}
-
-void VtermImpl::setPtyReadHandler(const PtyReadHandlerFn& handler) {
-    onPtyRead = handler;
-}
-
-void VtermImpl::setPtyWriteHandler(const PtyWriteHandlerFn& handler) {
-    onPtyWrite = handler;
 }
 
 bool VtermImpl::servicePty(bool readable, bool writable) {
@@ -1458,7 +1440,7 @@ void VtermImpl::resize(uint16_t winPx_, uint16_t winPy_) {
     normalizeCursorPos();
     showCursor();
 
-    pty_resize(ptyFd, nCols, nRows);
+    pty.resize(nCols, nRows);
     if (inBandResizeMode) reportInBandResize();
 }
 
@@ -1717,7 +1699,7 @@ int VtermImpl::writePty(const uint8_t* ucstr, size_t len, bool userInput) {
 
 bool VtermImpl::flushPtyOutput() {
     while (ptyOutputOffset < ptyOutput.size()) {
-        const ssize_t count = onPtyWrite(
+        const ssize_t count = pty.write(
             ptyOutput.data() + ptyOutputOffset,
             ptyOutput.size() - ptyOutputOffset);
         if (count > 0) {
@@ -3057,9 +3039,9 @@ void VtermImpl::pasteSelection(const std::string& utf8_selection) {
     }
 }
 
-Vterm* Vterm::create(Composer& composer, VtermHost& host,
+Vterm* Vterm::create(Composer& composer, VtermHost& host, Pty& pty,
                      uint16_t glyphPx, uint16_t glyphPy,
-                     uint16_t winPx, uint16_t winPy, int ptyFd) {
+                     uint16_t winPx, uint16_t winPy) {
     return composer.pool->make<VtermImpl>(
-        host, glyphPx, glyphPy, winPx, winPy, ptyFd);
+        host, pty, glyphPx, glyphPy, winPx, winPy);
 }

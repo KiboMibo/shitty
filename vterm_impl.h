@@ -25,9 +25,9 @@
 #include <sys/types.h>
 class VtermImpl final : public Vterm {
 public:
-    VtermImpl(VtermHost& host, uint16_t glyphPx, uint16_t glyphPy,
-          uint16_t winPx, uint16_t winPy,
-          int ptyFd);
+    VtermImpl(VtermHost& host, Pty& pty,
+              uint16_t glyphPx, uint16_t glyphPy,
+              uint16_t winPx, uint16_t winPy);
 
     ~VtermImpl() = default;
 
@@ -67,9 +67,6 @@ public:
     int writePty(const uint8_t* ucstr, size_t len,
                  bool userInput = false);
     bool flushPtyOutput();
-    using PtyWriteHandlerFn =
-        std::function<ssize_t(const uint8_t*, size_t)>;
-    void setPtyWriteHandler(const PtyWriteHandlerFn& handler);
     bool hasPendingPtyOutput() const {
         return ptyOutputOffset < ptyOutput.size();
     }
@@ -85,8 +82,6 @@ public:
 
     bool readPty();
     bool servicePty(bool readable, bool writable);
-    using PtyReadHandlerFn = std::function<ssize_t(uint8_t*, size_t)>;
-    void setPtyReadHandler(const PtyReadHandlerFn& handler);
     void feedPtyOutput(const std::string& output);
 
     const MouseTrackingState& getMouseTrackingState() const;
@@ -360,16 +355,14 @@ private:
     void applyPaletteColor(uint16_t index, Color color);
 
     VtermHost& host;
+    Pty& pty;
     uint16_t winPx;
     uint16_t winPy;
     uint16_t nCols;
     uint16_t nRows;
     uint16_t glyphPx;
     uint16_t glyphPy;
-    int ptyFd;
     bool ptyReceivedInput = false;
-    PtyReadHandlerFn onPtyRead;
-    PtyWriteHandlerFn onPtyWrite;
     std::vector<uint8_t> ptyOutput;
     size_t ptyOutputOffset = 0;
 

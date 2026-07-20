@@ -586,10 +586,10 @@ VtermImpl::readPty() {
     bool presentationPending = false;
     bool finished = false;
     while (drainBytes < maxDrainBytes) {
-        const ssize_t n = onPtyRead(inputBuf, sizeof(inputBuf));
+        const ssize_t n = pty.read(inputBuf, sizeof(inputBuf));
         if (n > 0) {
             if (!ptyReceivedInput) {
-                pty_resize(ptyFd, nCols, nRows);
+                pty.resize(nCols, nRows);
                 ptyReceivedInput = true;
             }
 

@@ -18,8 +18,11 @@
  *   http://www.apuebook.com/code3e.html
  */
 
+#include "composer.h"
 #include "log.h"
 #include "pty.h"
+
+#include <std/mem/obj_pool.h>
 
 #define _POSIX_C_SOURCE 200809L
 
@@ -39,6 +42,9 @@
 #include <sys/stat.h>
 #include <termios.h>
 
+#include <stdexcept>
+#include <string>
+
 #if defined(BSD) || defined(MACOS) || !defined(TIOCGWINSZ)
     #include <sys/ioctl.h>
 #endif
@@ -46,6 +52,49 @@
 #if defined(SOLARIS)
     #include <stropts.h>
 #endif
+
+namespace {
+
+class PtyImpl final : public Pty {
+public:
+    explicit PtyImpl(int fd_)
+        : fd_(fd_)
+    {
+        const int flags = fcntl(fd_, F_GETFL, 0);
+        if (flags < 0 || fcntl(fd_, F_SETFL, flags | O_NONBLOCK) < 0) {
+            const int error = errno;
+            close(fd_);
+            fd_ = -1;
+            throw std::runtime_error(
+                "cannot make PTY nonblocking: " +
+                std::string(strerror(error)));
+        }
+    }
+
+    ~PtyImpl() {
+        if (fd_ >= 0) close(fd_);
+    }
+
+    int fd() const override { return fd_; }
+    ssize_t read(uint8_t* buffer, size_t size) override {
+        return ::read(fd_, buffer, size);
+    }
+    ssize_t write(const uint8_t* buffer, size_t size) override {
+        return ::write(fd_, buffer, size);
+    }
+    void resize(uint16_t columns, uint16_t rows) override {
+        pty_resize(fd_, columns, rows);
+    }
+
+private:
+    int fd_;
+};
+
+} // namespace
+
+Pty* Pty::adopt(Composer& composer, int fd) {
+    return composer.pool->make<PtyImpl>(fd);
+}
 
 int ptym_open(char* pts_name, int pts_namesz) {
     char* ptr;

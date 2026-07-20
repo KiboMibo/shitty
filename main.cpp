@@ -1512,10 +1512,12 @@ namespace {
         setupSignals();
         const int ptyFd = startShell(
             launch.executable.c_str(), shellArgv.data());
+        Pty* terminalPty = Pty::adopt(composer, ptyFd);
+        composer.pty = terminalPty;
         auto* vtermHost = composer.pool->make<VtermHostCallbacks>();
         vt = Vterm::create(
-            composer, *vtermHost, fontpk->getPx(), fontpk->getPy(),
-            pixelWidth, pixelHeight, ptyFd);
+            composer, *vtermHost, *terminalPty,
+            fontpk->getPx(), fontpk->getPy(), pixelWidth, pixelHeight);
         composer.vterm = vt;
         vtermHost->setRefreshHandler(
             [](const Frame& frame) {
@@ -1685,7 +1687,7 @@ namespace {
         vt->redraw();
 
         {
-            PtyEventSource ptySource(ptyFd);
+            PtyEventSource ptySource(terminalPty->fd());
             eventLoop(ptySource);
         }
 
@@ -1695,7 +1697,7 @@ namespace {
             pclose(printerPipe);
             printerPipe = nullptr;
         }
-        close(ptyFd);
+        composer.pty = nullptr;
         renderer = nullptr;
         composer.renderer = nullptr;
         fontpk = nullptr;

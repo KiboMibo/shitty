@@ -11,8 +11,22 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <sys/types.h>
 #include <unistd.h>
+
+struct Composer;
+
+struct Pty {
+    virtual int fd() const = 0;
+    virtual ssize_t read(uint8_t* buffer, size_t size) = 0;
+    virtual ssize_t write(const uint8_t* buffer, size_t size) = 0;
+    virtual void resize(uint16_t columns, uint16_t rows) = 0;
+
+    // Takes ownership of an already-open PTY master.
+    static Pty* adopt(Composer& composer, int fd);
+};
 
 pid_t pty_fork(int& o_ptyFd, int cols, int rows);
 

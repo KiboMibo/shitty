@@ -18,6 +18,7 @@
 #include <sys/types.h>
 
 struct Composer;
+struct Pty;
 struct VtermHost;
 
 enum class VtKey {
@@ -99,9 +100,6 @@ struct Vterm {
         Release = 3
     };
 
-    using PtyWriteHandler = std::function<ssize_t(const uint8_t*, size_t)>;
-    using PtyReadHandler = std::function<ssize_t(uint8_t*, size_t)>;
-
     virtual bool getScreenReverseVideo() const = 0;
     virtual uint8_t getLedState() const = 0;
     virtual bool getReverseWrapMode() const = 0;
@@ -125,7 +123,6 @@ struct Vterm {
     virtual int writePty(
         const uint8_t* data, size_t size, bool userInput = false) = 0;
     virtual bool flushPtyOutput() = 0;
-    virtual void setPtyWriteHandler(const PtyWriteHandler& handler) = 0;
     virtual bool hasPendingPtyOutput() const = 0;
     virtual size_t pendingPtyOutputBytes() const = 0;
     virtual int writeKittyKey(
@@ -137,7 +134,6 @@ struct Vterm {
 
     virtual bool readPty() = 0;
     virtual bool servicePty(bool readable, bool writable) = 0;
-    virtual void setPtyReadHandler(const PtyReadHandler& handler) = 0;
     virtual void feedPtyOutput(const std::string& output) = 0;
 
     virtual const MouseTrackingState& getMouseTrackingState() const = 0;
@@ -166,7 +162,7 @@ struct Vterm {
     virtual void selectRectangularModeToggle() = 0;
     virtual void pasteSelection(const std::string& selection) = 0;
 
-    static Vterm* create(Composer& composer, VtermHost& host,
+    static Vterm* create(Composer& composer, VtermHost& host, Pty& pty,
                          uint16_t glyphPx, uint16_t glyphPy,
-                         uint16_t winPx, uint16_t winPy, int ptyFd);
+                         uint16_t winPx, uint16_t winPy);
 };
