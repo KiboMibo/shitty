@@ -21,6 +21,8 @@ Covered now:
   wide/grapheme cell invariants across width and height changes;
 - cursor visibility preservation and pending-autowrap cancellation across
   width/height shrink and grow;
+- vertical/horizontal margin reset on resize and default/custom forward and
+  backward tab boundaries before and after width changes;
 - Codex-style synchronized redraws plus a slow reference scrolling model;
 - SGR flags, truecolor, wide cells, wrap markers and DEC line drawing;
 - ISO 2022 G0-G3 designation, GL/GR locking and single shifts, complete NRC

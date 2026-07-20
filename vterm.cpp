@@ -1482,13 +1482,11 @@ void Vterm::resize(uint16_t winPx_, uint16_t winPy_) {
     nCols = nCols_;
     nRows = nRows_;
 
-    if (horizMarginMode) {
-        nColsEff = std::min(nColsEff, nCols);
-        hMargin = std::max(0, std::min((int)hMargin, nColsEff - 2));
-    } else {
-        nColsEff = nCols;
-        hMargin = 0;
-    }
+    // Frame::resize resets the vertical scrolling region.  Reset the
+    // horizontal region to the resized page as well; retaining a clipped
+    // right edge made subsequent growth keep a stale narrow region.
+    nColsEff = nCols;
+    hMargin = 0;
     normalizeCursorPos();
     showCursor();
 

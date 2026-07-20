@@ -903,15 +903,17 @@ Vterm::inp_CR() {
 
 inline void
 Vterm::jumpToNextTabStop() {
+    const bool insideMargins = isCursorInsideMargins();
+    const uint16_t left = insideMargins ? hMargin : 0;
+    const uint16_t right = insideMargins ? nColsEff : nCols;
     if (!tabStopsCustomized) {
-        auto margin = isCursorInsideMargins() ? hMargin : 0;
         do {
             posX = ((posX / 8) + 1) * 8;
-        } while (posX < margin);
-        posX = std::min((int)posX, nColsEff - 1);
+        } while (posX < left);
+        posX = std::min<int>(posX, right - 1);
     } else {
         auto ts = std::upper_bound(tabStops.begin(), tabStops.end(), posX);
-        posX = (ts == tabStops.end()) ? nCols - 1 : *ts;
+        posX = ts == tabStops.end() || *ts >= right ? right - 1 : *ts;
     }
     lastCol = false;
 }
@@ -1551,19 +1553,18 @@ Vterm::csi_CBT() {
     uint32_t arg = inputOps[0] ? inputOps[0] : 1;
     arg = std::min<uint32_t>(arg, nCols);
     for (uint32_t k = 0; k < arg; ++k) {
+        const uint16_t left = isCursorInsideMargins() ? hMargin : 0;
         if (!tabStopsCustomized) {
             if (posX > 0 && posX % 8 == 0) {
                 posX -= 8;
             } else {
                 posX = (posX / 8) * 8;
             }
+            posX = std::max(posX, left);
         } else {
             auto ts = std::lower_bound(tabStops.begin(), tabStops.end(), posX);
-            if (ts != tabStops.begin()) {
-                posX = *(--ts);
-            } else {
-                posX = 0;
-            }
+            if (ts == tabStops.begin() || *(--ts) < left) posX = left;
+            else posX = *ts;
         }
         lastCol = false;
     }

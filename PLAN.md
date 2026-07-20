@@ -29,7 +29,6 @@
 
 Scrollback дальше раздувать просто ради числа не надо. Добавлять только новые взаимодействия:
 
-- margins и tab stops после resize;
 - history capacity при повторяющихся resize;
 - resize при поднятом viewport;
 - same-grid pixel-only resize;
