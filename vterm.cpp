@@ -3002,7 +3002,16 @@ void Vterm::selectClear() {
 
 void Vterm::selectRectangularModeToggle() {
     logT << "selectRectangularModeToggle ()" << std::endl;
-    cf->getSelection().toggleRectangular();
+    Rect& selection = cf->getSelection();
+    selection.toggleRectangular();
+    if (selection.rectangular && selection.br.x < selection.tl.x) {
+        // A valid linear selection is ordered by row and may therefore have
+        // its top endpoint to the right of its bottom endpoint.  Rectangular
+        // selection requires independently ordered axes.  Preserve which
+        // horizontal edge is being dragged while normalizing the corners.
+        std::swap(selection.tl.x, selection.br.x);
+        selectUpdatesLeft = true;
+    }
     redraw();
 }
 
