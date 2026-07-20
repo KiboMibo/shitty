@@ -575,11 +575,16 @@ private:
         std::string window;
     };
     std::vector<SavedTitles> titleStack;
+    struct NotificationPart {
+        std::string text;
+        std::string encoded;
+    };
     struct Notification {
-        std::string title;
-        std::string body;
+        NotificationPart title;
+        NotificationPart body;
     };
     std::map<std::string, Notification> notifications;
+    std::set<std::string> activeNotificationIds;
     int defaultFgPalIx;
     int defaultBgPalIx;
     int fgPalIx;

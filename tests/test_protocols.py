@@ -296,8 +296,8 @@ class ProtocolTest(unittest.TestCase):
     def test_osc99_assembles_chunked_base64_notifications_and_closes(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(
-                b"\x1b]99;i=job:p=title:e=1;QnVp\x1b\\"
-                b"\x1b]99;i=job:p=title:e=1;bGQ=\x1b\\"
+                b"\x1b]99;i=job:p=title:e=1:d=0;QnVp\x1b\\"
+                b"\x1b]99;i=job:p=title:e=1:d=0;bGQ=\x1b\\"
                 b"\x1b]99;i=job:p=body:d=0;half \x1b\\"
                 b"\x1b]99;i=job:p=body:d=1;done\x1b\\"
                 b"\x1b]99;i=job:p=close;\x1b\\"

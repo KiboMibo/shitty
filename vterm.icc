@@ -385,6 +385,7 @@ Vterm::resetTerminal() {
     currentSemantic = 0;
     titleStack.clear();
     notifications.clear();
+    activeNotificationIds.clear();
 
     horizMarginMode = false;
     hMargin = 0;
@@ -3396,57 +3397,146 @@ Vterm::osc_Notification(const std::string& arg) {
     std::string payloadType = "title";
     bool encoded = false;
     bool finalChunk = true;
+    bool valid = true;
     size_t begin = 0;
     const std::string metadata = arg.substr(0, separator);
     while (begin <= metadata.size()) {
         const size_t end = metadata.find(':', begin);
         const std::string field = metadata.substr(begin, end - begin);
+        if (field.empty() && metadata.empty()) break;
         const size_t equal = field.find('=');
-        if (equal != std::string::npos) {
+        if (equal == 1 &&
+            std::isalpha(static_cast<unsigned char>(field[0]))) {
             const std::string key = field.substr(0, equal);
             const std::string value = field.substr(equal + 1);
             if (key == "i") id = value;
             else if (key == "p") payloadType = value;
-            else if (key == "e") encoded = value == "1";
-            else if (key == "d") finalChunk = value != "0";
-        }
+            else if (key == "e") {
+                if (value != "0" && value != "1") valid = false;
+                else encoded = value == "1";
+            } else if (key == "d") {
+                if (value != "0" && value != "1") valid = false;
+                else finalChunk = value == "1";
+            }
+        } else valid = false;
         if (end == std::string::npos) break;
         begin = end + 1;
     }
 
+    const auto validIdentifier = [](const std::string& value) {
+        if (value.size() > 256) return false;
+        return std::all_of(value.begin(), value.end(), [](unsigned char ch) {
+            return std::isalnum(ch) || ch == '_' || ch == '-' || ch == '+' ||
+                   ch == '.';
+        });
+    };
+    if (!valid || !validIdentifier(id)) return;
+
     if (payloadType == "?") {
         writePty(("\x1b]99;i=" + id + ":p=?;"
-                  "p=title,body,close,?\x1b\\").c_str());
+                  "p=title,body,close\x1b\\").c_str());
         return;
     }
-    if (id.size() > 256) return;
     if (payloadType == "close") {
+        if (id.empty() || !activeNotificationIds.erase(id)) return;
         onNotification(id, {}, {}, true);
         notifications.erase(id);
         return;
     }
     if (payloadType != "title" && payloadType != "body") return;
 
-    std::string payload = arg.substr(separator + 1);
-    if (encoded) {
-        std::string decoded;
-        if (!base64::decode(payload, decoded)) return;
-        payload = std::move(decoded);
-    }
-    if (payload.size() > 2048) return;
     auto& notification = notifications[id];
-    std::string& destination = payloadType == "title"
-                                   ? notification.title
-                                   : notification.body;
-    if (destination.size() + payload.size() > 8192) {
+    NotificationPart& destination = payloadType == "title"
+                                        ? notification.title
+                                        : notification.body;
+    const auto flushEncoded = [](NotificationPart& part) {
+        if (part.encoded.empty()) return true;
+        std::string decoded;
+        if (!base64::decode(part.encoded, decoded) ||
+            part.text.size() + decoded.size() > 8192) return false;
+        part.text += decoded;
+        part.encoded.clear();
+        return true;
+    };
+
+    const std::string payload = arg.substr(separator + 1);
+    if (encoded) {
+        if (payload.size() > 4096) {
+            notifications.erase(id);
+            return;
+        }
+        destination.encoded += payload;
+        const bool decodableBoundary =
+            finalChunk ||
+            (!destination.encoded.empty() && destination.encoded.back() == '=') ||
+            destination.encoded.size() % 4 == 0;
+        if (decodableBoundary && !flushEncoded(destination)) {
+            notifications.erase(id);
+            return;
+        }
+    } else {
+        if (payload.size() > 2048 || !flushEncoded(destination) ||
+            destination.text.size() + payload.size() > 8192) {
+            notifications.erase(id);
+            return;
+        }
+        destination.text += payload;
+    }
+
+    if (!finalChunk) return;
+    if (!flushEncoded(notification.title) ||
+        !flushEncoded(notification.body)) {
         notifications.erase(id);
         return;
     }
-    destination += payload;
-    if (finalChunk && payloadType == "body") {
-        onNotification(id, notification.title, notification.body, false);
+
+    const auto escapeSafeUtf8 = [](const std::string& value) {
+        for (size_t k = 0; k < value.size();) {
+            const unsigned char first = value[k++];
+            if (first <= 0x1f || first == 0x7f) return false;
+            if (first < 0x80) continue;
+            size_t continuation = 0;
+            unsigned char secondMin = 0x80;
+            unsigned char secondMax = 0xbf;
+            if (first >= 0xc2 && first <= 0xdf) {
+                continuation = 1;
+                if (first == 0xc2) secondMin = 0xa0;
+            } else if (first >= 0xe0 && first <= 0xef) {
+                continuation = 2;
+                if (first == 0xe0) secondMin = 0xa0;
+                if (first == 0xed) secondMax = 0x9f;
+            } else if (first >= 0xf0 && first <= 0xf4) {
+                continuation = 3;
+                if (first == 0xf0) secondMin = 0x90;
+                if (first == 0xf4) secondMax = 0x8f;
+            } else return false;
+            if (k + continuation > value.size()) return false;
+            const unsigned char second = value[k];
+            if (second < secondMin || second > secondMax) return false;
+            for (size_t n = 0; n < continuation; ++n) {
+                const unsigned char ch = value[k++];
+                if ((ch & 0xc0) != 0x80) return false;
+            }
+        }
+        return true;
+    };
+    if (!escapeSafeUtf8(notification.title.text) ||
+        !escapeSafeUtf8(notification.body.text)) {
         notifications.erase(id);
+        return;
     }
+    if (notification.title.text.empty()) {
+        notification.title.text = std::move(notification.body.text);
+        notification.body.text.clear();
+    }
+    if (notification.title.text.empty()) {
+        notifications.erase(id);
+        return;
+    }
+    onNotification(
+        id, notification.title.text, notification.body.text, false);
+    if (!id.empty()) activeNotificationIds.insert(id);
+    notifications.erase(id);
 }
 
 inline void
