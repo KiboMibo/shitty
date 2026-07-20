@@ -1332,10 +1332,11 @@ uint32_t Vterm::translateCharset(Charset charset, unsigned char ch) const {
 #undef LOOKUP
 }
 
-Vterm::Vterm(uint16_t glyphPx_, uint16_t glyphPy_,
+Vterm::Vterm(VtermHost& host_, uint16_t glyphPx_, uint16_t glyphPy_,
              uint16_t winPx_, uint16_t winPy_,
              int ptyFd_)
-    : winPx(winPx_)
+    : host(host_)
+    , winPx(winPx_)
     , winPy(winPy_)
     , nCols((winPx - 2 * opts.border) / glyphPx_)
     , nRows((winPy - 2 * opts.border) / glyphPy_)
@@ -1347,27 +1348,6 @@ Vterm::Vterm(uint16_t glyphPx_, uint16_t glyphPy_,
     })
     , onPtyWrite([this](const uint8_t* buffer, size_t size) {
         return write(ptyFd, buffer, size);
-    })
-    , onRefresh([](const Frame&) { return true; })
-    , onOsc([](int cmd, const std::string& arg) {
-        logU << "OSC: '" << cmd << ";" << arg << "'" << std::endl;
-    })
-    , onBell([]() {
-        logI << "* Bell *" << std::endl;
-    })
-    , onPrinter([](const std::string&) {})
-    , onLed([](uint8_t) {})
-    , onNotification([](const std::string&, const std::string&,
-                        const std::string&, bool) {})
-    , onProgress([](uint32_t, uint32_t) {})
-    , onWindowOps([](uint32_t, uint32_t, uint32_t) {})
-    , onWindowInfo([this]() {
-        WindowInfo info;
-        info.pixelWidth = winPx;
-        info.pixelHeight = winPy;
-        info.screenPixelWidth = winPx;
-        info.screenPixelHeight = winPy;
-        return info;
     })
     , frame_pri(winPx, winPy, nCols, nRows, marginTop, marginBottom,
                 opts.saveLines)
@@ -1408,10 +1388,6 @@ Vterm::Vterm(uint16_t glyphPx_, uint16_t glyphPy_,
     resetTerminal();
 }
 
-void Vterm::setRefreshHandler(const RefreshHandlerFn& onRefresh_) {
-    onRefresh = onRefresh_;
-}
-
 void Vterm::setPtyReadHandler(const PtyReadHandlerFn& handler) {
     onPtyRead = handler;
 }
@@ -1427,39 +1403,6 @@ bool Vterm::servicePty(bool readable, bool writable) {
         flushPtyOutput();
     }
     return readable && readPty();
-}
-
-void Vterm::setOscHandler(const OscHandlerFn& onOsc_) {
-    haveOscHandler = true;
-    onOsc = onOsc_;
-}
-
-void Vterm::setBellHandler(const BellHandlerFn& onBell_) {
-    onBell = onBell_;
-}
-
-void Vterm::setPrinterHandler(const PrinterHandlerFn& handler) {
-    onPrinter = handler;
-}
-
-void Vterm::setLedHandler(const LedHandlerFn& handler) {
-    onLed = handler;
-}
-
-void Vterm::setNotificationHandler(const NotificationHandlerFn& handler) {
-    onNotification = handler;
-}
-
-void Vterm::setProgressHandler(const ProgressHandlerFn& handler) {
-    onProgress = handler;
-}
-
-void Vterm::setWindowOpsHandler(const WindowOpsHandlerFn& handler) {
-    onWindowOps = handler;
-}
-
-void Vterm::setWindowInfoHandler(const WindowInfoHandlerFn& handler) {
-    onWindowInfo = handler;
 }
 
 void Vterm::resize(uint16_t winPx_, uint16_t winPy_) {
@@ -2087,7 +2030,7 @@ bool Vterm::executeC0InSequence(unsigned char ch) {
 
     switch (ch) {
         case '\a':
-            onBell();
+            host.bell();
             break;
         case '\b':
             nInputOps = 1;
@@ -2409,7 +2352,7 @@ bool Vterm::processInput(
                         break;
                     case '\a':
                         traceNormalInput();
-                        onBell();
+                        host.bell();
                         break;
                     case '\x0e':
                         traceNormalInput();

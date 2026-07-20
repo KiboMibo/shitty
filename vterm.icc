@@ -166,7 +166,7 @@ Vterm::redraw() {
         return;
     }
 
-    if (onRefresh(*cf)) {
+    if (host.present(*cf)) {
         cf->resetDamage();
     }
 }
@@ -393,7 +393,7 @@ Vterm::resetTerminal() {
 
     setState(InputState::Normal);
 
-    if (haveOscHandler) {
+    if (host.handlesOsc()) {
         argBuf.clear();
         argBuf.push_back('0');
         argBuf.push_back(';');
@@ -436,7 +436,7 @@ Vterm::resetScreen(bool resetTabStops) {
     extendedReverseWrapMode = false;
     nationalReplacementMode = false;
     ledState = 0;
-    onLed(ledState);
+    host.leds(ledState);
     send8BitControls = false;
     altScrollMode = opts.altScrollMode;
     altSendsEscape = opts.altSendsEscape;
@@ -1077,7 +1077,7 @@ Vterm::printableLine(uint16_t row) const {
 
 inline void
 Vterm::printLine(uint16_t row) {
-    onPrinter(printableLine(std::min<uint16_t>(row, nRows - 1)));
+    host.print(printableLine(std::min<uint16_t>(row, nRows - 1)));
 }
 
 inline void
@@ -1093,7 +1093,7 @@ Vterm::csi_MC(bool privateMode) {
             std::string screen;
             for (uint16_t row = 0; row < nRows; ++row)
                 screen += printableLine(row);
-            onPrinter(screen);
+            host.print(screen);
         } else if (operation == 4) {
             printerControllerMode = false;
             printerControllerPending.clear();
@@ -1116,7 +1116,7 @@ Vterm::csi_DECLL() {
         else if (operation >= 21 && operation <= 23)
             ledState &= static_cast<uint8_t>(~(1u << (operation - 21)));
     }
-    onLed(ledState);
+    host.leds(ledState);
     setState(InputState::Normal);
 }
 
@@ -1135,7 +1135,7 @@ Vterm::consumePrinterControllerByte(unsigned char ch) {
                                    printerControllerPending) == 0)
                 return true;
         }
-        onPrinter(printerControllerPending.substr(0, 1));
+        host.print(printerControllerPending.substr(0, 1));
         printerControllerPending.erase(0, 1);
         if (printerControllerPending.empty()) return true;
     }
@@ -3225,15 +3225,15 @@ Vterm::handle_OSC() {
             case 0:
                 iconTitle = arg;
                 windowTitle = arg;
-                onOsc(cmd, arg);
+                host.osc(cmd, arg);
                 break;
             case 1:
                 iconTitle = arg;
-                onOsc(cmd, arg);
+                host.osc(cmd, arg);
                 break;
             case 2:
                 windowTitle = arg;
-                onOsc(cmd, arg);
+                host.osc(cmd, arg);
                 break;
             case 4:
                 osc_PaletteQuery(cmd, arg);
@@ -3313,11 +3313,11 @@ Vterm::handle_OSC() {
                             percentResult.ec == std::errc{} &&
                             percentResult.ptr == arg.data() + arg.size() &&
                             state <= 4 && percent <= 100) {
-                            onProgress(state, percent);
+                            host.progress(state, percent);
                         }
                     }
                 } else {
-                    onNotification({}, windowTitle, arg, false);
+                    host.notify({}, windowTitle, arg, false);
                 }
             } break;
             case 99:
@@ -3325,11 +3325,11 @@ Vterm::handle_OSC() {
                 break;
             case 133:
                 osc_ShellIntegration(arg);
-                onOsc(cmd, arg);
+                host.osc(cmd, arg);
                 break;
 
             default:
-                onOsc(cmd, arg);
+                host.osc(cmd, arg);
                 break;
         }
     }
@@ -3398,7 +3398,7 @@ Vterm::osc_Notification(const std::string& arg) {
     }
     if (payloadType == "close") {
         if (id.empty() || !activeNotificationIds.erase(id)) return;
-        onNotification(id, {}, {}, true);
+        host.notify(id, {}, {}, true);
         notifications.erase(id);
         return;
     }
@@ -3492,7 +3492,7 @@ Vterm::osc_Notification(const std::string& arg) {
         notifications.erase(id);
         return;
     }
-    onNotification(
+    host.notify(
         id, notification.title.text, notification.body.text, false);
     if (!id.empty()) activeNotificationIds.insert(id);
     notifications.erase(id);
@@ -3680,22 +3680,22 @@ Vterm::csi_XTWINOPS() {
         case 8:
         case 9:
         case 10:
-            onWindowOps(operation,
+            host.windowOperation(operation,
                         nInputOps > 1 ? inputOps[1] : 0,
                         nInputOps > 2 ? inputOps[2] : 0);
             break;
         case 11:
-            writeCsiResponse(onWindowInfo().iconified ? "2t" : "1t");
+            writeCsiResponse(host.windowInfo().iconified ? "2t" : "1t");
             break;
         case 13: {
-            const auto info = onWindowInfo();
+            const auto info = host.windowInfo();
             response << "3;" << static_cast<uint16_t>(info.x) << ';'
                      << static_cast<uint16_t>(info.y) << 't';
             writeCsiResponse(response.str());
         } break;
         case 14:
             if (nInputOps > 1 && inputOps[1] == 2) {
-                const auto info = onWindowInfo();
+                const auto info = host.windowInfo();
                 response << "4;" << info.pixelHeight << ';'
                          << info.pixelWidth << 't';
             } else {
@@ -3705,7 +3705,7 @@ Vterm::csi_XTWINOPS() {
             writeCsiResponse(response.str());
             break;
         case 15: {
-            const auto info = onWindowInfo();
+            const auto info = host.windowInfo();
             response << "5;" << info.screenPixelHeight << ';'
                      << info.screenPixelWidth << 't';
             writeCsiResponse(response.str());
@@ -3719,7 +3719,7 @@ Vterm::csi_XTWINOPS() {
             writeCsiResponse(response.str());
             break;
         case 19: {
-            const auto info = onWindowInfo();
+            const auto info = host.windowInfo();
             response << "9;" << info.screenPixelHeight / glyphPy << ';'
                      << info.screenPixelWidth / glyphPx << 't';
             writeCsiResponse(response.str());
@@ -3753,11 +3753,11 @@ Vterm::csi_XTWINOPS() {
                 titleStack.pop_back();
                 if ((which == 0 || which == 1) && saved.hasIcon) {
                     iconTitle = saved.icon;
-                    onOsc(1, iconTitle);
+                    host.osc(1, iconTitle);
                 }
                 if ((which == 0 || which == 2) && saved.hasWindow) {
                     windowTitle = saved.window;
-                    onOsc(2, windowTitle);
+                    host.osc(2, windowTitle);
                 }
             }
         } break;

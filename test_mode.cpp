@@ -375,10 +375,11 @@ int runTestMode(int controlFd, int argc, char* argv[]) {
     }
     const uint16_t width = 2 * opts.border + opts.nCols * glyphPx;
     const uint16_t height = 2 * opts.border + opts.nRows * glyphPy;
-    Vterm terminal(glyphPx, glyphPy, width, height, io[0]);
+    VtermHostCallbacks vtermHost;
+    Vterm terminal(vtermHost, glyphPx, glyphPy, width, height, io[0]);
     pty_resize(io[0], opts.nCols, opts.nRows);
     TestDisplay display;
-    terminal.setRefreshHandler(
+    vtermHost.setRefreshHandler(
         [&display](const Frame& frame) {
             return display.update(frame);
         });
@@ -430,7 +431,7 @@ int runTestMode(int controlFd, int argc, char* argv[]) {
         [&systemClipboard](const std::string& content) {
             systemClipboard = content;
         });
-    terminal.setOscHandler(
+    vtermHost.setOscHandler(
         [&terminal, &actions](int command, const std::string& argument) {
             actions += "OSC " + std::to_string(command) + " " +
                        encodeHex(argument) + "\n";
@@ -438,19 +439,19 @@ int runTestMode(int controlFd, int argc, char* argv[]) {
                 terminal.setHyperlink(argument);
             }
         });
-    terminal.setBellHandler(
+    vtermHost.setBellHandler(
         [&actions]() {
         actions += "BELL\n";
     });
-    terminal.setPrinterHandler(
+    vtermHost.setPrinterHandler(
         [&printerOutput](const std::string& output) {
             printerOutput += output;
         });
-    terminal.setLedHandler(
+    vtermHost.setLedHandler(
         [&actions](uint8_t state) {
             actions += "LEDS " + std::to_string(state) + "\n";
         });
-    terminal.setNotificationHandler(
+    vtermHost.setNotificationHandler(
         [&actions](const std::string& id, const std::string& title,
                    const std::string& body, bool close) {
         if (close) {
@@ -460,25 +461,25 @@ int runTestMode(int controlFd, int argc, char* argv[]) {
                        " " + encodeHex(body) + "\n";
         }
     });
-    terminal.setProgressHandler(
+    vtermHost.setProgressHandler(
         [&actions](uint32_t state, uint32_t percent) {
         actions += "PROGRESS " + std::to_string(state) + " " +
                    std::to_string(percent) + "\n";
     });
-    terminal.setWindowOpsHandler(
+    vtermHost.setWindowOpsHandler(
         [&actions](uint32_t operation, uint32_t first, uint32_t second) {
         actions += "WINDOW " + std::to_string(operation) + " " +
                    std::to_string(first) + " " +
                    std::to_string(second) + "\n";
     });
-    Vterm::WindowInfo windowInfo;
+    VtermWindowInfo windowInfo;
     windowInfo.x = 10;
     windowInfo.y = 20;
     windowInfo.pixelWidth = width;
     windowInfo.pixelHeight = height;
     windowInfo.screenPixelWidth = 1920;
     windowInfo.screenPixelHeight = 1080;
-    terminal.setWindowInfoHandler([&windowInfo]() { return windowInfo; });
+    vtermHost.setWindowInfoHandler([&windowInfo]() { return windowInfo; });
     const auto mouseGeometry = [&]() {
         return MouseGeometry{
             static_cast<int>(windowInfo.pixelWidth),

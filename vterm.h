@@ -14,6 +14,7 @@
 #include "frame.h"
 #include "grapheme.h"
 #include "utf8.h"
+#include "vterm_host.h"
 
 #include <cstdint>
 #include <chrono>
@@ -186,57 +187,17 @@ public:
         Release = 3
     };
 
-    Vterm(uint16_t glyphPx, uint16_t glyphPy,
+    Vterm(VtermHost& host, uint16_t glyphPx, uint16_t glyphPy,
           uint16_t winPx, uint16_t winPy,
           int ptyFd);
 
     ~Vterm() = default;
 
-    // Return true only after the frame has been accepted for presentation.
-    // Damage remains pending when the handler asks for a retry.
-    using RefreshHandlerFn = std::function<bool(const Frame&)>;
-    void setRefreshHandler(const RefreshHandlerFn&);
-
-    using OscHandlerFn = std::function<void(int, const std::string&)>;
-    void setOscHandler(const OscHandlerFn&);
-
-    using BellHandlerFn = std::function<void()>;
-    void setBellHandler(const BellHandlerFn&);
-
-    using PrinterHandlerFn = std::function<void(const std::string&)>;
-    void setPrinterHandler(const PrinterHandlerFn&);
-
-    using LedHandlerFn = std::function<void(uint8_t)>;
-    void setLedHandler(const LedHandlerFn&);
     bool getScreenReverseVideo() const { return screenReverseVideo; }
     uint8_t getLedState() const { return ledState; }
     bool getReverseWrapMode() const { return reverseWrapMode; }
     bool getNationalReplacementMode() const { return nationalReplacementMode; }
     bool getMetaMode() const { return eightBitInput; }
-
-    using NotificationHandlerFn = std::function<void(
-        const std::string&, const std::string&, const std::string&, bool)>;
-    void setNotificationHandler(const NotificationHandlerFn&);
-
-    using ProgressHandlerFn = std::function<void(uint32_t, uint32_t)>;
-    void setProgressHandler(const ProgressHandlerFn&);
-
-    using WindowOpsHandlerFn =
-        std::function<void(uint32_t, uint32_t, uint32_t)>;
-    void setWindowOpsHandler(const WindowOpsHandlerFn&);
-    struct WindowInfo {
-        int32_t x = 0;
-        int32_t y = 0;
-        uint32_t pixelWidth = 0;
-        uint32_t pixelHeight = 0;
-        uint32_t screenPixelWidth = 0;
-        uint32_t screenPixelHeight = 0;
-        bool iconified = false;
-        bool maximized = false;
-        bool fullscreen = false;
-    };
-    using WindowInfoHandlerFn = std::function<WindowInfo()>;
-    void setWindowInfoHandler(const WindowInfoHandlerFn&);
 
     void resize(uint16_t winPx, uint16_t winPy);
 
@@ -560,6 +521,7 @@ private:
     void writeTitleResponse(char, const std::string&);
     void applyPaletteColor(uint16_t index, Color color);
 
+    VtermHost& host;
     uint16_t winPx;
     uint16_t winPy;
     uint16_t nCols;
@@ -572,17 +534,6 @@ private:
     PtyWriteHandlerFn onPtyWrite;
     std::vector<uint8_t> ptyOutput;
     size_t ptyOutputOffset = 0;
-
-    RefreshHandlerFn onRefresh;
-    OscHandlerFn onOsc;
-    bool haveOscHandler = false;
-    BellHandlerFn onBell;
-    PrinterHandlerFn onPrinter;
-    LedHandlerFn onLed;
-    NotificationHandlerFn onNotification;
-    ProgressHandlerFn onProgress;
-    WindowOpsHandlerFn onWindowOps;
-    WindowInfoHandlerFn onWindowInfo;
 
     Frame frame_pri;
     Frame frame_alt;

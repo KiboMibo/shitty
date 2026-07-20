@@ -1511,10 +1511,12 @@ namespace {
         setupSignals();
         const int ptyFd = startShell(
             launch.executable.c_str(), shellArgv.data());
+        auto* vtermHost = composer.pool->make<VtermHostCallbacks>();
         vt = std::make_unique<Vterm>(
-            fontpk->getPx(), fontpk->getPy(), pixelWidth, pixelHeight, ptyFd);
+            *vtermHost, fontpk->getPx(), fontpk->getPy(),
+            pixelWidth, pixelHeight, ptyFd);
         composer.vterm = vt.get();
-        vt->setRefreshHandler(
+        vtermHost->setRefreshHandler(
             [](const Frame& frame) {
             refreshPending = true;
             if (!refreshAllowed) {
@@ -1526,11 +1528,11 @@ namespace {
             refreshPending = false;
             return true;
         });
-        vt->setOscHandler(
+        vtermHost->setOscHandler(
             [](int command, const std::string& argument) {
             handleOsc(command, argument);
         });
-        vt->setBellHandler(
+        vtermHost->setBellHandler(
             []() {
             glfwRequestWindowAttention(window);
         });
@@ -1538,7 +1540,7 @@ namespace {
             printerPipe = popen(opts.printerCommand, "w");
             if (printerPipe == nullptr)
                 throw std::runtime_error("Cannot start printer command");
-            vt->setPrinterHandler(
+            vtermHost->setPrinterHandler(
                 [](const std::string& output) {
                     if (printerPipe == nullptr || output.empty()) return;
                     const size_t written = fwrite(
@@ -1550,7 +1552,7 @@ namespace {
                     fflush(printerPipe);
                 });
         }
-        vt->setNotificationHandler(
+        vtermHost->setNotificationHandler(
             [](const std::string&, const std::string& title,
                const std::string& body, bool close) {
             if (!close) {
@@ -1559,13 +1561,13 @@ namespace {
                 glfwRequestWindowAttention(window);
             }
         });
-        vt->setProgressHandler(
+        vtermHost->setProgressHandler(
             [](uint32_t state, uint32_t) {
             if (state == 2 || state == 4) {
                 glfwRequestWindowAttention(window);
             }
         });
-        vt->setWindowOpsHandler(
+        vtermHost->setWindowOpsHandler(
             [](uint32_t operation, uint32_t first, uint32_t second) {
             switch (operation) {
                 case 1:
@@ -1648,9 +1650,9 @@ namespace {
                 std::max(1, static_cast<int>(std::ceil(pixelWidth / xScale))),
                 std::max(1, static_cast<int>(std::ceil(pixelHeight / yScale))));
         });
-        vt->setWindowInfoHandler(
+        vtermHost->setWindowInfoHandler(
             []() {
-            Vterm::WindowInfo info;
+            VtermWindowInfo info;
             int x = 0;
             int y = 0;
             glfwGetWindowPos(window, &x, &y);
