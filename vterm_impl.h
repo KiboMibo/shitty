@@ -10,6 +10,7 @@
  */
 
 #pragma once
+#include <std/sys/types.h>
 
 #include "vterm.h"
 #include "frame.h"
@@ -26,18 +27,18 @@
 class VtermImpl final : public Vterm {
 public:
     VtermImpl(VtermHost& host, Pty& pty,
-              uint16_t glyphPx, uint16_t glyphPy,
-              uint16_t winPx, uint16_t winPy);
+              u16 glyphPx, u16 glyphPy,
+              u16 winPx, u16 winPy);
 
     ~VtermImpl() = default;
 
     bool getScreenReverseVideo() const { return screenReverseVideo; }
-    uint8_t getLedState() const { return ledState; }
+    u8 getLedState() const { return ledState; }
     bool getReverseWrapMode() const { return reverseWrapMode; }
     bool getNationalReplacementMode() const { return nationalReplacementMode; }
     bool getMetaMode() const { return eightBitInput; }
 
-    void resize(uint16_t winPx, uint16_t winPy);
+    void resize(u16 winPx, u16 winPy);
 
     void redraw();
     bool synchronizedOutputActive() const {
@@ -61,10 +62,11 @@ public:
 
     int writePty(VtKey key, VtModifier modifiers = VtModifier::none,
                  bool userInput = false);
-    int writePty(uint8_t ch, VtModifier modifiers = VtModifier::none,
+    int writePty(u8 ch, VtModifier modifiers = VtModifier::none,
                  bool userInput = false);
     int writePty(const char* cstr, bool userInput = false);
-    int writePty(const uint8_t* ucstr, size_t len,
+    int writePty(const char* data, size_t size, bool userInput);
+    int writePty(const u8* ucstr, size_t len,
                  bool userInput = false);
     bool flushPtyOutput();
     bool hasPendingPtyOutput() const {
@@ -73,24 +75,24 @@ public:
     size_t pendingPtyOutputBytes() const {
         return ptyOutput.size() - ptyOutputOffset;
     }
-    int writeKittyKey(VtKey key, uint16_t modifiers,
+    int writeKittyKey(VtKey key, u16 modifiers,
                       KeyEventType event);
-    int writeKittyKey(uint32_t key, uint32_t shiftedKey,
-                      uint32_t baseLayoutKey, uint16_t modifiers,
+    int writeKittyKey(u32 key, u32 shiftedKey,
+                      u32 baseLayoutKey, u16 modifiers,
                       KeyEventType event);
-    uint8_t getKittyKeyboardFlags() const;
+    u8 getKittyKeyboardFlags() const;
 
     bool readPty();
     bool servicePty(bool readable, bool writable);
     void feedPtyOutput(const std::string& output);
 
     const MouseTrackingState& getMouseTrackingState() const;
-    bool mouseHighlightRelease(uint16_t endX, uint16_t endY,
-                               uint16_t mouseX, uint16_t mouseY);
-    void setLocatorPosition(uint16_t column, uint16_t row,
-                            uint16_t pixelX, uint16_t pixelY,
-                            uint8_t buttons = 0);
-    void reportLocatorButton(uint8_t button, bool pressed);
+    bool mouseHighlightRelease(u16 endX, u16 endY,
+                               u16 mouseX, u16 mouseY);
+    void setLocatorPosition(u16 column, u16 row,
+                            u16 pixelX, u16 pixelY,
+                            u8 buttons = 0);
+    void reportLocatorButton(u8 button, bool pressed);
 
     void setHasFocus(bool);
     void setHyperlink(const std::string& parametersAndUri);
@@ -98,8 +100,8 @@ public:
     size_t getHyperlinkCount() const {
         return hyperlinks.size();
     }
-    void mouseWheelUp(uint16_t count = 1);
-    void mouseWheelDown(uint16_t count = 1);
+    void mouseWheelUp(u16 count = 1);
+    void mouseWheelDown(u16 count = 1);
     void pageUp();
     void pageDown();
 
@@ -113,25 +115,24 @@ public:
     void pasteSelection(const std::string& utf8_selection);
 
 private:
-    std::string getLocalEcho(const unsigned char* const begin,
-                             const unsigned char* const end);
-    bool processInput(
-        const unsigned char* const input, int size, bool refresh = true);
+    std::string getLocalEcho(const u8* const begin,
+                             const u8* const end);
+    bool processInput(const u8* input, int size, bool refresh = true);
     bool processInput(const std::string& str);
 
     struct PresentationState {
         Frame* frame;
         TerminalCursor cursor;
         Rect selection;
-        uint16_t columns;
-        uint16_t rows;
-        uint16_t viewOffset;
+        u16 columns;
+        u16 rows;
+        u16 viewOffset;
         bool screenReverse;
         bool blinkVisible;
         bool cursorBlink;
         Color selectionForeground;
         Color selectionBackground;
-        uint8_t selectionColorMask;
+        u8 selectionColorMask;
     };
     PresentationState capturePresentationState() const;
     bool presentationChanged(const PresentationState& before) const;
@@ -158,10 +159,10 @@ private:
     void resetAttrs();
     void resetScreen(bool resetTabStops = true);
     void clearScreen();
-    void fillScreen(uint16_t ch);
+    void fillScreen(u16 ch);
     void pruneHyperlinks();
 
-    enum class InputState : uint8_t {
+    enum class InputState : u8 {
         Normal,
         IgnoreSequence,
         Escape,
@@ -211,25 +212,25 @@ private:
 
     void normalizeCursorPos();
     bool isCursorInsideMargins();
-    void eraseRow(uint16_t pY);
-    void eraseRows(uint16_t startY, uint16_t count);
-    void copyRow(uint16_t dstY, uint16_t srcY);
-    void insertRows(uint16_t startY, uint16_t count);
-    void deleteRows(uint16_t startY, uint16_t count);
-    void insertCols(uint16_t startX, uint16_t count);
-    void deleteCols(uint16_t startX, uint16_t count);
-    void clearWideCellAt(uint16_t row, uint16_t column);
-    void normalizeWideCells(uint16_t row);
+    void eraseRow(u16 pY);
+    void eraseRows(u16 startY, u16 count);
+    void copyRow(u16 dstY, u16 srcY);
+    void insertRows(u16 startY, u16 count);
+    void deleteRows(u16 startY, u16 count);
+    void insertCols(u16 startX, u16 count);
+    void deleteCols(u16 startX, u16 count);
+    void clearWideCellAt(u16 row, u16 column);
+    void normalizeWideCells(u16 row);
 
     struct Rectangle {
-        uint16_t top;
-        uint16_t left;
-        uint16_t bottom;
-        uint16_t right;
+        u16 top;
+        u16 left;
+        u16 bottom;
+        u16 right;
     };
     bool rectangleFromParams(size_t offset, Rectangle& rectangle) const;
-    void rectangleOrigin(uint16_t& rowBase, uint16_t& columnBase,
-                         uint16_t& rowLimit, uint16_t& columnLimit) const;
+    void rectangleOrigin(u16& rowBase, u16& columnBase,
+                         u16& rowLimit, u16& columnLimit) const;
 
     void showCursor();
     void hideCursor();
@@ -305,8 +306,8 @@ private:
     void csi_privRM();
     void csi_privSave();
     void csi_privRestore();
-    void setPrivMode(uint32_t mode, bool set);
-    bool getPrivMode(uint32_t mode) const;
+    void setPrivMode(u32 mode, bool set);
+    bool getPrivMode(u32 mode) const;
     void csi_SGR();
 
     void csi_ecma48_SL();
@@ -318,7 +319,7 @@ private:
     void csi_terDA();
     void csi_DSR();
     void esch_DECALN();
-    void setLineAttribute(uint8_t attribute);
+    void setLineAttribute(u8 attribute);
     void handle_DCS();
     void handle_OSC();
     void csiq_DECSCL();
@@ -338,8 +339,8 @@ private:
     void csi_XTVERSION();
     void csi_MC(bool privateMode);
     void csi_DECLL();
-    std::string printableLine(uint16_t row) const;
-    void printLine(uint16_t row);
+    std::string printableLine(u16 row) const;
+    void printLine(u16 row);
     bool consumePrinterControllerByte(unsigned char ch);
 
     void dcs_DECRQSS(const std::string&);
@@ -352,34 +353,34 @@ private:
     void osc_Notification(const std::string&);
     void reportInBandResize();
     void writeTitleResponse(char, const std::string&);
-    void applyPaletteColor(uint16_t index, Color color);
+    void applyPaletteColor(u16 index, Color color);
 
     VtermHost& host;
     Pty& pty;
-    uint16_t winPx;
-    uint16_t winPy;
-    uint16_t nCols;
-    uint16_t nRows;
-    uint16_t glyphPx;
-    uint16_t glyphPy;
+    u16 winPx;
+    u16 winPy;
+    u16 nCols;
+    u16 nRows;
+    u16 glyphPx;
+    u16 glyphPy;
     bool ptyReceivedInput = false;
-    std::vector<uint8_t> ptyOutput;
+    std::u8string ptyOutput;
     size_t ptyOutputOffset = 0;
 
     Frame frame_pri;
     Frame frame_alt;
     Frame* cf;
-    uint16_t posX = 0;
-    uint16_t posY = 0;
-    uint16_t marginTop;
-    uint16_t marginBottom;
+    u16 posX = 0;
+    u16 posY = 0;
+    u16 marginTop;
+    u16 marginBottom;
     bool lastCol = false;
 
     TerminalCell attrs;
     Color* fg = &attrs.fg;
     Color* bg = &attrs.bg;
-    int32_t* fgIndex = &attrs.fg_index;
-    int32_t* bgIndex = &attrs.bg_index;
+    i32* fgIndex = &attrs.fg_index;
+    i32* bgIndex = &attrs.bg_index;
     Color palette256[256];
     Color originalPalette256[256];
     Color defaultFgColor;
@@ -387,11 +388,11 @@ private:
     Color cursorColor;
     Color selectionFgColor;
     Color selectionBgColor;
-    std::map<std::string, uint32_t> hyperlinkIds;
-    std::map<uint32_t, std::string> hyperlinks;
-    uint32_t activeHyperlink = 0;
-    uint32_t nextHyperlink = 1;
-    uint32_t currentSemantic = 0;
+    std::map<std::string, u32> hyperlinkIds;
+    std::map<u32, std::string> hyperlinks;
+    u32 activeHyperlink = 0;
+    u32 nextHyperlink = 1;
+    u32 currentSemantic = 0;
     std::string windowTitle;
     std::string iconTitle;
     struct SavedTitles {
@@ -421,7 +422,7 @@ private:
     bool underlineColorDefault = true;
     bool hasFocus = false;
 
-    unsigned char inputBuf[32 * 1024];
+    u8 inputBuf[32 * 1024];
     int readPos = 0;
     int lastEscBegin = 0;
     int lastNormalBegin = 0;
@@ -436,15 +437,15 @@ private:
     std::string csiIntermediates;
     constexpr const static size_t maxEscOps = 32;
     constexpr const static size_t maxOscBytes = 1024 * 1024;
-    uint32_t inputOps[maxEscOps];
+    u32 inputOps[maxEscOps];
     unsigned char inputSeparators[maxEscOps] = {};
     size_t nInputOps = 0;
     Utf8Decoder utf8dec;
     Frame::Grapheme inputGrapheme;
     GraphemeBreaker inputGraphemeBreaker;
     Frame* inputGraphemeFrame = nullptr;
-    uint16_t inputGraphemeX = 0;
-    uint16_t inputGraphemeY = 0;
+    u16 inputGraphemeX = 0;
+    u16 inputGraphemeY = 0;
     std::vector<unsigned char> argBuf;
     bool argBufOverflowed = false;
     unsigned char scsDst;
@@ -455,7 +456,7 @@ private:
     bool showCursorMode = true;
     TerminalCursor::Style cursorShape =
         TerminalCursor::Style::filled_block;
-    uint8_t cursorStyleParam = 2;
+    u8 cursorStyleParam = 2;
     bool cursorBlinkMode = false;
     bool haveBlinkingText = false;
     bool blinkVisible = true;
@@ -482,18 +483,18 @@ private:
     bool reverseWrapMode = false;
     bool extendedReverseWrapMode = false;
     bool nationalReplacementMode = false;
-    uint8_t ledState = 0;
-    uint8_t modifyOtherKeys = 1;
-    uint8_t modifyKeyResources[8] = {};
-    uint8_t initialModifyKeyResources[8] = {};
+    u8 ledState = 0;
+    u8 modifyOtherKeys = 1;
+    u8 modifyKeyResources[8] = {};
+    u8 initialModifyKeyResources[8] = {};
     bool csiHadParams = false;
-    std::map<uint32_t, bool> savedPrivModes;
+    std::map<u32, bool> savedPrivModes;
     std::map<VtKey, std::string> userDefinedKeys;
     bool userDefinedKeysLocked = false;
 
     struct KittyKeyboardState {
-        uint8_t flags = 0;
-        std::vector<uint8_t> stack;
+        u8 flags = 0;
+        std::vector<u8> stack;
     };
     KittyKeyboardState kittyKeyboardPri;
     KittyKeyboardState kittyKeyboardAlt;
@@ -502,38 +503,38 @@ private:
     const KittyKeyboardState& kittyKeyboardState() const;
 
     bool horizMarginMode = false;
-    uint16_t nColsEff = 0;
-    uint16_t hMargin = 0;
+    u16 nColsEff = 0;
+    u16 hMargin = 0;
 
-    std::vector<uint16_t> tabStops;
+    std::vector<u16> tabStops;
     bool tabStopsCustomized = false;
 
-    enum class CompatibilityLevel : uint8_t {
+    enum class CompatibilityLevel : u8 {
         VT52,
         VT100,
         VT400
     };
     CompatibilityLevel compatLevel = CompatibilityLevel::VT400;
 
-    enum class CursorKeyMode : uint8_t {
+    enum class CursorKeyMode : u8 {
         ANSI,
         Application
     };
     CursorKeyMode cursorKeyMode = CursorKeyMode::ANSI;
 
-    enum class KeypadMode : uint8_t {
+    enum class KeypadMode : u8 {
         Normal,
         Application
     };
     KeypadMode keypadMode = KeypadMode::Normal;
 
-    enum class OriginMode : uint8_t {
+    enum class OriginMode : u8 {
         Absolute,
         ScrollingRegion
     };
     OriginMode originMode = OriginMode::Absolute;
 
-    enum class ColMode : uint8_t {
+    enum class ColMode : u8 {
         C80,
         C132
     };
@@ -543,7 +544,7 @@ private:
     void switchScreenBufferMode(bool altScreenBufferMode,
                                 bool clearAlternate = false);
 
-    enum class Charset : uint8_t {
+    enum class Charset : u8 {
         UTF8,
         DecSpec,
         DecSuppl,
@@ -573,20 +574,20 @@ private:
         Charset g[4] =
             {Charset::UTF8, Charset::UTF8, Charset::UTF8, Charset::UTF8};
 
-        uint8_t gl = 0;
-        uint8_t gr = 2;
+        u8 gl = 0;
+        u8 gr = 2;
 
-        uint8_t ss = 0;
+        u8 ss = 0;
     };
     CharsetState charsetState;
 
-    static const uint16_t* charCodes[];
-    uint32_t translateCharset(Charset charset, unsigned char ch) const;
+    static const u16* charCodes[];
+    u32 translateCharset(Charset charset, unsigned char ch) const;
 
     struct SavedCursor_SCO {
         bool isSet = false;
-        uint16_t posX = 0;
-        uint16_t posY = 0;
+        u16 posX = 0;
+        u16 posY = 0;
         bool lastCol = false;
     };
     struct SavedCursor_DEC: SavedCursor_SCO {
@@ -605,26 +606,26 @@ private:
     MouseTrackingState mouseTrk;
     struct MouseHighlightState {
         bool active = false;
-        uint16_t startX = 1;
-        uint16_t startY = 1;
-        uint16_t firstRow = 1;
-        uint16_t lastRow = 1;
+        u16 startX = 1;
+        u16 startY = 1;
+        u16 firstRow = 1;
+        u16 lastRow = 1;
     } mouseHighlight;
     struct LocatorState {
-        uint8_t enabled = 0;
+        u8 enabled = 0;
         bool pixels = false;
         bool reportDown = false;
         bool reportUp = false;
-        uint8_t buttons = 0;
-        uint16_t column = 1;
-        uint16_t row = 1;
-        uint16_t pixelX = 1;
-        uint16_t pixelY = 1;
+        u8 buttons = 0;
+        u16 column = 1;
+        u16 row = 1;
+        u16 pixelX = 1;
+        u16 pixelY = 1;
         bool filter = false;
-        uint16_t filterTop = 1;
-        uint16_t filterLeft = 1;
-        uint16_t filterBottom = 1;
-        uint16_t filterRight = 1;
+        u16 filterTop = 1;
+        u16 filterLeft = 1;
+        u16 filterBottom = 1;
+        u16 filterRight = 1;
     } locator;
 
 #ifdef DEBUG

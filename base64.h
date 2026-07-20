@@ -10,6 +10,7 @@
  */
 
 #pragma once
+#include <std/sys/types.h>
 
 #include <cstdint>
 #include <string>
@@ -71,7 +72,7 @@ namespace base64 {
             return false;
         }
         for (size_t k = 0; k < dataSize; ++k) {
-            if (rtab[static_cast<unsigned char>(in[k])] < 0) {
+            if (rtab[(unsigned char)(in[k])] < 0) {
                 return false;
             }
         }
@@ -85,16 +86,16 @@ namespace base64 {
             return false;
         }
 
-        uint32_t value = 0;
+        u32 value = 0;
         int bits = 0;
         for (size_t k = 0; k < dataSize; ++k) {
             value = (value << 6) |
-                    static_cast<uint32_t>(rtab[static_cast<unsigned char>(in[k])]);
+                    (u32)(rtab[(unsigned char)(in[k])]);
             bits += 6;
             if (bits >= 8) {
                 bits -= 8;
-                out.push_back(static_cast<char>((value >> bits) & 0xff));
-                value &= bits == 0 ? 0 : (uint32_t{1} << bits) - 1;
+                out.push_back((char)((value >> bits) & 0xff));
+                value &= bits == 0 ? 0 : (u32{1} << bits) - 1;
             }
         }
         if (value != 0) {

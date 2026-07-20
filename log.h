@@ -13,6 +13,8 @@
 
 #include "options.h"
 
+#include <std/sys/types.h>
+
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -147,4 +149,10 @@ dumpBuffer(const unsigned char* start, const unsigned char* end) {
     } else {
         return "";
     }
+}
+
+inline std::string
+dumpBuffer(const u8* start, const u8* end) {
+    return dumpBuffer((const unsigned char*)start,
+                      (const unsigned char*)end);
 }

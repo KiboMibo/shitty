@@ -92,7 +92,7 @@ namespace {
     }
 
     void
-    getBorder(uint16_t& outBorder) {
+    getBorder(u16& outBorder) {
         const char* option = get("border");
         std::stringstream input(option != nullptr ? option : "");
         int border;
@@ -106,7 +106,7 @@ namespace {
     }
 
     void
-    getSaveLines(uint16_t& outSaveLines) {
+    getSaveLines(u16& outSaveLines) {
         const char* option = get("saveLines");
         std::stringstream input(option != nullptr ? option : "");
         int lines;
@@ -120,7 +120,7 @@ namespace {
     }
 
     void
-    getFontsize(uint8_t& outFontsize) {
+    getFontsize(u8& outFontsize) {
         const char* option = nullptr;
         const auto parsed = commandLine.find("fontsize");
         if (parsed != commandLine.end()) {
@@ -141,7 +141,7 @@ namespace {
     }
 
     void
-    getGeometry(uint16_t& outCols, uint16_t& outRows) {
+    getGeometry(u16& outCols, u16& outRows) {
         const char* option = get("geometry");
         std::stringstream input(option != nullptr ? option : "");
         int cols;
@@ -159,7 +159,7 @@ namespace {
         outRows = rows;
     }
 
-    uint8_t
+    u8
     convHexDigit(const char* name, const char ch) {
         if (ch >= '0' && ch <= '9') {
             return ch - '0';

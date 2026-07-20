@@ -9,9 +9,9 @@ int mouseFramebufferCoordinate(double logical, double scale) {
         return 0;
     }
     const double pixel = logical * std::max(1.0, scale);
-    return static_cast<int>(std::clamp(
-        std::round(pixel), static_cast<double>(INT_MIN),
-        static_cast<double>(INT_MAX)));
+    return (int)(std::clamp(
+        std::round(pixel), (double)(INT_MIN),
+        (double)(INT_MAX)));
 }
 
 MouseProtocolPoint mouseProtocolPoint(
@@ -77,7 +77,7 @@ int MouseWheelAccumulator::consumeAxis(double delta, double& remainder) {
         return 0;
     }
     const double total = remainder + std::clamp(delta, -100.0, 100.0);
-    const int steps = static_cast<int>(std::trunc(total));
+    const int steps = (int)(std::trunc(total));
     remainder = total - steps;
     return steps;
 }
@@ -113,7 +113,7 @@ bool MouseFrontendState::protocolActive(
 }
 
 void MouseFrontendState::updateButton(int button, bool pressed) {
-    if (button < 0 || button >= static_cast<int>(sizeof(buttons_) * CHAR_BIT)) {
+    if (button < 0 || button >= (int)(sizeof(buttons_) * CHAR_BIT)) {
         return;
     }
     const unsigned mask = 1u << button;
@@ -152,7 +152,7 @@ int MouseFrontendState::registerClick(
 
 bool MouseFrontendState::reportMotion(
     int column, int row, MouseTrackingMode mode,
-    MouseTrackingEnc encoding, uint32_t generation) {
+    MouseTrackingEnc encoding, u32 generation) {
     if (!hasMotionContext_ || mode != lastMotionMode_ ||
         encoding != lastMotionEncoding_ ||
         generation != lastMotionGeneration_) {

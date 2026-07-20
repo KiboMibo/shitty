@@ -86,9 +86,9 @@ std::string encodeMouseProtocol(MouseTrackingEnc encoding,
         case MouseTrackingEnc::Default:
             column = std::clamp(column, 1, 223);
             row = std::clamp(row, 1, 223);
-            output << "\x1b[M" << static_cast<char>(32 + code)
-                   << static_cast<char>(32 + column)
-                   << static_cast<char>(32 + row);
+            output << "\x1b[M" << (char)(32 + code)
+                   << (char)(32 + column)
+                   << (char)(32 + row);
             break;
         case MouseTrackingEnc::UTF8:
             column = std::clamp(column, 1, 2015);

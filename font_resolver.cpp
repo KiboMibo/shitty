@@ -9,7 +9,7 @@ namespace {
         if (!pattern) return {};
         FcPatternAddString(
             pattern, FC_FAMILY,
-            reinterpret_cast<const FcChar8*>(family.c_str()));
+            (const FcChar8*)(family.c_str()));
         FcPatternAddInteger(pattern, FC_WEIGHT, weight);
         FcPatternAddInteger(pattern, FC_SLANT, slant);
         FcConfigSubstitute(nullptr, pattern, FcMatchPattern);
@@ -21,7 +21,7 @@ namespace {
         FcChar8* file = nullptr;
         std::string path;
         if (FcPatternGetString(match, FC_FILE, 0, &file) == FcResultMatch)
-            path = reinterpret_cast<const char*>(file);
+            path = (const char*)(file);
         FcPatternDestroy(match);
         return path;
     }

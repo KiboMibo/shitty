@@ -10,6 +10,7 @@
  */
 
 #pragma once
+#include <std/sys/types.h>
 
 #include "base.h"
 #include "options.h"
@@ -20,36 +21,36 @@
 #include <memory>
 
 struct TerminalCell {
-    uint32_t uc_pt = ' ';
-    uint8_t dwidth : 1;
-    uint8_t dwidth_cont : 1;
-    uint8_t bold : 1;
-    uint8_t italic : 1;
-    uint8_t underline : 1;
-    uint8_t inverse : 1;
-    uint8_t wrap : 1;
-    uint8_t dirty : 1;
-    uint8_t faint : 1;
-    uint8_t blink : 1;
-    uint8_t conceal : 1;
-    uint8_t strike : 1;
-    uint8_t overline : 1;
-    uint8_t underline_style : 3;
-    uint8_t protected_char = 0;
-    uint8_t line_attr = 0;
+    u32 uc_pt = ' ';
+    u8 dwidth : 1;
+    u8 dwidth_cont : 1;
+    u8 bold : 1;
+    u8 italic : 1;
+    u8 underline : 1;
+    u8 inverse : 1;
+    u8 wrap : 1;
+    u8 dirty : 1;
+    u8 faint : 1;
+    u8 blink : 1;
+    u8 conceal : 1;
+    u8 strike : 1;
+    u8 overline : 1;
+    u8 underline_style : 3;
+    u8 protected_char = 0;
+    u8 line_attr = 0;
     Color fg;
-    uint8_t _fill1;
+    u8 _fill1;
     Color bg;
-    uint8_t _fill2;
+    u8 _fill2;
     Color underline_color;
-    uint8_t _fill3;
-    uint32_t hyperlink = 0;
-    uint32_t grapheme = 0;
-    int32_t fg_index = -2;
-    int32_t bg_index = -2;
-    int32_t underline_index = -2;
-    uint32_t semantic = 0;
-    uint32_t line_attribute = 0;
+    u8 _fill3;
+    u32 hyperlink = 0;
+    u32 grapheme = 0;
+    i32 fg_index = -2;
+    i32 bg_index = -2;
+    i32 underline_index = -2;
+    u32 semantic = 0;
+    u32 line_attribute = 0;
 
     TerminalCell()
         : dwidth(0)
@@ -82,7 +83,7 @@ struct TerminalCell {
         return !operator==(rhs);
     }
 
-    static Ptr make(uint16_t columns, uint16_t rows) {
+    static Ptr make(u16 columns, u16 rows) {
         return Ptr(new TerminalCell[rows * columns],
                    std::default_delete<TerminalCell[]>());
     }
@@ -106,10 +107,10 @@ static_assert(offsetof(TerminalCell, fg_index) == 28,
 
 struct TerminalCursor {
     Color color = opts.cr;
-    uint16_t posX = 0;
-    uint16_t posY = 0;
+    u16 posX = 0;
+    u16 posY = 0;
 
-    enum class Style : uint8_t {
+    enum class Style : u8 {
         hidden = 0,
         filled_block = 1,
         hollow_block = 2,

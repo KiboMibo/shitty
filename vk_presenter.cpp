@@ -28,18 +28,18 @@
 
 namespace {
     struct GpuCell {
-        uint32_t codepoint;
-        uint32_t attributes;
-        uint32_t foreground;
-        uint32_t background;
-        uint32_t underlineColor;
-        uint32_t hyperlink;
-        uint32_t grapheme;
-        int32_t foregroundIndex;
-        int32_t backgroundIndex;
-        int32_t underlineIndex;
-        uint32_t semantic;
-        uint32_t lineAttribute;
+        u32 codepoint;
+        u32 attributes;
+        u32 foreground;
+        u32 background;
+        u32 underlineColor;
+        u32 hyperlink;
+        u32 grapheme;
+        i32 foregroundIndex;
+        i32 backgroundIndex;
+        i32 underlineIndex;
+        u32 semantic;
+        u32 lineAttribute;
     };
     static_assert(sizeof(GpuCell) == 48,
                   "Vulkan cell layout mismatch");
@@ -48,7 +48,7 @@ namespace {
     failVk(const char* operation, VkResult result) {
         throw std::runtime_error(
             std::string(operation) + " failed (VkResult " +
-            std::to_string(static_cast<int>(result)) + ")");
+            std::to_string((int)(result)) + ")");
     }
 
     void
@@ -60,7 +60,7 @@ namespace {
 
     bool
     deviceHasSwapchain(VkPhysicalDevice physicalDevice) {
-        uint32_t count = 0;
+        u32 count = 0;
         if (vkEnumerateDeviceExtensionProperties(
                 physicalDevice, nullptr, &count, nullptr) != VK_SUCCESS) {
             return false;
@@ -126,22 +126,22 @@ namespace {
     }
 }
 
-uint32_t VulkanPresenter::packCellAttributes(const TerminalCell& cell) {
+u32 VulkanPresenter::packCellAttributes(const TerminalCell& cell) {
     return
-        (static_cast<uint32_t>(cell.bold) << 2) |
-        (static_cast<uint32_t>(cell.italic) << 3) |
-        (static_cast<uint32_t>(cell.underline) << 4) |
-        (static_cast<uint32_t>(cell.inverse) << 5) |
-        (static_cast<uint32_t>(cell.wrap) << 6) |
-        (static_cast<uint32_t>(cell.faint) << 8) |
-        (static_cast<uint32_t>(cell.blink) << 9) |
-        (static_cast<uint32_t>(cell.conceal) << 10) |
-        (static_cast<uint32_t>(cell.strike) << 11) |
-        (static_cast<uint32_t>(cell.overline) << 12) |
-        (static_cast<uint32_t>(cell.underline_style) << 13) |
-        (static_cast<uint32_t>(cell.dwidth) << 16) |
-        (static_cast<uint32_t>(cell.dwidth_cont) << 17) |
-        (static_cast<uint32_t>(cell.dirty) << 23);
+        ((u32)(cell.bold) << 2) |
+        ((u32)(cell.italic) << 3) |
+        ((u32)(cell.underline) << 4) |
+        ((u32)(cell.inverse) << 5) |
+        ((u32)(cell.wrap) << 6) |
+        ((u32)(cell.faint) << 8) |
+        ((u32)(cell.blink) << 9) |
+        ((u32)(cell.conceal) << 10) |
+        ((u32)(cell.strike) << 11) |
+        ((u32)(cell.overline) << 12) |
+        ((u32)(cell.underline_style) << 13) |
+        ((u32)(cell.dwidth) << 16) |
+        ((u32)(cell.dwidth_cont) << 17) |
+        ((u32)(cell.dirty) << 23);
 }
 
 VulkanPresenter::VulkanPresenter(
@@ -235,7 +235,7 @@ VulkanPresenter::~VulkanPresenter() {
 }
 
 void VulkanPresenter::createInstance() {
-    uint32_t extensionCount = 0;
+    u32 extensionCount = 0;
     const char* const* extensions =
         glfwGetRequiredInstanceExtensions(&extensionCount);
     if (extensions == nullptr) {
@@ -264,7 +264,7 @@ void VulkanPresenter::createInstance() {
 }
 
 void VulkanPresenter::selectPhysicalDevice() {
-    uint32_t deviceCount = 0;
+    u32 deviceCount = 0;
     checkVk(vkEnumeratePhysicalDevices(
                 instance, &deviceCount, nullptr),
             "vkEnumeratePhysicalDevices");
@@ -285,14 +285,14 @@ void VulkanPresenter::selectPhysicalDevice() {
             continue;
         }
 
-        uint32_t familyCount = 0;
+        u32 familyCount = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(
             candidate, &familyCount, nullptr);
         std::vector<VkQueueFamilyProperties> families(familyCount);
         vkGetPhysicalDeviceQueueFamilyProperties(
             candidate, &familyCount, families.data());
 
-        for (uint32_t family = 0; family < familyCount; ++family) {
+        for (u32 family = 0; family < familyCount; ++family) {
             VkBool32 presentSupported = VK_FALSE;
             checkVk(vkGetPhysicalDeviceSurfaceSupportKHR(
                         candidate, family, surface, &presentSupported),
@@ -385,7 +385,7 @@ void VulkanPresenter::createCommandResources() {
     VkFenceCreateInfo fenceInfo{};
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-    for (uint32_t i = 0; i < framesInFlight; ++i) {
+    for (u32 i = 0; i < framesInFlight; ++i) {
         frames[i].commandBuffer = commandBuffers[i];
         checkVk(vkCreateSemaphore(
                     device, &semaphoreInfo, nullptr,
@@ -397,13 +397,13 @@ void VulkanPresenter::createCommandResources() {
     }
 }
 
-uint32_t
+u32
 VulkanPresenter::findMemoryType(
-    uint32_t allowed, VkMemoryPropertyFlags properties) const {
+    u32 allowed, VkMemoryPropertyFlags properties) const {
     VkPhysicalDeviceMemoryProperties memoryProperties{};
     vkGetPhysicalDeviceMemoryProperties(
         physicalDevice, &memoryProperties);
-    for (uint32_t i = 0; i < memoryProperties.memoryTypeCount; ++i) {
+    for (u32 i = 0; i < memoryProperties.memoryTypeCount; ++i) {
         if ((allowed & (1u << i)) &&
             (memoryProperties.memoryTypes[i].propertyFlags & properties) ==
                 properties) {
@@ -441,7 +441,7 @@ void VulkanPresenter::createBuffer(
 
 VulkanPresenter::ImageResource
 VulkanPresenter::createImage(
-    uint32_t width, uint32_t height, uint32_t layers,
+    u32 width, u32 height, u32 layers,
     VkFormat format, VkImageUsageFlags usage, bool arrayView) {
     ImageResource result;
     result.width = width;
@@ -591,10 +591,10 @@ void VulkanPresenter::uploadImage(
     vkFreeMemory(device, stagingMemory, nullptr);
 }
 
-std::vector<uint8_t>
+std::vector<u8>
 VulkanPresenter::makeAtlasMap(const Font& font) {
-    constexpr uint32_t unicodeCount = 0x110000;
-    std::vector<uint8_t> result(2 * unicodeCount, 0);
+    constexpr u32 unicodeCount = 0x110000;
+    std::vector<u8> result(2 * unicodeCount, 0);
     const auto end = font.getAtlasMap().end();
 
     Font::AtlasPos replacement{};
@@ -611,7 +611,7 @@ VulkanPresenter::makeAtlasMap(const Font& font) {
         missing = missingIt->second;
     }
 
-    for (uint32_t codepoint = 0; codepoint < unicodeCount; ++codepoint) {
+    for (u32 codepoint = 0; codepoint < unicodeCount; ++codepoint) {
         const auto& position =
             (codepoint >= 0xd800 && codepoint < 0xe000) ||
                     codepoint >= 0xfffe
@@ -633,7 +633,7 @@ VulkanPresenter::makeAtlasMap(const Font& font) {
 void VulkanPresenter::createFontResources(Fontpack* fontpk) {
     const Font& regular = fontpk->getRegular();
     const size_t layerBytes = regular.getAtlas().size();
-    std::vector<uint8_t> atlasData(4 * layerBytes);
+    std::vector<u8> atlasData(4 * layerBytes);
 
     const Font* layers[4] = {
         &regular,
@@ -720,7 +720,7 @@ void VulkanPresenter::createDescriptors() {
     bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[1].descriptorCount = 1;
     bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    for (uint32_t binding = 2; binding < 6; ++binding) {
+    for (u32 binding = 2; binding < 6; ++binding) {
         bindings[binding].binding = binding;
         bindings[binding].descriptorType =
             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -768,7 +768,7 @@ void VulkanPresenter::createDescriptors() {
     checkVk(vkAllocateDescriptorSets(
                 device, &allocateInfo, sets.data()),
             "vkAllocateDescriptorSets");
-    for (uint32_t i = 0; i < framesInFlight; ++i) {
+    for (u32 i = 0; i < framesInFlight; ++i) {
         frames[i].descriptorSet = sets[i];
     }
     updateStaticDescriptors();
@@ -795,7 +795,7 @@ void VulkanPresenter::updateStaticDescriptors() {
              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
         };
         std::array<VkWriteDescriptorSet, 4> writes{};
-        for (uint32_t i = 0; i < writes.size(); ++i) {
+        for (u32 i = 0; i < writes.size(); ++i) {
             writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             writes[i].dstSet = frame.descriptorSet;
             writes[i].dstBinding = i + 2;
@@ -909,7 +909,7 @@ void VulkanPresenter::destroySwapchain() {
     swapchainExtent = {};
 }
 
-void VulkanPresenter::createOutputImage(uint32_t width, uint32_t height) {
+void VulkanPresenter::createOutputImage(u32 width, u32 height) {
     destroyImage(outputImage);
     outputImage = createImage(
         width, height, 1, VK_FORMAT_R8G8B8A8_UNORM,
@@ -922,7 +922,7 @@ void VulkanPresenter::createOutputImage(uint32_t width, uint32_t height) {
     updateOutputDescriptors();
 }
 
-void VulkanPresenter::createSwapchain(uint32_t width, uint32_t height) {
+void VulkanPresenter::createSwapchain(u32 width, u32 height) {
     if (width == 0 || height == 0) {
         return;
     }
@@ -939,7 +939,7 @@ void VulkanPresenter::createSwapchain(uint32_t width, uint32_t height) {
             "Vulkan surface cannot be used as a transfer target");
     }
 
-    uint32_t formatCount = 0;
+    u32 formatCount = 0;
     checkVk(vkGetPhysicalDeviceSurfaceFormatsKHR(
                 physicalDevice, surface, &formatCount, nullptr),
             "vkGetPhysicalDeviceSurfaceFormatsKHR");
@@ -980,7 +980,7 @@ void VulkanPresenter::createSwapchain(uint32_t width, uint32_t height) {
             "Vulkan surface has no blit-capable 32-bit RGBA/BGRA format");
     }
 
-    uint32_t presentModeCount = 0;
+    u32 presentModeCount = 0;
     checkVk(vkGetPhysicalDeviceSurfacePresentModesKHR(
                 physicalDevice, surface, &presentModeCount, nullptr),
             "vkGetPhysicalDeviceSurfacePresentModesKHR");
@@ -997,7 +997,7 @@ void VulkanPresenter::createSwapchain(uint32_t width, uint32_t height) {
 
     VkExtent2D extent{};
     if (capabilities.currentExtent.width !=
-        std::numeric_limits<uint32_t>::max()) {
+        std::numeric_limits<u32>::max()) {
         extent = capabilities.currentExtent;
     } else {
         extent.width = std::clamp(
@@ -1008,7 +1008,7 @@ void VulkanPresenter::createSwapchain(uint32_t width, uint32_t height) {
             capabilities.maxImageExtent.height);
     }
 
-    uint32_t imageCount = capabilities.minImageCount + 1;
+    u32 imageCount = capabilities.minImageCount + 1;
     if (capabilities.maxImageCount > 0) {
         imageCount = std::min(imageCount, capabilities.maxImageCount);
     }
@@ -1103,7 +1103,7 @@ void VulkanPresenter::ensureCellBuffer(
 
 void VulkanPresenter::ensureGraphemeBuffer(
     FrameResources& frame, size_t bytes) {
-    bytes = std::max(bytes, sizeof(uint32_t));
+    bytes = std::max(bytes, sizeof(u32));
     if (frame.graphemeCapacity >= bytes) {
         return;
     }
@@ -1132,11 +1132,11 @@ void VulkanPresenter::ensureGraphemeBuffer(
     updateGraphemeDescriptor(frame);
 }
 
-uint32_t
+u32
 VulkanPresenter::packColor(const Color& color) {
-    return static_cast<uint32_t>(color.red) |
-           (static_cast<uint32_t>(color.green) << 8) |
-           (static_cast<uint32_t>(color.blue) << 16);
+    return (u32)(color.red) |
+           ((u32)(color.green) << 8) |
+           ((u32)(color.blue) << 16);
 }
 
 bool VulkanPresenter::sameSelection(const Rect& lhs, const Rect& rhs) {
@@ -1145,7 +1145,7 @@ bool VulkanPresenter::sameSelection(const Rect& lhs, const Rect& rhs) {
 }
 
 void VulkanPresenter::recordCommands(
-    FrameResources& frame, uint32_t imageIndex,
+    FrameResources& frame, u32 imageIndex,
     const CharVdev& charVdev, const Frame& sourceFrame, bool delta) {
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -1241,7 +1241,7 @@ void VulkanPresenter::recordCommands(
         packColor(cursor.color),
         cursor.posX,
         cursor.posY,
-        static_cast<uint32_t>(cursor.style),
+        (u32)(cursor.style),
         sourceFrame.getScreenReverseVideo() ? 1u : 0u,
         selection.tl.x,
         selection.tl.y,
@@ -1310,13 +1310,13 @@ void VulkanPresenter::recordCommands(
     blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     blit.srcSubresource.layerCount = 1;
     blit.srcOffsets[1] = {
-        static_cast<int32_t>(renderExtent.width),
-        static_cast<int32_t>(renderExtent.height), 1};
+        (i32)(renderExtent.width),
+        (i32)(renderExtent.height), 1};
     blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     blit.dstSubresource.layerCount = 1;
     blit.dstOffsets[1] = {
-        static_cast<int32_t>(swapchainExtent.width),
-        static_cast<int32_t>(swapchainExtent.height), 1};
+        (i32)(swapchainExtent.width),
+        (i32)(swapchainExtent.height), 1};
     vkCmdBlitImage(
         frame.commandBuffer,
         outputImage.image, VK_IMAGE_LAYOUT_GENERAL,
@@ -1339,7 +1339,7 @@ void VulkanPresenter::recordCommands(
 }
 
 void VulkanPresenter::recordRepaintCommands(
-    FrameResources& frame, uint32_t imageIndex) {
+    FrameResources& frame, u32 imageIndex) {
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -1393,13 +1393,13 @@ void VulkanPresenter::recordRepaintCommands(
     blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     blit.srcSubresource.layerCount = 1;
     blit.srcOffsets[1] = {
-        static_cast<int32_t>(renderExtent.width),
-        static_cast<int32_t>(renderExtent.height), 1};
+        (i32)(renderExtent.width),
+        (i32)(renderExtent.height), 1};
     blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     blit.dstSubresource.layerCount = 1;
     blit.dstOffsets[1] = {
-        static_cast<int32_t>(swapchainExtent.width),
-        static_cast<int32_t>(swapchainExtent.height), 1};
+        (i32)(swapchainExtent.width),
+        (i32)(swapchainExtent.height), 1};
     vkCmdBlitImage(
         frame.commandBuffer,
         outputImage.image, VK_IMAGE_LAYOUT_GENERAL,
@@ -1422,8 +1422,8 @@ void VulkanPresenter::recordRepaintCommands(
 }
 
 bool VulkanPresenter::acquirePresentFrame(
-    uint32_t width, uint32_t height, FrameResources*& frame,
-    uint32_t& imageIndex, bool& recreateAfterPresent) {
+    u32 width, u32 height, FrameResources*& frame,
+    u32& imageIndex, bool& recreateAfterPresent) {
     frame = &frames[currentFrame];
     checkVk(vkWaitForFences(
                 device, 1, &frame->fence, VK_TRUE, UINT64_MAX),
@@ -1446,8 +1446,8 @@ bool VulkanPresenter::acquirePresentFrame(
 }
 
 bool VulkanPresenter::submitPresentFrame(
-    uint32_t width, uint32_t height, FrameResources& frame,
-    uint32_t imageIndex, bool recreateAfterPresent) {
+    u32 width, u32 height, FrameResources& frame,
+    u32 imageIndex, bool recreateAfterPresent) {
     const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1485,8 +1485,8 @@ bool VulkanPresenter::submitPresentFrame(
 }
 
 bool VulkanPresenter::repaint() {
-    const uint32_t width = renderExtent.width;
-    const uint32_t height = renderExtent.height;
+    const u32 width = renderExtent.width;
+    const u32 height = renderExtent.height;
     if (!outputInitialized || width == 0 || height == 0) {
         return false;
     }
@@ -1498,7 +1498,7 @@ bool VulkanPresenter::repaint() {
     }
 
     FrameResources* frame = nullptr;
-    uint32_t imageIndex = 0;
+    u32 imageIndex = 0;
     bool recreateAfterPresent = false;
     if (!acquirePresentFrame(
             width, height, frame, imageIndex, recreateAfterPresent)) {
@@ -1511,8 +1511,8 @@ bool VulkanPresenter::repaint() {
 
 bool VulkanPresenter::present(
     const CharVdev& charVdev, const Frame& sourceFrame, bool delta) {
-    const uint32_t width = charVdev.pixelWidth();
-    const uint32_t height = charVdev.pixelHeight();
+    const u32 width = charVdev.pixelWidth();
+    const u32 height = charVdev.pixelHeight();
     if (charVdev.cellData() == nullptr ||
         charVdev.cellCount() == 0 || width == 0 || height == 0) {
         return false;
@@ -1529,7 +1529,7 @@ bool VulkanPresenter::present(
     delta = delta && outputInitialized && previousStateValid;
 
     FrameResources* frame = nullptr;
-    uint32_t imageIndex = 0;
+    u32 imageIndex = 0;
     bool recreateAfterPresent = false;
     if (!acquirePresentFrame(
             width, height, frame, imageIndex, recreateAfterPresent)) {
@@ -1538,10 +1538,10 @@ bool VulkanPresenter::present(
 
     std::vector<GpuCell> gpuCells;
     gpuCells.reserve(charVdev.cellCount());
-    std::vector<uint32_t> graphemeData = {0};
+    std::vector<u32> graphemeData = {0};
     for (size_t index = 0; index < charVdev.cellCount(); ++index) {
         const TerminalCell& cell = charVdev.cellData()[index];
-        uint32_t graphemeIndex = 0;
+        u32 graphemeIndex = 0;
         if (cell.grapheme) {
             const auto& grapheme = sourceFrame.getGrapheme(cell.grapheme);
             if (!grapheme.empty()) {
@@ -1571,7 +1571,7 @@ bool VulkanPresenter::present(
         gpuCells.size() * sizeof(GpuCell);
     ensureCellBuffer(*frame, cellBytes);
     std::memcpy(frame->cells, gpuCells.data(), cellBytes);
-    const size_t graphemeBytes = graphemeData.size() * sizeof(uint32_t);
+    const size_t graphemeBytes = graphemeData.size() * sizeof(u32);
     ensureGraphemeBuffer(*frame, graphemeBytes);
     std::memcpy(frame->graphemes, graphemeData.data(), graphemeBytes);
 

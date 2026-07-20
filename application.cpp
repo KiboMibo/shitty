@@ -112,7 +112,7 @@ namespace {
             }
             argc -= 2;
             argv[argc] = nullptr;
-            return static_cast<int>(fd);
+            return (int)(fd);
         }
         return -1;
     }
@@ -139,9 +139,9 @@ namespace {
     bool locallyConsumedKeys[GLFW_KEY_LAST + 1]{};
     struct PendingKittyTextKey {
         bool active = false;
-        uint32_t primary = 0;
-        uint32_t base = 0;
-        uint16_t modifiers = 0;
+        u32 primary = 0;
+        u32 base = 0;
+        u16 modifiers = 0;
         Vterm::KeyEventType event = Vterm::KeyEventType::Press;
     } pendingKittyTextKey;
 
@@ -157,14 +157,14 @@ namespace {
         // largest cell-aligned framebuffer size representable by an integer
         // logical window size.
         const int scaleNumerator = std::max(
-            120, static_cast<int>(std::lround(scale * 120.0f)));
+            120, (int)(std::lround(scale * 120.0f)));
         for (int cells = innerSize / cellSize; cells > 0; --cells) {
             const int framebufferTarget = 2 * border + cells * cellSize;
-            const int windowTarget = static_cast<int>(
-                (static_cast<int64_t>(framebufferTarget) * 120 +
+            const int windowTarget = (int)(
+                ((i64)(framebufferTarget) * 120 +
                  scaleNumerator - 1) /
                 scaleNumerator);
-            if (static_cast<int64_t>(windowTarget) * scaleNumerator / 120 ==
+            if ((i64)(windowTarget) * scaleNumerator / 120 ==
                 framebufferTarget) {
                 return windowTarget;
             }
@@ -214,7 +214,7 @@ namespace {
         }
         if (pid == 0) {
             configureTerminalChildEnvironment();
-            if (execvp(execPath, const_cast<char* const*>(argv)) < 0) {
+            if (execvp(execPath, (char* const*)(argv)) < 0) {
                 SYS_ERROR("execvp of ", execPath);
             }
         }
@@ -272,8 +272,8 @@ namespace {
                             GLFW_MOD_SUPER);
     }
 
-    uint16_t kittyModifiers(int modifiers) {
-        uint16_t result = 0;
+    u16 kittyModifiers(int modifiers) {
+        u16 result = 0;
         if (modifiers & GLFW_MOD_SHIFT) {
             result |= 1;
         }
@@ -296,11 +296,11 @@ namespace {
         return result;
     }
 
-    uint32_t decodeKeyName(const char* name) {
+    u32 decodeKeyName(const char* name) {
         if (name == nullptr || !*name) {
             return 0;
         }
-        const auto* bytes = reinterpret_cast<const unsigned char*>(name);
+        const auto* bytes = (const unsigned char*)(name);
         if (bytes[0] < 0x80) {
             return bytes[0];
         }
@@ -320,7 +320,7 @@ namespace {
         return 0;
     }
 
-    uint32_t baseLayoutKey(int key) {
+    u32 baseLayoutKey(int key) {
         if (key >= GLFW_KEY_A && key <= GLFW_KEY_Z) {
             return key - GLFW_KEY_A + 'a';
         }
@@ -593,8 +593,8 @@ namespace {
             return;
         }
 
-        const uint8_t kittyFlags = vt->getKittyKeyboardFlags();
-        const uint16_t kittyMods = kittyModifiers(rawModifiers);
+        const u8 kittyFlags = vt->getKittyKeyboardFlags();
+        const u16 kittyMods = kittyModifiers(rawModifiers);
         const auto event = action == GLFW_RELEASE
                                ? Vterm::KeyEventType::Release
                            : action == GLFW_REPEAT
@@ -613,13 +613,13 @@ namespace {
                 return;
             }
 
-            const uint32_t baseKey = baseLayoutKey(key);
-            uint32_t primaryKey = decodeKeyName(
+            const u32 baseKey = baseLayoutKey(key);
+            u32 primaryKey = decodeKeyName(
                 glfwGetKeyName(key, scancode));
             if (!primaryKey) {
                 primaryKey = baseKey;
             }
-            const uint16_t textMods = kittyMods & ~(64 | 128);
+            const u16 textMods = kittyMods & ~(64 | 128);
             if (primaryKey &&
                 ((textMods & (2 | 4 | 8)) || (kittyFlags & 0x08))) {
                 if (pressed && !(textMods & (2 | 4 | 8))) {
@@ -644,7 +644,7 @@ namespace {
         }
 
         if (key == GLFW_KEY_ESCAPE) {
-            vt->writePty(static_cast<uint8_t>('\x1b'), modifiers, true);
+            vt->writePty((u8)('\x1b'), modifiers, true);
             return;
         }
 
@@ -655,7 +655,7 @@ namespace {
         }
 
         if (legacyModifiers & GLFW_MOD_CONTROL) {
-            uint8_t character = 0;
+            u8 character = 0;
             if (controlCharacter(
                     key, legacyModifiers & GLFW_MOD_SHIFT, character)) {
                 vt->writePty(character, modifiers, true);
@@ -663,11 +663,11 @@ namespace {
         }
     }
 
-    void onTextInput(uint32_t codepoint) {
+    void onTextInput(u32 codepoint) {
         if (pendingKittyTextKey.active) {
             const auto pending = pendingKittyTextKey;
             pendingKittyTextKey.active = false;
-            const uint32_t alternate = codepoint != pending.primary
+            const u32 alternate = codepoint != pending.primary
                                            ? codepoint : 0;
             vt->writeKittyKey(pending.primary, alternate, pending.base,
                               pending.modifiers, pending.event);
@@ -684,14 +684,14 @@ namespace {
         const VtModifier modifiers = convertModifiers(rawModifiers);
 
         if (codepoint < 0x80) {
-            vt->writePty(static_cast<uint8_t>(codepoint), modifiers, true);
+            vt->writePty((u8)(codepoint), modifiers, true);
             return;
         }
 
         std::string text;
         Utf8Encoder::pushUnicode(
-            codepoint, [&text](uint8_t byte) {
-            text.push_back(static_cast<char>(byte));
+            codepoint, [&text](u8 byte) {
+            text.push_back((char)(byte));
         });
         if ((rawModifiers & GLFW_MOD_ALT) && opts.altSendsEscape) {
             vt->writePty("\x1b", true);
@@ -708,7 +708,7 @@ namespace {
             return 1.0;
         }
         return std::max(
-            1.0, static_cast<double>(framebufferWidth) / windowWidth);
+            1.0, (double)(framebufferWidth) / windowWidth);
     }
 
     double pixelScaleY() {
@@ -720,7 +720,7 @@ namespace {
             return 1.0;
         }
         return std::max(
-            1.0, static_cast<double>(framebufferHeight) / windowHeight);
+            1.0, (double)(framebufferHeight) / windowHeight);
     }
 
     int toPixelX(double x) {
@@ -738,7 +738,7 @@ namespace {
 
     void mouseProtocolCoordinates(MouseTrackingEnc encoding,
                                   int pixelX, int pixelY,
-                                  uint16_t& column, uint16_t& row) {
+                                  u16& column, u16& row) {
         const MouseProtocolPoint point = mouseProtocolPoint(
             encoding, pixelX, pixelY,
             {windowContext.framebufferWidth,
@@ -766,8 +766,8 @@ namespace {
             return;
         }
 
-        uint16_t column = 0;
-        uint16_t row = 0;
+        u16 column = 0;
+        u16 row = 0;
         mouseProtocolCoordinates(tracking.enc, pixelX, pixelY, column, row);
         if (tracking.mode == MouseTrackingMode::VT200_Highlight &&
             type == MouseEventType::Release) {
@@ -788,8 +788,8 @@ namespace {
     void openHyperlink(const std::string& uri) {
         pid_t pid = -1;
         char* const argv[] = {
-            const_cast<char*>("xdg-open"),
-            const_cast<char*>(uri.c_str()),
+            (char*)("xdg-open"),
+            (char*)(uri.c_str()),
             nullptr,
         };
         const int error = posix_spawnp(
@@ -809,8 +809,8 @@ namespace {
         mouseContext.frontend.updateButton(button, pressed);
         const auto& tracking = vt->getMouseTrackingState();
         const int protocolButton = mouseTerminalButton(button);
-        uint16_t locatorColumn = 1;
-        uint16_t locatorRow = 1;
+        u16 locatorColumn = 1;
+        u16 locatorRow = 1;
         mouseProtocolCoordinates(
             MouseTrackingEnc::Default, pixelX, pixelY,
             locatorColumn, locatorRow);
@@ -870,8 +870,8 @@ namespace {
         const int pixelX = toPixelX(x);
         const int pixelY = toPixelY(y);
         const int modifiers = keyboardModifiers();
-        uint16_t locatorColumn = 1;
-        uint16_t locatorRow = 1;
+        u16 locatorColumn = 1;
+        u16 locatorRow = 1;
         mouseProtocolCoordinates(
             MouseTrackingEnc::Default, pixelX, pixelY,
             locatorColumn, locatorRow);
@@ -894,8 +894,8 @@ namespace {
                 return;
             }
 
-            uint16_t column = 0;
-            uint16_t row = 0;
+            u16 column = 0;
+            u16 row = 0;
             mouseProtocolCoordinates(tracking.enc, pixelX, pixelY, column, row);
             if (mouseContext.frontend.reportMotion(
                     column, row, tracking.mode, tracking.enc,
@@ -1042,7 +1042,7 @@ namespace {
         fflush(printerPipe);
     }
 
-    void leds(uint8_t) override {}
+    void leds(u8) override {}
 
     void notify(const std::string&, const std::string& title,
                 const std::string& body, bool close) override {
@@ -1051,12 +1051,12 @@ namespace {
         glfwRequestWindowAttention(window);
     }
 
-    void progress(uint32_t state, uint32_t) override {
+    void progress(u32 state, u32) override {
         if (state == 2 || state == 4) glfwRequestWindowAttention(window);
     }
 
     void windowOperation(
-        uint32_t operation, uint32_t first, uint32_t second) override {
+        u32 operation, u32 first, u32 second) override {
         switch (operation) {
             case 1:
                 glfwRestoreWindow(window);
@@ -1066,8 +1066,8 @@ namespace {
                 return;
             case 3:
                 glfwSetWindowPos(window,
-                                 static_cast<int>(first),
-                                 static_cast<int>(second));
+                                 (int)(first),
+                                 (int)(second));
                 return;
             case 5:
                 glfwFocusWindow(window);
@@ -1120,13 +1120,13 @@ namespace {
         int pixelWidth = 0;
         int pixelHeight = 0;
         if (operation == 4 && first && second) {
-            pixelHeight = static_cast<int>(first);
-            pixelWidth = static_cast<int>(second);
+            pixelHeight = (int)(first);
+            pixelWidth = (int)(second);
         } else if (operation == 8 && first && second) {
             pixelHeight = 2 * opts.border +
-                          static_cast<int>(first) * fontpk->getPy();
+                          (int)(first) * fontpk->getPy();
             pixelWidth = 2 * opts.border +
-                         static_cast<int>(second) * fontpk->getPx();
+                         (int)(second) * fontpk->getPx();
         } else {
             return;
         }
@@ -1135,8 +1135,8 @@ namespace {
         glfwGetWindowContentScale(window, &xScale, &yScale);
         glfwSetWindowSize(
             window,
-            std::max(1, static_cast<int>(std::ceil(pixelWidth / xScale))),
-            std::max(1, static_cast<int>(std::ceil(pixelHeight / yScale))));
+            std::max(1, (int)(std::ceil(pixelWidth / xScale))),
+            std::max(1, (int)(std::ceil(pixelHeight / yScale))));
     }
 
     VtermWindowInfo windowInfo() override {
@@ -1311,7 +1311,7 @@ namespace {
     }
 
     static ApplicationImpl& fromWindow(GLFWwindow* window) {
-        return *static_cast<ApplicationImpl*>(
+        return *(ApplicationImpl*)(
             glfwGetWindowUserPointer(window));
     }
 
@@ -1360,10 +1360,10 @@ namespace {
             if (windowContext.resizePending) {
                 const int width = std::min(
                     windowContext.framebufferWidth,
-                    static_cast<int>(UINT16_MAX));
+                    (int)(UINT16_MAX));
                 const int height = std::min(
                     windowContext.framebufferHeight,
-                    static_cast<int>(UINT16_MAX));
+                    (int)(UINT16_MAX));
                 windowContext.resizePending = false;
                 windowContext.redrawPending = false;
                 vt->resize(width, height);
@@ -1503,9 +1503,9 @@ namespace {
         glfwWindowHintString(GLFW_WAYLAND_APP_ID, "org.zutty.Zutty");
 
         const int initialWidth = std::max(
-            320, static_cast<int>(opts.nCols) * opts.fontsize / 2);
+            320, (int)(opts.nCols) * opts.fontsize / 2);
         const int initialHeight = std::max(
-            200, static_cast<int>(opts.nRows) * opts.fontsize);
+            200, (int)(opts.nRows) * opts.fontsize);
         window = glfwCreateWindow(
             initialWidth, initialHeight, opts.title, nullptr, nullptr);
         if (window == nullptr) {
@@ -1526,10 +1526,10 @@ namespace {
         float yScale = 1.0f;
         glfwGetWindowContentScale(window, &xScale, &yScale);
         const float density = std::max({1.0f, xScale, yScale});
-        opts.fontsize = static_cast<uint8_t>(std::clamp(
-            static_cast<int>(std::lround(opts.fontsize * density)), 1, 255));
-        opts.border = static_cast<uint16_t>(std::clamp(
-            static_cast<int>(std::lround(opts.border * density)), 0, 3000));
+        opts.fontsize = (u8)(std::clamp(
+            (int)(std::lround(opts.fontsize * density)), 1, 255));
+        opts.border = (u16)(std::clamp(
+            (int)(std::lround(opts.border * density)), 0, 3000));
 
         fontpk = Fontpack::create(composer, opts.fontname, opts.dwfontname);
         composer.fonts = fontpk;
@@ -1538,14 +1538,14 @@ namespace {
         const int desiredPixelHeight =
             2 * opts.border + opts.nRows * fontpk->getPy();
         const int desiredWidth = std::max(
-            1, static_cast<int>(std::ceil(desiredPixelWidth / density)));
+            1, (int)(std::ceil(desiredPixelWidth / density)));
         const int desiredHeight = std::max(
-            1, static_cast<int>(std::ceil(desiredPixelHeight / density)));
+            1, (int)(std::ceil(desiredPixelHeight / density)));
         glfwSetWindowSizeLimits(
             window,
-            std::max(1, static_cast<int>(std::ceil(
+            std::max(1, (int)(std::ceil(
                             (2 * opts.border + fontpk->getPx()) / density))),
-            std::max(1, static_cast<int>(std::ceil(
+            std::max(1, (int)(std::ceil(
                             (2 * opts.border + fontpk->getPy()) / density))),
             GLFW_DONT_CARE, GLFW_DONT_CARE);
         glfwSetWindowSize(window, desiredWidth, desiredHeight);

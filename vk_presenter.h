@@ -8,6 +8,7 @@
  */
 
 #pragma once
+#include <std/sys/types.h>
 
 #include "char_vdev.h"
 #include "font_pack.h"
@@ -33,16 +34,16 @@ public:
     bool present(const CharVdev& charVdev, const Frame& sourceFrame,
                  bool delta);
     bool repaint();
-    static uint32_t packCellAttributes(const TerminalCell& cell);
+    static u32 packCellAttributes(const TerminalCell& cell);
 
 private:
     struct ImageResource {
         VkImage image = VK_NULL_HANDLE;
         VkDeviceMemory memory = VK_NULL_HANDLE;
         VkImageView view = VK_NULL_HANDLE;
-        uint32_t width = 0;
-        uint32_t height = 0;
-        uint32_t layers = 0;
+        u32 width = 0;
+        u32 height = 0;
+        u32 layers = 0;
     };
 
     struct FrameResources {
@@ -61,50 +62,50 @@ private:
     };
 
     struct PushConstants {
-        uint32_t glyphWidth;
-        uint32_t glyphHeight;
-        uint32_t columns;
-        uint32_t rows;
-        uint32_t outputWidth;
-        uint32_t outputHeight;
-        uint32_t border;
-        uint32_t cursorColor;
-        int32_t cursorX;
-        int32_t cursorY;
-        uint32_t cursorStyle;
-        uint32_t screenReverseVideo;
-        int32_t selectionLeft;
-        int32_t selectionTop;
-        int32_t selectionRight;
-        int32_t selectionBottom;
-        uint32_t rectangularSelection;
-        uint32_t showWraps;
-        uint32_t hasDoubleWidth;
-        int32_t previousCursorX;
-        int32_t previousCursorY;
-        uint32_t deltaFrame;
-        uint32_t selectionChanged;
-        uint32_t selectionForeground;
-        uint32_t selectionBackground;
-        uint32_t selectionColorMask;
-        uint32_t blinkVisible;
-        uint32_t cursorBlink;
+        u32 glyphWidth;
+        u32 glyphHeight;
+        u32 columns;
+        u32 rows;
+        u32 outputWidth;
+        u32 outputHeight;
+        u32 border;
+        u32 cursorColor;
+        i32 cursorX;
+        i32 cursorY;
+        u32 cursorStyle;
+        u32 screenReverseVideo;
+        i32 selectionLeft;
+        i32 selectionTop;
+        i32 selectionRight;
+        i32 selectionBottom;
+        u32 rectangularSelection;
+        u32 showWraps;
+        u32 hasDoubleWidth;
+        i32 previousCursorX;
+        i32 previousCursorY;
+        u32 deltaFrame;
+        u32 selectionChanged;
+        u32 selectionForeground;
+        u32 selectionBackground;
+        u32 selectionColorMask;
+        u32 blinkVisible;
+        u32 cursorBlink;
     };
     static_assert(sizeof(PushConstants) == 112,
                   "Vulkan push constant layout mismatch");
 
-    static constexpr uint32_t framesInFlight = 2;
+    static constexpr u32 framesInFlight = 2;
 
     GLFWwindow* window = nullptr;
-    uint32_t glyphWidth = 0;
-    uint32_t glyphHeight = 0;
+    u32 glyphWidth = 0;
+    u32 glyphHeight = 0;
     bool hasDoubleWidth = false;
 
     VkInstance instance = VK_NULL_HANDLE;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
     VkDevice device = VK_NULL_HANDLE;
-    uint32_t queueFamily = UINT32_MAX;
+    u32 queueFamily = UINT32_MAX;
     VkQueue queue = VK_NULL_HANDLE;
     VkCommandPool commandPool = VK_NULL_HANDLE;
 
@@ -133,7 +134,7 @@ private:
     std::vector<bool> imageInitialized;
 
     std::array<FrameResources, framesInFlight> frames;
-    uint32_t currentFrame = 0;
+    u32 currentFrame = 0;
 
     void createInstance();
     void selectPhysicalDevice();
@@ -142,14 +143,14 @@ private:
     void createFontResources(Fontpack* fontpk);
     void createDescriptors();
     void createPipeline();
-    void createSwapchain(uint32_t width, uint32_t height);
+    void createSwapchain(u32 width, u32 height);
     void destroySwapchain();
-    void createOutputImage(uint32_t width, uint32_t height);
+    void createOutputImage(u32 width, u32 height);
     void ensureCellBuffer(FrameResources& frame, size_t bytes);
     void ensureGraphemeBuffer(FrameResources& frame, size_t bytes);
 
     ImageResource createImage(
-        uint32_t width, uint32_t height, uint32_t layers,
+        u32 width, u32 height, u32 layers,
         VkFormat format, VkImageUsageFlags usage,
         bool arrayView = false);
     void destroyImage(ImageResource& image);
@@ -158,25 +159,25 @@ private:
     void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
                       VkMemoryPropertyFlags properties,
                       VkBuffer& buffer, VkDeviceMemory& memory) const;
-    uint32_t findMemoryType(uint32_t allowed,
+    u32 findMemoryType(u32 allowed,
                             VkMemoryPropertyFlags properties) const;
     void updateStaticDescriptors();
     void updateOutputDescriptors();
     void updateCellDescriptor(FrameResources& frame);
     void updateGraphemeDescriptor(FrameResources& frame);
-    void recordCommands(FrameResources& frame, uint32_t imageIndex,
+    void recordCommands(FrameResources& frame, u32 imageIndex,
                         const CharVdev& charVdev,
                         const Frame& sourceFrame, bool delta);
     void recordRepaintCommands(
-        FrameResources& frame, uint32_t imageIndex);
+        FrameResources& frame, u32 imageIndex);
     bool acquirePresentFrame(
-        uint32_t width, uint32_t height, FrameResources*& frame,
-        uint32_t& imageIndex, bool& recreateAfterPresent);
+        u32 width, u32 height, FrameResources*& frame,
+        u32& imageIndex, bool& recreateAfterPresent);
     bool submitPresentFrame(
-        uint32_t width, uint32_t height, FrameResources& frame,
-        uint32_t imageIndex, bool recreateAfterPresent);
+        u32 width, u32 height, FrameResources& frame,
+        u32 imageIndex, bool recreateAfterPresent);
 
-    static std::vector<uint8_t> makeAtlasMap(const Font& font);
-    static uint32_t packColor(const Color& color);
+    static std::vector<u8> makeAtlasMap(const Font& font);
+    static u32 packColor(const Color& color);
     static bool sameSelection(const Rect& lhs, const Rect& rhs);
 };

@@ -10,6 +10,7 @@
  */
 
 #pragma once
+#include <std/sys/types.h>
 
 #include "terminal_types.h"
 #include "utf8.h"
@@ -21,21 +22,21 @@
 
 class Frame {
 public:
-    using Grapheme = std::vector<uint32_t>;
+    using Grapheme = std::vector<u32>;
     Frame();
 
-    Frame(uint16_t winPx_, uint16_t winPy_,
-          uint16_t nCols_, uint16_t nRows_,
-          uint16_t& marginTop_, uint16_t& marginBottom_,
-          uint16_t saveLines_ = 0);
+    Frame(u16 winPx_, u16 winPy_,
+          u16 nCols_, u16 nRows_,
+          u16& marginTop_, u16& marginBottom_,
+          u16 saveLines_ = 0);
 
-    void resize(uint16_t winPx_, uint16_t winPy_,
-                uint16_t nCols_, uint16_t nRows_,
-                uint16_t& marginTop_, uint16_t& marginBottom_);
+    void resize(u16 winPx_, u16 winPy_,
+                u16 nCols_, u16 nRows_,
+                u16& marginTop_, u16& marginBottom_);
 
     void dropScrollbackHistory();
 
-    void fillCells(uint16_t ch, const TerminalCell& attrs);
+    void fillCells(u16 ch, const TerminalCell& attrs);
     void fullCopyCells(TerminalCell* const dest) const;
     void deltaCopyCells(TerminalCell* const dest) const;
 
@@ -46,38 +47,38 @@ public:
         cells = nullptr;
     }
 
-    const TerminalCell& getCell(uint16_t pY, uint16_t pX) const;
-    TerminalCell& getCell(uint16_t pY, uint16_t pX);
-    const TerminalCell& getViewCell(uint16_t pY, uint16_t pX) const;
+    const TerminalCell& getCell(u16 pY, u16 pX) const;
+    TerminalCell& getCell(u16 pY, u16 pX);
+    const TerminalCell& getViewCell(u16 pY, u16 pX) const;
 
-    uint32_t internGrapheme(const Grapheme& codepoints);
-    const Grapheme& getGrapheme(uint32_t id) const;
+    u32 internGrapheme(const Grapheme& codepoints);
+    const Grapheme& getGrapheme(u32 id) const;
 
-    void eraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
+    void eraseInRow(u16 pY, u16 startX, u16 count,
                     const TerminalCell& attrs);
-    void selectiveEraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
+    void selectiveEraseInRow(u16 pY, u16 startX, u16 count,
                              const TerminalCell& attrs);
-    void moveInRow(uint16_t pY, uint16_t dstX, uint16_t srcX,
-                   uint16_t count);
-    void copyRow(uint16_t dstY, uint16_t srcY, uint16_t startX,
-                 uint16_t count);
+    void moveInRow(u16 pY, u16 dstX, u16 srcX,
+                   u16 count);
+    void copyRow(u16 dstY, u16 srcY, u16 startX,
+                 u16 count);
 
-    void scrollUp(uint16_t top, uint16_t bottom, uint16_t count);
-    void scrollDown(uint16_t top, uint16_t bottom, uint16_t count);
-    void restoreHistory(uint16_t count);
+    void scrollUp(u16 top, u16 bottom, u16 count);
+    void scrollDown(u16 top, u16 bottom, u16 count);
+    void restoreHistory(u16 count);
 
-    void pageUp(uint16_t count);
-    void pageDown(uint16_t count);
+    void pageUp(u16 count);
+    void pageDown(u16 count);
     bool pageToBottom();
 
-    uint16_t getHistoryRows() const {
+    u16 getHistoryRows() const {
         return history.size();
     };
-    uint16_t getViewOffset() const {
+    u16 getViewOffset() const {
         return viewOffset;
     };
-    void collectHyperlinkIds(std::set<uint32_t>& ids) const;
-    void recolorPalette(uint16_t index, Color color);
+    void collectHyperlinkIds(std::set<u32>& ids) const;
+    void recolorPalette(u16 index, Color color);
     void recolorDefault(bool foreground, Color color);
 
     void expose() {
@@ -91,13 +92,13 @@ public:
     }
 
     TerminalCursor getCursor() const;
-    void setCursorPos(uint16_t pY, uint16_t pX);
+    void setCursorPos(u16 pY, u16 pX);
     void setCursorStyle(TerminalCursor::Style cs);
     void setCursorColor(Color color);
     void setSelectionColor(bool foreground, Color color, bool enabled);
     Color getSelectionForeground() const { return selectionForeground; }
     Color getSelectionBackground() const { return selectionBackground; }
-    uint8_t getSelectionColorMask() const { return selectionColorMask; }
+    u8 getSelectionColorMask() const { return selectionColorMask; }
     void setBlinkState(bool visible, bool cursor) {
         blinkVisible = visible;
         cursorBlink = cursor;
@@ -110,7 +111,7 @@ public:
     }
     bool getScreenReverseVideo() const { return screenReverseVideo; }
 
-    enum class SelectSnapTo : uint8_t {
+    enum class SelectSnapTo : u8 {
         Char = 0,
         Word,
         Line,
@@ -135,23 +136,23 @@ public:
 
     constexpr const static size_t cellSize = sizeof(TerminalCell);
 
-    uint64_t seqNo = 0;
+    u64 seqNo = 0;
 
-    uint16_t winPx = 0;
-    uint16_t winPy = 0;
-    uint16_t nCols = 0;
-    uint16_t nRows = 0;
-    uint16_t saveLines = 0;
+    u16 winPx = 0;
+    u16 winPy = 0;
+    u16 nCols = 0;
+    u16 nRows = 0;
+    u16 saveLines = 0;
 
 private:
     struct GraphemeStore {
         std::vector<Grapheme> values = {Grapheme{}};
-        std::map<Grapheme, uint32_t> ids;
+        std::map<Grapheme, u32> ids;
     };
 
-    using RowId = uint32_t;
+    using RowId = u32;
 
-    uint16_t viewOffset;
+    u16 viewOffset;
 
     TerminalCell::Ptr cells = nullptr;
     std::shared_ptr<GraphemeStore> graphemes =
@@ -164,45 +165,45 @@ private:
     Rect selection;
     Color selectionForeground = opts.fg;
     Color selectionBackground = opts.bg;
-    uint8_t selectionColorMask = 0;
+    u8 selectionColorMask = 0;
     bool blinkVisible = true;
     bool cursorBlink = false;
     bool screenReverseVideo = false;
     SelectSnapTo snapTo = SelectSnapTo::Char;
 
     struct Damage {
-        uint32_t start = 0;
-        uint32_t end = 0;
-        uint32_t totalCells = 0;
+        u32 start = 0;
+        u32 end = 0;
+        u32 totalCells = 0;
 
         void reset();
         void expose();
-        void add(uint32_t start_, uint32_t end_);
+        void add(u32 start_, u32 end_);
     };
     Damage damage;
 
     RowId getLogicalRow(int pY) const;
     const TerminalCell* getLogicalRowPtr(int pY) const;
     const TerminalCell* getViewRowPtr(int pY) const;
-    uint32_t getIdx(uint16_t pY, uint16_t pX) const;
-    const TerminalCell& operator[](uint32_t idx) const;
-    TerminalCell& operator[](uint32_t idx);
+    u32 getIdx(u16 pY, u16 pX) const;
+    const TerminalCell& operator[](u32 idx) const;
+    TerminalCell& operator[](u32 idx);
 
-    void eraseRange(uint32_t start, uint32_t end,
+    void eraseRange(u32 start, u32 end,
                     const TerminalCell& attrs);
-    void copyCells(uint32_t dstIx, uint32_t srcIx, uint32_t count);
-    void moveCells(uint32_t dstIx, uint32_t srcIx, uint32_t count);
+    void copyCells(u32 dstIx, u32 srcIx, u32 count);
+    void moveCells(u32 dstIx, u32 srcIx, u32 count);
 
     void damageDeltaCopy(
-        TerminalCell* dst, uint32_t start, uint32_t count) const;
+        TerminalCell* dst, u32 start, u32 count) const;
 
     static SelectSnapTo cycleSelectSnapTo(SelectSnapTo& snapTo) {
-        return static_cast<SelectSnapTo>(
-            (static_cast<uint8_t>(snapTo) + 1) %
-            static_cast<uint8_t>(SelectSnapTo::COUNT));
+        return (SelectSnapTo)(
+            ((u8)(snapTo) + 1) %
+            (u8)(SelectSnapTo::COUNT));
     }
 
-    void vscrollSelection(uint16_t top, uint16_t bottom,
+    void vscrollSelection(u16 top, u16 bottom,
                           int vertOffset, bool captureHistory);
     void invalidateSelection(const Rect&& damage);
 

@@ -237,9 +237,9 @@ void Font::loadScaled(const FT_Face& face) {
     double tpx = opts.fontsize *
                  (double)face->max_advance_width / face->units_per_EM;
     double tpy = tpx * face->height / face->max_advance_width + 1;
-    const uint16_t facePx = round(tpx);
-    const uint16_t facePy = round(tpy);
-    const uint16_t faceBaseline = round(
+    const u16 facePx = round(tpx);
+    const u16 facePy = round(tpy);
+    const u16 faceBaseline = round(
         tpy * face->ascender / face->height);
     if ((overlay || dwidth) && (px != facePx || py != facePy)) {
         throw std::runtime_error(
@@ -265,8 +265,8 @@ void Font::loadScaled(const FT_Face& face) {
 }
 
 void Font::loadFace(const FT_Face& face, FT_ULong c) {
-    const uint8_t atlas_row = atlas_seq / nx;
-    const uint8_t atlas_col = atlas_seq - nx * atlas_row;
+    const u8 atlas_row = atlas_seq / nx;
+    const u8 atlas_col = atlas_seq - nx * atlas_row;
     const AtlasPos apos = {atlas_col, atlas_row};
 
     loadFace(face, c, apos);
@@ -299,7 +299,7 @@ void Font::loadFace(const FT_Face& face, FT_ULong c, const AtlasPos& apos) {
 
     if (overlay) {
         for (int j = 0; j < bh; ++j) {
-            uint8_t* atl_dst_row =
+            u8* atl_dst_row =
                 atlasBuf.data() + atlas_glyph_offset + j * nx * px;
             for (int k = 0; k < bw; ++k) {
                 *atl_dst_row++ = 0;
@@ -316,14 +316,14 @@ void Font::loadFace(const FT_Face& face, FT_ULong c, const AtlasPos& apos) {
        * per pixel, or 1 bit (mono) per pixel. Leftmost pixel is MSB.
        *
        */
-    const uint8_t* bmp_src_row;
-    uint8_t* atl_dst_row;
+    const unsigned char* bmp_src_row;
+    u8* atl_dst_row;
     switch (bmp.pixel_mode) {
         case FT_PIXEL_MODE_MONO:
             for (int j = sh; j < bh; ++j) {
                 bmp_src_row = bmp.buffer + j * bmp.pitch;
                 atl_dst_row = atlasBuf.data() + atlas_write_offset + j * nx * px;
-                uint8_t byte = 0;
+                u8 byte = 0;
                 for (int k = 0; k < bw; ++k) {
                     if (k % 8 == 0) {
                         byte = *bmp_src_row++;

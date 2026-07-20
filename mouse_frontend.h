@@ -1,4 +1,5 @@
 #pragma once
+#include <std/sys/types.h>
 
 #include "mouse_protocol.h"
 
@@ -67,7 +68,7 @@ public:
 
     bool reportMotion(int column, int row,
                       MouseTrackingMode mode, MouseTrackingEnc encoding,
-                      uint32_t generation);
+                      u32 generation);
     void resetMotion();
 
     MouseWheelSteps consumeWheel(double x, double y, bool reporting) {
@@ -86,7 +87,7 @@ private:
     bool hasMotionContext_ = false;
     MouseTrackingMode lastMotionMode_ = MouseTrackingMode::Disabled;
     MouseTrackingEnc lastMotionEncoding_ = MouseTrackingEnc::Default;
-    uint32_t lastMotionGeneration_ = 0;
+    u32 lastMotionGeneration_ = 0;
     int lastReportColumn_ = 0;
     int lastReportRow_ = 0;
     MouseWheelAccumulator wheel_;

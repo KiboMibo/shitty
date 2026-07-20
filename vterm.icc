@@ -29,7 +29,7 @@ inline bool parseOscColor(const std::string& spec, Color& color) {
         if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
         return -1;
     };
-    const auto component = [&](const std::string& value, uint8_t& out) {
+    const auto component = [&](const std::string& value, u8& out) {
         if (value.empty() || value.size() > 4) return false;
         unsigned parsed = 0;
         for (unsigned char ch : value) {
@@ -38,7 +38,7 @@ inline bool parseOscColor(const std::string& spec, Color& color) {
             parsed = parsed * 16 + digit;
         }
         const unsigned maximum = (1u << (4 * value.size())) - 1;
-        out = static_cast<uint8_t>((parsed * 255 + maximum / 2) / maximum);
+        out = (u8)((parsed * 255 + maximum / 2) / maximum);
         return true;
     };
 
@@ -199,8 +199,8 @@ VtermImpl::getMouseTrackingState() const {
 }
 
 inline bool
-VtermImpl::mouseHighlightRelease(uint16_t endX, uint16_t endY,
-                             uint16_t mouseX, uint16_t mouseY) {
+VtermImpl::mouseHighlightRelease(u16 endX, u16 endY,
+                             u16 mouseX, u16 mouseY) {
     if (mouseTrk.mode != MouseTrackingMode::VT200_Highlight ||
         !mouseHighlight.active) return false;
     mouseHighlight.active = false;
@@ -214,8 +214,8 @@ VtermImpl::mouseHighlightRelease(uint16_t endX, uint16_t endY,
                  << ';' << mouseX << ';' << mouseY << 'T';
         writeCsiResponse(response.str());
     } else {
-        const auto coordinate = [](uint16_t value) {
-            return static_cast<char>(32 + std::clamp<uint16_t>(value, 1, 223));
+        const auto coordinate = [](u16 value) {
+            return (char)(32 + std::clamp<u16>(value, 1, 223));
         };
         response << (mouseHighlight.startX == endX &&
                      mouseHighlight.startY == endY ? 't' : 'T')
@@ -231,20 +231,20 @@ VtermImpl::mouseHighlightRelease(uint16_t endX, uint16_t endY,
 }
 
 inline void
-VtermImpl::setLocatorPosition(uint16_t column, uint16_t row,
-                          uint16_t pixelX, uint16_t pixelY, uint8_t buttons) {
-    locator.column = std::max<uint16_t>(1, column);
-    locator.row = std::max<uint16_t>(1, row);
-    locator.pixelX = std::max<uint16_t>(1, pixelX);
-    locator.pixelY = std::max<uint16_t>(1, pixelY);
+VtermImpl::setLocatorPosition(u16 column, u16 row,
+                          u16 pixelX, u16 pixelY, u8 buttons) {
+    locator.column = std::max<u16>(1, column);
+    locator.row = std::max<u16>(1, row);
+    locator.pixelX = std::max<u16>(1, pixelX);
+    locator.pixelY = std::max<u16>(1, pixelY);
     locator.buttons = buttons & 15;
     if (locator.enabled && locator.filter) {
-        const uint16_t x = locator.pixels ? locator.pixelX : locator.column;
-        const uint16_t y = locator.pixels ? locator.pixelY : locator.row;
+        const u16 x = locator.pixels ? locator.pixelX : locator.column;
+        const u16 y = locator.pixels ? locator.pixelY : locator.row;
         if (y < locator.filterTop || y > locator.filterBottom ||
             x < locator.filterLeft || x > locator.filterRight) {
             std::ostringstream response;
-            response << "10;" << static_cast<unsigned>(locator.buttons) << ';'
+            response << "10;" << (unsigned)(locator.buttons) << ';'
                      << y << ';' << x << ";0&w";
             writeCsiResponse(response.str());
             locator.filter = false;
@@ -254,17 +254,17 @@ VtermImpl::setLocatorPosition(uint16_t column, uint16_t row,
 }
 
 inline void
-VtermImpl::reportLocatorButton(uint8_t button, bool pressed) {
+VtermImpl::reportLocatorButton(u8 button, bool pressed) {
     if (!locator.enabled || (pressed ? !locator.reportDown : !locator.reportUp) ||
         button < 1 || button > 4) return;
-    const uint8_t bits[] = {0, 4, 2, 1, 8};
+    const u8 bits[] = {0, 4, 2, 1, 8};
     if (pressed) locator.buttons |= bits[button];
     else locator.buttons &= ~bits[button];
-    const uint32_t event = 2 + (button - 1) * 2 + (pressed ? 0 : 1);
-    const uint16_t x = locator.pixels ? locator.pixelX : locator.column;
-    const uint16_t y = locator.pixels ? locator.pixelY : locator.row;
+    const u32 event = 2 + (button - 1) * 2 + (pressed ? 0 : 1);
+    const u16 x = locator.pixels ? locator.pixelX : locator.column;
+    const u16 y = locator.pixels ? locator.pixelY : locator.row;
     std::ostringstream response;
-    response << event << ';' << static_cast<unsigned>(locator.buttons) << ';'
+    response << event << ';' << (unsigned)(locator.buttons) << ';'
              << y << ';' << x << ";0&w";
     writeCsiResponse(response.str());
     if (locator.enabled == 2) locator.enabled = 0;
@@ -280,7 +280,7 @@ VtermImpl::kittyKeyboardState() const {
     return altScreenBufferMode ? kittyKeyboardAlt : kittyKeyboardPri;
 }
 
-inline uint8_t
+inline u8
 VtermImpl::getKittyKeyboardFlags() const {
     return kittyKeyboardState().flags;
 }
@@ -324,11 +324,11 @@ VtermImpl::pageDown() {
 }
 
 inline void
-VtermImpl::mouseWheelUp(uint16_t count) {
+VtermImpl::mouseWheelUp(u16 count) {
     if (altScrollMode && altScreenBufferMode) {
         inputOps[0] = 1;
         nInputOps = 1;
-        for (uint16_t k = 0; k < count; ++k) {
+        for (u16 k = 0; k < count; ++k) {
             writePty(VtKey::Up);
         }
     } else {
@@ -338,11 +338,11 @@ VtermImpl::mouseWheelUp(uint16_t count) {
 }
 
 inline void
-VtermImpl::mouseWheelDown(uint16_t count) {
+VtermImpl::mouseWheelDown(u16 count) {
     if (altScrollMode && altScreenBufferMode) {
         inputOps[0] = 1;
         nInputOps = 1;
-        for (uint16_t k = 0; k < count; ++k) {
+        for (u16 k = 0; k < count; ++k) {
             writePty(VtKey::Down);
         }
     } else {
@@ -484,7 +484,7 @@ VtermImpl::clearScreen() {
 }
 
 inline void
-VtermImpl::fillScreen(uint16_t ch) {
+VtermImpl::fillScreen(u16 ch) {
     cf->fillCells(ch, attrs);
 }
 
@@ -595,7 +595,7 @@ VtermImpl::readPty() {
 
             logT << "pty read: " << dumpBuffer(inputBuf, inputBuf + n);
             presentationPending |= processInput(inputBuf, n, false);
-            drainBytes += static_cast<size_t>(n);
+            drainBytes += (size_t)(n);
             continue;
         }
         if (n == 0) {
@@ -638,50 +638,50 @@ VtermImpl::isCursorInsideMargins() {
 }
 
 inline void
-VtermImpl::eraseRow(uint16_t pY) {
+VtermImpl::eraseRow(u16 pY) {
     cf->eraseInRow(pY, hMargin, nColsEff - hMargin, attrs);
 }
 
 inline void
-VtermImpl::eraseRows(uint16_t startY, uint16_t count) {
-    for (uint16_t pY = startY; pY < startY + count; ++pY) {
+VtermImpl::eraseRows(u16 startY, u16 count) {
+    for (u16 pY = startY; pY < startY + count; ++pY) {
         eraseRow(pY);
     }
 }
 
 inline void
-VtermImpl::copyRow(uint16_t dstY, uint16_t srcY) {
+VtermImpl::copyRow(u16 dstY, u16 srcY) {
     cf->copyRow(dstY, srcY, hMargin, nColsEff - hMargin);
 }
 
 inline void
-VtermImpl::insertRows(uint16_t startY, uint16_t count) {
-    for (uint16_t pY = marginBottom - count - 1; pY >= startY; --pY) {
+VtermImpl::insertRows(u16 startY, u16 count) {
+    for (u16 pY = marginBottom - count - 1; pY >= startY; --pY) {
         copyRow(pY + count, pY);
         if (!pY) {
             break;
         }
     }
 
-    for (uint16_t pY = startY; pY < startY + count; ++pY) {
+    for (u16 pY = startY; pY < startY + count; ++pY) {
         eraseRow(pY);
     }
 }
 
 inline void
-VtermImpl::deleteRows(uint16_t startY, uint16_t count) {
-    for (uint16_t pY = startY; pY < marginBottom - count; ++pY) {
+VtermImpl::deleteRows(u16 startY, u16 count) {
+    for (u16 pY = startY; pY < marginBottom - count; ++pY) {
         copyRow(pY, pY + count);
     }
 
-    for (uint16_t pY = marginBottom - count; pY < marginBottom; ++pY) {
+    for (u16 pY = marginBottom - count; pY < marginBottom; ++pY) {
         eraseRow(pY);
     }
 }
 
 inline void
-VtermImpl::insertCols(uint16_t startX, uint16_t count) {
-    for (uint16_t r = marginTop; r < marginBottom; ++r) {
+VtermImpl::insertCols(u16 startX, u16 count) {
+    for (u16 r = marginTop; r < marginBottom; ++r) {
         cf->moveInRow(r, startX + count, startX, nColsEff - startX - count);
         cf->eraseInRow(r, startX, count, attrs);
         normalizeWideCells(r);
@@ -689,8 +689,8 @@ VtermImpl::insertCols(uint16_t startX, uint16_t count) {
 }
 
 inline void
-VtermImpl::deleteCols(uint16_t startX, uint16_t count) {
-    for (uint16_t r = marginTop; r < marginBottom; ++r) {
+VtermImpl::deleteCols(u16 startX, u16 count) {
+    for (u16 r = marginTop; r < marginBottom; ++r) {
         cf->moveInRow(r, startX, startX + count, nColsEff - startX - count);
         cf->eraseInRow(r, nColsEff - count, count, attrs);
         normalizeWideCells(r);
@@ -698,7 +698,7 @@ VtermImpl::deleteCols(uint16_t startX, uint16_t count) {
 }
 
 inline void
-VtermImpl::clearWideCellAt(uint16_t row, uint16_t column) {
+VtermImpl::clearWideCellAt(u16 row, u16 column) {
     auto& cell = cf->getCell(row, column);
     if (cell.dwidth_cont && column > 0) {
         cf->eraseInRow(row, column - 1, 1, attrs);
@@ -709,9 +709,9 @@ VtermImpl::clearWideCellAt(uint16_t row, uint16_t column) {
 }
 
 inline void
-VtermImpl::normalizeWideCells(uint16_t row) {
+VtermImpl::normalizeWideCells(u16 row) {
     const Frame& frame = *cf;
-    for (uint16_t column = 0; column < nCols; ++column) {
+    for (u16 column = 0; column < nCols; ++column) {
         const auto& cell = frame.getCell(row, column);
         if (cell.dwidth &&
             (column + 1 >= nCols ||
@@ -725,8 +725,8 @@ VtermImpl::normalizeWideCells(uint16_t row) {
 }
 
 inline void
-VtermImpl::rectangleOrigin(uint16_t& rowBase, uint16_t& columnBase,
-                       uint16_t& rowLimit, uint16_t& columnLimit) const {
+VtermImpl::rectangleOrigin(u16& rowBase, u16& columnBase,
+                       u16& rowLimit, u16& columnLimit) const {
     if (originMode == OriginMode::ScrollingRegion) {
         rowBase = marginTop;
         columnBase = hMargin;
@@ -742,14 +742,14 @@ VtermImpl::rectangleOrigin(uint16_t& rowBase, uint16_t& columnBase,
 
 inline bool
 VtermImpl::rectangleFromParams(size_t offset, Rectangle& rectangle) const {
-    uint16_t rowBase, columnBase, rowLimit, columnLimit;
+    u16 rowBase, columnBase, rowLimit, columnLimit;
     rectangleOrigin(rowBase, columnBase, rowLimit, columnLimit);
-    const uint32_t rows = rowLimit - rowBase;
-    const uint32_t columns = columnLimit - columnBase;
-    const uint32_t rawTop = inputOps[offset] ? inputOps[offset] : 1;
-    const uint32_t rawLeft = inputOps[offset + 1] ? inputOps[offset + 1] : 1;
-    const uint32_t rawBottom = inputOps[offset + 2] ? inputOps[offset + 2] : rows;
-    const uint32_t rawRight = inputOps[offset + 3] ? inputOps[offset + 3] : columns;
+    const u32 rows = rowLimit - rowBase;
+    const u32 columns = columnLimit - columnBase;
+    const u32 rawTop = inputOps[offset] ? inputOps[offset] : 1;
+    const u32 rawLeft = inputOps[offset + 1] ? inputOps[offset + 1] : 1;
+    const u32 rawBottom = inputOps[offset + 2] ? inputOps[offset + 2] : rows;
+    const u32 rawRight = inputOps[offset + 3] ? inputOps[offset + 3] : columns;
     if (rawTop > rawBottom || rawLeft > rawRight) return false;
 
     rectangle.top = rowBase + std::min(rawTop, rows) - 1;
@@ -821,8 +821,8 @@ VtermImpl::placeGraphicChar() {
         pt = Unicode_Replacement_Character;
     }
 
-    const uint16_t lineCols = cf->getCell(posY, 0).line_attr
-                                  ? std::max<uint16_t>(1, nColsEff / 2)
+    const u16 lineCols = cf->getCell(posY, 0).line_attr
+                                  ? std::max<u16>(1, nColsEff / 2)
                                   : nColsEff;
     if (autoWrapMode && lastCol) {
         cf->getCell(posY, posX).wrap = 1;
@@ -834,7 +834,7 @@ VtermImpl::placeGraphicChar() {
         // The wide glyph belongs wholly to the next row.  Mark the last
         // occupied cell as the soft-wrap boundary, not the unused final
         // column: otherwise copying the logical line invents a space.
-        const uint16_t wrapColumn = posX > hMargin ? posX - 1 : posX;
+        const u16 wrapColumn = posX > hMargin ? posX - 1 : posX;
         cf->getCell(posY, wrapColumn).wrap = 1;
         inp_CR();
         inp_LF();
@@ -850,8 +850,8 @@ VtermImpl::placeGraphicChar() {
         w = 1;
     }
 
-    const uint16_t clusterX = posX;
-    const uint16_t clusterY = posY;
+    const u16 clusterX = posX;
+    const u16 clusterY = posY;
     clearWideCellAt(posY, posX);
     auto& c = cf->getCell(posY, posX);
     c = attrs;
@@ -903,8 +903,8 @@ VtermImpl::inp_CR() {
 inline void
 VtermImpl::jumpToNextTabStop() {
     const bool insideMargins = isCursorInsideMargins();
-    const uint16_t left = insideMargins ? hMargin : 0;
-    const uint16_t right = insideMargins ? nColsEff : nCols;
+    const u16 left = insideMargins ? hMargin : 0;
+    const u16 right = insideMargins ? nColsEff : nCols;
     if (!tabStopsCustomized) {
         do {
             posX = ((posX / 8) + 1) * 8;
@@ -955,7 +955,7 @@ VtermImpl::esc_DCS(unsigned char fin) {
     vlog << fin << "'" << std::endl;
 #endif
 
-    uint8_t ix = 0;
+    u8 ix = 0;
     bool cs96 = false;
     switch (scsDst) {
         case '(':
@@ -1057,9 +1057,9 @@ VtermImpl::esc_IND() {
 }
 
 inline std::string
-VtermImpl::printableLine(uint16_t row) const {
-    std::vector<uint32_t> codepoints;
-    for (uint16_t column = 0; column < nCols; ++column) {
+VtermImpl::printableLine(u16 row) const {
+    std::vector<u32> codepoints;
+    for (u16 column = 0; column < nCols; ++column) {
         const auto& cell = cf->getCell(row, column);
         if (cell.dwidth_cont) continue;
         const auto& grapheme = cf->getGrapheme(cell.grapheme);
@@ -1069,21 +1069,21 @@ VtermImpl::printableLine(uint16_t row) const {
     while (!codepoints.empty() && codepoints.back() == ' ') codepoints.pop_back();
     std::string result;
     const auto sink = [&result](char ch) { result.push_back(ch); };
-    for (const uint32_t codepoint : codepoints)
+    for (const u32 codepoint : codepoints)
         Utf8Encoder::pushUnicode(codepoint, sink);
     result.push_back('\n');
     return result;
 }
 
 inline void
-VtermImpl::printLine(uint16_t row) {
-    host.print(printableLine(std::min<uint16_t>(row, nRows - 1)));
+VtermImpl::printLine(u16 row) {
+    host.print(printableLine(std::min<u16>(row, nRows - 1)));
 }
 
 inline void
 VtermImpl::csi_MC(bool privateMode) {
     TRACE_FUN;
-    const uint32_t operation = inputOps[0];
+    const u32 operation = inputOps[0];
     if (privateMode) {
         if (operation == 1) printLine(posY);
         else if (operation == 4) autoPrintMode = false;
@@ -1091,7 +1091,7 @@ VtermImpl::csi_MC(bool privateMode) {
     } else {
         if (operation == 0) {
             std::string screen;
-            for (uint16_t row = 0; row < nRows; ++row)
+            for (u16 row = 0; row < nRows; ++row)
                 screen += printableLine(row);
             host.print(screen);
         } else if (operation == 4) {
@@ -1109,12 +1109,12 @@ inline void
 VtermImpl::csi_DECLL() {
     TRACE_FUN;
     for (size_t index = 0; index < nInputOps; ++index) {
-        const uint32_t operation = inputOps[index];
+        const u32 operation = inputOps[index];
         if (operation == 0) ledState = 0;
         else if (operation >= 1 && operation <= 3)
-            ledState |= static_cast<uint8_t>(1u << (operation - 1));
+            ledState |= (u8)(1u << (operation - 1));
         else if (operation >= 21 && operation <= 23)
-            ledState &= static_cast<uint8_t>(~(1u << (operation - 21)));
+            ledState &= (u8)(~(1u << (operation - 21)));
     }
     host.leds(ledState);
     setState(InputState::Normal);
@@ -1122,7 +1122,7 @@ VtermImpl::csi_DECLL() {
 
 inline bool
 VtermImpl::consumePrinterControllerByte(unsigned char ch) {
-    printerControllerPending.push_back(static_cast<char>(ch));
+    printerControllerPending.push_back((char)(ch));
     static const std::string terminators[] = {"\x1b[4i", "\x9b" "4i"};
     for (;;) {
         for (const auto& terminator : terminators) {
@@ -1158,18 +1158,18 @@ VtermImpl::esc_RI() {
 inline void
 VtermImpl::csi_ecma48_SL() {
     TRACE_FUN;
-    uint32_t arg = inputOps[0] ? inputOps[0] : 1u;
-    arg = std::min<uint32_t>(arg, nColsEff - hMargin);
-    deleteCols(hMargin, static_cast<uint16_t>(arg));
+    u32 arg = inputOps[0] ? inputOps[0] : 1u;
+    arg = std::min<u32>(arg, nColsEff - hMargin);
+    deleteCols(hMargin, (u16)(arg));
     setState(InputState::Normal);
 }
 
 inline void
 VtermImpl::csi_ecma48_SR() {
     TRACE_FUN;
-    uint32_t arg = inputOps[0] ? inputOps[0] : 1u;
-    arg = std::min<uint32_t>(arg, nColsEff - hMargin);
-    insertCols(hMargin, static_cast<uint16_t>(arg));
+    u32 arg = inputOps[0] ? inputOps[0] : 1u;
+    arg = std::min<u32>(arg, nColsEff - hMargin);
+    insertCols(hMargin, (u16)(arg));
     setState(InputState::Normal);
 }
 
@@ -1211,10 +1211,10 @@ VtermImpl::csi_DECSCUSR() {
 inline void
 VtermImpl::csi_DECIC() {
     TRACE_FUN;
-    uint32_t arg = inputOps[0] ? inputOps[0] : 1u;
+    u32 arg = inputOps[0] ? inputOps[0] : 1u;
     if (isCursorInsideMargins()) {
-        arg = std::min<uint32_t>(arg, nColsEff - posX);
-        insertCols(posX, static_cast<uint16_t>(arg));
+        arg = std::min<u32>(arg, nColsEff - posX);
+        insertCols(posX, (u16)(arg));
     }
     setState(InputState::Normal);
 }
@@ -1222,10 +1222,10 @@ VtermImpl::csi_DECIC() {
 inline void
 VtermImpl::csi_DECDC() {
     TRACE_FUN;
-    uint32_t arg = inputOps[0] ? inputOps[0] : 1u;
+    u32 arg = inputOps[0] ? inputOps[0] : 1u;
     if (isCursorInsideMargins()) {
-        arg = std::min<uint32_t>(arg, nColsEff - posX);
-        deleteCols(posX, static_cast<uint16_t>(arg));
+        arg = std::min<u32>(arg, nColsEff - posX);
+        deleteCols(posX, (u16)(arg));
     }
     setState(InputState::Normal);
 }
@@ -1269,7 +1269,7 @@ VtermImpl::esc_HTS() {
     TRACE_FUN;
     if (!tabStopsCustomized) {
         for (unsigned column = 8; column < nCols; column += 8) {
-            tabStops.push_back(static_cast<uint16_t>(column));
+            tabStops.push_back((u16)(column));
         }
         tabStopsCustomized = true;
     }
@@ -1346,11 +1346,11 @@ VtermImpl::esc_DECRC() {
 inline void
 VtermImpl::csi_CUU() {
     TRACE_FUN;
-    uint32_t arg = inputOps[0] ? inputOps[0] : 1;
+    u32 arg = inputOps[0] ? inputOps[0] : 1;
     if (posY >= marginTop && posY < marginBottom) {
-        arg = std::min<uint32_t>(arg, posY - marginTop);
+        arg = std::min<u32>(arg, posY - marginTop);
     } else {
-        arg = std::min<uint32_t>(arg, posY);
+        arg = std::min<u32>(arg, posY);
     }
     posY -= arg;
     lastCol = false;
@@ -1360,11 +1360,11 @@ VtermImpl::csi_CUU() {
 inline void
 VtermImpl::csi_CUD() {
     TRACE_FUN;
-    uint32_t arg = inputOps[0] ? inputOps[0] : 1;
+    u32 arg = inputOps[0] ? inputOps[0] : 1;
     if (posY >= marginTop && posY < marginBottom) {
-        arg = std::min<uint32_t>(arg, marginBottom - posY - 1);
+        arg = std::min<u32>(arg, marginBottom - posY - 1);
     } else {
-        arg = std::min<uint32_t>(arg, nRows - posY - 1);
+        arg = std::min<u32>(arg, nRows - posY - 1);
     }
     posY += arg;
     lastCol = false;
@@ -1374,10 +1374,10 @@ VtermImpl::csi_CUD() {
 inline void
 VtermImpl::csi_CUF() {
     TRACE_FUN;
-    uint32_t arg = inputOps[0] ? inputOps[0] : 1;
+    u32 arg = inputOps[0] ? inputOps[0] : 1;
     const bool insideMargins = posX >= hMargin && posX < nColsEff;
-    const uint16_t right = insideMargins ? nColsEff : nCols;
-    arg = std::min<uint32_t>(arg, right - posX - 1);
+    const u16 right = insideMargins ? nColsEff : nCols;
+    arg = std::min<u32>(arg, right - posX - 1);
     posX += arg;
     lastCol = false;
     setState(InputState::Normal);
@@ -1386,17 +1386,17 @@ VtermImpl::csi_CUF() {
 inline void
 VtermImpl::csi_CUB() {
     TRACE_FUN;
-    uint32_t arg = inputOps[0] ? inputOps[0] : 1;
+    u32 arg = inputOps[0] ? inputOps[0] : 1;
     const bool insideMargins = posX >= hMargin && posX < nColsEff;
     if (posX == nColsEff) {
-        arg = std::min<uint32_t>(
+        arg = std::min<u32>(
             arg == UINT32_MAX ? arg : arg + 1, posX);
     }
     while (arg > 0) {
-        const uint16_t leftEdge = insideMargins ? hMargin : 0;
-        const uint16_t left = posX >= leftEdge ? posX - leftEdge : posX;
+        const u16 leftEdge = insideMargins ? hMargin : 0;
+        const u16 left = posX >= leftEdge ? posX - leftEdge : posX;
         if (left > 0) {
-            const uint32_t step = std::min<uint32_t>(arg, left);
+            const u32 step = std::min<u32>(arg, left);
             posX -= step;
             arg -= step;
             continue;
@@ -1430,8 +1430,8 @@ VtermImpl::csi_CPL() {
 inline void
 VtermImpl::csi_CHA() {
     TRACE_FUN;
-    uint32_t col = inputOps[0] ? inputOps[0] : 1;
-    col = std::max<uint32_t>(1, std::min<uint32_t>(col, nCols));
+    u32 col = inputOps[0] ? inputOps[0] : 1;
+    col = std::max<u32>(1, std::min<u32>(col, nCols));
     posX = col - 1;
     lastCol = false;
     setState(InputState::Normal);
@@ -1447,9 +1447,9 @@ VtermImpl::csi_HPA() {
 inline void
 VtermImpl::csi_HPR() {
     TRACE_FUN;
-    const uint32_t arg = inputOps[0] ? inputOps[0] : 1;
-    inputOps[0] = std::min<uint64_t>(
-        static_cast<uint64_t>(posX) + arg + 1, UINT32_MAX);
+    const u32 arg = inputOps[0] ? inputOps[0] : 1;
+    inputOps[0] = std::min<u64>(
+        (u64)(posX) + arg + 1, UINT32_MAX);
     csi_CHA();
     setState(InputState::Normal);
 }
@@ -1457,8 +1457,8 @@ VtermImpl::csi_HPR() {
 inline void
 VtermImpl::csi_VPA() {
     TRACE_FUN;
-    uint32_t row = inputOps[0] ? inputOps[0] : 1;
-    row = std::max<uint32_t>(1, std::min<uint32_t>(row, nRows));
+    u32 row = inputOps[0] ? inputOps[0] : 1;
+    row = std::max<u32>(1, std::min<u32>(row, nRows));
     posY = row - 1;
     lastCol = false;
     setState(InputState::Normal);
@@ -1467,9 +1467,9 @@ VtermImpl::csi_VPA() {
 inline void
 VtermImpl::csi_VPR() {
     TRACE_FUN;
-    const uint32_t arg = inputOps[0] ? inputOps[0] : 1;
-    const uint32_t row = std::min<uint64_t>(
-        static_cast<uint64_t>(posY) + arg + 1, nRows);
+    const u32 arg = inputOps[0] ? inputOps[0] : 1;
+    const u32 row = std::min<u64>(
+        (u64)(posY) + arg + 1, nRows);
     posY = row - 1;
     lastCol = false;
     setState(InputState::Normal);
@@ -1478,18 +1478,18 @@ VtermImpl::csi_VPR() {
 inline void
 VtermImpl::csi_CUP() {
     TRACE_FUN;
-    uint32_t row = inputOps[0] ? inputOps[0] : 1;
-    uint32_t col = (nInputOps > 1 && inputOps[1]) ? inputOps[1] : 1;
+    u32 row = inputOps[0] ? inputOps[0] : 1;
+    u32 col = (nInputOps > 1 && inputOps[1]) ? inputOps[1] : 1;
     switch (originMode) {
         case OriginMode::Absolute:
-            row = std::max<uint32_t>(1, std::min<uint32_t>(row, nRows)) - 1;
-            col = std::max<uint32_t>(1, std::min<uint32_t>(col, nCols)) - 1;
+            row = std::max<u32>(1, std::min<u32>(row, nRows)) - 1;
+            col = std::max<u32>(1, std::min<u32>(col, nCols)) - 1;
             break;
         case OriginMode::ScrollingRegion:
-            row = marginTop + std::max<uint32_t>(
-                1, std::min<uint32_t>(row, marginBottom - marginTop)) - 1;
-            col = hMargin + std::max<uint32_t>(
-                1, std::min<uint32_t>(col, nColsEff - hMargin)) - 1;
+            row = marginTop + std::max<u32>(
+                1, std::min<u32>(row, marginBottom - marginTop)) - 1;
+            col = hMargin + std::max<u32>(
+                1, std::min<u32>(col, nColsEff - hMargin)) - 1;
             break;
     }
 
@@ -1504,13 +1504,13 @@ VtermImpl::csi_CUP() {
 inline void
 VtermImpl::csi_SU() {
     TRACE_FUN;
-    uint32_t arg = inputOps[0] ? inputOps[0] : 1;
-    arg = std::min<uint32_t>(arg, marginBottom - marginTop);
+    u32 arg = inputOps[0] ? inputOps[0] : 1;
+    arg = std::min<u32>(arg, marginBottom - marginTop);
     if (horizMarginMode) {
-        deleteRows(marginTop, static_cast<uint16_t>(arg));
+        deleteRows(marginTop, (u16)(arg));
     } else {
-        cf->scrollUp(marginTop, marginBottom, static_cast<uint16_t>(arg));
-        eraseRows(marginBottom - arg, static_cast<uint16_t>(arg));
+        cf->scrollUp(marginTop, marginBottom, (u16)(arg));
+        eraseRows(marginBottom - arg, (u16)(arg));
         lastCol = false;
     }
     setState(InputState::Normal);
@@ -1519,13 +1519,13 @@ VtermImpl::csi_SU() {
 inline void
 VtermImpl::csi_SD() {
     TRACE_FUN;
-    uint32_t arg = inputOps[0] ? inputOps[0] : 1;
-    arg = std::min<uint32_t>(arg, marginBottom - marginTop);
+    u32 arg = inputOps[0] ? inputOps[0] : 1;
+    arg = std::min<u32>(arg, marginBottom - marginTop);
     if (horizMarginMode) {
-        insertRows(marginTop, static_cast<uint16_t>(arg));
+        insertRows(marginTop, (u16)(arg));
     } else {
-        cf->scrollDown(marginTop, marginBottom, static_cast<uint16_t>(arg));
-        eraseRows(marginTop, static_cast<uint16_t>(arg));
+        cf->scrollDown(marginTop, marginBottom, (u16)(arg));
+        eraseRows(marginTop, (u16)(arg));
         lastCol = false;
     }
     setState(InputState::Normal);
@@ -1534,8 +1534,8 @@ VtermImpl::csi_SD() {
 inline void
 VtermImpl::csi_CHT() {
     TRACE_FUN;
-    uint32_t arg = inputOps[0] ? inputOps[0] : 1;
-    arg = std::min<uint32_t>(arg, nCols);
+    u32 arg = inputOps[0] ? inputOps[0] : 1;
+    arg = std::min<u32>(arg, nCols);
     if (arg == 1) {
         inp_HT();
     } else {
@@ -1549,10 +1549,10 @@ VtermImpl::csi_CHT() {
 inline void
 VtermImpl::csi_CBT() {
     TRACE_FUN;
-    uint32_t arg = inputOps[0] ? inputOps[0] : 1;
-    arg = std::min<uint32_t>(arg, nCols);
-    for (uint32_t k = 0; k < arg; ++k) {
-        const uint16_t left = isCursorInsideMargins() ? hMargin : 0;
+    u32 arg = inputOps[0] ? inputOps[0] : 1;
+    arg = std::min<u32>(arg, nCols);
+    for (u32 k = 0; k < arg; ++k) {
+        const u16 left = isCursorInsideMargins() ? hMargin : 0;
         if (!tabStopsCustomized) {
             if (posX > 0 && posX % 8 == 0) {
                 posX -= 8;
@@ -1573,14 +1573,14 @@ VtermImpl::csi_CBT() {
 inline void
 VtermImpl::csi_REP() {
     TRACE_FUN;
-    uint32_t arg = inputOps[0] ? inputOps[0] : 1;
-    const uint64_t observableCells =
-        (static_cast<uint64_t>(opts.saveLines) + nRows + 1) * nCols;
+    u32 arg = inputOps[0] ? inputOps[0] : 1;
+    const u64 observableCells =
+        ((u64)(opts.saveLines) + nRows + 1) * nCols;
     if (arg > observableCells) {
-        arg = static_cast<uint32_t>(observableCells +
+        arg = (u32)(observableCells +
                                     (arg - observableCells) % nCols);
     }
-    for (uint32_t k = 0; k < arg; ++k) {
+    for (u32 k = 0; k < arg; ++k) {
         placeGraphicChar();
     }
     utf8dec.setUnicode(' ');
@@ -1594,12 +1594,12 @@ VtermImpl::csi_ED() {
     switch (inputOps[0]) {
         case 0:
             cf->eraseInRow(posY, posX, nCols - posX, attrs);
-            for (uint16_t pY = posY + 1; pY < nRows; ++pY) {
+            for (u16 pY = posY + 1; pY < nRows; ++pY) {
                 eraseRow(pY);
             }
             break;
         case 1:
-            for (uint16_t pY = 0; pY < posY; ++pY) {
+            for (u16 pY = 0; pY < posY; ++pY) {
                 eraseRow(pY);
             }
             cf->eraseInRow(posY, 0, posX + 1, attrs);
@@ -1609,7 +1609,7 @@ VtermImpl::csi_ED() {
             break;
 
         case 2:
-            for (uint16_t pY = 0; pY < nRows; ++pY) {
+            for (u16 pY = 0; pY < nRows; ++pY) {
                 eraseRow(pY);
             }
             break;
@@ -1648,15 +1648,15 @@ VtermImpl::csi_DECSED() {
     TRACE_FUN;
     normalizeCursorPos();
     if (inputOps[0] == 0 || inputOps[0] == 2) {
-        const uint16_t firstRow = inputOps[0] == 2 ? 0 : posY;
-        const uint16_t lastRow = nRows - 1;
-        for (uint16_t row = firstRow; row <= lastRow; ++row) {
-            const uint16_t first = row == posY && inputOps[0] == 0 ? posX : 0;
+        const u16 firstRow = inputOps[0] == 2 ? 0 : posY;
+        const u16 lastRow = nRows - 1;
+        for (u16 row = firstRow; row <= lastRow; ++row) {
+            const u16 first = row == posY && inputOps[0] == 0 ? posX : 0;
             cf->selectiveEraseInRow(row, first, nCols - first, attrs);
         }
     } else if (inputOps[0] == 1) {
-        for (uint16_t row = 0; row <= posY; ++row) {
-            const uint16_t count = row == posY ? posX + 1 : nCols;
+        for (u16 row = 0; row <= posY; ++row) {
+            const u16 count = row == posY ? posX + 1 : nCols;
             cf->selectiveEraseInRow(row, 0, count, attrs);
         }
     }
@@ -1692,10 +1692,10 @@ VtermImpl::csi_DECFRA() {
             setState(InputState::Normal);
             return;
         }
-        for (uint16_t y = rectangle.top; y < rectangle.bottom; ++y) {
-            for (uint16_t x = rectangle.left; x < rectangle.right; ++x) {
+        for (u16 y = rectangle.top; y < rectangle.bottom; ++y) {
+            for (u16 x = rectangle.left; x < rectangle.right; ++x) {
                 auto& cell = cf->getCell(y, x);
-                const uint8_t lineAttribute = cell.line_attr;
+                const u8 lineAttribute = cell.line_attr;
                 cell = attrs;
                 cell.line_attr = lineAttribute;
                 cell.uc_pt = inputOps[0];
@@ -1717,7 +1717,7 @@ VtermImpl::csi_DECERA(bool selective) {
             setState(InputState::Normal);
             return;
         }
-        for (uint16_t y = rectangle.top; y < rectangle.bottom; ++y) {
+        for (u16 y = rectangle.top; y < rectangle.bottom; ++y) {
             if (selective)
                 cf->selectiveEraseInRow(y, rectangle.left,
                                         rectangle.right - rectangle.left, attrs);
@@ -1739,27 +1739,27 @@ VtermImpl::csi_DECCRA() {
             setState(InputState::Normal);
             return;
         }
-        uint16_t rowBase, columnBase, rowLimit, columnLimit;
+        u16 rowBase, columnBase, rowLimit, columnLimit;
         rectangleOrigin(rowBase, columnBase, rowLimit, columnLimit);
-        const uint32_t targetRow = inputOps[5] ? inputOps[5] : 1;
-        const uint32_t targetColumn = inputOps[6] ? inputOps[6] : 1;
-        const uint16_t targetTop =
-            rowBase + std::min<uint32_t>(targetRow, rowLimit - rowBase) - 1;
-        const uint16_t targetLeft =
-            columnBase + std::min<uint32_t>(targetColumn, columnLimit - columnBase) - 1;
-        const uint16_t height = std::min<uint16_t>(
+        const u32 targetRow = inputOps[5] ? inputOps[5] : 1;
+        const u32 targetColumn = inputOps[6] ? inputOps[6] : 1;
+        const u16 targetTop =
+            rowBase + std::min<u32>(targetRow, rowLimit - rowBase) - 1;
+        const u16 targetLeft =
+            columnBase + std::min<u32>(targetColumn, columnLimit - columnBase) - 1;
+        const u16 height = std::min<u16>(
             source.bottom - source.top, rowLimit - targetTop);
-        const uint16_t width = std::min<uint16_t>(
+        const u16 width = std::min<u16>(
             source.right - source.left, columnLimit - targetLeft);
         std::vector<TerminalCell> copied;
         copied.reserve(height * width);
-        for (uint16_t y = 0; y < height; ++y)
-            for (uint16_t x = 0; x < width; ++x)
+        for (u16 y = 0; y < height; ++y)
+            for (u16 x = 0; x < width; ++x)
                 copied.push_back(cf->getCell(source.top + y, source.left + x));
-        for (uint16_t y = 0; y < height; ++y) {
-            for (uint16_t x = 0; x < width; ++x) {
+        for (u16 y = 0; y < height; ++y) {
+            for (u16 x = 0; x < width; ++x) {
                 auto& cell = cf->getCell(targetTop + y, targetLeft + x);
-                const uint8_t lineAttribute = cell.line_attr;
+                const u8 lineAttribute = cell.line_attr;
                 cell = copied[y * width + x];
                 cell.line_attr = lineAttribute;
                 cell.dirty = 1;
@@ -1780,7 +1780,7 @@ VtermImpl::csi_DECCARA(bool reverse) {
             setState(InputState::Normal);
             return;
         }
-        const auto apply = [reverse](TerminalCell& cell, uint32_t mode) {
+        const auto apply = [reverse](TerminalCell& cell, u32 mode) {
             switch (mode) {
                 case 0:
                     cell.bold = reverse ? !cell.bold : false;
@@ -1800,8 +1800,8 @@ VtermImpl::csi_DECCARA(bool reverse) {
                 case 28: if (!reverse) cell.conceal = 0; break;
             }
         };
-        for (uint16_t y = rectangle.top; y < rectangle.bottom; ++y) {
-            for (uint16_t x = rectangle.left; x < rectangle.right; ++x) {
+        for (u16 y = rectangle.top; y < rectangle.bottom; ++y) {
+            for (u16 x = rectangle.left; x < rectangle.right; ++x) {
                 auto& cell = cf->getCell(y, x);
                 for (size_t k = 4; k < nInputOps; ++k) apply(cell, inputOps[k]);
                 cell.dirty = 1;
@@ -1821,9 +1821,9 @@ VtermImpl::csi_DECRQCRA() {
             setState(InputState::Normal);
             return;
         }
-        uint16_t checksum = 0;
-        for (uint16_t y = rectangle.top; y < rectangle.bottom; ++y)
-            for (uint16_t x = rectangle.left; x < rectangle.right; ++x) {
+        u16 checksum = 0;
+        for (u16 y = rectangle.top; y < rectangle.bottom; ++y)
+            for (u16 x = rectangle.left; x < rectangle.right; ++x) {
                 const auto& cell = cf->getCell(y, x);
                 if (cell.uc_pt != ' ') checksum += cell.uc_pt & 0xff;
             }
@@ -1840,9 +1840,9 @@ inline void
 VtermImpl::csi_IL() {
     TRACE_FUN;
     if (isCursorInsideMargins()) {
-        uint32_t arg = inputOps[0] ? inputOps[0] : 1;
-        arg = std::min<uint32_t>(arg, marginBottom - posY);
-        insertRows(posY, static_cast<uint16_t>(arg));
+        u32 arg = inputOps[0] ? inputOps[0] : 1;
+        arg = std::min<u32>(arg, marginBottom - posY);
+        insertRows(posY, (u16)(arg));
         lastCol = false;
     }
     setState(InputState::Normal);
@@ -1852,9 +1852,9 @@ inline void
 VtermImpl::csi_DL() {
     TRACE_FUN;
     if (isCursorInsideMargins()) {
-        uint32_t arg = inputOps[0] ? inputOps[0] : 1;
-        arg = std::min<uint32_t>(arg, marginBottom - posY);
-        deleteRows(posY, static_cast<uint16_t>(arg));
+        u32 arg = inputOps[0] ? inputOps[0] : 1;
+        arg = std::min<u32>(arg, marginBottom - posY);
+        deleteRows(posY, (u16)(arg));
         lastCol = false;
     }
     setState(InputState::Normal);
@@ -1864,8 +1864,8 @@ inline void
 VtermImpl::csi_ICH() {
     TRACE_FUN;
     if (isCursorInsideMargins()) {
-        uint32_t arg = inputOps[0] ? inputOps[0] : 1;
-        uint32_t len = nColsEff - posX;
+        u32 arg = inputOps[0] ? inputOps[0] : 1;
+        u32 len = nColsEff - posX;
         arg = std::min(arg, len);
         len -= arg;
 
@@ -1886,8 +1886,8 @@ inline void
 VtermImpl::csi_DCH() {
     TRACE_FUN;
     if (isCursorInsideMargins()) {
-        uint32_t arg = inputOps[0] ? inputOps[0] : 1;
-        uint32_t len = nColsEff - posX;
+        u32 arg = inputOps[0] ? inputOps[0] : 1;
+        u32 len = nColsEff - posX;
         arg = std::min(arg, len);
         len -= arg;
 
@@ -1902,8 +1902,8 @@ VtermImpl::csi_DCH() {
 inline void
 VtermImpl::csi_ECH() {
     TRACE_FUN;
-    uint32_t arg = inputOps[0] ? inputOps[0] : 1;
-    uint32_t len = nColsEff - posX;
+    u32 arg = inputOps[0] ? inputOps[0] : 1;
+    u32 len = nColsEff - posX;
     arg = std::min(arg, len);
     cf->eraseInRow(posY, posX, arg, attrs);
     normalizeWideCells(posY);
@@ -1915,8 +1915,8 @@ inline void
 VtermImpl::csi_STBM() {
     TRACE_FUN;
     if (nInputOps <= 2) {
-        uint32_t newMarginTop = inputOps[0] > 0 ? inputOps[0] - 1 : 0;
-        uint32_t newMarginBottom =
+        u32 newMarginTop = inputOps[0] > 0 ? inputOps[0] - 1 : 0;
+        u32 newMarginBottom =
             nInputOps < 2 || inputOps[1] == 0 ? nRows : inputOps[1];
 
         if (newMarginTop >= nRows || newMarginBottom > nRows ||
@@ -1924,8 +1924,8 @@ VtermImpl::csi_STBM() {
             logI << "Illegal arguments to SetTopBottomMargins: top="
                  << inputOps[0] << ", bottom=" << inputOps[1] << std::endl;
         } else if (newMarginTop != marginTop || newMarginBottom != marginBottom) {
-            marginTop = static_cast<uint16_t>(newMarginTop);
-            marginBottom = static_cast<uint16_t>(newMarginBottom);
+            marginTop = (u16)(newMarginTop);
+            marginBottom = (u16)(newMarginBottom);
         }
     }
 
@@ -1944,8 +1944,8 @@ inline void
 VtermImpl::csi_SLRM() {
     TRACE_FUN;
     if (nInputOps <= 2) {
-        uint32_t newMarginLeft = inputOps[0] > 0 ? inputOps[0] - 1 : 0;
-        uint32_t newMarginRight =
+        u32 newMarginLeft = inputOps[0] > 0 ? inputOps[0] - 1 : 0;
+        u32 newMarginRight =
             nInputOps < 2 || inputOps[1] == 0 ? nCols : inputOps[1];
 
         if (newMarginLeft >= nCols || newMarginRight > nCols ||
@@ -1953,8 +1953,8 @@ VtermImpl::csi_SLRM() {
             logI << "Illegal arguments to SetLeftRightMargins: left="
                  << inputOps[0] << ", right=" << inputOps[1] << std::endl;
         } else if (newMarginLeft != hMargin || newMarginRight != nColsEff) {
-            hMargin = static_cast<uint16_t>(newMarginLeft);
-            nColsEff = static_cast<uint16_t>(newMarginRight);
+            hMargin = (u16)(newMarginLeft);
+            nColsEff = (u16)(newMarginRight);
         }
     }
 
@@ -1976,7 +1976,7 @@ VtermImpl::csi_TBC() {
         case 0: {
             if (!tabStopsCustomized) {
                 for (unsigned column = 8; column < nCols; column += 8) {
-                    tabStops.push_back(static_cast<uint16_t>(column));
+                    tabStops.push_back((u16)(column));
                 }
                 tabStopsCustomized = true;
             }
@@ -2050,7 +2050,7 @@ VtermImpl::csi_RM() {
 }
 
 inline void
-VtermImpl::setPrivMode(uint32_t arg, bool set) {
+VtermImpl::setPrivMode(u32 arg, bool set) {
     if (set) {
         switch (arg) {
             case 1:
@@ -2296,7 +2296,7 @@ VtermImpl::setPrivMode(uint32_t arg, bool set) {
 }
 
 inline bool
-VtermImpl::getPrivMode(uint32_t arg) const {
+VtermImpl::getPrivMode(u32 arg) const {
     switch (arg) {
         case 1:
             return cursorKeyMode == CursorKeyMode::Application;
@@ -2457,7 +2457,7 @@ VtermImpl::csi_SGR() {
             return false;
         }
         const bool colon = inputSeparators[k + 1] == ':';
-        const uint32_t mode = inputOps[++k];
+        const u32 mode = inputOps[++k];
         if (colon) {
             const size_t first = k + 1;
             size_t end = k;
@@ -2568,7 +2568,7 @@ VtermImpl::csi_SGR() {
                 break;
             case 4:
                 if (k + 1 < nInputOps && inputSeparators[k + 1] == ':') {
-                    const uint32_t style = inputOps[++k];
+                    const u32 style = inputOps[++k];
                     if (style <= 5) {
                         attrs.underline_style = style;
                         attrs.underline = style != 0;
@@ -2791,8 +2791,8 @@ VtermImpl::csi_XTVERSION() {
 inline void
 VtermImpl::csi_DECRQM(bool privateMode) {
     TRACE_FUN;
-    const uint32_t mode = inputOps[0];
-    uint8_t state = 0;
+    const u32 mode = inputOps[0];
+    u8 state = 0;
 
     if (privateMode) {
         switch (mode) {
@@ -2879,7 +2879,7 @@ VtermImpl::csi_DECRQM(bool privateMode) {
 
     std::ostringstream oss;
     oss << (privateMode ? "?" : "") << mode << ";"
-        << static_cast<unsigned>(state) << "$y";
+        << (unsigned)(state) << "$y";
     writeCsiResponse(oss.str());
     setState(InputState::Normal);
 }
@@ -2926,14 +2926,14 @@ VtermImpl::esch_DECALN() {
 }
 
 inline void
-VtermImpl::setLineAttribute(uint8_t attribute) {
+VtermImpl::setLineAttribute(u8 attribute) {
     TRACE_FUN;
-    for (uint16_t x = 0; x < nCols; ++x) {
+    for (u16 x = 0; x < nCols; ++x) {
         auto& cell = cf->getCell(posY, x);
         cell.line_attr = attribute;
         cell.dirty = 1;
     }
-    if (attribute) posX = std::min<uint16_t>(posX, std::max(1, nCols / 2) - 1);
+    if (attribute) posX = std::min<u16>(posX, std::max(1, nCols / 2) - 1);
     cf->expose();
     setState(InputState::Normal);
 }
@@ -2989,14 +2989,14 @@ VtermImpl::dcs_DECUDK(const std::string& request) {
     if (userDefinedKeysLocked) return;
     const size_t bar = request.find('|');
     if (bar == std::string::npos) return;
-    uint32_t clear = 0;
-    uint32_t lock = 0;
+    u32 clear = 0;
+    u32 lock = 0;
     const std::string parameters = request.substr(0, bar);
     const size_t separator = parameters.find(';');
     if (separator != std::string::npos &&
         parameters.find(';', separator + 1) != std::string::npos) return;
     const auto parseParameter = [](const char* begin, const char* end,
-                                   uint32_t& value) {
+                                   u32& value) {
         if (begin == end) {
             value = 0;
             return true;
@@ -3014,7 +3014,7 @@ VtermImpl::dcs_DECUDK(const std::string& request) {
         !parseParameter(clearEnd + 1, parameterEnd, lock)) return;
     if (clear == 0) userDefinedKeys.clear();
 
-    const auto keyForCode = [](uint32_t code) {
+    const auto keyForCode = [](u32 code) {
         switch (code) {
             case 17: return VtKey::F6; case 18: return VtKey::F7;
             case 19: return VtKey::F8; case 20: return VtKey::F9;
@@ -3031,7 +3031,7 @@ VtermImpl::dcs_DECUDK(const std::string& request) {
         const size_t end = request.find(';', begin);
         const std::string definition = request.substr(begin, end - begin);
         const size_t slash = definition.find('/');
-        uint32_t code = 0;
+        u32 code = 0;
         const auto codeResult = slash == std::string::npos
                                     ? std::from_chars(
                                           definition.data(), definition.data(), code)
@@ -3054,7 +3054,7 @@ VtermImpl::dcs_DECUDK(const std::string& request) {
                 const int high = digit(definition[k]);
                 const int low = digit(definition[k + 1]);
                 valid = high >= 0 && low >= 0;
-                if (valid) value.push_back(static_cast<char>(high * 16 + low));
+                if (valid) value.push_back((char)(high * 16 + low));
             }
             const VtKey key = keyForCode(code);
             if (valid && key != VtKey::NONE) userDefinedKeys[key] = value;
@@ -3088,7 +3088,7 @@ VtermImpl::dcs_DECRQSS(const std::string& arg) {
         if (attrs.underline) {
             value << ";4";
             if (attrs.underline_style > 1) {
-                value << ":" << static_cast<unsigned>(attrs.underline_style);
+                value << ":" << (unsigned)(attrs.underline_style);
             }
         }
         if (attrs.blink) {
@@ -3109,27 +3109,27 @@ VtermImpl::dcs_DECRQSS(const std::string& arg) {
         if (fgPalIx >= 0) {
             value << ";38;5;" << fgPalIx;
         } else if (*fgIndex != -2) {
-            value << ";38;2;" << static_cast<unsigned>(fg->red)
-                  << ";" << static_cast<unsigned>(fg->green)
-                  << ";" << static_cast<unsigned>(fg->blue);
+            value << ";38;2;" << (unsigned)(fg->red)
+                  << ";" << (unsigned)(fg->green)
+                  << ";" << (unsigned)(fg->blue);
         }
         if (bgPalIx >= 0) {
             value << ";48;5;" << bgPalIx;
         } else if (*bgIndex != -2) {
-            value << ";48;2;" << static_cast<unsigned>(bg->red)
-                  << ";" << static_cast<unsigned>(bg->green)
-                  << ";" << static_cast<unsigned>(bg->blue);
+            value << ";48;2;" << (unsigned)(bg->red)
+                  << ";" << (unsigned)(bg->green)
+                  << ";" << (unsigned)(bg->blue);
         }
         if (!underlineColorDefault) {
             if (underlinePalIx >= 0) {
                 value << ";58;5;" << underlinePalIx;
             } else {
                 value << ";58;2;"
-                      << static_cast<unsigned>(attrs.underline_color.red)
+                      << (unsigned)(attrs.underline_color.red)
                       << ";"
-                      << static_cast<unsigned>(attrs.underline_color.green)
+                      << (unsigned)(attrs.underline_color.green)
                       << ";"
-                      << static_cast<unsigned>(attrs.underline_color.blue);
+                      << (unsigned)(attrs.underline_color.blue);
             }
         }
         value << "m";
@@ -3138,7 +3138,7 @@ VtermImpl::dcs_DECRQSS(const std::string& arg) {
     } else if (query == "s") {
         value << hMargin + 1 << ";" << nColsEff << "s";
     } else if (query == " q") {
-        value << static_cast<unsigned>(cursorStyleParam) << " q";
+        value << (unsigned)(cursorStyleParam) << " q";
     } else if (query == "\"q") {
         value << (attrs.protected_char ? 1 : 0) << "\"q";
     } else {
@@ -3175,7 +3175,7 @@ VtermImpl::dcs_XTGETTCAP(const std::string& request) {
             const int high = digit(value[pos]);
             const int low = digit(value[pos + 1]);
             if (high < 0 || low < 0) return false;
-            result.push_back(static_cast<char>((high << 4) | low));
+            result.push_back((char)((high << 4) | low));
         }
         return true;
     };
@@ -3240,7 +3240,7 @@ VtermImpl::handle_OSC() {
                 break;
             case 104: {
                 if (arg.empty()) {
-                    for (uint16_t index = 0; index < 256; ++index) {
+                    for (u16 index = 0; index < 256; ++index) {
                         applyPaletteColor(index, originalPalette256[index]);
                     }
                 } else {
@@ -3300,8 +3300,8 @@ VtermImpl::handle_OSC() {
             case 9: {
                 if (arg.compare(0, 2, "4;") == 0) {
                     const size_t separator = arg.find(';', 2);
-                    uint32_t state = 0;
-                    uint32_t percent = 0;
+                    u32 state = 0;
+                    u32 percent = 0;
                     if (separator != std::string::npos) {
                         const auto stateResult = std::from_chars(
                             arg.data() + 2, arg.data() + separator, state);
@@ -3365,7 +3365,7 @@ VtermImpl::osc_Notification(const std::string& arg) {
         if (field.empty() && metadata.empty()) break;
         const size_t equal = field.find('=');
         if (equal == 1 &&
-            std::isalpha(static_cast<unsigned char>(field[0]))) {
+            std::isalpha((unsigned char)(field[0]))) {
             const std::string key = field.substr(0, equal);
             const std::string value = field.substr(equal + 1);
             if (key == "i") id = value;
@@ -3516,7 +3516,7 @@ VtermImpl::writeTitleResponse(char kind, const std::string& title) {
 }
 
 inline void
-VtermImpl::applyPaletteColor(uint16_t index, Color color) {
+VtermImpl::applyPaletteColor(u16 index, Color color) {
     palette256[index] = color;
     frame_pri.recolorPalette(index, color);
     frame_alt.recolorPalette(index, color);
@@ -3667,7 +3667,7 @@ VtermImpl::csiq_DECSCL() {
 inline void
 VtermImpl::csi_XTWINOPS() {
     TRACE_FUN;
-    const uint32_t operation = inputOps[0];
+    const u32 operation = inputOps[0];
     std::ostringstream response;
     switch (operation) {
         case 1:
@@ -3689,8 +3689,8 @@ VtermImpl::csi_XTWINOPS() {
             break;
         case 13: {
             const auto info = host.windowInfo();
-            response << "3;" << static_cast<uint16_t>(info.x) << ';'
-                     << static_cast<uint16_t>(info.y) << 't';
+            response << "3;" << (u16)(info.x) << ';'
+                     << (u16)(info.y) << 't';
             writeCsiResponse(response.str());
         } break;
         case 14:
@@ -3731,7 +3731,7 @@ VtermImpl::csi_XTWINOPS() {
             writeTitleResponse('l', windowTitle);
             break;
         case 22: {
-            const uint32_t which = nInputOps > 1 ? inputOps[1] : 0;
+            const u32 which = nInputOps > 1 ? inputOps[1] : 0;
             if (which > 2) break;
             SavedTitles saved;
             if (which == 0 || which == 1) {
@@ -3746,7 +3746,7 @@ VtermImpl::csi_XTWINOPS() {
             if (titleStack.size() > 10) titleStack.erase(titleStack.begin());
         } break;
         case 23: {
-            const uint32_t which = nInputOps > 1 ? inputOps[1] : 0;
+            const u32 which = nInputOps > 1 ? inputOps[1] : 0;
             if (which > 2) break;
             if (!titleStack.empty()) {
                 SavedTitles saved = std::move(titleStack.back());
@@ -3773,10 +3773,10 @@ VtermImpl::csi_XTHIMOUSE() {
     if (mouseTrk.mode == MouseTrackingMode::VT200_Highlight &&
         nInputOps == 5 && inputOps[0] != 0) {
         mouseHighlight.active = true;
-        mouseHighlight.startX = std::max<uint32_t>(1, inputOps[1]);
-        mouseHighlight.startY = std::max<uint32_t>(1, inputOps[2]);
-        mouseHighlight.firstRow = std::max<uint32_t>(1, inputOps[3]);
-        mouseHighlight.lastRow = std::max<uint32_t>(
+        mouseHighlight.startX = std::max<u32>(1, inputOps[1]);
+        mouseHighlight.startY = std::max<u32>(1, inputOps[2]);
+        mouseHighlight.firstRow = std::max<u32>(1, inputOps[3]);
+        mouseHighlight.lastRow = std::max<u32>(
             mouseHighlight.firstRow, inputOps[4]);
     } else {
         mouseHighlight.active = false;
@@ -3786,7 +3786,7 @@ VtermImpl::csi_XTHIMOUSE() {
 
 inline void
 VtermImpl::csi_DECELR() {
-    const uint32_t mode = inputOps[0];
+    const u32 mode = inputOps[0];
     locator.enabled = mode <= 2 ? mode : 0;
     locator.pixels = nInputOps > 1 && inputOps[1] == 1;
     locator.filter = false;
@@ -3811,10 +3811,10 @@ VtermImpl::csi_DECSLE() {
 inline void
 VtermImpl::csi_DECRQLP() {
     if (locator.enabled) {
-        const uint16_t x = locator.pixels ? locator.pixelX : locator.column;
-        const uint16_t y = locator.pixels ? locator.pixelY : locator.row;
+        const u16 x = locator.pixels ? locator.pixelX : locator.column;
+        const u16 y = locator.pixels ? locator.pixelY : locator.row;
         std::ostringstream response;
-        response << "1;" << static_cast<unsigned>(locator.buttons) << ';'
+        response << "1;" << (unsigned)(locator.buttons) << ';'
                  << y << ';' << x << ";0&w";
         writeCsiResponse(response.str());
         if (locator.enabled == 2) locator.enabled = 0;
@@ -3826,9 +3826,9 @@ VtermImpl::csi_DECRQLP() {
 
 inline void
 VtermImpl::csi_DECEFR() {
-    const auto value = [this](size_t k, uint16_t current) {
+    const auto value = [this](size_t k, u16 current) {
         return k < nInputOps && inputOps[k] ?
-                   static_cast<uint16_t>(inputOps[k]) : current;
+                   (u16)(inputOps[k]) : current;
     };
     locator.filterTop = value(0, locator.pixels ? locator.pixelY : locator.row);
     locator.filterLeft = value(1, locator.pixels ? locator.pixelX : locator.column);
@@ -3841,7 +3841,7 @@ VtermImpl::csi_DECEFR() {
 inline void
 VtermImpl::csi_XTMODKEYS() {
     TRACE_FUN;
-    const auto supported = [](uint32_t resource) {
+    const auto supported = [](u32 resource) {
         return resource <= 4 || resource == 6 || resource == 7;
     };
     if (!csiHadParams) {
@@ -3849,11 +3849,11 @@ VtermImpl::csi_XTMODKEYS() {
                   std::end(initialModifyKeyResources),
                   std::begin(modifyKeyResources));
     } else if (supported(inputOps[0])) {
-        const uint32_t resource = inputOps[0];
-        const uint32_t value = nInputOps > 1
+        const u32 resource = inputOps[0];
+        const u32 value = nInputOps > 1
                                    ? inputOps[1]
                                    : initialModifyKeyResources[resource];
-        const uint32_t maximum = resource == 4 ? 2 : 4;
+        const u32 maximum = resource == 4 ? 2 : 4;
         if (value <= maximum) modifyKeyResources[resource] = value;
     }
     modifyOtherKeys = modifyKeyResources[4];
@@ -3863,11 +3863,11 @@ VtermImpl::csi_XTMODKEYS() {
 inline void
 VtermImpl::csi_XTQMODKEYS() {
     TRACE_FUN;
-    const uint32_t resource = inputOps[0];
+    const u32 resource = inputOps[0];
     if (resource <= 4 || resource == 6 || resource == 7) {
         std::ostringstream response;
         response << '>' << resource << ';'
-                 << static_cast<unsigned>(modifyKeyResources[resource]) << 'm';
+                 << (unsigned)(modifyKeyResources[resource]) << 'm';
         writeCsiResponse(response.str());
     }
     setState(InputState::Normal);
@@ -3890,8 +3890,8 @@ inline void
 VtermImpl::csi_kittyKeyboardPop() {
     TRACE_FUN;
     auto& state = kittyKeyboardState();
-    const uint32_t count = inputOps[0] ? inputOps[0] : 1;
-    for (uint32_t k = 0; k < count; ++k) {
+    const u32 count = inputOps[0] ? inputOps[0] : 1;
+    for (u32 k = 0; k < count; ++k) {
         if (state.stack.empty()) {
             state.flags = 0;
             break;
@@ -3906,8 +3906,8 @@ inline void
 VtermImpl::csi_kittyKeyboardSet() {
     TRACE_FUN;
     auto& state = kittyKeyboardState();
-    const uint8_t flags = inputOps[0] & 0x1f;
-    const uint32_t mode = nInputOps > 1 ? inputOps[1] : 1;
+    const u8 flags = inputOps[0] & 0x1f;
+    const u32 mode = nInputOps > 1 ? inputOps[1] : 1;
     switch (mode) {
         case 1:
             state.flags = flags;
@@ -3928,7 +3928,7 @@ inline void
 VtermImpl::csi_kittyKeyboardQuery() {
     TRACE_FUN;
     std::ostringstream reply;
-    reply << "?" << static_cast<unsigned>(getKittyKeyboardFlags()) << 'u';
+    reply << "?" << (unsigned)(getKittyKeyboardFlags()) << 'u';
     writeCsiResponse(reply.str());
     setState(InputState::Normal);
 }

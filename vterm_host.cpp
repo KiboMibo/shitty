@@ -11,11 +11,11 @@ VtermHostCallbacks::VtermHostCallbacks()
     })
     , onBell([] { logI << "* Bell *" << std::endl; })
     , onPrinter([](const std::string&) {})
-    , onLed([](uint8_t) {})
+    , onLed([](u8) {})
     , onNotification([](const std::string&, const std::string&,
                         const std::string&, bool) {})
-    , onProgress([](uint32_t, uint32_t) {})
-    , onWindowOps([](uint32_t, uint32_t, uint32_t) {})
+    , onProgress([](u32, u32) {})
+    , onWindowOps([](u32, u32, u32) {})
     , onWindowInfo([] { return VtermWindowInfo{}; })
 {
 }
@@ -30,17 +30,17 @@ void VtermHostCallbacks::osc(int command, const std::string& argument) {
 
 void VtermHostCallbacks::bell() { onBell(); }
 void VtermHostCallbacks::print(const std::string& output) { onPrinter(output); }
-void VtermHostCallbacks::leds(uint8_t state) { onLed(state); }
+void VtermHostCallbacks::leds(u8 state) { onLed(state); }
 void VtermHostCallbacks::notify(
     const std::string& id, const std::string& title,
     const std::string& body, bool close) {
     onNotification(id, title, body, close);
 }
-void VtermHostCallbacks::progress(uint32_t state, uint32_t percent) {
+void VtermHostCallbacks::progress(u32 state, u32 percent) {
     onProgress(state, percent);
 }
 void VtermHostCallbacks::windowOperation(
-    uint32_t operation, uint32_t first, uint32_t second) {
+    u32 operation, u32 first, u32 second) {
     onWindowOps(operation, first, second);
 }
 VtermWindowInfo VtermHostCallbacks::windowInfo() { return onWindowInfo(); }

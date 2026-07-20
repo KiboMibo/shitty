@@ -10,6 +10,7 @@
  */
 
 #pragma once
+#include <std/sys/types.h>
 
 #include "base.h"
 #include "font_pack.h"
@@ -24,29 +25,29 @@ public:
     explicit CharVdev(Fontpack* fontpk);
     ~CharVdev() = default;
 
-    bool resize(uint16_t pxWidth_, uint16_t pxHeight_);
-    uint16_t pixelWidth() const {
+    bool resize(u16 pxWidth_, u16 pxHeight_);
+    u16 pixelWidth() const {
         return pxWidth;
     }
-    uint16_t pixelHeight() const {
+    u16 pixelHeight() const {
         return pxHeight;
     }
-    uint16_t columns() const {
+    u16 columns() const {
         return nCols;
     }
-    uint16_t rows() const {
+    u16 rows() const {
         return nRows;
     }
 
     struct Mapping {
-        Mapping(uint16_t nCols_, uint16_t nRows_, TerminalCell*& cells_);
+        Mapping(u16 nCols_, u16 nRows_, TerminalCell*& cells_);
         ~Mapping();
 
         Mapping(const Mapping&) = delete;
         Mapping& operator=(const Mapping&) = delete;
 
-        uint16_t nCols;
-        uint16_t nRows;
+        u16 nCols;
+        u16 nRows;
         TerminalCell*& cells;
     };
 
@@ -70,12 +71,12 @@ public:
     }
 
 private:
-    uint16_t px;
-    uint16_t py;
-    uint16_t nCols = 0;
-    uint16_t nRows = 0;
-    uint16_t pxWidth = 0;
-    uint16_t pxHeight = 0;
+    u16 px;
+    u16 py;
+    u16 nCols = 0;
+    u16 nRows = 0;
+    u16 pxWidth = 0;
+    u16 pxHeight = 0;
 
     std::vector<TerminalCell> cellStorage;
     TerminalCell* cells = nullptr;

@@ -73,8 +73,8 @@ std::string oscCwdToPath(const std::string& argument) {
     for (size_t k = 0; k < url.size(); ++k) {
         if (url[k] == '%') {
             if (k + 2 >= url.size() ||
-                !std::isxdigit(static_cast<unsigned char>(url[k + 1])) ||
-                !std::isxdigit(static_cast<unsigned char>(url[k + 2]))) {
+                !std::isxdigit((unsigned char)(url[k + 1])) ||
+                !std::isxdigit((unsigned char)(url[k + 2]))) {
                 return {};
             }
             const auto hexDigit = [](char ch) {
@@ -82,7 +82,7 @@ std::string oscCwdToPath(const std::string& argument) {
                            ? ch - '0'
                            : (ch | 0x20) - 'a' + 10;
             };
-            path.push_back(static_cast<char>(
+            path.push_back((char)(
                 hexDigit(url[k + 1]) * 16 + hexDigit(url[k + 2])));
             k += 2;
         } else {

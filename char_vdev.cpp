@@ -21,7 +21,7 @@ CharVdev::CharVdev(Fontpack* fontpk_)
 {
 }
 
-bool CharVdev::resize(uint16_t pxWidth_, uint16_t pxHeight_) {
+bool CharVdev::resize(u16 pxWidth_, u16 pxHeight_) {
     assert(cells == nullptr);
     if (pxWidth == pxWidth_ && pxHeight == pxHeight_) {
         return false;
@@ -30,9 +30,9 @@ bool CharVdev::resize(uint16_t pxWidth_, uint16_t pxHeight_) {
     pxWidth = pxWidth_;
     pxHeight = pxHeight_;
     const int contentWidth = std::max(
-        0, static_cast<int>(pxWidth) - 2 * opts.border);
+        0, (int)(pxWidth) - 2 * opts.border);
     const int contentHeight = std::max(
-        0, static_cast<int>(pxHeight) - 2 * opts.border);
+        0, (int)(pxHeight) - 2 * opts.border);
     nCols = std::max(1, contentWidth / px);
     nRows = std::max(1, contentHeight / py);
 
@@ -40,11 +40,11 @@ bool CharVdev::resize(uint16_t pxWidth_, uint16_t pxHeight_) {
          << " pixels, " << nCols << " x " << nRows << " chars"
          << std::endl;
 
-    cellStorage.assign(static_cast<size_t>(nCols) * nRows, TerminalCell{});
+    cellStorage.assign((size_t)(nCols) * nRows, TerminalCell{});
     return true;
 }
 
-CharVdev::Mapping::Mapping(uint16_t nCols_, uint16_t nRows_, TerminalCell*& cells_)
+CharVdev::Mapping::Mapping(u16 nCols_, u16 nRows_, TerminalCell*& cells_)
     : nCols(nCols_)
     , nRows(nRows_)
     , cells(cells_)

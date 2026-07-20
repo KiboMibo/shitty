@@ -45,10 +45,10 @@ namespace {
     public:
         explicit TestPty(int fd_)
             : fd_(fd_)
-            , onRead([this](uint8_t* buffer, size_t size) {
+            , onRead([this](u8* buffer, size_t size) {
                 return ::read(this->fd_, buffer, size);
             })
-            , onWrite([this](const uint8_t* buffer, size_t size) {
+            , onWrite([this](const u8* buffer, size_t size) {
                 return ::write(this->fd_, buffer, size);
             })
         {
@@ -59,29 +59,29 @@ namespace {
         }
 
         int fd() const override { return fd_; }
-        ssize_t read(uint8_t* buffer, size_t size) override {
+        ssize_t read(u8* buffer, size_t size) override {
             return onRead(buffer, size);
         }
-        ssize_t write(const uint8_t* buffer, size_t size) override {
+        ssize_t write(const u8* buffer, size_t size) override {
             return onWrite(buffer, size);
         }
-        void resize(uint16_t columns, uint16_t rows) override {
+        void resize(u16 columns, u16 rows) override {
             pty_resize(fd_, columns, rows);
         }
 
         void setReadHandler(
-            std::function<ssize_t(uint8_t*, size_t)> handler) {
+            std::function<ssize_t(u8*, size_t)> handler) {
             onRead = std::move(handler);
         }
         void setWriteHandler(
-            std::function<ssize_t(const uint8_t*, size_t)> handler) {
+            std::function<ssize_t(const u8*, size_t)> handler) {
             onWrite = std::move(handler);
         }
 
     private:
         int fd_;
-        std::function<ssize_t(uint8_t*, size_t)> onRead;
-        std::function<ssize_t(const uint8_t*, size_t)> onWrite;
+        std::function<ssize_t(u8*, size_t)> onRead;
+        std::function<ssize_t(const u8*, size_t)> onWrite;
     };
 
     void writeAll(int fd, const std::string& data) {
@@ -95,7 +95,7 @@ namespace {
                 }
                 throw std::runtime_error("test control write failed");
             }
-            offset += static_cast<size_t>(count);
+            offset += (size_t)(count);
         }
     }
 
@@ -119,11 +119,11 @@ namespace {
                 }
                 throw std::runtime_error("test control read failed");
             }
-            buffered.append(chunk, static_cast<size_t>(count));
+            buffered.append(chunk, (size_t)(count));
         }
     }
 
-    uint8_t hexDigit(char ch) {
+    u8 hexDigit(char ch) {
         if (ch >= '0' && ch <= '9') {
             return ch - '0';
         }
@@ -143,7 +143,7 @@ namespace {
         std::string output;
         output.reserve(input.size() / 2);
         for (size_t k = 0; k < input.size(); k += 2) {
-            output.push_back(static_cast<char>(
+            output.push_back((char)(
                 (hexDigit(input[k]) << 4) | hexDigit(input[k + 1])));
         }
         return output;
@@ -213,7 +213,7 @@ namespace {
             std::ostringstream output;
             output << "OK " << columns << ' ' << rows << ' '
                    << cursor.posX << ' ' << cursor.posY << ' '
-                   << static_cast<unsigned>(cursor.style) << ' '
+                   << (unsigned)(cursor.style) << ' '
                    << viewOffset << ' ' << refreshCount << ' '
                    << selection.tl.x << ' ' << selection.tl.y << ' '
                    << selection.br.x << ' ' << selection.br.y << ' '
@@ -238,15 +238,15 @@ namespace {
                     (cell.line_attr << 16);
                 output << std::setw(8) << cell.uc_pt
                        << std::setw(8) << flags
-                       << std::setw(2) << static_cast<unsigned>(cell.fg.red)
-                       << std::setw(2) << static_cast<unsigned>(cell.fg.green)
-                       << std::setw(2) << static_cast<unsigned>(cell.fg.blue)
-                       << std::setw(2) << static_cast<unsigned>(cell.bg.red)
-                       << std::setw(2) << static_cast<unsigned>(cell.bg.green)
-                       << std::setw(2) << static_cast<unsigned>(cell.bg.blue)
-                       << std::setw(2) << static_cast<unsigned>(cell.underline_color.red)
-                       << std::setw(2) << static_cast<unsigned>(cell.underline_color.green)
-                       << std::setw(2) << static_cast<unsigned>(cell.underline_color.blue)
+                       << std::setw(2) << (unsigned)(cell.fg.red)
+                       << std::setw(2) << (unsigned)(cell.fg.green)
+                       << std::setw(2) << (unsigned)(cell.fg.blue)
+                       << std::setw(2) << (unsigned)(cell.bg.red)
+                       << std::setw(2) << (unsigned)(cell.bg.green)
+                       << std::setw(2) << (unsigned)(cell.bg.blue)
+                       << std::setw(2) << (unsigned)(cell.underline_color.red)
+                       << std::setw(2) << (unsigned)(cell.underline_color.green)
+                       << std::setw(2) << (unsigned)(cell.underline_color.blue)
                        << std::setw(8) << cell.hyperlink
                        << std::setw(8) << cell.semantic;
             }
@@ -258,13 +258,13 @@ namespace {
             std::ostringstream output;
             output << "OK " << screenReverse << ' '
                    << blinkVisible << ' ' << cursorBlink << ' '
-                   << static_cast<unsigned>(selectionColorMask) << ' '
-                   << static_cast<unsigned>(selectionForeground.red) << ' '
-                   << static_cast<unsigned>(selectionForeground.green) << ' '
-                   << static_cast<unsigned>(selectionForeground.blue) << ' '
-                   << static_cast<unsigned>(selectionBackground.red) << ' '
-                   << static_cast<unsigned>(selectionBackground.green) << ' '
-                   << static_cast<unsigned>(selectionBackground.blue) << ' '
+                   << (unsigned)(selectionColorMask) << ' '
+                   << (unsigned)(selectionForeground.red) << ' '
+                   << (unsigned)(selectionForeground.green) << ' '
+                   << (unsigned)(selectionForeground.blue) << ' '
+                   << (unsigned)(selectionBackground.red) << ' '
+                   << (unsigned)(selectionBackground.green) << ' '
+                   << (unsigned)(selectionBackground.blue) << ' '
                    << graphemeCells << ' ' << graphemeCodepoints << '\n';
             return output.str();
         }
@@ -273,9 +273,9 @@ namespace {
             std::string output;
             output.reserve(cells.size() + rows);
             for (size_t index = 0; index < cells.size(); ++index) {
-                const uint32_t codepoint = cells[index].uc_pt;
+                const u32 codepoint = cells[index].uc_pt;
                 output.push_back(codepoint >= 0x20 && codepoint <= 0x7e
-                                     ? static_cast<char>(codepoint)
+                                     ? (char)(codepoint)
                                      : ' ');
                 if ((index + 1) % columns == 0) output.push_back('\n');
             }
@@ -284,17 +284,17 @@ namespace {
 
     private:
         bool failNextUpdate = false;
-        uint16_t columns = 0;
-        uint16_t rows = 0;
-        uint16_t viewOffset = 0;
-        uint64_t refreshCount = 0;
+        u16 columns = 0;
+        u16 rows = 0;
+        u16 viewOffset = 0;
+        u64 refreshCount = 0;
         bool delta = false;
         bool screenReverse = false;
         bool blinkVisible = true;
         bool cursorBlink = false;
         Color selectionForeground;
         Color selectionBackground;
-        uint8_t selectionColorMask = 0;
+        u8 selectionColorMask = 0;
         size_t graphemeCells = 0;
         size_t graphemeCodepoints = 0;
         TerminalCursor cursor;
@@ -308,7 +308,7 @@ namespace {
         while (true) {
             const ssize_t count = read(fd, chunk, sizeof(chunk));
             if (count > 0) {
-                output.append(chunk, static_cast<size_t>(count));
+                output.append(chunk, (size_t)(count));
                 continue;
             }
             if (count < 0 && errno == EINTR) {
@@ -419,8 +419,8 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
             throw std::runtime_error("invalid test glyph geometry");
         }
     }
-    const uint16_t width = 2 * opts.border + opts.nCols * glyphPx;
-    const uint16_t height = 2 * opts.border + opts.nRows * glyphPy;
+    const u16 width = 2 * opts.border + opts.nCols * glyphPx;
+    const u16 height = 2 * opts.border + opts.nRows * glyphPy;
     TestPty terminalPty(io[0]);
     VtermHostCallbacks vtermHost;
     Vterm& terminal = *Vterm::create(
@@ -450,26 +450,26 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
     std::string writtenPtyData;
     const auto installScriptedPtyReader = [&]() {
         terminalPty.setReadHandler(
-            [&scriptedPtyReads](uint8_t* buffer, size_t size) {
+            [&scriptedPtyReads](u8* buffer, size_t size) {
                 if (scriptedPtyReads.empty()) {
                     errno = EAGAIN;
-                    return static_cast<ssize_t>(-1);
+                    return (ssize_t)(-1);
                 }
                 auto& item = scriptedPtyReads.front();
                 if (item.eof) {
                     scriptedPtyReads.pop_front();
-                    return static_cast<ssize_t>(0);
+                    return (ssize_t)(0);
                 }
                 if (item.error) {
                     errno = item.error;
                     scriptedPtyReads.pop_front();
-                    return static_cast<ssize_t>(-1);
+                    return (ssize_t)(-1);
                 }
                 const size_t count = std::min(size, item.data.size());
                 std::copy_n(item.data.data(), count, buffer);
                 item.data.erase(0, count);
                 if (item.data.empty()) scriptedPtyReads.pop_front();
-                return static_cast<ssize_t>(count);
+                return (ssize_t)(count);
             });
     };
     MouseFrontendState mouseFrontend;
@@ -497,7 +497,7 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
             printerOutput += output;
         });
     vtermHost.setLedHandler(
-        [&actions](uint8_t state) {
+        [&actions](u8 state) {
             actions += "LEDS " + std::to_string(state) + "\n";
         });
     vtermHost.setNotificationHandler(
@@ -511,12 +511,12 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
         }
     });
     vtermHost.setProgressHandler(
-        [&actions](uint32_t state, uint32_t percent) {
+        [&actions](u32 state, u32 percent) {
         actions += "PROGRESS " + std::to_string(state) + " " +
                    std::to_string(percent) + "\n";
     });
     vtermHost.setWindowOpsHandler(
-        [&actions](uint32_t operation, uint32_t first, uint32_t second) {
+        [&actions](u32 operation, u32 first, u32 second) {
         actions += "WINDOW " + std::to_string(operation) + " " +
                    std::to_string(first) + " " +
                    std::to_string(second) + "\n";
@@ -531,10 +531,10 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
     vtermHost.setWindowInfoHandler([&windowInfo]() { return windowInfo; });
     const auto mouseGeometry = [&]() {
         return MouseGeometry{
-            static_cast<int>(windowInfo.pixelWidth),
-            static_cast<int>(windowInfo.pixelHeight),
-            static_cast<int>(opts.border),
-            static_cast<int>(glyphPx), static_cast<int>(glyphPy)};
+            (int)(windowInfo.pixelWidth),
+            (int)(windowInfo.pixelHeight),
+            (int)(opts.border),
+            (int)(glyphPx), (int)(glyphPy)};
     };
     const auto sendMouseButton = [&](MouseEventType type, int button,
                                      int pixelX, int pixelY,
@@ -591,8 +591,8 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                 writeAll(controlFd, "OK\n");
             } else if (line == "OPTIONS") {
                 const auto packedColor = [](Color color) {
-                    return (static_cast<uint32_t>(color.red) << 16) |
-                           (static_cast<uint32_t>(color.green) << 8) |
+                    return ((u32)(color.red) << 16) |
+                           ((u32)(color.green) << 8) |
                            color.blue;
                 };
                 writeAll(controlFd,
@@ -671,9 +671,8 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                 writeAll(controlFd, "OK " + boundaries + "\n");
             } else if (line.compare(0, 6, "INPUT ") == 0) {
                 const std::string input = decodeHex(line.substr(6));
-                terminal.writePty(
-                    reinterpret_cast<const uint8_t*>(input.data()),
-                    input.size(), false);
+                const std::u8string bytes(input.begin(), input.end());
+                terminal.writePty(bytes.data(), bytes.size(), false);
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 6, "SPAWN ") == 0) {
                 if (childPid > 0) throw std::runtime_error("child already running");
@@ -758,7 +757,7 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                 }
                 scriptedPtyReads.clear();
                 scriptedPtyReads.push_back({
-                    std::string(count, static_cast<char>(byte)), 0, false});
+                    std::string(count, (char)(byte)), 0, false});
                 if (eof) scriptedPtyReads.push_back({"", 0, true});
                 installScriptedPtyReader();
                 writeAll(controlFd, "OK\n");
@@ -792,21 +791,21 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                 }
                 terminalPty.setWriteHandler(
                     [&scriptedPtyWrites, &writtenPtyData](
-                        const uint8_t* buffer, size_t size) {
+                        const u8* buffer, size_t size) {
                         if (scriptedPtyWrites.empty()) {
                             errno = EAGAIN;
-                            return static_cast<ssize_t>(-1);
+                            return (ssize_t)(-1);
                         }
                         const auto item = scriptedPtyWrites.front();
                         scriptedPtyWrites.pop_front();
                         if (item.error) {
                             errno = item.error;
-                            return static_cast<ssize_t>(-1);
+                            return (ssize_t)(-1);
                         }
                         const size_t count = std::min(size, item.count);
                         writtenPtyData.append(
-                            reinterpret_cast<const char*>(buffer), count);
-                        return static_cast<ssize_t>(count);
+                            (const char*)(buffer), count);
+                        return (ssize_t)(count);
                     });
                 writeAll(controlFd, "OK\n");
             } else if (line == "WAIT_READ_PTY") {
@@ -829,15 +828,15 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
             } else if (line == "GPU_ATTRIBUTE_MASKS") {
                 TerminalCell cell;
                 cell.dwidth = true;
-                const uint32_t doubleWidth =
+                const u32 doubleWidth =
                     VulkanPresenter::packCellAttributes(cell);
                 cell.dwidth = false;
                 cell.dwidth_cont = true;
-                const uint32_t continuation =
+                const u32 continuation =
                     VulkanPresenter::packCellAttributes(cell);
                 cell.dwidth_cont = false;
                 cell.dirty = true;
-                const uint32_t dirty =
+                const u32 dirty =
                     VulkanPresenter::packCellAttributes(cell);
                 writeAll(controlFd,
                          "OK " + std::to_string(doubleWidth) + " " +
@@ -1027,12 +1026,12 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 12, "WINDOW_INFO ") == 0) {
                 std::istringstream args(line.substr(12));
-                int64_t x;
-                int64_t y;
-                uint64_t pixelWidth;
-                uint64_t pixelHeight;
-                uint64_t screenWidth;
-                uint64_t screenHeight;
+                i64 x;
+                i64 y;
+                u64 pixelWidth;
+                u64 pixelHeight;
+                u64 screenWidth;
+                u64 screenHeight;
                 unsigned iconified;
                 unsigned maximized;
                 unsigned fullscreen;
@@ -1072,7 +1071,7 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                     throw std::runtime_error("invalid key");
                 }
                 terminal.writePty(parseKey(name),
-                                  static_cast<VtModifier>(modifiers), true);
+                                  (VtModifier)(modifiers), true);
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 5, "CHAR ") == 0) {
                 std::istringstream args(line.substr(5));
@@ -1082,14 +1081,14 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                     modifiers > 7) {
                     throw std::runtime_error("invalid char");
                 }
-                terminal.writePty(static_cast<uint8_t>(character),
-                                  static_cast<VtModifier>(modifiers), true);
+                terminal.writePty((u8)(character),
+                                  (VtModifier)(modifiers), true);
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 18, "CONTROL_CHARACTER ") == 0) {
                 std::istringstream args(line.substr(18));
                 int key;
                 unsigned shifted;
-                uint8_t character = 0;
+                u8 character = 0;
                 if (!(args >> key >> shifted) || shifted > 1 ||
                     !controlCharacter(key, shifted, character)) {
                     throw std::runtime_error("invalid control character");
@@ -1101,7 +1100,7 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                 int key;
                 unsigned shifted;
                 unsigned alt;
-                uint8_t character = 0;
+                u8 character = 0;
                 if (!(args >> key >> shifted >> alt) || shifted > 1 ||
                     alt > 1 || !controlCharacter(key, shifted, character)) {
                     throw std::runtime_error("invalid frontend control");
@@ -1113,9 +1112,9 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 10, "KITTY_KEY ") == 0) {
                 std::istringstream args(line.substr(10));
-                uint32_t key;
-                uint32_t shifted;
-                uint32_t base;
+                u32 key;
+                u32 shifted;
+                u32 base;
                 unsigned modifiers;
                 unsigned event;
                 if (!(args >> key >> shifted >> base >> modifiers >> event) ||
@@ -1124,7 +1123,7 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                 }
                 terminal.writeKittyKey(
                     key, shifted, base, modifiers,
-                    static_cast<Vterm::KeyEventType>(event));
+                    (Vterm::KeyEventType)(event));
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 14, "KITTY_SPECIAL ") == 0) {
                 std::istringstream args(line.substr(14));
@@ -1137,7 +1136,7 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                 }
                 terminal.writeKittyKey(
                     parseKey(name), modifiers,
-                    static_cast<Vterm::KeyEventType>(event));
+                    (Vterm::KeyEventType)(event));
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 6, "PASTE ") == 0) {
                 terminal.pasteSelection(decodeHex(line.substr(6)));
@@ -1218,8 +1217,8 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
             } else if (line == "STATE") {
                 const auto& mouse = terminal.getMouseTrackingState();
                 writeAll(controlFd,
-                         "OK " + std::to_string(static_cast<unsigned>(mouse.mode)) +
-                         " " + std::to_string(static_cast<unsigned>(mouse.enc)) +
+                         "OK " + std::to_string((unsigned)(mouse.mode)) +
+                         " " + std::to_string((unsigned)(mouse.enc)) +
                          " " + std::to_string(mouse.focusEventMode) +
                          " " + std::to_string(terminal.getKittyKeyboardFlags()) +
                          "\n");
@@ -1246,8 +1245,8 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                     throw std::runtime_error("invalid mouse event");
                 }
                 writeAll(controlFd, "OK " + encodeHex(encodeMouseProtocol(
-                    static_cast<MouseTrackingEnc>(encoding),
-                    static_cast<MouseEventType>(type), modifiers,
+                    (MouseTrackingEnc)(encoding),
+                    (MouseEventType)(type), modifiers,
                     motionButton, button, column, row)) + "\n");
             } else if (line.compare(0, 6, "OSC52 ") == 0) {
                 const Osc52Request request = parseOsc52(

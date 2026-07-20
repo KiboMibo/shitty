@@ -1,14 +1,15 @@
 #pragma once
+#include <std/sys/types.h>
 
 #include <cstdint>
 
 class GraphemeBreaker {
 public:
-    bool breakBefore(uint32_t codepoint);
+    bool breakBefore(u32 codepoint);
     void reset();
 
 private:
     bool hasPrevious_ = false;
-    int32_t previous_ = 0;
-    int32_t state_ = 0;
+    i32 previous_ = 0;
+    i32 state_ = 0;
 };

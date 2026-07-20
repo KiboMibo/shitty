@@ -16,9 +16,9 @@
 
 namespace {
 
-uint32_t wordClass(uint32_t codepoint) {
-    constexpr uint32_t whitespaceClass = 0x110000;
-    constexpr uint32_t identifierClass = 0x110001;
+u32 wordClass(u32 codepoint) {
+    constexpr u32 whitespaceClass = 0x110000;
+    constexpr u32 identifierClass = 0x110001;
     switch (utf8proc_category(codepoint)) {
         case UTF8PROC_CATEGORY_LU:
         case UTF8PROC_CATEGORY_LL:
@@ -51,7 +51,7 @@ Frame::Frame() {
 
 void Frame::setSelectionColor(
     bool foreground, Color color, bool enabled) {
-    const uint8_t bit = foreground ? 1 : 2;
+    const u8 bit = foreground ? 1 : 2;
     if (foreground) selectionForeground = color;
     else selectionBackground = color;
     if (enabled) selectionColorMask |= bit;
@@ -59,7 +59,7 @@ void Frame::setSelectionColor(
     expose();
 }
 
-uint32_t Frame::internGrapheme(const Grapheme& codepoints) {
+u32 Frame::internGrapheme(const Grapheme& codepoints) {
     if (codepoints.size() < 2) {
         return 0;
     }
@@ -67,23 +67,23 @@ uint32_t Frame::internGrapheme(const Grapheme& codepoints) {
     if (found != graphemes->ids.end()) {
         return found->second;
     }
-    const uint32_t id = graphemes->values.size();
+    const u32 id = graphemes->values.size();
     graphemes->values.push_back(codepoints);
     graphemes->ids.emplace(codepoints, id);
     return id;
 }
 
-const Frame::Grapheme& Frame::getGrapheme(uint32_t id) const {
+const Frame::Grapheme& Frame::getGrapheme(u32 id) const {
     if (id >= graphemes->values.size()) {
         return graphemes->values.front();
     }
     return graphemes->values[id];
 }
 
-Frame::Frame(uint16_t winPx_, uint16_t winPy_,
-             uint16_t nCols_, uint16_t nRows_,
-             uint16_t& marginTop_, uint16_t& marginBottom_,
-             uint16_t saveLines_)
+Frame::Frame(u16 winPx_, u16 winPy_,
+             u16 nCols_, u16 nRows_,
+             u16& marginTop_, u16& marginBottom_,
+             u16 saveLines_)
     : winPx(winPx_)
     , winPy(winPy_)
     , nCols(nCols_)
@@ -117,10 +117,10 @@ void Frame::dropScrollbackHistory() {
     expose();
 }
 
-void Frame::collectHyperlinkIds(std::set<uint32_t>& ids) const {
+void Frame::collectHyperlinkIds(std::set<u32>& ids) const {
     const auto collectRow = [&](RowId row) {
         const TerminalCell* first = cells.get() + row * nCols;
-        for (uint16_t column = 0; column < nCols; ++column) {
+        for (u16 column = 0; column < nCols; ++column) {
             if (first[column].hyperlink != 0) {
                 ids.insert(first[column].hyperlink);
             }
@@ -130,9 +130,9 @@ void Frame::collectHyperlinkIds(std::set<uint32_t>& ids) const {
     for (RowId row : history) collectRow(row);
 }
 
-void Frame::recolorPalette(uint16_t index, Color color) {
+void Frame::recolorPalette(u16 index, Color color) {
     if (!cells) return;
-    const size_t count = static_cast<size_t>(nCols) * (nRows + saveLines);
+    const size_t count = (size_t)(nCols) * (nRows + saveLines);
     for (size_t i = 0; i < count; ++i) {
         auto& cell = cells.get()[i];
         if (cell.fg_index == index) cell.fg = color;
@@ -144,7 +144,7 @@ void Frame::recolorPalette(uint16_t index, Color color) {
 
 void Frame::recolorDefault(bool foreground, Color color) {
     if (!cells) return;
-    const size_t count = static_cast<size_t>(nCols) * (nRows + saveLines);
+    const size_t count = (size_t)(nCols) * (nRows + saveLines);
     for (size_t i = 0; i < count; ++i) {
         auto& cell = cells.get()[i];
         if (foreground) {
@@ -157,9 +157,9 @@ void Frame::recolorDefault(bool foreground, Color color) {
     expose();
 }
 
-void Frame::resize(uint16_t winPx_, uint16_t winPy_,
-                   uint16_t nCols_, uint16_t nRows_,
-                   uint16_t& marginTop_, uint16_t& marginBottom_) {
+void Frame::resize(u16 winPx_, u16 winPy_,
+                   u16 nCols_, u16 nRows_,
+                   u16& marginTop_, u16& marginBottom_) {
     if (winPx == winPx_ && winPy == winPy_) {
         return;
     }
@@ -171,8 +171,8 @@ void Frame::resize(uint16_t winPx_, uint16_t winPy_,
         return;
     }
 
-    const uint16_t oldViewOffset = viewOffset;
-    const uint16_t historyCount = history.size();
+    const u16 oldViewOffset = viewOffset;
+    const u16 historyCount = history.size();
     const int rowLen = std::min(nCols, nCols_);
     const int nCopyRows = std::min(nRows, nRows_);
     auto newCells = TerminalCell::make(nCols_, nRows_ + saveLines);
@@ -191,7 +191,7 @@ void Frame::resize(uint16_t winPx_, uint16_t winPy_,
     // clipping its continuation.  Never publish or retain such a partial
     // cell: editing code relies on the same lead/continuation invariant.
     const auto normalizeWideRow = [nCols_](TerminalCell* row) {
-        for (uint16_t column = 0; column < nCols_; ++column) {
+        for (u16 column = 0; column < nCols_; ++column) {
             const bool orphanLead = row[column].dwidth &&
                 (column + 1 == nCols_ || !row[column + 1].dwidth_cont);
             const bool orphanContinuation = row[column].dwidth_cont &&
@@ -226,7 +226,7 @@ void Frame::resize(uint16_t winPx_, uint16_t winPy_,
     }
     marginTop_ = 0;
     marginBottom_ = nRows;
-    viewOffset = std::min<uint16_t>(oldViewOffset, historyCount);
+    viewOffset = std::min<u16>(oldViewOffset, historyCount);
     damage.totalCells = nCols * (nRows + saveLines);
     expose();
     highMemUsageReport();
@@ -275,13 +275,13 @@ Rect Frame::getSnappedSelection() const {
             break;
         case SelectSnapTo::Word: {
             const auto cellLead = [this](const TerminalCell* row, int x) {
-                x = std::max(0, std::min(x, static_cast<int>(nCols) - 1));
+                x = std::max(0, std::min(x, (int)(nCols) - 1));
                 return row[x].dwidth_cont && x > 0 ? x - 1 : x;
             };
             const auto expand = [this, &cellLead](int rowIndex, int x) {
                 const auto* row = getLogicalRowPtr(rowIndex);
                 int left = cellLead(row, x);
-                const uint32_t selectedClass = wordClass(row[left].uc_pt);
+                const u32 selectedClass = wordClass(row[left].uc_pt);
                 while (left > 0) {
                     const int previous = cellLead(row, left - 1);
                     if (wordClass(row[previous].uc_pt) != selectedClass) break;
@@ -322,17 +322,17 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
     sel.tl.y -= viewOffset;
     sel.br.y -= viewOffset;
 
-    using unicodeString = std::vector<uint32_t>;
+    using unicodeString = std::vector<u32>;
     std::vector<unicodeString> lines;
     bool wrap = false;
 
     auto addLine =
-        [&](int y, uint16_t x1, uint16_t x2) {
+        [&](int y, u16 x1, u16 x2) {
         unicodeString line;
         bool wrapBack = wrap;
         wrap = false;
         const auto* cp = getLogicalRowPtr(y);
-        for (uint16_t x = x1; x < x2; ++x) {
+        for (u16 x = x1; x < x2; ++x) {
             const auto& cell = cp[x];
             if (!cell.dwidth_cont) {
                 const auto& grapheme = getGrapheme(cell.grapheme);
@@ -383,7 +383,7 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
         utf8_out.push_back(ch);
     };
     for (const auto& codepoints : lines) {
-        for (uint32_t cp : codepoints) {
+        for (u32 cp : codepoints) {
             Utf8Encoder::pushUnicode(cp, sinkFn);
         }
         utf8_out.push_back('\n');
@@ -410,8 +410,8 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
 
 inline void
 Frame::damageDeltaCopy(
-    TerminalCell* dst, uint32_t start, uint32_t count) const {
-    uint32_t end = start + count;
+    TerminalCell* dst, u32 start, u32 count) const {
+    u32 end = start + count;
 
     if (damage.end <= start || end <= damage.start) {
         return;

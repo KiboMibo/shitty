@@ -87,7 +87,7 @@ private:
     bool wantWritable = false;
 
     void wakeWorker() {
-        const uint8_t byte = 1;
+        const u8 byte = 1;
         while (::write(wakePipe[1], &byte, sizeof(byte)) < 0 &&
                errno == EINTR)
             ;
@@ -111,7 +111,7 @@ private:
                 return;
             }
             if (pollSet[1].revents & POLLIN) {
-                uint8_t bytes[64];
+                u8 bytes[64];
                 while (::read(wakePipe[0], bytes, sizeof(bytes)) > 0)
                     ;
                 std::lock_guard<std::mutex> lock(mutex);

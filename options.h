@@ -10,6 +10,7 @@
  */
 
 #pragma once
+#include <std/sys/types.h>
 
 #include "base.h"
 
@@ -96,12 +97,12 @@ enum class OptionSource {
 };
 
 struct Options {
-    uint8_t fontsize;
-    uint8_t modifyOtherKeys;
-    uint16_t border;
-    uint16_t nCols;
-    uint16_t nRows;
-    uint16_t saveLines;
+    u8 fontsize;
+    u8 modifyOtherKeys;
+    u16 border;
+    u16 nCols;
+    u16 nRows;
+    u16 saveLines;
     const char* dwfontname;
     const char* fontname;
     const char* shell;

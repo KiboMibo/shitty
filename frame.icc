@@ -15,7 +15,7 @@
 #endif
 
 inline void
-Frame::setCursorPos(uint16_t pY, uint16_t pX) {
+Frame::setCursorPos(u16 pY, u16 pX) {
     cursor.posY = pY;
     cursor.posX = pX;
 }
@@ -44,15 +44,15 @@ Frame::setCursorColor(Color color) {
 }
 
 inline void
-Frame::pageUp(uint16_t count) {
-    uint16_t viewOffset_ = std::min<size_t>(viewOffset + count, history.size());
+Frame::pageUp(u16 count) {
+    u16 viewOffset_ = std::min<size_t>(viewOffset + count, history.size());
     viewOffset = viewOffset_;
     expose();
 }
 
 inline void
-Frame::pageDown(uint16_t count) {
-    uint16_t viewOffset_ = std::max(0, viewOffset - count);
+Frame::pageDown(u16 count) {
+    u16 viewOffset_ = std::max(0, viewOffset - count);
     viewOffset = viewOffset_;
     expose();
 }
@@ -69,14 +69,14 @@ Frame::pageToBottom() {
 }
 
 inline void
-Frame::scrollUp(uint16_t top, uint16_t bottom, uint16_t count) {
-    count = std::min<uint16_t>(count, bottom - top);
+Frame::scrollUp(u16 top, u16 bottom, u16 count) {
+    count = std::min<u16>(count, bottom - top);
     const bool capture = top == 0 && saveLines;
     if (!capture) {
         vscrollSelection(top, bottom, -count, false);
     }
 
-    for (uint16_t k = 0; k < count; ++k) {
+    for (u16 k = 0; k < count; ++k) {
         const RowId outgoing = screen[top];
         RowId incoming = outgoing;
 
@@ -91,7 +91,7 @@ Frame::scrollUp(uint16_t top, uint16_t bottom, uint16_t count) {
             history.push_back(outgoing);
         }
 
-        for (uint16_t row = top; row + 1 < bottom; ++row) {
+        for (u16 row = top; row + 1 < bottom; ++row) {
             screen[row] = screen[row + 1];
         }
         screen[bottom - 1] = incoming;
@@ -108,13 +108,13 @@ Frame::scrollUp(uint16_t top, uint16_t bottom, uint16_t count) {
 }
 
 inline void
-Frame::scrollDown(uint16_t top, uint16_t bottom, uint16_t count) {
-    count = std::min<uint16_t>(count, bottom - top);
+Frame::scrollDown(u16 top, u16 bottom, u16 count) {
+    count = std::min<u16>(count, bottom - top);
     vscrollSelection(top, bottom, count, false);
 
-    for (uint16_t k = 0; k < count; ++k) {
+    for (u16 k = 0; k < count; ++k) {
         const RowId incoming = screen[bottom - 1];
-        for (uint16_t row = bottom - 1; row > top; --row) {
+        for (u16 row = bottom - 1; row > top; --row) {
             screen[row] = screen[row - 1];
         }
         screen[top] = incoming;
@@ -124,13 +124,13 @@ Frame::scrollDown(uint16_t top, uint16_t bottom, uint16_t count) {
 }
 
 inline void
-Frame::restoreHistory(uint16_t count) {
+Frame::restoreHistory(u16 count) {
     count = std::min<size_t>(count, history.size());
-    for (uint16_t k = 0; k < count; ++k) {
+    for (u16 k = 0; k < count; ++k) {
         const RowId incoming = history.back();
         history.pop_back();
         const RowId outgoing = screen.back();
-        for (uint16_t row = nRows - 1; row > 0; --row) {
+        for (u16 row = nRows - 1; row > 0; --row) {
             screen[row] = screen[row - 1];
         }
         screen[0] = incoming;
@@ -145,29 +145,29 @@ Frame::restoreHistory(uint16_t count) {
 }
 
 inline const TerminalCell&
-Frame::getCell(uint16_t pY, uint16_t pX) const {
+Frame::getCell(u16 pY, u16 pX) const {
     return operator[](getIdx(pY, pX));
 }
 
 inline TerminalCell&
-Frame::getCell(uint16_t pY, uint16_t pX) {
-    uint32_t idx = getIdx(pY, pX);
+Frame::getCell(u16 pY, u16 pX) {
+    u32 idx = getIdx(pY, pX);
     damage.add(idx, idx + 1);
     invalidateSelection(Rect(pX, pY));
     return operator[](idx);
 }
 
 inline const TerminalCell&
-Frame::getViewCell(uint16_t pY, uint16_t pX) const {
+Frame::getViewCell(u16 pY, u16 pX) const {
     return getViewRowPtr(pY)[pX];
 }
 
 inline void
-Frame::fillCells(uint16_t ch, const TerminalCell& attrs) {
-    for (uint16_t r = 0; r < nRows; ++r) {
-        uint32_t start = getIdx(r, 0);
-        uint32_t end = start + nCols;
-        for (uint32_t k = start; k < end; ++k) {
+Frame::fillCells(u16 ch, const TerminalCell& attrs) {
+    for (u16 r = 0; r < nRows; ++r) {
+        u32 start = getIdx(r, 0);
+        u32 end = start + nCols;
+        for (u32 k = start; k < end; ++k) {
             cells.get()[k] = attrs;
             cells.get()[k].uc_pt = ch;
         }
@@ -176,7 +176,7 @@ Frame::fillCells(uint16_t ch, const TerminalCell& attrs) {
 }
 
 inline void
-Frame::eraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
+Frame::eraseInRow(u16 pY, u16 startX, u16 count,
                   const TerminalCell& attrs) {
     if (!count) {
         return;
@@ -191,23 +191,23 @@ Frame::eraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
         throw std::runtime_error(oss.str());
     }
 #endif
-    uint32_t idx = getIdx(pY, startX);
+    u32 idx = getIdx(pY, startX);
     TerminalCell erased = attrs;
-    erased.line_attr = static_cast<const Frame&>(*this).getCell(pY, 0).line_attr;
+    erased.line_attr = ((const Frame&)*this).getCell(pY, 0).line_attr;
     eraseRange(idx, idx + count, erased);
     invalidateSelection(Rect(startX, pY, startX + count, pY));
 }
 
 inline void
-Frame::selectiveEraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
+Frame::selectiveEraseInRow(u16 pY, u16 startX, u16 count,
                            const TerminalCell& attrs) {
     TerminalCell erased = attrs;
     erased.uc_pt = ' ';
     erased.protected_char = 0;
     erased.hyperlink = 0;
     erased.grapheme = 0;
-    for (uint16_t x = startX; x < startX + count; ++x) {
-        const uint32_t index = getIdx(pY, x);
+    for (u16 x = startX; x < startX + count; ++x) {
+        const u32 index = getIdx(pY, x);
         auto& cell = operator[](index);
         if (!cell.protected_char) {
             erased.line_attr = cell.line_attr;
@@ -221,8 +221,8 @@ Frame::selectiveEraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
 }
 
 inline void
-Frame::moveInRow(uint16_t pY, uint16_t dstX, uint16_t srcX,
-                 uint16_t count) {
+Frame::moveInRow(u16 pY, u16 dstX, u16 srcX,
+                 u16 count) {
     if (!count) {
         return;
     }
@@ -236,15 +236,15 @@ Frame::moveInRow(uint16_t pY, uint16_t dstX, uint16_t srcX,
         throw std::runtime_error(oss.str());
     }
 #endif
-    uint32_t dstIdx = getIdx(pY, dstX);
-    uint32_t srcIdx = getIdx(pY, srcX);
+    u32 dstIdx = getIdx(pY, dstX);
+    u32 srcIdx = getIdx(pY, srcX);
     moveCells(dstIdx, srcIdx, count);
     invalidateSelection(Rect(dstX, pY, dstX + count, pY));
 }
 
 inline void
-Frame::copyRow(uint16_t dstY, uint16_t srcY, uint16_t startX,
-               uint16_t count) {
+Frame::copyRow(u16 dstY, u16 srcY, u16 startX,
+               u16 count) {
     if (!count) {
         return;
     }
@@ -258,8 +258,8 @@ Frame::copyRow(uint16_t dstY, uint16_t srcY, uint16_t startX,
         throw std::runtime_error(oss.str());
     }
 #endif
-    uint32_t dstIdx = getIdx(dstY, startX);
-    uint32_t srcIdx = getIdx(srcY, startX);
+    u32 dstIdx = getIdx(dstY, startX);
+    u32 srcIdx = getIdx(srcY, startX);
     copyCells(dstIdx, srcIdx, count);
     invalidateSelection(Rect(startX, dstY, startX + count, dstY));
 }
@@ -288,7 +288,7 @@ Frame::invalidateSelection(const Rect&& damage) {
 }
 
 inline void
-Frame::vscrollSelection(uint16_t top, uint16_t bottom,
+Frame::vscrollSelection(u16 top, u16 bottom,
                         int vertOffset, bool captureHistory) {
     if (selection.null()) {
         return;
@@ -304,7 +304,7 @@ Frame::vscrollSelection(uint16_t top, uint16_t bottom,
         }
         selection.tl.y += vertOffset;
         selection.br.y += vertOffset;
-        if (selection.tl.y < -static_cast<int>(history.size())) {
+        if (selection.tl.y < -(int)(history.size())) {
             selection.clear();
         }
         return;
@@ -334,8 +334,8 @@ Frame::vscrollSelection(uint16_t top, uint16_t bottom,
 inline Frame::RowId
 Frame::getLogicalRow(int pY) const {
     if (pY < 0) {
-        const int index = static_cast<int>(history.size()) + pY;
-        return history[static_cast<size_t>(index)];
+        const int index = (int)(history.size()) + pY;
+        return history[(size_t)(index)];
     }
     return screen[pY];
 }
@@ -350,8 +350,8 @@ Frame::getViewRowPtr(int pY) const {
     return getLogicalRowPtr(pY - viewOffset);
 }
 
-inline uint32_t
-Frame::getIdx(uint16_t pY, uint16_t pX) const {
+inline u32
+Frame::getIdx(u16 pY, u16 pX) const {
 #ifdef DEBUG
     if (nCols <= pX || nRows <= pY) {
         std::ostringstream oss;
@@ -364,17 +364,17 @@ Frame::getIdx(uint16_t pY, uint16_t pX) const {
 }
 
 inline const TerminalCell&
-Frame::operator[](uint32_t idx) const {
+Frame::operator[](u32 idx) const {
     return cells.get()[idx];
 }
 
 inline TerminalCell&
-Frame::operator[](uint32_t idx) {
+Frame::operator[](u32 idx) {
     return cells.get()[idx];
 }
 
 inline void
-Frame::eraseRange(uint32_t start, uint32_t end,
+Frame::eraseRange(u32 start, u32 end,
                   const TerminalCell& attrs) {
     TerminalCell* ca = &(cells.get()[start]);
     TerminalCell* const cz = ca - start + end;
@@ -385,13 +385,13 @@ Frame::eraseRange(uint32_t start, uint32_t end,
 }
 
 inline void
-Frame::copyCells(uint32_t dstIx, uint32_t srcIx, uint32_t count) {
+Frame::copyCells(u32 dstIx, u32 srcIx, u32 count) {
     memcpy(cells.get() + dstIx, cells.get() + srcIx, count * cellSize);
     damage.add(dstIx, dstIx + count);
 }
 
 inline void
-Frame::moveCells(uint32_t dstIx, uint32_t srcIx, uint32_t count) {
+Frame::moveCells(u32 dstIx, u32 srcIx, u32 count) {
     memmove(cells.get() + dstIx, cells.get() + srcIx, count * cellSize);
     damage.add(dstIx, dstIx + count);
 }
@@ -409,7 +409,7 @@ Frame::Damage::expose() {
 }
 
 inline void
-Frame::Damage::add(uint32_t start_, uint32_t end_) {
+Frame::Damage::add(u32 start_, u32 end_) {
     if (end_ < start_) {
         start_ = 0;
         end_ = totalCells;

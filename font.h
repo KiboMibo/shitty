@@ -10,6 +10,7 @@
  */
 
 #pragma once
+#include <std/sys/types.h>
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -57,34 +58,34 @@ public:
 
     ~Font() = default;
 
-    uint16_t getPx() const {
+    u16 getPx() const {
         return px;
     };
-    uint16_t getPy() const {
+    u16 getPy() const {
         return py;
     };
-    uint16_t getBaseline() const {
+    u16 getBaseline() const {
         return baseline;
     };
-    uint16_t getNx() const {
+    u16 getNx() const {
         return nx;
     };
-    uint16_t getNy() const {
+    u16 getNy() const {
         return ny;
     };
 
-    const std::vector<uint8_t>& getAtlas() const {
+    const std::vector<u8>& getAtlas() const {
         return atlasBuf;
     };
-    const uint8_t* getAtlasData() const {
+    const u8* getAtlasData() const {
         return atlasBuf.data();
     };
 
     struct AtlasPos {
-        uint8_t x = 0;
-        uint8_t y = 0;
+        u8 x = 0;
+        u8 y = 0;
     };
-    using AtlasMap = std::map<uint32_t, AtlasPos>;
+    using AtlasMap = std::map<u32, AtlasPos>;
     const AtlasMap& getAtlasMap() const {
         return atlasMap;
     };
@@ -93,12 +94,12 @@ private:
     std::string filename;
     bool overlay = false;
     bool dwidth = false;
-    uint16_t px = 0;
-    uint16_t py = 0;
-    uint16_t baseline = 0;
-    uint16_t nx = 0;
-    uint16_t ny = 0;
-    std::vector<uint8_t> atlasBuf;
+    u16 px = 0;
+    u16 py = 0;
+    u16 baseline = 0;
+    u16 nx = 0;
+    u16 ny = 0;
+    std::vector<u8> atlasBuf;
     AtlasMap atlasMap;
 
     /* Start with 1 so as to leave a blank glyph at (0,0).
@@ -108,7 +109,7 @@ private:
        * Also, any glyph mapping lookup that results in (0,0) means that the
        * character code does not exist in the atlas.
        */
-    uint16_t atlas_seq = 1;
+    u16 atlas_seq = 1;
 
     /* Load font from glyph bitmaps rasterized by FreeType.
        * Store the bitmaps into an atlas bitmap stored in atlasBuf.

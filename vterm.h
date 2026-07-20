@@ -10,6 +10,7 @@
  */
 
 #pragma once
+#include <std/sys/types.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -39,7 +40,7 @@ enum class VtKey {
     RightShift, RightControl, RightAlt, RightSuper
 };
 
-enum class VtModifier : uint8_t {
+enum class VtModifier : u8 {
     none = 0,
     shift = 1,
     control = 2,
@@ -50,15 +51,15 @@ enum class VtModifier : uint8_t {
     shift_control_alt = 7
 };
 constexpr VtModifier operator|(VtModifier lhs, VtModifier rhs) {
-    return static_cast<VtModifier>(
-        static_cast<uint8_t>(lhs) | static_cast<uint8_t>(rhs));
+    return (VtModifier)(
+        (u8)(lhs) | (u8)(rhs));
 }
 constexpr VtModifier operator&(VtModifier lhs, VtModifier rhs) {
-    return static_cast<VtModifier>(
-        static_cast<uint8_t>(lhs) & static_cast<uint8_t>(rhs));
+    return (VtModifier)(
+        (u8)(lhs) & (u8)(rhs));
 }
 
-enum class MouseTrackingMode : uint8_t {
+enum class MouseTrackingMode : u8 {
     Disabled = 0,
     X10_Compat,
     VT200,
@@ -66,7 +67,7 @@ enum class MouseTrackingMode : uint8_t {
     VT200_AnyEvent,
     VT200_Highlight
 };
-enum class MouseTrackingEnc : uint8_t {
+enum class MouseTrackingEnc : u8 {
     Default = 0,
     UTF8,
     SGR,
@@ -77,7 +78,7 @@ struct MouseTrackingState {
     MouseTrackingMode mode = MouseTrackingMode::Disabled;
     MouseTrackingEnc enc = MouseTrackingEnc::Default;
     bool focusEventMode = false;
-    uint32_t generation = 0;
+    u32 generation = 0;
 
     void setMode(MouseTrackingMode value) {
         if (mode != value) {
@@ -94,19 +95,19 @@ struct MouseTrackingState {
 };
 
 struct Vterm {
-    enum class KeyEventType : uint8_t {
+    enum class KeyEventType : u8 {
         Press = 1,
         Repeat = 2,
         Release = 3
     };
 
     virtual bool getScreenReverseVideo() const = 0;
-    virtual uint8_t getLedState() const = 0;
+    virtual u8 getLedState() const = 0;
     virtual bool getReverseWrapMode() const = 0;
     virtual bool getNationalReplacementMode() const = 0;
     virtual bool getMetaMode() const = 0;
 
-    virtual void resize(uint16_t winPx, uint16_t winPy) = 0;
+    virtual void resize(u16 winPx, u16 winPy) = 0;
     virtual void redraw() = 0;
     virtual bool synchronizedOutputActive() const = 0;
     virtual bool expireSynchronizedOutput(bool force = false) = 0;
@@ -117,20 +118,20 @@ struct Vterm {
         VtKey key, VtModifier modifiers = VtModifier::none,
         bool userInput = false) = 0;
     virtual int writePty(
-        uint8_t ch, VtModifier modifiers = VtModifier::none,
+        u8 ch, VtModifier modifiers = VtModifier::none,
         bool userInput = false) = 0;
     virtual int writePty(const char* cstr, bool userInput = false) = 0;
     virtual int writePty(
-        const uint8_t* data, size_t size, bool userInput = false) = 0;
+        const u8* data, size_t size, bool userInput = false) = 0;
     virtual bool flushPtyOutput() = 0;
     virtual bool hasPendingPtyOutput() const = 0;
     virtual size_t pendingPtyOutputBytes() const = 0;
     virtual int writeKittyKey(
-        VtKey key, uint16_t modifiers, KeyEventType event) = 0;
+        VtKey key, u16 modifiers, KeyEventType event) = 0;
     virtual int writeKittyKey(
-        uint32_t key, uint32_t shiftedKey, uint32_t baseLayoutKey,
-        uint16_t modifiers, KeyEventType event) = 0;
-    virtual uint8_t getKittyKeyboardFlags() const = 0;
+        u32 key, u32 shiftedKey, u32 baseLayoutKey,
+        u16 modifiers, KeyEventType event) = 0;
+    virtual u8 getKittyKeyboardFlags() const = 0;
 
     virtual bool readPty() = 0;
     virtual bool servicePty(bool readable, bool writable) = 0;
@@ -138,19 +139,19 @@ struct Vterm {
 
     virtual const MouseTrackingState& getMouseTrackingState() const = 0;
     virtual bool mouseHighlightRelease(
-        uint16_t endX, uint16_t endY,
-        uint16_t mouseX, uint16_t mouseY) = 0;
+        u16 endX, u16 endY,
+        u16 mouseX, u16 mouseY) = 0;
     virtual void setLocatorPosition(
-        uint16_t column, uint16_t row, uint16_t pixelX, uint16_t pixelY,
-        uint8_t buttons = 0) = 0;
-    virtual void reportLocatorButton(uint8_t button, bool pressed) = 0;
+        u16 column, u16 row, u16 pixelX, u16 pixelY,
+        u8 buttons = 0) = 0;
+    virtual void reportLocatorButton(u8 button, bool pressed) = 0;
 
     virtual void setHasFocus(bool focused) = 0;
     virtual void setHyperlink(const std::string& parametersAndUri) = 0;
     virtual std::string getHyperlink(int pixelX, int pixelY) const = 0;
     virtual size_t getHyperlinkCount() const = 0;
-    virtual void mouseWheelUp(uint16_t count = 1) = 0;
-    virtual void mouseWheelDown(uint16_t count = 1) = 0;
+    virtual void mouseWheelUp(u16 count = 1) = 0;
+    virtual void mouseWheelDown(u16 count = 1) = 0;
     virtual void pageUp() = 0;
     virtual void pageDown() = 0;
 
@@ -163,6 +164,6 @@ struct Vterm {
     virtual void pasteSelection(const std::string& selection) = 0;
 
     static Vterm* create(Composer& composer, VtermHost& host, Pty& pty,
-                         uint16_t glyphPx, uint16_t glyphPy,
-                         uint16_t winPx, uint16_t winPy);
+                         u16 glyphPx, u16 glyphPy,
+                         u16 winPx, u16 winPy);
 };

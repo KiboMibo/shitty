@@ -10,18 +10,19 @@
  */
 
 #pragma once
+#include <std/sys/types.h>
 
 #include <cstdint>
 #include <functional>
 
-constexpr const uint16_t Missing_Glyph_Marker = 0x0000;
+constexpr const u16 Missing_Glyph_Marker = 0x0000;
 
-constexpr const uint16_t Unicode_Replacement_Character = 0xfffd;
+constexpr const u16 Unicode_Replacement_Character = 0xfffd;
 
 struct Utf8Encoder {
     template <typename Fn>
     static void
-    pushUnicode(uint32_t cp, Fn&& byteSink) {
+    pushUnicode(u32 cp, Fn&& byteSink) {
         if (cp < 0x80) {
             byteSink(cp);
         } else if (cp < 0x0800) {
@@ -56,7 +57,7 @@ public:
         }
     }
 
-    uint32_t getUnicode() const {
+    u32 getUnicode() const {
         return unicode;
     }
 
@@ -64,11 +65,11 @@ public:
         return remaining != 0;
     }
 
-    void setUnicode(uint32_t cp) {
+    void setUnicode(u32 cp) {
         unicode = cp;
     }
 
-    void onUnicode(uint32_t ch) {
+    void onUnicode(u32 ch) {
         if (!ch) {
             return;
         }
@@ -119,8 +120,8 @@ private:
         cpSink();
     }
 
-    uint32_t unicode = 0;
-    uint32_t minimum = 0;
-    uint8_t remaining = 0;
+    u32 unicode = 0;
+    u32 minimum = 0;
+    u8 remaining = 0;
     CodepointSink cpSink;
 };

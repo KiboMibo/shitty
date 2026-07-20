@@ -26,8 +26,8 @@ class FontpackImpl final : public Fontpack {
 public:
     FontpackImpl(const char* fontname, const char* dwfontname);
 
-    uint16_t getPx() const override { return px; }
-    uint16_t getPy() const override { return py; }
+    u16 getPx() const override { return px; }
+    u16 getPy() const override { return py; }
 
     const Font& getRegular() const override { return *fontRegular; }
     bool hasBold() const override { return fontBold != nullptr; }
@@ -44,8 +44,8 @@ private:
     FontpackImpl(const std::string& fontname,
                  const std::string& dwfontname);
 
-    uint16_t px = 0;
-    uint16_t py = 0;
+    u16 px = 0;
+    u16 py = 0;
     std::unique_ptr<Font> fontRegular;
     std::unique_ptr<Font> fontBold;
     std::unique_ptr<Font> fontItalic;

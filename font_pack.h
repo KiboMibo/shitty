@@ -10,6 +10,7 @@
  */
 
 #pragma once
+#include <std/sys/types.h>
 
 #include "font.h"
 
@@ -19,8 +20,8 @@
 struct Composer;
 
 struct Fontpack {
-    virtual uint16_t getPx() const = 0;
-    virtual uint16_t getPy() const = 0;
+    virtual u16 getPx() const = 0;
+    virtual u16 getPy() const = 0;
 
     virtual const Font& getRegular() const = 0;
     virtual bool hasBold() const = 0;

@@ -76,13 +76,13 @@ public:
     }
 
     int fd() const override { return fd_; }
-    ssize_t read(uint8_t* buffer, size_t size) override {
+    ssize_t read(u8* buffer, size_t size) override {
         return ::read(fd_, buffer, size);
     }
-    ssize_t write(const uint8_t* buffer, size_t size) override {
+    ssize_t write(const u8* buffer, size_t size) override {
         return ::write(fd_, buffer, size);
     }
-    void resize(uint16_t columns, uint16_t rows) override {
+    void resize(u16 columns, u16 rows) override {
         pty_resize(fd_, columns, rows);
     }
 

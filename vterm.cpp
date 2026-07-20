@@ -455,7 +455,7 @@ namespace {
 #undef CSI
 #undef SS3
 
-    inline uint8_t
+    inline u8
     getModifierCode(VtModifier modifiers) {
         switch (modifiers) {
             case VtModifier::none:
@@ -479,7 +479,7 @@ namespace {
     }
 
     struct KittyKeySpec {
-        uint32_t code = 0;
+        u32 code = 0;
         char final = 'u';
     };
 
@@ -492,7 +492,7 @@ namespace {
                key == VtKey::Backspace;
     }
 
-    VtModifier kittyToLegacyModifiers(uint16_t modifiers) {
+    VtModifier kittyToLegacyModifiers(u16 modifiers) {
         VtModifier result = VtModifier::none;
         if (modifiers & 1) result = result | VtModifier::shift;
         if (modifiers & 2) result = result | VtModifier::alt;
@@ -500,7 +500,7 @@ namespace {
         return result;
     }
 
-    bool validKittyAssociatedText(uint32_t codepoint) {
+    bool validKittyAssociatedText(u32 codepoint) {
         return codepoint >= 0x20 &&
                !(codepoint >= 0x7f && codepoint <= 0x9f);
     }
@@ -689,19 +689,19 @@ namespace {
         opts.getColor("color14", p[14]);
         opts.getColor("color15", p[15]);
 
-        for (uint8_t r = 0; r < 6; ++r) {
-            for (uint8_t g = 0; g < 6; ++g) {
-                for (uint8_t b = 0; b < 6; ++b) {
-                    uint8_t ri = r ? 55 + 40 * r : 0;
-                    uint8_t gi = g ? 55 + 40 * g : 0;
-                    uint8_t bi = b ? 55 + 40 * b : 0;
+        for (u8 r = 0; r < 6; ++r) {
+            for (u8 g = 0; g < 6; ++g) {
+                for (u8 b = 0; b < 6; ++b) {
+                    u8 ri = r ? 55 + 40 * r : 0;
+                    u8 gi = g ? 55 + 40 * g : 0;
+                    u8 bi = b ? 55 + 40 * b : 0;
                     p[16 + 36 * r + 6 * g + b] = {ri, gi, bi};
                 }
             }
         }
 
-        for (uint8_t s = 0; s < 24; ++s) {
-            uint8_t i = 8 + 10 * s;
+        for (u8 s = 0; s < 24; ++s) {
+            u8 i = 8 + 10 * s;
             p[232 + s] = {i, i, i};
         }
     }
@@ -713,7 +713,7 @@ namespace {
     * These tables are referenced by VtermImpl::charCodes (see below).
     */
 
-    const uint16_t uc_DecSpec[] =
+    const u16 uc_DecSpec[] =
         {
             0x0020,
             0x0021,
@@ -815,7 +815,7 @@ namespace {
             0x0020,
     };
 
-    const uint16_t uc_DecSuppl[] =
+    const u16 uc_DecSuppl[] =
         {
             0x0020,
             0x00a1,
@@ -917,7 +917,7 @@ namespace {
             0x007f,
     };
 
-    const uint16_t uc_DecTechn[] =
+    const u16 uc_DecTechn[] =
         {
             0x0020,
             0x23b7,
@@ -1019,7 +1019,7 @@ namespace {
             0x007f,
     };
 
-    const uint16_t uc_IsoLatin1[] =
+    const u16 uc_IsoLatin1[] =
         {
             0x00a0,
             0x00a1,
@@ -1121,7 +1121,7 @@ namespace {
             0x00ff,
     };
 
-    const uint16_t uc_IsoUK[] =
+    const u16 uc_IsoUK[] =
         {
             0x0020,
             0x0021,
@@ -1225,7 +1225,7 @@ namespace {
 
 }
 
-const uint16_t* VtermImpl::charCodes[] =
+const u16* VtermImpl::charCodes[] =
     {
 
         nullptr,
@@ -1236,19 +1236,19 @@ const uint16_t* VtermImpl::charCodes[] =
         uc_IsoLatin1,
         uc_IsoUK};
 
-uint32_t VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
+u32 VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
     if (charset <= Charset::IsoUK)
-        return charCodes[static_cast<uint8_t>(charset)][ch - 32];
+        return charCodes[(u8)(charset)][ch - 32];
     if (!nationalReplacementMode) return ch;
 
-    const auto lookup = [ch](const std::pair<uint8_t, uint16_t>* table,
-                             size_t size) -> uint32_t {
+    const auto lookup = [ch](const std::pair<u8, u16>* table,
+                             size_t size) -> u32 {
         for (size_t index = 0; index < size; ++index)
             if (table[index].first == ch) return table[index].second;
         return ch;
     };
 #define NRC_TABLE(name, ...) \
-    static const std::pair<uint8_t, uint16_t> name[] = {__VA_ARGS__}
+    static const std::pair<u8, u16> name[] = {__VA_ARGS__}
     NRC_TABLE(dutch, {'#', 0x00a3}, {'@', 0x00be}, {'[', 0x0133},
               {'\\', 0x00bd}, {']', 0x007c}, {'{', 0x00a8},
               {'|', 0x0192}, {'}', 0x00bc}, {'~', 0x00b4});
@@ -1312,7 +1312,7 @@ uint32_t VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
         case Charset::NrcSerboCroatian: LOOKUP(serboCroatian);
         case Charset::NrcTurkish: LOOKUP(turkish);
         case Charset::NrcGreek: {
-            static const uint16_t greek[] = {
+            static const u16 greek[] = {
                 0x0391, 0x0392, 0x0393, 0x0394, 0x0395, 0x0396, 0x0397,
                 0x0398, 0x0399, 0x039a, 0x039b, 0x039c, 0x039d, 0x03a7,
                 0x039f, 0x03a0, 0x03a1, 0x03a3, 0x03a4, 0x03a5, 0x03a6,
@@ -1322,7 +1322,7 @@ uint32_t VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
         case Charset::NrcHebrew:
             return ch >= '`' && ch <= 'z' ? 0x05d0 + ch - '`' : ch;
         case Charset::NrcRussian: {
-            static const uint16_t russian[] = {
+            static const u16 russian[] = {
                 0x042e, 0x0410, 0x0411, 0x0426, 0x0414, 0x0415, 0x0424,
                 0x0413, 0x0425, 0x0418, 0x0419, 0x041a, 0x041b, 0x041c,
                 0x041d, 0x041e, 0x041f, 0x042f, 0x0420, 0x0421, 0x0422,
@@ -1336,8 +1336,8 @@ uint32_t VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
 }
 
 VtermImpl::VtermImpl(VtermHost& host_, Pty& pty_,
-                     uint16_t glyphPx_, uint16_t glyphPy_,
-                     uint16_t winPx_, uint16_t winPy_)
+                     u16 glyphPx_, u16 glyphPy_,
+                     u16 winPx_, u16 winPy_)
     : host(host_)
     , pty(pty_)
     , winPx(winPx_)
@@ -1390,15 +1390,15 @@ bool VtermImpl::servicePty(bool readable, bool writable) {
     return readable && readPty();
 }
 
-void VtermImpl::resize(uint16_t winPx_, uint16_t winPy_) {
+void VtermImpl::resize(u16 winPx_, u16 winPy_) {
     if (winPx == winPx_ && winPy == winPy_) {
         return;
     }
     winPx = winPx_;
     winPy = winPy_;
 
-    uint16_t nCols_ = std::max(1, (winPx - 2 * opts.border) / glyphPx);
-    uint16_t nRows_ = std::max(1, (winPy - 2 * opts.border) / glyphPy);
+    u16 nCols_ = std::max(1, (winPx - 2 * opts.border) / glyphPx);
+    u16 nRows_ = std::max(1, (winPy - 2 * opts.border) / glyphPy);
 
     if (nCols == nCols_ && nRows == nRows_) {
         cf->winPx = winPx;
@@ -1413,7 +1413,7 @@ void VtermImpl::resize(uint16_t winPx_, uint16_t winPy_) {
         // Preserve every row above the cursor that still fits.  Scrolling
         // by the full height delta needlessly discards additional rows
         // whenever the cursor is not on the old bottom row.
-        const uint16_t nScroll = posY + 1 - nRows_;
+        const u16 nScroll = posY + 1 - nRows_;
         cf->scrollUp(0, nRows, nScroll);
         posY -= nScroll;
     }
@@ -1425,7 +1425,7 @@ void VtermImpl::resize(uint16_t winPx_, uint16_t winPy_) {
 
     if (nRows < nRows_) {
         const int nScroll = std::min(
-            nRows_ - nRows, static_cast<int>(cf->getHistoryRows()));
+            nRows_ - nRows, (int)(cf->getHistoryRows()));
         cf->restoreHistory(nScroll);
         posY += nScroll;
     }
@@ -1445,12 +1445,12 @@ void VtermImpl::resize(uint16_t winPx_, uint16_t winPy_) {
 }
 
 std::string
-VtermImpl::getLocalEcho(const unsigned char* const begin,
-                    const unsigned char* const end) {
+VtermImpl::getLocalEcho(const u8* const begin,
+                        const u8* const end) {
     std::ostringstream oss;
-    for (const unsigned char* p = begin; p < end; ++p) {
+    for (const u8* p = begin; p < end; ++p) {
         if (*p == '\r' || *p >= ' ') {
-            oss << *p;
+            oss << (char)*p;
         } else {
             oss << '^' << (char)(*p + 0x40);
         }
@@ -1467,17 +1467,15 @@ int VtermImpl::writePty(VtKey key, VtModifier modifiers_, bool userInput) {
 #endif
     const auto userDefined = userDefinedKeys.find(key);
     if (userDefined != userDefinedKeys.end()) {
-        return writePty(
-            reinterpret_cast<const uint8_t*>(userDefined->second.data()),
-            userDefined->second.size(), userInput);
+        return writePty(userDefined->second.data(),
+                        userDefined->second.size(), userInput);
     }
     modifiers = modifiers_;
     const auto& spec = getInputSpec(key);
     if (modifiers == VtModifier::none) {
-        return writePty((const uint8_t*)spec.input, spec.getLength(),
-                        userInput);
+        return writePty(spec.input, spec.getLength(), userInput);
     } else {
-        static uint8_t buf[32];
+        static u8 buf[32];
         int k = 0;
         const char* end = spec.input + spec.getLength();
         for (const char* p = spec.input; p != end; ++p) {
@@ -1492,17 +1490,17 @@ int VtermImpl::writePty(VtKey key, VtModifier modifiers_, bool userInput) {
     }
 }
 
-int VtermImpl::writePty(uint8_t ch, VtModifier modifiers, bool userInput) {
+int VtermImpl::writePty(u8 ch, VtModifier modifiers, bool userInput) {
     using VM = VtModifier;
 
-    auto uch = (unsigned char*)&ch;
+    auto uch = &ch;
     logT << "pty write (mod=" << (int)modifiers << "): "
          << dumpBuffer(uch, uch + 1);
 
     const auto& mod2_encode =
-        [&](uint8_t ch) {
+        [&](u8 ch) {
         const char* exempt = "!#$%&*()-+=?.,:;<>'\"";
-        auto x = const_cast<char*>(exempt);
+        auto x = (char*)(exempt);
 
         while (*x) {
             if (ch == *x++) {
@@ -1526,9 +1524,9 @@ int VtermImpl::writePty(uint8_t ch, VtModifier modifiers, bool userInput) {
             ch = ctrlmap[ch];
         }
 
-        uint8_t wbuf[16] = {'\x1b', '[', '2', '7', ';', '_', ';'};
+        u8 wbuf[16] = {'\x1b', '[', '2', '7', ';', '_', ';'};
         wbuf[5] = '0' + getModifierCode(modifiers);
-        uint8_t pos = 7;
+        u8 pos = 7;
 
         if (ch > 99) {
             wbuf[pos] = ch / 100;
@@ -1549,7 +1547,7 @@ int VtermImpl::writePty(uint8_t ch, VtModifier modifiers, bool userInput) {
         return writePty(wbuf, pos, userInput);
     } else if ((modifiers & VM::alt) != VM::none) {
         if (altSendsEscape) {
-            static uint8_t wbuf[2] = {'\x1b', '\0'};
+            static u8 wbuf[2] = {'\x1b', '\0'};
             wbuf[1] = ch;
             return writePty(wbuf, 2, userInput);
         } else {
@@ -1559,15 +1557,14 @@ int VtermImpl::writePty(uint8_t ch, VtModifier modifiers, bool userInput) {
                 utf8_out.push_back(ch);
             };
             Utf8Encoder::pushUnicode(ch | 0x80, sinkFn);
-            return writePty((const uint8_t*)utf8_out.data(),
-                            utf8_out.size(), userInput);
+            return writePty(utf8_out.data(), utf8_out.size(), userInput);
         }
     } else {
         return writePty(uch, 1, userInput);
     }
 }
 
-int VtermImpl::writeKittyKey(VtKey key, uint16_t modifiers,
+int VtermImpl::writeKittyKey(VtKey key, u16 modifiers,
                          KeyEventType event) {
     const KittyKeySpec spec = kittyKeySpec(key);
     if (!spec.code) {
@@ -1593,7 +1590,7 @@ int VtermImpl::writeKittyKey(VtKey key, uint16_t modifiers,
     std::ostringstream sequence;
     sequence << "\x1b[" << spec.code << ';' << modifiers + 1;
     if (getKittyKeyboardFlags() & 0x02) {
-        sequence << ':' << static_cast<unsigned>(event);
+        sequence << ':' << (unsigned)(event);
     }
     if ((getKittyKeyboardFlags() & 0x10) &&
         event != KeyEventType::Release &&
@@ -1602,12 +1599,11 @@ int VtermImpl::writeKittyKey(VtKey key, uint16_t modifiers,
     }
     sequence << spec.final;
     const std::string encoded = sequence.str();
-    return writePty(reinterpret_cast<const uint8_t*>(encoded.data()),
-                    encoded.size(), true);
+    return writePty(encoded.data(), encoded.size(), true);
 }
 
-int VtermImpl::writeKittyKey(uint32_t key, uint32_t shiftedKey,
-                         uint32_t baseLayoutKey, uint16_t modifiers,
+int VtermImpl::writeKittyKey(u32 key, u32 shiftedKey,
+                         u32 baseLayoutKey, u16 modifiers,
                          KeyEventType event) {
     if (!key || (event == KeyEventType::Release &&
                  !(getKittyKeyboardFlags() & 0x02))) {
@@ -1617,8 +1613,8 @@ int VtermImpl::writeKittyKey(uint32_t key, uint32_t shiftedKey,
     std::ostringstream sequence;
     sequence << "\x1b[" << key;
     if (getKittyKeyboardFlags() & 0x04) {
-        const uint32_t alternateShifted = shiftedKey != key ? shiftedKey : 0;
-        const uint32_t alternateBase = baseLayoutKey != key ? baseLayoutKey : 0;
+        const u32 alternateShifted = shiftedKey != key ? shiftedKey : 0;
+        const u32 alternateBase = baseLayoutKey != key ? baseLayoutKey : 0;
         if (alternateShifted) {
             sequence << ':' << alternateShifted;
             if (alternateBase) {
@@ -1630,31 +1626,34 @@ int VtermImpl::writeKittyKey(uint32_t key, uint32_t shiftedKey,
     }
     sequence << ';' << modifiers + 1;
     if (getKittyKeyboardFlags() & 0x02) {
-        sequence << ':' << static_cast<unsigned>(event);
+        sequence << ':' << (unsigned)(event);
     }
     if ((getKittyKeyboardFlags() & 0x10) &&
         event != KeyEventType::Release) {
-        const uint32_t text = (modifiers & 1) && shiftedKey
+        const u32 text = (modifiers & 1) && shiftedKey
                                   ? shiftedKey
                                   : key;
         if (validKittyAssociatedText(text)) sequence << ';' << text;
     }
     sequence << 'u';
     const std::string encoded = sequence.str();
-    return writePty(reinterpret_cast<const uint8_t*>(encoded.data()),
-                    encoded.size(), true);
+    return writePty(encoded.data(), encoded.size(), true);
 }
 
 int VtermImpl::writePty(const char* cstr, bool userInput) {
-    auto ucstr = (unsigned char*)cstr;
-    return writePty(ucstr, strlen(cstr), userInput);
+    return writePty(cstr, strlen(cstr), userInput);
+}
+
+int VtermImpl::writePty(const char* data, size_t size, bool userInput) {
+    const std::u8string bytes(data, data + size);
+    return writePty(bytes.data(), bytes.size(), userInput);
 }
 
 void VtermImpl::writeCsiResponse(const std::string& payload) {
     const std::string response =
         (send8BitControls ? std::string("\x9b") : std::string("\x1b[")) +
         payload;
-    writePty(reinterpret_cast<const uint8_t*>(response.data()), response.size());
+    writePty(response.data(), response.size(), false);
 }
 
 void VtermImpl::writeDcsResponse(const std::string& payload) {
@@ -1662,7 +1661,7 @@ void VtermImpl::writeDcsResponse(const std::string& payload) {
         (send8BitControls ? std::string("\x90") : std::string("\x1bP")) +
         payload +
         (send8BitControls ? std::string("\x9c") : std::string("\x1b\\"));
-    writePty(reinterpret_cast<const uint8_t*>(response.data()), response.size());
+    writePty(response.data(), response.size(), false);
 }
 
 void VtermImpl::writeOscResponse(const std::string& payload) {
@@ -1670,10 +1669,10 @@ void VtermImpl::writeOscResponse(const std::string& payload) {
         (send8BitControls ? std::string("\x9d") : std::string("\x1b]")) +
         payload +
         (send8BitControls ? std::string("\x9c") : std::string("\x1b\\"));
-    writePty(reinterpret_cast<const uint8_t*>(response.data()), response.size());
+    writePty(response.data(), response.size(), false);
 }
 
-int VtermImpl::writePty(const uint8_t* ucstr, size_t len, bool userInput) {
+int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
     if (userInput && keyboardLocked) {
         logT << "pty write: discarding due to keyboard lock (DECKAM): "
              << dumpBuffer(ucstr, ucstr + len);
@@ -1703,7 +1702,7 @@ bool VtermImpl::flushPtyOutput() {
             ptyOutput.data() + ptyOutputOffset,
             ptyOutput.size() - ptyOutputOffset);
         if (count > 0) {
-            ptyOutputOffset += static_cast<size_t>(count);
+            ptyOutputOffset += (size_t)(count);
             continue;
         }
         if (count < 0 && errno == EINTR) continue;
@@ -1906,7 +1905,7 @@ VtermImpl::getInputSpec(Key key) {
         csiHadParams = true;                                         \
         csiPrefixAllowed = false;                                    \
         if (inputOps[nInputOps - 1] >                                \
-            (UINT32_MAX - static_cast<uint32_t>(ch - '0')) / 10) {   \
+            (UINT32_MAX - (u32)(ch - '0')) / 10) {   \
             inputOps[nInputOps - 1] = UINT32_MAX;                    \
         } else {                                                     \
             inputOps[nInputOps - 1] *= 10;                           \
@@ -1978,7 +1977,8 @@ void VtermImpl::syncPresentationCursor() {
 }
 
 bool VtermImpl::processInput(const std::string& str) {
-    return processInput((unsigned char*)str.c_str(), str.length());
+    const std::u8string input(str.begin(), str.end());
+    return processInput(input.data(), (int)input.size());
 }
 
 void VtermImpl::feedPtyOutput(const std::string& output) {
@@ -2007,7 +2007,7 @@ bool VtermImpl::executeC0InSequence(unsigned char ch) {
     const bool savedPrefixAllowed = csiPrefixAllowed;
     const std::string savedPrivatePrefix = csiPrivatePrefix;
     const std::string savedIntermediates = csiIntermediates;
-    uint32_t savedOps[maxEscOps];
+    u32 savedOps[maxEscOps];
     unsigned char savedSeparators[maxEscOps];
     std::copy(inputOps, inputOps + savedInputOps, savedOps);
     std::copy(inputSeparators, inputSeparators + savedInputOps,
@@ -2057,7 +2057,7 @@ bool VtermImpl::executeC0InSequence(unsigned char ch) {
 
 void VtermImpl::dispatchCsi(unsigned char finalByte) {
     const std::string key = csiPrivatePrefix + csiIntermediates +
-                            static_cast<char>(finalByte);
+                            (char)(finalByte);
     if (key == "A") csi_CUU();
     else if (key == "B") csi_CUD();
     else if (key == "C") csi_CUF();
@@ -2151,7 +2151,7 @@ void VtermImpl::processCsiByte(unsigned char ch) {
         csiHadParams = true;
         csiPrefixAllowed = false;
         if (inputOps[nInputOps - 1] >
-            (UINT32_MAX - static_cast<uint32_t>(ch - '0')) / 10)
+            (UINT32_MAX - (u32)(ch - '0')) / 10)
             inputOps[nInputOps - 1] = UINT32_MAX;
         else inputOps[nInputOps - 1] =
             inputOps[nInputOps - 1] * 10 + ch - '0';
@@ -2170,7 +2170,7 @@ void VtermImpl::processCsiByte(unsigned char ch) {
     }
     if (ch >= '<' && ch <= '?' && csiPrefixAllowed &&
         csiPrivatePrefix.empty()) {
-        csiPrivatePrefix.push_back(static_cast<char>(ch));
+        csiPrivatePrefix.push_back((char)(ch));
         return;
     }
     if (ch >= 0x20 && ch <= 0x2f) {
@@ -2179,7 +2179,7 @@ void VtermImpl::processCsiByte(unsigned char ch) {
             setState(InputState::IgnoreSequence);
             return;
         }
-        csiIntermediates.push_back(static_cast<char>(ch));
+        csiIntermediates.push_back((char)(ch));
         return;
     }
     if (ch >= 0x40 && ch <= 0x7e) {
@@ -2189,15 +2189,14 @@ void VtermImpl::processCsiByte(unsigned char ch) {
     setState(InputState::IgnoreSequence);
 }
 
-bool VtermImpl::processInput(
-    const unsigned char* const input, int inputSize, bool refresh) {
+bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
     const PresentationState presentationBefore = capturePresentationState();
     lastEscBegin = 0;
     lastNormalBegin = 0;
     lastStopPos = 0;
     hideCursor();
     for (readPos = 0; readPos < inputSize; ++readPos) {
-        const unsigned char& ch = input[readPos];
+        const u8& ch = input[readPos];
         if (printerControllerMode && consumePrinterControllerByte(ch)) {
             continue;
         }
@@ -2836,7 +2835,7 @@ void VtermImpl::setHyperlink(const std::string& parametersAndUri) {
 }
 
 void VtermImpl::pruneHyperlinks() {
-    std::set<uint32_t> used;
+    std::set<u32> used;
     frame_pri.collectHyperlinkIds(used);
     frame_alt.collectHyperlinkIds(used);
     if (activeHyperlink != 0) used.insert(activeHyperlink);
@@ -2846,7 +2845,7 @@ void VtermImpl::pruneHyperlinks() {
             ++it;
             continue;
         }
-        const uint32_t id = it->first;
+        const u32 id = it->first;
         it = hyperlinks.erase(it);
         for (auto key = hyperlinkIds.begin(); key != hyperlinkIds.end();) {
             if (key->second == id) key = hyperlinkIds.erase(key);
@@ -2861,13 +2860,13 @@ std::string VtermImpl::getHyperlink(int pX, int pY) const {
         return {};
     }
 
-    const uint16_t column = (pX - opts.border) / glyphPx;
-    const uint16_t row = (pY - opts.border) / glyphPy;
+    const u16 column = (pX - opts.border) / glyphPx;
+    const u16 row = (pY - opts.border) / glyphPy;
     if (column >= cf->nCols || row >= cf->nRows) {
         return {};
     }
 
-    const uint32_t id = cf->getViewCell(row, column).hyperlink;
+    const u32 id = cf->getViewCell(row, column).hyperlink;
     const auto link = hyperlinks.find(id);
     return link == hyperlinks.end() ? std::string{} : link->second;
 }
@@ -3040,8 +3039,8 @@ void VtermImpl::pasteSelection(const std::string& utf8_selection) {
 }
 
 Vterm* Vterm::create(Composer& composer, VtermHost& host, Pty& pty,
-                     uint16_t glyphPx, uint16_t glyphPy,
-                     uint16_t winPx, uint16_t winPy) {
+                     u16 glyphPx, u16 glyphPy,
+                     u16 winPx, u16 winPy) {
     return composer.pool->make<VtermImpl>(
         host, pty, glyphPx, glyphPy, winPx, winPy);
 }

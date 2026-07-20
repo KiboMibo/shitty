@@ -10,6 +10,7 @@
  */
 
 #pragma once
+#include <std/sys/types.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -20,9 +21,9 @@ struct Composer;
 
 struct Pty {
     virtual int fd() const = 0;
-    virtual ssize_t read(uint8_t* buffer, size_t size) = 0;
-    virtual ssize_t write(const uint8_t* buffer, size_t size) = 0;
-    virtual void resize(uint16_t columns, uint16_t rows) = 0;
+    virtual ssize_t read(u8* buffer, size_t size) = 0;
+    virtual ssize_t write(const u8* buffer, size_t size) = 0;
+    virtual void resize(u16 columns, u16 rows) = 0;
 
     // Takes ownership of an already-open PTY master.
     static Pty* adopt(Composer& composer, int fd);

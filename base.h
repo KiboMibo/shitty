@@ -11,14 +11,16 @@
 
 #pragma once
 
+#include <std/sys/types.h>
+
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
 
 struct Color {
-    uint8_t red;
-    uint8_t green;
-    uint8_t blue;
+    u8 red;
+    u8 green;
+    u8 blue;
 
     bool operator==(const Color& rhs) const {
         return red == rhs.red && green == rhs.green && blue == rhs.blue;

@@ -7,6 +7,7 @@
  */
 
 #pragma once
+#include <std/sys/types.h>
 
 #include <cstdint>
 #include <functional>
@@ -15,12 +16,12 @@
 class Frame;
 
 struct VtermWindowInfo {
-    int32_t x = 0;
-    int32_t y = 0;
-    uint32_t pixelWidth = 0;
-    uint32_t pixelHeight = 0;
-    uint32_t screenPixelWidth = 0;
-    uint32_t screenPixelHeight = 0;
+    i32 x = 0;
+    i32 y = 0;
+    u32 pixelWidth = 0;
+    u32 pixelHeight = 0;
+    u32 screenPixelWidth = 0;
+    u32 screenPixelHeight = 0;
     bool iconified = false;
     bool maximized = false;
     bool fullscreen = false;
@@ -32,12 +33,12 @@ struct VtermHost {
     virtual bool handlesOsc() const = 0;
     virtual void bell() = 0;
     virtual void print(const std::string& output) = 0;
-    virtual void leds(uint8_t state) = 0;
+    virtual void leds(u8 state) = 0;
     virtual void notify(const std::string& id, const std::string& title,
                         const std::string& body, bool close) = 0;
-    virtual void progress(uint32_t state, uint32_t percent) = 0;
-    virtual void windowOperation(uint32_t operation, uint32_t first,
-                                 uint32_t second) = 0;
+    virtual void progress(u32 state, u32 percent) = 0;
+    virtual void windowOperation(u32 operation, u32 first,
+                                 u32 second) = 0;
     virtual VtermWindowInfo windowInfo() = 0;
 };
 
@@ -49,12 +50,12 @@ public:
     using OscHandler = std::function<void(int, const std::string&)>;
     using BellHandler = std::function<void()>;
     using PrinterHandler = std::function<void(const std::string&)>;
-    using LedHandler = std::function<void(uint8_t)>;
+    using LedHandler = std::function<void(u8)>;
     using NotificationHandler = std::function<void(
         const std::string&, const std::string&, const std::string&, bool)>;
-    using ProgressHandler = std::function<void(uint32_t, uint32_t)>;
+    using ProgressHandler = std::function<void(u32, u32)>;
     using WindowOpsHandler =
-        std::function<void(uint32_t, uint32_t, uint32_t)>;
+        std::function<void(u32, u32, u32)>;
     using WindowInfoHandler = std::function<VtermWindowInfo()>;
 
     VtermHostCallbacks();
@@ -64,12 +65,12 @@ public:
     bool handlesOsc() const override { return haveOscHandler; }
     void bell() override;
     void print(const std::string& output) override;
-    void leds(uint8_t state) override;
+    void leds(u8 state) override;
     void notify(const std::string& id, const std::string& title,
                 const std::string& body, bool close) override;
-    void progress(uint32_t state, uint32_t percent) override;
-    void windowOperation(uint32_t operation, uint32_t first,
-                         uint32_t second) override;
+    void progress(u32 state, u32 percent) override;
+    void windowOperation(u32 operation, u32 first,
+                         u32 second) override;
     VtermWindowInfo windowInfo() override;
 
     void setRefreshHandler(RefreshHandler handler);
