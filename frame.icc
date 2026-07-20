@@ -20,9 +20,9 @@ Frame::setCursorPos(uint16_t pY, uint16_t pX) {
     cursor.posX = pX;
 }
 
-inline CharVdev::Cursor
+inline TerminalCursor
 Frame::getCursor() const {
-    CharVdev::Cursor ret = cursor;
+    TerminalCursor ret = cursor;
     ret.posY += viewOffset;
     return ret;
 }
@@ -34,7 +34,7 @@ Frame::getLogicalPoint(Point point) const {
 }
 
 inline void
-Frame::setCursorStyle(CharVdev::Cursor::Style cs) {
+Frame::setCursorStyle(TerminalCursor::Style cs) {
     cursor.style = cs;
 }
 
@@ -144,12 +144,12 @@ Frame::restoreHistory(uint16_t count) {
     expose();
 }
 
-inline const CharVdev::Cell&
+inline const TerminalCell&
 Frame::getCell(uint16_t pY, uint16_t pX) const {
     return operator[](getIdx(pY, pX));
 }
 
-inline CharVdev::Cell&
+inline TerminalCell&
 Frame::getCell(uint16_t pY, uint16_t pX) {
     uint32_t idx = getIdx(pY, pX);
     damage.add(idx, idx + 1);
@@ -157,13 +157,13 @@ Frame::getCell(uint16_t pY, uint16_t pX) {
     return operator[](idx);
 }
 
-inline const CharVdev::Cell&
+inline const TerminalCell&
 Frame::getViewCell(uint16_t pY, uint16_t pX) const {
     return getViewRowPtr(pY)[pX];
 }
 
 inline void
-Frame::fillCells(uint16_t ch, const CharVdev::Cell& attrs) {
+Frame::fillCells(uint16_t ch, const TerminalCell& attrs) {
     for (uint16_t r = 0; r < nRows; ++r) {
         uint32_t start = getIdx(r, 0);
         uint32_t end = start + nCols;
@@ -177,7 +177,7 @@ Frame::fillCells(uint16_t ch, const CharVdev::Cell& attrs) {
 
 inline void
 Frame::eraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
-                  const CharVdev::Cell& attrs) {
+                  const TerminalCell& attrs) {
     if (!count) {
         return;
     }
@@ -192,7 +192,7 @@ Frame::eraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
     }
 #endif
     uint32_t idx = getIdx(pY, startX);
-    CharVdev::Cell erased = attrs;
+    TerminalCell erased = attrs;
     erased.line_attr = static_cast<const Frame&>(*this).getCell(pY, 0).line_attr;
     eraseRange(idx, idx + count, erased);
     invalidateSelection(Rect(startX, pY, startX + count, pY));
@@ -200,8 +200,8 @@ Frame::eraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
 
 inline void
 Frame::selectiveEraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
-                           const CharVdev::Cell& attrs) {
-    CharVdev::Cell erased = attrs;
+                           const TerminalCell& attrs) {
+    TerminalCell erased = attrs;
     erased.uc_pt = ' ';
     erased.protected_char = 0;
     erased.hyperlink = 0;
@@ -340,12 +340,12 @@ Frame::getLogicalRow(int pY) const {
     return screen[pY];
 }
 
-inline const CharVdev::Cell*
+inline const TerminalCell*
 Frame::getLogicalRowPtr(int pY) const {
     return &operator[](nCols * getLogicalRow(pY));
 }
 
-inline const CharVdev::Cell*
+inline const TerminalCell*
 Frame::getViewRowPtr(int pY) const {
     return getLogicalRowPtr(pY - viewOffset);
 }
@@ -363,21 +363,21 @@ Frame::getIdx(uint16_t pY, uint16_t pX) const {
     return nCols * screen[pY] + pX;
 }
 
-inline const CharVdev::Cell&
+inline const TerminalCell&
 Frame::operator[](uint32_t idx) const {
     return cells.get()[idx];
 }
 
-inline CharVdev::Cell&
+inline TerminalCell&
 Frame::operator[](uint32_t idx) {
     return cells.get()[idx];
 }
 
 inline void
 Frame::eraseRange(uint32_t start, uint32_t end,
-                  const CharVdev::Cell& attrs) {
-    CharVdev::Cell* ca = &(cells.get()[start]);
-    CharVdev::Cell* const cz = ca - start + end;
+                  const TerminalCell& attrs) {
+    TerminalCell* ca = &(cells.get()[start]);
+    TerminalCell* const cz = ca - start + end;
     damage.add(start, end);
     while (ca < cz) {
         *ca++ = attrs;

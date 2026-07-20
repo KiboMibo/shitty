@@ -40,11 +40,11 @@ bool CharVdev::resize(uint16_t pxWidth_, uint16_t pxHeight_) {
          << " pixels, " << nCols << " x " << nRows << " chars"
          << std::endl;
 
-    cellStorage.assign(static_cast<size_t>(nCols) * nRows, Cell{});
+    cellStorage.assign(static_cast<size_t>(nCols) * nRows, TerminalCell{});
     return true;
 }
 
-CharVdev::Mapping::Mapping(uint16_t nCols_, uint16_t nRows_, Cell*& cells_)
+CharVdev::Mapping::Mapping(uint16_t nCols_, uint16_t nRows_, TerminalCell*& cells_)
     : nCols(nCols_)
     , nRows(nRows_)
     , cells(cells_)
@@ -70,7 +70,7 @@ void CharVdev::clearDirty() {
     }
 }
 
-void CharVdev::setCursor(const Cursor& cursor_) {
+void CharVdev::setCursor(const TerminalCursor& cursor_) {
     cursor = cursor_;
 }
 

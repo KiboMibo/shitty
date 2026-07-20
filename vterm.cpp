@@ -2043,7 +2043,7 @@ bool Vterm::presentationChanged(const PresentationState& before) const {
 
 void Vterm::syncPresentationCursor() {
     cf->setCursorPos(posY, posX);
-    using CS = CharVdev::Cursor::Style;
+    using CS = TerminalCursor::Style;
     cf->setCursorStyle(
         showCursorMode ? (hasFocus ? cursorShape : CS::hollow_block)
                        : CS::hidden);

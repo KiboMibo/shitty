@@ -90,7 +90,7 @@ Frame::Frame(uint16_t winPx_, uint16_t winPy_,
     , nRows(nRows_)
     , saveLines(saveLines_)
     , viewOffset(0)
-    , cells(CharVdev::make_cells(nCols, nRows + saveLines))
+    , cells(TerminalCell::make(nCols, nRows + saveLines))
     , screen(nRows)
 {
     for (RowId row = 0; row < nRows; ++row) {
@@ -119,7 +119,7 @@ void Frame::dropScrollbackHistory() {
 
 void Frame::collectHyperlinkIds(std::set<uint32_t>& ids) const {
     const auto collectRow = [&](RowId row) {
-        const CharVdev::Cell* first = cells.get() + row * nCols;
+        const TerminalCell* first = cells.get() + row * nCols;
         for (uint16_t column = 0; column < nCols; ++column) {
             if (first[column].hyperlink != 0) {
                 ids.insert(first[column].hyperlink);
@@ -175,8 +175,8 @@ void Frame::resize(uint16_t winPx_, uint16_t winPy_,
     const uint16_t historyCount = history.size();
     const int rowLen = std::min(nCols, nCols_);
     const int nCopyRows = std::min(nRows, nRows_);
-    auto newCells = CharVdev::make_cells(nCols_, nRows_ + saveLines);
-    CharVdev::Cell* p = newCells.get();
+    auto newCells = TerminalCell::make(nCols_, nRows_ + saveLines);
+    TerminalCell* p = newCells.get();
     for (int pY = 0; pY < nCopyRows; ++pY) {
         memcpy(p, getLogicalRowPtr(pY), rowLen * cellSize);
         p += nCols_;
@@ -190,14 +190,14 @@ void Frame::resize(uint16_t winPx_, uint16_t winPy_,
     // A column shrink can copy the leading half of a wide glyph while
     // clipping its continuation.  Never publish or retain such a partial
     // cell: editing code relies on the same lead/continuation invariant.
-    const auto normalizeWideRow = [nCols_](CharVdev::Cell* row) {
+    const auto normalizeWideRow = [nCols_](TerminalCell* row) {
         for (uint16_t column = 0; column < nCols_; ++column) {
             const bool orphanLead = row[column].dwidth &&
                 (column + 1 == nCols_ || !row[column + 1].dwidth_cont);
             const bool orphanContinuation = row[column].dwidth_cont &&
                 (column == 0 || !row[column - 1].dwidth);
             if (orphanLead || orphanContinuation) {
-                row[column] = CharVdev::Cell{};
+                row[column] = TerminalCell{};
             }
         }
     };
@@ -232,16 +232,16 @@ void Frame::resize(uint16_t winPx_, uint16_t winPy_,
     highMemUsageReport();
 }
 
-void Frame::fullCopyCells(CharVdev::Cell* const dst) const {
-    CharVdev::Cell* p = dst;
+void Frame::fullCopyCells(TerminalCell* const dst) const {
+    TerminalCell* p = dst;
     for (int pY = 0; pY < nRows; ++pY) {
         memcpy(p, getViewRowPtr(pY), nCols * cellSize);
         p += nCols;
     }
 }
 
-void Frame::deltaCopyCells(CharVdev::Cell* const dst) const {
-    CharVdev::Cell* p = dst;
+void Frame::deltaCopyCells(TerminalCell* const dst) const {
+    TerminalCell* p = dst;
     for (int pY = -viewOffset; pY < nRows - viewOffset; ++pY) {
         damageDeltaCopy(p, nCols * getLogicalRow(pY), nCols);
         p += nCols;
@@ -274,7 +274,7 @@ Rect Frame::getSnappedSelection() const {
         case SelectSnapTo::Char:
             break;
         case SelectSnapTo::Word: {
-            const auto cellLead = [this](const CharVdev::Cell* row, int x) {
+            const auto cellLead = [this](const TerminalCell* row, int x) {
                 x = std::max(0, std::min(x, static_cast<int>(nCols) - 1));
                 return row[x].dwidth_cont && x > 0 ? x - 1 : x;
             };
@@ -410,7 +410,7 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
 
 inline void
 Frame::damageDeltaCopy(
-    CharVdev::Cell* dst, uint32_t start, uint32_t count) const {
+    TerminalCell* dst, uint32_t start, uint32_t count) const {
     uint32_t end = start + count;
 
     if (damage.end <= start || end <= damage.start) {
@@ -426,7 +426,7 @@ Frame::damageDeltaCopy(
         end = damage.end;
     }
 
-    CharVdev::Cell* const src = cells.get();
+    TerminalCell* const src = cells.get();
 
     for (size_t i = 0, j = start; j < end; ++i, ++j) {
         if (dst[i] != src[j]) {

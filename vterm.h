@@ -327,7 +327,7 @@ private:
 
     struct PresentationState {
         Frame* frame;
-        CharVdev::Cursor cursor;
+        TerminalCursor cursor;
         Rect selection;
         uint16_t columns;
         uint16_t rows;
@@ -593,7 +593,7 @@ private:
     uint16_t marginBottom;
     bool lastCol = false;
 
-    CharVdev::Cell attrs;
+    TerminalCell attrs;
     Color* fg = &attrs.fg;
     Color* bg = &attrs.bg;
     int32_t* fgIndex = &attrs.fg_index;
@@ -671,8 +671,8 @@ private:
     VtModifier modifiers = VtModifier::none;
 
     bool showCursorMode = true;
-    CharVdev::Cursor::Style cursorShape =
-        CharVdev::Cursor::Style::filled_block;
+    TerminalCursor::Style cursorShape =
+        TerminalCursor::Style::filled_block;
     uint8_t cursorStyleParam = 2;
     bool cursorBlinkMode = false;
     bool haveBlinkingText = false;
@@ -808,7 +808,7 @@ private:
         bool lastCol = false;
     };
     struct SavedCursor_DEC: SavedCursor_SCO {
-        CharVdev::Cell attrs;
+        TerminalCell attrs;
         OriginMode originMode = OriginMode::Absolute;
         CharsetState charsetState = CharsetState{};
     };

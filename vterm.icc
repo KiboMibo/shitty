@@ -407,7 +407,7 @@ Vterm::resetTerminal() {
 inline void
 Vterm::resetScreen(bool resetTabStops) {
     showCursorMode = true;
-    cursorShape = CharVdev::Cursor::Style::filled_block;
+    cursorShape = TerminalCursor::Style::filled_block;
     cursorStyleParam = 2;
     cursorBlinkMode = false;
     haveBlinkingText = false;
@@ -930,7 +930,7 @@ Vterm::showCursor() {
     TRACE_FUN;
     if (showCursorMode && inputState == InputState::Normal) {
         cf->setCursorPos(posY, posX);
-        using CS = CharVdev::Cursor::Style;
+        using CS = TerminalCursor::Style;
         cf->setCursorStyle(hasFocus ? cursorShape : CS::hollow_block);
     }
 }
@@ -938,7 +938,7 @@ Vterm::showCursor() {
 inline void
 Vterm::hideCursor() {
     TRACE_FUN;
-    using CS = CharVdev::Cursor::Style;
+    using CS = TerminalCursor::Style;
     cf->setCursorStyle(CS::hidden);
 }
 
@@ -1176,7 +1176,7 @@ Vterm::csi_ecma48_SR() {
 inline void
 Vterm::csi_DECSCUSR() {
     TRACE_FUN;
-    using CS = CharVdev::Cursor::Style;
+    using CS = TerminalCursor::Style;
     switch (inputOps[0]) {
         case 0:
         case 1:
@@ -1751,7 +1751,7 @@ Vterm::csi_DECCRA() {
             source.bottom - source.top, rowLimit - targetTop);
         const uint16_t width = std::min<uint16_t>(
             source.right - source.left, columnLimit - targetLeft);
-        std::vector<CharVdev::Cell> copied;
+        std::vector<TerminalCell> copied;
         copied.reserve(height * width);
         for (uint16_t y = 0; y < height; ++y)
             for (uint16_t x = 0; x < width; ++x)
@@ -1780,7 +1780,7 @@ Vterm::csi_DECCARA(bool reverse) {
             setState(InputState::Normal);
             return;
         }
-        const auto apply = [reverse](CharVdev::Cell& cell, uint32_t mode) {
+        const auto apply = [reverse](TerminalCell& cell, uint32_t mode) {
             switch (mode) {
                 case 0:
                     cell.bold = reverse ? !cell.bold : false;
@@ -2911,7 +2911,7 @@ inline void
 Vterm::esch_DECALN() {
     TRACE_FUN;
 
-    CharVdev::Cell origAttrs = attrs;
+    TerminalCell origAttrs = attrs;
     Color* origFg = &attrs.fg;
     Color* origBg = &attrs.bg;
 

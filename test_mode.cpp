@@ -249,9 +249,9 @@ namespace {
         uint8_t selectionColorMask = 0;
         size_t graphemeCells = 0;
         size_t graphemeCodepoints = 0;
-        CharVdev::Cursor cursor;
+        TerminalCursor cursor;
         Rect selection;
-        std::vector<CharVdev::Cell> cells;
+        std::vector<TerminalCell> cells;
     };
 
     std::string drainInput(int fd) {
@@ -771,7 +771,7 @@ int runTestMode(int controlFd, int argc, char* argv[]) {
                 terminal.redraw();
                 writeAll(controlFd, "OK\n");
             } else if (line == "GPU_ATTRIBUTE_MASKS") {
-                CharVdev::Cell cell;
+                TerminalCell cell;
                 cell.dwidth = true;
                 const uint32_t doubleWidth =
                     VulkanPresenter::packCellAttributes(cell);

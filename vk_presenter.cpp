@@ -126,7 +126,7 @@ namespace {
     }
 }
 
-uint32_t VulkanPresenter::packCellAttributes(const CharVdev::Cell& cell) {
+uint32_t VulkanPresenter::packCellAttributes(const TerminalCell& cell) {
     return
         (static_cast<uint32_t>(cell.bold) << 2) |
         (static_cast<uint32_t>(cell.italic) << 3) |
@@ -1540,7 +1540,7 @@ bool VulkanPresenter::present(
     gpuCells.reserve(charVdev.cellCount());
     std::vector<uint32_t> graphemeData = {0};
     for (size_t index = 0; index < charVdev.cellCount(); ++index) {
-        const CharVdev::Cell& cell = charVdev.cellData()[index];
+        const TerminalCell& cell = charVdev.cellData()[index];
         uint32_t graphemeIndex = 0;
         if (cell.grapheme) {
             const auto& grapheme = sourceFrame.getGrapheme(cell.grapheme);

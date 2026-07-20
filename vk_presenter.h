@@ -33,7 +33,7 @@ public:
     bool present(const CharVdev& charVdev, const Frame& sourceFrame,
                  bool delta);
     bool repaint();
-    static uint32_t packCellAttributes(const CharVdev::Cell& cell);
+    static uint32_t packCellAttributes(const TerminalCell& cell);
 
 private:
     struct ImageResource {
@@ -120,7 +120,7 @@ private:
     ImageResource doubleWidthAtlasMap;
     ImageResource outputImage;
     bool outputInitialized = false;
-    CharVdev::Cursor previousCursor;
+    TerminalCursor previousCursor;
     Rect previousSelection;
     bool previousStateValid = false;
 

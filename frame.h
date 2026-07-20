@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "char_vdev.h"
+#include "terminal_types.h"
 #include "utf8.h"
 
 #include <deque>
@@ -35,9 +35,9 @@ public:
 
     void dropScrollbackHistory();
 
-    void fillCells(uint16_t ch, const CharVdev::Cell& attrs);
-    void fullCopyCells(CharVdev::Cell* const dest) const;
-    void deltaCopyCells(CharVdev::Cell* const dest) const;
+    void fillCells(uint16_t ch, const TerminalCell& attrs);
+    void fullCopyCells(TerminalCell* const dest) const;
+    void deltaCopyCells(TerminalCell* const dest) const;
 
     operator bool() const {
         return cells != nullptr;
@@ -46,17 +46,17 @@ public:
         cells = nullptr;
     }
 
-    const CharVdev::Cell& getCell(uint16_t pY, uint16_t pX) const;
-    CharVdev::Cell& getCell(uint16_t pY, uint16_t pX);
-    const CharVdev::Cell& getViewCell(uint16_t pY, uint16_t pX) const;
+    const TerminalCell& getCell(uint16_t pY, uint16_t pX) const;
+    TerminalCell& getCell(uint16_t pY, uint16_t pX);
+    const TerminalCell& getViewCell(uint16_t pY, uint16_t pX) const;
 
     uint32_t internGrapheme(const Grapheme& codepoints);
     const Grapheme& getGrapheme(uint32_t id) const;
 
     void eraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
-                    const CharVdev::Cell& attrs);
+                    const TerminalCell& attrs);
     void selectiveEraseInRow(uint16_t pY, uint16_t startX, uint16_t count,
-                             const CharVdev::Cell& attrs);
+                             const TerminalCell& attrs);
     void moveInRow(uint16_t pY, uint16_t dstX, uint16_t srcX,
                    uint16_t count);
     void copyRow(uint16_t dstY, uint16_t srcY, uint16_t startX,
@@ -90,9 +90,9 @@ public:
         return damage.start < damage.end;
     }
 
-    CharVdev::Cursor getCursor() const;
+    TerminalCursor getCursor() const;
     void setCursorPos(uint16_t pY, uint16_t pX);
-    void setCursorStyle(CharVdev::Cursor::Style cs);
+    void setCursorStyle(TerminalCursor::Style cs);
     void setCursorColor(Color color);
     void setSelectionColor(bool foreground, Color color, bool enabled);
     Color getSelectionForeground() const { return selectionForeground; }
@@ -133,7 +133,7 @@ public:
     bool getSelectedUtf8(std::string& utf8_selection) const;
     Point getLogicalPoint(Point point) const;
 
-    constexpr const static size_t cellSize = sizeof(CharVdev::Cell);
+    constexpr const static size_t cellSize = sizeof(TerminalCell);
 
     uint64_t seqNo = 0;
 
@@ -153,14 +153,14 @@ private:
 
     uint16_t viewOffset;
 
-    CharVdev::Cell::Ptr cells = nullptr;
+    TerminalCell::Ptr cells = nullptr;
     std::shared_ptr<GraphemeStore> graphemes =
         std::make_shared<GraphemeStore>();
     // Every allocated row belongs to exactly one of these containers.
     std::vector<RowId> screen;
     std::deque<RowId> history;
     std::vector<RowId> freeRows;
-    CharVdev::Cursor cursor;
+    TerminalCursor cursor;
     Rect selection;
     Color selectionForeground = opts.fg;
     Color selectionBackground = opts.bg;
@@ -182,19 +182,19 @@ private:
     Damage damage;
 
     RowId getLogicalRow(int pY) const;
-    const CharVdev::Cell* getLogicalRowPtr(int pY) const;
-    const CharVdev::Cell* getViewRowPtr(int pY) const;
+    const TerminalCell* getLogicalRowPtr(int pY) const;
+    const TerminalCell* getViewRowPtr(int pY) const;
     uint32_t getIdx(uint16_t pY, uint16_t pX) const;
-    const CharVdev::Cell& operator[](uint32_t idx) const;
-    CharVdev::Cell& operator[](uint32_t idx);
+    const TerminalCell& operator[](uint32_t idx) const;
+    TerminalCell& operator[](uint32_t idx);
 
     void eraseRange(uint32_t start, uint32_t end,
-                    const CharVdev::Cell& attrs);
+                    const TerminalCell& attrs);
     void copyCells(uint32_t dstIx, uint32_t srcIx, uint32_t count);
     void moveCells(uint32_t dstIx, uint32_t srcIx, uint32_t count);
 
     void damageDeltaCopy(
-        CharVdev::Cell* dst, uint32_t start, uint32_t count) const;
+        TerminalCell* dst, uint32_t start, uint32_t count) const;
 
     static SelectSnapTo cycleSelectSnapTo(SelectSnapTo& snapTo) {
         return static_cast<SelectSnapTo>(
