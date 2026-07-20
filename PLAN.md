@@ -29,7 +29,6 @@
 
 Scrollback дальше раздувать просто ради числа не надо. Добавлять только новые взаимодействия:
 
-- selection через wrapped lines;
 - reverse/rectangular selection;
 - word snapping с Unicode и пунктуацией;
 - selection после insert/delete/erase;

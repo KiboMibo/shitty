@@ -44,7 +44,8 @@ class CellStateTest(unittest.TestCase):
             snapshot = terminal.snapshot()
 
             self.assertEqual(snapshot.lines, ["abc ", "界   "])
-            self.assertTrue(snapshot.cell(3, 0).wrapped)
+            self.assertTrue(snapshot.cell(2, 0).wrapped)
+            self.assertFalse(snapshot.cell(3, 0).wrapped)
             self.assertTrue(snapshot.cell(0, 1).double_width)
             self.assertTrue(snapshot.cell(1, 1).double_width_continuation)
 

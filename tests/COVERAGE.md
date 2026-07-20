@@ -33,7 +33,8 @@ Covered now:
 - mouse/focus negotiation plus default, UTF-8, SGR and URXVT encodings;
 - frontend pointer/button policy, content scale, motion dedupe, locator updates,
   local selection and click snapping with virtual time;
-- linear/rectangular selection and selection while scrolled;
+- linear/rectangular selection, soft-wrapped logical-line copying (including
+  wide pre-wrap), reverse drags and selection while scrolled;
 - growing/shrinking both primary and alternate screens.
 
 The optional compatibility tier additionally drives the complete top-level

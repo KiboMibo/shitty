@@ -832,7 +832,11 @@ Vterm::placeGraphicChar() {
     }
 
     if (w == 2 && posX == lineCols - 1 && autoWrapMode) {
-        cf->getCell(posY, posX).wrap = 1;
+        // The wide glyph belongs wholly to the next row.  Mark the last
+        // occupied cell as the soft-wrap boundary, not the unused final
+        // column: otherwise copying the logical line invents a space.
+        const uint16_t wrapColumn = posX > hMargin ? posX - 1 : posX;
+        cf->getCell(posY, wrapColumn).wrap = 1;
         inp_CR();
         inp_LF();
     }
