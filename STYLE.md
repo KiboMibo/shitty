@@ -17,8 +17,9 @@ constructor rules below remain part of review.
   spelling.
 - Acronyms are words inside an identifier: `HttpClient`, `IoReactor`,
   `utf8Decoder`, not `HTTPClient`, `IOReactor` or `utf8_decoder`.
-- Source filenames are lowercase `snake_case`; every header should have a
-  corresponding implementation file unless it is deliberately header-only.
+- Source filenames are lowercase `snake_case`. Every `.h` has a corresponding
+  `.cpp`, even when that translation unit only includes the header to verify
+  that the header compiles on its own.
 
 Do not encode scope or type in a name. Prefer a precise noun or verb over a
 prefix such as `m_`, `p_`, `str_` or `is_`.
@@ -106,9 +107,11 @@ functionCall(
 
 ## Functions and headers
 
-- Keep non-template methods longer than one trivial statement out of headers.
-  Headers describe interfaces; implementation belongs in the paired `.cpp` or
-  `.icc` file.
+- Keep every non-template function longer than one trivial statement out of
+  headers. Headers describe interfaces; implementation belongs in the paired
+  `.cpp` file. Templates are the only exception.
+- Do not use `.icc` files. Put non-template definitions in the paired `.cpp`
+  and keep template definitions in the header that declares them.
 - A class declared in a `.cpp` file contains declarations only. Define every
   method out of line, including constructors, destructors and trivial accessors.
   If the class is declared in an anonymous namespace, close that namespace

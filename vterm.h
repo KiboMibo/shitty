@@ -159,18 +159,8 @@ struct MouseTrackingState {
     bool focusEventMode = false;
     u32 generation = 0;
 
-    void setMode(MouseTrackingMode value) {
-        if (mode != value) {
-            mode = value;
-            ++generation;
-        }
-    }
-    void setEncoding(MouseTrackingEnc value) {
-        if (enc != value) {
-            enc = value;
-            ++generation;
-        }
-    }
+    void setMode(MouseTrackingMode value);
+    void setEncoding(MouseTrackingEnc value);
 };
 
 struct Vterm {

@@ -17,7 +17,7 @@
 
 #include <iomanip>
 #include <iostream>
-#include <sstream>
+#include <string>
 
 #define zlog          \
     if (opts.quiet) { \
@@ -31,16 +31,7 @@
     } else                             \
         std::cout
 
-constexpr const char* logFileName(const char* path) {
-    const char* name = path;
-    while (*path != '\0') {
-        if (*path == '/' || *path == '\\') {
-            name = path + 1;
-        }
-        ++path;
-    }
-    return name;
-}
+const char* logFileName(const char* path);
 
 #define plog(Ostream, Prefix) Ostream << Prefix << " [" << logFileName(__FILE__) << ":" << std::setw(3) << __LINE__ << "] "
 
@@ -89,60 +80,7 @@ void restoreFds();
         logSysW(__VA_ARGS__, ": ", strerror(ec), " (errno=", ec, ")"); \
     } while (0);
 
-inline std::string dumpBuffer(const unsigned char* start, const unsigned char* end) {
-    if (opts.quiet) {
-        return "";
-    }
-
-    std::ostringstream os;
-    int count = 0;
-    os << "'";
-    for (auto it = start; it != end; ++it) {
-        switch (*it) {
-            case '\a':
-                os << "\\a";
-                break;
-            case '\b':
-                os << "\\b";
-                break;
-            case '\x1b':
-                os << "\\x1b";
-                break;
-            case '\f':
-                os << "\\f";
-                break;
-            case '\n':
-                os << "\\n";
-                break;
-            case '\r':
-                os << "\\r";
-                break;
-            case '\t':
-                os << "\\t";
-                break;
-            case '\v':
-                os << "\\v";
-                break;
-            case '\x7f':
-                os << "\\x7f";
-                break;
-            default:
-                if (*it < ' ' || *it >= 0x80) {
-                    os << "\\x" << std::hex << std::setw(2) << std::setfill('0') << (unsigned int)*it;
-                } else {
-                    os << *it;
-                }
-                break;
-        }
-        ++count;
-    }
-    if (count) {
-        os << "' (" << count << " bytes)" << std::endl;
-        return os.str();
-    } else {
-        return "";
-    }
-}
+std::string dumpBuffer(const unsigned char* start, const unsigned char* end);
 
 inline std::string dumpBuffer(const u8* start, const u8* end) {
     return dumpBuffer((const unsigned char*)start, (const unsigned char*)end);

@@ -14,6 +14,10 @@
 
 #include <utf8proc.h>
 
+#ifdef DEBUG
+    #include <sstream>
+#endif
+
 namespace {
 
     u32 wordClass(u32 codepoint) {
@@ -47,6 +51,16 @@ namespace {
 }
 
 Frame::Frame() {
+}
+
+void Frame::setBlinkState(bool visible, bool cursor) {
+    blinkVisible = visible;
+    cursorBlink = cursor;
+}
+
+void Frame::setScreenReverseVideo(bool enabled) {
+    screenReverseVideo = enabled;
+    expose();
 }
 
 void Frame::setSelectionColor(bool foreground, Color color, bool enabled) {
@@ -420,7 +434,7 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
     return true;
 }
 
-inline void Frame::damageDeltaCopy(TerminalCell* dst, u32 start, u32 count) const {
+void Frame::damageDeltaCopy(TerminalCell* dst, u32 start, u32 count) const {
     u32 end = start + count;
 
     if (damage.end <= start || end <= damage.start) {
@@ -451,5 +465,369 @@ void Frame::highMemUsageReport() {
     if (allocKB > 8192) {
         logI << "Allocated " << allocKB << " KiB for cell storage; consider "
              << "decreasing saveLines (current value: " << saveLines << ") to reduce memory usage!" << std::endl;
+    }
+}
+
+void Frame::setCursorPos(u16 pY, u16 pX) {
+    cursor.posY = pY;
+    cursor.posX = pX;
+}
+
+TerminalCursor Frame::getCursor() const {
+    TerminalCursor ret = cursor;
+    ret.posY += viewOffset;
+    return ret;
+}
+
+Point Frame::getLogicalPoint(Point point) const {
+    point.y -= viewOffset;
+    return point;
+}
+
+void Frame::setCursorStyle(TerminalCursor::Style cs) {
+    cursor.style = cs;
+}
+
+void Frame::setCursorColor(Color color) {
+    cursor.color = color;
+}
+
+void Frame::pageUp(u16 count) {
+    u16 viewOffset_ = std::min<size_t>(viewOffset + count, history.size());
+    viewOffset = viewOffset_;
+    expose();
+}
+
+void Frame::pageDown(u16 count) {
+    u16 viewOffset_ = std::max(0, viewOffset - count);
+    viewOffset = viewOffset_;
+    expose();
+}
+
+bool Frame::pageToBottom() {
+    if (!viewOffset) {
+        return false;
+    }
+
+    viewOffset = 0;
+    expose();
+    return true;
+}
+
+void Frame::scrollUp(u16 top, u16 bottom, u16 count) {
+    count = std::min<u16>(count, bottom - top);
+    const bool capture = top == 0 && saveLines;
+    if (!capture) {
+        vscrollSelection(top, bottom, -count, false);
+    }
+
+    for (u16 k = 0; k < count; ++k) {
+        const RowId outgoing = screen[top];
+        RowId incoming = outgoing;
+
+        if (capture) {
+            if (history.size() == saveLines) {
+                incoming = history.front();
+                history.pop_front();
+            } else {
+                incoming = freeRows.back();
+                freeRows.pop_back();
+            }
+            history.push_back(outgoing);
+        }
+
+        for (u16 row = top; row + 1 < bottom; ++row) {
+            screen[row] = screen[row + 1];
+        }
+        screen[bottom - 1] = incoming;
+    }
+
+    if (capture) {
+        vscrollSelection(top, bottom, -count, true);
+    }
+
+    if (capture && viewOffset) {
+        viewOffset = std::min<size_t>(viewOffset + count, history.size());
+    }
+    expose();
+}
+
+void Frame::scrollDown(u16 top, u16 bottom, u16 count) {
+    count = std::min<u16>(count, bottom - top);
+    vscrollSelection(top, bottom, count, false);
+
+    for (u16 k = 0; k < count; ++k) {
+        const RowId incoming = screen[bottom - 1];
+        for (u16 row = bottom - 1; row > top; --row) {
+            screen[row] = screen[row - 1];
+        }
+        screen[top] = incoming;
+    }
+
+    expose();
+}
+
+void Frame::restoreHistory(u16 count) {
+    count = std::min<size_t>(count, history.size());
+    for (u16 k = 0; k < count; ++k) {
+        const RowId incoming = history.back();
+        history.pop_back();
+        const RowId outgoing = screen.back();
+        for (u16 row = nRows - 1; row > 0; --row) {
+            screen[row] = screen[row - 1];
+        }
+        screen[0] = incoming;
+        freeRows.push_back(outgoing);
+    }
+    viewOffset = viewOffset > count ? viewOffset - count : 0;
+    if (!selection.null()) {
+        selection.tl.y += count;
+        selection.br.y += count;
+    }
+    expose();
+}
+
+const TerminalCell& Frame::getCell(u16 pY, u16 pX) const {
+    return operator[](getIdx(pY, pX));
+}
+
+TerminalCell& Frame::getCell(u16 pY, u16 pX) {
+    u32 idx = getIdx(pY, pX);
+    damage.add(idx, idx + 1);
+    invalidateSelection(Rect(pX, pY));
+    return operator[](idx);
+}
+
+const TerminalCell& Frame::getViewCell(u16 pY, u16 pX) const {
+    return getViewRowPtr(pY)[pX];
+}
+
+void Frame::fillCells(u16 ch, const TerminalCell& attrs) {
+    for (u16 r = 0; r < nRows; ++r) {
+        u32 start = getIdx(r, 0);
+        u32 end = start + nCols;
+        for (u32 k = start; k < end; ++k) {
+            cells.get()[k] = attrs;
+            cells.get()[k].uc_pt = ch;
+        }
+        damage.add(start, end);
+    }
+}
+
+void Frame::eraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs) {
+    if (!count) {
+        return;
+    }
+
+#ifdef DEBUG
+    if (nCols < startX + count || nRows <= pY) {
+        std::ostringstream oss;
+        oss << "Frame::eraseInRow (pY=" << pY << " startX=" << startX << " count=" << count << ") out of bounds, nCols=" << nCols << ", nRows=" << nRows;
+        throw std::runtime_error(oss.str());
+    }
+#endif
+    u32 idx = getIdx(pY, startX);
+    TerminalCell erased = attrs;
+    erased.line_attr = ((const Frame&)*this).getCell(pY, 0).line_attr;
+    eraseRange(idx, idx + count, erased);
+    invalidateSelection(Rect(startX, pY, startX + count, pY));
+}
+
+void Frame::selectiveEraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs) {
+    TerminalCell erased = attrs;
+    erased.uc_pt = ' ';
+    erased.protected_char = 0;
+    erased.hyperlink = 0;
+    erased.grapheme = 0;
+    for (u16 x = startX; x < startX + count; ++x) {
+        const u32 index = getIdx(pY, x);
+        auto& cell = operator[](index);
+        if (!cell.protected_char) {
+            erased.line_attr = cell.line_attr;
+            cell = erased;
+            cell.dirty = 1;
+            damage.add(index, index + 1);
+            invalidateSelection(Rect(x, pY));
+        }
+    }
+    expose();
+}
+
+void Frame::moveInRow(u16 pY, u16 dstX, u16 srcX, u16 count) {
+    if (!count) {
+        return;
+    }
+
+#ifdef DEBUG
+    if (nCols < dstX + count || nCols < srcX + count || nRows <= pY) {
+        std::ostringstream oss;
+        oss << "Frame::moveInRow (pY=" << pY << " dstX=" << dstX << " srcX=" << srcX << " count=" << count << ") out of bounds, nCols=" << nCols << ", nRows=" << nRows;
+        throw std::runtime_error(oss.str());
+    }
+#endif
+    u32 dstIdx = getIdx(pY, dstX);
+    u32 srcIdx = getIdx(pY, srcX);
+    moveCells(dstIdx, srcIdx, count);
+    invalidateSelection(Rect(dstX, pY, dstX + count, pY));
+}
+
+void Frame::copyRow(u16 dstY, u16 srcY, u16 startX, u16 count) {
+    if (!count) {
+        return;
+    }
+
+#ifdef DEBUG
+    if (nCols < startX + count || nRows <= dstY || nRows <= srcY) {
+        std::ostringstream oss;
+        oss << "Frame::copyRow (dstY=" << dstY << " srcY=" << srcY << " startX=" << startX << " count=" << count << ") out of bounds, nCols=" << nCols << ", nRows=" << nRows;
+        throw std::runtime_error(oss.str());
+    }
+#endif
+    u32 dstIdx = getIdx(dstY, startX);
+    u32 srcIdx = getIdx(srcY, startX);
+    copyCells(dstIdx, srcIdx, count);
+    invalidateSelection(Rect(startX, dstY, startX + count, dstY));
+}
+
+void Frame::invalidateSelection(const Rect&& damage) {
+    if (selection.empty()) {
+        return;
+    }
+
+    if (selection.rectangular) {
+        const bool outsideRows = damage.tl.y > selection.br.y || damage.br.y < selection.tl.y;
+        const bool outsideColumns = damage.br.x <= selection.tl.x || selection.br.x <= damage.tl.x;
+        if (outsideRows || outsideColumns) {
+            return;
+        }
+        selection.clear();
+        return;
+    }
+
+    if (selection.br <= damage.tl || damage.br <= selection.tl) {
+        return;
+    }
+
+    selection.clear();
+}
+
+void Frame::vscrollSelection(u16 top, u16 bottom, int vertOffset, bool captureHistory) {
+    if (selection.null()) {
+        return;
+    }
+
+    if (captureHistory) {
+        if (selection.tl.y >= bottom) {
+            return;
+        }
+        if (selection.br.y >= bottom) {
+            selection.clear();
+            return;
+        }
+        selection.tl.y += vertOffset;
+        selection.br.y += vertOffset;
+        if (selection.tl.y < -(int)(history.size())) {
+            selection.clear();
+        }
+        return;
+    }
+
+    const bool topInside = selection.tl.y >= top && selection.tl.y < bottom;
+    const bool bottomInside = selection.br.y >= top && selection.br.y < bottom;
+    if (!topInside && !bottomInside) {
+        if (selection.br.y < top || selection.tl.y >= bottom) {
+            return;
+        }
+        selection.clear();
+        return;
+    }
+    if (topInside != bottomInside) {
+        selection.clear();
+        return;
+    }
+
+    selection.tl.y += vertOffset;
+    selection.br.y += vertOffset;
+    if (selection.tl.y < top || selection.br.y >= bottom) {
+        selection.clear();
+    }
+}
+
+Frame::RowId Frame::getLogicalRow(int pY) const {
+    if (pY < 0) {
+        const int index = (int)(history.size()) + pY;
+        return history[(size_t)(index)];
+    }
+    return screen[pY];
+}
+
+const TerminalCell* Frame::getLogicalRowPtr(int pY) const {
+    return &operator[](nCols* getLogicalRow(pY));
+}
+
+const TerminalCell* Frame::getViewRowPtr(int pY) const {
+    return getLogicalRowPtr(pY - viewOffset);
+}
+
+u32 Frame::getIdx(u16 pY, u16 pX) const {
+#ifdef DEBUG
+    if (nCols <= pX || nRows <= pY) {
+        std::ostringstream oss;
+        oss << "Frame::getIdx (pY=" << pY << " pX=" << pX << ") out of bounds, nCols=" << nCols << ", nRows=" << nRows;
+        throw std::runtime_error(oss.str());
+    }
+#endif
+    return nCols * screen[pY] + pX;
+}
+
+const TerminalCell& Frame::operator[](u32 idx) const {
+    return cells.get()[idx];
+}
+
+TerminalCell& Frame::operator[](u32 idx) {
+    return cells.get()[idx];
+}
+
+void Frame::eraseRange(u32 start, u32 end, const TerminalCell& attrs) {
+    TerminalCell* ca = &(cells.get()[start]);
+    TerminalCell* const cz = ca - start + end;
+    damage.add(start, end);
+    while (ca < cz) {
+        *ca++ = attrs;
+    }
+}
+
+void Frame::copyCells(u32 dstIx, u32 srcIx, u32 count) {
+    memcpy(cells.get() + dstIx, cells.get() + srcIx, count * cellSize);
+    damage.add(dstIx, dstIx + count);
+}
+
+void Frame::moveCells(u32 dstIx, u32 srcIx, u32 count) {
+    memmove(cells.get() + dstIx, cells.get() + srcIx, count * cellSize);
+    damage.add(dstIx, dstIx + count);
+}
+
+void Frame::Damage::reset() {
+    start = 0;
+    end = 0;
+}
+
+void Frame::Damage::expose() {
+    start = 0;
+    end = totalCells;
+}
+
+void Frame::Damage::add(u32 start_, u32 end_) {
+    if (end_ < start_) {
+        start_ = 0;
+        end_ = totalCells;
+    }
+
+    if (start == end) {
+        start = start_;
+        end = end_;
+    } else {
+        start = std::min(start, start_);
+        end = std::max(end, end_);
     }
 }

@@ -14,8 +14,7 @@
 #include <std/sys/types.h>
 
 #include <cstdint>
-#include <iomanip>
-#include <iostream>
+#include <iosfwd>
 
 struct Color {
     u8 red;
@@ -27,23 +26,14 @@ struct Color {
     }
 };
 
-inline std::ostream& operator<<(std::ostream& os, const Color& c) {
-    os << "rgb:" << std::hex << std::setfill('0')
-
-       << std::setw(2) << (int)c.red << std::setw(2) << (int)c.red << "/" << std::setw(2) << (int)c.green << std::setw(2) << (int)c.green << "/" << std::setw(2) << (int)c.blue << std::setw(2) << (int)c.blue;
-    return os;
-}
+std::ostream& operator<<(std::ostream& os, const Color& c);
 
 struct Point {
     int x = -1;
     int y = -1;
 
     Point() = default;
-    Point(int x_, int y_)
-        : x(x_)
-        , y(y_)
-    {
-    }
+    Point(int x_, int y_);
 
     bool operator<(const Point& rhs) const {
         return y < rhs.y || (y == rhs.y && x < rhs.x);
@@ -58,11 +48,7 @@ struct Point {
     }
 };
 
-inline std::ostream& operator<<(std::ostream& os, const Point& p) {
-    os << "(" << p.x << "," << p.y << ")";
-
-    return os;
-}
+std::ostream& operator<<(std::ostream& os, const Point& p);
 
 struct Rect {
     Point tl;
@@ -70,21 +56,9 @@ struct Rect {
     bool rectangular = false;
 
     Rect() = default;
-    Rect(Point tl_, Point br_)
-        : tl(tl_)
-        , br(br_)
-    {
-    }
-    Rect(int x, int y)
-        : tl(x, y)
-        , br(x + 1, y)
-    {
-    }
-    Rect(int x1, int y1, int x2, int y2)
-        : tl(x1, y1)
-        , br(x2, y2)
-    {
-    }
+    Rect(Point tl_, Point br_);
+    Rect(int x, int y);
+    Rect(int x1, int y1, int x2, int y2);
 
     bool null() const {
         return tl == Point() && br == Point();
@@ -98,23 +72,11 @@ struct Rect {
         return Point((tl.x + br.x) / 2, (tl.y + br.y) / 2);
     }
 
-    void clear() {
-        tl = Point();
-        br = Point();
-    }
+    void clear();
 
     void toggleRectangular() {
         rectangular = !rectangular;
     }
 };
 
-inline std::ostream& operator<<(std::ostream& os, const Rect& r) {
-    os << "Rect{tl=" << r.tl << " " << "br=" << r.br;
-    if (r.rectangular) {
-        os << " rectangular}";
-    } else {
-        os << " regular}";
-    }
-
-    return os;
-}
+std::ostream& operator<<(std::ostream& os, const Rect& r);

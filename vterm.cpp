@@ -9,6 +9,8 @@
  * See the file LICENSE for the full license.
  */
 
+#include "vterm.h"
+
 #include "base64.h"
 #include "composer.h"
 #include "frame.h"
@@ -17,7 +19,6 @@
 #include "options.h"
 #include "pty.h"
 #include "utf8.h"
-#include "vterm.h"
 #include "vterm_host.h"
 
 #include <std/mem/obj_pool.h>
@@ -38,6 +39,20 @@
 #include <sstream>
 #include <sys/types.h>
 #include <thread>
+
+void MouseTrackingState::setMode(MouseTrackingMode value) {
+    if (mode != value) {
+        mode = value;
+        ++generation;
+    }
+}
+
+void MouseTrackingState::setEncoding(MouseTrackingEnc value) {
+    if (enc != value) {
+        enc = value;
+        ++generation;
+    }
+}
 
 namespace {
     class VtermImpl final: public Vterm {

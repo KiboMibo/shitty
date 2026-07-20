@@ -9,12 +9,25 @@
  * See the file LICENSE for the full license.
  */
 
-#pragma once
+#include "terminal_types.h"
 
-#include <string>
-
-namespace base64 {
-    std::string encode(const std::string& in);
-
-    bool decode(const std::string& in, std::string& out);
+TerminalCell::TerminalCell()
+    : dwidth(0)
+    , dwidth_cont(0)
+    , bold(0)
+    , italic(0)
+    , underline(0)
+    , inverse(0)
+    , wrap(0)
+    , dirty(0)
+    , faint(0)
+    , blink(0)
+    , conceal(0)
+    , strike(0)
+    , overline(0)
+    , underline_style(0)
+    , fg(opts.fg)
+    , bg(opts.bg)
+    , underline_color(opts.fg)
+{
 }

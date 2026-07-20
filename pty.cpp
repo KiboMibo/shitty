@@ -18,9 +18,10 @@
  *   http://www.apuebook.com/code3e.html
  */
 
+#include "pty.h"
+
 #include "composer.h"
 #include "log.h"
-#include "pty.h"
 
 #include <std/mem/obj_pool.h>
 

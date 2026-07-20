@@ -20,8 +20,81 @@
 #include <map>
 #include <sstream>
 #include <stdexcept>
+#include <vector>
 
 namespace {
+
+    enum class OptionKind {
+        NoArg,
+        SepArg,
+        SkipLine
+    };
+
+    struct OptionDesc {
+        const char* option;
+        OptionKind parseType;
+        const char* implValue;
+        const char* hardDefault;
+        const char* helpDescr;
+    };
+
+    struct ResourceDesc {
+        const char* resource;
+        const char* hardDefault;
+        const char* helpDescr;
+    };
+
+    const std::vector<OptionDesc> optionsTable = {
+
+        {"altScroll", OptionKind::NoArg, "true", "false", "Alternate scroll mode"},
+        {"autoCopy", OptionKind::NoArg, "true", "false", "Sync primary to clipboard"},
+        {"bg", OptionKind::SepArg, nullptr, "#000", "Background color"},
+        {"boldColors", OptionKind::NoArg, "true", "true", "Enable bright for bold"},
+        {"border", OptionKind::SepArg, nullptr, "2", "Border width in pixels"},
+        {"cr", OptionKind::SepArg, nullptr, nullptr, "Cursor color"},
+        {"dwfont", OptionKind::SepArg, nullptr, "18x18ja", "Double-width font to use"},
+        {"fg", OptionKind::SepArg, nullptr, "#fff", "Foreground color"},
+        {"font", OptionKind::SepArg, nullptr, "monospace", "Font to use"},
+        {"fontsize", OptionKind::SepArg, nullptr, "16", "Font size"},
+        {"geometry", OptionKind::SepArg, nullptr, "80x24", "Terminal size in chars"},
+        {"vulkanInfo", OptionKind::NoArg, "true", "false", "Print Vulkan information"},
+        {"help", OptionKind::NoArg, "true", "false", "Print usage listing and quit"},
+        {"listres", OptionKind::NoArg, "true", "false", "Print advanced option listing and quit"},
+        {"login", OptionKind::NoArg, "true", "false", "Start shell as a login shell"},
+        {"rv", OptionKind::NoArg, "true", "false", "Reverse video"},
+        {"saveLines", OptionKind::SepArg, nullptr, "500", "Lines of scrollback history"},
+        {"shell", OptionKind::SepArg, nullptr, nullptr, "Shell program to run"},
+        {"showWraps", OptionKind::NoArg, "true", "false", "Show wrap marks at right margin"},
+        {"title", OptionKind::SepArg, nullptr, "Zutty", "Window title"},
+        {"quiet", OptionKind::NoArg, "true", "false", "Silence logging output"},
+        {"verbose", OptionKind::NoArg, "true", "false", "Output info messages"},
+        {"e", OptionKind::SkipLine, nullptr, nullptr, "Command line to run"},
+    };
+
+    const std::vector<ResourceDesc> resourceTable = {
+
+        {"altSendsEscape", "true", "Encode Alt key as ESC prefix"},
+        {"modifyOtherKeys", "1", "Key modifier encoding level; 0..2"},
+        {"allowOsc52Read", "false", "Allow applications to read clipboard via OSC 52"},
+        {"osc52Select", "primary", "Selection used by OSC 52 selector s: primary or clipboard"},
+        {"printerCommand", "", "Command receiving DEC printer output on stdin"},
+        {"color0", "#000000", "Palette color 0"},
+        {"color1", "#cd0000", "Palette color 1"},
+        {"color2", "#00cd00", "Palette color 2"},
+        {"color3", "#cdcd00", "Palette color 3"},
+        {"color4", "#0000ee", "Palette color 4"},
+        {"color5", "#cd00cd", "Palette color 5"},
+        {"color6", "#00cdcd", "Palette color 6"},
+        {"color7", "#e5e5e5", "Palette color 7"},
+        {"color8", "#7f7f7f", "Palette color 8"},
+        {"color9", "#ff0000", "Palette color 9"},
+        {"color10", "#00ff00", "Palette color 10"},
+        {"color11", "#ffff00", "Palette color 11"},
+        {"color12", "#5c5cff", "Palette color 12"},
+        {"color13", "#ff00ff", "Palette color 13"},
+        {"color14", "#00ffff", "Palette color 14"},
+        {"color15", "#ffffff", "Palette color 15"},
+    };
 
     std::map<std::string, std::string> commandLine;
 

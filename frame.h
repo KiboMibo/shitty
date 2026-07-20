@@ -96,20 +96,14 @@ public:
     u8 getSelectionColorMask() const {
         return selectionColorMask;
     }
-    void setBlinkState(bool visible, bool cursor) {
-        blinkVisible = visible;
-        cursorBlink = cursor;
-    }
+    void setBlinkState(bool visible, bool cursor);
     bool getBlinkVisible() const {
         return blinkVisible;
     }
     bool getCursorBlink() const {
         return cursorBlink;
     }
-    void setScreenReverseVideo(bool enabled) {
-        screenReverseVideo = enabled;
-        expose();
-    }
+    void setScreenReverseVideo(bool enabled);
     bool getScreenReverseVideo() const {
         return screenReverseVideo;
     }
@@ -206,5 +200,3 @@ private:
 
     void highMemUsageReport();
 };
-
-#include "frame.icc"

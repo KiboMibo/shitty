@@ -52,26 +52,7 @@ struct TerminalCell {
     u32 semantic = 0;
     u32 line_attribute = 0;
 
-    TerminalCell()
-        : dwidth(0)
-        , dwidth_cont(0)
-        , bold(0)
-        , italic(0)
-        , underline(0)
-        , inverse(0)
-        , wrap(0)
-        , dirty(0)
-        , faint(0)
-        , blink(0)
-        , conceal(0)
-        , strike(0)
-        , overline(0)
-        , underline_style(0)
-        , fg(opts.fg)
-        , bg(opts.bg)
-        , underline_color(opts.fg)
-    {
-    }
+    TerminalCell();
 
     using Ptr = std::shared_ptr<TerminalCell>;
 

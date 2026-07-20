@@ -44,17 +44,9 @@ class Utf8Decoder {
 public:
     using CodepointSink = std::function<void()>;
 
-    Utf8Decoder(CodepointSink&& fn)
-        : cpSink(fn)
-    {
-    }
+    Utf8Decoder(CodepointSink&& fn);
 
-    void checkPrematureEOS() {
-        if (remaining > 0) {
-            remaining = 0;
-            emitReplacement();
-        }
-    }
+    void checkPrematureEOS();
 
     u32 getUnicode() const {
         return unicode;
@@ -68,55 +60,12 @@ public:
         unicode = cp;
     }
 
-    void onUnicode(u32 ch) {
-        if (!ch) {
-            return;
-        }
+    void onUnicode(u32 ch);
 
-        unicode = ch;
-        cpSink();
-    }
-
-    void pushByte(unsigned char ch) {
-        if ((ch & 0xc0) == 0x80) {
-            if (remaining == 0) {
-                emitReplacement();
-                return;
-            }
-            unicode = (unicode << 6) | (ch & 0x3f);
-            if (--remaining == 0) {
-                if (unicode < minimum || unicode > 0x10ffff || (unicode >= 0xd800 && unicode <= 0xdfff)) {
-                    emitReplacement();
-                } else {
-                    cpSink();
-                }
-            }
-        } else if (ch >= 0xc2 && ch <= 0xdf) {
-            checkPrematureEOS();
-            unicode = ch & 0x1f;
-            remaining = 1;
-            minimum = 0x80;
-        } else if (ch >= 0xe0 && ch <= 0xef) {
-            checkPrematureEOS();
-            unicode = ch & 0x0f;
-            remaining = 2;
-            minimum = 0x800;
-        } else if (ch >= 0xf0 && ch <= 0xf4) {
-            checkPrematureEOS();
-            unicode = ch & 0x07;
-            remaining = 3;
-            minimum = 0x10000;
-        } else {
-            checkPrematureEOS();
-            emitReplacement();
-        }
-    }
+    void pushByte(unsigned char ch);
 
 private:
-    void emitReplacement() {
-        unicode = Unicode_Replacement_Character;
-        cpSink();
-    }
+    void emitReplacement();
 
     u32 unicode = 0;
     u32 minimum = 0;
