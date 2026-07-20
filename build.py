@@ -51,10 +51,24 @@ render_spv = command(
 )
 
 
-zutty = program(
-    srcs=build.glob("$(S)/*.cpp"),
+main_source = "$(S)/main.cpp"
+libzutty_sources = [
+    source for source in build.glob("$(S)/*.cpp")
+    if source != main_source
+]
+
+
+libzutty = library(
+    srcs=libzutty_sources,
     deps=[freetype, fontconfig, glfw, vulkan, threads, libstd, brotli_common,
           utf8proc],
+    output="$(B)/libzutty.a",
+)
+
+
+zutty = program(
+    srcs=[main_source],
+    deps=[libzutty],
 )
 
 
@@ -112,6 +126,7 @@ vttest_profile = command(
 )
 
 
+install(libzutty)
 install(zutty)
 install(test_suite)
 install(parser_fuzz)
