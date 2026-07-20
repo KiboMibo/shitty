@@ -1473,7 +1473,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     glfwWindowHint(GLFW_SCALE_FRAMEBUFFER, GLFW_TRUE);
-    glfwWindowHintString(GLFW_WAYLAND_APP_ID, "org.zutty.Zutty");
+    glfwWindowHintString(GLFW_WAYLAND_APP_ID, "zutty");
 
     const int initialWidth = std::max(320, (int)(opts.nCols) * opts.fontsize / 2);
     const int initialHeight = std::max(200, (int)(opts.nRows) * opts.fontsize);
