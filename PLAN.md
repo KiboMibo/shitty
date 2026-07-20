@@ -25,15 +25,7 @@
 
 ## Главные пробелы
 
-1. PTY, presentation и lifecycle
-
-Сейчас практически отсутствуют:
-
-- отсутствие spurious frames при неполной escape sequence.
-
-Synchronized output должен продолжать менять модель терминала, сохраняя предыдущую представленную картинку до `2026l`: [protocol specification](https://github.com/contour-terminal/vt-extensions/blob/master/synchronized-output.md).
-
-2. Options, fonts и startup
+1. Options, fonts и startup
 
 Это почти белое пятно:
 
@@ -57,9 +49,6 @@ Synchronized output должен продолжать менять модель 
 Большую часть протокольных тестов можно писать уже сейчас. Для остального добавлю узкие platform-neutral seams и control-команды:
 
 - clipboard ownership;
-- damage snapshot;
-- present success/failure;
-- PTY fault/backpressure injection;
 - option parsing без запуска GLFW;
 - font resolver с временным деревом файлов.
 

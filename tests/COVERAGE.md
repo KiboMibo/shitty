@@ -29,6 +29,8 @@ Covered now:
   including no-op expiry outside synchronized mode;
 - resize between failed presentation and retry, rebuilding a full frame for the
   new grid while retaining earlier uncommitted damage;
+- incomplete CSI, OSC and UTF-8 input without spurious frames or transient
+  parser-driven cursor hiding;
 - C0 controls, cursor movement, save/restore, tabs and scrolling regions;
 - autowrap, alternate screen, synchronized output and cursor modes;
 - insert/delete/erase operations and insert mode;

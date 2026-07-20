@@ -321,9 +321,27 @@ public:
 private:
     std::string getLocalEcho(const unsigned char* const begin,
                              const unsigned char* const end);
-    void processInput(
+    bool processInput(
         const unsigned char* const input, int size, bool refresh = true);
-    void processInput(const std::string& str);
+    bool processInput(const std::string& str);
+
+    struct PresentationState {
+        Frame* frame;
+        CharVdev::Cursor cursor;
+        Rect selection;
+        uint16_t columns;
+        uint16_t rows;
+        uint16_t viewOffset;
+        bool screenReverse;
+        bool blinkVisible;
+        bool cursorBlink;
+        Color selectionForeground;
+        Color selectionBackground;
+        uint8_t selectionColorMask;
+    };
+    PresentationState capturePresentationState() const;
+    bool presentationChanged(const PresentationState& before) const;
+    void syncPresentationCursor();
 
     void writeCsiResponse(const std::string& payload);
     void writeDcsResponse(const std::string& payload);

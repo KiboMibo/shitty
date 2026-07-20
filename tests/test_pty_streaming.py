@@ -5,6 +5,26 @@ from harness import Zutty
 
 
 class PtyStreamingTest(unittest.TestCase):
+    def test_incomplete_sequences_do_not_publish_spurious_frames(self):
+        fragments = (
+            b"\x1b[31",
+            b"\x1b]2;unfinished",
+            "界".encode()[:2],
+        )
+        for fragment in fragments:
+            with self.subTest(fragment=fragment):
+                with Zutty(columns=8, rows=2) as terminal:
+                    terminal.write(b"\x1b[0m")
+                    before = terminal.snapshot().refresh_count
+                    terminal.script_pty_reads(
+                        fragment, ("error", errno.EAGAIN)
+                    )
+                    self.assertFalse(terminal.read_pty())
+                    self.assertEqual(
+                        terminal.snapshot().refresh_count,
+                        before,
+                    )
+
     def test_synchronized_update_spans_multiple_pty_readiness_cycles(self):
         with Zutty(columns=8, rows=2) as terminal:
             before = terminal.snapshot()

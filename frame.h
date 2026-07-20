@@ -86,6 +86,9 @@ public:
     void resetDamage() {
         damage.reset();
     };
+    bool hasDamage() const {
+        return damage.start < damage.end;
+    }
 
     CharVdev::Cursor getCursor() const;
     void setCursorPos(uint16_t pY, uint16_t pX);

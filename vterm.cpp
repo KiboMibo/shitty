@@ -1999,8 +1999,58 @@ Vterm::getInputSpec(Key key) {
         }                                                            \
         break
 
-void Vterm::processInput(const std::string& str) {
-    processInput((unsigned char*)str.c_str(), str.length());
+Vterm::PresentationState Vterm::capturePresentationState() const {
+    return {
+        cf,
+        cf->getCursor(),
+        cf->getSelectionForView(),
+        cf->nCols,
+        cf->nRows,
+        cf->getViewOffset(),
+        cf->getScreenReverseVideo(),
+        cf->getBlinkVisible(),
+        cf->getCursorBlink(),
+        cf->getSelectionForeground(),
+        cf->getSelectionBackground(),
+        cf->getSelectionColorMask(),
+    };
+}
+
+bool Vterm::presentationChanged(const PresentationState& before) const {
+    if (before.frame != cf || cf->hasDamage() ||
+        before.columns != cf->nCols || before.rows != cf->nRows ||
+        before.viewOffset != cf->getViewOffset() ||
+        before.screenReverse != cf->getScreenReverseVideo() ||
+        before.blinkVisible != cf->getBlinkVisible() ||
+        before.cursorBlink != cf->getCursorBlink() ||
+        !(before.selectionForeground == cf->getSelectionForeground()) ||
+        !(before.selectionBackground == cf->getSelectionBackground()) ||
+        before.selectionColorMask != cf->getSelectionColorMask()) {
+        return true;
+    }
+    const auto cursor = cf->getCursor();
+    if (before.cursor.posX != cursor.posX ||
+        before.cursor.posY != cursor.posY ||
+        before.cursor.style != cursor.style ||
+        !(before.cursor.color == cursor.color)) {
+        return true;
+    }
+    const Rect selection = cf->getSelectionForView();
+    return !(before.selection.tl == selection.tl) ||
+           !(before.selection.br == selection.br) ||
+           before.selection.rectangular != selection.rectangular;
+}
+
+void Vterm::syncPresentationCursor() {
+    cf->setCursorPos(posY, posX);
+    using CS = CharVdev::Cursor::Style;
+    cf->setCursorStyle(
+        showCursorMode ? (hasFocus ? cursorShape : CS::hollow_block)
+                       : CS::hidden);
+}
+
+bool Vterm::processInput(const std::string& str) {
+    return processInput((unsigned char*)str.c_str(), str.length());
 }
 
 void Vterm::feedPtyOutput(const std::string& output) {
@@ -2211,8 +2261,9 @@ void Vterm::processCsiByte(unsigned char ch) {
     setState(InputState::IgnoreSequence);
 }
 
-void Vterm::processInput(
+bool Vterm::processInput(
     const unsigned char* const input, int inputSize, bool refresh) {
+    const PresentationState presentationBefore = capturePresentationState();
     lastEscBegin = 0;
     lastNormalBegin = 0;
     lastStopPos = 0;
@@ -2800,10 +2851,12 @@ void Vterm::processInput(
         }
     }
     traceNormalInput();
-    showCursor();
-    if (refresh) {
+    syncPresentationCursor();
+    const bool changed = presentationChanged(presentationBefore);
+    if (refresh && changed) {
         redraw();
     }
+    return changed;
 }
 
 void Vterm::setHyperlink(const std::string& parametersAndUri) {

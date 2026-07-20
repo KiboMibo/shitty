@@ -583,7 +583,7 @@ Vterm::readPty() {
     // monopolizing the window thread indefinitely.
     constexpr size_t maxDrainBytes = 20 * 1024 * 1024;
     size_t drainBytes = 0;
-    bool received = false;
+    bool presentationPending = false;
     bool finished = false;
     while (drainBytes < maxDrainBytes) {
         const ssize_t n = onPtyRead(inputBuf, sizeof(inputBuf));
@@ -594,8 +594,7 @@ Vterm::readPty() {
             }
 
             logT << "pty read: " << dumpBuffer(inputBuf, inputBuf + n);
-            processInput(inputBuf, n, false);
-            received = true;
+            presentationPending |= processInput(inputBuf, n, false);
             drainBytes += static_cast<size_t>(n);
             continue;
         }
@@ -613,7 +612,7 @@ Vterm::readPty() {
         finished = true;
         break;
     }
-    if (received) {
+    if (presentationPending) {
         redraw();
     }
     return finished;
