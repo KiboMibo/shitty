@@ -202,6 +202,11 @@ class Zutty:
         for _ in range(count):
             self.command("WHEEL_DOWN")
 
+    def scroll(self, x, y, modifiers=0, pixel_x=2, pixel_y=2):
+        self.command(
+            f"SCROLL {x!r} {y!r} {modifiers} {pixel_x} {pixel_y}"
+        )
+
     def resize(self, columns, rows):
         self.command(f"RESIZE {columns} {rows}")
         self._window_info["pixel_width"] = columns + 4

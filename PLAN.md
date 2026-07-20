@@ -29,14 +29,13 @@
 
 Критичная дыра: wheel-тесты обходят frontend. Они вызывают `Vterm::mouseWheelUp/Down()` напрямую, поэтому не проверяют код дробных дельт и накопления в [main.cpp](/home/pg/monorepo/zutty/main.cpp:1251). Нужны control-команды уровня реальных событий:
 
-- `SCROLL x y`;
 - движение pointer;
 - button press/release;
 - modifiers;
 - время между кликами;
 - content scale и framebuffer coordinates.
 
-Так мы закроем fractional scrolling, смену reporting/local scrolling, Shift override, cell dedupe, horizontal wheel и double/triple click.
+Осталось закрыть cell dedupe и double/triple click.
 
 2. Unicode и charsets
 
@@ -119,7 +118,7 @@ Synchronized output должен продолжать менять модель 
 
 Большую часть протокольных тестов можно писать уже сейчас. Для остального добавлю узкие platform-neutral seams и control-команды:
 
-- raw frontend key/mouse/scroll events;
+- raw frontend key/pointer/button events;
 - virtual clock для click counting и blink;
 - clipboard ownership;
 - content scale;

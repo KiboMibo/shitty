@@ -12,6 +12,7 @@
 #include "keyboard.h"
 #include "log.h"
 #include "mouseprotocol.h"
+#include "mousefrontend.h"
 #include "oscprotocol.h"
 #include "options.h"
 #include "pty.h"
@@ -225,15 +226,13 @@ namespace {
     struct MouseContext {
         bool selectionOngoing = false;
         bool hyperlinkClick = false;
-        bool scrollReporting = false;
         unsigned buttonState = 0;
         int lastButton = -1;
         int clickCount = 0;
         double lastClickTime = 0.0;
         double lastClickX = 0.0;
         double lastClickY = 0.0;
-        double scrollRemainderX = 0.0;
-        double scrollRemainderY = 0.0;
+        MouseWheelAccumulator wheel;
         uint16_t lastReportColumn = UINT16_MAX;
         uint16_t lastReportRow = UINT16_MAX;
         bool cursorInside = true;
@@ -1204,63 +1203,42 @@ namespace {
         const int modifiers = keyboardModifiers();
         const auto& tracking = vt->getMouseTrackingState();
         const bool reporting = isMouseProtocol(modifiers, tracking);
-        if (reporting != mouseContext.scrollReporting) {
-            mouseContext.scrollReporting = reporting;
-            mouseContext.scrollRemainderX = 0.0;
-            mouseContext.scrollRemainderY = 0.0;
-        }
-
-        auto consumeDelta = [](double delta, double& remainder) {
-            if (!std::isfinite(delta)) {
-                remainder = 0.0;
-                return 0;
-            }
-            const double total = remainder +
-                                 std::clamp(delta, -100.0, 100.0);
-            const int steps = static_cast<int>(std::trunc(total));
-            remainder = total - steps;
-            return steps;
-        };
-
-        const int stepsY = consumeDelta(
-            wheelY, mouseContext.scrollRemainderY);
+        const MouseWheelSteps steps = mouseContext.wheel.consume(
+            wheelX, wheelY, reporting);
         if (reporting) {
-            const int stepsX = consumeDelta(
-                wheelX, mouseContext.scrollRemainderX);
             double x = 0.0;
             double y = 0.0;
             glfwGetCursorPos(window, &x, &y);
             const int pixelX = toPixelX(x);
             const int pixelY = toPixelY(y);
-            for (int k = 0; k < stepsY; ++k) {
+            for (int k = 0; k < steps.y; ++k) {
                 sendMouseButtonProtocol(MouseEventType::Press, 4,
                                         pixelX, pixelY, modifiers,
                                         mouseContext.buttonState, tracking);
             }
-            if (stepsY < 0) {
-                for (int k = 0; k < -stepsY; ++k) {
+            if (steps.y < 0) {
+                for (int k = 0; k < -steps.y; ++k) {
                     sendMouseButtonProtocol(MouseEventType::Press, 5,
                                             pixelX, pixelY, modifiers,
                                             mouseContext.buttonState,
                                             tracking);
                 }
             }
-            for (int k = 0; k < -stepsX; ++k) {
+            for (int k = 0; k < -steps.x; ++k) {
                 sendMouseButtonProtocol(MouseEventType::Press, 6,
                                         pixelX, pixelY, modifiers,
                                         mouseContext.buttonState, tracking);
             }
-            for (int k = 0; k < stepsX; ++k) {
+            for (int k = 0; k < steps.x; ++k) {
                 sendMouseButtonProtocol(MouseEventType::Press, 7,
                                         pixelX, pixelY, modifiers,
                                         mouseContext.buttonState, tracking);
             }
         } else {
-            mouseContext.scrollRemainderX = 0.0;
-            if (stepsY > 0) {
-                vt->mouseWheelUp(stepsY);
-            } else if (stepsY < 0) {
-                vt->mouseWheelDown(-stepsY);
+            if (steps.y > 0) {
+                vt->mouseWheelUp(steps.y);
+            } else if (steps.y < 0) {
+                vt->mouseWheelDown(-steps.y);
             }
         }
     }

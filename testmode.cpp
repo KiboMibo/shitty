@@ -3,11 +3,13 @@
 #include "keyboard.h"
 #include "options.h"
 #include "mouseprotocol.h"
+#include "mousefrontend.h"
 #include "oscprotocol.h"
 #include "pty.h"
 #include "vkpresenter.h"
 #include "vterm.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdint>
 #include <fcntl.h>
@@ -365,6 +367,7 @@ int runTestMode(int controlFd) {
     std::string printerOutput;
     pid_t childPid = -1;
     int childExitStatus = -1;
+    MouseWheelAccumulator mouseWheel;
     terminal.setOscHandler(
         [&terminal, &actions](int command, const std::string& argument) {
             actions += "OSC " + std::to_string(command) + " " +
@@ -550,6 +553,69 @@ int runTestMode(int controlFd) {
                 writeAll(controlFd, "OK\n");
             } else if (line == "WHEEL_DOWN") {
                 terminal.mouseWheelDown();
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 7, "SCROLL ") == 0) {
+                std::istringstream args(line.substr(7));
+                double x;
+                double y;
+                unsigned modifiers;
+                int pixelX;
+                int pixelY;
+                if (!(args >> x >> y >> modifiers >> pixelX >> pixelY) ||
+                    modifiers > 7) {
+                    throw std::runtime_error("invalid scroll event");
+                }
+                const auto tracking = terminal.getMouseTrackingState();
+                const bool reporting = !(modifiers & 1) &&
+                    tracking.mode != MouseTrackingMode::Disabled;
+                const MouseWheelSteps steps = mouseWheel.consume(
+                    x, y, reporting);
+                if (!reporting) {
+                    if (steps.y > 0) terminal.mouseWheelUp(steps.y);
+                    if (steps.y < 0) terminal.mouseWheelDown(-steps.y);
+                    writeAll(controlFd, "OK\n");
+                    continue;
+                }
+
+                const int contentWidth = std::max(
+                    1, static_cast<int>(windowInfo.pixelWidth) -
+                       2 * static_cast<int>(opts.border));
+                const int contentHeight = std::max(
+                    1, static_cast<int>(windowInfo.pixelHeight) -
+                       2 * static_cast<int>(opts.border));
+                int column;
+                int row;
+                if (tracking.enc == MouseTrackingEnc::SGRPixels) {
+                    column = std::clamp(
+                        pixelX - static_cast<int>(opts.border) + 1,
+                        1, contentWidth);
+                    row = std::clamp(
+                        pixelY - static_cast<int>(opts.border) + 1,
+                        1, contentHeight);
+                } else {
+                    column = std::clamp(
+                        pixelX - static_cast<int>(opts.border),
+                        1, contentWidth);
+                    row = std::clamp(
+                        pixelY - static_cast<int>(opts.border),
+                        1, contentHeight);
+                }
+                unsigned protocolModifiers = 0;
+                if (modifiers & 1) protocolModifiers |= MouseShift;
+                if (modifiers & 4) protocolModifiers |= MouseAlt;
+                if (modifiers & 2) protocolModifiers |= MouseControl;
+                const auto send = [&](int count, int button) {
+                    for (int k = 0; k < count; ++k) {
+                        terminal.writePty(encodeMouseProtocol(
+                            tracking.enc, MouseEventType::Press,
+                            protocolModifiers, 0, button,
+                            column, row).c_str());
+                    }
+                };
+                send(std::max(0, steps.y), 4);
+                send(std::max(0, -steps.y), 5);
+                send(std::max(0, -steps.x), 6);
+                send(std::max(0, steps.x), 7);
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 7, "RESIZE ") == 0) {
                 std::istringstream args(line.substr(7));
