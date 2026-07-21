@@ -182,6 +182,7 @@ namespace {
         void failNextPresent();
         std::string snapshot() const;
         std::string modelSnapshot() const;
+        std::string modelDigest() const;
         std::string renderState() const;
         std::string screenText() const;
 
@@ -204,6 +205,30 @@ namespace {
         Rect selection;
         std::vector<TerminalCell> cells;
         std::vector<Frame::Grapheme> cellGraphemes;
+    };
+
+    unsigned cellFlags(const TerminalCell& cell) {
+        return (cell.dwidth << 0) | (cell.dwidth_cont << 1)
+             | (cell.bold << 2) | (cell.italic << 3)
+             | (cell.underline << 4) | (cell.inverse << 5)
+             | (cell.wrap << 6) | (cell.faint << 7)
+             | (cell.blink << 8) | (cell.conceal << 9)
+             | (cell.strike << 10) | (cell.overline << 11)
+             | (cell.underline_style << 12)
+             | (cell.protected_char << 15) | (cell.line_attr << 16);
+    }
+
+    struct ModelDigest {
+        u64 first = 14695981039346656037ull;
+        u64 second = 1099511628211ull;
+
+        void add(u64 value) {
+            for (unsigned shift = 0; shift < 64; shift += 8) {
+                const u8 byte = (u8)(value >> shift);
+                first = (first ^ byte) * 1099511628211ull;
+                second = (second ^ (byte + 0x9d)) * 14029467366897019727ull;
+            }
+        }
     };
 
 }
@@ -268,7 +293,7 @@ std::string TestDisplay::snapshot() const {
     output << "OK " << columns << ' ' << rows << ' ' << cursor.posX << ' ' << cursor.posY << ' ' << (unsigned)(cursor.style) << ' ' << viewOffset << ' ' << refreshCount << ' ' << selection.tl.x << ' ' << selection.tl.y << ' ' << selection.br.x << ' ' << selection.br.y << ' ' << selection.rectangular << ' ';
     output << std::hex << std::setfill('0');
     for (const auto& cell : cells) {
-        const unsigned flags = (cell.dwidth << 0) | (cell.dwidth_cont << 1) | (cell.bold << 2) | (cell.italic << 3) | (cell.underline << 4) | (cell.inverse << 5) | (cell.wrap << 6) | (cell.faint << 7) | (cell.blink << 8) | (cell.conceal << 9) | (cell.strike << 10) | (cell.overline << 11) | (cell.underline_style << 12) | (cell.protected_char << 15) | (cell.line_attr << 16);
+        const unsigned flags = cellFlags(cell);
         output << std::setw(8) << cell.uc_pt << std::setw(8) << flags << std::setw(2) << (unsigned)(cell.fg.red) << std::setw(2) << (unsigned)(cell.fg.green) << std::setw(2) << (unsigned)(cell.fg.blue) << std::setw(2) << (unsigned)(cell.bg.red) << std::setw(2) << (unsigned)(cell.bg.green) << std::setw(2) << (unsigned)(cell.bg.blue) << std::setw(2) << (unsigned)(cell.underline_color.red) << std::setw(2) << (unsigned)(cell.underline_color.green) << std::setw(2) << (unsigned)(cell.underline_color.blue) << std::setw(8) << cell.hyperlink << std::setw(8) << cell.semantic;
     }
     output << '\n';
@@ -281,13 +306,58 @@ std::string TestDisplay::modelSnapshot() const {
     output << std::hex << std::setfill('0');
     for (size_t index = 0; index < cells.size(); ++index) {
         const auto& cell = cells[index];
-        const unsigned flags = (cell.dwidth << 0) | (cell.dwidth_cont << 1) | (cell.bold << 2) | (cell.italic << 3) | (cell.underline << 4) | (cell.inverse << 5) | (cell.wrap << 6) | (cell.faint << 7) | (cell.blink << 8) | (cell.conceal << 9) | (cell.strike << 10) | (cell.overline << 11) | (cell.underline_style << 12) | (cell.protected_char << 15) | (cell.line_attr << 16);
+        const unsigned flags = cellFlags(cell);
         output << std::setw(8) << cell.uc_pt << std::setw(8) << flags << std::setw(2) << (unsigned)(cell.fg.red) << std::setw(2) << (unsigned)(cell.fg.green) << std::setw(2) << (unsigned)(cell.fg.blue) << std::setw(2) << (unsigned)(cell.bg.red) << std::setw(2) << (unsigned)(cell.bg.green) << std::setw(2) << (unsigned)(cell.bg.blue) << std::setw(2) << (unsigned)(cell.underline_color.red) << std::setw(2) << (unsigned)(cell.underline_color.green) << std::setw(2) << (unsigned)(cell.underline_color.blue) << std::setw(8) << cell.hyperlink << std::setw(8) << cell.semantic << std::setw(8) << (u32)(cell.fg_index) << std::setw(8) << (u32)(cell.bg_index) << std::setw(8) << (u32)(cell.underline_index) << std::setw(8) << cellGraphemes[index].size();
         for (const u32 codepoint : cellGraphemes[index]) {
             output << std::setw(8) << codepoint;
         }
     }
     output << '\n';
+    return output.str();
+}
+
+std::string TestDisplay::modelDigest() const {
+    ModelDigest digest;
+    digest.add(columns);
+    digest.add(rows);
+    digest.add(cursor.style == TerminalCursor::Style::hidden ? (u64)-1 : cursor.posX);
+    digest.add(cursor.style == TerminalCursor::Style::hidden ? (u64)-1 : cursor.posY);
+    digest.add((u8)(cursor.style));
+    digest.add(viewOffset);
+    digest.add(selection.tl.x);
+    digest.add(selection.tl.y);
+    digest.add(selection.br.x);
+    digest.add(selection.br.y);
+    digest.add(selection.rectangular);
+    digest.add(cells.size());
+    for (size_t index = 0; index < cells.size(); ++index) {
+        const auto& cell = cells[index];
+        digest.add(cell.uc_pt);
+        digest.add(cellFlags(cell));
+        digest.add(cell.fg.red);
+        digest.add(cell.fg.green);
+        digest.add(cell.fg.blue);
+        digest.add(cell.bg.red);
+        digest.add(cell.bg.green);
+        digest.add(cell.bg.blue);
+        digest.add(cell.underline_color.red);
+        digest.add(cell.underline_color.green);
+        digest.add(cell.underline_color.blue);
+        digest.add(cell.hyperlink);
+        digest.add(cell.semantic);
+        digest.add((u32)(cell.fg_index));
+        digest.add((u32)(cell.bg_index));
+        digest.add((u32)(cell.underline_index));
+        digest.add(cellGraphemes[index].size());
+        for (const u32 codepoint : cellGraphemes[index]) {
+            digest.add(codepoint);
+        }
+    }
+
+    std::ostringstream output;
+    output << "OK " << std::hex << std::setfill('0')
+           << std::setw(16) << digest.first << ' '
+           << std::setw(16) << digest.second << '\n';
     return output.str();
 }
 
@@ -1241,6 +1311,8 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                 writeAll(controlFd, display.snapshot());
             } else if (line == "MODEL_SNAPSHOT") {
                 writeAll(controlFd, display.modelSnapshot());
+            } else if (line == "MODEL_DIGEST") {
+                writeAll(controlFd, display.modelDigest());
             } else if (line == "SCREEN_TEXT") {
                 writeAll(controlFd, "OK " + encodeHex(display.screenText()) + "\n");
             } else if (line == "READ_INPUT") {

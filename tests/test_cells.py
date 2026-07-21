@@ -4,6 +4,28 @@ from harness import Zutty
 
 
 class CellStateTest(unittest.TestCase):
+    def test_model_digest_covers_rich_state_but_not_refresh_count(self):
+        payload = b"\x1b[38;2;1;2;3;48;5;4mA\xcc\x81"
+        with (
+            Zutty(columns=4, rows=2) as whole,
+            Zutty(columns=4, rows=2) as chunked,
+        ):
+            whole.write(payload)
+            chunked.write_chunks(payload[:3], payload[3:12], payload[12:])
+
+            self.assertNotEqual(
+                whole.snapshot().refresh_count,
+                chunked.snapshot().refresh_count,
+            )
+            self.assertEqual(whole.model_digest(), chunked.model_digest())
+            self.assertEqual(
+                whole.model_snapshot().cells,
+                chunked.model_snapshot().cells,
+            )
+
+            chunked.write(b"\x1b[1;1H\x1b[38;2;2;2;3mB")
+            self.assertNotEqual(whole.model_digest(), chunked.model_digest())
+
     def test_model_snapshot_exposes_color_sources_and_graphemes(self):
         with Zutty(columns=4, rows=2) as terminal:
             terminal.write(
