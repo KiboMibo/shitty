@@ -1,0 +1,6 @@
+# Exact fixture IDs whose supported upstream golden assertions differ.
+61screen_unicode.test
+63screen_resize.test
+64screen_pen.test
+69screen_reflow.test
+90vttest_01-movement-3.test

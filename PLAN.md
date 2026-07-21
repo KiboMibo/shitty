@@ -171,15 +171,7 @@ Control interface — это расширяемый наблюдаемый API �
 
 ## Порядок
 
-1. Готовые golden/replay-прогоны
-
-   Берём целиком, не переснимаем на zutty:
-
-   - остальные готовые input/output fixtures из libvterm и похожих проектов.
-
-   Для каждого формата пишем один тонкий adapter. Исходные данные сохраняем максимально близко к upstream, чтобы потом можно было обновлять.
-
-2. Готовые fuzz/replay corpora без golden output
+1. Готовые fuzz/replay corpora без golden output
 
    Их можно немедленно кормить zutty и проверять crash/hang/invariants/chunking:
 
@@ -187,37 +179,25 @@ Control interface — это расширяемый наблюдаемый API �
 
    Это почти бесплатное расширение входного пространства. Полноценный AFL++ harness можно сделать позже — сначала используем уже найденные чужими fuzzers пути.
 
-3. Готовые внешние test suites
+2. Готовые внешние test suites
 
    Сначала те, которые уже можно запускать почти без переделки:
 
    - live font/raster и terminal-capability probes из `ucs-detect` (полные generated Unicode tables уже импортированы в model tier);
    - `tack`;
-   - xterm `vttests` scripts;
+   - интерактивные, query/reply и бесконечные части xterm `vttests` (конечные shell generators уже импортированы);
 
    Здесь наша работа — только launcher, PTY/control integration и фиксация результата.
 
-4. Готовые suites, которым нужен compatibility layer
+3. Готовые suites, которым нужен compatibility layer
 
    - Termless: написать backend для zutty control protocol и получить их cross-backend suite;
-   - libvterm DSL: небольшой interpreter для `PUSH`, cursor/cell/screen assertions;
+   - libvterm DSL: добавить callback/parser/state commands и expectations к уже импортированному screen/resize/reflow interpreter;
    - другие declarative fixtures.
 
    Это уже требует кода, но один adapter сразу открывает сотни чужих сценариев.
 
-5. Чужой тестовый код, требующий порта
-
-   Здесь первым остаётся esctest: он очень ценен, но Python 2 и его I/O model потребуют работы.
-
-   План для него:
-
-   - скопировать suite целиком;
-   - перевести механически на Python 3;
-   - заменить DECRQCRA-based чтение экрана на наш snapshot там, где это проще;
-   - сохранить исходные test names, VT levels, known bugs и intentional deviations;
-   - не переписывать сотни тестов вручную без необходимости.
-
-6. Внутренние unit-тесты других терминалов
+4. Внутренние unit-тесты других терминалов
 
    После готовых suites начинаем вынимать содержательные матрицы из:
 
@@ -230,7 +210,7 @@ Control interface — это расширяемый наблюдаемый API �
 
    Берём код, таблицы и test vectors и переделываем под наш Python black-box harness. Начинаем с файлов, где тестовые данные уже отделены от реализации.
 
-7. Только затем пишем недостающее сами
+5. Только затем пишем недостающее сами
 
    После импорта строим coverage map и дописываем то, чего реально нигде нет:
 
@@ -254,7 +234,7 @@ Control interface — это расширяемый наблюдаемый API �
 
 Главный принцип: не конвертировать заранее всё в наш собственный формат. Сначала копируем upstream artifacts и пишем один reader. Конверсия оправдана только там, где она заметно упрощает assertions.
 
-Таким образом, следующий практический этап: готовые fuzz corpora. `wraptest` и внешние suites идут сразу следом. Esctest теперь не первый, несмотря на ценность: его опережает всё, что можно подключить почти без ручного порта.
+Таким образом, следующий практический этап: готовые fuzz corpora. `wraptest` и внешние suites идут сразу следом.
 
 На этапе импорта Zutty не исправляем. Сначала наращиваем всю доступную
 тестовую массу. Текущие расхождения каждого внешнего case записываются в
@@ -319,7 +299,6 @@ for case in read("tests/xtermjs_files.txt").split():
 Практическая гранулярность:
 
 - wraptest: можно сначала оставить одним test, потому что это одна маленькая программа;
-- esctest: желательно один test method или хотя бы один Python class/module на target через точный `--include`;
 - libvterm: один fixture section — один test, если DSL легко индексируется; иначе один `.test` файл;
 - Unicode GraphemeBreakTest: не тысячи процессов, а shards по 100–500 cases;
 - Ghostty fuzz corpus: 4 000 отдельных процессов будут дороже пользы — разбить manifest на детерминированные shards, но при ошибке adapter обязан напечатать точный corpus member и команду его одиночного запуска.
