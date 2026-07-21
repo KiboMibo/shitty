@@ -1,0 +1,71 @@
+                     XTe Lin T.a iT2 st  GNO rxv min PuT Kon kte mlt urx mrx DEC 100 220 420 510
+wrap works           y   y   y   y   y   y   y   y   y   y   y   y   y   y   y   y   y   y   y  
+wrap is deferred     y   y   y   y   y   y   y   y   y   y   y   y   y   y   y   y   y   y   y  
+CPR beyond last col  n   n   n   n   n   n   n   n   n   y   n   n   n   n   n   n   n   n   n  
+CR works at margin   y   y   y   y   y   y   y   y   y   y   y   y   y   y   y   y   y   y   y  
+BS works at margin   y   y   y   y   y   y   n   y   n   n   y   y   n   n   y   y   y   y   y
+TAB wraps at margin  n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n  
+TAB cancels wrap     n   n   y   n   n   n   n   n   n   n   n   n   n   n   y   n   y   n   n  
+NL cancels wrap      y   y   y   n   y   y   y   y   y   n   y   y   y   y   y   n   y   y   y  
+NUL cancels wrap     n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n  
+BEL cancels wrap     n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n  
+RI cancels wrap      y   y   y   n   y   y   y   y   y   n   y   y   y   y   y   n   y   y   y  
+SGR cancels wrap     n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n  
+SM cancels wrap      n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n  
+CUP cancels wrap     y   y   y   y   y   y   y   y   y   y   y   y   y   y   y   n   y   y   y  
+CUF cancels wrap     y   y   y   y   y   y   y   y   y   y   y   y   y   y   y   n   y   y   y  
+EL cancels wrap      y   y   n   n   n   n   y   n   n   n   y   y   n   y   y   n   y   y   y  
+ED cancels wrap      y   y   n   n   n   y   y   n   n   n   y   y   n   y   y   n   y   y   y  
+DCH cancels wrap     y   y   n   n   n   y   y   n   n   n   y   y   n   y   y   n   y   y   y  
+ICH cancels wrap     y   y   n   n   n   y   y   n   n   n   y   y   n   y   y   -   y   y   n  
+ECH cancels wrap     y   y   n   n   n   y   y   n   n   n   n   y   n   y   y   -   y   y   y  
+CPR cancels wrap     n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n  
+DECSC cancels wrap   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n   n  
+DECRC restores wrap  y   n   n   n   n   n   n   y   y   n   n   n   n   n   y   n   y   y   y  
+DECRC restores AWM   n   n   n   y   n   n   n   n   n   n   n   n   n   n   n   n   n   n      
+DECRC restores !AWM  n   n   n   y   n   n   n   n   n   n   n   n   n   n   n   n   n   n      
+
+Columns:
+XTe  XTerm 328
+Lin  Linux 2.6.39 console
+T.a  Terminal.app 2.6.1 (361.1)
+iT2  iTerm2 3.0.13
+st   suckless st 0.7
+GNO  GNOME-terminal 3.16.2 (VTE 0.40.3)
+rxv  rxvt 2.7.10
+min  mintty 3.6.0
+PuT  PuTTY 0.67
+Kon  Konsole 1.6.4
+kte  kterm 6.2.0-46.2
+mlt  mlterm 3.5.0-1+b2
+urx  urxvt 9.22-1+b1
+mrx  mrxvt 0.5.4-2
+DEC  architectural behaviour of DEC terminals (DEC STD-070)
+100  real DEC VT100
+220  real DEC VT220
+420  real DEC VT420
+510  real DEC VT510
+
+Notes:
+
+- rxvt and PuTTY treat BS in the wrap state in the same way:
+  no cursor movement (the BS is "absorbed"), but wrap state is cancelled.
+  When the cursor is changed from a block to a vertical line, the wrap
+  state is indicated by a cursor position to the right of the last column.
+  It is still reported (by CPR) as being in the last column, however,
+  and EL 0 still clears the last column of that line.
+  This is true for mintty as well (being derived from PuTTY) but it
+  handles BS correctly.
+ 
+- GNOME-terminal's EL behaviour is an explicit hack to work around a
+  problem with GNU grep, which sometimes emits EL in the wrap state
+  (https://bugzilla.gnome.org/show_bug.cgi?id=740789).
+
+- iTerm2 shows its cursor in a narrow "gutter" to the right of the last
+  column when in wrap state. EL 0 does then not clear the last column.
+
+- Konsole visibly wraps the cursor to the first column on the next
+  line in the wrap state, but reports its position as being one column
+  to the right of the last column on the original line. Many
+  operations, such as EL 0, have no effect in this state. (When in the wrap
+  state from the last line, the cursor just disappears; no scrolling occurs.)

@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 
@@ -413,6 +414,42 @@ for member in tmux_dictionary_members:
     ))
 
 
+wraptest_helper = program(
+    name="wraptest_helper",
+    srcs=["$(S)/tests/wraptest/wraptest.c"],
+    cflags=["-Wno-error"],
+    output="$(B)/tests/wraptest/wraptest",
+)
+
+wraptest_root = Path(__file__).parent / "tests" / "wraptest"
+wraptest_cases = json.loads((wraptest_root / "cases.json").read_text())
+wraptest_tests = []
+for case_id, _, _ in wraptest_cases:
+    wraptest_tests.append(command(
+        name="wraptest_" + case_id,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/wraptest/adapter.py",
+            "$(S)/tests/wraptest/cases.json",
+            "$(S)/tests/wraptest/xfail.txt",
+        ],
+        outputs=[f"$(B)/tests/wraptest/{case_id}.stamp"],
+        deps=[zutty, wraptest_helper],
+        cmd=[
+            "python3",
+            "tests/wraptest/adapter.py",
+            "$(B)/tests/wraptest/wraptest",
+            case_id,
+            "tests/wraptest/xfail.txt",
+            f"$(B)/tests/wraptest/{case_id}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="WRAPTEST",
+        color="cyan",
+    ))
+
+
 install(libzutty)
 install(zutty)
 install(test_suite)
@@ -425,3 +462,5 @@ install(*contour_tests)
 install(*mosh_tests)
 install(*ghostty_tests)
 install(*tmux_tests)
+install(wraptest_helper)
+install(*wraptest_tests)
