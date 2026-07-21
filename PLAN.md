@@ -189,7 +189,6 @@ Control interface — это расширяемый наблюдаемый API �
 
 3. Готовые suites, которым нужен compatibility layer
 
-   - Termless: написать backend для zutty control protocol и получить их cross-backend suite;
    - libvterm DSL: добавить callback/parser/state commands и expectations к уже импортированному screen/resize/reflow interpreter;
    - другие declarative fixtures.
 

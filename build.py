@@ -761,6 +761,75 @@ for case in esctest_cases:
     ))
 
 
+termless_root = Path(__file__).parent / "tests" / "termless"
+termless_cases = json.loads((termless_root / "cases.json").read_text())
+termless_ids = {case_id for case_id, _, _ in termless_cases}
+termless_xfails = {
+    line.strip()
+    for line in (termless_root / "xfail.txt").read_text().splitlines()
+    if line.strip() and not line.startswith("#")
+}
+unknown_termless_xfails = termless_xfails - termless_ids
+if unknown_termless_xfails:
+    raise RuntimeError(
+        "unknown Termless XFAIL cases: "
+        + ", ".join(sorted(unknown_termless_xfails))
+    )
+termless_upstream_inputs = [
+    "$(S)/" + path.relative_to(Path(__file__).parent).as_posix()
+    for path in sorted((termless_root / "upstream").rglob("*"))
+    if path.is_file()
+]
+termless_validation = command(
+    name="termless_catalog",
+    inputs=[
+        "$(S)/tests/termless/cases.json",
+        "$(S)/tests/termless/validate.py",
+        "$(S)/tests/termless/xfail.txt",
+        *termless_upstream_inputs,
+    ],
+    outputs=["$(B)/tests/termless/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/termless/validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/termless/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="TERMLESS",
+    color="cyan",
+)
+termless_tests = []
+for case_id, _, _ in termless_cases:
+    termless_tests.append(command(
+        name="termless_" + case_id,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/termless/adapter.py",
+            "$(S)/tests/termless/backend.py",
+            "$(S)/tests/termless/cases.py",
+            "$(S)/tests/termless/cases.json",
+            "$(S)/tests/termless/xfail.txt",
+            *termless_upstream_inputs,
+        ],
+        outputs=[f"$(B)/tests/termless/{case_id}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/termless/adapter.py",
+            case_id,
+            "tests/termless/xfail.txt",
+            f"$(B)/tests/termless/{case_id}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="TERMLESS",
+        color="cyan",
+    ))
+
+
 install(libzutty)
 install(zutty)
 install(test_suite)
@@ -784,3 +853,5 @@ install(*vtebench_tests)
 install(*libvterm_tests)
 install(*xterm_vttests_tests)
 install(*esctest_tests)
+install(termless_validation)
+install(*termless_tests)

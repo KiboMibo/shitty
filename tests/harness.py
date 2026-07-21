@@ -675,6 +675,13 @@ class Zutty:
             raise RuntimeError("invalid model digest response")
         return tuple(int(value, 16) for value in response[1:])
 
+    def scrollback_state(self):
+        self.stream.write(b"SCROLLBACK_STATE\n")
+        response = self._readline().split()
+        if len(response) != 5 or response[0] != "OK":
+            raise RuntimeError("invalid scrollback state response")
+        return tuple(map(int, response[1:]))
+
     def _snapshot(self, command, detailed):
         self.stream.write(command.encode("ascii") + b"\n")
         response = self._readline().split(" ", 13)

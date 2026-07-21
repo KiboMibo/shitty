@@ -184,6 +184,7 @@ namespace {
         std::string modelSnapshot() const;
         std::string modelDigest() const;
         std::string renderState() const;
+        std::string scrollbackState() const;
         std::string screenText() const;
 
     private:
@@ -191,6 +192,7 @@ namespace {
         u16 columns = 0;
         u16 rows = 0;
         u16 viewOffset = 0;
+        u16 historyRows = 0;
         u64 refreshCount = 0;
         bool delta = false;
         bool screenReverse = false;
@@ -260,6 +262,7 @@ bool TestDisplay::update(const Frame& frame) {
     cursor = frame.getCursor();
     selection = frame.getSelectionForView();
     viewOffset = frame.getViewOffset();
+    historyRows = frame.getHistoryRows();
     screenReverse = frame.getScreenReverseVideo();
     blinkVisible = frame.getBlinkVisible();
     cursorBlink = frame.getCursorBlink();
@@ -358,6 +361,13 @@ std::string TestDisplay::modelDigest() const {
     output << "OK " << std::hex << std::setfill('0')
            << std::setw(16) << digest.first << ' '
            << std::setw(16) << digest.second << '\n';
+    return output.str();
+}
+
+std::string TestDisplay::scrollbackState() const {
+    std::ostringstream output;
+    output << "OK " << historyRows << ' ' << historyRows + rows << ' '
+           << rows << ' ' << historyRows - viewOffset << '\n';
     return output.str();
 }
 
@@ -1336,6 +1346,8 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                 writeAll(controlFd, display.modelSnapshot());
             } else if (line == "MODEL_DIGEST") {
                 writeAll(controlFd, display.modelDigest());
+            } else if (line == "SCROLLBACK_STATE") {
+                writeAll(controlFd, display.scrollbackState());
             } else if (line == "SCREEN_TEXT") {
                 writeAll(controlFd, "OK " + encodeHex(display.screenText()) + "\n");
             } else if (line == "READ_INPUT") {

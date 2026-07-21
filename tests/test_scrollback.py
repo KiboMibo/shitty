@@ -4,6 +4,14 @@ from harness import Zutty, put_rows
 
 
 class ScrollbackTest(unittest.TestCase):
+    def test_control_reports_absolute_scrollback_geometry(self):
+        with Zutty(columns=4, rows=2, save_lines=5) as terminal:
+            self.assertEqual(terminal.scrollback_state(), (0, 2, 2, 0))
+            terminal.write(b"zero\r\none\r\ntwo\r\ntri")
+            self.assertEqual(terminal.scrollback_state(), (2, 4, 2, 2))
+            terminal.wheel_up(2)
+            self.assertEqual(terminal.scrollback_state(), (2, 4, 2, 0))
+
     def test_wheel_unit_moves_exactly_one_line(self):
         with Zutty(columns=8, rows=3, save_lines=8) as terminal:
             terminal.write(
