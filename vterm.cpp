@@ -22,6 +22,12 @@
 #include "vterm_host.h"
 
 #include <std/mem/obj_pool.h>
+#include <std/ios/out.h>
+#include <std/ios/output.h>
+#include <std/str/builder.h>
+#include <std/str/view.h>
+#include <std/sys/fd.h>
+#include <std/sys/throw.h>
 #include <std/sys/types.h>
 
 #include <algorithm>
@@ -40,6 +46,8 @@
 #include <sstream>
 #include <sys/types.h>
 #include <thread>
+
+using namespace stl;
 
 void MouseTrackingState::setMode(MouseTrackingMode value) {
     if (mode != value) {
@@ -73,7 +81,7 @@ namespace {
 
     class VtermImpl final: public Vterm {
     public:
-        VtermImpl(VtermHost& host, Pty& pty, u16 glyphPx, u16 glyphPy, u16 winPx, u16 winPy);
+        VtermImpl(VtermHost& host, Pty& pty, Output* dump, u16 glyphPx, u16 glyphPy, u16 winPx, u16 winPy);
 
         ~VtermImpl();
 
@@ -209,6 +217,7 @@ namespace {
         const char* strInputState(InputState is);
 
         void setState(InputState inputState);
+        bool stringUtf8Continuation(u8 ch);
         void beginCsi();
         bool executeC0InSequence(unsigned char ch);
         void processCsiByte(unsigned char ch);
@@ -325,7 +334,7 @@ namespace {
         void csi_priDA();
         void csi_secDA();
         void csi_terDA();
-        void csi_DSR();
+        void csi_DSR(bool privateMode = false);
         void esch_DECALN();
         void setLineAttribute(u8 attribute);
         void handle_DCS();
@@ -360,11 +369,13 @@ namespace {
         void osc_ShellIntegration(const std::string&);
         void osc_Notification(const std::string&);
         void reportInBandResize();
+        void reportColorScheme();
         void writeTitleResponse(char, const std::string&);
         void applyPaletteColor(u16 index, Color color);
 
         VtermHost& host;
         Pty& pty;
+        Output* dump;
         u16 winPx;
         u16 winPy;
         u16 nCols;
@@ -462,6 +473,7 @@ namespace {
         u16 inputGraphemeY = 0;
         std::vector<unsigned char> argBuf;
         bool argBufOverflowed = false;
+        u8 stringUtf8Remaining = 0;
         unsigned char scsDst;
         unsigned char scsMod;
 
@@ -484,6 +496,7 @@ namespace {
         bool localEcho = false;
         bool bracketedPasteMode = false;
         bool synchronizedOutputMode = false;
+        bool colorSchemeUpdateMode = false;
         bool inBandResizeMode = false;
         bool printerControllerMode = false;
         bool autoPrintMode = false;
@@ -1118,6 +1131,7 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     localEcho = false;
     bracketedPasteMode = false;
     synchronizedOutputMode = false;
+    colorSchemeUpdateMode = false;
     inBandResizeMode = false;
     printerControllerMode = false;
     autoPrintMode = false;
@@ -1245,6 +1259,8 @@ void VtermImpl::setState(InputState newState) {
         return;
     }
 
+    stringUtf8Remaining = 0;
+
     if (newState == InputState::Normal) {
         DEBUG_BREAK;
         csiPrefixAllowed = false;
@@ -1257,6 +1273,25 @@ void VtermImpl::setState(InputState newState) {
     }
 
     inputState = newState;
+}
+
+bool VtermImpl::stringUtf8Continuation(u8 ch) {
+    if (stringUtf8Remaining != 0) {
+        if ((ch & 0xc0) == 0x80) {
+            --stringUtf8Remaining;
+            return true;
+        }
+        stringUtf8Remaining = 0;
+    }
+
+    if (ch >= 0xc2 && ch <= 0xdf) {
+        stringUtf8Remaining = 1;
+    } else if (ch >= 0xe0 && ch <= 0xef) {
+        stringUtf8Remaining = 2;
+    } else if (ch >= 0xf0 && ch <= 0xf4) {
+        stringUtf8Remaining = 3;
+    }
+    return false;
 }
 
 bool VtermImpl::readPty() {
@@ -1277,6 +1312,9 @@ bool VtermImpl::readPty() {
             }
 
             logT << "pty read: " << dumpBuffer(inputBuf, inputBuf + n);
+            if (dump != nullptr) {
+                dump->write(inputBuf, n);
+            }
             presentationPending |= processInput(inputBuf, n, false);
             drainBytes += (size_t)(n);
             continue;
@@ -3019,6 +3057,9 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 synchronizedOutputMode = true;
                 synchronizedOutputDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(150);
                 break;
+            case 2031:
+                colorSchemeUpdateMode = true;
+                break;
             case 2048:
                 inBandResizeMode = true;
                 reportInBandResize();
@@ -3131,6 +3172,9 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
             case 2026:
                 synchronizedOutputMode = false;
                 break;
+            case 2031:
+                colorSchemeUpdateMode = false;
+                break;
             case 2048:
                 inBandResizeMode = false;
                 break;
@@ -3199,6 +3243,8 @@ bool VtermImpl::getPrivMode(u32 arg) const {
             return extendedReverseWrapMode;
         case 2004:
             return bracketedPasteMode;
+        case 2031:
+            return colorSchemeUpdateMode;
         case 2048:
             return inBandResizeMode;
         case 2026:
@@ -3661,6 +3707,7 @@ void VtermImpl::csi_DECRQM(bool privateMode) {
             case 1047:
             case 2004:
             case 2026:
+            case 2031:
             case 2048:
                 state = (mode == 2 ? compatLevel != CompatibilityLevel::VT52 : getPrivMode(mode)) ? 1 : 2;
                 break;
@@ -3710,8 +3757,15 @@ void VtermImpl::csi_DECRQM(bool privateMode) {
     setState(InputState::Normal);
 }
 
-void VtermImpl::csi_DSR() {
+void VtermImpl::csi_DSR(bool privateMode) {
     TRACE_FUN;
+    if (privateMode) {
+        if (inputOps[0] == 996) {
+            reportColorScheme();
+        }
+        setState(InputState::Normal);
+        return;
+    }
     switch (inputOps[0]) {
         case 5:
             writeCsiResponse("0n");
@@ -4398,6 +4452,17 @@ void VtermImpl::osc_Notification(const std::string& arg) {
 void VtermImpl::reportInBandResize() {
     std::ostringstream response;
     response << "48;" << nRows << ';' << nCols << ';' << nRows * glyphPy << ';' << nCols * glyphPx << 't';
+    writeCsiResponse(response.str());
+}
+
+void VtermImpl::reportColorScheme() {
+    // Zutty has no runtime profile or operating-system theme switching.  Its
+    // configured background therefore remains the authoritative preference;
+    // application-originated OSC color changes must not affect this report.
+    const u32 brightness = 299 * opts.bg.red + 587 * opts.bg.green + 114 * opts.bg.blue;
+    const u8 scheme = brightness >= 128000 ? 2 : 1;
+    std::ostringstream response;
+    response << "?997;" << (unsigned)scheme << 'n';
     writeCsiResponse(response.str());
 }
 
@@ -6093,9 +6158,10 @@ u32 VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
 #undef LOOKUP
 }
 
-VtermImpl::VtermImpl(VtermHost& host_, Pty& pty_, u16 glyphPx_, u16 glyphPy_, u16 winPx_, u16 winPy_)
+VtermImpl::VtermImpl(VtermHost& host_, Pty& pty_, Output* dump_, u16 glyphPx_, u16 glyphPy_, u16 winPx_, u16 winPy_)
     : host(host_)
     , pty(pty_)
+    , dump(dump_)
     , winPx(winPx_)
     , winPy(winPy_)
     , nCols((winPx - 2 * opts.border) / glyphPx_)
@@ -6788,6 +6854,8 @@ void VtermImpl::dispatchCsi(unsigned char finalByte) {
         csi_SGR();
     } else if (key == "n") {
         csi_DSR();
+    } else if (key == "?n") {
+        csi_DSR(true);
     } else if (key == "q") {
         csi_DECLL();
     } else if (key == "i") {
@@ -6959,6 +7027,7 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
             continue;
         }
         if ((inputState == InputState::DCS || inputState == InputState::OSC || inputState == InputState::String) && ch >= 0x20 && ch < 0x7f) {
+            stringUtf8Remaining = 0;
             int end = readPos + 1;
             while (end < inputSize && input[end] >= 0x20 && input[end] < 0x7f) {
                 ++end;
@@ -6977,6 +7046,9 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
             readPos = end - 1;
             continue;
         }
+        const bool utf8StringContinuation =
+            (inputState == InputState::DCS || inputState == InputState::OSC || inputState == InputState::String)
+            && stringUtf8Continuation(ch);
         if ((ch == '\x18' || ch == '\x1a') && inputState != InputState::Normal) {
             setState(InputState::Normal);
             continue;
@@ -6992,7 +7064,7 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
             lastEscBegin = readPos;
             continue;
         }
-        if (inputState != InputState::Normal) {
+        if (inputState != InputState::Normal && !utf8StringContinuation) {
             switch (ch) {
                 case 0x90:
                     argBuf.clear();
@@ -7409,17 +7481,15 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
             case InputState::DCS:
                 switch (ch) {
                     case 0x9c:
-                        if (argBufOverflowed) {
-                            setState(InputState::Normal);
-                        } else {
-                            handle_DCS();
+                        if (!utf8StringContinuation) {
+                            if (argBufOverflowed) {
+                                setState(InputState::Normal);
+                            } else {
+                                handle_DCS();
+                            }
+                            break;
                         }
-                        break;
-                    case '\x1b':
-                        setState(InputState::DCS_Esc);
-                        break;
-                    case '\x7f':
-                        break;
+                        [[fallthrough]];
                     default:
                         if (executeC0InSequence(ch)) {
                             break;
@@ -7429,6 +7499,11 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                             logT << "DCS argument string overflow" << std::endl;
                             argBufOverflowed = true;
                         }
+                        break;
+                    case '\x1b':
+                        setState(InputState::DCS_Esc);
+                        break;
+                    case '\x7f':
                         break;
                 }
                 break;
@@ -7462,10 +7537,23 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
             case InputState::OSC:
                 switch (ch) {
                     case 0x9c:
-                        if (argBufOverflowed) {
-                            setState(InputState::Normal);
-                        } else {
-                            handle_OSC();
+                        if (!utf8StringContinuation) {
+                            if (argBufOverflowed) {
+                                setState(InputState::Normal);
+                            } else {
+                                handle_OSC();
+                            }
+                            break;
+                        }
+                        [[fallthrough]];
+                    default:
+                        if (executeC0InSequence(ch)) {
+                            break;
+                        } else if (argBuf.size() < maxOscBytes) {
+                            argBuf.push_back(ch);
+                        } else if (!argBufOverflowed) {
+                            logT << "OSC argument string overflow" << std::endl;
+                            argBufOverflowed = true;
                         }
                         break;
                     case '\a':
@@ -7479,16 +7567,6 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                         setState(InputState::OSC_Esc);
                         break;
                     case '\x7f':
-                        break;
-                    default:
-                        if (executeC0InSequence(ch)) {
-                            break;
-                        } else if (argBuf.size() < maxOscBytes) {
-                            argBuf.push_back(ch);
-                        } else if (!argBufOverflowed) {
-                            logT << "OSC argument string overflow" << std::endl;
-                            argBufOverflowed = true;
-                        }
                         break;
                 }
                 break;
@@ -7522,7 +7600,7 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
             case InputState::String:
                 if (executeC0InSequence(ch)) {
                     break;
-                } else if (ch == 0x9c) {
+                } else if (ch == 0x9c && !utf8StringContinuation) {
                     setState(InputState::Normal);
                 } else if (ch == '\x1b') {
                     setState(InputState::String_Esc);
@@ -7807,5 +7885,16 @@ void VtermImpl::pasteSelection(const std::string& utf8_selection) {
 }
 
 Vterm* Vterm::create(Composer& composer, VtermHost& host, Pty& pty, u16 glyphPx, u16 glyphPy, u16 winPx, u16 winPy) {
-    return composer.pool->make<VtermImpl>(host, pty, glyphPx, glyphPy, winPx, winPy);
+    Output* dump = nullptr;
+    if (opts.dump != nullptr) {
+        const int rawFd = ::open(opts.dump, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+        if (rawFd < 0) {
+            Errno().raise(StringBuilder()
+                          << StringView(u8"can not open dump file ")
+                          << StringView(opts.dump));
+        }
+        auto* fd = composer.pool->make<ScopedFD>(rawFd);
+        dump = createOutBuf(composer.pool, *createFDRegular(composer.pool, *fd));
+    }
+    return composer.pool->make<VtermImpl>(host, pty, dump, glyphPx, glyphPy, winPx, winPy);
 }

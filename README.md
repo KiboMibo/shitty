@@ -144,6 +144,7 @@ notably useful for defaults such as `+boldColors`.
 | `-title TEXT` | `Zutty` | Initial window title |
 | `-shell PATH` | `$SHELL` | Shell to start |
 | `-e COMMAND ...` | — | Execute a command; must be the final option |
+| `-dump PATH` | — | Dump raw PTY input to a file before parsing |
 | `-login` | off | Start the selected shell as a login shell |
 | `-rv` | off | Swap the default foreground and background |
 | `-boldColors` | on | Use bright palette colours for bold text |

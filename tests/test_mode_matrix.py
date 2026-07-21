@@ -47,6 +47,7 @@ PRIVATE_DEFAULTS = {
     1049: 2,
     2004: 2,
     2026: 2,
+    2031: 2,
     2048: 2,
 }
 
@@ -155,7 +156,7 @@ class ModeMatrixTest(unittest.TestCase):
     def test_xtsave_and_xtrestore_cover_every_side_effect_free_mode(self):
         modes = (
             1, 5, 6, 7, 12, 25, 42, 45, 67, 69,
-            1004, 1007, 1034, 1036, 1039, 1045, 2004, 2026,
+            1004, 1007, 1034, 1036, 1039, 1045, 2004, 2026, 2031,
         )
         for mode in modes:
             with self.subTest(mode=mode):

@@ -246,6 +246,27 @@ class ParserStateMachineTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(0, 0).char, "Л")
             self.assertEqual(snapshot.cell(1, 0).char, "X")
 
+    def test_utf8_continuations_in_osc_are_not_c1_controls(self):
+        old_spinner = "✽".encode()
+        prompt = "❯".encode()
+        title = "⠐ title".encode()
+        new_spinner = "✻".encode()
+        payload = (
+            b"\x1b[1;1H" + old_spinner
+            + b"\x1b[2;1H" + prompt
+            + b"\x1b]0;" + title + b"\a"
+            + b"\x1b[1;1H" + new_spinner
+        )
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write_chunks(*(bytes((byte,)) for byte in payload))
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).char, "✻")
+            self.assertEqual(snapshot.cell(0, 1).char, "❯")
+            self.assertEqual(
+                terminal.read_actions(),
+                ["OSC 0 " + title.hex()],
+            )
+
     def test_csi_c0_and_cancel_are_chunk_independent(self):
         self.assert_chunkings_equal(b"A\x1b[2\n;3H\x18\x1b[2;4HX")
 

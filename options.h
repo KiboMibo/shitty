@@ -34,6 +34,7 @@ struct Options {
     const char* fontname;
     const char* shell;
     const char* title;
+    const char* dump;
     const char* printerCommand;
     OptionSource titleSource = OptionSource::NONE;
     Color bg;

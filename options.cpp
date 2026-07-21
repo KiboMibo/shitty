@@ -52,6 +52,7 @@ namespace {
         {"boldColors", OptionKind::NoArg, "true", "true", "Enable bright for bold"},
         {"border", OptionKind::SepArg, nullptr, "2", "Border width in pixels"},
         {"cr", OptionKind::SepArg, nullptr, nullptr, "Cursor color"},
+        {"dump", OptionKind::SepArg, nullptr, nullptr, "Dump raw PTY input to file"},
         {"dwfont", OptionKind::SepArg, nullptr, "18x18ja", "Double-width font to use"},
         {"fg", OptionKind::SepArg, nullptr, "#fff", "Foreground color"},
         {"font", OptionKind::SepArg, nullptr, "monospace", "Font to use"},
@@ -381,6 +382,7 @@ void Options::parse() {
             shell = "bash";
         }
         title = get("title", nullptr, &titleSource);
+        dump = get("dump");
         printerCommand = get("printerCommand");
         getColor("fg", fg);
         getColor("bg", bg);
