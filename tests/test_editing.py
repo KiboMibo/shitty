@@ -86,6 +86,15 @@ class EditingTest(unittest.TestCase):
             terminal.write(b"\x1b[1;5H\x1b[1K")
             self.assertEqual(terminal.snapshot().lines[0], "     fgh")
 
+    def test_erase_characters_outside_horizontal_margins_stays_on_screen(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"ABCDEFGH"
+                b"\x1b[?69h\x1b[1;4s"
+                b"\x1b[1;8H\x1b[99X"
+            )
+            self.assertEqual(terminal.snapshot().lines[0], "ABCDEFG ")
+
     def test_insert_and_delete_lines(self):
         with Zutty(columns=5, rows=4) as terminal:
             terminal.write(b"one\r\ntwo\r\nthree\r\nfour")

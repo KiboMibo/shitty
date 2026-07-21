@@ -2820,7 +2820,8 @@ void VtermImpl::csi_DCH() {
 void VtermImpl::csi_ECH() {
     TRACE_FUN;
     u32 arg = inputOps[0] ? inputOps[0] : 1;
-    u32 len = nColsEff - posX;
+    const u16 right = isCursorInsideMargins() ? nColsEff : nCols;
+    const u32 len = posX < right ? right - posX : 0;
     arg = std::min(arg, len);
     cf->eraseInRow(posY, posX, arg, attrs);
     normalizeWideCells(posY);
