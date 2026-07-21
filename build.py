@@ -450,6 +450,84 @@ for case_id, _, _ in wraptest_cases:
     ))
 
 
+tack_root = Path(__file__).parent / "tests" / "tack"
+tack_cases = (tack_root / "file_names.txt").read_text().split()
+tack_xfails = {
+    line.strip()
+    for line in (tack_root / "xfail.txt").read_text().splitlines()
+    if line.strip() and not line.startswith("#")
+}
+unknown_tack_xfails = tack_xfails - set(tack_cases)
+if unknown_tack_xfails:
+    raise RuntimeError(
+        "unknown tack XFAIL capabilities: "
+        + ", ".join(sorted(unknown_tack_xfails))
+    )
+tack_upstream_inputs = build.glob("$(S)/tests/tack/upstream/*")
+tack_program = command(
+    name="tack_program",
+    inputs=[
+        "$(S)/tests/tack/build_tack.sh",
+        *tack_upstream_inputs,
+    ],
+    outputs=["$(B)/tests/tack/tack"],
+    cmd=[
+        "sh",
+        "tests/tack/build_tack.sh",
+        "tests/tack/upstream",
+        "$(B)/tests/tack/tack",
+    ],
+    cwd="$(S)",
+    descr="TACK-CC",
+    color="magenta",
+)
+tack_validation = command(
+    name="tack_catalog",
+    inputs=[
+        "$(S)/tests/tack/file_names.txt",
+        "$(S)/tests/tack/validate.py",
+        *tack_upstream_inputs,
+    ],
+    outputs=["$(B)/tests/tack/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/tack/validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/tack/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="TACK",
+    color="cyan",
+)
+tack_tests = []
+for capability in tack_cases:
+    tack_tests.append(command(
+        name="tack_" + capability,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/tack/adapter.py",
+            "$(S)/tests/tack/file_names.txt",
+            "$(S)/tests/tack/xfail.txt",
+        ],
+        outputs=[f"$(B)/tests/tack/{capability}.stamp"],
+        deps=[zutty, tack_program],
+        cmd=[
+            "python3",
+            "tests/tack/adapter.py",
+            "$(B)/tests/tack/tack",
+            capability,
+            "tests/tack/xfail.txt",
+            f"$(B)/tests/tack/{capability}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="TACK",
+        color="cyan",
+    ))
+
+
 ucs_detect_root = Path(__file__).parent / "tests" / "ucs_detect"
 ucs_detect_tests = []
 ucs_detect_table_inputs = [
@@ -697,6 +775,9 @@ install(*ghostty_tests)
 install(*tmux_tests)
 install(wraptest_helper)
 install(*wraptest_tests)
+install(tack_program)
+install(tack_validation)
+install(*tack_tests)
 install(*ucs_detect_tests)
 install(ucs_detect_validation)
 install(*vtebench_tests)

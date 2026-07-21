@@ -1,0 +1,1 @@
+# Exact expected failures, one capability per line. XPASS is a failure.
