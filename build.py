@@ -276,6 +276,60 @@ for corpus in ("terminal_corpus", "terminal_parser_corpus"):
     ))
 
 
+ghostty_root = Path(__file__).parent / "tests" / "ghostty"
+ghostty_members = []
+for corpus in ("osc-cmin", "parser-cmin", "stream-cmin"):
+    ghostty_members.extend(
+        f"{corpus}/{path.name}"
+        for path in sorted((ghostty_root / corpus).iterdir())
+    )
+ghostty_xfails = {
+    line.strip()
+    for line in (ghostty_root / "xfail.txt").read_text().splitlines()
+    if line.strip() and not line.startswith("#")
+}
+unknown_ghostty_xfails = ghostty_xfails - set(ghostty_members)
+if unknown_ghostty_xfails:
+    raise RuntimeError(
+        "unknown Ghostty XFAIL members: "
+        + ", ".join(sorted(unknown_ghostty_xfails))
+    )
+
+ghostty_tests = []
+ghostty_shard_size = 128
+for corpus in ("osc-cmin", "parser-cmin", "stream-cmin"):
+    members = [
+        member for member in ghostty_members
+        if member.startswith(corpus + "/")
+    ]
+    for shard_index, start in enumerate(range(0, len(members), ghostty_shard_size)):
+        shard = members[start : start + ghostty_shard_size]
+        name = corpus.replace("-", "_") + f"_{shard_index:03d}"
+        ghostty_tests.append(command(
+            name="ghostty_" + name,
+            inputs=[
+                "$(S)/tests/harness.py",
+                "$(S)/tests/fuzz_parser.py",
+                "$(S)/tests/ghostty/adapter.py",
+                "$(S)/tests/ghostty/xfail.txt",
+                *("$(S)/tests/ghostty/" + member for member in shard),
+            ],
+            outputs=[f"$(B)/tests/ghostty/{name}.stamp"],
+            deps=[zutty],
+            cmd=[
+                "python3",
+                "tests/ghostty/adapter.py",
+                "tests/ghostty/xfail.txt",
+                f"$(B)/tests/ghostty/{name}.stamp",
+                *shard,
+            ],
+            cwd="$(S)",
+            env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+            descr="GHOSTTY",
+            color="cyan",
+        ))
+
+
 install(libzutty)
 install(zutty)
 install(test_suite)
@@ -286,3 +340,4 @@ install(*alacritty_tests)
 install(contour_vttest)
 install(*contour_tests)
 install(*mosh_tests)
+install(*ghostty_tests)

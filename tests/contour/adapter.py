@@ -235,6 +235,7 @@ def run_scenario(binary, scenario, keys, data):
                 terminal.input(value)
             step += 1
             armed_after_refresh = snapshot.refresh_count
+            deadline = time.monotonic() + 30
         else:
             errors.append(
                 f"vttest timed out after {step} prompts; screen was:\n{screen}"

@@ -4,6 +4,14 @@ from harness import Zutty
 
 
 class OscProtocolTest(unittest.TestCase):
+    def test_hyperlink_control_preserves_arbitrary_uri_bytes(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]8;;https://example/\xc2x\x1b\\X")
+            self.assertEqual(
+                terminal.hyperlink_bytes(0, 0),
+                b"https://example/\xc2x",
+            )
+
     def test_osc52_selectors(self):
         cases = {
             b";WA==": (True, True),

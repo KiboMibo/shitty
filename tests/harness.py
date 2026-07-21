@@ -468,7 +468,10 @@ class Zutty:
         return self._read_hex_response("SELECT_FINISH")
 
     def hyperlink(self, column, row):
-        return self._read_hex_response(f"HYPERLINK {column} {row}").decode()
+        return self.hyperlink_bytes(column, row).decode()
+
+    def hyperlink_bytes(self, column, row):
+        return self._read_hex_response(f"HYPERLINK {column} {row}")
 
     def hyperlink_count(self):
         self.stream.write(b"HYPERLINK_COUNT\n")
