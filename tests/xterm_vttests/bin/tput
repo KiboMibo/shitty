@@ -1,6 +1,9 @@
 #!/bin/sh
 case "$1" in
     cols) printf '80\n' ;;
+    lines) printf '25\n' ;;
+    cup) printf '\033[%d;%dH' "$(( $2 + 1 ))" "$(( $3 + 1 ))" ;;
+    clear) printf '\033[H\033[2J' ;;
     enacs) printf '\033(B\033)0' ;;
     reset|rs1|rs2) printf '\033c' ;;
     smacs) printf '\033(0' ;;

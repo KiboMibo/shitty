@@ -31,6 +31,70 @@ PREFIX_CASES = {
     "8colors.sh",
 }
 
+PERL_GENERATOR_CASES = {
+    "256colors2.pl",
+    "88colors2.pl",
+    "acs.pl",
+    "blink.pl",
+    "bold-italics.pl",
+    "erase.pl",
+    "iso2022.pl",
+    "modify-keys.pl",
+    "nrcs.pl",
+    "print-vt-chars.pl",
+    "sgrPushPop.pl",
+    "sgrPushPop2.pl",
+    "vt52chars.pl",
+    "wrap.pl",
+}
+
+PERL_LIVE_CASES = {
+    "256colors.pl",
+    "88colors.pl",
+    "closest-rgb.pl",
+    "cursor.pl",
+    "decsed.pl",
+    "dynamic.pl",
+    "halves.pl",
+    "insdelln.pl",
+    "query-allowed.pl",
+    "query-color.pl",
+    "query-dynamic.pl",
+    "query-fonts.pl",
+    "query-status.pl",
+    "query-xres.pl",
+    "resize.pl",
+    "scroll.pl",
+    "setpos.pl",
+    "tcapquery.pl",
+}
+
+
+def command_for(root, case):
+    script = str(root / "upstream" / case)
+    if case.endswith(".pl"):
+        perl = shutil.which("perl")
+        if perl is None:
+            raise RuntimeError("xterm Perl scenarios require bld/perl")
+        arguments = [perl, script]
+        if case == "nrcs.pl":
+            arguments.extend((
+                "graphic", "supp", "supp_graphic", "technical", "latin_1",
+                "ascii", "dutch", "finnish", "finnish2", "french",
+                "french2", "canadian", "canadian2", "german", "italian",
+                "danish", "danish2", "danish3", "portuguese", "spanish",
+                "swedish", "swedish2", "swiss",
+            ))
+        return arguments
+    return [script]
+
+
+def command_path(root, case):
+    path = str(root / "bin") + os.pathsep + os.environ["PATH"]
+    if case.endswith(".pl"):
+        path = str(Path(command_for(root, case)[0]).parent) + os.pathsep + path
+    return path
+
 
 def observable(terminal):
     return (
@@ -48,13 +112,13 @@ def observable(terminal):
 
 def generate(root, case):
     environment = os.environ.copy()
-    environment["PATH"] = str(root / "bin") + os.pathsep + environment["PATH"]
+    environment["PATH"] = command_path(root, case)
     temporary = root.parent.parent / ".build" / "xterm-vttests-tmp"
     temporary.mkdir(parents=True, exist_ok=True)
     environment["TMPDIR"] = str(temporary)
     result = subprocess.run(
-        [str(root / "upstream" / case)],
-        input=b"\n\n",
+        command_for(root, case),
+        input=b"\n" * 128,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=environment,
@@ -133,11 +197,11 @@ def run_live_case(root, case):
         extra_arguments=("-allowWindowOps", "true"),
     ) as terminal:
         before = observable(terminal)
-        arguments = [str(root / "upstream" / case)]
-        if case == "tab0.sh":
+        arguments = command_for(root, case)
+        if case == "tab0.sh" or case.endswith(".pl"):
             arguments = [
                 shutil.which("env"),
-                "PATH=" + str(root / "bin") + os.pathsep + os.environ["PATH"],
+                "PATH=" + command_path(root, case),
                 *arguments,
             ]
         terminal.spawn(*arguments)
@@ -177,7 +241,7 @@ def main():
             whole.write(payload)
             write_chunked(chunked, payload)
             mismatch = observable(whole) != observable(chunked)
-    elif case in LIVE_CASES:
+    elif case in LIVE_CASES or case in PERL_LIVE_CASES:
         message = run_live_case(root, case)
         mismatch = bool(message)
         payload = b""
@@ -187,6 +251,8 @@ def main():
         payload = b""
     else:
         message = "chunking changed state"
+        if case.endswith(".pl") and case not in PERL_GENERATOR_CASES:
+            raise RuntimeError(f"unclassified xterm Perl scenario: {case}")
         payload = generate(root, case)
         with Zutty(columns=80, rows=25, save_lines=500) as whole, \
              Zutty(columns=80, rows=25, save_lines=500) as chunked:
@@ -204,7 +270,7 @@ def main():
     else:
         detail = (
             "live PTY scenario"
-            if case in LIVE_CASES
+            if case in LIVE_CASES or case in PERL_LIVE_CASES
             else f"{len(payload)}-byte live stream prefix"
             if case in PREFIX_CASES
             else "PTY scenario"
