@@ -57,6 +57,20 @@ class PtyTest(unittest.TestCase):
             status, _ = terminal.wait_child()
             self.assertEqual(status, 128 + signal.SIGTERM)
 
+    def test_blocking_child_tty_does_not_block_control_reply_reads(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.spawn(
+                sys.executable,
+                "-c",
+                "import os,time; "
+                "os.set_blocking(0, True); "
+                "os.write(1, b'ready'); "
+                "time.sleep(10)",
+            )
+            terminal.wait_read_pty()
+            terminal.write(b"\x1b[5n")
+            self.assertEqual(terminal.read_input(), b"\x1b[0n")
+
     def test_nonblocking_read_without_data_is_not_eof(self):
         with Zutty(columns=8, rows=2) as terminal:
             self.assertFalse(terminal.read_pty())

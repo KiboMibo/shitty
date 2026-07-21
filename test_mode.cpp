@@ -774,6 +774,11 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                 if (arguments.empty() || arguments[0].empty()) {
                     throw std::runtime_error("empty child command");
                 }
+                const char* ttyPath = ttyname(io[1]);
+                if (!ttyPath) {
+                    throw std::runtime_error("test child tty has no path");
+                }
+                const std::string childTtyPath = ttyPath;
                 childExitStatus = -1;
                 childPid = fork();
                 if (childPid < 0) {
@@ -781,17 +786,18 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                 }
                 if (childPid == 0) {
                     setsid();
-                    ioctl(io[1], TIOCSCTTY, 0);
-                    const int childFlags = fcntl(io[1], F_GETFL, 0);
-                    if (childFlags >= 0) {
-                        fcntl(io[1], F_SETFL, childFlags & ~O_NONBLOCK);
+                    close(io[1]);
+                    const int childTty = open(childTtyPath.c_str(), O_RDWR);
+                    if (childTty < 0) {
+                        _exit(126);
                     }
-                    dup2(io[1], STDIN_FILENO);
-                    dup2(io[1], STDOUT_FILENO);
-                    dup2(io[1], STDERR_FILENO);
+                    ioctl(childTty, TIOCSCTTY, 0);
+                    dup2(childTty, STDIN_FILENO);
+                    dup2(childTty, STDOUT_FILENO);
+                    dup2(childTty, STDERR_FILENO);
                     close(io[0]);
-                    if (io[1] > STDERR_FILENO) {
-                        close(io[1]);
+                    if (childTty > STDERR_FILENO) {
+                        close(childTty);
                     }
                     configureTerminalChildEnvironment();
                     std::vector<char*> argv;

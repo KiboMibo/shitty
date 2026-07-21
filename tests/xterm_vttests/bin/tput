@@ -1,6 +1,8 @@
 #!/bin/sh
 case "$1" in
+    cols) printf '80\n' ;;
     enacs) printf '\033(B\033)0' ;;
+    reset|rs1|rs2) printf '\033c' ;;
     smacs) printf '\033(0' ;;
     rmacs) printf '\033(B' ;;
     *) exit 1 ;;

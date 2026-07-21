@@ -1,0 +1,15 @@
+#!/bin/sh
+
+width=${1#-}
+case "$width" in
+    4|8) ;;
+    *) exit 1 ;;
+esac
+
+printf '\033[3g'
+column=$((width + 1))
+while [ "$column" -le 80 ]; do
+    printf '\033[%dG\033H' "$column"
+    column=$((column + width))
+done
+printf '\r'

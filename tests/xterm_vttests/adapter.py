@@ -2,8 +2,10 @@
 
 import os
 import signal
+import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -11,6 +13,23 @@ TESTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TESTS))
 
 from harness import Zutty
+
+
+LIVE_CASES = {
+    "acolors.sh",
+    "dynamic.sh",
+    "dynamic2.sh",
+    "fonts.sh",
+    "resize.sh",
+    "tab0.sh",
+    "title.sh",
+    "version.sh",
+}
+
+PREFIX_CASES = {
+    "16colors.sh",
+    "8colors.sh",
+}
 
 
 def observable(terminal):
@@ -53,8 +72,29 @@ def generate(root, case):
     return result.stdout
 
 
+def generate_prefix(root, case, limit=256 * 1024):
+    environment = os.environ.copy()
+    environment["PATH"] = str(root / "bin") + os.pathsep + environment["PATH"]
+    process = subprocess.Popen(
+        [str(root / "upstream" / case)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=environment,
+    )
+    try:
+        payload = process.stdout.read(limit)
+    finally:
+        process.kill()
+        process.communicate(timeout=5)
+    if len(payload) != limit:
+        raise RuntimeError(
+            f"{case} ended before producing a {limit}-byte stream prefix"
+        )
+    return payload
+
+
 def write_chunked(terminal, payload):
-    sizes = (1, 2, 3, 5, 8, 13, 21, 34)
+    sizes = (1, 7, 31, 127, 509, 2039, 8191, 32749)
     offset = 0
     index = 0
     while offset < len(payload):
@@ -85,6 +125,39 @@ def run_pty_case(root, case):
     return ""
 
 
+def run_live_case(root, case):
+    with Zutty(
+        columns=80,
+        rows=25,
+        save_lines=500,
+        extra_arguments=("-allowWindowOps", "true"),
+    ) as terminal:
+        before = observable(terminal)
+        arguments = [str(root / "upstream" / case)]
+        if case == "tab0.sh":
+            arguments = [
+                shutil.which("env"),
+                "PATH=" + str(root / "bin") + os.pathsep + os.environ["PATH"],
+                *arguments,
+            ]
+        terminal.spawn(*arguments)
+        if case == "tab0.sh":
+            terminal.input(b"\n" * 16)
+        deadline = time.monotonic() + 1.25
+        status = None
+        while time.monotonic() < deadline:
+            status, _ = terminal.poll_child()
+            if status is not None:
+                break
+            time.sleep(0.01)
+        after = observable(terminal)
+    if status not in (None, 0):
+        return f"child exited {status}"
+    if after == before:
+        return "scenario produced no observable terminal state"
+    return ""
+
+
 def main():
     if len(sys.argv) != 4:
         raise SystemExit("usage: adapter.py SCRIPT XFAIL_FILE STAMP")
@@ -96,7 +169,19 @@ def main():
     stamp = Path(sys.argv[3])
     root = Path(__file__).resolve().parent
     signal.alarm(20)
-    if case == "doublechars.sh":
+    if case in PREFIX_CASES:
+        message = "chunking changed state"
+        payload = generate_prefix(root, case)
+        with Zutty(columns=80, rows=25, save_lines=500) as whole, \
+             Zutty(columns=80, rows=25, save_lines=500) as chunked:
+            whole.write(payload)
+            write_chunked(chunked, payload)
+            mismatch = observable(whole) != observable(chunked)
+    elif case in LIVE_CASES:
+        message = run_live_case(root, case)
+        mismatch = bool(message)
+        payload = b""
+    elif case == "doublechars.sh":
         message = run_pty_case(root, case)
         mismatch = bool(message)
         payload = b""
@@ -117,7 +202,15 @@ def main():
         print(f"FAIL xterm-vttests/{case}: {message}", file=sys.stderr)
         return 1
     else:
-        detail = "PTY scenario" if case == "doublechars.sh" else f"{len(payload)} stream bytes"
+        detail = (
+            "live PTY scenario"
+            if case in LIVE_CASES
+            else f"{len(payload)}-byte live stream prefix"
+            if case in PREFIX_CASES
+            else "PTY scenario"
+            if case == "doublechars.sh"
+            else f"{len(payload)} stream bytes"
+        )
         print(f"PASS xterm-vttests/{case}: {detail}")
     stamp.parent.mkdir(parents=True, exist_ok=True)
     stamp.touch()
