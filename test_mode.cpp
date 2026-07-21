@@ -1149,6 +1149,24 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                 writeAll(controlFd, "OK " + std::to_string((unsigned)(mouse.mode)) + " " + std::to_string((unsigned)(mouse.enc)) + " " + std::to_string(mouse.focusEventMode) + " " + std::to_string(terminal.getKittyKeyboardFlags()) + "\n");
             } else if (line == "PROTOCOL_STATE") {
                 writeAll(controlFd, "OK " + std::to_string(terminal.getScreenReverseVideo()) + " " + std::to_string(terminal.getLedState()) + " " + std::to_string(terminal.getReverseWrapMode()) + " " + std::to_string(terminal.getNationalReplacementMode()) + " 0\n");
+            } else if (line == "CONFORMANCE_STATE") {
+                std::ostringstream output;
+                output << "OK screen=" << (terminal.getPrivateMode(47) ? "Alternate" : "Primary")
+                       << " IRM=" << terminal.getAnsiMode(4)
+                       << " SRM=" << terminal.getAnsiMode(12)
+                       << " LNM=" << terminal.getAnsiMode(20)
+                       << " DECCKM=" << terminal.getPrivateMode(1)
+                       << " DECCOLM=" << terminal.getPrivateMode(3)
+                       << " DECSCLM=" << terminal.getPrivateMode(4)
+                       << " DECSCNM=" << terminal.getPrivateMode(5)
+                       << " DECOM=" << terminal.getPrivateMode(6)
+                       << " DECAWM=" << terminal.getPrivateMode(7)
+                       << " DECARM=" << terminal.getPrivateMode(8)
+                       << " DECTCEM=" << terminal.getPrivateMode(25)
+                       << " DECNKM=" << terminal.getPrivateMode(66)
+                       << " DECBKM=" << terminal.getPrivateMode(67)
+                       << " DECLRMM=" << terminal.getPrivateMode(69) << '\n';
+                writeAll(controlFd, output.str());
             } else if (line == "RENDER_STATE") {
                 writeAll(controlFd, display.renderState());
             } else if (line.compare(0, 13, "MOUSE_ENCODE ") == 0) {

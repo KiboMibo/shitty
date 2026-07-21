@@ -4,6 +4,40 @@ from harness import Zutty
 
 
 class TerminalModeTest(unittest.TestCase):
+    def test_conformance_state_exposes_screen_and_mode_vector(self):
+        with Zutty() as terminal:
+            self.assertEqual(terminal.conformance_state(), {
+                "screen": "Primary",
+                "IRM": False,
+                "SRM": True,
+                "LNM": False,
+                "DECCKM": False,
+                "DECCOLM": False,
+                "DECSCLM": False,
+                "DECSCNM": False,
+                "DECOM": False,
+                "DECAWM": True,
+                "DECARM": False,
+                "DECTCEM": True,
+                "DECNKM": False,
+                "DECBKM": False,
+                "DECLRMM": False,
+            })
+
+            terminal.write(
+                b"\x1b[4;20h"
+                b"\x1b[?1;3;4;5;6;8;67;69h"
+                b"\x1b="
+                b"\x1b[?47h"
+            )
+            state = terminal.conformance_state()
+            self.assertEqual(state["screen"], "Alternate")
+            for mode in (
+                "IRM", "LNM", "DECCKM", "DECCOLM", "DECSCLM", "DECSCNM",
+                "DECOM", "DECARM", "DECNKM", "DECBKM", "DECLRMM",
+            ):
+                self.assertTrue(state[mode], mode)
+
     def test_decll_tracks_each_host_led_independently(self):
         with Zutty() as terminal:
             terminal.write(b"\x1b[1;2;3q\x1b[22q")

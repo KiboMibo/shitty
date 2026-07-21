@@ -1,0 +1,20 @@
+{
+  "vttest.01.cursor-movements": ["1", "0"],
+  "vttest.02.screen-features": ["2", "0"],
+  "vttest.04.double-sized": ["4", "0"],
+  "vttest.07.vt52-mode": ["7", "0"],
+  "vttest.08.vt102-features": ["8", "0"],
+  "vttest.09.known-bugs": ["9", "*", "0", "0"],
+  "vttest.11.5.iso6429-cursor": ["11", "5", "*", "0", "0", "0"],
+  "vttest.11.6.2.color-test-pattern": ["11", "6", "2", "0", "0", "0"],
+  "vttest.11.6.3.sgr-0-color-reset": ["11", "6", "3", "0", "0", "0"],
+  "vttest.11.6.4.bce-erase": ["11", "6", "4", "0", "0", "0"],
+  "vttest.11.6.5.bce-ech-indexing": ["11", "6", "5", "0", "0", "0"],
+  "vttest.11.6.6.vt102-with-bce": ["11", "6", "6", "*", "0", "0", "0", "0"],
+  "vttest.11.6.7.ecma48-misc-with-bce": ["11", "6", "7", "*", "0", "0", "0", "0"],
+  "vttest.11.6.7.1.protected-area-with-bce": ["11", "6", "7", "1", "*", "0", "0", "0", "0", "0"],
+  "vttest.11.6.8.screen-features-with-bce": ["11", "6", "8", "0", "0", "0"],
+  "vttest.11.6.9.sgr-22-27": ["11", "6", "9", "0", "0", "0"],
+  "vttest.11.7.iso6429-other": ["11", "7", "*", "0", "0", "0"],
+  "vttest.11.7.1.protected-area": ["11", "7", "1", "*", "0", "0", "0", "0"]
+}

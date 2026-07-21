@@ -198,6 +198,57 @@ for case in alacritty_cases:
     ))
 
 
+contour_vttest_sources = [
+    source for source in build.glob("$(S)/tests/contour/vttest/*.c")
+    if not source.endswith("/vms_io.c")
+]
+contour_vttest = program(
+    name="contour_vttest_helper",
+    srcs=contour_vttest_sources,
+    cflags=["-Wno-error"],
+    cppflags=[
+        "-DHAVE_CONFIG_H",
+        "-I$(S)/tests/contour/vttest",
+    ],
+    output="$(B)/tests/contour/vttest",
+)
+
+
+contour_root = Path(__file__).parent / "tests" / "contour"
+contour_cases = (contour_root / "file_names.txt").read_text().split()
+contour_tests = []
+for case in contour_cases:
+    golden_inputs = [
+        "$(S)/" + path.relative_to(Path(__file__).parent).as_posix()
+        for path in sorted((contour_root / "golden").glob(f"{case}.step*.dump"))
+    ]
+    contour_tests.append(command(
+        name="contour_" + case.replace(".", "_"),
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/contour/adapter.py",
+            "$(S)/tests/contour/file_names.txt",
+            "$(S)/tests/contour/scenarios.json",
+            "$(S)/tests/contour/xfail.txt",
+            *golden_inputs,
+        ],
+        outputs=[f"$(B)/tests/contour/{case}.stamp"],
+        deps=[zutty, contour_vttest],
+        cmd=[
+            "python3",
+            "tests/contour/adapter.py",
+            "$(B)/tests/contour/vttest",
+            case,
+            "tests/contour/xfail.txt",
+            f"$(B)/tests/contour/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="CONTOUR",
+        color="cyan",
+    ))
+
+
 install(libzutty)
 install(zutty)
 install(test_suite)
@@ -205,3 +256,5 @@ install(parser_fuzz)
 install(vttest_profile)
 install(*xtermjs_tests)
 install(*alacritty_tests)
+install(contour_vttest)
+install(*contour_tests)

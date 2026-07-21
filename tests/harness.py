@@ -497,6 +497,17 @@ class Zutty:
             raise RuntimeError("invalid protocol state response")
         return tuple(map(int, response[1:]))
 
+    def conformance_state(self):
+        self.stream.write(b"CONFORMANCE_STATE\n")
+        response = self._readline().split()
+        if not response or response[0] != "OK":
+            raise RuntimeError("invalid conformance state response")
+        result = {}
+        for field in response[1:]:
+            name, value = field.split("=", 1)
+            result[name] = value if name == "screen" else bool(int(value))
+        return result
+
     def render_state(self):
         self.stream.write(b"RENDER_STATE\n")
         response = self._readline().split()

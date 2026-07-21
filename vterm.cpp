@@ -90,6 +90,8 @@ namespace {
         bool getReverseWrapMode() const;
         bool getNationalReplacementMode() const;
         bool getMetaMode() const;
+        bool getAnsiMode(u32 mode) const;
+        bool getPrivateMode(u32 mode) const;
 
         void resize(u16 winPx, u16 winPy);
 
@@ -324,7 +326,6 @@ namespace {
         void csi_privSave();
         void csi_privRestore();
         void setPrivMode(u32 mode, bool set);
-        bool getPrivMode(u32 mode) const;
         void csi_SGR();
 
         void csi_ecma48_SL();
@@ -480,6 +481,8 @@ namespace {
         VtModifier modifiers = VtModifier::none;
 
         bool showCursorMode = true;
+        bool smoothScrollMode = false;
+        bool autoRepeatMode = false;
         TerminalCursor::Style cursorShape = TerminalCursor::Style::filled_block;
         u8 cursorStyleParam = 2;
         bool cursorBlinkMode = false;
@@ -770,6 +773,19 @@ bool VtermImpl::getNationalReplacementMode() const {
 
 bool VtermImpl::getMetaMode() const {
     return eightBitInput;
+}
+
+bool VtermImpl::getAnsiMode(u32 mode) const {
+    switch (mode) {
+        case 4:
+            return insertMode;
+        case 12:
+            return !localEcho;
+        case 20:
+            return autoNewlineMode;
+        default:
+            return false;
+    }
 }
 
 bool VtermImpl::synchronizedOutputActive() const {
@@ -1115,6 +1131,8 @@ void VtermImpl::resetTerminal() {
 
 void VtermImpl::resetScreen(bool resetTabStops) {
     showCursorMode = true;
+    smoothScrollMode = false;
+    autoRepeatMode = false;
     cursorShape = TerminalCursor::Style::filled_block;
     cursorStyleParam = 2;
     cursorBlinkMode = false;
@@ -2951,6 +2969,7 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 switchColMode(ColMode::C132);
                 break;
             case 4:
+                smoothScrollMode = true;
                 logT << "DECSCLM: Set smooth scroll" << std::endl;
                 break;
             case 5:
@@ -2968,6 +2987,7 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 autoWrapMode = true;
                 break;
             case 8:
+                autoRepeatMode = true;
                 logU << "DECARM: Set auto-repeat mode" << std::endl;
                 break;
             case 42:
@@ -3081,6 +3101,7 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 switchColMode(ColMode::C80);
                 break;
             case 4:
+                smoothScrollMode = false;
                 logT << "DECSCLM: Set jump scroll" << std::endl;
                 break;
             case 5:
@@ -3098,6 +3119,7 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 autoWrapMode = false;
                 break;
             case 8:
+                autoRepeatMode = false;
                 logU << "DECARM: Reset auto-repeat mode" << std::endl;
                 break;
             case 42:
@@ -3185,18 +3207,22 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
     }
 }
 
-bool VtermImpl::getPrivMode(u32 arg) const {
+bool VtermImpl::getPrivateMode(u32 arg) const {
     switch (arg) {
         case 1:
             return cursorKeyMode == CursorKeyMode::Application;
         case 3:
             return colMode == ColMode::C132;
+        case 4:
+            return smoothScrollMode;
         case 5:
             return screenReverseVideo;
         case 6:
             return originMode == OriginMode::ScrollingRegion;
         case 7:
             return autoWrapMode;
+        case 8:
+            return autoRepeatMode;
         case 12:
             return cursorBlinkMode;
         case 42:
@@ -3210,6 +3236,8 @@ bool VtermImpl::getPrivMode(u32 arg) const {
         case 47:
         case 1047:
             return altScreenBufferMode;
+        case 66:
+            return keypadMode == KeypadMode::Application;
         case 67:
             return !bkspSendsDel;
         case 69:
@@ -3281,7 +3309,7 @@ void VtermImpl::csi_privSave() {
                 logU << "save priv mode " << arg << std::endl;
                 break;
             default:
-                savedPrivModes[arg] = getPrivMode(arg);
+                savedPrivModes[arg] = getPrivateMode(arg);
                 break;
         }
     }
@@ -3709,7 +3737,7 @@ void VtermImpl::csi_DECRQM(bool privateMode) {
             case 2026:
             case 2031:
             case 2048:
-                state = (mode == 2 ? compatLevel != CompatibilityLevel::VT52 : getPrivMode(mode)) ? 1 : 2;
+                state = (mode == 2 ? compatLevel != CompatibilityLevel::VT52 : getPrivateMode(mode)) ? 1 : 2;
                 break;
             case 1049:
                 state = altScreenBufferMode ? 1 : 2;

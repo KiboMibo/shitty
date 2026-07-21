@@ -9,10 +9,9 @@
 - настоящий coverage-guided fuzzing;
 - проверки renderer/frontend boundary.
 
-Нашёл также две конкретные проблемы в декларациях текущего покрытия:
+Нашёл также конкретную проблему в декларациях текущего покрытия:
 
-1. [vttest.py](/home/pg/monorepo/zutty/tests/vttest.py) не проверяет картинку. Он лишь доходит до завершения, отвечает `0` во вложенных меню и ищет `That's all, folks!`. Это smoke-тест PTY и lifecycle, а не «полный vttest conformance».
-2. [differential.py](/home/pg/monorepo/zutty/tests/differential.py) фактически не differential: он посылает всего шесть запросов и отдельно проверяет формат ответов. Состояние экранов разных терминалов не сравнивается.
+1. [differential.py](/home/pg/monorepo/zutty/tests/differential.py) фактически не differential: он посылает всего шесть запросов и отдельно проверяет формат ответов. Состояние экранов разных терминалов не сравнивается.
 
 ## Что делают другие терминалы
 
@@ -104,15 +103,14 @@ Contour построил поверх него то, что нам нужно:
 
 Слабые места:
 
-1. `vttest` сейчас smoke-only.
-2. `differential.py` сравнивает не поведение, а только валидность шести replies.
-3. `fuzz_parser.py` — детерминированный random test, не coverage-guided fuzzer. Он почти не знает грамматику и редко добирается до глубоких валидных состояний.
-4. Нет corpus replay реальных приложений.
-5. Unicode проверяется хорошими вручную выбранными случаями, но не полным generated corpus.
-6. Почти нет внешней проверки framebuffer/raster/GLFW/Wayland/X11.
-7. Нет системной проверки throughput, event-loop fairness, frame count, памяти и latency под потоком в сотни мегабайт.
-8. Нет machine-readable соответствия «поддерживаемая sequence → тесты → спецификация». Нынешний `COVERAGE.md` полезен человеку, но не обнаружит новую handler branch без теста.
-9. Fuzzing пока не покрывает сочетания `write/resize/scroll/select/reset/switch-screen`, хотя именно stateful sequences обычно ломают terminal model.
+1. `differential.py` сравнивает не поведение, а только валидность шести replies.
+2. `fuzz_parser.py` — детерминированный random test, не coverage-guided fuzzer. Он почти не знает грамматику и редко добирается до глубоких валидных состояний.
+3. Нет corpus replay реальных приложений.
+4. Unicode проверяется хорошими вручную выбранными случаями, но не полным generated corpus.
+5. Почти нет внешней проверки framebuffer/raster/GLFW/Wayland/X11.
+6. Нет системной проверки throughput, event-loop fairness, frame count, памяти и latency под потоком в сотни мегабайт.
+7. Нет machine-readable соответствия «поддерживаемая sequence → тесты → спецификация». Нынешний `COVERAGE.md` полезен человеку, но не обнаружит новую handler branch без теста.
+8. Fuzzing пока не покрывает сочетания `write/resize/scroll/select/reset/switch-screen`, хотя именно stateful sequences обычно ломают terminal model.
 
 ## Рекомендуемая система тестирования
 
@@ -125,7 +123,7 @@ Contour построил поверх него то, что нам нужно:
    Текущие Python black-box tests плюс порт esctest и wraptest.
 
 3. External conformance  
-   Настоящий esctest; автоматизированный vttest с командами и snapshots; known-gap ratchet.
+   Настоящий esctest; known-gap ratchet.
 
 4. Replay corpus  
    Записи `bash/zsh`, `mc`, Codex, vim/neovim, tmux, htop, less/man, fzf. Формат должен хранить PTY bytes, geometry/resize events и snapshots в точках-barrier. Timing не должен определять correctness.
@@ -154,13 +152,12 @@ Contour построил поверх него то, что нам нужно:
 
 1. Перенести весь `wraptest` как matrix test.
 2. Подключить upstream esctest с ratchet известных отклонений.
-3. Переделать vttest integration по схеме Contour: scripted paths и snapshots, а не только clean exit.
-4. Ввести replay format и записать `mc`, Codex `/resume + scroll`, vim, tmux и htop.
-5. Сделать настоящий screen-state differential runner.
-6. Прогонять каждый существующий protocol fixture целиком, bytewise и по всем значимым границам.
-7. Добавить AFL++ targets и corpus из Ghostty, tmux, xterm.js, libvterm и собственных regressions.
-8. Импортировать Unicode generated data и запустить `ucs-detect` как renderer integration.
-9. Затем offscreen renderer и performance/fairness suite.
+3. Ввести replay format и записать `mc`, Codex `/resume + scroll`, vim, tmux и htop.
+4. Сделать настоящий screen-state differential runner.
+5. Прогонять каждый существующий protocol fixture целиком, bytewise и по всем значимым границам.
+6. Добавить AFL++ targets и corpus из Ghostty, tmux, xterm.js, libvterm и собственных regressions.
+7. Импортировать Unicode generated data и запустить `ucs-detect` как renderer integration.
+8. Затем offscreen renderer и performance/fairness suite.
 
 ## Скачанные исходники
 
@@ -176,7 +173,6 @@ Contour построил поверх него то, что нам нужно:
 
    Берём целиком, не переснимаем на zutty:
 
-   - Contour: 143 снимка vttest вместе с command scripts;
    - остальные готовые input/output fixtures из libvterm и похожих проектов.
 
    Для каждого формата пишем один тонкий adapter. Исходные данные сохраняем максимально близко к upstream, чтобы потом можно было обновлять.
@@ -197,7 +193,6 @@ Contour построил поверх него то, что нам нужно:
    Сначала те, которые уже можно запускать почти без переделки:
 
    - `wraptest` как готовую программу;
-   - `vttest` по готовым сценариям Contour;
    - `ucs-detect`;
    - `tack`;
    - xterm `vttests` scripts;
@@ -262,7 +257,7 @@ Contour построил поверх него то, что нам нужно:
 
 Главный принцип: не конвертировать заранее всё в наш собственный формат. Сначала копируем upstream artifacts и пишем один reader. Конверсия оправдана только там, где она заметно упрощает assertions.
 
-Таким образом, следующий практический этап: Contour/vttest goldens → готовые fuzz corpora. `wraptest` и внешние suites идут сразу следом. Esctest теперь не первый, несмотря на ценность: его опережает всё, что можно подключить почти без ручного порта.
+Таким образом, следующий практический этап: готовые fuzz corpora. `wraptest` и внешние suites идут сразу следом. Esctest теперь не первый, несмотря на ценность: его опережает всё, что можно подключить почти без ручного порта.
 
 На этапе импорта Zutty не исправляем. Сначала наращиваем всю доступную
 тестовую массу. Текущие расхождения каждого внешнего case записываются в
@@ -326,7 +321,6 @@ for case in read("tests/xtermjs_files.txt").split():
 
 Практическая гранулярность:
 
-- Contour/vttest: один scripted scenario — один test; отдельные snapshots внутри него остаются assertions;
 - wraptest: можно сначала оставить одним test, потому что это одна маленькая программа;
 - esctest: желательно один test method или хотя бы один Python class/module на target через точный `--include`;
 - libvterm: один fixture section — один test, если DSL легко индексируется; иначе один `.test` файл;

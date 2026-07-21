@@ -178,6 +178,8 @@ struct Vterm {
     virtual bool getReverseWrapMode() const = 0;
     virtual bool getNationalReplacementMode() const = 0;
     virtual bool getMetaMode() const = 0;
+    virtual bool getAnsiMode(u32 mode) const = 0;
+    virtual bool getPrivateMode(u32 mode) const = 0;
 
     virtual void resize(u16 winPx, u16 winPy) = 0;
     virtual void redraw() = 0;
