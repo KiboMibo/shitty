@@ -223,6 +223,29 @@ class Zutty:
     def write(self, output):
         self.command("WRITE " + output.hex())
 
+    def measure_widths(self, *outputs):
+        if not outputs:
+            raise ValueError("empty width measurement")
+        request = " ".join(output.hex() for output in outputs)
+        replies = self._read_hex_response("MEASURE_WIDTHS " + request)
+        positions = []
+        offset = 0
+        while offset < len(replies):
+            if replies[offset : offset + 2] != b"\x1b[":
+                raise RuntimeError("invalid cursor position response")
+            end = replies.find(b"R", offset + 2)
+            if end < 0:
+                raise RuntimeError("truncated cursor position response")
+            fields = replies[offset + 2 : end].split(b";")
+            if len(fields) != 2:
+                raise RuntimeError("invalid cursor position fields")
+            row, column = map(int, fields)
+            positions.append((column - 1, row - 1))
+            offset = end + 1
+        if len(positions) != len(outputs):
+            raise RuntimeError("missing cursor position response")
+        return positions
+
     def input(self, data):
         self.command("INPUT " + data.hex())
 

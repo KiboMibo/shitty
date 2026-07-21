@@ -4,6 +4,17 @@ from harness import Zutty
 
 
 class UnicodeTest(unittest.TestCase):
+    def test_batched_width_measurement_uses_terminal_parser(self):
+        with Zutty(columns=12, rows=2) as terminal:
+            self.assertEqual(
+                terminal.measure_widths(
+                    b"A",
+                    "界".encode(),
+                    "\U0001f469\u200d\U0001f4bb".encode(),
+                ),
+                [(1, 0), (2, 0), (2, 0)],
+            )
+
     def test_full_nrcs_family_and_decnrcm(self):
         samples = [
             (b"4", b"#", "£"), (b"5", b"[", "Ä"),

@@ -450,6 +450,75 @@ for case_id, _, _ in wraptest_cases:
     ))
 
 
+ucs_detect_root = Path(__file__).parent / "tests" / "ucs_detect"
+ucs_detect_tests = []
+ucs_detect_table_inputs = [
+    "$(S)/" + path.relative_to(Path(__file__).parent).as_posix()
+    for path in sorted(ucs_detect_root.glob("table_*.py"))
+]
+ucs_detect_shards = [
+    (category, int(start), int(end))
+    for category, start, end in (
+        line.split() for line in
+        (ucs_detect_root / "shards.txt").read_text().splitlines()
+    )
+]
+ucs_detect_category_indices = {}
+for category, start, end in ucs_detect_shards:
+    shard_index = ucs_detect_category_indices.get(category, 0)
+    ucs_detect_category_indices[category] = shard_index + 1
+    name = f"{category}_{shard_index:03d}"
+    ucs_detect_tests.append(command(
+        name="ucs_detect_" + name,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/ucs_detect/adapter.py",
+            "$(S)/tests/ucs_detect/catalog.py",
+            "$(S)/tests/ucs_detect/shards.txt",
+            "$(S)/tests/ucs_detect/xfail.txt",
+            *ucs_detect_table_inputs,
+        ],
+        outputs=[f"$(B)/tests/ucs_detect/{name}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/ucs_detect/adapter.py",
+            category,
+            str(start),
+            str(end),
+            "tests/ucs_detect/xfail.txt",
+            f"$(B)/tests/ucs_detect/{name}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="UCS",
+        color="cyan",
+    ))
+
+ucs_detect_validation = command(
+    name="ucs_detect_catalog",
+    inputs=[
+        "$(S)/tests/ucs_detect/catalog.py",
+        "$(S)/tests/ucs_detect/validate.py",
+        "$(S)/tests/ucs_detect/shards.txt",
+        "$(S)/tests/ucs_detect/xfail.txt",
+        *ucs_detect_table_inputs,
+    ],
+    outputs=["$(B)/tests/ucs_detect/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/ucs_detect/validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/ucs_detect/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="UCS",
+    color="cyan",
+)
+
+
 install(libzutty)
 install(zutty)
 install(test_suite)
@@ -464,3 +533,5 @@ install(*ghostty_tests)
 install(*tmux_tests)
 install(wraptest_helper)
 install(*wraptest_tests)
+install(*ucs_detect_tests)
+install(ucs_detect_validation)
