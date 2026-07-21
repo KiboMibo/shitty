@@ -25,9 +25,12 @@ halves.pl
 il.sh
 insdelln.pl
 iso2022.pl
+lrmm-scroll.pl
 modify-keys.pl
 nrcs.pl
 other-sgr.sh
+palettes.pl
+paste64.pl
 pointer-shapes.sh
 print-vt-chars.pl
 query-allowed.pl
@@ -36,6 +39,7 @@ query-dynamic.pl
 query-fonts.pl
 query-status.pl
 query-xres.pl
+report-sgr.pl
 resize.pl
 resize.sh
 scroll.pl
@@ -45,7 +49,12 @@ sgrPushPop2.pl
 tab0.sh
 tcapquery.pl
 title.sh
+titlestack.pl
 unascii.sh
+under-latin.pl
+utf8.pl
 vt52chars.pl
 version.sh
 wrap.pl
+xorblink.pl
+xtra-scroll.pl

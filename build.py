@@ -619,6 +619,7 @@ for case in xterm_vttests_cases:
             "$(S)/tests/xterm_vttests/file_names.txt",
             "$(S)/tests/xterm_vttests/xfail.txt",
             *build.glob("$(S)/tests/xterm_vttests/bin/*"),
+            *build.glob("$(S)/tests/xterm_vttests/lib/**/*.pm"),
             f"$(S)/tests/xterm_vttests/upstream/{case}",
         ],
         outputs=[f"$(B)/tests/xterm_vttests/{name}.stamp"],

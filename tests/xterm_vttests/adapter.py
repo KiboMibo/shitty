@@ -46,6 +46,7 @@ PERL_GENERATOR_CASES = {
     "sgrPushPop2.pl",
     "vt52chars.pl",
     "wrap.pl",
+    "utf8.pl",
 }
 
 PERL_LIVE_CASES = {
@@ -67,6 +68,25 @@ PERL_LIVE_CASES = {
     "scroll.pl",
     "setpos.pl",
     "tcapquery.pl",
+    "lrmm-scroll.pl",
+    "palettes.pl",
+    "paste64.pl",
+    "report-sgr.pl",
+    "titlestack.pl",
+    "under-latin.pl",
+    "xorblink.pl",
+    "xtra-scroll.pl",
+}
+
+PERL_INTERACTIVE_CASES = {
+    "lrmm-scroll.pl",
+    "palettes.pl",
+    "paste64.pl",
+    "report-sgr.pl",
+    "titlestack.pl",
+    "under-latin.pl",
+    "xorblink.pl",
+    "xtra-scroll.pl",
 }
 
 
@@ -85,6 +105,11 @@ def command_for(root, case):
                 "danish", "danish2", "danish3", "portuguese", "spanish",
                 "swedish", "swedish2", "swiss",
             ))
+        elif case == "utf8.pl":
+            arguments.extend((
+                "0x20", "0x41", "0xa1", "0x301", "0x3a9", "0x20ac",
+                "0x2500", "0x754c", "0xff01", "0x1f642", "0x1f680",
+            ))
         return arguments
     return [script]
 
@@ -94,6 +119,13 @@ def command_path(root, case):
     if case.endswith(".pl"):
         path = str(Path(command_for(root, case)[0]).parent) + os.pathsep + path
     return path
+
+
+def perl_library_path(root):
+    result = str(root / "lib")
+    if os.environ.get("PERL5LIB"):
+        result += os.pathsep + os.environ["PERL5LIB"]
+    return result
 
 
 def observable(terminal):
@@ -113,6 +145,7 @@ def observable(terminal):
 def generate(root, case):
     environment = os.environ.copy()
     environment["PATH"] = command_path(root, case)
+    environment["PERL5LIB"] = perl_library_path(root)
     temporary = root.parent.parent / ".build" / "xterm-vttests-tmp"
     temporary.mkdir(parents=True, exist_ok=True)
     environment["TMPDIR"] = str(temporary)
@@ -202,21 +235,33 @@ def run_live_case(root, case):
             arguments = [
                 shutil.which("env"),
                 "PATH=" + command_path(root, case),
+                "PERL5LIB=" + perl_library_path(root),
                 *arguments,
             ]
         terminal.spawn(*arguments)
         if case == "tab0.sh":
             terminal.input(b"\n" * 16)
         deadline = time.monotonic() + 1.25
+        input_deadline = time.monotonic() + 0.25
+        sent_input = False
         status = None
+        screen = ""
         while time.monotonic() < deadline:
-            status, _ = terminal.poll_child()
+            status, screen = terminal.poll_child()
             if status is not None:
                 break
+            if (
+                case in PERL_INTERACTIVE_CASES
+                and not sent_input
+                and time.monotonic() >= input_deadline
+            ):
+                terminal.input(b"q\n" * 64)
+                sent_input = True
             time.sleep(0.01)
         after = observable(terminal)
     if status not in (None, 0):
-        return f"child exited {status}"
+        detail = screen.strip().splitlines()[-1] if screen.strip() else ""
+        return f"child exited {status}" + (f": {detail}" if detail else "")
     if after == before:
         return "scenario produced no observable terminal state"
     return ""
