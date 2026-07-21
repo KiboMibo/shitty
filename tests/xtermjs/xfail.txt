@@ -1,0 +1,17 @@
+# One case ID per line. These are observed compatibility gaps, not ignored tests.
+t0014-CAN
+t0015-SUB
+t0016-SU
+t0017-SD
+t0040-REP
+t0051-IL
+t0052-DL
+t0060-DECSC
+t0075-DECSTBM_CUU_CUD
+t0077-DECSTBM_quirks
+t0078-DECSTBM_CPL_CNL
+t0084-CBT
+t0101-NLM
+t0103-reverse_wrap
+t600-DECSTBM_SR
+t601-DECSTBM_SL

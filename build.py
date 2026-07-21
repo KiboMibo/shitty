@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import build
 
@@ -135,8 +136,39 @@ vttest_profile = command(
 )
 
 
+xtermjs_root = Path(__file__).parent / "tests" / "xtermjs"
+xtermjs_cases = (xtermjs_root / "file_names.txt").read_text().split()
+xtermjs_tests = []
+for case in xtermjs_cases:
+    xtermjs_tests.append(command(
+        name="xtermjs_" + case.replace("-", "_"),
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/xtermjs/adapter.py",
+            "$(S)/tests/xtermjs/file_names.txt",
+            "$(S)/tests/xtermjs/xfail.txt",
+            f"$(S)/tests/xtermjs/{case}.in",
+            f"$(S)/tests/xtermjs/{case}.text",
+        ],
+        outputs=[f"$(B)/tests/xtermjs/{case}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/xtermjs/adapter.py",
+            case,
+            "tests/xtermjs/xfail.txt",
+            f"$(B)/tests/xtermjs/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="XTERMJS",
+        color="cyan",
+    ))
+
+
 install(libzutty)
 install(zutty)
 install(test_suite)
 install(parser_fuzz)
 install(vttest_profile)
+install(*xtermjs_tests)

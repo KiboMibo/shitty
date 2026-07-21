@@ -176,7 +176,6 @@ Contour построил поверх него то, что нам нужно:
 
    Берём целиком, не переснимаем на zutty:
 
-   - xterm.js: 76 пар `.in/.text` — самый дешёвый импорт;
    - Alacritty: 45 `recording + grid.json + geometry/config`;
    - Contour: 143 снимка vttest вместе с command scripts;
    - остальные готовые input/output fixtures из libvterm и похожих проектов.
@@ -190,7 +189,7 @@ Contour построил поверх него то, что нам нужно:
    - minimized corpora Ghostty;
    - Mosh parser/terminal corpus;
    - tmux input-fuzzer corpus и dictionary;
-   - реальные streams из xterm.js, Alacritty и наших регрессий.
+   - реальные streams из Alacritty и наших регрессий.
 
    Это почти бесплатное расширение входного пространства. Полноценный AFL++ harness можно сделать позже — сначала используем уже найденные чужими fuzzers пути.
 
@@ -252,18 +251,24 @@ Contour построил поверх него то, что нам нужно:
 
 ## Организация
 
-Список в `tests/` остаётся плоским. Имена можно префиксовать источником:
+Все новые данные и adapters одного источника лежат вместе в
+`tests/{vendor}/`, чтобы imported suites не смешивались с native-тестами.
+Имена внутри каталога сохраняем максимально близко к upstream:
 
-- `xtermjs_t0012_vt.in`
-- `alacritty_tmux_htop.recording`
-- `contour_vttest_01_step01.dump`
-- `ghostty_fuzz_stream_000123.bin`
+- `tests/alacritty/tmux_htop.recording`
+- `tests/contour/vttest_01_step01.dump`
+- `tests/ghostty/fuzz_stream_000123.bin`
 
 Один `tests/UPSTREAM.md` будет фиксировать источник, SHA, лицензию и степень переделки.
 
 Главный принцип: не конвертировать заранее всё в наш собственный формат. Сначала копируем upstream artifacts и пишем один reader. Конверсия оправдана только там, где она заметно упрощает assertions.
 
-Таким образом, первый практический этап: xterm.js goldens → Alacritty recordings → Contour/vttest goldens → готовые fuzz corpora. `wraptest` и внешние suites идут сразу следом. Esctest теперь не первый, несмотря на ценность: его опережает всё, что можно подключить почти без ручного порта.
+Таким образом, следующий практический этап: Alacritty recordings → Contour/vttest goldens → готовые fuzz corpora. `wraptest` и внешние suites идут сразу следом. Esctest теперь не первый, несмотря на ценность: его опережает всё, что можно подключить почти без ручного порта.
+
+На этапе импорта Zutty не исправляем. Сначала наращиваем всю доступную
+тестовую массу. Текущие расхождения каждого внешнего case записываются в
+явный XFAIL baseline; неожиданный PASS считается XPASS и требует удалить
+устаревшую запись. Исправление выявленных проблем — отдельный следующий этап.
 
 Я понимаю «погружение» так: внешний corpus не должен оставаться одним непрозрачным тестом вида «запусти всё и скажи pass/fail». По возможности каждый внешний case становится обычным узлом нашей build-системы.
 
@@ -313,7 +318,6 @@ for case in read("tests/xtermjs_files.txt").split():
 
 Практическая гранулярность:
 
-- xterm.js: одна `.in/.text` пара — один build test;
 - Alacritty: одна recording-directory — один test;
 - Contour/vttest: один scripted scenario — один test; отдельные snapshots внутри него остаются assertions;
 - wraptest: можно сначала оставить одним test, потому что это одна маленькая программа;
