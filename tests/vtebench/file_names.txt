@@ -1,0 +1,12 @@
+cursor_motion
+dense_cells
+light_cells
+medium_cells
+scrolling
+scrolling_bottom_region
+scrolling_bottom_small_region
+scrolling_fullscreen
+scrolling_top_region
+scrolling_top_small_region
+sync_medium_cells
+unicode

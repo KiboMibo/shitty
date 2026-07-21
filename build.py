@@ -519,6 +519,41 @@ ucs_detect_validation = command(
 )
 
 
+vtebench_root = Path(__file__).parent / "tests" / "vtebench"
+vtebench_cases = (vtebench_root / "file_names.txt").read_text().split()
+vtebench_tests = []
+for case in vtebench_cases:
+    vtebench_case_inputs = [
+        "$(S)/" + path.relative_to(Path(__file__).parent).as_posix()
+        for path in sorted((vtebench_root / "benchmarks" / case).iterdir())
+        if path.is_file()
+    ]
+    vtebench_tests.append(command(
+        name="vtebench_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/vtebench/adapter.py",
+            "$(S)/tests/vtebench/file_names.txt",
+            "$(S)/tests/vtebench/xfail.txt",
+            *vtebench_case_inputs,
+        ],
+        outputs=[f"$(B)/tests/vtebench/{case}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/vtebench/adapter.py",
+            case,
+            "tests/vtebench/xfail.txt",
+            f"$(B)/tests/vtebench/{case}.stamp",
+            "30",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="VTEBENCH",
+        color="yellow",
+    ))
+
+
 install(libzutty)
 install(zutty)
 install(test_suite)
@@ -535,3 +570,4 @@ install(wraptest_helper)
 install(*wraptest_tests)
 install(*ucs_detect_tests)
 install(ucs_detect_validation)
+install(*vtebench_tests)
