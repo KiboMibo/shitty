@@ -68,6 +68,10 @@ class Cell:
     semantic: int
     protected: bool
     line_attribute: int
+    foreground_index: int = -2
+    background_index: int = -2
+    underline_index: int = -2
+    grapheme: tuple[int, ...] = ()
 
 
 @dataclass
@@ -622,7 +626,13 @@ class Zutty:
         return bool(int(response[1]))
 
     def snapshot(self):
-        self.stream.write(b"SNAPSHOT\n")
+        return self._snapshot("SNAPSHOT", False)
+
+    def model_snapshot(self):
+        return self._snapshot("MODEL_SNAPSHOT", True)
+
+    def _snapshot(self, command, detailed):
+        self.stream.write(command.encode("ascii") + b"\n")
         response = self._readline().split(" ", 13)
         if len(response) != 14 or response[0] != "OK":
             raise RuntimeError("invalid snapshot response")
@@ -643,16 +653,41 @@ class Zutty:
             int, response[1:13]
         )
         encoded_cells = response[13]
-        record_size = 50
-        expected = columns * rows * record_size
-        if len(encoded_cells) != expected:
-            raise RuntimeError("invalid snapshot cell count")
+        record_size = 82 if detailed else 50
         cells = []
-        for offset_in_cells in range(0, len(encoded_cells), record_size):
+        offset_in_cells = 0
+        for _ in range(columns * rows):
+            if offset_in_cells + record_size > len(encoded_cells):
+                raise RuntimeError("invalid snapshot cell count")
             record = encoded_cells[
                 offset_in_cells : offset_in_cells + record_size
             ]
             flags = int(record[8:16], 16)
+            foreground_index = -2
+            background_index = -2
+            underline_index = -2
+            grapheme = ()
+            if detailed:
+                def signed(field):
+                    value = int(field, 16)
+                    return value - (1 << 32) if value & (1 << 31) else value
+
+                foreground_index = signed(record[50:58])
+                background_index = signed(record[58:66])
+                underline_index = signed(record[66:74])
+                grapheme_count = int(record[74:82], 16)
+                grapheme_end = offset_in_cells + record_size + 8 * grapheme_count
+                if grapheme_end > len(encoded_cells):
+                    raise RuntimeError("invalid snapshot grapheme count")
+                grapheme = tuple(
+                    int(encoded_cells[index : index + 8], 16)
+                    for index in range(
+                        offset_in_cells + record_size, grapheme_end, 8
+                    )
+                )
+                offset_in_cells = grapheme_end
+            else:
+                offset_in_cells += record_size
             cells.append(
                 Cell(
                     char=chr(int(record[0:8], 16)),
@@ -682,8 +717,14 @@ class Zutty:
                     semantic=int(record[42:50], 16),
                     protected=bool(flags & 32768),
                     line_attribute=(flags >> 16) & 3,
+                    foreground_index=foreground_index,
+                    background_index=background_index,
+                    underline_index=underline_index,
+                    grapheme=grapheme,
                 )
             )
+        if offset_in_cells != len(encoded_cells):
+            raise RuntimeError("invalid snapshot cell count")
         text = "".join(cell.char for cell in cells)
         lines = [
             text[row * columns : (row + 1) * columns]

@@ -176,7 +176,6 @@ Contour построил поверх него то, что нам нужно:
 
    Берём целиком, не переснимаем на zutty:
 
-   - Alacritty: 45 `recording + grid.json + geometry/config`;
    - Contour: 143 снимка vttest вместе с command scripts;
    - остальные готовые input/output fixtures из libvterm и похожих проектов.
 
@@ -189,7 +188,7 @@ Contour построил поверх него то, что нам нужно:
    - minimized corpora Ghostty;
    - Mosh parser/terminal corpus;
    - tmux input-fuzzer corpus и dictionary;
-   - реальные streams из Alacritty и наших регрессий.
+   - реальные streams из наших регрессий.
 
    Это почти бесплатное расширение входного пространства. Полноценный AFL++ harness можно сделать позже — сначала используем уже найденные чужими fuzzers пути.
 
@@ -263,12 +262,21 @@ Contour построил поверх него то, что нам нужно:
 
 Главный принцип: не конвертировать заранее всё в наш собственный формат. Сначала копируем upstream artifacts и пишем один reader. Конверсия оправдана только там, где она заметно упрощает assertions.
 
-Таким образом, следующий практический этап: Alacritty recordings → Contour/vttest goldens → готовые fuzz corpora. `wraptest` и внешние suites идут сразу следом. Esctest теперь не первый, несмотря на ценность: его опережает всё, что можно подключить почти без ручного порта.
+Таким образом, следующий практический этап: Contour/vttest goldens → готовые fuzz corpora. `wraptest` и внешние suites идут сразу следом. Esctest теперь не первый, несмотря на ценность: его опережает всё, что можно подключить почти без ручного порта.
 
 На этапе импорта Zutty не исправляем. Сначала наращиваем всю доступную
 тестовую массу. Текущие расхождения каждого внешнего case записываются в
 явный XFAIL baseline; неожиданный PASS считается XPASS и требует удалить
 устаревшую запись. Исправление выявленных проблем — отдельный следующий этап.
+
+Control interface не ограничивает глубину интеграции. Если upstream golden
+содержит больше наблюдаемого состояния, чем умеет отдать нынешний snapshot,
+расширяем test-control protocol и harness: полный scrollback, grapheme,
+wide-cell markers, foreground/background/underline colors и их источник,
+атрибуты, hyperlink, cursor/modes и любые другие содержательные поля. Не
+сводим богатый внешний oracle к одному тексту ради удобства adapter'а. Такие
+изменения добавляют тестовую наблюдаемость, но не исправляют найденное
+поведение Zutty во время массового импорта.
 
 Я понимаю «погружение» так: внешний corpus не должен оставаться одним непрозрачным тестом вида «запусти всё и скажи pass/fail». По возможности каждый внешний case становится обычным узлом нашей build-системы.
 
@@ -318,7 +326,6 @@ for case in read("tests/xtermjs_files.txt").split():
 
 Практическая гранулярность:
 
-- Alacritty: одна recording-directory — один test;
 - Contour/vttest: один scripted scenario — один test; отдельные snapshots внутри него остаются assertions;
 - wraptest: можно сначала оставить одним test, потому что это одна маленькая программа;
 - esctest: желательно один test method или хотя бы один Python class/module на target через точный `--include`;

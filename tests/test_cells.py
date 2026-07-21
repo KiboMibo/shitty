@@ -4,6 +4,25 @@ from harness import Zutty
 
 
 class CellStateTest(unittest.TestCase):
+    def test_model_snapshot_exposes_color_sources_and_graphemes(self):
+        with Zutty(columns=4, rows=2) as terminal:
+            terminal.write(
+                b"\x1b[38;5;1;48;2;4;5;6mA\xcc\x81"
+                b"\x1b[58;5;46m\xe7\x95\x8c"
+            )
+            snapshot = terminal.model_snapshot()
+
+            first = snapshot.cell(0, 0)
+            self.assertEqual(first.foreground_index, 1)
+            self.assertEqual(first.background_index, -1)
+            self.assertEqual(first.grapheme, (ord("A"), 0x301))
+
+            wide = snapshot.cell(1, 0)
+            self.assertTrue(wide.double_width)
+            self.assertEqual(wide.underline_index, 46)
+            self.assertEqual(wide.grapheme, ())
+            self.assertTrue(snapshot.cell(2, 0).double_width_continuation)
+
     def test_sgr_attributes_and_truecolor_are_observable(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[1;3;4;7;38;2;1;2;3;48;2;4;5;6mX")

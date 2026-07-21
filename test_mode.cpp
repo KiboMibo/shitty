@@ -181,6 +181,7 @@ namespace {
         bool update(const Frame& frame);
         void failNextPresent();
         std::string snapshot() const;
+        std::string modelSnapshot() const;
         std::string renderState() const;
         std::string screenText() const;
 
@@ -202,6 +203,7 @@ namespace {
         TerminalCursor cursor;
         Rect selection;
         std::vector<TerminalCell> cells;
+        std::vector<Frame::Grapheme> cellGraphemes;
     };
 
 }
@@ -225,6 +227,10 @@ bool TestDisplay::update(const Frame& frame) {
     }
     for (auto& cell : cells) {
         cell.dirty = 0;
+    }
+    cellGraphemes.resize(count);
+    for (size_t index = 0; index < count; ++index) {
+        cellGraphemes[index] = frame.getGrapheme(cells[index].grapheme);
     }
     cursor = frame.getCursor();
     selection = frame.getSelectionForView();
@@ -264,6 +270,22 @@ std::string TestDisplay::snapshot() const {
     for (const auto& cell : cells) {
         const unsigned flags = (cell.dwidth << 0) | (cell.dwidth_cont << 1) | (cell.bold << 2) | (cell.italic << 3) | (cell.underline << 4) | (cell.inverse << 5) | (cell.wrap << 6) | (cell.faint << 7) | (cell.blink << 8) | (cell.conceal << 9) | (cell.strike << 10) | (cell.overline << 11) | (cell.underline_style << 12) | (cell.protected_char << 15) | (cell.line_attr << 16);
         output << std::setw(8) << cell.uc_pt << std::setw(8) << flags << std::setw(2) << (unsigned)(cell.fg.red) << std::setw(2) << (unsigned)(cell.fg.green) << std::setw(2) << (unsigned)(cell.fg.blue) << std::setw(2) << (unsigned)(cell.bg.red) << std::setw(2) << (unsigned)(cell.bg.green) << std::setw(2) << (unsigned)(cell.bg.blue) << std::setw(2) << (unsigned)(cell.underline_color.red) << std::setw(2) << (unsigned)(cell.underline_color.green) << std::setw(2) << (unsigned)(cell.underline_color.blue) << std::setw(8) << cell.hyperlink << std::setw(8) << cell.semantic;
+    }
+    output << '\n';
+    return output.str();
+}
+
+std::string TestDisplay::modelSnapshot() const {
+    std::ostringstream output;
+    output << "OK " << columns << ' ' << rows << ' ' << cursor.posX << ' ' << cursor.posY << ' ' << (unsigned)(cursor.style) << ' ' << viewOffset << ' ' << refreshCount << ' ' << selection.tl.x << ' ' << selection.tl.y << ' ' << selection.br.x << ' ' << selection.br.y << ' ' << selection.rectangular << ' ';
+    output << std::hex << std::setfill('0');
+    for (size_t index = 0; index < cells.size(); ++index) {
+        const auto& cell = cells[index];
+        const unsigned flags = (cell.dwidth << 0) | (cell.dwidth_cont << 1) | (cell.bold << 2) | (cell.italic << 3) | (cell.underline << 4) | (cell.inverse << 5) | (cell.wrap << 6) | (cell.faint << 7) | (cell.blink << 8) | (cell.conceal << 9) | (cell.strike << 10) | (cell.overline << 11) | (cell.underline_style << 12) | (cell.protected_char << 15) | (cell.line_attr << 16);
+        output << std::setw(8) << cell.uc_pt << std::setw(8) << flags << std::setw(2) << (unsigned)(cell.fg.red) << std::setw(2) << (unsigned)(cell.fg.green) << std::setw(2) << (unsigned)(cell.fg.blue) << std::setw(2) << (unsigned)(cell.bg.red) << std::setw(2) << (unsigned)(cell.bg.green) << std::setw(2) << (unsigned)(cell.bg.blue) << std::setw(2) << (unsigned)(cell.underline_color.red) << std::setw(2) << (unsigned)(cell.underline_color.green) << std::setw(2) << (unsigned)(cell.underline_color.blue) << std::setw(8) << cell.hyperlink << std::setw(8) << cell.semantic << std::setw(8) << (u32)(cell.fg_index) << std::setw(8) << (u32)(cell.bg_index) << std::setw(8) << (u32)(cell.underline_index) << std::setw(8) << cellGraphemes[index].size();
+        for (const u32 codepoint : cellGraphemes[index]) {
+            output << std::setw(8) << codepoint;
+        }
     }
     output << '\n';
     return output.str();
@@ -1199,6 +1221,8 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                 writeAll(controlFd, "OK " + encodeHex(oscCwdToPath(decodeHex(line.substr(9)))) + "\n");
             } else if (line == "SNAPSHOT") {
                 writeAll(controlFd, display.snapshot());
+            } else if (line == "MODEL_SNAPSHOT") {
+                writeAll(controlFd, display.modelSnapshot());
             } else if (line == "SCREEN_TEXT") {
                 writeAll(controlFd, "OK " + encodeHex(display.screenText()) + "\n");
             } else if (line == "READ_INPUT") {

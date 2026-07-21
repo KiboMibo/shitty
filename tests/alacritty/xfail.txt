@@ -1,0 +1,22 @@
+# One case ID per line. These are observed compatibility gaps, not ignored tests.
+clear_underline
+deccolm_reset
+delete_chars_reset
+erase_chars_reset
+erase_in_line
+grid_reset
+history
+insert_blank_reset
+row_reset
+saved_cursor
+saved_cursor_alt
+scroll_in_region_up_preserves_history
+scroll_up_reset
+selective_erasure
+sgr
+tab_rendering
+underline
+vim_24bitcolors_bce
+vim_large_window_scroll
+vim_simple_edit
+vttest_tab_clear_set

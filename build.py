@@ -166,9 +166,42 @@ for case in xtermjs_cases:
     ))
 
 
+alacritty_root = Path(__file__).parent / "tests" / "alacritty"
+alacritty_cases = (alacritty_root / "file_names.txt").read_text().split()
+alacritty_tests = []
+for case in alacritty_cases:
+    alacritty_tests.append(command(
+        name="alacritty_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/alacritty/adapter.py",
+            "$(S)/tests/alacritty/file_names.txt",
+            "$(S)/tests/alacritty/xfail.txt",
+            f"$(S)/tests/alacritty/{case}/alacritty.recording",
+            f"$(S)/tests/alacritty/{case}/config.json",
+            f"$(S)/tests/alacritty/{case}/grid.json",
+            f"$(S)/tests/alacritty/{case}/size.json",
+        ],
+        outputs=[f"$(B)/tests/alacritty/{case}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/alacritty/adapter.py",
+            case,
+            "tests/alacritty/xfail.txt",
+            f"$(B)/tests/alacritty/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="ALACRITTY",
+        color="cyan",
+    ))
+
+
 install(libzutty)
 install(zutty)
 install(test_suite)
 install(parser_fuzz)
 install(vttest_profile)
 install(*xtermjs_tests)
+install(*alacritty_tests)
