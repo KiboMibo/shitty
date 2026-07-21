@@ -266,6 +266,9 @@ void Frame::resize(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTo
     marginTop_ = 0;
     marginBottom_ = nRows;
     viewOffset = std::min<u16>(oldViewOffset, historyCount);
+    if (!selectionValid()) {
+        selection.clear();
+    }
     damage.totalCells = nCols * (nRows + saveLines);
     expose();
     highMemUsageReport();
@@ -288,6 +291,10 @@ void Frame::deltaCopyCells(TerminalCell* const dst) const {
 }
 
 Rect Frame::getSelectionForView() const {
+    if (!selectionValid()) {
+        return {};
+    }
+
     Rect ret = selection;
     if (!ret.null()) {
         ret.tl.y += viewOffset;
@@ -301,6 +308,9 @@ Rect Frame::getSnappedSelection() const {
 
     if (ret.null()) {
         return ret;
+    }
+    if (!selectionValid()) {
+        return {};
     }
 
     if (selection.rectangular) {
@@ -748,6 +758,19 @@ void Frame::invalidateSelection(const Rect&& damage) {
     }
 
     selection.clear();
+}
+
+bool Frame::selectionValid() const {
+    if (selection.null()) {
+        return true;
+    }
+
+    const int firstRow = -(int)(history.size());
+    const auto valid = [&](Point point) {
+        return point.x >= 0 && point.x <= nCols &&
+               point.y >= firstRow && point.y < nRows;
+    };
+    return valid(selection.tl) && valid(selection.br);
 }
 
 void Frame::vscrollSelection(u16 top, u16 bottom, int vertOffset, bool captureHistory) {

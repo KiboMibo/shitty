@@ -54,6 +54,29 @@ class SelectionTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().selection, (-1, -1, -1, -1))
             self.assertEqual(terminal.select_finish(), b"")
 
+    def test_drag_to_bottom_right_window_edge_selects_last_row(self):
+        with Zutty(columns=5, rows=2) as terminal:
+            terminal.write(b"abcde\r\nfghij")
+
+            terminal.button(0, True, x=2, y=2)
+            terminal.pointer(x=7, y=6)
+
+            self.assertEqual(
+                terminal.button(0, False, x=7, y=6),
+                b"abcde\nfghij",
+            )
+
+    def test_resize_clears_selection_clipped_outside_new_grid(self):
+        with Zutty(columns=5, rows=3) as terminal:
+            terminal.write(put_rows(b"A", b"B", b"C") + b"\x1b[H")
+            terminal.select_start(0, 2)
+            terminal.select_update(1, 2)
+
+            terminal.resize(5, 2)
+
+            self.assertEqual(terminal.snapshot().selection, (-1, -1, -1, -1))
+            self.assertEqual(terminal.select_finish(), b"")
+
 
 if __name__ == "__main__":
     unittest.main()

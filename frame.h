@@ -222,6 +222,7 @@ private:
 
     void vscrollSelection(u16 top, u16 bottom, int vertOffset, bool captureHistory);
     void invalidateSelection(const Rect&& damage);
+    bool selectionValid() const;
 
     void highMemUsageReport();
 };

@@ -139,6 +139,7 @@ namespace {
         void pasteSelection(const std::string& utf8_selection);
 
     private:
+        Point selectionPoint(int pX, int pY) const;
         std::string getLocalEcho(const u8* const begin, const u8* const end);
         bool processInput(const u8* input, int size, bool refresh = true);
         bool processInput(const std::string& str);
@@ -7636,6 +7637,16 @@ std::string VtermImpl::getHyperlink(int pX, int pY) const {
     return link == hyperlinks.end() ? std::string{} : link->second;
 }
 
+Point VtermImpl::selectionPoint(int pX, int pY) const {
+    const int contentWidth = std::max(0, (int)winPx - 2 * opts.border);
+    const int contentHeight = std::max(1, (int)winPy - 2 * opts.border);
+    pX = std::min(std::max(0, pX - opts.border), contentWidth);
+    pY = std::min(std::max(0, pY - opts.border), contentHeight - 1);
+    return cf->getLogicalPoint(Point(
+        std::min(pX / glyphPx, (int)nCols),
+        std::min(pY / glyphPy, (int)nRows - 1)));
+}
+
 void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
     logT << "selectStart (" << pX << "," << pY << "), cycleSnapTo=" << cycleSnapTo << std::endl;
 
@@ -7644,9 +7655,7 @@ void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
         return;
     }
 
-    pX = std::min(std::max(0, pX - opts.border), winPx - 2 * opts.border);
-    pY = std::min(std::max(0, pY - opts.border), winPy - 2 * opts.border);
-    Point pt = cf->getLogicalPoint(Point(pX / glyphPx, pY / glyphPy));
+    Point pt = selectionPoint(pX, pY);
 
     Rect& selection = cf->getSelection();
     cf->setSelectSnapTo(Frame::SelectSnapTo::Char);
@@ -7662,9 +7671,7 @@ void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
 void VtermImpl::selectExtend(int pX, int pY, bool cycleSnapTo) {
     logT << "selectExtend (" << pX << "," << pY << "), cycleSnapTo=" << cycleSnapTo << std::endl;
 
-    pX = std::min(std::max(0, pX - opts.border), winPx - 2 * opts.border);
-    pY = std::min(std::max(0, pY - opts.border), winPy - 2 * opts.border);
-    Point pt = cf->getLogicalPoint(Point(pX / glyphPx, pY / glyphPy));
+    Point pt = selectionPoint(pX, pY);
 
     Rect& selection = cf->getSelection();
     if (cycleSnapTo) {
@@ -7697,9 +7704,7 @@ void VtermImpl::selectExtend(int pX, int pY, bool cycleSnapTo) {
 void VtermImpl::selectUpdate(int pX, int pY) {
     logT << "selectUpdate (" << pX << "," << pY << ")" << std::endl;
 
-    pX = std::min(std::max(0, pX - opts.border), winPx - 2 * opts.border);
-    pY = std::min(std::max(0, pY - opts.border), winPy - 2 * opts.border);
-    Point pt = cf->getLogicalPoint(Point(pX / glyphPx, pY / glyphPy));
+    Point pt = selectionPoint(pX, pY);
 
     Rect& selection = cf->getSelection();
 
