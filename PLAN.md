@@ -182,7 +182,6 @@ Contour построил поверх него то, что нам нужно:
    Их можно немедленно кормить zutty и проверять crash/hang/invariants/chunking:
 
    - minimized corpora Ghostty;
-   - Mosh parser/terminal corpus;
    - tmux input-fuzzer corpus и dictionary;
    - реальные streams из наших регрессий.
 

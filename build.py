@@ -249,6 +249,33 @@ for case in contour_cases:
     ))
 
 
+mosh_tests = []
+for corpus in ("terminal_corpus", "terminal_parser_corpus"):
+    mosh_tests.append(command(
+        name="mosh_" + corpus,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/fuzz_parser.py",
+            "$(S)/tests/mosh/adapter.py",
+            "$(S)/tests/mosh/xfail.txt",
+            *build.glob(f"$(S)/tests/mosh/{corpus}/*"),
+        ],
+        outputs=[f"$(B)/tests/mosh/{corpus}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/mosh/adapter.py",
+            corpus,
+            "tests/mosh/xfail.txt",
+            f"$(B)/tests/mosh/{corpus}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="MOSH",
+        color="cyan",
+    ))
+
+
 install(libzutty)
 install(zutty)
 install(test_suite)
@@ -258,3 +285,4 @@ install(*xtermjs_tests)
 install(*alacritty_tests)
 install(contour_vttest)
 install(*contour_tests)
+install(*mosh_tests)
