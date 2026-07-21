@@ -1,4 +1,5 @@
 # Exact fixture IDs whose supported upstream golden assertions differ.
+03encoding_utf8.test
 10state_putglyph.test
 11state_movecursor.test
 13state_edit.test

@@ -13,6 +13,7 @@
 #include "osc_protocol.h"
 #include "pty.h"
 #include "startup.h"
+#include "utf8.h"
 #include "vk_presenter.h"
 #include "vterm.h"
 #include "vterm_host.h"
@@ -59,6 +60,17 @@ namespace {
         std::function<ssize_t(const u8*, size_t)> onWrite;
     };
 
+    class TestUtf8Decoder {
+    public:
+        TestUtf8Decoder();
+
+        std::vector<u32> push(const std::string& input);
+
+    private:
+        std::vector<u32> output;
+        Utf8Decoder decoder;
+    };
+
 }
 
 TestPty::TestPty(int fd)
@@ -98,6 +110,27 @@ void TestPty::setReadHandler(std::function<ssize_t(u8*, size_t)> handler) {
 
 void TestPty::setWriteHandler(std::function<ssize_t(const u8*, size_t)> handler) {
     onWrite = std::move(handler);
+}
+
+TestUtf8Decoder::TestUtf8Decoder()
+    : decoder([this]() {
+        output.push_back(decoder.getUnicode());
+    })
+{
+}
+
+std::vector<u32> TestUtf8Decoder::push(const std::string& input) {
+    for (const unsigned char ch : input) {
+        if (ch < 0x80) {
+            decoder.checkPrematureEOS();
+            decoder.onUnicode(ch);
+        } else {
+            decoder.pushByte(ch);
+        }
+    }
+    std::vector<u32> result;
+    result.swap(output);
+    return result;
 }
 
 namespace {
@@ -572,6 +605,7 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
 
     std::deque<ScriptedPtyWrite> scriptedPtyWrites;
     std::string writtenPtyData;
+    TestUtf8Decoder testUtf8Decoder;
     const auto installScriptedPtyReader = [&]() {
         terminalPty.setReadHandler([&scriptedPtyReads](u8* buffer, size_t size) {
             if (scriptedPtyReads.empty()) {
@@ -1281,6 +1315,15 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                        << (unsigned)(pen.bg.green) << ' '
                        << (unsigned)(pen.bg.blue) << ' '
                        << pen.fg_index << ' ' << pen.bg_index << '\n';
+                writeAll(controlFd, output.str());
+            } else if (line.compare(0, 10, "UTF8_PUSH ") == 0) {
+                const auto codepoints = testUtf8Decoder.push(decodeHex(line.substr(10)));
+                std::ostringstream output;
+                output << "OK" << std::hex;
+                for (const u32 codepoint : codepoints) {
+                    output << ' ' << codepoint;
+                }
+                output << '\n';
                 writeAll(controlFd, output.str());
             } else if (line == "RENDER_STATE") {
                 writeAll(controlFd, display.renderState());

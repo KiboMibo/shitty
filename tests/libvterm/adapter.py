@@ -375,7 +375,12 @@ def apply_command(terminal, line, state):
             terminal.write(b"\x1bc")
             configure_libvterm_colors(terminal)
         return
-    if line.startswith(("WANTSCREEN", "WANTSTATE", "UTF8", "DAMAGEMERGE", "DAMAGEFLUSH")):
+    if line.startswith(("WANTSCREEN", "WANTSTATE", "WANTENCODING", "UTF8", "DAMAGEMERGE", "DAMAGEFLUSH")):
+        return
+    if line.startswith("ENCIN "):
+        state["encoding_output"].extend(
+            terminal.utf8_push(decode_perl_string(line[6:]))
+        )
         return
     if line.startswith("PUSH "):
         terminal.write(decode_perl_string(line[5:]))
@@ -461,7 +466,7 @@ def run_fixture(path):
     mismatches = []
     checked = 0
     skipped = 0
-    state = {"output": bytearray(), "mouse": (0, 0), "selection": b"", "title": "", "osc52": b""}
+    state = {"output": bytearray(), "encoding_output": [], "mouse": (0, 0), "selection": b"", "title": "", "osc52": b""}
     with Zutty(columns=80, rows=25, save_lines=500) as terminal:
         for number, line in expand_controls(path.read_text().splitlines()):
             if not line or line.startswith("#") or line == "__END__" or line.startswith("!"):
@@ -488,6 +493,20 @@ def run_fixture(path):
                 if actual != expected:
                     mismatches.append(
                         f"line {number}: output: got {actual!r}, expected {expected!r}"
+                    )
+                continue
+            match = re.fullmatch(r"encout\s+(.*)", line)
+            if match:
+                expected = tuple(
+                    int(value.strip(), 16)
+                    for value in match.group(1).split(",")
+                )
+                actual = tuple(state["encoding_output"])
+                state["encoding_output"].clear()
+                checked += 1
+                if actual != expected:
+                    mismatches.append(
+                        f"line {number}: encout: got {actual!r}, expected {expected!r}"
                     )
                 continue
             match = re.fullmatch(r"putglyph\s+(.*)", line)
@@ -586,6 +605,10 @@ def run_fixture(path):
         state["output"].extend(terminal.read_input())
         if state["output"]:
             mismatches.append(f"unexpected output: {bytes(state['output'])!r}")
+        if state["encoding_output"]:
+            mismatches.append(
+                f"unexpected encoding output: {tuple(state['encoding_output'])!r}"
+            )
     if not checked:
         mismatches.append("fixture has no supported golden assertions")
     return checked, skipped, mismatches

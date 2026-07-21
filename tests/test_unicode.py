@@ -4,6 +4,15 @@ from harness import Zutty
 
 
 class UnicodeTest(unittest.TestCase):
+    def test_control_exposes_stateful_utf8_decoder(self):
+        with Zutty() as terminal:
+            self.assertEqual(terminal.utf8_push(b"A\xc2"), (ord("A"),))
+            self.assertEqual(terminal.utf8_push(b"\xa0"), (0xa0,))
+            self.assertEqual(
+                terminal.utf8_push(b"\xe0!"),
+                (0xfffd, ord("!")),
+            )
+
     def test_batched_width_measurement_uses_terminal_parser(self):
         with Zutty(columns=12, rows=2) as terminal:
             self.assertEqual(

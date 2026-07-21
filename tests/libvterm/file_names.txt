@@ -1,3 +1,4 @@
+03encoding_utf8.test
 10state_putglyph.test
 11state_movecursor.test
 12state_scroll.test

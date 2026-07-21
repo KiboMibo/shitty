@@ -574,6 +574,13 @@ class Zutty:
             values[8],
         )
 
+    def utf8_push(self, payload):
+        self.stream.write(b"UTF8_PUSH " + payload.hex().encode("ascii") + b"\n")
+        response = self._readline().split()
+        if not response or response[0] != "OK":
+            raise RuntimeError("invalid UTF-8 decoder response")
+        return tuple(int(value, 16) for value in response[1:])
+
     def render_state(self):
         self.stream.write(b"RENDER_STATE\n")
         response = self._readline().split()
