@@ -2,6 +2,7 @@ altchars.sh
 bounce.sh
 ctlpix.sh
 dl.sh
+doublechars.sh
 il.sh
 other-sgr.sh
 pointer-shapes.sh

@@ -64,6 +64,27 @@ def write_chunked(terminal, payload):
         index += 1
 
 
+def run_pty_case(root, case):
+    arguments = [str(root / "upstream" / case)]
+    columns = 80
+    rows = 25
+    if case == "doublechars.sh":
+        arguments.append("-n")
+        columns = 132
+        rows = 30
+    with Zutty(columns=columns, rows=rows, save_lines=500) as terminal:
+        terminal.spawn(*arguments)
+        status, screen = terminal.wait_child(timeout=10)
+        digest = terminal.model_digest()
+    if status != 0:
+        return f"child exited {status}"
+    if case == "doublechars.sh" and "The quick brown fox" not in screen:
+        return "double-size text was not visible in the final screen"
+    if digest == (0, 0):
+        return "empty model digest"
+    return ""
+
+
 def main():
     if len(sys.argv) != 4:
         raise SystemExit("usage: adapter.py SCRIPT XFAIL_FILE STAMP")
@@ -75,22 +96,29 @@ def main():
     stamp = Path(sys.argv[3])
     root = Path(__file__).resolve().parent
     signal.alarm(20)
-    payload = generate(root, case)
-    with Zutty(columns=80, rows=25, save_lines=500) as whole, \
-         Zutty(columns=80, rows=25, save_lines=500) as chunked:
-        whole.write(payload)
-        write_chunked(chunked, payload)
-        mismatch = observable(whole) != observable(chunked)
+    if case == "doublechars.sh":
+        message = run_pty_case(root, case)
+        mismatch = bool(message)
+        payload = b""
+    else:
+        message = "chunking changed state"
+        payload = generate(root, case)
+        with Zutty(columns=80, rows=25, save_lines=500) as whole, \
+             Zutty(columns=80, rows=25, save_lines=500) as chunked:
+            whole.write(payload)
+            write_chunked(chunked, payload)
+            mismatch = observable(whole) != observable(chunked)
     if case in xfails:
         if not mismatch:
             print(f"XPASS xterm-vttests/{case}", file=sys.stderr)
             return 1
         print(f"XFAIL xterm-vttests/{case}")
     elif mismatch:
-        print(f"FAIL xterm-vttests/{case}: chunking changed state", file=sys.stderr)
+        print(f"FAIL xterm-vttests/{case}: {message}", file=sys.stderr)
         return 1
     else:
-        print(f"PASS xterm-vttests/{case}: {len(payload)} stream bytes")
+        detail = "PTY scenario" if case == "doublechars.sh" else f"{len(payload)} stream bytes"
+        print(f"PASS xterm-vttests/{case}: {detail}")
     stamp.parent.mkdir(parents=True, exist_ok=True)
     stamp.touch()
     return 0
