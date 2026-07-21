@@ -554,6 +554,47 @@ for case in vtebench_cases:
     ))
 
 
+libvterm_root = Path(__file__).parent / "tests" / "libvterm"
+libvterm_cases = (libvterm_root / "file_names.txt").read_text().split()
+libvterm_xfails = {
+    line.strip()
+    for line in (libvterm_root / "xfail.txt").read_text().splitlines()
+    if line.strip() and not line.startswith("#")
+}
+unknown_libvterm_xfails = libvterm_xfails - set(libvterm_cases)
+if unknown_libvterm_xfails:
+    raise RuntimeError(
+        "unknown libvterm XFAIL fixtures: "
+        + ", ".join(sorted(unknown_libvterm_xfails))
+    )
+libvterm_tests = []
+for case in libvterm_cases:
+    name = case.removesuffix(".test").replace("-", "_")
+    libvterm_tests.append(command(
+        name="libvterm_" + name,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/libvterm/adapter.py",
+            "$(S)/tests/libvterm/file_names.txt",
+            "$(S)/tests/libvterm/xfail.txt",
+            f"$(S)/tests/libvterm/upstream/{case}",
+        ],
+        outputs=[f"$(B)/tests/libvterm/{name}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/libvterm/adapter.py",
+            case,
+            "tests/libvterm/xfail.txt",
+            f"$(B)/tests/libvterm/{name}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="LIBVTERM",
+        color="cyan",
+    ))
+
+
 install(libzutty)
 install(zutty)
 install(test_suite)
@@ -571,3 +612,4 @@ install(*wraptest_tests)
 install(*ucs_detect_tests)
 install(ucs_detect_validation)
 install(*vtebench_tests)
+install(*libvterm_tests)

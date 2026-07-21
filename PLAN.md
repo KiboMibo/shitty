@@ -171,15 +171,7 @@ Control interface — это расширяемый наблюдаемый API �
 
 ## Порядок
 
-1. Готовые golden/replay-прогоны
-
-   Берём целиком, не переснимаем на zutty:
-
-   - остальные готовые input/output fixtures из libvterm и похожих проектов.
-
-   Для каждого формата пишем один тонкий adapter. Исходные данные сохраняем максимально близко к upstream, чтобы потом можно было обновлять.
-
-2. Готовые fuzz/replay corpora без golden output
+1. Готовые fuzz/replay corpora без golden output
 
    Их можно немедленно кормить zutty и проверять crash/hang/invariants/chunking:
 
@@ -187,7 +179,7 @@ Control interface — это расширяемый наблюдаемый API �
 
    Это почти бесплатное расширение входного пространства. Полноценный AFL++ harness можно сделать позже — сначала используем уже найденные чужими fuzzers пути.
 
-3. Готовые внешние test suites
+2. Готовые внешние test suites
 
    Сначала те, которые уже можно запускать почти без переделки:
 
@@ -197,15 +189,15 @@ Control interface — это расширяемый наблюдаемый API �
 
    Здесь наша работа — только launcher, PTY/control integration и фиксация результата.
 
-4. Готовые suites, которым нужен compatibility layer
+3. Готовые suites, которым нужен compatibility layer
 
    - Termless: написать backend для zutty control protocol и получить их cross-backend suite;
-   - libvterm DSL: небольшой interpreter для `PUSH`, cursor/cell/screen assertions;
+   - libvterm DSL: добавить callback/parser/state commands и expectations к уже импортированному screen/resize/reflow interpreter;
    - другие declarative fixtures.
 
    Это уже требует кода, но один adapter сразу открывает сотни чужих сценариев.
 
-5. Чужой тестовый код, требующий порта
+4. Чужой тестовый код, требующий порта
 
    Здесь первым остаётся esctest: он очень ценен, но Python 2 и его I/O model потребуют работы.
 
@@ -217,7 +209,7 @@ Control interface — это расширяемый наблюдаемый API �
    - сохранить исходные test names, VT levels, known bugs и intentional deviations;
    - не переписывать сотни тестов вручную без необходимости.
 
-6. Внутренние unit-тесты других терминалов
+5. Внутренние unit-тесты других терминалов
 
    После готовых suites начинаем вынимать содержательные матрицы из:
 
@@ -230,7 +222,7 @@ Control interface — это расширяемый наблюдаемый API �
 
    Берём код, таблицы и test vectors и переделываем под наш Python black-box harness. Начинаем с файлов, где тестовые данные уже отделены от реализации.
 
-7. Только затем пишем недостающее сами
+6. Только затем пишем недостающее сами
 
    После импорта строим coverage map и дописываем то, чего реально нигде нет:
 
