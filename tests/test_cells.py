@@ -4,6 +4,22 @@ from harness import Zutty
 
 
 class CellStateTest(unittest.TestCase):
+    def test_control_reports_current_pen_without_writing_a_cell(self):
+        with Zutty(columns=4, rows=2) as terminal:
+            terminal.write(b"\x1b[1;2;3;4:3;5;7;8;9;38:5:42;48;2;1;2;3m")
+            pen = terminal.pen_state()
+            self.assertTrue(pen.bold)
+            self.assertTrue(pen.faint)
+            self.assertTrue(pen.italic)
+            self.assertTrue(pen.underline)
+            self.assertEqual(pen.underline_style, 3)
+            self.assertTrue(pen.blink)
+            self.assertTrue(pen.conceal)
+            self.assertTrue(pen.strike)
+            self.assertTrue(pen.inverse)
+            self.assertEqual(pen.foreground_index, 42)
+            self.assertEqual(pen.background, (1, 2, 3))
+
     def test_model_digest_covers_rich_state_but_not_refresh_count(self):
         payload = b"\x1b[38;2;1;2;3;48;5;4mA\xcc\x81"
         with (

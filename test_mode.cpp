@@ -1270,6 +1270,18 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                        << " DECBKM=" << terminal.getPrivateMode(67)
                        << " DECLRMM=" << terminal.getPrivateMode(69) << '\n';
                 writeAll(controlFd, output.str());
+            } else if (line == "PEN_STATE") {
+                const TerminalCell pen = terminal.getPenState();
+                std::ostringstream output;
+                output << "OK " << cellFlags(pen) << ' '
+                       << (unsigned)(pen.fg.red) << ' '
+                       << (unsigned)(pen.fg.green) << ' '
+                       << (unsigned)(pen.fg.blue) << ' '
+                       << (unsigned)(pen.bg.red) << ' '
+                       << (unsigned)(pen.bg.green) << ' '
+                       << (unsigned)(pen.bg.blue) << ' '
+                       << pen.fg_index << ' ' << pen.bg_index << '\n';
+                writeAll(controlFd, output.str());
             } else if (line == "RENDER_STATE") {
                 writeAll(controlFd, display.renderState());
             } else if (line.compare(0, 13, "MOUSE_ENCODE ") == 0) {

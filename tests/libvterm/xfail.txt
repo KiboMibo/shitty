@@ -1,6 +1,21 @@
 # Exact fixture IDs whose supported upstream golden assertions differ.
+10state_putglyph.test
+11state_movecursor.test
+13state_edit.test
+14state_encoding.test
+15state_mode.test
+16state_resize.test
+17state_mouse.test
+18state_termprops.test
+22state_save.test
+25state_input.test
+26state_query.test
+30state_pen.test
+31state_rep.test
+40state_selection.test
 61screen_unicode.test
 63screen_resize.test
 64screen_pen.test
+68screen_termprops.test
 69screen_reflow.test
 90vttest_01-movement-3.test

@@ -12,7 +12,10 @@ from harness import Zutty
 
 
 def decode_perl_string(expression):
-    match = re.fullmatch(r'\s*"(.*)"(?:x(\d+))?\s*', expression)
+    parts = re.split(r"\s+\.\s+", expression.strip())
+    if len(parts) > 1:
+        return b"".join(decode_perl_string(part) for part in parts)
+    match = re.fullmatch(r'\s*"(.*)"\s*(?:x\s*(\d+))?\s*', expression)
     if not match:
         raise ValueError(f"unsupported Perl string: {expression}")
     source, repeat = match.groups()
@@ -59,6 +62,22 @@ def decode_perl_string(expression):
         else:
             result.extend(escape.encode("utf-8"))
     return bytes(result) * int(repeat or 1)
+
+
+def decode_callback_fragment(fragment):
+    fragment = fragment.strip()
+    started = fragment.startswith("[")
+    closed = fragment.endswith("]")
+    if started:
+        fragment = fragment[1:]
+    if closed:
+        fragment = fragment[:-1]
+    fragment = fragment.strip()
+    if not fragment:
+        return started, closed, b""
+    if fragment.startswith('"') and not re.search(r'"\s*(?:x\s*\d+)?$', fragment):
+        fragment += '"'
+    return started, closed, decode_perl_string(fragment)
 
 
 def expand_controls(lines):
@@ -208,6 +227,29 @@ def compare_assertion(terminal, assertion, expected):
         actual = (snapshot.cursor_y, snapshot.cursor_x)
         return "" if actual == (row, column) else f"got {actual}"
 
+    match = re.fullmatch(r"pen\s+(\w+)", assertion)
+    if match:
+        field = match.group(1)
+        pen = terminal.pen_state()
+        boolean_fields = {
+            "bold": pen.bold,
+            "italic": pen.italic,
+            "blink": pen.blink,
+            "reverse": pen.inverse,
+        }
+        if field in boolean_fields:
+            actual = "on" if boolean_fields[field] else "off"
+        elif field == "underline":
+            actual = str(pen.underline_style if pen.underline else 0)
+        elif field in ("foreground", "background"):
+            index = getattr(pen, field + "_index")
+            color = getattr(pen, field)
+            actual = f"idx({index})" if index >= 0 else f"rgb({color[0]},{color[1]},{color[2]})"
+            expected = expected.replace(",is_default_fg", "").replace(",is_default_bg", "")
+        else:
+            raise ValueError(f"unsupported pen field: {field}")
+        return "" if actual == expected else f"got {actual!r}, expected {expected!r}"
+
     match = re.fullmatch(r"screen_row\s+(\d+)", assertion)
     if match:
         wanted = "".join(codepoints(expected))
@@ -278,9 +320,58 @@ def compare_assertion(terminal, assertion, expected):
     raise ValueError(f"unsupported assertion: {assertion}")
 
 
-def apply_command(terminal, line):
+def compare_putglyph(terminal, expected):
+    match = re.fullmatch(
+        r"([0-9a-fx,]+)\s+(\d+)\s+(\d+),(\d+)(.*)", expected
+    )
+    if not match:
+        raise ValueError(f"unsupported putglyph: {expected}")
+    glyph, width, row, column, flags = match.groups()
+    codepoints = tuple(int(value, 16) for value in glyph.split(","))
+    snapshot = terminal.model_snapshot()
+    row = int(row)
+    column = int(column)
+    if row >= snapshot.rows or column >= snapshot.columns:
+        return f"cell {row},{column} is outside {snapshot.rows}x{snapshot.columns}"
+    cell = snapshot.cell(column, row)
+    actual = cell.grapheme or (() if cell.char == "\0" else (ord(cell.char),))
+    differences = []
+    if actual != codepoints:
+        differences.append(f"glyph={actual!r}, expected {codepoints!r}")
+    actual_width = 2 if cell.double_width else 1
+    if actual_width != int(width):
+        differences.append(f"width={actual_width}")
+    wanted_protected = "prot" in flags.split()
+    if cell.protected != wanted_protected:
+        differences.append(f"protected={cell.protected}")
+    wanted_line = 0
+    if "dhl-top" in flags:
+        wanted_line = 1
+    elif "dhl-bottom" in flags:
+        wanted_line = 2
+    elif "dwl" in flags:
+        wanted_line = 3
+    if cell.line_attribute != wanted_line:
+        differences.append(f"line_attribute={cell.line_attribute}")
+    return "; ".join(differences)
+
+
+def modifiers(value):
+    result = 0
+    if "S" in value:
+        result |= 1
+    if "C" in value:
+        result |= 2
+    if "A" in value:
+        result |= 4
+    return result
+
+
+def apply_command(terminal, line, state):
     if line in ("INIT", "RESET"):
-        if line == "RESET":
+        if line == "INIT":
+            configure_libvterm_colors(terminal)
+        else:
             terminal.write(b"\x1bc")
             configure_libvterm_colors(terminal)
         return
@@ -302,6 +393,67 @@ def apply_command(terminal, line):
             payload += b"\x1b]11;" + osc_color(parse_color(colors[1])) + b"\x1b\\"
         terminal.write(payload)
         return
+    match = re.fullmatch(r"INCHAR\s+(\w+)\s+([0-9a-fA-F]+)", line)
+    if match:
+        modifier, character = match.groups()
+        terminal.char(int(character, 16), modifiers(modifier))
+        return
+    match = re.fullmatch(r"INKEY\s+(\w+)\s+(\w+)", line)
+    if match:
+        modifier, key = match.groups()
+        names = {"Up": "UP", "Tab": "TAB", "Enter": "RETURN", "KP0": "KP_0"}
+        terminal.key(names.get(key, key.upper()), modifiers(modifier))
+        return
+    match = re.fullmatch(r"FOCUS\s+(IN|OUT)", line)
+    if match:
+        terminal.focus(match.group(1) == "IN")
+        return
+    match = re.fullmatch(r"PASTE\s+(START|END)", line)
+    if match:
+        if match.group(1) == "START":
+            terminal.paste(b"")
+        return
+    match = re.fullmatch(r"MOUSEMOVE\s+(\d+),(\d+)(?:\s+(\w+))?", line)
+    if match:
+        row, column, modifier = match.groups()
+        state["mouse"] = (int(row), int(column))
+        terminal.pointer(int(column) + 3, int(row) + 3, modifiers(modifier or "0"))
+        return
+    match = re.fullmatch(r"MOUSEBTN\s+([du])\s+(\d+)\s+(\w+)", line)
+    if match:
+        direction, button, modifier = match.groups()
+        button = int(button)
+        row, column = state["mouse"]
+        if button <= 3:
+            glfw_button = {1: 0, 2: 2, 3: 1}[button]
+            terminal.button(
+                glfw_button,
+                direction == "d",
+                x=column + 3,
+                y=row + 3,
+                modifiers=modifiers(modifier),
+            )
+        elif direction == "d":
+            deltas = {4: (0, 1), 5: (0, -1), 6: (-1, 0), 7: (1, 0)}
+            x, y = deltas[button]
+            terminal.scroll(
+                x,
+                y,
+                modifiers=modifiers(modifier),
+                pixel_x=column + 3,
+                pixel_y=row + 3,
+            )
+        return
+    match = re.fullmatch(r"SELECTION\s+1\s+(.*)", line)
+    if match:
+        fragment = match.group(1)
+        started, closed, payload = decode_callback_fragment(fragment)
+        if started:
+            state["selection"] = b""
+        state["selection"] += payload
+        if closed:
+            state["output"].extend(terminal.osc52_reply(state["selection"], b"c"))
+        return
     raise ValueError(f"unsupported command: {line}")
 
 
@@ -309,6 +461,7 @@ def run_fixture(path):
     mismatches = []
     checked = 0
     skipped = 0
+    state = {"output": bytearray(), "mouse": (0, 0), "selection": b"", "title": "", "osc52": b""}
     with Zutty(columns=80, rows=25, save_lines=500) as terminal:
         for number, line in expand_controls(path.read_text().splitlines()):
             if not line or line.startswith("#") or line == "__END__" or line.startswith("!"):
@@ -325,13 +478,114 @@ def run_fixture(path):
                 if mismatch:
                     mismatches.append(f"line {number}: {assertion}: {mismatch}")
                 continue
+            match = re.fullmatch(r"output\s+(.*)", line)
+            if match:
+                expected = decode_perl_string(match.group(1))
+                state["output"].extend(terminal.read_input())
+                actual = bytes(state["output"][:len(expected)])
+                del state["output"][:len(expected)]
+                checked += 1
+                if actual != expected:
+                    mismatches.append(
+                        f"line {number}: output: got {actual!r}, expected {expected!r}"
+                    )
+                continue
+            match = re.fullmatch(r"putglyph\s+(.*)", line)
+            if match:
+                checked += 1
+                mismatch = compare_putglyph(terminal, match.group(1))
+                if mismatch:
+                    mismatches.append(f"line {number}: putglyph: {mismatch}")
+                continue
+            match = re.fullmatch(r"settermprop\s+(\d+)\s+(.*)", line)
+            if match:
+                prop, expected = match.groups()
+                if prop == "1":
+                    actual = terminal.model_snapshot().cursor_style != 0
+                    wanted = expected == "true"
+                elif prop == "2":
+                    actual = terminal.render_state().cursor_blink
+                    wanted = expected == "true"
+                elif prop == "7":
+                    style = terminal.model_snapshot().cursor_style
+                    actual = 2 if style == 3 else 1
+                    wanted = int(expected)
+                elif prop == "8":
+                    actual = max(0, terminal.state()[0] - 1)
+                    wanted = int(expected)
+                elif prop == "9":
+                    actual = terminal.state()[2] != 0
+                    wanted = expected == "true"
+                elif prop == "4":
+                    started, closed, payload = decode_callback_fragment(expected)
+                    if started:
+                        state["title"] = ""
+                    state["title"] += payload.decode()
+                    if not closed:
+                        skipped += 1
+                        continue
+                    actions = terminal.read_actions()
+                    titles = [
+                        bytes.fromhex(action[6:]).decode()
+                        for action in actions if action.startswith("OSC 2 ")
+                    ]
+                    actual = titles[-1] if titles else ""
+                    wanted = state["title"]
+                else:
+                    skipped += 1
+                    continue
+                checked += 1
+                if actual != wanted:
+                    mismatches.append(
+                        f"line {number}: settermprop {prop}: got {actual!r}, expected {wanted!r}"
+                    )
+                continue
+            match = re.fullmatch(r"selection-(set|query)\s+mask=0001(?:\s+(.*))?", line)
+            if match:
+                operation, fragment = match.groups()
+                if operation == "query":
+                    actions = terminal.read_actions()
+                    actual = any(action == "OSC 52 633b3f" for action in actions)
+                    checked += 1
+                    if not actual:
+                        mismatches.append(f"line {number}: selection query was not observed")
+                    continue
+                fragment = fragment or ""
+                started, closed, payload = decode_callback_fragment(fragment)
+                if started:
+                    state["osc52"] = b""
+                state["osc52"] += payload
+                if not closed:
+                    skipped += 1
+                    continue
+                actions = terminal.read_actions()
+                payloads = [
+                    bytes.fromhex(action[7:])
+                    for action in actions if action.startswith("OSC 52 ")
+                ]
+                actual = payloads[-1] if payloads else b""
+                request = actual.split(b";", 1)[1] if b";" in actual else b""
+                import base64
+                try:
+                    decoded = base64.b64decode(request, validate=True) if request else b""
+                except ValueError:
+                    decoded = b""
+                checked += 1
+                if decoded != state["osc52"]:
+                    mismatches.append(
+                        f"line {number}: selection set: got {decoded!r}, expected {state['osc52']!r}"
+                    )
+                continue
             if line[0].isupper():
                 try:
-                    apply_command(terminal, line)
+                    apply_command(terminal, line, state)
                 except ValueError:
                     skipped += 1
                 continue
             skipped += 1
+        state["output"].extend(terminal.read_input())
+        if state["output"]:
+            mismatches.append(f"unexpected output: {bytes(state['output'])!r}")
     if not checked:
         mismatches.append("fixture has no supported golden assertions")
     return checked, skipped, mismatches

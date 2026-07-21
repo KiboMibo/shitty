@@ -92,6 +92,7 @@ namespace {
         bool getMetaMode() const;
         bool getAnsiMode(u32 mode) const;
         bool getPrivateMode(u32 mode) const;
+        TerminalCell getPenState() const;
 
         void resize(u16 winPx, u16 winPy);
 
@@ -3281,6 +3282,16 @@ bool VtermImpl::getPrivateMode(u32 arg) const {
         default:
             return false;
     }
+}
+
+TerminalCell VtermImpl::getPenState() const {
+    TerminalCell result = attrs;
+    result.inverse = reverseVideo;
+    if (reverseVideo) {
+        std::swap(result.fg, result.bg);
+        std::swap(result.fg_index, result.bg_index);
+    }
+    return result;
 }
 
 void VtermImpl::csi_privSM() {

@@ -104,6 +104,23 @@ class RenderState:
     grapheme_codepoints: int
 
 
+@dataclass
+class PenState:
+    bold: bool
+    faint: bool
+    italic: bool
+    underline: bool
+    underline_style: int
+    blink: bool
+    conceal: bool
+    strike: bool
+    inverse: bool
+    foreground: tuple[int, int, int]
+    background: tuple[int, int, int]
+    foreground_index: int
+    background_index: int
+
+
 class Zutty:
     def __init__(
         self, columns=80, rows=24, save_lines=500,
@@ -533,6 +550,29 @@ class Zutty:
             name, value = field.split("=", 1)
             result[name] = value if name == "screen" else bool(int(value))
         return result
+
+    def pen_state(self):
+        self.stream.write(b"PEN_STATE\n")
+        response = self._readline().split()
+        if len(response) != 10 or response[0] != "OK":
+            raise RuntimeError("invalid pen state response")
+        values = tuple(map(int, response[1:]))
+        flags = values[0]
+        return PenState(
+            bool(flags & 4),
+            bool(flags & 128),
+            bool(flags & 8),
+            bool(flags & 16),
+            (flags >> 12) & 7,
+            bool(flags & 256),
+            bool(flags & 512),
+            bool(flags & 1024),
+            bool(flags & 32),
+            values[1:4],
+            values[4:7],
+            values[7],
+            values[8],
+        )
 
     def render_state(self):
         self.stream.write(b"RENDER_STATE\n")

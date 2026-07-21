@@ -1,3 +1,23 @@
+10state_putglyph.test
+11state_movecursor.test
+12state_scroll.test
+13state_edit.test
+14state_encoding.test
+15state_mode.test
+16state_resize.test
+17state_mouse.test
+18state_termprops.test
+20state_wrapping.test
+21state_tabstops.test
+22state_save.test
+25state_input.test
+26state_query.test
+27state_reset.test
+28state_dbl_wh.test
+30state_pen.test
+31state_rep.test
+32state_flow.test
+40state_selection.test
 60screen_ascii.test
 61screen_unicode.test
 62screen_damage.test
@@ -6,6 +26,7 @@
 65screen_protect.test
 66screen_extent.test
 67screen_dbl_wh.test
+68screen_termprops.test
 69screen_pushline.test
 69screen_reflow.test
 90vttest_01-movement-1.test
@@ -16,3 +37,4 @@
 90vttest_02-screen-2.test
 90vttest_02-screen-3.test
 90vttest_02-screen-4.test
+92lp1640917.test
