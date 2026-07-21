@@ -167,3 +167,161 @@ Contour построил поверх него то, что нам нужно:
 Из-за того что `/home/pg/repos` здесь является symlink на read-only `/home/pg/Downloads`, по согласованию всё лежит в [terminal-repos](/home/pg/monorepo/tmp/terminal-repos).
 
 Скачаны Ghostty, Kitty, Konsole, VTE, GNOME Terminal, Alacritty, foot, WezTerm, Contour, xterm, vttest, libvterm, esctest, Termless, iTerm2, xterm.js, Windows Terminal, Mosh, tmux, libtsm, ucs-detect, vtebench, wraptest и tack — каждый отдельным git checkout. Никаких изменений в zutty при исследовании не делал.
+
+Теперь приоритет меняется: сначала максимальный объём уже готового поведения за минимальную цену адаптации. Новые тесты с нуля пишем только после исчерпания чужих материалов.
+
+## Порядок
+
+1. Готовые golden/replay-прогоны
+
+   Берём целиком, не переснимаем на zutty:
+
+   - xterm.js: 76 пар `.in/.text` — самый дешёвый импорт;
+   - Alacritty: 45 `recording + grid.json + geometry/config`;
+   - Contour: 143 снимка vttest вместе с command scripts;
+   - остальные готовые input/output fixtures из libvterm и похожих проектов.
+
+   Для каждого формата пишем один тонкий adapter. Исходные данные сохраняем максимально близко к upstream, чтобы потом можно было обновлять.
+
+2. Готовые fuzz/replay corpora без golden output
+
+   Их можно немедленно кормить zutty и проверять crash/hang/invariants/chunking:
+
+   - minimized corpora Ghostty;
+   - Mosh parser/terminal corpus;
+   - tmux input-fuzzer corpus и dictionary;
+   - реальные streams из xterm.js, Alacritty и наших регрессий.
+
+   Это почти бесплатное расширение входного пространства. Полноценный AFL++ harness можно сделать позже — сначала используем уже найденные чужими fuzzers пути.
+
+3. Готовые внешние test suites
+
+   Сначала те, которые уже можно запускать почти без переделки:
+
+   - `wraptest` как готовую программу;
+   - `vttest` по готовым сценариям Contour;
+   - `ucs-detect`;
+   - `tack`;
+   - xterm `vttests` scripts;
+   - vtebench как throughput baseline.
+
+   Здесь наша работа — только launcher, PTY/control integration и фиксация результата.
+
+4. Готовые suites, которым нужен compatibility layer
+
+   - Termless: написать backend для zutty control protocol и получить их cross-backend suite;
+   - libvterm DSL: небольшой interpreter для `PUSH`, cursor/cell/screen assertions;
+   - другие declarative fixtures.
+
+   Это уже требует кода, но один adapter сразу открывает сотни чужих сценариев.
+
+5. Чужой тестовый код, требующий порта
+
+   Здесь первым остаётся esctest: он очень ценен, но Python 2 и его I/O model потребуют работы.
+
+   План для него:
+
+   - скопировать suite целиком;
+   - перевести механически на Python 3;
+   - заменить DECRQCRA-based чтение экрана на наш snapshot там, где это проще;
+   - сохранить исходные test names, VT levels, known bugs и intentional deviations;
+   - не переписывать сотни тестов вручную без необходимости.
+
+6. Внутренние unit-тесты других терминалов
+
+   После готовых suites начинаем вынимать содержательные матрицы из:
+
+   - Kitty;
+   - Ghostty;
+   - VTE;
+   - Windows Terminal;
+   - WezTerm;
+   - Konsole.
+
+   Берём код, таблицы и test vectors и переделываем под наш Python black-box harness. Начинаем с файлов, где тестовые данные уже отделены от реализации.
+
+7. Только затем пишем недостающее сами
+
+   После импорта строим coverage map и дописываем то, чего реально нигде нет:
+
+   - комбинации состояний;
+   - наши scrollback/selection/render contracts;
+   - platform boundary;
+   - performance/fairness;
+   - новые regressions.
+
+## Организация
+
+Список в `tests/` остаётся плоским. Имена можно префиксовать источником:
+
+- `xtermjs_t0012_vt.in`
+- `alacritty_tmux_htop.recording`
+- `contour_vttest_01_step01.dump`
+- `ghostty_fuzz_stream_000123.bin`
+
+Один `tests/UPSTREAM.md` будет фиксировать источник, SHA, лицензию и степень переделки.
+
+Главный принцип: не конвертировать заранее всё в наш собственный формат. Сначала копируем upstream artifacts и пишем один reader. Конверсия оправдана только там, где она заметно упрощает assertions.
+
+Таким образом, первый практический этап: xterm.js goldens → Alacritty recordings → Contour/vttest goldens → готовые fuzz corpora. `wraptest` и внешние suites идут сразу следом. Esctest теперь не первый, несмотря на ценность: его опережает всё, что можно подключить почти без ручного порта.
+
+Я понимаю «погружение» так: внешний corpus не должен оставаться одним непрозрачным тестом вида «запусти всё и скажи pass/fail». По возможности каждый внешний case становится обычным узлом нашей build-системы.
+
+Идеальная схема:
+
+- данные upstream остаются как есть;
+- один общий adapter умеет выполнить конкретный case;
+- manifest перечисляет case IDs или имена файлов;
+- `build.py` читает manifest и регистрирует отдельный test target для каждого case;
+- каждый target получает уникальное имя и stamp.
+
+Условно:
+
+```python
+for case in read("tests/xtermjs_files.txt").split():
+    test(
+        name=f"xtermjs/{case}",
+        command=["python3", "tests/xtermjs_adapter.py", case,
+                 "tests/xtermjs_data.pack"],
+        inputs=[
+            "tests/xtermjs_adapter.py",
+            "tests/xtermjs_files.txt",
+            "tests/xtermjs_data.pack",
+        ],
+    )
+```
+
+Физически данные могут лежать:
+
+- отдельными файлами;
+- одним большим JSON;
+- tar/archive;
+- upstream recording-файлом с индексом.
+
+Это не должно определять гранулярность build graph. Manifest даёт build.py список логических точек входа, а adapter извлекает одну нужную запись.
+
+Что это даёт:
+
+- видим точное имя упавшего upstream-теста;
+- можно перезапустить только его;
+- независимое кэширование;
+- естественный параллелизм;
+- изменение одного adapter’а перезапускает все связанные случаи;
+- внешний suite перестаёт быть чёрным ящиком и выглядит как наша собственная suite.
+
+Но специально строить сложную инфраструктуру ради идеальной гранулярности не надо. Правило такое: дробим до отдельного case, пока это дёшево.
+
+Практическая гранулярность:
+
+- xterm.js: одна `.in/.text` пара — один build test;
+- Alacritty: одна recording-directory — один test;
+- Contour/vttest: один scripted scenario — один test; отдельные snapshots внутри него остаются assertions;
+- wraptest: можно сначала оставить одним test, потому что это одна маленькая программа;
+- esctest: желательно один test method или хотя бы один Python class/module на target через точный `--include`;
+- libvterm: один fixture section — один test, если DSL легко индексируется; иначе один `.test` файл;
+- Unicode GraphemeBreakTest: не тысячи процессов, а shards по 100–500 cases;
+- Ghostty fuzz corpus: 4 000 отдельных процессов будут дороже пользы — разбить manifest на детерминированные shards, но при ошибке adapter обязан напечатать точный corpus member и команду его одиночного запуска.
+
+Если большой источник дорого инициализируется, допустим промежуточный вариант: один target на файл, класс, chapter или shard. Монолитный adapter на весь источник допустим как первый импорт, но затем его стоит дробить только там, где это действительно улучшает диагностику и incremental build.
+
+То есть единицей хранения может быть большой архив, единицей реализации — один общий adapter, а единицей build/test — минимальный разумный логический case. Именно это я теперь считаю желаемым «погружением» внешних suites в нашу модель.
