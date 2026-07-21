@@ -1,0 +1,9 @@
+erial tramway
+1F6F0 FE0F                                 ; fully-qualified     # 🛰️ satellite
+1F6F0                                      ; unqualified         # 🛰 satellite
+1F680                                      ; fully-qualified     # 🚀 rocket
+1F6F8                                      ; fully-qualified     # 🛸 flying saucer
+
+# subgroup: hotel
+1F6CE FE0F                                 ; fully-qualified     # 🛎️ bellhop bell
+1F6CE                                      ; unqualified   

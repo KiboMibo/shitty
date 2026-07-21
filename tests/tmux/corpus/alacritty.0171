@@ -1,0 +1,7 @@
+(capab=0x1411 status=0 aid=3)
+[32m[229880.436867] [0m[33mwlp3s0[0m: associated
+[32m[229880.475867] [0m[33mwlp3s0[0m: Limiting TX power to 30 (30 - 0) dBm as advertised by 00:00:00:00:00:00
+[32m[229893.920859] [0m[33mwlp3s0[0m: disconnect from AP 00:00:00:00:00:00 for new auth to 00:00:00:00:00:00
+[32m[229893.927177] [0m[33miwlwifi 0000:03:00.0[0m[31m: Unhandled alg: 0x707
+[0m[32m[229893.927189] [0m[33miwlwifi 0000:03:00.0[0m[31m: Unhandled alg: 0x707
+[0m[32m[229893.927191] [0

@@ -1,0 +1,6 @@
+er to 23 (23 - 0) dBm as advertised by 00:00:00:00:00:00
+[32m[231412.503669] [0m[33mwlp3s0[0m: disconnect from AP 00:00:00:00:00:00 for new auth to 00:00:00:00:00:00
+[32m[231412.513884] [0m[33miwlwifi 0000:03:00.0[0m[31m: expected hw-decrypted unicast frame for station
+[0m[32m[231412.513892] [0m[33miwlwifi 0000:03:00.0[0m[31m: expected hw-decrypted unicast frame for station
+[0m[32m[231412.515316] [0m[33miwlwifi 0000:03:00.0[0m[31m: Unhandled alg: 0x707
+[0m[32m[231412.515352] [0m

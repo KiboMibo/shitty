@@ -1,0 +1,7 @@
+ flags
+1F3F4                                      ; fully-qualified     # 🏴 black flag
+1F3F3 FE0F                                 ; fully-qualified     # 🏳️ white flag
+1F3F3                                      ; unqualified         # 🏳 white flag
+1F3F3 FE0F 200D 1F308                      ; fully-qualified     # 🏳️‍🌈 rainbow flag
+1F3F3 200D 1F308                           ; unqualified         # 🏳‍🌈 rainbow flag
+1F3F4 200D 2620 FE0F                       ; fully-qualified     #

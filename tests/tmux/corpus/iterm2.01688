@@ -1,0 +1,21 @@
+e.com:8080 suffix
+prefixhttp://userid:password@example.com suffix
+prefixhttp://example.com:8080 x-yojimbo-item://6303E4C1-xxxx-45A6-AB9D-3A908F59AE0E
+<tag>http://example.com</tag>
+
+HTTPs
+prefixhttp://foo.com:123/blah/blah.php?k=v&k2=v2#fragment,
+
+mailto
+prefix:mailto:foo@bar.com, suffix
+
+ssh
+prefix:ssh:user@site.com, suffix
+prefix:ssh:site.com, suffix
+prefix:ssh:site, suffix
+
+telnet
+prefix:telnet:user@site.com, suffix
+prefix:telnet:site.com, suffix
+prefix:telnet:site, suffix
+Pq"1;1;600;450#0;2;38;31;19#1;2

@@ -1,0 +1,6 @@
+g hand: medium-dark skin tone
+1F64B 1F3FF                                ; fully-qualified     # 🙋🏿 person raising hand: dark skin tone
+1F64B 200D 2642 FE0F                       ; fully-qualified     # 🙋‍♂️ man raising hand
+1F64B 200D 2642                            ; minimally-qualified # 🙋‍♂ man raising hand
+1F64B 1F3FB 200D 2642 FE0F                 ; fully-qualified     # 🙋🏻‍♂️ man raising hand: light skin tone
+1F64B 1F3FB 200D 2642                      ; minimally-qua

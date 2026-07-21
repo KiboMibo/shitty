@@ -1,0 +1,9 @@
+tered
+2122 FE0F                                  ; fully-qualified     # ™️ trade mark
+2122                                       ; unqualified         # ™ trade mark
+
+# subgroup: keycap
+0023 FE0F 20E3                             ; fully-qualified     # #️⃣ keycap: #
+0023 20E3                                  ; unqualified         # #⃣ keycap: #
+002A FE0F 20E3                             ; fully-qualified     # *️⃣ keycap: *
+002A 20E3                                  ; unqualified         # 

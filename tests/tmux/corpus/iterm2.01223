@@ -1,0 +1,6 @@
+                            ; unqualified         # ⤴ right arrow curving up
+2935 FE0F                                  ; fully-qualified     # ⤵️ right arrow curving down
+2935                                       ; unqualified         # ⤵ right arrow curving down
+1F503                                      ; fully-qualified     # 🔃 clockwise vertical arrows
+1F504                                      ; fully-qualified     # 🔄 counterclockwise arrows button
+1F519                                

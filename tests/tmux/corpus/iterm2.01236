@@ -1,0 +1,11 @@
+ off
+
+# subgroup: gender
+2640 FE0F                                  ; fully-qualified     # ♀️ female sign
+2640                                       ; unqualified         # ♀ female sign
+2642 FE0F                                  ; fully-qualified     # ♂️ male sign
+2642                                       ; unqualified         # ♂ male sign
+
+# subgroup: other-symbol
+2695 FE0F                                  ; fully-qualified     # ⚕️ medical symbol
+2695                                  

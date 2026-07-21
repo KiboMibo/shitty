@@ -1,0 +1,8 @@
+://example.com/under_score]8;;\
+Explicit and implicit link with different targets: ]8;;http://example.com/explicit_under_score\http://example.com/implicit_under_score]8;;\
+Explicit and implicit link, broken into two lines: ]8;;http://example.com/under_score\http://examp
+le.com/under_score]8;;\
+
+[4mExplicitly underlined links ("\e[4m"):[m
+Explicit link only: [4m]8;;http://example.com/under_score\I'm an explicit link with under_score]8;;\[m
+Implicit link only: [4mhttp://example.com/under_sc

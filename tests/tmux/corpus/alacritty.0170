@@ -1,0 +1,7 @@
+00
+[32m[229879.108005] [0m[33mwlp3s0[0m: deauthenticated from 00:00:00:00:00:00 (Reason: 6=CLASS2_FRAME_FROM_NONAUTH_STA)
+[32m[229880.382542] [0m[33mwlp3s0[0m: authenticate with 00:00:00:00:00:00
+[32m[229880.389268] [0m[33mwlp3s0[0m: send auth to 00:00:00:00:00:00 (try 1/3)
+[32m[229880.429992] [0m[33mwlp3s0[0m: authenticated
+[32m[229880.433634] [0m[33mwlp3s0[0m: associate with 00:00:00:00:00:00 (try 1/3)
+[32m[229880.434832] [0m[33mwlp3s0[0m: RX AssocResp from 00:00:00:00:00:00 

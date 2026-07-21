@@ -1,0 +1,10 @@
+2 rustfmt.toml
+drwxr-xr-x  2 kchibisov kchibisov 4.0K Nov  3 09:50 scripts
+drwxr-xr-x  3 kchibisov kchibisov 4.0K Nov  3 09:50 servo-freetype-proxy
+drwxr-xr-x  4 kchibisov kchibisov 4.0K Nov 12 16:22 target
+-rw-r--r--  1 kchibisov kchibisov 1.7K Nov 13 20:02 .travis.yml
+drwxr-xr-x  3 kchibisov kchibisov 4.0K Nov 13 20:02 winpty
+[?2004h[kchibisov@NightLord alacritty]$ ls -lah
+[?2004ltotal 308K
+drwxr-xr-x 17 kchibisov kchibisov 4.0K Nov 16 05:14 .
+drwxr-xr-x 17 kchibisov kchibisov 4.0K Nov 15 23:2

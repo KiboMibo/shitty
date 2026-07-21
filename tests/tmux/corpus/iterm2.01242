@@ -1,0 +1,7 @@
+; fully-qualified     # ✴️ eight-pointed star
+2734                                       ; unqualified         # ✴ eight-pointed star
+2747 FE0F                                  ; fully-qualified     # ❇️ sparkle
+2747                                       ; unqualified         # ❇ sparkle
+203C FE0F                                  ; fully-qualified     # ‼️ double exclamation mark
+203C                                       ; unqualified         # ‼ double exclamation mark
+2049 FE0F         

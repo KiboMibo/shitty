@@ -1,0 +1,6 @@
+ed     # 🚶‍♀️ woman walking
+1F6B6 200D 2640                            ; minimally-qualified # 🚶‍♀ woman walking
+1F6B6 1F3FB 200D 2640 FE0F                 ; fully-qualified     # 🚶🏻‍♀️ woman walking: light skin tone
+1F6B6 1F3FB 200D 2640                      ; minimally-qualified # 🚶🏻‍♀ woman walking: light skin tone
+1F6B6 1F3FC 200D 2640 FE0F                 ; fully-qualified     # 🚶🏼‍♀️ woman walking: medium-light skin tone
+1F6B6 1F3FC 200D 2640          

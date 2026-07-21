@@ -1,0 +1,9 @@
+\
+Two adjacent links pointing to different URLs: ]8;;http://example.com/foo\foo]8;;\]8;;http://example.com/bar\bar]8;;\
+
+The same two without closing the first link: ]8;;http://example.com/foo\foo]8;;http://example.com/foo\foo]8;;\ ]8;;http://example.com/foo\foo]8;;http://example.com/bar\bar]8;;\
+
+A URL wrapping to the next line, and a trailing whitespace: ]8;;http://example.com/foobar\foo
+bar ]8;;\
+
+]8;;http://example.com/colors\[31mM[32mu[33ml[34mt[35mi[36m-[0;48;5;21mc[0

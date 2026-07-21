@@ -1,0 +1,7 @@
+um-dark skin tone
+1F9DD 1F3FF                                ; fully-qualified     # 🧝🏿 elf: dark skin tone
+1F9DD 200D 2642 FE0F                       ; fully-qualified     # 🧝‍♂️ man elf
+1F9DD 200D 2642                            ; minimally-qualified # 🧝‍♂ man elf
+1F9DD 1F3FB 200D 2642 FE0F                 ; fully-qualified     # 🧝🏻‍♂️ man elf: light skin tone
+1F9DD 1F3FB 200D 2642                      ; minimally-qualified # 🧝🏻‍♂ man elf: light skin tone
+1F9DD 

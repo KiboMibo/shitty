@@ -1,0 +1,6 @@
+53C                                      ; fully-qualified     # 🔼 upwards button
+23EB                                       ; fully-qualified     # ⏫ fast up button
+1F53D                                      ; fully-qualified     # 🔽 downwards button
+23EC                                       ; fully-qualified     # ⏬ fast down button
+23F8 FE0F                                  ; fully-qualified     # ⏸️ pause button
+23F8                                       ; unqualified         # ⏸ pause 

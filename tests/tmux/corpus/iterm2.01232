@@ -1,0 +1,7 @@
+              ; unqualified         # ⏯ play or pause button
+25C0 FE0F                                  ; fully-qualified     # ◀️ reverse button
+25C0                                       ; unqualified         # ◀ reverse button
+23EA                                       ; fully-qualified     # ⏪ fast reverse button
+23EE FE0F                                  ; fully-qualified     # ⏮️ last track button
+23EE                                       ; unqualified         # ⏮ last track button
+1F

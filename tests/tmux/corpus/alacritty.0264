@@ -1,0 +1,10 @@
+ and closing the terminal by using the window[m
+    "X" button. At that point, the recording is fully written to disk, and a[m
+    serialization of important state is recorded. Those files should be[m
+    moved to an appropriate folder in the `tests/ref/` tree, and the[m
+    `ref_test!` macro invocation should be updated accordingly.[m
+    [m
+    A couple of changes were necessary to make this work:[m
+    [m
+    * Ref tests shouldn't create a pty; the pty was refactored out of the[m
+      

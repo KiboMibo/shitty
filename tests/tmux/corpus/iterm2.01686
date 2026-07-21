@@ -1,0 +1,25 @@
+clude paths
+
+import foo
+import foo.bar
+import foo.bar;
+import "foo.bar";
+
+Quoted strings
+
+This is a "quoted string" for sure
+Here is "one with, some; punctuation!" in it
+Here's a fake quote \" and "a quoted string" fake quote \"
+A "quoted string with \" escaped quote" in it
+a "quoted string ending in escaped slash \\" haha
+
+objc selector
+foo:@selector(foo))
+foo:@selector(foo:bar:))
+
+email addr
+My email: foo123@bar.com <blah blah>
+Prefix: foo.bar@baz.com, suffix
+
+HTTP URLs (from adapted daring fireball)
+pref

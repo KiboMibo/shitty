@@ -1,0 +1,6 @@
+      ; fully-qualified     # 🕵🏽 detective: medium skin tone
+1F575 1F3FE                                ; fully-qualified     # 🕵🏾 detective: medium-dark skin tone
+1F575 1F3FF                                ; fully-qualified     # 🕵🏿 detective: dark skin tone
+1F575 FE0F 200D 2642 FE0F                  ; fully-qualified     # 🕵️‍♂️ man detective
+1F575 200D 2642 FE0F                       ; unqualified         # 🕵‍♂️ man detective
+1F575 FE0F 200D 2642                     

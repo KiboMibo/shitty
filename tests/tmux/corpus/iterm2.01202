@@ -1,0 +1,9 @@
+                                 ; fully-qualified     # 🔑 key
+1F5DD FE0F                                 ; fully-qualified     # 🗝️ old key
+1F5DD                                      ; unqualified         # 🗝 old key
+
+# subgroup: tool
+1F528                                      ; fully-qualified     # 🔨 hammer
+1FA93                                      ; fully-qualified     # 🪓 axe
+26CF FE0F                                  ; fully-qualified     # ⛏️ pick
+26CF                           

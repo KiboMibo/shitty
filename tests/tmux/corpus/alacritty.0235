@@ -1,0 +1,7 @@
+0.0[0m[31m: Unhandled alg: 0x707
+[0m[32m[230257.269874] [0m[33miwlwifi 0000:03:00.0[0m[31m: Unhandled alg: 0x707
+[0m[32m[230257.275363] [0m[33mwlp3s0[0m: authenticate with 00:00:00:00:00:00
+[32m[230257.281231] [0m[33mwlp3s0[0m: send auth to 00:00:00:00:00:00 (try 1/3)
+[32m[230257.326172] [0m[33mwlp3s0[0m: authenticated
+[32m[230257.332040] [0m[33mwlp3s0[0m: associate with 00:00:00:00:00:00 (try 1/3)
+[32m[230257.333311] [0m[33mwlp3s0[0m: RX ReassocResp from 00:00:00:00:00:00

@@ -1,0 +1,9 @@
+                          ; fully-qualified     # ☢️ radioactive
+2622                                       ; unqualified         # ☢ radioactive
+2623 FE0F                                  ; fully-qualified     # ☣️ biohazard
+2623                                       ; unqualified         # ☣ biohazard
+
+# subgroup: arrow
+2B06 FE0F                                  ; fully-qualified     # ⬆️ up arrow
+2B06                                       ; unqualified         # ⬆ up arrow
+2197 FE0F    

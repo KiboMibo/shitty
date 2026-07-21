@@ -1,0 +1,6 @@
+m
+[32m[230231.831049] [0m[33mCPU4[0m[1m[31m: Package temperature above threshold, cpu clock throttled (total events = 23046)[0m
+[32m[230231.831051] [0m[33mCPU11[0m[1m[31m: Package temperature above threshold, cpu clock throttled (total events = 23046)[0m
+[32m[230231.831052] [0m[33mCPU5[0m[1m[31m: Package temperature above threshold, cpu clock throttled (total events = 23046)[0m
+[32m[230231.837979] [0m[33mCPU3[0m: Core temperature/speed normal
+[32m[230231.837980] [0m[33mCPU9

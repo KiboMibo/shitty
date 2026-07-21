@@ -1,0 +1,6 @@
+                             ; fully-qualified     # ☑️ check box with check
+2611                                       ; unqualified         # ☑ check box with check
+2714 FE0F                                  ; fully-qualified     # ✔️ check mark
+2714                                       ; unqualified         # ✔ check mark
+2716 FE0F                                  ; fully-qualified     # ✖️ multiplication sign
+2716                                       ; unqualified         # ✖ multipl

@@ -1,0 +1,6 @@
+���‍♂️ man golfing: medium-dark skin tone
+1F3CC 1F3FE 200D 2642                      ; minimally-qualified # 🏌🏾‍♂ man golfing: medium-dark skin tone
+1F3CC 1F3FF 200D 2642 FE0F                 ; fully-qualified     # 🏌🏿‍♂️ man golfing: dark skin tone
+1F3CC 1F3FF 200D 2642                      ; minimally-qualified # 🏌🏿‍♂ man golfing: dark skin tone
+1F3CC FE0F 200D 2640 FE0F                  ; fully-qualified     # 🏌️‍♀️ woman golfing
+1F3CC 200D 2640 FE0F      

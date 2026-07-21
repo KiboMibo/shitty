@@ -1,0 +1,6 @@
+6 FE0F                                  ; fully-qualified     # ↖️ up-left arrow
+2196                                       ; unqualified         # ↖ up-left arrow
+2195 FE0F                                  ; fully-qualified     # ↕️ up-down arrow
+2195                                       ; unqualified         # ↕ up-down arrow
+2194 FE0F                                  ; fully-qualified     # ↔️ left-right arrow
+2194                                       ; unqualified         # ↔ left-ri

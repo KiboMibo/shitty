@@ -1,0 +1,7 @@
+     ; unqualified         # ⚕ medical symbol
+267E FE0F                                  ; fully-qualified     # ♾️ infinity
+267E                                       ; unqualified         # ♾ infinity
+267B FE0F                                  ; fully-qualified     # ♻️ recycling symbol
+267B                                       ; unqualified         # ♻ recycling symbol
+269C FE0F                                  ; fully-qualified     # ⚜️ fleur-de-lis
+269C                               

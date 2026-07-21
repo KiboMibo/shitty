@@ -1,0 +1,30 @@
+[?3h]4;105;rgb:ff/00/00
+[38;5;105mRed text at index 105
+
+]4;106;rgb:ff/ff/00
+[38;5;106mYellow text at index 106
+[38;5;105mtext at index 105 (bluish by default)
+
+[38;5;106mtext at index 106 (greenish by default)
+[?3lBack tab by 1:
+01234567890123456789[Z_
+
+Back tab by 2:
+01234567890123456789[2Z_
+
+Back tab by 99:
+01234567890123456789[99Z9
+
+Regular tab:
+01234567890123456789	_
+
+Default CHT:
+01234567890123456789[I_
+
+CHT 2:
+01234567890123456789[2I_
+
+CHT 99:
+01234567890123456789[99I_
+a⃑
+͂̀ͣ͋̚

@@ -1,0 +1,11 @@
+[39m log[?1l>[?2004l
+[?1049h[?1h=[33mcommit bdd21810882dbba8485ac44c871482dfc6ea9b93[m[m
+Author: Joe Wilm <joe@jwilm.com>[m
+Date:   Sat Nov 19 16:16:20 2016 -0800[m
+[m
+    Add support for recording/running ref tests[m
+    [m
+    Ref tests use a recording of the terminal protocol and a serialization[m
+    of the grid state to check that the parsing and action handling systems[m
+    produce the correct result. Ref tests may be recorded by running[m
+    alacritty with `--ref-test`

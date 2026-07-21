@@ -1,0 +1,9 @@
+1 ..
+-rw-r--r--  1 kchibisov kchibisov   10 Sep 26 16:22 .agignore
+drwxr-xr-x  4 kchibisov kchibisov 4.0K Nov 13 20:02 alacritty
+-rw-r--r--  1 kchibisov kchibisov 2.2K Nov 16 05:14 alacritty.recording
+drwxr-xr-x  5 kchibisov kchibisov 4.0K Nov 13 20:02 alacritty_terminal
+-rw-r--r--  1 kchibisov kchibisov  17K Nov 13 20:02 alacritty.yml
+-rw-r--r--  1 kchibisov kchibisov 128K Nov 13 20:02 Cargo.lock
+-rw-r--r--  1 kchibisov kchibisov  245 Nov  3 09:50 Cargo.toml
+-rw-r--r--  1 kchibisov kchibisov  22K N

@@ -1,0 +1,9 @@
+� globe with meridians
+1F5FA FE0F                                 ; fully-qualified     # 🗺️ world map
+1F5FA                                      ; unqualified         # 🗺 world map
+1F5FE                                      ; fully-qualified     # 🗾 map of Japan
+1F9ED                                      ; fully-qualified     # 🧭 compass
+
+# subgroup: place-geographic
+1F3D4 FE0F                                 ; fully-qualified     # 🏔️ snow-capped mountain
+1F3D4                          

@@ -1,0 +1,20 @@
+8:
+⌚⌚
+]1337;UnicodeVersion=popVersion 9:
+⌚⌚
+
+-- Test saved cursor --
+]1337;UnicodeVersion=87]1337;UnicodeVersion=98Version 8:
+⌚⌚
+]1337;UnicodeVersion=97]1337;UnicodeVersion=88Version 9:
+⌚⌚
+]1337;UnicodeVersion=0
+[?40hq⃝
+
+C3+A5 in current encoding: å
+Latin-1: Capital A with tilde, Capital Y with double stroke: %@å
+UTF-8: Lowercase a with ring: %Gå
+m 黑體-繁
+tell application "iTerm2"
+        create window with default profile
+        tell current session of first te

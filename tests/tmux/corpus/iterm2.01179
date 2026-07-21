@@ -1,0 +1,9 @@
+ile phone with arrow
+260E FE0F                                  ; fully-qualified     # ☎️ telephone
+260E                                       ; unqualified         # ☎ telephone
+1F4DE                                      ; fully-qualified     # 📞 telephone receiver
+1F4DF                                      ; fully-qualified     # 📟 pager
+1F4E0                                      ; fully-qualified     # 📠 fax machine
+
+# subgroup: computer
+1F50B                                      ; fully-

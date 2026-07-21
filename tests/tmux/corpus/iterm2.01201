@@ -1,0 +1,9 @@
+                    ; fully-qualified     # 🗑️ wastebasket
+1F5D1                                      ; unqualified         # 🗑 wastebasket
+
+# subgroup: lock
+1F512                                      ; fully-qualified     # 🔒 locked
+1F513                                      ; fully-qualified     # 🔓 unlocked
+1F50F                                      ; fully-qualified     # 🔏 locked with pen
+1F510                                      ; fully-qualified     # 🔐 locked with key
+1F511     

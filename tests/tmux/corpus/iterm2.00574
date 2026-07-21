@@ -1,0 +1,6 @@
+0F                 ; fully-qualified     # 👁️‍🗨️ eye in speech bubble
+1F441 200D 1F5E8 FE0F                      ; unqualified         # 👁‍🗨️ eye in speech bubble
+1F441 FE0F 200D 1F5E8                      ; unqualified         # 👁️‍🗨 eye in speech bubble
+1F441 200D 1F5E8                           ; unqualified         # 👁‍🗨 eye in speech bubble
+1F5E8 FE0F                                 ; fully-qualified     # 🗨️ left speech bubble
+1F5E8                         

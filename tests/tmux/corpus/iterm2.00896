@@ -1,0 +1,6 @@
+        ; fully-qualified     # 🧎🏾 person kneeling: medium-dark skin tone
+1F9CE 1F3FF                                ; fully-qualified     # 🧎🏿 person kneeling: dark skin tone
+1F9CE 200D 2642 FE0F                       ; fully-qualified     # 🧎‍♂️ man kneeling
+1F9CE 200D 2642                            ; minimally-qualified # 🧎‍♂ man kneeling
+1F9CE 1F3FB 200D 2642 FE0F                 ; fully-qualified     # 🧎🏻‍♂️ man kneeling: light skin tone
+1F9CE 1F3FB 200D 2642   

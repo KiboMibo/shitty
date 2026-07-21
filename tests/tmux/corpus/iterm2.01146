@@ -1,0 +1,7 @@
+ 🌧️ cloud with rain
+1F327                                      ; unqualified         # 🌧 cloud with rain
+1F328 FE0F                                 ; fully-qualified     # 🌨️ cloud with snow
+1F328                                      ; unqualified         # 🌨 cloud with snow
+1F329 FE0F                                 ; fully-qualified     # 🌩️ cloud with lightning
+1F329                                      ; unqualified         # 🌩 cloud with lightning
+1F32A FE0F                     

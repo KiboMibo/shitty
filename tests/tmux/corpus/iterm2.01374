@@ -1,0 +1,13 @@
+n=8:
+⌚⌚
+]1337;UnicodeVersion=9These will not overlap if your terminal is in unicode 9 mode after sending UnicodeVersion=9:
+⌚⌚
+
+- Unicode version stack test -
+]1337;UnicodeVersion=9]1337;UnicodeVersion=push]1337;UnicodeVersion=8]1337;UnicodeVersion=push]1337;UnicodeVersion=push]1337;UnicodeVersion=9]1337;UnicodeVersion=push]1337;UnicodeVersion=8Version 8:
+⌚⌚
+]1337;UnicodeVersion=popVersion 9:
+⌚⌚
+]1337;UnicodeVersion=popVersion 8:
+⌚⌚
+]1337;UnicodeVersion=popVersion 

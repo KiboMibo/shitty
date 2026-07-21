@@ -1,0 +1,9 @@
+-- 1 jwilm jwilm  65K Feb  8  2017 lgtest
+-rw-rw-r-- 1 jwilm jwilm  11K Jun 29  2016 LICENSE-APACHE
+-rw-rw-r-- 1 jwilm jwilm  742 Jan  1  2017 log.txt
+-rw-rw-r-- 1 jwilm jwilm 1.4K Oct 22 11:43 Makefile
+-rw------- 1 jwilm jwilm  186 Oct 14 12:08 massif.out.21446
+-rw------- 1 jwilm jwilm  187 Oct 14 12:08 massif.out.21582
+-rw------- 1 jwilm jwilm 5.4M Oct 14 18:22 massif.out.24704
+-rw------- 1 jwilm jwilm 3.0M Oct 14 18:24 massif.out.25053
+-rw------- 1 jwilm jwilm  10M Oct 14 18:28 massif.out.25609

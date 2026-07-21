@@ -1,0 +1,13 @@
+ profile "Default"
+                split vertically with same profile
+                
+                split horizontally with default profile
+                split horizontally with profile "Default"
+                split horizontally with same profile
+        end tell
+        create window with profile "Default"
+        create window with profile "Default" command "ls -l -R /"
+        repeat with aWindow in terminal windows
+                tell aWindow
+                        tell current session
+        

@@ -1,0 +1,5 @@
+iting TX power to 23 (23 - 0) dBm as advertised by 00:00:00:00:00:00
+[32m[230231.830965] [0m[33mCPU9[0m[1m[31m: Core temperature above threshold, cpu clock throttled (total events = 15794)[0m
+[32m[230231.830966] [0m[33mCPU8[0m[1m[31m: Package temperature above threshold, cpu clock throttled (total events = 23046)[0m
+[32m[230231.830967] [0m[33mCPU3[0m[1m[31m: Core temperature above threshold, cpu clock throttled (total events = 15794)[0m
+[32m[230231.830968] [0m[33mCPU2[0m[1m[31

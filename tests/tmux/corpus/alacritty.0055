@@ -1,0 +1,6 @@
+C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[21Pprintf "\e[31;1;4;9mTEST asd\n"
+[?2004l[31;1;4;9mTEST asd
+[?2004h[kchibisov@NightLord alacritty]$ printf "\e[31;1;4;9mTEST asd\n"echo -e "hello        world" "\033[10;D"  "\033[4;X"
+[?2004lhello        world [10;D [4;X
+[?2004h[kchibisov@NightLord alacritty]$ ]50;CursorShape=0]0;fish  alacritty[30m(B[mWelcome to fish, the friendly interactive shell
+Type [32mhelp[30m[0;10m for instructions on how to use f

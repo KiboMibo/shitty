@@ -1,0 +1,7 @@
+ort-air
+2708 FE0F                                  ; fully-qualified     # ✈️ airplane
+2708                                       ; unqualified         # ✈ airplane
+1F6E9 FE0F                                 ; fully-qualified     # 🛩️ small airplane
+1F6E9                                      ; unqualified         # 🛩 small airplane
+1F6EB                                      ; fully-qualified     # 🛫 airplane departure
+1F6EC                                      ; fully-qualified     # 🛬 a

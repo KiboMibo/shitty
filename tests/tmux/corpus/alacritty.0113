@@ -1,0 +1,10 @@
+build.rs
+-rw-rw-r-- 1 jwilm jwilm 2.1M May  8  2017 build.txt
+drwxrwxr-x 2 jwilm jwilm 4.0K Feb 17  2017 [01;34m_.cargo[0m
+-rw-rw-r-- 1 jwilm jwilm  71K Nov  2 08:24 Cargo.lock
+-rw-rw-r-- 1 jwilm jwilm 1.1K Nov  2 08:25 Cargo.toml
+drwxrwxr-x 3 jwilm jwilm 4.0K Sep 28  2016 [01;34mclip[0m
+drwxrwxr-x 4 jwilm jwilm 4.0K Nov  2 08:24 [01;34mcopypasta[0m
+-rw-rw-r-- 1 jwilm jwilm  432 Jan  2  2017 curse.py
+drwxrwxr-x 2 jwilm jwilm 4.0K Nov  2 08:25 [01;34mdocs[0m
+-rwxrwxr-x 1 jwilm jwilm  23M Feb

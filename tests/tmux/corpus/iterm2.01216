@@ -1,0 +1,7 @@
+                        ; fully-qualified     # ⚠️ warning
+26A0                                       ; unqualified         # ⚠ warning
+1F6B8                                      ; fully-qualified     # 🚸 children crossing
+26D4                                       ; fully-qualified     # ⛔ no entry
+1F6AB                                      ; fully-qualified     # 🚫 prohibited
+1F6B3                                      ; fully-qualified     # 🚳 no bicycles
+1F6AD                            

@@ -1,0 +1,8 @@
+]8;id=1;http://example.com/bar\bar]8;;\]8;id=1:baz=quux;http://example.com/foo\foo]8;;\]8;id=1;http://example.com/bar\bar]8;;\]8;foo=bar:id=1:baz=quux;http://example.com/foo\foo]8;;\
+
+Screenshot from an imaginary text editor:
+╔═ file1 ════╗
+║          ╔═ file2 ═══╗
+║]8;id=imaginary-text-editor-file1;http://example.com\http://exa]8;;\║Lorem ipsum║
+║]8;id=imaginary-text-editor-file1;http://example.com\le.com]8;;\    ║ dolor sit ║
+║          ║

@@ -1,0 +1,9 @@
+;48;5;27mo[0;48;5;33ml[0;48;5;39mo[0;48;5;45mu[0;48;5;51mr[m [1ml[0;3mi[0;4mn[0;9mk[m also tests that "\e[m" or "\e[0m" does [3mnot[0m terminate the link]8;;\
+
+Soft reset "\e[!p" resets attributes and terminates link: ]8;;http://example.com/softreset\[3;31mfoo[!pbar
+
+]8;;http://example.com/width\Some CJK and combining accents: 䀀䀁䀂ćĝm̃n̄o̅]8;;\
+
+(Introducing the "under_score" character for even more fun)
+
+Explicit and implicit link: ]8;;http://example.com/under_score\http

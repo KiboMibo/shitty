@@ -1,0 +1,6 @@
+K Nov  3 09:50 scripts
+drwxr-xr-x  3 kchibisov kchibisov 4.0K Nov  3 09:50 servo-freetype-proxy
+drwxr-xr-x  4 kchibisov kchibisov 4.0K Nov 12 16:22 target
+-rw-r--r--  1 kchibisov kchibisov 1.7K Nov 13 20:02 .travis.yml
+drwxr-xr-x  3 kchibisov kchibisov 4.0K Nov 13 20:02 winpty
+[?2004h[kchibisov@NightLord alacritty]$ echo -e "\[K[K[K[K[K[K[K[K[K[K[11P(reverse-i-search)`':[C[24@p':  printf "\e[31;1;4;9m"[1@r[C[C[C[C[1@i[C[C[C[C[8@[

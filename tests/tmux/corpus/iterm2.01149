@@ -1,0 +1,7 @@
+  # ⛱️ umbrella on ground
+26F1                                       ; unqualified         # ⛱ umbrella on ground
+26A1                                       ; fully-qualified     # ⚡ high voltage
+2744 FE0F                                  ; fully-qualified     # ❄️ snowflake
+2744                                       ; unqualified         # ❄ snowflake
+2603 FE0F                                  ; fully-qualified     # ☃️ snowman
+2603                                       ; unqualified     

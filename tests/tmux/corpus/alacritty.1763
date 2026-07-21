@@ -1,0 +1,6 @@
+24 Line 26
+MMJump scroll down region [1..24] size 24 Line 27
+MMJump scroll down region [1..24] size 24 Line 28
+MMJump scroll down region [1..24] size 24 Line 29
+MMPush <RETURN>[2J[23;24r
+Origin mode test. This line should be at the bottom of the screen.[1;1HThis line should be the one above the bottom of the screen. Push <RETURN>[1m[7m%[27m[1m[0m                                                                                ]2;jwilm@jwilm-desk: ~/code/alacritty]1;..ode/alacritty

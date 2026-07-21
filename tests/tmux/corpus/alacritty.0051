@@ -1,0 +1,8 @@
+r--r--  1 undeadleech undeadleech  17K Nov 15 20:33 alacritty.yml
+-rw-r--r--  1 undeadleech undeadleech 128K Nov 15 20:33 Cargo.lock
+-rw-r--r--  1 undeadleech undeadleech  245 Nov 15 20:33 Cargo.toml
+-rw-r--r--  1 undeadleech undeadleech  22K Nov 15 20:38 CHANGELOG.md
+drwxr-xr-x  4 undeadleech undeadleech  140 Nov 15 20:33 ci
+-rw-r--r--  1 undeadleech undeadleech 5.5K Nov 15 20:33 CONTRIBUTING.md
+drwxr-xr-x  2 undeadleech undeadleech   60 Nov 15 20:33 .copr
+drwxr-xr-x  4 undeadleech undeadleech  160 

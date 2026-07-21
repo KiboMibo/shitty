@@ -1,0 +1,6 @@
+erson walking: medium-dark skin tone
+1F6B6 1F3FF                                ; fully-qualified     # 🚶🏿 person walking: dark skin tone
+1F6B6 200D 2642 FE0F                       ; fully-qualified     # 🚶‍♂️ man walking
+1F6B6 200D 2642                            ; minimally-qualified # 🚶‍♂ man walking
+1F6B6 1F3FB 200D 2642 FE0F                 ; fully-qualified     # 🚶🏻‍♂️ man walking: light skin tone
+1F6B6 1F3FB 200D 2642                      ; minimally-qualified # 🚶

@@ -1,0 +1,6 @@
+ully-qualified     # 🏋️‍♂️ man lifting weights
+1F3CB 200D 2642 FE0F                       ; unqualified         # 🏋‍♂️ man lifting weights
+1F3CB FE0F 200D 2642                       ; unqualified         # 🏋️‍♂ man lifting weights
+1F3CB 200D 2642                            ; unqualified         # 🏋‍♂ man lifting weights
+1F3CB 1F3FB 200D 2642 FE0F                 ; fully-qualified     # 🏋🏻‍♂️ man lifting weights: light skin tone
+1F3CB 1F3FB 200D 2642           

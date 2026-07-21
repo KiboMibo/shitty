@@ -1,0 +1,22 @@
+s consisting of anything but whitespace
+foo bar baz
+foo 𠀋∮E⋅da=Q,n→∞,∑f(i)=∏g(i), bar
+
+C++ namespace
+
+foo namespace::classname bar
+foo namespace::classname::subclass bar
+foo namespace::classname::Sub_Class1 bar
+
+Paths
+prefix:foo;suffix
+prefix:/foo;suffix
+prefix:/foo/bar;suffix
+prefix:/foo/bar_baz;suffix
+prefix:/foo/bar/file.ext;suffix
+prefix:/foo/bar/file-name.ext;suffix
+prefix=/foo/bar/file-name.ext;suffix
+prefix:~/foo/bar/file-name.ext;suffix
+prefix=~/foo/bar/file-name.ext;suffix
+
+Dotted in

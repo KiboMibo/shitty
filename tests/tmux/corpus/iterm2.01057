@@ -1,0 +1,5 @@
+    # 👨‍👩‍👦 family: man, woman, boy
+1F468 200D 1F469 200D 1F467                ; fully-qualified     # 👨‍👩‍👧 family: man, woman, girl
+1F468 200D 1F469 200D 1F467 200D 1F466     ; fully-qualified     # 👨‍👩‍👧‍👦 family: man, woman, girl, boy
+1F468 200D 1F469 200D 1F466 200D 1F466     ; fully-qualified     # 👨‍👩‍👦‍👦 family: man, woman, boy, boy
+1F468 200D 1F469 200D 1F467 200D 1F467     ; fully-qualified     # 👨‍👩‍👧‍👧 family: man, w

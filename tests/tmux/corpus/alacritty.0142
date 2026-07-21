@@ -1,0 +1,7 @@
+wlp3s0[0m: associated
+[32m[229398.373686] [0m[33mwlp3s0[0m: Limiting TX power to 30 (30 - 0) dBm as advertised by 00:00:00:00:00:00
+[32m[229430.169385] [0m[33mwlp3s0[0m: disconnect from AP 00:00:00:00:00:00 for new auth to 00:00:00:00:00:00
+[32m[229430.209398] [0m[33miwlwifi 0000:03:00.0[0m[31m: Unhandled alg: 0x707
+[0m[32m[229430.209406] [0m[33miwlwifi 0000:03:00.0[0m[31m: Unhandled alg: 0x707
+[0m[32m[229430.209409] [0m[33miwlwifi 0000:03:00.0[0m[31m: Unhandled alg: 0x707
+[

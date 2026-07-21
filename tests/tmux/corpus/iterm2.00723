@@ -1,0 +1,5 @@
+E0F                       ; fully-qualified     # 👨‍⚕️ man health worker
+1F468 200D 2695                            ; minimally-qualified # 👨‍⚕ man health worker
+1F468 1F3FB 200D 2695 FE0F                 ; fully-qualified     # 👨🏻‍⚕️ man health worker: light skin tone
+1F468 1F3FB 200D 2695                      ; minimally-qualified # 👨🏻‍⚕ man health worker: light skin tone
+1F468 1F3FC 200D 2695 FE0F                 ; fully-qualified     # 👨🏼‍⚕️ man health w

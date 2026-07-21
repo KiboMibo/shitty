@@ -1,0 +1,5 @@
+p3s0[0m: Limiting TX power to 30 (30 - 0) dBm as advertised by 00:00:00:00:00:00
+[32m[230257.232908] [0m[33mwlp3s0[0m: disconnect from AP 00:00:00:00:00:00 for new auth to 00:00:00:00:00:00
+[32m[230257.238433] [0m[33miwlwifi 0000:03:00.0[0m[31m: expected hw-decrypted unicast frame for station
+[0m[32m[230257.238455] [0m[33miwlwifi 0000:03:00.0[0m[31m: expected hw-decrypted unicast frame for station
+[0m[32m[230257.238511] [0m[33miwlwifi 0000:03:00.0[0m[31m: expected hw-decrypted unic

@@ -1,0 +1,10 @@
+oft scroll down region [1..24] size 24 Line 22
+MMSoft scroll down region [1..24] size 24 Line 23
+MMSoft scroll down region [1..24] size 24 Line 24
+MMSoft scroll down region [1..24] size 24 Line 25
+MMSoft scroll down region [1..24] size 24 Line 26
+MMSoft scroll down region [1..24] size 24 Line 27
+MMSoft scroll down region [1..24] size 24 Line 28
+MMSoft scroll down region [1..24] size 24 Line 29
+MMPush <RETURN>[?4l[12;13r[2J[24BJump scroll up region [12..13] size 2 Line 1
+Jump scr

@@ -1,0 +1,38 @@
+HARACTER SARA A + COMBINING ACUTE ACCENT
+A        | 41             | 0041      | LATIN CAPITAL LETTER A
+]52;;SGVsbG8gd29ybGQ=]1337;CopyToClipboardHello
+world
+]1337;EndCopy
+
+[10;10H]1337;Custom=id=x:y
+P$q q\
+Expect:
+^[P1$r1;2;3;38:2:1:64:128:255;4;48:2:1:32:96:224;5;7;9m^[\
+
+[1;2;3;4;5;7;9;38:2:64:128:255;48:2:1:32:96:224mWowP$qm\[m
+
+[2J[fabcdefgh
+ijklmnop
+qrstuvwx[1;1H[1M
+
+
+
+
+
+[2J[fabcdefgh
+ijklmnop
+qrstuvwx
+01234567
+ABCDEFGH
+IJKLMNOP[?69h[2;5s[3;5r[1;1H[1M[20;20H
+
+
+
+
+
+
+
+
+
+♢
+[?

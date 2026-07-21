@@ -1,0 +1,6 @@
+ with heart: man, man
+1F468 200D 2764 200D 1F468                 ; minimally-qualified # 👨‍❤‍👨 couple with heart: man, man
+1F469 200D 2764 FE0F 200D 1F469            ; fully-qualified     # 👩‍❤️‍👩 couple with heart: woman, woman
+1F469 200D 2764 200D 1F469                 ; minimally-qualified # 👩‍❤‍👩 couple with heart: woman, woman
+1F46A                                      ; fully-qualified     # 👪 family
+1F468 200D 1F469 200D 1F466                ; fully-qualified 

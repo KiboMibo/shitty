@@ -1,0 +1,6 @@
+             ; fully-qualified     # 👨🏿‍✈️ man pilot: dark skin tone
+1F468 1F3FF 200D 2708                      ; minimally-qualified # 👨🏿‍✈ man pilot: dark skin tone
+1F469 200D 2708 FE0F                       ; fully-qualified     # 👩‍✈️ woman pilot
+1F469 200D 2708                            ; minimally-qualified # 👩‍✈ woman pilot
+1F469 1F3FB 200D 2708 FE0F                 ; fully-qualified     # 👩🏻‍✈️ woman pilot: light skin tone
+1F469 1F3FB 200D 2708     

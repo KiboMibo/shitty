@@ -1,0 +1,5 @@
+; fully-qualified     # 👱🏽‍♂️ man: medium skin tone, blond hair
+1F471 1F3FD 200D 2642                      ; minimally-qualified # 👱🏽‍♂ man: medium skin tone, blond hair
+1F471 1F3FE 200D 2642 FE0F                 ; fully-qualified     # 👱🏾‍♂️ man: medium-dark skin tone, blond hair
+1F471 1F3FE 200D 2642                      ; minimally-qualified # 👱🏾‍♂ man: medium-dark skin tone, blond hair
+1F471 1F3FF 200D 2642 FE0F                 ; fully-qualified     # 👱🏿

@@ -1,0 +1,12 @@
+ed     # 🏺 amphora
+
+# Food & Drink subtotal:		123
+# Food & Drink subtotal:		123	w/o modifiers
+
+# group: Travel & Places
+
+# subgroup: place-map
+1F30D                                      ; fully-qualified     # 🌍 globe showing Europe-Africa
+1F30E                                      ; fully-qualified     # 🌎 globe showing Americas
+1F30F                                      ; fully-qualified     # 🌏 globe showing Asia-Australia
+1F310                                      ; fully-qualified     # �

@@ -1,0 +1,7 @@
+fully-qualified     # 🖊️ pen
+1F58A                                      ; unqualified         # 🖊 pen
+1F58C FE0F                                 ; fully-qualified     # 🖌️ paintbrush
+1F58C                                      ; unqualified         # 🖌 paintbrush
+1F58D FE0F                                 ; fully-qualified     # 🖍️ crayon
+1F58D                                      ; unqualified         # 🖍 crayon
+1F4DD                                      ; fully-qualified     # 📝 

@@ -1,0 +1,10 @@
+
+drwxrwxr-x 2 jwilm jwilm 4.0K Nov  2 08:25 [01;34mres[0m
+-rw-rw-r-- 1 jwilm jwilm  21K Feb  1  2017 save-restore.recording
+drwxrwxr-x 2 jwilm jwilm 4.0K Nov  2 08:25 [01;34mscripts[0m
+srw-rw---- 1 jwilm jwilm    0 Jan  1  2017 [01;35msgr[0m
+drwxrwxr-x 2 jwilm jwilm 4.0K Oct 22 11:43 [01;34msnap[0m
+drwxrwxr-x 4 jwilm jwilm 4.0K Nov 11 08:43 [01;34msrc[0m
+drwxrwxr-x 5 jwilm jwilm 4.0K Jun 17 21:36 [01;34mtarget[0m
+-rw-rw-r-- 1 jwilm jwilm   49 Jun  6  2016 TASKS.md
+-rw-rw-r-- 1 jwilm jwi

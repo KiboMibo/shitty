@@ -1,0 +1,9 @@
+       ; unqualified         # 🏝 desert island
+1F3DE FE0F                                 ; fully-qualified     # 🏞️ national park
+1F3DE                                      ; unqualified         # 🏞 national park
+
+# subgroup: place-building
+1F3DF FE0F                                 ; fully-qualified     # 🏟️ stadium
+1F3DF                                      ; unqualified         # 🏟 stadium
+1F3DB FE0F                                 ; fully-qualified     # 🏛️ classical building
+1F

@@ -1,0 +1,2 @@
+     *     *     *     *     *     *     *     *     *     *     *     *     *[4;1HTest of TAB setting/resetting. These two lines
+should look the same. Push <RETURN>[?5h[?3h[2J[1;1H[3g[8CH[8CH[8CH[8CH[8CH[8CH[8CH[8CH[8CH[8CH[8CH[8CH[8CH[8CH[8CH[8CH[8CH[1;1H12345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901[3;3HThis is 132 column mode, light background.[4;4HThis is 132 column mode, li

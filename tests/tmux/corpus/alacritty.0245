@@ -1,0 +1,11 @@
+ xxx
+[undeadleech@archhq saved_cursor]$ exit
+exit
+[undeadleech@archhq saved_cursor_alt]$ echo -e "\e(0\e[10;$(tput cols)H \e[?1049h\e7 \e[?1049l \e(B\e[H \e[?1049h test\e8xxx"
+(0[10;139H [?1049h7 [?1049l (B[H [?1049h test8xxx
+[undeadleech@archhq saved_cursor_alt]$ exit
+exit
+[?2004h[kchibisov@NightLord alacritty]$ [K[kchibisov@NightLord alacritty]$ [K[kchibisov@NightLord alacritty]$ ls -lah
+[?2004ltotal 308K
+drwxr-xr-x 17 kchibisov kchibisov 4.0K Nov 16 05:14 .
+drwxr-xr-x 17 kchibis

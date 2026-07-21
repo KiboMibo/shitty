@@ -1,0 +1,9 @@
+ip
+1F6F3                                      ; unqualified         # 🛳 passenger ship
+26F4 FE0F                                  ; fully-qualified     # ⛴️ ferry
+26F4                                       ; unqualified         # ⛴ ferry
+1F6E5 FE0F                                 ; fully-qualified     # 🛥️ motor boat
+1F6E5                                      ; unqualified         # 🛥 motor boat
+1F6A2                                      ; fully-qualified     # 🚢 ship
+
+# subgroup: transp

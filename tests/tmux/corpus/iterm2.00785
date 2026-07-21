@@ -1,0 +1,5 @@
+                     ; unqualified         # 🕵️‍♀ woman detective
+1F575 200D 2640                            ; unqualified         # 🕵‍♀ woman detective
+1F575 1F3FB 200D 2640 FE0F                 ; fully-qualified     # 🕵🏻‍♀️ woman detective: light skin tone
+1F575 1F3FB 200D 2640                      ; minimally-qualified # 🕵🏻‍♀ woman detective: light skin tone
+1F575 1F3FC 200D 2640 FE0F                 ; fully-qualified     # 🕵🏼‍♀️ woman detective: medium-l

@@ -1,0 +1,10 @@
+2004l[?1049h[22;0;0t[1;30r(B[m[4l[?7h[?1h=[?25l[39;49m[?1000h[?2004h[kchibisov@NightLord alacritty]$ [?2004l
+exit
+[undeadleech@undeadlap alacritty]$ echo -e "\e[4mUNDERLINED"
+[4mUNDERLINED
+[undeadleech@undeadlap alacritty]$ clear
+[3J[H[2J[undeadleech@undeadlap alacritty]$ exit
+exit
+[undeadleech@archhq colored_reset]$ printf "\e[41m"
+[41m[undeadleech@archhq colored_reset]$ [H[2J[undeadleech@archhq colored_reset]$ printf "\e[0m"
+[0m[undeadleech@archhq colored_reset]$ ls -[K

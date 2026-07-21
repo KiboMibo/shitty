@@ -1,0 +1,5 @@
+nimally-qualified # 🏋🏽‍♂ man lifting weights: medium skin tone
+1F3CB 1F3FE 200D 2642 FE0F                 ; fully-qualified     # 🏋🏾‍♂️ man lifting weights: medium-dark skin tone
+1F3CB 1F3FE 200D 2642                      ; minimally-qualified # 🏋🏾‍♂ man lifting weights: medium-dark skin tone
+1F3CB 1F3FF 200D 2642 FE0F                 ; fully-qualified     # 🏋🏿‍♂️ man lifting weights: dark skin tone
+1F3CB 1F3FF 200D 2642                      ; minimally-qualified 

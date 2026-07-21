@@ -1,0 +1,7 @@
+07 FE0F                                  ; fully-qualified     # ⬇️ down arrow
+2B07                                       ; unqualified         # ⬇ down arrow
+2199 FE0F                                  ; fully-qualified     # ↙️ down-left arrow
+2199                                       ; unqualified         # ↙ down-left arrow
+2B05 FE0F                                  ; fully-qualified     # ⬅️ left arrow
+2B05                                       ; unqualified         # ⬅ left arrow
+219

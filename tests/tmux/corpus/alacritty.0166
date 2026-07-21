@@ -1,0 +1,7 @@
+miwlwifi 0000:03:00.0[0m[31m: Unhandled alg: 0x707
+[0m[32m[229430.221124] [0m[33mwlp3s0[0m: authenticate with 00:00:00:00:00:00
+[32m[229430.222243] [0m[33mwlp3s0[0m: send auth to 00:00:00:00:00:00 (try 1/3)
+[32m[229430.262505] [0m[33mwlp3s0[0m: authenticated
+[32m[229430.263310] [0m[33mwlp3s0[0m: associate with 00:00:00:00:00:00 (try 1/3)
+[32m[229430.264564] [0m[33mwlp3s0[0m: RX ReassocResp from 00:00:00:00:00:00 (capab=0x1411 status=0 aid=1)
+[32m[229430.266358] [0m[33mwlp3s0

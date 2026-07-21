@@ -1,0 +1,11 @@
+�═══════════
+
+[33mcommit ]8;;https://git.gnome.org/browse/vte/commit/?id=a9b0b4c75a6dc7282f7cfcaef71413d69f7f0731\a9b0b4c75a6dc7282f7cfcaef71413d69f7f0731]8;;\[m
+Author: Egmont Koblinger <]8;;mailto:egmont@gmail.com\egmont@gmail.com]8;;\>
+Date:   Sat Oct 24 00:12:22 2015 +0200
+
+    widget: Implement smooth scrolling
+    
+    ]8;;https://bugzilla.gnome.org/show_bug.cgi?id=746690\Bug #746690]8;;\
+
+[33mcommit ]8;;https://git.gnome.org/browse/vte/commit/?id=6a74baeaabb0a1ce

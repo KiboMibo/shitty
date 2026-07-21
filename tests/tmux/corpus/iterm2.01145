@@ -1,0 +1,6 @@
+          ; unqualified         # 🌤 sun behind small cloud
+1F325 FE0F                                 ; fully-qualified     # 🌥️ sun behind large cloud
+1F325                                      ; unqualified         # 🌥 sun behind large cloud
+1F326 FE0F                                 ; fully-qualified     # 🌦️ sun behind rain cloud
+1F326                                      ; unqualified         # 🌦 sun behind rain cloud
+1F327 FE0F                                 ; fully-qualified     #

@@ -1,0 +1,8 @@
+                    set ANSI bright black color to {65535, 0, 0, 0}
+                        set ANSI bright red color to {65535, 0, 0, 0}
+                        set ANSI bright green color to {65535, 0, 0, 0}
+                        set ANSI bright yellow color to {65535, 0, 0, 0}
+                        set ANSI bright blue color to {65535, 0, 0, 0}
+                        set ANSI bright magenta color to {65535, 0, 0, 0}
+                        set ANSI bright cyan color to {65535, 0, 0, 0}
+             

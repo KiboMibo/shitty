@@ -1,0 +1,7 @@
+ght arrow
+21A9 FE0F                                  ; fully-qualified     # ↩️ right arrow curving left
+21A9                                       ; unqualified         # ↩ right arrow curving left
+21AA FE0F                                  ; fully-qualified     # ↪️ left arrow curving right
+21AA                                       ; unqualified         # ↪ left arrow curving right
+2934 FE0F                                  ; fully-qualified     # ⤴️ right arrow curving up
+2934           

@@ -1,0 +1,7 @@
+ualified     # ⏱️ stopwatch
+23F1                                       ; unqualified         # ⏱ stopwatch
+23F2 FE0F                                  ; fully-qualified     # ⏲️ timer clock
+23F2                                       ; unqualified         # ⏲ timer clock
+1F570 FE0F                                 ; fully-qualified     # 🕰️ mantelpiece clock
+1F570                                      ; unqualified         # 🕰 mantelpiece clock
+1F55B                                      ; fu

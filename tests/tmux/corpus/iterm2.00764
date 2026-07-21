@@ -1,0 +1,6 @@
+t: medium-light skin tone
+1F468 1F3FD 200D 2708 FE0F                 ; fully-qualified     # 👨🏽‍✈️ man pilot: medium skin tone
+1F468 1F3FD 200D 2708                      ; minimally-qualified # 👨🏽‍✈ man pilot: medium skin tone
+1F468 1F3FE 200D 2708 FE0F                 ; fully-qualified     # 👨🏾‍✈️ man pilot: medium-dark skin tone
+1F468 1F3FE 200D 2708                      ; minimally-qualified # 👨🏾‍✈ man pilot: medium-dark skin tone
+1F468 1F3FF 200D 2708 FE0F    

@@ -1,0 +1,18 @@
+and strikethrough[m
+[9;4:3mCurly underlined and strikethrough[m
+[4:3;9mCurly underlined and strikethrough[m
+
+
+OSC 8 URL TESTS
+
+Plain URL:
+]8;;https://bugzilla.gnome.org/show_bug.cgi?id=779734gnome-terminal #779734]8;;
+
+With underline:
+[4m]8;;https://bugzilla.gnome.org/show_bug.cgi?id=779734gnome-terminal #779734]8;;[m
+
+With strikethrough:
+[9m]8;;https://bugzilla.gnome.org/show_bug.cgi?id=779734gnome-terminal #779734]8;;[m
+
+With underline and strikethrough:
+[4;9m]8;;https://bugzilla.gn

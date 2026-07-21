@@ -1,0 +1,7 @@
+� input numbers
+1F523                                      ; fully-qualified     # 🔣 input symbols
+1F524                                      ; fully-qualified     # 🔤 input latin letters
+1F170 FE0F                                 ; fully-qualified     # 🅰️ A button (blood type)
+1F170                                      ; unqualified         # 🅰 A button (blood type)
+1F18E                                      ; fully-qualified     # 🆎 AB button (blood type)
+1F171 FE0F                      

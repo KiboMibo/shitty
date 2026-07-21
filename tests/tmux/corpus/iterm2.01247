@@ -1,0 +1,8 @@
+: 2
+0033 FE0F 20E3                             ; fully-qualified     # 3️⃣ keycap: 3
+0033 20E3                                  ; unqualified         # 3⃣ keycap: 3
+0034 FE0F 20E3                             ; fully-qualified     # 4️⃣ keycap: 4
+0034 20E3                                  ; unqualified         # 4⃣ keycap: 4
+0035 FE0F 20E3                             ; fully-qualified     # 5️⃣ keycap: 5
+0035 20E3                                  ; unqualified         # 5⃣ keycap: 5
+0036 FE

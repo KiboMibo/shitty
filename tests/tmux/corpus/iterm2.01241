@@ -1,0 +1,7 @@
+p
+27BF                                       ; fully-qualified     # ➿ double curly loop
+303D FE0F                                  ; fully-qualified     # 〽️ part alternation mark
+303D                                       ; unqualified         # 〽 part alternation mark
+2733 FE0F                                  ; fully-qualified     # ✳️ eight-spoked asterisk
+2733                                       ; unqualified         # ✳ eight-spoked asterisk
+2734 FE0F                                  

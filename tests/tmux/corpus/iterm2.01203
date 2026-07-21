@@ -1,0 +1,7 @@
+            ; unqualified         # ⛏ pick
+2692 FE0F                                  ; fully-qualified     # ⚒️ hammer and pick
+2692                                       ; unqualified         # ⚒ hammer and pick
+1F6E0 FE0F                                 ; fully-qualified     # 🛠️ hammer and wrench
+1F6E0                                      ; unqualified         # 🛠 hammer and wrench
+1F5E1 FE0F                                 ; fully-qualified     # 🗡️ dagger
+1F5E1                    

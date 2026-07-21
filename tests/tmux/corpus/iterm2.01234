@@ -1,0 +1,7 @@
+button
+23F9 FE0F                                  ; fully-qualified     # ⏹️ stop button
+23F9                                       ; unqualified         # ⏹ stop button
+23FA FE0F                                  ; fully-qualified     # ⏺️ record button
+23FA                                       ; unqualified         # ⏺ record button
+23CF FE0F                                  ; fully-qualified     # ⏏️ eject button
+23CF                                       ; unqualified         # ⏏ eject

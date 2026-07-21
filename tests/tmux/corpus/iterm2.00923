@@ -1,0 +1,6 @@
+n tone
+1F9D6 1F3FF                                ; fully-qualified     # 🧖🏿 person in steamy room: dark skin tone
+1F9D6 200D 2642 FE0F                       ; fully-qualified     # 🧖‍♂️ man in steamy room
+1F9D6 200D 2642                            ; minimally-qualified # 🧖‍♂ man in steamy room
+1F9D6 1F3FB 200D 2642 FE0F                 ; fully-qualified     # 🧖🏻‍♂️ man in steamy room: light skin tone
+1F9D6 1F3FB 200D 2642                      ; minimally-qualified # 🧖�

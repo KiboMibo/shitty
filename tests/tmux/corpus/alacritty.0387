@@ -1,0 +1,5 @@
+m[1;23r[H[4;32H[30m[1m13.9[28C[36m4[5;8H(B[m[32m|[31m|[23C[30m[1m5.9[10;40H(B[m0.8[13C7[11;40H2.2[13C7[1;24r[H[11;57H[1;23r[H[12;42H8[13C6[13;42H2[14;42H4[15;40H[30m[46m3.7[13C4[16;42H[39m[49m3[13C2[17;55H40[20;42H2[21;42H2[1;24r[H[undeadleech@undeadlap underline]$ [K[undeadleech@undeadlap underline]$ echo -e "\e[4mUNDERLINED\e[0m"
+[4mUNDERLINED[0m
+[undeadleech@undeadlap underline]$ echo -e "\e[4:1mUNDERLINED\e[4:0m"
+[4:1mUNDERLINED[4:0m
+[undeadleech@unde

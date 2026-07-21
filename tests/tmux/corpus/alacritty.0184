@@ -1,0 +1,6 @@
+miwlwifi 0000:03:00.0[0m[31m: expected hw-decrypted unicast frame for station
+[0m[32m[230257.238586] [0m[33miwlwifi 0000:03:00.0[0m[31m: expected hw-decrypted unicast frame for station
+[0m[32m[230257.238595] [0m[33miwlwifi 0000:03:00.0[0m[31m: expected hw-decrypted unicast frame for station
+[0m[32m[230257.240338] [0m[33miwlwifi 0000:03:00.0[0m[31m: Unhandled alg: 0x707
+[0m[32m[230257.240418] [0m[33miwlwifi 0000:03:00.0[0m[31m: Unhandled alg: 0x707
+[0m[32m[230257.240471] [0m

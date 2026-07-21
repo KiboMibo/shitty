@@ -1,0 +1,17 @@
+G^[]4;106;rgb:87/af/00^G
+]4;105;?;106;?
+⎷
+P+q\
+P+q695465726D3250726F66696C65\
+P+q6E616D65;544E\
+expect '^[]Ltitle_goes_here^[\'
+[20t
+P+q544E\
+[13t
+8
+[?1049l
+M[?5h
+cat set_left_right_margin set_top_bottom cursor_to_10x_10y x crlf ; sleep 1 ; cat reverse_index ; sleep 1 ; cat reverse_index ; sleep 1 ; cat reverse_index ; cat reverse_index ; sleep 1 ; cat reverse_index ; sleep 1 ; cat reverse_index x
+7
+[?1049h
+abc４５６xะ́yz ́ ́ ́ะ́ะ́ะ́ｈｅ ｑｕｉｃｋ ｂｒｏｗde

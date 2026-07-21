@@ -1,0 +1,10 @@
+kchibisov@NightLord alacritty]$[C[C
+[?2004l[31;1;4;9m[?2004h[kchibisov@NightLord alacritty]$ echo =e "[K[K[K[K-e \{[K[K"\e[10H"
+[?2004l[10H
+[?2004h[kchibisov@NightLord alacritty]$ echo -e "\p[K[K\e[[[K1-[K0M"
+[?2004l[10M
+[?2004h[kchibisov@NightLord alacritty]$ [HA[1"qB[2"qC[?2J
+A[1"qB[2"qC[?2K
+[undeadleech@archhq sgr]$ echo -e "\e[9;38:2:255:0:255;4mTEST\e[0m"
+[9;38:2:255:0:255;4mTEST[0m
+[undeadleech@archhq sgr]$ echo -e "\e[9;38:2:0:255:0:255;4mTEST\e[0m"

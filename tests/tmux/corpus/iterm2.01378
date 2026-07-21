@@ -1,0 +1,16 @@
+                        split horizontally with default profile
+                        end tell
+                end tell
+        end repeat
+        tell current window
+                create tab with default profile
+                create tab with profile "Projection"
+        end tell
+        tell current window
+                tell current session
+                        set columns to 40
+                        set rows to 40
+                end tell
+        end tell
+        tell current window
+         

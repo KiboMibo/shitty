@@ -1,0 +1,6 @@
+oman, girl, girl
+1F468 200D 1F468 200D 1F466                ; fully-qualified     # 👨‍👨‍👦 family: man, man, boy
+1F468 200D 1F468 200D 1F467                ; fully-qualified     # 👨‍👨‍👧 family: man, man, girl
+1F468 200D 1F468 200D 1F467 200D 1F466     ; fully-qualified     # 👨‍👨‍👧‍👦 family: man, man, girl, boy
+1F468 200D 1F468 200D 1F466 200D 1F466     ; fully-qualified     # 👨‍👨‍👦‍👦 family: man, man, boy, boy
+1F468 200D 1F468 200D 1F467 200D 1F46

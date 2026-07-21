@@ -1,0 +1,13 @@
+rminal window
+                write text "date"
+                write text "cat > /dev/null"
+                write contents of file "/etc/passwd"
+                write text (tty)
+                write text (contents)
+                write text (unique ID)
+        end tell
+        create window with default profile command "ls -l -R /"
+        select first terminal window
+        tell current session of current window
+                split vertically with default profile
+                split vertically with

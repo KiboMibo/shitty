@@ -1,0 +1,7 @@
+m: authenticated
+[32m[230359.831632] [0m[33mwlp3s0[0m: associate with 00:00:00:00:00:00 (try 1/3)
+[32m[230359.832798] [0m[33mwlp3s0[0m: RX AssocResp from 00:00:00:00:00:00 (capab=0x1411 status=0 aid=3)
+[32m[230359.834228] [0m[33mwlp3s0[0m: associated
+[32m[230359.915722] [0m[33mwlp3s0[0m: Limiting TX power to 30 (30 - 0) dBm as advertised by 00:00:00:00:00:00
+[32m[230391.707400] [0m[33mwlp3s0[0m: disconnect from AP 00:00:00:00:00:00 for new auth to 00:00:00:00:00:00
+[32m[230391.710

@@ -1,0 +1,8 @@
+critty[0m[27m[24m[Jjwilm@jwilm-desk [01;32m➜ [01;32m [36m~/code/alacritty [00m [K[?1h=[?2004h[35ml[39m[35ml[35ml[39m[?1l>[?2004l
+]2;ls --color=tty -lh]1;lltotal 90M
+-rw-rw-r-- 1 jwilm jwilm  40K May  5  2017 ]
+-rw-rw-r-- 1 jwilm jwilm  35K May  8  2017 0001-wip.patch
+-rwxrwxr-x 1 jwilm jwilm  328 Oct 22 11:43 [0m[01;32mAlacritty.desktop[0m
+-rw-rw-r-- 1 jwilm jwilm  139 Oct 22 11:43 alacritty.info
+-rw-rw-r-- 1 jwilm jwilm  14K Nov  2 08:25 alacritty_macos.yml
+-rwxrwxr-

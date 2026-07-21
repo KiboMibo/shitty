@@ -1,0 +1,9 @@
+       tell current session
+                        set foreground color to {65535, 0, 0, 0}
+                        set background color to {65535, 0, 0, 0}
+                        set bold color to {65535, 0, 0, 0}
+                        set cursor color to {65535, 0, 0, 0}
+                        set cursor text color to {65535, 0, 0, 0}
+                        set selected text color to {65535, 0, 0, 0}
+                        set selection color to {65535, 0, 0, 0}
+                        set ANSI bla

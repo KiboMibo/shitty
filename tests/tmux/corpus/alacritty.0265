@@ -1,0 +1,9 @@
+`Term` type.[m
+    * Repeatable lines/cols were needed; on startup, the terminal is resized[m
+    * by default to 80x24 though that may be changed by passing[m
+      `--dimensions w h`.[m
+    * Calculating window size based on desired rows/columns and font metrics[m
+:[K[K      required making load_font callable multiple times. I think this still[m
+:[K[K      needs to be done for linux.[m
+:[K[K    * Refactor types into library crate so they may be imported in an[m
+:[K[K      integ

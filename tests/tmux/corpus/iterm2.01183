@@ -1,0 +1,7 @@
+fully-qualified     # 🎥 movie camera
+1F39E FE0F                                 ; fully-qualified     # 🎞️ film frames
+1F39E                                      ; unqualified         # 🎞 film frames
+1F4FD FE0F                                 ; fully-qualified     # 📽️ film projector
+1F4FD                                      ; unqualified         # 📽 film projector
+1F3AC                                      ; fully-qualified     # 🎬 clapper board
+1F4FA                                 

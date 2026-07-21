@@ -1,0 +1,11 @@
+he Unicode Logo are registered trademarks of Unicode, Inc. in the U.S. and other countries.
+# For terms of use, see http://www.unicode.org/terms_of_use.html
+#
+# Emoji Keyboard/Display Test Data for UTS #51
+# Version: 12.0
+#
+# For documentation and usage, see http://www.unicode.org/reports/tr51
+#
+# This file provides data for testing which emoji forms should be in keyboards and which should also be displayed/processed.
+# Format: code points; status # emoji name
+#     Code points — list of one or more hex c

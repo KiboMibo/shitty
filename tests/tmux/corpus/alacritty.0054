@@ -1,0 +1,7 @@
+r--  1 undeadleech undeadleech 1.7K Nov 15 20:33 .travis.yml
+drwxr-xr-x  3 undeadleech undeadleech  100 Nov 15 20:33 winpty
+[undeadleech@archhq alacritty]$ echo -[ "[K[K[Ke "\e[10H"
+[10H
+[undeadleech@archhq alacritty]$ echo -e "\e[1000M"
+[1000M
+[undeadleech@archhq alacritty]$ [?2004h[kchibisov@NightLord alacritty]$ [K[kchibisov@NightLord alacritty]$ [K[kchibisov@NightLord alacritty]$ echo -e "hello        world" "\033[10;D"  "\033[4;X"[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[

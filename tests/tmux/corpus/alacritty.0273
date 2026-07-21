@@ -1,0 +1,5 @@
+;48H [32m- Joe Wilm
+(B[m* [34m[1m8360ab4(B[m - [32m[1m(8 days ago)(B[m Fallback to received chars when no bindin[1;24r[H[16;67H[1;23r[H[16;67Hgs [32m- Joe Wilm
+(B[m* [34m[1m6925daa(B[m - [32m[1m(8 days ago)(B[m Fix/add some keybindings [32m- Jo[1;24r[H[17;55H(B[m[1;23r[H[17;55H[32me Wilm
+(B[m* [34m[1me426013(B[m - [32m[1m(8 days ago)(B[m Fix alacritty shutdown when shell exits on macOS [1;24r[H[18;75H[1;23r[H[18;75H[32m- Joe (B[m [32mWilm
+(B[m

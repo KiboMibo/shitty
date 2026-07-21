@@ -1,0 +1,7 @@
+█▕█ █▖█ █▗█ █▘█ █▙█ █▚█ █▛█ █▜█ █▝█ █▞█ █▟█
+        ███ ███ ███ ███ ███ ███ ███ ███ ███ ███ ███ ███ ███ ███ ███ ███
+        
+▁▂▃▄▅▆▇█▉▊▋▌▍▎▏▐▔▕▖▗▘▙▚▛▜▝▞▟
+Bogus single-byte UTF-8 should print ?12345: �12345
+Too-long sequence should print ?????: �����
+UTF-8 coding of surrogate value should print

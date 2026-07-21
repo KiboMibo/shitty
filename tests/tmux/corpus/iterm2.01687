@@ -1,0 +1,13 @@
+ix http://foo.com/blah_blah suffix
+prefix http://foo.com/blah_blah/ suffix
+prefix http://foo.com/blah_blah. suffix
+prefix http://foo.com/blah_blah/. suffix
+prefix http://foo.com/blah_blah/bar;baz suffix
+<http://foo.com/blah_blah>
+<http://foo.com/blah_blah/>
+prefixhttp://foo.com/blah_blah,
+prefixhttp://foo.com:123/blah/blah.php?k=v&k2=v2#fragment,
+prefixhttp://www.example.com/wpstyle/?p=364.
+prefixhttp://userid:password@example.com:8080 suffix
+prefixhttp://userid@example.com suffix
+prefixhttp://userid@exampl

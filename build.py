@@ -330,6 +330,89 @@ for corpus in ("osc-cmin", "parser-cmin", "stream-cmin"):
         ))
 
 
+tmux_root = Path(__file__).parent / "tests" / "tmux"
+tmux_corpus_members = [
+    "corpus/" + path.name
+    for path in sorted((tmux_root / "corpus").iterdir())
+]
+tmux_dictionary_members = [
+    f"dictionary/{index:03d}"
+    for index, line in enumerate(
+        (tmux_root / "upstream" / "input-fuzzer.dict").read_text().splitlines()
+    )
+    if line.strip() and not line.startswith("#")
+]
+tmux_members = tmux_corpus_members + tmux_dictionary_members
+tmux_xfails = {
+    line.strip()
+    for line in (tmux_root / "xfail.txt").read_text().splitlines()
+    if line.strip() and not line.startswith("#")
+}
+unknown_tmux_xfails = tmux_xfails - set(tmux_members)
+if unknown_tmux_xfails:
+    raise RuntimeError(
+        "unknown tmux XFAIL members: "
+        + ", ".join(sorted(unknown_tmux_xfails))
+    )
+
+tmux_tests = []
+tmux_shard_size = 128
+for shard_index, start in enumerate(
+    range(0, len(tmux_corpus_members), tmux_shard_size)
+):
+    shard = tmux_corpus_members[start : start + tmux_shard_size]
+    name = f"input_corpus_{shard_index:03d}"
+    tmux_tests.append(command(
+        name="tmux_" + name,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/fuzz_parser.py",
+            "$(S)/tests/tmux/adapter.py",
+            "$(S)/tests/tmux/xfail.txt",
+            *("$(S)/tests/tmux/" + member for member in shard),
+        ],
+        outputs=[f"$(B)/tests/tmux/{name}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/tmux/adapter.py",
+            "tests/tmux/xfail.txt",
+            f"$(B)/tests/tmux/{name}.stamp",
+            *shard,
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="TMUX",
+        color="cyan",
+    ))
+
+for member in tmux_dictionary_members:
+    index = member.split("/", 1)[1]
+    tmux_tests.append(command(
+        name="tmux_input_dictionary_" + index,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/fuzz_parser.py",
+            "$(S)/tests/tmux/adapter.py",
+            "$(S)/tests/tmux/xfail.txt",
+            "$(S)/tests/tmux/upstream/input-fuzzer.dict",
+        ],
+        outputs=[f"$(B)/tests/tmux/input_dictionary_{index}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/tmux/adapter.py",
+            "tests/tmux/xfail.txt",
+            f"$(B)/tests/tmux/input_dictionary_{index}.stamp",
+            member,
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="TMUX",
+        color="cyan",
+    ))
+
+
 install(libzutty)
 install(zutty)
 install(test_suite)
@@ -341,3 +424,4 @@ install(contour_vttest)
 install(*contour_tests)
 install(*mosh_tests)
 install(*ghostty_tests)
+install(*tmux_tests)

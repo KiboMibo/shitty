@@ -1,0 +1,7 @@
+tandard)
+8;;http://example.com/C1C1 (U+009D [UTF-8: 0xC2 0x9D] as OSC and U+009C [UTF-8: 0xC2 0x9C] as ST)8;; (note: not all terminal emulators support C1 in UTF-8)
+
+Cursor movement within the same OSC 8 run: ]8;;http://example.com/cursor\move[C[C[Cright]8;;\
+
+Alternating URIs, all with the same ID. Either all foos or all bars should be underlined on hover:
+]8;id=1;http://example.com/foo\foo]8;;\]8;id=1;http://example.com/bar\bar]8;;\]8;foo=bar:id=1;http://example.com/foo\foo]8;;\

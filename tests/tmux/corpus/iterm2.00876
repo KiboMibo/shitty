@@ -1,0 +1,5 @@
+          ; fully-qualified     # 💇🏾 person getting haircut: medium-dark skin tone
+1F487 1F3FF                                ; fully-qualified     # 💇🏿 person getting haircut: dark skin tone
+1F487 200D 2642 FE0F                       ; fully-qualified     # 💇‍♂️ man getting haircut
+1F487 200D 2642                            ; minimally-qualified # 💇‍♂ man getting haircut
+1F487 1F3FB 200D 2642 FE0F                 ; fully-qualified     # 💇🏻‍♂️ man getting haircut: lig

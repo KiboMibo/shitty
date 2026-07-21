@@ -1,0 +1,5 @@
+croll down region [1..24] size 24 Line 26
+MMJump scroll down region [1..24] size 24 Line 27
+MMJump scroll down region [1..24] size 24 Line 28
+MMJump scroll down region [1..24] size 24 Line 29
+MMPush <RETURN>[1m[7m%[27m[1m[0m                                                                                                                    [0m[27m[24m[J[0;30;101m UL [0m[0;37;100m ~/…/tests/ref/vttest_tab_cle… [0m[0;30;101m copy-tabs [0m [K[?2004hv[90mttest[39mv[39m

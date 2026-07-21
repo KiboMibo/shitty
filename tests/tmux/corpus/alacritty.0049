@@ -1,0 +1,5 @@
+tLord alacritty]$ printf "\e[31;1;7;4;9mTEST asd\n"[15Pecho -e "\033[?3h"
+[?2004l[?3h
+[?2004h[kchibisov@NightLord alacritty]$ [?2004h[kchibisov@NightLord alacritty]$ [K[kchibisov@NightLord alacritty]$ [K[kchibisov@NightLord alacritty]$ printf "\e[31;1;7;4;9md\n"
+[?2004l[31;1;7;4;9md
+[?2004h[kchibisov@NightLord alacritty]$ printf "\e[31;1;7;4;9md\n"[1Pd\n"[1Pd\n"[1Pd\n"[1Pd\n"[1Pd\n"[1Pd\n"[1Pd\n"[1Pd\n"[

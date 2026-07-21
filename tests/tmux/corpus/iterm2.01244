@@ -1,0 +1,7 @@
+  # ❗ exclamation mark
+3030 FE0F                                  ; fully-qualified     # 〰️ wavy dash
+3030                                       ; unqualified         # 〰 wavy dash
+00A9 FE0F                                  ; fully-qualified     # ©️ copyright
+00A9                                       ; unqualified         # © copyright
+00AE FE0F                                  ; fully-qualified     # ®️ registered
+00AE                                       ; unqualified         # ® regis

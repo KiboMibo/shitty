@@ -1,0 +1,18 @@
+[19;132HN n
+[19;132HO		o[19;2HO
+[19;132H
+[18;1HP[18;132Hp[19;1HQ[19;132Hq
+[18;132HqR[19;132HR r
+[19;132HS		s[19;2HS
+[19;132H
+[18;1HT[18;132Ht[19;1HU[19;132Hu
+[18;132HuV[19;132HV v
+[19;132HW		w[19;2HW
+[19;132H
+[18;1HX[18;132Hx[19;1HY[19;132Hy
+[18;132HyZ[19;132HZ z
+[?6l[r[22;1HPush <RETURN>[?3l[2J[1;1HTest of cursor-control characters inside ESC sequences.
+Below should be four identical lines:
+
+A B C D E F G H I
+A[2CB[2CC[2CD[2CE[2CF

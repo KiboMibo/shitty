@@ -1,0 +1,7 @@
+  # ◼ black medium square
+25FB FE0F                                  ; fully-qualified     # ◻️ white medium square
+25FB                                       ; unqualified         # ◻ white medium square
+25FE                                       ; fully-qualified     # ◾ black medium-small square
+25FD                                       ; fully-qualified     # ◽ white medium-small square
+25AA FE0F                                  ; fully-qualified     # ▪️ black small square
+25AA        

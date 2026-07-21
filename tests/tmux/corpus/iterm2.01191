@@ -1,0 +1,9 @@
+ currency exchange
+1F4B2                                      ; fully-qualified     # 💲 heavy dollar sign
+
+# subgroup: mail
+2709 FE0F                                  ; fully-qualified     # ✉️ envelope
+2709                                       ; unqualified         # ✉ envelope
+1F4E7                                      ; fully-qualified     # 📧 e-mail
+1F4E8                                      ; fully-qualified     # 📨 incoming envelope
+1F4E9                                      ; fully-qu

@@ -1,0 +1,11 @@
+ore[m
+Both:               [4m]8;;http://example.com/under_score\http://example.com/under_score]8;;\[m
+
+Conflicting explicit and implicit links: http://example.com/foobar-]8;;http://example.com/explicit\explicit]8;;\-rest
+
+Invisible explicit link: «[8m]8;;http://example.com/invisible\Can you see me?]8;;\[m»
+Invisible implicit link: «[8mhttp://example.com/how_about_me[m»
+
+]8;;asdfghjkl\Explicit link with stupid target]8;;\
+
+]8;;http://example.com/.........30........40........50....

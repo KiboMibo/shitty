@@ -1,0 +1,10 @@
+ration test.[m
+:[K[K    * A whole bunch of types needed symmetric serialization and[m
+:[K[K      deserialization. Mostly this was just adding derives, but the custom[m
+:[K[K      deserialization of Rgb had to change to a deserialize_with function.[m
+:[K[K    [m
+:[K[K    This initially adds one ref test as a sanity check, and more will be[m
+:[K[K    added in subsequent commits. This initial ref tests just starts the[m
+:[K[K    terminal and runs `ll`.[m
+:[K[K[m
+:[K

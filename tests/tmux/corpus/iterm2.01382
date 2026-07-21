@@ -1,0 +1,13 @@
+           set ANSI bright white color to {65535, 0, 0, 0}
+                end tell
+        end tell
+        tell current window
+                tell current session
+                        set background image to "/usr/share/httpd/icons/small/rainbow.png"
+                        set name to "George!"
+                        set transparency to 0.5
+                end tell
+        end tell
+end tell
+[2J[1;1HMake sure to turn minimum contrast down to see the colors correctly.
+[mNormal text [m[2mFaint tex

@@ -1,0 +1,9 @@
+ 11K Nov 15 20:33 LICENSE-APACHE
+-rw-r--r--  1 undeadleech undeadleech 1.5K Nov 15 20:33 Makefile
+-rw-r--r--  1 undeadleech undeadleech 6.8K Nov 15 20:33 README.md
+drwxr-xr-x  2 undeadleech undeadleech  120 Nov 15 20:33 res
+-rw-r--r--  1 undeadleech undeadleech  358 Nov 15 20:33 rustfmt.toml
+drwxr-xr-x  2 undeadleech undeadleech  180 Nov 15 20:33 scripts
+drwxr-xr-x  3 undeadleech undeadleech  100 Nov 15 20:33 servo-freetype-proxy
+drwxr-xr-x  3 undeadleech undeadleech   80 Nov 15 20:36 target
+-rw-r--

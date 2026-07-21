@@ -1,0 +1,8 @@
+                          ; fully-qualified     # 📬 open mailbox with raised flag
+1F4ED                                      ; fully-qualified     # 📭 open mailbox with lowered flag
+1F4EE                                      ; fully-qualified     # 📮 postbox
+1F5F3 FE0F                                 ; fully-qualified     # 🗳️ ballot box with ballot
+1F5F3                                      ; unqualified         # 🗳 ballot box with ballot
+
+# subgroup: writing
+270F FE0F                     

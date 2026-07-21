@@ -1,0 +1,7 @@
+                              ; fully-qualified     # 🚏 bus stop
+1F6E3 FE0F                                 ; fully-qualified     # 🛣️ motorway
+1F6E3                                      ; unqualified         # 🛣 motorway
+1F6E4 FE0F                                 ; fully-qualified     # 🛤️ railway track
+1F6E4                                      ; unqualified         # 🛤 railway track
+1F6E2 FE0F                                 ; fully-qualified     # 🛢️ oil drum
+1F6E2               

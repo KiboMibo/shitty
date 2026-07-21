@@ -1,0 +1,7 @@
+358] [0m[33mwlp3s0[0m: authenticate with 00:00:00:00:00:00
+[32m[230391.716647] [0m[33mwlp3s0[0m: send auth to 00:00:00:00:00:00 (try 1/3)
+[32m[230391.756364] [0m[33mwlp3s0[0m: authenticated
+[32m[230391.759536] [0m[33mwlp3s0[0m: associate with 00:00:00:00:00:00 (try 1/3)
+[32m[230391.760897] [0m[33mwlp3s0[0m: RX ReassocResp from 00:00:00:00:00:00 (capab=0x1411 status=0 aid=1)
+[32m[230391.762833] [0m[33mwlp3s0[0m: associated
+[32m[230391.844511] [0m[33mwlp3s0[0m: Limiting TX pow

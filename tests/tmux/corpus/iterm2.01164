@@ -1,0 +1,8 @@
+it
+2663 FE0F                                  ; fully-qualified     # ♣️ club suit
+2663                                       ; unqualified         # ♣ club suit
+265F FE0F                                  ; fully-qualified     # ♟️ chess pawn
+265F                                       ; unqualified         # ♟ chess pawn
+1F0CF                                      ; fully-qualified     # 🃏 joker
+1F004                                      ; fully-qualified     # 🀄 mahjong red dragon
+1F3B4   

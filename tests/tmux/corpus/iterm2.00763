@@ -1,0 +1,5 @@
+200D 2708                            ; minimally-qualified # 👨‍✈ man pilot
+1F468 1F3FB 200D 2708 FE0F                 ; fully-qualified     # 👨🏻‍✈️ man pilot: light skin tone
+1F468 1F3FB 200D 2708                      ; minimally-qualified # 👨🏻‍✈ man pilot: light skin tone
+1F468 1F3FC 200D 2708 FE0F                 ; fully-qualified     # 👨🏼‍✈️ man pilot: medium-light skin tone
+1F468 1F3FC 200D 2708                      ; minimally-qualified # 👨🏼‍✈ man pilo

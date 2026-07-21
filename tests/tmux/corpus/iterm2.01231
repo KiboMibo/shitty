@@ -1,0 +1,7 @@
+alified     # ▶️ play button
+25B6                                       ; unqualified         # ▶ play button
+23E9                                       ; fully-qualified     # ⏩ fast-forward button
+23ED FE0F                                  ; fully-qualified     # ⏭️ next track button
+23ED                                       ; unqualified         # ⏭ next track button
+23EF FE0F                                  ; fully-qualified     # ⏯️ play or pause button
+23EF                         

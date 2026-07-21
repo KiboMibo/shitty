@@ -1,0 +1,6 @@
+n tone
+1F468 1F3FE 200D 2695                      ; minimally-qualified # 👨🏾‍⚕ man health worker: medium-dark skin tone
+1F468 1F3FF 200D 2695 FE0F                 ; fully-qualified     # 👨🏿‍⚕️ man health worker: dark skin tone
+1F468 1F3FF 200D 2695                      ; minimally-qualified # 👨🏿‍⚕ man health worker: dark skin tone
+1F469 200D 2695 FE0F                       ; fully-qualified     # 👩‍⚕️ woman health worker
+1F469 200D 2695                            ; m

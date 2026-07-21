@@ -1,0 +1,21 @@
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx[84D!
+
+[2J[1;1HActual output:
+---
+
+
+ghi[2Fabc[1Edef[2Ejkl
+mno
+---
+
+Correct output looks like:
+---
+abc
+def
+ghi
+jkl
+mno
+---
+[?47l
+[?6h[1mTests for ]8;;https://bugzilla.gnome.org/show_bug.cgi?id=779734\gnome-terminal #779734]8;;\ and ]8;;https://gitlab.com/gnachman/iterm2/issues/5158\iTerm2 #5158]8;;\[m
+═════════════════════════════════════�

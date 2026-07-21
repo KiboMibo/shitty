@@ -1,0 +1,4 @@
+* [34m[1m8cbd768(B[m - [32m[1m(8 days ago)(B[m Fix resize [1;24r[H[20;37H[1;23r[H[20;37Hon macOS leaving screen blank [32m- Joe Wilm
+(B[m* [34m[1ma652b4a(B[m - [32m[1m(8 days ago)(B[m Rustup [1;24r[H[21;33H[1;23r[H[21;33H[32m- Joe Wilm
+(B[m* [34m[1m3e0b2b6(B[m - [32m[1m(8 days ago)(B[m Fix config file reloading on macOS [32m- [1;24r[H[22;63H(B[m[1;23r[H[22;63H[32mJoe Wilm
+(B[m* [34m[1mbe036ed(B[m - [32m[1m(8 days ago)(B[m Workaround for cutoff

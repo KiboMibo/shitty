@@ -1,0 +1,8 @@
+                         ; fully-qualified     # 9️⃣ keycap: 9
+0039 20E3                                  ; unqualified         # 9⃣ keycap: 9
+1F51F                                      ; fully-qualified     # 🔟 keycap: 10
+
+# subgroup: alphanum
+1F520                                      ; fully-qualified     # 🔠 input latin uppercase
+1F521                                      ; fully-qualified     # 🔡 input latin lowercase
+1F522                                      ; fully-qualified     # �

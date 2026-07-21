@@ -1,0 +1,7 @@
+            ; fully-qualified     # 🌪️ tornado
+1F32A                                      ; unqualified         # 🌪 tornado
+1F32B FE0F                                 ; fully-qualified     # 🌫️ fog
+1F32B                                      ; unqualified         # 🌫 fog
+1F32C FE0F                                 ; fully-qualified     # 🌬️ wind face
+1F32C                                      ; unqualified         # 🌬 wind face
+1F300                                      ; fully-qualifi
