@@ -22,7 +22,9 @@ utf8proc = pkg_config("libutf8proc")
 threads = dependency(ldflags=["-pthread"])
 
 
-if os.path.isfile(os.path.join(os.path.dirname(__file__), std_build)):
+if '-lstd' in build.ldflags:
+    libstd = dependency(ldflags=["-lstd"])
+elif os.path.isfile(os.path.join(os.path.dirname(__file__), std_build)):
     libstd = import_build(std_build, "libstd.a", extra_cflags=["-Wno-error"])
 else:
     libstd = dependency(ldflags=["-lstd"])
