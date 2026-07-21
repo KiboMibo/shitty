@@ -1,0 +1,8 @@
+altchars.sh
+bounce.sh
+ctlpix.sh
+dl.sh
+il.sh
+other-sgr.sh
+pointer-shapes.sh
+unascii.sh

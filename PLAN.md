@@ -185,7 +185,7 @@ Control interface — это расширяемый наблюдаемый API �
 
    - live font/raster и terminal-capability probes из `ucs-detect` (полные generated Unicode tables уже импортированы в model tier);
    - `tack`;
-   - xterm `vttests` scripts;
+   - интерактивные, query/reply и бесконечные части xterm `vttests` (конечные shell generators уже импортированы);
 
    Здесь наша работа — только launcher, PTY/control integration и фиксация результата.
 

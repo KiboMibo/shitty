@@ -595,6 +595,48 @@ for case in libvterm_cases:
     ))
 
 
+xterm_vttests_root = Path(__file__).parent / "tests" / "xterm_vttests"
+xterm_vttests_cases = (xterm_vttests_root / "file_names.txt").read_text().split()
+xterm_vttests_xfails = {
+    line.strip()
+    for line in (xterm_vttests_root / "xfail.txt").read_text().splitlines()
+    if line.strip() and not line.startswith("#")
+}
+unknown_xterm_vttests_xfails = xterm_vttests_xfails - set(xterm_vttests_cases)
+if unknown_xterm_vttests_xfails:
+    raise RuntimeError(
+        "unknown xterm vttests XFAIL scripts: "
+        + ", ".join(sorted(unknown_xterm_vttests_xfails))
+    )
+xterm_vttests_tests = []
+for case in xterm_vttests_cases:
+    name = case.removesuffix(".sh").replace("-", "_")
+    xterm_vttests_tests.append(command(
+        name="xterm_vttests_" + name,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/xterm_vttests/adapter.py",
+            "$(S)/tests/xterm_vttests/file_names.txt",
+            "$(S)/tests/xterm_vttests/xfail.txt",
+            *build.glob("$(S)/tests/xterm_vttests/bin/*"),
+            f"$(S)/tests/xterm_vttests/upstream/{case}",
+        ],
+        outputs=[f"$(B)/tests/xterm_vttests/{name}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/xterm_vttests/adapter.py",
+            case,
+            "tests/xterm_vttests/xfail.txt",
+            f"$(B)/tests/xterm_vttests/{name}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="XTERM-VT",
+        color="cyan",
+    ))
+
+
 install(libzutty)
 install(zutty)
 install(test_suite)
@@ -613,3 +655,4 @@ install(*ucs_detect_tests)
 install(ucs_detect_validation)
 install(*vtebench_tests)
 install(*libvterm_tests)
+install(*xterm_vttests_tests)

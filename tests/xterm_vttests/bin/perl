@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+
+import sys
+import unicodedata
+
+
+def width(character):
+    if unicodedata.combining(character):
+        return 0
+    return 2 if unicodedata.east_asian_width(character) in ("W", "F") else 1
+
+
+for argument in sys.argv[2:]:
+    lowered = argument.lower()
+    if lowered.startswith("u+"):
+        value = int(argument[2:], 16)
+    elif lowered.startswith("0x"):
+        value = int(argument[2:], 16)
+    else:
+        value = int(argument, 16)
+    character = chr(value)
+    cells = width(character)
+    category = unicodedata.category(character)
+    kind = "alpha" if category.startswith("L") else (
+        "punct" if category.startswith("P") else "printing"
+    )
+    byte_count = len(character.encode())
+    print(
+        f"{value} ->{value:#x} ->{{{character}}}"
+        f"{' ' * max(0, 3 - cells)}({byte_count} bytes "
+        f"{cells} {'cell' if cells == 1 else 'cells'} {kind})"
+    )
