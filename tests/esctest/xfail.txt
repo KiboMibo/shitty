@@ -1,4 +1,9 @@
 # Exact upstream Class.test_method IDs whose behavior differs.
+# xterm patch #380 restricted mode 45 to soft-wrapped lines; patch #383
+# assigned the old any-line and top-to-bottom behavior to mode 1045.  These
+# older tests enable only mode 45 but expect the pre-2023 mode 1045 behavior.
+# https://invisible-island.net/xterm/xterm.log.html#xterm_380
+# https://invisible-island.net/xterm/xterm.log.html#xterm_383
 BSTests.test_BS_ReverseWrapGoesToBottom
 BSTests.test_BS_ReverseWrapWithLeftRight
 BSTests.test_BS_ReversewrapFromLeftEdgeToRightMargin
