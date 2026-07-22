@@ -639,23 +639,19 @@ namespace {
         static const u16* charCodes[];
         u32 translateCharset(Charset charset, unsigned char ch) const;
 
-        struct SavedCursor_SCO {
+        struct SavedCursor {
             bool isSet = false;
             u16 posX = 0;
             u16 posY = 0;
             bool lastCol = false;
-        };
-
-        struct SavedCursor_DEC: SavedCursor_SCO {
             TerminalCell attrs;
             OriginMode originMode = OriginMode::Absolute;
             CharsetState charsetState = CharsetState{};
         };
 
-        SavedCursor_SCO savedCursor_SCO;
-        SavedCursor_DEC savedCursor_DEC_pri;
-        SavedCursor_DEC savedCursor_DEC_alt;
-        SavedCursor_DEC* savedCursor_DEC = &savedCursor_DEC_pri;
+        SavedCursor savedCursorPri;
+        SavedCursor savedCursorAlt;
+        SavedCursor* savedCursor = &savedCursorPri;
 
         bool selectUpdatesTop = false;
         bool selectUpdatesLeft = false;
@@ -1119,8 +1115,8 @@ void VtermImpl::resetTerminal() {
     userDefinedKeysLocked = false;
     kittyKeyboardPri = {};
     kittyKeyboardAlt = {};
-    savedCursor_DEC_pri.isSet = false;
-    savedCursor_DEC_alt.isSet = false;
+    savedCursorPri.isSet = false;
+    savedCursorAlt.isSet = false;
     activeHyperlink = 0;
     hyperlinkIds.clear();
     hyperlinks.clear();
@@ -1194,8 +1190,7 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     originMode = OriginMode::Absolute;
     charsetState = CharsetState{};
 
-    savedCursor_SCO.isSet = false;
-    savedCursor_DEC->isSet = false;
+    savedCursor->isSet = false;
 
     mouseTrk.setMode(MouseTrackingMode::Disabled);
     mouseTrk.setEncoding(MouseTrackingEnc::Default);
@@ -1263,7 +1258,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
             } else if (altScreenInitialized) {
                 frame_alt.freeCells();
                 altScreenInitialized = false;
-                savedCursor_DEC_alt.isSet = false;
+                savedCursorAlt.isSet = false;
             }
         }
         return;
@@ -1280,7 +1275,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         cf = &frame_alt;
         cf->expose();
 
-        savedCursor_DEC = &savedCursor_DEC_alt;
+        savedCursor = &savedCursorAlt;
         altScreenBufferMode = true;
     } else {
         frame_pri.resize(winPx, winPy, nCols, nRows, marginTop, marginBottom);
@@ -1289,9 +1284,9 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         if (clearAlternate) {
             frame_alt.freeCells();
             altScreenInitialized = false;
-            savedCursor_DEC_alt.isSet = false;
+            savedCursorAlt.isSet = false;
         }
-        savedCursor_DEC = &savedCursor_DEC_pri;
+        savedCursor = &savedCursorPri;
         altScreenBufferMode = false;
     }
 }
@@ -2352,51 +2347,41 @@ void VtermImpl::csi_SCOSC_SLRM() {
 
 void VtermImpl::csi_SCOSC() {
     TRACE_FUN;
-    savedCursor_SCO.posX = posX;
-    savedCursor_SCO.posY = posY;
-    savedCursor_SCO.isSet = true;
-    setState(InputState::Normal);
+    esc_DECSC();
 }
 
 void VtermImpl::csi_SCORC() {
     TRACE_FUN;
-    if (!savedCursor_SCO.isSet) {
-        logT << "Asked to restore cursor (SCORC) but it has not been saved." << std::endl;
-    } else {
-        posX = savedCursor_SCO.posX;
-        posY = savedCursor_SCO.posY;
-        normalizeCursorPos();
-    }
-    setState(InputState::Normal);
+    esc_DECRC();
 }
 
 void VtermImpl::esc_DECSC() {
     TRACE_FUN;
-    savedCursor_DEC->posX = posX;
-    savedCursor_DEC->posY = posY;
-    savedCursor_DEC->lastCol = lastCol;
-    savedCursor_DEC->attrs = attrs;
-    savedCursor_DEC->originMode = originMode;
-    savedCursor_DEC->charsetState = charsetState;
-    savedCursor_DEC->isSet = true;
+    savedCursor->posX = posX;
+    savedCursor->posY = posY;
+    savedCursor->lastCol = lastCol;
+    savedCursor->attrs = attrs;
+    savedCursor->originMode = originMode;
+    savedCursor->charsetState = charsetState;
+    savedCursor->isSet = true;
     setState(InputState::Normal);
 }
 
 void VtermImpl::esc_DECRC() {
     TRACE_FUN;
-    if (!savedCursor_DEC->isSet) {
+    if (!savedCursor->isSet) {
         logT << "Asked to restore cursor (DECRC) but it has not been saved." << std::endl;
     } else {
-        posX = savedCursor_DEC->posX;
-        posY = savedCursor_DEC->posY;
+        posX = savedCursor->posX;
+        posY = savedCursor->posY;
         normalizeCursorPos();
-        lastCol = savedCursor_DEC->lastCol;
-        attrs = savedCursor_DEC->attrs;
+        lastCol = savedCursor->lastCol;
+        attrs = savedCursor->attrs;
         reverseVideo = attrs.inverse;
         fg = &attrs.fg;
         bg = &attrs.bg;
-        originMode = savedCursor_DEC->originMode;
-        charsetState = savedCursor_DEC->charsetState;
+        originMode = savedCursor->originMode;
+        charsetState = savedCursor->charsetState;
     }
     setState(InputState::Normal);
 }
@@ -4025,13 +4010,13 @@ void VtermImpl::csi_DECSTR() {
     posX = 0;
     posY = 0;
     lastCol = false;
-    savedCursor_DEC->posX = 0;
-    savedCursor_DEC->posY = 0;
-    savedCursor_DEC->lastCol = false;
-    savedCursor_DEC->attrs = attrs;
-    savedCursor_DEC->originMode = OriginMode::Absolute;
-    savedCursor_DEC->charsetState = CharsetState{};
-    savedCursor_DEC->isSet = true;
+    savedCursor->posX = 0;
+    savedCursor->posY = 0;
+    savedCursor->lastCol = false;
+    savedCursor->attrs = attrs;
+    savedCursor->originMode = OriginMode::Absolute;
+    savedCursor->charsetState = CharsetState{};
+    savedCursor->isSet = true;
     setState(InputState::Normal);
 }
 

@@ -1,8 +1,4 @@
 # Exact upstream Class.test_method IDs whose behavior differs.
-ANSIRCTests.test_SaveRestoreCursor_AltVsMain
-ANSIRCTests.test_SaveRestoreCursor_MoveToHomeWhenNotSaved
-ANSIRCTests.test_SaveRestoreCursor_Protection
-ANSIRCTests.test_SaveRestoreCursor_ResetsOriginMode
 BSTests.test_BS_ReverseWrapGoesToBottom
 BSTests.test_BS_ReverseWrapWithLeftRight
 BSTests.test_BS_ReversewrapFromLeftEdgeToRightMargin

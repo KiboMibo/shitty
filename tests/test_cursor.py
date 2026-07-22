@@ -30,6 +30,46 @@ class CursorAndMovementTest(unittest.TestCase):
             terminal.write(b"\x1b[2;3H\x1b[s\x1b[3;6HZ\x1b[uX")
             self.assertEqual(terminal.snapshot().cell(2, 1).char, "X")
 
+    def test_sco_and_dec_controls_share_saved_cursor_state(self):
+        with Zutty(columns=8, rows=3) as terminal:
+            terminal.write(b"\x1b[2;3H\x1b[s\x1b[3;6H\x1b8A")
+            terminal.write(b"\x1b[1;5H\x1b7\x1b[3;8H\x1b[uB")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(2, 1).char, "A")
+            self.assertEqual(snapshot.cell(4, 0).char, "B")
+
+    def test_sco_restores_attributes_protection_and_origin_mode(self):
+        with Zutty(columns=8, rows=4) as terminal:
+            terminal.write(
+                b"\x1b[2;3H\x1b[1;31m\x1b[1\"q\x1b[s"
+                b"\x1b[0m\x1b[0\"q"
+                b"\x1b[2;3r\x1b[?69h\x1b[2;7s\x1b[?6h"
+                b"\x1b[uX\x1b[1;1HY"
+            )
+            snapshot = terminal.snapshot()
+            restored = snapshot.cell(2, 1)
+            self.assertEqual(restored.char, "X")
+            self.assertTrue(restored.bold)
+            self.assertTrue(restored.protected)
+            self.assertEqual(snapshot.cell(0, 0).char, "Y")
+
+    def test_sco_saved_cursor_is_independent_between_screen_buffers(self):
+        with Zutty(columns=8, rows=4) as terminal:
+            terminal.write(
+                b"\x1b[2;2H\x1b[s"
+                b"\x1b[?47h\x1b[3;4H\x1b[s"
+                b"\x1b[?47l\x1b[uM"
+                b"\x1b[?47h\x1b[uA"
+            )
+            self.assertEqual(terminal.snapshot().cell(3, 2).char, "A")
+            terminal.write(b"\x1b[?47l")
+            self.assertEqual(terminal.snapshot().cell(1, 1).char, "M")
+
+    def test_sco_restore_after_soft_reset_uses_home_defaults(self):
+        with Zutty(columns=8, rows=4) as terminal:
+            terminal.write(b"\x1b[3;4H\x1b[!p\x1b[4;7H\x1b[uX")
+            self.assertEqual(terminal.snapshot().cell(0, 0).char, "X")
+
     def test_saved_cursor_can_be_restored_repeatedly(self):
         sequences = (b"\x1b7", b"\x1b[s")
         restores = (b"\x1b8", b"\x1b[u")
