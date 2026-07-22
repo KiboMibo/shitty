@@ -49,8 +49,6 @@ DATests.test_DA_NoParameter
 # https://vt100.net/docs/vt510-rm/DCH.html
 DCHTests.test_DCH_WorksOutsideTopBottomMargin
 DCSTests.test_DCS_Unrecognized
-DECALNTests.test_DECALN_ClearsMargins
-DECALNTests.test_DECALN_MovesCursorHome
 DECBITests.test_DECBI_LeftOfMargin
 DECCRATests.test_DECCRA_defaultValuesInDest
 DECDSRTests.test_DECDSR_DECCKSR

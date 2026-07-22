@@ -3961,6 +3961,15 @@ void VtermImpl::csi_DSR(bool privateMode) {
 void VtermImpl::esch_DECALN() {
     TRACE_FUN;
 
+    originMode = OriginMode::Absolute;
+    marginTop = 0;
+    marginBottom = nRows;
+    hMargin = 0;
+    nColsEff = nCols;
+    posX = 0;
+    posY = 0;
+    lastCol = false;
+
     TerminalCell origAttrs = attrs;
     CellColor* origFg = &attrs.fg;
     CellColor* origBg = &attrs.bg;

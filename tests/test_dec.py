@@ -160,6 +160,23 @@ class DecProtocolTest(unittest.TestCase):
             self.assertTrue(snapshot.cell(0, 0).bold)
             self.assertFalse(snapshot.cell(1, 0).bold)
 
+    def test_decaln_homes_cursor_and_resets_both_margin_pairs(self):
+        with Zutty(columns=12, rows=8) as terminal:
+            terminal.write(
+                b"\x1b[?69h\x1b[3;10s\x1b[3;6r"
+                b"\x1b[5;6H\x1b#8"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
+
+            terminal.write(b"\x1b[3;3H\x1b[9A\x1b[9D")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
+
+            terminal.write(b"\x1b[6;10H\x1b[9B\x1b[9C")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (11, 7))
+
     def test_horizontal_tab_stop_set_and_clear(self):
         with Zutty(columns=12, rows=2) as terminal:
             terminal.write(b"\x1b[3g\x1b[1;4H\x1bH\r\tX\x1b[3g\r\tY")
