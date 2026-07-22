@@ -661,6 +661,63 @@ wezterm_validation = command(
 )
 
 
+wezterm_screen_cases = (
+    wezterm_root / "screen_file_names.txt"
+).read_text().split()
+wezterm_screen_tests = []
+for case in wezterm_screen_cases:
+    wezterm_screen_tests.append(command(
+        name="wezterm_screen_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/wezterm/catalog.py",
+            "$(S)/tests/wezterm/screen_adapter.py",
+            "$(S)/tests/wezterm/screen_catalog.py",
+            "$(S)/tests/wezterm/screen_file_names.txt",
+            "$(S)/tests/wezterm/screen_xfail.txt",
+            *build.glob("$(S)/tests/wezterm/upstream/*.rs"),
+        ],
+        outputs=[f"$(B)/tests/wezterm/screen/{case}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/wezterm/screen_adapter.py",
+            case,
+            "tests/wezterm/screen_xfail.txt",
+            f"$(B)/tests/wezterm/screen/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="WEZ-SCREEN",
+        color="cyan",
+    ))
+
+
+wezterm_screen_validation = command(
+    name="wezterm_screen_catalog",
+    inputs=[
+        "$(S)/tests/wezterm/catalog.py",
+        "$(S)/tests/wezterm/screen_catalog.py",
+        "$(S)/tests/wezterm/screen_file_names.txt",
+        "$(S)/tests/wezterm/screen_validate.py",
+        "$(S)/tests/wezterm/screen_xfail.txt",
+        *build.glob("$(S)/tests/wezterm/upstream/*.rs"),
+    ],
+    outputs=["$(B)/tests/wezterm/screen/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/wezterm/screen_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/wezterm/screen/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="WEZ-SCREEN",
+    color="cyan",
+)
+
+
 konsole_root = Path(__file__).parent / "tests" / "konsole"
 konsole_cases = (konsole_root / "file_names.txt").read_text().split()
 konsole_tests = []
@@ -1272,6 +1329,8 @@ install(*windows_terminal_tests)
 install(windows_terminal_validation)
 install(*wezterm_tests)
 install(wezterm_validation)
+install(*wezterm_screen_tests)
+install(wezterm_screen_validation)
 install(*konsole_tests)
 install(konsole_validation)
 install(*tmux_tests)

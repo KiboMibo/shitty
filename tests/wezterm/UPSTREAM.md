@@ -6,10 +6,17 @@ The Rust sources in `upstream/` are copied verbatim from WezTerm revision
 upstream project is MIT licensed; its terminal crate license is preserved as
 `LICENSE.upstream`.
 
-The catalog statically extracts every direct literal `term.print("...")` call
+The stream catalog statically extracts every direct literal `term.print("...")` call
 without compiling or executing WezTerm. Rust byte, Unicode, and continuation
 escapes are decoded by the adapter. Each call site is an independent build
 target and is compared whole versus bytewise across parser events and the full
 observable terminal state. Variable-built streams and WezTerm's semantic
-screen, selection, resize, and dirty-line assertions remain for a later
-adapter.
+selection, resize, and dirty-line assertions remain for a later adapter.
+
+The screen catalog statically interprets the unambiguous subset of those same
+Rust tests: literal `print`, cursor placement, erase, mode, and line deletion
+operations followed by literal `assert_visible_contents` checkpoints. It skips
+unknown operations and dynamic expressions instead of guessing. Each of the 28
+imported checkpoints runs at its upstream geometry and compares visible text;
+trailing default cells are normalized because Zutty stores a fixed-width grid
+where WezTerm stores variable-length lines.
