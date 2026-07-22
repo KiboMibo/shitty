@@ -512,6 +512,7 @@ namespace {
         bool altScreenInitialized = false;
         bool autoWrapMode = true;
         bool autoRepeatMode = true;
+        bool allowColumnMode = true;
         bool autoNewlineMode = false;
         bool keyboardLocked = false;
         bool insertMode = false;
@@ -3098,7 +3099,9 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 compatLevel = CompatibilityLevel::VT400;
                 break;
             case 3:
-                switchColMode(ColMode::C132);
+                if (allowColumnMode) {
+                    switchColMode(ColMode::C132);
+                }
                 break;
             case 4:
                 break;
@@ -3128,6 +3131,9 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 if (compatLevel >= CompatibilityLevel::VT200) {
                     printExtentMode = true;
                 }
+                break;
+            case 40:
+                allowColumnMode = true;
                 break;
             case 42:
                 nationalReplacementMode = true;
@@ -3247,7 +3253,9 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 compatLevel = CompatibilityLevel::VT52;
                 break;
             case 3:
-                switchColMode(ColMode::C80);
+                if (allowColumnMode) {
+                    switchColMode(ColMode::C80);
+                }
                 break;
             case 4:
                 break;
@@ -3277,6 +3285,9 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 if (compatLevel >= CompatibilityLevel::VT200) {
                     printExtentMode = false;
                 }
+                break;
+            case 40:
+                allowColumnMode = false;
                 break;
             case 42:
                 nationalReplacementMode = false;
@@ -3393,6 +3404,8 @@ bool VtermImpl::getPrivateMode(u32 arg) const {
             return printFormFeedMode;
         case 19:
             return printExtentMode;
+        case 40:
+            return allowColumnMode;
         case 42:
             return nationalReplacementMode;
         case 45:
@@ -3874,6 +3887,7 @@ void VtermImpl::csi_DECRQM(bool privateMode) {
             case 18:
             case 19:
             case 25:
+            case 40:
             case 42:
             case 45:
             case 47:

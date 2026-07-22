@@ -4,6 +4,18 @@ from harness import Zutty
 
 
 class TerminalModeTest(unittest.TestCase):
+    def test_xterm_mode_40_gates_column_mode_changes(self):
+        with Zutty(columns=80, rows=4) as terminal:
+            terminal.write(b"\x1b[?40$p\x1b[?40l\x1b[?3h\x1b[?40$p")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[?40;1$y\x1b[?40;2$y",
+            )
+            self.assertEqual(terminal.snapshot().columns, 80)
+
+            terminal.write(b"\x1b[?40h\x1b[?3h")
+            self.assertEqual(terminal.snapshot().columns, 132)
+
     def test_deccolm_resizes_and_clears_the_terminal_page(self):
         with Zutty(columns=80, rows=24) as terminal:
             terminal.write(b"content\x1b[?3h")
