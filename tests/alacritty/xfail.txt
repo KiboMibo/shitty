@@ -1,5 +1,4 @@
 # One case ID per line. These are observed compatibility gaps, not ignored tests.
-clear_underline
 # DEC VT520 DECALN sets both margin pairs to the page extremes and moves the
 # cursor home.  Alacritty 852e971 term/mod.rs decaln() only fills cells, so its
 # golden leaves the cursor in place and preserves later E cells incorrectly.

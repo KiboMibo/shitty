@@ -285,6 +285,7 @@ namespace {
         void deleteRows(u16 startY, u16 count);
         void insertCols(u16 startX, u16 count);
         void deleteCols(u16 startX, u16 count);
+        TerminalCell eraseCell() const;
         void eraseRangeInRow(u16 row, u16 start, u16 count);
         void selectiveEraseRangeInRow(u16 row, u16 start, u16 count);
         void moveRangeInRow(u16 row, u16 dst, u16 src, u16 count);
@@ -1486,15 +1487,26 @@ void VtermImpl::deleteCols(u16 startX, u16 count) {
     }
 }
 
+TerminalCell VtermImpl::eraseCell() const {
+    TerminalCell cell;
+    cell.fg = attrs.fg;
+    cell.bg = attrs.bg;
+    if (opts.boldColors && attrs.bold && fgPalIx >= 0 && fgPalIx <= 7) {
+        cell.fg = CellColor::indexed((u8)(fgPalIx));
+    }
+    cell.underline_color = cell.fg;
+    return cell;
+}
+
 void VtermImpl::clearWideCellsAtBoundary(u16 row, u16 boundary) {
     const Frame& frame = *cf;
     const bool clearLeft = boundary > 0 && frame.getCell(row, boundary - 1).dwidth;
     const bool clearRight = boundary < nCols && frame.getCell(row, boundary).dwidth_cont;
     if (clearLeft) {
-        cf->eraseInRow(row, boundary - 1, 1, attrs);
+        cf->eraseInRow(row, boundary - 1, 1, eraseCell());
     }
     if (clearRight) {
-        cf->eraseInRow(row, boundary, 1, attrs);
+        cf->eraseInRow(row, boundary, 1, eraseCell());
     }
 }
 
@@ -1504,10 +1516,10 @@ void VtermImpl::repairWideCellsAtBoundary(u16 row, u16 boundary) {
     const bool rightContinuation = boundary < nCols && frame.getCell(row, boundary).dwidth_cont;
     if (leftLead != rightContinuation) {
         if (leftLead) {
-            cf->eraseInRow(row, boundary - 1, 1, attrs);
+            cf->eraseInRow(row, boundary - 1, 1, eraseCell());
         }
         if (rightContinuation) {
-            cf->eraseInRow(row, boundary, 1, attrs);
+            cf->eraseInRow(row, boundary, 1, eraseCell());
         }
     }
 }
@@ -1519,7 +1531,7 @@ void VtermImpl::eraseRangeInRow(u16 row, u16 start, u16 count) {
     const u16 end = start + count;
     clearWideCellsAtBoundary(row, start);
     clearWideCellsAtBoundary(row, end);
-    cf->eraseInRow(row, start, count, attrs);
+    cf->eraseInRow(row, start, count, eraseCell());
 }
 
 void VtermImpl::eraseEcmaRangeInRow(u16 row, u16 start, u16 count) {
@@ -1531,7 +1543,7 @@ void VtermImpl::eraseEcmaRangeInRow(u16 row, u16 start, u16 count) {
         return;
     }
     const u16 end = start + count;
-    cf->selectiveEraseInRow(row, start, count, attrs, TerminalCell::isoProtection);
+    cf->selectiveEraseInRow(row, start, count, eraseCell(), TerminalCell::isoProtection);
     repairWideCellsAtBoundary(row, start);
     repairWideCellsAtBoundary(row, end);
 }
@@ -1558,7 +1570,7 @@ void VtermImpl::selectiveEraseRangeInRow(u16 row, u16 start, u16 count) {
         return;
     }
     const u16 end = start + count;
-    cf->selectiveEraseInRow(row, start, count, attrs, TerminalCell::decProtection);
+    cf->selectiveEraseInRow(row, start, count, eraseCell(), TerminalCell::decProtection);
     repairWideCellsAtBoundary(row, start);
     repairWideCellsAtBoundary(row, end);
 }

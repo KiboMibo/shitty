@@ -136,6 +136,31 @@ class EditingTest(unittest.TestCase):
             terminal.write(b"\x1b[1;5H\x1b[1K")
             self.assertEqual(terminal.snapshot().lines[0], "     fgh")
 
+    def test_erased_cells_keep_colors_but_clear_character_attributes(self):
+        for erase in (b"\x1b[2J", b"\x1b[2K", b"\x1b[8X", b"\x1b[4@"):
+            with self.subTest(erase=erase), Zutty(columns=8, rows=2) as terminal:
+                terminal.write(
+                    b"12345678\x1b[H"
+                    b"\x1b[1;2;3;4;5;7;8;9;53;31;42m"
+                    b"\x1b[1\"q\x1b]8;;https://example.com\x1b\\"
+                    + erase
+                )
+                cell = terminal.snapshot().cell(0, 0)
+                self.assertEqual(cell.char, " ")
+                self.assertEqual(cell.foreground, (205, 0, 0))
+                self.assertEqual(cell.background, (0, 205, 0))
+                self.assertFalse(cell.bold)
+                self.assertFalse(cell.faint)
+                self.assertFalse(cell.italic)
+                self.assertFalse(cell.underline)
+                self.assertFalse(cell.blink)
+                self.assertFalse(cell.inverse)
+                self.assertFalse(cell.conceal)
+                self.assertFalse(cell.strike)
+                self.assertFalse(cell.overline)
+                self.assertFalse(cell.protected)
+                self.assertEqual(cell.hyperlink, 0)
+
     def test_erase_characters_outside_horizontal_margins_stays_on_screen(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(
