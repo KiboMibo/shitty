@@ -48,6 +48,8 @@ DA2Tests.test_DA2_0
 DA2Tests.test_DA2_NoParameter
 DATests.test_DA_0
 DATests.test_DA_NoParameter
+# DEC VT510 DCH: "DCH has no effect outside the scrolling margins."
+# https://vt100.net/docs/vt510-rm/DCH.html
 DCHTests.test_DCH_WorksOutsideTopBottomMargin
 DCSTests.test_DCS_Unrecognized
 DECALNTests.test_DECALN_ClearsMargins
