@@ -8,7 +8,6 @@
 # so the recorded `on` state is not a portable oracle either.
 vttest.07.vt52-mode
 vttest.09.known-bugs
-vttest.11.5.iso6429-cursor
 vttest.11.6.6.vt102-with-bce
 vttest.11.6.7.ecma48-misc-with-bce
 # The scenario's `*` enables ERM with SM 6 before SPA.  ECMA-48:1991 table 6

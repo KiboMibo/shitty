@@ -73,6 +73,17 @@ class CursorCommandMatrixTest(unittest.TestCase):
             terminal.write(b"\x1b[2Z")
             self.assert_cursor(terminal, 0, 0)
 
+    def test_tab_without_a_following_stop_preserves_pending_wrap(self):
+        for setup in (b"", b"\x1b[3g\x1b[4G\x1bH\x1b[1G"):
+            for tab in (b"\t", b"\x1b[I", b"\x1b[2I"):
+                with self.subTest(setup=setup, tab=tab):
+                    with Zutty(columns=8, rows=2) as terminal:
+                        terminal.write(setup + b"12345678" + tab + b"X")
+                        self.assertEqual(
+                            terminal.snapshot().lines,
+                            ["12345678", "X       "],
+                        )
+
     def test_zero_and_omitted_counts_match_one_for_every_relative_command(self):
         commands = b"ABCDEFIZae"
         for final in commands:

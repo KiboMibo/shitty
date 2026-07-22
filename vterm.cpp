@@ -1822,6 +1822,7 @@ void VtermImpl::inp_CR() {
 }
 
 void VtermImpl::jumpToNextTabStop() {
+    const u16 previous = posX;
     const bool insideMargins = isCursorInsideMargins();
     const u16 left = insideMargins ? hMargin : 0;
     const u16 right = insideMargins ? nColsEff : nCols;
@@ -1834,7 +1835,9 @@ void VtermImpl::jumpToNextTabStop() {
         auto ts = std::upper_bound(tabStops.begin(), tabStops.end(), posX);
         posX = ts == tabStops.end() || *ts >= right ? right - 1 : *ts;
     }
-    lastCol = false;
+    if (posX != previous) {
+        lastCol = false;
+    }
 }
 
 void VtermImpl::inp_HT() {
