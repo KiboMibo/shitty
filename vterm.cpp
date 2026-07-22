@@ -206,6 +206,7 @@ namespace {
             Normal,
             IgnoreSequence,
             Escape,
+            EscapeIntermediate,
             Escape_VT52,
             Esc_SPC,
             Esc_Hash,
@@ -818,7 +819,7 @@ size_t VtermImpl::getHyperlinkCount() const {
 }
 
 const char* VtermImpl::strInputState(InputState is) {
-    static const char* enumerators[] = {"Normal", "IgnoreSequence", "Escape", "Escape_VT52", "Esc_SPC", "Esc_Hash", "Esc_Pct", "SelectCharset", "CSI", "DCS", "DCS_Esc", "OSC", "OSC_Esc", "String", "String_Esc", "VT52_CUP_Arg1", "VT52_CUP_Arg2"};
+    static const char* enumerators[] = {"Normal", "IgnoreSequence", "Escape", "EscapeIntermediate", "Escape_VT52", "Esc_SPC", "Esc_Hash", "Esc_Pct", "SelectCharset", "CSI", "DCS", "DCS_Esc", "OSC", "OSC_Esc", "String", "String_Esc", "VT52_CUP_Arg1", "VT52_CUP_Arg2"};
     return enumerators[(int)is];
 }
 
@@ -7087,12 +7088,19 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
         const bool utf8StringContinuation =
             (inputState == InputState::DCS || inputState == InputState::OSC || inputState == InputState::String)
             && stringUtf8Continuation(ch);
-        if ((ch == '\x18' || ch == '\x1a') && inputState != InputState::Normal) {
-            if constexpr (traced) {
-                parserTrace->stringCancel();
-                parserTrace->escapeCancel();
+        if (ch == '\x18' || ch == '\x1a') {
+            if (inputState == InputState::Normal) {
+                if constexpr (traced) {
+                    parserTrace->control(ch);
+                }
+                resetGraphemeInput();
+            } else {
+                if constexpr (traced) {
+                    parserTrace->stringCancel();
+                    parserTrace->escapeCancel();
+                }
+                setState(InputState::Normal);
             }
-            setState(InputState::Normal);
             continue;
         }
         if (ch == 0x7f) {
@@ -7535,8 +7543,30 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                         setState(InputState::Normal);
                         break;
                     default:
-                        unhandledInput(ch);
+                        if (ch >= 0x20 && ch <= 0x2f) {
+                            setState(InputState::EscapeIntermediate);
+                        } else {
+                            unhandledInput(ch);
+                        }
                         break;
+                }
+                break;
+            case InputState::EscapeIntermediate:
+                if (executeC0InSequence<traced>(ch)) {
+                    break;
+                }
+                if (ch >= 0x20 && ch <= 0x2f) {
+                    if constexpr (traced) {
+                        parserTrace->escapeByte(ch);
+                    }
+                } else if (ch >= 0x30 && ch <= 0x7e) {
+                    if constexpr (traced) {
+                        parserTrace->escapeByte(ch);
+                        parserTrace->escapeEnd();
+                    }
+                    setState(InputState::Normal);
+                } else {
+                    unhandledInput(ch);
                 }
                 break;
             case InputState::Esc_SPC:
