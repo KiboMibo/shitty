@@ -32,3 +32,4 @@ vttest_tab_clear_set
 # https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
 vttest_origin_mode_1
 vttest_origin_mode_2
+vttest_scroll
