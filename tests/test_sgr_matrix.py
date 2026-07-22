@@ -148,7 +148,10 @@ class SgrMatrixTest(unittest.TestCase):
 
             for column in range(3):
                 cell = snapshot.cell(column, 0)
-                self.assertEqual(cell.underline_color, cell.foreground)
+                displayed_foreground = (
+                    cell.background if cell.inverse else cell.foreground
+                )
+                self.assertEqual(cell.underline_color, displayed_foreground)
 
     def test_explicit_underline_color_survives_foreground_and_inverse(self):
         with Zutty(columns=4, rows=2) as terminal:

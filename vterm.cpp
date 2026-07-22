@@ -2256,6 +2256,9 @@ void VtermImpl::esc_DECRC() {
         normalizeCursorPos();
         lastCol = savedCursor_DEC->lastCol;
         attrs = savedCursor_DEC->attrs;
+        reverseVideo = attrs.inverse;
+        fg = &attrs.fg;
+        bg = &attrs.bg;
         originMode = savedCursor_DEC->originMode;
         charsetState = savedCursor_DEC->charsetState;
     }
@@ -3291,10 +3294,6 @@ bool VtermImpl::getPrivateMode(u32 arg) const {
 TerminalPen VtermImpl::getPenState() const {
     TerminalPen result;
     result.cell = attrs;
-    result.cell.inverse = reverseVideo;
-    if (reverseVideo) {
-        std::swap(result.cell.fg, result.cell.bg);
-    }
     result.fg = colors.resolve(result.cell.fg);
     result.bg = colors.resolve(result.cell.bg);
     return result;
@@ -3505,11 +3504,8 @@ void VtermImpl::csi_SGR() {
                 break;
             case 7:
                 if (!reverseVideo) {
-                    fg = &attrs.bg;
-                    bg = &attrs.fg;
                     reverseVideo = true;
-                    setFgFromPalIx();
-                    setBgFromPalIx();
+                    attrs.inverse = 1;
                 }
                 break;
             case 8:
@@ -3550,11 +3546,8 @@ void VtermImpl::csi_SGR() {
                 break;
             case 27:
                 if (reverseVideo) {
-                    fg = &attrs.fg;
-                    bg = &attrs.bg;
                     reverseVideo = false;
-                    setFgFromPalIx();
-                    setBgFromPalIx();
+                    attrs.inverse = 0;
                 }
                 break;
             case 28:
@@ -3657,7 +3650,7 @@ void VtermImpl::csi_SGR() {
         }
     }
     if (underlineColorDefault) {
-        attrs.underline_color = attrs.fg;
+        attrs.underline_color = reverseVideo ? attrs.bg : attrs.fg;
     }
     setState(InputState::Normal);
 }
@@ -3829,6 +3822,7 @@ void VtermImpl::esch_DECALN() {
     fg = origFg;
     bg = origBg;
     attrs = origAttrs;
+    reverseVideo = attrs.inverse;
 
     setState(InputState::Normal);
 }

@@ -351,7 +351,7 @@ std::string TestDisplay::modelSnapshot() const {
     for (size_t index = 0; index < cells.size(); ++index) {
         const auto& cell = cells[index];
         const auto& modelCell = modelCells[index];
-        const unsigned flags = cellFlags(cell);
+        const unsigned flags = cellFlags(modelCell);
         output << std::setw(8) << cell.uc_pt << std::setw(8) << flags << std::setw(2) << (unsigned)(cell.fg.red) << std::setw(2) << (unsigned)(cell.fg.green) << std::setw(2) << (unsigned)(cell.fg.blue) << std::setw(2) << (unsigned)(cell.bg.red) << std::setw(2) << (unsigned)(cell.bg.green) << std::setw(2) << (unsigned)(cell.bg.blue) << std::setw(2) << (unsigned)(cell.underline_color.red) << std::setw(2) << (unsigned)(cell.underline_color.green) << std::setw(2) << (unsigned)(cell.underline_color.blue) << std::setw(8) << cell.hyperlink << std::setw(8) << cell.semantic << std::setw(8) << (u32)(modelCell.fg.legacyIndex()) << std::setw(8) << (u32)(modelCell.bg.legacyIndex()) << std::setw(8) << (u32)(modelCell.underline_color.legacyIndex()) << std::setw(8) << cellGraphemes[index].size();
         for (const u32 codepoint : cellGraphemes[index]) {
             output << std::setw(8) << codepoint;
@@ -379,7 +379,7 @@ std::string TestDisplay::modelDigest() const {
         const auto& cell = cells[index];
         const auto& modelCell = modelCells[index];
         digest.add(cell.uc_pt);
-        digest.add(cellFlags(cell));
+        digest.add(cellFlags(modelCell));
         digest.add(cell.fg.red);
         digest.add(cell.fg.green);
         digest.add(cell.fg.blue);

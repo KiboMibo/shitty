@@ -70,9 +70,11 @@ class CellStateTest(unittest.TestCase):
             self.assertTrue(cell.bold)
             self.assertTrue(cell.italic)
             self.assertTrue(cell.underline)
-            # Zutty materializes inverse video by swapping the stored colors.
-            self.assertEqual(cell.foreground, (4, 5, 6))
-            self.assertEqual(cell.background, (1, 2, 3))
+            # ECMA-48 SGR 7 is a rendition attribute. Keep the logical colors
+            # observable and let the renderer apply the negative image.
+            self.assertTrue(cell.inverse)
+            self.assertEqual(cell.foreground, (1, 2, 3))
+            self.assertEqual(cell.background, (4, 5, 6))
 
     def test_sgr_resets_individual_attributes(self):
         with Zutty(columns=8, rows=2) as terminal:
