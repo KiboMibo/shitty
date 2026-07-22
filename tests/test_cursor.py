@@ -69,6 +69,17 @@ class CursorAndMovementTest(unittest.TestCase):
                     self.assertEqual(snapshot.cell(2, 4).char, "X")
                     self.assertEqual(snapshot.cursor_y, 4)
 
+    def test_reverse_index_does_not_scroll_outside_horizontal_margins(self):
+        with Zutty(columns=8, rows=6) as terminal:
+            terminal.write(
+                b"\x1b[2;5r\x1b[?69h\x1b[2;5s"
+                b"\x1b[2;3HX"
+                b"\x1b[2;6H\x1bM"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(2, 1).char, "X")
+            self.assertEqual(snapshot.cursor_y, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

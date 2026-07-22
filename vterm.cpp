@@ -2192,9 +2192,11 @@ size_t VtermImpl::consumePrinterController(const u8* input, size_t size) {
 void VtermImpl::esc_RI() {
     TRACE_FUN;
     if (posY == marginTop) {
-        nInputOps = 1;
-        inputOps[0] = 1;
-        csi_SD();
+        if (posX >= hMargin && posX < nColsEff) {
+            nInputOps = 1;
+            inputOps[0] = 1;
+            csi_SD();
+        }
     } else if (posY > 0) {
         --posY;
         lastCol = false;
