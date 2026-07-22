@@ -23,6 +23,13 @@ delete_chars_reset
 erase_chars_reset
 insert_blank_reset
 scroll_up_reset
+# The first EL occurs while the cursor has deferred wrap at the right margin.
+# Xterm 410 util.c ClearRight() clears LineWrapped and calls ResetWrap(), so the
+# following `b` overwrites the last column.  Alacritty 852e971 clear_line()
+# returns immediately for LineClearMode::Right when input_needs_wrap is set;
+# its golden therefore wraps `b` onto the next line.  Zutty follows xterm.
+# https://invisible-island.net/archives/xterm/xterm-410.tgz
+# https://github.com/alacritty/alacritty/blob/852e971cddfabe222d2d5bcda466e130f53af207/alacritty_terminal/src/term/mod.rs#L1635
 erase_in_line
 grid_reset
 history
