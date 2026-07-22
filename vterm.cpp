@@ -7121,6 +7121,17 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
             lastEscBegin = readPos;
             continue;
         }
+        if (ch >= 0xa0 && inputState != InputState::Normal
+            && inputState != InputState::DCS && inputState != InputState::DCS_Esc
+            && inputState != InputState::OSC && inputState != InputState::OSC_Esc
+            && inputState != InputState::String && inputState != InputState::String_Esc) {
+            if constexpr (traced) {
+                parserTrace->escapeCancel();
+            }
+            setState(InputState::Normal);
+            --readPos;
+            continue;
+        }
         if (inputState != InputState::Normal && !utf8StringContinuation) {
             switch (ch) {
                 case 0x90:
@@ -7173,7 +7184,7 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                 if constexpr (traced) {
                     if (ch > 0 && ch < 0x20 && ch != '\x1b') {
                         parserTrace->control(ch);
-                    } else if (ch >= 0xa0) {
+                    } else if (ch >= 0xa0 || (ch >= 0x80 && utf8dec.expectsContinuation())) {
                         parserTrace->text(&ch, 1);
                     } else if (ch >= 0x80 && ch <= 0x9f
                         && ch != 0x90 && ch != 0x98 && ch != 0x9b

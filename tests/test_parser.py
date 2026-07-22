@@ -65,6 +65,13 @@ class ParserStreamingTest(unittest.TestCase):
             terminal.write(b"a\x1b[12 !~b")
             self.assertEqual(terminal.snapshot().lines[0][:2], "ab")
 
+    def test_utf8_graphic_aborts_malformed_csi_and_is_reprocessed(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.parser_trace_on()
+            terminal.write(b"\x1b[\xc4\x80a")
+            self.assertEqual(terminal.snapshot().lines[0][:2], "Āa")
+            self.assertEqual(terminal.parser_trace(), [("text", b"\xc4\x80a")])
+
     def test_private_prefix_after_numeric_parameters_is_rejected(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"a\x1b[1?25hb")
