@@ -3103,6 +3103,9 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
             case 42:
                 nationalReplacementMode = true;
                 break;
+            case 66:
+                keypadMode = KeypadMode::Application;
+                break;
             case 45:
                 reverseWrapMode = true;
                 break;
@@ -3234,6 +3237,9 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 break;
             case 42:
                 nationalReplacementMode = false;
+                break;
+            case 66:
+                keypadMode = KeypadMode::Normal;
                 break;
             case 45:
                 reverseWrapMode = false;
@@ -3813,6 +3819,7 @@ void VtermImpl::csi_DECRQM(bool privateMode) {
             case 42:
             case 45:
             case 47:
+            case 66:
             case 67:
             case 69:
             case 1000:

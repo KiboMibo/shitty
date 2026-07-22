@@ -66,6 +66,22 @@ class TerminalModeTest(unittest.TestCase):
             terminal.write(b"\x1b[?5l")
             self.assertEqual(terminal.protocol_state()[0], 0)
 
+    def test_decnkm_controls_and_reports_numeric_keypad_mode(self):
+        with Zutty() as terminal:
+            terminal.write(b"\x1b[?66$p")
+            terminal.key("KP_1")
+            self.assertEqual(terminal.read_input(), b"\x1b[?66;2$y1")
+
+            terminal.write(b"\x1b[?66h\x1b[?66$p")
+            terminal.key("KP_1")
+            self.assertEqual(
+                terminal.read_input(), b"\x1b[?66;1$y\x1bOq"
+            )
+
+            terminal.write(b"\x1b[?66l\x1b[?66$p")
+            terminal.key("KP_1")
+            self.assertEqual(terminal.read_input(), b"\x1b[?66;2$y1")
+
     def test_meta_mode_sets_the_eighth_input_bit(self):
         with Zutty() as terminal:
             terminal.write(b"\x1b[?1034h")
