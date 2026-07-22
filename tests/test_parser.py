@@ -102,6 +102,15 @@ class ParserStreamingTest(unittest.TestCase):
                     terminal.write(sequence)
                     self.assertEqual(terminal.parser_trace(), expected)
 
+    def test_seven_bit_c1_form_remains_an_escape_event(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.parser_trace_on()
+            terminal.write(b"\x1bD\x84")
+            self.assertEqual(
+                terminal.parser_trace(),
+                [("escape", b"D"), ("control", b"\x84")],
+            )
+
     def test_private_prefix_after_numeric_parameters_is_rejected(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"a\x1b[1?25hb")

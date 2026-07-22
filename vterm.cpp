@@ -7412,11 +7412,8 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                         parserTrace->control(ch);
                     } else if (ch >= 0x20 && ch <= 0x2f) {
                         parserTrace->escapeByte(ch);
-                    } else if (ch >= 0x40 && ch <= 0x5f
-                        && ch != 'P' && ch != 'X' && ch != '[' && ch != '\\'
-                        && ch != ']' && ch != '^' && ch != '_') {
+                    } else if (ch == 'Z') {
                         parserTrace->escapeCancel();
-                        parserTrace->control(ch + 0x40);
                     } else if (ch != 'P' && ch != 'X' && ch != '[' && ch != '\\'
                         && ch != ']' && ch != '^' && ch != '_') {
                         parserTrace->escapeByte(ch);
