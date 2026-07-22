@@ -483,6 +483,7 @@ namespace {
         constexpr const static size_t maxOscBytes = 1024 * 1024;
         u32 inputOps[maxEscOps];
         unsigned char inputSeparators[maxEscOps] = {};
+        bool inputPresent[maxEscOps] = {};
         size_t nInputOps = 0;
         Utf8Decoder utf8dec;
         GraphemeBuffer inputGrapheme;
@@ -4919,14 +4920,35 @@ void VtermImpl::csi_XTWINOPS() {
     const u32 operation = inputOps[0];
     std::ostringstream response;
     switch (operation) {
+        case 4:
+        case 8: {
+            const auto info = host.windowInfo();
+            const u32 currentHeight = operation == 4 ? info.pixelHeight : nRows;
+            const u32 currentWidth = operation == 4 ? info.pixelWidth : nCols;
+            const u32 maximumHeight = operation == 4
+                ? info.screenPixelHeight
+                : info.screenPixelHeight / glyphPy;
+            const u32 maximumWidth = operation == 4
+                ? info.screenPixelWidth
+                : info.screenPixelWidth / glyphPx;
+            const auto dimension = [&](size_t index, u32 current, u32 maximum) {
+                if (index >= nInputOps || !inputPresent[index]) {
+                    return current;
+                }
+                return inputOps[index] ? inputOps[index] : maximum;
+            };
+            host.windowOperation(
+                operation,
+                dimension(1, currentHeight, maximumHeight),
+                dimension(2, currentWidth, maximumWidth)
+            );
+        } break;
         case 1:
         case 2:
         case 3:
-        case 4:
         case 5:
         case 6:
         case 7:
-        case 8:
         case 9:
         case 10:
             host.windowOperation(operation, nInputOps > 1 ? inputOps[1] : 0, nInputOps > 2 ? inputOps[2] : 0);
@@ -7027,6 +7049,7 @@ void VtermImpl::setParserTrace(VtermTrace* trace) {
 void VtermImpl::beginCsi() {
     inputOps[0] = 0;
     inputSeparators[0] = 0;
+    inputPresent[0] = false;
     nInputOps = 1;
     csiHadParams = false;
     csiPrefixAllowed = true;
@@ -7261,6 +7284,7 @@ void VtermImpl::processCsiByte(unsigned char ch) {
         }
         csiHadParams = true;
         csiPrefixAllowed = false;
+        inputPresent[nInputOps - 1] = true;
         if (inputOps[nInputOps - 1] > (UINT32_MAX - (u32)(ch - '0')) / 10) {
             inputOps[nInputOps - 1] = UINT32_MAX;
         } else {
@@ -7277,6 +7301,7 @@ void VtermImpl::processCsiByte(unsigned char ch) {
         csiPrefixAllowed = false;
         inputSeparators[nInputOps] = ch;
         inputOps[nInputOps++] = 0;
+        inputPresent[nInputOps - 1] = false;
         return;
     }
     if (ch >= '<' && ch <= '?' && csiPrefixAllowed && csiPrivatePrefix.empty()) {

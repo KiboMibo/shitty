@@ -160,6 +160,8 @@ def run(case_id):
         columns=80,
         rows=25,
         save_lines=500,
+        glyph_px=8,
+        glyph_py=16,
         extra_arguments=("-allowWindowOps", "true"),
     )
     try:

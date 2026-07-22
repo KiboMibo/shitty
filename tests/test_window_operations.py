@@ -41,6 +41,21 @@ class WindowOperationsTest(unittest.TestCase):
                 ],
             )
 
+    def test_resize_distinguishes_omitted_and_zero_dimensions(self):
+        with window_terminal() as terminal:
+            terminal.window_info(screen_width=30, screen_height=20)
+            terminal.write(b"\x1b[8;;12t\x1b[8;6;t\x1b[8;0;0t")
+            self.assertEqual(
+                terminal.read_actions(),
+                [
+                    "WINDOW 8 4 12",
+                    "WINDOW 8 6 12",
+                    "WINDOW 8 20 30",
+                ],
+            )
+            snapshot = terminal.model_snapshot()
+            self.assertEqual((snapshot.columns, snapshot.rows), (30, 20))
+
     def test_window_state_reports_normal_and_iconified(self):
         with window_terminal() as terminal:
             terminal.write(b"\x1b[11t")
