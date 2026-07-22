@@ -29,6 +29,18 @@ class DynamicColorTest(unittest.TestCase):
             self.assertEqual(direct.background, (205, 0, 0))
             self.assertEqual(direct.underline_color, (205, 0, 0))
 
+    def test_palette_change_is_resolved_when_scrollback_becomes_visible(self):
+        with Zutty(columns=4, rows=2, save_lines=4) as terminal:
+            terminal.write(
+                b"\x1b[38;5;1mA\r\nB\r\nC"
+                b"\x1b]4;1;#010203\x1b\\"
+            )
+
+            terminal.wheel_up()
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "A   ")
+            self.assertEqual(snapshot.cell(0, 0).foreground, (1, 2, 3))
+
     def test_palette_reset_can_target_indices_or_the_whole_palette(self):
         with Zutty(columns=4, rows=2) as terminal:
             terminal.write(

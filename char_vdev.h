@@ -44,7 +44,7 @@ public:
     }
 
     struct Mapping {
-        Mapping(u16 nCols_, u16 nRows_, TerminalCell*& cells_);
+        Mapping(u16 nCols_, u16 nRows_, RenderCell*& cells_);
         ~Mapping();
 
         Mapping(const Mapping&) = delete;
@@ -52,12 +52,12 @@ public:
 
         u16 nCols;
         u16 nRows;
-        TerminalCell*& cells;
+        RenderCell*& cells;
     };
 
     Mapping getMapping();
 
-    const TerminalCell* cellData() const {
+    const RenderCell* cellData() const {
         return cellStorage.data();
     }
 
@@ -86,8 +86,8 @@ private:
     u16 pxWidth = 0;
     u16 pxHeight = 0;
 
-    std::vector<TerminalCell> cellStorage;
-    TerminalCell* cells = nullptr;
+    std::vector<RenderCell> cellStorage;
+    RenderCell* cells = nullptr;
 
     TerminalCursor cursor;
     Rect selection;

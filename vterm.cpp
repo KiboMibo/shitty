@@ -93,7 +93,7 @@ namespace {
         bool getMetaMode() const;
         bool getAnsiMode(u32 mode) const;
         bool getPrivateMode(u32 mode) const;
-        TerminalCell getPenState() const;
+        TerminalPen getPenState() const;
 
         void resize(u16 winPx, u16 winPy);
 
@@ -396,6 +396,8 @@ namespace {
         std::u8string ptyOutput;
         size_t ptyOutputOffset = 0;
 
+        TerminalColors colors;
+        Color originalPalette256[256];
         Frame frame_pri;
         Frame frame_alt;
         Frame* cf;
@@ -406,14 +408,8 @@ namespace {
         bool lastCol = false;
 
         TerminalCell attrs;
-        Color* fg = &attrs.fg;
-        Color* bg = &attrs.bg;
-        i32* fgIndex = &attrs.fg_index;
-        i32* bgIndex = &attrs.bg_index;
-        Color palette256[256];
-        Color originalPalette256[256];
-        Color defaultFgColor;
-        Color defaultBgColor;
+        CellColor* fg = &attrs.fg;
+        CellColor* bg = &attrs.bg;
         Color cursorColor;
         Color selectionFgColor;
         Color selectionBgColor;
@@ -1201,8 +1197,6 @@ void VtermImpl::resetAttrs() {
     reverseVideo = false;
     fg = &attrs.fg;
     bg = &attrs.bg;
-    fgIndex = &attrs.fg_index;
-    bgIndex = &attrs.bg_index;
 
     inputOps[0] = 0;
     nInputOps = 1;
@@ -1241,7 +1235,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         if (clearAlternate) {
             if (altScreenBufferMode_) {
                 kittyKeyboardAlt = {};
-                frame_alt = Frame(winPx, winPy, nCols, nRows, marginTop, marginBottom, opts.saveLines);
+                frame_alt = Frame(winPx, winPy, nCols, nRows, marginTop, marginBottom, &colors, opts.saveLines);
                 altScreenInitialized = true;
                 cf = &frame_alt;
                 cf->expose();
@@ -1257,7 +1251,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
     if (altScreenBufferMode_) {
         if (clearAlternate || !altScreenInitialized) {
             kittyKeyboardAlt = {};
-            frame_alt = Frame(winPx, winPy, nCols, nRows, marginTop, marginBottom, opts.saveLines);
+            frame_alt = Frame(winPx, winPy, nCols, nRows, marginTop, marginBottom, &colors, opts.saveLines);
             altScreenInitialized = true;
         } else {
             frame_alt.resize(winPx, winPy, nCols, nRows, marginTop, marginBottom);
@@ -3292,13 +3286,15 @@ bool VtermImpl::getPrivateMode(u32 arg) const {
     }
 }
 
-TerminalCell VtermImpl::getPenState() const {
-    TerminalCell result = attrs;
-    result.inverse = reverseVideo;
+TerminalPen VtermImpl::getPenState() const {
+    TerminalPen result;
+    result.cell = attrs;
+    result.cell.inverse = reverseVideo;
     if (reverseVideo) {
-        std::swap(result.fg, result.bg);
-        std::swap(result.fg_index, result.bg_index);
+        std::swap(result.cell.fg, result.cell.bg);
     }
+    result.fg = colors.resolve(result.cell.fg);
+    result.bg = colors.resolve(result.cell.bg);
     return result;
 }
 
@@ -3352,38 +3348,32 @@ void VtermImpl::csi_privRestore() {
 
 void VtermImpl::setFgFromPalIx() {
     if (fgPalIx < 0) {
-        *fg = defaultFgColor;
-        *fgIndex = -2;
+        *fg = CellColor::defaultForeground();
     } else if (fgPalIx > 255) {
         return;
     } else if (opts.boldColors && attrs.bold && fgPalIx >= 0 && fgPalIx <= 7) {
-        *fg = palette256[fgPalIx + 8];
-        *fgIndex = fgPalIx + 8;
+        *fg = CellColor::indexed(fgPalIx + 8);
     } else {
-        *fg = palette256[fgPalIx];
-        *fgIndex = fgPalIx;
+        *fg = CellColor::indexed(fgPalIx);
     }
     if (underlineColorDefault) {
         attrs.underline_color = *fg;
-        attrs.underline_index = *fgIndex;
     }
 }
 
 void VtermImpl::setBgFromPalIx() {
     if (bgPalIx < 0) {
-        *bg = defaultBgColor;
-        *bgIndex = -2;
+        *bg = CellColor::defaultBackground();
     } else if (bgPalIx > 255) {
         return;
     } else {
-        *bg = palette256[bgPalIx];
-        *bgIndex = bgPalIx;
+        *bg = CellColor::indexed(bgPalIx);
     }
 }
 
 void VtermImpl::csi_SGR() {
     TRACE_FUN;
-    const auto parseColor = [this](size_t& k, Color& color, int* palette) {
+    const auto parseColor = [this](size_t& k, CellColor& color, int* palette) {
         if (k + 1 >= nInputOps) {
             return false;
         }
@@ -3401,7 +3391,7 @@ void VtermImpl::csi_SGR() {
                 if (end - first + 1 != 1 || inputOps[first] > 255) {
                     return false;
                 }
-                color = palette256[inputOps[first]];
+                color = CellColor::indexed(inputOps[first]);
                 if (palette) {
                     *palette = inputOps[first];
                 }
@@ -3412,9 +3402,11 @@ void VtermImpl::csi_SGR() {
             if (mode != 2 || end - first + 1 != 4 || inputOps[first + 1] > 255 || inputOps[first + 2] > 255 || inputOps[first + 3] > 255) {
                 return false;
             }
-            color.red = inputOps[first + 1];
-            color.green = inputOps[first + 2];
-            color.blue = inputOps[first + 3];
+            color = CellColor::direct({
+                (u8)(inputOps[first + 1]),
+                (u8)(inputOps[first + 2]),
+                (u8)(inputOps[first + 3]),
+            });
             if (palette) {
                 *palette = -1;
             }
@@ -3429,7 +3421,7 @@ void VtermImpl::csi_SGR() {
             if (index > 255) {
                 return false;
             }
-            color = palette256[index];
+            color = CellColor::indexed(index);
             if (palette) {
                 *palette = index;
             }
@@ -3445,9 +3437,11 @@ void VtermImpl::csi_SGR() {
         if (available < 3 || inputOps[first] > 255 || inputOps[first + 1] > 255 || inputOps[first + 2] > 255) {
             return false;
         }
-        color.red = inputOps[first];
-        color.green = inputOps[first + 1];
-        color.blue = inputOps[first + 2];
+        color = CellColor::direct({
+            (u8)(inputOps[first]),
+            (u8)(inputOps[first + 1]),
+            (u8)(inputOps[first + 2]),
+        });
         k = first + 2;
         if (palette) {
             *palette = -1;
@@ -3474,15 +3468,12 @@ void VtermImpl::csi_SGR() {
                 reverseVideo = false;
                 fg = &attrs.fg;
                 bg = &attrs.bg;
-                fgIndex = &attrs.fg_index;
-                bgIndex = &attrs.bg_index;
                 fgPalIx = defaultFgPalIx;
                 setFgFromPalIx();
                 bgPalIx = defaultBgPalIx;
                 setBgFromPalIx();
                 underlineColorDefault = true;
                 attrs.underline_color = *fg;
-                attrs.underline_index = *fgIndex;
                 break;
             case 1:
                 attrs.bold = 1;
@@ -3514,8 +3505,6 @@ void VtermImpl::csi_SGR() {
                 if (!reverseVideo) {
                     fg = &attrs.bg;
                     bg = &attrs.fg;
-                    fgIndex = &attrs.bg_index;
-                    bgIndex = &attrs.fg_index;
                     reverseVideo = true;
                     setFgFromPalIx();
                     setBgFromPalIx();
@@ -3561,8 +3550,6 @@ void VtermImpl::csi_SGR() {
                 if (reverseVideo) {
                     fg = &attrs.fg;
                     bg = &attrs.bg;
-                    fgIndex = &attrs.fg_index;
-                    bgIndex = &attrs.bg_index;
                     reverseVideo = false;
                     setFgFromPalIx();
                     setBgFromPalIx();
@@ -3589,11 +3576,9 @@ void VtermImpl::csi_SGR() {
 
             case 38:
                 if (parseColor(k, *fg, &fgPalIx)) {
-                    *fgIndex = fgPalIx;
                 }
                 if (underlineColorDefault) {
                     attrs.underline_color = *fg;
-                    attrs.underline_index = *fgIndex;
                 }
                 break;
             case 39:
@@ -3615,7 +3600,6 @@ void VtermImpl::csi_SGR() {
 
             case 48:
                 if (parseColor(k, *bg, &bgPalIx)) {
-                    *bgIndex = bgPalIx;
                 }
                 break;
             case 49:
@@ -3627,13 +3611,11 @@ void VtermImpl::csi_SGR() {
                 underlinePalIx = -1;
                 if (parseColor(k, attrs.underline_color, &underlinePalIx)) {
                     underlineColorDefault = false;
-                    attrs.underline_index = underlinePalIx;
                 }
                 break;
             case 59:
                 underlineColorDefault = true;
                 attrs.underline_color = *fg;
-                attrs.underline_index = *fgIndex;
                 break;
 
             case 53:
@@ -3674,7 +3656,6 @@ void VtermImpl::csi_SGR() {
     }
     if (underlineColorDefault) {
         attrs.underline_color = attrs.fg;
-        attrs.underline_index = attrs.fg_index;
     }
     setState(InputState::Normal);
 }
@@ -3837,8 +3818,8 @@ void VtermImpl::esch_DECALN() {
     TRACE_FUN;
 
     TerminalCell origAttrs = attrs;
-    Color* origFg = &attrs.fg;
-    Color* origBg = &attrs.bg;
+    CellColor* origFg = &attrs.fg;
+    CellColor* origBg = &attrs.bg;
 
     resetAttrs();
     fillScreen('E');
@@ -4064,19 +4045,22 @@ void VtermImpl::dcs_DECRQSS(const std::string& arg) {
         }
         if (fgPalIx >= 0) {
             value << ";38;5;" << fgPalIx;
-        } else if (*fgIndex != -2) {
-            value << ";38;2;" << (unsigned)(fg->red) << ";" << (unsigned)(fg->green) << ";" << (unsigned)(fg->blue);
+        } else if (fg->source() == CellColor::Source::Direct) {
+            const Color color = fg->color();
+            value << ";38;2;" << (unsigned)(color.red) << ";" << (unsigned)(color.green) << ";" << (unsigned)(color.blue);
         }
         if (bgPalIx >= 0) {
             value << ";48;5;" << bgPalIx;
-        } else if (*bgIndex != -2) {
-            value << ";48;2;" << (unsigned)(bg->red) << ";" << (unsigned)(bg->green) << ";" << (unsigned)(bg->blue);
+        } else if (bg->source() == CellColor::Source::Direct) {
+            const Color color = bg->color();
+            value << ";48;2;" << (unsigned)(color.red) << ";" << (unsigned)(color.green) << ";" << (unsigned)(color.blue);
         }
         if (!underlineColorDefault) {
             if (underlinePalIx >= 0) {
                 value << ";58;5;" << underlinePalIx;
             } else {
-                value << ";58;2;" << (unsigned)(attrs.underline_color.red) << ";" << (unsigned)(attrs.underline_color.green) << ";" << (unsigned)(attrs.underline_color.blue);
+                const Color color = attrs.underline_color.color();
+                value << ";58;2;" << (unsigned)(color.red) << ";" << (unsigned)(color.green) << ";" << (unsigned)(color.blue);
             }
         }
         value << "m";
@@ -4199,18 +4183,24 @@ void VtermImpl::handle_OSC() {
                 break;
             case 104: {
                 if (arg.empty()) {
-                    for (u16 index = 0; index < 256; ++index) {
-                        applyPaletteColor(index, originalPalette256[index]);
-                    }
+                    std::copy(std::begin(originalPalette256), std::end(originalPalette256), std::begin(colors.palette));
+                    frame_pri.expose();
+                    frame_alt.expose();
                 } else {
+                    bool changed = false;
                     std::stringstream indices(arg);
                     std::string value;
                     while (std::getline(indices, value, ';')) {
                         int index = -1;
                         const auto parsed = std::from_chars(value.data(), value.data() + value.size(), index);
                         if (parsed.ec == std::errc{} && parsed.ptr == value.data() + value.size() && index >= 0 && index <= 255) {
-                            applyPaletteColor(index, originalPalette256[index]);
+                            colors.palette[index] = originalPalette256[index];
+                            changed = true;
                         }
+                    }
+                    if (changed) {
+                        frame_pri.expose();
+                        frame_alt.expose();
                     }
                 }
             } break;
@@ -4222,25 +4212,16 @@ void VtermImpl::handle_OSC() {
                 osc_DynamicColorQuery(cmd, arg);
                 break;
             case 110:
-                defaultFgColor = opts.fg;
+                colors.defaultForeground = opts.fg;
                 defaultFgPalIx = -1;
-                frame_pri.recolorDefault(true, defaultFgColor);
-                frame_alt.recolorDefault(true, defaultFgColor);
-                if (*fgIndex == -2) {
-                    *fg = defaultFgColor;
-                }
-                if (attrs.underline_index == -2) {
-                    attrs.underline_color = defaultFgColor;
-                }
+                frame_pri.expose();
+                frame_alt.expose();
                 break;
             case 111:
-                defaultBgColor = opts.bg;
+                colors.defaultBackground = opts.bg;
                 defaultBgPalIx = -1;
-                frame_pri.recolorDefault(false, defaultBgColor);
-                frame_alt.recolorDefault(false, defaultBgColor);
-                if (*bgIndex == -2) {
-                    *bg = defaultBgColor;
-                }
+                frame_pri.expose();
+                frame_alt.expose();
                 break;
             case 112:
                 cursorColor = opts.cr;
@@ -4523,18 +4504,9 @@ void VtermImpl::writeTitleResponse(char kind, const std::string& title) {
 }
 
 void VtermImpl::applyPaletteColor(u16 index, Color color) {
-    palette256[index] = color;
-    frame_pri.recolorPalette(index, color);
-    frame_alt.recolorPalette(index, color);
-    if (*fgIndex == index) {
-        *fg = color;
-    }
-    if (*bgIndex == index) {
-        *bg = color;
-    }
-    if (attrs.underline_index == index) {
-        attrs.underline_color = color;
-    }
+    colors.palette[index] = color;
+    frame_pri.expose();
+    frame_alt.expose();
 }
 
 void VtermImpl::osc_PaletteQuery(int cmd, const std::string& arg) {
@@ -4549,7 +4521,7 @@ void VtermImpl::osc_PaletteQuery(int cmd, const std::string& arg) {
         }
         if (spec == "?") {
             std::ostringstream reply;
-            reply << cmd << ";" << paletteIdx << ";" << palette256[paletteIdx];
+            reply << cmd << ";" << paletteIdx << ";" << colors.palette[paletteIdx];
             writeOscResponse(reply.str());
         } else {
             Color color;
@@ -4565,10 +4537,10 @@ void VtermImpl::osc_DynamicColorQuery(int cmd, const std::string& arg) {
         Color c;
         switch (cmd) {
             case 10:
-                c = defaultFgColor;
+                c = colors.defaultForeground;
                 break;
             case 11:
-                c = defaultBgColor;
+                c = colors.defaultBackground;
                 break;
             case 12:
                 c = cursorColor;
@@ -4592,25 +4564,16 @@ void VtermImpl::osc_DynamicColorQuery(int cmd, const std::string& arg) {
         }
         switch (cmd) {
             case 10:
-                defaultFgColor = color;
+                colors.defaultForeground = color;
                 defaultFgPalIx = -1;
-                frame_pri.recolorDefault(true, color);
-                frame_alt.recolorDefault(true, color);
-                if (*fgIndex == -2) {
-                    *fg = color;
-                }
-                if (attrs.underline_index == -2) {
-                    attrs.underline_color = color;
-                }
+                frame_pri.expose();
+                frame_alt.expose();
                 break;
             case 11:
-                defaultBgColor = color;
+                colors.defaultBackground = color;
                 defaultBgPalIx = -1;
-                frame_pri.recolorDefault(false, color);
-                frame_alt.recolorDefault(false, color);
-                if (*bgIndex == -2) {
-                    *bg = color;
-                }
+                frame_pri.expose();
+                frame_alt.expose();
                 break;
             case 12:
                 cursorColor = color;
@@ -6216,7 +6179,7 @@ VtermImpl::VtermImpl(VtermHost& host_, Pty& pty_, Output* dump_, u16 glyphPx_, u
     , nRows((winPy - 2 * opts.border) / glyphPy_)
     , glyphPx(glyphPx_)
     , glyphPy(glyphPy_)
-    , frame_pri(winPx, winPy, nCols, nRows, marginTop, marginBottom, opts.saveLines)
+    , frame_pri(winPx, winPy, nCols, nRows, marginTop, marginBottom, &colors, opts.saveLines)
     , cf(&frame_pri)
     , utf8dec([this]() {
         placeGraphicChar();
@@ -6224,10 +6187,10 @@ VtermImpl::VtermImpl(VtermHost& host_, Pty& pty_, Output* dump_, u16 glyphPx_, u
     , nColsEff(nCols)
     , hMargin(0)
 {
-    makePalette256(palette256);
-    std::copy(std::begin(palette256), std::end(palette256), std::begin(originalPalette256));
-    defaultFgColor = opts.fg;
-    defaultBgColor = opts.bg;
+    makePalette256(colors.palette);
+    std::copy(std::begin(colors.palette), std::end(colors.palette), std::begin(originalPalette256));
+    colors.defaultForeground = opts.fg;
+    colors.defaultBackground = opts.bg;
     cursorColor = opts.cr;
     selectionFgColor = opts.fg;
     selectionBgColor = opts.bg;

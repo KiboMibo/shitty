@@ -9,4 +9,6 @@ run_multi() {
     exec python3 ./run_multi.py "$@"
 }
 
-run_multi ./main_fuzz "$@"
+# The headless VTerm intentionally persists across units; per-unit LSan scans
+# dominate execution time and do not validate that process-lifetime state.
+run_multi ./main_fuzz -detect_leaks=0 "$@"

@@ -239,11 +239,13 @@ namespace {
         size_t graphemeCodepoints = 0;
         TerminalCursor cursor;
         Rect selection;
-        std::vector<TerminalCell> cells;
+        std::vector<RenderCell> cells;
+        std::vector<TerminalCell> modelCells;
         std::vector<Frame::Grapheme> cellGraphemes;
     };
 
-    unsigned cellFlags(const TerminalCell& cell) {
+    template <class Cell>
+    unsigned cellFlags(const Cell& cell) {
         return (cell.dwidth << 0) | (cell.dwidth_cont << 1)
              | (cell.bold << 2) | (cell.italic << 3)
              | (cell.underline << 4) | (cell.inverse << 5)
@@ -279,6 +281,7 @@ bool TestDisplay::update(const Frame& frame) {
         columns = frame.nCols;
         rows = frame.nRows;
         cells.resize(count);
+        modelCells.resize(count);
         delta = false;
     }
     if (delta) {
@@ -290,8 +293,12 @@ bool TestDisplay::update(const Frame& frame) {
         cell.dirty = 0;
     }
     cellGraphemes.resize(count);
-    for (size_t index = 0; index < count; ++index) {
-        cellGraphemes[index] = frame.getGrapheme(cells[index].grapheme);
+    for (u16 row = 0; row < rows; ++row) {
+        for (u16 column = 0; column < columns; ++column) {
+            const size_t index = (size_t)(row) * columns + column;
+            modelCells[index] = frame.getViewCell(row, column);
+            cellGraphemes[index] = frame.getGrapheme(modelCells[index].grapheme);
+        }
     }
     cursor = frame.getCursor();
     selection = frame.getSelectionForView();
@@ -343,8 +350,9 @@ std::string TestDisplay::modelSnapshot() const {
     output << std::hex << std::setfill('0');
     for (size_t index = 0; index < cells.size(); ++index) {
         const auto& cell = cells[index];
+        const auto& modelCell = modelCells[index];
         const unsigned flags = cellFlags(cell);
-        output << std::setw(8) << cell.uc_pt << std::setw(8) << flags << std::setw(2) << (unsigned)(cell.fg.red) << std::setw(2) << (unsigned)(cell.fg.green) << std::setw(2) << (unsigned)(cell.fg.blue) << std::setw(2) << (unsigned)(cell.bg.red) << std::setw(2) << (unsigned)(cell.bg.green) << std::setw(2) << (unsigned)(cell.bg.blue) << std::setw(2) << (unsigned)(cell.underline_color.red) << std::setw(2) << (unsigned)(cell.underline_color.green) << std::setw(2) << (unsigned)(cell.underline_color.blue) << std::setw(8) << cell.hyperlink << std::setw(8) << cell.semantic << std::setw(8) << (u32)(cell.fg_index) << std::setw(8) << (u32)(cell.bg_index) << std::setw(8) << (u32)(cell.underline_index) << std::setw(8) << cellGraphemes[index].size();
+        output << std::setw(8) << cell.uc_pt << std::setw(8) << flags << std::setw(2) << (unsigned)(cell.fg.red) << std::setw(2) << (unsigned)(cell.fg.green) << std::setw(2) << (unsigned)(cell.fg.blue) << std::setw(2) << (unsigned)(cell.bg.red) << std::setw(2) << (unsigned)(cell.bg.green) << std::setw(2) << (unsigned)(cell.bg.blue) << std::setw(2) << (unsigned)(cell.underline_color.red) << std::setw(2) << (unsigned)(cell.underline_color.green) << std::setw(2) << (unsigned)(cell.underline_color.blue) << std::setw(8) << cell.hyperlink << std::setw(8) << cell.semantic << std::setw(8) << (u32)(modelCell.fg.legacyIndex()) << std::setw(8) << (u32)(modelCell.bg.legacyIndex()) << std::setw(8) << (u32)(modelCell.underline_color.legacyIndex()) << std::setw(8) << cellGraphemes[index].size();
         for (const u32 codepoint : cellGraphemes[index]) {
             output << std::setw(8) << codepoint;
         }
@@ -369,6 +377,7 @@ std::string TestDisplay::modelDigest() const {
     digest.add(cells.size());
     for (size_t index = 0; index < cells.size(); ++index) {
         const auto& cell = cells[index];
+        const auto& modelCell = modelCells[index];
         digest.add(cell.uc_pt);
         digest.add(cellFlags(cell));
         digest.add(cell.fg.red);
@@ -382,9 +391,9 @@ std::string TestDisplay::modelDigest() const {
         digest.add(cell.underline_color.blue);
         digest.add(cell.hyperlink);
         digest.add(cell.semantic);
-        digest.add((u32)(cell.fg_index));
-        digest.add((u32)(cell.bg_index));
-        digest.add((u32)(cell.underline_index));
+        digest.add((u32)(modelCell.fg.legacyIndex()));
+        digest.add((u32)(modelCell.bg.legacyIndex()));
+        digest.add((u32)(modelCell.underline_color.legacyIndex()));
         digest.add(cellGraphemes[index].size());
         for (const u32 codepoint : cellGraphemes[index]) {
             digest.add(codepoint);
@@ -960,7 +969,7 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                 terminal.redraw();
                 writeAll(controlFd, "OK\n");
             } else if (line == "GPU_ATTRIBUTE_MASKS") {
-                TerminalCell cell;
+                RenderCell cell;
                 cell.dwidth = true;
                 const u32 doubleWidth = VulkanPresenter::packCellAttributes(cell);
                 cell.dwidth = false;
@@ -1307,16 +1316,16 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                        << " DECLRMM=" << terminal.getPrivateMode(69) << '\n';
                 writeAll(controlFd, output.str());
             } else if (line == "PEN_STATE") {
-                const TerminalCell pen = terminal.getPenState();
+                const TerminalPen pen = terminal.getPenState();
                 std::ostringstream output;
-                output << "OK " << cellFlags(pen) << ' '
+                output << "OK " << cellFlags(pen.cell) << ' '
                        << (unsigned)(pen.fg.red) << ' '
                        << (unsigned)(pen.fg.green) << ' '
                        << (unsigned)(pen.fg.blue) << ' '
                        << (unsigned)(pen.bg.red) << ' '
                        << (unsigned)(pen.bg.green) << ' '
                        << (unsigned)(pen.bg.blue) << ' '
-                       << pen.fg_index << ' ' << pen.bg_index << '\n';
+                       << pen.cell.fg.legacyIndex() << ' ' << pen.cell.bg.legacyIndex() << '\n';
                 writeAll(controlFd, output.str());
             } else if (line == "PARSER_TRACE_ON") {
                 vtermTrace.clear();

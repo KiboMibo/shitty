@@ -13,9 +13,6 @@ struct Cell
    uint underlineColor;
    uint hyperlink;
    uint grapheme;
-   int fgIndex;
-   int bgIndex;
-   int underlineIndex;
    uint semantic;
    uint lineAttribute;
 };

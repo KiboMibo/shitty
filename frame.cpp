@@ -14,6 +14,8 @@
 
 #include <utf8proc.h>
 
+#include <cassert>
+
 #ifdef DEBUG
     #include <sstream>
 #endif
@@ -109,7 +111,7 @@ const Frame::Grapheme& Frame::getGrapheme(u32 id) const {
     return graphemes->values[id];
 }
 
-Frame::Frame(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, u16 saveLines_)
+Frame::Frame(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, const TerminalColors* colors_, u16 saveLines_)
     : winPx(winPx_)
     , winPy(winPy_)
     , nCols(nCols_)
@@ -117,6 +119,7 @@ Frame::Frame(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u1
     , saveLines(saveLines_)
     , viewOffset(0)
     , cells(TerminalCell::make(nCols, nRows + saveLines))
+    , colors(colors_)
     , screen(nRows)
 {
     for (RowId row = 0; row < nRows; ++row) {
@@ -158,47 +161,6 @@ void Frame::collectHyperlinkIds(std::set<u32>& ids) const {
     for (RowId row : history) {
         collectRow(row);
     }
-}
-
-void Frame::recolorPalette(u16 index, Color color) {
-    if (!cells) {
-        return;
-    }
-    const size_t count = (size_t)(nCols) * (nRows + saveLines);
-    for (size_t i = 0; i < count; ++i) {
-        auto& cell = cells.get()[i];
-        if (cell.fg_index == index) {
-            cell.fg = color;
-        }
-        if (cell.bg_index == index) {
-            cell.bg = color;
-        }
-        if (cell.underline_index == index) {
-            cell.underline_color = color;
-        }
-    }
-    expose();
-}
-
-void Frame::recolorDefault(bool foreground, Color color) {
-    if (!cells) {
-        return;
-    }
-    const size_t count = (size_t)(nCols) * (nRows + saveLines);
-    for (size_t i = 0; i < count; ++i) {
-        auto& cell = cells.get()[i];
-        if (foreground) {
-            if (cell.fg_index == -2) {
-                cell.fg = color;
-            }
-            if (cell.underline_index == -2) {
-                cell.underline_color = color;
-            }
-        } else if (cell.bg_index == -2) {
-            cell.bg = color;
-        }
-    }
-    expose();
 }
 
 void Frame::resize(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_) {
@@ -274,16 +236,18 @@ void Frame::resize(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTo
     highMemUsageReport();
 }
 
-void Frame::fullCopyCells(TerminalCell* const dst) const {
-    TerminalCell* p = dst;
+void Frame::fullCopyCells(RenderCell* const dst) const {
+    RenderCell* p = dst;
     for (int pY = 0; pY < nRows; ++pY) {
-        memcpy(p, getViewRowPtr(pY), nCols * cellSize);
-        p += nCols;
+        const TerminalCell* src = getViewRowPtr(pY);
+        for (u16 pX = 0; pX < nCols; ++pX) {
+            *p++ = materialize(src[pX]);
+        }
     }
 }
 
-void Frame::deltaCopyCells(TerminalCell* const dst) const {
-    TerminalCell* p = dst;
+void Frame::deltaCopyCells(RenderCell* const dst) const {
+    RenderCell* p = dst;
     for (int pY = -viewOffset; pY < nRows - viewOffset; ++pY) {
         damageDeltaCopy(p, nCols * getLogicalRow(pY), nCols);
         p += nCols;
@@ -454,7 +418,20 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
     return true;
 }
 
-void Frame::damageDeltaCopy(TerminalCell* dst, u32 start, u32 count) const {
+RenderCell Frame::materialize(const TerminalCell& cell) const {
+    assert(colors != nullptr);
+    RenderCell result;
+    memcpy(&result, &cell, offsetof(TerminalCell, fg));
+    result.fg = colors->resolve(cell.fg);
+    result.bg = colors->resolve(cell.bg);
+    result.underline_color = colors->resolve(cell.underline_color);
+    result.hyperlink = cell.hyperlink;
+    result.grapheme = cell.grapheme;
+    result.semantic = cell.semantic;
+    return result;
+}
+
+void Frame::damageDeltaCopy(RenderCell* dst, u32 start, u32 count) const {
     u32 end = start + count;
 
     if (damage.end <= start || end <= damage.start) {
@@ -473,8 +450,9 @@ void Frame::damageDeltaCopy(TerminalCell* dst, u32 start, u32 count) const {
     TerminalCell* const src = cells.get();
 
     for (size_t i = 0, j = start; j < end; ++i, ++j) {
-        if (dst[i] != src[j]) {
-            dst[i] = src[j];
+        RenderCell rendered = materialize(src[j]);
+        if (dst[i] != rendered) {
+            dst[i] = rendered;
             dst[i].dirty = 1;
         }
     }

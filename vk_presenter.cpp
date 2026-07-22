@@ -35,14 +35,11 @@ namespace {
         u32 underlineColor;
         u32 hyperlink;
         u32 grapheme;
-        i32 foregroundIndex;
-        i32 backgroundIndex;
-        i32 underlineIndex;
         u32 semantic;
         u32 lineAttribute;
     };
 
-    static_assert(sizeof(GpuCell) == 48, "Vulkan cell layout mismatch");
+    static_assert(sizeof(GpuCell) == 36, "Vulkan cell layout mismatch");
 
     [[noreturn]] void failVk(const char* operation, VkResult result) {
         throw std::runtime_error(std::string(operation) + " failed (VkResult " + std::to_string((int)(result)) + ")");
@@ -96,7 +93,7 @@ namespace {
     }
 }
 
-u32 VulkanPresenter::packCellAttributes(const TerminalCell& cell) {
+u32 VulkanPresenter::packCellAttributes(const RenderCell& cell) {
     return ((u32)(cell.bold) << 2) | ((u32)(cell.italic) << 3) | ((u32)(cell.underline) << 4) | ((u32)(cell.inverse) << 5) | ((u32)(cell.wrap) << 6) | ((u32)(cell.faint) << 8) | ((u32)(cell.blink) << 9) | ((u32)(cell.conceal) << 10) | ((u32)(cell.strike) << 11) | ((u32)(cell.overline) << 12) | ((u32)(cell.underline_style) << 13) | ((u32)(cell.dwidth) << 16) | ((u32)(cell.dwidth_cont) << 17) | ((u32)(cell.dirty) << 23);
 }
 
@@ -1171,7 +1168,7 @@ bool VulkanPresenter::present(const CharVdev& charVdev, const Frame& sourceFrame
     gpuCells.reserve(charVdev.cellCount());
     std::vector<u32> graphemeData = {0};
     for (size_t index = 0; index < charVdev.cellCount(); ++index) {
-        const TerminalCell& cell = charVdev.cellData()[index];
+        const RenderCell& cell = charVdev.cellData()[index];
         u32 graphemeIndex = 0;
         if (cell.grapheme) {
             const auto& grapheme = sourceFrame.getGrapheme(cell.grapheme);
@@ -1189,9 +1186,6 @@ bool VulkanPresenter::present(const CharVdev& charVdev, const Frame& sourceFrame
             packColor(cell.underline_color),
             cell.hyperlink,
             graphemeIndex,
-            cell.fg_index,
-            cell.bg_index,
-            cell.underline_index,
             cell.semantic,
             cell.line_attr,
         });

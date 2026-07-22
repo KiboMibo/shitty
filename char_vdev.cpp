@@ -36,11 +36,11 @@ bool CharVdev::resize(u16 pxWidth_, u16 pxHeight_) {
 
     logI << "Resize to " << pxWidth << " x " << pxHeight << " pixels, " << nCols << " x " << nRows << " chars" << std::endl;
 
-    cellStorage.assign((size_t)(nCols)*nRows, TerminalCell{});
+    cellStorage.assign((size_t)(nCols)*nRows, RenderCell{});
     return true;
 }
 
-CharVdev::Mapping::Mapping(u16 nCols_, u16 nRows_, TerminalCell*& cells_)
+CharVdev::Mapping::Mapping(u16 nCols_, u16 nRows_, RenderCell*& cells_)
     : nCols(nCols_)
     , nRows(nRows_)
     , cells(cells_)

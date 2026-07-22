@@ -33,7 +33,7 @@ public:
 
     bool present(const CharVdev& charVdev, const Frame& sourceFrame, bool delta);
     bool repaint();
-    static u32 packCellAttributes(const TerminalCell& cell);
+    static u32 packCellAttributes(const RenderCell& cell);
 
 private:
     struct ImageResource {

@@ -27,15 +27,15 @@ public:
 
     Frame();
 
-    Frame(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, u16 saveLines_ = 0);
+    Frame(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, const TerminalColors* colors_, u16 saveLines_ = 0);
 
     void resize(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_);
 
     void dropScrollbackHistory();
 
     void fillCells(u16 ch, const TerminalCell& attrs);
-    void fullCopyCells(TerminalCell* const dest) const;
-    void deltaCopyCells(TerminalCell* const dest) const;
+    void fullCopyCells(RenderCell* const dest) const;
+    void deltaCopyCells(RenderCell* const dest) const;
 
     operator bool() const {
         return cells != nullptr;
@@ -75,9 +75,6 @@ public:
     };
 
     void collectHyperlinkIds(std::set<u32>& ids) const;
-    void recolorPalette(u16 index, Color color);
-    void recolorDefault(bool foreground, Color color);
-
     void expose() {
         damage.expose();
     };
@@ -173,6 +170,7 @@ private:
     u16 viewOffset;
 
     TerminalCell::Ptr cells = nullptr;
+    const TerminalColors* colors = nullptr;
     std::shared_ptr<GraphemeStore> graphemes = std::make_shared<GraphemeStore>();
     std::vector<TerminalCell> erasedRowTemplate;
     TerminalCell erasedRowCell;
@@ -214,7 +212,8 @@ private:
     void copyCells(u32 dstIx, u32 srcIx, u32 count);
     void moveCells(u32 dstIx, u32 srcIx, u32 count);
 
-    void damageDeltaCopy(TerminalCell* dst, u32 start, u32 count) const;
+    RenderCell materialize(const TerminalCell& cell) const;
+    void damageDeltaCopy(RenderCell* dst, u32 start, u32 count) const;
 
     static SelectSnapTo cycleSelectSnapTo(SelectSnapTo& snapTo) {
         return (SelectSnapTo)(((u8)(snapTo) + 1) % (u8)(SelectSnapTo::COUNT));
