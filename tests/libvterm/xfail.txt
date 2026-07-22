@@ -34,7 +34,6 @@
 # fixture therefore cannot serve as an xterm-compatible oracle.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 14state_encoding.test
-15state_mode.test
 16state_resize.test
 17state_mouse.test
 18state_termprops.test
@@ -45,8 +44,12 @@
 # Xterm 410 CASE_REP checks CharWidth(lastchar) > 0 and ignores REP when the
 # immediately preceding character is a zero-width combining mark.  Zutty
 # follows xterm; the fixture therefore expects an extra cell which must not be
-# produced.  Its other reported mismatch is a callback-time putglyph assertion
-# observed through this adapter's final-cell model after later overwrite.
+# produced.  The fixture also clamps `REP 1000` at the right edge.  ECMA-48
+# defines REP as repeating the preceding character Ps times, without a
+# line-boundary exception, and xterm 410 CASE_REP loops for the complete count
+# through its normal wrapping `dotext` path.  Zutty therefore wraps and keeps
+# repeating instead of leaving the following `b` at row 1, column 0.
+# https://ecma-international.org/publications-and-standards/standards/ecma-48/
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 31state_rep.test
 40state_selection.test

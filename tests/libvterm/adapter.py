@@ -101,6 +101,26 @@ def expand_controls(lines):
     return expanded
 
 
+def overwritten_putglyph_callbacks(lines):
+    overwritten = set()
+    current = {}
+    for number, line in lines:
+        if line and line[0].isupper():
+            current = {}
+            continue
+        match = re.fullmatch(
+            r"putglyph\s+[0-9a-fx,]+\s+\d+\s+(\d+),(\d+).*", line
+        )
+        if not match:
+            continue
+        coordinate = tuple(map(int, match.groups()))
+        previous = current.get(coordinate)
+        if previous is not None:
+            overwritten.add(previous)
+        current[coordinate] = number
+    return overwritten
+
+
 def codepoints(value):
     value = value.strip()
     if not value:
@@ -562,6 +582,8 @@ def run_fixture(path):
     mismatches = []
     checked = 0
     skipped = 0
+    lines = expand_controls(path.read_text().splitlines())
+    overwritten_putglyphs = overwritten_putglyph_callbacks(lines)
     state = {
         "output": bytearray(), "encoding_output": [], "mouse": (0, 0),
         "selection": b"", "title": "", "osc52": b"",
@@ -570,7 +592,7 @@ def run_fixture(path):
         "parser_expected": [], "parser_strings": {},
     }
     with Zutty(columns=80, rows=25, save_lines=500) as terminal:
-        for number, line in expand_controls(path.read_text().splitlines()):
+        for number, line in lines:
             if not line or line.startswith("#") or line == "__END__" or line.startswith("!"):
                 continue
             if parse_parser_callback(line, state):
@@ -616,6 +638,9 @@ def run_fixture(path):
                 continue
             match = re.fullmatch(r"putglyph\s+(.*)", line)
             if match:
+                if number in overwritten_putglyphs:
+                    skipped += 1
+                    continue
                 checked += 1
                 mismatch = compare_putglyph(terminal, match.group(1))
                 if mismatch:
