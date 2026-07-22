@@ -384,6 +384,9 @@ namespace {
         void dcs_DECUDK(const std::string&);
 
         void osc_PaletteQuery(int, const std::string&);
+        void osc_SpecialColorQuery(const std::string&);
+        void osc_SpecialColorModes(const std::string&);
+        void osc_ResetSpecialColors(const std::string&);
         void osc_DynamicColorQuery(int, const std::string&);
         void osc_ShellIntegration(const std::string&);
         void osc_Notification(const std::string&);
@@ -4355,6 +4358,13 @@ void VtermImpl::handle_OSC() {
             case 4:
                 osc_PaletteQuery(cmd, arg);
                 break;
+            case 5:
+                osc_SpecialColorQuery(arg);
+                break;
+            case 6:
+            case 106:
+                osc_SpecialColorModes(arg);
+                break;
             case 104: {
                 if (arg.empty()) {
                     std::copy(std::begin(originalPalette256), std::end(originalPalette256), std::begin(colors.palette));
@@ -4378,6 +4388,9 @@ void VtermImpl::handle_OSC() {
                     }
                 }
             } break;
+            case 105:
+                osc_ResetSpecialColors(arg);
+                break;
             case 10:
             case 11:
             case 12:
@@ -4701,19 +4714,110 @@ void VtermImpl::osc_PaletteQuery(int cmd, const std::string& arg) {
     while (std::getline(fields, indexText, ';') && std::getline(fields, spec, ';')) {
         int paletteIdx = -1;
         const auto parsed = std::from_chars(indexText.data(), indexText.data() + indexText.size(), paletteIdx);
-        if (parsed.ec != std::errc{} || parsed.ptr != indexText.data() + indexText.size() || paletteIdx < 0 || paletteIdx > 255) {
+        if (parsed.ec != std::errc{} || parsed.ptr != indexText.data() + indexText.size() || paletteIdx < 0 || paletteIdx >= 256 + TerminalColors::specialCount) {
             continue;
         }
+        const bool special = paletteIdx >= 256;
+        const u16 colorIndex = (u16)(special ? paletteIdx - 256 : paletteIdx);
         if (spec == "?") {
             std::ostringstream reply;
-            reply << cmd << ";" << paletteIdx << ";" << colors.palette[paletteIdx];
+            reply << cmd << ";" << paletteIdx << ";"
+                << (special ? colors.special[colorIndex] : colors.palette[colorIndex]);
             writeOscResponse(reply.str());
         } else {
             Color color;
             if (parseOscColor(spec, color)) {
-                applyPaletteColor(paletteIdx, color);
+                if (special) {
+                    colors.special[colorIndex] = color;
+                    frame_pri.expose();
+                    frame_alt.expose();
+                } else {
+                    applyPaletteColor(colorIndex, color);
+                }
             }
         }
+    }
+}
+
+void VtermImpl::osc_SpecialColorQuery(const std::string& arg) {
+    std::stringstream fields(arg);
+    std::string indexText;
+    std::string spec;
+    bool changed = false;
+    while (std::getline(fields, indexText, ';') && std::getline(fields, spec, ';')) {
+        int index = -1;
+        const auto parsed = std::from_chars(indexText.data(), indexText.data() + indexText.size(), index);
+        if (parsed.ec != std::errc{} || parsed.ptr != indexText.data() + indexText.size()
+            || index < 0 || index >= TerminalColors::specialCount) {
+            continue;
+        }
+        if (spec == "?") {
+            std::ostringstream reply;
+            reply << "5;" << index << ";" << colors.special[index];
+            writeOscResponse(reply.str());
+        } else {
+            Color color;
+            if (parseOscColor(spec, color)) {
+                colors.special[index] = color;
+                changed = true;
+            }
+        }
+    }
+    if (changed) {
+        frame_pri.expose();
+        frame_alt.expose();
+    }
+}
+
+void VtermImpl::osc_SpecialColorModes(const std::string& arg) {
+    std::stringstream fields(arg);
+    std::string indexText;
+    std::string valueText;
+    bool changed = false;
+    while (std::getline(fields, indexText, ';') && std::getline(fields, valueText, ';')) {
+        int index = -1;
+        int value = -1;
+        const auto indexResult = std::from_chars(indexText.data(), indexText.data() + indexText.size(), index);
+        const auto valueResult = std::from_chars(valueText.data(), valueText.data() + valueText.size(), value);
+        if (indexResult.ec != std::errc{} || indexResult.ptr != indexText.data() + indexText.size()
+            || valueResult.ec != std::errc{} || valueResult.ptr != valueText.data() + valueText.size()
+            || index < 0 || index > TerminalColors::specialCount || value < 0) {
+            continue;
+        }
+        const u8 bit = (u8)(1u << index);
+        const u8 modes = value == 0
+            ? (u8)(colors.specialModes & ~bit)
+            : (u8)(colors.specialModes | bit);
+        changed = changed || modes != colors.specialModes;
+        colors.specialModes = modes;
+    }
+    if (changed) {
+        frame_pri.expose();
+        frame_alt.expose();
+    }
+}
+
+void VtermImpl::osc_ResetSpecialColors(const std::string& arg) {
+    bool changed = false;
+    if (arg.empty()) {
+        std::copy(std::begin(colors.originalSpecial), std::end(colors.originalSpecial), std::begin(colors.special));
+        changed = true;
+    } else {
+        std::stringstream fields(arg);
+        std::string indexText;
+        while (std::getline(fields, indexText, ';')) {
+            int index = -1;
+            const auto parsed = std::from_chars(indexText.data(), indexText.data() + indexText.size(), index);
+            if (parsed.ec == std::errc{} && parsed.ptr == indexText.data() + indexText.size()
+                && index >= 0 && index < TerminalColors::specialCount) {
+                colors.special[index] = colors.originalSpecial[index];
+                changed = true;
+            }
+        }
+    }
+    if (changed) {
+        frame_pri.expose();
+        frame_alt.expose();
     }
 }
 
@@ -6376,6 +6480,8 @@ VtermImpl::VtermImpl(VtermHost& host_, Pty& pty_, Output* dump_, u16 glyphPx_, u
     std::copy(std::begin(colors.palette), std::end(colors.palette), std::begin(originalPalette256));
     colors.defaultForeground = opts.fg;
     colors.defaultBackground = opts.bg;
+    std::fill(std::begin(colors.special), std::end(colors.special), opts.fg);
+    std::fill(std::begin(colors.originalSpecial), std::end(colors.originalSpecial), opts.fg);
     cursorColor = opts.cr;
     selectionFgColor = opts.fg;
     selectionBgColor = opts.bg;

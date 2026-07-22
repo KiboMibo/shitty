@@ -186,6 +186,76 @@ class DynamicColorTest(unittest.TestCase):
                         b"\x1b]12;rgb:" + reply + b"\x1b\\",
                     )
 
+    def test_special_colors_set_query_and_palette_aliases(self):
+        with Zutty(columns=6, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]5;0;#010203;1;#040506\x1b\\"
+                b"\x1b]5;0;?;1;?\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b]5;0;rgb:0101/0202/0303\x1b\\"
+                b"\x1b]5;1;rgb:0404/0505/0606\x1b\\",
+            )
+
+            terminal.write(
+                b"\x1b]4;256;#070809;257;?\x1b\\"
+                b"\x1b]5;0;?\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b]4;257;rgb:0404/0505/0606\x1b\\"
+                b"\x1b]5;0;rgb:0707/0808/0909\x1b\\",
+            )
+
+    def test_special_color_modes_recolor_existing_cells(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1b[1mB\x1b[0;4mU\x1b[0;5mK\x1b[0;3mI"
+                b"\x1b[0;7mR\x1b[0;31;1mA"
+                b"\x1b]5;0;#010000;1;#000200;2;#000003;"
+                b"3;#040400;4;#050005\x1b\\"
+                b"\x1b]6;0;1;1;1;2;1;3;1;4;1\x1b\\"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).foreground, (1, 0, 0))
+            self.assertEqual(snapshot.cell(1, 0).foreground, (0, 2, 0))
+            self.assertEqual(snapshot.cell(1, 0).underline_color, (0, 2, 0))
+            self.assertEqual(snapshot.cell(2, 0).foreground, (0, 0, 3))
+            self.assertEqual(snapshot.cell(3, 0).foreground, (5, 0, 5))
+            self.assertEqual(snapshot.cell(4, 0).background, (4, 4, 0))
+            self.assertEqual(snapshot.cell(5, 0).foreground, (255, 0, 0))
+
+            terminal.write(b"\x1b]6;5;1\x1b\\")
+            self.assertEqual(
+                terminal.snapshot().cell(5, 0).foreground,
+                (1, 0, 0),
+            )
+
+            terminal.write(b"\x1b]106;0;0;5;0\x1b\\")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).foreground, (255, 255, 255))
+            self.assertEqual(snapshot.cell(5, 0).foreground, (255, 0, 0))
+
+    def test_special_color_reset_can_target_entries_or_all(self):
+        with Zutty(columns=4, rows=2) as terminal:
+            terminal.write(b"\x1b]5;0;?\x1b\\")
+            original0 = terminal.read_input()
+            terminal.write(b"\x1b]5;1;?\x1b\\")
+            original1 = terminal.read_input()
+            terminal.write(
+                b"\x1b]5;0;#010203;1;#040506\x1b\\"
+                b"\x1b]105;0\x1b\\"
+                b"\x1b]5;0;?;1;?\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                original0 + b"\x1b]5;1;rgb:0404/0505/0606\x1b\\",
+            )
+
+            terminal.write(b"\x1b]105\x1b\\\x1b]5;0;?;1;?\x1b\\")
+            self.assertEqual(terminal.read_input(), original0 + original1)
+
 
 if __name__ == "__main__":
     unittest.main()

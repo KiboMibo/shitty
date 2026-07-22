@@ -426,9 +426,12 @@ RenderCell Frame::materialize(const TerminalCell& cell) const {
     assert(colors != nullptr);
     RenderCell result;
     memcpy(&result, &cell, offsetof(TerminalCell, fg));
-    result.fg = colors->resolve(cell.fg);
-    result.bg = colors->resolve(cell.bg);
+    result.fg = colors->resolveForeground(cell);
+    result.bg = colors->resolveBackground(cell);
     result.underline_color = colors->resolve(cell.underline_color);
+    if (cell.underline && cell.underline_color == cell.fg) {
+        result.underline_color = result.fg;
+    }
     result.hyperlink = cell.hyperlink;
     result.grapheme = cell.grapheme;
     result.semantic = cell.semantic;

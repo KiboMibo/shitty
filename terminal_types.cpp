@@ -67,3 +67,31 @@ Color TerminalColors::resolve(CellColor color) const {
     }
     return {};
 }
+
+Color TerminalColors::resolveForeground(const TerminalCell& cell) const {
+    const bool overrideAnsi = (specialModes & (1u << 5)) != 0;
+    if (overrideAnsi || cell.fg.source() == CellColor::Source::DefaultForeground) {
+        if ((specialModes & (1u << 2)) != 0 && cell.blink) {
+            return special[2];
+        }
+        if ((specialModes & (1u << 0)) != 0 && cell.bold) {
+            return special[0];
+        }
+        if ((specialModes & (1u << 1)) != 0 && cell.underline) {
+            return special[1];
+        }
+        if ((specialModes & (1u << 4)) != 0 && cell.italic) {
+            return special[4];
+        }
+    }
+    return resolve(cell.fg);
+}
+
+Color TerminalColors::resolveBackground(const TerminalCell& cell) const {
+    const bool overrideAnsi = (specialModes & (1u << 5)) != 0;
+    if ((overrideAnsi || cell.bg.source() == CellColor::Source::DefaultBackground)
+        && (specialModes & (1u << 3)) != 0 && cell.inverse) {
+        return special[3];
+    }
+    return resolve(cell.bg);
+}

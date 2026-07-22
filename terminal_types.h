@@ -85,12 +85,21 @@ private:
 
 static_assert(sizeof(CellColor) == 4, "CellColor size mismatch");
 
+struct TerminalCell;
+
 struct TerminalColors {
+    static constexpr u8 specialCount = 5;
+
     Color palette[256]{};
     Color defaultForeground{};
     Color defaultBackground{};
+    Color special[specialCount]{};
+    Color originalSpecial[specialCount]{};
+    u8 specialModes = 0;
 
     Color resolve(CellColor color) const;
+    Color resolveForeground(const TerminalCell& cell) const;
+    Color resolveBackground(const TerminalCell& cell) const;
 };
 
 struct TerminalCell {
