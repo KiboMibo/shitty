@@ -4158,9 +4158,6 @@ void VtermImpl::csi_DECSTR() {
     marginBottom = nRows;
     hMargin = 0;
     nColsEff = nCols;
-    posX = 0;
-    posY = 0;
-    lastCol = false;
     savedCursor->posX = 0;
     savedCursor->posY = 0;
     savedCursor->lastCol = false;

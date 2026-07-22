@@ -4,6 +4,13 @@ from harness import Zutty
 
 
 class CursorAndMovementTest(unittest.TestCase):
+    def test_soft_reset_preserves_active_cursor_but_resets_saved_cursor(self):
+        with Zutty(columns=8, rows=4) as terminal:
+            terminal.write(b"\x1b[2;4H\x1b[!p\x1b[6n")
+            self.assertEqual(terminal.read_input(), b"\x1b[2;4R")
+            terminal.write(b"\x1b8\x1b[6n")
+            self.assertEqual(terminal.read_input(), b"\x1b[1;1R")
+
     def test_carriage_return_backspace_and_tab(self):
         with Zutty(columns=10, rows=2) as terminal:
             terminal.write(b"abc\rX\tY\bZ")
