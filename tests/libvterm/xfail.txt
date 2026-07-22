@@ -19,6 +19,12 @@
 # complete cluster, so its richer cell cannot equal this truncated oracle.
 # https://www.unicode.org/reports/tr29/
 10state_putglyph.test
+# Two libvterm expectations differ from xterm.  For IL, xterm 410 util.c
+# InsertLine() explicitly calls set_cur_col(ScrnLeftMargin), while the fixture
+# keeps column 1.  For DECRQSS after DECSCA 2, xterm misc.c reports canonical
+# `0"q` for either erasable state (0 or 2) and `1"q` only when protected; the
+# fixture instead requires the non-canonical input spelling `2"q`.
+# https://invisible-island.net/archives/xterm/xterm-410.tgz
 13state_edit.test
 14state_encoding.test
 15state_mode.test
