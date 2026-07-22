@@ -18,6 +18,9 @@ Osc52Request parseOsc52(const std::string& argument, bool selectClipboard) {
     const std::string selectors = argument.substr(0, separator);
     const std::string payload = argument.substr(separator + 1);
     request.valid = true;
+    if (selectors.empty()) {
+        request.replySelector = "s0";
+    }
     request.primary = selectors.empty() || (!selectClipboard && selectors.find('s') != std::string::npos) || selectors.find('p') != std::string::npos;
     request.clipboard = selectors.empty() || (selectClipboard && selectors.find('s') != std::string::npos) || selectors.find('c') != std::string::npos;
     for (char selector : selectors) {

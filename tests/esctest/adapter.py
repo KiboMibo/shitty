@@ -176,7 +176,10 @@ def run(case_id):
         save_lines=500,
         glyph_px=8,
         glyph_py=16,
-        extra_arguments=("-allowWindowOps", "true"),
+        extra_arguments=(
+            "-allowWindowOps", "true",
+            "-allowOsc52Read", "true",
+        ),
     )
     try:
         install_backend(ControlBackend(terminal))

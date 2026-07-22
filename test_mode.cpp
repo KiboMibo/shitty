@@ -668,10 +668,31 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
     }, [&systemClipboard](const std::string& content) {
         systemClipboard = content;
     });
-    vtermHost.setOscHandler([&terminal, &actions](int command, const std::string& argument) {
+    vtermHost.setOscHandler([&terminal, &actions, &clipboard](int command, const std::string& argument) {
         actions += "OSC " + std::to_string(command) + " " + encodeHex(argument) + "\n";
         if (command == 8) {
             terminal.setHyperlink(argument);
+        } else if (command == 52) {
+            const Osc52Request request = parseOsc52(argument, opts.osc52SelectClipboard);
+            if (!request.valid) {
+                return;
+            }
+            if (request.query) {
+                std::string primary;
+                std::string system;
+                if (opts.allowOsc52Read) {
+                    if (request.primary) {
+                        primary = clipboard.get(true);
+                    }
+                    if (primary.empty() && request.clipboard) {
+                        system = clipboard.get(false);
+                    }
+                }
+                const std::string reply = encodeOsc52QueryReply(request, opts.allowOsc52Read, primary, system);
+                terminal.writePty(reply.c_str());
+            } else {
+                clipboard.apply(request);
+            }
         }
     });
     vtermHost.setBellHandler([&actions]() {

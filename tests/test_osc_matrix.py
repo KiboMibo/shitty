@@ -209,6 +209,15 @@ class OscMatrixTest(unittest.TestCase):
                 b"\x1b]52;p;Y2xpcGJvYXJk\x1b\\",
             )
 
+    def test_osc52_default_selector_reports_xterm_s0_alias(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            self.assertEqual(
+                terminal.osc52_policy(
+                    b";?", allow_read=True, primary=b"primary"
+                ),
+                b"\x1b]52;s0;cHJpbWFyeQ==\x1b\\",
+            )
+
     def test_osc52_select_resource_redirects_selector_s(self):
         with Zutty(columns=8, rows=2) as terminal:
             self.assertEqual(
