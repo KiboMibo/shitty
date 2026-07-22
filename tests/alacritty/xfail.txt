@@ -13,21 +13,22 @@ decaln_reset
 # https://github.com/alacritty/alacritty/blob/852e971cddfabe222d2d5bcda466e130f53af207/alacritty_terminal/src/term/mod.rs#L792
 deccolm_reset
 # Xterm 410 screen.c ClearCells() ORs TERM_COLOR_FLAGS into every erased cell
-# and stores xtermColorPair(), so DCH-created blanks retain both the current
-# red foreground and default background.  This Alacritty golden instead gives
-# the trailing blanks its default foreground.  The pixels are identical, but
-# its internal-cell oracle is not the xterm-256color model Zutty implements.
+# and stores xtermColorPair().  Thus blanks created by DCH, ECH, ICH and
+# scrolling retain both the current red foreground and default background.
+# These Alacritty goldens instead give those blanks the default foreground.
+# The pixels are identical, but their internal-cell oracle is not the
+# xterm-256color model Zutty implements.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 delete_chars_reset
 erase_chars_reset
+insert_blank_reset
+scroll_up_reset
 erase_in_line
 grid_reset
 history
-insert_blank_reset
 row_reset
 saved_cursor_alt
 scroll_in_region_up_preserves_history
-scroll_up_reset
 selective_erasure
 sgr
 tab_rendering
