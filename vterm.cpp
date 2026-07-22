@@ -1990,8 +1990,10 @@ bool VtermImpl::performIndex() {
     }
     bool scrolled = false;
     if (posY == marginBottom - 1) {
-        scrollRegionUp(1);
-        scrolled = true;
+        if (posX >= hMargin && posX < nColsEff) {
+            scrollRegionUp(1);
+            scrolled = true;
+        }
     } else if (posY < nRows - 1) {
         ++posY;
         lastCol = false;

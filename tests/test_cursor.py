@@ -56,6 +56,19 @@ class CursorAndMovementTest(unittest.TestCase):
                 ["AAAAA", "CCCCC", "     ", "DDDDD"],
             )
 
+    def test_index_controls_do_not_scroll_outside_horizontal_margins(self):
+        for control in (b"\n", b"\v", b"\f", b"\x1bD", b"\x1bE"):
+            with self.subTest(control=control):
+                with Zutty(columns=8, rows=6) as terminal:
+                    terminal.write(
+                        b"\x1b[2;5r\x1b[?69h\x1b[2;5s"
+                        b"\x1b[5;3HX"
+                        b"\x1b[5;6H" + control
+                    )
+                    snapshot = terminal.snapshot()
+                    self.assertEqual(snapshot.cell(2, 4).char, "X")
+                    self.assertEqual(snapshot.cursor_y, 4)
+
 
 if __name__ == "__main__":
     unittest.main()
