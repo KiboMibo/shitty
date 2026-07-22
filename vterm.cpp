@@ -1687,7 +1687,7 @@ void VtermImpl::resetGraphemeInput() {
 
 void VtermImpl::placeGraphicChar() {
     auto pt = utf8dec.getUnicode();
-    auto w = pt >= 0x20 && pt < 0x7f ? 1 : wcwidth(pt);
+    auto w = pt >= 0x20 && pt < 0x7f ? 1 : codepointWidth(pt);
 
     if (inputGraphemeFrame != cf) {
         inputGraphemeBreaker.reset();
@@ -2708,7 +2708,7 @@ void VtermImpl::csi_CBT() {
 void VtermImpl::csi_REP() {
     TRACE_FUN;
     const u32 preceding = utf8dec.getUnicode();
-    if (!preceding || wcwidth(preceding) == 0) {
+    if (!preceding || codepointWidth(preceding) == 0) {
         setState(InputState::Normal);
         return;
     }

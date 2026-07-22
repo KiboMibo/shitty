@@ -10,6 +10,7 @@
  */
 
 #include "font.h"
+#include "grapheme.h"
 #include "log.h"
 #include "options.h"
 #include "utf8.h"
@@ -64,7 +65,7 @@ bool Font::isLoadableChar(FT_ULong c) {
         return true;
     }
 
-    return ((dwidth && wcwidth(c) == 2) || (!dwidth && wcwidth(c) < 2));
+    return ((dwidth && codepointWidth(c) == 2) || (!dwidth && codepointWidth(c) < 2));
 }
 
 void Font::load() {

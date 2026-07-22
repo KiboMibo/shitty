@@ -60,7 +60,7 @@ class UnicodeGraphemeMatrixTest(unittest.TestCase):
         flags = "🇦🇧🇨🇩"
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write((flags + "X").encode())
-            self.assertEqual(terminal.snapshot().cursor_x, 3)
+            self.assertEqual(terminal.snapshot().cursor_x, 5)
             terminal.select_start(0, 0)
             terminal.select_update(1, 0)
             self.assertEqual(terminal.select_finish(), "🇦🇧".encode())

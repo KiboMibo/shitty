@@ -3,6 +3,8 @@
 
 #include <cstdint>
 
+int codepointWidth(u32 codepoint);
+
 class GraphemeBreaker {
 public:
     bool breakBefore(u32 codepoint);
