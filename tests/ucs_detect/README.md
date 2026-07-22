@@ -21,9 +21,11 @@ fits its cells; the upstream interactive renderer probe remains a later test
 tier.
 
 The live terminal detector is imported separately as 87 offline capability
-targets.  `upstream/terminal.py`, `upstream/table_xtgettcap.py`, and
-`upstream/data/zutty.yaml` are verbatim upstream inputs.  `probe_adapter.py`
-projects their PTY probes onto the headless control interface without importing
-Blessed and without network access.  Each target compares one normalized result
-against the recorded Zutty 0.16-1 golden.  Exact differences are tracked in
-`probe_xfail.txt`; screen-leak probes additionally preserve the visible model.
+targets.  `upstream/terminal.py` and `upstream/table_xtgettcap.py` are verbatim
+upstream inputs.  `probe_adapter.py` projects their PTY probes onto the headless
+control interface without importing Blessed and without network access.  Each
+target compares one normalized result against the regenerated Zutty profile in
+`probe_cases.py`; `upstream/data/zutty.yaml` contains the corresponding updated
+capability section while retaining the imported Unicode measurements.  Exact
+differences are tracked in `probe_xfail.txt`; screen-leak probes additionally
+preserve the visible model.

@@ -9,10 +9,17 @@ TESTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TESTS))
 
 from harness import Zutty
-from probe_cases import DEC_MODES, DECRQSS_SETTINGS, XTGETTCAP_CAPABILITIES
+from probe_cases import (
+    DEC_MODES,
+    DEC_MODE_STATES,
+    DECRQSS_EXPECTED,
+    DECRQSS_SETTINGS,
+    XTGETTCAP_CAPABILITIES,
+    XTGETTCAP_EXPECTED,
+)
 
 
-DA1_EXPECTED = b"\x1b[?64;1;9;15;21;22c"
+DA1_EXPECTED = b"\x1b[?64;1;2;6;8;9;15;21;22;28;29c"
 def query(terminal, request):
     terminal.write(request)
     return terminal.read_input()
@@ -85,9 +92,9 @@ def run_case(name):
                 b"\x1b[1;1R\x1b[1;9R"
             )
         if name == "kitty_keyboard":
-            return query(terminal, b"\x1b[?u"), b""
+            return query(terminal, b"\x1b[?u"), b"\x1b[?0u"
         if name == "color_scheme":
-            return query(terminal, b"\x1b[?996n"), b""
+            return query(terminal, b"\x1b[?996n"), b"\x1b[?997;1n"
         if name == "decrqss_truecolor":
             original = probe_decrqss(terminal, b"m")
             if original is None:
@@ -98,7 +105,7 @@ def run_case(name):
             matched = probed is not None and re.search(
                 rb"48[:;]2[:;]*1[:;]2[:;]3", probed
             ) is not None
-            return matched, False
+            return matched, True
         if name == "decrqcra":
             terminal.write(b"\x1b[1;1HA")
             response = query(
@@ -126,20 +133,21 @@ def run_case(name):
             query(terminal, request)
             return screen_state(terminal) == before, True
         if name.startswith("mode_"):
-            mode = DEC_MODES[name.removeprefix("mode_")]
-            return query(terminal, f"\x1b[?{mode}$p".encode()), b""
+            mode_name = name.removeprefix("mode_")
+            mode = DEC_MODES[mode_name]
+            expected = f"\x1b[?{mode};{DEC_MODE_STATES[mode_name]}$y".encode()
+            return query(terminal, f"\x1b[?{mode}$p".encode()), expected
         if name.startswith("decrqss_"):
             setting_name = name.removeprefix("decrqss_")
             actual = probe_decrqss(terminal, DECRQSS_SETTINGS[setting_name])
-            expected = (
-                b"64;1;9;15;21;22c" if setting_name == "decscl" else None
-            )
-            return actual, expected
+            return actual, DECRQSS_EXPECTED[setting_name]
         if name.startswith("xtgettcap_"):
             capability = name.removeprefix("xtgettcap_")
             if capability not in XTGETTCAP_CAPABILITIES:
                 raise RuntimeError(f"unknown XTGETTCAP capability: {capability}")
-            return probe_xtgettcap(terminal, capability), None
+            return probe_xtgettcap(terminal, capability), (
+                XTGETTCAP_EXPECTED.get(capability)
+            )
     raise RuntimeError(f"unknown probe: {name}")
 
 

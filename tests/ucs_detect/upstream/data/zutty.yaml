@@ -75,20 +75,31 @@ terminal_results:
   - 0
   - 0
   - 0
-  color_scheme: false
+  color_scheme: dark
   colored_underlines: false
   decrqcra: false
   decrqss: true
   decrqss_settings:
-    decscl: 64;1;9;15;21;22c
-  decrqss_truecolor_probe: false
+    decsca: '0"q'
+    decscl: '64;1"p'
+    decscusr: 2 q
+    decslpp: 24t
+    decslrm: 1;80s
+    decstbm: 1;24r
+    sgr: 0m
+  decrqss_truecolor_probe: true
   device_attributes:
     extensions:
     - 1
+    - 2
+    - 6
+    - 8
     - 9
     - 15
     - 21
     - 22
+    - 28
+    - 29
     service_class: 64
   foreground_color_hex: '#ffffffffffff'
   foreground_color_rgb:
@@ -101,10 +112,80 @@ terminal_results:
     supported: false
   kitty_clipboard_protocol: false
   kitty_graphics: false
+  kitty_keyboard:
+    disambiguate: false
+    report_all_keys: false
+    report_alternates: false
+    report_events: false
+    report_text: false
   kitty_notifications: false
   kitty_pointer_shapes: false
   kitty_query: false
-  modes: {}
+  modes:
+    1004:
+      changeable: true
+      enabled: false
+      mode_description: Focus in/out events
+      mode_name: FOCUS_IN_OUT_EVENTS
+      supported: true
+      value: 2
+      value_description: RESET
+    1006:
+      changeable: true
+      enabled: false
+      mode_description: SGR mouse mode
+      mode_name: MOUSE_EXTENDED_SGR
+      supported: true
+      value: 2
+      value_description: RESET
+    2004:
+      changeable: true
+      enabled: false
+      mode_description: Bracketed paste mode
+      mode_name: BRACKETED_PASTE
+      supported: true
+      value: 2
+      value_description: RESET
+    2026:
+      changeable: true
+      enabled: false
+      mode_description: Synchronized output
+      mode_name: SYNCHRONIZED_OUTPUT
+      supported: true
+      value: 2
+      value_description: RESET
+    2027:
+      changeable: false
+      enabled: false
+      mode_description: Grapheme clustering
+      mode_name: GRAPHEME_CLUSTERING
+      supported: false
+      value: 0
+      value_description: NOT_RECOGNIZED
+    2031:
+      changeable: true
+      enabled: false
+      mode_description: Color palette update notifications
+      mode_name: COLOR_PALETTE_UPDATES
+      supported: true
+      value: 2
+      value_description: RESET
+    2048:
+      changeable: true
+      enabled: false
+      mode_description: In-band window resize notifications
+      mode_name: IN_BAND_WINDOW_RESIZE
+      supported: true
+      value: 2
+      value_description: RESET
+    5522:
+      changeable: false
+      enabled: false
+      mode_description: Bracketed paste MIME type
+      mode_name: BRACKETED_PASTE_MIME
+      supported: false
+      value: 0
+      value_description: NOT_RECOGNIZED
   number_of_colors: 16777216
   osc52_clipboard: false
   osc52_detection:
@@ -123,8 +204,12 @@ terminal_results:
   ttype: xterm-256color
   width: 80
   xtgettcap:
-    capabilities: {}
-    supported: false
+    capabilities:
+      Co: '256'
+      RGB: '8'
+      TN: xterm-256color
+      colors: '256'
+    supported: true
   xtgettcap-bad-screenleak: false
   xtversion-bad-screenleak: false
 test_results:

@@ -24,6 +24,18 @@ DEC_MODES = {
 }
 
 
+DEC_MODE_STATES = {
+    "bracketed_paste": 2,
+    "synchronized_output": 2,
+    "grapheme_clustering": 0,
+    "in_band_window_resize": 2,
+    "focus_in_out_events": 2,
+    "mouse_extended_sgr": 2,
+    "bracketed_paste_mime": 0,
+    "color_palette_updates": 2,
+}
+
+
 DECRQSS_SETTINGS = {
     "sgr": b"m",
     "decscusr": b" q",
@@ -37,6 +49,30 @@ DECRQSS_SETTINGS = {
     "decsasd": b"$}",
     "decssdt": b"$~",
     "decsace": b"*x",
+}
+
+
+DECRQSS_EXPECTED = {
+    "sgr": b"0m",
+    "decscusr": b"2 q",
+    "decstbm": b"1;24r",
+    "decslrm": b"1;80s",
+    "decscl": b'64;1"p',
+    "decsca": b'0"q',
+    "decscpp": None,
+    "decslpp": b"24t",
+    "decsnls": None,
+    "decsasd": None,
+    "decssdt": None,
+    "decsace": None,
+}
+
+
+XTGETTCAP_EXPECTED = {
+    "TN": b"xterm-256color",
+    "Co": b"256",
+    "RGB": b"8",
+    "colors": b"256",
 }
 
 
