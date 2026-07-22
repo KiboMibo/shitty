@@ -7091,10 +7091,10 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
             (inputState == InputState::DCS || inputState == InputState::OSC || inputState == InputState::String)
             && stringUtf8Continuation(ch);
         if (ch == '\x18' || ch == '\x1a') {
+            if constexpr (traced) {
+                parserTrace->control(ch);
+            }
             if (inputState == InputState::Normal) {
-                if constexpr (traced) {
-                    parserTrace->control(ch);
-                }
                 resetGraphemeInput();
             } else {
                 if constexpr (traced) {
@@ -7314,6 +7314,9 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                 if (executeC0InSequence<traced>(ch)) {
                     break;
                 } else if (ch >= '\x40' && ch <= '\x7e') {
+                    if constexpr (traced) {
+                        parserTrace->escapeCancel();
+                    }
                     setState(InputState::Normal);
                 }
                 break;

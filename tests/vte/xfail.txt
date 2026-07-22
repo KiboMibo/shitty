@@ -1,5 +1,4 @@
 # Exact VTE matrix targets whose imported expectation differs from Zutty.
-csi_max
 dcs_misc
 escape_fpes
 escape_nf
