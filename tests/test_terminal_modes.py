@@ -82,6 +82,49 @@ class TerminalModeTest(unittest.TestCase):
             terminal.key("KP_1")
             self.assertEqual(terminal.read_input(), b"\x1b[?66;2$y1")
 
+    def test_decscl_selects_protocol_levels_and_reports_vt420_up(self):
+        with Zutty() as terminal:
+            terminal.write(b"\x1b[61;1\"p\x1b[4$p")
+            self.assertEqual(terminal.read_input(), b"")
+
+            terminal.write(b"\x1b[62;1\"p\x1b[4$p")
+            self.assertEqual(terminal.read_input(), b"")
+
+            terminal.write(b"\x1b[63;1\"p\x1b[4$p")
+            self.assertEqual(terminal.read_input(), b"\x1b[4;2$y")
+
+            for level in (64, 65):
+                with self.subTest(level=level):
+                    terminal.write(
+                        f"\x1b[{level};1\"p\x1bP$q\"p\x1b\\".encode()
+                    )
+                    self.assertEqual(
+                        terminal.read_input(),
+                        f"\x1bP1$r{level};1\"p\x1b\\".encode(),
+                    )
+
+    def test_decscl_hard_resets_terminal_before_selecting_level(self):
+        with Zutty() as terminal:
+            terminal.write(
+                b"text\x1b[6;7H\x1b7\x1b[4h"
+                b"\x1b[61\"p\x1b8X"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 0))
+            self.assertEqual(snapshot.lines[0][:2], "X ")
+
+    def test_decscl_gates_level_specific_sequences(self):
+        with Zutty(columns=10, rows=4) as terminal:
+            terminal.write(
+                b"\x1b[63;1\"p\x1b[?69h\x1b[3;5s\x1b[1;5Habc"
+            )
+            self.assertEqual(terminal.snapshot().cursor_x, 7)
+
+            terminal.write(
+                b"\x1b[64;1\"p\x1b[?69h\x1b[3;5s\x1b[1;3Habc"
+            )
+            self.assertEqual(terminal.snapshot().cursor_x, 4)
+
     def test_meta_mode_sets_the_eighth_input_bit(self):
         with Zutty() as terminal:
             terminal.write(b"\x1b[?1034h")

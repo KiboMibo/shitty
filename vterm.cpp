@@ -573,7 +573,10 @@ namespace {
         enum class CompatibilityLevel : u8 {
             VT52,
             VT100,
-            VT400
+            VT200,
+            VT300,
+            VT400,
+            VT500,
         };
         CompatibilityLevel compatLevel = CompatibilityLevel::VT400;
 
@@ -3128,9 +3131,11 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 bkspSendsDel = false;
                 break;
             case 69:
-                horizMarginMode = true;
-                hMargin = 0;
-                nColsEff = nCols;
+                if (compatLevel >= CompatibilityLevel::VT400) {
+                    horizMarginMode = true;
+                    hMargin = 0;
+                    nColsEff = nCols;
+                }
                 break;
             case 1000:
                 mouseTrk.setMode(MouseTrackingMode::VT200);
@@ -3268,9 +3273,11 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 bkspSendsDel = true;
                 break;
             case 69:
-                horizMarginMode = false;
-                hMargin = 0;
-                nColsEff = nCols;
+                if (compatLevel >= CompatibilityLevel::VT400) {
+                    horizMarginMode = false;
+                    hMargin = 0;
+                    nColsEff = nCols;
+                }
                 break;
             case 1004:
                 mouseTrk.focusEventMode = false;
@@ -3796,6 +3803,10 @@ void VtermImpl::csi_XTVERSION() {
 
 void VtermImpl::csi_DECRQM(bool privateMode) {
     TRACE_FUN;
+    if (compatLevel < CompatibilityLevel::VT300) {
+        setState(InputState::Normal);
+        return;
+    }
     const u32 mode = inputOps[0];
     u8 state = 0;
 
@@ -3821,7 +3832,14 @@ void VtermImpl::csi_DECRQM(bool privateMode) {
             case 47:
             case 66:
             case 67:
+                state = (mode == 2 ? compatLevel != CompatibilityLevel::VT52 : getPrivateMode(mode)) ? 1 : 2;
+                break;
             case 69:
+                if (compatLevel < CompatibilityLevel::VT400) {
+                    break;
+                }
+                state = getPrivateMode(mode) ? 1 : 2;
+                break;
             case 1000:
             case 1001:
             case 1002:
@@ -3841,7 +3859,7 @@ void VtermImpl::csi_DECRQM(bool privateMode) {
             case 2026:
             case 2031:
             case 2048:
-                state = (mode == 2 ? compatLevel != CompatibilityLevel::VT52 : getPrivateMode(mode)) ? 1 : 2;
+                state = getPrivateMode(mode) ? 1 : 2;
                 break;
             case 1049:
                 state = altScreenBufferMode ? 1 : 2;
@@ -4035,12 +4053,16 @@ void VtermImpl::csi_DECSTR() {
 
 void VtermImpl::handle_DCS() {
     TRACE_FUN;
-    if (compatLevel == CompatibilityLevel::VT100) {
+    if (compatLevel < CompatibilityLevel::VT200) {
         setState(InputState::Normal);
         return;
     }
     auto arg = std::string((char*)argBuf.data(), argBuf.size());
     if (arg.substr(0, 2) == "$q") {
+        if (compatLevel < CompatibilityLevel::VT400) {
+            setState(InputState::Normal);
+            return;
+        }
         dcs_DECRQSS(arg);
     } else if (arg.substr(0, 2) == "+q") {
         dcs_XTGETTCAP(arg.substr(2));
@@ -4174,7 +4196,8 @@ void VtermImpl::dcs_DECRQSS(const std::string& arg) {
     std::ostringstream value;
     const std::string query = arg.substr(2);
     if (query == "\"p") {
-        value << (compatLevel == CompatibilityLevel::VT100 ? 61 : 64) << ";1\"p";
+        value << 60 + (u8)(compatLevel) << ';'
+              << (send8BitControls ? 0 : 1) << "\"p";
     } else if (query == "m") {
         value << "0";
         if (attrs.bold) {
@@ -4874,47 +4897,29 @@ void VtermImpl::osc_DynamicColorQuery(int cmd, const std::string& arg) {
 
 void VtermImpl::csiq_DECSCL() {
     TRACE_FUN;
-    if (nInputOps > 0) {
-        switch (inputOps[0]) {
-            case 61:
-                compatLevel = CompatibilityLevel::VT100;
-                break;
-            case 62:
-                compatLevel = CompatibilityLevel::VT400;
-                break;
-            case 63:
-                compatLevel = CompatibilityLevel::VT400;
-                break;
-            case 64:
-                compatLevel = CompatibilityLevel::VT400;
-                break;
-            case 65:
-                compatLevel = CompatibilityLevel::VT400;
-                break;
-            default:
-                logU << "DECSCL: compatibility mode " << inputOps[0] << std::endl;
-                break;
-        }
+    CompatibilityLevel level;
+    switch (inputOps[0]) {
+        case 61: level = CompatibilityLevel::VT100; break;
+        case 62: level = CompatibilityLevel::VT200; break;
+        case 63: level = CompatibilityLevel::VT300; break;
+        case 64: level = CompatibilityLevel::VT400; break;
+        case 65: level = CompatibilityLevel::VT500; break;
+        default:
+            logU << "DECSCL: compatibility mode " << inputOps[0] << std::endl;
+            setState(InputState::Normal);
+            return;
     }
-    if (nInputOps > 1) {
-        switch (inputOps[1]) {
-            case 0:
-                logT << "DECSCL: 8-bit controls" << std::endl;
-                send8BitControls = true;
-                break;
-            case 1:
-                logT << "DECSCL: 7-bit controls" << std::endl;
-                send8BitControls = false;
-                break;
-            case 2:
-                logT << "DECSCL: 8-bit controls" << std::endl;
-                send8BitControls = true;
-                break;
-            default:
-                logU << "DECSCL: C1 control transmission mode: " << inputOps[1] << std::endl;
-                break;
-        }
+
+    const u32 controlMode = nInputOps > 1 ? inputOps[1] : 0;
+    if (controlMode > 2) {
+        logU << "DECSCL: C1 control transmission mode: " << controlMode << std::endl;
+        setState(InputState::Normal);
+        return;
     }
+
+    resetTerminal();
+    compatLevel = level;
+    send8BitControls = level != CompatibilityLevel::VT100 && controlMode != 1;
     setState(InputState::Normal);
 }
 
@@ -7962,14 +7967,14 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                 }
                 switch (ch) {
                     case 'F':
-                        if (compatLevel == CompatibilityLevel::VT400) {
+                        if (compatLevel >= CompatibilityLevel::VT200) {
                             logU << "S7C1T: Send 7-bit controls" << std::endl;
                             send8BitControls = false;
                         }
                         setState(InputState::Normal);
                         break;
                     case 'G':
-                        if (compatLevel == CompatibilityLevel::VT400) {
+                        if (compatLevel >= CompatibilityLevel::VT200) {
                             logU << "S8C1T: Send 8-bit controls" << std::endl;
                             send8BitControls = true;
                         }

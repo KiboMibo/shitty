@@ -172,6 +172,8 @@ class ResetAndModeInteractionTest(unittest.TestCase):
             terminal.write(b"\x1b[?2l\x1b[?7$p")
             self.assertEqual(terminal.read_input(), b"")
             terminal.write(b"\x1b<")
+            self.assertEqual(query(terminal, 2, True), b"")
+            terminal.write(b"\x1b[64;1\"p")
             self.assertEqual(query(terminal, 2, True), reply(2, 1, True))
 
 
