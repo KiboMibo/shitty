@@ -692,9 +692,6 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
     vtermHost.setProgressHandler([&actions](u32 state, u32 percent) {
         actions += "PROGRESS " + std::to_string(state) + " " + std::to_string(percent) + "\n";
     });
-    vtermHost.setWindowOpsHandler([&actions](u32 operation, u32 first, u32 second) {
-        actions += "WINDOW " + std::to_string(operation) + " " + std::to_string(first) + " " + std::to_string(second) + "\n";
-    });
     VtermWindowInfo windowInfo;
     windowInfo.x = 10;
     windowInfo.y = 20;
@@ -702,6 +699,20 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
     windowInfo.pixelHeight = height;
     windowInfo.screenPixelWidth = 1920;
     windowInfo.screenPixelHeight = 1080;
+    vtermHost.setWindowOpsHandler([&](u32 operation, u32 first, u32 second) {
+        actions += "WINDOW " + std::to_string(operation) + " " + std::to_string(first) + " " + std::to_string(second) + "\n";
+        if (operation == 4 && first && second) {
+            terminal.resize(second, first);
+            windowInfo.pixelWidth = second;
+            windowInfo.pixelHeight = first;
+        } else if (operation == 8 && first && second) {
+            const u32 pixelWidth = 2 * opts.border + second * glyphPx;
+            const u32 pixelHeight = 2 * opts.border + first * glyphPy;
+            terminal.resize(pixelWidth, pixelHeight);
+            windowInfo.pixelWidth = pixelWidth;
+            windowInfo.pixelHeight = pixelHeight;
+        }
+    });
     vtermHost.setWindowInfoHandler([&windowInfo]() {
         return windowInfo;
     });

@@ -4224,6 +4224,8 @@ void VtermImpl::dcs_DECRQSS(const std::string& arg) {
         value << marginTop + 1 << ";" << marginBottom << "r";
     } else if (query == "s") {
         value << hMargin + 1 << ";" << nColsEff << "s";
+    } else if (query == "t") {
+        value << nRows << "t";
     } else if (query == " q") {
         value << (unsigned)(cursorStyleParam) << " q";
     } else if (query == "\"q") {
@@ -5008,6 +5010,9 @@ void VtermImpl::csi_XTWINOPS() {
             }
         } break;
         default:
+            if (operation >= 24) {
+                host.windowOperation(8, operation, nCols);
+            }
             break;
     }
     setState(InputState::Normal);

@@ -156,6 +156,18 @@ class ProtocolTest(unittest.TestCase):
                 ["WINDOW 8 6 20", "WINDOW 4 120 320"],
             )
 
+    def test_decslpp_resizes_the_page_and_is_reported_by_decrqss(self):
+        with Zutty(
+            columns=10,
+            rows=4,
+            extra_arguments=("-allowWindowOps", "true"),
+        ) as terminal:
+            terminal.write(b"\x1b[24t\x1bP$qt\x1b\\")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual((snapshot.columns, snapshot.rows), (10, 24))
+            self.assertEqual(terminal.read_actions(), ["WINDOW 8 24 10"])
+            self.assertEqual(terminal.read_input(), b"\x1bP1$r24t\x1b\\")
+
     def test_s7c1t_and_s8c1t_select_response_encoding(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b G\x1b[c")
