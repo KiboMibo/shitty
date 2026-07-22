@@ -224,6 +224,19 @@ class WindowOperationsTest(unittest.TestCase):
                 b"\x1b]ltwo\x1b\\\x1b]lone\x1b\\",
             )
 
+    def test_pop_both_completes_sparse_entry_from_lower_stack_levels(self):
+        with window_terminal() as terminal:
+            terminal.write(
+                b"\x1b]1;old-icon\x1b\\\x1b]2;old-window\x1b\\"
+                b"\x1b[22;1t\x1b[22;2t"
+                b"\x1b]1;new-icon\x1b\\\x1b]2;new-window\x1b\\"
+                b"\x1b[23;0t\x1b[20t\x1b[21t"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b]Lold-icon\x1b\\\x1b]lold-window\x1b\\",
+            )
+
     def test_title_stack_discards_oldest_entry_after_ten_pushes(self):
         with window_terminal() as terminal:
             for number in range(12):

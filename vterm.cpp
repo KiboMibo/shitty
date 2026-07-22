@@ -5021,6 +5021,18 @@ void VtermImpl::csi_XTWINOPS() {
             if (!titleStack.empty()) {
                 SavedTitles saved = std::move(titleStack.back());
                 titleStack.pop_back();
+                for (auto it = titleStack.rbegin();
+                     it != titleStack.rend() && (!saved.hasIcon || !saved.hasWindow);
+                     ++it) {
+                    if (!saved.hasIcon && it->hasIcon) {
+                        saved.hasIcon = true;
+                        saved.icon = it->icon;
+                    }
+                    if (!saved.hasWindow && it->hasWindow) {
+                        saved.hasWindow = true;
+                        saved.window = it->window;
+                    }
+                }
                 if ((which == 0 || which == 1) && saved.hasIcon) {
                     iconTitle = saved.icon;
                     host.osc(1, iconTitle);
