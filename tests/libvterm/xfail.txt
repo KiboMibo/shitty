@@ -1,6 +1,23 @@
 # Exact fixture IDs whose supported upstream golden assertions differ.
+# Libvterm's raw parser callback canonicalizes 7-bit C1 forms such as ESC C
+# into a `control 0x83` callback.  Zutty's diagnostic parser trace preserves
+# the actual grammar production as `escape C`; both reach the same terminal
+# control semantics, but the two private callback APIs are not identical.
+# ECMA-48 section 5.3 defines ESC Fe as the 7-bit representation of C1.
+# https://ecma-international.org/publications-and-standards/standards/ecma-48/
 02parser.test
+# This old decoder fixture accepts F7 BF BF BF as U+1FFFFF.  RFC 3629 limits
+# UTF-8 to four-byte encodings through U+10FFFF, so Zutty correctly emits
+# replacement characters.  Its per-maximal-subpart replacements for C0 80 C1
+# BF also need not match libvterm's legacy grouping of those invalid bytes.
+# https://www.rfc-editor.org/rfc/rfc3629#section-3
+# https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-3/#G7404
 03encoding_utf8.test
+# These fixtures explicitly assert libvterm's implementation limit of five
+# combining marks ("Spare combining chars get truncated").  Unicode grapheme
+# clusters have no fixed code-point limit; Zutty intentionally retains the
+# complete cluster, so its richer cell cannot equal this truncated oracle.
+# https://www.unicode.org/reports/tr29/
 10state_putglyph.test
 11state_movecursor.test
 13state_edit.test
@@ -14,6 +31,10 @@
 26state_query.test
 31state_rep.test
 40state_selection.test
+# Same five-combining-mark internal limit documented for 10state_putglyph;
+# Unicode UAX #29 specifies grapheme boundaries without such a fixed cap, and
+# Zutty's cell correctly preserves all 10/40 combining marks.
+# https://www.unicode.org/reports/tr29/
 61screen_unicode.test
 63screen_resize.test
 64screen_pen.test
