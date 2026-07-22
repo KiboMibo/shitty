@@ -3686,15 +3686,18 @@ void VtermImpl::csi_SGR() {
                 }
                 return true;
             }
-            // ISO 8613-6 direct color is 2:Pi:Pr:Pg:Pb.  Pi is the
-            // color-space identifier and is currently ignored, as in xterm.
-            if (mode != 2 || end - first + 1 != 4 || inputOps[first + 1] > 255 || inputOps[first + 2] > 255 || inputOps[first + 3] > 255) {
+            // Xterm accepts both 2:Pr:Pg:Pb and ISO 8613-6's
+            // 2:Pi:Pr:Pg:Pb form.  Pi and any later optional fields are
+            // ignored.
+            const size_t count = end - first + 1;
+            const size_t rgbFirst = first + (count >= 4);
+            if (mode != 2 || count < 3 || inputOps[rgbFirst] > 255 || inputOps[rgbFirst + 1] > 255 || inputOps[rgbFirst + 2] > 255) {
                 return false;
             }
             color = CellColor::direct({
-                (u8)(inputOps[first + 1]),
-                (u8)(inputOps[first + 2]),
-                (u8)(inputOps[first + 3]),
+                (u8)(inputOps[rgbFirst]),
+                (u8)(inputOps[rgbFirst + 1]),
+                (u8)(inputOps[rgbFirst + 2]),
             });
             if (palette) {
                 *palette = -1;

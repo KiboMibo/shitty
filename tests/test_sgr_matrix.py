@@ -95,13 +95,15 @@ class SgrMatrixTest(unittest.TestCase):
     def test_colon_truecolor_accepts_omitted_and_explicit_color_space(self):
         with Zutty(columns=4, rows=2) as terminal:
             terminal.write(
-                b"\x1b[38:2::1:2:3mA"
-                b"\x1b[38:2:7:4:5:6mB"
+                b"\x1b[38:2:1:2:3mA"
+                b"\x1b[38:2::4:5:6mB"
+                b"\x1b[38:2:7:8:9:10mC"
             )
             snapshot = terminal.snapshot()
 
             self.assertEqual(snapshot.cell(0, 0).foreground, (1, 2, 3))
             self.assertEqual(snapshot.cell(1, 0).foreground, (4, 5, 6))
+            self.assertEqual(snapshot.cell(2, 0).foreground, (8, 9, 10))
 
     def test_colon_indexed_colors_are_independent(self):
         with Zutty(columns=4, rows=2) as terminal:
