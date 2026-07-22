@@ -20,11 +20,6 @@ DECBITests.test_DECBI_WholeScreenScrolls
 # the terminal ignores DECFI."  The upstream assertion expects a scroll.
 # https://vt100.net/docs/vt510-rm/DECFI.html
 DECFITests.test_DECFI_WholeScreenScrolls
-# DEC defines DECSCLM set as visibly smooth scrolling and reset as jump
-# scrolling.  Zutty only has jump rendering, so it reports mode 4 permanently
-# reset rather than accepting a state-only no-op as this test expects.
-# https://vt100.net/docs/vt510-rm/chapter4.html
-DECRQMTests.test_DECRQM_DEC_DECSCLM
 # These VT3xx/VT4xx modes control page-memory viewport coupling or physical
 # keyboard behavior that Zutty does not emulate.  xterm-410 misc.c classifies
 # the same modes as recognized but unimplemented and reports mdAlwaysReset;
