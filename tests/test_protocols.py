@@ -70,7 +70,7 @@ class ProtocolTest(unittest.TestCase):
             )
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1bP1$r0;1;3;4;38;5;1;48;5;2m\x1b\\"
+                b"\x1bP1$r0;1;3;4;31;42m\x1b\\"
                 b"\x1bP1$r2;5r\x1b\\"
                 b"\x1bP1$r3;8s\x1b\\"
                 b"\x1bP1$r5 q\x1b\\"

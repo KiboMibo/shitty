@@ -45,7 +45,7 @@ class SgrStatusReportTest(unittest.TestCase):
 
             self.assertEqual(
                 query(terminal, b"m"),
-                b"\x1bP1$r0;38;2;1;2;3;48;5;21;58;2;4;5;6m\x1b\\",
+                b"\x1bP1$r0;38:2::1:2:3;48:5:21;58:2::4:5:6m\x1b\\",
             )
 
     def test_sgr_report_omits_default_underline_color(self):
@@ -54,7 +54,7 @@ class SgrStatusReportTest(unittest.TestCase):
 
             self.assertEqual(
                 query(terminal, b"m"),
-                b"\x1bP1$r0;4;38;5;1m\x1b\\",
+                b"\x1bP1$r0;4;31m\x1b\\",
             )
 
     def test_sgr_report_uses_logical_colors_while_inverse_is_active(self):
@@ -63,7 +63,7 @@ class SgrStatusReportTest(unittest.TestCase):
 
             self.assertEqual(
                 query(terminal, b"m"),
-                b"\x1bP1$r0;7;38;5;1;48;5;4m\x1b\\",
+                b"\x1bP1$r0;7;31;44m\x1b\\",
             )
 
     def test_sgr_report_replays_equivalent_cell_state(self):

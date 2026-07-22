@@ -76,6 +76,14 @@
 # this fixture's byte oracle.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 25state_input.test
+# This fixture hard-codes libvterm identity and lower-level/canonical reply
+# choices: VT100 DA (?1;2c), "libvterm(0.3)" XTVERSION, DECXCPR without the
+# VT420 page parameter, and SGR status strings without reset 0 / empty Pi.
+# Xterm 410 ctlseqs and source use VT420 DA ?64;Ps c, add page 1 for DECXCPR
+# at VT420 level, and xtermFormatSGR starts at 0 and emits 38:5:n /
+# 38:2::r:g:b canonical forms.  Zutty identifies itself and follows those
+# VT420/xterm forms.
+# https://invisible-island.net/archives/xterm/xterm-410.tgz
 26state_query.test
 # For `e` plus U+0301 followed by REP, libvterm repeats the complete grapheme.
 # Xterm 410 CASE_REP checks CharWidth(lastchar) > 0 and ignores REP when the

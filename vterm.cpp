@@ -4450,24 +4450,32 @@ void VtermImpl::dcs_DECRQSS(const std::string& arg) {
         if (attrs.overline) {
             value << ";53";
         }
-        if (fgPalIx >= 0) {
-            value << ";38;5;" << fgPalIx;
+        if (fgPalIx >= 0 && fgPalIx < 8) {
+            value << ";" << 30 + fgPalIx;
+        } else if (fgPalIx >= 8 && fgPalIx < 16) {
+            value << ";" << 90 + fgPalIx - 8;
+        } else if (fgPalIx >= 0) {
+            value << ";38:5:" << fgPalIx;
         } else if (fg->source() == CellColor::Source::Direct) {
             const Color color = fg->color();
-            value << ";38;2;" << (unsigned)(color.red) << ";" << (unsigned)(color.green) << ";" << (unsigned)(color.blue);
+            value << ";38:2::" << (unsigned)(color.red) << ":" << (unsigned)(color.green) << ":" << (unsigned)(color.blue);
         }
-        if (bgPalIx >= 0) {
-            value << ";48;5;" << bgPalIx;
+        if (bgPalIx >= 0 && bgPalIx < 8) {
+            value << ";" << 40 + bgPalIx;
+        } else if (bgPalIx >= 8 && bgPalIx < 16) {
+            value << ";" << 100 + bgPalIx - 8;
+        } else if (bgPalIx >= 0) {
+            value << ";48:5:" << bgPalIx;
         } else if (bg->source() == CellColor::Source::Direct) {
             const Color color = bg->color();
-            value << ";48;2;" << (unsigned)(color.red) << ";" << (unsigned)(color.green) << ";" << (unsigned)(color.blue);
+            value << ";48:2::" << (unsigned)(color.red) << ":" << (unsigned)(color.green) << ":" << (unsigned)(color.blue);
         }
         if (!underlineColorDefault) {
             if (underlinePalIx >= 0) {
-                value << ";58;5;" << underlinePalIx;
+                value << ";58:5:" << underlinePalIx;
             } else {
                 const Color color = attrs.underline_color.color();
-                value << ";58;2;" << (unsigned)(color.red) << ";" << (unsigned)(color.green) << ";" << (unsigned)(color.blue);
+                value << ";58:2::" << (unsigned)(color.red) << ":" << (unsigned)(color.green) << ":" << (unsigned)(color.blue);
             }
         }
         value << "m";
