@@ -1,4 +1,10 @@
 # Exact VTE matrix targets whose imported expectation differs from Zutty.
+# VTE's primary parser-test.cc classifies ESC Z as ECMA-48 SCI and keeps the
+# parser open for one following character.  Xterm 410 ctlseqs.txt instead
+# defines ESC Z as the complete VT100 DECID "Identify" control.  Zutty targets
+# xterm-256color, so it dispatches DECID before the following CAN rather than
+# adopting VTE's generic SCI interpretation.
+escape_fpes
 # ECMA-48 5.3/5.6 makes OSC and ST control functions; it does not prescribe
 # recovery for a stream mixing their 7-bit and 8-bit representations.  Xterm's
 # shared string state accepts either ST form, as Zutty deliberately does.
