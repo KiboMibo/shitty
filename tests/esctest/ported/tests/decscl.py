@@ -85,6 +85,10 @@ class DECSCLTests(object):
     # Set level 5 conformance
     esccmd.DECSCL(65, 1)
 
+    # Xterm's c132 resource defaults to false.  Without mode 40 this test
+    # passes without exercising either DECCOLM or DECNCSM.
+    esccmd.DECSET(esccmd.Allow80To132)
+
     # Set DECNCSM, Set column mode. Screen should not be cleared.
     esccmd.DECRESET(esccmd.DECCOLM)
     esccmd.DECSET(esccmd.DECNCSM)

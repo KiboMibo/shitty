@@ -490,6 +490,10 @@ class DECSETTests(object):
     # Column Mode Set    1             3
     # Column Mode Reset  2             4
 
+    # Xterm's c132 resource defaults to false, so mode 40 must explicitly
+    # permit the DECCOLM transitions exercised below.
+    esccmd.DECSET(esccmd.Allow80To132)
+
     # 1: Set DECNCSM, Set column mode.
     esccmd.DECRESET(esccmd.DECCOLM)
     esccmd.DECSET(esccmd.DECNCSM)
@@ -532,6 +536,5 @@ class DECSETTests(object):
     cursor = GetCursorPosition()
     AssertEQ(cursor.x(), 2)
     AssertEQ(cursor.y(), 3)
-
 
 
