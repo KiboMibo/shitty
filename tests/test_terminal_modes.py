@@ -73,7 +73,7 @@ class TerminalModeTest(unittest.TestCase):
                 "DECNKM", "DECBKM", "DECLRMM",
             ):
                 self.assertTrue(state[mode], mode)
-            self.assertFalse(state["DECSCLM"])
+            self.assertTrue(state["DECSCLM"])
             self.assertTrue(state["DECARM"])
 
     def test_decll_tracks_each_host_led_independently(self):
@@ -180,7 +180,7 @@ class TerminalModeTest(unittest.TestCase):
             )
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[?4;4$y\x1b[?8;1$y"
+                b"\x1b[?4;2$y\x1b[?8;1$y"
                 b"\x1b[?60;4$y\x1b[?61;4$y\x1b[?64;4$y"
                 b"\x1b[?68;4$y\x1b[?73;4$y"
                 b"\x1b[?81;0$y\x1b[?100;0$y",

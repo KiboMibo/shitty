@@ -320,6 +320,8 @@ namespace {
         bool performIndex();
         void moveCursorBackward(u32 count);
         void scrollRegionUp(u16 count);
+        void scrollRegionDown(u16 count);
+        void presentSmoothScroll();
 
         void esc_DCS(unsigned char fin);
         bool esc_IND();
@@ -554,6 +556,7 @@ namespace {
         bool altScreenInitialized = false;
         bool autoWrapMode = true;
         bool autoRepeatMode = true;
+        bool smoothScrollMode = false;
         bool allowColumnMode = false;
         bool moreFixMode = false;
         bool autoNewlineMode = false;
@@ -1169,6 +1172,7 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     frame_alt.setBlinkState(true, false);
     autoWrapMode = true;
     autoRepeatMode = true;
+    smoothScrollMode = false;
     autoNewlineMode = false;
     keyboardLocked = false;
     insertMode = false;
@@ -2591,6 +2595,12 @@ void VtermImpl::csi_SU() {
 }
 
 void VtermImpl::scrollRegionUp(u16 count) {
+    if (smoothScrollMode && count > 1) {
+        for (u16 k = 0; k < count; ++k) {
+            scrollRegionUp(1);
+        }
+        return;
+    }
     if (horizMarginMode) {
         deleteRows(marginTop, count);
     } else {
@@ -2598,6 +2608,33 @@ void VtermImpl::scrollRegionUp(u16 count) {
         eraseRows(marginBottom - count, count);
         lastCol = false;
     }
+    if (smoothScrollMode) {
+        presentSmoothScroll();
+    }
+}
+
+void VtermImpl::scrollRegionDown(u16 count) {
+    if (smoothScrollMode && count > 1) {
+        for (u16 k = 0; k < count; ++k) {
+            scrollRegionDown(1);
+        }
+        return;
+    }
+    if (horizMarginMode) {
+        insertRows(marginTop, count);
+    } else {
+        cf->scrollDown(marginTop, marginBottom, count);
+        eraseRows(marginTop, count);
+        lastCol = false;
+    }
+    if (smoothScrollMode) {
+        presentSmoothScroll();
+    }
+}
+
+void VtermImpl::presentSmoothScroll() {
+    syncPresentationCursor();
+    redraw();
 }
 
 void VtermImpl::csi_SD() {
@@ -2605,13 +2642,7 @@ void VtermImpl::csi_SD() {
     u32 arg = inputOps[0] ? inputOps[0] : 1;
     arg = std::min<u32>(arg, marginBottom - marginTop);
     const bool pendingWrap = lastCol;
-    if (horizMarginMode) {
-        insertRows(marginTop, (u16)(arg));
-    } else {
-        cf->scrollDown(marginTop, marginBottom, (u16)(arg));
-        eraseRows(marginTop, (u16)(arg));
-        lastCol = false;
-    }
+    scrollRegionDown((u16)(arg));
     lastCol = pendingWrap;
     setState(InputState::Normal);
 }
@@ -3165,6 +3196,7 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 }
                 break;
             case 4:
+                smoothScrollMode = true;
                 break;
             case 5:
                 screenReverseVideo = true;
@@ -3322,6 +3354,7 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 }
                 break;
             case 4:
+                smoothScrollMode = false;
                 break;
             case 5:
                 screenReverseVideo = false;
@@ -3457,6 +3490,8 @@ bool VtermImpl::getPrivateMode(u32 arg) const {
             return cursorKeyMode == CursorKeyMode::Application;
         case 3:
             return colMode == ColMode::C132;
+        case 4:
+            return smoothScrollMode;
         case 5:
             return screenReverseVideo;
         case 6:
@@ -3941,12 +3976,10 @@ void VtermImpl::csi_DECRQM(bool privateMode) {
 
     if (privateMode) {
         switch (mode) {
-            case 4:
-                state = 4;
-                break;
             case 1:
             case 2:
             case 3:
+            case 4:
             case 5:
             case 6:
             case 7:

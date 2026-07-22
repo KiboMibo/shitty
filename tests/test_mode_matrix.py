@@ -17,7 +17,7 @@ PRIVATE_DEFAULTS = {
     1: 2,
     2: 1,
     3: 2,
-    4: 4,
+    4: 2,
     5: 2,
     6: 2,
     7: 1,
@@ -125,19 +125,6 @@ class ModeMatrixTest(unittest.TestCase):
                         query(terminal, mode, True), mode_reply(mode, 2, True)
                     )
 
-    def test_fixed_private_modes_ignore_set_and_reset(self):
-        with Zutty() as terminal:
-            for mode, state in ((4, 4),):
-                with self.subTest(mode=mode):
-                    terminal.write(f"\x1b[?{mode}h".encode())
-                    self.assertEqual(
-                        query(terminal, mode, True), mode_reply(mode, state, True)
-                    )
-                    terminal.write(f"\x1b[?{mode}l".encode())
-                    self.assertEqual(
-                        query(terminal, mode, True), mode_reply(mode, state, True)
-                    )
-
     def test_unknown_modes_report_unknown_and_do_not_change_known_modes(self):
         with Zutty() as terminal:
             terminal.write(b"\x1b[4h\x1b[?7l\x1b[9999h\x1b[?9999h")
@@ -160,7 +147,7 @@ class ModeMatrixTest(unittest.TestCase):
 
     def test_xtsave_and_xtrestore_cover_every_side_effect_free_mode(self):
         modes = (
-            1, 5, 6, 7, 12, 25, 42, 45, 67, 69,
+            1, 4, 5, 6, 7, 12, 25, 42, 45, 67, 69,
             1004, 1007, 1034, 1036, 1039, 1045, 2004, 2026, 2031,
         )
         for mode in modes:
@@ -225,7 +212,7 @@ class ModeMatrixTest(unittest.TestCase):
                 b"content"
                 b"\x1b[2;4r\x1b[?69h\x1b[2;7s"
                 b"\x1b[2;4;20h"
-                b"\x1b[?1;5;6;12;42;45;67;1000;1004;1006;1007;"
+                b"\x1b[?1;4;5;6;12;42;45;67;1000;1004;1006;1007;"
                 b"1034;1045;2004h"
                 b"\x1b[?1036l"
                 b"\x1b[!p"
@@ -233,7 +220,7 @@ class ModeMatrixTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().lines[0], "content ")
             for mode, state in ANSI_DEFAULTS.items():
                 self.assertEqual(query(terminal, mode), mode_reply(mode, state))
-            for mode in (1, 5, 6, 12, 42, 45, 67, 1000, 1004,
+            for mode in (1, 4, 5, 6, 12, 42, 45, 67, 1000, 1004,
                          1006, 1007, 1034, 1036, 1045, 2004):
                 self.assertEqual(
                     query(terminal, mode, True),

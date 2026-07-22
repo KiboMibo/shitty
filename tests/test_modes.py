@@ -4,6 +4,21 @@ from harness import Zutty
 
 
 class ModeTest(unittest.TestCase):
+    def test_smooth_scroll_presents_each_intermediate_line(self):
+        output = b"a\r\nb\r\nc\r\nd"
+        with Zutty(columns=8, rows=2) as terminal:
+            before = terminal.snapshot().refresh_count
+            terminal.write(b"\x1b[?4l" + output)
+            jump_refreshes = terminal.snapshot().refresh_count - before
+
+        with Zutty(columns=8, rows=2) as terminal:
+            before = terminal.snapshot().refresh_count
+            terminal.write(b"\x1b[?4h" + output)
+            smooth_refreshes = terminal.snapshot().refresh_count - before
+
+        self.assertEqual(jump_refreshes, 1)
+        self.assertEqual(smooth_refreshes, 3)
+
     def test_new_line_mode_applies_to_lf_vt_and_ff(self):
         for control in (b"\n", b"\v", b"\f"):
             with self.subTest(control=control), Zutty(columns=8, rows=3) as terminal:
