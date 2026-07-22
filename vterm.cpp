@@ -134,6 +134,7 @@ namespace {
         bool getMetaMode() const;
         bool getAnsiMode(u32 mode) const;
         bool getPrivateMode(u32 mode) const;
+        TerminalCursor::Style getCursorStyle() const;
         TerminalPen getPenState() const;
         RectangleOrigin getRectangleOrigin() const;
 
@@ -800,6 +801,10 @@ bool VtermImpl::getNationalReplacementMode() const {
 
 bool VtermImpl::getMetaMode() const {
     return eightBitInput;
+}
+
+TerminalCursor::Style VtermImpl::getCursorStyle() const {
+    return cursorShape;
 }
 
 bool VtermImpl::getAnsiMode(u32 mode) const {

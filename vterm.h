@@ -190,6 +190,7 @@ struct Vterm {
     virtual bool getMetaMode() const = 0;
     virtual bool getAnsiMode(u32 mode) const = 0;
     virtual bool getPrivateMode(u32 mode) const = 0;
+    virtual TerminalCursor::Style getCursorStyle() const = 0;
     virtual TerminalPen getPenState() const = 0;
     virtual RectangleOrigin getRectangleOrigin() const = 0;
 

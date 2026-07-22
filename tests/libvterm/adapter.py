@@ -658,15 +658,15 @@ def run_fixture(path):
             match = re.fullmatch(r"settermprop\s+(\d+)\s+(.*)", line)
             if match:
                 prop, expected = match.groups()
+                cursor_visible, cursor_blink, cursor_style = terminal.cursor_state()
                 if prop == "1":
-                    actual = terminal.model_snapshot().cursor_style != 0
+                    actual = cursor_visible != 0
                     wanted = expected == "true"
                 elif prop == "2":
-                    actual = terminal.render_state().cursor_blink
+                    actual = cursor_blink != 0
                     wanted = expected == "true"
                 elif prop == "7":
-                    style = terminal.model_snapshot().cursor_style
-                    actual = 2 if style == 3 else 1
+                    actual = 2 if cursor_style == 3 else 1
                     wanted = int(expected)
                 elif prop == "8":
                     actual = max(0, terminal.state()[0] - 1)

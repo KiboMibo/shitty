@@ -567,6 +567,13 @@ class Zutty:
             raise RuntimeError("invalid protocol state response")
         return tuple(map(int, response[1:]))
 
+    def cursor_state(self):
+        self.stream.write(b"CURSOR_STATE\n")
+        response = self._readline().split()
+        if len(response) != 4 or response[0] != "OK":
+            raise RuntimeError("invalid cursor state response")
+        return tuple(map(int, response[1:]))
+
     def conformance_state(self):
         self.stream.write(b"CONFORMANCE_STATE\n")
         response = self._readline().split()

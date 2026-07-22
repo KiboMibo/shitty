@@ -50,6 +50,12 @@
 # it), producing 32/35 as Zutty does.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 17state_mouse.test
+# The only supported golden mismatch is libvterm's reset-time
+# cursor-blink=true callback.  Xterm's cursorBlink resource defaults to false;
+# shape, visibility, ATT610 blink mode, DECRQM, and title behavior all match
+# once the adapter observes logical cursor state rather than unfocused render
+# substitution.
+# https://invisible-island.net/archives/xterm/xterm-410.tgz
 18state_termprops.test
 22state_save.test
 25state_input.test

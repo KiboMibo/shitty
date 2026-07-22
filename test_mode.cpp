@@ -1416,6 +1416,11 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 writeAll(controlFd, "OK " + std::to_string((unsigned)(mouse.mode)) + " " + std::to_string((unsigned)(mouse.enc)) + " " + std::to_string(mouse.focusEventMode) + " " + std::to_string(terminal.getKittyKeyboardFlags()) + "\n");
             } else if (line == "PROTOCOL_STATE") {
                 writeAll(controlFd, "OK " + std::to_string(terminal.getScreenReverseVideo()) + " " + std::to_string(terminal.getLedState()) + " " + std::to_string(terminal.getReverseWrapMode()) + " " + std::to_string(terminal.getNationalReplacementMode()) + " 0\n");
+            } else if (line == "CURSOR_STATE") {
+                writeAll(controlFd,
+                         "OK " + std::to_string(terminal.getPrivateMode(25)) + " "
+                         + std::to_string(terminal.getPrivateMode(12)) + " "
+                         + std::to_string((unsigned)(terminal.getCursorStyle())) + "\n");
             } else if (line == "CONFORMANCE_STATE") {
                 std::ostringstream output;
                 output << "OK screen=" << (terminal.getPrivateMode(47) ? "Alternate" : "Primary")
