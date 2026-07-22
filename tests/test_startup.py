@@ -5,6 +5,17 @@ from harness import Zutty
 
 
 class StartupTest(unittest.TestCase):
+    def test_spawned_child_uses_normal_tty_output_processing(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.spawn(
+                sys.executable,
+                "-c",
+                "import os; os.write(1, b'A\\nB')",
+            )
+            status, _ = terminal.wait_child()
+            self.assertEqual(status, 0)
+            self.assertEqual(terminal.snapshot().lines, ["A       ", "B       "])
+
     def test_child_environment_winsize_and_sigwinch(self):
         program = r'''
 import fcntl, os, signal, struct, termios

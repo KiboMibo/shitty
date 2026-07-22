@@ -557,12 +557,13 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
     if (openpty(&io[0], &io[1], nullptr, nullptr, nullptr) < 0) {
         throw std::runtime_error("test openpty failed");
     }
-    termios ttyAttrs;
-    if (tcgetattr(io[1], &ttyAttrs) < 0) {
+    termios childTtyAttrs;
+    if (tcgetattr(io[1], &childTtyAttrs) < 0) {
         close(io[0]);
         close(io[1]);
         throw std::runtime_error("test tcgetattr failed");
     }
+    termios ttyAttrs = childTtyAttrs;
     cfmakeraw(&ttyAttrs);
     if (tcsetattr(io[1], TCSANOW, &ttyAttrs) < 0) {
         close(io[0]);
@@ -814,6 +815,9 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
             } else if (line.compare(0, 6, "SPAWN ") == 0) {
                 if (childPid > 0) {
                     throw std::runtime_error("child already running");
+                }
+                if (tcsetattr(io[1], TCSANOW, &childTtyAttrs) < 0) {
+                    throw std::runtime_error("test child tcsetattr failed");
                 }
                 const std::string encoded = decodeHex(line.substr(6));
                 std::vector<std::string> arguments;

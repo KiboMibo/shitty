@@ -62,7 +62,8 @@ class PtyTest(unittest.TestCase):
             terminal.spawn(
                 sys.executable,
                 "-c",
-                "import os,time; "
+                "import os,time,tty; "
+                "tty.setraw(0); "
                 "os.set_blocking(0, True); "
                 "os.write(1, b'ready'); "
                 "time.sleep(10)",
