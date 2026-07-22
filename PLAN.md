@@ -197,7 +197,7 @@ Control interface — это расширяемый наблюдаемый API �
 
    После готовых suites начинаем вынимать содержательные матрицы из:
 
-   - Kitty;
+   - Kitty semantic/screen fixtures (426 literal parser streams уже импортированы как whole-vs-bytewise corpus);
    - Ghostty;
    - VTE;
    - Windows Terminal;

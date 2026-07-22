@@ -331,6 +331,61 @@ for corpus in ("osc-cmin", "parser-cmin", "stream-cmin"):
         ))
 
 
+kitty_root = Path(__file__).parent / "tests" / "kitty"
+kitty_cases = (kitty_root / "file_names.txt").read_text().split()
+kitty_tests = []
+for case in kitty_cases:
+    kitty_tests.append(command(
+        name="kitty_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/fuzz_parser.py",
+            "$(S)/tests/kitty/adapter.py",
+            "$(S)/tests/kitty/catalog.py",
+            "$(S)/tests/kitty/file_names.txt",
+            "$(S)/tests/kitty/xfail.txt",
+            "$(S)/tests/kitty/upstream/parser.py",
+        ],
+        outputs=[f"$(B)/tests/kitty/{case}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/kitty/adapter.py",
+            case,
+            "tests/kitty/xfail.txt",
+            f"$(B)/tests/kitty/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="KITTY",
+        color="cyan",
+    ))
+
+
+kitty_validation = command(
+    name="kitty_catalog",
+    inputs=[
+        "$(S)/tests/kitty/catalog.py",
+        "$(S)/tests/kitty/file_names.txt",
+        "$(S)/tests/kitty/validate.py",
+        "$(S)/tests/kitty/xfail.txt",
+        "$(S)/tests/kitty/upstream/parser.py",
+    ],
+    outputs=["$(B)/tests/kitty/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/kitty/validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/kitty/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="KITTY",
+    color="cyan",
+)
+
+
 tmux_root = Path(__file__).parent / "tests" / "tmux"
 tmux_corpus_members = [
     "corpus/" + path.name
@@ -875,6 +930,8 @@ install(contour_vttest)
 install(*contour_tests)
 install(*mosh_tests)
 install(*ghostty_tests)
+install(*kitty_tests)
+install(kitty_validation)
 install(*tmux_tests)
 install(wraptest_helper)
 install(*wraptest_tests)
