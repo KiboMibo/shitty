@@ -1,1 +1,7 @@
 # One case ID per known deviation from DEC architectural behaviour.
+# DEC STD-070 requires HT to clear the Last Column Flag.  xterm-410 tabs.c
+# intentionally preserves do_wrap for ordinary HT and only takes the wrapping
+# path when private mode 41 (MoreFix / curses) is enabled.  Zutty follows that
+# xterm contract, which is incompatible with this DEC-oriented expectation.
+# https://vt100.net/dec/ek-vt520-rm.pdf#page=335
+07_tab_cancels_wrap
