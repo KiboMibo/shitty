@@ -8,6 +8,6 @@ license.
 
 The 25 cases in `cases.json` are the program's own report rows. Their expected
 values are the `DEC architectural behaviour` column of the upstream results
-table. Every build target runs the unmodified program through Zutty's real
-PTY, allowing the program to issue CPR queries and consume Zutty's replies,
+table. Every build target runs the unmodified program through Shitty's real
+PTY, allowing the program to issue CPR queries and consume Shitty's replies,
 then checks one report row.

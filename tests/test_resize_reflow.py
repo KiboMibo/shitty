@@ -1,11 +1,11 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 class ResizeReflowTest(unittest.TestCase):
     def test_soft_wrapped_line_reflows_narrower_and_wider(self):
-        with Zutty(columns=10, rows=4, save_lines=8) as terminal:
+        with Shitty(columns=10, rows=4, save_lines=8) as terminal:
             terminal.write(b"ABCDEFGHI")
             terminal.resize(6, 4)
             narrow = terminal.snapshot()
@@ -20,7 +20,7 @@ class ResizeReflowTest(unittest.TestCase):
             self.assertEqual((wide.cursor_x, wide.cursor_y), (9, 0))
 
     def test_hard_line_breaks_are_not_joined(self):
-        with Zutty(columns=6, rows=3) as terminal:
+        with Shitty(columns=6, rows=3) as terminal:
             terminal.write(b"abc\r\ndef")
             terminal.resize(12, 3)
             snapshot = terminal.snapshot()
@@ -29,7 +29,7 @@ class ResizeReflowTest(unittest.TestCase):
 
     def test_reflow_keeps_wide_graphemes_intact(self):
         cluster = "👩\N{ZERO WIDTH JOINER}💻"
-        with Zutty(columns=5, rows=3, save_lines=4) as terminal:
+        with Shitty(columns=5, rows=3, save_lines=4) as terminal:
             terminal.write(("abc" + cluster + "z").encode())
             terminal.resize(4, 3)
             narrow = terminal.snapshot()
@@ -48,7 +48,7 @@ class ResizeReflowTest(unittest.TestCase):
             self.assertTrue(wide.cell(4, 0).double_width_continuation)
 
     def test_reflow_uses_scrollback_and_preserves_bottom_anchor(self):
-        with Zutty(columns=6, rows=3, save_lines=8) as terminal:
+        with Shitty(columns=6, rows=3, save_lines=8) as terminal:
             terminal.write(b"ABCDEFGHIJKL\r\nhard")
             terminal.resize(4, 3)
             bottom = terminal.snapshot()
@@ -63,7 +63,7 @@ class ResizeReflowTest(unittest.TestCase):
             self.assertEqual(wide.lines[:2], ["ABCDEFGHIJKL", "hard        "])
 
     def test_linear_selection_tracks_reflowed_cells(self):
-        with Zutty(columns=6, rows=3, save_lines=4) as terminal:
+        with Shitty(columns=6, rows=3, save_lines=4) as terminal:
             terminal.write(b"ABCDEFGHI")
             terminal.select_start(2, 0)
             terminal.select_update(3, 1)
@@ -73,7 +73,7 @@ class ResizeReflowTest(unittest.TestCase):
             self.assertEqual(terminal.select_finish(), b"CDEFGHI")
 
     def test_inactive_primary_screen_reflows_on_restore(self):
-        with Zutty(columns=5, rows=3, save_lines=4) as terminal:
+        with Shitty(columns=5, rows=3, save_lines=4) as terminal:
             terminal.write(b"ABCDE123")
             terminal.write(b"\x1b[?47h")
             terminal.resize(8, 3)
@@ -84,7 +84,7 @@ class ResizeReflowTest(unittest.TestCase):
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (7, 0))
 
     def test_mode_1049_restores_reflowed_primary_cursor(self):
-        with Zutty(columns=5, rows=3, save_lines=4) as terminal:
+        with Shitty(columns=5, rows=3, save_lines=4) as terminal:
             terminal.write(b"ABCDE123")
             terminal.write(b"\x1b[?1049h")
             terminal.resize(8, 3)
@@ -95,7 +95,7 @@ class ResizeReflowTest(unittest.TestCase):
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (7, 0))
 
     def test_scrolled_view_tracks_the_same_soft_wrapped_text(self):
-        with Zutty(columns=6, rows=3, save_lines=8) as terminal:
+        with Shitty(columns=6, rows=3, save_lines=8) as terminal:
             terminal.write(b"ABCDEFGHIJKL\r\nhard\r\nlast")
             terminal.wheel_up(1)
             self.assertEqual(terminal.snapshot().lines[0], "ABCDEF")

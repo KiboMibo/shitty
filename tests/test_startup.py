@@ -1,12 +1,13 @@
+import os
 import sys
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 class StartupTest(unittest.TestCase):
     def test_spawned_child_uses_normal_tty_output_processing(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.spawn(
                 sys.executable,
                 "-c",
@@ -36,16 +37,16 @@ def resized(signum, frame):
 signal.signal(signal.SIGWINCH, resized)
 os.write(
     1,
-    f"{os.environ.get('TERM')}|{os.environ.get('ZUTTY_VERSION')}|{size()}\r\n".encode(),
+    f"{os.environ.get('TERM')}|{os.environ.get('SHITTY_VERSION')}|{size()}\r\n".encode(),
 )
 signal.pause()
 '''
-        with Zutty(columns=80, rows=4) as terminal:
+        with Shitty(columns=80, rows=4) as terminal:
             terminal.spawn(sys.executable, "-c", program)
             terminal.wait_read_pty()
             self.assertEqual(
                 terminal.snapshot().lines[0].rstrip(),
-                "xterm-256color|0.14|80x4",
+                f"xterm-256color|{os.environ['SHITTY_TEST_VERSION']}|80x4",
             )
 
             terminal.resize(80, 5)

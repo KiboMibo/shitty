@@ -1,6 +1,6 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 BASE_PALETTE = (
@@ -25,7 +25,7 @@ BASE_PALETTE = (
 
 class SgrMatrixTest(unittest.TestCase):
     def test_all_ansi_foreground_colors(self):
-        with Zutty(columns=16, rows=2) as terminal:
+        with Shitty(columns=16, rows=2) as terminal:
             terminal.write(
                 b"".join(
                     f"\x1b[{30 + index if index < 8 else 82 + index}mX".encode()
@@ -40,7 +40,7 @@ class SgrMatrixTest(unittest.TestCase):
             )
 
     def test_all_ansi_background_colors(self):
-        with Zutty(columns=16, rows=2) as terminal:
+        with Shitty(columns=16, rows=2) as terminal:
             terminal.write(
                 b"".join(
                     f"\x1b[{40 + index if index < 8 else 92 + index}mX".encode()
@@ -65,7 +65,7 @@ class SgrMatrixTest(unittest.TestCase):
             232: (8, 8, 8),
             255: (238, 238, 238),
         }
-        with Zutty(columns=len(expected), rows=2) as terminal:
+        with Shitty(columns=len(expected), rows=2) as terminal:
             terminal.write(
                 b"".join(
                     f"\x1b[38;5;{index};48;5;{index};58;5;{index}mX".encode()
@@ -82,7 +82,7 @@ class SgrMatrixTest(unittest.TestCase):
                     self.assertEqual(cell.underline_color, color)
 
     def test_semicolon_truecolor_minimum_and_maximum(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(
                 b"\x1b[38;2;0;0;0;48;2;255;255;255;58;2;1;2;3mX"
             )
@@ -93,7 +93,7 @@ class SgrMatrixTest(unittest.TestCase):
             self.assertEqual(cell.underline_color, (1, 2, 3))
 
     def test_colon_truecolor_accepts_omitted_and_explicit_color_space(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(
                 b"\x1b[38:2:1:2:3mA"
                 b"\x1b[38:2::4:5:6mB"
@@ -106,7 +106,7 @@ class SgrMatrixTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(2, 0).foreground, (8, 9, 10))
 
     def test_colon_indexed_colors_are_independent(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(b"\x1b[38:5:196;48:5:21;58:5:46mX")
             cell = terminal.snapshot().cell(0, 0)
 
@@ -122,7 +122,7 @@ class SgrMatrixTest(unittest.TestCase):
             (b"38;2;1;2;3", (1, 2, 3)),
             (b"39", (255, 255, 255)),
         )
-        with Zutty(columns=len(sequences), rows=2) as terminal:
+        with Shitty(columns=len(sequences), rows=2) as terminal:
             terminal.write(
                 b"".join(b"\x1b[" + sequence + b"mX" for sequence, _ in sequences)
             )
@@ -135,7 +135,7 @@ class SgrMatrixTest(unittest.TestCase):
                     self.assertEqual(cell.underline_color, expected)
 
     def test_default_underline_tracks_bold_palette_changes(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(b"\x1b[31;4mA\x1b[1mB\x1b[22mC")
             snapshot = terminal.snapshot()
 
@@ -144,7 +144,7 @@ class SgrMatrixTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(2, 0).underline_color, BASE_PALETTE[1])
 
     def test_default_underline_tracks_displayed_foreground_under_inverse(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(b"\x1b[31;44;4mA\x1b[7mB\x1b[27mC")
             snapshot = terminal.snapshot()
 
@@ -156,7 +156,7 @@ class SgrMatrixTest(unittest.TestCase):
                 self.assertEqual(cell.underline_color, displayed_foreground)
 
     def test_explicit_underline_color_survives_foreground_and_inverse(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(
                 b"\x1b[31;44;4;58;2;1;2;3mA"
                 b"\x1b[32;7mB\x1b[27;59mC"
@@ -171,7 +171,7 @@ class SgrMatrixTest(unittest.TestCase):
             )
 
     def test_all_defined_underline_styles_and_off(self):
-        with Zutty(columns=6, rows=2) as terminal:
+        with Shitty(columns=6, rows=2) as terminal:
             terminal.write(
                 b"".join(f"\x1b[4:{style}mX".encode() for style in range(6))
             )
@@ -186,7 +186,7 @@ class SgrMatrixTest(unittest.TestCase):
                 self.assertTrue(snapshot.cell(column, 0).underline)
 
     def test_unknown_underline_style_is_ignored(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(b"\x1b[4:3mA\x1b[4:6mB\x1b[4:4294967295mC")
             snapshot = terminal.snapshot()
 
@@ -196,7 +196,7 @@ class SgrMatrixTest(unittest.TestCase):
             )
 
     def test_truncated_semicolon_truecolor_is_consumed_atomically(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(b"\x1b[38;2;1;2mA\x1b[3mB")
             snapshot = terminal.snapshot()
 
@@ -208,7 +208,7 @@ class SgrMatrixTest(unittest.TestCase):
             self.assertTrue(snapshot.cell(1, 0).italic)
 
     def test_truncated_colon_truecolor_is_consumed_atomically(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(b"\x1b[31m\x1b[38:2::1:2mA\x1b[32mB")
             snapshot = terminal.snapshot()
 
@@ -216,7 +216,7 @@ class SgrMatrixTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(1, 0).foreground, BASE_PALETTE[2])
 
     def test_invalid_extended_color_does_not_change_other_channels(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(
                 b"\x1b[38;2;1;2;3;48;2;4;5;6;58;2;7;8;9m"
                 b"\x1b[38;5;256;48;2;4;999;6;58:5:256mX"
@@ -228,7 +228,7 @@ class SgrMatrixTest(unittest.TestCase):
             self.assertEqual(cell.underline_color, (7, 8, 9))
 
     def test_individual_resets_cover_every_attribute(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(
                 b"\x1b[1;2;3;4:5;5;7;8;9;53mA"
                 b"\x1b[22;23;24;25;27;28;29;55mB"
@@ -256,7 +256,7 @@ class SgrMatrixTest(unittest.TestCase):
     def test_empty_sgr_and_zero_reset_full_state(self):
         for reset in (b"\x1b[m", b"\x1b[0m"):
             with self.subTest(reset=reset):
-                with Zutty(columns=4, rows=2) as terminal:
+                with Shitty(columns=4, rows=2) as terminal:
                     terminal.write(
                         b"\x1b[1;2;3;4:5;5;7;8;9;53;"
                         b"38;2;1;2;3;48;2;4;5;6;58;2;7;8;9mA"
@@ -278,7 +278,7 @@ class SgrMatrixTest(unittest.TestCase):
                     self.assertEqual(cell.underline_color, cell.foreground)
 
     def test_unknown_sgr_is_ignored_and_parser_recovers(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(b"\x1b[4294967295mA\x1b[1mB")
             snapshot = terminal.snapshot()
 

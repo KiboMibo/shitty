@@ -1,11 +1,11 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 class UnicodeTest(unittest.TestCase):
     def test_control_exposes_stateful_utf8_decoder(self):
-        with Zutty() as terminal:
+        with Shitty() as terminal:
             self.assertEqual(terminal.utf8_push(b"A\xc2"), (ord("A"),))
             self.assertEqual(terminal.utf8_push(b"\xa0"), (0xa0,))
             self.assertEqual(
@@ -14,7 +14,7 @@ class UnicodeTest(unittest.TestCase):
             )
 
     def test_batched_width_measurement_uses_terminal_parser(self):
-        with Zutty(columns=12, rows=2) as terminal:
+        with Shitty(columns=12, rows=2) as terminal:
             self.assertEqual(
                 terminal.measure_widths(
                     b"A",
@@ -35,7 +35,7 @@ class UnicodeTest(unittest.TestCase):
             (b"%=", b"`", "א"), (b"&5", b"`", "Ю"),
             (b"%3", b"@", "Ž"), (b"%2", b"&", "ğ"),
         ]
-        with Zutty(columns=len(samples), rows=2) as terminal:
+        with Shitty(columns=len(samples), rows=2) as terminal:
             terminal.write(b"\x1b[?42h")
             for designation, source, _ in samples:
                 terminal.write(b"\x1b(" + designation + source)
@@ -49,24 +49,24 @@ class UnicodeTest(unittest.TestCase):
 
     def test_utf8_decoder_survives_every_byte_boundary(self):
         text = "aé界z".encode()
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write_chunks(*(bytes([byte]) for byte in text))
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.lines[0][:5], "aé界 z")
             self.assertTrue(snapshot.cell(2, 0).double_width)
 
     def test_dec_special_graphics_charset(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b(0lqk\x1b(B")
             self.assertEqual(terminal.snapshot().lines[0][:3], "┌─┐")
 
     def test_single_shift_uses_selected_charset_once(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b*0\x1bNqx")
             self.assertEqual(terminal.snapshot().lines[0][:2], "─x")
 
     def test_supplementary_plane_codepoint_is_preserved(self):
-        with Zutty(columns=6, rows=2) as terminal:
+        with Shitty(columns=6, rows=2) as terminal:
             terminal.write("😀X".encode())
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.cell(0, 0).char, "😀")
@@ -79,7 +79,7 @@ class UnicodeTest(unittest.TestCase):
 
     def test_combining_sequence_is_one_cell_and_copies_verbatim(self):
         text = "e\N{COMBINING ACUTE ACCENT}X"
-        with Zutty(columns=6, rows=2) as terminal:
+        with Shitty(columns=6, rows=2) as terminal:
             terminal.write(text.encode())
             snapshot = terminal.snapshot()
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (2, 0))
@@ -95,7 +95,7 @@ class UnicodeTest(unittest.TestCase):
 
     def test_variation_selector_is_preserved_in_cluster(self):
         text = "\N{HEAVY BLACK HEART}\N{VARIATION SELECTOR-16}"
-        with Zutty(columns=6, rows=2) as terminal:
+        with Shitty(columns=6, rows=2) as terminal:
             terminal.write((text + "X").encode())
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.cursor_x, 3)
@@ -108,7 +108,7 @@ class UnicodeTest(unittest.TestCase):
 
     def test_text_variation_selector_narrows_emoji_presentation(self):
         text = "\N{WATCH}\N{VARIATION SELECTOR-15}"
-        with Zutty(columns=6, rows=2) as terminal:
+        with Shitty(columns=6, rows=2) as terminal:
             terminal.write((text + "X").encode())
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.cursor_x, 2)
@@ -121,7 +121,7 @@ class UnicodeTest(unittest.TestCase):
 
     def test_zwj_emoji_sequence_occupies_one_wide_cluster(self):
         family = "👩\N{ZERO WIDTH JOINER}👩\N{ZERO WIDTH JOINER}👧"
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write((family + "X").encode())
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.cursor_x, 3)
@@ -135,7 +135,7 @@ class UnicodeTest(unittest.TestCase):
 
     def test_grapheme_survives_editing_scrollback_and_resize(self):
         cluster = "a\N{COMBINING DIAERESIS}"
-        with Zutty(columns=5, rows=2, save_lines=5) as terminal:
+        with Shitty(columns=5, rows=2, save_lines=5) as terminal:
             terminal.write((cluster + "bcde\r\n12345\r\n67890").encode())
             terminal.resize(6, 3)
             terminal.page_up()
@@ -153,7 +153,7 @@ class UnicodeTest(unittest.TestCase):
         )
         for encoded, expected in cases:
             with self.subTest(encoded=encoded):
-                with Zutty(columns=8, rows=2) as terminal:
+                with Shitty(columns=8, rows=2) as terminal:
                     terminal.write(encoded)
                     self.assertEqual(
                         terminal.snapshot().lines[0][: len(expected)],

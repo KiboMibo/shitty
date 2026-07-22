@@ -10,13 +10,13 @@ TESTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TESTS))
 
 from fuzz_parser import observable, state_difference
-from harness import Zutty
+from harness import Shitty
 from semantic_catalog import case_payload
 
 
 def exercise(chunks, mode):
     payload = b"".join(chunks)
-    with Zutty(columns=80, rows=24, save_lines=100) as terminal:
+    with Shitty(columns=80, rows=24, save_lines=100) as terminal:
         terminal.parser_trace_on()
         if mode == "whole":
             terminal.write(payload)

@@ -1,13 +1,13 @@
 # Exact fixture IDs whose supported upstream golden assertions differ.
 # Libvterm's raw parser callback canonicalizes 7-bit C1 forms such as ESC C
-# into a `control 0x83` callback.  Zutty's diagnostic parser trace preserves
+# into a `control 0x83` callback.  Shitty's diagnostic parser trace preserves
 # the actual grammar production as `escape C`; both reach the same terminal
 # control semantics, but the two private callback APIs are not identical.
 # ECMA-48 section 5.3 defines ESC Fe as the 7-bit representation of C1.
 # https://ecma-international.org/publications-and-standards/standards/ecma-48/
 02parser.test
 # This old decoder fixture accepts F7 BF BF BF as U+1FFFFF.  RFC 3629 limits
-# UTF-8 to four-byte encodings through U+10FFFF, so Zutty correctly emits
+# UTF-8 to four-byte encodings through U+10FFFF, so Shitty correctly emits
 # replacement characters.  Its per-maximal-subpart replacements for C0 80 C1
 # BF also need not match libvterm's legacy grouping of those invalid bytes.
 # https://www.rfc-editor.org/rfc/rfc3629#section-3
@@ -15,7 +15,7 @@
 03encoding_utf8.test
 # These fixtures explicitly assert libvterm's implementation limit of five
 # combining marks ("Spare combining chars get truncated").  Unicode grapheme
-# clusters have no fixed code-point limit; Zutty intentionally retains the
+# clusters have no fixed code-point limit; Shitty intentionally retains the
 # complete cluster, so its richer cell cannot equal this truncated oracle.
 # https://www.unicode.org/reports/tr29/
 10state_putglyph.test
@@ -38,16 +38,16 @@
 # converts its phantom state into an ordinary cursor one column to the right.
 # Xterm 410 ScreenResize changes max_col and clamps/restores cur_col but never
 # clears or materializes `screen->do_wrap`; the next graphic still takes the
-# normal wrap path.  Zutty follows xterm, so the fixture's row-0 column-80
+# normal wrap path.  Shitty follows xterm, so the fixture's row-0 column-80
 # continuation is intentionally not produced.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 16state_resize.test
 # Libvterm hard reset emits cursor-blink=true, while xterm's cursorBlink
-# resource defaults to false; Zutty uses that xterm default.  The fixture also
+# resource defaults to false; Shitty uses that xterm default.  The fixture also
 # expects URXVT 1015 button values 0/3 as if they were SGR 1006 values.  Xterm
 # ctlseqs specifies that URXVT prints the same X10 button encoding as a decimal
 # integer, and button.c retains the X10 +32 offset for URXVT (only SGR subtracts
-# it), producing 32/35 as Zutty does.
+# it), producing 32/35 as Shitty does.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 17state_mouse.test
 # The only supported golden mismatch is libvterm's reset-time
@@ -62,12 +62,12 @@
 # The VT420/VT520 DECSC state list covers position, rendition, GL/GR character
 # sets, wrap flag, origin mode, selective erase, and pending single shift, but
 # not cursor shape/blink.  Xterm 410 CursorSave2() likewise stores no such
-# fields.  Zutty intentionally leaves the later DECSCUSR shape in effect.
+# fields.  Shitty intentionally leaves the later DECSCUSR shape in effect.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 22state_save.test
 # This fixture exercises libvterm's `vterm_keyboard_unichar()` policy rather
 # than a terminal output protocol.  It requires CSI-u `codepoint;modifier u`
-# for ambiguous modified characters without enabling a mode.  Zutty's real
+# for ambiguous modified characters without enabling a mode.  Shitty's real
 # frontend maps Ctrl+letter/space to C0 before the core, while its configured
 # xterm modifyOtherKeys level 1 uses the documented legacy
 # `CSI 27;modifier;codepoint~` form and leaves ordinary Shift-Space unchanged.
@@ -81,25 +81,25 @@
 # VT420 page parameter, and SGR status strings without reset 0 / empty Pi.
 # Xterm 410 ctlseqs and source use VT420 DA ?64;Ps c, add page 1 for DECXCPR
 # at VT420 level, and xtermFormatSGR starts at 0 and emits 38:5:n /
-# 38:2::r:g:b canonical forms.  Zutty identifies itself and follows those
+# 38:2::r:g:b canonical forms.  Shitty identifies itself and follows those
 # VT420/xterm forms.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 26state_query.test
 # For `e` plus U+0301 followed by REP, libvterm repeats the complete grapheme.
 # Xterm 410 CASE_REP checks CharWidth(lastchar) > 0 and ignores REP when the
-# immediately preceding character is a zero-width combining mark.  Zutty
+# immediately preceding character is a zero-width combining mark.  Shitty
 # follows xterm; the fixture therefore expects an extra cell which must not be
 # produced.  The fixture also clamps `REP 1000` at the right edge.  ECMA-48
 # defines REP as repeating the preceding character Ps times, without a
 # line-boundary exception, and xterm 410 CASE_REP loops for the complete count
-# through its normal wrapping `dotext` path.  Zutty therefore wraps and keeps
+# through its normal wrapping `dotext` path.  Shitty therefore wraps and keeps
 # repeating instead of leaving the following `b` at row 1, column 0.
 # https://ecma-international.org/publications-and-standards/standards/ecma-48/
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 31state_rep.test
 # Same five-combining-mark internal limit documented for 10state_putglyph;
 # Unicode UAX #29 specifies grapheme boundaries without such a fixed cap, and
-# Zutty's cell correctly preserves all 10/40 combining marks.
+# Shitty's cell correctly preserves all 10/40 combining marks.
 # https://www.unicode.org/reports/tr29/
 61screen_unicode.test
 # Two libvterm resize policies differ from xterm.  First, growing the width
@@ -108,7 +108,7 @@
 # resize_buffer() shifts all nonblank bottom content into view when shrinking.
 # Xterm 410 Reallocate() instead computes move_up from the cursor row and moves
 # only enough lines to keep that cursor visible; with the cursor at row 14 in
-# this fixture, the top remains fixed and old row 24 is truncated.  Zutty
+# this fixture, the top remains fixed and old row 24 is truncated.  Shitty
 # follows those xterm rules.  The fixture's sb_popline/ABCDE assertions test
 # libvterm's embedding callback API and are marked pending by the adapter.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
@@ -116,15 +116,15 @@
 # The only remaining mismatches are SGR 73/74 superscript/subscript attributes
 # implemented by libvterm as small raised/lowered glyphs.  Xterm 410's ctlseqs
 # gives its complete supported SGR list (and explains that most higher ECMA-48
-# attributes were never implemented); 73, 74 and 75 are absent.  Zutty's
+# attributes were never implemented); 73, 74 and 75 are absent.  Shitty's
 # xterm-compatible model therefore ignores this libvterm extension.  DECSCNM
 # is otherwise fully matched after the adapter compares the effective
-# cell-inverse XOR screen-reverse state that Zutty's renderer actually uses.
+# cell-inverse XOR screen-reverse state that Shitty's renderer actually uses.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 64screen_pen.test
 # The sole mismatch is libvterm's reset-time cursor-blink=true property.
 # Xterm 410 documents and initializes the cursorBlink resource to false, which
-# is Zutty's default; visibility, shape, and title properties in this fixture
+# is Shitty's default; visibility, shape, and title properties in this fixture
 # all match.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 68screen_termprops.test

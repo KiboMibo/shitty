@@ -15,5 +15,5 @@ The relevant upstream harness, options, dictionary, and generator inputs are
 preserved in `upstream/`. The tmux and source-corpus licenses are preserved
 beside this file. The adapter feeds every member whole and across
 deterministic parser boundaries, comparing PTY output, frontend actions,
-printer output, protocol modes, render state, hyperlink targets, and Zutty's
+printer output, protocol modes, render state, hyperlink targets, and Shitty's
 full rich model state.

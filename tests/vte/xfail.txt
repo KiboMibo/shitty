@@ -1,46 +1,46 @@
-# Exact VTE matrix targets whose imported expectation differs from Zutty.
+# Exact VTE matrix targets whose imported expectation differs from Shitty.
 # VTE's primary parser-test.cc classifies ESC Z as ECMA-48 SCI and keeps the
 # parser open for one following character.  Xterm 410 ctlseqs.txt instead
-# defines ESC Z as the complete VT100 DECID "Identify" control.  Zutty targets
+# defines ESC Z as the complete VT100 DECID "Identify" control.  Shitty targets
 # xterm-256color, so it dispatches DECID before the following CAN rather than
 # adopting VTE's generic SCI interpretation.
 escape_nf
 escape_fpes
 # ECMA-48 5.3/5.6 makes OSC and ST control functions; it does not prescribe
 # recovery for a stream mixing their 7-bit and 8-bit representations.  Xterm's
-# shared string state accepts either ST form, as Zutty deliberately does.
+# shared string state accepts either ST form, as Shitty deliberately does.
 osc_controls_0_c0_c1
-# Same ECMA-48 5.3/5.6 mixed-representation case; Zutty follows xterm's
+# Same ECMA-48 5.3/5.6 mixed-representation case; Shitty follows xterm's
 # shared string state and accepts the 8-bit OSC followed by legacy BEL.
 osc_controls_0_c1_bel
-# Same ECMA-48 5.3/5.6 mixed-representation case; xterm and Zutty accept a
+# Same ECMA-48 5.3/5.6 mixed-representation case; xterm and Shitty accept a
 # 7-bit ST after an 8-bit OSC, while VTE deliberately rejects the mixture.
 osc_controls_0_c1_c0
 # The default terminator here resolves to 7-bit ST.  ECMA-48 does not define
-# malformed-stream recovery; Zutty retains xterm's permissive mixed-form rule.
+# malformed-stream recovery; Shitty retains xterm's permissive mixed-form rule.
 osc_controls_0_c1_default
-# The default introducer here resolves to 7-bit OSC.  Zutty and xterm accept
+# The default introducer here resolves to 7-bit OSC.  Shitty and xterm accept
 # the equivalent 8-bit ST control; VTE's stricter rejection is not required.
 osc_controls_0_default_c1
 # ECMA-48 5.3 defines both encodings of OSC/ST.  Xterm's shared string state,
-# mirrored by Zutty, accepts 7-bit OSC followed by the equivalent 8-bit ST.
+# mirrored by Shitty, accepts 7-bit OSC followed by the equivalent 8-bit ST.
 osc_controls_1_c0_c1
 # The default terminator here resolves to 8-bit ST.  Mixed-form rejection is
-# not specified by ECMA-48; Zutty deliberately follows xterm acceptance.
+# not specified by ECMA-48; Shitty deliberately follows xterm acceptance.
 osc_controls_1_c0_default
 # BEL is xterm's documented legacy OSC terminator.  Xterm's shared OSC state
-# accepts it regardless of introducer width, and Zutty keeps that compatibility.
+# accepts it regardless of introducer width, and Shitty keeps that compatibility.
 osc_controls_1_c1_bel
 # ECMA-48 leaves recovery for this mixed 8-bit OSC/7-bit ST stream unspecified;
-# xterm and Zutty accept it, whereas this VTE oracle deliberately rejects it.
+# xterm and Shitty accept it, whereas this VTE oracle deliberately rejects it.
 osc_controls_1_c1_c0
 # This default introducer resolves to 8-bit OSC.  BEL is the documented xterm
-# legacy OSC terminator and Zutty accepts it through the same shared state.
+# legacy OSC terminator and Shitty accepts it through the same shared state.
 osc_controls_1_default_bel
 # This default introducer resolves to 8-bit OSC.  ECMA-48 does not require
-# rejection of the 7-bit ST form; xterm and Zutty deliberately accept it.
+# rejection of the 7-bit ST form; xterm and Shitty deliberately accept it.
 osc_controls_1_default_c0
 # ECMA-48 5.6 specifies OSC syntax but no maximum string length.  This fixture
-# tests VTE's private 4096-codepoint cap; Zutty deliberately allows 1 MiB and
+# tests VTE's private 4096-codepoint cap; Shitty deliberately allows 1 MiB and
 # separately tests dispatch at that exact byte limit and discard above it.
 osc_oversize

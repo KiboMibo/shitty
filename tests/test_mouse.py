@@ -1,11 +1,11 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 class MouseProtocolTest(unittest.TestCase):
     def test_highlight_tracking_reports_same_and_extended_ranges(self):
-        with Zutty(columns=10, rows=4) as terminal:
+        with Shitty(columns=10, rows=4) as terminal:
             terminal.write(b"\x1b[?1001h\x1b[1;2;1;1;4T")
             terminal.highlight_release(2, 1, 2, 1)
             self.assertEqual(terminal.read_input(), b"\x1b[t\"!")
@@ -15,7 +15,7 @@ class MouseProtocolTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"\x1b[T\"!%#%#")
 
     def test_highlight_tracking_uses_sgr_coordinates(self):
-        with Zutty(columns=10, rows=4) as terminal:
+        with Shitty(columns=10, rows=4) as terminal:
             terminal.write(b"\x1b[?1001h\x1b[?1006h\x1b[1;2;1;1;4T")
             terminal.highlight_release(5, 3, 5, 3)
             self.assertEqual(
@@ -23,7 +23,7 @@ class MouseProtocolTest(unittest.TestCase):
             )
 
     def test_dec_locator_query_buttons_pixels_and_one_shot(self):
-        with Zutty(columns=10, rows=4) as terminal:
+        with Shitty(columns=10, rows=4) as terminal:
             terminal.locator_position(4, 2, 40, 20)
             terminal.write(b"\x1b[1;2'z\x1b[1;3'{\x1b['|")
             self.assertEqual(terminal.read_input(), b"\x1b[1;0;2;4;0&w")
@@ -39,7 +39,7 @@ class MouseProtocolTest(unittest.TestCase):
             terminal.write(b"\x1b['|")
             self.assertEqual(terminal.read_input(), b"\x1b[0&w")
     def test_default_encoding_press_and_release(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             self.assertEqual(
                 terminal.mouse_encode(0, 0, 0, 0, 1, 2, 3),
                 b'\x1b[M "#',
@@ -50,14 +50,14 @@ class MouseProtocolTest(unittest.TestCase):
             )
 
     def test_utf8_encoding_supports_large_coordinates(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             self.assertEqual(
                 terminal.mouse_encode(1, 0, 0, 0, 1, 200, 300),
                 b"\x1b[M \xc3\xa8\xc5\x8c",
             )
 
     def test_sgr_encoding_distinguishes_press_release_and_motion(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             self.assertEqual(
                 terminal.mouse_encode(2, 0, 7, 0, 1, 12, 7),
                 b"\x1b[<28;12;7M",
@@ -76,7 +76,7 @@ class MouseProtocolTest(unittest.TestCase):
             )
 
     def test_sgr_wheel_and_extended_buttons(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             self.assertEqual(
                 terminal.mouse_encode(2, 0, 0, 0, 4, 1, 1),
                 b"\x1b[<64;1;1M",
@@ -95,7 +95,7 @@ class MouseProtocolTest(unittest.TestCase):
             )
 
     def test_sgr_pixel_encoding_and_mode(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[?1016h\x1b[?1016$p")
             self.assertEqual(terminal.state()[1], 4)
             self.assertEqual(terminal.read_input(), b"\x1b[?1016;1$y")
@@ -105,7 +105,7 @@ class MouseProtocolTest(unittest.TestCase):
             )
 
     def test_legacy_coordinate_encodings_are_clamped(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             self.assertEqual(
                 terminal.mouse_encode(0, 0, 0, 0, 1, 999, -4),
                 b"\x1b[M \xff!",
@@ -116,14 +116,14 @@ class MouseProtocolTest(unittest.TestCase):
             )
 
     def test_urxvt_encoding(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             self.assertEqual(
                 terminal.mouse_encode(3, 0, 4, 0, 2, 9, 4),
                 b"\x1b[49;9;4M",
             )
 
     def test_invalid_button_is_ignored(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             self.assertEqual(
                 terminal.mouse_encode(2, 0, 0, 0, 12, 1, 1),
                 b"",

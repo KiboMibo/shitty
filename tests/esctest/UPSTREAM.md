@@ -10,6 +10,6 @@ License: GPL-3.0; see `LICENSE.upstream`.
 the standard `lib2to3` fixers, followed by the minimal integer-division and
 base64 type corrections required by Python 3.  The adapter preserves every
 upstream class and method as a separate build case, sends protocol bytes
-through Zutty's real parser, reads terminal replies through the control PTY
+through Shitty's real parser, reads terminal replies through the control PTY
 buffer, and replaces only the DECRQCRA screen oracle with `MODEL_SNAPSHOT`
 cell inspection.

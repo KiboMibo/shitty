@@ -12,7 +12,7 @@ TESTS = Path(__file__).resolve().parents[1]
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(TESTS))
 
-from harness import Zutty
+from harness import Shitty
 from corpus import (
     canonical_snapshot, encode_snapshot, read_cases,
     verify_snapshot_contract,
@@ -49,11 +49,11 @@ def main():
     signal.alarm(15)
     compressed = (ROOT / "input" / f"{case_name}.input.zst").read_bytes()
     data = zstd.decompress(compressed)
-    with Zutty(
+    with Shitty(
         columns=case["columns"],
         rows=case["rows"],
         save_lines=case["save_lines"],
-        extra_arguments=case.get("zutty_arguments", ()),
+        extra_arguments=case.get("shitty_arguments", ()),
     ) as terminal:
         replay(terminal, data)
         actual = canonical_snapshot(

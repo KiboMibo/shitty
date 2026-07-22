@@ -1,11 +1,11 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 class OscMatrixTest(unittest.TestCase):
     def test_osc4_invalid_indices_do_not_block_valid_siblings(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(
                 b"\x1b]4;1;#010203;2x;#aabbcc;3;#040506;"
                 b"-1;#aabbcc;256;#aabbcc\x1b\\"
@@ -18,7 +18,7 @@ class OscMatrixTest(unittest.TestCase):
             self.assertIn(b"\x1b]4;3;rgb:0404/0505/0606\x1b\\", reply)
 
     def test_osc4_invalid_specs_do_not_block_valid_siblings(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(
                 b"\x1b]4;1;#010203;2;rgb:1/2;3;#040506\x1b\\"
                 b"\x1b]4;1;?;2;?;3;?\x1b\\"
@@ -30,7 +30,7 @@ class OscMatrixTest(unittest.TestCase):
             self.assertIn(b"\x1b]4;3;rgb:0404/0505/0606\x1b\\", reply)
 
     def test_osc104_rejects_non_numeric_index_suffixes(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(
                 b"\x1b]4;1;#010203;2;#040506\x1b\\"
                 b"\x1b]104;1x;2\x1b\\"
@@ -42,7 +42,7 @@ class OscMatrixTest(unittest.TestCase):
             self.assertIn(b"\x1b]4;2;rgb:0000/cdcd/0000\x1b\\", reply)
 
     def test_osc7_accepts_local_and_remote_file_authorities(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             for uri in (
                 b"file:///tmp/work",
                 b"file://localhost/tmp/work",
@@ -52,20 +52,20 @@ class OscMatrixTest(unittest.TestCase):
                     self.assertEqual(terminal.osc7_cwd(uri), b"/tmp/work")
 
     def test_osc7_decodes_upper_and_lower_hex_escapes(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             self.assertEqual(
                 terminal.osc7_cwd(b"file://host/a%2fb%2Fc%20d%7e"),
                 b"/a/b/c d~",
             )
 
     def test_osc7_rejects_malformed_percent_escapes(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             for uri in (b"/tmp/%", b"/tmp/%1", b"/tmp/%gg", b"/tmp/a%2"):
                 with self.subTest(uri=uri):
                     self.assertEqual(terminal.osc7_cwd(uri), b"")
 
     def test_osc7_rejects_other_schemes_and_missing_file_paths(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             for uri in (
                 b"https://host/tmp",
                 b"file://host",
@@ -77,7 +77,7 @@ class OscMatrixTest(unittest.TestCase):
                     self.assertEqual(terminal.osc7_cwd(uri), b"")
 
     def test_osc8_implicit_identity_reuses_equal_uris(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b]8;;https://example.test/a\x1b\\A"
                 b"\x1b]8;;\x1b\\"
@@ -92,7 +92,7 @@ class OscMatrixTest(unittest.TestCase):
             self.assertEqual(terminal.hyperlink_count(), 1)
 
     def test_osc8_id_and_uri_together_define_identity(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b]8;id=x;https://example.test/a\x1b\\A"
                 b"\x1b]8;id=x;https://example.test/a\x1b\\B"
@@ -110,7 +110,7 @@ class OscMatrixTest(unittest.TestCase):
             self.assertEqual(terminal.hyperlink_count(), 2)
 
     def test_osc8_empty_uri_closes_link_even_with_parameters(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b]8;id=x;https://example.test\x1b\\A"
                 b"\x1b]8;id=ignored;\x1b\\B"
@@ -121,7 +121,7 @@ class OscMatrixTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(1, 0).hyperlink, 0)
 
     def test_malformed_osc8_does_not_change_active_link(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b]8;;https://example.test\x1b\\A"
                 b"\x1b]8;missing-uri-separator\x1b\\B"
@@ -135,7 +135,7 @@ class OscMatrixTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(2, 0).hyperlink, 0)
 
     def test_osc8_links_survive_scrollback_and_resolve_in_the_view(self):
-        with Zutty(columns=4, rows=2, save_lines=4) as terminal:
+        with Shitty(columns=4, rows=2, save_lines=4) as terminal:
             terminal.write(
                 b"\x1b]8;;https://example.test/history\x1b\\link"
                 b"\x1b]8;;\x1b\\\r\nnext\r\nlive"
@@ -147,14 +147,14 @@ class OscMatrixTest(unittest.TestCase):
             )
 
     def test_osc52_empty_payload_clears_selected_destinations(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             self.assertEqual(
                 terminal.osc52(b"pc;"),
                 (True, False, True, True, b""),
             )
 
     def test_osc52_selector_order_does_not_change_destinations(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             for selectors in (b"pc", b"cp", b"ppcc", b"spc"):
                 with self.subTest(selectors=selectors):
                     request = terminal.osc52(selectors + b";WA==")
@@ -165,7 +165,7 @@ class OscMatrixTest(unittest.TestCase):
                     self.assertEqual(request[4], b"X")
 
     def test_osc52_rejects_malformed_base64_without_partial_content(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             for payload in (b"=AAA", b"A===", b"AA=A", b"SGVsbG8!", b"A"):
                 with self.subTest(payload=payload):
                     self.assertEqual(
@@ -174,13 +174,13 @@ class OscMatrixTest(unittest.TestCase):
                     )
 
     def test_osc52_empty_reply_is_well_formed(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             self.assertEqual(
                 terminal.osc52_reply(b"", b"p"), b"\x1b]52;p;\x1b\\"
             )
 
     def test_osc52_read_policy_blocks_content_but_still_replies(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             self.assertEqual(
                 terminal.osc52_policy(
                     b"p;?", primary=b"secret", clipboard=b"clipboard"
@@ -189,7 +189,7 @@ class OscMatrixTest(unittest.TestCase):
             )
 
     def test_osc52_read_prefers_primary_and_falls_back_to_clipboard(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             self.assertEqual(
                 terminal.osc52_policy(
                     b"pc;?",
@@ -210,7 +210,7 @@ class OscMatrixTest(unittest.TestCase):
             )
 
     def test_osc52_default_selector_reports_xterm_s0_alias(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             self.assertEqual(
                 terminal.osc52_policy(
                     b";?", allow_read=True, primary=b"primary"
@@ -219,7 +219,7 @@ class OscMatrixTest(unittest.TestCase):
             )
 
     def test_osc52_select_resource_redirects_selector_s(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             self.assertEqual(
                 terminal.osc52_policy(
                     b"s;?",

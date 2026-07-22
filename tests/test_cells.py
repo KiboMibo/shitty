@@ -1,11 +1,11 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 class CellStateTest(unittest.TestCase):
     def test_control_reports_current_pen_without_writing_a_cell(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(b"\x1b[1;2;3;4:3;5;7;8;9;38:5:42;48;2;1;2;3m")
             pen = terminal.pen_state()
             self.assertTrue(pen.bold)
@@ -23,8 +23,8 @@ class CellStateTest(unittest.TestCase):
     def test_model_digest_covers_rich_state_but_not_refresh_count(self):
         payload = b"\x1b[38;2;1;2;3;48;5;4mA\xcc\x81"
         with (
-            Zutty(columns=4, rows=2) as whole,
-            Zutty(columns=4, rows=2) as chunked,
+            Shitty(columns=4, rows=2) as whole,
+            Shitty(columns=4, rows=2) as chunked,
         ):
             whole.write(payload)
             chunked.write_chunks(payload[:3], payload[3:12], payload[12:])
@@ -43,7 +43,7 @@ class CellStateTest(unittest.TestCase):
             self.assertNotEqual(whole.model_digest(), chunked.model_digest())
 
     def test_model_snapshot_exposes_color_sources_and_graphemes(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(
                 b"\x1b[38;5;1;48;2;4;5;6mA\xcc\x81"
                 b"\x1b[58;5;46m\xe7\x95\x8c"
@@ -62,7 +62,7 @@ class CellStateTest(unittest.TestCase):
             self.assertTrue(snapshot.cell(2, 0).double_width_continuation)
 
     def test_sgr_attributes_and_truecolor_are_observable(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[1;3;4;7;38;2;1;2;3;48;2;4;5;6mX")
             cell = terminal.snapshot().cell(0, 0)
 
@@ -77,7 +77,7 @@ class CellStateTest(unittest.TestCase):
             self.assertEqual(cell.background, (4, 5, 6))
 
     def test_sgr_resets_individual_attributes(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[1;3;4;7mA\x1b[22;23;24;27mB")
             snapshot = terminal.snapshot()
 
@@ -89,7 +89,7 @@ class CellStateTest(unittest.TestCase):
             self.assertFalse(second.underline)
 
     def test_wide_character_occupies_two_cells(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write("界".encode())
             snapshot = terminal.snapshot()
 
@@ -98,7 +98,7 @@ class CellStateTest(unittest.TestCase):
             self.assertTrue(snapshot.cell(1, 0).double_width_continuation)
 
     def test_wide_character_wraps_before_last_column(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(b"abc" + "界".encode())
             snapshot = terminal.snapshot()
 
@@ -111,7 +111,7 @@ class CellStateTest(unittest.TestCase):
     def test_overwriting_wide_cell_half_clears_the_other_half(self):
         for column in (1, 2):
             with self.subTest(column=column):
-                with Zutty(columns=6, rows=2) as terminal:
+                with Shitty(columns=6, rows=2) as terminal:
                     terminal.write("A界B".encode())
                     terminal.write(f"\x1b[1;{column + 1}H".encode() + b"X")
                     snapshot = terminal.snapshot()
@@ -123,7 +123,7 @@ class CellStateTest(unittest.TestCase):
                     self.assertEqual(snapshot.cell(column, 0).char, "X")
 
     def test_autowrap_is_recorded_on_last_cell(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(b"abcde")
             snapshot = terminal.snapshot()
 
@@ -131,7 +131,7 @@ class CellStateTest(unittest.TestCase):
             self.assertTrue(snapshot.cell(3, 0).wrapped)
 
     def test_ansi_bright_and_256_color_palette(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[91;104mA\x1b[38;5;196;48;5;21mB")
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.cell(0, 0).foreground, (255, 0, 0))
@@ -140,7 +140,7 @@ class CellStateTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(1, 0).background, (0, 0, 255))
 
     def test_default_colors_can_be_restored(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[31;42mA\x1b[39;49mB")
             snapshot = terminal.snapshot()
             self.assertNotEqual(
@@ -151,7 +151,7 @@ class CellStateTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(1, 0).background, (0, 0, 0))
 
     def test_out_of_range_extended_colors_are_ignored(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b[31;42m"
                 b"\x1b[38;5;256;48;5;4294967295mX"
@@ -162,7 +162,7 @@ class CellStateTest(unittest.TestCase):
             self.assertEqual(cell.background, (0, 205, 0))
 
     def test_out_of_range_truecolor_components_are_ignored(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b[31;42m"
                 b"\x1b[38;2;256;2;3;48;2;4;5;999mX"
@@ -173,7 +173,7 @@ class CellStateTest(unittest.TestCase):
             self.assertEqual(cell.background, (0, 205, 0))
 
     def test_extended_sgr_attributes_and_resets(self):
-        with Zutty(columns=12, rows=2) as terminal:
+        with Shitty(columns=12, rows=2) as terminal:
             terminal.write(b"\x1b[1;2;5;8;9;53mA\x1b[22;25;28;29;55mB")
             first = terminal.snapshot().cell(0, 0)
             second = terminal.snapshot().cell(1, 0)
@@ -192,7 +192,7 @@ class CellStateTest(unittest.TestCase):
             self.assertFalse(second.overline)
 
     def test_colon_sgr_colors_and_underline_styles(self):
-        with Zutty(columns=12, rows=2) as terminal:
+        with Shitty(columns=12, rows=2) as terminal:
             terminal.write(
                 b"\x1b[4:3;38:2::1:2:3;48:5:21;58:2::4:5:6mA"
                 b"\x1b[4:0;59mB"
@@ -208,7 +208,7 @@ class CellStateTest(unittest.TestCase):
             self.assertEqual(second.underline_color, second.foreground)
 
     def test_alternative_font_sgr_does_not_change_weight_or_slant(self):
-        with Zutty(columns=12, rows=2) as terminal:
+        with Shitty(columns=12, rows=2) as terminal:
             terminal.write(b"\x1b[1;3mA\x1b[10mB\x1b[19mC")
             snapshot = terminal.snapshot()
 

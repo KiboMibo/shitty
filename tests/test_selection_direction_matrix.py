@@ -1,6 +1,6 @@
 import unittest
 
-from harness import Zutty, put_rows
+from harness import Shitty, put_rows
 
 
 ROWS = (b"abcdef", b"ghijkl", b"mnopqr")
@@ -10,7 +10,7 @@ class SelectionDirectionMatrixTest(unittest.TestCase):
     def test_linear_reverse_drag_matches_forward_drag(self):
         results = []
         for start, end in (((1, 0), (4, 2)), ((4, 2), (1, 0))):
-            with Zutty(columns=6, rows=3) as terminal:
+            with Shitty(columns=6, rows=3) as terminal:
                 terminal.write(put_rows(*ROWS))
                 terminal.select_start(*start)
                 terminal.select_update(*end)
@@ -26,7 +26,7 @@ class SelectionDirectionMatrixTest(unittest.TestCase):
         )
         for start, end in directions:
             with self.subTest(start=start, end=end):
-                with Zutty(columns=6, rows=3) as terminal:
+                with Shitty(columns=6, rows=3) as terminal:
                     terminal.write(put_rows(*ROWS))
                     terminal.select_start(*start)
                     terminal.select_rectangular()
@@ -34,7 +34,7 @@ class SelectionDirectionMatrixTest(unittest.TestCase):
                     self.assertEqual(terminal.select_finish(), b"bcd\nhij\nnop")
 
     def test_enabling_rectangle_normalizes_cross_row_linear_corners(self):
-        with Zutty(columns=6, rows=3) as terminal:
+        with Shitty(columns=6, rows=3) as terminal:
             terminal.write(put_rows(*ROWS))
             terminal.select_start(4, 0)
             terminal.select_update(1, 2)
@@ -42,7 +42,7 @@ class SelectionDirectionMatrixTest(unittest.TestCase):
             self.assertEqual(terminal.select_finish(), b"bcd\nhij\nnop")
 
     def test_rectangle_keeps_anchor_when_enabled_during_reverse_x_drag(self):
-        with Zutty(columns=6, rows=3) as terminal:
+        with Shitty(columns=6, rows=3) as terminal:
             terminal.write(put_rows(*ROWS))
             terminal.select_start(4, 0)
             terminal.select_update(1, 2)
@@ -51,7 +51,7 @@ class SelectionDirectionMatrixTest(unittest.TestCase):
             self.assertEqual(terminal.select_finish(), b"d\nj\np")
 
     def test_drag_can_cross_both_axes_repeatedly(self):
-        with Zutty(columns=6, rows=3) as terminal:
+        with Shitty(columns=6, rows=3) as terminal:
             terminal.write(put_rows(*ROWS))
             terminal.select_start(3, 1)
             terminal.select_rectangular()

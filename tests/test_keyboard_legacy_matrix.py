@@ -1,6 +1,6 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 MODIFIER_CODES = {
@@ -92,14 +92,14 @@ KEYPAD_KEYS = {
 
 class LegacyKeyboardMatrixTest(unittest.TestCase):
     def test_all_function_keys_in_unmodified_mode(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             for name, (expected, _) in FUNCTION_KEYS.items():
                 with self.subTest(key=name):
                     terminal.key(name)
                     self.assertEqual(terminal.read_input(), expected)
 
     def test_all_function_keys_with_every_modifier(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             for name, (_, template) in FUNCTION_KEYS.items():
                 for modifiers, code in MODIFIER_CODES.items():
                     with self.subTest(key=name, modifiers=modifiers):
@@ -110,7 +110,7 @@ class LegacyKeyboardMatrixTest(unittest.TestCase):
                         )
 
     def test_cursor_keys_in_normal_and_application_modes(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             for name, final in CURSOR_KEYS.items():
                 with self.subTest(key=name, mode="normal"):
                     terminal.key(name)
@@ -125,7 +125,7 @@ class LegacyKeyboardMatrixTest(unittest.TestCase):
     def test_cursor_keys_with_every_modifier_in_both_modes(self):
         for application in (False, True):
             with self.subTest(application=application):
-                with Zutty(columns=8, rows=2) as terminal:
+                with Shitty(columns=8, rows=2) as terminal:
                     if application:
                         terminal.write(b"\x1b[?1h")
                     for name, final in CURSOR_KEYS.items():
@@ -138,7 +138,7 @@ class LegacyKeyboardMatrixTest(unittest.TestCase):
                                 )
 
     def test_editing_keys_with_and_without_every_modifier(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             for name, (number, unmodified) in EDITING_KEYS.items():
                 with self.subTest(key=name, modifiers=0):
                     terminal.key(name)
@@ -154,14 +154,14 @@ class LegacyKeyboardMatrixTest(unittest.TestCase):
                         )
 
     def test_complete_numeric_keypad(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             for name, (expected, _) in KEYPAD_KEYS.items():
                 with self.subTest(key=name):
                     terminal.key(name)
                     self.assertEqual(terminal.read_input(), expected)
 
     def test_complete_application_keypad(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b=")
             for name, (_, final) in KEYPAD_KEYS.items():
                 with self.subTest(key=name):
@@ -169,7 +169,7 @@ class LegacyKeyboardMatrixTest(unittest.TestCase):
                     self.assertEqual(terminal.read_input(), b"\x1bO" + final)
 
     def test_application_keypad_with_every_modifier_when_enabled(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b=\x1b[>3;1m")
             for name, (_, final) in KEYPAD_KEYS.items():
                 for modifiers, code in MODIFIER_CODES.items():
@@ -183,7 +183,7 @@ class LegacyKeyboardMatrixTest(unittest.TestCase):
     def test_pf_keys_in_ansi_application_and_vt52_modes(self):
         for prefix in (b"", b"\x1b=", b"\x1b[?2l\x1b="):
             with self.subTest(mode=prefix):
-                with Zutty(columns=8, rows=2) as terminal:
+                with Shitty(columns=8, rows=2) as terminal:
                     terminal.write(prefix)
                     for number, final in enumerate(b"PQRS", 1):
                         terminal.key(f"KP_F{number}")
@@ -195,7 +195,7 @@ class LegacyKeyboardMatrixTest(unittest.TestCase):
                         )
 
     def test_complete_vt52_cursor_and_application_keypad(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[?2l")
             for name, final in CURSOR_KEYS.items():
                 with self.subTest(key=name, group="cursor"):
@@ -209,7 +209,7 @@ class LegacyKeyboardMatrixTest(unittest.TestCase):
                     self.assertEqual(terminal.read_input(), b"\x1b?" + final)
 
     def test_keypad_mode_can_switch_repeatedly(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.key("KP_1")
             terminal.write(b"\x1b=")
             terminal.key("KP_1")
@@ -218,7 +218,7 @@ class LegacyKeyboardMatrixTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"1\x1bOq1")
 
     def test_modifier_resources_disable_and_reenable_key_groups(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[>1;0m\x1b[>2;0m")
             terminal.key("UP", modifiers=1)
             terminal.key("F5", modifiers=1)

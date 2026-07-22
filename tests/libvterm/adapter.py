@@ -8,7 +8,7 @@ from pathlib import Path
 TESTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TESTS))
 
-from harness import Zutty
+from harness import Shitty
 
 
 def decode_perl_string(expression):
@@ -251,9 +251,9 @@ def compare_cell(snapshot, assertion, expected, screen_reverse):
     if cell.line_attribute != wanted_line:
         differences.append(f"line_attribute={cell.line_attribute}")
     if "S^" in (attrs_match.group(1) if attrs_match else ""):
-        differences.append("superscript is not represented by Zutty cells")
+        differences.append("superscript is not represented by Shitty cells")
     if "S_" in (attrs_match.group(1) if attrs_match else ""):
-        differences.append("subscript is not represented by Zutty cells")
+        differences.append("subscript is not represented by Shitty cells")
     return "; ".join(differences)
 
 
@@ -628,7 +628,7 @@ def run_fixture(path):
         "parser_enabled": False, "parser_only": False,
         "parser_expected": [], "parser_strings": {},
     }
-    with Zutty(columns=80, rows=25, save_lines=500) as terminal:
+    with Shitty(columns=80, rows=25, save_lines=500) as terminal:
         for number, line in lines:
             if state["selection_reply_closed"] and not re.fullmatch(
                 r"output\s+.*", line
@@ -755,7 +755,7 @@ def run_fixture(path):
                 if operation == "query":
                     actions = terminal.read_actions()
                     actual = any(action == "OSC 52 633b3f" for action in actions)
-                    # Zutty's host answers a clipboard query immediately;
+                    # Shitty's host answers a clipboard query immediately;
                     # libvterm instead asks its embedding application for the
                     # selection and waits for vterm_state_send_selection().
                     # The later SELECTION commands exercise the same reply.
@@ -793,7 +793,7 @@ def run_fixture(path):
             if line.startswith("sb_popline "):
                 # The upstream harness fabricates "ABCDE" for every line
                 # requested through libvterm's external scrollback callback.
-                # Zutty owns real scrollback internally, so assertions based
+                # Shitty owns real scrollback internally, so assertions based
                 # on those injected cells are not portable terminal behavior.
                 state["synthetic_scrollback"] = True
                 skipped += 1

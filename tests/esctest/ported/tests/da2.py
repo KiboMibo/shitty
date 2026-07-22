@@ -7,7 +7,7 @@ from escutil import AssertEQ, AssertGE
 class DA2Tests(object):
   def handleDA2Response(self):
     params = escio.ReadCSI('c', expected_prefix='>')
-    if getattr(escargs.args, "annotation_terminal", None) == "zutty":
+    if getattr(escargs.args, "annotation_terminal", None) == "shitty":
       # DA2 is terminal type, firmware version, and cartridge registration.
       # https://vt100.net/docs/vt510-rm/DA2.html
       AssertEQ(params, [41, 14, 0])

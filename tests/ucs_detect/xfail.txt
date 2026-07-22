@@ -1,1 +1,1 @@
-# One stable catalog identifier per known Zutty mismatch. XPASS is an error.
+# One stable catalog identifier per known Shitty mismatch. XPASS is an error.

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from harness import Zutty
+from harness import Shitty
 
 
 class DumpTest(unittest.TestCase):
@@ -17,7 +17,7 @@ class DumpTest(unittest.TestCase):
             path = Path(directory) / "pty.dump"
             path.write_bytes(b"stale contents")
 
-            with Zutty(extra_arguments=("-dump", path)) as terminal:
+            with Shitty(extra_arguments=("-dump", path)) as terminal:
                 terminal.script_pty_reads(
                     *chunks,
                     ("error", errno.EAGAIN),

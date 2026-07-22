@@ -1,6 +1,6 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 def observable(terminal):
@@ -35,7 +35,7 @@ def observable(terminal):
 
 class ParserStreamingTest(unittest.TestCase):
     def test_control_exposes_normalized_parser_events(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.parser_trace_on()
             terminal.write(
                 b"A\x03"
@@ -53,7 +53,7 @@ class ParserStreamingTest(unittest.TestCase):
             )
 
     def test_parameter_intermediate_and_final_bytes_are_independent(self):
-        with Zutty(columns=6, rows=2) as terminal:
+        with Shitty(columns=6, rows=2) as terminal:
             terminal.write_chunks(b"\x1b[1;", b"2", b"\"", b"q", b"X")
             self.assertTrue(terminal.snapshot().cell(0, 0).protected)
 
@@ -61,19 +61,19 @@ class ParserStreamingTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().cell(1, 0).char, "Y")
 
     def test_unknown_multi_intermediate_csi_is_ignored_atomically(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"a\x1b[12 !~b")
             self.assertEqual(terminal.snapshot().lines[0][:2], "ab")
 
     def test_utf8_graphic_aborts_malformed_csi_and_is_reprocessed(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.parser_trace_on()
             terminal.write(b"\x1b[\xc4\x80a")
             self.assertEqual(terminal.snapshot().lines[0][:2], "Āa")
             self.assertEqual(terminal.parser_trace(), [("text", b"\xc4\x80a")])
 
     def test_cancel_discards_oversized_csi_but_remains_observable(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.parser_trace_on()
             terminal.write(b"\x1b[" + b"1;" * 32 + b"1m\x18X")
             self.assertEqual(
@@ -82,7 +82,7 @@ class ParserStreamingTest(unittest.TestCase):
             )
 
     def test_invalid_utf8_in_dcs_header_discards_the_control_string(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.parser_trace_on()
             terminal.write(b"\x1bP1 \xc4\x80a\x1b\\X")
             self.assertEqual(terminal.snapshot().lines[0][0], "X")
@@ -97,13 +97,13 @@ class ParserStreamingTest(unittest.TestCase):
         )
         for sequence, expected in cases:
             with self.subTest(sequence=sequence):
-                with Zutty(columns=8, rows=2) as terminal:
+                with Shitty(columns=8, rows=2) as terminal:
                     terminal.parser_trace_on()
                     terminal.write(sequence)
                     self.assertEqual(terminal.parser_trace(), expected)
 
     def test_seven_bit_c1_form_remains_an_escape_event(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.parser_trace_on()
             terminal.write(b"\x1bD\x84")
             self.assertEqual(
@@ -112,7 +112,7 @@ class ParserStreamingTest(unittest.TestCase):
             )
 
     def test_special_first_intermediate_does_not_end_escape_sequence(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.parser_trace_on()
             terminal.write(b"\x1b 0\x1b#!A\x1b%/B")
             self.assertEqual(
@@ -135,18 +135,18 @@ class ParserStreamingTest(unittest.TestCase):
         )
         for sequence in cases:
             with self.subTest(sequence=sequence):
-                with Zutty(columns=8, rows=2) as terminal:
+                with Shitty(columns=8, rows=2) as terminal:
                     terminal.parser_trace_on()
                     terminal.write(sequence)
                     self.assertEqual(terminal.parser_trace(), [("osc", b"TEST")])
 
     def test_private_prefix_after_numeric_parameters_is_rejected(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"a\x1b[1?25hb")
             self.assertEqual(terminal.snapshot().lines[0][:2], "ab")
 
     def assert_all_splits_match(self, sequence, suffix=b"X"):
-        with Zutty(columns=8, rows=3) as terminal:
+        with Shitty(columns=8, rows=3) as terminal:
             terminal.write(sequence + suffix)
             expected = observable(terminal)
 
@@ -157,7 +157,7 @@ class ParserStreamingTest(unittest.TestCase):
         chunkings.append(tuple(bytes([byte]) for byte in sequence + suffix))
         for chunks in chunkings:
             with self.subTest(chunks=chunks):
-                with Zutty(columns=8, rows=3) as terminal:
+                with Shitty(columns=8, rows=3) as terminal:
                     terminal.write_chunks(*chunks)
                     self.assertEqual(observable(terminal), expected)
 
@@ -183,7 +183,7 @@ class ParserStreamingTest(unittest.TestCase):
         self.assert_all_splits_match(b"\x1bP$qm\x1b\\", suffix=b"")
 
     def test_escape_restarts_an_incomplete_csi(self):
-        with Zutty(columns=8, rows=3) as terminal:
+        with Shitty(columns=8, rows=3) as terminal:
             terminal.write(b"\x1b[999;\x1b[2;3HX")
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.cell(2, 1).char, "X")
@@ -192,14 +192,14 @@ class ParserStreamingTest(unittest.TestCase):
     def test_can_and_sub_cancel_incomplete_sequences(self):
         for cancel in (b"\x18", b"\x1a"):
             with self.subTest(cancel=cancel):
-                with Zutty(columns=8, rows=2) as terminal:
+                with Shitty(columns=8, rows=2) as terminal:
                     terminal.write(b"\x1b[31" + cancel + b"X")
                     cell = terminal.snapshot().cell(0, 0)
                     self.assertEqual(cell.char, "X")
                     self.assertEqual(cell.foreground, (255, 255, 255))
 
     def test_can_cancels_osc_without_emitting_action(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b]2;ignored\x18X")
             self.assertEqual(terminal.read_actions(), [])
             self.assertEqual(terminal.snapshot().cell(0, 0).char, "X")
@@ -212,7 +212,7 @@ class ParserStreamingTest(unittest.TestCase):
         )
         for sequence in sequences:
             with self.subTest(sequence=sequence):
-                with Zutty(columns=8, rows=2) as terminal:
+                with Shitty(columns=8, rows=2) as terminal:
                     terminal.write(b"A" + sequence + b"B")
                     self.assertEqual(terminal.snapshot().lines[0], "AB      ")
 
@@ -224,7 +224,7 @@ class ParserStreamingTest(unittest.TestCase):
         )
         for sequence in sequences:
             with self.subTest(sequence=sequence):
-                with Zutty(columns=8, rows=2) as terminal:
+                with Shitty(columns=8, rows=2) as terminal:
                     terminal.write(b"A" + sequence + b"B")
                     self.assertEqual(terminal.snapshot().lines[0], "AB      ")
 
@@ -235,7 +235,7 @@ class ParserStreamingTest(unittest.TestCase):
         )
         for sequence in sequences:
             with self.subTest(sequence=sequence[:3]):
-                with Zutty(columns=8, rows=2) as terminal:
+                with Shitty(columns=8, rows=2) as terminal:
                     terminal.write(b"A" + sequence + b"B")
                     self.assertEqual(terminal.snapshot().lines[0], "AB      ")
                     self.assertEqual(terminal.read_actions(), [])
@@ -248,12 +248,12 @@ class ParserStreamingTest(unittest.TestCase):
         )
         for sequence in sequences:
             with self.subTest(sequence=sequence[:16]):
-                with Zutty(columns=8, rows=2) as terminal:
+                with Shitty(columns=8, rows=2) as terminal:
                     terminal.write(b"A" + sequence + b"B")
                     self.assertEqual(terminal.snapshot().lines[0], "AB      ")
 
     def test_eight_bit_c1_sequences_match_seven_bit_forms(self):
-        with Zutty(columns=8, rows=3) as terminal:
+        with Shitty(columns=8, rows=3) as terminal:
             terminal.write(
                 b"\x9b2;3HX"
                 b"\x9d2;eight bit title\x9c"
@@ -273,7 +273,7 @@ class ParserStreamingTest(unittest.TestCase):
     def test_eight_bit_string_protocols_are_ignored_through_st(self):
         for sequence in (b"\x9fignored\x9c", b"\x9eignored\x9c", b"\x98ignored\x9c"):
             with self.subTest(sequence=sequence):
-                with Zutty(columns=8, rows=2) as terminal:
+                with Shitty(columns=8, rows=2) as terminal:
                     terminal.write(b"A" + sequence + b"B")
                     self.assertEqual(terminal.snapshot().lines[0], "AB      ")
 

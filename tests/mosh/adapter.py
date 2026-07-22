@@ -8,7 +8,7 @@ TESTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TESTS))
 
 from fuzz_parser import observable, state_difference
-from harness import Zutty
+from harness import Shitty
 
 
 def reset(terminal):
@@ -67,8 +67,8 @@ def main():
     seen = set()
 
     with (
-        Zutty(columns=80, rows=24, save_lines=100) as whole,
-        Zutty(columns=80, rows=24, save_lines=100) as bytewise,
+        Shitty(columns=80, rows=24, save_lines=100) as whole,
+        Shitty(columns=80, rows=24, save_lines=100) as bytewise,
     ):
         paths = sorted((root / corpus).iterdir())
         if selected is not None:

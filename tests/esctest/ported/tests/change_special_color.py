@@ -10,7 +10,7 @@ class ChangeSpecialColorTests(object):
   NUM_ANSI_COLORS from the reported slot for opcode 5.  The original esctest
   expectation described an older, explicitly undocumented OSC 4 reply.
   Xlib's device-independent spaces are converted through the screen CCC;
-  Zutty uses an explicit sRGB/D65 profile instead of an X11 screen profile.
+  Shitty uses an explicit sRGB/D65 profile instead of an X11 screen profile.
   """
 
   @knownBug(terminal="iTerm2", reason="Color reporting not implemented.", shouldTry=False)

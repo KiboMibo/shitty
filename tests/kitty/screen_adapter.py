@@ -9,7 +9,7 @@ from pathlib import Path
 TESTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TESTS))
 
-from harness import Zutty
+from harness import Shitty
 from screen_catalog import case_data
 
 
@@ -36,7 +36,7 @@ def main():
     signal.signal(signal.SIGALRM, timed_out)
     signal.alarm(10)
     label, row, columns, rows, payload, expected = case_data(name)
-    with Zutty(columns=columns, rows=rows, save_lines=0) as terminal:
+    with Shitty(columns=columns, rows=rows, save_lines=0) as terminal:
         terminal.write(payload)
         actual = rendered_line(terminal.snapshot(), row)
     normalized_expected = expected.rstrip(" ")

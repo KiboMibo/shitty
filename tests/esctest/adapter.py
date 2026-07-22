@@ -11,7 +11,7 @@ TESTS = ROOT / "tests"
 PORTED = Path(__file__).resolve().parent / "ported"
 sys.path.insert(0, str(TESTS))
 
-from harness import Zutty
+from harness import Shitty
 
 sys.path.insert(0, str(PORTED))
 
@@ -131,7 +131,7 @@ def install_backend(control):
 def configure_args(case_id):
     escargs.args = escargs.parser.parse_args([])
     escargs.args.expected_terminal = "xterm"
-    escargs.args.annotation_terminal = "zutty"
+    escargs.args.annotation_terminal = "shitty"
     escargs.args.xterm_checksum = 334
     escargs.args.max_vt_level = 5
     escargs.args.options = [escargs.XTERM_WINOPS_ENABLED]
@@ -170,7 +170,7 @@ def find_case(case_id):
 
 def run(case_id):
     configure_args(case_id)
-    terminal = Zutty(
+    terminal = Shitty(
         columns=80,
         rows=25,
         save_lines=500,

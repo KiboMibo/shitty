@@ -8,7 +8,7 @@ from pathlib import Path
 TESTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TESTS))
 
-from harness import Zutty
+from harness import Shitty
 
 
 NAMED_COLORS = {
@@ -97,7 +97,7 @@ def expected_cell(cell):
     # Alacritty stores HT in its first skipped cell as selection metadata.
     # ECMA-48 HT only advances the active position; it does not render a
     # control character, so normalize that private grid representation to the
-    # blank cell exposed by Zutty's terminal model.
+    # blank cell exposed by Shitty's terminal model.
     character = " " if cell["c"] == "\t" else cell["c"]
     grapheme = () if continuation else tuple(map(ord, character))
     grapheme += tuple(map(ord, extra.get("zerowidth", ())))
@@ -213,7 +213,7 @@ def actual_grid(terminal):
                 )
             ]
     if any(row is None for row in rows):
-        raise RuntimeError("incomplete Zutty scrollback snapshot")
+        raise RuntimeError("incomplete Shitty scrollback snapshot")
     return rows
 
 
@@ -222,7 +222,7 @@ def compare(case_path):
     config = json.loads((case_path / "config.json").read_text())
     expected = expected_grid(json.loads((case_path / "grid.json").read_text()))
 
-    with Zutty(
+    with Shitty(
         columns=size["columns"],
         rows=size["screen_lines"],
         save_lines=config["history_size"],
@@ -232,7 +232,7 @@ def compare(case_path):
 
     # Alacritty's ref runner calls Grid::initialize_all() before comparing,
     # padding unused scrollback capacity with default rows.  Reproduce that
-    # test-only normalization; Zutty exposes only rows that actually entered
+    # test-only normalization; Shitty exposes only rows that actually entered
     # history through its control interface.
     if len(actual) < len(expected):
         padding = [

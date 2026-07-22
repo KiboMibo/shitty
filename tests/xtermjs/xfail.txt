@@ -2,17 +2,17 @@
 # ECMA-48 5th edition section 8.3.159 defines CSI Pn k as VPB: move the
 # active data position by Pn lines opposite to line progression, default 1.
 # xterm.js has no CSI k handler, so these fixtures instead record every VPB as
-# a no-op, including the 36-line boundary case. Zutty implements the
+# a no-op, including the 36-line boundary case. Shitty implements the
 # standardized movement and intentionally differs.
 t0032-VPB
 t0033-VPB_scroll
 # ECMA-48 8.3.103 leaves REP undefined when the preceding character is a
-# control function. This fixture expects no-op after LF/CUB; Zutty deliberately
+# control function. This fixture expects no-op after LF/CUB; Shitty deliberately
 # retains the last graphic character, matching the Kitty/Ghostty behavior.
 t0040-REP
 # DEC VT220 Programmer Reference 4.7 requires DECSC/DECRC to save and restore
 # the wrap flag.  VT520 SCOSC/SCORC act identically except for the saved page.
-# These fixtures expect restore to clear pending wrap instead; Zutty restores
+# These fixtures expect restore to clear pending wrap instead; Shitty restores
 # it and wraps the following graphic character.
 t0060-DECSC
 t0061-CSI_s
@@ -20,17 +20,17 @@ t0061-CSI_s
 # requires Pt < Pb, and limits the scrolling region to the page size. This
 # fixture instead records xterm.js quirks: CSI 6;7;8r uses the first two
 # parameters, while an out-of-page Pb in CSI 23;28r becomes the default bottom.
-# Zutty rejects both malformed margin requests and keeps the previous region.
+# Shitty rejects both malformed margin requests and keeps the previous region.
 t0077-DECSTBM_quirks
 # ECMA-48 8.3.7 and the VT510 CBT definition require moving the active
 # position to the preceding tab stop (or column one). At deferred wrap,
 # xterm.js represents the cursor as x == columns and ignores CBT entirely;
 # this fixture therefore expects the following graphic to wrap instead.
-# Zutty performs the required cursor movement and clears deferred wrap.
+# Shitty performs the required cursor movement and clears deferred wrap.
 t0084-CBT
 # XTerm Control Sequences defines mode 45 as XTREVWRAP and mode 1045 as the
 # distinct extended XTREVWRAP2. The reference xterm cursor.c requires the
 # preceding line's wrap marker for mode 45; only mode 1045 removes that limit.
 # This fixture enables only 45 but expects BS/CUB to cross hard CRLF-created
-# line boundaries, conflating the two modes. Zutty preserves their distinction.
+# line boundaries, conflating the two modes. Shitty preserves their distinction.
 t0103-reverse_wrap

@@ -14,7 +14,7 @@ TESTS = Path(__file__).resolve().parents[1]
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(TESTS))
 
-from harness import Zutty
+from harness import Shitty
 from corpus import canonical_snapshot, encode_snapshot, verify_snapshot_contract
 from scenarios import SCENARIOS
 
@@ -177,7 +177,7 @@ def capture(name, scenario):
         else:
             raise TypeError(f"unsupported capture action: {action!r}")
 
-    with tempfile.TemporaryDirectory(prefix="zutty-realworld-") as directory:
+    with tempfile.TemporaryDirectory(prefix="shitty-realworld-") as directory:
         fixture = Path(directory)
         make_fixture(
             fixture, name.startswith(("git_", "tig_", "lazygit_")))
@@ -192,7 +192,7 @@ def capture(name, scenario):
             "COLORTERM=truecolor",
             "TERM=xterm-256color",
         ]
-        with Zutty(columns=columns, rows=rows, save_lines=500) as terminal:
+        with Shitty(columns=columns, rows=rows, save_lines=500) as terminal:
             if command is not None:
                 terminal.spawn(
                     *environment,

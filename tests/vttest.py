@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Run upstream vttest through Zutty's real PTY and headless screen."""
+"""Run upstream vttest through Shitty's real PTY and headless screen."""
 
 import argparse
 import os
 import shutil
 
-from harness import Zutty
+from harness import Shitty
 
 
 def run(binary, rounds, log_path=None):
-    with Zutty(columns=80, rows=24, save_lines=2000) as terminal:
+    with Shitty(columns=80, rows=24, save_lines=2000) as terminal:
         command = [binary, "-q", "-u"]
         if log_path:
             command.extend(("-l", log_path))

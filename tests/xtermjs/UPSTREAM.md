@@ -8,5 +8,5 @@ Imported path: `test/fixtures/escape_sequence_files/*.in` and matching
 `*.text` files.
 
 The data is unmodified. `adapter.py`, `file_names.txt`, and `xfail.txt` are
-Zutty integration files. The upstream MIT license is preserved in
+Shitty integration files. The upstream MIT license is preserved in
 `LICENSE.upstream`.

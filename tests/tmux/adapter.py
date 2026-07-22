@@ -9,7 +9,7 @@ TESTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TESTS))
 
 from fuzz_parser import observable, state_difference
-from harness import Zutty
+from harness import Shitty
 
 
 CHUNK_SIZES = (1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377)
@@ -117,8 +117,8 @@ def main():
     }
 
     with (
-        Zutty(columns=80, rows=25, save_lines=100) as whole,
-        Zutty(columns=80, rows=25, save_lines=100) as chunked,
+        Shitty(columns=80, rows=25, save_lines=100) as whole,
+        Shitty(columns=80, rows=25, save_lines=100) as chunked,
     ):
         for member in members:
             try:

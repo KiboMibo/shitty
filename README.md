@@ -1,315 +1,229 @@
-# Zutty
+# Shitty
 
-**Zero-cost Unicode Teletype — a high-end terminal for low-end systems.**
+**A small, fast, native Wayland terminal emulator with a Vulkan renderer.**
 
-Zutty is a compact C++ terminal emulator with a deliberately small platform
-surface: GLFW handles the Wayland window, input and clipboard, while
-the image is presented with raw Vulkan.
+Shitty is a hard fork and complete rewrite of **Zutty**. The original Zutty
+terminal emulator was created by **Tom Szilagyi**; Shitty preserves that
+lineage and the original GPL copyright notices while replacing the surrounding
+architecture, platform integration, renderer, testing strategy, and project
+identity.
 
-The terminal engine is the mature part of the project. It implements the
-commonly used VT52 through VT5xx command families, xterm extensions, a
-scrollback ring buffer, mouse protocols, selection and 256/true colour. Its
-Vulkan renderer consumes the compact cell buffer and FreeType atlases in a
-compute shader, writes a persistent RGBA8 storage image and blits that image
-into the window-system swapchain. No full-size terminal image is rasterized or
-uploaded by the CPU.
+The terminal core implements the commonly used VT52 through VT5xx command
+families together with xterm extensions, Unicode grapheme handling, scrollback,
+selection, modern keyboard protocols, mouse reporting, and 24-bit colour. GLFW
+provides native Wayland window/input integration, while Vulkan presents the
+terminal without uploading a CPU-rendered full-frame bitmap.
 
-## Design boundaries
-
-- Native Wayland. GLFW creates the window and Vulkan surface, but does not
-  render the terminal.
-- UTF-8 only. Legacy host encodings are intentionally outside the scope.
-- Configuration is command-line only; there is no Xresources compatibility
-  layer or configuration file parser.
-- The terminal core and the platform/rendering frontend remain separate, so
-  work on one does not require rewriting the other.
-
-## Features
-
-- VT52, VT100, VT102, VT220, VT320, VT420 and VT520-era control sequences,
-  plus the xterm sequences used by modern terminal applications.
-- UTF-8 input and Basic Multilingual Plane glyphs, including a separate
-  double-width font for CJK cells.
-- 16-colour, 256-colour and 24-bit colour; bold, italic, underline, inverse
-  and background-colour erase.
-- Primary and alternate screens, margins, origin mode, insert/delete,
-  autowrap, tabs, reports and the usual DEC character sets.
-- O(1) scrolling over a circular screen/scrollback store.
-- VT/xterm keyboard modes and xterm-style modifier encoding.
-- X10, VT200, UTF-8, SGR and urxvt mouse reporting.
-- Local select-to-paste and system clipboard integration on Wayland.
-- Scalable TTF, OTF and TTC fonts, plus PCF and compressed PCF bitmap fonts.
-- Dirty-cell Vulkan compute rendering over GPU-resident font atlases.
-- High-density windows and resize-aware Vulkan swapchain recreation.
-
-## Requirements
-
-Build-time requirements are:
-
-- Clang with C++26 language support;
-- the `libstd` submodule, or compatible system `libstd` headers and library;
-- Python 3 and `glslangValidator` for compiling and embedding the compute
-  shader;
-- pkg-config;
-- Brotli and utf8proc;
-- FreeType 2;
-- GLFW 3.4 or newer, built with Wayland support;
-- Vulkan headers and loader;
-- POSIX threads.
-
-At runtime Zutty needs a Wayland session, a GLFW build with its Wayland backend
-and a Vulkan driver capable of presenting to Wayland. In practice that means a
-working Vulkan ICD in addition to the loader.
-
-## Build
-
-The repository includes a Clang-based Nix development shell with the required
-tools, libraries and deterministic test fonts. Initialise the optional
-`libstd` submodule to compile the complete production library as part of the
-Zutty build:
-
-```sh
-git submodule update --init third_party/libstd
-nix-shell
-./build zutty
-./zutty
-```
-
-When `third_party/libstd` is not checked out, the build instead uses compatible
-system-installed `libstd` headers and links with `-lstd`.
-
-Without Nix, install the dependencies through the system package manager and
-run the same build command. The explicit `zutty` target publishes `./zutty` as
-a symlink to the executable in the content-addressed `.build` cache. Running
-`./build` without an explicit target builds the executable without publishing
-the symlink.
-
-To install the executable, desktop entry and scalable icon:
-
-```sh
-install -Dm755 ./zutty /usr/local/bin/zutty
-install -Dm644 zutty.desktop /usr/local/share/applications/zutty.desktop
-install -Dm644 zutty.svg /usr/local/share/icons/hicolor/scalable/apps/zutty.svg
-```
-
-For a development build with assertions and VT parser stepping enabled:
-
-```sh
-CPPFLAGS=-DDEBUG ./build zutty
-./zutty -verbose
-```
-
-## Run
-
-The built-in bitmap defaults are not installed on every system, so explicitly
-choosing an available monospace font is often the best first run:
-
-```sh
-./zutty -font DejaVuSansMono -fontsize 16
-```
-
-Other examples:
-
-```sh
-# A larger terminal and scrollback buffer
-./zutty -geometry 120x36 -saveLines 5000
-
-# Run a command instead of the login shell
-./zutty -font LiberationMono -e tmux new-session
-
-# Inspect the selected Vulkan device
-./zutty -vulkanInfo -font DejaVuSansMono
-```
-
-Zutty sets `TERM=xterm-256color` and exports its version as `ZUTTY_VERSION` to
-the child process. The system therefore needs the corresponding terminfo entry.
-
-## Command line
-
-Use `zutty -help` for the authoritative option list. Options may be shortened
-to an unambiguous prefix; the historical `-v` spelling still means
-`-verbose`. A flag is enabled with `-flag` and disabled with `+flag`, which is
-notably useful for defaults such as `+boldColors`.
-
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `-geometry COLSxROWS` | `80x24` | Initial terminal geometry in cells |
-| `-font NAME` | `monospace` | Primary fontconfig family |
-| `-dwfont NAME` | `18x18ja` | Double-width fontconfig family |
-| `-fontsize PX` | `16` | Requested font height |
-| `-fg RGB`, `-bg RGB` | `#fff`, `#000` | Default foreground and background |
-| `-cr RGB` | foreground | Cursor colour |
-| `-border PX` | `2` | Logical border width |
-| `-saveLines N` | `500` | Scrollback lines, from 0 through 50000 |
-| `-title TEXT` | `Zutty` | Initial window title |
-| `-shell PATH` | `$SHELL` | Shell to start |
-| `-e COMMAND ...` | — | Execute a command; must be the final option |
-| `-dump PATH` | — | Dump raw PTY input to a file before parsing |
-| `-login` | off | Start the selected shell as a login shell |
-| `-rv` | off | Swap the default foreground and background |
-| `-boldColors` | on | Use bright palette colours for bold text |
-| `-altScroll` | off | Turn wheel/history movement into cursor keys on the alternate screen |
-| `-autoCopy` | off | Copy every completed primary selection to the clipboard too |
-| `-showWraps` | off | Mark wrapped lines at the right edge |
-| `-vulkanInfo` | off | Print the chosen Vulkan device and API version |
-| `-quiet`, `-verbose`, `--trace` | off | Adjust diagnostic output |
-| `-listres` | — | Print advanced keyboard and palette options |
-
-Colours accept `RGB` or `RRGGBB`, with an optional leading `#`.
-
-`ZUTTY_FONT_SIZE` can be used to set the font size when `-fontsize` is not
-specified. The command-line option takes precedence over the environment.
-
-Advanced options are regular command-line arguments despite the historical
-name “resources” in `-listres` output:
-
-```sh
-zutty -altSendsEscape false -modifyOtherKeys 2 \
-      -color1 cd0000 -color12 5c5cff
-```
-
-`altSendsEscape` accepts `true` or `false`; `modifyOtherKeys` accepts levels
-0 through 2. `color0` through `color15` replace the base palette.
-`allowOsc52Read` defaults to `false`, preventing applications (including
-remote applications) from reading local clipboard contents. `osc52Select`
-chooses whether the generic OSC 52 `s` selector names `primary` (the default)
-or `clipboard`. `allowWindowOps` defaults to `false`, preventing applications
-from moving, resizing, minimizing, maximizing or querying the terminal window
-through XTWINOPS. Set it to `true` only for trusted applications that require
-these operations.
-
-## Fonts
-
-`-font` and `-dwfont` are fontconfig family queries. Names such as `monospace`,
-`DejaVu Sans Mono` or any installed family (including aliases) work. Fontconfig
-selects the regular, bold, italic and bold-italic faces and may substitute a
-family if the requested one is not installed. Missing style variants gracefully
-fall back to the regular face.
-
-The double-width face
-must rasterize to exactly twice the primary cell width at the same height. If
-it is absent or incompatible, wide characters use the missing-glyph marker.
-
-Example:
-
-```sh
-zutty -font 'DejaVu Sans Mono' -dwfont 'Noto Sans Mono CJK JP'
-```
-
-## Keyboard, scrolling and selection
-
-Zutty follows the active VT cursor, keypad and function-key modes. Shift, Alt
-and Ctrl combinations use the conventional xterm modifier parameters: Shift
-is 2, Alt is 3, Alt+Shift is 4, Ctrl is 5, Ctrl+Shift is 6, Ctrl+Alt is 7 and
-Ctrl+Alt+Shift is 8.
-
-Local bindings are deliberately short:
-
-| Action | Input |
-| --- | --- |
-| Scroll half a page | `Shift+PageUp`, `Shift+PageDown` |
-| Scroll one line per wheel unit | Mouse wheel / touchpad |
-| Begin/adjust selection | Left drag / right drag |
-| Select by word or line | Double / triple click |
-| Toggle rectangular selection | `Space` while selecting |
-| Paste primary selection | Middle click or `Shift+Insert` |
-| Copy primary selection to clipboard | `Ctrl+Shift+C` |
-| Paste clipboard | `Ctrl+Shift+V` |
-| Bypass application mouse tracking | Hold `Shift` |
-
-When an application enables mouse reporting, clicks, motion and wheel events
-go to the application. Holding Shift temporarily restores local selection and
-scrolling.
-
-## Terminal compatibility
-
-The parser is a byte-at-a-time state machine descended from Zutty's original
-terminal core. Historically it was exercised with Vttest across cursor
-movement, margins, tabs, autowrap, DEC character sets, keyboard modes, device
-reports, VT52 mode, insert/delete operations, soft and hard reset, ISO 6429
-colour and xterm alternate-screen, title and mouse extensions.
-
-This is compatibility context, not a claim of a current automated conformance
-suite: the old screenshot harness was removed during the port and a frontend
-regression suite has not replaced it yet.
-
-Known limits include:
-
-- code points outside the Unicode Basic Multilingual Plane;
-- bidirectional layout and composed combining glyphs;
-- DEC double-height and double-width *line* modes (`DECDHL`/`DECDWL`);
-- rectangular area operations and mouse highlight tracking;
-- blinking or concealed text and a blinking cursor;
-- terminal-requested switching of the host window between 80 and 132 columns.
-
-These limits are distinct from ordinary CJK double-width cells, which are
-supported through `-dwfont`.
-
-## Architecture
+## Design
 
 ```text
  child process
       ⇅ PTY
-    Vterm             VT parser, keyboard encoder, terminal modes
+    Vterm             parser, modes, reports, input encoding
       ⇅
     Frame             cells, damage, selection, circular scrollback
       ↓ changed cells
-   CharVdev           host mirror of compact 12-byte cells
+   CharVdev           host-side render-cell mirror
       ↓ SSBO                         Fontpack
  VulkanPresenter  ← atlas/map textures ┘
       ↓ compute shader (`render.comp`)
- persistent RGBA8 storage image
-      ↓ image blit
- WSI swapchain        GLFW supplies the Wayland platform integration
+ persistent RGBA8 image
+      ↓ blit
+ Wayland swapchain    GLFW supplies window-system integration
 ```
 
-`Frame` keeps the visible screen and history in circular storage, so a scroll
-normally changes an offset rather than moving every cell. `Renderer` consumes
-damage deltas after the first full frame and clears dirty bits after a
-successful submission. The compute shader skips clean cells while still
-redrawing cursor and selection damage. Font variants occupy four layers of an
-R8 atlas; a 256×256 integer lookup image maps BMP code points to atlas cells,
-with an independent atlas/map pair for double-width glyphs.
+The terminal model is deliberately separated from the frontend. `Vterm`
+consumes PTY bytes and mutates `Frame`; `Frame` owns canonical terminal state
+and damage; `Renderer` copies full or delta cell data into `CharVdev`; and
+`VulkanPresenter` composites cells, glyphs, cursor, selection, and decorations
+with a compute shader.
 
-`VulkanPresenter` keeps two cell buffers and command submissions in flight.
-Presentation-complete semaphores belong to swapchain images rather than frame
-slots, so they are not reused while the compositor still owns them. The
-renderer handles RGBA/BGRA swapchain formats, preserves a GPU-side output image
-between delta frames and recreates size-dependent resources when the surface
-changes.
+Important boundaries:
 
-Source map:
+- Wayland is the native window-system target.
+- GLFW handles windows, input, clipboard access, and Vulkan surface creation.
+- Vulkan handles all terminal image composition and presentation.
+- UTF-8 is the host encoding; legacy host encodings are out of scope.
+- Configuration is command-line based, without an Xresources or config-file
+  compatibility layer.
+- The model can run headlessly for tests, fuzzing, corpus replay, and profiling.
 
-- `vterm.*` — parser, terminal state and input encoding;
-- `frame.*` — screen, history, damage and selection;
-- `font.*`, `font_pack.*` — FreeType loading and glyph atlases;
-- `char_vdev.*` — compact cell representation and host-side video memory;
-- `vk_renderer.*` — terminal-to-presenter bridge;
-- `vk_presenter.*` — Vulkan resources, compute dispatch and swapchain;
-- `render.comp` — cell compositor compiled to embedded SPIR-V by `build`;
-- `main.cpp` — GLFW Wayland event loop, PTY integration and clipboard;
-- `options.*` — command-line configuration.
+## Features
 
-## Development notes
+- VT52, VT100, VT102, VT220, VT320, VT420, and VT520-era controls.
+- xterm-compatible modes, reports, title operations, OSC, and DCS handling.
+- Primary and alternate screens, vertical and horizontal margins, tabs,
+  autowrap, insert/delete, protected cells, and rectangular operations.
+- Circular scrollback with primary-screen reflow on resize.
+- Unicode grapheme clusters, combining characters, emoji sequences, and CJK
+  double-width cells.
+- 16-colour, 256-colour, and true-colour cells, including underline colour and
+  extended underline styles.
+- Legacy, modifyOtherKeys, and Kitty keyboard encoding.
+- X10, VT200, UTF-8, SGR, SGR-pixel, and urxvt mouse protocols.
+- Local selection, primary selection, clipboard integration, OSC 52 policy,
+  hyperlinks, shell integration, notifications, and progress reports.
+- GPU-resident font atlases and dirty-cell compute rendering.
+- Synchronized output and in-band resize reporting.
 
-The code style is three-space indentation, spaces only, Allman braces and an
-80-column target. Debug builds define `DEBUG`. In such a build, Print Screen
-cycles the VT parser step interval through 1, 10, 100 and off. At each interval
-the process logs the consumed input and stops itself with `SIGSTOP`; resume it
-with `fg` or `kill -CONT PID`.
+## Requirements
 
-Useful references when changing parser behaviour are the xterm `ctlseqs`
-documentation, Vttest, the original DEC VT100/VT102/VT220/VT420/VT520 manuals,
-DEC STD 070 and Paul Williams' VT500 parser description. Changes should be
-checked against real full-screen applications as well as focused escape
-sequence cases, especially across resize, alternate screen and scrollback.
+Shitty is built with Clang and C++23. The build environment needs:
 
-## Origin and license
+- Python 3 and `glslangValidator`;
+- `libstd` (vendored as `third_party/libstd` or available system-wide);
+- pkg-config;
+- Brotli and utf8proc;
+- FreeType and fontconfig;
+- GLFW 3.4 or newer with Wayland support;
+- Vulkan headers, loader, and a presentation-capable driver;
+- POSIX threads;
+- ncurses and Perl for the complete imported conformance suite.
 
-Zutty was created by Tom Szilagyi as a lightweight X11/OpenGL terminal. This
-tree retains its terminal engine and low-overhead cell model while replacing
-the old frontend with GLFW and Vulkan on Wayland.
+At runtime, a Wayland session and a working Vulkan ICD are required.
 
-Copyright © 2020 Tom Szilagyi and subsequent Zutty contributors. Zutty is free
-software under the GNU General Public License, version 3 or later. See
-[`LICENSE`](LICENSE).
+## Build
+
+The checked-in wrapper enters the project development environment and builds
+the `st` target:
+
+```sh
+./build.sh
+```
+
+Additional build-runner arguments are forwarded unchanged:
+
+```sh
+./build.sh -j 8
+./build.sh -B .build-debug
+CPPFLAGS=-DDEBUG ./build.sh
+```
+
+The underlying command is:
+
+```sh
+$HOME/monorepo/ix/ix run bld/perl set/pg/libs -- ./build st
+```
+
+The explicit target publishes `./st` as a symlink to the
+content-addressed build result.
+
+## Run
+
+Choose an installed monospace font when the default fontconfig alias is not
+appropriate:
+
+```sh
+./st -font DejaVuSansMono -fontsize 16
+```
+
+Examples:
+
+```sh
+./st -geometry 120x36 -saveLines 5000
+./st -font LiberationMono -e tmux new-session
+./st -vulkanInfo -font DejaVuSansMono
+./st perf tests/realworld/input
+```
+
+Shitty exports `TERM=xterm-256color` and `SHITTY_VERSION` to its child process.
+The system must provide the corresponding terminfo entry.
+
+Use `./st -help` for the authoritative option list and
+`./st -listres` for advanced protocol, palette, clipboard, and window
+policy options. Flags use `-flag` to enable and `+flag` to disable. The
+`SHITTY_FONT_SIZE` environment variable supplies a font-size default;
+`-fontsize` takes precedence.
+
+Security-sensitive defaults include:
+
+- `allowOsc52Read=false`, so applications cannot read local selections;
+- `allowWindowOps=false`, so applications cannot manipulate or query the host
+  window;
+- window-operation and clipboard access can be enabled explicitly for trusted
+  applications.
+
+## Fonts
+
+`-font` and `-dwfont` are fontconfig family queries. Shitty resolves regular,
+bold, italic, and bold-italic variants and falls back to the regular face when
+a style is unavailable. The optional double-width font must rasterize to
+exactly twice the primary cell width at the same height.
+
+```sh
+./st -font 'DejaVu Sans Mono' -dwfont 'Noto Sans Mono CJK JP'
+```
+
+## Tests
+
+Run the full build and conformance graph through the checked-in wrapper:
+
+```sh
+./test.sh
+```
+
+To run only the native black-box suite:
+
+```sh
+./test.sh test_suite
+```
+
+The native harness starts the production binary in headless mode, connects it
+to a real raw PTY, and observes canonical snapshots rather than calling parser
+internals. The larger graph also imports or adapts cases from Alacritty,
+Contour/vttest, esctest, Ghostty, Kitty, Konsole, libvterm, Mosh, tack,
+Termless, tmux, ucs-detect, VTE, WezTerm, Windows Terminal, xterm, and xterm.js,
+plus recorded real-world terminal streams.
+
+Sanitizer builds can use a separate cache:
+
+```sh
+CXXFLAGS='-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g' \
+LDFLAGS='-fsanitize=address,undefined' \
+ASAN_OPTIONS='detect_leaks=1:abort_on_error=1' \
+UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1' \
+./test.sh -B .build-asan-ubsan
+```
+
+## Source map
+
+- `vterm.*` — VT parser, terminal modes, reports, keyboard, mouse, and OSC/DCS.
+- `frame.*` — canonical cells, scrollback, resize/reflow, damage, and selection.
+- `application.*` — Wayland/GLFW event loop, child process, clipboard, and UI.
+- `vk_renderer.*`, `vk_presenter.*` — render bridge and Vulkan presentation.
+- `render.comp` — terminal compute compositor, embedded as SPIR-V at build time.
+- `font.*`, `font_pack.*`, `font_resolver.*` — fontconfig and FreeType atlases.
+- `test_mode.*`, `tests/harness.py` — black-box control protocol and snapshots.
+- `build.py` — product, helper, and conformance-suite build graph.
+
+## Known limits
+
+The project does not currently implement bidirectional text layout, DEC
+double-height/double-width line modes, sixel graphics, or every historical DEC
+and xterm extension. Compatibility differences tracked as intentional XFAILs
+remain visible in the imported suites.
+
+## Installation
+
+```sh
+install -Dm755 ./st /usr/local/bin/st
+install -Dm644 shitty.desktop \
+  /usr/local/share/applications/shitty.desktop
+install -Dm644 shitty.svg \
+  /usr/local/share/icons/hicolor/scalable/apps/shitty.svg
+```
+
+The executable name is independent of the desktop identity. `Exec=st` resolves
+the executable through `PATH`; the `shitty.desktop` filename matches the
+Wayland `app_id`; and `Icon=shitty` resolves `shitty.svg` through the active
+icon theme.
+
+## License and authorship
+
+Shitty is distributed under the GNU General Public License, version 3 or later.
+See `LICENSE` for the full terms.
+
+Tom Szilagyi is the original author of Zutty, from which this hard fork and
+complete rewrite descends. Shitty retains his copyright notices where the
+historical code lineage requires them and identifies subsequent work as
+copyright of the Shitty contributors.

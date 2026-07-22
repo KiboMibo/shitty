@@ -1,14 +1,16 @@
 import json
 import os
+from datetime import date
 from pathlib import Path
 
 import build
 
 
 std_build = os.path.join("third_party", "libstd", "build.py")
+shitty_version = date.today().strftime("%Y.%m.%d")
 
 build.includes += ["$(B)"]
-build.cppflags += ['-DZUTTY_VERSION="0.14"']
+build.cppflags += [f'-DSHITTY_VERSION="{shitty_version}"']
 build.cxxflags += [
     "-std=c++23",
     "-Og" if "-DDEBUG" in build.cppflags else "-O2",
@@ -57,29 +59,29 @@ render_spv = command(
 
 main_source = "$(S)/main.cpp"
 fuzz_source = "$(S)/main_fuzz.cpp"
-libzutty_sources = [
+libshitty_sources = [
     source for source in build.glob("$(S)/*.cpp")
     if source not in (main_source, fuzz_source)
 ]
 
 
-libzutty = library(
-    srcs=libzutty_sources,
+libshitty = library(
+    srcs=libshitty_sources,
     deps=[freetype, fontconfig, glfw, vulkan, threads, libstd, brotli_common,
           utf8proc],
-    output="$(B)/libzutty.a",
+    output="$(B)/libshitty.a",
 )
 
 
-zutty = program(
+st = program(
     srcs=[main_source],
-    deps=[libzutty],
+    deps=[libshitty],
 )
 
 
 main_fuzz = program(
     srcs=[fuzz_source],
-    deps=[libzutty],
+    deps=[libshitty],
 )
 
 
@@ -87,10 +89,10 @@ test_suite = command(
     inputs=[
         *build.glob("$(S)/tests/*.py"),
         "$(S)/application.cpp",
-        "$(S)/zutty.desktop",
+        "$(S)/shitty.desktop",
     ],
     outputs=["$(B)/tests.stamp"],
-    deps=[zutty],
+    deps=[st],
     cmd=[
         ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
         [
@@ -99,7 +101,10 @@ test_suite = command(
         ],
     ],
     cwd="$(S)",
-    env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+    env={
+        "SHITTY_TEST_BINARY": "$(B)/st",
+        "SHITTY_TEST_VERSION": shitty_version,
+    },
     descr="TEST",
     color="cyan",
 )
@@ -108,7 +113,7 @@ test_suite = command(
 parser_fuzz = command(
     inputs=["$(S)/tests/fuzz_parser.py", "$(S)/tests/harness.py"],
     outputs=["$(B)/parser-fuzz.stamp"],
-    deps=[zutty],
+    deps=[st],
     cmd=[
         ["python3", "tests/fuzz_parser.py"],
         [
@@ -117,7 +122,7 @@ parser_fuzz = command(
         ],
     ],
     cwd="$(S)",
-    env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+    env={"SHITTY_TEST_BINARY": "$(B)/st"},
     descr="FUZZ",
     color="yellow",
 )
@@ -126,7 +131,7 @@ parser_fuzz = command(
 vttest_profile = command(
     inputs=["$(S)/tests/vttest.py", "$(S)/tests/harness.py"],
     outputs=["$(B)/vttest.stamp"],
-    deps=[zutty],
+    deps=[st],
     cmd=[
         ["python3", "tests/vttest.py"],
         [
@@ -135,7 +140,7 @@ vttest_profile = command(
         ],
     ],
     cwd="$(S)",
-    env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+    env={"SHITTY_TEST_BINARY": "$(B)/st"},
     descr="VTTEST",
     color="blue",
 )
@@ -156,7 +161,7 @@ for case in xtermjs_cases:
             f"$(S)/tests/xtermjs/{case}.text",
         ],
         outputs=[f"$(B)/tests/xtermjs/{case}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/xtermjs/adapter.py",
@@ -165,7 +170,7 @@ for case in xtermjs_cases:
             f"$(B)/tests/xtermjs/{case}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="XTERMJS",
         color="cyan",
     ))
@@ -188,7 +193,7 @@ for case in alacritty_cases:
             f"$(S)/tests/alacritty/{case}/size.json",
         ],
         outputs=[f"$(B)/tests/alacritty/{case}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/alacritty/adapter.py",
@@ -197,7 +202,7 @@ for case in alacritty_cases:
             f"$(B)/tests/alacritty/{case}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="ALACRITTY",
         color="cyan",
     ))
@@ -238,7 +243,7 @@ for case in contour_cases:
             *golden_inputs,
         ],
         outputs=[f"$(B)/tests/contour/{case}.stamp"],
-        deps=[zutty, contour_vttest],
+        deps=[st, contour_vttest],
         cmd=[
             "python3",
             "tests/contour/adapter.py",
@@ -248,7 +253,7 @@ for case in contour_cases:
             f"$(B)/tests/contour/{case}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="CONTOUR",
         color="cyan",
     ))
@@ -266,7 +271,7 @@ for corpus in ("terminal_corpus", "terminal_parser_corpus"):
             *build.glob(f"$(S)/tests/mosh/{corpus}/*"),
         ],
         outputs=[f"$(B)/tests/mosh/{corpus}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/mosh/adapter.py",
@@ -275,7 +280,7 @@ for corpus in ("terminal_corpus", "terminal_parser_corpus"):
             f"$(B)/tests/mosh/{corpus}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="MOSH",
         color="cyan",
     ))
@@ -320,7 +325,7 @@ for corpus in ("osc-cmin", "parser-cmin", "stream-cmin"):
                 *("$(S)/tests/ghostty/" + member for member in shard),
             ],
             outputs=[f"$(B)/tests/ghostty/{name}.stamp"],
-            deps=[zutty],
+            deps=[st],
             cmd=[
                 "python3",
                 "tests/ghostty/adapter.py",
@@ -329,7 +334,7 @@ for corpus in ("osc-cmin", "parser-cmin", "stream-cmin"):
                 *shard,
             ],
             cwd="$(S)",
-            env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+            env={"SHITTY_TEST_BINARY": "$(B)/st"},
             descr="GHOSTTY",
             color="cyan",
         ))
@@ -352,7 +357,7 @@ for case in ghostty_semantic_cases:
             "$(S)/tests/ghostty/upstream/stream_terminal_tests.zig",
         ],
         outputs=[f"$(B)/tests/ghostty/model/{case}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/ghostty/semantic_adapter.py",
@@ -361,7 +366,7 @@ for case in ghostty_semantic_cases:
             f"$(B)/tests/ghostty/model/{case}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="GHOSTTY",
         color="cyan",
     ))
@@ -407,7 +412,7 @@ for case in kitty_cases:
             "$(S)/tests/kitty/upstream/parser.py",
         ],
         outputs=[f"$(B)/tests/kitty/{case}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/kitty/adapter.py",
@@ -416,7 +421,7 @@ for case in kitty_cases:
             f"$(B)/tests/kitty/{case}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="KITTY",
         color="cyan",
     ))
@@ -462,7 +467,7 @@ for case in kitty_screen_cases:
             "$(S)/tests/kitty/upstream/parser.py",
         ],
         outputs=[f"$(B)/tests/kitty/screen/{case}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/kitty/screen_adapter.py",
@@ -471,7 +476,7 @@ for case in kitty_screen_cases:
             f"$(B)/tests/kitty/screen/{case}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="KIT-SCREEN",
         color="cyan",
     ))
@@ -516,7 +521,7 @@ for case in vte_cases:
             "$(S)/tests/vte/upstream/parser-test.cc",
         ],
         outputs=[f"$(B)/tests/vte/{case}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/vte/adapter.py",
@@ -525,7 +530,7 @@ for case in vte_cases:
             f"$(B)/tests/vte/{case}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="VTE",
         color="cyan",
     ))
@@ -569,7 +574,7 @@ for case in vte_width_cases:
             "$(S)/tests/vte/upstream/unicode-width-test.cc",
         ],
         outputs=[f"$(B)/tests/vte/width/{case}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/vte/width_adapter.py",
@@ -578,7 +583,7 @@ for case in vte_width_cases:
             f"$(B)/tests/vte/width/{case}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="VTE-WIDTH",
         color="cyan",
     ))
@@ -625,7 +630,7 @@ for case in windows_terminal_cases:
             "$(S)/tests/windows_terminal/upstream/OutputEngineTest.cpp",
         ],
         outputs=[f"$(B)/tests/windows_terminal/{case}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/windows_terminal/adapter.py",
@@ -634,7 +639,7 @@ for case in windows_terminal_cases:
             f"$(B)/tests/windows_terminal/{case}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="WINTERM",
         color="cyan",
     ))
@@ -681,7 +686,7 @@ for case in wezterm_cases:
             *build.glob("$(S)/tests/wezterm/upstream/*.rs"),
         ],
         outputs=[f"$(B)/tests/wezterm/{case}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/wezterm/adapter.py",
@@ -690,7 +695,7 @@ for case in wezterm_cases:
             f"$(B)/tests/wezterm/{case}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="WEZTERM",
         color="cyan",
     ))
@@ -737,7 +742,7 @@ for case in wezterm_screen_cases:
             *build.glob("$(S)/tests/wezterm/upstream/*.rs"),
         ],
         outputs=[f"$(B)/tests/wezterm/screen/{case}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/wezterm/screen_adapter.py",
@@ -746,7 +751,7 @@ for case in wezterm_screen_cases:
             f"$(B)/tests/wezterm/screen/{case}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="WEZ-SCREEN",
         color="cyan",
     ))
@@ -793,7 +798,7 @@ for case in konsole_cases:
             "$(S)/tests/konsole/upstream/Vt102EmulationTest.cpp",
         ],
         outputs=[f"$(B)/tests/konsole/{case}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/konsole/adapter.py",
@@ -802,7 +807,7 @@ for case in konsole_cases:
             f"$(B)/tests/konsole/{case}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="KONSOLE",
         color="cyan",
     ))
@@ -874,7 +879,7 @@ for shard_index, start in enumerate(
             *("$(S)/tests/tmux/" + member for member in shard),
         ],
         outputs=[f"$(B)/tests/tmux/{name}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/tmux/adapter.py",
@@ -883,7 +888,7 @@ for shard_index, start in enumerate(
             *shard,
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="TMUX",
         color="cyan",
     ))
@@ -900,7 +905,7 @@ for member in tmux_dictionary_members:
             "$(S)/tests/tmux/upstream/input-fuzzer.dict",
         ],
         outputs=[f"$(B)/tests/tmux/input_dictionary_{index}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/tmux/adapter.py",
@@ -909,7 +914,7 @@ for member in tmux_dictionary_members:
             member,
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="TMUX",
         color="cyan",
     ))
@@ -935,7 +940,7 @@ for case_id, _, _ in wraptest_cases:
             "$(S)/tests/wraptest/xfail.txt",
         ],
         outputs=[f"$(B)/tests/wraptest/{case_id}.stamp"],
-        deps=[zutty, wraptest_helper],
+        deps=[st, wraptest_helper],
         cmd=[
             "python3",
             "tests/wraptest/adapter.py",
@@ -945,7 +950,7 @@ for case_id, _, _ in wraptest_cases:
             f"$(B)/tests/wraptest/{case_id}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="WRAPTEST",
         color="cyan",
     ))
@@ -1013,7 +1018,7 @@ for capability in tack_cases:
             "$(S)/tests/tack/xfail.txt",
         ],
         outputs=[f"$(B)/tests/tack/{capability}.stamp"],
-        deps=[zutty, tack_program],
+        deps=[st, tack_program],
         cmd=[
             "python3",
             "tests/tack/adapter.py",
@@ -1023,7 +1028,7 @@ for capability in tack_cases:
             f"$(B)/tests/tack/{capability}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="TACK",
         color="cyan",
     ))
@@ -1058,7 +1063,7 @@ for category, start, end in ucs_detect_shards:
             *ucs_detect_table_inputs,
         ],
         outputs=[f"$(B)/tests/ucs_detect/{name}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/ucs_detect/adapter.py",
@@ -1069,7 +1074,7 @@ for category, start, end in ucs_detect_shards:
             f"$(B)/tests/ucs_detect/{name}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="UCS",
         color="cyan",
     ))
@@ -1114,10 +1119,10 @@ for case in ucs_detect_probe_cases:
             "$(S)/tests/ucs_detect/probe_xfail.txt",
             "$(S)/tests/ucs_detect/upstream/terminal.py",
             "$(S)/tests/ucs_detect/upstream/table_xtgettcap.py",
-            "$(S)/tests/ucs_detect/upstream/data/zutty.yaml",
+            "$(S)/tests/ucs_detect/upstream/data/shitty.yaml",
         ],
         outputs=[f"$(B)/tests/ucs_detect/probes/{case}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/ucs_detect/probe_adapter.py",
@@ -1126,7 +1131,7 @@ for case in ucs_detect_probe_cases:
             f"$(B)/tests/ucs_detect/probes/{case}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="UCS-PROBE",
         color="cyan",
     ))
@@ -1151,7 +1156,7 @@ for case in vtebench_cases:
             *vtebench_case_inputs,
         ],
         outputs=[f"$(B)/tests/vtebench/{case}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/vtebench/adapter.py",
@@ -1161,7 +1166,7 @@ for case in vtebench_cases:
             "30",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="VTEBENCH",
         color="yellow",
     ))
@@ -1193,7 +1198,7 @@ for case in libvterm_cases:
             f"$(S)/tests/libvterm/upstream/{case}",
         ],
         outputs=[f"$(B)/tests/libvterm/{name}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/libvterm/adapter.py",
@@ -1202,7 +1207,7 @@ for case in libvterm_cases:
             f"$(B)/tests/libvterm/{name}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="LIBVTERM",
         color="cyan",
     ))
@@ -1236,7 +1241,7 @@ for case in xterm_vttests_cases:
             f"$(S)/tests/xterm_vttests/upstream/{case}",
         ],
         outputs=[f"$(B)/tests/xterm_vttests/{name}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/xterm_vttests/adapter.py",
@@ -1245,7 +1250,7 @@ for case in xterm_vttests_cases:
             f"$(B)/tests/xterm_vttests/{name}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="XTERM-VT",
         color="cyan",
     ))
@@ -1281,7 +1286,7 @@ for case in esctest_cases:
             *esctest_ported_inputs,
         ],
         outputs=[f"$(B)/tests/esctest/{name}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/esctest/adapter.py",
@@ -1290,7 +1295,7 @@ for case in esctest_cases:
             f"$(B)/tests/esctest/{name}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="ESCTEST",
         color="cyan",
     ))
@@ -1350,7 +1355,7 @@ for case_id, _, _ in termless_cases:
             *termless_upstream_inputs,
         ],
         outputs=[f"$(B)/tests/termless/{case_id}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/termless/adapter.py",
@@ -1359,7 +1364,7 @@ for case_id, _, _ in termless_cases:
             f"$(B)/tests/termless/{case_id}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="TERMLESS",
         color="cyan",
     ))
@@ -1404,7 +1409,7 @@ for case in realworld_cases:
             f"$(S)/tests/realworld/screen/{case}.screen.json",
         ],
         outputs=[f"$(B)/tests/realworld/{case}.stamp"],
-        deps=[zutty],
+        deps=[st],
         cmd=[
             "python3",
             "tests/realworld/adapter.py",
@@ -1412,14 +1417,14 @@ for case in realworld_cases:
             f"$(B)/tests/realworld/{case}.stamp",
         ],
         cwd="$(S)",
-        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        env={"SHITTY_TEST_BINARY": "$(B)/st"},
         descr="REALWORLD",
         color="cyan",
     ))
 
 
-install(libzutty)
-install(zutty)
+install(libshitty)
+install(st)
 install(test_suite)
 install(parser_fuzz)
 install(vttest_profile)

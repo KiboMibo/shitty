@@ -1,6 +1,6 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 class ColorSchemeTest(unittest.TestCase):
@@ -11,12 +11,12 @@ class ColorSchemeTest(unittest.TestCase):
         )
         for arguments, expected in cases:
             with self.subTest(arguments=arguments):
-                with Zutty(extra_arguments=arguments) as terminal:
+                with Shitty(extra_arguments=arguments) as terminal:
                     terminal.write(b"\x1b[?996n")
                     self.assertEqual(terminal.read_input(), expected)
 
     def test_application_dynamic_colors_do_not_change_reported_scheme(self):
-        with Zutty() as terminal:
+        with Shitty() as terminal:
             terminal.write(
                 b"\x1b[?2031h"
                 b"\x1b]10;#000000\x1b\\"
@@ -28,7 +28,7 @@ class ColorSchemeTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"\x1b[?997;1n")
 
     def test_color_scheme_reply_uses_selected_control_width(self):
-        with Zutty() as terminal:
+        with Shitty() as terminal:
             terminal.write(b"\x1b G\x1b[?996n")
             self.assertEqual(terminal.read_input(), b"\x9b?997;1n")
 

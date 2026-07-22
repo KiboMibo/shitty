@@ -1,11 +1,11 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 class ShellIntegrationTest(unittest.TestCase):
     def test_ordered_markers_partition_prompt_command_output_and_idle(self):
-        with Zutty(columns=16, rows=2) as terminal:
+        with Shitty(columns=16, rows=2) as terminal:
             terminal.write(
                 b"\x1b]133;A\x1b\\prompt"
                 b"\x1b]133;B\x1b\\command"
@@ -20,7 +20,7 @@ class ShellIntegrationTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(3, 1).semantic, 0)
 
     def test_marker_parameters_are_accepted_but_never_rendered(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b]133;A;cl=m\x1b\\A"
                 b"\x1b]133;B;future=value\x1b\\B"
@@ -36,7 +36,7 @@ class ShellIntegrationTest(unittest.TestCase):
             )
 
     def test_out_of_order_markers_are_ignored_from_idle(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b]133;B\x1b\\B"
                 b"\x1b]133;C\x1b\\C"
@@ -50,7 +50,7 @@ class ShellIntegrationTest(unittest.TestCase):
             )
 
     def test_out_of_order_markers_do_not_skip_semantic_regions(self):
-        with Zutty(columns=12, rows=2) as terminal:
+        with Shitty(columns=12, rows=2) as terminal:
             terminal.write(
                 b"\x1b]133;A\x1b\\A"
                 b"\x1b]133;C\x1b\\a"
@@ -68,7 +68,7 @@ class ShellIntegrationTest(unittest.TestCase):
             )
 
     def test_repeated_markers_are_idempotent(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b]133;A\x1b\\\x1b]133;A\x1b\\A"
                 b"\x1b]133;B\x1b\\\x1b]133;B\x1b\\B"
@@ -83,7 +83,7 @@ class ShellIntegrationTest(unittest.TestCase):
             )
 
     def test_prompt_marker_resynchronizes_from_any_region(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b]133;A\x1b\\"
                 b"\x1b]133;B\x1b\\B"
@@ -101,7 +101,7 @@ class ShellIntegrationTest(unittest.TestCase):
     def test_d_marker_accepts_omitted_numeric_and_unknown_exit_status(self):
         for suffix in (b"", b";0", b";255", b";not-a-number"):
             with self.subTest(suffix=suffix):
-                with Zutty(columns=8, rows=2) as terminal:
+                with Shitty(columns=8, rows=2) as terminal:
                     terminal.write(
                         b"\x1b]133;A\x1b\\"
                         b"\x1b]133;B\x1b\\"
@@ -114,7 +114,7 @@ class ShellIntegrationTest(unittest.TestCase):
                     self.assertEqual(snapshot.cell(1, 0).semantic, 0)
 
     def test_unknown_and_empty_markers_do_not_change_region(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b]133;A\x1b\\A"
                 b"\x1b]133;E;command\x1b\\E"

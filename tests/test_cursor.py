@@ -1,49 +1,49 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 class CursorAndMovementTest(unittest.TestCase):
     def test_soft_reset_preserves_active_cursor_but_resets_saved_cursor(self):
-        with Zutty(columns=8, rows=4) as terminal:
+        with Shitty(columns=8, rows=4) as terminal:
             terminal.write(b"\x1b[2;4H\x1b[!p\x1b[6n")
             self.assertEqual(terminal.read_input(), b"\x1b[2;4R")
             terminal.write(b"\x1b8\x1b[6n")
             self.assertEqual(terminal.read_input(), b"\x1b[1;1R")
 
     def test_carriage_return_backspace_and_tab(self):
-        with Zutty(columns=10, rows=2) as terminal:
+        with Shitty(columns=10, rows=2) as terminal:
             terminal.write(b"abc\rX\tY\bZ")
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.lines[0], "Xbc     Z ")
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (9, 0))
 
     def test_absolute_and_relative_cursor_movement(self):
-        with Zutty(columns=8, rows=4) as terminal:
+        with Shitty(columns=8, rows=4) as terminal:
             terminal.write(b"\x1b[3;4HX\x1b[2A\x1b[2DY")
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.cell(3, 2).char, "X")
             self.assertEqual(snapshot.cell(2, 0).char, "Y")
 
     def test_ecma_position_backward_controls(self):
-        with Zutty(columns=8, rows=4) as terminal:
+        with Shitty(columns=8, rows=4) as terminal:
             terminal.write(b"\x1b[4;7H\x1b[3j\x1b[2kX")
             self.assertEqual(terminal.snapshot().cell(3, 1).char, "X")
 
     def test_dec_save_and_restore_cursor(self):
-        with Zutty(columns=8, rows=3) as terminal:
+        with Shitty(columns=8, rows=3) as terminal:
             terminal.write(b"\x1b[2;3H\x1b7\x1b[3;6HZ\x1b8X")
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.cell(2, 1).char, "X")
             self.assertEqual(snapshot.cell(5, 2).char, "Z")
 
     def test_sco_save_and_restore_cursor(self):
-        with Zutty(columns=8, rows=3) as terminal:
+        with Shitty(columns=8, rows=3) as terminal:
             terminal.write(b"\x1b[2;3H\x1b[s\x1b[3;6HZ\x1b[uX")
             self.assertEqual(terminal.snapshot().cell(2, 1).char, "X")
 
     def test_sco_and_dec_controls_share_saved_cursor_state(self):
-        with Zutty(columns=8, rows=3) as terminal:
+        with Shitty(columns=8, rows=3) as terminal:
             terminal.write(b"\x1b[2;3H\x1b[s\x1b[3;6H\x1b8A")
             terminal.write(b"\x1b[1;5H\x1b7\x1b[3;8H\x1b[uB")
             snapshot = terminal.snapshot()
@@ -51,7 +51,7 @@ class CursorAndMovementTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(4, 0).char, "B")
 
     def test_sco_restores_attributes_protection_and_origin_mode(self):
-        with Zutty(columns=8, rows=4) as terminal:
+        with Shitty(columns=8, rows=4) as terminal:
             terminal.write(
                 b"\x1b[2;3H\x1b[1;31m\x1b[1\"q\x1b[s"
                 b"\x1b[0m\x1b[0\"q"
@@ -66,7 +66,7 @@ class CursorAndMovementTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(0, 0).char, "Y")
 
     def test_sco_saved_cursor_is_independent_between_screen_buffers(self):
-        with Zutty(columns=8, rows=4) as terminal:
+        with Shitty(columns=8, rows=4) as terminal:
             terminal.write(
                 b"\x1b[2;2H\x1b[s"
                 b"\x1b[?47h\x1b[3;4H\x1b[s"
@@ -78,7 +78,7 @@ class CursorAndMovementTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().cell(1, 1).char, "M")
 
     def test_cleared_alternate_screen_preserves_its_saved_cursor(self):
-        with Zutty(columns=8, rows=4) as terminal:
+        with Shitty(columns=8, rows=4) as terminal:
             terminal.write(
                 b"\x1b[?1049h\x1b[3;4H\x1b7"
                 b"\x1b[?1049l"
@@ -87,7 +87,7 @@ class CursorAndMovementTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().cell(3, 2).char, "A")
 
     def test_sco_restore_after_soft_reset_uses_home_defaults(self):
-        with Zutty(columns=8, rows=4) as terminal:
+        with Shitty(columns=8, rows=4) as terminal:
             terminal.write(b"\x1b[3;4H\x1b[!p\x1b[4;7H\x1b[uX")
             self.assertEqual(terminal.snapshot().cell(0, 0).char, "X")
 
@@ -96,7 +96,7 @@ class CursorAndMovementTest(unittest.TestCase):
         restores = (b"\x1b8", b"\x1b[u")
         for save, restore in zip(sequences, restores):
             with self.subTest(save=save):
-                with Zutty(columns=8, rows=3) as terminal:
+                with Shitty(columns=8, rows=3) as terminal:
                     terminal.write(
                         b"\x1b[2;3H" + save +
                         b"\x1b[3;6H" + restore + b"A" +
@@ -107,7 +107,7 @@ class CursorAndMovementTest(unittest.TestCase):
                     self.assertEqual(snapshot.cell(5, 2).char, " ")
 
     def test_scrolling_region_scrolls_without_moving_outer_rows(self):
-        with Zutty(columns=5, rows=4) as terminal:
+        with Shitty(columns=5, rows=4) as terminal:
             terminal.write(
                 b"AAAAA\r\nBBBBB\r\nCCCCC\r\nDDDDD"
                 b"\x1b[2;3r\x1b[3;1H\n"
@@ -120,7 +120,7 @@ class CursorAndMovementTest(unittest.TestCase):
     def test_index_controls_do_not_scroll_outside_horizontal_margins(self):
         for control in (b"\n", b"\v", b"\f", b"\x1bD", b"\x1bE"):
             with self.subTest(control=control):
-                with Zutty(columns=8, rows=6) as terminal:
+                with Shitty(columns=8, rows=6) as terminal:
                     terminal.write(
                         b"\x1b[2;5r\x1b[?69h\x1b[2;5s"
                         b"\x1b[5;3HX"
@@ -131,7 +131,7 @@ class CursorAndMovementTest(unittest.TestCase):
                     self.assertEqual(snapshot.cursor_y, 4)
 
     def test_reverse_index_does_not_scroll_outside_horizontal_margins(self):
-        with Zutty(columns=8, rows=6) as terminal:
+        with Shitty(columns=8, rows=6) as terminal:
             terminal.write(
                 b"\x1b[2;5r\x1b[?69h\x1b[2;5s"
                 b"\x1b[2;3HX"
@@ -142,7 +142,7 @@ class CursorAndMovementTest(unittest.TestCase):
             self.assertEqual(snapshot.cursor_y, 1)
 
     def test_column_index_moves_normally_outside_horizontal_margins(self):
-        with Zutty(columns=10, rows=4) as terminal:
+        with Shitty(columns=10, rows=4) as terminal:
             terminal.write(b"\x1b[?69h\x1b[3;7s")
 
             terminal.write(b"\x1b[1;2H\x1b6")
@@ -158,11 +158,11 @@ class CursorAndMovementTest(unittest.TestCase):
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (9, 0))
 
     def test_column_index_scrolls_at_page_edges(self):
-        with Zutty(columns=5, rows=2) as terminal:
+        with Shitty(columns=5, rows=2) as terminal:
             terminal.write(b"x\x1b[1;1H\x1b6")
             self.assertEqual(terminal.snapshot().lines[0], " x   ")
 
-        with Zutty(columns=5, rows=2) as terminal:
+        with Shitty(columns=5, rows=2) as terminal:
             terminal.write(b"\x1b[1;5Hx\x1b9")
             self.assertEqual(terminal.snapshot().lines[0], "   x ")
 
@@ -173,7 +173,7 @@ class CursorAndMovementTest(unittest.TestCase):
         )
         for control, expected in cases:
             with self.subTest(control=control):
-                with Zutty(columns=8, rows=4) as terminal:
+                with Shitty(columns=8, rows=4) as terminal:
                     terminal.write(
                         b"\x1b[2;1HABCDEFGH"
                         b"\x1b[2;4r\x1b[?69h\x1b[3;6s" + control

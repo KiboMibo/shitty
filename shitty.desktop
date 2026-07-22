@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=Zutty
-Comment=Zero-cost Unicode Teletype
-Exec=zutty
+Name=Shitty
+Comment=Native Wayland terminal with Vulkan rendering
+Exec=st
 Terminal=false
-Icon=zutty
+Icon=shitty
 Categories=System;TerminalEmulator;
 Keywords=shell;prompt;command;commandline;cmd;

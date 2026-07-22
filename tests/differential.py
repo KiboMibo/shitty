@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one protocol probe under Zutty, xterm, foot and kitty."""
+"""Run one protocol probe under Shitty, xterm, foot and kitty."""
 
 import argparse
 import json
@@ -11,16 +11,16 @@ import subprocess
 import sys
 import tempfile
 
-from harness import Zutty
+from harness import Shitty
 from terminal_probe import QUERIES
 
 
 ROOT = Path(__file__).resolve().parent
 
 
-def zutty_trace():
+def shitty_trace():
     result = {}
-    with Zutty(columns=80, rows=24) as terminal:
+    with Shitty(columns=80, rows=24) as terminal:
         for name, query in QUERIES.items():
             terminal.write(query)
             result[name] = terminal.read_input().hex()
@@ -70,7 +70,7 @@ def main():
     parser.add_argument("--require", action="append", choices=("xterm", "foot", "kitty"))
     parser.add_argument("--output")
     arguments = parser.parse_args()
-    traces = {"zutty": zutty_trace()}
+    traces = {"shitty": shitty_trace()}
     with tempfile.TemporaryDirectory() as temporary:
         directory = Path(temporary)
         for name in ("xterm", "foot", "kitty"):

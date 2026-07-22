@@ -1,4 +1,4 @@
-/* This file is part of Zutty.
+/* This file is part of Shitty.
  * Copyright (C) 2020 Tom Szilagyi
  *
  * This program is free software: you can redistribute it and/or modify
@@ -4084,7 +4084,7 @@ void VtermImpl::csi_terDA() {
 
 void VtermImpl::csi_XTVERSION() {
     TRACE_FUN;
-    writeDcsResponse(">|Zutty " ZUTTY_VERSION);
+    writeDcsResponse(">|Shitty " SHITTY_VERSION);
     setState(InputState::Normal);
 }
 
@@ -5038,7 +5038,7 @@ void VtermImpl::reportInBandResize() {
 }
 
 void VtermImpl::reportColorScheme() {
-    // Zutty has no runtime profile or operating-system theme switching.  Its
+    // Shitty has no runtime profile or operating-system theme switching.  Its
     // configured background therefore remains the authoritative preference;
     // application-originated OSC color changes must not affect this report.
     const u32 brightness = 299 * opts.bg.red + 587 * opts.bg.green + 114 * opts.bg.blue;

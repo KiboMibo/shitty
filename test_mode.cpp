@@ -596,7 +596,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
 
     unsigned glyphPx = 1;
     unsigned glyphPy = 1;
-    if (const char* geometry = std::getenv("ZUTTY_TEST_GLYPH")) {
+    if (const char* geometry = std::getenv("SHITTY_TEST_GLYPH")) {
         std::istringstream input(geometry);
         char separator = 0;
         if (!(input >> glyphPx >> separator >> glyphPy) || separator != 'x' || !glyphPx || !glyphPy || input.peek() != EOF) {

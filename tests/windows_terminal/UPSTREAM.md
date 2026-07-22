@@ -8,7 +8,7 @@ project is MIT licensed; its license is preserved as `LICENSE.upstream`.
 The catalog statically extracts every literal `ProcessString(L"...")` call,
 including adjacent C++ string literals, without compiling or executing the
 Windows test framework. C1 wide characters are mapped to the raw 8-bit control
-bytes accepted by Zutty. Each call site is an independent build target and is
+bytes accepted by Shitty. Each call site is an independent build target and is
 compared whole versus bytewise across parser events and the full observable
 terminal state. Variable-built streams and Windows Terminal's semantic screen
 assertions remain for a later adapter.

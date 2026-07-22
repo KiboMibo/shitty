@@ -54,7 +54,7 @@ namespace {
 
     int runPerf(int argc, char* argv[]) {
         if (argc < 3) {
-            throw std::invalid_argument("usage: zutty perf DIRECTORY...");
+            throw std::invalid_argument("usage: st perf DIRECTORY...");
         }
 
         Buffer paths;

@@ -1,8 +1,8 @@
-# Exact Kitty screen checkpoints that currently disagree with Zutty.
+# Exact Kitty screen checkpoints that currently disagree with Shitty.
 # Kitty's primary charset table (kitty/charsets.c at the imported revision)
 # maps DEC Special Graphics 0x5f to U+00A0, following the Linux VT table.
 # Xterm 410's primary map_DEC_Spec_Graphic table instead marks 0x5f UNDEF;
-# Zutty renders that undefined blank as U+0020.  The cells look identical, but
+# Shitty renders that undefined blank as U+0020.  The cells look identical, but
 # Kitty's test asserts the emulator-specific internal Unicode representation.
 parser_0085
 parser_0089

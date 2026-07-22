@@ -18,5 +18,5 @@ Rust tests: literal `print`, cursor placement, erase, mode, and line deletion
 operations followed by literal `assert_visible_contents` checkpoints. It skips
 unknown operations and dynamic expressions instead of guessing. Each of the 28
 imported checkpoints runs at its upstream geometry and compares visible text;
-trailing default cells are normalized because Zutty stores a fixed-width grid
+trailing default cells are normalized because Shitty stores a fixed-width grid
 where WezTerm stores variable-length lines.

@@ -1,6 +1,6 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 def dynamic_query(terminal, *commands):
@@ -12,7 +12,7 @@ def dynamic_query(terminal, *commands):
 
 class DynamicColorTest(unittest.TestCase):
     def test_palette_change_recolors_all_indexed_cell_channels(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(
                 b"\x1b[38;5;1;48;5;1;58;5;1mI"
                 b"\x1b[38;2;205;0;0;48;2;205;0;0;58;2;205;0;0mT"
@@ -30,7 +30,7 @@ class DynamicColorTest(unittest.TestCase):
             self.assertEqual(direct.underline_color, (205, 0, 0))
 
     def test_palette_change_is_resolved_when_scrollback_becomes_visible(self):
-        with Zutty(columns=4, rows=2, save_lines=4) as terminal:
+        with Shitty(columns=4, rows=2, save_lines=4) as terminal:
             terminal.write(
                 b"\x1b[38;5;1mA\r\nB\r\nC"
                 b"\x1b]4;1;#010203\x1b\\"
@@ -42,7 +42,7 @@ class DynamicColorTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(0, 0).foreground, (1, 2, 3))
 
     def test_palette_reset_can_target_indices_or_the_whole_palette(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(
                 b"\x1b]4;1;#010203;2;#040506\x1b\\"
                 b"\x1b]104;1\x1b\\"
@@ -59,7 +59,7 @@ class DynamicColorTest(unittest.TestCase):
             )
 
     def test_default_foreground_recolors_default_cells_and_underline(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(
                 b"D\x1b[4mU\x1b[31mI"
                 b"\x1b]10;#010203\x1b\\"
@@ -77,7 +77,7 @@ class DynamicColorTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(1, 0).underline_color, (255, 255, 255))
 
     def test_default_background_recolors_only_default_background_cells(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(b"D\x1b[41mI\x1b]11;#010203\x1b\\")
             snapshot = terminal.snapshot()
 
@@ -90,7 +90,7 @@ class DynamicColorTest(unittest.TestCase):
             )
 
     def test_cursor_dynamic_color_set_query_and_reset(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(b"\x1b]12;#010203\x1b\\")
             self.assertEqual(
                 dynamic_query(terminal, 12),
@@ -104,7 +104,7 @@ class DynamicColorTest(unittest.TestCase):
             )
 
     def test_successive_dynamic_color_parameters_advance_the_command(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(b"\x1b]10;#010203;#040506\x1b\\")
             self.assertEqual(
                 dynamic_query(terminal, 10, 11),
@@ -119,7 +119,7 @@ class DynamicColorTest(unittest.TestCase):
             )
 
     def test_selection_dynamic_colors_reach_renderer_and_reset(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(
                 b"\x1b]17;#010203\x1b\\"
                 b"\x1b]19;#040506\x1b\\"
@@ -142,7 +142,7 @@ class DynamicColorTest(unittest.TestCase):
             self.assertEqual(state.selection_foreground, (255, 255, 255))
 
     def test_invalid_dynamic_specs_leave_every_color_unchanged(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             before = dynamic_query(terminal, 10, 11, 12, 17, 19)
             for command in (10, 11, 12, 17, 19):
                 terminal.write(
@@ -161,7 +161,7 @@ class DynamicColorTest(unittest.TestCase):
             (b"rgb:fff/000/800", b"ffff/0000/8080"),
             (b"rgb:ffff/0000/8000", b"ffff/0000/8080"),
         )
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             for spec, reply in expected:
                 with self.subTest(spec=spec):
                     terminal.write(b"\x1b]12;" + spec + b"\x1b\\")
@@ -177,7 +177,7 @@ class DynamicColorTest(unittest.TestCase):
             (b"#f00000800", b"f0f0/0000/8080"),
             (b"#f00000008000", b"f0f0/0000/8080"),
         )
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             for spec, reply in expected:
                 with self.subTest(spec=spec):
                     terminal.write(b"\x1b]12;" + spec + b"\x1b\\")
@@ -187,7 +187,7 @@ class DynamicColorTest(unittest.TestCase):
                     )
 
     def test_special_colors_set_query_and_palette_aliases(self):
-        with Zutty(columns=6, rows=2) as terminal:
+        with Shitty(columns=6, rows=2) as terminal:
             terminal.write(
                 b"\x1b]5;0;#010203;1;#040506\x1b\\"
                 b"\x1b]5;0;?;1;?\x1b\\"
@@ -209,7 +209,7 @@ class DynamicColorTest(unittest.TestCase):
             )
 
     def test_special_color_modes_recolor_existing_cells(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b[1mB\x1b[0;4mU\x1b[0;5mK\x1b[0;3mI"
                 b"\x1b[0;7mR\x1b[0;31;1mA"
@@ -238,7 +238,7 @@ class DynamicColorTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(5, 0).foreground, (255, 0, 0))
 
     def test_special_color_reset_can_target_entries_or_all(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(b"\x1b]5;0;?\x1b\\")
             original0 = terminal.read_input()
             terminal.write(b"\x1b]5;1;?\x1b\\")
@@ -264,7 +264,7 @@ class DynamicColorTest(unittest.TestCase):
             b"CIELab:53.2408/0.800925/0.672032",
             b"CIELuv:53.2408/1.75015/0.37756",
         )
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             for spec in red_specs:
                 with self.subTest(spec=spec):
                     terminal.write(b"\x1b]12;" + spec + b"\x1b\\")
@@ -302,7 +302,7 @@ class DynamicColorTest(unittest.TestCase):
             b"TekHVC:0/50/-1",
             b"CIEXYZ:0/0/0/trailing",
         )
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             before = dynamic_query(terminal, 12)
             for spec in invalid:
                 with self.subTest(spec=spec):

@@ -1,12 +1,12 @@
-# Zutty integration tests
+# Shitty integration tests
 
-Build Zutty and run the black-box tests through the build graph:
+Build Shitty and run the black-box tests through the build graph:
 
 ```sh
 ./build
 ```
 
-The harness starts the regular `zutty` binary in headless test mode. It sends
+The harness starts the regular `st` binary in headless test mode. It sends
 terminal output and control events over an inherited Unix socket and reads
 logical screen snapshots from the same socket. The simulated child side is a
 real raw PTY, so replies, keyboard input and terminal resizing follow the same
@@ -23,7 +23,7 @@ commands cover resize, keyboard and kitty-key events, paste, focus, selection,
 OSC/bell actions, hyperlink lookup, PTY replies and mode state.
 
 Sanitizer builds use separate caches and, when `third_party/libstd` is checked
-out, instrument both Zutty and the complete production `libstd`. A
+out, instrument both Shitty and the complete production `libstd`. A
 system-installed fallback library is outside their instrumentation boundary:
 
 ```sh

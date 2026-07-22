@@ -10,7 +10,7 @@ from pathlib import Path
 TESTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TESTS))
 
-from harness import Zutty
+from harness import Shitty
 
 
 def wait_for(terminal, text, timeout=4.0):
@@ -32,7 +32,7 @@ def run_case(binary, capability):
         return "cannot find env"
 
     try:
-        with Zutty(columns=132, rows=49, save_lines=500) as terminal:
+        with Shitty(columns=132, rows=49, save_lines=500) as terminal:
             terminal.spawn(
                 environment,
                 "TERM=xterm-256color",

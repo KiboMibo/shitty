@@ -10,7 +10,7 @@ from pathlib import Path
 TESTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TESTS))
 
-from harness import Zutty
+from harness import Shitty
 from width_catalog import case_vectors
 
 
@@ -23,7 +23,7 @@ def exercise(vectors):
         stream.extend(b"\rA")
         stream.extend(chr(codepoint).encode("utf-8"))
         stream.extend(b"\x1b[6n")
-    with Zutty(columns=10, rows=2, save_lines=0) as terminal:
+    with Shitty(columns=10, rows=2, save_lines=0) as terminal:
         terminal.write(bytes(stream))
         replies = terminal.read_input()
     parsed = [(int(row), int(column)) for row, column in CPR.findall(replies)]

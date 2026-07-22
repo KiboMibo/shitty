@@ -1,17 +1,17 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 class ModeTest(unittest.TestCase):
     def test_smooth_scroll_presents_each_intermediate_line(self):
         output = b"a\r\nb\r\nc\r\nd"
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             before = terminal.snapshot().refresh_count
             terminal.write(b"\x1b[?4l" + output)
             jump_refreshes = terminal.snapshot().refresh_count - before
 
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             before = terminal.snapshot().refresh_count
             terminal.write(b"\x1b[?4h" + output)
             smooth_refreshes = terminal.snapshot().refresh_count - before
@@ -21,28 +21,28 @@ class ModeTest(unittest.TestCase):
 
     def test_new_line_mode_applies_to_lf_vt_and_ff(self):
         for control in (b"\n", b"\v", b"\f"):
-            with self.subTest(control=control), Zutty(columns=8, rows=3) as terminal:
+            with self.subTest(control=control), Shitty(columns=8, rows=3) as terminal:
                 terminal.write(b"\x1b[20h\x1b[1;4H" + control + b"X")
                 snapshot = terminal.snapshot()
                 self.assertEqual(snapshot.cell(0, 1).char, "X")
                 self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
 
     def test_blinking_text_drives_periodic_refresh(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[2 q\x1b[5mX")
             before = terminal.snapshot().refresh_count
             terminal.blink_tick()
             self.assertGreater(terminal.snapshot().refresh_count, before)
 
     def test_autowrap_can_be_disabled_and_restored(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(b"\x1b[?7labcde")
             self.assertEqual(terminal.snapshot().lines, ["abce", "    "])
             terminal.write(b"\x1b[?7h\r12345")
             self.assertEqual(terminal.snapshot().lines, ["1234", "5   "])
 
     def test_cursor_visibility_and_shape(self):
-        with Zutty(columns=4, rows=2) as terminal:
+        with Shitty(columns=4, rows=2) as terminal:
             terminal.write(b"\x1b[?25l")
             self.assertEqual(terminal.snapshot().cursor_style, 0)
             terminal.focus(True)
@@ -50,21 +50,21 @@ class ModeTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().cursor_style, 4)
 
     def test_alternate_screen_restores_primary_contents_and_cursor(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"primary\x1b[?1049halt\x1b[?1049l")
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.lines[0], "primary ")
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (7, 0))
 
     def test_mouse_tracking_modes_are_reported(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[?1003h\x1b[?1006h\x1b[?1004h")
             self.assertEqual(terminal.state()[:3], (4, 2, 1))
             terminal.write(b"\x1b[?1003l\x1b[?1006l\x1b[?1004l")
             self.assertEqual(terminal.state()[:3], (0, 0, 0))
 
     def test_focus_reporting_protocol(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.focus(True)
             self.assertEqual(terminal.read_input(), b"")
             terminal.write(b"\x1b[?1004h")
@@ -73,7 +73,7 @@ class ModeTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"\x1b[O\x1b[I")
 
     def test_private_modes_can_be_saved_and_restored(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b[?1003;1006;1004h"
                 b"\x1b[?1003;1006;1004s"
@@ -84,7 +84,7 @@ class ModeTest(unittest.TestCase):
             self.assertEqual(terminal.state()[:3], (4, 2, 1))
 
     def test_alternate_scroll_mode_sends_cursor_keys(self):
-        with Zutty(columns=8, rows=4) as terminal:
+        with Shitty(columns=8, rows=4) as terminal:
             terminal.write(b"\x1b[?1007h\x1b[?1049h")
             terminal.page_up()
             terminal.page_down()
@@ -94,7 +94,7 @@ class ModeTest(unittest.TestCase):
             )
 
     def test_synchronized_output_defers_refresh(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             before = terminal.snapshot().refresh_count
             terminal.write(b"\x1b[?2026hhidden")
             during = terminal.snapshot()
@@ -105,7 +105,7 @@ class ModeTest(unittest.TestCase):
             self.assertEqual(after.lines[0], "hidden  ")
 
     def test_synchronized_output_watchdog_releases_stuck_frame(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             before = terminal.snapshot().refresh_count
             terminal.write(b"\x1b[?2026hstuck")
             self.assertEqual(terminal.snapshot().refresh_count, before)
@@ -115,7 +115,7 @@ class ModeTest(unittest.TestCase):
             self.assertEqual(after.lines[0], "stuck   ")
 
     def test_synchronized_output_timeout_is_single_shot_and_reusable(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.sync_timeout()
             before = terminal.snapshot().refresh_count
             terminal.write(b"\x1b[?2026htimed")

@@ -1,5 +1,5 @@
 /.build/
 /build/
-/zutty
+/st
 /main_fuzz
 __pycache__/

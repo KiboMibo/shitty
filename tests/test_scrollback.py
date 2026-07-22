@@ -1,11 +1,11 @@
 import unittest
 
-from harness import Zutty, put_rows
+from harness import Shitty, put_rows
 
 
 class ScrollbackTest(unittest.TestCase):
     def test_control_reports_absolute_scrollback_geometry(self):
-        with Zutty(columns=4, rows=2, save_lines=5) as terminal:
+        with Shitty(columns=4, rows=2, save_lines=5) as terminal:
             self.assertEqual(terminal.scrollback_state(), (0, 2, 2, 0))
             terminal.write(b"zero\r\none\r\ntwo\r\ntri")
             self.assertEqual(terminal.scrollback_state(), (2, 4, 2, 2))
@@ -13,7 +13,7 @@ class ScrollbackTest(unittest.TestCase):
             self.assertEqual(terminal.scrollback_state(), (2, 4, 2, 0))
 
     def test_wheel_unit_moves_exactly_one_line(self):
-        with Zutty(columns=8, rows=3, save_lines=8) as terminal:
+        with Shitty(columns=8, rows=3, save_lines=8) as terminal:
             terminal.write(
                 put_rows(b"A", b"B", b"C")
                 + b"\x1b[S\x1b[3;1HD"
@@ -29,7 +29,7 @@ class ScrollbackTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().view_offset, 1)
 
     def test_new_output_preserves_scrolled_view(self):
-        with Zutty(columns=8, rows=3, save_lines=8) as terminal:
+        with Shitty(columns=8, rows=3, save_lines=8) as terminal:
             terminal.write(b"one\r\ntwo\r\nthree\r\nfour")
             terminal.page_up()
 
@@ -44,7 +44,7 @@ class ScrollbackTest(unittest.TestCase):
             self.assertEqual(after.lines, ["one     ", "two     ", "three   "])
 
     def test_alternate_screen_keeps_scrollback(self):
-        with Zutty(columns=8, rows=3, save_lines=8) as terminal:
+        with Shitty(columns=8, rows=3, save_lines=8) as terminal:
             terminal.write(
                 b"\x1b[?1049h"
                 b"one\r\ntwo\r\nthree\r\nfour"
@@ -68,7 +68,7 @@ class ScrollbackTest(unittest.TestCase):
             )
 
     def test_partial_region_scroll_does_not_create_blank_history(self):
-        with Zutty(columns=8, rows=6, save_lines=20) as terminal:
+        with Shitty(columns=8, rows=6, save_lines=20) as terminal:
             terminal.write(
                 b"screen1\r\nscreen2\r\nscreen3"
                 b"\x1b[3;6r\x1b[3;1H\x1b[5S\x1b[r"
@@ -79,7 +79,7 @@ class ScrollbackTest(unittest.TestCase):
             self.assertEqual(snapshot.view_offset, 0)
 
     def test_top_anchored_region_saves_evicted_row(self):
-        with Zutty(columns=8, rows=6, save_lines=20) as terminal:
+        with Shitty(columns=8, rows=6, save_lines=20) as terminal:
             terminal.write(
                 put_rows(b"A", b"B", b"C", b"D", b"STATUS", b"PROMPT")
                 + b"\x1b[1;4r\x1b[S\x1b[r"
@@ -95,7 +95,7 @@ class ScrollbackTest(unittest.TestCase):
             )
 
     def test_top_anchored_region_saves_multiple_rows_in_order(self):
-        with Zutty(columns=8, rows=6, save_lines=20) as terminal:
+        with Shitty(columns=8, rows=6, save_lines=20) as terminal:
             terminal.write(
                 put_rows(b"A", b"B", b"C", b"D", b"E", b"F")
                 + b"\x1b[1;4r\x1b[2S\x1b[r"
@@ -111,7 +111,7 @@ class ScrollbackTest(unittest.TestCase):
             )
 
     def test_linefeed_at_region_bottom_saves_evicted_row(self):
-        with Zutty(columns=8, rows=6, save_lines=20) as terminal:
+        with Shitty(columns=8, rows=6, save_lines=20) as terminal:
             terminal.write(
                 put_rows(b"A", b"B", b"C", b"D", b"E", b"F")
                 + b"\x1b[1;4r\x1b[4;1H\n\x1b[r"
@@ -123,7 +123,7 @@ class ScrollbackTest(unittest.TestCase):
             self.assertEqual(snapshot.lines[0], "A       ")
 
     def test_index_at_region_bottom_saves_evicted_row(self):
-        with Zutty(columns=8, rows=6, save_lines=20) as terminal:
+        with Shitty(columns=8, rows=6, save_lines=20) as terminal:
             terminal.write(
                 put_rows(b"A", b"B", b"C", b"D", b"E", b"F")
                 + b"\x1b[1;4r\x1b[4;1H\x1bD\x1b[r"
@@ -135,7 +135,7 @@ class ScrollbackTest(unittest.TestCase):
             self.assertEqual(snapshot.lines[0], "A       ")
 
     def test_scroll_count_is_clamped_and_saves_entire_region(self):
-        with Zutty(columns=8, rows=4, save_lines=8) as terminal:
+        with Shitty(columns=8, rows=4, save_lines=8) as terminal:
             terminal.write(
                 put_rows(b"A", b"B", b"C", b"FIXED")
                 + b"\x1b[1;3r\x1b[99S\x1b[r"
@@ -150,7 +150,7 @@ class ScrollbackTest(unittest.TestCase):
             )
 
     def test_middle_region_scrolls_only_region_without_history(self):
-        with Zutty(columns=8, rows=6, save_lines=20) as terminal:
+        with Shitty(columns=8, rows=6, save_lines=20) as terminal:
             terminal.write(
                 put_rows(b"A", b"B", b"C", b"D", b"E", b"F")
                 + b"\x1b[2;5r\x1b[2S\x1b[r"
@@ -166,7 +166,7 @@ class ScrollbackTest(unittest.TestCase):
             )
 
     def test_middle_region_does_not_modify_existing_history(self):
-        with Zutty(columns=8, rows=6, save_lines=20) as terminal:
+        with Shitty(columns=8, rows=6, save_lines=20) as terminal:
             terminal.write(
                 put_rows(b"H1", b"H2", b"A", b"B", b"C", b"D")
                 + b"\x1b[2S"
@@ -184,7 +184,7 @@ class ScrollbackTest(unittest.TestCase):
             )
 
     def test_full_reverse_scroll_does_not_consume_history(self):
-        with Zutty(columns=8, rows=6, save_lines=20) as terminal:
+        with Shitty(columns=8, rows=6, save_lines=20) as terminal:
             terminal.write(
                 put_rows(b"H1", b"H2", b"A", b"B", b"C", b"D")
                 + b"\x1b[2S"
@@ -202,7 +202,7 @@ class ScrollbackTest(unittest.TestCase):
             )
 
     def test_top_anchored_reverse_scroll_does_not_consume_history(self):
-        with Zutty(columns=8, rows=6, save_lines=20) as terminal:
+        with Shitty(columns=8, rows=6, save_lines=20) as terminal:
             terminal.write(
                 put_rows(b"H1", b"H2", b"A", b"B", b"C", b"D")
                 + b"\x1b[2S"
@@ -220,7 +220,7 @@ class ScrollbackTest(unittest.TestCase):
             )
 
     def test_scrollback_capacity_drops_only_oldest_rows(self):
-        with Zutty(columns=8, rows=3, save_lines=3) as terminal:
+        with Shitty(columns=8, rows=3, save_lines=3) as terminal:
             terminal.write(
                 put_rows(b"A", b"B", b"C")
                 + b"\x1b[S\x1b[3;1HD"
@@ -235,7 +235,7 @@ class ScrollbackTest(unittest.TestCase):
             self.assertEqual(snapshot.lines, ["B       ", "C       ", "D       "])
 
     def test_output_at_capacity_advances_past_evicted_history(self):
-        with Zutty(columns=8, rows=3, save_lines=3) as terminal:
+        with Shitty(columns=8, rows=3, save_lines=3) as terminal:
             terminal.write(
                 put_rows(b"A", b"B", b"C")
                 + b"\x1b[S\x1b[3;1HD"
@@ -255,7 +255,7 @@ class ScrollbackTest(unittest.TestCase):
             self.assertEqual(snapshot.lines, ["B       ", "C       ", "D       "])
 
     def test_write_while_scrolled_changes_only_live_screen(self):
-        with Zutty(columns=8, rows=3, save_lines=8) as terminal:
+        with Shitty(columns=8, rows=3, save_lines=8) as terminal:
             terminal.write(
                 put_rows(b"A", b"B", b"C")
                 + b"\x1b[S\x1b[3;1HD"
@@ -276,7 +276,7 @@ class ScrollbackTest(unittest.TestCase):
             )
 
     def test_changing_margins_does_not_change_screen_or_history(self):
-        with Zutty(columns=8, rows=4, save_lines=8) as terminal:
+        with Shitty(columns=8, rows=4, save_lines=8) as terminal:
             terminal.write(
                 put_rows(b"H", b"A", b"B", b"C")
                 + b"\x1b[S"
@@ -291,7 +291,7 @@ class ScrollbackTest(unittest.TestCase):
             self.assertEqual(after.lines, before.lines)
 
     def test_zero_capacity_never_exposes_scrollback(self):
-        with Zutty(columns=8, rows=3, save_lines=0) as terminal:
+        with Shitty(columns=8, rows=3, save_lines=0) as terminal:
             terminal.write(
                 put_rows(b"A", b"B", b"C")
                 + b"\x1b[S\x1b[3;1HD"
@@ -303,7 +303,7 @@ class ScrollbackTest(unittest.TestCase):
             self.assertEqual(snapshot.lines, ["B       ", "C       ", "D       "])
 
     def test_clear_history_while_scrolled_returns_to_live_screen(self):
-        with Zutty(columns=8, rows=3, save_lines=8) as terminal:
+        with Shitty(columns=8, rows=3, save_lines=8) as terminal:
             terminal.write(
                 put_rows(b"A", b"B", b"C")
                 + b"\x1b[S\x1b[3;1HD"
@@ -318,7 +318,7 @@ class ScrollbackTest(unittest.TestCase):
             self.assertEqual(snapshot.lines, ["B       ", "C       ", "D       "])
 
     def test_top_anchored_scroll_preserves_cell_attributes(self):
-        with Zutty(columns=8, rows=4, save_lines=8) as terminal:
+        with Shitty(columns=8, rows=4, save_lines=8) as terminal:
             terminal.write(
                 b"\x1b[1;1H\x1b]8;;https://example.com\x1b\\"
                 b"\x1b[1;31mX\x1b[0m\x1b]8;;\x1b\\"
@@ -334,7 +334,7 @@ class ScrollbackTest(unittest.TestCase):
             self.assertEqual(terminal.hyperlink(0, 0), "https://example.com")
 
     def test_alternate_top_anchored_region_has_real_scrollback(self):
-        with Zutty(columns=8, rows=4, save_lines=8) as terminal:
+        with Shitty(columns=8, rows=4, save_lines=8) as terminal:
             terminal.write(
                 b"\x1b[?1049h"
                 + put_rows(b"A", b"B", b"C", b"D")
@@ -350,7 +350,7 @@ class ScrollbackTest(unittest.TestCase):
             )
 
     def test_primary_history_survives_alternate_screen_scrolling(self):
-        with Zutty(columns=8, rows=3, save_lines=8) as terminal:
+        with Shitty(columns=8, rows=3, save_lines=8) as terminal:
             terminal.write(
                 put_rows(b"P1", b"P2", b"P3")
                 + b"\x1b[S\x1b[3;1HP4"
@@ -366,7 +366,7 @@ class ScrollbackTest(unittest.TestCase):
             self.assertEqual(snapshot.lines, ["P1      ", "P2      ", "P3      "])
 
     def test_shrink_moves_clipped_top_rows_to_scrollback(self):
-        with Zutty(columns=8, rows=4, save_lines=8) as terminal:
+        with Shitty(columns=8, rows=4, save_lines=8) as terminal:
             terminal.write(put_rows(b"A", b"B", b"C", b"D"))
             terminal.resize(8, 2)
             terminal.wheel_up(2)
@@ -376,7 +376,7 @@ class ScrollbackTest(unittest.TestCase):
             self.assertEqual(snapshot.lines, ["A       ", "B       "])
 
     def test_grow_restores_newest_rows_from_scrollback(self):
-        with Zutty(columns=8, rows=4, save_lines=8) as terminal:
+        with Shitty(columns=8, rows=4, save_lines=8) as terminal:
             terminal.write(put_rows(b"A", b"B", b"C", b"D"))
             terminal.resize(8, 2)
             terminal.resize(8, 4)
@@ -390,7 +390,7 @@ class ScrollbackTest(unittest.TestCase):
             )
 
     def test_codex_top_anchored_redraw_builds_real_history(self):
-        with Zutty(columns=8, rows=6, save_lines=20) as terminal:
+        with Shitty(columns=8, rows=6, save_lines=20) as terminal:
             terminal.write(
                 put_rows(b"T1", b"T2", b"T3", b"T4", b"UI1", b"UI2")
                 + b"\x1b[?2026h"
@@ -420,7 +420,7 @@ class ScrollbackTest(unittest.TestCase):
             ("up", 0, 4, 3, ["O", "P", "Q"]),
         ]
 
-        with Zutty(columns=4, rows=rows, save_lines=capacity) as terminal:
+        with Shitty(columns=4, rows=rows, save_lines=capacity) as terminal:
             terminal.write(put_rows(*(value.encode() for value in screen)))
 
             for direction, top, bottom, count, fill in operations:
@@ -470,7 +470,7 @@ class ScrollbackTest(unittest.TestCase):
                 terminal.wheel_down(len(history))
 
     def test_codex_partial_reverse_index_preserves_real_history(self):
-        with Zutty(columns=8, rows=6, save_lines=20) as terminal:
+        with Shitty(columns=8, rows=6, save_lines=20) as terminal:
             terminal.write(
                 b"line1\r\nline2\r\nline3\r\nline4\r\n"
                 b"line5\r\nline6\r\nline7\r\nline8\r\n"
@@ -500,7 +500,7 @@ class ScrollbackTest(unittest.TestCase):
             self.assertEqual(after.lines, before.lines)
 
     def test_codex_full_screen_reverse_index_preserves_real_history(self):
-        with Zutty(columns=8, rows=6, save_lines=20) as terminal:
+        with Shitty(columns=8, rows=6, save_lines=20) as terminal:
             terminal.write(
                 b"line1\r\nline2\r\nline3\r\nline4\r\n"
                 b"line5\r\nline6\r\nline7\r\nline8\r\n"

@@ -12,7 +12,7 @@ constructor rules below remain part of review.
 - Private data members use `lowerCamelCase_` with a trailing underscore.
 - Compile-time constants use `lowerCamelCase` unless they are C-style ABI
   constants or macros.
-- Macros use `UPPER_SNAKE_CASE` and project-owned macros use a `ZUTTY_`
+- Macros use `UPPER_SNAKE_CASE` and project-owned macros use a `SHITTY_`
   prefix. Names required by a system header or protocol retain their external
   spelling.
 - Acronyms are words inside an identifier: `HttpClient`, `IoReactor`,
@@ -51,7 +51,7 @@ struct Example: public Interface {
 };
 ```
 
-Zutty is a program, not a library. Do not wrap its code in a project namespace.
+Shitty is a program, not a library. Do not wrap its code in a project namespace.
 Use anonymous namespaces for translation-unit-local declarations, indent their
 contents, and do not add comments to namespace-closing braces.
 

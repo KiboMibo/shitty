@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Deterministic parser fuzz target using Zutty's headless protocol boundary."""
+"""Deterministic parser fuzz target using Shitty's headless protocol boundary."""
 
 import argparse
 import random
 
-from harness import Zutty
+from harness import Shitty
 
 
 CONTROL_BYTES = b"\x00\x07\x08\x09\x0a\x0d\x18\x1a\x1b\x7f\x84\x8d\x90\x98\x9b\x9c\x9d\x9e\x9f"
@@ -49,8 +49,8 @@ def state_difference(lhs, rhs):
 def fuzz(seed, cases, maximum):
     random_source = random.Random(seed)
     with (
-        Zutty(columns=37, rows=11, save_lines=64) as whole,
-        Zutty(columns=37, rows=11, save_lines=64) as chunked,
+        Shitty(columns=37, rows=11, save_lines=64) as whole,
+        Shitty(columns=37, rows=11, save_lines=64) as chunked,
     ):
         for case in range(cases):
             length = random_source.randrange(maximum + 1)

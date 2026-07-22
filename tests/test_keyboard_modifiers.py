@@ -1,6 +1,6 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 MODIFIER_CODES = {
@@ -54,7 +54,7 @@ def expected_modify_other(key, modifiers, level):
 
 class KeyboardModifierTest(unittest.TestCase):
     def test_control_mapping_covers_every_printable_ascii_key(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             for key in range(32, 127):
                 for shifted in (False, True):
                     with self.subTest(key=key, shifted=shifted):
@@ -64,13 +64,13 @@ class KeyboardModifierTest(unittest.TestCase):
                         )
 
     def test_frontend_control_letters_emit_c0_bytes(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             for key in range(ord("A"), ord("Z") + 1):
                 terminal.frontend_control(key)
             self.assertEqual(terminal.read_input(), bytes(range(1, 27)))
 
     def test_frontend_control_alt_and_shift_combinations(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.frontend_control("A", alt=True)
             terminal.frontend_control("A", shifted=True)
             terminal.frontend_control("/", shifted=True)
@@ -79,7 +79,7 @@ class KeyboardModifierTest(unittest.TestCase):
             )
 
     def test_alt_modes_cover_escape_unicode_and_raw_eight_bit_forms(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.char("a", modifiers=4)
             terminal.write(b"\x1b[?1036l")
             terminal.char("a", modifiers=4)
@@ -94,7 +94,7 @@ class KeyboardModifierTest(unittest.TestCase):
     def test_modify_other_keys_levels_cover_ascii_and_all_modifiers(self):
         for level in (0, 1, 2):
             with self.subTest(level=level):
-                with Zutty(columns=8, rows=2) as terminal:
+                with Shitty(columns=8, rows=2) as terminal:
                     terminal.write(f"\x1b[>4;{level}m".encode())
                     for key in range(32, 127):
                         for modifiers in MODIFIER_CODES:
@@ -108,7 +108,7 @@ class KeyboardModifierTest(unittest.TestCase):
                                 )
 
     def test_modify_other_keys_two_encodes_control_boundaries(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[>4;2m")
             for key in (0, 31, 32, 127, 255):
                 terminal.char(key, modifiers=2)
@@ -119,7 +119,7 @@ class KeyboardModifierTest(unittest.TestCase):
                 )
 
     def test_modify_other_keys_rejects_levels_above_two(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b[>4;2m\x1b[>4;3m\x1b[?4m"
                 b"\x1b[>4;4m\x1b[?4m"
@@ -129,7 +129,7 @@ class KeyboardModifierTest(unittest.TestCase):
             )
 
     def test_other_modifier_resources_accept_and_report_zero_through_four(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             for resource in (0, 1, 2, 3, 6, 7):
                 for value in range(5):
                     terminal.write(

@@ -1,6 +1,6 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 def populate(terminal):
@@ -9,7 +9,7 @@ def populate(terminal):
 
 class ResizeViewportTest(unittest.TestCase):
     def test_width_resize_preserves_view_offset_and_top_row(self):
-        with Zutty(columns=5, rows=3, save_lines=6) as terminal:
+        with Shitty(columns=5, rows=3, save_lines=6) as terminal:
             populate(terminal)
             terminal.wheel_up(2)
             before = terminal.snapshot()
@@ -20,7 +20,7 @@ class ResizeViewportTest(unittest.TestCase):
             self.assertEqual(after.lines, ["2       ", "3       ", "4       "])
 
     def test_height_shrink_keeps_scrolled_view_anchored(self):
-        with Zutty(columns=5, rows=3, save_lines=6) as terminal:
+        with Shitty(columns=5, rows=3, save_lines=6) as terminal:
             populate(terminal)
             terminal.wheel_up(2)
             terminal.resize(5, 2)
@@ -29,7 +29,7 @@ class ResizeViewportTest(unittest.TestCase):
             self.assertEqual(snapshot.lines, ["2    ", "3    "])
 
     def test_height_grow_keeps_same_top_row_when_possible(self):
-        with Zutty(columns=5, rows=3, save_lines=6) as terminal:
+        with Shitty(columns=5, rows=3, save_lines=6) as terminal:
             populate(terminal)
             terminal.wheel_up(2)
             terminal.resize(5, 2)
@@ -39,7 +39,7 @@ class ResizeViewportTest(unittest.TestCase):
             self.assertEqual(snapshot.lines, ["2    ", "3    ", "4    ", "5    "])
 
     def test_selection_tracks_same_history_text_through_resize(self):
-        with Zutty(columns=5, rows=3, save_lines=6) as terminal:
+        with Shitty(columns=5, rows=3, save_lines=6) as terminal:
             populate(terminal)
             terminal.wheel_up(2)
             terminal.select_start(0, 0)
@@ -48,7 +48,7 @@ class ResizeViewportTest(unittest.TestCase):
             self.assertEqual(terminal.select_finish(), b"2")
 
     def test_output_after_scrolled_resize_does_not_jump_to_bottom(self):
-        with Zutty(columns=5, rows=3, save_lines=6) as terminal:
+        with Shitty(columns=5, rows=3, save_lines=6) as terminal:
             populate(terminal)
             terminal.wheel_up(2)
             terminal.resize(7, 3)

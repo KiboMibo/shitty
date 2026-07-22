@@ -9,7 +9,7 @@ from pathlib import Path
 TESTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TESTS))
 
-from harness import Zutty
+from harness import Shitty
 
 
 COLUMNS = 80
@@ -137,8 +137,8 @@ def main():
     payload = setup_payload(case) + benchmark_payload(root, case)
     signal.alarm(timeout)
 
-    with Zutty(columns=COLUMNS, rows=ROWS, save_lines=500) as whole, \
-         Zutty(columns=COLUMNS, rows=ROWS, save_lines=500) as chunked:
+    with Shitty(columns=COLUMNS, rows=ROWS, save_lines=500) as whole, \
+         Shitty(columns=COLUMNS, rows=ROWS, save_lines=500) as chunked:
         started = time.monotonic()
         whole.write(payload)
         elapsed = time.monotonic() - started

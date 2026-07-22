@@ -1,6 +1,6 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 ANSI_DEFAULTS = {
@@ -72,13 +72,13 @@ def query(terminal, mode, private=False):
 
 class ModeMatrixTest(unittest.TestCase):
     def test_every_ansi_mode_reports_its_default(self):
-        with Zutty() as terminal:
+        with Shitty() as terminal:
             for mode, state in ANSI_DEFAULTS.items():
                 with self.subTest(mode=mode):
                     self.assertEqual(query(terminal, mode), mode_reply(mode, state))
 
     def test_fixed_ansi_modes_report_permanently_reset(self):
-        with Zutty() as terminal:
+        with Shitty() as terminal:
             for mode in ANSI_FIXED_RESET:
                 with self.subTest(mode=mode):
                     terminal.write(f"\x1b[{mode}h".encode())
@@ -89,14 +89,14 @@ class ModeMatrixTest(unittest.TestCase):
     def test_every_mutable_ansi_mode_reports_set_and_reset(self):
         for mode in ANSI_DEFAULTS:
             with self.subTest(mode=mode):
-                with Zutty() as terminal:
+                with Shitty() as terminal:
                     terminal.write(f"\x1b[{mode}h".encode())
                     self.assertEqual(query(terminal, mode), mode_reply(mode, 1))
                     terminal.write(f"\x1b[{mode}l".encode())
                     self.assertEqual(query(terminal, mode), mode_reply(mode, 2))
 
     def test_every_private_mode_reports_its_default(self):
-        with Zutty() as terminal:
+        with Shitty() as terminal:
             for mode, state in PRIVATE_DEFAULTS.items():
                 with self.subTest(mode=mode):
                     self.assertEqual(
@@ -111,7 +111,7 @@ class ModeMatrixTest(unittest.TestCase):
         )
         for mode in mutable:
             with self.subTest(mode=mode):
-                with Zutty() as terminal:
+                with Shitty() as terminal:
                     if mode == 3:
                         terminal.write(b"\x1b[?40h")
                     terminal.write(f"\x1b[?{mode}h".encode())
@@ -126,7 +126,7 @@ class ModeMatrixTest(unittest.TestCase):
                     )
 
     def test_unknown_modes_report_unknown_and_do_not_change_known_modes(self):
-        with Zutty() as terminal:
+        with Shitty() as terminal:
             terminal.write(b"\x1b[4h\x1b[?7l\x1b[9999h\x1b[?9999h")
             self.assertEqual(query(terminal, 9999), mode_reply(9999, 0))
             self.assertEqual(query(terminal, 9999, True), mode_reply(9999, 0, True))
@@ -134,7 +134,7 @@ class ModeMatrixTest(unittest.TestCase):
             self.assertEqual(query(terminal, 7, True), mode_reply(7, 2, True))
 
     def test_mouse_tracking_and_encoding_modes_are_mutually_exclusive(self):
-        with Zutty() as terminal:
+        with Shitty() as terminal:
             terminal.write(b"\x1b[?9h\x1b[?1000h\x1b[?1002h\x1b[?1003h")
             for mode in (9, 1000, 1002):
                 self.assertEqual(query(terminal, mode, True), mode_reply(mode, 2, True))
@@ -152,7 +152,7 @@ class ModeMatrixTest(unittest.TestCase):
         )
         for mode in modes:
             with self.subTest(mode=mode):
-                with Zutty() as terminal:
+                with Shitty() as terminal:
                     initial = PRIVATE_DEFAULTS[mode]
                     terminal.write(f"\x1b[?{mode}s".encode())
                     terminal.write(
@@ -165,14 +165,14 @@ class ModeMatrixTest(unittest.TestCase):
                     )
 
     def test_xtrestore_without_save_is_noop_and_save_is_one_level(self):
-        with Zutty() as terminal:
+        with Shitty() as terminal:
             terminal.write(b"\x1b[?1h\x1b[?1r")
             self.assertEqual(query(terminal, 1, True), mode_reply(1, 1, True))
             terminal.write(b"\x1b[?1l\x1b[?1s\x1b[?1h\x1b[?1s\x1b[?1l\x1b[?1r")
             self.assertEqual(query(terminal, 1, True), mode_reply(1, 1, True))
 
     def test_deccolm_does_not_reset_unrelated_modes(self):
-        with Zutty() as terminal:
+        with Shitty() as terminal:
             terminal.write(b"\x1b[?40htext\x1b[?1h\x1b[4h\x1b[?3h")
             self.assertEqual(query(terminal, 3, True), mode_reply(3, 1, True))
             self.assertEqual(query(terminal, 1, True), mode_reply(1, 1, True))
@@ -180,21 +180,21 @@ class ModeMatrixTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().lines[0].strip(), "")
 
     def test_mode_47_preserves_alternate_contents_between_switches(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"primary\x1b[?47h\x1b[Halt\x1b[?47l\x1b[?47h")
             self.assertEqual(terminal.snapshot().lines[0], "alt     ")
             terminal.write(b"\x1b[?47l")
             self.assertEqual(terminal.snapshot().lines[0], "primary ")
 
     def test_mode_1047_clears_alternate_contents_on_exit(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"primary\x1b[?1047halt\x1b[?1047l\x1b[?1047h")
             self.assertEqual(terminal.snapshot().lines[0], "        ")
             terminal.write(b"\x1b[?1047l")
             self.assertEqual(terminal.snapshot().lines[0], "primary ")
 
     def test_modes_1048_and_1049_save_cursor_with_distinct_screen_effects(self):
-        with Zutty(columns=8, rows=3) as terminal:
+        with Shitty(columns=8, rows=3) as terminal:
             terminal.write(b"\x1b[2;3H\x1b[?1048h\x1b[3;7H\x1b[?1048l")
             snapshot = terminal.snapshot()
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (2, 1))
@@ -207,7 +207,7 @@ class ModeMatrixTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().lines, ["        "] * 3)
 
     def test_decstr_resets_modes_and_margins_without_clearing_active_screen(self):
-        with Zutty(columns=8, rows=4) as terminal:
+        with Shitty(columns=8, rows=4) as terminal:
             terminal.write(
                 b"content"
                 b"\x1b[2;4r\x1b[?69h\x1b[2;7s"
@@ -231,7 +231,7 @@ class ModeMatrixTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().cell(0, 0).char, "X")
 
     def test_ris_resets_modes_saved_values_and_both_screen_buffers(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"primary\x1b[?1s\x1b[?1h\x1b[?47halt\x1bc\x1b[?1r")
             self.assertEqual(terminal.snapshot().lines, ["        "] * 2)
             self.assertEqual(query(terminal, 1, True), mode_reply(1, 2, True))

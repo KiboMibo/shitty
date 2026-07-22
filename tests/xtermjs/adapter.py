@@ -8,7 +8,7 @@ from pathlib import Path
 TESTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TESTS))
 
-from harness import Zutty
+from harness import Shitty
 
 
 def normalized(text):
@@ -36,10 +36,10 @@ def main():
         if line.strip() and not line.startswith("#")
     }
 
-    with Zutty(columns=80, rows=25) as zutty:
-        zutty.write(b"\x1bc\x1b[H")
-        zutty.write(through_default_pty((data / f"{case}.in").read_bytes()))
-        actual = "\n".join(line.rstrip() for line in zutty.snapshot().lines) + "\n"
+    with Shitty(columns=80, rows=25) as shitty:
+        shitty.write(b"\x1bc\x1b[H")
+        shitty.write(through_default_pty((data / f"{case}.in").read_bytes()))
+        actual = "\n".join(line.rstrip() for line in shitty.snapshot().lines) + "\n"
 
     expected = normalized((data / f"{case}.text").read_text())
     actual = normalized(actual)
@@ -56,7 +56,7 @@ def main():
             expected.splitlines(keepends=True),
             actual.splitlines(keepends=True),
             fromfile=f"{case}.text",
-            tofile="zutty snapshot",
+            tofile="shitty snapshot",
         ))
         print("".join(difference[:200]), file=sys.stderr)
         if len(difference) > 200:

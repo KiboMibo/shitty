@@ -7,20 +7,20 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ZUTTY = Path(os.environ.get("ZUTTY_TEST_BINARY", ROOT / "zutty"))
+SHITTY = Path(os.environ.get("SHITTY_TEST_BINARY", ROOT / "st"))
 
 
 def run_startup_failure(font_size_env=None, extra_arguments=()):
     parent, child = socket.socketpair()
     environment = os.environ.copy()
     if font_size_env is None:
-        environment.pop("ZUTTY_FONT_SIZE", None)
+        environment.pop("SHITTY_FONT_SIZE", None)
     else:
-        environment["ZUTTY_FONT_SIZE"] = str(font_size_env)
+        environment["SHITTY_FONT_SIZE"] = str(font_size_env)
     try:
         return subprocess.run(
             [
-                str(ZUTTY),
+                str(SHITTY),
                 "--test-fd",
                 str(child.fileno()),
                 "-quiet",
@@ -122,7 +122,7 @@ class PenState:
     background_index: int
 
 
-class Zutty:
+class Shitty:
     def __init__(
         self, columns=80, rows=24, save_lines=500,
         glyph_px=1, glyph_py=1,
@@ -133,14 +133,14 @@ class Zutty:
         self.stream = parent.makefile("rwb", buffering=0)
         self._receive_buffer = bytearray()
         child_environment = os.environ.copy()
-        child_environment["ZUTTY_TEST_GLYPH"] = f"{glyph_px}x{glyph_py}"
+        child_environment["SHITTY_TEST_GLYPH"] = f"{glyph_px}x{glyph_py}"
         if font_size_env is None:
-            child_environment.pop("ZUTTY_FONT_SIZE", None)
+            child_environment.pop("SHITTY_FONT_SIZE", None)
         else:
-            child_environment["ZUTTY_FONT_SIZE"] = str(font_size_env)
+            child_environment["SHITTY_FONT_SIZE"] = str(font_size_env)
         self.process = subprocess.Popen(
             [
-                str(ZUTTY),
+                str(SHITTY),
                 "--test-fd",
                 str(child.fileno()),
                 "-geometry",
@@ -168,7 +168,7 @@ class Zutty:
             "fullscreen": False,
         }
         if self._readline() != "READY":
-            raise RuntimeError("zutty test mode did not become ready")
+            raise RuntimeError("shitty test mode did not become ready")
 
     def close(self):
         if self.process.poll() is None:
@@ -194,7 +194,7 @@ class Zutty:
                 return line.decode("ascii")
             chunk = self.socket.recv(64 * 1024)
             if not chunk:
-                raise RuntimeError(f"zutty exited with {self.process.poll()}")
+                raise RuntimeError(f"shitty exited with {self.process.poll()}")
             self._receive_buffer.extend(chunk)
 
     def command(self, command):

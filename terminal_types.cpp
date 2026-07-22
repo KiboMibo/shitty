@@ -1,4 +1,4 @@
-/* This file is part of Zutty.
+/* This file is part of Shitty.
  * Copyright (C) 2020 Tom Szilagyi
  *
  * This program is free software: you can redistribute it and/or modify

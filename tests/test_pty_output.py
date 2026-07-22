@@ -1,12 +1,12 @@
 import errno
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 class PtyOutputTest(unittest.TestCase):
     def test_simultaneous_read_and_write_flushes_older_bytes_before_reply(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.script_pty_writes(("error", errno.EAGAIN))
             terminal.input(b"older")
             terminal.script_pty_writes(64)
@@ -17,7 +17,7 @@ class PtyOutputTest(unittest.TestCase):
             self.assertEqual(terminal.pending_output(), len(b"\x1b[0n"))
 
     def test_partial_writes_resume_at_exact_unsent_byte_after_backpressure(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.script_pty_writes(2, 3, ("error", errno.EAGAIN))
             terminal.input(b"abcdefghi")
             self.assertEqual(terminal.read_written_pty(), b"abcde")
@@ -29,7 +29,7 @@ class PtyOutputTest(unittest.TestCase):
             self.assertEqual(terminal.pending_output(), 0)
 
     def test_interrupted_write_is_retried_without_duplication(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.script_pty_writes(
                 ("error", errno.EINTR), 1, ("error", errno.EINTR), 8
             )
@@ -38,7 +38,7 @@ class PtyOutputTest(unittest.TestCase):
             self.assertEqual(terminal.pending_output(), 0)
 
     def test_fatal_write_keeps_payload_available_for_later_retry(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.script_pty_writes(("error", errno.EPIPE))
             terminal.input(b"retained")
             self.assertEqual(terminal.read_written_pty(), b"")

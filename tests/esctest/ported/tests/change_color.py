@@ -3,7 +3,7 @@ import escio
 from escutil import AssertEQ, knownBug
 
 # Xlib converts device-independent color specifications through the target
-# screen's CCC. Zutty has no X11 screen profile and uses an explicit sRGB/D65
+# screen's CCC. Shitty has no X11 screen profile and uses an explicit sRGB/D65
 # CCC, so these expected RGB values intentionally differ from esctest's old
 # X-server-specific captures.
 

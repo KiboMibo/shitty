@@ -1,6 +1,6 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 FUNCTIONAL_KEYS = {
@@ -58,7 +58,7 @@ FUNCTIONAL_KEYS = {
 
 class KittyKeyboardMatrixTest(unittest.TestCase):
     def test_each_flag_can_be_set_added_removed_and_queried(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             for flag in (1, 2, 4, 8, 16):
                 with self.subTest(flag=flag):
                     terminal.write(
@@ -72,7 +72,7 @@ class KittyKeyboardMatrixTest(unittest.TestCase):
                     )
 
     def test_unknown_flags_are_masked_and_invalid_modes_are_ignored(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b[=3u\x1b[=32;2u\x1b[?u"
                 b"\x1b[=8;0u\x1b[?u\x1b[=8;4u\x1b[?u"
@@ -83,7 +83,7 @@ class KittyKeyboardMatrixTest(unittest.TestCase):
             )
 
     def test_functional_key_matrix_uses_canonical_codes(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[>1u")
             for name, (code, final) in FUNCTIONAL_KEYS.items():
                 with self.subTest(key=name):
@@ -94,7 +94,7 @@ class KittyKeyboardMatrixTest(unittest.TestCase):
                     )
 
     def test_press_repeat_release_for_text_and_functional_keys(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[>3u")
             for event in (1, 2, 3):
                 terminal.kitty_key(ord("a"), modifiers=4, event=event)
@@ -107,7 +107,7 @@ class KittyKeyboardMatrixTest(unittest.TestCase):
             )
 
     def test_release_is_suppressed_without_event_type_flag(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[>1u")
             terminal.kitty_key(ord("a"), event=3)
             terminal.kitty_special("UP", event=3)
@@ -116,7 +116,7 @@ class KittyKeyboardMatrixTest(unittest.TestCase):
     def test_enter_tab_backspace_stay_legacy_without_report_all(self):
         for flags in (1, 2, 4, 16, 1 | 2 | 4 | 16):
             with self.subTest(flags=flags):
-                with Zutty(columns=8, rows=2) as terminal:
+                with Shitty(columns=8, rows=2) as terminal:
                     terminal.write(f"\x1b[>{flags}u".encode())
                     for event in (1, 2, 3):
                         terminal.kitty_special("RETURN", event=event)
@@ -127,7 +127,7 @@ class KittyKeyboardMatrixTest(unittest.TestCase):
                     )
 
     def test_report_all_makes_enter_tab_backspace_canonical(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[>26u")
             for event in (1, 2, 3):
                 terminal.kitty_special("RETURN", event=event)
@@ -141,7 +141,7 @@ class KittyKeyboardMatrixTest(unittest.TestCase):
             )
 
     def test_alternate_key_fields_omit_redundant_values(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[>5u")
             terminal.kitty_key(97, shifted=65, base=113, modifiers=1)
             terminal.kitty_key(97, base=113)
@@ -152,7 +152,7 @@ class KittyKeyboardMatrixTest(unittest.TestCase):
             )
 
     def test_associated_text_follows_shift_and_excludes_control_codes(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[>24u")
             terminal.kitty_key(97, shifted=65)
             terminal.kitty_key(97, shifted=65, modifiers=1)
@@ -166,7 +166,7 @@ class KittyKeyboardMatrixTest(unittest.TestCase):
             )
 
     def test_stack_is_lifo_and_pop_count_is_honored(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b[>1u\x1b[>2u\x1b[>4u"
                 b"\x1b[<2u\x1b[?u\x1b[<u\x1b[?u"
@@ -176,12 +176,12 @@ class KittyKeyboardMatrixTest(unittest.TestCase):
             )
 
     def test_stack_underflow_resets_flags(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[=7u\x1b[<99u\x1b[?u")
             self.assertEqual(terminal.read_input(), b"\x1b[?0u")
 
     def test_stack_depth_sixteen_discards_oldest_entry(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[=31u")
             for value in range(1, 18):
                 terminal.write(f"\x1b[>{value}u".encode())
@@ -189,7 +189,7 @@ class KittyKeyboardMatrixTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"\x1b[?1u")
 
     def test_main_and_alternate_stacks_are_independent_and_persistent(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b[>1u"
                 b"\x1b[?47h\x1b[>2u\x1b[>4u\x1b[?u"

@@ -31,7 +31,7 @@ Covered now:
   new grid while retaining earlier uncommitted damage;
 - incomplete CSI, OSC and UTF-8 input without spurious frames or transient
   parser-driven cursor hiding;
-- startup font-size precedence across command line, `ZUTTY_FONT_SIZE` and the
+- startup font-size precedence across command line, `SHITTY_FONT_SIZE` and the
   compiled default, through the real option parser without GLFW;
 - inclusive font-size boundaries 1/255 and startup rejection below/above the
   range from both CLI and environment sources;
@@ -45,7 +45,7 @@ Covered now:
 - shared production/test launch-command construction for default, positional
   and `-e` executables, including login-shell `argv[0]` and basename selection
   from the executable actually launched;
-- real child PTY startup with `TERM`, `ZUTTY_VERSION`, initial winsize and
+- real child PTY startup with `TERM`, `SHITTY_VERSION`, initial winsize and
   resize-driven winsize update plus `SIGWINCH` delivery;
 - fontconfig family and generic-alias resolution to existing files, followed
   by successful real FreeType loading and nonzero glyph metrics;
@@ -110,8 +110,8 @@ Covered now:
 - growing/shrinking both primary and alternate screens.
 
 The optional compatibility tier additionally drives the complete top-level
-upstream `vttest` suite to a clean exit on Zutty's real PTY. It also records and
-validates the same query set under Zutty, xterm, foot and kitty when those
+upstream `vttest` suite to a clean exit on Shitty's real PTY. It also records and
+validates the same query set under Shitty, xterm, foot and kitty when those
 terminals are installed.
 
 Still requiring a platform boundary before it can be tested headlessly:

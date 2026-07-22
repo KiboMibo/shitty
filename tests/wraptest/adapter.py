@@ -9,7 +9,7 @@ from pathlib import Path
 TESTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TESTS))
 
-from harness import Zutty
+from harness import Shitty
 
 
 def main():
@@ -31,7 +31,7 @@ def main():
         if line.strip() and not line.startswith("#")
     }
 
-    with Zutty(columns=80, rows=60, save_lines=100) as terminal:
+    with Shitty(columns=80, rows=60, save_lines=100) as terminal:
         terminal.spawn(helper)
         status, screen = terminal.wait_child(timeout=10)
     if status != 0:

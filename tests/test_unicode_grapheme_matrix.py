@@ -1,6 +1,6 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 # Representative lines from Unicode 17 GraphemeBreakTest.txt.  Each rule in
@@ -36,7 +36,7 @@ def parse_vector(vector):
 
 class UnicodeGraphemeMatrixTest(unittest.TestCase):
     def test_unicode_17_official_grapheme_break_vectors(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             for vector in OFFICIAL_VECTORS:
                 with self.subTest(vector=vector):
                     codepoints, expected = parse_vector(vector)
@@ -48,7 +48,7 @@ class UnicodeGraphemeMatrixTest(unittest.TestCase):
         samples = ("\u06ddA", "कः", "क्ष")
         for sample in samples:
             with self.subTest(sample=sample):
-                with Zutty(columns=8, rows=2) as terminal:
+                with Shitty(columns=8, rows=2) as terminal:
                     terminal.write((sample + "X").encode())
                     snapshot = terminal.snapshot()
                     self.assertEqual(snapshot.cursor_x, 3)
@@ -59,7 +59,7 @@ class UnicodeGraphemeMatrixTest(unittest.TestCase):
                     self.assertEqual(terminal.select_finish(), sample.encode())
 
     def test_ascii_run_preserves_prepend_across_input_chunks(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write("\u06dd".encode())
             terminal.write(b"ASCII")
             snapshot = terminal.snapshot()
@@ -72,7 +72,7 @@ class UnicodeGraphemeMatrixTest(unittest.TestCase):
 
     def test_regional_indicators_pair_by_parity(self):
         flags = "🇦🇧🇨🇩"
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write((flags + "X").encode())
             self.assertEqual(terminal.snapshot().cursor_x, 5)
             terminal.select_start(0, 0)
@@ -83,7 +83,7 @@ class UnicodeGraphemeMatrixTest(unittest.TestCase):
         samples = (("#️⃣", 2), ("\u0308\u0300", 1), ("\u200d\u0308", 1))
         for sample, width in samples:
             with self.subTest(sample=sample, width=width):
-                with Zutty(columns=6, rows=2) as terminal:
+                with Shitty(columns=6, rows=2) as terminal:
                     terminal.write((sample + "X").encode())
                     self.assertEqual(terminal.snapshot().cursor_x, width + 1)
                     terminal.select_start(0, 0)
@@ -92,7 +92,7 @@ class UnicodeGraphemeMatrixTest(unittest.TestCase):
 
     def test_cluster_at_right_edge_wraps_as_one_unit(self):
         cluster = "क्ष"
-        with Zutty(columns=3, rows=2) as terminal:
+        with Shitty(columns=3, rows=2) as terminal:
             terminal.write(("ab" + cluster + "X").encode())
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.lines[0], "ab ")
@@ -104,14 +104,14 @@ class UnicodeGraphemeMatrixTest(unittest.TestCase):
             self.assertEqual(terminal.select_finish(), cluster.encode())
 
     def test_variation_width_changes_at_right_edge(self):
-        with Zutty(columns=3, rows=2) as terminal:
+        with Shitty(columns=3, rows=2) as terminal:
             terminal.write("ab#️X".encode())
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.lines[0], "ab ")
             self.assertEqual(snapshot.lines[1], "# X")
             self.assertTrue(snapshot.cell(0, 1).double_width)
 
-        with Zutty(columns=3, rows=2) as terminal:
+        with Shitty(columns=3, rows=2) as terminal:
             terminal.write("a⌚︎X".encode())
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.lines[0], "a⌚X")

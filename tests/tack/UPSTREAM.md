@@ -15,7 +15,7 @@ is the normal build mode needed by the current upstream snapshot.
 The manifest contains every literal terminfo capability referenced by an
 upstream `TestList`: 118 independent build targets.  `validate.py` checks the
 manifest directly against those C initializers.  The adapter starts the
-real tack executable under Zutty's real PTY, enters tack's capability-search
+real tack executable under Shitty's real PTY, enters tack's capability-search
 path, and lets the matching upstream test procedures consume several manual
 acknowledgements.  Since tack is primarily a visual suite, this import tier
 checks process safety, liveness, menu routing, and observable terminal-state

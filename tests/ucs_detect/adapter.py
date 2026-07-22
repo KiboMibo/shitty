@@ -9,7 +9,7 @@ from pathlib import Path
 TESTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TESTS))
 
-from harness import Zutty
+from harness import Shitty
 from catalog import category_cases
 
 
@@ -30,7 +30,7 @@ def main():
     identifiers = {identifier for identifier, _, _ in cases}
     concise = bool(os.environ.get("UCS_DETECT_CONCISE"))
 
-    with Zutty(columns=80, rows=2, save_lines=0) as terminal:
+    with Shitty(columns=80, rows=2, save_lines=0) as terminal:
         positions = terminal.measure_widths(
             *(payload for _, _, payload in cases)
         )

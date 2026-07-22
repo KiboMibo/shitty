@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from harness import Zutty
+from harness import Shitty
 
 
 @dataclass(frozen=True)
@@ -19,10 +19,10 @@ class Capabilities:
 
 
 class Backend:
-    """Local Termless-shaped backend over Zutty's offline control API."""
+    """Local Termless-shaped backend over Shitty's offline control API."""
 
     def __init__(self, columns=80, rows=24):
-        self.terminal = Zutty(
+        self.terminal = Shitty(
             columns=columns,
             rows=rows,
             glyph_px=8,

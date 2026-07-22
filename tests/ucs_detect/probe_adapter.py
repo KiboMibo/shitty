@@ -8,7 +8,7 @@ from pathlib import Path
 TESTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TESTS))
 
-from harness import Zutty
+from harness import Shitty
 from probe_cases import (
     DEC_MODES,
     DEC_MODE_STATES,
@@ -69,12 +69,12 @@ def software_version(response):
 
 
 def run_case(name):
-    with Zutty(columns=80, rows=24, save_lines=0) as terminal:
+    with Shitty(columns=80, rows=24, save_lines=0) as terminal:
         if name == "device_attributes":
             return query(terminal, b"\x1b[c"), DA1_EXPECTED
         if name == "software":
             identity = software_version(query(terminal, b"\x1b[>q"))
-            return identity[0] if identity is not None else None, "zutty"
+            return identity[0] if identity is not None else None, "shitty"
         if name == "foreground_color":
             return query(terminal, b"\x1b]10;?\x1b\\"), (
                 b"\x1b]10;rgb:ffff/ffff/ffff\x1b\\"

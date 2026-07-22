@@ -10,12 +10,12 @@ TESTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TESTS))
 
 from fuzz_parser import observable, state_difference
-from harness import Zutty
+from harness import Shitty
 from catalog import case_payload
 
 
 def exercise(payload, chunked):
-    with Zutty(columns=5, rows=5, save_lines=5) as terminal:
+    with Shitty(columns=5, rows=5, save_lines=5) as terminal:
         terminal.parser_trace_on()
         if chunked:
             terminal.write_chunks(*(payload[index:index + 1]

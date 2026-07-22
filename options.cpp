@@ -1,4 +1,4 @@
-/* This file is part of Zutty.
+/* This file is part of Shitty.
  * Copyright (C) 2020 Tom Szilagyi
  *
  * This program is free software: you can redistribute it and/or modify
@@ -70,7 +70,7 @@ namespace {
         {"saveLines", OptionKind::SepArg, nullptr, "500", "Lines of scrollback history"},
         {"shell", OptionKind::SepArg, nullptr, nullptr, "Shell program to run"},
         {"showWraps", OptionKind::NoArg, "true", "false", "Show wrap marks at right margin"},
-        {"title", OptionKind::SepArg, nullptr, "Zutty", "Window title"},
+        {"title", OptionKind::SepArg, nullptr, "Shitty", "Window title"},
         {"quiet", OptionKind::NoArg, "true", "false", "Silence logging output"},
         {"trace", OptionKind::NoArg, "true", "false", "Output terminal protocol trace"},
         {"verbose", OptionKind::NoArg, "true", "false", "Output info messages"},
@@ -197,7 +197,7 @@ namespace {
         const auto parsed = commandLine.find("fontsize");
         if (parsed != commandLine.end()) {
             option = parsed->second.c_str();
-        } else if ((option = getenv("ZUTTY_FONT_SIZE")) == nullptr) {
+        } else if ((option = getenv("SHITTY_FONT_SIZE")) == nullptr) {
             option = get("fontsize");
         }
         std::stringstream input(option != nullptr ? option : "");
@@ -206,7 +206,7 @@ namespace {
         const bool invalid = input.fail();
         input >> std::ws;
         if (invalid || !input.eof() || size < 1 || size > 255) {
-            throw std::runtime_error("-fontsize/ZUTTY_FONT_SIZE: expected integer within 1..255");
+            throw std::runtime_error("-fontsize/SHITTY_FONT_SIZE: expected integer within 1..255");
         }
         outFontsize = size;
     }
@@ -424,10 +424,10 @@ void Options::parse() {
 }
 
 void Options::printVersion() const {
-    std::cout << "Zutty " ZUTTY_VERSION "\n"
+    std::cout << "Shitty " SHITTY_VERSION "\n"
               << "Copyright (C) 2020 Tom Szilagyi\n\n"
               << "This program comes with ABSOLUTELY NO WARRANTY.\n"
-              << "Zutty is free software, and you are welcome to redistribute it\n"
+              << "Shitty is free software, and you are welcome to redistribute it\n"
               << "under the terms and conditions of the GNU GPL v3 (or later).\n"
               << std::endl;
 }
@@ -435,7 +435,7 @@ void Options::printVersion() const {
 void Options::printUsage() const {
     printVersion();
     std::cout << "Usage:\n"
-              << "  zutty [-option ...] [shell]\n\n"
+              << "  st [-option ...] [shell]\n\n"
               << "Options:\n";
     size_t maxWidth = 0;
     for (const auto& option : optionsTable) {

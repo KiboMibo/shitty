@@ -1,6 +1,6 @@
 import unittest
 
-from harness import Zutty, put_rows
+from harness import Shitty, put_rows
 
 
 def observable(snapshot):
@@ -16,7 +16,7 @@ class DefaultParameterMatrixTest(unittest.TestCase):
     def assert_variants_equal(self, prelude, *sequences, columns=12, rows=6):
         states = []
         for sequence in sequences:
-            with Zutty(columns=columns, rows=rows) as terminal:
+            with Shitty(columns=columns, rows=rows) as terminal:
                 terminal.write(prelude + sequence)
                 states.append(observable(terminal.snapshot()))
         for state in states[1:]:

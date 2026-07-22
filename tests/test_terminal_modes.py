@@ -1,11 +1,11 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 class TerminalModeTest(unittest.TestCase):
     def test_xterm_mode_40_gates_column_mode_changes(self):
-        with Zutty(columns=80, rows=4) as terminal:
+        with Shitty(columns=80, rows=4) as terminal:
             terminal.write(b"\x1b[?40$p\x1b[?3h")
             self.assertEqual(
                 terminal.read_input(),
@@ -17,16 +17,16 @@ class TerminalModeTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().columns, 132)
 
     def test_xterm_mode_41_wraps_pending_tab_before_tabulation(self):
-        with Zutty(columns=16, rows=3) as terminal:
+        with Shitty(columns=16, rows=3) as terminal:
             terminal.write(b"\x1b[?41h" + b"x" * 16 + b"\tX")
             self.assertEqual(terminal.snapshot().lines[1], " " * 8 + "X" + " " * 7)
 
-        with Zutty(columns=16, rows=3) as terminal:
+        with Shitty(columns=16, rows=3) as terminal:
             terminal.write(b"\x1b[?41l" + b"x" * 16 + b"\tX")
             self.assertEqual(terminal.snapshot().lines[1], "X" + " " * 15)
 
     def test_deccolm_resizes_and_clears_the_terminal_page(self):
-        with Zutty(columns=80, rows=24) as terminal:
+        with Shitty(columns=80, rows=24) as terminal:
             terminal.write(b"\x1b[?40hcontent\x1b[?3h")
             snapshot = terminal.snapshot()
             self.assertEqual((snapshot.columns, snapshot.rows), (132, 24))
@@ -40,7 +40,7 @@ class TerminalModeTest(unittest.TestCase):
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
 
     def test_conformance_state_exposes_screen_and_mode_vector(self):
-        with Zutty() as terminal:
+        with Shitty() as terminal:
             self.assertEqual(terminal.conformance_state(), {
                 "screen": "Primary",
                 "IRM": False,
@@ -77,21 +77,21 @@ class TerminalModeTest(unittest.TestCase):
             self.assertTrue(state["DECARM"])
 
     def test_decll_tracks_each_host_led_independently(self):
-        with Zutty() as terminal:
+        with Shitty() as terminal:
             terminal.write(b"\x1b[1;2;3q\x1b[22q")
             self.assertEqual(terminal.protocol_state()[1], 0b101)
             terminal.write(b"\x1b[q")
             self.assertEqual(terminal.protocol_state()[1], 0)
 
     def test_decscreen_mode_reverses_the_composed_display(self):
-        with Zutty() as terminal:
+        with Shitty() as terminal:
             terminal.write(b"\x1b[?5h")
             self.assertEqual(terminal.protocol_state()[0], 1)
             terminal.write(b"\x1b[?5l")
             self.assertEqual(terminal.protocol_state()[0], 0)
 
     def test_decnkm_controls_and_reports_numeric_keypad_mode(self):
-        with Zutty() as terminal:
+        with Shitty() as terminal:
             terminal.write(b"\x1b[?66$p")
             terminal.key("KP_1")
             self.assertEqual(terminal.read_input(), b"\x1b[?66;2$y1")
@@ -107,7 +107,7 @@ class TerminalModeTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"\x1b[?66;2$y1")
 
     def test_decscl_selects_protocol_levels_and_reports_vt420_up(self):
-        with Zutty() as terminal:
+        with Shitty() as terminal:
             terminal.write(b"\x1b[61;1\"p\x1b[4$p")
             self.assertEqual(terminal.read_input(), b"")
 
@@ -128,7 +128,7 @@ class TerminalModeTest(unittest.TestCase):
                     )
 
     def test_decscl_hard_resets_terminal_before_selecting_level(self):
-        with Zutty() as terminal:
+        with Shitty() as terminal:
             terminal.write(
                 b"text\x1b[6;7H\x1b7\x1b[4h"
                 b"\x1b[61\"p\x1b8X"
@@ -138,7 +138,7 @@ class TerminalModeTest(unittest.TestCase):
             self.assertEqual(snapshot.lines[0][:2], "X ")
 
     def test_decscl_gates_level_specific_sequences(self):
-        with Zutty(columns=10, rows=4) as terminal:
+        with Shitty(columns=10, rows=4) as terminal:
             terminal.write(
                 b"\x1b[63;1\"p\x1b[?69h\x1b[3;5s\x1b[1;5Habc"
             )
@@ -150,7 +150,7 @@ class TerminalModeTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().cursor_x, 4)
 
     def test_decncsm_preserves_page_only_at_vt500_level(self):
-        with Zutty(columns=80, rows=4) as terminal:
+        with Shitty(columns=80, rows=4) as terminal:
             terminal.write(
                 b"\x1b[64;1\"p\x1b[?95h\x1b[?95$p"
                 b"\x1b[?40hx\x1b[?3h"
@@ -171,7 +171,7 @@ class TerminalModeTest(unittest.TestCase):
             self.assertEqual(snapshot.lines[0][0], "x")
 
     def test_dec_mode_availability_reports_by_level(self):
-        with Zutty() as terminal:
+        with Shitty() as terminal:
             terminal.write(
                 b"\x1b[63;1\"p"
                 b"\x1b[?4$p\x1b[?8$p"
@@ -209,7 +209,7 @@ class TerminalModeTest(unittest.TestCase):
             )
 
     def test_meta_mode_sets_the_eighth_input_bit(self):
-        with Zutty() as terminal:
+        with Shitty() as terminal:
             terminal.write(b"\x1b[?1034h")
             terminal.char("a", modifiers=4)
             self.assertEqual(terminal.read_input(), b"\xe1")
@@ -218,7 +218,7 @@ class TerminalModeTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"\x1ba")
 
     def test_reverse_wrap_follows_soft_wrapped_lines_only(self):
-        with Zutty(columns=4, rows=3) as terminal:
+        with Shitty(columns=4, rows=3) as terminal:
             terminal.write(b"abcdX\x1b[?45h\x1b[2;1H\bY")
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.cell(3, 0).char, "Y")
@@ -227,12 +227,12 @@ class TerminalModeTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().cell(0, 2).char, "Z")
 
     def test_reverse_wrap_backspace_cancels_pending_wrap_first(self):
-        with Zutty(columns=8, rows=3) as terminal:
+        with Shitty(columns=8, rows=3) as terminal:
             terminal.write(b"\x1b[?7;45h\x1b[1;7Hab\b\x1b[6n")
             self.assertEqual(terminal.read_input(), b"\x1b[1;8R")
 
     def test_extended_reverse_wrap_crosses_hard_line_boundaries(self):
-        with Zutty(columns=4, rows=3) as terminal:
+        with Shitty(columns=4, rows=3) as terminal:
             terminal.write(b"\x1b[?45h\x1b[?1045h\x1b[3;1H\x1b[2DY")
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.cell(2, 1).char, "Y")

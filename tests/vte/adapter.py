@@ -10,7 +10,7 @@ from pathlib import Path
 TESTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TESTS))
 
-from harness import Zutty
+from harness import Shitty
 
 
 PARAMETER_SETS = (
@@ -68,7 +68,7 @@ def summarize(events):
 def run_batches(items, batch_size=BATCH_SIZE):
     checked = 0
     first_mismatch = None
-    with Zutty(columns=5, rows=5, save_lines=5) as terminal:
+    with Shitty(columns=5, rows=5, save_lines=5) as terminal:
         terminal.parser_trace_on()
         iterator = iter(items)
         while True:
@@ -98,7 +98,7 @@ def run_isolated(items):
     checked = 0
     first_mismatch = None
     for sequence, expected in items:
-        with Zutty(columns=5, rows=5, save_lines=5) as terminal:
+        with Shitty(columns=5, rows=5, save_lines=5) as terminal:
             terminal.parser_trace_on()
             terminal.write(sequence)
             actual = terminal.parser_trace()

@@ -1,1 +1,1 @@
-# Exact WezTerm screen checkpoints that currently disagree with Zutty.
+# Exact WezTerm screen checkpoints that currently disagree with Shitty.

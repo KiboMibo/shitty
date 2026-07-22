@@ -12,7 +12,7 @@ from pathlib import Path
 TESTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TESTS))
 
-from harness import Zutty
+from harness import Shitty
 
 
 LIVE_CASES = {
@@ -220,7 +220,7 @@ def run_pty_case(root, case):
         arguments.append("-n")
         columns = 132
         rows = 30
-    with Zutty(columns=columns, rows=rows, save_lines=500) as terminal:
+    with Shitty(columns=columns, rows=rows, save_lines=500) as terminal:
         terminal.spawn(*arguments)
         status, screen = terminal.wait_child(timeout=10)
         digest = terminal.model_digest()
@@ -234,7 +234,7 @@ def run_pty_case(root, case):
 
 
 def run_live_case(root, case):
-    with Zutty(
+    with Shitty(
         columns=80,
         rows=25,
         save_lines=500,
@@ -292,8 +292,8 @@ def main():
     if case in PREFIX_CASES:
         message = "chunking changed state"
         payload = generate_prefix(root, case)
-        with Zutty(columns=80, rows=25, save_lines=500) as whole, \
-             Zutty(columns=80, rows=25, save_lines=500) as chunked:
+        with Shitty(columns=80, rows=25, save_lines=500) as whole, \
+             Shitty(columns=80, rows=25, save_lines=500) as chunked:
             whole.write(payload)
             write_chunked(chunked, payload)
             mismatch = observable(whole) != observable(chunked)
@@ -310,8 +310,8 @@ def main():
         if case.endswith(".pl") and case not in PERL_GENERATOR_CASES:
             raise RuntimeError(f"unclassified xterm Perl scenario: {case}")
         payload = generate(root, case)
-        with Zutty(columns=80, rows=25, save_lines=500) as whole, \
-             Zutty(columns=80, rows=25, save_lines=500) as chunked:
+        with Shitty(columns=80, rows=25, save_lines=500) as whole, \
+             Shitty(columns=80, rows=25, save_lines=500) as chunked:
             whole.write(payload)
             write_chunked(chunked, payload)
             mismatch = observable(whole) != observable(chunked)

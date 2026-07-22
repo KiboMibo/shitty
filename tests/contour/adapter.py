@@ -10,7 +10,7 @@ from pathlib import Path
 TESTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TESTS))
 
-from harness import Zutty
+from harness import Shitty
 
 
 PROMPTS = (
@@ -159,7 +159,7 @@ def dump_screen(terminal):
     output.append(section_rule("lineflags"))
     for row, cells in enumerate(rows, 1):
         # Contour attaches LineFlag::Wrapped to the continuation line
-        # (Screen::crlfIfWrapPending), while Zutty attaches Cell::wrap to the
+        # (Screen::crlfIfWrapPending), while Shitty attaches Cell::wrap to the
         # preceding line's last cell. Translate the representation before
         # comparing Contour's internal-state goldens.
         wrapped = row > 1 and any(cell.wrapped for cell in rows[row - 2])
@@ -180,7 +180,7 @@ def difference(expected, actual, name):
         expected.splitlines(keepends=True),
         actual.splitlines(keepends=True),
         fromfile=name,
-        tofile="zutty.dump",
+        tofile="shitty.dump",
     ))
     if len(lines) > 120:
         lines = lines[:120] + ["... diff truncated ...\n"]
@@ -201,8 +201,8 @@ def run_scenario(binary, scenario, keys, data):
     child_output = ""
 
     # Contour records SGR intensity and palette indexes independently.  Disable
-    # Zutty's optional bold-to-bright display policy for the same model.
-    with Zutty(
+    # Shitty's optional bold-to-bright display policy for the same model.
+    with Shitty(
         columns=80,
         rows=24,
         save_lines=2000,

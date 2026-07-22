@@ -1,10 +1,10 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 def window_terminal():
-    return Zutty(
+    return Shitty(
         columns=10,
         rows=4,
         extra_arguments=("-allowWindowOps", "true"),
@@ -13,7 +13,7 @@ def window_terminal():
 
 class WindowOperationsTest(unittest.TestCase):
     def test_window_operations_are_disabled_by_default(self):
-        with Zutty(columns=10, rows=4) as terminal:
+        with Shitty(columns=10, rows=4) as terminal:
             terminal.write(b"\x9b2t\x1b[4;120;320t\x1b[11t")
             self.assertEqual(terminal.read_actions(), [])
             self.assertEqual(terminal.read_input(), b"")

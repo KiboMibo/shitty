@@ -1,11 +1,11 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 class ClipboardTest(unittest.TestCase):
     def test_primary_ownership_and_auto_copy_are_independent(self):
-        with Zutty() as terminal:
+        with Shitty() as terminal:
             terminal.set_system_clipboard(b"external")
             terminal.set_primary_selection(b"primary", auto_copy=False)
             self.assertEqual(terminal.get_selection(primary=True), b"primary")
@@ -16,7 +16,7 @@ class ClipboardTest(unittest.TestCase):
             self.assertEqual(terminal.get_selection(primary=False), b"mirrored")
 
     def test_osc52_writes_only_requested_owned_selections(self):
-        with Zutty() as terminal:
+        with Shitty() as terminal:
             terminal.set_primary_selection(b"old-primary")
             terminal.set_system_clipboard(b"old-clipboard")
             terminal.apply_clipboard_osc52(b"p;bmV3LXByaW1hcnk=")

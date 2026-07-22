@@ -9,7 +9,7 @@ The adapter preserves the upstream harness semantics: parser members are raw
 VT input, stream members discard their first path-selector byte, and OSC
 members use their first byte to select BEL, ST, or a missing terminator. Each
 member is fed whole and across deterministic parser boundaries. The oracle
-compares all externally observable streams and modes plus Zutty's rich model
+compares all externally observable streams and modes plus Shitty's rich model
 state; full cell records remain available for exact mismatch diagnostics.
 
 `upstream/stream_terminal_tests.zig` is the verbatim test section beginning at

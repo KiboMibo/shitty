@@ -1,6 +1,6 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 DEC_SPECIAL_SOURCE = b"`abcdefghijklmnopqrstuvwxyz{|}~"
@@ -24,7 +24,7 @@ NRC_CASES = (
 
 
 def line_after(output, columns=128):
-    with Zutty(columns=columns, rows=2) as terminal:
+    with Shitty(columns=columns, rows=2) as terminal:
         terminal.write(output)
         return terminal.snapshot().lines[0].rstrip()
 
@@ -177,7 +177,7 @@ class UnicodeCharsetMatrixTest(unittest.TestCase):
 
     def test_designation_and_invocation_survive_every_input_boundary(self):
         chunks = (b"\x1b", b"*", b"0", b"\x1b", b"N", b"q", b"A")
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write_chunks(*chunks)
             self.assertEqual(terminal.snapshot().lines[0][:2], "─A")
 

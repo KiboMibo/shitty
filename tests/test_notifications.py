@@ -1,12 +1,12 @@
 import base64
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 class NotificationProtocolTest(unittest.TestCase):
     def test_default_title_payload_dispatches_a_notification(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b]99;;Hello world\x1b\\")
 
             self.assertEqual(
@@ -15,7 +15,7 @@ class NotificationProtocolTest(unittest.TestCase):
             )
 
     def test_body_only_is_promoted_to_title(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b]99;p=body;Body only\x1b\\")
 
             self.assertEqual(
@@ -24,7 +24,7 @@ class NotificationProtocolTest(unittest.TestCase):
             )
 
     def test_plain_chunks_concatenate_until_done(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b]99;i=job:d=0;Build \x1b\\"
                 b"\x1b]99;i=job:d=0;is \x1b\\"
@@ -38,7 +38,7 @@ class NotificationProtocolTest(unittest.TestCase):
             )
 
     def test_base64_chunks_can_split_between_quartets(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b]99;i=job:e=1:d=0;QnV\x1b\\"
                 b"\x1b]99;i=job:e=1;pbGQ=\x1b\\"
@@ -50,7 +50,7 @@ class NotificationProtocolTest(unittest.TestCase):
             )
 
     def test_title_and_body_chunks_are_accumulated_independently(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b]99;i=job:p=title:d=0;Build\x1b\\"
                 b"\x1b]99;i=job:p=body:d=0;half \x1b\\"
@@ -63,7 +63,7 @@ class NotificationProtocolTest(unittest.TestCase):
             )
 
     def test_invalid_identifiers_are_rejected(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             for identifier in (b"bad=id", b"bad value", b"bad,comma"):
                 terminal.write(
                     b"\x1b]99;i=" + identifier + b";ignored\x1b\\"
@@ -72,14 +72,14 @@ class NotificationProtocolTest(unittest.TestCase):
             self.assertEqual(terminal.read_actions(), [])
 
     def test_invalid_known_metadata_values_are_rejected(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             for metadata in (b"d=2", b"d=yes", b"e=2", b"e=yes"):
                 terminal.write(b"\x1b]99;" + metadata + b";ignored\x1b\\")
 
             self.assertEqual(terminal.read_actions(), [])
 
     def test_unknown_metadata_key_is_ignored_for_extensibility(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b]99;z=future;Hello\x1b\\")
 
             self.assertEqual(
@@ -87,20 +87,20 @@ class NotificationProtocolTest(unittest.TestCase):
             )
 
     def test_unknown_payload_type_is_ignored(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b]99;i=job:p=future;ignored\x1b\\")
 
             self.assertEqual(terminal.read_actions(), [])
 
     def test_plain_and_base64_payloads_require_escape_safe_utf8(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b]99;;bad\xffutf8\x1b\\")
             terminal.write(b"\x1b]99;e=1;" + base64.b64encode(b"bad\xffutf8") + b"\x1b\\")
 
             self.assertEqual(terminal.read_actions(), [])
 
     def test_payload_chunk_limits_accept_2048_plain_and_4096_encoded(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b]99;;" + b"A" * 2048 + b"\x1b\\")
             plain = terminal.read_actions()
             self.assertEqual(len(plain), 1)
@@ -116,7 +116,7 @@ class NotificationProtocolTest(unittest.TestCase):
             )
 
     def test_payload_chunk_limits_reject_oversized_plain_and_encoded(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b]99;;" + b"A" * 2049 + b"\x1b\\")
             terminal.write(
                 b"\x1b]99;e=1;"
@@ -127,7 +127,7 @@ class NotificationProtocolTest(unittest.TestCase):
             self.assertEqual(terminal.read_actions(), [])
 
     def test_accumulated_payload_quota_is_8192_bytes(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             for _ in range(3):
                 terminal.write(b"\x1b]99;i=max:d=0;" + b"A" * 2048 + b"\x1b\\")
             terminal.write(b"\x1b]99;i=max;" + b"A" * 2048 + b"\x1b\\")
@@ -143,7 +143,7 @@ class NotificationProtocolTest(unittest.TestCase):
             self.assertEqual(terminal.read_actions(), [])
 
     def test_close_requires_a_live_nonempty_identifier(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b]99;p=close;\x1b\\"
                 b"\x1b]99;i=missing:p=close;\x1b\\"
@@ -161,7 +161,7 @@ class NotificationProtocolTest(unittest.TestCase):
             )
 
     def test_reusing_identifier_dispatches_an_update(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b]99;i=job;First\x1b\\"
                 b"\x1b]99;i=job;Second\x1b\\"
@@ -173,7 +173,7 @@ class NotificationProtocolTest(unittest.TestCase):
             )
 
     def test_capability_reply_declares_only_implemented_payloads(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b]99;i=query:p=?;\x1b\\")
 
             self.assertEqual(
@@ -182,7 +182,7 @@ class NotificationProtocolTest(unittest.TestCase):
             )
 
     def test_invalid_query_identifier_cannot_be_reflected(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b]99;i=bad=id:p=?;\x1b\\")
 
             self.assertEqual(terminal.read_input(), b"")

@@ -1,5 +1,5 @@
-/* This file is part of Zutty.
- * Copyright (C) 2026 Zutty contributors
+/* This file is part of Shitty.
+ * Copyright (C) 2026 Shitty contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -198,9 +198,9 @@ void VulkanPresenter::createInstance() {
 
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    appInfo.pApplicationName = "zutty";
-    appInfo.applicationVersion = VK_MAKE_VERSION(0, 14, 0);
-    appInfo.pEngineName = "zutty";
+    appInfo.pApplicationName = "shitty";
+    appInfo.applicationVersion = 0;
+    appInfo.pEngineName = "shitty";
     appInfo.engineVersion = VK_MAKE_VERSION(0, 2, 0);
     appInfo.apiVersion = VK_API_VERSION_1_1;
 

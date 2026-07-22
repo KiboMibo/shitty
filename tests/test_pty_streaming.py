@@ -1,7 +1,7 @@
 import errno
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 class PtyStreamingTest(unittest.TestCase):
@@ -13,7 +13,7 @@ class PtyStreamingTest(unittest.TestCase):
         )
         for fragment in fragments:
             with self.subTest(fragment=fragment):
-                with Zutty(columns=8, rows=2) as terminal:
+                with Shitty(columns=8, rows=2) as terminal:
                     terminal.write(b"\x1b[0m")
                     before = terminal.snapshot().refresh_count
                     terminal.script_pty_reads(
@@ -26,7 +26,7 @@ class PtyStreamingTest(unittest.TestCase):
                     )
 
     def test_synchronized_update_spans_multiple_pty_readiness_cycles(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             before = terminal.snapshot()
             terminal.script_pty_reads(
                 b"\x1b[?2026hfirst", ("error", errno.EAGAIN)
@@ -47,7 +47,7 @@ class PtyStreamingTest(unittest.TestCase):
             self.assertEqual(after.refresh_count, before.refresh_count + 1)
 
     def test_csi_split_across_readiness_cycles_keeps_parser_state(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.script_pty_reads(b"\x1b[3", ("error", errno.EAGAIN))
             self.assertFalse(terminal.read_pty())
             self.assertEqual(terminal.snapshot().lines[0], "        ")
@@ -60,7 +60,7 @@ class PtyStreamingTest(unittest.TestCase):
 
     def test_utf8_split_across_readiness_cycles_is_not_replaced(self):
         encoded = "界".encode()
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.script_pty_reads(encoded[:2], ("error", errno.EAGAIN))
             self.assertFalse(terminal.read_pty())
             self.assertEqual(terminal.snapshot().lines[0], "        ")
@@ -70,7 +70,7 @@ class PtyStreamingTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().cell(0, 0).char, "界")
 
     def test_osc_split_across_readiness_cycles_dispatches_only_when_complete(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.script_pty_reads(
                 b"\x1b]2;split title", ("error", errno.EAGAIN)
             )

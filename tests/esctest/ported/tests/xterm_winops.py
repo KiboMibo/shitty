@@ -20,21 +20,21 @@ class XtermWinopsTests(object):
     """Account for time needed by window manager to iconify/deiconify a
     window."""
     need_sleep = (escargs.args.expected_terminal in ["xterm"] and
-                  getattr(escargs.args, "annotation_terminal", None) != "zutty")
+                  getattr(escargs.args, "annotation_terminal", None) != "shitty")
     if need_sleep:
       time.sleep(1)
 
   def DelayAfterMove(self):
     """Account for time needed by window manager to move a window."""
     need_sleep = (escargs.args.expected_terminal in ["xterm"] and
-                  getattr(escargs.args, "annotation_terminal", None) != "zutty")
+                  getattr(escargs.args, "annotation_terminal", None) != "shitty")
     if need_sleep:
       time.sleep(0.1)
 
   def DelayAfterResize(self):
     """Account for time needed by window manager to resize a window."""
     need_sleep = (escargs.args.expected_terminal in ["xterm"] and
-                  getattr(escargs.args, "annotation_terminal", None) != "zutty")
+                  getattr(escargs.args, "annotation_terminal", None) != "shitty")
     if need_sleep:
       time.sleep(1)
 

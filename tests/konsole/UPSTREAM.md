@@ -8,6 +8,6 @@ The catalog statically extracts all 146 declarative ANSI and VT52 tokenizer
 input rows without compiling or executing Qt or Konsole. Every row is an
 independent build target and is compared whole versus bytewise across parser
 events and the full observable terminal state. VT52 rows include the DECANM
-reset needed to put Zutty in the upstream test's mode. Konsole's expected
+reset needed to put Shitty in the upstream test's mode. Konsole's expected
 internal token values and semantic screen/history/width assertions remain for
 a later adapter.

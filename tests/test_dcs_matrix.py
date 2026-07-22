@@ -1,6 +1,6 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 def hex_name(name):
@@ -15,7 +15,7 @@ class DcsMatrixTest(unittest.TestCase):
             "colors": b"256",
             "RGB": b"8",
         }
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             request = b";".join(hex_name(name) for name in expected)
             terminal.write(b"\x1bP+q" + request + b"\x1b\\")
 
@@ -32,7 +32,7 @@ class DcsMatrixTest(unittest.TestCase):
             )
 
     def test_xtgettcap_preserves_request_case_and_known_unknown_order(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1bP+q544e;626f677573;436F;524742\x1b\\")
 
             self.assertEqual(
@@ -44,7 +44,7 @@ class DcsMatrixTest(unittest.TestCase):
             )
 
     def test_xtgettcap_rejects_each_malformed_hex_name_independently(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1bP+q5;5g;544e;;436f\x1b\\")
 
             self.assertEqual(
@@ -57,7 +57,7 @@ class DcsMatrixTest(unittest.TestCase):
             )
 
     def test_xtgettcap_uses_selected_eight_bit_response_controls(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b G\x1bP+q436f;00\x1b\\")
 
             self.assertEqual(
@@ -68,7 +68,7 @@ class DcsMatrixTest(unittest.TestCase):
     def test_decudk_programs_every_defined_function_key(self):
         codes = (17, 18, 19, 20, 21, 23, 24, 25, 26, 28, 29, 31, 32, 33, 34)
         keys = tuple(f"F{number}" for number in range(6, 21))
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             definitions = b";".join(
                 f"{code}/{0x41 + index:02x}".encode()
                 for index, code in enumerate(codes)
@@ -80,7 +80,7 @@ class DcsMatrixTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"ABCDEFGHIJKLMNO")
 
     def test_decudk_default_parameters_clear_and_lock(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1bP|17/41\x1b\\")
             terminal.write(b"\x1bP1;1|17/42\x1b\\")
             terminal.key("F6")
@@ -88,7 +88,7 @@ class DcsMatrixTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"A")
 
     def test_decudk_clear_and_preserve_apply_to_the_whole_definition_set(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1bP0;1|17/41;18/42\x1b\\")
             terminal.write(b"\x1bP1;1|17/43\x1b\\")
             terminal.key("F6")
@@ -101,7 +101,7 @@ class DcsMatrixTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"\x1b[17~D")
 
     def test_decudk_lock_blocks_clear_and_programming(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1bP0;0|17/41\x1b\\")
             terminal.write(b"\x1bP0;1|17/42;18/43\x1b\\")
             terminal.key("F6")
@@ -118,7 +118,7 @@ class DcsMatrixTest(unittest.TestCase):
         )
         for request in malformed:
             with self.subTest(request=request):
-                with Zutty(columns=8, rows=2) as terminal:
+                with Shitty(columns=8, rows=2) as terminal:
                     terminal.write(b"\x1bP0;1|17/41\x1b\\")
                     terminal.write(b"\x1bP" + request + b"\x1b\\")
                     terminal.key("F6")
@@ -126,7 +126,7 @@ class DcsMatrixTest(unittest.TestCase):
                     self.assertEqual(terminal.read_input(), b"A")
 
     def test_decudk_ignores_bad_definitions_but_keeps_valid_siblings(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1bP0;1|"
                 b"17x/58;18/4;19/gg;22/59;20/5a;21;23/"
@@ -145,7 +145,7 @@ class DcsMatrixTest(unittest.TestCase):
             )
 
     def test_decudk_accepts_255_bytes_and_rejects_256(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1bP0;1|17/" + b"41" * 255 + b"\x1b\\")
             terminal.key("F6")
             self.assertEqual(terminal.read_input(), b"A" * 255)
@@ -155,7 +155,7 @@ class DcsMatrixTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"A" * 255)
 
     def test_decudk_empty_value_disables_a_programmed_key(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1bP0;1|17/41\x1b\\")
             terminal.write(b"\x1bP1;1|17/\x1b\\")
             terminal.key("F6")

@@ -1,11 +1,11 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 class ResizeSameGridPixelsTest(unittest.TestCase):
     def test_pixel_only_resize_preserves_grid_content_and_cursor(self):
-        with Zutty(columns=5, rows=3, glyph_px=4, glyph_py=8) as terminal:
+        with Shitty(columns=5, rows=3, glyph_px=4, glyph_py=8) as terminal:
             terminal.write(b"abc\r\ndef")
             before = terminal.snapshot()
             terminal.resize_pixels(25, 35)
@@ -18,7 +18,7 @@ class ResizeSameGridPixelsTest(unittest.TestCase):
             )
 
     def test_pixel_only_resize_preserves_history_view_and_selection(self):
-        with Zutty(
+        with Shitty(
             columns=5, rows=3, save_lines=5, glyph_px=4, glyph_py=8,
         ) as terminal:
             terminal.write(b"1\r\n2\r\n3\r\n4\r\n5")
@@ -32,7 +32,7 @@ class ResizeSameGridPixelsTest(unittest.TestCase):
             self.assertEqual(terminal.select_finish(), b"2")
 
     def test_pixel_only_resize_keeps_pty_grid_but_requests_refresh(self):
-        with Zutty(columns=5, rows=3, glyph_px=4, glyph_py=8) as terminal:
+        with Shitty(columns=5, rows=3, glyph_px=4, glyph_py=8) as terminal:
             before = terminal.snapshot().refresh_count
             terminal.resize_pixels(25, 35)
             after = terminal.snapshot().refresh_count
@@ -40,7 +40,7 @@ class ResizeSameGridPixelsTest(unittest.TestCase):
             self.assertGreater(after, before)
 
     def test_in_band_resize_reports_same_grid_for_pixel_only_change(self):
-        with Zutty(columns=5, rows=3, glyph_px=4, glyph_py=8) as terminal:
+        with Shitty(columns=5, rows=3, glyph_px=4, glyph_py=8) as terminal:
             terminal.write(b"\x1b[?2048h")
             self.assertEqual(terminal.read_input(), b"\x1b[48;3;5;24;20t")
             terminal.resize_pixels(25, 35)

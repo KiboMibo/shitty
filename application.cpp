@@ -1,4 +1,4 @@
-/* This file is part of Zutty.
+/* This file is part of Shitty.
  * Copyright (C) 2020 Tom Szilagyi
  *
  * This program is free software: you can redistribute it and/or modify
@@ -1467,8 +1467,8 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     if (opts.verbose) {
         opts.printVersion();
     }
-    if (setenv("ZUTTY_VERSION", ZUTTY_VERSION, 1) < 0) {
-        SYS_ERROR("setenv ZUTTY_VERSION");
+    if (setenv("SHITTY_VERSION", SHITTY_VERSION, 1) < 0) {
+        SYS_ERROR("setenv SHITTY_VERSION");
     }
     if (testFd >= 0) {
         return runTestMode(composer, *this, testFd, argc, argv);
@@ -1501,7 +1501,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     glfwWindowHint(GLFW_SCALE_FRAMEBUFFER, GLFW_TRUE);
-    glfwWindowHintString(GLFW_WAYLAND_APP_ID, "zutty");
+    glfwWindowHintString(GLFW_WAYLAND_APP_ID, "shitty");
 
     const int initialWidth = std::max(320, (int)(opts.nCols) * opts.fontsize / 2);
     const int initialHeight = std::max(200, (int)(opts.nRows) * opts.fontsize);

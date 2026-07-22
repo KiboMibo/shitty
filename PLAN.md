@@ -1,6 +1,6 @@
 ## Вердикт
 
-Текущая архитектура тестов zutty выбрана правильно: настоящий бинарь, реальный PTY, headless control socket и снимок публично наблюдаемого состояния. Заменять это набором C++-тестов, вызывающих internals, не надо. Такие unit-тесты полезны для parser primitives, но хуже фиксируют поведение терминала как системы.
+Текущая архитектура тестов shitty выбрана правильно: настоящий бинарь, реальный PTY, headless control socket и снимок публично наблюдаемого состояния. Заменять это набором C++-тестов, вызывающих internals, не надо. Такие unit-тесты полезны для parser primitives, но хуже фиксируют поведение терминала как системы.
 
 По объёму suite уже серьёзная: 61 файл, 628 Python-тестов, около 8 880 строк. Главный дефицит теперь не в количестве ручных сценариев, а в четырёх вещах:
 
@@ -11,11 +11,11 @@
 
 Нашёл также конкретную проблему в декларациях текущего покрытия:
 
-1. [differential.py](/home/pg/monorepo/zutty/tests/differential.py) фактически не differential: он посылает всего шесть запросов и отдельно проверяет формат ответов. Состояние экранов разных терминалов не сравнивается.
+1. [differential.py](/home/pg/monorepo/shitty/tests/differential.py) фактически не differential: он посылает всего шесть запросов и отдельно проверяет формат ответов. Состояние экранов разных терминалов не сравнивается.
 
 ## Что делают другие терминалы
 
-| Проект | Сильная сторона | Что взять для zutty |
+| Проект | Сильная сторона | Что взять для shitty |
 |---|---|---|
 | Ghostty | Огромное количество inline unit-тестов; отдельные AFL++ targets для parser, OSC и полного terminal stream; initial и coverage-minimized corpora. В текущем срезе 3 241 `test` declarations и 4 002 corpus-файла, хотя initial/cmin частично дублируются. [Fuzzer README](/home/pg/monorepo/tmp/terminal-repos/ghostty/test/fuzz-libghostty/README.md), [upstream](https://github.com/ghostty-org/ghostty) | Три отдельных native fuzz target: tokenizer, control strings, полный Vterm. Корпус сохранять и минимизировать по edge coverage. |
 | Kitty | 351 Python-тест и 198 Go-тестов: parser events, screen, scrollback, resize, keyboard, mouse, clipboard, notifications, graphics, fonts; включён Unicode `GraphemeBreakTest`. [kitty_tests](/home/pg/monorepo/tmp/terminal-repos/kitty/kitty_tests), [upstream](https://github.com/kovidgoyal/kitty/tree/master/kitty_tests) | Отдельно тестировать parser dispatch и screen effects; использовать официальные generated Unicode vectors и полную матрицу клавиатуры. |
@@ -30,7 +30,7 @@
 | Mosh | Два libFuzzer target и E2E harness: выполняет сценарий напрямую и через Mosh, затем сравнивает `tmux capture-pane`. [README](/home/pg/monorepo/tmp/terminal-repos/mosh/src/tests/README.md) | Сравнивать реальное приложение через эталонный и тестируемый путь; фиксировать resize и Unicode corner cases. |
 | foot | В текущем дереве нашёл только большой тест config parser; автоматических тестов terminal core/protocol не обнаружил. [tests](/home/pg/monorepo/tmp/terminal-repos/foot/tests) | Как источник поведения полезен только differential/manual, не как готовая suite. |
 
-Ghostty формулирует разумный порядок авторитетов: спецификация, затем xterm, затем поведение распространённых терминалов. Это важно: терминалы сознательно расходятся, поэтому слепое «zutty должен совпасть с Ghostty» неправильно. [Ghostty описывает свой xterm audit именно так](https://github.com/ghostty-org/ghostty).
+Ghostty формулирует разумный порядок авторитетов: спецификация, затем xterm, затем поведение распространённых терминалов. Это важно: терминалы сознательно расходятся, поэтому слепое «shitty должен совпасть с Ghostty» неправильно. [Ghostty описывает свой xterm audit именно так](https://github.com/ghostty-org/ghostty).
 
 ## Внешние conformance suites
 
@@ -47,7 +47,7 @@ Ghostty формулирует разумный порядок авторите�
 - часть визуальных свойств недоступна через checksum;
 - собственный «ideal» местами является мнением автора.
 
-Но для zutty это не мешает: наш snapshot богаче DECRQCRA. Полезно и запускать upstream suite целиком, и переносить её интересные вариации в native Python tests. [Локальная копия](/home/pg/monorepo/tmp/terminal-repos/esctest-fdo), [upstream](https://gitlab.freedesktop.org/terminal-wg/esctest).
+Но для shitty это не мешает: наш snapshot богаче DECRQCRA. Полезно и запускать upstream suite целиком, и переносить её интересные вариации в native Python tests. [Локальная копия](/home/pg/monorepo/tmp/terminal-repos/esctest-fdo), [upstream](https://gitlab.freedesktop.org/terminal-wg/esctest).
 
 ### vttest
 
@@ -87,9 +87,9 @@ Contour построил поверх него то, что нам нужно:
 
 [tack](https://invisible-island.net/ncurses/tack.html) проверяет соответствие реального терминала его terminfo description. Это отдельный слой: можно идеально реализовать протокол, но сломать приложения неверным `TERM`/terminfo.
 
-[vtebench](https://github.com/alacritty/vtebench) измеряет только скорость чтения PTY. Сам проект честно не измеряет latency, frame consistency или responsiveness. Для zutty нужен расширенный вариант.
+[vtebench](https://github.com/alacritty/vtebench) измеряет только скорость чтения PTY. Сам проект честно не измеряет latency, frame consistency или responsiveness. Для shitty нужен расширенный вариант.
 
-## Оценка текущего zutty
+## Оценка текущего shitty
 
 Сильные стороны:
 
@@ -129,7 +129,7 @@ Contour построил поверх него то, что нам нужно:
    Записи `bash/zsh`, `mc`, Codex, vim/neovim, tmux, htop, less/man, fzf. Формат должен хранить PTY bytes, geometry/resize events и snapshots в точках-barrier. Timing не должен определять correctness.
 
 5. Differential  
-   Один stream прогоняется через zutty, Ghostty, xterm.js/libvterm/Alacritty. Сравниваются normalized cells, cursor, modes, replies и scrollback. Различия попадают в явный allowlist с объяснением и выбранным oracle.
+   Один stream прогоняется через shitty, Ghostty, xterm.js/libvterm/Alacritty. Сравниваются normalized cells, cursor, modes, replies и scrollback. Различия попадают в явный allowlist с объяснением и выбранным oracle.
 
 6. Fuzz/property testing  
    Native persistent targets для parser, OSC/DCS и полного Vterm. Инварианты:
@@ -163,7 +163,7 @@ Contour построил поверх него то, что нам нужно:
 
 Из-за того что `/home/pg/repos` здесь является symlink на read-only `/home/pg/Downloads`, по согласованию всё лежит в [terminal-repos](/home/pg/monorepo/tmp/terminal-repos).
 
-Скачаны Ghostty, Kitty, Konsole, VTE, GNOME Terminal, Alacritty, foot, WezTerm, Contour, xterm, vttest, libvterm, esctest, Termless, iTerm2, xterm.js, Windows Terminal, Mosh, tmux, libtsm, ucs-detect, vtebench, wraptest и tack — каждый отдельным git checkout. Никаких изменений в zutty при исследовании не делал.
+Скачаны Ghostty, Kitty, Konsole, VTE, GNOME Terminal, Alacritty, foot, WezTerm, Contour, xterm, vttest, libvterm, esctest, Termless, iTerm2, xterm.js, Windows Terminal, Mosh, tmux, libtsm, ucs-detect, vtebench, wraptest и tack — каждый отдельным git checkout. Никаких изменений в shitty при исследовании не делал.
 
 Теперь приоритет меняется: сначала максимальный объём уже готового поведения за минимальную цену адаптации. Новые тесты с нуля пишем только после исчерпания чужих материалов.
 
@@ -173,7 +173,7 @@ Control interface — это расширяемый наблюдаемый API �
 
 1. Готовые fuzz/replay corpora без golden output
 
-   Их можно немедленно кормить zutty и проверять crash/hang/invariants/chunking:
+   Их можно немедленно кормить shitty и проверять crash/hang/invariants/chunking:
 
    - реальные streams из наших регрессий.
 
@@ -232,7 +232,7 @@ Control interface — это расширяемый наблюдаемый API �
 
 Таким образом, следующий практический этап: готовые fuzz corpora. `wraptest` и внешние suites идут сразу следом.
 
-На этапе импорта Zutty не исправляем. Сначала наращиваем всю доступную
+На этапе импорта Shitty не исправляем. Сначала наращиваем всю доступную
 тестовую массу. Текущие расхождения каждого внешнего case записываются в
 явный XFAIL baseline; неожиданный PASS считается XPASS и требует удалить
 устаревшую запись. Исправление выявленных проблем — отдельный следующий этап.
@@ -244,7 +244,7 @@ wide-cell markers, foreground/background/underline colors и их источни
 атрибуты, hyperlink, cursor/modes и любые другие содержательные поля. Не
 сводим богатый внешний oracle к одному тексту ради удобства adapter'а. Такие
 изменения добавляют тестовую наблюдаемость, но не исправляют найденное
-поведение Zutty во время массового импорта.
+поведение Shitty во время массового импорта.
 
 Я понимаю «погружение» так: внешний corpus не должен оставаться одним непрозрачным тестом вида «запусти всё и скажи pass/fail». По возможности каждый внешний case становится обычным узлом нашей build-системы.
 
@@ -317,7 +317,7 @@ for case in read("tests/xtermjs_files.txt").split():
 
 Реальные программы нужны только при генерации corpus. Обычный test run не
 запускает их, не зависит от их текущих версий и не ходит в сеть: он читает
-закоммиченный trace, подаёт его в Zutty и сравнивает финальное состояние с
+закоммиченный trace, подаёт его в Shitty и сравнивает финальное состояние с
 закоммиченным golden snapshot.
 
 Повторная генерация trace не обязана быть детерминированной. `htop`, `btop`,

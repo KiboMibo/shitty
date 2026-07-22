@@ -1,11 +1,11 @@
 import unittest
 
-from harness import Zutty, put_rows
+from harness import Shitty, put_rows
 
 
 class SelectionTest(unittest.TestCase):
     def test_linear_selection_returns_utf8_text(self):
-        with Zutty(columns=8, rows=3) as terminal:
+        with Shitty(columns=8, rows=3) as terminal:
             terminal.write(b"abc def\r\nghijk")
             terminal.select_start(1, 0)
             terminal.select_update(5, 0)
@@ -13,14 +13,14 @@ class SelectionTest(unittest.TestCase):
             self.assertEqual(terminal.select_finish(), b"bc d")
 
     def test_linear_selection_preserves_written_trailing_space(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"A ")
             terminal.select_start(0, 0)
             terminal.select_update(8, 0)
             self.assertEqual(terminal.select_finish(), b"A ")
 
     def test_rectangular_selection_returns_each_row_slice(self):
-        with Zutty(columns=8, rows=3) as terminal:
+        with Shitty(columns=8, rows=3) as terminal:
             terminal.write(b"abc def\r\nghijk")
             terminal.select_start(1, 0)
             terminal.select_rectangular()
@@ -30,7 +30,7 @@ class SelectionTest(unittest.TestCase):
             self.assertEqual(terminal.select_finish(), b"bc\nhi")
 
     def test_selection_survives_output_while_view_is_scrolled(self):
-        with Zutty(columns=8, rows=3, save_lines=8) as terminal:
+        with Shitty(columns=8, rows=3, save_lines=8) as terminal:
             terminal.write(b"one\r\ntwo\r\nthree\r\nfour")
             terminal.page_up()
             terminal.select_start(0, 0)
@@ -39,7 +39,7 @@ class SelectionTest(unittest.TestCase):
             self.assertEqual(terminal.select_finish(), b"one")
 
     def test_selection_in_fixed_rows_survives_partial_scroll(self):
-        with Zutty(columns=8, rows=6, save_lines=8) as terminal:
+        with Shitty(columns=8, rows=6, save_lines=8) as terminal:
             terminal.write(put_rows(b"A", b"B", b"C", b"D", b"E", b"F"))
             terminal.select_start(0, 5)
             terminal.select_update(1, 5)
@@ -50,7 +50,7 @@ class SelectionTest(unittest.TestCase):
             self.assertEqual(terminal.select_finish(), b"F")
 
     def test_clearing_history_invalidates_history_selection(self):
-        with Zutty(columns=8, rows=3, save_lines=8) as terminal:
+        with Shitty(columns=8, rows=3, save_lines=8) as terminal:
             terminal.write(b"one\r\ntwo\r\nthree\r\nfour")
             terminal.page_up()
             terminal.select_start(0, 0)
@@ -62,7 +62,7 @@ class SelectionTest(unittest.TestCase):
             self.assertEqual(terminal.select_finish(), b"")
 
     def test_drag_to_bottom_right_window_edge_selects_last_row(self):
-        with Zutty(columns=5, rows=2) as terminal:
+        with Shitty(columns=5, rows=2) as terminal:
             terminal.write(b"abcde\r\nfghij")
 
             terminal.button(0, True, x=2, y=2)
@@ -74,7 +74,7 @@ class SelectionTest(unittest.TestCase):
             )
 
     def test_resize_clears_selection_clipped_outside_new_grid(self):
-        with Zutty(columns=5, rows=3) as terminal:
+        with Shitty(columns=5, rows=3) as terminal:
             terminal.write(put_rows(b"A", b"B", b"C") + b"\x1b[H")
             terminal.select_start(0, 2)
             terminal.select_update(1, 2)

@@ -1,1 +1,1 @@
-# Exact Windows Terminal literal streams with chunking-dependent Zutty state.
+# Exact Windows Terminal literal streams with chunking-dependent Shitty state.

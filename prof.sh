@@ -2,9 +2,9 @@
 
 set -eu
 
-data="$HOME/zutty-20m.perf.data"
-report="$HOME/zutty-20m.perf.txt"
-binary="$(dirname "$0")/.build/zutty"
+data="$HOME/shitty-20m.perf.data"
+report="$HOME/shitty-20m.perf.txt"
+binary="$(dirname "$0")/.build/st"
 
 perf record \
     -e cycles:u \
@@ -16,7 +16,7 @@ perf record \
 perf report \
     -i "$data" \
     --stdio \
-    --comms zutty \
+    --comms st \
     --no-children \
     --percent-limit 0.2 \
     -g graph,0.5,caller \

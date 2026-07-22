@@ -1,11 +1,11 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 class DamageOnlyFrameTest(unittest.TestCase):
     def test_resize_between_failed_present_and_retry_rebuilds_full_frame(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"before")
             before = terminal.snapshot()
             terminal.fail_next_present()
@@ -19,7 +19,7 @@ class DamageOnlyFrameTest(unittest.TestCase):
             self.assertEqual(retried.refresh_count, before.refresh_count + 1)
 
     def test_cursor_only_change_publishes_without_cell_damage(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"abcd")
             before = terminal.snapshot()
             terminal.write(b"\x1b[2D")
@@ -30,7 +30,7 @@ class DamageOnlyFrameTest(unittest.TestCase):
             self.assertEqual(after.refresh_count, before.refresh_count + 1)
 
     def test_selection_only_change_publishes_without_cell_damage(self):
-        with Zutty(columns=8, rows=2) as terminal:
+        with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"selection")
             terminal.select_start(0, 0)
             before = terminal.snapshot()

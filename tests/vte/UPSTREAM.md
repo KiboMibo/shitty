@@ -5,7 +5,7 @@
 LGPLv3-or-later; its license and VTE's license note are preserved here.
 
 The adapter recreates VTE's generated ESC, CSI, DCS, parameter, recovery, and
-OSC matrices and feeds them to the real Zutty parser. Small axes are exhaustive;
+OSC matrices and feeds them to the real Shitty parser. Small axes are exhaustive;
 the largest Cartesian products retain every value on each axis with pairwise
 and boundary combinations so routine tests stay bounded. Streams are drained
 in bounded batches and every generated sequence is checked. Each
@@ -17,5 +17,5 @@ remain local.
 The width adapter extracts its explicit Unicode ranges and points for ambiguous
 width 1, splits large ranges at 256-codepoint boundaries, and verifies 930
 codepoints through the terminal's standard CPR reply. VTE's GLib comparison
-and ambiguous-width-2 assertions are deferred because Zutty does not expose a
+and ambiguous-width-2 assertions are deferred because Shitty does not expose a
 CJK ambiguous-width setting.

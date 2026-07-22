@@ -1,5 +1,5 @@
-/* This file is part of Zutty.
- * Copyright (C) 2026 Zutty contributors
+/* This file is part of Shitty.
+ * Copyright (C) 2026 Shitty contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by

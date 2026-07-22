@@ -1,11 +1,11 @@
 import unittest
 
-from harness import Zutty
+from harness import Shitty
 
 
 class ResizeWideGraphemeTest(unittest.TestCase):
     def test_shrink_never_leaves_wide_lead_without_continuation(self):
-        with Zutty(columns=5, rows=2) as terminal:
+        with Shitty(columns=5, rows=2) as terminal:
             terminal.write("abc界".encode())
             terminal.resize(4, 2)
             snapshot = terminal.snapshot()
@@ -14,7 +14,7 @@ class ResizeWideGraphemeTest(unittest.TestCase):
             self.assertFalse(snapshot.cell(3, 0).double_width_continuation)
 
     def test_shrink_keeps_a_complete_wide_cell(self):
-        with Zutty(columns=6, rows=2) as terminal:
+        with Shitty(columns=6, rows=2) as terminal:
             terminal.write("ab界cd".encode())
             terminal.resize(4, 2)
             snapshot = terminal.snapshot()
@@ -24,7 +24,7 @@ class ResizeWideGraphemeTest(unittest.TestCase):
 
     def test_grapheme_payload_survives_width_and_height_resize(self):
         cluster = "👩\N{ZERO WIDTH JOINER}💻"
-        with Zutty(columns=8, rows=3, save_lines=4) as terminal:
+        with Shitty(columns=8, rows=3, save_lines=4) as terminal:
             terminal.write(("a" + cluster + "b\r\nsecond\r\nthird").encode())
             terminal.resize(6, 2)
             terminal.resize(9, 4)

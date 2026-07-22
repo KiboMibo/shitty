@@ -1,19 +1,19 @@
 import unittest
 
-from harness import Zutty, run_startup_failure
+from harness import Shitty, run_startup_failure
 
 
 class OptionTest(unittest.TestCase):
     def test_shell_and_login_argv_are_built_from_selected_executable(self):
-        with Zutty(extra_arguments=("-shell", "/bin/sh")) as terminal:
+        with Shitty(extra_arguments=("-shell", "/bin/sh")) as terminal:
             self.assertEqual(terminal.launch_command(), ("/bin/sh", ["sh"]))
 
-        with Zutty(
+        with Shitty(
             extra_arguments=("-shell", "/bin/sh", "-login")
         ) as terminal:
             self.assertEqual(terminal.launch_command(), ("/bin/sh", ["-sh"]))
 
-        with Zutty(
+        with Shitty(
             extra_arguments=("-shell", "/bin/sh", "/bin/bash")
         ) as terminal:
             self.assertEqual(
@@ -21,7 +21,7 @@ class OptionTest(unittest.TestCase):
                 ("/bin/bash", ["bash"]),
             )
 
-        with Zutty(
+        with Shitty(
             extra_arguments=("-login", "-e", "/tmp/tool", "one", "two")
         ) as terminal:
             self.assertEqual(
@@ -38,14 +38,14 @@ class OptionTest(unittest.TestCase):
             "-unknown",
             "plain argument",
         )
-        with Zutty(
+        with Shitty(
             extra_arguments=("-fontsize", "18", "-e", *command)
         ) as terminal:
             self.assertEqual(terminal.options()["fontsize"], 18)
             self.assertEqual(terminal.argv()[1:], ["-e", *command])
 
     def test_geometry_accepts_valid_grid_and_rejects_invalid_or_overflow(self):
-        with Zutty(extra_arguments=("-geometry", "7x3")) as terminal:
+        with Shitty(extra_arguments=("-geometry", "7x3")) as terminal:
             options = terminal.options()
             self.assertEqual((options["columns"], options["rows"]), (7, 3))
 
@@ -58,7 +58,7 @@ class OptionTest(unittest.TestCase):
                 self.assertIn(b"-geometry", result.stdout)
 
     def test_colors_accept_short_and_full_rgb_and_reverse_swaps_defaults(self):
-        with Zutty(
+        with Shitty(
             extra_arguments=(
                 "-fg", "#1aF", "-bg", "010203", "-cr", "#abcdef"
             )
@@ -68,7 +68,7 @@ class OptionTest(unittest.TestCase):
             self.assertEqual(options["bg"], 0x010203)
             self.assertEqual(options["cr"], 0xABCDEF)
 
-        with Zutty(
+        with Shitty(
             extra_arguments=("-fg", "#123", "-bg", "#456", "-rv")
         ) as terminal:
             options = terminal.options()
@@ -83,7 +83,7 @@ class OptionTest(unittest.TestCase):
                 self.assertIn(b"-fg", result.stdout)
 
     def test_boolean_minus_plus_and_advanced_values(self):
-        with Zutty(
+        with Shitty(
             extra_arguments=(
                 "-altScroll", "+boldColors", "-autoCopy",
                 "-allowOsc52Read", "true",
@@ -104,7 +104,7 @@ class OptionTest(unittest.TestCase):
         self.assertIn(b"expected true or false", result.stdout)
 
     def test_unique_abbreviations_work_and_ambiguous_ones_fail(self):
-        with Zutty(
+        with Shitty(
             extra_arguments=("-fontsi", "19", "-geom", "7x3", "-altS")
         ) as terminal:
             options = terminal.options()
@@ -130,12 +130,12 @@ class OptionTest(unittest.TestCase):
     def test_font_size_accepts_inclusive_one_and_255_boundaries(self):
         for value in (1, 255):
             with self.subTest(source="cli", value=value):
-                with Zutty(
+                with Shitty(
                     extra_arguments=("-fontsize", str(value))
                 ) as terminal:
                     self.assertEqual(terminal.options()["fontsize"], value)
             with self.subTest(source="env", value=value):
-                with Zutty(font_size_env=str(value)) as terminal:
+                with Shitty(font_size_env=str(value)) as terminal:
                     self.assertEqual(terminal.options()["fontsize"], value)
 
     def test_font_size_rejects_values_outside_byte_range(self):
@@ -167,16 +167,16 @@ class OptionTest(unittest.TestCase):
 
         result = run_startup_failure(font_size_env="16wat")
         self.assertEqual(result.returncode, 255)
-        self.assertIn(b"ZUTTY_FONT_SIZE", result.stdout)
+        self.assertIn(b"SHITTY_FONT_SIZE", result.stdout)
 
     def test_font_size_source_priority_is_cli_then_env_then_default(self):
-        with Zutty(font_size_env=None) as terminal:
+        with Shitty(font_size_env=None) as terminal:
             self.assertEqual(terminal.options()["fontsize"], 16)
 
-        with Zutty(font_size_env="23") as terminal:
+        with Shitty(font_size_env="23") as terminal:
             self.assertEqual(terminal.options()["fontsize"], 23)
 
-        with Zutty(
+        with Shitty(
             font_size_env="23",
             extra_arguments=("-fontsize", "31"),
         ) as terminal:
