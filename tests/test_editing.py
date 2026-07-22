@@ -251,6 +251,13 @@ class EditingTest(unittest.TestCase):
             terminal.write(b"A\x1b[5b")
             self.assertEqual(terminal.snapshot().lines[0], "AAAAAA  ")
 
+    def test_repeat_ignores_zero_width_preceding_character(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write("e\N{COMBINING ACUTE ACCENT}\x1b[b".encode())
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.cell(0, 0).grapheme, (ord("e"), 0x301))
+            self.assertEqual(snapshot.cell(1, 0).char, " ")
+
     def test_forward_and_backward_tabulation(self):
         with Zutty(columns=20, rows=2) as terminal:
             terminal.write(b"\x1b[2IX\x1b[20G\x1b[2ZY")

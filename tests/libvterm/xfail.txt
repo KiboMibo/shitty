@@ -34,6 +34,13 @@
 22state_save.test
 25state_input.test
 26state_query.test
+# For `e` plus U+0301 followed by REP, libvterm repeats the complete grapheme.
+# Xterm 410 CASE_REP checks CharWidth(lastchar) > 0 and ignores REP when the
+# immediately preceding character is a zero-width combining mark.  Zutty
+# follows xterm; the fixture therefore expects an extra cell which must not be
+# produced.  Its other reported mismatch is a callback-time putglyph assertion
+# observed through this adapter's final-cell model after later overwrite.
+# https://invisible-island.net/archives/xterm/xterm-410.tgz
 31state_rep.test
 40state_selection.test
 # Same five-combining-mark internal limit documented for 10state_putglyph;

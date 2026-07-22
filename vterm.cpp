@@ -2699,7 +2699,8 @@ void VtermImpl::csi_CBT() {
 
 void VtermImpl::csi_REP() {
     TRACE_FUN;
-    if (!utf8dec.getUnicode()) {
+    const u32 preceding = utf8dec.getUnicode();
+    if (!preceding || wcwidth(preceding) == 0) {
         setState(InputState::Normal);
         return;
     }
