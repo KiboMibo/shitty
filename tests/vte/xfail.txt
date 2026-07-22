@@ -33,4 +33,7 @@ osc_controls_1_default_bel
 # This default introducer resolves to 8-bit OSC.  ECMA-48 does not require
 # rejection of the 7-bit ST form; xterm and Zutty deliberately accept it.
 osc_controls_1_default_c0
+# ECMA-48 5.6 specifies OSC syntax but no maximum string length.  This fixture
+# tests VTE's private 4096-codepoint cap; Zutty deliberately allows 1 MiB and
+# separately tests dispatch at that exact byte limit and discard above it.
 osc_oversize
