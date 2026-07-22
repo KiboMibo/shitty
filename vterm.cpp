@@ -67,6 +67,8 @@ void MouseTrackingState::setEncoding(MouseTrackingEnc value) {
 }
 
 namespace {
+    const TerminalCell blankCell;
+
     bool decodeHex(const std::string& value, std::string& result) {
         const auto digit = [](unsigned char ch) -> int {
             if (ch >= '0' && ch <= '9') {
@@ -168,7 +170,7 @@ namespace {
 
         bool readPty();
         bool servicePty(bool readable, bool writable);
-        void feedPtyOutput(const std::string& output);
+        void feedPtyOutput(const u8* data, size_t size);
         void setParserTrace(VtermTrace* trace);
 
         const MouseTrackingState& getMouseTrackingState() const;
@@ -200,7 +202,6 @@ namespace {
         bool processInput(const u8* input, int size, bool refresh = true);
         template <bool traced>
         bool processInputImpl(const u8* input, int size, bool refresh);
-        bool processInput(const std::string& str);
 
         struct PresentationState {
             Frame* frame;
@@ -292,6 +293,7 @@ namespace {
         void moveRangeInRow(u16 row, u16 dst, u16 src, u16 count);
         void clearWideCellsAtBoundary(u16 row, u16 boundary);
         void repairWideCellsAtBoundary(u16 row, u16 boundary);
+        TerminalCell* prepareSpanAt(u16 row, u16 start, u16 count);
         TerminalCell& prepareCellAt(u16 row, u16 column);
         void eraseEcmaRangeInRow(u16 row, u16 start, u16 count);
         void eraseEcmaRow(u16 row);
@@ -310,6 +312,7 @@ namespace {
         void hideCursor();
         void inputGraphicChar(unsigned char ch);
         void placeGraphicChar();
+        void placeGraphicChar(bool graphemeBoundary);
         void placeAsciiRun(const u8* input, size_t size);
         void resetGraphemeInput();
         void widenInputGrapheme(u16 lineCols);
@@ -1441,8 +1444,9 @@ bool VtermImpl::isCursorInsideMargins() {
 void VtermImpl::eraseRow(u16 pY) {
     eraseRangeInRow(pY, hMargin, nColsEff - hMargin);
     if (hMargin == 0 && nColsEff == nCols) {
+        TerminalCell* cells = cf->writeSpan(pY, 0, nCols);
         for (u16 x = 0; x < nCols; ++x) {
-            cf->getCell(pY, x).line_attr = 0;
+            cells[x].line_attr = 0;
         }
     }
 }
@@ -1466,9 +1470,13 @@ void VtermImpl::copyRow(u16 dstY, u16 srcY) {
 }
 
 void VtermImpl::insertRows(u16 startY, u16 count) {
-    for (u16 pY = marginBottom - count; pY > startY;) {
-        --pY;
-        copyRow(pY + count, pY);
+    if (hMargin == 0 && nColsEff == nCols) {
+        cf->rotateRowsDown(startY, marginBottom, count);
+    } else {
+        for (u16 pY = marginBottom - count; pY > startY;) {
+            --pY;
+            copyRow(pY + count, pY);
+        }
     }
 
     for (u16 pY = startY; pY < startY + count; ++pY) {
@@ -1477,8 +1485,12 @@ void VtermImpl::insertRows(u16 startY, u16 count) {
 }
 
 void VtermImpl::deleteRows(u16 startY, u16 count) {
-    for (u16 pY = startY; pY < marginBottom - count; ++pY) {
-        copyRow(pY, pY + count);
+    if (hMargin == 0 && nColsEff == nCols) {
+        cf->rotateRowsUp(startY, marginBottom, count);
+    } else {
+        for (u16 pY = startY; pY < marginBottom - count; ++pY) {
+            copyRow(pY, pY + count);
+        }
     }
 
     for (u16 pY = marginBottom - count; pY < marginBottom; ++pY) {
@@ -1501,7 +1513,7 @@ void VtermImpl::deleteCols(u16 startX, u16 count) {
 }
 
 TerminalCell VtermImpl::eraseCell() const {
-    TerminalCell cell;
+    TerminalCell cell = blankCell;
     cell.fg = attrs.fg;
     cell.bg = attrs.bg;
     if (opts.boldColors && attrs.bold && fgPalIx >= 0 && fgPalIx <= 7) {
@@ -1512,39 +1524,42 @@ TerminalCell VtermImpl::eraseCell() const {
 }
 
 void VtermImpl::clearWideCellsAtBoundary(u16 row, u16 boundary) {
-    const Frame& frame = *cf;
-    const bool clearLeft = boundary > 0 && frame.getCell(row, boundary - 1).dwidth;
-    const bool clearRight = boundary < nCols && frame.getCell(row, boundary).dwidth_cont;
-    if (clearLeft) {
-        cf->eraseInRow(row, boundary - 1, 1, eraseCell());
+    const TerminalCell* cells = cf->getRow(row);
+    if ((boundary == 0 || !cells[boundary - 1].dwidth) &&
+        (boundary == nCols || !cells[boundary].dwidth_cont)) {
+        return;
     }
-    if (clearRight) {
-        cf->eraseInRow(row, boundary, 1, eraseCell());
-    }
+    cf->clearWideBoundary(row, boundary, eraseCell());
 }
 
 void VtermImpl::repairWideCellsAtBoundary(u16 row, u16 boundary) {
-    const Frame& frame = *cf;
-    const bool leftLead = boundary > 0 && frame.getCell(row, boundary - 1).dwidth;
-    const bool rightContinuation = boundary < nCols && frame.getCell(row, boundary).dwidth_cont;
-    if (leftLead != rightContinuation) {
-        if (leftLead) {
-            cf->eraseInRow(row, boundary - 1, 1, eraseCell());
-        }
-        if (rightContinuation) {
-            cf->eraseInRow(row, boundary, 1, eraseCell());
-        }
+    const TerminalCell* cells = cf->getRow(row);
+    const bool leftLead = boundary > 0 && cells[boundary - 1].dwidth;
+    const bool rightContinuation = boundary < nCols && cells[boundary].dwidth_cont;
+    if (leftLead == rightContinuation) {
+        return;
     }
+    cf->repairWideBoundary(row, boundary, eraseCell());
+}
+
+TerminalCell* VtermImpl::prepareSpanAt(u16 row, u16 start, u16 count) {
+    const u16 end = start + count;
+    const TerminalCell* cells = cf->getRow(row);
+    const bool splitLeft = start > 0 &&
+        (cells[start - 1].dwidth || cells[start].dwidth_cont);
+    const bool splitRight = end < nCols &&
+        (cells[end - 1].dwidth || cells[end].dwidth_cont);
+    if (!splitLeft && !splitRight) {
+        return cf->writeSpan(row, start, count);
+    }
+    return cf->overwriteSpan(row, start, count, eraseCell());
 }
 
 void VtermImpl::eraseRangeInRow(u16 row, u16 start, u16 count) {
     if (!count) {
         return;
     }
-    const u16 end = start + count;
-    clearWideCellsAtBoundary(row, start);
-    clearWideCellsAtBoundary(row, end);
-    cf->eraseInRow(row, start, count, eraseCell());
+    cf->eraseWideInRow(row, start, count, eraseCell());
 }
 
 void VtermImpl::eraseEcmaRangeInRow(u16 row, u16 start, u16 count) {
@@ -1572,8 +1587,9 @@ void VtermImpl::eraseEcmaRow(u16 row) {
     }
     eraseEcmaRangeInRow(row, 0, nCols);
     if (!retained) {
+        TerminalCell* cells = cf->writeSpan(row, 0, nCols);
         for (u16 column = 0; column < nCols; ++column) {
-            cf->getCell(row, column).line_attr = 0;
+            cells[column].line_attr = 0;
         }
     }
 }
@@ -1602,14 +1618,13 @@ void VtermImpl::moveRangeInRow(u16 row, u16 dst, u16 src, u16 count) {
 }
 
 TerminalCell& VtermImpl::prepareCellAt(u16 row, u16 column) {
-    const Frame& frame = *cf;
-    const auto& cell = frame.getCell(row, column);
+    const TerminalCell& cell = cf->getRow(row)[column];
     if (cell.dwidth_cont) {
         clearWideCellsAtBoundary(row, column);
     } else if (cell.dwidth) {
         clearWideCellsAtBoundary(row, column + 1);
     }
-    return cf->getCell(row, column);
+    return *cf->writeSpan(row, column, 1);
 }
 
 void VtermImpl::rectangleOrigin(u16& rowBase, u16& columnBase, u16& rowLimit, u16& columnLimit) const {
@@ -1755,6 +1770,14 @@ void VtermImpl::narrowInputGrapheme() {
 
 void VtermImpl::placeGraphicChar() {
     auto pt = utf8dec.getUnicode();
+    if (inputGraphemeFrame != cf) {
+        inputGraphemeBreaker.reset();
+    }
+    placeGraphicChar(inputGraphemeBreaker.breakBefore(pt));
+}
+
+void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
+    auto pt = utf8dec.getUnicode();
     auto w = pt >= 0x20 && pt < 0x7f ? 1 : codepointWidth(pt);
 
     const u8 lineAttribute = ((const Frame&)*cf).getCell(posY, 0).line_attr;
@@ -1762,10 +1785,6 @@ void VtermImpl::placeGraphicChar() {
         ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2)
         : nColsEff;
 
-    if (inputGraphemeFrame != cf) {
-        inputGraphemeBreaker.reset();
-    }
-    const bool graphemeBoundary = inputGraphemeBreaker.breakBefore(pt);
     if (inputGraphemeFrame == cf && !graphemeBoundary) {
         const u32 previous = inputGrapheme.empty()
             ? inputGraphemeBase : inputGrapheme.data()[inputGrapheme.size() - 1];
@@ -1863,18 +1882,21 @@ void VtermImpl::placeGraphicChar() {
 }
 
 void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
-    if (size == 0) {
-        return;
-    }
-
-    utf8dec.setUnicode(*input++);
-    placeGraphicChar();
-    --size;
-
     while (size > 0) {
         if (insertMode) {
             utf8dec.setUnicode(*input++);
             placeGraphicChar();
+            --size;
+            continue;
+        }
+        if (inputGraphemeFrame != cf) {
+            inputGraphemeBreaker.reset();
+        }
+        const u32 firstCodepoint = *input;
+        const bool graphemeBoundary = inputGraphemeBreaker.breakBefore(firstCodepoint);
+        if (!graphemeBoundary) {
+            utf8dec.setUnicode(*input++);
+            placeGraphicChar(false);
             --size;
             continue;
         }
@@ -1884,24 +1906,20 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
             inp_LF();
         }
 
-        const Frame& frame = *cf;
-        const u8 lineAttribute = frame.getCell(posY, 0).line_attr;
+        const u8 lineAttribute = cf->getRow(posY)[0].line_attr;
         const u16 lineCols = lineAttribute
             ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2)
             : nColsEff;
         if (posX >= lineCols) {
             utf8dec.setUnicode(*input++);
-            placeGraphicChar();
+            placeGraphicChar(graphemeBoundary);
             --size;
             continue;
         }
         const u16 count = std::min<size_t>(size, lineCols - posX);
         const u16 startX = posX;
         const u16 endX = startX + count;
-        clearWideCellsAtBoundary(posY, startX);
-        clearWideCellsAtBoundary(posY, endX);
-
-        TerminalCell* cells = cf->writeSpan(posY, startX, count);
+        TerminalCell* cells = prepareSpanAt(posY, startX, count);
         for (u16 index = 0; index < count; ++index) {
             auto& cell = cells[index];
             cell = attrs;
@@ -7165,7 +7183,8 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
 
     logT << "pty write: " << dumpBuffer(ucstr, ucstr + len);
     if (userInput && localEcho) {
-        processInput(getLocalEcho(ucstr, ucstr + len));
+        const std::string localEcho = getLocalEcho(ucstr, ucstr + len);
+        processInput((const u8*)localEcho.data(), (int)localEcho.size());
     }
     if (ptyOutputOffset == ptyOutput.size()) {
         ptyOutput.clear();
@@ -7409,13 +7428,8 @@ void VtermImpl::syncPresentationCursor() {
     cf->setCursorStyle(showCursorMode ? (hasFocus ? cursorShape : CS::hollow_block) : CS::hidden);
 }
 
-bool VtermImpl::processInput(const std::string& str) {
-    const std::u8string input(str.begin(), str.end());
-    return processInput(input.data(), (int)input.size());
-}
-
-void VtermImpl::feedPtyOutput(const std::string& output) {
-    processInput(output);
+void VtermImpl::feedPtyOutput(const u8* data, size_t size) {
+    processInput(data, (int)size);
 }
 
 void VtermImpl::setParserTrace(VtermTrace* trace) {

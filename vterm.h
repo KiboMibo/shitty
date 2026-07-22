@@ -214,7 +214,7 @@ struct Vterm {
 
     virtual bool readPty() = 0;
     virtual bool servicePty(bool readable, bool writable) = 0;
-    virtual void feedPtyOutput(const std::string& output) = 0;
+    virtual void feedPtyOutput(const u8* data, size_t size) = 0;
     virtual void setParserTrace(VtermTrace* trace) = 0;
 
     virtual const MouseTrackingState& getMouseTrackingState() const = 0;

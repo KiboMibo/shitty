@@ -58,6 +58,18 @@ class UnicodeGraphemeMatrixTest(unittest.TestCase):
                     terminal.select_update(2, 0)
                     self.assertEqual(terminal.select_finish(), sample.encode())
 
+    def test_ascii_run_preserves_prepend_across_input_chunks(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write("\u06dd".encode())
+            terminal.write(b"ASCII")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cursor_x, 6)
+            self.assertTrue(snapshot.cell(0, 0).double_width)
+            self.assertTrue(snapshot.cell(1, 0).double_width_continuation)
+            terminal.select_start(0, 0)
+            terminal.select_update(2, 0)
+            self.assertEqual(terminal.select_finish(), "\u06ddA".encode())
+
     def test_regional_indicators_pair_by_parity(self):
         flags = "🇦🇧🇨🇩"
         with Zutty(columns=8, rows=2) as terminal:

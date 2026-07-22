@@ -129,6 +129,18 @@ class EditingTest(unittest.TestCase):
                                 snapshot.cell(column - 1, 0).double_width
                             )
 
+    def test_ascii_run_overwrites_both_kinds_of_wide_cell_boundary(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write("A界B界C".encode())
+            terminal.write(b"\x1b[1;3HXYZ")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "A XYZ C ")
+            for column in range(8):
+                self.assertFalse(snapshot.cell(column, 0).double_width)
+                self.assertFalse(
+                    snapshot.cell(column, 0).double_width_continuation
+                )
+
     def test_erase_characters_and_line(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"abcdefgh\x1b[1;3H\x1b[3X")
@@ -192,6 +204,34 @@ class EditingTest(unittest.TestCase):
                 terminal.snapshot().lines,
                 ["one  ", "two  ", "three", "     "],
             )
+
+    def test_full_width_line_edits_move_complete_cell_state(self):
+        with Zutty(columns=6, rows=4) as terminal:
+            terminal.write(
+                b"\x1b[1;1Hplain"
+                b"\x1b[2;1H\x1b[1;3;4;31m"
+                + "界".encode()
+                + b"B\x1b]8;;https://example.com\x1b\\H"
+                b"\x1b[0m\x1b]8;;\x1b\\"
+                b"\x1b[3;1Hthird"
+                b"\x1b[4;1Hfourth"
+                b"\x1b[2;1H\x1b[L"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["plain ", "      ", "界 BH  ", "third "])
+            moved = snapshot.cell(0, 2)
+            self.assertTrue(moved.double_width)
+            self.assertTrue(moved.bold)
+            self.assertTrue(moved.italic)
+            self.assertTrue(moved.underline)
+            self.assertEqual(moved.foreground, (255, 0, 0))
+            self.assertNotEqual(snapshot.cell(3, 2).hyperlink, 0)
+
+            terminal.write(b"\x1b[2;1H\x1b[M")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["plain ", "界 BH  ", "third ", "      "])
+            self.assertTrue(snapshot.cell(0, 1).double_width)
+            self.assertNotEqual(snapshot.cell(3, 1).hyperlink, 0)
 
     def test_insert_lines_clamps_count_to_remaining_region(self):
         with Zutty(columns=5, rows=4) as terminal:

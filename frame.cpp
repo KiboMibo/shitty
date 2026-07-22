@@ -863,6 +863,10 @@ TerminalCell& Frame::getCell(u16 pY, u16 pX) {
     return operator[](idx);
 }
 
+const TerminalCell* Frame::getRow(u16 pY) const {
+    return cells.get() + getIdx(pY, 0);
+}
+
 TerminalCell* Frame::writeSpan(u16 pY, u16 startX, u16 count) {
     const u32 idx = getIdx(pY, startX);
     damage.add(idx, idx + count);
@@ -917,6 +921,123 @@ void Frame::eraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs)
     }
     if (!selection.empty()) {
         invalidateSelection(Rect(startX, pY, startX + count, pY));
+    }
+}
+
+void Frame::eraseWideInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs) {
+    if (!count) {
+        return;
+    }
+    const u16 endX = startX + count;
+    const u32 rowIdx = getIdx(pY, 0);
+    TerminalCell* row = cells.get() + rowIdx;
+    TerminalCell erased = attrs;
+    erased.line_attr = row[0].line_attr;
+    const bool eraseLeft = startX > 0 &&
+        (row[startX - 1].dwidth || row[startX].dwidth_cont);
+    const bool eraseRight = endX < nCols &&
+        (row[endX - 1].dwidth || row[endX].dwidth_cont);
+    if (eraseLeft) {
+        row[startX - 1] = erased;
+    }
+    if (eraseRight) {
+        row[endX] = erased;
+    }
+    if (startX == 0 && count == nCols) {
+        if (!erasedRowTemplateValid || erasedRowTemplate.size() != nCols || erasedRowCell != erased) {
+            erasedRowTemplate.assign(nCols, erased);
+            erasedRowCell = erased;
+            erasedRowTemplateValid = true;
+        }
+        memcpy(row, erasedRowTemplate.data(), nCols * cellSize);
+    } else {
+        for (u16 x = startX; x < endX; ++x) {
+            row[x] = erased;
+        }
+    }
+    const u32 damageStart = rowIdx + (eraseLeft ? startX - 1 : startX);
+    const u32 damageEnd = rowIdx + (eraseRight ? endX + 1 : endX);
+    damage.add(damageStart, damageEnd);
+    if (!selection.empty()) {
+        invalidateSelection(Rect(eraseLeft ? startX - 1 : startX, pY,
+                                 eraseRight ? endX + 1 : endX, pY));
+    }
+}
+
+TerminalCell* Frame::overwriteSpan(u16 pY, u16 startX, u16 count, const TerminalCell& eraseAttrs) {
+    const u16 endX = startX + count;
+    const u32 rowIdx = getIdx(pY, 0);
+    TerminalCell* row = cells.get() + rowIdx;
+    TerminalCell erased = eraseAttrs;
+    erased.line_attr = row[0].line_attr;
+    const bool eraseLeft = startX > 0 &&
+        (row[startX - 1].dwidth || row[startX].dwidth_cont);
+    const bool eraseRight = endX < nCols &&
+        (row[endX - 1].dwidth || row[endX].dwidth_cont);
+    if (eraseLeft) {
+        row[startX - 1] = erased;
+    }
+    if (eraseRight) {
+        row[endX] = erased;
+    }
+    const u32 damageStart = rowIdx + (eraseLeft ? startX - 1 : startX);
+    const u32 damageEnd = rowIdx + (eraseRight ? endX + 1 : endX);
+    damage.add(damageStart, damageEnd);
+    if (!selection.empty()) {
+        invalidateSelection(Rect(eraseLeft ? startX - 1 : startX, pY,
+                                 eraseRight ? endX + 1 : endX, pY));
+    }
+    return row + startX;
+}
+
+void Frame::clearWideBoundary(u16 pY, u16 boundary, const TerminalCell& attrs) {
+    const u32 rowIdx = getIdx(pY, 0);
+    TerminalCell* row = cells.get() + rowIdx;
+    const bool eraseLeft = boundary > 0 && row[boundary - 1].dwidth;
+    const bool eraseRight = boundary < nCols && row[boundary].dwidth_cont;
+    if (!eraseLeft && !eraseRight) {
+        return;
+    }
+    TerminalCell erased = attrs;
+    erased.line_attr = row[0].line_attr;
+    if (eraseLeft) {
+        row[boundary - 1] = erased;
+        damage.add(rowIdx + boundary - 1, rowIdx + boundary);
+        if (!selection.empty()) {
+            invalidateSelection(Rect(boundary - 1, pY));
+        }
+    }
+    if (eraseRight) {
+        row[boundary] = erased;
+        damage.add(rowIdx + boundary, rowIdx + boundary + 1);
+        if (!selection.empty()) {
+            invalidateSelection(Rect(boundary, pY));
+        }
+    }
+}
+
+void Frame::repairWideBoundary(u16 pY, u16 boundary, const TerminalCell& attrs) {
+    const u32 rowIdx = getIdx(pY, 0);
+    TerminalCell* row = cells.get() + rowIdx;
+    const bool leftLead = boundary > 0 && row[boundary - 1].dwidth;
+    const bool rightContinuation = boundary < nCols && row[boundary].dwidth_cont;
+    if (leftLead == rightContinuation) {
+        return;
+    }
+    TerminalCell erased = attrs;
+    erased.line_attr = row[0].line_attr;
+    if (leftLead) {
+        row[boundary - 1] = erased;
+        damage.add(rowIdx + boundary - 1, rowIdx + boundary);
+        if (!selection.empty()) {
+            invalidateSelection(Rect(boundary - 1, pY));
+        }
+    } else {
+        row[boundary] = erased;
+        damage.add(rowIdx + boundary, rowIdx + boundary + 1);
+        if (!selection.empty()) {
+            invalidateSelection(Rect(boundary, pY));
+        }
     }
 }
 
@@ -980,6 +1101,32 @@ void Frame::copyRow(u16 dstY, u16 srcY, u16 startX, u16 count) {
     if (!selection.empty()) {
         invalidateSelection(Rect(startX, dstY, startX + count, dstY));
     }
+}
+
+void Frame::rotateRowsUp(u16 top, u16 bottom, u16 count) {
+    count = std::min<u16>(count, bottom - top);
+    if (!count) {
+        return;
+    }
+    if (!selection.empty()) {
+        invalidateSelection(Rect(0, top, 0, bottom));
+    }
+    std::rotate(screen.begin() + top, screen.begin() + top + count,
+                screen.begin() + bottom);
+    expose();
+}
+
+void Frame::rotateRowsDown(u16 top, u16 bottom, u16 count) {
+    count = std::min<u16>(count, bottom - top);
+    if (!count) {
+        return;
+    }
+    if (!selection.empty()) {
+        invalidateSelection(Rect(0, top, 0, bottom));
+    }
+    std::rotate(screen.begin() + top, screen.begin() + bottom - count,
+                screen.begin() + bottom);
+    expose();
 }
 
 void Frame::invalidateSelection(const Rect&& damage) {

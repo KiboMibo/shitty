@@ -828,7 +828,8 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
     while (readLine(controlFd, buffered, line)) {
         try {
             if (line.compare(0, 6, "WRITE ") == 0) {
-                terminal.feedPtyOutput(decodeHex(line.substr(6)));
+                const std::string input = decodeHex(line.substr(6));
+                terminal.feedPtyOutput((const u8*)input.data(), input.size());
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 15, "MEASURE_WIDTHS ") == 0) {
                 std::istringstream args(line.substr(15));
@@ -845,7 +846,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                     throw std::runtime_error("empty width measurement");
                 }
                 drainInput(io[1]);
-                terminal.feedPtyOutput(input);
+                terminal.feedPtyOutput((const u8*)input.data(), input.size());
                 writeAll(controlFd, "OK " + encodeHex(drainInput(io[1])) + "\n");
             } else if (line == "OPTIONS") {
                 const auto packedColor = [](Color color) {

@@ -140,7 +140,7 @@ void VtermHeadlessImpl::feed(const u8* data, size_t len) {
     if (len == 0) {
         return;
     }
-    vterm->feedPtyOutput(std::string((const char*)(data), len));
+    vterm->feedPtyOutput(data, len);
 }
 
 VtermHeadless* VtermHeadless::create(Composer& composer) {

@@ -52,6 +52,7 @@ public:
 
     const TerminalCell& getCell(u16 pY, u16 pX) const;
     TerminalCell& getCell(u16 pY, u16 pX);
+    const TerminalCell* getRow(u16 pY) const;
     TerminalCell* writeSpan(u16 pY, u16 startX, u16 count);
     const TerminalCell& getViewCell(u16 pY, u16 pX) const;
 
@@ -59,9 +60,15 @@ public:
     const Grapheme& getGrapheme(u32 id) const;
 
     void eraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs);
+    void eraseWideInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs);
+    TerminalCell* overwriteSpan(u16 pY, u16 startX, u16 count, const TerminalCell& eraseAttrs);
+    void clearWideBoundary(u16 pY, u16 boundary, const TerminalCell& attrs);
+    void repairWideBoundary(u16 pY, u16 boundary, const TerminalCell& attrs);
     void selectiveEraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs, u8 protectionMask = 0xff);
     void moveInRow(u16 pY, u16 dstX, u16 srcX, u16 count);
     void copyRow(u16 dstY, u16 srcY, u16 startX, u16 count);
+    void rotateRowsUp(u16 top, u16 bottom, u16 count);
+    void rotateRowsDown(u16 top, u16 bottom, u16 count);
 
     void scrollUp(u16 top, u16 bottom, u16 count);
     void scrollDown(u16 top, u16 bottom, u16 count);
