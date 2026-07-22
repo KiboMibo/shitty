@@ -19,6 +19,11 @@ t0077-DECSTBM_quirks
 # this fixture therefore expects the following graphic to wrap instead.
 # Zutty performs the required cursor movement and clears deferred wrap.
 t0084-CBT
+# XTerm Control Sequences defines mode 45 as XTREVWRAP and mode 1045 as the
+# distinct extended XTREVWRAP2. The reference xterm cursor.c requires the
+# preceding line's wrap marker for mode 45; only mode 1045 removes that limit.
+# This fixture enables only 45 but expects BS/CUB to cross hard CRLF-created
+# line boundaries, conflating the two modes. Zutty preserves their distinction.
 t0103-reverse_wrap
 t600-DECSTBM_SR
 t601-DECSTBM_SL
