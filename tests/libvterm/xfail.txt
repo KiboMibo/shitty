@@ -122,6 +122,11 @@
 # cell-inverse XOR screen-reverse state that Zutty's renderer actually uses.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 64screen_pen.test
+# The sole mismatch is libvterm's reset-time cursor-blink=true property.
+# Xterm 410 documents and initializes the cursorBlink resource to false, which
+# is Zutty's default; visibility, shape, and title properties in this fixture
+# all match.
+# https://invisible-island.net/archives/xterm/xterm-410.tgz
 68screen_termprops.test
 69screen_reflow.test
 90vttest_01-movement-3.test
