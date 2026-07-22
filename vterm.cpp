@@ -511,6 +511,7 @@ namespace {
         bool altScreenBufferMode = false;
         bool altScreenInitialized = false;
         bool autoWrapMode = true;
+        bool autoRepeatMode = true;
         bool autoNewlineMode = false;
         bool keyboardLocked = false;
         bool insertMode = false;
@@ -1122,6 +1123,7 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     frame_pri.setBlinkState(true, false);
     frame_alt.setBlinkState(true, false);
     autoWrapMode = true;
+    autoRepeatMode = true;
     autoNewlineMode = false;
     keyboardLocked = false;
     insertMode = false;
@@ -3115,6 +3117,7 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 autoWrapMode = true;
                 break;
             case 8:
+                autoRepeatMode = true;
                 break;
             case 18:
                 if (compatLevel >= CompatibilityLevel::VT200) {
@@ -3263,6 +3266,7 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 autoWrapMode = false;
                 break;
             case 8:
+                autoRepeatMode = false;
                 break;
             case 18:
                 if (compatLevel >= CompatibilityLevel::VT200) {
@@ -3381,6 +3385,8 @@ bool VtermImpl::getPrivateMode(u32 arg) const {
             return originMode == OriginMode::ScrollingRegion;
         case 7:
             return autoWrapMode;
+        case 8:
+            return autoRepeatMode;
         case 12:
             return cursorBlinkMode;
         case 18:
@@ -3854,7 +3860,6 @@ void VtermImpl::csi_DECRQM(bool privateMode) {
     if (privateMode) {
         switch (mode) {
             case 4:
-            case 8:
                 state = 4;
                 break;
             case 1:
@@ -3863,6 +3868,7 @@ void VtermImpl::csi_DECRQM(bool privateMode) {
             case 5:
             case 6:
             case 7:
+            case 8:
             case 9:
             case 12:
             case 18:

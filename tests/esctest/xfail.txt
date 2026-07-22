@@ -24,12 +24,6 @@ DECFITests.test_DECFI_WholeScreenScrolls
 # reset rather than accepting a state-only no-op as this test expects.
 # https://vt100.net/docs/vt510-rm/chapter4.html
 DECRQMTests.test_DECRQM_DEC_DECSCLM
-# DECARM controls physical key autorepeat.  xterm cannot scope X11 autorepeat
-# to one window, ignores both setters, and reports the mode permanently reset;
-# Zutty follows that honest behavior instead of retaining an unused bool.
-# https://vt100.net/docs/vt510-rm/DECARM.html
-# https://invisible-island.net/archives/xterm/xterm-410.tgz
-DECRQMTests.test_DECRQM_DEC_DECARM
 # These VT3xx/VT4xx modes control page-memory viewport coupling or physical
 # keyboard behavior that Zutty does not emulate.  xterm-410 misc.c classifies
 # the same modes as recognized but unimplemented and reports mdAlwaysReset;

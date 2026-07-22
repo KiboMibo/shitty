@@ -568,7 +568,7 @@ namespace {
     }
 }
 
-int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
+int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int argc, char* argv[]) {
     int io[2];
     if (openpty(&io[0], &io[1], nullptr, nullptr, nullptr) < 0) {
         throw std::runtime_error("test openpty failed");
@@ -607,6 +607,7 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
     TestPty terminalPty(io[0]);
     VtermHostCallbacks vtermHost;
     Vterm& terminal = *Vterm::create(composer, vtermHost, terminalPty, glyphPx, glyphPy, width, height);
+    input.attachTestVterm(terminal);
     VtermTrace& vtermTrace = *VtermTrace::create(composer);
     terminalPty.resize(opts.nCols, opts.nRows);
     TestDisplay display;
@@ -1272,6 +1273,26 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                     modifiers = modifiers | VtModifier::alt;
                 }
                 terminal.writePty(character, modifiers, true);
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 19, "FRONTEND_KEY_EVENT ") == 0) {
+                std::istringstream args(line.substr(19));
+                int key;
+                int scancode;
+                int action;
+                int modifiers;
+                if (!(args >> key >> scancode >> action >> modifiers) || action < 0 || action > 2 || modifiers < 0) {
+                    throw std::runtime_error("invalid frontend key event");
+                }
+                input.testKeyEvent(key, scancode, action, modifiers);
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 20, "FRONTEND_TEXT_EVENT ") == 0) {
+                std::istringstream args(line.substr(20));
+                unsigned codepoint;
+                int modifiers;
+                if (!(args >> codepoint >> modifiers) || codepoint > 0x10ffff || modifiers < 0) {
+                    throw std::runtime_error("invalid frontend text event");
+                }
+                input.testTextInput(codepoint, modifiers);
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 10, "KITTY_KEY ") == 0) {
                 std::istringstream args(line.substr(10));

@@ -21,7 +21,7 @@ PRIVATE_DEFAULTS = {
     5: 2,
     6: 2,
     7: 1,
-    8: 4,
+    8: 1,
     9: 2,
     12: 2,
     25: 1,
@@ -123,7 +123,7 @@ class ModeMatrixTest(unittest.TestCase):
 
     def test_fixed_private_modes_ignore_set_and_reset(self):
         with Zutty() as terminal:
-            for mode, state in ((4, 4), (8, 4)):
+            for mode, state in ((4, 4),):
                 with self.subTest(mode=mode):
                     terminal.write(f"\x1b[?{mode}h".encode())
                     self.assertEqual(

@@ -458,6 +458,16 @@ class Zutty:
             f"FRONTEND_CONTROL {character} {int(shifted)} {int(alt)}"
         )
 
+    def frontend_key_event(self, key, action, scancode=0, modifiers=0):
+        self.command(
+            f"FRONTEND_KEY_EVENT {key} {scancode} {action} {modifiers}"
+        )
+
+    def frontend_text_event(self, character, modifiers=0):
+        if isinstance(character, str):
+            character = ord(character)
+        self.command(f"FRONTEND_TEXT_EVENT {character} {modifiers}")
+
     def kitty_key(self, key, shifted=0, base=0, modifiers=0, event=1):
         self.command(
             f"KITTY_KEY {key} {shifted} {base} {modifiers} {event}"

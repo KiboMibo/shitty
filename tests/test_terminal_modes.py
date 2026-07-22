@@ -31,7 +31,7 @@ class TerminalModeTest(unittest.TestCase):
                 "DECSCNM": False,
                 "DECOM": False,
                 "DECAWM": True,
-                "DECARM": False,
+                "DECARM": True,
                 "DECTCEM": True,
                 "DECNKM": False,
                 "DECBKM": False,
@@ -52,7 +52,7 @@ class TerminalModeTest(unittest.TestCase):
             ):
                 self.assertTrue(state[mode], mode)
             self.assertFalse(state["DECSCLM"])
-            self.assertFalse(state["DECARM"])
+            self.assertTrue(state["DECARM"])
 
     def test_decll_tracks_each_host_led_independently(self):
         with Zutty() as terminal:
@@ -148,7 +148,7 @@ class TerminalModeTest(unittest.TestCase):
             )
             self.assertEqual(snapshot.lines[0][0], "x")
 
-    def test_unavailable_dec_modes_report_permanently_reset_by_level(self):
+    def test_dec_mode_availability_reports_by_level(self):
         with Zutty() as terminal:
             terminal.write(
                 b"\x1b[63;1\"p"
@@ -158,7 +158,7 @@ class TerminalModeTest(unittest.TestCase):
             )
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[?4;4$y\x1b[?8;4$y"
+                b"\x1b[?4;4$y\x1b[?8;1$y"
                 b"\x1b[?60;4$y\x1b[?61;4$y\x1b[?64;4$y"
                 b"\x1b[?68;4$y\x1b[?73;4$y"
                 b"\x1b[?81;0$y\x1b[?100;0$y",

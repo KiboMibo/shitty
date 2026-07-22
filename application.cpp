@@ -66,7 +66,7 @@ using namespace stl;
 extern char** environ;
 
 namespace {
-    class ApplicationImpl final: public Application, public VtermHost, public PtyEventHost {
+    class ApplicationImpl final: public Application, public VtermHost, public PtyEventHost, public TestModeInput {
     public:
         explicit ApplicationImpl(Composer& composer);
         ~ApplicationImpl();
@@ -121,6 +121,7 @@ namespace {
         } windowContext;
 
         unsigned suppressedTextInputs = 0;
+        bool suppressRepeatedTextInput = false;
         bool locallyConsumedKeys[GLFW_KEY_LAST + 1]{};
 
         struct PendingKittyTextKey {
@@ -152,7 +153,10 @@ namespace {
         VtKey keypadKey(int key, bool numLock);
         VtKey specialKey(int key, int modifiers);
         void onKeyEvent(int key, int scancode, int action, int rawModifiers);
-        void onTextInput(u32 codepoint);
+        void onTextInput(u32 codepoint, int rawModifiers);
+        void attachTestVterm(Vterm& terminal) override;
+        void testKeyEvent(int key, int scancode, int action, int modifiers) override;
+        void testTextInput(unsigned codepoint, int modifiers) override;
         double pixelScaleX();
         double pixelScaleY();
         int toPixelX(double x);
@@ -594,6 +598,7 @@ VtKey ApplicationImpl::specialKey(int key, int modifiers) {
 
 void ApplicationImpl::onKeyEvent(int key, int scancode, int action, int rawModifiers) {
     flushPendingKittyTextKey();
+    suppressRepeatedTextInput = action == GLFW_REPEAT && !vt->getPrivateMode(8);
     const int keyModifiers = rawModifiers;
     const int legacyModifiers = significantModifiers(rawModifiers);
     const VtModifier modifiers = convertModifiers(legacyModifiers);
@@ -646,6 +651,10 @@ void ApplicationImpl::onKeyEvent(int key, int scancode, int action, int rawModif
         runLocal([&]() {
             vt->selectRectangularModeToggle();
         });
+        return;
+    }
+
+    if (suppressRepeatedTextInput) {
         return;
     }
 
@@ -708,7 +717,10 @@ void ApplicationImpl::onKeyEvent(int key, int scancode, int action, int rawModif
     }
 }
 
-void ApplicationImpl::onTextInput(u32 codepoint) {
+void ApplicationImpl::onTextInput(u32 codepoint, int rawModifiers) {
+    if (suppressRepeatedTextInput) {
+        return;
+    }
     if (pendingKittyTextKey.active) {
         const auto pending = pendingKittyTextKey;
         pendingKittyTextKey.active = false;
@@ -723,7 +735,6 @@ void ApplicationImpl::onTextInput(u32 codepoint) {
     if (codepoint == 0) {
         return;
     }
-    const int rawModifiers = keyboardModifiers();
     const VtModifier modifiers = convertModifiers(rawModifiers);
 
     if (codepoint < 0x80) {
@@ -1231,6 +1242,7 @@ void ApplicationImpl::onWindowFocus(GLFWwindow*, int focused) {
         if (!focused) {
             mouseContext.frontend.clearButtons();
             suppressedTextInputs = 0;
+            suppressRepeatedTextInput = false;
             pendingKittyTextKey.active = false;
             std::fill_n(locallyConsumedKeys, GLFW_KEY_LAST + 1, false);
         }
@@ -1246,8 +1258,20 @@ void ApplicationImpl::onKey(GLFWwindow*, int key, int scancode, int action, int 
 
 void ApplicationImpl::onCharacter(GLFWwindow*, unsigned codepoint) {
     guardCallback([this, codepoint]() {
-        onTextInput(codepoint);
+        onTextInput(codepoint, keyboardModifiers());
     });
+}
+
+void ApplicationImpl::attachTestVterm(Vterm& terminal) {
+    vt = &terminal;
+}
+
+void ApplicationImpl::testKeyEvent(int key, int scancode, int action, int modifiers) {
+    onKeyEvent(key, scancode, action, modifiers);
+}
+
+void ApplicationImpl::testTextInput(unsigned codepoint, int modifiers) {
+    onTextInput(codepoint, modifiers);
 }
 
 void ApplicationImpl::onMouseButtonCallback(GLFWwindow*, int button, int action, int modifiers) {
@@ -1447,7 +1471,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         SYS_ERROR("setenv ZUTTY_VERSION");
     }
     if (testFd >= 0) {
-        return runTestMode(composer, testFd, argc, argv);
+        return runTestMode(composer, *this, testFd, argc, argv);
     }
 
     LaunchCommand launch = buildLaunchCommand(argc, argv, opts.shell, opts.login);
