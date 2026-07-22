@@ -2596,7 +2596,7 @@ void VtermImpl::csi_CBT() {
     u32 arg = inputOps[0] ? inputOps[0] : 1;
     arg = std::min<u32>(arg, nCols);
     for (u32 k = 0; k < arg; ++k) {
-        const u16 left = isCursorInsideMargins() ? hMargin : 0;
+        const u16 left = originMode == OriginMode::ScrollingRegion ? hMargin : 0;
         if (!tabStopsCustomized) {
             if (posX > 0 && posX % 8 == 0) {
                 posX -= 8;

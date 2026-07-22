@@ -73,6 +73,22 @@ class CursorCommandMatrixTest(unittest.TestCase):
             terminal.write(b"\x1b[2Z")
             self.assert_cursor(terminal, 0, 0)
 
+    def test_cbt_ignores_horizontal_margins_without_origin_mode(self):
+        with Zutty(columns=20, rows=4) as terminal:
+            terminal.write(
+                b"\x1b[?69h\x1b[5;15s"
+                b"\x1b[2;9H\x1b[2Z"
+            )
+            self.assert_cursor(terminal, 0, 1)
+
+    def test_cbt_stops_at_left_margin_in_origin_mode(self):
+        with Zutty(columns=20, rows=4) as terminal:
+            terminal.write(
+                b"\x1b[?69h\x1b[5;15s\x1b[?6h"
+                b"\x1b[2;5H\x1b[9Z"
+            )
+            self.assert_cursor(terminal, 4, 1)
+
     def test_tab_without_a_following_stop_preserves_pending_wrap(self):
         for setup in (b"", b"\x1b[3g\x1b[4G\x1bH\x1b[1G"):
             for tab in (b"\t", b"\x1b[I", b"\x1b[2I"):
