@@ -135,7 +135,9 @@ class EditingMatrixTest(unittest.TestCase):
     def test_reversed_rectangular_coordinates_are_ignored(self):
         sequences = (
             b"\x1b[88;2;4;1;2$x",
+            b"\x1b[88;100;50;1;2$x",
             b"\x1b[2;4;1;2$z",
+            b"\x1b[100;50;1;2$z",
             b"\x1b[2;4;1;2${",
             b"\x1b[2;4;1;2;1;1;1;1$v",
             b"\x1b[2;4;1;2;1$r",
@@ -211,6 +213,110 @@ class EditingMatrixTest(unittest.TestCase):
                     terminal.write("A界BC".encode())
                     terminal.write(sequence)
                     assert_wide_cells_are_complete(self, terminal.snapshot())
+
+    def test_line_edits_repair_wide_spans_at_every_clipped_boundary(self):
+        operations = (b"@", b"P", b"X", b" @", b" A")
+        columns = (0, 1, 2, 3, 4, 8, 9, 50, 100, 65535)
+        counts = (b"", b"0", b"1", b"2", b"7", b"8", b"9", b"4294967295")
+        with Zutty(columns=8, rows=3) as terminal:
+            for operation in operations:
+                for column in columns:
+                    for count in counts:
+                        with self.subTest(
+                            operation=operation, column=column, count=count
+                        ):
+                            terminal.write(
+                                b"\x1bcA\xe7\x95\x8cBCDEF"
+                                + f"\x1b[1;{column}H".encode()
+                                + b"\x1b["
+                                + count
+                                + operation
+                            )
+                            assert_wide_cells_are_complete(self, terminal.snapshot())
+
+    def test_line_edits_clamp_out_of_page_cursor_coordinates(self):
+        operations = (b"@", b"P", b"X", b" @", b" A")
+        with Zutty(columns=8, rows=3) as terminal:
+            for operation in operations:
+                with self.subTest(operation=operation):
+                    terminal.write(
+                        b"\x1bcA\xe7\x95\x8cBCDEF"
+                        b"\x1b[100;50H\x1b[4294967295"
+                        + operation
+                    )
+                    snapshot = terminal.snapshot()
+                    self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (7, 2))
+                    if operation not in (b" @", b" A"):
+                        self.assertEqual(snapshot.cell(1, 0).char, "界")
+                        self.assertTrue(snapshot.cell(1, 0).double_width)
+                        self.assertTrue(snapshot.cell(2, 0).double_width_continuation)
+                    assert_wide_cells_are_complete(self, snapshot)
+
+    def test_line_edits_repair_wide_spans_clipped_at_right_edge(self):
+        operations = (b"@", b"P", b"X", b" @", b" A")
+        counts = (b"1", b"2", b"4294967295")
+        with Zutty(columns=8, rows=3) as terminal:
+            for operation in operations:
+                for count in counts:
+                    with self.subTest(operation=operation, count=count):
+                        terminal.write(
+                            b"\x1bcABCDEF\xe7\x95\x8c\x1b[1;1H\x1b["
+                            + count
+                            + operation
+                        )
+                        assert_wide_cells_are_complete(self, terminal.snapshot())
+
+    def test_insert_and_delete_at_continuation_keep_cell_counts(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"A\xe7\x95\x8cBCDEF\x1b[1;3H\x1b[@")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "A   BCDE")
+            assert_wide_cells_are_complete(self, snapshot)
+
+            terminal.write(b"\x1bcA\xe7\x95\x8cBCDEF\x1b[1;3H\x1b[P")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "A BCDEF ")
+            assert_wide_cells_are_complete(self, snapshot)
+
+    def test_line_moves_preserve_a_wide_glyph_when_the_range_starts_at_its_lead(self):
+        cases = (
+            # ICH starts at the leading cell, so the whole glyph moves right.
+            (b"\x1b[1;2H\x1b[@", 2),
+            # DCH starts before the glyph, so the whole glyph moves left.
+            (b"\x1b[1;1H\x1b[P", 0),
+        )
+        for sequence, expected_lead in cases:
+            with self.subTest(sequence=sequence):
+                with Zutty(columns=8, rows=2) as terminal:
+                    terminal.write(b"A\xe7\x95\x8cBCDEF" + sequence)
+                    snapshot = terminal.snapshot()
+                    self.assertEqual(snapshot.cell(expected_lead, 0).char, "界")
+                    self.assertTrue(snapshot.cell(expected_lead, 0).double_width)
+                    self.assertTrue(
+                        snapshot.cell(expected_lead + 1, 0).double_width_continuation
+                    )
+                    assert_wide_cells_are_complete(self, snapshot)
+
+    def test_malformed_signed_edit_parameters_are_ignored(self):
+        # ECMA-48 parameters are unsigned.  A '-' makes these CSI sequences
+        # malformed; they must not make a split wide span or mutate the row.
+        sequences = (
+            b"\x1b[-1@",
+            b"\x1b[-1P",
+            b"\x1b[-1X",
+            b"\x1b[-1 @",
+            b"\x1b[-1 A",
+            b"\x1b[1;-1H\x1b[@",
+        )
+        for sequence in sequences:
+            with self.subTest(sequence=sequence):
+                with Zutty(columns=8, rows=2) as terminal:
+                    terminal.write(b"A\xe7\x95\x8cBCDEF" + sequence)
+                    snapshot = terminal.snapshot()
+                    self.assertEqual(snapshot.cell(1, 0).char, "界")
+                    self.assertTrue(snapshot.cell(1, 0).double_width)
+                    self.assertTrue(snapshot.cell(2, 0).double_width_continuation)
+                    assert_wide_cells_are_complete(self, snapshot)
 
 
 if __name__ == "__main__":

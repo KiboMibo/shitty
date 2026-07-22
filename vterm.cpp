@@ -243,8 +243,12 @@ namespace {
         void deleteRows(u16 startY, u16 count);
         void insertCols(u16 startX, u16 count);
         void deleteCols(u16 startX, u16 count);
+        void eraseRangeInRow(u16 row, u16 start, u16 count);
+        void selectiveEraseRangeInRow(u16 row, u16 start, u16 count);
+        void moveRangeInRow(u16 row, u16 dst, u16 src, u16 count);
+        void clearWideCellsAtBoundary(u16 row, u16 boundary);
+        void repairWideCellsAtBoundary(u16 row, u16 boundary);
         TerminalCell& prepareCellAt(u16 row, u16 column);
-        void normalizeWideCells(u16 row);
 
         struct Rectangle {
             u16 top;
@@ -1388,7 +1392,7 @@ bool VtermImpl::isCursorInsideMargins() {
 }
 
 void VtermImpl::eraseRow(u16 pY) {
-    cf->eraseInRow(pY, hMargin, nColsEff - hMargin, attrs);
+    eraseRangeInRow(pY, hMargin, nColsEff - hMargin);
 }
 
 void VtermImpl::eraseRows(u16 startY, u16 count) {
@@ -1398,7 +1402,15 @@ void VtermImpl::eraseRows(u16 startY, u16 count) {
 }
 
 void VtermImpl::copyRow(u16 dstY, u16 srcY) {
+    if (dstY == srcY) {
+        return;
+    }
+
+    clearWideCellsAtBoundary(dstY, hMargin);
+    clearWideCellsAtBoundary(dstY, nColsEff);
     cf->copyRow(dstY, srcY, hMargin, nColsEff - hMargin);
+    repairWideCellsAtBoundary(dstY, hMargin);
+    repairWideCellsAtBoundary(dstY, nColsEff);
 }
 
 void VtermImpl::insertRows(u16 startY, u16 count) {
@@ -1424,40 +1436,83 @@ void VtermImpl::deleteRows(u16 startY, u16 count) {
 
 void VtermImpl::insertCols(u16 startX, u16 count) {
     for (u16 r = marginTop; r < marginBottom; ++r) {
-        cf->moveInRow(r, startX + count, startX, nColsEff - startX - count);
-        cf->eraseInRow(r, startX, count, attrs);
-        normalizeWideCells(r);
+        moveRangeInRow(r, startX + count, startX, nColsEff - startX - count);
+        eraseRangeInRow(r, startX, count);
     }
 }
 
 void VtermImpl::deleteCols(u16 startX, u16 count) {
     for (u16 r = marginTop; r < marginBottom; ++r) {
-        cf->moveInRow(r, startX, startX + count, nColsEff - startX - count);
-        cf->eraseInRow(r, nColsEff - count, count, attrs);
-        normalizeWideCells(r);
+        moveRangeInRow(r, startX, startX + count, nColsEff - startX - count);
+        eraseRangeInRow(r, nColsEff - count, count);
     }
+}
+
+void VtermImpl::clearWideCellsAtBoundary(u16 row, u16 boundary) {
+    const bool clearLeft = boundary > 0 && cf->getCell(row, boundary - 1).dwidth;
+    const bool clearRight = boundary < nCols && cf->getCell(row, boundary).dwidth_cont;
+    if (clearLeft) {
+        cf->eraseInRow(row, boundary - 1, 1, attrs);
+    }
+    if (clearRight) {
+        cf->eraseInRow(row, boundary, 1, attrs);
+    }
+}
+
+void VtermImpl::repairWideCellsAtBoundary(u16 row, u16 boundary) {
+    const bool leftLead = boundary > 0 && cf->getCell(row, boundary - 1).dwidth;
+    const bool rightContinuation = boundary < nCols && cf->getCell(row, boundary).dwidth_cont;
+    if (leftLead != rightContinuation) {
+        if (leftLead) {
+            cf->eraseInRow(row, boundary - 1, 1, attrs);
+        }
+        if (rightContinuation) {
+            cf->eraseInRow(row, boundary, 1, attrs);
+        }
+    }
+}
+
+void VtermImpl::eraseRangeInRow(u16 row, u16 start, u16 count) {
+    if (!count) {
+        return;
+    }
+    const u16 end = start + count;
+    clearWideCellsAtBoundary(row, start);
+    clearWideCellsAtBoundary(row, end);
+    cf->eraseInRow(row, start, count, attrs);
+}
+
+void VtermImpl::selectiveEraseRangeInRow(u16 row, u16 start, u16 count) {
+    if (!count) {
+        return;
+    }
+    const u16 end = start + count;
+    cf->selectiveEraseInRow(row, start, count, attrs);
+    repairWideCellsAtBoundary(row, start);
+    repairWideCellsAtBoundary(row, end);
+}
+
+void VtermImpl::moveRangeInRow(u16 row, u16 dst, u16 src, u16 count) {
+    if (!count) {
+        return;
+    }
+    const u16 srcEnd = src + count;
+    const u16 dstEnd = dst + count;
+    clearWideCellsAtBoundary(row, src);
+    clearWideCellsAtBoundary(row, srcEnd);
+    cf->moveInRow(row, dst, src, count);
+    repairWideCellsAtBoundary(row, dst);
+    repairWideCellsAtBoundary(row, dstEnd);
 }
 
 TerminalCell& VtermImpl::prepareCellAt(u16 row, u16 column) {
-    auto& cell = cf->getCell(row, column);
-    if (cell.dwidth_cont && column > 0) {
-        cf->eraseInRow(row, column - 1, 1, attrs);
-    } else if (cell.dwidth && column + 1 < nCols) {
-        cf->eraseInRow(row, column + 1, 1, attrs);
+    const auto& cell = cf->getCell(row, column);
+    if (cell.dwidth_cont) {
+        clearWideCellsAtBoundary(row, column);
+    } else if (cell.dwidth) {
+        clearWideCellsAtBoundary(row, column + 1);
     }
-    return cell;
-}
-
-void VtermImpl::normalizeWideCells(u16 row) {
-    const Frame& frame = *cf;
-    for (u16 column = 0; column < nCols; ++column) {
-        const auto& cell = frame.getCell(row, column);
-        if (cell.dwidth && (column + 1 >= nCols || !frame.getCell(row, column + 1).dwidth_cont)) {
-            cf->eraseInRow(row, column, 1, attrs);
-        } else if (cell.dwidth_cont && (column == 0 || !frame.getCell(row, column - 1).dwidth)) {
-            cf->eraseInRow(row, column, 1, attrs);
-        }
-    }
+    return cf->getCell(row, column);
 }
 
 void VtermImpl::rectangleOrigin(u16& rowBase, u16& columnBase, u16& rowLimit, u16& columnLimit) const {
@@ -1663,12 +1718,8 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
         const u16 count = std::min<size_t>(size, lineCols - posX);
         const u16 startX = posX;
         const u16 endX = startX + count;
-        if (frame.getCell(posY, startX).dwidth_cont && startX > 0) {
-            cf->eraseInRow(posY, startX - 1, 1, attrs);
-        }
-        if (frame.getCell(posY, endX - 1).dwidth && endX < nCols) {
-            cf->eraseInRow(posY, endX, 1, attrs);
-        }
+        clearWideCellsAtBoundary(posY, startX);
+        clearWideCellsAtBoundary(posY, endX);
 
         TerminalCell* cells = cf->writeSpan(posY, startX, count);
         for (u16 index = 0; index < count; ++index) {
@@ -1708,7 +1759,7 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
 void VtermImpl::inp_LF() {
     TRACE_FUN;
     if (esc_IND()) {
-        cf->eraseInRow(posY, posX, nColsEff - posX, attrs);
+        eraseRangeInRow(posY, posX, nColsEff - posX);
     }
 }
 
@@ -2510,7 +2561,7 @@ void VtermImpl::csi_ED() {
     normalizeCursorPos();
     switch (inputOps[0]) {
         case 0:
-            cf->eraseInRow(posY, posX, nCols - posX, attrs);
+            eraseRangeInRow(posY, posX, nCols - posX);
             for (u16 pY = posY + 1; pY < nRows; ++pY) {
                 eraseRow(pY);
             }
@@ -2519,7 +2570,7 @@ void VtermImpl::csi_ED() {
             for (u16 pY = 0; pY < posY; ++pY) {
                 eraseRow(pY);
             }
-            cf->eraseInRow(posY, 0, posX + 1, attrs);
+            eraseRangeInRow(posY, 0, posX + 1);
             break;
         case 3:
             cf->dropScrollbackHistory();
@@ -2542,13 +2593,13 @@ void VtermImpl::csi_EL() {
     normalizeCursorPos();
     switch (inputOps[0]) {
         case 0:
-            cf->eraseInRow(posY, posX, nCols - posX, attrs);
+            eraseRangeInRow(posY, posX, nCols - posX);
             break;
         case 1:
-            cf->eraseInRow(posY, 0, posX + 1, attrs);
+            eraseRangeInRow(posY, 0, posX + 1);
             break;
         case 2:
-            cf->eraseInRow(posY, 0, nCols, attrs);
+            eraseRangeInRow(posY, 0, nCols);
             break;
         default:
             logT << "Erase in Line with illegal param: " << inputOps[0] << std::endl;
@@ -2565,12 +2616,12 @@ void VtermImpl::csi_DECSED() {
         const u16 lastRow = nRows - 1;
         for (u16 row = firstRow; row <= lastRow; ++row) {
             const u16 first = row == posY && inputOps[0] == 0 ? posX : 0;
-            cf->selectiveEraseInRow(row, first, nCols - first, attrs);
+            selectiveEraseRangeInRow(row, first, nCols - first);
         }
     } else if (inputOps[0] == 1) {
         for (u16 row = 0; row <= posY; ++row) {
             const u16 count = row == posY ? posX + 1 : nCols;
-            cf->selectiveEraseInRow(row, 0, count, attrs);
+            selectiveEraseRangeInRow(row, 0, count);
         }
     }
     setState(InputState::Normal);
@@ -2580,11 +2631,11 @@ void VtermImpl::csi_DECSEL() {
     TRACE_FUN;
     normalizeCursorPos();
     if (inputOps[0] == 0) {
-        cf->selectiveEraseInRow(posY, posX, nCols - posX, attrs);
+        selectiveEraseRangeInRow(posY, posX, nCols - posX);
     } else if (inputOps[0] == 1) {
-        cf->selectiveEraseInRow(posY, 0, posX + 1, attrs);
+        selectiveEraseRangeInRow(posY, 0, posX + 1);
     } else if (inputOps[0] == 2) {
-        cf->selectiveEraseInRow(posY, 0, nCols, attrs);
+        selectiveEraseRangeInRow(posY, 0, nCols);
     }
     setState(InputState::Normal);
 }
@@ -2604,6 +2655,8 @@ void VtermImpl::csi_DECFRA() {
             return;
         }
         for (u16 y = rectangle.top; y < rectangle.bottom; ++y) {
+            clearWideCellsAtBoundary(y, rectangle.left);
+            clearWideCellsAtBoundary(y, rectangle.right);
             for (u16 x = rectangle.left; x < rectangle.right; ++x) {
                 auto& cell = cf->getCell(y, x);
                 const u8 lineAttribute = cell.line_attr;
@@ -2612,7 +2665,6 @@ void VtermImpl::csi_DECFRA() {
                 cell.uc_pt = inputOps[0];
                 cell.dirty = 1;
             }
-            normalizeWideCells(y);
         }
         cf->expose();
     }
@@ -2629,11 +2681,10 @@ void VtermImpl::csi_DECERA(bool selective) {
         }
         for (u16 y = rectangle.top; y < rectangle.bottom; ++y) {
             if (selective) {
-                cf->selectiveEraseInRow(y, rectangle.left, rectangle.right - rectangle.left, attrs);
+                selectiveEraseRangeInRow(y, rectangle.left, rectangle.right - rectangle.left);
             } else {
-                cf->eraseInRow(y, rectangle.left, rectangle.right - rectangle.left, attrs);
+                eraseRangeInRow(y, rectangle.left, rectangle.right - rectangle.left);
             }
-            normalizeWideCells(y);
         }
     }
     setState(InputState::Normal);
@@ -2663,6 +2714,8 @@ void VtermImpl::csi_DECCRA() {
             }
         }
         for (u16 y = 0; y < height; ++y) {
+            clearWideCellsAtBoundary(targetTop + y, targetLeft);
+            clearWideCellsAtBoundary(targetTop + y, targetLeft + width);
             for (u16 x = 0; x < width; ++x) {
                 auto& cell = cf->getCell(targetTop + y, targetLeft + x);
                 const u8 lineAttribute = cell.line_attr;
@@ -2670,7 +2723,8 @@ void VtermImpl::csi_DECCRA() {
                 cell.line_attr = lineAttribute;
                 cell.dirty = 1;
             }
-            normalizeWideCells(targetTop + y);
+            repairWideCellsAtBoundary(targetTop + y, targetLeft);
+            repairWideCellsAtBoundary(targetTop + y, targetLeft + width);
         }
         cf->expose();
     }
@@ -2809,9 +2863,8 @@ void VtermImpl::csi_ICH() {
             cf->getCell(posY, posX + len - 1).wrap = 1;
         }
 
-        cf->moveInRow(posY, posX + arg, posX, len);
-        cf->eraseInRow(posY, posX, arg, attrs);
-        normalizeWideCells(posY);
+        moveRangeInRow(posY, posX + arg, posX, len);
+        eraseRangeInRow(posY, posX, arg);
     }
     lastCol = false;
     setState(InputState::Normal);
@@ -2825,9 +2878,8 @@ void VtermImpl::csi_DCH() {
         arg = std::min(arg, len);
         len -= arg;
 
-        cf->moveInRow(posY, posX, posX + arg, len);
-        cf->eraseInRow(posY, posX + len, arg, attrs);
-        normalizeWideCells(posY);
+        moveRangeInRow(posY, posX, posX + arg, len);
+        eraseRangeInRow(posY, posX + len, arg);
     }
     lastCol = false;
     setState(InputState::Normal);
@@ -2839,8 +2891,7 @@ void VtermImpl::csi_ECH() {
     const u16 right = isCursorInsideMargins() ? nColsEff : nCols;
     const u32 len = posX < right ? right - posX : 0;
     arg = std::min(arg, len);
-    cf->eraseInRow(posY, posX, arg, attrs);
-    normalizeWideCells(posY);
+    eraseRangeInRow(posY, posX, arg);
     lastCol = false;
     setState(InputState::Normal);
 }
