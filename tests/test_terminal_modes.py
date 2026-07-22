@@ -225,6 +225,11 @@ class TerminalModeTest(unittest.TestCase):
             terminal.write(b"\x1b[3;1H\bZ")
             self.assertEqual(terminal.snapshot().cell(0, 2).char, "Z")
 
+    def test_reverse_wrap_backspace_cancels_pending_wrap_first(self):
+        with Zutty(columns=8, rows=3) as terminal:
+            terminal.write(b"\x1b[?7;45h\x1b[1;7Hab\b\x1b[6n")
+            self.assertEqual(terminal.read_input(), b"\x1b[1;8R")
+
     def test_extended_reverse_wrap_crosses_hard_line_boundaries(self):
         with Zutty(columns=4, rows=3) as terminal:
             terminal.write(b"\x1b[?45h\x1b[?1045h\x1b[3;1H\x1b[2DY")

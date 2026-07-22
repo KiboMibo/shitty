@@ -8,6 +8,7 @@ BSTests.test_BS_ReverseWrapGoesToBottom
 BSTests.test_BS_ReverseWrapWithLeftRight
 BSTests.test_BS_ReversewrapFromLeftEdgeToRightMargin
 BSTests.test_BS_WrapsInWraparoundMode
+DECSETTests.test_DECSET_ReverseWraparound_BS
 # DEC VT510 DCH: "DCH has no effect outside the scrolling margins."
 # https://vt100.net/docs/vt510-rm/DCH.html
 DCHTests.test_DCH_WorksOutsideTopBottomMargin
@@ -55,8 +56,6 @@ DECRQMTests.test_DECRQM_DEC_DECNULM
 DECRQMTests.test_DECRQM_DEC_DECOSCNM
 DECRQMTests.test_DECRQM_DEC_DECRLCM
 DECRQMTests.test_DECRQM_DEC_DECRLM
-DECSETTests.test_DECSET_ReverseWraparoundLastCol_BS
-DECSETTests.test_DECSET_ReverseWraparound_BS
 ManipulateSelectionDataTests.test_ManipulateSelectionData_default
 RISTests.test_RIS_ExitAltScreen
 SMTitleTests.test_SMTitle_SetHexQueryUTF8

@@ -2423,6 +2423,12 @@ void VtermImpl::csi_CUB() {
 
 void VtermImpl::moveCursorBackward(u32 count) {
     const bool insideMargins = posX >= hMargin && posX < nColsEff;
+    if (count && lastCol && autoWrapMode && (reverseWrapMode || extendedReverseWrapMode)) {
+        lastCol = false;
+        if (--count == 0) {
+            return;
+        }
+    }
     if (posX == nColsEff) {
         count = std::min<u32>(count == UINT32_MAX ? count : count + 1, posX);
     }
