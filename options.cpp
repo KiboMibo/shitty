@@ -22,6 +22,10 @@
 #include <stdexcept>
 #include <vector>
 
+
+namespace stl {}
+using namespace stl;
+
 namespace {
 
     enum class OptionKind {

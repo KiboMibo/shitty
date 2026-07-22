@@ -12,6 +12,10 @@
 #include <stdexcept>
 #include <string>
 
+
+namespace stl {}
+using namespace stl;
+
 namespace {
     class HeadlessPty final: public Pty {
     public:

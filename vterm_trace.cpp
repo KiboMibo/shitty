@@ -8,6 +8,10 @@
 #include <limits>
 #include <vector>
 
+
+namespace stl {}
+using namespace stl;
+
 namespace {
 
     struct TraceEvent {

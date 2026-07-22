@@ -40,6 +40,10 @@
 #include <unistd.h>
 #include <vector>
 
+
+namespace stl {}
+using namespace stl;
+
 namespace {
     extern "C" int openpty(int*, int*, char*, const termios*, const winsize*);
 
@@ -797,7 +801,7 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                 if (first == std::string::npos) {
                     throw std::runtime_error("invalid font load request");
                 }
-                stl::ObjPool::Ref fontPool = stl::ObjPool::fromMemory();
+                ObjPool::Ref fontPool = ObjPool::fromMemory();
                 Composer fontComposer;
                 fontComposer.pool = fontPool.mutPtr();
                 Fontpack* fonts = Fontpack::create(fontComposer, request.substr(0, first), request.substr(first + 1));

@@ -1,5 +1,9 @@
 #include "keyboard.h"
 
+
+namespace stl {}
+using namespace stl;
+
 bool controlCharacter(int key, bool shifted, u8& character) {
     if (key >= 'A' && key <= 'Z') {
         character = (u8)(key - 'A' + 1);

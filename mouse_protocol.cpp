@@ -5,6 +5,10 @@
 #include <algorithm>
 #include <sstream>
 
+
+namespace stl {}
+using namespace stl;
+
 std::string encodeMouseProtocol(MouseTrackingEnc encoding, MouseEventType type, unsigned modifiers, int motionButton, int button, int column, int row) {
     int code = 0;
     if (type == MouseEventType::Motion) {

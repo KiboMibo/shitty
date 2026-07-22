@@ -13,7 +13,11 @@
 
 #include <std/sys/types.h>
 
+
 #include <vector>
+
+namespace stl {}
+using namespace stl;
 
 namespace {
     constexpr const char* syms = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

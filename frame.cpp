@@ -16,6 +16,10 @@
 
 #include <cassert>
 
+
+namespace stl {}
+using namespace stl;
+
 #ifdef DEBUG
     #include <sstream>
 #endif
@@ -637,7 +641,7 @@ void Frame::eraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs)
 #endif
     u32 idx = getIdx(pY, startX);
     TerminalCell erased = attrs;
-    erased.line_attr = static_cast<const Frame&>(*this).getCell(pY, 0).line_attr;
+    erased.line_attr = ((const Frame&)*this).getCell(pY, 0).line_attr;
     if (startX == 0 && count == nCols) {
         if (!erasedRowTemplateValid || erasedRowTemplate.size() != nCols || erasedRowCell != erased) {
             erasedRowTemplate.assign(nCols, erased);

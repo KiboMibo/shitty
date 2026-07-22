@@ -26,6 +26,10 @@
 #include <stdexcept>
 #include <string>
 
+
+namespace stl {}
+using namespace stl;
+
 namespace {
     struct GpuCell {
         u32 codepoint;

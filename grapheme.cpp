@@ -2,6 +2,10 @@
 
 #include <utf8proc.h>
 
+
+namespace stl {}
+using namespace stl;
+
 bool GraphemeBreaker::breakBefore(u32 codepoint) {
     if (!hasPrevious_) {
         hasPrevious_ = true;

@@ -15,6 +15,10 @@
 #include <algorithm>
 #include <cassert>
 
+
+namespace stl {}
+using namespace stl;
+
 CharVdev::CharVdev(Fontpack* fontpk_)
     : px(fontpk_->getPx())
     , py(fontpk_->getPy())

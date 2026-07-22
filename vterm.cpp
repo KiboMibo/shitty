@@ -23,13 +23,13 @@
 #include "vterm_host.h"
 
 #include <std/mem/obj_pool.h>
+#include <std/sys/types.h>
 #include <std/ios/out.h>
 #include <std/ios/output.h>
 #include <std/str/builder.h>
 #include <std/str/view.h>
 #include <std/sys/fd.h>
 #include <std/sys/throw.h>
-#include <std/sys/types.h>
 
 #include <algorithm>
 #include <array>
@@ -48,6 +48,7 @@
 #include <sys/types.h>
 #include <thread>
 
+namespace stl {}
 using namespace stl;
 
 void MouseTrackingState::setMode(MouseTrackingMode value) {
@@ -1660,7 +1661,7 @@ void VtermImpl::placeGraphicChar() {
         pt = Unicode_Replacement_Character;
     }
 
-    const u8 lineAttribute = static_cast<const Frame&>(*cf).getCell(posY, 0).line_attr;
+    const u8 lineAttribute = ((const Frame&)*cf).getCell(posY, 0).line_attr;
     const u16 lineCols = lineAttribute
         ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2)
         : nColsEff;
@@ -1704,7 +1705,7 @@ void VtermImpl::placeGraphicChar() {
     c.uc_pt = pt;
     c.hyperlink = activeHyperlink;
     c.semantic = currentSemantic;
-    c.line_attr = changedRow ? static_cast<const Frame&>(*cf).getCell(posY, 0).line_attr : lineAttribute;
+    c.line_attr = changedRow ? ((const Frame&)*cf).getCell(posY, 0).line_attr : lineAttribute;
     if (c.blink) {
         haveBlinkingText = true;
     }
@@ -2003,8 +2004,9 @@ bool VtermImpl::performIndex() {
 
 std::string VtermImpl::printableLine(u16 row) const {
     std::vector<u32> codepoints;
+    const Frame& frame = *cf;
     for (u16 column = 0; column < nCols; ++column) {
-        const auto& cell = cf->getCell(row, column);
+        const auto& cell = frame.getCell(row, column);
         if (cell.dwidth_cont) {
             continue;
         }
@@ -2108,9 +2110,9 @@ size_t VtermImpl::consumePrinterController(const u8* input, size_t size) {
         if (printerControllerState == PrinterControllerState::Normal) {
             const u8* const begin = input + consumed;
             const size_t remaining = size - consumed;
-            const u8* const escape = static_cast<const u8*>(memchr(begin, 0x1b, remaining));
+            const u8* const escape = (const u8*)memchr(begin, 0x1b, remaining);
             const size_t prefixSize = escape == nullptr ? remaining : escape - begin;
-            const u8* const csi = static_cast<const u8*>(memchr(begin, 0x9b, prefixSize));
+            const u8* const csi = (const u8*)memchr(begin, 0x9b, prefixSize);
             const u8* const next = csi == nullptr ? escape : csi;
             if (next == nullptr) {
                 if (handlesPrinter) {
@@ -2444,7 +2446,7 @@ void VtermImpl::moveCursorBackward(u32 count) {
             count -= step;
             continue;
         }
-        if (!reverseWrapMode || posY == 0 || (!extendedReverseWrapMode && !cf->getCell(posY - 1, nColsEff - 1).wrap)) {
+        if (!reverseWrapMode || posY == 0 || (!extendedReverseWrapMode && !((const Frame&)*cf).getCell(posY - 1, nColsEff - 1).wrap)) {
             break;
         }
         --posY;
@@ -2790,9 +2792,10 @@ void VtermImpl::csi_DECCRA() {
         const u16 width = std::min<u16>(source.right - source.left, columnLimit - targetLeft);
         std::vector<TerminalCell> copied;
         copied.reserve(height * width);
+        const Frame& frame = *cf;
         for (u16 y = 0; y < height; ++y) {
             for (u16 x = 0; x < width; ++x) {
-                copied.push_back(cf->getCell(source.top + y, source.left + x));
+                copied.push_back(frame.getCell(source.top + y, source.left + x));
             }
         }
         for (u16 y = 0; y < height; ++y) {
@@ -2894,9 +2897,10 @@ void VtermImpl::csi_DECRQCRA() {
             return;
         }
         u16 checksum = 0;
+        const Frame& frame = *cf;
         for (u16 y = rectangle.top; y < rectangle.bottom; ++y) {
             for (u16 x = rectangle.left; x < rectangle.right; ++x) {
-                const auto& cell = cf->getCell(y, x);
+                const auto& cell = frame.getCell(y, x);
                 if (cell.uc_pt != ' ') {
                     checksum += cell.uc_pt & 0xff;
                 }
@@ -2940,7 +2944,7 @@ void VtermImpl::csi_ICH() {
         arg = std::min(arg, len);
         len -= arg;
 
-        if (len > 0 && cf->getCell(posY, posX + arg + len - 1).wrap) {
+        if (len > 0 && ((const Frame&)*cf).getCell(posY, posX + arg + len - 1).wrap) {
             cf->getCell(posY, posX + arg + len - 1).wrap = 0;
             cf->getCell(posY, posX + len - 1).wrap = 1;
         }

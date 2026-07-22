@@ -4,6 +4,10 @@
 
 #include <cctype>
 
+
+namespace stl {}
+using namespace stl;
+
 Osc52Request parseOsc52(const std::string& argument, bool selectClipboard) {
     Osc52Request request;
     const size_t separator = argument.find(';');

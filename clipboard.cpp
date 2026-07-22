@@ -2,6 +2,10 @@
 
 #include <utility>
 
+
+namespace stl {}
+using namespace stl;
+
 void ClipboardStore::setHandlers(ReadClipboard read, WriteClipboard write) {
     readClipboard = std::move(read);
     writeClipboard = std::move(write);

@@ -8,6 +8,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+
+namespace stl {}
+using namespace stl;
+
 namespace {
     bool executable(const char* path) {
         struct stat info{};

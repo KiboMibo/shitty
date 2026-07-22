@@ -20,6 +20,10 @@
 #include <memory>
 #include <stdexcept>
 
+
+namespace stl {}
+using namespace stl;
+
 namespace {
 
     class FontpackImpl final: public Fontpack {

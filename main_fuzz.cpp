@@ -6,8 +6,12 @@
 #include <cstddef>
 #include <cstdint>
 
+
+namespace stl {}
+using namespace stl;
+
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t len) {
-    static stl::ObjPool::Ref pool = stl::ObjPool::fromMemory();
+    static ObjPool::Ref pool = ObjPool::fromMemory();
     static Composer composer{pool.mutPtr()};
     static VtermHeadless* vterm = VtermHeadless::create(composer);
     vterm->feed((const u8*)(data), len);

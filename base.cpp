@@ -14,6 +14,10 @@
 #include <iomanip>
 #include <ostream>
 
+
+namespace stl {}
+using namespace stl;
+
 std::ostream& operator<<(std::ostream& os, const Color& c) {
     os << "rgb:" << std::hex << std::setfill('0') << std::setw(2) << (int)c.red << std::setw(2) << (int)c.red << "/" << std::setw(2) << (int)c.green << std::setw(2) << (int)c.green << "/" << std::setw(2) << (int)c.blue << std::setw(2) << (int)c.blue;
     return os;

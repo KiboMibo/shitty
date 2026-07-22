@@ -21,6 +21,10 @@
 
 #include <cassert>
 
+
+namespace stl {}
+using namespace stl;
+
 namespace {
 
     class RendererImpl final: public Renderer {

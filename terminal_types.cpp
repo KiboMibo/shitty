@@ -11,6 +11,10 @@
 
 #include "terminal_types.h"
 
+
+namespace stl {}
+using namespace stl;
+
 TerminalCell::TerminalCell()
     : dwidth(0)
     , dwidth_cont(0)

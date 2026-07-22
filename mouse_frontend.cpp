@@ -4,6 +4,10 @@
 #include <climits>
 #include <cmath>
 
+
+namespace stl {}
+using namespace stl;
+
 int mouseFramebufferCoordinate(double logical, double scale) {
     if (!std::isfinite(logical) || !std::isfinite(scale)) {
         return 0;
