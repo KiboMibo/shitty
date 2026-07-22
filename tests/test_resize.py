@@ -4,23 +4,25 @@ from harness import Zutty
 
 
 class ResizeTest(unittest.TestCase):
-    def test_growing_preserves_cells_and_cursor(self):
+    def test_growing_reflows_cells_and_cursor(self):
         with Zutty(columns=5, rows=2) as terminal:
             terminal.write(b"abcde123")
             terminal.resize(7, 3)
             snapshot = terminal.snapshot()
             self.assertEqual((snapshot.columns, snapshot.rows), (7, 3))
-            self.assertEqual(snapshot.lines, ["abcde  ", "123    ", "       "])
-            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (3, 1))
+            self.assertEqual(snapshot.lines, ["abcde12", "3      ", "       "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
             self.assertEqual(terminal.winsize(), (7, 3))
 
-    def test_shrinking_clips_cells_and_cursor(self):
-        with Zutty(columns=7, rows=3) as terminal:
+    def test_shrinking_reflows_cells_and_cursor_into_history(self):
+        with Zutty(columns=7, rows=3, save_lines=4) as terminal:
             terminal.write(b"abcde\r\n12345")
             terminal.resize(4, 2)
             snapshot = terminal.snapshot()
-            self.assertEqual(snapshot.lines, ["abcd", "1234"])
-            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (3, 1))
+            self.assertEqual(snapshot.lines, ["1234", "5   "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
+            terminal.wheel_up(4)
+            self.assertEqual(terminal.snapshot().lines, ["abcd", "e   "])
 
     def test_resize_alternate_screen_and_restore_primary(self):
         with Zutty(columns=5, rows=2) as terminal:

@@ -216,8 +216,8 @@ def reflow_capability():
             "reflow capability is not boolean",
         )
         require(
-            not backend.capabilities.reflow,
-            "row-preserving resize incorrectly declares reflow",
+            backend.capabilities.reflow,
+            "reflow support is not declared",
         )
 
 

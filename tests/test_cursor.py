@@ -157,14 +157,14 @@ class CursorAndMovementTest(unittest.TestCase):
             snapshot = terminal.snapshot()
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (9, 0))
 
-    def test_column_index_is_ignored_at_page_edges(self):
+    def test_column_index_scrolls_at_page_edges(self):
         with Zutty(columns=5, rows=2) as terminal:
             terminal.write(b"x\x1b[1;1H\x1b6")
-            self.assertEqual(terminal.snapshot().lines[0], "x    ")
+            self.assertEqual(terminal.snapshot().lines[0], " x   ")
 
         with Zutty(columns=5, rows=2) as terminal:
             terminal.write(b"\x1b[1;5Hx\x1b9")
-            self.assertEqual(terminal.snapshot().lines[0], "    x")
+            self.assertEqual(terminal.snapshot().lines[0], "   x ")
 
     def test_column_index_scrolls_at_margin_outside_vertical_region(self):
         cases = (

@@ -1305,7 +1305,9 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
             frame_alt = Frame(winPx, winPy, nCols, nRows, marginTop, marginBottom, &colors, opts.saveLines);
             altScreenInitialized = true;
         } else {
-            frame_alt.resize(winPx, winPy, nCols, nRows, marginTop, marginBottom);
+            frame_alt.resize(
+                winPx, winPy, nCols, nRows, marginTop, marginBottom,
+                {Point(posX, posY), lastCol}, false);
         }
         cf = &frame_alt;
         cf->expose();
@@ -1313,7 +1315,13 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         savedCursor = &savedCursorAlt;
         altScreenBufferMode = true;
     } else {
-        frame_pri.resize(winPx, winPy, nCols, nRows, marginTop, marginBottom);
+        const bool reflow = frame_pri.nCols != nCols;
+        const auto resizeState = frame_pri.resize(
+            winPx, winPy, nCols, nRows, marginTop, marginBottom,
+            {Point(posX, posY), lastCol}, reflow);
+        posX = resizeState.cursor.x;
+        posY = resizeState.cursor.y;
+        lastCol = resizeState.pendingWrap;
         cf = &frame_pri;
         cf->expose();
         if (clearAlternate) {
@@ -3549,8 +3557,9 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 esc_DECRC();
                 break;
             case 1049:
-                switchScreenBufferMode(false, true);
+                savedCursor = &savedCursorPri;
                 esc_DECRC();
+                switchScreenBufferMode(false, true);
                 break;
             case 1045:
                 extendedReverseWrapMode = false;
@@ -6908,12 +6917,15 @@ void VtermImpl::resize(u16 winPx_, u16 winPy_) {
         posY -= nScroll;
     }
 
-    // Both buffers have real history and must obey the same resize contract.
-    // Keeping the inactive alternate allocation also lets mode 47 restore it
-    // after a primary-screen resize instead of dereferencing freed storage.
-    cf->resize(winPx, winPy, nCols_, nRows_, marginTop, marginBottom);
+    const bool reflow = cf == &frame_pri && nCols != nCols_;
+    const auto resizeState = cf->resize(
+        winPx, winPy, nCols_, nRows_, marginTop, marginBottom,
+        {Point(posX, posY), lastCol}, reflow);
+    posX = resizeState.cursor.x;
+    posY = resizeState.cursor.y;
+    lastCol = resizeState.pendingWrap;
 
-    if (nRows < nRows_) {
+    if (!reflow && nRows < nRows_) {
         const int nScroll = std::min(nRows_ - nRows, (int)(cf->getHistoryRows()));
         cf->restoreHistory(nScroll);
         posY += nScroll;
@@ -6924,11 +6936,13 @@ void VtermImpl::resize(u16 winPx_, u16 winPy_) {
     // Frame::resize resets the vertical scrolling region.  Reset the
     // horizontal region to the resized page as well; retaining a clipped
     // right edge made subsequent growth keep a stale narrow region.
-    const bool pendingWrap = lastCol;
     nColsEff = nCols;
     hMargin = 0;
-    normalizeCursorPos();
-    lastCol = pendingWrap;
+    if (!reflow) {
+        const bool pendingWrap = lastCol;
+        normalizeCursorPos();
+        lastCol = pendingWrap;
+    }
     showCursor();
 
     pty.resize(nCols, nRows);

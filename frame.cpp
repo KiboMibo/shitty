@@ -14,6 +14,7 @@
 
 #include <utf8proc.h>
 
+#include <algorithm>
 #include <cassert>
 
 
@@ -167,16 +168,268 @@ void Frame::collectHyperlinkIds(std::set<u32>& ids) const {
     }
 }
 
-void Frame::resize(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_) {
+Frame::ResizeState Frame::resize(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, ResizeState state, bool reflow) {
     if (winPx == winPx_ && winPy == winPy_) {
-        return;
+        return state;
     }
 
     winPx = winPx_;
     winPy = winPy_;
 
     if (nCols == nCols_ && nRows == nRows_) {
-        return;
+        return state;
+    }
+
+    if (reflow && nCols != nCols_) {
+        struct LogicalLine {
+            std::vector<TerminalCell> cells;
+            bool reflowable = true;
+        };
+        struct Anchor {
+            int oldRow = 0;
+            int oldColumn = 0;
+            size_t line = 0;
+            size_t offset = 0;
+            Point mapped;
+            bool found = false;
+        };
+        struct Boundary {
+            size_t row = 0;
+            int column = 0;
+        };
+
+        const int oldHistoryCount = history.size();
+        const bool wasScrolled = viewOffset != 0;
+        const int oldTotalRows = oldHistoryCount + nRows;
+        Anchor cursorAnchor{
+            oldHistoryCount + state.cursor.y,
+            state.cursor.x + (state.pendingWrap ? 1 : 0),
+        };
+        Anchor viewAnchor{oldHistoryCount - viewOffset, 0};
+        Anchor screenAnchor{oldHistoryCount, 0};
+        Anchor selectionStart;
+        Anchor selectionEnd;
+        const bool keepSelection = !selection.null() && !selection.rectangular;
+        if (keepSelection) {
+            selectionStart.oldRow = oldHistoryCount + selection.tl.y;
+            selectionStart.oldColumn = selection.tl.x;
+            selectionEnd.oldRow = oldHistoryCount + selection.br.y;
+            selectionEnd.oldColumn = selection.br.x;
+        }
+        std::vector<Anchor*> anchors = {&cursorAnchor, &viewAnchor, &screenAnchor};
+        if (keepSelection) {
+            anchors.push_back(&selectionStart);
+            anchors.push_back(&selectionEnd);
+        }
+
+        const auto cellHasContent = [](const TerminalCell& source) {
+            TerminalCell cell = source;
+            cell.wrap = 0;
+            cell.dirty = 0;
+            cell.line_attr = 0;
+            return cell != TerminalCell{};
+        };
+
+        std::vector<LogicalLine> lines;
+        bool continueLine = false;
+        for (int oldRow = 0; oldRow < oldTotalRows; ++oldRow) {
+            const TerminalCell* row = getLogicalRowPtr(oldRow - oldHistoryCount);
+            const bool normalWidth = row[0].line_attr == 0;
+            const bool join = continueLine && normalWidth;
+            if (!join) {
+                lines.emplace_back();
+            }
+            LogicalLine& line = lines.back();
+            line.reflowable &= normalWidth;
+            const size_t rowOffset = line.cells.size();
+
+            int contentEnd = 0;
+            int wrapEnd = 0;
+            for (int column = 0; column < nCols; ++column) {
+                if (cellHasContent(row[column])) {
+                    contentEnd = column + 1;
+                }
+                if (row[column].wrap) {
+                    wrapEnd = column + 1;
+                }
+            }
+            int copyEnd = wrapEnd ? wrapEnd : contentEnd;
+            if (!normalWidth) {
+                copyEnd = nCols;
+            }
+            for (Anchor* anchor : anchors) {
+                if (anchor->oldRow == oldRow) {
+                    anchor->line = lines.size() - 1;
+                    anchor->offset = rowOffset + std::min(anchor->oldColumn, (int)(nCols));
+                    anchor->found = true;
+                    copyEnd = std::max(copyEnd, std::min(anchor->oldColumn, (int)(nCols)));
+                }
+            }
+            for (int column = 0; column < copyEnd; ++column) {
+                TerminalCell cell = row[column];
+                cell.wrap = 0;
+                cell.dirty = 0;
+                line.cells.push_back(cell);
+            }
+            continueLine = wrapEnd && normalWidth;
+        }
+
+        std::vector<std::vector<TerminalCell>> output;
+        for (size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
+            LogicalLine& line = lines[lineIndex];
+            std::vector<Boundary> boundaries(line.cells.size() + 1);
+            const size_t lineOutputStart = output.size();
+            size_t outputRow = output.size();
+            output.emplace_back(nCols_);
+            int column = 0;
+            boundaries[0] = {outputRow, 0};
+
+            if (line.reflowable) {
+                size_t offset = 0;
+                while (offset < line.cells.size()) {
+                    const bool wide = line.cells[offset].dwidth
+                        && offset + 1 < line.cells.size()
+                        && line.cells[offset + 1].dwidth_cont;
+                    const size_t width = wide ? 2 : 1;
+                    if (width > nCols_) {
+                        boundaries[offset] = {outputRow, column};
+                        ++offset;
+                        boundaries[offset] = {outputRow, column};
+                        if (wide) {
+                            ++offset;
+                            boundaries[offset] = {outputRow, column};
+                        }
+                        continue;
+                    }
+                    if (column + (int)(width) > nCols_) {
+                        output[outputRow][column ? column - 1 : nCols_ - 1].wrap = 1;
+                        outputRow = output.size();
+                        output.emplace_back(nCols_);
+                        column = 0;
+                    }
+                    boundaries[offset] = {outputRow, column};
+                    for (size_t cellIndex = 0; cellIndex < width; ++cellIndex) {
+                        TerminalCell cell = line.cells[offset + cellIndex];
+                        cell.wrap = 0;
+                        cell.dirty = 0;
+                        output[outputRow][column++] = cell;
+                        boundaries[offset + cellIndex + 1] = {outputRow, column};
+                    }
+                    offset += width;
+                    if (column == nCols_ && offset < line.cells.size()) {
+                        output[outputRow][nCols_ - 1].wrap = 1;
+                        outputRow = output.size();
+                        output.emplace_back(nCols_);
+                        column = 0;
+                        boundaries[offset] = {outputRow, 0};
+                    }
+                }
+            } else {
+                const size_t count = std::min<size_t>(line.cells.size(), nCols_);
+                for (size_t offset = 0; offset < count; ++offset) {
+                    output[outputRow][offset] = line.cells[offset];
+                    output[outputRow][offset].wrap = 0;
+                    output[outputRow][offset].dirty = 0;
+                    boundaries[offset] = {outputRow, (int)(offset)};
+                    boundaries[offset + 1] = {outputRow, (int)(offset + 1)};
+                }
+                for (size_t offset = count + 1; offset < boundaries.size(); ++offset) {
+                    boundaries[offset] = {outputRow, (int)(count)};
+                }
+            }
+
+            const auto normalizeWideRow = [nCols_](std::vector<TerminalCell>& row) {
+                for (u16 column = 0; column < nCols_; ++column) {
+                    const bool orphanLead = row[column].dwidth
+                        && (column + 1 == nCols_ || !row[column + 1].dwidth_cont);
+                    const bool orphanContinuation = row[column].dwidth_cont
+                        && (column == 0 || !row[column - 1].dwidth);
+                    if (orphanLead || orphanContinuation) {
+                        row[column] = TerminalCell{};
+                    }
+                }
+            };
+            for (size_t row = lineOutputStart; row < output.size(); ++row) {
+                normalizeWideRow(output[row]);
+            }
+
+            for (Anchor* anchor : anchors) {
+                if (!anchor->found || anchor->line != lineIndex) {
+                    continue;
+                }
+                const Boundary boundary = boundaries[std::min(anchor->offset, boundaries.size() - 1)];
+                anchor->mapped = Point(boundary.column, (int)(boundary.row));
+            }
+        }
+
+        const size_t cursorScreenStart = cursorAnchor.mapped.y >= nRows_
+            ? cursorAnchor.mapped.y - (nRows_ - 1)
+            : 0;
+        size_t preferredScreenStart = screenAnchor.mapped.y;
+        if (nRows_ > nRows) {
+            preferredScreenStart -= std::min<size_t>(preferredScreenStart, nRows_ - nRows);
+        }
+        const size_t screenStart = std::max(preferredScreenStart, cursorScreenStart);
+        while (output.size() < screenStart + nRows_) {
+            output.emplace_back(nCols_);
+        }
+        const size_t retainedStart = screenStart > saveLines ? screenStart - saveLines : 0;
+        const size_t historyCount = screenStart - retainedStart;
+
+        auto newCells = TerminalCell::make(nCols_, nRows_ + saveLines);
+        for (size_t row = 0; row < nRows_; ++row) {
+            memcpy(newCells.get() + row * nCols_, output[screenStart + row].data(), nCols_ * cellSize);
+        }
+        for (size_t row = 0; row < historyCount; ++row) {
+            memcpy(newCells.get() + (nRows_ + row) * nCols_, output[retainedStart + row].data(), nCols_ * cellSize);
+        }
+
+        cells = std::move(newCells);
+        nCols = nCols_;
+        nRows = nRows_;
+        screen.resize(nRows);
+        for (RowId row = 0; row < nRows; ++row) {
+            screen[row] = row;
+        }
+        history.clear();
+        for (RowId row = nRows; row < nRows + historyCount; ++row) {
+            history.push_back(row);
+        }
+        freeRows.clear();
+        for (RowId row = nRows + historyCount; row < nRows + saveLines; ++row) {
+            freeRows.push_back(row);
+        }
+
+        if (!wasScrolled) {
+            viewOffset = 0;
+        } else if (viewAnchor.mapped.y >= (int)(retainedStart) && viewAnchor.mapped.y < (int)(screenStart)) {
+            viewOffset = screenStart - viewAnchor.mapped.y;
+        } else if (viewAnchor.mapped.y < (int)(retainedStart)) {
+            viewOffset = historyCount;
+        } else {
+            viewOffset = 0;
+        }
+        if (keepSelection
+            && selectionStart.mapped.y >= (int)(retainedStart)
+            && selectionStart.mapped.y < (int)(screenStart + nRows_)
+            && selectionEnd.mapped.y >= (int)(retainedStart)
+            && selectionEnd.mapped.y < (int)(screenStart + nRows_)) {
+            selection.tl = Point(selectionStart.mapped.x, selectionStart.mapped.y - screenStart);
+            selection.br = Point(selectionEnd.mapped.x, selectionEnd.mapped.y - screenStart);
+        } else {
+            selection.clear();
+        }
+
+        state.pendingWrap = cursorAnchor.mapped.x == nCols_;
+        state.cursor.x = state.pendingWrap ? nCols_ - 1 : std::min(cursorAnchor.mapped.x, (int)(nCols_ - 1));
+        state.cursor.y = std::max(0, std::min(cursorAnchor.mapped.y - (int)(screenStart), (int)(nRows_ - 1)));
+        marginTop_ = 0;
+        marginBottom_ = nRows;
+        erasedRowTemplateValid = false;
+        damage.totalCells = nCols * (nRows + saveLines);
+        expose();
+        highMemUsageReport();
+        return state;
     }
 
     const u16 oldViewOffset = viewOffset;
@@ -238,6 +491,7 @@ void Frame::resize(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTo
     damage.totalCells = nCols * (nRows + saveLines);
     expose();
     highMemUsageReport();
+    return state;
 }
 
 void Frame::fullCopyCells(RenderCell* const dst) const {

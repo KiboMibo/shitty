@@ -15,7 +15,7 @@ class DamageOnlyFrameTest(unittest.TestCase):
             terminal.resize(5, 3)
             retried = terminal.snapshot()
             self.assertEqual((retried.columns, retried.rows), (5, 3))
-            self.assertEqual(retried.lines, ["befor", "ailed", "     "])
+            self.assertEqual(retried.lines, ["befor", "e+fai", "led  "])
             self.assertEqual(retried.refresh_count, before.refresh_count + 1)
 
     def test_cursor_only_change_publishes_without_cell_damage(self):

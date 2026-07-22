@@ -29,7 +29,12 @@ public:
 
     Frame(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, const TerminalColors* colors_, u16 saveLines_ = 0);
 
-    void resize(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_);
+    struct ResizeState {
+        Point cursor;
+        bool pendingWrap = false;
+    };
+
+    ResizeState resize(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, ResizeState state, bool reflow);
 
     void dropScrollbackHistory();
 

@@ -30,7 +30,7 @@ class Backend:
             extra_arguments=("-allowWindowOps", "true"),
         )
         self.title = ""
-        self.capabilities = Capabilities(reflow=False)
+        self.capabilities = Capabilities(reflow=True)
 
     def close(self):
         self.terminal.close()

@@ -128,13 +128,3 @@
 # all match.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 68screen_termprops.test
-# This fixture explicitly enables libvterm's optional screen reflow through
-# `WANTSCREEN r` / vterm_screen_enable_reflow().  Xterm 410 has no equivalent
-# reflow-on-resize mode: ScreenResize() and Reallocate() resize physical rows
-# and columns according to resizeGravity, but never join or rechop soft-wrapped
-# logical lines.  ECMA-48 likewise does not define host window-resize reflow.
-# Zutty follows xterm's row-preserving resize contract rather than libvterm's
-# embedding-only policy, so every downstream row/cursor expectation differs.
-# https://invisible-island.net/archives/xterm/xterm-410.tgz
-# https://ecma-international.org/publications-and-standards/standards/ecma-48/
-69screen_reflow.test

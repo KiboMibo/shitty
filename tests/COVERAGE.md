@@ -67,9 +67,13 @@ Covered now:
 - scrollback cell attributes, hyperlinks, selection lifetime and viewport anchoring;
 - fractional frontend wheel accumulation, both axes, local/reporting
   transitions and Shift override;
+- logical-line reflow across primary-screen width changes, preserving hard
+  breaks, cursor position, pending-autowrap semantics, scrollback capacity,
+  scrolled viewport anchors and linear selections;
 - shrink-to-history and grow-from-history resize behavior, including complete
-  wide/grapheme cell invariants across width and height changes;
-- cursor visibility preservation and pending-autowrap cancellation across
+  wide/grapheme cell invariants across width and height changes and primary
+  reflow after an inactive alternate-screen resize;
+- cursor visibility preservation and pending-autowrap recomputation across
   width/height shrink and grow;
 - vertical/horizontal margin reset on resize and default/custom forward and
   backward tab boundaries before and after width changes;

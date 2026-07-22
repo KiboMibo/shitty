@@ -1,6 +1,6 @@
 ## Verdict
 
-Out of 116 expected failures:
+The audit started with 116 expected failures:
 
 - **3 are genuine candidates for fixing in Zutty**: Delete Character outside the vertical margins, Back Index at the full-screen boundary, and Forward Index at the full-screen boundary.
 - **23 come from an outdated `ucs-detect` profile**. They describe capabilities that Zutty already implements, not defects.
@@ -8,9 +8,14 @@ Out of 116 expected failures:
 
 Therefore, an expected failure does not currently mean that Zutty has 116 known bugs. I found three actual protocol differences where Zutty disagrees with both xterm and the majority of the principal terminal emulators.
 
+The three protocol differences have since been fixed, the 23 outdated
+`ucs-detect` expectations have been regenerated, and resize reflow has been
+implemented. The imported suites now contain 87 expected failures, all in the
+acceptable third category above.
+
 The comparison covered xterm, Ghostty, Kitty, VTE, WezTerm, Alacritty, Konsole, Contour, foot, xterm.js, and Windows Terminal. I also reran all seven Contour expected failures without masking their differences.
 
-## Behavior that should actually be fixed
+## Behavior fixed after the audit
 
 ### 1. Delete Character outside the top and bottom scrolling region
 
@@ -61,7 +66,7 @@ For an xterm profile, Zutty behavior is correct. These expected failures may rem
 
 ## Contour: 7 expected failures
 
-The existing expected-failure comment is too broad and does not describe all of the actual causes.
+The expected-failure comments are split by the actual cause of each checkpoint.
 
 - `vttest.07.vt52-mode`: Delete must be ignored. There is no consensus for position `0x5f` in the Digital Equipment Corporation Special Graphics character set: xterm, VTE, and Zutty produce a blank; Kitty produces a no-break space; Ghostty, Contour, and xterm.js retain the underscore. The golden result is not portable.
 - `vttest.09.known-bugs`: the principal differences are checkpoint placement and the user-configurable Auto Repeat Mode state. Neither is a portable protocol oracle.
@@ -111,7 +116,7 @@ Both cases test the internal Unicode representation of the visually empty Digita
 
 No choice changes normal visible application output. **Keep these as internal-model compatibility differences.**
 
-## libvterm: 17 expected failures
+## libvterm: 16 expected failures
 
 Almost all of these failures result from comparing different application programming interfaces or different terminal profiles.
 
@@ -120,18 +125,20 @@ Almost all of these failures result from comparing different application program
 - Combining marks: libvterm truncates after five marks. Terminals use different defensive limits: xterm has a configurable limit, Contour stores 16 code points, Kitty stores 24 code points, and Ghostty uses dynamic storage. Unicode does not define a fixed limit.
 - Insert Line cursor column and Request Status String for Select Character Protection Attribute: xterm and Zutty return the cursor to the left margin and canonicalize the erasable state as `0"q`. libvterm preserves the cursor column and the original `2"q` spelling.
 - Character-set reset: Zutty follows the Digital Equipment Corporation and xterm arrangement with G0 and G1 as United States American Standard Code for Information Interchange, and G2 and G3 as supplemental sets. Unicode-only engines often reset every set to American Standard Code for Information Interchange.
-- Pending wrap during resize: terminal policies differ. xterm and Zutty preserve pending wrap, while libvterm materializes a phantom cursor column.
+- Pending wrap during resize: terminal policies differ. Zutty now remaps the
+  logical cursor during reflow and recomputes whether it remains at the new
+  right edge.
 - Default cursor blinking: this is a user-interface setting, not a terminal protocol rule. xterm and Zutty default to no blinking; the libvterm callback reports blinking enabled.
 - Save Cursor cursor shape: xterm, Ghostty, and Zutty do not save cursor shape or cursor blinking. Ghostty's saved cursor structure in `ghostty/src/terminal/Terminal.zig` contains no such fields.
 - Input fixture: this tests `vterm_keyboard_unichar()`, not an output byte stream from a terminal frontend. Unicode key encoding, xterm Modify Other Keys, and C0 control policy are not required to produce identical bytes.
 - Primary Device Attributes, xterm version reporting, and Request Status String: terminal identity and canonical reply serialization necessarily differ between terminal profiles.
 - Repeat: xterm and Zutty do not repeat a combining mark and allow a long Repeat operation to continue through automatic wrapping. Kitty and Contour also process Repeat through their normal text-printing paths. VTE instead limits Repeat to the remaining columns in the current row.
 - Select Graphic Rendition parameters 73 and 74: libvterm implements superscript and subscript. Almost all principal terminal emulators ignore these parameters.
-- Reflow: this is the only significant product feature in this group. Ghostty, VTE, Alacritty, foot, xterm.js, Konsole, and Contour support line reflow, often by default. Contour enables it by default in `contour/src/vtbackend/Settings.h`. xterm and Zutty preserve physical rows.
+- Reflow was the only significant product feature in this group. Zutty now
+  reflows primary-screen logical lines and passes the complete imported
+  libvterm reflow fixture.
 
-Conclusion: **the expected failures are valid**, but resize reflow should be tracked as a separate modern feature rather than as a fix for a libvterm test.
-
-## ucs-detect: 23 expected failures
+## ucs-detect: 0 expected failures
 
 All 23 entries should be treated as differences from a stale expected profile:
 
@@ -144,7 +151,9 @@ All 23 entries should be treated as differences from a stale expected profile:
 
 Support is not universal across terminal emulators, but Zutty replies truthfully and uses valid protocol forms. For example, the Kitty keyboard protocol is supported by Kitty, Ghostty, foot, WezTerm, and Contour, while xterm does not support it. Request Status String and xterm termcap querying are strongest in xterm, Kitty, Contour, and WezTerm.
 
-The correct action is to **regenerate `data/zutty.yaml`, remove all 23 expected failures, and test the new profile as the declared Zutty contract**. The current entries only make the test statistics look worse without identifying defects.
+`data/zutty.yaml` has been regenerated from Zutty, all 23 false expected
+failures have been removed, and the profile is tested as the declared Zutty
+contract.
 
 ## VTE: 14 expected failures
 
@@ -183,10 +192,8 @@ Zutty follows default xterm behavior. **Keep the expected failure.**
 
 **Keep all eight expected failures.**
 
-## Recommended next work
+## Remaining expected failures
 
-1. Fix the three esctest cases for Delete Character, Back Index, and Forward Index. Introduce each change with a failing test and commit it separately.
-2. Regenerate the ucs-detect profile and remove the 23 false expected failures.
-3. Rewrite the Contour expected-failure comments. The current comments do not describe the Insert Line and Delete Line differences, Repeat behavior, or checkpoint drift.
-4. Make a separate product decision about reflow during resize. It is a modern usability gap compared with Ghostty, VTE, Alacritty, foot, Konsole, and Contour, but it is not a protocol correctness error.
-5. Keep the remaining expected failures. They document a terminal profile choice, a disputed internal representation, behavior left undefined by a standard, or an error in an imported oracle.
+Keep the remaining 87 expected failures. They document a terminal profile
+choice, a disputed internal representation, behavior left undefined by a
+standard, or an error in an imported oracle.
