@@ -11,6 +11,12 @@ decrqss_decslrm
 decrqss_decslpp
 decrqss_decstbm
 decrqss_sgr
+# The recorded 0.16-1 profile says DECRQSS cannot report truecolor SGR.
+# Xterm 410 xtermFormatSGR() serializes direct foreground/background colors,
+# and Zutty now returns the equivalent canonical 38:2::r:g:b form, so the
+# detector correctly changes from false to true.
+# https://invisible-island.net/archives/xterm/xterm-410.tgz
+decrqss_truecolor
 device_attributes
 kitty_keyboard
 mode_bracketed_paste
