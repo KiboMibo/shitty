@@ -752,9 +752,32 @@ namespace {
             out = (u8)((parsed * 255 + maximum / 2) / maximum);
             return true;
         };
+        const auto hashComponent = [&](const std::string& value, u8& out) {
+            if (value.empty() || value.size() > 4) {
+                return false;
+            }
+            unsigned parsed = 0;
+            for (unsigned char ch : value) {
+                const int digit = hexDigit(ch);
+                if (digit < 0) {
+                    return false;
+                }
+                parsed = parsed * 16 + digit;
+            }
+            if (value.size() < 2) {
+                parsed <<= 4;
+            } else if (value.size() > 2) {
+                parsed >>= 4 * (value.size() - 2);
+            }
+            out = (u8)parsed;
+            return true;
+        };
 
-        if (spec.size() == 7 && spec[0] == '#') {
-            return component(spec.substr(1, 2), color.red) && component(spec.substr(3, 2), color.green) && component(spec.substr(5, 2), color.blue);
+        if (spec.size() >= 4 && spec.size() <= 13 && spec[0] == '#' && (spec.size() - 1) % 3 == 0) {
+            const size_t width = (spec.size() - 1) / 3;
+            return hashComponent(spec.substr(1, width), color.red)
+                && hashComponent(spec.substr(1 + width, width), color.green)
+                && hashComponent(spec.substr(1 + 2 * width, width), color.blue);
         }
         if (spec.compare(0, 4, "rgb:") != 0) {
             return false;

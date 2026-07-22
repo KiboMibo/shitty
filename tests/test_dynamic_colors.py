@@ -155,6 +155,22 @@ class DynamicColorTest(unittest.TestCase):
                         b"\x1b]12;rgb:" + reply + b"\x1b\\",
                     )
 
+    def test_hash_component_widths_are_high_bit_aligned(self):
+        expected = (
+            (b"#f08", b"f0f0/0000/8080"),
+            (b"#f00080", b"f0f0/0000/8080"),
+            (b"#f00000800", b"f0f0/0000/8080"),
+            (b"#f00000008000", b"f0f0/0000/8080"),
+        )
+        with Zutty(columns=4, rows=2) as terminal:
+            for spec, reply in expected:
+                with self.subTest(spec=spec):
+                    terminal.write(b"\x1b]12;" + spec + b"\x1b\\")
+                    self.assertEqual(
+                        dynamic_query(terminal, 12),
+                        b"\x1b]12;rgb:" + reply + b"\x1b\\",
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()
