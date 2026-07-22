@@ -2955,8 +2955,7 @@ void VtermImpl::csi_DCH() {
 void VtermImpl::csi_ECH() {
     TRACE_FUN;
     u32 arg = inputOps[0] ? inputOps[0] : 1;
-    const u16 right = isCursorInsideMargins() ? nColsEff : nCols;
-    const u32 len = posX < right ? right - posX : 0;
+    const u32 len = nCols - posX;
     arg = std::min(arg, len);
     eraseEcmaRangeInRow(posY, posX, arg);
     lastCol = false;

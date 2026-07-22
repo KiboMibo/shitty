@@ -139,6 +139,15 @@ class EditingTest(unittest.TestCase):
             )
             self.assertEqual(terminal.snapshot().lines[0], "ABCDEFG ")
 
+    def test_erase_characters_ignores_horizontal_margins(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"ABCDEFGH"
+                b"\x1b[?69h\x1b[2;4s"
+                b"\x1b[1;3H\x1b[4X"
+            )
+            self.assertEqual(terminal.snapshot().lines[0], "AB    GH")
+
     def test_insert_and_delete_lines(self):
         with Zutty(columns=5, rows=4) as terminal:
             terminal.write(b"one\r\ntwo\r\nthree\r\nfour")
