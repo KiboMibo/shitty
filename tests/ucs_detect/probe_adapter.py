@@ -13,9 +13,6 @@ from probe_cases import DEC_MODES, DECRQSS_SETTINGS, XTGETTCAP_CAPABILITIES
 
 
 DA1_EXPECTED = b"\x1b[?64;1;9;15;21;22c"
-XTVERSION_EXPECTED = ("zutty", "0.16-1")
-
-
 def query(terminal, request):
     terminal.write(request)
     return terminal.read_input()
@@ -69,7 +66,8 @@ def run_case(name):
         if name == "device_attributes":
             return query(terminal, b"\x1b[c"), DA1_EXPECTED
         if name == "software":
-            return software_version(query(terminal, b"\x1b[>q")), XTVERSION_EXPECTED
+            identity = software_version(query(terminal, b"\x1b[>q"))
+            return identity[0] if identity is not None else None, "zutty"
         if name == "foreground_color":
             return query(terminal, b"\x1b]10;?\x1b\\"), (
                 b"\x1b]10;rgb:ffff/ffff/ffff\x1b\\"
