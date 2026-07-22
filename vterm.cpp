@@ -7454,6 +7454,10 @@ void VtermImpl::dispatchCsi(unsigned char finalByte) {
         csi_DECLL();
     } else if (key == "i") {
         csi_MC(false);
+    } else if (key == "j") {
+        csi_CUB();
+    } else if (key == "k") {
+        csi_CUU();
     } else if (key == "r") {
         csi_STBM();
     } else if (key == "s") {

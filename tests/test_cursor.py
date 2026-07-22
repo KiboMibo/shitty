@@ -25,6 +25,11 @@ class CursorAndMovementTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(3, 2).char, "X")
             self.assertEqual(snapshot.cell(2, 0).char, "Y")
 
+    def test_ecma_position_backward_controls(self):
+        with Zutty(columns=8, rows=4) as terminal:
+            terminal.write(b"\x1b[4;7H\x1b[3j\x1b[2kX")
+            self.assertEqual(terminal.snapshot().cell(3, 1).char, "X")
+
     def test_dec_save_and_restore_cursor(self):
         with Zutty(columns=8, rows=3) as terminal:
             terminal.write(b"\x1b[2;3H\x1b7\x1b[3;6HZ\x1b8X")

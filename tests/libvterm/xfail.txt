@@ -19,7 +19,6 @@
 # complete cluster, so its richer cell cannot equal this truncated oracle.
 # https://www.unicode.org/reports/tr29/
 10state_putglyph.test
-11state_movecursor.test
 13state_edit.test
 14state_encoding.test
 15state_mode.test
