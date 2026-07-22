@@ -537,8 +537,16 @@ def apply_command(terminal, line, state):
     match = re.fullmatch(r"MOUSEMOVE\s+(\d+),(\d+)(?:\s+(\w+))?", line)
     if match:
         row, column, modifier = match.groups()
-        state["mouse"] = (int(row), int(column))
-        terminal.pointer(int(column) + 3, int(row) + 3, modifiers(modifier or "0"))
+        row = int(row)
+        column = int(column)
+        state["mouse"] = (row, column)
+        snapshot = terminal.model_snapshot()
+        if column >= snapshot.columns or row >= snapshot.rows:
+            terminal.resize(
+                max(snapshot.columns, column + 1),
+                max(snapshot.rows, row + 1),
+            )
+        terminal.pointer(column + 3, row + 3, modifiers(modifier or "0"))
         return
     match = re.fullmatch(r"MOUSEBTN\s+([du])\s+(\d+)\s+(\w+)", line)
     if match:
@@ -621,6 +629,7 @@ def run_fixture(path):
                     mismatches.append(
                         f"line {number}: output: got {actual!r}, expected {expected!r}"
                     )
+                    state["output"].clear()
                 continue
             match = re.fullmatch(r"encout\s+(.*)", line)
             if match:

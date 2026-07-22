@@ -42,6 +42,13 @@
 # continuation is intentionally not produced.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 16state_resize.test
+# Libvterm hard reset emits cursor-blink=true, while xterm's cursorBlink
+# resource defaults to false; Zutty uses that xterm default.  The fixture also
+# expects URXVT 1015 button values 0/3 as if they were SGR 1006 values.  Xterm
+# ctlseqs specifies that URXVT prints the same X10 button encoding as a decimal
+# integer, and button.c retains the X10 +32 offset for URXVT (only SGR subtracts
+# it), producing 32/35 as Zutty does.
+# https://invisible-island.net/archives/xterm/xterm-410.tgz
 17state_mouse.test
 18state_termprops.test
 22state_save.test
