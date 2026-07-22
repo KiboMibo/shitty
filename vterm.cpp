@@ -1221,6 +1221,11 @@ void VtermImpl::switchColMode(ColMode colMode_) {
         return;
     }
 
+    const u16 columns = colMode_ == ColMode::C80 ? 80 : 132;
+    if (nCols != columns) {
+        resize(2 * opts.border + columns * glyphPx, winPy);
+        host.windowOperation(8, nRows, columns);
+    }
     clearScreen();
 
     if (colMode_ == ColMode::C80) {

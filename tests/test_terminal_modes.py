@@ -4,6 +4,20 @@ from harness import Zutty
 
 
 class TerminalModeTest(unittest.TestCase):
+    def test_deccolm_resizes_and_clears_the_terminal_page(self):
+        with Zutty(columns=80, rows=24) as terminal:
+            terminal.write(b"content\x1b[?3h")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.columns, snapshot.rows), (132, 24))
+            self.assertEqual(snapshot.lines[0], " " * 132)
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
+
+            terminal.write(b"content\x1b[?3l")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.columns, snapshot.rows), (80, 24))
+            self.assertEqual(snapshot.lines[0], " " * 80)
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
+
     def test_conformance_state_exposes_screen_and_mode_vector(self):
         with Zutty() as terminal:
             self.assertEqual(terminal.conformance_state(), {
