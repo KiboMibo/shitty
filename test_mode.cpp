@@ -699,18 +699,63 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
     windowInfo.pixelHeight = height;
     windowInfo.screenPixelWidth = 1920;
     windowInfo.screenPixelHeight = 1080;
+    VtermWindowInfo restoredWindowInfo = windowInfo;
+    bool haveRestoredWindowInfo = false;
+    const auto applyWindowSize = [&](u32 pixelWidth, u32 pixelHeight) {
+        terminal.resize(pixelWidth, pixelHeight);
+        windowInfo.pixelWidth = pixelWidth;
+        windowInfo.pixelHeight = pixelHeight;
+    };
     vtermHost.setWindowOpsHandler([&](u32 operation, u32 first, u32 second) {
         actions += "WINDOW " + std::to_string(operation) + " " + std::to_string(first) + " " + std::to_string(second) + "\n";
-        if (operation == 4 && first && second) {
-            terminal.resize(second, first);
-            windowInfo.pixelWidth = second;
-            windowInfo.pixelHeight = first;
+        if (operation == 1) {
+            windowInfo.iconified = false;
+        } else if (operation == 2) {
+            windowInfo.iconified = true;
+        } else if (operation == 3) {
+            windowInfo.x = (i32)(first);
+            windowInfo.y = (i32)(second);
+        } else if (operation == 4 && first && second) {
+            applyWindowSize(second, first);
         } else if (operation == 8 && first && second) {
             const u32 pixelWidth = 2 * opts.border + second * glyphPx;
             const u32 pixelHeight = 2 * opts.border + first * glyphPy;
-            terminal.resize(pixelWidth, pixelHeight);
-            windowInfo.pixelWidth = pixelWidth;
-            windowInfo.pixelHeight = pixelHeight;
+            applyWindowSize(pixelWidth, pixelHeight);
+        } else if (operation == 9) {
+            if (first == 0) {
+                if (haveRestoredWindowInfo) {
+                    applyWindowSize(restoredWindowInfo.pixelWidth, restoredWindowInfo.pixelHeight);
+                    windowInfo.maximized = false;
+                    haveRestoredWindowInfo = false;
+                }
+            } else if (first <= 3) {
+                if (!haveRestoredWindowInfo) {
+                    restoredWindowInfo = windowInfo;
+                    haveRestoredWindowInfo = true;
+                }
+                const u32 pixelWidth = first == 2
+                    ? windowInfo.pixelWidth : windowInfo.screenPixelWidth;
+                const u32 pixelHeight = first == 3
+                    ? windowInfo.pixelHeight : windowInfo.screenPixelHeight;
+                applyWindowSize(pixelWidth, pixelHeight);
+                windowInfo.maximized = true;
+            }
+        } else if (operation == 10) {
+            const bool enable = first == 1 || (first == 2 && !windowInfo.fullscreen);
+            if (enable && !windowInfo.fullscreen) {
+                if (!haveRestoredWindowInfo) {
+                    restoredWindowInfo = windowInfo;
+                    haveRestoredWindowInfo = true;
+                }
+                applyWindowSize(windowInfo.screenPixelWidth, windowInfo.screenPixelHeight);
+                windowInfo.fullscreen = true;
+            } else if (!enable && windowInfo.fullscreen) {
+                if (haveRestoredWindowInfo) {
+                    applyWindowSize(restoredWindowInfo.pixelWidth, restoredWindowInfo.pixelHeight);
+                    haveRestoredWindowInfo = false;
+                }
+                windowInfo.fullscreen = false;
+            }
         }
     });
     vtermHost.setWindowInfoHandler([&windowInfo]() {

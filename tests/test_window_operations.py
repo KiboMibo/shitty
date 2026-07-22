@@ -65,6 +65,29 @@ class WindowOperationsTest(unittest.TestCase):
             terminal.write(b"\x1b[11t")
             self.assertEqual(terminal.read_input(), b"\x1b[2t")
 
+    def test_control_host_applies_iconify_and_move_requests(self):
+        with window_terminal() as terminal:
+            terminal.write(
+                b"\x1b[2t\x1b[11t"
+                b"\x1b[1t\x1b[11t"
+                b"\x1b[3;1;2t\x1b[13t"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[2t\x1b[1t\x1b[3;1;2t",
+            )
+
+    def test_control_host_applies_and_restores_maximized_size(self):
+        with window_terminal() as terminal:
+            terminal.window_info(screen_width=30, screen_height=20)
+            terminal.write(b"\x1b[9;1t")
+            maximized = terminal.model_snapshot()
+            self.assertEqual((maximized.columns, maximized.rows), (26, 16))
+
+            terminal.write(b"\x1b[9;0t")
+            restored = terminal.model_snapshot()
+            self.assertEqual((restored.columns, restored.rows), (10, 4))
+
     def test_window_position_reports_signed_coordinates_as_unsigned(self):
         with window_terminal() as terminal:
             terminal.window_info(x=-10, y=-20)
