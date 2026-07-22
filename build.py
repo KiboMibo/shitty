@@ -331,6 +331,62 @@ for corpus in ("osc-cmin", "parser-cmin", "stream-cmin"):
         ))
 
 
+ghostty_semantic_cases = (
+    ghostty_root / "semantic_file_names.txt"
+).read_text().split()
+ghostty_semantic_tests = []
+for case in ghostty_semantic_cases:
+    ghostty_semantic_tests.append(command(
+        name="ghostty_model_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/fuzz_parser.py",
+            "$(S)/tests/ghostty/semantic_adapter.py",
+            "$(S)/tests/ghostty/semantic_catalog.py",
+            "$(S)/tests/ghostty/semantic_file_names.txt",
+            "$(S)/tests/ghostty/semantic_xfail.txt",
+            "$(S)/tests/ghostty/upstream/stream_terminal_tests.zig",
+        ],
+        outputs=[f"$(B)/tests/ghostty/model/{case}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/ghostty/semantic_adapter.py",
+            case,
+            "tests/ghostty/semantic_xfail.txt",
+            f"$(B)/tests/ghostty/model/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="GHOSTTY",
+        color="cyan",
+    ))
+
+
+ghostty_semantic_validation = command(
+    name="ghostty_model_catalog",
+    inputs=[
+        "$(S)/tests/ghostty/semantic_catalog.py",
+        "$(S)/tests/ghostty/semantic_file_names.txt",
+        "$(S)/tests/ghostty/semantic_validate.py",
+        "$(S)/tests/ghostty/semantic_xfail.txt",
+        "$(S)/tests/ghostty/upstream/stream_terminal_tests.zig",
+    ],
+    outputs=["$(B)/tests/ghostty/model/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/ghostty/semantic_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/ghostty/model/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="GHOSTTY",
+    color="cyan",
+)
+
+
 kitty_root = Path(__file__).parent / "tests" / "kitty"
 kitty_cases = (kitty_root / "file_names.txt").read_text().split()
 kitty_tests = []
@@ -1151,6 +1207,8 @@ install(contour_vttest)
 install(*contour_tests)
 install(*mosh_tests)
 install(*ghostty_tests)
+install(*ghostty_semantic_tests)
+install(ghostty_semantic_validation)
 install(*kitty_tests)
 install(kitty_validation)
 install(*vte_tests)

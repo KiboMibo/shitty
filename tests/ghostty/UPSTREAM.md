@@ -11,3 +11,11 @@ members use their first byte to select BEL, ST, or a missing terminator. Each
 member is fed whole and across deterministic parser boundaries. The oracle
 compares all externally observable streams and modes plus Zutty's rich model
 state; full cell records remain available for exact mismatch diagnostics.
+
+`upstream/stream_terminal_tests.zig` is the verbatim test section beginning at
+line 907 of Ghostty's `src/terminal/stream_terminal.zig` at the same revision.
+`semantic_catalog.py` extracts each test's literal `s.nextSlice()` calls as a
+single logical stream while preserving the original call boundaries. Every
+stream is independently compared as one write, at those upstream boundaries,
+and bytewise. Dynamic inputs and Ghostty's internal semantic assertions remain
+for a later adapter.
