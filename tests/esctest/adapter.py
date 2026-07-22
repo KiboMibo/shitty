@@ -68,10 +68,6 @@ def install_backend(control):
     escio.Write = control.write
     escio.read = control.read
 
-    def get_cursor_position():
-        snapshot = control.snapshot()
-        return esctypes.Point(snapshot.cursor_x + 1, snapshot.cursor_y + 1)
-
     def get_screen_size():
         snapshot = control.snapshot()
         return esctypes.Size(snapshot.columns, snapshot.rows)
@@ -105,7 +101,6 @@ def install_backend(control):
             raise esctypes.TestFailure(actual_lines, expected_lines)
 
     replacements = {
-        escutil.GetCursorPosition: get_cursor_position,
         escutil.GetScreenSize: get_screen_size,
         escutil.GetChecksumOfRect: checksum,
         escutil.AssertScreenCharsInRectEqual: assert_screen,

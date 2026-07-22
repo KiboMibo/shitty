@@ -72,6 +72,45 @@ class DecProtocolTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(2, 1).char, "X")
             self.assertEqual(snapshot.cell(7, 4).char, "Y")
 
+    def test_origin_mode_horizontal_position_commands_use_margins(self):
+        for position in (b"\x1b[1G", b"\x1b[1`"):
+            with self.subTest(position=position):
+                with Zutty(columns=10, rows=6) as terminal:
+                    terminal.write(
+                        b"\x1b[2;5r"
+                        b"\x1b[?69h"
+                        b"\x1b[3;8s"
+                        b"\x1b[?6h"
+                        b"\x1b[2;4H" + position + b"X"
+                    )
+                    self.assertEqual(terminal.snapshot().cell(2, 2).char, "X")
+
+        with Zutty(columns=10, rows=6) as terminal:
+            terminal.write(
+                b"\x1b[2;5r"
+                b"\x1b[?69h"
+                b"\x1b[3;8s"
+                b"\x1b[?6h"
+                b"\x1b[2;1H"
+                b"\x1b[2a"
+                b"X"
+            )
+            self.assertEqual(terminal.snapshot().cell(4, 2).char, "X")
+
+    def test_origin_mode_vertical_position_commands_use_margins(self):
+        with Zutty(columns=10, rows=8) as terminal:
+            terminal.write(
+                b"\x1b[3;6r"
+                b"\x1b[?6h"
+                b"\x1b[1d"
+                b"X"
+                b"\x1b[99e"
+                b"Y"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 2).char, "X")
+            self.assertEqual(snapshot.cell(1, 5).char, "Y")
+
     def test_resetting_origin_mode_homes_cursor_absolutely(self):
         with Zutty(columns=8, rows=5) as terminal:
             terminal.write(b"\x1b[2;4r\x1b[?6h\x1b[?6lX")

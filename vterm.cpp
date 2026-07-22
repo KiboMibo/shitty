@@ -2468,8 +2468,13 @@ void VtermImpl::csi_CPL() {
 void VtermImpl::csi_CHA() {
     TRACE_FUN;
     u32 col = inputOps[0] ? inputOps[0] : 1;
-    col = std::max<u32>(1, std::min<u32>(col, nCols));
-    posX = col - 1;
+    if (originMode == OriginMode::ScrollingRegion) {
+        col = std::max<u32>(1, std::min<u32>(col, nColsEff - hMargin));
+        posX = hMargin + col - 1;
+    } else {
+        col = std::max<u32>(1, std::min<u32>(col, nCols));
+        posX = col - 1;
+    }
     lastCol = false;
     setState(InputState::Normal);
 }
@@ -2483,16 +2488,22 @@ void VtermImpl::csi_HPA() {
 void VtermImpl::csi_HPR() {
     TRACE_FUN;
     const u32 arg = inputOps[0] ? inputOps[0] : 1;
-    inputOps[0] = std::min<u64>((u64)(posX) + arg + 1, UINT32_MAX);
-    csi_CHA();
+    const u16 right = originMode == OriginMode::ScrollingRegion ? nColsEff : nCols;
+    posX = (u16)(std::min<u64>((u64)(posX) + arg, right - 1));
+    lastCol = false;
     setState(InputState::Normal);
 }
 
 void VtermImpl::csi_VPA() {
     TRACE_FUN;
     u32 row = inputOps[0] ? inputOps[0] : 1;
-    row = std::max<u32>(1, std::min<u32>(row, nRows));
-    posY = row - 1;
+    if (originMode == OriginMode::ScrollingRegion) {
+        row = std::max<u32>(1, std::min<u32>(row, marginBottom - marginTop));
+        posY = marginTop + row - 1;
+    } else {
+        row = std::max<u32>(1, std::min<u32>(row, nRows));
+        posY = row - 1;
+    }
     lastCol = false;
     setState(InputState::Normal);
 }
@@ -2500,8 +2511,8 @@ void VtermImpl::csi_VPA() {
 void VtermImpl::csi_VPR() {
     TRACE_FUN;
     const u32 arg = inputOps[0] ? inputOps[0] : 1;
-    const u32 row = std::min<u64>((u64)(posY) + arg + 1, nRows);
-    posY = row - 1;
+    const u16 bottom = originMode == OriginMode::ScrollingRegion ? marginBottom : nRows;
+    posY = (u16)(std::min<u64>((u64)(posY) + arg, bottom - 1));
     lastCol = false;
     setState(InputState::Normal);
 }
