@@ -11,7 +11,6 @@ BSTests.test_BS_WrapsInWraparoundMode
 # DEC VT510 DCH: "DCH has no effect outside the scrolling margins."
 # https://vt100.net/docs/vt510-rm/DCH.html
 DCHTests.test_DCH_WorksOutsideTopBottomMargin
-DCSTests.test_DCS_Unrecognized
 # DEC VT510 DECBI: "If the cursor is at the left border of the page ...
 # the terminal ignores DECBI."  The upstream assertion expects a scroll.
 # https://vt100.net/docs/vt510-rm/DECBI.html

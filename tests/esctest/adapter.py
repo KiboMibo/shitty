@@ -82,6 +82,8 @@ def install_backend(control):
 
     def assert_screen(rect, expected_lines):
         escutil.gHaveAsserted = True
+        if isinstance(expected_lines, str):
+            expected_lines = [expected_lines]
         if rect.height() != len(expected_lines):
             raise esctypes.InternalError("screen assertion height mismatch")
         snapshot = control.snapshot()
