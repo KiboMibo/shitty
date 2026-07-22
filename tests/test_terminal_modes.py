@@ -16,6 +16,15 @@ class TerminalModeTest(unittest.TestCase):
             terminal.write(b"\x1b[?40h\x1b[?3h")
             self.assertEqual(terminal.snapshot().columns, 132)
 
+    def test_xterm_mode_41_wraps_pending_tab_before_tabulation(self):
+        with Zutty(columns=16, rows=3) as terminal:
+            terminal.write(b"\x1b[?41h" + b"x" * 16 + b"\tX")
+            self.assertEqual(terminal.snapshot().lines[1], " " * 8 + "X" + " " * 7)
+
+        with Zutty(columns=16, rows=3) as terminal:
+            terminal.write(b"\x1b[?41l" + b"x" * 16 + b"\tX")
+            self.assertEqual(terminal.snapshot().lines[1], "X" + " " * 15)
+
     def test_deccolm_resizes_and_clears_the_terminal_page(self):
         with Zutty(columns=80, rows=24) as terminal:
             terminal.write(b"content\x1b[?3h")

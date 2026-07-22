@@ -513,6 +513,7 @@ namespace {
         bool autoWrapMode = true;
         bool autoRepeatMode = true;
         bool allowColumnMode = true;
+        bool moreFixMode = false;
         bool autoNewlineMode = false;
         bool keyboardLocked = false;
         bool insertMode = false;
@@ -1822,6 +1823,11 @@ void VtermImpl::jumpToNextTabStop() {
 
 void VtermImpl::inp_HT() {
     TRACE_FUN;
+    if (moreFixMode && lastCol && autoWrapMode) {
+        esc_IND();
+        posX = 0;
+        lastCol = false;
+    }
     jumpToNextTabStop();
 }
 
@@ -3135,6 +3141,9 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
             case 40:
                 allowColumnMode = true;
                 break;
+            case 41:
+                moreFixMode = true;
+                break;
             case 42:
                 nationalReplacementMode = true;
                 break;
@@ -3289,6 +3298,9 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
             case 40:
                 allowColumnMode = false;
                 break;
+            case 41:
+                moreFixMode = false;
+                break;
             case 42:
                 nationalReplacementMode = false;
                 break;
@@ -3406,6 +3418,8 @@ bool VtermImpl::getPrivateMode(u32 arg) const {
             return printExtentMode;
         case 40:
             return allowColumnMode;
+        case 41:
+            return moreFixMode;
         case 42:
             return nationalReplacementMode;
         case 45:
@@ -3888,6 +3902,7 @@ void VtermImpl::csi_DECRQM(bool privateMode) {
             case 19:
             case 25:
             case 40:
+            case 41:
             case 42:
             case 45:
             case 47:
