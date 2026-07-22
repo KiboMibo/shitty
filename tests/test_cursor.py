@@ -80,6 +80,45 @@ class CursorAndMovementTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(2, 1).char, "X")
             self.assertEqual(snapshot.cursor_y, 1)
 
+    def test_column_index_moves_normally_outside_horizontal_margins(self):
+        with Zutty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[?69h\x1b[3;7s")
+
+            terminal.write(b"\x1b[1;2H\x1b6")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
+
+            terminal.write(b"\x1b[1;8H\x1b9")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (8, 0))
+
+            terminal.write(b"\x1b[1;1H\x1b6\x1b[1;10H\x1b9")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (9, 0))
+
+    def test_column_index_is_ignored_at_page_edges(self):
+        with Zutty(columns=5, rows=2) as terminal:
+            terminal.write(b"x\x1b[1;1H\x1b6")
+            self.assertEqual(terminal.snapshot().lines[0], "x    ")
+
+        with Zutty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b[1;5Hx\x1b9")
+            self.assertEqual(terminal.snapshot().lines[0], "    x")
+
+    def test_column_index_scrolls_at_margin_outside_vertical_region(self):
+        cases = (
+            (b"\x1b[1;3H\x1b6", "AB CDEGH"),
+            (b"\x1b[1;6H\x1b9", "ABDEF GH"),
+        )
+        for control, expected in cases:
+            with self.subTest(control=control):
+                with Zutty(columns=8, rows=4) as terminal:
+                    terminal.write(
+                        b"\x1b[2;1HABCDEFGH"
+                        b"\x1b[2;4r\x1b[?69h\x1b[3;6s" + control
+                    )
+                    self.assertEqual(terminal.snapshot().lines[1], expected)
+
 
 if __name__ == "__main__":
     unittest.main()

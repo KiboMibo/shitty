@@ -49,7 +49,10 @@ DATests.test_DA_NoParameter
 # https://vt100.net/docs/vt510-rm/DCH.html
 DCHTests.test_DCH_WorksOutsideTopBottomMargin
 DCSTests.test_DCS_Unrecognized
-DECBITests.test_DECBI_LeftOfMargin
+# DEC VT510 DECBI: "If the cursor is at the left border of the page ...
+# the terminal ignores DECBI."  The upstream assertion expects a scroll.
+# https://vt100.net/docs/vt510-rm/DECBI.html
+DECBITests.test_DECBI_WholeScreenScrolls
 DECCRATests.test_DECCRA_defaultValuesInDest
 DECDSRTests.test_DECDSR_DECCKSR
 DECDSRTests.test_DECDSR_DECMSR
@@ -62,8 +65,11 @@ DECDSRTests.test_DECDSR_DSRPrinterPort
 DECDSRTests.test_DECDSR_DSRUDKLocked
 DECDSRTests.test_DECDSR_DSRXtermLocatorStatus
 DECDSRTests.test_DECDSR_LocatorType
+# DEC VT510 DECFI: "If the cursor is at the right border of the page ...
+# the terminal ignores DECFI."  The upstream assertion expects a scroll.
+# https://vt100.net/docs/vt510-rm/DECFI.html
+DECFITests.test_DECFI_WholeScreenScrolls
 DECERATests.test_DECERA_defaultArgs
-DECFITests.test_DECFI_RightOfMargin
 DECFRATests.test_DECFRA_defaultArgs
 DECIDTests.test_DECID_8bit
 DECIDTests.test_DECID_Basic

@@ -2280,24 +2280,26 @@ void VtermImpl::csi_DECDC() {
 
 void VtermImpl::esc_FI() {
     TRACE_FUN;
-    nInputOps = 1;
-    inputOps[0] = 1;
-    if (posX < nColsEff - 1) {
-        csi_CUF();
-    } else {
-        csi_ecma48_SL();
+    if (posX < nCols - 1) {
+        if (posX >= hMargin && posX == nColsEff - 1) {
+            deleteCols(hMargin, 1);
+        } else {
+            ++posX;
+        }
+        lastCol = false;
     }
     setState(InputState::Normal);
 }
 
 void VtermImpl::esc_BI() {
     TRACE_FUN;
-    nInputOps = 1;
-    inputOps[0] = 1;
-    if (posX > hMargin) {
-        csi_CUB();
-    } else {
-        csi_ecma48_SR();
+    if (posX > 0) {
+        if (posX == hMargin && posX < nColsEff) {
+            insertCols(hMargin, 1);
+        } else {
+            --posX;
+        }
+        lastCol = false;
     }
     setState(InputState::Normal);
 }
