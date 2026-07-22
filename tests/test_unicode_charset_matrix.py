@@ -166,6 +166,9 @@ class UnicodeCharsetMatrixTest(unittest.TestCase):
             with self.subTest(reset=reset):
                 self.assertEqual(line_after(b"\x1b(0" + reset + b"q"), "q")
 
+    def test_hard_reset_discards_an_incomplete_utf8_character(self):
+        self.assertEqual(line_after(b"\xe1\x1bcA"), "A")
+
     def test_vt52_graphics_toggle_and_ansi_return(self):
         self.assertEqual(
             line_after(b"\x1b[?2l\x1bFq\x1bGq\x1b<q"),
@@ -183,8 +186,12 @@ class UnicodeCharsetMatrixTest(unittest.TestCase):
 
     def test_percent_default_and_utf8_restore_expected_gr_decoding(self):
         self.assertEqual(
-            line_after(b"\x1b%@" + bytes((0xA3,)) + b"\x1b%G" + "é".encode()),
-            "£é",
+            line_after(
+                b"\x1b%@" + bytes((0xA3,))
+                + b"\x1b|" + bytes((0xE1,))
+                + b"\x1b%G" + "é".encode()
+            ),
+            "£áé",
         )
 
 

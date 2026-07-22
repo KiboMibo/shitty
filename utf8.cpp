@@ -27,6 +27,12 @@ void Utf8Decoder::checkPrematureEOS() {
     }
 }
 
+void Utf8Decoder::reset() {
+    unicode = 0;
+    minimum = 0;
+    remaining = 0;
+}
+
 void Utf8Decoder::onUnicode(u32 ch) {
     if (!ch) {
         return;

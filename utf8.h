@@ -48,6 +48,8 @@ public:
 
     void checkPrematureEOS();
 
+    void reset();
+
     u32 getUnicode() const {
         return unicode;
     }

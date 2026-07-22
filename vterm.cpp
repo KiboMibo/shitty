@@ -1161,7 +1161,7 @@ void VtermImpl::resetTerminal() {
 }
 
 void VtermImpl::resetScreen(bool resetTabStops) {
-    utf8dec.setUnicode(0);
+    utf8dec.reset();
     showCursorMode = true;
     cursorShape = TerminalCursor::Style::filled_block;
     cursorStyleParam = 2;
@@ -3692,7 +3692,10 @@ void VtermImpl::csi_SGR() {
             // ignored.
             const size_t count = end - first + 1;
             const size_t rgbFirst = first + (count >= 4);
-            if (mode != 2 || count < 3 || inputOps[rgbFirst] > 255 || inputOps[rgbFirst + 1] > 255 || inputOps[rgbFirst + 2] > 255) {
+            if (mode != 2 || count < 3
+                || (count == 3 && !inputPresent[first])
+                || !inputPresent[rgbFirst] || !inputPresent[rgbFirst + 1] || !inputPresent[rgbFirst + 2]
+                || inputOps[rgbFirst] > 255 || inputOps[rgbFirst + 1] > 255 || inputOps[rgbFirst + 2] > 255) {
                 return false;
             }
             color = CellColor::direct({
@@ -8287,6 +8290,7 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                         logT << "Select charset: default (ISO-8859-1)" << std::endl;
                         charsetState = CharsetState{};
                         charsetState.g[charsetState.gr] = Charset::IsoLatin1;
+                        charsetState.g[3] = Charset::IsoLatin1;
                         setState(InputState::Normal);
                         break;
                     case 'G':

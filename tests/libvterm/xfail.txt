@@ -26,6 +26,13 @@
 # fixture instead requires the non-canonical input spelling `2"q`.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 13state_edit.test
+# Libvterm resets all G0..G3 sets to ASCII and invokes G1 into GR.  DEC/xterm
+# instead initialize G0/G1 to ASCII, G2/G3 to the user-preferred supplemental
+# set, GL=G0 and GR=G2.  Xterm 410 resetCharsets() contains those assignments
+# explicitly; its ctlseqs also describes ASCII plus DEC Supplemental as the
+# initially mapped GL/GR halves.  The LS1R/LS2R/LS3R expectations in this
+# fixture therefore cannot serve as an xterm-compatible oracle.
+# https://invisible-island.net/archives/xterm/xterm-410.tgz
 14state_encoding.test
 15state_mode.test
 16state_resize.test

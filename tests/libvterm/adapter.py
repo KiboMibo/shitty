@@ -50,7 +50,9 @@ def decode_perl_string(expression):
                 end = source.index("}", index)
                 value = int(source[index + 1 : end], 16)
                 index = end + 1
-                result.extend(chr(value).encode("utf-8"))
+                if value > 0xff:
+                    raise ValueError(f"unsupported wide Perl byte escape: {value:x}")
+                result.append(value)
             else:
                 digits = source[index : index + 2]
                 if len(digits) != 2 or not re.fullmatch(r"[0-9a-fA-F]{2}", digits):
@@ -457,13 +459,19 @@ def apply_command(terminal, line, state):
             configure_libvterm_colors(terminal)
             if state["parser_enabled"]:
                 terminal.parser_trace_clear()
+        if not state["utf8"]:
+            terminal.write(b"\x1b%@")
         return
     if line == "WANTPARSER" or (line.startswith("WANTSTATE") and "f" in line[9:]):
         terminal.parser_trace_on()
         state["parser_enabled"] = True
         state["parser_only"] = line == "WANTPARSER"
         return
-    if line.startswith(("WANTSCREEN", "WANTSTATE", "WANTENCODING", "UTF8", "DAMAGEMERGE", "DAMAGEFLUSH")):
+    if line.startswith("UTF8 "):
+        state["utf8"] = line == "UTF8 1"
+        terminal.write(b"\x1b%G" if state["utf8"] else b"\x1b%@")
+        return
+    if line.startswith(("WANTSCREEN", "WANTSTATE", "WANTENCODING", "DAMAGEMERGE", "DAMAGEFLUSH")):
         return
     if line.startswith("ENCIN "):
         state["encoding_output"].extend(
@@ -557,6 +565,7 @@ def run_fixture(path):
     state = {
         "output": bytearray(), "encoding_output": [], "mouse": (0, 0),
         "selection": b"", "title": "", "osc52": b"",
+        "utf8": False,
         "parser_enabled": False, "parser_only": False,
         "parser_expected": [], "parser_strings": {},
     }
