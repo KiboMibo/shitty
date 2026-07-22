@@ -442,6 +442,61 @@ kitty_validation = command(
 )
 
 
+kitty_screen_cases = (
+    kitty_root / "screen_file_names.txt"
+).read_text().split()
+kitty_screen_tests = []
+for case in kitty_screen_cases:
+    kitty_screen_tests.append(command(
+        name="kitty_screen_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/kitty/screen_adapter.py",
+            "$(S)/tests/kitty/screen_catalog.py",
+            "$(S)/tests/kitty/screen_file_names.txt",
+            "$(S)/tests/kitty/screen_xfail.txt",
+            "$(S)/tests/kitty/upstream/parser.py",
+        ],
+        outputs=[f"$(B)/tests/kitty/screen/{case}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/kitty/screen_adapter.py",
+            case,
+            "tests/kitty/screen_xfail.txt",
+            f"$(B)/tests/kitty/screen/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="KIT-SCREEN",
+        color="cyan",
+    ))
+
+
+kitty_screen_validation = command(
+    name="kitty_screen_catalog",
+    inputs=[
+        "$(S)/tests/kitty/screen_catalog.py",
+        "$(S)/tests/kitty/screen_file_names.txt",
+        "$(S)/tests/kitty/screen_validate.py",
+        "$(S)/tests/kitty/screen_xfail.txt",
+        "$(S)/tests/kitty/upstream/parser.py",
+    ],
+    outputs=["$(B)/tests/kitty/screen/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/kitty/screen_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/kitty/screen/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="KIT-SCREEN",
+    color="cyan",
+)
+
+
 vte_root = Path(__file__).parent / "tests" / "vte"
 vte_cases = (vte_root / "file_names.txt").read_text().split()
 vte_tests = []
@@ -1321,6 +1376,8 @@ install(*ghostty_semantic_tests)
 install(ghostty_semantic_validation)
 install(*kitty_tests)
 install(kitty_validation)
+install(*kitty_screen_tests)
+install(kitty_screen_validation)
 install(*vte_tests)
 install(vte_validation)
 install(*vte_width_tests)

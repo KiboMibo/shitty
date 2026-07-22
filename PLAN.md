@@ -197,7 +197,7 @@ Control interface — это расширяемый наблюдаемый API �
 
    После готовых suites начинаем вынимать содержательные матрицы из:
 
-   - Kitty semantic/screen fixtures (426 literal parser streams уже импортированы как whole-vs-bytewise corpus);
+   - Kitty semantic/screen fixtures (426 literal parser streams и 19 line checkpoints уже импортированы);
    - Ghostty semantic model fixtures (70 literal terminal streams уже импортированы; dynamic inputs и assertions остаются);
    - VTE screen fixtures (parser matrices и 930 Unicode width vectors уже импортированы);
    - Windows Terminal semantic/screen fixtures (128 literal parser streams уже импортированы);

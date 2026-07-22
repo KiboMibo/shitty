@@ -1,0 +1,6 @@
+# Exact Kitty screen checkpoints that currently disagree with Zutty.
+parser_0085
+parser_0089
+parser_0806
+parser_0808
+parser_0812
