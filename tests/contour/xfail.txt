@@ -9,11 +9,8 @@
 vttest.07.vt52-mode
 vttest.09.known-bugs
 vttest.11.5.iso6429-cursor
-vttest.11.6.2.color-test-pattern
 vttest.11.6.6.vt102-with-bce
 vttest.11.6.7.ecma48-misc-with-bce
 vttest.11.6.7.1.protected-area-with-bce
-vttest.11.6.8.screen-features-with-bce
-vttest.11.6.9.sgr-22-27
 vttest.11.7.iso6429-other
 vttest.11.7.1.protected-area

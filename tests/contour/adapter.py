@@ -200,7 +200,14 @@ def run_scenario(binary, scenario, keys, data):
     screen = ""
     child_output = ""
 
-    with Zutty(columns=80, rows=24, save_lines=2000) as terminal:
+    # Contour records SGR intensity and palette indexes independently.  Disable
+    # Zutty's optional bold-to-bright display policy for the same model.
+    with Zutty(
+        columns=80,
+        rows=24,
+        save_lines=2000,
+        extra_arguments=("+boldColors",),
+    ) as terminal:
         terminal.spawn(binary, "24x80.132")
         while time.monotonic() < deadline:
             status, screen = terminal.poll_child()
