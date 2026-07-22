@@ -498,6 +498,8 @@ def apply_command(terminal, line, state):
         terminal.write(b"\x1b%G" if state["utf8"] else b"\x1b%@")
         return
     if line.startswith(("WANTSCREEN", "WANTSTATE", "WANTENCODING", "DAMAGEMERGE", "DAMAGEFLUSH")):
+        if line == "WANTSCREEN -b":
+            state["synthetic_scrollback"] = False
         return
     if line.startswith("ENCIN "):
         state["encoding_output"].extend(
@@ -608,6 +610,7 @@ def run_fixture(path):
         "selection": b"", "title": "", "osc52": b"",
         "selection_reply_active": False, "selection_reply_closed": False,
         "selection_reply_actual": b"", "selection_reply_expected": bytearray(),
+        "synthetic_scrollback": False,
         "utf8": False,
         "parser_enabled": False, "parser_only": False,
         "parser_expected": [], "parser_strings": {},
@@ -635,6 +638,11 @@ def run_fixture(path):
             match = re.fullmatch(r"\?([a-z_]+(?:\s+[^=]+)?)\s*=\s*(.*)", line)
             if match:
                 assertion, expected = (value.strip() for value in match.groups())
+                if state["synthetic_scrollback"] and (
+                    assertion == "cursor" or assertion.startswith("screen_")
+                ):
+                    skipped += 1
+                    continue
                 try:
                     mismatch = compare_assertion(terminal, assertion, expected)
                 except ValueError:
@@ -768,6 +776,14 @@ def run_fixture(path):
                     mismatches.append(
                         f"line {number}: selection set: got {decoded!r}, expected {state['osc52']!r}"
                     )
+                continue
+            if line.startswith("sb_popline "):
+                # The upstream harness fabricates "ABCDE" for every line
+                # requested through libvterm's external scrollback callback.
+                # Zutty owns real scrollback internally, so assertions based
+                # on those injected cells are not portable terminal behavior.
+                state["synthetic_scrollback"] = True
+                skipped += 1
                 continue
             if line[0].isupper():
                 try:

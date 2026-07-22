@@ -102,6 +102,16 @@
 # Zutty's cell correctly preserves all 10/40 combining marks.
 # https://www.unicode.org/reports/tr29/
 61screen_unicode.test
+# Two libvterm resize policies differ from xterm.  First, growing the width
+# materializes a phantom cursor past the old right edge; xterm 410 preserves
+# `screen->do_wrap`, so the next graphic wraps normally.  Second, libvterm's
+# resize_buffer() shifts all nonblank bottom content into view when shrinking.
+# Xterm 410 Reallocate() instead computes move_up from the cursor row and moves
+# only enough lines to keep that cursor visible; with the cursor at row 14 in
+# this fixture, the top remains fixed and old row 24 is truncated.  Zutty
+# follows those xterm rules.  The fixture's sb_popline/ABCDE assertions test
+# libvterm's embedding callback API and are marked pending by the adapter.
+# https://invisible-island.net/archives/xterm/xterm-410.tgz
 63screen_resize.test
 64screen_pen.test
 68screen_termprops.test
