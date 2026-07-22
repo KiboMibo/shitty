@@ -1135,6 +1135,7 @@ void VtermImpl::resetTerminal() {
 }
 
 void VtermImpl::resetScreen(bool resetTabStops) {
+    utf8dec.setUnicode(0);
     showCursorMode = true;
     smoothScrollMode = false;
     autoRepeatMode = false;
@@ -2478,6 +2479,10 @@ void VtermImpl::csi_CBT() {
 
 void VtermImpl::csi_REP() {
     TRACE_FUN;
+    if (!utf8dec.getUnicode()) {
+        setState(InputState::Normal);
+        return;
+    }
     u32 arg = inputOps[0] ? inputOps[0] : 1;
     const u64 observableCells = ((u64)(opts.saveLines) + nRows + 1) * nCols;
     if (arg > observableCells) {
@@ -2486,7 +2491,6 @@ void VtermImpl::csi_REP() {
     for (u32 k = 0; k < arg; ++k) {
         placeGraphicChar();
     }
-    utf8dec.setUnicode(' ');
     setState(InputState::Normal);
 }
 
