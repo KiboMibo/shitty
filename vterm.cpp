@@ -2414,12 +2414,11 @@ void VtermImpl::csi_DECDC() {
 
 void VtermImpl::esc_FI() {
     TRACE_FUN;
-    if (posX < nCols - 1) {
-        if (posX >= hMargin && posX == nColsEff - 1) {
-            deleteCols(hMargin, 1);
-        } else {
-            ++posX;
-        }
+    if (posX >= hMargin && posX == nColsEff - 1) {
+        deleteCols(hMargin, 1);
+        lastCol = false;
+    } else if (posX < nCols - 1) {
+        ++posX;
         lastCol = false;
     }
     setState(InputState::Normal);

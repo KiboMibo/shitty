@@ -9,10 +9,6 @@ BSTests.test_BS_ReverseWrapWithLeftRight
 BSTests.test_BS_ReversewrapFromLeftEdgeToRightMargin
 BSTests.test_BS_WrapsInWraparoundMode
 DECSETTests.test_DECSET_ReverseWraparound_BS
-# DEC VT510 DECFI: "If the cursor is at the right border of the page ...
-# the terminal ignores DECFI."  The upstream assertion expects a scroll.
-# https://vt100.net/docs/vt510-rm/DECFI.html
-DECFITests.test_DECFI_WholeScreenScrolls
 # These VT3xx/VT4xx modes control page-memory viewport coupling or physical
 # keyboard behavior that Zutty does not emulate.  xterm-410 misc.c classifies
 # the same modes as recognized but unimplemented and reports mdAlwaysReset;
