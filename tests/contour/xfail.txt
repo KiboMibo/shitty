@@ -1,21 +1,38 @@
 # Imported baseline: each entry completed every upstream checkpoint but has at
 # least one semantic dump mismatch. Infrastructure errors never count as XFAIL.
-# VT100 User Guide chapter 3 requires DEL to be ignored and VT52 graphics
-# code 137 octal to image Blank; step02 instead retains DEL and '_'.  VT220
-# Programmer Reference 4.5 requires S8C1T to be ignored in VT100 mode, while
-# step04 is a prematurely recorded empty checkpoint rather than the two
-# DECRQSS/S8C1T results printed by vttest.  DECARM is a user-preference mode,
-# so the recorded `on` state is not a portable oracle either.
+# Step 02: the VT100 User Guide requires DEL to be ignored, but the golden
+# renders it.  VT52 graphics position 0x5f is not portable: xterm, VTE and
+# Zutty render Blank while Contour retains '_'.  Step 04 is checkpoint drift:
+# the golden records the later row-15 prompt while the adapter observes the
+# row-3 prompt emitted at the actual hold.  Neither difference is a Zutty bug.
 vttest.07.vt52-mode
+# Steps 20 and 21 are checkpoint drift around the two "Toggle origin mode,
+# forget rest" screens.  The terminal geometry and mode state agree, but the
+# golden places the same prompt ten to thirteen rows lower than the screen at
+# the actual hold.  This is an imported recording-phase difference, not a
+# protocol oracle.
 vttest.09.known-bugs
+# Steps 06 and 07 were recorded in a different execution phase around the
+# autowrap test.  Steps 23 and 24 exercise Insert Line and Delete Line: the
+# golden leaves the marker at column 8, while vttest's own instruction says
+# the cursor should move to the first column.  Xterm and Zutty move it there.
 vttest.11.6.6.vt102-with-bce
+# Step 05 invokes Repeat after a preceding Repeat control function.  ECMA-48,
+# fifth edition, 8.3.103 makes the result undefined when the preceding item is
+# a control function.  Contour repeats once; Zutty continues repeating the
+# last graphic character.  Both are permitted profiles.
 vttest.11.6.7.ecma48-misc-with-bce
-# The scenario's `*` enables ERM with SM 6 before SPA.  ECMA-48:1991 table 6
-# and 7.2.4 define set-state as ALL: ED, EL and ECH erase protected as well as
-# unprotected areas.  The Contour golden instead retains the guarded box.
+# Step 05: the scenario's `*` enables Erasure Mode with Set Mode 6 before
+# Start Protected Area.  ECMA-48:1991 table 6 and 7.2.4 define set-state as
+# ALL: Erase in Display, Erase in Line and Erase Character erase guarded and
+# unguarded areas.  The Contour golden incorrectly retains the guarded box.
 vttest.11.6.7.1.protected-area-with-bce
+# Step 04 has the same Repeat-after-Repeat sequence as the background-color
+# erase variant above.  ECMA-48 leaves that input undefined; Contour stops
+# after one repetition and Zutty retains the last graphic character for the
+# requested count.  This expected failure records a profile choice.
 vttest.11.7.iso6429-other
-# As above, the wildcard enables ERM before this checkpoint.  ECMA-48:1991
-# 7.2.4 requires the box to be erased; the imported golden records Contour's
-# non-conforming retention of it.
+# Step 04: as above, the wildcard enables Erasure Mode before this checkpoint.
+# ECMA-48:1991 7.2.4 requires the guarded box to be erased; the imported
+# golden records Contour's non-conforming retention of it.
 vttest.11.7.1.protected-area
