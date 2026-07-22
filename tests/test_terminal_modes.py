@@ -47,10 +47,12 @@ class TerminalModeTest(unittest.TestCase):
             state = terminal.conformance_state()
             self.assertEqual(state["screen"], "Alternate")
             for mode in (
-                "IRM", "LNM", "DECCKM", "DECCOLM", "DECSCLM", "DECSCNM",
-                "DECOM", "DECARM", "DECNKM", "DECBKM", "DECLRMM",
+                "IRM", "LNM", "DECCKM", "DECCOLM", "DECSCNM", "DECOM",
+                "DECNKM", "DECBKM", "DECLRMM",
             ):
                 self.assertTrue(state[mode], mode)
+            self.assertFalse(state["DECSCLM"])
+            self.assertFalse(state["DECARM"])
 
     def test_decll_tracks_each_host_led_independently(self):
         with Zutty() as terminal:
@@ -145,6 +147,44 @@ class TerminalModeTest(unittest.TestCase):
                 (132, 0, 0),
             )
             self.assertEqual(snapshot.lines[0][0], "x")
+
+    def test_unavailable_dec_modes_report_permanently_reset_by_level(self):
+        with Zutty() as terminal:
+            terminal.write(
+                b"\x1b[63;1\"p"
+                b"\x1b[?4$p\x1b[?8$p"
+                b"\x1b[?60$p\x1b[?61$p\x1b[?64$p\x1b[?68$p\x1b[?73$p"
+                b"\x1b[?81$p\x1b[?100$p"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[?4;4$y\x1b[?8;4$y"
+                b"\x1b[?60;4$y\x1b[?61;4$y\x1b[?64;4$y"
+                b"\x1b[?68;4$y\x1b[?73;4$y"
+                b"\x1b[?81;0$y\x1b[?100;0$y",
+            )
+
+            terminal.write(b"\x1b[64;1\"p\x1b[?81$p\x1b[?100$p")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[?81;4$y\x1b[?100;0$y",
+            )
+
+            terminal.write(
+                b"\x1b[65;1\"p"
+                b"\x1b[?34$p\x1b[?35$p\x1b[?36$p\x1b[?57$p"
+                b"\x1b[?96$p\x1b[?97$p\x1b[?98$p\x1b[?99$p"
+                b"\x1b[?100$p\x1b[?101$p\x1b[?102$p"
+                b"\x1b[?103$p\x1b[?104$p\x1b[?106$p"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[?34;4$y\x1b[?35;4$y\x1b[?36;4$y"
+                b"\x1b[?57;4$y\x1b[?96;4$y\x1b[?97;4$y"
+                b"\x1b[?98;4$y\x1b[?99;4$y\x1b[?100;4$y"
+                b"\x1b[?101;4$y\x1b[?102;4$y\x1b[?103;4$y"
+                b"\x1b[?104;4$y\x1b[?106;4$y",
+            )
 
     def test_meta_mode_sets_the_eighth_input_bit(self):
         with Zutty() as terminal:

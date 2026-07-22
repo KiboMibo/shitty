@@ -501,8 +501,6 @@ namespace {
         VtModifier modifiers = VtModifier::none;
 
         bool showCursorMode = true;
-        bool smoothScrollMode = false;
-        bool autoRepeatMode = false;
         bool noClearColumnMode = false;
         TerminalCursor::Style cursorShape = TerminalCursor::Style::filled_block;
         u8 cursorStyleParam = 2;
@@ -1115,8 +1113,6 @@ void VtermImpl::resetTerminal() {
 void VtermImpl::resetScreen(bool resetTabStops) {
     utf8dec.setUnicode(0);
     showCursorMode = true;
-    smoothScrollMode = false;
-    autoRepeatMode = false;
     cursorShape = TerminalCursor::Style::filled_block;
     cursorStyleParam = 2;
     cursorBlinkMode = false;
@@ -3103,8 +3099,6 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 switchColMode(ColMode::C132);
                 break;
             case 4:
-                smoothScrollMode = true;
-                logT << "DECSCLM: Set smooth scroll" << std::endl;
                 break;
             case 5:
                 screenReverseVideo = true;
@@ -3121,8 +3115,6 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 autoWrapMode = true;
                 break;
             case 8:
-                autoRepeatMode = true;
-                logU << "DECARM: Set auto-repeat mode" << std::endl;
                 break;
             case 18:
                 if (compatLevel >= CompatibilityLevel::VT200) {
@@ -3255,8 +3247,6 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 switchColMode(ColMode::C80);
                 break;
             case 4:
-                smoothScrollMode = false;
-                logT << "DECSCLM: Set jump scroll" << std::endl;
                 break;
             case 5:
                 screenReverseVideo = false;
@@ -3273,8 +3263,6 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 autoWrapMode = false;
                 break;
             case 8:
-                autoRepeatMode = false;
-                logU << "DECARM: Reset auto-repeat mode" << std::endl;
                 break;
             case 18:
                 if (compatLevel >= CompatibilityLevel::VT200) {
@@ -3387,16 +3375,12 @@ bool VtermImpl::getPrivateMode(u32 arg) const {
             return cursorKeyMode == CursorKeyMode::Application;
         case 3:
             return colMode == ColMode::C132;
-        case 4:
-            return smoothScrollMode;
         case 5:
             return screenReverseVideo;
         case 6:
             return originMode == OriginMode::ScrollingRegion;
         case 7:
             return autoWrapMode;
-        case 8:
-            return autoRepeatMode;
         case 12:
             return cursorBlinkMode;
         case 18:
@@ -3870,10 +3854,8 @@ void VtermImpl::csi_DECRQM(bool privateMode) {
     if (privateMode) {
         switch (mode) {
             case 4:
-                state = 4;
-                break;
             case 8:
-                state = 3;
+                state = 4;
                 break;
             case 1:
             case 2:
@@ -3893,17 +3875,49 @@ void VtermImpl::csi_DECRQM(bool privateMode) {
             case 67:
                 state = (mode == 2 ? compatLevel != CompatibilityLevel::VT52 : getPrivateMode(mode)) ? 1 : 2;
                 break;
+            case 60:
+            case 61:
+            case 64:
+            case 68:
+            case 73:
+                state = 4;
+                break;
             case 69:
                 if (compatLevel < CompatibilityLevel::VT400) {
                     break;
                 }
                 state = getPrivateMode(mode) ? 1 : 2;
                 break;
+            case 81:
+                if (compatLevel < CompatibilityLevel::VT400) {
+                    break;
+                }
+                state = 4;
+                break;
             case 95:
                 if (compatLevel < CompatibilityLevel::VT500) {
                     break;
                 }
                 state = getPrivateMode(mode) ? 1 : 2;
+                break;
+            case 34:
+            case 35:
+            case 36:
+            case 57:
+            case 96:
+            case 97:
+            case 98:
+            case 99:
+            case 100:
+            case 101:
+            case 102:
+            case 103:
+            case 104:
+            case 106:
+                if (compatLevel < CompatibilityLevel::VT500) {
+                    break;
+                }
+                state = 4;
                 break;
             case 1000:
             case 1001:
