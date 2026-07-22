@@ -4,4 +4,5 @@
 # Xterm 410's primary map_DEC_Spec_Graphic table instead marks 0x5f UNDEF;
 # Zutty renders that undefined blank as U+0020.  The cells look identical, but
 # Kitty's test asserts the emulator-specific internal Unicode representation.
+parser_0085
 parser_0089
