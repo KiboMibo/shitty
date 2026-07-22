@@ -7,7 +7,11 @@ class DATests(object):
   @knownBug(terminal="iTerm2", reason="iTerm2 doesn't report 18 or 22.")
   def handleDAResponse(self):
     params = escio.ReadCSI('c', expected_prefix='?')
-    if escargs.args.expected_terminal == "xterm":
+    if getattr(escargs.args, "annotation_terminal", None) == "zutty":
+      # DA1 reports implemented features, not an xterm compatibility token.
+      # https://vt100.net/docs/vt510-rm/DA1.html
+      expected = [64, 1, 2, 6, 8, 9, 15, 21, 22, 28, 29]
+    elif escargs.args.expected_terminal == "xterm":
       # This is for a default build. There are various options that could
       # change this, both compile-time and run-time.
       if escargs.args.max_vt_level == 5:
@@ -36,6 +40,5 @@ class DATests(object):
   def test_DA_0(self):
     esccmd.DA(0)
     self.handleDAResponse()
-
 
 

@@ -136,6 +136,22 @@ class ProtocolTest(unittest.TestCase):
                 terminal.read_input(), b"\x1b[?64;1;2;6;8;9;15;21;22;28;29c"
             )
 
+    def test_decid_is_an_obsolete_alias_for_primary_device_attributes(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1bZ")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[?64;1;2;6;8;9;15;21;22;28;29c",
+            )
+
+    def test_decid_uses_selected_eight_bit_response_controls(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b G\x9a")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x9b?64;1;2;6;8;9;15;21;22;28;29c",
+            )
+
     def test_decscl_selects_response_control_width(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[64;0\"p\x1b[c")

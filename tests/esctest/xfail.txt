@@ -8,10 +8,6 @@ BSTests.test_BS_ReverseWrapGoesToBottom
 BSTests.test_BS_ReverseWrapWithLeftRight
 BSTests.test_BS_ReversewrapFromLeftEdgeToRightMargin
 BSTests.test_BS_WrapsInWraparoundMode
-DA2Tests.test_DA2_0
-DA2Tests.test_DA2_NoParameter
-DATests.test_DA_0
-DATests.test_DA_NoParameter
 # DEC VT510 DCH: "DCH has no effect outside the scrolling margins."
 # https://vt100.net/docs/vt510-rm/DCH.html
 DCHTests.test_DCH_WorksOutsideTopBottomMargin
@@ -35,8 +31,6 @@ DECDSRTests.test_DECDSR_LocatorType
 # the terminal ignores DECFI."  The upstream assertion expects a scroll.
 # https://vt100.net/docs/vt510-rm/DECFI.html
 DECFITests.test_DECFI_WholeScreenScrolls
-DECIDTests.test_DECID_8bit
-DECIDTests.test_DECID_Basic
 DECRQMTests.test_DECRQM_DEC_DECAAM
 DECRQMTests.test_DECRQM_DEC_DECARM
 DECRQMTests.test_DECRQM_DEC_DECARSM

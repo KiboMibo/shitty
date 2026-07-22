@@ -7389,6 +7389,12 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                     }
                     setState(InputState::String);
                     continue;
+                case 0x9a:
+                    if constexpr (traced) {
+                        parserTrace->escapeCancel();
+                    }
+                    csi_priDA();
+                    continue;
                 case 0x9e:
                     if constexpr (traced) {
                         parserTrace->stringBegin(VtermTraceString::Pm);
@@ -7504,6 +7510,9 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                             parserTrace->stringBegin(VtermTraceString::Sos);
                         }
                         setState(InputState::String);
+                        break;
+                    case 0x9a:
+                        csi_priDA();
                         break;
                     case 0x9e:
                         if constexpr (traced) {
@@ -7668,8 +7677,6 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                         parserTrace->control(ch);
                     } else if (ch >= 0x20 && ch <= 0x2f) {
                         parserTrace->escapeByte(ch);
-                    } else if (ch == 'Z') {
-                        parserTrace->escapeCancel();
                     } else if (ch != 'P' && ch != 'X' && ch != '[' && ch != '\\'
                         && ch != ']' && ch != '^' && ch != '_') {
                         parserTrace->escapeByte(ch);
@@ -7770,6 +7777,9 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                         break;
                     case 'W':
                         esc_EPA();
+                        break;
+                    case 'Z':
+                        csi_priDA();
                         break;
                     case 'c':
                         esc_RIS();

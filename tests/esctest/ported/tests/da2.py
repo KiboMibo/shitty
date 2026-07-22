@@ -7,7 +7,11 @@ from escutil import AssertEQ, AssertGE
 class DA2Tests(object):
   def handleDA2Response(self):
     params = escio.ReadCSI('c', expected_prefix='>')
-    if escargs.args.expected_terminal == "xterm":
+    if getattr(escargs.args, "annotation_terminal", None) == "zutty":
+      # DA2 is terminal type, firmware version, and cartridge registration.
+      # https://vt100.net/docs/vt510-rm/DA2.html
+      AssertEQ(params, [41, 14, 0])
+    elif escargs.args.expected_terminal == "xterm":
       if esc.vtLevel == 5:
         AssertEQ(params[0], 64)
       elif esc.vtLevel == 4:
@@ -33,7 +37,6 @@ class DA2Tests(object):
   def test_DA2_0(self):
     esccmd.DA2(0)
     self.handleDA2Response()
-
 
 
 
