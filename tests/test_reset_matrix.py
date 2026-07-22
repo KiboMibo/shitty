@@ -108,7 +108,7 @@ class ResetAndModeInteractionTest(unittest.TestCase):
 
     def test_decstr_preserves_custom_tab_stops(self):
         with Zutty(columns=12, rows=2) as terminal:
-            terminal.write(b"\x1b[3g\x1b[1;4H\x1bH\x1b[!p\tX")
+            terminal.write(b"\x1b[3g\x1b[1;4H\x1bH\r\x1b[!p\tX")
             self.assertEqual(terminal.snapshot().cell(3, 0).char, "X")
 
     def test_decstr_preserves_scrollback_history(self):
