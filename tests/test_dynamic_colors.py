@@ -103,6 +103,21 @@ class DynamicColorTest(unittest.TestCase):
                 b"\x1b]12;rgb:0101/0202/0303\x1b\\",
             )
 
+    def test_successive_dynamic_color_parameters_advance_the_command(self):
+        with Zutty(columns=4, rows=2) as terminal:
+            terminal.write(b"\x1b]10;#010203;#040506\x1b\\")
+            self.assertEqual(
+                dynamic_query(terminal, 10, 11),
+                b"\x1b]10;rgb:0101/0202/0303\x1b\\"
+                b"\x1b]11;rgb:0404/0505/0606\x1b\\",
+            )
+
+            terminal.write(b"\x1b]16;ignored;#070809\x1b\\")
+            self.assertEqual(
+                terminal.render_state().selection_background,
+                (7, 8, 9),
+            )
+
     def test_selection_dynamic_colors_reach_renderer_and_reset(self):
         with Zutty(columns=4, rows=2) as terminal:
             terminal.write(

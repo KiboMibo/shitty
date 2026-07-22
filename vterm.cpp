@@ -4381,10 +4381,21 @@ void VtermImpl::handle_OSC() {
             case 10:
             case 11:
             case 12:
+            case 13:
+            case 14:
+            case 15:
+            case 16:
             case 17:
+            case 18:
             case 19:
-                osc_DynamicColorQuery(cmd, arg);
-                break;
+            {
+                std::stringstream specs(arg);
+                std::string spec;
+                int dynamicCmd = cmd;
+                while (dynamicCmd <= 19 && std::getline(specs, spec, ';')) {
+                    osc_DynamicColorQuery(dynamicCmd++, spec);
+                }
+            } break;
             case 110:
                 colors.defaultForeground = opts.fg;
                 defaultFgPalIx = -1;
