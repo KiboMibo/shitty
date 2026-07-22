@@ -1,5 +1,4 @@
 # Exact VTE matrix targets whose imported expectation differs from Zutty.
-escape_nf
 osc_controls_0_c0_c1
 osc_controls_0_c1_bel
 osc_controls_0_c1_c0

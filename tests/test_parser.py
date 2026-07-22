@@ -111,6 +111,19 @@ class ParserStreamingTest(unittest.TestCase):
                 [("escape", b"D"), ("control", b"\x84")],
             )
 
+    def test_special_first_intermediate_does_not_end_escape_sequence(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.parser_trace_on()
+            terminal.write(b"\x1b 0\x1b#!A\x1b%/B")
+            self.assertEqual(
+                terminal.parser_trace(),
+                [
+                    ("escape", b" 0"),
+                    ("escape", b"#!A"),
+                    ("escape", b"%/B"),
+                ],
+            )
+
     def test_private_prefix_after_numeric_parameters_is_rejected(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"a\x1b[1?25hb")

@@ -7183,6 +7183,15 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                     continue;
             }
         }
+        if ((inputState == InputState::Esc_SPC || inputState == InputState::Esc_Hash
+                || inputState == InputState::Esc_Pct)
+            && ch >= 0x20 && ch <= 0x2f) {
+            if constexpr (traced) {
+                parserTrace->escapeByte(ch);
+            }
+            setState(InputState::EscapeIntermediate);
+            continue;
+        }
         switch (inputState) {
             case InputState::Normal:
                 if constexpr (traced) {
