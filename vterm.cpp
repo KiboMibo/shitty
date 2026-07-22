@@ -503,6 +503,7 @@ namespace {
         bool showCursorMode = true;
         bool smoothScrollMode = false;
         bool autoRepeatMode = false;
+        bool noClearColumnMode = false;
         TerminalCursor::Style cursorShape = TerminalCursor::Style::filled_block;
         u8 cursorStyleParam = 2;
         bool cursorBlinkMode = false;
@@ -1063,6 +1064,7 @@ void VtermImpl::resetTerminal() {
     resetScreen();
     resetAttrs();
 
+    noClearColumnMode = false;
     switchColMode(ColMode::C80);
 
     cf->dropScrollbackHistory();
@@ -1200,7 +1202,17 @@ void VtermImpl::switchColMode(ColMode colMode_) {
         resize(2 * opts.border + columns * glyphPx, winPy);
         host.windowOperation(8, nRows, columns);
     }
-    clearScreen();
+    marginTop = 0;
+    marginBottom = nRows;
+    horizMarginMode = false;
+    hMargin = 0;
+    nColsEff = nCols;
+    posX = 0;
+    posY = 0;
+    lastCol = false;
+    if (!noClearColumnMode) {
+        fillScreen(' ');
+    }
 
     if (colMode_ == ColMode::C80) {
         logT << "DECCOLM: Selected 80 columns per line" << std::endl;
@@ -3137,6 +3149,11 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                     nColsEff = nCols;
                 }
                 break;
+            case 95:
+                if (compatLevel >= CompatibilityLevel::VT500) {
+                    noClearColumnMode = true;
+                }
+                break;
             case 1000:
                 mouseTrk.setMode(MouseTrackingMode::VT200);
                 break;
@@ -3279,6 +3296,11 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                     nColsEff = nCols;
                 }
                 break;
+            case 95:
+                if (compatLevel >= CompatibilityLevel::VT500) {
+                    noClearColumnMode = false;
+                }
+                break;
             case 1004:
                 mouseTrk.focusEventMode = false;
                 break;
@@ -3365,6 +3387,8 @@ bool VtermImpl::getPrivateMode(u32 arg) const {
             return !bkspSendsDel;
         case 69:
             return horizMarginMode;
+        case 95:
+            return noClearColumnMode;
         case 1000:
             return mouseTrk.mode == MouseTrackingMode::VT200;
         case 1001:
@@ -3836,6 +3860,12 @@ void VtermImpl::csi_DECRQM(bool privateMode) {
                 break;
             case 69:
                 if (compatLevel < CompatibilityLevel::VT400) {
+                    break;
+                }
+                state = getPrivateMode(mode) ? 1 : 2;
+                break;
+            case 95:
+                if (compatLevel < CompatibilityLevel::VT500) {
                     break;
                 }
                 state = getPrivateMode(mode) ? 1 : 2;

@@ -136,7 +136,11 @@ def configure_args(case_id):
 
 def reset(terminal):
     terminal.resize(80, 25)
-    terminal.write(b"\x1bc\x1b[?7h\x1b[?69l\x1b[4l\x1b[20l\x1b[2J\x1b[H")
+    terminal.write(
+        b"\x1bc"
+        b"\x1b[65;1\"p"
+        b"\x1b[?7h\x1b[?69l\x1b[4l\x1b[20l\x1b[2J\x1b[H"
+    )
     terminal.read_input()
     escio.use8BitControls = False
     escutil.gHaveAsserted = False

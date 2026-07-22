@@ -125,6 +125,27 @@ class TerminalModeTest(unittest.TestCase):
             )
             self.assertEqual(terminal.snapshot().cursor_x, 4)
 
+    def test_decncsm_preserves_page_only_at_vt500_level(self):
+        with Zutty(columns=80, rows=4) as terminal:
+            terminal.write(
+                b"\x1b[64;1\"p\x1b[?95h\x1b[?95$p"
+                b"x\x1b[?3h"
+            )
+            self.assertEqual(terminal.read_input(), b"\x1b[?95;0$y")
+            self.assertEqual(terminal.snapshot().lines[0][0], " ")
+
+            terminal.write(
+                b"\x1b[65;1\"p\x1b[?95h\x1b[?95$p"
+                b"x\x1b[2;4r\x1b[?69h\x1b[3;20s\x1b[?3h"
+            )
+            self.assertEqual(terminal.read_input(), b"\x1b[?95;1$y")
+            snapshot = terminal.snapshot()
+            self.assertEqual(
+                (snapshot.columns, snapshot.cursor_x, snapshot.cursor_y),
+                (132, 0, 0),
+            )
+            self.assertEqual(snapshot.lines[0][0], "x")
+
     def test_meta_mode_sets_the_eighth_input_bit(self):
         with Zutty() as terminal:
             terminal.write(b"\x1b[?1034h")
