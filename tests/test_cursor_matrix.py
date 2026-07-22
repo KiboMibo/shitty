@@ -128,12 +128,17 @@ class CursorCommandMatrixTest(unittest.TestCase):
             terminal.write(b"\x1b[99B")
             self.assert_cursor(terminal, 4, 5)
 
-    def test_relative_vertical_motion_uses_page_edges_when_outside_margins(self):
+    def test_relative_vertical_motion_obeys_directional_margin_barriers(self):
         with Zutty(columns=10, rows=7) as terminal:
             terminal.write(b"\x1b[3;6r\x1b[1;5H\x1b[99B")
-            self.assert_cursor(terminal, 4, 6)
-            terminal.write(b"\x1b[99A")
+            self.assert_cursor(terminal, 4, 5)
+            terminal.write(b"\x1b[7;5H\x1b[99A")
+            self.assert_cursor(terminal, 4, 2)
+
+            terminal.write(b"\x1b[1;5H\x1b[99A")
             self.assert_cursor(terminal, 4, 0)
+            terminal.write(b"\x1b[7;5H\x1b[99B")
+            self.assert_cursor(terminal, 4, 6)
 
     def test_relative_horizontal_motion_stays_in_margins_when_inside(self):
         with Zutty(columns=12, rows=4) as terminal:

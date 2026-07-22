@@ -2269,11 +2269,8 @@ void VtermImpl::esc_DECRC() {
 void VtermImpl::csi_CUU() {
     TRACE_FUN;
     u32 arg = inputOps[0] ? inputOps[0] : 1;
-    if (posY >= marginTop && posY < marginBottom) {
-        arg = std::min<u32>(arg, posY - marginTop);
-    } else {
-        arg = std::min<u32>(arg, posY);
-    }
+    const u16 top = posY >= marginTop ? marginTop : 0;
+    arg = std::min<u32>(arg, posY - top);
     posY -= arg;
     lastCol = false;
     setState(InputState::Normal);
@@ -2282,11 +2279,8 @@ void VtermImpl::csi_CUU() {
 void VtermImpl::csi_CUD() {
     TRACE_FUN;
     u32 arg = inputOps[0] ? inputOps[0] : 1;
-    if (posY >= marginTop && posY < marginBottom) {
-        arg = std::min<u32>(arg, marginBottom - posY - 1);
-    } else {
-        arg = std::min<u32>(arg, nRows - posY - 1);
-    }
+    const u16 bottom = posY < marginBottom ? marginBottom : nRows;
+    arg = std::min<u32>(arg, bottom - posY - 1);
     posY += arg;
     lastCol = false;
     setState(InputState::Normal);
