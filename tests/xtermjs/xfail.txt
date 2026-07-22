@@ -3,8 +3,6 @@
 # control function. This fixture expects no-op after LF/CUB; Zutty deliberately
 # retains the last graphic character, matching the Kitty/Ghostty behavior.
 t0040-REP
-t0051-IL
-t0052-DL
 t0060-DECSC
 t0075-DECSTBM_CUU_CUD
 t0077-DECSTBM_quirks

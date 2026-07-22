@@ -115,13 +115,13 @@ class EditingTest(unittest.TestCase):
             terminal.write(b"\x1b[1;1H\x1b[999L")
             self.assertEqual(terminal.snapshot().lines, ["     "] * 4)
 
-    def test_insert_and_delete_lines_preserve_cursor_column(self):
+    def test_insert_and_delete_lines_move_cursor_to_line_home(self):
         for operation in (b"\x1b[L", b"\x1b[M"):
             with self.subTest(operation=operation):
                 with Zutty(columns=8, rows=4) as terminal:
                     terminal.write(b"one\r\ntwo\r\nthree\x1b[2;5H")
                     terminal.write(operation + b"X")
-                    self.assertEqual(terminal.snapshot().cell(4, 1).char, "X")
+                    self.assertEqual(terminal.snapshot().cell(0, 1).char, "X")
 
     def test_erase_display(self):
         with Zutty(columns=5, rows=3) as terminal:

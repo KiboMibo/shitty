@@ -2777,7 +2777,7 @@ void VtermImpl::csi_IL() {
         u32 arg = inputOps[0] ? inputOps[0] : 1;
         arg = std::min<u32>(arg, marginBottom - posY);
         insertRows(posY, (u16)(arg));
-        lastCol = false;
+        inp_CR();
     }
     setState(InputState::Normal);
 }
@@ -2788,7 +2788,7 @@ void VtermImpl::csi_DL() {
         u32 arg = inputOps[0] ? inputOps[0] : 1;
         arg = std::min<u32>(arg, marginBottom - posY);
         deleteRows(posY, (u16)(arg));
-        lastCol = false;
+        inp_CR();
     }
     setState(InputState::Normal);
 }
