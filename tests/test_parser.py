@@ -124,6 +124,22 @@ class ParserStreamingTest(unittest.TestCase):
                 ],
             )
 
+    def test_osc_accepts_mixed_width_terminators_and_legacy_bel(self):
+        cases = (
+            b"\x1b]TEST\x1b\\",
+            b"\x1b]TEST\x9c",
+            b"\x1b]TEST\x07",
+            b"\x9dTEST\x1b\\",
+            b"\x9dTEST\x9c",
+            b"\x9dTEST\x07",
+        )
+        for sequence in cases:
+            with self.subTest(sequence=sequence):
+                with Zutty(columns=8, rows=2) as terminal:
+                    terminal.parser_trace_on()
+                    terminal.write(sequence)
+                    self.assertEqual(terminal.parser_trace(), [("osc", b"TEST")])
+
     def test_private_prefix_after_numeric_parameters_is_rejected(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"a\x1b[1?25hb")
