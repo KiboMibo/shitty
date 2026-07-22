@@ -169,6 +169,13 @@ struct MouseTrackingState {
     void setEncoding(MouseTrackingEnc value);
 };
 
+struct RectangleOrigin {
+    u16 rowBase;
+    u16 columnBase;
+    u16 rowLimit;
+    u16 columnLimit;
+};
+
 struct Vterm {
     enum class KeyEventType : u8 {
         Press = 1,
@@ -184,6 +191,7 @@ struct Vterm {
     virtual bool getAnsiMode(u32 mode) const = 0;
     virtual bool getPrivateMode(u32 mode) const = 0;
     virtual TerminalPen getPenState() const = 0;
+    virtual RectangleOrigin getRectangleOrigin() const = 0;
 
     virtual void resize(u16 winPx, u16 winPy) = 0;
     virtual void redraw() = 0;

@@ -96,6 +96,7 @@ namespace {
         bool getAnsiMode(u32 mode) const;
         bool getPrivateMode(u32 mode) const;
         TerminalPen getPenState() const;
+        RectangleOrigin getRectangleOrigin() const;
 
         void resize(u16 winPx, u16 winPy);
 
@@ -1576,6 +1577,12 @@ bool VtermImpl::rectangleFromParams(size_t offset, Rectangle& rectangle) const {
     rectangle.bottom = rowBase + std::min(rawBottom, rows);
     rectangle.right = columnBase + std::min(rawRight, columns);
     return true;
+}
+
+RectangleOrigin VtermImpl::getRectangleOrigin() const {
+    RectangleOrigin result;
+    rectangleOrigin(result.rowBase, result.columnBase, result.rowLimit, result.columnLimit);
+    return result;
 }
 
 void VtermImpl::inputGraphicChar(unsigned char ch) {

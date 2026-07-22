@@ -56,6 +56,9 @@ class ControlBackend:
     def snapshot(self):
         return self.terminal.model_snapshot()
 
+    def rectangle_origin(self):
+        return self.terminal.rectangle_origin()
+
 
 backend = None
 
@@ -74,9 +77,13 @@ def install_backend(control):
 
     def checksum(rect):
         snapshot = control.snapshot()
+        row_base, column_base, _, _ = control.rectangle_origin()
         result = 0
         for point in rect.points():
-            cell = snapshot.cell(point.x() - 1, point.y() - 1)
+            cell = snapshot.cell(
+                column_base + point.x() - 1,
+                row_base + point.y() - 1,
+            )
             result = (result + ord(cell.char)) & 0xffff
         return result
 
@@ -87,10 +94,13 @@ def install_backend(control):
         if rect.height() != len(expected_lines):
             raise esctypes.InternalError("screen assertion height mismatch")
         snapshot = control.snapshot()
+        row_base, column_base, _, _ = control.rectangle_origin()
         actual_lines = []
-        for row in range(rect.top() - 1, rect.bottom()):
+        for row in range(row_base + rect.top() - 1,
+                         row_base + rect.bottom()):
             actual = ""
-            for column in range(rect.left() - 1, rect.right()):
+            for column in range(column_base + rect.left() - 1,
+                                column_base + rect.right()):
                 cell = snapshot.cell(column, row)
                 if cell.double_width_continuation:
                     continue

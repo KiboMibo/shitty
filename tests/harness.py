@@ -432,6 +432,13 @@ class Zutty:
             raise RuntimeError("invalid winsize response")
         return tuple(map(int, response[1:]))
 
+    def rectangle_origin(self):
+        self.stream.write(b"RECTANGLE_ORIGIN\n")
+        response = self._readline().split()
+        if len(response) != 5 or response[0] != "OK":
+            raise RuntimeError("invalid rectangle origin response")
+        return tuple(map(int, response[1:]))
+
     def key(self, name, modifiers=0):
         self.command(f"KEY {name} {modifiers}")
 

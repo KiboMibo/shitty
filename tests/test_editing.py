@@ -4,6 +4,12 @@ from harness import Zutty
 
 
 class EditingTest(unittest.TestCase):
+    def test_rectangle_origin_tracks_origin_mode_and_both_margin_pairs(self):
+        with Zutty(columns=8, rows=4) as terminal:
+            self.assertEqual(terminal.rectangle_origin(), (0, 0, 4, 8))
+            terminal.write(b"\x1b[2;3r\x1b[?69h\x1b[3;6s\x1b[?6h")
+            self.assertEqual(terminal.rectangle_origin(), (1, 2, 3, 6))
+
     def test_ecma48_spa_epa_mark_only_guarded_characters(self):
         for spa, epa in ((b"\x1bV", b"\x1bW"), (b"\x96", b"\x97")):
             with self.subTest(spa=spa):

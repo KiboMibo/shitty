@@ -1414,6 +1414,13 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                        << " DECBKM=" << terminal.getPrivateMode(67)
                        << " DECLRMM=" << terminal.getPrivateMode(69) << '\n';
                 writeAll(controlFd, output.str());
+            } else if (line == "RECTANGLE_ORIGIN") {
+                const RectangleOrigin origin = terminal.getRectangleOrigin();
+                writeAll(controlFd,
+                         "OK " + std::to_string(origin.rowBase) + " "
+                         + std::to_string(origin.columnBase) + " "
+                         + std::to_string(origin.rowLimit) + " "
+                         + std::to_string(origin.columnLimit) + "\n");
             } else if (line == "PEN_STATE") {
                 const TerminalPen pen = terminal.getPenState();
                 std::ostringstream output;
