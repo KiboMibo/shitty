@@ -81,6 +81,27 @@ class ParserStreamingTest(unittest.TestCase):
                 [("control", b"\x18"), ("text", b"X")],
             )
 
+    def test_invalid_utf8_in_dcs_header_discards_the_control_string(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.parser_trace_on()
+            terminal.write(b"\x1bP1 \xc4\x80a\x1b\\X")
+            self.assertEqual(terminal.snapshot().lines[0][0], "X")
+            self.assertEqual(terminal.parser_trace(), [("text", b"X")])
+
+    def test_st_encodings_remain_observable_outside_control_strings(self):
+        cases = (
+            (b"\x1b\\", [("escape", b"\\")]),
+            (b"\x9c", [("control", b"\x9c")]),
+            (b"\x1b\x1b\\", [("escape", b"\\")]),
+            (b"\x1b\x9c", [("control", b"\x9c")]),
+        )
+        for sequence, expected in cases:
+            with self.subTest(sequence=sequence):
+                with Zutty(columns=8, rows=2) as terminal:
+                    terminal.parser_trace_on()
+                    terminal.write(sequence)
+                    self.assertEqual(terminal.parser_trace(), expected)
+
     def test_private_prefix_after_numeric_parameters_is_rejected(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"a\x1b[1?25hb")

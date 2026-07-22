@@ -38,12 +38,16 @@ namespace {
 
         size_t add(const char* type);
         void erase(size_t& index);
+        void consumeDcsHeader(const u8* data, size_t size);
         static const char* stringName(VtermTraceString type);
         static std::string encodeHex(const std::string& input);
 
         std::vector<TraceEvent> events;
         size_t escapeEvent = noEvent;
         size_t stringEvent = noEvent;
+        bool dcsHeaderComplete = false;
+        bool dcsHeaderIntermediate = false;
+        bool dcsHeaderInvalid = false;
     };
 
 }
@@ -152,20 +156,44 @@ void VtermTraceImpl::stringBegin(VtermTraceString type) {
     escapeCancel();
     stringCancel();
     stringEvent = add(stringName(type));
+    dcsHeaderComplete = false;
+    dcsHeaderIntermediate = false;
+    dcsHeaderInvalid = false;
 }
 
 void VtermTraceImpl::stringData(const u8* data, size_t size) {
     if (stringEvent != noEvent) {
+        if (events[stringEvent].type == "dcs") {
+            consumeDcsHeader(data, size);
+        }
         events[stringEvent].data.append((const char*)(data), size);
     }
 }
 
 void VtermTraceImpl::stringEnd() {
+    if (stringEvent != noEvent && events[stringEvent].type == "dcs"
+        && (!dcsHeaderComplete || dcsHeaderInvalid)) {
+        erase(stringEvent);
+        return;
+    }
     stringEvent = noEvent;
 }
 
 void VtermTraceImpl::stringCancel() {
     erase(stringEvent);
+}
+
+void VtermTraceImpl::consumeDcsHeader(const u8* data, size_t size) {
+    for (size_t k = 0; k < size && !dcsHeaderComplete && !dcsHeaderInvalid; ++k) {
+        const u8 ch = data[k];
+        if (ch >= 0x40 && ch <= 0x7e) {
+            dcsHeaderComplete = true;
+        } else if (ch >= 0x20 && ch <= 0x2f) {
+            dcsHeaderIntermediate = true;
+        } else if (ch < 0x30 || ch > 0x3f || dcsHeaderIntermediate) {
+            dcsHeaderInvalid = true;
+        }
+    }
 }
 
 std::string VtermTraceImpl::drain() {
