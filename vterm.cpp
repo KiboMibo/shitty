@@ -1449,8 +1449,9 @@ void VtermImpl::deleteCols(u16 startX, u16 count) {
 }
 
 void VtermImpl::clearWideCellsAtBoundary(u16 row, u16 boundary) {
-    const bool clearLeft = boundary > 0 && cf->getCell(row, boundary - 1).dwidth;
-    const bool clearRight = boundary < nCols && cf->getCell(row, boundary).dwidth_cont;
+    const Frame& frame = *cf;
+    const bool clearLeft = boundary > 0 && frame.getCell(row, boundary - 1).dwidth;
+    const bool clearRight = boundary < nCols && frame.getCell(row, boundary).dwidth_cont;
     if (clearLeft) {
         cf->eraseInRow(row, boundary - 1, 1, attrs);
     }
@@ -1460,8 +1461,9 @@ void VtermImpl::clearWideCellsAtBoundary(u16 row, u16 boundary) {
 }
 
 void VtermImpl::repairWideCellsAtBoundary(u16 row, u16 boundary) {
-    const bool leftLead = boundary > 0 && cf->getCell(row, boundary - 1).dwidth;
-    const bool rightContinuation = boundary < nCols && cf->getCell(row, boundary).dwidth_cont;
+    const Frame& frame = *cf;
+    const bool leftLead = boundary > 0 && frame.getCell(row, boundary - 1).dwidth;
+    const bool rightContinuation = boundary < nCols && frame.getCell(row, boundary).dwidth_cont;
     if (leftLead != rightContinuation) {
         if (leftLead) {
             cf->eraseInRow(row, boundary - 1, 1, attrs);
@@ -1506,7 +1508,8 @@ void VtermImpl::moveRangeInRow(u16 row, u16 dst, u16 src, u16 count) {
 }
 
 TerminalCell& VtermImpl::prepareCellAt(u16 row, u16 column) {
-    const auto& cell = cf->getCell(row, column);
+    const Frame& frame = *cf;
+    const auto& cell = frame.getCell(row, column);
     if (cell.dwidth_cont) {
         clearWideCellsAtBoundary(row, column);
     } else if (cell.dwidth) {
