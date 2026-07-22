@@ -1,4 +1,7 @@
 # One case ID per line. These are observed compatibility gaps, not ignored tests.
+# ECMA-48 8.3.103 leaves REP undefined when the preceding character is a
+# control function. This fixture expects no-op after LF/CUB; Zutty deliberately
+# retains the last graphic character, matching the Kitty/Ghostty behavior.
 t0040-REP
 t0051-IL
 t0052-DL
