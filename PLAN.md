@@ -201,7 +201,7 @@ Control interface — это расширяемый наблюдаемый API �
    - Ghostty;
    - VTE screen/width fixtures (parser matrices уже импортированы);
    - Windows Terminal semantic/screen fixtures (128 literal parser streams уже импортированы);
-   - WezTerm;
+   - WezTerm semantic/screen fixtures (136 literal model streams уже импортированы);
    - Konsole.
 
    Берём код, таблицы и test vectors и переделываем под наш Python black-box harness. Начинаем с файлов, где тестовые данные уже отделены от реализации.

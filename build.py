@@ -497,6 +497,61 @@ windows_terminal_validation = command(
 )
 
 
+wezterm_root = Path(__file__).parent / "tests" / "wezterm"
+wezterm_cases = (wezterm_root / "file_names.txt").read_text().split()
+wezterm_tests = []
+for case in wezterm_cases:
+    wezterm_tests.append(command(
+        name="wezterm_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/fuzz_parser.py",
+            "$(S)/tests/wezterm/adapter.py",
+            "$(S)/tests/wezterm/catalog.py",
+            "$(S)/tests/wezterm/file_names.txt",
+            "$(S)/tests/wezterm/xfail.txt",
+            *build.glob("$(S)/tests/wezterm/upstream/*.rs"),
+        ],
+        outputs=[f"$(B)/tests/wezterm/{case}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/wezterm/adapter.py",
+            case,
+            "tests/wezterm/xfail.txt",
+            f"$(B)/tests/wezterm/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="WEZTERM",
+        color="cyan",
+    ))
+
+
+wezterm_validation = command(
+    name="wezterm_catalog",
+    inputs=[
+        "$(S)/tests/wezterm/catalog.py",
+        "$(S)/tests/wezterm/file_names.txt",
+        "$(S)/tests/wezterm/validate.py",
+        "$(S)/tests/wezterm/xfail.txt",
+        *build.glob("$(S)/tests/wezterm/upstream/*.rs"),
+    ],
+    outputs=["$(B)/tests/wezterm/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/wezterm/validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/wezterm/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="WEZTERM",
+    color="cyan",
+)
+
+
 tmux_root = Path(__file__).parent / "tests" / "tmux"
 tmux_corpus_members = [
     "corpus/" + path.name
@@ -1047,6 +1102,8 @@ install(*vte_tests)
 install(vte_validation)
 install(*windows_terminal_tests)
 install(windows_terminal_validation)
+install(*wezterm_tests)
+install(wezterm_validation)
 install(*tmux_tests)
 install(wraptest_helper)
 install(*wraptest_tests)

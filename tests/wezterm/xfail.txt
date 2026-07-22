@@ -1,0 +1,1 @@
+# Exact WezTerm literal streams with chunking-dependent Zutty state.
