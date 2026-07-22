@@ -138,4 +138,3 @@
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 # https://ecma-international.org/publications-and-standards/standards/ecma-48/
 69screen_reflow.test
-90vttest_01-movement-3.test

@@ -1751,6 +1751,7 @@ void VtermImpl::placeGraphicChar() {
     auto& c = prepareCellAt(posY, posX);
     c = attrs;
     c.uc_pt = pt;
+    c.drawn = 1;
     c.hyperlink = activeHyperlink;
     c.semantic = currentSemantic;
     c.line_attr = changedRow ? ((const Frame&)*cf).getCell(posY, 0).line_attr : lineAttribute;
@@ -1769,6 +1770,7 @@ void VtermImpl::placeGraphicChar() {
         auto& continuation = cf->getCell(posY, ++posX);
         continuation = attrs;
         continuation.dwidth_cont = 1;
+        continuation.drawn = 1;
         continuation.hyperlink = activeHyperlink;
     }
 
@@ -1823,6 +1825,7 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
             auto& cell = cells[index];
             cell = attrs;
             cell.uc_pt = input[index];
+            cell.drawn = 1;
             cell.hyperlink = activeHyperlink;
             cell.semantic = currentSemantic;
             cell.line_attr = lineAttribute;

@@ -349,6 +349,7 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
 
     auto addLine = [&](int y, u16 x1, u16 x2) {
         unicodeString line;
+        size_t contentEnd = 0;
         bool wrapBack = wrap;
         wrap = false;
         const auto* cp = getLogicalRowPtr(y);
@@ -361,6 +362,9 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
                 } else {
                     line.insert(line.end(), grapheme.begin(), grapheme.end());
                 }
+                if (cell.drawn || cell.uc_pt != ' ' || !grapheme.empty()) {
+                    contentEnd = line.size();
+                }
             }
             if (cell.wrap) {
                 wrap = true;
@@ -371,8 +375,8 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
         // Trim screen padding only when a linear selection consumes the rest
         // of the row.  Explicitly selected whitespace (word or rectangle)
         // is data and must survive copying.
-        while (!wrap && !sel.rectangular && x2 == nCols && line.size() && line.back() == ' ') {
-            line.pop_back();
+        if (!wrap && !sel.rectangular && x2 == nCols) {
+            line.resize(contentEnd);
         }
 
         if (wrapBack && lines.size()) {
@@ -625,6 +629,7 @@ void Frame::fillCells(u16 ch, const TerminalCell& attrs) {
         for (u32 k = start; k < end; ++k) {
             cells.get()[k] = attrs;
             cells.get()[k].uc_pt = ch;
+            cells.get()[k].drawn = ch != ' ';
         }
         damage.add(start, end);
     }

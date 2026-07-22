@@ -147,10 +147,16 @@ def cell_text(cell):
 def row_text(snapshot, row, start=0, end=None):
     if end is None:
         end = snapshot.columns
+    end = min(end, snapshot.columns)
+    while end > start:
+        cell = snapshot.cell(end - 1, row)
+        if cell_text(cell) != " " or cell.drawn:
+            break
+        end -= 1
     return "".join(
         cell_text(snapshot.cell(column, row))
-        for column in range(start, min(end, snapshot.columns))
-    ).rstrip(" ")
+        for column in range(start, end)
+    )
 
 
 def range_text(snapshot, start_row, start_column, end_row, end_column):

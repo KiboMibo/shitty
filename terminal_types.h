@@ -121,7 +121,9 @@ struct TerminalCell {
     u8 strike : 1;
     u8 overline : 1;
     u8 underline_style : 3;
-    u8 protected_char = 0;
+    u8 protected_char : 2;
+    u8 drawn : 1;
+    u8 _reserved : 5;
     u8 line_attr = 0;
     CellColor fg = CellColor::defaultForeground();
     CellColor bg = CellColor::defaultBackground();
@@ -172,7 +174,9 @@ struct RenderCell {
     u8 strike : 1;
     u8 overline : 1;
     u8 underline_style : 3;
-    u8 protected_char = 0;
+    u8 protected_char : 2;
+    u8 drawn : 1;
+    u8 _reserved : 5;
     u8 line_attr = 0;
     Color fg;
     u8 _fill1 = 0;

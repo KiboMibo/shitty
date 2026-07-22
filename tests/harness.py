@@ -68,6 +68,7 @@ class Cell:
     semantic: int
     protected: bool
     line_attribute: int
+    drawn: bool
     foreground_index: int = -2
     background_index: int = -2
     underline_index: int = -2
@@ -867,6 +868,7 @@ class Zutty:
                     semantic=int(record[42:50], 16),
                     protected=bool(flags & 32768),
                     line_attribute=(flags >> 16) & 3,
+                    drawn=bool(flags & (1 << 18)),
                     foreground_index=foreground_index,
                     background_index=background_index,
                     underline_index=underline_index,

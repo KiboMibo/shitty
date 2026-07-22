@@ -12,6 +12,13 @@ class SelectionTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().selection, (1, 0, 5, 0))
             self.assertEqual(terminal.select_finish(), b"bc d")
 
+    def test_linear_selection_preserves_written_trailing_space(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"A ")
+            terminal.select_start(0, 0)
+            terminal.select_update(8, 0)
+            self.assertEqual(terminal.select_finish(), b"A ")
+
     def test_rectangular_selection_returns_each_row_slice(self):
         with Zutty(columns=8, rows=3) as terminal:
             terminal.write(b"abc def\r\nghijk")
