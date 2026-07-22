@@ -3116,7 +3116,7 @@ void VtermImpl::csi_ICH() {
 
 void VtermImpl::csi_DCH() {
     TRACE_FUN;
-    if (isCursorInsideMargins()) {
+    if (posX >= hMargin && posX < nColsEff) {
         u32 arg = inputOps[0] ? inputOps[0] : 1;
         u32 len = nColsEff - posX;
         arg = std::min(arg, len);
