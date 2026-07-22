@@ -52,6 +52,14 @@ history
 row_reset
 saved_cursor_alt
 scroll_in_region_up_preserves_history
+# Alacritty added this fixture in commit 33cfc52 as a parser regression for
+# ignoring unsupported CSI sequences.  It did not implement DECSCA, DECSED or
+# DECSEL, so its golden leaves both `ABC` rows untouched.  VT220 DECSCA 1 makes
+# following characters immune to DECSED/DECSEL, while DECSCA 0 and 2 make them
+# erasable; Zutty therefore correctly leaves only the protected `B` in each
+# row after CSI ? 2 J/K.
+# https://github.com/alacritty/alacritty/commit/33cfc52909bda1e2d5ceeae5397f254509d00539
+# https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
 selective_erasure
 sgr
 tab_rendering
