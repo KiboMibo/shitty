@@ -94,6 +94,9 @@ struct TerminalColors {
 };
 
 struct TerminalCell {
+    static constexpr u8 decProtection = 1;
+    static constexpr u8 isoProtection = 2;
+
     u32 uc_pt = ' ';
     u8 dwidth : 1;
     u8 dwidth_cont : 1;

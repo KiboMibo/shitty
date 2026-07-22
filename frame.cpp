@@ -654,7 +654,7 @@ void Frame::eraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs)
     }
 }
 
-void Frame::selectiveEraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs) {
+void Frame::selectiveEraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs, u8 protectionMask) {
     TerminalCell erased = attrs;
     erased.uc_pt = ' ';
     erased.protected_char = 0;
@@ -663,7 +663,7 @@ void Frame::selectiveEraseInRow(u16 pY, u16 startX, u16 count, const TerminalCel
     for (u16 x = startX; x < startX + count; ++x) {
         const u32 index = getIdx(pY, x);
         auto& cell = operator[](index);
-        if (!cell.protected_char) {
+        if (!(cell.protected_char & protectionMask)) {
             erased.line_attr = cell.line_attr;
             cell = erased;
             cell.dirty = 1;

@@ -4,6 +4,40 @@ from harness import Zutty
 
 
 class EditingTest(unittest.TestCase):
+    def test_ecma48_spa_epa_mark_only_guarded_characters(self):
+        for spa, epa in ((b"\x1bV", b"\x1bW"), (b"\x96", b"\x97")):
+            with self.subTest(spa=spa):
+                with Zutty(columns=8, rows=2) as terminal:
+                    terminal.write(b"A" + spa + b"BC" + epa + b"D")
+                    snapshot = terminal.snapshot()
+                    self.assertFalse(snapshot.cell(0, 0).protected)
+                    self.assertTrue(snapshot.cell(1, 0).protected)
+                    self.assertTrue(snapshot.cell(2, 0).protected)
+                    self.assertFalse(snapshot.cell(3, 0).protected)
+
+    def test_ecma48_erm_controls_normal_erasure(self):
+        for erase in (b"\x1b[2J", b"\x1b[2K", b"\x1b[8X"):
+            with self.subTest(erase=erase), Zutty(columns=8, rows=2) as terminal:
+                terminal.write(b"A\x1bVBC\x1bWDE\x1b[H" + erase)
+                self.assertEqual(terminal.snapshot().lines[0], " BC     ")
+
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"A\x1bVBC\x1bWDE\x1b[H")
+            terminal.write(b"\x1b[6h\x1b[2J\x1b[H")
+            self.assertEqual(terminal.snapshot().lines[0], "        ")
+
+            terminal.write(b"A\x1bVBC\x1bWDE\x1b[6l\x1b[2J")
+            self.assertEqual(terminal.snapshot().lines[0], " BC     ")
+
+    def test_ecma48_erm_does_not_treat_decsca_as_iso_protection(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1bVISO\x1bW"
+                b"\x1b[1\"qDEC\x1b[0\"q"
+                b"\x1b[H\x1b[2J"
+            )
+            self.assertEqual(terminal.snapshot().lines[0], "ISO     ")
+
     def test_selective_erase_preserves_decsca_protected_cells(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(

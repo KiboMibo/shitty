@@ -54,7 +54,7 @@ public:
     const Grapheme& getGrapheme(u32 id) const;
 
     void eraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs);
-    void selectiveEraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs);
+    void selectiveEraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs, u8 protectionMask = 0xff);
     void moveInRow(u16 pY, u16 dstX, u16 srcX, u16 count);
     void copyRow(u16 dstY, u16 srcY, u16 startX, u16 count);
 

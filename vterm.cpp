@@ -249,6 +249,8 @@ namespace {
         void clearWideCellsAtBoundary(u16 row, u16 boundary);
         void repairWideCellsAtBoundary(u16 row, u16 boundary);
         TerminalCell& prepareCellAt(u16 row, u16 column);
+        void eraseEcmaRangeInRow(u16 row, u16 start, u16 count);
+        void eraseEcmaRow(u16 row);
 
         struct Rectangle {
             u16 top;
@@ -284,6 +286,8 @@ namespace {
         void esc_BI();
         void esc_FI();
         void esc_HTS();
+        void esc_SPA();
+        void esc_EPA();
         void csi_SCOSC_SLRM();
         void csi_SCOSC();
         void csi_SCORC();
@@ -505,6 +509,7 @@ namespace {
         bool autoNewlineMode = false;
         bool keyboardLocked = false;
         bool insertMode = false;
+        bool eraseModeAll = false;
         bool bkspSendsDel = true;
         bool localEcho = false;
         bool bracketedPasteMode = false;
@@ -789,6 +794,8 @@ bool VtermImpl::getAnsiMode(u32 mode) const {
     switch (mode) {
         case 4:
             return insertMode;
+        case 6:
+            return eraseModeAll;
         case 12:
             return !localEcho;
         case 20:
@@ -1156,6 +1163,8 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     autoNewlineMode = false;
     keyboardLocked = false;
     insertMode = false;
+    eraseModeAll = false;
+    attrs.protected_char = 0;
     bkspSendsDel = true;
     localEcho = false;
     bracketedPasteMode = false;
@@ -1487,6 +1496,37 @@ void VtermImpl::eraseRangeInRow(u16 row, u16 start, u16 count) {
     clearWideCellsAtBoundary(row, start);
     clearWideCellsAtBoundary(row, end);
     cf->eraseInRow(row, start, count, attrs);
+}
+
+void VtermImpl::eraseEcmaRangeInRow(u16 row, u16 start, u16 count) {
+    if (eraseModeAll) {
+        eraseRangeInRow(row, start, count);
+        return;
+    }
+    if (!count) {
+        return;
+    }
+    const u16 end = start + count;
+    cf->selectiveEraseInRow(row, start, count, attrs, TerminalCell::isoProtection);
+    repairWideCellsAtBoundary(row, start);
+    repairWideCellsAtBoundary(row, end);
+}
+
+void VtermImpl::eraseEcmaRow(u16 row) {
+    if (eraseModeAll) {
+        eraseRow(row);
+        return;
+    }
+    bool retained = false;
+    for (u16 column = 0; column < nCols; ++column) {
+        retained |= (cf->getCell(row, column).protected_char & TerminalCell::isoProtection) != 0;
+    }
+    eraseEcmaRangeInRow(row, 0, nCols);
+    if (!retained) {
+        for (u16 column = 0; column < nCols; ++column) {
+            cf->getCell(row, column).line_attr = 0;
+        }
+    }
 }
 
 void VtermImpl::selectiveEraseRangeInRow(u16 row, u16 start, u16 count) {
@@ -2275,6 +2315,18 @@ void VtermImpl::esc_HTS() {
     setState(InputState::Normal);
 }
 
+void VtermImpl::esc_SPA() {
+    TRACE_FUN;
+    attrs.protected_char |= TerminalCell::isoProtection;
+    setState(InputState::Normal);
+}
+
+void VtermImpl::esc_EPA() {
+    TRACE_FUN;
+    attrs.protected_char &= ~TerminalCell::isoProtection;
+    setState(InputState::Normal);
+}
+
 void VtermImpl::csi_SCOSC_SLRM() {
     if (horizMarginMode) {
         csi_SLRM();
@@ -2569,16 +2621,16 @@ void VtermImpl::csi_ED() {
     normalizeCursorPos();
     switch (inputOps[0]) {
         case 0:
-            eraseRangeInRow(posY, posX, nCols - posX);
+            eraseEcmaRangeInRow(posY, posX, nCols - posX);
             for (u16 pY = posY + 1; pY < nRows; ++pY) {
-                eraseRow(pY);
+                eraseEcmaRow(pY);
             }
             break;
         case 1:
             for (u16 pY = 0; pY < posY; ++pY) {
-                eraseRow(pY);
+                eraseEcmaRow(pY);
             }
-            eraseRangeInRow(posY, 0, posX + 1);
+            eraseEcmaRangeInRow(posY, 0, posX + 1);
             break;
         case 3:
             cf->dropScrollbackHistory();
@@ -2586,7 +2638,7 @@ void VtermImpl::csi_ED() {
 
         case 2:
             for (u16 pY = 0; pY < nRows; ++pY) {
-                eraseRow(pY);
+                eraseEcmaRow(pY);
             }
             break;
         default:
@@ -2601,13 +2653,13 @@ void VtermImpl::csi_EL() {
     normalizeCursorPos();
     switch (inputOps[0]) {
         case 0:
-            eraseRangeInRow(posY, posX, nCols - posX);
+            eraseEcmaRangeInRow(posY, posX, nCols - posX);
             break;
         case 1:
-            eraseRangeInRow(posY, 0, posX + 1);
+            eraseEcmaRangeInRow(posY, 0, posX + 1);
             break;
         case 2:
-            eraseRangeInRow(posY, 0, nCols);
+            eraseEcmaRangeInRow(posY, 0, nCols);
             break;
         default:
             logT << "Erase in Line with illegal param: " << inputOps[0] << std::endl;
@@ -2650,7 +2702,11 @@ void VtermImpl::csi_DECSEL() {
 
 void VtermImpl::csi_DECSCA() {
     TRACE_FUN;
-    attrs.protected_char = inputOps[0] == 1;
+    if (inputOps[0] == 1) {
+        attrs.protected_char |= TerminalCell::decProtection;
+    } else {
+        attrs.protected_char &= ~TerminalCell::decProtection;
+    }
     setState(InputState::Normal);
 }
 
@@ -2899,7 +2955,7 @@ void VtermImpl::csi_ECH() {
     const u16 right = isCursorInsideMargins() ? nColsEff : nCols;
     const u32 len = posX < right ? right - posX : 0;
     arg = std::min(arg, len);
-    eraseRangeInRow(posY, posX, arg);
+    eraseEcmaRangeInRow(posY, posX, arg);
     lastCol = false;
     setState(InputState::Normal);
 }
@@ -2991,6 +3047,9 @@ void VtermImpl::csi_SM() {
             case 4:
                 insertMode = true;
                 break;
+            case 6:
+                eraseModeAll = true;
+                break;
             case 12:
                 localEcho = false;
                 break;
@@ -3016,6 +3075,9 @@ void VtermImpl::csi_RM() {
                 break;
             case 4:
                 insertMode = false;
+                break;
+            case 6:
+                eraseModeAll = false;
                 break;
             case 12:
                 localEcho = true;
@@ -3831,6 +3893,9 @@ void VtermImpl::csi_DECRQM(bool privateMode) {
             case 4:
                 state = insertMode ? 1 : 2;
                 break;
+            case 6:
+                state = eraseModeAll ? 1 : 2;
+                break;
             case 12:
                 state = !localEcho ? 1 : 2;
                 break;
@@ -4138,7 +4203,7 @@ void VtermImpl::dcs_DECRQSS(const std::string& arg) {
     } else if (query == " q") {
         value << (unsigned)(cursorStyleParam) << " q";
     } else if (query == "\"q") {
-        value << (attrs.protected_char ? 1 : 0) << "\"q";
+        value << ((attrs.protected_char & TerminalCell::decProtection) ? 1 : 0) << "\"q";
     } else {
         writeDcsResponse("0$r");
         return;
@@ -7210,6 +7275,20 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                     }
                     setState(InputState::DCS);
                     continue;
+                case 0x96:
+                    if constexpr (traced) {
+                        parserTrace->escapeCancel();
+                        parserTrace->control(ch);
+                    }
+                    esc_SPA();
+                    continue;
+                case 0x97:
+                    if constexpr (traced) {
+                        parserTrace->escapeCancel();
+                        parserTrace->control(ch);
+                    }
+                    esc_EPA();
+                    continue;
                 case 0x98:
                     if constexpr (traced) {
                         parserTrace->stringBegin(VtermTraceString::Sos);
@@ -7319,6 +7398,12 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                             parserTrace->stringBegin(VtermTraceString::Dcs);
                         }
                         setState(InputState::DCS);
+                        break;
+                    case 0x96:
+                        esc_SPA();
+                        break;
+                    case 0x97:
+                        esc_EPA();
                         break;
                     case 0x98:
                         if constexpr (traced) {
@@ -7585,6 +7670,12 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                             parserTrace->stringBegin(VtermTraceString::Dcs);
                         }
                         setState(InputState::DCS);
+                        break;
+                    case 'V':
+                        esc_SPA();
+                        break;
+                    case 'W':
+                        esc_EPA();
                         break;
                     case 'c':
                         esc_RIS();

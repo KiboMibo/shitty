@@ -11,6 +11,12 @@ vttest.09.known-bugs
 vttest.11.5.iso6429-cursor
 vttest.11.6.6.vt102-with-bce
 vttest.11.6.7.ecma48-misc-with-bce
+# The scenario's `*` enables ERM with SM 6 before SPA.  ECMA-48:1991 table 6
+# and 7.2.4 define set-state as ALL: ED, EL and ECH erase protected as well as
+# unprotected areas.  The Contour golden instead retains the guarded box.
 vttest.11.6.7.1.protected-area-with-bce
 vttest.11.7.iso6429-other
+# As above, the wildcard enables ERM before this checkpoint.  ECMA-48:1991
+# 7.2.4 requires the box to be erased; the imported golden records Contour's
+# non-conforming retention of it.
 vttest.11.7.1.protected-area

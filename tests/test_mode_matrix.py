@@ -6,6 +6,7 @@ from harness import Zutty
 ANSI_DEFAULTS = {
     2: 2,
     4: 2,
+    6: 2,
     12: 1,
     20: 2,
 }
