@@ -63,6 +63,11 @@ selective_erasure
 # https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
 # https://github.com/alacritty/alacritty/commit/b904207b1979bb86f86c2a7db1720ce04571508a
 underline
+# The BCE background itself matches at (40,40,40).  Only the invisible
+# foreground and derived default underline color of erased space cells differ:
+# Alacritty's golden resets them to default, while xterm 410 ClearCells()
+# stores the complete current color pair, here foreground (238,238,238).
+# https://invisible-island.net/archives/xterm/xterm-410.tgz
 vim_24bitcolors_bce
 vim_large_window_scroll
 vim_simple_edit
