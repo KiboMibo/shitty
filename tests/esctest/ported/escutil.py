@@ -314,6 +314,11 @@ def intentionalDeviationFromSpec(terminal, reason):
     return func_wrapper
   return decorator
 
+def annotationTerminal():
+  return getattr(escargs.args,
+                 "annotation_terminal",
+                 escargs.args.expected_terminal)
+
 def optionRejects(terminal, option):
   """Decorator for a method indicating that it will fail if an option is present."""
   reason = "Terminal \"" + terminal + "\" is known to fail this test with option \"" + option + "\" set."
@@ -322,7 +327,7 @@ def optionRejects(terminal, option):
     def func_wrapper(self, *args, **kwargs):
       hasOption = (escargs.args.options is not None and
                    option in escargs.args.options)
-      if escargs.args.expected_terminal == terminal:
+      if annotationTerminal() == terminal:
         try:
           func(self, *args, **kwargs)
         except Exception as e:
@@ -352,7 +357,7 @@ def optionRequired(terminal, option, allowPassWithoutOption=False):
     def func_wrapper(self, *args, **kwargs):
       hasOption = (escargs.args.options is not None and
                    option in escargs.args.options)
-      if escargs.args.expected_terminal == terminal:
+      if annotationTerminal() == terminal:
         try:
           func(self, *args, **kwargs)
         except Exception as e:
@@ -382,7 +387,7 @@ def knownBug(terminal, reason, noop=False, shouldTry=True):
   def decorator(func):
     @functools.wraps(func)
     def func_wrapper(self, *args, **kwargs):
-      if escargs.args.expected_terminal == terminal:
+      if annotationTerminal() == terminal:
         if not shouldTry:
           raise esctypes.KnownBug(reason + " (not trying)")
         try:
@@ -418,7 +423,7 @@ def knownBug(terminal, reason, noop=False, shouldTry=True):
 def ReasonForKnownBugInMethod(method):
   if KNOWN_BUG_TERMINALS in method.__dict__:
     kbt = method.__dict__.get(KNOWN_BUG_TERMINALS)
-    term = escargs.args.expected_terminal
+    term = annotationTerminal()
     if term in kbt:
       return kbt[term]
   return None

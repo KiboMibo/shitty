@@ -124,6 +124,7 @@ def install_backend(control):
 def configure_args(case_id):
     escargs.args = escargs.parser.parse_args([])
     escargs.args.expected_terminal = "xterm"
+    escargs.args.annotation_terminal = "zutty"
     escargs.args.xterm_checksum = 334
     escargs.args.max_vt_level = 5
     escargs.args.options = [escargs.XTERM_WINOPS_ENABLED]

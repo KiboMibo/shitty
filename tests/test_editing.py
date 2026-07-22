@@ -49,6 +49,16 @@ class EditingTest(unittest.TestCase):
             self.assertTrue(snapshot.cell(2, 0).protected)
             self.assertFalse(snapshot.cell(0, 0).protected)
 
+    def test_dec_selective_erase_ignores_iso_guarded_areas(self):
+        for erase in (b"\x1b[?2J", b"\x1b[?2K", b"\x1b[1;1;1;6${"):
+            with self.subTest(erase=erase), Zutty(columns=6, rows=2) as terminal:
+                terminal.write(
+                    b"A\x1bVB\x1bWC"
+                    b"\x1b[1\"qD\x1b[0\"qE"
+                    b"\x1b[H" + erase
+                )
+                self.assertEqual(terminal.snapshot().lines[0], "   D  ")
+
     def test_selective_display_erase_obeys_cursor_and_defaults(self):
         with Zutty(columns=5, rows=2) as terminal:
             terminal.write(

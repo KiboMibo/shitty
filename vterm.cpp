@@ -1534,7 +1534,7 @@ void VtermImpl::selectiveEraseRangeInRow(u16 row, u16 start, u16 count) {
         return;
     }
     const u16 end = start + count;
-    cf->selectiveEraseInRow(row, start, count, attrs);
+    cf->selectiveEraseInRow(row, start, count, attrs, TerminalCell::decProtection);
     repairWideCellsAtBoundary(row, start);
     repairWideCellsAtBoundary(row, end);
 }
