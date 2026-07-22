@@ -55,6 +55,13 @@ row_reset
 # https://github.com/alacritty/alacritty/commit/33cfc52909bda1e2d5ceeae5397f254509d00539
 # https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
 selective_erasure
+# The sole mismatch is the recording's CSI 4:3;21m.  ECMA-48 3rd and xterm
+# define SGR 21 as doubly underlined, so it replaces the preceding undercurl.
+# Alacritty deliberately retains its historical SGR 21 = cancel bold mapping;
+# its double-underline commit explicitly requires CSI 4:2m instead, and the
+# golden consequently leaves the undercurl active.
+# https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
+# https://github.com/alacritty/alacritty/commit/b904207b1979bb86f86c2a7db1720ce04571508a
 underline
 vim_24bitcolors_bce
 vim_large_window_scroll
