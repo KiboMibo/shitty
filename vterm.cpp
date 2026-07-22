@@ -525,6 +525,8 @@ namespace {
         bool inBandResizeMode = false;
         bool printerControllerMode = false;
         bool autoPrintMode = false;
+        bool printFormFeedMode = false;
+        bool printExtentMode = false;
 
         enum class PrinterControllerState : u8 {
             Normal,
@@ -1137,6 +1139,8 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     inBandResizeMode = false;
     printerControllerMode = false;
     autoPrintMode = false;
+    printFormFeedMode = false;
+    printExtentMode = false;
     printerControllerState = PrinterControllerState::Normal;
     screenReverseVideo = false;
     frame_pri.setScreenReverseVideo(false);
@@ -2025,8 +2029,13 @@ void VtermImpl::csi_MC(bool privateMode) {
     } else {
         if (operation == 0) {
             std::string screen;
-            for (u16 row = 0; row < nRows; ++row) {
+            const u16 firstRow = printExtentMode ? 0 : marginTop;
+            const u16 lastRow = printExtentMode ? nRows : marginBottom;
+            for (u16 row = firstRow; row < lastRow; ++row) {
                 screen += printableLine(row);
+            }
+            if (printFormFeedMode) {
+                screen.push_back('\f');
             }
             host.print(screen);
         } else if (operation == 4) {
@@ -3115,6 +3124,16 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 autoRepeatMode = true;
                 logU << "DECARM: Set auto-repeat mode" << std::endl;
                 break;
+            case 18:
+                if (compatLevel >= CompatibilityLevel::VT200) {
+                    printFormFeedMode = true;
+                }
+                break;
+            case 19:
+                if (compatLevel >= CompatibilityLevel::VT200) {
+                    printExtentMode = true;
+                }
+                break;
             case 42:
                 nationalReplacementMode = true;
                 break;
@@ -3257,6 +3276,16 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 autoRepeatMode = false;
                 logU << "DECARM: Reset auto-repeat mode" << std::endl;
                 break;
+            case 18:
+                if (compatLevel >= CompatibilityLevel::VT200) {
+                    printFormFeedMode = false;
+                }
+                break;
+            case 19:
+                if (compatLevel >= CompatibilityLevel::VT200) {
+                    printExtentMode = false;
+                }
+                break;
             case 42:
                 nationalReplacementMode = false;
                 break;
@@ -3370,6 +3399,10 @@ bool VtermImpl::getPrivateMode(u32 arg) const {
             return autoRepeatMode;
         case 12:
             return cursorBlinkMode;
+        case 18:
+            return printFormFeedMode;
+        case 19:
+            return printExtentMode;
         case 42:
             return nationalReplacementMode;
         case 45:
@@ -3850,6 +3883,8 @@ void VtermImpl::csi_DECRQM(bool privateMode) {
             case 7:
             case 9:
             case 12:
+            case 18:
+            case 19:
             case 25:
             case 42:
             case 45:

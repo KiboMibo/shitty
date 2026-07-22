@@ -17,6 +17,25 @@ class PrinterProtocolTest(unittest.TestCase):
             terminal.write(b"\x1b[?5iabc\r\ndef\x1b[?4i")
             self.assertEqual(terminal.read_printer(), b"abc\n")
 
+    def test_print_modes_select_extent_and_form_feed(self):
+        with Zutty(columns=5, rows=4) as terminal:
+            terminal.write(
+                b"one\x1b[2;1Htwo\x1b[3;1Hthree\x1b[4;1Hfour"
+                b"\x1b[2;3r\x1b[?19l\x1b[?18h"
+                b"\x1b[?18$p\x1b[?19$p\x1b[0i"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[?18;1$y\x1b[?19;2$y",
+            )
+            self.assertEqual(terminal.read_printer(), b"two\nthree\n\f")
+
+            terminal.write(b"\x1b[?18l\x1b[?19h\x1b[0i")
+            self.assertEqual(
+                terminal.read_printer(),
+                b"one\ntwo\nthree\nfour\n",
+            )
+
     def test_printer_controller_copies_stream_without_displaying_it(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"before\x1b[5ihello\r\nworld\x1b[4iafter")
