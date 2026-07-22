@@ -31,13 +31,6 @@ scroll_up_reset
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 # https://github.com/alacritty/alacritty/blob/852e971cddfabe222d2d5bcda466e130f53af207/alacritty_terminal/src/term/mod.rs#L1635
 erase_in_line
-# The recording builds exactly 100 saved lines and then sends RIS (ESC c).
-# Xterm 410 dispatches CASE_RIS as VTReset(xw, True, True); ReallyReset's
-# `saved` branch sets savedlines to zero.  Zutty likewise leaves only the 29
-# live rows.  This golden retains all 100 historical rows (raw.len == 129),
-# contrary to the xterm reset contract.
-# https://invisible-island.net/archives/xterm/xterm-410.tgz
-grid_reset
 # Alacritty commit 495a6f3 changed Row::reset so recycled cells lose their
 # foreground color; this golden therefore expects default foreground on every
 # blank tail.  Xterm 410 screen.c ClearCells() instead stores the current color
