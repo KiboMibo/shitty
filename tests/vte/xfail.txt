@@ -1,0 +1,18 @@
+# Exact VTE matrix targets whose imported expectation differs from Zutty.
+csi_misc
+csi_max
+dcs_misc
+escape_fpes
+escape_nf
+osc_controls_0_c0_c1
+osc_controls_0_c1_bel
+osc_controls_0_c1_c0
+osc_controls_0_c1_default
+osc_controls_0_default_c1
+osc_controls_1_c0_c1
+osc_controls_1_c0_default
+osc_controls_1_c1_bel
+osc_controls_1_c1_c0
+osc_controls_1_default_bel
+osc_controls_1_default_c0
+osc_oversize

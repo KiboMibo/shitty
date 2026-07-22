@@ -386,6 +386,60 @@ kitty_validation = command(
 )
 
 
+vte_root = Path(__file__).parent / "tests" / "vte"
+vte_cases = (vte_root / "file_names.txt").read_text().split()
+vte_tests = []
+for case in vte_cases:
+    vte_tests.append(command(
+        name="vte_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/vte/adapter.py",
+            "$(S)/tests/vte/catalog.py",
+            "$(S)/tests/vte/file_names.txt",
+            "$(S)/tests/vte/xfail.txt",
+            "$(S)/tests/vte/upstream/parser-test.cc",
+        ],
+        outputs=[f"$(B)/tests/vte/{case}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/vte/adapter.py",
+            case,
+            "tests/vte/xfail.txt",
+            f"$(B)/tests/vte/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="VTE",
+        color="cyan",
+    ))
+
+
+vte_validation = command(
+    name="vte_catalog",
+    inputs=[
+        "$(S)/tests/vte/catalog.py",
+        "$(S)/tests/vte/file_names.txt",
+        "$(S)/tests/vte/validate.py",
+        "$(S)/tests/vte/xfail.txt",
+        "$(S)/tests/vte/upstream/parser-test.cc",
+    ],
+    outputs=["$(B)/tests/vte/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/vte/validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/vte/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="VTE",
+    color="cyan",
+)
+
+
 tmux_root = Path(__file__).parent / "tests" / "tmux"
 tmux_corpus_members = [
     "corpus/" + path.name
@@ -932,6 +986,8 @@ install(*mosh_tests)
 install(*ghostty_tests)
 install(*kitty_tests)
 install(kitty_validation)
+install(*vte_tests)
+install(vte_validation)
 install(*tmux_tests)
 install(wraptest_helper)
 install(*wraptest_tests)
