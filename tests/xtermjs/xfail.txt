@@ -13,7 +13,6 @@ t0060-DECSC
 # parameters, while an out-of-page Pb in CSI 23;28r becomes the default bottom.
 # Zutty rejects both malformed margin requests and keeps the previous region.
 t0077-DECSTBM_quirks
-t0078-DECSTBM_CPL_CNL
 t0084-CBT
 t0101-NLM
 t0103-reverse_wrap
