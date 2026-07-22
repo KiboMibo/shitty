@@ -4,6 +4,13 @@
 # golden leaves the cursor in place and preserves later E cells incorrectly.
 # https://vt100.net/dec/ek-vt520-rm.pdf#page=170
 decaln_reset
+# This recording sends DECSET 3 without first enabling xterm mode 40.  Xterm
+# 410 defaults the c132 resource to false and gates every DECCOLM side effect,
+# including clearing, on screen->c132.  Zutty targets xterm-256color and keeps
+# that default.  Alacritty 852e971 does not resize but unconditionally resets
+# margins and clears the grid, which is the golden behavior asserted here.
+# https://github.com/ThomasDickey/xterm-snapshots/blob/master/charproc.c
+# https://github.com/alacritty/alacritty/blob/852e971cddfabe222d2d5bcda466e130f53af207/alacritty_terminal/src/term/mod.rs#L792
 deccolm_reset
 delete_chars_reset
 erase_chars_reset
