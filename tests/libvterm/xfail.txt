@@ -12,7 +12,6 @@
 22state_save.test
 25state_input.test
 26state_query.test
-30state_pen.test
 31state_rep.test
 40state_selection.test
 61screen_unicode.test
