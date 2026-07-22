@@ -38,6 +38,13 @@ erase_in_line
 # contrary to the xterm reset contract.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 grid_reset
+# Alacritty commit 495a6f3 changed Row::reset so recycled cells lose their
+# foreground color; this golden therefore expects default foreground on every
+# blank tail.  Xterm 410 screen.c ClearCells() instead stores the current color
+# pair in cells cleared while scrolling, so Zutty retains the active red
+# foreground while clearing all character attributes.
+# https://github.com/alacritty/alacritty/commit/495a6f3824ce141fa08a42b6333a7372809e0bb3
+# https://invisible-island.net/archives/xterm/xterm-410.tgz
 row_reset
 # Alacritty added this fixture in commit 33cfc52 as a parser regression for
 # ignoring unsupported CSI sequences.  It did not implement DECSCA, DECSED or
