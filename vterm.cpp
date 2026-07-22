@@ -1393,6 +1393,11 @@ bool VtermImpl::isCursorInsideMargins() {
 
 void VtermImpl::eraseRow(u16 pY) {
     eraseRangeInRow(pY, hMargin, nColsEff - hMargin);
+    if (hMargin == 0 && nColsEff == nCols) {
+        for (u16 x = 0; x < nCols; ++x) {
+            cf->getCell(pY, x).line_attr = 0;
+        }
+    }
 }
 
 void VtermImpl::eraseRows(u16 startY, u16 count) {

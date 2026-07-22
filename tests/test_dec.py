@@ -18,6 +18,28 @@ class DecProtocolTest(unittest.TestCase):
             terminal.write(b"\x1b[1;1H\x1b#5")
             self.assertEqual(terminal.snapshot().cell(0, 0).line_attribute, 0)
 
+    def test_reverse_index_creates_single_width_lines(self):
+        with Zutty(columns=8, rows=4) as terminal:
+            terminal.write(
+                b"\x1b[2;1H\x1b#3"
+                b"\x1b[3;1H\x1b#4"
+                b"\x1b[4;1H\x1b#6"
+                b"\x1b[2;4r\x1b[2;1H\x1bM"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 1).line_attribute, 0)
+            self.assertEqual(snapshot.cell(0, 2).line_attribute, 1)
+            self.assertEqual(snapshot.cell(0, 3).line_attribute, 2)
+
+    def test_ed_resets_fully_erased_line_attributes(self):
+        with Zutty(columns=8, rows=3) as terminal:
+            terminal.write(b"\x1b[2;1H\x1b#3\x1b[2J")
+            snapshot = terminal.snapshot()
+            self.assertTrue(all(
+                snapshot.cell(0, row).line_attribute == 0
+                for row in range(3)
+            ))
+
     def test_writing_to_double_width_line_clamps_absolute_cursor_position(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b#6\x1b[8GAB")

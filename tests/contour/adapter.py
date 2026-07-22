@@ -99,8 +99,10 @@ def line_flags(cells, wrapped):
         result.append("Wrapped")
     attribute = cells[0].line_attribute if cells else 0
     if attribute == 1:
+        result.append("DoubleWidth")
         result.append("DoubleHeightTop")
     elif attribute == 2:
+        result.append("DoubleWidth")
         result.append("DoubleHeightBottom")
     elif attribute == 3:
         result.append("DoubleWidth")
