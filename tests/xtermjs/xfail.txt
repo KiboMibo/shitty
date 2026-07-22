@@ -1,4 +1,9 @@
 # One case ID per line. These are observed compatibility gaps, not ignored tests.
+# ECMA-48 5th edition section 8.3.159 defines CSI Pn k as VPB: move the
+# active data position by Pn lines opposite to line progression, default 1.
+# xterm.js has no CSI k handler, so this fixture instead records every VPB as
+# a no-op. Zutty implements the standardized movement and intentionally differs.
+t0032-VPB
 # ECMA-48 8.3.103 leaves REP undefined when the preceding character is a
 # control function. This fixture expects no-op after LF/CUB; Zutty deliberately
 # retains the last graphic character, matching the Kitty/Ghostty behavior.
