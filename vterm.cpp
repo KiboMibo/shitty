@@ -1583,10 +1583,14 @@ bool VtermImpl::rectangleFromParams(size_t offset, Rectangle& rectangle) const {
     rectangleOrigin(rowBase, columnBase, rowLimit, columnLimit);
     const u32 rows = rowLimit - rowBase;
     const u32 columns = columnLimit - columnBase;
-    const u32 rawTop = inputOps[offset] ? inputOps[offset] : 1;
-    const u32 rawLeft = inputOps[offset + 1] ? inputOps[offset + 1] : 1;
-    const u32 rawBottom = inputOps[offset + 2] ? inputOps[offset + 2] : rows;
-    const u32 rawRight = inputOps[offset + 3] ? inputOps[offset + 3] : columns;
+    const u32 topParam = offset < nInputOps ? inputOps[offset] : 0;
+    const u32 leftParam = offset + 1 < nInputOps ? inputOps[offset + 1] : 0;
+    const u32 bottomParam = offset + 2 < nInputOps ? inputOps[offset + 2] : 0;
+    const u32 rightParam = offset + 3 < nInputOps ? inputOps[offset + 3] : 0;
+    const u32 rawTop = topParam ? topParam : 1;
+    const u32 rawLeft = leftParam ? leftParam : 1;
+    const u32 rawBottom = bottomParam ? bottomParam : rows;
+    const u32 rawRight = rightParam ? rightParam : columns;
     if (rawTop > rawBottom || rawLeft > rawRight) {
         return false;
     }
@@ -2734,7 +2738,7 @@ void VtermImpl::csi_DECSCA() {
 
 void VtermImpl::csi_DECFRA() {
     TRACE_FUN;
-    if (nInputOps >= 5 && inputOps[0] >= 32 && inputOps[0] <= 0x10ffff) {
+    if (inputOps[0] >= 32 && inputOps[0] <= 0x10ffff) {
         Rectangle rectangle;
         if (!rectangleFromParams(1, rectangle)) {
             setState(InputState::Normal);
@@ -2759,18 +2763,16 @@ void VtermImpl::csi_DECFRA() {
 
 void VtermImpl::csi_DECERA(bool selective) {
     TRACE_FUN;
-    if (nInputOps >= 4) {
-        Rectangle rectangle;
-        if (!rectangleFromParams(0, rectangle)) {
-            setState(InputState::Normal);
-            return;
-        }
-        for (u16 y = rectangle.top; y < rectangle.bottom; ++y) {
-            if (selective) {
-                selectiveEraseRangeInRow(y, rectangle.left, rectangle.right - rectangle.left);
-            } else {
-                eraseRangeInRow(y, rectangle.left, rectangle.right - rectangle.left);
-            }
+    Rectangle rectangle;
+    if (!rectangleFromParams(0, rectangle)) {
+        setState(InputState::Normal);
+        return;
+    }
+    for (u16 y = rectangle.top; y < rectangle.bottom; ++y) {
+        if (selective) {
+            selectiveEraseRangeInRow(y, rectangle.left, rectangle.right - rectangle.left);
+        } else {
+            eraseRangeInRow(y, rectangle.left, rectangle.right - rectangle.left);
         }
     }
     setState(InputState::Normal);
@@ -2778,43 +2780,43 @@ void VtermImpl::csi_DECERA(bool selective) {
 
 void VtermImpl::csi_DECCRA() {
     TRACE_FUN;
-    if (nInputOps >= 8) {
-        Rectangle source;
-        if (!rectangleFromParams(0, source)) {
-            setState(InputState::Normal);
-            return;
-        }
-        u16 rowBase, columnBase, rowLimit, columnLimit;
-        rectangleOrigin(rowBase, columnBase, rowLimit, columnLimit);
-        const u32 targetRow = inputOps[5] ? inputOps[5] : 1;
-        const u32 targetColumn = inputOps[6] ? inputOps[6] : 1;
-        const u16 targetTop = rowBase + std::min<u32>(targetRow, rowLimit - rowBase) - 1;
-        const u16 targetLeft = columnBase + std::min<u32>(targetColumn, columnLimit - columnBase) - 1;
-        const u16 height = std::min<u16>(source.bottom - source.top, rowLimit - targetTop);
-        const u16 width = std::min<u16>(source.right - source.left, columnLimit - targetLeft);
-        std::vector<TerminalCell> copied;
-        copied.reserve(height * width);
-        const Frame& frame = *cf;
-        for (u16 y = 0; y < height; ++y) {
-            for (u16 x = 0; x < width; ++x) {
-                copied.push_back(frame.getCell(source.top + y, source.left + x));
-            }
-        }
-        for (u16 y = 0; y < height; ++y) {
-            clearWideCellsAtBoundary(targetTop + y, targetLeft);
-            clearWideCellsAtBoundary(targetTop + y, targetLeft + width);
-            for (u16 x = 0; x < width; ++x) {
-                auto& cell = cf->getCell(targetTop + y, targetLeft + x);
-                const u8 lineAttribute = cell.line_attr;
-                cell = copied[y * width + x];
-                cell.line_attr = lineAttribute;
-                cell.dirty = 1;
-            }
-            repairWideCellsAtBoundary(targetTop + y, targetLeft);
-            repairWideCellsAtBoundary(targetTop + y, targetLeft + width);
-        }
-        cf->expose();
+    Rectangle source;
+    if (!rectangleFromParams(0, source)) {
+        setState(InputState::Normal);
+        return;
     }
+    u16 rowBase, columnBase, rowLimit, columnLimit;
+    rectangleOrigin(rowBase, columnBase, rowLimit, columnLimit);
+    const u32 targetRowParam = 5 < nInputOps ? inputOps[5] : 0;
+    const u32 targetColumnParam = 6 < nInputOps ? inputOps[6] : 0;
+    const u32 targetRow = targetRowParam ? targetRowParam : 1;
+    const u32 targetColumn = targetColumnParam ? targetColumnParam : 1;
+    const u16 targetTop = rowBase + std::min<u32>(targetRow, rowLimit - rowBase) - 1;
+    const u16 targetLeft = columnBase + std::min<u32>(targetColumn, columnLimit - columnBase) - 1;
+    const u16 height = std::min<u16>(source.bottom - source.top, rowLimit - targetTop);
+    const u16 width = std::min<u16>(source.right - source.left, columnLimit - targetLeft);
+    std::vector<TerminalCell> copied;
+    copied.reserve(height * width);
+    const Frame& frame = *cf;
+    for (u16 y = 0; y < height; ++y) {
+        for (u16 x = 0; x < width; ++x) {
+            copied.push_back(frame.getCell(source.top + y, source.left + x));
+        }
+    }
+    for (u16 y = 0; y < height; ++y) {
+        clearWideCellsAtBoundary(targetTop + y, targetLeft);
+        clearWideCellsAtBoundary(targetTop + y, targetLeft + width);
+        for (u16 x = 0; x < width; ++x) {
+            auto& cell = cf->getCell(targetTop + y, targetLeft + x);
+            const u8 lineAttribute = cell.line_attr;
+            cell = copied[y * width + x];
+            cell.line_attr = lineAttribute;
+            cell.dirty = 1;
+        }
+        repairWideCellsAtBoundary(targetTop + y, targetLeft);
+        repairWideCellsAtBoundary(targetTop + y, targetLeft + width);
+    }
+    cf->expose();
     setState(InputState::Normal);
 }
 

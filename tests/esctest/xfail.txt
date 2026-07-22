@@ -53,7 +53,6 @@ DCSTests.test_DCS_Unrecognized
 # the terminal ignores DECBI."  The upstream assertion expects a scroll.
 # https://vt100.net/docs/vt510-rm/DECBI.html
 DECBITests.test_DECBI_WholeScreenScrolls
-DECCRATests.test_DECCRA_defaultValuesInDest
 DECDSRTests.test_DECDSR_DECCKSR
 DECDSRTests.test_DECDSR_DECMSR
 DECDSRTests.test_DECDSR_DECXCPR
@@ -69,8 +68,6 @@ DECDSRTests.test_DECDSR_LocatorType
 # the terminal ignores DECFI."  The upstream assertion expects a scroll.
 # https://vt100.net/docs/vt510-rm/DECFI.html
 DECFITests.test_DECFI_WholeScreenScrolls
-DECERATests.test_DECERA_defaultArgs
-DECFRATests.test_DECFRA_defaultArgs
 DECIDTests.test_DECID_8bit
 DECIDTests.test_DECID_Basic
 DECRQMTests.test_DECRQM_DEC_DECAAM
@@ -105,7 +102,6 @@ DECSCLTests.test_DECSCL_Level2DoesntSupportDECRQM
 DECSCLTests.test_DECSCL_Level5_SupportsDECNCSM
 DECSCLTests.test_DECSCL_RISOnChange
 DECSCLTests.test_DSCSCL_Level3_SupportsDECRQMDoesntSupportDECSLRM
-DECSERATests.test_DECSERA_defaultArgs
 DECSETTests.test_DECSET_Allow80To132
 DECSETTests.test_DECSET_DECLRMM_ModeNotResetByDECSTR
 DECSETTests.test_DECSET_DECNCSM

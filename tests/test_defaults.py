@@ -92,6 +92,34 @@ class DefaultParameterMatrixTest(unittest.TestCase):
             rows=3,
         )
 
+        for final in (b"z", b"{"):
+            with self.subTest(final=final):
+                self.assert_variants_equal(
+                    prelude,
+                    b"\x1b[$" + final,
+                    b"\x1b[;;;$" + final,
+                    b"\x1b[1;1;3;8$" + final,
+                    columns=8,
+                    rows=3,
+                )
+
+        self.assert_variants_equal(
+            prelude,
+            b"\x1b[37$x",
+            b"\x1b[37;;;;$x",
+            b"\x1b[37;1;1;3;8$x",
+            columns=8,
+            rows=3,
+        )
+
+        self.assert_variants_equal(
+            prelude,
+            b"\x1b[2;2;3;3;1$v",
+            b"\x1b[2;2;3;3;1;1;1;1$v",
+            columns=8,
+            rows=3,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
