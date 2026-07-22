@@ -554,7 +554,7 @@ namespace {
         bool altScreenInitialized = false;
         bool autoWrapMode = true;
         bool autoRepeatMode = true;
-        bool allowColumnMode = true;
+        bool allowColumnMode = false;
         bool moreFixMode = false;
         bool autoNewlineMode = false;
         bool keyboardLocked = false;

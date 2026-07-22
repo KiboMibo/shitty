@@ -6,10 +6,10 @@ from harness import Zutty
 class TerminalModeTest(unittest.TestCase):
     def test_xterm_mode_40_gates_column_mode_changes(self):
         with Zutty(columns=80, rows=4) as terminal:
-            terminal.write(b"\x1b[?40$p\x1b[?40l\x1b[?3h\x1b[?40$p")
+            terminal.write(b"\x1b[?40$p\x1b[?3h")
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[?40;1$y\x1b[?40;2$y",
+                b"\x1b[?40;2$y",
             )
             self.assertEqual(terminal.snapshot().columns, 80)
 
@@ -27,7 +27,7 @@ class TerminalModeTest(unittest.TestCase):
 
     def test_deccolm_resizes_and_clears_the_terminal_page(self):
         with Zutty(columns=80, rows=24) as terminal:
-            terminal.write(b"content\x1b[?3h")
+            terminal.write(b"\x1b[?40hcontent\x1b[?3h")
             snapshot = terminal.snapshot()
             self.assertEqual((snapshot.columns, snapshot.rows), (132, 24))
             self.assertEqual(snapshot.lines[0], " " * 132)
@@ -60,6 +60,7 @@ class TerminalModeTest(unittest.TestCase):
             })
 
             terminal.write(
+                b"\x1b[?40h"
                 b"\x1b[4;20h"
                 b"\x1b[?1;3;4;5;6;8;67;69h"
                 b"\x1b="
@@ -152,14 +153,14 @@ class TerminalModeTest(unittest.TestCase):
         with Zutty(columns=80, rows=4) as terminal:
             terminal.write(
                 b"\x1b[64;1\"p\x1b[?95h\x1b[?95$p"
-                b"x\x1b[?3h"
+                b"\x1b[?40hx\x1b[?3h"
             )
             self.assertEqual(terminal.read_input(), b"\x1b[?95;0$y")
             self.assertEqual(terminal.snapshot().lines[0][0], " ")
 
             terminal.write(
                 b"\x1b[65;1\"p\x1b[?95h\x1b[?95$p"
-                b"x\x1b[2;4r\x1b[?69h\x1b[3;20s\x1b[?3h"
+                b"\x1b[?40hx\x1b[2;4r\x1b[?69h\x1b[3;20s\x1b[?3h"
             )
             self.assertEqual(terminal.read_input(), b"\x1b[?95;1$y")
             snapshot = terminal.snapshot()

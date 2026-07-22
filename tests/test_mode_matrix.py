@@ -25,7 +25,7 @@ PRIVATE_DEFAULTS = {
     9: 2,
     12: 2,
     25: 1,
-    40: 1,
+    40: 2,
     41: 2,
     42: 2,
     45: 2,
@@ -112,6 +112,8 @@ class ModeMatrixTest(unittest.TestCase):
         for mode in mutable:
             with self.subTest(mode=mode):
                 with Zutty() as terminal:
+                    if mode == 3:
+                        terminal.write(b"\x1b[?40h")
                     terminal.write(f"\x1b[?{mode}h".encode())
                     if mode == 2048:
                         terminal.read_input()
@@ -184,7 +186,7 @@ class ModeMatrixTest(unittest.TestCase):
 
     def test_deccolm_does_not_reset_unrelated_modes(self):
         with Zutty() as terminal:
-            terminal.write(b"text\x1b[?1h\x1b[4h\x1b[?3h")
+            terminal.write(b"\x1b[?40htext\x1b[?1h\x1b[4h\x1b[?3h")
             self.assertEqual(query(terminal, 3, True), mode_reply(3, 1, True))
             self.assertEqual(query(terminal, 1, True), mode_reply(1, 1, True))
             self.assertEqual(query(terminal, 4), mode_reply(4, 1))
