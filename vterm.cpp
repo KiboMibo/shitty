@@ -2413,7 +2413,9 @@ void VtermImpl::csi_SU() {
     TRACE_FUN;
     u32 arg = inputOps[0] ? inputOps[0] : 1;
     arg = std::min<u32>(arg, marginBottom - marginTop);
+    const bool pendingWrap = lastCol;
     scrollRegionUp((u16)(arg));
+    lastCol = pendingWrap;
     setState(InputState::Normal);
 }
 
@@ -2431,6 +2433,7 @@ void VtermImpl::csi_SD() {
     TRACE_FUN;
     u32 arg = inputOps[0] ? inputOps[0] : 1;
     arg = std::min<u32>(arg, marginBottom - marginTop);
+    const bool pendingWrap = lastCol;
     if (horizMarginMode) {
         insertRows(marginTop, (u16)(arg));
     } else {
@@ -2438,6 +2441,7 @@ void VtermImpl::csi_SD() {
         eraseRows(marginTop, (u16)(arg));
         lastCol = false;
     }
+    lastCol = pendingWrap;
     setState(InputState::Normal);
 }
 

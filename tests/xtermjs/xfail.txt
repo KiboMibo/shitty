@@ -1,6 +1,4 @@
 # One case ID per line. These are observed compatibility gaps, not ignored tests.
-t0016-SU
-t0017-SD
 t0040-REP
 t0051-IL
 t0052-DL
