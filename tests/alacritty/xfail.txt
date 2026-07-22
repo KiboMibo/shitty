@@ -38,19 +38,7 @@ erase_in_line
 # contrary to the xterm reset contract.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 grid_reset
-# This golden serializes raw.len == max_scroll_limit + visible lines (1029),
-# but only raw.inner[0:103] contains terminal output; the remaining 926 rows
-# are default cells from Alacritty's old allocation cache.  Alacritty commit
-# 4cc6421, "Fix incorrect grid.len() and grid.history_size()", changed Storage
-# so initialize() can reserve MAX_CACHE_SIZE rows without increasing the
-# active len, and documents len as active scrollback plus visible rows.  Empty
-# scrollback rows can be real terminal state, so the adapter must not guess by
-# trimming all-default rows from an obsolete internal-storage golden.
-# https://github.com/alacritty/alacritty/commit/4cc6421daa4ff5976ab43c67110a7a80a36541e5
-# https://github.com/alacritty/alacritty/blob/852e971cddfabe222d2d5bcda466e130f53af207/alacritty_terminal/src/grid/storage.rs#L128
-history
 row_reset
-scroll_in_region_up_preserves_history
 # Alacritty added this fixture in commit 33cfc52 as a parser regression for
 # ignoring unsupported CSI sequences.  It did not implement DECSCA, DECSED or
 # DECSEL, so its golden leaves both `ABC` rows untouched.  VT220 DECSCA 1 makes
@@ -61,7 +49,6 @@ scroll_in_region_up_preserves_history
 # https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
 selective_erasure
 sgr
-tab_rendering
 underline
 vim_24bitcolors_bce
 vim_large_window_scroll

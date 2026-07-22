@@ -94,7 +94,12 @@ def expected_cell(cell):
         (style for name, style in underline_styles if name in cell_flags), 0
     )
     continuation = "WIDE_CHAR_SPACER" in cell_flags
-    grapheme = () if continuation else tuple(map(ord, cell["c"]))
+    # Alacritty stores HT in its first skipped cell as selection metadata.
+    # ECMA-48 HT only advances the active position; it does not render a
+    # control character, so normalize that private grid representation to the
+    # blank cell exposed by Zutty's terminal model.
+    character = " " if cell["c"] == "\t" else cell["c"]
+    grapheme = () if continuation else tuple(map(ord, character))
     grapheme += tuple(map(ord, extra.get("zerowidth", ())))
 
     return {
@@ -144,6 +149,27 @@ def actual_cell(cell, hyperlink):
             cell.underline_index, cell.underline_color
         ),
         "hyperlink": hyperlink,
+    }
+
+
+def blank_cell():
+    return {
+        "grapheme": (ord(" "),),
+        "wide": False,
+        "continuation": False,
+        "wrap": False,
+        "bold": False,
+        "italic": False,
+        "underline": 0,
+        "faint": False,
+        "blink": False,
+        "conceal": False,
+        "strike": False,
+        "overline": False,
+        "foreground": ("default_foreground",),
+        "background": ("default_background",),
+        "underline_color": ("default_foreground",),
+        "hyperlink": "",
     }
 
 
@@ -203,6 +229,17 @@ def compare(case_path):
     ) as terminal:
         terminal.write((case_path / "alacritty.recording").read_bytes())
         actual = actual_grid(terminal)
+
+    # Alacritty's ref runner calls Grid::initialize_all() before comparing,
+    # padding unused scrollback capacity with default rows.  Reproduce that
+    # test-only normalization; Zutty exposes only rows that actually entered
+    # history through its control interface.
+    if len(actual) < len(expected):
+        padding = [
+            [blank_cell() for _ in range(size["columns"])]
+            for _ in range(len(expected) - len(actual))
+        ]
+        actual = padding + actual
 
     differences = []
     if len(expected) != len(actual):
