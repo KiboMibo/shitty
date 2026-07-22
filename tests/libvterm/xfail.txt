@@ -97,7 +97,6 @@
 # https://ecma-international.org/publications-and-standards/standards/ecma-48/
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 31state_rep.test
-40state_selection.test
 # Same five-combining-mark internal limit documented for 10state_putglyph;
 # Unicode UAX #29 specifies grapheme boundaries without such a fixed cap, and
 # Zutty's cell correctly preserves all 10/40 combining marks.

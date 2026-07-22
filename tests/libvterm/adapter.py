@@ -585,9 +585,14 @@ def apply_command(terminal, line, state):
         started, closed, payload = decode_callback_fragment(fragment)
         if started:
             state["selection"] = b""
+            state["selection_reply_active"] = True
+            state["selection_reply_expected"].clear()
         state["selection"] += payload
         if closed:
-            state["output"].extend(terminal.osc52_reply(state["selection"], b"c"))
+            state["selection_reply_actual"] = terminal.osc52_reply(
+                state["selection"], b"c"
+            )
+            state["selection_reply_closed"] = True
         return
     raise ValueError(f"unsupported command: {line}")
 
@@ -601,12 +606,27 @@ def run_fixture(path):
     state = {
         "output": bytearray(), "encoding_output": [], "mouse": (0, 0),
         "selection": b"", "title": "", "osc52": b"",
+        "selection_reply_active": False, "selection_reply_closed": False,
+        "selection_reply_actual": b"", "selection_reply_expected": bytearray(),
         "utf8": False,
         "parser_enabled": False, "parser_only": False,
         "parser_expected": [], "parser_strings": {},
     }
     with Zutty(columns=80, rows=25, save_lines=500) as terminal:
         for number, line in lines:
+            if state["selection_reply_closed"] and not re.fullmatch(
+                r"output\s+.*", line
+            ):
+                if state["selection_reply_actual"] != bytes(
+                    state["selection_reply_expected"]
+                ):
+                    mismatches.append(
+                        f"line {number}: selection reply: got "
+                        f"{state['selection_reply_actual']!r}, expected "
+                        f"{bytes(state['selection_reply_expected'])!r}"
+                    )
+                state["selection_reply_active"] = False
+                state["selection_reply_closed"] = False
             if not line or line.startswith("#") or line == "__END__" or line.startswith("!"):
                 continue
             if parse_parser_callback(line, state):
@@ -627,6 +647,10 @@ def run_fixture(path):
             match = re.fullmatch(r"output\s+(.*)", line)
             if match:
                 expected = decode_perl_string(match.group(1))
+                if state["selection_reply_active"]:
+                    state["selection_reply_expected"].extend(expected)
+                    checked += 1
+                    continue
                 state["output"].extend(terminal.read_input())
                 actual = bytes(state["output"][:len(expected)])
                 del state["output"][:len(expected)]
@@ -710,6 +734,11 @@ def run_fixture(path):
                 if operation == "query":
                     actions = terminal.read_actions()
                     actual = any(action == "OSC 52 633b3f" for action in actions)
+                    # Zutty's host answers a clipboard query immediately;
+                    # libvterm instead asks its embedding application for the
+                    # selection and waits for vterm_state_send_selection().
+                    # The later SELECTION commands exercise the same reply.
+                    terminal.read_input()
                     checked += 1
                     if not actual:
                         mismatches.append(f"line {number}: selection query was not observed")
@@ -747,6 +776,15 @@ def run_fixture(path):
                     skipped += 1
                 continue
             skipped += 1
+        if state["selection_reply_closed"]:
+            if state["selection_reply_actual"] != bytes(
+                state["selection_reply_expected"]
+            ):
+                mismatches.append(
+                    "selection reply: got "
+                    f"{state['selection_reply_actual']!r}, expected "
+                    f"{bytes(state['selection_reply_expected'])!r}"
+                )
         state["output"].extend(terminal.read_input())
         if state["output"] and not state["parser_only"]:
             mismatches.append(f"unexpected output: {bytes(state['output'])!r}")
