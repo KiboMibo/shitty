@@ -32,23 +32,23 @@ class ResizeCursorAutowrapTest(unittest.TestCase):
             self.assertEqual(snapshot.lines, ["A    ", "B    "])
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
 
-    def test_width_shrink_clips_cursor_and_cancels_pending_wrap(self):
+    def test_width_shrink_clips_cursor_and_preserves_pending_wrap(self):
         with Zutty(columns=5, rows=2) as terminal:
             terminal.write(b"abcde")
             terminal.resize(3, 2)
             terminal.write(b"X")
             snapshot = terminal.snapshot()
-            self.assertEqual(snapshot.lines[0], "abX")
-            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (2, 0))
+            self.assertEqual(snapshot.lines, ["abc", "X  "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
 
-    def test_width_grow_cancels_pending_wrap_without_moving_cursor(self):
+    def test_width_grow_preserves_pending_wrap(self):
         with Zutty(columns=3, rows=2) as terminal:
             terminal.write(b"abc")
             terminal.resize(5, 2)
             terminal.write(b"X")
             snapshot = terminal.snapshot()
-            self.assertEqual(snapshot.lines[0], "abX  ")
-            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (3, 0))
+            self.assertEqual(snapshot.lines, ["abc  ", "X    "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
 
 
 if __name__ == "__main__":

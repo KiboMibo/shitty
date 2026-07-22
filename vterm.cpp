@@ -6837,9 +6837,11 @@ void VtermImpl::resize(u16 winPx_, u16 winPy_) {
     // Frame::resize resets the vertical scrolling region.  Reset the
     // horizontal region to the resized page as well; retaining a clipped
     // right edge made subsequent growth keep a stale narrow region.
+    const bool pendingWrap = lastCol;
     nColsEff = nCols;
     hMargin = 0;
     normalizeCursorPos();
+    lastCol = pendingWrap;
     showCursor();
 
     pty.resize(nCols, nRows);

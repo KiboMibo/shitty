@@ -34,6 +34,13 @@
 # fixture therefore cannot serve as an xterm-compatible oracle.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 14state_encoding.test
+# When a resize grows the page while autowrap is pending, libvterm's on_resize
+# converts its phantom state into an ordinary cursor one column to the right.
+# Xterm 410 ScreenResize changes max_col and clamps/restores cur_col but never
+# clears or materializes `screen->do_wrap`; the next graphic still takes the
+# normal wrap path.  Zutty follows xterm, so the fixture's row-0 column-80
+# continuation is intentionally not produced.
+# https://invisible-island.net/archives/xterm/xterm-410.tgz
 16state_resize.test
 17state_mouse.test
 18state_termprops.test
