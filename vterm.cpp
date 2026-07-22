@@ -67,6 +67,45 @@ void MouseTrackingState::setEncoding(MouseTrackingEnc value) {
 }
 
 namespace {
+    bool decodeHex(const std::string& value, std::string& result) {
+        const auto digit = [](unsigned char ch) -> int {
+            if (ch >= '0' && ch <= '9') {
+                return ch - '0';
+            }
+            if (ch >= 'a' && ch <= 'f') {
+                return ch - 'a' + 10;
+            }
+            if (ch >= 'A' && ch <= 'F') {
+                return ch - 'A' + 10;
+            }
+            return -1;
+        };
+        if (value.size() % 2 != 0) {
+            return false;
+        }
+        result.clear();
+        for (size_t pos = 0; pos < value.size(); pos += 2) {
+            const int high = digit(value[pos]);
+            const int low = digit(value[pos + 1]);
+            if (high < 0 || low < 0) {
+                return false;
+            }
+            result.push_back((char)((high << 4) | low));
+        }
+        return true;
+    }
+
+    std::string encodeHex(const std::string& value) {
+        static constexpr char hex[] = "0123456789ABCDEF";
+        std::string result;
+        result.reserve(value.size() * 2);
+        for (unsigned char ch : value) {
+            result.push_back(hex[ch >> 4]);
+            result.push_back(hex[ch & 0x0f]);
+        }
+        return result;
+    }
+
     class GraphemeBuffer {
     public:
         void clear();
@@ -362,6 +401,7 @@ namespace {
         void handle_OSC();
         void csiq_DECSCL();
         void csi_XTWINOPS();
+        void csi_XTTITLEMODE(bool set);
         void csi_XTHIMOUSE();
         void csi_DECELR();
         void csi_DECSLE();
@@ -435,6 +475,7 @@ namespace {
         u32 currentSemantic = 0;
         std::string windowTitle;
         std::string iconTitle;
+        u8 titleModes = 0;
 
         struct SavedTitles {
             bool hasIcon = false;
@@ -1093,6 +1134,7 @@ void VtermImpl::resetTerminal() {
     hyperlinks.clear();
     nextHyperlink = 1;
     currentSemantic = 0;
+    titleModes = 0;
     titleStack.clear();
     notifications.clear();
     activeNotificationIds.clear();
@@ -4476,6 +4518,20 @@ void VtermImpl::handle_OSC() {
     if (osc.empty() || parsed.ec != std::errc{} || parsed.ptr != commandEnd || cmd < 0) {
         logT << "OSC: malformed command string '" << osc << "'" << std::endl;
     } else {
+        if ((cmd == 0 || cmd == 1 || cmd == 2) && (titleModes & 1)) {
+            std::string decoded;
+            if (!decodeHex(arg, decoded)) {
+                setState(InputState::Normal);
+                return;
+            }
+            const auto control = std::find_if(decoded.begin(), decoded.end(), [](unsigned char ch) {
+                return ch < 32;
+            });
+            if (control != decoded.end()) {
+                decoded.erase(control, decoded.end());
+            }
+            arg = std::move(decoded);
+        }
         switch (cmd) {
             case 0:
                 iconTitle = arg;
@@ -4831,9 +4887,29 @@ void VtermImpl::reportColorScheme() {
 void VtermImpl::writeTitleResponse(char kind, const std::string& title) {
     std::string response = "\x1b]";
     response.push_back(kind);
-    response += title;
+    response += titleModes & 2 ? encodeHex(title) : title;
     response += "\x1b\\";
     writePty(response.c_str());
+}
+
+void VtermImpl::csi_XTTITLEMODE(bool set) {
+    TRACE_FUN;
+    if (!csiHadParams) {
+        titleModes = 0;
+    } else {
+        for (size_t k = 0; k < nInputOps; ++k) {
+            if (inputOps[k] > 3) {
+                continue;
+            }
+            const u8 bit = (u8)(1 << inputOps[k]);
+            if (set) {
+                titleModes |= bit;
+            } else {
+                titleModes &= (u8)~bit;
+            }
+        }
+    }
+    setState(InputState::Normal);
 }
 
 void VtermImpl::applyPaletteColor(u16 index, Color color) {
@@ -7336,6 +7412,10 @@ void VtermImpl::dispatchCsi(unsigned char finalByte) {
         csi_STBM();
     } else if (key == "s") {
         csi_SCOSC_SLRM();
+    } else if (key == ">T") {
+        csi_XTTITLEMODE(false);
+    } else if (key == ">t") {
+        csi_XTTITLEMODE(true);
     } else if (key == "t") {
         csi_XTWINOPS();
     } else if (key == "u") {

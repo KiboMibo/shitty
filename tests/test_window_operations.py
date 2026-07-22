@@ -133,6 +133,51 @@ class WindowOperationsTest(unittest.TestCase):
                 b"\x1b]Licon\x1b\\\x1b]lwindow\x1b\\",
             )
 
+    def test_title_modes_independently_control_hex_set_and_query(self):
+        cases = (
+            (b"\x1b[>2;1T\x1b[>0;3t", b"6162", b"ab"),
+            (b"\x1b[>0;3T\x1b[>2;1t", b"ab", b"6162"),
+            (b"\x1b[>2;3T\x1b[>0;1t", b"6162", b"6162"),
+            (b"\x1b[>0;1T\x1b[>2;3t", b"ab", b"ab"),
+        )
+        for modes, title, expected in cases:
+            with self.subTest(modes=modes):
+                with window_terminal() as terminal:
+                    terminal.write(
+                        modes
+                        + b"\x1b]1;" + title + b"\x1b\\"
+                        + b"\x1b]2;" + title + b"\x1b\\"
+                        + b"\x1b[20t\x1b[21t"
+                    )
+                    self.assertEqual(
+                        terminal.read_input(),
+                        b"\x1b]L" + expected + b"\x1b\\"
+                        b"\x1b]l" + expected + b"\x1b\\",
+                    )
+
+    def test_hex_title_input_is_atomic_and_stops_at_controls(self):
+        with window_terminal() as terminal:
+            terminal.write(
+                b"\x1b]2;old\x1b\\\x1b[>0t"
+                b"\x1b]2;4G\x1b\\\x1b[21t"
+                b"\x1b]2;410A42\x1b\\\x1b[21t"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b]lold\x1b\\\x1b]lA\x1b\\",
+            )
+
+    def test_hex_title_queries_use_uppercase_and_empty_modes_reset_defaults(self):
+        with window_terminal() as terminal:
+            terminal.write(
+                b"\x1b[>1t\x1b]2;Az\x1b\\\x1b[21t"
+                b"\x1b[>t\x1b]2;Az\x1b\\\x1b[21t"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b]l417A\x1b\\\x1b]lAz\x1b\\",
+            )
+
     def test_title_stack_selectors_restore_only_selected_title(self):
         cases = (
             (0, b"old-icon", b"old-window"),
