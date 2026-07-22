@@ -24,10 +24,11 @@ vim_24bitcolors_bce
 vim_large_window_scroll
 vim_simple_edit
 vttest_tab_clear_set
-# The recording enables xterm mode 40 and later ends with DECRST DECCOLM.
+# Both recordings enable xterm mode 40 and later end with DECRST DECCOLM.
 # Xterm documents that mode 40 permits 80/132 switching, and DECRST mode 3
 # selects 80 columns.  Alacritty 852e971 term/mod.rs deccolm() deliberately
 # performs only the other DECCOLM side effects and does not resize, so its
 # golden remains at the recording's initial 105 columns.
 # https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
+vttest_origin_mode_1
 vttest_origin_mode_2
