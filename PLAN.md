@@ -189,7 +189,6 @@ Control interface — это расширяемый наблюдаемый API �
 
 3. Готовые suites, которым нужен compatibility layer
 
-   - libvterm DSL: добавить callback/parser/state commands и expectations к уже импортированному screen/resize/reflow interpreter;
    - другие declarative fixtures.
 
    Это уже требует кода, но один adapter сразу открывает сотни чужих сценариев.

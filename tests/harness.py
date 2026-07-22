@@ -581,6 +581,24 @@ class Zutty:
             raise RuntimeError("invalid UTF-8 decoder response")
         return tuple(int(value, 16) for value in response[1:])
 
+    def parser_trace_on(self):
+        self.command("PARSER_TRACE_ON")
+
+    def parser_trace_clear(self):
+        self.command("PARSER_TRACE_CLEAR")
+
+    def parser_trace(self):
+        self.stream.write(b"READ_PARSER_TRACE\n")
+        response = self._readline().split(maxsplit=1)
+        if not response or response[0] != "OK":
+            raise RuntimeError("invalid parser trace response")
+        payload = bytes.fromhex(response[1]).decode("ascii") if len(response) > 1 else ""
+        result = []
+        for line in payload.splitlines():
+            event, encoded = line.split(" ", 1)
+            result.append((event, bytes.fromhex(encoded)))
+        return result
+
     def render_state(self):
         self.stream.write(b"RENDER_STATE\n")
         response = self._readline().split()

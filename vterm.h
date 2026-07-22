@@ -23,6 +23,7 @@
 struct Composer;
 struct Pty;
 struct VtermHost;
+struct VtermTrace;
 
 enum class VtKey {
     NONE,
@@ -205,6 +206,7 @@ struct Vterm {
     virtual bool readPty() = 0;
     virtual bool servicePty(bool readable, bool writable) = 0;
     virtual void feedPtyOutput(const std::string& output) = 0;
+    virtual void setParserTrace(VtermTrace* trace) = 0;
 
     virtual const MouseTrackingState& getMouseTrackingState() const = 0;
     virtual bool mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY) = 0;

@@ -1,3 +1,4 @@
+02parser.test
 03encoding_utf8.test
 10state_putglyph.test
 11state_movecursor.test
@@ -15,6 +16,7 @@
 26state_query.test
 27state_reset.test
 28state_dbl_wh.test
+29state_fallback.test
 30state_pen.test
 31state_rep.test
 32state_flow.test

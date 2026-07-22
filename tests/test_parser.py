@@ -34,6 +34,24 @@ def observable(terminal):
 
 
 class ParserStreamingTest(unittest.TestCase):
+    def test_control_exposes_normalized_parser_events(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.parser_trace_on()
+            terminal.write(
+                b"A\x03"
+                b"\x1b[?15;2z"
+                b"\x1b]27;Something\x1b\\"
+            )
+            self.assertEqual(
+                terminal.parser_trace(),
+                [
+                    ("text", b"A"),
+                    ("control", b"\x03"),
+                    ("csi", b"?15;2z"),
+                    ("osc", b"27;Something"),
+                ],
+            )
+
     def test_parameter_intermediate_and_final_bytes_are_independent(self):
         with Zutty(columns=6, rows=2) as terminal:
             terminal.write_chunks(b"\x1b[1;", b"2", b"\"", b"q", b"X")

@@ -10,6 +10,7 @@
  */
 
 #include "vterm.h"
+#include "vterm_trace.h"
 
 #include "base64.h"
 #include "composer.h"
@@ -125,6 +126,7 @@ namespace {
         bool readPty();
         bool servicePty(bool readable, bool writable);
         void feedPtyOutput(const std::string& output);
+        void setParserTrace(VtermTrace* trace);
 
         const MouseTrackingState& getMouseTrackingState() const;
         bool mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY);
@@ -378,6 +380,7 @@ namespace {
         VtermHost& host;
         Pty& pty;
         Output* dump;
+        VtermTrace* parserTrace = nullptr;
         u16 winPx;
         u16 winPy;
         u16 nCols;
@@ -6774,6 +6777,10 @@ void VtermImpl::feedPtyOutput(const std::string& output) {
     processInput(output);
 }
 
+void VtermImpl::setParserTrace(VtermTrace* trace) {
+    parserTrace = trace;
+}
+
 void VtermImpl::beginCsi() {
     inputOps[0] = 0;
     inputSeparators[0] = 0;
@@ -6788,6 +6795,10 @@ void VtermImpl::beginCsi() {
 bool VtermImpl::executeC0InSequence(unsigned char ch) {
     if (ch >= 0x20 || ch == '\x18' || ch == '\x1a' || ch == '\x1b') {
         return false;
+    }
+
+    if (parserTrace && inputState != InputState::String && inputState != InputState::String_Esc) {
+        parserTrace->control(ch);
     }
 
     if (ch == '\a') {
@@ -6829,6 +6840,10 @@ bool VtermImpl::executeC0InSequence(unsigned char ch) {
 }
 
 void VtermImpl::dispatchCsi(unsigned char finalByte) {
+    if (parserTrace) {
+        parserTrace->csi(finalByte, csiPrivatePrefix, csiIntermediates,
+            inputOps, inputSeparators, nInputOps, csiHadParams);
+    }
     const std::string key = csiPrivatePrefix + csiIntermediates + (char)(finalByte);
     if (key == "A") {
         csi_CUU();
@@ -7055,6 +7070,9 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                 ++end;
             }
             const int count = end - readPos;
+            if (parserTrace) {
+                parserTrace->text(input + readPos, count);
+            }
             if (count >= 4) {
                 placeAsciiRun(input + readPos, count);
             } else {
@@ -7071,6 +7089,9 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
             int end = readPos + 1;
             while (end < inputSize && input[end] >= 0x20 && input[end] < 0x7f) {
                 ++end;
+            }
+            if (parserTrace) {
+                parserTrace->stringData(input + readPos, end - readPos);
             }
             if (inputState != InputState::String && !argBufOverflowed) {
                 const size_t limit = inputState == InputState::DCS ? 4095 : maxOscBytes;
@@ -7090,6 +7111,10 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
             (inputState == InputState::DCS || inputState == InputState::OSC || inputState == InputState::String)
             && stringUtf8Continuation(ch);
         if ((ch == '\x18' || ch == '\x1a') && inputState != InputState::Normal) {
+            if (parserTrace) {
+                parserTrace->stringCancel();
+                parserTrace->escapeCancel();
+            }
             setState(InputState::Normal);
             continue;
         }
@@ -7097,6 +7122,11 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
             continue;
         }
         if (ch == '\x1b' && inputState != InputState::Normal && inputState != InputState::Escape && inputState != InputState::Escape_VT52 && inputState != InputState::DCS && inputState != InputState::DCS_Esc && inputState != InputState::OSC && inputState != InputState::OSC_Esc && inputState != InputState::String && inputState != InputState::String_Esc) {
+            if (parserTrace) {
+                parserTrace->stringCancel();
+                parserTrace->escapeCancel();
+                parserTrace->escapeBegin();
+            }
             setState(compatLevel == CompatibilityLevel::VT52 ? InputState::Escape_VT52 : InputState::Escape);
             inputOps[0] = 0;
             inputSeparators[0] = 0;
@@ -7109,11 +7139,27 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                 case 0x90:
                     argBuf.clear();
                     argBufOverflowed = false;
+                    if (parserTrace) {
+                        parserTrace->stringBegin(VtermTraceString::Dcs);
+                    }
                     setState(InputState::DCS);
                     continue;
                 case 0x98:
+                    if (parserTrace) {
+                        parserTrace->stringBegin(VtermTraceString::Sos);
+                    }
+                    setState(InputState::String);
+                    continue;
                 case 0x9e:
+                    if (parserTrace) {
+                        parserTrace->stringBegin(VtermTraceString::Pm);
+                    }
+                    setState(InputState::String);
+                    continue;
                 case 0x9f:
+                    if (parserTrace) {
+                        parserTrace->stringBegin(VtermTraceString::Apc);
+                    }
                     setState(InputState::String);
                     continue;
                 case 0x9b:
@@ -7128,12 +7174,26 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                 case 0x9d:
                     argBuf.clear();
                     argBufOverflowed = false;
+                    if (parserTrace) {
+                        parserTrace->stringBegin(VtermTraceString::Osc);
+                    }
                     setState(InputState::OSC);
                     continue;
             }
         }
         switch (inputState) {
             case InputState::Normal:
+                if (parserTrace) {
+                    if (ch > 0 && ch < 0x20 && ch != '\x1b') {
+                        parserTrace->control(ch);
+                    } else if (ch >= 0xa0) {
+                        parserTrace->text(&ch, 1);
+                    } else if (ch >= 0x80 && ch <= 0x9f
+                        && ch != 0x90 && ch != 0x98 && ch != 0x9b
+                        && ch != 0x9c && ch != 0x9d && ch != 0x9e && ch != 0x9f) {
+                        parserTrace->control(ch);
+                    }
+                }
                 if (utf8dec.expectsContinuation() && ch >= 0x80) {
                     inputGraphicChar(ch);
                     break;
@@ -7146,6 +7206,9 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                     case '\x7f':
                         break;
                     case '\x1b':
+                        if (parserTrace) {
+                            parserTrace->escapeBegin();
+                        }
                         setState(compatLevel == CompatibilityLevel::VT52 ? InputState::Escape_VT52 : InputState::Escape);
                         inputOps[0] = 0;
                         inputSeparators[0] = 0;
@@ -7173,11 +7236,27 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                     case 0x90:
                         argBuf.clear();
                         argBufOverflowed = false;
+                        if (parserTrace) {
+                            parserTrace->stringBegin(VtermTraceString::Dcs);
+                        }
                         setState(InputState::DCS);
                         break;
                     case 0x98:
+                        if (parserTrace) {
+                            parserTrace->stringBegin(VtermTraceString::Sos);
+                        }
+                        setState(InputState::String);
+                        break;
                     case 0x9e:
+                        if (parserTrace) {
+                            parserTrace->stringBegin(VtermTraceString::Pm);
+                        }
+                        setState(InputState::String);
+                        break;
                     case 0x9f:
+                        if (parserTrace) {
+                            parserTrace->stringBegin(VtermTraceString::Apc);
+                        }
                         setState(InputState::String);
                         break;
                     case 0x9b:
@@ -7188,6 +7267,9 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                     case 0x9d:
                         argBuf.clear();
                         argBufOverflowed = false;
+                        if (parserTrace) {
+                            parserTrace->stringBegin(VtermTraceString::Osc);
+                        }
                         setState(InputState::OSC);
                         break;
                     case '\r':
@@ -7314,6 +7396,25 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                 csi_CUP();
                 break;
             case InputState::Escape:
+                if (parserTrace) {
+                    if (ch == '\x1b') {
+                        parserTrace->escapeCancel();
+                        parserTrace->escapeBegin();
+                    } else if (ch > 0 && ch < 0x20) {
+                        parserTrace->control(ch);
+                    } else if (ch >= 0x20 && ch <= 0x2f) {
+                        parserTrace->escapeByte(ch);
+                    } else if (ch >= 0x40 && ch <= 0x5f
+                        && ch != 'P' && ch != 'X' && ch != '[' && ch != '\\'
+                        && ch != ']' && ch != '^' && ch != '_') {
+                        parserTrace->escapeCancel();
+                        parserTrace->control(ch + 0x40);
+                    } else if (ch != 'P' && ch != 'X' && ch != '[' && ch != '\\'
+                        && ch != ']' && ch != '^' && ch != '_') {
+                        parserTrace->escapeByte(ch);
+                        parserTrace->escapeEnd();
+                    }
+                }
                 switch (ch) {
                     case '\x18':
                     case '\x1a':
@@ -7339,11 +7440,27 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                     case ']':
                         argBuf.clear();
                         argBufOverflowed = false;
+                        if (parserTrace) {
+                            parserTrace->stringBegin(VtermTraceString::Osc);
+                        }
                         setState(InputState::OSC);
                         break;
                     case 'X':
+                        if (parserTrace) {
+                            parserTrace->stringBegin(VtermTraceString::Sos);
+                        }
+                        setState(InputState::String);
+                        break;
                     case '^':
+                        if (parserTrace) {
+                            parserTrace->stringBegin(VtermTraceString::Pm);
+                        }
+                        setState(InputState::String);
+                        break;
                     case '_':
+                        if (parserTrace) {
+                            parserTrace->stringBegin(VtermTraceString::Apc);
+                        }
                         setState(InputState::String);
                         break;
                     case '(':
@@ -7382,6 +7499,9 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                     case 'P':
                         argBuf.clear();
                         argBufOverflowed = false;
+                        if (parserTrace) {
+                            parserTrace->stringBegin(VtermTraceString::Dcs);
+                        }
                         setState(InputState::DCS);
                         break;
                     case 'c':
@@ -7432,6 +7552,9 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                         setState(InputState::Normal);
                         break;
                     case '\\':
+                        if (parserTrace) {
+                            parserTrace->escapeCancel();
+                        }
                         setState(InputState::Normal);
                         break;
                     default:
@@ -7440,6 +7563,10 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                 }
                 break;
             case InputState::Esc_SPC:
+                if (parserTrace) {
+                    parserTrace->escapeByte(ch);
+                    parserTrace->escapeEnd();
+                }
                 switch (ch) {
                     case 'F':
                         logU << "S7C1T: Send 7-bit controls" << std::endl;
@@ -7469,6 +7596,10 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                 }
                 break;
             case InputState::Esc_Hash:
+                if (parserTrace) {
+                    parserTrace->escapeByte(ch);
+                    parserTrace->escapeEnd();
+                }
                 switch (ch) {
                     case '3':
                         setLineAttribute(1);
@@ -7491,6 +7622,10 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                 }
                 break;
             case InputState::Esc_Pct:
+                if (parserTrace) {
+                    parserTrace->escapeByte(ch);
+                    parserTrace->escapeEnd();
+                }
                 switch (ch) {
                     case '@':
                         logT << "Select charset: default (ISO-8859-1)" << std::endl;
@@ -7510,8 +7645,15 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                 break;
             case InputState::SelectCharset:
                 if (ch < 0x30) {
+                    if (parserTrace) {
+                        parserTrace->escapeByte(ch);
+                    }
                     scsMod = ch;
                 } else {
+                    if (parserTrace) {
+                        parserTrace->escapeByte(ch);
+                        parserTrace->escapeEnd();
+                    }
                     esc_DCS(ch);
                 }
                 break;
@@ -7522,6 +7664,9 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                 switch (ch) {
                     case 0x9c:
                         if (!utf8StringContinuation) {
+                            if (parserTrace) {
+                                parserTrace->stringEnd();
+                            }
                             if (argBufOverflowed) {
                                 setState(InputState::Normal);
                             } else {
@@ -7534,6 +7679,9 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                         if (executeC0InSequence(ch)) {
                             break;
                         } else if (argBuf.size() < 4095) {
+                            if (parserTrace) {
+                                parserTrace->stringData(&ch, 1);
+                            }
                             argBuf.push_back(ch);
                         } else if (!argBufOverflowed) {
                             logT << "DCS argument string overflow" << std::endl;
@@ -7550,6 +7698,9 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
             case InputState::DCS_Esc:
                 switch (ch) {
                     case '\\':
+                        if (parserTrace) {
+                            parserTrace->stringEnd();
+                        }
                         if (argBufOverflowed) {
                             setState(InputState::Normal);
                         } else {
@@ -7558,6 +7709,9 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                         break;
                     case '\x1b':
                         if (!argBufOverflowed && argBuf.size() < 4095) {
+                            if (parserTrace) {
+                                parserTrace->stringData(&ch, 1);
+                            }
                             argBuf.push_back('\x1b');
                         } else {
                             argBufOverflowed = true;
@@ -7565,6 +7719,10 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                         break;
                     default:
                         if (!argBufOverflowed && argBuf.size() <= 4093) {
+                            if (parserTrace) {
+                                const u8 prefix[] = {'\x1b', ch};
+                                parserTrace->stringData(prefix, 2);
+                            }
                             argBuf.push_back('\x1b');
                             argBuf.push_back(ch);
                         } else {
@@ -7578,6 +7736,9 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                 switch (ch) {
                     case 0x9c:
                         if (!utf8StringContinuation) {
+                            if (parserTrace) {
+                                parserTrace->stringEnd();
+                            }
                             if (argBufOverflowed) {
                                 setState(InputState::Normal);
                             } else {
@@ -7590,6 +7751,9 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                         if (executeC0InSequence(ch)) {
                             break;
                         } else if (argBuf.size() < maxOscBytes) {
+                            if (parserTrace) {
+                                parserTrace->stringData(&ch, 1);
+                            }
                             argBuf.push_back(ch);
                         } else if (!argBufOverflowed) {
                             logT << "OSC argument string overflow" << std::endl;
@@ -7597,6 +7761,9 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                         }
                         break;
                     case '\a':
+                        if (parserTrace) {
+                            parserTrace->stringEnd();
+                        }
                         if (argBufOverflowed) {
                             setState(InputState::Normal);
                         } else {
@@ -7613,6 +7780,9 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
             case InputState::OSC_Esc:
                 switch (ch) {
                     case '\\':
+                        if (parserTrace) {
+                            parserTrace->stringEnd();
+                        }
                         if (argBufOverflowed) {
                             setState(InputState::Normal);
                         } else {
@@ -7621,6 +7791,9 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                         break;
                     case '\x1b':
                         if (!argBufOverflowed && argBuf.size() < maxOscBytes) {
+                            if (parserTrace) {
+                                parserTrace->stringData(&ch, 1);
+                            }
                             argBuf.push_back('\x1b');
                         } else {
                             argBufOverflowed = true;
@@ -7628,6 +7801,10 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                         break;
                     default:
                         if (!argBufOverflowed && argBuf.size() <= maxOscBytes - 2) {
+                            if (parserTrace) {
+                                const u8 prefix[] = {'\x1b', ch};
+                                parserTrace->stringData(prefix, 2);
+                            }
                             argBuf.push_back('\x1b');
                             argBuf.push_back(ch);
                         } else {
@@ -7638,18 +7815,33 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
                 }
                 break;
             case InputState::String:
-                if (executeC0InSequence(ch)) {
-                    break;
-                } else if (ch == 0x9c && !utf8StringContinuation) {
+                if (ch == 0x9c && !utf8StringContinuation) {
+                    if (parserTrace) {
+                        parserTrace->stringEnd();
+                    }
                     setState(InputState::Normal);
                 } else if (ch == '\x1b') {
                     setState(InputState::String_Esc);
+                } else if (executeC0InSequence(ch)) {
+                    if (parserTrace) {
+                        parserTrace->stringData(&ch, 1);
+                    }
+                    break;
+                } else if (parserTrace) {
+                    parserTrace->stringData(&ch, 1);
                 }
                 break;
             case InputState::String_Esc:
                 if (ch == '\\') {
+                    if (parserTrace) {
+                        parserTrace->stringEnd();
+                    }
                     setState(InputState::Normal);
                 } else if (ch != '\x1b') {
+                    if (parserTrace) {
+                        const u8 prefix[] = {'\x1b', ch};
+                        parserTrace->stringData(prefix, 2);
+                    }
                     setState(InputState::String);
                 }
                 break;

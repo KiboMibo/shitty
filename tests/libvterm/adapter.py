@@ -367,6 +367,87 @@ def modifiers(value):
     return result
 
 
+PARSER_EVENT_TYPES = {"text", "control", "escape", "csi", "osc", "dcs", "apc", "pm", "sos"}
+
+
+def append_parser_event(state, event, payload):
+    if event == "text" and state["parser_expected"] and state["parser_expected"][-1][0] == "text":
+        state["parser_expected"][-1][1].extend(payload)
+        return len(state["parser_expected"]) - 1
+    state["parser_expected"].append([event, bytearray(payload)])
+    return len(state["parser_expected"]) - 1
+
+
+def parse_csi_callback(value):
+    match = re.fullmatch(r"(0x[0-9a-fA-F]+)(?:\s+(.*))?", value)
+    if not match:
+        raise ValueError(f"invalid CSI callback: {value}")
+    final = int(match.group(1), 16)
+    leader = b""
+    intermediates = b""
+    arguments = "*"
+    for field in (match.group(2) or "").split():
+        if field.startswith("L="):
+            leader += bytes([int(field[2:], 16)])
+        elif field.startswith("I="):
+            intermediates += bytes([int(field[2:], 16)])
+        else:
+            arguments = field
+    parameters = b""
+    if arguments != "*":
+        parameters = arguments.replace("+,", ":").replace(",", ";").encode()
+    return leader + parameters + intermediates + bytes([final])
+
+
+def parse_string_callback(event, value, state):
+    started = value.startswith("[")
+    closed = value.endswith("]")
+    body = value[1:] if started else value
+    body = body[:-1] if closed else body
+    body = body.strip()
+    if body.startswith('"') and not re.search(r'"\s*(?:x\s*\d+)?$', body):
+        body += '"'
+    payload = b""
+    if event == "osc" and started:
+        match = re.fullmatch(r"(\d+)(?:\s+(.*))?", body)
+        if not match:
+            raise ValueError(f"invalid OSC callback: {value}")
+        payload = match.group(1).encode()
+        if match.group(2) is not None:
+            payload += b";" + decode_perl_string(match.group(2))
+    elif body:
+        payload = decode_perl_string(body)
+    if started:
+        state["parser_strings"][event] = append_parser_event(state, event, payload)
+    else:
+        index = state["parser_strings"].get(event)
+        if index is None:
+            raise ValueError(f"orphan {event} callback fragment")
+        state["parser_expected"][index][1].extend(payload)
+    if closed:
+        state["parser_strings"].pop(event, None)
+
+
+def parse_parser_callback(line, state):
+    event, _, value = line.partition(" ")
+    if event not in PARSER_EVENT_TYPES:
+        return False
+    value = value.strip()
+    if event == "text":
+        payload = bytes(int(token.strip(), 16) for token in value.split(","))
+        append_parser_event(state, event, payload)
+    elif event == "control":
+        base = 16 if value.lower().startswith("0x") else 10
+        append_parser_event(state, event, bytes([int(value, base)]))
+    elif event == "escape":
+        append_parser_event(state, event, decode_perl_string(value))
+    elif event == "csi":
+        append_parser_event(state, event, parse_csi_callback(value))
+    else:
+        parse_string_callback(event, value, state)
+    return True
+
+
 def apply_command(terminal, line, state):
     if line in ("INIT", "RESET"):
         if line == "INIT":
@@ -374,6 +455,13 @@ def apply_command(terminal, line, state):
         else:
             terminal.write(b"\x1bc")
             configure_libvterm_colors(terminal)
+            if state["parser_enabled"]:
+                terminal.parser_trace_clear()
+        return
+    if line == "WANTPARSER" or (line.startswith("WANTSTATE") and "f" in line[9:]):
+        terminal.parser_trace_on()
+        state["parser_enabled"] = True
+        state["parser_only"] = line == "WANTPARSER"
         return
     if line.startswith(("WANTSCREEN", "WANTSTATE", "WANTENCODING", "UTF8", "DAMAGEMERGE", "DAMAGEFLUSH")):
         return
@@ -466,10 +554,18 @@ def run_fixture(path):
     mismatches = []
     checked = 0
     skipped = 0
-    state = {"output": bytearray(), "encoding_output": [], "mouse": (0, 0), "selection": b"", "title": "", "osc52": b""}
+    state = {
+        "output": bytearray(), "encoding_output": [], "mouse": (0, 0),
+        "selection": b"", "title": "", "osc52": b"",
+        "parser_enabled": False, "parser_only": False,
+        "parser_expected": [], "parser_strings": {},
+    }
     with Zutty(columns=80, rows=25, save_lines=500) as terminal:
         for number, line in expand_controls(path.read_text().splitlines()):
             if not line or line.startswith("#") or line == "__END__" or line.startswith("!"):
+                continue
+            if parse_parser_callback(line, state):
+                checked += 1
                 continue
             match = re.fullmatch(r"\?([a-z_]+(?:\s+[^=]+)?)\s*=\s*(.*)", line)
             if match:
@@ -603,12 +699,29 @@ def run_fixture(path):
                 continue
             skipped += 1
         state["output"].extend(terminal.read_input())
-        if state["output"]:
+        if state["output"] and not state["parser_only"]:
             mismatches.append(f"unexpected output: {bytes(state['output'])!r}")
         if state["encoding_output"]:
             mismatches.append(
                 f"unexpected encoding output: {tuple(state['encoding_output'])!r}"
             )
+        if state["parser_enabled"]:
+            actual = terminal.parser_trace()
+            expected = [
+                (event, bytes(payload))
+                for event, payload in state["parser_expected"]
+            ]
+            if actual != expected:
+                limit = min(len(actual), len(expected))
+                difference = next(
+                    (index for index in range(limit) if actual[index] != expected[index]),
+                    limit,
+                )
+                mismatches.append(
+                    f"parser event {difference}: got {actual[difference:difference + 3]!r}, "
+                    f"expected {expected[difference:difference + 3]!r}; "
+                    f"totals {len(actual)}/{len(expected)}"
+                )
     if not checked:
         mismatches.append("fixture has no supported golden assertions")
     return checked, skipped, mismatches

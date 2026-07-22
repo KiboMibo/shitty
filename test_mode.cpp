@@ -17,6 +17,7 @@
 #include "vk_presenter.h"
 #include "vterm.h"
 #include "vterm_host.h"
+#include "vterm_trace.h"
 
 #include <algorithm>
 #include <std/mem/obj_pool.h>
@@ -580,6 +581,7 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
     TestPty terminalPty(io[0]);
     VtermHostCallbacks vtermHost;
     Vterm& terminal = *Vterm::create(composer, vtermHost, terminalPty, glyphPx, glyphPy, width, height);
+    VtermTrace& vtermTrace = *VtermTrace::create(composer);
     terminalPty.resize(opts.nCols, opts.nRows);
     TestDisplay display;
     vtermHost.setRefreshHandler([&display](const Frame& frame) {
@@ -1316,6 +1318,15 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                        << (unsigned)(pen.bg.blue) << ' '
                        << pen.fg_index << ' ' << pen.bg_index << '\n';
                 writeAll(controlFd, output.str());
+            } else if (line == "PARSER_TRACE_ON") {
+                vtermTrace.clear();
+                terminal.setParserTrace(&vtermTrace);
+                writeAll(controlFd, "OK\n");
+            } else if (line == "PARSER_TRACE_CLEAR") {
+                vtermTrace.clear();
+                writeAll(controlFd, "OK\n");
+            } else if (line == "READ_PARSER_TRACE") {
+                writeAll(controlFd, "OK " + encodeHex(vtermTrace.drain()) + "\n");
             } else if (line.compare(0, 10, "UTF8_PUSH ") == 0) {
                 const auto codepoints = testUtf8Decoder.push(decodeHex(line.substr(10)));
                 std::ostringstream output;
