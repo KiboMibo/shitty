@@ -312,6 +312,8 @@ namespace {
         void placeGraphicChar();
         void placeAsciiRun(const u8* input, size_t size);
         void resetGraphemeInput();
+        void widenInputGrapheme(u16 lineCols);
+        void narrowInputGrapheme();
         void jumpToNextTabStop();
         void setFgFromPalIx();
         void setBgFromPalIx();
@@ -1685,19 +1687,94 @@ void VtermImpl::resetGraphemeInput() {
     inputGraphemeFrame = nullptr;
 }
 
+void VtermImpl::widenInputGrapheme(u16 lineCols) {
+    auto& oldLead = cf->getCell(inputGraphemeY, inputGraphemeX);
+    if (oldLead.dwidth || lineCols - hMargin < 2) {
+        return;
+    }
+
+    if (inputGraphemeX == lineCols - 1) {
+        if (!autoWrapMode) {
+            return;
+        }
+
+        const TerminalCell moved = oldLead;
+        cf->eraseInRow(inputGraphemeY, inputGraphemeX, 1, eraseCell());
+        const u16 wrapColumn = inputGraphemeX > hMargin
+            ? inputGraphemeX - 1 : inputGraphemeX;
+        cf->getCell(inputGraphemeY, wrapColumn).wrap = 1;
+        inp_CR();
+        inp_LF();
+
+        auto& newLead = prepareCellAt(posY, posX);
+        newLead = moved;
+        newLead.wrap = 0;
+        newLead.line_attr = ((const Frame&)*cf).getCell(posY, 0).line_attr;
+        inputGraphemeX = posX;
+        inputGraphemeY = posY;
+    }
+
+    auto& lead = cf->getCell(inputGraphemeY, inputGraphemeX);
+    lead.dwidth = 1;
+    auto& continuation = prepareCellAt(inputGraphemeY, inputGraphemeX + 1);
+    continuation = attrs;
+    continuation.dwidth_cont = 1;
+    continuation.drawn = 1;
+    continuation.hyperlink = lead.hyperlink;
+    continuation.semantic = lead.semantic;
+    continuation.line_attr = lead.line_attr;
+
+    if (inputGraphemeX + 1 == lineCols - 1) {
+        posX = inputGraphemeX + 1;
+        lastCol = true;
+    } else {
+        posX = inputGraphemeX + 2;
+        lastCol = false;
+    }
+}
+
+void VtermImpl::narrowInputGrapheme() {
+    auto& lead = cf->getCell(inputGraphemeY, inputGraphemeX);
+    if (!lead.dwidth) {
+        return;
+    }
+
+    lead.dwidth = 0;
+    cf->eraseInRow(inputGraphemeY, inputGraphemeX + 1, 1, eraseCell());
+    posX = inputGraphemeX + 1;
+    lastCol = false;
+}
+
 void VtermImpl::placeGraphicChar() {
     auto pt = utf8dec.getUnicode();
     auto w = pt >= 0x20 && pt < 0x7f ? 1 : codepointWidth(pt);
+
+    const u8 lineAttribute = ((const Frame&)*cf).getCell(posY, 0).line_attr;
+    const u16 lineCols = lineAttribute
+        ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2)
+        : nColsEff;
 
     if (inputGraphemeFrame != cf) {
         inputGraphemeBreaker.reset();
     }
     const bool graphemeBoundary = inputGraphemeBreaker.breakBefore(pt);
     if (inputGraphemeFrame == cf && !graphemeBoundary) {
+        const u32 previous = inputGrapheme.empty()
+            ? inputGraphemeBase : inputGrapheme.data()[inputGrapheme.size() - 1];
         if (inputGrapheme.empty()) {
             inputGrapheme.push_back(inputGraphemeBase);
         }
         inputGrapheme.push_back(pt);
+        switch (graphemeWidthEffect(previous, pt)) {
+            case GraphemeWidthEffect::Wide:
+                widenInputGrapheme(lineCols);
+                break;
+            case GraphemeWidthEffect::Narrow:
+                narrowInputGrapheme();
+                break;
+            case GraphemeWidthEffect::Unchanged:
+                break;
+        }
         auto& cell = cf->getCell(inputGraphemeY, inputGraphemeX);
         cell.grapheme = cf->internGrapheme(inputGrapheme.data(), inputGrapheme.size());
         cf->expose();
@@ -1709,10 +1786,6 @@ void VtermImpl::placeGraphicChar() {
         pt = Unicode_Replacement_Character;
     }
 
-    const u8 lineAttribute = ((const Frame&)*cf).getCell(posY, 0).line_attr;
-    const u16 lineCols = lineAttribute
-        ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2)
-        : nColsEff;
     if (posX >= lineCols) {
         posX = lineCols - 1;
         lastCol = false;

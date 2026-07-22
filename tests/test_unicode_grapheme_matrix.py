@@ -44,16 +44,18 @@ class UnicodeGraphemeMatrixTest(unittest.TestCase):
                         terminal.grapheme_breaks(*codepoints), expected
                     )
 
-    def test_prepend_spacing_mark_and_indic_linker_are_single_cells(self):
+    def test_prepend_spacing_mark_and_indic_linker_are_wide_clusters(self):
         samples = ("\u06ddA", "कः", "क्ष")
         for sample in samples:
             with self.subTest(sample=sample):
                 with Zutty(columns=8, rows=2) as terminal:
                     terminal.write((sample + "X").encode())
                     snapshot = terminal.snapshot()
-                    self.assertEqual(snapshot.cursor_x, 2)
+                    self.assertEqual(snapshot.cursor_x, 3)
+                    self.assertTrue(snapshot.cell(0, 0).double_width)
+                    self.assertTrue(snapshot.cell(1, 0).double_width_continuation)
                     terminal.select_start(0, 0)
-                    terminal.select_update(1, 0)
+                    terminal.select_update(2, 0)
                     self.assertEqual(terminal.select_finish(), sample.encode())
 
     def test_regional_indicators_pair_by_parity(self):
@@ -66,14 +68,14 @@ class UnicodeGraphemeMatrixTest(unittest.TestCase):
             self.assertEqual(terminal.select_finish(), "🇦🇧".encode())
 
     def test_keycap_and_orphan_extenders_remain_atomic(self):
-        samples = ("#️⃣", "\u0308\u0300", "\u200d\u0308")
-        for sample in samples:
-            with self.subTest(sample=sample):
+        samples = (("#️⃣", 2), ("\u0308\u0300", 1), ("\u200d\u0308", 1))
+        for sample, width in samples:
+            with self.subTest(sample=sample, width=width):
                 with Zutty(columns=6, rows=2) as terminal:
                     terminal.write((sample + "X").encode())
-                    self.assertEqual(terminal.snapshot().cursor_x, 2)
+                    self.assertEqual(terminal.snapshot().cursor_x, width + 1)
                     terminal.select_start(0, 0)
-                    terminal.select_update(1, 0)
+                    terminal.select_update(width, 0)
                     self.assertEqual(terminal.select_finish(), sample.encode())
 
     def test_cluster_at_right_edge_wraps_as_one_unit(self):
@@ -81,11 +83,27 @@ class UnicodeGraphemeMatrixTest(unittest.TestCase):
         with Zutty(columns=3, rows=2) as terminal:
             terminal.write(("ab" + cluster + "X").encode())
             snapshot = terminal.snapshot()
-            self.assertEqual(snapshot.lines[0], "abक")
-            self.assertEqual(snapshot.lines[1][:1], "X")
-            terminal.select_start(2, 0)
-            terminal.select_update(0, 1)
+            self.assertEqual(snapshot.lines[0], "ab ")
+            self.assertEqual(snapshot.lines[1], "क X")
+            self.assertTrue(snapshot.cell(0, 1).double_width)
+            self.assertTrue(snapshot.cell(1, 1).double_width_continuation)
+            terminal.select_start(0, 1)
+            terminal.select_update(2, 1)
             self.assertEqual(terminal.select_finish(), cluster.encode())
+
+    def test_variation_width_changes_at_right_edge(self):
+        with Zutty(columns=3, rows=2) as terminal:
+            terminal.write("ab#️X".encode())
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "ab ")
+            self.assertEqual(snapshot.lines[1], "# X")
+            self.assertTrue(snapshot.cell(0, 1).double_width)
+
+        with Zutty(columns=3, rows=2) as terminal:
+            terminal.write("a⌚︎X".encode())
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "a⌚X")
+            self.assertFalse(snapshot.cell(1, 0).double_width)
 
 
 if __name__ == "__main__":

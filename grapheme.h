@@ -5,6 +5,14 @@
 
 int codepointWidth(u32 codepoint);
 
+enum class GraphemeWidthEffect {
+    Unchanged,
+    Wide,
+    Narrow,
+};
+
+GraphemeWidthEffect graphemeWidthEffect(u32 previous, u32 codepoint);
+
 class GraphemeBreaker {
 public:
     bool breakBefore(u32 codepoint);

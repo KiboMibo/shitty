@@ -97,7 +97,24 @@ class UnicodeTest(unittest.TestCase):
         text = "\N{HEAVY BLACK HEART}\N{VARIATION SELECTOR-16}"
         with Zutty(columns=6, rows=2) as terminal:
             terminal.write((text + "X").encode())
-            self.assertEqual(terminal.snapshot().cursor_x, 2)
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cursor_x, 3)
+            self.assertTrue(snapshot.cell(0, 0).double_width)
+            self.assertTrue(snapshot.cell(1, 0).double_width_continuation)
+            self.assertEqual(snapshot.cell(2, 0).char, "X")
+            terminal.select_start(0, 0)
+            terminal.select_update(2, 0)
+            self.assertEqual(terminal.select_finish(), text.encode())
+
+    def test_text_variation_selector_narrows_emoji_presentation(self):
+        text = "\N{WATCH}\N{VARIATION SELECTOR-15}"
+        with Zutty(columns=6, rows=2) as terminal:
+            terminal.write((text + "X").encode())
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cursor_x, 2)
+            self.assertFalse(snapshot.cell(0, 0).double_width)
+            self.assertEqual(snapshot.cell(1, 0).char, "X")
+
             terminal.select_start(0, 0)
             terminal.select_update(1, 0)
             self.assertEqual(terminal.select_finish(), text.encode())
