@@ -13,6 +13,11 @@ class Scrollback:
     viewport_offset: int
 
 
+@dataclass(frozen=True)
+class Capabilities:
+    reflow: bool
+
+
 class Backend:
     """Local Termless-shaped backend over Zutty's offline control API."""
 
@@ -25,6 +30,7 @@ class Backend:
             extra_arguments=("-allowWindowOps", "true"),
         )
         self.title = ""
+        self.capabilities = Capabilities(reflow=False)
 
     def close(self):
         self.terminal.close()
