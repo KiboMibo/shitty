@@ -552,6 +552,61 @@ wezterm_validation = command(
 )
 
 
+konsole_root = Path(__file__).parent / "tests" / "konsole"
+konsole_cases = (konsole_root / "file_names.txt").read_text().split()
+konsole_tests = []
+for case in konsole_cases:
+    konsole_tests.append(command(
+        name="konsole_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/fuzz_parser.py",
+            "$(S)/tests/konsole/adapter.py",
+            "$(S)/tests/konsole/catalog.py",
+            "$(S)/tests/konsole/file_names.txt",
+            "$(S)/tests/konsole/xfail.txt",
+            "$(S)/tests/konsole/upstream/Vt102EmulationTest.cpp",
+        ],
+        outputs=[f"$(B)/tests/konsole/{case}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/konsole/adapter.py",
+            case,
+            "tests/konsole/xfail.txt",
+            f"$(B)/tests/konsole/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="KONSOLE",
+        color="cyan",
+    ))
+
+
+konsole_validation = command(
+    name="konsole_catalog",
+    inputs=[
+        "$(S)/tests/konsole/catalog.py",
+        "$(S)/tests/konsole/file_names.txt",
+        "$(S)/tests/konsole/validate.py",
+        "$(S)/tests/konsole/xfail.txt",
+        "$(S)/tests/konsole/upstream/Vt102EmulationTest.cpp",
+    ],
+    outputs=["$(B)/tests/konsole/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/konsole/validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/konsole/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="KONSOLE",
+    color="cyan",
+)
+
+
 tmux_root = Path(__file__).parent / "tests" / "tmux"
 tmux_corpus_members = [
     "corpus/" + path.name
@@ -1104,6 +1159,8 @@ install(*windows_terminal_tests)
 install(windows_terminal_validation)
 install(*wezterm_tests)
 install(wezterm_validation)
+install(*konsole_tests)
+install(konsole_validation)
 install(*tmux_tests)
 install(wraptest_helper)
 install(*wraptest_tests)

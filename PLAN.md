@@ -202,7 +202,7 @@ Control interface — это расширяемый наблюдаемый API �
    - VTE screen/width fixtures (parser matrices уже импортированы);
    - Windows Terminal semantic/screen fixtures (128 literal parser streams уже импортированы);
    - WezTerm semantic/screen fixtures (136 literal model streams уже импортированы);
-   - Konsole.
+   - Konsole semantic screen/history/width fixtures (146 declarative ANSI/VT52 tokenizer streams уже импортированы).
 
    Берём код, таблицы и test vectors и переделываем под наш Python black-box harness. Начинаем с файлов, где тестовые данные уже отделены от реализации.
 
