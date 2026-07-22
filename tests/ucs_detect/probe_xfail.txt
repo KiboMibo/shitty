@@ -1,0 +1,23 @@
+# Exact differences from data/zutty.yaml at upstream revision ea4510a4.
+color_scheme
+decrqss_decsca
+decrqss_decscusr
+decrqss_decscl
+decrqss_decslrm
+decrqss_decstbm
+decrqss_sgr
+device_attributes
+kitty_keyboard
+mode_bracketed_paste
+mode_bracketed_paste_mime
+mode_color_palette_updates
+mode_focus_in_out_events
+mode_grapheme_clustering
+mode_in_band_window_resize
+mode_mouse_extended_sgr
+mode_synchronized_output
+software
+xtgettcap_Co
+xtgettcap_RGB
+xtgettcap_TN
+xtgettcap_colors

@@ -183,7 +183,7 @@ Control interface — это расширяемый наблюдаемый API �
 
    Сначала те, которые уже можно запускать почти без переделки:
 
-   - live font/raster и terminal-capability probes из `ucs-detect` (полные generated Unicode tables уже импортированы в model tier);
+   - live font/raster probes из `ucs-detect` (generated Unicode tables и terminal-capability probes уже импортированы);
 
    Здесь наша работа — только launcher, PTY/control integration и фиксация результата.
 

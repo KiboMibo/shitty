@@ -577,6 +577,9 @@ ucs_detect_validation = command(
     name="ucs_detect_catalog",
     inputs=[
         "$(S)/tests/ucs_detect/catalog.py",
+        "$(S)/tests/ucs_detect/probe_cases.py",
+        "$(S)/tests/ucs_detect/probe_names.txt",
+        "$(S)/tests/ucs_detect/probe_xfail.txt",
         "$(S)/tests/ucs_detect/validate.py",
         "$(S)/tests/ucs_detect/shards.txt",
         "$(S)/tests/ucs_detect/xfail.txt",
@@ -595,6 +598,37 @@ ucs_detect_validation = command(
     descr="UCS",
     color="cyan",
 )
+
+
+ucs_detect_probe_cases = (ucs_detect_root / "probe_names.txt").read_text().split()
+ucs_detect_probe_tests = []
+for case in ucs_detect_probe_cases:
+    ucs_detect_probe_tests.append(command(
+        name="ucs_detect_probe_" + case.lower(),
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/ucs_detect/probe_adapter.py",
+            "$(S)/tests/ucs_detect/probe_cases.py",
+            "$(S)/tests/ucs_detect/probe_names.txt",
+            "$(S)/tests/ucs_detect/probe_xfail.txt",
+            "$(S)/tests/ucs_detect/upstream/terminal.py",
+            "$(S)/tests/ucs_detect/upstream/table_xtgettcap.py",
+            "$(S)/tests/ucs_detect/upstream/data/zutty.yaml",
+        ],
+        outputs=[f"$(B)/tests/ucs_detect/probes/{case}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/ucs_detect/probe_adapter.py",
+            case,
+            "tests/ucs_detect/probe_xfail.txt",
+            f"$(B)/tests/ucs_detect/probes/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="UCS-PROBE",
+        color="cyan",
+    ))
 
 
 vtebench_root = Path(__file__).parent / "tests" / "vtebench"
@@ -849,6 +883,7 @@ install(tack_validation)
 install(*tack_tests)
 install(*ucs_detect_tests)
 install(ucs_detect_validation)
+install(*ucs_detect_probe_tests)
 install(*vtebench_tests)
 install(*libvterm_tests)
 install(*xterm_vttests_tests)
