@@ -130,6 +130,7 @@ class Zutty:
         parent, child = socket.socketpair()
         self.socket = parent
         self.stream = parent.makefile("rwb", buffering=0)
+        self._receive_buffer = bytearray()
         child_environment = os.environ.copy()
         child_environment["ZUTTY_TEST_GLYPH"] = f"{glyph_px}x{glyph_py}"
         if font_size_env is None:
@@ -184,10 +185,16 @@ class Zutty:
         self.close()
 
     def _readline(self):
-        line = self.stream.readline()
-        if not line:
-            raise RuntimeError(f"zutty exited with {self.process.poll()}")
-        return line.decode("ascii").rstrip("\n")
+        while True:
+            newline = self._receive_buffer.find(b"\n")
+            if newline >= 0:
+                line = bytes(self._receive_buffer[:newline])
+                del self._receive_buffer[:newline + 1]
+                return line.decode("ascii")
+            chunk = self.socket.recv(64 * 1024)
+            if not chunk:
+                raise RuntimeError(f"zutty exited with {self.process.poll()}")
+            self._receive_buffer.extend(chunk)
 
     def command(self, command):
         self.stream.write(command.encode("ascii") + b"\n")
