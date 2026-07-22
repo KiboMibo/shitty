@@ -15,6 +15,38 @@ class ProtocolTest(unittest.TestCase):
                 b"\x1b[2;4R",
             )
 
+    def test_dec_device_status_report_matrix(self):
+        with Zutty(columns=10, rows=3) as terminal:
+            terminal.write(
+                b"\x1b[2;4H"
+                b"\x1b[?6n"
+                b"\x1b[?15n"
+                b"\x1b[?25n"
+                b"\x1b[?26n"
+                b"\x1b[?55n"
+                b"\x1b[?56n"
+                b"\x1b[?62n"
+                b"\x1b[?63;123n"
+                b"\x1b[?75n"
+                b"\x1b[?85n"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[?2;4;1R"
+                b"\x1b[?10n"
+                b"\x1b[?20n"
+                b"\x1b[?27;1;0;0n"
+                b"\x1b[?50n"
+                b"\x1b[?57;1n"
+                b"\x1b[0*{"
+                b"\x1bP123!~0000\x1b\\"
+                b"\x1b[?70n"
+                b"\x1b[?83n",
+            )
+
+            terminal.write(b"\x1bP0;0|11/41\x1b\\\x1b[?25n")
+            self.assertEqual(terminal.read_input(), b"\x1b[?21n")
+
     def test_decrqss_reports_compatibility_level(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1bP$q\"p\x1b\\")

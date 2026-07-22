@@ -3887,8 +3887,52 @@ void VtermImpl::csi_DECRQM(bool privateMode) {
 void VtermImpl::csi_DSR(bool privateMode) {
     TRACE_FUN;
     if (privateMode) {
-        if (inputOps[0] == 996) {
-            reportColorScheme();
+        switch (inputOps[0]) {
+            case 6: {
+                std::ostringstream response;
+                if (originMode == OriginMode::Absolute) {
+                    response << '?' << (posY + 1) << ';' << (posX + 1);
+                } else {
+                    response << '?' << (posY - marginTop + 1) << ';'
+                             << (posX - hMargin + 1);
+                }
+                response << ";1R";
+                writeCsiResponse(response.str());
+            } break;
+            case 15:
+                writeCsiResponse("?10n");
+                break;
+            case 25:
+                writeCsiResponse(userDefinedKeysLocked ? "?21n" : "?20n");
+                break;
+            case 26:
+                writeCsiResponse("?27;1;0;0n");
+                break;
+            case 55:
+                writeCsiResponse("?50n");
+                break;
+            case 56:
+                writeCsiResponse("?57;1n");
+                break;
+            case 62:
+                writeCsiResponse("0*{");
+                break;
+            case 63: {
+                std::ostringstream response;
+                response << (nInputOps > 1 ? inputOps[1] : 0) << "!~0000";
+                writeDcsResponse(response.str());
+            } break;
+            case 75:
+                writeCsiResponse("?70n");
+                break;
+            case 85:
+                writeCsiResponse("?83n");
+                break;
+            case 996:
+                reportColorScheme();
+                break;
+            default:
+                break;
         }
         setState(InputState::Normal);
         return;

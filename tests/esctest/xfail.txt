@@ -15,17 +15,6 @@ DCHTests.test_DCH_WorksOutsideTopBottomMargin
 # the terminal ignores DECBI."  The upstream assertion expects a scroll.
 # https://vt100.net/docs/vt510-rm/DECBI.html
 DECBITests.test_DECBI_WholeScreenScrolls
-DECDSRTests.test_DECDSR_DECCKSR
-DECDSRTests.test_DECDSR_DECMSR
-DECDSRTests.test_DECDSR_DECXCPR
-DECDSRTests.test_DECDSR_DSRDECLocatorStatus
-DECDSRTests.test_DECDSR_DSRDataIntegrity
-DECDSRTests.test_DECDSR_DSRKeyboard
-DECDSRTests.test_DECDSR_DSRMultipleSessionStatus
-DECDSRTests.test_DECDSR_DSRPrinterPort
-DECDSRTests.test_DECDSR_DSRUDKLocked
-DECDSRTests.test_DECDSR_DSRXtermLocatorStatus
-DECDSRTests.test_DECDSR_LocatorType
 # DEC VT510 DECFI: "If the cursor is at the right border of the page ...
 # the terminal ignores DECFI."  The upstream assertion expects a scroll.
 # https://vt100.net/docs/vt510-rm/DECFI.html
