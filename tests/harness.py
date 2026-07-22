@@ -280,6 +280,9 @@ class Zutty:
             raise RuntimeError("invalid PTY read response")
         return bool(int(response[1]))
 
+    def read_child_output(self):
+        return self._read_hex_response("READ_CHILD_OUTPUT")
+
     def script_pty_reads(self, *outcomes):
         tokens = []
         for outcome in outcomes:

@@ -1683,6 +1683,10 @@ menu2(MENU *table, int top)
 
     println("");
     printxx("          Enter choice number (0 - %d): ", tablesize);
+    /* The conformance driver uses this prompt as a causal barrier.  Unlike
+     * inchar(), inputline() does not explicitly flush stdout, and musl does
+     * not make the prompt visible merely because getchar() blocks. */
+    fflush(stdout);
     for (;;) {
       char *s = storage;
       int redraw = FALSE;

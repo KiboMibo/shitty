@@ -26,11 +26,6 @@ PROMPTS = (
     ("Finish with TAB", "type", b"\t"),
     ("Finish with RETURN", "type", b"\n"),
     ("Press 'q' to quit", "type", b"q"),
-    # This vttest build writes the menu prompt through buffered stdio and then
-    # blocks in read(2), so the visible, already-complete menu title is the
-    # causal marker available through a terminal screen.
-    ("Choose test type:", "menu", None),
-    ("0. Exit", "menu", None),
 )
 
 MODE_NAMES = (
@@ -98,9 +93,9 @@ def rendition(cell):
     return " ".join(flags) if flags else "default"
 
 
-def line_flags(cells):
+def line_flags(cells, wrapped):
     result = []
-    if any(cell.wrapped for cell in cells):
+    if wrapped:
         result.append("Wrapped")
     attribute = cells[0].line_attribute if cells else 0
     if attribute == 1:
@@ -161,13 +156,22 @@ def dump_screen(terminal):
 
     output.append(section_rule("lineflags"))
     for row, cells in enumerate(rows, 1):
-        value = line_flags(cells)
+        # Contour attaches LineFlag::Wrapped to the continuation line
+        # (Screen::crlfIfWrapPending), while Zutty attaches Cell::wrap to the
+        # preceding line's last cell. Translate the representation before
+        # comparing Contour's internal-state goldens.
+        wrapped = row > 1 and any(cell.wrapped for cell in rows[row - 2])
+        value = line_flags(cells, wrapped)
         if value:
             output.append(f"{row:02}|{value}\n")
     return "".join(output)
 
 
 def difference(expected, actual, name):
+    # ECMA-48:1991 6.1.1 and 6.1.3 explicitly permit implementations not to
+    # distinguish an erased character position from one imaging SPACE.
+    expected = expected.replace("·", "␣")
+    actual = actual.replace("·", "␣")
     if expected == actual:
         return None
     lines = list(difflib.unified_diff(
@@ -190,24 +194,24 @@ def run_scenario(binary, scenario, keys, data):
     compared = set()
     keys = list(keys)
     step = 0
-    armed_after_refresh = -1
     deadline = time.monotonic() + 30
     screen = ""
+    child_output = ""
 
     with Zutty(columns=80, rows=24, save_lines=2000) as terminal:
         terminal.spawn(binary, "24x80.132")
         while time.monotonic() < deadline:
             status, screen = terminal.poll_child()
-            snapshot = terminal.snapshot()
+            child_output += terminal.read_child_output().decode("latin1")
             if status is not None:
                 if status != 0:
                     errors.append(f"vttest exited with status {status}")
                 break
-            if snapshot.refresh_count <= armed_after_refresh:
-                time.sleep(0.002)
-                continue
 
-            match = next((prompt for prompt in PROMPTS if prompt[0] in screen), None)
+            match = next(
+                (prompt for prompt in PROMPTS if prompt[0] in child_output),
+                None,
+            )
             if match is None:
                 time.sleep(0.002)
                 continue
@@ -234,7 +238,11 @@ def run_scenario(binary, scenario, keys, data):
             else:
                 terminal.input(value)
             step += 1
-            armed_after_refresh = snapshot.refresh_count
+            # The child is blocked at this prompt, so every byte currently
+            # available belongs to the checkpoint just answered. Discard it
+            # to prevent another phrase on the same menu from being mistaken
+            # for a second prompt after the next refresh.
+            child_output = ""
             deadline = time.monotonic() + 30
         else:
             errors.append(

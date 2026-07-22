@@ -54,11 +54,13 @@ namespace {
 
         void setReadHandler(std::function<ssize_t(u8*, size_t)> handler);
         void setWriteHandler(std::function<ssize_t(const u8*, size_t)> handler);
+        std::string takeReadData();
 
     private:
         int fd_;
         std::function<ssize_t(u8*, size_t)> onRead;
         std::function<ssize_t(const u8*, size_t)> onWrite;
+        std::string readData;
     };
 
     class TestUtf8Decoder {
@@ -94,7 +96,11 @@ int TestPty::fd() const {
 }
 
 ssize_t TestPty::read(u8* buffer, size_t size) {
-    return onRead(buffer, size);
+    const ssize_t count = onRead(buffer, size);
+    if (count > 0) {
+        readData.append((const char*)(buffer), (size_t)(count));
+    }
+    return count;
 }
 
 ssize_t TestPty::write(const u8* buffer, size_t size) {
@@ -111,6 +117,12 @@ void TestPty::setReadHandler(std::function<ssize_t(u8*, size_t)> handler) {
 
 void TestPty::setWriteHandler(std::function<ssize_t(const u8*, size_t)> handler) {
     onWrite = std::move(handler);
+}
+
+std::string TestPty::takeReadData() {
+    std::string result;
+    result.swap(readData);
+    return result;
 }
 
 TestUtf8Decoder::TestUtf8Decoder()
@@ -873,6 +885,8 @@ int runTestMode(Composer& composer, int controlFd, int argc, char* argv[]) {
                 writeAll(controlFd, "OK\n");
             } else if (line == "READ_PTY") {
                 writeAll(controlFd, "OK " + std::to_string(terminal.readPty()) + "\n");
+            } else if (line == "READ_CHILD_OUTPUT") {
+                writeAll(controlFd, "OK " + encodeHex(terminalPty.takeReadData()) + "\n");
             } else if (line.compare(0, 16, "PTY_READ_SCRIPT ") == 0) {
                 scriptedPtyReads.clear();
                 std::istringstream args(line.substr(16));

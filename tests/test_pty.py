@@ -57,6 +57,17 @@ class PtyTest(unittest.TestCase):
             status, _ = terminal.wait_child()
             self.assertEqual(status, 128 + signal.SIGTERM)
 
+    def test_child_output_bytes_are_read_once_through_control(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.spawn(
+                sys.executable,
+                "-c",
+                "import os,time; os.write(1, b'causal-marker'); time.sleep(1)",
+            )
+            terminal.wait_read_pty()
+            self.assertEqual(terminal.read_child_output(), b"causal-marker")
+            self.assertEqual(terminal.read_child_output(), b"")
+
     def test_blocking_child_tty_does_not_block_control_reply_reads(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.spawn(
