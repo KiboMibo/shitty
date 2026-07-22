@@ -201,6 +201,12 @@ class DecProtocolTest(unittest.TestCase):
             self.assertEqual(snapshot.lines, ["        ", "        "])
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
 
+            terminal.write(b"\x1b[?47h")
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["        ", "        "],
+            )
+
     def test_decstr_restores_default_margins(self):
         with Zutty(columns=10, rows=6) as terminal:
             terminal.write(

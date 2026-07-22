@@ -56,6 +56,10 @@ DECRQMTests.test_DECRQM_DEC_DECNULM
 DECRQMTests.test_DECRQM_DEC_DECOSCNM
 DECRQMTests.test_DECRQM_DEC_DECRLCM
 DECRQMTests.test_DECRQM_DEC_DECRLM
+# xterm 410 charproc.c ReallyReset(full) calls FromAlternate(xw, True),
+# whose clearFirst path clears the alternate screen before selecting primary;
+# ClearScreen then clears primary.  This test incorrectly expects the old
+# alternate cell to survive RIS and reappear after DECSET 47.
 RISTests.test_RIS_ExitAltScreen
 SMTitleTests.test_SMTitle_SetHexQueryUTF8
 SMTitleTests.test_SMTitle_SetUTF8QueryHex
