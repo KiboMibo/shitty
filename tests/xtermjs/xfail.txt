@@ -4,9 +4,11 @@
 # retains the last graphic character, matching the Kitty/Ghostty behavior.
 t0040-REP
 # DEC VT220 Programmer Reference 4.7 requires DECSC/DECRC to save and restore
-# the wrap flag. This fixture expects DECRC to clear pending wrap instead;
-# Zutty restores it and wraps the following graphic character.
+# the wrap flag.  VT520 SCOSC/SCORC act identically except for the saved page.
+# These fixtures expect restore to clear pending wrap instead; Zutty restores
+# it and wraps the following graphic character.
 t0060-DECSC
+t0061-CSI_s
 # DEC VT510 Programmer Information, DECSTBM, defines exactly CSI Pt ; Pb r,
 # requires Pt < Pb, and limits the scrolling region to the page size. This
 # fixture instead records xterm.js quirks: CSI 6;7;8r uses the first two
