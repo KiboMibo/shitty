@@ -2427,12 +2427,11 @@ void VtermImpl::esc_FI() {
 
 void VtermImpl::esc_BI() {
     TRACE_FUN;
-    if (posX > 0) {
-        if (posX == hMargin && posX < nColsEff) {
-            insertCols(hMargin, 1);
-        } else {
-            --posX;
-        }
+    if (posX == hMargin && posX < nColsEff) {
+        insertCols(hMargin, 1);
+        lastCol = false;
+    } else if (posX > 0) {
+        --posX;
         lastCol = false;
     }
     setState(InputState::Normal);
