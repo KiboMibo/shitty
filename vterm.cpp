@@ -1733,9 +1733,7 @@ void VtermImpl::jumpToNextTabStop() {
 
 void VtermImpl::inp_HT() {
     TRACE_FUN;
-    if (posX < nColsEff - 1) {
-        jumpToNextTabStop();
-    }
+    jumpToNextTabStop();
 }
 
 void VtermImpl::showCursor() {
