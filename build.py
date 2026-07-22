@@ -440,6 +440,63 @@ vte_validation = command(
 )
 
 
+windows_terminal_root = Path(__file__).parent / "tests" / "windows_terminal"
+windows_terminal_cases = (windows_terminal_root / "file_names.txt").read_text().split()
+windows_terminal_tests = []
+for case in windows_terminal_cases:
+    windows_terminal_tests.append(command(
+        name="windows_terminal_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/fuzz_parser.py",
+            "$(S)/tests/windows_terminal/adapter.py",
+            "$(S)/tests/windows_terminal/catalog.py",
+            "$(S)/tests/windows_terminal/file_names.txt",
+            "$(S)/tests/windows_terminal/xfail.txt",
+            "$(S)/tests/windows_terminal/upstream/StateMachineTest.cpp",
+            "$(S)/tests/windows_terminal/upstream/OutputEngineTest.cpp",
+        ],
+        outputs=[f"$(B)/tests/windows_terminal/{case}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/windows_terminal/adapter.py",
+            case,
+            "tests/windows_terminal/xfail.txt",
+            f"$(B)/tests/windows_terminal/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="WINTERM",
+        color="cyan",
+    ))
+
+
+windows_terminal_validation = command(
+    name="windows_terminal_catalog",
+    inputs=[
+        "$(S)/tests/windows_terminal/catalog.py",
+        "$(S)/tests/windows_terminal/file_names.txt",
+        "$(S)/tests/windows_terminal/validate.py",
+        "$(S)/tests/windows_terminal/xfail.txt",
+        "$(S)/tests/windows_terminal/upstream/StateMachineTest.cpp",
+        "$(S)/tests/windows_terminal/upstream/OutputEngineTest.cpp",
+    ],
+    outputs=["$(B)/tests/windows_terminal/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/windows_terminal/validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/windows_terminal/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="WINTERM",
+    color="cyan",
+)
+
+
 tmux_root = Path(__file__).parent / "tests" / "tmux"
 tmux_corpus_members = [
     "corpus/" + path.name
@@ -988,6 +1045,8 @@ install(*kitty_tests)
 install(kitty_validation)
 install(*vte_tests)
 install(vte_validation)
+install(*windows_terminal_tests)
+install(windows_terminal_validation)
 install(*tmux_tests)
 install(wraptest_helper)
 install(*wraptest_tests)

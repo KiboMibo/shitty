@@ -200,7 +200,7 @@ Control interface — это расширяемый наблюдаемый API �
    - Kitty semantic/screen fixtures (426 literal parser streams уже импортированы как whole-vs-bytewise corpus);
    - Ghostty;
    - VTE screen/width fixtures (parser matrices уже импортированы);
-   - Windows Terminal;
+   - Windows Terminal semantic/screen fixtures (128 literal parser streams уже импортированы);
    - WezTerm;
    - Konsole.
 
