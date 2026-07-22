@@ -72,6 +72,15 @@ class CursorAndMovementTest(unittest.TestCase):
             terminal.write(b"\x1b[?47l")
             self.assertEqual(terminal.snapshot().cell(1, 1).char, "M")
 
+    def test_cleared_alternate_screen_preserves_its_saved_cursor(self):
+        with Zutty(columns=8, rows=4) as terminal:
+            terminal.write(
+                b"\x1b[?1049h\x1b[3;4H\x1b7"
+                b"\x1b[?1049l"
+                b"\x1b[1;1H\x1b[?1049h\x1b8A"
+            )
+            self.assertEqual(terminal.snapshot().cell(3, 2).char, "A")
+
     def test_sco_restore_after_soft_reset_uses_home_defaults(self):
         with Zutty(columns=8, rows=4) as terminal:
             terminal.write(b"\x1b[3;4H\x1b[!p\x1b[4;7H\x1b[uX")

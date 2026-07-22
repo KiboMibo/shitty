@@ -1287,7 +1287,6 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
             } else if (altScreenInitialized) {
                 frame_alt.freeCells();
                 altScreenInitialized = false;
-                savedCursorAlt.isSet = false;
             }
         }
         return;
@@ -1313,7 +1312,6 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         if (clearAlternate) {
             frame_alt.freeCells();
             altScreenInitialized = false;
-            savedCursorAlt.isSet = false;
         }
         savedCursor = &savedCursorPri;
         altScreenBufferMode = false;

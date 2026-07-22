@@ -50,7 +50,6 @@ grid_reset
 # https://github.com/alacritty/alacritty/blob/852e971cddfabe222d2d5bcda466e130f53af207/alacritty_terminal/src/grid/storage.rs#L128
 history
 row_reset
-saved_cursor_alt
 scroll_in_region_up_preserves_history
 # Alacritty added this fixture in commit 33cfc52 as a parser regression for
 # ignoring unsupported CSI sequences.  It did not implement DECSCA, DECSED or
