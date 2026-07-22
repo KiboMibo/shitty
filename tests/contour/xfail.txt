@@ -1,6 +1,5 @@
 # Imported baseline: each entry completed every upstream checkpoint but has at
 # least one semantic dump mismatch. Infrastructure errors never count as XFAIL.
-vttest.02.screen-features
 vttest.04.double-sized
 vttest.07.vt52-mode
 vttest.08.vt102-features
