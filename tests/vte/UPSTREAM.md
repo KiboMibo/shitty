@@ -12,3 +12,10 @@ in bounded batches and every generated sequence is checked. Each
 upstream `g_test_add_func` family is exposed as a separate build target; the
 OSC control introducer/terminator cross-product is split further so failures
 remain local.
+
+`upstream/unicode-width-test.cc` is copied verbatim from the same revision.
+The width adapter extracts its explicit Unicode ranges and points for ambiguous
+width 1, splits large ranges at 256-codepoint boundaries, and verifies 930
+codepoints through the terminal's standard CPR reply. VTE's GLib comparison
+and ambiguous-width-2 assertions are deferred because Zutty does not expose a
+CJK ambiguous-width setting.

@@ -496,6 +496,59 @@ vte_validation = command(
 )
 
 
+vte_width_cases = (vte_root / "width_file_names.txt").read_text().split()
+vte_width_tests = []
+for case in vte_width_cases:
+    vte_width_tests.append(command(
+        name="vte_width_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/vte/width_adapter.py",
+            "$(S)/tests/vte/width_catalog.py",
+            "$(S)/tests/vte/width_file_names.txt",
+            "$(S)/tests/vte/width_xfail.txt",
+            "$(S)/tests/vte/upstream/unicode-width-test.cc",
+        ],
+        outputs=[f"$(B)/tests/vte/width/{case}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/vte/width_adapter.py",
+            case,
+            "tests/vte/width_xfail.txt",
+            f"$(B)/tests/vte/width/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="VTE-WIDTH",
+        color="cyan",
+    ))
+
+
+vte_width_validation = command(
+    name="vte_width_catalog",
+    inputs=[
+        "$(S)/tests/vte/width_catalog.py",
+        "$(S)/tests/vte/width_file_names.txt",
+        "$(S)/tests/vte/width_validate.py",
+        "$(S)/tests/vte/width_xfail.txt",
+        "$(S)/tests/vte/upstream/unicode-width-test.cc",
+    ],
+    outputs=["$(B)/tests/vte/width/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/vte/width_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/vte/width/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="VTE-WIDTH",
+    color="cyan",
+)
+
+
 windows_terminal_root = Path(__file__).parent / "tests" / "windows_terminal"
 windows_terminal_cases = (windows_terminal_root / "file_names.txt").read_text().split()
 windows_terminal_tests = []
@@ -1213,6 +1266,8 @@ install(*kitty_tests)
 install(kitty_validation)
 install(*vte_tests)
 install(vte_validation)
+install(*vte_width_tests)
+install(vte_width_validation)
 install(*windows_terminal_tests)
 install(windows_terminal_validation)
 install(*wezterm_tests)

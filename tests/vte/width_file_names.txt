@@ -1,0 +1,7 @@
+range_000020_00007e
+range_0000a0_0000ff
+range_000100_0001ff
+range_000200_0002ff
+range_000300_00036f
+range_001100_00115e
+points
