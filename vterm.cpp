@@ -3938,6 +3938,10 @@ void VtermImpl::csi_DECSTR() {
 
 void VtermImpl::handle_DCS() {
     TRACE_FUN;
+    if (compatLevel == CompatibilityLevel::VT100) {
+        setState(InputState::Normal);
+        return;
+    }
     auto arg = std::string((char*)argBuf.data(), argBuf.size());
     if (arg.substr(0, 2) == "$q") {
         dcs_DECRQSS(arg);
@@ -5703,7 +5707,7 @@ namespace {
         0x005c,
         0x005d,
         0x005e,
-        0x00a0,
+        0x0020,
 
         0x25c6,
         0x2592,
@@ -7670,13 +7674,17 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                 }
                 switch (ch) {
                     case 'F':
-                        logU << "S7C1T: Send 7-bit controls" << std::endl;
-                        send8BitControls = false;
+                        if (compatLevel == CompatibilityLevel::VT400) {
+                            logU << "S7C1T: Send 7-bit controls" << std::endl;
+                            send8BitControls = false;
+                        }
                         setState(InputState::Normal);
                         break;
                     case 'G':
-                        logU << "S8C1T: Send 8-bit controls" << std::endl;
-                        send8BitControls = true;
+                        if (compatLevel == CompatibilityLevel::VT400) {
+                            logU << "S8C1T: Send 8-bit controls" << std::endl;
+                            send8BitControls = true;
+                        }
                         setState(InputState::Normal);
                         break;
                     case 'L':

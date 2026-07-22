@@ -1,5 +1,11 @@
 # Imported baseline: each entry completed every upstream checkpoint but has at
 # least one semantic dump mismatch. Infrastructure errors never count as XFAIL.
+# VT100 User Guide chapter 3 requires DEL to be ignored and VT52 graphics
+# code 137 octal to image Blank; step02 instead retains DEL and '_'.  VT220
+# Programmer Reference 4.5 requires S8C1T to be ignored in VT100 mode, while
+# step04 is a prematurely recorded empty checkpoint rather than the two
+# DECRQSS/S8C1T results printed by vttest.  DECARM is a user-preference mode,
+# so the recorded `on` state is not a portable oracle either.
 vttest.07.vt52-mode
 vttest.08.vt102-features
 vttest.09.known-bugs

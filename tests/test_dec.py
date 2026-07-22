@@ -89,6 +89,30 @@ class DecProtocolTest(unittest.TestCase):
             terminal.write(b"\x1b[?2l\x1b<\x1b[2;3HX")
             self.assertEqual(terminal.snapshot().cell(2, 1).char, "X")
 
+    def test_vt52_graphics_blank_advances_and_del_is_ignored(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[?2l\x1bF_\x7f\x1bGX")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0][:2], " X")
+            self.assertEqual(snapshot.cursor_x, 2)
+
+    def test_vt100_compatibility_ignores_decrqss_and_s8c1t(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[?2l\x1b<\x1bP$q\"p\x1b\\")
+            self.assertEqual(terminal.read_input(), b"")
+
+            terminal.write(b"\x1b G\x1b[6n")
+            self.assertEqual(terminal.read_input(), b"\x1b[1;1R")
+
+    def test_decscl_restores_extended_controls_from_vt100_mode(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1b[?2l\x1b<"
+                b"\x1b[64;1\"p"
+                b"\x1bP$q\"p\x1b\\"
+            )
+            self.assertEqual(terminal.read_input(), b"\x1bP1$r64;1\"p\x1b\\")
+
     def test_decaln_fills_screen_without_leaking_attributes(self):
         with Zutty(columns=5, rows=3) as terminal:
             terminal.write(b"\x1b[1;31m\x1b#8X")
