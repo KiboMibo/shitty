@@ -302,3 +302,136 @@ for case in read("tests/xtermjs_files.txt").split():
 Если большой источник дорого инициализируется, допустим промежуточный вариант: один target на файл, класс, chapter или shard. Монолитный adapter на весь источник допустим как первый импорт, но затем его стоит дробить только там, где это действительно улучшает диагностику и incremental build.
 
 То есть единицей хранения может быть большой архив, единицей реализации — один общий adapter, а единицей build/test — минимальный разумный логический case. Именно это я теперь считаю желаемым «погружением» внешних suites в нашу модель.
+
+# Real-world application replay corpus
+
+## Цель
+
+Добавить новый black-box слой регрессий:
+
+```text
+фиксированное начальное состояние + весь raw PTY output реальной программы
+    → Vterm
+    → финальный канонический логический снимок терминала
+```
+
+Реальные программы нужны только при генерации corpus. Обычный test run не
+запускает их, не зависит от их текущих версий и не ходит в сеть: он читает
+закоммиченный trace, подаёт его в Zutty и сравнивает финальное состояние с
+закоммиченным golden snapshot.
+
+Повторная генерация trace не обязана быть детерминированной. `htop`, `btop`,
+часы `tmux`, process lists и другие динамические TUI могут при каждом capture
+выдать другой честный поток. Это не проблема: после записи oracle — конкретный
+trace, и обязательный контракт состоит в том, что один и тот же trace всегда
+даёт один и тот же snapshot.
+
+## Формат и hermetic replay
+
+Каждый case хранит:
+
+- `tests/realworld/input/<case>.input.zst` — полный PTY byte stream в
+  детерминированном zstd-контейнере;
+- `tests/realworld/screen/<case>.screen.json` — канонический финальный снимок;
+- запись в `tests/realworld/cases.json` — columns, rows, scrollback и прочие
+  входы модели;
+- имя в `tests/realworld/file_names.txt` — отдельная test node в `build.py`.
+
+Adapter распаковывает zstd локально, подаёт поток нерегулярными
+детерминированными кусками и сравнивает богатый снимок. Сеть и программы,
+которые породили trace, при replay не нужны.
+
+В snapshot фиксируем содержательное состояние:
+
+- grapheme и Unicode codepoints;
+- wide/continuation/wrap/drawn markers;
+- bold, faint, italic, underline style, blink, conceal, strike, overline,
+  inverse и protected;
+- foreground/background/underline RGB и источник цвета;
+- hyperlink и semantic IDs;
+- line attributes;
+- cursor position/style, geometry и scrollback view offset;
+- selection, rectangular-selection и screen reverse state.
+
+Не фиксируем `refresh_count`, текущую фазу blink и другие сведения о числе или
+моменте промежуточных redraw: этот suite проверяет итоговую модель, а не
+планировщик кадров. GPU pixels проверяются отдельными renderer tests.
+
+Raw PTY stream сам по себе не полностью задаёт состояние: dimensions,
+`TERM`/`COLORTERM`, palette/options и начальные terminal modes являются такими
+же входами и явно записываются в manifest. Основные геометрии corpus:
+`40x12`, `80x24`, `120x35`, `200x50`.
+
+## Capture
+
+Генератор для каждого сценария:
+
+1. Создаёт изолированные fixture directory, HOME, локальный git repository и
+   файлы с фиксированным содержимым; секреты, пользовательские пути и сеть в
+   trace не попадают.
+2. Запускает программу из IX с фиксированными terminal environment и geometry.
+3. Ждёт наблюдаемое состояние экрана/PTY, а не произвольный большой sleep.
+4. Посылает команды, клавиши и mouse input сценария.
+5. После каждого действия дренирует PTY до quiet period.
+6. Для alternate-screen программ берёт checkpoint до exit/teardown; cleanup
+   output не является частью case.
+7. Сохраняет объединённый byte stream и полученный в тот же момент логический
+   snapshot.
+
+Нынешнего control interface в основном достаточно: `SPAWN`, `INPUT`, `KEY`,
+mouse commands, `READ_CHILD_OUTPUT`, `MODEL_SNAPSHOT` и `QUIT`. Если реальный
+case требует состояния, которого snapshot пока не показывает, расширяем
+control interface, не обедняем oracle.
+
+## Программы и объём
+
+Доступный в IX исходный набор:
+
+- shells: `bash`, `zsh`, `fish`;
+- editors: `vim`, `nano`, `micro`, `kak`, `emacs -nw`, `dte`, `bim`, `ed`;
+- file managers: `mc`, `far2l`, `lf`, `nnn`, `yazi`, `vifm`, `clifm`;
+- pagers/renderers: `less`, `most`, `bat`, `delta`, `glow`;
+- interactive selectors/dialogs: `fzf`, `dialog`, `gum`;
+- git/database UI: `tig`, `lazygit`, `sqlite3`;
+- dashboards: `htop`, `btop`, `atop`;
+- multiplexers: `tmux`, `screen`;
+- miscellaneous: `termshark`, `eza`, `tree`, `dust`, `duf`, `procs`,
+  `fastfetch`, `chafa`.
+
+В текущем IX нет `neovim`; отсутствие одной программы не блокирует corpus.
+
+Цель — 280 содержательно разных traces:
+
+- CLI formatters and listings: 40;
+- shells: 28;
+- editors: 72;
+- file managers: 40;
+- pagers, pickers and dialogs: 28;
+- git, sqlite and multiplexers: 24;
+- dashboards, monitors and miscellaneous TUI: 24.
+- explicit deep application states (syntax, completion, menus, help, viewers,
+  filters and dialogs): 24.
+
+Генерируем с запасом и сохраняем вариативность реальных protocol paths, а не
+256 косметических копий. Типичный trace должен занимать 10–300 KiB raw,
+максимум — 2 MiB; ожидаемый corpus — 30–80 MiB raw до zstd.
+
+## Интеграция в build graph
+
+Каждый разумно малый case — отдельный target. Его `inputs` перечисляют все
+фактические repo dependencies: общий harness, adapter, serializer, manifest,
+`file_names.txt`, конкретный `.input.zst` и конкретный `.screen.json`.
+Изменение любого из них корректно инвалидирует test node; падение сообщает
+точный case и команду одиночного повтора.
+
+## Статус
+
+Выполнено: 280 отдельных hermetic replay nodes, полный zstd corpus, rich-state
+goldens, per-case build dependencies, irregular chunk replay, catalog
+validation и глубокие состояния реальных приложений.
+
+Каждый интерактивный rich case обязан доказать, что он дошёл до нужного
+состояния программы: manifest хранит обязательные фрагменты UI и минимальное
+число разных цветовых стилей, а capture, catalog validation и replay проверяют
+этот контракт. Генератор перед запуском приложения также проверяет настоящие
+PTY на stdin/stdout/stderr, `TERM=xterm-256color` и `COLORTERM=truecolor`.

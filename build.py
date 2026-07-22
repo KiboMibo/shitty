@@ -1365,6 +1365,59 @@ for case_id, _, _ in termless_cases:
     ))
 
 
+realworld_root = Path(__file__).parent / "tests" / "realworld"
+realworld_cases = (realworld_root / "file_names.txt").read_text().split()
+realworld_validation = command(
+    name="realworld_catalog",
+    inputs=[
+        "$(S)/tests/realworld/validate.py",
+        "$(S)/tests/realworld/corpus.py",
+        "$(S)/tests/realworld/cases.json",
+        "$(S)/tests/realworld/file_names.txt",
+        *build.glob("$(S)/tests/realworld/input/*.input.zst"),
+        *build.glob("$(S)/tests/realworld/screen/*.screen.json"),
+    ],
+    outputs=["$(B)/tests/realworld/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/realworld/validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/realworld/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="REALWORLD",
+    color="cyan",
+)
+realworld_tests = []
+for case in realworld_cases:
+    realworld_tests.append(command(
+        name="realworld_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/realworld/adapter.py",
+            "$(S)/tests/realworld/corpus.py",
+            "$(S)/tests/realworld/cases.json",
+            "$(S)/tests/realworld/file_names.txt",
+            f"$(S)/tests/realworld/input/{case}.input.zst",
+            f"$(S)/tests/realworld/screen/{case}.screen.json",
+        ],
+        outputs=[f"$(B)/tests/realworld/{case}.stamp"],
+        deps=[zutty],
+        cmd=[
+            "python3",
+            "tests/realworld/adapter.py",
+            case,
+            f"$(B)/tests/realworld/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"ZUTTY_TEST_BINARY": "$(B)/zutty"},
+        descr="REALWORLD",
+        color="cyan",
+    ))
+
+
 install(libzutty)
 install(zutty)
 install(test_suite)
@@ -1409,3 +1462,5 @@ install(*xterm_vttests_tests)
 install(*esctest_tests)
 install(termless_validation)
 install(*termless_tests)
+install(realworld_validation)
+install(*realworld_tests)

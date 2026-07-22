@@ -1,0 +1,3995 @@
+{
+  "atop_initial": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec atop 10",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "awk_table": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "awk -F '\\t' '{printf \"%02d | %-10s | %s\\n\", NR, $1, $3}' table.tsv",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "bash_256_colors": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "bash --noprofile --norc -i",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "bash_backspace": {
+    "checkpoint": "exit",
+    "columns": 40,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "bash --noprofile --norc -i",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "bash_commands": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "bash --noprofile --norc -i",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "bash_listing": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "bash --noprofile --norc -i",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "bash_multiline": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "bash --noprofile --norc -i",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "bash_scrollback": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "bash --noprofile --norc -i",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "bash_sgr_matrix": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "bash --noprofile --norc -i",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "bash_truecolor": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "bash --noprofile --norc -i",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "bash_unicode": {
+    "checkpoint": "exit",
+    "columns": 40,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "bash --noprofile --norc -i",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "bat_json": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "bat --color=always --paging=never --style=header,grid data.json",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "bat_python": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "bat --color=always --paging=never --style=numbers,grid sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "bat_unicode": {
+    "checkpoint": "exit",
+    "columns": 40,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "bat --color=always --paging=never --style=plain unicode.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "btop_help": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec btop --force-utf",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "btop_initial": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec btop --force-utf",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "btop_menu": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec btop --force-utf",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "btop_move": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec btop --force-utf",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "btop_process": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec btop --force-utf",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "btop_wide": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec btop --force-utf",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "clifm_initial": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec clifm",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "coreutils_od": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "od -A x -t x1z -N 128 binary.dat",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "coreutils_sha256": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "sha256sum sample.py unicode.txt data.json",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "coreutils_sort": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "LC_ALL=C sort words.txt | uniq -c",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "coreutils_stat": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "stat sample.py unicode.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "coreutils_wc": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "wc -lwc sample.py unicode.txt data.json",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "cut_table": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "cut -f 1,3 table.tsv",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "dialog_calendar": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec dialog --no-shadow --title 'Calendar' --calendar 'Choose date' 0 0 02 01 2020",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "dialog_checklist": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec dialog --no-shadow --title 'Checklist' --checklist 'Features' 17 60 8 a Alpha on b Beta off c Gamma on d Delta off",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "dialog_form": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec dialog --no-shadow --title 'Form' --form 'Deterministic values' 16 70 6 'Name:' 1 1 'trace' 1 20 30 40 'Number:' 3 1 '42' 3 20 10 10",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "dialog_inputbox": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec dialog --no-shadow --title 'Input' --inputbox 'Value:' 10 50 'initial'",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "dialog_menu": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec dialog --no-shadow --title 'Menu' --menu 'Choose item' 15 52 6 a Alpha b Beta c Gamma d Delta e Epsilon",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "dialog_msgbox": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec dialog --no-shadow --title 'Trace message' --msgbox 'Hello from dialog.\\nSecond line: \u03bb\u754c.' 10 50",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "dialog_password": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec dialog --no-shadow --title 'Secret' --passwordbox 'Password:' 10 50",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "dialog_radiolist": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec dialog --no-shadow --title 'Radio' --radiolist 'Select one' 15 52 6 a Alpha on b Beta off c Gamma off",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "dialog_textbox": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec dialog --no-shadow --title 'Text' --textbox long.txt 28 100",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "dialog_yesno": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec dialog --no-shadow --title 'Question' --yesno 'Keep this deterministic trace?' 9 46",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "diff_color": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "diff --color=always -u before.txt after.txt || test $? = 1",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "dte_initial": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec dte -c 'set no-save-on-exit true' sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "dte_insert": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec dte -c 'set no-save-on-exit true' sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "dte_line_numbers": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec dte -c 'set no-save-on-exit true' -c 'set display-line-numbers true' sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "dte_long": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec dte -c 'set no-save-on-exit true' long.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "dte_move": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec dte -c 'set no-save-on-exit true' sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "dte_narrow": {
+    "checkpoint": "quiet",
+    "columns": 40,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "exec dte -c 'set no-save-on-exit true' unicode.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "dte_search": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec dte -c 'set no-save-on-exit true' sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "dte_unicode": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec dte -c 'set no-save-on-exit true' unicode.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "du_human": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "du -ah . | LC_ALL=C sort",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "ed_append": {
+    "checkpoint": "action_exit",
+    "columns": 40,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "exec ed unicode.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "ed_join": {
+    "checkpoint": "action_exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "exec ed before.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "ed_list": {
+    "checkpoint": "action_exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec ed table.tsv",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "ed_marks": {
+    "checkpoint": "action_exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "exec ed before.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "ed_numbered": {
+    "checkpoint": "action_exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec ed sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "ed_print": {
+    "checkpoint": "action_exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec ed sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "ed_search": {
+    "checkpoint": "action_exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec ed sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "ed_substitute": {
+    "checkpoint": "action_exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec ed sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "eza_columns": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "eza --color=always --icons=never .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "eza_long": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "eza --color=always --icons=never -la .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "eza_sort_size": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "eza --color=always --icons=never -l --sort=size .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "eza_tree": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "eza --color=always --icons=never --tree --level=3 .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fastfetch_colors": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "fastfetch --pipe false --logo small",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fastfetch_default": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "fastfetch --pipe false",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fastfetch_small": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "fastfetch --pipe false --logo none",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fastfetch_structure": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "fastfetch --pipe false --logo none --structure 'OS:Kernel:Uptime:Shell:Terminal:CPU:Memory'",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "find_tree": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "find . -maxdepth 3 -print | LC_ALL=C sort",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "find_types": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "find . -maxdepth 3 -printf '%y %p\\n' | LC_ALL=C sort",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fish_256_colors": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec fish --no-config -C \"function fish_prompt; printf 'fish> '; end\"",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fish_basic": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec fish --no-config -C \"function fish_prompt; printf 'fish> '; end\"",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fish_completion": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec fish --no-config -C \"function fish_prompt; printf 'fish> '; end\"",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fish_error": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "exec fish --no-config -C \"function fish_prompt; printf 'fish> '; end\"",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fish_glob": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec fish --no-config -C \"function fish_prompt; printf 'fish> '; end\"",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fish_history": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec fish --no-config -C \"function fish_prompt; printf 'fish> '; end\"",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fish_list": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec fish --no-config -C \"function fish_prompt; printf 'fish> '; end\"",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fish_loop": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec fish --no-config -C \"function fish_prompt; printf 'fish> '; end\"",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fish_multiline": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec fish --no-config -C \"function fish_prompt; printf 'fish> '; end\"",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fish_scrollback": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec fish --no-config -C \"function fish_prompt; printf 'fish> '; end\"",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fish_sgr": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec fish --no-config -C \"function fish_prompt; printf 'fish> '; end\"",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fish_unicode": {
+    "checkpoint": "quiet",
+    "columns": 40,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "exec fish --no-config -C \"function fish_prompt; printf 'fish> '; end\"",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fold_long": {
+    "checkpoint": "exit",
+    "columns": 40,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "fold -w 17 long.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fzf_ansi": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "python3 color_items.py | exec fzf --ansi --no-mouse",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fzf_border": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "seq -f 'entry-%03g' 1 200 | exec fzf --no-mouse --border --info=inline",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fzf_header": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "seq -f 'item-%03g' 1 100 | exec fzf --no-mouse --header='real application trace'",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fzf_height": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "seq -f 'item-%03g' 1 100 | exec fzf --no-mouse --height=60% --border",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fzf_initial": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "seq -f 'item-%03g' 1 100 | exec fzf --no-mouse",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fzf_move": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "seq -f 'item-%03g' 1 100 | exec fzf --no-mouse",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fzf_multi": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "seq -f 'choice-%03g' 1 60 | exec fzf --no-mouse --multi",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fzf_preview": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "seq -f 'file-%03g' 1 40 | exec fzf --no-mouse --preview='printf \\\"preview for %s\\\\nline two\\\\n\u03bb\u754c\\\\n\\\" {}'",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fzf_query": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "seq -f 'item-%03g' 1 100 | exec fzf --no-mouse",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "fzf_reverse": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "seq -f 'item-%03g' 1 100 | exec fzf --no-mouse --layout=reverse",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "git_branch": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "git branch --color=always -avv",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "git_diff": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "printf 'working tree\\n' >> before.txt; git --no-pager diff --color=always",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "git_log_format": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "git --no-pager log --color=always --format='%C(yellow)%h%Creset %C(cyan)%ad%Creset %s' --date=short",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "git_log_graph": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "git --no-pager log --color=always --graph --oneline --decorate --all",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "git_log_oneline": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "git --no-pager log --color=always --oneline --decorate --all",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "git_show": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "git --no-pager show --color=always --stat --oneline HEAD",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "git_status": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "printf 'untracked\\n' > new-file; git status --short --branch",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "git_tag": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "git tag -n --color=always",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "grep_color": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "grep --color=always -nE 'return|print|str' sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "grep_recursive": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "grep --color=always -RIn 'one\\|hello' .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "head_tail": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "head -n 3 unicode.txt; printf '%s\\n' '---'; tail -n 3 unicode.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "htop_filter_dialog": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [
+      "Filter: bash"
+    ],
+    "minimum_color_styles": 5,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec htop -d 10",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "htop_initial": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec htop -d 10",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "htop_scroll": {
+    "checkpoint": "quiet",
+    "columns": 40,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "exec htop -d 10",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "htop_search_dialog": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [
+      "Search: htop"
+    ],
+    "minimum_color_styles": 5,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec htop -d 10",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "htop_setup": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [
+      "Setup",
+      "Meters"
+    ],
+    "minimum_color_styles": 5,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec htop -d 10",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "htop_signal_menu": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [
+      "Send signal",
+      "SIGTERM"
+    ],
+    "minimum_color_styles": 5,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec htop -d 10",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "htop_sort_memory": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec htop -d 10",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "htop_threads": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec htop -d 10",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "htop_tree": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec htop -d 10",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "htop_wide": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec htop -d 10",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "kak_echo_version": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec kak -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "kak_initial": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec kak -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "kak_insert": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec kak -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "kak_move": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec kak -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "kak_narrow": {
+    "checkpoint": "quiet",
+    "columns": 40,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "exec kak -n unicode.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "kak_numbers": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec kak -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "kak_search": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec kak -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "kak_select_lines": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec kak -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "kak_split": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec kak -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "kak_syntax_c": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [
+      "#include",
+      "puts"
+    ],
+    "minimum_color_styles": 5,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec kak -n src/main.c",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "kak_syntax_json": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [
+      "\"enabled\"",
+      "\"items\""
+    ],
+    "minimum_color_styles": 5,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec kak -n data.json",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "kak_syntax_markdown": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [
+      "# Notes",
+      "- one"
+    ],
+    "minimum_color_styles": 5,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec kak -n src/nested/notes.md",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "kak_syntax_python": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [
+      "def greet",
+      "return f"
+    ],
+    "minimum_color_styles": 5,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec kak -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "kak_unicode": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec kak -n unicode.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "lazygit_help": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [
+      "Keybindings",
+      "Stage lines",
+      "Discard"
+    ],
+    "minimum_color_styles": 5,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec lazygit",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "lazygit_initial": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec lazygit",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "less_ansi": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec less -R ansi.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "less_end": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec less -R long.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "less_help": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec less long.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "less_horizontal": {
+    "checkpoint": "quiet",
+    "columns": 40,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "exec less -S long_lines.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "less_mark_roundtrip": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec less -R long.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "less_numbers": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec less -N -R sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "less_page_down": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec less -R long.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "less_search": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec less -R long.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "less_status": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec less -R long.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "less_top": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec less -R unicode.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "lf_command": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec lf",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "lf_filter": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec lf",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "lf_hidden": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec lf",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "lf_initial": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec lf",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "lf_marks": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec lf",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "lf_move": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec lf",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "lf_preview": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec lf",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "lf_wide": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec lf",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "ls_color_columns": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "ls --color=always -CF .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "ls_color_long": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "ls --color=always -la .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "ls_inode_blocks": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "ls --color=always -lis .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "ls_quote_names": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "ls --color=always -lb .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "ls_recursive": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "ls --color=always -lR .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "mc_hidden": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec mc -u",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "mc_initial": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec mc -u",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "mc_menu": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [
+      "File listing",
+      "Quick view",
+      "Listing format"
+    ],
+    "minimum_color_styles": 4,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec mc -u",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "mc_move": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec mc -u",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "mc_other_panel": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec mc -u",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "mc_quick_view": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec mc -u",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "mc_quick_view_toggle": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [
+      "def greet",
+      "return f"
+    ],
+    "minimum_color_styles": 4,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec mc -u",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "mc_tree": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec mc -u",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "mc_user_menu": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [
+      "User menu"
+    ],
+    "minimum_color_styles": 4,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec mc -u",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "mc_view_python": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [
+      "def greet",
+      "return f"
+    ],
+    "minimum_color_styles": 3,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec mc -u",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "micro_command": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec micro -config-dir $HOME/.config/micro sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "micro_end": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec micro -config-dir $HOME/.config/micro long.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "micro_help": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec micro -config-dir $HOME/.config/micro sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "micro_initial": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec micro -filetype python sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "micro_insert": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec micro -config-dir $HOME/.config/micro sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "micro_move": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec micro -config-dir $HOME/.config/micro sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "micro_narrow": {
+    "checkpoint": "quiet",
+    "columns": 40,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "exec micro -config-dir $HOME/.config/micro unicode.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "micro_search": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec micro -config-dir $HOME/.config/micro sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "micro_select": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec micro -config-dir $HOME/.config/micro sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "micro_split": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec micro -config-dir $HOME/.config/micro sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "micro_tab": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec micro -config-dir $HOME/.config/micro sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "micro_unicode": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec micro -config-dir $HOME/.config/micro unicode.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "most_long": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec most long.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nano_end": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec nano --ignorercfiles long.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nano_file_browser": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [
+      "DIR:",
+      "sample.py"
+    ],
+    "minimum_color_styles": 1,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec nano --ignorercfiles sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nano_help": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec nano --ignorercfiles sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nano_initial": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec nano --ignorercfiles sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nano_insert": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec nano --ignorercfiles sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nano_mark": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec nano --ignorercfiles sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nano_move": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec nano --ignorercfiles sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nano_narrow": {
+    "checkpoint": "quiet",
+    "columns": 40,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "exec nano --ignorercfiles unicode.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nano_replace_prompt": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [
+      "Search (to replace)"
+    ],
+    "minimum_color_styles": 1,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec nano --ignorercfiles sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nano_search": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec nano --ignorercfiles sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nano_search_unicode": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec nano --ignorercfiles unicode.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nano_syntax_c": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [
+      "#include",
+      "puts"
+    ],
+    "minimum_color_styles": 3,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec nano --syntax=c src/main.c",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nano_syntax_python": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [
+      "def greet",
+      "return f"
+    ],
+    "minimum_color_styles": 3,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec nano --syntax=python sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nano_whereis_cancel": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec nano --ignorercfiles sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nl_unicode": {
+    "checkpoint": "exit",
+    "columns": 40,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "nl -ba unicode.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nnn_context": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec nnn",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nnn_detail": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec nnn -d",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nnn_filter": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec nnn",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nnn_help": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec nnn",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nnn_hidden": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec nnn",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nnn_initial": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec nnn",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nnn_move": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec nnn",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "nnn_sort": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec nnn",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "paste_columns": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "paste words.txt unicode.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "printf_controls": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "printf '\\e[2J\\e[Htop\\e[4;12Hplaced\\e[2A\\e[5Ccursor\\n'",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "printf_tabs": {
+    "checkpoint": "exit",
+    "columns": 40,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "printf 'a\\tb\\tc\\n1234567\\tX\\n\\tindented\\n'",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "printf_truecolor": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "python3 color_grid.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "sed_transform": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "sed -n 's/[aeiou]/_/g;=' words.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "sqlite_box": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "sqlite3 -box ':memory:' \"with t(id,name) as (values(1,'alpha'),(2,'\u03b2eta'),(3,'\u754c')) select * from t;\"",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "sqlite_column": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "sqlite3 -column -header ':memory:' \"select 1 as id, 'alpha' as name union all select 22, 'longer value';\"",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "sqlite_explain": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "sqlite3 ':memory:' \"create table t(a integer primary key,b text); explain select b from t where a=4;\"",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "sqlite_json": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "sqlite3 -json ':memory:' \"select 1 as id, 'alpha' as name union all select 2, '\u754c';\"",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "sqlite_markdown": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "sqlite3 -markdown ':memory:' \"select '\u03bb' as greek, '\u754c' as wide union all select 'beta','\u65e5\u672c\u8a9e';\"",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "sqlite_quote": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "sqlite3 -quote ':memory:' \"select null, 42, 3.5, 'a''b', x'00ff';\"",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "sqlite_recursive": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "sqlite3 -box ':memory:' \"with recursive n(x) as (values(1) union all select x+1 from n where x<12) select x, printf('%.*c',x,'*') as bar from n;\"",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "sqlite_table": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "sqlite3 -table ':memory:' \"select 'left' as side, 10 as amount union all select 'right', 200;\"",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "tig_diff": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec tig --all",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "tig_help": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec tig --all",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "tig_initial": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec tig --all",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "tig_log_view": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec tig log",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "tig_main_narrow": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec tig --all",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "tig_move": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec tig --all",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "tig_search": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec tig --all",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "tig_status": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "printf 'working\\n' >> before.txt; exec tig status",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "tmux_command": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "export PS1='tmux$ '; exec tmux -L trace -f /dev/null new-session -s main",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "tmux_copy_mode": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "export PS1='tmux$ '; exec tmux -L trace -f /dev/null new-session -s main",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "tmux_help": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "export PS1='tmux$ '; exec tmux -L trace -f /dev/null new-session -s main",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "tmux_initial": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "export PS1='tmux$ '; exec tmux -L trace -f /dev/null new-session -s main",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "tmux_new_window": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "export PS1='tmux$ '; exec tmux -L trace -f /dev/null new-session -s main",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "tmux_split_horizontal": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "export PS1='tmux$ '; exec tmux -L trace -f /dev/null new-session -s main",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "tmux_split_vertical": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "export PS1='tmux$ '; exec tmux -L trace -f /dev/null new-session -s main",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "tmux_wide": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "export PS1='tmux$ '; exec tmux -L trace -f /dev/null new-session -s main",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "tree_ascii": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "tree -a --charset ascii .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "tree_color": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "tree -a -C .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "tree_dirs": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "tree -d -C .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vifm_help": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec vifm --no-configs . .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vifm_hidden": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vifm --no-configs . .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vifm_initial": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vifm --no-configs . .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vifm_move": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vifm --no-configs . .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vifm_other_panel": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec vifm --no-configs . .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vifm_sort": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vifm --no-configs . .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vifm_visual": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vifm --no-configs . .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vifm_wide": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec vifm --no-configs . .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_buffer_list": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [
+      "sample.py",
+      "unicode.txt",
+      "data.json"
+    ],
+    "minimum_color_styles": 2,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_center_cursor": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n long.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_colorscheme_completion": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [
+      "blue",
+      "default"
+    ],
+    "minimum_color_styles": 3,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_command_history": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_cursorline": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_diff": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n -d before.txt after.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_end_of_file": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n long.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_help": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_initial_python": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_initial_unicode": {
+    "checkpoint": "quiet",
+    "columns": 40,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n unicode.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_insert_ascii": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_insert_completion": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [
+      "print"
+    ],
+    "minimum_color_styles": 3,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_insert_unicode": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n unicode.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_listchars": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n table.tsv",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_nowrap_long": {
+    "checkpoint": "quiet",
+    "columns": 40,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n long_lines.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_numbers": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_registers": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [
+      "Type Name Content",
+      "#!/usr/bin/env python3"
+    ],
+    "minimum_color_styles": 2,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_relative_numbers": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n long.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_search": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_search_count": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n long.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_search_unicode": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n unicode.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_split": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_status_ruler": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_substitute": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_syntax_c": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [
+      "#include",
+      "puts"
+    ],
+    "minimum_color_styles": 4,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n src/main.c",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_syntax_json": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [
+      "\"enabled\"",
+      "\"items\""
+    ],
+    "minimum_color_styles": 4,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n data.json",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_syntax_markdown": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [
+      "# Notes",
+      "- one"
+    ],
+    "minimum_color_styles": 3,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n src/nested/notes.md",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_syntax_python": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_tabs": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_visual_block": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_visual_lines": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_vsplit": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_wildmenu_edit": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [
+      "sample.py",
+      "src/"
+    ],
+    "minimum_color_styles": 2,
+    "rows": 35,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n sample.py",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "vim_wrap_long": {
+    "checkpoint": "quiet",
+    "columns": 40,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "exec vim -Nu NONE -n long_lines.txt",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "zsh_256_colors": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "export PS1='zsh% '; exec zsh -f",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "zsh_array": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "export PS1='zsh% '; exec zsh -f",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "zsh_basic": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "export PS1='zsh% '; exec zsh -f",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "zsh_completion": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "export PS1='zsh% '; exec zsh -f",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "zsh_error": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "export PS1='zsh% '; exec zsh -f",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "zsh_glob": {
+    "checkpoint": "quiet",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "export PS1='zsh% '; exec zsh -f",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "zsh_history": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "export PS1='zsh% '; exec zsh -f",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "zsh_loop": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "export PS1='zsh% '; exec zsh -f",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "zsh_multiline": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "export PS1='zsh% '; export PS2='more> '; exec zsh -f",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "zsh_scrollback": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "export PS1='zsh% '; exec zsh -f",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "zsh_sgr": {
+    "checkpoint": "quiet",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "export PS1='zsh% '; exec zsh -f",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "zsh_unicode": {
+    "checkpoint": "quiet",
+    "columns": 40,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 12,
+    "save_lines": 500,
+    "source_command": "export PS1='zsh% '; exec zsh -f",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  }
+}
