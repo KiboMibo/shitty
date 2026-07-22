@@ -57,6 +57,13 @@
 # substitution.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 18state_termprops.test
+# Besides libvterm's blinking-by-default reset, this fixture requires
+# DECSC/DECRC (and xterm mode 1048) to save and restore cursor shape and blink.
+# The VT420/VT520 DECSC state list covers position, rendition, GL/GR character
+# sets, wrap flag, origin mode, selective erase, and pending single shift, but
+# not cursor shape/blink.  Xterm 410 CursorSave2() likewise stores no such
+# fields.  Zutty intentionally leaves the later DECSCUSR shape in effect.
+# https://invisible-island.net/archives/xterm/xterm-410.tgz
 22state_save.test
 25state_input.test
 26state_query.test
