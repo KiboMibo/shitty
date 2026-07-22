@@ -2095,17 +2095,21 @@ void VtermImpl::esc_RI() {
 
 void VtermImpl::csi_ecma48_SL() {
     TRACE_FUN;
-    u32 arg = inputOps[0] ? inputOps[0] : 1u;
-    arg = std::min<u32>(arg, nColsEff - hMargin);
-    deleteCols(hMargin, (u16)(arg));
+    if (isCursorInsideMargins()) {
+        u32 arg = inputOps[0] ? inputOps[0] : 1u;
+        arg = std::min<u32>(arg, nColsEff - hMargin);
+        deleteCols(hMargin, (u16)(arg));
+    }
     setState(InputState::Normal);
 }
 
 void VtermImpl::csi_ecma48_SR() {
     TRACE_FUN;
-    u32 arg = inputOps[0] ? inputOps[0] : 1u;
-    arg = std::min<u32>(arg, nColsEff - hMargin);
-    insertCols(hMargin, (u16)(arg));
+    if (isCursorInsideMargins()) {
+        u32 arg = inputOps[0] ? inputOps[0] : 1u;
+        arg = std::min<u32>(arg, nColsEff - hMargin);
+        insertCols(hMargin, (u16)(arg));
+    }
     setState(InputState::Normal);
 }
 

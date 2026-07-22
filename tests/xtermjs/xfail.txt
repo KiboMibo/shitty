@@ -25,5 +25,3 @@ t0084-CBT
 # This fixture enables only 45 but expects BS/CUB to cross hard CRLF-created
 # line boundaries, conflating the two modes. Zutty preserves their distinction.
 t0103-reverse_wrap
-t600-DECSTBM_SR
-t601-DECSTBM_SL

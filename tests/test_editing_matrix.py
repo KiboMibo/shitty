@@ -52,8 +52,28 @@ class EditingMatrixTest(unittest.TestCase):
             with self.subTest(operation=operation):
                 with Zutty(columns=6, rows=2) as terminal:
                     terminal.write(put_rows(b"abcdef", b"ghijkl"))
-                    terminal.write(b"\x1b[?69h\x1b[2;5s\x1b[4294967295" + operation)
+                    terminal.write(
+                        b"\x1b[?69h\x1b[2;5s\x1b[1;2H\x1b[4294967295"
+                        + operation
+                    )
                     self.assertEqual(terminal.snapshot().lines, ["a    f", "g    l"])
+
+    def test_horizontal_scroll_requires_cursor_inside_vertical_margins(self):
+        cases = (
+            (b" @", ["abcdef", "ijkl  ", "opqr  ", "stuvwx"]),
+            (b" A", ["abcdef", "  ghij", "  mnop", "stuvwx"]),
+        )
+        for operation, expected in cases:
+            with self.subTest(operation=operation):
+                with Zutty(columns=6, rows=4) as terminal:
+                    original = ["abcdef", "ghijkl", "mnopqr", "stuvwx"]
+                    terminal.write(put_rows(*(row.encode() for row in original)))
+                    terminal.write(b"\x1b[2;3r\x1b[1;1H\x1b[2" + operation)
+                    self.assertEqual(terminal.snapshot().lines, original)
+                    terminal.write(b"\x1b[2;1H\x1b[2" + operation)
+                    self.assertEqual(terminal.snapshot().lines, expected)
+                    terminal.write(b"\x1b[4;1H\x1b[2" + operation)
+                    self.assertEqual(terminal.snapshot().lines, expected)
 
     def test_large_column_edit_counts_clear_to_right_margin(self):
         for operation in (b"'}", b"'~"):
@@ -82,7 +102,9 @@ class EditingMatrixTest(unittest.TestCase):
     def test_invalid_overflowed_horizontal_margins_keep_previous_region(self):
         with Zutty(columns=6, rows=2) as terminal:
             terminal.write(put_rows(b"abcdef", b"ghijkl"))
-            terminal.write(b"\x1b[?69h\x1b[2;5s\x1b[65537;6s\x1b[ @")
+            terminal.write(
+                b"\x1b[?69h\x1b[2;5s\x1b[65537;6s\x1b[1;2H\x1b[ @"
+            )
             self.assertEqual(terminal.snapshot().lines, ["acde f", "gijk l"])
 
     def test_line_editing_outside_margins_is_ignored(self):
