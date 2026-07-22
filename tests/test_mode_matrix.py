@@ -231,12 +231,13 @@ class ModeMatrixTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().lines[0], "content ")
             for mode, state in ANSI_DEFAULTS.items():
                 self.assertEqual(query(terminal, mode), mode_reply(mode, state))
-            for mode in (1, 5, 6, 12, 42, 45, 67, 69, 1000, 1004,
+            for mode in (1, 5, 6, 12, 42, 45, 67, 1000, 1004,
                          1006, 1007, 1034, 1036, 1045, 2004):
                 self.assertEqual(
                     query(terminal, mode, True),
                     mode_reply(mode, PRIVATE_DEFAULTS[mode], True),
                 )
+            self.assertEqual(query(terminal, 69, True), mode_reply(69, 1, True))
             terminal.write(b"\x1b[?6hX")
             self.assertEqual(terminal.snapshot().cell(0, 0).char, "X")
 

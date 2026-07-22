@@ -4149,7 +4149,6 @@ void VtermImpl::csi_DECSTR() {
     resetAttrs();
     marginTop = 0;
     marginBottom = nRows;
-    horizMarginMode = false;
     hMargin = 0;
     nColsEff = nCols;
     posX = 0;
