@@ -9,6 +9,8 @@ class ChangeSpecialColorTests(object):
   Current xterm's ReportAnsiColorRequest emits the request opcode and subtracts
   NUM_ANSI_COLORS from the reported slot for opcode 5.  The original esctest
   expectation described an older, explicitly undocumented OSC 4 reply.
+  Xlib's device-independent spaces are converted through the screen CCC;
+  Zutty uses an explicit sRGB/D65 profile instead of an X11 screen profile.
   """
 
   @knownBug(terminal="iTerm2", reason="Color reporting not implemented.", shouldTry=False)
@@ -66,35 +68,34 @@ class ChangeSpecialColorTests(object):
   @knownBug(terminal="iTerm2", reason="Color reporting not implemented.", shouldTry=False)
   def test_ChangeSpecialColor_RGBI(self):
     self.doChangeSpecialColorTest("0", "rgbi:1/1/1", "ffff/ffff/ffff")
-    self.doChangeSpecialColorTest("0", "rgbi:0.5/0.5/0.5", "c1c1/bbbb/bbbb")
+    self.doChangeSpecialColorTest("0", "rgbi:0.5/0.5/0.5", "bcbc/bcbc/bcbc")
 
   @knownBug(terminal="iTerm2", reason="Color reporting not implemented.", shouldTry=False)
   def test_ChangeSpecialColor_CIEXYZ(self):
     self.doChangeSpecialColorTest("0", "CIEXYZ:1/1/1", "ffff/ffff/ffff")
-    self.doChangeSpecialColorTest("0", "CIEXYZ:0.5/0.5/0.5", "dddd/b5b5/a0a0")
+    self.doChangeSpecialColorTest("0", "CIEXYZ:0.5/0.5/0.5", "cccc/b7b7/b4b4")
 
   @knownBug(terminal="iTerm2", reason="Color reporting not implemented.", shouldTry=False)
   def test_ChangeSpecialColor_CIEuvY(self):
     self.doChangeSpecialColorTest("0", "CIEuvY:1/1/1", "ffff/ffff/ffff")
-    self.doChangeSpecialColorTest("0", "CIEuvY:0.5/0.5/0.5", "ffff/a3a3/aeae")
+    self.doChangeSpecialColorTest("0", "CIEuvY:0.5/0.5/0.5", "ffff/a2a2/acac")
 
   @knownBug(terminal="iTerm2", reason="Color reporting not implemented.", shouldTry=False)
   def test_ChangeSpecialColor_CIExyY(self):
     self.doChangeSpecialColorTest("0", "CIExyY:1/1/1", "ffff/ffff/ffff")
-    self.doChangeSpecialColorTest("0", "CIExyY:0.5/0.5/0.5", "f7f7/b3b3/0e0e")
+    self.doChangeSpecialColorTest("0", "CIExyY:0.5/0.5/0.5", "e8e8/b5b5/0000")
 
   @knownBug(terminal="iTerm2", reason="Color reporting not implemented.", shouldTry=False)
   def test_ChangeSpecialColor_CIELab(self):
-    self.doChangeSpecialColorTest("0", "CIELab:1/1/1", "6c6c/6767/6767")
-    self.doChangeSpecialColorTest("0", "CIELab:0.5/0.5/0.5", "5252/4f4f/4f4f")
+    self.doChangeSpecialColorTest("0", "CIELab:1/1/1", "5e5e/5d5d/5d5d")
+    self.doChangeSpecialColorTest("0", "CIELab:0.5/0.5/0.5", "4343/4242/4242")
 
   @knownBug(terminal="iTerm2", reason="Color reporting not implemented.", shouldTry=False)
   def test_ChangeSpecialColor_CIELuv(self):
-    self.doChangeSpecialColorTest("0", "CIELuv:1/1/1", "1616/1414/0e0e")
-    self.doChangeSpecialColorTest("0", "CIELuv:0.5/0.5/0.5", "0e0e/1313/0e0e")
+    self.doChangeSpecialColorTest("0", "CIELuv:1/1/1", "0808/0303/0000")
+    self.doChangeSpecialColorTest("0", "CIELuv:0.5/0.5/0.5", "0404/0101/0000")
 
   @knownBug(terminal="iTerm2", reason="Color reporting not implemented.", shouldTry=False)
   def test_ChangeSpecialColor_TekHVC(self):
-    self.doChangeSpecialColorTest("0", "TekHVC:1/1/1", "1a1a/1313/0f0f")
-    self.doChangeSpecialColorTest("0", "TekHVC:0.5/0.5/0.5", "1111/1313/0e0e")
-
+    self.doChangeSpecialColorTest("0", "TekHVC:1/1/1", "0b0b/0101/0303")
+    self.doChangeSpecialColorTest("0", "TekHVC:0.5/0.5/0.5", "0606/0101/0101")

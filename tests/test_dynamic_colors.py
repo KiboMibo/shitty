@@ -256,6 +256,59 @@ class DynamicColorTest(unittest.TestCase):
             terminal.write(b"\x1b]105\x1b\\\x1b]5;0;?;1;?\x1b\\")
             self.assertEqual(terminal.read_input(), original0 + original1)
 
+    def test_xcms_color_spaces_use_the_srgb_d65_profile(self):
+        red_specs = (
+            b"ciexyz:0.4124564/0.2126729/0.0193339",
+            b"CIExyY:0.64/0.33/0.2126729",
+            b"CIEuvY:0.4507042253521127/0.522887323943662/0.2126729",
+            b"CIELab:53.2408/0.800925/0.672032",
+            b"CIELuv:53.2408/1.75015/0.37756",
+        )
+        with Zutty(columns=4, rows=2) as terminal:
+            for spec in red_specs:
+                with self.subTest(spec=spec):
+                    terminal.write(b"\x1b]12;" + spec + b"\x1b\\")
+                    self.assertEqual(
+                        dynamic_query(terminal, 12),
+                        b"\x1b]12;rgb:ffff/0000/0000\x1b\\",
+                    )
+
+            expected = (
+                (b"rgbi:0/0.5/1", b"0000/bcbc/ffff"),
+                (b"RgBi:+0e0/5e-1/1E0", b"0000/bcbc/ffff"),
+                (b"TekHVC:0/0/0", b"0000/0000/0000"),
+                (b"TekHVC:0/100/0", b"ffff/ffff/ffff"),
+                (b"TekHVC:0/50/10", b"8c8c/7070/7474"),
+            )
+            for spec, reply in expected:
+                with self.subTest(spec=spec):
+                    terminal.write(b"\x1b]12;" + spec + b"\x1b\\")
+                    self.assertEqual(
+                        dynamic_query(terminal, 12),
+                        b"\x1b]12;rgb:" + reply + b"\x1b\\",
+                    )
+
+    def test_invalid_xcms_color_specs_leave_color_unchanged(self):
+        invalid = (
+            b"rgbi:-0.1/0/0",
+            b"rgbi:0/0/1.1",
+            b"rgbi:nan/0/0",
+            b"CIEXYZ:0/1.1/0",
+            b"CIEuvY:0/0/1.1",
+            b"CIExyY:-0.1/0.3/0.5",
+            b"CIELab:101/0/0",
+            b"CIELuv:-1/0/0",
+            b"TekHVC:0/101/0",
+            b"TekHVC:0/50/-1",
+            b"CIEXYZ:0/0/0/trailing",
+        )
+        with Zutty(columns=4, rows=2) as terminal:
+            before = dynamic_query(terminal, 12)
+            for spec in invalid:
+                with self.subTest(spec=spec):
+                    terminal.write(b"\x1b]12;" + spec + b"\x1b\\")
+                    self.assertEqual(dynamic_query(terminal, 12), before)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,9 @@ import esccmd
 import escio
 from escutil import AssertEQ, knownBug
 
+# Xlib converts device-independent color specifications through the target
+# screen's CCC. Zutty's Wayland profile is explicitly sRGB/D65.
+
 class ChangeDynamicColorTests(object):
   @knownBug(terminal="iTerm2", reason="Color reporting not implemented.", shouldTry=False)
   def test_ChangeDynamicColor_Multiple(self):
@@ -54,36 +57,35 @@ class ChangeDynamicColorTests(object):
   @knownBug(terminal="iTerm2", reason="Color reporting not implemented.", shouldTry=False)
   def test_ChangeDynamicColor_RGBI(self):
     self.doChangeDynamicColorTest("10", "rgbi:1/1/1", "ffff/ffff/ffff")
-    self.doChangeDynamicColorTest("10", "rgbi:0.5/0.5/0.5", "c1c1/bbbb/bbbb")
+    self.doChangeDynamicColorTest("10", "rgbi:0.5/0.5/0.5", "bcbc/bcbc/bcbc")
 
   @knownBug(terminal="iTerm2", reason="Color reporting not implemented.", shouldTry=False)
   def test_ChangeDynamicColor_CIEXYZ(self):
     self.doChangeDynamicColorTest("10", "CIEXYZ:1/1/1", "ffff/ffff/ffff")
-    self.doChangeDynamicColorTest("10", "CIEXYZ:0.5/0.5/0.5", "dddd/b5b5/a0a0")
+    self.doChangeDynamicColorTest("10", "CIEXYZ:0.5/0.5/0.5", "cccc/b7b7/b4b4")
 
   @knownBug(terminal="iTerm2", reason="Color reporting not implemented.", shouldTry=False)
   def test_ChangeDynamicColor_CIEuvY(self):
     self.doChangeDynamicColorTest("10", "CIEuvY:1/1/1", "ffff/ffff/ffff")
-    self.doChangeDynamicColorTest("10", "CIEuvY:0.5/0.5/0.5", "ffff/a3a3/aeae")
+    self.doChangeDynamicColorTest("10", "CIEuvY:0.5/0.5/0.5", "ffff/a2a2/acac")
 
   @knownBug(terminal="iTerm2", reason="Color reporting not implemented.", shouldTry=False)
   def test_ChangeDynamicColor_CIExyY(self):
     self.doChangeDynamicColorTest("10", "CIExyY:1/1/1", "ffff/ffff/ffff")
-    self.doChangeDynamicColorTest("10", "CIExyY:0.5/0.5/0.5", "f7f7/b3b3/0e0e")
+    self.doChangeDynamicColorTest("10", "CIExyY:0.5/0.5/0.5", "e8e8/b5b5/0000")
 
   @knownBug(terminal="iTerm2", reason="Color reporting not implemented.", shouldTry=False)
   def test_ChangeDynamicColor_CIELab(self):
-    self.doChangeDynamicColorTest("10", "CIELab:1/1/1", "6c6c/6767/6767")
-    self.doChangeDynamicColorTest("10", "CIELab:0.5/0.5/0.5", "5252/4f4f/4f4f")
+    self.doChangeDynamicColorTest("10", "CIELab:1/1/1", "5e5e/5d5d/5d5d")
+    self.doChangeDynamicColorTest("10", "CIELab:0.5/0.5/0.5", "4343/4242/4242")
 
   @knownBug(terminal="iTerm2", reason="Color reporting not implemented.", shouldTry=False)
   def test_ChangeDynamicColor_CIELuv(self):
-    self.doChangeDynamicColorTest("10", "CIELuv:1/1/1", "1616/1414/0e0e")
-    self.doChangeDynamicColorTest("10", "CIELuv:0.5/0.5/0.5", "0e0e/1313/0e0e")
+    self.doChangeDynamicColorTest("10", "CIELuv:1/1/1", "0808/0303/0000")
+    self.doChangeDynamicColorTest("10", "CIELuv:0.5/0.5/0.5", "0404/0101/0000")
 
   @knownBug(terminal="iTerm2", reason="Color reporting not implemented.", shouldTry=False)
   def test_ChangeDynamicColor_TekHVC(self):
-    self.doChangeDynamicColorTest("10", "TekHVC:1/1/1", "1a1a/1313/0f0f")
-    self.doChangeDynamicColorTest("10", "TekHVC:0.5/0.5/0.5", "1111/1313/0e0e")
-
+    self.doChangeDynamicColorTest("10", "TekHVC:1/1/1", "0b0b/0101/0303")
+    self.doChangeDynamicColorTest("10", "TekHVC:0.5/0.5/0.5", "0606/0101/0101")
 

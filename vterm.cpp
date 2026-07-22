@@ -13,6 +13,7 @@
 #include "vterm_trace.h"
 
 #include "base64.h"
+#include "color_spec.h"
 #include "composer.h"
 #include "frame.h"
 #include "grapheme.h"
@@ -722,72 +723,6 @@ namespace {
 
     const u32* GraphemeBuffer::data() const {
         return size_ <= inlineCapacity ? inlineValues.data() : overflowValues.data();
-    }
-}
-
-namespace {
-    bool parseOscColor(const std::string& spec, Color& color) {
-        const auto hexDigit = [](unsigned char ch) -> int {
-            if (ch >= '0' && ch <= '9') {
-                return ch - '0';
-            }
-            if (ch >= 'a' && ch <= 'f') {
-                return ch - 'a' + 10;
-            }
-            if (ch >= 'A' && ch <= 'F') {
-                return ch - 'A' + 10;
-            }
-            return -1;
-        };
-        const auto component = [&](const std::string& value, u8& out) {
-            if (value.empty() || value.size() > 4) {
-                return false;
-            }
-            unsigned parsed = 0;
-            for (unsigned char ch : value) {
-                const int digit = hexDigit(ch);
-                if (digit < 0) {
-                    return false;
-                }
-                parsed = parsed * 16 + digit;
-            }
-            const unsigned maximum = (1u << (4 * value.size())) - 1;
-            out = (u8)((parsed * 255 + maximum / 2) / maximum);
-            return true;
-        };
-        const auto hashComponent = [&](const std::string& value, u8& out) {
-            if (value.empty() || value.size() > 4) {
-                return false;
-            }
-            unsigned parsed = 0;
-            for (unsigned char ch : value) {
-                const int digit = hexDigit(ch);
-                if (digit < 0) {
-                    return false;
-                }
-                parsed = parsed * 16 + digit;
-            }
-            if (value.size() < 2) {
-                parsed <<= 4;
-            } else if (value.size() > 2) {
-                parsed >>= 4 * (value.size() - 2);
-            }
-            out = (u8)parsed;
-            return true;
-        };
-
-        if (spec.size() >= 4 && spec.size() <= 13 && spec[0] == '#' && (spec.size() - 1) % 3 == 0) {
-            const size_t width = (spec.size() - 1) / 3;
-            return hashComponent(spec.substr(1, width), color.red)
-                && hashComponent(spec.substr(1 + width, width), color.green)
-                && hashComponent(spec.substr(1 + 2 * width, width), color.blue);
-        }
-        if (spec.compare(0, 4, "rgb:") != 0) {
-            return false;
-        }
-        const size_t first = spec.find('/', 4);
-        const size_t second = first == std::string::npos ? std::string::npos : spec.find('/', first + 1);
-        return first != std::string::npos && second != std::string::npos && spec.find('/', second + 1) == std::string::npos && component(spec.substr(4, first - 4), color.red) && component(spec.substr(first + 1, second - first - 1), color.green) && component(spec.substr(second + 1), color.blue);
     }
 }
 
@@ -4726,7 +4661,7 @@ void VtermImpl::osc_PaletteQuery(int cmd, const std::string& arg) {
             writeOscResponse(reply.str());
         } else {
             Color color;
-            if (parseOscColor(spec, color)) {
+            if (parseXColor(spec, color)) {
                 if (special) {
                     colors.special[colorIndex] = color;
                     frame_pri.expose();
@@ -4757,7 +4692,7 @@ void VtermImpl::osc_SpecialColorQuery(const std::string& arg) {
             writeOscResponse(reply.str());
         } else {
             Color color;
-            if (parseOscColor(spec, color)) {
+            if (parseXColor(spec, color)) {
                 colors.special[index] = color;
                 changed = true;
             }
@@ -4848,7 +4783,7 @@ void VtermImpl::osc_DynamicColorQuery(int cmd, const std::string& arg) {
         writeOscResponse(oss.str());
     } else {
         Color color;
-        if (!parseOscColor(arg, color)) {
+        if (!parseXColor(arg, color)) {
             return;
         }
         switch (cmd) {
