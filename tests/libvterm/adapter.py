@@ -494,10 +494,12 @@ def apply_command(terminal, line, state):
         else:
             terminal.write(b"\x1bc")
             configure_libvterm_colors(terminal)
-            if state["parser_enabled"]:
-                terminal.parser_trace_clear()
         if not state["utf8"]:
             terminal.write(b"\x1b%@")
+        if line == "RESET" and state["parser_enabled"]:
+            # RESET and the adapter's encoding selection are fixture setup,
+            # not parser callbacks requested by WANTSTATE f.
+            terminal.parser_trace_clear()
         return
     if line == "WANTPARSER" or (line.startswith("WANTSTATE") and "f" in line[9:]):
         terminal.parser_trace_on()
