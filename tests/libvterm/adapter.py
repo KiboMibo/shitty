@@ -61,6 +61,12 @@ def decode_perl_string(expression):
                 index += 2
         elif escape in escapes:
             result.append(escapes[escape])
+        elif escape in "01234567":
+            digits = escape
+            while index < len(source) and len(digits) < 3 and source[index] in "01234567":
+                digits += source[index]
+                index += 1
+            result.append(int(digits, 8))
         else:
             result.extend(escape.encode("utf-8"))
     return bytes(result) * int(repeat or 1)

@@ -65,6 +65,16 @@
 # fields.  Zutty intentionally leaves the later DECSCUSR shape in effect.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 22state_save.test
+# This fixture exercises libvterm's `vterm_keyboard_unichar()` policy rather
+# than a terminal output protocol.  It requires CSI-u `codepoint;modifier u`
+# for ambiguous modified characters without enabling a mode.  Zutty's real
+# frontend maps Ctrl+letter/space to C0 before the core, while its configured
+# xterm modifyOtherKeys level 1 uses the documented legacy
+# `CSI 27;modifier;codepoint~` form and leaves ordinary Shift-Space unchanged.
+# Xterm ctlseqs documents CSI-u as the optional formatOtherKeys alternative,
+# not the sole/default encoding.  These two input APIs therefore cannot share
+# this fixture's byte oracle.
+# https://invisible-island.net/archives/xterm/xterm-410.tgz
 25state_input.test
 26state_query.test
 # For `e` plus U+0301 followed by REP, libvterm repeats the complete grapheme.
