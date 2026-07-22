@@ -13,7 +13,6 @@ grid_reset
 history
 insert_blank_reset
 row_reset
-saved_cursor
 saved_cursor_alt
 scroll_in_region_up_preserves_history
 scroll_up_reset
