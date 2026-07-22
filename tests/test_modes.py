@@ -4,6 +4,14 @@ from harness import Zutty
 
 
 class ModeTest(unittest.TestCase):
+    def test_new_line_mode_applies_to_lf_vt_and_ff(self):
+        for control in (b"\n", b"\v", b"\f"):
+            with self.subTest(control=control), Zutty(columns=8, rows=3) as terminal:
+                terminal.write(b"\x1b[20h\x1b[1;4H" + control + b"X")
+                snapshot = terminal.snapshot()
+                self.assertEqual(snapshot.cell(0, 1).char, "X")
+                self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
+
     def test_blinking_text_drives_periodic_refresh(self):
         with Zutty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[2 q\x1b[5mX")

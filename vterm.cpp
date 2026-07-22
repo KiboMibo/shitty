@@ -7263,6 +7263,9 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                     case '\v':
                     case '\n':
                         traceNormalInput();
+                        if (autoNewlineMode) {
+                            inp_CR();
+                        }
                         esc_IND();
                         break;
                     case '\t':
