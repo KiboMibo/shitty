@@ -193,7 +193,7 @@ def configure_libvterm_colors(terminal):
     )
 
 
-def compare_cell(snapshot, assertion, expected):
+def compare_cell(snapshot, assertion, expected, screen_reverse):
     match = re.fullmatch(r"screen_cell\s+(\d+),(\d+)", assertion)
     if not match:
         raise ValueError(f"invalid cell assertion: {assertion}")
@@ -224,8 +224,11 @@ def compare_cell(snapshot, assertion, expected):
             "inverse": "R" in attrs,
         }
         for field, value in wanted.items():
-            if getattr(cell, field) != value:
-                differences.append(f"{field}={getattr(cell, field)}")
+            actual = getattr(cell, field)
+            if field == "inverse":
+                actual ^= screen_reverse
+            if actual != value:
+                differences.append(f"{field}={actual}")
     for label, field in (("fg", "foreground"), ("bg", "background")):
         color_match = re.search(rf"\b{label}=(rgb\([^)]+\))", expected)
         if color_match:
@@ -305,7 +308,9 @@ def compare_assertion(terminal, assertion, expected):
         return "" if actual == int(expected) else f"got {actual}"
 
     if assertion.startswith("screen_cell "):
-        return compare_cell(snapshot, assertion, expected)
+        return compare_cell(
+            snapshot, assertion, expected, terminal.render_state().screen_reverse
+        )
 
     match = re.fullmatch(r"lineinfo\s+(\d+)", assertion)
     if match:

@@ -113,6 +113,14 @@
 # libvterm's embedding callback API and are marked pending by the adapter.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 63screen_resize.test
+# The only remaining mismatches are SGR 73/74 superscript/subscript attributes
+# implemented by libvterm as small raised/lowered glyphs.  Xterm 410's ctlseqs
+# gives its complete supported SGR list (and explains that most higher ECMA-48
+# attributes were never implemented); 73, 74 and 75 are absent.  Zutty's
+# xterm-compatible model therefore ignores this libvterm extension.  DECSCNM
+# is otherwise fully matched after the adapter compares the effective
+# cell-inverse XOR screen-reverse state that Zutty's renderer actually uses.
+# https://invisible-island.net/archives/xterm/xterm-410.tgz
 64screen_pen.test
 68screen_termprops.test
 69screen_reflow.test
