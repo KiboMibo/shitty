@@ -84,7 +84,11 @@ main_fuzz = program(
 
 
 test_suite = command(
-    inputs=build.glob("$(S)/tests/*.py"),
+    inputs=[
+        *build.glob("$(S)/tests/*.py"),
+        "$(S)/application.cpp",
+        "$(S)/zutty.desktop",
+    ],
     outputs=["$(B)/tests.stamp"],
     deps=[zutty],
     cmd=[
