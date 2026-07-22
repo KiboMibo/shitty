@@ -4,6 +4,11 @@ decrqss_decsca
 decrqss_decscusr
 decrqss_decscl
 decrqss_decslrm
+# Xterm 410 ctlseqs.txt lists `t` as the valid DECSLPP DECRQSS request,
+# and misc.c answers it with the current line count (at least 24).  Zutty's
+# `24t` is therefore correct; the imported ea4510a4 profile omits this newer
+# capability and expects no response.
+decrqss_decslpp
 decrqss_decstbm
 decrqss_sgr
 device_attributes
