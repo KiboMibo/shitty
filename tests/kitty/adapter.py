@@ -14,6 +14,9 @@ from catalog import case_payload
 
 def exercise(payload, chunked):
     with Zutty(columns=5, rows=5, save_lines=5) as terminal:
+        # DEC mode 2026 freezes the last rendered frame.  Give whole and
+        # bytewise parsing the same frame before either can enable it.
+        terminal.write(b"\x00")
         terminal.parser_trace_on()
         if chunked:
             terminal.write_chunks(*(payload[index:index + 1]
