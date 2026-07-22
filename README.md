@@ -168,9 +168,11 @@ To run only the native black-box suite:
 ./test.sh test_suite
 ```
 
-The native harness starts the production binary in headless mode, connects it
-to a real raw PTY, and observes canonical snapshots rather than calling parser
-internals. The larger graph also imports or adapts cases from Alacritty,
+The native harness starts the dedicated `st_test` build in headless mode,
+connects it to a real raw PTY, and observes canonical snapshots rather than
+calling parser internals. Production `st` does not compile the control protocol
+or its test-only environment hooks. The larger graph also imports or adapts
+cases from Alacritty,
 Contour/vttest, esctest, Ghostty, Kitty, Konsole, libvterm, Mosh, tack,
 Termless, tmux, ucs-detect, VTE, WezTerm, Windows Terminal, xterm, and xterm.js,
 plus recorded real-world terminal streams.
@@ -193,7 +195,7 @@ UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1' \
 - `vk_renderer.*`, `vk_presenter.*` — render bridge and Vulkan presentation.
 - `render.comp` — terminal compute compositor, embedded as SPIR-V at build time.
 - `font.*`, `font_pack.*`, `font_resolver.*` — fontconfig and FreeType atlases.
-- `test_mode.*`, `tests/harness.py` — black-box control protocol and snapshots.
+- `test_mode.*`, `tests/harness.py` — test-build-only control protocol and snapshots.
 - `build.py` — product, helper, and conformance-suite build graph.
 
 ## Known limits

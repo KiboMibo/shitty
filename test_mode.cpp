@@ -1,3 +1,7 @@
+#ifndef SHITTY_FOR_TESTS
+#error "test_mode.cpp must not be compiled into the production binary"
+#endif
+
 #include "test_mode.h"
 
 #include "clipboard.h"

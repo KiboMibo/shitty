@@ -22,10 +22,13 @@
 #include "pty_event_source.h"
 #include "vk_renderer.h"
 #include "startup.h"
-#include "test_mode.h"
 #include "utf8.h"
 #include "vterm.h"
 #include "vterm_host.h"
+
+#ifdef SHITTY_FOR_TESTS
+#include "test_mode.h"
+#endif
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -66,7 +69,11 @@ using namespace stl;
 extern char** environ;
 
 namespace {
-    class ApplicationImpl final: public Application, public VtermHost, public PtyEventHost, public TestModeInput {
+    class ApplicationImpl final: public Application, public VtermHost, public PtyEventHost
+#ifdef SHITTY_FOR_TESTS
+        , public TestModeInput
+#endif
+    {
     public:
         explicit ApplicationImpl(Composer& composer);
         ~ApplicationImpl();
@@ -134,7 +141,9 @@ namespace {
 
         std::exception_ptr callbackError;
 
+#ifdef SHITTY_FOR_TESTS
         int takeTestFd(int& argc, char* argv[]);
+#endif
         int gridAlignedWindowSize(int framebufferSize, int border, int cellSize, float scale, int currentWindowSize);
         void queueFramebufferResize(int width, int height);
         static void childSignalHandler(int signal, siginfo_t* info, void*);
@@ -154,9 +163,11 @@ namespace {
         VtKey specialKey(int key, int modifiers);
         void onKeyEvent(int key, int scancode, int action, int rawModifiers);
         void onTextInput(u32 codepoint, int rawModifiers);
+#ifdef SHITTY_FOR_TESTS
         void attachTestVterm(Vterm& terminal) override;
         void testKeyEvent(int key, int scancode, int action, int modifiers) override;
         void testTextInput(unsigned codepoint, int modifiers) override;
+#endif
         double pixelScaleX();
         double pixelScaleY();
         int toPixelX(double x);
@@ -208,6 +219,7 @@ ApplicationImpl::~ApplicationImpl() {
     emergencyCleanup();
 }
 
+#ifdef SHITTY_FOR_TESTS
 int ApplicationImpl::takeTestFd(int& argc, char* argv[]) {
     for (int k = 1; k < argc; ++k) {
         if (std::strcmp(argv[k], "--test-fd") != 0) {
@@ -230,6 +242,7 @@ int ApplicationImpl::takeTestFd(int& argc, char* argv[]) {
     }
     return -1;
 }
+#endif
 
 int ApplicationImpl::gridAlignedWindowSize(int framebufferSize, int border, int cellSize, float scale, int currentWindowSize) {
     const int innerSize = framebufferSize - 2 * border;
@@ -1262,6 +1275,7 @@ void ApplicationImpl::onCharacter(GLFWwindow*, unsigned codepoint) {
     });
 }
 
+#ifdef SHITTY_FOR_TESTS
 void ApplicationImpl::attachTestVterm(Vterm& terminal) {
     vt = &terminal;
 }
@@ -1273,6 +1287,7 @@ void ApplicationImpl::testKeyEvent(int key, int scancode, int action, int modifi
 void ApplicationImpl::testTextInput(unsigned codepoint, int modifiers) {
     onTextInput(codepoint, modifiers);
 }
+#endif
 
 void ApplicationImpl::onMouseButtonCallback(GLFWwindow*, int button, int action, int modifiers) {
     guardCallback([this, button, action, modifiers]() {
@@ -1460,7 +1475,9 @@ std::string ApplicationImpl::glfwFailure(const char* operation) {
 }
 
 int ApplicationImpl::run(int argc, char* argv[]) {
+#ifdef SHITTY_FOR_TESTS
     const int testFd = takeTestFd(argc, argv);
+#endif
     checkLocale();
     opts.initialize(&argc, argv);
     opts.parse();
@@ -1470,9 +1487,11 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     if (setenv("SHITTY_VERSION", SHITTY_VERSION, 1) < 0) {
         SYS_ERROR("setenv SHITTY_VERSION");
     }
+#ifdef SHITTY_FOR_TESTS
     if (testFd >= 0) {
         return runTestMode(composer, *this, testFd, argc, argv);
     }
+#endif
 
     LaunchCommand launch = buildLaunchCommand(argc, argv, opts.shell, opts.login);
     if (argc > 2 && std::strcmp(argv[1], "-e") == 0) {

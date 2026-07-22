@@ -1,5 +1,9 @@
 #pragma once
 
+#ifndef SHITTY_FOR_TESTS
+#error "test_mode.h is available only in the SHITTY_FOR_TESTS build"
+#endif
+
 struct Composer;
 struct Vterm;
 

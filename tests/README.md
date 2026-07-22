@@ -6,11 +6,12 @@ Build Shitty and run the black-box tests through the build graph:
 ./build
 ```
 
-The harness starts the regular `st` binary in headless test mode. It sends
-terminal output and control events over an inherited Unix socket and reads
-logical screen snapshots from the same socket. The simulated child side is a
-real raw PTY, so replies, keyboard input and terminal resizing follow the same
-path as in an interactive session.
+The harness starts the dedicated `st_test` binary. It sends terminal output and
+control events over an inherited Unix socket and reads logical screen snapshots
+from the same socket. The simulated child side is a real raw PTY, so replies,
+keyboard input and terminal resizing follow the same path as in an interactive
+session. Production `st` neither compiles the control protocol nor recognizes
+its test-only environment knobs.
 
 Every file in this directory is deliberately kept at one level. Test modules
 are grouped by behavior (`test_parser.py`, `test_modes.py`, and so on), without
