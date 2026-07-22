@@ -110,6 +110,17 @@ def command_for(root, case):
                 "0x20", "0x41", "0xa1", "0x301", "0x3a9", "0x20ac",
                 "0x2500", "0x754c", "0xff01", "0x1f642", "0x1f680",
             ))
+        elif case == "resize.pl":
+            timeout = shutil.which("timeout")
+            if timeout is None:
+                raise RuntimeError("resize.pl requires coreutils timeout")
+            arguments = [
+                timeout,
+                "--preserve-status",
+                "--signal=TERM",
+                "1.25",
+                *arguments,
+            ]
         return arguments
     return [script]
 

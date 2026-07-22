@@ -805,9 +805,8 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
     const auto pumpChild = [&]() {
         terminal.flushPtyOutput();
         pollfd source{io[0], POLLIN, 0};
-        while (poll(&source, 1, 0) > 0 && (source.revents & POLLIN)) {
+        if (poll(&source, 1, 0) > 0 && (source.revents & POLLIN)) {
             terminal.readPty();
-            source.revents = 0;
         }
         terminal.flushPtyOutput();
         int status = 0;

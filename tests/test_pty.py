@@ -83,6 +83,18 @@ class PtyTest(unittest.TestCase):
             terminal.write(b"\x1b[5n")
             self.assertEqual(terminal.read_input(), b"\x1b[0n")
 
+    def test_continuous_child_output_does_not_monopolize_poll_child(self):
+        with Zutty(columns=8, rows=2) as terminal:
+            terminal.spawn(
+                sys.executable,
+                "-c",
+                "import os; data = b'\\0' * 65536; "
+                "exec('while True: os.write(1, data)')",
+            )
+            terminal.wait_read_pty()
+            status, _ = terminal.poll_child()
+            self.assertIsNone(status)
+
     def test_nonblocking_read_without_data_is_not_eof(self):
         with Zutty(columns=8, rows=2) as terminal:
             self.assertFalse(terminal.read_pty())
