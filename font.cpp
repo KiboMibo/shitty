@@ -29,14 +29,12 @@ namespace stl {}
 using namespace stl;
 
 namespace {
-    class FontImpl final: public Font {
-    public:
+    struct FontImpl final: public Font {
         FontImpl(StringView filename, FontKind kind, FontMetrics& metrics);
         ~FontImpl() noexcept;
 
         FontGlyph glyph(u32 id) override;
 
-    private:
         void configure();
         void configureFixed();
         void configureScaled();

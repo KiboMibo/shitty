@@ -75,7 +75,7 @@ using namespace stl;
 extern char** environ;
 
 namespace {
-    class ApplicationImpl final:
+    struct ApplicationImpl final:
         public Application,
         public VtermHost,
         public PtyEventHost
@@ -84,7 +84,6 @@ namespace {
         public TestModeInput
 #endif
     {
-    public:
         explicit ApplicationImpl(Composer& composer);
         ~ApplicationImpl();
 

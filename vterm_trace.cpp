@@ -25,8 +25,7 @@ namespace {
         std::string data;
     };
 
-    class VtermTraceImpl final: public VtermTrace {
-    public:
+    struct VtermTraceImpl final: public VtermTrace {
         void text(const u8* data, size_t size) override;
         void control(u8 ch) override;
         void escapeBegin() override;
@@ -41,7 +40,6 @@ namespace {
         std::string drain() override;
         void clear() override;
 
-    private:
         constexpr static size_t noEvent = std::numeric_limits<size_t>::max();
 
         size_t add(const char* type);

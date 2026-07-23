@@ -23,16 +23,14 @@ namespace stl {}
 using namespace stl;
 
 namespace {
-    class HeadlessPty final: public Pty {
-    public:
+    struct HeadlessPty final: public Pty {
         int fd() const override;
         ssize_t read(u8* buffer, size_t size) override;
         ssize_t write(const u8* buffer, size_t size) override;
         void resize(u16 columns, u16 rows) override;
     };
 
-    class HeadlessHost final: public VtermHost {
-    public:
+    struct HeadlessHost final: public VtermHost {
         HeadlessHost(u16 pixelWidth, u16 pixelHeight);
 
         bool present(const Frame& frame) override;
@@ -47,19 +45,16 @@ namespace {
         void windowOperation(u32 operation, u32 first, u32 second) override;
         VtermWindowInfo windowInfo() override;
 
-    private:
         u16 pixelWidth;
         u16 pixelHeight;
     };
 
-    class VtermHeadlessImpl final: public VtermHeadless {
-    public:
+    struct VtermHeadlessImpl final: public VtermHeadless {
         VtermHeadlessImpl(u16 pixelWidth, u16 pixelHeight);
 
         void initialize(Composer& composer, u16 pixelWidth, u16 pixelHeight);
         void feed(const u8* data, size_t len) override;
 
-    private:
         HeadlessPty pty;
         HeadlessHost host;
         Vterm* vterm = nullptr;

@@ -21,8 +21,7 @@ namespace stl {}
 using namespace stl;
 
 namespace {
-    class FontpackImpl final: public Fontpack {
-    public:
+    struct FontpackImpl final: public Fontpack {
         FontpackImpl(Composer& composer, StringView fontname, StringView dwfontname);
 
         u16 getPx() const override;
@@ -33,7 +32,6 @@ namespace {
         bool hasDoubleWidth() const override;
         FontGlyph glyph(u32 id, FontStyle style, bool doubleWidth) override;
 
-    private:
         Font* createOptional(Composer& composer, StringView filename, FontKind kind, FontMetrics metrics);
         Font* select(FontStyle style) const noexcept;
         FontGlyph fallback(Font* font, Font* base, u32 id);

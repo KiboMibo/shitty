@@ -117,23 +117,20 @@ namespace {
         return result;
     }
 
-    class GraphemeBuffer {
-    public:
+    struct GraphemeBuffer {
         void clear();
         void push_back(u32 codepoint);
         bool empty() const;
         size_t size() const;
         const u32* data() const;
 
-    private:
         constexpr static size_t inlineCapacity = 4;
         std::array<u32, inlineCapacity> inlineValues = {};
         std::vector<u32> overflowValues;
         size_t size_ = 0;
     };
 
-    class VtermImpl final: public Vterm {
-    public:
+    struct VtermImpl final: public Vterm {
         VtermImpl(Composer& composer, VtermHost& host, Pty& pty, Output* dump, u16 glyphPx, u16 glyphPy, u16 winPx, u16 winPy);
 
         ~VtermImpl();
@@ -205,7 +202,6 @@ namespace {
 
         void pasteSelection(const std::string& utf8_selection);
 
-    private:
         Point selectionPoint(int pX, int pY) const;
         std::string getLocalEcho(const u8* const begin, const u8* const end);
         bool processInput(const u8* input, int size, bool refresh = true);

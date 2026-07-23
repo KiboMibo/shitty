@@ -46,8 +46,7 @@ namespace {
 
     static_assert(__is_trivially_copyable(CellExtra), "CellExtra must remain trivially copyable");
 
-    class CellExtraStoreImpl final: public CellExtraStore {
-    public:
+    struct CellExtraStoreImpl final: public CellExtraStore {
         CellExtraStoreImpl(Composer& composer, size_t cellCount, CellExtraStoreOwner& owner, ObjPool* pool);
 
         static CellExtraStoreImpl* create(Composer& composer, size_t cellCount, CellExtraStoreOwner& owner);
@@ -74,7 +73,6 @@ namespace {
         bool hardLimitExceeded() const noexcept override;
         void collect(Vector<u32*>& locations) override;
 
-    private:
         Composer& composer_;
         CellExtraStoreOwner& owner_;
         ObjPool* pool_;

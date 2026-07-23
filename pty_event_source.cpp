@@ -29,8 +29,7 @@ using namespace stl;
 
 namespace {
 
-    class PtyEventSourceImpl final: public PtyEventSource {
-    public:
+    struct PtyEventSourceImpl final: public PtyEventSource {
         PtyEventSourceImpl(Pty& pty, PtyEventHost& host);
         ~PtyEventSourceImpl();
 
@@ -38,7 +37,6 @@ namespace {
         void acknowledge() override;
         void setWriteInterest(bool enabled) override;
 
-    private:
         Pty& pty;
         PtyEventHost& host;
         int wakePipe[2]{-1, -1};

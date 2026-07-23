@@ -59,8 +59,7 @@ using namespace stl;
 namespace {
     extern "C" int openpty(int*, int*, char*, const termios*, const winsize*);
 
-    class TestPty final: public Pty {
-    public:
+    struct TestPty final: public Pty {
         explicit TestPty(int fd);
 
         int fd() const override;
@@ -72,20 +71,17 @@ namespace {
         void setWriteHandler(std::function<ssize_t(const u8*, size_t)> handler);
         std::string takeReadData();
 
-    private:
         int fd_;
         std::function<ssize_t(u8*, size_t)> onRead;
         std::function<ssize_t(const u8*, size_t)> onWrite;
         std::string readData;
     };
 
-    class TestUtf8Decoder {
-    public:
+    struct TestUtf8Decoder {
         TestUtf8Decoder();
 
         std::vector<u32> push(const std::string& input);
 
-    private:
         std::vector<u32> output;
         Utf8Decoder decoder;
     };
@@ -238,8 +234,7 @@ namespace {
         return output;
     }
 
-    class TestDisplay {
-    public:
+    struct TestDisplay {
         bool update(const Frame& frame);
         void failNextPresent();
         std::string snapshot() const;
@@ -249,7 +244,6 @@ namespace {
         std::string scrollbackState() const;
         std::string screenText() const;
 
-    private:
         bool failNextUpdate = false;
         u16 columns = 0;
         u16 rows = 0;
@@ -273,7 +267,7 @@ namespace {
         std::vector<CellColor> modelUnderlineColors;
     };
 
-    template <class Cell>
+    template <typename Cell>
     unsigned cellUnderline(const Cell& cell) {
         return cell.underline;
     }
@@ -283,7 +277,7 @@ namespace {
         return cell.underlined();
     }
 
-    template <class Cell>
+    template <typename Cell>
     unsigned cellFlags(const Cell& cell) {
         return (cell.dwidth << 0) | (cell.dwidth_cont << 1) | (cell.bold << 2) | (cell.italic << 3) | (cellUnderline(cell) << 4) | (cell.inverse << 5) | (cell.wrap << 6) | (cell.faint << 7) | (cell.blink << 8) | (cell.conceal << 9) | (cell.strike << 10) | (cell.overline << 11) | (cell.underline_style << 12) | ((cell.protected_char != 0) << 15) | (cell.line_attr << 16) | (cell.drawn << 18);
     }

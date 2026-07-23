@@ -66,8 +66,7 @@ using namespace stl;
 
 namespace {
 
-    class PtyImpl final: public Pty {
-    public:
+    struct PtyImpl final: public Pty {
         explicit PtyImpl(int fd);
         ~PtyImpl();
 
@@ -76,7 +75,6 @@ namespace {
         ssize_t write(const u8* buffer, size_t size) override;
         void resize(u16 columns, u16 rows) override;
 
-    private:
         int fd_;
     };
 

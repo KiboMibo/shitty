@@ -44,15 +44,13 @@ namespace stl {}
 using namespace stl;
 
 namespace {
-    class RendererImpl final: public Renderer {
-    public:
+    struct RendererImpl final: public Renderer {
         RendererImpl(GLFWwindow* window, Fontpack* fontpk);
         ~RendererImpl();
 
         bool update(const Frame& frame) override;
         bool repaint() override;
 
-    private:
         struct ImageResource {
             VkImage image = VK_NULL_HANDLE;
             VkDeviceMemory memory = VK_NULL_HANDLE;
