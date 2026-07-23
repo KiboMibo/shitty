@@ -1,0 +1,81 @@
+/* This file is part of Shitty.
+ * Copyright (C) 2026 Shitty team
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * See the file LICENSE for the full license.
+ */
+
+#pragma once
+
+#include "terminal_types.h"
+
+#include <std/lib/vector.h>
+#include <std/str/view.h>
+
+struct Composer;
+
+struct GraphemeView {
+    const u32* values = nullptr;
+    u32 count = 0;
+
+    const u32* begin() const noexcept {
+        return values;
+    }
+
+    const u32* end() const noexcept {
+        return count == 0 ? values : values + count;
+    }
+
+    const u32* data() const noexcept {
+        return values;
+    }
+
+    size_t size() const noexcept {
+        return count;
+    }
+
+    bool empty() const noexcept {
+        return count == 0;
+    }
+
+    const u32& operator[](size_t index) const noexcept {
+        return values[index];
+    }
+};
+
+class CellExtraStore {
+public:
+    virtual ~CellExtraStore() noexcept = default;
+
+    virtual CellColor underlineColor(const TerminalCell& cell) const noexcept = 0;
+    virtual GraphemeView grapheme(const TerminalCell& cell) const noexcept = 0;
+    virtual GraphemeView grapheme(u32 ref) const noexcept = 0;
+    virtual stl::StringView hyperlink(const TerminalCell& cell) const noexcept = 0;
+    virtual u32 hyperlinkDisplayId(const TerminalCell& cell) const noexcept = 0;
+
+    virtual u32 getOrCreateHyperlink(
+        stl::StringView identity,
+        stl::StringView payload,
+        u32 displayId
+    ) = 0;
+    virtual u32 findHyperlink(stl::StringView identity) const noexcept = 0;
+    virtual size_t hyperlinkCount() const noexcept = 0;
+
+    virtual void setUnderlineColor(TerminalCell& cell, CellColor color) = 0;
+    virtual void setGrapheme(TerminalCell& cell, const u32* codepoints, size_t count) = 0;
+    virtual void clearGrapheme(TerminalCell& cell) = 0;
+    virtual void setHyperlink(TerminalCell& cell, u32 hyperlinkRef) = 0;
+    virtual void clearHyperlink(TerminalCell& cell) = 0;
+    virtual void clearExtra(TerminalCell& cell, CellColor underlineColor) = 0;
+
+    virtual void setCellCount(size_t cellCount) noexcept = 0;
+    virtual bool shouldCollect() const noexcept = 0;
+    virtual bool hardLimitExceeded() const noexcept = 0;
+    virtual void collect(stl::Vector<u32*>& locations) = 0;
+
+    static CellExtraStore* create(Composer& composer, size_t cellCount);
+};

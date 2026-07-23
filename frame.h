@@ -11,8 +11,8 @@
 
 #pragma once
 #include <std/sys/types.h>
+#include <std/lib/vector.h>
 
-#include "cell_extra.h"
 #include "terminal_types.h"
 #include "utf8.h"
 
@@ -20,11 +20,14 @@
 #include <deque>
 #include <vector>
 
+class CellExtraStore;
+struct Composer;
+
 class Frame {
 public:
     Frame();
 
-    Frame(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, const TerminalColors* colors_, CellExtraStore* extras_, u16 saveLines_ = 0);
+    Frame(Composer& composer_, u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, const TerminalColors* colors_, u16 saveLines_ = 0);
 
     struct ResizeState {
         Point cursor;
@@ -53,14 +56,8 @@ public:
     TerminalCell* writeSpan(u16 pY, u16 startX, u16 count);
     const TerminalCell& getViewCell(u16 pY, u16 pX) const;
 
-    GraphemeView getGrapheme(u32 ref) const;
-    CellColor getUnderlineColor(const TerminalCell& cell) const noexcept {
-        return extras->underlineColor(cell);
-    }
+    CellExtraStore* cellExtras() const noexcept;
     void collectExtraRefLocations(stl::Vector<u32*>& locations);
-    void bindExtraStore(CellExtraStore* store) noexcept {
-        extras = store;
-    }
     size_t cellCapacity() const noexcept {
         return (size_t)(nCols) * (nRows + saveLines);
     }
@@ -183,7 +180,7 @@ private:
 
     TerminalCell::Ptr cells = nullptr;
     const TerminalColors* colors = nullptr;
-    CellExtraStore* extras = nullptr;
+    Composer* composer = nullptr;
     std::vector<TerminalCell> erasedRowTemplate;
     TerminalCell erasedRowCell{};
     bool erasedRowTemplateValid = false;
@@ -224,8 +221,13 @@ private:
     void copyCells(u32 dstIx, u32 srcIx, u32 count);
     void moveCells(u32 dstIx, u32 srcIx, u32 count);
 
-    RenderCell materialize(const TerminalCell& cell) const;
-    void damageDeltaCopy(RenderCell* dst, u32 start, u32 count) const;
+    RenderCell materialize(const TerminalCell& cell, const CellExtraStore& extras) const;
+    void damageDeltaCopy(
+        RenderCell* dst,
+        u32 start,
+        u32 count,
+        const CellExtraStore& extras
+    ) const;
 
     static SelectSnapTo cycleSelectSnapTo(SelectSnapTo& snapTo) {
         return (SelectSnapTo)(((u8)(snapTo) + 1) % (u8)(SelectSnapTo::COUNT));

@@ -10,6 +10,9 @@
  */
 
 #include "frame.h"
+
+#include "cell_extra_store.h"
+#include "composer.h"
 #include "log.h"
 
 #include <utf8proc.h>
@@ -85,11 +88,11 @@ void Frame::setSelectionColor(bool foreground, Color color, bool enabled) {
     expose();
 }
 
-GraphemeView Frame::getGrapheme(u32 ref) const {
-    return extras == nullptr ? GraphemeView{} : extras->grapheme(ref);
+CellExtraStore* Frame::cellExtras() const noexcept {
+    return composer == nullptr ? nullptr : composer->cellExtras;
 }
 
-Frame::Frame(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, const TerminalColors* colors_, CellExtraStore* extras_, u16 saveLines_)
+Frame::Frame(Composer& composer_, u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, const TerminalColors* colors_, u16 saveLines_)
     : winPx(winPx_)
     , winPy(winPy_)
     , nCols(nCols_)
@@ -98,7 +101,7 @@ Frame::Frame(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u1
     , viewOffset(0)
     , cells(TerminalCell::make(nCols, nRows + saveLines))
     , colors(colors_)
-    , extras(extras_)
+    , composer(&composer_)
     , screen(nRows)
 {
     for (RowId row = 0; row < nRows; ++row) {
@@ -469,19 +472,23 @@ Frame::ResizeState Frame::resize(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_,
 }
 
 void Frame::fullCopyCells(RenderCell* const dst) const {
+    CellExtraStore* const extras = cellExtras();
+    assert(extras != nullptr);
     RenderCell* p = dst;
     for (int pY = 0; pY < nRows; ++pY) {
         const TerminalCell* src = getViewRowPtr(pY);
         for (u16 pX = 0; pX < nCols; ++pX) {
-            *p++ = materialize(src[pX]);
+            *p++ = materialize(src[pX], *extras);
         }
     }
 }
 
 void Frame::deltaCopyCells(RenderCell* const dst) const {
+    CellExtraStore* const extras = cellExtras();
+    assert(extras != nullptr);
     RenderCell* p = dst;
     for (int pY = -viewOffset; pY < nRows - viewOffset; ++pY) {
-        damageDeltaCopy(p, nCols * getLogicalRow(pY), nCols);
+        damageDeltaCopy(p, nCols * getLogicalRow(pY), nCols, *extras);
         p += nCols;
     }
 }
@@ -575,6 +582,8 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
 
     using unicodeString = std::vector<u32>;
     std::vector<unicodeString> lines;
+    CellExtraStore* const extras = cellExtras();
+    assert(extras != nullptr);
     bool wrap = false;
 
     auto addLine = [&](int y, u16 x1, u16 x2) {
@@ -656,9 +665,11 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
     return true;
 }
 
-RenderCell Frame::materialize(const TerminalCell& cell) const {
+RenderCell Frame::materialize(
+    const TerminalCell& cell,
+    const CellExtraStore& extras
+) const {
     assert(colors != nullptr);
-    assert(extras != nullptr);
     RenderCell result;
     result.uc_pt = cell.uc_pt ? cell.uc_pt : ' ';
     result.dwidth = cell.dwidth;
@@ -680,18 +691,23 @@ RenderCell Frame::materialize(const TerminalCell& cell) const {
     result.line_attr = cell.line_attr;
     result.fg = colors->resolveForeground(cell);
     result.bg = colors->resolveBackground(cell);
-    const CellColor underlineColor = extras->underlineColor(cell);
+    const CellColor underlineColor = extras.underlineColor(cell);
     result.underline_color = colors->resolve(underlineColor);
     if (cell.underlined() && underlineColor == cell.foreground()) {
         result.underline_color = result.fg;
     }
-    result.hyperlink = extras->hyperlinkDisplayId(cell);
-    result.grapheme = extras->grapheme(cell).empty() ? 0 : cell.extraRef();
+    result.hyperlink = extras.hyperlinkDisplayId(cell);
+    result.grapheme = extras.grapheme(cell).empty() ? 0 : cell.extraRef();
     result.semantic = cell.semantic;
     return result;
 }
 
-void Frame::damageDeltaCopy(RenderCell* dst, u32 start, u32 count) const {
+void Frame::damageDeltaCopy(
+    RenderCell* dst,
+    u32 start,
+    u32 count,
+    const CellExtraStore& extras
+) const {
     u32 end = start + count;
 
     if (damage.end <= start || end <= damage.start) {
@@ -710,7 +726,7 @@ void Frame::damageDeltaCopy(RenderCell* dst, u32 start, u32 count) const {
     TerminalCell* const src = cells.get();
 
     for (size_t i = 0, j = start; j < end; ++i, ++j) {
-        RenderCell rendered = materialize(src[j]);
+        RenderCell rendered = materialize(src[j], extras);
         if (dst[i] != rendered) {
             dst[i] = rendered;
             dst[i].dirty = 1;
@@ -1037,6 +1053,7 @@ void Frame::repairWideBoundary(u16 pY, u16 boundary, const TerminalCell& attrs) 
 }
 
 void Frame::selectiveEraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs, u8 protectionMask) {
+    CellExtraStore* const extras = cellExtras();
     TerminalCell erased = attrs;
     erased.uc_pt = 0;
     erased.protected_char = 0;

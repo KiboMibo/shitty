@@ -9,6 +9,7 @@
 
 #include "vk_presenter.h"
 
+#include "cell_extra_store.h"
 #include "frame.h"
 
 #include "log.h"
@@ -1171,11 +1172,12 @@ bool VulkanPresenter::present(const CharVdev& charVdev, const Frame& sourceFrame
     std::vector<GpuCell> gpuCells;
     gpuCells.reserve(charVdev.cellCount());
     std::vector<u32> graphemeData = {0};
+    CellExtraStore* const extras = sourceFrame.cellExtras();
     for (size_t index = 0; index < charVdev.cellCount(); ++index) {
         const RenderCell& cell = charVdev.cellData()[index];
         u32 graphemeIndex = 0;
         if (cell.grapheme) {
-            const auto& grapheme = sourceFrame.getGrapheme(cell.grapheme);
+            const GraphemeView grapheme = extras->grapheme(cell.grapheme);
             if (!grapheme.empty()) {
                 graphemeIndex = graphemeData.size();
                 graphemeData.push_back(grapheme.size());

@@ -13,6 +13,7 @@
 #include "vterm_trace.h"
 
 #include "base64.h"
+#include "cell_extra_store.h"
 #include "color_spec.h"
 #include "composer.h"
 #include "frame.h"
@@ -44,7 +45,6 @@
 #include <functional>
 #include <iomanip>
 #include <map>
-#include <memory>
 #include <set>
 #include <signal.h>
 #include <sstream>
@@ -127,7 +127,7 @@ namespace {
 
     class VtermImpl final: public Vterm {
     public:
-        VtermImpl(VtermHost& host, Pty& pty, Output* dump, u16 glyphPx, u16 glyphPy, u16 winPx, u16 winPy);
+        VtermImpl(Composer& composer, VtermHost& host, Pty& pty, Output* dump, u16 glyphPx, u16 glyphPy, u16 winPx, u16 winPy);
 
         ~VtermImpl();
 
@@ -468,6 +468,7 @@ namespace {
         void writeTitleResponse(char, const std::string&);
         void applyPaletteColor(u16 index, Color color);
 
+        Composer& composer;
         VtermHost& host;
         Pty& pty;
         Output* dump;
@@ -482,8 +483,6 @@ namespace {
         std::u8string ptyOutput;
         size_t ptyOutputOffset = 0;
 
-        std::unique_ptr<CellExtraStore> extraStore;
-        stl::Vector<u32> extraRelocation;
         stl::Vector<u32*> extraFixups;
         u32 processInputDepth = 0;
         bool presentedSinceGcSafePoint = false;
@@ -872,7 +871,7 @@ size_t VtermImpl::pendingPtyOutputBytes() const {
 }
 
 size_t VtermImpl::getHyperlinkCount() const {
-    return extraStore->hyperlinkCount();
+    return composer.cellExtras->hyperlinkCount();
 }
 
 const char* VtermImpl::strInputState(InputState is) {
@@ -981,15 +980,16 @@ void VtermImpl::redraw() {
 void VtermImpl::updateExtraCellCount() {
     size_t count = frame_pri ? frame_pri.cellCapacity() : 0;
     count += frame_alt ? frame_alt.cellCapacity() : 0;
-    extraStore->setCellCount(count);
+    composer.cellExtras->setCellCount(count);
 }
 
 void VtermImpl::collectCellExtrasIfNeeded(bool force) {
-    const bool hardLimit = extraStore->hardLimitExceeded();
+    CellExtraStore* const extras = composer.cellExtras;
+    const bool hardLimit = extras->hardLimitExceeded();
     if (processInputDepth != 0) {
         return;
     }
-    if (!extraStore->shouldCollect() && !force) {
+    if (!extras->shouldCollect() && !force) {
         presentedSinceGcSafePoint = false;
         return;
     }
@@ -1001,14 +1001,7 @@ void VtermImpl::collectCellExtrasIfNeeded(bool force) {
 }
 
 void VtermImpl::collectCellExtras() {
-    CellExtraStore* const oldStore = extraStore.get();
-    auto next = std::make_unique<CellExtraStore>(
-        (frame_pri ? frame_pri.cellCapacity() : 0)
-        + (frame_alt ? frame_alt.cellCapacity() : 0));
-
     extraFixups.clear();
-    extraRelocation.clear();
-    extraRelocation.zero(oldStore->slotCount());
     if (activeHyperlink != 0) {
         extraFixups.pushBack(&activeHyperlink);
     }
@@ -1019,23 +1012,8 @@ void VtermImpl::collectCellExtras() {
         frame_alt.collectExtraRefLocations(extraFixups);
     }
 
-    for (u32* location : extraFixups) {
-        const u32 oldRef = *location;
-        assert(oldRef != 0 && oldRef < oldStore->slotCount());
-        if (extraRelocation[oldRef] == 0) {
-            // migrate() always appends. Equal but distinct old refs must not
-            // collapse into one ref in the new store.
-            extraRelocation.mut(oldRef) = next->migrate(*oldStore, oldRef);
-        }
-    }
-    for (u32* location : extraFixups) {
-        *location = extraRelocation[*location];
-    }
-
-    next->finishCollection();
-    extraStore.swap(next);
-    frame_pri.bindExtraStore(extraStore.get());
-    frame_alt.bindExtraStore(extraStore.get());
+    CellExtraStore* const extras = composer.cellExtras;
+    extras->collect(extraFixups);
     if (frame_pri) {
         frame_pri.expose();
     }
@@ -1043,7 +1021,6 @@ void VtermImpl::collectCellExtras() {
         frame_alt.expose();
     }
     extraFixups.clear();
-    extraRelocation.clear();
 }
 
 bool VtermImpl::advanceAnimation(bool force) {
@@ -1380,7 +1357,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         if (clearAlternate) {
             if (altScreenBufferMode_) {
                 kittyKeyboardAlt = {};
-                frame_alt = Frame(winPx, winPy, nCols, nRows, marginTop, marginBottom, &colors, extraStore.get(), opts.saveLines);
+                frame_alt = Frame(composer, winPx, winPy, nCols, nRows, marginTop, marginBottom, &colors, opts.saveLines);
                 altScreenInitialized = true;
                 cf = &frame_alt;
                 cf->expose();
@@ -1396,7 +1373,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
     if (altScreenBufferMode_) {
         if (clearAlternate || !altScreenInitialized) {
             kittyKeyboardAlt = {};
-            frame_alt = Frame(winPx, winPy, nCols, nRows, marginTop, marginBottom, &colors, extraStore.get(), opts.saveLines);
+            frame_alt = Frame(composer, winPx, winPy, nCols, nRows, marginTop, marginBottom, &colors, opts.saveLines);
             altScreenInitialized = true;
         } else {
             frame_alt.resize(
@@ -1803,6 +1780,7 @@ void VtermImpl::resetGraphemeInput() {
 }
 
 void VtermImpl::widenInputGrapheme(u16 lineCols) {
+    CellExtraStore* const extras = composer.cellExtras;
     auto& oldLead = cf->getCell(inputGraphemeY, inputGraphemeX);
     if (oldLead.dwidth || lineCols - hMargin < 2) {
         return;
@@ -1835,7 +1813,7 @@ void VtermImpl::widenInputGrapheme(u16 lineCols) {
     continuation = attrs;
     continuation.dwidth_cont = 1;
     continuation.drawn = 1;
-    extraStore->setHyperlink(continuation, lead.extraRef());
+    extras->setHyperlink(continuation, lead.extraRef());
     continuation.semantic = lead.semantic;
     continuation.line_attr = lead.line_attr;
 
@@ -1869,6 +1847,7 @@ void VtermImpl::placeGraphicChar() {
 }
 
 void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
+    CellExtraStore* const extras = composer.cellExtras;
     auto pt = utf8dec.getUnicode();
     auto w = pt >= 0x20 && pt < 0x7f ? 1 : codepointWidth(pt);
 
@@ -1895,7 +1874,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
                 break;
         }
         auto& cell = cf->getCell(inputGraphemeY, inputGraphemeX);
-        extraStore->setGrapheme(cell, inputGrapheme.data(), inputGrapheme.size());
+        extras->setGrapheme(cell, inputGrapheme.data(), inputGrapheme.size());
         cf->expose();
         return;
     }
@@ -1944,7 +1923,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
     c = attrs;
     c.uc_pt = pt;
     c.drawn = 1;
-    extraStore->setHyperlink(c, activeHyperlink);
+    extras->setHyperlink(c, activeHyperlink);
     c.semantic = currentSemantic;
     c.line_attr = changedRow ? ((const Frame&)*cf).getCell(posY, 0).line_attr : lineAttribute;
     if (c.blink) {
@@ -1963,7 +1942,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
         continuation = attrs;
         continuation.dwidth_cont = 1;
         continuation.drawn = 1;
-        extraStore->setHyperlink(continuation, c.extraRef());
+        extras->setHyperlink(continuation, c.extraRef());
     }
 
     if (posX == lineCols - 1) {
@@ -1974,6 +1953,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
 }
 
 void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
+    CellExtraStore* const extras = composer.cellExtras;
     TerminalCell linkedAttrs{};
     bool linkedAttrsReady = false;
 
@@ -2016,7 +1996,7 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
         const u16 endX = startX + count;
         if (!linkedAttrsReady) {
             linkedAttrs = attrs;
-            extraStore->setHyperlink(linkedAttrs, activeHyperlink);
+            extras->setHyperlink(linkedAttrs, activeHyperlink);
             linkedAttrsReady = true;
         }
         TerminalCell* cells = prepareSpanAt(posY, startX, count);
@@ -2259,12 +2239,13 @@ bool VtermImpl::performIndex() {
 std::string VtermImpl::printableLine(u16 row) const {
     std::vector<u32> codepoints;
     const Frame& frame = *cf;
+    CellExtraStore* const extras = composer.cellExtras;
     for (u16 column = 0; column < nCols; ++column) {
         const auto& cell = frame.getCell(row, column);
         if (cell.dwidth_cont) {
             continue;
         }
-        const auto grapheme = extraStore->grapheme(cell);
+        const auto grapheme = extras->grapheme(cell);
         if (grapheme.empty()) {
             codepoints.push_back(cell.uc_pt ? cell.uc_pt : ' ');
         } else {
@@ -6949,8 +6930,9 @@ u32 VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
 #undef LOOKUP
 }
 
-VtermImpl::VtermImpl(VtermHost& host_, Pty& pty_, Output* dump_, u16 glyphPx_, u16 glyphPy_, u16 winPx_, u16 winPy_)
-    : host(host_)
+VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, Pty& pty_, Output* dump_, u16 glyphPx_, u16 glyphPy_, u16 winPx_, u16 winPy_)
+    : composer(composer_)
+    , host(host_)
     , pty(pty_)
     , dump(dump_)
     , winPx(winPx_)
@@ -6959,8 +6941,7 @@ VtermImpl::VtermImpl(VtermHost& host_, Pty& pty_, Output* dump_, u16 glyphPx_, u
     , nRows((winPy - 2 * opts.border) / glyphPy_)
     , glyphPx(glyphPx_)
     , glyphPy(glyphPy_)
-    , extraStore(std::make_unique<CellExtraStore>((size_t)(nCols) * (nRows + opts.saveLines)))
-    , frame_pri(winPx, winPy, nCols, nRows, marginTop, marginBottom, &colors, extraStore.get(), opts.saveLines)
+    , frame_pri(composer, winPx, winPy, nCols, nRows, marginTop, marginBottom, &colors, opts.saveLines)
     , cf(&frame_pri)
     , utf8dec([this]() {
         placeGraphicChar();
@@ -8745,6 +8726,7 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
 }
 
 void VtermImpl::setHyperlink(const std::string& parametersAndUri) {
+    CellExtraStore* const extras = composer.cellExtras;
     const size_t separator = parametersAndUri.find(';');
     if (separator == std::string::npos) {
         logT << "Malformed OSC 8 argument" << std::endl;
@@ -8774,7 +8756,7 @@ void VtermImpl::setHyperlink(const std::string& parametersAndUri) {
     }
 
     const StringView identityView(reinterpret_cast<const u8*>(identity.data()), identity.size());
-    if (const u32 known = extraStore->findHyperlink(identityView); known != 0) {
+    if (const u32 known = extras->findHyperlink(identityView); known != 0) {
         activeHyperlink = known;
         return;
     }
@@ -8786,7 +8768,7 @@ void VtermImpl::setHyperlink(const std::string& parametersAndUri) {
     }
 
     const StringView uriView(reinterpret_cast<const u8*>(uri.data()), uri.size());
-    activeHyperlink = extraStore->getOrCreateHyperlink(identityView, uriView, nextHyperlink++);
+    activeHyperlink = extras->getOrCreateHyperlink(identityView, uriView, nextHyperlink++);
 }
 
 std::string VtermImpl::getHyperlink(int pX, int pY) const {
@@ -8800,7 +8782,8 @@ std::string VtermImpl::getHyperlink(int pX, int pY) const {
         return {};
     }
 
-    const StringView link = extraStore->hyperlink(cf->getViewCell(row, column));
+    CellExtraStore* const extras = composer.cellExtras;
+    const StringView link = extras->hyperlink(cf->getViewCell(row, column));
     return link.empty()
         ? std::string{}
         : std::string(reinterpret_cast<const char*>(link.data()), link.length());
@@ -8987,5 +8970,19 @@ Vterm* Vterm::create(Composer& composer, VtermHost& host, Pty& pty, u16 glyphPx,
         auto* fd = composer.pool->make<ScopedFD>(rawFd);
         dump = createOutBuf(composer.pool, *createFDRegular(composer.pool, *fd));
     }
-    return composer.pool->make<VtermImpl>(host, pty, dump, glyphPx, glyphPy, winPx, winPy);
+
+    const u16 columns = (winPx - 2 * opts.border) / glyphPx;
+    const u16 rows = (winPy - 2 * opts.border) / glyphPy;
+    CellExtraStore::create(
+        composer,
+        (size_t)(columns) * (rows + opts.saveLines)
+    );
+    try {
+        return composer.pool->make<VtermImpl>(
+            composer, host, pty, dump, glyphPx, glyphPy, winPx, winPy);
+    } catch (...) {
+        delete composer.cellExtras;
+        composer.cellExtras = nullptr;
+        throw;
+    }
 }

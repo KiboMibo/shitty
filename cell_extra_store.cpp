@@ -1,5 +1,5 @@
 /* This file is part of Shitty.
- * Copyright (C) 2020 Tom Szilagyi
+ * Copyright (C) 2026 Shitty team
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -9,9 +9,13 @@
  * See the file LICENSE for the full license.
  */
 
-#include "cell_extra.h"
+#include "cell_extra_store.h"
 
+#include "composer.h"
+
+#include <std/lib/list.h>
 #include <std/mem/obj_pool.h>
+#include <std/str/view.h>
 
 #include <algorithm>
 #include <cassert>
@@ -23,39 +27,139 @@ namespace stl {}
 using namespace stl;
 
 namespace {
+    struct HyperlinkHandle final: IntrusiveNode {
+        StringView identity;
+        StringView payload;
+        u32 displayId = 0;
+        u32 identityNext = 0;
+
+        HyperlinkHandle(
+            StringView identity_,
+            StringView payload_,
+            u32 displayId_
+        ) noexcept
+            : identity(identity_)
+            , payload(payload_)
+            , displayId(displayId_)
+        {
+        }
+    };
+
+    struct CellExtra {
+        IntrusiveList* hyperlinks = nullptr;
+        StringView graphemeBytes;
+        CellColor underlineColor = CellColor::defaultForeground();
+    };
+
+    static_assert(
+        __is_trivially_copyable(CellExtra),
+        "CellExtra must remain trivially copyable"
+    );
+
+    class CellExtraStoreImpl final: public CellExtraStore {
+    public:
+        CellExtraStoreImpl(Composer& composer, size_t cellCount);
+        ~CellExtraStoreImpl() noexcept override;
+
+        CellColor underlineColor(const TerminalCell& cell) const noexcept override;
+        GraphemeView grapheme(const TerminalCell& cell) const noexcept override;
+        GraphemeView grapheme(u32 ref) const noexcept override;
+        StringView hyperlink(const TerminalCell& cell) const noexcept override;
+        u32 hyperlinkDisplayId(const TerminalCell& cell) const noexcept override;
+
+        u32 getOrCreateHyperlink(
+            StringView identity,
+            StringView payload,
+            u32 displayId
+        ) override;
+        u32 findHyperlink(StringView identity) const noexcept override;
+        size_t hyperlinkCount() const noexcept override {
+            return hyperlinkCount_;
+        }
+
+        void setUnderlineColor(TerminalCell& cell, CellColor color) override;
+        void setGrapheme(
+            TerminalCell& cell,
+            const u32* codepoints,
+            size_t count
+        ) override;
+        void clearGrapheme(TerminalCell& cell) override;
+        void setHyperlink(TerminalCell& cell, u32 hyperlinkRef) override;
+        void clearHyperlink(TerminalCell& cell) override;
+        void clearExtra(
+            TerminalCell& cell,
+            CellColor underlineColor
+        ) override;
+
+        void setCellCount(size_t cellCount) noexcept override;
+        bool shouldCollect() const noexcept override;
+        bool hardLimitExceeded() const noexcept override;
+        void collect(Vector<u32*>& locations) override;
+
+    private:
+        Composer& composer_;
+        ObjPool* pool_;
+        Vector<CellExtra*> slots_;
+        // OSC 8 identity lookup only. This is not a CellExtra content index:
+        // append() always creates a new dense ref.
+        Vector<u32> hyperlinkBuckets_;
+        size_t allocatedExtraBytes_ = 256;
+        size_t allocationsSinceGc_ = 0;
+        size_t cellCount_ = 0;
+        size_t byteBudget_ = 0;
+        size_t slotBudget_ = 0;
+        size_t allocationBudget_ = 0;
+        size_t hyperlinkCount_ = 0;
+
+        const CellExtra* get(u32 ref) const noexcept;
+        u32 migrate(const CellExtraStoreImpl& source, u32 sourceRef);
+        void finishCollection() noexcept;
+
+        static GraphemeView graphemeOf(const CellExtra& extra) noexcept;
+        static HyperlinkHandle* hyperlinkOf(CellExtra& extra) noexcept;
+        static const HyperlinkHandle* hyperlinkOf(
+            const CellExtra& extra
+        ) noexcept;
+
+        u32 append(const CellExtra& extra);
+        void rehashHyperlinks(size_t capacity);
+        StringView copyBytes(StringView value);
+    };
+
     bool equalBytes(StringView left, StringView right) noexcept {
         return left.length() == right.length()
             && (left.empty() || memcmp(left.data(), right.data(), left.length()) == 0);
     }
 }
 
-CellExtraStore::CellExtraStore(size_t cellCount)
-    : pool_(ObjPool::fromMemoryRaw())
+CellExtraStoreImpl::CellExtraStoreImpl(Composer& composer, size_t cellCount)
+    : composer_(composer)
+    , pool_(ObjPool::fromMemoryRaw())
 {
     slots_.pushBack(nullptr);
     rehashHyperlinks(16);
     setCellCount(cellCount);
 }
 
-CellExtraStore::~CellExtraStore() noexcept {
+CellExtraStoreImpl::~CellExtraStoreImpl() noexcept {
     delete pool_;
 }
 
-const CellExtra* CellExtraStore::get(u32 ref) const noexcept {
+const CellExtra* CellExtraStoreImpl::get(u32 ref) const noexcept {
     if (ref == 0 || ref >= slots_.length()) {
         return nullptr;
     }
     return slots_[ref];
 }
 
-GraphemeView CellExtraStore::graphemeOf(const CellExtra& extra) noexcept {
+GraphemeView CellExtraStoreImpl::graphemeOf(const CellExtra& extra) noexcept {
     return {
         reinterpret_cast<const u32*>(extra.graphemeBytes.data()),
         static_cast<u32>(extra.graphemeBytes.length() / sizeof(u32)),
     };
 }
 
-const HyperlinkHandle* CellExtraStore::hyperlinkOf(const CellExtra& extra) noexcept {
+const HyperlinkHandle* CellExtraStoreImpl::hyperlinkOf(const CellExtra& extra) noexcept {
     if (extra.hyperlinks == nullptr) {
         return nullptr;
     }
@@ -63,7 +167,7 @@ const HyperlinkHandle* CellExtraStore::hyperlinkOf(const CellExtra& extra) noexc
     return node == extra.hyperlinks->end() ? nullptr : static_cast<const HyperlinkHandle*>(node);
 }
 
-HyperlinkHandle* CellExtraStore::hyperlinkOf(CellExtra& extra) noexcept {
+HyperlinkHandle* CellExtraStoreImpl::hyperlinkOf(CellExtra& extra) noexcept {
     if (extra.hyperlinks == nullptr) {
         return nullptr;
     }
@@ -71,7 +175,7 @@ HyperlinkHandle* CellExtraStore::hyperlinkOf(CellExtra& extra) noexcept {
     return node == extra.hyperlinks->mutEnd() ? nullptr : static_cast<HyperlinkHandle*>(node);
 }
 
-StringView CellExtraStore::copyBytes(StringView value) {
+StringView CellExtraStoreImpl::copyBytes(StringView value) {
     if (value.empty()) {
         return {};
     }
@@ -79,7 +183,7 @@ StringView CellExtraStore::copyBytes(StringView value) {
     return pool_->intern(value);
 }
 
-void CellExtraStore::rehashHyperlinks(size_t capacity) {
+void CellExtraStoreImpl::rehashHyperlinks(size_t capacity) {
     Vector<u32> replacement(capacity);
     replacement.zero(capacity);
     for (u32 head : hyperlinkBuckets_) {
@@ -96,7 +200,7 @@ void CellExtraStore::rehashHyperlinks(size_t capacity) {
     hyperlinkBuckets_.xchg(replacement);
 }
 
-u32 CellExtraStore::append(const CellExtra& value) {
+u32 CellExtraStoreImpl::append(const CellExtra& value) {
     assert(!value.graphemeBytes.empty() || hyperlinkOf(value) != nullptr);
     if (slots_.length() >= std::numeric_limits<u32>::max()) {
         throw std::bad_alloc();
@@ -111,7 +215,10 @@ u32 CellExtraStore::append(const CellExtra& value) {
     return ref;
 }
 
-u32 CellExtraStore::migrate(const CellExtraStore& source, u32 sourceRef) {
+u32 CellExtraStoreImpl::migrate(
+    const CellExtraStoreImpl& source,
+    u32 sourceRef
+) {
     const CellExtra* sourceExtra = source.get(sourceRef);
     assert(sourceExtra != nullptr);
 
@@ -165,7 +272,9 @@ u32 CellExtraStore::migrate(const CellExtraStore& source, u32 sourceRef) {
     return ref;
 }
 
-CellColor CellExtraStore::underlineColor(const TerminalCell& cell) const noexcept {
+CellColor CellExtraStoreImpl::underlineColor(
+    const TerminalCell& cell
+) const noexcept {
     if (!cell.hasExtra()) {
         return cell.inlineUnderlineColor();
     }
@@ -173,16 +282,20 @@ CellColor CellExtraStore::underlineColor(const TerminalCell& cell) const noexcep
     return extra == nullptr ? CellColor::defaultForeground() : extra->underlineColor;
 }
 
-GraphemeView CellExtraStore::grapheme(const TerminalCell& cell) const noexcept {
+GraphemeView CellExtraStoreImpl::grapheme(
+    const TerminalCell& cell
+) const noexcept {
     return cell.hasExtra() ? grapheme(cell.extraRef()) : GraphemeView{};
 }
 
-GraphemeView CellExtraStore::grapheme(u32 ref) const noexcept {
+GraphemeView CellExtraStoreImpl::grapheme(u32 ref) const noexcept {
     const CellExtra* extra = get(ref);
     return extra == nullptr ? GraphemeView{} : graphemeOf(*extra);
 }
 
-StringView CellExtraStore::hyperlink(const TerminalCell& cell) const noexcept {
+StringView CellExtraStoreImpl::hyperlink(
+    const TerminalCell& cell
+) const noexcept {
     if (!cell.hasExtra()) {
         return {};
     }
@@ -191,7 +304,9 @@ StringView CellExtraStore::hyperlink(const TerminalCell& cell) const noexcept {
     return handle == nullptr ? StringView{} : handle->payload;
 }
 
-u32 CellExtraStore::hyperlinkDisplayId(const TerminalCell& cell) const noexcept {
+u32 CellExtraStoreImpl::hyperlinkDisplayId(
+    const TerminalCell& cell
+) const noexcept {
     if (!cell.hasExtra()) {
         return 0;
     }
@@ -200,7 +315,7 @@ u32 CellExtraStore::hyperlinkDisplayId(const TerminalCell& cell) const noexcept 
     return handle == nullptr ? 0 : handle->displayId;
 }
 
-u32 CellExtraStore::findHyperlink(StringView identity) const noexcept {
+u32 CellExtraStoreImpl::findHyperlink(StringView identity) const noexcept {
     if (identity.empty()) {
         return 0;
     }
@@ -215,7 +330,11 @@ u32 CellExtraStore::findHyperlink(StringView identity) const noexcept {
     return 0;
 }
 
-u32 CellExtraStore::getOrCreateHyperlink(StringView identity, StringView payload, u32 displayId) {
+u32 CellExtraStoreImpl::getOrCreateHyperlink(
+    StringView identity,
+    StringView payload,
+    u32 displayId
+) {
     if (const u32 existing = findHyperlink(identity); existing != 0) {
         return existing;
     }
@@ -241,7 +360,10 @@ u32 CellExtraStore::getOrCreateHyperlink(StringView identity, StringView payload
     return ref;
 }
 
-void CellExtraStore::setUnderlineColor(TerminalCell& cell, CellColor color) {
+void CellExtraStoreImpl::setUnderlineColor(
+    TerminalCell& cell,
+    CellColor color
+) {
     if (!cell.hasExtra()) {
         cell.setInlineUnderlineColor(color);
         return;
@@ -254,7 +376,11 @@ void CellExtraStore::setUnderlineColor(TerminalCell& cell, CellColor color) {
     cell.setExtraRef(append(copy));
 }
 
-void CellExtraStore::setGrapheme(TerminalCell& cell, const u32* codepoints, size_t count) {
+void CellExtraStoreImpl::setGrapheme(
+    TerminalCell& cell,
+    const u32* codepoints,
+    size_t count
+) {
     if (count == 0) {
         clearGrapheme(cell);
         return;
@@ -273,7 +399,7 @@ void CellExtraStore::setGrapheme(TerminalCell& cell, const u32* codepoints, size
     cell.setExtraRef(append(copy));
 }
 
-void CellExtraStore::clearGrapheme(TerminalCell& cell) {
+void CellExtraStoreImpl::clearGrapheme(TerminalCell& cell) {
     if (!cell.hasExtra()) {
         return;
     }
@@ -293,7 +419,10 @@ void CellExtraStore::clearGrapheme(TerminalCell& cell) {
     cell.setExtraRef(append(copy));
 }
 
-void CellExtraStore::setHyperlink(TerminalCell& cell, u32 hyperlinkRef) {
+void CellExtraStoreImpl::setHyperlink(
+    TerminalCell& cell,
+    u32 hyperlinkRef
+) {
     const CellExtra* hyperlinkExtra = get(hyperlinkRef);
     if (hyperlinkExtra == nullptr || hyperlinkOf(*hyperlinkExtra) == nullptr) {
         clearHyperlink(cell);
@@ -320,7 +449,7 @@ void CellExtraStore::setHyperlink(TerminalCell& cell, u32 hyperlinkRef) {
     cell.setExtraRef(append(copy));
 }
 
-void CellExtraStore::clearHyperlink(TerminalCell& cell) {
+void CellExtraStoreImpl::clearHyperlink(TerminalCell& cell) {
     if (!cell.hasExtra()) {
         return;
     }
@@ -340,18 +469,21 @@ void CellExtraStore::clearHyperlink(TerminalCell& cell) {
     cell.setExtraRef(append(copy));
 }
 
-void CellExtraStore::clearExtra(TerminalCell& cell, CellColor underlineColor_) {
+void CellExtraStoreImpl::clearExtra(
+    TerminalCell& cell,
+    CellColor underlineColor_
+) {
     cell.setInlineUnderlineColor(underlineColor_);
 }
 
-void CellExtraStore::setCellCount(size_t cellCount) noexcept {
+void CellExtraStoreImpl::setCellCount(size_t cellCount) noexcept {
     cellCount_ = std::max<size_t>(cellCount, 1);
     slotBudget_ = std::max<size_t>(16, cellCount_ * 10);
     allocationBudget_ = std::max<size_t>(16, cellCount_ * 2);
     byteBudget_ = std::max<size_t>(4096, cellCount_ * 64);
 }
 
-void CellExtraStore::finishCollection() noexcept {
+void CellExtraStoreImpl::finishCollection() noexcept {
     allocationsSinceGc_ = 0;
     slotBudget_ = std::max(slotBudget_, slots_.length() + cellCount_ * 2);
     byteBudget_ = std::max(
@@ -359,12 +491,52 @@ void CellExtraStore::finishCollection() noexcept {
         allocatedExtraBytes_ + std::max<size_t>(1024 * 1024, cellCount_ * 16));
 }
 
-bool CellExtraStore::shouldCollect() const noexcept {
+bool CellExtraStoreImpl::shouldCollect() const noexcept {
     return allocatedExtraBytes_ > byteBudget_
         || slots_.length() > slotBudget_
         || allocationsSinceGc_ > allocationBudget_;
 }
 
-bool CellExtraStore::hardLimitExceeded() const noexcept {
+bool CellExtraStoreImpl::hardLimitExceeded() const noexcept {
     return allocatedExtraBytes_ > byteBudget_ * 2 || slots_.length() > slotBudget_ * 2;
+}
+
+void CellExtraStoreImpl::collect(Vector<u32*>& locations) {
+    assert(composer_.cellExtras == this);
+
+    auto* next = new CellExtraStoreImpl(composer_, cellCount_);
+    try {
+        Vector<u32> relocation;
+        relocation.zero(slots_.length());
+
+        for (u32* location : locations) {
+            const u32 oldRef = *location;
+            assert(oldRef != 0 && oldRef < slots_.length());
+            if (relocation[oldRef] == 0) {
+                // migrate() always appends. Equal but distinct old refs must
+                // not collapse into one ref in the new store.
+                relocation.mut(oldRef) = next->migrate(*this, oldRef);
+            }
+        }
+        for (u32* location : locations) {
+            *location = relocation[*location];
+        }
+        next->finishCollection();
+    } catch (...) {
+        delete next;
+        throw;
+    }
+
+    composer_.cellExtras = next;
+    delete this;
+}
+
+CellExtraStore* CellExtraStore::create(
+    Composer& composer,
+    size_t cellCount
+) {
+    assert(composer.cellExtras == nullptr);
+    auto* result = new CellExtraStoreImpl(composer, cellCount);
+    composer.cellExtras = result;
+    return result;
 }
