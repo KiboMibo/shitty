@@ -10,19 +10,17 @@ namespace stl {
     class ObjPool;
 }
 
-class Fontpack;
+struct Fontpack;
 struct Application;
-class CellExtraStore;
-class Renderer;
+struct CellExtraStore;
+struct Renderer;
 struct Pty;
 struct PtyEventSource;
-class Vterm;
+struct Vterm;
 
 // Application wiring. Components copy the dependencies they need during
 // creation; the composer only establishes the graph and its shared lifetime.
 struct Composer {
-    ~Composer() noexcept;
-
     stl::ObjPool* pool = nullptr;
     Application* application = nullptr;
     CellExtraStore* cellExtras = nullptr;

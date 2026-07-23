@@ -8987,7 +8987,6 @@ Vterm* Vterm::create(Composer& composer, VtermHost& host, Pty& pty, u16 glyphPx,
         return composer.pool->make<VtermImpl>(
             composer, host, pty, dump, glyphPx, glyphPy, winPx, winPy);
     } catch (...) {
-        delete composer.cellExtras;
         composer.cellExtras = nullptr;
         throw;
     }

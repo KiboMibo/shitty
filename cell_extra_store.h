@@ -42,10 +42,7 @@ struct GraphemeView {
     }
 };
 
-class CellExtraStore {
-public:
-    virtual ~CellExtraStore() noexcept = default;
-
+struct CellExtraStore {
     virtual CellColor underlineColor(const TerminalCell& cell) const noexcept = 0;
     virtual GraphemeView grapheme(const TerminalCell& cell) const noexcept = 0;
     virtual GraphemeView grapheme(u32 ref) const noexcept = 0;

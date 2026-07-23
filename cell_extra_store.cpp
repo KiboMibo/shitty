@@ -32,18 +32,19 @@ namespace {
             StringView identity_,
             StringView payload_,
             u32 displayId_
-        ) noexcept
-            : identity(identity_)
-            , payload(payload_)
-            , displayId(displayId_)
-        {
-        }
+        ) noexcept;
     };
 
     struct CellExtra {
         IntrusiveList* hyperlinks = nullptr;
         StringView graphemeBytes;
         CellColor underlineColor = CellColor::defaultForeground();
+    };
+
+    struct CellExtraStoreOwner {
+        ~CellExtraStoreOwner() noexcept;
+
+        ObjPool* pool = nullptr;
     };
 
     static_assert(
@@ -53,8 +54,18 @@ namespace {
 
     class CellExtraStoreImpl final: public CellExtraStore {
     public:
-        CellExtraStoreImpl(Composer& composer, size_t cellCount);
-        ~CellExtraStoreImpl() noexcept override;
+        CellExtraStoreImpl(
+            Composer& composer,
+            size_t cellCount,
+            CellExtraStoreOwner& owner,
+            ObjPool* pool
+        );
+
+        static CellExtraStoreImpl* create(
+            Composer& composer,
+            size_t cellCount,
+            CellExtraStoreOwner& owner
+        );
 
         CellColor underlineColor(const TerminalCell& cell) const noexcept override;
         GraphemeView grapheme(const TerminalCell& cell) const noexcept override;
@@ -68,9 +79,7 @@ namespace {
             u32 displayId
         ) override;
         u32 findHyperlink(StringView identity) const noexcept override;
-        size_t hyperlinkCount() const noexcept override {
-            return hyperlinkCount_;
-        }
+        size_t hyperlinkCount() const noexcept override;
 
         void setUnderlineColor(TerminalCell& cell, CellColor color) override;
         void setGrapheme(
@@ -93,6 +102,7 @@ namespace {
 
     private:
         Composer& composer_;
+        CellExtraStoreOwner& owner_;
         ObjPool* pool_;
         Vector<CellExtra*> slots_;
         // OSC 8 identity lookup only. This is not a CellExtra content index:
@@ -127,17 +137,56 @@ namespace {
     }
 }
 
-CellExtraStoreImpl::CellExtraStoreImpl(Composer& composer, size_t cellCount)
+CellExtraStoreOwner::~CellExtraStoreOwner() noexcept {
+    delete pool;
+}
+
+HyperlinkHandle::HyperlinkHandle(
+    StringView identity_,
+    StringView payload_,
+    u32 displayId_
+) noexcept
+    : identity(identity_)
+    , payload(payload_)
+    , displayId(displayId_)
+{
+}
+
+CellExtraStoreImpl::CellExtraStoreImpl(
+    Composer& composer,
+    size_t cellCount,
+    CellExtraStoreOwner& owner,
+    ObjPool* pool
+)
     : composer_(composer)
-    , pool_(ObjPool::fromMemoryRaw())
+    , owner_(owner)
+    , pool_(pool)
 {
     slots_.pushBack(nullptr);
     rehashHyperlinks(16);
     setCellCount(cellCount);
 }
 
-CellExtraStoreImpl::~CellExtraStoreImpl() noexcept {
-    delete pool_;
+CellExtraStoreImpl* CellExtraStoreImpl::create(
+    Composer& composer,
+    size_t cellCount,
+    CellExtraStoreOwner& owner
+) {
+    ObjPool* pool = ObjPool::fromMemoryRaw();
+    try {
+        auto* result = pool->make<CellExtraStoreImpl>(composer, cellCount, owner, pool);
+        if (owner.pool == nullptr) {
+            owner.pool = pool;
+        }
+        return result;
+    } catch (...) {
+        delete pool;
+        throw;
+    }
+}
+
+size_t CellExtraStoreImpl::hyperlinkCount() const noexcept {
+    return hyperlinkCount_;
 }
 
 const CellExtra* CellExtraStoreImpl::get(u32 ref) const noexcept {
@@ -499,7 +548,7 @@ bool CellExtraStoreImpl::hardLimitExceeded() const noexcept {
 void CellExtraStoreImpl::collect(Vector<u32*>& locations) {
     assert(composer_.cellExtras == this);
 
-    auto* next = new CellExtraStoreImpl(composer_, cellCount_);
+    auto* next = CellExtraStoreImpl::create(composer_, cellCount_, owner_);
     try {
         Vector<u32> relocation;
         relocation.zero(slots_.length());
@@ -518,12 +567,15 @@ void CellExtraStoreImpl::collect(Vector<u32*>& locations) {
         }
         next->finishCollection();
     } catch (...) {
-        delete next;
+        delete next->pool_;
         throw;
     }
 
+    ObjPool* oldPool = owner_.pool;
+    assert(oldPool == pool_);
     composer_.cellExtras = next;
-    delete this;
+    owner_.pool = next->pool_;
+    delete oldPool;
 }
 
 CellExtraStore* CellExtraStore::create(
@@ -531,7 +583,8 @@ CellExtraStore* CellExtraStore::create(
     size_t cellCount
 ) {
     assert(composer.cellExtras == nullptr);
-    auto* result = new CellExtraStoreImpl(composer, cellCount);
+    auto* owner = composer.pool->make<CellExtraStoreOwner>();
+    auto* result = CellExtraStoreImpl::create(composer, cellCount, *owner);
     composer.cellExtras = result;
     return result;
 }

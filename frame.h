@@ -26,7 +26,7 @@
 #include <deque>
 #include <vector>
 
-class CellExtraStore;
+struct CellExtraStore;
 struct Composer;
 
 class Frame {
