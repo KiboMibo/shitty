@@ -10,8 +10,8 @@
 
 #include <utility>
 
-
 namespace stl {}
+
 using namespace stl;
 
 VtermHostCallbacks::VtermHostCallbacks()

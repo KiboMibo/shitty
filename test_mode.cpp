@@ -5,7 +5,7 @@
  */
 
 #ifndef SHITTY_FOR_TESTS
-#error "test_mode.cpp must not be compiled into the production binary"
+    #error "test_mode.cpp must not be compiled into the production binary"
 #endif
 
 #include "test_mode.h"
@@ -50,8 +50,8 @@
 #include <unistd.h>
 #include <vector>
 
-
 namespace stl {}
+
 using namespace stl;
 
 namespace {
@@ -283,15 +283,7 @@ namespace {
 
     template <class Cell>
     unsigned cellFlags(const Cell& cell) {
-        return (cell.dwidth << 0) | (cell.dwidth_cont << 1)
-             | (cell.bold << 2) | (cell.italic << 3)
-             | (cellUnderline(cell) << 4) | (cell.inverse << 5)
-             | (cell.wrap << 6) | (cell.faint << 7)
-             | (cell.blink << 8) | (cell.conceal << 9)
-             | (cell.strike << 10) | (cell.overline << 11)
-             | (cell.underline_style << 12)
-             | ((cell.protected_char != 0) << 15) | (cell.line_attr << 16)
-             | (cell.drawn << 18);
+        return (cell.dwidth << 0) | (cell.dwidth_cont << 1) | (cell.bold << 2) | (cell.italic << 3) | (cellUnderline(cell) << 4) | (cell.inverse << 5) | (cell.wrap << 6) | (cell.faint << 7) | (cell.blink << 8) | (cell.conceal << 9) | (cell.strike << 10) | (cell.overline << 11) | (cell.underline_style << 12) | ((cell.protected_char != 0) << 15) | (cell.line_attr << 16) | (cell.drawn << 18);
     }
 
     struct ModelDigest {
@@ -334,7 +326,7 @@ bool TestDisplay::update(const Frame& frame) {
     modelUnderlineColors.resize(count);
     for (u16 row = 0; row < rows; ++row) {
         for (u16 column = 0; column < columns; ++column) {
-            const size_t index = (size_t)(row) * columns + column;
+            const size_t index = (size_t)(row)*columns + column;
             modelCells[index] = frame.getViewCell(row, column);
             const auto grapheme = frame.getGrapheme(modelCells[index].extraRef());
             cellGraphemes[index].assign(grapheme.begin(), grapheme.end());
@@ -442,16 +434,13 @@ std::string TestDisplay::modelDigest() const {
     }
 
     std::ostringstream output;
-    output << "OK " << std::hex << std::setfill('0')
-           << std::setw(16) << digest.first << ' '
-           << std::setw(16) << digest.second << '\n';
+    output << "OK " << std::hex << std::setfill('0') << std::setw(16) << digest.first << ' ' << std::setw(16) << digest.second << '\n';
     return output.str();
 }
 
 std::string TestDisplay::scrollbackState() const {
     std::ostringstream output;
-    output << "OK " << historyRows << ' ' << historyRows + rows << ' '
-           << rows << ' ' << historyRows - viewOffset << '\n';
+    output << "OK " << historyRows << ' ' << historyRows + rows << ' ' << rows << ' ' << historyRows - viewOffset << '\n';
     return output.str();
 }
 
@@ -780,10 +769,8 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                     restoredWindowInfo = windowInfo;
                     haveRestoredWindowInfo = true;
                 }
-                const u32 pixelWidth = first == 2
-                    ? windowInfo.pixelWidth : windowInfo.screenPixelWidth;
-                const u32 pixelHeight = first == 3
-                    ? windowInfo.pixelHeight : windowInfo.screenPixelHeight;
+                const u32 pixelWidth = first == 2 ? windowInfo.pixelWidth : windowInfo.screenPixelWidth;
+                const u32 pixelHeight = first == 3 ? windowInfo.pixelHeight : windowInfo.screenPixelHeight;
                 applyWindowSize(pixelWidth, pixelHeight);
                 windowInfo.maximized = true;
             }
@@ -861,7 +848,8 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 std::string input;
                 size_t count = 0;
                 while (args >> encoded) {
-                    input += "\x1b" "c";
+                    input += "\x1b"
+                             "c";
                     input += decodeHex(encoded);
                     input += "\x1b[6n";
                     ++count;
@@ -1443,46 +1431,18 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
             } else if (line == "PROTOCOL_STATE") {
                 writeAll(controlFd, "OK " + std::to_string(terminal.getScreenReverseVideo()) + " " + std::to_string(terminal.getLedState()) + " " + std::to_string(terminal.getReverseWrapMode()) + " " + std::to_string(terminal.getNationalReplacementMode()) + " 0\n");
             } else if (line == "CURSOR_STATE") {
-                writeAll(controlFd,
-                         "OK " + std::to_string(terminal.getPrivateMode(25)) + " "
-                         + std::to_string(terminal.getPrivateMode(12)) + " "
-                         + std::to_string((unsigned)(terminal.getCursorStyle())) + "\n");
+                writeAll(controlFd, "OK " + std::to_string(terminal.getPrivateMode(25)) + " " + std::to_string(terminal.getPrivateMode(12)) + " " + std::to_string((unsigned)(terminal.getCursorStyle())) + "\n");
             } else if (line == "CONFORMANCE_STATE") {
                 std::ostringstream output;
-                output << "OK screen=" << (terminal.getPrivateMode(47) ? "Alternate" : "Primary")
-                       << " IRM=" << terminal.getAnsiMode(4)
-                       << " SRM=" << terminal.getAnsiMode(12)
-                       << " LNM=" << terminal.getAnsiMode(20)
-                       << " DECCKM=" << terminal.getPrivateMode(1)
-                       << " DECCOLM=" << terminal.getPrivateMode(3)
-                       << " DECSCLM=" << terminal.getPrivateMode(4)
-                       << " DECSCNM=" << terminal.getPrivateMode(5)
-                       << " DECOM=" << terminal.getPrivateMode(6)
-                       << " DECAWM=" << terminal.getPrivateMode(7)
-                       << " DECARM=" << terminal.getPrivateMode(8)
-                       << " DECTCEM=" << terminal.getPrivateMode(25)
-                       << " DECNKM=" << terminal.getPrivateMode(66)
-                       << " DECBKM=" << terminal.getPrivateMode(67)
-                       << " DECLRMM=" << terminal.getPrivateMode(69) << '\n';
+                output << "OK screen=" << (terminal.getPrivateMode(47) ? "Alternate" : "Primary") << " IRM=" << terminal.getAnsiMode(4) << " SRM=" << terminal.getAnsiMode(12) << " LNM=" << terminal.getAnsiMode(20) << " DECCKM=" << terminal.getPrivateMode(1) << " DECCOLM=" << terminal.getPrivateMode(3) << " DECSCLM=" << terminal.getPrivateMode(4) << " DECSCNM=" << terminal.getPrivateMode(5) << " DECOM=" << terminal.getPrivateMode(6) << " DECAWM=" << terminal.getPrivateMode(7) << " DECARM=" << terminal.getPrivateMode(8) << " DECTCEM=" << terminal.getPrivateMode(25) << " DECNKM=" << terminal.getPrivateMode(66) << " DECBKM=" << terminal.getPrivateMode(67) << " DECLRMM=" << terminal.getPrivateMode(69) << '\n';
                 writeAll(controlFd, output.str());
             } else if (line == "RECTANGLE_ORIGIN") {
                 const RectangleOrigin origin = terminal.getRectangleOrigin();
-                writeAll(controlFd,
-                         "OK " + std::to_string(origin.rowBase) + " "
-                         + std::to_string(origin.columnBase) + " "
-                         + std::to_string(origin.rowLimit) + " "
-                         + std::to_string(origin.columnLimit) + "\n");
+                writeAll(controlFd, "OK " + std::to_string(origin.rowBase) + " " + std::to_string(origin.columnBase) + " " + std::to_string(origin.rowLimit) + " " + std::to_string(origin.columnLimit) + "\n");
             } else if (line == "PEN_STATE") {
                 const TerminalPen pen = terminal.getPenState();
                 std::ostringstream output;
-                output << "OK " << cellFlags(pen.cell) << ' '
-                       << (unsigned)(pen.fg.red) << ' '
-                       << (unsigned)(pen.fg.green) << ' '
-                       << (unsigned)(pen.fg.blue) << ' '
-                       << (unsigned)(pen.bg.red) << ' '
-                       << (unsigned)(pen.bg.green) << ' '
-                       << (unsigned)(pen.bg.blue) << ' '
-                       << pen.cell.foreground().legacyIndex() << ' ' << pen.cell.background().legacyIndex() << '\n';
+                output << "OK " << cellFlags(pen.cell) << ' ' << (unsigned)(pen.fg.red) << ' ' << (unsigned)(pen.fg.green) << ' ' << (unsigned)(pen.fg.blue) << ' ' << (unsigned)(pen.bg.red) << ' ' << (unsigned)(pen.bg.green) << ' ' << (unsigned)(pen.bg.blue) << ' ' << pen.cell.foreground().legacyIndex() << ' ' << pen.cell.background().legacyIndex() << '\n';
                 writeAll(controlFd, output.str());
             } else if (line == "PARSER_TRACE_ON") {
                 vtermTrace.clear();

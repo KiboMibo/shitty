@@ -28,8 +28,8 @@
 #include <stdexcept>
 #include <string>
 
-
 namespace stl {}
+
 using namespace stl;
 
 Font::Font(const std::string& filename_)

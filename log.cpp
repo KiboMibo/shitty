@@ -22,8 +22,8 @@
 #include <string.h>
 #include <unistd.h>
 
-
 namespace stl {}
+
 using namespace stl;
 
 const char* logFileName(const char* path) {

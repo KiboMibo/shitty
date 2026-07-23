@@ -33,7 +33,7 @@
 #include "vterm_host.h"
 
 #ifdef SHITTY_FOR_TESTS
-#include "test_mode.h"
+    #include "test_mode.h"
 #endif
 
 #define GLFW_INCLUDE_NONE
@@ -68,16 +68,20 @@
 
 #include <std/mem/obj_pool.h>
 
-
 namespace stl {}
+
 using namespace stl;
 
 extern char** environ;
 
 namespace {
-    class ApplicationImpl final: public Application, public VtermHost, public PtyEventHost
+    class ApplicationImpl final:
+        public Application,
+        public VtermHost,
+        public PtyEventHost
 #ifdef SHITTY_FOR_TESTS
-        , public TestModeInput
+        ,
+        public TestModeInput
 #endif
     {
     public:

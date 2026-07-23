@@ -6,8 +6,8 @@
 
 #include "keyboard.h"
 
-
 namespace stl {}
+
 using namespace stl;
 
 bool controlCharacter(int key, bool shifted, u8& character) {

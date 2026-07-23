@@ -27,8 +27,8 @@
 
 #include <cassert>
 
-
 namespace stl {}
+
 using namespace stl;
 
 namespace {

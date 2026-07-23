@@ -24,8 +24,8 @@
 #include <stdexcept>
 #include <string>
 
-
 namespace stl {}
+
 using namespace stl;
 
 namespace {

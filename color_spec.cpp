@@ -10,7 +10,6 @@
 #include <cmath>
 #include <string_view>
 
-
 namespace {
     struct Triple {
         double x;
@@ -92,20 +91,15 @@ namespace {
 
     bool parseTriple(const std::string& spec, std::string_view prefix, Triple& value) {
         const size_t colon = spec.find(':');
-        if (colon == std::string::npos
-            || !prefixEqual(std::string_view(spec).substr(0, colon), prefix)) {
+        if (colon == std::string::npos || !prefixEqual(std::string_view(spec).substr(0, colon), prefix)) {
             return false;
         }
         const size_t first = spec.find('/', colon + 1);
-        const size_t second = first == std::string::npos
-            ? std::string::npos : spec.find('/', first + 1);
-        if (first == std::string::npos || second == std::string::npos
-            || spec.find('/', second + 1) != std::string::npos) {
+        const size_t second = first == std::string::npos ? std::string::npos : spec.find('/', first + 1);
+        if (first == std::string::npos || second == std::string::npos || spec.find('/', second + 1) != std::string::npos) {
             return false;
         }
-        return parseNumber(std::string_view(spec).substr(colon + 1, first - colon - 1), value.x)
-            && parseNumber(std::string_view(spec).substr(first + 1, second - first - 1), value.y)
-            && parseNumber(std::string_view(spec).substr(second + 1), value.z);
+        return parseNumber(std::string_view(spec).substr(colon + 1, first - colon - 1), value.x) && parseNumber(std::string_view(spec).substr(first + 1, second - first - 1), value.y) && parseNumber(std::string_view(spec).substr(second + 1), value.z);
     }
 
     Triple whiteUvY() {
@@ -147,15 +141,12 @@ namespace {
     }
 
     double yToValue(double value) {
-        return value < 0.008856
-            ? value * 903.29
-            : std::cbrt(value) * 116.0 - 16.0;
+        return value < 0.008856 ? value * 903.29 : std::cbrt(value) * 116.0 - 16.0;
     }
 
     double hueOffset() {
         const Triple white = whiteUvY();
-        return std::atan((bestRedV - white.y) / (bestRedU - white.x))
-            * 180.0 / pi;
+        return std::atan((bestRedV - white.y) / (bestRedU - white.x)) * 180.0 / pi;
     }
 
     Triple tekHvcToXyz(Triple value) {
@@ -202,9 +193,7 @@ namespace {
 
     bool inGamut(Triple value) {
         constexpr double epsilon = 0.000001;
-        return value.x >= -epsilon && value.x <= 1.0 + epsilon
-            && value.y >= -epsilon && value.y <= 1.0 + epsilon
-            && value.z >= -epsilon && value.z <= 1.0 + epsilon;
+        return value.x >= -epsilon && value.x <= 1.0 + epsilon && value.y >= -epsilon && value.y <= 1.0 + epsilon && value.z >= -epsilon && value.z <= 1.0 + epsilon;
     }
 
     Triple gamutMap(Triple xyz) {
@@ -230,9 +219,7 @@ namespace {
 
     u8 encodeSrgb(double value) {
         value = std::clamp(value, 0.0, 1.0);
-        value = value <= 0.0031308
-            ? 12.92 * value
-            : 1.055 * std::pow(value, 1.0 / 2.4) - 0.055;
+        value = value <= 0.0031308 ? 12.92 * value : 1.055 * std::pow(value, 1.0 / 2.4) - 0.055;
         return (u8)std::lround(value * 255.0);
     }
 
@@ -240,8 +227,7 @@ namespace {
         Triple value;
         Triple xyz;
         if (parseTriple(spec, "rgbi", value)) {
-            if (value.x < 0.0 || value.x > 1.0 || value.y < 0.0 || value.y > 1.0
-                || value.z < 0.0 || value.z > 1.0) {
+            if (value.x < 0.0 || value.x > 1.0 || value.y < 0.0 || value.y > 1.0 || value.z < 0.0 || value.z > 1.0) {
                 return false;
             }
             color = {encodeSrgb(value.x), encodeSrgb(value.y), encodeSrgb(value.z)};
@@ -258,8 +244,7 @@ namespace {
             }
             xyz = uvYToXyz(value);
         } else if (parseTriple(spec, "CIExyY", value)) {
-            if (value.x < 0.0 || value.x > 1.0 || value.y < 0.0 || value.y > 1.0
-                || value.z < 0.0 || value.z > 1.0) {
+            if (value.x < 0.0 || value.x > 1.0 || value.y < 0.0 || value.y > 1.0 || value.z < 0.0 || value.z > 1.0) {
                 return false;
             }
             if (value.y == 0.0) {
@@ -315,8 +300,7 @@ namespace {
             return false;
         }
 
-        if (!std::isfinite(xyz.x) || !std::isfinite(xyz.y) || !std::isfinite(xyz.z)
-            || xyz.y < 0.0 || xyz.y > 1.0) {
+        if (!std::isfinite(xyz.x) || !std::isfinite(xyz.y) || !std::isfinite(xyz.z) || xyz.y < 0.0 || xyz.y > 1.0) {
             return false;
         }
         const Triple rgb = gamutMap(xyz);
@@ -378,22 +362,14 @@ bool parseXColor(const std::string& spec, Color& color) {
         return true;
     };
 
-    if (spec.size() >= 4 && spec.size() <= 13 && spec[0] == '#'
-        && (spec.size() - 1) % 3 == 0) {
+    if (spec.size() >= 4 && spec.size() <= 13 && spec[0] == '#' && (spec.size() - 1) % 3 == 0) {
         const size_t width = (spec.size() - 1) / 3;
-        return hashComponent(spec.substr(1, width), color.red)
-            && hashComponent(spec.substr(1 + width, width), color.green)
-            && hashComponent(spec.substr(1 + 2 * width, width), color.blue);
+        return hashComponent(spec.substr(1, width), color.red) && hashComponent(spec.substr(1 + width, width), color.green) && hashComponent(spec.substr(1 + 2 * width, width), color.blue);
     }
     if (spec.size() >= 4 && prefixEqual(std::string_view(spec).substr(0, 4), "rgb:")) {
         const size_t first = spec.find('/', 4);
-        const size_t second = first == std::string::npos
-            ? std::string::npos : spec.find('/', first + 1);
-        return first != std::string::npos && second != std::string::npos
-            && spec.find('/', second + 1) == std::string::npos
-            && component(spec.substr(4, first - 4), color.red)
-            && component(spec.substr(first + 1, second - first - 1), color.green)
-            && component(spec.substr(second + 1), color.blue);
+        const size_t second = first == std::string::npos ? std::string::npos : spec.find('/', first + 1);
+        return first != std::string::npos && second != std::string::npos && spec.find('/', second + 1) == std::string::npos && component(spec.substr(4, first - 4), color.red) && component(spec.substr(first + 1, second - first - 1), color.green) && component(spec.substr(second + 1), color.blue);
     }
     return convertedColor(spec, color);
 }

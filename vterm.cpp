@@ -58,6 +58,7 @@
 #include <thread>
 
 namespace stl {}
+
 using namespace stl;
 
 void MouseTrackingState::setMode(MouseTrackingMode value) {
@@ -330,21 +331,27 @@ namespace {
         void jumpToNextTabStop();
         void setFgFromPalIx();
         void setBgFromPalIx();
+
         CellColor attrForeground() const noexcept {
             return attrs.foreground();
         }
+
         CellColor attrBackground() const noexcept {
             return attrs.background();
         }
+
         CellColor attrUnderlineColor() const noexcept {
             return attrs.inlineUnderlineColor();
         }
+
         void setAttrForeground(CellColor color) noexcept {
             attrs.setForeground(color);
         }
+
         void setAttrBackground(CellColor color) noexcept {
             attrs.setBackground(color);
         }
+
         void setAttrUnderlineColor(CellColor color) noexcept {
             attrs.setInlineUnderlineColor(color);
         }
@@ -1382,9 +1389,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
             frame_alt = Frame(composer, winPx, winPy, nCols, nRows, marginTop, marginBottom, &colors, opts.saveLines);
             altScreenInitialized = true;
         } else {
-            frame_alt.resize(
-                winPx, winPy, nCols, nRows, marginTop, marginBottom,
-                {Point(posX, posY), lastCol}, false);
+            frame_alt.resize(winPx, winPy, nCols, nRows, marginTop, marginBottom, {Point(posX, posY), lastCol}, false);
         }
         cf = &frame_alt;
         cf->expose();
@@ -1393,9 +1398,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         altScreenBufferMode = true;
     } else {
         const bool reflow = frame_pri.nCols != nCols;
-        const auto resizeState = frame_pri.resize(
-            winPx, winPy, nCols, nRows, marginTop, marginBottom,
-            {Point(posX, posY), lastCol}, reflow);
+        const auto resizeState = frame_pri.resize(winPx, winPy, nCols, nRows, marginTop, marginBottom, {Point(posX, posY), lastCol}, reflow);
         posX = resizeState.cursor.x;
         posY = resizeState.cursor.y;
         lastCol = resizeState.pendingWrap;
@@ -1600,8 +1603,7 @@ TerminalCell VtermImpl::eraseCell() const {
 
 void VtermImpl::clearWideCellsAtBoundary(u16 row, u16 boundary) {
     const TerminalCell* cells = cf->getRow(row);
-    if ((boundary == 0 || !cells[boundary - 1].dwidth) &&
-        (boundary == nCols || !cells[boundary].dwidth_cont)) {
+    if ((boundary == 0 || !cells[boundary - 1].dwidth) && (boundary == nCols || !cells[boundary].dwidth_cont)) {
         return;
     }
     cf->clearWideBoundary(row, boundary, eraseCell());
@@ -1620,10 +1622,8 @@ void VtermImpl::repairWideCellsAtBoundary(u16 row, u16 boundary) {
 TerminalCell* VtermImpl::prepareSpanAt(u16 row, u16 start, u16 count) {
     const u16 end = start + count;
     const TerminalCell* cells = cf->getRow(row);
-    const bool splitLeft = start > 0 &&
-        (cells[start - 1].dwidth || cells[start].dwidth_cont);
-    const bool splitRight = end < nCols &&
-        (cells[end - 1].dwidth || cells[end].dwidth_cont);
+    const bool splitLeft = start > 0 && (cells[start - 1].dwidth || cells[start].dwidth_cont);
+    const bool splitRight = end < nCols && (cells[end - 1].dwidth || cells[end].dwidth_cont);
     if (!splitLeft && !splitRight) {
         return cf->writeSpan(row, start, count);
     }
@@ -1799,8 +1799,7 @@ void VtermImpl::widenInputGrapheme(u16 lineCols) {
 
         const TerminalCell moved = oldLead;
         cf->eraseInRow(inputGraphemeY, inputGraphemeX, 1, eraseCell());
-        const u16 wrapColumn = inputGraphemeX > hMargin
-            ? inputGraphemeX - 1 : inputGraphemeX;
+        const u16 wrapColumn = inputGraphemeX > hMargin ? inputGraphemeX - 1 : inputGraphemeX;
         cf->getCell(inputGraphemeY, wrapColumn).wrap = 1;
         inp_CR();
         inp_LF();
@@ -1858,13 +1857,10 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
     auto w = pt >= 0x20 && pt < 0x7f ? 1 : codepointWidth(pt);
 
     const u8 lineAttribute = ((const Frame&)*cf).getCell(posY, 0).line_attr;
-    const u16 lineCols = lineAttribute
-        ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2)
-        : nColsEff;
+    const u16 lineCols = lineAttribute ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2) : nColsEff;
 
     if (inputGraphemeFrame == cf && !graphemeBoundary) {
-        const u32 previous = inputGrapheme.empty()
-            ? inputGraphemeBase : inputGrapheme.data()[inputGrapheme.size() - 1];
+        const u32 previous = inputGrapheme.empty() ? inputGraphemeBase : inputGrapheme.data()[inputGrapheme.size() - 1];
         if (inputGrapheme.empty()) {
             inputGrapheme.push_back(inputGraphemeBase);
         }
@@ -1988,9 +1984,7 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
         }
 
         const u8 lineAttribute = cf->getRow(posY)[0].line_attr;
-        const u16 lineCols = lineAttribute
-            ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2)
-            : nColsEff;
+        const u16 lineCols = lineAttribute ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2) : nColsEff;
         if (posX >= lineCols) {
             utf8dec.setUnicode(*input++);
             placeGraphicChar(graphemeBoundary);
@@ -3882,10 +3876,7 @@ void VtermImpl::csi_SGR() {
             // ignored.
             const size_t count = end - first + 1;
             const size_t rgbFirst = first + (count >= 4);
-            if (mode != 2 || count < 3
-                || (count == 3 && !inputPresent[first])
-                || !inputPresent[rgbFirst] || !inputPresent[rgbFirst + 1] || !inputPresent[rgbFirst + 2]
-                || inputOps[rgbFirst] > 255 || inputOps[rgbFirst + 1] > 255 || inputOps[rgbFirst + 2] > 255) {
+            if (mode != 2 || count < 3 || (count == 3 && !inputPresent[first]) || !inputPresent[rgbFirst] || !inputPresent[rgbFirst + 1] || !inputPresent[rgbFirst + 2] || inputOps[rgbFirst] > 255 || inputOps[rgbFirst + 1] > 255 || inputOps[rgbFirst + 2] > 255) {
                 return false;
             }
             color = CellColor::direct({
@@ -4047,13 +4038,12 @@ void VtermImpl::csi_SGR() {
                 setFgFromPalIx();
                 break;
 
-            case 38:
-                {
-                    CellColor color = attrForeground();
-                    if (parseColor(k, color, &fgPalIx)) {
-                        setAttrForeground(color);
-                    }
+            case 38: {
+                CellColor color = attrForeground();
+                if (parseColor(k, color, &fgPalIx)) {
+                    setAttrForeground(color);
                 }
+            }
                 if (underlineColorDefault) {
                     setAttrUnderlineColor(attrForeground());
                 }
@@ -4075,14 +4065,12 @@ void VtermImpl::csi_SGR() {
                 setBgFromPalIx();
                 break;
 
-            case 48:
-                {
-                    CellColor color = attrBackground();
-                    if (parseColor(k, color, &bgPalIx)) {
-                        setAttrBackground(color);
-                    }
+            case 48: {
+                CellColor color = attrBackground();
+                if (parseColor(k, color, &bgPalIx)) {
+                    setAttrBackground(color);
                 }
-                break;
+            } break;
             case 49:
                 bgPalIx = defaultBgPalIx;
                 setBgFromPalIx();
@@ -4333,8 +4321,7 @@ void VtermImpl::csi_DSR(bool privateMode) {
                 if (originMode == OriginMode::Absolute) {
                     response << '?' << (posY + 1) << ';' << (posX + 1);
                 } else {
-                    response << '?' << (posY - marginTop + 1) << ';'
-                             << (posX - hMargin + 1);
+                    response << '?' << (posY - marginTop + 1) << ';' << (posX - hMargin + 1);
                 }
                 response << ";1R";
                 writeCsiResponse(response.str());
@@ -4602,8 +4589,7 @@ void VtermImpl::dcs_DECRQSS(const std::string& arg) {
     std::ostringstream value;
     const std::string query = arg.substr(2);
     if (query == "\"p") {
-        value << 60 + (u8)(compatLevel) << ';'
-              << (send8BitControls ? 0 : 1) << "\"p";
+        value << 60 + (u8)(compatLevel) << ';' << (send8BitControls ? 0 : 1) << "\"p";
     } else if (query == "m") {
         value << "0";
         if (attrs.bold) {
@@ -4840,8 +4826,7 @@ void VtermImpl::handle_OSC() {
             case 16:
             case 17:
             case 18:
-            case 19:
-            {
+            case 19: {
                 std::stringstream specs(arg);
                 std::string spec;
                 int dynamicCmd = cmd;
@@ -5181,8 +5166,7 @@ void VtermImpl::osc_PaletteQuery(int cmd, const std::string& arg) {
         const u16 colorIndex = (u16)(special ? paletteIdx - 256 : paletteIdx);
         if (spec == "?") {
             std::ostringstream reply;
-            reply << cmd << ";" << paletteIdx << ";"
-                << (special ? colors.special[colorIndex] : colors.palette[colorIndex]);
+            reply << cmd << ";" << paletteIdx << ";" << (special ? colors.special[colorIndex] : colors.palette[colorIndex]);
             writeOscResponse(reply.str());
         } else {
             Color color;
@@ -5207,8 +5191,7 @@ void VtermImpl::osc_SpecialColorQuery(const std::string& arg) {
     while (std::getline(fields, indexText, ';') && std::getline(fields, spec, ';')) {
         int index = -1;
         const auto parsed = std::from_chars(indexText.data(), indexText.data() + indexText.size(), index);
-        if (parsed.ec != std::errc{} || parsed.ptr != indexText.data() + indexText.size()
-            || index < 0 || index >= TerminalColors::specialCount) {
+        if (parsed.ec != std::errc{} || parsed.ptr != indexText.data() + indexText.size() || index < 0 || index >= TerminalColors::specialCount) {
             continue;
         }
         if (spec == "?") {
@@ -5239,15 +5222,11 @@ void VtermImpl::osc_SpecialColorModes(const std::string& arg) {
         int value = -1;
         const auto indexResult = std::from_chars(indexText.data(), indexText.data() + indexText.size(), index);
         const auto valueResult = std::from_chars(valueText.data(), valueText.data() + valueText.size(), value);
-        if (indexResult.ec != std::errc{} || indexResult.ptr != indexText.data() + indexText.size()
-            || valueResult.ec != std::errc{} || valueResult.ptr != valueText.data() + valueText.size()
-            || index < 0 || index > TerminalColors::specialCount || value < 0) {
+        if (indexResult.ec != std::errc{} || indexResult.ptr != indexText.data() + indexText.size() || valueResult.ec != std::errc{} || valueResult.ptr != valueText.data() + valueText.size() || index < 0 || index > TerminalColors::specialCount || value < 0) {
             continue;
         }
         const u8 bit = (u8)(1u << index);
-        const u8 modes = value == 0
-            ? (u8)(colors.specialModes & ~bit)
-            : (u8)(colors.specialModes | bit);
+        const u8 modes = value == 0 ? (u8)(colors.specialModes & ~bit) : (u8)(colors.specialModes | bit);
         changed = changed || modes != colors.specialModes;
         colors.specialModes = modes;
     }
@@ -5268,8 +5247,7 @@ void VtermImpl::osc_ResetSpecialColors(const std::string& arg) {
         while (std::getline(fields, indexText, ';')) {
             int index = -1;
             const auto parsed = std::from_chars(indexText.data(), indexText.data() + indexText.size(), index);
-            if (parsed.ec == std::errc{} && parsed.ptr == indexText.data() + indexText.size()
-                && index >= 0 && index < TerminalColors::specialCount) {
+            if (parsed.ec == std::errc{} && parsed.ptr == indexText.data() + indexText.size() && index >= 0 && index < TerminalColors::specialCount) {
                 colors.special[index] = colors.originalSpecial[index];
                 changed = true;
             }
@@ -5347,11 +5325,21 @@ void VtermImpl::csiq_DECSCL() {
     TRACE_FUN;
     CompatibilityLevel level;
     switch (inputOps[0]) {
-        case 61: level = CompatibilityLevel::VT100; break;
-        case 62: level = CompatibilityLevel::VT200; break;
-        case 63: level = CompatibilityLevel::VT300; break;
-        case 64: level = CompatibilityLevel::VT400; break;
-        case 65: level = CompatibilityLevel::VT500; break;
+        case 61:
+            level = CompatibilityLevel::VT100;
+            break;
+        case 62:
+            level = CompatibilityLevel::VT200;
+            break;
+        case 63:
+            level = CompatibilityLevel::VT300;
+            break;
+        case 64:
+            level = CompatibilityLevel::VT400;
+            break;
+        case 65:
+            level = CompatibilityLevel::VT500;
+            break;
         default:
             logU << "DECSCL: compatibility mode " << inputOps[0] << std::endl;
             setState(InputState::Normal);
@@ -5385,23 +5373,15 @@ void VtermImpl::csi_XTWINOPS() {
             const auto info = host.windowInfo();
             const u32 currentHeight = operation == 4 ? info.pixelHeight : nRows;
             const u32 currentWidth = operation == 4 ? info.pixelWidth : nCols;
-            const u32 maximumHeight = operation == 4
-                ? info.screenPixelHeight
-                : info.screenPixelHeight / glyphPy;
-            const u32 maximumWidth = operation == 4
-                ? info.screenPixelWidth
-                : info.screenPixelWidth / glyphPx;
+            const u32 maximumHeight = operation == 4 ? info.screenPixelHeight : info.screenPixelHeight / glyphPy;
+            const u32 maximumWidth = operation == 4 ? info.screenPixelWidth : info.screenPixelWidth / glyphPx;
             const auto dimension = [&](size_t index, u32 current, u32 maximum) {
                 if (index >= nInputOps || !inputPresent[index]) {
                     return current;
                 }
                 return inputOps[index] ? inputOps[index] : maximum;
             };
-            host.windowOperation(
-                operation,
-                dimension(1, currentHeight, maximumHeight),
-                dimension(2, currentWidth, maximumWidth)
-            );
+            host.windowOperation(operation, dimension(1, currentHeight, maximumHeight), dimension(2, currentWidth, maximumWidth));
         } break;
         case 1:
         case 2:
@@ -5481,9 +5461,7 @@ void VtermImpl::csi_XTWINOPS() {
             if (!titleStack.empty()) {
                 SavedTitles saved = std::move(titleStack.back());
                 titleStack.pop_back();
-                for (auto it = titleStack.rbegin();
-                     it != titleStack.rend() && (!saved.hasIcon || !saved.hasWindow);
-                     ++it) {
+                for (auto it = titleStack.rbegin(); it != titleStack.rend() && (!saved.hasIcon || !saved.hasWindow); ++it) {
                     if (!saved.hasIcon && it->hasIcon) {
                         saved.hasIcon = true;
                         saved.icon = it->icon;
@@ -7022,9 +7000,7 @@ void VtermImpl::resize(u16 winPx_, u16 winPy_) {
     }
 
     const bool reflow = cf == &frame_pri && nCols != nCols_;
-    const auto resizeState = cf->resize(
-        winPx, winPy, nCols_, nRows_, marginTop, marginBottom,
-        {Point(posX, posY), lastCol}, reflow);
+    const auto resizeState = cf->resize(winPx, winPy, nCols_, nRows_, marginTop, marginBottom, {Point(posX, posY), lastCol}, reflow);
     posX = resizeState.cursor.x;
     posY = resizeState.cursor.y;
     lastCol = resizeState.pendingWrap;
@@ -7588,8 +7564,7 @@ bool VtermImpl::executeC0InSequence(unsigned char ch) {
 template <bool traced>
 void VtermImpl::dispatchCsi(unsigned char finalByte) {
     if constexpr (traced) {
-        parserTrace->csi(finalByte, csiPrivatePrefix, csiIntermediates,
-            inputOps, inputSeparators, nInputOps, csiHadParams);
+        parserTrace->csi(finalByte, csiPrivatePrefix, csiIntermediates, inputOps, inputSeparators, nInputOps, csiHadParams);
     }
     const std::string key = csiPrivatePrefix + csiIntermediates + (char)(finalByte);
     if (key == "A") {
@@ -7813,9 +7788,7 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
     ++processInputDepth;
     bool changed;
     try {
-        changed = parserTrace
-            ? processInputImpl<true>(input, inputSize, refresh)
-            : processInputImpl<false>(input, inputSize, refresh);
+        changed = parserTrace ? processInputImpl<true>(input, inputSize, refresh) : processInputImpl<false>(input, inputSize, refresh);
     } catch (...) {
         --processInputDepth;
         throw;
@@ -7884,9 +7857,7 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
             readPos = end - 1;
             continue;
         }
-        const bool utf8StringContinuation =
-            (inputState == InputState::DCS || inputState == InputState::OSC || inputState == InputState::String)
-            && stringUtf8Continuation(ch);
+        const bool utf8StringContinuation = (inputState == InputState::DCS || inputState == InputState::OSC || inputState == InputState::String) && stringUtf8Continuation(ch);
         if (ch == '\x18' || ch == '\x1a') {
             if constexpr (traced) {
                 parserTrace->control(ch);
@@ -7918,10 +7889,7 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
             lastEscBegin = readPos;
             continue;
         }
-        if (ch >= 0xa0 && inputState != InputState::Normal
-            && inputState != InputState::DCS && inputState != InputState::DCS_Esc
-            && inputState != InputState::OSC && inputState != InputState::OSC_Esc
-            && inputState != InputState::String && inputState != InputState::String_Esc) {
+        if (ch >= 0xa0 && inputState != InputState::Normal && inputState != InputState::DCS && inputState != InputState::DCS_Esc && inputState != InputState::OSC && inputState != InputState::OSC_Esc && inputState != InputState::String && inputState != InputState::String_Esc) {
             if constexpr (traced) {
                 parserTrace->escapeCancel();
             }
@@ -8000,9 +7968,7 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                     continue;
             }
         }
-        if ((inputState == InputState::Esc_SPC || inputState == InputState::Esc_Hash
-                || inputState == InputState::Esc_Pct)
-            && ch >= 0x20 && ch <= 0x2f) {
+        if ((inputState == InputState::Esc_SPC || inputState == InputState::Esc_Hash || inputState == InputState::Esc_Pct) && ch >= 0x20 && ch <= 0x2f) {
             if constexpr (traced) {
                 parserTrace->escapeByte(ch);
             }
@@ -8016,9 +7982,7 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                         parserTrace->control(ch);
                     } else if (ch >= 0xa0 || (ch >= 0x80 && utf8dec.expectsContinuation())) {
                         parserTrace->text(&ch, 1);
-                    } else if (ch >= 0x80 && ch <= 0x9f
-                        && ch != 0x90 && ch != 0x98 && ch != 0x9b
-                        && ch != 0x9d && ch != 0x9e && ch != 0x9f) {
+                    } else if (ch >= 0x80 && ch <= 0x9f && ch != 0x90 && ch != 0x98 && ch != 0x9b && ch != 0x9d && ch != 0x9e && ch != 0x9f) {
                         parserTrace->control(ch);
                     }
                 }
@@ -8247,8 +8211,7 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                         parserTrace->control(ch);
                     } else if (ch >= 0x20 && ch <= 0x2f) {
                         parserTrace->escapeByte(ch);
-                    } else if (ch != 'P' && ch != 'X' && ch != '[' && ch != '\\'
-                        && ch != ']' && ch != '^' && ch != '_') {
+                    } else if (ch != 'P' && ch != 'X' && ch != '[' && ch != '\\' && ch != ']' && ch != '^' && ch != '_') {
                         parserTrace->escapeByte(ch);
                         parserTrace->escapeEnd();
                     }
@@ -8790,9 +8753,7 @@ std::string VtermImpl::getHyperlink(int pX, int pY) const {
 
     CellExtraStore* const extras = composer.cellExtras;
     const StringView link = extras->hyperlink(cf->getViewCell(row, column));
-    return link.empty()
-        ? std::string{}
-        : std::string(reinterpret_cast<const char*>(link.data()), link.length());
+    return link.empty() ? std::string{} : std::string(reinterpret_cast<const char*>(link.data()), link.length());
 }
 
 Point VtermImpl::selectionPoint(int pX, int pY) const {
@@ -8800,9 +8761,7 @@ Point VtermImpl::selectionPoint(int pX, int pY) const {
     const int contentHeight = std::max(1, (int)winPy - 2 * opts.border);
     pX = std::min(std::max(0, pX - opts.border), contentWidth);
     pY = std::min(std::max(0, pY - opts.border), contentHeight - 1);
-    return cf->getLogicalPoint(Point(
-        std::min(pX / glyphPx, (int)nCols),
-        std::min(pY / glyphPy, (int)nRows - 1)));
+    return cf->getLogicalPoint(Point(std::min(pX / glyphPx, (int)nCols), std::min(pY / glyphPy, (int)nRows - 1)));
 }
 
 void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
@@ -8969,9 +8928,7 @@ Vterm* Vterm::create(Composer& composer, VtermHost& host, Pty& pty, u16 glyphPx,
     if (opts.dump != nullptr) {
         const int rawFd = ::open(opts.dump, O_WRONLY | O_CREAT | O_TRUNC, 0666);
         if (rawFd < 0) {
-            Errno().raise(StringBuilder()
-                          << StringView(u8"can not open dump file ")
-                          << StringView(opts.dump));
+            Errno().raise(StringBuilder() << StringView(u8"can not open dump file ") << StringView(opts.dump));
         }
         auto* fd = composer.pool->make<ScopedFD>(rawFd);
         dump = createOutBuf(composer.pool, *createFDRegular(composer.pool, *fd));
@@ -8979,13 +8936,9 @@ Vterm* Vterm::create(Composer& composer, VtermHost& host, Pty& pty, u16 glyphPx,
 
     const u16 columns = (winPx - 2 * opts.border) / glyphPx;
     const u16 rows = (winPy - 2 * opts.border) / glyphPy;
-    CellExtraStore::create(
-        composer,
-        (size_t)(columns) * (rows + opts.saveLines)
-    );
+    CellExtraStore::create(composer, (size_t)(columns) * (rows + opts.saveLines));
     try {
-        return composer.pool->make<VtermImpl>(
-            composer, host, pty, dump, glyphPx, glyphPy, winPx, winPy);
+        return composer.pool->make<VtermImpl>(composer, host, pty, dump, glyphPx, glyphPy, winPx, winPy);
     } catch (...) {
         composer.cellExtras = nullptr;
         throw;

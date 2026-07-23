@@ -26,8 +26,8 @@
 #include <algorithm>
 #include <cassert>
 
-
 namespace stl {}
+
 using namespace stl;
 
 #ifdef DEBUG
@@ -168,6 +168,7 @@ Frame::ResizeState Frame::resize(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_,
             std::vector<TerminalCell> cells;
             bool reflowable = true;
         };
+
         struct Anchor {
             int oldRow = 0;
             int oldColumn = 0;
@@ -176,6 +177,7 @@ Frame::ResizeState Frame::resize(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_,
             Point mapped;
             bool found = false;
         };
+
         struct Boundary {
             size_t row = 0;
             int column = 0;
@@ -270,9 +272,7 @@ Frame::ResizeState Frame::resize(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_,
             if (line.reflowable) {
                 size_t offset = 0;
                 while (offset < line.cells.size()) {
-                    const bool wide = line.cells[offset].dwidth
-                        && offset + 1 < line.cells.size()
-                        && line.cells[offset + 1].dwidth_cont;
+                    const bool wide = line.cells[offset].dwidth && offset + 1 < line.cells.size() && line.cells[offset + 1].dwidth_cont;
                     const size_t width = wide ? 2 : 1;
                     if (width > nCols_) {
                         boundaries[offset] = {outputRow, column};
@@ -323,10 +323,8 @@ Frame::ResizeState Frame::resize(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_,
 
             const auto normalizeWideRow = [nCols_](std::vector<TerminalCell>& row) {
                 for (u16 column = 0; column < nCols_; ++column) {
-                    const bool orphanLead = row[column].dwidth
-                        && (column + 1 == nCols_ || !row[column + 1].dwidth_cont);
-                    const bool orphanContinuation = row[column].dwidth_cont
-                        && (column == 0 || !row[column - 1].dwidth);
+                    const bool orphanLead = row[column].dwidth && (column + 1 == nCols_ || !row[column + 1].dwidth_cont);
+                    const bool orphanContinuation = row[column].dwidth_cont && (column == 0 || !row[column - 1].dwidth);
                     if (orphanLead || orphanContinuation) {
                         row[column] = TerminalCell{};
                     }
@@ -345,9 +343,7 @@ Frame::ResizeState Frame::resize(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_,
             }
         }
 
-        const size_t cursorScreenStart = cursorAnchor.mapped.y >= nRows_
-            ? cursorAnchor.mapped.y - (nRows_ - 1)
-            : 0;
+        const size_t cursorScreenStart = cursorAnchor.mapped.y >= nRows_ ? cursorAnchor.mapped.y - (nRows_ - 1) : 0;
         size_t preferredScreenStart = screenAnchor.mapped.y;
         if (nRows_ > nRows) {
             preferredScreenStart -= std::min<size_t>(preferredScreenStart, nRows_ - nRows);
@@ -392,11 +388,7 @@ Frame::ResizeState Frame::resize(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_,
         } else {
             viewOffset = 0;
         }
-        if (keepSelection
-            && selectionStart.mapped.y >= (int)(retainedStart)
-            && selectionStart.mapped.y < (int)(screenStart + nRows_)
-            && selectionEnd.mapped.y >= (int)(retainedStart)
-            && selectionEnd.mapped.y < (int)(screenStart + nRows_)) {
+        if (keepSelection && selectionStart.mapped.y >= (int)(retainedStart) && selectionStart.mapped.y < (int)(screenStart + nRows_) && selectionEnd.mapped.y >= (int)(retainedStart) && selectionEnd.mapped.y < (int)(screenStart + nRows_)) {
             selection.tl = Point(selectionStart.mapped.x, selectionStart.mapped.y - screenStart);
             selection.br = Point(selectionEnd.mapped.x, selectionEnd.mapped.y - screenStart);
         } else {
@@ -671,10 +663,7 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
     return true;
 }
 
-RenderCell Frame::materialize(
-    const TerminalCell& cell,
-    const CellExtraStore& extras
-) const {
+RenderCell Frame::materialize(const TerminalCell& cell, const CellExtraStore& extras) const {
     assert(colors != nullptr);
     RenderCell result;
     result.uc_pt = cell.uc_pt ? cell.uc_pt : ' ';
@@ -708,12 +697,7 @@ RenderCell Frame::materialize(
     return result;
 }
 
-void Frame::damageDeltaCopy(
-    RenderCell* dst,
-    u32 start,
-    u32 count,
-    const CellExtraStore& extras
-) const {
+void Frame::damageDeltaCopy(RenderCell* dst, u32 start, u32 count, const CellExtraStore& extras) const {
     u32 end = start + count;
 
     if (damage.end <= start || end <= damage.start) {
@@ -950,10 +934,8 @@ void Frame::eraseWideInRow(u16 pY, u16 startX, u16 count, const TerminalCell& at
     TerminalCell* row = cells.get() + rowIdx;
     TerminalCell erased = attrs;
     erased.line_attr = row[0].line_attr;
-    const bool eraseLeft = startX > 0 &&
-        (row[startX - 1].dwidth || row[startX].dwidth_cont);
-    const bool eraseRight = endX < nCols &&
-        (row[endX - 1].dwidth || row[endX].dwidth_cont);
+    const bool eraseLeft = startX > 0 && (row[startX - 1].dwidth || row[startX].dwidth_cont);
+    const bool eraseRight = endX < nCols && (row[endX - 1].dwidth || row[endX].dwidth_cont);
     if (eraseLeft) {
         row[startX - 1] = erased;
     }
@@ -976,8 +958,7 @@ void Frame::eraseWideInRow(u16 pY, u16 startX, u16 count, const TerminalCell& at
     const u32 damageEnd = rowIdx + (eraseRight ? endX + 1 : endX);
     damage.add(damageStart, damageEnd);
     if (!selection.empty()) {
-        invalidateSelection(Rect(eraseLeft ? startX - 1 : startX, pY,
-                                 eraseRight ? endX + 1 : endX, pY));
+        invalidateSelection(Rect(eraseLeft ? startX - 1 : startX, pY, eraseRight ? endX + 1 : endX, pY));
     }
 }
 
@@ -987,10 +968,8 @@ TerminalCell* Frame::overwriteSpan(u16 pY, u16 startX, u16 count, const Terminal
     TerminalCell* row = cells.get() + rowIdx;
     TerminalCell erased = eraseAttrs;
     erased.line_attr = row[0].line_attr;
-    const bool eraseLeft = startX > 0 &&
-        (row[startX - 1].dwidth || row[startX].dwidth_cont);
-    const bool eraseRight = endX < nCols &&
-        (row[endX - 1].dwidth || row[endX].dwidth_cont);
+    const bool eraseLeft = startX > 0 && (row[startX - 1].dwidth || row[startX].dwidth_cont);
+    const bool eraseRight = endX < nCols && (row[endX - 1].dwidth || row[endX].dwidth_cont);
     if (eraseLeft) {
         row[startX - 1] = erased;
     }
@@ -1001,8 +980,7 @@ TerminalCell* Frame::overwriteSpan(u16 pY, u16 startX, u16 count, const Terminal
     const u32 damageEnd = rowIdx + (eraseRight ? endX + 1 : endX);
     damage.add(damageStart, damageEnd);
     if (!selection.empty()) {
-        invalidateSelection(Rect(eraseLeft ? startX - 1 : startX, pY,
-                                 eraseRight ? endX + 1 : endX, pY));
+        invalidateSelection(Rect(eraseLeft ? startX - 1 : startX, pY, eraseRight ? endX + 1 : endX, pY));
     }
     return row + startX;
 }
@@ -1128,8 +1106,7 @@ void Frame::rotateRowsUp(u16 top, u16 bottom, u16 count) {
     if (!selection.empty()) {
         invalidateSelection(Rect(0, top, 0, bottom));
     }
-    std::rotate(screen.begin() + top, screen.begin() + top + count,
-                screen.begin() + bottom);
+    std::rotate(screen.begin() + top, screen.begin() + top + count, screen.begin() + bottom);
     expose();
 }
 
@@ -1141,8 +1118,7 @@ void Frame::rotateRowsDown(u16 top, u16 bottom, u16 count) {
     if (!selection.empty()) {
         invalidateSelection(Rect(0, top, 0, bottom));
     }
-    std::rotate(screen.begin() + top, screen.begin() + bottom - count,
-                screen.begin() + bottom);
+    std::rotate(screen.begin() + top, screen.begin() + bottom - count, screen.begin() + bottom);
     expose();
 }
 
@@ -1175,8 +1151,7 @@ bool Frame::selectionValid() const {
 
     const int firstRow = -(int)(history.size());
     const auto valid = [&](Point point) {
-        return point.x >= 0 && point.x <= nCols &&
-               point.y >= firstRow && point.y < nRows;
+        return point.x >= 0 && point.x <= nCols && point.y >= firstRow && point.y < nRows;
     };
     return valid(selection.tl) && valid(selection.br);
 }

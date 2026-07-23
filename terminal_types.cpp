@@ -17,8 +17,8 @@
 
 #include "terminal_types.h"
 
-
 namespace stl {}
+
 using namespace stl;
 
 namespace {
@@ -131,8 +131,7 @@ Color TerminalColors::resolveForeground(const TerminalCell& cell) const {
 Color TerminalColors::resolveBackground(const TerminalCell& cell) const {
     const bool overrideAnsi = (specialModes & (1u << 5)) != 0;
     const CellColor background = cell.background();
-    if ((overrideAnsi || background.source() == CellColor::Source::DefaultBackground)
-        && (specialModes & (1u << 3)) != 0 && cell.inverse) {
+    if ((overrideAnsi || background.source() == CellColor::Source::DefaultBackground) && (specialModes & (1u << 3)) != 0 && cell.inverse) {
         return special[3];
     }
     return resolve(background);

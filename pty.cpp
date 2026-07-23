@@ -52,8 +52,8 @@
 #include <stdexcept>
 #include <string>
 
-
 namespace stl {}
+
 using namespace stl;
 
 #if defined(BSD) || defined(MACOS) || !defined(TIOCGWINSZ)

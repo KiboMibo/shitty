@@ -26,8 +26,8 @@
 #include <memory>
 #include <stdexcept>
 
-
 namespace stl {}
+
 using namespace stl;
 
 namespace {

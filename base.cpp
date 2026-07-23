@@ -20,8 +20,8 @@
 #include <iomanip>
 #include <ostream>
 
-
 namespace stl {}
+
 using namespace stl;
 
 std::ostream& operator<<(std::ostream& os, const Color& c) {

@@ -17,8 +17,8 @@
 
 #include "utf8.h"
 
-
 namespace stl {}
+
 using namespace stl;
 
 Utf8Decoder::Utf8Decoder(CodepointSink&& fn)

@@ -64,6 +64,7 @@ public:
 
     CellExtraStore* cellExtras() const noexcept;
     void collectExtraRefLocations(stl::Vector<u32*>& locations);
+
     size_t cellCapacity() const noexcept {
         return (size_t)(nCols) * (nRows + saveLines);
     }
@@ -228,12 +229,7 @@ private:
     void moveCells(u32 dstIx, u32 srcIx, u32 count);
 
     RenderCell materialize(const TerminalCell& cell, const CellExtraStore& extras) const;
-    void damageDeltaCopy(
-        RenderCell* dst,
-        u32 start,
-        u32 count,
-        const CellExtraStore& extras
-    ) const;
+    void damageDeltaCopy(RenderCell* dst, u32 start, u32 count, const CellExtraStore& extras) const;
 
     static SelectSnapTo cycleSelectSnapTo(SelectSnapTo& snapTo) {
         return (SelectSnapTo)(((u8)(snapTo) + 1) % (u8)(SelectSnapTo::COUNT));

@@ -14,8 +14,8 @@
 #include <limits>
 #include <vector>
 
-
 namespace stl {}
+
 using namespace stl;
 
 namespace {
@@ -33,9 +33,7 @@ namespace {
         void escapeByte(u8 ch) override;
         void escapeEnd() override;
         void escapeCancel() override;
-        void csi(u8 finalByte, const std::string& privatePrefix,
-            const std::string& intermediates, const u32* parameters,
-            const unsigned char* separators, size_t parameterCount, bool hadParameters) override;
+        void csi(u8 finalByte, const std::string& privatePrefix, const std::string& intermediates, const u32* parameters, const unsigned char* separators, size_t parameterCount, bool hadParameters) override;
         void stringBegin(VtermTraceString type) override;
         void stringData(const u8* data, size_t size) override;
         void stringEnd() override;
@@ -142,10 +140,7 @@ void VtermTraceImpl::escapeCancel() {
     erase(escapeEvent);
 }
 
-void VtermTraceImpl::csi(u8 finalByte, const std::string& privatePrefix,
-    const std::string& intermediates, const u32* parameters,
-    const unsigned char* separators, size_t parameterCount, bool hadParameters)
-{
+void VtermTraceImpl::csi(u8 finalByte, const std::string& privatePrefix, const std::string& intermediates, const u32* parameters, const unsigned char* separators, size_t parameterCount, bool hadParameters) {
     escapeCancel();
     const size_t index = add("csi");
     std::string& sequence = events[index].data;
@@ -181,8 +176,7 @@ void VtermTraceImpl::stringData(const u8* data, size_t size) {
 }
 
 void VtermTraceImpl::stringEnd() {
-    if (stringEvent != noEvent && events[stringEvent].type == "dcs"
-        && (!dcsHeaderComplete || dcsHeaderInvalid)) {
+    if (stringEvent != noEvent && events[stringEvent].type == "dcs" && (!dcsHeaderComplete || dcsHeaderInvalid)) {
         erase(stringEvent);
         return;
     }

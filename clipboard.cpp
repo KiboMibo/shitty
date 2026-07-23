@@ -8,8 +8,8 @@
 
 #include <utility>
 
-
 namespace stl {}
+
 using namespace stl;
 
 void ClipboardStore::setHandlers(ReadClipboard read, WriteClipboard write) {

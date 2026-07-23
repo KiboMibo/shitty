@@ -49,11 +49,7 @@ struct CellExtraStore {
     virtual stl::StringView hyperlink(const TerminalCell& cell) const noexcept = 0;
     virtual u32 hyperlinkDisplayId(const TerminalCell& cell) const noexcept = 0;
 
-    virtual u32 getOrCreateHyperlink(
-        stl::StringView identity,
-        stl::StringView payload,
-        u32 displayId
-    ) = 0;
+    virtual u32 getOrCreateHyperlink(stl::StringView identity, stl::StringView payload, u32 displayId) = 0;
     virtual u32 findHyperlink(stl::StringView identity) const noexcept = 0;
     virtual size_t hyperlinkCount() const noexcept = 0;
 

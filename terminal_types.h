@@ -128,6 +128,7 @@ struct TerminalCell {
 
     union {
         u64 style;
+
         struct {
             u64 fg_payload : 24;
             u64 fg_kind : 2;
@@ -148,6 +149,7 @@ struct TerminalCell {
 
     union {
         u32 content;
+
         struct {
             u32 uc_pt : 21;
             u32 dwidth : 1;

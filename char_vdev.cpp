@@ -21,8 +21,8 @@
 #include <algorithm>
 #include <cassert>
 
-
 namespace stl {}
+
 using namespace stl;
 
 CharVdev::CharVdev(Fontpack* fontpk_)

@@ -28,8 +28,8 @@
 
 #include <fcntl.h>
 
-
 namespace stl {}
+
 using namespace stl;
 
 namespace {
@@ -37,25 +37,13 @@ namespace {
         size_t pathOffset;
     };
 
-    void showPerfProgress(
-        size_t done,
-        size_t total,
-        size_t bytes,
-        std::chrono::steady_clock::time_point started
-    ) {
+    void showPerfProgress(size_t done, size_t total, size_t bytes, std::chrono::steady_clock::time_point started) {
         constexpr size_t width = 40;
         const size_t filled = total == 0 ? width : done * width / total;
-        const double elapsed = std::chrono::duration<double>(
-            std::chrono::steady_clock::now() - started
-        ).count();
+        const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
         const double mib = bytes / (1024.0 * 1024.0);
         const double mibPerSecond = elapsed > 0 ? mib / elapsed : 0;
-        std::cerr << '\r' << '[' << std::string(filled, '#')
-                  << std::string(width - filled, ' ') << "] "
-                  << done << '/' << total << " "
-                  << std::fixed << std::setprecision(1)
-                  << mib << " MiB, " << mibPerSecond << " MiB/s"
-                  << std::flush;
+        std::cerr << '\r' << '[' << std::string(filled, '#') << std::string(width - filled, ' ') << "] " << done << '/' << total << " " << std::fixed << std::setprecision(1) << mib << " MiB, " << mibPerSecond << " MiB/s" << std::flush;
     }
 
     int runPerf(int argc, char* argv[]) {
@@ -94,11 +82,7 @@ namespace {
             const char* path = (const char*)paths.data() + files[index].pathOffset;
             const int rawFd = open(path, O_RDONLY);
             if (rawFd < 0) {
-                Errno().raise(
-                    StringBuilder()
-                    << StringView(u8"cannot open ")
-                    << StringView(path)
-                );
+                Errno().raise(StringBuilder() << StringView(u8"cannot open ") << StringView(path));
             }
 
             ScopedFD fd(rawFd);
