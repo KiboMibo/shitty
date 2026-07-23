@@ -65,30 +65,12 @@ struct HyperlinkHandle final: stl::IntrusiveNode {
 };
 
 struct CellExtra {
-    stl::IntrusiveList hyperlinks;
+    stl::IntrusiveList* hyperlinks = nullptr;
     stl::StringView graphemeBytes;
     CellColor underlineColor = CellColor::defaultForeground();
 };
 
-struct CellExtraSpec {
-    CellColor underlineColor = CellColor::defaultForeground();
-    GraphemeView grapheme;
-    stl::StringView hyperlinkIdentity;
-    stl::StringView hyperlinkPayload;
-    u32 hyperlinkDisplayId = 0;
-
-    bool hasGrapheme() const noexcept {
-        return !grapheme.empty();
-    }
-
-    bool hasHyperlink() const noexcept {
-        return hyperlinkDisplayId != 0;
-    }
-
-    bool needsExtra() const noexcept {
-        return hasGrapheme() || hasHyperlink();
-    }
-};
+static_assert(__is_trivially_copyable(CellExtra), "CellExtra must remain trivially copyable");
 
 class CellExtraStore {
 public:
@@ -99,7 +81,6 @@ public:
     CellExtraStore& operator=(const CellExtraStore&) = delete;
 
     const CellExtra* get(u32 ref) const noexcept;
-    CellExtraSpec describe(u32 ref) const noexcept;
 
     u32 migrate(const CellExtraStore& source, u32 sourceRef);
 
@@ -157,8 +138,7 @@ private:
     static HyperlinkHandle* hyperlinkOf(CellExtra& extra) noexcept;
     static const HyperlinkHandle* hyperlinkOf(const CellExtra& extra) noexcept;
 
-    u32 append(const CellExtraSpec& spec);
-    void apply(TerminalCell& cell, const CellExtraSpec& spec);
+    u32 append(const CellExtra& extra);
     void rehashHyperlinks(size_t capacity);
     stl::StringView copyBytes(stl::StringView value);
 };

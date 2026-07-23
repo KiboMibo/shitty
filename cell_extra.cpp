@@ -56,29 +56,19 @@ GraphemeView CellExtraStore::graphemeOf(const CellExtra& extra) noexcept {
 }
 
 const HyperlinkHandle* CellExtraStore::hyperlinkOf(const CellExtra& extra) noexcept {
-    const IntrusiveNode* node = extra.hyperlinks.front();
-    return node == extra.hyperlinks.end() ? nullptr : static_cast<const HyperlinkHandle*>(node);
+    if (extra.hyperlinks == nullptr) {
+        return nullptr;
+    }
+    const IntrusiveNode* node = extra.hyperlinks->front();
+    return node == extra.hyperlinks->end() ? nullptr : static_cast<const HyperlinkHandle*>(node);
 }
 
 HyperlinkHandle* CellExtraStore::hyperlinkOf(CellExtra& extra) noexcept {
-    IntrusiveNode* node = extra.hyperlinks.mutFront();
-    return node == extra.hyperlinks.mutEnd() ? nullptr : static_cast<HyperlinkHandle*>(node);
-}
-
-CellExtraSpec CellExtraStore::describe(u32 ref) const noexcept {
-    CellExtraSpec spec;
-    const CellExtra* extra = get(ref);
-    if (extra == nullptr) {
-        return spec;
+    if (extra.hyperlinks == nullptr) {
+        return nullptr;
     }
-    spec.underlineColor = extra->underlineColor;
-    spec.grapheme = graphemeOf(*extra);
-    if (const HyperlinkHandle* hyperlink = hyperlinkOf(*extra); hyperlink != nullptr) {
-        spec.hyperlinkIdentity = hyperlink->identity;
-        spec.hyperlinkPayload = hyperlink->payload;
-        spec.hyperlinkDisplayId = hyperlink->displayId;
-    }
-    return spec;
+    IntrusiveNode* node = extra.hyperlinks->mutFront();
+    return node == extra.hyperlinks->mutEnd() ? nullptr : static_cast<HyperlinkHandle*>(node);
 }
 
 StringView CellExtraStore::copyBytes(StringView value) {
@@ -106,72 +96,73 @@ void CellExtraStore::rehashHyperlinks(size_t capacity) {
     hyperlinkBuckets_.xchg(replacement);
 }
 
-u32 CellExtraStore::append(const CellExtraSpec& spec) {
-    assert(spec.needsExtra());
+u32 CellExtraStore::append(const CellExtra& value) {
+    assert(!value.graphemeBytes.empty() || hyperlinkOf(value) != nullptr);
     if (slots_.length() >= std::numeric_limits<u32>::max()) {
         throw std::bad_alloc();
     }
 
-    const u32 knownHyperlink = spec.hasHyperlink()
-        ? findHyperlink(spec.hyperlinkIdentity) : 0;
-    const bool newHyperlink = spec.hasHyperlink() && knownHyperlink == 0;
-    if (newHyperlink
-        && (hyperlinkCount_ + 1) * 10 >= hyperlinkBuckets_.length() * 7) {
-        rehashHyperlinks(hyperlinkBuckets_.length() * 2);
-    }
-
-    // CellExtra owns only arena-backed views and intrusive links whose
-    // destructor is a no-op.  Do not register one disposer per slot: deleting
-    // the pool is the destruction operation for the whole live set.
-    auto* extra = new (pool_->allocate(sizeof(CellExtra))) CellExtra();
+    auto* extra = pool_->make<CellExtra>(value);
     allocatedExtraBytes_ += sizeof(CellExtra);
-    extra->underlineColor = spec.underlineColor;
-    if (spec.hasGrapheme()) {
-        extra->graphemeBytes = copyBytes(StringView(
-            reinterpret_cast<const u8*>(spec.grapheme.data()),
-            spec.grapheme.size() * sizeof(u32)));
-    }
-    if (spec.hasHyperlink()) {
-        StringView identity = spec.hyperlinkIdentity;
-        StringView payload = spec.hyperlinkPayload;
-        u32 displayId = spec.hyperlinkDisplayId;
-        if (knownHyperlink != 0) {
-            const HyperlinkHandle* canonical = hyperlinkOf(*slots_[knownHyperlink]);
-            assert(canonical != nullptr);
-            assert(equalBytes(canonical->identity, identity));
-            assert(equalBytes(canonical->payload, payload));
-            assert(canonical->displayId == displayId);
-            identity = canonical->identity;
-            payload = canonical->payload;
-            displayId = canonical->displayId;
-        } else {
-            identity = copyBytes(identity);
-            payload = copyBytes(payload);
-        }
-        auto* hyperlink = new (pool_->allocate(sizeof(HyperlinkHandle))) HyperlinkHandle(
-            identity, payload, displayId);
-        allocatedExtraBytes_ += sizeof(HyperlinkHandle);
-        extra->hyperlinks.pushBack(hyperlink);
-    }
 
     const u32 ref = static_cast<u32>(slots_.length());
     slots_.pushBack(extra);
     ++allocationsSinceGc_;
-
-    if (newHyperlink) {
-        ++hyperlinkCount_;
-        const size_t hyperlinkBucket = spec.hyperlinkIdentity.hash64() % hyperlinkBuckets_.length();
-        HyperlinkHandle* hyperlink = hyperlinkOf(*extra);
-        hyperlink->identityNext = hyperlinkBuckets_[hyperlinkBucket];
-        hyperlinkBuckets_.mut(hyperlinkBucket) = ref;
-    }
     return ref;
 }
 
 u32 CellExtraStore::migrate(const CellExtraStore& source, u32 sourceRef) {
+    const CellExtra* sourceExtra = source.get(sourceRef);
+    assert(sourceExtra != nullptr);
+
+    CellExtra copy = *sourceExtra;
+    if (!sourceExtra->graphemeBytes.empty()) {
+        copy.graphemeBytes = copyBytes(sourceExtra->graphemeBytes);
+    }
+
+    bool indexHyperlink = false;
+    if (const HyperlinkHandle* sourceHyperlink = hyperlinkOf(*sourceExtra);
+        sourceHyperlink != nullptr) {
+        if (const u32 known = findHyperlink(sourceHyperlink->identity); known != 0) {
+            const HyperlinkHandle* canonical = hyperlinkOf(*slots_[known]);
+            assert(canonical != nullptr);
+            assert(equalBytes(canonical->payload, sourceHyperlink->payload));
+            assert(canonical->displayId == sourceHyperlink->displayId);
+            copy.hyperlinks = slots_[known]->hyperlinks;
+        } else {
+            if ((hyperlinkCount_ + 1) * 10 >= hyperlinkBuckets_.length() * 7) {
+                rehashHyperlinks(hyperlinkBuckets_.length() * 2);
+            }
+
+            copy.hyperlinks = pool_->make<IntrusiveList>();
+            allocatedExtraBytes_ += sizeof(IntrusiveList);
+            for (const IntrusiveNode* node = sourceExtra->hyperlinks->front();
+                 node != sourceExtra->hyperlinks->end(); node = node->next) {
+                const auto* sourceHandle = static_cast<const HyperlinkHandle*>(node);
+                const StringView identity = copyBytes(sourceHandle->identity);
+                const StringView payload = copyBytes(sourceHandle->payload);
+                auto* handle = pool_->make<HyperlinkHandle>(
+                    identity, payload, sourceHandle->displayId);
+                allocatedExtraBytes_ += sizeof(HyperlinkHandle);
+                copy.hyperlinks->pushBack(handle);
+            }
+            indexHyperlink = true;
+        }
+    } else {
+        copy.hyperlinks = nullptr;
+    }
+
     // Copying GC preserves ref identity: one destination slot per distinct
     // live source ref, irrespective of equal payloads in other source slots.
-    return append(source.describe(sourceRef));
+    const u32 ref = append(copy);
+    if (indexHyperlink) {
+        ++hyperlinkCount_;
+        HyperlinkHandle* hyperlink = hyperlinkOf(*slots_[ref]);
+        const size_t bucket = hyperlink->identity.hash64() % hyperlinkBuckets_.length();
+        hyperlink->identityNext = hyperlinkBuckets_[bucket];
+        hyperlinkBuckets_.mut(bucket) = ref;
+    }
+    return ref;
 }
 
 CellColor CellExtraStore::underlineColor(const TerminalCell& cell) const noexcept {
@@ -228,76 +219,125 @@ u32 CellExtraStore::getOrCreateHyperlink(StringView identity, StringView payload
     if (const u32 existing = findHyperlink(identity); existing != 0) {
         return existing;
     }
-    CellExtraSpec spec;
-    spec.hyperlinkIdentity = identity;
-    spec.hyperlinkPayload = payload;
-    spec.hyperlinkDisplayId = displayId;
-    return append(spec);
-}
-
-void CellExtraStore::apply(TerminalCell& cell, const CellExtraSpec& spec) {
-    if (!spec.needsExtra()) {
-        cell.setInlineUnderlineColor(spec.underlineColor);
-        return;
+    if ((hyperlinkCount_ + 1) * 10 >= hyperlinkBuckets_.length() * 7) {
+        rehashHyperlinks(hyperlinkBuckets_.length() * 2);
     }
-    cell.setExtraRef(append(spec));
+
+    CellExtra extra;
+    extra.hyperlinks = pool_->make<IntrusiveList>();
+    allocatedExtraBytes_ += sizeof(IntrusiveList);
+    const StringView storedIdentity = copyBytes(identity);
+    const StringView storedPayload = copyBytes(payload);
+    auto* hyperlink = pool_->make<HyperlinkHandle>(
+        storedIdentity, storedPayload, displayId);
+    allocatedExtraBytes_ += sizeof(HyperlinkHandle);
+    extra.hyperlinks->pushBack(hyperlink);
+
+    const u32 ref = append(extra);
+    ++hyperlinkCount_;
+    const size_t bucket = storedIdentity.hash64() % hyperlinkBuckets_.length();
+    hyperlink->identityNext = hyperlinkBuckets_[bucket];
+    hyperlinkBuckets_.mut(bucket) = ref;
+    return ref;
 }
 
 void CellExtraStore::setUnderlineColor(TerminalCell& cell, CellColor color) {
-    CellExtraSpec spec = cell.hasExtra() ? describe(cell.extraRef()) : CellExtraSpec{};
-    spec.underlineColor = color;
-    apply(cell, spec);
+    if (!cell.hasExtra()) {
+        cell.setInlineUnderlineColor(color);
+        return;
+    }
+
+    const CellExtra* current = get(cell.extraRef());
+    assert(current != nullptr);
+    CellExtra copy = *current;
+    copy.underlineColor = color;
+    cell.setExtraRef(append(copy));
 }
 
 void CellExtraStore::setGrapheme(TerminalCell& cell, const u32* codepoints, size_t count) {
-    CellExtraSpec spec = cell.hasExtra() ? describe(cell.extraRef()) : CellExtraSpec{};
-    if (!cell.hasExtra()) {
-        spec.underlineColor = cell.inlineUnderlineColor();
+    if (count == 0) {
+        clearGrapheme(cell);
+        return;
     }
-    spec.grapheme = {codepoints, static_cast<u32>(count)};
-    apply(cell, spec);
+
+    CellExtra copy;
+    if (cell.hasExtra()) {
+        const CellExtra* current = get(cell.extraRef());
+        assert(current != nullptr);
+        copy = *current;
+    } else {
+        copy.underlineColor = cell.inlineUnderlineColor();
+    }
+    copy.graphemeBytes = copyBytes(StringView(
+        reinterpret_cast<const u8*>(codepoints), count * sizeof(u32)));
+    cell.setExtraRef(append(copy));
 }
 
 void CellExtraStore::clearGrapheme(TerminalCell& cell) {
     if (!cell.hasExtra()) {
         return;
     }
-    CellExtraSpec spec = describe(cell.extraRef());
-    spec.grapheme = {};
-    apply(cell, spec);
-}
 
-void CellExtraStore::setHyperlink(TerminalCell& cell, u32 hyperlinkRef) {
-    if (hyperlinkRef == 0 && !cell.hasExtra()) {
+    const CellExtra* current = get(cell.extraRef());
+    assert(current != nullptr);
+    if (current->graphemeBytes.empty()) {
+        return;
+    }
+    if (hyperlinkOf(*current) == nullptr) {
+        cell.setInlineUnderlineColor(current->underlineColor);
         return;
     }
 
-    CellExtraSpec spec = cell.hasExtra() ? describe(cell.extraRef()) : CellExtraSpec{};
-    if (!cell.hasExtra()) {
-        spec.underlineColor = cell.inlineUnderlineColor();
+    CellExtra copy = *current;
+    copy.graphemeBytes = {};
+    cell.setExtraRef(append(copy));
+}
+
+void CellExtraStore::setHyperlink(TerminalCell& cell, u32 hyperlinkRef) {
+    const CellExtra* hyperlinkExtra = get(hyperlinkRef);
+    if (hyperlinkExtra == nullptr || hyperlinkOf(*hyperlinkExtra) == nullptr) {
+        clearHyperlink(cell);
+        return;
     }
-    if (hyperlinkRef == 0) {
-        spec.hyperlinkIdentity = {};
-        spec.hyperlinkPayload = {};
-        spec.hyperlinkDisplayId = 0;
+
+    CellExtra copy;
+    if (cell.hasExtra()) {
+        const CellExtra* current = get(cell.extraRef());
+        assert(current != nullptr);
+        if (current->hyperlinks == hyperlinkExtra->hyperlinks) {
+            return;
+        }
+        copy = *current;
     } else {
-        const CellExtraSpec hyperlink = describe(hyperlinkRef);
-        if (!cell.hasExtra()
-            && hyperlink.hasHyperlink()
-            && !hyperlink.hasGrapheme()
-            && hyperlink.underlineColor == spec.underlineColor) {
+        copy.underlineColor = cell.inlineUnderlineColor();
+        if (hyperlinkExtra->graphemeBytes.empty()
+            && hyperlinkExtra->underlineColor == copy.underlineColor) {
             cell.setExtraRef(hyperlinkRef);
             return;
         }
-        spec.hyperlinkIdentity = hyperlink.hyperlinkIdentity;
-        spec.hyperlinkPayload = hyperlink.hyperlinkPayload;
-        spec.hyperlinkDisplayId = hyperlink.hyperlinkDisplayId;
     }
-    apply(cell, spec);
+    copy.hyperlinks = hyperlinkExtra->hyperlinks;
+    cell.setExtraRef(append(copy));
 }
 
 void CellExtraStore::clearHyperlink(TerminalCell& cell) {
-    setHyperlink(cell, 0);
+    if (!cell.hasExtra()) {
+        return;
+    }
+
+    const CellExtra* current = get(cell.extraRef());
+    assert(current != nullptr);
+    if (hyperlinkOf(*current) == nullptr) {
+        return;
+    }
+    if (current->graphemeBytes.empty()) {
+        cell.setInlineUnderlineColor(current->underlineColor);
+        return;
+    }
+
+    CellExtra copy = *current;
+    copy.hyperlinks = nullptr;
+    cell.setExtraRef(append(copy));
 }
 
 void CellExtraStore::clearExtra(TerminalCell& cell, CellColor underlineColor_) {
