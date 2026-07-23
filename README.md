@@ -23,11 +23,9 @@ terminal without uploading a CPU-rendered full-frame bitmap.
     Vterm             parser, modes, reports, input encoding
       ⇅
     Frame             cells, damage, selection, circular scrollback
-      ↓ changed cells
-   CharVdev           host-side render-cell mirror
-      ↓ SSBO                         Fontpack
-   Renderer       ← atlas/map textures ┘
-      ↓ compute shader (`render.comp`)
+      ↓ changed cells                 Fontpack
+   Renderer       ← lazy glyph rasterization ┘
+      ↓ SSBO + compute shader (`render.comp`)
  persistent RGBA8 image
       ↓ blit
  Wayland swapchain    GLFW supplies window-system integration
@@ -35,9 +33,9 @@ terminal without uploading a CPU-rendered full-frame bitmap.
 
 The terminal model is deliberately separated from the frontend. `Vterm`
 consumes PTY bytes and mutates `Frame`; `Frame` owns canonical terminal state
-and damage; `Renderer` copies full or delta cell data into `CharVdev`, then
-composites cells, glyphs, cursor, selection, and decorations with a compute
-shader.
+and damage; `Renderer` materializes full or delta cell data into its host-side
+mirror, then composites cells, glyphs, cursor, selection, and decorations with
+a compute shader.
 
 Important boundaries:
 

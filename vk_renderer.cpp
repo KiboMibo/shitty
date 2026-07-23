@@ -7,7 +7,6 @@
 #include "vk_renderer.h"
 
 #include "cell_extra_store.h"
-#include "char_vdev.h"
 #include "composer.h"
 #include "font_pack.h"
 #include "frame.h"
@@ -29,7 +28,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -44,6 +42,20 @@ namespace stl {}
 using namespace stl;
 
 namespace {
+    struct GpuCell {
+        u32 codepoint;
+        u32 attributes;
+        u32 foreground;
+        u32 background;
+        u32 underlineColor;
+        u32 hyperlink;
+        u32 grapheme;
+        u32 semantic;
+        u32 lineAttribute;
+    };
+
+    static_assert(sizeof(GpuCell) == 36, "Vulkan cell layout mismatch");
+
     struct RendererImpl final: public Renderer {
         RendererImpl(GLFWwindow* window, Fontpack* fontpk);
         ~RendererImpl();
@@ -130,7 +142,10 @@ namespace {
 
         static constexpr u32 framesInFlight = 2;
 
-        CharVdev charVdev;
+        stl::Vector<RenderCell> renderCells;
+        stl::Vector<u32> graphemeScratch;
+        u16 renderColumns = 0;
+        u16 renderRows = 0;
         GLFWwindow* window = nullptr;
         Fontpack* fonts = nullptr;
         u32 glyphWidth = 0;
@@ -179,7 +194,7 @@ namespace {
 
         std::array<FrameResources, framesInFlight> frames;
         u32 currentFrame = 0;
-        bool delta = false;
+        bool incremental = false;
 
         void createInstance();
         void selectPhysicalDevice();
@@ -211,30 +226,18 @@ namespace {
         void stageAtlasMap(GlyphCache& cache, stl::Vector<VkBufferImageCopy>& copies, u32 id, u16 slot);
         void recordFontUploads(FrameResources& frame);
         void recordImageUploads(VkCommandBuffer commandBuffer, VkBuffer stagingBuffer, const ImageResource& image, const stl::Vector<VkBufferImageCopy>& copies, bool initialize);
-        void recordCommands(FrameResources& frame, u32 imageIndex, const CharVdev& charVdev, const Frame& sourceFrame, bool delta);
+        void recordCommands(FrameResources& frame, u32 imageIndex, const Frame& sourceFrame, const TerminalCursor& cursor, const Rect& selection, bool incremental);
         void recordRepaintCommands(FrameResources& frame, u32 imageIndex);
         bool acquirePresentFrame(u32 width, u32 height, FrameResources*& frame, u32& imageIndex, bool& recreateAfterPresent);
         bool submitPresentFrame(u32 width, u32 height, FrameResources& frame, u32 imageIndex, bool recreateAfterPresent);
-        bool present(const CharVdev& charVdev, const Frame& sourceFrame, bool delta);
+        bool resizeRenderCells(u16 columns, u16 rows);
+        void clearDirtyCells() noexcept;
+        bool present(const Frame& sourceFrame, bool incrementalFrame);
 
         static bool needsFontGlyph(u32 id);
         static u32 packColor(const Color& color);
         static bool sameSelection(const Rect& lhs, const Rect& rhs);
     };
-
-    struct GpuCell {
-        u32 codepoint;
-        u32 attributes;
-        u32 foreground;
-        u32 background;
-        u32 underlineColor;
-        u32 hyperlink;
-        u32 grapheme;
-        u32 semantic;
-        u32 lineAttribute;
-    };
-
-    static_assert(sizeof(GpuCell) == 36, "Vulkan cell layout mismatch");
 
     [[noreturn]] void failVk(const char* operation, VkResult result) {
         throw std::runtime_error(std::string(operation) + " failed (VkResult " + std::to_string((int)(result)) + ")");
@@ -299,8 +302,7 @@ u32 rendererCellAttributesForTest(const RenderCell& cell) {
 #endif
 
 RendererImpl::RendererImpl(GLFWwindow* window_, Fontpack* fontpk)
-    : charVdev(fontpk)
-    , window(window_)
+    : window(window_)
     , fonts(fontpk)
     , glyphWidth(fontpk->getPx())
     , glyphHeight(fontpk->getPy())
@@ -1247,7 +1249,7 @@ bool RendererImpl::sameSelection(const Rect& lhs, const Rect& rhs) {
     return lhs.tl == rhs.tl && lhs.br == rhs.br && lhs.rectangular == rhs.rectangular;
 }
 
-void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const CharVdev& charVdev, const Frame& sourceFrame, bool delta) {
+void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const Frame& sourceFrame, const TerminalCursor& cursor, const Rect& selection, bool incremental) {
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -1266,7 +1268,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const C
     outputForCompute.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     outputForCompute.image = outputImage.image;
     outputForCompute.subresourceRange = outputRange;
-    if (delta) {
+    if (incremental) {
         outputForCompute.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
         outputForCompute.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
         vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &outputForCompute);
@@ -1305,15 +1307,13 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const C
     graphemesForCompute.size = frame.graphemeCapacity;
     vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &graphemesForCompute, 0, nullptr);
 
-    const auto& cursor = charVdev.getCursor();
-    const auto& selection = charVdev.getSelection();
     const PushConstants pushConstants{
         glyphWidth,
         glyphHeight,
-        charVdev.columns(),
-        charVdev.rows(),
-        charVdev.pixelWidth(),
-        charVdev.pixelHeight(),
+        sourceFrame.nCols,
+        sourceFrame.nRows,
+        sourceFrame.winPx,
+        sourceFrame.winPy,
         opts.border,
         packColor(cursor.color),
         cursor.posX,
@@ -1329,7 +1329,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const C
         hasDoubleWidth ? 1u : 0u,
         previousCursor.posX,
         previousCursor.posY,
-        delta ? 1u : 0u,
+        incremental ? 1u : 0u,
         !sameSelection(selection, previousSelection) ? 1u : 0u,
         packColor(sourceFrame.getSelectionForeground()),
         packColor(sourceFrame.getSelectionBackground()),
@@ -1340,7 +1340,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const C
     vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
     vkCmdBindDescriptorSets(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &frame.descriptorSet, 0, nullptr);
     vkCmdPushConstants(frame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants), &pushConstants);
-    vkCmdDispatch(frame.commandBuffer, (charVdev.columns() + 7) / 8, (charVdev.rows() + 7) / 8, 1);
+    vkCmdDispatch(frame.commandBuffer, (sourceFrame.nCols + 7) / 8, (sourceFrame.nRows + 7) / 8, 1);
 
     VkImageMemoryBarrier outputForBlit = outputForCompute;
     outputForBlit.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -1505,10 +1505,33 @@ bool RendererImpl::repaint() {
     return submitPresentFrame(width, height, *frame, imageIndex, recreateAfterPresent);
 }
 
-bool RendererImpl::present(const CharVdev& charVdev, const Frame& sourceFrame, bool delta) {
-    const u32 width = charVdev.pixelWidth();
-    const u32 height = charVdev.pixelHeight();
-    if (charVdev.cellData() == nullptr || charVdev.cellCount() == 0 || width == 0 || height == 0) {
+bool RendererImpl::resizeRenderCells(u16 columns, u16 rows) {
+    if (renderColumns == columns && renderRows == rows) {
+        return false;
+    }
+
+    renderColumns = columns;
+    renderRows = rows;
+    renderCells.clear();
+    const size_t count = (size_t)(columns)*rows;
+    renderCells.grow(count);
+    const RenderCell emptyCell;
+    for (size_t index = 0; index < count; ++index) {
+        renderCells.pushBack(emptyCell);
+    }
+    return true;
+}
+
+void RendererImpl::clearDirtyCells() noexcept {
+    for (RenderCell* cell = renderCells.mutBegin(); cell != renderCells.mutEnd(); ++cell) {
+        cell->dirty = false;
+    }
+}
+
+bool RendererImpl::present(const Frame& sourceFrame, bool incrementalFrame) {
+    const u32 width = sourceFrame.winPx;
+    const u32 height = sourceFrame.winPy;
+    if (renderCells.empty() || width == 0 || height == 0) {
         return false;
     }
 
@@ -1519,7 +1542,7 @@ bool RendererImpl::present(const CharVdev& charVdev, const Frame& sourceFrame, b
         return false;
     }
 
-    delta = delta && outputInitialized && previousStateValid;
+    incrementalFrame = incrementalFrame && outputInitialized && previousStateValid;
 
     FrameResources* frame = nullptr;
     u32 imageIndex = 0;
@@ -1529,19 +1552,21 @@ bool RendererImpl::present(const CharVdev& charVdev, const Frame& sourceFrame, b
     }
 
     beginGlyphFrame();
-    std::vector<GpuCell> gpuCells;
-    gpuCells.reserve(charVdev.cellCount());
-    std::vector<u32> graphemeData = {0};
+    const size_t cellBytes = renderCells.length() * sizeof(GpuCell);
+    ensureCellBuffer(*frame, cellBytes);
+    GpuCell* const gpuCells = (GpuCell*)(frame->cells);
+    graphemeScratch.clear();
+    graphemeScratch.pushBack(0);
     CellExtraStore* const extras = sourceFrame.cellExtras();
-    for (size_t index = 0; index < charVdev.cellCount(); ++index) {
-        const RenderCell& cell = charVdev.cellData()[index];
+    for (size_t index = 0; index < renderCells.length(); ++index) {
+        const RenderCell& cell = renderCells[index];
         u32 graphemeIndex = 0;
         if (cell.grapheme) {
             const GraphemeView grapheme = extras->grapheme(cell.grapheme);
             if (!grapheme.empty()) {
-                graphemeIndex = graphemeData.size();
-                graphemeData.push_back(grapheme.size());
-                graphemeData.insert(graphemeData.end(), grapheme.begin(), grapheme.end());
+                graphemeIndex = (u32)(graphemeScratch.length());
+                graphemeScratch.pushBack((u32)(grapheme.size()));
+                graphemeScratch.append(grapheme.begin(), grapheme.end());
                 const FontStyle style = (FontStyle)((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0));
                 const bool doubleWidth = cell.dwidth || cell.line_attr != 0;
                 for (size_t member = 0; member < grapheme.size(); ++member) {
@@ -1553,7 +1578,7 @@ bool RendererImpl::present(const CharVdev& charVdev, const Frame& sourceFrame, b
             const FontStyle style = (FontStyle)((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0));
             ensureGlyph(cell.uc_pt, style, cell.dwidth || cell.line_attr != 0);
         }
-        gpuCells.push_back({
+        gpuCells[index] = {
             cell.uc_pt,
             packCellAttributes(cell),
             packColor(cell.fg),
@@ -1563,24 +1588,23 @@ bool RendererImpl::present(const CharVdev& charVdev, const Frame& sourceFrame, b
             graphemeIndex,
             cell.semantic,
             cell.line_attr,
-        });
+        };
     }
 
-    const size_t cellBytes = gpuCells.size() * sizeof(GpuCell);
-    ensureCellBuffer(*frame, cellBytes);
-    std::memcpy(frame->cells, gpuCells.data(), cellBytes);
-    const size_t graphemeBytes = graphemeData.size() * sizeof(u32);
+    const size_t graphemeBytes = graphemeScratch.length() * sizeof(u32);
     ensureGraphemeBuffer(*frame, graphemeBytes);
-    std::memcpy(frame->graphemes, graphemeData.data(), graphemeBytes);
+    std::memcpy(frame->graphemes, graphemeScratch.data(), graphemeBytes);
     if (!fontUploadData.empty()) {
         ensureFontUploadBuffer(*frame, fontUploadData.used());
         std::memcpy(frame->fontUploads, fontUploadData.data(), fontUploadData.used());
     }
 
-    recordCommands(*frame, imageIndex, charVdev, sourceFrame, delta);
+    const TerminalCursor cursor = sourceFrame.getCursor();
+    const Rect selection = sourceFrame.getSnappedSelection();
+    recordCommands(*frame, imageIndex, sourceFrame, cursor, selection, incrementalFrame);
     outputInitialized = true;
-    previousCursor = charVdev.getCursor();
-    previousSelection = charVdev.getSelection();
+    previousCursor = cursor;
+    previousSelection = selection;
     previousStateValid = true;
     return submitPresentFrame(width, height, *frame, imageIndex, recreateAfterPresent);
 }
@@ -1590,30 +1614,24 @@ bool RendererImpl::update(const Frame& frame) {
         return false;
     }
 
-    if (charVdev.resize(frame.winPx, frame.winPy)) {
-        delta = false;
+    if (resizeRenderCells(frame.nCols, frame.nRows)) {
+        incremental = false;
     }
 
-    {
-        CharVdev::Mapping mapping = charVdev.getMapping();
-        assert(mapping.nCols == frame.nCols);
-        assert(mapping.nRows == frame.nRows);
-        if (delta) {
-            frame.deltaCopyCells(mapping.cells);
-        } else {
-            frame.fullCopyCells(mapping.cells);
-        }
+    RenderCell* const destination = renderCells.mutData();
+    if (incremental) {
+        frame.deltaCopyCells(destination);
+    } else {
+        frame.fullCopyCells(destination);
     }
 
-    charVdev.setCursor(frame.getCursor());
-    charVdev.setSelection(frame.getSnappedSelection());
-    if (present(charVdev, frame, delta)) {
-        charVdev.clearDirty();
-        delta = true;
+    if (present(frame, incremental)) {
+        clearDirtyCells();
+        incremental = true;
         return true;
     }
 
-    delta = false;
+    incremental = false;
     return false;
 }
 
