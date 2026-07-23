@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2026 Shitty team
+ * MIT licensed
+ * See the file LICENSE.MIT for the full license.
+ */
+
 /* This file is part of Shitty.
  * Copyright (C) 2020 Tom Szilagyi
  *

@@ -1,3 +1,7 @@
+# Copyright (C) 2026 Shitty team
+# MIT licensed
+# See the file LICENSE.MIT for the full license.
+
 import unittest
 
 from harness import Shitty

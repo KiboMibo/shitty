@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2026 Shitty team
+ * MIT licensed
+ * See the file LICENSE.MIT for the full license.
+ */
+
 #include "application.h"
 #include "composer.h"
 #include "font_resolver.h"

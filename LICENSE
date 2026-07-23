@@ -1,0 +1,41 @@
+Shitty licensing notice
+========================
+
+Imported GPL baseline
+---------------------
+
+The source snapshot first imported into this repository by commit
+3515b63e39edd2ab808baf8cbd9216cfdc7209df on 2023-07-11, together
+with code predating that snapshot (the "Imported Baseline"), remains
+licensed under the GNU General Public License, version 3 or, at your
+option, any later version.  See LICENSE.GPL3 and the notices retained
+in the affected files.
+
+Nothing in this notice relicenses the Imported Baseline or third-party
+material under the MIT License.
+
+Shitty project contributions
+----------------------------
+
+Original Shitty project contributions first made after the Imported
+Baseline are dual-licensed, at the recipient's option, under either:
+
+  * the GNU General Public License, version 3 or, at your option, any
+    later version (LICENSE.GPL3); or
+  * the MIT License (LICENSE.MIT).
+
+For modifications to files containing Imported Baseline material, the
+MIT option applies only to the post-baseline contribution for which
+Shitty contributors can grant those rights.  The underlying Imported
+Baseline remains GPL-licensed.
+
+Combined and third-party material
+---------------------------------
+
+While the project contains GPL-only Imported Baseline material, the
+combined work remains subject to the GPL when distributed as a whole.
+Third-party and vendored material remains governed by its own license
+notices.
+
+An MIT notice at the top of a first-party source file marks the Shitty
+contribution layer.  A retained GPL notice marks the imported layer.

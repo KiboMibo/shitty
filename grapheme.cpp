@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2026 Shitty team
+ * MIT licensed
+ * See the file LICENSE.MIT for the full license.
+ */
+
 #include "grapheme.h"
 
 #include <utf8proc.h>

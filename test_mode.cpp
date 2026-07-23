@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2026 Shitty team
+ * MIT licensed
+ * See the file LICENSE.MIT for the full license.
+ */
+
 #ifndef SHITTY_FOR_TESTS
 #error "test_mode.cpp must not be compiled into the production binary"
 #endif

@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2026 Shitty team
+ * MIT licensed
+ * See the file LICENSE.MIT for the full license.
+ */
+
 /* This file is part of Shitty.
  * Copyright (C) 2020 Tom Szilagyi
  *
@@ -6,7 +12,7 @@
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
- * See the file LICENSE for the full license.
+ * See the file LICENSE.GPL3 for the full license.
  */
 
 /* The source code in this file is inspired by code samples in the book
