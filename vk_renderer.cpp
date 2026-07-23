@@ -4,19 +4,7 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-/* part of this file is part of Zutty.
- * Copyright (C) 2020 Tom Szilagyi
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * See the file LICENSE.GPL3 for the full license.
- */
-
 #include "vk_renderer.h"
-
 #include "char_vdev.h"
 #include "composer.h"
 #include "font_pack.h"
@@ -32,7 +20,6 @@ namespace stl {}
 using namespace stl;
 
 namespace {
-
     class RendererImpl final: public Renderer {
     public:
         RendererImpl(GLFWwindow* window, Fontpack* fontpk);
@@ -45,7 +32,6 @@ namespace {
         VulkanPresenter presenter;
         bool delta = false;
     };
-
 }
 
 RendererImpl::RendererImpl(GLFWwindow* window, Fontpack* fontpk)

@@ -4,189 +4,148 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-/* part of this file is part of Zutty.
- * Copyright (C) 2020 Tom Szilagyi
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * See the file LICENSE.GPL3 for the full license.
- */
-
 #include "font_pack.h"
 
 #include "composer.h"
 #include "font_resolver.h"
-#include "log.h"
+#include "utf8.h"
 
 #include <std/mem/obj_pool.h>
+#include <std/str/builder.h>
+#include <std/sys/throw.h>
 
-#include <memory>
-#include <stdexcept>
+#include <errno.h>
 
 namespace stl {}
 
 using namespace stl;
 
 namespace {
-
     class FontpackImpl final: public Fontpack {
     public:
-        FontpackImpl(const char* fontname, const char* dwfontname);
+        FontpackImpl(Composer& composer, StringView fontname, StringView dwfontname);
 
         u16 getPx() const override;
         u16 getPy() const override;
-
-        const Font& getRegular() const override;
         bool hasBold() const override;
-        const Font& getBold() const override;
         bool hasItalic() const override;
-        const Font& getItalic() const override;
         bool hasBoldItalic() const override;
-        const Font& getBoldItalic() const override;
         bool hasDoubleWidth() const override;
-        const Font& getDoubleWidth() const override;
-        void releaseFonts() override;
+        FontGlyph glyph(u32 id, FontStyle style, bool doubleWidth) override;
 
     private:
-        FontpackImpl(const std::string& fontname, const std::string& dwfontname);
+        Font* createOptional(Composer& composer, StringView filename, FontKind kind, FontMetrics metrics);
+        Font* select(FontStyle style) const noexcept;
+        FontGlyph fallback(Font* font, Font* base, u32 id);
 
-        u16 px = 0;
-        u16 py = 0;
-        std::unique_ptr<Font> fontRegular;
-        std::unique_ptr<Font> fontBold;
-        std::unique_ptr<Font> fontItalic;
-        std::unique_ptr<Font> fontBoldItalic;
-        std::unique_ptr<Font> fontDoubleWidth;
+        FontMetrics metrics_;
+        Font* regular_ = nullptr;
+        Font* bold_ = nullptr;
+        Font* italic_ = nullptr;
+        Font* boldItalic_ = nullptr;
+        Font* doubleWidth_ = nullptr;
     };
-
 }
 
-FontpackImpl::FontpackImpl(const char* fontname_, const char* dwfontname_)
-    : FontpackImpl(std::string(fontname_), std::string(dwfontname_))
-{
+FontpackImpl::FontpackImpl(Composer& composer, StringView fontname, StringView dwfontname) {
+    const FontVariants variants = resolveFontconfig(composer.pool, fontname);
+    if (variants.regular.empty()) {
+        Errno(EINVAL).raise(StringBuilder() << StringView(u8"no suitable font found for ") << fontname);
+    }
+
+    regular_ = Font::create(composer, variants.regular, FontKind::Primary, metrics_);
+    bold_ = createOptional(composer, variants.bold, FontKind::Overlay, metrics_);
+    italic_ = createOptional(composer, variants.italic, FontKind::Overlay, metrics_);
+    boldItalic_ = createOptional(composer, variants.boldItalic, FontKind::Overlay, metrics_);
+
+    if (!dwfontname.empty()) {
+        const FontVariants wideVariants = resolveFontconfig(composer.pool, dwfontname);
+        FontMetrics wideMetrics{
+            .width = (u16)(2 * metrics_.width),
+            .height = metrics_.height,
+            .baseline = metrics_.baseline,
+        };
+        doubleWidth_ = createOptional(composer, wideVariants.regular, FontKind::DoubleWidth, wideMetrics);
+    }
+}
+
+Font* FontpackImpl::createOptional(Composer& composer, StringView filename, FontKind kind, FontMetrics metrics) {
+    if (filename.empty()) {
+        return nullptr;
+    }
+    try {
+        return Font::create(composer, filename, kind, metrics);
+    } catch (Exception&) {
+        return nullptr;
+    }
 }
 
 u16 FontpackImpl::getPx() const {
-    return px;
+    return metrics_.width;
 }
 
 u16 FontpackImpl::getPy() const {
-    return py;
-}
-
-const Font& FontpackImpl::getRegular() const {
-    return *fontRegular;
+    return metrics_.height;
 }
 
 bool FontpackImpl::hasBold() const {
-    return fontBold != nullptr;
+    return bold_ != nullptr;
 }
 
 bool FontpackImpl::hasItalic() const {
-    return fontItalic != nullptr;
+    return italic_ != nullptr;
 }
 
 bool FontpackImpl::hasBoldItalic() const {
-    return fontBoldItalic != nullptr;
+    return boldItalic_ != nullptr;
 }
 
 bool FontpackImpl::hasDoubleWidth() const {
-    return fontDoubleWidth != nullptr;
+    return doubleWidth_ != nullptr;
 }
 
-FontpackImpl::FontpackImpl(const std::string& fontname, const std::string& dwfontname) {
-    logT << "Fontpack: fontname=" << fontname << "; dwfontname=" << dwfontname << std::endl;
-
-    const FontVariants variants = resolveFontconfig(fontname);
-    if (variants.regular.empty()) {
-        logE << "No Regular variant of the requested font '" << fontname << "' could be identified." << std::endl;
-        throw std::runtime_error("No suitable files for '" + fontname + "' found!");
+Font* FontpackImpl::select(FontStyle style) const noexcept {
+    switch (style) {
+        case FontStyle::Bold:
+            return bold_ != nullptr ? bold_ : regular_;
+        case FontStyle::Italic:
+            return italic_ != nullptr ? italic_ : regular_;
+        case FontStyle::BoldItalic:
+            if (boldItalic_ != nullptr) {
+                return boldItalic_;
+            }
+            if (italic_ != nullptr) {
+                return italic_;
+            }
+            return bold_ != nullptr ? bold_ : regular_;
+        case FontStyle::Regular:
+            return regular_;
     }
-
-    fontRegular = std::make_unique<Font>(variants.regular);
-    px = fontRegular->getPx();
-    py = fontRegular->getPy();
-
-    try {
-        if (!variants.bold.empty()) {
-            fontBold = std::make_unique<Font>(variants.bold, *fontRegular, Font::Overlay);
-        }
-    } catch (const std::runtime_error& error) {
-        fontBold = nullptr;
-        logW << "Failed to load bold variant: " << error.what() << std::endl;
-    }
-    try {
-        if (!variants.italic.empty()) {
-            fontItalic = std::make_unique<Font>(variants.italic, *fontRegular, Font::Overlay);
-        }
-    } catch (const std::runtime_error& error) {
-        fontItalic = nullptr;
-        logW << "Failed to load italic variant: " << error.what() << std::endl;
-    }
-    try {
-        if (!variants.boldItalic.empty()) {
-            fontBoldItalic = std::make_unique<Font>(variants.boldItalic, *fontRegular, Font::Overlay);
-        }
-    } catch (const std::runtime_error& error) {
-        fontBoldItalic = nullptr;
-        logW << "Failed to load boldItalic variant: " << error.what() << std::endl;
-    }
-
-    FontVariants doubleWidth;
-    if (!dwfontname.empty()) {
-        doubleWidth = resolveFontconfig(dwfontname);
-    }
-    try {
-        if (!doubleWidth.regular.empty()) {
-            fontDoubleWidth = std::make_unique<Font>(doubleWidth.regular, *fontRegular, Font::DoubleWidth);
-        } else if (!dwfontname.empty()) {
-            logW << "Failed to locate requested double-width font: " << dwfontname << std::endl;
-        }
-    } catch (const std::runtime_error& error) {
-        fontDoubleWidth = nullptr;
-        logW << "Failed to load double-width font: " << error.what() << std::endl;
-    }
+    return regular_;
 }
 
-const Font& FontpackImpl::getBold() const {
-    if (!hasBold()) {
-        throw std::runtime_error("No Bold font variant present!");
+FontGlyph FontpackImpl::fallback(Font* font, Font* base, u32 id) {
+    FontGlyph result = font->glyph(id);
+    if (result.len == 0 && font != base) {
+        result = base->glyph(id);
+        font = base;
     }
-    return *fontBold;
-}
-
-const Font& FontpackImpl::getItalic() const {
-    if (!hasItalic()) {
-        throw std::runtime_error("No Italic font variant present!");
+    if (result.len == 0 && id != Unicode_Replacement_Character) {
+        result = font->glyph(Unicode_Replacement_Character);
     }
-    return *fontItalic;
-}
-
-const Font& FontpackImpl::getBoldItalic() const {
-    if (!hasBoldItalic()) {
-        throw std::runtime_error("No BoldItalic font variant present!");
+    if (result.len == 0 && id != Missing_Glyph_Marker) {
+        result = font->glyph(Missing_Glyph_Marker);
     }
-    return *fontBoldItalic;
+    return result;
 }
 
-const Font& FontpackImpl::getDoubleWidth() const {
-    if (!hasDoubleWidth()) {
-        throw std::runtime_error("No DoubleWidth font present!");
+FontGlyph FontpackImpl::glyph(u32 id, FontStyle style, bool doubleWidth) {
+    if (doubleWidth) {
+        return doubleWidth_ != nullptr ? fallback(doubleWidth_, doubleWidth_, id) : FontGlyph{};
     }
-    return *fontDoubleWidth;
+    return fallback(select(style), regular_, id);
 }
 
-void FontpackImpl::releaseFonts() {
-    fontRegular = nullptr;
-    fontBold = nullptr;
-    fontItalic = nullptr;
-    fontBoldItalic = nullptr;
-    fontDoubleWidth = nullptr;
-}
-
-Fontpack* Fontpack::create(Composer& composer, const std::string& fontname, const std::string& dwfontname) {
-    return composer.pool->make<FontpackImpl>(fontname.c_str(), dwfontname.c_str());
+Fontpack* Fontpack::create(Composer& composer, StringView fontname, StringView dwfontname) {
+    return composer.pool->make<FontpackImpl>(composer, fontname, dwfontname);
 }

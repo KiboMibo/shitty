@@ -4,332 +4,260 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-/* part of this file is part of Zutty.
- * Copyright (C) 2020 Tom Szilagyi
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * See the file LICENSE.GPL3 for the full license.
- */
-
 #include "font.h"
+
+#include "composer.h"
 #include "grapheme.h"
-#include "log.h"
 #include "options.h"
 #include "utf8.h"
 
-#include <algorithm>
-#include <cmath>
-#include <limits>
-#include <sstream>
-#include <stdexcept>
-#include <string>
+#include <std/lib/buffer.h>
+#include <std/mem/obj_pool.h>
+#include <std/str/builder.h>
+#include <std/str/view.h>
+#include <std/sys/crt.h>
+#include <std/sys/throw.h>
+#include <std/typ/support.h>
+
+#include <ft2build.h>
+#include FT_FREETYPE_H
+
+#include <errno.h>
 
 namespace stl {}
 
 using namespace stl;
 
-Font::Font(const std::string& filename_)
-    : filename(filename_)
-    , overlay(false)
+namespace {
+    class FontImpl final: public Font {
+    public:
+        FontImpl(StringView filename, FontKind kind, FontMetrics& metrics);
+        ~FontImpl() noexcept;
+
+        FontGlyph glyph(u32 id) override;
+
+    private:
+        void configure();
+        void configureFixed();
+        void configureScaled();
+        bool accepts(u32 id) const;
+        bool rasterize(FT_UInt glyphIndex);
+        void close() noexcept;
+        [[noreturn]] void fail(StringView message);
+        [[noreturn]] void fail(StringBuilder&& message);
+
+        FT_Library library_ = nullptr;
+        FT_Face face_ = nullptr;
+        FontKind kind_;
+        FontMetrics metrics_;
+        Buffer bitmap_;
+    };
+
+    int absolute(int value) {
+        return value < 0 ? -value : value;
+    }
+
+    int maximum(int left, int right) {
+        return left > right ? left : right;
+    }
+
+    int minimum(int left, int right) {
+        return left < right ? left : right;
+    }
+
+    u16 rounded(double value) {
+        return (u16)(value + 0.5);
+    }
+}
+
+FontImpl::FontImpl(StringView filename, FontKind kind, FontMetrics& metrics)
+    : kind_(kind)
+    , metrics_(metrics)
 {
-    load();
+    if (FT_Init_FreeType(&library_)) {
+        fail(StringView(u8"could not initialize FreeType"));
+    }
+
+    Buffer filenameBuffer(filename);
+    if (FT_New_Face(library_, filenameBuffer.cStr(), 0, &face_)) {
+        close();
+        fail(StringBuilder() << StringView(u8"failed to open font ") << filename);
+    }
+
+    try {
+        configure();
+        bitmap_.grow((size_t)(metrics_.width) * metrics_.height);
+    } catch (...) {
+        close();
+        throw;
+    }
+
+    metrics = metrics_;
 }
 
-Font::Font(const std::string& filename_, const Font& priFont, Overlay_)
-    : filename(filename_)
-    , overlay(true)
-    , px(priFont.getPx())
-    , py(priFont.getPy())
-    , baseline(priFont.getBaseline())
-    , nx(priFont.getNx())
-    , ny(priFont.getNy())
-    , atlasBuf(priFont.getAtlas())
-    , atlasMap(priFont.getAtlasMap())
-{
-    load();
+FontImpl::~FontImpl() noexcept {
+    close();
 }
 
-Font::Font(const std::string& filename_, const Font& priFont, DoubleWidth_)
-    : filename(filename_)
-    , dwidth(true)
-    , px(2 * priFont.getPx())
-    , py(priFont.getPy())
-{
-    load();
+void FontImpl::close() noexcept {
+    if (face_ != nullptr) {
+        FT_Done_Face(face_);
+        face_ = nullptr;
+    }
+    if (library_ != nullptr) {
+        FT_Done_FreeType(library_);
+        library_ = nullptr;
+    }
 }
 
-bool Font::isLoadableChar(FT_ULong c) {
-    if (c == Missing_Glyph_Marker) {
-        return true;
-    }
-
-    if (c == Unicode_Replacement_Character) {
-        return true;
-    }
-
-    return ((dwidth && codepointWidth(c) == 2) || (!dwidth && codepointWidth(c) < 2));
+void FontImpl::fail(StringView message) {
+    Errno(EINVAL).raise(Buffer(message));
 }
 
-void Font::load() {
-    FT_Library ft = nullptr;
-    FT_Face face = nullptr;
+void FontImpl::fail(StringBuilder&& message) {
+    Errno(EINVAL).raise(move(message));
+}
 
-    struct Cleanup {
-        FT_Library& library;
-        FT_Face& face;
-
-        ~Cleanup() {
-            if (face) {
-                FT_Done_Face(face);
-            }
-            if (library) {
-                FT_Done_FreeType(library);
-            }
-        }
-    } cleanup{ft, face};
-
-    if (FT_Init_FreeType(&ft)) {
-        throw std::runtime_error("Could not initialize FreeType library");
-    }
-    logI << "Loading " << filename << " as " << (overlay ? "overlay" : (dwidth ? "double-width" : "primary")) << std::endl;
-    if (FT_New_Face(ft, filename.c_str(), 0, &face)) {
-        throw std::runtime_error(std::string("Failed to load font ") + filename);
-    }
-
-    /* Determine the number of glyphs to actually load, based on wcwidth ()
-       * We need this number up front to compute the atlas geometry.
-       */
-    int num_glyphs = 0;
-    {
-        FT_UInt gindex;
-        FT_ULong charcode = FT_Get_First_Char(face, &gindex);
-        while (gindex != 0) {
-            if (isLoadableChar(charcode)) {
-                ++num_glyphs;
-            }
-            charcode = FT_Get_Next_Char(face, charcode, &gindex);
-        }
-    }
-
-    logT << "Family: " << face->family_name << "; Style: " << face->style_name << "; Faces: " << face->num_faces << "; Glyphs: " << num_glyphs << " to load (" << face->num_glyphs << " total)" << std::endl;
-
-    if (face->num_fixed_sizes > 0) {
-        loadFixed(face);
+void FontImpl::configure() {
+    if (face_->num_fixed_sizes > 0) {
+        configureFixed();
     } else {
-        loadScaled(face);
+        configureScaled();
     }
-
-    /* Given that we have num_glyphs glyphs to load, with each
-       * individual glyph having a size of px * py, compute nx and ny so
-       * that the resulting atlas texture geometry is closest to a square.
-       * We use one extra glyph space to guarantee a blank glyph at (0,0).
-       */
-    if (!overlay) {
-        unsigned n_glyphs = num_glyphs + 1;
-        unsigned long total_pixels = n_glyphs * px * py;
-        double side = sqrt(total_pixels);
-        nx = side / px;
-        ny = side / py;
-        while ((unsigned)nx * ny < n_glyphs) {
-            if (px * nx < py * ny) {
-                ++nx;
-            } else {
-                ++ny;
-            }
-        }
-
-        if (nx > 255 || ny > 255) {
-            logE << "Atlas geometry not addressable by single byte coords. "
-                 << "Please report this as a bug with your font attached!" << std::endl;
-            throw std::runtime_error("Impossible atlas geometry");
-        }
-
-        logT << "Atlas texture geometry: " << nx << "x" << ny << " glyphs of " << px << "x" << py << " each, "
-             << "yielding pixel size " << nx * px << "x" << ny * py << "." << std::endl;
-        logT << "Atlas holds space for " << nx * ny << " glyphs, " << n_glyphs << " will be used, empty: " << nx * ny - n_glyphs << " (" << 100.0 * (nx * ny - n_glyphs) / (nx * ny) << "%)" << std::endl;
-
-        size_t atlas_bytes = nx * px * ny * py;
-        logT << "Allocating " << atlas_bytes << " bytes for atlas buffer" << std::endl;
-        atlasBuf.resize(atlas_bytes, 0);
-    }
-
-    FT_UInt gindex;
-    FT_ULong charcode = FT_Get_First_Char(face, &gindex);
-    while (gindex != 0) {
-        if (isLoadableChar(charcode)) {
-            if (overlay) {
-                const auto& it = atlasMap.find(charcode);
-                if (it != atlasMap.end()) {
-                    loadFace(face, charcode, it->second);
-                }
-            } else {
-                loadFace(face, charcode);
-            }
-        }
-        charcode = FT_Get_Next_Char(face, charcode, &gindex);
+    if (metrics_.width == 0 || metrics_.height == 0) {
+        fail(StringView(u8"font has zero-sized glyph cells"));
     }
 }
 
-void Font::loadFixed(const FT_Face& face) {
-    int bestIdx = -1;
-    int bestHeightDiff = std::numeric_limits<int>::max();
-    {
-        std::ostringstream oss;
-        oss << "Available sizes:";
-        for (int i = 0; i < face->num_fixed_sizes; ++i) {
-            oss << " " << face->available_sizes[i].width << "x" << face->available_sizes[i].height;
-
-            int diff = abs(opts.fontsize - face->available_sizes[i].height);
-            if (diff < bestHeightDiff) {
-                bestIdx = i;
-                bestHeightDiff = diff;
-            }
+void FontImpl::configureFixed() {
+    int bestIndex = -1;
+    int bestDifference = 0x7fffffff;
+    for (int index = 0; index < face_->num_fixed_sizes; ++index) {
+        const int difference = absolute((int)(opts.fontsize) - face_->available_sizes[index].height);
+        if (difference < bestDifference) {
+            bestIndex = index;
+            bestDifference = difference;
         }
-        logT << oss.str() << std::endl;
     }
-
-    logT << "Configured size: " << (int)opts.fontsize << "; Best matching fixed size: " << face->available_sizes[bestIdx].width << "x" << face->available_sizes[bestIdx].height << std::endl;
-
-    if (bestHeightDiff > 1 && face->units_per_EM > 0) {
-        logT << "Size mismatch too large, fallback to rendering outlines." << std::endl;
-        loadScaled(face);
+    if (bestIndex < 0) {
+        fail(StringView(u8"font advertises no usable fixed size"));
+    }
+    if (bestDifference > 1 && face_->units_per_EM > 0) {
+        configureScaled();
         return;
     }
 
-    const auto& facesize = face->available_sizes[bestIdx];
-
-    if (overlay || dwidth) {
-        if (px != facesize.width) {
-            throw std::runtime_error(filename + ": size mismatch, expected px=" + std::to_string(px) + ", got: " + std::to_string(facesize.width));
-        }
-        if (py != facesize.height) {
-            throw std::runtime_error(filename + ": size mismatch, expected py=" + std::to_string(py) + ", got: " + std::to_string(facesize.height));
-        }
-    } else {
-        px = facesize.width;
-        py = facesize.height;
-        baseline = 0;
-    }
-    logI << "Glyph size " << px << "x" << py << std::endl;
-
-    if (FT_Set_Pixel_Sizes(face, px, py)) {
-        throw std::runtime_error("Could not set pixel sizes");
+    const FT_Bitmap_Size& size = face_->available_sizes[bestIndex];
+    if (kind_ == FontKind::Primary) {
+        metrics_.width = size.width;
+        metrics_.height = size.height;
+        metrics_.baseline = 0;
+    } else if (metrics_.width != size.width || metrics_.height != size.height) {
+        fail(StringBuilder() << StringView(u8"font cell mismatch: expected ") << metrics_.width << StringView(u8"x") << metrics_.height << StringView(u8", got ") << size.width << StringView(u8"x") << size.height);
     }
 
-    if (!overlay && face->height) {
-        baseline = round(py * (double)face->ascender / face->height);
+    if (FT_Set_Pixel_Sizes(face_, metrics_.width, metrics_.height)) {
+        fail(StringView(u8"could not select fixed font size"));
+    }
+    if (kind_ != FontKind::Overlay && face_->height != 0) {
+        metrics_.baseline = rounded(metrics_.height * (double)(face_->ascender) / face_->height);
     }
 }
 
-void Font::loadScaled(const FT_Face& face) {
-    logI << "Pixel size " << (int)opts.fontsize << std::endl;
-    if (FT_Set_Pixel_Sizes(face, opts.fontsize, opts.fontsize)) {
-        throw std::runtime_error("Could not set pixel sizes");
+void FontImpl::configureScaled() {
+    if (FT_Set_Pixel_Sizes(face_, opts.fontsize, opts.fontsize)) {
+        fail(StringView(u8"could not select scalable font size"));
+    }
+    if (face_->units_per_EM == 0 || face_->max_advance_width == 0 || face_->height == 0) {
+        fail(StringView(u8"font has unusable scalable metrics"));
     }
 
-    double tpx = opts.fontsize * (double)face->max_advance_width / face->units_per_EM;
-    double tpy = tpx * face->height / face->max_advance_width + 1;
-    const u16 facePx = round(tpx);
-    const u16 facePy = round(tpy);
-    const u16 faceBaseline = round(tpy * face->ascender / face->height);
-    if ((overlay || dwidth) && (px != facePx || py != facePy)) {
-        throw std::runtime_error(filename + ": scaled metric mismatch, expected " + std::to_string(px) + "x" + std::to_string(py) + ", got " + std::to_string(facePx) + "x" + std::to_string(facePy));
+    const double width = opts.fontsize * (double)(face_->max_advance_width) / face_->units_per_EM;
+    const double height = width * face_->height / face_->max_advance_width + 1;
+    const FontMetrics actual{
+        .width = rounded(width),
+        .height = rounded(height),
+        .baseline = rounded(height * face_->ascender / face_->height),
+    };
+    if (kind_ != FontKind::Primary && (metrics_.width != actual.width || metrics_.height != actual.height)) {
+        fail(StringBuilder() << StringView(u8"font cell mismatch: expected ") << metrics_.width << StringView(u8"x") << metrics_.height << StringView(u8", got ") << actual.width << StringView(u8"x") << actual.height);
     }
-    if (overlay && baseline != faceBaseline) {
-        throw std::runtime_error(filename + ": scaled baseline mismatch, expected " + std::to_string(baseline) + ", got " + std::to_string(faceBaseline));
+    if (kind_ == FontKind::Overlay && metrics_.baseline != actual.baseline) {
+        fail(StringBuilder() << StringView(u8"font baseline mismatch: expected ") << metrics_.baseline << StringView(u8", got ") << actual.baseline);
     }
-    if (!overlay && !dwidth) {
-        px = facePx;
-        py = facePy;
+    if (kind_ == FontKind::Primary) {
+        metrics_ = actual;
+    } else if (kind_ == FontKind::DoubleWidth) {
+        metrics_.baseline = actual.baseline;
     }
-    if (!overlay) {
-        baseline = faceBaseline;
-    }
-    logI << "Glyph size " << px << "x" << py << ", baseline " << baseline << std::endl;
 }
 
-void Font::loadFace(const FT_Face& face, FT_ULong c) {
-    const u8 atlas_row = atlas_seq / nx;
-    const u8 atlas_col = atlas_seq - nx * atlas_row;
-    const AtlasPos apos = {atlas_col, atlas_row};
-
-    loadFace(face, c, apos);
-    atlasMap[c] = apos;
-    ++atlas_seq;
+bool FontImpl::accepts(u32 id) const {
+    if (id == Missing_Glyph_Marker || id == Unicode_Replacement_Character) {
+        return true;
+    }
+    const int width = codepointWidth(id);
+    return kind_ == FontKind::DoubleWidth ? width == 2 : width < 2;
 }
 
-void Font::loadFace(const FT_Face& face, FT_ULong c, const AtlasPos& apos) {
-    if (FT_Load_Char(face, c, FT_LOAD_RENDER)) {
-        throw std::runtime_error(std::string("FreeType: Failed to load glyph for char ") + std::to_string(c));
+bool FontImpl::rasterize(FT_UInt glyphIndex) {
+    if (FT_Load_Glyph(face_, glyphIndex, FT_LOAD_RENDER)) {
+        return false;
     }
 
-    int dx = face->glyph->bitmap_left;
-    int dy = baseline > 0 ? baseline - face->glyph->bitmap_top : 0;
+    bitmap_.zero((size_t)(metrics_.width) * metrics_.height);
+    const FT_Bitmap& source = face_->glyph->bitmap;
+    const int sourceWidth = source.width;
+    const int sourceHeight = source.rows;
+    const int destinationX = maximum(0, face_->glyph->bitmap_left);
+    const int destinationY = maximum(0, metrics_.baseline > 0 ? metrics_.baseline - face_->glyph->bitmap_top : 0);
+    const int sourceX = maximum(0, -face_->glyph->bitmap_left);
+    const int sourceY = maximum(0, metrics_.baseline > 0 ? face_->glyph->bitmap_top - metrics_.baseline : 0);
+    const int copyWidth = minimum(sourceWidth - sourceX, (int)(metrics_.width) - destinationX);
+    const int copyHeight = minimum(sourceHeight - sourceY, (int)(metrics_.height) - destinationY);
+    if (copyWidth <= 0 || copyHeight <= 0) {
+        return true;
+    }
 
-    const int sh = std::max(0, -dy);
-    const int sw = std::max(0, -dx);
-    dx += sw;
-    dy += sh;
-
-    const auto& bmp = face->glyph->bitmap;
-    const int bh = std::min({(int)bmp.rows, (int)py, py - dy + sh});
-    const int bw = std::min({(int)bmp.width, (int)px, px - dx + sw});
-
-    const int atlas_row_offset = nx * px * py;
-    const int atlas_glyph_offset = apos.y * atlas_row_offset + apos.x * px;
-    const int atlas_write_offset = atlas_glyph_offset + nx * px * dy + dx;
-
-    if (overlay) {
-        for (int j = 0; j < bh; ++j) {
-            u8* atl_dst_row = atlasBuf.data() + atlas_glyph_offset + j * nx * px;
-            for (int k = 0; k < bw; ++k) {
-                *atl_dst_row++ = 0;
+    const int pitch = source.pitch;
+    const int rowStride = pitch < 0 ? -pitch : pitch;
+    u8* destination = (u8*)(bitmap_.mutData());
+    for (int row = 0; row < copyHeight; ++row) {
+        const int sourceRow = sourceY + row;
+        const int storedRow = pitch < 0 ? sourceHeight - sourceRow - 1 : sourceRow;
+        const unsigned char* sourcePixels = source.buffer + storedRow * rowStride;
+        u8* destinationPixels = destination + (destinationY + row) * metrics_.width + destinationX;
+        if (source.pixel_mode == FT_PIXEL_MODE_GRAY) {
+            memCpy(destinationPixels, sourcePixels + sourceX, copyWidth);
+        } else if (source.pixel_mode == FT_PIXEL_MODE_MONO) {
+            for (int column = 0; column < copyWidth; ++column) {
+                const int sourceColumn = sourceX + column;
+                destinationPixels[column] = sourcePixels[sourceColumn >> 3] & (0x80 >> (sourceColumn & 7)) ? 0xff : 0;
             }
+        } else {
+            return false;
         }
     }
+    return true;
+}
 
-    /* Load bitmap into atlas buffer area. Each row in the bitmap
-       * occupies bitmap.pitch bytes (with padding); this is the
-       * increment in the input bitmap array per row.
-       *
-       * Interpretation of bytes within the bitmap rows is subject to
-       * bitmap.pixel_mode, essentially either 8 bits (256-scale gray)
-       * per pixel, or 1 bit (mono) per pixel. Leftmost pixel is MSB.
-       *
-       */
-    const unsigned char* bmp_src_row;
-    u8* atl_dst_row;
-    switch (bmp.pixel_mode) {
-        case FT_PIXEL_MODE_MONO:
-            for (int j = sh; j < bh; ++j) {
-                bmp_src_row = bmp.buffer + j * bmp.pitch;
-                atl_dst_row = atlasBuf.data() + atlas_write_offset + j * nx * px;
-                u8 byte = 0;
-                for (int k = 0; k < bw; ++k) {
-                    if (k % 8 == 0) {
-                        byte = *bmp_src_row++;
-                    }
-                    if (k >= sw) {
-                        *atl_dst_row++ = (byte & 0x80) ? 0xFF : 0;
-                    }
-                    byte <<= 1;
-                }
-            }
-            break;
-        case FT_PIXEL_MODE_GRAY:
-            for (int j = sh; j < bh; ++j) {
-                bmp_src_row = bmp.buffer + j * bmp.pitch + sw;
-                atl_dst_row = atlasBuf.data() + atlas_write_offset + j * nx * px;
-                for (int k = sw; k < bw; ++k) {
-                    *atl_dst_row++ = *bmp_src_row++;
-                }
-            }
-            break;
-        default:
-            throw std::runtime_error(std::string("Unhandled pixel_type=") + std::to_string(bmp.pixel_mode));
+FontGlyph FontImpl::glyph(u32 id) {
+    if (!accepts(id)) {
+        return {};
     }
+    const FT_UInt glyphIndex = id == Missing_Glyph_Marker ? 0 : FT_Get_Char_Index(face_, id);
+    if (id != Missing_Glyph_Marker && glyphIndex == 0) {
+        return {};
+    }
+    if (!rasterize(glyphIndex)) {
+        return {};
+    }
+    return {
+        .data = bitmap_.data(),
+        .len = bitmap_.used(),
+    };
+}
+
+Font* Font::create(Composer& composer, StringView filename, FontKind kind, FontMetrics& metrics) {
+    return composer.pool->make<FontImpl>(filename, kind, metrics);
 }

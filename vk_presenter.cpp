@@ -14,6 +14,8 @@
 #include "render_spv.h"
 #include "utf8.h"
 
+#include <std/sys/crt.h>
+
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
@@ -101,6 +103,7 @@ u32 VulkanPresenter::packCellAttributes(const RenderCell& cell) {
 
 VulkanPresenter::VulkanPresenter(GLFWwindow* window_, Fontpack* fontpk)
     : window(window_)
+    , fonts(fontpk)
     , glyphWidth(fontpk->getPx())
     , glyphHeight(fontpk->getPy())
     , hasDoubleWidth(fontpk->hasDoubleWidth())
@@ -110,10 +113,9 @@ VulkanPresenter::VulkanPresenter(GLFWwindow* window_, Fontpack* fontpk)
     selectPhysicalDevice();
     createDevice();
     createCommandResources();
-    createFontResources(fontpk);
+    createFontResources();
     createDescriptors();
     createPipeline();
-    fontpk->releaseFonts();
 }
 
 VulkanPresenter::~VulkanPresenter() {
@@ -162,6 +164,15 @@ VulkanPresenter::~VulkanPresenter() {
         }
         if (frame.graphemeMemory != VK_NULL_HANDLE) {
             vkFreeMemory(device, frame.graphemeMemory, nullptr);
+        }
+        if (frame.fontUploads != nullptr) {
+            vkUnmapMemory(device, frame.fontUploadMemory);
+        }
+        if (frame.fontUploadBuffer != VK_NULL_HANDLE) {
+            vkDestroyBuffer(device, frame.fontUploadBuffer, nullptr);
+        }
+        if (frame.fontUploadMemory != VK_NULL_HANDLE) {
+            vkFreeMemory(device, frame.fontUploadMemory, nullptr);
         }
         if (frame.imageAvailable != VK_NULL_HANDLE) {
             vkDestroySemaphore(device, frame.imageAvailable, nullptr);
@@ -393,142 +404,74 @@ void VulkanPresenter::destroyImage(ImageResource& image) {
     image = {};
 }
 
-void VulkanPresenter::uploadImage(const ImageResource& image, const void* data, size_t bytes) {
-    VkBuffer stagingBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
-    createBuffer(bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingMemory);
-
-    void* mapped = nullptr;
-    checkVk(vkMapMemory(device, stagingMemory, 0, bytes, 0, &mapped), "vkMapMemory");
-    std::memcpy(mapped, data, bytes);
-    vkUnmapMemory(device, stagingMemory);
-
-    VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
-    VkCommandBufferAllocateInfo allocateInfo{};
-    allocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocateInfo.commandPool = commandPool;
-    allocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocateInfo.commandBufferCount = 1;
-    checkVk(vkAllocateCommandBuffers(device, &allocateInfo, &commandBuffer), "vkAllocateCommandBuffers");
-
-    VkCommandBufferBeginInfo beginInfo{};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    checkVk(vkBeginCommandBuffer(commandBuffer, &beginInfo), "vkBeginCommandBuffer");
-
-    VkImageMemoryBarrier toTransfer{};
-    toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    toTransfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    toTransfer.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    toTransfer.image = image.image;
-    toTransfer.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    toTransfer.subresourceRange.levelCount = 1;
-    toTransfer.subresourceRange.layerCount = image.layers;
-    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &toTransfer);
-
-    VkBufferImageCopy copy{};
-    copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    copy.imageSubresource.layerCount = image.layers;
-    copy.imageExtent = {image.width, image.height, 1};
-    vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
-
-    VkImageMemoryBarrier toShader = toTransfer;
-    toShader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    toShader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    toShader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    toShader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &toShader);
-
-    checkVk(vkEndCommandBuffer(commandBuffer), "vkEndCommandBuffer");
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer;
-    checkVk(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE), "vkQueueSubmit");
-    checkVk(vkQueueWaitIdle(queue), "vkQueueWaitIdle");
-
-    vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
-    vkDestroyBuffer(device, stagingBuffer, nullptr);
-    vkFreeMemory(device, stagingMemory, nullptr);
-}
-
-std::vector<u8> VulkanPresenter::makeAtlasMap(const Font& font) {
+void VulkanPresenter::configureGlyphCache(GlyphCache& cache, u32 width, u32 layers, size_t byteBudget, u32 maxImageDimension) {
     constexpr u32 unicodeCount = 0x110000;
-    std::vector<u8> result(2 * unicodeCount, 0);
-    const auto end = font.getAtlasMap().end();
-
-    Font::AtlasPos replacement{};
-    const auto replacementIt = font.getAtlasMap().find(Unicode_Replacement_Character);
-    if (replacementIt != end) {
-        replacement = replacementIt->second;
+    constexpr u32 maximumSlots = 16384;
+    const size_t glyphBytes = (size_t)(width)*glyphHeight * layers;
+    u32 requested = glyphBytes == 0 ? 2 : (u32)(byteBudget / glyphBytes);
+    if (requested < 2) {
+        requested = 2;
+    }
+    if (requested > maximumSlots) {
+        requested = maximumSlots;
     }
 
-    Font::AtlasPos missing{};
-    const auto missingIt = font.getAtlasMap().find(Missing_Glyph_Marker);
-    if (missingIt != end) {
-        missing = missingIt->second;
+    u32 maximumColumns = maxImageDimension / width;
+    u32 maximumRows = maxImageDimension / glyphHeight;
+    if (maximumColumns > 256) {
+        maximumColumns = 256;
+    }
+    if (maximumRows > 256) {
+        maximumRows = 256;
+    }
+    if (maximumColumns == 0 || maximumRows == 0) {
+        throw std::runtime_error("Font glyph does not fit a Vulkan image");
+    }
+    if (requested > maximumColumns * maximumRows) {
+        requested = maximumColumns * maximumRows;
     }
 
-    for (u32 codepoint = 0; codepoint < unicodeCount; ++codepoint) {
-        const auto& position = (codepoint >= 0xd800 && codepoint < 0xe000) || codepoint >= 0xfffe ? replacement : missing;
-        result[2 * codepoint] = position.x;
-        result[2 * codepoint + 1] = position.y;
-    }
-
-    for (const auto& entry : font.getAtlasMap()) {
-        if (entry.first < unicodeCount) {
-            result[2 * entry.first] = entry.second.x;
-            result[2 * entry.first + 1] = entry.second.y;
+    u32 bestColumns = 0;
+    u32 bestRows = 0;
+    u64 bestDifference = UINT64_MAX;
+    for (u32 columns = 1; columns <= maximumColumns; ++columns) {
+        const u32 rows = (requested + columns - 1) / columns;
+        if (rows > maximumRows) {
+            continue;
+        }
+        const u64 pixelWidth = (u64)(columns)*width;
+        const u64 pixelHeight = (u64)(rows)*glyphHeight;
+        const u64 difference = pixelWidth > pixelHeight ? pixelWidth - pixelHeight : pixelHeight - pixelWidth;
+        if (difference < bestDifference) {
+            bestDifference = difference;
+            bestColumns = columns;
+            bestRows = rows;
         }
     }
-    return result;
+    if (bestColumns == 0 || bestRows == 0) {
+        throw std::runtime_error("Could not size the Vulkan glyph cache");
+    }
+
+    cache.columns = bestColumns;
+    cache.rows = bestRows;
+    cache.refs.zero((size_t)(unicodeCount) * sizeof(u16));
+    cache.slots.zero((size_t)(bestColumns)*bestRows);
 }
 
-void VulkanPresenter::createFontResources(Fontpack* fontpk) {
-    const Font& regular = fontpk->getRegular();
-    const size_t layerBytes = regular.getAtlas().size();
-    std::vector<u8> atlasData(4 * layerBytes);
+void VulkanPresenter::createFontResources() {
+    constexpr size_t atlasByteBudget = 16 * 1024 * 1024;
+    constexpr size_t doubleWidthAtlasByteBudget = 8 * 1024 * 1024;
+    VkPhysicalDeviceProperties properties{};
+    vkGetPhysicalDeviceProperties(physicalDevice, &properties);
 
-    const Font* boldItalic = &regular;
-    if (fontpk->hasBoldItalic()) {
-        boldItalic = &fontpk->getBoldItalic();
-    } else if (fontpk->hasItalic()) {
-        boldItalic = &fontpk->getItalic();
-    } else if (fontpk->hasBold()) {
-        boldItalic = &fontpk->getBold();
-    }
-
-    const Font* layers[4] = {
-        &regular,
-        fontpk->hasBold() ? &fontpk->getBold() : &regular,
-        fontpk->hasItalic() ? &fontpk->getItalic() : &regular,
-        boldItalic,
-    };
-    for (size_t layer = 0; layer < 4; ++layer) {
-        if (layers[layer]->getAtlas().size() != layerBytes) {
-            throw std::runtime_error("Font atlas layer size mismatch");
-        }
-        std::memcpy(atlasData.data() + layer * layerBytes, layers[layer]->getAtlasData(), layerBytes);
-    }
-
-    atlas = createImage(regular.getPx() * regular.getNx(), regular.getPy() * regular.getNy(), 4, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
-    uploadImage(atlas, atlasData.data(), atlasData.size());
-
-    const auto mapData = makeAtlasMap(regular);
+    configureGlyphCache(glyphs, glyphWidth, 4, atlasByteBudget, properties.limits.maxImageDimension2D);
+    atlas = createImage(glyphWidth * glyphs.columns, glyphHeight * glyphs.rows, 4, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
     atlasMap = createImage(512, 2176, 1, VK_FORMAT_R8G8_UINT, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-    uploadImage(atlasMap, mapData.data(), mapData.size());
 
     if (hasDoubleWidth) {
-        const Font& wide = fontpk->getDoubleWidth();
-        doubleWidthAtlas = createImage(wide.getPx() * wide.getNx(), wide.getPy() * wide.getNy(), 1, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
-        uploadImage(doubleWidthAtlas, wide.getAtlasData(), wide.getAtlas().size());
-
-        const auto wideMapData = makeAtlasMap(wide);
+        configureGlyphCache(doubleWidthGlyphs, 2 * glyphWidth, 1, doubleWidthAtlasByteBudget, properties.limits.maxImageDimension2D);
+        doubleWidthAtlas = createImage(2 * glyphWidth * doubleWidthGlyphs.columns, glyphHeight * doubleWidthGlyphs.rows, 1, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
         doubleWidthAtlasMap = createImage(512, 2176, 1, VK_FORMAT_R8G8_UINT, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-        uploadImage(doubleWidthAtlasMap, wideMapData.data(), wideMapData.size());
     }
 
     VkSamplerCreateInfo samplerInfo{};
@@ -878,6 +821,226 @@ void VulkanPresenter::ensureGraphemeBuffer(FrameResources& frame, size_t bytes) 
     updateGraphemeDescriptor(frame);
 }
 
+void VulkanPresenter::ensureFontUploadBuffer(FrameResources& frame, size_t bytes) {
+    if (frame.fontUploadCapacity >= bytes) {
+        return;
+    }
+    if (frame.fontUploads != nullptr) {
+        vkUnmapMemory(device, frame.fontUploadMemory);
+        frame.fontUploads = nullptr;
+    }
+    if (frame.fontUploadBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device, frame.fontUploadBuffer, nullptr);
+    }
+    if (frame.fontUploadMemory != VK_NULL_HANDLE) {
+        vkFreeMemory(device, frame.fontUploadMemory, nullptr);
+    }
+
+    createBuffer(bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, frame.fontUploadBuffer, frame.fontUploadMemory);
+    checkVk(vkMapMemory(device, frame.fontUploadMemory, 0, bytes, 0, &frame.fontUploads), "vkMapMemory");
+    frame.fontUploadCapacity = bytes;
+}
+
+bool VulkanPresenter::needsFontGlyph(u32 id) {
+    return id != 0x200d && !(id >= 0xfe00 && id <= 0xfe0f) && !(id >= 0xe0100 && id <= 0xe01ef) && !(id >= 0x2500 && id <= 0x257f) && !(id >= 0x23ba && id <= 0x23bd);
+}
+
+void VulkanPresenter::beginGlyphFrame() {
+    fontUploadData.reset();
+    atlasCopies.clear();
+    atlasMapCopies.clear();
+    doubleWidthAtlasCopies.clear();
+    doubleWidthAtlasMapCopies.clear();
+
+    auto advance = [](GlyphCache& cache) {
+        ++cache.generation;
+        if (cache.generation == 0) {
+            for (GlyphSlot* slot = cache.slots.mutBegin(); slot != cache.slots.mutEnd(); ++slot) {
+                slot->generation = 0;
+            }
+            cache.generation = 1;
+        }
+    };
+    advance(glyphs);
+    if (hasDoubleWidth) {
+        advance(doubleWidthGlyphs);
+    }
+}
+
+u16 VulkanPresenter::allocateGlyphSlot(GlyphCache& cache, u32 id) {
+    if (cache.next < cache.slots.length()) {
+        const u16 slot = (u16)(cache.next++);
+        GlyphSlot& state = cache.slots.mut(slot);
+        state.id = id;
+        state.generation = cache.generation;
+        state.layers = 0;
+        return slot;
+    }
+
+    const u32 count = cache.slots.length();
+    for (u32 checked = 1; checked < count; ++checked) {
+        if (cache.eviction == 0 || cache.eviction >= count) {
+            cache.eviction = 1;
+        }
+        const u16 slot = (u16)(cache.eviction++);
+        GlyphSlot& state = cache.slots.mut(slot);
+        if (state.generation == cache.generation) {
+            continue;
+        }
+
+        u16* refs = (u16*)(cache.refs.mutData());
+        if (state.id < 0x110000 && refs[state.id] == slot) {
+            refs[state.id] = 0;
+        }
+        state.id = id;
+        state.generation = cache.generation;
+        state.layers = 0;
+        return slot;
+    }
+    return 0;
+}
+
+VkDeviceSize VulkanPresenter::stageFontData(const void* data, size_t len, size_t expected) {
+    const u32 zero = 0;
+    const size_t padding = (4 - (fontUploadData.used() & 3)) & 3;
+    fontUploadData.append(&zero, padding);
+    const VkDeviceSize offset = fontUploadData.used();
+    if (data != nullptr && len == expected) {
+        fontUploadData.append(data, len);
+    } else {
+        fontUploadData.growDelta(expected);
+        void* begin = fontUploadData.mutCurrent();
+        fontUploadData.seekRelative(expected);
+        memZero(begin, fontUploadData.mutCurrent());
+    }
+    return offset;
+}
+
+void VulkanPresenter::stageAtlasMap(GlyphCache& cache, Vector<VkBufferImageCopy>& copies, u32 id, u16 slot) {
+    const u8 position[2] = {
+        (u8)(slot % cache.columns),
+        (u8)(slot / cache.columns),
+    };
+    VkBufferImageCopy copy{};
+    copy.bufferOffset = stageFontData(position, sizeof(position), sizeof(position));
+    copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    copy.imageSubresource.layerCount = 1;
+    copy.imageOffset = {(i32)(id & 511), (i32)(id >> 9), 0};
+    copy.imageExtent = {1, 1, 1};
+    copies.pushBack(copy);
+}
+
+void VulkanPresenter::ensureGlyph(u32 id, FontStyle style, bool doubleWidth) {
+    if (id >= 0x110000 || !needsFontGlyph(id) || (doubleWidth && !hasDoubleWidth)) {
+        return;
+    }
+
+    GlyphCache& cache = doubleWidth ? doubleWidthGlyphs : glyphs;
+    u16* refs = (u16*)(cache.refs.mutData());
+    u16 slot = refs[id];
+    if (slot == 0) {
+        slot = allocateGlyphSlot(cache, id);
+        if (slot == 0) {
+            return;
+        }
+        refs[id] = slot;
+        stageAtlasMap(cache, doubleWidth ? doubleWidthAtlasMapCopies : atlasMapCopies, id, slot);
+    }
+
+    GlyphSlot& state = cache.slots.mut(slot);
+    state.generation = cache.generation;
+    const u32 layer = doubleWidth ? 0 : (u32)(style);
+    const u8 layerMask = (u8)(1u << layer);
+    if (state.layers & layerMask) {
+        return;
+    }
+
+    const u32 width = doubleWidth ? 2 * glyphWidth : glyphWidth;
+    const size_t bytes = (size_t)(width)*glyphHeight;
+    const FontGlyph glyph = fonts->glyph(id, style, doubleWidth);
+    VkBufferImageCopy copy{};
+    copy.bufferOffset = stageFontData(glyph.data, glyph.len, bytes);
+    copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    copy.imageSubresource.baseArrayLayer = layer;
+    copy.imageSubresource.layerCount = 1;
+    copy.imageOffset = {
+        (i32)((slot % cache.columns) * width),
+        (i32)((slot / cache.columns) * glyphHeight),
+        0,
+    };
+    copy.imageExtent = {width, glyphHeight, 1};
+    (doubleWidth ? doubleWidthAtlasCopies : atlasCopies).pushBack(copy);
+    state.layers |= layerMask;
+}
+
+void VulkanPresenter::recordImageUploads(VkCommandBuffer commandBuffer, VkBuffer stagingBuffer, const ImageResource& image, const Vector<VkBufferImageCopy>& copies, bool initialize) {
+    if (!initialize && copies.empty()) {
+        return;
+    }
+
+    VkImageMemoryBarrier toTransfer{};
+    toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toTransfer.srcAccessMask = initialize ? 0 : VK_ACCESS_SHADER_READ_BIT;
+    toTransfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toTransfer.oldLayout = initialize ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransfer.image = image.image;
+    toTransfer.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    toTransfer.subresourceRange.levelCount = 1;
+    toTransfer.subresourceRange.layerCount = image.layers;
+    vkCmdPipelineBarrier(commandBuffer, initialize ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT : VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &toTransfer);
+    if (initialize) {
+        const VkClearColorValue clear{};
+        vkCmdClearColorImage(commandBuffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &toTransfer.subresourceRange);
+    }
+    if (!copies.empty()) {
+        if (initialize) {
+            VkImageMemoryBarrier clearForCopies = toTransfer;
+            clearForCopies.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            clearForCopies.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            clearForCopies.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &clearForCopies);
+        }
+        vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, copies.length(), copies.data());
+    }
+
+    VkImageMemoryBarrier toShader = toTransfer;
+    toShader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toShader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    toShader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    toShader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &toShader);
+}
+
+void VulkanPresenter::recordFontUploads(FrameResources& frame) {
+    const bool initialize = !fontImagesInitialized;
+    if (!initialize && fontUploadData.empty()) {
+        return;
+    }
+
+    if (!fontUploadData.empty()) {
+        VkBufferMemoryBarrier stagingForTransfer{};
+        stagingForTransfer.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        stagingForTransfer.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
+        stagingForTransfer.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        stagingForTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        stagingForTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        stagingForTransfer.buffer = frame.fontUploadBuffer;
+        stagingForTransfer.size = fontUploadData.used();
+        vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &stagingForTransfer, 0, nullptr);
+    }
+
+    recordImageUploads(frame.commandBuffer, frame.fontUploadBuffer, atlas, atlasCopies, initialize);
+    recordImageUploads(frame.commandBuffer, frame.fontUploadBuffer, atlasMap, atlasMapCopies, initialize);
+    if (hasDoubleWidth) {
+        recordImageUploads(frame.commandBuffer, frame.fontUploadBuffer, doubleWidthAtlas, doubleWidthAtlasCopies, initialize);
+        recordImageUploads(frame.commandBuffer, frame.fontUploadBuffer, doubleWidthAtlasMap, doubleWidthAtlasMapCopies, initialize);
+    }
+    fontImagesInitialized = true;
+}
+
 u32 VulkanPresenter::packColor(const Color& color) {
     return (u32)(color.red) | ((u32)(color.green) << 8) | ((u32)(color.blue) << 16);
 }
@@ -891,6 +1054,7 @@ void VulkanPresenter::recordCommands(FrameResources& frame, u32 imageIndex, cons
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     checkVk(vkBeginCommandBuffer(frame.commandBuffer, &beginInfo), "vkBeginCommandBuffer");
+    recordFontUploads(frame);
 
     VkImageSubresourceRange outputRange{};
     outputRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -1166,6 +1330,7 @@ bool VulkanPresenter::present(const CharVdev& charVdev, const Frame& sourceFrame
         return false;
     }
 
+    beginGlyphFrame();
     std::vector<GpuCell> gpuCells;
     gpuCells.reserve(charVdev.cellCount());
     std::vector<u32> graphemeData = {0};
@@ -1179,7 +1344,16 @@ bool VulkanPresenter::present(const CharVdev& charVdev, const Frame& sourceFrame
                 graphemeIndex = graphemeData.size();
                 graphemeData.push_back(grapheme.size());
                 graphemeData.insert(graphemeData.end(), grapheme.begin(), grapheme.end());
+                const FontStyle style = (FontStyle)((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0));
+                const bool doubleWidth = cell.dwidth || cell.line_attr != 0;
+                for (size_t member = 0; member < grapheme.size(); ++member) {
+                    ensureGlyph(grapheme[member], style, member == 0 && doubleWidth);
+                }
             }
+        }
+        if (graphemeIndex == 0 && (!cell.dwidth_cont || cell.line_attr != 0)) {
+            const FontStyle style = (FontStyle)((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0));
+            ensureGlyph(cell.uc_pt, style, cell.dwidth || cell.line_attr != 0);
         }
         gpuCells.push_back({
             cell.uc_pt,
@@ -1200,6 +1374,10 @@ bool VulkanPresenter::present(const CharVdev& charVdev, const Frame& sourceFrame
     const size_t graphemeBytes = graphemeData.size() * sizeof(u32);
     ensureGraphemeBuffer(*frame, graphemeBytes);
     std::memcpy(frame->graphemes, graphemeData.data(), graphemeBytes);
+    if (!fontUploadData.empty()) {
+        ensureFontUploadBuffer(*frame, fontUploadData.used());
+        std::memcpy(frame->fontUploads, fontUploadData.data(), fontUploadData.used());
+    }
 
     recordCommands(*frame, imageIndex, charVdev, sourceFrame, delta);
     outputInitialized = true;

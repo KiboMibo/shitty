@@ -6,6 +6,9 @@
 
 #include "font_resolver.h"
 
+#include <std/lib/buffer.h>
+#include <std/mem/obj_pool.h>
+
 #include <fontconfig/fontconfig.h>
 
 namespace stl {}
@@ -22,50 +25,55 @@ namespace {
         return fontconfigInitialized;
     }
 
-    std::string fontconfigFile(const std::string& family, int weight, int slant) {
+    StringView fontconfigFile(ObjPool* pool, StringView family, int weight, int slant) {
         if (!initializeFontconfig()) {
             return {};
         }
+
         FcPattern* pattern = FcPatternCreate();
-        if (!pattern) {
+        if (pattern == nullptr) {
             return {};
         }
-        FcPatternAddString(pattern, FC_FAMILY, (const FcChar8*)(family.c_str()));
+        Buffer familyBuffer(family);
+        FcPatternAddString(pattern, FC_FAMILY, (const FcChar8*)(familyBuffer.cStr()));
         FcPatternAddInteger(pattern, FC_WEIGHT, weight);
         FcPatternAddInteger(pattern, FC_SLANT, slant);
         FcConfigSubstitute(nullptr, pattern, FcMatchPattern);
         FcDefaultSubstitute(pattern);
+
         FcResult result;
         FcPattern* match = FcFontMatch(nullptr, pattern, &result);
         FcPatternDestroy(pattern);
-        if (!match) {
+        if (match == nullptr) {
             return {};
         }
+
         FcChar8* file = nullptr;
-        std::string path;
+        StringView path;
         if (FcPatternGetString(match, FC_FILE, 0, &file) == FcResultMatch) {
-            path = (const char*)(file);
+            path = pool->intern(StringView((const char*)(file)));
         }
         FcPatternDestroy(match);
         return path;
     }
 }
 
-FontVariants resolveFontconfig(const std::string& family) {
+FontVariants resolveFontconfig(ObjPool* pool, StringView family) {
     FontVariants variants;
-    variants.regular = fontconfigFile(family, FC_WEIGHT_REGULAR, FC_SLANT_ROMAN);
+    variants.regular = fontconfigFile(pool, family, FC_WEIGHT_REGULAR, FC_SLANT_ROMAN);
     if (variants.regular.empty()) {
         return variants;
     }
-    std::string path = fontconfigFile(family, FC_WEIGHT_BOLD, FC_SLANT_ROMAN);
+
+    StringView path = fontconfigFile(pool, family, FC_WEIGHT_BOLD, FC_SLANT_ROMAN);
     if (!path.empty() && path != variants.regular) {
         variants.bold = path;
     }
-    path = fontconfigFile(family, FC_WEIGHT_REGULAR, FC_SLANT_ITALIC);
+    path = fontconfigFile(pool, family, FC_WEIGHT_REGULAR, FC_SLANT_ITALIC);
     if (!path.empty() && path != variants.regular) {
         variants.italic = path;
     }
-    path = fontconfigFile(family, FC_WEIGHT_BOLD, FC_SLANT_ITALIC);
+    path = fontconfigFile(pool, family, FC_WEIGHT_BOLD, FC_SLANT_ITALIC);
     if (!path.empty() && path != variants.regular && path != variants.bold && path != variants.italic) {
         variants.boldItalic = path;
     }

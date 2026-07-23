@@ -10,6 +10,7 @@
 
 #include "test_mode.h"
 
+#include "cell_extra_store.h"
 #include "clipboard.h"
 #include "composer.h"
 #include "grapheme.h"
@@ -31,6 +32,7 @@
 
 #include <algorithm>
 #include <std/mem/obj_pool.h>
+#include <std/sys/throw.h>
 #include <cerrno>
 #include <cstdint>
 #include <cstdlib>
@@ -328,9 +330,9 @@ bool TestDisplay::update(const Frame& frame) {
         for (u16 column = 0; column < columns; ++column) {
             const size_t index = (size_t)(row)*columns + column;
             modelCells[index] = frame.getViewCell(row, column);
-            const auto grapheme = frame.getGrapheme(modelCells[index].extraRef());
+            const auto grapheme = frame.cellExtras()->grapheme(modelCells[index].extraRef());
             cellGraphemes[index].assign(grapheme.begin(), grapheme.end());
-            modelUnderlineColors[index] = frame.getUnderlineColor(modelCells[index]);
+            modelUnderlineColors[index] = frame.cellExtras()->underlineColor(modelCells[index]);
         }
     }
     cursor = frame.getCursor();
@@ -349,7 +351,7 @@ bool TestDisplay::update(const Frame& frame) {
         if (!cell.grapheme) {
             continue;
         }
-        const auto& grapheme = frame.getGrapheme(cell.grapheme);
+        const auto grapheme = frame.cellExtras()->grapheme(cell.grapheme);
         if (grapheme.empty()) {
             continue;
         }
@@ -883,8 +885,18 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 }
                 writeAll(controlFd, "OK " + encodeHex(encoded) + "\n");
             } else if (line.compare(0, 19, "FONTCONFIG_RESOLVE ") == 0) {
-                const FontVariants variants = resolveFontconfig(decodeHex(line.substr(19)));
-                const std::string encoded = variants.regular + '\0' + variants.bold + '\0' + variants.italic + '\0' + variants.boldItalic;
+                const std::string family = decodeHex(line.substr(19));
+                ObjPool::Ref fontPool = ObjPool::fromMemory();
+                const FontVariants variants = resolveFontconfig(fontPool.mutPtr(), StringView((const u8*)(family.data()), family.size()));
+                std::string encoded;
+                const StringView paths[] = {variants.regular, variants.bold, variants.italic, variants.boldItalic};
+                for (size_t index = 0; index < std::size(paths); ++index) {
+                    if (index != 0) {
+                        encoded.push_back('\0');
+                    }
+                    const StringView path = paths[index];
+                    encoded.append((const char*)(path.data()), path.length());
+                }
                 writeAll(controlFd, "OK " + encodeHex(encoded) + "\n");
             } else if (line.compare(0, 10, "FONT_LOAD ") == 0) {
                 const std::string request = decodeHex(line.substr(10));
@@ -895,7 +907,9 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 ObjPool::Ref fontPool = ObjPool::fromMemory();
                 Composer fontComposer;
                 fontComposer.pool = fontPool.mutPtr();
-                Fontpack* fonts = Fontpack::create(fontComposer, request.substr(0, first), request.substr(first + 1));
+                const StringView fontname((const u8*)(request.data()), first);
+                const StringView dwfontname((const u8*)(request.data() + first + 1), request.size() - first - 1);
+                Fontpack* fonts = Fontpack::create(fontComposer, fontname, dwfontname);
                 writeAll(controlFd, "OK " + std::to_string(fonts->getPx()) + " " + std::to_string(fonts->getPy()) + " " + std::to_string(fonts->hasBold()) + " " + std::to_string(fonts->hasItalic()) + " " + std::to_string(fonts->hasBoldItalic()) + " " + std::to_string(fonts->hasDoubleWidth()) + "\n");
             } else if (line.compare(0, 16, "GRAPHEME_BREAKS ") == 0) {
                 std::istringstream args(line.substr(16));
@@ -1579,6 +1593,9 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
             } else {
                 writeAll(controlFd, "ERR unknown command\n");
             }
+        } catch (Exception& error) {
+            const StringView message = error.description();
+            writeAll(controlFd, "ERR " + std::string((const char*)(message.data()), message.length()) + "\n");
         } catch (const std::exception& error) {
             writeAll(controlFd, std::string("ERR ") + error.what() + "\n");
         }

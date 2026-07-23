@@ -5,6 +5,9 @@
  */
 
 #pragma once
+
+#include <std/lib/buffer.h>
+#include <std/lib/vector.h>
 #include <std/sys/types.h>
 
 #include "char_vdev.h"
@@ -52,6 +55,10 @@ private:
         VkDeviceMemory graphemeMemory = VK_NULL_HANDLE;
         void* graphemes = nullptr;
         size_t graphemeCapacity = 0;
+        VkBuffer fontUploadBuffer = VK_NULL_HANDLE;
+        VkDeviceMemory fontUploadMemory = VK_NULL_HANDLE;
+        void* fontUploads = nullptr;
+        size_t fontUploadCapacity = 0;
         VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
         VkSemaphore imageAvailable = VK_NULL_HANDLE;
         VkFence fence = VK_NULL_HANDLE;
@@ -90,9 +97,26 @@ private:
 
     static_assert(sizeof(PushConstants) == 112, "Vulkan push constant layout mismatch");
 
+    struct GlyphSlot {
+        u32 id = 0;
+        u32 generation = 0;
+        u8 layers = 0;
+    };
+
+    struct GlyphCache {
+        stl::Buffer refs;
+        stl::Vector<GlyphSlot> slots;
+        u32 columns = 0;
+        u32 rows = 0;
+        u32 next = 1;
+        u32 eviction = 1;
+        u32 generation = 0;
+    };
+
     static constexpr u32 framesInFlight = 2;
 
     GLFWwindow* window = nullptr;
+    Fontpack* fonts = nullptr;
     u32 glyphWidth = 0;
     u32 glyphHeight = 0;
     bool hasDoubleWidth = false;
@@ -115,6 +139,14 @@ private:
     ImageResource atlasMap;
     ImageResource doubleWidthAtlas;
     ImageResource doubleWidthAtlasMap;
+    bool fontImagesInitialized = false;
+    GlyphCache glyphs;
+    GlyphCache doubleWidthGlyphs;
+    stl::Buffer fontUploadData;
+    stl::Vector<VkBufferImageCopy> atlasCopies;
+    stl::Vector<VkBufferImageCopy> atlasMapCopies;
+    stl::Vector<VkBufferImageCopy> doubleWidthAtlasCopies;
+    stl::Vector<VkBufferImageCopy> doubleWidthAtlasMapCopies;
     ImageResource outputImage;
     bool outputInitialized = false;
     TerminalCursor previousCursor;
@@ -136,7 +168,7 @@ private:
     void selectPhysicalDevice();
     void createDevice();
     void createCommandResources();
-    void createFontResources(Fontpack* fontpk);
+    void createFontResources();
     void createDescriptors();
     void createPipeline();
     void createSwapchain(u32 width, u32 height);
@@ -144,22 +176,30 @@ private:
     void createOutputImage(u32 width, u32 height);
     void ensureCellBuffer(FrameResources& frame, size_t bytes);
     void ensureGraphemeBuffer(FrameResources& frame, size_t bytes);
+    void ensureFontUploadBuffer(FrameResources& frame, size_t bytes);
 
     ImageResource createImage(u32 width, u32 height, u32 layers, VkFormat format, VkImageUsageFlags usage, bool arrayView = false);
     void destroyImage(ImageResource& image);
-    void uploadImage(const ImageResource& image, const void* data, size_t bytes);
     void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory) const;
     u32 findMemoryType(u32 allowed, VkMemoryPropertyFlags properties) const;
     void updateStaticDescriptors();
     void updateOutputDescriptors();
     void updateCellDescriptor(FrameResources& frame);
     void updateGraphemeDescriptor(FrameResources& frame);
+    void beginGlyphFrame();
+    void configureGlyphCache(GlyphCache& cache, u32 width, u32 layers, size_t byteBudget, u32 maxImageDimension);
+    u16 allocateGlyphSlot(GlyphCache& cache, u32 id);
+    void ensureGlyph(u32 id, FontStyle style, bool doubleWidth);
+    VkDeviceSize stageFontData(const void* data, size_t len, size_t expected);
+    void stageAtlasMap(GlyphCache& cache, stl::Vector<VkBufferImageCopy>& copies, u32 id, u16 slot);
+    void recordFontUploads(FrameResources& frame);
+    void recordImageUploads(VkCommandBuffer commandBuffer, VkBuffer stagingBuffer, const ImageResource& image, const stl::Vector<VkBufferImageCopy>& copies, bool initialize);
     void recordCommands(FrameResources& frame, u32 imageIndex, const CharVdev& charVdev, const Frame& sourceFrame, bool delta);
     void recordRepaintCommands(FrameResources& frame, u32 imageIndex);
     bool acquirePresentFrame(u32 width, u32 height, FrameResources*& frame, u32& imageIndex, bool& recreateAfterPresent);
     bool submitPresentFrame(u32 width, u32 height, FrameResources& frame, u32 imageIndex, bool recreateAfterPresent);
 
-    static std::vector<u8> makeAtlasMap(const Font& font);
+    static bool needsFontGlyph(u32 id);
     static u32 packColor(const Color& color);
     static bool sameSelection(const Rect& lhs, const Rect& rhs);
 };
