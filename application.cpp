@@ -88,7 +88,6 @@ namespace {
         ~ApplicationImpl();
 
         int run(int argc, char* argv[]) override;
-        bool present(const Frame& frame) override;
         void osc(int command, const std::string& argument) override;
         bool handlesOsc() const override;
         void bell() override;
@@ -105,6 +104,7 @@ namespace {
         Fontpack* fontpk = nullptr;
         Renderer* renderer = nullptr;
         Vterm* vt = nullptr;
+        Pty* terminalPty = nullptr;
         GLFWwindow* window = nullptr;
         GLFWcursor* cursor = nullptr;
         GLFWcursor* hyperlinkCursor = nullptr;
@@ -115,6 +115,7 @@ namespace {
         bool committedRepaintPending = false;
         bool terminalHostReady = false;
         bool attentionRequested = false;
+        bool ptyReceivedInput = false;
         std::optional<std::chrono::steady_clock::time_point> refreshDeadline;
         ClipboardStore clipboardStore;
 
@@ -145,7 +146,7 @@ namespace {
             u32 primary = 0;
             u32 base = 0;
             u16 modifiers = 0;
-            Vterm::KeyEventType event = Vterm::KeyEventType::Press;
+            VtermKeyEventType event = VtermKeyEventType::Press;
         } pendingKittyTextKey;
 
         std::exception_ptr callbackError;
@@ -193,6 +194,10 @@ namespace {
         std::string getSelectionForOsc(bool primary);
         void handleOsc(int command, const std::string& argument);
         void requestWindowAttention();
+        bool presentTerminal();
+        bool flushPtyOutput();
+        bool readPty();
+        bool servicePty(bool readable, bool writable);
 
         template <typename Fn>
         void guardCallback(Fn&& callback);
@@ -353,7 +358,7 @@ VtModifier ApplicationImpl::convertModifiers(int modifiers) {
     if ((modifiers & GLFW_MOD_ALT) && !keyPressed(GLFW_KEY_RIGHT_ALT)) {
         result = result | VtModifier::alt;
     }
-    if ((modifiers & GLFW_MOD_SUPER) && vt != nullptr && vt->getMetaMode()) {
+    if ((modifiers & GLFW_MOD_SUPER) && vt != nullptr && vt->state().metaMode) {
         // Xterm resolves Meta through the platform modifier mapping.  GLFW
         // exposes the closest portable Meta modifier as Super.
         result = result | VtModifier::alt;
@@ -424,7 +429,7 @@ void ApplicationImpl::flushPendingKittyTextKey() {
     }
     const auto pending = pendingKittyTextKey;
     pendingKittyTextKey.active = false;
-    vt->writeKittyKey(pending.primary, 0, pending.base, pending.modifiers, pending.event);
+    vt->kittyKey(pending.primary, 0, pending.base, pending.modifiers, pending.event);
 }
 
 bool ApplicationImpl::pasteSelection(bool primary) {
@@ -432,7 +437,7 @@ bool ApplicationImpl::pasteSelection(bool primary) {
     if (text.empty()) {
         return false;
     }
-    vt->pasteSelection(text);
+    vt->paste(StringView((const u8*)(text.data()), text.size()));
     return true;
 }
 
@@ -620,7 +625,7 @@ VtKey ApplicationImpl::specialKey(int key, int modifiers) {
 
 void ApplicationImpl::onKeyEvent(int key, int scancode, int action, int rawModifiers) {
     flushPendingKittyTextKey();
-    suppressRepeatedTextInput = action == GLFW_REPEAT && !vt->getPrivateMode(8);
+    suppressRepeatedTextInput = action == GLFW_REPEAT && !vt->state().autoRepeat;
     const int keyModifiers = rawModifiers;
     const int legacyModifiers = significantModifiers(rawModifiers);
     const VtModifier modifiers = convertModifiers(legacyModifiers);
@@ -671,7 +676,7 @@ void ApplicationImpl::onKeyEvent(int key, int scancode, int action, int rawModif
     }
     if (key == GLFW_KEY_SPACE && mouseContext.frontend.selectionOngoing()) {
         runLocal([&]() {
-            vt->selectRectangularModeToggle();
+            vt->selectionRectangular();
         });
         return;
     }
@@ -680,19 +685,19 @@ void ApplicationImpl::onKeyEvent(int key, int scancode, int action, int rawModif
         return;
     }
 
-    const u8 kittyFlags = vt->getKittyKeyboardFlags();
+    const u8 kittyFlags = vt->state().kittyKeyboardFlags;
     const u16 kittyMods = kittyModifiers(rawModifiers);
-    const auto event = action == GLFW_RELEASE ? Vterm::KeyEventType::Release : action == GLFW_REPEAT ? Vterm::KeyEventType::Repeat : Vterm::KeyEventType::Press;
+    const auto event = action == GLFW_RELEASE ? VtermKeyEventType::Release : action == GLFW_REPEAT ? VtermKeyEventType::Repeat : VtermKeyEventType::Press;
 
     if (kittyFlags) {
         if (key == GLFW_KEY_ESCAPE) {
-            vt->writeKittyKey(27, 0, 0, kittyMods, event);
+            vt->kittyKey(27, 0, 0, kittyMods, event);
             return;
         }
 
         const VtKey special = specialKey(key, keyModifiers);
         if (special != VtKey::NONE) {
-            vt->writeKittyKey(special, kittyMods, event);
+            vt->kittyKey(special, kittyMods, event);
             return;
         }
 
@@ -707,7 +712,7 @@ void ApplicationImpl::onKeyEvent(int key, int scancode, int action, int rawModif
                 pendingKittyTextKey = {true, primaryKey, baseKey, textMods, event};
                 return;
             } else {
-                vt->writeKittyKey(primaryKey, 0, baseKey, textMods, event);
+                vt->kittyKey(primaryKey, 0, baseKey, textMods, event);
             }
             if (pressed && (((textMods & (2 | 8)) && !(textMods & 4)) || (kittyFlags & 0x08))) {
                 ++suppressedTextInputs;
@@ -721,20 +726,20 @@ void ApplicationImpl::onKeyEvent(int key, int scancode, int action, int rawModif
     }
 
     if (key == GLFW_KEY_ESCAPE) {
-        vt->writePty((u8)('\x1b'), modifiers, true);
+        vt->character((u8)('\x1b'), modifiers);
         return;
     }
 
     const VtKey special = specialKey(key, keyModifiers);
     if (special != VtKey::NONE) {
-        vt->writePty(special, modifiers, true);
+        vt->key(special, modifiers);
         return;
     }
 
     if (legacyModifiers & GLFW_MOD_CONTROL) {
         u8 character = 0;
         if (controlCharacter(key, legacyModifiers & GLFW_MOD_SHIFT, character)) {
-            vt->writePty(character, modifiers, true);
+            vt->character(character, modifiers);
         }
     }
 }
@@ -747,7 +752,7 @@ void ApplicationImpl::onTextInput(u32 codepoint, int rawModifiers) {
         const auto pending = pendingKittyTextKey;
         pendingKittyTextKey.active = false;
         const u32 alternate = codepoint != pending.primary ? codepoint : 0;
-        vt->writeKittyKey(pending.primary, alternate, pending.base, pending.modifiers, pending.event);
+        vt->kittyKey(pending.primary, alternate, pending.base, pending.modifiers, pending.event);
         return;
     }
     if (suppressedTextInputs) {
@@ -760,7 +765,7 @@ void ApplicationImpl::onTextInput(u32 codepoint, int rawModifiers) {
     const VtModifier modifiers = convertModifiers(rawModifiers);
 
     if (codepoint < 0x80) {
-        vt->writePty((u8)(codepoint), modifiers, true);
+        vt->character((u8)(codepoint), modifiers);
         return;
     }
 
@@ -769,9 +774,9 @@ void ApplicationImpl::onTextInput(u32 codepoint, int rawModifiers) {
         text.push_back((char)(byte));
     });
     if ((rawModifiers & GLFW_MOD_ALT) && opts.altSendsEscape) {
-        vt->writePty("\x1b", true);
+        vt->sendBytes(StringView(u8"\x1b"), true);
     }
-    vt->writePty(text.c_str(), true);
+    vt->sendBytes(StringView((const u8*)(text.data()), text.size()), true);
 }
 
 double ApplicationImpl::pixelScaleX() {
@@ -817,7 +822,8 @@ void ApplicationImpl::mouseProtocolCoordinates(MouseTrackingEnc encoding, int pi
 void ApplicationImpl::mouseProtocolSend(MouseTrackingEnc encoding, MouseEventType type, int modifiers, int button, int column, int row) {
     const unsigned protocolModifiers = mouseProtocolModifiers(modifiers, !keyPressed(GLFW_KEY_RIGHT_ALT));
     const int motionButton = mouseContext.frontend.motionButton();
-    vt->writePty(encodeMouseProtocol(encoding, type, protocolModifiers, motionButton, button, column, row).c_str());
+    const std::string report = encodeMouseProtocol(encoding, type, protocolModifiers, motionButton, button, column, row);
+    vt->sendBytes(StringView((const u8*)(report.data()), report.size()), false);
 }
 
 void ApplicationImpl::sendMouseButtonProtocol(MouseEventType type, int button, int pixelX, int pixelY, int modifiers, const MouseTrackingState& tracking) {
@@ -860,14 +866,14 @@ void ApplicationImpl::onMouseButton(int button, bool pressed, int modifiers) {
     const int pixelX = toPixelX(x);
     const int pixelY = toPixelY(y);
     mouseContext.frontend.updateButton(button, pressed);
-    const auto& tracking = vt->getMouseTrackingState();
+    const MouseTrackingState tracking = vt->state().mouse;
     const int protocolButton = mouseTerminalButton(button);
     u16 locatorColumn = 1;
     u16 locatorRow = 1;
     mouseProtocolCoordinates(MouseTrackingEnc::Default, pixelX, pixelY, locatorColumn, locatorRow);
-    vt->setLocatorPosition(locatorColumn, locatorRow, std::max(1, pixelX + 1), std::max(1, pixelY + 1));
+    vt->locatorPosition(locatorColumn, locatorRow, std::max(1, pixelX + 1), std::max(1, pixelY + 1), 0);
     if (protocolButton >= 1 && protocolButton <= 4) {
-        vt->reportLocatorButton(protocolButton, pressed);
+        vt->locatorButton(protocolButton, pressed);
     }
 
     if (!pressed && button == GLFW_MOUSE_BUTTON_LEFT && mouseContext.hyperlinkClick) {
@@ -875,7 +881,8 @@ void ApplicationImpl::onMouseButton(int button, bool pressed, int modifiers) {
         return;
     }
     if (pressed && button == GLFW_MOUSE_BUTTON_LEFT && (modifiers & GLFW_MOD_CONTROL)) {
-        const std::string uri = vt->getHyperlink(pixelX, pixelY);
+        const StringView link = vt->hyperlinkAt(pixelX, pixelY);
+        const std::string uri((const char*)(link.data()), link.length());
         if (!uri.empty()) {
             mouseContext.hyperlinkClick = true;
             openHyperlink(uri);
@@ -891,19 +898,20 @@ void ApplicationImpl::onMouseButton(int button, bool pressed, int modifiers) {
     if (pressed) {
         const bool cycleSnapTo = isMultipleClick(button, x, y);
         if (button == GLFW_MOUSE_BUTTON_LEFT) {
-            vt->selectStart(pixelX, pixelY, cycleSnapTo);
+            vt->selectionStart(pixelX, pixelY, cycleSnapTo);
             mouseContext.frontend.beginSelection();
         } else if (button == GLFW_MOUSE_BUTTON_RIGHT) {
-            vt->selectExtend(pixelX, pixelY, cycleSnapTo);
+            vt->selectionExtend(pixelX, pixelY, cycleSnapTo);
             mouseContext.frontend.beginSelection();
         }
         return;
     }
 
     if (button == GLFW_MOUSE_BUTTON_LEFT || button == GLFW_MOUSE_BUTTON_RIGHT) {
-        std::string selection;
         mouseContext.frontend.endSelection();
-        if (vt->selectFinish(selection)) {
+        const VtermTextResult selected = vt->selectionFinish();
+        if (selected.status) {
+            const std::string selection((const char*)(selected.text.data()), selected.text.length());
             clipboardStore.setPrimary(selection, opts.autoCopyMode);
         }
     } else if (button == GLFW_MOUSE_BUTTON_MIDDLE) {
@@ -918,10 +926,10 @@ void ApplicationImpl::onMouseMotion(double x, double y) {
     u16 locatorColumn = 1;
     u16 locatorRow = 1;
     mouseProtocolCoordinates(MouseTrackingEnc::Default, pixelX, pixelY, locatorColumn, locatorRow);
-    vt->setLocatorPosition(locatorColumn, locatorRow, std::max(1, pixelX + 1), std::max(1, pixelY + 1));
-    const bool overHyperlink = (modifiers & GLFW_MOD_CONTROL) && !vt->getHyperlink(pixelX, pixelY).empty();
+    vt->locatorPosition(locatorColumn, locatorRow, std::max(1, pixelX + 1), std::max(1, pixelY + 1), 0);
+    const bool overHyperlink = (modifiers & GLFW_MOD_CONTROL) && !vt->hyperlinkAt(pixelX, pixelY).empty();
     glfwSetCursor(window, overHyperlink && hyperlinkCursor != nullptr ? hyperlinkCursor : cursor);
-    const auto& tracking = vt->getMouseTrackingState();
+    const MouseTrackingState tracking = vt->state().mouse;
     if (isMouseProtocol(modifiers, tracking)) {
         if (tracking.mode == MouseTrackingMode::VT200_ButtonEvent && !mouseContext.frontend.primaryButtonPressed()) {
             return;
@@ -937,13 +945,13 @@ void ApplicationImpl::onMouseMotion(double x, double y) {
             mouseProtocolSend(tracking.enc, MouseEventType::Motion, modifiers, 0, column, row);
         }
     } else if (mouseContext.frontend.buttons() & ((1u << GLFW_MOUSE_BUTTON_LEFT) | (1u << GLFW_MOUSE_BUTTON_RIGHT))) {
-        vt->selectUpdate(pixelX, pixelY);
+        vt->selectionUpdate(pixelX, pixelY);
     }
 }
 
 void ApplicationImpl::onMouseWheel(double wheelX, double wheelY) {
     const int modifiers = keyboardModifiers();
-    const auto& tracking = vt->getMouseTrackingState();
+    const MouseTrackingState tracking = vt->state().mouse;
     const bool reporting = isMouseProtocol(modifiers, tracking);
     const MouseWheelSteps steps = mouseContext.frontend.consumeWheel(wheelX, wheelY, reporting);
     if (reporting) {
@@ -968,9 +976,9 @@ void ApplicationImpl::onMouseWheel(double wheelX, double wheelY) {
         }
     } else {
         if (steps.y > 0) {
-            vt->mouseWheelUp(steps.y);
+            vt->scrollUp(steps.y);
         } else if (steps.y < 0) {
-            vt->mouseWheelDown(-steps.y);
+            vt->scrollDown(-steps.y);
         }
     }
 }
@@ -999,9 +1007,6 @@ void ApplicationImpl::handleOsc(int command, const std::string& argument) {
             }
             return;
         }
-        case 8:
-            vt->setHyperlink(argument);
-            return;
         case 133:
             return;
         case 52:
@@ -1033,20 +1038,89 @@ void ApplicationImpl::handleOsc(int command, const std::string& argument) {
                  << std::endl;
         }
         const std::string reply = encodeOsc52QueryReply(request, opts.allowOsc52Read, primary, clipboard);
-        vt->writePty(reply.c_str());
+        vt->sendBytes(StringView((const u8*)(reply.data()), reply.size()), false);
         return;
     }
 
     clipboardStore.apply(request);
 }
 
-bool ApplicationImpl::present(const Frame& frame) {
-    refreshPending = true;
-    if (!refreshAllowed || !renderer->update(frame)) {
+bool ApplicationImpl::presentTerminal() {
+    while (true) {
+        const VtermOutput output = vt->output();
+        if (output.terminal == nullptr) {
+            refreshPending = false;
+            return true;
+        }
+        refreshPending = true;
+        if (!refreshAllowed || !renderer->update(*output.terminal)) {
+            return false;
+        }
+        vt->consume(VtermConsume{0, true});
+    }
+}
+
+bool ApplicationImpl::flushPtyOutput() {
+    while (true) {
+        const VtermOutput output = vt->output();
+        if (output.pty.empty()) {
+            return true;
+        }
+        const ssize_t count = terminalPty->write(output.pty.data(), output.pty.length());
+        if (count > 0) {
+            vt->consume({(size_t)(count), false});
+            continue;
+        }
+        if (count < 0 && errno == EINTR) {
+            continue;
+        }
+        if (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+            SYS_WARN("pty write");
+        }
         return false;
     }
-    refreshPending = false;
-    return true;
+}
+
+bool ApplicationImpl::readPty() {
+    constexpr size_t maxDrainBytes = 20 * 1024 * 1024;
+    u8 buffer[8192];
+    size_t drained = 0;
+    bool finished = false;
+    while (drained < maxDrainBytes) {
+        const ssize_t count = terminalPty->read(buffer, sizeof(buffer));
+        if (count > 0) {
+            if (!ptyReceivedInput) {
+                const VtermState terminalState = vt->state();
+                terminalPty->resize(terminalState.columns, terminalState.rows);
+                ptyReceivedInput = true;
+            }
+            vt->feedPty(StringView(buffer, count));
+            drained += (size_t)(count);
+            continue;
+        }
+        if (count == 0 || (count < 0 && errno == EIO)) {
+            finished = true;
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            break;
+        }
+        SYS_WARN("pty read");
+        finished = true;
+        break;
+    }
+    flushPtyOutput();
+    return finished;
+}
+
+bool ApplicationImpl::servicePty(bool readable, bool writable) {
+    if (writable) {
+        flushPtyOutput();
+    }
+    return readable && readPty();
 }
 
 void ApplicationImpl::osc(int command, const std::string& argument) {
@@ -1268,7 +1342,7 @@ void ApplicationImpl::onWindowFocus(GLFWwindow*, int focused) {
             pendingKittyTextKey.active = false;
             std::fill_n(locallyConsumedKeys, GLFW_KEY_LAST + 1, false);
         }
-        vt->setHasFocus(focused == GLFW_TRUE);
+        vt->focus(focused == GLFW_TRUE);
     });
 }
 
@@ -1362,9 +1436,10 @@ bool ApplicationImpl::eventLoop(PtyEventSource& ptySource) {
     constexpr auto resizeGrace = std::chrono::milliseconds(10);
     constexpr auto retryDelay = std::chrono::milliseconds(10);
     while (!glfwWindowShouldClose(window)) {
-        ptySource.setWriteInterest(vt->hasPendingPtyOutput());
+        ptySource.setWriteInterest(!vt->output().pty.empty());
         refreshAllowed = false;
-        double timeout = (vt->synchronizedOutputActive() || vt->animationActive()) ? 0.05 : -1.0;
+        const VtermState initialState = vt->state();
+        double timeout = (initialState.synchronizedOutput || initialState.animation) ? 0.05 : -1.0;
         if (refreshPending || committedRepaintPending) {
             const auto now = Clock::now();
             const double refreshTimeout = refreshDeadline ? std::max(0.0, std::chrono::duration<double>(*refreshDeadline - now).count()) : 0.0;
@@ -1384,9 +1459,10 @@ bool ApplicationImpl::eventLoop(PtyEventSource& ptySource) {
         if (glfwWindowShouldClose(window)) {
             return true;
         }
-        vt->expireSynchronizedOutput();
-        if (vt->advanceAnimation()) {
-            windowContext.redrawPending = true;
+        flushPtyOutput();
+        vt->expireSynchronizedOutput(false);
+        if (vt->advanceAnimation(false)) {
+            vt->expose();
         }
         bool resized = false;
         if (windowContext.resizePending) {
@@ -1395,21 +1471,22 @@ bool ApplicationImpl::eventLoop(PtyEventSource& ptySource) {
             windowContext.resizePending = false;
             windowContext.redrawPending = false;
             vt->resize(width, height);
-            vt->redraw();
-            committedRepaintPending = vt->synchronizedOutputActive();
+            const VtermState resizedState = vt->state();
+            terminalPty->resize(resizedState.columns, resizedState.rows);
+            committedRepaintPending = resizedState.synchronizedOutput;
             resized = true;
             refreshDeadline = Clock::now() + resizeGrace;
         } else if (windowContext.redrawPending) {
             windowContext.redrawPending = false;
-            if (vt->synchronizedOutputActive()) {
+            if (vt->state().synchronizedOutput) {
                 committedRepaintPending = true;
             } else {
-                vt->redraw();
+                vt->expose();
             }
         }
         const short ptyEvents = ptySource.events();
         const bool readPtyInput = (ptyEvents & (POLLIN | POLLHUP | POLLERR)) && !mouseContext.frontend.selectionOngoing();
-        const bool finished = vt->servicePty(readPtyInput, ptyEvents & POLLOUT);
+        const bool finished = servicePty(readPtyInput, ptyEvents & POLLOUT);
         if (readPtyInput) {
             ptySource.acknowledge();
             if (finished) {
@@ -1418,7 +1495,9 @@ bool ApplicationImpl::eventLoop(PtyEventSource& ptySource) {
         } else if (ptyEvents && !(ptyEvents & (POLLIN | POLLHUP | POLLERR))) {
             ptySource.acknowledge();
         }
-        ptySource.setWriteInterest(vt->hasPendingPtyOutput());
+        flushPtyOutput();
+        ptySource.setWriteInterest(!vt->output().pty.empty());
+        presentTerminal();
 
         // A child responding to SIGWINCH is part of the same visual
         // update. Give it a short opportunity to redraw, then fall back
@@ -1427,7 +1506,7 @@ bool ApplicationImpl::eventLoop(PtyEventSource& ptySource) {
             refreshDeadline.reset();
         }
         const auto now = Clock::now();
-        if (!vt->synchronizedOutputActive()) {
+        if (!vt->state().synchronizedOutput) {
             committedRepaintPending = false;
         }
         if (committedRepaintPending && (!refreshDeadline || now >= *refreshDeadline)) {
@@ -1440,7 +1519,7 @@ bool ApplicationImpl::eventLoop(PtyEventSource& ptySource) {
         }
         if (refreshPending && (!refreshDeadline || now >= *refreshDeadline)) {
             refreshAllowed = true;
-            vt->redraw();
+            presentTerminal();
             refreshAllowed = false;
             if (refreshPending) {
                 refreshDeadline = now + retryDelay;
@@ -1516,7 +1595,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
 
     setupSignals();
     const int ptyFd = startShell(launch.executable.c_str(), shellArgv.data());
-    Pty* terminalPty = Pty::adopt(composer, ptyFd);
+    terminalPty = Pty::adopt(composer, ptyFd);
     composer.pty = terminalPty;
 
     glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_WAYLAND);
@@ -1588,13 +1667,13 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             throw std::runtime_error("Cannot start printer command");
         }
     }
-    vt = Vterm::create(composer, *this, *terminalPty, fontpk->getPx(), fontpk->getPy(), pixelWidth, pixelHeight);
+    vt = Vterm::create(composer, *this, nullptr, fontpk->getPx(), fontpk->getPy(), pixelWidth, pixelHeight);
     composer.vterm = vt;
     terminalHostReady = true;
     setupCallbacks();
-    vt->setHasFocus(glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_TRUE);
+    vt->focus(glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_TRUE);
     vt->resize(pixelWidth, pixelHeight);
-    vt->redraw();
+    presentTerminal();
 
     PtyEventSource* ptySource = PtyEventSource::create(composer, *terminalPty, *this);
     composer.ptyEvents = ptySource;
@@ -1608,6 +1687,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         printerPipe = nullptr;
     }
     composer.pty = nullptr;
+    terminalPty = nullptr;
     renderer = nullptr;
     composer.renderer = nullptr;
     fontpk = nullptr;

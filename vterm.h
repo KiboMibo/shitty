@@ -8,16 +8,14 @@
 
 #include "terminal_types.h"
 
+#include <std/str/view.h>
 #include <std/sys/types.h>
 
 #include <cstddef>
 #include <cstdint>
-#include <functional>
-#include <string>
-#include <sys/types.h>
 
 struct Composer;
-struct Pty;
+struct CellExtraStore;
 struct VtermHost;
 struct VtermTrace;
 
@@ -172,68 +170,97 @@ struct RectangleOrigin {
     u16 columnLimit;
 };
 
+enum class VtermKeyEventType : u8 {
+    Press = 1,
+    Repeat = 2,
+    Release = 3
+};
+
+struct VtermTextResult {
+    stl::StringView text;
+    bool status = false;
+};
+
+struct VtermState {
+    MouseTrackingState mouse;
+    u16 columns = 0;
+    u16 rows = 0;
+    u8 kittyKeyboardFlags = 0;
+    bool metaMode = false;
+    bool autoRepeat = false;
+    bool synchronizedOutput = false;
+    bool animation = false;
+};
+
+struct TerminalUpdate {
+    const RenderCell* cells = nullptr;
+    size_t cellCount = 0;
+    CellExtraStore* cellExtras = nullptr;
+    u16 columns = 0;
+    u16 rows = 0;
+    u16 pixelWidth = 0;
+    u16 pixelHeight = 0;
+    u16 viewOffset = 0;
+    u16 historyRows = 0;
+    TerminalCursor cursor;
+    Rect selection;
+    Rect snappedSelection;
+    Color selectionForeground;
+    Color selectionBackground;
+    u8 selectionColorMask = 0;
+    bool incremental = false;
+    bool screenReverse = false;
+    bool blinkVisible = true;
+    bool cursorBlink = false;
+};
+
+struct VtermOutput {
+    stl::StringView pty;
+    const TerminalUpdate* terminal = nullptr;
+};
+
+struct VtermConsume {
+    size_t ptyBytes = 0;
+    bool terminal = false;
+};
+
 struct Vterm {
-    enum class KeyEventType : u8 {
-        Press = 1,
-        Repeat = 2,
-        Release = 3
-    };
+    struct TestApi;
 
-    virtual bool getScreenReverseVideo() const = 0;
-    virtual u8 getLedState() const = 0;
-    virtual bool getReverseWrapMode() const = 0;
-    virtual bool getNationalReplacementMode() const = 0;
-    virtual bool getMetaMode() const = 0;
-    virtual bool getAnsiMode(u32 mode) const = 0;
-    virtual bool getPrivateMode(u32 mode) const = 0;
-    virtual TerminalCursor::Style getCursorStyle() const = 0;
-    virtual TerminalPen getPenState() const = 0;
-    virtual RectangleOrigin getRectangleOrigin() const = 0;
+    virtual void feedPty(stl::StringView bytes) = 0;
+    virtual void expose() = 0;
+    virtual void resize(u16 width, u16 height) = 0;
+    virtual void focus(bool focused) = 0;
 
-    virtual void resize(u16 winPx, u16 winPy) = 0;
-    virtual void redraw() = 0;
-    virtual bool synchronizedOutputActive() const = 0;
-    virtual bool expireSynchronizedOutput(bool force = false) = 0;
-    virtual bool animationActive() const = 0;
-    virtual bool advanceAnimation(bool force = false) = 0;
+    virtual void key(VtKey key, VtModifier modifiers) = 0;
+    virtual void character(u8 byte, VtModifier modifiers) = 0;
+    virtual void sendBytes(stl::StringView bytes, bool userInput) = 0;
+    virtual void kittyKey(VtKey key, u16 modifiers, VtermKeyEventType event) = 0;
+    virtual void kittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event) = 0;
 
-    virtual int writePty(VtKey key, VtModifier modifiers = VtModifier::none, bool userInput = false) = 0;
-    virtual int writePty(u8 ch, VtModifier modifiers = VtModifier::none, bool userInput = false) = 0;
-    virtual int writePty(const char* cstr, bool userInput = false) = 0;
-    virtual int writePty(const u8* data, size_t size, bool userInput = false) = 0;
-    virtual bool flushPtyOutput() = 0;
-    virtual bool hasPendingPtyOutput() const = 0;
-    virtual size_t pendingPtyOutputBytes() const = 0;
-    virtual int writeKittyKey(VtKey key, u16 modifiers, KeyEventType event) = 0;
-    virtual int writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, KeyEventType event) = 0;
-    virtual u8 getKittyKeyboardFlags() const = 0;
-
-    virtual bool readPty() = 0;
-    virtual bool servicePty(bool readable, bool writable) = 0;
-    virtual void feedPtyOutput(const u8* data, size_t size) = 0;
-    virtual void setParserTrace(VtermTrace* trace) = 0;
-
-    virtual const MouseTrackingState& getMouseTrackingState() const = 0;
     virtual bool mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY) = 0;
-    virtual void setLocatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons = 0) = 0;
-    virtual void reportLocatorButton(u8 button, bool pressed) = 0;
-
-    virtual void setHasFocus(bool focused) = 0;
-    virtual void setHyperlink(const std::string& parametersAndUri) = 0;
-    virtual std::string getHyperlink(int pixelX, int pixelY) const = 0;
-    virtual size_t getHyperlinkCount() const = 0;
-    virtual void mouseWheelUp(u16 count = 1) = 0;
-    virtual void mouseWheelDown(u16 count = 1) = 0;
+    virtual void locatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons) = 0;
+    virtual void locatorButton(u8 button, bool pressed) = 0;
+    virtual void scrollUp(u16 count) = 0;
+    virtual void scrollDown(u16 count) = 0;
     virtual void pageUp() = 0;
     virtual void pageDown() = 0;
 
-    virtual void selectStart(int pixelX, int pixelY, bool cycleSnapTo) = 0;
-    virtual void selectExtend(int pixelX, int pixelY, bool cycleSnapTo) = 0;
-    virtual void selectUpdate(int pixelX, int pixelY) = 0;
-    virtual bool selectFinish(std::string& selection) = 0;
-    virtual void selectClear() = 0;
-    virtual void selectRectangularModeToggle() = 0;
-    virtual void pasteSelection(const std::string& selection) = 0;
+    virtual void selectionStart(int pixelX, int pixelY, bool cycleSnapTo) = 0;
+    virtual void selectionExtend(int pixelX, int pixelY, bool cycleSnapTo) = 0;
+    virtual void selectionUpdate(int pixelX, int pixelY) = 0;
+    virtual VtermTextResult selectionFinish() = 0;
+    virtual void selectionClear() = 0;
+    virtual void selectionRectangular() = 0;
+    virtual void paste(stl::StringView text) = 0;
+    virtual stl::StringView hyperlinkAt(int pixelX, int pixelY) = 0;
 
-    static Vterm* create(Composer& composer, VtermHost& host, Pty& pty, u16 glyphPx, u16 glyphPy, u16 winPx, u16 winPy);
+    virtual bool expireSynchronizedOutput(bool force) = 0;
+    virtual bool advanceAnimation(bool force) = 0;
+    virtual VtermOutput output() = 0;
+    virtual void consume(const VtermConsume& consumed) = 0;
+    virtual VtermState state() const = 0;
+    virtual TestApi* testApi() = 0;
+
+    static Vterm* create(Composer& composer, VtermHost& host, VtermTrace* trace, u16 glyphPx, u16 glyphPy, u16 winPx, u16 winPy);
 };

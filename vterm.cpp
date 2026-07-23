@@ -18,6 +18,10 @@
 #include "vterm.h"
 #include "vterm_trace.h"
 
+#ifdef SHITTY_FOR_TESTS
+    #include "vterm_test.h"
+#endif
+
 #include "base64.h"
 #include "cell_extra_store.h"
 #include "color_spec.h"
@@ -26,11 +30,11 @@
 #include "grapheme.h"
 #include "log.h"
 #include "options.h"
-#include "pty.h"
 #include "utf8.h"
 #include "vterm_host.h"
 
 #include <std/mem/obj_pool.h>
+#include <std/lib/vector.h>
 #include <std/sys/types.h>
 #include <std/ios/out.h>
 #include <std/ios/output.h>
@@ -131,28 +135,47 @@ namespace {
     };
 
     struct VtermImpl final: public Vterm {
-        VtermImpl(Composer& composer, VtermHost& host, Pty& pty, Output* dump, u16 glyphPx, u16 glyphPy, u16 winPx, u16 winPy);
+        VtermImpl(Composer& composer, VtermHost& host, VtermTrace* trace, Output* dump, u16 glyphPx, u16 glyphPy, u16 winPx, u16 winPy);
 
         ~VtermImpl();
 
-        bool getScreenReverseVideo() const;
-        u8 getLedState() const;
-        bool getReverseWrapMode() const;
-        bool getNationalReplacementMode() const;
-        bool getMetaMode() const;
-        bool getAnsiMode(u32 mode) const;
-        bool getPrivateMode(u32 mode) const;
-        TerminalCursor::Style getCursorStyle() const;
-        TerminalPen getPenState() const;
-        RectangleOrigin getRectangleOrigin() const;
+        void feedPty(StringView bytes) override;
+        void expose() override;
+        void resize(u16 width, u16 height) override;
+        void focus(bool focused) override;
+        void key(VtKey key, VtModifier modifiers) override;
+        void character(u8 byte, VtModifier modifiers) override;
+        void sendBytes(StringView bytes, bool userInput) override;
+        void kittyKey(VtKey key, u16 modifiers, VtermKeyEventType event) override;
+        void kittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event) override;
+        bool mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY) override;
+        void locatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons) override;
+        void locatorButton(u8 button, bool pressed) override;
+        void scrollUp(u16 count) override;
+        void scrollDown(u16 count) override;
+        void pageUp() override;
+        void pageDown() override;
+        void selectionStart(int pixelX, int pixelY, bool cycleSnapTo) override;
+        void selectionExtend(int pixelX, int pixelY, bool cycleSnapTo) override;
+        void selectionUpdate(int pixelX, int pixelY) override;
+        VtermTextResult selectionFinish() override;
+        void selectionClear() override;
+        void selectionRectangular() override;
+        void paste(StringView text) override;
+        StringView hyperlinkAt(int pixelX, int pixelY) override;
+        bool expireSynchronizedOutput(bool force) override;
+        bool advanceAnimation(bool force) override;
+        VtermOutput output() override;
+        void consume(const VtermConsume& consumed) override;
+        VtermState state() const override;
+        TestApi* testApi() override;
 
-        void resize(u16 winPx, u16 winPy);
+        bool getPrivateMode(u32 mode) const;
+
+        void resizeGrid(u16 winPx, u16 winPy);
 
         void redraw();
-        bool synchronizedOutputActive() const;
-        bool expireSynchronizedOutput(bool force = false);
         bool animationActive() const;
-        bool advanceAnimation(bool force = false);
 
         struct InputSpec {
             VtKey key;
@@ -167,32 +190,18 @@ namespace {
         int writePty(const char* cstr, bool userInput = false);
         int writePty(const char* data, size_t size, bool userInput);
         int writePty(const u8* ucstr, size_t len, bool userInput = false);
-        bool flushPtyOutput();
-        bool hasPendingPtyOutput() const;
-        size_t pendingPtyOutputBytes() const;
-        int writeKittyKey(VtKey key, u16 modifiers, KeyEventType event);
-        int writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, KeyEventType event);
+        int writeKittyKey(VtKey key, u16 modifiers, VtermKeyEventType event);
+        int writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event);
         u8 getKittyKeyboardFlags() const;
 
-        bool readPty();
-        bool servicePty(bool readable, bool writable);
-        void feedPtyOutput(const u8* data, size_t size);
-        void setParserTrace(VtermTrace* trace);
-
-        const MouseTrackingState& getMouseTrackingState() const;
-        bool mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY);
         void setLocatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons = 0);
         void reportLocatorButton(u8 button, bool pressed);
 
         void setHasFocus(bool);
         void setHyperlink(const std::string& parametersAndUri);
         std::string getHyperlink(int pX, int pY) const;
-        size_t getHyperlinkCount() const;
         void mouseWheelUp(u16 count = 1);
         void mouseWheelDown(u16 count = 1);
-        void pageUp();
-        void pageDown();
-
         void selectStart(int pX, int pY, bool cycleSnapTo);
         void selectExtend(int pX, int pY, bool cycleSnapTo);
         void selectUpdate(int pX, int pY);
@@ -226,6 +235,8 @@ namespace {
         PresentationState capturePresentationState() const;
         bool presentationChanged(const PresentationState& before) const;
         void syncPresentationCursor();
+        void fillTerminalUpdate(TerminalUpdate& update, Frame& frame, const RenderCell* cells, size_t count, bool incremental);
+        void queueTerminalUpdate();
 
         void writeCsiResponse(const std::string& payload);
         void writeDcsResponse(const std::string& payload);
@@ -479,18 +490,36 @@ namespace {
 
         Composer& composer;
         VtermHost& host;
-        Pty& pty;
         Output* dump;
-        VtermTrace* parserTrace = nullptr;
+        VtermTrace* const parserTrace;
         u16 winPx;
         u16 winPy;
         u16 nCols;
         u16 nRows;
         u16 glyphPx;
         u16 glyphPy;
-        bool ptyReceivedInput = false;
         std::u8string ptyOutput;
         size_t ptyOutputOffset = 0;
+        stl::Vector<RenderCell> outputCells;
+        TerminalUpdate terminalUpdate;
+
+        struct QueuedTerminalUpdate {
+            QueuedTerminalUpdate* next = nullptr;
+            stl::Vector<RenderCell> cells;
+            TerminalUpdate update;
+            Frame* frame = nullptr;
+        };
+
+        QueuedTerminalUpdate* queuedUpdateHead = nullptr;
+        QueuedTerminalUpdate* queuedUpdateTail = nullptr;
+        std::string inputResult;
+        bool outputPending = false;
+        bool outputInitialized = false;
+        Frame* presentedFrame = nullptr;
+        Frame* updateFrame = nullptr;
+        bool updateIsQueued = false;
+        u16 presentedColumns = 0;
+        u16 presentedRows = 0;
 
         stl::Vector<u32*> extraFixups;
         u32 processInputDepth = 0;
@@ -789,6 +818,19 @@ namespace {
 #endif
     };
 
+#ifdef SHITTY_FOR_TESTS
+    struct TestApiImpl final: public Vterm::TestApi {
+        explicit TestApiImpl(VtermImpl* vterm);
+
+        VtermTestState inspect() const override;
+        bool ansiMode(u32 mode) const override;
+        bool privateMode(u32 mode) const override;
+        VtermTestCell cell(u16 row, u16 column) const override;
+
+        VtermImpl* vterm;
+    };
+#endif
+
     void GraphemeBuffer::clear() {
         size_ = 0;
     }
@@ -818,50 +860,421 @@ namespace {
     }
 }
 
-VtermImpl::~VtermImpl() = default;
-
-bool VtermImpl::getScreenReverseVideo() const {
-    return screenReverseVideo;
+VtermImpl::~VtermImpl() {
+    while (queuedUpdateHead != nullptr) {
+        QueuedTerminalUpdate* const next = queuedUpdateHead->next;
+        delete queuedUpdateHead;
+        queuedUpdateHead = next;
+    }
 }
 
-u8 VtermImpl::getLedState() const {
-    return ledState;
+void VtermImpl::feedPty(StringView bytes) {
+    if (bytes.empty()) {
+        return;
+    }
+    logT << "pty read: " << dumpBuffer(bytes.begin(), bytes.end());
+    if (dump != nullptr) {
+        dump->write(bytes.data(), bytes.length());
+    }
+    processInput(bytes.data(), (int)(bytes.length()));
 }
 
-bool VtermImpl::getReverseWrapMode() const {
-    return reverseWrapMode;
+void VtermImpl::expose() {
+    redraw();
 }
 
-bool VtermImpl::getNationalReplacementMode() const {
-    return nationalReplacementMode;
+void VtermImpl::resize(u16 width, u16 height) {
+    resizeGrid(width, height);
+    redraw();
 }
 
-bool VtermImpl::getMetaMode() const {
-    return eightBitInput;
+void VtermImpl::focus(bool focused) {
+    setHasFocus(focused);
 }
 
-TerminalCursor::Style VtermImpl::getCursorStyle() const {
-    return cursorShape;
+void VtermImpl::key(VtKey key_, VtModifier modifiers_) {
+    writePty(key_, modifiers_, true);
 }
 
-bool VtermImpl::getAnsiMode(u32 mode) const {
+void VtermImpl::character(u8 byte, VtModifier modifiers_) {
+    writePty(byte, modifiers_, true);
+}
+
+void VtermImpl::sendBytes(StringView bytes, bool userInput) {
+    writePty(bytes.data(), bytes.length(), userInput);
+}
+
+void VtermImpl::kittyKey(VtKey key_, u16 modifiers_, VtermKeyEventType event) {
+    writeKittyKey(key_, modifiers_, event);
+}
+
+void VtermImpl::kittyKey(u32 key_, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers_, VtermKeyEventType event) {
+    writeKittyKey(key_, shiftedKey, baseLayoutKey, modifiers_, event);
+}
+
+void VtermImpl::locatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons) {
+    setLocatorPosition(column, row, pixelX, pixelY, buttons);
+}
+
+void VtermImpl::locatorButton(u8 button, bool pressed) {
+    reportLocatorButton(button, pressed);
+}
+
+void VtermImpl::scrollUp(u16 count) {
+    mouseWheelUp(count);
+}
+
+void VtermImpl::scrollDown(u16 count) {
+    mouseWheelDown(count);
+}
+
+void VtermImpl::selectionStart(int pixelX, int pixelY, bool cycleSnapTo) {
+    selectStart(pixelX, pixelY, cycleSnapTo);
+}
+
+void VtermImpl::selectionExtend(int pixelX, int pixelY, bool cycleSnapTo) {
+    selectExtend(pixelX, pixelY, cycleSnapTo);
+}
+
+void VtermImpl::selectionUpdate(int pixelX, int pixelY) {
+    selectUpdate(pixelX, pixelY);
+}
+
+VtermTextResult VtermImpl::selectionFinish() {
+    inputResult.clear();
+    const bool selected = selectFinish(inputResult);
+    return {StringView((const u8*)(inputResult.data()), inputResult.size()), selected};
+}
+
+void VtermImpl::selectionClear() {
+    selectClear();
+}
+
+void VtermImpl::selectionRectangular() {
+    selectRectangularModeToggle();
+}
+
+void VtermImpl::paste(StringView text) {
+    pasteSelection(std::string((const char*)(text.data()), text.length()));
+}
+
+StringView VtermImpl::hyperlinkAt(int pixelX, int pixelY) {
+    inputResult = getHyperlink(pixelX, pixelY);
+    return StringView((const u8*)(inputResult.data()), inputResult.size());
+}
+
+void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, Frame& frame, const RenderCell* cells, size_t count, bool incremental) {
+    update = {};
+    update.cells = cells;
+    update.cellCount = count;
+    update.cellExtras = frame.cellExtras();
+    update.columns = frame.nCols;
+    update.rows = frame.nRows;
+    update.pixelWidth = frame.winPx;
+    update.pixelHeight = frame.winPy;
+    update.viewOffset = frame.getViewOffset();
+    update.historyRows = frame.getHistoryRows();
+    update.cursor = frame.getCursor();
+    update.selection = frame.getSelectionForView();
+    update.snappedSelection = frame.getSnappedSelection();
+    update.selectionForeground = frame.getSelectionForeground();
+    update.selectionBackground = frame.getSelectionBackground();
+    update.selectionColorMask = frame.getSelectionColorMask();
+    update.incremental = incremental;
+    update.screenReverse = frame.getScreenReverseVideo();
+    update.blinkVisible = frame.getBlinkVisible();
+    update.cursorBlink = frame.getCursorBlink();
+}
+
+void VtermImpl::queueTerminalUpdate() {
+    Frame* const frame = cf;
+    const size_t count = (size_t)(frame->nCols) * frame->nRows;
+    auto* queued = new QueuedTerminalUpdate;
+    try {
+        queued->cells.grow(count);
+        const RenderCell empty;
+        for (size_t index = 0; index < count; ++index) {
+            queued->cells.pushBack(empty);
+        }
+        frame->fullCopyCells(queued->cells.mutData());
+        queued->frame = frame;
+        fillTerminalUpdate(queued->update, *frame, queued->cells.data(), count, false);
+    } catch (...) {
+        delete queued;
+        throw;
+    }
+
+    if (queuedUpdateTail == nullptr) {
+        queuedUpdateHead = queued;
+    } else {
+        queuedUpdateTail->next = queued;
+    }
+    queuedUpdateTail = queued;
+
+    // The queued full snapshot now owns this damage. Mutations after the
+    // snapshot start a fresh delta for the eventual final frame.
+    frame->resetDamage();
+}
+
+VtermOutput VtermImpl::output() {
+    VtermOutput result;
+    if (ptyOutputOffset < ptyOutput.size()) {
+        result.pty = StringView(ptyOutput.data() + ptyOutputOffset, ptyOutput.size() - ptyOutputOffset);
+    }
+    if (queuedUpdateHead != nullptr) {
+        updateFrame = queuedUpdateHead->frame;
+        updateIsQueued = true;
+        result.terminal = &queuedUpdateHead->update;
+        return result;
+    }
+    if (!outputPending) {
+        return result;
+    }
+
+    Frame* const frame = cf;
+    const size_t count = (size_t)(frame->nCols) * frame->nRows;
+    const bool shapeChanged = outputCells.length() != count || presentedFrame != frame || presentedColumns != frame->nCols || presentedRows != frame->nRows;
+    if (outputCells.length() != count) {
+        outputCells.clear();
+        outputCells.grow(count);
+        const RenderCell empty;
+        for (size_t index = 0; index < count; ++index) {
+            outputCells.pushBack(empty);
+        }
+    }
+    const bool incremental = outputInitialized && !shapeChanged;
+    if (incremental) {
+        frame->deltaCopyCells(outputCells.mutData());
+    } else {
+        frame->fullCopyCells(outputCells.mutData());
+    }
+
+    updateFrame = frame;
+    updateIsQueued = false;
+    fillTerminalUpdate(terminalUpdate, *frame, outputCells.data(), outputCells.length(), incremental);
+    result.terminal = &terminalUpdate;
+    return result;
+}
+
+void VtermImpl::consume(const VtermConsume& consumed) {
+    const size_t pending = ptyOutput.size() - ptyOutputOffset;
+    assert(consumed.ptyBytes <= pending);
+    ptyOutputOffset += consumed.ptyBytes;
+    if (ptyOutputOffset == ptyOutput.size()) {
+        ptyOutput.clear();
+        ptyOutputOffset = 0;
+    }
+    if (!consumed.terminal) {
+        return;
+    }
+    assert(updateFrame != nullptr);
+    if (updateIsQueued) {
+        QueuedTerminalUpdate* const consumedUpdate = queuedUpdateHead;
+        assert(consumedUpdate != nullptr);
+        assert(updateFrame == consumedUpdate->frame);
+
+        outputCells.xchg(consumedUpdate->cells);
+        for (RenderCell* cell = outputCells.mutBegin(); cell != outputCells.mutEnd(); ++cell) {
+            cell->dirty = false;
+        }
+        presentedFrame = consumedUpdate->frame;
+        presentedColumns = consumedUpdate->update.columns;
+        presentedRows = consumedUpdate->update.rows;
+        queuedUpdateHead = consumedUpdate->next;
+        if (queuedUpdateHead == nullptr) {
+            queuedUpdateTail = nullptr;
+        }
+        delete consumedUpdate;
+
+        updateFrame = nullptr;
+        updateIsQueued = false;
+        outputInitialized = true;
+        presentedSinceGcSafePoint = true;
+        if (queuedUpdateHead == nullptr && !outputPending) {
+            collectCellExtrasIfNeeded();
+        }
+        return;
+    }
+    for (RenderCell* cell = outputCells.mutBegin(); cell != outputCells.mutEnd(); ++cell) {
+        cell->dirty = false;
+    }
+    if (updateFrame != nullptr) {
+        updateFrame->resetDamage();
+    }
+    presentedFrame = updateFrame;
+    presentedColumns = terminalUpdate.columns;
+    presentedRows = terminalUpdate.rows;
+    updateFrame = nullptr;
+    outputPending = false;
+    outputInitialized = true;
+    presentedSinceGcSafePoint = true;
+    collectCellExtrasIfNeeded();
+}
+
+VtermState VtermImpl::state() const {
+    VtermState result;
+    result.mouse = mouseTrk;
+    result.columns = nCols;
+    result.rows = nRows;
+    result.kittyKeyboardFlags = getKittyKeyboardFlags();
+    result.metaMode = eightBitInput;
+    result.autoRepeat = autoRepeatMode;
+    result.synchronizedOutput = synchronizedOutputMode;
+    result.animation = haveBlinkingText || cursorBlinkMode;
+    return result;
+}
+
+Vterm::TestApi* VtermImpl::testApi() {
+#ifdef SHITTY_FOR_TESTS
+    return composer.pool->make<TestApiImpl>(this);
+#else
+    return nullptr;
+#endif
+}
+
+#ifdef SHITTY_FOR_TESTS
+TestApiImpl::TestApiImpl(VtermImpl* vterm_)
+    : vterm(vterm_)
+{
+}
+
+VtermTestState TestApiImpl::inspect() const {
+    VtermTestState result;
+    result.screenReverseVideo = vterm->screenReverseVideo;
+    result.ledState = vterm->ledState;
+    result.reverseWrapMode = vterm->reverseWrapMode;
+    result.nationalReplacementMode = vterm->nationalReplacementMode;
+    result.cursorStyle = vterm->cursorShape;
+    result.pen.cell = vterm->attrs;
+    result.pen.fg = vterm->colors.resolve(vterm->attrs.foreground());
+    result.pen.bg = vterm->colors.resolve(vterm->attrs.background());
+    if (vterm->originMode == VtermImpl::OriginMode::ScrollingRegion) {
+        result.rectangleOrigin = {vterm->marginTop, vterm->hMargin, vterm->marginBottom, vterm->nColsEff};
+    } else {
+        result.rectangleOrigin = {0, 0, vterm->nRows, vterm->nCols};
+    }
+    result.hyperlinkCount = vterm->composer.cellExtras->hyperlinkCount();
+    return result;
+}
+
+bool TestApiImpl::ansiMode(u32 mode) const {
     switch (mode) {
         case 4:
-            return insertMode;
+            return vterm->insertMode;
         case 6:
-            return eraseModeAll;
+            return vterm->eraseModeAll;
         case 12:
-            return !localEcho;
+            return !vterm->localEcho;
         case 20:
-            return autoNewlineMode;
+            return vterm->autoNewlineMode;
         default:
             return false;
     }
 }
 
-bool VtermImpl::synchronizedOutputActive() const {
-    return synchronizedOutputMode;
+bool TestApiImpl::privateMode(u32 mode) const {
+    using CursorKeyMode = VtermImpl::CursorKeyMode;
+    using ColMode = VtermImpl::ColMode;
+    using KeypadMode = VtermImpl::KeypadMode;
+    using OriginMode = VtermImpl::OriginMode;
+    switch (mode) {
+        case 1:
+            return vterm->cursorKeyMode == CursorKeyMode::Application;
+        case 3:
+            return vterm->colMode == ColMode::C132;
+        case 4:
+            return vterm->smoothScrollMode;
+        case 5:
+            return vterm->screenReverseVideo;
+        case 6:
+            return vterm->originMode == OriginMode::ScrollingRegion;
+        case 7:
+            return vterm->autoWrapMode;
+        case 8:
+            return vterm->autoRepeatMode;
+        case 12:
+            return vterm->cursorBlinkMode;
+        case 18:
+            return vterm->printFormFeedMode;
+        case 19:
+            return vterm->printExtentMode;
+        case 40:
+            return vterm->allowColumnMode;
+        case 41:
+            return vterm->moreFixMode;
+        case 42:
+            return vterm->nationalReplacementMode;
+        case 45:
+            return vterm->reverseWrapMode;
+        case 9:
+            return vterm->mouseTrk.mode == MouseTrackingMode::X10_Compat;
+        case 25:
+            return vterm->showCursorMode;
+        case 47:
+        case 1047:
+            return vterm->altScreenBufferMode;
+        case 66:
+            return vterm->keypadMode == KeypadMode::Application;
+        case 67:
+            return !vterm->bkspSendsDel;
+        case 69:
+            return vterm->horizMarginMode;
+        case 95:
+            return vterm->noClearColumnMode;
+        case 1000:
+            return vterm->mouseTrk.mode == MouseTrackingMode::VT200;
+        case 1001:
+            return vterm->mouseTrk.mode == MouseTrackingMode::VT200_Highlight;
+        case 1002:
+            return vterm->mouseTrk.mode == MouseTrackingMode::VT200_ButtonEvent;
+        case 1003:
+            return vterm->mouseTrk.mode == MouseTrackingMode::VT200_AnyEvent;
+        case 1004:
+            return vterm->mouseTrk.focusEventMode;
+        case 1005:
+            return vterm->mouseTrk.enc == MouseTrackingEnc::UTF8;
+        case 1006:
+            return vterm->mouseTrk.enc == MouseTrackingEnc::SGR;
+        case 1007:
+            return vterm->altScrollMode;
+        case 1015:
+            return vterm->mouseTrk.enc == MouseTrackingEnc::URXVT;
+        case 1016:
+            return vterm->mouseTrk.enc == MouseTrackingEnc::SGRPixels;
+        case 1034:
+            return vterm->eightBitInput;
+        case 1036:
+        case 1039:
+            return vterm->altSendsEscape;
+        case 1045:
+            return vterm->extendedReverseWrapMode;
+        case 2004:
+            return vterm->bracketedPasteMode;
+        case 2026:
+            return vterm->synchronizedOutputMode;
+        case 2031:
+            return vterm->colorSchemeUpdateMode;
+        case 2048:
+            return vterm->inBandResizeMode;
+        default:
+            return false;
+    }
 }
+
+VtermTestCell TestApiImpl::cell(u16 row, u16 column) const {
+    if (row >= vterm->cf->nRows || column >= vterm->cf->nCols) {
+        return {};
+    }
+    VtermTestCell result;
+    result.cell = vterm->cf->getViewCell(row, column);
+    CellExtraStore* const extras = vterm->composer.cellExtras;
+    const GraphemeView grapheme = extras->grapheme(result.cell.extraRef());
+    result.grapheme = grapheme.data();
+    result.graphemeSize = grapheme.size();
+    result.underlineColor = extras->underlineColor(result.cell);
+    return result;
+}
+#endif
 
 bool VtermImpl::animationActive() const {
     return haveBlinkingText || cursorBlinkMode;
@@ -869,18 +1282,6 @@ bool VtermImpl::animationActive() const {
 
 size_t VtermImpl::InputSpec::getLength() const {
     return length ? length : strlen(input);
-}
-
-bool VtermImpl::hasPendingPtyOutput() const {
-    return ptyOutputOffset < ptyOutput.size();
-}
-
-size_t VtermImpl::pendingPtyOutputBytes() const {
-    return ptyOutput.size() - ptyOutputOffset;
-}
-
-size_t VtermImpl::getHyperlinkCount() const {
-    return composer.cellExtras->hyperlinkCount();
 }
 
 const char* VtermImpl::strInputState(InputState is) {
@@ -978,12 +1379,7 @@ void VtermImpl::redraw() {
     if (synchronizedOutputMode) {
         return;
     }
-
-    if (host.present(*cf)) {
-        cf->resetDamage();
-        presentedSinceGcSafePoint = true;
-        collectCellExtrasIfNeeded();
-    }
+    outputPending = true;
 }
 
 void VtermImpl::updateExtraCellCount() {
@@ -995,7 +1391,7 @@ void VtermImpl::updateExtraCellCount() {
 void VtermImpl::collectCellExtrasIfNeeded(bool force) {
     CellExtraStore* const extras = composer.cellExtras;
     const bool hardLimit = extras->hardLimitExceeded();
-    if (processInputDepth != 0) {
+    if (processInputDepth != 0 || queuedUpdateHead != nullptr) {
         return;
     }
     if (!extras->shouldCollect() && !force) {
@@ -1054,10 +1450,6 @@ bool VtermImpl::expireSynchronizedOutput(bool force) {
     synchronizedOutputMode = false;
     redraw();
     return true;
-}
-
-const MouseTrackingState& VtermImpl::getMouseTrackingState() const {
-    return mouseTrk;
 }
 
 bool VtermImpl::mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY) {
@@ -1337,7 +1729,7 @@ void VtermImpl::switchColMode(ColMode colMode_) {
 
     const u16 columns = colMode_ == ColMode::C80 ? 80 : 132;
     if (nCols != columns) {
-        resize(2 * opts.border + columns * glyphPx, winPy);
+        resizeGrid(2 * opts.border + columns * glyphPx, winPy);
         host.windowOperation(8, nRows, columns);
     }
     marginTop = 0;
@@ -1448,55 +1840,6 @@ bool VtermImpl::stringUtf8Continuation(u8 ch) {
         stringUtf8Remaining = 3;
     }
     return false;
-}
-
-bool VtermImpl::readPty() {
-    // Drain everything already available. PTYs do not preserve application
-    // update boundaries, so individual read() calls must not become frames.
-    // The cap only prevents a producer that never reaches EAGAIN from
-    // monopolizing the window thread indefinitely.
-    constexpr size_t maxDrainBytes = 20 * 1024 * 1024;
-    size_t drainBytes = 0;
-    bool presentationPending = false;
-    bool finished = false;
-    while (drainBytes < maxDrainBytes) {
-        const ssize_t n = pty.read(inputBuf, sizeof(inputBuf));
-        if (n > 0) {
-            if (!ptyReceivedInput) {
-                pty.resize(nCols, nRows);
-                ptyReceivedInput = true;
-            }
-
-            logT << "pty read: " << dumpBuffer(inputBuf, inputBuf + n);
-            if (dump != nullptr) {
-                dump->write(inputBuf, n);
-            }
-            presentationPending |= processInput(inputBuf, n, false);
-            drainBytes += (size_t)(n);
-            continue;
-        }
-        if (n == 0) {
-            finished = true;
-            break;
-        }
-        if (errno == EINTR) {
-            continue;
-        }
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            break;
-        }
-        if (errno == EIO) {
-            finished = true;
-            break;
-        }
-        SYS_WARN("pty read");
-        finished = true;
-        break;
-    }
-    if (presentationPending) {
-        redraw();
-    }
-    return finished;
 }
 
 void VtermImpl::normalizeCursorPos() {
@@ -1734,12 +2077,6 @@ bool VtermImpl::rectangleFromParams(size_t offset, Rectangle& rectangle) const {
     rectangle.bottom = rowBase + std::min(rawBottom, rows);
     rectangle.right = columnBase + std::min(rawRight, columns);
     return true;
-}
-
-RectangleOrigin VtermImpl::getRectangleOrigin() const {
-    RectangleOrigin result;
-    rectangleOrigin(result.rowBase, result.columnBase, result.rowLimit, result.columnLimit);
-    return result;
 }
 
 void VtermImpl::inputGraphicChar(unsigned char ch) {
@@ -2822,8 +3159,11 @@ void VtermImpl::scrollRegionDown(u16 count) {
 }
 
 void VtermImpl::presentSmoothScroll() {
+    if (synchronizedOutputMode) {
+        return;
+    }
     syncPresentationCursor();
-    redraw();
+    queueTerminalUpdate();
 }
 
 void VtermImpl::csi_SD() {
@@ -3758,14 +4098,6 @@ bool VtermImpl::getPrivateMode(u32 arg) const {
         default:
             return false;
     }
-}
-
-TerminalPen VtermImpl::getPenState() const {
-    TerminalPen result;
-    result.cell = attrs;
-    result.fg = colors.resolve(result.cell.foreground());
-    result.bg = colors.resolve(result.cell.background());
-    return result;
 }
 
 void VtermImpl::csi_privSM() {
@@ -4873,6 +5205,9 @@ void VtermImpl::handle_OSC() {
                     host.notify({}, windowTitle, arg, false);
                 }
             } break;
+            case 8:
+                setHyperlink(arg);
+                break;
             case 99:
                 osc_Notification(arg);
                 break;
@@ -6910,11 +7245,11 @@ u32 VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
 #undef LOOKUP
 }
 
-VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, Pty& pty_, Output* dump_, u16 glyphPx_, u16 glyphPy_, u16 winPx_, u16 winPy_)
+VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, Output* dump_, u16 glyphPx_, u16 glyphPy_, u16 winPx_, u16 winPy_)
     : composer(composer_)
     , host(host_)
-    , pty(pty_)
     , dump(dump_)
+    , parserTrace(trace)
     , winPx(winPx_)
     , winPy(winPy_)
     , nCols((winPx - 2 * opts.border) / glyphPx_)
@@ -6956,16 +7291,7 @@ VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, Pty& pty_, Output* d
     resetTerminal();
 }
 
-bool VtermImpl::servicePty(bool readable, bool writable) {
-    // Bytes already queued by the frontend precede replies generated while
-    // parsing newly readable PTY input.
-    if (writable) {
-        flushPtyOutput();
-    }
-    return readable && readPty();
-}
-
-void VtermImpl::resize(u16 winPx_, u16 winPy_) {
+void VtermImpl::resizeGrid(u16 winPx_, u16 winPy_) {
     if (winPx == winPx_ && winPy == winPy_) {
         return;
     }
@@ -7021,7 +7347,6 @@ void VtermImpl::resize(u16 winPx_, u16 winPy_) {
     }
     showCursor();
 
-    pty.resize(nCols, nRows);
     updateExtraCellCount();
     if (inBandResizeMode) {
         reportInBandResize();
@@ -7138,14 +7463,14 @@ int VtermImpl::writePty(u8 ch, VtModifier modifiers, bool userInput) {
     }
 }
 
-int VtermImpl::writeKittyKey(VtKey key, u16 modifiers, KeyEventType event) {
+int VtermImpl::writeKittyKey(VtKey key, u16 modifiers, VtermKeyEventType event) {
     const KittyKeySpec spec = kittyKeySpec(key);
     if (!spec.code) {
         return 0;
     }
 
     if (isKittyRecoveryKey(key) && !(getKittyKeyboardFlags() & 0x08)) {
-        if (event == KeyEventType::Release) {
+        if (event == VtermKeyEventType::Release) {
             return 0;
         }
         return writePty(key, kittyToLegacyModifiers(modifiers), true);
@@ -7155,7 +7480,7 @@ int VtermImpl::writeKittyKey(VtKey key, u16 modifiers, KeyEventType event) {
         return 0;
     }
 
-    if (event == KeyEventType::Release && !(getKittyKeyboardFlags() & 0x02)) {
+    if (event == VtermKeyEventType::Release && !(getKittyKeyboardFlags() & 0x02)) {
         return 0;
     }
 
@@ -7164,7 +7489,7 @@ int VtermImpl::writeKittyKey(VtKey key, u16 modifiers, KeyEventType event) {
     if (getKittyKeyboardFlags() & 0x02) {
         sequence << ':' << (unsigned)(event);
     }
-    if ((getKittyKeyboardFlags() & 0x10) && event != KeyEventType::Release && isKittyRecoveryKey(key) && validKittyAssociatedText(spec.code)) {
+    if ((getKittyKeyboardFlags() & 0x10) && event != VtermKeyEventType::Release && isKittyRecoveryKey(key) && validKittyAssociatedText(spec.code)) {
         sequence << ';' << spec.code;
     }
     sequence << spec.final;
@@ -7172,8 +7497,8 @@ int VtermImpl::writeKittyKey(VtKey key, u16 modifiers, KeyEventType event) {
     return writePty(encoded.data(), encoded.size(), true);
 }
 
-int VtermImpl::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, KeyEventType event) {
-    if (!key || (event == KeyEventType::Release && !(getKittyKeyboardFlags() & 0x02))) {
+int VtermImpl::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event) {
+    if (!key || (event == VtermKeyEventType::Release && !(getKittyKeyboardFlags() & 0x02))) {
         return 0;
     }
 
@@ -7195,7 +7520,7 @@ int VtermImpl::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 mod
     if (getKittyKeyboardFlags() & 0x02) {
         sequence << ':' << (unsigned)(event);
     }
-    if ((getKittyKeyboardFlags() & 0x10) && event != KeyEventType::Release) {
+    if ((getKittyKeyboardFlags() & 0x10) && event != VtermKeyEventType::Release) {
         const u32 text = (modifiers & 1) && shiftedKey ? shiftedKey : key;
         if (validKittyAssociatedText(text)) {
             sequence << ';' << text;
@@ -7250,31 +7575,7 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
         ptyOutputOffset = 0;
     }
     ptyOutput.insert(ptyOutput.end(), ucstr, ucstr + len);
-    flushPtyOutput();
     return len;
-}
-
-bool VtermImpl::flushPtyOutput() {
-    while (ptyOutputOffset < ptyOutput.size()) {
-        const ssize_t count = pty.write(ptyOutput.data() + ptyOutputOffset, ptyOutput.size() - ptyOutputOffset);
-        if (count > 0) {
-            ptyOutputOffset += (size_t)(count);
-            continue;
-        }
-        if (count < 0 && errno == EINTR) {
-            continue;
-        }
-        if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            return false;
-        }
-        if (count < 0) {
-            SYS_WARN("pty write");
-        }
-        return false;
-    }
-    ptyOutput.clear();
-    ptyOutputOffset = 0;
-    return true;
 }
 
 using Key = VtKey;
@@ -7485,14 +7786,6 @@ void VtermImpl::syncPresentationCursor() {
     cf->setCursorPos(posY, posX);
     using CS = TerminalCursor::Style;
     cf->setCursorStyle(showCursorMode ? (hasFocus ? cursorShape : CS::hollow_block) : CS::hidden);
-}
-
-void VtermImpl::feedPtyOutput(const u8* data, size_t size) {
-    processInput(data, (int)size);
-}
-
-void VtermImpl::setParserTrace(VtermTrace* trace) {
-    parserTrace = trace;
 }
 
 void VtermImpl::beginCsi() {
@@ -8919,7 +9212,7 @@ void VtermImpl::pasteSelection(const std::string& utf8_selection) {
     }
 }
 
-Vterm* Vterm::create(Composer& composer, VtermHost& host, Pty& pty, u16 glyphPx, u16 glyphPy, u16 winPx, u16 winPy) {
+Vterm* Vterm::create(Composer& composer, VtermHost& host, VtermTrace* trace, u16 glyphPx, u16 glyphPy, u16 winPx, u16 winPy) {
     Output* dump = nullptr;
     if (opts.dump != nullptr) {
         const int rawFd = ::open(opts.dump, O_WRONLY | O_CREAT | O_TRUNC, 0666);
@@ -8934,7 +9227,7 @@ Vterm* Vterm::create(Composer& composer, VtermHost& host, Pty& pty, u16 glyphPx,
     const u16 rows = (winPy - 2 * opts.border) / glyphPy;
     CellExtraStore::create(composer, (size_t)(columns) * (rows + opts.saveLines));
     try {
-        return composer.pool->make<VtermImpl>(composer, host, pty, dump, glyphPx, glyphPy, winPx, winPy);
+        return composer.pool->make<VtermImpl>(composer, host, trace, dump, glyphPx, glyphPy, winPx, winPy);
     } catch (...) {
         composer.cellExtras = nullptr;
         throw;

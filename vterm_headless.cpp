@@ -8,13 +8,11 @@
 
 #include "composer.h"
 #include "options.h"
-#include "pty.h"
 #include "vterm.h"
 #include "vterm_host.h"
 
 #include <std/mem/obj_pool.h>
 
-#include <cerrno>
 #include <stdexcept>
 #include <string>
 
@@ -23,17 +21,9 @@ namespace stl {}
 using namespace stl;
 
 namespace {
-    struct HeadlessPty final: public Pty {
-        int fd() const override;
-        ssize_t read(u8* buffer, size_t size) override;
-        ssize_t write(const u8* buffer, size_t size) override;
-        void resize(u16 columns, u16 rows) override;
-    };
-
     struct HeadlessHost final: public VtermHost {
         HeadlessHost(u16 pixelWidth, u16 pixelHeight);
 
-        bool present(const Frame& frame) override;
         void osc(int command, const std::string& argument) override;
         bool handlesOsc() const override;
         void bell() override;
@@ -55,36 +45,15 @@ namespace {
         void initialize(Composer& composer, u16 pixelWidth, u16 pixelHeight);
         void feed(const u8* data, size_t len) override;
 
-        HeadlessPty pty;
         HeadlessHost host;
         Vterm* vterm = nullptr;
     };
-}
-
-int HeadlessPty::fd() const {
-    return -1;
-}
-
-ssize_t HeadlessPty::read(u8*, size_t) {
-    errno = EAGAIN;
-    return -1;
-}
-
-ssize_t HeadlessPty::write(const u8*, size_t size) {
-    return size;
-}
-
-void HeadlessPty::resize(u16, u16) {
 }
 
 HeadlessHost::HeadlessHost(u16 pixelWidth_, u16 pixelHeight_)
     : pixelWidth(pixelWidth_)
     , pixelHeight(pixelHeight_)
 {
-}
-
-bool HeadlessHost::present(const Frame&) {
-    return true;
 }
 
 void HeadlessHost::osc(int, const std::string&) {
@@ -131,7 +100,7 @@ VtermHeadlessImpl::VtermHeadlessImpl(u16 pixelWidth, u16 pixelHeight)
 }
 
 void VtermHeadlessImpl::initialize(Composer& composer, u16 pixelWidth, u16 pixelHeight) {
-    vterm = Vterm::create(composer, host, pty, 1, 1, pixelWidth, pixelHeight);
+    vterm = Vterm::create(composer, host, nullptr, 1, 1, pixelWidth, pixelHeight);
 }
 
 void VtermHeadlessImpl::feed(const u8* data, size_t len) {
@@ -141,7 +110,14 @@ void VtermHeadlessImpl::feed(const u8* data, size_t len) {
     if (len == 0) {
         return;
     }
-    vterm->feedPtyOutput(data, len);
+    vterm->feedPty(StringView(data, len));
+    while (true) {
+        const VtermOutput output = vterm->output();
+        if (output.pty.empty() && output.terminal == nullptr) {
+            return;
+        }
+        vterm->consume({output.pty.length(), output.terminal != nullptr});
+    }
 }
 
 VtermHeadless* VtermHeadless::create(Composer& composer) {

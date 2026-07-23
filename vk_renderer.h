@@ -13,10 +13,10 @@
 struct Composer;
 struct GLFWwindow;
 
-class Frame;
+struct TerminalUpdate;
 
 struct Renderer {
-    virtual bool update(const Frame& frame) = 0;
+    virtual bool update(const TerminalUpdate& update) = 0;
     virtual bool repaint() = 0;
 
     static Renderer* create(Composer& composer, GLFWwindow* window);

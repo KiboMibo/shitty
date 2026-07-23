@@ -70,6 +70,7 @@ all_libshitty_sources = [
 libshitty_sources = [
     source for source in all_libshitty_sources
     if not source.endswith("/test_mode.cpp")
+    and not source.endswith("/vterm_test.cpp")
 ]
 libshitty_deps = [
     freetype, fontconfig, glfw, vulkan, threads, libstd, brotli_common,

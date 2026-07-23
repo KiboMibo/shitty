@@ -16,7 +16,6 @@
 #include "grapheme.h"
 #include "font_resolver.h"
 #include "font_pack.h"
-#include "frame.h"
 #include "keyboard.h"
 #include "options.h"
 #include "mouse_protocol.h"
@@ -28,6 +27,7 @@
 #include "vk_renderer.h"
 #include "vterm.h"
 #include "vterm_host.h"
+#include "vterm_test.h"
 #include "vterm_trace.h"
 
 #include <algorithm>
@@ -237,8 +237,8 @@ namespace {
     struct TestDisplay final: public VtermHost {
         TestDisplay(ClipboardStore& clipboard, std::string& actions, std::string& printerOutput, unsigned glyphPx, unsigned glyphPy, u32 pixelWidth, u32 pixelHeight);
 
-        void attach(Vterm& terminal);
-        bool present(const Frame& frame) override;
+        void attach(Vterm& terminal, TestPty& pty, Vterm::TestApi& testApi);
+        bool update(const TerminalUpdate& update);
         void osc(int command, const std::string& argument) override;
         bool handlesOsc() const override;
         void bell() override;
@@ -265,7 +265,6 @@ namespace {
         u16 viewOffset = 0;
         u16 historyRows = 0;
         u64 refreshCount = 0;
-        bool delta = false;
         bool screenReverse = false;
         bool blinkVisible = true;
         bool cursorBlink = false;
@@ -284,11 +283,71 @@ namespace {
         std::string& actions;
         std::string& printerOutput;
         Vterm* terminal = nullptr;
+        TestPty* pty = nullptr;
+        Vterm::TestApi* testApi = nullptr;
         unsigned glyphPx;
         unsigned glyphPy;
         VtermWindowInfo currentWindow;
         VtermWindowInfo restoredWindow;
         bool haveRestoredWindow = false;
+    };
+
+    struct TestTerminal {
+        TestTerminal(Vterm& terminal, Vterm::TestApi& testApi, TestPty& pty, TestDisplay& display);
+
+        void feedPtyOutput(const u8* data, size_t size);
+        void update();
+        void redraw();
+        void resize(u16 width, u16 height);
+        int writePty(VtKey key, VtModifier modifiers = VtModifier::none, bool userInput = false);
+        int writePty(u8 byte, VtModifier modifiers = VtModifier::none, bool userInput = false);
+        int writePty(const char* text, bool userInput = false);
+        int writePty(const u8* data, size_t size, bool userInput = false);
+        int writeKittyKey(VtKey key, u16 modifiers, VtermKeyEventType event);
+        int writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event);
+        bool readPty();
+        bool servicePty(bool readable, bool writable);
+        bool flushPtyOutput();
+        size_t pendingPtyOutputBytes();
+        const MouseTrackingState& getMouseTrackingState();
+        u8 getKittyKeyboardFlags();
+        bool getScreenReverseVideo();
+        u8 getLedState();
+        bool getReverseWrapMode();
+        bool getNationalReplacementMode();
+        bool getAnsiMode(u32 mode);
+        bool getPrivateMode(u32 mode);
+        TerminalCursor::Style getCursorStyle();
+        TerminalPen getPenState();
+        RectangleOrigin getRectangleOrigin();
+        size_t getHyperlinkCount();
+        std::string getHyperlink(int x, int y);
+        bool mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY);
+        void setLocatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons = 0);
+        void reportLocatorButton(u8 button, bool pressed);
+        void mouseWheelUp(u16 count = 1);
+        void mouseWheelDown(u16 count = 1);
+        void pageUp();
+        void pageDown();
+        void selectStart(int x, int y, bool cycle);
+        void selectExtend(int x, int y, bool cycle);
+        void selectUpdate(int x, int y);
+        bool selectFinish(std::string& selection);
+        void selectRectangularModeToggle();
+        void pasteSelection(const std::string& selection);
+        void setHasFocus(bool focused);
+        bool expireSynchronizedOutput(bool force = false);
+        bool advanceAnimation(bool force = false);
+
+        Vterm& terminal;
+        Vterm::TestApi& testApi;
+        TestPty& pty;
+        TestDisplay& display;
+        VtermState state_;
+        bool ptyReceivedInput = false;
+
+        bool present();
+        void refreshState();
     };
 
     template <typename Cell>
@@ -337,27 +396,32 @@ TestDisplay::TestDisplay(ClipboardStore& clipboard, std::string& actions, std::s
     restoredWindow = currentWindow;
 }
 
-void TestDisplay::attach(Vterm& value) {
+void TestDisplay::attach(Vterm& value, TestPty& ptyValue, Vterm::TestApi& testApiValue) {
     terminal = &value;
+    pty = &ptyValue;
+    testApi = &testApiValue;
 }
 
-bool TestDisplay::present(const Frame& frame) {
+bool TestDisplay::update(const TerminalUpdate& update) {
     if (failNextUpdate) {
         failNextUpdate = false;
         return false;
     }
-    const size_t count = frame.nCols * frame.nRows;
-    if (columns != frame.nCols || rows != frame.nRows) {
-        columns = frame.nCols;
-        rows = frame.nRows;
+    const size_t count = update.cellCount;
+    if (columns != update.columns || rows != update.rows) {
+        columns = update.columns;
+        rows = update.rows;
         cells.resize(count);
         modelCells.resize(count);
-        delta = false;
     }
-    if (delta) {
-        frame.deltaCopyCells(cells.data());
+    if (update.incremental) {
+        for (size_t index = 0; index < count; ++index) {
+            if (update.cells[index].dirty) {
+                cells[index] = update.cells[index];
+            }
+        }
     } else {
-        frame.fullCopyCells(cells.data());
+        std::copy_n(update.cells, count, cells.data());
     }
     for (auto& cell : cells) {
         cell.dirty = 0;
@@ -367,29 +431,33 @@ bool TestDisplay::present(const Frame& frame) {
     for (u16 row = 0; row < rows; ++row) {
         for (u16 column = 0; column < columns; ++column) {
             const size_t index = (size_t)(row)*columns + column;
-            modelCells[index] = frame.getViewCell(row, column);
-            const auto grapheme = frame.cellExtras()->grapheme(modelCells[index].extraRef());
-            cellGraphemes[index].assign(grapheme.begin(), grapheme.end());
-            modelUnderlineColors[index] = frame.cellExtras()->underlineColor(modelCells[index]);
+            const VtermTestCell inspected = testApi->cell(row, column);
+            modelCells[index] = inspected.cell;
+            if (inspected.graphemeSize == 0) {
+                cellGraphemes[index].clear();
+            } else {
+                cellGraphemes[index].assign(inspected.grapheme, inspected.grapheme + inspected.graphemeSize);
+            }
+            modelUnderlineColors[index] = inspected.underlineColor;
         }
     }
-    cursor = frame.getCursor();
-    selection = frame.getSelectionForView();
-    viewOffset = frame.getViewOffset();
-    historyRows = frame.getHistoryRows();
-    screenReverse = frame.getScreenReverseVideo();
-    blinkVisible = frame.getBlinkVisible();
-    cursorBlink = frame.getCursorBlink();
-    selectionForeground = frame.getSelectionForeground();
-    selectionBackground = frame.getSelectionBackground();
-    selectionColorMask = frame.getSelectionColorMask();
+    cursor = update.cursor;
+    selection = update.selection;
+    viewOffset = update.viewOffset;
+    historyRows = update.historyRows;
+    screenReverse = update.screenReverse;
+    blinkVisible = update.blinkVisible;
+    cursorBlink = update.cursorBlink;
+    selectionForeground = update.selectionForeground;
+    selectionBackground = update.selectionBackground;
+    selectionColorMask = update.selectionColorMask;
     graphemeCells = 0;
     graphemeCodepoints = 0;
     for (const auto& cell : cells) {
         if (!cell.grapheme) {
             continue;
         }
-        const auto grapheme = frame.cellExtras()->grapheme(cell.grapheme);
+        const auto grapheme = update.cellExtras->grapheme(cell.grapheme);
         if (grapheme.empty()) {
             continue;
         }
@@ -397,15 +465,12 @@ bool TestDisplay::present(const Frame& frame) {
         graphemeCodepoints += grapheme.size();
     }
     ++refreshCount;
-    delta = true;
     return true;
 }
 
 void TestDisplay::osc(int command, const std::string& argument) {
     actions += "OSC " + std::to_string(command) + " " + encodeHex(argument) + "\n";
-    if (command == 8) {
-        terminal->setHyperlink(argument);
-    } else if (command == 52) {
+    if (command == 52) {
         const Osc52Request request = parseOsc52(argument, opts.osc52SelectClipboard);
         if (!request.valid) {
             return;
@@ -422,7 +487,7 @@ void TestDisplay::osc(int command, const std::string& argument) {
                 }
             }
             const std::string reply = encodeOsc52QueryReply(request, opts.allowOsc52Read, primary, system);
-            terminal->writePty(reply.c_str());
+            terminal->sendBytes(StringView((const u8*)(reply.data()), reply.size()), false);
         } else {
             clipboard.apply(request);
         }
@@ -465,7 +530,9 @@ void TestDisplay::progress(u32 state, u32 percent) {
 }
 
 void TestDisplay::applyWindowSize(u32 pixelWidth, u32 pixelHeight) {
-    terminal->resize(pixelWidth, pixelHeight);
+    terminal->resize((u16)(pixelWidth), (u16)(pixelHeight));
+    const VtermState state = terminal->state();
+    pty->resize(state.columns, state.rows);
     currentWindow.pixelWidth = pixelWidth;
     currentWindow.pixelHeight = pixelHeight;
 }
@@ -625,6 +692,293 @@ std::string TestDisplay::screenText() const {
         }
     }
     return output;
+}
+
+TestTerminal::TestTerminal(Vterm& terminal, Vterm::TestApi& testApi, TestPty& pty, TestDisplay& display)
+    : terminal(terminal)
+    , testApi(testApi)
+    , pty(pty)
+    , display(display)
+{
+    refreshState();
+}
+
+bool TestTerminal::present() {
+    while (true) {
+        const VtermOutput output = terminal.output();
+        if (output.terminal == nullptr) {
+            return true;
+        }
+        if (!display.update(*output.terminal)) {
+            return false;
+        }
+        terminal.consume(VtermConsume{0, true});
+        refreshState();
+    }
+}
+
+void TestTerminal::refreshState() {
+    state_ = terminal.state();
+}
+
+void TestTerminal::feedPtyOutput(const u8* data, size_t size) {
+    terminal.feedPty(StringView(data, size));
+    update();
+}
+
+void TestTerminal::update() {
+    flushPtyOutput();
+    present();
+    refreshState();
+}
+
+void TestTerminal::redraw() {
+    terminal.expose();
+    update();
+}
+
+void TestTerminal::resize(u16 width, u16 height) {
+    terminal.resize(width, height);
+    update();
+    pty.resize(state_.columns, state_.rows);
+}
+
+int TestTerminal::writePty(VtKey key, VtModifier modifiers, bool) {
+    terminal.key(key, modifiers);
+    update();
+    return 1;
+}
+
+int TestTerminal::writePty(u8 byte, VtModifier modifiers, bool) {
+    terminal.character(byte, modifiers);
+    update();
+    return 1;
+}
+
+int TestTerminal::writePty(const char* text, bool userInput) {
+    return writePty((const u8*)(text), strlen(text), userInput);
+}
+
+int TestTerminal::writePty(const u8* data, size_t size, bool userInput) {
+    terminal.sendBytes(StringView(data, size), userInput);
+    update();
+    return size;
+}
+
+int TestTerminal::writeKittyKey(VtKey key, u16 modifiers, VtermKeyEventType keyEvent) {
+    terminal.kittyKey(key, modifiers, keyEvent);
+    update();
+    return 1;
+}
+
+int TestTerminal::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType keyEvent) {
+    terminal.kittyKey(key, shiftedKey, baseLayoutKey, modifiers, keyEvent);
+    update();
+    return 1;
+}
+
+bool TestTerminal::flushPtyOutput() {
+    while (true) {
+        const VtermOutput output = terminal.output();
+        if (output.pty.empty()) {
+            return true;
+        }
+        const ssize_t count = pty.write(output.pty.data(), output.pty.length());
+        if (count > 0) {
+            terminal.consume(VtermConsume{(size_t)(count), false});
+            continue;
+        }
+        if (count < 0 && errno == EINTR) {
+            continue;
+        }
+        return false;
+    }
+}
+
+size_t TestTerminal::pendingPtyOutputBytes() {
+    return terminal.output().pty.length();
+}
+
+bool TestTerminal::readPty() {
+    constexpr size_t maxDrainBytes = 20 * 1024 * 1024;
+    u8 buffer[8192];
+    size_t drained = 0;
+    bool finished = false;
+    while (drained < maxDrainBytes) {
+        const ssize_t count = pty.read(buffer, sizeof(buffer));
+        if (count > 0) {
+            if (!ptyReceivedInput) {
+                pty.resize(state_.columns, state_.rows);
+                ptyReceivedInput = true;
+            }
+            terminal.feedPty(StringView(buffer, count));
+            drained += count;
+            continue;
+        }
+        if (count == 0 || (count < 0 && errno == EIO)) {
+            finished = true;
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            break;
+        }
+        finished = true;
+        break;
+    }
+    flushPtyOutput();
+    present();
+    refreshState();
+    return finished;
+}
+
+bool TestTerminal::servicePty(bool readable, bool writable) {
+    if (writable) {
+        flushPtyOutput();
+    }
+    return readable && readPty();
+}
+
+const MouseTrackingState& TestTerminal::getMouseTrackingState() {
+    refreshState();
+    return state_.mouse;
+}
+
+u8 TestTerminal::getKittyKeyboardFlags() {
+    refreshState();
+    return state_.kittyKeyboardFlags;
+}
+
+bool TestTerminal::getScreenReverseVideo() {
+    return testApi.inspect().screenReverseVideo;
+}
+
+u8 TestTerminal::getLedState() {
+    return testApi.inspect().ledState;
+}
+
+bool TestTerminal::getReverseWrapMode() {
+    return testApi.inspect().reverseWrapMode;
+}
+
+bool TestTerminal::getNationalReplacementMode() {
+    return testApi.inspect().nationalReplacementMode;
+}
+
+bool TestTerminal::getAnsiMode(u32 mode) {
+    return testApi.ansiMode(mode);
+}
+
+bool TestTerminal::getPrivateMode(u32 mode) {
+    return testApi.privateMode(mode);
+}
+
+TerminalCursor::Style TestTerminal::getCursorStyle() {
+    return testApi.inspect().cursorStyle;
+}
+
+TerminalPen TestTerminal::getPenState() {
+    return testApi.inspect().pen;
+}
+
+RectangleOrigin TestTerminal::getRectangleOrigin() {
+    return testApi.inspect().rectangleOrigin;
+}
+
+size_t TestTerminal::getHyperlinkCount() {
+    return testApi.inspect().hyperlinkCount;
+}
+
+std::string TestTerminal::getHyperlink(int x, int y) {
+    const StringView result = terminal.hyperlinkAt(x, y);
+    return std::string((const char*)(result.data()), result.length());
+}
+
+bool TestTerminal::mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY) {
+    const bool result = terminal.mouseHighlightRelease(endX, endY, mouseX, mouseY);
+    update();
+    return result;
+}
+
+void TestTerminal::setLocatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons) {
+    terminal.locatorPosition(column, row, pixelX, pixelY, buttons);
+    update();
+}
+
+void TestTerminal::reportLocatorButton(u8 button, bool pressed) {
+    terminal.locatorButton(button, pressed);
+    update();
+}
+
+void TestTerminal::mouseWheelUp(u16 count) {
+    terminal.scrollUp(count);
+    update();
+}
+
+void TestTerminal::mouseWheelDown(u16 count) {
+    terminal.scrollDown(count);
+    update();
+}
+
+void TestTerminal::pageUp() {
+    terminal.pageUp();
+    update();
+}
+
+void TestTerminal::pageDown() {
+    terminal.pageDown();
+    update();
+}
+
+void TestTerminal::selectStart(int x, int y, bool cycle) {
+    terminal.selectionStart(x, y, cycle);
+    update();
+}
+
+void TestTerminal::selectExtend(int x, int y, bool cycle) {
+    terminal.selectionExtend(x, y, cycle);
+    update();
+}
+
+void TestTerminal::selectUpdate(int x, int y) {
+    terminal.selectionUpdate(x, y);
+    update();
+}
+
+bool TestTerminal::selectFinish(std::string& selection) {
+    const VtermTextResult result = terminal.selectionFinish();
+    selection.assign((const char*)(result.text.data()), result.text.length());
+    update();
+    return result.status;
+}
+
+void TestTerminal::selectRectangularModeToggle() {
+    terminal.selectionRectangular();
+    update();
+}
+
+void TestTerminal::pasteSelection(const std::string& selection) {
+    terminal.paste(StringView((const u8*)(selection.data()), selection.size()));
+    update();
+}
+
+void TestTerminal::setHasFocus(bool focused) {
+    terminal.focus(focused);
+    update();
+}
+
+bool TestTerminal::expireSynchronizedOutput(bool force) {
+    const bool result = terminal.expireSynchronizedOutput(force);
+    update();
+    return result;
+}
+
+bool TestTerminal::advanceAnimation(bool force) {
+    const bool result = terminal.advanceAnimation(force);
+    update();
+    return result;
 }
 
 namespace {
@@ -793,10 +1147,15 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
         systemClipboard = content;
     });
     TestDisplay display(clipboard, actions, printerOutput, glyphPx, glyphPy, width, height);
-    Vterm& terminal = *Vterm::create(composer, display, terminalPty, glyphPx, glyphPy, width, height);
-    display.attach(terminal);
-    input.attachTestVterm(terminal);
     VtermTrace& vtermTrace = *VtermTrace::create(composer);
+    Vterm& vterm = *Vterm::create(composer, display, &vtermTrace, glyphPx, glyphPy, width, height);
+    Vterm::TestApi* const testApi = vterm.testApi();
+    if (testApi == nullptr) {
+        throw std::runtime_error("test Vterm has no TestApi");
+    }
+    display.attach(vterm, terminalPty, *testApi);
+    TestTerminal terminal(vterm, *testApi, terminalPty, display);
+    input.attachTestVterm(vterm);
     terminalPty.resize(opts.nCols, opts.nRows);
     pid_t childPid = -1;
     int childExitStatus = -1;
@@ -1279,7 +1638,6 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 terminal.resize(2 * opts.border + columns * glyphPx, 2 * opts.border + rows * glyphPy);
                 display.currentWindow.pixelWidth = 2 * opts.border + columns * glyphPx;
                 display.currentWindow.pixelHeight = 2 * opts.border + rows * glyphPy;
-                terminal.redraw();
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 14, "RESIZE_PIXELS ") == 0) {
                 std::istringstream args(line.substr(14));
@@ -1291,7 +1649,6 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 terminal.resize(pixelWidth, pixelHeight);
                 display.currentWindow.pixelWidth = pixelWidth;
                 display.currentWindow.pixelHeight = pixelHeight;
-                terminal.redraw();
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 12, "WINDOW_INFO ") == 0) {
                 std::istringstream args(line.substr(12));
@@ -1378,6 +1735,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                     throw std::runtime_error("invalid frontend key event");
                 }
                 input.testKeyEvent(key, scancode, action, modifiers);
+                terminal.update();
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 20, "FRONTEND_TEXT_EVENT ") == 0) {
                 std::istringstream args(line.substr(20));
@@ -1387,6 +1745,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                     throw std::runtime_error("invalid frontend text event");
                 }
                 input.testTextInput(codepoint, modifiers);
+                terminal.update();
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 10, "KITTY_KEY ") == 0) {
                 std::istringstream args(line.substr(10));
@@ -1398,7 +1757,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 if (!(args >> key >> shifted >> base >> modifiers >> event) || event < 1 || event > 3) {
                     throw std::runtime_error("invalid kitty key");
                 }
-                terminal.writeKittyKey(key, shifted, base, modifiers, (Vterm::KeyEventType)(event));
+                terminal.writeKittyKey(key, shifted, base, modifiers, (VtermKeyEventType)(event));
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 14, "KITTY_SPECIAL ") == 0) {
                 std::istringstream args(line.substr(14));
@@ -1408,7 +1767,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 if (!(args >> name >> modifiers >> event) || event < 1 || event > 3) {
                     throw std::runtime_error("invalid kitty special key");
                 }
-                terminal.writeKittyKey(parseKey(name), modifiers, (Vterm::KeyEventType)(event));
+                terminal.writeKittyKey(parseKey(name), modifiers, (VtermKeyEventType)(event));
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 6, "PASTE ") == 0) {
                 terminal.pasteSelection(decodeHex(line.substr(6)));
@@ -1506,7 +1865,6 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 writeAll(controlFd, output.str());
             } else if (line == "PARSER_TRACE_ON") {
                 vtermTrace.clear();
-                terminal.setParserTrace(&vtermTrace);
                 writeAll(controlFd, "OK\n");
             } else if (line == "PARSER_TRACE_CLEAR") {
                 vtermTrace.clear();

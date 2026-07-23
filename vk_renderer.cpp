@@ -9,12 +9,12 @@
 #include "cell_extra_store.h"
 #include "composer.h"
 #include "font_pack.h"
-#include "frame.h"
 
 #include "log.h"
 #include "options.h"
 #include "render_spv.h"
 #include "utf8.h"
+#include "vterm.h"
 
 #include <std/sys/crt.h>
 #include <std/lib/buffer.h>
@@ -60,7 +60,7 @@ namespace {
         RendererImpl(GLFWwindow* window, Fontpack* fontpk);
         ~RendererImpl();
 
-        bool update(const Frame& frame) override;
+        bool update(const TerminalUpdate& update) override;
         bool repaint() override;
 
         struct ImageResource {
@@ -142,10 +142,7 @@ namespace {
 
         static constexpr u32 framesInFlight = 2;
 
-        stl::Vector<RenderCell> renderCells;
         stl::Vector<u32> graphemeScratch;
-        u16 renderColumns = 0;
-        u16 renderRows = 0;
         GLFWwindow* window = nullptr;
         Fontpack* fonts = nullptr;
         u32 glyphWidth = 0;
@@ -194,7 +191,6 @@ namespace {
 
         std::array<FrameResources, framesInFlight> frames;
         u32 currentFrame = 0;
-        bool incremental = false;
 
         void createInstance();
         void selectPhysicalDevice();
@@ -226,13 +222,11 @@ namespace {
         void stageAtlasMap(GlyphCache& cache, stl::Vector<VkBufferImageCopy>& copies, u32 id, u16 slot);
         void recordFontUploads(FrameResources& frame);
         void recordImageUploads(VkCommandBuffer commandBuffer, VkBuffer stagingBuffer, const ImageResource& image, const stl::Vector<VkBufferImageCopy>& copies, bool initialize);
-        void recordCommands(FrameResources& frame, u32 imageIndex, const Frame& sourceFrame, const TerminalCursor& cursor, const Rect& selection, bool incremental);
+        void recordCommands(FrameResources& frame, u32 imageIndex, const TerminalUpdate& update, bool incremental);
         void recordRepaintCommands(FrameResources& frame, u32 imageIndex);
         bool acquirePresentFrame(u32 width, u32 height, FrameResources*& frame, u32& imageIndex, bool& recreateAfterPresent);
         bool submitPresentFrame(u32 width, u32 height, FrameResources& frame, u32 imageIndex, bool recreateAfterPresent);
-        bool resizeRenderCells(u16 columns, u16 rows);
-        void clearDirtyCells() noexcept;
-        bool present(const Frame& sourceFrame, bool incrementalFrame);
+        bool present(const TerminalUpdate& update, bool incrementalFrame);
 
         static bool needsFontGlyph(u32 id);
         static u32 packColor(const Color& color);
@@ -1249,7 +1243,7 @@ bool RendererImpl::sameSelection(const Rect& lhs, const Rect& rhs) {
     return lhs.tl == rhs.tl && lhs.br == rhs.br && lhs.rectangular == rhs.rectangular;
 }
 
-void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const Frame& sourceFrame, const TerminalCursor& cursor, const Rect& selection, bool incremental) {
+void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const TerminalUpdate& update, bool incremental) {
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -1310,37 +1304,37 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const F
     const PushConstants pushConstants{
         glyphWidth,
         glyphHeight,
-        sourceFrame.nCols,
-        sourceFrame.nRows,
-        sourceFrame.winPx,
-        sourceFrame.winPy,
+        update.columns,
+        update.rows,
+        update.pixelWidth,
+        update.pixelHeight,
         opts.border,
-        packColor(cursor.color),
-        cursor.posX,
-        cursor.posY,
-        (u32)(cursor.style),
-        sourceFrame.getScreenReverseVideo() ? 1u : 0u,
-        selection.tl.x,
-        selection.tl.y,
-        selection.br.x,
-        selection.br.y,
-        selection.rectangular ? 1u : 0u,
+        packColor(update.cursor.color),
+        update.cursor.posX,
+        update.cursor.posY,
+        (u32)(update.cursor.style),
+        update.screenReverse ? 1u : 0u,
+        update.snappedSelection.tl.x,
+        update.snappedSelection.tl.y,
+        update.snappedSelection.br.x,
+        update.snappedSelection.br.y,
+        update.snappedSelection.rectangular ? 1u : 0u,
         opts.showWraps ? 1u : 0u,
         hasDoubleWidth ? 1u : 0u,
         previousCursor.posX,
         previousCursor.posY,
         incremental ? 1u : 0u,
-        !sameSelection(selection, previousSelection) ? 1u : 0u,
-        packColor(sourceFrame.getSelectionForeground()),
-        packColor(sourceFrame.getSelectionBackground()),
-        sourceFrame.getSelectionColorMask(),
-        sourceFrame.getBlinkVisible() ? 1u : 0u,
-        sourceFrame.getCursorBlink() ? 1u : 0u,
+        !sameSelection(update.snappedSelection, previousSelection) ? 1u : 0u,
+        packColor(update.selectionForeground),
+        packColor(update.selectionBackground),
+        update.selectionColorMask,
+        update.blinkVisible ? 1u : 0u,
+        update.cursorBlink ? 1u : 0u,
     };
     vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
     vkCmdBindDescriptorSets(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &frame.descriptorSet, 0, nullptr);
     vkCmdPushConstants(frame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants), &pushConstants);
-    vkCmdDispatch(frame.commandBuffer, (sourceFrame.nCols + 7) / 8, (sourceFrame.nRows + 7) / 8, 1);
+    vkCmdDispatch(frame.commandBuffer, (update.columns + 7) / 8, (update.rows + 7) / 8, 1);
 
     VkImageMemoryBarrier outputForBlit = outputForCompute;
     outputForBlit.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -1505,33 +1499,10 @@ bool RendererImpl::repaint() {
     return submitPresentFrame(width, height, *frame, imageIndex, recreateAfterPresent);
 }
 
-bool RendererImpl::resizeRenderCells(u16 columns, u16 rows) {
-    if (renderColumns == columns && renderRows == rows) {
-        return false;
-    }
-
-    renderColumns = columns;
-    renderRows = rows;
-    renderCells.clear();
-    const size_t count = (size_t)(columns)*rows;
-    renderCells.grow(count);
-    const RenderCell emptyCell;
-    for (size_t index = 0; index < count; ++index) {
-        renderCells.pushBack(emptyCell);
-    }
-    return true;
-}
-
-void RendererImpl::clearDirtyCells() noexcept {
-    for (RenderCell* cell = renderCells.mutBegin(); cell != renderCells.mutEnd(); ++cell) {
-        cell->dirty = false;
-    }
-}
-
-bool RendererImpl::present(const Frame& sourceFrame, bool incrementalFrame) {
-    const u32 width = sourceFrame.winPx;
-    const u32 height = sourceFrame.winPy;
-    if (renderCells.empty() || width == 0 || height == 0) {
+bool RendererImpl::present(const TerminalUpdate& update, bool incrementalFrame) {
+    const u32 width = update.pixelWidth;
+    const u32 height = update.pixelHeight;
+    if (update.cells == nullptr || update.cellCount == 0 || width == 0 || height == 0) {
         return false;
     }
 
@@ -1552,14 +1523,14 @@ bool RendererImpl::present(const Frame& sourceFrame, bool incrementalFrame) {
     }
 
     beginGlyphFrame();
-    const size_t cellBytes = renderCells.length() * sizeof(GpuCell);
+    const size_t cellBytes = update.cellCount * sizeof(GpuCell);
     ensureCellBuffer(*frame, cellBytes);
     GpuCell* const gpuCells = (GpuCell*)(frame->cells);
     graphemeScratch.clear();
     graphemeScratch.pushBack(0);
-    CellExtraStore* const extras = sourceFrame.cellExtras();
-    for (size_t index = 0; index < renderCells.length(); ++index) {
-        const RenderCell& cell = renderCells[index];
+    CellExtraStore* const extras = update.cellExtras;
+    for (size_t index = 0; index < update.cellCount; ++index) {
+        const RenderCell& cell = update.cells[index];
         u32 graphemeIndex = 0;
         if (cell.grapheme) {
             const GraphemeView grapheme = extras->grapheme(cell.grapheme);
@@ -1599,40 +1570,16 @@ bool RendererImpl::present(const Frame& sourceFrame, bool incrementalFrame) {
         std::memcpy(frame->fontUploads, fontUploadData.data(), fontUploadData.used());
     }
 
-    const TerminalCursor cursor = sourceFrame.getCursor();
-    const Rect selection = sourceFrame.getSnappedSelection();
-    recordCommands(*frame, imageIndex, sourceFrame, cursor, selection, incrementalFrame);
+    recordCommands(*frame, imageIndex, update, incrementalFrame);
     outputInitialized = true;
-    previousCursor = cursor;
-    previousSelection = selection;
+    previousCursor = update.cursor;
+    previousSelection = update.snappedSelection;
     previousStateValid = true;
     return submitPresentFrame(width, height, *frame, imageIndex, recreateAfterPresent);
 }
 
-bool RendererImpl::update(const Frame& frame) {
-    if (!frame) {
-        return false;
-    }
-
-    if (resizeRenderCells(frame.nCols, frame.nRows)) {
-        incremental = false;
-    }
-
-    RenderCell* const destination = renderCells.mutData();
-    if (incremental) {
-        frame.deltaCopyCells(destination);
-    } else {
-        frame.fullCopyCells(destination);
-    }
-
-    if (present(frame, incremental)) {
-        clearDirtyCells();
-        incremental = true;
-        return true;
-    }
-
-    incremental = false;
-    return false;
+bool RendererImpl::update(const TerminalUpdate& update) {
+    return present(update, update.incremental);
 }
 
 Renderer* Renderer::create(Composer& composer, GLFWwindow* window) {

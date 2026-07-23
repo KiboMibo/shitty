@@ -9,8 +9,6 @@
 
 #include <string>
 
-class Frame;
-
 struct VtermWindowInfo {
     i32 x = 0;
     i32 y = 0;
@@ -24,7 +22,6 @@ struct VtermWindowInfo {
 };
 
 struct VtermHost {
-    virtual bool present(const Frame& frame) = 0;
     virtual void osc(int command, const std::string& argument) = 0;
     virtual bool handlesOsc() const = 0;
     virtual void bell() = 0;
