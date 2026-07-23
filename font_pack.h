@@ -23,10 +23,12 @@ enum class FontStyle : u8 {
 struct Fontpack {
     virtual u16 getPx() const = 0;
     virtual u16 getPy() const = 0;
+
     virtual bool hasBold() const = 0;
     virtual bool hasItalic() const = 0;
     virtual bool hasBoldItalic() const = 0;
     virtual bool hasDoubleWidth() const = 0;
+
     virtual FontGlyph glyph(u32 id, FontStyle style, bool doubleWidth) = 0;
 
     static Fontpack* create(Composer& composer, stl::StringView fontname, stl::StringView dwfontname);
