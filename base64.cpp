@@ -4,7 +4,7 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-/* This file is part of Zutty.
+/* part of this file is part of Zutty.
  * Copyright (C) 2020 Tom Szilagyi
  *
  * This program is free software: you can redistribute it and/or modify
