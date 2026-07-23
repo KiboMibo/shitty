@@ -25,7 +25,7 @@ terminal without uploading a CPU-rendered full-frame bitmap.
       ↓ changed cells
    CharVdev           host-side render-cell mirror
       ↓ SSBO                         Fontpack
- VulkanPresenter  ← atlas/map textures ┘
+   Renderer       ← atlas/map textures ┘
       ↓ compute shader (`render.comp`)
  persistent RGBA8 image
       ↓ blit
@@ -34,9 +34,9 @@ terminal without uploading a CPU-rendered full-frame bitmap.
 
 The terminal model is deliberately separated from the frontend. `Vterm`
 consumes PTY bytes and mutates `Frame`; `Frame` owns canonical terminal state
-and damage; `Renderer` copies full or delta cell data into `CharVdev`; and
-`VulkanPresenter` composites cells, glyphs, cursor, selection, and decorations
-with a compute shader.
+and damage; `Renderer` copies full or delta cell data into `CharVdev`, then
+composites cells, glyphs, cursor, selection, and decorations with a compute
+shader.
 
 Important boundaries:
 
@@ -192,7 +192,7 @@ UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1' \
 - `vterm.*` — VT parser, terminal modes, reports, keyboard, mouse, and OSC/DCS.
 - `frame.*` — canonical cells, scrollback, resize/reflow, damage, and selection.
 - `application.*` — Wayland/GLFW event loop, child process, clipboard, and UI.
-- `vk_renderer.*`, `vk_presenter.*` — render bridge and Vulkan presentation.
+- `vk_renderer.*` — render bridge, glyph cache, Vulkan composition, and presentation.
 - `render.comp` — terminal compute compositor, embedded as SPIR-V at build time.
 - `font.*`, `font_pack.*`, `font_resolver.*` — fontconfig and FreeType atlases.
 - `test_mode.*`, `tests/harness.py` — test-build-only control protocol and snapshots.

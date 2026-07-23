@@ -25,7 +25,7 @@
 #include "pty.h"
 #include "startup.h"
 #include "utf8.h"
-#include "vk_presenter.h"
+#include "vk_renderer.h"
 #include "vterm.h"
 #include "vterm_host.h"
 #include "vterm_trace.h"
@@ -1098,13 +1098,13 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
             } else if (line == "GPU_ATTRIBUTE_MASKS") {
                 RenderCell cell;
                 cell.dwidth = true;
-                const u32 doubleWidth = VulkanPresenter::packCellAttributes(cell);
+                const u32 doubleWidth = rendererCellAttributesForTest(cell);
                 cell.dwidth = false;
                 cell.dwidth_cont = true;
-                const u32 continuation = VulkanPresenter::packCellAttributes(cell);
+                const u32 continuation = rendererCellAttributesForTest(cell);
                 cell.dwidth_cont = false;
                 cell.dirty = true;
-                const u32 dirty = VulkanPresenter::packCellAttributes(cell);
+                const u32 dirty = rendererCellAttributesForTest(cell);
                 writeAll(controlFd, "OK " + std::to_string(doubleWidth) + " " + std::to_string(continuation) + " " + std::to_string(dirty) + "\n");
             } else if (line == "POLL_CHILD") {
                 pumpChild();
