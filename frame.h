@@ -12,22 +12,19 @@
 #pragma once
 #include <std/sys/types.h>
 
+#include "cell_extra.h"
 #include "terminal_types.h"
 #include "utf8.h"
 
 #include <cstddef>
 #include <deque>
-#include <set>
-#include <unordered_map>
 #include <vector>
 
 class Frame {
 public:
-    using Grapheme = std::vector<u32>;
-
     Frame();
 
-    Frame(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, const TerminalColors* colors_, u16 saveLines_ = 0);
+    Frame(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, const TerminalColors* colors_, CellExtraStore* extras_, u16 saveLines_ = 0);
 
     struct ResizeState {
         Point cursor;
@@ -56,8 +53,17 @@ public:
     TerminalCell* writeSpan(u16 pY, u16 startX, u16 count);
     const TerminalCell& getViewCell(u16 pY, u16 pX) const;
 
-    u32 internGrapheme(const u32* codepoints, size_t size);
-    const Grapheme& getGrapheme(u32 id) const;
+    GraphemeView getGrapheme(u32 ref) const;
+    CellColor getUnderlineColor(const TerminalCell& cell) const noexcept {
+        return extras->underlineColor(cell);
+    }
+    void collectExtraRefLocations(stl::Vector<u32*>& locations);
+    void bindExtraStore(CellExtraStore* store) noexcept {
+        extras = store;
+    }
+    size_t cellCapacity() const noexcept {
+        return (size_t)(nCols) * (nRows + saveLines);
+    }
 
     void eraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs);
     void eraseWideInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs);
@@ -86,7 +92,6 @@ public:
         return viewOffset;
     };
 
-    void collectHyperlinkIds(std::set<u32>& ids) const;
     void expose() {
         damage.expose();
     };
@@ -172,20 +177,15 @@ public:
     u16 saveLines = 0;
 
 private:
-    struct GraphemeStore {
-        std::vector<Grapheme> values = {Grapheme{}};
-        std::unordered_multimap<size_t, u32> ids;
-    };
-
     using RowId = u32;
 
     u16 viewOffset;
 
     TerminalCell::Ptr cells = nullptr;
     const TerminalColors* colors = nullptr;
-    std::shared_ptr<GraphemeStore> graphemes = std::make_shared<GraphemeStore>();
+    CellExtraStore* extras = nullptr;
     std::vector<TerminalCell> erasedRowTemplate;
-    TerminalCell erasedRowCell;
+    TerminalCell erasedRowCell{};
     bool erasedRowTemplateValid = false;
     // Every allocated row belongs to exactly one of these containers.
     std::vector<RowId> screen;

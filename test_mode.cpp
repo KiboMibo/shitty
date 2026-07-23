@@ -261,14 +261,25 @@ namespace {
         Rect selection;
         std::vector<RenderCell> cells;
         std::vector<TerminalCell> modelCells;
-        std::vector<Frame::Grapheme> cellGraphemes;
+        std::vector<std::vector<u32>> cellGraphemes;
+        std::vector<CellColor> modelUnderlineColors;
     };
+
+    template <class Cell>
+    unsigned cellUnderline(const Cell& cell) {
+        return cell.underline;
+    }
+
+    template <>
+    unsigned cellUnderline(const TerminalCell& cell) {
+        return cell.underlined();
+    }
 
     template <class Cell>
     unsigned cellFlags(const Cell& cell) {
         return (cell.dwidth << 0) | (cell.dwidth_cont << 1)
              | (cell.bold << 2) | (cell.italic << 3)
-             | (cell.underline << 4) | (cell.inverse << 5)
+             | (cellUnderline(cell) << 4) | (cell.inverse << 5)
              | (cell.wrap << 6) | (cell.faint << 7)
              | (cell.blink << 8) | (cell.conceal << 9)
              | (cell.strike << 10) | (cell.overline << 11)
@@ -314,11 +325,14 @@ bool TestDisplay::update(const Frame& frame) {
         cell.dirty = 0;
     }
     cellGraphemes.resize(count);
+    modelUnderlineColors.resize(count);
     for (u16 row = 0; row < rows; ++row) {
         for (u16 column = 0; column < columns; ++column) {
             const size_t index = (size_t)(row) * columns + column;
             modelCells[index] = frame.getViewCell(row, column);
-            cellGraphemes[index] = frame.getGrapheme(modelCells[index].grapheme);
+            const auto grapheme = frame.getGrapheme(modelCells[index].extraRef());
+            cellGraphemes[index].assign(grapheme.begin(), grapheme.end());
+            modelUnderlineColors[index] = frame.getUnderlineColor(modelCells[index]);
         }
     }
     cursor = frame.getCursor();
@@ -373,7 +387,7 @@ std::string TestDisplay::modelSnapshot() const {
         const auto& cell = cells[index];
         const auto& modelCell = modelCells[index];
         const unsigned flags = cellFlags(modelCell);
-        output << std::setw(8) << cell.uc_pt << std::setw(8) << flags << std::setw(2) << (unsigned)(cell.fg.red) << std::setw(2) << (unsigned)(cell.fg.green) << std::setw(2) << (unsigned)(cell.fg.blue) << std::setw(2) << (unsigned)(cell.bg.red) << std::setw(2) << (unsigned)(cell.bg.green) << std::setw(2) << (unsigned)(cell.bg.blue) << std::setw(2) << (unsigned)(cell.underline_color.red) << std::setw(2) << (unsigned)(cell.underline_color.green) << std::setw(2) << (unsigned)(cell.underline_color.blue) << std::setw(8) << cell.hyperlink << std::setw(8) << cell.semantic << std::setw(8) << (u32)(modelCell.fg.legacyIndex()) << std::setw(8) << (u32)(modelCell.bg.legacyIndex()) << std::setw(8) << (u32)(modelCell.underline_color.legacyIndex()) << std::setw(8) << cellGraphemes[index].size();
+        output << std::setw(8) << cell.uc_pt << std::setw(8) << flags << std::setw(2) << (unsigned)(cell.fg.red) << std::setw(2) << (unsigned)(cell.fg.green) << std::setw(2) << (unsigned)(cell.fg.blue) << std::setw(2) << (unsigned)(cell.bg.red) << std::setw(2) << (unsigned)(cell.bg.green) << std::setw(2) << (unsigned)(cell.bg.blue) << std::setw(2) << (unsigned)(cell.underline_color.red) << std::setw(2) << (unsigned)(cell.underline_color.green) << std::setw(2) << (unsigned)(cell.underline_color.blue) << std::setw(8) << cell.hyperlink << std::setw(8) << cell.semantic << std::setw(8) << (u32)(modelCell.foreground().legacyIndex()) << std::setw(8) << (u32)(modelCell.background().legacyIndex()) << std::setw(8) << (u32)(modelUnderlineColors[index].legacyIndex()) << std::setw(8) << cellGraphemes[index].size();
         for (const u32 codepoint : cellGraphemes[index]) {
             output << std::setw(8) << codepoint;
         }
@@ -412,9 +426,9 @@ std::string TestDisplay::modelDigest() const {
         digest.add(cell.underline_color.blue);
         digest.add(cell.hyperlink);
         digest.add(cell.semantic);
-        digest.add((u32)(modelCell.fg.legacyIndex()));
-        digest.add((u32)(modelCell.bg.legacyIndex()));
-        digest.add((u32)(modelCell.underline_color.legacyIndex()));
+        digest.add((u32)(modelCell.foreground().legacyIndex()));
+        digest.add((u32)(modelCell.background().legacyIndex()));
+        digest.add((u32)(modelUnderlineColors[index].legacyIndex()));
         digest.add(cellGraphemes[index].size());
         for (const u32 codepoint : cellGraphemes[index]) {
             digest.add(codepoint);
@@ -1462,7 +1476,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                        << (unsigned)(pen.bg.red) << ' '
                        << (unsigned)(pen.bg.green) << ' '
                        << (unsigned)(pen.bg.blue) << ' '
-                       << pen.cell.fg.legacyIndex() << ' ' << pen.cell.bg.legacyIndex() << '\n';
+                       << pen.cell.foreground().legacyIndex() << ' ' << pen.cell.background().legacyIndex() << '\n';
                 writeAll(controlFd, output.str());
             } else if (line == "PARSER_TRACE_ON") {
                 vtermTrace.clear();

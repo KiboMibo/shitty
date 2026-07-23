@@ -85,38 +85,11 @@ void Frame::setSelectionColor(bool foreground, Color color, bool enabled) {
     expose();
 }
 
-u32 Frame::internGrapheme(const u32* codepoints, size_t size) {
-    if (size < 2) {
-        return 0;
-    }
-
-    size_t hash = 1469598103934665603ull;
-    for (size_t index = 0; index < size; ++index) {
-        hash ^= codepoints[index];
-        hash *= 1099511628211ull;
-    }
-    const auto [begin, end] = graphemes->ids.equal_range(hash);
-    for (auto item = begin; item != end; ++item) {
-        const Grapheme& candidate = graphemes->values[item->second];
-        if (candidate.size() == size && std::equal(candidate.begin(), candidate.end(), codepoints)) {
-            return item->second;
-        }
-    }
-
-    const u32 id = graphemes->values.size();
-    graphemes->values.emplace_back(codepoints, codepoints + size);
-    graphemes->ids.emplace(hash, id);
-    return id;
+GraphemeView Frame::getGrapheme(u32 ref) const {
+    return extras == nullptr ? GraphemeView{} : extras->grapheme(ref);
 }
 
-const Frame::Grapheme& Frame::getGrapheme(u32 id) const {
-    if (id >= graphemes->values.size()) {
-        return graphemes->values.front();
-    }
-    return graphemes->values[id];
-}
-
-Frame::Frame(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, const TerminalColors* colors_, u16 saveLines_)
+Frame::Frame(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, const TerminalColors* colors_, CellExtraStore* extras_, u16 saveLines_)
     : winPx(winPx_)
     , winPy(winPy_)
     , nCols(nCols_)
@@ -125,6 +98,7 @@ Frame::Frame(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u1
     , viewOffset(0)
     , cells(TerminalCell::make(nCols, nRows + saveLines))
     , colors(colors_)
+    , extras(extras_)
     , screen(nRows)
 {
     for (RowId row = 0; row < nRows; ++row) {
@@ -151,12 +125,12 @@ void Frame::dropScrollbackHistory() {
     expose();
 }
 
-void Frame::collectHyperlinkIds(std::set<u32>& ids) const {
+void Frame::collectExtraRefLocations(stl::Vector<u32*>& locations) {
     const auto collectRow = [&](RowId row) {
-        const TerminalCell* first = cells.get() + row * nCols;
+        TerminalCell* first = cells.get() + row * nCols;
         for (u16 column = 0; column < nCols; ++column) {
-            if (first[column].hyperlink != 0) {
-                ids.insert(first[column].hyperlink);
+            if (first[column].hasExtra()) {
+                locations.pushBack(&first[column].payload);
             }
         }
     };
@@ -552,10 +526,11 @@ Rect Frame::getSnappedSelection() const {
             const auto expand = [this, &cellLead](int rowIndex, int x) {
                 const auto* row = getLogicalRowPtr(rowIndex);
                 int left = cellLead(row, x);
-                const u32 selectedClass = wordClass(row[left].uc_pt);
+                const u32 selectedClass = wordClass(row[left].uc_pt ? row[left].uc_pt : ' ');
                 while (left > 0) {
                     const int previous = cellLead(row, left - 1);
-                    if (wordClass(row[previous].uc_pt) != selectedClass) {
+                    const u32 codepoint = row[previous].uc_pt ? row[previous].uc_pt : ' ';
+                    if (wordClass(codepoint) != selectedClass) {
                         break;
                     }
                     left = previous;
@@ -564,7 +539,8 @@ Rect Frame::getSnappedSelection() const {
                 int right = left;
                 while (right < nCols) {
                     const int lead = cellLead(row, right);
-                    if (wordClass(row[lead].uc_pt) != selectedClass) {
+                    const u32 codepoint = row[lead].uc_pt ? row[lead].uc_pt : ' ';
+                    if (wordClass(codepoint) != selectedClass) {
                         break;
                     }
                     right = lead + (row[lead].dwidth ? 2 : 1);
@@ -610,13 +586,13 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
         for (u16 x = x1; x < x2; ++x) {
             const auto& cell = cp[x];
             if (!cell.dwidth_cont) {
-                const auto& grapheme = getGrapheme(cell.grapheme);
+                const auto grapheme = extras->grapheme(cell);
                 if (grapheme.empty()) {
-                    line.push_back(cell.uc_pt);
+                    line.push_back(cell.uc_pt ? cell.uc_pt : ' ');
                 } else {
                     line.insert(line.end(), grapheme.begin(), grapheme.end());
                 }
-                if (cell.drawn || cell.uc_pt != ' ' || !grapheme.empty()) {
+                if (cell.drawn || (cell.uc_pt != 0 && cell.uc_pt != ' ') || !grapheme.empty()) {
                     contentEnd = line.size();
                 }
             }
@@ -682,16 +658,35 @@ bool Frame::getSelectedUtf8(std::string& utf8_selection) const {
 
 RenderCell Frame::materialize(const TerminalCell& cell) const {
     assert(colors != nullptr);
+    assert(extras != nullptr);
     RenderCell result;
-    memcpy(&result, &cell, offsetof(TerminalCell, fg));
+    result.uc_pt = cell.uc_pt ? cell.uc_pt : ' ';
+    result.dwidth = cell.dwidth;
+    result.dwidth_cont = cell.dwidth_cont;
+    result.bold = cell.bold;
+    result.italic = cell.italic;
+    result.underline = cell.underlined();
+    result.inverse = cell.inverse;
+    result.wrap = cell.wrap;
+    result.dirty = cell.dirty;
+    result.faint = cell.faint;
+    result.blink = cell.blink;
+    result.conceal = cell.conceal;
+    result.strike = cell.strike;
+    result.overline = cell.overline;
+    result.underline_style = cell.underline_style;
+    result.protected_char = cell.protected_char;
+    result.drawn = cell.drawn;
+    result.line_attr = cell.line_attr;
     result.fg = colors->resolveForeground(cell);
     result.bg = colors->resolveBackground(cell);
-    result.underline_color = colors->resolve(cell.underline_color);
-    if (cell.underline && cell.underline_color == cell.fg) {
+    const CellColor underlineColor = extras->underlineColor(cell);
+    result.underline_color = colors->resolve(underlineColor);
+    if (cell.underlined() && underlineColor == cell.foreground()) {
         result.underline_color = result.fg;
     }
-    result.hyperlink = cell.hyperlink;
-    result.grapheme = cell.grapheme;
+    result.hyperlink = extras->hyperlinkDisplayId(cell);
+    result.grapheme = extras->grapheme(cell).empty() ? 0 : cell.extraRef();
     result.semantic = cell.semantic;
     return result;
 }
@@ -886,7 +881,7 @@ void Frame::fillCells(u16 ch, const TerminalCell& attrs) {
         u32 end = start + nCols;
         for (u32 k = start; k < end; ++k) {
             cells.get()[k] = attrs;
-            cells.get()[k].uc_pt = ch;
+            cells.get()[k].uc_pt = ch == ' ' ? 0 : ch;
             cells.get()[k].drawn = ch != ' ';
         }
         damage.add(start, end);
@@ -1043,10 +1038,9 @@ void Frame::repairWideBoundary(u16 pY, u16 boundary, const TerminalCell& attrs) 
 
 void Frame::selectiveEraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs, u8 protectionMask) {
     TerminalCell erased = attrs;
-    erased.uc_pt = ' ';
+    erased.uc_pt = 0;
     erased.protected_char = 0;
-    erased.hyperlink = 0;
-    erased.grapheme = 0;
+    extras->clearExtra(erased, extras->underlineColor(attrs));
     for (u16 x = startX; x < startX + count; ++x) {
         const u32 index = getIdx(pY, x);
         auto& cell = operator[](index);

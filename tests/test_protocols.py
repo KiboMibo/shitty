@@ -456,6 +456,86 @@ class ProtocolTest(unittest.TestCase):
             terminal.write(bytes(output))
             self.assertLess(terminal.hyperlink_count(), 256)
 
+    def test_cell_extra_gc_reinterns_combined_live_payload(self):
+        output = bytearray(
+            b"\x1b]8;id=live;https://example.test/live\x1b\\"
+            b"\x1b[4;58;5;46mA\xcc\x81"
+            b"\x1b]8;;\x1b\\\x1b[0m"
+        )
+        for number in range(100):
+            output.extend(
+                f"\x1b[1;2H\x1b]8;id=dead-{number};"
+                f"https://example.test/dead/{number}\x1b\\X".encode()
+            )
+        output.extend(b"\x1b]8;;\x1b\\")
+
+        with Shitty(columns=2, rows=1, save_lines=1) as terminal:
+            terminal.write(bytes(output))
+            self.assertLess(terminal.hyperlink_count(), 8)
+
+            # GC runs after the successful presentation and exposes the whole
+            # frame.  A second presentation therefore exercises the rewritten
+            # refs, rather than the renderer's pre-GC materialized copy.
+            terminal.present()
+            cell = terminal.model_snapshot().cell(0, 0)
+            self.assertEqual(cell.grapheme, (ord("A"), 0x301))
+            self.assertTrue(cell.underline)
+            self.assertEqual(cell.underline_index, 46)
+            self.assertEqual(
+                terminal.hyperlink(0, 0),
+                "https://example.test/live",
+            )
+
+    def test_cell_extra_gc_keeps_active_hyperlink_root(self):
+        output = bytearray()
+        for number in range(100):
+            output.extend(
+                f"\x1b[1;1H\x1b]8;id=dead-{number};"
+                f"https://example.test/dead/{number}\x1b\\X".encode()
+            )
+        output.extend(
+            b"\x1b]8;id=active;https://example.test/active\x1b\\"
+        )
+
+        with Shitty(columns=1, rows=1, save_lines=1) as terminal:
+            terminal.write(bytes(output))
+            self.assertLess(terminal.hyperlink_count(), 8)
+            terminal.write(b"\rY\x1b]8;;\x1b\\")
+            self.assertEqual(
+                terminal.hyperlink(0, 0),
+                "https://example.test/active",
+            )
+
+    def test_cell_extra_gc_scans_inactive_frame_history(self):
+        output = bytearray(
+            b"\x1b]8;id=primary;https://example.test/primary\x1b\\P"
+            b"\x1b]8;;\x1b\\\r\n"
+            b"\x1b[?1049h"
+            b"\x1b]8;id=alternate;https://example.test/alternate\x1b\\A"
+            b"\x1b]8;;\x1b\\"
+        )
+        for number in range(100):
+            output.extend(
+                f"\x1b[1;2H\x1b]8;id=dead-{number};"
+                f"https://example.test/dead/{number}\x1b\\X".encode()
+            )
+        output.extend(b"\x1b]8;;\x1b\\")
+
+        with Shitty(columns=2, rows=1, save_lines=1) as terminal:
+            terminal.write(bytes(output))
+            self.assertLess(terminal.hyperlink_count(), 8)
+            self.assertEqual(
+                terminal.hyperlink(0, 0),
+                "https://example.test/alternate",
+            )
+
+            terminal.write(b"\x1b[?1049l")
+            terminal.wheel_up()
+            self.assertEqual(
+                terminal.hyperlink(0, 0),
+                "https://example.test/primary",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

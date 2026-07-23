@@ -34,6 +34,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cerrno>
 #include <charconv>
 #include <chrono>
@@ -44,6 +45,7 @@
 #include <iomanip>
 #include <map>
 #include <memory>
+#include <set>
 #include <signal.h>
 #include <sstream>
 #include <sys/types.h>
@@ -67,7 +69,7 @@ void MouseTrackingState::setEncoding(MouseTrackingEnc value) {
 }
 
 namespace {
-    const TerminalCell blankCell;
+    const TerminalCell blankCell{};
 
     bool decodeHex(const std::string& value, std::string& result) {
         const auto digit = [](unsigned char ch) -> int {
@@ -244,7 +246,9 @@ namespace {
         void resetScreen(bool resetTabStops = true);
         void clearScreen();
         void fillScreen(u16 ch);
-        void pruneHyperlinks();
+        void collectCellExtrasIfNeeded(bool force = false);
+        void collectCellExtras();
+        void updateExtraCellCount();
 
         enum class InputState : u8 {
             Normal,
@@ -320,6 +324,24 @@ namespace {
         void jumpToNextTabStop();
         void setFgFromPalIx();
         void setBgFromPalIx();
+        CellColor attrForeground() const noexcept {
+            return attrs.foreground();
+        }
+        CellColor attrBackground() const noexcept {
+            return attrs.background();
+        }
+        CellColor attrUnderlineColor() const noexcept {
+            return attrs.inlineUnderlineColor();
+        }
+        void setAttrForeground(CellColor color) noexcept {
+            attrs.setForeground(color);
+        }
+        void setAttrBackground(CellColor color) noexcept {
+            attrs.setBackground(color);
+        }
+        void setAttrUnderlineColor(CellColor color) noexcept {
+            attrs.setInlineUnderlineColor(color);
+        }
 
         void inp_LF();
         void inp_CR();
@@ -460,6 +482,12 @@ namespace {
         std::u8string ptyOutput;
         size_t ptyOutputOffset = 0;
 
+        std::unique_ptr<CellExtraStore> extraStore;
+        stl::Vector<u32> extraRelocation;
+        stl::Vector<u32*> extraFixups;
+        u32 processInputDepth = 0;
+        bool presentedSinceGcSafePoint = false;
+
         TerminalColors colors;
         Color originalPalette256[256];
         Frame frame_pri;
@@ -471,14 +499,10 @@ namespace {
         u16 marginBottom;
         bool lastCol = false;
 
-        TerminalCell attrs;
-        CellColor* fg = &attrs.fg;
-        CellColor* bg = &attrs.bg;
+        TerminalCell attrs{};
         Color cursorColor;
         Color selectionFgColor;
         Color selectionBgColor;
-        std::map<std::string, u32> hyperlinkIds;
-        std::map<u32, std::string> hyperlinks;
         u32 activeHyperlink = 0;
         u32 nextHyperlink = 1;
         u32 currentSemantic = 0;
@@ -708,7 +732,7 @@ namespace {
             u16 posX = 0;
             u16 posY = 0;
             bool lastCol = false;
-            TerminalCell attrs;
+            TerminalCell attrs{};
             OriginMode originMode = OriginMode::Absolute;
             CharsetState charsetState = CharsetState{};
         };
@@ -848,7 +872,7 @@ size_t VtermImpl::pendingPtyOutputBytes() const {
 }
 
 size_t VtermImpl::getHyperlinkCount() const {
-    return hyperlinks.size();
+    return extraStore->hyperlinkCount();
 }
 
 const char* VtermImpl::strInputState(InputState is) {
@@ -949,7 +973,77 @@ void VtermImpl::redraw() {
 
     if (host.present(*cf)) {
         cf->resetDamage();
+        presentedSinceGcSafePoint = true;
+        collectCellExtrasIfNeeded();
     }
+}
+
+void VtermImpl::updateExtraCellCount() {
+    size_t count = frame_pri ? frame_pri.cellCapacity() : 0;
+    count += frame_alt ? frame_alt.cellCapacity() : 0;
+    extraStore->setCellCount(count);
+}
+
+void VtermImpl::collectCellExtrasIfNeeded(bool force) {
+    const bool hardLimit = extraStore->hardLimitExceeded();
+    if (processInputDepth != 0) {
+        return;
+    }
+    if (!extraStore->shouldCollect() && !force) {
+        presentedSinceGcSafePoint = false;
+        return;
+    }
+    if (!presentedSinceGcSafePoint && !hardLimit && !force) {
+        return;
+    }
+    collectCellExtras();
+    presentedSinceGcSafePoint = false;
+}
+
+void VtermImpl::collectCellExtras() {
+    CellExtraStore* const oldStore = extraStore.get();
+    auto next = std::make_unique<CellExtraStore>(
+        (frame_pri ? frame_pri.cellCapacity() : 0)
+        + (frame_alt ? frame_alt.cellCapacity() : 0));
+
+    extraFixups.clear();
+    extraRelocation.clear();
+    extraRelocation.zero(oldStore->slotCount());
+    if (activeHyperlink != 0) {
+        extraFixups.pushBack(&activeHyperlink);
+    }
+    if (frame_pri) {
+        frame_pri.collectExtraRefLocations(extraFixups);
+    }
+    if (frame_alt) {
+        frame_alt.collectExtraRefLocations(extraFixups);
+    }
+
+    for (u32* location : extraFixups) {
+        const u32 oldRef = *location;
+        assert(oldRef != 0 && oldRef < oldStore->slotCount());
+        if (extraRelocation[oldRef] == 0) {
+            // migrate() always appends. Equal but distinct old refs must not
+            // collapse into one ref in the new store.
+            extraRelocation.mut(oldRef) = next->migrate(*oldStore, oldRef);
+        }
+    }
+    for (u32* location : extraFixups) {
+        *location = extraRelocation[*location];
+    }
+
+    next->finishCollection();
+    extraStore.swap(next);
+    frame_pri.bindExtraStore(extraStore.get());
+    frame_alt.bindExtraStore(extraStore.get());
+    if (frame_pri) {
+        frame_pri.expose();
+    }
+    if (frame_alt) {
+        frame_alt.expose();
+    }
+    extraFixups.clear();
+    extraRelocation.clear();
 }
 
 bool VtermImpl::advanceAnimation(bool force) {
@@ -1144,8 +1238,6 @@ void VtermImpl::resetTerminal() {
     savedCursorPri.isSet = false;
     savedCursorAlt.isSet = false;
     activeHyperlink = 0;
-    hyperlinkIds.clear();
-    hyperlinks.clear();
     nextHyperlink = 1;
     currentSemantic = 0;
     titleModes = 0;
@@ -1235,8 +1327,6 @@ void VtermImpl::resetScreen(bool resetTabStops) {
 
 void VtermImpl::resetAttrs() {
     reverseVideo = false;
-    fg = &attrs.fg;
-    bg = &attrs.bg;
 
     inputOps[0] = 0;
     nInputOps = 1;
@@ -1290,7 +1380,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         if (clearAlternate) {
             if (altScreenBufferMode_) {
                 kittyKeyboardAlt = {};
-                frame_alt = Frame(winPx, winPy, nCols, nRows, marginTop, marginBottom, &colors, opts.saveLines);
+                frame_alt = Frame(winPx, winPy, nCols, nRows, marginTop, marginBottom, &colors, extraStore.get(), opts.saveLines);
                 altScreenInitialized = true;
                 cf = &frame_alt;
                 cf->expose();
@@ -1298,6 +1388,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
                 frame_alt.freeCells();
                 altScreenInitialized = false;
             }
+            updateExtraCellCount();
         }
         return;
     }
@@ -1305,7 +1396,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
     if (altScreenBufferMode_) {
         if (clearAlternate || !altScreenInitialized) {
             kittyKeyboardAlt = {};
-            frame_alt = Frame(winPx, winPy, nCols, nRows, marginTop, marginBottom, &colors, opts.saveLines);
+            frame_alt = Frame(winPx, winPy, nCols, nRows, marginTop, marginBottom, &colors, extraStore.get(), opts.saveLines);
             altScreenInitialized = true;
         } else {
             frame_alt.resize(
@@ -1334,6 +1425,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         savedCursor = &savedCursorPri;
         altScreenBufferMode = false;
     }
+    updateExtraCellCount();
 }
 
 void VtermImpl::setState(InputState newState) {
@@ -1514,12 +1606,12 @@ void VtermImpl::deleteCols(u16 startX, u16 count) {
 
 TerminalCell VtermImpl::eraseCell() const {
     TerminalCell cell = blankCell;
-    cell.fg = attrs.fg;
-    cell.bg = attrs.bg;
+    cell.setForeground(attrs.foreground());
+    cell.setBackground(attrs.background());
     if (opts.boldColors && attrs.bold && fgPalIx >= 0 && fgPalIx <= 7) {
-        cell.fg = CellColor::indexed((u8)(fgPalIx));
+        cell.setForeground(CellColor::indexed((u8)(fgPalIx)));
     }
-    cell.underline_color = cell.fg;
+    cell.setInlineUnderlineColor(cell.foreground());
     return cell;
 }
 
@@ -1743,7 +1835,7 @@ void VtermImpl::widenInputGrapheme(u16 lineCols) {
     continuation = attrs;
     continuation.dwidth_cont = 1;
     continuation.drawn = 1;
-    continuation.hyperlink = lead.hyperlink;
+    extraStore->setHyperlink(continuation, lead.extraRef());
     continuation.semantic = lead.semantic;
     continuation.line_attr = lead.line_attr;
 
@@ -1803,7 +1895,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
                 break;
         }
         auto& cell = cf->getCell(inputGraphemeY, inputGraphemeX);
-        cell.grapheme = cf->internGrapheme(inputGrapheme.data(), inputGrapheme.size());
+        extraStore->setGrapheme(cell, inputGrapheme.data(), inputGrapheme.size());
         cf->expose();
         return;
     }
@@ -1852,7 +1944,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
     c = attrs;
     c.uc_pt = pt;
     c.drawn = 1;
-    c.hyperlink = activeHyperlink;
+    extraStore->setHyperlink(c, activeHyperlink);
     c.semantic = currentSemantic;
     c.line_attr = changedRow ? ((const Frame&)*cf).getCell(posY, 0).line_attr : lineAttribute;
     if (c.blink) {
@@ -1871,7 +1963,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
         continuation = attrs;
         continuation.dwidth_cont = 1;
         continuation.drawn = 1;
-        continuation.hyperlink = activeHyperlink;
+        extraStore->setHyperlink(continuation, c.extraRef());
     }
 
     if (posX == lineCols - 1) {
@@ -1882,6 +1974,9 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
 }
 
 void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
+    TerminalCell linkedAttrs{};
+    bool linkedAttrsReady = false;
+
     while (size > 0) {
         if (insertMode) {
             utf8dec.setUnicode(*input++);
@@ -1919,13 +2014,17 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
         const u16 count = std::min<size_t>(size, lineCols - posX);
         const u16 startX = posX;
         const u16 endX = startX + count;
+        if (!linkedAttrsReady) {
+            linkedAttrs = attrs;
+            extraStore->setHyperlink(linkedAttrs, activeHyperlink);
+            linkedAttrsReady = true;
+        }
         TerminalCell* cells = prepareSpanAt(posY, startX, count);
         for (u16 index = 0; index < count; ++index) {
             auto& cell = cells[index];
-            cell = attrs;
+            cell = linkedAttrs;
             cell.uc_pt = input[index];
             cell.drawn = 1;
-            cell.hyperlink = activeHyperlink;
             cell.semantic = currentSemantic;
             cell.line_attr = lineAttribute;
         }
@@ -2165,9 +2264,9 @@ std::string VtermImpl::printableLine(u16 row) const {
         if (cell.dwidth_cont) {
             continue;
         }
-        const auto& grapheme = cf->getGrapheme(cell.grapheme);
+        const auto grapheme = extraStore->grapheme(cell);
         if (grapheme.empty()) {
-            codepoints.push_back(cell.uc_pt);
+            codepoints.push_back(cell.uc_pt ? cell.uc_pt : ' ');
         } else {
             codepoints.insert(codepoints.end(), grapheme.begin(), grapheme.end());
         }
@@ -2537,8 +2636,6 @@ void VtermImpl::esc_DECRC() {
         lastCol = savedCursor->lastCol;
         attrs = savedCursor->attrs;
         reverseVideo = attrs.inverse;
-        fg = &attrs.fg;
-        bg = &attrs.bg;
         originMode = savedCursor->originMode;
         charsetState = savedCursor->charsetState;
     }
@@ -3010,7 +3107,7 @@ void VtermImpl::csi_DECCARA(bool reverse) {
             switch (mode) {
                 case 0:
                     cell.bold = reverse ? !cell.bold : false;
-                    cell.underline = reverse ? !cell.underline : false;
+                    cell.underline_style = reverse ? !cell.underlined() : 0;
                     cell.blink = reverse ? !cell.blink : false;
                     cell.inverse = reverse ? !cell.inverse : false;
                     break;
@@ -3018,7 +3115,7 @@ void VtermImpl::csi_DECCARA(bool reverse) {
                     cell.bold = reverse ? !cell.bold : true;
                     break;
                 case 4:
-                    cell.underline = reverse ? !cell.underline : true;
+                    cell.underline_style = reverse ? !cell.underlined() : 1;
                     break;
                 case 5:
                     cell.blink = reverse ? !cell.blink : true;
@@ -3036,7 +3133,7 @@ void VtermImpl::csi_DECCARA(bool reverse) {
                     break;
                 case 24:
                     if (!reverse) {
-                        cell.underline = 0;
+                        cell.underline_style = 0;
                     }
                     break;
                 case 25:
@@ -3689,8 +3786,8 @@ bool VtermImpl::getPrivateMode(u32 arg) const {
 TerminalPen VtermImpl::getPenState() const {
     TerminalPen result;
     result.cell = attrs;
-    result.fg = colors.resolve(result.cell.fg);
-    result.bg = colors.resolve(result.cell.bg);
+    result.fg = colors.resolve(result.cell.foreground());
+    result.bg = colors.resolve(result.cell.background());
     return result;
 }
 
@@ -3744,26 +3841,26 @@ void VtermImpl::csi_privRestore() {
 
 void VtermImpl::setFgFromPalIx() {
     if (fgPalIx < 0) {
-        *fg = CellColor::defaultForeground();
+        setAttrForeground(CellColor::defaultForeground());
     } else if (fgPalIx > 255) {
         return;
     } else if (opts.boldColors && attrs.bold && fgPalIx >= 0 && fgPalIx <= 7) {
-        *fg = CellColor::indexed(fgPalIx + 8);
+        setAttrForeground(CellColor::indexed(fgPalIx + 8));
     } else {
-        *fg = CellColor::indexed(fgPalIx);
+        setAttrForeground(CellColor::indexed(fgPalIx));
     }
     if (underlineColorDefault) {
-        attrs.underline_color = *fg;
+        setAttrUnderlineColor(attrForeground());
     }
 }
 
 void VtermImpl::setBgFromPalIx() {
     if (bgPalIx < 0) {
-        *bg = CellColor::defaultBackground();
+        setAttrBackground(CellColor::defaultBackground());
     } else if (bgPalIx > 255) {
         return;
     } else {
-        *bg = CellColor::indexed(bgPalIx);
+        setAttrBackground(CellColor::indexed(bgPalIx));
     }
 }
 
@@ -3856,11 +3953,10 @@ void VtermImpl::csi_SGR() {
 
         switch (attr) {
             case 0:
-                attrs.uc_pt = ' ';
+                attrs.uc_pt = 0;
                 attrs.bold = 0;
                 attrs.faint = 0;
                 attrs.italic = 0;
-                attrs.underline = 0;
                 attrs.underline_style = 0;
                 attrs.blink = 0;
                 attrs.conceal = 0;
@@ -3868,14 +3964,12 @@ void VtermImpl::csi_SGR() {
                 attrs.overline = 0;
                 attrs.inverse = 0;
                 reverseVideo = false;
-                fg = &attrs.fg;
-                bg = &attrs.bg;
                 fgPalIx = defaultFgPalIx;
                 setFgFromPalIx();
                 bgPalIx = defaultBgPalIx;
                 setBgFromPalIx();
                 underlineColorDefault = true;
-                attrs.underline_color = *fg;
+                setAttrUnderlineColor(attrForeground());
                 break;
             case 1:
                 attrs.bold = 1;
@@ -3892,10 +3986,8 @@ void VtermImpl::csi_SGR() {
                     const u32 style = inputOps[++k];
                     if (style <= 5) {
                         attrs.underline_style = style;
-                        attrs.underline = style != 0;
                     }
                 } else {
-                    attrs.underline = 1;
                     attrs.underline_style = 1;
                 }
                 break;
@@ -3927,7 +4019,6 @@ void VtermImpl::csi_SGR() {
             case 19:
                 break;
             case 21:
-                attrs.underline = 1;
                 attrs.underline_style = 2;
                 break;
             case 22:
@@ -3942,7 +4033,6 @@ void VtermImpl::csi_SGR() {
                 attrs.blink = 0;
                 break;
             case 24:
-                attrs.underline = 0;
                 attrs.underline_style = 0;
                 break;
             case 27:
@@ -3971,10 +4061,14 @@ void VtermImpl::csi_SGR() {
                 break;
 
             case 38:
-                if (parseColor(k, *fg, &fgPalIx)) {
+                {
+                    CellColor color = attrForeground();
+                    if (parseColor(k, color, &fgPalIx)) {
+                        setAttrForeground(color);
+                    }
                 }
                 if (underlineColorDefault) {
-                    attrs.underline_color = *fg;
+                    setAttrUnderlineColor(attrForeground());
                 }
                 break;
             case 39:
@@ -3995,7 +4089,11 @@ void VtermImpl::csi_SGR() {
                 break;
 
             case 48:
-                if (parseColor(k, *bg, &bgPalIx)) {
+                {
+                    CellColor color = attrBackground();
+                    if (parseColor(k, color, &bgPalIx)) {
+                        setAttrBackground(color);
+                    }
                 }
                 break;
             case 49:
@@ -4005,13 +4103,17 @@ void VtermImpl::csi_SGR() {
 
             case 58:
                 underlinePalIx = -1;
-                if (parseColor(k, attrs.underline_color, &underlinePalIx)) {
-                    underlineColorDefault = false;
+                {
+                    CellColor color = attrUnderlineColor();
+                    if (parseColor(k, color, &underlinePalIx)) {
+                        setAttrUnderlineColor(color);
+                        underlineColorDefault = false;
+                    }
                 }
                 break;
             case 59:
                 underlineColorDefault = true;
-                attrs.underline_color = *fg;
+                setAttrUnderlineColor(attrForeground());
                 break;
 
             case 53:
@@ -4051,7 +4153,7 @@ void VtermImpl::csi_SGR() {
         }
     }
     if (underlineColorDefault) {
-        attrs.underline_color = reverseVideo ? attrs.bg : attrs.fg;
+        setAttrUnderlineColor(reverseVideo ? attrBackground() : attrForeground());
     }
     setState(InputState::Normal);
 }
@@ -4320,14 +4422,10 @@ void VtermImpl::esch_DECALN() {
     lastCol = false;
 
     TerminalCell origAttrs = attrs;
-    CellColor* origFg = &attrs.fg;
-    CellColor* origBg = &attrs.bg;
 
     resetAttrs();
     fillScreen('E');
 
-    fg = origFg;
-    bg = origBg;
     attrs = origAttrs;
     reverseVideo = attrs.inverse;
 
@@ -4530,7 +4628,7 @@ void VtermImpl::dcs_DECRQSS(const std::string& arg) {
         if (attrs.italic) {
             value << ";3";
         }
-        if (attrs.underline) {
+        if (attrs.underlined()) {
             value << ";4";
             if (attrs.underline_style > 1) {
                 value << ":" << (unsigned)(attrs.underline_style);
@@ -4557,8 +4655,8 @@ void VtermImpl::dcs_DECRQSS(const std::string& arg) {
             value << ";" << 90 + fgPalIx - 8;
         } else if (fgPalIx >= 0) {
             value << ";38:5:" << fgPalIx;
-        } else if (fg->source() == CellColor::Source::Direct) {
-            const Color color = fg->color();
+        } else if (attrForeground().source() == CellColor::Source::Direct) {
+            const Color color = attrForeground().color();
             value << ";38:2::" << (unsigned)(color.red) << ":" << (unsigned)(color.green) << ":" << (unsigned)(color.blue);
         }
         if (bgPalIx >= 0 && bgPalIx < 8) {
@@ -4567,15 +4665,15 @@ void VtermImpl::dcs_DECRQSS(const std::string& arg) {
             value << ";" << 100 + bgPalIx - 8;
         } else if (bgPalIx >= 0) {
             value << ";48:5:" << bgPalIx;
-        } else if (bg->source() == CellColor::Source::Direct) {
-            const Color color = bg->color();
+        } else if (attrBackground().source() == CellColor::Source::Direct) {
+            const Color color = attrBackground().color();
             value << ";48:2::" << (unsigned)(color.red) << ":" << (unsigned)(color.green) << ":" << (unsigned)(color.blue);
         }
         if (!underlineColorDefault) {
             if (underlinePalIx >= 0) {
                 value << ";58:5:" << underlinePalIx;
             } else {
-                const Color color = attrs.underline_color.color();
+                const Color color = attrUnderlineColor().color();
                 value << ";58:2::" << (unsigned)(color.red) << ":" << (unsigned)(color.green) << ":" << (unsigned)(color.blue);
             }
         }
@@ -6861,7 +6959,8 @@ VtermImpl::VtermImpl(VtermHost& host_, Pty& pty_, Output* dump_, u16 glyphPx_, u
     , nRows((winPy - 2 * opts.border) / glyphPy_)
     , glyphPx(glyphPx_)
     , glyphPy(glyphPy_)
-    , frame_pri(winPx, winPy, nCols, nRows, marginTop, marginBottom, &colors, opts.saveLines)
+    , extraStore(std::make_unique<CellExtraStore>((size_t)(nCols) * (nRows + opts.saveLines)))
+    , frame_pri(winPx, winPy, nCols, nRows, marginTop, marginBottom, &colors, extraStore.get(), opts.saveLines)
     , cf(&frame_pri)
     , utf8dec([this]() {
         placeGraphicChar();
@@ -6964,6 +7063,7 @@ void VtermImpl::resize(u16 winPx_, u16 winPy_) {
     showCursor();
 
     pty.resize(nCols, nRows);
+    updateExtraCellCount();
     if (inBandResizeMode) {
         reportInBandResize();
     }
@@ -7723,10 +7823,21 @@ void VtermImpl::processCsiByte(unsigned char ch) {
 }
 
 bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
-    if (parserTrace) {
-        return processInputImpl<true>(input, inputSize, refresh);
+    ++processInputDepth;
+    bool changed;
+    try {
+        changed = parserTrace
+            ? processInputImpl<true>(input, inputSize, refresh)
+            : processInputImpl<false>(input, inputSize, refresh);
+    } catch (...) {
+        --processInputDepth;
+        throw;
     }
-    return processInputImpl<false>(input, inputSize, refresh);
+    --processInputDepth;
+    if (processInputDepth == 0 && refresh) {
+        collectCellExtrasIfNeeded();
+    }
+    return changed;
 }
 
 template <bool traced>
@@ -8647,10 +8758,6 @@ void VtermImpl::setHyperlink(const std::string& parametersAndUri) {
         return;
     }
 
-    if (hyperlinks.size() >= 256 && hyperlinks.size() % 256 == 0) {
-        pruneHyperlinks();
-    }
-
     std::string identity = "uri=" + uri;
     size_t begin = 0;
     while (begin <= parameters.size()) {
@@ -8666,9 +8773,9 @@ void VtermImpl::setHyperlink(const std::string& parametersAndUri) {
         begin = end + 1;
     }
 
-    const auto known = hyperlinkIds.find(identity);
-    if (known != hyperlinkIds.end()) {
-        activeHyperlink = known->second;
+    const StringView identityView(reinterpret_cast<const u8*>(identity.data()), identity.size());
+    if (const u32 known = extraStore->findHyperlink(identityView); known != 0) {
+        activeHyperlink = known;
         return;
     }
 
@@ -8678,34 +8785,8 @@ void VtermImpl::setHyperlink(const std::string& parametersAndUri) {
         return;
     }
 
-    activeHyperlink = nextHyperlink++;
-    hyperlinkIds.emplace(identity, activeHyperlink);
-    hyperlinks.emplace(activeHyperlink, uri);
-}
-
-void VtermImpl::pruneHyperlinks() {
-    std::set<u32> used;
-    frame_pri.collectHyperlinkIds(used);
-    frame_alt.collectHyperlinkIds(used);
-    if (activeHyperlink != 0) {
-        used.insert(activeHyperlink);
-    }
-
-    for (auto it = hyperlinks.begin(); it != hyperlinks.end();) {
-        if (used.count(it->first)) {
-            ++it;
-            continue;
-        }
-        const u32 id = it->first;
-        it = hyperlinks.erase(it);
-        for (auto key = hyperlinkIds.begin(); key != hyperlinkIds.end();) {
-            if (key->second == id) {
-                key = hyperlinkIds.erase(key);
-            } else {
-                ++key;
-            }
-        }
-    }
+    const StringView uriView(reinterpret_cast<const u8*>(uri.data()), uri.size());
+    activeHyperlink = extraStore->getOrCreateHyperlink(identityView, uriView, nextHyperlink++);
 }
 
 std::string VtermImpl::getHyperlink(int pX, int pY) const {
@@ -8719,9 +8800,10 @@ std::string VtermImpl::getHyperlink(int pX, int pY) const {
         return {};
     }
 
-    const u32 id = cf->getViewCell(row, column).hyperlink;
-    const auto link = hyperlinks.find(id);
-    return link == hyperlinks.end() ? std::string{} : link->second;
+    const StringView link = extraStore->hyperlink(cf->getViewCell(row, column));
+    return link.empty()
+        ? std::string{}
+        : std::string(reinterpret_cast<const char*>(link.data()), link.length());
 }
 
 Point VtermImpl::selectionPoint(int pX, int pY) const {
