@@ -234,8 +234,23 @@ namespace {
         return output;
     }
 
-    struct TestDisplay {
-        bool update(const Frame& frame);
+    struct TestDisplay final: public VtermHost {
+        TestDisplay(ClipboardStore& clipboard, std::string& actions, std::string& printerOutput, unsigned glyphPx, unsigned glyphPy, u32 pixelWidth, u32 pixelHeight);
+
+        void attach(Vterm& terminal);
+        bool present(const Frame& frame) override;
+        void osc(int command, const std::string& argument) override;
+        bool handlesOsc() const override;
+        void bell() override;
+        bool handlesPrinter() const override;
+        void print(const std::string& output) override;
+        void leds(u8 state) override;
+        void notify(const std::string& id, const std::string& title, const std::string& body, bool close) override;
+        void progress(u32 state, u32 percent) override;
+        void windowOperation(u32 operation, u32 first, u32 second) override;
+        VtermWindowInfo windowInfo() override;
+
+        void applyWindowSize(u32 pixelWidth, u32 pixelHeight);
         void failNextPresent();
         std::string snapshot() const;
         std::string modelSnapshot() const;
@@ -265,6 +280,15 @@ namespace {
         std::vector<TerminalCell> modelCells;
         std::vector<std::vector<u32>> cellGraphemes;
         std::vector<CellColor> modelUnderlineColors;
+        ClipboardStore& clipboard;
+        std::string& actions;
+        std::string& printerOutput;
+        Vterm* terminal = nullptr;
+        unsigned glyphPx;
+        unsigned glyphPy;
+        VtermWindowInfo currentWindow;
+        VtermWindowInfo restoredWindow;
+        bool haveRestoredWindow = false;
     };
 
     template <typename Cell>
@@ -297,7 +321,27 @@ namespace {
 
 }
 
-bool TestDisplay::update(const Frame& frame) {
+TestDisplay::TestDisplay(ClipboardStore& clipboard, std::string& actions, std::string& printerOutput, unsigned glyphPx, unsigned glyphPy, u32 pixelWidth, u32 pixelHeight)
+    : clipboard(clipboard)
+    , actions(actions)
+    , printerOutput(printerOutput)
+    , glyphPx(glyphPx)
+    , glyphPy(glyphPy)
+{
+    currentWindow.x = 10;
+    currentWindow.y = 20;
+    currentWindow.pixelWidth = pixelWidth;
+    currentWindow.pixelHeight = pixelHeight;
+    currentWindow.screenPixelWidth = 1920;
+    currentWindow.screenPixelHeight = 1080;
+    restoredWindow = currentWindow;
+}
+
+void TestDisplay::attach(Vterm& value) {
+    terminal = &value;
+}
+
+bool TestDisplay::present(const Frame& frame) {
     if (failNextUpdate) {
         failNextUpdate = false;
         return false;
@@ -355,6 +399,130 @@ bool TestDisplay::update(const Frame& frame) {
     ++refreshCount;
     delta = true;
     return true;
+}
+
+void TestDisplay::osc(int command, const std::string& argument) {
+    actions += "OSC " + std::to_string(command) + " " + encodeHex(argument) + "\n";
+    if (command == 8) {
+        terminal->setHyperlink(argument);
+    } else if (command == 52) {
+        const Osc52Request request = parseOsc52(argument, opts.osc52SelectClipboard);
+        if (!request.valid) {
+            return;
+        }
+        if (request.query) {
+            std::string primary;
+            std::string system;
+            if (opts.allowOsc52Read) {
+                if (request.primary) {
+                    primary = clipboard.get(true);
+                }
+                if (primary.empty() && request.clipboard) {
+                    system = clipboard.get(false);
+                }
+            }
+            const std::string reply = encodeOsc52QueryReply(request, opts.allowOsc52Read, primary, system);
+            terminal->writePty(reply.c_str());
+        } else {
+            clipboard.apply(request);
+        }
+    }
+}
+
+bool TestDisplay::handlesOsc() const {
+    return terminal != nullptr;
+}
+
+void TestDisplay::bell() {
+    actions += "BELL\n";
+}
+
+bool TestDisplay::handlesPrinter() const {
+    return terminal != nullptr;
+}
+
+void TestDisplay::print(const std::string& output) {
+    printerOutput += output;
+}
+
+void TestDisplay::leds(u8 state) {
+    if (terminal == nullptr) {
+        return;
+    }
+    actions += "LEDS " + std::to_string(state) + "\n";
+}
+
+void TestDisplay::notify(const std::string& id, const std::string& title, const std::string& body, bool close) {
+    if (close) {
+        actions += "NOTIFY_CLOSE " + encodeHex(id) + "\n";
+    } else {
+        actions += "NOTIFY " + encodeHex(id) + " " + encodeHex(title) + " " + encodeHex(body) + "\n";
+    }
+}
+
+void TestDisplay::progress(u32 state, u32 percent) {
+    actions += "PROGRESS " + std::to_string(state) + " " + std::to_string(percent) + "\n";
+}
+
+void TestDisplay::applyWindowSize(u32 pixelWidth, u32 pixelHeight) {
+    terminal->resize(pixelWidth, pixelHeight);
+    currentWindow.pixelWidth = pixelWidth;
+    currentWindow.pixelHeight = pixelHeight;
+}
+
+void TestDisplay::windowOperation(u32 operation, u32 first, u32 second) {
+    actions += "WINDOW " + std::to_string(operation) + " " + std::to_string(first) + " " + std::to_string(second) + "\n";
+    if (operation == 1) {
+        currentWindow.iconified = false;
+    } else if (operation == 2) {
+        currentWindow.iconified = true;
+    } else if (operation == 3) {
+        currentWindow.x = (i32)(first);
+        currentWindow.y = (i32)(second);
+    } else if (operation == 4 && first && second) {
+        applyWindowSize(second, first);
+    } else if (operation == 8 && first && second) {
+        const u32 pixelWidth = 2 * opts.border + second * glyphPx;
+        const u32 pixelHeight = 2 * opts.border + first * glyphPy;
+        applyWindowSize(pixelWidth, pixelHeight);
+    } else if (operation == 9) {
+        if (first == 0) {
+            if (haveRestoredWindow) {
+                applyWindowSize(restoredWindow.pixelWidth, restoredWindow.pixelHeight);
+                currentWindow.maximized = false;
+                haveRestoredWindow = false;
+            }
+        } else if (first <= 3) {
+            if (!haveRestoredWindow) {
+                restoredWindow = currentWindow;
+                haveRestoredWindow = true;
+            }
+            const u32 pixelWidth = first == 2 ? currentWindow.pixelWidth : currentWindow.screenPixelWidth;
+            const u32 pixelHeight = first == 3 ? currentWindow.pixelHeight : currentWindow.screenPixelHeight;
+            applyWindowSize(pixelWidth, pixelHeight);
+            currentWindow.maximized = true;
+        }
+    } else if (operation == 10) {
+        const bool enable = first == 1 || (first == 2 && !currentWindow.fullscreen);
+        if (enable && !currentWindow.fullscreen) {
+            if (!haveRestoredWindow) {
+                restoredWindow = currentWindow;
+                haveRestoredWindow = true;
+            }
+            applyWindowSize(currentWindow.screenPixelWidth, currentWindow.screenPixelHeight);
+            currentWindow.fullscreen = true;
+        } else if (!enable && currentWindow.fullscreen) {
+            if (haveRestoredWindow) {
+                applyWindowSize(restoredWindow.pixelWidth, restoredWindow.pixelHeight);
+                haveRestoredWindow = false;
+            }
+            currentWindow.fullscreen = false;
+        }
+    }
+}
+
+VtermWindowInfo TestDisplay::windowInfo() {
+    return currentWindow;
 }
 
 void TestDisplay::failNextPresent() {
@@ -615,17 +783,21 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
     const u16 width = 2 * opts.border + opts.nCols * glyphPx;
     const u16 height = 2 * opts.border + opts.nRows * glyphPy;
     TestPty terminalPty(io[0]);
-    VtermHostCallbacks vtermHost;
-    Vterm& terminal = *Vterm::create(composer, vtermHost, terminalPty, glyphPx, glyphPy, width, height);
+    std::string actions;
+    std::string printerOutput;
+    ClipboardStore clipboard;
+    std::string systemClipboard;
+    clipboard.setHandlers([&systemClipboard] {
+        return systemClipboard;
+    }, [&systemClipboard](const std::string& content) {
+        systemClipboard = content;
+    });
+    TestDisplay display(clipboard, actions, printerOutput, glyphPx, glyphPy, width, height);
+    Vterm& terminal = *Vterm::create(composer, display, terminalPty, glyphPx, glyphPy, width, height);
+    display.attach(terminal);
     input.attachTestVterm(terminal);
     VtermTrace& vtermTrace = *VtermTrace::create(composer);
     terminalPty.resize(opts.nCols, opts.nRows);
-    TestDisplay display;
-    vtermHost.setRefreshHandler([&display](const Frame& frame) {
-        return display.update(frame);
-    });
-    std::string actions;
-    std::string printerOutput;
     pid_t childPid = -1;
     int childExitStatus = -1;
 
@@ -671,128 +843,8 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
         });
     };
     MouseFrontendState mouseFrontend;
-    ClipboardStore clipboard;
-    std::string systemClipboard;
-    clipboard.setHandlers([&systemClipboard] {
-        return systemClipboard;
-    }, [&systemClipboard](const std::string& content) {
-        systemClipboard = content;
-    });
-    vtermHost.setOscHandler([&terminal, &actions, &clipboard](int command, const std::string& argument) {
-        actions += "OSC " + std::to_string(command) + " " + encodeHex(argument) + "\n";
-        if (command == 8) {
-            terminal.setHyperlink(argument);
-        } else if (command == 52) {
-            const Osc52Request request = parseOsc52(argument, opts.osc52SelectClipboard);
-            if (!request.valid) {
-                return;
-            }
-            if (request.query) {
-                std::string primary;
-                std::string system;
-                if (opts.allowOsc52Read) {
-                    if (request.primary) {
-                        primary = clipboard.get(true);
-                    }
-                    if (primary.empty() && request.clipboard) {
-                        system = clipboard.get(false);
-                    }
-                }
-                const std::string reply = encodeOsc52QueryReply(request, opts.allowOsc52Read, primary, system);
-                terminal.writePty(reply.c_str());
-            } else {
-                clipboard.apply(request);
-            }
-        }
-    });
-    vtermHost.setBellHandler([&actions]() {
-        actions += "BELL\n";
-    });
-    vtermHost.setPrinterHandler([&printerOutput](const std::string& output) {
-        printerOutput += output;
-    });
-    vtermHost.setLedHandler([&actions](u8 state) {
-        actions += "LEDS " + std::to_string(state) + "\n";
-    });
-    vtermHost.setNotificationHandler([&actions](const std::string& id, const std::string& title, const std::string& body, bool close) {
-        if (close) {
-            actions += "NOTIFY_CLOSE " + encodeHex(id) + "\n";
-        } else {
-            actions += "NOTIFY " + encodeHex(id) + " " + encodeHex(title) + " " + encodeHex(body) + "\n";
-        }
-    });
-    vtermHost.setProgressHandler([&actions](u32 state, u32 percent) {
-        actions += "PROGRESS " + std::to_string(state) + " " + std::to_string(percent) + "\n";
-    });
-    VtermWindowInfo windowInfo;
-    windowInfo.x = 10;
-    windowInfo.y = 20;
-    windowInfo.pixelWidth = width;
-    windowInfo.pixelHeight = height;
-    windowInfo.screenPixelWidth = 1920;
-    windowInfo.screenPixelHeight = 1080;
-    VtermWindowInfo restoredWindowInfo = windowInfo;
-    bool haveRestoredWindowInfo = false;
-    const auto applyWindowSize = [&](u32 pixelWidth, u32 pixelHeight) {
-        terminal.resize(pixelWidth, pixelHeight);
-        windowInfo.pixelWidth = pixelWidth;
-        windowInfo.pixelHeight = pixelHeight;
-    };
-    vtermHost.setWindowOpsHandler([&](u32 operation, u32 first, u32 second) {
-        actions += "WINDOW " + std::to_string(operation) + " " + std::to_string(first) + " " + std::to_string(second) + "\n";
-        if (operation == 1) {
-            windowInfo.iconified = false;
-        } else if (operation == 2) {
-            windowInfo.iconified = true;
-        } else if (operation == 3) {
-            windowInfo.x = (i32)(first);
-            windowInfo.y = (i32)(second);
-        } else if (operation == 4 && first && second) {
-            applyWindowSize(second, first);
-        } else if (operation == 8 && first && second) {
-            const u32 pixelWidth = 2 * opts.border + second * glyphPx;
-            const u32 pixelHeight = 2 * opts.border + first * glyphPy;
-            applyWindowSize(pixelWidth, pixelHeight);
-        } else if (operation == 9) {
-            if (first == 0) {
-                if (haveRestoredWindowInfo) {
-                    applyWindowSize(restoredWindowInfo.pixelWidth, restoredWindowInfo.pixelHeight);
-                    windowInfo.maximized = false;
-                    haveRestoredWindowInfo = false;
-                }
-            } else if (first <= 3) {
-                if (!haveRestoredWindowInfo) {
-                    restoredWindowInfo = windowInfo;
-                    haveRestoredWindowInfo = true;
-                }
-                const u32 pixelWidth = first == 2 ? windowInfo.pixelWidth : windowInfo.screenPixelWidth;
-                const u32 pixelHeight = first == 3 ? windowInfo.pixelHeight : windowInfo.screenPixelHeight;
-                applyWindowSize(pixelWidth, pixelHeight);
-                windowInfo.maximized = true;
-            }
-        } else if (operation == 10) {
-            const bool enable = first == 1 || (first == 2 && !windowInfo.fullscreen);
-            if (enable && !windowInfo.fullscreen) {
-                if (!haveRestoredWindowInfo) {
-                    restoredWindowInfo = windowInfo;
-                    haveRestoredWindowInfo = true;
-                }
-                applyWindowSize(windowInfo.screenPixelWidth, windowInfo.screenPixelHeight);
-                windowInfo.fullscreen = true;
-            } else if (!enable && windowInfo.fullscreen) {
-                if (haveRestoredWindowInfo) {
-                    applyWindowSize(restoredWindowInfo.pixelWidth, restoredWindowInfo.pixelHeight);
-                    haveRestoredWindowInfo = false;
-                }
-                windowInfo.fullscreen = false;
-            }
-        }
-    });
-    vtermHost.setWindowInfoHandler([&windowInfo]() {
-        return windowInfo;
-    });
     const auto mouseGeometry = [&]() {
-        return MouseGeometry{(int)(windowInfo.pixelWidth), (int)(windowInfo.pixelHeight), (int)(opts.border), (int)(glyphPx), (int)(glyphPy)};
+        return MouseGeometry{(int)(display.currentWindow.pixelWidth), (int)(display.currentWindow.pixelHeight), (int)(opts.border), (int)(glyphPx), (int)(glyphPy)};
     };
     const auto sendMouseButton = [&](MouseEventType type, int button, int pixelX, int pixelY, unsigned modifiers) {
         const auto tracking = terminal.getMouseTrackingState();
@@ -1225,8 +1277,8 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                     throw std::runtime_error("invalid resize");
                 }
                 terminal.resize(2 * opts.border + columns * glyphPx, 2 * opts.border + rows * glyphPy);
-                windowInfo.pixelWidth = 2 * opts.border + columns * glyphPx;
-                windowInfo.pixelHeight = 2 * opts.border + rows * glyphPy;
+                display.currentWindow.pixelWidth = 2 * opts.border + columns * glyphPx;
+                display.currentWindow.pixelHeight = 2 * opts.border + rows * glyphPy;
                 terminal.redraw();
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 14, "RESIZE_PIXELS ") == 0) {
@@ -1237,8 +1289,8 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                     throw std::runtime_error("invalid pixel resize");
                 }
                 terminal.resize(pixelWidth, pixelHeight);
-                windowInfo.pixelWidth = pixelWidth;
-                windowInfo.pixelHeight = pixelHeight;
+                display.currentWindow.pixelWidth = pixelWidth;
+                display.currentWindow.pixelHeight = pixelHeight;
                 terminal.redraw();
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 12, "WINDOW_INFO ") == 0) {
@@ -1255,15 +1307,15 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 if (!(args >> x >> y >> pixelWidth >> pixelHeight >> screenWidth >> screenHeight >> iconified >> maximized >> fullscreen) || x < INT32_MIN || x > INT32_MAX || y < INT32_MIN || y > INT32_MAX || pixelWidth > UINT32_MAX || pixelHeight > UINT32_MAX || screenWidth > UINT32_MAX || screenHeight > UINT32_MAX || iconified > 1 || maximized > 1 || fullscreen > 1) {
                     throw std::runtime_error("invalid window info");
                 }
-                windowInfo.x = x;
-                windowInfo.y = y;
-                windowInfo.pixelWidth = pixelWidth;
-                windowInfo.pixelHeight = pixelHeight;
-                windowInfo.screenPixelWidth = screenWidth;
-                windowInfo.screenPixelHeight = screenHeight;
-                windowInfo.iconified = iconified;
-                windowInfo.maximized = maximized;
-                windowInfo.fullscreen = fullscreen;
+                display.currentWindow.x = x;
+                display.currentWindow.y = y;
+                display.currentWindow.pixelWidth = pixelWidth;
+                display.currentWindow.pixelHeight = pixelHeight;
+                display.currentWindow.screenPixelWidth = screenWidth;
+                display.currentWindow.screenPixelHeight = screenHeight;
+                display.currentWindow.iconified = iconified;
+                display.currentWindow.maximized = maximized;
+                display.currentWindow.fullscreen = fullscreen;
                 writeAll(controlFd, "OK\n");
             } else if (line == "WINSIZE") {
                 winsize size{};
