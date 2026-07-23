@@ -4,9 +4,10 @@
 
 Shitty is a hard fork and complete rewrite of **Zutty**. The original Zutty
 terminal emulator was created by **Tom Szilagyi**; Shitty preserves that
-lineage and the original GPL copyright notices while replacing the surrounding
-architecture, platform integration, renderer, testing strategy, and project
-identity.
+lineage while replacing the architecture, platform integration, renderer,
+testing strategy, and project identity. The project is actively removing,
+rewriting, or relicensing the remaining GPL-only imported code in order to
+complete its transition to the MIT License.
 
 The terminal core implements the commonly used VT52 through VT5xx command
 families together with xterm extensions, Unicode grapheme handling, scrollback,
@@ -220,10 +221,18 @@ the executable through `PATH`; the `shitty.desktop` filename matches the
 Wayland `app_id`; and `Icon=shitty` resolves `shitty.svg` through the active
 icon theme.
 
-## License and authorship
+## License transition and authorship
 
-Shitty is distributed under the GNU General Public License, version 3 or later.
-See `LICENSE` for the full terms.
+Shitty does not intend to preserve GPL licensing. The project is transitioning
+to the MIT License, and its target is an MIT-only codebase and release.
+
+The current tree still contains parts of the imported Zutty baseline licensed
+under the GNU General Public License, version 3 or later. While that material
+remains, distribution of the combined work is subject to the GPL. New Shitty
+contributions are dual-licensed under GPLv3-or-later and MIT so that they can
+remain in the project after the GPL-only baseline has been removed, rewritten,
+or separately relicensed. See `LICENSE`, `LICENSE.GPL3`, `LICENSE.MIT`, and
+`CONTRIBUTING.md` for the exact terms and contribution policy.
 
 Tom Szilagyi is the original author of Zutty, from which this hard fork and
 complete rewrite descends. Shitty retains his copyright notices where the
