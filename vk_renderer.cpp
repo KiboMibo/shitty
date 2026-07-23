@@ -289,11 +289,9 @@ namespace {
     }
 }
 
-#ifdef SHITTY_FOR_TESTS
-u32 rendererCellAttributesForTest(const RenderCell& cell) {
+u32 Renderer::rendererCellAttributesForTest(const RenderCell& cell) {
     return packCellAttributes(cell);
 }
-#endif
 
 RendererImpl::RendererImpl(GLFWwindow* window_, Fontpack* fontpk)
     : window(window_)

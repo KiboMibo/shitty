@@ -17,11 +17,7 @@
 
 #include "vterm.h"
 #include "vterm_trace.h"
-
-#ifdef SHITTY_FOR_TESTS
-    #include "vterm_test.h"
-#endif
-
+#include "vterm_test.h"
 #include "base64.h"
 #include "cell_extra_store.h"
 #include "color_spec.h"
@@ -818,8 +814,7 @@ namespace {
 #endif
     };
 
-#ifdef SHITTY_FOR_TESTS
-    struct TestApiImpl final: public Vterm::TestApi {
+    struct TestApiImpl final: public TestApi {
         explicit TestApiImpl(VtermImpl* vterm);
 
         VtermTestState inspect() const override;
@@ -829,7 +824,6 @@ namespace {
 
         VtermImpl* vterm;
     };
-#endif
 
     void GraphemeBuffer::clear() {
         size_ = 0;
@@ -1124,7 +1118,7 @@ VtermState VtermImpl::state() const {
     return result;
 }
 
-Vterm::TestApi* VtermImpl::testApi() {
+TestApi* VtermImpl::testApi() {
 #ifdef SHITTY_FOR_TESTS
     return composer.pool->make<TestApiImpl>(this);
 #else
@@ -1132,7 +1126,6 @@ Vterm::TestApi* VtermImpl::testApi() {
 #endif
 }
 
-#ifdef SHITTY_FOR_TESTS
 TestApiImpl::TestApiImpl(VtermImpl* vterm_)
     : vterm(vterm_)
 {
@@ -1274,7 +1267,6 @@ VtermTestCell TestApiImpl::cell(u16 row, u16 column) const {
     result.underlineColor = extras->underlineColor(result.cell);
     return result;
 }
-#endif
 
 bool VtermImpl::animationActive() const {
     return haveBlinkingText || cursorBlinkMode;

@@ -6,10 +6,6 @@
 
 #pragma once
 
-#ifndef SHITTY_FOR_TESTS
-    #error "vterm_test.h is available only in the SHITTY_FOR_TESTS build"
-#endif
-
 #include "vterm.h"
 
 struct VtermTestCell {
@@ -30,7 +26,7 @@ struct VtermTestState {
     size_t hyperlinkCount = 0;
 };
 
-struct Vterm::TestApi {
+struct TestApi {
     virtual VtermTestState inspect() const = 0;
     virtual bool ansiMode(u32 mode) const = 0;
     virtual bool privateMode(u32 mode) const = 0;

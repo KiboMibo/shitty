@@ -224,9 +224,9 @@ struct VtermConsume {
     bool terminal = false;
 };
 
-struct Vterm {
-    struct TestApi;
+struct TestApi;
 
+struct Vterm {
     virtual void feedPty(stl::StringView bytes) = 0;
     virtual void expose() = 0;
     virtual void resize(u16 width, u16 height) = 0;

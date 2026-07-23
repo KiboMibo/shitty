@@ -4,10 +4,6 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#ifndef SHITTY_FOR_TESTS
-    #error "test_mode.cpp must not be compiled into the production binary"
-#endif
-
 #include "test_mode.h"
 
 #include "cell_extra_store.h"
@@ -237,7 +233,7 @@ namespace {
     struct TestDisplay final: public VtermHost {
         TestDisplay(ClipboardStore& clipboard, std::string& actions, std::string& printerOutput, unsigned glyphPx, unsigned glyphPy, u32 pixelWidth, u32 pixelHeight);
 
-        void attach(Vterm& terminal, TestPty& pty, Vterm::TestApi& testApi);
+        void attach(Vterm& terminal, TestPty& pty, TestApi& testApi);
         bool update(const TerminalUpdate& update);
         void osc(int command, const std::string& argument) override;
         bool handlesOsc() const override;
@@ -284,7 +280,7 @@ namespace {
         std::string& printerOutput;
         Vterm* terminal = nullptr;
         TestPty* pty = nullptr;
-        Vterm::TestApi* testApi = nullptr;
+        TestApi* testApi = nullptr;
         unsigned glyphPx;
         unsigned glyphPy;
         VtermWindowInfo currentWindow;
@@ -293,7 +289,7 @@ namespace {
     };
 
     struct TestTerminal {
-        TestTerminal(Vterm& terminal, Vterm::TestApi& testApi, TestPty& pty, TestDisplay& display);
+        TestTerminal(Vterm& terminal, TestApi& testApi, TestPty& pty, TestDisplay& display);
 
         void feedPtyOutput(const u8* data, size_t size);
         void update();
@@ -340,7 +336,7 @@ namespace {
         bool advanceAnimation(bool force = false);
 
         Vterm& terminal;
-        Vterm::TestApi& testApi;
+        TestApi& testApi;
         TestPty& pty;
         TestDisplay& display;
         VtermState state_;
@@ -396,7 +392,7 @@ TestDisplay::TestDisplay(ClipboardStore& clipboard, std::string& actions, std::s
     restoredWindow = currentWindow;
 }
 
-void TestDisplay::attach(Vterm& value, TestPty& ptyValue, Vterm::TestApi& testApiValue) {
+void TestDisplay::attach(Vterm& value, TestPty& ptyValue, TestApi& testApiValue) {
     terminal = &value;
     pty = &ptyValue;
     testApi = &testApiValue;
@@ -694,7 +690,7 @@ std::string TestDisplay::screenText() const {
     return output;
 }
 
-TestTerminal::TestTerminal(Vterm& terminal, Vterm::TestApi& testApi, TestPty& pty, TestDisplay& display)
+TestTerminal::TestTerminal(Vterm& terminal, TestApi& testApi, TestPty& pty, TestDisplay& display)
     : terminal(terminal)
     , testApi(testApi)
     , pty(pty)
@@ -1149,7 +1145,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
     TestDisplay display(clipboard, actions, printerOutput, glyphPx, glyphPy, width, height);
     VtermTrace& vtermTrace = *VtermTrace::create(composer);
     Vterm& vterm = *Vterm::create(composer, display, &vtermTrace, glyphPx, glyphPy, width, height);
-    Vterm::TestApi* const testApi = vterm.testApi();
+    TestApi* const testApi = vterm.testApi();
     if (testApi == nullptr) {
         throw std::runtime_error("test Vterm has no TestApi");
     }
@@ -1503,13 +1499,13 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
             } else if (line == "GPU_ATTRIBUTE_MASKS") {
                 RenderCell cell;
                 cell.dwidth = true;
-                const u32 doubleWidth = rendererCellAttributesForTest(cell);
+                const u32 doubleWidth = Renderer::rendererCellAttributesForTest(cell);
                 cell.dwidth = false;
                 cell.dwidth_cont = true;
-                const u32 continuation = rendererCellAttributesForTest(cell);
+                const u32 continuation = Renderer::rendererCellAttributesForTest(cell);
                 cell.dwidth_cont = false;
                 cell.dirty = true;
-                const u32 dirty = rendererCellAttributesForTest(cell);
+                const u32 dirty = Renderer::rendererCellAttributesForTest(cell);
                 writeAll(controlFd, "OK " + std::to_string(doubleWidth) + " " + std::to_string(continuation) + " " + std::to_string(dirty) + "\n");
             } else if (line == "POLL_CHILD") {
                 pumpChild();

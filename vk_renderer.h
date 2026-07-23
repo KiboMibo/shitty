@@ -6,12 +6,11 @@
 
 #pragma once
 
-#ifdef SHITTY_FOR_TESTS
-    #include <std/sys/types.h>
-#endif
+#include <std/sys/types.h>
 
 struct Composer;
 struct GLFWwindow;
+struct RenderCell;
 
 struct TerminalUpdate;
 
@@ -20,10 +19,5 @@ struct Renderer {
     virtual bool repaint() = 0;
 
     static Renderer* create(Composer& composer, GLFWwindow* window);
+    static u32 rendererCellAttributesForTest(const RenderCell& cell);
 };
-
-#ifdef SHITTY_FOR_TESTS
-struct RenderCell;
-
-u32 rendererCellAttributesForTest(const RenderCell& cell);
-#endif

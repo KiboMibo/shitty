@@ -132,13 +132,9 @@ VtermHeadless* VtermHeadless::create(Composer& composer) {
     if (opts.title == nullptr) {
         opts.title = "";
     }
-    try {
-        VtermHeadlessImpl* result = composer.pool->make<VtermHeadlessImpl>(pixelWidth, pixelHeight);
-        result->initialize(composer, pixelWidth, pixelHeight);
-        opts.title = title;
-        return result;
-    } catch (...) {
-        opts.title = title;
-        throw;
-    }
+
+    VtermHeadlessImpl* result = composer.pool->make<VtermHeadlessImpl>(pixelWidth, pixelHeight);
+    result->initialize(composer, pixelWidth, pixelHeight);
+    opts.title = title;
+    return result;
 }

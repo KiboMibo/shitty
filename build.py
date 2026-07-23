@@ -67,11 +67,7 @@ all_libshitty_sources = [
     source for source in build.glob("$(S)/*.cpp")
     if source not in (main_source, fuzz_source)
 ]
-libshitty_sources = [
-    source for source in all_libshitty_sources
-    if not source.endswith("/test_mode.cpp")
-    and not source.endswith("/vterm_test.cpp")
-]
+libshitty_sources = all_libshitty_sources
 libshitty_deps = [
     freetype, fontconfig, glfw, vulkan, threads, libstd, brotli_common,
     utf8proc,
@@ -91,9 +87,8 @@ st = program(
 )
 
 
-# The control protocol and its environment knobs exist only in this binary.
-# Production st neither compiles test_mode.cpp nor enables the application
-# hooks that can enter it.
+# The control protocol is compiled into both binaries. SHITTY_FOR_TESTS only
+# opens its application entry point and exposes Vterm::testApi().
 libshitty_test = library(
     name="libshitty_test",
     srcs=all_libshitty_sources,
