@@ -30,6 +30,7 @@
 #include <std/mem/obj_pool.h>
 #include <std/sys/throw.h>
 #include <cerrno>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <deque>
@@ -1268,7 +1269,21 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 }
                 drainInput(io[1]);
                 terminal.feedPtyOutput((const u8*)input.data(), input.size());
-                writeAll(controlFd, "OK " + encodeHex(drainInput(io[1])) + "\n");
+                // The kernel delivers PTY master writes to the slave through
+                // an asynchronous worker, so under load the reports may not
+                // be readable immediately.  Every measurement produces
+                // exactly one R-terminated cursor position report; wait
+                // until all of them have arrived.
+                std::string replies = drainInput(io[1]);
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+                while ((size_t)(std::count(replies.begin(), replies.end(), 'R')) < count && std::chrono::steady_clock::now() < deadline) {
+                    terminal.flushPtyOutput();
+                    pollfd pending{io[1], POLLIN, 0};
+                    if (poll(&pending, 1, 100) > 0 && (pending.revents & POLLIN)) {
+                        replies += drainInput(io[1]);
+                    }
+                }
+                writeAll(controlFd, "OK " + encodeHex(replies) + "\n");
             } else if (line == "OPTIONS") {
                 const auto packedColor = [](Color color) {
                     return ((u32)(color.red) << 16) | ((u32)(color.green) << 8) | color.blue;
