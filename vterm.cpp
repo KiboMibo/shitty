@@ -25,6 +25,7 @@
 #include "screen.h"
 #include "grapheme.h"
 #include "hex.h"
+#include "listener.h"
 #include "options.h"
 #include "utf8.h"
 #include "vterm_host.h"
@@ -125,14 +126,23 @@ namespace {
         size_t size_ = 0;
     };
 
+    struct VtermImpl;
+
+    struct CallVtermResize: Listener {
+        explicit CallVtermResize(VtermImpl* parent);
+
+        void onListen(void*) override;
+
+        VtermImpl* parent;
+    };
+
     struct VtermImpl final: public Vterm {
-        VtermImpl(Composer& composer, VtermHost& host, VtermTrace* trace, Output* dump, u16 glyphPx, u16 glyphPy, u16 winPx, u16 winPy);
+        VtermImpl(Composer& composer, VtermHost& host, VtermTrace* trace, Output* dump);
 
         ~VtermImpl();
 
         void feedPty(StringView bytes) override;
         void expose() override;
-        void resize(u16 width, u16 height) override;
         void focus(bool focused) override;
         void key(VtKey key, VtModifier modifiers) override;
         void character(u8 byte, VtModifier modifiers) override;
@@ -163,7 +173,7 @@ namespace {
 
         bool getPrivateMode(u32 mode) const;
 
-        void resizeGrid(u16 winPx, u16 winPy);
+        void resizeGrid();
         void createFreshScreen(Screen*& frame, stl::ObjPool*& pool);
         void createInactiveScreen(Screen*& frame, stl::ObjPool*& pool);
         void resizeScreen(Screen*& frame, stl::ObjPool*& pool, bool reflow, Screen::Cursor* cursor);
@@ -485,12 +495,6 @@ namespace {
         VtermHost& host;
         Output* dump;
         VtermTrace* const parserTrace;
-        u16 winPx;
-        u16 winPy;
-        u16 nCols;
-        u16 nRows;
-        u16 glyphPx;
-        u16 glyphPy;
         std::u8string ptyOutput;
         size_t ptyOutputOffset = 0;
         stl::Vector<RenderCell> outputCells;
@@ -865,7 +869,7 @@ void VtermImpl::createFreshScreen(Screen*& frame, ObjPool*& pool) {
     ObjPool* const next = ObjPool::fromMemoryRaw();
     Screen* screen;
     try {
-        screen = Screen::create(composer, *next, nCols, nRows, &colors, opts.saveLines);
+        screen = Screen::create(composer, *next, composer.columns, composer.rows, &colors, opts.saveLines);
     } catch (...) {
         delete next;
         throw;
@@ -896,7 +900,7 @@ void VtermImpl::resizeScreen(Screen*& frame, ObjPool*& pool, bool reflow, Screen
     ObjPool* const next = ObjPool::fromMemoryRaw();
     Screen* screen;
     try {
-        screen = Screen::create(composer, *next, *state, nCols, nRows, &colors, reflow, cursor);
+        screen = Screen::create(composer, *next, *state, composer.columns, composer.rows, &colors, reflow, cursor);
     } catch (...) {
         delete next;
         throw;
@@ -920,11 +924,6 @@ void VtermImpl::feedPty(StringView bytes) {
 }
 
 void VtermImpl::expose() {
-    redraw();
-}
-
-void VtermImpl::resize(u16 width, u16 height) {
-    resizeGrid(width, height);
     redraw();
 }
 
@@ -1010,8 +1009,8 @@ void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const 
     update.cellExtras = frame.cellExtras();
     update.columns = frame.columns();
     update.rows = frame.rows();
-    update.pixelWidth = winPx;
-    update.pixelHeight = winPy;
+    update.pixelWidth = composer.pixelWidth;
+    update.pixelHeight = composer.pixelHeight;
     update.viewOffset = frame.getViewOffset();
     update.historyRows = frame.getHistoryRows();
     update.cursor = frame.getCursor();
@@ -1161,8 +1160,8 @@ void VtermImpl::consume(const VtermConsume& consumed) {
 VtermState VtermImpl::state() const {
     VtermState result;
     result.mouse = mouseTrk;
-    result.columns = nCols;
-    result.rows = nRows;
+    result.columns = composer.columns;
+    result.rows = composer.rows;
     result.kittyKeyboardFlags = getKittyKeyboardFlags();
     result.metaMode = eightBitInput;
     result.autoRepeat = autoRepeatMode;
@@ -1197,7 +1196,7 @@ VtermTestState TestApiImpl::inspect() const {
     if (vterm->originMode == VtermImpl::OriginMode::ScrollingRegion) {
         result.rectangleOrigin = {vterm->marginTop, vterm->hMargin, vterm->marginBottom, vterm->nColsEff};
     } else {
-        result.rectangleOrigin = {0, 0, vterm->nRows, vterm->nCols};
+        result.rectangleOrigin = {0, 0, vterm->composer.rows, vterm->composer.columns};
     }
     result.hyperlinkCount = vterm->composer.cellExtras->hyperlinkCount();
     return result;
@@ -1518,7 +1517,7 @@ void VtermImpl::pageUp() {
             writePty(VtKey::Up);
         }
     } else {
-        cf->pageUp(nRows / 2);
+        cf->pageUp(composer.rows / 2);
         redraw();
     }
 }
@@ -1531,7 +1530,7 @@ void VtermImpl::pageDown() {
             writePty(VtKey::Down);
         }
     } else {
-        cf->pageDown(nRows / 2);
+        cf->pageDown(composer.rows / 2);
         redraw();
     }
 }
@@ -1572,7 +1571,7 @@ void VtermImpl::resetTerminal() {
 
     cf->dropScrollbackHistory();
     marginTop = 0;
-    marginBottom = nRows;
+    marginBottom = composer.rows;
     clearScreen();
 
     switchScreenBufferMode(false);
@@ -1597,7 +1596,7 @@ void VtermImpl::resetTerminal() {
 
     horizMarginMode = false;
     hMargin = 0;
-    nColsEff = nCols;
+    nColsEff = composer.columns;
 
     setState(InputState::Normal);
 
@@ -1700,15 +1699,15 @@ void VtermImpl::switchColMode(ColMode colMode_) {
     }
 
     const u16 columns = colMode_ == ColMode::C80 ? 80 : 132;
-    if (nCols != columns) {
-        resizeGrid(2 * opts.border + columns * glyphPx, winPy);
-        host.windowOperation(8, nRows, columns);
+    if (composer.columns != columns) {
+        composer.resize(2 * opts.border + columns * composer.glyphWidth, composer.pixelHeight);
+        host.windowOperation(8, composer.rows, columns);
     }
     marginTop = 0;
-    marginBottom = nRows;
+    marginBottom = composer.rows;
     horizMarginMode = false;
     hMargin = 0;
-    nColsEff = nCols;
+    nColsEff = composer.columns;
     posX = 0;
     posY = 0;
     lastCol = false;
@@ -1726,7 +1725,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
                 kittyKeyboardAlt = {};
                 createFreshScreen(frame_alt, frameAltPool);
                 marginTop = 0;
-                marginBottom = nRows;
+                marginBottom = composer.rows;
                 altScreenInitialized = true;
                 cf = frame_alt;
                 cf->expose();
@@ -1744,12 +1743,12 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
             kittyKeyboardAlt = {};
             createFreshScreen(frame_alt, frameAltPool);
             marginTop = 0;
-            marginBottom = nRows;
+            marginBottom = composer.rows;
             altScreenInitialized = true;
-        } else if (frame_alt->columns() != nCols || frame_alt->rows() != nRows) {
+        } else if (frame_alt->columns() != composer.columns || frame_alt->rows() != composer.rows) {
             resizeScreen(frame_alt, frameAltPool, false, nullptr);
             marginTop = 0;
-            marginBottom = nRows;
+            marginBottom = composer.rows;
         }
         cf = frame_alt;
         cf->expose();
@@ -1757,8 +1756,8 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         savedCursor = &savedCursorAlt;
         altScreenBufferMode = true;
     } else {
-        if (frame_pri->columns() != nCols || frame_pri->rows() != nRows) {
-            const bool reflow = frame_pri->columns() != nCols;
+        if (frame_pri->columns() != composer.columns || frame_pri->rows() != composer.rows) {
+            const bool reflow = frame_pri->columns() != composer.columns;
             Screen::Cursor cursorState{Point(posX, posY), lastCol};
             resizeScreen(frame_pri, framePriPool, reflow, reflow ? &cursorState : nullptr);
             if (reflow) {
@@ -1767,7 +1766,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
                 lastCol = cursorState.pendingWrap;
             }
             marginTop = 0;
-            marginBottom = nRows;
+            marginBottom = composer.rows;
         }
         cf = frame_pri;
         cf->expose();
@@ -1823,8 +1822,8 @@ void VtermImpl::normalizeCursorPos() {
         posX = nColsEff - 1;
     }
 
-    if (nRows < posY + 1) {
-        posY = nRows - 1;
+    if (composer.rows < posY + 1) {
+        posY = composer.rows - 1;
     }
 
     lastCol = false;
@@ -1836,7 +1835,7 @@ bool VtermImpl::isCursorInsideMargins() {
 
 void VtermImpl::eraseRow(u16 pY) {
     eraseRangeInRow(pY, hMargin, nColsEff - hMargin);
-    if (hMargin == 0 && nColsEff == nCols) {
+    if (hMargin == 0 && nColsEff == composer.columns) {
         cf->setLineAttribute(pY, 0);
     }
 }
@@ -1860,7 +1859,7 @@ void VtermImpl::copyRow(u16 dstY, u16 srcY) {
 }
 
 void VtermImpl::insertRows(u16 startY, u16 count) {
-    if (hMargin == 0 && nColsEff == nCols) {
+    if (hMargin == 0 && nColsEff == composer.columns) {
         cf->rotateRowsDown(startY, marginBottom, count);
     } else {
         for (u16 pY = marginBottom - count; pY > startY;) {
@@ -1875,7 +1874,7 @@ void VtermImpl::insertRows(u16 startY, u16 count) {
 }
 
 void VtermImpl::deleteRows(u16 startY, u16 count) {
-    if (hMargin == 0 && nColsEff == nCols) {
+    if (hMargin == 0 && nColsEff == composer.columns) {
         cf->rotateRowsUp(startY, marginBottom, count);
     } else {
         for (u16 pY = startY; pY < marginBottom - count; ++pY) {
@@ -1937,7 +1936,7 @@ void VtermImpl::eraseEcmaRow(u16 row) {
         return;
     }
     const bool retained = cf->hasProtection(row, TerminalCell::isoProtection);
-    eraseEcmaRangeInRow(row, 0, nCols);
+    eraseEcmaRangeInRow(row, 0, composer.columns);
     if (!retained) {
         cf->setLineAttribute(row, 0);
     }
@@ -1975,8 +1974,8 @@ void VtermImpl::rectangleOrigin(u16& rowBase, u16& columnBase, u16& rowLimit, u1
     } else {
         rowBase = 0;
         columnBase = 0;
-        rowLimit = nRows;
-        columnLimit = nCols;
+        rowLimit = composer.rows;
+        columnLimit = composer.columns;
     }
 }
 
@@ -2417,7 +2416,7 @@ void VtermImpl::jumpToNextTabStop() {
     const u16 previous = posX;
     const bool insideMargins = isCursorInsideMargins();
     const u16 left = insideMargins ? hMargin : 0;
-    const u16 right = insideMargins ? nColsEff : nCols;
+    const u16 right = insideMargins ? nColsEff : composer.columns;
     if (!tabStopsCustomized) {
         do {
             posX = ((posX / 8) + 1) * 8;
@@ -2577,7 +2576,7 @@ bool VtermImpl::performIndex() {
             scrollRegionUp(1);
             scrolled = true;
         }
-    } else if (posY < nRows - 1) {
+    } else if (posY < composer.rows - 1) {
         ++posY;
         lastCol = false;
     }
@@ -2591,7 +2590,7 @@ std::string VtermImpl::printableLine(u16 row) const {
 }
 
 void VtermImpl::printLine(u16 row) {
-    host.print(printableLine(std::min<u16>(row, nRows - 1)));
+    host.print(printableLine(std::min<u16>(row, composer.rows - 1)));
 }
 
 void VtermImpl::csi_MC(bool privateMode) {
@@ -2608,7 +2607,7 @@ void VtermImpl::csi_MC(bool privateMode) {
         if (operation == 0) {
             std::string screen;
             const u16 firstRow = printExtentMode ? 0 : marginTop;
-            const u16 lastRow = printExtentMode ? nRows : marginBottom;
+            const u16 lastRow = printExtentMode ? composer.rows : marginBottom;
             for (u16 row = firstRow; row < lastRow; ++row) {
                 screen += printableLine(row);
             }
@@ -2837,7 +2836,7 @@ void VtermImpl::esc_FI() {
     if (posX >= hMargin && posX == nColsEff - 1) {
         deleteCols(hMargin, 1);
         lastCol = false;
-    } else if (posX < nCols - 1) {
+    } else if (posX < composer.columns - 1) {
         ++posX;
         lastCol = false;
     }
@@ -2863,7 +2862,7 @@ void VtermImpl::esc_NEL() {
 
 void VtermImpl::esc_HTS() {
     if (!tabStopsCustomized) {
-        for (unsigned column = 8; column < nCols; column += 8) {
+        for (unsigned column = 8; column < composer.columns; column += 8) {
             tabStops.push_back((u16)(column));
         }
         tabStopsCustomized = true;
@@ -2939,7 +2938,7 @@ void VtermImpl::csi_CUU() {
 
 void VtermImpl::csi_CUD() {
     u32 arg = inputOps[0] ? inputOps[0] : 1;
-    const u16 bottom = posY < marginBottom ? marginBottom : nRows;
+    const u16 bottom = posY < marginBottom ? marginBottom : composer.rows;
     arg = std::min<u32>(arg, bottom - posY - 1);
     posY += arg;
     lastCol = false;
@@ -2949,7 +2948,7 @@ void VtermImpl::csi_CUD() {
 void VtermImpl::csi_CUF() {
     u32 arg = inputOps[0] ? inputOps[0] : 1;
     const bool insideMargins = posX >= hMargin && posX < nColsEff;
-    const u16 right = insideMargins ? nColsEff : nCols;
+    const u16 right = insideMargins ? nColsEff : composer.columns;
     arg = std::min<u32>(arg, right - posX - 1);
     posX += arg;
     lastCol = false;
@@ -2985,7 +2984,7 @@ void VtermImpl::moveCursorBackward(u32 count) {
             break;
         }
         --posY;
-        posX = insideMargins ? nColsEff : nCols;
+        posX = insideMargins ? nColsEff : composer.columns;
     }
     lastCol = false;
 }
@@ -3008,7 +3007,7 @@ void VtermImpl::csi_CHA() {
         col = std::max<u32>(1, std::min<u32>(col, nColsEff - hMargin));
         posX = hMargin + col - 1;
     } else {
-        col = std::max<u32>(1, std::min<u32>(col, nCols));
+        col = std::max<u32>(1, std::min<u32>(col, composer.columns));
         posX = col - 1;
     }
     lastCol = false;
@@ -3022,7 +3021,7 @@ void VtermImpl::csi_HPA() {
 
 void VtermImpl::csi_HPR() {
     const u32 arg = inputOps[0] ? inputOps[0] : 1;
-    const u16 right = originMode == OriginMode::ScrollingRegion ? nColsEff : nCols;
+    const u16 right = originMode == OriginMode::ScrollingRegion ? nColsEff : composer.columns;
     posX = (u16)(std::min<u64>((u64)(posX) + arg, right - 1));
     lastCol = false;
     setState(InputState::Normal);
@@ -3034,7 +3033,7 @@ void VtermImpl::csi_VPA() {
         row = std::max<u32>(1, std::min<u32>(row, marginBottom - marginTop));
         posY = marginTop + row - 1;
     } else {
-        row = std::max<u32>(1, std::min<u32>(row, nRows));
+        row = std::max<u32>(1, std::min<u32>(row, composer.rows));
         posY = row - 1;
     }
     lastCol = false;
@@ -3043,7 +3042,7 @@ void VtermImpl::csi_VPA() {
 
 void VtermImpl::csi_VPR() {
     const u32 arg = inputOps[0] ? inputOps[0] : 1;
-    const u16 bottom = originMode == OriginMode::ScrollingRegion ? marginBottom : nRows;
+    const u16 bottom = originMode == OriginMode::ScrollingRegion ? marginBottom : composer.rows;
     posY = (u16)(std::min<u64>((u64)(posY) + arg, bottom - 1));
     lastCol = false;
     setState(InputState::Normal);
@@ -3054,8 +3053,8 @@ void VtermImpl::csi_CUP() {
     u32 col = (nInputOps > 1 && inputOps[1]) ? inputOps[1] : 1;
     switch (originMode) {
         case OriginMode::Absolute:
-            row = std::max<u32>(1, std::min<u32>(row, nRows)) - 1;
-            col = std::max<u32>(1, std::min<u32>(col, nCols)) - 1;
+            row = std::max<u32>(1, std::min<u32>(row, composer.rows)) - 1;
+            col = std::max<u32>(1, std::min<u32>(col, composer.columns)) - 1;
             break;
         case OriginMode::ScrollingRegion:
             row = marginTop + std::max<u32>(1, std::min<u32>(row, marginBottom - marginTop)) - 1;
@@ -3135,7 +3134,7 @@ void VtermImpl::csi_SD() {
 
 void VtermImpl::csi_CHT() {
     u32 arg = inputOps[0] ? inputOps[0] : 1;
-    arg = std::min<u32>(arg, nCols);
+    arg = std::min<u32>(arg, composer.columns);
     if (arg == 1) {
         inp_HT();
     } else {
@@ -3148,7 +3147,7 @@ void VtermImpl::csi_CHT() {
 
 void VtermImpl::csi_CBT() {
     u32 arg = inputOps[0] ? inputOps[0] : 1;
-    arg = std::min<u32>(arg, nCols);
+    arg = std::min<u32>(arg, composer.columns);
     for (u32 k = 0; k < arg; ++k) {
         const u16 left = originMode == OriginMode::ScrollingRegion ? hMargin : 0;
         if (!tabStopsCustomized) {
@@ -3178,9 +3177,9 @@ void VtermImpl::csi_REP() {
         return;
     }
     u32 arg = inputOps[0] ? inputOps[0] : 1;
-    const u64 observableCells = ((u64)(opts.saveLines) + nRows + 1) * nCols;
+    const u64 observableCells = ((u64)(opts.saveLines) + composer.rows + 1) * composer.columns;
     if (arg > observableCells) {
-        arg = (u32)(observableCells + (arg - observableCells) % nCols);
+        arg = (u32)(observableCells + (arg - observableCells) % composer.columns);
     }
     for (u32 k = 0; k < arg; ++k) {
         placeGraphicChar();
@@ -3192,8 +3191,8 @@ void VtermImpl::csi_ED() {
     normalizeCursorPos();
     switch (inputOps[0]) {
         case 0:
-            eraseEcmaRangeInRow(posY, posX, nCols - posX);
-            for (u16 pY = posY + 1; pY < nRows; ++pY) {
+            eraseEcmaRangeInRow(posY, posX, composer.columns - posX);
+            for (u16 pY = posY + 1; pY < composer.rows; ++pY) {
                 eraseEcmaRow(pY);
             }
             break;
@@ -3208,7 +3207,7 @@ void VtermImpl::csi_ED() {
             break;
 
         case 2:
-            for (u16 pY = 0; pY < nRows; ++pY) {
+            for (u16 pY = 0; pY < composer.rows; ++pY) {
                 eraseEcmaRow(pY);
             }
             break;
@@ -3222,13 +3221,13 @@ void VtermImpl::csi_EL() {
     normalizeCursorPos();
     switch (inputOps[0]) {
         case 0:
-            eraseEcmaRangeInRow(posY, posX, nCols - posX);
+            eraseEcmaRangeInRow(posY, posX, composer.columns - posX);
             break;
         case 1:
             eraseEcmaRangeInRow(posY, 0, posX + 1);
             break;
         case 2:
-            eraseEcmaRangeInRow(posY, 0, nCols);
+            eraseEcmaRangeInRow(posY, 0, composer.columns);
             break;
         default:
             break;
@@ -3240,14 +3239,14 @@ void VtermImpl::csi_DECSED() {
     normalizeCursorPos();
     if (inputOps[0] == 0 || inputOps[0] == 2) {
         const u16 firstRow = inputOps[0] == 2 ? 0 : posY;
-        const u16 lastRow = nRows - 1;
+        const u16 lastRow = composer.rows - 1;
         for (u16 row = firstRow; row <= lastRow; ++row) {
             const u16 first = row == posY && inputOps[0] == 0 ? posX : 0;
-            selectiveEraseRangeInRow(row, first, nCols - first);
+            selectiveEraseRangeInRow(row, first, composer.columns - first);
         }
     } else if (inputOps[0] == 1) {
         for (u16 row = 0; row <= posY; ++row) {
-            const u16 count = row == posY ? posX + 1 : nCols;
+            const u16 count = row == posY ? posX + 1 : composer.columns;
             selectiveEraseRangeInRow(row, 0, count);
         }
     }
@@ -3257,11 +3256,11 @@ void VtermImpl::csi_DECSED() {
 void VtermImpl::csi_DECSEL() {
     normalizeCursorPos();
     if (inputOps[0] == 0) {
-        selectiveEraseRangeInRow(posY, posX, nCols - posX);
+        selectiveEraseRangeInRow(posY, posX, composer.columns - posX);
     } else if (inputOps[0] == 1) {
         selectiveEraseRangeInRow(posY, 0, posX + 1);
     } else if (inputOps[0] == 2) {
-        selectiveEraseRangeInRow(posY, 0, nCols);
+        selectiveEraseRangeInRow(posY, 0, composer.columns);
     }
     setState(InputState::Normal);
 }
@@ -3404,7 +3403,7 @@ void VtermImpl::csi_DCH() {
 
 void VtermImpl::csi_ECH() {
     u32 arg = inputOps[0] ? inputOps[0] : 1;
-    const u32 len = nCols - posX;
+    const u32 len = composer.columns - posX;
     arg = std::min(arg, len);
     eraseEcmaRangeInRow(posY, posX, arg);
     lastCol = false;
@@ -3414,9 +3413,9 @@ void VtermImpl::csi_ECH() {
 void VtermImpl::csi_STBM() {
     if (nInputOps <= 2) {
         u32 newMarginTop = inputOps[0] > 0 ? inputOps[0] - 1 : 0;
-        u32 newMarginBottom = nInputOps < 2 || inputOps[1] == 0 ? nRows : inputOps[1];
+        u32 newMarginBottom = nInputOps < 2 || inputOps[1] == 0 ? composer.rows : inputOps[1];
 
-        const bool illegal = newMarginTop >= nRows || newMarginBottom > nRows || newMarginBottom <= newMarginTop + 1;
+        const bool illegal = newMarginTop >= composer.rows || newMarginBottom > composer.rows || newMarginBottom <= newMarginTop + 1;
         if (!illegal && (newMarginTop != marginTop || newMarginBottom != marginBottom)) {
             marginTop = (u16)(newMarginTop);
             marginBottom = (u16)(newMarginBottom);
@@ -3437,9 +3436,9 @@ void VtermImpl::csi_STBM() {
 void VtermImpl::csi_SLRM() {
     if (nInputOps <= 2) {
         u32 newMarginLeft = inputOps[0] > 0 ? inputOps[0] - 1 : 0;
-        u32 newMarginRight = nInputOps < 2 || inputOps[1] == 0 ? nCols : inputOps[1];
+        u32 newMarginRight = nInputOps < 2 || inputOps[1] == 0 ? composer.columns : inputOps[1];
 
-        const bool illegal = newMarginLeft >= nCols || newMarginRight > nCols || newMarginRight <= newMarginLeft + 1;
+        const bool illegal = newMarginLeft >= composer.columns || newMarginRight > composer.columns || newMarginRight <= newMarginLeft + 1;
         if (!illegal && (newMarginLeft != hMargin || newMarginRight != nColsEff)) {
             hMargin = (u16)(newMarginLeft);
             nColsEff = (u16)(newMarginRight);
@@ -3461,7 +3460,7 @@ void VtermImpl::csi_TBC() {
     switch (inputOps[0]) {
         case 0: {
             if (!tabStopsCustomized) {
-                for (unsigned column = 8; column < nCols; column += 8) {
+                for (unsigned column = 8; column < composer.columns; column += 8) {
                     tabStops.push_back((u16)(column));
                 }
                 tabStopsCustomized = true;
@@ -3617,7 +3616,7 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 if (compatLevel >= CompatibilityLevel::VT400) {
                     horizMarginMode = true;
                     hMargin = 0;
-                    nColsEff = nCols;
+                    nColsEff = composer.columns;
                 }
                 break;
             case 95:
@@ -3779,7 +3778,7 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 if (compatLevel >= CompatibilityLevel::VT400) {
                     horizMarginMode = false;
                     hMargin = 0;
-                    nColsEff = nCols;
+                    nColsEff = composer.columns;
                 }
                 break;
             case 95:
@@ -4527,9 +4526,9 @@ void VtermImpl::csi_DSR(bool privateMode) {
 void VtermImpl::esch_DECALN() {
     originMode = OriginMode::Absolute;
     marginTop = 0;
-    marginBottom = nRows;
+    marginBottom = composer.rows;
     hMargin = 0;
-    nColsEff = nCols;
+    nColsEff = composer.columns;
     posX = 0;
     posY = 0;
     lastCol = false;
@@ -4550,7 +4549,7 @@ void VtermImpl::esch_DECALN() {
 void VtermImpl::setLineAttribute(u8 attribute) {
     cf->setLineAttribute(posY, attribute);
     if (attribute) {
-        posX = std::min<u16>(posX, std::max(1, nCols / 2) - 1);
+        posX = std::min<u16>(posX, std::max(1, composer.columns / 2) - 1);
     }
     setState(InputState::Normal);
 }
@@ -4564,9 +4563,9 @@ void VtermImpl::csi_DECSTR() {
     resetScreen(false);
     resetAttrs();
     marginTop = 0;
-    marginBottom = nRows;
+    marginBottom = composer.rows;
     hMargin = 0;
-    nColsEff = nCols;
+    nColsEff = composer.columns;
     savedCursor->posX = 0;
     savedCursor->posY = 0;
     savedCursor->lastCol = false;
@@ -4785,7 +4784,7 @@ void VtermImpl::dcs_DECRQSS(const std::string& arg) {
     } else if (query == "s") {
         value << hMargin + 1 << StringView(u8";") << nColsEff << StringView(u8"s");
     } else if (query == "t") {
-        value << nRows << StringView(u8"t");
+        value << composer.rows << StringView(u8"t");
     } else if (query == " q") {
         value << (unsigned)(cursorStyleParam) << StringView(u8" q");
     } else if (query == "\"q") {
@@ -5233,7 +5232,7 @@ void VtermImpl::osc_Notification(const std::string& arg) {
 
 void VtermImpl::reportInBandResize() {
     StringBuilder response;
-    response << StringView(u8"48;") << nRows << StringView(u8";") << nCols << StringView(u8";") << nRows * glyphPy << StringView(u8";") << nCols * glyphPx << StringView(u8"t");
+    response << StringView(u8"48;") << composer.rows << StringView(u8";") << composer.columns << StringView(u8";") << composer.rows * composer.glyphHeight << StringView(u8";") << composer.columns * composer.glyphWidth << StringView(u8"t");
     writeCsiResponse(StringView(response));
 }
 
@@ -5496,10 +5495,10 @@ void VtermImpl::csi_XTWINOPS() {
         case 4:
         case 8: {
             const auto info = host.windowInfo();
-            const u32 currentHeight = operation == 4 ? info.pixelHeight : nRows;
-            const u32 currentWidth = operation == 4 ? info.pixelWidth : nCols;
-            const u32 maximumHeight = operation == 4 ? info.screenPixelHeight : info.screenPixelHeight / glyphPy;
-            const u32 maximumWidth = operation == 4 ? info.screenPixelWidth : info.screenPixelWidth / glyphPx;
+            const u32 currentHeight = operation == 4 ? info.pixelHeight : composer.rows;
+            const u32 currentWidth = operation == 4 ? info.pixelWidth : composer.columns;
+            const u32 maximumHeight = operation == 4 ? info.screenPixelHeight : info.screenPixelHeight / composer.glyphHeight;
+            const u32 maximumWidth = operation == 4 ? info.screenPixelWidth : info.screenPixelWidth / composer.glyphWidth;
             const auto dimension = [&](size_t index, u32 current, u32 maximum) {
                 if (index >= nInputOps || !inputPresent[index]) {
                     return current;
@@ -5531,7 +5530,7 @@ void VtermImpl::csi_XTWINOPS() {
                 const auto info = host.windowInfo();
                 response << StringView(u8"4;") << info.pixelHeight << StringView(u8";") << info.pixelWidth << StringView(u8"t");
             } else {
-                response << StringView(u8"4;") << nRows * glyphPy << StringView(u8";") << nCols * glyphPx << StringView(u8"t");
+                response << StringView(u8"4;") << composer.rows * composer.glyphHeight << StringView(u8";") << composer.columns * composer.glyphWidth << StringView(u8"t");
             }
             writeCsiResponse(StringView(response));
             break;
@@ -5541,16 +5540,16 @@ void VtermImpl::csi_XTWINOPS() {
             writeCsiResponse(StringView(response));
         } break;
         case 16:
-            response << StringView(u8"6;") << glyphPy << StringView(u8";") << glyphPx << StringView(u8"t");
+            response << StringView(u8"6;") << composer.glyphHeight << StringView(u8";") << composer.glyphWidth << StringView(u8"t");
             writeCsiResponse(StringView(response));
             break;
         case 18:
-            response << StringView(u8"8;") << nRows << StringView(u8";") << nCols << StringView(u8"t");
+            response << StringView(u8"8;") << composer.rows << StringView(u8";") << composer.columns << StringView(u8"t");
             writeCsiResponse(StringView(response));
             break;
         case 19: {
             const auto info = host.windowInfo();
-            response << StringView(u8"9;") << info.screenPixelHeight / glyphPy << StringView(u8";") << info.screenPixelWidth / glyphPx << StringView(u8"t");
+            response << StringView(u8"9;") << info.screenPixelHeight / composer.glyphHeight << StringView(u8";") << info.screenPixelWidth / composer.glyphWidth << StringView(u8"t");
             writeCsiResponse(StringView(response));
         } break;
         case 20:
@@ -5608,7 +5607,7 @@ void VtermImpl::csi_XTWINOPS() {
         } break;
         default:
             if (operation >= 24) {
-                host.windowOperation(8, operation, nCols);
+                host.windowOperation(8, operation, composer.columns);
             }
             break;
     }
@@ -7032,18 +7031,22 @@ u32 VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
 #undef LOOKUP
 }
 
-VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, Output* dump_, u16 glyphPx_, u16 glyphPy_, u16 winPx_, u16 winPy_)
+CallVtermResize::CallVtermResize(VtermImpl* parent_)
+    : parent(parent_)
+{
+}
+
+void CallVtermResize::onListen(void*) {
+    parent->resizeGrid();
+    parent->redraw();
+}
+
+VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, Output* dump_)
     : composer(composer_)
     , host(host_)
     , dump(dump_)
     , parserTrace(trace)
-    , winPx(winPx_)
-    , winPy(winPy_)
-    , nCols((winPx - 2 * opts.border) / glyphPx_)
-    , nRows((winPy - 2 * opts.border) / glyphPy_)
-    , glyphPx(glyphPx_)
-    , glyphPy(glyphPy_)
-    , nColsEff(nCols)
+    , nColsEff(composer.columns)
     , hMargin(0)
 {
     try {
@@ -7080,19 +7083,13 @@ VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, O
     bgPalIx = defaultBgPalIx;
 
     resetTerminal();
+    composer.resizedListeners.pushBack(composer.pool->make<CallVtermResize>(this));
 }
 
-void VtermImpl::resizeGrid(u16 winPx_, u16 winPy_) {
-    if (winPx == winPx_ && winPy == winPy_) {
-        return;
-    }
-    winPx = winPx_;
-    winPy = winPy_;
-
-    const u16 nCols_ = std::max(1, (winPx - 2 * opts.border) / glyphPx);
-    const u16 nRows_ = std::max(1, (winPy - 2 * opts.border) / glyphPy);
-
-    if (nCols == nCols_ && nRows == nRows_) {
+void VtermImpl::resizeGrid() {
+    const u16 previousColumns = cf->columns();
+    const u16 previousRows = cf->rows();
+    if (previousColumns == composer.columns && previousRows == composer.rows) {
         if (inBandResizeMode) {
             reportInBandResize();
         }
@@ -7103,10 +7100,8 @@ void VtermImpl::resizeGrid(u16 winPx_, u16 winPy_) {
     resetGraphemeInput();
     discardQueuedUpdates();
 
-    const bool reflow = cf == frame_pri && nCols != nCols_;
+    const bool reflow = cf == frame_pri && previousColumns != composer.columns;
     Screen::Cursor cursorState{Point(posX, posY), lastCol};
-    nCols = nCols_;
-    nRows = nRows_;
     if (cf == frame_pri) {
         resizeScreen(frame_pri, framePriPool, reflow, &cursorState);
         cf = frame_pri;
@@ -7122,8 +7117,8 @@ void VtermImpl::resizeGrid(u16 winPx_, u16 winPy_) {
     // horizontal region to the resized page as well; retaining a clipped
     // right edge made subsequent growth keep a stale narrow region.
     marginTop = 0;
-    marginBottom = nRows;
-    nColsEff = nCols;
+    marginBottom = composer.rows;
+    nColsEff = composer.columns;
     hMargin = 0;
     if (!reflow) {
         const bool pendingWrap = lastCol;
@@ -8929,12 +8924,12 @@ void VtermImpl::setHyperlink(const std::string& parametersAndUri) {
 }
 
 std::string VtermImpl::getHyperlink(int pX, int pY) const {
-    if (pX < opts.border || pY < opts.border || pX >= winPx - opts.border || pY >= winPy - opts.border) {
+    if (pX < opts.border || pY < opts.border || pX >= composer.pixelWidth - opts.border || pY >= composer.pixelHeight - opts.border) {
         return {};
     }
 
-    const u16 column = (pX - opts.border) / glyphPx;
-    const u16 row = (pY - opts.border) / glyphPy;
+    const u16 column = (pX - opts.border) / composer.glyphWidth;
+    const u16 row = (pY - opts.border) / composer.glyphHeight;
     if (column >= cf->columns() || row >= cf->rows()) {
         return {};
     }
@@ -8944,11 +8939,11 @@ std::string VtermImpl::getHyperlink(int pX, int pY) const {
 }
 
 Point VtermImpl::selectionPoint(int pX, int pY) const {
-    const int contentWidth = std::max(0, (int)winPx - 2 * opts.border);
-    const int contentHeight = std::max(1, (int)winPy - 2 * opts.border);
+    const int contentWidth = std::max(0, (int)composer.pixelWidth - 2 * opts.border);
+    const int contentHeight = std::max(1, (int)composer.pixelHeight - 2 * opts.border);
     pX = std::min(std::max(0, pX - opts.border), contentWidth);
     pY = std::min(std::max(0, pY - opts.border), contentHeight - 1);
-    return cf->getLogicalPoint(Point(std::min(pX / glyphPx, (int)nCols), std::min(pY / glyphPy, (int)nRows - 1)));
+    return cf->getLogicalPoint(Point(std::min(pX / composer.glyphWidth, (int)composer.columns), std::min(pY / composer.glyphHeight, (int)composer.rows - 1)));
 }
 
 void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
@@ -9101,7 +9096,7 @@ void VtermImpl::pasteSelection(const std::string& utf8_selection) {
     }
 }
 
-Vterm* Vterm::create(Composer& composer, VtermHost& host, VtermTrace* trace, u16 glyphPx, u16 glyphPy, u16 winPx, u16 winPy) {
+Vterm* Vterm::create(Composer& composer, VtermHost& host, VtermTrace* trace) {
     Output* dump = nullptr;
     if (opts.dump != nullptr) {
         const int rawFd = ::open(opts.dump, O_WRONLY | O_CREAT | O_TRUNC, 0666);
@@ -9112,11 +9107,9 @@ Vterm* Vterm::create(Composer& composer, VtermHost& host, VtermTrace* trace, u16
         dump = createOutBuf(composer.pool, *createFDRegular(composer.pool, *fd));
     }
 
-    const u16 columns = (winPx - 2 * opts.border) / glyphPx;
-    const u16 rows = (winPy - 2 * opts.border) / glyphPy;
-    CellExtraStore::create(composer, (size_t)(columns) * (rows + opts.saveLines));
+    CellExtraStore::create(composer, (size_t)(composer.columns) * (composer.rows + opts.saveLines));
     try {
-        return composer.pool->make<VtermImpl>(composer, host, trace, dump, glyphPx, glyphPy, winPx, winPy);
+        return composer.pool->make<VtermImpl>(composer, host, trace, dump);
     } catch (...) {
         composer.cellExtras = nullptr;
         throw;

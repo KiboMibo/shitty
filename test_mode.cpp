@@ -14,6 +14,7 @@
 #include "font_pack.h"
 #include "hex.h"
 #include "keyboard.h"
+#include "listener.h"
 #include "options.h"
 #include "mouse_protocol.h"
 #include "mouse_frontend.h"
@@ -59,18 +60,21 @@ using namespace stl;
 namespace {
     extern "C" int openpty(int*, int*, char*, const termios*, const winsize*);
 
-    struct TestPty final: public Pty {
-        explicit TestPty(int fd);
+    struct TestPty final: public Pty, public Listener {
+        TestPty(Composer& composer, int fd);
 
         int fd() const override;
         ssize_t read(u8* buffer, size_t size) override;
         ssize_t write(const u8* buffer, size_t size) override;
-        void resize(u16 columns, u16 rows) override;
+        void onListen(void*) override;
 
         void setReadHandler(std::function<ssize_t(u8*, size_t)> handler);
         void setWriteHandler(std::function<ssize_t(const u8*, size_t)> handler);
         std::string takeReadData();
 
+        void applySize();
+
+        Composer& composer_;
         int fd_;
         std::function<ssize_t(u8*, size_t)> onRead;
         std::function<ssize_t(const u8*, size_t)> onWrite;
@@ -88,8 +92,9 @@ namespace {
 
 }
 
-TestPty::TestPty(int fd)
-    : fd_(fd)
+TestPty::TestPty(Composer& composer, int fd)
+    : composer_(composer)
+    , fd_(fd)
     , onRead([this](u8* buffer, size_t size) {
         return ::read(fd_, buffer, size);
     })
@@ -101,6 +106,8 @@ TestPty::TestPty(int fd)
     if (flags < 0 || fcntl(fd_, F_SETFL, flags | O_NONBLOCK) < 0) {
         throw std::runtime_error("test PTY nonblocking setup failed");
     }
+    applySize();
+    composer_.resizedListeners.pushBack(this);
 }
 
 int TestPty::fd() const {
@@ -119,8 +126,12 @@ ssize_t TestPty::write(const u8* buffer, size_t size) {
     return onWrite(buffer, size);
 }
 
-void TestPty::resize(u16 columns, u16 rows) {
-    pty_resize(fd_, columns, rows);
+void TestPty::onListen(void*) {
+    applySize();
+}
+
+void TestPty::applySize() {
+    pty_resize(fd_, composer_.columns, composer_.rows);
 }
 
 void TestPty::setReadHandler(std::function<ssize_t(u8*, size_t)> handler) {
@@ -249,9 +260,9 @@ namespace {
     }
 
     struct TestDisplay final: public VtermHost {
-        TestDisplay(ClipboardStore& clipboard, std::string& actions, std::string& printerOutput, unsigned glyphPx, unsigned glyphPy, u32 pixelWidth, u32 pixelHeight);
+        TestDisplay(Composer& composer, ClipboardStore& clipboard, std::string& actions, std::string& printerOutput, u32 pixelWidth, u32 pixelHeight);
 
-        void attach(Vterm& terminal, TestPty& pty, TestApi& testApi);
+        void attach(Vterm& terminal, TestApi& testApi);
         bool update(const TerminalUpdate& update);
         void osc(int command, const std::string& argument) override;
         bool handlesOsc() const override;
@@ -293,14 +304,12 @@ namespace {
         std::vector<TerminalCell> modelCells;
         std::vector<std::vector<u32>> cellGraphemes;
         std::vector<CellColor> modelUnderlineColors;
+        Composer& composer;
         ClipboardStore& clipboard;
         std::string& actions;
         std::string& printerOutput;
         Vterm* terminal = nullptr;
-        TestPty* pty = nullptr;
         TestApi* testApi = nullptr;
-        unsigned glyphPx;
-        unsigned glyphPy;
         VtermWindowInfo currentWindow;
         VtermWindowInfo restoredWindow;
         bool haveRestoredWindow = false;
@@ -358,7 +367,6 @@ namespace {
         TestPty& pty;
         TestDisplay& display;
         VtermState state_;
-        bool ptyReceivedInput = false;
 
         bool present();
         void refreshState();
@@ -394,12 +402,11 @@ namespace {
 
 }
 
-TestDisplay::TestDisplay(ClipboardStore& clipboard, std::string& actions, std::string& printerOutput, unsigned glyphPx, unsigned glyphPy, u32 pixelWidth, u32 pixelHeight)
-    : clipboard(clipboard)
+TestDisplay::TestDisplay(Composer& composer_, ClipboardStore& clipboard, std::string& actions, std::string& printerOutput, u32 pixelWidth, u32 pixelHeight)
+    : composer(composer_)
+    , clipboard(clipboard)
     , actions(actions)
     , printerOutput(printerOutput)
-    , glyphPx(glyphPx)
-    , glyphPy(glyphPy)
 {
     currentWindow.x = 10;
     currentWindow.y = 20;
@@ -410,9 +417,8 @@ TestDisplay::TestDisplay(ClipboardStore& clipboard, std::string& actions, std::s
     restoredWindow = currentWindow;
 }
 
-void TestDisplay::attach(Vterm& value, TestPty& ptyValue, TestApi& testApiValue) {
+void TestDisplay::attach(Vterm& value, TestApi& testApiValue) {
     terminal = &value;
-    pty = &ptyValue;
     testApi = &testApiValue;
 }
 
@@ -544,11 +550,9 @@ void TestDisplay::progress(u32 state, u32 percent) {
 }
 
 void TestDisplay::applyWindowSize(u32 pixelWidth, u32 pixelHeight) {
-    terminal->resize((u16)(pixelWidth), (u16)(pixelHeight));
-    const VtermState state = terminal->state();
-    pty->resize(state.columns, state.rows);
     currentWindow.pixelWidth = pixelWidth;
     currentWindow.pixelHeight = pixelHeight;
+    composer.resize((u16)(pixelWidth), (u16)(pixelHeight));
 }
 
 void TestDisplay::windowOperation(u32 operation, u32 first, u32 second) {
@@ -563,8 +567,8 @@ void TestDisplay::windowOperation(u32 operation, u32 first, u32 second) {
     } else if (operation == 4 && first && second) {
         applyWindowSize(second, first);
     } else if (operation == 8 && first && second) {
-        const u32 pixelWidth = 2 * opts.border + second * glyphPx;
-        const u32 pixelHeight = 2 * opts.border + first * glyphPy;
+        const u32 pixelWidth = 2 * opts.border + second * composer.glyphWidth;
+        const u32 pixelHeight = 2 * opts.border + first * composer.glyphHeight;
         applyWindowSize(pixelWidth, pixelHeight);
     } else if (operation == 9) {
         if (first == 0) {
@@ -603,7 +607,10 @@ void TestDisplay::windowOperation(u32 operation, u32 first, u32 second) {
 }
 
 VtermWindowInfo TestDisplay::windowInfo() {
-    return currentWindow;
+    VtermWindowInfo result = currentWindow;
+    result.pixelWidth = composer.pixelWidth;
+    result.pixelHeight = composer.pixelHeight;
+    return result;
 }
 
 void TestDisplay::failNextPresent() {
@@ -750,9 +757,8 @@ void TestTerminal::redraw() {
 }
 
 void TestTerminal::resize(u16 width, u16 height) {
-    terminal.resize(width, height);
+    display.applyWindowSize(width, height);
     update();
-    pty.resize(state_.columns, state_.rows);
 }
 
 int TestTerminal::writePty(VtKey key, VtModifier modifiers, bool) {
@@ -819,10 +825,6 @@ bool TestTerminal::readPty() {
     while (drained < maxDrainBytes) {
         const ssize_t count = pty.read(buffer, sizeof(buffer));
         if (count > 0) {
-            if (!ptyReceivedInput) {
-                pty.resize(state_.columns, state_.rows);
-                ptyReceivedInput = true;
-            }
             terminal.feedPty(StringView(buffer, count));
             drained += count;
             continue;
@@ -1148,7 +1150,9 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
     }
     const u16 width = 2 * opts.border + opts.nCols * glyphPx;
     const u16 height = 2 * opts.border + opts.nRows * glyphPy;
-    TestPty terminalPty(io[0]);
+    composer.setGlyphSize(glyphPx, glyphPy);
+    composer.resize(width, height);
+    TestPty terminalPty(composer, io[0]);
     std::string actions;
     std::string printerOutput;
     ClipboardStore clipboard;
@@ -1158,17 +1162,16 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
     }, [&systemClipboard](const std::string& content) {
         systemClipboard = content;
     });
-    TestDisplay display(clipboard, actions, printerOutput, glyphPx, glyphPy, width, height);
+    TestDisplay display(composer, clipboard, actions, printerOutput, width, height);
     VtermTrace& vtermTrace = *VtermTrace::create(composer);
-    Vterm& vterm = *Vterm::create(composer, display, &vtermTrace, glyphPx, glyphPy, width, height);
+    Vterm& vterm = *Vterm::create(composer, display, &vtermTrace);
     TestApi* const testApi = vterm.testApi();
     if (testApi == nullptr) {
         throw std::runtime_error("test Vterm has no TestApi");
     }
-    display.attach(vterm, terminalPty, *testApi);
+    display.attach(vterm, *testApi);
     TestTerminal terminal(vterm, *testApi, terminalPty, display);
     input.attachTestVterm(vterm);
-    terminalPty.resize(opts.nCols, opts.nRows);
     pid_t childPid = -1;
     int childExitStatus = -1;
 
@@ -1342,8 +1345,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                     throw std::runtime_error("invalid font load request");
                 }
                 ObjPool::Ref fontPool = ObjPool::fromMemory();
-                Composer fontComposer;
-                fontComposer.pool = fontPool.mutPtr();
+                Composer fontComposer(fontPool.mutPtr());
                 const StringView fontname((const u8*)(request.data()), first);
                 const StringView dwfontname((const u8*)(request.data() + first + 1), request.size() - first - 1);
                 Fontpack* fonts = Fontpack::create(fontComposer, fontname, dwfontname);
@@ -1668,8 +1670,6 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                     throw std::runtime_error("invalid resize");
                 }
                 terminal.resize(2 * opts.border + columns * glyphPx, 2 * opts.border + rows * glyphPy);
-                display.currentWindow.pixelWidth = 2 * opts.border + columns * glyphPx;
-                display.currentWindow.pixelHeight = 2 * opts.border + rows * glyphPy;
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 14, "RESIZE_PIXELS ") == 0) {
                 std::istringstream args(line.substr(14));
@@ -1679,8 +1679,6 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                     throw std::runtime_error("invalid pixel resize");
                 }
                 terminal.resize(pixelWidth, pixelHeight);
-                display.currentWindow.pixelWidth = pixelWidth;
-                display.currentWindow.pixelHeight = pixelHeight;
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 12, "WINDOW_INFO ") == 0) {
                 std::istringstream args(line.substr(12));

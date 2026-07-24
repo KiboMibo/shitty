@@ -106,7 +106,6 @@ namespace {
         bool committedRepaintPending = false;
         bool terminalHostReady = false;
         bool attentionRequested = false;
-        bool ptyReceivedInput = false;
         std::optional<std::chrono::steady_clock::time_point> refreshDeadline;
         ClipboardStore clipboardStore;
 
@@ -117,8 +116,8 @@ namespace {
         } mouseContext;
 
         struct WindowContext {
-            int framebufferWidth = 0;
-            int framebufferHeight = 0;
+            int pendingPixelWidth = 0;
+            int pendingPixelHeight = 0;
             bool resizePending = false;
             bool redrawPending = false;
             bool correctingResize = false;
@@ -297,8 +296,8 @@ int ApplicationImpl::gridAlignedWindowSize(int framebufferSize, int border, int 
 }
 
 void ApplicationImpl::queueFramebufferResize(int width, int height) {
-    windowContext.framebufferWidth = width;
-    windowContext.framebufferHeight = height;
+    windowContext.pendingPixelWidth = width;
+    windowContext.pendingPixelHeight = height;
     windowContext.resizePending = true;
 }
 
@@ -831,7 +830,7 @@ bool ApplicationImpl::isMouseProtocol(int modifiers, const MouseTrackingState& t
 }
 
 void ApplicationImpl::mouseProtocolCoordinates(MouseTrackingEnc encoding, int pixelX, int pixelY, u16& column, u16& row) {
-    const MouseProtocolPoint point = mouseProtocolPoint(encoding, pixelX, pixelY, {windowContext.framebufferWidth, windowContext.framebufferHeight, opts.border, fontpk->getPx(), fontpk->getPy()});
+    const MouseProtocolPoint point = mouseProtocolPoint(encoding, pixelX, pixelY, {composer.pixelWidth, composer.pixelHeight, opts.border, composer.glyphWidth, composer.glyphHeight});
     column = point.column;
     row = point.row;
 }
@@ -1095,11 +1094,6 @@ bool ApplicationImpl::readPty() {
     while (drained < maxDrainBytes) {
         const ssize_t count = terminalPty->read(buffer, sizeof(buffer));
         if (count > 0) {
-            if (!ptyReceivedInput) {
-                const VtermState terminalState = vt->state();
-                terminalPty->resize(terminalState.columns, terminalState.rows);
-                ptyReceivedInput = true;
-            }
             vt->feedPty(StringView(buffer, count));
             drained += (size_t)(count);
             continue;
@@ -1255,11 +1249,8 @@ void ApplicationImpl::windowOperation(u32 operation, u32 first, u32 second) {
 VtermWindowInfo ApplicationImpl::windowInfo() {
     VtermWindowInfo info;
     glfwGetWindowPos(window, &info.x, &info.y);
-    int width = 0;
-    int height = 0;
-    glfwGetFramebufferSize(window, &width, &height);
-    info.pixelWidth = std::max(0, width);
-    info.pixelHeight = std::max(0, height);
+    info.pixelWidth = composer.pixelWidth;
+    info.pixelHeight = composer.pixelHeight;
     GLFWmonitor* monitor = glfwGetWindowMonitor(window);
     if (monitor == nullptr) {
         monitor = glfwGetPrimaryMonitor();
@@ -1454,13 +1445,12 @@ bool ApplicationImpl::eventLoop(PtyEventSource& ptySource) {
         }
         bool resized = false;
         if (windowContext.resizePending) {
-            const int width = std::min(windowContext.framebufferWidth, (int)(UINT16_MAX));
-            const int height = std::min(windowContext.framebufferHeight, (int)(UINT16_MAX));
+            const int width = std::min(windowContext.pendingPixelWidth, (int)(UINT16_MAX));
+            const int height = std::min(windowContext.pendingPixelHeight, (int)(UINT16_MAX));
             windowContext.resizePending = false;
             windowContext.redrawPending = false;
-            vt->resize(width, height);
+            composer.resize(width, height);
             const VtermState resizedState = vt->state();
-            terminalPty->resize(resizedState.columns, resizedState.rows);
             committedRepaintPending = resizedState.synchronizedOutput;
             resized = true;
             refreshDeadline = Clock::now() + resizeGrace;
@@ -1636,6 +1626,8 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     if (pixelWidth > UINT16_MAX || pixelHeight > UINT16_MAX) {
         throw std::runtime_error("Initial window exceeds terminal limits");
     }
+    composer.setGlyphSize(fontpk->getPx(), fontpk->getPy());
+    composer.resize(pixelWidth, pixelHeight);
 
     cursor = glfwCreateStandardCursor(GLFW_IBEAM_CURSOR);
     hyperlinkCursor = glfwCreateStandardCursor(GLFW_HAND_CURSOR);
@@ -1651,12 +1643,11 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             throw std::runtime_error("Cannot start printer command");
         }
     }
-    vt = Vterm::create(composer, *this, nullptr, fontpk->getPx(), fontpk->getPy(), pixelWidth, pixelHeight);
+    vt = Vterm::create(composer, *this, nullptr);
     composer.vterm = vt;
     terminalHostReady = true;
     setupCallbacks();
     vt->focus(glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_TRUE);
-    vt->resize(pixelWidth, pixelHeight);
     presentTerminal();
 
     PtyEventSource* ptySource = PtyEventSource::create(composer, *terminalPty, *this);

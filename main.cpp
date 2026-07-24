@@ -94,7 +94,7 @@ namespace {
         }
 
         ObjPool::Ref pool = ObjPool::fromMemory();
-        Composer composer{pool.mutPtr()};
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         VtermHeadless* vterm = VtermHeadless::create(composer);
         Buffer data;
         size_t bytes = 0;
@@ -128,8 +128,7 @@ int main(int argc, char* argv[]) {
             status = runPerf(argc, argv);
         } else {
             ObjPool::Ref pool = ObjPool::fromMemory();
-            Composer composer;
-            composer.pool = pool.mutPtr();
+            Composer& composer = *pool->make<Composer>(pool.mutPtr());
             composer.application = Application::create(composer);
             status = composer.application->run(argc, argv);
         }

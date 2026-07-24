@@ -230,7 +230,6 @@ struct TestApi;
 struct Vterm {
     virtual void feedPty(stl::StringView bytes) = 0;
     virtual void expose() = 0;
-    virtual void resize(u16 width, u16 height) = 0;
     virtual void focus(bool focused) = 0;
 
     virtual void key(VtKey key, VtModifier modifiers) = 0;
@@ -263,5 +262,5 @@ struct Vterm {
     virtual VtermState state() const = 0;
     virtual TestApi* testApi() = 0;
 
-    static Vterm* create(Composer& composer, VtermHost& host, VtermTrace* trace, u16 glyphPx, u16 glyphPy, u16 winPx, u16 winPy);
+    static Vterm* create(Composer& composer, VtermHost& host, VtermTrace* trace);
 };

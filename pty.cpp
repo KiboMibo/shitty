@@ -28,6 +28,7 @@
 
 #include "composer.h"
 #include "fd_redirect.h"
+#include "listener.h"
 
 #include <std/mem/obj_pool.h>
 
@@ -66,22 +67,27 @@ using namespace stl;
 
 namespace {
 
-    struct PtyImpl final: public Pty {
-        explicit PtyImpl(int fd);
+    struct PtyImpl final: public Pty, public Listener {
+        PtyImpl(Composer& composer, int fd);
         ~PtyImpl();
 
         int fd() const override;
         ssize_t read(u8* buffer, size_t size) override;
         ssize_t write(const u8* buffer, size_t size) override;
-        void resize(u16 columns, u16 rows) override;
+        void onListen(void*) override;
 
+        void applySize();
+
+        Composer& composer_;
         int fd_;
+        bool resizeActive_ = false;
     };
 
 }
 
-PtyImpl::PtyImpl(int fd)
-    : fd_(fd)
+PtyImpl::PtyImpl(Composer& composer, int fd)
+    : composer_(composer)
+    , fd_(fd)
 {
     const int flags = fcntl(fd_, F_GETFL, 0);
     if (flags < 0 || fcntl(fd_, F_SETFL, flags | O_NONBLOCK) < 0) {
@@ -90,6 +96,7 @@ PtyImpl::PtyImpl(int fd)
         fd_ = -1;
         throw std::runtime_error("cannot make PTY nonblocking: " + std::string(strerror(error)));
     }
+    composer_.resizedListeners.pushBack(this);
 }
 
 PtyImpl::~PtyImpl() {
@@ -103,19 +110,30 @@ int PtyImpl::fd() const {
 }
 
 ssize_t PtyImpl::read(u8* buffer, size_t size) {
-    return ::read(fd_, buffer, size);
+    const ssize_t count = ::read(fd_, buffer, size);
+    if (count > 0 && !resizeActive_) {
+        resizeActive_ = true;
+        applySize();
+    }
+    return count;
 }
 
 ssize_t PtyImpl::write(const u8* buffer, size_t size) {
     return ::write(fd_, buffer, size);
 }
 
-void PtyImpl::resize(u16 columns, u16 rows) {
-    pty_resize(fd_, columns, rows);
+void PtyImpl::onListen(void*) {
+    if (resizeActive_) {
+        applySize();
+    }
+}
+
+void PtyImpl::applySize() {
+    pty_resize(fd_, composer_.columns, composer_.rows);
 }
 
 Pty* Pty::adopt(Composer& composer, int fd) {
-    return composer.pool->make<PtyImpl>(fd);
+    return composer.pool->make<PtyImpl>(composer, fd);
 }
 
 int ptym_open(char* pts_name, int pts_namesz) {

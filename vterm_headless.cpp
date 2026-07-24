@@ -100,7 +100,9 @@ VtermHeadlessImpl::VtermHeadlessImpl(u16 pixelWidth, u16 pixelHeight)
 }
 
 void VtermHeadlessImpl::initialize(Composer& composer, u16 pixelWidth, u16 pixelHeight) {
-    vterm = Vterm::create(composer, host, nullptr, 1, 1, pixelWidth, pixelHeight);
+    composer.setGlyphSize(1, 1);
+    composer.resize(pixelWidth, pixelHeight);
+    vterm = Vterm::create(composer, host, nullptr);
 }
 
 void VtermHeadlessImpl::feed(const u8* data, size_t len) {
