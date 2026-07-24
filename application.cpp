@@ -445,6 +445,9 @@ bool ApplicationImpl::eventLoop(PtyEventSource& ptySource) {
         if (events.resized) {
             const VtermState resizedState = vt->state();
             committedRepaintPending = resizedState.synchronizedOutput;
+            if (!committedRepaintPending) {
+                vt->expose();
+            }
             resized = true;
             refreshDeadline = Clock::now() + resizeGrace;
         } else if (events.redraw) {
