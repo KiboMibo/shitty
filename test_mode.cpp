@@ -22,6 +22,7 @@
 #include "mouse_frontend.h"
 #include "osc_protocol.h"
 #include "pty.h"
+#include "reference_renderer.h"
 #include "startup.h"
 #include "utf8.h"
 #include "vk_renderer.h"
@@ -303,6 +304,7 @@ namespace {
         std::string modelSnapshot() const;
         std::string modelDigest() const;
         std::string renderState() const;
+        TerminalUpdate renderUpdate() const;
         std::string scrollbackState() const;
         std::string screenText() const;
 
@@ -326,6 +328,7 @@ namespace {
         std::vector<TerminalCell> modelCells;
         std::vector<std::vector<u32>> cellGraphemes;
         std::vector<CellColor> modelUnderlineColors;
+        CellExtraStore* cellExtras = nullptr;
         Composer& composer;
         std::string& actions;
         std::string& printerOutput;
@@ -515,6 +518,7 @@ bool TestDisplay::update(const TerminalUpdate& update) {
     selectionForeground = update.selectionForeground;
     selectionBackground = update.selectionBackground;
     selectionColorMask = update.selectionColorMask;
+    cellExtras = update.cellExtras;
     graphemeCells = 0;
     graphemeCodepoints = 0;
     for (const auto& cell : cells) {
@@ -747,6 +751,26 @@ std::string TestDisplay::renderState() const {
     StringBuilder output;
     output << StringView(u8"OK ") << (unsigned)(screenReverse) << StringView(u8" ") << (unsigned)(blinkVisible) << StringView(u8" ") << (unsigned)(cursorBlink) << StringView(u8" ") << (unsigned)(selectionColorMask) << StringView(u8" ") << (unsigned)(selectionForeground.red) << StringView(u8" ") << (unsigned)(selectionForeground.green) << StringView(u8" ") << (unsigned)(selectionForeground.blue) << StringView(u8" ") << (unsigned)(selectionBackground.red) << StringView(u8" ") << (unsigned)(selectionBackground.green) << StringView(u8" ") << (unsigned)(selectionBackground.blue) << StringView(u8" ") << graphemeCells << StringView(u8" ") << graphemeCodepoints << StringView(u8"\n");
     return toString(output);
+}
+
+TerminalUpdate TestDisplay::renderUpdate() const {
+    return {
+        .cells = cells.data(),
+        .cellCount = cells.size(),
+        .cellExtras = cellExtras,
+        .viewOffset = viewOffset,
+        .historyRows = historyRows,
+        .cursor = cursor,
+        .selection = selection,
+        .snappedSelection = selection,
+        .selectionForeground = selectionForeground,
+        .selectionBackground = selectionBackground,
+        .selectionColorMask = selectionColorMask,
+        .incremental = false,
+        .screenReverse = screenReverse,
+        .blinkVisible = blinkVisible,
+        .cursorBlink = cursorBlink,
+    };
 }
 
 std::string TestDisplay::screenText() const {
@@ -1377,6 +1401,24 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 const StringView dwfontname((const u8*)(request.data() + first + 1), request.size() - first - 1);
                 Fontpack* fonts = Fontpack::create(fontComposer, fontname, dwfontname);
                 writeAll(controlFd, "OK " + std::to_string(fonts->getPx()) + " " + std::to_string(fonts->getPy()) + " " + std::to_string(fonts->hasBold()) + " " + std::to_string(fonts->hasItalic()) + " " + std::to_string(fonts->hasBoldItalic()) + " " + std::to_string(fonts->hasDoubleWidth()) + "\n");
+            } else if (line.compare(0, 13, "RENDER_IMAGE ") == 0) {
+                const std::string request = decodeHex(line.substr(13));
+                const size_t first = request.find('\0');
+                if (first == std::string::npos) {
+                    throw std::runtime_error("invalid render image request");
+                }
+                ObjPool::Ref renderPool = ObjPool::fromMemory();
+                Composer renderComposer(renderPool.mutPtr());
+                const StringView fontname((const u8*)(request.data()), first);
+                const StringView dwfontname((const u8*)(request.data() + first + 1), request.size() - first - 1);
+                Fontpack* fonts = Fontpack::create(renderComposer, fontname, dwfontname);
+                renderComposer.fonts = fonts;
+                renderComposer.setGlyphSize(fonts->getPx(), fonts->getPy());
+                renderComposer.resize(2 * opts.border + display.columns * fonts->getPx(), 2 * opts.border + display.rows * fonts->getPy());
+                ReferenceRenderer* renderer = ReferenceRenderer::create(renderComposer, *fonts);
+                const ReferenceImage image = renderer->render(display.renderUpdate());
+                const std::string pixels((const char*)(image.pixels), image.length);
+                writeAll(controlFd, "OK " + std::to_string(image.width) + " " + std::to_string(image.height) + " " + encodeHex(pixels) + "\n");
             } else if (line.compare(0, 16, "GRAPHEME_BREAKS ") == 0) {
                 std::istringstream args(line.substr(16));
                 std::string token;

@@ -29,7 +29,7 @@ struct Fontpack {
     virtual bool hasBoldItalic() const = 0;
     virtual bool hasDoubleWidth() const = 0;
 
-    virtual FontGlyph glyph(u32 id, FontStyle style, bool doubleWidth) = 0;
+    virtual FontGlyph glyph(const u32* codepoints, size_t count, FontStyle style, bool doubleWidth) = 0;
 
     static Fontpack* create(Composer& composer, stl::StringView fontname, stl::StringView dwfontname);
 };

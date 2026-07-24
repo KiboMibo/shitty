@@ -4,8 +4,13 @@
 
 import os
 import unittest
+from pathlib import Path
 
 from harness import Shitty
+
+
+ROOT = Path(__file__).resolve().parents[1]
+COLOR_FONT = ROOT / "tests" / "fonts" / "NotoColorEmoji.ttf"
 
 
 class FontResolverTest(unittest.TestCase):
@@ -40,6 +45,15 @@ class FontResolverTest(unittest.TestCase):
             loaded = terminal.load_font("monospace", "")
         self.assertGreater(loaded["px"], 0)
         self.assertGreater(loaded["py"], 0)
+
+    def test_font_file_path_is_not_treated_as_a_family(self):
+        with Shitty(extra_arguments=("-fontsize", "32")) as terminal:
+            variants = terminal.resolve_fontconfig(COLOR_FONT)
+            primary = terminal.load_font(COLOR_FONT, "")
+            fallback = terminal.load_font("monospace", COLOR_FONT)
+        self.assertEqual(variants["regular"], str(COLOR_FONT))
+        self.assertLessEqual(primary["py"], 64)
+        self.assertEqual(fallback["double_width"], 1)
 
 
 if __name__ == "__main__":

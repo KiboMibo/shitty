@@ -18,7 +18,7 @@ struct Cell
    uint bg;
    uint underlineColor;
    uint hyperlink;
-   uint grapheme;
+   uint glyph;
    uint semantic;
    uint lineAttribute;
 };
@@ -29,14 +29,9 @@ layout (std430, set = 0, binding = 1) readonly buffer CellBuffer
 };
 
 layout (set = 0, binding = 2) uniform sampler2DArray atlas;
-layout (set = 0, binding = 3) uniform usampler2D atlasMap;
+layout (set = 0, binding = 3) uniform sampler2DArray colorAtlas;
 layout (set = 0, binding = 4) uniform sampler2DArray doubleWidthAtlas;
-layout (set = 0, binding = 5) uniform usampler2D doubleWidthAtlasMap;
-
-layout (std430, set = 0, binding = 6) readonly buffer GraphemeBuffer
-{
-   uint graphemeWords[];
-};
+layout (set = 0, binding = 5) uniform sampler2DArray doubleWidthColorAtlas;
 
 layout (push_constant) uniform PushConstants
 {
@@ -291,14 +286,16 @@ bool nonRenderingCodepoint (uint codepoint)
           (codepoint >= 0xe0100u && codepoint <= 0xe01efu);
 }
 
-float glyphCoverage (uint codepoint, uint doubleWidth, uint fontIndex,
-                     ivec2 pixel, ivec2 cellSize)
+float glyphCoverage (uint codepoint, uint glyph, uint doubleWidth,
+                     uint fontIndex, ivec2 pixel, ivec2 cellSize,
+                     out vec4 intrinsicColor)
 {
-   if (nonRenderingCodepoint (codepoint))
+   intrinsicColor = vec4 (0.0);
+   if (glyph == 0 && nonRenderingCodepoint (codepoint))
       return 0.0;
-   if (codepoint >= 0x2500u && codepoint <= 0x257fu)
+   if (glyph == 0 && codepoint >= 0x2500u && codepoint <= 0x257fu)
       return boxDrawingCoverage (codepoint, pixel, cellSize);
-   if (codepoint >= 0x23bau && codepoint <= 0x23bdu)
+   if (glyph == 0 && codepoint >= 0x23bau && codepoint <= 0x23bdu)
       return scanLineCoverage (codepoint, pixel, cellSize);
 
    if (doubleWidth != 0 && parameters.hasDoubleWidth == 0)
@@ -308,20 +305,31 @@ float glyphCoverage (uint codepoint, uint doubleWidth, uint fontIndex,
       return box ? 0.7 : 0.0;
    }
 
-   ivec2 mapPosition = ivec2 (
-      int (codepoint & 511u), int (codepoint >> 9));
-   uvec2 atlasPosition = doubleWidth == 0
-      ? texelFetch (atlasMap, mapPosition, 0).rg
-      : texelFetch (doubleWidthAtlasMap, mapPosition, 0).rg;
+   if (glyph == 0)
+      return 0.0;
+
+   ivec2 atlasPosition = ivec2 (
+      int (bitfieldExtract (glyph, 0, 8)),
+      int (bitfieldExtract (glyph, 8, 8)));
+   bool color = bitfieldExtract (glyph, 16, 1) != 0;
    int glyphWidth = int (parameters.glyphWidth) *
                     (doubleWidth != 0 ? 2 : 1);
    int x = pixel.x - (cellSize.x - glyphWidth) / 2;
    if (x < 0 || x >= glyphWidth)
       return 0.0;
    ivec2 atlasPixel = ivec2 (
-      int (atlasPosition.x) * glyphWidth + x,
-      int (atlasPosition.y * parameters.glyphHeight) +
+      atlasPosition.x * glyphWidth + x,
+      atlasPosition.y * int (parameters.glyphHeight) +
          pixel.y * int (parameters.glyphHeight) / max (1, cellSize.y));
+   if (color)
+   {
+      intrinsicColor = doubleWidth == 0
+         ? texelFetch (
+              colorAtlas, ivec3 (atlasPixel, int (fontIndex)), 0)
+         : texelFetch (
+              doubleWidthColorAtlas, ivec3 (atlasPixel, 0), 0);
+      return 0.0;
+   }
    return doubleWidth == 0
       ? texelFetch (atlas, ivec3 (atlasPixel, int (fontIndex)), 0).r
       : texelFetch (doubleWidthAtlas, ivec3 (atlasPixel, 0), 0).r;
@@ -445,27 +453,25 @@ void main ()
             doubleLine ? parameters.glyphWidth * 2u : cellWidth,
             lineAttribute == 1u || lineAttribute == 2u
                ? parameters.glyphHeight * 2u : parameters.glyphHeight);
-         float coverage = 0.0;
-         if (cell.grapheme == 0)
+         vec4 intrinsicColor;
+         float coverage = glyphCoverage (
+            codepoint, cell.glyph, doubleWidth, fontIndex, pixel, size,
+            intrinsicColor);
+         vec3 color;
+         if (intrinsicColor.a != 0.0 &&
+             conceal == 0 &&
+             (blink == 0 || parameters.blinkVisible != 0))
          {
-            coverage = glyphCoverage (
-               codepoint, doubleWidth, fontIndex, pixel, size);
+            if (faint != 0)
+               intrinsicColor *= 0.5;
+            color = intrinsicColor.rgb +
+                    background * (1.0 - intrinsicColor.a);
          }
          else
          {
-            uint count = min (graphemeWords[cell.grapheme], 64u);
-            for (uint i = 0; i < count; ++i)
-            {
-               uint member = graphemeWords[cell.grapheme + i + 1];
-               uint memberWidth = i == 0 ? doubleWidth : 0u;
-               coverage = max (
-                  coverage,
-                  glyphCoverage (
-                     member, memberWidth, fontIndex, pixel, size));
-            }
+            color = foreground * coverage +
+                    background * (1.0 - coverage);
          }
-         vec3 color = foreground * coverage +
-                      background * (1.0 - coverage);
          storePixel (outputOrigin + pixel, color);
       }
    }

@@ -15,8 +15,9 @@ namespace stl {
 struct Composer;
 
 struct FontGlyph {
-    const void* data;
-    size_t len;
+    const void* data = nullptr;
+    size_t len = 0;
+    bool color = false;
 };
 
 enum class FontKind : u8 {
@@ -31,10 +32,11 @@ struct FontMetrics {
     u16 baseline = 0;
 };
 
-// The returned bitmap occupies exactly metrics.width * metrics.height bytes.
-// It remains valid until the next glyph() call on the same Font.
+// A mask occupies metrics.width * metrics.height bytes. A color glyph occupies
+// four times as much and contains premultiplied RGBA pixels. The returned
+// bitmap remains valid until the next glyph() call on the same Font.
 struct Font {
-    virtual FontGlyph glyph(u32 id) = 0;
+    virtual FontGlyph glyph(const u32* codepoints, size_t count) = 0;
 
     static Font* create(Composer& composer, stl::StringView filename, FontKind kind, FontMetrics& metrics);
 };

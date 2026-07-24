@@ -19,6 +19,7 @@ build.cxxflags += [
 
 freetype = pkg_config("freetype2")
 fontconfig = pkg_config("fontconfig")
+harfbuzz = pkg_config("harfbuzz")
 glfw = pkg_config("glfw3 >= 3.4")
 vulkan = pkg_config("vulkan")
 brotli_common = pkg_config("libbrotlicommon", required=False)
@@ -65,7 +66,7 @@ all_libshitty_sources = [
 ]
 libshitty_sources = all_libshitty_sources
 libshitty_deps = [
-    freetype, fontconfig, glfw, vulkan, threads, libstd, brotli_common,
+    freetype, fontconfig, harfbuzz, glfw, vulkan, threads, libstd, brotli_common,
     utf8proc,
 ]
 

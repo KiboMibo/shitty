@@ -30,11 +30,11 @@ namespace {
         bool hasItalic() const override;
         bool hasBoldItalic() const override;
         bool hasDoubleWidth() const override;
-        FontGlyph glyph(u32 id, FontStyle style, bool doubleWidth) override;
+        FontGlyph glyph(const u32* codepoints, size_t count, FontStyle style, bool doubleWidth) override;
 
         Font* createOptional(Composer& composer, StringView filename, FontKind kind, FontMetrics metrics);
         Font* select(FontStyle style) const noexcept;
-        FontGlyph fallback(Font* font, Font* base, u32 id);
+        FontGlyph fallback(Font* font, Font* base, const u32* codepoints, size_t count);
 
         FontMetrics metrics_;
         Font* regular_ = nullptr;
@@ -122,26 +122,28 @@ Font* FontpackImpl::select(FontStyle style) const noexcept {
     return regular_;
 }
 
-FontGlyph FontpackImpl::fallback(Font* font, Font* base, u32 id) {
-    FontGlyph result = font->glyph(id);
+FontGlyph FontpackImpl::fallback(Font* font, Font* base, const u32* codepoints, size_t count) {
+    FontGlyph result = font->glyph(codepoints, count);
     if (result.len == 0 && font != base) {
-        result = base->glyph(id);
+        result = base->glyph(codepoints, count);
         font = base;
     }
-    if (result.len == 0 && id != Unicode_Replacement_Character) {
-        result = font->glyph(Unicode_Replacement_Character);
+    const u32 replacement = Unicode_Replacement_Character;
+    if (result.len == 0 && (count != 1 || codepoints[0] != replacement)) {
+        result = font->glyph(&replacement, 1);
     }
-    if (result.len == 0 && id != Missing_Glyph_Marker) {
-        result = font->glyph(Missing_Glyph_Marker);
+    const u32 missing = Missing_Glyph_Marker;
+    if (result.len == 0 && (count != 1 || codepoints[0] != missing)) {
+        result = font->glyph(&missing, 1);
     }
     return result;
 }
 
-FontGlyph FontpackImpl::glyph(u32 id, FontStyle style, bool doubleWidth) {
+FontGlyph FontpackImpl::glyph(const u32* codepoints, size_t count, FontStyle style, bool doubleWidth) {
     if (doubleWidth) {
-        return doubleWidth_ != nullptr ? fallback(doubleWidth_, doubleWidth_, id) : FontGlyph{};
+        return doubleWidth_ != nullptr ? fallback(doubleWidth_, doubleWidth_, codepoints, count) : FontGlyph{};
     }
-    return fallback(select(style), regular_, id);
+    return fallback(select(style), regular_, codepoints, count);
 }
 
 Fontpack* Fontpack::create(Composer& composer, StringView fontname, StringView dwfontname) {

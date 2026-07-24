@@ -247,6 +247,19 @@ class Shitty:
             values,
         ))
 
+    def render_image(self, family, double_width):
+        request = b"\0".join(map(os.fsencode, (family, double_width)))
+        self.stream.write(b"RENDER_IMAGE " + request.hex().encode() + b"\n")
+        response = self._readline().split()
+        if len(response) != 4 or response[0] != "OK":
+            raise RuntimeError("invalid render image response")
+        width = int(response[1])
+        height = int(response[2])
+        pixels = bytes.fromhex(response[3])
+        if len(pixels) != width * height * 3:
+            raise RuntimeError("invalid render image size")
+        return width, height, pixels
+
     def write(self, output):
         self.command("WRITE " + output.hex())
 

@@ -25,6 +25,26 @@ namespace {
         return fontconfigInitialized;
     }
 
+    bool genericFamily(StringView family) {
+        return family == StringView(u8"monospace") || family == StringView(u8"sans-serif") || family == StringView(u8"serif") || family == StringView(u8"cursive") || family == StringView(u8"fantasy");
+    }
+
+    bool matchedFamily(FcPattern* match, StringView family) {
+        if (genericFamily(family)) {
+            return true;
+        }
+        Buffer requested(family);
+        for (int index = 0;; ++index) {
+            FcChar8* matched = nullptr;
+            if (FcPatternGetString(match, FC_FAMILY, index, &matched) != FcResultMatch) {
+                return false;
+            }
+            if (FcStrCmpIgnoreCase(matched, (const FcChar8*)(requested.cStr())) == 0) {
+                return true;
+            }
+        }
+    }
+
     StringView fontconfigFile(ObjPool* pool, StringView family, int weight, int slant) {
         if (!initializeFontconfig()) {
             return {};
@@ -47,6 +67,10 @@ namespace {
         if (match == nullptr) {
             return {};
         }
+        if (!matchedFamily(match, family)) {
+            FcPatternDestroy(match);
+            return {};
+        }
 
         FcChar8* file = nullptr;
         StringView path;
@@ -60,6 +84,10 @@ namespace {
 
 FontVariants resolveFontconfig(ObjPool* pool, StringView family) {
     FontVariants variants;
+    if (family.memChr('/')) {
+        variants.regular = pool->intern(family);
+        return variants;
+    }
     variants.regular = fontconfigFile(pool, family, FC_WEIGHT_REGULAR, FC_SLANT_ROMAN);
     if (variants.regular.empty()) {
         return variants;
