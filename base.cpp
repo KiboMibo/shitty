@@ -17,12 +17,67 @@
 
 #include "base.h"
 
+#include <cerrno>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <iomanip>
 #include <ostream>
+
+#include <unistd.h>
 
 namespace stl {}
 
 using namespace stl;
+
+namespace {
+    int origFds[3] = {0, 0, 0};
+    const int targetFds[3] = {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO};
+
+    void saveFds() {
+        for (int i = 0; i < 3; ++i) {
+            origFds[i] = dup(targetFds[i]);
+            if (origFds[i] < 0) {
+                sysError("dup");
+            }
+        }
+    }
+}
+
+void restoreFds() {
+    for (int i = 0; i < 3; ++i) {
+        if (origFds[i]) {
+            dup2(origFds[i], targetFds[i]);
+            close(origFds[i]);
+        }
+    }
+}
+
+void redirectFds(int fd) {
+    saveFds();
+
+    for (int i = 0; i < 3; ++i) {
+        if (dup2(fd, targetFds[i]) != targetFds[i]) {
+            sysError("dup2");
+        }
+    }
+
+    if (fd != targetFds[0] && fd != targetFds[1] && fd != targetFds[2]) {
+        close(fd);
+    }
+}
+
+void sysError(const char* message, const char* detail) {
+    const int ec = errno;
+    restoreFds();
+    fprintf(stderr, "Error: %s%s: %s (errno=%d)\n", message, detail != nullptr ? detail : "", strerror(ec), ec);
+    exit(1);
+}
+
+void sysWarn(const char* message) {
+    const int ec = errno;
+    fprintf(stderr, "Warning: %s: %s (errno=%d)\n", message, strerror(ec), ec);
+}
 
 std::ostream& operator<<(std::ostream& os, const Color& c) {
     os << "rgb:" << std::hex << std::setfill('0') << std::setw(2) << (int)c.red << std::setw(2) << (int)c.red << "/" << std::setw(2) << (int)c.green << std::setw(2) << (int)c.green << "/" << std::setw(2) << (int)c.blue << std::setw(2) << (int)c.blue;

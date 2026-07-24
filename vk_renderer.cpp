@@ -10,7 +10,6 @@
 #include "composer.h"
 #include "font_pack.h"
 
-#include "log.h"
 #include "options.h"
 #include "render_spv.h"
 #include "utf8.h"
@@ -965,7 +964,6 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
         createOutputImage(width, height);
     }
 
-    logI << "Vulkan swapchain " << extent.width << " x " << extent.height << ", " << imageCount << " images; compute target " << renderExtent.width << " x " << renderExtent.height << std::endl;
 }
 
 void RendererImpl::ensureCellBuffer(FrameResources& frame, size_t bytes) {

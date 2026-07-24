@@ -24,7 +24,6 @@
 #include "composer.h"
 #include "screen.h"
 #include "grapheme.h"
-#include "log.h"
 #include "options.h"
 #include "utf8.h"
 #include "vterm_host.h"
@@ -275,7 +274,6 @@ namespace {
             VT52_CUP_Arg1,
             VT52_CUP_Arg2
         };
-        const char* strInputState(InputState is);
 
         void setState(InputState inputState);
         bool stringUtf8Continuation(u8 ch);
@@ -568,9 +566,7 @@ namespace {
         bool underlineColorDefault = true;
         bool hasFocus = false;
 
-        u8 inputBuf[32 * 1024];
         int readPos = 0;
-        int lastEscBegin = 0;
 
         InputState inputState = InputState::Normal;
         // Whether a private/intermediate CSI prefix may still occur.  This is
@@ -854,7 +850,6 @@ void VtermImpl::feedPty(StringView bytes) {
     if (bytes.empty()) {
         return;
     }
-    logT << "pty read: " << dumpBuffer(bytes.begin(), bytes.end());
     if (dump != nullptr) {
         dump->write(bytes.data(), bytes.length());
     }
@@ -1271,14 +1266,8 @@ size_t VtermImpl::InputSpec::getLength() const {
     return length ? length : strlen(input);
 }
 
-const char* VtermImpl::strInputState(InputState is) {
-    static const char* enumerators[] = {"Normal", "IgnoreSequence", "Escape", "EscapeIntermediate", "Escape_VT52", "Esc_SPC", "Esc_Hash", "Esc_Pct", "SelectCharset", "CSI", "DCS", "DCS_Esc", "OSC", "OSC_Esc", "String", "String_Esc", "VT52_CUP_Arg1", "VT52_CUP_Arg2"};
-    return enumerators[(int)is];
-}
-
 
 void VtermImpl::unhandledInput(unsigned char ch) {
-    logT << "Unhandled input char '" << ch << "' (" << (int)ch << ") in state " << strInputState(inputState) << ". Escape sequence so far: " << dumpBuffer(inputBuf + lastEscBegin, inputBuf + readPos + 1);
     if ((ch >= 0x20 && ch <= 0x2f) || ch == ':') {
         switch (inputState) {
             case InputState::CSI:
@@ -1658,12 +1647,6 @@ void VtermImpl::switchColMode(ColMode colMode_) {
     lastCol = false;
     if (!noClearColumnMode) {
         fillScreen(' ');
-    }
-
-    if (colMode_ == ColMode::C80) {
-        logT << "DECCOLM: Selected 80 columns per line" << std::endl;
-    } else {
-        logT << "DECCOLM: Selected 132 columns per line" << std::endl;
     }
 
     colMode = colMode_;
@@ -2597,7 +2580,6 @@ void VtermImpl::csi_DECSCUSR() {
             cursorShape = CS::bar;
             break;
         default:
-            logT << "DECSCUSR with illegal param: " << inputOps[0] << std::endl;
             break;
     }
     cursorBlinkMode = (cursorStyleParam & 1) != 0;
@@ -2707,9 +2689,7 @@ void VtermImpl::esc_DECSC() {
 }
 
 void VtermImpl::esc_DECRC() {
-    if (!savedCursor->isSet) {
-        logT << "Asked to restore cursor (DECRC) but it has not been saved." << std::endl;
-    } else {
+    if (savedCursor->isSet) {
         posX = savedCursor->posX;
         posY = savedCursor->posY;
         normalizeCursorPos();
@@ -2862,7 +2842,6 @@ void VtermImpl::csi_CUP() {
     posY = row;
     lastCol = false;
     setState(InputState::Normal);
-    logT << "Cursor positioned to (" << posY << "," << posX << ")" << std::endl;
 }
 
 void VtermImpl::csi_SU() {
@@ -3009,7 +2988,6 @@ void VtermImpl::csi_ED() {
             }
             break;
         default:
-            logT << "Erase in Display with illegal param: " << inputOps[0] << std::endl;
             break;
     }
     setState(InputState::Normal);
@@ -3028,7 +3006,6 @@ void VtermImpl::csi_EL() {
             eraseEcmaRangeInRow(posY, 0, nCols);
             break;
         default:
-            logT << "Erase in Line with illegal param: " << inputOps[0] << std::endl;
             break;
     }
     setState(InputState::Normal);
@@ -3214,9 +3191,8 @@ void VtermImpl::csi_STBM() {
         u32 newMarginTop = inputOps[0] > 0 ? inputOps[0] - 1 : 0;
         u32 newMarginBottom = nInputOps < 2 || inputOps[1] == 0 ? nRows : inputOps[1];
 
-        if (newMarginTop >= nRows || newMarginBottom > nRows || newMarginBottom <= newMarginTop + 1) {
-            logT << "Illegal arguments to SetTopBottomMargins: top=" << inputOps[0] << ", bottom=" << inputOps[1] << std::endl;
-        } else if (newMarginTop != marginTop || newMarginBottom != marginBottom) {
+        const bool illegal = newMarginTop >= nRows || newMarginBottom > nRows || newMarginBottom <= newMarginTop + 1;
+        if (!illegal && (newMarginTop != marginTop || newMarginBottom != marginBottom)) {
             marginTop = (u16)(newMarginTop);
             marginBottom = (u16)(newMarginBottom);
         }
@@ -3238,9 +3214,8 @@ void VtermImpl::csi_SLRM() {
         u32 newMarginLeft = inputOps[0] > 0 ? inputOps[0] - 1 : 0;
         u32 newMarginRight = nInputOps < 2 || inputOps[1] == 0 ? nCols : inputOps[1];
 
-        if (newMarginLeft >= nCols || newMarginRight > nCols || newMarginRight <= newMarginLeft + 1) {
-            logT << "Illegal arguments to SetLeftRightMargins: left=" << inputOps[0] << ", right=" << inputOps[1] << std::endl;
-        } else if (newMarginLeft != hMargin || newMarginRight != nColsEff) {
+        const bool illegal = newMarginLeft >= nCols || newMarginRight > nCols || newMarginRight <= newMarginLeft + 1;
+        if (!illegal && (newMarginLeft != hMargin || newMarginRight != nColsEff)) {
             hMargin = (u16)(newMarginLeft);
             nColsEff = (u16)(newMarginRight);
         }
@@ -3302,7 +3277,6 @@ void VtermImpl::csi_SM() {
                 autoNewlineMode = true;
                 break;
             default:
-                logT << "Ignored bogus set mode " << arg << std::endl;
                 break;
         }
     }
@@ -3330,7 +3304,6 @@ void VtermImpl::csi_RM() {
                 autoNewlineMode = false;
                 break;
             default:
-                logT << "Ignored bogus reset mode " << arg << std::endl;
                 break;
         }
     }
@@ -3493,7 +3466,6 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 reportInBandResize();
                 break;
             default:
-                logU << "set priv mode " << arg << std::endl;
                 break;
         }
     } else {
@@ -3636,7 +3608,6 @@ void VtermImpl::setPrivMode(u32 arg, bool set) {
                 inBandResizeMode = false;
                 break;
             default:
-                logU << "reset priv mode " << arg << std::endl;
                 break;
         }
     }
@@ -3748,7 +3719,6 @@ void VtermImpl::csi_privSave() {
             case 2:
             case 1048:
             case 1049:
-                logU << "save priv mode " << arg << std::endl;
                 break;
             default:
                 savedPrivModes[arg] = getPrivateMode(arg);
@@ -3764,8 +3734,6 @@ void VtermImpl::csi_privRestore() {
         const auto it = savedPrivModes.find(arg);
         if (it != savedPrivModes.end()) {
             setPrivMode(arg, it->second);
-        } else {
-            logU << "restore priv mode " << arg << " (never saved)" << std::endl;
         }
     }
     setState(InputState::Normal);
@@ -4074,7 +4042,6 @@ void VtermImpl::csi_SGR() {
                 break;
 
             default:
-                logU << "attribute: " << attr << std::endl;
                 break;
         }
     }
@@ -4399,8 +4366,6 @@ void VtermImpl::handle_DCS() {
         dcs_XTGETTCAP(arg.substr(2));
     } else if (arg.find('|') != std::string::npos) {
         dcs_DECUDK(arg);
-    } else {
-        logU << "DCS: '" << arg << "'" << std::endl;
     }
     setState(InputState::Normal);
 }
@@ -4685,9 +4650,7 @@ void VtermImpl::handle_OSC() {
     int cmd = -1;
     const char* commandEnd = p == std::string::npos ? osc.data() + osc.size() : osc.data() + p;
     const auto parsed = std::from_chars(osc.data(), commandEnd, cmd);
-    if (osc.empty() || parsed.ec != std::errc{} || parsed.ptr != commandEnd || cmd < 0) {
-        logT << "OSC: malformed command string '" << osc << "'" << std::endl;
-    } else {
+    if (!osc.empty() && parsed.ec == std::errc{} && parsed.ptr == commandEnd && cmd >= 0) {
         if ((cmd == 0 || cmd == 1 || cmd == 2) && (titleModes & 1)) {
             std::string decoded;
             if (!decodeHex(arg, decoded)) {
@@ -5277,14 +5240,12 @@ void VtermImpl::csiq_DECSCL() {
             level = CompatibilityLevel::VT500;
             break;
         default:
-            logU << "DECSCL: compatibility mode " << inputOps[0] << std::endl;
             setState(InputState::Normal);
             return;
     }
 
     const u32 controlMode = nInputOps > 1 ? inputOps[1] : 0;
     if (controlMode > 2) {
-        logU << "DECSCL: C1 control transmission mode: " << controlMode << std::endl;
         setState(InputState::Normal);
         return;
     }
@@ -6990,7 +6951,6 @@ int VtermImpl::writePty(u8 ch, VtModifier modifiers, bool userInput) {
     using VM = VtModifier;
 
     auto uch = &ch;
-    logT << "pty write (mod=" << (int)modifiers << "): " << dumpBuffer(uch, uch + 1);
 
     const auto& mod2_encode = [&](u8 ch) {
         const char* exempt = "!#$%&*()-+=?.,:;<>'\"";
@@ -7147,7 +7107,6 @@ void VtermImpl::writeOscResponse(const std::string& payload) {
 
 int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
     if (userInput && keyboardLocked) {
-        logT << "pty write: discarding due to keyboard lock (DECKAM): " << dumpBuffer(ucstr, ucstr + len);
         return len;
     }
 
@@ -7155,7 +7114,6 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
         redraw();
     }
 
-    logT << "pty write: " << dumpBuffer(ucstr, ucstr + len);
     if (userInput && localEcho) {
         const std::string localEcho = getLocalEcho(ucstr, ucstr + len);
         processInput((const u8*)localEcho.data(), (int)localEcho.size());
@@ -7301,47 +7259,6 @@ const VtermImpl::InputSpec& VtermImpl::getInputSpec(Key key) {
 
     return nullSpec;
 }
-
-#define IGNORE_SEQUENCE_ON_BAD_PARAMS         \
-    case '<':                                 \
-    case '=':                                 \
-    case '>':                                 \
-    case '?':                                 \
-        setState(InputState::IgnoreSequence); \
-        break
-
-#define COLLECT_NUMERIC_PARAMS                                                                          \
-    case '0':                                                                                           \
-    case '1':                                                                                           \
-    case '2':                                                                                           \
-    case '3':                                                                                           \
-    case '4':                                                                                           \
-    case '5':                                                                                           \
-    case '6':                                                                                           \
-    case '7':                                                                                           \
-    case '8':                                                                                           \
-    case '9':                                                                                           \
-        csiHadParams = true;                                                                            \
-        csiPrefixAllowed = false;                                                                       \
-        if (inputOps[nInputOps - 1] > (UINT32_MAX - (u32)(ch - '0')) / 10) {                            \
-            inputOps[nInputOps - 1] = UINT32_MAX;                                                       \
-        } else {                                                                                        \
-            inputOps[nInputOps - 1] *= 10;                                                              \
-            inputOps[nInputOps - 1] += ch - '0';                                                        \
-        }                                                                                               \
-        break;                                                                                          \
-    case ';':                                                                                           \
-    case ':':                                                                                           \
-        csiHadParams = true;                                                                            \
-        csiPrefixAllowed = false;                                                                       \
-        if (nInputOps < maxEscOps) {                                                                    \
-            inputSeparators[nInputOps] = ch;                                                            \
-            inputOps[nInputOps++] = 0;                                                                  \
-        } else {                                                                                        \
-            logT << "inputOps full, increase maxEscOps (currently: " << maxEscOps << ")!" << std::endl; \
-            setState(InputState::IgnoreSequence);                                                       \
-        }                                                                                               \
-        break
 
 VtermImpl::PresentationState VtermImpl::capturePresentationState() const {
     return {
@@ -7682,7 +7599,6 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
 template <bool traced>
 bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
     const PresentationState presentationBefore = capturePresentationState();
-    lastEscBegin = 0;
     hideCursor();
     for (readPos = 0; readPos < inputSize; ++readPos) {
         const u8& ch = input[readPos];
@@ -7727,7 +7643,6 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                 const size_t append = std::min(count, available);
                 argBuf.insert(argBuf.end(), input + readPos, input + readPos + append);
                 if (append < count) {
-                    logT << (inputState == InputState::DCS ? "DCS" : "OSC") << " argument string overflow" << std::endl;
                     argBufOverflowed = true;
                 }
             }
@@ -7763,7 +7678,6 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
             inputOps[0] = 0;
             inputSeparators[0] = 0;
             nInputOps = 1;
-            lastEscBegin = readPos;
             continue;
         }
         if (ch >= 0xa0 && inputState != InputState::Normal && inputState != InputState::DCS && inputState != InputState::DCS_Esc && inputState != InputState::OSC && inputState != InputState::OSC_Esc && inputState != InputState::String && inputState != InputState::String_Esc) {
@@ -7882,7 +7796,6 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                         inputOps[0] = 0;
                         inputSeparators[0] = 0;
                         nInputOps = 1;
-                        lastEscBegin = readPos;
                         break;
                     case 0x84:
                         esc_IND();
@@ -8001,7 +7914,6 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                     case '\x1b':
                         inputOps[0] = 0;
                         nInputOps = 1;
-                        lastEscBegin = readPos;
                         break;
                     case '=':
                         keypadMode = KeypadMode::Application;
@@ -8093,7 +8005,6 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                     case '\x1b':
                         inputOps[0] = 0;
                         nInputOps = 1;
-                        lastEscBegin = readPos;
                         break;
                     case ' ':
                         setState(InputState::Esc_SPC);
@@ -8272,28 +8183,23 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                 switch (ch) {
                     case 'F':
                         if (compatLevel >= CompatibilityLevel::VT200) {
-                            logU << "S7C1T: Send 7-bit controls" << std::endl;
                             send8BitControls = false;
                         }
                         setState(InputState::Normal);
                         break;
                     case 'G':
                         if (compatLevel >= CompatibilityLevel::VT200) {
-                            logU << "S8C1T: Send 8-bit controls" << std::endl;
                             send8BitControls = true;
                         }
                         setState(InputState::Normal);
                         break;
                     case 'L':
-                        logU << "Set ANSI conformance level 1" << std::endl;
                         setState(InputState::Normal);
                         break;
                     case 'M':
-                        logU << "Set ANSI conformance level 2" << std::endl;
                         setState(InputState::Normal);
                         break;
                     case 'N':
-                        logU << "Set ANSI conformance level 3" << std::endl;
                         setState(InputState::Normal);
                         break;
                     default:
@@ -8334,14 +8240,12 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                 }
                 switch (ch) {
                     case '@':
-                        logT << "Select charset: default (ISO-8859-1)" << std::endl;
                         charsetState = CharsetState{};
                         charsetState.g[charsetState.gr] = Charset::IsoLatin1;
                         charsetState.g[3] = Charset::IsoLatin1;
                         setState(InputState::Normal);
                         break;
                     case 'G':
-                        logT << "Select charset: UTF-8" << std::endl;
                         charsetState = CharsetState{};
                         setState(InputState::Normal);
                         break;
@@ -8391,7 +8295,6 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                             }
                             argBuf.push_back(ch);
                         } else if (!argBufOverflowed) {
-                            logT << "DCS argument string overflow" << std::endl;
                             argBufOverflowed = true;
                         }
                         break;
@@ -8463,7 +8366,6 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                             }
                             argBuf.push_back(ch);
                         } else if (!argBufOverflowed) {
-                            logT << "OSC argument string overflow" << std::endl;
                             argBufOverflowed = true;
                         }
                         break;
@@ -8566,7 +8468,6 @@ void VtermImpl::setHyperlink(const std::string& parametersAndUri) {
     CellExtraStore* const extras = composer.cellExtras;
     const size_t separator = parametersAndUri.find(';');
     if (separator == std::string::npos) {
-        logT << "Malformed OSC 8 argument" << std::endl;
         return;
     }
 
@@ -8599,7 +8500,6 @@ void VtermImpl::setHyperlink(const std::string& parametersAndUri) {
     }
 
     if (nextHyperlink == 0) {
-        logW << "OSC 8 hyperlink identifier space exhausted" << std::endl;
         activeHyperlink = 0;
         return;
     }
@@ -8632,7 +8532,6 @@ Point VtermImpl::selectionPoint(int pX, int pY) const {
 }
 
 void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
-    logT << "selectStart (" << pX << "," << pY << "), cycleSnapTo=" << cycleSnapTo << std::endl;
 
     if (cycleSnapTo) {
         selectExtend(pX, pY, true);
@@ -8653,7 +8552,6 @@ void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
 }
 
 void VtermImpl::selectExtend(int pX, int pY, bool cycleSnapTo) {
-    logT << "selectExtend (" << pX << "," << pY << "), cycleSnapTo=" << cycleSnapTo << std::endl;
 
     Point pt = selectionPoint(pX, pY);
 
@@ -8686,7 +8584,6 @@ void VtermImpl::selectExtend(int pX, int pY, bool cycleSnapTo) {
 }
 
 void VtermImpl::selectUpdate(int pX, int pY) {
-    logT << "selectUpdate (" << pX << "," << pY << ")" << std::endl;
 
     Point pt = selectionPoint(pX, pY);
 
@@ -8741,7 +8638,6 @@ void VtermImpl::selectUpdate(int pX, int pY) {
 }
 
 bool VtermImpl::selectFinish(std::string& utf8_selection) {
-    logT << "selectFinish ()" << std::endl;
 
     showCursor();
     redraw();
@@ -8750,13 +8646,11 @@ bool VtermImpl::selectFinish(std::string& utf8_selection) {
 }
 
 void VtermImpl::selectClear() {
-    logT << "selectClear ()" << std::endl;
     cf->getSelection().clear();
     redraw();
 }
 
 void VtermImpl::selectRectangularModeToggle() {
-    logT << "selectRectangularModeToggle ()" << std::endl;
     Rect& selection = cf->getSelection();
     selection.toggleRectangular();
     if (selection.rectangular && selection.br.x < selection.tl.x) {

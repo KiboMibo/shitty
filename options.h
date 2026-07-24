@@ -56,9 +56,7 @@ struct Options {
     bool vulkanInfo;
     bool login;
     bool showWraps;
-    bool quiet;
     bool rv;
-    bool trace;
     bool verbose;
 
     void initialize(int* argc, char** argv);

@@ -19,7 +19,6 @@
 
 #include "cell_extra_store.h"
 #include "composer.h"
-#include "log.h"
 #include "utf8.h"
 
 #include <std/lib/buffer.h>
@@ -203,8 +202,6 @@ namespace {
         void invalidateSelection(const Rect&& changed);
         bool selectionValid() const;
 
-        void highMemUsageReport();
-
         static constexpr size_t cellSize = sizeof(TerminalCell);
     };
 
@@ -385,7 +382,6 @@ ScreenImpl::ScreenImpl(Composer& composer_, u16 nCols_, u16 nRows_, u16& marginT
     marginTop_ = 0;
     marginBottom_ = nRows;
     resizeDamage(nCols, nRows);
-    highMemUsageReport();
 }
 
 void ScreenImpl::dropScrollbackHistory() {
@@ -658,8 +654,7 @@ ScreenImpl::ResizeState ScreenImpl::resize(u16 nCols_, u16 nRows_, u16& marginTo
         erasedRowTemplateValid = false;
         resizeDamage(nCols, nRows);
         expose();
-        highMemUsageReport();
-        return state;
+            return state;
     }
 
     const u16 oldViewOffset = viewOffset;
@@ -720,7 +715,6 @@ ScreenImpl::ResizeState ScreenImpl::resize(u16 nCols_, u16 nRows_, u16& marginTo
     }
     resizeDamage(nCols, nRows);
     expose();
-    highMemUsageReport();
     return state;
 }
 
@@ -965,14 +959,6 @@ void ScreenImpl::damageDeltaCopy(RenderCell* dst, const TerminalCell* src, u16 c
         } else {
             dst[index].dirty = wasDirty;
         }
-    }
-}
-
-void ScreenImpl::highMemUsageReport() {
-    auto allocKB = cellCapacity() * cellSize / 1024;
-    if (allocKB > 8192) {
-        logI << "Allocated " << allocKB << " KiB for cell storage; consider "
-             << "decreasing saveLines (current value: " << saveLines << ") to reduce memory usage!" << std::endl;
     }
 }
 

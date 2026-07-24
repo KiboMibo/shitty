@@ -26,8 +26,8 @@
 
 #include "pty.h"
 
+#include "base.h"
 #include "composer.h"
-#include "log.h"
 
 #include <std/mem/obj_pool.h>
 
@@ -123,16 +123,16 @@ int ptym_open(char* pts_name, int pts_namesz) {
     int fdm;
 
     if ((fdm = posix_openpt(O_RDWR)) < 0) {
-        SYS_ERROR("can't open master pty: posix_openpt()");
+        sysError("can't open master pty: posix_openpt()");
     }
     if (grantpt(fdm) < 0) {
-        SYS_ERROR("can't open master pty: grantpt()");
+        sysError("can't open master pty: grantpt()");
     }
     if (unlockpt(fdm) < 0) {
-        SYS_ERROR("can't open master pty: unlockpt()");
+        sysError("can't open master pty: unlockpt()");
     }
     if ((ptr = ptsname(fdm)) == nullptr) {
-        SYS_ERROR("can't open master pty: ptsname()");
+        sysError("can't open master pty: ptsname()");
     }
 
     strncpy(pts_name, ptr, pts_namesz);
@@ -143,25 +143,25 @@ int ptym_open(char* pts_name, int pts_namesz) {
 int ptys_open(char* pts_name) {
     int fds = open(pts_name, O_RDWR);
     if (fds < 0) {
-        SYS_ERROR("can't open slave pty: open()");
+        sysError("can't open slave pty: open()");
     }
 
 #if defined(SOLARIS)
 
     int setup;
     if ((setup = ioctl(fds, I_FIND, "ldterm")) < 0) {
-        SYS_ERROR("can't open slave pty: ioctl(I_FIND, ldterm)");
+        sysError("can't open slave pty: ioctl(I_FIND, ldterm)");
     }
 
     if (setup == 0) {
         if (ioctl(fds, I_PUSH, "ptem") < 0) {
-            SYS_ERROR("can't open slave pty: ioctl(I_PUSH, ptem)");
+            sysError("can't open slave pty: ioctl(I_PUSH, ptem)");
         }
         if (ioctl(fds, I_PUSH, "ldterm") < 0) {
-            SYS_ERROR("can't open slave pty: ioctl(I_PUSH, ldterm)");
+            sysError("can't open slave pty: ioctl(I_PUSH, ldterm)");
         }
         if (ioctl(fds, I_PUSH, "ttcompat") < 0) {
-            SYS_ERROR("can't open slave pty: ioctl(I_PUSH, ttcompat)");
+            sysError("can't open slave pty: ioctl(I_PUSH, ttcompat)");
         }
     }
 #endif
@@ -179,7 +179,7 @@ pid_t pty_fork(int& o_ptyFd, int cols, int rows) {
         return pid;
     } else if (pid == 0) {
         if (setsid() < 0) {
-            SYS_ERROR("setsid");
+            sysError("setsid");
         }
 
         int fds = ptys_open(pts_name);
@@ -189,7 +189,7 @@ pid_t pty_fork(int& o_ptyFd, int cols, int rows) {
 #if defined(BSD)
 
         if (ioctl(fds, TIOCSCTTY, nullptr) < 0) {
-            SYS_ERROR("TIOCSCTTY");
+            sysError("TIOCSCTTY");
         }
 #endif
 
@@ -201,11 +201,11 @@ pid_t pty_fork(int& o_ptyFd, int cols, int rows) {
 
         struct termios term;
         if (tcgetattr(STDIN_FILENO, &term) < 0) {
-            SYS_ERROR("tcgetattr");
+            sysError("tcgetattr");
         }
         term.c_iflag |= IUTF8;
         if (tcsetattr(STDIN_FILENO, TCSANOW, &term) < 0) {
-            SYS_ERROR("tcsetattr");
+            sysError("tcsetattr");
         }
 #endif
     } else {
@@ -219,6 +219,6 @@ void pty_resize(int ptyFd, int cols, int rows) {
     wsize.ws_col = cols;
     wsize.ws_row = rows;
     if (ioctl(ptyFd, TIOCSWINSZ, &wsize) < 0) {
-        SYS_ERROR("TIOCSWINSZ on pty");
+        sysError("TIOCSWINSZ on pty");
     }
 }

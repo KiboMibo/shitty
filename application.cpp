@@ -19,7 +19,6 @@
 #include "composer.h"
 #include "font_pack.h"
 #include "keyboard.h"
-#include "log.h"
 #include "mouse_frontend.h"
 #include "mouse_protocol.h"
 #include "osc_protocol.h"
@@ -42,6 +41,7 @@
 #include <cerrno>
 #include <cmath>
 #include <chrono>
+#include <iostream>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -312,17 +312,17 @@ void ApplicationImpl::setupSignals() {
     childAction.sa_flags = SA_SIGINFO | SA_RESTART | SA_NOCLDSTOP;
     sigemptyset(&childAction.sa_mask);
     if (sigaction(SIGCHLD, &childAction, nullptr) < 0) {
-        SYS_ERROR("can't install SIGCHLD handler: sigaction()");
+        sysError("can't install SIGCHLD handler: sigaction()");
     }
 
     struct sigaction defaultAction{};
     defaultAction.sa_handler = SIG_DFL;
     sigemptyset(&defaultAction.sa_mask);
     if (sigaction(SIGINT, &defaultAction, nullptr) < 0) {
-        SYS_ERROR("can't reset SIGINT handler: sigaction()");
+        sysError("can't reset SIGINT handler: sigaction()");
     }
     if (sigaction(SIGQUIT, &defaultAction, nullptr) < 0) {
-        SYS_ERROR("can't reset SIGQUIT handler: sigaction()");
+        sysError("can't reset SIGQUIT handler: sigaction()");
     }
 }
 
@@ -330,15 +330,14 @@ int ApplicationImpl::startShell(const char* execPath, const char* const argv[]) 
     int ptyFd = -1;
     const pid_t pid = pty_fork(ptyFd, opts.nCols, opts.nRows);
     if (pid < 0) {
-        SYS_ERROR("fork");
+        sysError("fork");
     }
     if (pid == 0) {
         configureTerminalChildEnvironment();
         if (execvp(execPath, (char* const*)(argv)) < 0) {
-            SYS_ERROR("execvp of ", execPath);
+            sysError("execvp of ", execPath);
         }
     }
-    logT << "Shell subprocess started, pid: " << pid << std::endl;
     return ptyFd;
 }
 
@@ -869,10 +868,7 @@ void ApplicationImpl::openHyperlink(const std::string& uri) {
         (char*)(uri.c_str()),
         nullptr,
     };
-    const int error = posix_spawnp(&pid, argv[0], nullptr, nullptr, argv, environ);
-    if (error != 0) {
-        logW << "Cannot open hyperlink '" << uri << "': " << strerror(error) << std::endl;
-    }
+    posix_spawnp(&pid, argv[0], nullptr, nullptr, argv, environ);
 }
 
 void ApplicationImpl::onMouseButton(int button, bool pressed, int modifiers) {
@@ -1016,9 +1012,7 @@ void ApplicationImpl::handleOsc(int command, const std::string& argument) {
             return;
         case 7: {
             const std::string cwd = oscCwdToPath(argument);
-            if (cwd.empty()) {
-                logT << "OSC 7: cannot parse '" << argument << "'" << std::endl;
-            } else if (!appTitleSet) {
+            if (!cwd.empty() && !appTitleSet) {
                 glfwSetWindowTitle(window, cwd.c_str());
             }
             return;
@@ -1028,13 +1022,11 @@ void ApplicationImpl::handleOsc(int command, const std::string& argument) {
         case 52:
             break;
         default:
-            logU << "unhandled OSC: '" << command << ';' << argument << "'" << std::endl;
             return;
     }
 
     const Osc52Request request = parseOsc52(argument, opts.osc52SelectClipboard);
     if (!request.valid) {
-        logT << "Malformed OSC 52 argument" << std::endl;
         return;
     }
 
@@ -1048,10 +1040,6 @@ void ApplicationImpl::handleOsc(int command, const std::string& argument) {
             if (primary.empty() && request.clipboard) {
                 clipboard = getSelectionForOsc(false);
             }
-        } else {
-            logW << "OSC 52 clipboard read blocked; set "
-                    "allowOsc52Read=true to enable"
-                 << std::endl;
         }
         const std::string reply = encodeOsc52QueryReply(request, opts.allowOsc52Read, primary, clipboard);
         vt->sendBytes(StringView((const u8*)(reply.data()), reply.size()), false);
@@ -1091,7 +1079,7 @@ bool ApplicationImpl::flushPtyOutput() {
             continue;
         }
         if (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-            SYS_WARN("pty write");
+            sysWarn("pty write");
         }
         return false;
     }
@@ -1124,7 +1112,7 @@ bool ApplicationImpl::readPty() {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             break;
         }
-        SYS_WARN("pty read");
+        sysWarn("pty read");
         finished = true;
         break;
     }
@@ -1159,10 +1147,7 @@ void ApplicationImpl::print(const std::string& output) {
     if (printerPipe == nullptr || output.empty()) {
         return;
     }
-    const size_t written = fwrite(output.data(), 1, output.size(), printerPipe);
-    if (written != output.size()) {
-        logE << "Printer command stopped accepting output" << std::endl;
-    }
+    fwrite(output.data(), 1, output.size(), printerPipe);
     fflush(printerPipe);
 }
 
@@ -1173,7 +1158,6 @@ void ApplicationImpl::notify(const std::string&, const std::string& title, const
     if (close) {
         return;
     }
-    logI << "Notification: " << title << ": " << body << std::endl;
     requestWindowAttention();
 }
 
@@ -1574,7 +1558,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         opts.printVersion();
     }
     if (setenv("SHITTY_VERSION", SHITTY_VERSION, 1) < 0) {
-        SYS_ERROR("setenv SHITTY_VERSION");
+        sysError("setenv SHITTY_VERSION");
     }
     if (testFd >= 0) {
         return runTestMode(composer, *testInput, testFd, argc, argv);

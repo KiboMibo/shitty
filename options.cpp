@@ -77,8 +77,6 @@ namespace {
         {"shell", OptionKind::SepArg, nullptr, nullptr, "Shell program to run"},
         {"showWraps", OptionKind::NoArg, "true", "false", "Show wrap marks at right margin"},
         {"title", OptionKind::SepArg, nullptr, "Shitty", "Window title"},
-        {"quiet", OptionKind::NoArg, "true", "false", "Silence logging output"},
-        {"trace", OptionKind::NoArg, "true", "false", "Output terminal protocol trace"},
         {"verbose", OptionKind::NoArg, "true", "false", "Output info messages"},
         {"e", OptionKind::SkipLine, nullptr, nullptr, "Command line to run"},
     };
@@ -281,9 +279,6 @@ void Options::initialize(int* argc, char** argv) {
 
         const bool enabled = argument[0] == '-';
         const char* name = argument + 1;
-        if (strcmp(argument, "--trace") == 0) {
-            name = "trace";
-        }
 
         if (strcmp(name, "e") == 0) {
             while (input < *argc) {
@@ -418,9 +413,7 @@ void Options::parse() {
         boldColors = getBool("boldColors");
         login = getBool("login");
         showWraps = getBool("showWraps");
-        quiet = getBool("quiet");
-        trace = getBool("trace");
-        verbose = getBool("verbose") || trace;
+        verbose = getBool("verbose");
         modifyOtherKeys = getInteger("modifyOtherKeys", 0, 2);
     } catch (const std::exception& error) {
         std::cout << "Error: " << error.what() << "!\n"
