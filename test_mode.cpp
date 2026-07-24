@@ -1234,6 +1234,12 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
             } else {
                 childExitStatus = 255;
             }
+            // The child's final output may have entered the PTY buffer after
+            // the poll above.  By reap time every write has completed, so one
+            // more drain keeps the reported exit status consistent with the
+            // final screen.
+            terminal.readPty();
+            terminal.flushPtyOutput();
         }
     };
 

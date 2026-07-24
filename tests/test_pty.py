@@ -51,6 +51,21 @@ class PtyTest(unittest.TestCase):
             status, _ = terminal.wait_child()
             self.assertEqual(status, 37)
 
+    def test_child_exit_report_includes_output_flushed_at_exit(self):
+        # Output written immediately before exit — the stdio flush-at-exit
+        # pattern — must never be lost to the poll/waitpid race in the
+        # child pump: by reap time every write has completed.
+        for _ in range(10):
+            with Shitty(columns=16, rows=2) as terminal:
+                terminal.spawn(
+                    sys.executable,
+                    "-c",
+                    "import os,time; time.sleep(0.01); os.write(1, b'final-marker')",
+                )
+                status, screen = terminal.wait_child()
+                self.assertEqual(status, 0)
+                self.assertIn("final-marker", screen)
+
     def test_child_signal_exit_uses_shell_status_convention(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.spawn(
