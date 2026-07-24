@@ -31,9 +31,8 @@ struct Screen {
         COUNT
     };
 
-    virtual void reset(Composer& composer, u16 pixelWidth, u16 pixelHeight, u16 columns, u16 rows, u16& marginTop, u16& marginBottom, const TerminalColors* colors, u16 saveLines = 0) = 0;
-    virtual ResizeState resize(u16 pixelWidth, u16 pixelHeight, u16 columns, u16 rows, u16& marginTop, u16& marginBottom, ResizeState state, bool reflow) = 0;
-    virtual void setPixelSize(u16 width, u16 height) noexcept = 0;
+    virtual void reset(Composer& composer, u16 columns, u16 rows, u16& marginTop, u16& marginBottom, const TerminalColors* colors, u16 saveLines = 0) = 0;
+    virtual ResizeState resize(u16 columns, u16 rows, u16& marginTop, u16& marginBottom, ResizeState state, bool reflow) = 0;
     virtual void dropScrollbackHistory() = 0;
 
     virtual void fillCells(u16 ch, const TerminalCell& attrs) = 0;
@@ -84,8 +83,6 @@ struct Screen {
     virtual u16 getViewOffset() const noexcept = 0;
     virtual u16 columns() const noexcept = 0;
     virtual u16 rows() const noexcept = 0;
-    virtual u16 pixelWidth() const noexcept = 0;
-    virtual u16 pixelHeight() const noexcept = 0;
 
     virtual void expose() = 0;
     virtual void resetDamage() = 0;
@@ -118,5 +115,5 @@ struct Screen {
     virtual Point getLogicalPoint(Point point) const = 0;
 
     static Screen* create(Composer& composer);
-    static Screen* create(Composer& composer, u16 pixelWidth, u16 pixelHeight, u16 columns, u16 rows, u16& marginTop, u16& marginBottom, const TerminalColors* colors, u16 saveLines = 0);
+    static Screen* create(Composer& composer, u16 columns, u16 rows, u16& marginTop, u16& marginBottom, const TerminalColors* colors, u16 saveLines = 0);
 };

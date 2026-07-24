@@ -45,11 +45,10 @@ namespace {
 
     struct ScreenImpl final: public Screen {
         ScreenImpl();
-        ScreenImpl(Composer& composer, u16 pixelWidth, u16 pixelHeight, u16 columns, u16 rows, u16& marginTop, u16& marginBottom, const TerminalColors* colors, u16 saveLines);
+        ScreenImpl(Composer& composer, u16 columns, u16 rows, u16& marginTop, u16& marginBottom, const TerminalColors* colors, u16 saveLines);
 
-        void reset(Composer& composer, u16 pixelWidth, u16 pixelHeight, u16 columns, u16 rows, u16& marginTop, u16& marginBottom, const TerminalColors* colors, u16 saveLines) override;
-        ResizeState resize(u16 pixelWidth, u16 pixelHeight, u16 columns, u16 rows, u16& marginTop, u16& marginBottom, ResizeState state, bool reflow) override;
-        void setPixelSize(u16 width, u16 height) noexcept override;
+        void reset(Composer& composer, u16 columns, u16 rows, u16& marginTop, u16& marginBottom, const TerminalColors* colors, u16 saveLines) override;
+        ResizeState resize(u16 columns, u16 rows, u16& marginTop, u16& marginBottom, ResizeState state, bool reflow) override;
         void dropScrollbackHistory() override;
 
         void fillCells(u16 ch, const TerminalCell& attrs) override;
@@ -100,8 +99,6 @@ namespace {
         u16 getViewOffset() const noexcept override;
         u16 columns() const noexcept override;
         u16 rows() const noexcept override;
-        u16 pixelWidth() const noexcept override;
-        u16 pixelHeight() const noexcept override;
 
         void expose() override;
         void resetDamage() override;
@@ -135,8 +132,6 @@ namespace {
 
         using RowId = u32;
 
-        u16 winPx = 0;
-        u16 winPy = 0;
         u16 nCols = 0;
         u16 nRows = 0;
         u16 saveLines = 0;
@@ -253,17 +248,12 @@ Screen* Screen::create(Composer& composer) {
     return composer.pool->make<ScreenImpl>();
 }
 
-Screen* Screen::create(Composer& composer, u16 pixelWidth, u16 pixelHeight, u16 columns, u16 rows, u16& marginTop, u16& marginBottom, const TerminalColors* colors, u16 saveLines) {
-    return composer.pool->make<ScreenImpl>(composer, pixelWidth, pixelHeight, columns, rows, marginTop, marginBottom, colors, saveLines);
+Screen* Screen::create(Composer& composer, u16 columns, u16 rows, u16& marginTop, u16& marginBottom, const TerminalColors* colors, u16 saveLines) {
+    return composer.pool->make<ScreenImpl>(composer, columns, rows, marginTop, marginBottom, colors, saveLines);
 }
 
-void ScreenImpl::reset(Composer& composer_, u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, const TerminalColors* colors_, u16 saveLines_) {
-    *this = ScreenImpl(composer_, winPx_, winPy_, nCols_, nRows_, marginTop_, marginBottom_, colors_, saveLines_);
-}
-
-void ScreenImpl::setPixelSize(u16 width, u16 height) noexcept {
-    winPx = width;
-    winPy = height;
+void ScreenImpl::reset(Composer& composer_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, const TerminalColors* colors_, u16 saveLines_) {
+    *this = ScreenImpl(composer_, nCols_, nRows_, marginTop_, marginBottom_, colors_, saveLines_);
 }
 
 bool ScreenImpl::active() const noexcept {
@@ -292,14 +282,6 @@ u16 ScreenImpl::columns() const noexcept {
 
 u16 ScreenImpl::rows() const noexcept {
     return nRows;
-}
-
-u16 ScreenImpl::pixelWidth() const noexcept {
-    return winPx;
-}
-
-u16 ScreenImpl::pixelHeight() const noexcept {
-    return winPy;
 }
 
 void ScreenImpl::expose() {
@@ -387,10 +369,8 @@ CellExtraStore* ScreenImpl::cellExtras() const noexcept {
     return composer == nullptr ? nullptr : composer->cellExtras;
 }
 
-ScreenImpl::ScreenImpl(Composer& composer_, u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, const TerminalColors* colors_, u16 saveLines_)
-    : winPx(winPx_)
-    , winPy(winPy_)
-    , nCols(nCols_)
+ScreenImpl::ScreenImpl(Composer& composer_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, const TerminalColors* colors_, u16 saveLines_)
+    : nCols(nCols_)
     , nRows(nRows_)
     , saveLines(saveLines_)
     , viewOffset(0)
@@ -440,14 +420,7 @@ void ScreenImpl::collectExtraRefLocations(stl::Vector<u32*>& locations) {
     }
 }
 
-ScreenImpl::ResizeState ScreenImpl::resize(u16 winPx_, u16 winPy_, u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, ResizeState state, bool reflow) {
-    if (winPx == winPx_ && winPy == winPy_) {
-        return state;
-    }
-
-    winPx = winPx_;
-    winPy = winPy_;
-
+ScreenImpl::ResizeState ScreenImpl::resize(u16 nCols_, u16 nRows_, u16& marginTop_, u16& marginBottom_, ResizeState state, bool reflow) {
     if (nCols == nCols_ && nRows == nRows_) {
         return state;
     }

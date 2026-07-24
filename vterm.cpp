@@ -966,8 +966,8 @@ void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const 
     update.cellExtras = frame.cellExtras();
     update.columns = frame.columns();
     update.rows = frame.rows();
-    update.pixelWidth = frame.pixelWidth();
-    update.pixelHeight = frame.pixelHeight();
+    update.pixelWidth = winPx;
+    update.pixelHeight = winPy;
     update.viewOffset = frame.getViewOffset();
     update.historyRows = frame.getHistoryRows();
     update.cursor = frame.getCursor();
@@ -1759,7 +1759,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         if (clearAlternate) {
             if (altScreenBufferMode_) {
                 kittyKeyboardAlt = {};
-                frame_alt->reset(composer, winPx, winPy, nCols, nRows, marginTop, marginBottom, &colors, opts.saveLines);
+                frame_alt->reset(composer, nCols, nRows, marginTop, marginBottom, &colors, opts.saveLines);
                 altScreenInitialized = true;
                 cf = frame_alt;
                 cf->expose();
@@ -1775,10 +1775,10 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
     if (altScreenBufferMode_) {
         if (clearAlternate || !altScreenInitialized) {
             kittyKeyboardAlt = {};
-            frame_alt->reset(composer, winPx, winPy, nCols, nRows, marginTop, marginBottom, &colors, opts.saveLines);
+            frame_alt->reset(composer, nCols, nRows, marginTop, marginBottom, &colors, opts.saveLines);
             altScreenInitialized = true;
         } else {
-            frame_alt->resize(winPx, winPy, nCols, nRows, marginTop, marginBottom, {Point(posX, posY), lastCol}, false);
+            frame_alt->resize(nCols, nRows, marginTop, marginBottom, {Point(posX, posY), lastCol}, false);
         }
         cf = frame_alt;
         cf->expose();
@@ -1787,7 +1787,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         altScreenBufferMode = true;
     } else {
         const bool reflow = frame_pri->columns() != nCols;
-        const auto resizeState = frame_pri->resize(winPx, winPy, nCols, nRows, marginTop, marginBottom, {Point(posX, posY), lastCol}, reflow);
+        const auto resizeState = frame_pri->resize(nCols, nRows, marginTop, marginBottom, {Point(posX, posY), lastCol}, reflow);
         posX = resizeState.cursor.x;
         posY = resizeState.cursor.y;
         lastCol = resizeState.pendingWrap;
@@ -7039,7 +7039,7 @@ VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, O
     , nRows((winPy - 2 * opts.border) / glyphPy_)
     , glyphPx(glyphPx_)
     , glyphPy(glyphPy_)
-    , frame_pri(Screen::create(composer, winPx, winPy, nCols, nRows, marginTop, marginBottom, &colors, opts.saveLines))
+    , frame_pri(Screen::create(composer, nCols, nRows, marginTop, marginBottom, &colors, opts.saveLines))
     , frame_alt(Screen::create(composer))
     , cf(frame_pri)
     , utf8dec([this]() {
@@ -7086,7 +7086,6 @@ void VtermImpl::resizeGrid(u16 winPx_, u16 winPy_) {
     u16 nRows_ = std::max(1, (winPy - 2 * opts.border) / glyphPy);
 
     if (nCols == nCols_ && nRows == nRows_) {
-        cf->setPixelSize(winPx, winPy);
         if (inBandResizeMode) {
             reportInBandResize();
         }
@@ -7105,7 +7104,7 @@ void VtermImpl::resizeGrid(u16 winPx_, u16 winPy_) {
     }
 
     const bool reflow = cf == frame_pri && nCols != nCols_;
-    const auto resizeState = cf->resize(winPx, winPy, nCols_, nRows_, marginTop, marginBottom, {Point(posX, posY), lastCol}, reflow);
+    const auto resizeState = cf->resize(nCols_, nRows_, marginTop, marginBottom, {Point(posX, posY), lastCol}, reflow);
     posX = resizeState.cursor.x;
     posY = resizeState.cursor.y;
     lastCol = resizeState.pendingWrap;
