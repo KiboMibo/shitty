@@ -164,6 +164,10 @@ namespace {
         bool getPrivateMode(u32 mode) const;
 
         void resizeGrid(u16 winPx, u16 winPy);
+        void createFreshScreen(Screen*& frame, stl::ObjPool*& pool);
+        void createInactiveScreen(Screen*& frame, stl::ObjPool*& pool);
+        void resizeScreen(Screen*& frame, stl::ObjPool*& pool, bool reflow, Screen::Cursor* cursor);
+        void discardQueuedUpdates();
 
         void redraw();
         bool animationActive() const;
@@ -514,13 +518,15 @@ namespace {
 
         TerminalColors colors;
         Color originalPalette256[256];
-        Screen* frame_pri;
-        Screen* frame_alt;
-        Screen* cf;
+        Screen* frame_pri = nullptr;
+        stl::ObjPool* framePriPool = nullptr;
+        Screen* frame_alt = nullptr;
+        stl::ObjPool* frameAltPool = nullptr;
+        Screen* cf = nullptr;
         u16 posX = 0;
         u16 posY = 0;
-        u16 marginTop;
-        u16 marginBottom;
+        u16 marginTop = 0;
+        u16 marginBottom = 0;
         bool lastCol = false;
 
         TerminalCell attrs{};
@@ -839,11 +845,68 @@ namespace {
 }
 
 VtermImpl::~VtermImpl() {
+    discardQueuedUpdates();
+    delete framePriPool;
+    delete frameAltPool;
+}
+
+void VtermImpl::discardQueuedUpdates() {
     while (queuedUpdateHead != nullptr) {
         QueuedTerminalUpdate* const next = queuedUpdateHead->next;
         delete queuedUpdateHead;
         queuedUpdateHead = next;
     }
+    queuedUpdateTail = nullptr;
+    updateScreen = nullptr;
+    updateIsQueued = false;
+}
+
+void VtermImpl::createFreshScreen(Screen*& frame, ObjPool*& pool) {
+    ObjPool* const next = ObjPool::fromMemoryRaw();
+    Screen* screen;
+    try {
+        screen = Screen::create(composer, *next, nCols, nRows, &colors, opts.saveLines);
+    } catch (...) {
+        delete next;
+        throw;
+    }
+    delete pool;
+    pool = next;
+    frame = screen;
+}
+
+void VtermImpl::createInactiveScreen(Screen*& frame, ObjPool*& pool) {
+    ObjPool* const next = ObjPool::fromMemoryRaw();
+    Screen* screen;
+    try {
+        screen = Screen::create(composer, *next);
+    } catch (...) {
+        delete next;
+        throw;
+    }
+    delete pool;
+    pool = next;
+    frame = screen;
+}
+
+void VtermImpl::resizeScreen(Screen*& frame, ObjPool*& pool, bool reflow, Screen::Cursor* cursor) {
+    // The state handle lives in the screen's own pool, so the old pool must
+    // survive until the replacement has been laid out from it.
+    ResizeState* const state = frame->moveInto();
+    ObjPool* const next = ObjPool::fromMemoryRaw();
+    Screen* screen;
+    try {
+        screen = Screen::create(composer, *next, *state, nCols, nRows, &colors, reflow, cursor);
+    } catch (...) {
+        delete next;
+        throw;
+    }
+    if (presentedScreen == frame) {
+        presentedScreen = nullptr;
+    }
+    delete pool;
+    pool = next;
+    frame = screen;
 }
 
 void VtermImpl::feedPty(StringView bytes) {
@@ -1657,12 +1720,14 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         if (clearAlternate) {
             if (altScreenBufferMode_) {
                 kittyKeyboardAlt = {};
-                frame_alt->reset(composer, nCols, nRows, marginTop, marginBottom, &colors, opts.saveLines);
+                createFreshScreen(frame_alt, frameAltPool);
+                marginTop = 0;
+                marginBottom = nRows;
                 altScreenInitialized = true;
                 cf = frame_alt;
                 cf->expose();
             } else if (altScreenInitialized) {
-                frame_alt->freeCells();
+                createInactiveScreen(frame_alt, frameAltPool);
                 altScreenInitialized = false;
             }
             updateExtraCellCount();
@@ -1673,10 +1738,14 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
     if (altScreenBufferMode_) {
         if (clearAlternate || !altScreenInitialized) {
             kittyKeyboardAlt = {};
-            frame_alt->reset(composer, nCols, nRows, marginTop, marginBottom, &colors, opts.saveLines);
+            createFreshScreen(frame_alt, frameAltPool);
+            marginTop = 0;
+            marginBottom = nRows;
             altScreenInitialized = true;
-        } else {
-            frame_alt->resize(nCols, nRows, marginTop, marginBottom, {Point(posX, posY), lastCol}, false);
+        } else if (frame_alt->columns() != nCols || frame_alt->rows() != nRows) {
+            resizeScreen(frame_alt, frameAltPool, false, nullptr);
+            marginTop = 0;
+            marginBottom = nRows;
         }
         cf = frame_alt;
         cf->expose();
@@ -1684,15 +1753,22 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         savedCursor = &savedCursorAlt;
         altScreenBufferMode = true;
     } else {
-        const bool reflow = frame_pri->columns() != nCols;
-        const auto resizeState = frame_pri->resize(nCols, nRows, marginTop, marginBottom, {Point(posX, posY), lastCol}, reflow);
-        posX = resizeState.cursor.x;
-        posY = resizeState.cursor.y;
-        lastCol = resizeState.pendingWrap;
+        if (frame_pri->columns() != nCols || frame_pri->rows() != nRows) {
+            const bool reflow = frame_pri->columns() != nCols;
+            Screen::Cursor cursorState{Point(posX, posY), lastCol};
+            resizeScreen(frame_pri, framePriPool, reflow, reflow ? &cursorState : nullptr);
+            if (reflow) {
+                posX = cursorState.position.x;
+                posY = cursorState.position.y;
+                lastCol = cursorState.pendingWrap;
+            }
+            marginTop = 0;
+            marginBottom = nRows;
+        }
         cf = frame_pri;
         cf->expose();
         if (clearAlternate) {
-            frame_alt->freeCells();
+            createInactiveScreen(frame_alt, frameAltPool);
             altScreenInitialized = false;
         }
         savedCursor = &savedCursorPri;
@@ -6814,15 +6890,21 @@ VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, O
     , nRows((winPy - 2 * opts.border) / glyphPy_)
     , glyphPx(glyphPx_)
     , glyphPy(glyphPy_)
-    , frame_pri(Screen::create(composer, nCols, nRows, marginTop, marginBottom, &colors, opts.saveLines))
-    , frame_alt(Screen::create(composer))
-    , cf(frame_pri)
     , utf8dec([this]() {
         placeGraphicChar();
     })
     , nColsEff(nCols)
     , hMargin(0)
 {
+    try {
+        createFreshScreen(frame_pri, framePriPool);
+        createInactiveScreen(frame_alt, frameAltPool);
+    } catch (...) {
+        delete framePriPool;
+        delete frameAltPool;
+        throw;
+    }
+    cf = frame_pri;
     makePalette256(colors.palette);
     std::copy(std::begin(colors.palette), std::end(colors.palette), std::begin(originalPalette256));
     colors.defaultForeground = opts.fg;
@@ -6857,8 +6939,8 @@ void VtermImpl::resizeGrid(u16 winPx_, u16 winPy_) {
     winPx = winPx_;
     winPy = winPy_;
 
-    u16 nCols_ = std::max(1, (winPx - 2 * opts.border) / glyphPx);
-    u16 nRows_ = std::max(1, (winPy - 2 * opts.border) / glyphPy);
+    const u16 nCols_ = std::max(1, (winPx - 2 * opts.border) / glyphPx);
+    const u16 nRows_ = std::max(1, (winPy - 2 * opts.border) / glyphPy);
 
     if (nCols == nCols_ && nRows == nRows_) {
         if (inBandResizeMode) {
@@ -6868,33 +6950,29 @@ void VtermImpl::resizeGrid(u16 winPx_, u16 winPy_) {
     }
 
     hideCursor();
-
-    if (nRows_ < posY + 1) {
-        // Preserve every row above the cursor that still fits.  Scrolling
-        // by the full height delta needlessly discards additional rows
-        // whenever the cursor is not on the old bottom row.
-        const u16 nScroll = posY + 1 - nRows_;
-        cf->scrollUp(0, nRows, nScroll);
-        posY -= nScroll;
-    }
+    resetGraphemeInput();
+    discardQueuedUpdates();
 
     const bool reflow = cf == frame_pri && nCols != nCols_;
-    const auto resizeState = cf->resize(nCols_, nRows_, marginTop, marginBottom, {Point(posX, posY), lastCol}, reflow);
-    posX = resizeState.cursor.x;
-    posY = resizeState.cursor.y;
-    lastCol = resizeState.pendingWrap;
-
-    if (!reflow && nRows < nRows_) {
-        const int nScroll = std::min(nRows_ - nRows, (int)(cf->getHistoryRows()));
-        cf->restoreHistory(nScroll);
-        posY += nScroll;
-    }
+    Screen::Cursor cursorState{Point(posX, posY), lastCol};
     nCols = nCols_;
     nRows = nRows_;
+    if (cf == frame_pri) {
+        resizeScreen(frame_pri, framePriPool, reflow, &cursorState);
+        cf = frame_pri;
+    } else {
+        resizeScreen(frame_alt, frameAltPool, false, &cursorState);
+        cf = frame_alt;
+    }
+    posX = cursorState.position.x;
+    posY = cursorState.position.y;
+    lastCol = cursorState.pendingWrap;
 
-    // Screen::resize resets the vertical scrolling region.  Reset the
+    // The rebuild resets the vertical scrolling region.  Reset the
     // horizontal region to the resized page as well; retaining a clipped
     // right edge made subsequent growth keep a stale narrow region.
+    marginTop = 0;
+    marginBottom = nRows;
     nColsEff = nCols;
     hMargin = 0;
     if (!reflow) {

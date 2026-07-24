@@ -17,10 +17,15 @@
 
 struct CellExtraStore;
 struct Composer;
+struct ResizeState;
+
+namespace stl {
+    class ObjPool;
+}
 
 struct Screen {
-    struct ResizeState {
-        Point cursor;
+    struct Cursor {
+        Point position;
         bool pendingWrap = false;
     };
 
@@ -31,8 +36,11 @@ struct Screen {
         COUNT
     };
 
-    virtual void reset(Composer& composer, u16 columns, u16 rows, u16& marginTop, u16& marginBottom, const TerminalColors* colors, u16 saveLines = 0) = 0;
-    virtual ResizeState resize(u16 columns, u16 rows, u16& marginTop, u16& marginBottom, ResizeState state, bool reflow) = 0;
+    // Captures the whole geometry-independent screen state into an opaque
+    // handle allocated from the screen's own pool; the screen itself becomes
+    // empty. The pool must stay alive until a replacement screen has been
+    // created from the returned state.
+    virtual ResizeState* moveInto() = 0;
     virtual void dropScrollbackHistory() = 0;
 
     virtual void fillCells(u16 ch, const TerminalCell& attrs) = 0;
@@ -55,7 +63,6 @@ struct Screen {
     virtual void deltaCopyCells(RenderCell* dest) = 0;
 
     virtual bool active() const noexcept = 0;
-    virtual void freeCells() = 0;
 
     virtual CellExtraStore* cellExtras() const noexcept = 0;
     virtual void collectExtraRefLocations(stl::Vector<u32*>& locations) = 0;
@@ -114,6 +121,7 @@ struct Screen {
     virtual bool getSelectedUtf8(std::string& text) const = 0;
     virtual Point getLogicalPoint(Point point) const = 0;
 
-    static Screen* create(Composer& composer);
-    static Screen* create(Composer& composer, u16 columns, u16 rows, u16& marginTop, u16& marginBottom, const TerminalColors* colors, u16 saveLines = 0);
+    static Screen* create(Composer& composer, stl::ObjPool& pool);
+    static Screen* create(Composer& composer, stl::ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors, u16 saveLines = 0);
+    static Screen* create(Composer& composer, stl::ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, bool reflow, Cursor* cursor);
 };
