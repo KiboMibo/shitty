@@ -83,6 +83,7 @@ namespace {
         void moveWrap(u16 row, u16 sourceColumn, u16 destinationColumn) override;
         void writeGrapheme(u16 row, u16 column, const u32* codepoints, size_t count, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, u8 lineAttribute, const TerminalCell& eraseAttrs) override;
         void writeAsciiRun(u16 row, u16 column, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, u8 lineAttribute, const TerminalCell& eraseAttrs) override;
+        void writeRun(u16 row, u16 column, const u32* codepoints, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, u8 lineAttribute, const TerminalCell& eraseAttrs) override;
         void fillRectangle(u16 top, u16 left, u16 bottom, u16 right, u32 codepoint, const TerminalCell& attrs, const TerminalCell& eraseAttrs) override;
         void copyRectangle(u16 sourceTop, u16 sourceLeft, u16 targetTop, u16 targetLeft, u16 height, u16 width, const TerminalCell& eraseAttrs) override;
         void changeRectangleAttributes(u16 top, u16 left, u16 bottom, u16 right, const u32* modes, size_t modeCount, bool reverse) override;
@@ -160,6 +161,13 @@ namespace {
         Coord nRows = 0;
         RowIndex saveLines = 0;
         RowIndex viewOffset = 0;
+        u32 lineAttrRows = 0;
+        // Conservative per-storage-row facts: a set bit may be stale, a
+        // clear bit is a guarantee.  They gate the wide-boundary and
+        // protection slow paths, which almost no row ever needs.
+        static constexpr u8 rowHasWide = 1;
+        static constexpr u8 rowHasProtected = 2;
+        std::vector<u8> rowFlags;
 
         TerminalCell::Ptr cells = nullptr;
         const TerminalColors* colors = nullptr;
@@ -190,6 +198,7 @@ namespace {
             Epoch epoch = 0;
             Coord width = 0;
             Coord height = 0;
+            bool full = false;
 
             Damage& operator=(Damage&& other) noexcept;
             void configure(void* storage, u16 columns, u16 rows);
@@ -209,6 +218,10 @@ namespace {
         u32 getIdx(u16 row, u16 column) const;
         const TerminalCell& operator[](u32 index) const;
         TerminalCell& operator[](u32 index);
+
+        u8& rowFlagsFor(u16 row) {
+            return rowFlags[screen[row]];
+        }
 
         void eraseRange(u32 start, u32 end, const TerminalCell& attrs);
         void copyCells(u32 destination, u32 source, u32 count);
@@ -490,6 +503,7 @@ ScreenImpl<Coord, Epoch, RowIndex>::ScreenImpl(Composer& composer_, u16 nCols_, 
     for (RowId row = nRows; row < nRows + saveLines; ++row) {
         freeRows.push_back(row);
     }
+    rowFlags.assign((size_t)(nRows) + saveLines, 0);
     resizeDamage(nCols, nRows);
 }
 
@@ -572,6 +586,28 @@ void ScreenImpl<Coord, Epoch, RowIndex>::layout(ResizeState& state, u16 nCols_, 
         layoutReflow(state, nCols_, nRows_, cursorState);
     } else {
         layoutCopy(state, nCols_, nRows_, cursorState);
+    }
+    lineAttrRows = 0;
+    rowFlags.assign((size_t)(nRows) + saveLines, 0);
+    const auto scanRow = [&](RowId row) {
+        const TerminalCell* const first = cells.get() + (size_t)(row)*nCols;
+        lineAttrRows += first[0].line_attr != 0;
+        u8 flags = 0;
+        for (u16 column = 0; column < nCols; ++column) {
+            if (first[column].dwidth || first[column].dwidth_cont) {
+                flags |= rowHasWide;
+            }
+            if (first[column].protected_char != 0) {
+                flags |= rowHasProtected;
+            }
+        }
+        rowFlags[row] = flags;
+    };
+    for (const RowId row : screen) {
+        scanRow(row);
+    }
+    for (const RowId row : history) {
+        scanRow(row);
     }
     resizeDamage(nCols, nRows);
     expose();
@@ -936,6 +972,13 @@ template <typename Coord, typename Epoch, typename RowIndex>
 void ScreenImpl<Coord, Epoch, RowIndex>::deltaCopyCells(RenderCell* const dst) {
     CellExtraStore* const extras = cellExtras();
     assert(extras != nullptr);
+
+    if (damage.full) {
+        for (u16 row = 0; row < nRows; ++row) {
+            damageDeltaCopy(dst + (size_t)(row)*nCols, getViewRowPtr(row), nCols, *extras);
+        }
+        return;
+    }
 
     const Packed* current = damage.cells;
     const Packed* const end = current + damage.count;
@@ -1316,8 +1359,13 @@ TerminalCell* ScreenImpl<Coord, Epoch, RowIndex>::dirtySpan(u16 pY, u16 startX, 
 
 template <typename Coord, typename Epoch, typename RowIndex>
 void ScreenImpl<Coord, Epoch, RowIndex>::fillCells(u16 ch, const TerminalCell& attrs) {
+    const u8 fillFlags = attrs.protected_char != 0 ? rowHasProtected : 0;
     for (u16 r = 0; r < nRows; ++r) {
+        rowFlagsFor(r) = fillFlags;
         u32 start = getIdx(r, 0);
+        if ((cells.get()[start].line_attr != 0) != (attrs.line_attr != 0)) {
+            lineAttrRows += attrs.line_attr != 0 ? 1 : -1;
+        }
         u32 end = start + nCols;
         for (u32 k = start; k < end; ++k) {
             cells.get()[k] = attrs;
@@ -1331,6 +1379,9 @@ void ScreenImpl<Coord, Epoch, RowIndex>::fillCells(u16 ch, const TerminalCell& a
 template <typename Coord, typename Epoch, typename RowIndex>
 void ScreenImpl<Coord, Epoch, RowIndex>::setLineAttribute(u16 row, u8 attribute) {
     TerminalCell* cells_ = dirtySpan(row, 0, nCols);
+    if ((cells_[0].line_attr != 0) != (attribute != 0)) {
+        lineAttrRows += attribute != 0 ? 1 : -1;
+    }
     for (u16 column = 0; column < nCols; ++column) {
         cells_[column].line_attr = attribute;
     }
@@ -1338,6 +1389,9 @@ void ScreenImpl<Coord, Epoch, RowIndex>::setLineAttribute(u16 row, u8 attribute)
 
 template <typename Coord, typename Epoch, typename RowIndex>
 u8 ScreenImpl<Coord, Epoch, RowIndex>::lineAttribute(u16 row) const noexcept {
+    if (lineAttrRows == 0) {
+        return 0;
+    }
     return getLogicalRowPtr(row)[0].line_attr;
 }
 
@@ -1387,6 +1441,9 @@ void ScreenImpl<Coord, Epoch, RowIndex>::moveWrap(u16 row, u16 sourceColumn, u16
 
 template <typename Coord, typename Epoch, typename RowIndex>
 TerminalCell* ScreenImpl<Coord, Epoch, RowIndex>::prepareSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs) {
+    if (!(rowFlagsFor(row) & rowHasWide)) {
+        return dirtySpan(row, start, count);
+    }
     const u16 end = start + count;
     const TerminalCell* cells_ = getLogicalRowPtr(row);
     const bool splitLeft = start > 0 && (cells_[start - 1].dwidth || cells_[start].dwidth_cont);
@@ -1399,6 +1456,13 @@ TerminalCell* ScreenImpl<Coord, Epoch, RowIndex>::prepareSpan(u16 row, u16 start
 
 template <typename Coord, typename Epoch, typename RowIndex>
 TerminalCell& ScreenImpl<Coord, Epoch, RowIndex>::prepareCell(u16 row, u16 column, const TerminalCell& eraseAttrs) {
+    if (!(rowFlagsFor(row) & rowHasWide)) {
+        damageCell(row, column);
+        if (!selection.empty()) {
+            invalidateSelection(Rect(column, row));
+        }
+        return cells.get()[getIdx(row, column)];
+    }
     const TerminalCell* cells_ = getLogicalRowPtr(row);
     if (cells_[column].dwidth_cont) {
         clearWideBoundary(row, column, eraseAttrs);
@@ -1421,8 +1485,13 @@ void ScreenImpl<Coord, Epoch, RowIndex>::writeGrapheme(u16 row, u16 column, cons
     lead.dwidth = wide;
     lead.semantic = semantic;
     lead.line_attr = lineAttribute_;
+    if (wide || attrs.protected_char != 0) {
+        rowFlagsFor(row) |= (wide ? rowHasWide : 0) | (attrs.protected_char != 0 ? rowHasProtected : 0);
+    }
     CellExtraStore* const extras = cellExtras();
-    extras->setHyperlink(lead, hyperlink);
+    if (hyperlink != 0 || lead.hasExtra()) {
+        extras->setHyperlink(lead, hyperlink);
+    }
     if (count > 1) {
         extras->setGrapheme(lead, codepoints, count);
     }
@@ -1437,14 +1506,21 @@ void ScreenImpl<Coord, Epoch, RowIndex>::writeGrapheme(u16 row, u16 column, cons
     continuation.drawn = 1;
     continuation.semantic = semantic;
     continuation.line_attr = lineAttribute_;
-    extras->setHyperlink(continuation, lead.extraRef());
+    if (lead.extraRef() != 0 || continuation.hasExtra()) {
+        extras->setHyperlink(continuation, lead.extraRef());
+    }
     prepareCell(row, column + 1, eraseAttrs) = continuation;
 }
 
 template <typename Coord, typename Epoch, typename RowIndex>
 void ScreenImpl<Coord, Epoch, RowIndex>::writeAsciiRun(u16 row, u16 column, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, u8 lineAttribute_, const TerminalCell& eraseAttrs) {
+    if (attrs.protected_char != 0) {
+        rowFlagsFor(row) |= rowHasProtected;
+    }
     TerminalCell linkedAttrs = attrs;
-    cellExtras()->setHyperlink(linkedAttrs, hyperlink);
+    if (hyperlink != 0 || linkedAttrs.hasExtra()) {
+        cellExtras()->setHyperlink(linkedAttrs, hyperlink);
+    }
     TerminalCell* cells_ = prepareSpan(row, column, count, eraseAttrs);
     for (u16 index = 0; index < count; ++index) {
         TerminalCell& cell = cells_[index];
@@ -1457,8 +1533,31 @@ void ScreenImpl<Coord, Epoch, RowIndex>::writeAsciiRun(u16 row, u16 column, cons
 }
 
 template <typename Coord, typename Epoch, typename RowIndex>
+void ScreenImpl<Coord, Epoch, RowIndex>::writeRun(u16 row, u16 column, const u32* codepoints, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, u8 lineAttribute_, const TerminalCell& eraseAttrs) {
+    if (attrs.protected_char != 0) {
+        rowFlagsFor(row) |= rowHasProtected;
+    }
+    TerminalCell linkedAttrs = attrs;
+    if (hyperlink != 0 || linkedAttrs.hasExtra()) {
+        cellExtras()->setHyperlink(linkedAttrs, hyperlink);
+    }
+    TerminalCell* cells_ = prepareSpan(row, column, count, eraseAttrs);
+    for (u16 index = 0; index < count; ++index) {
+        TerminalCell& cell = cells_[index];
+        cell = linkedAttrs;
+        cell.uc_pt = codepoints[index];
+        cell.drawn = 1;
+        cell.semantic = semantic;
+        cell.line_attr = lineAttribute_;
+    }
+}
+
+template <typename Coord, typename Epoch, typename RowIndex>
 void ScreenImpl<Coord, Epoch, RowIndex>::fillRectangle(u16 top, u16 left, u16 bottom, u16 right, u32 codepoint, const TerminalCell& attrs, const TerminalCell& eraseAttrs) {
     for (u16 row = top; row < bottom; ++row) {
+        if (attrs.protected_char != 0) {
+            rowFlagsFor(row) |= rowHasProtected;
+        }
         clearWideBoundary(row, left, eraseAttrs);
         clearWideBoundary(row, right, eraseAttrs);
         TerminalCell* cells_ = cells.get() + getIdx(row, left);
@@ -1485,6 +1584,7 @@ void ScreenImpl<Coord, Epoch, RowIndex>::copyRectangle(u16 sourceTop, u16 source
         copied.insert(copied.end(), source, source + width);
     }
     for (u16 row = 0; row < height; ++row) {
+        rowFlagsFor(targetTop + row) |= rowFlagsFor(sourceTop + row);
         clearWideBoundary(targetTop + row, targetLeft, eraseAttrs);
         clearWideBoundary(targetTop + row, targetLeft + width, eraseAttrs);
         TerminalCell* destination = cells.get() + getIdx(targetTop + row, targetLeft);
@@ -1633,6 +1733,7 @@ void ScreenImpl<Coord, Epoch, RowIndex>::eraseInRow(u16 pY, u16 startX, u16 coun
     TerminalCell erased = attrs;
     erased.line_attr = getLogicalRowPtr(pY)[0].line_attr;
     if (startX == 0 && count == nCols) {
+        rowFlagsFor(pY) = attrs.protected_char != 0 ? rowHasProtected : 0;
         if (!erasedRowTemplateValid || erasedRowTemplate.size() != nCols || erasedRowCell != erased) {
             erasedRowTemplate.assign(nCols, erased);
             erasedRowCell = erased;
@@ -1653,6 +1754,10 @@ void ScreenImpl<Coord, Epoch, RowIndex>::eraseWideInRow(u16 pY, u16 startX, u16 
     if (!count) {
         return;
     }
+    if (!(rowFlagsFor(pY) & rowHasWide)) {
+        eraseInRow(pY, startX, count, attrs);
+        return;
+    }
     const u16 endX = startX + count;
     const u32 rowIdx = getIdx(pY, 0);
     TerminalCell* row = cells.get() + rowIdx;
@@ -1667,6 +1772,7 @@ void ScreenImpl<Coord, Epoch, RowIndex>::eraseWideInRow(u16 pY, u16 startX, u16 
         row[endX] = erased;
     }
     if (startX == 0 && count == nCols) {
+        rowFlagsFor(pY) = attrs.protected_char != 0 ? rowHasProtected : 0;
         if (!erasedRowTemplateValid || erasedRowTemplate.size() != nCols || erasedRowCell != erased) {
             erasedRowTemplate.assign(nCols, erased);
             erasedRowCell = erased;
@@ -1712,6 +1818,9 @@ TerminalCell* ScreenImpl<Coord, Epoch, RowIndex>::overwriteWideSpan(u16 pY, u16 
 
 template <typename Coord, typename Epoch, typename RowIndex>
 void ScreenImpl<Coord, Epoch, RowIndex>::clearWideBoundary(u16 pY, u16 boundary, const TerminalCell& attrs) {
+    if (!(rowFlagsFor(pY) & rowHasWide)) {
+        return;
+    }
     const u32 rowIdx = getIdx(pY, 0);
     TerminalCell* row = cells.get() + rowIdx;
     const bool eraseLeft = boundary > 0 && row[boundary - 1].dwidth;
@@ -1739,6 +1848,9 @@ void ScreenImpl<Coord, Epoch, RowIndex>::clearWideBoundary(u16 pY, u16 boundary,
 
 template <typename Coord, typename Epoch, typename RowIndex>
 void ScreenImpl<Coord, Epoch, RowIndex>::repairWideBoundary(u16 pY, u16 boundary, const TerminalCell& attrs) {
+    if (!(rowFlagsFor(pY) & rowHasWide)) {
+        return;
+    }
     const u32 rowIdx = getIdx(pY, 0);
     TerminalCell* row = cells.get() + rowIdx;
     const bool leftLead = boundary > 0 && row[boundary - 1].dwidth;
@@ -1771,6 +1883,24 @@ void ScreenImpl<Coord, Epoch, RowIndex>::selectiveEraseInRow(u16 pY, u16 startX,
     erased.protected_char = 0;
     extras->clearExtra(erased, extras->underlineColor(attrs));
     TerminalCell* row = cells.get() + getIdx(pY, 0);
+    if (!(rowFlagsFor(pY) & rowHasProtected)) {
+        if (lineAttrRows == 0) {
+            erased.line_attr = 0;
+            for (u16 x = startX; x < startX + count; ++x) {
+                row[x] = erased;
+            }
+        } else {
+            for (u16 x = startX; x < startX + count; ++x) {
+                erased.line_attr = row[x].line_attr;
+                row[x] = erased;
+            }
+        }
+        damageRow(pY, startX, startX + count);
+        if (!selection.empty()) {
+            invalidateSelection(Rect(startX, pY, startX + count, pY));
+        }
+        return;
+    }
     bool changed = false;
     u16 changedStart = nCols;
     for (u16 x = startX; x < startX + count; ++x) {
@@ -1818,8 +1948,12 @@ void ScreenImpl<Coord, Epoch, RowIndex>::copyRow(u16 dstY, u16 srcY, u16 startX,
         return;
     }
 
+    rowFlagsFor(dstY) |= rowFlagsFor(srcY);
     u32 dstIdx = getIdx(dstY, startX);
     u32 srcIdx = getIdx(srcY, startX);
+    if (startX == 0 && (cells.get()[dstIdx].line_attr != 0) != (cells.get()[srcIdx].line_attr != 0)) {
+        lineAttrRows += cells.get()[srcIdx].line_attr != 0 ? 1 : -1;
+    }
     copyCells(dstIdx, srcIdx, count);
     damageRow(dstY, startX, startX + count);
     if (!selection.empty()) {
@@ -2027,6 +2161,7 @@ auto ScreenImpl<Coord, Epoch, RowIndex>::Damage::operator=(Damage&& other) noexc
     epoch = other.epoch;
     width = other.width;
     height = other.height;
+    full = other.full;
     other.cells = nullptr;
     other.epochs = nullptr;
     other.capacity = 0;
@@ -2054,6 +2189,7 @@ void ScreenImpl<Coord, Epoch, RowIndex>::Damage::configure(void* storage, u16 co
 template <typename Coord, typename Epoch, typename RowIndex>
 void ScreenImpl<Coord, Epoch, RowIndex>::Damage::reset() {
     count = 0;
+    full = false;
     ++epoch;
     if (epoch == 0) {
         memset(epochs, 0, (size_t)(width)*height * sizeof(Epoch));
@@ -2063,18 +2199,20 @@ void ScreenImpl<Coord, Epoch, RowIndex>::Damage::reset() {
 
 template <typename Coord, typename Epoch, typename RowIndex>
 void ScreenImpl<Coord, Epoch, RowIndex>::Damage::expose() {
-    reset();
-    addRect(0, 0, height, width);
+    // The full flag stands in for per-cell marks: materializing a whole
+    // screen of coordinates is the single most frequent damage pattern.
+    full = true;
+    count = 0;
 }
 
 template <typename Coord, typename Epoch, typename RowIndex>
 bool ScreenImpl<Coord, Epoch, RowIndex>::Damage::hasDamage() const noexcept {
-    return count != 0;
+    return full || count != 0;
 }
 
 template <typename Coord, typename Epoch, typename RowIndex>
 void ScreenImpl<Coord, Epoch, RowIndex>::Damage::addCell(u16 row, u16 column) {
-    if (count == capacity) {
+    if (full || count == capacity) {
         return;
     }
     const size_t index = (size_t)(row)*width + column;
@@ -2088,7 +2226,7 @@ void ScreenImpl<Coord, Epoch, RowIndex>::Damage::addCell(u16 row, u16 column) {
 
 template <typename Coord, typename Epoch, typename RowIndex>
 void ScreenImpl<Coord, Epoch, RowIndex>::Damage::addRow(u16 row, u16 begin, u16 end) {
-    if (end <= begin || count == capacity) {
+    if (full || end <= begin || count == capacity) {
         return;
     }
     const size_t rowOffset = (size_t)(row)*width;
@@ -2103,7 +2241,7 @@ void ScreenImpl<Coord, Epoch, RowIndex>::Damage::addRow(u16 row, u16 begin, u16 
 
 template <typename Coord, typename Epoch, typename RowIndex>
 void ScreenImpl<Coord, Epoch, RowIndex>::Damage::addRect(u16 top, u16 left, u16 bottom, u16 right) {
-    if (bottom <= top || right <= left || count == capacity) {
+    if (full || bottom <= top || right <= left || count == capacity) {
         return;
     }
     for (u16 row = top; row < bottom; ++row) {

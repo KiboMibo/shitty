@@ -21,69 +21,70 @@ namespace stl {}
 
 using namespace stl;
 
-Utf8Decoder::Utf8Decoder(CodepointSink&& fn)
-    : cpSink(fn)
-{
-}
-
-void Utf8Decoder::checkPrematureEOS() {
+bool Utf8Decoder::checkPrematureEOS() {
     if (remaining > 0) {
         remaining = 0;
-        emitReplacement();
+        unicode = Unicode_Replacement_Character;
+        return true;
     }
+    return false;
 }
 
 void Utf8Decoder::reset() {
+    accumulator = 0;
     unicode = 0;
     minimum = 0;
     remaining = 0;
 }
 
-void Utf8Decoder::onUnicode(u32 ch) {
+bool Utf8Decoder::onUnicode(u32 ch) {
     if (!ch) {
-        return;
+        return false;
     }
 
     unicode = ch;
-    cpSink();
+    return true;
 }
 
-void Utf8Decoder::pushByte(unsigned char ch) {
+int Utf8Decoder::pushByte(unsigned char ch) {
     if ((ch & 0xc0) == 0x80) {
         if (remaining == 0) {
-            emitReplacement();
-            return;
+            unicode = Unicode_Replacement_Character;
+            return 1;
         }
-        unicode = (unicode << 6) | (ch & 0x3f);
-        if (--remaining == 0) {
-            if (unicode < minimum || unicode > 0x10ffff || (unicode >= 0xd800 && unicode <= 0xdfff)) {
-                emitReplacement();
-            } else {
-                cpSink();
-            }
+        accumulator = (accumulator << 6) | (ch & 0x3f);
+        if (--remaining != 0) {
+            return 0;
         }
-    } else if (ch >= 0xc2 && ch <= 0xdf) {
-        checkPrematureEOS();
-        unicode = ch & 0x1f;
+        if (accumulator < minimum || accumulator > 0x10ffff || (accumulator >= 0xd800 && accumulator <= 0xdfff)) {
+            unicode = Unicode_Replacement_Character;
+        } else {
+            unicode = accumulator;
+        }
+        return 1;
+    }
+
+    int completed = 0;
+    if (remaining > 0) {
+        remaining = 0;
+        unicode = Unicode_Replacement_Character;
+        completed = 1;
+    }
+    if (ch >= 0xc2 && ch <= 0xdf) {
+        accumulator = ch & 0x1f;
         remaining = 1;
         minimum = 0x80;
     } else if (ch >= 0xe0 && ch <= 0xef) {
-        checkPrematureEOS();
-        unicode = ch & 0x0f;
+        accumulator = ch & 0x0f;
         remaining = 2;
         minimum = 0x800;
     } else if (ch >= 0xf0 && ch <= 0xf4) {
-        checkPrematureEOS();
-        unicode = ch & 0x07;
+        accumulator = ch & 0x07;
         remaining = 3;
         minimum = 0x10000;
     } else {
-        checkPrematureEOS();
-        emitReplacement();
+        unicode = Unicode_Replacement_Character;
+        ++completed;
     }
-}
-
-void Utf8Decoder::emitReplacement() {
-    unicode = Unicode_Replacement_Character;
-    cpSink();
+    return completed;
 }

@@ -15,7 +15,7 @@ perf record \
     -F 999 \
     --call-graph dwarf,16384 \
     -o "$data" \
-    -- "$binary" -quiet -e /bin/sh -c 'head -c 20971520 /dev/random'
+    -- "$binary" -e /bin/sh -c 'head -c 20971520 /dev/random'
 
 perf report \
     -i "$data" \

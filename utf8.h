@@ -19,7 +19,6 @@
 #include <std/sys/types.h>
 
 #include <cstdint>
-#include <functional>
 
 constexpr const u16 Missing_Glyph_Marker = 0x0000;
 
@@ -48,11 +47,9 @@ struct Utf8Encoder {
 
 class Utf8Decoder {
 public:
-    using CodepointSink = std::function<void()>;
-
-    Utf8Decoder(CodepointSink&& fn);
-
-    void checkPrematureEOS();
+    // Returns true when a truncated sequence was pending; the replacement
+    // character is then readable through getUnicode().
+    bool checkPrematureEOS();
 
     void reset();
 
@@ -68,15 +65,17 @@ public:
         unicode = cp;
     }
 
-    void onUnicode(u32 ch);
+    // Returns true when ch is a codepoint to place.
+    bool onUnicode(u32 ch);
 
-    void pushByte(unsigned char ch);
+    // Returns the number of codepoints this byte completed (0..2); each is
+    // read through getUnicode().  A double completion is always two
+    // replacement characters.
+    int pushByte(unsigned char ch);
 
 private:
-    void emitReplacement();
-
+    u32 accumulator = 0;
     u32 unicode = 0;
     u32 minimum = 0;
     u8 remaining = 0;
-    CodepointSink cpSink;
 };

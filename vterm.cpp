@@ -322,6 +322,8 @@ namespace {
         void placeGraphicChar();
         void placeGraphicChar(bool graphemeBoundary);
         void placeAsciiRun(const u8* input, size_t size);
+        int placeUtf8Run(const u8* input, int size);
+        void placePreparedRun(const u32* input, size_t size);
         void resetGraphemeInput();
         void jumpToNextTabStop();
         void setFgFromPalIx();
@@ -2002,7 +2004,9 @@ bool VtermImpl::rectangleFromParams(size_t offset, Rectangle& rectangle) const {
 
 void VtermImpl::inputGraphicChar(unsigned char ch) {
     if ((ch & 0x80) == 0) {
-        utf8dec.checkPrematureEOS();
+        if (utf8dec.checkPrematureEOS()) {
+            placeGraphicChar();
+        }
 
         Charset cs;
         if (charsetState.ss) {
@@ -2013,26 +2017,37 @@ void VtermImpl::inputGraphicChar(unsigned char ch) {
         }
 
         if (cs == Charset::UTF8) {
-            utf8dec.onUnicode(ch < 127 ? ch : 0);
+            if (utf8dec.onUnicode(ch < 127 ? ch : 0)) {
+                placeGraphicChar();
+            }
         } else if (ch >= 32 && (cs == Charset::IsoLatin1 || ch < 127)) {
-            utf8dec.onUnicode(translateCharset(cs, ch));
+            if (utf8dec.onUnicode(translateCharset(cs, ch))) {
+                placeGraphicChar();
+            }
         }
     } else {
         Charset cs = charsetState.g[charsetState.gr];
         if (cs == Charset::UTF8) {
-            utf8dec.pushByte(ch);
+            for (int completed = utf8dec.pushByte(ch); completed > 0; --completed) {
+                placeGraphicChar();
+            }
         } else if (ch >= 160 && (cs == Charset::IsoLatin1 || ch < 255)) {
             // ISO 2022 invokes a 94/96-character G-set in GR by moving its
             // 7-bit code positions into the right half.  Strip that bit and
             // use the same translation path as GL; NRC sets are deliberately
             // outside charCodes, so indexing the table directly was both
             // incorrect and out of bounds for LS1R/LS2R/LS3R.
-            utf8dec.onUnicode(translateCharset(cs, ch & 0x7f));
+            if (utf8dec.onUnicode(translateCharset(cs, ch & 0x7f))) {
+                placeGraphicChar();
+            }
         }
     }
 }
 
 void VtermImpl::resetGraphemeInput() {
+    if (inputGraphemeScreen == nullptr) {
+        return;
+    }
     inputGrapheme.clear();
     inputGraphemeBase = 0;
     inputGraphemeBreaker.reset();
@@ -2233,6 +2248,140 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
         inputGraphemeHyperlink = activeHyperlink;
         inputGraphemeSemantic = currentSemantic;
         inputGraphemeBreaker.setBoundaryAfter(codepoint);
+        utf8dec.setUnicode(codepoint);
+
+        if (endX == lineCols) {
+            posX = lineCols - 1;
+            lastCol = true;
+        } else {
+            posX = endX;
+            lastCol = false;
+        }
+        input += count;
+        size -= count;
+    }
+}
+
+// Decodes complete UTF-8 sequences ahead and batches width-1 cluster-starting
+// codepoints into span writes.  Any irregularity — an invalid or split
+// sequence, a wide or joining codepoint — either falls back to the standard
+// single-codepoint path or stops consuming so the streaming decoder takes
+// over with identical semantics.  Returns the number of bytes consumed.
+int VtermImpl::placeUtf8Run(const u8* input, int size) {
+    constexpr size_t batchLimit = 64;
+    u32 batch[batchLimit];
+    size_t batchCount = 0;
+    int consumed = 0;
+
+    if (inputGraphemeScreen != cf) {
+        inputGraphemeBreaker.reset();
+    }
+    const auto flush = [&]() {
+        if (batchCount != 0) {
+            placePreparedRun(batch, batchCount);
+            batchCount = 0;
+        }
+    };
+
+    while (consumed < size) {
+        const u8 lead = input[consumed];
+        u32 codepoint;
+        u32 minimum;
+        int length;
+        if (lead < 0x80) {
+            if (lead < 0x20 || lead == 0x7f) {
+                break;
+            }
+            codepoint = lead;
+            minimum = 0;
+            length = 1;
+        } else if (lead >= 0xc2 && lead <= 0xdf) {
+            codepoint = lead & 0x1f;
+            minimum = 0x80;
+            length = 2;
+        } else if (lead >= 0xe0 && lead <= 0xef) {
+            codepoint = lead & 0x0f;
+            minimum = 0x800;
+            length = 3;
+        } else if (lead >= 0xf0 && lead <= 0xf4) {
+            codepoint = lead & 0x07;
+            minimum = 0x10000;
+            length = 4;
+        } else {
+            break;
+        }
+        if (consumed + length > size) {
+            break;
+        }
+        bool valid = true;
+        for (int k = 1; k < length; ++k) {
+            const u8 continuation = input[consumed + k];
+            if ((continuation & 0xc0) != 0x80) {
+                valid = false;
+                break;
+            }
+            codepoint = (codepoint << 6) | (continuation & 0x3f);
+        }
+        if (!valid || codepoint < minimum || codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff)) {
+            break;
+        }
+
+        const bool boundary = inputGraphemeBreaker.breakBefore(codepoint);
+        const int width = codepoint < 0x7f ? 1 : codepointWidth(codepoint);
+        if (!boundary || width != 1) {
+            flush();
+            utf8dec.setUnicode(codepoint);
+            placeGraphicChar(boundary);
+            consumed += length;
+            continue;
+        }
+        if (batchCount == batchLimit) {
+            flush();
+        }
+        batch[batchCount++] = codepoint;
+        consumed += length;
+    }
+    flush();
+    return consumed;
+}
+
+void VtermImpl::placePreparedRun(const u32* input, size_t size) {
+    while (size > 0) {
+        if (autoWrapMode && lastCol) {
+            cf->setWrapped(posY, posX);
+            inp_CR();
+            inp_LF();
+        }
+
+        const u8 lineAttribute = cf->lineAttribute(posY);
+        const u16 lineCols = lineAttribute ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2) : nColsEff;
+        if (posX >= lineCols) {
+            utf8dec.setUnicode(*input++);
+            placeGraphicChar(true);
+            --size;
+            continue;
+        }
+        const u16 count = std::min<size_t>(size, lineCols - posX);
+        const u16 startX = posX;
+        const u16 endX = startX + count;
+        cf->writeRun(posY, startX, input, count, attrs, activeHyperlink, currentSemantic, lineAttribute, eraseAttrs);
+        if (attrs.blink) {
+            haveBlinkingText = true;
+        }
+
+        const u16 clusterX = endX - 1;
+        const u32 codepoint = input[count - 1];
+        inputGrapheme.clear();
+        inputGraphemeBase = codepoint;
+        inputGraphemeScreen = cf;
+        inputGraphemeX = clusterX;
+        inputGraphemeY = posY;
+        inputGraphemeWide = false;
+        inputGraphemeAttrs = attrs;
+        inputGraphemeHyperlink = activeHyperlink;
+        inputGraphemeSemantic = currentSemantic;
+        // The grapheme breaker already advanced through every batched
+        // codepoint; only the decoder mirror needs the last one.
         utf8dec.setUnicode(codepoint);
 
         if (endX == lineCols) {
@@ -6890,9 +7039,6 @@ VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, O
     , nRows((winPy - 2 * opts.border) / glyphPy_)
     , glyphPx(glyphPx_)
     , glyphPy(glyphPy_)
-    , utf8dec([this]() {
-        placeGraphicChar();
-    })
     , nColsEff(nCols)
     , hMargin(0)
 {
@@ -7435,174 +7581,268 @@ bool VtermImpl::executeC0InSequence(unsigned char ch) {
     return true;
 }
 
+namespace {
+    constexpr u32 csiKey(char prefix, char intermediate, char final) {
+        return ((u32)((u8)(prefix)) << 16) | ((u32)((u8)(intermediate)) << 8) | (u8)(final);
+    }
+}
+
 template <bool traced>
 void VtermImpl::dispatchCsi(unsigned char finalByte) {
     if constexpr (traced) {
         parserTrace->csi(finalByte, csiPrivatePrefix, csiIntermediates, inputOps, inputSeparators, nInputOps, csiHadParams);
     }
-    const std::string key = csiPrivatePrefix + csiIntermediates + (char)(finalByte);
-    if (key == "A") {
-        csi_CUU();
-    } else if (key == "B") {
-        csi_CUD();
-    } else if (key == "C") {
-        csi_CUF();
-    } else if (key == "D") {
-        csi_CUB();
-    } else if (key == "E") {
-        csi_CNL();
-    } else if (key == "F") {
-        csi_CPL();
-    } else if (key == "G") {
-        csi_CHA();
-    } else if (key == "H" || key == "f") {
-        csi_CUP();
-    } else if (key == "I") {
-        csi_CHT();
-    } else if (key == "J") {
-        csi_ED();
-    } else if (key == "K") {
-        csi_EL();
-    } else if (key == "L") {
-        csi_IL();
-    } else if (key == "M") {
-        csi_DL();
-    } else if (key == "P") {
-        csi_DCH();
-    } else if (key == "S") {
-        csi_SU();
-    } else if (key == "T") {
-        if (nInputOps == 5 && mouseTrk.mode == MouseTrackingMode::VT200_Highlight) {
-            csi_XTHIMOUSE();
-        } else {
-            csi_SD();
-        }
-    } else if (key == "X") {
-        csi_ECH();
-    } else if (key == "Z") {
-        csi_CBT();
-    } else if (key == "@") {
-        csi_ICH();
-    } else if (key == "`") {
-        csi_HPA();
-    } else if (key == "a") {
-        csi_HPR();
-    } else if (key == "b") {
-        csi_REP();
-    } else if (key == "c") {
-        csi_priDA();
-    } else if (key == "d") {
-        csi_VPA();
-    } else if (key == "e") {
-        csi_VPR();
-    } else if (key == "g") {
-        csi_TBC();
-    } else if (key == "h") {
-        csi_SM();
-    } else if (key == "l") {
-        csi_RM();
-    } else if (key == "m") {
-        csi_SGR();
-    } else if (key == "n") {
-        csi_DSR();
-    } else if (key == "?n") {
-        csi_DSR(true);
-    } else if (key == "q") {
-        csi_DECLL();
-    } else if (key == "i") {
-        csi_MC(false);
-    } else if (key == "j") {
-        csi_CUB();
-    } else if (key == "k") {
-        csi_CUU();
-    } else if (key == "r") {
-        csi_STBM();
-    } else if (key == "s") {
-        csi_SCOSC_SLRM();
-    } else if (key == ">T") {
-        csi_XTTITLEMODE(false);
-    } else if (key == ">t") {
-        csi_XTTITLEMODE(true);
-    } else if (key == "t") {
-        csi_XTWINOPS();
-    } else if (key == "u") {
-        csi_SCORC();
-    } else if (key == "!p") {
-        csi_DECSTR();
-    } else if (key == "'}") {
-        csi_DECIC();
-    } else if (key == "'~") {
-        csi_DECDC();
-    } else if (key == "'z") {
-        csi_DECELR();
-    } else if (key == "'{") {
-        csi_DECSLE();
-    } else if (key == "'|") {
-        csi_DECRQLP();
-    } else if (key == "'w") {
-        csi_DECEFR();
-    } else if (key == "\"p") {
-        csiq_DECSCL();
-    } else if (key == "\"q") {
-        csi_DECSCA();
-    } else if (key == " @") {
-        csi_ecma48_SL();
-    } else if (key == " A") {
-        csi_ecma48_SR();
-    } else if (key == " q") {
-        csi_DECSCUSR();
-    } else if (key == ">c") {
-        csi_secDA();
-    } else if (key == ">m") {
-        csi_XTMODKEYS();
-    } else if (key == ">u") {
-        csi_kittyKeyboardPush();
-    } else if (key == ">q") {
-        csi_XTVERSION();
-    } else if (key == "<u") {
-        csi_kittyKeyboardPop();
-    } else if (key == "=u") {
-        csi_kittyKeyboardSet();
-    } else if (key == "=c") {
-        csi_terDA();
-    } else if (key == "?h") {
-        csi_privSM();
-    } else if (key == "?l") {
-        csi_privRM();
-    } else if (key == "?s") {
-        csi_privSave();
-    } else if (key == "?r") {
-        csi_privRestore();
-    } else if (key == "?u") {
-        csi_kittyKeyboardQuery();
-    } else if (key == "?m") {
-        csi_XTQMODKEYS();
-    } else if (key == "?J") {
-        csi_DECSED();
-    } else if (key == "?K") {
-        csi_DECSEL();
-    } else if (key == "?i") {
-        csi_MC(true);
-    } else if (key == "$p") {
-        csi_DECRQM(false);
-    } else if (key == "$r") {
-        csi_DECCARA(false);
-    } else if (key == "$t") {
-        csi_DECCARA(true);
-    } else if (key == "$v") {
-        csi_DECCRA();
-    } else if (key == "$x") {
-        csi_DECFRA();
-    } else if (key == "$z") {
-        csi_DECERA();
-    } else if (key == "${") {
-        csi_DECERA(true);
-    } else if (key == "*y") {
-        csi_DECRQCRA();
-    } else if (key == "?$p") {
-        csi_DECRQM(true);
-    } else {
+    // No recognized sequence carries more than one intermediate byte.
+    if (csiIntermediates.size() > 1) {
         setState(InputState::Normal);
+        return;
+    }
+    const u32 key = csiKey(csiPrivatePrefix.empty() ? 0 : csiPrivatePrefix[0], csiIntermediates.empty() ? 0 : csiIntermediates[0], (char)(finalByte));
+    switch (key) {
+        case csiKey(0, 0, 'T'):
+            if (nInputOps == 5 && mouseTrk.mode == MouseTrackingMode::VT200_Highlight) {
+                csi_XTHIMOUSE();
+            } else {
+                csi_SD();
+            }
+            break;
+        case csiKey(0,0,'A'):
+            csi_CUU();
+            break;
+        case csiKey(0,0,'B'):
+            csi_CUD();
+            break;
+        case csiKey(0,0,'C'):
+            csi_CUF();
+            break;
+        case csiKey(0,0,'D'):
+            csi_CUB();
+            break;
+        case csiKey(0,0,'E'):
+            csi_CNL();
+            break;
+        case csiKey(0,0,'F'):
+            csi_CPL();
+            break;
+        case csiKey(0,0,'G'):
+            csi_CHA();
+            break;
+        case csiKey(0,0,'H'):
+            csi_CUP();
+            break;
+        case csiKey(0,0,'f'):
+            csi_CUP();
+            break;
+        case csiKey(0,0,'I'):
+            csi_CHT();
+            break;
+        case csiKey(0,0,'J'):
+            csi_ED();
+            break;
+        case csiKey(0,0,'K'):
+            csi_EL();
+            break;
+        case csiKey(0,0,'L'):
+            csi_IL();
+            break;
+        case csiKey(0,0,'M'):
+            csi_DL();
+            break;
+        case csiKey(0,0,'P'):
+            csi_DCH();
+            break;
+        case csiKey(0,0,'S'):
+            csi_SU();
+            break;
+        case csiKey(0,0,'X'):
+            csi_ECH();
+            break;
+        case csiKey(0,0,'Z'):
+            csi_CBT();
+            break;
+        case csiKey(0,0,'@'):
+            csi_ICH();
+            break;
+        case csiKey(0,0,'`'):
+            csi_HPA();
+            break;
+        case csiKey(0,0,'a'):
+            csi_HPR();
+            break;
+        case csiKey(0,0,'b'):
+            csi_REP();
+            break;
+        case csiKey(0,0,'c'):
+            csi_priDA();
+            break;
+        case csiKey(0,0,'d'):
+            csi_VPA();
+            break;
+        case csiKey(0,0,'e'):
+            csi_VPR();
+            break;
+        case csiKey(0,0,'g'):
+            csi_TBC();
+            break;
+        case csiKey(0,0,'h'):
+            csi_SM();
+            break;
+        case csiKey(0,0,'l'):
+            csi_RM();
+            break;
+        case csiKey(0,0,'m'):
+            csi_SGR();
+            break;
+        case csiKey(0,0,'n'):
+            csi_DSR();
+            break;
+        case csiKey('?',0,'n'):
+            csi_DSR(true);
+            break;
+        case csiKey(0,0,'q'):
+            csi_DECLL();
+            break;
+        case csiKey(0,0,'i'):
+            csi_MC(false);
+            break;
+        case csiKey(0,0,'j'):
+            csi_CUB();
+            break;
+        case csiKey(0,0,'k'):
+            csi_CUU();
+            break;
+        case csiKey(0,0,'r'):
+            csi_STBM();
+            break;
+        case csiKey(0,0,'s'):
+            csi_SCOSC_SLRM();
+            break;
+        case csiKey('>',0,'T'):
+            csi_XTTITLEMODE(false);
+            break;
+        case csiKey('>',0,'t'):
+            csi_XTTITLEMODE(true);
+            break;
+        case csiKey(0,0,'t'):
+            csi_XTWINOPS();
+            break;
+        case csiKey(0,0,'u'):
+            csi_SCORC();
+            break;
+        case csiKey(0,'!','p'):
+            csi_DECSTR();
+            break;
+        case csiKey(0,'\'','}'):
+            csi_DECIC();
+            break;
+        case csiKey(0,'\'','~'):
+            csi_DECDC();
+            break;
+        case csiKey(0,'\'','z'):
+            csi_DECELR();
+            break;
+        case csiKey(0,'\'','{'):
+            csi_DECSLE();
+            break;
+        case csiKey(0,'\'','|'):
+            csi_DECRQLP();
+            break;
+        case csiKey(0,'\'','w'):
+            csi_DECEFR();
+            break;
+        case csiKey(0,'"','p'):
+            csiq_DECSCL();
+            break;
+        case csiKey(0,'"','q'):
+            csi_DECSCA();
+            break;
+        case csiKey(0,' ','@'):
+            csi_ecma48_SL();
+            break;
+        case csiKey(0,' ','A'):
+            csi_ecma48_SR();
+            break;
+        case csiKey(0,' ','q'):
+            csi_DECSCUSR();
+            break;
+        case csiKey('>',0,'c'):
+            csi_secDA();
+            break;
+        case csiKey('>',0,'m'):
+            csi_XTMODKEYS();
+            break;
+        case csiKey('>',0,'u'):
+            csi_kittyKeyboardPush();
+            break;
+        case csiKey('>',0,'q'):
+            csi_XTVERSION();
+            break;
+        case csiKey('<',0,'u'):
+            csi_kittyKeyboardPop();
+            break;
+        case csiKey('=',0,'u'):
+            csi_kittyKeyboardSet();
+            break;
+        case csiKey('=',0,'c'):
+            csi_terDA();
+            break;
+        case csiKey('?',0,'h'):
+            csi_privSM();
+            break;
+        case csiKey('?',0,'l'):
+            csi_privRM();
+            break;
+        case csiKey('?',0,'s'):
+            csi_privSave();
+            break;
+        case csiKey('?',0,'r'):
+            csi_privRestore();
+            break;
+        case csiKey('?',0,'u'):
+            csi_kittyKeyboardQuery();
+            break;
+        case csiKey('?',0,'m'):
+            csi_XTQMODKEYS();
+            break;
+        case csiKey('?',0,'J'):
+            csi_DECSED();
+            break;
+        case csiKey('?',0,'K'):
+            csi_DECSEL();
+            break;
+        case csiKey('?',0,'i'):
+            csi_MC(true);
+            break;
+        case csiKey(0,'$','p'):
+            csi_DECRQM(false);
+            break;
+        case csiKey(0,'$','r'):
+            csi_DECCARA(false);
+            break;
+        case csiKey(0,'$','t'):
+            csi_DECCARA(true);
+            break;
+        case csiKey(0,'$','v'):
+            csi_DECCRA();
+            break;
+        case csiKey(0,'$','x'):
+            csi_DECFRA();
+            break;
+        case csiKey(0,'$','z'):
+            csi_DECERA();
+            break;
+        case csiKey(0,'$','{'):
+            csi_DECERA(true);
+            break;
+        case csiKey(0,'*','y'):
+            csi_DECRQCRA();
+            break;
+        case csiKey('?','$','p'):
+            csi_DECRQM(true);
+            break;
+        default:
+            setState(InputState::Normal);
+            break;
     }
 }
 
@@ -7704,6 +7944,16 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
             }
             readPos = end - 1;
             continue;
+        }
+        if (inputState == InputState::Normal && ch >= 0xc2 && ch <= 0xf4 && !insertMode && !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8 && charsetState.g[charsetState.gr] == Charset::UTF8) {
+            const int consumed = placeUtf8Run(input + readPos, inputSize - readPos);
+            if (consumed > 0) {
+                if constexpr (traced) {
+                    parserTrace->text(input + readPos, consumed);
+                }
+                readPos += consumed - 1;
+                continue;
+            }
         }
         if ((inputState == InputState::DCS || inputState == InputState::OSC || inputState == InputState::String) && ch >= 0x20 && ch < 0x7f) {
             stringUtf8Remaining = 0;

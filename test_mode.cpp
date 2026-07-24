@@ -134,20 +134,22 @@ std::string TestPty::takeReadData() {
     return result;
 }
 
-TestUtf8Decoder::TestUtf8Decoder()
-    : decoder([this]() {
-        output.push_back(decoder.getUnicode());
-    })
-{
+TestUtf8Decoder::TestUtf8Decoder() {
 }
 
 std::vector<u32> TestUtf8Decoder::push(const std::string& input) {
     for (const unsigned char ch : input) {
         if (ch < 0x80) {
-            decoder.checkPrematureEOS();
-            decoder.onUnicode(ch);
+            if (decoder.checkPrematureEOS()) {
+                output.push_back(decoder.getUnicode());
+            }
+            if (decoder.onUnicode(ch)) {
+                output.push_back(decoder.getUnicode());
+            }
         } else {
-            decoder.pushByte(ch);
+            for (int completed = decoder.pushByte(ch); completed > 0; --completed) {
+                output.push_back(decoder.getUnicode());
+            }
         }
     }
     std::vector<u32> result;

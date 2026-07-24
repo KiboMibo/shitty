@@ -1,5 +1,7 @@
-/.build/
+/.build*/
 /build/
 /st
+/st_test
+/test_suite
 /main_fuzz
 __pycache__/
