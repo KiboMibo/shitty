@@ -7897,6 +7897,61 @@ void VtermImpl::processCsiByte(unsigned char ch) {
     setState(InputState::IgnoreSequence);
 }
 
+namespace {
+    // Pre-dispatch classification for in-sequence states: one state-mask
+    // load and one byte-mask load decide whether any cross-cutting rule
+    // (cancel, escape begin, C1, abort, intermediates, string handling)
+    // can apply before the state switch.
+    constexpr u8 kPreCtrl = 0x01;
+    constexpr u8 kPreHigh = 0x02;
+    constexpr u8 kPreIntermediate = 0x04;
+    constexpr u8 kPreStringBulk = 0x08;
+    constexpr u8 kPreStringAll = 0x10;
+
+    constexpr std::array<u8, 256> makeByteHit() {
+        std::array<u8, 256> table{};
+        for (int ch = 0; ch < 256; ++ch) {
+            u8 flags = kPreStringAll;
+            if (ch == 0x18 || ch == 0x1a || ch == 0x1b || ch == 0x7f) {
+                flags |= kPreCtrl;
+            }
+            if (ch >= 0x80) {
+                flags |= kPreHigh;
+            }
+            if (ch >= 0x20 && ch <= 0x2f) {
+                flags |= kPreIntermediate;
+            }
+            if (ch >= 0x20 && ch < 0x7f) {
+                flags |= kPreStringBulk;
+            }
+            table[ch] = flags;
+        }
+        return table;
+    }
+    constexpr std::array<u8, 256> kByteHit = makeByteHit();
+
+    constexpr u8 kStateHit[] = {
+        0,                                       // Normal (has its own branch)
+        kPreCtrl | kPreHigh,                     // IgnoreSequence
+        kPreCtrl | kPreHigh,                     // Escape
+        kPreCtrl | kPreHigh,                     // EscapeIntermediate
+        kPreCtrl | kPreHigh,                     // Escape_VT52
+        kPreCtrl | kPreHigh | kPreIntermediate,  // Esc_SPC
+        kPreCtrl | kPreHigh | kPreIntermediate,  // Esc_Hash
+        kPreCtrl | kPreHigh | kPreIntermediate,  // Esc_Pct
+        kPreCtrl | kPreHigh,                     // SelectCharset
+        kPreCtrl | kPreHigh,                     // CSI
+        kPreStringBulk | kPreStringAll,          // DCS
+        kPreStringAll,                           // DCS_Esc
+        kPreStringBulk | kPreStringAll,          // OSC
+        kPreStringAll,                           // OSC_Esc
+        kPreStringBulk | kPreStringAll,          // String
+        kPreStringAll,                           // String_Esc
+        kPreCtrl | kPreHigh,                     // VT52_CUP_Arg1
+        kPreCtrl | kPreHigh,                     // VT52_CUP_Arg2
+    };
+}
+
 bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
     ++processInputDepth;
     bool changed;
@@ -8105,7 +8160,13 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
             }
             continue;
         }
-        if ((inputState == InputState::DCS || inputState == InputState::OSC || inputState == InputState::String) && ch >= 0x20 && ch < 0x7f) {
+        bool utf8StringContinuation = false;
+        const u8 stateHit = kStateHit[(size_t)(inputState)];
+        const u8 pre = stateHit & kByteHit[ch];
+        if (pre == 0) {
+            goto dispatch;
+        }
+        if (pre & kPreStringBulk) {
             stringUtf8Remaining = 0;
             int end = readPos + 1;
             while (end < inputSize && input[end] >= 0x20 && input[end] < 0x7f) {
@@ -8127,7 +8188,7 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
             readPos = end - 1;
             continue;
         }
-        const bool utf8StringContinuation = (inputState == InputState::DCS || inputState == InputState::OSC || inputState == InputState::String) && stringUtf8Continuation(ch);
+        utf8StringContinuation = (stateHit & kPreStringBulk) != 0 && stringUtf8Continuation(ch);
         if (ch == '\x18' || ch == '\x1a') {
             if constexpr (traced) {
                 parserTrace->control(ch);
@@ -8238,6 +8299,7 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
             setState(InputState::EscapeIntermediate);
             continue;
         }
+    dispatch:
         switch (inputState) {
             case InputState::Normal:
                 break;
