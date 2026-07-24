@@ -18,7 +18,7 @@
 #pragma once
 #include <std/sys/types.h>
 
-#include "base.h"
+#include "color.h"
 #include "options.h"
 
 #include <cstddef>

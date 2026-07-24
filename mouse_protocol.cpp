@@ -8,8 +8,10 @@
 
 #include "utf8.h"
 
+#include <std/str/builder.h>
+#include <std/str/view.h>
+
 #include <algorithm>
-#include <sstream>
 
 namespace stl {}
 
@@ -84,34 +86,38 @@ std::string encodeMouseProtocol(MouseTrackingEnc encoding, MouseEventType type, 
         code += 16;
     }
 
-    std::ostringstream output;
+    StringBuilder output;
     switch (encoding) {
         case MouseTrackingEnc::Default:
             column = std::clamp(column, 1, 223);
             row = std::clamp(row, 1, 223);
-            output << "\x1b[M" << (char)(32 + code) << (char)(32 + column) << (char)(32 + row);
+            output << StringView(u8"\x1b[M");
+            {
+                const u8 bytes[] = {(u8)(32 + code), (u8)(32 + column), (u8)(32 + row)};
+                output.append(bytes, sizeof(bytes));
+            }
             break;
         case MouseTrackingEnc::UTF8:
             column = std::clamp(column, 1, 2015);
             row = std::clamp(row, 1, 2015);
-            output << "\x1b[M";
+            output << StringView(u8"\x1b[M");
             Utf8Encoder::pushUnicode(32 + code, [&output](char ch) {
-                output << ch;
+                output.append(&ch, 1);
             });
             Utf8Encoder::pushUnicode(32 + column, [&output](char ch) {
-                output << ch;
+                output.append(&ch, 1);
             });
             Utf8Encoder::pushUnicode(32 + row, [&output](char ch) {
-                output << ch;
+                output.append(&ch, 1);
             });
             break;
         case MouseTrackingEnc::SGR:
         case MouseTrackingEnc::SGRPixels:
-            output << "\x1b[<" << code << ';' << column << ';' << row << (type == MouseEventType::Release ? 'm' : 'M');
+            output << StringView(u8"\x1b[<") << code << StringView(u8";") << column << StringView(u8";") << row << (type == MouseEventType::Release ? StringView(u8"m") : StringView(u8"M"));
             break;
         case MouseTrackingEnc::URXVT:
-            output << "\x1b[" << code + 32 << ';' << column << ';' << row << 'M';
+            output << StringView(u8"\x1b[") << code + 32 << StringView(u8";") << column << StringView(u8";") << row << StringView(u8"M");
             break;
     }
-    return output.str();
+    return std::string((const char*)(output.data()), output.used());
 }

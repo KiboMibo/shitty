@@ -6,8 +6,10 @@
 
 #pragma once
 
-#include "color.h"
+#include <std/sys/types.h>
 
-#include <string>
-
-bool parseXColor(const std::string& spec, Color& color);
+struct Hex {
+    u64 value;
+    u8 width = 0;
+    bool uppercase = false;
+};

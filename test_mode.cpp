@@ -12,6 +12,7 @@
 #include "grapheme.h"
 #include "font_resolver.h"
 #include "font_pack.h"
+#include "hex.h"
 #include "keyboard.h"
 #include "options.h"
 #include "mouse_protocol.h"
@@ -26,9 +27,12 @@
 #include "vterm_test.h"
 #include "vterm_trace.h"
 
-#include <algorithm>
+#include <std/str/builder.h>
+#include <std/str/view.h>
 #include <std/mem/obj_pool.h>
 #include <std/sys/throw.h>
+
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cstdint>
@@ -36,7 +40,6 @@
 #include <deque>
 #include <fcntl.h>
 #include <functional>
-#include <iomanip>
 #include <map>
 #include <poll.h>
 #include <signal.h>
@@ -159,10 +162,10 @@ std::vector<u32> TestUtf8Decoder::push(const std::string& input) {
 
 namespace {
 
-    void writeAll(int fd, const std::string& data) {
+    void writeAll(int fd, StringView data) {
         size_t offset = 0;
-        while (offset < data.size()) {
-            const ssize_t count = write(fd, data.data() + offset, data.size() - offset);
+        while (offset < data.length()) {
+            const ssize_t count = write(fd, data.data() + offset, data.length() - offset);
             if (count < 0) {
                 if (errno == EINTR) {
                     continue;
@@ -171,6 +174,18 @@ namespace {
             }
             offset += (size_t)(count);
         }
+    }
+
+    void writeAll(int fd, const std::string& data) {
+        writeAll(fd, StringView((const u8*)(data.data()), data.size()));
+    }
+
+    void writeAll(int fd, const char* data) {
+        writeAll(fd, StringView(data));
+    }
+
+    std::string toString(const StringBuilder& builder) {
+        return std::string((const char*)(builder.data()), builder.used());
     }
 
     bool readLine(int fd, std::string& buffered, std::string& line) {
@@ -596,32 +611,30 @@ void TestDisplay::failNextPresent() {
 }
 
 std::string TestDisplay::snapshot() const {
-    std::ostringstream output;
-    output << "OK " << columns << ' ' << rows << ' ' << cursor.posX << ' ' << cursor.posY << ' ' << (unsigned)(cursor.style) << ' ' << viewOffset << ' ' << refreshCount << ' ' << selection.tl.x << ' ' << selection.tl.y << ' ' << selection.br.x << ' ' << selection.br.y << ' ' << selection.rectangular << ' ';
-    output << std::hex << std::setfill('0');
+    StringBuilder output;
+    output << StringView(u8"OK ") << columns << StringView(u8" ") << rows << StringView(u8" ") << cursor.posX << StringView(u8" ") << cursor.posY << StringView(u8" ") << (unsigned)(cursor.style) << StringView(u8" ") << viewOffset << StringView(u8" ") << refreshCount << StringView(u8" ") << selection.tl.x << StringView(u8" ") << selection.tl.y << StringView(u8" ") << selection.br.x << StringView(u8" ") << selection.br.y << StringView(u8" ") << (unsigned)(selection.rectangular) << StringView(u8" ");
     for (const auto& cell : cells) {
         const unsigned flags = cellFlags(cell);
-        output << std::setw(8) << cell.uc_pt << std::setw(8) << flags << std::setw(2) << (unsigned)(cell.fg.red) << std::setw(2) << (unsigned)(cell.fg.green) << std::setw(2) << (unsigned)(cell.fg.blue) << std::setw(2) << (unsigned)(cell.bg.red) << std::setw(2) << (unsigned)(cell.bg.green) << std::setw(2) << (unsigned)(cell.bg.blue) << std::setw(2) << (unsigned)(cell.underline_color.red) << std::setw(2) << (unsigned)(cell.underline_color.green) << std::setw(2) << (unsigned)(cell.underline_color.blue) << std::setw(8) << cell.hyperlink << std::setw(8) << cell.semantic;
+        output << Hex{cell.uc_pt, 8} << Hex{flags, 8} << Hex{cell.fg.red, 2} << Hex{cell.fg.green, 2} << Hex{cell.fg.blue, 2} << Hex{cell.bg.red, 2} << Hex{cell.bg.green, 2} << Hex{cell.bg.blue, 2} << Hex{cell.underline_color.red, 2} << Hex{cell.underline_color.green, 2} << Hex{cell.underline_color.blue, 2} << Hex{cell.hyperlink, 8} << Hex{cell.semantic, 8};
     }
-    output << '\n';
-    return output.str();
+    output << StringView(u8"\n");
+    return toString(output);
 }
 
 std::string TestDisplay::modelSnapshot() const {
-    std::ostringstream output;
-    output << "OK " << columns << ' ' << rows << ' ' << cursor.posX << ' ' << cursor.posY << ' ' << (unsigned)(cursor.style) << ' ' << viewOffset << ' ' << refreshCount << ' ' << selection.tl.x << ' ' << selection.tl.y << ' ' << selection.br.x << ' ' << selection.br.y << ' ' << selection.rectangular << ' ';
-    output << std::hex << std::setfill('0');
+    StringBuilder output;
+    output << StringView(u8"OK ") << columns << StringView(u8" ") << rows << StringView(u8" ") << cursor.posX << StringView(u8" ") << cursor.posY << StringView(u8" ") << (unsigned)(cursor.style) << StringView(u8" ") << viewOffset << StringView(u8" ") << refreshCount << StringView(u8" ") << selection.tl.x << StringView(u8" ") << selection.tl.y << StringView(u8" ") << selection.br.x << StringView(u8" ") << selection.br.y << StringView(u8" ") << (unsigned)(selection.rectangular) << StringView(u8" ");
     for (size_t index = 0; index < cells.size(); ++index) {
         const auto& cell = cells[index];
         const auto& modelCell = modelCells[index];
         const unsigned flags = cellFlags(modelCell);
-        output << std::setw(8) << cell.uc_pt << std::setw(8) << flags << std::setw(2) << (unsigned)(cell.fg.red) << std::setw(2) << (unsigned)(cell.fg.green) << std::setw(2) << (unsigned)(cell.fg.blue) << std::setw(2) << (unsigned)(cell.bg.red) << std::setw(2) << (unsigned)(cell.bg.green) << std::setw(2) << (unsigned)(cell.bg.blue) << std::setw(2) << (unsigned)(cell.underline_color.red) << std::setw(2) << (unsigned)(cell.underline_color.green) << std::setw(2) << (unsigned)(cell.underline_color.blue) << std::setw(8) << cell.hyperlink << std::setw(8) << cell.semantic << std::setw(8) << (u32)(modelCell.foreground().legacyIndex()) << std::setw(8) << (u32)(modelCell.background().legacyIndex()) << std::setw(8) << (u32)(modelUnderlineColors[index].legacyIndex()) << std::setw(8) << cellGraphemes[index].size();
+        output << Hex{cell.uc_pt, 8} << Hex{flags, 8} << Hex{cell.fg.red, 2} << Hex{cell.fg.green, 2} << Hex{cell.fg.blue, 2} << Hex{cell.bg.red, 2} << Hex{cell.bg.green, 2} << Hex{cell.bg.blue, 2} << Hex{cell.underline_color.red, 2} << Hex{cell.underline_color.green, 2} << Hex{cell.underline_color.blue, 2} << Hex{cell.hyperlink, 8} << Hex{cell.semantic, 8} << Hex{(u32)(modelCell.foreground().legacyIndex()), 8} << Hex{(u32)(modelCell.background().legacyIndex()), 8} << Hex{(u32)(modelUnderlineColors[index].legacyIndex()), 8} << Hex{cellGraphemes[index].size(), 8};
         for (const u32 codepoint : cellGraphemes[index]) {
-            output << std::setw(8) << codepoint;
+            output << Hex{codepoint, 8};
         }
     }
-    output << '\n';
-    return output.str();
+    output << StringView(u8"\n");
+    return toString(output);
 }
 
 std::string TestDisplay::modelDigest() const {
@@ -663,21 +676,21 @@ std::string TestDisplay::modelDigest() const {
         }
     }
 
-    std::ostringstream output;
-    output << "OK " << std::hex << std::setfill('0') << std::setw(16) << digest.first << ' ' << std::setw(16) << digest.second << '\n';
-    return output.str();
+    StringBuilder output;
+    output << StringView(u8"OK ") << Hex{digest.first, 16} << StringView(u8" ") << Hex{digest.second, 16} << StringView(u8"\n");
+    return toString(output);
 }
 
 std::string TestDisplay::scrollbackState() const {
-    std::ostringstream output;
-    output << "OK " << historyRows << ' ' << historyRows + rows << ' ' << rows << ' ' << historyRows - viewOffset << '\n';
-    return output.str();
+    StringBuilder output;
+    output << StringView(u8"OK ") << historyRows << StringView(u8" ") << historyRows + rows << StringView(u8" ") << rows << StringView(u8" ") << historyRows - viewOffset << StringView(u8"\n");
+    return toString(output);
 }
 
 std::string TestDisplay::renderState() const {
-    std::ostringstream output;
-    output << "OK " << screenReverse << ' ' << blinkVisible << ' ' << cursorBlink << ' ' << (unsigned)(selectionColorMask) << ' ' << (unsigned)(selectionForeground.red) << ' ' << (unsigned)(selectionForeground.green) << ' ' << (unsigned)(selectionForeground.blue) << ' ' << (unsigned)(selectionBackground.red) << ' ' << (unsigned)(selectionBackground.green) << ' ' << (unsigned)(selectionBackground.blue) << ' ' << graphemeCells << ' ' << graphemeCodepoints << '\n';
-    return output.str();
+    StringBuilder output;
+    output << StringView(u8"OK ") << (unsigned)(screenReverse) << StringView(u8" ") << (unsigned)(blinkVisible) << StringView(u8" ") << (unsigned)(cursorBlink) << StringView(u8" ") << (unsigned)(selectionColorMask) << StringView(u8" ") << (unsigned)(selectionForeground.red) << StringView(u8" ") << (unsigned)(selectionForeground.green) << StringView(u8" ") << (unsigned)(selectionForeground.blue) << StringView(u8" ") << (unsigned)(selectionBackground.red) << StringView(u8" ") << (unsigned)(selectionBackground.green) << StringView(u8" ") << (unsigned)(selectionBackground.blue) << StringView(u8" ") << graphemeCells << StringView(u8" ") << graphemeCodepoints << StringView(u8"\n");
+    return toString(output);
 }
 
 std::string TestDisplay::screenText() const {
@@ -1871,17 +1884,17 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
             } else if (line == "CURSOR_STATE") {
                 writeAll(controlFd, "OK " + std::to_string(terminal.getPrivateMode(25)) + " " + std::to_string(terminal.getPrivateMode(12)) + " " + std::to_string((unsigned)(terminal.getCursorStyle())) + "\n");
             } else if (line == "CONFORMANCE_STATE") {
-                std::ostringstream output;
-                output << "OK screen=" << (terminal.getPrivateMode(47) ? "Alternate" : "Primary") << " IRM=" << terminal.getAnsiMode(4) << " SRM=" << terminal.getAnsiMode(12) << " LNM=" << terminal.getAnsiMode(20) << " DECCKM=" << terminal.getPrivateMode(1) << " DECCOLM=" << terminal.getPrivateMode(3) << " DECSCLM=" << terminal.getPrivateMode(4) << " DECSCNM=" << terminal.getPrivateMode(5) << " DECOM=" << terminal.getPrivateMode(6) << " DECAWM=" << terminal.getPrivateMode(7) << " DECARM=" << terminal.getPrivateMode(8) << " DECTCEM=" << terminal.getPrivateMode(25) << " DECNKM=" << terminal.getPrivateMode(66) << " DECBKM=" << terminal.getPrivateMode(67) << " DECLRMM=" << terminal.getPrivateMode(69) << '\n';
-                writeAll(controlFd, output.str());
+                StringBuilder output;
+                output << StringView(u8"OK screen=") << (terminal.getPrivateMode(47) ? StringView(u8"Alternate") : StringView(u8"Primary")) << StringView(u8" IRM=") << (unsigned)(terminal.getAnsiMode(4)) << StringView(u8" SRM=") << (unsigned)(terminal.getAnsiMode(12)) << StringView(u8" LNM=") << (unsigned)(terminal.getAnsiMode(20)) << StringView(u8" DECCKM=") << (unsigned)(terminal.getPrivateMode(1)) << StringView(u8" DECCOLM=") << (unsigned)(terminal.getPrivateMode(3)) << StringView(u8" DECSCLM=") << (unsigned)(terminal.getPrivateMode(4)) << StringView(u8" DECSCNM=") << (unsigned)(terminal.getPrivateMode(5)) << StringView(u8" DECOM=") << (unsigned)(terminal.getPrivateMode(6)) << StringView(u8" DECAWM=") << (unsigned)(terminal.getPrivateMode(7)) << StringView(u8" DECARM=") << (unsigned)(terminal.getPrivateMode(8)) << StringView(u8" DECTCEM=") << (unsigned)(terminal.getPrivateMode(25)) << StringView(u8" DECNKM=") << (unsigned)(terminal.getPrivateMode(66)) << StringView(u8" DECBKM=") << (unsigned)(terminal.getPrivateMode(67)) << StringView(u8" DECLRMM=") << (unsigned)(terminal.getPrivateMode(69)) << StringView(u8"\n");
+                writeAll(controlFd, StringView(output));
             } else if (line == "RECTANGLE_ORIGIN") {
                 const RectangleOrigin origin = terminal.getRectangleOrigin();
                 writeAll(controlFd, "OK " + std::to_string(origin.rowBase) + " " + std::to_string(origin.columnBase) + " " + std::to_string(origin.rowLimit) + " " + std::to_string(origin.columnLimit) + "\n");
             } else if (line == "PEN_STATE") {
                 const TerminalPen pen = terminal.getPenState();
-                std::ostringstream output;
-                output << "OK " << cellFlags(pen.cell) << ' ' << (unsigned)(pen.fg.red) << ' ' << (unsigned)(pen.fg.green) << ' ' << (unsigned)(pen.fg.blue) << ' ' << (unsigned)(pen.bg.red) << ' ' << (unsigned)(pen.bg.green) << ' ' << (unsigned)(pen.bg.blue) << ' ' << pen.cell.foreground().legacyIndex() << ' ' << pen.cell.background().legacyIndex() << '\n';
-                writeAll(controlFd, output.str());
+                StringBuilder output;
+                output << StringView(u8"OK ") << cellFlags(pen.cell) << StringView(u8" ") << (unsigned)(pen.fg.red) << StringView(u8" ") << (unsigned)(pen.fg.green) << StringView(u8" ") << (unsigned)(pen.fg.blue) << StringView(u8" ") << (unsigned)(pen.bg.red) << StringView(u8" ") << (unsigned)(pen.bg.green) << StringView(u8" ") << (unsigned)(pen.bg.blue) << StringView(u8" ") << pen.cell.foreground().legacyIndex() << StringView(u8" ") << pen.cell.background().legacyIndex() << StringView(u8"\n");
+                writeAll(controlFd, StringView(output));
             } else if (line == "PARSER_TRACE_ON") {
                 vtermTrace.clear();
                 writeAll(controlFd, "OK\n");
@@ -1892,13 +1905,13 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 writeAll(controlFd, "OK " + encodeHex(vtermTrace.drain()) + "\n");
             } else if (line.compare(0, 10, "UTF8_PUSH ") == 0) {
                 const auto codepoints = testUtf8Decoder.push(decodeHex(line.substr(10)));
-                std::ostringstream output;
-                output << "OK" << std::hex;
+                StringBuilder output;
+                output << StringView(u8"OK");
                 for (const u32 codepoint : codepoints) {
-                    output << ' ' << codepoint;
+                    output << StringView(u8" ") << Hex{codepoint};
                 }
-                output << '\n';
-                writeAll(controlFd, output.str());
+                output << StringView(u8"\n");
+                writeAll(controlFd, StringView(output));
             } else if (line == "RENDER_STATE") {
                 writeAll(controlFd, display.renderState());
             } else if (line.compare(0, 13, "MOUSE_ENCODE ") == 0) {

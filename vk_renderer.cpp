@@ -16,9 +16,11 @@
 #include "vterm.h"
 
 #include <std/sys/crt.h>
+#include <std/ios/sys.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
+#include <std/str/view.h>
 
 #include <vulkan/vulkan.h>
 
@@ -30,7 +32,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <iostream>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -462,7 +463,7 @@ void RendererImpl::selectPhysicalDevice() {
     }
 
     if (opts.vulkanInfo) {
-        std::cout << "Vulkan device: " << bestProperties.deviceName << '\n' << "Vulkan API: " << VK_VERSION_MAJOR(bestProperties.apiVersion) << '.' << VK_VERSION_MINOR(bestProperties.apiVersion) << '.' << VK_VERSION_PATCH(bestProperties.apiVersion) << '\n';
+        sysO << StringView(u8"Vulkan device: ") << StringView(bestProperties.deviceName) << StringView(u8"\nVulkan API: ") << (u64)(VK_VERSION_MAJOR(bestProperties.apiVersion)) << StringView(u8".") << (u64)(VK_VERSION_MINOR(bestProperties.apiVersion)) << StringView(u8".") << (u64)(VK_VERSION_PATCH(bestProperties.apiVersion)) << endL;
     }
 }
 
@@ -963,7 +964,6 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     if (renderExtent.width != width || renderExtent.height != height) {
         createOutputImage(width, height);
     }
-
 }
 
 void RendererImpl::ensureCellBuffer(FrameResources& frame, size_t bytes) {

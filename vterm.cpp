@@ -24,6 +24,7 @@
 #include "composer.h"
 #include "screen.h"
 #include "grapheme.h"
+#include "hex.h"
 #include "options.h"
 #include "utf8.h"
 #include "vterm_host.h"
@@ -48,7 +49,6 @@
 #include <cstring>
 #include <fcntl.h>
 #include <functional>
-#include <iomanip>
 #include <map>
 #include <set>
 #include <sstream>
@@ -233,9 +233,9 @@ namespace {
         void fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const RenderCell* cells, size_t count, bool incremental);
         void queueTerminalUpdate();
 
-        void writeCsiResponse(const std::string& payload);
-        void writeDcsResponse(const std::string& payload);
-        void writeOscResponse(const std::string& payload);
+        void writeCsiResponse(StringView payload);
+        void writeDcsResponse(StringView payload);
+        void writeOscResponse(StringView payload);
 
         struct InputSpecTable {
             std::function<bool()> predicate;
@@ -573,7 +573,6 @@ namespace {
         bool screenReverseVideo = false;
         bool underlineColorDefault = true;
         bool hasFocus = false;
-
 
         InputState inputState = InputState::Normal;
         // Whether a private/intermediate CSI prefix may still occur.  This is
@@ -1330,7 +1329,6 @@ size_t VtermImpl::InputSpec::getLength() const {
     return length ? length : strlen(input);
 }
 
-
 void VtermImpl::unhandledInput(unsigned char ch) {
     if ((ch >= 0x20 && ch <= 0x2f) || ch == ':') {
         switch (inputState) {
@@ -1427,20 +1425,25 @@ bool VtermImpl::mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY
     }
     mouseHighlight.active = false;
     endY = std::clamp(endY, mouseHighlight.firstRow, mouseHighlight.lastRow);
-    std::ostringstream response;
+    StringBuilder response;
     if (mouseTrk.enc == MouseTrackingEnc::SGR || mouseTrk.enc == MouseTrackingEnc::SGRPixels) {
-        response << '<' << mouseHighlight.startX << ';' << mouseHighlight.startY << ';' << endX << ';' << endY << ';' << mouseX << ';' << mouseY << 'T';
-        writeCsiResponse(response.str());
+        response << StringView(u8"<") << mouseHighlight.startX << StringView(u8";") << mouseHighlight.startY << StringView(u8";") << endX << StringView(u8";") << endY << StringView(u8";") << mouseX << StringView(u8";") << mouseY << StringView(u8"T");
     } else {
         const auto coordinate = [](u16 value) {
-            return (char)(32 + std::clamp<u16>(value, 1, 223));
+            return (u8)(32 + std::clamp<u16>(value, 1, 223));
         };
-        response << (mouseHighlight.startX == endX && mouseHighlight.startY == endY ? 't' : 'T') << coordinate(mouseHighlight.startX) << coordinate(mouseHighlight.startY);
+        const u8 kind = mouseHighlight.startX == endX && mouseHighlight.startY == endY ? u8't' : u8'T';
+        const u8 startX = coordinate(mouseHighlight.startX);
+        const u8 startY = coordinate(mouseHighlight.startY);
+        response.append(&kind, 1);
+        response.append(&startX, 1);
+        response.append(&startY, 1);
         if (mouseHighlight.startX != endX || mouseHighlight.startY != endY) {
-            response << coordinate(endX) << coordinate(endY) << coordinate(mouseX) << coordinate(mouseY);
+            const u8 coordinates[] = {coordinate(endX), coordinate(endY), coordinate(mouseX), coordinate(mouseY)};
+            response.append(coordinates, sizeof(coordinates));
         }
-        writeCsiResponse(response.str());
     }
+    writeCsiResponse(StringView(response));
     return true;
 }
 
@@ -1454,9 +1457,9 @@ void VtermImpl::setLocatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, 
         const u16 x = locator.pixels ? locator.pixelX : locator.column;
         const u16 y = locator.pixels ? locator.pixelY : locator.row;
         if (y < locator.filterTop || y > locator.filterBottom || x < locator.filterLeft || x > locator.filterRight) {
-            std::ostringstream response;
-            response << "10;" << (unsigned)(locator.buttons) << ';' << y << ';' << x << ";0&w";
-            writeCsiResponse(response.str());
+            StringBuilder response;
+            response << StringView(u8"10;") << (unsigned)(locator.buttons) << StringView(u8";") << y << StringView(u8";") << x << StringView(u8";0&w");
+            writeCsiResponse(StringView(response));
             locator.filter = false;
             if (locator.enabled == 2) {
                 locator.enabled = 0;
@@ -1478,9 +1481,9 @@ void VtermImpl::reportLocatorButton(u8 button, bool pressed) {
     const u32 event = 2 + (button - 1) * 2 + (pressed ? 0 : 1);
     const u16 x = locator.pixels ? locator.pixelX : locator.column;
     const u16 y = locator.pixels ? locator.pixelY : locator.row;
-    std::ostringstream response;
-    response << event << ';' << (unsigned)(locator.buttons) << ';' << y << ';' << x << ";0&w";
-    writeCsiResponse(response.str());
+    StringBuilder response;
+    response << event << StringView(u8";") << (unsigned)(locator.buttons) << StringView(u8";") << y << StringView(u8";") << x << StringView(u8";0&w");
+    writeCsiResponse(StringView(response));
     if (locator.enabled == 2) {
         locator.enabled = 0;
     }
@@ -2452,8 +2455,6 @@ void VtermImpl::hideCursor() {
 }
 
 void VtermImpl::esc_DCS(unsigned char fin) {
-
-
     u8 ix = 0;
     bool cs96 = false;
     switch (scsDst) {
@@ -3342,9 +3343,9 @@ void VtermImpl::csi_DECRQCRA() {
             return;
         }
         const u16 checksum = cf->checksum(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right);
-        std::ostringstream response;
-        response << inputOps[0] << "!~" << std::uppercase << std::hex << std::setw(4) << std::setfill('0') << checksum;
-        writeDcsResponse(response.str());
+        StringBuilder response;
+        response << inputOps[0] << StringView(u8"!~") << Hex{checksum, 4, true};
+        writeDcsResponse(StringView(response));
     }
     setState(InputState::Normal);
 }
@@ -4443,9 +4444,12 @@ void VtermImpl::csi_DECRQM(bool privateMode) {
         }
     }
 
-    std::ostringstream oss;
-    oss << (privateMode ? "?" : "") << mode << ";" << (unsigned)(state) << "$y";
-    writeCsiResponse(oss.str());
+    StringBuilder response;
+    if (privateMode) {
+        response << StringView(u8"?");
+    }
+    response << mode << StringView(u8";") << (unsigned)(state) << StringView(u8"$y");
+    writeCsiResponse(StringView(response));
     setState(InputState::Normal);
 }
 
@@ -4453,14 +4457,15 @@ void VtermImpl::csi_DSR(bool privateMode) {
     if (privateMode) {
         switch (inputOps[0]) {
             case 6: {
-                std::ostringstream response;
+                StringBuilder response;
+                response << StringView(u8"?");
                 if (originMode == OriginMode::Absolute) {
-                    response << '?' << (posY + 1) << ';' << (posX + 1);
+                    response << (posY + 1) << StringView(u8";") << (posX + 1);
                 } else {
-                    response << '?' << (posY - marginTop + 1) << ';' << (posX - hMargin + 1);
+                    response << (posY - marginTop + 1) << StringView(u8";") << (posX - hMargin + 1);
                 }
-                response << ";1R";
-                writeCsiResponse(response.str());
+                response << StringView(u8";1R");
+                writeCsiResponse(StringView(response));
             } break;
             case 15:
                 writeCsiResponse("?10n");
@@ -4481,9 +4486,9 @@ void VtermImpl::csi_DSR(bool privateMode) {
                 writeCsiResponse("0*{");
                 break;
             case 63: {
-                std::ostringstream response;
-                response << (nInputOps > 1 ? inputOps[1] : 0) << "!~0000";
-                writeDcsResponse(response.str());
+                StringBuilder response;
+                response << (nInputOps > 1 ? inputOps[1] : 0) << StringView(u8"!~0000");
+                writeDcsResponse(StringView(response));
             } break;
             case 75:
                 writeCsiResponse("?70n");
@@ -4505,13 +4510,13 @@ void VtermImpl::csi_DSR(bool privateMode) {
             writeCsiResponse("0n");
             break;
         case 6: {
-            std::ostringstream oss;
+            StringBuilder response;
             if (originMode == OriginMode::Absolute) {
-                oss << (posY + 1) << ";" << (posX + 1) << "R";
+                response << (posY + 1) << StringView(u8";") << (posX + 1) << StringView(u8"R");
             } else {
-                oss << (posY - marginTop + 1) << ";" << (posX - hMargin + 1) << "R";
+                response << (posY - marginTop + 1) << StringView(u8";") << (posX - hMargin + 1) << StringView(u8"R");
             }
-            writeCsiResponse(oss.str());
+            writeCsiResponse(StringView(response));
         } break;
         default:
             break;
@@ -4520,7 +4525,6 @@ void VtermImpl::csi_DSR(bool privateMode) {
 }
 
 void VtermImpl::esch_DECALN() {
-
     originMode = OriginMode::Absolute;
     marginTop = 0;
     marginBottom = nRows;
@@ -4711,88 +4715,89 @@ void VtermImpl::dcs_DECUDK(const std::string& request) {
 }
 
 void VtermImpl::dcs_DECRQSS(const std::string& arg) {
-
-    std::ostringstream value;
+    StringBuilder value;
     const std::string query = arg.substr(2);
     if (query == "\"p") {
-        value << 60 + (u8)(compatLevel) << ';' << (send8BitControls ? 0 : 1) << "\"p";
+        value << 60 + (u8)(compatLevel) << StringView(u8";") << (send8BitControls ? 0 : 1) << StringView(u8"\"p");
     } else if (query == "m") {
-        value << "0";
+        value << StringView(u8"0");
         if (attrs.bold) {
-            value << ";1";
+            value << StringView(u8";1");
         }
         if (attrs.faint) {
-            value << ";2";
+            value << StringView(u8";2");
         }
         if (attrs.italic) {
-            value << ";3";
+            value << StringView(u8";3");
         }
         if (attrs.underlined()) {
-            value << ";4";
+            value << StringView(u8";4");
             if (attrs.underline_style > 1) {
-                value << ":" << (unsigned)(attrs.underline_style);
+                value << StringView(u8":") << (unsigned)(attrs.underline_style);
             }
         }
         if (attrs.blink) {
-            value << ";5";
+            value << StringView(u8";5");
         }
         if (reverseVideo) {
-            value << ";7";
+            value << StringView(u8";7");
         }
         if (attrs.conceal) {
-            value << ";8";
+            value << StringView(u8";8");
         }
         if (attrs.strike) {
-            value << ";9";
+            value << StringView(u8";9");
         }
         if (attrs.overline) {
-            value << ";53";
+            value << StringView(u8";53");
         }
         if (fgPalIx >= 0 && fgPalIx < 8) {
-            value << ";" << 30 + fgPalIx;
+            value << StringView(u8";") << 30 + fgPalIx;
         } else if (fgPalIx >= 8 && fgPalIx < 16) {
-            value << ";" << 90 + fgPalIx - 8;
+            value << StringView(u8";") << 90 + fgPalIx - 8;
         } else if (fgPalIx >= 0) {
-            value << ";38:5:" << fgPalIx;
+            value << StringView(u8";38:5:") << fgPalIx;
         } else if (attrForeground().source() == CellColor::Source::Direct) {
             const Color color = attrForeground().color();
-            value << ";38:2::" << (unsigned)(color.red) << ":" << (unsigned)(color.green) << ":" << (unsigned)(color.blue);
+            value << StringView(u8";38:2::") << (unsigned)(color.red) << StringView(u8":") << (unsigned)(color.green) << StringView(u8":") << (unsigned)(color.blue);
         }
         if (bgPalIx >= 0 && bgPalIx < 8) {
-            value << ";" << 40 + bgPalIx;
+            value << StringView(u8";") << 40 + bgPalIx;
         } else if (bgPalIx >= 8 && bgPalIx < 16) {
-            value << ";" << 100 + bgPalIx - 8;
+            value << StringView(u8";") << 100 + bgPalIx - 8;
         } else if (bgPalIx >= 0) {
-            value << ";48:5:" << bgPalIx;
+            value << StringView(u8";48:5:") << bgPalIx;
         } else if (attrBackground().source() == CellColor::Source::Direct) {
             const Color color = attrBackground().color();
-            value << ";48:2::" << (unsigned)(color.red) << ":" << (unsigned)(color.green) << ":" << (unsigned)(color.blue);
+            value << StringView(u8";48:2::") << (unsigned)(color.red) << StringView(u8":") << (unsigned)(color.green) << StringView(u8":") << (unsigned)(color.blue);
         }
         if (!underlineColorDefault) {
             if (underlinePalIx >= 0) {
-                value << ";58:5:" << underlinePalIx;
+                value << StringView(u8";58:5:") << underlinePalIx;
             } else {
                 const Color color = attrUnderlineColor().color();
-                value << ";58:2::" << (unsigned)(color.red) << ":" << (unsigned)(color.green) << ":" << (unsigned)(color.blue);
+                value << StringView(u8";58:2::") << (unsigned)(color.red) << StringView(u8":") << (unsigned)(color.green) << StringView(u8":") << (unsigned)(color.blue);
             }
         }
-        value << "m";
+        value << StringView(u8"m");
     } else if (query == "r") {
-        value << marginTop + 1 << ";" << marginBottom << "r";
+        value << marginTop + 1 << StringView(u8";") << marginBottom << StringView(u8"r");
     } else if (query == "s") {
-        value << hMargin + 1 << ";" << nColsEff << "s";
+        value << hMargin + 1 << StringView(u8";") << nColsEff << StringView(u8"s");
     } else if (query == "t") {
-        value << nRows << "t";
+        value << nRows << StringView(u8"t");
     } else if (query == " q") {
-        value << (unsigned)(cursorStyleParam) << " q";
+        value << (unsigned)(cursorStyleParam) << StringView(u8" q");
     } else if (query == "\"q") {
-        value << ((attrs.protected_char & TerminalCell::decProtection) ? 1 : 0) << "\"q";
+        value << ((attrs.protected_char & TerminalCell::decProtection) ? 1 : 0) << StringView(u8"\"q");
     } else {
         writeDcsResponse("0$r");
         return;
     }
 
-    writeDcsResponse("1$r" + value.str());
+    StringBuilder response;
+    response << StringView(u8"1$r") << StringView(value);
+    writeDcsResponse(StringView(response));
 }
 
 void VtermImpl::dcs_XTGETTCAP(const std::string& request) {
@@ -4855,7 +4860,7 @@ void VtermImpl::dcs_XTGETTCAP(const std::string& request) {
         if (found) {
             reply += "=" + hexValue(value);
         }
-        writeDcsResponse(reply);
+        writeDcsResponse(StringView((const u8*)(reply.data()), reply.size()));
         if (end == std::string::npos) {
             break;
         }
@@ -5227,9 +5232,9 @@ void VtermImpl::osc_Notification(const std::string& arg) {
 }
 
 void VtermImpl::reportInBandResize() {
-    std::ostringstream response;
-    response << "48;" << nRows << ';' << nCols << ';' << nRows * glyphPy << ';' << nCols * glyphPx << 't';
-    writeCsiResponse(response.str());
+    StringBuilder response;
+    response << StringView(u8"48;") << nRows << StringView(u8";") << nCols << StringView(u8";") << nRows * glyphPy << StringView(u8";") << nCols * glyphPx << StringView(u8"t");
+    writeCsiResponse(StringView(response));
 }
 
 void VtermImpl::reportColorScheme() {
@@ -5238,9 +5243,9 @@ void VtermImpl::reportColorScheme() {
     // application-originated OSC color changes must not affect this report.
     const u32 brightness = 299 * opts.bg.red + 587 * opts.bg.green + 114 * opts.bg.blue;
     const u8 scheme = brightness >= 128000 ? 2 : 1;
-    std::ostringstream response;
-    response << "?997;" << (unsigned)scheme << 'n';
-    writeCsiResponse(response.str());
+    StringBuilder response;
+    response << StringView(u8"?997;") << (unsigned)(scheme) << StringView(u8"n");
+    writeCsiResponse(StringView(response));
 }
 
 void VtermImpl::writeTitleResponse(char kind, const std::string& title) {
@@ -5289,9 +5294,9 @@ void VtermImpl::osc_PaletteQuery(int cmd, const std::string& arg) {
         const bool special = paletteIdx >= 256;
         const u16 colorIndex = (u16)(special ? paletteIdx - 256 : paletteIdx);
         if (spec == "?") {
-            std::ostringstream reply;
-            reply << cmd << ";" << paletteIdx << ";" << (special ? colors.special[colorIndex] : colors.palette[colorIndex]);
-            writeOscResponse(reply.str());
+            StringBuilder reply;
+            reply << cmd << StringView(u8";") << paletteIdx << StringView(u8";") << (special ? colors.special[colorIndex] : colors.palette[colorIndex]);
+            writeOscResponse(StringView(reply));
         } else {
             Color color;
             if (parseXColor(spec, color)) {
@@ -5319,9 +5324,9 @@ void VtermImpl::osc_SpecialColorQuery(const std::string& arg) {
             continue;
         }
         if (spec == "?") {
-            std::ostringstream reply;
-            reply << "5;" << index << ";" << colors.special[index];
-            writeOscResponse(reply.str());
+            StringBuilder reply;
+            reply << StringView(u8"5;") << index << StringView(u8";") << colors.special[index];
+            writeOscResponse(StringView(reply));
         } else {
             Color color;
             if (parseXColor(spec, color)) {
@@ -5405,9 +5410,9 @@ void VtermImpl::osc_DynamicColorQuery(int cmd, const std::string& arg) {
             default:
                 return;
         }
-        std::ostringstream oss;
-        oss << cmd << ";" << c;
-        writeOscResponse(oss.str());
+        StringBuilder response;
+        response << cmd << StringView(u8";") << c;
+        writeOscResponse(StringView(response));
     } else {
         Color color;
         if (!parseXColor(arg, color)) {
@@ -5486,7 +5491,7 @@ void VtermImpl::csi_XTWINOPS() {
         return;
     }
     const u32 operation = inputOps[0];
-    std::ostringstream response;
+    StringBuilder response;
     switch (operation) {
         case 4:
         case 8: {
@@ -5518,35 +5523,35 @@ void VtermImpl::csi_XTWINOPS() {
             break;
         case 13: {
             const auto info = host.windowInfo();
-            response << "3;" << (u16)(info.x) << ';' << (u16)(info.y) << 't';
-            writeCsiResponse(response.str());
+            response << StringView(u8"3;") << (u16)(info.x) << StringView(u8";") << (u16)(info.y) << StringView(u8"t");
+            writeCsiResponse(StringView(response));
         } break;
         case 14:
             if (nInputOps > 1 && inputOps[1] == 2) {
                 const auto info = host.windowInfo();
-                response << "4;" << info.pixelHeight << ';' << info.pixelWidth << 't';
+                response << StringView(u8"4;") << info.pixelHeight << StringView(u8";") << info.pixelWidth << StringView(u8"t");
             } else {
-                response << "4;" << nRows * glyphPy << ';' << nCols * glyphPx << 't';
+                response << StringView(u8"4;") << nRows * glyphPy << StringView(u8";") << nCols * glyphPx << StringView(u8"t");
             }
-            writeCsiResponse(response.str());
+            writeCsiResponse(StringView(response));
             break;
         case 15: {
             const auto info = host.windowInfo();
-            response << "5;" << info.screenPixelHeight << ';' << info.screenPixelWidth << 't';
-            writeCsiResponse(response.str());
+            response << StringView(u8"5;") << info.screenPixelHeight << StringView(u8";") << info.screenPixelWidth << StringView(u8"t");
+            writeCsiResponse(StringView(response));
         } break;
         case 16:
-            response << "6;" << glyphPy << ';' << glyphPx << 't';
-            writeCsiResponse(response.str());
+            response << StringView(u8"6;") << glyphPy << StringView(u8";") << glyphPx << StringView(u8"t");
+            writeCsiResponse(StringView(response));
             break;
         case 18:
-            response << "8;" << nRows << ';' << nCols << 't';
-            writeCsiResponse(response.str());
+            response << StringView(u8"8;") << nRows << StringView(u8";") << nCols << StringView(u8"t");
+            writeCsiResponse(StringView(response));
             break;
         case 19: {
             const auto info = host.windowInfo();
-            response << "9;" << info.screenPixelHeight / glyphPy << ';' << info.screenPixelWidth / glyphPx << 't';
-            writeCsiResponse(response.str());
+            response << StringView(u8"9;") << info.screenPixelHeight / glyphPy << StringView(u8";") << info.screenPixelWidth / glyphPx << StringView(u8"t");
+            writeCsiResponse(StringView(response));
         } break;
         case 20:
             writeTitleResponse('L', iconTitle);
@@ -5659,9 +5664,9 @@ void VtermImpl::csi_DECRQLP() {
     if (locator.enabled) {
         const u16 x = locator.pixels ? locator.pixelX : locator.column;
         const u16 y = locator.pixels ? locator.pixelY : locator.row;
-        std::ostringstream response;
-        response << "1;" << (unsigned)(locator.buttons) << ';' << y << ';' << x << ";0&w";
-        writeCsiResponse(response.str());
+        StringBuilder response;
+        response << StringView(u8"1;") << (unsigned)(locator.buttons) << StringView(u8";") << y << StringView(u8";") << x << StringView(u8";0&w");
+        writeCsiResponse(StringView(response));
         if (locator.enabled == 2) {
             locator.enabled = 0;
         }
@@ -5704,9 +5709,9 @@ void VtermImpl::csi_XTMODKEYS() {
 void VtermImpl::csi_XTQMODKEYS() {
     const u32 resource = inputOps[0];
     if (resource <= 4 || resource == 6 || resource == 7) {
-        std::ostringstream response;
-        response << '>' << resource << ';' << (unsigned)(modifyKeyResources[resource]) << 'm';
-        writeCsiResponse(response.str());
+        StringBuilder response;
+        response << StringView(u8">") << resource << StringView(u8";") << (unsigned)(modifyKeyResources[resource]) << StringView(u8"m");
+        writeCsiResponse(StringView(response));
     }
     setState(InputState::Normal);
 }
@@ -5757,9 +5762,9 @@ void VtermImpl::csi_kittyKeyboardSet() {
 }
 
 void VtermImpl::csi_kittyKeyboardQuery() {
-    std::ostringstream reply;
-    reply << "?" << (unsigned)(getKittyKeyboardFlags()) << 'u';
-    writeCsiResponse(reply.str());
+    StringBuilder response;
+    response << StringView(u8"?") << (unsigned)(getKittyKeyboardFlags()) << StringView(u8"u");
+    writeCsiResponse(StringView(response));
     setState(InputState::Normal);
 }
 
@@ -7134,15 +7139,16 @@ void VtermImpl::resizeGrid(u16 winPx_, u16 winPy_) {
 }
 
 std::string VtermImpl::getLocalEcho(const u8* const begin, const u8* const end) {
-    std::ostringstream oss;
+    StringBuilder output((end - begin) * 2);
     for (const u8* p = begin; p < end; ++p) {
         if (*p == '\r' || *p >= ' ') {
-            oss << (char)*p;
+            output.append(p, 1);
         } else {
-            oss << '^' << (char)(*p + 0x40);
+            const u8 bytes[] = {u8'^', (u8)(*p + 0x40)};
+            output.append(bytes, sizeof(bytes));
         }
     }
-    return oss.str();
+    return std::string((const char*)(output.data()), output.used());
 }
 
 int VtermImpl::writePty(VtKey key, VtModifier modifiers_, bool userInput) {
@@ -7257,17 +7263,16 @@ int VtermImpl::writeKittyKey(VtKey key, u16 modifiers, VtermKeyEventType event) 
         return 0;
     }
 
-    std::ostringstream sequence;
-    sequence << "\x1b[" << spec.code << ';' << modifiers + 1;
+    StringBuilder sequence;
+    sequence << StringView(u8"\x1b[") << spec.code << StringView(u8";") << modifiers + 1;
     if (getKittyKeyboardFlags() & 0x02) {
-        sequence << ':' << (unsigned)(event);
+        sequence << StringView(u8":") << (unsigned)(event);
     }
     if ((getKittyKeyboardFlags() & 0x10) && event != VtermKeyEventType::Release && isKittyRecoveryKey(key) && validKittyAssociatedText(spec.code)) {
-        sequence << ';' << spec.code;
+        sequence << StringView(u8";") << spec.code;
     }
-    sequence << spec.final;
-    const std::string encoded = sequence.str();
-    return writePty(encoded.data(), encoded.size(), true);
+    sequence.append(&spec.final, 1);
+    return writePty((const u8*)(sequence.data()), sequence.used(), true);
 }
 
 int VtermImpl::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event) {
@@ -7275,33 +7280,32 @@ int VtermImpl::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 mod
         return 0;
     }
 
-    std::ostringstream sequence;
-    sequence << "\x1b[" << key;
+    StringBuilder sequence;
+    sequence << StringView(u8"\x1b[") << key;
     if (getKittyKeyboardFlags() & 0x04) {
         const u32 alternateShifted = shiftedKey != key ? shiftedKey : 0;
         const u32 alternateBase = baseLayoutKey != key ? baseLayoutKey : 0;
         if (alternateShifted) {
-            sequence << ':' << alternateShifted;
+            sequence << StringView(u8":") << alternateShifted;
             if (alternateBase) {
-                sequence << ':' << alternateBase;
+                sequence << StringView(u8":") << alternateBase;
             }
         } else if (alternateBase) {
-            sequence << "::" << alternateBase;
+            sequence << StringView(u8"::") << alternateBase;
         }
     }
-    sequence << ';' << modifiers + 1;
+    sequence << StringView(u8";") << modifiers + 1;
     if (getKittyKeyboardFlags() & 0x02) {
-        sequence << ':' << (unsigned)(event);
+        sequence << StringView(u8":") << (unsigned)(event);
     }
     if ((getKittyKeyboardFlags() & 0x10) && event != VtermKeyEventType::Release) {
         const u32 text = (modifiers & 1) && shiftedKey ? shiftedKey : key;
         if (validKittyAssociatedText(text)) {
-            sequence << ';' << text;
+            sequence << StringView(u8";") << text;
         }
     }
-    sequence << 'u';
-    const std::string encoded = sequence.str();
-    return writePty(encoded.data(), encoded.size(), true);
+    sequence << StringView(u8"u");
+    return writePty((const u8*)(sequence.data()), sequence.used(), true);
 }
 
 int VtermImpl::writePty(const char* cstr, bool userInput) {
@@ -7313,19 +7317,26 @@ int VtermImpl::writePty(const char* data, size_t size, bool userInput) {
     return writePty(bytes.data(), bytes.size(), userInput);
 }
 
-void VtermImpl::writeCsiResponse(const std::string& payload) {
-    const std::string response = (send8BitControls ? std::string("\x9b") : std::string("\x1b[")) + payload;
-    writePty(response.data(), response.size(), false);
+void VtermImpl::writeCsiResponse(StringView payload) {
+    const StringView prefix = send8BitControls ? StringView(u8"\x9b") : StringView(u8"\x1b[");
+    writePty(prefix.data(), prefix.length(), false);
+    writePty(payload.data(), payload.length(), false);
 }
 
-void VtermImpl::writeDcsResponse(const std::string& payload) {
-    const std::string response = (send8BitControls ? std::string("\x90") : std::string("\x1bP")) + payload + (send8BitControls ? std::string("\x9c") : std::string("\x1b\\"));
-    writePty(response.data(), response.size(), false);
+void VtermImpl::writeDcsResponse(StringView payload) {
+    const StringView prefix = send8BitControls ? StringView(u8"\x90") : StringView(u8"\x1bP");
+    const StringView suffix = send8BitControls ? StringView(u8"\x9c") : StringView(u8"\x1b\\");
+    writePty(prefix.data(), prefix.length(), false);
+    writePty(payload.data(), payload.length(), false);
+    writePty(suffix.data(), suffix.length(), false);
 }
 
-void VtermImpl::writeOscResponse(const std::string& payload) {
-    const std::string response = (send8BitControls ? std::string("\x9d") : std::string("\x1b]")) + payload + (send8BitControls ? std::string("\x9c") : std::string("\x1b\\"));
-    writePty(response.data(), response.size(), false);
+void VtermImpl::writeOscResponse(StringView payload) {
+    const StringView prefix = send8BitControls ? StringView(u8"\x9d") : StringView(u8"\x1b]");
+    const StringView suffix = send8BitControls ? StringView(u8"\x9c") : StringView(u8"\x1b\\");
+    writePty(prefix.data(), prefix.length(), false);
+    writePty(payload.data(), payload.length(), false);
+    writePty(suffix.data(), suffix.length(), false);
 }
 
 int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
@@ -7605,238 +7616,238 @@ void VtermImpl::dispatchCsi(unsigned char finalByte) {
                 csi_SD();
             }
             break;
-        case csiKey(0,0,'A'):
+        case csiKey(0, 0, 'A'):
             csi_CUU();
             break;
-        case csiKey(0,0,'B'):
+        case csiKey(0, 0, 'B'):
             csi_CUD();
             break;
-        case csiKey(0,0,'C'):
+        case csiKey(0, 0, 'C'):
             csi_CUF();
             break;
-        case csiKey(0,0,'D'):
+        case csiKey(0, 0, 'D'):
             csi_CUB();
             break;
-        case csiKey(0,0,'E'):
+        case csiKey(0, 0, 'E'):
             csi_CNL();
             break;
-        case csiKey(0,0,'F'):
+        case csiKey(0, 0, 'F'):
             csi_CPL();
             break;
-        case csiKey(0,0,'G'):
+        case csiKey(0, 0, 'G'):
             csi_CHA();
             break;
-        case csiKey(0,0,'H'):
+        case csiKey(0, 0, 'H'):
             csi_CUP();
             break;
-        case csiKey(0,0,'f'):
+        case csiKey(0, 0, 'f'):
             csi_CUP();
             break;
-        case csiKey(0,0,'I'):
+        case csiKey(0, 0, 'I'):
             csi_CHT();
             break;
-        case csiKey(0,0,'J'):
+        case csiKey(0, 0, 'J'):
             csi_ED();
             break;
-        case csiKey(0,0,'K'):
+        case csiKey(0, 0, 'K'):
             csi_EL();
             break;
-        case csiKey(0,0,'L'):
+        case csiKey(0, 0, 'L'):
             csi_IL();
             break;
-        case csiKey(0,0,'M'):
+        case csiKey(0, 0, 'M'):
             csi_DL();
             break;
-        case csiKey(0,0,'P'):
+        case csiKey(0, 0, 'P'):
             csi_DCH();
             break;
-        case csiKey(0,0,'S'):
+        case csiKey(0, 0, 'S'):
             csi_SU();
             break;
-        case csiKey(0,0,'X'):
+        case csiKey(0, 0, 'X'):
             csi_ECH();
             break;
-        case csiKey(0,0,'Z'):
+        case csiKey(0, 0, 'Z'):
             csi_CBT();
             break;
-        case csiKey(0,0,'@'):
+        case csiKey(0, 0, '@'):
             csi_ICH();
             break;
-        case csiKey(0,0,'`'):
+        case csiKey(0, 0, '`'):
             csi_HPA();
             break;
-        case csiKey(0,0,'a'):
+        case csiKey(0, 0, 'a'):
             csi_HPR();
             break;
-        case csiKey(0,0,'b'):
+        case csiKey(0, 0, 'b'):
             csi_REP();
             break;
-        case csiKey(0,0,'c'):
+        case csiKey(0, 0, 'c'):
             csi_priDA();
             break;
-        case csiKey(0,0,'d'):
+        case csiKey(0, 0, 'd'):
             csi_VPA();
             break;
-        case csiKey(0,0,'e'):
+        case csiKey(0, 0, 'e'):
             csi_VPR();
             break;
-        case csiKey(0,0,'g'):
+        case csiKey(0, 0, 'g'):
             csi_TBC();
             break;
-        case csiKey(0,0,'h'):
+        case csiKey(0, 0, 'h'):
             csi_SM();
             break;
-        case csiKey(0,0,'l'):
+        case csiKey(0, 0, 'l'):
             csi_RM();
             break;
-        case csiKey(0,0,'m'):
+        case csiKey(0, 0, 'm'):
             csi_SGR();
             break;
-        case csiKey(0,0,'n'):
+        case csiKey(0, 0, 'n'):
             csi_DSR();
             break;
-        case csiKey('?',0,'n'):
+        case csiKey('?', 0, 'n'):
             csi_DSR(true);
             break;
-        case csiKey(0,0,'q'):
+        case csiKey(0, 0, 'q'):
             csi_DECLL();
             break;
-        case csiKey(0,0,'i'):
+        case csiKey(0, 0, 'i'):
             csi_MC(false);
             break;
-        case csiKey(0,0,'j'):
+        case csiKey(0, 0, 'j'):
             csi_CUB();
             break;
-        case csiKey(0,0,'k'):
+        case csiKey(0, 0, 'k'):
             csi_CUU();
             break;
-        case csiKey(0,0,'r'):
+        case csiKey(0, 0, 'r'):
             csi_STBM();
             break;
-        case csiKey(0,0,'s'):
+        case csiKey(0, 0, 's'):
             csi_SCOSC_SLRM();
             break;
-        case csiKey('>',0,'T'):
+        case csiKey('>', 0, 'T'):
             csi_XTTITLEMODE(false);
             break;
-        case csiKey('>',0,'t'):
+        case csiKey('>', 0, 't'):
             csi_XTTITLEMODE(true);
             break;
-        case csiKey(0,0,'t'):
+        case csiKey(0, 0, 't'):
             csi_XTWINOPS();
             break;
-        case csiKey(0,0,'u'):
+        case csiKey(0, 0, 'u'):
             csi_SCORC();
             break;
-        case csiKey(0,'!','p'):
+        case csiKey(0, '!', 'p'):
             csi_DECSTR();
             break;
-        case csiKey(0,'\'','}'):
+        case csiKey(0, '\'', '}'):
             csi_DECIC();
             break;
-        case csiKey(0,'\'','~'):
+        case csiKey(0, '\'', '~'):
             csi_DECDC();
             break;
-        case csiKey(0,'\'','z'):
+        case csiKey(0, '\'', 'z'):
             csi_DECELR();
             break;
-        case csiKey(0,'\'','{'):
+        case csiKey(0, '\'', '{'):
             csi_DECSLE();
             break;
-        case csiKey(0,'\'','|'):
+        case csiKey(0, '\'', '|'):
             csi_DECRQLP();
             break;
-        case csiKey(0,'\'','w'):
+        case csiKey(0, '\'', 'w'):
             csi_DECEFR();
             break;
-        case csiKey(0,'"','p'):
+        case csiKey(0, '"', 'p'):
             csiq_DECSCL();
             break;
-        case csiKey(0,'"','q'):
+        case csiKey(0, '"', 'q'):
             csi_DECSCA();
             break;
-        case csiKey(0,' ','@'):
+        case csiKey(0, ' ', '@'):
             csi_ecma48_SL();
             break;
-        case csiKey(0,' ','A'):
+        case csiKey(0, ' ', 'A'):
             csi_ecma48_SR();
             break;
-        case csiKey(0,' ','q'):
+        case csiKey(0, ' ', 'q'):
             csi_DECSCUSR();
             break;
-        case csiKey('>',0,'c'):
+        case csiKey('>', 0, 'c'):
             csi_secDA();
             break;
-        case csiKey('>',0,'m'):
+        case csiKey('>', 0, 'm'):
             csi_XTMODKEYS();
             break;
-        case csiKey('>',0,'u'):
+        case csiKey('>', 0, 'u'):
             csi_kittyKeyboardPush();
             break;
-        case csiKey('>',0,'q'):
+        case csiKey('>', 0, 'q'):
             csi_XTVERSION();
             break;
-        case csiKey('<',0,'u'):
+        case csiKey('<', 0, 'u'):
             csi_kittyKeyboardPop();
             break;
-        case csiKey('=',0,'u'):
+        case csiKey('=', 0, 'u'):
             csi_kittyKeyboardSet();
             break;
-        case csiKey('=',0,'c'):
+        case csiKey('=', 0, 'c'):
             csi_terDA();
             break;
-        case csiKey('?',0,'h'):
+        case csiKey('?', 0, 'h'):
             csi_privSM();
             break;
-        case csiKey('?',0,'l'):
+        case csiKey('?', 0, 'l'):
             csi_privRM();
             break;
-        case csiKey('?',0,'s'):
+        case csiKey('?', 0, 's'):
             csi_privSave();
             break;
-        case csiKey('?',0,'r'):
+        case csiKey('?', 0, 'r'):
             csi_privRestore();
             break;
-        case csiKey('?',0,'u'):
+        case csiKey('?', 0, 'u'):
             csi_kittyKeyboardQuery();
             break;
-        case csiKey('?',0,'m'):
+        case csiKey('?', 0, 'm'):
             csi_XTQMODKEYS();
             break;
-        case csiKey('?',0,'J'):
+        case csiKey('?', 0, 'J'):
             csi_DECSED();
             break;
-        case csiKey('?',0,'K'):
+        case csiKey('?', 0, 'K'):
             csi_DECSEL();
             break;
-        case csiKey('?',0,'i'):
+        case csiKey('?', 0, 'i'):
             csi_MC(true);
             break;
-        case csiKey(0,'$','p'):
+        case csiKey(0, '$', 'p'):
             csi_DECRQM(false);
             break;
-        case csiKey(0,'$','r'):
+        case csiKey(0, '$', 'r'):
             csi_DECCARA(false);
             break;
-        case csiKey(0,'$','t'):
+        case csiKey(0, '$', 't'):
             csi_DECCARA(true);
             break;
-        case csiKey(0,'$','v'):
+        case csiKey(0, '$', 'v'):
             csi_DECCRA();
             break;
-        case csiKey(0,'$','x'):
+        case csiKey(0, '$', 'x'):
             csi_DECFRA();
             break;
-        case csiKey(0,'$','z'):
+        case csiKey(0, '$', 'z'):
             csi_DECERA();
             break;
-        case csiKey(0,'$','{'):
+        case csiKey(0, '$', '{'):
             csi_DECERA(true);
             break;
-        case csiKey(0,'*','y'):
+        case csiKey(0, '*', 'y'):
             csi_DECRQCRA();
             break;
-        case csiKey('?','$','p'):
+        case csiKey('?', '$', 'p'):
             csi_DECRQM(true);
             break;
         default:
@@ -7928,27 +7939,28 @@ namespace {
         }
         return table;
     }
+
     constexpr std::array<u8, 256> kByteHit = makeByteHit();
 
     constexpr u8 kStateHit[] = {
-        0,                                       // Normal (has its own branch)
-        kPreCtrl | kPreHigh,                     // IgnoreSequence
-        kPreCtrl | kPreHigh,                     // Escape
-        kPreCtrl | kPreHigh,                     // EscapeIntermediate
-        kPreCtrl | kPreHigh,                     // Escape_VT52
-        kPreCtrl | kPreHigh | kPreIntermediate,  // Esc_SPC
-        kPreCtrl | kPreHigh | kPreIntermediate,  // Esc_Hash
-        kPreCtrl | kPreHigh | kPreIntermediate,  // Esc_Pct
-        kPreCtrl | kPreHigh,                     // SelectCharset
-        kPreCtrl | kPreHigh,                     // CSI
-        kPreStringBulk | kPreStringAll,          // DCS
-        kPreStringAll,                           // DCS_Esc
-        kPreStringBulk | kPreStringAll,          // OSC
-        kPreStringAll,                           // OSC_Esc
-        kPreStringBulk | kPreStringAll,          // String
-        kPreStringAll,                           // String_Esc
-        kPreCtrl | kPreHigh,                     // VT52_CUP_Arg1
-        kPreCtrl | kPreHigh,                     // VT52_CUP_Arg2
+        0,                                      // Normal (has its own branch)
+        kPreCtrl | kPreHigh,                    // IgnoreSequence
+        kPreCtrl | kPreHigh,                    // Escape
+        kPreCtrl | kPreHigh,                    // EscapeIntermediate
+        kPreCtrl | kPreHigh,                    // Escape_VT52
+        kPreCtrl | kPreHigh | kPreIntermediate, // Esc_SPC
+        kPreCtrl | kPreHigh | kPreIntermediate, // Esc_Hash
+        kPreCtrl | kPreHigh | kPreIntermediate, // Esc_Pct
+        kPreCtrl | kPreHigh,                    // SelectCharset
+        kPreCtrl | kPreHigh,                    // CSI
+        kPreStringBulk | kPreStringAll,         // DCS
+        kPreStringAll,                          // DCS_Esc
+        kPreStringBulk | kPreStringAll,         // OSC
+        kPreStringAll,                          // OSC_Esc
+        kPreStringBulk | kPreStringAll,         // String
+        kPreStringAll,                          // String_Esc
+        kPreCtrl | kPreHigh,                    // VT52_CUP_Arg1
+        kPreCtrl | kPreHigh,                    // VT52_CUP_Arg2
     };
 }
 
@@ -8940,7 +8952,6 @@ Point VtermImpl::selectionPoint(int pX, int pY) const {
 }
 
 void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
-
     if (cycleSnapTo) {
         selectExtend(pX, pY, true);
         return;
@@ -8960,7 +8971,6 @@ void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
 }
 
 void VtermImpl::selectExtend(int pX, int pY, bool cycleSnapTo) {
-
     Point pt = selectionPoint(pX, pY);
 
     Rect& selection = cf->getSelection();
@@ -8992,7 +9002,6 @@ void VtermImpl::selectExtend(int pX, int pY, bool cycleSnapTo) {
 }
 
 void VtermImpl::selectUpdate(int pX, int pY) {
-
     Point pt = selectionPoint(pX, pY);
 
     Rect& selection = cf->getSelection();
@@ -9046,7 +9055,6 @@ void VtermImpl::selectUpdate(int pX, int pY) {
 }
 
 bool VtermImpl::selectFinish(std::string& utf8_selection) {
-
     showCursor();
     redraw();
 
@@ -9073,22 +9081,23 @@ void VtermImpl::selectRectangularModeToggle() {
 }
 
 void VtermImpl::pasteSelection(const std::string& utf8_selection) {
-    std::ostringstream oss;
+    StringBuilder output(utf8_selection.size() + 12);
 
     if (bracketedPasteMode) {
-        oss << "\x1b[200~";
+        output << StringView(u8"\x1b[200~");
     }
 
     for (const auto ch : utf8_selection) {
-        oss << (ch == '\n' ? '\r' : ch);
+        const char outputByte = ch == '\n' ? '\r' : ch;
+        output.append(&outputByte, 1);
     }
 
     if (bracketedPasteMode) {
-        oss << "\x1b[201~";
+        output << StringView(u8"\x1b[201~");
     }
 
-    if (oss.str().size()) {
-        writePty(oss.str().c_str(), true);
+    if (!output.empty()) {
+        writePty((const u8*)(output.data()), output.used(), true);
     }
 }
 

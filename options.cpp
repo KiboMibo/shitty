@@ -17,12 +17,13 @@
 
 #include "options.h"
 
+#include <std/ios/sys.h>
+#include <std/str/view.h>
+
 #include <stdlib.h>
 
 #include <algorithm>
 #include <cstring>
-#include <iomanip>
-#include <iostream>
 #include <map>
 #include <sstream>
 #include <stdexcept>
@@ -108,6 +109,15 @@ namespace {
     };
 
     std::map<std::string, std::string> commandLine;
+
+    void writeSpaces(ZeroCopyOutput& output, size_t count) {
+        static constexpr u8 spaces[] = u8"                                ";
+        while (count != 0) {
+            const size_t chunk = count < sizeof(spaces) - 1 ? count : sizeof(spaces) - 1;
+            output.write(spaces, chunk);
+            count -= chunk;
+        }
+    }
 
     const OptionDesc* findOption(const char* prefix) {
         if (strcmp(prefix, "v") == 0) {
@@ -416,53 +426,51 @@ void Options::parse() {
         verbose = getBool("verbose");
         modifyOtherKeys = getInteger("modifyOtherKeys", 0, 2);
     } catch (const std::exception& error) {
-        std::cout << "Error: " << error.what() << "!\n"
-                  << "Try -help for usage options." << std::endl;
+        sysO << StringView(u8"Error: ") << StringView(error.what()) << StringView(u8"!\nTry -help for usage options.") << endL;
         exit(-1);
     }
 }
 
 void Options::printVersion() const {
-    std::cout << "Shitty " SHITTY_VERSION "\n"
-              << "Copyright (C) 2020 Tom Szilagyi\n\n"
-              << "This program comes with ABSOLUTELY NO WARRANTY.\n"
-              << "Shitty is free software, and you are welcome to redistribute it\n"
-              << "under the terms and conditions of the GNU GPL v3 (or later).\n"
-              << std::endl;
+    sysO << StringView(u8"Shitty " SHITTY_VERSION "\nCopyright (C) 2020 Tom Szilagyi\n\nThis program comes with ABSOLUTELY NO WARRANTY.\nShitty is free software, and you are welcome to redistribute it\nunder the terms and conditions of the GNU GPL v3 (or later).\n") << endL;
 }
 
 void Options::printUsage() const {
     printVersion();
-    std::cout << "Usage:\n"
-              << "  st [-option ...] [shell]\n\n"
-              << "Options:\n";
+    OutBuf output(stdoutStream());
+    output << StringView(u8"Usage:\n  st [-option ...] [shell]\n\nOptions:\n");
     size_t maxWidth = 0;
     for (const auto& option : optionsTable) {
         maxWidth = std::max(maxWidth, strlen(option.option));
     }
     for (const auto& option : optionsTable) {
-        std::cout << "  -" << std::left << std::setw(maxWidth + 3) << option.option << option.helpDescr;
+        output << StringView(u8"  -") << StringView(option.option);
+        writeSpaces(output, maxWidth + 3 - strlen(option.option));
+        output << StringView(option.helpDescr);
         if (option.hardDefault != nullptr && option.parseType != OptionKind::NoArg) {
-            std::cout << " (default: " << option.hardDefault << ")";
+            output << StringView(u8" (default: ") << StringView(option.hardDefault) << StringView(u8")");
         }
-        std::cout << "\n";
+        output << endL;
     }
-    std::cout << std::endl;
+    output << endL;
 }
 
 void Options::printResources() const {
     printVersion();
-    std::cout << "Advanced options:\n";
+    OutBuf output(stdoutStream());
+    output << StringView(u8"Advanced options:\n");
     size_t maxWidth = 0;
     for (const auto& resource : resourceTable) {
         maxWidth = std::max(maxWidth, strlen(resource.resource));
     }
     for (const auto& resource : resourceTable) {
-        std::cout << "  -" << std::left << std::setw(maxWidth + 3) << resource.resource << resource.helpDescr;
+        output << StringView(u8"  -") << StringView(resource.resource);
+        writeSpaces(output, maxWidth + 3 - strlen(resource.resource));
+        output << StringView(resource.helpDescr);
         if (resource.hardDefault != nullptr) {
-            std::cout << " (default: " << resource.hardDefault << ")";
+            output << StringView(u8" (default: ") << StringView(resource.hardDefault) << StringView(u8")");
         }
-        std::cout << "\n";
+        output << endL;
     }
-    std::cout << std::endl;
+    output << endL;
 }

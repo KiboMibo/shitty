@@ -14,9 +14,9 @@
  */
 
 #include "application.h"
-#include "base.h"
 #include "clipboard.h"
 #include "composer.h"
+#include "fd_redirect.h"
 #include "font_pack.h"
 #include "keyboard.h"
 #include "mouse_frontend.h"
@@ -35,13 +35,15 @@
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
+#include <std/ios/sys.h>
+#include <std/str/view.h>
+
 #include <algorithm>
 #include <cassert>
 #include <cctype>
 #include <cerrno>
 #include <cmath>
 #include <chrono>
-#include <iostream>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -1523,12 +1525,11 @@ bool ApplicationImpl::eventLoop(PtyEventSource& ptySource) {
 void ApplicationImpl::checkLocale() {
     const char* locale = setlocale(LC_ALL, "");
     if (locale == nullptr) {
-        std::cout << "Warning: could not set locale; international input "
-                     "may be broken.\n";
+        sysO << StringView(u8"Warning: could not set locale; international input may be broken.") << endL;
         return;
     }
     if (std::strcmp(nl_langinfo(CODESET), "UTF-8") != 0) {
-        std::cout << "Warning: non-UTF-8 locale " << locale << "; international input may be broken.\n";
+        sysO << StringView(u8"Warning: non-UTF-8 locale ") << StringView(locale) << StringView(u8"; international input may be broken.") << endL;
     }
 }
 

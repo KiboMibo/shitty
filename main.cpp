@@ -10,6 +10,7 @@
 #include "vterm_headless.h"
 
 #include <std/ios/in_fd.h>
+#include <std/ios/sys.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
@@ -20,9 +21,8 @@
 #include <std/sys/throw.h>
 
 #include <chrono>
+#include <cstring>
 #include <exception>
-#include <iomanip>
-#include <iostream>
 #include <stdexcept>
 #include <string>
 
@@ -37,13 +37,35 @@ namespace {
         size_t pathOffset;
     };
 
+    void writeRepeated(ZeroCopyOutput& output, u8 byte, size_t count) {
+        if (count == 0) {
+            return;
+        }
+        u8* const bytes = static_cast<u8*>(output.imbue(count).ptr);
+        memset(bytes, byte, count);
+        output.commit(count);
+    }
+
+    void writeTenths(ZeroCopyOutput& output, double value) {
+        const u64 tenths = (u64)(value * 10 + 0.5);
+        output << tenths / 10 << StringView(u8".") << tenths % 10;
+    }
+
     void showPerfProgress(size_t done, size_t total, size_t bytes, std::chrono::steady_clock::time_point started) {
         constexpr size_t width = 40;
         const size_t filled = total == 0 ? width : done * width / total;
         const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
         const double mib = bytes / (1024.0 * 1024.0);
         const double mibPerSecond = elapsed > 0 ? mib / elapsed : 0;
-        std::cerr << '\r' << '[' << std::string(filled, '#') << std::string(width - filled, ' ') << "] " << done << '/' << total << " " << std::fixed << std::setprecision(1) << mib << " MiB, " << mibPerSecond << " MiB/s" << std::flush;
+        OutBuf output(stderrStream());
+        output << StringView(u8"\r[");
+        writeRepeated(output, u8'#', filled);
+        writeRepeated(output, u8' ', width - filled);
+        output << StringView(u8"] ") << (u64)(done) << StringView(u8"/") << (u64)(total) << StringView(u8" ");
+        writeTenths(output, mib);
+        output << StringView(u8" MiB, ");
+        writeTenths(output, mibPerSecond);
+        output << StringView(u8" MiB/s") << flsH;
     }
 
     int runPerf(int argc, char* argv[]) {
@@ -94,7 +116,7 @@ namespace {
                 showPerfProgress(index + 1, files.length(), bytes, started);
             }
         }
-        std::cerr << std::endl;
+        sysE << endL;
         return 0;
     }
 }
@@ -113,11 +135,9 @@ int main(int argc, char* argv[]) {
         }
     } catch (Exception& error) {
         const StringView message = error.description();
-        std::cerr << "Error: ";
-        std::cerr.write((const char*)message.data(), message.length());
-        std::cerr << std::endl;
+        sysE << StringView(u8"Error: ") << message << endL;
     } catch (const std::exception& error) {
-        std::cerr << "Error: " << error.what() << std::endl;
+        sysE << StringView(u8"Error: ") << StringView(error.what()) << endL;
     }
     finalizeFontconfig();
     return status;

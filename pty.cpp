@@ -26,8 +26,8 @@
 
 #include "pty.h"
 
-#include "base.h"
 #include "composer.h"
+#include "fd_redirect.h"
 
 #include <std/mem/obj_pool.h>
 

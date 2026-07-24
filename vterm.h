@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include "rect.h"
 #include "terminal_types.h"
 
 #include <std/str/view.h>
