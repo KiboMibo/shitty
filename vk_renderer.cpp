@@ -57,7 +57,7 @@ namespace {
     static_assert(sizeof(GpuCell) == 36, "Vulkan cell layout mismatch");
 
     struct RendererImpl final: public Renderer {
-        RendererImpl(GLFWwindow* window, Fontpack* fontpk);
+        RendererImpl(Composer& composer, GLFWwindow* window);
         ~RendererImpl();
 
         bool update(const TerminalUpdate& update) override;
@@ -142,11 +142,10 @@ namespace {
 
         static constexpr u32 framesInFlight = 2;
 
+        Composer& composer;
         stl::Vector<u32> graphemeScratch;
         GLFWwindow* window = nullptr;
         Fontpack* fonts = nullptr;
-        u32 glyphWidth = 0;
-        u32 glyphHeight = 0;
         bool hasDoubleWidth = false;
 
         VkInstance instance = VK_NULL_HANDLE;
@@ -293,12 +292,11 @@ u32 Renderer::rendererCellAttributesForTest(const RenderCell& cell) {
     return packCellAttributes(cell);
 }
 
-RendererImpl::RendererImpl(GLFWwindow* window_, Fontpack* fontpk)
-    : window(window_)
-    , fonts(fontpk)
-    , glyphWidth(fontpk->getPx())
-    , glyphHeight(fontpk->getPy())
-    , hasDoubleWidth(fontpk->hasDoubleWidth())
+RendererImpl::RendererImpl(Composer& composer_, GLFWwindow* window_)
+    : composer(composer_)
+    , window(window_)
+    , fonts(composer.fonts)
+    , hasDoubleWidth(fonts->hasDoubleWidth())
 {
     createInstance();
     checkVk(glfwCreateWindowSurface(instance, window, nullptr, &surface), "glfwCreateWindowSurface");
@@ -599,7 +597,7 @@ void RendererImpl::destroyImage(ImageResource& image) {
 void RendererImpl::configureGlyphCache(GlyphCache& cache, u32 width, u32 layers, size_t byteBudget, u32 maxImageDimension) {
     constexpr u32 unicodeCount = 0x110000;
     constexpr u32 maximumSlots = 16384;
-    const size_t glyphBytes = (size_t)(width)*glyphHeight * layers;
+    const size_t glyphBytes = (size_t)(width)*composer.glyphHeight * layers;
     u32 requested = glyphBytes == 0 ? 2 : (u32)(byteBudget / glyphBytes);
     if (requested < 2) {
         requested = 2;
@@ -609,7 +607,7 @@ void RendererImpl::configureGlyphCache(GlyphCache& cache, u32 width, u32 layers,
     }
 
     u32 maximumColumns = maxImageDimension / width;
-    u32 maximumRows = maxImageDimension / glyphHeight;
+    u32 maximumRows = maxImageDimension / composer.glyphHeight;
     if (maximumColumns > 256) {
         maximumColumns = 256;
     }
@@ -632,7 +630,7 @@ void RendererImpl::configureGlyphCache(GlyphCache& cache, u32 width, u32 layers,
             continue;
         }
         const u64 pixelWidth = (u64)(columns)*width;
-        const u64 pixelHeight = (u64)(rows)*glyphHeight;
+        const u64 pixelHeight = (u64)(rows)*composer.glyphHeight;
         const u64 difference = pixelWidth > pixelHeight ? pixelWidth - pixelHeight : pixelHeight - pixelWidth;
         if (difference < bestDifference) {
             bestDifference = difference;
@@ -656,13 +654,13 @@ void RendererImpl::createFontResources() {
     VkPhysicalDeviceProperties properties{};
     vkGetPhysicalDeviceProperties(physicalDevice, &properties);
 
-    configureGlyphCache(glyphs, glyphWidth, 4, atlasByteBudget, properties.limits.maxImageDimension2D);
-    atlas = createImage(glyphWidth * glyphs.columns, glyphHeight * glyphs.rows, 4, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
+    configureGlyphCache(glyphs, composer.glyphWidth, 4, atlasByteBudget, properties.limits.maxImageDimension2D);
+    atlas = createImage(composer.glyphWidth * glyphs.columns, composer.glyphHeight * glyphs.rows, 4, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
     atlasMap = createImage(512, 2176, 1, VK_FORMAT_R8G8_UINT, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 
     if (hasDoubleWidth) {
-        configureGlyphCache(doubleWidthGlyphs, 2 * glyphWidth, 1, doubleWidthAtlasByteBudget, properties.limits.maxImageDimension2D);
-        doubleWidthAtlas = createImage(2 * glyphWidth * doubleWidthGlyphs.columns, glyphHeight * doubleWidthGlyphs.rows, 1, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
+        configureGlyphCache(doubleWidthGlyphs, 2 * composer.glyphWidth, 1, doubleWidthAtlasByteBudget, properties.limits.maxImageDimension2D);
+        doubleWidthAtlas = createImage(2 * composer.glyphWidth * doubleWidthGlyphs.columns, composer.glyphHeight * doubleWidthGlyphs.rows, 1, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
         doubleWidthAtlasMap = createImage(512, 2176, 1, VK_FORMAT_R8G8_UINT, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
     }
 
@@ -1145,8 +1143,8 @@ void RendererImpl::ensureGlyph(u32 id, FontStyle style, bool doubleWidth) {
         return;
     }
 
-    const u32 width = doubleWidth ? 2 * glyphWidth : glyphWidth;
-    const size_t bytes = (size_t)(width)*glyphHeight;
+    const u32 width = doubleWidth ? 2 * composer.glyphWidth : composer.glyphWidth;
+    const size_t bytes = (size_t)(width)*composer.glyphHeight;
     const FontGlyph glyph = fonts->glyph(id, style, doubleWidth);
     VkBufferImageCopy copy{};
     copy.bufferOffset = stageFontData(glyph.data, glyph.len, bytes);
@@ -1155,10 +1153,10 @@ void RendererImpl::ensureGlyph(u32 id, FontStyle style, bool doubleWidth) {
     copy.imageSubresource.layerCount = 1;
     copy.imageOffset = {
         (i32)((slot % cache.columns) * width),
-        (i32)((slot / cache.columns) * glyphHeight),
+        (i32)((slot / cache.columns) * composer.glyphHeight),
         0,
     };
-    copy.imageExtent = {width, glyphHeight, 1};
+    copy.imageExtent = {width, composer.glyphHeight, 1};
     (doubleWidth ? doubleWidthAtlasCopies : atlasCopies).pushBack(copy);
     state.layers |= layerMask;
 }
@@ -1298,12 +1296,12 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const T
     vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &graphemesForCompute, 0, nullptr);
 
     const PushConstants pushConstants{
-        glyphWidth,
-        glyphHeight,
-        update.columns,
-        update.rows,
-        update.pixelWidth,
-        update.pixelHeight,
+        composer.glyphWidth,
+        composer.glyphHeight,
+        composer.columns,
+        composer.rows,
+        composer.pixelWidth,
+        composer.pixelHeight,
         opts.border,
         packColor(update.cursor.color),
         update.cursor.posX,
@@ -1330,7 +1328,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const T
     vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
     vkCmdBindDescriptorSets(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &frame.descriptorSet, 0, nullptr);
     vkCmdPushConstants(frame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants), &pushConstants);
-    vkCmdDispatch(frame.commandBuffer, (update.columns + 7) / 8, (update.rows + 7) / 8, 1);
+    vkCmdDispatch(frame.commandBuffer, (composer.columns + 7) / 8, (composer.rows + 7) / 8, 1);
 
     VkImageMemoryBarrier outputForBlit = outputForCompute;
     outputForBlit.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -1496,8 +1494,8 @@ bool RendererImpl::repaint() {
 }
 
 bool RendererImpl::present(const TerminalUpdate& update, bool incrementalFrame) {
-    const u32 width = update.pixelWidth;
-    const u32 height = update.pixelHeight;
+    const u32 width = composer.pixelWidth;
+    const u32 height = composer.pixelHeight;
     if (update.cells == nullptr || update.cellCount == 0 || width == 0 || height == 0) {
         return false;
     }
@@ -1579,5 +1577,5 @@ bool RendererImpl::update(const TerminalUpdate& update) {
 }
 
 Renderer* Renderer::create(Composer& composer, GLFWwindow* window) {
-    return composer.pool->make<RendererImpl>(window, composer.fonts);
+    return composer.pool->make<RendererImpl>(composer, window);
 }

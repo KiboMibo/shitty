@@ -12,8 +12,6 @@
 struct VtermWindowInfo {
     i32 x = 0;
     i32 y = 0;
-    u32 pixelWidth = 0;
-    u32 pixelHeight = 0;
     u32 screenPixelWidth = 0;
     u32 screenPixelHeight = 0;
     bool iconified = false;

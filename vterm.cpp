@@ -1007,10 +1007,6 @@ void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const 
     update.cells = cells;
     update.cellCount = count;
     update.cellExtras = frame.cellExtras();
-    update.columns = frame.columns();
-    update.rows = frame.rows();
-    update.pixelWidth = composer.pixelWidth;
-    update.pixelHeight = composer.pixelHeight;
     update.viewOffset = frame.getViewOffset();
     update.historyRows = frame.getHistoryRows();
     update.cursor = frame.getCursor();
@@ -1124,8 +1120,8 @@ void VtermImpl::consume(const VtermConsume& consumed) {
             cell->dirty = false;
         }
         presentedScreen = consumedUpdate->frame;
-        presentedColumns = consumedUpdate->update.columns;
-        presentedRows = consumedUpdate->update.rows;
+        presentedColumns = consumedUpdate->frame->columns();
+        presentedRows = consumedUpdate->frame->rows();
         queuedUpdateHead = consumedUpdate->next;
         if (queuedUpdateHead == nullptr) {
             queuedUpdateTail = nullptr;
@@ -1148,8 +1144,8 @@ void VtermImpl::consume(const VtermConsume& consumed) {
         updateScreen->resetDamage();
     }
     presentedScreen = updateScreen;
-    presentedColumns = terminalUpdate.columns;
-    presentedRows = terminalUpdate.rows;
+    presentedColumns = updateScreen->columns();
+    presentedRows = updateScreen->rows();
     updateScreen = nullptr;
     outputPending = false;
     outputInitialized = true;
@@ -1160,8 +1156,6 @@ void VtermImpl::consume(const VtermConsume& consumed) {
 VtermState VtermImpl::state() const {
     VtermState result;
     result.mouse = mouseTrk;
-    result.columns = composer.columns;
-    result.rows = composer.rows;
     result.kittyKeyboardFlags = getKittyKeyboardFlags();
     result.metaMode = eightBitInput;
     result.autoRepeat = autoRepeatMode;
@@ -1700,7 +1694,6 @@ void VtermImpl::switchColMode(ColMode colMode_) {
 
     const u16 columns = colMode_ == ColMode::C80 ? 80 : 132;
     if (composer.columns != columns) {
-        composer.resize(2 * opts.border + columns * composer.glyphWidth, composer.pixelHeight);
         host.windowOperation(8, composer.rows, columns);
     }
     marginTop = 0;
@@ -5495,8 +5488,8 @@ void VtermImpl::csi_XTWINOPS() {
         case 4:
         case 8: {
             const auto info = host.windowInfo();
-            const u32 currentHeight = operation == 4 ? info.pixelHeight : composer.rows;
-            const u32 currentWidth = operation == 4 ? info.pixelWidth : composer.columns;
+            const u32 currentHeight = operation == 4 ? composer.pixelHeight : composer.rows;
+            const u32 currentWidth = operation == 4 ? composer.pixelWidth : composer.columns;
             const u32 maximumHeight = operation == 4 ? info.screenPixelHeight : info.screenPixelHeight / composer.glyphHeight;
             const u32 maximumWidth = operation == 4 ? info.screenPixelWidth : info.screenPixelWidth / composer.glyphWidth;
             const auto dimension = [&](size_t index, u32 current, u32 maximum) {
@@ -5527,8 +5520,7 @@ void VtermImpl::csi_XTWINOPS() {
         } break;
         case 14:
             if (nInputOps > 1 && inputOps[1] == 2) {
-                const auto info = host.windowInfo();
-                response << StringView(u8"4;") << info.pixelHeight << StringView(u8";") << info.pixelWidth << StringView(u8"t");
+                response << StringView(u8"4;") << composer.pixelHeight << StringView(u8";") << composer.pixelWidth << StringView(u8"t");
             } else {
                 response << StringView(u8"4;") << composer.rows * composer.glyphHeight << StringView(u8";") << composer.columns * composer.glyphWidth << StringView(u8"t");
             }

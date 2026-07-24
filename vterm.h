@@ -184,8 +184,6 @@ struct VtermTextResult {
 
 struct VtermState {
     MouseTrackingState mouse;
-    u16 columns = 0;
-    u16 rows = 0;
     u8 kittyKeyboardFlags = 0;
     bool metaMode = false;
     bool autoRepeat = false;
@@ -197,10 +195,6 @@ struct TerminalUpdate {
     const RenderCell* cells = nullptr;
     size_t cellCount = 0;
     CellExtraStore* cellExtras = nullptr;
-    u16 columns = 0;
-    u16 rows = 0;
-    u16 pixelWidth = 0;
-    u16 pixelHeight = 0;
     u16 viewOffset = 0;
     u16 historyRows = 0;
     TerminalCursor cursor;

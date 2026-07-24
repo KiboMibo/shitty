@@ -260,7 +260,7 @@ namespace {
     }
 
     struct TestDisplay final: public VtermHost {
-        TestDisplay(Composer& composer, ClipboardStore& clipboard, std::string& actions, std::string& printerOutput, u32 pixelWidth, u32 pixelHeight);
+        TestDisplay(Composer& composer, ClipboardStore& clipboard, std::string& actions, std::string& printerOutput);
 
         void attach(Vterm& terminal, TestApi& testApi);
         bool update(const TerminalUpdate& update);
@@ -311,7 +311,8 @@ namespace {
         Vterm* terminal = nullptr;
         TestApi* testApi = nullptr;
         VtermWindowInfo currentWindow;
-        VtermWindowInfo restoredWindow;
+        u16 restoredPixelWidth = 0;
+        u16 restoredPixelHeight = 0;
         bool haveRestoredWindow = false;
     };
 
@@ -402,7 +403,7 @@ namespace {
 
 }
 
-TestDisplay::TestDisplay(Composer& composer_, ClipboardStore& clipboard, std::string& actions, std::string& printerOutput, u32 pixelWidth, u32 pixelHeight)
+TestDisplay::TestDisplay(Composer& composer_, ClipboardStore& clipboard, std::string& actions, std::string& printerOutput)
     : composer(composer_)
     , clipboard(clipboard)
     , actions(actions)
@@ -410,11 +411,8 @@ TestDisplay::TestDisplay(Composer& composer_, ClipboardStore& clipboard, std::st
 {
     currentWindow.x = 10;
     currentWindow.y = 20;
-    currentWindow.pixelWidth = pixelWidth;
-    currentWindow.pixelHeight = pixelHeight;
     currentWindow.screenPixelWidth = 1920;
     currentWindow.screenPixelHeight = 1080;
-    restoredWindow = currentWindow;
 }
 
 void TestDisplay::attach(Vterm& value, TestApi& testApiValue) {
@@ -428,9 +426,9 @@ bool TestDisplay::update(const TerminalUpdate& update) {
         return false;
     }
     const size_t count = update.cellCount;
-    if (columns != update.columns || rows != update.rows) {
-        columns = update.columns;
-        rows = update.rows;
+    if (columns != composer.columns || rows != composer.rows) {
+        columns = composer.columns;
+        rows = composer.rows;
         cells.resize(count);
         modelCells.resize(count);
     }
@@ -550,8 +548,6 @@ void TestDisplay::progress(u32 state, u32 percent) {
 }
 
 void TestDisplay::applyWindowSize(u32 pixelWidth, u32 pixelHeight) {
-    currentWindow.pixelWidth = pixelWidth;
-    currentWindow.pixelHeight = pixelHeight;
     composer.resize((u16)(pixelWidth), (u16)(pixelHeight));
 }
 
@@ -573,17 +569,18 @@ void TestDisplay::windowOperation(u32 operation, u32 first, u32 second) {
     } else if (operation == 9) {
         if (first == 0) {
             if (haveRestoredWindow) {
-                applyWindowSize(restoredWindow.pixelWidth, restoredWindow.pixelHeight);
+                applyWindowSize(restoredPixelWidth, restoredPixelHeight);
                 currentWindow.maximized = false;
                 haveRestoredWindow = false;
             }
         } else if (first <= 3) {
             if (!haveRestoredWindow) {
-                restoredWindow = currentWindow;
+                restoredPixelWidth = composer.pixelWidth;
+                restoredPixelHeight = composer.pixelHeight;
                 haveRestoredWindow = true;
             }
-            const u32 pixelWidth = first == 2 ? currentWindow.pixelWidth : currentWindow.screenPixelWidth;
-            const u32 pixelHeight = first == 3 ? currentWindow.pixelHeight : currentWindow.screenPixelHeight;
+            const u32 pixelWidth = first == 2 ? composer.pixelWidth : currentWindow.screenPixelWidth;
+            const u32 pixelHeight = first == 3 ? composer.pixelHeight : currentWindow.screenPixelHeight;
             applyWindowSize(pixelWidth, pixelHeight);
             currentWindow.maximized = true;
         }
@@ -591,14 +588,15 @@ void TestDisplay::windowOperation(u32 operation, u32 first, u32 second) {
         const bool enable = first == 1 || (first == 2 && !currentWindow.fullscreen);
         if (enable && !currentWindow.fullscreen) {
             if (!haveRestoredWindow) {
-                restoredWindow = currentWindow;
+                restoredPixelWidth = composer.pixelWidth;
+                restoredPixelHeight = composer.pixelHeight;
                 haveRestoredWindow = true;
             }
             applyWindowSize(currentWindow.screenPixelWidth, currentWindow.screenPixelHeight);
             currentWindow.fullscreen = true;
         } else if (!enable && currentWindow.fullscreen) {
             if (haveRestoredWindow) {
-                applyWindowSize(restoredWindow.pixelWidth, restoredWindow.pixelHeight);
+                applyWindowSize(restoredPixelWidth, restoredPixelHeight);
                 haveRestoredWindow = false;
             }
             currentWindow.fullscreen = false;
@@ -607,10 +605,7 @@ void TestDisplay::windowOperation(u32 operation, u32 first, u32 second) {
 }
 
 VtermWindowInfo TestDisplay::windowInfo() {
-    VtermWindowInfo result = currentWindow;
-    result.pixelWidth = composer.pixelWidth;
-    result.pixelHeight = composer.pixelHeight;
-    return result;
+    return currentWindow;
 }
 
 void TestDisplay::failNextPresent() {
@@ -1139,18 +1134,20 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
         throw std::runtime_error("test socket setup failed");
     }
 
-    unsigned glyphPx = 1;
-    unsigned glyphPy = 1;
-    if (const char* geometry = std::getenv("SHITTY_TEST_GLYPH")) {
-        std::istringstream input(geometry);
-        char separator = 0;
-        if (!(input >> glyphPx >> separator >> glyphPy) || separator != 'x' || !glyphPx || !glyphPy || input.peek() != EOF) {
-            throw std::runtime_error("invalid test glyph geometry");
+    {
+        unsigned glyphWidth = 1;
+        unsigned glyphHeight = 1;
+        if (const char* geometry = std::getenv("SHITTY_TEST_GLYPH")) {
+            std::istringstream input(geometry);
+            char separator = 0;
+            if (!(input >> glyphWidth >> separator >> glyphHeight) || separator != 'x' || !glyphWidth || !glyphHeight || input.peek() != EOF) {
+                throw std::runtime_error("invalid test glyph geometry");
+            }
         }
+        composer.setGlyphSize(glyphWidth, glyphHeight);
     }
-    const u16 width = 2 * opts.border + opts.nCols * glyphPx;
-    const u16 height = 2 * opts.border + opts.nRows * glyphPy;
-    composer.setGlyphSize(glyphPx, glyphPy);
+    const u16 width = 2 * opts.border + opts.nCols * composer.glyphWidth;
+    const u16 height = 2 * opts.border + opts.nRows * composer.glyphHeight;
     composer.resize(width, height);
     TestPty terminalPty(composer, io[0]);
     std::string actions;
@@ -1162,7 +1159,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
     }, [&systemClipboard](const std::string& content) {
         systemClipboard = content;
     });
-    TestDisplay display(composer, clipboard, actions, printerOutput, width, height);
+    TestDisplay display(composer, clipboard, actions, printerOutput);
     VtermTrace& vtermTrace = *VtermTrace::create(composer);
     Vterm& vterm = *Vterm::create(composer, display, &vtermTrace);
     TestApi* const testApi = vterm.testApi();
@@ -1218,7 +1215,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
     };
     MouseFrontendState mouseFrontend;
     const auto mouseGeometry = [&]() {
-        return MouseGeometry{(int)(display.currentWindow.pixelWidth), (int)(display.currentWindow.pixelHeight), (int)(opts.border), (int)(glyphPx), (int)(glyphPy)};
+        return MouseGeometry{composer.pixelWidth, composer.pixelHeight, opts.border, composer.glyphWidth, composer.glyphHeight};
     };
     const auto sendMouseButton = [&](MouseEventType type, int button, int pixelX, int pixelY, unsigned modifiers) {
         const auto tracking = terminal.getMouseTrackingState();
@@ -1669,7 +1666,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 if (!(args >> columns >> rows) || !columns || !rows) {
                     throw std::runtime_error("invalid resize");
                 }
-                terminal.resize(2 * opts.border + columns * glyphPx, 2 * opts.border + rows * glyphPy);
+                terminal.resize(2 * opts.border + columns * composer.glyphWidth, 2 * opts.border + rows * composer.glyphHeight);
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 14, "RESIZE_PIXELS ") == 0) {
                 std::istringstream args(line.substr(14));
@@ -1691,18 +1688,17 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 unsigned iconified;
                 unsigned maximized;
                 unsigned fullscreen;
-                if (!(args >> x >> y >> pixelWidth >> pixelHeight >> screenWidth >> screenHeight >> iconified >> maximized >> fullscreen) || x < INT32_MIN || x > INT32_MAX || y < INT32_MIN || y > INT32_MAX || pixelWidth > UINT32_MAX || pixelHeight > UINT32_MAX || screenWidth > UINT32_MAX || screenHeight > UINT32_MAX || iconified > 1 || maximized > 1 || fullscreen > 1) {
+                if (!(args >> x >> y >> pixelWidth >> pixelHeight >> screenWidth >> screenHeight >> iconified >> maximized >> fullscreen) || x < INT32_MIN || x > INT32_MAX || y < INT32_MIN || y > INT32_MAX || pixelWidth > UINT16_MAX || pixelHeight > UINT16_MAX || screenWidth > UINT32_MAX || screenHeight > UINT32_MAX || iconified > 1 || maximized > 1 || fullscreen > 1) {
                     throw std::runtime_error("invalid window info");
                 }
                 display.currentWindow.x = x;
                 display.currentWindow.y = y;
-                display.currentWindow.pixelWidth = pixelWidth;
-                display.currentWindow.pixelHeight = pixelHeight;
                 display.currentWindow.screenPixelWidth = screenWidth;
                 display.currentWindow.screenPixelHeight = screenHeight;
                 display.currentWindow.iconified = iconified;
                 display.currentWindow.maximized = maximized;
                 display.currentWindow.fullscreen = fullscreen;
+                display.applyWindowSize(pixelWidth, pixelHeight);
                 writeAll(controlFd, "OK\n");
             } else if (line == "WINSIZE") {
                 winsize size{};
@@ -1846,9 +1842,9 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                     throw std::runtime_error("invalid selection point");
                 }
                 if (start) {
-                    terminal.selectStart(opts.border + column * glyphPx, opts.border + row * glyphPy, false);
+                    terminal.selectStart(opts.border + column * composer.glyphWidth, opts.border + row * composer.glyphHeight, false);
                 } else {
-                    terminal.selectUpdate(opts.border + column * glyphPx, opts.border + row * glyphPy);
+                    terminal.selectUpdate(opts.border + column * composer.glyphWidth, opts.border + row * composer.glyphHeight);
                 }
                 writeAll(controlFd, "OK\n");
             } else if (line == "SELECT_RECTANGULAR") {

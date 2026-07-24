@@ -1235,8 +1235,8 @@ void ApplicationImpl::windowOperation(u32 operation, u32 first, u32 second) {
         pixelHeight = (int)(first);
         pixelWidth = (int)(second);
     } else if (operation == 8 && first && second) {
-        pixelHeight = 2 * opts.border + (int)(first)*fontpk->getPy();
-        pixelWidth = 2 * opts.border + (int)(second)*fontpk->getPx();
+        pixelHeight = 2 * opts.border + (int)(first)*composer.glyphHeight;
+        pixelWidth = 2 * opts.border + (int)(second)*composer.glyphWidth;
     } else {
         return;
     }
@@ -1249,8 +1249,6 @@ void ApplicationImpl::windowOperation(u32 operation, u32 first, u32 second) {
 VtermWindowInfo ApplicationImpl::windowInfo() {
     VtermWindowInfo info;
     glfwGetWindowPos(window, &info.x, &info.y);
-    info.pixelWidth = composer.pixelWidth;
-    info.pixelHeight = composer.pixelHeight;
     GLFWmonitor* monitor = glfwGetWindowMonitor(window);
     if (monitor == nullptr) {
         monitor = glfwGetPrimaryMonitor();
@@ -1298,8 +1296,8 @@ void ApplicationImpl::onFramebufferSize(GLFWwindow*, int width, int height) {
     float yScale = 1.0f;
     glfwGetWindowContentScale(window, &xScale, &yScale);
 
-    const int snappedWidth = gridAlignedWindowSize(width, opts.border, fontpk->getPx(), xScale, windowWidth);
-    const int snappedHeight = gridAlignedWindowSize(height, opts.border, fontpk->getPy(), yScale, windowHeight);
+    const int snappedWidth = gridAlignedWindowSize(width, opts.border, composer.glyphWidth, xScale, windowWidth);
+    const int snappedHeight = gridAlignedWindowSize(height, opts.border, composer.glyphHeight, yScale, windowHeight);
     if (snappedWidth == windowWidth && snappedHeight == windowHeight) {
         queueFramebufferResize(width, height);
         return;
@@ -1608,11 +1606,12 @@ int ApplicationImpl::run(int argc, char* argv[]) {
 
     fontpk = Fontpack::create(composer, opts.fontname, opts.dwfontname);
     composer.fonts = fontpk;
-    const int desiredPixelWidth = 2 * opts.border + opts.nCols * fontpk->getPx();
-    const int desiredPixelHeight = 2 * opts.border + opts.nRows * fontpk->getPy();
+    composer.setGlyphSize(fontpk->getPx(), fontpk->getPy());
+    const int desiredPixelWidth = 2 * opts.border + opts.nCols * composer.glyphWidth;
+    const int desiredPixelHeight = 2 * opts.border + opts.nRows * composer.glyphHeight;
     const int desiredWidth = std::max(1, (int)(std::ceil(desiredPixelWidth / density)));
     const int desiredHeight = std::max(1, (int)(std::ceil(desiredPixelHeight / density)));
-    glfwSetWindowSizeLimits(window, std::max(1, (int)(std::ceil((2 * opts.border + fontpk->getPx()) / density))), std::max(1, (int)(std::ceil((2 * opts.border + fontpk->getPy()) / density))), GLFW_DONT_CARE, GLFW_DONT_CARE);
+    glfwSetWindowSizeLimits(window, std::max(1, (int)(std::ceil((2 * opts.border + composer.glyphWidth) / density))), std::max(1, (int)(std::ceil((2 * opts.border + composer.glyphHeight) / density))), GLFW_DONT_CARE, GLFW_DONT_CARE);
     glfwSetWindowSize(window, desiredWidth, desiredHeight);
     glfwShowWindow(window);
     glfwPollEvents();
@@ -1626,7 +1625,6 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     if (pixelWidth > UINT16_MAX || pixelHeight > UINT16_MAX) {
         throw std::runtime_error("Initial window exceeds terminal limits");
     }
-    composer.setGlyphSize(fontpk->getPx(), fontpk->getPy());
     composer.resize(pixelWidth, pixelHeight);
 
     cursor = glfwCreateStandardCursor(GLFW_IBEAM_CURSOR);

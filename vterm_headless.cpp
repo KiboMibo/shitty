@@ -22,7 +22,7 @@ using namespace stl;
 
 namespace {
     struct HeadlessHost final: public VtermHost {
-        HeadlessHost(u16 pixelWidth, u16 pixelHeight);
+        explicit HeadlessHost(Composer& composer);
 
         void osc(int command, const std::string& argument) override;
         bool handlesOsc() const override;
@@ -35,14 +35,12 @@ namespace {
         void windowOperation(u32 operation, u32 first, u32 second) override;
         VtermWindowInfo windowInfo() override;
 
-        u16 pixelWidth;
-        u16 pixelHeight;
+        Composer& composer;
     };
 
     struct VtermHeadlessImpl final: public VtermHeadless {
-        VtermHeadlessImpl(u16 pixelWidth, u16 pixelHeight);
+        explicit VtermHeadlessImpl(Composer& composer);
 
-        void initialize(Composer& composer, u16 pixelWidth, u16 pixelHeight);
         void feed(const u8* data, size_t len) override;
 
         HeadlessHost host;
@@ -50,9 +48,8 @@ namespace {
     };
 }
 
-HeadlessHost::HeadlessHost(u16 pixelWidth_, u16 pixelHeight_)
-    : pixelWidth(pixelWidth_)
-    , pixelHeight(pixelHeight_)
+HeadlessHost::HeadlessHost(Composer& composer_)
+    : composer(composer_)
 {
 }
 
@@ -82,26 +79,24 @@ void HeadlessHost::notify(const std::string&, const std::string&, const std::str
 void HeadlessHost::progress(u32, u32) {
 }
 
-void HeadlessHost::windowOperation(u32, u32, u32) {
+void HeadlessHost::windowOperation(u32 operation, u32 first, u32 second) {
+    if (operation == 4 && first && second) {
+        composer.resize((u16)(second), (u16)(first));
+    } else if (operation == 8 && first && second) {
+        composer.resize(2 * opts.border + second * composer.glyphWidth, 2 * opts.border + first * composer.glyphHeight);
+    }
 }
 
 VtermWindowInfo HeadlessHost::windowInfo() {
     VtermWindowInfo info;
-    info.pixelWidth = pixelWidth;
-    info.pixelHeight = pixelHeight;
-    info.screenPixelWidth = pixelWidth;
-    info.screenPixelHeight = pixelHeight;
+    info.screenPixelWidth = composer.pixelWidth;
+    info.screenPixelHeight = composer.pixelHeight;
     return info;
 }
 
-VtermHeadlessImpl::VtermHeadlessImpl(u16 pixelWidth, u16 pixelHeight)
-    : host(pixelWidth, pixelHeight)
+VtermHeadlessImpl::VtermHeadlessImpl(Composer& composer)
+    : host(composer)
 {
-}
-
-void VtermHeadlessImpl::initialize(Composer& composer, u16 pixelWidth, u16 pixelHeight) {
-    composer.setGlyphSize(1, 1);
-    composer.resize(pixelWidth, pixelHeight);
     vterm = Vterm::create(composer, host, nullptr);
 }
 
@@ -135,8 +130,9 @@ VtermHeadless* VtermHeadless::create(Composer& composer) {
         opts.title = "";
     }
 
-    VtermHeadlessImpl* result = composer.pool->make<VtermHeadlessImpl>(pixelWidth, pixelHeight);
-    result->initialize(composer, pixelWidth, pixelHeight);
+    composer.setGlyphSize(glyphWidth, glyphHeight);
+    composer.resize(pixelWidth, pixelHeight);
+    VtermHeadlessImpl* result = composer.pool->make<VtermHeadlessImpl>(composer);
     opts.title = title;
     return result;
 }
