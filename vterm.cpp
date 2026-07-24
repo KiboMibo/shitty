@@ -52,10 +52,8 @@
 #include <iomanip>
 #include <map>
 #include <set>
-#include <signal.h>
 #include <sstream>
 #include <sys/types.h>
-#include <thread>
 
 namespace stl {}
 
@@ -248,7 +246,6 @@ namespace {
         const InputSpec& getInputSpec(VtKey key);
 
         void unhandledInput(unsigned char ch);
-        void traceNormalInput();
         void resetTerminal();
         void resetAttrs();
         void resetScreen(bool resetTabStops = true);
@@ -574,8 +571,6 @@ namespace {
         u8 inputBuf[32 * 1024];
         int readPos = 0;
         int lastEscBegin = 0;
-        int lastNormalBegin = 0;
-        int lastStopPos = 0;
 
         InputState inputState = InputState::Normal;
         // Whether a private/intermediate CSI prefix may still occur.  This is
@@ -805,15 +800,6 @@ namespace {
             u16 filterBottom = 1;
             u16 filterRight = 1;
         } locator;
-
-#ifdef DEBUG
-        void traceFunction(const char* func);
-
-        int debugStep = 0;
-        int debugCnt = 0;
-        void debugKey();
-        void debugBreak();
-#endif
     };
 
     struct TestApiImpl final: public TestApi {
@@ -1290,65 +1276,6 @@ const char* VtermImpl::strInputState(InputState is) {
     return enumerators[(int)is];
 }
 
-#ifdef DEBUG
-
-void VtermImpl::debugKey() {
-    switch (debugStep) {
-        case 0:
-            debugStep = 1;
-            break;
-        case 1:
-            debugStep = 10;
-            break;
-        case 10:
-            debugStep = 100;
-            break;
-        case 100:
-            debugStep = 0;
-            break;
-    }
-    debugCnt = debugStep;
-    logT << "*** DEBUG step=" << debugStep << std::endl;
-}
-
-void VtermImpl::debugBreak() {
-    if (!debugStep || --debugCnt > 0) {
-        return;
-    }
-
-    debugCnt = debugStep;
-    logT << "*** DEBUG STOP (step=" << debugStep << "), " << readPos + 1 - lastStopPos << " bytes since last:\n        " << dumpBuffer(inputBuf + lastStopPos, inputBuf + readPos + 1);
-    lastStopPos = readPos + 1;
-
-    logT << "Issue 'kill -CONT " << getpid() << "' or 'fg' to continue." << std::endl;
-
-    redraw();
-    using namespace std::chrono_literals;
-    std::this_thread::sleep_for(100ms);
-
-    kill(getpid(), SIGSTOP);
-}
-
-    #define DEBUG_BREAK debugBreak()
-    #define TRACE_FUN                                                                                     \
-        do {                                                                                              \
-            logT << __FUNCTION__ << " [";                                                                 \
-            for (size_t k = 0; k < nInputOps; ++k) {                                                      \
-                if (k) {                                                                                  \
-                    vlog << ";";                                                                          \
-                }                                                                                         \
-                vlog << inputOps[k];                                                                      \
-            }                                                                                             \
-            vlog << "] \t"                                                                                \
-                 << "p(" << posY << "," << posX << ")  "                                                  \
-                 << "d(" << nRows << "," << nCols << ")  "                                                \
-                 << "mgn[" << marginTop << "," << marginBottom << ")  "                                   \
-                 << "hmgn:" << horizMarginMode << " [" << hMargin << "," << nColsEff << ")" << std::endl; \
-        } while (0)
-#else
-    #define DEBUG_BREAK
-    #define TRACE_FUN
-#endif
 
 void VtermImpl::unhandledInput(unsigned char ch) {
     logT << "Unhandled input char '" << ch << "' (" << (int)ch << ") in state " << strInputState(inputState) << ". Escape sequence so far: " << dumpBuffer(inputBuf + lastEscBegin, inputBuf + readPos + 1);
@@ -1362,18 +1289,6 @@ void VtermImpl::unhandledInput(unsigned char ch) {
         }
     }
     setState(InputState::Normal);
-}
-
-void VtermImpl::traceNormalInput() {
-#ifdef DEBUG
-    if (lastNormalBegin < readPos) {
-        auto dumpbufs = dumpBuffer(inputBuf + lastNormalBegin, inputBuf + readPos);
-        if (dumpbufs.length()) {
-            logT << "Inserted: " << dumpbufs;
-        }
-    }
-    lastNormalBegin = readPos + 1;
-#endif
 }
 
 void VtermImpl::redraw() {
@@ -1811,14 +1726,11 @@ void VtermImpl::setState(InputState newState) {
     stringUtf8Remaining = 0;
 
     if (newState == InputState::Normal) {
-        DEBUG_BREAK;
         csiPrefixAllowed = false;
         nInputOps = 0;
         inputOps[0] = 0;
-        lastNormalBegin = readPos + 1;
     } else if (inputState == InputState::Normal) {
         resetGraphemeInput();
-        traceNormalInput();
     }
 
     inputState = newState;
@@ -2277,14 +2189,12 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
 }
 
 void VtermImpl::inp_LF() {
-    TRACE_FUN;
     if (esc_IND()) {
         eraseRangeInRow(posY, posX, nColsEff - posX);
     }
 }
 
 void VtermImpl::inp_CR() {
-    TRACE_FUN;
     if (originMode == OriginMode::Absolute && posX < hMargin) {
         posX = 0;
     } else {
@@ -2313,7 +2223,6 @@ void VtermImpl::jumpToNextTabStop() {
 }
 
 void VtermImpl::inp_HT() {
-    TRACE_FUN;
     if (moreFixMode && lastCol && autoWrapMode) {
         esc_IND();
         posX = 0;
@@ -2323,7 +2232,6 @@ void VtermImpl::inp_HT() {
 }
 
 void VtermImpl::showCursor() {
-    TRACE_FUN;
     if (showCursorMode && inputState == InputState::Normal) {
         cf->setCursorPos(posY, posX);
         using CS = TerminalCursor::Style;
@@ -2332,21 +2240,12 @@ void VtermImpl::showCursor() {
 }
 
 void VtermImpl::hideCursor() {
-    TRACE_FUN;
     using CS = TerminalCursor::Style;
     cf->setCursorStyle(CS::hidden);
 }
 
 void VtermImpl::esc_DCS(unsigned char fin) {
-    TRACE_FUN;
 
-#ifdef DEBUG
-    logT << "Designate Character Set: destination '" << scsDst << "', charset '";
-    if (scsMod) {
-        vlog << scsMod;
-    }
-    vlog << fin << "'" << std::endl;
-#endif
 
     u8 ix = 0;
     bool cs96 = false;
@@ -2455,7 +2354,6 @@ void VtermImpl::esc_DCS(unsigned char fin) {
 }
 
 bool VtermImpl::esc_IND() {
-    TRACE_FUN;
     const bool scrolled = performIndex();
     setState(InputState::Normal);
     return scrolled;
@@ -2489,7 +2387,6 @@ void VtermImpl::printLine(u16 row) {
 }
 
 void VtermImpl::csi_MC(bool privateMode) {
-    TRACE_FUN;
     const u32 operation = inputOps[0];
     if (privateMode) {
         if (operation == 1) {
@@ -2523,7 +2420,6 @@ void VtermImpl::csi_MC(bool privateMode) {
 }
 
 void VtermImpl::csi_DECLL() {
-    TRACE_FUN;
     for (size_t index = 0; index < nInputOps; ++index) {
         const u32 operation = inputOps[index];
         if (operation == 0) {
@@ -2650,7 +2546,6 @@ size_t VtermImpl::consumePrinterController(const u8* input, size_t size) {
 }
 
 void VtermImpl::esc_RI() {
-    TRACE_FUN;
     if (posY == marginTop) {
         if (posX >= hMargin && posX < nColsEff) {
             nInputOps = 1;
@@ -2665,7 +2560,6 @@ void VtermImpl::esc_RI() {
 }
 
 void VtermImpl::csi_ecma48_SL() {
-    TRACE_FUN;
     if (isCursorInsideMargins()) {
         u32 arg = inputOps[0] ? inputOps[0] : 1u;
         arg = std::min<u32>(arg, nColsEff - hMargin);
@@ -2675,7 +2569,6 @@ void VtermImpl::csi_ecma48_SL() {
 }
 
 void VtermImpl::csi_ecma48_SR() {
-    TRACE_FUN;
     if (isCursorInsideMargins()) {
         u32 arg = inputOps[0] ? inputOps[0] : 1u;
         arg = std::min<u32>(arg, nColsEff - hMargin);
@@ -2685,7 +2578,6 @@ void VtermImpl::csi_ecma48_SR() {
 }
 
 void VtermImpl::csi_DECSCUSR() {
-    TRACE_FUN;
     using CS = TerminalCursor::Style;
     switch (inputOps[0]) {
         case 0:
@@ -2717,7 +2609,6 @@ void VtermImpl::csi_DECSCUSR() {
 }
 
 void VtermImpl::csi_DECIC() {
-    TRACE_FUN;
     u32 arg = inputOps[0] ? inputOps[0] : 1u;
     if (isCursorInsideMargins()) {
         arg = std::min<u32>(arg, nColsEff - posX);
@@ -2727,7 +2618,6 @@ void VtermImpl::csi_DECIC() {
 }
 
 void VtermImpl::csi_DECDC() {
-    TRACE_FUN;
     u32 arg = inputOps[0] ? inputOps[0] : 1u;
     if (isCursorInsideMargins()) {
         arg = std::min<u32>(arg, nColsEff - posX);
@@ -2737,7 +2627,6 @@ void VtermImpl::csi_DECDC() {
 }
 
 void VtermImpl::esc_FI() {
-    TRACE_FUN;
     if (posX >= hMargin && posX == nColsEff - 1) {
         deleteCols(hMargin, 1);
         lastCol = false;
@@ -2749,7 +2638,6 @@ void VtermImpl::esc_FI() {
 }
 
 void VtermImpl::esc_BI() {
-    TRACE_FUN;
     if (posX == hMargin && posX < nColsEff) {
         insertCols(hMargin, 1);
         lastCol = false;
@@ -2761,14 +2649,12 @@ void VtermImpl::esc_BI() {
 }
 
 void VtermImpl::esc_NEL() {
-    TRACE_FUN;
     esc_IND();
     inp_CR();
     setState(InputState::Normal);
 }
 
 void VtermImpl::esc_HTS() {
-    TRACE_FUN;
     if (!tabStopsCustomized) {
         for (unsigned column = 8; column < nCols; column += 8) {
             tabStops.push_back((u16)(column));
@@ -2783,13 +2669,11 @@ void VtermImpl::esc_HTS() {
 }
 
 void VtermImpl::esc_SPA() {
-    TRACE_FUN;
     attrs.protected_char |= TerminalCell::isoProtection;
     setState(InputState::Normal);
 }
 
 void VtermImpl::esc_EPA() {
-    TRACE_FUN;
     attrs.protected_char &= ~TerminalCell::isoProtection;
     setState(InputState::Normal);
 }
@@ -2803,17 +2687,14 @@ void VtermImpl::csi_SCOSC_SLRM() {
 }
 
 void VtermImpl::csi_SCOSC() {
-    TRACE_FUN;
     esc_DECSC();
 }
 
 void VtermImpl::csi_SCORC() {
-    TRACE_FUN;
     esc_DECRC();
 }
 
 void VtermImpl::esc_DECSC() {
-    TRACE_FUN;
     savedCursor->posX = posX;
     savedCursor->posY = posY;
     savedCursor->lastCol = lastCol;
@@ -2826,7 +2707,6 @@ void VtermImpl::esc_DECSC() {
 }
 
 void VtermImpl::esc_DECRC() {
-    TRACE_FUN;
     if (!savedCursor->isSet) {
         logT << "Asked to restore cursor (DECRC) but it has not been saved." << std::endl;
     } else {
@@ -2844,7 +2724,6 @@ void VtermImpl::esc_DECRC() {
 }
 
 void VtermImpl::csi_CUU() {
-    TRACE_FUN;
     u32 arg = inputOps[0] ? inputOps[0] : 1;
     const u16 top = posY >= marginTop ? marginTop : 0;
     arg = std::min<u32>(arg, posY - top);
@@ -2854,7 +2733,6 @@ void VtermImpl::csi_CUU() {
 }
 
 void VtermImpl::csi_CUD() {
-    TRACE_FUN;
     u32 arg = inputOps[0] ? inputOps[0] : 1;
     const u16 bottom = posY < marginBottom ? marginBottom : nRows;
     arg = std::min<u32>(arg, bottom - posY - 1);
@@ -2864,7 +2742,6 @@ void VtermImpl::csi_CUD() {
 }
 
 void VtermImpl::csi_CUF() {
-    TRACE_FUN;
     u32 arg = inputOps[0] ? inputOps[0] : 1;
     const bool insideMargins = posX >= hMargin && posX < nColsEff;
     const u16 right = insideMargins ? nColsEff : nCols;
@@ -2875,7 +2752,6 @@ void VtermImpl::csi_CUF() {
 }
 
 void VtermImpl::csi_CUB() {
-    TRACE_FUN;
     moveCursorBackward(inputOps[0] ? inputOps[0] : 1);
     setState(InputState::Normal);
 }
@@ -2910,21 +2786,18 @@ void VtermImpl::moveCursorBackward(u32 count) {
 }
 
 void VtermImpl::csi_CNL() {
-    TRACE_FUN;
     csi_CUD();
     inp_CR();
     setState(InputState::Normal);
 }
 
 void VtermImpl::csi_CPL() {
-    TRACE_FUN;
     csi_CUU();
     inp_CR();
     setState(InputState::Normal);
 }
 
 void VtermImpl::csi_CHA() {
-    TRACE_FUN;
     u32 col = inputOps[0] ? inputOps[0] : 1;
     if (originMode == OriginMode::ScrollingRegion) {
         col = std::max<u32>(1, std::min<u32>(col, nColsEff - hMargin));
@@ -2938,13 +2811,11 @@ void VtermImpl::csi_CHA() {
 }
 
 void VtermImpl::csi_HPA() {
-    TRACE_FUN;
     csi_CHA();
     setState(InputState::Normal);
 }
 
 void VtermImpl::csi_HPR() {
-    TRACE_FUN;
     const u32 arg = inputOps[0] ? inputOps[0] : 1;
     const u16 right = originMode == OriginMode::ScrollingRegion ? nColsEff : nCols;
     posX = (u16)(std::min<u64>((u64)(posX) + arg, right - 1));
@@ -2953,7 +2824,6 @@ void VtermImpl::csi_HPR() {
 }
 
 void VtermImpl::csi_VPA() {
-    TRACE_FUN;
     u32 row = inputOps[0] ? inputOps[0] : 1;
     if (originMode == OriginMode::ScrollingRegion) {
         row = std::max<u32>(1, std::min<u32>(row, marginBottom - marginTop));
@@ -2967,7 +2837,6 @@ void VtermImpl::csi_VPA() {
 }
 
 void VtermImpl::csi_VPR() {
-    TRACE_FUN;
     const u32 arg = inputOps[0] ? inputOps[0] : 1;
     const u16 bottom = originMode == OriginMode::ScrollingRegion ? marginBottom : nRows;
     posY = (u16)(std::min<u64>((u64)(posY) + arg, bottom - 1));
@@ -2976,7 +2845,6 @@ void VtermImpl::csi_VPR() {
 }
 
 void VtermImpl::csi_CUP() {
-    TRACE_FUN;
     u32 row = inputOps[0] ? inputOps[0] : 1;
     u32 col = (nInputOps > 1 && inputOps[1]) ? inputOps[1] : 1;
     switch (originMode) {
@@ -2998,7 +2866,6 @@ void VtermImpl::csi_CUP() {
 }
 
 void VtermImpl::csi_SU() {
-    TRACE_FUN;
     u32 arg = inputOps[0] ? inputOps[0] : 1;
     arg = std::min<u32>(arg, marginBottom - marginTop);
     const bool pendingWrap = lastCol;
@@ -3054,7 +2921,6 @@ void VtermImpl::presentSmoothScroll() {
 }
 
 void VtermImpl::csi_SD() {
-    TRACE_FUN;
     u32 arg = inputOps[0] ? inputOps[0] : 1;
     arg = std::min<u32>(arg, marginBottom - marginTop);
     const bool pendingWrap = lastCol;
@@ -3064,7 +2930,6 @@ void VtermImpl::csi_SD() {
 }
 
 void VtermImpl::csi_CHT() {
-    TRACE_FUN;
     u32 arg = inputOps[0] ? inputOps[0] : 1;
     arg = std::min<u32>(arg, nCols);
     if (arg == 1) {
@@ -3078,7 +2943,6 @@ void VtermImpl::csi_CHT() {
 }
 
 void VtermImpl::csi_CBT() {
-    TRACE_FUN;
     u32 arg = inputOps[0] ? inputOps[0] : 1;
     arg = std::min<u32>(arg, nCols);
     for (u32 k = 0; k < arg; ++k) {
@@ -3104,7 +2968,6 @@ void VtermImpl::csi_CBT() {
 }
 
 void VtermImpl::csi_REP() {
-    TRACE_FUN;
     const u32 preceding = utf8dec.getUnicode();
     if (!preceding || codepointWidth(preceding) == 0) {
         setState(InputState::Normal);
@@ -3122,7 +2985,6 @@ void VtermImpl::csi_REP() {
 }
 
 void VtermImpl::csi_ED() {
-    TRACE_FUN;
     normalizeCursorPos();
     switch (inputOps[0]) {
         case 0:
@@ -3154,7 +3016,6 @@ void VtermImpl::csi_ED() {
 }
 
 void VtermImpl::csi_EL() {
-    TRACE_FUN;
     normalizeCursorPos();
     switch (inputOps[0]) {
         case 0:
@@ -3174,7 +3035,6 @@ void VtermImpl::csi_EL() {
 }
 
 void VtermImpl::csi_DECSED() {
-    TRACE_FUN;
     normalizeCursorPos();
     if (inputOps[0] == 0 || inputOps[0] == 2) {
         const u16 firstRow = inputOps[0] == 2 ? 0 : posY;
@@ -3193,7 +3053,6 @@ void VtermImpl::csi_DECSED() {
 }
 
 void VtermImpl::csi_DECSEL() {
-    TRACE_FUN;
     normalizeCursorPos();
     if (inputOps[0] == 0) {
         selectiveEraseRangeInRow(posY, posX, nCols - posX);
@@ -3206,7 +3065,6 @@ void VtermImpl::csi_DECSEL() {
 }
 
 void VtermImpl::csi_DECSCA() {
-    TRACE_FUN;
     if (inputOps[0] == 1) {
         attrs.protected_char |= TerminalCell::decProtection;
     } else {
@@ -3216,7 +3074,6 @@ void VtermImpl::csi_DECSCA() {
 }
 
 void VtermImpl::csi_DECFRA() {
-    TRACE_FUN;
     if (inputOps[0] >= 32 && inputOps[0] <= 0x10ffff) {
         Rectangle rectangle;
         if (!rectangleFromParams(1, rectangle)) {
@@ -3229,7 +3086,6 @@ void VtermImpl::csi_DECFRA() {
 }
 
 void VtermImpl::csi_DECERA(bool selective) {
-    TRACE_FUN;
     Rectangle rectangle;
     if (!rectangleFromParams(0, rectangle)) {
         setState(InputState::Normal);
@@ -3246,7 +3102,6 @@ void VtermImpl::csi_DECERA(bool selective) {
 }
 
 void VtermImpl::csi_DECCRA() {
-    TRACE_FUN;
     Rectangle source;
     if (!rectangleFromParams(0, source)) {
         setState(InputState::Normal);
@@ -3267,7 +3122,6 @@ void VtermImpl::csi_DECCRA() {
 }
 
 void VtermImpl::csi_DECCARA(bool reverse) {
-    TRACE_FUN;
     if (nInputOps >= 5) {
         Rectangle rectangle;
         if (!rectangleFromParams(0, rectangle)) {
@@ -3280,7 +3134,6 @@ void VtermImpl::csi_DECCARA(bool reverse) {
 }
 
 void VtermImpl::csi_DECRQCRA() {
-    TRACE_FUN;
     if (nInputOps >= 6) {
         Rectangle rectangle;
         if (!rectangleFromParams(2, rectangle)) {
@@ -3296,7 +3149,6 @@ void VtermImpl::csi_DECRQCRA() {
 }
 
 void VtermImpl::csi_IL() {
-    TRACE_FUN;
     if (isCursorInsideMargins()) {
         u32 arg = inputOps[0] ? inputOps[0] : 1;
         arg = std::min<u32>(arg, marginBottom - posY);
@@ -3307,7 +3159,6 @@ void VtermImpl::csi_IL() {
 }
 
 void VtermImpl::csi_DL() {
-    TRACE_FUN;
     if (isCursorInsideMargins()) {
         u32 arg = inputOps[0] ? inputOps[0] : 1;
         arg = std::min<u32>(arg, marginBottom - posY);
@@ -3318,7 +3169,6 @@ void VtermImpl::csi_DL() {
 }
 
 void VtermImpl::csi_ICH() {
-    TRACE_FUN;
     if (isCursorInsideMargins()) {
         u32 arg = inputOps[0] ? inputOps[0] : 1;
         u32 len = nColsEff - posX;
@@ -3337,7 +3187,6 @@ void VtermImpl::csi_ICH() {
 }
 
 void VtermImpl::csi_DCH() {
-    TRACE_FUN;
     if (posX >= hMargin && posX < nColsEff) {
         u32 arg = inputOps[0] ? inputOps[0] : 1;
         u32 len = nColsEff - posX;
@@ -3352,7 +3201,6 @@ void VtermImpl::csi_DCH() {
 }
 
 void VtermImpl::csi_ECH() {
-    TRACE_FUN;
     u32 arg = inputOps[0] ? inputOps[0] : 1;
     const u32 len = nCols - posX;
     arg = std::min(arg, len);
@@ -3362,7 +3210,6 @@ void VtermImpl::csi_ECH() {
 }
 
 void VtermImpl::csi_STBM() {
-    TRACE_FUN;
     if (nInputOps <= 2) {
         u32 newMarginTop = inputOps[0] > 0 ? inputOps[0] - 1 : 0;
         u32 newMarginBottom = nInputOps < 2 || inputOps[1] == 0 ? nRows : inputOps[1];
@@ -3387,7 +3234,6 @@ void VtermImpl::csi_STBM() {
 }
 
 void VtermImpl::csi_SLRM() {
-    TRACE_FUN;
     if (nInputOps <= 2) {
         u32 newMarginLeft = inputOps[0] > 0 ? inputOps[0] - 1 : 0;
         u32 newMarginRight = nInputOps < 2 || inputOps[1] == 0 ? nCols : inputOps[1];
@@ -3412,7 +3258,6 @@ void VtermImpl::csi_SLRM() {
 }
 
 void VtermImpl::csi_TBC() {
-    TRACE_FUN;
     switch (inputOps[0]) {
         case 0: {
             if (!tabStopsCustomized) {
@@ -3437,7 +3282,6 @@ void VtermImpl::csi_TBC() {
 }
 
 void VtermImpl::csi_SM() {
-    TRACE_FUN;
     for (size_t k = 0; k < nInputOps; ++k) {
         const auto& arg = inputOps[k];
 
@@ -3466,7 +3310,6 @@ void VtermImpl::csi_SM() {
 }
 
 void VtermImpl::csi_RM() {
-    TRACE_FUN;
     for (size_t k = 0; k < nInputOps; ++k) {
         const auto& arg = inputOps[k];
 
@@ -3885,7 +3728,6 @@ bool VtermImpl::getPrivateMode(u32 arg) const {
 }
 
 void VtermImpl::csi_privSM() {
-    TRACE_FUN;
     for (size_t k = 0; k < nInputOps; ++k) {
         setPrivMode(inputOps[k], true);
     }
@@ -3893,7 +3735,6 @@ void VtermImpl::csi_privSM() {
 }
 
 void VtermImpl::csi_privRM() {
-    TRACE_FUN;
     for (size_t k = 0; k < nInputOps; ++k) {
         setPrivMode(inputOps[k], false);
     }
@@ -3901,7 +3742,6 @@ void VtermImpl::csi_privRM() {
 }
 
 void VtermImpl::csi_privSave() {
-    TRACE_FUN;
     for (size_t k = 0; k < nInputOps; ++k) {
         const auto& arg = inputOps[k];
         switch (arg) {
@@ -3919,7 +3759,6 @@ void VtermImpl::csi_privSave() {
 }
 
 void VtermImpl::csi_privRestore() {
-    TRACE_FUN;
     for (size_t k = 0; k < nInputOps; ++k) {
         const auto& arg = inputOps[k];
         const auto it = savedPrivModes.find(arg);
@@ -3959,7 +3798,6 @@ void VtermImpl::setBgFromPalIx() {
 }
 
 void VtermImpl::csi_SGR() {
-    TRACE_FUN;
     const auto parseColor = [this](size_t& k, CellColor& color, int* palette) {
         if (k + 1 >= nInputOps) {
             return false;
@@ -4255,31 +4093,26 @@ void VtermImpl::csi_SGR() {
 #define DEVICE_ID "64;1;2;6;8;9;15;21;22;28;29c"
 
 void VtermImpl::csi_priDA() {
-    TRACE_FUN;
     writeCsiResponse("?" DEVICE_ID);
     setState(InputState::Normal);
 }
 
 void VtermImpl::csi_secDA() {
-    TRACE_FUN;
     writeCsiResponse(">41;14;0c");
     setState(InputState::Normal);
 }
 
 void VtermImpl::csi_terDA() {
-    TRACE_FUN;
     writeDcsResponse("!|00000000");
     setState(InputState::Normal);
 }
 
 void VtermImpl::csi_XTVERSION() {
-    TRACE_FUN;
     writeDcsResponse(">|Shitty " SHITTY_VERSION);
     setState(InputState::Normal);
 }
 
 void VtermImpl::csi_DECRQM(bool privateMode) {
-    TRACE_FUN;
     if (compatLevel < CompatibilityLevel::VT300) {
         setState(InputState::Normal);
         return;
@@ -4426,7 +4259,6 @@ void VtermImpl::csi_DECRQM(bool privateMode) {
 }
 
 void VtermImpl::csi_DSR(bool privateMode) {
-    TRACE_FUN;
     if (privateMode) {
         switch (inputOps[0]) {
             case 6: {
@@ -4497,7 +4329,6 @@ void VtermImpl::csi_DSR(bool privateMode) {
 }
 
 void VtermImpl::esch_DECALN() {
-    TRACE_FUN;
 
     originMode = OriginMode::Absolute;
     marginTop = 0;
@@ -4522,7 +4353,6 @@ void VtermImpl::esch_DECALN() {
 }
 
 void VtermImpl::setLineAttribute(u8 attribute) {
-    TRACE_FUN;
     cf->setLineAttribute(posY, attribute);
     if (attribute) {
         posX = std::min<u16>(posX, std::max(1, nCols / 2) - 1);
@@ -4531,13 +4361,11 @@ void VtermImpl::setLineAttribute(u8 attribute) {
 }
 
 void VtermImpl::esc_RIS() {
-    TRACE_FUN;
     resetTerminal();
     setState(InputState::Normal);
 }
 
 void VtermImpl::csi_DECSTR() {
-    TRACE_FUN;
     resetScreen(false);
     resetAttrs();
     marginTop = 0;
@@ -4556,7 +4384,6 @@ void VtermImpl::csi_DECSTR() {
 }
 
 void VtermImpl::handle_DCS() {
-    TRACE_FUN;
     if (compatLevel < CompatibilityLevel::VT200) {
         setState(InputState::Normal);
         return;
@@ -4695,7 +4522,6 @@ void VtermImpl::dcs_DECUDK(const std::string& request) {
 }
 
 void VtermImpl::dcs_DECRQSS(const std::string& arg) {
-    TRACE_FUN;
 
     std::ostringstream value;
     const std::string query = arg.substr(2);
@@ -4781,7 +4607,6 @@ void VtermImpl::dcs_DECRQSS(const std::string& arg) {
 }
 
 void VtermImpl::dcs_XTGETTCAP(const std::string& request) {
-    TRACE_FUN;
     const auto hexValue = [](const std::string& value) {
         static constexpr char hex[] = "0123456789abcdef";
         std::string result;
@@ -4850,7 +4675,6 @@ void VtermImpl::dcs_XTGETTCAP(const std::string& request) {
 }
 
 void VtermImpl::handle_OSC() {
-    TRACE_FUN;
     auto osc = std::string((char*)argBuf.data(), argBuf.size());
     std::size_t p = osc.find_first_of(";");
     std::string arg;
@@ -5241,7 +5065,6 @@ void VtermImpl::writeTitleResponse(char kind, const std::string& title) {
 }
 
 void VtermImpl::csi_XTTITLEMODE(bool set) {
-    TRACE_FUN;
     if (!csiHadParams) {
         titleModes = 0;
     } else {
@@ -5436,7 +5259,6 @@ void VtermImpl::osc_DynamicColorQuery(int cmd, const std::string& arg) {
 }
 
 void VtermImpl::csiq_DECSCL() {
-    TRACE_FUN;
     CompatibilityLevel level;
     switch (inputOps[0]) {
         case 61:
@@ -5474,7 +5296,6 @@ void VtermImpl::csiq_DECSCL() {
 }
 
 void VtermImpl::csi_XTWINOPS() {
-    TRACE_FUN;
     if (!opts.allowWindowOps) {
         setState(InputState::Normal);
         return;
@@ -5605,7 +5426,6 @@ void VtermImpl::csi_XTWINOPS() {
 }
 
 void VtermImpl::csi_XTHIMOUSE() {
-    TRACE_FUN;
     if (mouseTrk.mode == MouseTrackingMode::VT200_Highlight && nInputOps == 5 && inputOps[0] != 0) {
         mouseHighlight.active = true;
         mouseHighlight.startX = std::max<u32>(1, inputOps[1]);
@@ -5679,7 +5499,6 @@ void VtermImpl::csi_DECEFR() {
 }
 
 void VtermImpl::csi_XTMODKEYS() {
-    TRACE_FUN;
     const auto supported = [](u32 resource) {
         return resource <= 4 || resource == 6 || resource == 7;
     };
@@ -5698,7 +5517,6 @@ void VtermImpl::csi_XTMODKEYS() {
 }
 
 void VtermImpl::csi_XTQMODKEYS() {
-    TRACE_FUN;
     const u32 resource = inputOps[0];
     if (resource <= 4 || resource == 6 || resource == 7) {
         std::ostringstream response;
@@ -5709,7 +5527,6 @@ void VtermImpl::csi_XTQMODKEYS() {
 }
 
 void VtermImpl::csi_kittyKeyboardPush() {
-    TRACE_FUN;
     constexpr size_t maxStackDepth = 16;
     auto& state = kittyKeyboardState();
     if (state.stack.size() == maxStackDepth) {
@@ -5721,7 +5538,6 @@ void VtermImpl::csi_kittyKeyboardPush() {
 }
 
 void VtermImpl::csi_kittyKeyboardPop() {
-    TRACE_FUN;
     auto& state = kittyKeyboardState();
     const u32 count = inputOps[0] ? inputOps[0] : 1;
     for (u32 k = 0; k < count; ++k) {
@@ -5736,7 +5552,6 @@ void VtermImpl::csi_kittyKeyboardPop() {
 }
 
 void VtermImpl::csi_kittyKeyboardSet() {
-    TRACE_FUN;
     auto& state = kittyKeyboardState();
     const u8 flags = inputOps[0] & 0x1f;
     const u32 mode = nInputOps > 1 ? inputOps[1] : 1;
@@ -5757,7 +5572,6 @@ void VtermImpl::csi_kittyKeyboardSet() {
 }
 
 void VtermImpl::csi_kittyKeyboardQuery() {
-    TRACE_FUN;
     std::ostringstream reply;
     reply << "?" << (unsigned)(getKittyKeyboardFlags()) << 'u';
     writeCsiResponse(reply.str());
@@ -7148,12 +6962,6 @@ std::string VtermImpl::getLocalEcho(const u8* const begin, const u8* const end) 
 }
 
 int VtermImpl::writePty(VtKey key, VtModifier modifiers_, bool userInput) {
-#ifdef DEBUG
-    if (key == VtKey::Print) {
-        debugKey();
-        return 0;
-    }
-#endif
     const auto userDefined = userDefinedKeys.find(key);
     if (userDefined != userDefinedKeys.end()) {
         return writePty(userDefined->second.data(), userDefined->second.size(), userInput);
@@ -7875,8 +7683,6 @@ template <bool traced>
 bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
     const PresentationState presentationBefore = capturePresentationState();
     lastEscBegin = 0;
-    lastNormalBegin = 0;
-    lastStopPos = 0;
     hideCursor();
     for (readPos = 0; readPos < inputSize; ++readPos) {
         const u8& ch = input[readPos];
@@ -8145,40 +7951,32 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                         setState(InputState::OSC);
                         break;
                     case '\r':
-                        traceNormalInput();
                         inp_CR();
                         break;
                     case '\f':
                     case '\v':
                     case '\n':
-                        traceNormalInput();
                         if (autoNewlineMode) {
                             inp_CR();
                         }
                         esc_IND();
                         break;
                     case '\t':
-                        traceNormalInput();
                         inp_HT();
                         break;
                     case '\b':
-                        traceNormalInput();
                         csi_CUB();
                         break;
                     case '\a':
-                        traceNormalInput();
                         host.bell();
                         break;
                     case '\x0e':
-                        traceNormalInput();
                         charsetState.gl = 1;
                         break;
                     case '\x0f':
-                        traceNormalInput();
                         charsetState.gl = 0;
                         break;
                     case '\x05':
-                        traceNormalInput();
                         break;
                     default:
                         inputGraphicChar(ch);
@@ -8756,7 +8554,6 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                 break;
         }
     }
-    traceNormalInput();
     syncPresentationCursor();
     const bool changed = presentationChanged(presentationBefore);
     if (refresh && changed) {

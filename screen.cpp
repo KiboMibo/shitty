@@ -37,9 +37,6 @@ namespace stl {}
 
 using namespace stl;
 
-#ifdef DEBUG
-    #include <sstream>
-#endif
 
 namespace {
 
@@ -921,13 +918,6 @@ bool ScreenImpl::getSelectedUtf8(std::string& utf8_selection) const {
 
     utf8_selection = std::string(utf8_out.data(), utf8_out.size());
 
-#if DEBUG
-    if (utf8_selection.size() <= 80) {
-        logT << "Selected " << utf8_selection.size() << " bytes:\n'" << utf8_selection << "'" << std::endl;
-    } else {
-        logT << "Selected " << utf8_selection.size() << " bytes:\n'" << utf8_selection.substr(0, 40) << "' ...\n'" << utf8_selection.substr(utf8_selection.size() - 40) << "'" << std::endl;
-    }
-#endif
     return true;
 }
 
@@ -1415,13 +1405,6 @@ void ScreenImpl::eraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& a
         return;
     }
 
-#ifdef DEBUG
-    if (nCols < startX + count || nRows <= pY) {
-        std::ostringstream oss;
-        oss << "ScreenImpl::eraseInRow (pY=" << pY << " startX=" << startX << " count=" << count << ") out of bounds, nCols=" << nCols << ", nRows=" << nRows;
-        throw std::runtime_error(oss.str());
-    }
-#endif
     u32 idx = getIdx(pY, startX);
     TerminalCell erased = attrs;
     erased.line_attr = getLogicalRowPtr(pY)[0].line_attr;
@@ -1590,13 +1573,6 @@ void ScreenImpl::moveInRow(u16 pY, u16 dstX, u16 srcX, u16 count) {
         return;
     }
 
-#ifdef DEBUG
-    if (nCols < dstX + count || nCols < srcX + count || nRows <= pY) {
-        std::ostringstream oss;
-        oss << "ScreenImpl::moveInRow (pY=" << pY << " dstX=" << dstX << " srcX=" << srcX << " count=" << count << ") out of bounds, nCols=" << nCols << ", nRows=" << nRows;
-        throw std::runtime_error(oss.str());
-    }
-#endif
     u32 dstIdx = getIdx(pY, dstX);
     u32 srcIdx = getIdx(pY, srcX);
     moveCells(dstIdx, srcIdx, count);
@@ -1611,13 +1587,6 @@ void ScreenImpl::copyRow(u16 dstY, u16 srcY, u16 startX, u16 count) {
         return;
     }
 
-#ifdef DEBUG
-    if (nCols < startX + count || nRows <= dstY || nRows <= srcY) {
-        std::ostringstream oss;
-        oss << "ScreenImpl::copyRow (dstY=" << dstY << " srcY=" << srcY << " startX=" << startX << " count=" << count << ") out of bounds, nCols=" << nCols << ", nRows=" << nRows;
-        throw std::runtime_error(oss.str());
-    }
-#endif
     u32 dstIdx = getIdx(dstY, startX);
     u32 srcIdx = getIdx(srcY, startX);
     copyCells(dstIdx, srcIdx, count);
@@ -1744,13 +1713,6 @@ const TerminalCell* ScreenImpl::getViewRowPtr(int pY) const {
 }
 
 u32 ScreenImpl::getIdx(u16 pY, u16 pX) const {
-#ifdef DEBUG
-    if (nCols <= pX || nRows <= pY) {
-        std::ostringstream oss;
-        oss << "ScreenImpl::getIdx (pY=" << pY << " pX=" << pX << ") out of bounds, nCols=" << nCols << ", nRows=" << nRows;
-        throw std::runtime_error(oss.str());
-    }
-#endif
     return nCols * screen[pY] + pX;
 }
 
