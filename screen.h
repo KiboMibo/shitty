@@ -53,7 +53,7 @@ struct Screen {
     virtual stl::StringView hyperlinkAt(u16 row, u16 column) const noexcept = 0;
     virtual TerminalCell testCell(u16 row, u16 column) const noexcept = 0;
     virtual void fullCopyCells(RenderCell* dest) const = 0;
-    virtual void deltaCopyCells(RenderCell* dest) const = 0;
+    virtual void deltaCopyCells(RenderCell* dest) = 0;
 
     virtual bool active() const noexcept = 0;
     virtual void freeCells() = 0;

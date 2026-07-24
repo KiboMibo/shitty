@@ -22,6 +22,7 @@
 #include "log.h"
 #include "utf8.h"
 
+#include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
 
 #include <utf8proc.h>
@@ -68,7 +69,7 @@ namespace {
         stl::StringView hyperlinkAt(u16 row, u16 column) const noexcept override;
         TerminalCell testCell(u16 row, u16 column) const noexcept override;
         void fullCopyCells(RenderCell* dest) const override;
-        void deltaCopyCells(RenderCell* dest) const override;
+        void deltaCopyCells(RenderCell* dest) override;
 
         bool active() const noexcept override;
         void freeCells() override;
@@ -159,15 +160,25 @@ namespace {
         bool cursorBlink = false;
         bool screenReverseVideo = false;
         SelectSnapTo snapTo = SelectSnapTo::Char;
+        stl::Buffer damageStorage;
 
         struct Damage {
-            u32 start = 0;
-            u32 end = 0;
-            u32 totalCells = 0;
+            u32* cells = nullptr;
+            u32* epochs = nullptr;
+            size_t capacity = 0;
+            size_t count = 0;
+            u32 epoch = 0;
+            u16 width = 0;
+            u16 height = 0;
 
+            Damage& operator=(Damage&& other) noexcept;
+            void configure(void* storage, u16 columns, u16 rows);
             void reset();
             void expose();
-            void add(u32 start, u32 end);
+            bool hasDamage() const noexcept;
+            void addCell(u16 row, u16 column);
+            void addRow(u16 row, u16 begin, u16 end);
+            void addRect(u16 top, u16 left, u16 bottom, u16 right);
         };
 
         Damage damage;
@@ -182,13 +193,17 @@ namespace {
         void eraseRange(u32 start, u32 end, const TerminalCell& attrs);
         void copyCells(u32 destination, u32 source, u32 count);
         void moveCells(u32 destination, u32 source, u32 count);
+        void damageCell(u16 row, u16 column);
+        void damageRow(u16 row, u16 begin, u16 end);
+        void damageRectangle(u16 top, u16 left, u16 bottom, u16 right);
+        void resizeDamage(u16 columns, u16 rows);
         TerminalCell* dirtySpan(u16 row, u16 start, u16 count);
         TerminalCell* overwriteWideSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs);
         TerminalCell* prepareSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs);
         TerminalCell& prepareCell(u16 row, u16 column, const TerminalCell& eraseAttrs);
 
         RenderCell materialize(const TerminalCell& cell, const CellExtraStore& extras) const;
-        void damageDeltaCopy(RenderCell* destination, u32 start, u32 count, const CellExtraStore& extras) const;
+        void damageDeltaCopy(RenderCell* destination, const TerminalCell* source, u16 count, const CellExtraStore& extras) const;
 
         static SelectSnapTo nextSelectSnapTo(SelectSnapTo snapTo);
 
@@ -296,7 +311,7 @@ void ScreenImpl::resetDamage() {
 }
 
 bool ScreenImpl::hasDamage() const noexcept {
-    return damage.start < damage.end;
+    return damage.hasDamage();
 }
 
 Color ScreenImpl::getSelectionForeground() const noexcept {
@@ -392,7 +407,7 @@ ScreenImpl::ScreenImpl(Composer& composer_, u16 winPx_, u16 winPy_, u16 nCols_, 
     }
     marginTop_ = 0;
     marginBottom_ = nRows;
-    damage.totalCells = nCols * (nRows + saveLines);
+    resizeDamage(nCols, nRows);
     highMemUsageReport();
 }
 
@@ -484,7 +499,6 @@ ScreenImpl::ResizeState ScreenImpl::resize(u16 winPx_, u16 winPy_, u16 nCols_, u
         const auto cellHasContent = [](const TerminalCell& source) {
             TerminalCell cell = source;
             cell.wrap = 0;
-            cell.dirty = 0;
             cell.line_attr = 0;
             return cell != TerminalCell{};
         };
@@ -527,7 +541,6 @@ ScreenImpl::ResizeState ScreenImpl::resize(u16 winPx_, u16 winPy_, u16 nCols_, u
             for (int column = 0; column < copyEnd; ++column) {
                 TerminalCell cell = row[column];
                 cell.wrap = 0;
-                cell.dirty = 0;
                 line.cells.push_back(cell);
             }
             continueLine = wrapEnd && normalWidth;
@@ -568,7 +581,6 @@ ScreenImpl::ResizeState ScreenImpl::resize(u16 winPx_, u16 winPy_, u16 nCols_, u
                     for (size_t cellIndex = 0; cellIndex < width; ++cellIndex) {
                         TerminalCell cell = line.cells[offset + cellIndex];
                         cell.wrap = 0;
-                        cell.dirty = 0;
                         output[outputRow][column++] = cell;
                         boundaries[offset + cellIndex + 1] = {outputRow, column};
                     }
@@ -586,7 +598,6 @@ ScreenImpl::ResizeState ScreenImpl::resize(u16 winPx_, u16 winPy_, u16 nCols_, u
                 for (size_t offset = 0; offset < count; ++offset) {
                     output[outputRow][offset] = line.cells[offset];
                     output[outputRow][offset].wrap = 0;
-                    output[outputRow][offset].dirty = 0;
                     boundaries[offset] = {outputRow, (int)(offset)};
                     boundaries[offset + 1] = {outputRow, (int)(offset + 1)};
                 }
@@ -675,7 +686,7 @@ ScreenImpl::ResizeState ScreenImpl::resize(u16 winPx_, u16 winPy_, u16 nCols_, u
         marginTop_ = 0;
         marginBottom_ = nRows;
         erasedRowTemplateValid = false;
-        damage.totalCells = nCols * (nRows + saveLines);
+        resizeDamage(nCols, nRows);
         expose();
         highMemUsageReport();
         return state;
@@ -737,7 +748,7 @@ ScreenImpl::ResizeState ScreenImpl::resize(u16 winPx_, u16 winPy_, u16 nCols_, u
     if (!selectionValid()) {
         selection.clear();
     }
-    damage.totalCells = nCols * (nRows + saveLines);
+    resizeDamage(nCols, nRows);
     expose();
     highMemUsageReport();
     return state;
@@ -755,13 +766,23 @@ void ScreenImpl::fullCopyCells(RenderCell* const dst) const {
     }
 }
 
-void ScreenImpl::deltaCopyCells(RenderCell* const dst) const {
+void ScreenImpl::deltaCopyCells(RenderCell* const dst) {
     CellExtraStore* const extras = cellExtras();
     assert(extras != nullptr);
-    RenderCell* p = dst;
-    for (int pY = -viewOffset; pY < nRows - viewOffset; ++pY) {
-        damageDeltaCopy(p, nCols * getLogicalRow(pY), nCols, *extras);
-        p += nCols;
+
+    const u32* current = damage.cells;
+    const u32* const end = current + damage.count;
+    while (current != end) {
+        const u32 packed = *current++;
+        const u16 row = packed >> 16;
+        const u16 column = packed & 0xffff;
+        u16 count = 1;
+        while (current != end && *current == packed + count) {
+            ++current;
+            ++count;
+        }
+        const size_t offset = (size_t)(row)*nCols + column;
+        damageDeltaCopy(dst + offset, getViewRowPtr(row) + column, count, *extras);
     }
 }
 
@@ -948,7 +969,6 @@ RenderCell ScreenImpl::materialize(const TerminalCell& cell, const CellExtraStor
     result.underline = cell.underlined();
     result.inverse = cell.inverse;
     result.wrap = cell.wrap;
-    result.dirty = cell.dirty;
     result.faint = cell.faint;
     result.blink = cell.blink;
     result.conceal = cell.conceal;
@@ -971,35 +991,22 @@ RenderCell ScreenImpl::materialize(const TerminalCell& cell, const CellExtraStor
     return result;
 }
 
-void ScreenImpl::damageDeltaCopy(RenderCell* dst, u32 start, u32 count, const CellExtraStore& extras) const {
-    u32 end = start + count;
-
-    if (damage.end <= start || end <= damage.start) {
-        return;
-    }
-
-    if (start < damage.start) {
-        dst += (damage.start - start);
-        start = damage.start;
-    }
-
-    if (damage.end < end) {
-        end = damage.end;
-    }
-
-    TerminalCell* const src = cells.get();
-
-    for (size_t i = 0, j = start; j < end; ++i, ++j) {
-        RenderCell rendered = materialize(src[j], extras);
-        if (dst[i] != rendered) {
-            dst[i] = rendered;
-            dst[i].dirty = 1;
+void ScreenImpl::damageDeltaCopy(RenderCell* dst, const TerminalCell* src, u16 count, const CellExtraStore& extras) const {
+    for (u16 index = 0; index < count; ++index) {
+        RenderCell rendered = materialize(src[index], extras);
+        const bool wasDirty = dst[index].dirty;
+        dst[index].dirty = 0;
+        if (dst[index] != rendered) {
+            dst[index] = rendered;
+            dst[index].dirty = 1;
+        } else {
+            dst[index].dirty = wasDirty;
         }
     }
 }
 
 void ScreenImpl::highMemUsageReport() {
-    auto allocKB = damage.totalCells * cellSize / 1024;
+    auto allocKB = cellCapacity() * cellSize / 1024;
     if (allocKB > 8192) {
         logI << "Allocated " << allocKB << " KiB for cell storage; consider "
              << "decreasing saveLines (current value: " << saveLines << ") to reduce memory usage!" << std::endl;
@@ -1055,6 +1062,7 @@ bool ScreenImpl::pageToBottom() {
 void ScreenImpl::scrollUp(u16 top, u16 bottom, u16 count) {
     count = std::min<u16>(count, bottom - top);
     const bool capture = top == 0 && saveLines;
+    const u16 previousViewOffset = viewOffset;
     if (!capture) {
         vscrollSelection(top, bottom, -count, false);
     }
@@ -1087,7 +1095,11 @@ void ScreenImpl::scrollUp(u16 top, u16 bottom, u16 count) {
     if (capture && viewOffset) {
         viewOffset = std::min<size_t>(viewOffset + count, history.size());
     }
-    expose();
+    if (capture && previousViewOffset) {
+        expose();
+    } else {
+        damageRectangle(top, 0, bottom, nCols);
+    }
 }
 
 void ScreenImpl::scrollDown(u16 top, u16 bottom, u16 count) {
@@ -1102,7 +1114,7 @@ void ScreenImpl::scrollDown(u16 top, u16 bottom, u16 count) {
         screen[top] = incoming;
     }
 
-    expose();
+    damageRectangle(top, 0, bottom, nCols);
 }
 
 void ScreenImpl::restoreHistory(u16 count) {
@@ -1127,7 +1139,7 @@ void ScreenImpl::restoreHistory(u16 count) {
 
 TerminalCell* ScreenImpl::dirtySpan(u16 pY, u16 startX, u16 count) {
     const u32 idx = getIdx(pY, startX);
-    damage.add(idx, idx + count);
+    damageRow(pY, startX, startX + count);
     if (!selection.empty()) {
         invalidateSelection(Rect(startX, pY, startX + count, pY));
     }
@@ -1143,15 +1155,14 @@ void ScreenImpl::fillCells(u16 ch, const TerminalCell& attrs) {
             cells.get()[k].uc_pt = ch == ' ' ? 0 : ch;
             cells.get()[k].drawn = ch != ' ';
         }
-        damage.add(start, end);
     }
+    damageRectangle(0, 0, nRows, nCols);
 }
 
 void ScreenImpl::setLineAttribute(u16 row, u8 attribute) {
     TerminalCell* cells_ = dirtySpan(row, 0, nCols);
     for (u16 column = 0; column < nCols; ++column) {
         cells_[column].line_attr = attribute;
-        cells_[column].dirty = 1;
     }
 }
 
@@ -1174,7 +1185,12 @@ bool ScreenImpl::wrapped(u16 row, u16 column) const noexcept {
 }
 
 void ScreenImpl::setWrapped(u16 row, u16 column) {
-    dirtySpan(row, column, 1)->wrap = 1;
+    TerminalCell* cells_ = cells.get() + getIdx(row, 0);
+    cells_[column].wrap = 1;
+    damageCell(row, column);
+    if (!selection.empty()) {
+        invalidateSelection(Rect(column, row));
+    }
 }
 
 void ScreenImpl::moveWrap(u16 row, u16 sourceColumn, u16 destinationColumn) {
@@ -1182,8 +1198,16 @@ void ScreenImpl::moveWrap(u16 row, u16 sourceColumn, u16 destinationColumn) {
     if (!cells_[sourceColumn].wrap || sourceColumn == destinationColumn) {
         return;
     }
-    dirtySpan(row, sourceColumn, 1)->wrap = 0;
-    dirtySpan(row, destinationColumn, 1)->wrap = 1;
+    TerminalCell* mutableCells = cells.get() + getIdx(row, 0);
+    mutableCells[sourceColumn].wrap = 0;
+    mutableCells[destinationColumn].wrap = 1;
+    damageCell(row, sourceColumn);
+    damageCell(row, destinationColumn);
+    if (!selection.empty()) {
+        const u16 begin = sourceColumn < destinationColumn ? sourceColumn : destinationColumn;
+        const u16 end = sourceColumn > destinationColumn ? sourceColumn + 1 : destinationColumn + 1;
+        invalidateSelection(Rect(begin, row, end, row));
+    }
 }
 
 TerminalCell* ScreenImpl::prepareSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs) {
@@ -1204,7 +1228,11 @@ TerminalCell& ScreenImpl::prepareCell(u16 row, u16 column, const TerminalCell& e
     } else if (cells_[column].dwidth) {
         clearWideBoundary(row, column + 1, eraseAttrs);
     }
-    return *dirtySpan(row, column, 1);
+    damageCell(row, column);
+    if (!selection.empty()) {
+        invalidateSelection(Rect(column, row));
+    }
+    return cells.get()[getIdx(row, column)];
 }
 
 void ScreenImpl::writeGrapheme(u16 row, u16 column, const u32* codepoints, size_t count, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, u8 lineAttribute_, const TerminalCell& eraseAttrs) {
@@ -1253,17 +1281,19 @@ void ScreenImpl::fillRectangle(u16 top, u16 left, u16 bottom, u16 right, u32 cod
     for (u16 row = top; row < bottom; ++row) {
         clearWideBoundary(row, left, eraseAttrs);
         clearWideBoundary(row, right, eraseAttrs);
-        TerminalCell* cells_ = dirtySpan(row, left, right - left);
+        TerminalCell* cells_ = cells.get() + getIdx(row, left);
         for (u16 column = left; column < right; ++column) {
             TerminalCell& cell = cells_[column - left];
             const u8 lineAttribute_ = cell.line_attr;
             cell = attrs;
             cell.line_attr = lineAttribute_;
             cell.uc_pt = codepoint;
-            cell.dirty = 1;
         }
     }
-    expose();
+    damageRectangle(top, left, bottom, right);
+    if (!selection.empty()) {
+        invalidateSelection(Rect(left, top, right, bottom));
+    }
 }
 
 void ScreenImpl::copyRectangle(u16 sourceTop, u16 sourceLeft, u16 targetTop, u16 targetLeft, u16 height, u16 width, const TerminalCell& eraseAttrs) {
@@ -1276,17 +1306,19 @@ void ScreenImpl::copyRectangle(u16 sourceTop, u16 sourceLeft, u16 targetTop, u16
     for (u16 row = 0; row < height; ++row) {
         clearWideBoundary(targetTop + row, targetLeft, eraseAttrs);
         clearWideBoundary(targetTop + row, targetLeft + width, eraseAttrs);
-        TerminalCell* destination = dirtySpan(targetTop + row, targetLeft, width);
+        TerminalCell* destination = cells.get() + getIdx(targetTop + row, targetLeft);
         for (u16 column = 0; column < width; ++column) {
             const u8 lineAttribute_ = destination[column].line_attr;
             destination[column] = copied[(size_t)(row)*width + column];
             destination[column].line_attr = lineAttribute_;
-            destination[column].dirty = 1;
         }
         repairWideBoundary(targetTop + row, targetLeft, eraseAttrs);
         repairWideBoundary(targetTop + row, targetLeft + width, eraseAttrs);
     }
-    expose();
+    damageRectangle(targetTop, targetLeft, targetTop + height, targetLeft + width);
+    if (!selection.empty()) {
+        invalidateSelection(Rect(targetLeft, targetTop, targetLeft + width, targetTop + height));
+    }
 }
 
 void ScreenImpl::changeRectangleAttributes(u16 top, u16 left, u16 bottom, u16 right, const u32* modes, size_t modeCount, bool reverse) {
@@ -1342,16 +1374,18 @@ void ScreenImpl::changeRectangleAttributes(u16 top, u16 left, u16 bottom, u16 ri
     };
 
     for (u16 row = top; row < bottom; ++row) {
-        TerminalCell* cells_ = dirtySpan(row, left, right - left);
+        TerminalCell* cells_ = cells.get() + getIdx(row, left);
         for (u16 column = left; column < right; ++column) {
             TerminalCell& cell = cells_[column - left];
             for (size_t index = 0; index < modeCount; ++index) {
                 apply(cell, modes[index]);
             }
-            cell.dirty = 1;
         }
     }
-    expose();
+    damageRectangle(top, left, bottom, right);
+    if (!selection.empty()) {
+        invalidateSelection(Rect(left, top, right, bottom));
+    }
 }
 
 u16 ScreenImpl::checksum(u16 top, u16 left, u16 bottom, u16 right) const noexcept {
@@ -1425,10 +1459,10 @@ void ScreenImpl::eraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& a
             erasedRowTemplateValid = true;
         }
         memcpy(cells.get() + idx, erasedRowTemplate.data(), nCols * cellSize);
-        damage.add(idx, idx + count);
     } else {
         eraseRange(idx, idx + count, erased);
     }
+    damageRow(pY, startX, startX + count);
     if (!selection.empty()) {
         invalidateSelection(Rect(startX, pY, startX + count, pY));
     }
@@ -1463,11 +1497,11 @@ void ScreenImpl::eraseWideInRow(u16 pY, u16 startX, u16 count, const TerminalCel
             row[x] = erased;
         }
     }
-    const u32 damageStart = rowIdx + (eraseLeft ? startX - 1 : startX);
-    const u32 damageEnd = rowIdx + (eraseRight ? endX + 1 : endX);
-    damage.add(damageStart, damageEnd);
+    const u16 damageStart = eraseLeft ? startX - 1 : startX;
+    const u16 damageEnd = eraseRight ? endX + 1 : endX;
+    damageRow(pY, damageStart, damageEnd);
     if (!selection.empty()) {
-        invalidateSelection(Rect(eraseLeft ? startX - 1 : startX, pY, eraseRight ? endX + 1 : endX, pY));
+        invalidateSelection(Rect(damageStart, pY, damageEnd, pY));
     }
 }
 
@@ -1485,11 +1519,11 @@ TerminalCell* ScreenImpl::overwriteWideSpan(u16 pY, u16 startX, u16 count, const
     if (eraseRight) {
         row[endX] = erased;
     }
-    const u32 damageStart = rowIdx + (eraseLeft ? startX - 1 : startX);
-    const u32 damageEnd = rowIdx + (eraseRight ? endX + 1 : endX);
-    damage.add(damageStart, damageEnd);
+    const u16 damageStart = eraseLeft ? startX - 1 : startX;
+    const u16 damageEnd = eraseRight ? endX + 1 : endX;
+    damageRow(pY, damageStart, damageEnd);
     if (!selection.empty()) {
-        invalidateSelection(Rect(eraseLeft ? startX - 1 : startX, pY, eraseRight ? endX + 1 : endX, pY));
+        invalidateSelection(Rect(damageStart, pY, damageEnd, pY));
     }
     return row + startX;
 }
@@ -1506,14 +1540,14 @@ void ScreenImpl::clearWideBoundary(u16 pY, u16 boundary, const TerminalCell& att
     erased.line_attr = row[0].line_attr;
     if (eraseLeft) {
         row[boundary - 1] = erased;
-        damage.add(rowIdx + boundary - 1, rowIdx + boundary);
+        damageCell(pY, boundary - 1);
         if (!selection.empty()) {
             invalidateSelection(Rect(boundary - 1, pY));
         }
     }
     if (eraseRight) {
         row[boundary] = erased;
-        damage.add(rowIdx + boundary, rowIdx + boundary + 1);
+        damageCell(pY, boundary);
         if (!selection.empty()) {
             invalidateSelection(Rect(boundary, pY));
         }
@@ -1532,13 +1566,13 @@ void ScreenImpl::repairWideBoundary(u16 pY, u16 boundary, const TerminalCell& at
     erased.line_attr = row[0].line_attr;
     if (leftLead) {
         row[boundary - 1] = erased;
-        damage.add(rowIdx + boundary - 1, rowIdx + boundary);
+        damageCell(pY, boundary - 1);
         if (!selection.empty()) {
             invalidateSelection(Rect(boundary - 1, pY));
         }
     } else {
         row[boundary] = erased;
-        damage.add(rowIdx + boundary, rowIdx + boundary + 1);
+        damageCell(pY, boundary);
         if (!selection.empty()) {
             invalidateSelection(Rect(boundary, pY));
         }
@@ -1551,20 +1585,31 @@ void ScreenImpl::selectiveEraseInRow(u16 pY, u16 startX, u16 count, const Termin
     erased.uc_pt = 0;
     erased.protected_char = 0;
     extras->clearExtra(erased, extras->underlineColor(attrs));
+    TerminalCell* row = cells.get() + getIdx(pY, 0);
+    bool changed = false;
+    u16 changedStart = nCols;
     for (u16 x = startX; x < startX + count; ++x) {
-        const u32 index = getIdx(pY, x);
-        auto& cell = operator[](index);
+        TerminalCell& cell = row[x];
         if (!(cell.protected_char & protectionMask)) {
+            if (changedStart == nCols) {
+                changedStart = x;
+            }
             erased.line_attr = cell.line_attr;
             cell = erased;
-            cell.dirty = 1;
-            damage.add(index, index + 1);
+            changed = true;
+        } else if (changedStart != nCols) {
             if (!selection.empty()) {
-                invalidateSelection(Rect(x, pY));
+                invalidateSelection(Rect(changedStart, pY, x, pY));
             }
+            changedStart = nCols;
         }
     }
-    expose();
+    if (changedStart != nCols && !selection.empty()) {
+        invalidateSelection(Rect(changedStart, pY, startX + count, pY));
+    }
+    if (changed) {
+        damageRow(pY, startX, startX + count);
+    }
 }
 
 void ScreenImpl::moveInRow(u16 pY, u16 dstX, u16 srcX, u16 count) {
@@ -1582,6 +1627,7 @@ void ScreenImpl::moveInRow(u16 pY, u16 dstX, u16 srcX, u16 count) {
     u32 dstIdx = getIdx(pY, dstX);
     u32 srcIdx = getIdx(pY, srcX);
     moveCells(dstIdx, srcIdx, count);
+    damageRow(pY, dstX, dstX + count);
     if (!selection.empty()) {
         invalidateSelection(Rect(dstX, pY, dstX + count, pY));
     }
@@ -1602,6 +1648,7 @@ void ScreenImpl::copyRow(u16 dstY, u16 srcY, u16 startX, u16 count) {
     u32 dstIdx = getIdx(dstY, startX);
     u32 srcIdx = getIdx(srcY, startX);
     copyCells(dstIdx, srcIdx, count);
+    damageRow(dstY, startX, startX + count);
     if (!selection.empty()) {
         invalidateSelection(Rect(startX, dstY, startX + count, dstY));
     }
@@ -1616,7 +1663,7 @@ void ScreenImpl::rotateRowsUp(u16 top, u16 bottom, u16 count) {
         invalidateSelection(Rect(0, top, 0, bottom));
     }
     std::rotate(screen.begin() + top, screen.begin() + top + count, screen.begin() + bottom);
-    expose();
+    damageRectangle(top, 0, bottom, nCols);
 }
 
 void ScreenImpl::rotateRowsDown(u16 top, u16 bottom, u16 count) {
@@ -1628,7 +1675,7 @@ void ScreenImpl::rotateRowsDown(u16 top, u16 bottom, u16 count) {
         invalidateSelection(Rect(0, top, 0, bottom));
     }
     std::rotate(screen.begin() + top, screen.begin() + bottom - count, screen.begin() + bottom);
-    expose();
+    damageRectangle(top, 0, bottom, nCols);
 }
 
 void ScreenImpl::invalidateSelection(const Rect&& damage) {
@@ -1745,7 +1792,6 @@ TerminalCell& ScreenImpl::operator[](u32 idx) {
 void ScreenImpl::eraseRange(u32 start, u32 end, const TerminalCell& attrs) {
     TerminalCell* ca = &(cells.get()[start]);
     TerminalCell* const cz = ca - start + end;
-    damage.add(start, end);
     while (ca < cz) {
         *ca++ = attrs;
     }
@@ -1753,35 +1799,120 @@ void ScreenImpl::eraseRange(u32 start, u32 end, const TerminalCell& attrs) {
 
 void ScreenImpl::copyCells(u32 dstIx, u32 srcIx, u32 count) {
     memcpy(cells.get() + dstIx, cells.get() + srcIx, count * cellSize);
-    damage.add(dstIx, dstIx + count);
 }
 
 void ScreenImpl::moveCells(u32 dstIx, u32 srcIx, u32 count) {
     memmove(cells.get() + dstIx, cells.get() + srcIx, count * cellSize);
-    damage.add(dstIx, dstIx + count);
+}
+
+void ScreenImpl::damageCell(u16 row, u16 column) {
+    const u32 viewRow = (u32)(row) + viewOffset;
+    if (viewRow < nRows) {
+        damage.addCell(viewRow, column);
+    }
+}
+
+void ScreenImpl::damageRow(u16 row, u16 begin, u16 end) {
+    const u32 viewRow = (u32)(row) + viewOffset;
+    if (viewRow < nRows) {
+        damage.addRow(viewRow, begin, end);
+    }
+}
+
+void ScreenImpl::damageRectangle(u16 top, u16 left, u16 bottom, u16 right) {
+    const u32 viewTop = (u32)(top) + viewOffset;
+    const u32 viewBottom = (u32)(bottom) + viewOffset;
+    if (viewTop >= nRows) {
+        return;
+    }
+    damage.addRect(viewTop, left, viewBottom < nRows ? viewBottom : nRows, right);
+}
+
+void ScreenImpl::resizeDamage(u16 columns, u16 rows) {
+    const size_t count = (size_t)(columns)*rows;
+    damageStorage.grow(count * sizeof(u32) * 2);
+    damage.configure(damageStorage.mutData(), columns, rows);
+}
+
+ScreenImpl::Damage& ScreenImpl::Damage::operator=(Damage&& other) noexcept {
+    cells = other.cells;
+    epochs = other.epochs;
+    capacity = other.capacity;
+    count = other.count;
+    epoch = other.epoch;
+    width = other.width;
+    height = other.height;
+    other.cells = nullptr;
+    other.epochs = nullptr;
+    other.capacity = 0;
+    other.count = 0;
+    return *this;
+}
+
+void ScreenImpl::Damage::configure(void* storage, u16 columns, u16 rows_) {
+    width = columns;
+    height = rows_;
+    const size_t required = (size_t)(width)*height;
+    cells = static_cast<u32*>(storage);
+    epochs = cells + required;
+    capacity = required;
+    if (required != 0) {
+        memset(epochs, 0, required * sizeof(u32));
+    }
+    count = 0;
+    epoch = 1;
 }
 
 void ScreenImpl::Damage::reset() {
-    start = 0;
-    end = 0;
+    count = 0;
+    ++epoch;
+    if (epoch == 0) {
+        memset(epochs, 0, (size_t)(width)*height * sizeof(u32));
+        epoch = 1;
+    }
 }
 
 void ScreenImpl::Damage::expose() {
-    start = 0;
-    end = totalCells;
+    reset();
+    addRect(0, 0, height, width);
 }
 
-void ScreenImpl::Damage::add(u32 start_, u32 end_) {
-    if (end_ < start_) {
-        start_ = 0;
-        end_ = totalCells;
-    }
+bool ScreenImpl::Damage::hasDamage() const noexcept {
+    return count != 0;
+}
 
-    if (start == end) {
-        start = start_;
-        end = end_;
-    } else {
-        start = std::min(start, start_);
-        end = std::max(end, end_);
+void ScreenImpl::Damage::addCell(u16 row, u16 column) {
+    if (count == capacity) {
+        return;
+    }
+    const size_t index = (size_t)(row)*width + column;
+    u32& cellEpoch = epochs[index];
+    if (cellEpoch == epoch) {
+        return;
+    }
+    cellEpoch = epoch;
+    cells[count++] = ((u32)(row) << 16) | column;
+}
+
+void ScreenImpl::Damage::addRow(u16 row, u16 begin, u16 end) {
+    if (end <= begin || count == capacity) {
+        return;
+    }
+    const size_t rowOffset = (size_t)(row)*width;
+    u32* const cellEpochs = epochs + rowOffset;
+    for (u16 column = begin; column < end; ++column) {
+        if (cellEpochs[column] != epoch) {
+            cellEpochs[column] = epoch;
+            cells[count++] = ((u32)(row) << 16) | column;
+        }
+    }
+}
+
+void ScreenImpl::Damage::addRect(u16 top, u16 left, u16 bottom, u16 right) {
+    if (bottom <= top || right <= left || count == capacity) {
+        return;
+    }
+    for (u16 row = top; row < bottom; ++row) {
+        addRow(row, left, right);
     }
 }
