@@ -283,9 +283,9 @@ namespace {
         bool stringUtf8Continuation(u8 ch);
         void beginCsi();
         template <bool traced>
-        bool executeC0InSequence(unsigned char ch);
+        [[gnu::always_inline]] bool executeC0InSequence(unsigned char ch);
         template <bool traced>
-        void processCsiByte(unsigned char ch);
+        [[gnu::always_inline]] void processCsiByte(unsigned char ch);
         template <bool traced>
         void dispatchCsi(unsigned char finalByte);
 
@@ -574,7 +574,6 @@ namespace {
         bool underlineColorDefault = true;
         bool hasFocus = false;
 
-        int readPos = 0;
 
         InputState inputState = InputState::Normal;
         // Whether a private/intermediate CSI prefix may still occur.  This is
@@ -7918,42 +7917,193 @@ template <bool traced>
 bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
     const PresentationState presentationBefore = capturePresentationState();
     hideCursor();
-    for (readPos = 0; readPos < inputSize; ++readPos) {
-        const u8& ch = input[readPos];
+    for (int readPos = 0; readPos < inputSize; ++readPos) {
+        const u8 ch = input[readPos];
         if (printerControllerMode) {
             const size_t consumed = consumePrinterController(input + readPos, inputSize - readPos);
             readPos += (int)(consumed)-1;
             continue;
         }
-        if (inputState == InputState::Normal && ch >= 0x20 && ch < 0x7f && !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8) {
-            int end = readPos + 1;
-            while (end < inputSize && input[end] >= 0x20 && input[end] < 0x7f) {
-                ++end;
-            }
-            const int count = end - readPos;
-            if constexpr (traced) {
-                parserTrace->text(input + readPos, count);
-            }
-            if (count >= 4) {
-                placeAsciiRun(input + readPos, count);
-            } else {
-                while (readPos < end) {
-                    utf8dec.setUnicode(input[readPos++]);
-                    placeGraphicChar();
+        if (inputState == InputState::Normal) {
+            if (ch >= 0x20 && ch < 0x7f && !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8) {
+                int end = readPos + 1;
+                while (end < inputSize && input[end] >= 0x20 && input[end] < 0x7f) {
+                    ++end;
                 }
-            }
-            readPos = end - 1;
-            continue;
-        }
-        if (inputState == InputState::Normal && ch >= 0xc2 && ch <= 0xf4 && !insertMode && !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8 && charsetState.g[charsetState.gr] == Charset::UTF8) {
-            const int consumed = placeUtf8Run(input + readPos, inputSize - readPos);
-            if (consumed > 0) {
+                const int count = end - readPos;
                 if constexpr (traced) {
-                    parserTrace->text(input + readPos, consumed);
+                    parserTrace->text(input + readPos, count);
                 }
-                readPos += consumed - 1;
+                if (count >= 4) {
+                    placeAsciiRun(input + readPos, count);
+                } else {
+                    while (readPos < end) {
+                        utf8dec.setUnicode(input[readPos++]);
+                        placeGraphicChar();
+                    }
+                }
+                readPos = end - 1;
                 continue;
             }
+            if (ch >= 0xc2 && ch <= 0xf4 && !insertMode && !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8 && charsetState.g[charsetState.gr] == Charset::UTF8) {
+                const int consumed = placeUtf8Run(input + readPos, inputSize - readPos);
+                if (consumed > 0) {
+                    if constexpr (traced) {
+                        parserTrace->text(input + readPos, consumed);
+                    }
+                    readPos += consumed - 1;
+                    continue;
+                }
+            }
+            if (ch == '\x18' || ch == '\x1a') {
+                if constexpr (traced) {
+                    parserTrace->control(ch);
+                }
+                resetGraphemeInput();
+                continue;
+            }
+            if (ch == 0x7f) {
+                continue;
+            }
+            if constexpr (traced) {
+                if (ch > 0 && ch < 0x20 && ch != '\x1b') {
+                    parserTrace->control(ch);
+                } else if (ch >= 0xa0 || (ch >= 0x80 && utf8dec.expectsContinuation())) {
+                    parserTrace->text(&ch, 1);
+                } else if (ch >= 0x80 && ch <= 0x9f && ch != 0x90 && ch != 0x98 && ch != 0x9b && ch != 0x9d && ch != 0x9e && ch != 0x9f) {
+                    parserTrace->control(ch);
+                }
+            }
+            if (utf8dec.expectsContinuation() && ch >= 0x80) {
+                if (charsetState.g[charsetState.gr] == Charset::UTF8) {
+                    for (int completed = utf8dec.pushByte(ch); completed > 0; --completed) {
+                        placeGraphicChar();
+                    }
+                } else {
+                    inputGraphicChar(ch);
+                }
+                continue;
+            }
+            if (ch < 0x20 || ch == 0x7f || (ch >= 0x80 && ch <= 0x9f)) {
+                resetGraphemeInput();
+            }
+            switch (ch) {
+                case '\x00':
+                case '\x7f':
+                    break;
+                case '\x1b':
+                    if constexpr (traced) {
+                        parserTrace->escapeBegin();
+                    }
+                    setState(compatLevel == CompatibilityLevel::VT52 ? InputState::Escape_VT52 : InputState::Escape);
+                    inputOps[0] = 0;
+                    inputSeparators[0] = 0;
+                    nInputOps = 1;
+                    break;
+                case 0x84:
+                    esc_IND();
+                    break;
+                case 0x85:
+                    esc_NEL();
+                    break;
+                case 0x88:
+                    esc_HTS();
+                    break;
+                case 0x8d:
+                    esc_RI();
+                    break;
+                case 0x8e:
+                    charsetState.ss = 2;
+                    break;
+                case 0x8f:
+                    charsetState.ss = 3;
+                    break;
+                case 0x90:
+                    argBuf.clear();
+                    argBufOverflowed = false;
+                    if constexpr (traced) {
+                        parserTrace->stringBegin(VtermTraceString::Dcs);
+                    }
+                    setState(InputState::DCS);
+                    break;
+                case 0x96:
+                    esc_SPA();
+                    break;
+                case 0x97:
+                    esc_EPA();
+                    break;
+                case 0x98:
+                    if constexpr (traced) {
+                        parserTrace->stringBegin(VtermTraceString::Sos);
+                    }
+                    setState(InputState::String);
+                    break;
+                case 0x9a:
+                    csi_priDA();
+                    break;
+                case 0x9e:
+                    if constexpr (traced) {
+                        parserTrace->stringBegin(VtermTraceString::Pm);
+                    }
+                    setState(InputState::String);
+                    break;
+                case 0x9f:
+                    if constexpr (traced) {
+                        parserTrace->stringBegin(VtermTraceString::Apc);
+                    }
+                    setState(InputState::String);
+                    break;
+                case 0x9b:
+                    beginCsi();
+                    break;
+                case 0x9c:
+                    break;
+                case 0x9d:
+                    argBuf.clear();
+                    argBufOverflowed = false;
+                    if constexpr (traced) {
+                        parserTrace->stringBegin(VtermTraceString::Osc);
+                    }
+                    setState(InputState::OSC);
+                    break;
+                case '\r':
+                    inp_CR();
+                    break;
+                case '\f':
+                case '\v':
+                case '\n':
+                    if (autoNewlineMode) {
+                        inp_CR();
+                    }
+                    esc_IND();
+                    break;
+                case '\t':
+                    inp_HT();
+                    break;
+                case '\b':
+                    csi_CUB();
+                    break;
+                case '\a':
+                    host.bell();
+                    break;
+                case '\x0e':
+                    charsetState.gl = 1;
+                    break;
+                case '\x0f':
+                    charsetState.gl = 0;
+                    break;
+                case '\x05':
+                    break;
+                default:
+                    if (ch >= 0x80 && charsetState.g[charsetState.gr] == Charset::UTF8) {
+                        for (int completed = utf8dec.pushByte(ch); completed > 0; --completed) {
+                            placeGraphicChar();
+                        }
+                    } else {
+                        inputGraphicChar(ch);
+                    }
+            }
+            continue;
         }
         if ((inputState == InputState::DCS || inputState == InputState::OSC || inputState == InputState::String) && ch >= 0x20 && ch < 0x7f) {
             stringUtf8Remaining = 0;
@@ -7981,22 +8131,16 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
         if (ch == '\x18' || ch == '\x1a') {
             if constexpr (traced) {
                 parserTrace->control(ch);
+                parserTrace->stringCancel();
+                parserTrace->escapeCancel();
             }
-            if (inputState == InputState::Normal) {
-                resetGraphemeInput();
-            } else {
-                if constexpr (traced) {
-                    parserTrace->stringCancel();
-                    parserTrace->escapeCancel();
-                }
-                setState(InputState::Normal);
-            }
+            setState(InputState::Normal);
             continue;
         }
         if (ch == 0x7f) {
             continue;
         }
-        if (ch == '\x1b' && inputState != InputState::Normal && inputState != InputState::Escape && inputState != InputState::Escape_VT52 && inputState != InputState::DCS && inputState != InputState::DCS_Esc && inputState != InputState::OSC && inputState != InputState::OSC_Esc && inputState != InputState::String && inputState != InputState::String_Esc) {
+        if (ch == '\x1b' && inputState != InputState::Escape && inputState != InputState::Escape_VT52 && inputState != InputState::DCS && inputState != InputState::DCS_Esc && inputState != InputState::OSC && inputState != InputState::OSC_Esc && inputState != InputState::String && inputState != InputState::String_Esc) {
             if constexpr (traced) {
                 parserTrace->stringCancel();
                 parserTrace->escapeCancel();
@@ -8008,7 +8152,7 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
             nInputOps = 1;
             continue;
         }
-        if (ch >= 0xa0 && inputState != InputState::Normal && inputState != InputState::DCS && inputState != InputState::DCS_Esc && inputState != InputState::OSC && inputState != InputState::OSC_Esc && inputState != InputState::String && inputState != InputState::String_Esc) {
+        if (ch >= 0xa0 && inputState != InputState::DCS && inputState != InputState::DCS_Esc && inputState != InputState::OSC && inputState != InputState::OSC_Esc && inputState != InputState::String && inputState != InputState::String_Esc) {
             if constexpr (traced) {
                 parserTrace->escapeCancel();
             }
@@ -8016,7 +8160,7 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
             --readPos;
             continue;
         }
-        if (inputState != InputState::Normal && !utf8StringContinuation) {
+        if (!utf8StringContinuation) {
             switch (ch) {
                 case 0x90:
                     argBuf.clear();
@@ -8096,132 +8240,6 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
         }
         switch (inputState) {
             case InputState::Normal:
-                if constexpr (traced) {
-                    if (ch > 0 && ch < 0x20 && ch != '\x1b') {
-                        parserTrace->control(ch);
-                    } else if (ch >= 0xa0 || (ch >= 0x80 && utf8dec.expectsContinuation())) {
-                        parserTrace->text(&ch, 1);
-                    } else if (ch >= 0x80 && ch <= 0x9f && ch != 0x90 && ch != 0x98 && ch != 0x9b && ch != 0x9d && ch != 0x9e && ch != 0x9f) {
-                        parserTrace->control(ch);
-                    }
-                }
-                if (utf8dec.expectsContinuation() && ch >= 0x80) {
-                    inputGraphicChar(ch);
-                    break;
-                }
-                if (ch < 0x20 || ch == 0x7f || (ch >= 0x80 && ch <= 0x9f)) {
-                    resetGraphemeInput();
-                }
-                switch (ch) {
-                    case '\x00':
-                    case '\x7f':
-                        break;
-                    case '\x1b':
-                        if constexpr (traced) {
-                            parserTrace->escapeBegin();
-                        }
-                        setState(compatLevel == CompatibilityLevel::VT52 ? InputState::Escape_VT52 : InputState::Escape);
-                        inputOps[0] = 0;
-                        inputSeparators[0] = 0;
-                        nInputOps = 1;
-                        break;
-                    case 0x84:
-                        esc_IND();
-                        break;
-                    case 0x85:
-                        esc_NEL();
-                        break;
-                    case 0x88:
-                        esc_HTS();
-                        break;
-                    case 0x8d:
-                        esc_RI();
-                        break;
-                    case 0x8e:
-                        charsetState.ss = 2;
-                        break;
-                    case 0x8f:
-                        charsetState.ss = 3;
-                        break;
-                    case 0x90:
-                        argBuf.clear();
-                        argBufOverflowed = false;
-                        if constexpr (traced) {
-                            parserTrace->stringBegin(VtermTraceString::Dcs);
-                        }
-                        setState(InputState::DCS);
-                        break;
-                    case 0x96:
-                        esc_SPA();
-                        break;
-                    case 0x97:
-                        esc_EPA();
-                        break;
-                    case 0x98:
-                        if constexpr (traced) {
-                            parserTrace->stringBegin(VtermTraceString::Sos);
-                        }
-                        setState(InputState::String);
-                        break;
-                    case 0x9a:
-                        csi_priDA();
-                        break;
-                    case 0x9e:
-                        if constexpr (traced) {
-                            parserTrace->stringBegin(VtermTraceString::Pm);
-                        }
-                        setState(InputState::String);
-                        break;
-                    case 0x9f:
-                        if constexpr (traced) {
-                            parserTrace->stringBegin(VtermTraceString::Apc);
-                        }
-                        setState(InputState::String);
-                        break;
-                    case 0x9b:
-                        beginCsi();
-                        break;
-                    case 0x9c:
-                        break;
-                    case 0x9d:
-                        argBuf.clear();
-                        argBufOverflowed = false;
-                        if constexpr (traced) {
-                            parserTrace->stringBegin(VtermTraceString::Osc);
-                        }
-                        setState(InputState::OSC);
-                        break;
-                    case '\r':
-                        inp_CR();
-                        break;
-                    case '\f':
-                    case '\v':
-                    case '\n':
-                        if (autoNewlineMode) {
-                            inp_CR();
-                        }
-                        esc_IND();
-                        break;
-                    case '\t':
-                        inp_HT();
-                        break;
-                    case '\b':
-                        csi_CUB();
-                        break;
-                    case '\a':
-                        host.bell();
-                        break;
-                    case '\x0e':
-                        charsetState.gl = 1;
-                        break;
-                    case '\x0f':
-                        charsetState.gl = 0;
-                        break;
-                    case '\x05':
-                        break;
-                    default:
-                        inputGraphicChar(ch);
-                }
                 break;
             case InputState::IgnoreSequence:
                 if (executeC0InSequence<traced>(ch)) {
