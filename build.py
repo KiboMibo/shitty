@@ -24,6 +24,7 @@ glfw = pkg_config("glfw3 >= 3.4")
 vulkan = pkg_config("vulkan")
 brotli_common = pkg_config("libbrotlicommon", required=False)
 utf8proc = pkg_config("libutf8proc")
+simdutf = pkg_config("simdutf >= 6.5.0")
 threads = dependency(ldflags=["-pthread"])
 
 
@@ -67,7 +68,7 @@ all_libshitty_sources = [
 libshitty_sources = all_libshitty_sources
 libshitty_deps = [
     freetype, fontconfig, harfbuzz, glfw, vulkan, threads, libstd, brotli_common,
-    utf8proc,
+    utf8proc, simdutf,
 ]
 
 

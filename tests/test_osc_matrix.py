@@ -170,7 +170,15 @@ class OscMatrixTest(unittest.TestCase):
 
     def test_osc52_rejects_malformed_base64_without_partial_content(self):
         with Shitty(columns=8, rows=2) as terminal:
-            for payload in (b"=AAA", b"A===", b"AA=A", b"SGVsbG8!", b"A"):
+            for payload in (
+                b"=AAA",
+                b"A===",
+                b"AA=A",
+                b"SGVsbG8!",
+                b"A",
+                b"AB",
+                b"AA==\n",
+            ):
                 with self.subTest(payload=payload):
                     self.assertEqual(
                         terminal.osc52(b"c;" + payload),

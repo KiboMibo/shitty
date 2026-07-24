@@ -3,4 +3,4 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-exec "$HOME/monorepo/ix/ix" run bld/perl set/pg/libs -- ./build st "$@"
+exec "$HOME/monorepo/ix/ix" run bld/perl set/pg/libs lib/simd/utf -- ./build st "$@"

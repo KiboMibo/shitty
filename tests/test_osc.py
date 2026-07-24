@@ -22,6 +22,7 @@ class OscProtocolTest(unittest.TestCase):
             b"s;WA==": (True, False),
             b"p;WA==": (True, False),
             b"c;WA==": (False, True),
+            b"c;WA": (False, True),
             b"pc;WA==": (True, True),
             b"q;WA==": (False, False),
         }

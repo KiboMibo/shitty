@@ -5830,11 +5830,13 @@ void VtermImpl::osc_Notification(const std::string& arg) {
         if (part.encoded.empty()) {
             return true;
         }
-        std::string decoded;
-        if (!base64::decode(part.encoded, decoded) || part.text.size() + decoded.size() > 8192) {
+        Buffer decoded;
+        bool valid = false;
+        base64Decode(StringView((const u8*)(part.encoded.data()), part.encoded.size()), decoded, valid);
+        if (!valid || part.text.size() + decoded.used() > 8192) {
             return false;
         }
-        part.text += decoded;
+        part.text.append((const char*)(decoded.data()), decoded.used());
         part.encoded.clear();
         return true;
     };

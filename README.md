@@ -40,7 +40,7 @@ Shitty is written in C++23 and built with Clang. Building the terminal requires:
 
 - Python 3 and `glslangValidator`;
 - pkg-config;
-- Brotli and utf8proc;
+- Brotli, utf8proc, and simdutf 6.5 or newer;
 - FreeType and fontconfig;
 - GLFW 3.4 or newer;
 - Vulkan headers and loader;

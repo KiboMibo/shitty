@@ -8,6 +8,9 @@
 
 #include "base64.h"
 
+#include <std/lib/buffer.h>
+#include <std/str/view.h>
+
 #include <cctype>
 
 namespace stl {}
@@ -37,15 +40,22 @@ Osc52Request parseOsc52(const std::string& argument, bool selectClipboard) {
     }
     request.query = payload == "?";
     if (!request.query) {
-        if (!base64::decode(payload, request.content)) {
+        Buffer decoded;
+        bool valid = false;
+        base64Decode(StringView((const u8*)(payload.data()), payload.size()), decoded, valid);
+        if (!valid) {
             request = {};
+        } else {
+            request.content.assign((const char*)(decoded.data()), decoded.used());
         }
     }
     return request;
 }
 
 std::string encodeOsc52Reply(const std::string& selector, const std::string& content) {
-    return "\x1b]52;" + selector + ";" + base64::encode(content) + "\x1b\\";
+    Buffer encoded;
+    base64Encode(StringView((const u8*)(content.data()), content.size()), encoded);
+    return "\x1b]52;" + selector + ";" + std::string((const char*)(encoded.data()), encoded.used()) + "\x1b\\";
 }
 
 std::string encodeOsc52QueryReply(const Osc52Request& request, bool allowRead, const std::string& primary, const std::string& clipboard) {
