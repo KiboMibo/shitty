@@ -177,6 +177,24 @@ class EditingTest(unittest.TestCase):
                 self.assertFalse(cell.protected)
                 self.assertEqual(cell.hyperlink, 0)
 
+    def test_erased_bold_palette_cell_uses_base_foreground(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[1;31mX\x1b[K")
+            snapshot = terminal.model_snapshot()
+
+            self.assertEqual(snapshot.cell(0, 0).foreground_index, 9)
+            erased = snapshot.cell(1, 0)
+            self.assertEqual(erased.foreground_index, 1)
+            self.assertFalse(erased.bold)
+
+    def test_cursor_restore_restores_erase_colors(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[1;31m\x1b7\x1b[32m\x1b8\x1b[K")
+            erased = terminal.model_snapshot().cell(0, 0)
+
+            self.assertEqual(erased.foreground_index, 1)
+            self.assertFalse(erased.bold)
+
     def test_erase_characters_outside_horizontal_margins_stays_on_screen(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.write(

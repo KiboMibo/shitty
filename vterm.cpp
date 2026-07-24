@@ -76,8 +76,6 @@ void MouseTrackingState::setEncoding(MouseTrackingEnc value) {
 }
 
 namespace {
-    const TerminalCell blankCell{};
-
     bool decodeHex(const std::string& value, std::string& result) {
         const auto digit = [](unsigned char ch) -> int {
             if (ch >= '0' && ch <= '9') {
@@ -301,7 +299,6 @@ namespace {
         void deleteRows(u16 startY, u16 count);
         void insertCols(u16 startX, u16 count);
         void deleteCols(u16 startX, u16 count);
-        TerminalCell eraseCell() const;
         void eraseRangeInRow(u16 row, u16 start, u16 count);
         void selectiveEraseRangeInRow(u16 row, u16 start, u16 count);
         void moveRangeInRow(u16 row, u16 dst, u16 src, u16 count);
@@ -345,10 +342,13 @@ namespace {
 
         void setAttrForeground(CellColor color) noexcept {
             attrs.setForeground(color);
+            eraseAttrs.setForeground(color);
+            eraseAttrs.setInlineUnderlineColor(color);
         }
 
         void setAttrBackground(CellColor color) noexcept {
             attrs.setBackground(color);
+            eraseAttrs.setBackground(color);
         }
 
         void setAttrUnderlineColor(CellColor color) noexcept {
@@ -529,6 +529,7 @@ namespace {
         bool lastCol = false;
 
         TerminalCell attrs{};
+        TerminalCell eraseAttrs{};
         Color cursorColor;
         Color selectionFgColor;
         Color selectionBgColor;
@@ -766,6 +767,7 @@ namespace {
             u16 posY = 0;
             bool lastCol = false;
             TerminalCell attrs{};
+            TerminalCell eraseAttrs{};
             OriginMode originMode = OriginMode::Absolute;
             CharsetState charsetState = CharsetState{};
         };
@@ -981,6 +983,13 @@ void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const 
 }
 
 void VtermImpl::queueTerminalUpdate() {
+    // Keep at most one frame in flight and one waiting behind it. Later
+    // smooth-scroll steps stay in Screen damage and are folded into the final
+    // update emitted when the current input batch ends.
+    if (queuedUpdateHead != queuedUpdateTail) {
+        return;
+    }
+
     Screen* const frame = cf;
     const size_t count = (size_t)(frame->columns()) * frame->rows();
     auto* queued = new QueuedTerminalUpdate;
@@ -1375,8 +1384,8 @@ void VtermImpl::redraw() {
 }
 
 void VtermImpl::updateExtraCellCount() {
-    size_t count = frame_pri ? frame_pri->cellCapacity() : 0;
-    count += frame_alt ? frame_alt->cellCapacity() : 0;
+    size_t count = frame_pri->active() ? frame_pri->cellCapacity() : 0;
+    count += frame_alt->active() ? frame_alt->cellCapacity() : 0;
     composer.cellExtras->setCellCount(count);
 }
 
@@ -1402,19 +1411,19 @@ void VtermImpl::collectCellExtras() {
     if (activeHyperlink != 0) {
         extraFixups.pushBack(&activeHyperlink);
     }
-    if (frame_pri) {
+    if (frame_pri->active()) {
         frame_pri->collectExtraRefLocations(extraFixups);
     }
-    if (frame_alt) {
+    if (frame_alt->active()) {
         frame_alt->collectExtraRefLocations(extraFixups);
     }
 
     CellExtraStore* const extras = composer.cellExtras;
     extras->collect(extraFixups);
-    if (frame_pri) {
+    if (frame_pri->active()) {
         frame_pri->expose();
     }
-    if (frame_alt) {
+    if (frame_alt->active()) {
         frame_alt->expose();
     }
     extraFixups.clear();
@@ -1918,30 +1927,19 @@ void VtermImpl::deleteCols(u16 startX, u16 count) {
     }
 }
 
-TerminalCell VtermImpl::eraseCell() const {
-    TerminalCell cell = blankCell;
-    cell.setForeground(attrs.foreground());
-    cell.setBackground(attrs.background());
-    if (opts.boldColors && attrs.bold && fgPalIx >= 0 && fgPalIx <= 7) {
-        cell.setForeground(CellColor::indexed((u8)(fgPalIx)));
-    }
-    cell.setInlineUnderlineColor(cell.foreground());
-    return cell;
-}
-
 void VtermImpl::clearWideCellsAtBoundary(u16 row, u16 boundary) {
-    cf->clearWideBoundary(row, boundary, eraseCell());
+    cf->clearWideBoundary(row, boundary, eraseAttrs);
 }
 
 void VtermImpl::repairWideCellsAtBoundary(u16 row, u16 boundary) {
-    cf->repairWideBoundary(row, boundary, eraseCell());
+    cf->repairWideBoundary(row, boundary, eraseAttrs);
 }
 
 void VtermImpl::eraseRangeInRow(u16 row, u16 start, u16 count) {
     if (!count) {
         return;
     }
-    cf->eraseWideInRow(row, start, count, eraseCell());
+    cf->eraseWideInRow(row, start, count, eraseAttrs);
 }
 
 void VtermImpl::eraseEcmaRangeInRow(u16 row, u16 start, u16 count) {
@@ -1953,7 +1951,7 @@ void VtermImpl::eraseEcmaRangeInRow(u16 row, u16 start, u16 count) {
         return;
     }
     const u16 end = start + count;
-    cf->selectiveEraseInRow(row, start, count, eraseCell(), TerminalCell::isoProtection);
+    cf->selectiveEraseInRow(row, start, count, eraseAttrs, TerminalCell::isoProtection);
     repairWideCellsAtBoundary(row, start);
     repairWideCellsAtBoundary(row, end);
 }
@@ -1975,7 +1973,7 @@ void VtermImpl::selectiveEraseRangeInRow(u16 row, u16 start, u16 count) {
         return;
     }
     const u16 end = start + count;
-    cf->selectiveEraseInRow(row, start, count, eraseCell(), TerminalCell::decProtection);
+    cf->selectiveEraseInRow(row, start, count, eraseAttrs, TerminalCell::decProtection);
     repairWideCellsAtBoundary(row, start);
     repairWideCellsAtBoundary(row, end);
 }
@@ -2103,7 +2101,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
                 if (!wide && lineCols - hMargin >= 2) {
                     if (targetX == lineCols - 1) {
                         if (autoWrapMode) {
-                            cf->eraseWideInRow(targetY, targetX, 1, eraseCell());
+                            cf->eraseWideInRow(targetY, targetX, 1, eraseAttrs);
                             const u16 wrapColumn = targetX > hMargin ? targetX - 1 : targetX;
                             cf->setWrapped(targetY, wrapColumn);
                             inp_CR();
@@ -2136,7 +2134,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
             case GraphemeWidthEffect::Unchanged:
                 break;
         }
-        cf->writeGrapheme(targetY, targetX, inputGrapheme.data(), inputGrapheme.size(), wide, inputGraphemeAttrs, inputGraphemeHyperlink, inputGraphemeSemantic, cf->lineAttribute(targetY), eraseCell());
+        cf->writeGrapheme(targetY, targetX, inputGrapheme.data(), inputGrapheme.size(), wide, inputGraphemeAttrs, inputGraphemeHyperlink, inputGraphemeSemantic, cf->lineAttribute(targetY), eraseAttrs);
         inputGraphemeX = targetX;
         inputGraphemeY = targetY;
         inputGraphemeWide = wide;
@@ -2185,7 +2183,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
     const u16 clusterY = posY;
     const bool wide = w == 2 && posX < lineCols - 1;
     const u8 clusterLineAttribute = changedRow ? cf->lineAttribute(posY) : lineAttribute;
-    cf->writeGrapheme(posY, posX, &pt, 1, wide, attrs, activeHyperlink, currentSemantic, clusterLineAttribute, eraseCell());
+    cf->writeGrapheme(posY, posX, &pt, 1, wide, attrs, activeHyperlink, currentSemantic, clusterLineAttribute, eraseAttrs);
     if (attrs.blink) {
         haveBlinkingText = true;
     }
@@ -2247,7 +2245,7 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
         const u16 count = std::min<size_t>(size, lineCols - posX);
         const u16 startX = posX;
         const u16 endX = startX + count;
-        cf->writeAsciiRun(posY, startX, input, count, attrs, activeHyperlink, currentSemantic, lineAttribute, eraseCell());
+        cf->writeAsciiRun(posY, startX, input, count, attrs, activeHyperlink, currentSemantic, lineAttribute, eraseAttrs);
         if (attrs.blink) {
             haveBlinkingText = true;
         }
@@ -2820,6 +2818,7 @@ void VtermImpl::esc_DECSC() {
     savedCursor->posY = posY;
     savedCursor->lastCol = lastCol;
     savedCursor->attrs = attrs;
+    savedCursor->eraseAttrs = eraseAttrs;
     savedCursor->originMode = originMode;
     savedCursor->charsetState = charsetState;
     savedCursor->isSet = true;
@@ -2836,6 +2835,7 @@ void VtermImpl::esc_DECRC() {
         normalizeCursorPos();
         lastCol = savedCursor->lastCol;
         attrs = savedCursor->attrs;
+        eraseAttrs = savedCursor->eraseAttrs;
         reverseVideo = attrs.inverse;
         originMode = savedCursor->originMode;
         charsetState = savedCursor->charsetState;
@@ -3223,7 +3223,7 @@ void VtermImpl::csi_DECFRA() {
             setState(InputState::Normal);
             return;
         }
-        cf->fillRectangle(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, inputOps[0], attrs, eraseCell());
+        cf->fillRectangle(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, inputOps[0], attrs, eraseAttrs);
     }
     setState(InputState::Normal);
 }
@@ -3262,7 +3262,7 @@ void VtermImpl::csi_DECCRA() {
     const u16 targetLeft = columnBase + std::min<u32>(targetColumn, columnLimit - columnBase) - 1;
     const u16 height = std::min<u16>(source.bottom - source.top, rowLimit - targetTop);
     const u16 width = std::min<u16>(source.right - source.left, columnLimit - targetLeft);
-    cf->copyRectangle(source.top, source.left, targetTop, targetLeft, height, width, eraseCell());
+    cf->copyRectangle(source.top, source.left, targetTop, targetLeft, height, width, eraseAttrs);
     setState(InputState::Normal);
 }
 
@@ -3937,10 +3937,11 @@ void VtermImpl::setFgFromPalIx() {
         setAttrForeground(CellColor::defaultForeground());
     } else if (fgPalIx > 255) {
         return;
-    } else if (opts.boldColors && attrs.bold && fgPalIx >= 0 && fgPalIx <= 7) {
-        setAttrForeground(CellColor::indexed(fgPalIx + 8));
     } else {
         setAttrForeground(CellColor::indexed(fgPalIx));
+    }
+    if (opts.boldColors && attrs.bold && fgPalIx >= 0 && fgPalIx <= 7) {
+        attrs.setForeground(CellColor::indexed(fgPalIx + 8));
     }
     if (underlineColorDefault) {
         setAttrUnderlineColor(attrForeground());
@@ -4508,11 +4509,13 @@ void VtermImpl::esch_DECALN() {
     lastCol = false;
 
     TerminalCell origAttrs = attrs;
+    TerminalCell origEraseAttrs = eraseAttrs;
 
     resetAttrs();
     fillScreen('E');
 
     attrs = origAttrs;
+    eraseAttrs = origEraseAttrs;
     reverseVideo = attrs.inverse;
 
     setState(InputState::Normal);
@@ -4545,6 +4548,7 @@ void VtermImpl::csi_DECSTR() {
     savedCursor->posY = 0;
     savedCursor->lastCol = false;
     savedCursor->attrs = attrs;
+    savedCursor->eraseAttrs = eraseAttrs;
     savedCursor->originMode = OriginMode::Absolute;
     savedCursor->charsetState = CharsetState{};
     savedCursor->isSet = true;

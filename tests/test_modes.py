@@ -23,6 +23,14 @@ class ModeTest(unittest.TestCase):
         self.assertEqual(jump_refreshes, 1)
         self.assertEqual(smooth_refreshes, 3)
 
+    def test_smooth_scroll_coalesces_when_consumer_falls_behind(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            before = terminal.snapshot().refresh_count
+            terminal.write(b"\x1b[?4h" + b"x\r\n" * 100)
+            refreshes = terminal.snapshot().refresh_count - before
+
+        self.assertEqual(refreshes, 3)
+
     def test_new_line_mode_applies_to_lf_vt_and_ff(self):
         for control in (b"\n", b"\v", b"\f"):
             with self.subTest(control=control), Shitty(columns=8, rows=3) as terminal:
