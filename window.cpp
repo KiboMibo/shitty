@@ -90,7 +90,7 @@ namespace {
         void mouseWheel(double x, double y);
 
         int gridAlignedWindowSize(int framebufferSize, int border, int cellSize, float scale, int currentWindowSize);
-        void publishResize(int width, int height);
+        void queueResize(int width, int height);
         void onFramebufferSize(int width, int height);
         void setupCallbacks();
         static WindowImpl& fromWindow(GLFWwindow* window);
@@ -111,6 +111,9 @@ namespace {
         bool redrawPending = false;
         bool correctingResize = false;
         bool attentionRequested = false;
+        // A dispatch can carry several configures; terminal reflow consumes only the last one after GLFW returns.
+        u16 pendingPixelWidth = 0;
+        u16 pendingPixelHeight = 0;
         int restoredX = 0;
         int restoredY = 0;
         int restoredWidth = 800;
@@ -279,12 +282,17 @@ WindowEvents WindowImpl::dispatchEvents(double timeout) {
     }
     composer.input->flush();
 
+    const bool resized = resizePending;
+    if (resized) {
+        resizePending = false;
+        redrawPending = false;
+        composer.resize(pendingPixelWidth, pendingPixelHeight);
+    }
     const WindowEvents result{
         .close = glfwWindowShouldClose(window) != 0,
-        .resized = resizePending,
+        .resized = resized,
         .redraw = redrawPending,
     };
-    resizePending = false;
     redrawPending = false;
     return result;
 }
@@ -769,11 +777,12 @@ int WindowImpl::gridAlignedWindowSize(int framebufferSize, int border, int cellS
     return currentWindowSize;
 }
 
-void WindowImpl::publishResize(int width, int height) {
+void WindowImpl::queueResize(int width, int height) {
     if (width <= 0 || height <= 0) {
         return;
     }
-    composer.resize((u16)(min(width, (int)(UINT16_MAX))), (u16)(min(height, (int)(UINT16_MAX))));
+    pendingPixelWidth = (u16)(min(width, (int)(UINT16_MAX)));
+    pendingPixelHeight = (u16)(min(height, (int)(UINT16_MAX)));
     resizePending = true;
 }
 
@@ -782,7 +791,7 @@ void WindowImpl::onFramebufferSize(int width, int height) {
         return;
     }
     if (correctingResize || glfwGetWindowMonitor(window) != nullptr || glfwGetWindowAttrib(window, GLFW_MAXIMIZED) == GLFW_TRUE) {
-        publishResize(width, height);
+        queueResize(width, height);
         return;
     }
 
@@ -795,7 +804,7 @@ void WindowImpl::onFramebufferSize(int width, int height) {
     const int snappedWidth = gridAlignedWindowSize(width, opts.border, composer.glyphWidth, xScale, windowWidth);
     const int snappedHeight = gridAlignedWindowSize(height, opts.border, composer.glyphHeight, yScale, windowHeight);
     if (snappedWidth == windowWidth && snappedHeight == windowHeight) {
-        publishResize(width, height);
+        queueResize(width, height);
         return;
     }
 
@@ -803,7 +812,7 @@ void WindowImpl::onFramebufferSize(int width, int height) {
     glfwSetWindowSize(window, snappedWidth, snappedHeight);
     correctingResize = false;
     glfwGetFramebufferSize(window, &width, &height);
-    publishResize(width, height);
+    queueResize(width, height);
 }
 
 template <typename Fn>
