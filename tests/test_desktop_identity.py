@@ -24,7 +24,7 @@ class DesktopIdentityTests(unittest.TestCase):
         return match.group(1)
 
     def test_wayland_app_id_matches_desktop_file_id(self):
-        source = (ROOT / "application.cpp").read_text()
+        source = (ROOT / "window.cpp").read_text()
         match = re.search(
             r'glfwWindowHintString\(GLFW_WAYLAND_APP_ID,\s*"([^"]+)"\)',
             source,

@@ -21,8 +21,10 @@ struct DesktopActions;
 struct InputSink;
 struct Renderer;
 struct Pty;
+struct PtyEventHost;
 struct PtyEventSource;
 struct Vterm;
+struct Window;
 
 // Application wiring. Components copy the dependencies they need during
 // creation. Event producers publish canonical state here and listeners read
@@ -42,8 +44,10 @@ struct Composer {
     InputSink* input = nullptr;
     Renderer* renderer = nullptr;
     Pty* pty = nullptr;
+    PtyEventHost* ptyEventHost = nullptr;
     PtyEventSource* ptyEvents = nullptr;
     Vterm* vterm = nullptr;
+    Window* window = nullptr;
 
     u16 columns = 0;
     u16 rows = 0;

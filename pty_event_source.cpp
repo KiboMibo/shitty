@@ -12,6 +12,7 @@
 #include <std/mem/obj_pool.h>
 
 #include <cerrno>
+#include <cassert>
 #include <condition_variable>
 #include <cstdint>
 #include <cstring>
@@ -171,6 +172,7 @@ void PtyEventSourceImpl::run() {
     }
 }
 
-PtyEventSource* PtyEventSource::create(Composer& composer, Pty& pty, PtyEventHost& host) {
-    return composer.pool->make<PtyEventSourceImpl>(pty, host);
+PtyEventSource* PtyEventSource::create(Composer& composer, Pty& pty) {
+    assert(composer.ptyEventHost != nullptr);
+    return composer.pool->make<PtyEventSourceImpl>(pty, *composer.ptyEventHost);
 }
