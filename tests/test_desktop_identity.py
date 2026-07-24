@@ -23,15 +23,11 @@ class DesktopIdentityTests(unittest.TestCase):
         self.assertIsNotNone(match)
         return match.group(1)
 
-    def test_wayland_app_id_matches_desktop_file_id(self):
-        source = (ROOT / "window.cpp").read_text()
-        match = re.search(
-            r'glfwWindowHintString\(GLFW_WAYLAND_APP_ID,\s*"([^"]+)"\)',
-            source,
+    def test_desktop_comment_describes_cross_platform_frontend(self):
+        self.assertEqual(
+            self.desktop_value("Comment"),
+            "Cross-platform terminal with Vulkan rendering",
         )
-
-        self.assertIsNotNone(match)
-        self.assertEqual(match.group(1), (ROOT / "shitty.desktop").stem)
 
     def test_desktop_entry_launches_st(self):
         self.assertEqual(self.desktop_value("Exec"), "st")

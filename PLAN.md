@@ -107,7 +107,7 @@ Contour построил поверх него то, что нам нужно:
 2. `fuzz_parser.py` — детерминированный random test, не coverage-guided fuzzer. Он почти не знает грамматику и редко добирается до глубоких валидных состояний.
 3. Нет corpus replay реальных приложений.
 4. Unicode проверяется хорошими вручную выбранными случаями, но не полным generated corpus.
-5. Почти нет внешней проверки framebuffer/raster/GLFW/Wayland/X11.
+5. Почти нет внешней проверки framebuffer/raster/GLFW/native window systems.
 6. Нет системной проверки throughput, event-loop fairness, frame count, памяти и latency под потоком в сотни мегабайт.
 7. Нет machine-readable соответствия «поддерживаемая sequence → тесты → спецификация». Нынешний `COVERAGE.md` полезен человеку, но не обнаружит новую handler branch без теста.
 8. Fuzzing пока не покрывает сочетания `write/resize/scroll/select/reset/switch-screen`, хотя именно stateful sequences обычно ломают terminal model.
@@ -146,7 +146,7 @@ Contour построил поверх него то, что нам нужно:
    ASan на этом musl пока не закладываю как обязательный gate. AFL++ edge coverage всё равно полезен; sanitizers можно добавить позднее в другом окружении.
 
 7. Renderer/frontend  
-   Offscreen Vulkan golden tests для glyph placement, clipping, cursor, selection, blink phases, HiDPI и damage. Отдельный минимальный Wayland/X11 tier проверяет GLFW events, clipboard и window resizing.
+   Offscreen Vulkan golden tests для glyph placement, clipping, cursor, selection, blink phases, HiDPI и damage. Отдельный минимальный platform tier проверяет GLFW events, clipboard и window resizing.
 
 ## Очерёдность с максимальной отдачей
 

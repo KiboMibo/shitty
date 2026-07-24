@@ -3,7 +3,7 @@ import escio
 from escutil import AssertEQ, knownBug
 
 # Xlib converts device-independent color specifications through the target
-# screen's CCC. Shitty's Wayland profile is explicitly sRGB/D65.
+# screen's CCC. Shitty's color profile is explicitly sRGB/D65.
 
 class ChangeDynamicColorTests(object):
   @knownBug(terminal="iTerm2", reason="Color reporting not implemented.", shouldTry=False)
@@ -88,4 +88,3 @@ class ChangeDynamicColorTests(object):
   def test_ChangeDynamicColor_TekHVC(self):
     self.doChangeDynamicColorTest("10", "TekHVC:1/1/1", "0b0b/0101/0303")
     self.doChangeDynamicColorTest("10", "TekHVC:0.5/0.5/0.5", "0606/0101/0101")
-

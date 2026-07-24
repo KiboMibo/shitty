@@ -200,7 +200,6 @@ void WindowImpl::initialize() {
         return;
     }
 
-    glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_WAYLAND);
     if (!glfwInit()) {
         fail("glfwInit");
     }
@@ -210,8 +209,6 @@ void WindowImpl::initialize() {
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     glfwWindowHint(GLFW_SCALE_FRAMEBUFFER, GLFW_TRUE);
-    glfwWindowHintString(GLFW_WAYLAND_APP_ID, "shitty");
-
     const int initialWidth = max(320, (int)(opts.nCols) * opts.fontsize / 2);
     const int initialHeight = max(200, (int)(opts.nRows) * opts.fontsize);
     window = glfwCreateWindow(initialWidth, initialHeight, opts.title, nullptr, nullptr);

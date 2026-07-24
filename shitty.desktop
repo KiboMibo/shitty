@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Shitty
-Comment=Native Wayland terminal with Vulkan rendering
+Comment=Cross-platform terminal with Vulkan rendering
 Exec=st
 Terminal=false
 Icon=shitty

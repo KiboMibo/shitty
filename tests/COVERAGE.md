@@ -119,7 +119,7 @@ Still requiring a platform boundary before it can be tested headlessly:
 - GLFW event translation, including physical keyboard layout and IME input;
 - clipboard ownership and OSC 52 integration;
 - Vulkan raster output, font fallback and glyph metrics;
-- Wayland/X11 window state, scale and grid-snapped interactive resizing.
+- native window state, scale and grid-snapped interactive resizing.
 
 Those frontend behaviors should be moved into platform-neutral components and
 driven by the same control socket. A smaller renderer tier can then compare
