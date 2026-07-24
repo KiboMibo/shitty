@@ -16,6 +16,9 @@ namespace stl {
 struct Fontpack;
 struct Application;
 struct CellExtraStore;
+struct Clipboard;
+struct DesktopActions;
+struct InputSink;
 struct Renderer;
 struct Pty;
 struct PtyEventSource;
@@ -33,7 +36,10 @@ struct Composer {
     stl::ObjPool* pool = nullptr;
     Application* application = nullptr;
     CellExtraStore* cellExtras = nullptr;
+    Clipboard* clipboard = nullptr;
+    DesktopActions* desktopActions = nullptr;
     Fontpack* fonts = nullptr;
+    InputSink* input = nullptr;
     Renderer* renderer = nullptr;
     Pty* pty = nullptr;
     PtyEventSource* ptyEvents = nullptr;
@@ -48,4 +54,7 @@ struct Composer {
 
     // resize() commits all geometry fields before walking this list.
     stl::IntrusiveList resizedListeners;
+    // Input producers call input; the router walks this list in registration
+    // order and stops at the first sink which accepts the event.
+    stl::IntrusiveList inputSinks;
 };

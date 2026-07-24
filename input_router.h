@@ -4,4 +4,9 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "clipboard.h"
+#pragma once
+
+struct Composer;
+struct InputSink;
+
+InputSink* createInputRouter(Composer& composer);

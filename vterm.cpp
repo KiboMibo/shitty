@@ -20,8 +20,14 @@
 #include "vterm_test.h"
 #include "base64.h"
 #include "cell_extra_store.h"
+#include "clipboard.h"
 #include "color_spec.h"
 #include "composer.h"
+#include "desktop_actions.h"
+#include "input_sink.h"
+#include "keyboard.h"
+#include "mouse_frontend.h"
+#include "mouse_protocol.h"
 #include "screen.h"
 #include "grapheme.h"
 #include "hex.h"
@@ -128,6 +134,44 @@ namespace {
 
     struct VtermImpl;
 
+    struct VtermInput {
+        explicit VtermInput(VtermImpl* terminal);
+
+        bool key(const KeyInput& input);
+        bool text(const TextInput& input);
+        bool pointerMotion(const PointerMotionInput& input);
+        bool pointerButton(const PointerButtonInput& input);
+        bool scroll(const ScrollInput& input);
+        void focus(bool focused);
+        void pointerPresence(bool present);
+        void flush();
+
+        VtModifier legacyModifiers(u16 modifiers) const;
+        u16 kittyModifiers(u16 modifiers) const;
+        VtKey keypadKey(InputKey key, bool numLock) const;
+        VtKey specialKey(InputKey key, u16 modifiers) const;
+        void mouseProtocolCoordinates(MouseTrackingEnc encoding, int pixelX, int pixelY, u16& column, u16& row) const;
+        void sendMouseProtocol(MouseTrackingEnc encoding, MouseEventType type, u16 modifiers, int button, int column, int row);
+        void sendMouseButtonProtocol(MouseEventType type, int button, int pixelX, int pixelY, u16 modifiers, const MouseTrackingState& tracking);
+        bool paste(bool primary);
+
+        struct PendingTextKey {
+            bool active = false;
+            u32 primary = 0;
+            u32 base = 0;
+            u16 modifiers = 0;
+            VtermKeyEventType event = VtermKeyEventType::Press;
+        };
+
+        VtermImpl* terminal;
+        MouseFrontendState mouse;
+        PendingTextKey pendingTextKey;
+        unsigned suppressedTextInputs = 0;
+        bool suppressRepeatedTextInput = false;
+        bool hyperlinkClick = false;
+        bool locallyConsumedKeys[(unsigned)(InputKey::Count) + 128]{};
+    };
+
     struct CallVtermResize: Listener {
         explicit CallVtermResize(VtermImpl* parent);
 
@@ -136,7 +180,7 @@ namespace {
         VtermImpl* parent;
     };
 
-    struct VtermImpl final: public Vterm {
+    struct VtermImpl final: public Vterm, public InputSink {
         VtermImpl(Composer& composer, VtermHost& host, VtermTrace* trace, Output* dump);
 
         ~VtermImpl();
@@ -144,26 +188,33 @@ namespace {
         void feedPty(StringView bytes) override;
         void expose() override;
         void focus(bool focused) override;
-        void key(VtKey key, VtModifier modifiers) override;
-        void character(u8 byte, VtModifier modifiers) override;
+        bool key(const KeyInput& input) override;
+        bool text(const TextInput& input) override;
+        bool pointerMotion(const PointerMotionInput& input) override;
+        bool pointerButton(const PointerButtonInput& input) override;
+        bool scroll(const ScrollInput& input) override;
+        void pointerPresence(bool present) override;
+        void flush() override;
+        void key(VtKey key, VtModifier modifiers);
+        void character(u8 byte, VtModifier modifiers);
         void sendBytes(StringView bytes, bool userInput) override;
-        void kittyKey(VtKey key, u16 modifiers, VtermKeyEventType event) override;
-        void kittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event) override;
-        bool mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY) override;
-        void locatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons) override;
-        void locatorButton(u8 button, bool pressed) override;
-        void scrollUp(u16 count) override;
-        void scrollDown(u16 count) override;
-        void pageUp() override;
-        void pageDown() override;
-        void selectionStart(int pixelX, int pixelY, bool cycleSnapTo) override;
-        void selectionExtend(int pixelX, int pixelY, bool cycleSnapTo) override;
-        void selectionUpdate(int pixelX, int pixelY) override;
-        VtermTextResult selectionFinish() override;
-        void selectionClear() override;
-        void selectionRectangular() override;
-        void paste(StringView text) override;
-        StringView hyperlinkAt(int pixelX, int pixelY) override;
+        void kittyKey(VtKey key, u16 modifiers, VtermKeyEventType event);
+        void kittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event);
+        bool mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY);
+        void locatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons);
+        void locatorButton(u8 button, bool pressed);
+        void scrollUp(u16 count);
+        void scrollDown(u16 count);
+        void pageUp();
+        void pageDown();
+        void selectionStart(int pixelX, int pixelY, bool cycleSnapTo);
+        void selectionExtend(int pixelX, int pixelY, bool cycleSnapTo);
+        void selectionUpdate(int pixelX, int pixelY);
+        VtermTextResult selectionFinish();
+        void selectionClear();
+        void selectionRectangular();
+        void paste(StringView text);
+        StringView hyperlinkAt(int pixelX, int pixelY);
         bool expireSynchronizedOutput(bool force) override;
         bool advanceAnimation(bool force) override;
         VtermOutput output() override;
@@ -491,6 +542,7 @@ namespace {
         void writeTitleResponse(char, const std::string&);
         void applyPaletteColor(u16 index, Color color);
 
+        VtermInput input;
         Composer& composer;
         VtermHost& host;
         Output* dump;
@@ -815,6 +867,24 @@ namespace {
         bool ansiMode(u32 mode) const override;
         bool privateMode(u32 mode) const override;
         VtermTestCell cell(u16 row, u16 column) const override;
+        void key(VtKey key, VtModifier modifiers) override;
+        void character(u8 byte, VtModifier modifiers) override;
+        void kittyKey(VtKey key, u16 modifiers, VtermKeyEventType event) override;
+        void kittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event) override;
+        bool mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY) override;
+        void locatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons) override;
+        void locatorButton(u8 button, bool pressed) override;
+        void scrollUp(u16 count) override;
+        void scrollDown(u16 count) override;
+        void pageUp() override;
+        void pageDown() override;
+        void selectionStart(int pixelX, int pixelY, bool cycleSnapTo) override;
+        void selectionExtend(int pixelX, int pixelY, bool cycleSnapTo) override;
+        void selectionUpdate(int pixelX, int pixelY) override;
+        VtermTextResult selectionFinish() override;
+        void selectionRectangular() override;
+        void paste(StringView text) override;
+        StringView hyperlinkAt(int pixelX, int pixelY) override;
 
         VtermImpl* vterm;
     };
@@ -846,6 +916,553 @@ namespace {
     const u32* GraphemeBuffer::data() const {
         return size_ <= inlineCapacity ? inlineValues.data() : overflowValues.data();
     }
+}
+
+VtermInput::VtermInput(VtermImpl* terminal_)
+    : terminal(terminal_)
+{
+}
+
+VtModifier VtermInput::legacyModifiers(u16 modifiers) const {
+    VtModifier result = VtModifier::none;
+    if (modifiers & InputShift) {
+        result = result | VtModifier::shift;
+    }
+    if (modifiers & InputControl) {
+        result = result | VtModifier::control;
+    }
+    if (modifiers & InputAlt) {
+        result = result | VtModifier::alt;
+    }
+    if ((modifiers & InputSuper) && terminal->eightBitInput) {
+        result = result | VtModifier::alt;
+    }
+    return result;
+}
+
+u16 VtermInput::kittyModifiers(u16 modifiers) const {
+    u16 result = 0;
+    if (modifiers & InputShift) {
+        result |= 1;
+    }
+    if (modifiers & InputAlt) {
+        result |= 2;
+    }
+    if (modifiers & InputControl) {
+        result |= 4;
+    }
+    if (modifiers & InputSuper) {
+        result |= 8;
+    }
+    if (modifiers & InputCapsLock) {
+        result |= 64;
+    }
+    if (modifiers & InputNumLock) {
+        result |= 128;
+    }
+    return result;
+}
+
+VtKey VtermInput::keypadKey(InputKey key, bool numLock) const {
+    using Key = VtKey;
+    if (!numLock) {
+        switch (key) {
+            case InputKey::Keypad0:
+                return Key::KP_Insert;
+            case InputKey::Keypad1:
+                return Key::KP_End;
+            case InputKey::Keypad2:
+                return Key::KP_Down;
+            case InputKey::Keypad3:
+                return Key::KP_PageDown;
+            case InputKey::Keypad4:
+                return Key::KP_Left;
+            case InputKey::Keypad5:
+                return Key::KP_Begin;
+            case InputKey::Keypad6:
+                return Key::KP_Right;
+            case InputKey::Keypad7:
+                return Key::KP_Home;
+            case InputKey::Keypad8:
+                return Key::KP_Up;
+            case InputKey::Keypad9:
+                return Key::KP_PageUp;
+            case InputKey::KeypadDecimal:
+                return Key::KP_Delete;
+            default:
+                break;
+        }
+    }
+    switch (key) {
+        case InputKey::Keypad0:
+            return Key::KP_0;
+        case InputKey::Keypad1:
+            return Key::KP_1;
+        case InputKey::Keypad2:
+            return Key::KP_2;
+        case InputKey::Keypad3:
+            return Key::KP_3;
+        case InputKey::Keypad4:
+            return Key::KP_4;
+        case InputKey::Keypad5:
+            return Key::KP_5;
+        case InputKey::Keypad6:
+            return Key::KP_6;
+        case InputKey::Keypad7:
+            return Key::KP_7;
+        case InputKey::Keypad8:
+            return Key::KP_8;
+        case InputKey::Keypad9:
+            return Key::KP_9;
+        case InputKey::KeypadDecimal:
+            return Key::KP_Dot;
+        case InputKey::KeypadDivide:
+            return Key::KP_Slash;
+        case InputKey::KeypadMultiply:
+            return Key::KP_Star;
+        case InputKey::KeypadSubtract:
+            return Key::KP_Minus;
+        case InputKey::KeypadAdd:
+            return Key::KP_Plus;
+        case InputKey::KeypadEnter:
+            return Key::KP_Enter;
+        case InputKey::KeypadEqual:
+            return Key::KP_Equal;
+        default:
+            return Key::NONE;
+    }
+}
+
+VtKey VtermInput::specialKey(InputKey key, u16 modifiers) const {
+    using Key = VtKey;
+    const Key keypad = keypadKey(key, (modifiers & InputNumLock) != 0);
+    if (keypad != Key::NONE) {
+        return keypad;
+    }
+    switch (key) {
+        case InputKey::Enter:
+            return Key::Return;
+        case InputKey::Backspace:
+            return Key::Backspace;
+        case InputKey::Tab:
+            return Key::Tab;
+        case InputKey::Insert:
+            return Key::Insert;
+        case InputKey::Delete:
+            return Key::Delete;
+        case InputKey::Home:
+            return Key::Home;
+        case InputKey::End:
+            return Key::End;
+        case InputKey::Up:
+            return Key::Up;
+        case InputKey::Down:
+            return Key::Down;
+        case InputKey::Left:
+            return Key::Left;
+        case InputKey::Right:
+            return Key::Right;
+        case InputKey::PageUp:
+            return Key::PageUp;
+        case InputKey::PageDown:
+            return Key::PageDown;
+        case InputKey::F1:
+            return Key::F1;
+        case InputKey::F2:
+            return Key::F2;
+        case InputKey::F3:
+            return Key::F3;
+        case InputKey::F4:
+            return Key::F4;
+        case InputKey::F5:
+            return Key::F5;
+        case InputKey::F6:
+            return Key::F6;
+        case InputKey::F7:
+            return Key::F7;
+        case InputKey::F8:
+            return Key::F8;
+        case InputKey::F9:
+            return Key::F9;
+        case InputKey::F10:
+            return Key::F10;
+        case InputKey::F11:
+            return Key::F11;
+        case InputKey::F12:
+            return Key::F12;
+        case InputKey::F13:
+            return Key::F13;
+        case InputKey::F14:
+            return Key::F14;
+        case InputKey::F15:
+            return Key::F15;
+        case InputKey::F16:
+            return Key::F16;
+        case InputKey::F17:
+            return Key::F17;
+        case InputKey::F18:
+            return Key::F18;
+        case InputKey::F19:
+            return Key::F19;
+        case InputKey::F20:
+            return Key::F20;
+        case InputKey::CapsLock:
+            return Key::CapsLock;
+        case InputKey::ScrollLock:
+            return Key::ScrollLock;
+        case InputKey::NumLock:
+            return Key::NumLock;
+        case InputKey::PrintScreen:
+            return Key::Print;
+        case InputKey::Pause:
+            return Key::Pause;
+        case InputKey::Menu:
+            return Key::Menu;
+        case InputKey::LeftShift:
+            return Key::LeftShift;
+        case InputKey::LeftControl:
+            return Key::LeftControl;
+        case InputKey::LeftAlt:
+            return Key::LeftAlt;
+        case InputKey::LeftSuper:
+            return Key::LeftSuper;
+        case InputKey::RightShift:
+            return Key::RightShift;
+        case InputKey::RightControl:
+            return Key::RightControl;
+        case InputKey::RightAlt:
+            return Key::RightAlt;
+        case InputKey::RightSuper:
+            return Key::RightSuper;
+        default:
+            return Key::NONE;
+    }
+}
+
+bool VtermInput::paste(bool primary) {
+    if (terminal->composer.clipboard == nullptr) {
+        return false;
+    }
+    const StringView text = primary ? terminal->composer.clipboard->readPrimary() : terminal->composer.clipboard->readClipboard();
+    if (text.empty()) {
+        return false;
+    }
+    terminal->paste(text);
+    return true;
+}
+
+void VtermInput::flush() {
+    if (!pendingTextKey.active) {
+        return;
+    }
+    const PendingTextKey pending = pendingTextKey;
+    pendingTextKey.active = false;
+    terminal->writeKittyKey(pending.primary, 0, pending.base, pending.modifiers, pending.event);
+}
+
+bool VtermInput::key(const KeyInput& input) {
+    flush();
+    suppressRepeatedTextInput = input.action == InputAction::Repeat && !terminal->autoRepeatMode;
+    const VtModifier modifiers = legacyModifiers(input.modifiers);
+    const bool pressed = input.action != InputAction::Release;
+    const unsigned keyIndex = input.key == InputKey::Printable && input.baseCodepoint < 128 ? (unsigned)(InputKey::Count) + input.baseCodepoint : (unsigned)(input.key);
+    if (!pressed && keyIndex < sizeof(locallyConsumedKeys) && locallyConsumedKeys[keyIndex]) {
+        locallyConsumedKeys[keyIndex] = false;
+        return true;
+    }
+    const auto runLocal = [&](const auto& operation) {
+        if (!pressed) {
+            return;
+        }
+        if (keyIndex < sizeof(locallyConsumedKeys)) {
+            locallyConsumedKeys[keyIndex] = true;
+        }
+        operation();
+    };
+
+    if (input.key == InputKey::PageUp && modifiers == VtModifier::shift) {
+        runLocal([&]() {
+            terminal->pageUp();
+        });
+        return true;
+    }
+    if (input.key == InputKey::PageDown && modifiers == VtModifier::shift) {
+        runLocal([&]() {
+            terminal->pageDown();
+        });
+        return true;
+    }
+    if (input.baseCodepoint == 'c' && modifiers == VtModifier::shift_control) {
+        runLocal([&]() {
+            if (terminal->composer.clipboard != nullptr) {
+                const StringView content = terminal->composer.clipboard->readPrimary();
+                if (!content.empty()) {
+                    terminal->composer.clipboard->writeClipboard(content);
+                }
+            }
+        });
+        return true;
+    }
+    if (input.baseCodepoint == 'v' && modifiers == VtModifier::shift_control) {
+        runLocal([&]() {
+            paste(false);
+        });
+        return true;
+    }
+    if ((input.key == InputKey::Insert || input.key == InputKey::Keypad0) && modifiers == VtModifier::shift) {
+        runLocal([&]() {
+            paste(true);
+        });
+        return true;
+    }
+    if (input.baseCodepoint == ' ' && mouse.selectionOngoing()) {
+        runLocal([&]() {
+            terminal->selectionRectangular();
+        });
+        return true;
+    }
+    if (suppressRepeatedTextInput) {
+        return true;
+    }
+
+    const u8 kittyFlags = terminal->getKittyKeyboardFlags();
+    const u16 kittyMods = kittyModifiers(input.modifiers);
+    const VtermKeyEventType event = input.action == InputAction::Release ? VtermKeyEventType::Release : input.action == InputAction::Repeat ? VtermKeyEventType::Repeat : VtermKeyEventType::Press;
+    if (kittyFlags) {
+        if (input.key == InputKey::Escape) {
+            terminal->writeKittyKey(27, 0, 0, kittyMods, event);
+            return true;
+        }
+        const VtKey special = specialKey(input.key, input.modifiers);
+        if (special != VtKey::NONE) {
+            terminal->writeKittyKey(special, kittyMods, event);
+            return true;
+        }
+        const u32 primaryKey = input.layoutCodepoint != 0 ? input.layoutCodepoint : input.baseCodepoint;
+        const u16 textMods = kittyMods & ~(64 | 128);
+        if (primaryKey && ((textMods & (2 | 4 | 8)) || (kittyFlags & 0x08))) {
+            if (pressed && !(textMods & (2 | 4 | 8))) {
+                pendingTextKey = {true, primaryKey, input.baseCodepoint, textMods, event};
+                return true;
+            }
+            terminal->writeKittyKey(primaryKey, 0, input.baseCodepoint, textMods, event);
+            if (pressed && (((textMods & (2 | 8)) && !(textMods & 4)) || (kittyFlags & 0x08))) {
+                ++suppressedTextInputs;
+            }
+            return true;
+        }
+    }
+    if (!pressed) {
+        return true;
+    }
+    if (input.key == InputKey::Escape) {
+        terminal->writePty((u8)('\x1b'), modifiers, true);
+        return true;
+    }
+    const VtKey special = specialKey(input.key, input.modifiers);
+    if (special != VtKey::NONE) {
+        terminal->writePty(special, modifiers, true);
+        return true;
+    }
+    if (input.modifiers & InputControl) {
+        int controlKey = (int)(input.baseCodepoint);
+        if (controlKey >= 'a' && controlKey <= 'z') {
+            controlKey -= 'a' - 'A';
+        }
+        u8 character = 0;
+        if (controlCharacter(controlKey, input.modifiers & InputShift, character)) {
+            terminal->writePty(character, modifiers, true);
+        }
+    }
+    return true;
+}
+
+bool VtermInput::text(const TextInput& input) {
+    if (suppressRepeatedTextInput) {
+        return true;
+    }
+    if (pendingTextKey.active) {
+        const PendingTextKey pending = pendingTextKey;
+        pendingTextKey.active = false;
+        const u32 alternate = input.codepoint != pending.primary ? input.codepoint : 0;
+        terminal->writeKittyKey(pending.primary, alternate, pending.base, pending.modifiers, pending.event);
+        return true;
+    }
+    if (suppressedTextInputs) {
+        --suppressedTextInputs;
+        return true;
+    }
+    if (input.codepoint == 0) {
+        return false;
+    }
+    const VtModifier modifiers = legacyModifiers(input.modifiers);
+    if (input.codepoint < 0x80) {
+        terminal->writePty((u8)(input.codepoint), modifiers, true);
+        return true;
+    }
+    u8 encoded[4];
+    size_t size = 0;
+    Utf8Encoder::pushUnicode(input.codepoint, [&](u8 byte) {
+        encoded[size++] = byte;
+    });
+    if ((input.modifiers & InputAlt) && terminal->altSendsEscape) {
+        terminal->writePty((const u8*)("\x1b"), 1, true);
+    }
+    terminal->writePty(encoded, size, true);
+    return true;
+}
+
+void VtermInput::mouseProtocolCoordinates(MouseTrackingEnc encoding, int pixelX, int pixelY, u16& column, u16& row) const {
+    const MouseGeometry geometry = {terminal->composer.pixelWidth, terminal->composer.pixelHeight, opts.border, terminal->composer.glyphWidth, terminal->composer.glyphHeight};
+    const MouseProtocolPoint point = mouseProtocolPoint(encoding, pixelX, pixelY, geometry);
+    column = point.column;
+    row = point.row;
+}
+
+void VtermInput::sendMouseProtocol(MouseTrackingEnc encoding, MouseEventType type, u16 modifiers, int button, int column, int row) {
+    const unsigned protocolModifiers = mouseProtocolModifiers(modifiers);
+    StringBuilder report;
+    if (encodeMouseProtocol(report, encoding, type, protocolModifiers, mouse.motionButton(), button, column, row)) {
+        terminal->writePty((const u8*)(report.data()), report.used(), false);
+    }
+}
+
+void VtermInput::sendMouseButtonProtocol(MouseEventType type, int button, int pixelX, int pixelY, u16 modifiers, const MouseTrackingState& tracking) {
+    if (!mouseButtonReportAllowed(tracking.mode, type, button)) {
+        return;
+    }
+    u16 column = 0;
+    u16 row = 0;
+    mouseProtocolCoordinates(tracking.enc, pixelX, pixelY, column, row);
+    if (tracking.mode == MouseTrackingMode::VT200_Highlight && type == MouseEventType::Release) {
+        terminal->mouseHighlightRelease(column, row, column, row);
+        return;
+    }
+    sendMouseProtocol(tracking.enc, type, tracking.mode == MouseTrackingMode::X10_Compat ? 0 : modifiers, button, column, row);
+}
+
+bool VtermInput::pointerButton(const PointerButtonInput& input) {
+    const int button = (int)(input.button);
+    mouse.updateButton(button, input.pressed);
+    const MouseTrackingState tracking = terminal->mouseTrk;
+    const int protocolButton = mouseTerminalButton(button);
+    u16 locatorColumn = 1;
+    u16 locatorRow = 1;
+    mouseProtocolCoordinates(MouseTrackingEnc::Default, input.pixelX, input.pixelY, locatorColumn, locatorRow);
+    terminal->setLocatorPosition(locatorColumn, locatorRow, std::max(1, input.pixelX + 1), std::max(1, input.pixelY + 1), 0);
+    if (protocolButton >= 1 && protocolButton <= 4) {
+        terminal->reportLocatorButton(protocolButton, input.pressed);
+    }
+    if (!input.pressed && input.button == PointerButton::Primary && hyperlinkClick) {
+        hyperlinkClick = false;
+        return true;
+    }
+    if (input.pressed && input.button == PointerButton::Primary && (input.modifiers & InputControl)) {
+        const StringView link = terminal->hyperlinkAt(input.pixelX, input.pixelY);
+        if (!link.empty() && terminal->composer.desktopActions != nullptr) {
+            hyperlinkClick = true;
+            terminal->composer.desktopActions->openUri(link);
+            return true;
+        }
+    }
+    if (mouse.protocolActive(input.modifiers, tracking.mode)) {
+        sendMouseButtonProtocol(input.pressed ? MouseEventType::Press : MouseEventType::Release, protocolButton, input.pixelX, input.pixelY, input.modifiers, tracking);
+        return true;
+    }
+    if (input.pressed) {
+        const bool cycleSnapTo = mouse.registerClick(button, input.pixelX, input.pixelY, input.time) > 1;
+        if (input.button == PointerButton::Primary) {
+            terminal->selectionStart(input.pixelX, input.pixelY, cycleSnapTo);
+            mouse.beginSelection();
+        } else if (input.button == PointerButton::Secondary) {
+            terminal->selectionExtend(input.pixelX, input.pixelY, cycleSnapTo);
+            mouse.beginSelection();
+        }
+        return true;
+    }
+    if (input.button == PointerButton::Primary || input.button == PointerButton::Secondary) {
+        mouse.endSelection();
+        const VtermTextResult selected = terminal->selectionFinish();
+        if (selected.status && terminal->composer.clipboard != nullptr) {
+            terminal->composer.clipboard->writePrimary(selected.text);
+            if (opts.autoCopyMode) {
+                terminal->composer.clipboard->writeClipboard(selected.text);
+            }
+        }
+    } else if (input.button == PointerButton::Middle) {
+        paste(true);
+    }
+    return true;
+}
+
+bool VtermInput::pointerMotion(const PointerMotionInput& input) {
+    u16 locatorColumn = 1;
+    u16 locatorRow = 1;
+    mouseProtocolCoordinates(MouseTrackingEnc::Default, input.pixelX, input.pixelY, locatorColumn, locatorRow);
+    terminal->setLocatorPosition(locatorColumn, locatorRow, std::max(1, input.pixelX + 1), std::max(1, input.pixelY + 1), 0);
+    if (terminal->composer.desktopActions != nullptr) {
+        const bool overHyperlink = (input.modifiers & InputControl) && !terminal->hyperlinkAt(input.pixelX, input.pixelY).empty();
+        terminal->composer.desktopActions->pointerIcon(overHyperlink ? PointerIcon::Link : PointerIcon::Text);
+    }
+    const MouseTrackingState tracking = terminal->mouseTrk;
+    if (mouse.protocolActive(input.modifiers, tracking.mode)) {
+        if (tracking.mode == MouseTrackingMode::VT200_ButtonEvent && !mouse.primaryButtonPressed()) {
+            return true;
+        }
+        if (tracking.mode != MouseTrackingMode::VT200_ButtonEvent && tracking.mode != MouseTrackingMode::VT200_AnyEvent) {
+            return true;
+        }
+        u16 column = 0;
+        u16 row = 0;
+        mouseProtocolCoordinates(tracking.enc, input.pixelX, input.pixelY, column, row);
+        if (mouse.reportMotion(column, row, tracking.mode, tracking.enc, tracking.generation)) {
+            sendMouseProtocol(tracking.enc, MouseEventType::Motion, input.modifiers, 0, column, row);
+        }
+    } else if (mouse.buttons() & ((1u << (unsigned)(PointerButton::Primary)) | (1u << (unsigned)(PointerButton::Secondary)))) {
+        terminal->selectionUpdate(input.pixelX, input.pixelY);
+    }
+    return true;
+}
+
+bool VtermInput::scroll(const ScrollInput& input) {
+    const MouseTrackingState tracking = terminal->mouseTrk;
+    const bool reporting = mouse.protocolActive(input.modifiers, tracking.mode);
+    const MouseWheelSteps steps = mouse.consumeWheel(input.x, input.y, reporting);
+    if (reporting) {
+        for (int k = 0; k < steps.y; ++k) {
+            sendMouseButtonProtocol(MouseEventType::Press, 4, input.pixelX, input.pixelY, input.modifiers, tracking);
+        }
+        for (int k = 0; k < -steps.y; ++k) {
+            sendMouseButtonProtocol(MouseEventType::Press, 5, input.pixelX, input.pixelY, input.modifiers, tracking);
+        }
+        for (int k = 0; k < -steps.x; ++k) {
+            sendMouseButtonProtocol(MouseEventType::Press, 6, input.pixelX, input.pixelY, input.modifiers, tracking);
+        }
+        for (int k = 0; k < steps.x; ++k) {
+            sendMouseButtonProtocol(MouseEventType::Press, 7, input.pixelX, input.pixelY, input.modifiers, tracking);
+        }
+    } else if (steps.y > 0) {
+        terminal->mouseWheelUp(steps.y);
+    } else if (steps.y < 0) {
+        terminal->mouseWheelDown(-steps.y);
+    }
+    return true;
+}
+
+void VtermInput::focus(bool focused) {
+    if (!focused) {
+        mouse.clearButtons();
+        mouse.endSelection();
+        suppressedTextInputs = 0;
+        suppressRepeatedTextInput = false;
+        pendingTextKey.active = false;
+        std::fill(std::begin(locallyConsumedKeys), std::end(locallyConsumedKeys), false);
+    }
+    terminal->setHasFocus(focused);
+}
+
+void VtermInput::pointerPresence(bool) {
+    mouse.resetMotion();
 }
 
 VtermImpl::~VtermImpl() {
@@ -928,7 +1545,35 @@ void VtermImpl::expose() {
 }
 
 void VtermImpl::focus(bool focused) {
-    setHasFocus(focused);
+    input.focus(focused);
+}
+
+bool VtermImpl::key(const KeyInput& value) {
+    return input.key(value);
+}
+
+bool VtermImpl::text(const TextInput& value) {
+    return input.text(value);
+}
+
+bool VtermImpl::pointerMotion(const PointerMotionInput& value) {
+    return input.pointerMotion(value);
+}
+
+bool VtermImpl::pointerButton(const PointerButtonInput& value) {
+    return input.pointerButton(value);
+}
+
+bool VtermImpl::scroll(const ScrollInput& value) {
+    return input.scroll(value);
+}
+
+void VtermImpl::pointerPresence(bool present) {
+    input.pointerPresence(present);
+}
+
+void VtermImpl::flush() {
+    input.flush();
 }
 
 void VtermImpl::key(VtKey key_, VtModifier modifiers_) {
@@ -1155,10 +1800,6 @@ void VtermImpl::consume(const VtermConsume& consumed) {
 
 VtermState VtermImpl::state() const {
     VtermState result;
-    result.mouse = mouseTrk;
-    result.kittyKeyboardFlags = getKittyKeyboardFlags();
-    result.metaMode = eightBitInput;
-    result.autoRepeat = autoRepeatMode;
     result.synchronizedOutput = synchronizedOutputMode;
     result.animation = haveBlinkingText || cursorBlinkMode;
     return result;
@@ -1179,6 +1820,8 @@ TestApiImpl::TestApiImpl(VtermImpl* vterm_)
 
 VtermTestState TestApiImpl::inspect() const {
     VtermTestState result;
+    result.mouse = vterm->mouseTrk;
+    result.kittyKeyboardFlags = vterm->getKittyKeyboardFlags();
     result.screenReverseVideo = vterm->screenReverseVideo;
     result.ledState = vterm->ledState;
     result.reverseWrapMode = vterm->reverseWrapMode;
@@ -1312,6 +1955,78 @@ VtermTestCell TestApiImpl::cell(u16 row, u16 column) const {
     result.graphemeSize = grapheme.size();
     result.underlineColor = extras->underlineColor(result.cell);
     return result;
+}
+
+void TestApiImpl::key(VtKey key_, VtModifier modifiers) {
+    vterm->key(key_, modifiers);
+}
+
+void TestApiImpl::character(u8 byte, VtModifier modifiers) {
+    vterm->character(byte, modifiers);
+}
+
+void TestApiImpl::kittyKey(VtKey key_, u16 modifiers, VtermKeyEventType event) {
+    vterm->kittyKey(key_, modifiers, event);
+}
+
+void TestApiImpl::kittyKey(u32 key_, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event) {
+    vterm->kittyKey(key_, shiftedKey, baseLayoutKey, modifiers, event);
+}
+
+bool TestApiImpl::mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY) {
+    return vterm->mouseHighlightRelease(endX, endY, mouseX, mouseY);
+}
+
+void TestApiImpl::locatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons) {
+    vterm->locatorPosition(column, row, pixelX, pixelY, buttons);
+}
+
+void TestApiImpl::locatorButton(u8 button, bool pressed) {
+    vterm->locatorButton(button, pressed);
+}
+
+void TestApiImpl::scrollUp(u16 count) {
+    vterm->scrollUp(count);
+}
+
+void TestApiImpl::scrollDown(u16 count) {
+    vterm->scrollDown(count);
+}
+
+void TestApiImpl::pageUp() {
+    vterm->pageUp();
+}
+
+void TestApiImpl::pageDown() {
+    vterm->pageDown();
+}
+
+void TestApiImpl::selectionStart(int pixelX, int pixelY, bool cycleSnapTo) {
+    vterm->selectionStart(pixelX, pixelY, cycleSnapTo);
+}
+
+void TestApiImpl::selectionExtend(int pixelX, int pixelY, bool cycleSnapTo) {
+    vterm->selectionExtend(pixelX, pixelY, cycleSnapTo);
+}
+
+void TestApiImpl::selectionUpdate(int pixelX, int pixelY) {
+    vterm->selectionUpdate(pixelX, pixelY);
+}
+
+VtermTextResult TestApiImpl::selectionFinish() {
+    return vterm->selectionFinish();
+}
+
+void TestApiImpl::selectionRectangular() {
+    vterm->selectionRectangular();
+}
+
+void TestApiImpl::paste(StringView text) {
+    vterm->paste(text);
+}
+
+StringView TestApiImpl::hyperlinkAt(int pixelX, int pixelY) {
+    return vterm->hyperlinkAt(pixelX, pixelY);
 }
 
 bool VtermImpl::animationActive() const {
@@ -7034,7 +7749,8 @@ void CallVtermResize::onListen(void*) {
 }
 
 VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, Output* dump_)
-    : composer(composer_)
+    : input(this)
+    , composer(composer_)
     , host(host_)
     , dump(dump_)
     , parserTrace(trace)
@@ -7076,6 +7792,7 @@ VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, O
 
     resetTerminal();
     composer.resizedListeners.pushBack(composer.pool->make<CallVtermResize>(this));
+    composer.inputSinks.pushBack(this);
 }
 
 void VtermImpl::resizeGrid() {

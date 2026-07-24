@@ -6,6 +6,7 @@
 
 #include "composer.h"
 
+#include "input_router.h"
 #include "listener.h"
 #include "options.h"
 
@@ -18,6 +19,7 @@ using namespace stl;
 Composer::Composer(ObjPool* pool_)
     : pool(pool_)
 {
+    input = createInputRouter(*this);
 }
 
 void Composer::setGlyphSize(u16 width, u16 height) {

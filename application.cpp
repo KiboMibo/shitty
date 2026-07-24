@@ -16,11 +16,10 @@
 #include "application.h"
 #include "clipboard.h"
 #include "composer.h"
+#include "desktop_actions.h"
 #include "fd_redirect.h"
 #include "font_pack.h"
-#include "keyboard.h"
-#include "mouse_frontend.h"
-#include "mouse_protocol.h"
+#include "input_sink.h"
 #include "osc_protocol.h"
 #include "options.h"
 #include "pty.h"
@@ -28,7 +27,6 @@
 #include "vk_renderer.h"
 #include "startup.h"
 #include "test_mode.h"
-#include "utf8.h"
 #include "vterm.h"
 #include "vterm_host.h"
 
@@ -36,6 +34,7 @@
 #include <GLFW/glfw3.h>
 
 #include <std/ios/sys.h>
+#include <std/lib/buffer.h>
 #include <std/str/view.h>
 
 #include <algorithm>
@@ -74,7 +73,7 @@ using namespace stl;
 extern char** environ;
 
 namespace {
-    struct ApplicationImpl final: public Application, public VtermHost, public PtyEventHost {
+    struct ApplicationImpl final: public Application, public VtermHost, public PtyEventHost, public Clipboard, public DesktopActions {
         explicit ApplicationImpl(Composer& composer);
         ~ApplicationImpl();
 
@@ -90,6 +89,12 @@ namespace {
         void windowOperation(u32 operation, u32 first, u32 second) override;
         VtermWindowInfo windowInfo() override;
         void wake() override;
+        StringView readPrimary() override;
+        StringView readClipboard() override;
+        void writePrimary(StringView content) override;
+        void writeClipboard(StringView content) override;
+        void openUri(StringView uri) override;
+        void pointerIcon(PointerIcon icon) override;
 
         Composer& composer;
         Fontpack* fontpk = nullptr;
@@ -107,13 +112,9 @@ namespace {
         bool terminalHostReady = false;
         bool attentionRequested = false;
         std::optional<std::chrono::steady_clock::time_point> refreshDeadline;
-        ClipboardStore clipboardStore;
-
-        struct MouseContext {
-            MouseFrontendState frontend;
-            bool hyperlinkClick = false;
-            bool cursorInside = true;
-        } mouseContext;
+        Buffer primarySelection;
+        Buffer clipboardReadBuffer;
+        Buffer clipboardWriteBuffer;
 
         struct WindowContext {
             int pendingPixelWidth = 0;
@@ -127,19 +128,8 @@ namespace {
             int restoredHeight = 600;
         } windowContext;
 
-        unsigned suppressedTextInputs = 0;
-        bool suppressRepeatedTextInput = false;
-        bool locallyConsumedKeys[GLFW_KEY_LAST + 1]{};
-
-        struct PendingKittyTextKey {
-            bool active = false;
-            u32 primary = 0;
-            u32 base = 0;
-            u16 modifiers = 0;
-            VtermKeyEventType event = VtermKeyEventType::Press;
-        } pendingKittyTextKey;
-
         std::exception_ptr callbackError;
+        Buffer uriBuffer;
 
         TestModeInput* testModeInput();
         int takeTestFd(int& argc, char* argv[]);
@@ -149,29 +139,17 @@ namespace {
         void setupSignals();
         int startShell(const char* execPath, const char* const argv[]);
         bool keyPressed(int key);
-        int keyboardModifiers();
-        VtModifier convertModifiers(int modifiers);
-        int significantModifiers(int modifiers);
-        u16 kittyModifiers(int modifiers);
+        u16 keyboardModifiers();
+        u16 inputModifiers(int modifiers);
+        InputKey inputKey(int key);
         u32 decodeKeyName(const char* name);
         u32 baseLayoutKey(int key);
-        void flushPendingKittyTextKey();
-        bool pasteSelection(bool primary);
-        bool copyPrimaryToClipboard();
-        VtKey keypadKey(int key, bool numLock);
-        VtKey specialKey(int key, int modifiers);
         void onKeyEvent(int key, int scancode, int action, int rawModifiers);
         void onTextInput(u32 codepoint, int rawModifiers);
         double pixelScaleX();
         double pixelScaleY();
         int toPixelX(double x);
         int toPixelY(double y);
-        bool isMouseProtocol(int modifiers, const MouseTrackingState& tracking);
-        void mouseProtocolCoordinates(MouseTrackingEnc encoding, int pixelX, int pixelY, u16& column, u16& row);
-        void mouseProtocolSend(MouseTrackingEnc encoding, MouseEventType type, int modifiers, int button, int column, int row);
-        void sendMouseButtonProtocol(MouseEventType type, int button, int pixelX, int pixelY, int modifiers, const MouseTrackingState& tracking);
-        bool isMultipleClick(int button, double x, double y);
-        void openHyperlink(const std::string& uri);
         void onMouseButton(int button, bool pressed, int modifiers);
         void onMouseMotion(double x, double y);
         void onMouseWheel(double wheelX, double wheelY);
@@ -206,17 +184,12 @@ namespace {
     struct TestModeInputImpl final: public TestModeInput {
         explicit TestModeInputImpl(ApplicationImpl* application);
 
-        void attachTestVterm(Vterm& terminal) override;
         void testKeyEvent(int key, int scancode, int action, int modifiers) override;
         void testTextInput(unsigned codepoint, int modifiers) override;
 
         ApplicationImpl* application;
     };
 }
-
-static_assert(GLFW_MOD_SHIFT == FrontendShift);
-static_assert(GLFW_MOD_CONTROL == FrontendControl);
-static_assert(GLFW_MOD_ALT == FrontendAlt);
 
 ApplicationImpl::ApplicationImpl(Composer& composer_)
     : composer(composer_)
@@ -230,10 +203,6 @@ ApplicationImpl::~ApplicationImpl() {
 TestModeInputImpl::TestModeInputImpl(ApplicationImpl* application_)
     : application(application_)
 {
-}
-
-void TestModeInputImpl::attachTestVterm(Vterm& terminal) {
-    application->vt = &terminal;
 }
 
 void TestModeInputImpl::testKeyEvent(int key, int scancode, int action, int modifiers) {
@@ -346,67 +315,184 @@ bool ApplicationImpl::keyPressed(int key) {
     return glfwGetKey(window, key) == GLFW_PRESS;
 }
 
-int ApplicationImpl::keyboardModifiers() {
-    int modifiers = 0;
+u16 ApplicationImpl::keyboardModifiers() {
+    u16 modifiers = 0;
     if (keyPressed(GLFW_KEY_LEFT_SHIFT) || keyPressed(GLFW_KEY_RIGHT_SHIFT)) {
-        modifiers |= GLFW_MOD_SHIFT;
+        modifiers |= InputShift;
     }
     if (keyPressed(GLFW_KEY_LEFT_CONTROL) || keyPressed(GLFW_KEY_RIGHT_CONTROL)) {
-        modifiers |= GLFW_MOD_CONTROL;
+        modifiers |= InputControl;
     }
     if (keyPressed(GLFW_KEY_LEFT_ALT)) {
-        modifiers |= GLFW_MOD_ALT;
+        modifiers |= InputAlt;
+    }
+    if (keyPressed(GLFW_KEY_RIGHT_ALT)) {
+        modifiers |= InputAltGraph;
     }
     if (keyPressed(GLFW_KEY_LEFT_SUPER) || keyPressed(GLFW_KEY_RIGHT_SUPER)) {
-        modifiers |= GLFW_MOD_SUPER;
+        modifiers |= InputSuper;
     }
     return modifiers;
 }
 
-VtModifier ApplicationImpl::convertModifiers(int modifiers) {
-    VtModifier result = VtModifier::none;
-    if (modifiers & GLFW_MOD_SHIFT) {
-        result = result | VtModifier::shift;
-    }
-    if (modifiers & GLFW_MOD_CONTROL) {
-        result = result | VtModifier::control;
-    }
-    if ((modifiers & GLFW_MOD_ALT) && !keyPressed(GLFW_KEY_RIGHT_ALT)) {
-        result = result | VtModifier::alt;
-    }
-    if ((modifiers & GLFW_MOD_SUPER) && vt != nullptr && vt->state().metaMode) {
-        // Xterm resolves Meta through the platform modifier mapping.  GLFW
-        // exposes the closest portable Meta modifier as Super.
-        result = result | VtModifier::alt;
-    }
-    return result;
-}
-
-int ApplicationImpl::significantModifiers(int modifiers) {
-    return modifiers & (GLFW_MOD_SHIFT | GLFW_MOD_CONTROL | GLFW_MOD_ALT | GLFW_MOD_SUPER);
-}
-
-u16 ApplicationImpl::kittyModifiers(int modifiers) {
+u16 ApplicationImpl::inputModifiers(int modifiers) {
     u16 result = 0;
     if (modifiers & GLFW_MOD_SHIFT) {
-        result |= 1;
-    }
-    if ((modifiers & GLFW_MOD_ALT) && !keyPressed(GLFW_KEY_RIGHT_ALT)) {
-        result |= 2;
+        result |= InputShift;
     }
     if (modifiers & GLFW_MOD_CONTROL) {
-        result |= 4;
+        result |= InputControl;
+    }
+    if (modifiers & GLFW_MOD_ALT) {
+        result |= window != nullptr && keyPressed(GLFW_KEY_RIGHT_ALT) ? InputAltGraph : InputAlt;
     }
     if (modifiers & GLFW_MOD_SUPER) {
-        result |= 8;
+        result |= InputSuper;
     }
     if (modifiers & GLFW_MOD_CAPS_LOCK) {
-        result |= 64;
+        result |= InputCapsLock;
     }
     if (modifiers & GLFW_MOD_NUM_LOCK) {
-        result |= 128;
+        result |= InputNumLock;
     }
     return result;
+}
+
+InputKey ApplicationImpl::inputKey(int key) {
+    switch (key) {
+        case GLFW_KEY_ESCAPE:
+            return InputKey::Escape;
+        case GLFW_KEY_ENTER:
+            return InputKey::Enter;
+        case GLFW_KEY_BACKSPACE:
+            return InputKey::Backspace;
+        case GLFW_KEY_TAB:
+            return InputKey::Tab;
+        case GLFW_KEY_INSERT:
+            return InputKey::Insert;
+        case GLFW_KEY_DELETE:
+            return InputKey::Delete;
+        case GLFW_KEY_HOME:
+            return InputKey::Home;
+        case GLFW_KEY_END:
+            return InputKey::End;
+        case GLFW_KEY_UP:
+            return InputKey::Up;
+        case GLFW_KEY_DOWN:
+            return InputKey::Down;
+        case GLFW_KEY_LEFT:
+            return InputKey::Left;
+        case GLFW_KEY_RIGHT:
+            return InputKey::Right;
+        case GLFW_KEY_PAGE_UP:
+            return InputKey::PageUp;
+        case GLFW_KEY_PAGE_DOWN:
+            return InputKey::PageDown;
+        case GLFW_KEY_F1:
+            return InputKey::F1;
+        case GLFW_KEY_F2:
+            return InputKey::F2;
+        case GLFW_KEY_F3:
+            return InputKey::F3;
+        case GLFW_KEY_F4:
+            return InputKey::F4;
+        case GLFW_KEY_F5:
+            return InputKey::F5;
+        case GLFW_KEY_F6:
+            return InputKey::F6;
+        case GLFW_KEY_F7:
+            return InputKey::F7;
+        case GLFW_KEY_F8:
+            return InputKey::F8;
+        case GLFW_KEY_F9:
+            return InputKey::F9;
+        case GLFW_KEY_F10:
+            return InputKey::F10;
+        case GLFW_KEY_F11:
+            return InputKey::F11;
+        case GLFW_KEY_F12:
+            return InputKey::F12;
+        case GLFW_KEY_F13:
+            return InputKey::F13;
+        case GLFW_KEY_F14:
+            return InputKey::F14;
+        case GLFW_KEY_F15:
+            return InputKey::F15;
+        case GLFW_KEY_F16:
+            return InputKey::F16;
+        case GLFW_KEY_F17:
+            return InputKey::F17;
+        case GLFW_KEY_F18:
+            return InputKey::F18;
+        case GLFW_KEY_F19:
+            return InputKey::F19;
+        case GLFW_KEY_F20:
+            return InputKey::F20;
+        case GLFW_KEY_KP_0:
+            return InputKey::Keypad0;
+        case GLFW_KEY_KP_1:
+            return InputKey::Keypad1;
+        case GLFW_KEY_KP_2:
+            return InputKey::Keypad2;
+        case GLFW_KEY_KP_3:
+            return InputKey::Keypad3;
+        case GLFW_KEY_KP_4:
+            return InputKey::Keypad4;
+        case GLFW_KEY_KP_5:
+            return InputKey::Keypad5;
+        case GLFW_KEY_KP_6:
+            return InputKey::Keypad6;
+        case GLFW_KEY_KP_7:
+            return InputKey::Keypad7;
+        case GLFW_KEY_KP_8:
+            return InputKey::Keypad8;
+        case GLFW_KEY_KP_9:
+            return InputKey::Keypad9;
+        case GLFW_KEY_KP_DECIMAL:
+            return InputKey::KeypadDecimal;
+        case GLFW_KEY_KP_DIVIDE:
+            return InputKey::KeypadDivide;
+        case GLFW_KEY_KP_MULTIPLY:
+            return InputKey::KeypadMultiply;
+        case GLFW_KEY_KP_SUBTRACT:
+            return InputKey::KeypadSubtract;
+        case GLFW_KEY_KP_ADD:
+            return InputKey::KeypadAdd;
+        case GLFW_KEY_KP_ENTER:
+            return InputKey::KeypadEnter;
+        case GLFW_KEY_KP_EQUAL:
+            return InputKey::KeypadEqual;
+        case GLFW_KEY_CAPS_LOCK:
+            return InputKey::CapsLock;
+        case GLFW_KEY_SCROLL_LOCK:
+            return InputKey::ScrollLock;
+        case GLFW_KEY_NUM_LOCK:
+            return InputKey::NumLock;
+        case GLFW_KEY_PRINT_SCREEN:
+            return InputKey::PrintScreen;
+        case GLFW_KEY_PAUSE:
+            return InputKey::Pause;
+        case GLFW_KEY_MENU:
+            return InputKey::Menu;
+        case GLFW_KEY_LEFT_SHIFT:
+            return InputKey::LeftShift;
+        case GLFW_KEY_LEFT_CONTROL:
+            return InputKey::LeftControl;
+        case GLFW_KEY_LEFT_ALT:
+            return InputKey::LeftAlt;
+        case GLFW_KEY_LEFT_SUPER:
+            return InputKey::LeftSuper;
+        case GLFW_KEY_RIGHT_SHIFT:
+            return InputKey::RightShift;
+        case GLFW_KEY_RIGHT_CONTROL:
+            return InputKey::RightControl;
+        case GLFW_KEY_RIGHT_ALT:
+            return InputKey::RightAlt;
+        case GLFW_KEY_RIGHT_SUPER:
+            return InputKey::RightSuper;
+        default:
+            return baseLayoutKey(key) != 0 ? InputKey::Printable : InputKey::Unknown;
+    }
 }
 
 u32 ApplicationImpl::decodeKeyName(const char* name) {
@@ -439,360 +525,42 @@ u32 ApplicationImpl::baseLayoutKey(int key) {
     return 0;
 }
 
-void ApplicationImpl::flushPendingKittyTextKey() {
-    if (!pendingKittyTextKey.active) {
-        return;
-    }
-    const auto pending = pendingKittyTextKey;
-    pendingKittyTextKey.active = false;
-    vt->kittyKey(pending.primary, 0, pending.base, pending.modifiers, pending.event);
-}
-
-bool ApplicationImpl::pasteSelection(bool primary) {
-    const std::string text = clipboardStore.get(primary);
-    if (text.empty()) {
-        return false;
-    }
-    vt->paste(StringView((const u8*)(text.data()), text.size()));
-    return true;
-}
-
-bool ApplicationImpl::copyPrimaryToClipboard() {
-    return clipboardStore.copyPrimaryToClipboard();
-}
-
-VtKey ApplicationImpl::keypadKey(int key, bool numLock) {
-    using Key = VtKey;
-    if (!numLock) {
-        switch (key) {
-            case GLFW_KEY_KP_0:
-                return Key::KP_Insert;
-            case GLFW_KEY_KP_1:
-                return Key::KP_End;
-            case GLFW_KEY_KP_2:
-                return Key::KP_Down;
-            case GLFW_KEY_KP_3:
-                return Key::KP_PageDown;
-            case GLFW_KEY_KP_4:
-                return Key::KP_Left;
-            case GLFW_KEY_KP_5:
-                return Key::KP_Begin;
-            case GLFW_KEY_KP_6:
-                return Key::KP_Right;
-            case GLFW_KEY_KP_7:
-                return Key::KP_Home;
-            case GLFW_KEY_KP_8:
-                return Key::KP_Up;
-            case GLFW_KEY_KP_9:
-                return Key::KP_PageUp;
-            case GLFW_KEY_KP_DECIMAL:
-                return Key::KP_Delete;
-            default:
-                break;
-        }
-    }
-
-    switch (key) {
-        case GLFW_KEY_KP_0:
-            return Key::KP_0;
-        case GLFW_KEY_KP_1:
-            return Key::KP_1;
-        case GLFW_KEY_KP_2:
-            return Key::KP_2;
-        case GLFW_KEY_KP_3:
-            return Key::KP_3;
-        case GLFW_KEY_KP_4:
-            return Key::KP_4;
-        case GLFW_KEY_KP_5:
-            return Key::KP_5;
-        case GLFW_KEY_KP_6:
-            return Key::KP_6;
-        case GLFW_KEY_KP_7:
-            return Key::KP_7;
-        case GLFW_KEY_KP_8:
-            return Key::KP_8;
-        case GLFW_KEY_KP_9:
-            return Key::KP_9;
-        case GLFW_KEY_KP_DECIMAL:
-            return Key::KP_Dot;
-        case GLFW_KEY_KP_DIVIDE:
-            return Key::KP_Slash;
-        case GLFW_KEY_KP_MULTIPLY:
-            return Key::KP_Star;
-        case GLFW_KEY_KP_SUBTRACT:
-            return Key::KP_Minus;
-        case GLFW_KEY_KP_ADD:
-            return Key::KP_Plus;
-        case GLFW_KEY_KP_ENTER:
-            return Key::KP_Enter;
-        case GLFW_KEY_KP_EQUAL:
-            return Key::KP_Equal;
-        default:
-            return Key::NONE;
-    }
-}
-
-VtKey ApplicationImpl::specialKey(int key, int modifiers) {
-    using Key = VtKey;
-    const Key keypad = keypadKey(key, (modifiers & GLFW_MOD_NUM_LOCK) != 0);
-    if (keypad != Key::NONE) {
-        return keypad;
-    }
-
-    switch (key) {
-        case GLFW_KEY_ENTER:
-            return Key::Return;
-        case GLFW_KEY_BACKSPACE:
-            return Key::Backspace;
-        case GLFW_KEY_TAB:
-            return Key::Tab;
-        case GLFW_KEY_INSERT:
-            return Key::Insert;
-        case GLFW_KEY_DELETE:
-            return Key::Delete;
-        case GLFW_KEY_HOME:
-            return Key::Home;
-        case GLFW_KEY_END:
-            return Key::End;
-        case GLFW_KEY_UP:
-            return Key::Up;
-        case GLFW_KEY_DOWN:
-            return Key::Down;
-        case GLFW_KEY_LEFT:
-            return Key::Left;
-        case GLFW_KEY_RIGHT:
-            return Key::Right;
-        case GLFW_KEY_PAGE_UP:
-            return Key::PageUp;
-        case GLFW_KEY_PAGE_DOWN:
-            return Key::PageDown;
-        case GLFW_KEY_F1:
-            return Key::F1;
-        case GLFW_KEY_F2:
-            return Key::F2;
-        case GLFW_KEY_F3:
-            return Key::F3;
-        case GLFW_KEY_F4:
-            return Key::F4;
-        case GLFW_KEY_F5:
-            return Key::F5;
-        case GLFW_KEY_F6:
-            return Key::F6;
-        case GLFW_KEY_F7:
-            return Key::F7;
-        case GLFW_KEY_F8:
-            return Key::F8;
-        case GLFW_KEY_F9:
-            return Key::F9;
-        case GLFW_KEY_F10:
-            return Key::F10;
-        case GLFW_KEY_F11:
-            return Key::F11;
-        case GLFW_KEY_F12:
-            return Key::F12;
-        case GLFW_KEY_F13:
-            return Key::F13;
-        case GLFW_KEY_F14:
-            return Key::F14;
-        case GLFW_KEY_F15:
-            return Key::F15;
-        case GLFW_KEY_F16:
-            return Key::F16;
-        case GLFW_KEY_F17:
-            return Key::F17;
-        case GLFW_KEY_F18:
-            return Key::F18;
-        case GLFW_KEY_F19:
-            return Key::F19;
-        case GLFW_KEY_F20:
-            return Key::F20;
-        case GLFW_KEY_CAPS_LOCK:
-            return Key::CapsLock;
-        case GLFW_KEY_SCROLL_LOCK:
-            return Key::ScrollLock;
-        case GLFW_KEY_NUM_LOCK:
-            return Key::NumLock;
-        case GLFW_KEY_PRINT_SCREEN:
-            return Key::Print;
-        case GLFW_KEY_PAUSE:
-            return Key::Pause;
-        case GLFW_KEY_MENU:
-            return Key::Menu;
-        case GLFW_KEY_LEFT_SHIFT:
-            return Key::LeftShift;
-        case GLFW_KEY_LEFT_CONTROL:
-            return Key::LeftControl;
-        case GLFW_KEY_LEFT_ALT:
-            return Key::LeftAlt;
-        case GLFW_KEY_LEFT_SUPER:
-            return Key::LeftSuper;
-        case GLFW_KEY_RIGHT_SHIFT:
-            return Key::RightShift;
-        case GLFW_KEY_RIGHT_CONTROL:
-            return Key::RightControl;
-        case GLFW_KEY_RIGHT_ALT:
-            return Key::RightAlt;
-        case GLFW_KEY_RIGHT_SUPER:
-            return Key::RightSuper;
-        default:
-            return Key::NONE;
-    }
-}
-
 void ApplicationImpl::onKeyEvent(int key, int scancode, int action, int rawModifiers) {
-    flushPendingKittyTextKey();
-    suppressRepeatedTextInput = action == GLFW_REPEAT && !vt->state().autoRepeat;
-    const int keyModifiers = rawModifiers;
-    const int legacyModifiers = significantModifiers(rawModifiers);
-    const VtModifier modifiers = convertModifiers(legacyModifiers);
-    const bool pressed = action != GLFW_RELEASE;
-    const bool validKey = key >= 0 && key <= GLFW_KEY_LAST;
-    if (!pressed && validKey && locallyConsumedKeys[key]) {
-        locallyConsumedKeys[key] = false;
-        return;
-    }
-    const auto runLocal = [&](const auto& operation) {
-        if (pressed) {
-            if (validKey) {
-                locallyConsumedKeys[key] = true;
-            }
-            operation();
-        }
-    };
-
-    if (key == GLFW_KEY_PAGE_UP && modifiers == VtModifier::shift) {
-        runLocal([&]() {
-            vt->pageUp();
-        });
-        return;
-    }
-    if (key == GLFW_KEY_PAGE_DOWN && modifiers == VtModifier::shift) {
-        runLocal([&]() {
-            vt->pageDown();
-        });
-        return;
-    }
-    if (key == GLFW_KEY_C && modifiers == VtModifier::shift_control) {
-        runLocal([&]() {
-            copyPrimaryToClipboard();
-        });
-        return;
-    }
-    if (key == GLFW_KEY_V && modifiers == VtModifier::shift_control) {
-        runLocal([&]() {
-            pasteSelection(false);
-        });
-        return;
-    }
-    if ((key == GLFW_KEY_INSERT || key == GLFW_KEY_KP_0) && modifiers == VtModifier::shift) {
-        runLocal([&]() {
-            pasteSelection(true);
-        });
-        return;
-    }
-    if (key == GLFW_KEY_SPACE && mouseContext.frontend.selectionOngoing()) {
-        runLocal([&]() {
-            vt->selectionRectangular();
-        });
-        return;
-    }
-
-    if (suppressRepeatedTextInput) {
-        return;
-    }
-
-    const u8 kittyFlags = vt->state().kittyKeyboardFlags;
-    const u16 kittyMods = kittyModifiers(rawModifiers);
-    const auto event = action == GLFW_RELEASE ? VtermKeyEventType::Release : action == GLFW_REPEAT ? VtermKeyEventType::Repeat : VtermKeyEventType::Press;
-
-    if (kittyFlags) {
-        if (key == GLFW_KEY_ESCAPE) {
-            vt->kittyKey(27, 0, 0, kittyMods, event);
+    InputAction inputAction;
+    switch (action) {
+        case GLFW_PRESS:
+            inputAction = InputAction::Press;
+            break;
+        case GLFW_REPEAT:
+            inputAction = InputAction::Repeat;
+            break;
+        case GLFW_RELEASE:
+            inputAction = InputAction::Release;
+            break;
+        default:
             return;
-        }
-
-        const VtKey special = specialKey(key, keyModifiers);
-        if (special != VtKey::NONE) {
-            vt->kittyKey(special, kittyMods, event);
-            return;
-        }
-
-        const u32 baseKey = baseLayoutKey(key);
-        u32 primaryKey = decodeKeyName(glfwGetKeyName(key, scancode));
-        if (!primaryKey) {
-            primaryKey = baseKey;
-        }
-        const u16 textMods = kittyMods & ~(64 | 128);
-        if (primaryKey && ((textMods & (2 | 4 | 8)) || (kittyFlags & 0x08))) {
-            if (pressed && !(textMods & (2 | 4 | 8))) {
-                pendingKittyTextKey = {true, primaryKey, baseKey, textMods, event};
-                return;
-            } else {
-                vt->kittyKey(primaryKey, 0, baseKey, textMods, event);
-            }
-            if (pressed && (((textMods & (2 | 8)) && !(textMods & 4)) || (kittyFlags & 0x08))) {
-                ++suppressedTextInputs;
-            }
-            return;
-        }
     }
-
-    if (!pressed) {
+    const InputKey translated = inputKey(key);
+    if (translated == InputKey::Unknown) {
         return;
     }
-
-    if (key == GLFW_KEY_ESCAPE) {
-        vt->character((u8)('\x1b'), modifiers);
-        return;
+    KeyInput input;
+    input.key = translated;
+    input.action = inputAction;
+    input.modifiers = inputModifiers(rawModifiers);
+    if (translated == InputKey::RightAlt) {
+        input.modifiers = (input.modifiers & ~InputAlt) | InputAltGraph;
     }
-
-    const VtKey special = specialKey(key, keyModifiers);
-    if (special != VtKey::NONE) {
-        vt->key(special, modifiers);
-        return;
-    }
-
-    if (legacyModifiers & GLFW_MOD_CONTROL) {
-        u8 character = 0;
-        if (controlCharacter(key, legacyModifiers & GLFW_MOD_SHIFT, character)) {
-            vt->character(character, modifiers);
-        }
-    }
+    input.layoutCodepoint = decodeKeyName(glfwGetKeyName(key, scancode));
+    input.baseCodepoint = baseLayoutKey(key);
+    composer.input->key(input);
 }
 
 void ApplicationImpl::onTextInput(u32 codepoint, int rawModifiers) {
-    if (suppressRepeatedTextInput) {
-        return;
-    }
-    if (pendingKittyTextKey.active) {
-        const auto pending = pendingKittyTextKey;
-        pendingKittyTextKey.active = false;
-        const u32 alternate = codepoint != pending.primary ? codepoint : 0;
-        vt->kittyKey(pending.primary, alternate, pending.base, pending.modifiers, pending.event);
-        return;
-    }
-    if (suppressedTextInputs) {
-        --suppressedTextInputs;
-        return;
-    }
     if (codepoint == 0) {
         return;
     }
-    const VtModifier modifiers = convertModifiers(rawModifiers);
-
-    if (codepoint < 0x80) {
-        vt->character((u8)(codepoint), modifiers);
-        return;
-    }
-
-    std::string text;
-    Utf8Encoder::pushUnicode(codepoint, [&text](u8 byte) {
-        text.push_back((char)(byte));
-    });
-    if ((rawModifiers & GLFW_MOD_ALT) && opts.altSendsEscape) {
-        vt->sendBytes(StringView(u8"\x1b"), true);
-    }
-    vt->sendBytes(StringView((const u8*)(text.data()), text.size()), true);
+    composer.input->text({codepoint, inputModifiers(rawModifiers)});
 }
 
 double ApplicationImpl::pixelScaleX() {
@@ -818,186 +586,50 @@ double ApplicationImpl::pixelScaleY() {
 }
 
 int ApplicationImpl::toPixelX(double x) {
-    return mouseFramebufferCoordinate(x, pixelScaleX());
+    if (!std::isfinite(x)) {
+        return 0;
+    }
+    return (int)(std::clamp(std::round(x * pixelScaleX()), (double)(INT_MIN), (double)(INT_MAX)));
 }
 
 int ApplicationImpl::toPixelY(double y) {
-    return mouseFramebufferCoordinate(y, pixelScaleY());
-}
-
-bool ApplicationImpl::isMouseProtocol(int modifiers, const MouseTrackingState& tracking) {
-    return mouseContext.frontend.protocolActive(modifiers, tracking.mode);
-}
-
-void ApplicationImpl::mouseProtocolCoordinates(MouseTrackingEnc encoding, int pixelX, int pixelY, u16& column, u16& row) {
-    const MouseProtocolPoint point = mouseProtocolPoint(encoding, pixelX, pixelY, {composer.pixelWidth, composer.pixelHeight, opts.border, composer.glyphWidth, composer.glyphHeight});
-    column = point.column;
-    row = point.row;
-}
-
-void ApplicationImpl::mouseProtocolSend(MouseTrackingEnc encoding, MouseEventType type, int modifiers, int button, int column, int row) {
-    const unsigned protocolModifiers = mouseProtocolModifiers(modifiers, !keyPressed(GLFW_KEY_RIGHT_ALT));
-    const int motionButton = mouseContext.frontend.motionButton();
-    const std::string report = encodeMouseProtocol(encoding, type, protocolModifiers, motionButton, button, column, row);
-    vt->sendBytes(StringView((const u8*)(report.data()), report.size()), false);
-}
-
-void ApplicationImpl::sendMouseButtonProtocol(MouseEventType type, int button, int pixelX, int pixelY, int modifiers, const MouseTrackingState& tracking) {
-    if (!mouseButtonReportAllowed(tracking.mode, type, button)) {
-        return;
+    if (!std::isfinite(y)) {
+        return 0;
     }
-
-    u16 column = 0;
-    u16 row = 0;
-    mouseProtocolCoordinates(tracking.enc, pixelX, pixelY, column, row);
-    if (tracking.mode == MouseTrackingMode::VT200_Highlight && type == MouseEventType::Release) {
-        vt->mouseHighlightRelease(column, row, column, row);
-        return;
-    }
-    const int protocolModifiers = tracking.mode == MouseTrackingMode::X10_Compat ? 0 : modifiers;
-    mouseProtocolSend(tracking.enc, type, protocolModifiers, button, column, row);
-}
-
-bool ApplicationImpl::isMultipleClick(int button, double x, double y) {
-    return mouseContext.frontend.registerClick(button, x, y, glfwGetTime()) > 1;
-}
-
-void ApplicationImpl::openHyperlink(const std::string& uri) {
-    pid_t pid = -1;
-    char* const argv[] = {
-        (char*)("xdg-open"),
-        (char*)(uri.c_str()),
-        nullptr,
-    };
-    posix_spawnp(&pid, argv[0], nullptr, nullptr, argv, environ);
+    return (int)(std::clamp(std::round(y * pixelScaleY()), (double)(INT_MIN), (double)(INT_MAX)));
 }
 
 void ApplicationImpl::onMouseButton(int button, bool pressed, int modifiers) {
+    if (button < GLFW_MOUSE_BUTTON_1 || button > GLFW_MOUSE_BUTTON_8) {
+        return;
+    }
     double x = 0.0;
     double y = 0.0;
     glfwGetCursorPos(window, &x, &y);
-    const int pixelX = toPixelX(x);
-    const int pixelY = toPixelY(y);
-    mouseContext.frontend.updateButton(button, pressed);
-    const MouseTrackingState tracking = vt->state().mouse;
-    const int protocolButton = mouseTerminalButton(button);
-    u16 locatorColumn = 1;
-    u16 locatorRow = 1;
-    mouseProtocolCoordinates(MouseTrackingEnc::Default, pixelX, pixelY, locatorColumn, locatorRow);
-    vt->locatorPosition(locatorColumn, locatorRow, std::max(1, pixelX + 1), std::max(1, pixelY + 1), 0);
-    if (protocolButton >= 1 && protocolButton <= 4) {
-        vt->locatorButton(protocolButton, pressed);
-    }
-
-    if (!pressed && button == GLFW_MOUSE_BUTTON_LEFT && mouseContext.hyperlinkClick) {
-        mouseContext.hyperlinkClick = false;
-        return;
-    }
-    if (pressed && button == GLFW_MOUSE_BUTTON_LEFT && (modifiers & GLFW_MOD_CONTROL)) {
-        const StringView link = vt->hyperlinkAt(pixelX, pixelY);
-        const std::string uri((const char*)(link.data()), link.length());
-        if (!uri.empty()) {
-            mouseContext.hyperlinkClick = true;
-            openHyperlink(uri);
-            return;
-        }
-    }
-
-    if (isMouseProtocol(modifiers, tracking)) {
-        sendMouseButtonProtocol(pressed ? MouseEventType::Press : MouseEventType::Release, protocolButton, pixelX, pixelY, modifiers, tracking);
-        return;
-    }
-
-    if (pressed) {
-        const bool cycleSnapTo = isMultipleClick(button, x, y);
-        if (button == GLFW_MOUSE_BUTTON_LEFT) {
-            vt->selectionStart(pixelX, pixelY, cycleSnapTo);
-            mouseContext.frontend.beginSelection();
-        } else if (button == GLFW_MOUSE_BUTTON_RIGHT) {
-            vt->selectionExtend(pixelX, pixelY, cycleSnapTo);
-            mouseContext.frontend.beginSelection();
-        }
-        return;
-    }
-
-    if (button == GLFW_MOUSE_BUTTON_LEFT || button == GLFW_MOUSE_BUTTON_RIGHT) {
-        mouseContext.frontend.endSelection();
-        const VtermTextResult selected = vt->selectionFinish();
-        if (selected.status) {
-            const std::string selection((const char*)(selected.text.data()), selected.text.length());
-            clipboardStore.setPrimary(selection, opts.autoCopyMode);
-        }
-    } else if (button == GLFW_MOUSE_BUTTON_MIDDLE) {
-        pasteSelection(true);
-    }
+    PointerButtonInput input;
+    input.button = (PointerButton)(button);
+    input.pressed = pressed;
+    input.pixelX = toPixelX(x);
+    input.pixelY = toPixelY(y);
+    input.modifiers = inputModifiers(modifiers);
+    input.time = glfwGetTime();
+    composer.input->pointerButton(input);
 }
 
 void ApplicationImpl::onMouseMotion(double x, double y) {
-    const int pixelX = toPixelX(x);
-    const int pixelY = toPixelY(y);
-    const int modifiers = keyboardModifiers();
-    u16 locatorColumn = 1;
-    u16 locatorRow = 1;
-    mouseProtocolCoordinates(MouseTrackingEnc::Default, pixelX, pixelY, locatorColumn, locatorRow);
-    vt->locatorPosition(locatorColumn, locatorRow, std::max(1, pixelX + 1), std::max(1, pixelY + 1), 0);
-    const bool overHyperlink = (modifiers & GLFW_MOD_CONTROL) && !vt->hyperlinkAt(pixelX, pixelY).empty();
-    glfwSetCursor(window, overHyperlink && hyperlinkCursor != nullptr ? hyperlinkCursor : cursor);
-    const MouseTrackingState tracking = vt->state().mouse;
-    if (isMouseProtocol(modifiers, tracking)) {
-        if (tracking.mode == MouseTrackingMode::VT200_ButtonEvent && !mouseContext.frontend.primaryButtonPressed()) {
-            return;
-        }
-        if (tracking.mode != MouseTrackingMode::VT200_ButtonEvent && tracking.mode != MouseTrackingMode::VT200_AnyEvent) {
-            return;
-        }
-
-        u16 column = 0;
-        u16 row = 0;
-        mouseProtocolCoordinates(tracking.enc, pixelX, pixelY, column, row);
-        if (mouseContext.frontend.reportMotion(column, row, tracking.mode, tracking.enc, tracking.generation)) {
-            mouseProtocolSend(tracking.enc, MouseEventType::Motion, modifiers, 0, column, row);
-        }
-    } else if (mouseContext.frontend.buttons() & ((1u << GLFW_MOUSE_BUTTON_LEFT) | (1u << GLFW_MOUSE_BUTTON_RIGHT))) {
-        vt->selectionUpdate(pixelX, pixelY);
-    }
+    composer.input->pointerMotion({toPixelX(x), toPixelY(y), keyboardModifiers()});
 }
 
 void ApplicationImpl::onMouseWheel(double wheelX, double wheelY) {
-    const int modifiers = keyboardModifiers();
-    const MouseTrackingState tracking = vt->state().mouse;
-    const bool reporting = isMouseProtocol(modifiers, tracking);
-    const MouseWheelSteps steps = mouseContext.frontend.consumeWheel(wheelX, wheelY, reporting);
-    if (reporting) {
-        double x = 0.0;
-        double y = 0.0;
-        glfwGetCursorPos(window, &x, &y);
-        const int pixelX = toPixelX(x);
-        const int pixelY = toPixelY(y);
-        for (int k = 0; k < steps.y; ++k) {
-            sendMouseButtonProtocol(MouseEventType::Press, 4, pixelX, pixelY, modifiers, tracking);
-        }
-        if (steps.y < 0) {
-            for (int k = 0; k < -steps.y; ++k) {
-                sendMouseButtonProtocol(MouseEventType::Press, 5, pixelX, pixelY, modifiers, tracking);
-            }
-        }
-        for (int k = 0; k < -steps.x; ++k) {
-            sendMouseButtonProtocol(MouseEventType::Press, 6, pixelX, pixelY, modifiers, tracking);
-        }
-        for (int k = 0; k < steps.x; ++k) {
-            sendMouseButtonProtocol(MouseEventType::Press, 7, pixelX, pixelY, modifiers, tracking);
-        }
-    } else {
-        if (steps.y > 0) {
-            vt->scrollUp(steps.y);
-        } else if (steps.y < 0) {
-            vt->scrollDown(-steps.y);
-        }
-    }
+    double x = 0.0;
+    double y = 0.0;
+    glfwGetCursorPos(window, &x, &y);
+    composer.input->scroll({wheelX, wheelY, toPixelX(x), toPixelY(y), keyboardModifiers()});
 }
 
 std::string ApplicationImpl::getSelectionForOsc(bool primary) {
-    return clipboardStore.get(primary);
+    const StringView selection = primary ? composer.clipboard->readPrimary() : composer.clipboard->readClipboard();
+    return std::string((const char*)(selection.data()), selection.length());
 }
 
 bool appTitleSet = false;
@@ -1047,7 +679,13 @@ void ApplicationImpl::handleOsc(int command, const std::string& argument) {
         return;
     }
 
-    clipboardStore.apply(request);
+    const StringView content((const u8*)(request.content.data()), request.content.size());
+    if (request.primary) {
+        composer.clipboard->writePrimary(content);
+    }
+    if (request.clipboard) {
+        composer.clipboard->writeClipboard(content);
+    }
 }
 
 bool ApplicationImpl::presentTerminal() {
@@ -1268,6 +906,51 @@ void ApplicationImpl::wake() {
     glfwPostEmptyEvent();
 }
 
+StringView ApplicationImpl::readPrimary() {
+    return StringView(primarySelection);
+}
+
+StringView ApplicationImpl::readClipboard() {
+    clipboardReadBuffer.reset();
+    const char* const text = glfwGetClipboardString(window);
+    if (text != nullptr) {
+        clipboardReadBuffer.append(text, std::strlen(text));
+    }
+    return StringView(clipboardReadBuffer);
+}
+
+void ApplicationImpl::writePrimary(StringView content) {
+    primarySelection.reset();
+    primarySelection.append(content.data(), content.length());
+}
+
+void ApplicationImpl::writeClipboard(StringView content) {
+    clipboardWriteBuffer.reset();
+    clipboardWriteBuffer.append(content.data(), content.length());
+    glfwSetClipboardString(window, clipboardWriteBuffer.cStr());
+}
+
+void ApplicationImpl::openUri(StringView uri) {
+    uriBuffer.reset();
+    uriBuffer.append(uri.data(), uri.length());
+    char* const path = uriBuffer.cStr();
+    pid_t pid = -1;
+    char* const argv[] = {
+        (char*)("xdg-open"),
+        path,
+        nullptr,
+    };
+    posix_spawnp(&pid, argv[0], nullptr, nullptr, argv, environ);
+}
+
+void ApplicationImpl::pointerIcon(PointerIcon icon) {
+    if (window == nullptr) {
+        return;
+    }
+    GLFWcursor* const selected = icon == PointerIcon::Link && hyperlinkCursor != nullptr ? hyperlinkCursor : cursor;
+    glfwSetCursor(window, selected);
+}
+
 template <typename Fn>
 void ApplicationImpl::guardCallback(Fn&& callback) {
     if (callbackError != nullptr) {
@@ -1323,17 +1006,7 @@ void ApplicationImpl::onWindowFocus(GLFWwindow*, int focused) {
         if (focused) {
             attentionRequested = false;
         }
-        if (vt == nullptr) {
-            return;
-        }
-        if (!focused) {
-            mouseContext.frontend.clearButtons();
-            suppressedTextInputs = 0;
-            suppressRepeatedTextInput = false;
-            pendingKittyTextKey.active = false;
-            std::fill_n(locallyConsumedKeys, GLFW_KEY_LAST + 1, false);
-        }
-        vt->focus(focused == GLFW_TRUE);
+        composer.input->focus(focused == GLFW_TRUE);
     });
 }
 
@@ -1345,7 +1018,7 @@ void ApplicationImpl::onKey(GLFWwindow*, int key, int scancode, int action, int 
 
 void ApplicationImpl::onCharacter(GLFWwindow*, unsigned codepoint) {
     guardCallback([this, codepoint]() {
-        onTextInput(codepoint, keyboardModifiers());
+        composer.input->text({codepoint, keyboardModifiers()});
     });
 }
 
@@ -1363,8 +1036,7 @@ void ApplicationImpl::onCursorPosition(GLFWwindow*, double x, double y) {
 
 void ApplicationImpl::onCursorEnter(GLFWwindow*, int entered) {
     guardCallback([this, entered]() {
-        mouseContext.cursorInside = entered == GLFW_TRUE;
-        mouseContext.frontend.resetMotion();
+        composer.input->pointerPresence(entered == GLFW_TRUE);
     });
 }
 
@@ -1432,7 +1104,7 @@ bool ApplicationImpl::eventLoop(PtyEventSource& ptySource) {
         if (callbackError != nullptr) {
             std::rethrow_exception(callbackError);
         }
-        flushPendingKittyTextKey();
+        composer.input->flush();
         if (glfwWindowShouldClose(window)) {
             return true;
         }
@@ -1461,7 +1133,7 @@ bool ApplicationImpl::eventLoop(PtyEventSource& ptySource) {
             }
         }
         const short ptyEvents = ptySource.events();
-        const bool readPtyInput = (ptyEvents & (POLLIN | POLLHUP | POLLERR)) && !mouseContext.frontend.selectionOngoing();
+        const bool readPtyInput = ptyEvents & (POLLIN | POLLHUP | POLLERR);
         const bool finished = servicePty(readPtyInput, ptyEvents & POLLOUT);
         if (readPtyInput) {
             ptySource.acknowledge();
@@ -1589,12 +1261,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         throw std::runtime_error(glfwFailure("glfwCreateWindow"));
     }
     glfwSetWindowUserPointer(window, this);
-    clipboardStore.setHandlers([this] {
-        const char* text = glfwGetClipboardString(window);
-        return text != nullptr ? std::string(text) : std::string{};
-    }, [this](const std::string& text) {
-        glfwSetClipboardString(window, text.c_str());
-    });
+    composer.clipboard = this;
     glfwSetInputMode(window, GLFW_LOCK_KEY_MODS, GLFW_TRUE);
 
     float xScale = 1.0f;
@@ -1629,6 +1296,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
 
     cursor = glfwCreateStandardCursor(GLFW_IBEAM_CURSOR);
     hyperlinkCursor = glfwCreateStandardCursor(GLFW_HAND_CURSOR);
+    composer.desktopActions = this;
     if (cursor != nullptr) {
         glfwSetCursor(window, cursor);
     }
@@ -1645,7 +1313,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     composer.vterm = vt;
     terminalHostReady = true;
     setupCallbacks();
-    vt->focus(glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_TRUE);
+    composer.input->focus(glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_TRUE);
     presentTerminal();
 
     PtyEventSource* ptySource = PtyEventSource::create(composer, *terminalPty, *this);
@@ -1670,6 +1338,8 @@ int ApplicationImpl::run(int argc, char* argv[]) {
 
 void ApplicationImpl::emergencyCleanup() {
     vt = nullptr;
+    composer.clipboard = nullptr;
+    composer.desktopActions = nullptr;
     if (printerPipe != nullptr) {
         pclose(printerPipe);
         printerPipe = nullptr;

@@ -17,7 +17,7 @@ namespace stl {}
 
 using namespace stl;
 
-std::string encodeMouseProtocol(MouseTrackingEnc encoding, MouseEventType type, unsigned modifiers, int motionButton, int button, int column, int row) {
+bool encodeMouseProtocol(StringBuilder& output, MouseTrackingEnc encoding, MouseEventType type, unsigned modifiers, int motionButton, int button, int column, int row) {
     int code = 0;
     if (type == MouseEventType::Motion) {
         switch (motionButton) {
@@ -72,7 +72,7 @@ std::string encodeMouseProtocol(MouseTrackingEnc encoding, MouseEventType type, 
                 code = 131;
                 break;
             default:
-                return {};
+                return false;
         }
     }
 
@@ -86,7 +86,6 @@ std::string encodeMouseProtocol(MouseTrackingEnc encoding, MouseEventType type, 
         code += 16;
     }
 
-    StringBuilder output;
     switch (encoding) {
         case MouseTrackingEnc::Default:
             column = std::clamp(column, 1, 223);
@@ -118,6 +117,14 @@ std::string encodeMouseProtocol(MouseTrackingEnc encoding, MouseEventType type, 
         case MouseTrackingEnc::URXVT:
             output << StringView(u8"\x1b[") << code + 32 << StringView(u8";") << column << StringView(u8";") << row << StringView(u8"M");
             break;
+    }
+    return true;
+}
+
+std::string encodeMouseProtocol(MouseTrackingEnc encoding, MouseEventType type, unsigned modifiers, int motionButton, int button, int column, int row) {
+    StringBuilder output;
+    if (!encodeMouseProtocol(output, encoding, type, modifiers, motionButton, button, column, row)) {
+        return {};
     }
     return std::string((const char*)(output.data()), output.used());
 }

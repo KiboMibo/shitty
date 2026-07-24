@@ -4,4 +4,8 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "clipboard.h"
+#include "input_sink.h"
+
+InputSink::~InputSink() noexcept {
+    unlink();
+}

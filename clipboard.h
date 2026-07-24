@@ -6,27 +6,11 @@
 
 #pragma once
 
-#include "osc_protocol.h"
+#include <std/str/view.h>
 
-#include <functional>
-#include <string>
-
-class ClipboardStore {
-public:
-    using ReadClipboard = std::function<std::string()>;
-    using WriteClipboard = std::function<void(const std::string&)>;
-
-    void setHandlers(ReadClipboard read, WriteClipboard write);
-    void setPrimary(const std::string& content, bool autoCopy = false);
-    void setClipboard(const std::string& content);
-    bool copyPrimaryToClipboard();
-    std::string get(bool primary) const;
-    void apply(const Osc52Request& request);
-
-private:
-    std::string primarySelection;
-    ReadClipboard readClipboard = [] {
-        return std::string{};
-    };
-    WriteClipboard writeClipboard = [](const std::string&) {};
+struct Clipboard {
+    virtual stl::StringView readPrimary() = 0;
+    virtual stl::StringView readClipboard() = 0;
+    virtual void writePrimary(stl::StringView content) = 0;
+    virtual void writeClipboard(stl::StringView content) = 0;
 };

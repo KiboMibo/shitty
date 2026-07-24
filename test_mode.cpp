@@ -9,10 +9,12 @@
 #include "cell_extra_store.h"
 #include "clipboard.h"
 #include "composer.h"
+#include "desktop_actions.h"
 #include "grapheme.h"
 #include "font_resolver.h"
 #include "font_pack.h"
 #include "hex.h"
+#include "input_sink.h"
 #include "keyboard.h"
 #include "listener.h"
 #include "options.h"
@@ -30,6 +32,7 @@
 
 #include <std/str/builder.h>
 #include <std/str/view.h>
+#include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
 #include <std/sys/throw.h>
 
@@ -259,8 +262,27 @@ namespace {
         return output;
     }
 
+    struct TestClipboard final: public Clipboard {
+        StringView readPrimary() override;
+        StringView readClipboard() override;
+        void writePrimary(StringView content) override;
+        void writeClipboard(StringView content) override;
+
+        Buffer primary;
+        Buffer system;
+        u64 generation = 0;
+    };
+
+    struct TestDesktopActions final: public DesktopActions {
+        void openUri(StringView uri) override;
+        void pointerIcon(PointerIcon icon) override;
+
+        Buffer openedUri;
+        PointerIcon icon = PointerIcon::Text;
+    };
+
     struct TestDisplay final: public VtermHost {
-        TestDisplay(Composer& composer, ClipboardStore& clipboard, std::string& actions, std::string& printerOutput);
+        TestDisplay(Composer& composer, std::string& actions, std::string& printerOutput);
 
         void attach(Vterm& terminal, TestApi& testApi);
         bool update(const TerminalUpdate& update);
@@ -305,7 +327,6 @@ namespace {
         std::vector<std::vector<u32>> cellGraphemes;
         std::vector<CellColor> modelUnderlineColors;
         Composer& composer;
-        ClipboardStore& clipboard;
         std::string& actions;
         std::string& printerOutput;
         Vterm* terminal = nullptr;
@@ -333,7 +354,7 @@ namespace {
         bool servicePty(bool readable, bool writable);
         bool flushPtyOutput();
         size_t pendingPtyOutputBytes();
-        const MouseTrackingState& getMouseTrackingState();
+        MouseTrackingState getMouseTrackingState();
         u8 getKittyKeyboardFlags();
         bool getScreenReverseVideo();
         u8 getLedState();
@@ -367,8 +388,6 @@ namespace {
         TestApi& testApi;
         TestPty& pty;
         TestDisplay& display;
-        VtermState state_;
-
         bool present();
         void refreshState();
     };
@@ -403,9 +422,36 @@ namespace {
 
 }
 
-TestDisplay::TestDisplay(Composer& composer_, ClipboardStore& clipboard, std::string& actions, std::string& printerOutput)
+StringView TestClipboard::readPrimary() {
+    return StringView(primary);
+}
+
+StringView TestClipboard::readClipboard() {
+    return StringView(system);
+}
+
+void TestClipboard::writePrimary(StringView content) {
+    primary.reset();
+    primary.append(content.data(), content.length());
+    ++generation;
+}
+
+void TestClipboard::writeClipboard(StringView content) {
+    system.reset();
+    system.append(content.data(), content.length());
+}
+
+void TestDesktopActions::openUri(StringView uri) {
+    openedUri.reset();
+    openedUri.append(uri.data(), uri.length());
+}
+
+void TestDesktopActions::pointerIcon(PointerIcon icon_) {
+    icon = icon_;
+}
+
+TestDisplay::TestDisplay(Composer& composer_, std::string& actions, std::string& printerOutput)
     : composer(composer_)
-    , clipboard(clipboard)
     , actions(actions)
     , printerOutput(printerOutput)
 {
@@ -498,16 +544,24 @@ void TestDisplay::osc(int command, const std::string& argument) {
             std::string system;
             if (opts.allowOsc52Read) {
                 if (request.primary) {
-                    primary = clipboard.get(true);
+                    const StringView value = composer.clipboard->readPrimary();
+                    primary.assign((const char*)(value.data()), value.length());
                 }
                 if (primary.empty() && request.clipboard) {
-                    system = clipboard.get(false);
+                    const StringView value = composer.clipboard->readClipboard();
+                    system.assign((const char*)(value.data()), value.length());
                 }
             }
             const std::string reply = encodeOsc52QueryReply(request, opts.allowOsc52Read, primary, system);
             terminal->sendBytes(StringView((const u8*)(reply.data()), reply.size()), false);
         } else {
-            clipboard.apply(request);
+            const StringView content((const u8*)(request.content.data()), request.content.size());
+            if (request.primary) {
+                composer.clipboard->writePrimary(content);
+            }
+            if (request.clipboard) {
+                composer.clipboard->writeClipboard(content);
+            }
         }
     }
 }
@@ -732,7 +786,6 @@ bool TestTerminal::present() {
 }
 
 void TestTerminal::refreshState() {
-    state_ = terminal.state();
 }
 
 void TestTerminal::feedPtyOutput(const u8* data, size_t size) {
@@ -757,13 +810,13 @@ void TestTerminal::resize(u16 width, u16 height) {
 }
 
 int TestTerminal::writePty(VtKey key, VtModifier modifiers, bool) {
-    terminal.key(key, modifiers);
+    testApi.key(key, modifiers);
     update();
     return 1;
 }
 
 int TestTerminal::writePty(u8 byte, VtModifier modifiers, bool) {
-    terminal.character(byte, modifiers);
+    testApi.character(byte, modifiers);
     update();
     return 1;
 }
@@ -779,13 +832,13 @@ int TestTerminal::writePty(const u8* data, size_t size, bool userInput) {
 }
 
 int TestTerminal::writeKittyKey(VtKey key, u16 modifiers, VtermKeyEventType keyEvent) {
-    terminal.kittyKey(key, modifiers, keyEvent);
+    testApi.kittyKey(key, modifiers, keyEvent);
     update();
     return 1;
 }
 
 int TestTerminal::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType keyEvent) {
-    terminal.kittyKey(key, shiftedKey, baseLayoutKey, modifiers, keyEvent);
+    testApi.kittyKey(key, shiftedKey, baseLayoutKey, modifiers, keyEvent);
     update();
     return 1;
 }
@@ -850,14 +903,12 @@ bool TestTerminal::servicePty(bool readable, bool writable) {
     return readable && readPty();
 }
 
-const MouseTrackingState& TestTerminal::getMouseTrackingState() {
-    refreshState();
-    return state_.mouse;
+MouseTrackingState TestTerminal::getMouseTrackingState() {
+    return testApi.inspect().mouse;
 }
 
 u8 TestTerminal::getKittyKeyboardFlags() {
-    refreshState();
-    return state_.kittyKeyboardFlags;
+    return testApi.inspect().kittyKeyboardFlags;
 }
 
 bool TestTerminal::getScreenReverseVideo() {
@@ -901,80 +952,80 @@ size_t TestTerminal::getHyperlinkCount() {
 }
 
 std::string TestTerminal::getHyperlink(int x, int y) {
-    const StringView result = terminal.hyperlinkAt(x, y);
+    const StringView result = testApi.hyperlinkAt(x, y);
     return std::string((const char*)(result.data()), result.length());
 }
 
 bool TestTerminal::mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY) {
-    const bool result = terminal.mouseHighlightRelease(endX, endY, mouseX, mouseY);
+    const bool result = testApi.mouseHighlightRelease(endX, endY, mouseX, mouseY);
     update();
     return result;
 }
 
 void TestTerminal::setLocatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons) {
-    terminal.locatorPosition(column, row, pixelX, pixelY, buttons);
+    testApi.locatorPosition(column, row, pixelX, pixelY, buttons);
     update();
 }
 
 void TestTerminal::reportLocatorButton(u8 button, bool pressed) {
-    terminal.locatorButton(button, pressed);
+    testApi.locatorButton(button, pressed);
     update();
 }
 
 void TestTerminal::mouseWheelUp(u16 count) {
-    terminal.scrollUp(count);
+    testApi.scrollUp(count);
     update();
 }
 
 void TestTerminal::mouseWheelDown(u16 count) {
-    terminal.scrollDown(count);
+    testApi.scrollDown(count);
     update();
 }
 
 void TestTerminal::pageUp() {
-    terminal.pageUp();
+    testApi.pageUp();
     update();
 }
 
 void TestTerminal::pageDown() {
-    terminal.pageDown();
+    testApi.pageDown();
     update();
 }
 
 void TestTerminal::selectStart(int x, int y, bool cycle) {
-    terminal.selectionStart(x, y, cycle);
+    testApi.selectionStart(x, y, cycle);
     update();
 }
 
 void TestTerminal::selectExtend(int x, int y, bool cycle) {
-    terminal.selectionExtend(x, y, cycle);
+    testApi.selectionExtend(x, y, cycle);
     update();
 }
 
 void TestTerminal::selectUpdate(int x, int y) {
-    terminal.selectionUpdate(x, y);
+    testApi.selectionUpdate(x, y);
     update();
 }
 
 bool TestTerminal::selectFinish(std::string& selection) {
-    const VtermTextResult result = terminal.selectionFinish();
+    const VtermTextResult result = testApi.selectionFinish();
     selection.assign((const char*)(result.text.data()), result.text.length());
     update();
     return result.status;
 }
 
 void TestTerminal::selectRectangularModeToggle() {
-    terminal.selectionRectangular();
+    testApi.selectionRectangular();
     update();
 }
 
 void TestTerminal::pasteSelection(const std::string& selection) {
-    terminal.paste(StringView((const u8*)(selection.data()), selection.size()));
+    testApi.paste(StringView((const u8*)(selection.data()), selection.size()));
     update();
 }
 
 void TestTerminal::setHasFocus(bool focused) {
-    terminal.focus(focused);
+    display.composer.input->focus(focused);
     update();
 }
 
@@ -1152,14 +1203,11 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
     TestPty terminalPty(composer, io[0]);
     std::string actions;
     std::string printerOutput;
-    ClipboardStore clipboard;
-    std::string systemClipboard;
-    clipboard.setHandlers([&systemClipboard] {
-        return systemClipboard;
-    }, [&systemClipboard](const std::string& content) {
-        systemClipboard = content;
-    });
-    TestDisplay display(composer, clipboard, actions, printerOutput);
+    TestClipboard clipboard;
+    TestDesktopActions desktopActions;
+    composer.clipboard = &clipboard;
+    composer.desktopActions = &desktopActions;
+    TestDisplay display(composer, actions, printerOutput);
     VtermTrace& vtermTrace = *VtermTrace::create(composer);
     Vterm& vterm = *Vterm::create(composer, display, &vtermTrace);
     TestApi* const testApi = vterm.testApi();
@@ -1168,7 +1216,6 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
     }
     display.attach(vterm, *testApi);
     TestTerminal terminal(vterm, *testApi, terminalPty, display);
-    input.attachTestVterm(vterm);
     pid_t childPid = -1;
     int childExitStatus = -1;
 
@@ -1212,23 +1259,6 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
             }
             return (ssize_t)(count);
         });
-    };
-    MouseFrontendState mouseFrontend;
-    const auto mouseGeometry = [&]() {
-        return MouseGeometry{composer.pixelWidth, composer.pixelHeight, opts.border, composer.glyphWidth, composer.glyphHeight};
-    };
-    const auto sendMouseButton = [&](MouseEventType type, int button, int pixelX, int pixelY, unsigned modifiers) {
-        const auto tracking = terminal.getMouseTrackingState();
-        if (!mouseButtonReportAllowed(tracking.mode, type, button)) {
-            return;
-        }
-        const MouseProtocolPoint point = mouseProtocolPoint(tracking.enc, pixelX, pixelY, mouseGeometry());
-        if (tracking.mode == MouseTrackingMode::VT200_Highlight && type == MouseEventType::Release) {
-            terminal.mouseHighlightRelease(point.column, point.row, point.column, point.row);
-            return;
-        }
-        const unsigned protocolModifiers = tracking.mode == MouseTrackingMode::X10_Compat ? 0 : mouseProtocolModifiers(modifiers);
-        terminal.writePty(encodeMouseProtocol(tracking.enc, type, protocolModifiers, mouseFrontend.motionButton(), button, point.column, point.row).c_str());
     };
     terminal.redraw();
     writeAll(controlFd, "READY\n");
@@ -1569,31 +1599,8 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 if (!(args >> x >> y >> modifiers >> pixelX >> pixelY) || modifiers > 7) {
                     throw std::runtime_error("invalid scroll event");
                 }
-                const auto tracking = terminal.getMouseTrackingState();
-                const bool reporting = mouseFrontend.protocolActive(modifiers, tracking.mode);
-                const MouseWheelSteps steps = mouseFrontend.consumeWheel(x, y, reporting);
-                if (!reporting) {
-                    if (steps.y > 0) {
-                        terminal.mouseWheelUp(steps.y);
-                    }
-                    if (steps.y < 0) {
-                        terminal.mouseWheelDown(-steps.y);
-                    }
-                    writeAll(controlFd, "OK\n");
-                    continue;
-                }
-
-                const MouseProtocolPoint point = mouseProtocolPoint(tracking.enc, pixelX, pixelY, mouseGeometry());
-                const unsigned protocolModifiers = mouseProtocolModifiers(modifiers);
-                const auto send = [&](int count, int button) {
-                    for (int k = 0; k < count; ++k) {
-                        terminal.writePty(encodeMouseProtocol(tracking.enc, MouseEventType::Press, protocolModifiers, mouseFrontend.motionButton(), button, point.column, point.row).c_str());
-                    }
-                };
-                send(std::max(0, steps.y), 4);
-                send(std::max(0, -steps.y), 5);
-                send(std::max(0, -steps.x), 6);
-                send(std::max(0, steps.x), 7);
+                composer.input->scroll({x, y, pixelX, pixelY, (u16)(modifiers)});
+                terminal.update();
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 8, "POINTER ") == 0) {
                 std::istringstream args(line.substr(8));
@@ -1604,59 +1611,26 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 }
                 const int pixelX = mouseFramebufferCoordinate(x, scaleX);
                 const int pixelY = mouseFramebufferCoordinate(y, scaleY);
-                const MouseProtocolPoint locator = mouseProtocolPoint(MouseTrackingEnc::Default, pixelX, pixelY, mouseGeometry());
-                terminal.setLocatorPosition(locator.column, locator.row, std::max(1, pixelX + 1), std::max(1, pixelY + 1));
-                const auto tracking = terminal.getMouseTrackingState();
-                if (mouseFrontend.protocolActive(modifiers, tracking.mode)) {
-                    const bool allowed = tracking.mode == MouseTrackingMode::VT200_AnyEvent || (tracking.mode == MouseTrackingMode::VT200_ButtonEvent && mouseFrontend.primaryButtonPressed());
-                    if (allowed) {
-                        const MouseProtocolPoint point = mouseProtocolPoint(tracking.enc, pixelX, pixelY, mouseGeometry());
-                        if (mouseFrontend.reportMotion(point.column, point.row, tracking.mode, tracking.enc, tracking.generation)) {
-                            terminal.writePty(encodeMouseProtocol(tracking.enc, MouseEventType::Motion, mouseProtocolModifiers(modifiers), mouseFrontend.motionButton(), 0, point.column, point.row).c_str());
-                        }
-                    }
-                } else if (mouseFrontend.buttons() & ((1u << 0) | (1u << 1))) {
-                    terminal.selectUpdate(pixelX, pixelY);
-                }
+                composer.input->pointerMotion({pixelX, pixelY, (u16)(modifiers)});
+                terminal.update();
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 7, "BUTTON ") == 0) {
                 std::istringstream args(line.substr(7));
                 int button;
                 unsigned pressed, modifiers;
                 double x, y, time, scaleX, scaleY;
-                if (!(args >> button >> pressed >> x >> y >> modifiers >> time >> scaleX >> scaleY) || button < 0 || pressed > 1 || modifiers > 7) {
+                if (!(args >> button >> pressed >> x >> y >> modifiers >> time >> scaleX >> scaleY) || button < 0 || button > 7 || pressed > 1 || modifiers > 7) {
                     throw std::runtime_error("invalid button event");
                 }
                 const int pixelX = mouseFramebufferCoordinate(x, scaleX);
                 const int pixelY = mouseFramebufferCoordinate(y, scaleY);
-                mouseFrontend.updateButton(button, pressed != 0);
-                const int protocolButton = mouseTerminalButton(button);
-                const MouseProtocolPoint locator = mouseProtocolPoint(MouseTrackingEnc::Default, pixelX, pixelY, mouseGeometry());
-                terminal.setLocatorPosition(locator.column, locator.row, std::max(1, pixelX + 1), std::max(1, pixelY + 1));
-                if (protocolButton >= 1 && protocolButton <= 4) {
-                    terminal.reportLocatorButton(protocolButton, pressed != 0);
-                }
-
+                const u64 clipboardGeneration = clipboard.generation;
+                composer.input->pointerButton({(PointerButton)(button), pressed != 0, pixelX, pixelY, (u16)(modifiers), time});
+                terminal.update();
                 std::string selection;
-                const auto tracking = terminal.getMouseTrackingState();
-                if (mouseFrontend.protocolActive(modifiers, tracking.mode)) {
-                    sendMouseButton(pressed ? MouseEventType::Press : MouseEventType::Release, protocolButton, pixelX, pixelY, modifiers);
-                } else if (pressed) {
-                    const bool cycle = mouseFrontend.registerClick(button, x, y, time) > 1;
-                    if (button == 0) {
-                        terminal.selectStart(pixelX, pixelY, cycle);
-                        mouseFrontend.beginSelection();
-                    } else if (button == 1) {
-                        terminal.selectExtend(pixelX, pixelY, cycle);
-                        mouseFrontend.beginSelection();
-                    }
-                } else if (button == 0 || button == 1) {
-                    mouseFrontend.endSelection();
-                    if (terminal.selectFinish(selection)) {
-                        clipboard.setPrimary(selection, opts.autoCopyMode);
-                    }
-                } else if (button == 2) {
-                    terminal.pasteSelection(clipboard.get(true));
+                if (clipboard.generation != clipboardGeneration) {
+                    const StringView content = composer.clipboard->readPrimary();
+                    selection.assign((const char*)(content.data()), content.length());
                 }
                 writeAll(controlFd, "OK " + encodeHex(selection) + "\n");
             } else if (line.compare(0, 7, "RESIZE ") == 0) {
@@ -1956,23 +1930,36 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 if (autoCopy < 0 || autoCopy > 1) {
                     throw std::runtime_error("invalid auto-copy state");
                 }
-                clipboard.setPrimary(decodeHex(line.substr(separator + 1)), autoCopy);
+                const std::string content = decodeHex(line.substr(separator + 1));
+                const StringView selection((const u8*)(content.data()), content.size());
+                composer.clipboard->writePrimary(selection);
+                if (autoCopy) {
+                    composer.clipboard->writeClipboard(selection);
+                }
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 11, "SET_SYSTEM ") == 0) {
-                clipboard.setClipboard(decodeHex(line.substr(11)));
+                const std::string content = decodeHex(line.substr(11));
+                composer.clipboard->writeClipboard(StringView((const u8*)(content.data()), content.size()));
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 14, "GET_SELECTION ") == 0) {
                 const int primary = std::stoi(line.substr(14));
                 if (primary < 0 || primary > 1) {
                     throw std::runtime_error("invalid selection kind");
                 }
-                writeAll(controlFd, "OK " + encodeHex(clipboard.get(primary)) + "\n");
+                const StringView content = primary ? composer.clipboard->readPrimary() : composer.clipboard->readClipboard();
+                writeAll(controlFd, "OK " + encodeHex(std::string((const char*)(content.data()), content.length())) + "\n");
             } else if (line.compare(0, 22, "APPLY_CLIPBOARD_OSC52 ") == 0) {
                 const Osc52Request request = parseOsc52(decodeHex(line.substr(22)), opts.osc52SelectClipboard);
                 if (!request.valid) {
                     throw std::runtime_error("invalid OSC 52 clipboard write");
                 }
-                clipboard.apply(request);
+                const StringView content((const u8*)(request.content.data()), request.content.size());
+                if (request.primary) {
+                    composer.clipboard->writePrimary(content);
+                }
+                if (request.clipboard) {
+                    composer.clipboard->writeClipboard(content);
+                }
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 9, "OSC7_CWD ") == 0) {
                 writeAll(controlFd, "OK " + encodeHex(oscCwdToPath(decodeHex(line.substr(9)))) + "\n");
@@ -2033,5 +2020,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
 
     close(io[0]);
     close(io[1]);
+    composer.clipboard = nullptr;
+    composer.desktopActions = nullptr;
     return 0;
 }

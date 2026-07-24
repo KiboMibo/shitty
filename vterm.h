@@ -183,10 +183,6 @@ struct VtermTextResult {
 };
 
 struct VtermState {
-    MouseTrackingState mouse;
-    u8 kittyKeyboardFlags = 0;
-    bool metaMode = false;
-    bool autoRepeat = false;
     bool synchronizedOutput = false;
     bool animation = false;
 };
@@ -224,30 +220,7 @@ struct TestApi;
 struct Vterm {
     virtual void feedPty(stl::StringView bytes) = 0;
     virtual void expose() = 0;
-    virtual void focus(bool focused) = 0;
-
-    virtual void key(VtKey key, VtModifier modifiers) = 0;
-    virtual void character(u8 byte, VtModifier modifiers) = 0;
     virtual void sendBytes(stl::StringView bytes, bool userInput) = 0;
-    virtual void kittyKey(VtKey key, u16 modifiers, VtermKeyEventType event) = 0;
-    virtual void kittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event) = 0;
-
-    virtual bool mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY) = 0;
-    virtual void locatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons) = 0;
-    virtual void locatorButton(u8 button, bool pressed) = 0;
-    virtual void scrollUp(u16 count) = 0;
-    virtual void scrollDown(u16 count) = 0;
-    virtual void pageUp() = 0;
-    virtual void pageDown() = 0;
-
-    virtual void selectionStart(int pixelX, int pixelY, bool cycleSnapTo) = 0;
-    virtual void selectionExtend(int pixelX, int pixelY, bool cycleSnapTo) = 0;
-    virtual void selectionUpdate(int pixelX, int pixelY) = 0;
-    virtual VtermTextResult selectionFinish() = 0;
-    virtual void selectionClear() = 0;
-    virtual void selectionRectangular() = 0;
-    virtual void paste(stl::StringView text) = 0;
-    virtual stl::StringView hyperlinkAt(int pixelX, int pixelY) = 0;
 
     virtual bool expireSynchronizedOutput(bool force) = 0;
     virtual bool advanceAnimation(bool force) = 0;
