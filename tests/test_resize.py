@@ -41,6 +41,38 @@ class ResizeTest(unittest.TestCase):
         with Shitty(columns=11, rows=7) as terminal:
             self.assertEqual(terminal.winsize(), (11, 7))
 
+    def test_resize_across_compact_screen_boundary(self):
+        # Crossing 255 columns/rows switches the screen implementation to
+        # wider coordinate types; content, history, cursor and scrollback
+        # must survive the conversion in both directions.
+        with Shitty(columns=80, rows=24, save_lines=100) as terminal:
+            terminal.write(b"history-line\r\n" * 30)
+            terminal.write(b"tail")
+            terminal.resize(300, 260)
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.columns, snapshot.rows), (300, 260))
+            self.assertEqual(snapshot.lines[snapshot.cursor_y].rstrip(), "tail")
+            self.assertEqual(snapshot.lines[snapshot.cursor_y - 1].rstrip(), "history-line")
+            terminal.resize(80, 24)
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.columns, snapshot.rows), (80, 24))
+            self.assertEqual(snapshot.lines[snapshot.cursor_y].rstrip(), "tail")
+            terminal.wheel_up(24)
+            self.assertEqual(terminal.snapshot().lines[0].rstrip(), "history-line")
+
+    def test_large_screen_damage_and_history(self):
+        with Shitty(columns=300, rows=260, save_lines=50000) as terminal:
+            terminal.write(b"\x1b[260;300H")
+            terminal.write(b"x")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[259][299], "x")
+            terminal.write(b"\r\nscrolled")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[259][:8], "scrolled")
+            self.assertEqual(snapshot.lines[258][299], "x")
+            terminal.wheel_up(1)
+            self.assertEqual(terminal.snapshot().lines[259][299], "x")
+
 
 if __name__ == "__main__":
     unittest.main()
