@@ -1,0 +1,122 @@
+/*
+ * Copyright (C) 2026 Shitty team
+ * MIT licensed
+ * See the file LICENSE.MIT for the full license.
+ */
+
+#pragma once
+
+#include "terminal_types.h"
+
+#include <std/lib/vector.h>
+#include <std/str/view.h>
+#include <std/sys/types.h>
+
+#include <cstddef>
+#include <string>
+
+struct CellExtraStore;
+struct Composer;
+
+struct Screen {
+    struct ResizeState {
+        Point cursor;
+        bool pendingWrap = false;
+    };
+
+    enum class SelectSnapTo : u8 {
+        Char = 0,
+        Word,
+        Line,
+        COUNT
+    };
+
+    virtual void reset(Composer& composer, u16 pixelWidth, u16 pixelHeight, u16 columns, u16 rows, u16& marginTop, u16& marginBottom, const TerminalColors* colors, u16 saveLines = 0) = 0;
+    virtual ResizeState resize(u16 pixelWidth, u16 pixelHeight, u16 columns, u16 rows, u16& marginTop, u16& marginBottom, ResizeState state, bool reflow) = 0;
+    virtual void setPixelSize(u16 width, u16 height) noexcept = 0;
+    virtual void dropScrollbackHistory() = 0;
+
+    virtual void fillCells(u16 ch, const TerminalCell& attrs) = 0;
+    virtual void setLineAttribute(u16 row, u8 attribute) = 0;
+    virtual u8 lineAttribute(u16 row) const noexcept = 0;
+    virtual bool hasProtection(u16 row, u8 mask) const noexcept = 0;
+    virtual bool wrapped(u16 row, u16 column) const noexcept = 0;
+    virtual void setWrapped(u16 row, u16 column) = 0;
+    virtual void moveWrap(u16 row, u16 sourceColumn, u16 destinationColumn) = 0;
+    virtual void writeGrapheme(u16 row, u16 column, const u32* codepoints, size_t count, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, u8 lineAttribute, const TerminalCell& eraseAttrs) = 0;
+    virtual void writeAsciiRun(u16 row, u16 column, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, u8 lineAttribute, const TerminalCell& eraseAttrs) = 0;
+    virtual void fillRectangle(u16 top, u16 left, u16 bottom, u16 right, u32 codepoint, const TerminalCell& attrs, const TerminalCell& eraseAttrs) = 0;
+    virtual void copyRectangle(u16 sourceTop, u16 sourceLeft, u16 targetTop, u16 targetLeft, u16 height, u16 width, const TerminalCell& eraseAttrs) = 0;
+    virtual void changeRectangleAttributes(u16 top, u16 left, u16 bottom, u16 right, const u32* modes, size_t modeCount, bool reverse) = 0;
+    virtual u16 checksum(u16 top, u16 left, u16 bottom, u16 right) const noexcept = 0;
+    virtual void appendPrintableLine(u16 row, std::string& output) const = 0;
+    virtual stl::StringView hyperlinkAt(u16 row, u16 column) const noexcept = 0;
+    virtual TerminalCell testCell(u16 row, u16 column) const noexcept = 0;
+    virtual void fullCopyCells(RenderCell* dest) const = 0;
+    virtual void deltaCopyCells(RenderCell* dest) const = 0;
+
+    virtual bool active() const noexcept = 0;
+    virtual void freeCells() = 0;
+
+    virtual CellExtraStore* cellExtras() const noexcept = 0;
+    virtual void collectExtraRefLocations(stl::Vector<u32*>& locations) = 0;
+    virtual size_t cellCapacity() const noexcept = 0;
+
+    virtual void eraseInRow(u16 row, u16 start, u16 count, const TerminalCell& attrs) = 0;
+    virtual void eraseWideInRow(u16 row, u16 start, u16 count, const TerminalCell& attrs) = 0;
+    virtual void clearWideBoundary(u16 row, u16 boundary, const TerminalCell& attrs) = 0;
+    virtual void repairWideBoundary(u16 row, u16 boundary, const TerminalCell& attrs) = 0;
+    virtual void selectiveEraseInRow(u16 row, u16 start, u16 count, const TerminalCell& attrs, u8 protectionMask = 0xff) = 0;
+    virtual void moveInRow(u16 row, u16 destination, u16 source, u16 count) = 0;
+    virtual void copyRow(u16 destinationRow, u16 sourceRow, u16 start, u16 count) = 0;
+    virtual void rotateRowsUp(u16 top, u16 bottom, u16 count) = 0;
+    virtual void rotateRowsDown(u16 top, u16 bottom, u16 count) = 0;
+
+    virtual void scrollUp(u16 top, u16 bottom, u16 count) = 0;
+    virtual void scrollDown(u16 top, u16 bottom, u16 count) = 0;
+    virtual void restoreHistory(u16 count) = 0;
+
+    virtual void pageUp(u16 count) = 0;
+    virtual void pageDown(u16 count) = 0;
+    virtual bool pageToBottom() = 0;
+
+    virtual u16 getHistoryRows() const noexcept = 0;
+    virtual u16 getViewOffset() const noexcept = 0;
+    virtual u16 columns() const noexcept = 0;
+    virtual u16 rows() const noexcept = 0;
+    virtual u16 pixelWidth() const noexcept = 0;
+    virtual u16 pixelHeight() const noexcept = 0;
+
+    virtual void expose() = 0;
+    virtual void resetDamage() = 0;
+    virtual bool hasDamage() const noexcept = 0;
+
+    virtual TerminalCursor getCursor() const = 0;
+    virtual void setCursorPos(u16 row, u16 column) = 0;
+    virtual void setCursorStyle(TerminalCursor::Style style) = 0;
+    virtual void setCursorColor(Color color) = 0;
+    virtual void setSelectionColor(bool foreground, Color color, bool enabled) = 0;
+
+    virtual Color getSelectionForeground() const noexcept = 0;
+    virtual Color getSelectionBackground() const noexcept = 0;
+    virtual u8 getSelectionColorMask() const noexcept = 0;
+
+    virtual void setBlinkState(bool visible, bool cursor) = 0;
+    virtual bool getBlinkVisible() const noexcept = 0;
+    virtual bool getCursorBlink() const noexcept = 0;
+
+    virtual void setScreenReverseVideo(bool enabled) = 0;
+    virtual bool getScreenReverseVideo() const noexcept = 0;
+
+    virtual void setSelectSnapTo(SelectSnapTo snapTo) = 0;
+    virtual void cycleSelectSnapTo() = 0;
+    virtual Rect& getSelection() = 0;
+    virtual const Rect& getSelection() const = 0;
+    virtual Rect getSelectionForView() const = 0;
+    virtual Rect getSnappedSelection() const = 0;
+    virtual bool getSelectedUtf8(std::string& text) const = 0;
+    virtual Point getLogicalPoint(Point point) const = 0;
+
+    static Screen* create(Composer& composer);
+    static Screen* create(Composer& composer, u16 pixelWidth, u16 pixelHeight, u16 columns, u16 rows, u16& marginTop, u16& marginBottom, const TerminalColors* colors, u16 saveLines = 0);
+};
