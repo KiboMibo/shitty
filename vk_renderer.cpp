@@ -13,6 +13,7 @@
 
 #include "options.h"
 #include "render_spv.h"
+#include "unicode_map.h"
 #include "utf8.h"
 #include "vterm.h"
 
@@ -145,7 +146,9 @@ namespace {
         };
 
         struct GlyphCache {
-            stl::Buffer refs;
+            explicit GlyphCache(ObjPool& pool);
+
+            UnicodeMap<u16>* refs;
             stl::Buffer graphemeRefs;
             stl::Vector<GlyphSlot> slots;
             u32 columns = 0;
@@ -158,6 +161,9 @@ namespace {
         };
 
         struct FontResources {
+            FontResources();
+
+            ObjPool::Ref pool;
             ImageResource atlas;
             ImageResource doubleWidthAtlas;
             GlyphCache glyphs;
@@ -207,6 +213,7 @@ namespace {
         bool colorAtlasInitialized = false;
         bool doubleWidthAtlasInitialized = false;
         bool doubleWidthColorAtlasInitialized = false;
+        ObjPool::Ref glyphPool;
         GlyphCache glyphs;
         GlyphCache doubleWidthGlyphs;
         stl::Buffer fontUploadData;
@@ -350,6 +357,9 @@ RendererImpl::RendererImpl(Composer& composer_, GLFWwindow* window_)
     , window(window_)
     , fonts(composer.fonts)
     , hasDoubleWidth(fonts->hasDoubleWidth())
+    , glyphPool(ObjPool::fromMemory())
+    , glyphs(*glyphPool)
+    , doubleWidthGlyphs(*glyphPool)
 {
     createInstance();
     checkVk(glfwCreateWindowSurface(instance, window, nullptr, &surface), "glfwCreateWindowSurface");
@@ -645,7 +655,9 @@ void RendererImpl::destroyImage(ImageResource& image) {
 }
 
 void RendererImpl::GlyphCache::xchg(GlyphCache& other) noexcept {
-    refs.xchg(other.refs);
+    auto* refsValue = refs;
+    refs = other.refs;
+    other.refs = refsValue;
     graphemeRefs.xchg(other.graphemeRefs);
     slots.xchg(other.slots);
     u32 value = columns;
@@ -665,8 +677,19 @@ void RendererImpl::GlyphCache::xchg(GlyphCache& other) noexcept {
     other.generation = value;
 }
 
+RendererImpl::GlyphCache::GlyphCache(ObjPool& pool)
+    : refs(UnicodeMap<u16>::create(pool))
+{
+}
+
+RendererImpl::FontResources::FontResources()
+    : pool(ObjPool::fromMemory())
+    , glyphs(*pool)
+    , doubleWidthGlyphs(*pool)
+{
+}
+
 void RendererImpl::configureGlyphCache(GlyphCache& cache, u32 width, u32 layers, size_t byteBudget, u32 maxImageDimension) {
-    constexpr u32 unicodeCount = 0x110000;
     constexpr u32 maximumSlots = 16384;
     const size_t glyphBytes = (size_t)(width)*composer.glyphHeight * layers;
     u32 requested = glyphBytes == 0 ? 2 : (u32)(byteBudget / glyphBytes);
@@ -715,7 +738,6 @@ void RendererImpl::configureGlyphCache(GlyphCache& cache, u32 width, u32 layers,
 
     cache.columns = bestColumns;
     cache.rows = bestRows;
-    cache.refs.zero((size_t)(unicodeCount) * sizeof(u16));
     cache.slots.zero((size_t)(bestColumns)*bestRows);
 }
 
@@ -766,6 +788,7 @@ void RendererImpl::createFontResources() {
     buildFontResources(replacement, hasDoubleWidth);
     glyphs.xchg(replacement.glyphs);
     doubleWidthGlyphs.xchg(replacement.doubleWidthGlyphs);
+    glyphPool.xchg(replacement.pool);
     atlas = replacement.atlas;
     replacement.atlas = {};
     doubleWidthAtlas = replacement.doubleWidthAtlas;
@@ -791,6 +814,7 @@ void RendererImpl::resetFontResources() {
 
     glyphs.xchg(replacement.glyphs);
     doubleWidthGlyphs.xchg(replacement.doubleWidthGlyphs);
+    glyphPool.xchg(replacement.pool);
     ImageResource image = atlas;
     atlas = replacement.atlas;
     replacement.atlas = image;
@@ -1227,13 +1251,16 @@ u16 RendererImpl::allocateGlyphSlot(GlyphCache& cache, u32 id, bool grapheme) {
             continue;
         }
 
-        Buffer& oldRefs = state.grapheme ? cache.graphemeRefs : cache.refs;
-        const size_t oldOffset = (size_t)(state.id) * sizeof(u16);
-        if ((!state.grapheme || state.extraGeneration == extraGeneration) && oldOffset + sizeof(u16) <= oldRefs.used()) {
-            u16* oldRef = (u16*)((u8*)(oldRefs.mutData()) + oldOffset);
-            if (*oldRef == slot) {
-                *oldRef = 0;
+        if (state.grapheme) {
+            const size_t oldOffset = (size_t)(state.id) * sizeof(u16);
+            if (state.extraGeneration == extraGeneration && oldOffset + sizeof(u16) <= cache.graphemeRefs.used()) {
+                u16* oldRef = (u16*)((u8*)(cache.graphemeRefs.mutData()) + oldOffset);
+                if (*oldRef == slot) {
+                    *oldRef = 0;
+                }
             }
+        } else if (u16* oldRef = cache.refs->find(state.id); oldRef != nullptr && *oldRef == slot) {
+            *oldRef = 0;
         }
         state.id = id;
         state.generation = cache.generation;
@@ -1268,15 +1295,19 @@ u32 RendererImpl::ensureGlyph(const u32* codepoints, size_t count, u32 id, bool 
     }
 
     GlyphCache& cache = doubleWidth ? doubleWidthGlyphs : glyphs;
-    Buffer& refs = grapheme ? cache.graphemeRefs : cache.refs;
-    const size_t required = ((size_t)(id) + 1) * sizeof(u16);
-    if (required > refs.used()) {
-        const size_t previous = refs.used();
-        refs.grow(required);
-        refs.seekAbsolute(required);
-        memZero((u8*)(refs.mutData()) + previous, refs.mutCurrent());
+    u16* ref = nullptr;
+    if (grapheme) {
+        const size_t required = ((size_t)(id) + 1) * sizeof(u16);
+        if (required > cache.graphemeRefs.used()) {
+            const size_t previous = cache.graphemeRefs.used();
+            cache.graphemeRefs.grow(required);
+            cache.graphemeRefs.seekAbsolute(required);
+            memZero((u8*)(cache.graphemeRefs.mutData()) + previous, cache.graphemeRefs.mutCurrent());
+        }
+        ref = (u16*)((u8*)(cache.graphemeRefs.mutData()) + (size_t)(id) * sizeof(u16));
+    } else {
+        ref = &(*cache.refs)[id];
     }
-    u16* ref = (u16*)((u8*)(refs.mutData()) + (size_t)(id) * sizeof(u16));
     u16 slot = *ref;
     if (slot != 0) {
         const GlyphSlot& state = cache.slots[slot];

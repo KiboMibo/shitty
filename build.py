@@ -61,9 +61,10 @@ render_spv = command(
 
 main_source = "$(S)/main.cpp"
 fuzz_source = "$(S)/main_fuzz.cpp"
+unit_sources = sorted(build.glob("$(S)/*_ut.cpp"))
 all_libshitty_sources = [
     source for source in build.glob("$(S)/*.cpp")
-    if source not in (main_source, fuzz_source)
+    if source not in (main_source, fuzz_source, *unit_sources)
 ]
 libshitty_sources = all_libshitty_sources
 libshitty_deps = [
@@ -111,6 +112,14 @@ main_fuzz = program(
 )
 
 
+unit_tests = program(
+    name="unit_tests",
+    output="$(B)/unit_tests",
+    srcs=["$(S)/third_party/libstd/tst/test.cpp", *unit_sources],
+    deps=[libstd],
+)
+
+
 test_suite = command(
     inputs=[
         *build.glob("$(S)/tests/*.py"),
@@ -118,8 +127,9 @@ test_suite = command(
         "$(S)/shitty.desktop",
     ],
     outputs=["$(B)/tests.stamp"],
-    deps=[st_test, st],
+    deps=[unit_tests, st_test, st],
     cmd=[
+        ["$(B)/unit_tests"],
         ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
         [
             "python3", "-c",
