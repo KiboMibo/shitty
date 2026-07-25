@@ -143,7 +143,7 @@ unit_tests = program(
     name="unit_tests",
     output="$(B)/unit_tests",
     srcs=["$(S)/third_party/libstd/tst/test.cpp", *unit_sources],
-    deps=[libstd],
+    deps=[libshitty, libstd],
 )
 
 

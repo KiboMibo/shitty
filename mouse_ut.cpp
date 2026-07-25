@@ -1,0 +1,199 @@
+/*
+ * Copyright (C) 2026 Shitty team
+ * MIT licensed
+ * See the file LICENSE.MIT for the full license.
+ */
+
+#include "mouse_frontend.h"
+#include "mouse_protocol.h"
+
+#include <std/str/builder.h>
+#include <std/str/view.h>
+#include <std/tst/ut.h>
+
+using namespace stl;
+
+STD_TEST_SUITE(MouseProtocol) {
+    STD_TEST(EncodesLegacyPressAndRelease) {
+        STD_INSIST(encodeMouseProtocol(MouseTrackingEnc::Default, MouseEventType::Press, 0, 0, 1, 1, 1) == "\x1b[M !!");
+        STD_INSIST(encodeMouseProtocol(MouseTrackingEnc::Default, MouseEventType::Release, 0, 0, 1, 1, 1) == "\x1b[M#!!");
+    }
+
+    STD_TEST(EncodesSgrPressReleaseAndMotion) {
+        STD_INSIST(encodeMouseProtocol(MouseTrackingEnc::SGR, MouseEventType::Press, MouseControl, 0, 1, 10, 20) == "\x1b[<16;10;20M");
+        STD_INSIST(encodeMouseProtocol(MouseTrackingEnc::SGR, MouseEventType::Release, 0, 0, 1, 10, 20) == "\x1b[<0;10;20m");
+        STD_INSIST(encodeMouseProtocol(MouseTrackingEnc::SGR, MouseEventType::Motion, MouseShift, 2, 0, 10, 20) == "\x1b[<37;10;20M");
+    }
+
+    STD_TEST(EncodesWheelAndExtendedButtons) {
+        STD_INSIST(encodeMouseProtocol(MouseTrackingEnc::SGR, MouseEventType::Press, 0, 0, 4, 2, 3) == "\x1b[<64;2;3M");
+        STD_INSIST(encodeMouseProtocol(MouseTrackingEnc::SGR, MouseEventType::Press, 0, 0, 11, 2, 3) == "\x1b[<131;2;3M");
+        STD_INSIST(encodeMouseProtocol(MouseTrackingEnc::URXVT, MouseEventType::Press, MouseShift, 0, 4, 2, 3) == "\x1b[100;2;3M");
+    }
+
+    STD_TEST(ClampsLegacyCoordinates) {
+        const auto low = encodeMouseProtocol(MouseTrackingEnc::Default, MouseEventType::Press, 0, 0, 1, -100, -100);
+        const auto high = encodeMouseProtocol(MouseTrackingEnc::Default, MouseEventType::Press, 0, 0, 1, 1000, 1000);
+
+        STD_INSIST(low == "\x1b[M !!");
+        STD_INSIST((u8)(high[4]) == 255);
+        STD_INSIST((u8)(high[5]) == 255);
+    }
+
+    STD_TEST(UsesUtf8ForLargeCoordinates) {
+        const auto output = encodeMouseProtocol(MouseTrackingEnc::UTF8, MouseEventType::Press, 0, 0, 1, 300, 400);
+
+        STD_INSIST(output.size() == 8);
+        STD_INSIST(output.compare(0, 3, "\x1b[M") == 0);
+        STD_INSIST((u8)(output[3]) == 32);
+        STD_INSIST((u8)(output[4]) == 0xc5);
+        STD_INSIST((u8)(output[5]) == 0x8c);
+    }
+
+    STD_TEST(RejectsUnknownButtonsWithoutWriting) {
+        StringBuilder output;
+        output << StringView(u8"prefix");
+
+        STD_INSIST(!encodeMouseProtocol(output, MouseTrackingEnc::SGR, MouseEventType::Press, 0, 0, 0, 1, 1));
+        STD_INSIST(StringView(output) == StringView(u8"prefix"));
+    }
+}
+
+STD_TEST_SUITE(MouseFrontend) {
+    STD_TEST(ConvertsLogicalCoordinatesToFramebufferPixels) {
+        STD_INSIST(mouseFramebufferCoordinate(10.25, 2.0) == 21);
+        STD_INSIST(mouseFramebufferCoordinate(-10.25, 2.0) == -21);
+        STD_INSIST(mouseFramebufferCoordinate(10.0, 0.5) == 10);
+        STD_INSIST(mouseFramebufferCoordinate(__builtin_inf(), 2.0) == 0);
+        STD_INSIST(mouseFramebufferCoordinate(10.0, __builtin_nan("")) == 0);
+    }
+
+    STD_TEST(ConvertsPixelsToCellCoordinates) {
+        const MouseGeometry geometry{
+            .framebufferWidth = 84,
+            .framebufferHeight = 68,
+            .border = 2,
+            .glyphWidth = 8,
+            .glyphHeight = 16,
+        };
+
+        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 2, 2, geometry).column == 1);
+        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 2, 2, geometry).row == 1);
+        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 81, 65, geometry).column == 10);
+        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 81, 65, geometry).row == 4);
+        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, -100, -100, geometry).column == 1);
+    }
+
+    STD_TEST(SgrPixelsUseContentPixelCoordinates) {
+        const MouseGeometry geometry{
+            .framebufferWidth = 104,
+            .framebufferHeight = 54,
+            .border = 2,
+            .glyphWidth = 8,
+            .glyphHeight = 16,
+        };
+
+        const MouseProtocolPoint first = mouseProtocolPoint(MouseTrackingEnc::SGRPixels, 2, 2, geometry);
+        const MouseProtocolPoint last = mouseProtocolPoint(MouseTrackingEnc::SGRPixels, 101, 51, geometry);
+
+        STD_INSIST(first.column == 1);
+        STD_INSIST(first.row == 1);
+        STD_INSIST(last.column == 100);
+        STD_INSIST(last.row == 50);
+    }
+
+    STD_TEST(MapsModifiersAndButtons) {
+        STD_INSIST(mouseProtocolModifiers(FrontendShift | FrontendControl | FrontendAlt) == (MouseShift | MouseControl | MouseAlt));
+        STD_INSIST(mouseProtocolModifiers(FrontendShift | FrontendControl | FrontendAlt, false) == (MouseShift | MouseControl));
+        STD_INSIST(mouseTerminalButton(0) == 1);
+        STD_INSIST(mouseTerminalButton(2) == 2);
+        STD_INSIST(mouseTerminalButton(1) == 3);
+        STD_INSIST(mouseTerminalButton(3) == 8);
+        STD_INSIST(mouseTerminalButton(6) == 11);
+        STD_INSIST(mouseTerminalButton(-1) == 0);
+    }
+
+    STD_TEST(AppliesButtonReportingRules) {
+        STD_INSIST(!mouseButtonReportAllowed(MouseTrackingMode::Disabled, MouseEventType::Press, 1));
+        STD_INSIST(mouseButtonReportAllowed(MouseTrackingMode::VT200, MouseEventType::Press, 1));
+        STD_INSIST(!mouseButtonReportAllowed(MouseTrackingMode::X10_Compat, MouseEventType::Release, 1));
+        STD_INSIST(!mouseButtonReportAllowed(MouseTrackingMode::VT200, MouseEventType::Release, 4));
+        STD_INSIST(!mouseButtonReportAllowed(MouseTrackingMode::VT200, MouseEventType::Press, 12));
+    }
+
+    STD_TEST(AccumulatesFractionalWheelSteps) {
+        MouseWheelAccumulator wheel;
+
+        STD_INSIST(wheel.consume(0.0, 0.4, false).y == 0);
+        STD_INSIST(wheel.consume(0.0, 0.4, false).y == 0);
+        STD_INSIST(wheel.consume(0.0, 0.4, false).y == 1);
+        STD_INSIST(wheel.consume(0.0, -0.5, false).y == 0);
+        STD_INSIST(wheel.consume(0.0, -0.8, false).y == -1);
+    }
+
+    STD_TEST(ResetsWheelRemaindersWhenModeChanges) {
+        MouseWheelAccumulator wheel;
+        wheel.consume(0.75, 0.75, false);
+
+        const MouseWheelSteps reporting = wheel.consume(0.5, 0.5, true);
+
+        STD_INSIST(reporting.x == 0);
+        STD_INSIST(reporting.y == 0);
+        STD_INSIST(wheel.consume(0.5, 0.5, true).x == 1);
+        wheel.reset();
+        STD_INSIST(wheel.consume(0.5, 0.5, true).x == 0);
+    }
+
+    STD_TEST(TracksPressedButtonsAndMotionButtonPriority) {
+        MouseFrontendState state;
+        state.updateButton(1, true);
+        state.updateButton(2, true);
+        state.updateButton(0, true);
+
+        STD_INSIST(state.buttons() == 7);
+        STD_INSIST(state.primaryButtonPressed());
+        STD_INSIST(state.motionButton() == 1);
+
+        state.updateButton(0, false);
+        STD_INSIST(state.motionButton() == 2);
+        state.clearButtons();
+        STD_INSIST(state.buttons() == 0);
+        STD_INSIST(!state.primaryButtonPressed());
+    }
+
+    STD_TEST(SuppressesProtocolDuringSelectionOrShift) {
+        MouseFrontendState state;
+
+        STD_INSIST(state.protocolActive(0, MouseTrackingMode::VT200));
+        STD_INSIST(!state.protocolActive(FrontendShift, MouseTrackingMode::VT200));
+        STD_INSIST(!state.protocolActive(0, MouseTrackingMode::Disabled));
+        state.beginSelection();
+        STD_INSIST(!state.protocolActive(0, MouseTrackingMode::VT200));
+        state.endSelection();
+        STD_INSIST(state.protocolActive(0, MouseTrackingMode::VT200));
+    }
+
+    STD_TEST(CountsOnlyNearbyRapidClicks) {
+        MouseFrontendState state;
+
+        STD_INSIST(state.registerClick(0, 10.0, 10.0, 1.0) == 1);
+        STD_INSIST(state.registerClick(0, 12.0, 12.0, 1.4) == 2);
+        STD_INSIST(state.registerClick(0, 12.0, 12.0, 1.8) == 3);
+        STD_INSIST(state.registerClick(0, 20.0, 12.0, 2.0) == 1);
+        STD_INSIST(state.registerClick(1, 20.0, 12.0, 2.1) == 1);
+        STD_INSIST(state.registerClick(1, 20.0, 12.0, 1.0) == 1);
+    }
+
+    STD_TEST(DeduplicatesMotionWithinSameContext) {
+        MouseFrontendState state;
+
+        STD_INSIST(state.reportMotion(1, 1, MouseTrackingMode::VT200, MouseTrackingEnc::SGR, 1));
+        STD_INSIST(!state.reportMotion(1, 1, MouseTrackingMode::VT200, MouseTrackingEnc::SGR, 1));
+        STD_INSIST(state.reportMotion(2, 1, MouseTrackingMode::VT200, MouseTrackingEnc::SGR, 1));
+        STD_INSIST(state.reportMotion(2, 1, MouseTrackingMode::VT200_ButtonEvent, MouseTrackingEnc::SGR, 1));
+        STD_INSIST(state.reportMotion(2, 1, MouseTrackingMode::VT200_ButtonEvent, MouseTrackingEnc::UTF8, 1));
+        STD_INSIST(state.reportMotion(2, 1, MouseTrackingMode::VT200_ButtonEvent, MouseTrackingEnc::UTF8, 2));
+        state.resetMotion();
+        STD_INSIST(state.reportMotion(2, 1, MouseTrackingMode::VT200_ButtonEvent, MouseTrackingEnc::UTF8, 2));
+    }
+}

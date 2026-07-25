@@ -1,0 +1,214 @@
+/*
+ * Copyright (C) 2026 Shitty team
+ * MIT licensed
+ * See the file LICENSE.MIT for the full license.
+ */
+
+#include "screen.h"
+
+#include "cell_extra_store.h"
+#include "composer.h"
+
+#include <std/mem/obj_pool.h>
+#include <std/str/view.h>
+#include <std/tst/ut.h>
+
+using namespace stl;
+
+namespace {
+    void configureColors(TerminalColors& colors) {
+        colors.defaultForeground = {1, 2, 3};
+        colors.defaultBackground = {4, 5, 6};
+    }
+
+    TerminalCell attributes() {
+        TerminalCell cell{};
+        cell.setForeground(CellColor::defaultForeground());
+        cell.setBackground(CellColor::defaultBackground());
+        return cell;
+    }
+}
+
+STD_TEST_SUITE(Screen) {
+    STD_TEST(InitializesGeometryCapacityAndDamage) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 32);
+        TerminalColors colors;
+        configureColors(colors);
+
+        Screen* screen = Screen::create(composer, *pool, 4, 3, &colors, 5);
+
+        STD_INSIST(screen->active());
+        STD_INSIST(screen->columns() == 4);
+        STD_INSIST(screen->rows() == 3);
+        STD_INSIST(screen->cellCapacity() == 32);
+        STD_INSIST(!screen->hasDamage());
+
+        screen->expose();
+        STD_INSIST(screen->hasDamage());
+        screen->resetDamage();
+        STD_INSIST(!screen->hasDamage());
+    }
+
+    STD_TEST(WritesAsciiAndMaterializesOnlyDamagedCells) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 8);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::create(composer, *pool, 4, 2, &colors);
+        TerminalCell attrs = attributes();
+        attrs.bold = true;
+        const u8 text[] = {'a', 'b'};
+        RenderCell rendered[8];
+
+        screen->fullCopyCells(rendered);
+        screen->resetDamage();
+        screen->writeAsciiRun(1, 1, text, 2, attrs, 0, 3, 0, TerminalCell{});
+        screen->deltaCopyCells(rendered);
+
+        STD_INSIST(!rendered[0].dirty);
+        STD_INSIST(!rendered[4].dirty);
+        STD_INSIST(rendered[5].dirty);
+        STD_INSIST(rendered[6].dirty);
+        STD_INSIST(rendered[5].uc_pt == 'a');
+        STD_INSIST(rendered[6].uc_pt == 'b');
+        STD_INSIST(rendered[5].bold);
+        STD_INSIST(rendered[5].semantic == 3);
+        STD_INSIST((rendered[5].fg == Color{1, 2, 3}));
+        STD_INSIST((rendered[5].bg == Color{4, 5, 6}));
+    }
+
+    STD_TEST(OverwritingWideContinuationClearsItsLead) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 4);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::create(composer, *pool, 4, 1, &colors);
+        const TerminalCell attrs = attributes();
+        const u32 wide[] = {0x4e00};
+        const u8 replacement[] = {'x'};
+
+        screen->writeGrapheme(0, 1, wide, 1, true, attrs, 0, 0, 0, TerminalCell{});
+        STD_INSIST(screen->testCell(0, 1).dwidth);
+        STD_INSIST(screen->testCell(0, 2).dwidth_cont);
+
+        screen->writeAsciiRun(0, 2, replacement, 1, attrs, 0, 0, 0, TerminalCell{});
+
+        STD_INSIST(!screen->testCell(0, 1).dwidth);
+        STD_INSIST(screen->testCell(0, 1).uc_pt == 0);
+        STD_INSIST(!screen->testCell(0, 2).dwidth_cont);
+        STD_INSIST(screen->testCell(0, 2).uc_pt == 'x');
+    }
+
+    STD_TEST(ScrollbackRetainsRowsAndChangesView) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 8);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::create(composer, *pool, 2, 3, &colors, 1);
+        const TerminalCell attrs = attributes();
+        const u8 first[] = {'A'};
+        const u8 second[] = {'B'};
+        const u8 third[] = {'C'};
+        screen->writeAsciiRun(0, 0, first, 1, attrs, 0, 0, 0, TerminalCell{});
+        screen->writeAsciiRun(1, 0, second, 1, attrs, 0, 0, 0, TerminalCell{});
+        screen->writeAsciiRun(2, 0, third, 1, attrs, 0, 0, 0, TerminalCell{});
+
+        screen->scrollUp(0, 3, 1);
+
+        STD_INSIST(screen->getHistoryRows() == 1);
+        STD_INSIST(screen->testCell(0, 0).uc_pt == 'B');
+        STD_INSIST(screen->testCell(1, 0).uc_pt == 'C');
+
+        screen->pageUp(1);
+        STD_INSIST(screen->getViewOffset() == 1);
+        STD_INSIST(screen->testCell(0, 0).uc_pt == 'A');
+        STD_INSIST(screen->testCell(1, 0).uc_pt == 'B');
+        STD_INSIST(screen->testCell(2, 0).uc_pt == 'C');
+
+        STD_INSIST(screen->pageToBottom());
+        STD_INSIST(screen->getViewOffset() == 0);
+        STD_INSIST(!screen->pageToBottom());
+    }
+
+    STD_TEST(ReturnsExplicitAndDetectedHyperlinks) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 64);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::create(composer, *pool, 32, 2, &colors);
+        const TerminalCell attrs = attributes();
+        const u32 link = composer.cellExtras->getOrCreateHyperlink(StringView(u8"id"), StringView(u8"https://explicit.test"), 17);
+        const u8 explicitText[] = {'x'};
+        const u8 detected[] = {'s', 'e', 'e', ' ', 'h', 't', 't', 'p', 's', ':', '/', '/', 'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 't', 'e', 's', 't', ',', ' ', 'n', 'o', 'w'};
+        screen->writeAsciiRun(0, 0, explicitText, 1, attrs, link, 0, 0, TerminalCell{});
+        screen->writeAsciiRun(1, 0, detected, sizeof(detected), attrs, 0, 0, 0, TerminalCell{});
+
+        const ScreenHyperlink explicitLink = screen->hyperlinkAt(0, 0);
+        const ScreenHyperlink detectedLink = screen->hyperlinkAt(1, 8);
+
+        STD_INSIST(explicitLink.displayId == 17);
+        STD_INSIST(explicitLink.payload == StringView(u8"https://explicit.test"));
+        STD_INSIST(detectedLink.displayId == 0);
+        STD_INSIST(detectedLink.payload == StringView(u8"https://example.test"));
+        STD_INSIST(detectedLink.scheme == StringView(u8"https"));
+        STD_INSIST(detectedLink.begin == 36);
+        STD_INSIST(detectedLink.end == 56);
+    }
+
+    STD_TEST(MoveIntoTransfersContentToReplacement) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 8);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::create(composer, *pool, 4, 2, &colors);
+        const TerminalCell attrs = attributes();
+        const u8 text[] = {'a', 'b', 'c'};
+        screen->writeAsciiRun(0, 0, text, 3, attrs, 0, 0, 0, TerminalCell{});
+
+        ResizeState* state = screen->moveInto();
+        Screen::Cursor cursor;
+        Screen* replacement = Screen::create(composer, *pool, *state, 4, 2, &colors, false, &cursor);
+
+        STD_INSIST(!screen->active());
+        STD_INSIST(replacement->active());
+        STD_INSIST(replacement->testCell(0, 0).uc_pt == 'a');
+        STD_INSIST(replacement->testCell(0, 1).uc_pt == 'b');
+        STD_INSIST(replacement->testCell(0, 2).uc_pt == 'c');
+    }
+
+    STD_TEST(TracksCursorAndPresentationState) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 4);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::create(composer, *pool, 2, 2, &colors);
+
+        screen->setCursorPos(1, 1);
+        screen->setCursorStyle(TerminalCursor::Style::bar);
+        screen->setCursorColor({7, 8, 9});
+        screen->setBlinkState(false, true);
+        screen->setScreenReverseVideo(true);
+        screen->setSelectionColor(true, {10, 11, 12}, true);
+        screen->setSelectionColor(false, {13, 14, 15}, true);
+
+        const TerminalCursor cursor = screen->getCursor();
+        STD_INSIST(cursor.posX == 1);
+        STD_INSIST(cursor.posY == 1);
+        STD_INSIST(cursor.style == TerminalCursor::Style::bar);
+        STD_INSIST((cursor.color == Color{7, 8, 9}));
+        STD_INSIST(!screen->getBlinkVisible());
+        STD_INSIST(screen->getCursorBlink());
+        STD_INSIST(screen->getScreenReverseVideo());
+        STD_INSIST(screen->getSelectionColorMask() == 3);
+        STD_INSIST((screen->getSelectionForeground() == Color{10, 11, 12}));
+        STD_INSIST((screen->getSelectionBackground() == Color{13, 14, 15}));
+    }
+}
