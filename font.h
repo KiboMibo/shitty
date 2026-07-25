@@ -6,12 +6,17 @@
 
 #pragma once
 
+#include <std/str/view.h>
 #include <std/sys/types.h>
 
 namespace stl {
     class ObjPool;
-    class StringView;
 }
+
+struct FontSource {
+    stl::StringView filename;
+    i32 index = 0;
+};
 
 struct FontGlyph {
     const void* data = nullptr;
@@ -37,5 +42,5 @@ struct FontMetrics {
 struct Font {
     virtual FontGlyph glyph(const u32* codepoints, size_t count) = 0;
 
-    static Font* create(stl::ObjPool& pool, stl::StringView filename, u16 size, FontKind kind, FontMetrics& metrics);
+    static Font* create(stl::ObjPool& pool, FontSource source, u16 size, FontKind kind, FontMetrics& metrics);
 };

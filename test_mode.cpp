@@ -271,6 +271,31 @@ namespace {
         return output;
     }
 
+    u8 hexDigit(u8 ch) {
+        if (ch >= u8'0' && ch <= u8'9') {
+            return ch - u8'0';
+        }
+        if (ch >= u8'a' && ch <= u8'f') {
+            return ch - u8'a' + 10;
+        }
+        if (ch >= u8'A' && ch <= u8'F') {
+            return ch - u8'A' + 10;
+        }
+        Errno(EINVAL).raise(StringView(u8"invalid hex input"));
+    }
+
+    Buffer decodeHex(StringView input) {
+        if (input.length() % 2) {
+            Errno(EINVAL).raise(StringView(u8"odd-length hex input"));
+        }
+        Buffer output(input.length() / 2);
+        for (size_t index = 0; index < input.length(); index += 2) {
+            const u8 byte = (hexDigit(input[index]) << 4) | hexDigit(input[index + 1]);
+            output.append(&byte, 1);
+        }
+        return output;
+    }
+
     std::string encodeHex(const std::string& input) {
         static constexpr char digits[] = "0123456789abcdef";
         std::string output;
@@ -280,6 +305,12 @@ namespace {
             output.push_back(digits[ch & 15]);
         }
         return output;
+    }
+
+    void appendHex(StringBuilder& output, StringView input) {
+        for (const u8 byte : input) {
+            output << Hex{byte, 2};
+        }
     }
 
     struct TestClipboard final: public Clipboard {
@@ -1397,19 +1428,24 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 }
                 writeAll(controlFd, "OK " + encodeHex(encoded) + "\n");
             } else if (line.compare(0, 19, "FONTCONFIG_RESOLVE ") == 0) {
-                const std::string family = decodeHex(line.substr(19));
+                const StringView encodedFamily((const u8*)(line.data() + 19), line.size() - 19);
+                const Buffer family = decodeHex(encodedFamily);
                 ObjPool::Ref fontPool = ObjPool::fromMemory();
-                const FontVariants variants = resolveFontconfig(fontPool.mutPtr(), StringView((const u8*)(family.data()), family.size()));
-                std::string encoded;
-                const StringView paths[] = {variants.regular, variants.bold, variants.italic, variants.boldItalic};
-                for (size_t index = 0; index < std::size(paths); ++index) {
+                const FontVariants variants = resolveFontconfig(fontPool.mutPtr(), StringView(family));
+                StringBuilder encoded;
+                const FontSource sources[] = {variants.regular, variants.bold, variants.italic, variants.boldItalic};
+                for (size_t index = 0; index < sizeof(sources) / sizeof(*sources); ++index) {
                     if (index != 0) {
-                        encoded.push_back('\0');
+                        encoded << StringView(u8"\0");
                     }
-                    const StringView path = paths[index];
-                    encoded.append((const char*)(path.data()), path.length());
+                    const FontSource source = sources[index];
+                    encoded << source.filename << StringView(u8"\0") << source.index;
                 }
-                writeAll(controlFd, "OK " + encodeHex(encoded) + "\n");
+                StringBuilder output;
+                output << StringView(u8"OK ");
+                appendHex(output, StringView(encoded));
+                output << StringView(u8"\n");
+                writeAll(controlFd, StringView(output));
             } else if (line.compare(0, 10, "FONT_LOAD ") == 0) {
                 const std::string request = decodeHex(line.substr(10));
                 const size_t first = request.find('\0');

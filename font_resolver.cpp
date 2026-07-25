@@ -45,7 +45,7 @@ namespace {
         }
     }
 
-    StringView fontconfigFile(ObjPool* pool, StringView family, int weight, int slant) {
+    FontSource fontconfigSource(ObjPool* pool, StringView family, int weight, int slant) {
         if (!initializeFontconfig()) {
             return {};
         }
@@ -72,38 +72,46 @@ namespace {
             return {};
         }
 
+        FontSource source;
         FcChar8* file = nullptr;
-        StringView path;
         if (FcPatternGetString(match, FC_FILE, 0, &file) == FcResultMatch) {
-            path = pool->intern(StringView((const char*)(file)));
+            source.filename = pool->intern(StringView((const char*)(file)));
+            int index = 0;
+            if (FcPatternGetInteger(match, FC_INDEX, 0, &index) == FcResultMatch) {
+                source.index = index;
+            }
         }
         FcPatternDestroy(match);
-        return path;
+        return source;
+    }
+
+    bool sameSource(FontSource left, FontSource right) {
+        return left.index == right.index && left.filename == right.filename;
     }
 }
 
 FontVariants resolveFontconfig(ObjPool* pool, StringView family) {
     FontVariants variants;
     if (family.memChr('/')) {
-        variants.regular = pool->intern(family);
+        variants.regular.filename = pool->intern(family);
         return variants;
     }
-    variants.regular = fontconfigFile(pool, family, FC_WEIGHT_REGULAR, FC_SLANT_ROMAN);
-    if (variants.regular.empty()) {
+    variants.regular = fontconfigSource(pool, family, FC_WEIGHT_REGULAR, FC_SLANT_ROMAN);
+    if (variants.regular.filename.empty()) {
         return variants;
     }
 
-    StringView path = fontconfigFile(pool, family, FC_WEIGHT_BOLD, FC_SLANT_ROMAN);
-    if (!path.empty() && path != variants.regular) {
-        variants.bold = path;
+    FontSource source = fontconfigSource(pool, family, FC_WEIGHT_BOLD, FC_SLANT_ROMAN);
+    if (!source.filename.empty() && !sameSource(source, variants.regular)) {
+        variants.bold = source;
     }
-    path = fontconfigFile(pool, family, FC_WEIGHT_REGULAR, FC_SLANT_ITALIC);
-    if (!path.empty() && path != variants.regular) {
-        variants.italic = path;
+    source = fontconfigSource(pool, family, FC_WEIGHT_REGULAR, FC_SLANT_ITALIC);
+    if (!source.filename.empty() && !sameSource(source, variants.regular)) {
+        variants.italic = source;
     }
-    path = fontconfigFile(pool, family, FC_WEIGHT_BOLD, FC_SLANT_ITALIC);
-    if (!path.empty() && path != variants.regular && path != variants.bold && path != variants.italic) {
-        variants.boldItalic = path;
+    source = fontconfigSource(pool, family, FC_WEIGHT_BOLD, FC_SLANT_ITALIC);
+    if (!source.filename.empty() && !sameSource(source, variants.regular) && !sameSource(source, variants.bold) && !sameSource(source, variants.italic)) {
+        variants.boldItalic = source;
     }
     return variants;
 }

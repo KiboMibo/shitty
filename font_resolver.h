@@ -6,17 +6,17 @@
 
 #pragma once
 
-#include <std/str/view.h>
+#include "font.h"
 
 namespace stl {
     class ObjPool;
 }
 
 struct FontVariants {
-    stl::StringView regular;
-    stl::StringView bold;
-    stl::StringView italic;
-    stl::StringView boldItalic;
+    FontSource regular;
+    FontSource bold;
+    FontSource italic;
+    FontSource boldItalic;
 };
 
 FontVariants resolveFontconfig(stl::ObjPool* pool, stl::StringView fontname);

@@ -31,7 +31,7 @@ using namespace stl;
 
 namespace {
     struct FontImpl final: public Font {
-        FontImpl(StringView filename, u16 size, FontKind kind, FontMetrics& metrics);
+        FontImpl(FontSource source, u16 size, FontKind kind, FontMetrics& metrics);
         ~FontImpl() noexcept;
 
         FontGlyph glyph(const u32* codepoints, size_t count) override;
@@ -39,6 +39,7 @@ namespace {
         void configure();
         void configureFixed();
         void configureScaled();
+        u16 representativeAdvance();
         bool accepts(const u32* codepoints, size_t count) const;
         bool rasterize(const u32* codepoints, size_t count);
         bool rasterizeMask(const hb_glyph_info_t* glyphs, const hb_glyph_position_t* positions, unsigned count);
@@ -84,7 +85,7 @@ namespace {
     }
 }
 
-FontImpl::FontImpl(StringView filename, u16 size, FontKind kind, FontMetrics& metrics)
+FontImpl::FontImpl(FontSource source, u16 size, FontKind kind, FontMetrics& metrics)
     : size_(size)
     , kind_(kind)
     , metrics_(metrics)
@@ -93,10 +94,10 @@ FontImpl::FontImpl(StringView filename, u16 size, FontKind kind, FontMetrics& me
         fail(StringView(u8"could not initialize FreeType"));
     }
 
-    Buffer filenameBuffer(filename);
-    if (FT_New_Face(library_, filenameBuffer.cStr(), 0, &face_)) {
+    Buffer filenameBuffer(source.filename);
+    if (FT_New_Face(library_, filenameBuffer.cStr(), source.index, &face_)) {
         close();
-        fail(StringBuilder() << StringView(u8"failed to open font ") << filename);
+        fail(StringBuilder() << StringView(u8"failed to open font ") << source.filename << StringView(u8" face ") << source.index);
     }
 
     try {
@@ -181,18 +182,53 @@ void FontImpl::configureFixed() {
     }
 
     const FT_Bitmap_Size& size = face_->available_sizes[bestIndex];
+    FontMetrics actual{
+        .width = (u16)(size.width),
+        .height = (u16)(size.height),
+    };
     if (kind_ == FontKind::Primary) {
         const int pixels = size.y_ppem > 0 ? maximum(1, rounded(size.y_ppem / 64.0)) : size.height;
         const double scale = hasColor_ ? size_ / (double)(pixels) : 1;
-        metrics_.width = rounded(size.width * scale);
-        metrics_.height = rounded(size.height * scale);
-        metrics_.baseline = 0;
-    } else if (!hasColor_ && (metrics_.width != size.width || metrics_.height != size.height)) {
-        fail(StringBuilder() << StringView(u8"font cell mismatch: expected ") << metrics_.width << StringView(u8"x") << metrics_.height << StringView(u8", got ") << size.width << StringView(u8"x") << size.height);
+        actual.width = rounded(size.width * scale);
+        actual.height = rounded(size.height * scale);
     }
-    if (kind_ != FontKind::Overlay && face_->height != 0) {
-        metrics_.baseline = rounded(metrics_.height * (double)(face_->ascender) / face_->height);
+    if (face_->height != 0) {
+        actual.baseline = rounded(actual.height * (double)(face_->ascender) / face_->height);
     }
+    if (kind_ == FontKind::Primary) {
+        metrics_ = actual;
+        return;
+    }
+    if (kind_ == FontKind::Overlay) {
+        if (metrics_.height != actual.height) {
+            fail(StringBuilder() << StringView(u8"font cell height mismatch: expected ") << metrics_.height << StringView(u8", got ") << actual.height);
+        }
+        if (metrics_.baseline != actual.baseline) {
+            fail(StringBuilder() << StringView(u8"font baseline mismatch: expected ") << metrics_.baseline << StringView(u8", got ") << actual.baseline);
+        }
+        return;
+    }
+    if (hasColor_) {
+        if (face_->height != 0) {
+            metrics_.baseline = rounded(metrics_.height * (double)(face_->ascender) / face_->height);
+        }
+        return;
+    }
+    if (!hasColor_ && (metrics_.width != actual.width || metrics_.height != actual.height || metrics_.baseline != actual.baseline)) {
+        fail(StringBuilder() << StringView(u8"font cell mismatch: expected ") << metrics_.width << StringView(u8"x") << metrics_.height << StringView(u8"@") << metrics_.baseline << StringView(u8", got ") << actual.width << StringView(u8"x") << actual.height << StringView(u8"@") << actual.baseline);
+    }
+}
+
+u16 FontImpl::representativeAdvance() {
+    const u32 codepoint = kind_ == FontKind::DoubleWidth ? 0x3000 : 'M';
+    const FT_UInt glyph = FT_Get_Char_Index(face_, codepoint);
+    if (glyph != 0 && !FT_Load_Glyph(face_, glyph, FT_LOAD_DEFAULT)) {
+        const int advance = pixels(face_->glyph->advance.x);
+        if (advance > 0 && advance <= UINT16_MAX) {
+            return (u16)(advance);
+        }
+    }
+    return rounded(size_ * (double)(face_->max_advance_width) / face_->units_per_EM);
 }
 
 void FontImpl::configureScaled() {
@@ -203,23 +239,27 @@ void FontImpl::configureScaled() {
         fail(StringView(u8"font has unusable scalable metrics"));
     }
 
-    const double width = size_ * (double)(face_->max_advance_width) / face_->units_per_EM;
-    const double height = width * face_->height / face_->max_advance_width + 1;
+    const double height = size_ * (double)(face_->height) / face_->units_per_EM + 1;
     const FontMetrics actual{
-        .width = rounded(width),
+        .width = representativeAdvance(),
         .height = rounded(height),
         .baseline = rounded(height * face_->ascender / face_->height),
     };
-    if (kind_ != FontKind::Primary && !hasColor_ && (metrics_.width != actual.width || metrics_.height != actual.height)) {
-        fail(StringBuilder() << StringView(u8"font cell mismatch: expected ") << metrics_.width << StringView(u8"x") << metrics_.height << StringView(u8", got ") << actual.width << StringView(u8"x") << actual.height);
-    }
-    if (kind_ == FontKind::Overlay && metrics_.baseline != actual.baseline) {
-        fail(StringBuilder() << StringView(u8"font baseline mismatch: expected ") << metrics_.baseline << StringView(u8", got ") << actual.baseline);
-    }
     if (kind_ == FontKind::Primary) {
         metrics_ = actual;
-    } else if (kind_ == FontKind::DoubleWidth && !hasColor_) {
-        metrics_.baseline = actual.baseline;
+        return;
+    }
+    if (kind_ == FontKind::Overlay) {
+        if (metrics_.height != actual.height) {
+            fail(StringBuilder() << StringView(u8"font cell height mismatch: expected ") << metrics_.height << StringView(u8", got ") << actual.height);
+        }
+        if (metrics_.baseline != actual.baseline) {
+            fail(StringBuilder() << StringView(u8"font baseline mismatch: expected ") << metrics_.baseline << StringView(u8", got ") << actual.baseline);
+        }
+        return;
+    }
+    if (!hasColor_ && (metrics_.width != actual.width || metrics_.height != actual.height || metrics_.baseline != actual.baseline)) {
+        fail(StringBuilder() << StringView(u8"font cell mismatch: expected ") << metrics_.width << StringView(u8"x") << metrics_.height << StringView(u8"@") << metrics_.baseline << StringView(u8", got ") << actual.width << StringView(u8"x") << actual.height << StringView(u8"@") << actual.baseline);
     }
 }
 
@@ -474,6 +514,6 @@ FontGlyph FontImpl::glyph(const u32* codepoints, size_t count) {
     };
 }
 
-Font* Font::create(ObjPool& pool, StringView filename, u16 size, FontKind kind, FontMetrics& metrics) {
-    return pool.make<FontImpl>(filename, size, kind, metrics);
+Font* Font::create(ObjPool& pool, FontSource source, u16 size, FontKind kind, FontMetrics& metrics) {
+    return pool.make<FontImpl>(source, size, kind, metrics);
 }

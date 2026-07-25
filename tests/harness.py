@@ -129,7 +129,7 @@ class Shitty:
     def __init__(
         self, columns=80, rows=24, save_lines=500,
         glyph_px=1, glyph_py=1,
-        font_size_env=None, extra_arguments=(),
+        font_size_env=None, extra_arguments=(), extra_environment=None,
     ):
         parent, child = socket.socketpair()
         self.socket = parent
@@ -141,6 +141,8 @@ class Shitty:
             child_environment.pop("SHITTY_FONT_SIZE", None)
         else:
             child_environment["SHITTY_FONT_SIZE"] = str(font_size_env)
+        if extra_environment is not None:
+            child_environment.update(extra_environment)
         self.process = subprocess.Popen(
             [
                 str(SHITTY),
@@ -227,13 +229,18 @@ class Shitty:
         return os.fsdecode(fields[0]), [os.fsdecode(value) for value in fields[1:]]
 
     def resolve_fontconfig(self, family):
-        encoded = self._read_hex_response(
+        fields = self._read_hex_response(
             "FONTCONFIG_RESOLVE " + os.fsencode(family).hex()
         ).split(b"\0")
-        return dict(zip(
-            ("regular", "bold", "italic", "bold_italic"),
-            (os.fsdecode(value) for value in encoded),
-        ))
+        if len(fields) != 8:
+            raise RuntimeError("invalid fontconfig response")
+        result = {}
+        for index, name in enumerate(
+            ("regular", "bold", "italic", "bold_italic")
+        ):
+            result[name] = os.fsdecode(fields[2 * index])
+            result[name + "_index"] = int(fields[2 * index + 1])
+        return result
 
     def load_font(self, family, double_width):
         request = b"\0".join(map(os.fsencode, (family, double_width)))

@@ -31,7 +31,7 @@ namespace {
         bool hasDoubleWidth() const override;
         FontGlyph glyph(const u32* codepoints, size_t count, FontStyle style, bool doubleWidth) override;
 
-        Font* createOptional(ObjPool& pool, StringView filename, u16 size, FontKind kind, FontMetrics metrics);
+        Font* createOptional(ObjPool& pool, FontSource source, u16 size, FontKind kind, FontMetrics metrics);
         Font* select(FontStyle style) const noexcept;
         FontGlyph fallback(Font* font, Font* base, const u32* codepoints, size_t count);
 
@@ -46,7 +46,7 @@ namespace {
 
 FontpackImpl::FontpackImpl(ObjPool& pool, StringView fontname, StringView dwfontname, u16 size) {
     const FontVariants variants = resolveFontconfig(&pool, fontname);
-    if (variants.regular.empty()) {
+    if (variants.regular.filename.empty()) {
         Errno(EINVAL).raise(StringBuilder() << StringView(u8"no suitable font found for ") << fontname);
     }
 
@@ -66,12 +66,12 @@ FontpackImpl::FontpackImpl(ObjPool& pool, StringView fontname, StringView dwfont
     }
 }
 
-Font* FontpackImpl::createOptional(ObjPool& pool, StringView filename, u16 size, FontKind kind, FontMetrics metrics) {
-    if (filename.empty()) {
+Font* FontpackImpl::createOptional(ObjPool& pool, FontSource source, u16 size, FontKind kind, FontMetrics metrics) {
+    if (source.filename.empty()) {
         return nullptr;
     }
     try {
-        return Font::create(pool, filename, size, kind, metrics);
+        return Font::create(pool, source, size, kind, metrics);
     } catch (Exception&) {
         return nullptr;
     }
