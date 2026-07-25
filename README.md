@@ -54,7 +54,7 @@ The complete imported conformance suite additionally needs ncurses and Perl.
 
 ## Build
 
-Download submodules:
+Initialize the bundled `libstd` dependency after cloning:
 
 ```sh
 git submodule update --init --recursive
