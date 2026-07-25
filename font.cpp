@@ -6,9 +6,7 @@
 
 #include "font.h"
 
-#include "composer.h"
 #include "grapheme.h"
-#include "options.h"
 #include "utf8.h"
 
 #include <std/lib/buffer.h>
@@ -33,7 +31,7 @@ using namespace stl;
 
 namespace {
     struct FontImpl final: public Font {
-        FontImpl(StringView filename, FontKind kind, FontMetrics& metrics);
+        FontImpl(StringView filename, u16 size, FontKind kind, FontMetrics& metrics);
         ~FontImpl() noexcept;
 
         FontGlyph glyph(const u32* codepoints, size_t count) override;
@@ -56,6 +54,7 @@ namespace {
         FT_Face face_ = nullptr;
         hb_font_t* harfbuzz_ = nullptr;
         hb_buffer_t* shape_ = nullptr;
+        u16 size_;
         FontKind kind_;
         FontMetrics metrics_;
         bool hasColor_ = false;
@@ -85,8 +84,9 @@ namespace {
     }
 }
 
-FontImpl::FontImpl(StringView filename, FontKind kind, FontMetrics& metrics)
-    : kind_(kind)
+FontImpl::FontImpl(StringView filename, u16 size, FontKind kind, FontMetrics& metrics)
+    : size_(size)
+    , kind_(kind)
     , metrics_(metrics)
 {
     if (FT_Init_FreeType(&library_)) {
@@ -163,7 +163,7 @@ void FontImpl::configureFixed() {
     for (int index = 0; index < face_->num_fixed_sizes; ++index) {
         const FT_Bitmap_Size& size = face_->available_sizes[index];
         const int pixels = size.y_ppem > 0 ? maximum(1, rounded(size.y_ppem / 64.0)) : size.height;
-        const int difference = absolute((int)(opts.fontsize) - pixels);
+        const int difference = absolute((int)(size_)-pixels);
         if (difference < bestDifference) {
             bestIndex = index;
             bestDifference = difference;
@@ -183,7 +183,7 @@ void FontImpl::configureFixed() {
     const FT_Bitmap_Size& size = face_->available_sizes[bestIndex];
     if (kind_ == FontKind::Primary) {
         const int pixels = size.y_ppem > 0 ? maximum(1, rounded(size.y_ppem / 64.0)) : size.height;
-        const double scale = hasColor_ ? opts.fontsize / (double)(pixels) : 1;
+        const double scale = hasColor_ ? size_ / (double)(pixels) : 1;
         metrics_.width = rounded(size.width * scale);
         metrics_.height = rounded(size.height * scale);
         metrics_.baseline = 0;
@@ -196,14 +196,14 @@ void FontImpl::configureFixed() {
 }
 
 void FontImpl::configureScaled() {
-    if (FT_Set_Pixel_Sizes(face_, opts.fontsize, opts.fontsize)) {
+    if (FT_Set_Pixel_Sizes(face_, size_, size_)) {
         fail(StringView(u8"could not select scalable font size"));
     }
     if (face_->units_per_EM == 0 || face_->max_advance_width == 0 || face_->height == 0) {
         fail(StringView(u8"font has unusable scalable metrics"));
     }
 
-    const double width = opts.fontsize * (double)(face_->max_advance_width) / face_->units_per_EM;
+    const double width = size_ * (double)(face_->max_advance_width) / face_->units_per_EM;
     const double height = width * face_->height / face_->max_advance_width + 1;
     const FontMetrics actual{
         .width = rounded(width),
@@ -474,6 +474,6 @@ FontGlyph FontImpl::glyph(const u32* codepoints, size_t count) {
     };
 }
 
-Font* Font::create(Composer& composer, StringView filename, FontKind kind, FontMetrics& metrics) {
-    return composer.pool->make<FontImpl>(filename, kind, metrics);
+Font* Font::create(ObjPool& pool, StringView filename, u16 size, FontKind kind, FontMetrics& metrics) {
+    return pool.make<FontImpl>(filename, size, kind, metrics);
 }

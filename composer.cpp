@@ -6,6 +6,7 @@
 
 #include "composer.h"
 
+#include "input_bindings.h"
 #include "input_router.h"
 #include "listener.h"
 #include "options.h"
@@ -20,11 +21,15 @@ Composer::Composer(ObjPool* pool_)
     : pool(pool_)
 {
     input = createInputRouter(*this);
+    inputBindings = InputBindings::create(*this);
 }
 
 void Composer::setGlyphSize(u16 width, u16 height) {
     assert(width != 0);
     assert(height != 0);
+    if (glyphWidth == width && glyphHeight == height) {
+        return;
+    }
     glyphWidth = width;
     glyphHeight = height;
 }

@@ -9,10 +9,9 @@
 #include <std/sys/types.h>
 
 namespace stl {
+    class ObjPool;
     class StringView;
 }
-
-struct Composer;
 
 struct FontGlyph {
     const void* data = nullptr;
@@ -38,5 +37,5 @@ struct FontMetrics {
 struct Font {
     virtual FontGlyph glyph(const u32* codepoints, size_t count) = 0;
 
-    static Font* create(Composer& composer, stl::StringView filename, FontKind kind, FontMetrics& metrics);
+    static Font* create(stl::ObjPool& pool, stl::StringView filename, u16 size, FontKind kind, FontMetrics& metrics);
 };

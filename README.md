@@ -105,6 +105,10 @@ terminal, colour, clipboard, and window-policy options. Boolean flags use
 `-flag` to enable and `+flag` to disable. `SHITTY_FONT_SIZE` sets the default
 font size; `-fontsize` takes precedence.
 
+During a session, `Ctrl+Shift++` increases the font size, `Ctrl+-` decreases
+it, and `Ctrl+0` restores the startup size. Font resizing preserves the
+terminal's rows and columns by resizing the window to the new cell dimensions.
+
 By default, applications cannot read local selections through OSC 52 and
 cannot manipulate or query the host window. These operations can be enabled
 explicitly for trusted applications.

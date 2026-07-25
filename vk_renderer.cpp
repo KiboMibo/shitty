@@ -9,6 +9,7 @@
 #include "cell_extra_store.h"
 #include "composer.h"
 #include "font_pack.h"
+#include "listener.h"
 
 #include "options.h"
 #include "render_spv.h"
@@ -42,6 +43,16 @@ namespace stl {}
 using namespace stl;
 
 namespace {
+    struct RendererImpl;
+
+    struct CallRendererFontChanged final: public Listener {
+        explicit CallRendererFontChanged(RendererImpl* renderer);
+
+        void onListen(void*) override;
+
+        RendererImpl* renderer;
+    };
+
     struct GpuCell {
         u32 codepoint;
         u32 attributes;
@@ -200,6 +211,7 @@ namespace {
         void createDevice();
         void createCommandResources();
         void createFontResources();
+        void resetFontResources();
         void createDescriptors();
         void createPipeline();
         void createSwapchain(u32 width, u32 height);
@@ -217,6 +229,7 @@ namespace {
         void updateOutputDescriptors();
         void updateCellDescriptor(FrameResources& frame);
         void beginGlyphFrame();
+        static void resetGlyphCache(GlyphCache& cache);
         void configureGlyphCache(GlyphCache& cache, u32 width, u32 layers, size_t byteBudget, u32 maxImageDimension);
         u16 allocateGlyphSlot(GlyphCache& cache, u32 id, bool grapheme);
         u32 ensureGlyph(const u32* codepoints, size_t count, u32 id, bool grapheme, FontStyle style, bool doubleWidth);
@@ -290,6 +303,15 @@ namespace {
     }
 }
 
+CallRendererFontChanged::CallRendererFontChanged(RendererImpl* renderer_)
+    : renderer(renderer_)
+{
+}
+
+void CallRendererFontChanged::onListen(void*) {
+    renderer->resetFontResources();
+}
+
 u32 Renderer::rendererCellAttributesForTest(const RenderCell& cell) {
     return packCellAttributes(cell);
 }
@@ -308,6 +330,7 @@ RendererImpl::RendererImpl(Composer& composer_, GLFWwindow* window_)
     createFontResources();
     createDescriptors();
     createPipeline();
+    composer.fontChangedListeners.pushBack(composer.pool->make<CallRendererFontChanged>(this));
 }
 
 RendererImpl::~RendererImpl() {
@@ -641,6 +664,17 @@ void RendererImpl::configureGlyphCache(GlyphCache& cache, u32 width, u32 layers,
     cache.slots.zero((size_t)(bestColumns)*bestRows);
 }
 
+void RendererImpl::resetGlyphCache(GlyphCache& cache) {
+    cache.refs.reset();
+    cache.graphemeRefs.reset();
+    cache.slots.clear();
+    cache.columns = 0;
+    cache.rows = 0;
+    cache.next = 1;
+    cache.eviction = 1;
+    cache.generation = 0;
+}
+
 void RendererImpl::createFontResources() {
     constexpr size_t atlasByteBudget = 16 * 1024 * 1024;
     constexpr size_t doubleWidthAtlasByteBudget = 8 * 1024 * 1024;
@@ -655,16 +689,44 @@ void RendererImpl::createFontResources() {
         doubleWidthAtlas = createImage(2 * composer.glyphWidth * doubleWidthGlyphs.columns, composer.glyphHeight * doubleWidthGlyphs.rows, 1, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
     }
 
-    VkSamplerCreateInfo samplerInfo{};
-    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samplerInfo.magFilter = VK_FILTER_NEAREST;
-    samplerInfo.minFilter = VK_FILTER_NEAREST;
-    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samplerInfo.maxLod = 0.0f;
-    checkVk(vkCreateSampler(device, &samplerInfo, nullptr, &atlasSampler), "vkCreateSampler");
+    if (atlasSampler == VK_NULL_HANDLE) {
+        VkSamplerCreateInfo samplerInfo{};
+        samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        samplerInfo.magFilter = VK_FILTER_NEAREST;
+        samplerInfo.minFilter = VK_FILTER_NEAREST;
+        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.maxLod = 0.0f;
+        checkVk(vkCreateSampler(device, &samplerInfo, nullptr, &atlasSampler), "vkCreateSampler");
+    }
+}
+
+void RendererImpl::resetFontResources() {
+    checkVk(vkDeviceWaitIdle(device), "vkDeviceWaitIdle");
+
+    fonts = composer.fonts;
+    hasDoubleWidth = fonts->hasDoubleWidth();
+    destroyImage(doubleWidthColorAtlas);
+    destroyImage(doubleWidthAtlas);
+    destroyImage(colorAtlas);
+    destroyImage(atlas);
+    resetGlyphCache(glyphs);
+    resetGlyphCache(doubleWidthGlyphs);
+    fontUploadData.reset();
+    atlasCopies.clear();
+    colorAtlasCopies.clear();
+    doubleWidthAtlasCopies.clear();
+    doubleWidthColorAtlasCopies.clear();
+    atlasInitialized = false;
+    colorAtlasInitialized = false;
+    doubleWidthAtlasInitialized = false;
+    doubleWidthColorAtlasInitialized = false;
+    previousStateValid = false;
+
+    createFontResources();
+    updateStaticDescriptors();
 }
 
 void RendererImpl::createDescriptors() {

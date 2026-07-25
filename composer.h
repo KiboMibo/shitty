@@ -18,6 +18,7 @@ struct Application;
 struct CellExtraStore;
 struct Clipboard;
 struct DesktopActions;
+struct InputBindings;
 struct InputSink;
 struct Renderer;
 struct Pty;
@@ -41,6 +42,7 @@ struct Composer {
     Clipboard* clipboard = nullptr;
     DesktopActions* desktopActions = nullptr;
     Fontpack* fonts = nullptr;
+    InputBindings* inputBindings = nullptr;
     InputSink* input = nullptr;
     Renderer* renderer = nullptr;
     Pty* pty = nullptr;
@@ -55,9 +57,14 @@ struct Composer {
     u16 pixelHeight = 0;
     u16 glyphWidth = 0;
     u16 glyphHeight = 0;
+    u16 fontSize = 0;
 
     // resize() commits all geometry fields before walking this list.
     stl::IntrusiveList resizedListeners;
+    stl::IntrusiveList fontIncListeners;
+    stl::IntrusiveList fontDecListeners;
+    stl::IntrusiveList fontResetListeners;
+    stl::IntrusiveList fontChangedListeners;
     // Input producers call input; the router walks this list in registration
     // order and stops at the first sink which accepts the event.
     stl::IntrusiveList inputSinks;

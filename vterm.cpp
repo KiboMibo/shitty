@@ -180,6 +180,14 @@ namespace {
         VtermImpl* parent;
     };
 
+    struct CallVtermFontChanged: Listener {
+        explicit CallVtermFontChanged(VtermImpl* parent);
+
+        void onListen(void*) override;
+
+        VtermImpl* parent;
+    };
+
     struct VtermImpl final: public Vterm, public InputSink {
         VtermImpl(Composer& composer, VtermHost& host, VtermTrace* trace, Output* dump);
 
@@ -225,6 +233,7 @@ namespace {
         bool getPrivateMode(u32 mode) const;
 
         void resizeGrid();
+        void fontChanged();
         void createFreshScreen(Screen*& frame, stl::ObjPool*& pool);
         void createInactiveScreen(Screen*& frame, stl::ObjPool*& pool);
         void resizeScreen(Screen*& frame, stl::ObjPool*& pool, bool reflow, Screen::Cursor* cursor);
@@ -7628,6 +7637,15 @@ void CallVtermResize::onListen(void*) {
     parent->redraw();
 }
 
+CallVtermFontChanged::CallVtermFontChanged(VtermImpl* parent_)
+    : parent(parent_)
+{
+}
+
+void CallVtermFontChanged::onListen(void*) {
+    parent->fontChanged();
+}
+
 VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, Output* dump_)
     : input(this)
     , composer(composer_)
@@ -7672,7 +7690,16 @@ VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, O
 
     resetTerminal();
     composer.resizedListeners.pushBack(composer.pool->make<CallVtermResize>(this));
+    composer.fontChangedListeners.pushBack(composer.pool->make<CallVtermFontChanged>(this));
     composer.inputSinks.pushBack(this);
+}
+
+void VtermImpl::fontChanged() {
+    const u32 width = 2u * opts.border + (u32)(composer.columns) * composer.glyphWidth;
+    const u32 height = 2u * opts.border + (u32)(composer.rows) * composer.glyphHeight;
+    if (composer.pixelWidth == width && composer.pixelHeight == height) {
+        redraw();
+    }
 }
 
 void VtermImpl::resizeGrid() {

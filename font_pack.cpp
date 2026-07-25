@@ -6,7 +6,6 @@
 
 #include "font_pack.h"
 
-#include "composer.h"
 #include "font_resolver.h"
 #include "utf8.h"
 
@@ -22,7 +21,7 @@ using namespace stl;
 
 namespace {
     struct FontpackImpl final: public Fontpack {
-        FontpackImpl(Composer& composer, StringView fontname, StringView dwfontname);
+        FontpackImpl(ObjPool& pool, StringView fontname, StringView dwfontname, u16 size);
 
         u16 getPx() const override;
         u16 getPy() const override;
@@ -32,7 +31,7 @@ namespace {
         bool hasDoubleWidth() const override;
         FontGlyph glyph(const u32* codepoints, size_t count, FontStyle style, bool doubleWidth) override;
 
-        Font* createOptional(Composer& composer, StringView filename, FontKind kind, FontMetrics metrics);
+        Font* createOptional(ObjPool& pool, StringView filename, u16 size, FontKind kind, FontMetrics metrics);
         Font* select(FontStyle style) const noexcept;
         FontGlyph fallback(Font* font, Font* base, const u32* codepoints, size_t count);
 
@@ -45,34 +44,34 @@ namespace {
     };
 }
 
-FontpackImpl::FontpackImpl(Composer& composer, StringView fontname, StringView dwfontname) {
-    const FontVariants variants = resolveFontconfig(composer.pool, fontname);
+FontpackImpl::FontpackImpl(ObjPool& pool, StringView fontname, StringView dwfontname, u16 size) {
+    const FontVariants variants = resolveFontconfig(&pool, fontname);
     if (variants.regular.empty()) {
         Errno(EINVAL).raise(StringBuilder() << StringView(u8"no suitable font found for ") << fontname);
     }
 
-    regular_ = Font::create(composer, variants.regular, FontKind::Primary, metrics_);
-    bold_ = createOptional(composer, variants.bold, FontKind::Overlay, metrics_);
-    italic_ = createOptional(composer, variants.italic, FontKind::Overlay, metrics_);
-    boldItalic_ = createOptional(composer, variants.boldItalic, FontKind::Overlay, metrics_);
+    regular_ = Font::create(pool, variants.regular, size, FontKind::Primary, metrics_);
+    bold_ = createOptional(pool, variants.bold, size, FontKind::Overlay, metrics_);
+    italic_ = createOptional(pool, variants.italic, size, FontKind::Overlay, metrics_);
+    boldItalic_ = createOptional(pool, variants.boldItalic, size, FontKind::Overlay, metrics_);
 
     if (!dwfontname.empty()) {
-        const FontVariants wideVariants = resolveFontconfig(composer.pool, dwfontname);
+        const FontVariants wideVariants = resolveFontconfig(&pool, dwfontname);
         FontMetrics wideMetrics{
             .width = (u16)(2 * metrics_.width),
             .height = metrics_.height,
             .baseline = metrics_.baseline,
         };
-        doubleWidth_ = createOptional(composer, wideVariants.regular, FontKind::DoubleWidth, wideMetrics);
+        doubleWidth_ = createOptional(pool, wideVariants.regular, size, FontKind::DoubleWidth, wideMetrics);
     }
 }
 
-Font* FontpackImpl::createOptional(Composer& composer, StringView filename, FontKind kind, FontMetrics metrics) {
+Font* FontpackImpl::createOptional(ObjPool& pool, StringView filename, u16 size, FontKind kind, FontMetrics metrics) {
     if (filename.empty()) {
         return nullptr;
     }
     try {
-        return Font::create(composer, filename, kind, metrics);
+        return Font::create(pool, filename, size, kind, metrics);
     } catch (Exception&) {
         return nullptr;
     }
@@ -146,6 +145,6 @@ FontGlyph FontpackImpl::glyph(const u32* codepoints, size_t count, FontStyle sty
     return fallback(select(style), regular_, codepoints, count);
 }
 
-Fontpack* Fontpack::create(Composer& composer, StringView fontname, StringView dwfontname) {
-    return composer.pool->make<FontpackImpl>(composer, fontname, dwfontname);
+Fontpack* Fontpack::create(ObjPool& pool, StringView fontname, StringView dwfontname, u16 size) {
+    return pool.make<FontpackImpl>(pool, fontname, dwfontname, size);
 }

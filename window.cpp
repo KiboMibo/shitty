@@ -362,6 +362,10 @@ void WindowImpl::setFullscreen(bool fullscreen) {
 }
 
 void WindowImpl::resizePixels(u32 width, u32 height) {
+    if (window == nullptr) {
+        composer.resize((u16)(min(width, (u32)(UINT16_MAX))), (u16)(min(height, (u32)(UINT16_MAX))));
+        return;
+    }
     float xScale = 1.0f;
     float yScale = 1.0f;
     glfwGetWindowContentScale(window, &xScale, &yScale);

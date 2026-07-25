@@ -18,6 +18,8 @@
 #include "composer.h"
 #include "fd_redirect.h"
 #include "font_pack.h"
+#include "input_bindings.h"
+#include "listener.h"
 #include "osc_protocol.h"
 #include "options.h"
 #include "pty.h"
@@ -57,8 +59,35 @@ namespace stl {}
 using namespace stl;
 
 namespace {
+    struct ApplicationImpl;
+
+    struct CallFontInc final: public Listener {
+        explicit CallFontInc(ApplicationImpl* application);
+
+        void onListen(void*) override;
+
+        ApplicationImpl* application;
+    };
+
+    struct CallFontDec final: public Listener {
+        explicit CallFontDec(ApplicationImpl* application);
+
+        void onListen(void*) override;
+
+        ApplicationImpl* application;
+    };
+
+    struct CallFontReset final: public Listener {
+        explicit CallFontReset(ApplicationImpl* application);
+
+        void onListen(void*) override;
+
+        ApplicationImpl* application;
+    };
+
     struct ApplicationImpl final: public Application, public VtermHost {
         explicit ApplicationImpl(Composer& composer);
+        ~ApplicationImpl();
 
         int run(int argc, char* argv[]) override;
         void osc(int command, const std::string& argument) override;
@@ -74,7 +103,7 @@ namespace {
 
         Composer& composer;
         Window* window;
-        Fontpack* fontpk = nullptr;
+        ObjPool* fontpackPool = nullptr;
         Renderer* renderer = nullptr;
         Vterm* vt = nullptr;
         Pty* terminalPty = nullptr;
@@ -83,6 +112,8 @@ namespace {
         bool refreshPending = false;
         bool committedRepaintPending = false;
         bool terminalHostReady = false;
+        u16 initialFontSize = 0;
+        float fontDensity = 1.0f;
         std::optional<std::chrono::steady_clock::time_point> refreshDeadline;
 
         TestModeInput* testModeInput();
@@ -98,13 +129,115 @@ namespace {
         bool servicePty(bool readable, bool writable);
         bool eventLoop(PtyEventSource& ptySource);
         void checkLocale();
+        void fontInc();
+        void fontDec();
+        void fontReset();
+        void setFontSize(u16 size);
+        void replaceFontpack(u16 size);
+        void publishFontChanged();
     };
+}
+
+CallFontInc::CallFontInc(ApplicationImpl* application_)
+    : application(application_)
+{
+}
+
+void CallFontInc::onListen(void*) {
+    application->fontInc();
+}
+
+CallFontDec::CallFontDec(ApplicationImpl* application_)
+    : application(application_)
+{
+}
+
+void CallFontDec::onListen(void*) {
+    application->fontDec();
+}
+
+CallFontReset::CallFontReset(ApplicationImpl* application_)
+    : application(application_)
+{
+}
+
+void CallFontReset::onListen(void*) {
+    application->fontReset();
 }
 
 ApplicationImpl::ApplicationImpl(Composer& composer_)
     : composer(composer_)
     , window(Window::create(composer))
 {
+    composer.fontIncListeners.pushBack(composer.pool->make<CallFontInc>(this));
+    composer.fontDecListeners.pushBack(composer.pool->make<CallFontDec>(this));
+    composer.fontResetListeners.pushBack(composer.pool->make<CallFontReset>(this));
+
+    composer.inputBindings->add({InputKey::Printable, InputControl | InputShift, '=', '+'}, &composer.fontIncListeners);
+    composer.inputBindings->add({InputKey::Printable, InputControl, '-', '-'}, &composer.fontDecListeners);
+    composer.inputBindings->add({InputKey::Printable, InputControl, '0', '0'}, &composer.fontResetListeners);
+}
+
+ApplicationImpl::~ApplicationImpl() {
+    delete fontpackPool;
+}
+
+void ApplicationImpl::publishFontChanged() {
+    for (IntrusiveNode* node = composer.fontChangedListeners.mutFront(); node != composer.fontChangedListeners.mutEnd();) {
+        Listener* const listener = static_cast<Listener*>(node);
+        node = node->next;
+        listener->onListen();
+    }
+}
+
+void ApplicationImpl::replaceFontpack(u16 size) {
+    const u16 columns = composer.columns;
+    const u16 rows = composer.rows;
+    ObjPool* const nextPool = ObjPool::fromMemoryRaw();
+    Fontpack* next;
+    try {
+        int scaled = (int)(size * fontDensity + 0.5f);
+        scaled = scaled < 1 ? 1 : scaled > 255 ? 255 : scaled;
+        const u16 pixels = (u16)(scaled);
+        next = Fontpack::create(*nextPool, opts.fontname, opts.dwfontname, pixels);
+    } catch (...) {
+        delete nextPool;
+        throw;
+    }
+
+    ObjPool* const previousPool = fontpackPool;
+    fontpackPool = nextPool;
+    composer.fontSize = size;
+    composer.fonts = next;
+    composer.setGlyphSize(next->getPx(), next->getPy());
+    publishFontChanged();
+    delete previousPool;
+    if (columns != 0 && rows != 0) {
+        window->resizePixels(2u * opts.border + (u32)(columns)*composer.glyphWidth, 2u * opts.border + (u32)(rows)*composer.glyphHeight);
+    }
+}
+
+void ApplicationImpl::setFontSize(u16 size) {
+    if (composer.fontSize == size) {
+        return;
+    }
+    replaceFontpack(size);
+}
+
+void ApplicationImpl::fontInc() {
+    if (composer.fontSize < 255) {
+        setFontSize(composer.fontSize + 1);
+    }
+}
+
+void ApplicationImpl::fontDec() {
+    if (composer.fontSize > 1) {
+        setFontSize(composer.fontSize - 1);
+    }
+}
+
+void ApplicationImpl::fontReset() {
+    setFontSize(initialFontSize);
 }
 
 TestModeInput* ApplicationImpl::testModeInput() {
@@ -524,6 +657,8 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     checkLocale();
     opts.initialize(&argc, argv);
     opts.parse();
+    initialFontSize = opts.fontsize;
+    composer.fontSize = initialFontSize;
     if (opts.verbose) {
         opts.printVersion();
     }
@@ -552,13 +687,12 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     composer.pty = terminalPty;
 
     window->initialize();
-    const float density = window->density();
-    opts.fontsize = (u8)(std::clamp((int)(opts.fontsize * density + 0.5f), 1, 255));
-    opts.border = (u16)(std::clamp((int)(opts.border * density + 0.5f), 0, 3000));
+    fontDensity = window->density();
+    int scaledBorder = (int)(opts.border * fontDensity + 0.5f);
+    scaledBorder = scaledBorder < 0 ? 0 : scaledBorder > 3000 ? 3000 : scaledBorder;
+    opts.border = (u16)(scaledBorder);
 
-    fontpk = Fontpack::create(composer, opts.fontname, opts.dwfontname);
-    composer.fonts = fontpk;
-    composer.setGlyphSize(fontpk->getPx(), fontpk->getPy());
+    replaceFontpack(initialFontSize);
     window->show();
 
     renderer = window->createRender();
@@ -590,7 +724,6 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     terminalPty = nullptr;
     renderer = nullptr;
     composer.renderer = nullptr;
-    fontpk = nullptr;
     composer.fonts = nullptr;
     return 0;
 }

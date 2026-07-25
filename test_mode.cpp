@@ -1396,10 +1396,9 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                     throw std::runtime_error("invalid font load request");
                 }
                 ObjPool::Ref fontPool = ObjPool::fromMemory();
-                Composer fontComposer(fontPool.mutPtr());
                 const StringView fontname((const u8*)(request.data()), first);
                 const StringView dwfontname((const u8*)(request.data() + first + 1), request.size() - first - 1);
-                Fontpack* fonts = Fontpack::create(fontComposer, fontname, dwfontname);
+                Fontpack* fonts = Fontpack::create(*fontPool, fontname, dwfontname, opts.fontsize);
                 writeAll(controlFd, "OK " + std::to_string(fonts->getPx()) + " " + std::to_string(fonts->getPy()) + " " + std::to_string(fonts->hasBold()) + " " + std::to_string(fonts->hasItalic()) + " " + std::to_string(fonts->hasBoldItalic()) + " " + std::to_string(fonts->hasDoubleWidth()) + "\n");
             } else if (line.compare(0, 13, "RENDER_IMAGE ") == 0) {
                 const std::string request = decodeHex(line.substr(13));
@@ -1411,7 +1410,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 Composer renderComposer(renderPool.mutPtr());
                 const StringView fontname((const u8*)(request.data()), first);
                 const StringView dwfontname((const u8*)(request.data() + first + 1), request.size() - first - 1);
-                Fontpack* fonts = Fontpack::create(renderComposer, fontname, dwfontname);
+                Fontpack* fonts = Fontpack::create(*renderPool, fontname, dwfontname, opts.fontsize);
                 renderComposer.fonts = fonts;
                 renderComposer.setGlyphSize(fonts->getPx(), fonts->getPy());
                 renderComposer.resize(2 * opts.border + display.columns * fonts->getPx(), 2 * opts.border + display.rows * fonts->getPy());
@@ -1722,6 +1721,10 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                     throw std::runtime_error("test TIOCGWINSZ failed");
                 }
                 writeAll(controlFd, "OK " + std::to_string(size.ws_col) + " " + std::to_string(size.ws_row) + "\n");
+            } else if (line == "FONT_STATE") {
+                StringBuilder output;
+                output << StringView(u8"OK ") << composer.fontSize << StringView(u8" ") << composer.glyphWidth << StringView(u8" ") << composer.glyphHeight << StringView(u8" ") << composer.pixelWidth << StringView(u8" ") << composer.pixelHeight << StringView(u8" ") << composer.columns << StringView(u8" ") << composer.rows << StringView(u8"\n");
+                writeAll(controlFd, StringView(output));
             } else if (line.compare(0, 4, "KEY ") == 0) {
                 std::istringstream args(line.substr(4));
                 std::string name;

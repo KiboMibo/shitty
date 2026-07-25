@@ -455,6 +455,13 @@ class Shitty:
             raise RuntimeError("invalid winsize response")
         return tuple(map(int, response[1:]))
 
+    def font_state(self):
+        self.stream.write(b"FONT_STATE\n")
+        response = self._readline().split()
+        if len(response) != 8 or response[0] != "OK":
+            raise RuntimeError("invalid font state response")
+        return tuple(map(int, response[1:]))
+
     def rectangle_origin(self):
         self.stream.write(b"RECTANGLE_ORIGIN\n")
         response = self._readline().split()
