@@ -27,14 +27,15 @@ struct PtyEventSource;
 struct Vterm;
 struct Window;
 
-// Application wiring. Components copy the dependencies they need during
-// creation. Event producers publish canonical state here and listeners read
-// it after notification, without knowing one another.
+// Application wiring. Components retain Composer itself and read dependencies
+// here when needed; they do not cache aliases of these canonical fields.
+// Event producers commit state here before notifying listeners.
 struct Composer {
     explicit Composer(stl::ObjPool* pool);
 
     void setContentScale(float scale);
     void setGlyphSize(u16 width, u16 height);
+    void setCellExtras(CellExtraStore* extras);
     void resize(u16 pixelWidth, u16 pixelHeight);
 
     stl::ObjPool* pool = nullptr;
@@ -68,6 +69,7 @@ struct Composer {
     stl::IntrusiveList fontDecListeners;
     stl::IntrusiveList fontResetListeners;
     stl::IntrusiveList fontChangedListeners;
+    stl::IntrusiveList cellExtrasChangedListeners;
     // Input producers call input; the router walks this list in registration
     // order and stops at the first sink which accepts the event.
     stl::IntrusiveList inputSinks;

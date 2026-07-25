@@ -181,7 +181,7 @@ namespace {
 
     void getBorder(u16& outBorder) {
         const char* option = get("border");
-        std::stringstream input(option != nullptr ? option : "");
+        std::stringstream input(option);
         int border;
         input >> border;
         const bool invalid = input.fail();
@@ -194,7 +194,7 @@ namespace {
 
     void getSaveLines(u16& outSaveLines) {
         const char* option = get("saveLines");
-        std::stringstream input(option != nullptr ? option : "");
+        std::stringstream input(option);
         int lines;
         input >> lines;
         const bool invalid = input.fail();
@@ -213,7 +213,7 @@ namespace {
         } else if ((option = getenv("SHITTY_FONT_SIZE")) == nullptr) {
             option = get("fontsize");
         }
-        std::stringstream input(option != nullptr ? option : "");
+        std::stringstream input(option);
         int size;
         input >> size;
         const bool invalid = input.fail();
@@ -226,7 +226,7 @@ namespace {
 
     void getGeometry(u16& outCols, u16& outRows) {
         const char* option = get("geometry");
-        std::stringstream input(option != nullptr ? option : "");
+        std::stringstream input(option);
         int cols;
         int rows;
         char separator;

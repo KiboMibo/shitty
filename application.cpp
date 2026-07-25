@@ -108,21 +108,15 @@ namespace {
         VtermWindowInfo windowInfo() override;
 
         Composer& composer;
-        Window* window;
         ObjPool* fontpackPool = nullptr;
-        Renderer* renderer = nullptr;
-        Vterm* vt = nullptr;
-        Pty* terminalPty = nullptr;
         FILE* printerPipe = nullptr;
         bool refreshAllowed = true;
         bool refreshPending = false;
         bool committedRepaintPending = false;
-        bool terminalHostReady = false;
         u16 initialFontSize = 0;
         u16 logicalBorder = 0;
         std::optional<std::chrono::steady_clock::time_point> refreshDeadline;
 
-        TestModeInput* testModeInput();
         int takeTestFd(int& argc, char* argv[]);
         static void childSignalHandler(int signal, siginfo_t* info, void*);
         void setupSignals();
@@ -133,7 +127,7 @@ namespace {
         bool flushPtyOutput();
         bool readPty();
         bool servicePty(bool readable, bool writable);
-        bool eventLoop(PtyEventSource& ptySource);
+        bool eventLoop();
         void checkLocale();
         void fontInc();
         void fontDec();
@@ -183,7 +177,6 @@ void CallContentScaleChanged::onListen(void*) {
 
 ApplicationImpl::ApplicationImpl(Composer& composer_)
     : composer(composer_)
-    , window(Window::create(composer))
 {
     composer.fontIncListeners.pushBack(composer.pool->make<CallFontInc>(this));
     composer.fontDecListeners.pushBack(composer.pool->make<CallFontDec>(this));
@@ -196,7 +189,9 @@ ApplicationImpl::ApplicationImpl(Composer& composer_)
 }
 
 ApplicationImpl::~ApplicationImpl() {
+    composer.fonts = nullptr;
     delete fontpackPool;
+    composer.application = nullptr;
 }
 
 void ApplicationImpl::publishFontChanged() {
@@ -244,7 +239,7 @@ void ApplicationImpl::replaceFontpack(u16 size) {
     }
     delete previousPool;
     if (columns != 0 && rows != 0) {
-        window->resizePixels(2u * opts.border + (u32)(columns)*composer.glyphWidth, 2u * opts.border + (u32)(rows)*composer.glyphHeight);
+        composer.window->resizePixels(2u * opts.border + (u32)(columns)*composer.glyphWidth, 2u * opts.border + (u32)(rows)*composer.glyphHeight);
     }
 }
 
@@ -288,14 +283,6 @@ void ApplicationImpl::contentScaleChanged() {
     }
 }
 
-TestModeInput* ApplicationImpl::testModeInput() {
-#ifdef SHITTY_FOR_TESTS
-    return window->testApi();
-#else
-    return nullptr;
-#endif
-}
-
 int ApplicationImpl::takeTestFd(int& argc, char* argv[]) {
     for (int k = 1; k < argc; ++k) {
         if (std::strcmp(argv[k], "--test-fd") != 0) {
@@ -320,7 +307,7 @@ int ApplicationImpl::takeTestFd(int& argc, char* argv[]) {
 }
 
 void ApplicationImpl::childSignalHandler(int signal, siginfo_t* info, void*) {
-    if (signal == SIGCHLD && info != nullptr) {
+    if (signal == SIGCHLD) {
         waitpid(info->si_pid, nullptr, WNOHANG);
     }
 }
@@ -374,12 +361,12 @@ void ApplicationImpl::handleOsc(int command, const std::string& argument) {
         case 2:
 
             appTitleSet = argument != opts.title;
-            window->setTitle(StringView((const u8*)(argument.data()), argument.size()));
+            composer.window->setTitle(StringView((const u8*)(argument.data()), argument.size()));
             return;
         case 7: {
             const std::string cwd = oscCwdToPath(argument);
             if (!cwd.empty() && !appTitleSet) {
-                window->setTitle(StringView((const u8*)(cwd.data()), cwd.size()));
+                composer.window->setTitle(StringView((const u8*)(cwd.data()), cwd.size()));
             }
             return;
         }
@@ -408,7 +395,7 @@ void ApplicationImpl::handleOsc(int command, const std::string& argument) {
             }
         }
         const std::string reply = encodeOsc52QueryReply(request, opts.allowOsc52Read, primary, clipboard);
-        vt->sendBytes(StringView((const u8*)(reply.data()), reply.size()), false);
+        composer.vterm->sendBytes(StringView((const u8*)(reply.data()), reply.size()), false);
         return;
     }
 
@@ -422,8 +409,10 @@ void ApplicationImpl::handleOsc(int command, const std::string& argument) {
 }
 
 bool ApplicationImpl::presentTerminal() {
+    Vterm* const vterm = composer.vterm;
+    Renderer* const renderer = composer.renderer;
     while (true) {
-        const VtermOutput output = vt->output();
+        const VtermOutput output = vterm->output();
         if (output.terminal == nullptr) {
             refreshPending = false;
             return true;
@@ -432,19 +421,21 @@ bool ApplicationImpl::presentTerminal() {
         if (!refreshAllowed || !renderer->update(*output.terminal)) {
             return false;
         }
-        vt->consume(VtermConsume{0, true});
+        vterm->consume(VtermConsume{0, true});
     }
 }
 
 bool ApplicationImpl::flushPtyOutput() {
+    Vterm* const vterm = composer.vterm;
+    Pty* const pty = composer.pty;
     while (true) {
-        const VtermOutput output = vt->output();
+        const VtermOutput output = vterm->output();
         if (output.pty.empty()) {
             return true;
         }
-        const ssize_t count = terminalPty->write(output.pty.data(), output.pty.length());
+        const ssize_t count = pty->write(output.pty.data(), output.pty.length());
         if (count > 0) {
-            vt->consume({(size_t)(count), false});
+            vterm->consume({(size_t)(count), false});
             continue;
         }
         if (count < 0 && errno == EINTR) {
@@ -459,13 +450,15 @@ bool ApplicationImpl::flushPtyOutput() {
 
 bool ApplicationImpl::readPty() {
     constexpr size_t maxDrainBytes = 20 * 1024 * 1024;
+    Vterm* const vterm = composer.vterm;
+    Pty* const pty = composer.pty;
     u8 buffer[8192];
     size_t drained = 0;
     bool finished = false;
     while (drained < maxDrainBytes) {
-        const ssize_t count = terminalPty->read(buffer, sizeof(buffer));
+        const ssize_t count = pty->read(buffer, sizeof(buffer));
         if (count > 0) {
-            vt->feedPty(StringView(buffer, count));
+            vterm->feedPty(StringView(buffer, count));
             drained += (size_t)(count);
             continue;
         }
@@ -499,11 +492,11 @@ void ApplicationImpl::osc(int command, const std::string& argument) {
 }
 
 bool ApplicationImpl::handlesOsc() const {
-    return terminalHostReady;
+    return composer.vterm != nullptr;
 }
 
 void ApplicationImpl::bell() {
-    window->requestAttention();
+    composer.window->requestAttention();
 }
 
 bool ApplicationImpl::handlesPrinter() const {
@@ -525,46 +518,46 @@ void ApplicationImpl::notify(const std::string&, const std::string& title, const
     if (close) {
         return;
     }
-    window->requestAttention();
+    composer.window->requestAttention();
 }
 
 void ApplicationImpl::progress(u32 state, u32) {
     if (state == 2 || state == 4) {
-        window->requestAttention();
+        composer.window->requestAttention();
     }
 }
 
 void ApplicationImpl::windowOperation(u32 operation, u32 first, u32 second) {
     switch (operation) {
         case 1:
-            window->restore();
+            composer.window->restore();
             return;
         case 2:
-            window->iconify();
+            composer.window->iconify();
             return;
         case 3:
-            window->move((i32)(first), (i32)(second));
+            composer.window->move((i32)(first), (i32)(second));
             return;
         case 5:
-            window->focus();
+            composer.window->focus();
             return;
         case 7:
-            window->requestRedraw();
+            composer.window->requestRedraw();
             return;
         case 9: {
-            const WindowInfo current = window->info();
+            const WindowInfo current = composer.window->info();
             if (first == 0) {
-                window->setMaximized(false);
+                composer.window->setMaximized(false);
             } else if (first == 1) {
-                window->setMaximized(true);
+                composer.window->setMaximized(true);
             } else if (first == 2) {
-                window->setMaximized(!current.maximized);
+                composer.window->setMaximized(!current.maximized);
             }
             return;
         }
         case 10: {
-            const WindowInfo current = window->info();
-            window->setFullscreen(first == 1 || (first == 2 && !current.fullscreen));
+            const WindowInfo current = composer.window->info();
+            composer.window->setFullscreen(first == 1 || (first == 2 && !current.fullscreen));
             return;
         }
         default:
@@ -582,11 +575,11 @@ void ApplicationImpl::windowOperation(u32 operation, u32 first, u32 second) {
     } else {
         return;
     }
-    window->resizePixels(pixelWidth, pixelHeight);
+    composer.window->resizePixels(pixelWidth, pixelHeight);
 }
 
 VtermWindowInfo ApplicationImpl::windowInfo() {
-    const WindowInfo source = window->info();
+    const WindowInfo source = composer.window->info();
     return {
         .x = source.x,
         .y = source.y,
@@ -598,15 +591,18 @@ VtermWindowInfo ApplicationImpl::windowInfo() {
     };
 }
 
-bool ApplicationImpl::eventLoop(PtyEventSource& ptySource) {
+bool ApplicationImpl::eventLoop() {
     using Clock = std::chrono::steady_clock;
     constexpr auto resizeGrace = std::chrono::milliseconds(10);
     constexpr auto retryDelay = std::chrono::milliseconds(10);
-    Window* const eventWindow = window;
+    Window* const eventWindow = composer.window;
+    Renderer* const renderer = composer.renderer;
+    Vterm* const vterm = composer.vterm;
+    PtyEventSource* const ptySource = composer.ptyEvents;
     while (true) {
-        ptySource.setWriteInterest(!vt->output().pty.empty());
+        ptySource->setWriteInterest(!vterm->output().pty.empty());
         refreshAllowed = false;
-        const VtermState initialState = vt->state();
+        const VtermState initialState = vterm->state();
         double timeout = (initialState.synchronizedOutput || initialState.animation) ? 0.05 : -1.0;
         if (refreshPending || committedRepaintPending) {
             const auto now = Clock::now();
@@ -618,39 +614,39 @@ bool ApplicationImpl::eventLoop(PtyEventSource& ptySource) {
             return true;
         }
         flushPtyOutput();
-        vt->expireSynchronizedOutput(false);
-        if (vt->advanceAnimation(false)) {
-            vt->expose();
+        vterm->expireSynchronizedOutput(false);
+        if (vterm->advanceAnimation(false)) {
+            vterm->expose();
         }
         bool resized = false;
         if (events.resized) {
-            const VtermState resizedState = vt->state();
+            const VtermState resizedState = vterm->state();
             committedRepaintPending = resizedState.synchronizedOutput;
             if (!committedRepaintPending) {
-                vt->expose();
+                vterm->expose();
             }
             resized = true;
             refreshDeadline = Clock::now() + resizeGrace;
         } else if (events.redraw) {
-            if (vt->state().synchronizedOutput) {
+            if (vterm->state().synchronizedOutput) {
                 committedRepaintPending = true;
             } else {
-                vt->expose();
+                vterm->expose();
             }
         }
-        const short ptyEvents = ptySource.events();
+        const short ptyEvents = ptySource->events();
         const bool readPtyInput = ptyEvents & (POLLIN | POLLHUP | POLLERR);
         const bool finished = servicePty(readPtyInput, ptyEvents & POLLOUT);
         if (readPtyInput) {
-            ptySource.acknowledge();
+            ptySource->acknowledge();
             if (finished) {
                 return false;
             }
         } else if (ptyEvents && !(ptyEvents & (POLLIN | POLLHUP | POLLERR))) {
-            ptySource.acknowledge();
+            ptySource->acknowledge();
         }
         flushPtyOutput();
-        ptySource.setWriteInterest(!vt->output().pty.empty());
+        ptySource->setWriteInterest(!vterm->output().pty.empty());
         presentTerminal();
 
         // A child responding to SIGWINCH is part of the same visual
@@ -660,7 +656,7 @@ bool ApplicationImpl::eventLoop(PtyEventSource& ptySource) {
             refreshDeadline.reset();
         }
         const auto now = Clock::now();
-        if (!vt->state().synchronizedOutput) {
+        if (!vterm->state().synchronizedOutput) {
             committedRepaintPending = false;
         }
         if (committedRepaintPending && (!refreshDeadline || now >= *refreshDeadline)) {
@@ -700,8 +696,11 @@ void ApplicationImpl::checkLocale() {
 }
 
 int ApplicationImpl::run(int argc, char* argv[]) {
-    TestModeInput* const testInput = testModeInput();
-    const int testFd = testInput == nullptr ? -1 : takeTestFd(argc, argv);
+    int testFd = -1;
+#ifdef SHITTY_FOR_TESTS
+    testFd = takeTestFd(argc, argv);
+#endif
+    Window* const window = testFd < 0 ? Window::create(composer) : Window::createHeadless(composer);
     checkLocale();
     opts.initialize(&argc, argv);
     opts.parse();
@@ -715,7 +714,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         sysError("setenv SHITTY_VERSION");
     }
     if (testFd >= 0) {
-        return runTestMode(composer, *testInput, testFd, argc, argv);
+        return runTestMode(composer, *window->testApi(), testFd, argc, argv);
     }
 
     LaunchCommand launch = buildLaunchCommand(argc, argv, opts.shell, opts.login);
@@ -730,47 +729,34 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     }
     shellArgv.push_back(nullptr);
 
-    window->initialize();
+    composer.window->initialize();
     contentScaleChanged();
 
     replaceFontpack(initialFontSize);
-    window->show();
+    composer.window->show();
 
     setupSignals();
     const int ptyFd = startShell(launch.executable.c_str(), shellArgv.data());
-    terminalPty = Pty::adopt(composer, ptyFd);
-    composer.pty = terminalPty;
+    composer.pty = Pty::adopt(composer, ptyFd);
 
-    renderer = window->createRender();
-    composer.renderer = renderer;
-    if (opts.printerCommand != nullptr && opts.printerCommand[0] != '\0') {
+    composer.renderer = composer.window->createRender();
+    if (opts.printerCommand[0] != '\0') {
         printerPipe = popen(opts.printerCommand, "w");
         if (printerPipe == nullptr) {
             throw std::runtime_error("Cannot start printer command");
         }
     }
-    vt = Vterm::create(composer, *this, nullptr);
-    composer.vterm = vt;
-    terminalHostReady = true;
-    window->activate();
+    composer.vterm = Vterm::create(composer, *this, nullptr);
+    composer.window->activate();
     presentTerminal();
 
-    PtyEventSource* ptySource = PtyEventSource::create(composer, *terminalPty);
-    composer.ptyEvents = ptySource;
-    eventLoop(*ptySource);
+    composer.ptyEvents = PtyEventSource::create(composer);
+    eventLoop();
 
-    vt = nullptr;
-    composer.vterm = nullptr;
-    composer.ptyEvents = nullptr;
     if (printerPipe != nullptr) {
         pclose(printerPipe);
         printerPipe = nullptr;
     }
-    composer.pty = nullptr;
-    terminalPty = nullptr;
-    renderer = nullptr;
-    composer.renderer = nullptr;
-    composer.fonts = nullptr;
     return 0;
 }
 

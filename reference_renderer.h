@@ -9,7 +9,6 @@
 #include <std/sys/types.h>
 
 struct Composer;
-struct Fontpack;
 struct TerminalUpdate;
 
 struct ReferenceImage {
@@ -22,5 +21,5 @@ struct ReferenceImage {
 struct ReferenceRenderer {
     virtual ReferenceImage render(const TerminalUpdate& update) = 0;
 
-    static ReferenceRenderer* create(Composer& composer, Fontpack& fonts);
+    static ReferenceRenderer* create(Composer& composer);
 };

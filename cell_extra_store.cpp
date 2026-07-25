@@ -160,16 +160,14 @@ const HyperlinkHandle* CellExtraStoreImpl::hyperlinkOf(const CellExtra& extra) n
     if (extra.hyperlinks == nullptr) {
         return nullptr;
     }
-    const IntrusiveNode* node = extra.hyperlinks->front();
-    return node == extra.hyperlinks->end() ? nullptr : static_cast<const HyperlinkHandle*>(node);
+    return static_cast<const HyperlinkHandle*>(extra.hyperlinks->front());
 }
 
 HyperlinkHandle* CellExtraStoreImpl::hyperlinkOf(CellExtra& extra) noexcept {
     if (extra.hyperlinks == nullptr) {
         return nullptr;
     }
-    IntrusiveNode* node = extra.hyperlinks->mutFront();
-    return node == extra.hyperlinks->mutEnd() ? nullptr : static_cast<HyperlinkHandle*>(node);
+    return static_cast<HyperlinkHandle*>(extra.hyperlinks->mutFront());
 }
 
 StringView CellExtraStoreImpl::copyBytes(StringView value) {
@@ -213,21 +211,19 @@ u32 CellExtraStoreImpl::append(const CellExtra& value) {
 }
 
 u32 CellExtraStoreImpl::migrate(const CellExtraStoreImpl& source, u32 sourceRef) {
-    const CellExtra* sourceExtra = source.get(sourceRef);
-    assert(sourceExtra != nullptr);
+    const CellExtra& sourceExtra = *source.get(sourceRef);
 
-    CellExtra copy = *sourceExtra;
-    if (!sourceExtra->graphemeBytes.empty()) {
-        copy.graphemeBytes = copyBytes(sourceExtra->graphemeBytes);
+    CellExtra copy = sourceExtra;
+    if (!sourceExtra.graphemeBytes.empty()) {
+        copy.graphemeBytes = copyBytes(sourceExtra.graphemeBytes);
     }
 
     bool indexHyperlink = false;
-    if (const HyperlinkHandle* sourceHyperlink = hyperlinkOf(*sourceExtra); sourceHyperlink != nullptr) {
+    if (const HyperlinkHandle* sourceHyperlink = hyperlinkOf(sourceExtra); sourceHyperlink != nullptr) {
         if (const u32 known = findHyperlink(sourceHyperlink->identity); known != 0) {
-            const HyperlinkHandle* canonical = hyperlinkOf(*slots_[known]);
-            assert(canonical != nullptr);
-            assert(equalBytes(canonical->payload, sourceHyperlink->payload));
-            assert(canonical->displayId == sourceHyperlink->displayId);
+            const HyperlinkHandle& canonical = *hyperlinkOf(*slots_[known]);
+            assert(equalBytes(canonical.payload, sourceHyperlink->payload));
+            assert(canonical.displayId == sourceHyperlink->displayId);
             copy.hyperlinks = slots_[known]->hyperlinks;
         } else {
             if ((hyperlinkCount_ + 1) * 10 >= hyperlinkBuckets_.length() * 7) {
@@ -236,7 +232,7 @@ u32 CellExtraStoreImpl::migrate(const CellExtraStoreImpl& source, u32 sourceRef)
 
             copy.hyperlinks = pool_->make<IntrusiveList>();
             allocatedExtraBytes_ += sizeof(IntrusiveList);
-            for (const IntrusiveNode* node = sourceExtra->hyperlinks->front(); node != sourceExtra->hyperlinks->end(); node = node->next) {
+            for (const IntrusiveNode* node = sourceExtra.hyperlinks->front(); node != sourceExtra.hyperlinks->end(); node = node->next) {
                 const auto* sourceHandle = static_cast<const HyperlinkHandle*>(node);
                 const StringView identity = copyBytes(sourceHandle->identity);
                 const StringView payload = copyBytes(sourceHandle->payload);
@@ -267,8 +263,7 @@ CellColor CellExtraStoreImpl::underlineColor(const TerminalCell& cell) const noe
     if (!cell.hasExtra()) {
         return cell.inlineUnderlineColor();
     }
-    const CellExtra* extra = get(cell.extraRef());
-    return extra == nullptr ? CellColor::defaultForeground() : extra->underlineColor;
+    return get(cell.extraRef())->underlineColor;
 }
 
 GraphemeView CellExtraStoreImpl::grapheme(const TerminalCell& cell) const noexcept {
@@ -284,8 +279,7 @@ StringView CellExtraStoreImpl::hyperlink(const TerminalCell& cell) const noexcep
     if (!cell.hasExtra()) {
         return {};
     }
-    const CellExtra* extra = get(cell.extraRef());
-    const HyperlinkHandle* handle = extra == nullptr ? nullptr : hyperlinkOf(*extra);
+    const HyperlinkHandle* handle = hyperlinkOf(*get(cell.extraRef()));
     return handle == nullptr ? StringView{} : handle->payload;
 }
 
@@ -293,8 +287,7 @@ u32 CellExtraStoreImpl::hyperlinkDisplayId(const TerminalCell& cell) const noexc
     if (!cell.hasExtra()) {
         return 0;
     }
-    const CellExtra* extra = get(cell.extraRef());
-    const HyperlinkHandle* handle = extra == nullptr ? nullptr : hyperlinkOf(*extra);
+    const HyperlinkHandle* handle = hyperlinkOf(*get(cell.extraRef()));
     return handle == nullptr ? 0 : handle->displayId;
 }
 
@@ -344,9 +337,7 @@ void CellExtraStoreImpl::setUnderlineColor(TerminalCell& cell, CellColor color) 
         return;
     }
 
-    const CellExtra* current = get(cell.extraRef());
-    assert(current != nullptr);
-    CellExtra copy = *current;
+    CellExtra copy = *get(cell.extraRef());
     copy.underlineColor = color;
     cell.setExtraRef(append(copy));
 }
@@ -359,9 +350,7 @@ void CellExtraStoreImpl::setGrapheme(TerminalCell& cell, const u32* codepoints, 
 
     CellExtra copy;
     if (cell.hasExtra()) {
-        const CellExtra* current = get(cell.extraRef());
-        assert(current != nullptr);
-        copy = *current;
+        copy = *get(cell.extraRef());
     } else {
         copy.underlineColor = cell.inlineUnderlineColor();
     }
@@ -374,44 +363,46 @@ void CellExtraStoreImpl::clearGrapheme(TerminalCell& cell) {
         return;
     }
 
-    const CellExtra* current = get(cell.extraRef());
-    assert(current != nullptr);
-    if (current->graphemeBytes.empty()) {
+    const CellExtra& current = *get(cell.extraRef());
+    if (current.graphemeBytes.empty()) {
         return;
     }
-    if (hyperlinkOf(*current) == nullptr) {
-        cell.setInlineUnderlineColor(current->underlineColor);
+    if (hyperlinkOf(current) == nullptr) {
+        cell.setInlineUnderlineColor(current.underlineColor);
         return;
     }
 
-    CellExtra copy = *current;
+    CellExtra copy = current;
     copy.graphemeBytes = {};
     cell.setExtraRef(append(copy));
 }
 
 void CellExtraStoreImpl::setHyperlink(TerminalCell& cell, u32 hyperlinkRef) {
-    const CellExtra* hyperlinkExtra = get(hyperlinkRef);
-    if (hyperlinkExtra == nullptr || hyperlinkOf(*hyperlinkExtra) == nullptr) {
+    if (hyperlinkRef == 0) {
+        clearHyperlink(cell);
+        return;
+    }
+    const CellExtra& hyperlinkExtra = *get(hyperlinkRef);
+    if (hyperlinkOf(hyperlinkExtra) == nullptr) {
         clearHyperlink(cell);
         return;
     }
 
     CellExtra copy;
     if (cell.hasExtra()) {
-        const CellExtra* current = get(cell.extraRef());
-        assert(current != nullptr);
-        if (current->hyperlinks == hyperlinkExtra->hyperlinks) {
+        const CellExtra& current = *get(cell.extraRef());
+        if (current.hyperlinks == hyperlinkExtra.hyperlinks) {
             return;
         }
-        copy = *current;
+        copy = current;
     } else {
         copy.underlineColor = cell.inlineUnderlineColor();
-        if (hyperlinkExtra->graphemeBytes.empty() && hyperlinkExtra->underlineColor == copy.underlineColor) {
+        if (hyperlinkExtra.graphemeBytes.empty() && hyperlinkExtra.underlineColor == copy.underlineColor) {
             cell.setExtraRef(hyperlinkRef);
             return;
         }
     }
-    copy.hyperlinks = hyperlinkExtra->hyperlinks;
+    copy.hyperlinks = hyperlinkExtra.hyperlinks;
     cell.setExtraRef(append(copy));
 }
 
@@ -420,17 +411,16 @@ void CellExtraStoreImpl::clearHyperlink(TerminalCell& cell) {
         return;
     }
 
-    const CellExtra* current = get(cell.extraRef());
-    assert(current != nullptr);
-    if (hyperlinkOf(*current) == nullptr) {
+    const CellExtra& current = *get(cell.extraRef());
+    if (hyperlinkOf(current) == nullptr) {
         return;
     }
-    if (current->graphemeBytes.empty()) {
-        cell.setInlineUnderlineColor(current->underlineColor);
+    if (current.graphemeBytes.empty()) {
+        cell.setInlineUnderlineColor(current.underlineColor);
         return;
     }
 
-    CellExtra copy = *current;
+    CellExtra copy = current;
     copy.hyperlinks = nullptr;
     cell.setExtraRef(append(copy));
 }
@@ -488,7 +478,7 @@ void CellExtraStoreImpl::collect(Vector<u32*>& locations) {
 
     ObjPool* oldPool = owner_.pool;
     assert(oldPool == pool_);
-    composer_.cellExtras = next;
+    composer_.setCellExtras(next);
     owner_.pool = next->pool_;
     delete oldPool;
 }
@@ -497,6 +487,6 @@ CellExtraStore* CellExtraStore::create(Composer& composer, size_t cellCount) {
     assert(composer.cellExtras == nullptr);
     auto* owner = composer.pool->make<CellExtraStoreOwner>();
     auto* result = CellExtraStoreImpl::create(composer, cellCount, *owner);
-    composer.cellExtras = result;
+    composer.setCellExtras(result);
     return result;
 }

@@ -41,8 +41,8 @@ namespace {
 
         void feed(const u8* data, size_t len) override;
 
+        Composer& composer;
         HeadlessHost host;
-        Vterm* vterm = nullptr;
     };
 }
 
@@ -92,10 +92,11 @@ VtermWindowInfo HeadlessHost::windowInfo() {
     return info;
 }
 
-VtermHeadlessImpl::VtermHeadlessImpl(Composer& composer)
-    : host(composer)
+VtermHeadlessImpl::VtermHeadlessImpl(Composer& composer_)
+    : composer(composer_)
+    , host(composer)
 {
-    vterm = Vterm::create(composer, host, nullptr);
+    composer.vterm = Vterm::create(composer, host, nullptr);
 }
 
 void VtermHeadlessImpl::feed(const u8* data, size_t len) {
@@ -105,6 +106,7 @@ void VtermHeadlessImpl::feed(const u8* data, size_t len) {
     if (len == 0) {
         return;
     }
+    Vterm* const vterm = composer.vterm;
     vterm->feedPty(StringView(data, len));
     while (true) {
         const VtermOutput output = vterm->output();

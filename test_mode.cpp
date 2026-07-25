@@ -335,7 +335,7 @@ namespace {
     struct TestDisplay final: public VtermHost {
         TestDisplay(Composer& composer, std::string& actions, std::string& printerOutput);
 
-        void attach(Vterm& terminal, TestApi& testApi);
+        void attach(TestApi& testApi);
         bool update(const TerminalUpdate& update);
         void osc(int command, const std::string& argument) override;
         bool handlesOsc() const override;
@@ -381,11 +381,9 @@ namespace {
         std::vector<TerminalCell> modelCells;
         std::vector<std::vector<u32>> cellGraphemes;
         std::vector<CellColor> modelUnderlineColors;
-        CellExtraStore* cellExtras = nullptr;
         Composer& composer;
         std::string& actions;
         std::string& printerOutput;
-        Vterm* terminal = nullptr;
         TestApi* testApi = nullptr;
         VtermWindowInfo currentWindow;
         u16 restoredPixelWidth = 0;
@@ -523,8 +521,7 @@ TestDisplay::TestDisplay(Composer& composer_, std::string& actions, std::string&
     currentWindow.screenPixelHeight = 1080;
 }
 
-void TestDisplay::attach(Vterm& value, TestApi& testApiValue) {
-    terminal = &value;
+void TestDisplay::attach(TestApi& testApiValue) {
     testApi = &testApiValue;
 }
 
@@ -580,14 +577,13 @@ bool TestDisplay::update(const TerminalUpdate& update) {
     hoveredHyperlink = update.hoveredHyperlink;
     hoveredLinkBegin = update.hoveredLinkBegin;
     hoveredLinkEnd = update.hoveredLinkEnd;
-    cellExtras = update.cellExtras;
     graphemeCells = 0;
     graphemeCodepoints = 0;
     for (const auto& cell : cells) {
         if (!cell.grapheme) {
             continue;
         }
-        const auto grapheme = update.cellExtras->grapheme(cell.grapheme);
+        const auto grapheme = composer.cellExtras->grapheme(cell.grapheme);
         if (grapheme.empty()) {
             continue;
         }
@@ -619,7 +615,7 @@ void TestDisplay::osc(int command, const std::string& argument) {
                 }
             }
             const std::string reply = encodeOsc52QueryReply(request, opts.allowOsc52Read, primary, system);
-            terminal->sendBytes(StringView((const u8*)(reply.data()), reply.size()), false);
+            composer.vterm->sendBytes(StringView((const u8*)(reply.data()), reply.size()), false);
         } else {
             const StringView content((const u8*)(request.content.data()), request.content.size());
             if (request.primary) {
@@ -633,7 +629,7 @@ void TestDisplay::osc(int command, const std::string& argument) {
 }
 
 bool TestDisplay::handlesOsc() const {
-    return terminal != nullptr;
+    return composer.vterm != nullptr;
 }
 
 void TestDisplay::bell() {
@@ -641,7 +637,7 @@ void TestDisplay::bell() {
 }
 
 bool TestDisplay::handlesPrinter() const {
-    return terminal != nullptr;
+    return composer.vterm != nullptr;
 }
 
 void TestDisplay::print(const std::string& output) {
@@ -649,7 +645,7 @@ void TestDisplay::print(const std::string& output) {
 }
 
 void TestDisplay::leds(u8 state) {
-    if (terminal == nullptr) {
+    if (composer.vterm == nullptr) {
         return;
     }
     actions += "LEDS " + std::to_string(state) + "\n";
@@ -819,7 +815,6 @@ TerminalUpdate TestDisplay::renderUpdate() const {
     return {
         .cells = cells.data(),
         .cellCount = cells.size(),
-        .cellExtras = cellExtras,
         .viewOffset = viewOffset,
         .historyRows = historyRows,
         .cursor = cursor,
@@ -1294,6 +1289,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
     const u16 height = 2 * opts.border + opts.nRows * composer.glyphHeight;
     composer.resize(width, height);
     TestPty terminalPty(composer, io[0]);
+    composer.pty = &terminalPty;
     std::string actions;
     std::string printerOutput;
     TestClipboard clipboard;
@@ -1303,12 +1299,10 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
     TestDisplay display(composer, actions, printerOutput);
     VtermTrace& vtermTrace = *VtermTrace::create(composer);
     Vterm& vterm = *Vterm::create(composer, display, &vtermTrace);
-    TestApi* const testApi = vterm.testApi();
-    if (testApi == nullptr) {
-        throw std::runtime_error("test Vterm has no TestApi");
-    }
-    display.attach(vterm, *testApi);
-    TestTerminal terminal(vterm, *testApi, terminalPty, display);
+    composer.vterm = &vterm;
+    TestApi& testApi = *vterm.testApi();
+    display.attach(testApi);
+    TestTerminal terminal(vterm, testApi, terminalPty, display);
     FailFontChange failFontChange;
     composer.fontChangedListeners.pushFront(&failFontChange);
     pid_t childPid = -1;
@@ -1488,9 +1482,10 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 const StringView dwfontname((const u8*)(request.data() + first + 1), request.size() - first - 1);
                 Fontpack* fonts = Fontpack::create(*renderPool, fontname, dwfontname, opts.fontsize);
                 renderComposer.fonts = fonts;
+                renderComposer.setCellExtras(composer.cellExtras);
                 renderComposer.setGlyphSize(fonts->getPx(), fonts->getPy());
                 renderComposer.resize(2 * opts.border + display.columns * fonts->getPx(), 2 * opts.border + display.rows * fonts->getPy());
-                ReferenceRenderer* renderer = ReferenceRenderer::create(renderComposer, *fonts);
+                ReferenceRenderer* renderer = ReferenceRenderer::create(renderComposer);
                 const ReferenceImage image = renderer->render(display.renderUpdate());
                 const std::string pixels((const char*)(image.pixels), image.length);
                 writeAll(controlFd, "OK " + std::to_string(image.width) + " " + std::to_string(image.height) + " " + encodeHex(pixels) + "\n");
@@ -2174,6 +2169,8 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
 
     close(io[0]);
     close(io[1]);
+    composer.vterm = nullptr;
+    composer.pty = nullptr;
     composer.clipboard = nullptr;
     composer.desktopActions = nullptr;
     return 0;

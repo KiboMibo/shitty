@@ -27,12 +27,11 @@ namespace {
     };
 
     struct ReferenceRendererImpl final: public ReferenceRenderer {
-        ReferenceRendererImpl(Composer& composer, Fontpack& fonts);
+        explicit ReferenceRendererImpl(Composer& composer);
 
         ReferenceImage render(const TerminalUpdate& update) override;
 
         Composer& composer_;
-        Fontpack& fonts_;
         Buffer pixels_;
         Buffer coverage_;
         Buffer color_;
@@ -50,9 +49,8 @@ namespace {
     };
 }
 
-ReferenceRendererImpl::ReferenceRendererImpl(Composer& composer, Fontpack& fonts)
+ReferenceRendererImpl::ReferenceRendererImpl(Composer& composer)
     : composer_(composer)
-    , fonts_(fonts)
 {
 }
 
@@ -111,16 +109,16 @@ void ReferenceRendererImpl::addFallback(int cellWidth, int cellHeight) {
 }
 
 void ReferenceRendererImpl::addGlyph(const u32* codepoints, size_t count, FontStyle style, bool doubleWidth, int cellWidth, int cellHeight) {
-    if (doubleWidth && !fonts_.hasDoubleWidth()) {
+    if (doubleWidth && !composer_.fonts->hasDoubleWidth()) {
         addFallback(cellWidth, cellHeight);
         return;
     }
 
-    const FontGlyph glyph = fonts_.glyph(codepoints, count, style, doubleWidth);
+    const FontGlyph glyph = composer_.fonts->glyph(codepoints, count, style, doubleWidth);
     const int glyphWidth = doubleWidth ? 2 * composer_.glyphWidth : composer_.glyphWidth;
     const size_t bytesPerPixel = glyph.color ? 4 : 1;
     const size_t expected = (size_t)(glyphWidth)*composer_.glyphHeight * bytesPerPixel;
-    if (glyph.data == nullptr || glyph.len != expected) {
+    if (glyph.len != expected) {
         return;
     }
 
@@ -258,7 +256,8 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Rende
 
 ReferenceImage ReferenceRendererImpl::render(const TerminalUpdate& update) {
     const size_t cellCount = (size_t)(composer_.columns) * composer_.rows;
-    if (update.cells == nullptr || update.cellCount != cellCount || update.cellExtras == nullptr) {
+    CellExtraStore& extras = *composer_.cellExtras;
+    if (update.cellCount != cellCount) {
         return {};
     }
 
@@ -266,7 +265,7 @@ ReferenceImage ReferenceRendererImpl::render(const TerminalUpdate& update) {
     for (u16 row = 0; row < composer_.rows; ++row) {
         for (u16 column = 0; column < composer_.columns; ++column) {
             const RenderCell& cell = update.cells[(size_t)(row)*composer_.columns + column];
-            const GraphemeView grapheme = cell.grapheme ? update.cellExtras->grapheme(cell.grapheme) : GraphemeView{};
+            const GraphemeView grapheme = cell.grapheme ? extras.grapheme(cell.grapheme) : GraphemeView{};
             renderCell(update, cell, grapheme, column, row);
         }
     }
@@ -278,6 +277,6 @@ ReferenceImage ReferenceRendererImpl::render(const TerminalUpdate& update) {
     };
 }
 
-ReferenceRenderer* ReferenceRenderer::create(Composer& composer, Fontpack& fonts) {
-    return composer.pool->make<ReferenceRendererImpl>(composer, fonts);
+ReferenceRenderer* ReferenceRenderer::create(Composer& composer) {
+    return composer.pool->make<ReferenceRendererImpl>(composer);
 }

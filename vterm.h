@@ -190,7 +190,6 @@ struct VtermState {
 struct TerminalUpdate {
     const RenderCell* cells = nullptr;
     size_t cellCount = 0;
-    CellExtraStore* cellExtras = nullptr;
     u16 viewOffset = 0;
     u16 historyRows = 0;
     TerminalCursor cursor;

@@ -38,9 +38,19 @@ using namespace stl;
 extern char** environ;
 
 namespace {
-    struct WindowImpl final: public Window, public Clipboard, public DesktopActions, public PtyEventHost {
-        explicit WindowImpl(Composer& composer);
-        ~WindowImpl();
+    struct InputTranslator {
+        static u16 modifiers(int modifiers, bool rightAltPressed);
+        static InputKey key(int key);
+        static u32 decodeKeyName(const char* name);
+        static u32 baseLayoutKey(int key);
+        static void sendKeyEvent(Composer& composer, int key, int action, int rawModifiers, bool rightAltPressed, u32 layoutCodepoint);
+        static void sendTextInput(Composer& composer, u32 codepoint, int rawModifiers);
+        static void updateContentScale(Composer& composer, float xScale, float yScale);
+    };
+
+    struct GlfwWindowImpl final: public Window, public Clipboard, public DesktopActions, public PtyEventHost {
+        explicit GlfwWindowImpl(Composer& composer);
+        ~GlfwWindowImpl();
 
         void initialize() override;
         void show() override;
@@ -76,11 +86,7 @@ namespace {
         bool keyPressed(int key);
         u16 keyboardModifiers();
         u16 inputModifiers(int modifiers);
-        InputKey inputKey(int key);
-        u32 decodeKeyName(const char* name);
-        u32 baseLayoutKey(int key);
         void keyEvent(int key, int scancode, int action, int rawModifiers);
-        void textInput(u32 codepoint, int rawModifiers);
         void refreshContentScale();
         void contentScale(float xScale, float yScale);
         double pixelScaleX();
@@ -99,7 +105,7 @@ namespace {
         void onFramebufferSize(int width, int height);
         void setupCallbacks();
         bool queryUriScheme(StringView scheme);
-        static WindowImpl& fromWindow(GLFWwindow* window);
+        static GlfwWindowImpl& fromWindow(GLFWwindow* window);
 
         template <typename Fn>
         void guardCallback(Fn&& callback);
@@ -147,18 +153,39 @@ namespace {
         size_t uriSchemeCount = 0;
     };
 
-    struct TestModeInputImpl final: public TestModeInput {
-        explicit TestModeInputImpl(WindowImpl* window);
+    struct HeadlessWindowImpl final: public Window, public TestModeInput {
+        explicit HeadlessWindowImpl(Composer& composer);
+        ~HeadlessWindowImpl();
+
+        void initialize() override;
+        void show() override;
+        void activate() override;
+        WindowEvents dispatchEvents(double timeout) override;
+
+        void setTitle(StringView title) override;
+        void requestAttention() override;
+        void requestRedraw() override;
+        void restore() override;
+        void iconify() override;
+        void move(i32 x, i32 y) override;
+        void focus() override;
+        void setMaximized(bool maximized) override;
+        void setFullscreen(bool fullscreen) override;
+        void resizePixels(u32 width, u32 height) override;
+        WindowInfo info() override;
+
+        Renderer* createRender() override;
+        TestModeInput* testApi() override;
 
         void testKeyEvent(int key, int scancode, int action, int modifiers) override;
         void testTextInput(unsigned codepoint, int modifiers) override;
         void testContentScale(float xScale, float yScale) override;
 
-        WindowImpl* window;
+        Composer& composer;
     };
 }
 
-WindowImpl::WindowImpl(Composer& composer_)
+GlfwWindowImpl::GlfwWindowImpl(Composer& composer_)
     : composer(composer_)
 {
     composer.window = this;
@@ -167,19 +194,11 @@ WindowImpl::WindowImpl(Composer& composer_)
     composer.ptyEventHost = this;
 }
 
-WindowImpl::~WindowImpl() {
-    if (composer.window == this) {
-        composer.window = nullptr;
-    }
-    if (composer.clipboard == this) {
-        composer.clipboard = nullptr;
-    }
-    if (composer.desktopActions == this) {
-        composer.desktopActions = nullptr;
-    }
-    if (composer.ptyEventHost == this) {
-        composer.ptyEventHost = nullptr;
-    }
+GlfwWindowImpl::~GlfwWindowImpl() {
+    composer.window = nullptr;
+    composer.clipboard = nullptr;
+    composer.desktopActions = nullptr;
+    composer.ptyEventHost = nullptr;
     if (cursor != nullptr) {
         glfwDestroyCursor(cursor);
     }
@@ -194,25 +213,89 @@ WindowImpl::~WindowImpl() {
     }
 }
 
-TestModeInputImpl::TestModeInputImpl(WindowImpl* window_)
-    : window(window_)
+HeadlessWindowImpl::HeadlessWindowImpl(Composer& composer_)
+    : composer(composer_)
 {
+    composer.window = this;
 }
 
-void TestModeInputImpl::testKeyEvent(int key, int scancode, int action, int modifiers) {
-    window->keyEvent(key, scancode, action, modifiers);
+HeadlessWindowImpl::~HeadlessWindowImpl() {
+    composer.window = nullptr;
 }
 
-void TestModeInputImpl::testTextInput(unsigned codepoint, int modifiers) {
-    window->textInput(codepoint, modifiers);
+void HeadlessWindowImpl::initialize() {
 }
 
-void TestModeInputImpl::testContentScale(float xScale, float yScale) {
-    window->contentScale(xScale, yScale);
+void HeadlessWindowImpl::show() {
+}
+
+void HeadlessWindowImpl::activate() {
+}
+
+WindowEvents HeadlessWindowImpl::dispatchEvents(double) {
+    return {};
+}
+
+void HeadlessWindowImpl::setTitle(StringView) {
+}
+
+void HeadlessWindowImpl::requestAttention() {
+}
+
+void HeadlessWindowImpl::requestRedraw() {
+}
+
+void HeadlessWindowImpl::restore() {
+}
+
+void HeadlessWindowImpl::iconify() {
+}
+
+void HeadlessWindowImpl::move(i32, i32) {
+}
+
+void HeadlessWindowImpl::focus() {
+}
+
+void HeadlessWindowImpl::setMaximized(bool) {
+}
+
+void HeadlessWindowImpl::setFullscreen(bool) {
+}
+
+void HeadlessWindowImpl::resizePixels(u32 width, u32 height) {
+    composer.resize((u16)(min(width, (u32)(UINT16_MAX))), (u16)(min(height, (u32)(UINT16_MAX))));
+}
+
+WindowInfo HeadlessWindowImpl::info() {
+    return {
+        .screenPixelWidth = composer.pixelWidth,
+        .screenPixelHeight = composer.pixelHeight,
+    };
+}
+
+Renderer* HeadlessWindowImpl::createRender() {
+    Errno(ENOTSUP).raise(StringView(u8"headless window has no renderer"));
+}
+
+TestModeInput* HeadlessWindowImpl::testApi() {
+    return this;
+}
+
+void HeadlessWindowImpl::testKeyEvent(int key, int, int action, int modifiers) {
+    InputTranslator::sendKeyEvent(composer, key, action, modifiers, false, InputTranslator::baseLayoutKey(key));
+}
+
+void HeadlessWindowImpl::testTextInput(unsigned codepoint, int modifiers) {
+    InputTranslator::sendTextInput(composer, codepoint, modifiers);
+}
+
+void HeadlessWindowImpl::testContentScale(float xScale, float yScale) {
+    InputTranslator::updateContentScale(composer, xScale, yScale);
 }
 
 [[noreturn]]
-void WindowImpl::fail(const char* operation) {
+void GlfwWindowImpl::fail(const char* operation) {
     const char* description = nullptr;
     const int code = glfwGetError(&description);
     if (description != nullptr) {
@@ -224,7 +307,7 @@ void WindowImpl::fail(const char* operation) {
     Errno(EINVAL).raise(StringBuilder() << StringView(operation) << StringView(u8" failed"));
 }
 
-void WindowImpl::initialize() {
+void GlfwWindowImpl::initialize() {
     if (initialized) {
         return;
     }
@@ -257,14 +340,14 @@ void WindowImpl::initialize() {
     refreshContentScale();
 }
 
-void WindowImpl::refreshContentScale() {
+void GlfwWindowImpl::refreshContentScale() {
     float xScale = 1.0f;
     float yScale = 1.0f;
     glfwGetWindowContentScale(window, &xScale, &yScale);
     contentScale(xScale, yScale);
 }
 
-void WindowImpl::configureGridSize() {
+void GlfwWindowImpl::configureGridSize() {
     const float scale = composer.contentScale;
     const int desiredPixelWidth = 2 * opts.border + opts.nCols * composer.glyphWidth;
     const int desiredPixelHeight = 2 * opts.border + opts.nRows * composer.glyphHeight;
@@ -277,7 +360,7 @@ void WindowImpl::configureGridSize() {
     glfwSetWindowSize(window, desiredWidth, desiredHeight);
 }
 
-void WindowImpl::show() {
+void GlfwWindowImpl::show() {
     configureGridSize();
     glfwShowWindow(window);
     glfwPollEvents();
@@ -295,12 +378,10 @@ void WindowImpl::show() {
 
     cursor = glfwCreateStandardCursor(GLFW_IBEAM_CURSOR);
     hyperlinkCursor = glfwCreateStandardCursor(GLFW_HAND_CURSOR);
-    if (cursor != nullptr) {
-        glfwSetCursor(window, cursor);
-    }
+    glfwSetCursor(window, cursor);
 }
 
-void WindowImpl::activate() {
+void GlfwWindowImpl::activate() {
     if (callbacksActive) {
         return;
     }
@@ -310,7 +391,7 @@ void WindowImpl::activate() {
     composer.input->focus(glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_TRUE);
 }
 
-WindowEvents WindowImpl::dispatchEvents(double timeout) {
+WindowEvents GlfwWindowImpl::dispatchEvents(double timeout) {
     if (!glfwWindowShouldClose(window)) {
         if (timeout == 0.0) {
             glfwPollEvents();
@@ -340,13 +421,13 @@ WindowEvents WindowImpl::dispatchEvents(double timeout) {
     return result;
 }
 
-void WindowImpl::setTitle(StringView title) {
+void GlfwWindowImpl::setTitle(StringView title) {
     textBuffer.reset();
     textBuffer.append(title.data(), title.length());
     glfwSetWindowTitle(window, textBuffer.cStr());
 }
 
-void WindowImpl::requestAttention() {
+void GlfwWindowImpl::requestAttention() {
     if (glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_TRUE) {
         attentionRequested = false;
         return;
@@ -357,28 +438,28 @@ void WindowImpl::requestAttention() {
     }
 }
 
-void WindowImpl::requestRedraw() {
+void GlfwWindowImpl::requestRedraw() {
     redrawPending = true;
     wake();
 }
 
-void WindowImpl::restore() {
+void GlfwWindowImpl::restore() {
     glfwRestoreWindow(window);
 }
 
-void WindowImpl::iconify() {
+void GlfwWindowImpl::iconify() {
     glfwIconifyWindow(window);
 }
 
-void WindowImpl::move(i32 x, i32 y) {
+void GlfwWindowImpl::move(i32 x, i32 y) {
     glfwSetWindowPos(window, x, y);
 }
 
-void WindowImpl::focus() {
+void GlfwWindowImpl::focus() {
     glfwFocusWindow(window);
 }
 
-void WindowImpl::setMaximized(bool maximized) {
+void GlfwWindowImpl::setMaximized(bool maximized) {
     if (maximized) {
         glfwMaximizeWindow(window);
     } else {
@@ -386,7 +467,7 @@ void WindowImpl::setMaximized(bool maximized) {
     }
 }
 
-void WindowImpl::setFullscreen(bool fullscreen) {
+void GlfwWindowImpl::setFullscreen(bool fullscreen) {
     const bool current = glfwGetWindowMonitor(window) != nullptr;
     if (fullscreen == current) {
         return;
@@ -396,7 +477,7 @@ void WindowImpl::setFullscreen(bool fullscreen) {
         glfwGetWindowSize(window, &restoredWidth, &restoredHeight);
         GLFWmonitor* const monitor = glfwGetPrimaryMonitor();
         const GLFWvidmode* const mode = monitor != nullptr ? glfwGetVideoMode(monitor) : nullptr;
-        if (monitor != nullptr && mode != nullptr) {
+        if (mode != nullptr) {
             glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
         }
         return;
@@ -404,18 +485,14 @@ void WindowImpl::setFullscreen(bool fullscreen) {
     glfwSetWindowMonitor(window, nullptr, restoredX, restoredY, restoredWidth, restoredHeight, GLFW_DONT_CARE);
 }
 
-void WindowImpl::resizePixels(u32 width, u32 height) {
-    if (window == nullptr) {
-        composer.resize((u16)(min(width, (u32)(UINT16_MAX))), (u16)(min(height, (u32)(UINT16_MAX))));
-        return;
-    }
+void GlfwWindowImpl::resizePixels(u32 width, u32 height) {
     float xScale = 1.0f;
     float yScale = 1.0f;
     glfwGetWindowContentScale(window, &xScale, &yScale);
     glfwSetWindowSize(window, max(1, (int)(ceil(width / xScale))), max(1, (int)(ceil(height / yScale))));
 }
 
-WindowInfo WindowImpl::info() {
+WindowInfo GlfwWindowImpl::info() {
     WindowInfo result;
     glfwGetWindowPos(window, &result.x, &result.y);
     GLFWmonitor* monitor = glfwGetWindowMonitor(window);
@@ -433,27 +510,20 @@ WindowInfo WindowImpl::info() {
     return result;
 }
 
-Renderer* WindowImpl::createRender() {
+Renderer* GlfwWindowImpl::createRender() {
     return Renderer::create(composer, window);
 }
 
-TestModeInput* WindowImpl::testApi() {
-#ifdef SHITTY_FOR_TESTS
-    return composer.pool->make<TestModeInputImpl>(this);
-#else
+TestModeInput* GlfwWindowImpl::testApi() {
     return nullptr;
-#endif
 }
 
-StringView WindowImpl::readPrimary() {
+StringView GlfwWindowImpl::readPrimary() {
     return StringView(primarySelection);
 }
 
-StringView WindowImpl::readClipboard() {
+StringView GlfwWindowImpl::readClipboard() {
     clipboardReadBuffer.reset();
-    if (window == nullptr) {
-        return StringView(clipboardReadBuffer);
-    }
     const char* const text = glfwGetClipboardString(window);
     if (text != nullptr) {
         clipboardReadBuffer.append(text, strlen(text));
@@ -461,20 +531,18 @@ StringView WindowImpl::readClipboard() {
     return StringView(clipboardReadBuffer);
 }
 
-void WindowImpl::writePrimary(StringView content) {
+void GlfwWindowImpl::writePrimary(StringView content) {
     primarySelection.reset();
     primarySelection.append(content.data(), content.length());
 }
 
-void WindowImpl::writeClipboard(StringView content) {
+void GlfwWindowImpl::writeClipboard(StringView content) {
     clipboardWriteBuffer.reset();
     clipboardWriteBuffer.append(content.data(), content.length());
-    if (window != nullptr) {
-        glfwSetClipboardString(window, clipboardWriteBuffer.cStr());
-    }
+    glfwSetClipboardString(window, clipboardWriteBuffer.cStr());
 }
 
-bool WindowImpl::queryUriScheme(StringView scheme) {
+bool GlfwWindowImpl::queryUriScheme(StringView scheme) {
     Buffer mime;
     mime.append("x-scheme-handler/", 17);
     mime.append(scheme.data(), scheme.length());
@@ -535,7 +603,7 @@ bool WindowImpl::queryUriScheme(StringView scheme) {
     return content && WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
-bool WindowImpl::handlesUriScheme(StringView scheme) {
+bool GlfwWindowImpl::handlesUriScheme(StringView scheme) {
     for (size_t index = 0; index < uriSchemeCount; ++index) {
         const UriScheme& cached = uriSchemes[index];
         if (cached.name == scheme) {
@@ -553,7 +621,7 @@ bool WindowImpl::handlesUriScheme(StringView scheme) {
     return handled;
 }
 
-void WindowImpl::openUri(StringView uri) {
+void GlfwWindowImpl::openUri(StringView uri) {
     uriBuffer.reset();
     uriBuffer.append(uri.data(), uri.length());
     char* const path = uriBuffer.cStr();
@@ -566,23 +634,20 @@ void WindowImpl::openUri(StringView uri) {
     posix_spawnp(&pid, arguments[0], nullptr, nullptr, arguments, environ);
 }
 
-void WindowImpl::pointerIcon(PointerIcon icon) {
-    if (window == nullptr) {
-        return;
-    }
+void GlfwWindowImpl::pointerIcon(PointerIcon icon) {
     GLFWcursor* const selected = icon == PointerIcon::Link && hyperlinkCursor != nullptr ? hyperlinkCursor : cursor;
     glfwSetCursor(window, selected);
 }
 
-void WindowImpl::wake() {
+void GlfwWindowImpl::wake() {
     glfwPostEmptyEvent();
 }
 
-bool WindowImpl::keyPressed(int key) {
-    return window != nullptr && glfwGetKey(window, key) == GLFW_PRESS;
+bool GlfwWindowImpl::keyPressed(int key) {
+    return glfwGetKey(window, key) == GLFW_PRESS;
 }
 
-u16 WindowImpl::keyboardModifiers() {
+u16 GlfwWindowImpl::keyboardModifiers() {
     u16 modifiers = 0;
     if (keyPressed(GLFW_KEY_LEFT_SHIFT) || keyPressed(GLFW_KEY_RIGHT_SHIFT)) {
         modifiers |= InputShift;
@@ -602,7 +667,11 @@ u16 WindowImpl::keyboardModifiers() {
     return modifiers;
 }
 
-u16 WindowImpl::inputModifiers(int modifiers) {
+u16 GlfwWindowImpl::inputModifiers(int modifiers) {
+    return InputTranslator::modifiers(modifiers, keyPressed(GLFW_KEY_RIGHT_ALT));
+}
+
+u16 InputTranslator::modifiers(int modifiers, bool rightAltPressed) {
     u16 result = 0;
     if (modifiers & GLFW_MOD_SHIFT) {
         result |= InputShift;
@@ -611,7 +680,7 @@ u16 WindowImpl::inputModifiers(int modifiers) {
         result |= InputControl;
     }
     if (modifiers & GLFW_MOD_ALT) {
-        result |= keyPressed(GLFW_KEY_RIGHT_ALT) ? InputAltGraph : InputAlt;
+        result |= rightAltPressed ? InputAltGraph : InputAlt;
     }
     if (modifiers & GLFW_MOD_SUPER) {
         result |= InputSuper;
@@ -625,7 +694,7 @@ u16 WindowImpl::inputModifiers(int modifiers) {
     return result;
 }
 
-InputKey WindowImpl::inputKey(int key) {
+InputKey InputTranslator::key(int key) {
     switch (key) {
         case GLFW_KEY_ESCAPE:
             return InputKey::Escape;
@@ -762,7 +831,7 @@ InputKey WindowImpl::inputKey(int key) {
     }
 }
 
-u32 WindowImpl::decodeKeyName(const char* name) {
+u32 InputTranslator::decodeKeyName(const char* name) {
     if (name == nullptr || !*name) {
         return 0;
     }
@@ -782,7 +851,7 @@ u32 WindowImpl::decodeKeyName(const char* name) {
     return 0;
 }
 
-u32 WindowImpl::baseLayoutKey(int key) {
+u32 InputTranslator::baseLayoutKey(int key) {
     if (key >= GLFW_KEY_A && key <= GLFW_KEY_Z) {
         return key - GLFW_KEY_A + 'a';
     }
@@ -792,7 +861,11 @@ u32 WindowImpl::baseLayoutKey(int key) {
     return 0;
 }
 
-void WindowImpl::keyEvent(int key, int scancode, int action, int rawModifiers) {
+void GlfwWindowImpl::keyEvent(int key, int scancode, int action, int rawModifiers) {
+    InputTranslator::sendKeyEvent(composer, key, action, rawModifiers, keyPressed(GLFW_KEY_RIGHT_ALT), InputTranslator::decodeKeyName(glfwGetKeyName(key, scancode)));
+}
+
+void InputTranslator::sendKeyEvent(Composer& composer, int key, int action, int rawModifiers, bool rightAltPressed, u32 layoutCodepoint) {
     InputAction inputAction;
     switch (action) {
         case GLFW_PRESS:
@@ -807,36 +880,40 @@ void WindowImpl::keyEvent(int key, int scancode, int action, int rawModifiers) {
         default:
             return;
     }
-    const InputKey translated = inputKey(key);
+    const InputKey translated = InputTranslator::key(key);
     if (translated == InputKey::Unknown) {
         return;
     }
     KeyInput input;
     input.key = translated;
     input.action = inputAction;
-    input.modifiers = inputModifiers(rawModifiers);
+    input.modifiers = modifiers(rawModifiers, rightAltPressed);
     if (translated == InputKey::RightAlt) {
         input.modifiers = (input.modifiers & ~InputAlt) | InputAltGraph;
     }
-    input.layoutCodepoint = decodeKeyName(glfwGetKeyName(key, scancode));
+    input.layoutCodepoint = layoutCodepoint;
     input.baseCodepoint = baseLayoutKey(key);
     composer.input->key(input);
 }
 
-void WindowImpl::textInput(u32 codepoint, int rawModifiers) {
+void InputTranslator::sendTextInput(Composer& composer, u32 codepoint, int rawModifiers) {
     if (codepoint != 0) {
-        composer.input->text({codepoint, inputModifiers(rawModifiers)});
+        composer.input->text({codepoint, modifiers(rawModifiers, false)});
     }
 }
 
-void WindowImpl::contentScale(float xScale, float yScale) {
+void GlfwWindowImpl::contentScale(float xScale, float yScale) {
+    InputTranslator::updateContentScale(composer, xScale, yScale);
+}
+
+void InputTranslator::updateContentScale(Composer& composer, float xScale, float yScale) {
     const float scale = max(xScale, yScale);
     if (isfinite(scale) && scale > 0.0f) {
         composer.setContentScale(scale);
     }
 }
 
-double WindowImpl::pixelScaleX() {
+double GlfwWindowImpl::pixelScaleX() {
     int windowWidth = 0;
     int framebufferWidth = 0;
     glfwGetWindowSize(window, &windowWidth, nullptr);
@@ -844,7 +921,7 @@ double WindowImpl::pixelScaleX() {
     return windowWidth > 0 ? max(1.0, (double)(framebufferWidth) / windowWidth) : 1.0;
 }
 
-double WindowImpl::pixelScaleY() {
+double GlfwWindowImpl::pixelScaleY() {
     int windowHeight = 0;
     int framebufferHeight = 0;
     glfwGetWindowSize(window, nullptr, &windowHeight);
@@ -852,21 +929,21 @@ double WindowImpl::pixelScaleY() {
     return windowHeight > 0 ? max(1.0, (double)(framebufferHeight) / windowHeight) : 1.0;
 }
 
-int WindowImpl::toPixelX(double x) {
+int GlfwWindowImpl::toPixelX(double x) {
     if (!isfinite(x)) {
         return 0;
     }
     return (int)(max((double)(INT_MIN), min((double)(INT_MAX), round(x * pixelScaleX()))));
 }
 
-int WindowImpl::toPixelY(double y) {
+int GlfwWindowImpl::toPixelY(double y) {
     if (!isfinite(y)) {
         return 0;
     }
     return (int)(max((double)(INT_MIN), min((double)(INT_MAX), round(y * pixelScaleY()))));
 }
 
-void WindowImpl::mouseButton(int button, bool pressed, int modifiers) {
+void GlfwWindowImpl::mouseButton(int button, bool pressed, int modifiers) {
     if (button < GLFW_MOUSE_BUTTON_1 || button > GLFW_MOUSE_BUTTON_8) {
         return;
     }
@@ -883,18 +960,18 @@ void WindowImpl::mouseButton(int button, bool pressed, int modifiers) {
     composer.input->pointerButton(input);
 }
 
-void WindowImpl::mouseMotion(double x, double y) {
+void GlfwWindowImpl::mouseMotion(double x, double y) {
     composer.input->pointerMotion({toPixelX(x), toPixelY(y), keyboardModifiers()});
 }
 
-void WindowImpl::mouseWheel(double x, double y) {
+void GlfwWindowImpl::mouseWheel(double x, double y) {
     double pointerX = 0.0;
     double pointerY = 0.0;
     glfwGetCursorPos(window, &pointerX, &pointerY);
     composer.input->scroll({x, y, toPixelX(pointerX), toPixelY(pointerY), keyboardModifiers()});
 }
 
-int WindowImpl::gridAlignedWindowSize(int framebufferSize, int border, int cellSize, float scale, int currentWindowSize) {
+int GlfwWindowImpl::gridAlignedWindowSize(int framebufferSize, int border, int cellSize, float scale, int currentWindowSize) {
     const int innerSize = framebufferSize - 2 * border;
     if (innerSize < cellSize || scale <= 0.0f) {
         return currentWindowSize;
@@ -910,7 +987,7 @@ int WindowImpl::gridAlignedWindowSize(int framebufferSize, int border, int cellS
     return currentWindowSize;
 }
 
-void WindowImpl::queueResize(int width, int height) {
+void GlfwWindowImpl::queueResize(int width, int height) {
     if (width <= 0 || height <= 0) {
         return;
     }
@@ -919,7 +996,7 @@ void WindowImpl::queueResize(int width, int height) {
     resizePending = true;
 }
 
-bool WindowImpl::compositorRetainedExtent(int width, int height) {
+bool GlfwWindowImpl::compositorRetainedExtent(int width, int height) {
     if (compositorExtentKnown) {
         if (width == compositorPixelWidth && height == compositorPixelHeight) {
             return true;
@@ -939,12 +1016,12 @@ bool WindowImpl::compositorRetainedExtent(int width, int height) {
     return true;
 }
 
-void WindowImpl::resetResizeCorrection() {
+void GlfwWindowImpl::resetResizeCorrection() {
     resizeCorrectionPending = false;
     compositorExtentKnown = false;
 }
 
-void WindowImpl::onFramebufferSize(int width, int height) {
+void GlfwWindowImpl::onFramebufferSize(int width, int height) {
     if (width <= 0 || height <= 0) {
         return;
     }
@@ -986,7 +1063,7 @@ void WindowImpl::onFramebufferSize(int width, int height) {
 }
 
 template <typename Fn>
-void WindowImpl::guardCallback(Fn&& callback) {
+void GlfwWindowImpl::guardCallback(Fn&& callback) {
     if (callbackError != nullptr) {
         return;
     }
@@ -997,7 +1074,7 @@ void WindowImpl::guardCallback(Fn&& callback) {
     }
 }
 
-void WindowImpl::setupCallbacks() {
+void GlfwWindowImpl::setupCallbacks() {
     glfwSetFramebufferSizeCallback(window, [](GLFWwindow* source, int width, int height) {
         fromWindow(source).guardCallback([&]() {
             fromWindow(source).onFramebufferSize(width, height);
@@ -1008,7 +1085,7 @@ void WindowImpl::setupCallbacks() {
     });
     glfwSetWindowFocusCallback(window, [](GLFWwindow* source, int focused) {
         fromWindow(source).guardCallback([&]() {
-            WindowImpl& self = fromWindow(source);
+            GlfwWindowImpl& self = fromWindow(source);
             if (focused) {
                 self.attentionRequested = false;
             }
@@ -1022,7 +1099,7 @@ void WindowImpl::setupCallbacks() {
     });
     glfwSetCharCallback(window, [](GLFWwindow* source, unsigned codepoint) {
         fromWindow(source).guardCallback([&]() {
-            WindowImpl& self = fromWindow(source);
+            GlfwWindowImpl& self = fromWindow(source);
             self.composer.input->text({codepoint, self.keyboardModifiers()});
         });
     });
@@ -1048,10 +1125,14 @@ void WindowImpl::setupCallbacks() {
     });
 }
 
-WindowImpl& WindowImpl::fromWindow(GLFWwindow* window) {
-    return *(WindowImpl*)(glfwGetWindowUserPointer(window));
+GlfwWindowImpl& GlfwWindowImpl::fromWindow(GLFWwindow* window) {
+    return *(GlfwWindowImpl*)(glfwGetWindowUserPointer(window));
 }
 
 Window* Window::create(Composer& composer) {
-    return composer.pool->make<WindowImpl>(composer);
+    return composer.pool->make<GlfwWindowImpl>(composer);
+}
+
+Window* Window::createHeadless(Composer& composer) {
+    return composer.pool->make<HeadlessWindowImpl>(composer);
 }

@@ -100,6 +100,7 @@ PtyImpl::~PtyImpl() {
     if (fd_ >= 0) {
         close(fd_);
     }
+    composer_.pty = nullptr;
 }
 
 int PtyImpl::fd() const {

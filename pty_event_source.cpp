@@ -12,7 +12,6 @@
 #include <std/mem/obj_pool.h>
 
 #include <cerrno>
-#include <cassert>
 #include <condition_variable>
 #include <cstdint>
 #include <cstring>
@@ -29,15 +28,14 @@ using namespace stl;
 namespace {
 
     struct PtyEventSourceImpl final: public PtyEventSource {
-        PtyEventSourceImpl(Pty& pty, PtyEventHost& host);
+        explicit PtyEventSourceImpl(Composer& composer);
         ~PtyEventSourceImpl();
 
         short events() override;
         void acknowledge() override;
         void setWriteInterest(bool enabled) override;
 
-        Pty& pty;
-        PtyEventHost& host;
+        Composer& composer;
         int wakePipe[2]{-1, -1};
         std::thread worker;
         std::mutex mutex;
@@ -52,9 +50,8 @@ namespace {
 
 }
 
-PtyEventSourceImpl::PtyEventSourceImpl(Pty& pty_, PtyEventHost& host_)
-    : pty(pty_)
-    , host(host_)
+PtyEventSourceImpl::PtyEventSourceImpl(Composer& composer_)
+    : composer(composer_)
 {
     if (pipe(wakePipe) < 0) {
         throw std::runtime_error(std::string("pipe failed: ") + std::strerror(errno));
@@ -85,6 +82,7 @@ PtyEventSourceImpl::~PtyEventSourceImpl() {
     }
     close(wakePipe[0]);
     close(wakePipe[1]);
+    composer.ptyEvents = nullptr;
 }
 
 short PtyEventSourceImpl::events() {
@@ -118,6 +116,8 @@ void PtyEventSourceImpl::wakeWorker() {
 }
 
 void PtyEventSourceImpl::run() {
+    Pty& pty = *composer.pty;
+    PtyEventHost& host = *composer.ptyEventHost;
     struct pollfd pollSet[] = {
         {pty.fd(), 0, 0},
         {wakePipe[0], POLLIN, 0},
@@ -170,7 +170,6 @@ void PtyEventSourceImpl::run() {
     }
 }
 
-PtyEventSource* PtyEventSource::create(Composer& composer, Pty& pty) {
-    assert(composer.ptyEventHost != nullptr);
-    return composer.pool->make<PtyEventSourceImpl>(pty, *composer.ptyEventHost);
+PtyEventSource* PtyEventSource::create(Composer& composer) {
+    return composer.pool->make<PtyEventSourceImpl>(composer);
 }

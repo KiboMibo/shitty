@@ -51,4 +51,5 @@ struct Window {
     virtual TestModeInput* testApi() = 0;
 
     static Window* create(Composer& composer);
+    static Window* createHeadless(Composer& composer);
 };

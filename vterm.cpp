@@ -1556,6 +1556,7 @@ void VtermInput::pointerPresence(bool present) {
 VtermImpl::~VtermImpl() {
     delete framePriPool;
     delete frameAltPool;
+    composer.vterm = nullptr;
 }
 
 void VtermImpl::createFreshScreen(Screen*& frame, ObjPool*& pool) {
@@ -1744,7 +1745,6 @@ void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const 
     update = {};
     update.cells = cells;
     update.cellCount = count;
-    update.cellExtras = frame.cellExtras();
     update.viewOffset = frame.getViewOffset();
     update.historyRows = frame.getHistoryRows();
     update.cursor = frame.getCursor();
@@ -1806,13 +1806,10 @@ void VtermImpl::consume(const VtermConsume& consumed) {
     if (!consumed.terminal) {
         return;
     }
-    assert(updateScreen != nullptr);
     for (RenderCell* cell = outputCells.mutBegin(); cell != outputCells.mutEnd(); ++cell) {
         cell->dirty = false;
     }
-    if (updateScreen != nullptr) {
-        updateScreen->resetDamage();
-    }
+    updateScreen->resetDamage();
     presentedScreen = updateScreen;
     presentedColumns = updateScreen->columns();
     presentedRows = updateScreen->rows();
@@ -1975,11 +1972,11 @@ VtermTestCell TestApiImpl::cell(u16 row, u16 column) const {
     }
     VtermTestCell result;
     result.cell = vterm->cf->testCell(row, column);
-    CellExtraStore* const extras = vterm->composer.cellExtras;
-    const GraphemeView grapheme = extras->grapheme(result.cell.extraRef());
+    CellExtraStore& extras = *vterm->composer.cellExtras;
+    const GraphemeView grapheme = extras.grapheme(result.cell.extraRef());
     result.grapheme = grapheme.data();
     result.graphemeSize = grapheme.size();
-    result.underlineColor = extras->underlineColor(result.cell);
+    result.underlineColor = extras.underlineColor(result.cell);
     return result;
 }
 
@@ -2091,12 +2088,12 @@ void VtermImpl::updateExtraCellCount() {
 }
 
 void VtermImpl::collectCellExtrasIfNeeded(bool force) {
-    CellExtraStore* const extras = composer.cellExtras;
-    const bool hardLimit = extras->hardLimitExceeded();
+    CellExtraStore& extras = *composer.cellExtras;
+    const bool hardLimit = extras.hardLimitExceeded();
     if (processInputDepth != 0) {
         return;
     }
-    if (!extras->shouldCollect() && !force) {
+    if (!extras.shouldCollect() && !force) {
         presentedSinceGcSafePoint = false;
         return;
     }
@@ -2119,8 +2116,8 @@ void VtermImpl::collectCellExtras() {
         frame_alt->collectExtraRefLocations(extraFixups);
     }
 
-    CellExtraStore* const extras = composer.cellExtras;
-    extras->collect(extraFixups);
+    CellExtraStore& extras = *composer.cellExtras;
+    extras.collect(extraFixups);
     if (frame_pri->active()) {
         frame_pri->expose();
     }
@@ -9630,7 +9627,7 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
 }
 
 void VtermImpl::setHyperlink(const std::string& parametersAndUri) {
-    CellExtraStore* const extras = composer.cellExtras;
+    CellExtraStore& extras = *composer.cellExtras;
     const size_t separator = parametersAndUri.find(';');
     if (separator == std::string::npos) {
         return;
@@ -9659,7 +9656,7 @@ void VtermImpl::setHyperlink(const std::string& parametersAndUri) {
     }
 
     const StringView identityView(reinterpret_cast<const u8*>(identity.data()), identity.size());
-    if (const u32 known = extras->findHyperlink(identityView); known != 0) {
+    if (const u32 known = extras.findHyperlink(identityView); known != 0) {
         activeHyperlink = known;
         return;
     }
@@ -9670,7 +9667,7 @@ void VtermImpl::setHyperlink(const std::string& parametersAndUri) {
     }
 
     const StringView uriView(reinterpret_cast<const u8*>(uri.data()), uri.size());
-    activeHyperlink = extras->getOrCreateHyperlink(identityView, uriView, nextHyperlink++);
+    activeHyperlink = extras.getOrCreateHyperlink(identityView, uriView, nextHyperlink++);
 }
 
 std::string VtermImpl::getHyperlink(int pX, int pY) const {
@@ -9851,7 +9848,7 @@ Vterm* Vterm::create(Composer& composer, VtermHost& host, VtermTrace* trace) {
     try {
         return composer.pool->make<VtermImpl>(composer, host, trace, dump);
     } catch (...) {
-        composer.cellExtras = nullptr;
+        composer.setCellExtras(nullptr);
         throw;
     }
 }

@@ -67,8 +67,8 @@ namespace {
     // rebuild converts between instantiations through ResizeState.
     template <typename Coord, typename Epoch, typename RowIndex>
     struct ScreenImpl final: public Screen {
-        ScreenImpl();
-        ScreenImpl(Composer& composer, u16 columns, u16 rows, const TerminalColors* colors, u16 saveLines);
+        ScreenImpl(Composer& composer, ObjPool& pool);
+        ScreenImpl(Composer& composer, ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors, u16 saveLines);
 
         ResizeState* moveInto() override;
         void dropScrollbackHistory() override;
@@ -95,7 +95,7 @@ namespace {
 
         bool active() const noexcept override;
 
-        CellExtraStore* cellExtras() const noexcept override;
+        CellExtraStore& cellExtras() const noexcept override;
         void collectExtraRefLocations(Vector<u32*>& locations) override;
         size_t cellCapacity() const noexcept override;
 
@@ -170,8 +170,8 @@ namespace {
 
         TerminalCell::Ptr cells = nullptr;
         const TerminalColors* colors = nullptr;
-        Composer* composer = nullptr;
-        ObjPool* pool = nullptr;
+        Composer& composer;
+        ObjPool& pool;
         std::vector<TerminalCell> erasedRowTemplate;
         TerminalCell erasedRowCell{};
         bool erasedRowTemplateValid = false;
@@ -314,7 +314,10 @@ namespace {
 }
 
 template <typename Coord, typename Epoch, typename RowIndex>
-ScreenImpl<Coord, Epoch, RowIndex>::ScreenImpl() {
+ScreenImpl<Coord, Epoch, RowIndex>::ScreenImpl(Composer& composer_, ObjPool& pool_)
+    : composer(composer_)
+    , pool(pool_)
+{
 }
 
 namespace {
@@ -328,10 +331,7 @@ namespace {
 
     template <typename Impl>
     Impl* makeScreen(Composer& composer, ObjPool& pool) {
-        Impl* const result = pool.make<Impl>();
-        result->composer = &composer;
-        result->pool = &pool;
-        return result;
+        return pool.make<Impl>(composer, pool);
     }
 
     template <typename Impl>
@@ -351,13 +351,9 @@ Screen* Screen::create(Composer& composer, ObjPool& pool) {
 
 Screen* Screen::create(Composer& composer, ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors, u16 saveLines) {
     if (smallScreenGeometry(columns, rows, saveLines)) {
-        SmallScreen* const result = pool.make<SmallScreen>(composer, columns, rows, colors, saveLines);
-        result->pool = &pool;
-        return result;
+        return pool.make<SmallScreen>(composer, pool, columns, rows, colors, saveLines);
     }
-    LargeScreen* const result = pool.make<LargeScreen>(composer, columns, rows, colors, saveLines);
-    result->pool = &pool;
-    return result;
+    return pool.make<LargeScreen>(composer, pool, columns, rows, colors, saveLines);
 }
 
 Screen* Screen::create(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, bool reflow, Cursor* cursor) {
@@ -496,19 +492,20 @@ void ScreenImpl<Coord, Epoch, RowIndex>::setSelectionColor(bool foreground, Colo
 }
 
 template <typename Coord, typename Epoch, typename RowIndex>
-CellExtraStore* ScreenImpl<Coord, Epoch, RowIndex>::cellExtras() const noexcept {
-    return composer == nullptr ? nullptr : composer->cellExtras;
+CellExtraStore& ScreenImpl<Coord, Epoch, RowIndex>::cellExtras() const noexcept {
+    return *composer.cellExtras;
 }
 
 template <typename Coord, typename Epoch, typename RowIndex>
-ScreenImpl<Coord, Epoch, RowIndex>::ScreenImpl(Composer& composer_, u16 nCols_, u16 nRows_, const TerminalColors* colors_, u16 saveLines_)
+ScreenImpl<Coord, Epoch, RowIndex>::ScreenImpl(Composer& composer_, ObjPool& pool_, u16 nCols_, u16 nRows_, const TerminalColors* colors_, u16 saveLines_)
     : nCols((Coord)(nCols_))
     , nRows((Coord)(nRows_))
     , saveLines((RowIndex)(saveLines_))
     , viewOffset(0)
     , cells(TerminalCell::make(nCols, nRows + saveLines))
     , colors(colors_)
-    , composer(&composer_)
+    , composer(composer_)
+    , pool(pool_)
     , screen(nRows)
 {
     for (RowId row = 0; row < nRows; ++row) {
@@ -554,7 +551,7 @@ void ScreenImpl<Coord, Epoch, RowIndex>::collectExtraRefLocations(Vector<u32*>& 
 
 template <typename Coord, typename Epoch, typename RowIndex>
 ResizeState* ScreenImpl<Coord, Epoch, RowIndex>::moveInto() {
-    ResizeState* const state = pool->make<ResizeState>();
+    ResizeState* const state = pool.make<ResizeState>();
     state->columns = nCols;
     state->rows = nRows;
     state->saveLines = saveLines;
@@ -971,25 +968,23 @@ void ScreenImpl<Coord, Epoch, RowIndex>::layoutReflow(ResizeState& state, u16 nC
 
 template <typename Coord, typename Epoch, typename RowIndex>
 void ScreenImpl<Coord, Epoch, RowIndex>::fullCopyCells(RenderCell* const dst) const {
-    CellExtraStore* const extras = cellExtras();
-    assert(extras != nullptr);
+    CellExtraStore& extras = cellExtras();
     RenderCell* p = dst;
     for (int pY = 0; pY < nRows; ++pY) {
         const TerminalCell* src = getViewRowPtr(pY);
         for (u16 pX = 0; pX < nCols; ++pX) {
-            *p++ = materialize(src[pX], *extras);
+            *p++ = materialize(src[pX], extras);
         }
     }
 }
 
 template <typename Coord, typename Epoch, typename RowIndex>
 void ScreenImpl<Coord, Epoch, RowIndex>::deltaCopyCells(RenderCell* const dst) {
-    CellExtraStore* const extras = cellExtras();
-    assert(extras != nullptr);
+    CellExtraStore& extras = cellExtras();
 
     if (damage.full) {
         for (u16 row = 0; row < nRows; ++row) {
-            damageDeltaCopy(dst + (size_t)(row)*nCols, getViewRowPtr(row), nCols, *extras);
+            damageDeltaCopy(dst + (size_t)(row)*nCols, getViewRowPtr(row), nCols, extras);
         }
         return;
     }
@@ -1006,7 +1001,7 @@ void ScreenImpl<Coord, Epoch, RowIndex>::deltaCopyCells(RenderCell* const dst) {
             ++count;
         }
         const size_t offset = (size_t)(row)*nCols + column;
-        damageDeltaCopy(dst + offset, getViewRowPtr(row) + column, count, *extras);
+        damageDeltaCopy(dst + offset, getViewRowPtr(row) + column, count, extras);
     }
 }
 
@@ -1102,8 +1097,7 @@ bool ScreenImpl<Coord, Epoch, RowIndex>::getSelectedUtf8(std::string& utf8_selec
 
     using unicodeString = std::vector<u32>;
     std::vector<unicodeString> lines;
-    CellExtraStore* const extras = cellExtras();
-    assert(extras != nullptr);
+    CellExtraStore& extras = cellExtras();
     bool wrap = false;
 
     auto addLine = [&](int y, u16 x1, u16 x2) {
@@ -1115,7 +1109,7 @@ bool ScreenImpl<Coord, Epoch, RowIndex>::getSelectedUtf8(std::string& utf8_selec
         for (u16 x = x1; x < x2; ++x) {
             const auto& cell = cp[x];
             if (!cell.dwidth_cont) {
-                const auto grapheme = extras->grapheme(cell);
+                const auto grapheme = extras.grapheme(cell);
                 if (grapheme.empty()) {
                     line.push_back(cell.uc_pt ? cell.uc_pt : ' ');
                 } else {
@@ -1180,7 +1174,6 @@ bool ScreenImpl<Coord, Epoch, RowIndex>::getSelectedUtf8(std::string& utf8_selec
 
 template <typename Coord, typename Epoch, typename RowIndex>
 RenderCell ScreenImpl<Coord, Epoch, RowIndex>::materialize(const TerminalCell& cell, const CellExtraStore& extras) const {
-    assert(colors != nullptr);
     RenderCell result;
     result.uc_pt = cell.uc_pt ? cell.uc_pt : ' ';
     result.dwidth = cell.dwidth;
@@ -1502,12 +1495,12 @@ void ScreenImpl<Coord, Epoch, RowIndex>::writeGrapheme(u16 row, u16 column, cons
     if (wide || attrs.protected_char != 0) {
         rowFlagsFor(row) |= (wide ? rowHasWide : 0) | (attrs.protected_char != 0 ? rowHasProtected : 0);
     }
-    CellExtraStore* const extras = cellExtras();
+    CellExtraStore& extras = cellExtras();
     if (hyperlink != 0 || lead.hasExtra()) {
-        extras->setHyperlink(lead, hyperlink);
+        extras.setHyperlink(lead, hyperlink);
     }
     if (count > 1) {
-        extras->setGrapheme(lead, codepoints, count);
+        extras.setGrapheme(lead, codepoints, count);
     }
     prepareCell(row, column, eraseAttrs) = lead;
 
@@ -1521,7 +1514,7 @@ void ScreenImpl<Coord, Epoch, RowIndex>::writeGrapheme(u16 row, u16 column, cons
     continuation.semantic = semantic;
     continuation.line_attr = lineAttribute_;
     if (lead.extraRef() != 0 || continuation.hasExtra()) {
-        extras->setHyperlink(continuation, lead.extraRef());
+        extras.setHyperlink(continuation, lead.extraRef());
     }
     prepareCell(row, column + 1, eraseAttrs) = continuation;
 }
@@ -1533,7 +1526,7 @@ void ScreenImpl<Coord, Epoch, RowIndex>::writeAsciiRun(u16 row, u16 column, cons
     }
     TerminalCell linkedAttrs = attrs;
     if (hyperlink != 0 || linkedAttrs.hasExtra()) {
-        cellExtras()->setHyperlink(linkedAttrs, hyperlink);
+        cellExtras().setHyperlink(linkedAttrs, hyperlink);
     }
     TerminalCell* cells_ = prepareSpan(row, column, count, eraseAttrs);
     for (u16 index = 0; index < count; ++index) {
@@ -1553,7 +1546,7 @@ void ScreenImpl<Coord, Epoch, RowIndex>::writeRun(u16 row, u16 column, const u32
     }
     TerminalCell linkedAttrs = attrs;
     if (hyperlink != 0 || linkedAttrs.hasExtra()) {
-        cellExtras()->setHyperlink(linkedAttrs, hyperlink);
+        cellExtras().setHyperlink(linkedAttrs, hyperlink);
     }
     TerminalCell* cells_ = prepareSpan(row, column, count, eraseAttrs);
     for (u16 index = 0; index < count; ++index) {
@@ -1702,13 +1695,13 @@ template <typename Coord, typename Epoch, typename RowIndex>
 void ScreenImpl<Coord, Epoch, RowIndex>::appendPrintableLine(u16 row, std::string& output) const {
     std::vector<u32> codepoints;
     const TerminalCell* cells_ = getLogicalRowPtr(row);
-    CellExtraStore* const extras = cellExtras();
+    CellExtraStore& extras = cellExtras();
     for (u16 column = 0; column < nCols; ++column) {
         const TerminalCell& cell = cells_[column];
         if (cell.dwidth_cont) {
             continue;
         }
-        const GraphemeView grapheme = extras->grapheme(cell);
+        const GraphemeView grapheme = extras.grapheme(cell);
         if (grapheme.empty()) {
             codepoints.push_back(cell.uc_pt ? cell.uc_pt : ' ');
         } else {
@@ -1730,10 +1723,10 @@ void ScreenImpl<Coord, Epoch, RowIndex>::appendPrintableLine(u16 row, std::strin
 template <typename Coord, typename Epoch, typename RowIndex>
 ScreenHyperlink ScreenImpl<Coord, Epoch, RowIndex>::hyperlinkAt(u16 row, u16 column) const {
     static constexpr size_t scanLimit = 4096;
-    CellExtraStore* const extras = cellExtras();
-    if (extras == nullptr || row >= nRows || column >= nCols) {
+    if (row >= nRows || column >= nCols) {
         return {};
     }
+    CellExtraStore& extras = cellExtras();
 
     LinkPosition pointed{
         .row = (i32)(row) - (i32)(viewOffset),
@@ -1748,10 +1741,10 @@ ScreenHyperlink ScreenImpl<Coord, Epoch, RowIndex>::hyperlinkAt(u16 row, u16 col
     }
 
     const TerminalCell& pointedCell = getLogicalRowPtr(pointed.row)[pointed.column];
-    const u32 explicitId = extras->hyperlinkDisplayId(pointedCell);
+    const u32 explicitId = extras.hyperlinkDisplayId(pointedCell);
     if (explicitId != 0) {
         return {
-            .payload = extras->hyperlink(pointedCell),
+            .payload = extras.hyperlink(pointedCell),
             .displayId = explicitId,
         };
     }
@@ -1772,10 +1765,10 @@ ScreenHyperlink ScreenImpl<Coord, Epoch, RowIndex>::hyperlinkAt(u16 row, u16 col
     };
     const auto boundary = [&](LinkPosition position) {
         const TerminalCell& cell = getLogicalRowPtr(position.row)[position.column];
-        if (cell.conceal || extras->hyperlinkDisplayId(cell) != 0) {
+        if (cell.conceal || extras.hyperlinkDisplayId(cell) != 0) {
             return true;
         }
-        const GraphemeView grapheme = extras->grapheme(cell);
+        const GraphemeView grapheme = extras.grapheme(cell);
         if (grapheme.empty()) {
             return boundaryCodepoint(cell.uc_pt == 0 ? ' ' : cell.uc_pt);
         }
@@ -1867,7 +1860,7 @@ ScreenHyperlink ScreenImpl<Coord, Epoch, RowIndex>::hyperlinkAt(u16 row, u16 col
             .begin = linkScratch.used(),
         };
         const TerminalCell& cell = getLogicalRowPtr(source.row)[source.column];
-        const GraphemeView grapheme = extras->grapheme(cell);
+        const GraphemeView grapheme = extras.grapheme(cell);
         const auto sink = [&](u8 byte) {
             linkScratch.append(&byte, 1);
         };
@@ -2153,11 +2146,11 @@ void ScreenImpl<Coord, Epoch, RowIndex>::repairWideBoundary(u16 pY, u16 boundary
 
 template <typename Coord, typename Epoch, typename RowIndex>
 void ScreenImpl<Coord, Epoch, RowIndex>::selectiveEraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs, u8 protectionMask) {
-    CellExtraStore* const extras = cellExtras();
+    CellExtraStore& extras = cellExtras();
     TerminalCell erased = attrs;
     erased.uc_pt = 0;
     erased.protected_char = 0;
-    extras->clearExtra(erased, extras->underlineColor(attrs));
+    extras.clearExtra(erased, extras.underlineColor(attrs));
     TerminalCell* row = cells.get() + getIdx(pY, 0);
     if (!(rowFlagsFor(pY) & rowHasProtected)) {
         if (lineAttrRows == 0) {

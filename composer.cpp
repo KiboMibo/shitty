@@ -47,6 +47,18 @@ void Composer::setGlyphSize(u16 width, u16 height) {
     glyphHeight = height;
 }
 
+void Composer::setCellExtras(CellExtraStore* extras) {
+    if (cellExtras == extras) {
+        return;
+    }
+    cellExtras = extras;
+    for (IntrusiveNode* node = cellExtrasChangedListeners.mutFront(); node != cellExtrasChangedListeners.mutEnd();) {
+        Listener* const listener = static_cast<Listener*>(node);
+        node = node->next;
+        listener->onListen();
+    }
+}
+
 void Composer::resize(u16 pixelWidth_, u16 pixelHeight_) {
     assert(glyphWidth != 0);
     assert(glyphHeight != 0);

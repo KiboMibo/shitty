@@ -52,6 +52,14 @@ namespace {
         RendererImpl* renderer;
     };
 
+    struct CallRendererCellExtrasChanged final: public Listener {
+        explicit CallRendererCellExtrasChanged(RendererImpl* renderer);
+
+        void onListen(void*) override;
+
+        RendererImpl* renderer;
+    };
+
     struct GpuCell {
         u32 codepoint;
         u32 attributes;
@@ -137,7 +145,6 @@ namespace {
         struct GlyphSlot {
             u32 id = 0;
             u32 generation = 0;
-            u32 extraGeneration = 0;
             u8 layers = 0;
             u8 colorLayers = 0;
             bool grapheme = false;
@@ -184,10 +191,6 @@ namespace {
 
         Composer& composer;
         GLFWwindow* window = nullptr;
-        Fontpack* fonts = nullptr;
-        bool hasDoubleWidth = false;
-        CellExtraStore* cachedExtras = nullptr;
-        u32 extraGeneration = 1;
 
         VkInstance instance = VK_NULL_HANDLE;
         VkSurfaceKHR surface = VK_NULL_HANDLE;
@@ -247,6 +250,7 @@ namespace {
         void buildFontResources(FontResources& resources, bool doubleWidth);
         void destroyFontResources(FontResources& resources);
         void resetFontResources();
+        void cellExtrasChanged();
         void createDescriptors();
         void createPipeline();
         void createSwapchain(u32 width, u32 height);
@@ -266,7 +270,7 @@ namespace {
         void beginGlyphFrame();
         void configureGlyphCache(GlyphCache& cache, u32 width, u32 layers, size_t byteBudget, u32 maxImageDimension);
         u16 allocateGlyphSlot(GlyphCache& cache, u32 id, bool grapheme);
-        u32 ensureGlyph(const u32* codepoints, size_t count, u32 id, bool grapheme, FontStyle style, bool doubleWidth);
+        u32 ensureGlyph(Fontpack& fonts, bool hasDoubleWidth, const u32* codepoints, size_t count, u32 id, bool grapheme, FontStyle style, bool doubleWidth);
         VkDeviceSize stageFontData(const void* data, size_t len, size_t expected);
         void recordFontUploads(FrameResources& frame);
         void recordImageUploads(VkCommandBuffer commandBuffer, VkBuffer stagingBuffer, const ImageResource& image, const Vector<VkBufferImageCopy>& copies, bool initialize);
@@ -346,6 +350,15 @@ void CallRendererFontChanged::onListen(void*) {
     renderer->resetFontResources();
 }
 
+CallRendererCellExtrasChanged::CallRendererCellExtrasChanged(RendererImpl* renderer_)
+    : renderer(renderer_)
+{
+}
+
+void CallRendererCellExtrasChanged::onListen(void*) {
+    renderer->cellExtrasChanged();
+}
+
 u32 Renderer::rendererCellAttributesForTest(const RenderCell& cell) {
     return packCellAttributes(cell);
 }
@@ -353,8 +366,6 @@ u32 Renderer::rendererCellAttributesForTest(const RenderCell& cell) {
 RendererImpl::RendererImpl(Composer& composer_, GLFWwindow* window_)
     : composer(composer_)
     , window(window_)
-    , fonts(composer.fonts)
-    , hasDoubleWidth(fonts->hasDoubleWidth())
     , glyphPool(ObjPool::fromMemory())
     , glyphs(*glyphPool)
     , doubleWidthGlyphs(*glyphPool)
@@ -368,6 +379,7 @@ RendererImpl::RendererImpl(Composer& composer_, GLFWwindow* window_)
     createDescriptors();
     createPipeline();
     composer.fontChangedListeners.pushBack(composer.pool->make<CallRendererFontChanged>(this));
+    composer.cellExtrasChangedListeners.pushBack(composer.pool->make<CallRendererCellExtrasChanged>(this));
 }
 
 RendererImpl::~RendererImpl() {
@@ -437,6 +449,7 @@ RendererImpl::~RendererImpl() {
     if (instance != VK_NULL_HANDLE) {
         vkDestroyInstance(instance, nullptr);
     }
+    composer.renderer = nullptr;
 }
 
 void RendererImpl::createInstance() {
@@ -783,7 +796,7 @@ void RendererImpl::destroyFontResources(FontResources& resources) {
 
 void RendererImpl::createFontResources() {
     FontResources replacement;
-    buildFontResources(replacement, hasDoubleWidth);
+    buildFontResources(replacement, composer.fonts->hasDoubleWidth());
     glyphs.xchg(replacement.glyphs);
     doubleWidthGlyphs.xchg(replacement.doubleWidthGlyphs);
     glyphPool.xchg(replacement.pool);
@@ -799,10 +812,8 @@ void RendererImpl::createFontResources() {
 }
 
 void RendererImpl::resetFontResources() {
-    Fontpack* const replacementFonts = composer.fonts;
-    const bool replacementHasDoubleWidth = replacementFonts->hasDoubleWidth();
     FontResources replacement;
-    buildFontResources(replacement, replacementHasDoubleWidth);
+    buildFontResources(replacement, composer.fonts->hasDoubleWidth());
     try {
         checkVk(vkDeviceWaitIdle(device), "vkDeviceWaitIdle");
     } catch (...) {
@@ -819,8 +830,6 @@ void RendererImpl::resetFontResources() {
     image = doubleWidthAtlas;
     doubleWidthAtlas = replacement.doubleWidthAtlas;
     replacement.doubleWidthAtlas = image;
-    fonts = replacementFonts;
-    hasDoubleWidth = replacementHasDoubleWidth;
     if (atlasSampler == VK_NULL_HANDLE) {
         atlasSampler = replacement.sampler;
         replacement.sampler = VK_NULL_HANDLE;
@@ -844,6 +853,11 @@ void RendererImpl::resetFontResources() {
     doubleWidthAtlasInitialized = false;
     doubleWidthColorAtlasInitialized = false;
     previousStateValid = false;
+}
+
+void RendererImpl::cellExtrasChanged() {
+    glyphs.graphemeRefs.zero(glyphs.graphemeRefs.used());
+    doubleWidthGlyphs.graphemeRefs.zero(doubleWidthGlyphs.graphemeRefs.used());
 }
 
 void RendererImpl::createDescriptors() {
@@ -896,7 +910,7 @@ void RendererImpl::createDescriptors() {
 }
 
 void RendererImpl::updateStaticDescriptors() {
-    const ImageResource& wideAtlas = hasDoubleWidth ? doubleWidthAtlas : atlas;
+    const ImageResource& wideAtlas = doubleWidthAtlas.image != VK_NULL_HANDLE ? doubleWidthAtlas : atlas;
     const ImageResource& primaryColor = colorAtlas.image != VK_NULL_HANDLE ? colorAtlas : atlas;
     const ImageResource& wideColor = doubleWidthColorAtlas.image != VK_NULL_HANDLE ? doubleWidthColorAtlas : wideAtlas;
 
@@ -1220,7 +1234,7 @@ void RendererImpl::beginGlyphFrame() {
         }
     };
     advance(glyphs);
-    if (hasDoubleWidth) {
+    if (doubleWidthAtlas.image != VK_NULL_HANDLE) {
         advance(doubleWidthGlyphs);
     }
 }
@@ -1231,7 +1245,6 @@ u16 RendererImpl::allocateGlyphSlot(GlyphCache& cache, u32 id, bool grapheme) {
         GlyphSlot& state = cache.slots.mut(slot);
         state.id = id;
         state.generation = cache.generation;
-        state.extraGeneration = extraGeneration;
         state.layers = 0;
         state.colorLayers = 0;
         state.grapheme = grapheme;
@@ -1251,7 +1264,7 @@ u16 RendererImpl::allocateGlyphSlot(GlyphCache& cache, u32 id, bool grapheme) {
 
         if (state.grapheme) {
             const size_t oldOffset = (size_t)(state.id) * sizeof(u16);
-            if (state.extraGeneration == extraGeneration && oldOffset + sizeof(u16) <= cache.graphemeRefs.used()) {
+            if (oldOffset + sizeof(u16) <= cache.graphemeRefs.used()) {
                 u16* oldRef = (u16*)((u8*)(cache.graphemeRefs.mutData()) + oldOffset);
                 if (*oldRef == slot) {
                     *oldRef = 0;
@@ -1262,7 +1275,6 @@ u16 RendererImpl::allocateGlyphSlot(GlyphCache& cache, u32 id, bool grapheme) {
         }
         state.id = id;
         state.generation = cache.generation;
-        state.extraGeneration = extraGeneration;
         state.layers = 0;
         state.colorLayers = 0;
         state.grapheme = grapheme;
@@ -1276,7 +1288,7 @@ VkDeviceSize RendererImpl::stageFontData(const void* data, size_t len, size_t ex
     const size_t padding = (4 - (fontUploadData.used() & 3)) & 3;
     fontUploadData.append(&zero, padding);
     const VkDeviceSize offset = fontUploadData.used();
-    if (data != nullptr && len == expected) {
+    if (len == expected) {
         fontUploadData.append(data, len);
     } else {
         fontUploadData.growDelta(expected);
@@ -1287,7 +1299,7 @@ VkDeviceSize RendererImpl::stageFontData(const void* data, size_t len, size_t ex
     return offset;
 }
 
-u32 RendererImpl::ensureGlyph(const u32* codepoints, size_t count, u32 id, bool grapheme, FontStyle style, bool doubleWidth) {
+u32 RendererImpl::ensureGlyph(Fontpack& fonts, bool hasDoubleWidth, const u32* codepoints, size_t count, u32 id, bool grapheme, FontStyle style, bool doubleWidth) {
     if (count == 0 || (!grapheme && (id >= 0x110000 || !needsFontGlyph(id))) || (doubleWidth && !hasDoubleWidth)) {
         return 0;
     }
@@ -1309,7 +1321,7 @@ u32 RendererImpl::ensureGlyph(const u32* codepoints, size_t count, u32 id, bool 
     u16 slot = *ref;
     if (slot != 0) {
         const GlyphSlot& state = cache.slots[slot];
-        if (state.id != id || state.grapheme != grapheme || (grapheme && state.extraGeneration != extraGeneration)) {
+        if (state.id != id || state.grapheme != grapheme) {
             slot = 0;
             *ref = 0;
         }
@@ -1332,7 +1344,7 @@ u32 RendererImpl::ensureGlyph(const u32* codepoints, size_t count, u32 id, bool 
     }
 
     const u32 width = doubleWidth ? 2 * composer.glyphWidth : composer.glyphWidth;
-    const FontGlyph glyph = fonts->glyph(codepoints, count, style, doubleWidth);
+    const FontGlyph glyph = fonts.glyph(codepoints, count, style, doubleWidth);
     const size_t bytes = (size_t)(width)*composer.glyphHeight * (glyph.color ? 4 : 1);
     if (glyph.color) {
         ensureColorAtlas(doubleWidth);
@@ -1402,7 +1414,7 @@ void RendererImpl::recordImageUploads(VkCommandBuffer commandBuffer, VkBuffer st
 }
 
 void RendererImpl::recordFontUploads(FrameResources& frame) {
-    const bool initialize = !atlasInitialized || (hasDoubleWidth && !doubleWidthAtlasInitialized) || (colorAtlas.image != VK_NULL_HANDLE && !colorAtlasInitialized) || (doubleWidthColorAtlas.image != VK_NULL_HANDLE && !doubleWidthColorAtlasInitialized);
+    const bool initialize = !atlasInitialized || (doubleWidthAtlas.image != VK_NULL_HANDLE && !doubleWidthAtlasInitialized) || (colorAtlas.image != VK_NULL_HANDLE && !colorAtlasInitialized) || (doubleWidthColorAtlas.image != VK_NULL_HANDLE && !doubleWidthColorAtlasInitialized);
     if (!initialize && fontUploadData.empty()) {
         return;
     }
@@ -1425,7 +1437,7 @@ void RendererImpl::recordFontUploads(FrameResources& frame) {
         recordImageUploads(frame.commandBuffer, frame.fontUploadBuffer, colorAtlas, colorAtlasCopies, !colorAtlasInitialized);
         colorAtlasInitialized = true;
     }
-    if (hasDoubleWidth) {
+    if (doubleWidthAtlas.image != VK_NULL_HANDLE) {
         recordImageUploads(frame.commandBuffer, frame.fontUploadBuffer, doubleWidthAtlas, doubleWidthAtlasCopies, !doubleWidthAtlasInitialized);
         doubleWidthAtlasInitialized = true;
     }
@@ -1515,7 +1527,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const T
         update.snappedSelection.br.y,
         update.snappedSelection.rectangular ? 1u : 0u,
         opts.showWraps ? 1u : 0u,
-        hasDoubleWidth ? 1u : 0u,
+        doubleWidthAtlas.image != VK_NULL_HANDLE ? 1u : 0u,
         previousCursor.posX,
         previousCursor.posY,
         incremental ? 1u : 0u,
@@ -1711,7 +1723,7 @@ bool RendererImpl::repaint() {
 bool RendererImpl::present(const TerminalUpdate& update, bool incrementalFrame) {
     const u32 width = composer.pixelWidth;
     const u32 height = composer.pixelHeight;
-    if (update.cells == nullptr || update.cellCount == 0 || width == 0 || height == 0) {
+    if (update.cellCount == 0 || width == 0 || height == 0) {
         return false;
     }
 
@@ -1735,22 +1747,9 @@ bool RendererImpl::present(const TerminalUpdate& update, bool incrementalFrame) 
         return false;
     }
 
-    CellExtraStore* const extras = update.cellExtras;
-    if (cachedExtras != extras) {
-        cachedExtras = extras;
-        ++extraGeneration;
-        if (extraGeneration == 0) {
-            extraGeneration = 1;
-            for (GlyphSlot* slot = glyphs.slots.mutBegin(); slot != glyphs.slots.mutEnd(); ++slot) {
-                slot->extraGeneration = 0;
-            }
-            for (GlyphSlot* slot = doubleWidthGlyphs.slots.mutBegin(); slot != doubleWidthGlyphs.slots.mutEnd(); ++slot) {
-                slot->extraGeneration = 0;
-            }
-        }
-        glyphs.graphemeRefs.zero(glyphs.graphemeRefs.used());
-        doubleWidthGlyphs.graphemeRefs.zero(doubleWidthGlyphs.graphemeRefs.used());
-    }
+    CellExtraStore& extras = *composer.cellExtras;
+    Fontpack& fonts = *composer.fonts;
+    const bool hasDoubleWidth = fonts.hasDoubleWidth();
     beginGlyphFrame();
     const size_t cellBytes = update.cellCount * sizeof(GpuCell);
     ensureCellBuffer(*frame, cellBytes);
@@ -1762,13 +1761,13 @@ bool RendererImpl::present(const TerminalUpdate& update, bool incrementalFrame) 
             const FontStyle style = (FontStyle)((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0));
             const bool doubleWidth = cell.dwidth || cell.line_attr != 0;
             if (cell.grapheme) {
-                const GraphemeView grapheme = extras->grapheme(cell.grapheme);
+                const GraphemeView grapheme = extras.grapheme(cell.grapheme);
                 if (!grapheme.empty()) {
-                    glyph = ensureGlyph(grapheme.data(), grapheme.size(), cell.grapheme, true, style, doubleWidth);
+                    glyph = ensureGlyph(fonts, hasDoubleWidth, grapheme.data(), grapheme.size(), cell.grapheme, true, style, doubleWidth);
                 }
             }
             if (glyph == 0 && !cell.grapheme) {
-                glyph = ensureGlyph(&cell.uc_pt, 1, cell.uc_pt, false, style, doubleWidth);
+                glyph = ensureGlyph(fonts, hasDoubleWidth, &cell.uc_pt, 1, cell.uc_pt, false, style, doubleWidth);
             }
         }
         gpuCells[index] = {
