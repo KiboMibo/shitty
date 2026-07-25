@@ -1071,7 +1071,7 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     createInfo.compositeAlpha = selectCompositeAlpha(capabilities.supportedCompositeAlpha);
     createInfo.presentMode = presentMode;
     createInfo.clipped = VK_TRUE;
-    createInfo.oldSwapchain = VK_NULL_HANDLE;
+    createInfo.oldSwapchain = swapchain;
 
     SwapchainResources replacement;
     replacement.format = surfaceFormat.format;
