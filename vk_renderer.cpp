@@ -149,6 +149,27 @@ namespace {
             u32 next = 1;
             u32 eviction = 1;
             u32 generation = 0;
+
+            void xchg(GlyphCache& other) noexcept;
+        };
+
+        struct FontResources {
+            ImageResource atlas;
+            ImageResource doubleWidthAtlas;
+            GlyphCache glyphs;
+            GlyphCache doubleWidthGlyphs;
+            VkSampler sampler = VK_NULL_HANDLE;
+        };
+
+        struct SwapchainResources {
+            VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+            VkFormat format = VK_FORMAT_UNDEFINED;
+            VkExtent2D extent{};
+            stl::Vector<VkImage> images;
+            stl::Vector<VkSemaphore> semaphores;
+            stl::Vector<u8> initialized;
+            ImageResource output;
+            bool replacesOutput = false;
         };
 
         static constexpr u32 framesInFlight = 2;
@@ -199,9 +220,9 @@ namespace {
         VkFormat swapchainFormat = VK_FORMAT_UNDEFINED;
         VkExtent2D swapchainExtent{};
         VkExtent2D renderExtent{};
-        std::vector<VkImage> swapchainImages;
-        std::vector<VkSemaphore> presentSemaphores;
-        std::vector<bool> imageInitialized;
+        stl::Vector<VkImage> swapchainImages;
+        stl::Vector<VkSemaphore> presentSemaphores;
+        stl::Vector<u8> imageInitialized;
 
         std::array<FrameResources, framesInFlight> frames;
         u32 currentFrame = 0;
@@ -211,12 +232,14 @@ namespace {
         void createDevice();
         void createCommandResources();
         void createFontResources();
+        void buildFontResources(FontResources& resources, bool doubleWidth);
+        void destroyFontResources(FontResources& resources);
         void resetFontResources();
         void createDescriptors();
         void createPipeline();
         void createSwapchain(u32 width, u32 height);
+        void destroySwapchainResources(SwapchainResources& resources);
         void destroySwapchain();
-        void createOutputImage(u32 width, u32 height);
         void ensureCellBuffer(FrameResources& frame, size_t bytes);
         void ensureFontUploadBuffer(FrameResources& frame, size_t bytes);
         void ensureColorAtlas(bool doubleWidth);
@@ -229,7 +252,6 @@ namespace {
         void updateOutputDescriptors();
         void updateCellDescriptor(FrameResources& frame);
         void beginGlyphFrame();
-        static void resetGlyphCache(GlyphCache& cache);
         void configureGlyphCache(GlyphCache& cache, u32 width, u32 layers, size_t byteBudget, u32 maxImageDimension);
         u16 allocateGlyphSlot(GlyphCache& cache, u32 id, bool grapheme);
         u32 ensureGlyph(const u32* codepoints, size_t count, u32 id, bool grapheme, FontStyle style, bool doubleWidth);
@@ -562,38 +584,43 @@ RendererImpl::ImageResource RendererImpl::createImage(u32 width, u32 height, u32
     result.height = height;
     result.layers = layers;
 
-    VkImageCreateInfo imageInfo{};
-    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.format = format;
-    imageInfo.extent = {width, height, 1};
-    imageInfo.mipLevels = 1;
-    imageInfo.arrayLayers = layers;
-    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    imageInfo.usage = usage;
-    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    checkVk(vkCreateImage(device, &imageInfo, nullptr, &result.image), "vkCreateImage");
+    try {
+        VkImageCreateInfo imageInfo{};
+        imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo.imageType = VK_IMAGE_TYPE_2D;
+        imageInfo.format = format;
+        imageInfo.extent = {width, height, 1};
+        imageInfo.mipLevels = 1;
+        imageInfo.arrayLayers = layers;
+        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageInfo.usage = usage;
+        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        checkVk(vkCreateImage(device, &imageInfo, nullptr, &result.image), "vkCreateImage");
 
-    VkMemoryRequirements requirements{};
-    vkGetImageMemoryRequirements(device, result.image, &requirements);
-    VkMemoryAllocateInfo allocationInfo{};
-    allocationInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocationInfo.allocationSize = requirements.size;
-    allocationInfo.memoryTypeIndex = findMemoryType(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    checkVk(vkAllocateMemory(device, &allocationInfo, nullptr, &result.memory), "vkAllocateMemory");
-    checkVk(vkBindImageMemory(device, result.image, result.memory, 0), "vkBindImageMemory");
+        VkMemoryRequirements requirements{};
+        vkGetImageMemoryRequirements(device, result.image, &requirements);
+        VkMemoryAllocateInfo allocationInfo{};
+        allocationInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocationInfo.allocationSize = requirements.size;
+        allocationInfo.memoryTypeIndex = findMemoryType(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        checkVk(vkAllocateMemory(device, &allocationInfo, nullptr, &result.memory), "vkAllocateMemory");
+        checkVk(vkBindImageMemory(device, result.image, result.memory, 0), "vkBindImageMemory");
 
-    VkImageViewCreateInfo viewInfo{};
-    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    viewInfo.image = result.image;
-    viewInfo.viewType = arrayView ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format = format;
-    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    viewInfo.subresourceRange.levelCount = 1;
-    viewInfo.subresourceRange.layerCount = layers;
-    checkVk(vkCreateImageView(device, &viewInfo, nullptr, &result.view), "vkCreateImageView");
+        VkImageViewCreateInfo viewInfo{};
+        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image = result.image;
+        viewInfo.viewType = arrayView ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format = format;
+        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.layerCount = layers;
+        checkVk(vkCreateImageView(device, &viewInfo, nullptr, &result.view), "vkCreateImageView");
+    } catch (...) {
+        destroyImage(result);
+        throw;
+    }
     return result;
 }
 
@@ -608,6 +635,27 @@ void RendererImpl::destroyImage(ImageResource& image) {
         vkFreeMemory(device, image.memory, nullptr);
     }
     image = {};
+}
+
+void RendererImpl::GlyphCache::xchg(GlyphCache& other) noexcept {
+    refs.xchg(other.refs);
+    graphemeRefs.xchg(other.graphemeRefs);
+    slots.xchg(other.slots);
+    u32 value = columns;
+    columns = other.columns;
+    other.columns = value;
+    value = rows;
+    rows = other.rows;
+    other.rows = value;
+    value = next;
+    next = other.next;
+    other.next = value;
+    value = eviction;
+    eviction = other.eviction;
+    other.eviction = value;
+    value = generation;
+    generation = other.generation;
+    other.generation = value;
 }
 
 void RendererImpl::configureGlyphCache(GlyphCache& cache, u32 width, u32 layers, size_t byteBudget, u32 maxImageDimension) {
@@ -664,56 +712,99 @@ void RendererImpl::configureGlyphCache(GlyphCache& cache, u32 width, u32 layers,
     cache.slots.zero((size_t)(bestColumns)*bestRows);
 }
 
-void RendererImpl::resetGlyphCache(GlyphCache& cache) {
-    cache.refs.reset();
-    cache.graphemeRefs.reset();
-    cache.slots.clear();
-    cache.columns = 0;
-    cache.rows = 0;
-    cache.next = 1;
-    cache.eviction = 1;
-    cache.generation = 0;
-}
-
-void RendererImpl::createFontResources() {
+void RendererImpl::buildFontResources(FontResources& resources, bool doubleWidth) {
     constexpr size_t atlasByteBudget = 16 * 1024 * 1024;
     constexpr size_t doubleWidthAtlasByteBudget = 8 * 1024 * 1024;
     VkPhysicalDeviceProperties properties{};
     vkGetPhysicalDeviceProperties(physicalDevice, &properties);
 
-    configureGlyphCache(glyphs, composer.glyphWidth, 4, atlasByteBudget, properties.limits.maxImageDimension2D);
-    atlas = createImage(composer.glyphWidth * glyphs.columns, composer.glyphHeight * glyphs.rows, 4, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
+    try {
+        configureGlyphCache(resources.glyphs, composer.glyphWidth, 4, atlasByteBudget, properties.limits.maxImageDimension2D);
+        resources.atlas = createImage(composer.glyphWidth * resources.glyphs.columns, composer.glyphHeight * resources.glyphs.rows, 4, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
 
-    if (hasDoubleWidth) {
-        configureGlyphCache(doubleWidthGlyphs, 2 * composer.glyphWidth, 1, doubleWidthAtlasByteBudget, properties.limits.maxImageDimension2D);
-        doubleWidthAtlas = createImage(2 * composer.glyphWidth * doubleWidthGlyphs.columns, composer.glyphHeight * doubleWidthGlyphs.rows, 1, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
-    }
+        if (doubleWidth) {
+            configureGlyphCache(resources.doubleWidthGlyphs, 2 * composer.glyphWidth, 1, doubleWidthAtlasByteBudget, properties.limits.maxImageDimension2D);
+            resources.doubleWidthAtlas = createImage(2 * composer.glyphWidth * resources.doubleWidthGlyphs.columns, composer.glyphHeight * resources.doubleWidthGlyphs.rows, 1, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
+        }
 
-    if (atlasSampler == VK_NULL_HANDLE) {
-        VkSamplerCreateInfo samplerInfo{};
-        samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-        samplerInfo.magFilter = VK_FILTER_NEAREST;
-        samplerInfo.minFilter = VK_FILTER_NEAREST;
-        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        samplerInfo.maxLod = 0.0f;
-        checkVk(vkCreateSampler(device, &samplerInfo, nullptr, &atlasSampler), "vkCreateSampler");
+        if (atlasSampler == VK_NULL_HANDLE) {
+            VkSamplerCreateInfo samplerInfo{};
+            samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+            samplerInfo.magFilter = VK_FILTER_NEAREST;
+            samplerInfo.minFilter = VK_FILTER_NEAREST;
+            samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+            samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            samplerInfo.maxLod = 0.0f;
+            checkVk(vkCreateSampler(device, &samplerInfo, nullptr, &resources.sampler), "vkCreateSampler");
+        }
+    } catch (...) {
+        destroyFontResources(resources);
+        throw;
     }
 }
 
-void RendererImpl::resetFontResources() {
-    checkVk(vkDeviceWaitIdle(device), "vkDeviceWaitIdle");
+void RendererImpl::destroyFontResources(FontResources& resources) {
+    destroyImage(resources.doubleWidthAtlas);
+    destroyImage(resources.atlas);
+    if (device != VK_NULL_HANDLE && resources.sampler != VK_NULL_HANDLE) {
+        vkDestroySampler(device, resources.sampler, nullptr);
+    }
+    resources.sampler = VK_NULL_HANDLE;
+}
 
-    fonts = composer.fonts;
-    hasDoubleWidth = fonts->hasDoubleWidth();
-    destroyImage(doubleWidthColorAtlas);
-    destroyImage(doubleWidthAtlas);
-    destroyImage(colorAtlas);
-    destroyImage(atlas);
-    resetGlyphCache(glyphs);
-    resetGlyphCache(doubleWidthGlyphs);
+void RendererImpl::createFontResources() {
+    FontResources replacement;
+    buildFontResources(replacement, hasDoubleWidth);
+    glyphs.xchg(replacement.glyphs);
+    doubleWidthGlyphs.xchg(replacement.doubleWidthGlyphs);
+    atlas = replacement.atlas;
+    replacement.atlas = {};
+    doubleWidthAtlas = replacement.doubleWidthAtlas;
+    replacement.doubleWidthAtlas = {};
+    if (atlasSampler == VK_NULL_HANDLE) {
+        atlasSampler = replacement.sampler;
+        replacement.sampler = VK_NULL_HANDLE;
+    }
+    destroyFontResources(replacement);
+}
+
+void RendererImpl::resetFontResources() {
+    Fontpack* const replacementFonts = composer.fonts;
+    const bool replacementHasDoubleWidth = replacementFonts->hasDoubleWidth();
+    FontResources replacement;
+    buildFontResources(replacement, replacementHasDoubleWidth);
+    try {
+        checkVk(vkDeviceWaitIdle(device), "vkDeviceWaitIdle");
+    } catch (...) {
+        destroyFontResources(replacement);
+        throw;
+    }
+
+    glyphs.xchg(replacement.glyphs);
+    doubleWidthGlyphs.xchg(replacement.doubleWidthGlyphs);
+    ImageResource image = atlas;
+    atlas = replacement.atlas;
+    replacement.atlas = image;
+    image = doubleWidthAtlas;
+    doubleWidthAtlas = replacement.doubleWidthAtlas;
+    replacement.doubleWidthAtlas = image;
+    fonts = replacementFonts;
+    hasDoubleWidth = replacementHasDoubleWidth;
+    if (atlasSampler == VK_NULL_HANDLE) {
+        atlasSampler = replacement.sampler;
+        replacement.sampler = VK_NULL_HANDLE;
+    }
+    ImageResource previousColorAtlas = colorAtlas;
+    colorAtlas = {};
+    ImageResource previousDoubleWidthColorAtlas = doubleWidthColorAtlas;
+    doubleWidthColorAtlas = {};
+    updateStaticDescriptors();
+
+    destroyImage(previousDoubleWidthColorAtlas);
+    destroyImage(previousColorAtlas);
+    destroyFontResources(replacement);
     fontUploadData.reset();
     atlasCopies.clear();
     colorAtlasCopies.clear();
@@ -724,9 +815,6 @@ void RendererImpl::resetFontResources() {
     doubleWidthAtlasInitialized = false;
     doubleWidthColorAtlasInitialized = false;
     previousStateValid = false;
-
-    createFontResources();
-    updateStaticDescriptors();
 }
 
 void RendererImpl::createDescriptors() {
@@ -864,30 +952,37 @@ void RendererImpl::createPipeline() {
     checkVk(result, "vkCreateComputePipelines");
 }
 
-void RendererImpl::destroySwapchain() {
-    for (const auto semaphore : presentSemaphores) {
+void RendererImpl::destroySwapchainResources(SwapchainResources& resources) {
+    for (const auto semaphore : resources.semaphores) {
         if (device != VK_NULL_HANDLE && semaphore != VK_NULL_HANDLE) {
             vkDestroySemaphore(device, semaphore, nullptr);
         }
     }
-    presentSemaphores.clear();
-    swapchainImages.clear();
-    imageInitialized.clear();
-    if (swapchain != VK_NULL_HANDLE && device != VK_NULL_HANDLE) {
-        vkDestroySwapchainKHR(device, swapchain, nullptr);
+    resources.semaphores.clear();
+    resources.images.clear();
+    resources.initialized.clear();
+    if (resources.swapchain != VK_NULL_HANDLE && device != VK_NULL_HANDLE) {
+        vkDestroySwapchainKHR(device, resources.swapchain, nullptr);
     }
+    resources.swapchain = VK_NULL_HANDLE;
+    resources.format = VK_FORMAT_UNDEFINED;
+    resources.extent = {};
+    destroyImage(resources.output);
+    resources.replacesOutput = false;
+}
+
+void RendererImpl::destroySwapchain() {
+    SwapchainResources resources;
+    resources.swapchain = swapchain;
+    resources.format = swapchainFormat;
+    resources.extent = swapchainExtent;
+    resources.images.xchg(swapchainImages);
+    resources.semaphores.xchg(presentSemaphores);
+    resources.initialized.xchg(imageInitialized);
     swapchain = VK_NULL_HANDLE;
     swapchainFormat = VK_FORMAT_UNDEFINED;
     swapchainExtent = {};
-}
-
-void RendererImpl::createOutputImage(u32 width, u32 height) {
-    destroyImage(outputImage);
-    outputImage = createImage(width, height, 1, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
-    renderExtent = {width, height};
-    outputInitialized = false;
-    previousStateValid = false;
-    updateOutputDescriptors();
+    destroySwapchainResources(resources);
 }
 
 void RendererImpl::createSwapchain(u32 width, u32 height) {
@@ -969,34 +1064,54 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     createInfo.compositeAlpha = selectCompositeAlpha(capabilities.supportedCompositeAlpha);
     createInfo.presentMode = presentMode;
     createInfo.clipped = VK_TRUE;
-    createInfo.oldSwapchain = swapchain;
+    createInfo.oldSwapchain = VK_NULL_HANDLE;
 
-    VkSwapchainKHR replacement = VK_NULL_HANDLE;
-    checkVk(vkCreateSwapchainKHR(device, &createInfo, nullptr, &replacement), "vkCreateSwapchainKHR");
-    if (swapchain != VK_NULL_HANDLE) {
-        vkDestroySwapchainKHR(device, swapchain, nullptr);
+    SwapchainResources replacement;
+    replacement.format = surfaceFormat.format;
+    replacement.extent = extent;
+    replacement.replacesOutput = renderExtent.width != width || renderExtent.height != height;
+    try {
+        if (replacement.replacesOutput) {
+            replacement.output = createImage(width, height, 1, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+        }
+        checkVk(vkCreateSwapchainKHR(device, &createInfo, nullptr, &replacement.swapchain), "vkCreateSwapchainKHR");
+        checkVk(vkGetSwapchainImagesKHR(device, replacement.swapchain, &imageCount, nullptr), "vkGetSwapchainImagesKHR");
+        replacement.images.zero(imageCount);
+        checkVk(vkGetSwapchainImagesKHR(device, replacement.swapchain, &imageCount, replacement.images.mutData()), "vkGetSwapchainImagesKHR");
+        replacement.semaphores.zero(imageCount);
+        VkSemaphoreCreateInfo semaphoreInfo{};
+        semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        for (VkSemaphore* semaphore = replacement.semaphores.mutBegin(); semaphore != replacement.semaphores.mutEnd(); ++semaphore) {
+            checkVk(vkCreateSemaphore(device, &semaphoreInfo, nullptr, semaphore), "vkCreateSemaphore");
+        }
+        replacement.initialized.zero(imageCount);
+    } catch (...) {
+        destroySwapchainResources(replacement);
+        throw;
     }
-    swapchain = replacement;
-    swapchainFormat = surfaceFormat.format;
-    swapchainExtent = extent;
 
-    checkVk(vkGetSwapchainImagesKHR(device, swapchain, &imageCount, nullptr), "vkGetSwapchainImagesKHR");
-    swapchainImages.resize(imageCount);
-    checkVk(vkGetSwapchainImagesKHR(device, swapchain, &imageCount, swapchainImages.data()), "vkGetSwapchainImagesKHR");
-    for (const auto semaphore : presentSemaphores) {
-        vkDestroySemaphore(device, semaphore, nullptr);
+    VkSwapchainKHR handle = swapchain;
+    swapchain = replacement.swapchain;
+    replacement.swapchain = handle;
+    VkFormat format = swapchainFormat;
+    swapchainFormat = replacement.format;
+    replacement.format = format;
+    VkExtent2D previousExtent = swapchainExtent;
+    swapchainExtent = replacement.extent;
+    replacement.extent = previousExtent;
+    swapchainImages.xchg(replacement.images);
+    presentSemaphores.xchg(replacement.semaphores);
+    imageInitialized.xchg(replacement.initialized);
+    if (replacement.replacesOutput) {
+        ImageResource image = outputImage;
+        outputImage = replacement.output;
+        replacement.output = image;
+        renderExtent = {width, height};
+        outputInitialized = false;
+        previousStateValid = false;
+        updateOutputDescriptors();
     }
-    presentSemaphores.assign(imageCount, VK_NULL_HANDLE);
-    VkSemaphoreCreateInfo semaphoreInfo{};
-    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-    for (auto& semaphore : presentSemaphores) {
-        checkVk(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &semaphore), "vkCreateSemaphore");
-    }
-    imageInitialized.assign(imageCount, false);
-
-    if (renderExtent.width != width || renderExtent.height != height) {
-        createOutputImage(width, height);
-    }
+    destroySwapchainResources(replacement);
 }
 
 void RendererImpl::ensureCellBuffer(FrameResources& frame, size_t bytes) {
@@ -1474,7 +1589,10 @@ bool RendererImpl::acquirePresentFrame(u32 width, u32 height, FrameResources*& f
     checkVk(vkWaitForFences(device, 1, &frame->fence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
     VkResult result = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, frame->imageAvailable, VK_NULL_HANDLE, &imageIndex);
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-        createSwapchain(width, height);
+        try {
+            createSwapchain(width, height);
+        } catch (...) {
+        }
         return false;
     }
     recreateAfterPresent = result == VK_SUBOPTIMAL_KHR;
@@ -1498,7 +1616,7 @@ bool RendererImpl::submitPresentFrame(u32 width, u32 height, FrameResources& fra
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = &presentSemaphores[imageIndex];
     checkVk(vkQueueSubmit(queue, 1, &submitInfo, frame.fence), "vkQueueSubmit");
-    imageInitialized[imageIndex] = true;
+    imageInitialized.mut(imageIndex) = true;
 
     VkPresentInfoKHR presentInfo{};
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -1515,7 +1633,10 @@ bool RendererImpl::submitPresentFrame(u32 width, u32 height, FrameResources& fra
     const bool presented = result != VK_ERROR_OUT_OF_DATE_KHR;
     currentFrame = (currentFrame + 1) % framesInFlight;
     if (recreateAfterPresent || result == VK_SUBOPTIMAL_KHR || result == VK_ERROR_OUT_OF_DATE_KHR) {
-        createSwapchain(width, height);
+        try {
+            createSwapchain(width, height);
+        } catch (...) {
+        }
     }
     return presented;
 }
@@ -1527,7 +1648,11 @@ bool RendererImpl::repaint() {
         return false;
     }
     if (swapchain == VK_NULL_HANDLE) {
-        createSwapchain(width, height);
+        try {
+            createSwapchain(width, height);
+        } catch (...) {
+            return false;
+        }
     }
     if (swapchain == VK_NULL_HANDLE) {
         return false;
@@ -1551,7 +1676,11 @@ bool RendererImpl::present(const TerminalUpdate& update, bool incrementalFrame) 
     }
 
     if (swapchain == VK_NULL_HANDLE || renderExtent.width != width || renderExtent.height != height) {
-        createSwapchain(width, height);
+        try {
+            createSwapchain(width, height);
+        } catch (...) {
+            return false;
+        }
     }
     if (swapchain == VK_NULL_HANDLE) {
         return false;

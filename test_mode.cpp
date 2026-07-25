@@ -95,6 +95,12 @@ namespace {
         Utf8Decoder decoder;
     };
 
+    struct FailFontChange final: public Listener {
+        void arm();
+        void onListen(void*) override;
+
+        bool armed = false;
+    };
 }
 
 TestPty::TestPty(Composer& composer, int fd)
@@ -174,6 +180,18 @@ std::vector<u32> TestUtf8Decoder::push(const std::string& input) {
     std::vector<u32> result;
     result.swap(output);
     return result;
+}
+
+void FailFontChange::arm() {
+    armed = true;
+}
+
+void FailFontChange::onListen(void*) {
+    if (!armed) {
+        return;
+    }
+    armed = false;
+    Errno(EIO).raise(StringView(u8"injected font replacement failure"));
 }
 
 namespace {
@@ -1241,6 +1259,8 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
     }
     display.attach(vterm, *testApi);
     TestTerminal terminal(vterm, *testApi, terminalPty, display);
+    FailFontChange failFontChange;
+    composer.fontChangedListeners.pushFront(&failFontChange);
     pid_t childPid = -1;
     int childExitStatus = -1;
 
@@ -1599,6 +1619,9 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 writeAll(controlFd, "OK\n");
             } else if (line == "FAIL_NEXT_PRESENT") {
                 display.failNextPresent();
+                writeAll(controlFd, "OK\n");
+            } else if (line == "FAIL_NEXT_FONT_CHANGE") {
+                failFontChange.arm();
                 writeAll(controlFd, "OK\n");
             } else if (line == "PRESENT") {
                 terminal.redraw();

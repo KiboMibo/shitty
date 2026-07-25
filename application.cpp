@@ -212,6 +212,11 @@ void ApplicationImpl::publishFontChanged() {
 void ApplicationImpl::replaceFontpack(u16 size) {
     const u16 columns = composer.columns == 0 ? opts.nCols : composer.columns;
     const u16 rows = composer.rows == 0 ? opts.nRows : composer.rows;
+    ObjPool* const previousPool = fontpackPool;
+    Fontpack* const previousFonts = composer.fonts;
+    const u16 previousFontSize = composer.fontSize;
+    const u16 previousGlyphWidth = composer.glyphWidth;
+    const u16 previousGlyphHeight = composer.glyphHeight;
     ObjPool* const nextPool = ObjPool::fromMemoryRaw();
     Fontpack* next;
     try {
@@ -224,12 +229,21 @@ void ApplicationImpl::replaceFontpack(u16 size) {
         throw;
     }
 
-    ObjPool* const previousPool = fontpackPool;
     fontpackPool = nextPool;
     composer.fontSize = size;
     composer.fonts = next;
     composer.setGlyphSize(next->getPx(), next->getPy());
-    publishFontChanged();
+    try {
+        publishFontChanged();
+    } catch (...) {
+        fontpackPool = previousPool;
+        composer.fontSize = previousFontSize;
+        composer.fonts = previousFonts;
+        composer.glyphWidth = previousGlyphWidth;
+        composer.glyphHeight = previousGlyphHeight;
+        delete nextPool;
+        throw;
+    }
     delete previousPool;
     if (columns != 0 && rows != 0) {
         window->resizePixels(2u * opts.border + (u32)(columns)*composer.glyphWidth, 2u * opts.border + (u32)(rows)*composer.glyphHeight);
@@ -240,7 +254,10 @@ void ApplicationImpl::setFontSize(u16 size) {
     if (composer.fontSize == size) {
         return;
     }
-    replaceFontpack(size);
+    try {
+        replaceFontpack(size);
+    } catch (...) {
+    }
 }
 
 void ApplicationImpl::fontInc() {
@@ -260,11 +277,16 @@ void ApplicationImpl::fontReset() {
 }
 
 void ApplicationImpl::contentScaleChanged() {
+    const u16 previousBorder = opts.border;
     int scaledBorder = (int)(logicalBorder * composer.contentScale + 0.5f);
     scaledBorder = scaledBorder < 0 ? 0 : scaledBorder > 3000 ? 3000 : scaledBorder;
     opts.border = (u16)(scaledBorder);
     if (fontpackPool != nullptr) {
-        replaceFontpack(composer.fontSize);
+        try {
+            replaceFontpack(composer.fontSize);
+        } catch (...) {
+            opts.border = previousBorder;
+        }
     }
 }
 

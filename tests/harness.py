@@ -343,6 +343,9 @@ class Shitty:
     def fail_next_present(self):
         self.command("FAIL_NEXT_PRESENT")
 
+    def fail_next_font_change(self):
+        self.command("FAIL_NEXT_FONT_CHANGE")
+
     def present(self):
         self.command("PRESENT")
 
