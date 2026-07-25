@@ -85,6 +85,14 @@ namespace {
         ApplicationImpl* application;
     };
 
+    struct CallContentScaleChanged final: public Listener {
+        explicit CallContentScaleChanged(ApplicationImpl* application);
+
+        void onListen(void*) override;
+
+        ApplicationImpl* application;
+    };
+
     struct ApplicationImpl final: public Application, public VtermHost {
         explicit ApplicationImpl(Composer& composer);
         ~ApplicationImpl();
@@ -113,7 +121,7 @@ namespace {
         bool committedRepaintPending = false;
         bool terminalHostReady = false;
         u16 initialFontSize = 0;
-        float fontDensity = 1.0f;
+        u16 logicalBorder = 0;
         std::optional<std::chrono::steady_clock::time_point> refreshDeadline;
 
         TestModeInput* testModeInput();
@@ -133,6 +141,7 @@ namespace {
         void fontDec();
         void fontReset();
         void setFontSize(u16 size);
+        void contentScaleChanged();
         void replaceFontpack(u16 size);
         void publishFontChanged();
     };
@@ -165,6 +174,15 @@ void CallFontReset::onListen(void*) {
     application->fontReset();
 }
 
+CallContentScaleChanged::CallContentScaleChanged(ApplicationImpl* application_)
+    : application(application_)
+{
+}
+
+void CallContentScaleChanged::onListen(void*) {
+    application->contentScaleChanged();
+}
+
 ApplicationImpl::ApplicationImpl(Composer& composer_)
     : composer(composer_)
     , window(Window::create(composer))
@@ -172,6 +190,7 @@ ApplicationImpl::ApplicationImpl(Composer& composer_)
     composer.fontIncListeners.pushBack(composer.pool->make<CallFontInc>(this));
     composer.fontDecListeners.pushBack(composer.pool->make<CallFontDec>(this));
     composer.fontResetListeners.pushBack(composer.pool->make<CallFontReset>(this));
+    composer.contentScaleChangedListeners.pushBack(composer.pool->make<CallContentScaleChanged>(this));
 
     composer.inputBindings->add({InputKey::Printable, InputControl | InputShift, '=', '+'}, &composer.fontIncListeners);
     composer.inputBindings->add({InputKey::Printable, InputControl, '-', '-'}, &composer.fontDecListeners);
@@ -191,12 +210,12 @@ void ApplicationImpl::publishFontChanged() {
 }
 
 void ApplicationImpl::replaceFontpack(u16 size) {
-    const u16 columns = composer.columns;
-    const u16 rows = composer.rows;
+    const u16 columns = composer.columns == 0 ? opts.nCols : composer.columns;
+    const u16 rows = composer.rows == 0 ? opts.nRows : composer.rows;
     ObjPool* const nextPool = ObjPool::fromMemoryRaw();
     Fontpack* next;
     try {
-        int scaled = (int)(size * fontDensity + 0.5f);
+        int scaled = (int)(size * composer.contentScale + 0.5f);
         scaled = scaled < 1 ? 1 : scaled > 255 ? 255 : scaled;
         const u16 pixels = (u16)(scaled);
         next = Fontpack::create(*nextPool, opts.fontname, opts.dwfontname, pixels);
@@ -238,6 +257,15 @@ void ApplicationImpl::fontDec() {
 
 void ApplicationImpl::fontReset() {
     setFontSize(initialFontSize);
+}
+
+void ApplicationImpl::contentScaleChanged() {
+    int scaledBorder = (int)(logicalBorder * composer.contentScale + 0.5f);
+    scaledBorder = scaledBorder < 0 ? 0 : scaledBorder > 3000 ? 3000 : scaledBorder;
+    opts.border = (u16)(scaledBorder);
+    if (fontpackPool != nullptr) {
+        replaceFontpack(composer.fontSize);
+    }
 }
 
 TestModeInput* ApplicationImpl::testModeInput() {
@@ -658,6 +686,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     opts.initialize(&argc, argv);
     opts.parse();
     initialFontSize = opts.fontsize;
+    logicalBorder = opts.border;
     composer.fontSize = initialFontSize;
     if (opts.verbose) {
         opts.printVersion();
@@ -687,10 +716,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     composer.pty = terminalPty;
 
     window->initialize();
-    fontDensity = window->density();
-    int scaledBorder = (int)(opts.border * fontDensity + 0.5f);
-    scaledBorder = scaledBorder < 0 ? 0 : scaledBorder > 3000 ? 3000 : scaledBorder;
-    opts.border = (u16)(scaledBorder);
+    contentScaleChanged();
 
     replaceFontpack(initialFontSize);
     window->show();

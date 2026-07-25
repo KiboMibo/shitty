@@ -458,9 +458,25 @@ class Shitty:
     def font_state(self):
         self.stream.write(b"FONT_STATE\n")
         response = self._readline().split()
-        if len(response) != 8 or response[0] != "OK":
+        if len(response) != 10 or response[0] != "OK":
             raise RuntimeError("invalid font state response")
         return tuple(map(int, response[1:]))
+
+    def frontend_content_scale(
+        self,
+        x_numerator,
+        x_denominator,
+        y_numerator=None,
+        y_denominator=None,
+    ):
+        if y_numerator is None:
+            y_numerator = x_numerator
+        if y_denominator is None:
+            y_denominator = x_denominator
+        self.command(
+            f"FRONTEND_SCALE {x_numerator} {x_denominator} "
+            f"{y_numerator} {y_denominator}"
+        )
 
     def rectangle_origin(self):
         self.stream.write(b"RECTANGLE_ORIGIN\n")

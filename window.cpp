@@ -43,7 +43,6 @@ namespace {
         ~WindowImpl();
 
         void initialize() override;
-        float density() override;
         void show() override;
         void activate() override;
         WindowEvents dispatchEvents(double timeout) override;
@@ -81,6 +80,8 @@ namespace {
         u32 baseLayoutKey(int key);
         void keyEvent(int key, int scancode, int action, int rawModifiers);
         void textInput(u32 codepoint, int rawModifiers);
+        void refreshContentScale();
+        void contentScale(float xScale, float yScale);
         double pixelScaleX();
         double pixelScaleY();
         int toPixelX(double x);
@@ -90,6 +91,7 @@ namespace {
         void mouseWheel(double x, double y);
 
         int gridAlignedWindowSize(int framebufferSize, int border, int cellSize, float scale, int currentWindowSize);
+        void configureGridSize();
         void queueResize(int width, int height);
         void onFramebufferSize(int width, int height);
         void setupCallbacks();
@@ -131,6 +133,7 @@ namespace {
 
         void testKeyEvent(int key, int scancode, int action, int modifiers) override;
         void testTextInput(unsigned codepoint, int modifiers) override;
+        void testContentScale(float xScale, float yScale) override;
 
         WindowImpl* window;
     };
@@ -185,6 +188,10 @@ void TestModeInputImpl::testTextInput(unsigned codepoint, int modifiers) {
     window->textInput(codepoint, modifiers);
 }
 
+void TestModeInputImpl::testContentScale(float xScale, float yScale) {
+    window->contentScale(xScale, yScale);
+}
+
 [[noreturn]]
 void WindowImpl::fail(const char* operation) {
     const char* description = nullptr;
@@ -220,17 +227,23 @@ void WindowImpl::initialize() {
     }
     glfwSetWindowUserPointer(window, this);
     glfwSetInputMode(window, GLFW_LOCK_KEY_MODS, GLFW_TRUE);
+    glfwSetWindowContentScaleCallback(window, [](GLFWwindow* source, float xScale, float yScale) {
+        fromWindow(source).guardCallback([&]() {
+            fromWindow(source).contentScale(xScale, yScale);
+        });
+    });
+    refreshContentScale();
 }
 
-float WindowImpl::density() {
+void WindowImpl::refreshContentScale() {
     float xScale = 1.0f;
     float yScale = 1.0f;
     glfwGetWindowContentScale(window, &xScale, &yScale);
-    return max(1.0f, max(xScale, yScale));
+    contentScale(xScale, yScale);
 }
 
-void WindowImpl::show() {
-    const float scale = density();
+void WindowImpl::configureGridSize() {
+    const float scale = composer.contentScale;
     const int desiredPixelWidth = 2 * opts.border + opts.nCols * composer.glyphWidth;
     const int desiredPixelHeight = 2 * opts.border + opts.nRows * composer.glyphHeight;
     const int desiredWidth = max(1, (int)(ceil(desiredPixelWidth / scale)));
@@ -240,7 +253,14 @@ void WindowImpl::show() {
 
     glfwSetWindowSizeLimits(window, minimumWidth, minimumHeight, GLFW_DONT_CARE, GLFW_DONT_CARE);
     glfwSetWindowSize(window, desiredWidth, desiredHeight);
+}
+
+void WindowImpl::show() {
+    configureGridSize();
     glfwShowWindow(window);
+    glfwPollEvents();
+    refreshContentScale();
+    configureGridSize();
     glfwPollEvents();
 
     int pixelWidth = 0;
@@ -264,6 +284,7 @@ void WindowImpl::activate() {
     }
     setupCallbacks();
     callbacksActive = true;
+    refreshContentScale();
     composer.input->focus(glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_TRUE);
 }
 
@@ -704,6 +725,13 @@ void WindowImpl::keyEvent(int key, int scancode, int action, int rawModifiers) {
 void WindowImpl::textInput(u32 codepoint, int rawModifiers) {
     if (codepoint != 0) {
         composer.input->text({codepoint, inputModifiers(rawModifiers)});
+    }
+}
+
+void WindowImpl::contentScale(float xScale, float yScale) {
+    const float scale = max(xScale, yScale);
+    if (isfinite(scale) && scale > 0.0f) {
+        composer.setContentScale(scale);
     }
 }
 

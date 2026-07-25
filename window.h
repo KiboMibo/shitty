@@ -31,7 +31,6 @@ struct WindowInfo {
 
 struct Window {
     virtual void initialize() = 0;
-    virtual float density() = 0;
     virtual void show() = 0;
     virtual void activate() = 0;
     virtual WindowEvents dispatchEvents(double timeout) = 0;

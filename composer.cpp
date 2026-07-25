@@ -24,6 +24,19 @@ Composer::Composer(ObjPool* pool_)
     inputBindings = InputBindings::create(*this);
 }
 
+void Composer::setContentScale(float scale) {
+    assert(scale > 0.0f);
+    if (contentScale == scale) {
+        return;
+    }
+    contentScale = scale;
+    for (IntrusiveNode* node = contentScaleChangedListeners.mutFront(); node != contentScaleChangedListeners.mutEnd();) {
+        Listener* const listener = static_cast<Listener*>(node);
+        node = node->next;
+        listener->onListen();
+    }
+}
+
 void Composer::setGlyphSize(u16 width, u16 height) {
     assert(width != 0);
     assert(height != 0);

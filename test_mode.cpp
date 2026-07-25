@@ -41,6 +41,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <deque>
 #include <fcntl.h>
@@ -1723,8 +1724,20 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 writeAll(controlFd, "OK " + std::to_string(size.ws_col) + " " + std::to_string(size.ws_row) + "\n");
             } else if (line == "FONT_STATE") {
                 StringBuilder output;
-                output << StringView(u8"OK ") << composer.fontSize << StringView(u8" ") << composer.glyphWidth << StringView(u8" ") << composer.glyphHeight << StringView(u8" ") << composer.pixelWidth << StringView(u8" ") << composer.pixelHeight << StringView(u8" ") << composer.columns << StringView(u8" ") << composer.rows << StringView(u8"\n");
+                output << StringView(u8"OK ") << composer.fontSize << StringView(u8" ") << composer.glyphWidth << StringView(u8" ") << composer.glyphHeight << StringView(u8" ") << composer.pixelWidth << StringView(u8" ") << composer.pixelHeight << StringView(u8" ") << composer.columns << StringView(u8" ") << composer.rows << StringView(u8" ") << (unsigned)(composer.contentScale * 1000.0f + 0.5f) << StringView(u8" ") << opts.border << StringView(u8"\n");
                 writeAll(controlFd, StringView(output));
+            } else if (line.compare(0, 15, "FRONTEND_SCALE ") == 0) {
+                unsigned xNumerator = 0;
+                unsigned xDenominator = 0;
+                unsigned yNumerator = 0;
+                unsigned yDenominator = 0;
+                char trailing = 0;
+                if (sscanf(line.c_str() + 15, "%u %u %u %u %c", &xNumerator, &xDenominator, &yNumerator, &yDenominator, &trailing) != 4 || xNumerator == 0 || xDenominator == 0 || yNumerator == 0 || yDenominator == 0 || xNumerator > 10000 || xDenominator > 10000 || yNumerator > 10000 || yDenominator > 10000) {
+                    Errno(EINVAL).raise(StringView(u8"invalid frontend scale"));
+                }
+                input.testContentScale((float)(xNumerator) / xDenominator, (float)(yNumerator) / yDenominator);
+                terminal.update();
+                writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 4, "KEY ") == 0) {
                 std::istringstream args(line.substr(4));
                 std::string name;

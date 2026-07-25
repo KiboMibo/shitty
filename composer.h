@@ -33,6 +33,7 @@ struct Window;
 struct Composer {
     explicit Composer(stl::ObjPool* pool);
 
+    void setContentScale(float scale);
     void setGlyphSize(u16 width, u16 height);
     void resize(u16 pixelWidth, u16 pixelHeight);
 
@@ -58,9 +59,11 @@ struct Composer {
     u16 glyphWidth = 0;
     u16 glyphHeight = 0;
     u16 fontSize = 0;
+    float contentScale = 1.0f;
 
     // resize() commits all geometry fields before walking this list.
     stl::IntrusiveList resizedListeners;
+    stl::IntrusiveList contentScaleChangedListeners;
     stl::IntrusiveList fontIncListeners;
     stl::IntrusiveList fontDecListeners;
     stl::IntrusiveList fontResetListeners;
