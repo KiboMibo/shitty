@@ -24,6 +24,11 @@ namespace stl {
     class ObjPool;
 }
 
+struct ScreenHyperlink {
+    stl::StringView payload;
+    u32 displayId = 0;
+};
+
 struct Screen {
     struct Cursor {
         Point position;
@@ -59,7 +64,7 @@ struct Screen {
     virtual void changeRectangleAttributes(u16 top, u16 left, u16 bottom, u16 right, const u32* modes, size_t modeCount, bool reverse) = 0;
     virtual u16 checksum(u16 top, u16 left, u16 bottom, u16 right) const noexcept = 0;
     virtual void appendPrintableLine(u16 row, std::string& output) const = 0;
-    virtual stl::StringView hyperlinkAt(u16 row, u16 column) const noexcept = 0;
+    virtual ScreenHyperlink hyperlinkAt(u16 row, u16 column) const noexcept = 0;
     virtual TerminalCell testCell(u16 row, u16 column) const noexcept = 0;
     virtual void fullCopyCells(RenderCell* dest) const = 0;
     virtual void deltaCopyCells(RenderCell* dest) = 0;

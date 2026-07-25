@@ -227,16 +227,19 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Rende
         }
     }
 
-    if (cell.underline) {
+    const bool hyperlinkUnderline = !cell.underline && cell.hyperlink != 0 && cell.hyperlink == update.hoveredHyperlink;
+    if (cell.underline || hyperlinkUnderline) {
+        const u8 underlineStyle = hyperlinkUnderline ? 1 : cell.underline_style;
+        const Color underlineColor = hyperlinkUnderline ? foreground : cell.underline_color;
         for (int x = 0; x < cellWidth; ++x) {
-            const bool draw = cell.underline_style != 4 || (x & 1) == 0;
-            const bool patterned = cell.underline_style != 5 || x % 6 < 4;
-            const int waveY = cell.underline_style == 3 ? x & 1 : 0;
+            const bool draw = underlineStyle != 4 || (x & 1) == 0;
+            const bool patterned = underlineStyle != 5 || x % 6 < 4;
+            const int waveY = underlineStyle == 3 ? x & 1 : 0;
             if (draw && patterned) {
-                putPixel(outputX + x, outputY + cellHeight - 1 - waveY, cell.underline_color);
+                putPixel(outputX + x, outputY + cellHeight - 1 - waveY, underlineColor);
             }
-            if (cell.underline_style == 2 && cellHeight > 2) {
-                putPixel(outputX + x, outputY + cellHeight - 3, cell.underline_color);
+            if (underlineStyle == 2 && cellHeight > 2) {
+                putPixel(outputX + x, outputY + cellHeight - 3, underlineColor);
             }
         }
     }

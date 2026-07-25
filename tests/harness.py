@@ -545,6 +545,9 @@ class Shitty:
     def focus(self, focused):
         self.command(f"FOCUS {int(focused)}")
 
+    def pointer_presence(self, present):
+        self.command(f"POINTER_PRESENCE {int(present)}")
+
     def highlight_release(self, end_x, end_y, mouse_x, mouse_y):
         self.command(
             f"HIGHLIGHT_RELEASE {end_x} {end_y} {mouse_x} {mouse_y}"
@@ -595,6 +598,20 @@ class Shitty:
         if len(response) != 2 or response[0] != "OK":
             raise RuntimeError("invalid hyperlink count response")
         return int(response[1])
+
+    def desktop_state(self):
+        self.stream.write(b"DESKTOP_STATE\n")
+        response = self._readline().split()
+        if len(response) != 5 or response[0] != "OK":
+            raise RuntimeError("invalid desktop state response")
+        return {
+            "icon": int(response[1]),
+            "open_count": int(response[2]),
+            "hovered_hyperlink": int(response[3]),
+            "opened_uri": (
+                b"" if response[4] == "-" else bytes.fromhex(response[4])
+            ),
+        }
 
     def read_actions(self):
         return self._read_hex_response("READ_ACTIONS").decode().splitlines()

@@ -127,9 +127,11 @@ namespace {
             u32 selectionColorMask;
             u32 blinkVisible;
             u32 cursorBlink;
+            u32 previousHoveredHyperlink;
+            u32 hoveredHyperlink;
         };
 
-        static_assert(sizeof(PushConstants) == 112, "Vulkan push constant layout mismatch");
+        static_assert(sizeof(PushConstants) == 120, "Vulkan push constant layout mismatch");
 
         struct GlyphSlot {
             u32 id = 0;
@@ -214,6 +216,7 @@ namespace {
         bool outputInitialized = false;
         TerminalCursor previousCursor;
         Rect previousSelection;
+        u32 previousHoveredHyperlink = 0;
         bool previousStateValid = false;
 
         VkSwapchainKHR swapchain = VK_NULL_HANDLE;
@@ -1489,6 +1492,8 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const T
         update.selectionColorMask,
         update.blinkVisible ? 1u : 0u,
         update.cursorBlink ? 1u : 0u,
+        previousHoveredHyperlink,
+        update.hoveredHyperlink,
     };
     vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
     vkCmdBindDescriptorSets(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &frame.descriptorSet, 0, nullptr);
@@ -1753,6 +1758,7 @@ bool RendererImpl::present(const TerminalUpdate& update, bool incrementalFrame) 
     outputInitialized = true;
     previousCursor = update.cursor;
     previousSelection = update.snappedSelection;
+    previousHoveredHyperlink = update.hoveredHyperlink;
     previousStateValid = true;
     return submitPresentFrame(width, height, *frame, imageIndex, recreateAfterPresent);
 }

@@ -330,6 +330,7 @@ namespace {
 
         Buffer openedUri;
         PointerIcon icon = PointerIcon::Text;
+        u64 openCount = 0;
     };
 
     struct TestDisplay final: public VtermHost {
@@ -370,6 +371,7 @@ namespace {
         Color selectionForeground;
         Color selectionBackground;
         u8 selectionColorMask = 0;
+        u32 hoveredHyperlink = 0;
         size_t graphemeCells = 0;
         size_t graphemeCodepoints = 0;
         TerminalCursor cursor;
@@ -497,6 +499,7 @@ void TestClipboard::writeClipboard(StringView content) {
 void TestDesktopActions::openUri(StringView uri) {
     openedUri.reset();
     openedUri.append(uri.data(), uri.length());
+    ++openCount;
 }
 
 void TestDesktopActions::pointerIcon(PointerIcon icon_) {
@@ -568,6 +571,7 @@ bool TestDisplay::update(const TerminalUpdate& update) {
     selectionForeground = update.selectionForeground;
     selectionBackground = update.selectionBackground;
     selectionColorMask = update.selectionColorMask;
+    hoveredHyperlink = update.hoveredHyperlink;
     cellExtras = update.cellExtras;
     graphemeCells = 0;
     graphemeCodepoints = 0;
@@ -816,6 +820,7 @@ TerminalUpdate TestDisplay::renderUpdate() const {
         .selectionForeground = selectionForeground,
         .selectionBackground = selectionBackground,
         .selectionColorMask = selectionColorMask,
+        .hoveredHyperlink = hoveredHyperlink,
         .incremental = false,
         .screenReverse = screenReverse,
         .blinkVisible = blinkVisible,
@@ -1892,6 +1897,10 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
             } else if (line.compare(0, 6, "FOCUS ") == 0) {
                 terminal.setHasFocus(line.substr(6) == "1");
                 writeAll(controlFd, "OK\n");
+            } else if (line == "POINTER_PRESENCE 0" || line == "POINTER_PRESENCE 1") {
+                composer.input->pointerPresence(line.back() == '1');
+                terminal.update();
+                writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 18, "HIGHLIGHT_RELEASE ") == 0) {
                 std::istringstream args(line.substr(18));
                 unsigned endX, endY, mouseX, mouseY;
@@ -1955,6 +1964,16 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 writeAll(controlFd, "OK " + encodeHex(terminal.getHyperlink(opts.border + column, opts.border + row)) + "\n");
             } else if (line == "HYPERLINK_COUNT") {
                 writeAll(controlFd, "OK " + std::to_string(terminal.getHyperlinkCount()) + "\n");
+            } else if (line == "DESKTOP_STATE") {
+                StringBuilder output;
+                output << StringView(u8"OK ") << (unsigned)(desktopActions.icon) << StringView(u8" ") << desktopActions.openCount << StringView(u8" ") << display.hoveredHyperlink << StringView(u8" ");
+                if (desktopActions.openedUri.empty()) {
+                    output << StringView(u8"-");
+                } else {
+                    appendHex(output, StringView(desktopActions.openedUri));
+                }
+                output << StringView(u8"\n");
+                writeAll(controlFd, StringView(output));
             } else if (line == "READ_ACTIONS") {
                 writeAll(controlFd, "OK " + encodeHex(actions) + "\n");
                 actions.clear();

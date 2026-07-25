@@ -63,6 +63,8 @@ layout (push_constant) uniform PushConstants
    uint selectionColorMask;
    uint blinkVisible;
    uint cursorBlink;
+   uint previousHoveredHyperlink;
+   uint hoveredHyperlink;
 } parameters;
 
 vec3 unpackColor (uint color)
@@ -358,8 +360,13 @@ void main ()
       bool previousCursor =
          cellPosition.x == parameters.previousCursorX &&
          cellPosition.y == parameters.previousCursorY;
+      bool hyperlinkChanged =
+         cell.hyperlink != 0 &&
+         parameters.hoveredHyperlink != parameters.previousHoveredHyperlink &&
+         (cell.hyperlink == parameters.hoveredHyperlink ||
+          cell.hyperlink == parameters.previousHoveredHyperlink);
       if (dirty == 0 && !currentCursor && !previousCursor &&
-          parameters.selectionChanged == 0)
+          parameters.selectionChanged == 0 && !hyperlinkChanged)
          return;
    }
 
@@ -422,6 +429,13 @@ void main ()
       foreground = background;
    if (blink != 0 && parameters.blinkVisible == 0)
       foreground = background;
+   if (underline == 0 && cell.hyperlink != 0 &&
+       cell.hyperlink == parameters.hoveredHyperlink)
+   {
+      underline = 1;
+      underlineStyle = 1;
+      underlineColor = foreground;
+   }
    if (all (equal (cursor, background)))
       cursor = vec3 (1.0) - cursor;
 

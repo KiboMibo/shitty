@@ -89,7 +89,7 @@ namespace {
         void changeRectangleAttributes(u16 top, u16 left, u16 bottom, u16 right, const u32* modes, size_t modeCount, bool reverse) override;
         u16 checksum(u16 top, u16 left, u16 bottom, u16 right) const noexcept override;
         void appendPrintableLine(u16 row, std::string& output) const override;
-        stl::StringView hyperlinkAt(u16 row, u16 column) const noexcept override;
+        ScreenHyperlink hyperlinkAt(u16 row, u16 column) const noexcept override;
         TerminalCell testCell(u16 row, u16 column) const noexcept override;
         void fullCopyCells(RenderCell* dest) const override;
         void deltaCopyCells(RenderCell* dest) override;
@@ -1714,8 +1714,13 @@ void ScreenImpl<Coord, Epoch, RowIndex>::appendPrintableLine(u16 row, std::strin
 }
 
 template <typename Coord, typename Epoch, typename RowIndex>
-StringView ScreenImpl<Coord, Epoch, RowIndex>::hyperlinkAt(u16 row, u16 column) const noexcept {
-    return cellExtras()->hyperlink(getViewRowPtr(row)[column]);
+ScreenHyperlink ScreenImpl<Coord, Epoch, RowIndex>::hyperlinkAt(u16 row, u16 column) const noexcept {
+    const TerminalCell& cell = getViewRowPtr(row)[column];
+    CellExtraStore* const extras = cellExtras();
+    return {
+        .payload = extras->hyperlink(cell),
+        .displayId = extras->hyperlinkDisplayId(cell),
+    };
 }
 
 template <typename Coord, typename Epoch, typename RowIndex>

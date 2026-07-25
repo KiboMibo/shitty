@@ -153,6 +153,10 @@ namespace {
         void mouseProtocolCoordinates(MouseTrackingEnc encoding, int pixelX, int pixelY, u16& column, u16& row) const;
         void sendMouseProtocol(MouseTrackingEnc encoding, MouseEventType type, u16 modifiers, int button, int column, int row);
         void sendMouseButtonProtocol(MouseEventType type, int button, int pixelX, int pixelY, u16 modifiers, const MouseTrackingState& tracking);
+        bool refreshHyperlink();
+        void refreshHyperlinkAndRedraw();
+        void updatePointer(int pixelX, int pixelY, u16 modifiers);
+        void updatePointerModifiers(const KeyInput& input);
         bool paste(bool primary);
 
         struct PendingTextKey {
@@ -169,6 +173,13 @@ namespace {
         unsigned suppressedTextInputs = 0;
         bool suppressRepeatedTextInput = false;
         bool hyperlinkClick = false;
+        int pointerX = 0;
+        int pointerY = 0;
+        u16 pointerModifiers = 0;
+        u32 hoveredHyperlink = 0;
+        bool pointerPresent = false;
+        bool pointerPositionKnown = false;
+        bool pointerFocused = true;
         bool locallyConsumedKeys[(unsigned)(InputKey::Count) + 128]{};
     };
 
@@ -222,6 +233,7 @@ namespace {
         void selectionClear();
         void selectionRectangular();
         void paste(StringView text);
+        ScreenHyperlink resolveHyperlink(int pixelX, int pixelY) const noexcept;
         StringView hyperlinkAt(int pixelX, int pixelY);
         bool expireSynchronizedOutput(bool force) override;
         bool advanceAnimation(bool force) override;
@@ -1147,6 +1159,50 @@ bool VtermInput::paste(bool primary) {
     return true;
 }
 
+bool VtermInput::refreshHyperlink() {
+    u32 next = 0;
+    if (pointerFocused && pointerPresent && pointerPositionKnown && (pointerModifiers & InputControl)) {
+        next = terminal->resolveHyperlink(pointerX, pointerY).displayId;
+    }
+    if (next == hoveredHyperlink) {
+        return false;
+    }
+    const bool wasActive = hoveredHyperlink != 0;
+    hoveredHyperlink = next;
+    const bool active = hoveredHyperlink != 0;
+    if (active != wasActive && terminal->composer.desktopActions != nullptr) {
+        terminal->composer.desktopActions->pointerIcon(active ? PointerIcon::Link : PointerIcon::Text);
+    }
+    return true;
+}
+
+void VtermInput::refreshHyperlinkAndRedraw() {
+    if (refreshHyperlink()) {
+        terminal->redraw();
+    }
+}
+
+void VtermInput::updatePointer(int pixelX, int pixelY, u16 modifiers) {
+    pointerX = pixelX;
+    pointerY = pixelY;
+    pointerModifiers = modifiers;
+    pointerPresent = true;
+    pointerPositionKnown = true;
+    refreshHyperlinkAndRedraw();
+}
+
+void VtermInput::updatePointerModifiers(const KeyInput& input) {
+    pointerModifiers = input.modifiers;
+    if (input.key == InputKey::LeftControl || input.key == InputKey::RightControl) {
+        if (input.action == InputAction::Release) {
+            pointerModifiers &= ~InputControl;
+        } else {
+            pointerModifiers |= InputControl;
+        }
+    }
+    refreshHyperlinkAndRedraw();
+}
+
 void VtermInput::flush() {
     if (!pendingTextKey.active) {
         return;
@@ -1158,6 +1214,7 @@ void VtermInput::flush() {
 
 bool VtermInput::key(const KeyInput& input) {
     flush();
+    updatePointerModifiers(input);
     suppressRepeatedTextInput = input.action == InputAction::Repeat && !terminal->autoRepeatMode;
     const VtModifier modifiers = legacyModifiers(input.modifiers);
     const bool pressed = input.action != InputAction::Release;
@@ -1338,6 +1395,7 @@ void VtermInput::sendMouseButtonProtocol(MouseEventType type, int button, int pi
 }
 
 bool VtermInput::pointerButton(const PointerButtonInput& input) {
+    updatePointer(input.pixelX, input.pixelY, input.modifiers);
     const int button = (int)(input.button);
     mouse.updateButton(button, input.pressed);
     const MouseTrackingState tracking = terminal->mouseTrk;
@@ -1353,12 +1411,15 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
         hyperlinkClick = false;
         return true;
     }
-    if (input.pressed && input.button == PointerButton::Primary && (input.modifiers & InputControl)) {
-        const StringView link = terminal->hyperlinkAt(input.pixelX, input.pixelY);
-        if (!link.empty() && terminal->composer.desktopActions != nullptr) {
-            hyperlinkClick = true;
-            terminal->composer.desktopActions->openUri(link);
-            return true;
+    if (input.pressed && input.button == PointerButton::Primary) {
+        hyperlinkClick = false;
+        if (input.modifiers & InputControl) {
+            const ScreenHyperlink link = terminal->resolveHyperlink(input.pixelX, input.pixelY);
+            if (!link.payload.empty() && terminal->composer.desktopActions != nullptr) {
+                hyperlinkClick = true;
+                terminal->composer.desktopActions->openUri(link.payload);
+                return true;
+            }
         }
     }
     if (mouse.protocolActive(input.modifiers, tracking.mode)) {
@@ -1392,14 +1453,11 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
 }
 
 bool VtermInput::pointerMotion(const PointerMotionInput& input) {
+    updatePointer(input.pixelX, input.pixelY, input.modifiers);
     u16 locatorColumn = 1;
     u16 locatorRow = 1;
     mouseProtocolCoordinates(MouseTrackingEnc::Default, input.pixelX, input.pixelY, locatorColumn, locatorRow);
     terminal->setLocatorPosition(locatorColumn, locatorRow, std::max(1, input.pixelX + 1), std::max(1, input.pixelY + 1), 0);
-    if (terminal->composer.desktopActions != nullptr) {
-        const bool overHyperlink = (input.modifiers & InputControl) && !terminal->hyperlinkAt(input.pixelX, input.pixelY).empty();
-        terminal->composer.desktopActions->pointerIcon(overHyperlink ? PointerIcon::Link : PointerIcon::Text);
-    }
     const MouseTrackingState tracking = terminal->mouseTrk;
     if (mouse.protocolActive(input.modifiers, tracking.mode)) {
         if (tracking.mode == MouseTrackingMode::VT200_ButtonEvent && !mouse.primaryButtonPressed()) {
@@ -1421,6 +1479,7 @@ bool VtermInput::pointerMotion(const PointerMotionInput& input) {
 }
 
 bool VtermInput::scroll(const ScrollInput& input) {
+    updatePointer(input.pixelX, input.pixelY, input.modifiers);
     const MouseTrackingState tracking = terminal->mouseTrk;
     const bool reporting = mouse.protocolActive(input.modifiers, tracking.mode);
     const MouseWheelSteps steps = mouse.consumeWheel(input.x, input.y, reporting);
@@ -1446,7 +1505,10 @@ bool VtermInput::scroll(const ScrollInput& input) {
 }
 
 void VtermInput::focus(bool focused) {
+    pointerFocused = focused;
     if (!focused) {
+        pointerModifiers = 0;
+        hyperlinkClick = false;
         mouse.clearButtons();
         mouse.endSelection();
         suppressedTextInputs = 0;
@@ -1454,11 +1516,17 @@ void VtermInput::focus(bool focused) {
         pendingTextKey.active = false;
         std::fill(std::begin(locallyConsumedKeys), std::end(locallyConsumedKeys), false);
     }
+    refreshHyperlinkAndRedraw();
     terminal->setHasFocus(focused);
 }
 
-void VtermInput::pointerPresence(bool) {
+void VtermInput::pointerPresence(bool present) {
     mouse.resetMotion();
+    pointerPresent = present;
+    if (!present) {
+        pointerPositionKnown = false;
+    }
+    refreshHyperlinkAndRedraw();
 }
 
 VtermImpl::~VtermImpl() {
@@ -1626,8 +1694,25 @@ void VtermImpl::paste(StringView text) {
     pasteSelection(std::string((const char*)(text.data()), text.length()));
 }
 
+ScreenHyperlink VtermImpl::resolveHyperlink(int pixelX, int pixelY) const noexcept {
+    if (pixelX < opts.border || pixelY < opts.border || pixelX >= composer.pixelWidth - opts.border || pixelY >= composer.pixelHeight - opts.border) {
+        return {};
+    }
+    const u16 column = (pixelX - opts.border) / composer.glyphWidth;
+    const u16 row = (pixelY - opts.border) / composer.glyphHeight;
+    if (column >= cf->columns() || row >= cf->rows()) {
+        return {};
+    }
+    return cf->hyperlinkAt(row, column);
+}
+
 StringView VtermImpl::hyperlinkAt(int pixelX, int pixelY) {
-    inputResult = getHyperlink(pixelX, pixelY);
+    const StringView payload = resolveHyperlink(pixelX, pixelY).payload;
+    if (payload.empty()) {
+        inputResult.clear();
+    } else {
+        inputResult.assign((const char*)(payload.data()), payload.length());
+    }
     return StringView((const u8*)(inputResult.data()), inputResult.size());
 }
 
@@ -1644,6 +1729,7 @@ void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const 
     update.selectionForeground = frame.getSelectionForeground();
     update.selectionBackground = frame.getSelectionBackground();
     update.selectionColorMask = frame.getSelectionColorMask();
+    update.hoveredHyperlink = input.hoveredHyperlink;
     update.incremental = incremental;
     update.screenReverse = frame.getScreenReverseVideo();
     update.blinkVisible = frame.getBlinkVisible();
@@ -1964,6 +2050,7 @@ void VtermImpl::unhandledInput(unsigned char ch) {
 }
 
 void VtermImpl::redraw() {
+    input.refreshHyperlink();
     if (synchronizedOutputMode) {
         return;
     }
@@ -9539,17 +9626,7 @@ void VtermImpl::setHyperlink(const std::string& parametersAndUri) {
 }
 
 std::string VtermImpl::getHyperlink(int pX, int pY) const {
-    if (pX < opts.border || pY < opts.border || pX >= composer.pixelWidth - opts.border || pY >= composer.pixelHeight - opts.border) {
-        return {};
-    }
-
-    const u16 column = (pX - opts.border) / composer.glyphWidth;
-    const u16 row = (pY - opts.border) / composer.glyphHeight;
-    if (column >= cf->columns() || row >= cf->rows()) {
-        return {};
-    }
-
-    const StringView link = cf->hyperlinkAt(row, column);
+    const StringView link = resolveHyperlink(pX, pY).payload;
     return link.empty() ? std::string{} : std::string(reinterpret_cast<const char*>(link.data()), link.length());
 }
 

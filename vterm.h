@@ -199,6 +199,7 @@ struct TerminalUpdate {
     Color selectionForeground;
     Color selectionBackground;
     u8 selectionColorMask = 0;
+    u32 hoveredHyperlink = 0;
     bool incremental = false;
     bool screenReverse = false;
     bool blinkVisible = true;
