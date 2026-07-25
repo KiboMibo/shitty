@@ -9,6 +9,8 @@ from harness import Shitty
 
 
 class PtyOutputTest(unittest.TestCase):
+    protocol_high_water = 1024 * 1024
+
     def test_simultaneous_read_and_write_flushes_older_bytes_before_reply(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.script_pty_writes(("error", errno.EAGAIN))
@@ -51,6 +53,79 @@ class PtyOutputTest(unittest.TestCase):
             terminal.script_pty_writes(8)
             self.assertTrue(terminal.flush_output_result())
             self.assertEqual(terminal.read_written_pty(), b"retained")
+
+    def test_protocol_response_is_dropped_atomically_at_high_water(self):
+        queries = (
+            b"\x1b[5n",
+            b"\x1bP$qm\x1b\\",
+            b"\x1b]10;?\x1b\\",
+        )
+        for query in queries:
+            with self.subTest(query=query):
+                with Shitty(columns=8, rows=2) as terminal:
+                    terminal.script_pty_writes(("error", errno.EAGAIN))
+                    terminal.input(b"x" * (self.protocol_high_water - 2))
+
+                    terminal.write(query)
+
+                    self.assertEqual(
+                        terminal.pending_output(),
+                        self.protocol_high_water - 2,
+                    )
+                    self.assertEqual(terminal.dropped_pty_responses(), 1)
+
+    def test_protocol_query_flood_is_bounded(self):
+        response_size = len(b"\x1b[0n")
+        overflow = 7
+        query_count = self.protocol_high_water // response_size + overflow
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.script_pty_writes(("error", errno.EAGAIN))
+            terminal.write(b"\x1b[5n" * query_count)
+
+            self.assertEqual(terminal.pending_output(), self.protocol_high_water)
+            self.assertEqual(terminal.dropped_pty_responses(), overflow)
+
+    def test_user_input_is_accepted_above_protocol_high_water(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.script_pty_writes(("error", errno.EAGAIN))
+            terminal.input(b"x" * self.protocol_high_water)
+            terminal.paste(b"user")
+
+            self.assertEqual(
+                terminal.pending_output(), self.protocol_high_water + 4
+            )
+            self.assertEqual(terminal.dropped_pty_responses(), 0)
+
+            terminal.script_pty_writes(self.protocol_high_water + 4)
+            self.assertTrue(terminal.flush_output_result())
+            self.assertTrue(terminal.read_written_pty().endswith(b"user"))
+
+    def test_protocol_responses_resume_as_soon_as_space_is_available(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.script_pty_writes(("error", errno.EAGAIN))
+            terminal.input(b"x" * self.protocol_high_water)
+            terminal.write(b"\x1b[5n")
+            self.assertEqual(terminal.dropped_pty_responses(), 1)
+
+            terminal.script_pty_writes(self.protocol_high_water)
+            self.assertTrue(terminal.flush_output_result())
+            terminal.script_pty_writes(("error", errno.EAGAIN))
+            terminal.write(b"\x1b[5n")
+
+            self.assertEqual(terminal.pending_output(), len(b"\x1b[0n"))
+            self.assertEqual(terminal.dropped_pty_responses(), 1)
+
+    def test_full_reverse_queue_does_not_stop_pty_reading(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.script_pty_writes(("error", errno.EAGAIN))
+            terminal.input(b"x" * self.protocol_high_water)
+            terminal.script_pty_reads(b"visible", ("error", errno.EAGAIN))
+
+            self.assertFalse(
+                terminal.service_pty(readable=True, writable=True)
+            )
+            self.assertTrue(terminal.screen_text().startswith("visible"))
+            self.assertEqual(terminal.pending_output(), self.protocol_high_water)
 
 
 if __name__ == "__main__":

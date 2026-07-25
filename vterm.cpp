@@ -81,6 +81,8 @@ void MouseTrackingState::setEncoding(MouseTrackingEnc value) {
 }
 
 namespace {
+    constexpr size_t ptyProtocolHighWater = 1024 * 1024;
+
     bool decodeHex(const std::string& value, std::string& result) {
         const auto digit = [](unsigned char ch) -> int {
             if (ch >= '0' && ch <= '9') {
@@ -266,11 +268,13 @@ namespace {
             size_t getLength() const;
         };
 
-        int writePty(VtKey key, VtModifier modifiers = VtModifier::none, bool userInput = false);
-        int writePty(u8 ch, VtModifier modifiers = VtModifier::none, bool userInput = false);
+        int writePty(VtKey key, VtModifier modifiers = VtModifier::none, bool userInput = true);
+        int writePty(u8 ch, VtModifier modifiers = VtModifier::none, bool userInput = true);
         int writePty(const char* cstr, bool userInput = false);
         int writePty(const char* data, size_t size, bool userInput);
         int writePty(const u8* ucstr, size_t len, bool userInput = false);
+        void writeProtocolResponse(StringView prefix, StringView payload, StringView suffix = {});
+        void compactPtyOutput();
         int writeKittyKey(VtKey key, u16 modifiers, VtermKeyEventType event);
         int writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event);
         u8 getKittyKeyboardFlags() const;
@@ -570,8 +574,10 @@ namespace {
         VtermHost& host;
         Output* dump;
         VtermTrace* const parserTrace;
-        std::u8string ptyOutput;
+        Buffer ptyOutput;
+        Buffer protocolResponseScratch;
         size_t ptyOutputOffset = 0;
+        u64 droppedPtyResponses = 0;
         stl::Vector<RenderCell> outputCells;
         TerminalUpdate terminalUpdate;
 
@@ -1760,8 +1766,8 @@ void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const 
 
 VtermOutput VtermImpl::output() {
     VtermOutput result;
-    if (ptyOutputOffset < ptyOutput.size()) {
-        result.pty = StringView(ptyOutput.data() + ptyOutputOffset, ptyOutput.size() - ptyOutputOffset);
+    if (ptyOutputOffset < ptyOutput.used()) {
+        result.pty = StringView((const u8*)(ptyOutput.data()) + ptyOutputOffset, ptyOutput.used() - ptyOutputOffset);
     }
     if (!outputPending) {
         return result;
@@ -1792,11 +1798,11 @@ VtermOutput VtermImpl::output() {
 }
 
 void VtermImpl::consume(const VtermConsume& consumed) {
-    const size_t pending = ptyOutput.size() - ptyOutputOffset;
+    const size_t pending = ptyOutput.used() - ptyOutputOffset;
     assert(consumed.ptyBytes <= pending);
     ptyOutputOffset += consumed.ptyBytes;
-    if (ptyOutputOffset == ptyOutput.size()) {
-        ptyOutput.clear();
+    if (ptyOutputOffset == ptyOutput.used()) {
+        ptyOutput.reset();
         ptyOutputOffset = 0;
     }
     if (!consumed.terminal) {
@@ -1842,6 +1848,7 @@ TestApiImpl::TestApiImpl(VtermImpl* vterm_)
 VtermTestState TestApiImpl::inspect() const {
     VtermTestState result;
     result.mouse = vterm->mouseTrk;
+    result.droppedPtyResponses = vterm->droppedPtyResponses;
     result.kittyKeyboardFlags = vterm->getKittyKeyboardFlags();
     result.screenReverseVideo = vterm->screenReverseVideo;
     result.ledState = vterm->ledState;
@@ -8032,30 +8039,41 @@ int VtermImpl::writePty(const char* cstr, bool userInput) {
 }
 
 int VtermImpl::writePty(const char* data, size_t size, bool userInput) {
-    const std::u8string bytes(data, data + size);
-    return writePty(bytes.data(), bytes.size(), userInput);
+    return writePty((const u8*)(data), size, userInput);
 }
 
 void VtermImpl::writeCsiResponse(StringView payload) {
     const StringView prefix = send8BitControls ? StringView(u8"\x9b") : StringView(u8"\x1b[");
-    writePty(prefix.data(), prefix.length(), false);
-    writePty(payload.data(), payload.length(), false);
+    writeProtocolResponse(prefix, payload);
 }
 
 void VtermImpl::writeDcsResponse(StringView payload) {
     const StringView prefix = send8BitControls ? StringView(u8"\x90") : StringView(u8"\x1bP");
     const StringView suffix = send8BitControls ? StringView(u8"\x9c") : StringView(u8"\x1b\\");
-    writePty(prefix.data(), prefix.length(), false);
-    writePty(payload.data(), payload.length(), false);
-    writePty(suffix.data(), suffix.length(), false);
+    writeProtocolResponse(prefix, payload, suffix);
 }
 
 void VtermImpl::writeOscResponse(StringView payload) {
     const StringView prefix = send8BitControls ? StringView(u8"\x9d") : StringView(u8"\x1b]");
     const StringView suffix = send8BitControls ? StringView(u8"\x9c") : StringView(u8"\x1b\\");
-    writePty(prefix.data(), prefix.length(), false);
-    writePty(payload.data(), payload.length(), false);
-    writePty(suffix.data(), suffix.length(), false);
+    writeProtocolResponse(prefix, payload, suffix);
+}
+
+void VtermImpl::writeProtocolResponse(StringView prefix, StringView payload, StringView suffix) {
+    StringBuilder response(static_cast<Buffer&&>(protocolResponseScratch));
+    response.reset();
+    response << prefix << payload << suffix;
+    writePty((const u8*)(response.data()), response.used(), false);
+    protocolResponseScratch = static_cast<Buffer&&>(response);
+}
+
+void VtermImpl::compactPtyOutput() {
+    const size_t pending = ptyOutput.used() - ptyOutputOffset;
+    if (pending != 0) {
+        memmove(ptyOutput.mutData(), (const u8*)(ptyOutput.data()) + ptyOutputOffset, pending);
+    }
+    ptyOutput.seekAbsolute(pending);
+    ptyOutputOffset = 0;
 }
 
 int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
@@ -8071,11 +8089,21 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
         const std::string localEcho = getLocalEcho(ucstr, ucstr + len);
         processInput((const u8*)localEcho.data(), (int)localEcho.size());
     }
-    if (ptyOutputOffset == ptyOutput.size()) {
-        ptyOutput.clear();
+    if (ptyOutputOffset == ptyOutput.used()) {
+        ptyOutput.reset();
         ptyOutputOffset = 0;
     }
-    ptyOutput.insert(ptyOutput.end(), ucstr, ucstr + len);
+    const size_t pending = ptyOutput.used() - ptyOutputOffset;
+    if (!userInput && len != 0 && (pending > ptyProtocolHighWater || len > ptyProtocolHighWater - pending)) {
+        ++droppedPtyResponses;
+        return 0;
+    }
+    if (!userInput && ptyOutputOffset != 0 && ptyOutput.used() + len > ptyProtocolHighWater) {
+        compactPtyOutput();
+    } else if (userInput && ptyOutputOffset != 0 && ptyOutput.used() + len > ptyOutput.capacity()) {
+        compactPtyOutput();
+    }
+    ptyOutput.append(ucstr, len);
     return len;
 }
 

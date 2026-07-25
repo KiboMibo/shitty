@@ -412,6 +412,7 @@ namespace {
         bool servicePty(bool readable, bool writable);
         bool flushPtyOutput();
         size_t pendingPtyOutputBytes();
+        u64 droppedPtyResponses();
         MouseTrackingState getMouseTrackingState();
         u8 getKittyKeyboardFlags();
         bool getScreenReverseVideo();
@@ -953,6 +954,10 @@ bool TestTerminal::flushPtyOutput() {
 
 size_t TestTerminal::pendingPtyOutputBytes() {
     return terminal.output().pty.length();
+}
+
+u64 TestTerminal::droppedPtyResponses() {
+    return testApi.inspect().droppedPtyResponses;
 }
 
 bool TestTerminal::readPty() {
@@ -2124,6 +2129,10 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 writeAll(controlFd, "OK " + encodeHex(drainInput(io[1])) + "\n");
             } else if (line == "PENDING_OUTPUT") {
                 writeAll(controlFd, "OK " + std::to_string(terminal.pendingPtyOutputBytes()) + "\n");
+            } else if (line == "DROPPED_PTY_RESPONSES") {
+                StringBuilder output;
+                output << StringView(u8"OK ") << terminal.droppedPtyResponses() << StringView(u8"\n");
+                writeAll(controlFd, StringView(output));
             } else if (line == "FLUSH_OUTPUT") {
                 terminal.flushPtyOutput();
                 writeAll(controlFd, "OK\n");

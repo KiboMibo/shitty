@@ -790,6 +790,13 @@ class Shitty:
             raise RuntimeError("invalid pending output response")
         return int(response[1])
 
+    def dropped_pty_responses(self):
+        self.stream.write(b"DROPPED_PTY_RESPONSES\n")
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid dropped PTY response count")
+        return int(response[1])
+
     def flush_output(self):
         self.command("FLUSH_OUTPUT")
 
