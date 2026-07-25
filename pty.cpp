@@ -80,7 +80,6 @@ namespace {
 
         Composer& composer_;
         int fd_;
-        bool resizeActive_ = false;
     };
 
 }
@@ -110,12 +109,7 @@ int PtyImpl::fd() const {
 }
 
 ssize_t PtyImpl::read(u8* buffer, size_t size) {
-    const ssize_t count = ::read(fd_, buffer, size);
-    if (count > 0 && !resizeActive_) {
-        resizeActive_ = true;
-        applySize();
-    }
-    return count;
+    return ::read(fd_, buffer, size);
 }
 
 ssize_t PtyImpl::write(const u8* buffer, size_t size) {
@@ -123,9 +117,7 @@ ssize_t PtyImpl::write(const u8* buffer, size_t size) {
 }
 
 void PtyImpl::onListen(void*) {
-    if (resizeActive_) {
-        applySize();
-    }
+    applySize();
 }
 
 void PtyImpl::applySize() {

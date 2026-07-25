@@ -349,7 +349,7 @@ void ApplicationImpl::setupSignals() {
 
 int ApplicationImpl::startShell(const char* execPath, const char* const argv[]) {
     int ptyFd = -1;
-    const pid_t pid = pty_fork(ptyFd, opts.nCols, opts.nRows);
+    const pid_t pid = pty_fork(ptyFd, composer.columns, composer.rows);
     if (pid < 0) {
         sysError("fork");
     }
@@ -732,16 +732,16 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     }
     shellArgv.push_back(nullptr);
 
-    setupSignals();
-    const int ptyFd = startShell(launch.executable.c_str(), shellArgv.data());
-    terminalPty = Pty::adopt(composer, ptyFd);
-    composer.pty = terminalPty;
-
     window->initialize();
     contentScaleChanged();
 
     replaceFontpack(initialFontSize);
     window->show();
+
+    setupSignals();
+    const int ptyFd = startShell(launch.executable.c_str(), shellArgv.data());
+    terminalPty = Pty::adopt(composer, ptyFd);
+    composer.pty = terminalPty;
 
     renderer = window->createRender();
     composer.renderer = renderer;

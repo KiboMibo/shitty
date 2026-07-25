@@ -45,7 +45,8 @@ os.write(
 )
 signal.pause()
 '''
-        with Shitty(columns=80, rows=4) as terminal:
+        with Shitty(columns=72, rows=3) as terminal:
+            terminal.resize(80, 4)
             terminal.spawn(sys.executable, "-c", program)
             terminal.wait_read_pty()
             self.assertEqual(
