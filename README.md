@@ -100,7 +100,8 @@ bold, italic, and bold-italic faces automatically. An optional double-width
 font is used only when its cell is exactly twice as wide as the primary font
 at the same height.
 
-Use `./st -help` for the main option list and `./st -listres` for advanced
+Use `./st -v` to print the build version without opening a window,
+`./st -help` for the main option list, and `./st -listres` for advanced
 terminal, colour, clipboard, and window-policy options. Boolean flags use
 `-flag` to enable and `+flag` to disable. `SHITTY_FONT_SIZE` sets the default
 font size; `-fontsize` takes precedence.

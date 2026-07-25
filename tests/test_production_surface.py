@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_BINARY = Path(
     os.environ.get("SHITTY_PRODUCTION_BINARY", ROOT / "st")
 )
+TEST_VERSION = os.environ.get("SHITTY_TEST_VERSION")
 
 
 class ProductionSurfaceTest(unittest.TestCase):
@@ -37,6 +38,24 @@ class ProductionSurfaceTest(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(b"unknown option: --test-fd", result.stderr)
+
+    def test_version_probe_exits_before_window_startup(self):
+        expected = (
+            f"Shitty {TEST_VERSION}\n"
+            "Copyright (C) 2026 Shitty team\n"
+        ).encode()
+        for argument in ("-v", "-version"):
+            with self.subTest(argument=argument):
+                result = subprocess.run(
+                    [str(PRODUCTION_BINARY), argument],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=5,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, expected)
+                self.assertEqual(result.stderr, b"")
 
 
 if __name__ == "__main__":

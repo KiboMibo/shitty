@@ -35,6 +35,12 @@ class DesktopIdentityTests(unittest.TestCase):
     def test_desktop_icon_matches_installed_svg(self):
         self.assertEqual(self.desktop_value("Icon"), (ROOT / "shitty.svg").stem)
 
+    def test_desktop_window_class_matches_application_identity(self):
+        self.assertEqual(
+            self.desktop_value("StartupWMClass"),
+            self.desktop_value("Icon"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

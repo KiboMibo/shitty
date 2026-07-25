@@ -437,7 +437,7 @@ void Options::parse() {
 }
 
 void Options::printVersion() const {
-    sysO << StringView(u8"Shitty " SHITTY_VERSION "\nCopyright (C) 2020 Tom Szilagyi\n\nThis program comes with ABSOLUTELY NO WARRANTY.\nShitty is free software, and you are welcome to redistribute it\nunder the terms and conditions of the GNU GPL v3 (or later).\n") << endL;
+    sysO << StringView(u8"Shitty " SHITTY_VERSION "\nCopyright (C) 2026 Shitty team") << endL;
 }
 
 void Options::printUsage() const {
