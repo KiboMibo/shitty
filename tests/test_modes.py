@@ -31,6 +31,22 @@ class ModeTest(unittest.TestCase):
 
         self.assertEqual(refreshes, 3)
 
+    def test_smooth_scroll_frames_survive_alternate_screen_reentry(self):
+        with Shitty(columns=80, rows=24) as terminal:
+            terminal.write(
+                b"\x1b[?4h\x1b[?1049h"
+                b"\x1b[S\x1b[S"
+                b"\x1b[?1049h"
+                + b"a\xcc\x81" * 7
+            )
+            snapshot = terminal.snapshot()
+
+        self.assertEqual(snapshot.lines[0][:7], "a" * 7)
+        self.assertEqual(
+            [snapshot.cell(column, 0).grapheme for column in range(7)],
+            [(ord("a"), 0x301)] * 7,
+        )
+
     def test_new_line_mode_applies_to_lf_vt_and_ff(self):
         for control in (b"\n", b"\v", b"\f"):
             with self.subTest(control=control), Shitty(columns=8, rows=3) as terminal:
