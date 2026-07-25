@@ -8,30 +8,15 @@ from harness import Shitty
 
 
 class ModeTest(unittest.TestCase):
-    def test_smooth_scroll_presents_each_intermediate_line(self):
-        output = b"a\r\nb\r\nc\r\nd"
-        with Shitty(columns=8, rows=2) as terminal:
-            before = terminal.snapshot().refresh_count
-            terminal.write(b"\x1b[?4l" + output)
-            jump_refreshes = terminal.snapshot().refresh_count - before
-
-        with Shitty(columns=8, rows=2) as terminal:
-            before = terminal.snapshot().refresh_count
-            terminal.write(b"\x1b[?4h" + output)
-            smooth_refreshes = terminal.snapshot().refresh_count - before
-
-        self.assertEqual(jump_refreshes, 1)
-        self.assertEqual(smooth_refreshes, 3)
-
-    def test_smooth_scroll_coalesces_when_consumer_falls_behind(self):
+    def test_smooth_scroll_mode_coalesces_into_one_update(self):
         with Shitty(columns=8, rows=2) as terminal:
             before = terminal.snapshot().refresh_count
             terminal.write(b"\x1b[?4h" + b"x\r\n" * 100)
             refreshes = terminal.snapshot().refresh_count - before
 
-        self.assertEqual(refreshes, 3)
+        self.assertEqual(refreshes, 1)
 
-    def test_smooth_scroll_frames_survive_alternate_screen_reentry(self):
+    def test_smooth_scroll_mode_survives_alternate_screen_reentry(self):
         with Shitty(columns=80, rows=24) as terminal:
             terminal.write(
                 b"\x1b[?4h\x1b[?1049h"
@@ -39,7 +24,7 @@ class ModeTest(unittest.TestCase):
                 b"\x1b[?1049h"
                 + b"a\xcc\x81" * 7
             )
-            snapshot = terminal.snapshot()
+            snapshot = terminal.model_snapshot()
 
         self.assertEqual(snapshot.lines[0][:7], "a" * 7)
         self.assertEqual(

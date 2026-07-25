@@ -228,7 +228,6 @@ namespace {
         void createFreshScreen(Screen*& frame, stl::ObjPool*& pool);
         void createInactiveScreen(Screen*& frame, stl::ObjPool*& pool);
         void resizeScreen(Screen*& frame, stl::ObjPool*& pool, bool reflow, Screen::Cursor* cursor);
-        void discardQueuedUpdates();
 
         void redraw();
         bool animationActive() const;
@@ -292,7 +291,6 @@ namespace {
         bool presentationChanged(const PresentationState& before) const;
         void syncPresentationCursor();
         void fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const RenderCell* cells, size_t count, bool incremental);
-        void queueTerminalUpdate();
 
         void writeCsiResponse(StringView payload);
         void writeDcsResponse(StringView payload);
@@ -424,7 +422,6 @@ namespace {
         void moveCursorBackward(u32 count);
         void scrollRegionUp(u16 count);
         void scrollRegionDown(u16 count);
-        void presentSmoothScroll();
 
         void esc_DCS(unsigned char fin);
         bool esc_IND();
@@ -552,21 +549,11 @@ namespace {
         stl::Vector<RenderCell> outputCells;
         TerminalUpdate terminalUpdate;
 
-        struct QueuedTerminalUpdate {
-            QueuedTerminalUpdate* next = nullptr;
-            stl::Vector<RenderCell> cells;
-            TerminalUpdate update;
-            Screen* frame = nullptr;
-        };
-
-        QueuedTerminalUpdate* queuedUpdateHead = nullptr;
-        QueuedTerminalUpdate* queuedUpdateTail = nullptr;
         std::string inputResult;
         bool outputPending = false;
         bool outputInitialized = false;
         Screen* presentedScreen = nullptr;
         Screen* updateScreen = nullptr;
-        bool updateIsQueued = false;
         u16 presentedColumns = 0;
         u16 presentedRows = 0;
 
@@ -1466,20 +1453,8 @@ void VtermInput::pointerPresence(bool) {
 }
 
 VtermImpl::~VtermImpl() {
-    discardQueuedUpdates();
     delete framePriPool;
     delete frameAltPool;
-}
-
-void VtermImpl::discardQueuedUpdates() {
-    while (queuedUpdateHead != nullptr) {
-        QueuedTerminalUpdate* const next = queuedUpdateHead->next;
-        delete queuedUpdateHead;
-        queuedUpdateHead = next;
-    }
-    queuedUpdateTail = nullptr;
-    updateScreen = nullptr;
-    updateIsQueued = false;
 }
 
 void VtermImpl::createFreshScreen(Screen*& frame, ObjPool*& pool) {
@@ -1666,53 +1641,10 @@ void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const 
     update.cursorBlink = frame.getCursorBlink();
 }
 
-void VtermImpl::queueTerminalUpdate() {
-    // Keep at most one frame in flight and one waiting behind it. Later
-    // smooth-scroll steps stay in Screen damage and are folded into the final
-    // update emitted when the current input batch ends.
-    if (queuedUpdateHead != queuedUpdateTail) {
-        return;
-    }
-
-    Screen* const frame = cf;
-    const size_t count = (size_t)(frame->columns()) * frame->rows();
-    auto* queued = new QueuedTerminalUpdate;
-    try {
-        queued->cells.grow(count);
-        const RenderCell empty;
-        for (size_t index = 0; index < count; ++index) {
-            queued->cells.pushBack(empty);
-        }
-        frame->fullCopyCells(queued->cells.mutData());
-        queued->frame = frame;
-        fillTerminalUpdate(queued->update, *frame, queued->cells.data(), count, false);
-    } catch (...) {
-        delete queued;
-        throw;
-    }
-
-    if (queuedUpdateTail == nullptr) {
-        queuedUpdateHead = queued;
-    } else {
-        queuedUpdateTail->next = queued;
-    }
-    queuedUpdateTail = queued;
-
-    // The queued full snapshot now owns this damage. Mutations after the
-    // snapshot start a fresh delta for the eventual final frame.
-    frame->resetDamage();
-}
-
 VtermOutput VtermImpl::output() {
     VtermOutput result;
     if (ptyOutputOffset < ptyOutput.size()) {
         result.pty = StringView(ptyOutput.data() + ptyOutputOffset, ptyOutput.size() - ptyOutputOffset);
-    }
-    if (queuedUpdateHead != nullptr) {
-        updateScreen = queuedUpdateHead->frame;
-        updateIsQueued = true;
-        result.terminal = &queuedUpdateHead->update;
-        return result;
     }
     if (!outputPending) {
         return result;
@@ -1737,7 +1669,6 @@ VtermOutput VtermImpl::output() {
     }
 
     updateScreen = frame;
-    updateIsQueued = false;
     fillTerminalUpdate(terminalUpdate, *frame, outputCells.data(), outputCells.length(), incremental);
     result.terminal = &terminalUpdate;
     return result;
@@ -1755,33 +1686,6 @@ void VtermImpl::consume(const VtermConsume& consumed) {
         return;
     }
     assert(updateScreen != nullptr);
-    if (updateIsQueued) {
-        QueuedTerminalUpdate* const consumedUpdate = queuedUpdateHead;
-        assert(consumedUpdate != nullptr);
-        assert(updateScreen == consumedUpdate->frame);
-
-        outputCells.xchg(consumedUpdate->cells);
-        for (RenderCell* cell = outputCells.mutBegin(); cell != outputCells.mutEnd(); ++cell) {
-            cell->dirty = false;
-        }
-        presentedScreen = consumedUpdate->frame;
-        presentedColumns = consumedUpdate->frame->columns();
-        presentedRows = consumedUpdate->frame->rows();
-        queuedUpdateHead = consumedUpdate->next;
-        if (queuedUpdateHead == nullptr) {
-            queuedUpdateTail = nullptr;
-        }
-        delete consumedUpdate;
-
-        updateScreen = nullptr;
-        updateIsQueued = false;
-        outputInitialized = true;
-        presentedSinceGcSafePoint = true;
-        if (queuedUpdateHead == nullptr && !outputPending) {
-            collectCellExtrasIfNeeded();
-        }
-        return;
-    }
     for (RenderCell* cell = outputCells.mutBegin(); cell != outputCells.mutEnd(); ++cell) {
         cell->dirty = false;
     }
@@ -2066,7 +1970,7 @@ void VtermImpl::updateExtraCellCount() {
 void VtermImpl::collectCellExtrasIfNeeded(bool force) {
     CellExtraStore* const extras = composer.cellExtras;
     const bool hardLimit = extras->hardLimitExceeded();
-    if (processInputDepth != 0 || queuedUpdateHead != nullptr) {
+    if (processInputDepth != 0) {
         return;
     }
     if (!extras->shouldCollect() && !force) {
@@ -3786,12 +3690,6 @@ void VtermImpl::csi_SU() {
 }
 
 void VtermImpl::scrollRegionUp(u16 count) {
-    if (smoothScrollMode && count > 1) {
-        for (u16 k = 0; k < count; ++k) {
-            scrollRegionUp(1);
-        }
-        return;
-    }
     if (horizMarginMode) {
         deleteRows(marginTop, count);
     } else {
@@ -3799,18 +3697,9 @@ void VtermImpl::scrollRegionUp(u16 count) {
         eraseRows(marginBottom - count, count);
         lastCol = false;
     }
-    if (smoothScrollMode) {
-        presentSmoothScroll();
-    }
 }
 
 void VtermImpl::scrollRegionDown(u16 count) {
-    if (smoothScrollMode && count > 1) {
-        for (u16 k = 0; k < count; ++k) {
-            scrollRegionDown(1);
-        }
-        return;
-    }
     if (horizMarginMode) {
         insertRows(marginTop, count);
     } else {
@@ -3818,17 +3707,6 @@ void VtermImpl::scrollRegionDown(u16 count) {
         eraseRows(marginTop, count);
         lastCol = false;
     }
-    if (smoothScrollMode) {
-        presentSmoothScroll();
-    }
-}
-
-void VtermImpl::presentSmoothScroll() {
-    if (synchronizedOutputMode) {
-        return;
-    }
-    syncPresentationCursor();
-    queueTerminalUpdate();
 }
 
 void VtermImpl::csi_SD() {
@@ -7809,7 +7687,6 @@ void VtermImpl::resizeGrid() {
 
     hideCursor();
     resetGraphemeInput();
-    discardQueuedUpdates();
 
     const bool reflow = cf == frame_pri && previousColumns != composer.columns;
     Screen::Cursor cursorState{Point(posX, posY), lastCol};
