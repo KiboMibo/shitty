@@ -12,8 +12,7 @@
 #include "options.h"
 
 #include <std/alg/minmax.h>
-
-#include <cassert>
+#include <std/dbg/assert.h>
 
 using namespace stl;
 
@@ -25,7 +24,7 @@ Composer::Composer(ObjPool* pool_)
 }
 
 void Composer::setContentScale(float scale) {
-    assert(scale > 0.0f);
+    STD_ASSERT(scale > 0.0f);
     if (contentScale == scale) {
         return;
     }
@@ -38,8 +37,8 @@ void Composer::setContentScale(float scale) {
 }
 
 void Composer::setGlyphSize(u16 width, u16 height) {
-    assert(width != 0);
-    assert(height != 0);
+    STD_ASSERT(width != 0);
+    STD_ASSERT(height != 0);
     if (glyphWidth == width && glyphHeight == height) {
         return;
     }
@@ -60,8 +59,8 @@ void Composer::setCellExtras(CellExtraStore* extras) {
 }
 
 void Composer::resize(u16 pixelWidth_, u16 pixelHeight_) {
-    assert(glyphWidth != 0);
-    assert(glyphHeight != 0);
+    STD_ASSERT(glyphWidth != 0);
+    STD_ASSERT(glyphHeight != 0);
 
     const u32 border = 2u * opts.border;
     const u32 contentWidth = pixelWidth_ > border ? pixelWidth_ - border : 0;

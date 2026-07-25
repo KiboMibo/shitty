@@ -10,10 +10,9 @@
 #include "input_sink.h"
 #include "listener.h"
 
+#include <std/dbg/assert.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
-
-#include <cassert>
 
 using namespace stl;
 
@@ -54,7 +53,7 @@ InputBindingsImpl::InputBindingsImpl(Composer& composer)
 }
 
 void InputBindingsImpl::add(const InputBinding& binding, IntrusiveList* listeners) {
-    assert(listeners != nullptr);
+    STD_ASSERT(listeners != nullptr);
     bindings_.pushBack({binding, listeners});
 }
 

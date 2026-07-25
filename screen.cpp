@@ -22,13 +22,13 @@
 #include "utf8.h"
 
 #include <std/alg/minmax.h>
+#include <std/dbg/assert.h>
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
 
 #include <utf8proc.h>
 
 #include <algorithm>
-#include <cassert>
 #include <deque>
 #include <type_traits>
 #include <utility>
@@ -1485,7 +1485,7 @@ TerminalCell& ScreenImpl<Coord, Epoch, RowIndex>::prepareCell(u16 row, u16 colum
 
 template <typename Coord, typename Epoch, typename RowIndex>
 void ScreenImpl<Coord, Epoch, RowIndex>::writeGrapheme(u16 row, u16 column, const u32* codepoints, size_t count, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, u8 lineAttribute_, const TerminalCell& eraseAttrs) {
-    assert(count != 0);
+    STD_ASSERT(count != 0);
     TerminalCell lead = attrs;
     lead.uc_pt = codepoints[0];
     lead.drawn = 1;

@@ -8,12 +8,12 @@
 
 #include "composer.h"
 
+#include <std/dbg/assert.h>
 #include <std/lib/list.h>
 #include <std/mem/obj_pool.h>
 #include <std/str/view.h>
 
 #include <algorithm>
-#include <cassert>
 #include <cstring>
 #include <limits>
 #include <new>
@@ -196,7 +196,7 @@ void CellExtraStoreImpl::rehashHyperlinks(size_t capacity) {
 }
 
 u32 CellExtraStoreImpl::append(const CellExtra& value) {
-    assert(!value.graphemeBytes.empty() || hyperlinkOf(value) != nullptr);
+    STD_ASSERT(!value.graphemeBytes.empty() || hyperlinkOf(value) != nullptr);
     if (slots_.length() >= std::numeric_limits<u32>::max()) {
         throw std::bad_alloc();
     }
@@ -222,8 +222,8 @@ u32 CellExtraStoreImpl::migrate(const CellExtraStoreImpl& source, u32 sourceRef)
     if (const HyperlinkHandle* sourceHyperlink = hyperlinkOf(sourceExtra); sourceHyperlink != nullptr) {
         if (const u32 known = findHyperlink(sourceHyperlink->identity); known != 0) {
             const HyperlinkHandle& canonical = *hyperlinkOf(*slots_[known]);
-            assert(equalBytes(canonical.payload, sourceHyperlink->payload));
-            assert(canonical.displayId == sourceHyperlink->displayId);
+            STD_ASSERT(equalBytes(canonical.payload, sourceHyperlink->payload));
+            STD_ASSERT(canonical.displayId == sourceHyperlink->displayId);
             copy.hyperlinks = slots_[known]->hyperlinks;
         } else {
             if ((hyperlinkCount_ + 1) * 10 >= hyperlinkBuckets_.length() * 7) {
@@ -451,7 +451,7 @@ bool CellExtraStoreImpl::hardLimitExceeded() const noexcept {
 }
 
 void CellExtraStoreImpl::collect(Vector<u32*>& locations) {
-    assert(composer_.cellExtras == this);
+    STD_ASSERT(composer_.cellExtras == this);
 
     auto* next = CellExtraStoreImpl::create(composer_, cellCount_, owner_);
     try {
@@ -460,7 +460,7 @@ void CellExtraStoreImpl::collect(Vector<u32*>& locations) {
 
         for (u32* location : locations) {
             const u32 oldRef = *location;
-            assert(oldRef != 0 && oldRef < slots_.length());
+            STD_ASSERT(oldRef != 0 && oldRef < slots_.length());
             if (relocation[oldRef] == 0) {
                 // migrate() always appends. Equal but distinct old refs must
                 // not collapse into one ref in the new store.
@@ -477,14 +477,14 @@ void CellExtraStoreImpl::collect(Vector<u32*>& locations) {
     }
 
     ObjPool* oldPool = owner_.pool;
-    assert(oldPool == pool_);
+    STD_ASSERT(oldPool == pool_);
     composer_.setCellExtras(next);
     owner_.pool = next->pool_;
     delete oldPool;
 }
 
 CellExtraStore* CellExtraStore::create(Composer& composer, size_t cellCount) {
-    assert(composer.cellExtras == nullptr);
+    STD_ASSERT(composer.cellExtras == nullptr);
     auto* owner = composer.pool->make<CellExtraStoreOwner>();
     auto* result = CellExtraStoreImpl::create(composer, cellCount, *owner);
     composer.setCellExtras(result);

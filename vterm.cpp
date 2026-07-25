@@ -36,6 +36,7 @@
 #include "utf8.h"
 #include "vterm_host.h"
 
+#include <std/dbg/assert.h>
 #include <std/mem/obj_pool.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
@@ -49,7 +50,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cassert>
 #include <cerrno>
 #include <charconv>
 #include <chrono>
@@ -1797,7 +1797,7 @@ VtermOutput VtermImpl::output() {
 
 void VtermImpl::consume(const VtermConsume& consumed) {
     const size_t pending = ptyOutput.used() - ptyOutputOffset;
-    assert(consumed.ptyBytes <= pending);
+    STD_ASSERT(consumed.ptyBytes <= pending);
     ptyOutputOffset += consumed.ptyBytes;
     if (ptyOutputOffset == ptyOutput.used()) {
         ptyOutput.reset();
