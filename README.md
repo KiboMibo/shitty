@@ -40,12 +40,15 @@ Shitty is written in C++23 and built with Clang. Building the terminal requires:
 
 - Python 3 and `glslangValidator`;
 - pkg-config;
-- Brotli, utf8proc, and simdutf 6.5 or newer;
+- Brotli and utf8proc;
 - FreeType and fontconfig;
 - GLFW 3.4 or newer;
 - Vulkan headers and loader;
 - POSIX threads and PTY support;
 - `libstd`, either in `third_party/libstd` or installed system-wide.
+
+A scalar Base64 implementation is always available. If simdutf 6.5 or newer
+is installed, the build uses it automatically to accelerate Base64 processing.
 
 A working Vulkan driver and a native window system supported by GLFW are
 required at runtime.

@@ -24,7 +24,7 @@ glfw = pkg_config("glfw3 >= 3.4")
 vulkan = pkg_config("vulkan")
 brotli_common = pkg_config("libbrotlicommon", required=False)
 utf8proc = pkg_config("libutf8proc")
-simdutf = pkg_config("simdutf >= 6.5.0")
+simdutf = pkg_config("simdutf >= 6.5.0", required=False)
 threads = dependency(ldflags=["-pthread"])
 
 
