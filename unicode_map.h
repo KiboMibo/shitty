@@ -20,6 +20,7 @@ struct UnicodeMap {
 
     UnicodeMap(const UnicodeMap&) = delete;
     UnicodeMap& operator=(const UnicodeMap&) = delete;
+    explicit UnicodeMap(stl::ObjPool& pool);
 
     V* find(u32 codepoint) noexcept;
     const V* find(u32 codepoint) const noexcept;
@@ -27,11 +28,10 @@ struct UnicodeMap {
 
     size_t allocatedPages() const noexcept;
 
+private:
     struct Page {
         V values[valuesPerPage]{};
     };
-
-    explicit UnicodeMap(stl::ObjPool& pool);
 
     stl::ObjPool* pool_;
     Page* pages_[pageCount]{};

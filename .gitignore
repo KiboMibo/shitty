@@ -1,6 +1,7 @@
 /.build*/
 /build/
 /st
+/st_memprofile
 /st_test
 /unit_tests
 /test_suite

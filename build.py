@@ -61,10 +61,11 @@ render_spv = command(
 
 main_source = "$(S)/main.cpp"
 fuzz_source = "$(S)/main_fuzz.cpp"
+heap_profile_source = "$(S)/heap_profile.cpp"
 unit_sources = sorted(build.glob("$(S)/*_ut.cpp"))
 all_libshitty_sources = [
     source for source in build.glob("$(S)/*.cpp")
-    if source not in (main_source, fuzz_source, *unit_sources)
+    if source not in (main_source, fuzz_source, heap_profile_source, *unit_sources)
 ]
 libshitty_sources = all_libshitty_sources
 libshitty_deps = [
@@ -83,6 +84,32 @@ libshitty = library(
 st = program(
     srcs=[main_source],
     deps=[libshitty],
+)
+
+
+heap_profile_cxxflags = [
+    "-g",
+    "-fno-omit-frame-pointer",
+    "-mno-omit-leaf-frame-pointer",
+]
+
+
+libshitty_memprofile = library(
+    name="libshitty_memprofile",
+    srcs=libshitty_sources,
+    cxxflags=heap_profile_cxxflags,
+    deps=libshitty_deps,
+    output="$(B)/libshitty_memprofile.a",
+)
+
+
+st_memprofile = program(
+    name="st_memprofile",
+    output="$(B)/st_memprofile",
+    srcs=[main_source, heap_profile_source],
+    cxxflags=heap_profile_cxxflags,
+    cppflags=["-DSHITTY_HEAP_PROFILE=1"],
+    deps=[libshitty_memprofile],
 )
 
 

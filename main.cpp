@@ -9,6 +9,10 @@
 #include "font_resolver.h"
 #include "vterm_headless.h"
 
+#ifdef SHITTY_HEAP_PROFILE
+    #include "heap_profile.h"
+#endif
+
 #include <std/ios/in_fd.h>
 #include <std/ios/sys.h>
 #include <std/lib/buffer.h>
@@ -117,6 +121,9 @@ namespace {
             }
         }
         sysE << endL;
+#ifdef SHITTY_HEAP_PROFILE
+        dumpHeapProfile();
+#endif
         return 0;
     }
 }
@@ -124,6 +131,9 @@ namespace {
 int main(int argc, char* argv[]) {
     int status = 1;
     try {
+#ifdef SHITTY_HEAP_PROFILE
+        initializeHeapProfile();
+#endif
         if (argc > 1 && std::string(argv[1]) == "perf") {
             status = runPerf(argc, argv);
         } else {
@@ -131,6 +141,9 @@ int main(int argc, char* argv[]) {
             Composer& composer = *pool->make<Composer>(pool.mutPtr());
             composer.application = Application::create(composer);
             status = composer.application->run(argc, argv);
+#ifdef SHITTY_HEAP_PROFILE
+            dumpHeapProfile();
+#endif
         }
     } catch (Exception& error) {
         const StringView message = error.description();
