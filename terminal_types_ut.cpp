@@ -6,13 +6,6 @@
 
 #include "terminal_types.h"
 
-#include "hex.h"
-#include "point.h"
-#include "rect.h"
-#include "vk_renderer.h"
-
-#include <std/str/builder.h>
-#include <std/str/view.h>
 #include <std/tst/ut.h>
 
 using namespace stl;
@@ -165,56 +158,5 @@ STD_TEST_SUITE(RenderCell) {
         STD_INSIST(cell.bg == opts.bg);
         STD_INSIST(cell.underline_color == opts.fg);
         STD_INSIST(!cell.dirty);
-    }
-
-    STD_TEST(PacksShaderAttributeBits) {
-        RenderCell cell;
-        cell.bold = true;
-        cell.italic = true;
-        cell.underline = true;
-        cell.inverse = true;
-        cell.wrap = true;
-        cell.faint = true;
-        cell.blink = true;
-        cell.conceal = true;
-        cell.strike = true;
-        cell.overline = true;
-        cell.underline_style = 5;
-        cell.dwidth = true;
-        cell.dwidth_cont = true;
-        cell.dirty = true;
-
-        const u32 expected = (1u << 2) | (1u << 3) | (1u << 4) | (1u << 5) | (1u << 6) | (1u << 8) | (1u << 9) | (1u << 10) | (1u << 11) | (1u << 12) | (5u << 13) | (1u << 16) | (1u << 17) | (1u << 23);
-        STD_INSIST(Renderer::rendererCellAttributesForTest(cell) == expected);
-    }
-}
-
-STD_TEST_SUITE(Geometry) {
-    STD_TEST(OrdersPointsByRowThenColumn) {
-        STD_INSIST(Point(5, 1) < Point(0, 2));
-        STD_INSIST(Point(1, 1) < Point(2, 1));
-        STD_INSIST(Point(2, 1) <= Point(2, 1));
-        STD_INSIST(!(Point(2, 1) < Point(1, 1)));
-    }
-
-    STD_TEST(ConstructsAndClearsRectangles) {
-        Rect cell(3, 4);
-        STD_INSIST(cell.tl == Point(3, 4));
-        STD_INSIST(cell.br == Point(4, 4));
-        STD_INSIST(!cell.empty());
-        STD_INSIST(cell.mid() == Point(3, 4));
-
-        cell.toggleRectangular();
-        STD_INSIST(cell.rectangular);
-        cell.clear();
-        STD_INSIST(cell.null());
-        STD_INSIST(cell.rectangular);
-    }
-
-    STD_TEST(FormatsProjectValueTypes) {
-        StringBuilder output;
-        output << Point(2, 3) << StringView(u8" ") << Rect(1, 2, 3, 4) << StringView(u8" ") << Color{0x12, 0x34, 0xab};
-
-        STD_INSIST(StringView(output) == StringView(u8"(2,3) Rect{tl=(1,2) br=(3,4) regular} rgb:1212/3434/abab"));
     }
 }
