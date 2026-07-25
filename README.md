@@ -54,6 +54,12 @@ The complete imported conformance suite additionally needs ncurses and Perl.
 
 ## Build
 
+Download submodules:
+
+```sh
+git submodule update --init --recursive
+```
+
 Build the `st` executable:
 
 ```sh
