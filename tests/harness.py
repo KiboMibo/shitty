@@ -602,14 +602,16 @@ class Shitty:
     def desktop_state(self):
         self.stream.write(b"DESKTOP_STATE\n")
         response = self._readline().split()
-        if len(response) != 5 or response[0] != "OK":
+        if len(response) != 7 or response[0] != "OK":
             raise RuntimeError("invalid desktop state response")
         return {
             "icon": int(response[1]),
             "open_count": int(response[2]),
             "hovered_hyperlink": int(response[3]),
+            "hovered_link_begin": int(response[4]),
+            "hovered_link_end": int(response[5]),
             "opened_uri": (
-                b"" if response[4] == "-" else bytes.fromhex(response[4])
+                b"" if response[6] == "-" else bytes.fromhex(response[6])
             ),
         }
 

@@ -129,9 +129,11 @@ namespace {
             u32 cursorBlink;
             u32 previousHoveredHyperlink;
             u32 hoveredHyperlink;
+            u32 hoveredLinkBegin;
+            u32 hoveredLinkEnd;
         };
 
-        static_assert(sizeof(PushConstants) == 120, "Vulkan push constant layout mismatch");
+        static_assert(sizeof(PushConstants) == 128, "Vulkan push constant layout mismatch");
 
         struct GlyphSlot {
             u32 id = 0;
@@ -217,6 +219,8 @@ namespace {
         TerminalCursor previousCursor;
         Rect previousSelection;
         u32 previousHoveredHyperlink = 0;
+        u32 previousHoveredLinkBegin = 0;
+        u32 previousHoveredLinkEnd = 0;
         bool previousStateValid = false;
 
         VkSwapchainKHR swapchain = VK_NULL_HANDLE;
@@ -1486,7 +1490,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const T
         previousCursor.posX,
         previousCursor.posY,
         incremental ? 1u : 0u,
-        !sameSelection(update.snappedSelection, previousSelection) ? 1u : 0u,
+        (!sameSelection(update.snappedSelection, previousSelection) || previousHoveredLinkBegin != update.hoveredLinkBegin || previousHoveredLinkEnd != update.hoveredLinkEnd) ? 1u : 0u,
         packColor(update.selectionForeground),
         packColor(update.selectionBackground),
         update.selectionColorMask,
@@ -1494,6 +1498,8 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const T
         update.cursorBlink ? 1u : 0u,
         previousHoveredHyperlink,
         update.hoveredHyperlink,
+        update.hoveredLinkBegin,
+        update.hoveredLinkEnd,
     };
     vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
     vkCmdBindDescriptorSets(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &frame.descriptorSet, 0, nullptr);
@@ -1759,6 +1765,8 @@ bool RendererImpl::present(const TerminalUpdate& update, bool incrementalFrame) 
     previousCursor = update.cursor;
     previousSelection = update.snappedSelection;
     previousHoveredHyperlink = update.hoveredHyperlink;
+    previousHoveredLinkBegin = update.hoveredLinkBegin;
+    previousHoveredLinkEnd = update.hoveredLinkEnd;
     previousStateValid = true;
     return submitPresentFrame(width, height, *frame, imageIndex, recreateAfterPresent);
 }

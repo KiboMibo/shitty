@@ -325,6 +325,7 @@ namespace {
     };
 
     struct TestDesktopActions final: public DesktopActions {
+        bool handlesUriScheme(StringView scheme) override;
         void openUri(StringView uri) override;
         void pointerIcon(PointerIcon icon) override;
 
@@ -372,6 +373,8 @@ namespace {
         Color selectionBackground;
         u8 selectionColorMask = 0;
         u32 hoveredHyperlink = 0;
+        u32 hoveredLinkBegin = 0;
+        u32 hoveredLinkEnd = 0;
         size_t graphemeCells = 0;
         size_t graphemeCodepoints = 0;
         TerminalCursor cursor;
@@ -502,6 +505,10 @@ void TestDesktopActions::openUri(StringView uri) {
     ++openCount;
 }
 
+bool TestDesktopActions::handlesUriScheme(StringView scheme) {
+    return scheme == StringView(u8"https") || scheme == StringView(u8"mailto");
+}
+
 void TestDesktopActions::pointerIcon(PointerIcon icon_) {
     icon = icon_;
 }
@@ -572,6 +579,8 @@ bool TestDisplay::update(const TerminalUpdate& update) {
     selectionBackground = update.selectionBackground;
     selectionColorMask = update.selectionColorMask;
     hoveredHyperlink = update.hoveredHyperlink;
+    hoveredLinkBegin = update.hoveredLinkBegin;
+    hoveredLinkEnd = update.hoveredLinkEnd;
     cellExtras = update.cellExtras;
     graphemeCells = 0;
     graphemeCodepoints = 0;
@@ -821,6 +830,8 @@ TerminalUpdate TestDisplay::renderUpdate() const {
         .selectionBackground = selectionBackground,
         .selectionColorMask = selectionColorMask,
         .hoveredHyperlink = hoveredHyperlink,
+        .hoveredLinkBegin = hoveredLinkBegin,
+        .hoveredLinkEnd = hoveredLinkEnd,
         .incremental = false,
         .screenReverse = screenReverse,
         .blinkVisible = blinkVisible,
@@ -1966,7 +1977,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 writeAll(controlFd, "OK " + std::to_string(terminal.getHyperlinkCount()) + "\n");
             } else if (line == "DESKTOP_STATE") {
                 StringBuilder output;
-                output << StringView(u8"OK ") << (unsigned)(desktopActions.icon) << StringView(u8" ") << desktopActions.openCount << StringView(u8" ") << display.hoveredHyperlink << StringView(u8" ");
+                output << StringView(u8"OK ") << (unsigned)(desktopActions.icon) << StringView(u8" ") << desktopActions.openCount << StringView(u8" ") << display.hoveredHyperlink << StringView(u8" ") << display.hoveredLinkBegin << StringView(u8" ") << display.hoveredLinkEnd << StringView(u8" ");
                 if (desktopActions.openedUri.empty()) {
                     output << StringView(u8"-");
                 } else {

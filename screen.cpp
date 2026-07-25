@@ -21,6 +21,7 @@
 #include "composer.h"
 #include "utf8.h"
 
+#include <std/alg/minmax.h>
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
 
@@ -89,7 +90,7 @@ namespace {
         void changeRectangleAttributes(u16 top, u16 left, u16 bottom, u16 right, const u32* modes, size_t modeCount, bool reverse) override;
         u16 checksum(u16 top, u16 left, u16 bottom, u16 right) const noexcept override;
         void appendPrintableLine(u16 row, std::string& output) const override;
-        ScreenHyperlink hyperlinkAt(u16 row, u16 column) const noexcept override;
+        ScreenHyperlink hyperlinkAt(u16 row, u16 column) const override;
         TerminalCell testCell(u16 row, u16 column) const noexcept override;
         void fullCopyCells(RenderCell* dest) const override;
         void deltaCopyCells(RenderCell* dest) override;
@@ -189,6 +190,21 @@ namespace {
         bool screenReverseVideo = false;
         SelectSnapTo snapTo = SelectSnapTo::Char;
         stl::Buffer damageStorage;
+
+        struct LinkPosition {
+            i32 row = 0;
+            u16 column = 0;
+        };
+
+        struct LinkPart {
+            LinkPosition position;
+            size_t begin = 0;
+            size_t end = 0;
+        };
+
+        mutable stl::Vector<LinkPosition> linkLeft;
+        mutable stl::Vector<LinkPart> linkParts;
+        mutable stl::Buffer linkScratch;
 
         struct Damage {
             Packed* cells = nullptr;
@@ -1714,12 +1730,269 @@ void ScreenImpl<Coord, Epoch, RowIndex>::appendPrintableLine(u16 row, std::strin
 }
 
 template <typename Coord, typename Epoch, typename RowIndex>
-ScreenHyperlink ScreenImpl<Coord, Epoch, RowIndex>::hyperlinkAt(u16 row, u16 column) const noexcept {
-    const TerminalCell& cell = getViewRowPtr(row)[column];
+ScreenHyperlink ScreenImpl<Coord, Epoch, RowIndex>::hyperlinkAt(u16 row, u16 column) const {
+    static constexpr size_t scanLimit = 4096;
     CellExtraStore* const extras = cellExtras();
+    if (extras == nullptr || row >= nRows || column >= nCols) {
+        return {};
+    }
+
+    LinkPosition pointed{
+        .row = (i32)(row) - (i32)(viewOffset),
+        .column = column,
+    };
+    const TerminalCell* pointedRow = getLogicalRowPtr(pointed.row);
+    if (pointedRow[0].line_attr != 0) {
+        pointed.column /= 2;
+    }
+    if (pointedRow[pointed.column].dwidth_cont && pointed.column != 0) {
+        --pointed.column;
+    }
+
+    const TerminalCell& pointedCell = getLogicalRowPtr(pointed.row)[pointed.column];
+    const u32 explicitId = extras->hyperlinkDisplayId(pointedCell);
+    if (explicitId != 0) {
+        return {
+            .payload = extras->hyperlink(pointedCell),
+            .displayId = explicitId,
+        };
+    }
+
+    const auto boundaryCodepoint = [](u32 codepoint) {
+        if (codepoint == '"' || codepoint == '\'' || codepoint == '`' || codepoint == '<' || codepoint == '>') {
+            return true;
+        }
+        switch (utf8proc_category(codepoint)) {
+            case UTF8PROC_CATEGORY_CC:
+            case UTF8PROC_CATEGORY_ZS:
+            case UTF8PROC_CATEGORY_ZL:
+            case UTF8PROC_CATEGORY_ZP:
+                return true;
+            default:
+                return false;
+        }
+    };
+    const auto boundary = [&](LinkPosition position) {
+        const TerminalCell& cell = getLogicalRowPtr(position.row)[position.column];
+        if (cell.conceal || extras->hyperlinkDisplayId(cell) != 0) {
+            return true;
+        }
+        const GraphemeView grapheme = extras->grapheme(cell);
+        if (grapheme.empty()) {
+            return boundaryCodepoint(cell.uc_pt == 0 ? ' ' : cell.uc_pt);
+        }
+        for (const u32 codepoint : grapheme) {
+            if (boundaryCodepoint(codepoint)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    if (boundary(pointed)) {
+        return {};
+    }
+
+    const auto validColumns = [&](i32 logicalRow) {
+        return getLogicalRowPtr(logicalRow)[0].line_attr == 0 ? (u16)(nCols) : (u16)(max<Coord>((Coord)(1), nCols / 2));
+    };
+    const auto previous = [&](LinkPosition& position) {
+        if (position.column != 0) {
+            --position.column;
+            const TerminalCell* cells_ = getLogicalRowPtr(position.row);
+            if (cells_[position.column].dwidth_cont && position.column != 0) {
+                --position.column;
+            }
+            return true;
+        }
+        const i32 minimumRow = -(i32)(history.size());
+        if (position.row <= minimumRow) {
+            return false;
+        }
+        const i32 previousRow = position.row - 1;
+        const TerminalCell* cells_ = getLogicalRowPtr(previousRow);
+        const u16 columns_ = validColumns(previousRow);
+        for (u16 previousColumn = columns_; previousColumn != 0; --previousColumn) {
+            if (cells_[previousColumn - 1].wrap) {
+                position = {
+                    .row = previousRow,
+                    .column = (u16)(previousColumn - 1),
+                };
+                if (cells_[position.column].dwidth_cont && position.column != 0) {
+                    --position.column;
+                }
+                return true;
+            }
+        }
+        return false;
+    };
+    const auto next = [&](LinkPosition& position) {
+        const TerminalCell* cells_ = getLogicalRowPtr(position.row);
+        const TerminalCell& cell = cells_[position.column];
+        if (cell.wrap) {
+            if (position.row + 1 >= nRows) {
+                return false;
+            }
+            position = {
+                .row = position.row + 1,
+                .column = 0,
+            };
+            return true;
+        }
+        const u16 nextColumn = position.column + (cell.dwidth ? 2 : 1);
+        if (nextColumn >= validColumns(position.row)) {
+            return false;
+        }
+        position.column = nextColumn;
+        return true;
+    };
+
+    linkLeft.clear();
+    linkParts.clear();
+    linkScratch.reset();
+
+    LinkPosition position = pointed;
+    size_t count = 1;
+    while (previous(position)) {
+        if (boundary(position)) {
+            break;
+        }
+        if (count == scanLimit) {
+            return {};
+        }
+        linkLeft.pushBack(position);
+        ++count;
+    }
+
+    const auto append = [&](LinkPosition source) {
+        LinkPart part{
+            .position = source,
+            .begin = linkScratch.used(),
+        };
+        const TerminalCell& cell = getLogicalRowPtr(source.row)[source.column];
+        const GraphemeView grapheme = extras->grapheme(cell);
+        const auto sink = [&](u8 byte) {
+            linkScratch.append(&byte, 1);
+        };
+        if (grapheme.empty()) {
+            Utf8Encoder::pushUnicode(cell.uc_pt == 0 ? ' ' : cell.uc_pt, sink);
+        } else {
+            for (const u32 codepoint : grapheme) {
+                Utf8Encoder::pushUnicode(codepoint, sink);
+            }
+        }
+        part.end = linkScratch.used();
+        linkParts.pushBack(part);
+    };
+
+    for (size_t index = linkLeft.length(); index != 0; --index) {
+        append(linkLeft[index - 1]);
+    }
+    const size_t pointedPart = linkParts.length();
+    append(pointed);
+
+    position = pointed;
+    while (next(position)) {
+        if (boundary(position)) {
+            break;
+        }
+        if (count == scanLimit) {
+            return {};
+        }
+        append(position);
+        ++count;
+    }
+
+    const auto* bytes = (const u8*)(linkScratch.data());
+    size_t begin = 0;
+    size_t end = linkScratch.used();
+    const auto asciiAlpha = [](u8 byte) {
+        return (byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z');
+    };
+    const auto schemeByte = [&](u8 byte) {
+        return asciiAlpha(byte) || (byte >= '0' && byte <= '9') || byte == '+' || byte == '-' || byte == '.';
+    };
+    size_t schemeEnd = begin;
+    while (schemeEnd < end && bytes[schemeEnd] != ':') {
+        ++schemeEnd;
+    }
+    if (schemeEnd == end) {
+        return {};
+    }
+    begin = schemeEnd;
+    while (begin != 0 && schemeByte(bytes[begin - 1])) {
+        --begin;
+    }
+    if (schemeEnd == begin || schemeEnd - begin > 64 || !asciiAlpha(bytes[begin])) {
+        return {};
+    }
+    for (size_t index = begin + 1; index < schemeEnd; ++index) {
+        if (!schemeByte(bytes[index])) {
+            return {};
+        }
+    }
+    const auto unmatchedClosing = [&](u8 opening, u8 closing) {
+        size_t openings = 0;
+        size_t closings = 0;
+        for (size_t index = begin; index < end; ++index) {
+            openings += bytes[index] == opening;
+            closings += bytes[index] == closing;
+        }
+        return closings > openings;
+    };
+    bool trimmed = true;
+    while (begin < end && trimmed) {
+        trimmed = false;
+        const u8 last = bytes[end - 1];
+        if (last == '.' || last == ',' || last == ';' || last == ':' || last == '!' || last == '?') {
+            --end;
+            trimmed = true;
+        } else if (last == ')' && unmatchedClosing('(', ')')) {
+            --end;
+            trimmed = true;
+        } else if (last == ']' && unmatchedClosing('[', ']')) {
+            --end;
+            trimmed = true;
+        } else if (last == '}' && unmatchedClosing('{', '}')) {
+            --end;
+            trimmed = true;
+        }
+    }
+    if (begin == end) {
+        return {};
+    }
+    if (schemeEnd + 1 >= end) {
+        return {};
+    }
+
+    const LinkPart& pointedRecord = linkParts[pointedPart];
+    if (pointedRecord.end <= begin || pointedRecord.begin >= end) {
+        return {};
+    }
+
+    u32 rangeBegin = (u32)(nCols)*nRows;
+    u32 rangeEnd = 0;
+    for (const LinkPart& part : linkParts) {
+        if (part.end <= begin || part.begin >= end) {
+            continue;
+        }
+        const i32 visibleRow = part.position.row + (i32)(viewOffset);
+        if (visibleRow < 0 || visibleRow >= nRows) {
+            continue;
+        }
+        const TerminalCell& cell = getLogicalRowPtr(part.position.row)[part.position.column];
+        const u32 cellBegin = (u32)(visibleRow)*nCols + part.position.column;
+        const u32 cellEnd = cellBegin + (cell.dwidth ? 2 : 1);
+        rangeBegin = min(rangeBegin, cellBegin);
+        rangeEnd = max(rangeEnd, min<u32>((u32)(nCols)*nRows, cellEnd));
+    }
+    if (rangeBegin >= rangeEnd) {
+        return {};
+    }
     return {
-        .payload = extras->hyperlink(cell),
-        .displayId = extras->hyperlinkDisplayId(cell),
+        .payload = StringView(bytes + begin, end - begin),
+        .scheme = StringView(bytes + begin, schemeEnd - begin),
+        .begin = rangeBegin,
+        .end = rangeEnd,
     };
 }
 

@@ -30,6 +30,8 @@
 #include <cstring>
 #include <exception>
 #include <spawn.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 namespace stl {}
 
@@ -67,6 +69,7 @@ namespace {
         void writePrimary(StringView content) override;
         void writeClipboard(StringView content) override;
 
+        bool handlesUriScheme(StringView scheme) override;
         void openUri(StringView uri) override;
         void pointerIcon(PointerIcon icon) override;
 
@@ -95,6 +98,7 @@ namespace {
         void queueResize(int width, int height);
         void onFramebufferSize(int width, int height);
         void setupCallbacks();
+        bool queryUriScheme(StringView scheme);
         static WindowImpl& fromWindow(GLFWwindow* window);
 
         template <typename Fn>
@@ -126,6 +130,15 @@ namespace {
         Buffer clipboardWriteBuffer;
         Buffer textBuffer;
         Buffer uriBuffer;
+
+        struct UriScheme {
+            StringView name;
+            bool handled = false;
+        };
+
+        static constexpr size_t uriSchemeCapacity = 64;
+        UriScheme uriSchemes[uriSchemeCapacity];
+        size_t uriSchemeCount = 0;
     };
 
     struct TestModeInputImpl final: public TestModeInput {
@@ -453,6 +466,85 @@ void WindowImpl::writeClipboard(StringView content) {
     if (window != nullptr) {
         glfwSetClipboardString(window, clipboardWriteBuffer.cStr());
     }
+}
+
+bool WindowImpl::queryUriScheme(StringView scheme) {
+    Buffer mime;
+    mime.append("x-scheme-handler/", 17);
+    mime.append(scheme.data(), scheme.length());
+
+    int output[2];
+    if (pipe(output) != 0) {
+        return false;
+    }
+    posix_spawn_file_actions_t actions;
+    if (posix_spawn_file_actions_init(&actions) != 0) {
+        close(output[0]);
+        close(output[1]);
+        return false;
+    }
+    posix_spawn_file_actions_adddup2(&actions, output[1], STDOUT_FILENO);
+    posix_spawn_file_actions_addclose(&actions, output[0]);
+    posix_spawn_file_actions_addclose(&actions, output[1]);
+
+    char* const arguments[] = {
+        (char*)("xdg-mime"),
+        (char*)("query"),
+        (char*)("default"),
+        mime.cStr(),
+        nullptr,
+    };
+    pid_t pid = -1;
+    const int spawned = posix_spawnp(&pid, arguments[0], &actions, nullptr, arguments, environ);
+    posix_spawn_file_actions_destroy(&actions);
+    close(output[1]);
+    if (spawned != 0) {
+        close(output[0]);
+        return false;
+    }
+
+    bool content = false;
+    u8 bytes[256];
+    while (true) {
+        const ssize_t count = read(output[0], bytes, sizeof(bytes));
+        if (count > 0) {
+            for (ssize_t index = 0; index < count; ++index) {
+                content |= bytes[index] > ' ';
+            }
+            continue;
+        }
+        if (count < 0 && errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    close(output[0]);
+
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) {
+            return false;
+        }
+    }
+    return content && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+bool WindowImpl::handlesUriScheme(StringView scheme) {
+    for (size_t index = 0; index < uriSchemeCount; ++index) {
+        const UriScheme& cached = uriSchemes[index];
+        if (cached.name == scheme) {
+            return cached.handled;
+        }
+    }
+    if (uriSchemeCount == uriSchemeCapacity) {
+        return false;
+    }
+    const bool handled = queryUriScheme(scheme);
+    uriSchemes[uriSchemeCount++] = {
+        .name = composer.pool->intern(scheme),
+        .handled = handled,
+    };
+    return handled;
 }
 
 void WindowImpl::openUri(StringView uri) {

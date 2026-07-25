@@ -37,6 +37,7 @@
 #include "vterm_host.h"
 
 #include <std/mem/obj_pool.h>
+#include <std/lib/buffer.h>
 #include <std/lib/vector.h>
 #include <std/sys/types.h>
 #include <std/ios/out.h>
@@ -157,6 +158,7 @@ namespace {
         void refreshHyperlinkAndRedraw();
         void updatePointer(int pixelX, int pixelY, u16 modifiers);
         void updatePointerModifiers(const KeyInput& input);
+        ScreenHyperlink resolveLink(int pixelX, int pixelY);
         bool paste(bool primary);
 
         struct PendingTextKey {
@@ -177,9 +179,12 @@ namespace {
         int pointerY = 0;
         u16 pointerModifiers = 0;
         u32 hoveredHyperlink = 0;
+        u32 hoveredLinkBegin = 0;
+        u32 hoveredLinkEnd = 0;
         bool pointerPresent = false;
         bool pointerPositionKnown = false;
         bool pointerFocused = true;
+        Buffer schemeScratch;
         bool locallyConsumedKeys[(unsigned)(InputKey::Count) + 128]{};
     };
 
@@ -233,7 +238,7 @@ namespace {
         void selectionClear();
         void selectionRectangular();
         void paste(StringView text);
-        ScreenHyperlink resolveHyperlink(int pixelX, int pixelY) const noexcept;
+        ScreenHyperlink resolveHyperlink(int pixelX, int pixelY) const;
         StringView hyperlinkAt(int pixelX, int pixelY);
         bool expireSynchronizedOutput(bool force) override;
         bool advanceAnimation(bool force) override;
@@ -1159,17 +1164,32 @@ bool VtermInput::paste(bool primary) {
     return true;
 }
 
-bool VtermInput::refreshHyperlink() {
-    u32 next = 0;
-    if (pointerFocused && pointerPresent && pointerPositionKnown && (pointerModifiers & InputControl)) {
-        next = terminal->resolveHyperlink(pointerX, pointerY).displayId;
+ScreenHyperlink VtermInput::resolveLink(int pixelX, int pixelY) {
+    const ScreenHyperlink link = terminal->resolveHyperlink(pixelX, pixelY);
+    if (link.payload.empty() || link.displayId != 0) {
+        return link;
     }
-    if (next == hoveredHyperlink) {
+    DesktopActions* const desktop = terminal->composer.desktopActions;
+    if (desktop == nullptr || link.scheme.empty()) {
+        return {};
+    }
+    const StringView scheme = link.scheme.lower(schemeScratch);
+    return desktop->handlesUriScheme(scheme) ? link : ScreenHyperlink{};
+}
+
+bool VtermInput::refreshHyperlink() {
+    ScreenHyperlink next;
+    if (pointerFocused && pointerPresent && pointerPositionKnown && (pointerModifiers & InputControl)) {
+        next = resolveLink(pointerX, pointerY);
+    }
+    if (next.displayId == hoveredHyperlink && next.begin == hoveredLinkBegin && next.end == hoveredLinkEnd) {
         return false;
     }
-    const bool wasActive = hoveredHyperlink != 0;
-    hoveredHyperlink = next;
-    const bool active = hoveredHyperlink != 0;
+    const bool wasActive = hoveredHyperlink != 0 || hoveredLinkBegin < hoveredLinkEnd;
+    hoveredHyperlink = next.displayId;
+    hoveredLinkBegin = next.begin;
+    hoveredLinkEnd = next.end;
+    const bool active = hoveredHyperlink != 0 || hoveredLinkBegin < hoveredLinkEnd;
     if (active != wasActive && terminal->composer.desktopActions != nullptr) {
         terminal->composer.desktopActions->pointerIcon(active ? PointerIcon::Link : PointerIcon::Text);
     }
@@ -1414,7 +1434,7 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
     if (input.pressed && input.button == PointerButton::Primary) {
         hyperlinkClick = false;
         if (input.modifiers & InputControl) {
-            const ScreenHyperlink link = terminal->resolveHyperlink(input.pixelX, input.pixelY);
+            const ScreenHyperlink link = resolveLink(input.pixelX, input.pixelY);
             if (!link.payload.empty() && terminal->composer.desktopActions != nullptr) {
                 hyperlinkClick = true;
                 terminal->composer.desktopActions->openUri(link.payload);
@@ -1694,7 +1714,7 @@ void VtermImpl::paste(StringView text) {
     pasteSelection(std::string((const char*)(text.data()), text.length()));
 }
 
-ScreenHyperlink VtermImpl::resolveHyperlink(int pixelX, int pixelY) const noexcept {
+ScreenHyperlink VtermImpl::resolveHyperlink(int pixelX, int pixelY) const {
     if (pixelX < opts.border || pixelY < opts.border || pixelX >= composer.pixelWidth - opts.border || pixelY >= composer.pixelHeight - opts.border) {
         return {};
     }
@@ -1730,6 +1750,8 @@ void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const 
     update.selectionBackground = frame.getSelectionBackground();
     update.selectionColorMask = frame.getSelectionColorMask();
     update.hoveredHyperlink = input.hoveredHyperlink;
+    update.hoveredLinkBegin = input.hoveredLinkBegin;
+    update.hoveredLinkEnd = input.hoveredLinkEnd;
     update.incremental = incremental;
     update.screenReverse = frame.getScreenReverseVideo();
     update.blinkVisible = frame.getBlinkVisible();

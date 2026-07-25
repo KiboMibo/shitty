@@ -227,7 +227,10 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Rende
         }
     }
 
-    const bool hyperlinkUnderline = !cell.underline && cell.hyperlink != 0 && cell.hyperlink == update.hoveredHyperlink;
+    const u32 cellIndex = (u32)(row)*composer_.columns + column;
+    const bool explicitLink = cell.hyperlink != 0 && cell.hyperlink == update.hoveredHyperlink;
+    const bool plainLink = cellIndex >= update.hoveredLinkBegin && cellIndex < update.hoveredLinkEnd;
+    const bool hyperlinkUnderline = !cell.underline && (explicitLink || plainLink);
     if (cell.underline || hyperlinkUnderline) {
         const u8 underlineStyle = hyperlinkUnderline ? 1 : cell.underline_style;
         const Color underlineColor = hyperlinkUnderline ? foreground : cell.underline_color;

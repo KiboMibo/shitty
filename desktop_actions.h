@@ -14,6 +14,7 @@ enum class PointerIcon {
 };
 
 struct DesktopActions {
+    virtual bool handlesUriScheme(stl::StringView scheme) = 0;
     virtual void openUri(stl::StringView uri) = 0;
     virtual void pointerIcon(PointerIcon icon) = 0;
 };
