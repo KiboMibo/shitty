@@ -25,8 +25,6 @@
 #include <errno.h>
 #include <math.h>
 
-namespace stl {}
-
 using namespace stl;
 
 namespace {

@@ -17,10 +17,6 @@
 
 #include "utf8.h"
 
-namespace stl {}
-
-using namespace stl;
-
 bool Utf8Decoder::checkPrematureEOS() {
     if (remaining > 0) {
         remaining = 0;

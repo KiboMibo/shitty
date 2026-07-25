@@ -39,8 +39,6 @@
 #include <string>
 #include <vector>
 
-namespace stl {}
-
 using namespace stl;
 
 namespace {
@@ -149,8 +147,8 @@ namespace {
             explicit GlyphCache(ObjPool& pool);
 
             UnicodeMap<u16>* refs;
-            stl::Buffer graphemeRefs;
-            stl::Vector<GlyphSlot> slots;
+            Buffer graphemeRefs;
+            Vector<GlyphSlot> slots;
             u32 columns = 0;
             u32 rows = 0;
             u32 next = 1;
@@ -175,9 +173,9 @@ namespace {
             VkSwapchainKHR swapchain = VK_NULL_HANDLE;
             VkFormat format = VK_FORMAT_UNDEFINED;
             VkExtent2D extent{};
-            stl::Vector<VkImage> images;
-            stl::Vector<VkSemaphore> semaphores;
-            stl::Vector<u8> initialized;
+            Vector<VkImage> images;
+            Vector<VkSemaphore> semaphores;
+            Vector<u8> initialized;
             ImageResource output;
             bool replacesOutput = false;
         };
@@ -216,11 +214,11 @@ namespace {
         ObjPool::Ref glyphPool;
         GlyphCache glyphs;
         GlyphCache doubleWidthGlyphs;
-        stl::Buffer fontUploadData;
-        stl::Vector<VkBufferImageCopy> atlasCopies;
-        stl::Vector<VkBufferImageCopy> colorAtlasCopies;
-        stl::Vector<VkBufferImageCopy> doubleWidthAtlasCopies;
-        stl::Vector<VkBufferImageCopy> doubleWidthColorAtlasCopies;
+        Buffer fontUploadData;
+        Vector<VkBufferImageCopy> atlasCopies;
+        Vector<VkBufferImageCopy> colorAtlasCopies;
+        Vector<VkBufferImageCopy> doubleWidthAtlasCopies;
+        Vector<VkBufferImageCopy> doubleWidthColorAtlasCopies;
         ImageResource outputImage;
         bool outputInitialized = false;
         TerminalCursor previousCursor;
@@ -234,9 +232,9 @@ namespace {
         VkFormat swapchainFormat = VK_FORMAT_UNDEFINED;
         VkExtent2D swapchainExtent{};
         VkExtent2D renderExtent{};
-        stl::Vector<VkImage> swapchainImages;
-        stl::Vector<VkSemaphore> presentSemaphores;
-        stl::Vector<u8> imageInitialized;
+        Vector<VkImage> swapchainImages;
+        Vector<VkSemaphore> presentSemaphores;
+        Vector<u8> imageInitialized;
 
         std::array<FrameResources, framesInFlight> frames;
         u32 currentFrame = 0;
@@ -271,7 +269,7 @@ namespace {
         u32 ensureGlyph(const u32* codepoints, size_t count, u32 id, bool grapheme, FontStyle style, bool doubleWidth);
         VkDeviceSize stageFontData(const void* data, size_t len, size_t expected);
         void recordFontUploads(FrameResources& frame);
-        void recordImageUploads(VkCommandBuffer commandBuffer, VkBuffer stagingBuffer, const ImageResource& image, const stl::Vector<VkBufferImageCopy>& copies, bool initialize);
+        void recordImageUploads(VkCommandBuffer commandBuffer, VkBuffer stagingBuffer, const ImageResource& image, const Vector<VkBufferImageCopy>& copies, bool initialize);
         void recordCommands(FrameResources& frame, u32 imageIndex, const TerminalUpdate& update, bool incremental);
         void recordRepaintCommands(FrameResources& frame, u32 imageIndex);
         bool acquirePresentFrame(u32 width, u32 height, FrameResources*& frame, u32& imageIndex, bool& recreateAfterPresent);

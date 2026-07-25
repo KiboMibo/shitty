@@ -33,8 +33,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-namespace stl {}
-
 using namespace stl;
 
 extern char** environ;

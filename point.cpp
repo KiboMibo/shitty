@@ -18,7 +18,11 @@ Point::Point(int x_, int y_)
 {
 }
 
-template <>
-void stl::output<ZeroCopyOutput, ::Point>(ZeroCopyOutput& output, ::Point point) {
-    output << StringView(u8"(") << (i64)(point.x) << StringView(u8",") << (i64)(point.y) << StringView(u8")");
+namespace stl {
+
+    template <>
+    void output<ZeroCopyOutput, ::Point>(ZeroCopyOutput& output, ::Point point) {
+        output << StringView(u8"(") << (i64)(point.x) << StringView(u8",") << (i64)(point.y) << StringView(u8")");
+    }
+
 }

@@ -58,8 +58,6 @@
 #include <unistd.h>
 #include <vector>
 
-namespace stl {}
-
 using namespace stl;
 
 namespace {

@@ -18,8 +18,6 @@
 #include <limits>
 #include <new>
 
-namespace stl {}
-
 using namespace stl;
 
 namespace {

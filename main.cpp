@@ -32,8 +32,6 @@
 
 #include <fcntl.h>
 
-namespace stl {}
-
 using namespace stl;
 
 namespace {

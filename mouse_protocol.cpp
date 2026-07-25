@@ -13,8 +13,6 @@
 
 #include <algorithm>
 
-namespace stl {}
-
 using namespace stl;
 
 bool encodeMouseProtocol(StringBuilder& output, MouseTrackingEnc encoding, MouseEventType type, unsigned modifiers, int motionButton, int button, int column, int row) {

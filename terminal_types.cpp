@@ -17,10 +17,6 @@
 
 #include "terminal_types.h"
 
-namespace stl {}
-
-using namespace stl;
-
 namespace {
     constexpr u32 colorPayloadMask = 0x00ffffff;
 

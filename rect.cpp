@@ -34,7 +34,11 @@ void Rect::clear() {
     br = Point();
 }
 
-template <>
-void stl::output<ZeroCopyOutput, ::Rect>(ZeroCopyOutput& output, ::Rect rect) {
-    output << StringView(u8"Rect{tl=") << rect.tl << StringView(u8" br=") << rect.br << (rect.rectangular ? StringView(u8" rectangular}") : StringView(u8" regular}"));
+namespace stl {
+
+    template <>
+    void output<ZeroCopyOutput, ::Rect>(ZeroCopyOutput& output, ::Rect rect) {
+        output << StringView(u8"Rect{tl=") << rect.tl << StringView(u8" br=") << rect.br << (rect.rectangular ? StringView(u8" rectangular}") : StringView(u8" regular}"));
+    }
+
 }

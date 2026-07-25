@@ -62,8 +62,6 @@
 #include <sstream>
 #include <sys/types.h>
 
-namespace stl {}
-
 using namespace stl;
 
 void MouseTrackingState::setMode(MouseTrackingMode value) {
@@ -253,9 +251,9 @@ namespace {
 
         void resizeGrid();
         void fontChanged();
-        void createFreshScreen(Screen*& frame, stl::ObjPool*& pool);
-        void createInactiveScreen(Screen*& frame, stl::ObjPool*& pool);
-        void resizeScreen(Screen*& frame, stl::ObjPool*& pool, bool reflow, Screen::Cursor* cursor);
+        void createFreshScreen(Screen*& frame, ObjPool*& pool);
+        void createInactiveScreen(Screen*& frame, ObjPool*& pool);
+        void resizeScreen(Screen*& frame, ObjPool*& pool, bool reflow, Screen::Cursor* cursor);
 
         void redraw();
         bool animationActive() const;
@@ -578,7 +576,7 @@ namespace {
         Buffer protocolResponseScratch;
         size_t ptyOutputOffset = 0;
         u64 droppedPtyResponses = 0;
-        stl::Vector<RenderCell> outputCells;
+        Vector<RenderCell> outputCells;
         TerminalUpdate terminalUpdate;
 
         std::string inputResult;
@@ -589,16 +587,16 @@ namespace {
         u16 presentedColumns = 0;
         u16 presentedRows = 0;
 
-        stl::Vector<u32*> extraFixups;
+        Vector<u32*> extraFixups;
         u32 processInputDepth = 0;
         bool presentedSinceGcSafePoint = false;
 
         TerminalColors colors;
         Color originalPalette256[256];
         Screen* frame_pri = nullptr;
-        stl::ObjPool* framePriPool = nullptr;
+        ObjPool* framePriPool = nullptr;
         Screen* frame_alt = nullptr;
-        stl::ObjPool* frameAltPool = nullptr;
+        ObjPool* frameAltPool = nullptr;
         Screen* cf = nullptr;
         u16 posX = 0;
         u16 posY = 0;

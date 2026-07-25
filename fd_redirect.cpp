@@ -15,8 +15,6 @@
 
 #include <unistd.h>
 
-namespace stl {}
-
 using namespace stl;
 
 namespace {

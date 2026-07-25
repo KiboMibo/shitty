@@ -34,8 +34,6 @@
 #include <utility>
 #include <vector>
 
-namespace stl {}
-
 using namespace stl;
 
 // The complete geometry-independent state of one screen: content in its
@@ -98,7 +96,7 @@ namespace {
         bool active() const noexcept override;
 
         CellExtraStore* cellExtras() const noexcept override;
-        void collectExtraRefLocations(stl::Vector<u32*>& locations) override;
+        void collectExtraRefLocations(Vector<u32*>& locations) override;
         size_t cellCapacity() const noexcept override;
 
         void eraseInRow(u16 row, u16 start, u16 count, const TerminalCell& attrs) override;
@@ -173,7 +171,7 @@ namespace {
         TerminalCell::Ptr cells = nullptr;
         const TerminalColors* colors = nullptr;
         Composer* composer = nullptr;
-        stl::ObjPool* pool = nullptr;
+        ObjPool* pool = nullptr;
         std::vector<TerminalCell> erasedRowTemplate;
         TerminalCell erasedRowCell{};
         bool erasedRowTemplateValid = false;
@@ -189,7 +187,7 @@ namespace {
         bool cursorBlink = false;
         bool screenReverseVideo = false;
         SelectSnapTo snapTo = SelectSnapTo::Char;
-        stl::Buffer damageStorage;
+        Buffer damageStorage;
 
         struct LinkPosition {
             i32 row = 0;
@@ -202,9 +200,9 @@ namespace {
             size_t end = 0;
         };
 
-        mutable stl::Vector<LinkPosition> linkLeft;
-        mutable stl::Vector<LinkPart> linkParts;
-        mutable stl::Buffer linkScratch;
+        mutable Vector<LinkPosition> linkLeft;
+        mutable Vector<LinkPart> linkParts;
+        mutable Buffer linkScratch;
 
         struct Damage {
             Packed* cells = nullptr;
@@ -537,7 +535,7 @@ void ScreenImpl<Coord, Epoch, RowIndex>::dropScrollbackHistory() {
 }
 
 template <typename Coord, typename Epoch, typename RowIndex>
-void ScreenImpl<Coord, Epoch, RowIndex>::collectExtraRefLocations(stl::Vector<u32*>& locations) {
+void ScreenImpl<Coord, Epoch, RowIndex>::collectExtraRefLocations(Vector<u32*>& locations) {
     const auto collectRow = [&](RowId row) {
         TerminalCell* first = cells.get() + row * nCols;
         for (u16 column = 0; column < nCols; ++column) {

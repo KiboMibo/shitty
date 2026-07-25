@@ -11,10 +11,6 @@
 #include <algorithm>
 #include <iterator>
 
-namespace stl {}
-
-using namespace stl;
-
 // Bases registered by Unicode emoji-variation-sequences.txt.  The repertoire
 // has been stable since Unicode 9.0; keeping it here makes the streaming width
 // decision independent of font coverage.

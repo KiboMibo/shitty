@@ -54,8 +54,6 @@
 
 #include <std/mem/obj_pool.h>
 
-namespace stl {}
-
 using namespace stl;
 
 namespace {
