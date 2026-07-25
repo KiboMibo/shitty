@@ -79,6 +79,7 @@ namespace {
         {"showWraps", OptionKind::NoArg, "true", "false", "Show wrap marks at right margin"},
         {"title", OptionKind::SepArg, nullptr, "Shitty", "Window title"},
         {"verbose", OptionKind::NoArg, "true", "false", "Output info messages"},
+        {"version", OptionKind::NoArg, "true", "false", "Print version and quit"},
         {"e", OptionKind::SkipLine, nullptr, nullptr, "Command line to run"},
     };
 
@@ -121,7 +122,7 @@ namespace {
 
     const OptionDesc* findOption(const char* prefix) {
         if (strcmp(prefix, "v") == 0) {
-            prefix = "verbose";
+            prefix = "version";
         }
 
         const OptionDesc* found = nullptr;
@@ -372,6 +373,10 @@ int Options::getInteger(const char* name, int min, int max) {
 }
 
 void Options::handlePrintOpts() {
+    if (getBool("version")) {
+        printVersion();
+        exit(0);
+    }
     if (getBool("help")) {
         printUsage();
         exit(0);
