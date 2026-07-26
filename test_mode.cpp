@@ -31,9 +31,11 @@
 #include "vterm_test.h"
 #include "vterm_trace.h"
 
+#include <std/dbg/assert.h>
 #include <std/str/builder.h>
 #include <std/str/view.h>
 #include <std/lib/buffer.h>
+#include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 #include <std/sys/throw.h>
 
@@ -361,8 +363,8 @@ namespace {
         bool failNextUpdate = false;
         u16 columns = 0;
         u16 rows = 0;
-        u16 viewOffset = 0;
-        u16 historyRows = 0;
+        u32 viewOffset = 0;
+        u32 historyRows = 0;
         u64 refreshCount = 0;
         bool screenReverse = false;
         bool blinkVisible = true;
@@ -378,6 +380,7 @@ namespace {
         TerminalCursor cursor;
         Rect selection;
         std::vector<RenderCell> cells;
+        mutable Vector<RenderCellUpdate> renderCells;
         std::vector<TerminalCell> modelCells;
         std::vector<std::vector<u32>> cellGraphemes;
         std::vector<CellColor> modelUnderlineColors;
@@ -530,24 +533,16 @@ bool TestDisplay::update(const TerminalUpdate& update) {
         failNextUpdate = false;
         return false;
     }
-    const size_t count = update.cellCount;
+    const size_t count = (size_t)(composer.columns) * composer.rows;
     if (columns != composer.columns || rows != composer.rows) {
         columns = composer.columns;
         rows = composer.rows;
         cells.resize(count);
         modelCells.resize(count);
     }
-    if (update.incremental) {
-        for (size_t index = 0; index < count; ++index) {
-            if (update.cells[index].dirty) {
-                cells[index] = update.cells[index];
-            }
-        }
-    } else {
-        std::copy_n(update.cells, count, cells.data());
-    }
-    for (auto& cell : cells) {
-        cell.dirty = 0;
+    for (size_t index = 0; index < update.cellCount; ++index) {
+        STD_ASSERT(update.cells[index].index < count);
+        cells[update.cells[index].index] = update.cells[index].cell;
     }
     cellGraphemes.resize(count);
     modelUnderlineColors.resize(count);
@@ -812,9 +807,17 @@ std::string TestDisplay::renderState() const {
 }
 
 TerminalUpdate TestDisplay::renderUpdate() const {
+    renderCells.clear();
+    renderCells.grow(cells.size());
+    for (size_t index = 0; index < cells.size(); ++index) {
+        renderCells.pushBack({
+            (u32)(index),
+            cells[index],
+        });
+    }
     return {
-        .cells = cells.data(),
-        .cellCount = cells.size(),
+        .cells = renderCells.data(),
+        .cellCount = renderCells.length(),
         .viewOffset = viewOffset,
         .historyRows = historyRows,
         .cursor = cursor,
@@ -826,7 +829,6 @@ TerminalUpdate TestDisplay::renderUpdate() const {
         .hoveredHyperlink = hoveredHyperlink,
         .hoveredLinkBegin = hoveredLinkBegin,
         .hoveredLinkEnd = hoveredLinkEnd,
-        .incremental = false,
         .screenReverse = screenReverse,
         .blinkVisible = blinkVisible,
         .cursorBlink = cursorBlink,
@@ -1679,13 +1681,12 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
             } else if (line == "GPU_ATTRIBUTE_MASKS") {
                 RenderCell cell;
                 cell.dwidth = true;
-                const u32 doubleWidth = Renderer::rendererCellAttributesForTest(cell);
+                const u32 doubleWidth = Renderer::rendererCellAttributesForTest(cell, false);
                 cell.dwidth = false;
                 cell.dwidth_cont = true;
-                const u32 continuation = Renderer::rendererCellAttributesForTest(cell);
+                const u32 continuation = Renderer::rendererCellAttributesForTest(cell, false);
                 cell.dwidth_cont = false;
-                cell.dirty = true;
-                const u32 dirty = Renderer::rendererCellAttributesForTest(cell);
+                const u32 dirty = Renderer::rendererCellAttributesForTest(cell, true);
                 writeAll(controlFd, "OK " + std::to_string(doubleWidth) + " " + std::to_string(continuation) + " " + std::to_string(dirty) + "\n");
             } else if (line == "POLL_CHILD") {
                 pumpChild();

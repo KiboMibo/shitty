@@ -28,9 +28,8 @@ STD_TEST_SUITE(Renderer) {
         cell.underline_style = 5;
         cell.dwidth = true;
         cell.dwidth_cont = true;
-        cell.dirty = true;
 
         const u32 expected = (1u << 2) | (1u << 3) | (1u << 4) | (1u << 5) | (1u << 6) | (1u << 8) | (1u << 9) | (1u << 10) | (1u << 11) | (1u << 12) | (5u << 13) | (1u << 16) | (1u << 17) | (1u << 23);
-        STD_INSIST(Renderer::rendererCellAttributesForTest(cell) == expected);
+        STD_INSIST(Renderer::rendererCellAttributesForTest(cell, true) == expected);
     }
 }

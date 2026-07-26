@@ -58,7 +58,6 @@ struct Screen {
     virtual bool hasProtection(u16 row, u8 mask) const noexcept = 0;
     virtual bool wrapped(u16 row, u16 column) const noexcept = 0;
     virtual void setWrapped(u16 row, u16 column) = 0;
-    virtual void moveWrap(u16 row, u16 sourceColumn, u16 destinationColumn) = 0;
     virtual void writeGrapheme(u16 row, u16 column, const u32* codepoints, size_t count, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, u8 lineAttribute, const TerminalCell& eraseAttrs) = 0;
     virtual void writeAsciiRun(u16 row, u16 column, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, u8 lineAttribute, const TerminalCell& eraseAttrs) = 0;
     virtual void writeRun(u16 row, u16 column, const u32* codepoints, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, u8 lineAttribute, const TerminalCell& eraseAttrs) = 0;
@@ -69,8 +68,7 @@ struct Screen {
     virtual void appendPrintableLine(u16 row, std::string& output) const = 0;
     virtual ScreenHyperlink hyperlinkAt(u16 row, u16 column) const = 0;
     virtual TerminalCell testCell(u16 row, u16 column) const noexcept = 0;
-    virtual void fullCopyCells(RenderCell* dest) const = 0;
-    virtual void deltaCopyCells(RenderCell* dest) = 0;
+    virtual void copyDamagedCells(stl::Vector<RenderCellUpdate>& cells) const = 0;
 
     virtual bool active() const noexcept = 0;
 
@@ -78,13 +76,11 @@ struct Screen {
     virtual void collectExtraCells(stl::Vector<TerminalCell*>& cells) = 0;
     virtual size_t cellCapacity() const noexcept = 0;
 
-    virtual void eraseInRow(u16 row, u16 start, u16 count, const TerminalCell& attrs) = 0;
-    virtual void eraseWideInRow(u16 row, u16 start, u16 count, const TerminalCell& attrs) = 0;
-    virtual void clearWideBoundary(u16 row, u16 boundary, const TerminalCell& attrs) = 0;
-    virtual void repairWideBoundary(u16 row, u16 boundary, const TerminalCell& attrs) = 0;
-    virtual void selectiveEraseInRow(u16 row, u16 start, u16 count, const TerminalCell& attrs, u8 protectionMask = 0xff) = 0;
-    virtual void moveInRow(u16 row, u16 destination, u16 source, u16 count) = 0;
-    virtual void copyRow(u16 destinationRow, u16 sourceRow, u16 start, u16 count) = 0;
+    virtual void eraseCells(u16 row, u16 start, u16 count, const TerminalCell& attrs) = 0;
+    virtual void selectiveEraseCells(u16 row, u16 start, u16 count, const TerminalCell& attrs, u8 protectionMask = 0xff) = 0;
+    virtual void insertCells(u16 row, u16 start, u16 end, u16 count, const TerminalCell& attrs) = 0;
+    virtual void deleteCells(u16 row, u16 start, u16 end, u16 count, const TerminalCell& attrs) = 0;
+    virtual void copyRow(u16 destinationRow, u16 sourceRow, u16 start, u16 count, const TerminalCell& attrs) = 0;
     virtual void rotateRowsUp(u16 top, u16 bottom, u16 count) = 0;
     virtual void rotateRowsDown(u16 top, u16 bottom, u16 count) = 0;
 
@@ -96,8 +92,8 @@ struct Screen {
     virtual void pageDown(u16 count) = 0;
     virtual bool pageToBottom() = 0;
 
-    virtual u16 getHistoryRows() const noexcept = 0;
-    virtual u16 getViewOffset() const noexcept = 0;
+    virtual u32 getHistoryRows() const noexcept = 0;
+    virtual u32 getViewOffset() const noexcept = 0;
     virtual u16 columns() const noexcept = 0;
     virtual u16 rows() const noexcept = 0;
 

@@ -51,6 +51,36 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(!screen->hasDamage());
     }
 
+    STD_TEST(ExpandsScrollbackToPowerOfTwoRing) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 32);
+        TerminalColors colors;
+        configureColors(colors);
+
+        Screen* screen = Screen::create(composer, *pool, 2, 3, &colors, 2);
+
+        STD_INSIST(screen->cellCapacity() == 16);
+        for (u16 index = 0; index < 6; ++index) {
+            screen->scrollUp(0, 3, 1);
+        }
+        STD_INSIST(screen->getHistoryRows() == 5);
+    }
+
+    STD_TEST(KeepsZeroScrollbackDisabled) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 8);
+        TerminalColors colors;
+        configureColors(colors);
+
+        Screen* screen = Screen::create(composer, *pool, 2, 3, &colors);
+        screen->scrollUp(0, 3, 1);
+
+        STD_INSIST(screen->cellCapacity() == 6);
+        STD_INSIST(screen->getHistoryRows() == 0);
+    }
+
     STD_TEST(WritesAsciiAndMaterializesOnlyDamagedCells) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
@@ -61,23 +91,24 @@ STD_TEST_SUITE(Screen) {
         TerminalCell attrs = attributes();
         attrs.bold = true;
         const u8 text[] = {'a', 'b'};
-        RenderCell rendered[8];
+        Vector<RenderCellUpdate> rendered;
 
-        screen->fullCopyCells(rendered);
+        screen->expose();
+        screen->copyDamagedCells(rendered);
+        STD_INSIST(rendered.length() == 8);
         screen->resetDamage();
         screen->writeAsciiRun(1, 1, text, 2, attrs, 0, 3, 0, TerminalCell{});
-        screen->deltaCopyCells(rendered);
+        screen->copyDamagedCells(rendered);
 
-        STD_INSIST(!rendered[0].dirty);
-        STD_INSIST(!rendered[4].dirty);
-        STD_INSIST(rendered[5].dirty);
-        STD_INSIST(rendered[6].dirty);
-        STD_INSIST(rendered[5].uc_pt == 'a');
-        STD_INSIST(rendered[6].uc_pt == 'b');
-        STD_INSIST(rendered[5].bold);
-        STD_INSIST(rendered[5].semantic == 3);
-        STD_INSIST((rendered[5].fg == Color{1, 2, 3}));
-        STD_INSIST((rendered[5].bg == Color{4, 5, 6}));
+        STD_INSIST(rendered.length() == 2);
+        STD_INSIST(rendered[0].index == 5);
+        STD_INSIST(rendered[1].index == 6);
+        STD_INSIST(rendered[0].cell.uc_pt == 'a');
+        STD_INSIST(rendered[1].cell.uc_pt == 'b');
+        STD_INSIST(rendered[0].cell.bold);
+        STD_INSIST(rendered[0].cell.semantic == 3);
+        STD_INSIST((rendered[0].cell.fg == Color{1, 2, 3}));
+        STD_INSIST((rendered[0].cell.bg == Color{4, 5, 6}));
     }
 
     STD_TEST(OverwritingWideContinuationClearsItsLead) {
@@ -101,6 +132,54 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(screen->testCell(0, 1).uc_pt == 0);
         STD_INSIST(!screen->testCell(0, 2).dwidth_cont);
         STD_INSIST(screen->testCell(0, 2).uc_pt == 'x');
+    }
+
+    STD_TEST(InsertAndDeleteCellsPreserveWideGlyph) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 16);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::create(composer, *pool, 8, 1, &colors);
+        const TerminalCell attrs = attributes();
+        const u32 wide[] = {0x4e00};
+        const u8 text[] = {'a', 'b'};
+        screen->writeAsciiRun(0, 0, text, 2, attrs, 0, 0, 0, TerminalCell{});
+        screen->writeGrapheme(0, 2, wide, 1, true, attrs, 0, 0, 0, TerminalCell{});
+
+        screen->insertCells(0, 1, 8, 1, TerminalCell{});
+
+        STD_INSIST(screen->testCell(0, 0).uc_pt == 'a');
+        STD_INSIST(screen->testCell(0, 1).uc_pt == 0);
+        STD_INSIST(screen->testCell(0, 2).uc_pt == 'b');
+        STD_INSIST(screen->testCell(0, 3).dwidth);
+        STD_INSIST(screen->testCell(0, 4).dwidth_cont);
+
+        screen->deleteCells(0, 1, 8, 1, TerminalCell{});
+
+        STD_INSIST(screen->testCell(0, 1).uc_pt == 'b');
+        STD_INSIST(screen->testCell(0, 2).dwidth);
+        STD_INSIST(screen->testCell(0, 3).dwidth_cont);
+    }
+
+    STD_TEST(InsertInsideWideGlyphRemovesBothHalves) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 8);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::create(composer, *pool, 4, 1, &colors);
+        const TerminalCell attrs = attributes();
+        const u32 wide[] = {0x4e00};
+        screen->writeGrapheme(0, 1, wide, 1, true, attrs, 0, 0, 0, TerminalCell{});
+
+        screen->insertCells(0, 2, 4, 1, TerminalCell{});
+
+        for (u16 column = 0; column < 4; ++column) {
+            const TerminalCell cell = screen->testCell(0, column);
+            STD_INSIST(!cell.dwidth);
+            STD_INSIST(!cell.dwidth_cont);
+        }
     }
 
     STD_TEST(ScrollbackRetainsRowsAndChangesView) {
@@ -152,13 +231,13 @@ STD_TEST_SUITE(Screen) {
         screen->writeAsciiRun(1, 0, second, 1, attrs, 0, 0, 0, TerminalCell{});
 
         screen->scrollUp(0, 2, 1);
-        screen->eraseInRow(1, 0, 2, TerminalCell{});
+        screen->eraseCells(1, 0, 2, TerminalCell{});
         screen->writeAsciiRun(1, 0, third, 1, attrs, 0, 0, 0, TerminalCell{});
         screen->scrollUp(0, 2, 1);
-        screen->eraseInRow(1, 0, 2, TerminalCell{});
+        screen->eraseCells(1, 0, 2, TerminalCell{});
         screen->writeAsciiRun(1, 0, fourth, 1, attrs, 0, 0, 0, TerminalCell{});
         screen->scrollUp(0, 2, 1);
-        screen->eraseInRow(1, 0, 2, TerminalCell{});
+        screen->eraseCells(1, 0, 2, TerminalCell{});
         screen->writeAsciiRun(1, 0, fifth, 1, attrs, 0, 0, 0, TerminalCell{});
 
         STD_INSIST(screen->getHistoryRows() == 2);
@@ -190,7 +269,7 @@ STD_TEST_SUITE(Screen) {
         screen->writeAsciiRun(3, 0, fourth, 1, attrs, 0, 0, 0, TerminalCell{});
 
         screen->scrollUp(0, 3, 1);
-        screen->eraseInRow(2, 0, 2, TerminalCell{});
+        screen->eraseCells(2, 0, 2, TerminalCell{});
 
         STD_INSIST(screen->getHistoryRows() == 1);
         STD_INSIST(screen->testCell(0, 0).uc_pt == 'B');

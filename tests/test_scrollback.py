@@ -231,11 +231,13 @@ class ScrollbackTest(unittest.TestCase):
                 + b"\x1b[S\x1b[3;1HE"
                 + b"\x1b[S\x1b[3;1HF"
                 + b"\x1b[S\x1b[3;1HG"
+                + b"\x1b[S\x1b[3;1HH"
+                + b"\x1b[S\x1b[3;1HI"
             )
-            terminal.wheel_up(3)
+            terminal.wheel_up(5)
 
             snapshot = terminal.snapshot()
-            self.assertEqual(snapshot.view_offset, 3)
+            self.assertEqual(snapshot.view_offset, 5)
             self.assertEqual(snapshot.lines, ["B       ", "C       ", "D       "])
 
     def test_output_at_capacity_advances_past_evicted_history(self):
@@ -245,17 +247,19 @@ class ScrollbackTest(unittest.TestCase):
                 + b"\x1b[S\x1b[3;1HD"
                 + b"\x1b[S\x1b[3;1HE"
                 + b"\x1b[S\x1b[3;1HF"
+                + b"\x1b[S\x1b[3;1HG"
+                + b"\x1b[S\x1b[3;1HH"
             )
-            terminal.wheel_up(3)
+            terminal.wheel_up(5)
             self.assertEqual(
                 terminal.snapshot().lines,
                 ["A       ", "B       ", "C       "],
             )
 
-            terminal.write(b"\x1b[S\x1b[3;1HG")
+            terminal.write(b"\x1b[S\x1b[3;1HI")
 
             snapshot = terminal.snapshot()
-            self.assertEqual(snapshot.view_offset, 3)
+            self.assertEqual(snapshot.view_offset, 5)
             self.assertEqual(snapshot.lines, ["B       ", "C       ", "D       "])
 
     def test_write_while_scrolled_changes_only_live_screen(self):

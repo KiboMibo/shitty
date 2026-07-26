@@ -23,7 +23,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 
 class CellColor {
 public:
@@ -213,7 +212,7 @@ struct RenderCell {
     u8 underline : 1;
     u8 inverse : 1;
     u8 wrap : 1;
-    u8 dirty : 1;
+    u8 _reserved0 : 1;
     u8 faint : 1;
     u8 blink : 1;
     u8 conceal : 1;
@@ -235,18 +234,15 @@ struct RenderCell {
     u32 semantic = 0;
 
     RenderCell();
-
-    bool operator==(const RenderCell& rhs) const {
-        return memcmp(this, &rhs, sizeof(RenderCell)) == 0;
-    }
-
-    bool operator!=(const RenderCell& rhs) const {
-        return !operator==(rhs);
-    }
 };
 
 static_assert(sizeof(RenderCell) == 32, "RenderCell size mismatch");
 static_assert(offsetof(RenderCell, fg) == 8, "RenderCell foreground offset mismatch");
+
+struct RenderCellUpdate {
+    u32 index = 0;
+    RenderCell cell;
+};
 
 struct TerminalPen {
     TerminalCell cell{};

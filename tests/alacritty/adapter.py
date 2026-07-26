@@ -230,6 +230,12 @@ def compare(case_path):
         terminal.write((case_path / "alacritty.recording").read_bytes())
         actual = actual_grid(terminal)
 
+    # Shitty rounds the complete row ring up to a power of two, so its effective
+    # history can exceed Alacritty's requested limit.  Compare the newest rows
+    # covered by the Alacritty grid.
+    if len(actual) > len(expected):
+        actual = actual[-len(expected):]
+
     # Alacritty's ref runner calls Grid::initialize_all() before comparing,
     # padding unused scrollback capacity with default rows.  Reproduce that
     # test-only normalization; Shitty exposes only rows that actually entered

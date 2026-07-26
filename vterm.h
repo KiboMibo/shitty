@@ -188,10 +188,10 @@ struct VtermState {
 };
 
 struct TerminalUpdate {
-    const RenderCell* cells = nullptr;
+    const RenderCellUpdate* cells = nullptr;
     size_t cellCount = 0;
-    u16 viewOffset = 0;
-    u16 historyRows = 0;
+    u32 viewOffset = 0;
+    u32 historyRows = 0;
     TerminalCursor cursor;
     Rect selection;
     Rect snappedSelection;
@@ -201,7 +201,6 @@ struct TerminalUpdate {
     u32 hoveredHyperlink = 0;
     u32 hoveredLinkBegin = 0;
     u32 hoveredLinkEnd = 0;
-    bool incremental = false;
     bool screenReverse = false;
     bool blinkVisible = true;
     bool cursorBlink = false;

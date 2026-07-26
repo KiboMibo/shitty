@@ -17,6 +17,7 @@
 #include "utf8.h"
 #include "vterm.h"
 
+#include <std/dbg/assert.h>
 #include <std/sys/crt.h>
 #include <std/ios/sys.h>
 #include <std/lib/buffer.h>
@@ -218,6 +219,7 @@ namespace {
         GlyphCache glyphs;
         GlyphCache doubleWidthGlyphs;
         Buffer fontUploadData;
+        Vector<RenderCell> cells;
         Vector<VkBufferImageCopy> atlasCopies;
         Vector<VkBufferImageCopy> colorAtlasCopies;
         Vector<VkBufferImageCopy> doubleWidthAtlasCopies;
@@ -230,6 +232,8 @@ namespace {
         u32 previousHoveredLinkBegin = 0;
         u32 previousHoveredLinkEnd = 0;
         bool previousStateValid = false;
+        u16 cellColumns = 0;
+        u16 cellRows = 0;
 
         VkSwapchainKHR swapchain = VK_NULL_HANDLE;
         VkFormat swapchainFormat = VK_FORMAT_UNDEFINED;
@@ -274,11 +278,11 @@ namespace {
         VkDeviceSize stageFontData(const void* data, size_t len, size_t expected);
         void recordFontUploads(FrameResources& frame);
         void recordImageUploads(VkCommandBuffer commandBuffer, VkBuffer stagingBuffer, const ImageResource& image, const Vector<VkBufferImageCopy>& copies, bool initialize);
-        void recordCommands(FrameResources& frame, u32 imageIndex, const TerminalUpdate& update, bool incremental);
+        void recordCommands(FrameResources& frame, u32 imageIndex, const TerminalUpdate& update, bool deltaFrame);
         void recordRepaintCommands(FrameResources& frame, u32 imageIndex);
         bool acquirePresentFrame(u32 width, u32 height, FrameResources*& frame, u32& imageIndex, bool& recreateAfterPresent);
         bool submitPresentFrame(u32 width, u32 height, FrameResources& frame, u32 imageIndex, bool recreateAfterPresent);
-        bool present(const TerminalUpdate& update, bool incrementalFrame);
+        bool present(const TerminalUpdate& update);
 
         static bool needsFontGlyph(u32 id);
         static u32 packColor(const Color& color);
@@ -336,8 +340,8 @@ namespace {
         throw std::runtime_error("Vulkan surface has no composite alpha mode");
     }
 
-    u32 packCellAttributes(const RenderCell& cell) {
-        return ((u32)(cell.bold) << 2) | ((u32)(cell.italic) << 3) | ((u32)(cell.underline) << 4) | ((u32)(cell.inverse) << 5) | ((u32)(cell.wrap) << 6) | ((u32)(cell.faint) << 8) | ((u32)(cell.blink) << 9) | ((u32)(cell.conceal) << 10) | ((u32)(cell.strike) << 11) | ((u32)(cell.overline) << 12) | ((u32)(cell.underline_style) << 13) | ((u32)(cell.dwidth) << 16) | ((u32)(cell.dwidth_cont) << 17) | ((u32)(cell.dirty) << 23);
+    u32 packCellAttributes(const RenderCell& cell, bool dirty = false) {
+        return ((u32)(cell.bold) << 2) | ((u32)(cell.italic) << 3) | ((u32)(cell.underline) << 4) | ((u32)(cell.inverse) << 5) | ((u32)(cell.wrap) << 6) | ((u32)(cell.faint) << 8) | ((u32)(cell.blink) << 9) | ((u32)(cell.conceal) << 10) | ((u32)(cell.strike) << 11) | ((u32)(cell.overline) << 12) | ((u32)(cell.underline_style) << 13) | ((u32)(cell.dwidth) << 16) | ((u32)(cell.dwidth_cont) << 17) | ((u32)(dirty) << 23);
     }
 }
 
@@ -359,8 +363,8 @@ void CallRendererCellExtrasChanged::onListen(void*) {
     renderer->cellExtrasChanged();
 }
 
-u32 Renderer::rendererCellAttributesForTest(const RenderCell& cell) {
-    return packCellAttributes(cell);
+u32 Renderer::rendererCellAttributesForTest(const RenderCell& cell, bool dirty) {
+    return packCellAttributes(cell, dirty);
 }
 
 RendererImpl::RendererImpl(Composer& composer_, GLFWwindow* window_)
@@ -1455,7 +1459,7 @@ bool RendererImpl::sameSelection(const Rect& lhs, const Rect& rhs) {
     return lhs.tl == rhs.tl && lhs.br == rhs.br && lhs.rectangular == rhs.rectangular;
 }
 
-void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const TerminalUpdate& update, bool incremental) {
+void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const TerminalUpdate& update, bool deltaFrame) {
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -1474,7 +1478,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const T
     outputForCompute.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     outputForCompute.image = outputImage.image;
     outputForCompute.subresourceRange = outputRange;
-    if (incremental) {
+    if (deltaFrame) {
         outputForCompute.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
         outputForCompute.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
         vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &outputForCompute);
@@ -1530,7 +1534,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const T
         doubleWidthAtlas.image != VK_NULL_HANDLE ? 1u : 0u,
         previousCursor.posX,
         previousCursor.posY,
-        incremental ? 1u : 0u,
+        deltaFrame ? 1u : 0u,
         (!sameSelection(update.snappedSelection, previousSelection) || previousHoveredLinkBegin != update.hoveredLinkBegin || previousHoveredLinkEnd != update.hoveredLinkEnd) ? 1u : 0u,
         packColor(update.selectionForeground),
         packColor(update.selectionBackground),
@@ -1720,10 +1724,11 @@ bool RendererImpl::repaint() {
     return submitPresentFrame(width, height, *frame, imageIndex, recreateAfterPresent);
 }
 
-bool RendererImpl::present(const TerminalUpdate& update, bool incrementalFrame) {
+bool RendererImpl::present(const TerminalUpdate& update) {
     const u32 width = composer.pixelWidth;
     const u32 height = composer.pixelHeight;
-    if (update.cellCount == 0 || width == 0 || height == 0) {
+    const size_t cellCount = (size_t)(composer.columns) * composer.rows;
+    if (cellCount == 0 || width == 0 || height == 0) {
         return false;
     }
 
@@ -1738,7 +1743,23 @@ bool RendererImpl::present(const TerminalUpdate& update, bool incrementalFrame) 
         return false;
     }
 
-    incrementalFrame = incrementalFrame && outputInitialized && previousStateValid;
+    const bool shapeChanged = cellColumns != composer.columns || cellRows != composer.rows;
+    if (shapeChanged) {
+        cells.clear();
+        cells.grow(cellCount);
+        const RenderCell empty;
+        for (size_t index = 0; index < cellCount; ++index) {
+            cells.pushBack(empty);
+        }
+        cellColumns = composer.columns;
+        cellRows = composer.rows;
+    }
+    for (size_t index = 0; index < update.cellCount; ++index) {
+        const RenderCellUpdate* current = update.cells + index;
+        STD_ASSERT(current->index < cellCount);
+        cells.mut(current->index) = current->cell;
+    }
+    const bool deltaFrame = !shapeChanged && outputInitialized && previousStateValid;
 
     FrameResources* frame = nullptr;
     u32 imageIndex = 0;
@@ -1751,11 +1772,11 @@ bool RendererImpl::present(const TerminalUpdate& update, bool incrementalFrame) 
     Fontpack& fonts = *composer.fonts;
     const bool hasDoubleWidth = fonts.hasDoubleWidth();
     beginGlyphFrame();
-    const size_t cellBytes = update.cellCount * sizeof(GpuCell);
+    const size_t cellBytes = cellCount * sizeof(GpuCell);
     ensureCellBuffer(*frame, cellBytes);
     GpuCell* const gpuCells = (GpuCell*)(frame->cells);
-    for (size_t index = 0; index < update.cellCount; ++index) {
-        const RenderCell& cell = update.cells[index];
+    for (size_t index = 0; index < cellCount; ++index) {
+        const RenderCell& cell = cells[index];
         u32 glyph = 0;
         if (!cell.dwidth_cont || cell.line_attr != 0) {
             const FontStyle style = (FontStyle)((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0));
@@ -1782,13 +1803,17 @@ bool RendererImpl::present(const TerminalUpdate& update, bool incrementalFrame) 
             cell.line_attr,
         };
     }
+    for (size_t index = 0; index < update.cellCount; ++index) {
+        const RenderCellUpdate* current = update.cells + index;
+        gpuCells[current->index].attributes |= 1u << 23;
+    }
 
     if (!fontUploadData.empty()) {
         ensureFontUploadBuffer(*frame, fontUploadData.used());
         std::memcpy(frame->fontUploads, fontUploadData.data(), fontUploadData.used());
     }
 
-    recordCommands(*frame, imageIndex, update, incrementalFrame);
+    recordCommands(*frame, imageIndex, update, deltaFrame);
     outputInitialized = true;
     previousCursor = update.cursor;
     previousSelection = update.snappedSelection;
@@ -1800,7 +1825,7 @@ bool RendererImpl::present(const TerminalUpdate& update, bool incrementalFrame) 
 }
 
 bool RendererImpl::update(const TerminalUpdate& update) {
-    return present(update, update.incremental);
+    return present(update);
 }
 
 Renderer* Renderer::create(Composer& composer, GLFWwindow* window) {

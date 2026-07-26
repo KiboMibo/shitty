@@ -36,6 +36,8 @@
 
 using namespace stl;
 
+using RowSlot = size_t;
+
 // The complete geometry-independent state of one screen: content in its
 // source geometry (storage borrowed until the old pool is destroyed),
 // view/selection anchors, and the
@@ -43,14 +45,14 @@ using namespace stl;
 struct ResizeState {
     u16 columns = 0;
     u16 rows = 0;
-    u16 saveLines = 0;
+    u32 saveLines = 0;
     bool active = false;
-    TerminalCell** rowRing = nullptr;
+    RowSlot* rowRing = nullptr;
     const TerminalCell* zeroRow = nullptr;
     u32 rowCapacity = 0;
     u32 rowEnd = 0;
     u32 historyRows = 0;
-    u16 viewOffset = 0;
+    u32 viewOffset = 0;
     Rect selection;
     Screen::SelectSnapTo snapTo = Screen::SelectSnapTo::Char;
     Color selectionForeground{};
@@ -63,6 +65,30 @@ struct ResizeState {
 };
 
 namespace {
+    constexpr RowSlot rowWide = 1;
+    constexpr RowSlot rowFlags = rowWide;
+
+    TerminalCell* rowData(RowSlot slot) {
+        return reinterpret_cast<TerminalCell*>(slot & ~rowFlags);
+    }
+
+    const TerminalCell* constRowData(RowSlot slot) {
+        return reinterpret_cast<const TerminalCell*>(slot & ~rowFlags);
+    }
+
+    RowSlot rowSlot(TerminalCell* row, bool wide = false) {
+        STD_ASSERT((reinterpret_cast<RowSlot>(row) & rowFlags) == 0);
+        return reinterpret_cast<RowSlot>(row) | (wide ? rowWide : 0);
+    }
+
+    bool rowContainsWide(const TerminalCell* row, u16 columns) {
+        for (u16 column = 0; column < columns; ++column) {
+            if (row[column].dwidth || row[column].dwidth_cont) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     // Coord holds one grid coordinate and Epoch a damage generation counter.
     // The factories pick an instantiation from the actual geometry; resize
@@ -81,7 +107,6 @@ namespace {
         bool hasProtection(u16 row, u8 mask) const noexcept override;
         bool wrapped(u16 row, u16 column) const noexcept override;
         void setWrapped(u16 row, u16 column) override;
-        void moveWrap(u16 row, u16 sourceColumn, u16 destinationColumn) override;
         void writeGrapheme(u16 row, u16 column, const u32* codepoints, size_t count, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, u8 lineAttribute, const TerminalCell& eraseAttrs) override;
         void writeAsciiRun(u16 row, u16 column, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, u8 lineAttribute, const TerminalCell& eraseAttrs) override;
         void writeRun(u16 row, u16 column, const u32* codepoints, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, u8 lineAttribute, const TerminalCell& eraseAttrs) override;
@@ -92,8 +117,7 @@ namespace {
         void appendPrintableLine(u16 row, std::string& output) const override;
         ScreenHyperlink hyperlinkAt(u16 row, u16 column) const override;
         TerminalCell testCell(u16 row, u16 column) const noexcept override;
-        void fullCopyCells(RenderCell* dest) const override;
-        void deltaCopyCells(RenderCell* dest) override;
+        void copyDamagedCells(Vector<RenderCellUpdate>& cells) const override;
 
         bool active() const noexcept override;
 
@@ -101,13 +125,11 @@ namespace {
         void collectExtraCells(Vector<TerminalCell*>& cells) override;
         size_t cellCapacity() const noexcept override;
 
-        void eraseInRow(u16 row, u16 start, u16 count, const TerminalCell& attrs) override;
-        void eraseWideInRow(u16 row, u16 start, u16 count, const TerminalCell& attrs) override;
-        void clearWideBoundary(u16 row, u16 boundary, const TerminalCell& attrs) override;
-        void repairWideBoundary(u16 row, u16 boundary, const TerminalCell& attrs) override;
-        void selectiveEraseInRow(u16 row, u16 start, u16 count, const TerminalCell& attrs, u8 protectionMask) override;
-        void moveInRow(u16 row, u16 destination, u16 source, u16 count) override;
-        void copyRow(u16 destinationRow, u16 sourceRow, u16 start, u16 count) override;
+        void eraseCells(u16 row, u16 start, u16 count, const TerminalCell& attrs) override;
+        void selectiveEraseCells(u16 row, u16 start, u16 count, const TerminalCell& attrs, u8 protectionMask) override;
+        void insertCells(u16 row, u16 start, u16 end, u16 count, const TerminalCell& attrs) override;
+        void deleteCells(u16 row, u16 start, u16 end, u16 count, const TerminalCell& attrs) override;
+        void copyRow(u16 destinationRow, u16 sourceRow, u16 start, u16 count, const TerminalCell& attrs) override;
         void rotateRowsUp(u16 top, u16 bottom, u16 count) override;
         void rotateRowsDown(u16 top, u16 bottom, u16 count) override;
 
@@ -119,8 +141,8 @@ namespace {
         void pageDown(u16 count) override;
         bool pageToBottom() override;
 
-        u16 getHistoryRows() const noexcept override;
-        u16 getViewOffset() const noexcept override;
+        u32 getHistoryRows() const noexcept override;
+        u32 getViewOffset() const noexcept override;
         u16 columns() const noexcept override;
         u16 rows() const noexcept override;
 
@@ -165,7 +187,7 @@ namespace {
         u32 rowEnd = 0;
         u32 historyRows = 0;
         u32 lineAttrRows = 0;
-        TerminalCell** rowRing = nullptr;
+        RowSlot* rowRing = nullptr;
         TerminalCell* zeroRow = nullptr;
         const TerminalColors* colors = nullptr;
         Composer& composer;
@@ -223,20 +245,30 @@ namespace {
         Damage damage;
 
         u32 wrapRow(i64 row) const noexcept;
-        TerminalCell*& logicalRowSlot(int row);
+        RowSlot& logicalRowSlot(int row);
+        bool logicalRowHasWide(int row) const noexcept;
+        void markLogicalRowWide(int row);
         TerminalCell* rawLogicalRow(int row) const noexcept;
         const TerminalCell* getLogicalRowPtr(int row) const;
         const TerminalCell* getViewRowPtr(int row) const;
+        TerminalCell* mutableRow(RowSlot& slot);
         TerminalCell* mutableLogicalRow(int row);
         TerminalCell* allocateRow();
         void releaseRow(TerminalCell* row);
-        void initializeRows(u16 columns, u16 rows, u16 history);
+        void initializeRows(u16 columns, u16 rows, u32 history);
         void installRow(int row, const TerminalCell* source, u16 sourceColumns);
         static bool emptyRow(const TerminalCell* row, u16 columns);
 
         void eraseRange(TerminalCell* start, TerminalCell* end, const TerminalCell& attrs);
         void copyCells(TerminalCell* destination, const TerminalCell* source, u32 count);
         void moveCells(TerminalCell* destination, const TerminalCell* source, u32 count);
+        void eraseInRow(RowSlot& slot, u16 row, u16 start, u16 count, const TerminalCell& attrs);
+        [[gnu::always_inline]] inline void clearWideBoundary(u16 row, u16 boundary, const TerminalCell& attrs);
+        [[gnu::always_inline]] inline void repairWideBoundary(u16 row, u16 boundary, const TerminalCell& attrs);
+        [[gnu::noinline]] void clearWideBoundarySlow(TerminalCell* cells, u16 row, u16 boundary, const TerminalCell& attrs, bool eraseLeft, bool eraseRight);
+        [[gnu::noinline]] void repairWideBoundarySlow(TerminalCell* cells, u16 row, u16 boundary, const TerminalCell& attrs, bool eraseLeft);
+        void moveWrap(u16 row, u16 sourceColumn, u16 destinationColumn);
+        void moveInRow(u16 row, u16 destination, u16 source, u16 count);
         void damageCell(u16 row, u16 column);
         void damageRow(u16 row, u16 begin, u16 end);
         void damageRectangle(u16 top, u16 left, u16 bottom, u16 right);
@@ -251,7 +283,7 @@ namespace {
         void layoutReflow(ResizeState& state, u16 columns, u16 rows, Cursor* cursorState);
 
         RenderCell materialize(const TerminalCell& cell, const CellExtraStore& extras) const;
-        void damageDeltaCopy(RenderCell* destination, const TerminalCell* source, u16 count, const CellExtraStore& extras) const;
+        void appendDamagedCells(Vector<RenderCellUpdate>& cells, u32 offset, const TerminalCell* source, u16 count, const CellExtraStore& extras) const;
 
         static SelectSnapTo nextSelectSnapTo(SelectSnapTo snapTo);
 
@@ -303,17 +335,21 @@ namespace {
         }
     }
 
-    u32 wrapStateRow(const ResizeState& state, i64 row) {
-        i64 result = row % state.rowCapacity;
-        if (result < 0) {
-            result += state.rowCapacity;
+    u32 nextPowerOfTwo(u32 value) {
+        u32 result = 1;
+        while (result < value) {
+            result <<= 1;
         }
-        return (u32)(result);
+        return result;
+    }
+
+    u32 wrapStateRow(const ResizeState& state, i64 row) {
+        return (u32)(row) & (state.rowCapacity - 1);
     }
 
     const TerminalCell* stateRowPtr(const ResizeState& state, int row) {
         const u32 slot = wrapStateRow(state, (i64)(state.rowEnd) - state.rows + row);
-        const TerminalCell* const result = state.rowRing[slot];
+        const TerminalCell* const result = constRowData(state.rowRing[slot]);
         return result != nullptr ? result : state.zeroRow;
     }
 
@@ -380,12 +416,12 @@ size_t ScreenImpl<Coord, Epoch>::cellCapacity() const noexcept {
 }
 
 template <typename Coord, typename Epoch>
-u16 ScreenImpl<Coord, Epoch>::getHistoryRows() const noexcept {
+u32 ScreenImpl<Coord, Epoch>::getHistoryRows() const noexcept {
     return historyRows;
 }
 
 template <typename Coord, typename Epoch>
-u16 ScreenImpl<Coord, Epoch>::getViewOffset() const noexcept {
+u32 ScreenImpl<Coord, Epoch>::getViewOffset() const noexcept {
     return viewOffset;
 }
 
@@ -518,21 +554,27 @@ ScreenImpl<Coord, Epoch>::ScreenImpl(Composer& composer_, ObjPool& pool_, u16 nC
 
 template <typename Coord, typename Epoch>
 u32 ScreenImpl<Coord, Epoch>::wrapRow(i64 row) const noexcept {
-    i64 result = row % rowCapacity;
-    if (result < 0) {
-        result += rowCapacity;
-    }
-    return (u32)(result);
+    return (u32)(row) & (rowCapacity - 1);
 }
 
 template <typename Coord, typename Epoch>
-TerminalCell*& ScreenImpl<Coord, Epoch>::logicalRowSlot(int row) {
+RowSlot& ScreenImpl<Coord, Epoch>::logicalRowSlot(int row) {
     return rowRing[wrapRow((i64)(rowEnd)-nRows + row)];
 }
 
 template <typename Coord, typename Epoch>
 TerminalCell* ScreenImpl<Coord, Epoch>::rawLogicalRow(int row) const noexcept {
-    return rowRing[wrapRow((i64)(rowEnd)-nRows + row)];
+    return rowData(rowRing[wrapRow((i64)(rowEnd)-nRows + row)]);
+}
+
+template <typename Coord, typename Epoch>
+bool ScreenImpl<Coord, Epoch>::logicalRowHasWide(int row) const noexcept {
+    return (rowRing[wrapRow((i64)(rowEnd)-nRows + row)] & rowWide) != 0;
+}
+
+template <typename Coord, typename Epoch>
+void ScreenImpl<Coord, Epoch>::markLogicalRowWide(int row) {
+    logicalRowSlot(row) |= rowWide;
 }
 
 template <typename Coord, typename Epoch>
@@ -556,24 +598,33 @@ void ScreenImpl<Coord, Epoch>::releaseRow(TerminalCell* row) {
 
 template <typename Coord, typename Epoch>
 TerminalCell* ScreenImpl<Coord, Epoch>::mutableLogicalRow(int row) {
-    TerminalCell*& result = logicalRowSlot(row);
+    return mutableRow(logicalRowSlot(row));
+}
+
+template <typename Coord, typename Epoch>
+TerminalCell* ScreenImpl<Coord, Epoch>::mutableRow(RowSlot& slot) {
+    TerminalCell* result = rowData(slot);
     if (result == nullptr) {
         result = allocateRow();
+        slot = rowSlot(result);
     }
     return result;
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::initializeRows(u16 columns, u16 rows, u16 history) {
+void ScreenImpl<Coord, Epoch>::initializeRows(u16 columns, u16 rows, u32 history) {
     nCols = (Coord)(columns);
     nRows = (Coord)(rows);
-    rowCapacity = (u32)(rows) + saveLines;
-    rowRing = static_cast<TerminalCell**>(pool.allocate((size_t)(rowCapacity) * sizeof(TerminalCell*)));
-    memset(rowRing, 0, (size_t)(rowCapacity) * sizeof(TerminalCell*));
+    rowCapacity = nextPowerOfTwo((u32)(rows) + saveLines);
+    if (saveLines != 0) {
+        saveLines = rowCapacity - rows;
+    }
+    rowRing = static_cast<RowSlot*>(pool.allocate((size_t)(rowCapacity) * sizeof(RowSlot)));
+    memset(rowRing, 0, (size_t)(rowCapacity) * sizeof(RowSlot));
     zeroRow = static_cast<TerminalCell*>(pool.allocate((size_t)(columns)*cellSize));
     memset(zeroRow, 0, (size_t)(columns)*cellSize);
     historyRows = history;
-    rowEnd = ((u32)(history) + rows) % rowCapacity;
+    rowEnd = ((u32)(history) + rows) & (rowCapacity - 1);
 }
 
 template <typename Coord, typename Epoch>
@@ -599,7 +650,7 @@ void ScreenImpl<Coord, Epoch>::installRow(int row, const TerminalCell* source, u
         releaseRow(destination);
         return;
     }
-    logicalRowSlot(row) = destination;
+    logicalRowSlot(row) = rowSlot(destination, rowContainsWide(destination, nCols));
 }
 
 template <typename Coord, typename Epoch>
@@ -609,9 +660,9 @@ void ScreenImpl<Coord, Epoch>::dropScrollbackHistory() {
         selection.clear();
     }
     for (int row = -(int)(historyRows); row < 0; ++row) {
-        TerminalCell*& slot = logicalRowSlot(row);
-        releaseRow(slot);
-        slot = nullptr;
+        RowSlot& slot = logicalRowSlot(row);
+        releaseRow(rowData(slot));
+        slot = 0;
     }
     historyRows = 0;
     expose();
@@ -679,7 +730,7 @@ ResizeState* ScreenImpl<Coord, Epoch>::moveInto() {
 template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::layout(ResizeState& state, u16 nCols_, u16 nRows_, const TerminalColors* colors_, bool reflow, Cursor* cursorState) {
     colors = colors_;
-    saveLines = state.saveLines;
+    saveLines = state.saveLines == 0 ? 0 : max<u32>(state.rowCapacity, nextPowerOfTwo((u32)(nRows_) + 1)) - nRows_;
     viewOffset = state.viewOffset;
     selection = state.selection;
     snapTo = state.snapTo;
@@ -791,7 +842,7 @@ void ScreenImpl<Coord, Epoch>::layoutCopy(ResizeState& state, u16 nCols_, u16 nR
         viewOffset = viewOffset > restore ? viewOffset - restore : 0;
     }
 
-    const u16 historyCount = (u16)(sourceHistory.size());
+    const u32 historyCount = (u32)(sourceHistory.size());
     initializeRows(nCols_, nRows_, historyCount);
 
     u16 outRow = 0;
@@ -801,8 +852,8 @@ void ScreenImpl<Coord, Epoch>::layoutCopy(ResizeState& state, u16 nCols_, u16 nR
     for (size_t k = visibleStart; k < sourceScreen.size() && outRow < nRows_; ++k) {
         installRow(outRow++, sourceScreen[k], state.columns);
     }
-    for (u16 k = 0; k < historyCount; ++k) {
-        installRow((int)(k)-historyCount, sourceHistory[k], state.columns);
+    for (u32 k = 0; k < historyCount; ++k) {
+        installRow((int)(k) - (int)(historyCount), sourceHistory[k], state.columns);
     }
     if (!selectionValid()) {
         selection.clear();
@@ -998,7 +1049,7 @@ void ScreenImpl<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
         installRow(row, output[screenStart + row].data(), nCols_);
     }
     for (size_t row = 0; row < historyCount; ++row) {
-        installRow((int)(row)-historyCount, output[retainedStart + row].data(), nCols_);
+        installRow((int)(row) - (int)(historyCount), output[retainedStart + row].data(), nCols_);
     }
 
     if (!wasScrolled) {
@@ -1025,28 +1076,19 @@ void ScreenImpl<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::fullCopyCells(RenderCell* const dst) const {
+void ScreenImpl<Coord, Epoch>::copyDamagedCells(Vector<RenderCellUpdate>& cells) const {
     CellExtraStore& extras = cellExtras();
-    RenderCell* p = dst;
-    for (int pY = 0; pY < nRows; ++pY) {
-        const TerminalCell* src = getViewRowPtr(pY);
-        for (u16 pX = 0; pX < nCols; ++pX) {
-            *p++ = materialize(src[pX], extras);
-        }
-    }
-}
-
-template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::deltaCopyCells(RenderCell* const dst) {
-    CellExtraStore& extras = cellExtras();
+    cells.clear();
 
     if (damage.full) {
+        cells.grow((size_t)(nRows)*nCols);
         for (u16 row = 0; row < nRows; ++row) {
-            damageDeltaCopy(dst + (size_t)(row)*nCols, getViewRowPtr(row), nCols, extras);
+            appendDamagedCells(cells, (u32)(row)*nCols, getViewRowPtr(row), nCols, extras);
         }
         return;
     }
 
+    cells.grow(damage.count);
     const Packed* current = damage.cells;
     const Packed* const end = current + damage.count;
     while (current != end) {
@@ -1058,8 +1100,8 @@ void ScreenImpl<Coord, Epoch>::deltaCopyCells(RenderCell* const dst) {
             ++current;
             ++count;
         }
-        const size_t offset = (size_t)(row)*nCols + column;
-        damageDeltaCopy(dst + offset, getViewRowPtr(row) + column, count, extras);
+        const u32 offset = (u32)(row)*nCols + column;
+        appendDamagedCells(cells, offset, getViewRowPtr(row) + column, count, extras);
     }
 }
 
@@ -1264,17 +1306,12 @@ RenderCell ScreenImpl<Coord, Epoch>::materialize(const TerminalCell& cell, const
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::damageDeltaCopy(RenderCell* dst, const TerminalCell* src, u16 count, const CellExtraStore& extras) const {
+void ScreenImpl<Coord, Epoch>::appendDamagedCells(Vector<RenderCellUpdate>& cells, u32 offset, const TerminalCell* src, u16 count, const CellExtraStore& extras) const {
     for (u16 index = 0; index < count; ++index) {
-        RenderCell rendered = materialize(src[index], extras);
-        const bool wasDirty = dst[index].dirty;
-        dst[index].dirty = 0;
-        if (dst[index] != rendered) {
-            dst[index] = rendered;
-            dst[index].dirty = 1;
-        } else {
-            dst[index].dirty = wasDirty;
-        }
+        cells.pushBack({
+            offset + index,
+            materialize(src[index], extras),
+        });
     }
 }
 
@@ -1309,7 +1346,7 @@ void ScreenImpl<Coord, Epoch>::setCursorColor(Color color) {
 
 template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::pageUp(u16 count) {
-    u16 viewOffset_ = std::min<u32>(viewOffset + count, historyRows);
+    u32 viewOffset_ = min<u32>(viewOffset + count, historyRows);
     viewOffset = viewOffset_;
     expose();
 }
@@ -1335,31 +1372,31 @@ template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::scrollUp(u16 top, u16 bottom, u16 count) {
     count = std::min<u16>(count, bottom - top);
     const bool capture = top == 0 && saveLines != 0;
-    const u16 previousViewOffset = viewOffset;
+    const u32 previousViewOffset = viewOffset;
     if (!capture) {
         vscrollSelection(top, bottom, -count, false);
     }
 
     for (u16 k = 0; k < count; ++k) {
         if (capture) {
-            TerminalCell* incoming = nullptr;
+            RowSlot incoming = 0;
             if (historyRows == saveLines) {
-                TerminalCell*& oldest = logicalRowSlot(-(int)(historyRows));
+                RowSlot& oldest = logicalRowSlot(-(int)(historyRows));
                 incoming = oldest;
-                oldest = nullptr;
+                oldest = 0;
             } else {
                 ++historyRows;
             }
-            rowEnd = (rowEnd + 1) % rowCapacity;
-            TerminalCell*& last = logicalRowSlot(nRows - 1);
-            STD_ASSERT(last == nullptr);
+            rowEnd = (rowEnd + 1) & (rowCapacity - 1);
+            RowSlot& last = logicalRowSlot(nRows - 1);
+            STD_ASSERT(last == 0);
             last = incoming;
             for (u16 row = nRows - 1; row >= bottom; --row) {
                 logicalRowSlot(row) = logicalRowSlot(row - 1);
             }
             logicalRowSlot(bottom - 1) = incoming;
         } else {
-            TerminalCell* const incoming = logicalRowSlot(top);
+            const RowSlot incoming = logicalRowSlot(top);
             for (u16 row = top; row + 1 < bottom; ++row) {
                 logicalRowSlot(row) = logicalRowSlot(row + 1);
             }
@@ -1387,7 +1424,7 @@ void ScreenImpl<Coord, Epoch>::scrollDown(u16 top, u16 bottom, u16 count) {
     vscrollSelection(top, bottom, count, false);
 
     for (u16 k = 0; k < count; ++k) {
-        TerminalCell* const incoming = logicalRowSlot(bottom - 1);
+        const RowSlot incoming = logicalRowSlot(bottom - 1);
         for (u16 row = bottom - 1; row > top; --row) {
             logicalRowSlot(row) = logicalRowSlot(row - 1);
         }
@@ -1401,9 +1438,9 @@ template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::restoreHistory(u16 count) {
     count = std::min<u32>(count, historyRows);
     for (u16 k = 0; k < count; ++k) {
-        TerminalCell*& bottom = logicalRowSlot(nRows - 1);
-        TerminalCell* const outgoing = bottom;
-        bottom = nullptr;
+        RowSlot& bottom = logicalRowSlot(nRows - 1);
+        TerminalCell* const outgoing = rowData(bottom);
+        bottom = 0;
         rowEnd = wrapRow((i64)(rowEnd)-1);
         --historyRows;
         releaseRow(outgoing);
@@ -1431,19 +1468,24 @@ void ScreenImpl<Coord, Epoch>::fillCells(u16 ch, const TerminalCell& attrs) {
     fill.uc_pt = ch == ' ' ? 0 : ch;
     fill.drawn = ch != ' ';
     for (u16 r = 0; r < nRows; ++r) {
-        TerminalCell*& slot = logicalRowSlot(r);
+        RowSlot& slot = logicalRowSlot(r);
         const bool oldLineAttribute = getLogicalRowPtr(r)[0].line_attr != 0;
         if (oldLineAttribute != (fill.line_attr != 0)) {
             lineAttrRows += attrs.line_attr != 0 ? 1 : -1;
         }
         if (fill == TerminalCell{}) {
-            releaseRow(slot);
-            slot = nullptr;
+            releaseRow(rowData(slot));
+            slot = 0;
             continue;
         }
         TerminalCell* const row = mutableLogicalRow(r);
         for (u16 column = 0; column < nCols; ++column) {
             row[column] = fill;
+        }
+        if (fill.dwidth || fill.dwidth_cont) {
+            slot |= rowWide;
+        } else {
+            slot &= ~rowWide;
         }
     }
     damageRectangle(0, 0, nRows, nCols);
@@ -1514,6 +1556,14 @@ void ScreenImpl<Coord, Epoch>::moveWrap(u16 row, u16 sourceColumn, u16 destinati
 
 template <typename Coord, typename Epoch>
 TerminalCell* ScreenImpl<Coord, Epoch>::prepareSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs) {
+    RowSlot& slot = logicalRowSlot(row);
+    if ((slot & rowWide) == 0) {
+        damageRow(row, start, start + count);
+        if (!selection.empty()) {
+            invalidateSelection(Rect(start, row, start + count, row));
+        }
+        return mutableRow(slot) + start;
+    }
     const u16 end = start + count;
     const TerminalCell* cells_ = getLogicalRowPtr(row);
     const bool splitLeft = start > 0 && (cells_[start - 1].dwidth || cells_[start].dwidth_cont);
@@ -1526,6 +1576,14 @@ TerminalCell* ScreenImpl<Coord, Epoch>::prepareSpan(u16 row, u16 start, u16 coun
 
 template <typename Coord, typename Epoch>
 TerminalCell& ScreenImpl<Coord, Epoch>::prepareCell(u16 row, u16 column, const TerminalCell& eraseAttrs) {
+    RowSlot& slot = logicalRowSlot(row);
+    if ((slot & rowWide) == 0) {
+        damageCell(row, column);
+        if (!selection.empty()) {
+            invalidateSelection(Rect(column, row));
+        }
+        return mutableRow(slot)[column];
+    }
     const TerminalCell* cells_ = getLogicalRowPtr(row);
     if (cells_[column].dwidth_cont) {
         clearWideBoundary(row, column, eraseAttrs);
@@ -1570,6 +1628,7 @@ void ScreenImpl<Coord, Epoch>::writeGrapheme(u16 row, u16 column, const u32* cod
         extras.setHyperlink(continuation, lead.extraRef());
     }
     prepareCell(row, column + 1, eraseAttrs) = continuation;
+    markLogicalRowWide(row);
 }
 
 template <typename Coord, typename Epoch>
@@ -1642,6 +1701,9 @@ void ScreenImpl<Coord, Epoch>::copyRectangle(u16 sourceTop, u16 sourceLeft, u16 
             const u8 lineAttribute_ = destination[column].line_attr;
             destination[column] = copied[(size_t)(row)*width + column];
             destination[column].line_attr = lineAttribute_;
+        }
+        if (rowContainsWide(copied.data() + (size_t)(row)*width, width)) {
+            markLogicalRowWide(targetTop + row);
         }
         repairWideBoundary(targetTop + row, targetLeft, eraseAttrs);
         repairWideBoundary(targetTop + row, targetLeft + width, eraseAttrs);
@@ -2036,28 +2098,29 @@ TerminalCell ScreenImpl<Coord, Epoch>::testCell(u16 row, u16 column) const noexc
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::eraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs) {
+void ScreenImpl<Coord, Epoch>::eraseInRow(RowSlot& slot, u16 pY, u16 startX, u16 count, const TerminalCell& attrs) {
     if (!count) {
         return;
     }
 
     TerminalCell erased = attrs;
-    erased.line_attr = getLogicalRowPtr(pY)[0].line_attr;
+    TerminalCell* row = rowData(slot);
+    erased.line_attr = row == nullptr ? zeroRow[0].line_attr : row[0].line_attr;
     if (startX == 0 && count == nCols) {
         if (erased == TerminalCell{}) {
-            TerminalCell*& row = logicalRowSlot(pY);
             releaseRow(row);
-            row = nullptr;
+            slot = 0;
         } else {
             if (!erasedRowTemplateValid || erasedRowTemplate.size() != nCols || erasedRowCell != erased) {
                 erasedRowTemplate.assign(nCols, erased);
                 erasedRowCell = erased;
                 erasedRowTemplateValid = true;
             }
-            memcpy(mutableLogicalRow(pY), erasedRowTemplate.data(), nCols * cellSize);
+            memcpy(mutableRow(slot), erasedRowTemplate.data(), nCols * cellSize);
+            slot &= ~rowWide;
         }
-    } else if (rawLogicalRow(pY) != nullptr || erased != TerminalCell{}) {
-        TerminalCell* const start = mutableLogicalRow(pY) + startX;
+    } else if (row != nullptr || erased != TerminalCell{}) {
+        TerminalCell* const start = mutableRow(slot) + startX;
         eraseRange(start, start + count, erased);
     }
     damageRow(pY, startX, startX + count);
@@ -2067,21 +2130,26 @@ void ScreenImpl<Coord, Epoch>::eraseInRow(u16 pY, u16 startX, u16 count, const T
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::eraseWideInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs) {
+void ScreenImpl<Coord, Epoch>::eraseCells(u16 pY, u16 startX, u16 count, const TerminalCell& attrs) {
     if (!count) {
         return;
     }
+    RowSlot& slot = logicalRowSlot(pY);
+    if ((slot & rowWide) == 0) {
+        eraseInRow(slot, pY, startX, count, attrs);
+        return;
+    }
     const u16 endX = startX + count;
-    const TerminalCell* source = getLogicalRowPtr(pY);
+    const TerminalCell* source = rowData(slot);
     TerminalCell erased = attrs;
     erased.line_attr = source[0].line_attr;
     const bool eraseLeft = startX > 0 && (source[startX - 1].dwidth || source[startX].dwidth_cont);
     const bool eraseRight = endX < nCols && (source[endX - 1].dwidth || source[endX].dwidth_cont);
     if (!eraseLeft && !eraseRight) {
-        eraseInRow(pY, startX, count, attrs);
+        eraseInRow(slot, pY, startX, count, attrs);
         return;
     }
-    TerminalCell* row = mutableLogicalRow(pY);
+    TerminalCell* row = rowData(slot);
     if (eraseLeft) {
         row[startX - 1] = erased;
     }
@@ -2132,14 +2200,22 @@ TerminalCell* ScreenImpl<Coord, Epoch>::overwriteWideSpan(u16 pY, u16 startX, u1
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::clearWideBoundary(u16 pY, u16 boundary, const TerminalCell& attrs) {
-    const TerminalCell* source = getLogicalRowPtr(pY);
+[[gnu::always_inline]] inline void ScreenImpl<Coord, Epoch>::clearWideBoundary(u16 pY, u16 boundary, const TerminalCell& attrs) {
+    RowSlot& slot = logicalRowSlot(pY);
+    if ((slot & rowWide) == 0) {
+        return;
+    }
+    const TerminalCell* source = rowData(slot);
     const bool eraseLeft = boundary > 0 && source[boundary - 1].dwidth;
     const bool eraseRight = boundary < nCols && source[boundary].dwidth_cont;
     if (!eraseLeft && !eraseRight) {
         return;
     }
-    TerminalCell* row = mutableLogicalRow(pY);
+    clearWideBoundarySlow(rowData(slot), pY, boundary, attrs, eraseLeft, eraseRight);
+}
+
+template <typename Coord, typename Epoch>
+[[gnu::noinline]] void ScreenImpl<Coord, Epoch>::clearWideBoundarySlow(TerminalCell* row, u16 pY, u16 boundary, const TerminalCell& attrs, bool eraseLeft, bool eraseRight) {
     TerminalCell erased = attrs;
     erased.line_attr = row[0].line_attr;
     if (eraseLeft) {
@@ -2159,17 +2235,25 @@ void ScreenImpl<Coord, Epoch>::clearWideBoundary(u16 pY, u16 boundary, const Ter
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::repairWideBoundary(u16 pY, u16 boundary, const TerminalCell& attrs) {
-    const TerminalCell* source = getLogicalRowPtr(pY);
+[[gnu::always_inline]] inline void ScreenImpl<Coord, Epoch>::repairWideBoundary(u16 pY, u16 boundary, const TerminalCell& attrs) {
+    RowSlot& slot = logicalRowSlot(pY);
+    if ((slot & rowWide) == 0) {
+        return;
+    }
+    const TerminalCell* source = rowData(slot);
     const bool leftLead = boundary > 0 && source[boundary - 1].dwidth;
     const bool rightContinuation = boundary < nCols && source[boundary].dwidth_cont;
     if (leftLead == rightContinuation) {
         return;
     }
-    TerminalCell* row = mutableLogicalRow(pY);
+    repairWideBoundarySlow(rowData(slot), pY, boundary, attrs, leftLead);
+}
+
+template <typename Coord, typename Epoch>
+[[gnu::noinline]] void ScreenImpl<Coord, Epoch>::repairWideBoundarySlow(TerminalCell* row, u16 pY, u16 boundary, const TerminalCell& attrs, bool eraseLeft) {
     TerminalCell erased = attrs;
     erased.line_attr = row[0].line_attr;
-    if (leftLead) {
+    if (eraseLeft) {
         row[boundary - 1] = erased;
         damageCell(pY, boundary - 1);
         if (!selection.empty()) {
@@ -2185,7 +2269,7 @@ void ScreenImpl<Coord, Epoch>::repairWideBoundary(u16 pY, u16 boundary, const Te
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::selectiveEraseInRow(u16 pY, u16 startX, u16 count, const TerminalCell& attrs, u8 protectionMask) {
+void ScreenImpl<Coord, Epoch>::selectiveEraseCells(u16 pY, u16 startX, u16 count, const TerminalCell& attrs, u8 protectionMask) {
     CellExtraStore& extras = cellExtras();
     TerminalCell erased = attrs;
     erased.uc_pt = 0;
@@ -2196,6 +2280,8 @@ void ScreenImpl<Coord, Epoch>::selectiveEraseInRow(u16 pY, u16 startX, u16 count
         if (!selection.empty()) {
             invalidateSelection(Rect(startX, pY, startX + count, pY));
         }
+        repairWideBoundary(pY, startX, attrs);
+        repairWideBoundary(pY, startX + count, attrs);
         return;
     }
     TerminalCell* row = mutableLogicalRow(pY);
@@ -2223,6 +2309,8 @@ void ScreenImpl<Coord, Epoch>::selectiveEraseInRow(u16 pY, u16 startX, u16 count
     if (changed) {
         damageRow(pY, startX, startX + count);
     }
+    repairWideBoundary(pY, startX, attrs);
+    repairWideBoundary(pY, startX + count, attrs);
 }
 
 template <typename Coord, typename Epoch>
@@ -2242,11 +2330,97 @@ void ScreenImpl<Coord, Epoch>::moveInRow(u16 pY, u16 dstX, u16 srcX, u16 count) 
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::copyRow(u16 dstY, u16 srcY, u16 startX, u16 count) {
+void ScreenImpl<Coord, Epoch>::insertCells(u16 row, u16 start, u16 end, u16 count, const TerminalCell& attrs) {
+    count = min<u16>(count, end - start);
+    if (count == 0) {
+        return;
+    }
+    const u16 moved = end - start - count;
+    RowSlot& slot = logicalRowSlot(row);
+    if ((slot & rowWide) == 0) {
+        TerminalCell* cells = rowData(slot);
+        if (moved != 0 && cells != nullptr) {
+            if (cells[end - 1].wrap) {
+                cells[end - 1].wrap = 0;
+                cells[end - count - 1].wrap = 1;
+            }
+            moveCells(cells + start + count, cells + start, moved);
+        }
+        if (moved == 0) {
+            eraseInRow(slot, row, start, count, attrs);
+            return;
+        }
+        TerminalCell erased = attrs;
+        erased.line_attr = cells == nullptr ? zeroRow[0].line_attr : cells[0].line_attr;
+        if (cells != nullptr || erased != TerminalCell{}) {
+            cells = mutableRow(slot);
+            eraseRange(cells + start, cells + start + count, erased);
+        }
+        damageRow(row, start, end);
+        if (!selection.empty()) {
+            invalidateSelection(Rect(start, row, end, row));
+        }
+        return;
+    }
+    if (moved != 0) {
+        moveWrap(row, end - 1, end - count - 1);
+        clearWideBoundary(row, start, attrs);
+        clearWideBoundary(row, end - count, attrs);
+        moveInRow(row, start + count, start, moved);
+        repairWideBoundary(row, start + count, attrs);
+        repairWideBoundary(row, end, attrs);
+    }
+    eraseCells(row, start, count, attrs);
+}
+
+template <typename Coord, typename Epoch>
+void ScreenImpl<Coord, Epoch>::deleteCells(u16 row, u16 start, u16 end, u16 count, const TerminalCell& attrs) {
+    count = min<u16>(count, end - start);
+    if (count == 0) {
+        return;
+    }
+    const u16 moved = end - start - count;
+    RowSlot& slot = logicalRowSlot(row);
+    if ((slot & rowWide) == 0) {
+        TerminalCell* cells = rowData(slot);
+        if (moved != 0 && cells != nullptr) {
+            moveCells(cells + start, cells + start + count, moved);
+        }
+        if (moved == 0) {
+            eraseInRow(slot, row, start, count, attrs);
+            return;
+        }
+        TerminalCell erased = attrs;
+        erased.line_attr = cells == nullptr ? zeroRow[0].line_attr : cells[0].line_attr;
+        if (cells != nullptr || erased != TerminalCell{}) {
+            cells = mutableRow(slot);
+            eraseRange(cells + start + moved, cells + end, erased);
+        }
+        damageRow(row, start, end);
+        if (!selection.empty()) {
+            invalidateSelection(Rect(start, row, end, row));
+        }
+        return;
+    }
+    if (moved != 0) {
+        clearWideBoundary(row, start + count, attrs);
+        clearWideBoundary(row, end, attrs);
+        moveInRow(row, start, start + count, moved);
+        repairWideBoundary(row, start, attrs);
+        repairWideBoundary(row, start + moved, attrs);
+    }
+    eraseCells(row, start + moved, count, attrs);
+}
+
+template <typename Coord, typename Epoch>
+void ScreenImpl<Coord, Epoch>::copyRow(u16 dstY, u16 srcY, u16 startX, u16 count, const TerminalCell& attrs) {
     if (!count) {
         return;
     }
 
+    clearWideBoundary(dstY, startX, attrs);
+    clearWideBoundary(dstY, startX + count, attrs);
+    const bool sourceWide = logicalRowHasWide(srcY);
     const TerminalCell* const source = getLogicalRowPtr(srcY) + startX;
     TerminalCell* destinationRow = rawLogicalRow(dstY);
     if (destinationRow == nullptr && emptyRow(source, count)) {
@@ -2254,6 +2428,8 @@ void ScreenImpl<Coord, Epoch>::copyRow(u16 dstY, u16 srcY, u16 startX, u16 count
         if (!selection.empty()) {
             invalidateSelection(Rect(startX, dstY, startX + count, dstY));
         }
+        repairWideBoundary(dstY, startX, attrs);
+        repairWideBoundary(dstY, startX + count, attrs);
         return;
     }
     destinationRow = mutableLogicalRow(dstY);
@@ -2262,15 +2438,26 @@ void ScreenImpl<Coord, Epoch>::copyRow(u16 dstY, u16 srcY, u16 startX, u16 count
         lineAttrRows += source[0].line_attr != 0 ? 1 : -1;
     }
     copyCells(destination, source, count);
+    if (startX == 0 && count == nCols) {
+        if (sourceWide) {
+            logicalRowSlot(dstY) |= rowWide;
+        } else {
+            logicalRowSlot(dstY) &= ~rowWide;
+        }
+    } else if (sourceWide) {
+        markLogicalRowWide(dstY);
+    }
     if (startX == 0 && count == nCols && emptyRow(destinationRow, nCols)) {
-        TerminalCell*& slot = logicalRowSlot(dstY);
-        releaseRow(slot);
-        slot = nullptr;
+        RowSlot& slot = logicalRowSlot(dstY);
+        releaseRow(rowData(slot));
+        slot = 0;
     }
     damageRow(dstY, startX, startX + count);
     if (!selection.empty()) {
         invalidateSelection(Rect(startX, dstY, startX + count, dstY));
     }
+    repairWideBoundary(dstY, startX, attrs);
+    repairWideBoundary(dstY, startX + count, attrs);
 }
 
 template <typename Coord, typename Epoch>
@@ -2283,7 +2470,7 @@ void ScreenImpl<Coord, Epoch>::rotateRowsUp(u16 top, u16 bottom, u16 count) {
         invalidateSelection(Rect(0, top, 0, bottom));
     }
     for (u16 rotation = 0; rotation < count; ++rotation) {
-        TerminalCell* const first = logicalRowSlot(top);
+        const RowSlot first = logicalRowSlot(top);
         for (u16 row = top; row + 1 < bottom; ++row) {
             logicalRowSlot(row) = logicalRowSlot(row + 1);
         }
@@ -2302,7 +2489,7 @@ void ScreenImpl<Coord, Epoch>::rotateRowsDown(u16 top, u16 bottom, u16 count) {
         invalidateSelection(Rect(0, top, 0, bottom));
     }
     for (u16 rotation = 0; rotation < count; ++rotation) {
-        TerminalCell* const last = logicalRowSlot(bottom - 1);
+        const RowSlot last = logicalRowSlot(bottom - 1);
         for (u16 row = bottom - 1; row > top; --row) {
             logicalRowSlot(row) = logicalRowSlot(row - 1);
         }

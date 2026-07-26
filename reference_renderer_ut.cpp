@@ -125,8 +125,9 @@ STD_TEST_SUITE(ReferenceRenderer) {
         RenderCell cell;
         cell.fg = {255, 0, 0};
         cell.bg = {0, 0, 255};
+        RenderCellUpdate damaged{0, cell};
         TerminalUpdate update;
-        update.cells = &cell;
+        update.cells = &damaged;
         update.cellCount = 1;
 
         const ReferenceImage image = renderer->render(update);
@@ -149,8 +150,9 @@ STD_TEST_SUITE(ReferenceRenderer) {
         cell.fg = {255, 0, 0};
         cell.bg = {0, 0, 255};
         cell.inverse = true;
+        RenderCellUpdate damaged{0, cell};
         TerminalUpdate update;
-        update.cells = &cell;
+        update.cells = &damaged;
         update.cellCount = 1;
 
         ReferenceImage image = renderer->render(update);
@@ -159,6 +161,36 @@ STD_TEST_SUITE(ReferenceRenderer) {
         update.screenReverse = true;
         image = renderer->render(update);
         STD_INSIST((cellPixel(image, 0, 0) == Color{255, 0, 0}));
+    }
+
+    STD_TEST(AppliesSparseUpdatesToRetainedCells) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        FakeFontpack fonts;
+        configure(composer, fonts, 2, 1, 1, 1);
+        ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
+        RenderCellUpdate initial[] = {
+            {0, RenderCell{}},
+            {1, RenderCell{}},
+        };
+        initial[0].cell.bg = {10, 20, 30};
+        initial[1].cell.bg = {40, 50, 60};
+        TerminalUpdate update;
+        update.cells = initial;
+        update.cellCount = 2;
+
+        ReferenceImage image = renderer->render(update);
+        STD_INSIST((cellPixel(image, 0, 0) == Color{10, 20, 30}));
+        STD_INSIST((cellPixel(image, 1, 0) == Color{40, 50, 60}));
+
+        RenderCellUpdate changed{1, initial[1].cell};
+        changed.cell.bg = {70, 80, 90};
+        update.cells = &changed;
+        update.cellCount = 1;
+        image = renderer->render(update);
+
+        STD_INSIST((cellPixel(image, 0, 0) == Color{10, 20, 30}));
+        STD_INSIST((cellPixel(image, 1, 0) == Color{70, 80, 90}));
     }
 
     STD_TEST(AppliesSelectionColors) {
@@ -173,8 +205,9 @@ STD_TEST_SUITE(ReferenceRenderer) {
         RenderCell cell;
         cell.fg = {255, 0, 0};
         cell.bg = {0, 0, 255};
+        RenderCellUpdate damaged{0, cell};
         TerminalUpdate update;
-        update.cells = &cell;
+        update.cells = &damaged;
         update.cellCount = 1;
         update.snappedSelection = Rect(0, 0);
         update.selectionColorMask = 3;
@@ -201,8 +234,9 @@ STD_TEST_SUITE(ReferenceRenderer) {
         ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
         RenderCell cell;
         cell.bg = {0, 0, 100};
+        RenderCellUpdate damaged{0, cell};
         TerminalUpdate update;
-        update.cells = &cell;
+        update.cells = &damaged;
         update.cellCount = 1;
 
         const ReferenceImage image = renderer->render(update);
@@ -225,8 +259,9 @@ STD_TEST_SUITE(ReferenceRenderer) {
         cell.bold = true;
         cell.italic = true;
         cell.grapheme = stored.extraRef();
+        RenderCellUpdate damaged{0, cell};
         TerminalUpdate update;
-        update.cells = &cell;
+        update.cells = &damaged;
         update.cellCount = 1;
 
         renderer->render(update);

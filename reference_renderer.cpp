@@ -13,6 +13,7 @@
 #include "vterm.h"
 
 #include <std/lib/buffer.h>
+#include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 
 #include <math.h>
@@ -35,6 +36,9 @@ namespace {
         Buffer pixels_;
         Buffer coverage_;
         Buffer color_;
+        Vector<RenderCell> cells_;
+        u16 columns_ = 0;
+        u16 rows_ = 0;
         bool hasColor_ = false;
 
         static int minimum(int left, int right);
@@ -257,14 +261,32 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Rende
 ReferenceImage ReferenceRendererImpl::render(const TerminalUpdate& update) {
     const size_t cellCount = (size_t)(composer_.columns) * composer_.rows;
     CellExtraStore& extras = *composer_.cellExtras;
-    if (update.cellCount != cellCount) {
-        return {};
+    const bool shapeChanged = columns_ != composer_.columns || rows_ != composer_.rows;
+    if (shapeChanged) {
+        if (update.cellCount != cellCount) {
+            return {};
+        }
+        cells_.clear();
+        cells_.grow(cellCount);
+        const RenderCell empty;
+        for (size_t index = 0; index < cellCount; ++index) {
+            cells_.pushBack(empty);
+        }
+        columns_ = composer_.columns;
+        rows_ = composer_.rows;
+    }
+    for (size_t index = 0; index < update.cellCount; ++index) {
+        const RenderCellUpdate& damaged = update.cells[index];
+        if (damaged.index >= cellCount) {
+            return {};
+        }
+        cells_.mut(damaged.index) = damaged.cell;
     }
 
     pixels_.zero((size_t)(composer_.pixelWidth) * composer_.pixelHeight * sizeof(Pixel));
     for (u16 row = 0; row < composer_.rows; ++row) {
         for (u16 column = 0; column < composer_.columns; ++column) {
-            const RenderCell& cell = update.cells[(size_t)(row)*composer_.columns + column];
+            const RenderCell& cell = cells_[(size_t)(row)*composer_.columns + column];
             const GraphemeView grapheme = cell.grapheme ? extras.grapheme(cell.grapheme) : GraphemeView{};
             renderCell(update, cell, grapheme, column, row);
         }

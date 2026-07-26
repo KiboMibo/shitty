@@ -19,5 +19,5 @@ struct Renderer {
     virtual bool repaint() = 0;
 
     static Renderer* create(Composer& composer, GLFWwindow* window);
-    static u32 rendererCellAttributesForTest(const RenderCell& cell);
+    static u32 rendererCellAttributesForTest(const RenderCell& cell, bool dirty);
 };

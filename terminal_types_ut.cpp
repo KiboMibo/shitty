@@ -169,6 +169,5 @@ STD_TEST_SUITE(RenderCell) {
         STD_INSIST(cell.fg == opts.fg);
         STD_INSIST(cell.bg == opts.bg);
         STD_INSIST(cell.underline_color == opts.fg);
-        STD_INSIST(!cell.dirty);
     }
 }
