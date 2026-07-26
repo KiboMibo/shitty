@@ -113,6 +113,7 @@ namespace {
         bool refreshAllowed = true;
         bool refreshPending = false;
         bool committedRepaintPending = false;
+        bool frameReady = true;
         u16 initialFontSize = 0;
         u16 logicalBorder = 0;
         std::optional<std::chrono::steady_clock::time_point> refreshDeadline;
@@ -124,6 +125,7 @@ namespace {
         std::string getSelectionForOsc(bool primary);
         void handleOsc(int command, const std::string& argument);
         bool presentTerminal();
+        bool repaint();
         bool flushPtyOutput();
         bool readPty();
         bool servicePty(bool readable, bool writable);
@@ -411,6 +413,7 @@ void ApplicationImpl::handleOsc(int command, const std::string& argument) {
 bool ApplicationImpl::presentTerminal() {
     Vterm* const vterm = composer.vterm;
     Renderer* const renderer = composer.renderer;
+    Window* const window = composer.window;
     while (true) {
         const VtermOutput output = vterm->output();
         if (output.terminal == nullptr) {
@@ -418,11 +421,35 @@ bool ApplicationImpl::presentTerminal() {
             return true;
         }
         refreshPending = true;
-        if (!refreshAllowed || !renderer->update(*output.terminal)) {
+        if (!refreshAllowed || !frameReady) {
             return false;
         }
+        const bool paced = window->requestFrame();
+        if (!renderer->update(*output.terminal)) {
+            if (paced) {
+                window->cancelFrame();
+            }
+            return false;
+        }
+        frameReady = !paced;
         vterm->consume(VtermConsume{0, true});
     }
+}
+
+bool ApplicationImpl::repaint() {
+    if (!frameReady) {
+        return false;
+    }
+    Window* const window = composer.window;
+    const bool paced = window->requestFrame();
+    if (!composer.renderer->repaint()) {
+        if (paced) {
+            window->cancelFrame();
+        }
+        return false;
+    }
+    frameReady = !paced;
+    return true;
 }
 
 bool ApplicationImpl::flushPtyOutput() {
@@ -596,7 +623,6 @@ bool ApplicationImpl::eventLoop() {
     constexpr auto resizeGrace = std::chrono::milliseconds(10);
     constexpr auto retryDelay = std::chrono::milliseconds(10);
     Window* const eventWindow = composer.window;
-    Renderer* const renderer = composer.renderer;
     Vterm* const vterm = composer.vterm;
     PtyEventSource* const ptySource = composer.ptyEvents;
     while (true) {
@@ -604,7 +630,7 @@ bool ApplicationImpl::eventLoop() {
         refreshAllowed = false;
         const VtermState initialState = vterm->state();
         double timeout = (initialState.synchronizedOutput || initialState.animation) ? 0.05 : -1.0;
-        if (refreshPending || committedRepaintPending) {
+        if (frameReady && (refreshPending || committedRepaintPending)) {
             const auto now = Clock::now();
             const double refreshTimeout = refreshDeadline ? std::max(0.0, std::chrono::duration<double>(*refreshDeadline - now).count()) : 0.0;
             timeout = timeout < 0.0 ? refreshTimeout : std::min(timeout, refreshTimeout);
@@ -612,6 +638,9 @@ bool ApplicationImpl::eventLoop() {
         const WindowEvents events = eventWindow->dispatchEvents(timeout);
         if (events.close) {
             return true;
+        }
+        if (events.frameReady) {
+            frameReady = true;
         }
         flushPtyOutput();
         vterm->expireSynchronizedOutput(false);
@@ -659,15 +688,15 @@ bool ApplicationImpl::eventLoop() {
         if (!vterm->state().synchronizedOutput) {
             committedRepaintPending = false;
         }
-        if (committedRepaintPending && (!refreshDeadline || now >= *refreshDeadline)) {
-            if (renderer->repaint()) {
+        if (frameReady && committedRepaintPending && (!refreshDeadline || now >= *refreshDeadline)) {
+            if (repaint()) {
                 committedRepaintPending = false;
                 refreshDeadline.reset();
             } else {
                 refreshDeadline = now + retryDelay;
             }
         }
-        if (refreshPending && (!refreshDeadline || now >= *refreshDeadline)) {
+        if (frameReady && refreshPending && (!refreshDeadline || now >= *refreshDeadline)) {
             refreshAllowed = true;
             presentTerminal();
             refreshAllowed = false;
