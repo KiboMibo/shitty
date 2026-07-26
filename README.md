@@ -51,14 +51,14 @@ A scalar Base64 implementation is always available. If simdutf 6.5 or newer
 is installed, the build uses it automatically to accelerate Base64 processing.
 
 A working Vulkan driver and a Wayland compositor are required at runtime. GLFW
-is built from the vendored source snapshot in `third_party/glfw`; the product
-build enables only its Linux Wayland and Vulkan paths.
+is built from the pinned `third_party/glfw` submodule of the project fork; the
+product build enables only its Linux Wayland and Vulkan paths.
 
 The complete imported conformance suite additionally needs ncurses and Perl.
 
 ## Build
 
-Initialize the bundled `libstd` dependency after cloning:
+Initialize the bundled dependencies after cloning:
 
 ```sh
 git submodule update --init --recursive
