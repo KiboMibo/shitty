@@ -147,6 +147,30 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST((span[0].cells[0].fg == Color{7, 8, 9}));
     }
 
+    STD_TEST(SharesRenderedSpansBetweenScreens) {
+        auto composerPool = ObjPool::fromMemory();
+        auto firstPool = ObjPool::fromMemory();
+        auto secondPool = ObjPool::fromMemory();
+        Composer composer(composerPool.mutPtr());
+        CellExtraStore::create(composer, 16);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* first = Screen::create(composer, *firstPool, 8, 1, &colors);
+        Screen* second = Screen::create(composer, *secondPool, 8, 1, &colors);
+        RenderCell firstScratch[8];
+        RenderCell secondScratch[8];
+        RenderCellSpan firstSpan[1];
+        RenderCellSpan secondSpan[1];
+
+        first->expose();
+        first->copyDamage(firstScratch, firstSpan);
+        second->expose();
+        second->copyDamage(secondScratch, secondSpan);
+
+        STD_INSIST(firstSpan[0].cells != firstScratch);
+        STD_INSIST(secondSpan[0].cells == firstSpan[0].cells);
+    }
+
     STD_TEST(StoresLineAttributesInRowMetadata) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());

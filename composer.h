@@ -24,6 +24,7 @@ struct Renderer;
 struct Pty;
 struct PtyEventHost;
 struct PtyEventSource;
+struct RenderCache;
 struct Vterm;
 struct Window;
 
@@ -50,6 +51,7 @@ struct Composer {
     Pty* pty = nullptr;
     PtyEventHost* ptyEventHost = nullptr;
     PtyEventSource* ptyEvents = nullptr;
+    RenderCache* renderCache = nullptr;
     Vterm* vterm = nullptr;
     Window* window = nullptr;
 

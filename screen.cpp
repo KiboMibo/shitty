@@ -19,13 +19,13 @@
 
 #include "cell_extra_store.h"
 #include "composer.h"
+#include "render_cache.h"
 #include "utf8.h"
 
 #include <std/alg/minmax.h>
 #include <std/dbg/assert.h>
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
-#include <std/str/hash.h>
 
 #include <utf8proc.h>
 
@@ -257,24 +257,6 @@ namespace {
 
         Damage damage;
 
-        struct RenderCacheEntry {
-            u64 hash = 0;
-            u32 count = 0;
-            u32 lastUse = 0;
-            u32 pinnedFrame = 0;
-            bool valid = false;
-        };
-
-        mutable Buffer renderCacheStorage;
-        mutable RenderCacheEntry* renderCacheEntries = nullptr;
-        mutable RenderCell* renderCacheCells = nullptr;
-        mutable u32 renderCacheEntryCount = 0;
-        mutable u32 renderCacheSetCount = 0;
-        mutable u32 renderCacheUse = 0;
-        mutable u32 renderCacheFrame = 0;
-        mutable u32 renderCacheColorGeneration = 0;
-        mutable CellExtraStore* renderCacheExtras = nullptr;
-
         u32 wrapRow(i64 row) const noexcept;
         RowSlot& logicalRowSlot(int row);
         bool logicalRowHasWide(int row) const noexcept;
@@ -312,9 +294,6 @@ namespace {
         void damageRow(u16 row, u16 begin, u16 end);
         void damageRectangle(u16 top, u16 left, u16 bottom, u16 right);
         void resizeDamage(u16 columns, u16 rows);
-        void configureRenderCache();
-        void beginRenderCache(CellExtraStore& extras) const;
-        RenderCell* findRenderCache(const TerminalCell* cells, u16 count, u8 lineAttribute, bool& hit) const;
         TerminalCell* dirtySpan(u16 row, u16 start, u16 count);
         TerminalCell* overwriteWideSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs);
         TerminalCell* prepareSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs);
@@ -324,8 +303,6 @@ namespace {
         void layout(ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, bool reflow, Cursor* cursorState);
         void layoutCopy(ResizeState& state, u16 columns, u16 rows, Cursor* cursorState);
         void layoutReflow(ResizeState& state, u16 columns, u16 rows, Cursor* cursorState);
-
-        [[gnu::always_inline]] inline void materialize(RenderCell& result, const TerminalCell& cell, u8 lineAttribute, const CellExtraStore& extras) const;
 
         static SelectSnapTo nextSelectSnapTo(SelectSnapTo snapTo);
 
@@ -592,7 +569,6 @@ ScreenImpl<Coord, Epoch>::ScreenImpl(Composer& composer_, ObjPool& pool_, u16 nC
 {
     initializeRows(nCols_, nRows_, 0);
     resizeDamage(nCols, nRows);
-    configureRenderCache();
 }
 
 template <typename Coord, typename Epoch>
@@ -835,7 +811,6 @@ void ScreenImpl<Coord, Epoch>::layout(ResizeState& state, u16 nCols_, u16 nRows_
         layoutCopy(state, nCols_, nRows_, cursorState);
     }
     resizeDamage(nCols, nRows);
-    configureRenderCache();
     expose();
 }
 
@@ -1168,108 +1143,9 @@ void ScreenImpl<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::configureRenderCache() {
-    constexpr size_t byteBudget = 1024 * 1024;
-    constexpr u32 ways = 4;
-    constexpr u32 maximumEntries = 512;
-    const size_t bytesPerEntry = sizeof(RenderCacheEntry) + (size_t)(nCols) * sizeof(RenderCell);
-    const size_t possibleEntries = bytesPerEntry == 0 ? 0 : byteBudget / bytesPerEntry;
-    if (possibleEntries < ways) {
-        renderCacheEntries = nullptr;
-        renderCacheCells = nullptr;
-        renderCacheEntryCount = 0;
-        renderCacheSetCount = 0;
-        return;
-    }
-
-    u32 sets = 1;
-    const u32 maximumSets = (u32)(min<size_t>(possibleEntries, maximumEntries)) / ways;
-    while ((sets << 1) <= maximumSets) {
-        sets <<= 1;
-    }
-    renderCacheSetCount = sets;
-    renderCacheEntryCount = sets * ways;
-    renderCacheEntries = nullptr;
-    renderCacheCells = nullptr;
-    renderCacheUse = 0;
-    renderCacheFrame = 0;
-    renderCacheColorGeneration = 0;
-    renderCacheExtras = nullptr;
-}
-
-template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::beginRenderCache(CellExtraStore& extras) const {
-    if (renderCacheEntryCount == 0) {
-        return;
-    }
-    if (renderCacheEntries == nullptr) {
-        const size_t entryBytes = (size_t)(renderCacheEntryCount) * sizeof(RenderCacheEntry);
-        const size_t cellBytes = (size_t)(renderCacheEntryCount)*nCols * sizeof(RenderCell);
-        renderCacheStorage.grow(entryBytes + cellBytes);
-        renderCacheEntries = (RenderCacheEntry*)(renderCacheStorage.mutData());
-        renderCacheCells = (RenderCell*)((u8*)(renderCacheStorage.mutData()) + entryBytes);
-        memset(renderCacheEntries, 0, entryBytes);
-    }
-    if (++renderCacheFrame == 0) {
-        for (u32 index = 0; index < renderCacheEntryCount; ++index) {
-            renderCacheEntries[index].pinnedFrame = 0;
-        }
-        renderCacheFrame = 1;
-    }
-    if (renderCacheExtras == &extras && renderCacheColorGeneration == colors->generation) {
-        return;
-    }
-    for (u32 index = 0; index < renderCacheEntryCount; ++index) {
-        renderCacheEntries[index].valid = false;
-    }
-    renderCacheExtras = &extras;
-    renderCacheColorGeneration = colors->generation;
-}
-
-template <typename Coord, typename Epoch>
-RenderCell* ScreenImpl<Coord, Epoch>::findRenderCache(const TerminalCell* cells, u16 count, u8 lineAttribute_, bool& hit) const {
-    constexpr u16 minimumCells = 8;
-    constexpr u32 ways = 4;
-    hit = false;
-    if (count < minimumCells || renderCacheEntryCount == 0) {
-        return nullptr;
-    }
-
-    u64 hash = shash64(cells, (size_t)(count) * sizeof(TerminalCell));
-    hash ^= ((u64)(lineAttribute_) + 1) * 0x9e3779b97f4a7c15ULL;
-    const u32 first = ((u32)(hash) & (renderCacheSetCount - 1)) * ways;
-    RenderCacheEntry* victim = nullptr;
-    for (u32 way = 0; way < ways; ++way) {
-        RenderCacheEntry& entry = renderCacheEntries[first + way];
-        if (entry.valid && entry.hash == hash && entry.count == count) {
-            entry.lastUse = ++renderCacheUse;
-            entry.pinnedFrame = renderCacheFrame;
-            hit = true;
-            return renderCacheCells + (size_t)(first + way) * nCols;
-        }
-        if (entry.pinnedFrame == renderCacheFrame) {
-            continue;
-        }
-        if (!entry.valid || victim == nullptr || entry.lastUse < victim->lastUse) {
-            victim = &entry;
-        }
-    }
-    if (victim == nullptr) {
-        return nullptr;
-    }
-    const u32 index = (u32)(victim - renderCacheEntries);
-    victim->hash = hash;
-    victim->count = count;
-    victim->lastUse = ++renderCacheUse;
-    victim->pinnedFrame = renderCacheFrame;
-    victim->valid = true;
-    return renderCacheCells + (size_t)(index)*nCols;
-}
-
-template <typename Coord, typename Epoch>
 RenderCellBatch ScreenImpl<Coord, Epoch>::copyDamage(RenderCell* cells, RenderCellSpan* spans) const {
-    CellExtraStore& extras = cellExtras();
-    beginRenderCache(extras);
+    RenderCache& cache = *composer.renderCache;
+    cache.beginFrame(nCols, *colors);
     RenderCell* scratch = cells;
     RenderCellSpan* span = spans;
     size_t cellCount = 0;
@@ -1277,17 +1153,9 @@ RenderCellBatch ScreenImpl<Coord, Epoch>::copyDamage(RenderCell* cells, RenderCe
     const auto append = [&](u16 row, u16 begin, u16 end) {
         const Row* const source = getViewRowObject(row);
         const u16 count = end - begin;
-        bool hit;
-        RenderCell* output = findRenderCache(source->cells + begin, count, source->metadata.lineAttribute, hit);
-        if (output == nullptr) {
-            output = scratch;
+        const RenderCell* output = cache.render(source->cells + begin, count, source->metadata.lineAttribute, scratch);
+        if (output == scratch) {
             scratch += count;
-            hit = false;
-        }
-        if (!hit) {
-            for (u16 column = begin; column < end; ++column) {
-                materialize(output[column - begin], source->cells[column], source->metadata.lineAttribute, extras);
-            }
         }
         span->index = (u32)(row)*nCols + begin;
         span->count = count;
@@ -1478,32 +1346,6 @@ bool ScreenImpl<Coord, Epoch>::getSelectedUtf8(std::string& utf8_selection) cons
     utf8_selection = std::string(utf8_out.data(), utf8_out.size());
 
     return true;
-}
-
-template <typename Coord, typename Epoch>
-[[gnu::always_inline]] inline void ScreenImpl<Coord, Epoch>::materialize(RenderCell& result, const TerminalCell& cell, u8 lineAttribute_, const CellExtraStore& extras) const {
-    result.uc_pt = cell.uc_pt ? cell.uc_pt : ' ';
-    result.attributes = ((u32)(cell.bold) << 2) | ((u32)(cell.italic) << 3) | ((u32)(cell.underlined()) << 4) | ((u32)(cell.inverse) << 5) | ((u32)(cell.wrap) << 6) | ((u32)(cell.faint) << 8) | ((u32)(cell.blink) << 9) | ((u32)(cell.conceal) << 10) | ((u32)(cell.strike) << 11) | ((u32)(cell.overline) << 12) | ((u32)(cell.underline_style) << 13) | ((u32)(cell.dwidth) << 16) | ((u32)(cell.dwidth_cont) << 17) | ((u32)(cell.protected_char) << 18) | ((u32)(cell.drawn) << 20) | ((u32)(lineAttribute_) << 24);
-    result.fg = colors->resolveForeground(cell);
-    result.bg = colors->resolveBackground(cell);
-    if (cell.hasExtra()) {
-        const CellExtraView extra = extras.view(cell);
-        result.hyperlink = extra.hyperlinkDisplayId;
-        result.grapheme = extra.grapheme.empty() ? 0 : cell.extraRef();
-        result.underline_color = colors->resolve(extra.underlineColor);
-        if (cell.underlined() && extra.underlineColor == cell.foreground()) {
-            result.underline_color = result.fg;
-        }
-    } else {
-        result.hyperlink = 0;
-        result.grapheme = 0;
-        const CellColor underlineColor = cell.inlineUnderlineColor();
-        result.underline_color = colors->resolve(underlineColor);
-        if (cell.underlined() && underlineColor == cell.foreground()) {
-            result.underline_color = result.fg;
-        }
-    }
-    result.semantic = cell.semantic;
 }
 
 template <typename Coord, typename Epoch>
