@@ -110,6 +110,7 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(batch.spanCount == 1);
         STD_INSIST(spans[0].index == 5);
         STD_INSIST(spans[0].count == 2);
+        STD_INSIST(spans[0].cells == rendered);
         STD_INSIST(spans[0].cells[0].uc_pt == 'a');
         STD_INSIST(spans[0].cells[1].uc_pt == 'b');
         STD_INSIST(spans[0].cells[0].bold);

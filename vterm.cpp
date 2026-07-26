@@ -28,6 +28,7 @@
 #include "keyboard.h"
 #include "mouse_frontend.h"
 #include "mouse_protocol.h"
+#include "render_cache.h"
 #include "screen.h"
 #include "grapheme.h"
 #include "hex.h"
@@ -7713,7 +7714,7 @@ VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, O
     }
     cf = frame_pri;
     outputCells.grow((size_t)(composer.columns) * composer.rows);
-    outputSpans.grow(composer.rows);
+    outputSpans.grow(composer.renderCache->spanCapacity(composer.columns, composer.rows));
     makePalette256(colors.palette);
     std::copy(std::begin(colors.palette), std::end(colors.palette), std::begin(originalPalette256));
     colors.defaultForeground = opts.fg;
@@ -7793,7 +7794,7 @@ void VtermImpl::resizeGrid() {
     showCursor();
 
     outputCells.grow((size_t)(composer.columns) * composer.rows);
-    outputSpans.grow(composer.rows);
+    outputSpans.grow(composer.renderCache->spanCapacity(composer.columns, composer.rows));
     updateExtraCellCount();
     if (inBandResizeMode) {
         reportInBandResize();

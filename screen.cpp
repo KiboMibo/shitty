@@ -1148,9 +1148,11 @@ void ScreenImpl<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
 
 template <typename Coord, typename Epoch>
 RenderCellBatch ScreenImpl<Coord, Epoch>::copyDamage(RenderCell* cells, RenderCellSpan* spans) const {
+    constexpr u16 minimumCachedCells = 8;
+
     RenderCache& cache = *composer.renderCache;
     const u64 renderContext = mix(colors, composer.cellExtras) ^ ((u64)(colors->generation) * 0x9e3779b97f4a7c15ULL);
-    cache.beginFrame(nCols, renderContext);
+    cache.beginFrame(renderContext);
     RenderCell* scratch = cells;
     RenderCellSpan* span = spans;
     size_t cellCount = 0;
@@ -1158,14 +1160,18 @@ RenderCellBatch ScreenImpl<Coord, Epoch>::copyDamage(RenderCell* cells, RenderCe
     const auto append = [&](u16 row, u16 begin, u16 end) {
         const Row* const source = getViewRowObject(row);
         const u16 count = end - begin;
-        const RenderCell* output = cache.render(source->cells + begin, count, source->metadata.lineAttribute, scratch, *this);
-        if (output == scratch) {
+        if (count < minimumCachedCells) {
+            render(source->cells + begin, scratch, count, source->metadata.lineAttribute);
+            span->index = (u32)(row)*nCols + begin;
+            span->count = count;
+            span->cells = scratch;
+            ++span;
             scratch += count;
+        } else {
+            const RenderCacheResult result = cache.render(source->cells + begin, count, source->metadata.lineAttribute, (u32)(row)*nCols + begin, scratch, span, *this);
+            scratch = result.scratch;
+            span = result.spans;
         }
-        span->index = (u32)(row)*nCols + begin;
-        span->count = count;
-        span->cells = output;
-        ++span;
         cellCount += count;
     };
 

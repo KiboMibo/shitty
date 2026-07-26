@@ -8,178 +8,143 @@
 
 #include "composer.h"
 
-#include <std/alg/minmax.h>
 #include <std/lib/buffer.h>
+#include <std/lib/list.h>
+#include <std/lib/vector.h>
+#include <std/mem/new.h>
 #include <std/mem/obj_pool.h>
 #include <std/str/hash.h>
-
-#include <cstring>
+#include <std/typ/intrin.h>
 
 using namespace stl;
 
 namespace {
-    struct RenderCacheEntry {
+    constexpr size_t cacheBytes = 1000000;
+    constexpr u16 chunkCells = 32;
+
+    struct RenderCacheBlock final: public IntrusiveNode, public Newable {
         u64 hash = 0;
-        u32 count = 0;
-        u32 lastUse = 0;
-        u32 pinnedFrame = 0;
-        bool valid = false;
+        RenderCell cells[chunkCells];
     };
+
+    constexpr size_t blockCount = cacheBytes / sizeof(RenderCacheBlock);
+
+    constexpr size_t hashBucketCount() {
+        size_t result = 1;
+        while (result < blockCount * 2) {
+            result <<= 1;
+        }
+        return result;
+    }
+
+    constexpr size_t bucketCount = hashBucketCount();
+    constexpr size_t bucketMask = bucketCount - 1;
+
+    static_assert(blockCount != 0);
+    static_assert(stdHasTrivialDestructor(RenderCacheBlock));
 
     struct RenderCacheImpl final: public RenderCache {
-        void beginFrame(u16 columns, u64 context) override;
-        const RenderCell* render(const TerminalCell* cells, u16 count, u8 lineAttribute, RenderCell* scratch, const RenderCacheCallback& callback) override;
+        RenderCacheImpl();
 
-        void invalidate() noexcept;
+        void beginFrame(u64 context) override;
+        RenderCacheResult render(const TerminalCell* cells, u16 count, u8 lineAttribute, u32 index, RenderCell* scratch, RenderCellSpan* spans, const RenderCacheCallback& callback) override;
+        size_t spanCapacity(u16 columns, u16 rows) const noexcept override;
 
         Buffer storage_;
-        RenderCacheEntry* entries_ = nullptr;
-        RenderCell* cells_ = nullptr;
-        u16 columns_ = 0;
-        u32 entryCount_ = 0;
-        u32 setCount_ = 0;
-        u32 use_ = 0;
-        u32 frame_ = 0;
+        Vector<RenderCacheBlock*> freeBlocks_;
+        Vector<RenderCacheBlock*> retiredBlocks_;
+        IntrusiveList lru_;
+        RenderCacheBlock* buckets_[bucketCount]{};
         u64 context_ = 0;
 
-        void configure(u16 columns);
-        void allocate();
-        u32 nextUse();
-        RenderCell* find(const TerminalCell* cells, u16 count, u8 lineAttribute, bool& hit);
+        void clear();
+        void retire(RenderCacheBlock* block);
+        const RenderCell* renderChunk(const TerminalCell* cells, u16 count, u8 lineAttribute, RenderCell* scratch, const RenderCacheCallback& callback);
     };
 }
 
-void RenderCacheImpl::configure(u16 columns) {
-    constexpr size_t byteBudget = 1024 * 1024;
-    constexpr u32 ways = 4;
-    constexpr u32 maximumEntries = 512;
-
-    columns_ = columns;
-    const size_t bytesPerEntry = sizeof(RenderCacheEntry) + (size_t)(columns) * sizeof(RenderCell);
-    const size_t possibleEntries = bytesPerEntry == 0 ? 0 : byteBudget / bytesPerEntry;
-    if (possibleEntries < ways) {
-        entries_ = nullptr;
-        cells_ = nullptr;
-        entryCount_ = 0;
-        setCount_ = 0;
-        return;
-    }
-
-    u32 sets = 1;
-    const u32 maximumSets = (u32)(min<size_t>(possibleEntries, maximumEntries)) / ways;
-    while ((sets << 1) <= maximumSets) {
-        sets <<= 1;
-    }
-    setCount_ = sets;
-    entryCount_ = sets * ways;
-    entries_ = nullptr;
-    cells_ = nullptr;
-    use_ = 0;
-    frame_ = 0;
-}
-
-void RenderCacheImpl::allocate() {
-    if (entryCount_ == 0 || entries_ != nullptr) {
-        return;
-    }
-    const size_t entryBytes = (size_t)(entryCount_) * sizeof(RenderCacheEntry);
-    const size_t cellBytes = (size_t)(entryCount_)*columns_ * sizeof(RenderCell);
-    storage_.grow(entryBytes + cellBytes);
-    entries_ = (RenderCacheEntry*)(storage_.mutData());
-    cells_ = (RenderCell*)((u8*)(storage_.mutData()) + entryBytes);
-    memset(entries_, 0, entryBytes);
-}
-
-void RenderCacheImpl::invalidate() noexcept {
-    if (entries_ == nullptr) {
-        return;
-    }
-    for (u32 index = 0; index < entryCount_; ++index) {
-        entries_[index].valid = false;
+RenderCacheImpl::RenderCacheImpl()
+    : storage_(cacheBytes)
+{
+    storage_.setCapacity(cacheBytes);
+    freeBlocks_.grow(blockCount);
+    retiredBlocks_.grow(blockCount);
+    u8* const storage = (u8*)(storage_.mutData());
+    for (size_t index = 0; index < blockCount; ++index) {
+        freeBlocks_.pushBack(new (storage + index * sizeof(RenderCacheBlock)) RenderCacheBlock);
     }
 }
 
-void RenderCacheImpl::beginFrame(u16 columns, u64 context) {
-    if (columns_ != columns) {
-        configure(columns);
+void RenderCacheImpl::clear() {
+    while (!lru_.empty()) {
+        auto* const block = static_cast<RenderCacheBlock*>(lru_.popBack());
+        buckets_[block->hash & bucketMask] = nullptr;
+        freeBlocks_.pushBack(block);
     }
-    allocate();
-    if (++frame_ == 0) {
-        for (u32 index = 0; index < entryCount_; ++index) {
-            entries_[index].pinnedFrame = 0;
-        }
-        frame_ = 1;
-    }
-    if (context_ == context) {
-        return;
-    }
-    invalidate();
-    context_ = context;
 }
 
-u32 RenderCacheImpl::nextUse() {
-    if (++use_ != 0) {
-        return use_;
-    }
-    for (u32 index = 0; index < entryCount_; ++index) {
-        entries_[index].lastUse = 0;
-    }
-    use_ = 1;
-    return use_;
+void RenderCacheImpl::retire(RenderCacheBlock* block) {
+    buckets_[block->hash & bucketMask] = nullptr;
+    block->remove();
+    retiredBlocks_.pushBack(block);
 }
 
-RenderCell* RenderCacheImpl::find(const TerminalCell* cells, u16 count, u8 lineAttribute, bool& hit) {
-    constexpr u16 minimumCells = 8;
-    constexpr u32 ways = 4;
-
-    hit = false;
-    if (count < minimumCells || entryCount_ == 0) {
-        return nullptr;
+void RenderCacheImpl::beginFrame(u64 context) {
+    while (!retiredBlocks_.empty()) {
+        freeBlocks_.pushBack(retiredBlocks_.popBack());
     }
+    if (context_ != context) {
+        clear();
+        context_ = context;
+    }
+}
 
+const RenderCell* RenderCacheImpl::renderChunk(const TerminalCell* cells, u16 count, u8 lineAttribute, RenderCell* scratch, const RenderCacheCallback& callback) {
     u64 hash = shash64(cells, (size_t)(count) * sizeof(TerminalCell));
     hash ^= ((u64)(lineAttribute) + 1) * 0x9e3779b97f4a7c15ULL;
-    const u32 first = ((u32)(hash) & (setCount_ - 1)) * ways;
-    RenderCacheEntry* victim = nullptr;
-    for (u32 way = 0; way < ways; ++way) {
-        RenderCacheEntry& entry = entries_[first + way];
-        if (entry.valid && entry.hash == hash && entry.count == count) {
-            entry.lastUse = nextUse();
-            entry.pinnedFrame = frame_;
-            hit = true;
-            return cells_ + (size_t)(first + way) * columns_;
-        }
-        if (entry.pinnedFrame == frame_) {
-            continue;
-        }
-        if (!entry.valid || victim == nullptr || entry.lastUse < victim->lastUse) {
-            victim = &entry;
-        }
+    RenderCacheBlock*& bucket = buckets_[hash & bucketMask];
+    if (bucket != nullptr && bucket->hash == hash) {
+        bucket->remove();
+        lru_.pushFront(bucket);
+        return bucket->cells;
     }
-    if (victim == nullptr) {
-        return nullptr;
+    if (bucket != nullptr) {
+        retire(bucket);
+    }
+    if (freeBlocks_.empty()) {
+        if (!lru_.empty()) {
+            retire(static_cast<RenderCacheBlock*>(lru_.mutBack()));
+        }
+        callback.render(cells, scratch, count, lineAttribute);
+        return scratch;
     }
 
-    const u32 index = (u32)(victim - entries_);
-    victim->hash = hash;
-    victim->count = count;
-    victim->lastUse = nextUse();
-    victim->pinnedFrame = frame_;
-    victim->valid = true;
-    return cells_ + (size_t)(index)*columns_;
+    RenderCacheBlock* const block = freeBlocks_.popBack();
+    block->hash = hash;
+    bucket = block;
+    lru_.pushFront(block);
+    callback.render(cells, block->cells, count, lineAttribute);
+    return block->cells;
 }
 
-const RenderCell* RenderCacheImpl::render(const TerminalCell* cells, u16 count, u8 lineAttribute, RenderCell* scratch, const RenderCacheCallback& callback) {
-    bool hit;
-    RenderCell* output = find(cells, count, lineAttribute, hit);
-    if (output == nullptr) {
-        output = scratch;
-        hit = false;
+RenderCacheResult RenderCacheImpl::render(const TerminalCell* cells, u16 count, u8 lineAttribute, u32 index, RenderCell* scratch, RenderCellSpan* spans, const RenderCacheCallback& callback) {
+    for (u16 offset = 0; offset < count;) {
+        const u16 chunk = count - offset < chunkCells ? count - offset : chunkCells;
+        const RenderCell* const output = renderChunk(cells + offset, chunk, lineAttribute, scratch, callback);
+        spans->index = index + offset;
+        spans->count = chunk;
+        spans->cells = output;
+        ++spans;
+        if (output == scratch) {
+            scratch += chunk;
+        }
+        offset += chunk;
     }
-    if (!hit) {
-        callback.render(cells, output, count, lineAttribute);
-    }
-    return output;
+    return {scratch, spans};
+}
+
+size_t RenderCacheImpl::spanCapacity(u16 columns, u16 rows) const noexcept {
+    return (size_t)(rows) * ((columns + chunkCells - 1) / chunkCells);
 }
 
 RenderCache* RenderCache::create(Composer& composer) {

@@ -48,34 +48,45 @@ STD_TEST_SUITE(RenderCache) {
         TerminalCell input[8];
         RenderCell firstScratch[8];
         RenderCell secondScratch[8];
+        RenderCellSpan firstSpan[1];
+        RenderCellSpan secondSpan[1];
         TestRenderer renderer;
         configureInput(input, 8);
 
-        composer.renderCache->beginFrame(8, 1);
-        const RenderCell* first = composer.renderCache->render(input, 8, 0, firstScratch, renderer);
-        STD_INSIST(first != firstScratch);
-        STD_INSIST(first[0].uc_pt == 'a');
+        composer.renderCache->beginFrame(1);
+        RenderCacheResult result = composer.renderCache->render(input, 8, 0, 0, firstScratch, firstSpan, renderer);
+        STD_INSIST(result.scratch == firstScratch);
+        STD_INSIST(result.spans == firstSpan + 1);
+        STD_INSIST(firstSpan[0].cells != firstScratch);
+        STD_INSIST(firstSpan[0].cells[0].uc_pt == 'a');
         STD_INSIST(renderer.calls == 1);
 
-        composer.renderCache->beginFrame(8, 1);
-        const RenderCell* second = composer.renderCache->render(input, 8, 0, secondScratch, renderer);
-        STD_INSIST(second == first);
+        composer.renderCache->beginFrame(1);
+        result = composer.renderCache->render(input, 8, 0, 0, secondScratch, secondSpan, renderer);
+        STD_INSIST(result.scratch == secondScratch);
+        STD_INSIST(secondSpan[0].cells == firstSpan[0].cells);
         STD_INSIST(renderer.calls == 1);
     }
 
-    STD_TEST(RendersShortSpansInScratch) {
+    STD_TEST(CachesEverySubmittedSpan) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
         TerminalCell input[7];
-        RenderCell scratch[7];
+        RenderCell firstScratch[7];
+        RenderCell secondScratch[7];
+        RenderCellSpan firstSpan[1];
+        RenderCellSpan secondSpan[1];
         TestRenderer renderer;
         configureInput(input, 7);
 
-        composer.renderCache->beginFrame(7, 1);
-        const RenderCell* output = composer.renderCache->render(input, 7, 0, scratch, renderer);
+        composer.renderCache->beginFrame(1);
+        composer.renderCache->render(input, 7, 0, 0, firstScratch, firstSpan, renderer);
+        composer.renderCache->beginFrame(1);
+        composer.renderCache->render(input, 7, 0, 0, secondScratch, secondSpan, renderer);
 
-        STD_INSIST(output == scratch);
-        STD_INSIST(output[6].uc_pt == 'g');
+        STD_INSIST(firstSpan[0].cells != firstScratch);
+        STD_INSIST(firstSpan[0].cells[6].uc_pt == 'g');
+        STD_INSIST(secondSpan[0].cells == firstSpan[0].cells);
         STD_INSIST(renderer.calls == 1);
     }
 
@@ -84,16 +95,17 @@ STD_TEST_SUITE(RenderCache) {
         Composer composer(pool.mutPtr());
         TerminalCell input[8];
         RenderCell scratch[16];
+        RenderCellSpan spans[2];
         TestRenderer renderer;
         configureInput(input, 8);
 
-        composer.renderCache->beginFrame(8, 1);
-        const RenderCell* first = composer.renderCache->render(input, 8, 1, scratch, renderer);
-        const RenderCell* second = composer.renderCache->render(input, 8, 2, scratch + 8, renderer);
+        composer.renderCache->beginFrame(1);
+        composer.renderCache->render(input, 8, 1, 0, scratch, spans, renderer);
+        composer.renderCache->render(input, 8, 2, 0, scratch, spans + 1, renderer);
 
-        STD_INSIST(first != second);
-        STD_INSIST(first[0].line_attr == 1);
-        STD_INSIST(second[0].line_attr == 2);
+        STD_INSIST(spans[0].cells != spans[1].cells);
+        STD_INSIST(spans[0].cells[0].line_attr == 1);
+        STD_INSIST(spans[1].cells[0].line_attr == 2);
         STD_INSIST(renderer.calls == 2);
     }
 
@@ -102,18 +114,75 @@ STD_TEST_SUITE(RenderCache) {
         Composer composer(pool.mutPtr());
         TerminalCell input[8];
         RenderCell scratch[8];
+        RenderCellSpan span[1];
         TestRenderer renderer;
         configureInput(input, 8);
 
-        composer.renderCache->beginFrame(8, 1);
-        const RenderCell* first = composer.renderCache->render(input, 8, 0, scratch, renderer);
-        STD_INSIST(first[0].uc_pt == 'a');
+        composer.renderCache->beginFrame(1);
+        composer.renderCache->render(input, 8, 0, 0, scratch, span, renderer);
+        STD_INSIST(span[0].cells[0].uc_pt == 'a');
         STD_INSIST(renderer.calls == 1);
 
         renderer.offset = 1;
-        composer.renderCache->beginFrame(8, 2);
-        const RenderCell* second = composer.renderCache->render(input, 8, 0, scratch, renderer);
-        STD_INSIST(second[0].uc_pt == 'b');
+        composer.renderCache->beginFrame(2);
+        composer.renderCache->render(input, 8, 0, 0, scratch, span, renderer);
+        STD_INSIST(span[0].cells[0].uc_pt == 'b');
         STD_INSIST(renderer.calls == 2);
+    }
+
+    STD_TEST(SplitsLongSpansWithoutCopying) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        TerminalCell input[65];
+        RenderCell scratch[65];
+        RenderCellSpan spans[3];
+        TestRenderer renderer;
+        configureInput(input, 65);
+
+        composer.renderCache->beginFrame(1);
+        const RenderCacheResult result = composer.renderCache->render(input, 65, 0, 100, scratch, spans, renderer);
+
+        STD_INSIST(result.scratch == scratch);
+        STD_INSIST(result.spans == spans + 3);
+        STD_INSIST(spans[0].index == 100);
+        STD_INSIST(spans[0].count == 32);
+        STD_INSIST(spans[1].index == 132);
+        STD_INSIST(spans[1].count == 32);
+        STD_INSIST(spans[2].index == 164);
+        STD_INSIST(spans[2].count == 1);
+        STD_INSIST(spans[0].cells != scratch);
+        STD_INSIST(spans[1].cells != scratch);
+        STD_INSIST(spans[2].cells != scratch);
+        STD_INSIST(renderer.calls == 3);
+    }
+
+    STD_TEST(ReportsWorstCaseSpanCapacity) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+
+        STD_INSIST(composer.renderCache->spanCapacity(1, 1) == 1);
+        STD_INSIST(composer.renderCache->spanCapacity(32, 2) == 2);
+        STD_INSIST(composer.renderCache->spanCapacity(33, 2) == 4);
+    }
+
+    STD_TEST(DoesNotReuseRetiredBlocksWithinFrame) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        TerminalCell input[32];
+        RenderCell scratch[32];
+        RenderCellSpan span[1];
+        TestRenderer renderer;
+        configureInput(input, 32);
+
+        composer.renderCache->beginFrame(1);
+        composer.renderCache->render(input, 32, 0, 0, scratch, span, renderer);
+        const RenderCell* const first = span[0].cells;
+        const u32 firstCodepoint = first[0].uc_pt;
+        for (u32 iteration = 1; iteration < 5000; ++iteration) {
+            input[0].uc_pt = iteration;
+            composer.renderCache->render(input, 32, 0, 0, scratch, span, renderer);
+        }
+
+        STD_INSIST(first[0].uc_pt == firstCodepoint);
     }
 }
