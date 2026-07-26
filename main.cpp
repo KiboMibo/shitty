@@ -35,7 +35,7 @@
 using namespace stl;
 
 namespace {
-    constexpr size_t perfFeedChunk = 1024;
+    constexpr size_t perfFeedChunk = 8 * 1024;
 
     struct PerfFile {
         size_t pathOffset;
