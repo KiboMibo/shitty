@@ -257,7 +257,7 @@ test_suite = command(
         "SHITTY_TEST_VERSION": shitty_version,
         "SHITTY_PRODUCTION_BINARY": "$(B)/st",
     },
-    descr="TEST",
+    descr="TS",
     color="cyan",
 )
 
@@ -275,7 +275,7 @@ parser_fuzz = command(
     ],
     cwd="$(S)",
     env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-    descr="FUZZ",
+    descr="FZ",
     color="yellow",
 )
 
@@ -293,7 +293,7 @@ vttest_profile = command(
     ],
     cwd="$(S)",
     env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-    descr="VTTEST",
+    descr="VT",
     color="blue",
 )
 
@@ -323,7 +323,7 @@ for case in xtermjs_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="XTERMJS",
+        descr="XJ",
         color="cyan",
     ))
 
@@ -355,7 +355,7 @@ for case in alacritty_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="ALACRITTY",
+        descr="AL",
         color="cyan",
     ))
 
@@ -406,7 +406,7 @@ for case in contour_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="CONTOUR",
+        descr="CO",
         color="cyan",
     ))
 
@@ -433,7 +433,7 @@ for corpus in ("terminal_corpus", "terminal_parser_corpus"):
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="MOSH",
+        descr="MO",
         color="cyan",
     ))
 
@@ -487,7 +487,7 @@ for corpus in ("osc-cmin", "parser-cmin", "stream-cmin"):
             ],
             cwd="$(S)",
             env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-            descr="GHOSTTY",
+            descr="GH",
             color="cyan",
         ))
 
@@ -519,7 +519,7 @@ for case in ghostty_semantic_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="GHOSTTY",
+        descr="GH",
         color="cyan",
     ))
 
@@ -543,7 +543,7 @@ ghostty_semantic_validation = command(
         ],
     ],
     cwd="$(S)",
-    descr="GHOSTTY",
+    descr="GH",
     color="cyan",
 )
 
@@ -574,7 +574,7 @@ for case in kitty_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="KITTY",
+        descr="KI",
         color="cyan",
     ))
 
@@ -598,7 +598,7 @@ kitty_validation = command(
         ],
     ],
     cwd="$(S)",
-    descr="KITTY",
+    descr="KI",
     color="cyan",
 )
 
@@ -629,7 +629,7 @@ for case in kitty_screen_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="KIT-SCREEN",
+        descr="KS",
         color="cyan",
     ))
 
@@ -653,7 +653,7 @@ kitty_screen_validation = command(
         ],
     ],
     cwd="$(S)",
-    descr="KIT-SCREEN",
+    descr="KS",
     color="cyan",
 )
 
@@ -683,7 +683,7 @@ for case in vte_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="VTE",
+        descr="VE",
         color="cyan",
     ))
 
@@ -707,7 +707,7 @@ vte_validation = command(
         ],
     ],
     cwd="$(S)",
-    descr="VTE",
+    descr="VE",
     color="cyan",
 )
 
@@ -736,7 +736,7 @@ for case in vte_width_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="VTE-WIDTH",
+        descr="VW",
         color="cyan",
     ))
 
@@ -760,7 +760,7 @@ vte_width_validation = command(
         ],
     ],
     cwd="$(S)",
-    descr="VTE-WIDTH",
+    descr="VW",
     color="cyan",
 )
 
@@ -792,7 +792,7 @@ for case in windows_terminal_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="WINTERM",
+        descr="WT",
         color="cyan",
     ))
 
@@ -817,7 +817,7 @@ windows_terminal_validation = command(
         ],
     ],
     cwd="$(S)",
-    descr="WINTERM",
+    descr="WT",
     color="cyan",
 )
 
@@ -848,7 +848,7 @@ for case in wezterm_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="WEZTERM",
+        descr="WZ",
         color="cyan",
     ))
 
@@ -872,7 +872,7 @@ wezterm_validation = command(
         ],
     ],
     cwd="$(S)",
-    descr="WEZTERM",
+    descr="WZ",
     color="cyan",
 )
 
@@ -904,7 +904,7 @@ for case in wezterm_screen_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="WEZ-SCREEN",
+        descr="WS",
         color="cyan",
     ))
 
@@ -929,7 +929,7 @@ wezterm_screen_validation = command(
         ],
     ],
     cwd="$(S)",
-    descr="WEZ-SCREEN",
+    descr="WS",
     color="cyan",
 )
 
@@ -960,7 +960,7 @@ for case in konsole_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="KONSOLE",
+        descr="KO",
         color="cyan",
     ))
 
@@ -984,7 +984,7 @@ konsole_validation = command(
         ],
     ],
     cwd="$(S)",
-    descr="KONSOLE",
+    descr="KO",
     color="cyan",
 )
 
@@ -1041,7 +1041,7 @@ for shard_index, start in enumerate(
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="TMUX",
+        descr="TM",
         color="cyan",
     ))
 
@@ -1067,7 +1067,7 @@ for member in tmux_dictionary_members:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="TMUX",
+        descr="TM",
         color="cyan",
     ))
 
@@ -1103,7 +1103,7 @@ for case_id, _, _ in wraptest_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="WRAPTEST",
+        descr="WR",
         color="cyan",
     ))
 
@@ -1136,7 +1136,7 @@ tack_program = command(
         "$(B)/tests/tack/tack",
     ],
     cwd="$(S)",
-    descr="TACK-CC",
+    descr="TC",
     color="magenta",
 )
 tack_validation = command(
@@ -1156,7 +1156,7 @@ tack_validation = command(
         ],
     ],
     cwd="$(S)",
-    descr="TACK",
+    descr="TA",
     color="cyan",
 )
 tack_tests = []
@@ -1181,7 +1181,7 @@ for capability in tack_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="TACK",
+        descr="TA",
         color="cyan",
     ))
 
@@ -1227,7 +1227,7 @@ for category, start, end in ucs_detect_shards:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="UCS",
+        descr="UC",
         color="cyan",
     ))
 
@@ -1253,7 +1253,7 @@ ucs_detect_validation = command(
         ],
     ],
     cwd="$(S)",
-    descr="UCS",
+    descr="UC",
     color="cyan",
 )
 
@@ -1284,7 +1284,7 @@ for case in ucs_detect_probe_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="UCS-PROBE",
+        descr="UP",
         color="cyan",
     ))
 
@@ -1319,7 +1319,7 @@ for case in vtebench_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="VTEBENCH",
+        descr="VB",
         color="yellow",
     ))
 
@@ -1360,7 +1360,7 @@ for case in libvterm_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="LIBVTERM",
+        descr="LV",
         color="cyan",
     ))
 
@@ -1403,7 +1403,7 @@ for case in xterm_vttests_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="XTERM-VT",
+        descr="XV",
         color="cyan",
     ))
 
@@ -1448,7 +1448,7 @@ for case in esctest_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="ESCTEST",
+        descr="ES",
         color="cyan",
     ))
 
@@ -1490,7 +1490,7 @@ termless_validation = command(
         ],
     ],
     cwd="$(S)",
-    descr="TERMLESS",
+    descr="TL",
     color="cyan",
 )
 termless_tests = []
@@ -1517,7 +1517,7 @@ for case_id, _, _ in termless_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="TERMLESS",
+        descr="TL",
         color="cyan",
     ))
 
@@ -1544,7 +1544,7 @@ realworld_validation = command(
         ],
     ],
     cwd="$(S)",
-    descr="REALWORLD",
+    descr="RW",
     color="cyan",
 )
 realworld_tests = []
@@ -1570,7 +1570,7 @@ for case in realworld_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
-        descr="REALWORLD",
+        descr="RW",
         color="cyan",
     ))
 

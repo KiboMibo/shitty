@@ -172,6 +172,11 @@ def _cwd_path(path: str) -> str:
     raise BuildError(f"cwd path must start with $(S)/ or $(B)/: {path}")
 
 
+def _validate_descr(descr: str) -> None:
+    if len(descr) != 2 or not descr.isascii() or not descr.isalpha():
+        raise BuildError(f"descr must be exactly two ASCII letters: {descr!r}")
+
+
 @dataclasses.dataclass(eq=False)
 class Node:
     inputs: list[str]
@@ -180,12 +185,15 @@ class Node:
     deps: list["Node"] = dataclasses.field(default_factory=list)
     cwd: str = B
     env: dict[str, str] = dataclasses.field(default_factory=dict)
-    descr: str = "CMD"
+    descr: str = "GN"
     color: str = ""
     include_roots: list[str] = dataclasses.field(default_factory=list)
     scan_sources: bool = False
     source_inputs: set[str] = dataclasses.field(default_factory=set)
     uid: str | None = None
+
+    def __post_init__(self) -> None:
+        _validate_descr(self.descr)
 
     def canonical(self) -> dict[str, Any]:
         return {
@@ -351,7 +359,7 @@ class BuildContext:
         return target
 
     def command(self, *, inputs=(), outputs, cmd, deps=(), name=None, cwd=B, env=None,
-                cflags=(), cxxflags=(), cppflags=(), ldflags=(), descr="GEN", color="yellow") -> Target:
+                cflags=(), cxxflags=(), cppflags=(), ldflags=(), descr="GN", color="yellow") -> Target:
         commands = cmd
         if not commands or isinstance(commands[0], (str, bytes)):
             commands = [commands]
@@ -506,7 +514,7 @@ class BuildContext:
             node = Node(
                 inputs=[], outputs=outputs, commands=commands,
                 cwd=cwd, env=env,
-                descr=str(record.get("descr", "IMP")),
+                descr=str(record.get("descr", "GN")),
                 color=str(record.get("color", "yellow")),
             )
             nodes.append(node)
@@ -580,7 +588,7 @@ class BuildContext:
                 record["cwd"] = node.cwd
             if node.env:
                 record["env"] = node.env
-            if node.descr != "CMD":
+            if node.descr != "GN":
                 record["descr"] = node.descr
             if node.color:
                 record["color"] = node.color
@@ -1176,7 +1184,7 @@ class Executor:
         assert node.uid is not None
         if self._cached(node.uid):
             if self.verbose:
-                self._report(f"HIT  {node.descr:3} {self._node_name(node)}")
+                self._report(f"HIT  {node.descr} {self._node_name(node)}")
             return
         if not expected_miss:
             with self.print_lock:
@@ -1195,7 +1203,7 @@ class Executor:
             for output in node.outputs:
                 self.context.physical(output, work).parent.mkdir(parents=True, exist_ok=True)
             if self.verbose:
-                self._report(f"RUN  {node.descr:3} {self._node_name(node)}")
+                self._report(f"RUN  {node.descr} {self._node_name(node)}")
             for command in node.commands:
                 self._run_command(node, command, work)
             self._store(node, work)
