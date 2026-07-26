@@ -30,7 +30,6 @@
 
 #include <algorithm>
 #include <cstring>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -190,9 +189,6 @@ namespace {
         bool getSelectedUtf8(std::string& text) const override;
         Point getLogicalPoint(Point point) const override;
 
-        using Packed = std::conditional_t<sizeof(Coord) == 1, u16, u32>;
-        static constexpr unsigned packShift = sizeof(Coord) * 8;
-
         Coord nCols = 0;
         Coord nRows = 0;
         u32 saveLines = 0;
@@ -235,15 +231,18 @@ namespace {
         mutable Vector<LinkPart> linkParts;
         mutable Buffer linkScratch;
 
-        struct Damage {
-            Packed* cells = nullptr;
+        struct DamageRow {
+            Coord* columns = nullptr;
             Epoch* epochs = nullptr;
-            size_t capacity = 0;
-            size_t count = 0;
+            Coord count = 0;
+        };
+
+        struct Damage {
+            DamageRow* rows = nullptr;
             Epoch epoch = 0;
-            Coord width = 0;
-            Coord height = 0;
-            bool full = false;
+            u16 width = 0;
+            u16 height = 0;
+            u16 fullRows = 0;
 
             Damage& operator=(Damage&& other) noexcept;
             void configure(void* storage, u16 columns, u16 rows);
@@ -300,7 +299,6 @@ namespace {
         void layoutReflow(ResizeState& state, u16 columns, u16 rows, Cursor* cursorState);
 
         void materialize(RenderCell& result, const TerminalCell& cell, u8 lineAttribute, const CellExtraStore& extras) const;
-        RenderCellUpdate* appendDamagedCells(RenderCellUpdate* output, u32 offset, const TerminalCell* source, u16 count, u8 lineAttribute, const CellExtraStore& extras) const;
 
         static SelectSnapTo nextSelectSnapTo(SelectSnapTo snapTo);
 
@@ -1123,28 +1121,38 @@ size_t ScreenImpl<Coord, Epoch>::copyDamagedCells(RenderCellUpdate* cells) const
     CellExtraStore& extras = cellExtras();
     RenderCellUpdate* output = cells;
 
-    if (damage.full) {
-        for (u16 row = 0; row < nRows; ++row) {
+    if (damage.fullRows == damage.height) {
+        for (u16 row = 0; row < damage.height; ++row) {
             const Row* const source = getViewRowObject(row);
-            output = appendDamagedCells(output, (u32)(row)*nCols, source->cells, nCols, source->metadata.lineAttribute, extras);
+            for (u16 column = 0; column < damage.width; ++column) {
+                output->index = (u32)(row)*nCols + column;
+                materialize(output->cell, source->cells[column], source->metadata.lineAttribute, extras);
+                ++output;
+            }
         }
         return output - cells;
     }
 
-    const Packed* current = damage.cells;
-    const Packed* const end = current + damage.count;
-    while (current != end) {
-        const u32 packed = *current++;
-        const u16 row = (u16)(packed >> packShift);
-        const u16 column = (u16)(packed & ((1u << packShift) - 1));
-        u16 count = 1;
-        while (current != end && *current == packed + count) {
-            ++current;
-            ++count;
+    for (u16 row = 0; row < damage.height; ++row) {
+        const DamageRow& damaged = damage.rows[row];
+        if (damaged.count == 0) {
+            continue;
         }
-        const u32 offset = (u32)(row)*nCols + column;
         const Row* const source = getViewRowObject(row);
-        output = appendDamagedCells(output, offset, source->cells + column, count, source->metadata.lineAttribute, extras);
+        if (damaged.count == damage.width) {
+            for (u16 column = 0; column < damage.width; ++column) {
+                output->index = (u32)(row)*nCols + column;
+                materialize(output->cell, source->cells[column], source->metadata.lineAttribute, extras);
+                ++output;
+            }
+            continue;
+        }
+        for (u16 index = 0; index < damaged.count; ++index) {
+            const u16 column = damaged.columns[index];
+            output->index = (u32)(row)*nCols + column;
+            materialize(output->cell, source->cells[column], source->metadata.lineAttribute, extras);
+            ++output;
+        }
     }
     return output - cells;
 }
@@ -1360,16 +1368,6 @@ void ScreenImpl<Coord, Epoch>::materialize(RenderCell& result, const TerminalCel
         }
     }
     result.semantic = cell.semantic;
-}
-
-template <typename Coord, typename Epoch>
-RenderCellUpdate* ScreenImpl<Coord, Epoch>::appendDamagedCells(RenderCellUpdate* output, u32 offset, const TerminalCell* src, u16 count, u8 lineAttribute_, const CellExtraStore& extras) const {
-    for (u16 index = 0; index < count; ++index) {
-        output->index = offset + index;
-        materialize(output->cell, src[index], lineAttribute_, extras);
-        ++output;
-    }
-    return output;
 }
 
 template <typename Coord, typename Epoch>
@@ -2824,100 +2822,119 @@ void ScreenImpl<Coord, Epoch>::damageRectangle(u16 top, u16 left, u16 bottom, u1
 template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::resizeDamage(u16 columns, u16 rows) {
     const size_t count = (size_t)(columns)*rows;
-    damageStorage.grow(count * (sizeof(Epoch) + sizeof(Packed)));
+    damageStorage.grow((size_t)(rows) * sizeof(DamageRow) + count * (sizeof(Epoch) + sizeof(Coord)));
     damage.configure(damageStorage.mutData(), columns, rows);
 }
 
 template <typename Coord, typename Epoch>
 auto ScreenImpl<Coord, Epoch>::Damage::operator=(Damage&& other) noexcept -> Damage& {
-    cells = other.cells;
-    epochs = other.epochs;
-    capacity = other.capacity;
-    count = other.count;
+    rows = other.rows;
     epoch = other.epoch;
     width = other.width;
     height = other.height;
-    full = other.full;
-    other.cells = nullptr;
-    other.epochs = nullptr;
-    other.capacity = 0;
-    other.count = 0;
+    fullRows = other.fullRows;
+    other.rows = nullptr;
+    other.width = 0;
+    other.height = 0;
+    other.fullRows = 0;
     return *this;
 }
 
 template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::Damage::configure(void* storage, u16 columns, u16 rows_) {
-    width = (Coord)(columns);
-    height = (Coord)(rows_);
-    const size_t required = (size_t)(width)*height;
-    // The epoch array leads: its alignment requirement is not smaller than
-    // the packed coordinate's in either instantiation.
-    epochs = static_cast<Epoch*>(storage);
-    cells = reinterpret_cast<Packed*>(epochs + required);
-    capacity = required;
-    if (required != 0) {
-        memset(epochs, 0, required * sizeof(Epoch));
+    width = columns;
+    height = rows_;
+    fullRows = 0;
+    rows = static_cast<DamageRow*>(storage);
+    Epoch* const epochs = reinterpret_cast<Epoch*>(rows + height);
+    Coord* const columnsStorage = reinterpret_cast<Coord*>(epochs + (size_t)(width)*height);
+    if (width != 0 && height != 0) {
+        memset(epochs, 0, (size_t)(width)*height * sizeof(Epoch));
     }
-    count = 0;
+    for (u16 row = 0; row < height; ++row) {
+        rows[row].columns = columnsStorage + (size_t)(row)*width;
+        rows[row].epochs = epochs + (size_t)(row)*width;
+        rows[row].count = 0;
+    }
     epoch = 1;
 }
 
 template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::Damage::reset() {
-    count = 0;
-    full = false;
+    for (u16 row = 0; row < height; ++row) {
+        rows[row].count = 0;
+    }
+    fullRows = 0;
     ++epoch;
     if (epoch == 0) {
-        memset(epochs, 0, (size_t)(width)*height * sizeof(Epoch));
+        if (width != 0 && height != 0) {
+            memset(rows[0].epochs, 0, (size_t)(width)*height * sizeof(Epoch));
+        }
         epoch = 1;
     }
 }
 
 template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::Damage::expose() {
-    // The full flag stands in for per-cell marks: materializing a whole
-    // screen of coordinates is the single most frequent damage pattern.
-    full = true;
-    count = 0;
+    for (u16 row = 0; row < height; ++row) {
+        rows[row].count = (Coord)(width);
+    }
+    fullRows = height;
 }
 
 template <typename Coord, typename Epoch>
 bool ScreenImpl<Coord, Epoch>::Damage::hasDamage() const noexcept {
-    return full || count != 0;
+    for (u16 row = 0; row < height; ++row) {
+        if (rows[row].count != 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::Damage::addCell(u16 row, u16 column) {
-    if (full || count == capacity) {
+    DamageRow& damaged = rows[row];
+    if (damaged.count == width) {
         return;
     }
-    const size_t index = (size_t)(row)*width + column;
-    Epoch& cellEpoch = epochs[index];
+    Epoch& cellEpoch = damaged.epochs[column];
     if (cellEpoch == epoch) {
         return;
     }
     cellEpoch = epoch;
-    cells[count++] = (Packed)(((u32)(row) << packShift) | column);
+    damaged.columns[damaged.count++] = (Coord)(column);
+    if (damaged.count == width) {
+        ++fullRows;
+    }
 }
 
 template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::Damage::addRow(u16 row, u16 begin, u16 end) {
-    if (full || end <= begin || count == capacity) {
+    if (end <= begin) {
         return;
     }
-    const size_t rowOffset = (size_t)(row)*width;
-    Epoch* const cellEpochs = epochs + rowOffset;
+    DamageRow& damaged = rows[row];
+    if (damaged.count == width) {
+        return;
+    }
     for (u16 column = begin; column < end; ++column) {
-        if (cellEpochs[column] != epoch) {
-            cellEpochs[column] = epoch;
-            cells[count++] = (Packed)(((u32)(row) << packShift) | column);
+        Epoch& cellEpoch = damaged.epochs[column];
+        if (cellEpoch == epoch) {
+            continue;
+        }
+        cellEpoch = epoch;
+        damaged.columns[damaged.count++] = (Coord)(column);
+        if (damaged.count == width) {
+            ++fullRows;
+            break;
         }
     }
 }
 
 template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::Damage::addRect(u16 top, u16 left, u16 bottom, u16 right) {
-    if (full || bottom <= top || right <= left || count == capacity) {
+    if (bottom <= top || right <= left) {
         return;
     }
     for (u16 row = top; row < bottom; ++row) {
