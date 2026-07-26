@@ -15,7 +15,6 @@
 
 #include <algorithm>
 #include <cstring>
-#include <limits>
 #include <new>
 
 using namespace stl;
@@ -69,7 +68,7 @@ namespace {
         void setCellCount(size_t cellCount) noexcept override;
         bool shouldCollect() const noexcept override;
         bool hardLimitExceeded() const noexcept override;
-        void collect(Vector<u32*>& locations) override;
+        void collect(Vector<TerminalCell*>& cells, u32* const* roots, size_t rootCount) override;
 
         Composer& composer_;
         CellExtraStoreOwner& owner_;
@@ -197,7 +196,7 @@ void CellExtraStoreImpl::rehashHyperlinks(size_t capacity) {
 
 u32 CellExtraStoreImpl::append(const CellExtra& value) {
     STD_ASSERT(!value.graphemeBytes.empty() || hyperlinkOf(value) != nullptr);
-    if (slots_.length() >= std::numeric_limits<u32>::max()) {
+    if (slots_.length() > TerminalCell::maxExtraRef) {
         throw std::bad_alloc();
     }
 
@@ -450,7 +449,7 @@ bool CellExtraStoreImpl::hardLimitExceeded() const noexcept {
     return allocatedExtraBytes_ > byteBudget_ * 2 || slots_.length() > slotBudget_ * 2;
 }
 
-void CellExtraStoreImpl::collect(Vector<u32*>& locations) {
+void CellExtraStoreImpl::collect(Vector<TerminalCell*>& cells, u32* const* roots, size_t rootCount) {
     STD_ASSERT(composer_.cellExtras == this);
 
     auto* next = CellExtraStoreImpl::create(composer_, cellCount_, owner_);
@@ -458,17 +457,27 @@ void CellExtraStoreImpl::collect(Vector<u32*>& locations) {
         Vector<u32> relocation;
         relocation.zero(slots_.length());
 
-        for (u32* location : locations) {
-            const u32 oldRef = *location;
+        const auto migrateRef = [&](u32 oldRef) {
             STD_ASSERT(oldRef != 0 && oldRef < slots_.length());
             if (relocation[oldRef] == 0) {
                 // migrate() always appends. Equal but distinct old refs must
                 // not collapse into one ref in the new store.
                 relocation.mut(oldRef) = next->migrate(*this, oldRef);
             }
+        };
+        for (TerminalCell* cell : cells) {
+            STD_ASSERT(cell->hasExtra());
+            migrateRef(cell->extraRef());
         }
-        for (u32* location : locations) {
-            *location = relocation[*location];
+        for (size_t index = 0; index < rootCount; ++index) {
+            STD_ASSERT(roots[index] != nullptr);
+            migrateRef(*roots[index]);
+        }
+        for (TerminalCell* cell : cells) {
+            cell->setExtraRef(relocation[cell->extraRef()]);
+        }
+        for (size_t index = 0; index < rootCount; ++index) {
+            *roots[index] = relocation[*roots[index]];
         }
         next->finishCollection();
     } catch (...) {

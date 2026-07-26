@@ -587,7 +587,7 @@ namespace {
         u16 presentedColumns = 0;
         u16 presentedRows = 0;
 
-        Vector<u32*> extraFixups;
+        Vector<TerminalCell*> extraCells;
         u32 processInputDepth = 0;
         bool presentedSinceGcSafePoint = false;
 
@@ -2105,26 +2105,28 @@ void VtermImpl::collectCellExtrasIfNeeded(bool force) {
 }
 
 void VtermImpl::collectCellExtras() {
-    extraFixups.clear();
+    extraCells.clear();
+    u32* roots[1];
+    size_t rootCount = 0;
     if (activeHyperlink != 0) {
-        extraFixups.pushBack(&activeHyperlink);
+        roots[rootCount++] = &activeHyperlink;
     }
     if (frame_pri->active()) {
-        frame_pri->collectExtraRefLocations(extraFixups);
+        frame_pri->collectExtraCells(extraCells);
     }
     if (frame_alt->active()) {
-        frame_alt->collectExtraRefLocations(extraFixups);
+        frame_alt->collectExtraCells(extraCells);
     }
 
     CellExtraStore& extras = *composer.cellExtras;
-    extras.collect(extraFixups);
+    extras.collect(extraCells, roots, rootCount);
     if (frame_pri->active()) {
         frame_pri->expose();
     }
     if (frame_alt->active()) {
         frame_alt->expose();
     }
-    extraFixups.clear();
+    extraCells.clear();
 }
 
 bool VtermImpl::advanceAnimation(bool force) {

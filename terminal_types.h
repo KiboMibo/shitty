@@ -124,6 +124,8 @@ struct TerminalColors {
 struct TerminalCell {
     static constexpr u8 decProtection = 1;
     static constexpr u8 isoProtection = 2;
+    static constexpr u8 extraRefSentinel = 0xd5;
+    static constexpr u32 maxExtraRef = 0x00ffffff;
 
     union {
         u64 style;
@@ -181,13 +183,10 @@ struct TerminalCell {
     }
 
     constexpr u32 extraRef() const noexcept {
-        return hasExtra() ? payload : 0;
+        return hasExtra() ? payload >> 8 : 0;
     }
 
-    void setExtraRef(u32 ref) noexcept {
-        extended = ref != 0;
-        payload = ref;
-    }
+    void setExtraRef(u32 ref) noexcept;
 
     bool operator==(const TerminalCell& rhs) const {
         return style == rhs.style && content == rhs.content && payload == rhs.payload;

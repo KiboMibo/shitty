@@ -29,6 +29,7 @@
 #include <utf8proc.h>
 
 #include <algorithm>
+#include <cstring>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -97,7 +98,7 @@ namespace {
         bool active() const noexcept override;
 
         CellExtraStore& cellExtras() const noexcept override;
-        void collectExtraRefLocations(Vector<u32*>& locations) override;
+        void collectExtraCells(Vector<TerminalCell*>& cells) override;
         size_t cellCapacity() const noexcept override;
 
         void eraseInRow(u16 row, u16 start, u16 count, const TerminalCell& attrs) override;
@@ -617,15 +618,27 @@ void ScreenImpl<Coord, Epoch>::dropScrollbackHistory() {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::collectExtraRefLocations(Vector<u32*>& locations) {
+void ScreenImpl<Coord, Epoch>::collectExtraCells(Vector<TerminalCell*>& cells) {
     const auto collectRow = [&](TerminalCell* first) {
         if (first == nullptr) {
             return;
         }
-        for (u16 column = 0; column < nCols; ++column) {
-            if (first[column].hasExtra()) {
-                locations.pushBack(&first[column].payload);
+
+        STD_ASSERT((size_t)(first) % cellSize == 0);
+        u8* const begin = reinterpret_cast<u8*>(first);
+        u8* const end = begin + (size_t)(nCols)*cellSize;
+        u8* cursor = begin;
+        while (cursor != end) {
+            auto* hit = static_cast<u8*>(memchr(cursor, TerminalCell::extraRefSentinel, end - cursor));
+            if (hit == nullptr) {
+                break;
             }
+            const size_t offset = (hit - begin) & ~(cellSize - 1);
+            TerminalCell* const cell = reinterpret_cast<TerminalCell*>(begin + offset);
+            if (cell->hasExtra()) {
+                cells.pushBack(cell);
+            }
+            cursor = reinterpret_cast<u8*>(cell + 1);
         }
     };
     for (int row = -(int)(historyRows); row < nRows; ++row) {

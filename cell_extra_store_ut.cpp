@@ -116,12 +116,12 @@ STD_TEST_SUITE(CellExtraStore) {
         const u32 hyperlink = store->getOrCreateHyperlink(StringView(u8"live"), StringView(u8"https://live.test"), 19);
         store->setGrapheme(cell, grapheme, 3);
         store->setHyperlink(cell, hyperlink);
-        Vector<u32*> locations;
-        locations.pushBack(&cell.payload);
+        Vector<TerminalCell*> cells;
+        cells.pushBack(&cell);
         CellExtraStore* const previous = store;
         const size_t notificationsBefore = listener.calls;
 
-        store->collect(locations);
+        store->collect(cells, nullptr, 0);
         store = composer.cellExtras;
 
         STD_INSIST(store != previous);
@@ -143,10 +143,10 @@ STD_TEST_SUITE(CellExtraStore) {
         store->getOrCreateHyperlink(StringView(u8"dead"), StringView(u8"https://dead.test"), 2);
         TerminalCell cell{};
         store->setHyperlink(cell, live);
-        Vector<u32*> locations;
-        locations.pushBack(&cell.payload);
+        Vector<TerminalCell*> cells;
+        cells.pushBack(&cell);
 
-        store->collect(locations);
+        store->collect(cells, nullptr, 0);
         store = composer.cellExtras;
 
         STD_INSIST(store->hyperlinkCount() == 1);
@@ -163,15 +163,35 @@ STD_TEST_SUITE(CellExtraStore) {
         const u32 grapheme[] = {'x', 0x0301};
         store->setGrapheme(first, grapheme, 2);
         store->setGrapheme(second, grapheme, 2);
-        Vector<u32*> locations;
-        locations.pushBack(&first.payload);
-        locations.pushBack(&second.payload);
+        Vector<TerminalCell*> cells;
+        cells.pushBack(&first);
+        cells.pushBack(&second);
 
         STD_INSIST(first.extraRef() != second.extraRef());
 
-        store->collect(locations);
+        store->collect(cells, nullptr, 0);
 
         STD_INSIST(first.extraRef() != second.extraRef());
+    }
+
+    STD_TEST(CollectionRewritesNonCellRoots) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore* store = CellExtraStore::create(composer, 1);
+        store->getOrCreateHyperlink(StringView(u8"dead"), StringView(u8"https://dead.test"), 1);
+        u32 root = store->getOrCreateHyperlink(StringView(u8"live"), StringView(u8"https://live.test"), 2);
+        u32* roots[] = {&root};
+        Vector<TerminalCell*> cells;
+
+        store->collect(cells, roots, 1);
+        store = composer.cellExtras;
+
+        TerminalCell cell{};
+        store->setHyperlink(cell, root);
+        STD_INSIST(root == 1);
+        STD_INSIST(store->findHyperlink(StringView(u8"dead")) == 0);
+        STD_INSIST(store->findHyperlink(StringView(u8"live")) == root);
+        STD_INSIST(store->hyperlink(cell) == StringView(u8"https://live.test"));
     }
 
     STD_TEST(ReportsAllocationPressure) {

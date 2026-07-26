@@ -63,7 +63,7 @@ struct CellExtraStore {
     virtual void setCellCount(size_t cellCount) noexcept = 0;
     virtual bool shouldCollect() const noexcept = 0;
     virtual bool hardLimitExceeded() const noexcept = 0;
-    virtual void collect(stl::Vector<u32*>& locations) = 0;
+    virtual void collect(stl::Vector<TerminalCell*>& cells, u32* const* roots, size_t rootCount) = 0;
 
     static CellExtraStore* create(Composer& composer, size_t cellCount);
 };

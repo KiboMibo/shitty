@@ -17,6 +17,8 @@
 
 #include "terminal_types.h"
 
+#include <std/dbg/assert.h>
+
 namespace {
     constexpr u32 colorPayloadMask = 0x00ffffff;
 
@@ -55,6 +57,12 @@ void TerminalCell::setBackground(CellColor color) noexcept {
     const u32 packed = packColor(color, true);
     bg_payload = packed & colorPayloadMask;
     bg_kind = packed >> 24;
+}
+
+void TerminalCell::setExtraRef(u32 ref) noexcept {
+    STD_ASSERT(ref <= maxExtraRef);
+    extended = ref != 0;
+    payload = ref == 0 ? 0 : (ref << 8) | extraRefSentinel;
 }
 
 CellColor TerminalCell::inlineUnderlineColor() const noexcept {

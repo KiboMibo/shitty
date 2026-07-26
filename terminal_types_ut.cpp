@@ -65,6 +65,8 @@ STD_TEST_SUITE(TerminalCell) {
 
         STD_INSIST(cell.hasExtra());
         STD_INSIST(cell.extraRef() == 42);
+        STD_INSIST((cell.payload & 0xff) == TerminalCell::extraRefSentinel);
+        STD_INSIST((cell.payload >> 8) == 42);
         STD_INSIST(cell.inlineUnderlineColor() == CellColor::defaultForeground());
 
         cell.setInlineUnderlineColor(underline);
@@ -79,6 +81,16 @@ STD_TEST_SUITE(TerminalCell) {
 
         STD_INSIST(!cell.hasExtra());
         STD_INSIST(cell.extraRef() == 0);
+        STD_INSIST(cell.payload == 0);
+    }
+
+    STD_TEST(RoundTripsLargestExtraRef) {
+        TerminalCell cell{};
+        cell.setExtraRef(TerminalCell::maxExtraRef);
+
+        STD_INSIST(cell.hasExtra());
+        STD_INSIST(cell.extraRef() == TerminalCell::maxExtraRef);
+        STD_INSIST((cell.payload & 0xff) == TerminalCell::extraRefSentinel);
     }
 }
 

@@ -229,6 +229,33 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(detectedLink.end == 56);
     }
 
+    STD_TEST(CollectsSentinelEncodedExtraCells) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 16);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::create(composer, *pool, 4, 1, &colors);
+        TerminalCell ordinary = attributes();
+        ordinary.setInlineUnderlineColor(CellColor::direct({TerminalCell::extraRefSentinel, 1, 2}));
+        const u8 filler[] = {'a', 'b', 'c', 'd'};
+        screen->writeAsciiRun(0, 0, filler, 4, ordinary, 0, 0, 0, TerminalCell{});
+        const u32 link = composer.cellExtras->getOrCreateHyperlink(StringView(u8"id"), StringView(u8"https://sentinel.test"), 1);
+        const u8 first[] = {'x'};
+        const u8 last[] = {'y'};
+        screen->writeAsciiRun(0, 0, first, 1, attributes(), link, 0, 0, TerminalCell{});
+        screen->writeAsciiRun(0, 3, last, 1, attributes(), link, 0, 0, TerminalCell{});
+        Vector<TerminalCell*> cells;
+
+        screen->collectExtraCells(cells);
+
+        STD_INSIST(cells.length() == 2);
+        STD_INSIST(cells[0]->uc_pt == 'x');
+        STD_INSIST(cells[1]->uc_pt == 'y');
+        STD_INSIST(cells[0]->extraRef() == link);
+        STD_INSIST(cells[1]->extraRef() == link);
+    }
+
     STD_TEST(MoveIntoTransfersContentToReplacement) {
         auto composerPool = ObjPool::fromMemory();
         auto sourcePool = ObjPool::fromMemory();
