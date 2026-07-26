@@ -100,8 +100,6 @@ namespace {
         int gridAlignedWindowSize(int framebufferSize, int border, int cellSize, float scale, int currentWindowSize);
         void configureGridSize();
         void queueResize(int width, int height);
-        bool compositorRetainedExtent(int width, int height);
-        void resetResizeCorrection();
         void onFramebufferSize(int width, int height);
         void setupCallbacks();
         bool queryUriScheme(StringView scheme);
@@ -122,16 +120,10 @@ namespace {
         bool resizePending = false;
         bool redrawPending = false;
         bool correctingResize = false;
-        bool resizeCorrectionPending = false;
-        bool compositorExtentKnown = false;
         bool attentionRequested = false;
         // A dispatch can carry several configures; terminal reflow consumes only the last one after GLFW returns.
         u16 pendingPixelWidth = 0;
         u16 pendingPixelHeight = 0;
-        int correctionSourceWidth = 0;
-        int correctionSourceHeight = 0;
-        int compositorPixelWidth = 0;
-        int compositorPixelHeight = 0;
         int restoredX = 0;
         int restoredY = 0;
         int restoredWidth = 800;
@@ -996,31 +988,6 @@ void GlfwWindowImpl::queueResize(int width, int height) {
     resizePending = true;
 }
 
-bool GlfwWindowImpl::compositorRetainedExtent(int width, int height) {
-    if (compositorExtentKnown) {
-        if (width == compositorPixelWidth && height == compositorPixelHeight) {
-            return true;
-        }
-        compositorExtentKnown = false;
-    }
-    if (!resizeCorrectionPending) {
-        return false;
-    }
-    resizeCorrectionPending = false;
-    if (width != correctionSourceWidth || height != correctionSourceHeight) {
-        return false;
-    }
-    compositorExtentKnown = true;
-    compositorPixelWidth = width;
-    compositorPixelHeight = height;
-    return true;
-}
-
-void GlfwWindowImpl::resetResizeCorrection() {
-    resizeCorrectionPending = false;
-    compositorExtentKnown = false;
-}
-
 void GlfwWindowImpl::onFramebufferSize(int width, int height) {
     if (width <= 0 || height <= 0) {
         return;
@@ -1029,12 +996,8 @@ void GlfwWindowImpl::onFramebufferSize(int width, int height) {
         queueResize(width, height);
         return;
     }
-    if (glfwGetWindowMonitor(window) != nullptr || glfwGetWindowAttrib(window, GLFW_MAXIMIZED) == GLFW_TRUE) {
-        resetResizeCorrection();
-        queueResize(width, height);
-        return;
-    }
-    if (compositorRetainedExtent(width, height)) {
+    if (glfwGetWindowMonitor(window) != nullptr || glfwGetWindowAttrib(window, GLFW_MAXIMIZED) == GLFW_TRUE ||
+        glfwGetWindowAttrib(window, GLFW_TILED) == GLFW_TRUE) {
         queueResize(width, height);
         return;
     }
@@ -1052,9 +1015,6 @@ void GlfwWindowImpl::onFramebufferSize(int width, int height) {
         return;
     }
 
-    correctionSourceWidth = width;
-    correctionSourceHeight = height;
-    resizeCorrectionPending = true;
     correctingResize = true;
     glfwSetWindowSize(window, snappedWidth, snappedHeight);
     correctingResize = false;

@@ -8,5 +8,5 @@ Shitty builds GLFW with the same backend selection as the IX package:
 `GLFW_NO_API` window and uses GLFW only for its Wayland window/input backend
 and Vulkan surface support.
 
-Local GLFW source changes should be kept as small standalone commits based on
-the revision in `UPSTREAM`, so they can be submitted upstream.
+The only local GLFW source change is the compositor-reported `GLFW_TILED`
+window attribute, kept as a small standalone diff for submission upstream.

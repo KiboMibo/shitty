@@ -929,6 +929,12 @@ extern "C" {
  */
 #define GLFW_MOUSE_PASSTHROUGH      0x0002000D
 
+/*! @brief Window tiling window attribute.
+ *
+ *  Window tiling [window attribute](@ref GLFW_TILED_attrib).
+ */
+#define GLFW_TILED                  0x00020010
+
 /*! @brief Initial position x-coordinate window hint.
  *
  *  Initial position x-coordinate [window hint](@ref GLFW_POSITION_X).
