@@ -31,7 +31,7 @@ class ResizeHistoryCapacityTest(unittest.TestCase):
             self.assertEqual(snapshot.view_offset, 2)
             self.assertEqual(snapshot.lines, ["4    ", "5    ", "6    "])
 
-    def test_active_alternate_history_survives_repeated_resize(self):
+    def test_active_alternate_does_not_create_history_during_resize(self):
         with Shitty(columns=5, rows=3, save_lines=3) as terminal:
             terminal.write(
                 b"\x1b[?47h\x1b[?1007l\x1b[H1\r\n2\r\n3\r\n4\r\n5"
@@ -41,8 +41,8 @@ class ResizeHistoryCapacityTest(unittest.TestCase):
             terminal.resize(5, 2)
             terminal.wheel_up(10)
             snapshot = terminal.snapshot()
-            self.assertEqual(snapshot.view_offset, 3)
-            self.assertEqual(snapshot.lines, ["1    ", "2    "])
+            self.assertEqual(snapshot.view_offset, 0)
+            self.assertEqual(snapshot.lines, ["4    ", "5    "])
 
     def test_inactive_alternate_buffer_survives_primary_resize(self):
         with Shitty(columns=6, rows=3, save_lines=2) as terminal:

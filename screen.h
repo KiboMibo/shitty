@@ -45,10 +45,10 @@ struct Screen {
         COUNT
     };
 
-    // Captures the whole geometry-independent screen state into an opaque
-    // handle allocated from the screen's own pool; the screen itself becomes
-    // empty. The pool must stay alive until a replacement screen has been
-    // created from the returned state.
+    // Exposes the geometry-independent screen state through an opaque handle
+    // allocated from the screen's own pool; the screen itself becomes empty.
+    // The handle borrows row storage, so the pool must stay alive until a
+    // replacement screen has copied the retained rows.
     virtual ResizeState* moveInto() = 0;
     virtual void dropScrollbackHistory() = 0;
 

@@ -135,6 +135,74 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(!screen->pageToBottom());
     }
 
+    STD_TEST(FullHistoryRingKeepsNewestRowsAndRestoresThem) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 8);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::create(composer, *pool, 2, 2, &colors, 2);
+        const TerminalCell attrs = attributes();
+        const u8 first[] = {'A'};
+        const u8 second[] = {'B'};
+        const u8 third[] = {'C'};
+        const u8 fourth[] = {'D'};
+        const u8 fifth[] = {'E'};
+        screen->writeAsciiRun(0, 0, first, 1, attrs, 0, 0, 0, TerminalCell{});
+        screen->writeAsciiRun(1, 0, second, 1, attrs, 0, 0, 0, TerminalCell{});
+
+        screen->scrollUp(0, 2, 1);
+        screen->eraseInRow(1, 0, 2, TerminalCell{});
+        screen->writeAsciiRun(1, 0, third, 1, attrs, 0, 0, 0, TerminalCell{});
+        screen->scrollUp(0, 2, 1);
+        screen->eraseInRow(1, 0, 2, TerminalCell{});
+        screen->writeAsciiRun(1, 0, fourth, 1, attrs, 0, 0, 0, TerminalCell{});
+        screen->scrollUp(0, 2, 1);
+        screen->eraseInRow(1, 0, 2, TerminalCell{});
+        screen->writeAsciiRun(1, 0, fifth, 1, attrs, 0, 0, 0, TerminalCell{});
+
+        STD_INSIST(screen->getHistoryRows() == 2);
+        screen->pageUp(2);
+        STD_INSIST(screen->testCell(0, 0).uc_pt == 'B');
+        STD_INSIST(screen->testCell(1, 0).uc_pt == 'C');
+        screen->pageToBottom();
+        screen->restoreHistory(1);
+        STD_INSIST(screen->getHistoryRows() == 1);
+        STD_INSIST(screen->testCell(0, 0).uc_pt == 'C');
+        STD_INSIST(screen->testCell(1, 0).uc_pt == 'D');
+    }
+
+    STD_TEST(TopAnchoredPartialScrollPreservesRowsBelowRegion) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 8);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::create(composer, *pool, 2, 4, &colors, 2);
+        const TerminalCell attrs = attributes();
+        const u8 first[] = {'A'};
+        const u8 second[] = {'B'};
+        const u8 third[] = {'C'};
+        const u8 fourth[] = {'D'};
+        screen->writeAsciiRun(0, 0, first, 1, attrs, 0, 0, 0, TerminalCell{});
+        screen->writeAsciiRun(1, 0, second, 1, attrs, 0, 0, 0, TerminalCell{});
+        screen->writeAsciiRun(2, 0, third, 1, attrs, 0, 0, 0, TerminalCell{});
+        screen->writeAsciiRun(3, 0, fourth, 1, attrs, 0, 0, 0, TerminalCell{});
+
+        screen->scrollUp(0, 3, 1);
+        screen->eraseInRow(2, 0, 2, TerminalCell{});
+
+        STD_INSIST(screen->getHistoryRows() == 1);
+        STD_INSIST(screen->testCell(0, 0).uc_pt == 'B');
+        STD_INSIST(screen->testCell(1, 0).uc_pt == 'C');
+        STD_INSIST(screen->testCell(2, 0).uc_pt == 0);
+        STD_INSIST(screen->testCell(3, 0).uc_pt == 'D');
+        screen->pageUp(1);
+        STD_INSIST(screen->testCell(0, 0).uc_pt == 'A');
+        STD_INSIST(screen->testCell(1, 0).uc_pt == 'B');
+        STD_INSIST(screen->testCell(2, 0).uc_pt == 'C');
+    }
+
     STD_TEST(ReturnsExplicitAndDetectedHyperlinks) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
@@ -162,19 +230,21 @@ STD_TEST_SUITE(Screen) {
     }
 
     STD_TEST(MoveIntoTransfersContentToReplacement) {
-        auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        auto composerPool = ObjPool::fromMemory();
+        auto sourcePool = ObjPool::fromMemory();
+        auto destinationPool = ObjPool::fromMemory();
+        Composer composer(composerPool.mutPtr());
         CellExtraStore::create(composer, 8);
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 4, 2, &colors);
+        Screen* screen = Screen::create(composer, *sourcePool, 4, 2, &colors);
         const TerminalCell attrs = attributes();
         const u8 text[] = {'a', 'b', 'c'};
         screen->writeAsciiRun(0, 0, text, 3, attrs, 0, 0, 0, TerminalCell{});
 
         ResizeState* state = screen->moveInto();
         Screen::Cursor cursor;
-        Screen* replacement = Screen::create(composer, *pool, *state, 4, 2, &colors, false, &cursor);
+        Screen* replacement = Screen::create(composer, *destinationPool, *state, 4, 2, &colors, false, &cursor);
 
         STD_INSIST(!screen->active());
         STD_INSIST(replacement->active());

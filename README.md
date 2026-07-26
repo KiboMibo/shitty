@@ -14,8 +14,8 @@ Vulkan compute shader.
 ## Features
 
 - VT52 through VT5xx controls and widely used xterm extensions.
-- Primary and alternate screens, scrollback, margins, tabs, rectangular
-  operations, protected cells, and synchronized output.
+- Primary and alternate screens, primary-screen scrollback, margins, tabs,
+  rectangular operations, protected cells, and synchronized output.
 - Reflow of primary-screen scrollback when the terminal width changes.
 - Unicode grapheme clusters, combining characters, emoji sequences, and
   double-width characters.

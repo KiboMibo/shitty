@@ -47,7 +47,7 @@ class ScrollbackTest(unittest.TestCase):
             self.assertEqual(after.view_offset, 2)
             self.assertEqual(after.lines, ["one     ", "two     ", "three   "])
 
-    def test_alternate_screen_keeps_scrollback(self):
+    def test_alternate_screen_does_not_keep_scrollback(self):
         with Shitty(columns=8, rows=3, save_lines=8) as terminal:
             terminal.write(
                 b"\x1b[?1049h"
@@ -56,19 +56,19 @@ class ScrollbackTest(unittest.TestCase):
             terminal.page_up()
 
             snapshot = terminal.snapshot()
-            self.assertEqual(snapshot.view_offset, 1)
+            self.assertEqual(snapshot.view_offset, 0)
             self.assertEqual(
                 snapshot.lines,
-                ["one     ", "two     ", "three   "],
+                ["two     ", "three   ", "four    "],
             )
 
             terminal.write(b"\r\nfive")
 
             after = terminal.snapshot()
-            self.assertEqual(after.view_offset, 2)
+            self.assertEqual(after.view_offset, 0)
             self.assertEqual(
                 after.lines,
-                ["one     ", "two     ", "three   "],
+                ["three   ", "four    ", "five    "],
             )
 
     def test_partial_region_scroll_does_not_create_blank_history(self):
@@ -337,7 +337,7 @@ class ScrollbackTest(unittest.TestCase):
             self.assertEqual(cell.foreground, (255, 0, 0))
             self.assertEqual(terminal.hyperlink(0, 0), "https://example.com")
 
-    def test_alternate_top_anchored_region_has_real_scrollback(self):
+    def test_alternate_top_anchored_region_does_not_create_scrollback(self):
         with Shitty(columns=8, rows=4, save_lines=8) as terminal:
             terminal.write(
                 b"\x1b[?1049h"
@@ -347,10 +347,10 @@ class ScrollbackTest(unittest.TestCase):
             terminal.wheel_up()
 
             snapshot = terminal.snapshot()
-            self.assertEqual(snapshot.view_offset, 1)
+            self.assertEqual(snapshot.view_offset, 0)
             self.assertEqual(
                 snapshot.lines,
-                ["A       ", "B       ", "C       ", "        "],
+                ["B       ", "C       ", "        ", "D       "],
             )
 
     def test_primary_history_survives_alternate_screen_scrolling(self):

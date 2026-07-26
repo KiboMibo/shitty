@@ -24,7 +24,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <memory>
 
 class CellColor {
 public:
@@ -190,18 +189,12 @@ struct TerminalCell {
         payload = ref;
     }
 
-    using Ptr = std::shared_ptr<TerminalCell>;
-
     bool operator==(const TerminalCell& rhs) const {
         return style == rhs.style && content == rhs.content && payload == rhs.payload;
     }
 
     bool operator!=(const TerminalCell& rhs) const {
         return !operator==(rhs);
-    }
-
-    static Ptr make(u16 columns, u16 rows) {
-        return Ptr(new TerminalCell[rows * columns](), std::default_delete<TerminalCell[]>());
     }
 };
 

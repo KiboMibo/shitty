@@ -60,7 +60,8 @@ Covered now:
 - C0 controls, cursor movement, save/restore, tabs and scrolling regions;
 - autowrap, alternate screen, synchronized output and cursor modes;
 - insert/delete/erase operations and insert mode;
-- scrollback on primary and alternate screens, including output while scrolled;
+- scrollback on the primary screen, including output while scrolled, and the
+  alternate screen's deliberately history-free behavior;
 - full, top-anchored and middle scrolling regions, with fixed outer rows;
 - scroll-up capture, reverse scroll, history capacity rollover and zero capacity;
 - linefeed/index capture at a region boundary and large-count clamping;

@@ -251,7 +251,7 @@ namespace {
 
         void resizeGrid();
         void fontChanged();
-        void createFreshScreen(Screen*& frame, ObjPool*& pool);
+        void createFreshScreen(Screen*& frame, ObjPool*& pool, u16 saveLines);
         void createInactiveScreen(Screen*& frame, ObjPool*& pool);
         void resizeScreen(Screen*& frame, ObjPool*& pool, bool reflow, Screen::Cursor* cursor);
 
@@ -1559,11 +1559,11 @@ VtermImpl::~VtermImpl() {
     composer.vterm = nullptr;
 }
 
-void VtermImpl::createFreshScreen(Screen*& frame, ObjPool*& pool) {
+void VtermImpl::createFreshScreen(Screen*& frame, ObjPool*& pool, u16 saveLines) {
     ObjPool* const next = ObjPool::fromMemoryRaw();
     Screen* screen;
     try {
-        screen = Screen::create(composer, *next, composer.columns, composer.rows, &colors, opts.saveLines);
+        screen = Screen::create(composer, *next, composer.columns, composer.rows, &colors, saveLines);
     } catch (...) {
         delete next;
         throw;
@@ -2455,7 +2455,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         if (clearAlternate) {
             if (altScreenBufferMode_) {
                 kittyKeyboardAlt = {};
-                createFreshScreen(frame_alt, frameAltPool);
+                createFreshScreen(frame_alt, frameAltPool, 0);
                 marginTop = 0;
                 marginBottom = composer.rows;
                 altScreenInitialized = true;
@@ -2473,7 +2473,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
     if (altScreenBufferMode_) {
         if (clearAlternate || !altScreenInitialized) {
             kittyKeyboardAlt = {};
-            createFreshScreen(frame_alt, frameAltPool);
+            createFreshScreen(frame_alt, frameAltPool, 0);
             marginTop = 0;
             marginBottom = composer.rows;
             altScreenInitialized = true;
@@ -7767,7 +7767,7 @@ VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, O
     , hMargin(0)
 {
     try {
-        createFreshScreen(frame_pri, framePriPool);
+        createFreshScreen(frame_pri, framePriPool, opts.saveLines);
         createInactiveScreen(frame_alt, frameAltPool);
     } catch (...) {
         delete framePriPool;
