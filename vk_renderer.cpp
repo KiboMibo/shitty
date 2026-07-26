@@ -1745,6 +1745,17 @@ bool RendererImpl::present(const TerminalUpdate& update) {
 
     const bool shapeChanged = cellColumns != composer.columns || cellRows != composer.rows;
     if (shapeChanged) {
+        size_t covered = 0;
+        for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
+            const RenderCellSpan& span = update.spans[spanIndex];
+            if (span.cells == nullptr || span.index != covered) {
+                return false;
+            }
+            covered += span.count;
+        }
+        if (covered != cellCount) {
+            return false;
+        }
         cells.clear();
         cells.grow(cellCount);
         const RenderCell empty;
@@ -1754,10 +1765,13 @@ bool RendererImpl::present(const TerminalUpdate& update) {
         cellColumns = composer.columns;
         cellRows = composer.rows;
     }
-    for (size_t index = 0; index < update.cellCount; ++index) {
-        const RenderCellUpdate* current = update.cells + index;
-        STD_ASSERT(current->index < cellCount);
-        cells.mut(current->index) = current->cell;
+    for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
+        const RenderCellSpan& span = update.spans[spanIndex];
+        STD_ASSERT((size_t)(span.index) + span.count <= cellCount);
+        STD_ASSERT(span.cells != nullptr);
+        for (u32 index = 0; index < span.count; ++index) {
+            cells.mut(span.index + index) = span.cells[index];
+        }
     }
     const bool deltaFrame = !shapeChanged && outputInitialized && previousStateValid;
 
@@ -1803,9 +1817,11 @@ bool RendererImpl::present(const TerminalUpdate& update) {
             cell.line_attr,
         };
     }
-    for (size_t index = 0; index < update.cellCount; ++index) {
-        const RenderCellUpdate* current = update.cells + index;
-        gpuCells[current->index].attributes |= 1u << 23;
+    for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
+        const RenderCellSpan& span = update.spans[spanIndex];
+        for (u32 index = 0; index < span.count; ++index) {
+            gpuCells[span.index + index].attributes |= RenderCell::dirtyMask;
+        }
     }
 
     if (!fontUploadData.empty()) {

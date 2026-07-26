@@ -380,7 +380,7 @@ namespace {
         TerminalCursor cursor;
         Rect selection;
         std::vector<RenderCell> cells;
-        mutable Vector<RenderCellUpdate> renderCells;
+        mutable RenderCellSpan renderSpan;
         std::vector<TerminalCell> modelCells;
         Vector<u8> modelLineAttributes;
         std::vector<std::vector<u32>> cellGraphemes;
@@ -550,9 +550,13 @@ bool TestDisplay::update(const TerminalUpdate& update) {
         modelCells.resize(count);
         modelLineAttributes.grow(count);
     }
-    for (size_t index = 0; index < update.cellCount; ++index) {
-        STD_ASSERT(update.cells[index].index < count);
-        cells[update.cells[index].index] = update.cells[index].cell;
+    for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
+        const RenderCellSpan& span = update.spans[spanIndex];
+        STD_ASSERT((size_t)(span.index) + span.count <= count);
+        STD_ASSERT(span.cells != nullptr);
+        for (u32 index = 0; index < span.count; ++index) {
+            cells[span.index + index] = span.cells[index];
+        }
     }
     cellGraphemes.resize(count);
     modelUnderlineColors.resize(count);
@@ -818,17 +822,10 @@ std::string TestDisplay::renderState() const {
 }
 
 TerminalUpdate TestDisplay::renderUpdate() const {
-    renderCells.clear();
-    renderCells.grow(cells.size());
-    for (size_t index = 0; index < cells.size(); ++index) {
-        renderCells.pushBack({
-            (u32)(index),
-            cells[index],
-        });
-    }
+    renderSpan = {0, (u32)(cells.size()), cells.data()};
     return {
-        .cells = renderCells.data(),
-        .cellCount = renderCells.length(),
+        .spans = &renderSpan,
+        .spanCount = 1,
         .viewOffset = viewOffset,
         .historyRows = historyRows,
         .cursor = cursor,

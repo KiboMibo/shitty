@@ -188,8 +188,8 @@ struct VtermState {
 };
 
 struct TerminalUpdate {
-    const RenderCellUpdate* cells = nullptr;
-    size_t cellCount = 0;
+    const RenderCellSpan* spans = nullptr;
+    size_t spanCount = 0;
     u32 viewOffset = 0;
     u32 historyRows = 0;
     TerminalCursor cursor;

@@ -319,7 +319,7 @@ namespace {
         PresentationState capturePresentationState() const;
         bool presentationChanged(const PresentationState& before) const;
         void syncPresentationCursor();
-        void fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const RenderCellUpdate* cells, size_t count);
+        void fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const RenderCellSpan* spans, size_t spanCount);
 
         void writeCsiResponse(StringView payload);
         void writeDcsResponse(StringView payload);
@@ -574,7 +574,8 @@ namespace {
         Buffer protocolResponseScratch;
         size_t ptyOutputOffset = 0;
         u64 droppedPtyResponses = 0;
-        Vector<RenderCellUpdate> outputCells;
+        Vector<RenderCell> outputCells;
+        Vector<RenderCellSpan> outputSpans;
         TerminalUpdate terminalUpdate;
 
         std::string inputResult;
@@ -1732,10 +1733,10 @@ StringView VtermImpl::hyperlinkAt(int pixelX, int pixelY) {
     return StringView((const u8*)(inputResult.data()), inputResult.size());
 }
 
-void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const RenderCellUpdate* cells, size_t count) {
+void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const RenderCellSpan* spans, size_t spanCount) {
     update = {};
-    update.cells = cells;
-    update.cellCount = count;
+    update.spans = spans;
+    update.spanCount = spanCount;
     update.viewOffset = frame.getViewOffset();
     update.historyRows = frame.getHistoryRows();
     update.cursor = frame.getCursor();
@@ -1762,10 +1763,10 @@ VtermOutput VtermImpl::output() {
     }
 
     Screen* const frame = cf;
-    const size_t outputCellCount = frame->copyDamagedCells(outputCells.mutData());
+    const RenderCellBatch output = frame->copyDamage(outputCells.mutData(), outputSpans.mutData());
 
     updateScreen = frame;
-    fillTerminalUpdate(terminalUpdate, *frame, outputCells.data(), outputCellCount);
+    fillTerminalUpdate(terminalUpdate, *frame, outputSpans.data(), output.spanCount);
     result.terminal = &terminalUpdate;
     return result;
 }
@@ -2836,7 +2837,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
     const u16 clusterX = posX;
     const u16 clusterY = posY;
     const bool wide = w == 2 && posX < lineCols - 1;
-    cf->writeGrapheme(posY, posX, &pt, 1, wide, attrs, activeHyperlink, currentSemantic, eraseAttrs);
+    cf->writeCodepoint(posY, posX, pt, wide, attrs, activeHyperlink, currentSemantic, eraseAttrs);
     if (attrs.blink) {
         haveBlinkingText = true;
     }
@@ -2863,12 +2864,16 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
 }
 
 void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
+    bool checkBoundary = true;
     while (size > 0) {
-        if (inputGraphemeScreen != cf) {
-            inputGraphemeBreaker.reset();
+        bool graphemeBoundary = true;
+        if (checkBoundary) {
+            if (inputGraphemeScreen != cf) {
+                inputGraphemeBreaker.reset();
+            }
+            graphemeBoundary = inputGraphemeBreaker.breakBefore(*input);
+            checkBoundary = false;
         }
-        const u32 firstCodepoint = *input;
-        const bool graphemeBoundary = inputGraphemeBreaker.breakBefore(firstCodepoint);
         if (!graphemeBoundary) {
             utf8dec.setUnicode(*input++);
             placeGraphicChar(false);
@@ -2884,8 +2889,9 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
         const u8 lineAttribute = cf->lineAttribute(posY);
         const u16 lineCols = lineAttribute ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2) : nColsEff;
         if (posX >= lineCols) {
+            inputGraphemeBreaker.setBoundaryAfter(*input);
             utf8dec.setUnicode(*input++);
-            placeGraphicChar(graphemeBoundary);
+            placeGraphicChar(true);
             --size;
             continue;
         }
@@ -5546,6 +5552,7 @@ void VtermImpl::handle_OSC() {
             case 104: {
                 if (arg.empty()) {
                     std::copy(std::begin(originalPalette256), std::end(originalPalette256), std::begin(colors.palette));
+                    colors.changed();
                     frame_pri->expose();
                     frame_alt->expose();
                 } else {
@@ -5561,6 +5568,7 @@ void VtermImpl::handle_OSC() {
                         }
                     }
                     if (changed) {
+                        colors.changed();
                         frame_pri->expose();
                         frame_alt->expose();
                     }
@@ -5588,12 +5596,14 @@ void VtermImpl::handle_OSC() {
             } break;
             case 110:
                 colors.defaultForeground = opts.fg;
+                colors.changed();
                 defaultFgPalIx = -1;
                 frame_pri->expose();
                 frame_alt->expose();
                 break;
             case 111:
                 colors.defaultBackground = opts.bg;
+                colors.changed();
                 defaultBgPalIx = -1;
                 frame_pri->expose();
                 frame_alt->expose();
@@ -5904,6 +5914,7 @@ void VtermImpl::csi_XTTITLEMODE(bool set) {
 
 void VtermImpl::applyPaletteColor(u16 index, Color color) {
     colors.palette[index] = color;
+    colors.changed();
     frame_pri->expose();
     frame_alt->expose();
 }
@@ -5929,6 +5940,7 @@ void VtermImpl::osc_PaletteQuery(int cmd, const std::string& arg) {
             if (parseXColor(spec, color)) {
                 if (special) {
                     colors.special[colorIndex] = color;
+                    colors.changed();
                     frame_pri->expose();
                     frame_alt->expose();
                 } else {
@@ -5963,6 +5975,7 @@ void VtermImpl::osc_SpecialColorQuery(const std::string& arg) {
         }
     }
     if (changed) {
+        colors.changed();
         frame_pri->expose();
         frame_alt->expose();
     }
@@ -5987,6 +6000,7 @@ void VtermImpl::osc_SpecialColorModes(const std::string& arg) {
         colors.specialModes = modes;
     }
     if (changed) {
+        colors.changed();
         frame_pri->expose();
         frame_alt->expose();
     }
@@ -6010,6 +6024,7 @@ void VtermImpl::osc_ResetSpecialColors(const std::string& arg) {
         }
     }
     if (changed) {
+        colors.changed();
         frame_pri->expose();
         frame_alt->expose();
     }
@@ -6048,12 +6063,14 @@ void VtermImpl::osc_DynamicColorQuery(int cmd, const std::string& arg) {
         switch (cmd) {
             case 10:
                 colors.defaultForeground = color;
+                colors.changed();
                 defaultFgPalIx = -1;
                 frame_pri->expose();
                 frame_alt->expose();
                 break;
             case 11:
                 colors.defaultBackground = color;
+                colors.changed();
                 defaultBgPalIx = -1;
                 frame_pri->expose();
                 frame_alt->expose();
@@ -7696,6 +7713,7 @@ VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, O
     }
     cf = frame_pri;
     outputCells.grow((size_t)(composer.columns) * composer.rows);
+    outputSpans.grow(composer.rows);
     makePalette256(colors.palette);
     std::copy(std::begin(colors.palette), std::end(colors.palette), std::begin(originalPalette256));
     colors.defaultForeground = opts.fg;
@@ -7775,6 +7793,7 @@ void VtermImpl::resizeGrid() {
     showCursor();
 
     outputCells.grow((size_t)(composer.columns) * composer.rows);
+    outputSpans.grow(composer.rows);
     updateExtraCellCount();
     if (inBandResizeMode) {
         reportInBandResize();
@@ -8626,6 +8645,25 @@ namespace {
         kPreCtrl | kPreHigh,                    // VT52_CUP_Arg1
         kPreCtrl | kPreHigh,                    // VT52_CUP_Arg2
     };
+
+    [[gnu::always_inline]] size_t printableAsciiPrefix(const u8* input, size_t size) {
+        using Bytes = u8 __attribute__((vector_size(16)));
+        constexpr Bytes spaces = {0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20};
+        constexpr Bytes deletes = {0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f};
+        size_t offset = 0;
+        while (size - offset >= sizeof(Bytes)) {
+            Bytes word;
+            memcpy(&word, input + offset, sizeof(word));
+            if (__builtin_reduce_or((word < spaces) | (word >= deletes))) {
+                break;
+            }
+            offset += sizeof(word);
+        }
+        while (offset < size && input[offset] >= 0x20 && input[offset] < 0x7f) {
+            ++offset;
+        }
+        return offset;
+    }
 }
 
 bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
@@ -8648,41 +8686,32 @@ template <bool traced>
 bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
     const PresentationState presentationBefore = capturePresentationState();
     hideCursor();
-    for (int readPos = 0; readPos < inputSize; ++readPos) {
-        const u8 ch = input[readPos];
+    const u8* cursor = input;
+    const u8* const inputEnd = input + inputSize;
+    while (cursor != inputEnd) {
+        const u8* const current = cursor++;
+        const u8 ch = *current;
         if (printerControllerMode) {
-            const size_t consumed = consumePrinterController(input + readPos, inputSize - readPos);
-            readPos += (int)(consumed)-1;
+            cursor = current + consumePrinterController(current, inputEnd - current);
             continue;
         }
         if (inputState == InputState::Normal) {
             if (ch >= 0x20 && ch < 0x7f && !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8) {
-                int end = readPos + 1;
-                while (end < inputSize && input[end] >= 0x20 && input[end] < 0x7f) {
-                    ++end;
-                }
-                const int count = end - readPos;
+                const size_t count = printableAsciiPrefix(current, inputEnd - current);
                 if constexpr (traced) {
-                    parserTrace->text(input + readPos, count);
+                    parserTrace->text(current, count);
                 }
-                if (count >= 4) {
-                    placeAsciiRun(input + readPos, count);
-                } else {
-                    while (readPos < end) {
-                        utf8dec.setUnicode(input[readPos++]);
-                        placeGraphicChar();
-                    }
-                }
-                readPos = end - 1;
+                placeAsciiRun(current, count);
+                cursor = current + count;
                 continue;
             }
             if (ch >= 0xc2 && ch <= 0xf4 && !insertMode && !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8 && charsetState.g[charsetState.gr] == Charset::UTF8) {
-                const int consumed = placeUtf8Run(input + readPos, inputSize - readPos);
+                const int consumed = placeUtf8Run(current, inputEnd - current);
                 if (consumed > 0) {
                     if constexpr (traced) {
-                        parserTrace->text(input + readPos, consumed);
+                        parserTrace->text(current, consumed);
                     }
-                    readPos += consumed - 1;
+                    cursor = current + consumed;
                     continue;
                 }
             }
@@ -8844,24 +8873,24 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
         }
         if (pre & kPreStringBulk) {
             stringUtf8Remaining = 0;
-            int end = readPos + 1;
-            while (end < inputSize && input[end] >= 0x20 && input[end] < 0x7f) {
+            const u8* end = current + 1;
+            while (end != inputEnd && *end >= 0x20 && *end < 0x7f) {
                 ++end;
             }
             if constexpr (traced) {
-                parserTrace->stringData(input + readPos, end - readPos);
+                parserTrace->stringData(current, end - current);
             }
             if (inputState != InputState::String && !argBufOverflowed) {
                 const size_t limit = inputState == InputState::DCS ? 4095 : maxOscBytes;
-                const size_t count = end - readPos;
+                const size_t count = end - current;
                 const size_t available = argBuf.size() < limit ? limit - argBuf.size() : 0;
                 const size_t append = std::min(count, available);
-                argBuf.insert(argBuf.end(), input + readPos, input + readPos + append);
+                argBuf.insert(argBuf.end(), current, current + append);
                 if (append < count) {
                     argBufOverflowed = true;
                 }
             }
-            readPos = end - 1;
+            cursor = end;
             continue;
         }
         utf8StringContinuation = (stateHit & kPreStringBulk) != 0 && stringUtf8Continuation(ch);
@@ -8894,7 +8923,7 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                 parserTrace->escapeCancel();
             }
             setState(InputState::Normal);
-            --readPos;
+            --cursor;
             continue;
         }
         if (!utf8StringContinuation) {
@@ -9059,11 +9088,11 @@ bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
                 }
                 break;
             case InputState::VT52_CUP_Arg1:
-                inputOps[0] = input[readPos] - 31;
+                inputOps[0] = ch - 31;
                 setState(InputState::VT52_CUP_Arg2);
                 break;
             case InputState::VT52_CUP_Arg2:
-                inputOps[1] = input[readPos] - 31;
+                inputOps[1] = ch - 31;
                 nInputOps = 2;
                 csi_CUP();
                 break;

@@ -263,7 +263,15 @@ ReferenceImage ReferenceRendererImpl::render(const TerminalUpdate& update) {
     CellExtraStore& extras = *composer_.cellExtras;
     const bool shapeChanged = columns_ != composer_.columns || rows_ != composer_.rows;
     if (shapeChanged) {
-        if (update.cellCount != cellCount) {
+        size_t covered = 0;
+        for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
+            const RenderCellSpan& span = update.spans[spanIndex];
+            if (span.cells == nullptr || span.index != covered) {
+                return {};
+            }
+            covered += span.count;
+        }
+        if (covered != cellCount) {
             return {};
         }
         cells_.clear();
@@ -275,12 +283,14 @@ ReferenceImage ReferenceRendererImpl::render(const TerminalUpdate& update) {
         columns_ = composer_.columns;
         rows_ = composer_.rows;
     }
-    for (size_t index = 0; index < update.cellCount; ++index) {
-        const RenderCellUpdate& damaged = update.cells[index];
-        if (damaged.index >= cellCount) {
+    for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
+        const RenderCellSpan& span = update.spans[spanIndex];
+        if ((size_t)(span.index) + span.count > cellCount || span.cells == nullptr) {
             return {};
         }
-        cells_.mut(damaged.index) = damaged.cell;
+        for (u32 index = 0; index < span.count; ++index) {
+            cells_.mut(span.index + index) = span.cells[index];
+        }
     }
 
     pixels_.zero((size_t)(composer_.pixelWidth) * composer_.pixelHeight * sizeof(Pixel));

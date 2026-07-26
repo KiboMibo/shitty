@@ -114,6 +114,13 @@ struct TerminalColors {
     Color special[specialCount]{};
     Color originalSpecial[specialCount]{};
     u8 specialModes = 0;
+    u32 generation = 1;
+
+    void changed() noexcept {
+        if (++generation == 0) {
+            generation = 1;
+        }
+    }
 
     [[gnu::always_inline]] Color resolve(CellColor color) const {
         switch (color.source()) {
@@ -291,11 +298,8 @@ struct RenderCell {
     };
 
     Color fg;
-    u8 _fill1 = 0;
     Color bg;
-    u8 _fill2 = 0;
     Color underline_color;
-    u8 _fill3 = 0;
     u32 hyperlink = 0;
     u32 grapheme = 0;
     u32 semantic = 0;
@@ -309,9 +313,15 @@ struct RenderCell {
 static_assert(sizeof(RenderCell) == 32, "RenderCell size mismatch");
 static_assert(offsetof(RenderCell, fg) == 8, "RenderCell foreground offset mismatch");
 
-struct RenderCellUpdate {
+struct RenderCellSpan {
     u32 index = 0;
-    RenderCell cell;
+    u32 count = 0;
+    const RenderCell* cells = nullptr;
+};
+
+struct RenderCellBatch {
+    size_t cellCount = 0;
+    size_t spanCount = 0;
 };
 
 struct TerminalPen {

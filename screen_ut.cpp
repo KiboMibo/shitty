@@ -91,24 +91,60 @@ STD_TEST_SUITE(Screen) {
         TerminalCell attrs = attributes();
         attrs.bold = true;
         const u8 text[] = {'a', 'b'};
-        RenderCellUpdate rendered[8];
+        RenderCell rendered[8];
+        RenderCellSpan spans[2];
 
         screen->expose();
-        size_t count = screen->copyDamagedCells(rendered);
-        STD_INSIST(count == 8);
+        RenderCellBatch batch = screen->copyDamage(rendered, spans);
+        STD_INSIST(batch.cellCount == 8);
+        STD_INSIST(batch.spanCount == 2);
+        STD_INSIST(spans[0].index == 0);
+        STD_INSIST(spans[0].count == 4);
+        STD_INSIST(spans[1].index == 4);
+        STD_INSIST(spans[1].count == 4);
         screen->resetDamage();
         screen->writeAsciiRun(1, 1, text, 2, attrs, 0, 3, TerminalCell{});
-        count = screen->copyDamagedCells(rendered);
+        batch = screen->copyDamage(rendered, spans);
 
-        STD_INSIST(count == 2);
-        STD_INSIST(rendered[0].index == 5);
-        STD_INSIST(rendered[1].index == 6);
-        STD_INSIST(rendered[0].cell.uc_pt == 'a');
-        STD_INSIST(rendered[1].cell.uc_pt == 'b');
-        STD_INSIST(rendered[0].cell.bold);
-        STD_INSIST(rendered[0].cell.semantic == 3);
-        STD_INSIST((rendered[0].cell.fg == Color{1, 2, 3}));
-        STD_INSIST((rendered[0].cell.bg == Color{4, 5, 6}));
+        STD_INSIST(batch.cellCount == 2);
+        STD_INSIST(batch.spanCount == 1);
+        STD_INSIST(spans[0].index == 5);
+        STD_INSIST(spans[0].count == 2);
+        STD_INSIST(spans[0].cells[0].uc_pt == 'a');
+        STD_INSIST(spans[0].cells[1].uc_pt == 'b');
+        STD_INSIST(spans[0].cells[0].bold);
+        STD_INSIST(spans[0].cells[0].semantic == 3);
+        STD_INSIST((spans[0].cells[0].fg == Color{1, 2, 3}));
+        STD_INSIST((spans[0].cells[0].bg == Color{4, 5, 6}));
+    }
+
+    STD_TEST(CachesRenderedSpansAndInvalidatesOnPaletteChange) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 8);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::create(composer, *pool, 8, 1, &colors);
+        RenderCell scratch[8];
+        RenderCellSpan span[1];
+
+        screen->expose();
+        screen->copyDamage(scratch, span);
+        const RenderCell* const cached = span[0].cells;
+        STD_INSIST(cached != scratch);
+        STD_INSIST((cached[0].fg == Color{1, 2, 3}));
+
+        screen->resetDamage();
+        screen->expose();
+        screen->copyDamage(scratch, span);
+        STD_INSIST(span[0].cells == cached);
+
+        colors.defaultForeground = {7, 8, 9};
+        colors.changed();
+        screen->resetDamage();
+        screen->expose();
+        screen->copyDamage(scratch, span);
+        STD_INSIST((span[0].cells[0].fg == Color{7, 8, 9}));
     }
 
     STD_TEST(StoresLineAttributesInRowMetadata) {
@@ -118,14 +154,15 @@ STD_TEST_SUITE(Screen) {
         TerminalColors colors;
         configureColors(colors);
         Screen* screen = Screen::create(composer, *pool, 4, 1, &colors);
-        RenderCellUpdate rendered[4];
+        RenderCell rendered[4];
+        RenderCellSpan spans[1];
 
         screen->setLineAttribute(0, 2);
         STD_INSIST(screen->lineAttribute(0) == 2);
-        const size_t count = screen->copyDamagedCells(rendered);
-        STD_INSIST(count == 4);
-        for (size_t index = 0; index < count; ++index) {
-            STD_INSIST(rendered[index].cell.line_attr == 2);
+        const RenderCellBatch batch = screen->copyDamage(rendered, spans);
+        STD_INSIST(batch.cellCount == 4);
+        for (u32 index = 0; index < spans[0].count; ++index) {
+            STD_INSIST(spans[0].cells[index].line_attr == 2);
         }
         screen->setLineAttribute(0, 0);
         STD_INSIST(screen->lineAttribute(0) == 0);
@@ -231,10 +268,10 @@ STD_TEST_SUITE(Screen) {
         configureColors(colors);
         Screen* screen = Screen::create(composer, *pool, 4, 1, &colors);
         const TerminalCell attrs = attributes();
-        const u32 wide[] = {0x4e00};
+        constexpr u32 wide = 0x4e00;
         const u8 replacement[] = {'x'};
 
-        screen->writeGrapheme(0, 1, wide, 1, true, attrs, 0, 0, TerminalCell{});
+        screen->writeCodepoint(0, 1, wide, true, attrs, 0, 0, TerminalCell{});
         STD_INSIST(screen->testCell(0, 1).dwidth);
         STD_INSIST(screen->testCell(0, 2).dwidth_cont);
 
@@ -254,10 +291,10 @@ STD_TEST_SUITE(Screen) {
         configureColors(colors);
         Screen* screen = Screen::create(composer, *pool, 8, 1, &colors);
         const TerminalCell attrs = attributes();
-        const u32 wide[] = {0x4e00};
+        constexpr u32 wide = 0x4e00;
         const u8 text[] = {'a', 'b'};
         screen->writeAsciiRun(0, 0, text, 2, attrs, 0, 0, TerminalCell{});
-        screen->writeGrapheme(0, 2, wide, 1, true, attrs, 0, 0, TerminalCell{});
+        screen->writeCodepoint(0, 2, wide, true, attrs, 0, 0, TerminalCell{});
 
         screen->insertCells(0, 1, 8, 1, TerminalCell{});
 
@@ -282,8 +319,8 @@ STD_TEST_SUITE(Screen) {
         configureColors(colors);
         Screen* screen = Screen::create(composer, *pool, 4, 1, &colors);
         const TerminalCell attrs = attributes();
-        const u32 wide[] = {0x4e00};
-        screen->writeGrapheme(0, 1, wide, 1, true, attrs, 0, 0, TerminalCell{});
+        constexpr u32 wide = 0x4e00;
+        screen->writeCodepoint(0, 1, wide, true, attrs, 0, 0, TerminalCell{});
 
         screen->insertCells(0, 2, 4, 1, TerminalCell{});
 

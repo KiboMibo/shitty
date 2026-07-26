@@ -125,10 +125,11 @@ STD_TEST_SUITE(ReferenceRenderer) {
         RenderCell cell;
         cell.fg = {255, 0, 0};
         cell.bg = {0, 0, 255};
-        RenderCellUpdate damaged{0, cell};
+        RenderCell damaged = cell;
+        RenderCellSpan span{0, 1, &damaged};
         TerminalUpdate update;
-        update.cells = &damaged;
-        update.cellCount = 1;
+        update.spans = &span;
+        update.spanCount = 1;
 
         const ReferenceImage image = renderer->render(update);
 
@@ -150,10 +151,11 @@ STD_TEST_SUITE(ReferenceRenderer) {
         cell.fg = {255, 0, 0};
         cell.bg = {0, 0, 255};
         cell.inverse = true;
-        RenderCellUpdate damaged{0, cell};
+        RenderCell damaged = cell;
+        RenderCellSpan span{0, 1, &damaged};
         TerminalUpdate update;
-        update.cells = &damaged;
-        update.cellCount = 1;
+        update.spans = &span;
+        update.spanCount = 1;
 
         ReferenceImage image = renderer->render(update);
         STD_INSIST((cellPixel(image, 0, 0) == Color{0, 0, 255}));
@@ -169,24 +171,21 @@ STD_TEST_SUITE(ReferenceRenderer) {
         FakeFontpack fonts;
         configure(composer, fonts, 2, 1, 1, 1);
         ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
-        RenderCellUpdate initial[] = {
-            {0, RenderCell{}},
-            {1, RenderCell{}},
-        };
-        initial[0].cell.bg = {10, 20, 30};
-        initial[1].cell.bg = {40, 50, 60};
+        RenderCell initial[2];
+        initial[0].bg = {10, 20, 30};
+        initial[1].bg = {40, 50, 60};
+        RenderCellSpan span{0, 2, initial};
         TerminalUpdate update;
-        update.cells = initial;
-        update.cellCount = 2;
+        update.spans = &span;
+        update.spanCount = 1;
 
         ReferenceImage image = renderer->render(update);
         STD_INSIST((cellPixel(image, 0, 0) == Color{10, 20, 30}));
         STD_INSIST((cellPixel(image, 1, 0) == Color{40, 50, 60}));
 
-        RenderCellUpdate changed{1, initial[1].cell};
-        changed.cell.bg = {70, 80, 90};
-        update.cells = &changed;
-        update.cellCount = 1;
+        RenderCell changed = initial[1];
+        changed.bg = {70, 80, 90};
+        span = {1, 1, &changed};
         image = renderer->render(update);
 
         STD_INSIST((cellPixel(image, 0, 0) == Color{10, 20, 30}));
@@ -205,10 +204,11 @@ STD_TEST_SUITE(ReferenceRenderer) {
         RenderCell cell;
         cell.fg = {255, 0, 0};
         cell.bg = {0, 0, 255};
-        RenderCellUpdate damaged{0, cell};
+        RenderCell damaged = cell;
+        RenderCellSpan span{0, 1, &damaged};
         TerminalUpdate update;
-        update.cells = &damaged;
-        update.cellCount = 1;
+        update.spans = &span;
+        update.spanCount = 1;
         update.snappedSelection = Rect(0, 0);
         update.selectionColorMask = 3;
         update.selectionForeground = {1, 2, 3};
@@ -234,10 +234,11 @@ STD_TEST_SUITE(ReferenceRenderer) {
         ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
         RenderCell cell;
         cell.bg = {0, 0, 100};
-        RenderCellUpdate damaged{0, cell};
+        RenderCell damaged = cell;
+        RenderCellSpan span{0, 1, &damaged};
         TerminalUpdate update;
-        update.cells = &damaged;
-        update.cellCount = 1;
+        update.spans = &span;
+        update.spanCount = 1;
 
         const ReferenceImage image = renderer->render(update);
 
@@ -259,10 +260,11 @@ STD_TEST_SUITE(ReferenceRenderer) {
         cell.bold = true;
         cell.italic = true;
         cell.grapheme = stored.extraRef();
-        RenderCellUpdate damaged{0, cell};
+        RenderCell damaged = cell;
+        RenderCellSpan span{0, 1, &damaged};
         TerminalUpdate update;
-        update.cells = &damaged;
-        update.cellCount = 1;
+        update.spans = &span;
+        update.spanCount = 1;
 
         renderer->render(update);
 

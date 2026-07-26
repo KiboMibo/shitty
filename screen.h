@@ -58,6 +58,7 @@ struct Screen {
     virtual bool hasProtection(u16 row, u8 mask) const noexcept = 0;
     virtual bool wrapped(u16 row, u16 column) const noexcept = 0;
     virtual void setWrapped(u16 row, u16 column) = 0;
+    virtual void writeCodepoint(u16 row, u16 column, u32 codepoint, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) = 0;
     virtual void writeGrapheme(u16 row, u16 column, const u32* codepoints, size_t count, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) = 0;
     virtual void writeAsciiRun(u16 row, u16 column, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) = 0;
     virtual void writeAsciiRunInsert(u16 row, u16 column, u16 end, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) = 0;
@@ -69,7 +70,7 @@ struct Screen {
     virtual void appendPrintableLine(u16 row, std::string& output) const = 0;
     virtual ScreenHyperlink hyperlinkAt(u16 row, u16 column) const = 0;
     virtual TerminalCell testCell(u16 row, u16 column) const noexcept = 0;
-    virtual size_t copyDamagedCells(RenderCellUpdate* cells) const = 0;
+    virtual RenderCellBatch copyDamage(RenderCell* cells, RenderCellSpan* spans) const = 0;
 
     virtual bool active() const noexcept = 0;
 
