@@ -510,6 +510,30 @@ class ProtocolTest(unittest.TestCase):
                 "https://example.test/active",
             )
 
+    def test_cell_extra_gc_rewrites_pending_grapheme_hyperlink(self):
+        output = bytearray()
+        for number in range(100):
+            output.extend(
+                f"\x1b[1;1H\x1b]8;id=dead-{number};"
+                f"https://example.test/dead/{number}\x1b\\X".encode()
+            )
+        output.extend(
+            b"\x1b[1;1H"
+            b"\x1b]8;id=active;https://example.test/active\x1b\\"
+            b"A"
+        )
+
+        with Shitty(columns=1, rows=1, save_lines=1) as terminal:
+            terminal.write(bytes(output))
+            self.assertLess(terminal.hyperlink_count(), 8)
+            terminal.write(b"\xcc\x81")
+            cell = terminal.model_snapshot().cell(0, 0)
+            self.assertEqual(cell.grapheme, (ord("A"), 0x301))
+            self.assertEqual(
+                terminal.hyperlink(0, 0),
+                "https://example.test/active",
+            )
+
     def test_cell_extra_gc_scans_inactive_frame_history(self):
         output = bytearray(
             b"\x1b]8;id=primary;https://example.test/primary\x1b\\P"

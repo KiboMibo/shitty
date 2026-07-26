@@ -2075,10 +2075,13 @@ void VtermImpl::collectCellExtrasIfNeeded(bool force) {
 
 void VtermImpl::collectCellExtras() {
     extraCells.clear();
-    u32* roots[1];
+    u32* roots[2];
     size_t rootCount = 0;
     if (activeHyperlink != 0) {
         roots[rootCount++] = &activeHyperlink;
+    }
+    if (inputGraphemeHyperlink != 0) {
+        roots[rootCount++] = &inputGraphemeHyperlink;
     }
     if (frame_pri->active()) {
         frame_pri->collectExtraCells(extraCells);

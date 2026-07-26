@@ -35,6 +35,8 @@
 using namespace stl;
 
 namespace {
+    constexpr size_t perfFeedChunk = 1024;
+
     struct PerfFile {
         size_t pathOffset;
     };
@@ -112,7 +114,14 @@ namespace {
             ScopedFD fd(rawFd);
             data.reset();
             FDInput(fd).readAll(data);
-            vterm->feed((const u8*)data.data(), data.used());
+            const u8* input = (const u8*)data.data();
+            size_t remaining = data.used();
+            while (remaining != 0) {
+                const size_t length = remaining < perfFeedChunk ? remaining : perfFeedChunk;
+                vterm->feed(input, length);
+                input += length;
+                remaining -= length;
+            }
             bytes += data.used();
             if ((index + 1) % 256 == 0 || index + 1 == files.length()) {
                 showPerfProgress(index + 1, files.length(), bytes, started);
