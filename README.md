@@ -64,18 +64,18 @@ Initialize the bundled dependencies after cloning:
 git submodule update --init --recursive
 ```
 
-Build the `st` executable:
+Build the default `install` group:
 
 ```sh
-./build st
+./build
 ```
 
 Common build options:
 
 ```sh
-./build st -j 8
-./build st -B .build-debug
-CPPFLAGS=-DDEBUG ./build st
+./build -j 8
+./build -B .build-debug
+CPPFLAGS=-DDEBUG ./build
 ```
 
 ## Run
@@ -142,10 +142,10 @@ the active icon theme.
 
 ## Tests
 
-Run the full build and conformance graph:
+Run the full native and imported conformance suite:
 
 ```sh
-./build
+./build test
 ```
 
 Run only the native black-box suite:

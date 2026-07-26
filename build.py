@@ -1575,49 +1575,52 @@ for case in realworld_cases:
     ))
 
 
-install(libshitty)
-install(st)
-install(test_suite)
-install(parser_fuzz)
-install(vttest_profile)
-install(*xtermjs_tests)
-install(*alacritty_tests)
-install(contour_vttest)
-install(*contour_tests)
-install(*mosh_tests)
-install(*ghostty_tests)
-install(*ghostty_semantic_tests)
-install(ghostty_semantic_validation)
-install(*kitty_tests)
-install(kitty_validation)
-install(*kitty_screen_tests)
-install(kitty_screen_validation)
-install(*vte_tests)
-install(vte_validation)
-install(*vte_width_tests)
-install(vte_width_validation)
-install(*windows_terminal_tests)
-install(windows_terminal_validation)
-install(*wezterm_tests)
-install(wezterm_validation)
-install(*wezterm_screen_tests)
-install(wezterm_screen_validation)
-install(*konsole_tests)
-install(konsole_validation)
-install(*tmux_tests)
-install(wraptest_helper)
-install(*wraptest_tests)
-install(tack_program)
-install(tack_validation)
-install(*tack_tests)
-install(*ucs_detect_tests)
-install(ucs_detect_validation)
-install(*ucs_detect_probe_tests)
-install(*vtebench_tests)
-install(*libvterm_tests)
-install(*xterm_vttests_tests)
-install(*esctest_tests)
-install(termless_validation)
-install(*termless_tests)
-install(realworld_validation)
-install(*realworld_tests)
+group("install", st)
+
+group(
+    "test",
+    test_suite,
+    parser_fuzz,
+    vttest_profile,
+    *xtermjs_tests,
+    *alacritty_tests,
+    contour_vttest,
+    *contour_tests,
+    *mosh_tests,
+    *ghostty_tests,
+    *ghostty_semantic_tests,
+    ghostty_semantic_validation,
+    *kitty_tests,
+    kitty_validation,
+    *kitty_screen_tests,
+    kitty_screen_validation,
+    *vte_tests,
+    vte_validation,
+    *vte_width_tests,
+    vte_width_validation,
+    *windows_terminal_tests,
+    windows_terminal_validation,
+    *wezterm_tests,
+    wezterm_validation,
+    *wezterm_screen_tests,
+    wezterm_screen_validation,
+    *konsole_tests,
+    konsole_validation,
+    *tmux_tests,
+    wraptest_helper,
+    *wraptest_tests,
+    tack_program,
+    tack_validation,
+    *tack_tests,
+    *ucs_detect_tests,
+    ucs_detect_validation,
+    *ucs_detect_probe_tests,
+    *vtebench_tests,
+    *libvterm_tests,
+    *xterm_vttests_tests,
+    *esctest_tests,
+    termless_validation,
+    *termless_tests,
+    realworld_validation,
+    *realworld_tests,
+)
