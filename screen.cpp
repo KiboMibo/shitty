@@ -124,6 +124,7 @@ namespace {
         void writeAsciiRun(u16 row, u16 column, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeAsciiRunInsert(u16 row, u16 column, u16 end, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeRun(u16 row, u16 column, const u32* codepoints, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
+        void writeGlyphRun(u16 row, u16 column, const u32* codepoints, const u8* widths, u16 glyphCount, u16 cellCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void fillRectangle(u16 top, u16 left, u16 bottom, u16 right, u32 codepoint, const TerminalCell& attrs, const TerminalCell& eraseAttrs) override;
         void copyRectangle(u16 sourceTop, u16 sourceLeft, u16 targetTop, u16 targetLeft, u16 height, u16 width, const TerminalCell& eraseAttrs) override;
         void changeRectangleAttributes(u16 top, u16 left, u16 bottom, u16 right, const u32* modes, size_t modeCount, bool reverse) override;
@@ -290,6 +291,7 @@ namespace {
         void moveWrap(u16 row, u16 sourceColumn, u16 destinationColumn);
         void moveInRow(u16 row, u16 destination, u16 source, u16 count);
         void scrollRectangle(u16 top, u16 left, u16 bottom, u16 right, u16 count, const TerminalCell& attrs, bool down);
+        [[gnu::always_inline]] inline void scrollPartialRectangleRow(RowSlot& destinationObject, const Row* sourceObject, u16 destinationRow, u16 left, u16 right, const TerminalCell& attrs);
         void rotateRowPointersUp(u16 top, u16 bottom, u16 count);
         void rotateRowPointersDown(u16 top, u16 bottom, u16 count);
         void damageCell(u16 row, u16 column);
@@ -306,6 +308,7 @@ namespace {
         void layoutCopy(ResizeState& state, u16 columns, u16 rows, Cursor* cursorState);
         void layoutReflow(ResizeState& state, u16 columns, u16 rows, Cursor* cursorState);
 
+        template <bool specialColors>
         [[gnu::always_inline]] inline void materialize(RenderCell& result, const TerminalCell& cell, u8 lineAttribute, const CellExtraStore& extras) const;
 
         static SelectSnapTo nextSelectSnapTo(SelectSnapTo snapTo);
@@ -1195,8 +1198,14 @@ RenderCellBatch ScreenImpl<Coord, Epoch>::copyDamage(RenderCell* cells, RenderCe
 template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::render(const TerminalCell* input, RenderCell* output, u16 count, u8 lineAttribute_) const {
     const CellExtraStore& extras = cellExtras();
-    for (u16 index = 0; index < count; ++index) {
-        materialize(output[index], input[index], lineAttribute_, extras);
+    if (colors->specialModes == 0) {
+        for (u16 index = 0; index < count; ++index) {
+            materialize<false>(output[index], input[index], lineAttribute_, extras);
+        }
+    } else {
+        for (u16 index = 0; index < count; ++index) {
+            materialize<true>(output[index], input[index], lineAttribute_, extras);
+        }
     }
 }
 
@@ -1368,26 +1377,36 @@ bool ScreenImpl<Coord, Epoch>::getSelectedUtf8(std::string& utf8_selection) cons
 }
 
 template <typename Coord, typename Epoch>
+template <bool specialColors>
 [[gnu::always_inline]] inline void ScreenImpl<Coord, Epoch>::materialize(RenderCell& result, const TerminalCell& cell, u8 lineAttribute_, const CellExtraStore& extras) const {
     result.uc_pt = cell.uc_pt ? cell.uc_pt : ' ';
     result.attributes = ((u32)(cell.bold) << 2) | ((u32)(cell.italic) << 3) | ((u32)(cell.underlined()) << 4) | ((u32)(cell.inverse) << 5) | ((u32)(cell.wrap) << 6) | ((u32)(cell.faint) << 8) | ((u32)(cell.blink) << 9) | ((u32)(cell.conceal) << 10) | ((u32)(cell.strike) << 11) | ((u32)(cell.overline) << 12) | ((u32)(cell.underline_style) << 13) | ((u32)(cell.dwidth) << 16) | ((u32)(cell.dwidth_cont) << 17) | ((u32)(cell.protected_char) << 18) | ((u32)(cell.drawn) << 20) | ((u32)(lineAttribute_) << 24);
-    result.fg = colors->resolveForeground(cell);
-    result.bg = colors->resolveBackground(cell);
+    u32 foreground;
+    u32 background;
+    if constexpr (specialColors) {
+        foreground = colors->resolveForegroundSpecial(cell).packed();
+        background = colors->resolveBackgroundSpecial(cell).packed();
+    } else {
+        foreground = colors->resolvePacked(cell.foreground());
+        background = colors->resolvePacked(cell.background());
+    }
+    memcpy(&result.fg, &foreground, sizeof(foreground));
+    memcpy(&result.bg, &background, sizeof(background));
+    result.underline_color = result.fg;
     if (cell.hasExtra()) {
         const CellExtraView extra = extras.view(cell);
         result.hyperlink = extra.hyperlinkDisplayId;
         result.grapheme = extra.grapheme.empty() ? 0 : cell.extraRef();
-        result.underline_color = colors->resolve(extra.underlineColor);
-        if (cell.underlined() && extra.underlineColor == cell.foreground()) {
-            result.underline_color = result.fg;
+        if (cell.underlined() && extra.underlineColor != cell.foreground()) {
+            const u32 underline = colors->resolvePacked(extra.underlineColor);
+            memcpy(&result.underline_color, &underline, sizeof(underline));
         }
     } else {
         result.hyperlink = 0;
         result.grapheme = 0;
-        const CellColor underlineColor = cell.inlineUnderlineColor();
-        result.underline_color = colors->resolve(underlineColor);
-        if (cell.underlined() && underlineColor == cell.foreground()) {
-            result.underline_color = result.fg;
+        if (cell.underlined() && cell.inlineUnderlineColor() != cell.foreground()) {
+            const u32 underline = colors->resolvePacked(cell.inlineUnderlineColor());
+            memcpy(&result.underline_color, &underline, sizeof(underline));
         }
     }
     result.semantic = cell.semantic;
@@ -1796,6 +1815,37 @@ void ScreenImpl<Coord, Epoch>::writeRun(u16 row, u16 column, const u32* codepoin
         cell.semantic = semantic;
     }
     logicalRowSlot(row)->metadata.protection |= linkedAttrs.protected_char;
+}
+
+template <typename Coord, typename Epoch>
+void ScreenImpl<Coord, Epoch>::writeGlyphRun(u16 row, u16 column, const u32* codepoints, const u8* widths, u16 glyphCount, u16 cellCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
+    TerminalCell linkedAttrs = attrs;
+    if (hyperlink != 0 || linkedAttrs.hasExtra()) {
+        cellExtras().setHyperlink(linkedAttrs, hyperlink);
+    }
+    TerminalCell* const cells = prepareSpan(row, column, cellCount, eraseAttrs);
+    u16 offset = 0;
+    bool wide = false;
+    for (u16 index = 0; index < glyphCount; ++index) {
+        TerminalCell lead = linkedAttrs;
+        lead.uc_pt = codepoints[index];
+        lead.drawn = 1;
+        lead.dwidth = widths[index] == 2;
+        lead.semantic = semantic;
+        cells[offset++] = lead;
+        if (lead.dwidth) {
+            TerminalCell continuation = linkedAttrs;
+            continuation.dwidth_cont = 1;
+            continuation.drawn = 1;
+            continuation.semantic = semantic;
+            cells[offset++] = continuation;
+            wide = true;
+        }
+    }
+    STD_ASSERT(offset == cellCount);
+    RowSlot& slot = logicalRowSlot(row);
+    slot->metadata.protection |= linkedAttrs.protected_char;
+    slot->metadata.wide |= wide;
 }
 
 template <typename Coord, typename Epoch>
@@ -2620,9 +2670,62 @@ void ScreenImpl<Coord, Epoch>::scrollRectangleDown(u16 top, u16 left, u16 bottom
 }
 
 template <typename Coord, typename Epoch>
+[[gnu::always_inline]] inline void ScreenImpl<Coord, Epoch>::scrollPartialRectangleRow(RowSlot& destinationObject, const Row* sourceObject, u16 destinationRow, u16 left, u16 right, const TerminalCell& attrs) {
+    const u16 width = right - left;
+    clearWideBoundary(destinationObject, destinationRow, left, attrs);
+    clearWideBoundary(destinationObject, destinationRow, right, attrs);
+    const TerminalCell* const source = sourceObject->cells + left;
+    if (destinationObject == nullptr && (sourceObject == zeroRow || emptyRow(source, width))) {
+        return;
+    }
+    TerminalCell* const destination = mutableRow(destinationObject);
+    copyCells(destination + left, source, width);
+    destinationObject->metadata.protection |= sourceObject->metadata.protection;
+    if (sourceObject->metadata.wide) {
+        destinationObject->metadata.wide = true;
+    }
+    repairWideBoundary(destinationObject, destinationRow, left, attrs);
+    repairWideBoundary(destinationObject, destinationRow, right, attrs);
+}
+
+template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::scrollRectangle(u16 top, u16 left, u16 bottom, u16 right, u16 count, const TerminalCell& attrs, bool down) {
     count = min<u16>(count, bottom - top);
     if (count == 0 || right <= left) {
+        return;
+    }
+    if (left != 0 || right != nCols) {
+        const i64 rowBase = (i64)(rowEnd)-nRows;
+        if (down) {
+            for (u16 destination = bottom; destination-- > top + count;) {
+                RowSlot& destinationObject = rowRing[wrapRow(rowBase + destination)];
+                const Row* const sourceObject = rowRing[wrapRow(rowBase + destination - count)];
+                scrollPartialRectangleRow(destinationObject, sourceObject != nullptr ? sourceObject : zeroRow, destination, left, right, attrs);
+            }
+        } else {
+            for (u16 destination = top; destination < bottom - count; ++destination) {
+                RowSlot& destinationObject = rowRing[wrapRow(rowBase + destination)];
+                const Row* const sourceObject = rowRing[wrapRow(rowBase + destination + count)];
+                scrollPartialRectangleRow(destinationObject, sourceObject != nullptr ? sourceObject : zeroRow, destination, left, right, attrs);
+            }
+        }
+        const u16 eraseTop = down ? top : bottom - count;
+        const u16 eraseBottom = eraseTop + count;
+        const TerminalCell empty{};
+        for (u16 row = eraseTop; row < eraseBottom; ++row) {
+            RowSlot& object = rowRing[wrapRow(rowBase + row)];
+            clearWideBoundary(object, row, left, attrs);
+            clearWideBoundary(object, row, right, attrs);
+            if (object != nullptr || attrs != empty) {
+                TerminalCell* const cells = mutableRow(object);
+                eraseRange(cells + left, cells + right, attrs);
+                object->metadata.protection |= attrs.protected_char;
+            }
+        }
+        damageRectangle(top, left, bottom, right);
+        if (!selection.empty()) {
+            invalidateSelection(Rect(left, top, right, bottom));
+        }
         return;
     }
     const u16 width = right - left;

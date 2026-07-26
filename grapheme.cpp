@@ -454,15 +454,22 @@ static bool isSpacingFormat(u32 codepoint) {
     return (codepoint >= 0x600 && codepoint <= 0x605) || codepoint == 0x6dd || codepoint == 0x70f || (codepoint >= 0x890 && codepoint <= 0x891) || codepoint == 0x8e2 || codepoint == 0x110bd || codepoint == 0x110cd;
 }
 
-int codepointWidth(u32 codepoint) {
-    const int width = utf8proc_charwidth((i32)(codepoint));
+CodepointProperties codepointProperties(u32 codepoint) {
+    const utf8proc_property_t* const property = utf8proc_get_property((i32)(codepoint));
+    int width = property->charwidth;
     if (width == 1 && (isDefaultWideCjk(codepoint) || (codepoint >= 0x1f1e6 && codepoint <= 0x1f1ff))) {
-        return 2;
+        width = 2;
+    } else if (width == 0 && isSpacingFormat(codepoint)) {
+        width = 1;
     }
-    if (width == 0 && isSpacingFormat(codepoint)) {
-        return 1;
-    }
-    return width;
+    return {
+        .width = (u8)(width),
+        .simpleGrapheme = property->boundclass == UTF8PROC_BOUNDCLASS_OTHER && property->indic_conjunct_break == UTF8PROC_INDIC_CONJUNCT_BREAK_NONE,
+    };
+}
+
+int codepointWidth(u32 codepoint) {
+    return codepointProperties(codepoint).width;
 }
 
 GraphemeWidthEffect graphemeWidthEffect(u32 previous, u32 codepoint) {
@@ -483,9 +490,10 @@ GraphemeWidthEffect graphemeWidthEffect(u32 previous, u32 codepoint) {
     return GraphemeWidthEffect::Unchanged;
 }
 
-bool GraphemeBreaker::breakBeforeSlow(u32 codepoint) {
+bool GraphemeBreaker::breakBeforeSlow(u32 codepoint, bool simple) {
     const bool boundary = utf8proc_grapheme_break_stateful(previous_, (i32)(codepoint), &state_);
     previous_ = (i32)(codepoint);
+    previousSimple_ = simple;
     if (boundary) {
         state_ = 0;
     }

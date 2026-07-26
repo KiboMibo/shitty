@@ -17,6 +17,10 @@ struct Color {
     bool operator==(const Color& rhs) const {
         return red == rhs.red && green == rhs.green && blue == rhs.blue;
     }
+
+    constexpr u32 packed() const noexcept {
+        return (u32)(red) | ((u32)(green) << 8) | ((u32)(blue) << 16);
+    }
 };
 
 static_assert(sizeof(Color) == 4);

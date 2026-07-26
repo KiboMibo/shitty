@@ -136,6 +136,20 @@ struct TerminalColors {
         return {};
     }
 
+    [[gnu::always_inline]] u32 resolvePacked(CellColor color) const {
+        switch (color.source()) {
+            case CellColor::Source::DefaultForeground:
+                return defaultForeground.packed();
+            case CellColor::Source::DefaultBackground:
+                return defaultBackground.packed();
+            case CellColor::Source::Indexed:
+                return palette[color.index()].packed();
+            case CellColor::Source::Direct:
+                return color.encoded() & 0x00ffffff;
+        }
+        return 0;
+    }
+
     Color resolveForeground(const TerminalCell& cell) const;
     Color resolveBackground(const TerminalCell& cell) const;
     Color resolveForegroundSpecial(const TerminalCell& cell) const;
