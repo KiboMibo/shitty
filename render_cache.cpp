@@ -6,9 +6,7 @@
 
 #include "render_cache.h"
 
-#include "cell_extra_store.h"
 #include "composer.h"
-#include "listener.h"
 
 #include <std/alg/minmax.h>
 #include <std/lib/buffer.h>
@@ -20,16 +18,6 @@
 using namespace stl;
 
 namespace {
-    struct RenderCacheImpl;
-
-    struct CallRenderCacheCellExtrasChanged final: public Listener {
-        explicit CallRenderCacheCellExtrasChanged(RenderCacheImpl* cache);
-
-        void onListen(void*) override;
-
-        RenderCacheImpl* cache;
-    };
-
     struct RenderCacheEntry {
         u64 hash = 0;
         u32 count = 0;
@@ -39,46 +27,26 @@ namespace {
     };
 
     struct RenderCacheImpl final: public RenderCache {
-        explicit RenderCacheImpl(Composer& composer);
-
-        void beginFrame(u16 columns, const TerminalColors& colors) override;
-        const RenderCell* render(const TerminalCell* cells, u16 count, u8 lineAttribute, RenderCell* scratch) override;
+        void beginFrame(u16 columns, u64 context) override;
+        const RenderCell* render(const TerminalCell* cells, u16 count, u8 lineAttribute, RenderCell* scratch, const RenderCacheCallback& callback) override;
 
         void invalidate() noexcept;
 
-        Composer& composer_;
         Buffer storage_;
         RenderCacheEntry* entries_ = nullptr;
         RenderCell* cells_ = nullptr;
-        const TerminalColors* colors_ = nullptr;
         u16 columns_ = 0;
         u32 entryCount_ = 0;
         u32 setCount_ = 0;
         u32 use_ = 0;
         u32 frame_ = 0;
-        u32 colorGeneration_ = 0;
+        u64 context_ = 0;
 
         void configure(u16 columns);
         void allocate();
         u32 nextUse();
         RenderCell* find(const TerminalCell* cells, u16 count, u8 lineAttribute, bool& hit);
-        static void materialize(RenderCell& result, const TerminalCell& cell, u8 lineAttribute, const TerminalColors& colors, const CellExtraStore& extras);
     };
-}
-
-CallRenderCacheCellExtrasChanged::CallRenderCacheCellExtrasChanged(RenderCacheImpl* cache_)
-    : cache(cache_)
-{
-}
-
-void CallRenderCacheCellExtrasChanged::onListen(void*) {
-    cache->invalidate();
-}
-
-RenderCacheImpl::RenderCacheImpl(Composer& composer)
-    : composer_(composer)
-{
-    composer_.cellExtrasChangedListeners.pushBack(composer_.pool->make<CallRenderCacheCellExtrasChanged>(this));
 }
 
 void RenderCacheImpl::configure(u16 columns) {
@@ -131,7 +99,7 @@ void RenderCacheImpl::invalidate() noexcept {
     }
 }
 
-void RenderCacheImpl::beginFrame(u16 columns, const TerminalColors& colors) {
+void RenderCacheImpl::beginFrame(u16 columns, u64 context) {
     if (columns_ != columns) {
         configure(columns);
     }
@@ -142,12 +110,11 @@ void RenderCacheImpl::beginFrame(u16 columns, const TerminalColors& colors) {
         }
         frame_ = 1;
     }
-    if (colors_ == &colors && colorGeneration_ == colors.generation) {
+    if (context_ == context) {
         return;
     }
     invalidate();
-    colors_ = &colors;
-    colorGeneration_ = colors.generation;
+    context_ = context;
 }
 
 u32 RenderCacheImpl::nextUse() {
@@ -202,34 +169,7 @@ RenderCell* RenderCacheImpl::find(const TerminalCell* cells, u16 count, u8 lineA
     return cells_ + (size_t)(index)*columns_;
 }
 
-void RenderCacheImpl::materialize(RenderCell& result, const TerminalCell& cell, u8 lineAttribute, const TerminalColors& colors, const CellExtraStore& extras) {
-    result.uc_pt = cell.uc_pt ? cell.uc_pt : ' ';
-    result.attributes = ((u32)(cell.bold) << 2) | ((u32)(cell.italic) << 3) | ((u32)(cell.underlined()) << 4) | ((u32)(cell.inverse) << 5) | ((u32)(cell.wrap) << 6) | ((u32)(cell.faint) << 8) | ((u32)(cell.blink) << 9) | ((u32)(cell.conceal) << 10) | ((u32)(cell.strike) << 11) | ((u32)(cell.overline) << 12) | ((u32)(cell.underline_style) << 13) | ((u32)(cell.dwidth) << 16) | ((u32)(cell.dwidth_cont) << 17) | ((u32)(cell.protected_char) << 18) | ((u32)(cell.drawn) << 20) | ((u32)(lineAttribute) << 24);
-    result.fg = colors.resolveForeground(cell);
-    result.bg = colors.resolveBackground(cell);
-    if (cell.hasExtra()) {
-        const CellExtraView extra = extras.view(cell);
-        result.hyperlink = extra.hyperlinkDisplayId;
-        result.grapheme = extra.grapheme.empty() ? 0 : cell.extraRef();
-        result.underline_color = colors.resolve(extra.underlineColor);
-        if (cell.underlined() && extra.underlineColor == cell.foreground()) {
-            result.underline_color = result.fg;
-        }
-    } else {
-        result.hyperlink = 0;
-        result.grapheme = 0;
-        const CellColor underlineColor = cell.inlineUnderlineColor();
-        result.underline_color = colors.resolve(underlineColor);
-        if (cell.underlined() && underlineColor == cell.foreground()) {
-            result.underline_color = result.fg;
-        }
-    }
-    result.semantic = cell.semantic;
-}
-
-const RenderCell* RenderCacheImpl::render(const TerminalCell* cells, u16 count, u8 lineAttribute, RenderCell* scratch) {
-    const TerminalColors& colors = *colors_;
-    const CellExtraStore& extras = *composer_.cellExtras;
+const RenderCell* RenderCacheImpl::render(const TerminalCell* cells, u16 count, u8 lineAttribute, RenderCell* scratch, const RenderCacheCallback& callback) {
     bool hit;
     RenderCell* output = find(cells, count, lineAttribute, hit);
     if (output == nullptr) {
@@ -237,13 +177,11 @@ const RenderCell* RenderCacheImpl::render(const TerminalCell* cells, u16 count, 
         hit = false;
     }
     if (!hit) {
-        for (u16 index = 0; index < count; ++index) {
-            materialize(output[index], cells[index], lineAttribute, colors, extras);
-        }
+        callback.render(cells, output, count, lineAttribute);
     }
     return output;
 }
 
 RenderCache* RenderCache::create(Composer& composer) {
-    return composer.pool->make<RenderCacheImpl>(composer);
+    return composer.pool->make<RenderCacheImpl>();
 }

@@ -26,6 +26,7 @@
 #include <std/dbg/assert.h>
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
+#include <std/rng/mix.h>
 
 #include <utf8proc.h>
 
@@ -105,7 +106,7 @@ namespace {
     // The factories pick an instantiation from the actual geometry; resize
     // rebuilds convert between instantiations through ResizeState.
     template <typename Coord, typename Epoch>
-    struct ScreenImpl final: public Screen {
+    struct ScreenImpl final: public Screen, public RenderCacheCallback {
         ScreenImpl(Composer& composer, ObjPool& pool);
         ScreenImpl(Composer& composer, ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors, u16 saveLines);
 
@@ -131,6 +132,7 @@ namespace {
         ScreenHyperlink hyperlinkAt(u16 row, u16 column) const override;
         TerminalCell testCell(u16 row, u16 column) const noexcept override;
         RenderCellBatch copyDamage(RenderCell* cells, RenderCellSpan* spans) const override;
+        void render(const TerminalCell* input, RenderCell* output, u16 count, u8 lineAttribute) const override;
 
         bool active() const noexcept override;
 
@@ -303,6 +305,8 @@ namespace {
         void layout(ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, bool reflow, Cursor* cursorState);
         void layoutCopy(ResizeState& state, u16 columns, u16 rows, Cursor* cursorState);
         void layoutReflow(ResizeState& state, u16 columns, u16 rows, Cursor* cursorState);
+
+        [[gnu::always_inline]] inline void materialize(RenderCell& result, const TerminalCell& cell, u8 lineAttribute, const CellExtraStore& extras) const;
 
         static SelectSnapTo nextSelectSnapTo(SelectSnapTo snapTo);
 
@@ -1145,7 +1149,8 @@ void ScreenImpl<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
 template <typename Coord, typename Epoch>
 RenderCellBatch ScreenImpl<Coord, Epoch>::copyDamage(RenderCell* cells, RenderCellSpan* spans) const {
     RenderCache& cache = *composer.renderCache;
-    cache.beginFrame(nCols, *colors);
+    const u64 renderContext = mix(colors, composer.cellExtras) ^ ((u64)(colors->generation) * 0x9e3779b97f4a7c15ULL);
+    cache.beginFrame(nCols, renderContext);
     RenderCell* scratch = cells;
     RenderCellSpan* span = spans;
     size_t cellCount = 0;
@@ -1153,7 +1158,7 @@ RenderCellBatch ScreenImpl<Coord, Epoch>::copyDamage(RenderCell* cells, RenderCe
     const auto append = [&](u16 row, u16 begin, u16 end) {
         const Row* const source = getViewRowObject(row);
         const u16 count = end - begin;
-        const RenderCell* output = cache.render(source->cells + begin, count, source->metadata.lineAttribute, scratch);
+        const RenderCell* output = cache.render(source->cells + begin, count, source->metadata.lineAttribute, scratch, *this);
         if (output == scratch) {
             scratch += count;
         }
@@ -1179,6 +1184,14 @@ RenderCellBatch ScreenImpl<Coord, Epoch>::copyDamage(RenderCell* cells, RenderCe
         append(row, damaged.begin, damaged.end);
     }
     return {cellCount, (size_t)(span - spans)};
+}
+
+template <typename Coord, typename Epoch>
+void ScreenImpl<Coord, Epoch>::render(const TerminalCell* input, RenderCell* output, u16 count, u8 lineAttribute_) const {
+    const CellExtraStore& extras = cellExtras();
+    for (u16 index = 0; index < count; ++index) {
+        materialize(output[index], input[index], lineAttribute_, extras);
+    }
 }
 
 template <typename Coord, typename Epoch>
@@ -1346,6 +1359,32 @@ bool ScreenImpl<Coord, Epoch>::getSelectedUtf8(std::string& utf8_selection) cons
     utf8_selection = std::string(utf8_out.data(), utf8_out.size());
 
     return true;
+}
+
+template <typename Coord, typename Epoch>
+[[gnu::always_inline]] inline void ScreenImpl<Coord, Epoch>::materialize(RenderCell& result, const TerminalCell& cell, u8 lineAttribute_, const CellExtraStore& extras) const {
+    result.uc_pt = cell.uc_pt ? cell.uc_pt : ' ';
+    result.attributes = ((u32)(cell.bold) << 2) | ((u32)(cell.italic) << 3) | ((u32)(cell.underlined()) << 4) | ((u32)(cell.inverse) << 5) | ((u32)(cell.wrap) << 6) | ((u32)(cell.faint) << 8) | ((u32)(cell.blink) << 9) | ((u32)(cell.conceal) << 10) | ((u32)(cell.strike) << 11) | ((u32)(cell.overline) << 12) | ((u32)(cell.underline_style) << 13) | ((u32)(cell.dwidth) << 16) | ((u32)(cell.dwidth_cont) << 17) | ((u32)(cell.protected_char) << 18) | ((u32)(cell.drawn) << 20) | ((u32)(lineAttribute_) << 24);
+    result.fg = colors->resolveForeground(cell);
+    result.bg = colors->resolveBackground(cell);
+    if (cell.hasExtra()) {
+        const CellExtraView extra = extras.view(cell);
+        result.hyperlink = extra.hyperlinkDisplayId;
+        result.grapheme = extra.grapheme.empty() ? 0 : cell.extraRef();
+        result.underline_color = colors->resolve(extra.underlineColor);
+        if (cell.underlined() && extra.underlineColor == cell.foreground()) {
+            result.underline_color = result.fg;
+        }
+    } else {
+        result.hyperlink = 0;
+        result.grapheme = 0;
+        const CellColor underlineColor = cell.inlineUnderlineColor();
+        result.underline_color = colors->resolve(underlineColor);
+        if (cell.underlined() && underlineColor == cell.foreground()) {
+            result.underline_color = result.fg;
+        }
+    }
+    result.semantic = cell.semantic;
 }
 
 template <typename Coord, typename Epoch>

@@ -6,7 +6,6 @@
 
 #include "render_cache.h"
 
-#include "cell_extra_store.h"
 #include "composer.h"
 
 #include <std/mem/obj_pool.h>
@@ -15,107 +14,106 @@
 using namespace stl;
 
 namespace {
-    void configureColors(TerminalColors& colors) {
-        colors.defaultForeground = {1, 2, 3};
-        colors.defaultBackground = {4, 5, 6};
-    }
+    struct TestRenderer final: public RenderCacheCallback {
+        void render(const TerminalCell* input, RenderCell* output, u16 count, u8 lineAttribute) const override {
+            ++calls;
+            for (u16 index = 0; index < count; ++index) {
+                output[index].uc_pt = input[index].uc_pt + offset;
+                output[index].attributes = (u32)(lineAttribute) << 24;
+                output[index].fg = {};
+                output[index].bg = {};
+                output[index].underline_color = {};
+                output[index].hyperlink = 0;
+                output[index].grapheme = 0;
+                output[index].semantic = 0;
+            }
+        }
 
-    TerminalCell attributes() {
-        TerminalCell cell{};
-        cell.setForeground(CellColor::defaultForeground());
-        cell.setBackground(CellColor::defaultBackground());
-        return cell;
+        mutable u32 calls = 0;
+        u32 offset = 0;
+    };
+
+    void configureInput(TerminalCell* input, u16 count) {
+        for (u16 index = 0; index < count; ++index) {
+            input[index] = {};
+            input[index].uc_pt = 'a' + index;
+        }
     }
 }
 
 STD_TEST_SUITE(RenderCache) {
-    STD_TEST(ReusesMaterializedSpan) {
+    STD_TEST(ReusesRenderedSpan) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
-        CellExtraStore::create(composer, 8);
-        TerminalColors colors;
-        configureColors(colors);
         TerminalCell input[8];
         RenderCell firstScratch[8];
         RenderCell secondScratch[8];
-        const TerminalCell cell = attributes();
-        for (TerminalCell& value : input) {
-            value = cell;
-        }
+        TestRenderer renderer;
+        configureInput(input, 8);
 
-        composer.renderCache->beginFrame(8, colors);
-        const RenderCell* first = composer.renderCache->render(input, 8, 0, firstScratch);
+        composer.renderCache->beginFrame(8, 1);
+        const RenderCell* first = composer.renderCache->render(input, 8, 0, firstScratch, renderer);
         STD_INSIST(first != firstScratch);
-        STD_INSIST((first[0].fg == Color{1, 2, 3}));
+        STD_INSIST(first[0].uc_pt == 'a');
+        STD_INSIST(renderer.calls == 1);
 
-        composer.renderCache->beginFrame(8, colors);
-        const RenderCell* second = composer.renderCache->render(input, 8, 0, secondScratch);
+        composer.renderCache->beginFrame(8, 1);
+        const RenderCell* second = composer.renderCache->render(input, 8, 0, secondScratch, renderer);
         STD_INSIST(second == first);
+        STD_INSIST(renderer.calls == 1);
     }
 
-    STD_TEST(MaterializesShortSpansInScratch) {
+    STD_TEST(RendersShortSpansInScratch) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
-        CellExtraStore::create(composer, 7);
-        TerminalColors colors;
-        configureColors(colors);
         TerminalCell input[7];
         RenderCell scratch[7];
-        const TerminalCell cell = attributes();
-        for (TerminalCell& value : input) {
-            value = cell;
-        }
+        TestRenderer renderer;
+        configureInput(input, 7);
 
-        composer.renderCache->beginFrame(7, colors);
-        const RenderCell* output = composer.renderCache->render(input, 7, 0, scratch);
+        composer.renderCache->beginFrame(7, 1);
+        const RenderCell* output = composer.renderCache->render(input, 7, 0, scratch, renderer);
 
         STD_INSIST(output == scratch);
-        STD_INSIST((output[6].bg == Color{4, 5, 6}));
+        STD_INSIST(output[6].uc_pt == 'g');
+        STD_INSIST(renderer.calls == 1);
     }
 
     STD_TEST(IncludesLineAttributeInKey) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
-        CellExtraStore::create(composer, 8);
-        TerminalColors colors;
-        configureColors(colors);
         TerminalCell input[8];
         RenderCell scratch[16];
-        const TerminalCell cell = attributes();
-        for (TerminalCell& value : input) {
-            value = cell;
-        }
+        TestRenderer renderer;
+        configureInput(input, 8);
 
-        composer.renderCache->beginFrame(8, colors);
-        const RenderCell* first = composer.renderCache->render(input, 8, 1, scratch);
-        const RenderCell* second = composer.renderCache->render(input, 8, 2, scratch + 8);
+        composer.renderCache->beginFrame(8, 1);
+        const RenderCell* first = composer.renderCache->render(input, 8, 1, scratch, renderer);
+        const RenderCell* second = composer.renderCache->render(input, 8, 2, scratch + 8, renderer);
 
         STD_INSIST(first != second);
         STD_INSIST(first[0].line_attr == 1);
         STD_INSIST(second[0].line_attr == 2);
+        STD_INSIST(renderer.calls == 2);
     }
 
-    STD_TEST(InvalidatesResolvedColors) {
+    STD_TEST(InvalidatesChangedContext) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
-        CellExtraStore::create(composer, 8);
-        TerminalColors colors;
-        configureColors(colors);
         TerminalCell input[8];
         RenderCell scratch[8];
-        const TerminalCell cell = attributes();
-        for (TerminalCell& value : input) {
-            value = cell;
-        }
+        TestRenderer renderer;
+        configureInput(input, 8);
 
-        composer.renderCache->beginFrame(8, colors);
-        const RenderCell* first = composer.renderCache->render(input, 8, 0, scratch);
-        STD_INSIST((first[0].fg == Color{1, 2, 3}));
+        composer.renderCache->beginFrame(8, 1);
+        const RenderCell* first = composer.renderCache->render(input, 8, 0, scratch, renderer);
+        STD_INSIST(first[0].uc_pt == 'a');
+        STD_INSIST(renderer.calls == 1);
 
-        colors.defaultForeground = {7, 8, 9};
-        colors.changed();
-        composer.renderCache->beginFrame(8, colors);
-        const RenderCell* second = composer.renderCache->render(input, 8, 0, scratch);
-        STD_INSIST((second[0].fg == Color{7, 8, 9}));
+        renderer.offset = 1;
+        composer.renderCache->beginFrame(8, 2);
+        const RenderCell* second = composer.renderCache->render(input, 8, 0, scratch, renderer);
+        STD_INSIST(second[0].uc_pt == 'b');
+        STD_INSIST(renderer.calls == 2);
     }
 }
