@@ -2093,10 +2093,10 @@ void VtermImpl::collectCellExtras() {
     CellExtraStore& extras = *composer.cellExtras;
     extras.collect(extraCells, roots, rootCount);
     if (frame_pri->active()) {
-        frame_pri->expose();
+        frame_pri->damageExtraCells();
     }
     if (frame_alt->active()) {
-        frame_alt->expose();
+        frame_alt->damageExtraCells();
     }
     extraCells.clear();
 }

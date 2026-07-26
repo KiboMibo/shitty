@@ -115,9 +115,24 @@ struct TerminalColors {
     Color originalSpecial[specialCount]{};
     u8 specialModes = 0;
 
-    Color resolve(CellColor color) const;
+    [[gnu::always_inline]] Color resolve(CellColor color) const {
+        switch (color.source()) {
+            case CellColor::Source::DefaultForeground:
+                return defaultForeground;
+            case CellColor::Source::DefaultBackground:
+                return defaultBackground;
+            case CellColor::Source::Indexed:
+                return palette[color.index()];
+            case CellColor::Source::Direct:
+                return color.color();
+        }
+        return {};
+    }
+
     Color resolveForeground(const TerminalCell& cell) const;
     Color resolveBackground(const TerminalCell& cell) const;
+    Color resolveForegroundSpecial(const TerminalCell& cell) const;
+    Color resolveBackgroundSpecial(const TerminalCell& cell) const;
 };
 
 struct TerminalCell {
@@ -168,13 +183,43 @@ struct TerminalCell {
         return underline_style != 0;
     }
 
-    CellColor foreground() const noexcept;
-    CellColor background() const noexcept;
-    void setForeground(CellColor color) noexcept;
-    void setBackground(CellColor color) noexcept;
+    constexpr CellColor foreground() const noexcept {
+        return CellColor::fromEncoded(((u32)(fg_kind) << 30) | (u32)(fg_payload));
+    }
 
-    CellColor inlineUnderlineColor() const noexcept;
-    void setInlineUnderlineColor(CellColor color) noexcept;
+    constexpr CellColor background() const noexcept {
+        u32 kind = bg_kind;
+        if (kind < 2) {
+            kind ^= 1;
+        }
+        return CellColor::fromEncoded((kind << 30) | (u32)(bg_payload));
+    }
+
+    constexpr void setForeground(CellColor color) noexcept {
+        const u32 encoded = color.encoded();
+        fg_payload = encoded & 0x00ffffff;
+        fg_kind = encoded >> 30;
+    }
+
+    constexpr void setBackground(CellColor color) noexcept {
+        const u32 encoded = color.encoded();
+        u32 kind = encoded >> 30;
+        if (kind < 2) {
+            kind ^= 1;
+        }
+        bg_payload = encoded & 0x00ffffff;
+        bg_kind = kind;
+    }
+
+    constexpr CellColor inlineUnderlineColor() const noexcept {
+        return hasExtra() ? CellColor::defaultForeground() : CellColor::fromEncoded(((payload >> 24) << 30) | (payload & 0x00ffffff));
+    }
+
+    constexpr void setInlineUnderlineColor(CellColor color) noexcept {
+        const u32 encoded = color.encoded();
+        extended = 0;
+        payload = (encoded & 0x00ffffff) | ((encoded >> 30) << 24);
+    }
 
     constexpr bool hasExtra() const noexcept {
         return extended != 0;
@@ -202,26 +247,49 @@ static_assert(__is_trivial(TerminalCell), "TerminalCell must remain trivial");
 static_assert(__is_trivially_copyable(TerminalCell), "TerminalCell must remain trivially copyable");
 static_assert(__is_standard_layout(TerminalCell), "TerminalCell must remain standard-layout");
 
+[[gnu::always_inline]] inline Color TerminalColors::resolveForeground(const TerminalCell& cell) const {
+    if (specialModes == 0) {
+        return resolve(cell.foreground());
+    }
+    return resolveForegroundSpecial(cell);
+}
+
+[[gnu::always_inline]] inline Color TerminalColors::resolveBackground(const TerminalCell& cell) const {
+    if (specialModes == 0) {
+        return resolve(cell.background());
+    }
+    return resolveBackgroundSpecial(cell);
+}
+
 struct RenderCell {
     u32 uc_pt = ' ';
-    u8 dwidth : 1;
-    u8 dwidth_cont : 1;
-    u8 bold : 1;
-    u8 italic : 1;
-    u8 underline : 1;
-    u8 inverse : 1;
-    u8 wrap : 1;
-    u8 _reserved0 : 1;
-    u8 faint : 1;
-    u8 blink : 1;
-    u8 conceal : 1;
-    u8 strike : 1;
-    u8 overline : 1;
-    u8 underline_style : 3;
-    u8 protected_char : 2;
-    u8 drawn : 1;
-    u8 _reserved : 5;
-    u8 line_attr = 0;
+
+    union {
+        u32 attributes = 0;
+
+        struct {
+            u32 _reserved0 : 2;
+            u32 bold : 1;
+            u32 italic : 1;
+            u32 underline : 1;
+            u32 inverse : 1;
+            u32 wrap : 1;
+            u32 _reserved1 : 1;
+            u32 faint : 1;
+            u32 blink : 1;
+            u32 conceal : 1;
+            u32 strike : 1;
+            u32 overline : 1;
+            u32 underline_style : 3;
+            u32 dwidth : 1;
+            u32 dwidth_cont : 1;
+            u32 protected_char : 2;
+            u32 drawn : 1;
+            u32 _reserved2 : 3;
+            u32 line_attr : 8;
+        };
+    };
+
     Color fg;
     u8 _fill1 = 0;
     Color bg;
@@ -233,6 +301,9 @@ struct RenderCell {
     u32 semantic = 0;
 
     RenderCell();
+
+    static constexpr u32 gpuAttributeMask = 0x0003ff7c;
+    static constexpr u32 dirtyMask = 1u << 23;
 };
 
 static_assert(sizeof(RenderCell) == 32, "RenderCell size mismatch");

@@ -75,6 +75,7 @@ struct Screen {
 
     virtual CellExtraStore& cellExtras() const noexcept = 0;
     virtual void collectExtraCells(stl::Vector<TerminalCell*>& cells) = 0;
+    virtual void damageExtraCells() = 0;
     virtual size_t cellCapacity() const noexcept = 0;
 
     virtual void eraseCells(u16 row, u16 start, u16 count, const TerminalCell& attrs) = 0;

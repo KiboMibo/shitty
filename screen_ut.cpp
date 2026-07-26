@@ -179,6 +179,30 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(screen->testCell(2, 4).uc_pt == 'O');
     }
 
+    STD_TEST(RotatesMultipleRowsInOnePass) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 5);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::create(composer, *pool, 1, 5, &colors);
+        const TerminalCell attrs = attributes();
+        for (u16 row = 0; row < 5; ++row) {
+            const u8 value = (u8)('A' + row);
+            screen->writeAsciiRun(row, 0, &value, 1, attrs, 0, 0, TerminalCell{});
+        }
+
+        screen->rotateRowsUp(0, 5, 2);
+        for (u16 row = 0; row < 5; ++row) {
+            STD_INSIST(screen->testCell(row, 0).uc_pt == (u32)("CDEAB"[row]));
+        }
+
+        screen->rotateRowsDown(0, 5, 2);
+        for (u16 row = 0; row < 5; ++row) {
+            STD_INSIST(screen->testCell(row, 0).uc_pt == (u32)("ABCDE"[row]));
+        }
+    }
+
     STD_TEST(InsertsAsciiRunsWithOneRowShift) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
