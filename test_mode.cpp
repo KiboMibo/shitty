@@ -382,6 +382,7 @@ namespace {
         std::vector<RenderCell> cells;
         mutable Vector<RenderCellUpdate> renderCells;
         std::vector<TerminalCell> modelCells;
+        Vector<u8> modelLineAttributes;
         std::vector<std::vector<u32>> cellGraphemes;
         std::vector<CellColor> modelUnderlineColors;
         Composer& composer;
@@ -461,8 +462,16 @@ namespace {
     }
 
     template <typename Cell>
-    unsigned cellFlags(const Cell& cell) {
-        return (cell.dwidth << 0) | (cell.dwidth_cont << 1) | (cell.bold << 2) | (cell.italic << 3) | (cellUnderline(cell) << 4) | (cell.inverse << 5) | (cell.wrap << 6) | (cell.faint << 7) | (cell.blink << 8) | (cell.conceal << 9) | (cell.strike << 10) | (cell.overline << 11) | (cell.underline_style << 12) | ((cell.protected_char != 0) << 15) | (cell.line_attr << 16) | (cell.drawn << 18);
+    unsigned cellFlags(const Cell& cell, u8 lineAttribute) {
+        return (cell.dwidth << 0) | (cell.dwidth_cont << 1) | (cell.bold << 2) | (cell.italic << 3) | (cellUnderline(cell) << 4) | (cell.inverse << 5) | (cell.wrap << 6) | (cell.faint << 7) | (cell.blink << 8) | (cell.conceal << 9) | (cell.strike << 10) | (cell.overline << 11) | (cell.underline_style << 12) | ((cell.protected_char != 0) << 15) | (lineAttribute << 16) | (cell.drawn << 18);
+    }
+
+    unsigned cellFlags(const RenderCell& cell) {
+        return cellFlags(cell, cell.line_attr);
+    }
+
+    unsigned cellFlags(const TerminalCell& cell) {
+        return cellFlags(cell, 0);
     }
 
     struct ModelDigest {
@@ -539,6 +548,7 @@ bool TestDisplay::update(const TerminalUpdate& update) {
         rows = composer.rows;
         cells.resize(count);
         modelCells.resize(count);
+        modelLineAttributes.grow(count);
     }
     for (size_t index = 0; index < update.cellCount; ++index) {
         STD_ASSERT(update.cells[index].index < count);
@@ -551,6 +561,7 @@ bool TestDisplay::update(const TerminalUpdate& update) {
             const size_t index = (size_t)(row)*columns + column;
             const VtermTestCell inspected = testApi->cell(row, column);
             modelCells[index] = inspected.cell;
+            modelLineAttributes.mut(index) = inspected.lineAttribute;
             if (inspected.graphemeSize == 0) {
                 cellGraphemes[index].clear();
             } else {
@@ -740,7 +751,7 @@ std::string TestDisplay::modelSnapshot() const {
     for (size_t index = 0; index < cells.size(); ++index) {
         const auto& cell = cells[index];
         const auto& modelCell = modelCells[index];
-        const unsigned flags = cellFlags(modelCell);
+        const unsigned flags = cellFlags(modelCell, modelLineAttributes[index]);
         output << Hex{cell.uc_pt, 8} << Hex{flags, 8} << Hex{cell.fg.red, 2} << Hex{cell.fg.green, 2} << Hex{cell.fg.blue, 2} << Hex{cell.bg.red, 2} << Hex{cell.bg.green, 2} << Hex{cell.bg.blue, 2} << Hex{cell.underline_color.red, 2} << Hex{cell.underline_color.green, 2} << Hex{cell.underline_color.blue, 2} << Hex{cell.hyperlink, 8} << Hex{cell.semantic, 8} << Hex{(u32)(modelCell.foreground().legacyIndex()), 8} << Hex{(u32)(modelCell.background().legacyIndex()), 8} << Hex{(u32)(modelUnderlineColors[index].legacyIndex()), 8} << Hex{cellGraphemes[index].size(), 8};
         for (const u32 codepoint : cellGraphemes[index]) {
             output << Hex{codepoint, 8};
@@ -768,7 +779,7 @@ std::string TestDisplay::modelDigest() const {
         const auto& cell = cells[index];
         const auto& modelCell = modelCells[index];
         digest.add(cell.uc_pt);
-        digest.add(cellFlags(modelCell));
+        digest.add(cellFlags(modelCell, modelLineAttributes[index]));
         digest.add(cell.fg.red);
         digest.add(cell.fg.green);
         digest.add(cell.fg.blue);

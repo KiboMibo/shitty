@@ -13,6 +13,7 @@ struct VtermTestCell {
     const u32* grapheme = nullptr;
     size_t graphemeSize = 0;
     CellColor underlineColor;
+    u8 lineAttribute = 0;
 };
 
 struct VtermTestState {

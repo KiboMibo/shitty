@@ -157,8 +157,7 @@ struct TerminalCell {
             u32 protected_char : 2;
             u32 semantic : 2;
             u32 wrap : 1;
-            u32 _reserved : 1;
-            u32 line_attr : 2;
+            u32 _reserved : 3;
             u32 extended : 1;
         };
     };

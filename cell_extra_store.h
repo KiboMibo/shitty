@@ -42,7 +42,14 @@ struct GraphemeView {
     }
 };
 
+struct CellExtraView {
+    CellColor underlineColor;
+    GraphemeView grapheme;
+    u32 hyperlinkDisplayId = 0;
+};
+
 struct CellExtraStore {
+    virtual CellExtraView view(const TerminalCell& cell) const noexcept = 0;
     virtual CellColor underlineColor(const TerminalCell& cell) const noexcept = 0;
     virtual GraphemeView grapheme(const TerminalCell& cell) const noexcept = 0;
     virtual GraphemeView grapheme(u32 ref) const noexcept = 0;

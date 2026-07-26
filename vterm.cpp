@@ -1762,10 +1762,10 @@ VtermOutput VtermImpl::output() {
     }
 
     Screen* const frame = cf;
-    frame->copyDamagedCells(outputCells);
+    const size_t outputCellCount = frame->copyDamagedCells(outputCells.mutData());
 
     updateScreen = frame;
-    fillTerminalUpdate(terminalUpdate, *frame, outputCells.data(), outputCells.length());
+    fillTerminalUpdate(terminalUpdate, *frame, outputCells.data(), outputCellCount);
     result.terminal = &terminalUpdate;
     return result;
 }
@@ -1945,6 +1945,7 @@ VtermTestCell TestApiImpl::cell(u16 row, u16 column) const {
     result.grapheme = grapheme.data();
     result.graphemeSize = grapheme.size();
     result.underlineColor = extras.underlineColor(result.cell);
+    result.lineAttribute = vterm->cf->lineAttribute(row);
     return result;
 }
 
@@ -2560,10 +2561,8 @@ void VtermImpl::insertRows(u16 startY, u16 count) {
     if (hMargin == 0 && nColsEff == composer.columns) {
         cf->rotateRowsDown(startY, marginBottom, count);
     } else {
-        for (u16 pY = marginBottom - count; pY > startY;) {
-            --pY;
-            copyRow(pY + count, pY);
-        }
+        cf->scrollRectangleDown(startY, hMargin, marginBottom, nColsEff, count, eraseAttrs);
+        return;
     }
 
     for (u16 pY = startY; pY < startY + count; ++pY) {
@@ -2575,9 +2574,8 @@ void VtermImpl::deleteRows(u16 startY, u16 count) {
     if (hMargin == 0 && nColsEff == composer.columns) {
         cf->rotateRowsUp(startY, marginBottom, count);
     } else {
-        for (u16 pY = startY; pY < marginBottom - count; ++pY) {
-            copyRow(pY, pY + count);
-        }
+        cf->scrollRectangleUp(startY, hMargin, marginBottom, nColsEff, count, eraseAttrs);
+        return;
     }
 
     for (u16 pY = marginBottom - count; pY < marginBottom; ++pY) {
@@ -2790,7 +2788,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
             case GraphemeWidthEffect::Unchanged:
                 break;
         }
-        cf->writeGrapheme(targetY, targetX, inputGrapheme.data(), inputGrapheme.size(), wide, inputGraphemeAttrs, inputGraphemeHyperlink, inputGraphemeSemantic, cf->lineAttribute(targetY), eraseAttrs);
+        cf->writeGrapheme(targetY, targetX, inputGrapheme.data(), inputGrapheme.size(), wide, inputGraphemeAttrs, inputGraphemeHyperlink, inputGraphemeSemantic, eraseAttrs);
         inputGraphemeX = targetX;
         inputGraphemeY = targetY;
         inputGraphemeWide = wide;
@@ -2806,12 +2804,10 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
         posX = lineCols - 1;
         lastCol = false;
     }
-    bool changedRow = false;
     if (autoWrapMode && lastCol) {
         cf->setWrapped(posY, posX);
         inp_CR();
         inp_LF();
-        changedRow = true;
     }
 
     if (w == 2 && posX == lineCols - 1 && autoWrapMode) {
@@ -2822,7 +2818,6 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
         cf->setWrapped(posY, wrapColumn);
         inp_CR();
         inp_LF();
-        changedRow = true;
     }
 
     if (insertMode) {
@@ -2838,8 +2833,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
     const u16 clusterX = posX;
     const u16 clusterY = posY;
     const bool wide = w == 2 && posX < lineCols - 1;
-    const u8 clusterLineAttribute = changedRow ? cf->lineAttribute(posY) : lineAttribute;
-    cf->writeGrapheme(posY, posX, &pt, 1, wide, attrs, activeHyperlink, currentSemantic, clusterLineAttribute, eraseAttrs);
+    cf->writeGrapheme(posY, posX, &pt, 1, wide, attrs, activeHyperlink, currentSemantic, eraseAttrs);
     if (attrs.blink) {
         haveBlinkingText = true;
     }
@@ -2867,12 +2861,6 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
 
 void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
     while (size > 0) {
-        if (insertMode) {
-            utf8dec.setUnicode(*input++);
-            placeGraphicChar();
-            --size;
-            continue;
-        }
         if (inputGraphemeScreen != cf) {
             inputGraphemeBreaker.reset();
         }
@@ -2901,7 +2889,11 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
         const u16 count = std::min<size_t>(size, lineCols - posX);
         const u16 startX = posX;
         const u16 endX = startX + count;
-        cf->writeAsciiRun(posY, startX, input, count, attrs, activeHyperlink, currentSemantic, lineAttribute, eraseAttrs);
+        if (insertMode) {
+            cf->writeAsciiRunInsert(posY, startX, nColsEff, input, count, attrs, activeHyperlink, currentSemantic, eraseAttrs);
+        } else {
+            cf->writeAsciiRun(posY, startX, input, count, attrs, activeHyperlink, currentSemantic, eraseAttrs);
+        }
         if (attrs.blink) {
             haveBlinkingText = true;
         }
@@ -3034,7 +3026,7 @@ void VtermImpl::placePreparedRun(const u32* input, size_t size) {
         const u16 count = std::min<size_t>(size, lineCols - posX);
         const u16 startX = posX;
         const u16 endX = startX + count;
-        cf->writeRun(posY, startX, input, count, attrs, activeHyperlink, currentSemantic, lineAttribute, eraseAttrs);
+        cf->writeRun(posY, startX, input, count, attrs, activeHyperlink, currentSemantic, eraseAttrs);
         if (attrs.blink) {
             haveBlinkingText = true;
         }
@@ -7700,6 +7692,7 @@ VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, O
         throw;
     }
     cf = frame_pri;
+    outputCells.grow((size_t)(composer.columns) * composer.rows);
     makePalette256(colors.palette);
     std::copy(std::begin(colors.palette), std::end(colors.palette), std::begin(originalPalette256));
     colors.defaultForeground = opts.fg;
@@ -7778,6 +7771,7 @@ void VtermImpl::resizeGrid() {
     }
     showCursor();
 
+    outputCells.grow((size_t)(composer.columns) * composer.rows);
     updateExtraCellCount();
     if (inBandResizeMode) {
         reportInBandResize();

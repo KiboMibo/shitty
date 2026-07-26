@@ -48,6 +48,7 @@ namespace {
 
         static CellExtraStoreImpl* create(Composer& composer, size_t cellCount, CellExtraStoreOwner& owner);
 
+        CellExtraView view(const TerminalCell& cell) const noexcept override;
         CellColor underlineColor(const TerminalCell& cell) const noexcept override;
         GraphemeView grapheme(const TerminalCell& cell) const noexcept override;
         GraphemeView grapheme(u32 ref) const noexcept override;
@@ -263,6 +264,21 @@ CellColor CellExtraStoreImpl::underlineColor(const TerminalCell& cell) const noe
         return cell.inlineUnderlineColor();
     }
     return get(cell.extraRef())->underlineColor;
+}
+
+CellExtraView CellExtraStoreImpl::view(const TerminalCell& cell) const noexcept {
+    if (!cell.hasExtra()) {
+        return {
+            .underlineColor = cell.inlineUnderlineColor(),
+        };
+    }
+    const CellExtra* const extra = get(cell.extraRef());
+    const HyperlinkHandle* const hyperlink = hyperlinkOf(*extra);
+    return {
+        .underlineColor = extra->underlineColor,
+        .grapheme = graphemeOf(*extra),
+        .hyperlinkDisplayId = hyperlink == nullptr ? 0 : hyperlink->displayId,
+    };
 }
 
 GraphemeView CellExtraStoreImpl::grapheme(const TerminalCell& cell) const noexcept {
