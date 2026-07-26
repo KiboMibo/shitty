@@ -10,6 +10,7 @@ std_build = os.path.join("third_party", "libstd", "build.py")
 shitty_version = date.today().strftime("%Y.%m.%d")
 
 build.includes += ["$(B)"]
+build.ldflags = [flag for flag in build.ldflags if flag != "-lglfw3"]
 build.cppflags += [f'-DSHITTY_VERSION="{shitty_version}"']
 build.cxxflags += [
     "-std=c++23",
@@ -20,8 +21,9 @@ build.cxxflags += [
 freetype = pkg_config("freetype2")
 fontconfig = pkg_config("fontconfig")
 harfbuzz = pkg_config("harfbuzz")
-glfw = pkg_config("glfw3 >= 3.4")
 vulkan = pkg_config("vulkan")
+wayland = pkg_config("wayland-client >= 1.20")
+xkbcommon = pkg_config("xkbcommon >= 1.0")
 brotli_common = pkg_config("libbrotlicommon", required=False)
 utf8proc = pkg_config("libutf8proc")
 simdutf = pkg_config("simdutf >= 6.5.0", required=False)
@@ -34,6 +36,92 @@ elif os.path.isfile(os.path.join(os.path.dirname(__file__), std_build)):
     libstd = import_build(std_build, "libstd.a", extra_cflags=["-Wno-error"])
 else:
     libstd = dependency(ldflags=["-lstd"])
+
+
+glfw_protocol_names = [
+    "wayland",
+    "viewporter",
+    "xdg-shell",
+    "idle-inhibit-unstable-v1",
+    "pointer-constraints-unstable-v1",
+    "relative-pointer-unstable-v1",
+    "fractional-scale-v1",
+    "xdg-activation-v1",
+    "xdg-decoration-unstable-v1",
+]
+glfw_protocol_outputs = []
+glfw_protocol_commands = []
+for protocol in glfw_protocol_names:
+    xml = f"$(S)/third_party/glfw/deps/wayland/{protocol}.xml"
+    header = f"$(B)/third_party/glfw/protocol/{protocol}-client-protocol.h"
+    code = f"$(B)/third_party/glfw/protocol/{protocol}-client-protocol-code.h"
+    glfw_protocol_outputs += [header, code]
+    glfw_protocol_commands += [
+        ["wayland-scanner", "client-header", xml, header],
+        ["wayland-scanner", "private-code", xml, code],
+    ]
+
+glfw_protocols = command(
+    inputs=[
+        f"$(S)/third_party/glfw/deps/wayland/{protocol}.xml"
+        for protocol in glfw_protocol_names
+    ],
+    outputs=glfw_protocol_outputs,
+    cmd=glfw_protocol_commands,
+    cflags=["-I$(B)/third_party/glfw/protocol"],
+    descr="WL",
+    color="blue",
+)
+
+glfw_sources = [
+    f"$(S)/third_party/glfw/src/{source}"
+    for source in (
+        "context.c",
+        "egl_context.c",
+        "init.c",
+        "input.c",
+        "linux_joystick.c",
+        "monitor.c",
+        "null_init.c",
+        "null_joystick.c",
+        "null_monitor.c",
+        "null_window.c",
+        "osmesa_context.c",
+        "platform.c",
+        "posix_module.c",
+        "posix_poll.c",
+        "posix_thread.c",
+        "posix_time.c",
+        "vulkan.c",
+        "window.c",
+        "wl_init.c",
+        "wl_monitor.c",
+        "wl_window.c",
+    )
+]
+glfw = library(
+    name="glfw",
+    srcs=glfw_sources,
+    cflags=[
+        "-std=c99",
+        "-Wno-error",
+        "-I$(S)/third_party/glfw/src",
+    ],
+    cppflags=[
+        "-D_GLFW_WAYLAND",
+        "-D_DEFAULT_SOURCE",
+        "-DHAVE_MEMFD_CREATE",
+    ],
+    public_cflags=["-I$(S)/third_party/glfw/include"],
+    deps=[
+        glfw_protocols,
+        wayland,
+        xkbcommon,
+        threads,
+        dependency(ldflags=["-lrt", "-lm", "-ldl"]),
+    ],
+    output="$(B)/libglfw3.a",
+)
 
 
 render_spv = command(

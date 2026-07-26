@@ -1,6 +1,6 @@
 # Shitty
 
-**A small, fast terminal emulator with a cross-platform GLFW/Vulkan frontend.**
+**A small, fast terminal emulator with a Linux Wayland/Vulkan frontend.**
 
 Shitty is a hard fork and complete rewrite of **Zutty**. The original Zutty
 terminal emulator was created by **Tom Szilagyi**. Shitty keeps that lineage,
@@ -42,7 +42,7 @@ Shitty is written in C++23 and built with Clang. Building the terminal requires:
 - pkg-config;
 - Brotli and utf8proc;
 - FreeType and fontconfig;
-- GLFW 3.4 or newer;
+- Wayland client headers, xkbcommon, and `wayland-scanner`;
 - Vulkan headers and loader;
 - POSIX threads and PTY support;
 - `libstd`, either in `third_party/libstd` or installed system-wide.
@@ -50,8 +50,9 @@ Shitty is written in C++23 and built with Clang. Building the terminal requires:
 A scalar Base64 implementation is always available. If simdutf 6.5 or newer
 is installed, the build uses it automatically to accelerate Base64 processing.
 
-A working Vulkan driver and a native window system supported by GLFW are
-required at runtime.
+A working Vulkan driver and a Wayland compositor are required at runtime. GLFW
+is built from the vendored source snapshot in `third_party/glfw`; the product
+build enables only its Linux Wayland and Vulkan paths.
 
 The complete imported conformance suite additionally needs ncurses and Perl.
 
