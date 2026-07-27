@@ -115,6 +115,29 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(spans[0].cells[0].semantic == 3);
     }
 
+    STD_TEST(WritesAsciiLinesAndScrollsOncePerLine) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 16);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::create(composer, *pool, 3, 2, &colors, 2);
+        const TerminalCell attrs = attributes();
+        const u8 text[] = {'A', 'B', '\r', '\n', 'C', '\r', '\n', 'D', 'E', '\r', '\n'};
+
+        screen->writeAsciiLines(0, text, sizeof(text), 3, attrs, 0, 0, TerminalCell{});
+
+        STD_INSIST(screen->getHistoryRows() == 2);
+        STD_INSIST(screen->testCell(0, 0).uc_pt == 'D');
+        STD_INSIST(screen->testCell(0, 1).uc_pt == 'E');
+        STD_INSIST(screen->testCell(0, 2).uc_pt == 0);
+        STD_INSIST(screen->testCell(1, 0).uc_pt == 0);
+        screen->pageUp(2);
+        STD_INSIST(screen->testCell(0, 0).uc_pt == 'A');
+        STD_INSIST(screen->testCell(0, 1).uc_pt == 'B');
+        STD_INSIST(screen->testCell(1, 0).uc_pt == 'C');
+    }
+
     STD_TEST(StoresLineAttributesInRowMetadata) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());

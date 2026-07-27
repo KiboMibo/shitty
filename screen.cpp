@@ -121,6 +121,7 @@ namespace {
         void writeCodepoint(u16 row, u16 column, u32 codepoint, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeGrapheme(u16 row, u16 column, const u32* codepoints, size_t count, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeAsciiRun(u16 row, u16 column, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
+        void writeAsciiLines(u16 row, const u8* input, size_t size, u16 lineCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeAsciiRunInsert(u16 row, u16 column, u16 end, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeRun(u16 row, u16 column, const u32* codepoints, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeGlyphRun(u16 row, u16 column, const u32* codepoints, const u8* widths, u16 glyphCount, u16 cellCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
@@ -1698,6 +1699,29 @@ void ScreenImpl<Coord, Epoch>::writeAsciiRun(u16 row, u16 column, const u8* inpu
         output[2 * index + 1] = content | input[index];
     }
     logicalRowSlot(row)->metadata.protection |= linkedAttrs.protected_char;
+}
+
+template <typename Coord, typename Epoch>
+void ScreenImpl<Coord, Epoch>::writeAsciiLines(u16 row, const u8* input, size_t size, u16 lineCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
+    const u8* const end = input + size;
+    for (u16 line = 0; line < lineCount; ++line) {
+        const u8* lineEnd = input;
+        while (lineEnd != end && *lineEnd != '\r') {
+            ++lineEnd;
+        }
+        STD_ASSERT(end - lineEnd >= 2 && lineEnd[1] == '\n');
+        const u16 count = (u16)(lineEnd - input);
+        if (count != 0) {
+            writeAsciiRun(row, 0, input, count, attrs, hyperlink, semantic, eraseAttrs);
+        }
+        input = lineEnd + 2;
+        if (row + 1 < nRows) {
+            ++row;
+        } else {
+            scrollUp(0, nRows, 1, eraseAttrs);
+        }
+    }
+    STD_ASSERT(input == end);
 }
 
 template <typename Coord, typename Epoch>

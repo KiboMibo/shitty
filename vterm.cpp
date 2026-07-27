@@ -413,6 +413,7 @@ namespace {
         void placeGraphicChar(bool graphemeBoundary, u8 width);
         template <bool insert>
         void placeAsciiRun(const u8* input, size_t size);
+        size_t placeAsciiLines(const u8* input, size_t size);
         int placeUtf8Run(const u8* input, int size);
         template <bool hasWide>
         void placePreparedRun(const u32* input, const u8* widths, size_t size);
@@ -9013,6 +9014,53 @@ namespace {
 }
 
 template <bool traced>
+size_t VtermImpl<traced>::placeAsciiLines(const u8* input, size_t size) {
+    if (insertMode || posX != 0 || lastCol || inputGraphemeScreen != nullptr || horizMarginMode || hMargin != 0 || nColsEff != composer.columns || marginTop != 0 || marginBottom != composer.rows || autoPrintMode) {
+        return 0;
+    }
+
+    const u8* cursor = input;
+    const u8* const end = input + size;
+    u16 lineCount = 0;
+    while (cursor != end && lineCount != UINT16_MAX) {
+        const size_t length = printableAsciiPrefix(cursor, end - cursor);
+        if (length > nColsEff || (size_t)(end - cursor) - length < 2 || cursor[length] != '\r' || cursor[length + 1] != '\n') {
+            break;
+        }
+        const u16 row = min<u32>((u32)(posY) + lineCount, composer.rows - 1);
+        if (cf->lineAttribute(row) != 0) {
+            break;
+        }
+        ++lineCount;
+        cursor += length + 2;
+    }
+    if (lineCount < 2) {
+        return 0;
+    }
+
+    if constexpr (traced) {
+        const u8* tracedInput = input;
+        for (u16 line = 0; line < lineCount; ++line) {
+            const size_t length = printableAsciiPrefix(tracedInput, cursor - tracedInput);
+            if (length != 0) {
+                parserTrace->text(tracedInput, length);
+            }
+            parserTrace->control('\r');
+            parserTrace->control('\n');
+            tracedInput += length + 2;
+        }
+    }
+    cf->writeAsciiLines(posY, input, cursor - input, lineCount, attrs, activeHyperlink, currentSemantic, eraseAttrs);
+    posY = min<u32>((u32)(posY) + lineCount, composer.rows - 1);
+    posX = 0;
+    lastCol = false;
+    if (attrs.blink) {
+        haveBlinkingText = true;
+    }
+    return cursor - input;
+}
+
+template <bool traced>
 bool VtermImpl<traced>::processInput(const u8* input, int inputSize, bool refresh) {
     ++processInputDepth;
     bool changed;
@@ -9044,6 +9092,11 @@ template <bool traced>
         }
         if (inputState == InputState::Normal) [[likely]] {
             if (ch >= 0x20 && ch < 0x7f && !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8) {
+                const size_t lines = placeAsciiLines(current, inputEnd - current);
+                if (lines != 0) {
+                    cursor = current + lines;
+                    continue;
+                }
                 const size_t count = printableAsciiPrefix(current, inputEnd - current);
                 if constexpr (traced) {
                     parserTrace->text(current, count);
