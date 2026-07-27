@@ -114,12 +114,6 @@ namespace {
             return hexTitleInput;
         }
 
-        Base64Decoder parserNotificationDecoder(StringView id, bool body) const override {
-            ParserCall& call = record("parserNotificationDecoder", body);
-            saveText(call, 0, id);
-            return notificationDecoder;
-        }
-
         void parserSingleShift(u8 index) override {
             record("parserSingleShift", index);
         }
@@ -624,10 +618,14 @@ namespace {
             record("osc_SPECIAL_COLOR_MODE", index, mode);
         }
 
-        void osc_CWD(StringView uri, StringView path, bool valid) override {
+        void osc_RAW(u32 command, StringView payload) override {
+            ParserCall& call = record("osc_RAW", command);
+            saveText(call, 0, payload);
+        }
+
+        void osc_CWD(StringView path, bool valid) override {
             ParserCall& call = record("osc_CWD", valid);
-            saveText(call, 0, uri);
-            saveText(call, 1, path);
+            saveText(call, 0, path);
         }
 
         void osc_HYPERLINK(StringView id, bool hasId, StringView uri) override {
@@ -658,20 +656,13 @@ namespace {
 
 #undef RECORD_COLOR_METHOD
 
-        void osc_CLIPBOARD_QUERY(StringView selectors, bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) override {
-            ParserCall& call = record("osc_CLIPBOARD_QUERY", primary, clipboard, replySelector, selectorsEmpty);
-            saveText(call, 0, selectors);
+        void osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) override {
+            record("osc_CLIPBOARD_QUERY", primary, clipboard, replySelector, selectorsEmpty);
         }
 
-        void osc_CLIPBOARD_WRITE(StringView selectors, StringView content, bool valid, bool primary, bool clipboard) override {
+        void osc_CLIPBOARD_WRITE(StringView content, bool valid, bool primary, bool clipboard) override {
             ParserCall& call = record("osc_CLIPBOARD_WRITE", valid, primary, clipboard);
-            saveText(call, 0, selectors);
-            saveText(call, 1, content);
-        }
-
-        void osc_CLIPBOARD_MALFORMED(StringView selectors) override {
-            ParserCall& call = record("osc_CLIPBOARD_MALFORMED");
-            saveText(call, 0, selectors);
+            saveText(call, 0, content);
         }
 
 #define RECORD_TEXT_METHOD(method, parameter)    \
@@ -685,14 +676,14 @@ namespace {
 
 #undef RECORD_TEXT_METHOD
 
-        void osc_NOTIFICATION_TITLE(StringView id, StringView content, const Base64Decoder& decoder, bool encoded, bool final) override {
-            ParserCall& call = record("osc_NOTIFICATION_TITLE", decoder.count, decoder.padding, decoder.complete, decoder.valid, encoded, final);
+        void osc_NOTIFICATION_TITLE(StringView id, StringView content, bool encoded, bool final) override {
+            ParserCall& call = record("osc_NOTIFICATION_TITLE", encoded, final);
             saveText(call, 0, id);
             saveText(call, 1, content);
         }
 
-        void osc_NOTIFICATION_BODY(StringView id, StringView content, const Base64Decoder& decoder, bool encoded, bool final) override {
-            ParserCall& call = record("osc_NOTIFICATION_BODY", decoder.count, decoder.padding, decoder.complete, decoder.valid, encoded, final);
+        void osc_NOTIFICATION_BODY(StringView id, StringView content, bool encoded, bool final) override {
+            ParserCall& call = record("osc_NOTIFICATION_BODY", encoded, final);
             saveText(call, 0, id);
             saveText(call, 1, content);
         }
@@ -918,16 +909,10 @@ namespace {
 
 #undef RECORD_VOID_METHOD
 
-        void dcs_XTGETTCAP(Buffer& replies, StringView encoded, StringView value) override {
+        void dcs_XTGETTCAP(StringView encoded, StringView value) override {
             ParserCall& call = record("dcs_XTGETTCAP");
             saveText(call, 0, encoded);
             saveText(call, 1, value);
-            replies.append(xtgettcapReply.data(), xtgettcapReply.length());
-        }
-
-        void dcs_XTGETTCAP_COMMIT(StringView replies) override {
-            ParserCall& call = record("dcs_XTGETTCAP_COMMIT");
-            saveText(call, 0, replies);
         }
 
         void dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, const ParserUdkDefinition* definitions, size_t definitionCount, StringView values) override {
@@ -942,7 +927,6 @@ namespace {
         bool autoNewlineMode = false;
         CompatibilityLevel compatibilityLevel = CompatibilityLevel::VT500;
         bool hexTitleInput = false;
-        Base64Decoder notificationDecoder;
         bool highlightMouseTracking = false;
         bool allowWindowOperations = true;
         bool handlesPrinter = true;
@@ -955,7 +939,6 @@ namespace {
         ParserModeState modeState{};
         bool restoreModeFound = true;
         bool restoreModeValue = true;
-        StringView xtgettcapReply = StringView(u8"reply");
     };
 
     struct ParserFixture {
@@ -1379,13 +1362,20 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST5(SetSpecialColor, osc_SPECIAL_COLOR, u8"\x1b]5;7;#123\a", 7, 0x10, 0x20, 0x30, false)
     SHITTY_PARSER_CALLBACK_TEST2(SetSpecialColorMode, osc_SPECIAL_COLOR_MODE, u8"\x1b]6;7;2\a", 7, 2)
 
+    STD_TEST(HexTitleIsDecodedInPlace) {
+        ParserFixture fixture;
+        fixture.iface.hexTitleInput = true;
+        fixture.feed(StringView(u8"\x1b]0;6869\a"));
+        const ParserCall& call = fixture.expect("osc_TITLE_0");
+        expectText(fixture.iface, call, 0, StringView(u8"hi"));
+    }
+
     STD_TEST(CurrentWorkingDirectory) {
         ParserFixture fixture;
         fixture.feed(StringView(u8"\x1b]7;file://host/a%20b\a"));
         const ParserCall& call = fixture.expect("osc_CWD");
         expectValues(call, true);
-        expectText(fixture.iface, call, 0, StringView(u8"file://host/a%20b"));
-        expectText(fixture.iface, call, 1, StringView(u8"/a b"));
+        expectText(fixture.iface, call, 0, StringView(u8"/a b"));
     }
 
     STD_TEST(Hyperlink) {
@@ -1410,7 +1400,6 @@ STD_TEST_SUITE(ParserCallbacks) {
         fixture.feed(StringView(u8"\x1b]52;p;?\a"));
         const ParserCall& call = fixture.expect("osc_CLIPBOARD_QUERY");
         expectValues(call, true, false, 'p', false);
-        expectText(fixture.iface, call, 0, StringView(u8"p;?"));
     }
 
     STD_TEST(ClipboardWrite) {
@@ -1418,18 +1407,24 @@ STD_TEST_SUITE(ParserCallbacks) {
         fixture.feed(StringView(u8"\x1b]52;c;YQ==\a"));
         const ParserCall& call = fixture.expect("osc_CLIPBOARD_WRITE");
         expectValues(call, true, false, true);
-        expectText(fixture.iface, call, 0, StringView(u8"c;YQ=="));
-        expectText(fixture.iface, call, 1, StringView(u8"a"));
+        expectText(fixture.iface, call, 0, StringView(u8"a"));
     }
 
-    SHITTY_PARSER_TEXT_TEST(MalformedClipboard, osc_CLIPBOARD_MALFORMED, u8"\x1b]52;p\a", u8"p")
+    STD_TEST(MalformedClipboard) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b]52;p\a"));
+        const ParserCall& call = fixture.expect("osc_RAW");
+        expectValues(call, 52);
+        expectText(fixture.iface, call, 0, StringView(u8"p"));
+    }
 
-    STD_TEST(ReadNotificationDecoder) {
+    STD_TEST(EncodedNotificationRemainsEncodedForConsumer) {
         ParserFixture fixture;
         fixture.feed(StringView(u8"\x1b]99;i=id:p=title:e=1;YQ==\a"));
-        const ParserCall& call = fixture.expect("parserNotificationDecoder");
-        expectValues(call, false);
+        const ParserCall& call = fixture.expect("osc_NOTIFICATION_TITLE");
+        expectValues(call, true, true);
         expectText(fixture.iface, call, 0, StringView(u8"id"));
+        expectText(fixture.iface, call, 1, StringView(u8"YQ=="));
     }
 
     SHITTY_PARSER_TEXT_TEST(NotificationCapabilities, osc_NOTIFICATION_CAPABILITIES, u8"\x1b]99;i=id:p=?;\a", u8"id")
@@ -1439,7 +1434,7 @@ STD_TEST_SUITE(ParserCallbacks) {
         ParserFixture fixture;
         fixture.feed(StringView(u8"\x1b]99;i=id:p=title;hello\a"));
         const ParserCall& call = fixture.expect("osc_NOTIFICATION_TITLE");
-        expectValues(call, 0, 0, false, true, false, true);
+        expectValues(call, false, true);
         expectText(fixture.iface, call, 0, StringView(u8"id"));
         expectText(fixture.iface, call, 1, StringView(u8"hello"));
     }
@@ -1448,7 +1443,7 @@ STD_TEST_SUITE(ParserCallbacks) {
         ParserFixture fixture;
         fixture.feed(StringView(u8"\x1b]99;i=id:p=body:d=0;hello\a"));
         const ParserCall& call = fixture.expect("osc_NOTIFICATION_BODY");
-        expectValues(call, 0, 0, false, true, false, false);
+        expectValues(call, false, false);
         expectText(fixture.iface, call, 0, StringView(u8"id"));
         expectText(fixture.iface, call, 1, StringView(u8"hello"));
     }
@@ -1541,14 +1536,6 @@ STD_TEST_SUITE(ParserCallbacks) {
         expectValues(call);
         expectText(fixture.iface, call, 0, StringView(u8"544e"));
         expectText(fixture.iface, call, 1, StringView(u8"xterm-256color"));
-    }
-
-    STD_TEST(CommitTermcap) {
-        ParserFixture fixture;
-        fixture.feed(StringView(u8"\x1bP+q544e\x1b\\"));
-        const ParserCall& call = fixture.expect("dcs_XTGETTCAP_COMMIT");
-        expectValues(call);
-        expectText(fixture.iface, call, 0, StringView(u8"reply"));
     }
 
     STD_TEST(DefineUserKey) {

@@ -52,113 +52,69 @@ namespace {
 #endif
 }
 
-void Base64Decoder::reset() noexcept {
-    count = 0;
-    padding = false;
-    complete = false;
-    valid = true;
-}
+bool base64DecodeInPlace(u8* data, size_t& size) noexcept {
+    size_t source = 0;
+    size_t target = 0;
+    while (size - source >= 4) {
+        const u8 first = decodeValue(data[source]);
+        const u8 second = decodeValue(data[source + 1]);
+        if ((first | second) == (u8)0xff) {
+            return false;
+        }
 
-bool Base64Decoder::push(u8 byte, Buffer& output) {
-    if (!valid || complete) {
-        valid = false;
-        return false;
-    }
-
-    if (byte == '=') {
-        if (count == 2 && !padding) {
-            padding = true;
-            count = 3;
+        if (data[source + 2] == '=') {
+            if (data[source + 3] != '=' || source + 4 != size || (second & 0x0f) != 0) {
+                return false;
+            }
+            data[target++] = (first << 2) | (second >> 4);
+            size = target;
             return true;
         }
-        if (count != 3) {
-            valid = false;
+
+        const u8 third = decodeValue(data[source + 2]);
+        if (third == (u8)0xff) {
             return false;
         }
-
-        if (padding) {
-            if ((values[1] & 0x0f) != 0) {
-                valid = false;
+        if (data[source + 3] == '=') {
+            if (source + 4 != size || (third & 0x03) != 0) {
                 return false;
             }
-            const u8 decoded = (values[0] << 2) | (values[1] >> 4);
-            output.append(&decoded, 1);
-        } else {
-            if ((values[2] & 0x03) != 0) {
-                valid = false;
+            data[target++] = (first << 2) | (second >> 4);
+            data[target++] = (second << 4) | (third >> 2);
+            size = target;
+            return true;
+        }
+
+        const u8 fourth = decodeValue(data[source + 3]);
+        if (fourth == (u8)0xff) {
+            return false;
+        }
+        data[target++] = (first << 2) | (second >> 4);
+        data[target++] = (second << 4) | (third >> 2);
+        data[target++] = (third << 6) | fourth;
+        source += 4;
+    }
+
+    const size_t remainder = size - source;
+    if (remainder == 1) {
+        return false;
+    }
+    if (remainder >= 2) {
+        const u8 first = decodeValue(data[source]);
+        const u8 second = decodeValue(data[source + 1]);
+        if ((first | second) == (u8)0xff || (remainder == 2 && (second & 0x0f) != 0)) {
+            return false;
+        }
+        data[target++] = (first << 2) | (second >> 4);
+        if (remainder == 3) {
+            const u8 third = decodeValue(data[source + 2]);
+            if (third == (u8)0xff || (third & 0x03) != 0) {
                 return false;
             }
-            const u8 decoded[] = {
-                (u8)((values[0] << 2) | (values[1] >> 4)),
-                (u8)((values[1] << 4) | (values[2] >> 2)),
-            };
-            output.append(decoded, sizeof(decoded));
+            data[target++] = (second << 4) | (third >> 2);
         }
-        count = 0;
-        padding = false;
-        complete = true;
-        return true;
     }
-
-    if (padding) {
-        valid = false;
-        return false;
-    }
-    const u8 value = decodeValue(byte);
-    if (value == (u8)0xff) {
-        valid = false;
-        return false;
-    }
-    values[count++] = value;
-    if (count == 3) {
-        return true;
-    }
-    if (count != 4) {
-        return true;
-    }
-
-    const u8 decoded[] = {
-        (u8)((values[0] << 2) | (values[1] >> 4)),
-        (u8)((values[1] << 4) | (values[2] >> 2)),
-        (u8)((values[2] << 6) | value),
-    };
-    output.append(decoded, sizeof(decoded));
-    count = 0;
-    return true;
-}
-
-bool Base64Decoder::finish(Buffer& output) {
-    if (!valid || padding) {
-        valid = false;
-        return false;
-    }
-    if (complete || count == 0) {
-        return valid;
-    }
-    if (count == 1) {
-        valid = false;
-        return false;
-    }
-    if (count == 2) {
-        if ((values[1] & 0x0f) != 0) {
-            valid = false;
-            return false;
-        }
-        const u8 decoded = (values[0] << 2) | (values[1] >> 4);
-        output.append(&decoded, 1);
-    } else {
-        if ((values[2] & 0x03) != 0) {
-            valid = false;
-            return false;
-        }
-        const u8 decoded[] = {
-            (u8)((values[0] << 2) | (values[1] >> 4)),
-            (u8)((values[1] << 4) | (values[2] >> 2)),
-        };
-        output.append(decoded, sizeof(decoded));
-    }
-    count = 0;
-    complete = true;
+    size = target;
     return true;
 }
 
@@ -239,13 +195,13 @@ Buffer& base64Decode(StringView input, Buffer& output, bool& valid) {
     return output;
 #else
     output.reset();
-    Base64Decoder decoder;
-    for (const u8 byte : input) {
-        decoder.push(byte, output);
-    }
-    valid = decoder.finish(output);
+    output.append(input.data(), input.length());
+    size_t size = output.used();
+    valid = base64DecodeInPlace((u8*)output.mutData(), size);
     if (!valid) {
         output.reset();
+    } else {
+        output.seekAbsolute(size);
     }
     return output;
 #endif

@@ -244,7 +244,6 @@ namespace {
         void parserSetApplicationKeypad(bool enabled) override;
         void parserMoveCursorBackward(u32 count) override;
         bool parserHexTitleInput() const override;
-        Base64Decoder parserNotificationDecoder(StringView id, bool body) const override;
         void parserSingleShift(u8 index) override;
         void parserLockingShiftGl(u8 index) override;
         void parserLockingShiftGr(u8 index) override;
@@ -583,7 +582,8 @@ namespace {
         void osc_PALETTE(u32, Color, bool) override;
         void osc_SPECIAL_COLOR(u32, Color, bool) override;
         void osc_SPECIAL_COLOR_MODE(u32, u32) override;
-        void osc_CWD(StringView, StringView, bool) override;
+        void osc_RAW(u32, StringView) override;
+        void osc_CWD(StringView, bool) override;
         void osc_HYPERLINK(StringView, bool, StringView) override;
         void osc_NOTIFY(StringView) override;
         void osc_PROGRESS(u32, u32) override;
@@ -593,15 +593,13 @@ namespace {
         void osc_SELECTION_BACKGROUND(Color, bool) override;
         void osc_SELECTION_FOREGROUND(Color, bool) override;
         void writeDynamicColorResponse(u32, Color);
-        void osc_CLIPBOARD_QUERY(StringView, bool, bool, u8, bool) override;
-        void osc_CLIPBOARD_WRITE(StringView, StringView, bool, bool, bool) override;
-        void osc_CLIPBOARD_MALFORMED(StringView) override;
+        void osc_CLIPBOARD_QUERY(bool, bool, u8, bool) override;
+        void osc_CLIPBOARD_WRITE(StringView, bool, bool, bool) override;
         void osc_NOTIFICATION_CAPABILITIES(StringView) override;
         void osc_NOTIFICATION_CLOSE(StringView) override;
-        Base64Decoder notificationDecoder(StringView, bool) const;
-        void osc_NOTIFICATION_TITLE(StringView, StringView, const Base64Decoder&, bool, bool) override;
-        void osc_NOTIFICATION_BODY(StringView, StringView, const Base64Decoder&, bool, bool) override;
-        void applyNotificationPart(StringView, StringView, const Base64Decoder&, bool, bool, bool);
+        void osc_NOTIFICATION_TITLE(StringView, StringView, bool, bool) override;
+        void osc_NOTIFICATION_BODY(StringView, StringView, bool, bool) override;
+        void applyNotificationPart(StringView, StringView, bool, bool, bool);
         void osc_RESET_PALETTE() override;
         void osc_RESET_PALETTE(u32) override;
         void osc_RESET_SPECIAL_COLOR() override;
@@ -669,8 +667,7 @@ namespace {
         void dcs_DECRQSS_DECSCA() override;
         void dcs_DECRQSS_UNKNOWN() override;
         void writeDecrqssResponse(StringView);
-        void dcs_XTGETTCAP(Buffer& replies, StringView encoded, StringView value) override;
-        void dcs_XTGETTCAP_COMMIT(StringView replies) override;
+        void dcs_XTGETTCAP(StringView encoded, StringView value) override;
         void dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, const ParserUdkDefinition* definitions, size_t definitionCount, StringView values) override;
 
         void reportInBandResize();
@@ -734,7 +731,7 @@ namespace {
 
         struct NotificationPart {
             std::string text;
-            Base64Decoder decoder;
+            size_t encodedOffset = (size_t)-1;
         };
 
         struct Notification {
@@ -4578,8 +4575,8 @@ void VtermImpl::dcs_DECRQSS_UNKNOWN() {
     writeDcsResponse("0$r");
 }
 
-void VtermImpl::dcs_XTGETTCAP(Buffer& output, StringView encoded, StringView value) {
-    StringBuilder replies(static_cast<Buffer&&>(output));
+void VtermImpl::dcs_XTGETTCAP(StringView encoded, StringView value) {
+    StringBuilder replies;
     replies << (send8BitControls ? StringView(u8"\x90") : StringView(u8"\x1bP"));
     replies << (value.empty() ? StringView(u8"0+r") : StringView(u8"1+r"));
     replies << encoded;
@@ -4592,11 +4589,8 @@ void VtermImpl::dcs_XTGETTCAP(Buffer& output, StringView encoded, StringView val
         }
     }
     replies << (send8BitControls ? StringView(u8"\x9c") : StringView(u8"\x1b\\"));
-    output = static_cast<Buffer&&>(replies);
-}
-
-void VtermImpl::dcs_XTGETTCAP_COMMIT(StringView replies) {
-    writePty(replies.data(), replies.length(), false);
+    const StringView output(replies);
+    writePty(output.data(), output.length(), false);
 }
 
 void VtermImpl::osc_TITLE_0(StringView payload) {
@@ -4671,8 +4665,11 @@ void VtermImpl::osc_SPECIAL_COLOR_MODE(u32 index, u32 value) {
     frame_alt->expose();
 }
 
-void VtermImpl::osc_CWD(StringView raw, StringView path, bool valid) {
-    host.osc(7, raw);
+void VtermImpl::osc_RAW(u32 command, StringView payload) {
+    host.osc(command, payload);
+}
+
+void VtermImpl::osc_CWD(StringView path, bool valid) {
     if (valid) {
         host.cwd(path);
     }
@@ -4767,9 +4764,7 @@ void VtermImpl::osc_SELECTION_FOREGROUND(Color color, bool query) {
     frame_alt->setSelectionColor(true, color, true);
 }
 
-void VtermImpl::osc_CLIPBOARD_QUERY(StringView raw, bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) {
-    host.osc(52, raw);
-
+void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) {
     StringView content;
     if (opts.allowOsc52Read) {
         if (primary) {
@@ -4793,9 +4788,7 @@ void VtermImpl::osc_CLIPBOARD_QUERY(StringView raw, bool primary, bool clipboard
     writeOscResponse(StringView(reply));
 }
 
-void VtermImpl::osc_CLIPBOARD_WRITE(StringView raw, StringView decoded, bool valid, bool primary, bool clipboard) {
-    host.osc(52, raw);
-
+void VtermImpl::osc_CLIPBOARD_WRITE(StringView decoded, bool valid, bool primary, bool clipboard) {
     if (!valid) {
         return;
     }
@@ -4805,10 +4798,6 @@ void VtermImpl::osc_CLIPBOARD_WRITE(StringView raw, StringView decoded, bool val
     if (clipboard) {
         composer.clipboard->writeClipboard(decoded);
     }
-}
-
-void VtermImpl::osc_CLIPBOARD_MALFORMED(StringView raw) {
-    host.osc(52, raw);
 }
 
 void VtermImpl::osc_RESET_PALETTE() {
@@ -4925,49 +4914,48 @@ void VtermImpl::osc_NOTIFICATION_CLOSE(StringView id) {
     notifications.erase(key);
 }
 
-Base64Decoder VtermImpl::notificationDecoder(StringView id, bool body) const {
-    const std::string key((const char*)(id.data()), id.length());
-    const auto found = notifications.find(key);
-    if (found == notifications.end()) {
-        return {};
-    }
-    return body ? found->second.body.decoder : found->second.title.decoder;
+void VtermImpl::osc_NOTIFICATION_TITLE(StringView id, StringView payload, bool encoded, bool finalChunk) {
+    applyNotificationPart(id, payload, encoded, finalChunk, false);
 }
 
-void VtermImpl::osc_NOTIFICATION_TITLE(StringView id, StringView payload, const Base64Decoder& decoder, bool encoded, bool finalChunk) {
-    applyNotificationPart(id, payload, decoder, encoded, finalChunk, false);
+void VtermImpl::osc_NOTIFICATION_BODY(StringView id, StringView payload, bool encoded, bool finalChunk) {
+    applyNotificationPart(id, payload, encoded, finalChunk, true);
 }
 
-void VtermImpl::osc_NOTIFICATION_BODY(StringView id, StringView payload, const Base64Decoder& decoder, bool encoded, bool finalChunk) {
-    applyNotificationPart(id, payload, decoder, encoded, finalChunk, true);
-}
-
-void VtermImpl::applyNotificationPart(StringView id, StringView payload, const Base64Decoder& decoder, bool encoded, bool finalChunk, bool body) {
+void VtermImpl::applyNotificationPart(StringView id, StringView payload, bool encoded, bool finalChunk, bool body) {
     const std::string key((const char*)(id.data()), id.length());
     auto& notification = notifications[key];
     NotificationPart& destination = body ? notification.body : notification.title;
-    const auto flushDecoder = [](NotificationPart& part) {
-        Buffer decoded;
-        if (!part.decoder.finish(decoded) || part.text.size() + decoded.used() > 8192) {
+    const auto flushEncoded = [](NotificationPart& part) {
+        if (part.encodedOffset == (size_t)-1) {
+            return true;
+        }
+        size_t decodedSize = part.text.size() - part.encodedOffset;
+        if (!base64DecodeInPlace((u8*)(part.text.data() + part.encodedOffset), decodedSize) || part.encodedOffset + decodedSize > 8192) {
             return false;
         }
-        part.text.append((const char*)(decoded.data()), decoded.used());
-        part.decoder.reset();
+        part.text.resize(part.encodedOffset + decodedSize);
+        part.encodedOffset = (size_t)-1;
         return true;
     };
 
     if (encoded) {
-        if (!decoder.valid || destination.text.size() + payload.length() > 8192) {
+        if (destination.encodedOffset == (size_t)-1) {
+            destination.encodedOffset = destination.text.size();
+        }
+        const size_t decodedCapacity = 8192 - destination.encodedOffset;
+        const size_t encodedCapacity = (decodedCapacity + 2) / 3 * 4;
+        if (destination.text.size() - destination.encodedOffset + payload.length() > encodedCapacity) {
             notifications.erase(key);
             return;
         }
         destination.text.append((const char*)(payload.data()), payload.length());
-        destination.decoder = decoder;
-        if (destination.decoder.complete) {
-            destination.decoder.reset();
+        if (!payload.empty() && payload[payload.length() - 1] == '=' && !flushEncoded(destination)) {
+            notifications.erase(key);
+            return;
         }
     } else {
-        if (!flushDecoder(destination) || destination.text.size() + payload.length() > 8192) {
+        if (!flushEncoded(destination) || destination.text.size() + payload.length() > 8192) {
             notifications.erase(key);
             return;
         }
@@ -4977,7 +4965,7 @@ void VtermImpl::applyNotificationPart(StringView id, StringView payload, const B
     if (!finalChunk) {
         return;
     }
-    if (!flushDecoder(notification.title) || !flushDecoder(notification.body)) {
+    if (!flushEncoded(notification.title) || !flushEncoded(notification.body)) {
         notifications.erase(key);
         return;
     }
@@ -7180,10 +7168,6 @@ void VtermImpl::parserMoveCursorBackward(u32 count) {
 
 bool VtermImpl::parserHexTitleInput() const {
     return titleModes & 1;
-}
-
-Base64Decoder VtermImpl::parserNotificationDecoder(StringView id, bool body) const {
-    return notificationDecoder(id, body);
 }
 
 void VtermImpl::parserSingleShift(u8 index) {

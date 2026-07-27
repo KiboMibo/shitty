@@ -1113,7 +1113,7 @@
         if (parser.dcsIntermediateCount == 1 && parser.dcsIntermediates[0] == '$' && fc == 'q') {
             fgoto dcsDecrqssEntry;
         } else if (parser.dcsIntermediateCount == 1 && parser.dcsIntermediates[0] == '+' && fc == 'q') {
-            parser.dcsCapabilityOffset = parser.scratch.used();
+            parser.dcsCapabilityOffset = ragelStringSize();
             parser.dcsCapabilityDecodedLength = 0;
             parser.dcsCapabilityCandidates = 0x0f;
             parser.dcsCapabilityHasHighNibble = false;
@@ -1132,7 +1132,7 @@
                 !parser.present[0] || parser.parameters[0] == 0;
             parser.dcsUdkLockDefinitions =
                 parser.parameterCount < 2 || !parser.present[1] || parser.parameters[1] == 0;
-            parser.dcsUdkValueOffset = parser.dcsDecoded.used();
+            parser.dcsUdkValueOffset = parser.decodedSize;
             parser.dcsUdkCode = 0;
             parser.dcsUdkKey = VtKey::NONE;
             parser.dcsUdkHasCode = false;
@@ -1213,15 +1213,7 @@
     }
 
     action dcsEscapedEscape {
-        if constexpr (traced) {
-            parserTrace->stringData((const u8*)("\x1b"), 1);
-        }
-        if (parser.scratch.used() < parser.maxDcsBytes) {
-            const u8 ch = '\x1b';
-            parser.scratch.append(&ch, 1);
-        } else {
-            parser.overflow = true;
-        }
+        ragelAppendSynthetic('\x1b', parser.maxDcsBytes);
     }
 
     action dcsEscapedData {
@@ -1245,15 +1237,7 @@
     }
 
     action dcsDecrqssEscapedEscape {
-        if constexpr (traced) {
-            parserTrace->stringData((const u8*)("\x1b"), 1);
-        }
-        if (parser.scratch.used() < parser.maxDcsBytes) {
-            const u8 ch = '\x1b';
-            parser.scratch.append(&ch, 1);
-        } else {
-            parser.overflow = true;
-        }
+        ragelAppendSynthetic('\x1b', parser.maxDcsBytes);
         fgoto dcsDecrqssEscape;
     }
 
@@ -1376,34 +1360,37 @@
 
     action dcsXtField {
         if (parser.dcsCapabilityComplete && !parser.overflow) {
-            const auto* data = (const u8*)(parser.scratch.data());
-            const StringView encoded(
-                data + parser.dcsCapabilityOffset,
-                parser.scratch.used() - parser.dcsCapabilityOffset
-            );
+            u8 value = 0;
             if (parser.dcsCapabilityValid && !parser.dcsCapabilityHasHighNibble &&
                 (parser.dcsCapabilityCandidates & 0x01) &&
                 parser.dcsCapabilityDecodedLength == 2) {
-                iface.dcs_XTGETTCAP(parser.dcsDecoded, encoded, StringView(u8"xterm-256color"));
+                value = 1;
             } else if (parser.dcsCapabilityValid && !parser.dcsCapabilityHasHighNibble &&
                        (((parser.dcsCapabilityCandidates & 0x02) &&
                          parser.dcsCapabilityDecodedLength == 2) ||
                         ((parser.dcsCapabilityCandidates & 0x04) &&
                          parser.dcsCapabilityDecodedLength == 6))) {
-                iface.dcs_XTGETTCAP(parser.dcsDecoded, encoded, StringView(u8"256"));
+                value = 2;
             } else if (parser.dcsCapabilityValid && !parser.dcsCapabilityHasHighNibble &&
                        (parser.dcsCapabilityCandidates & 0x08) &&
                        parser.dcsCapabilityDecodedLength == 3) {
-                iface.dcs_XTGETTCAP(parser.dcsDecoded, encoded, StringView(u8"8"));
+                value = 3;
+            }
+            if (parser.dcsTermcapQueryCount != parser.maxTermcapQueries) {
+                parser.dcsTermcapQueries[parser.dcsTermcapQueryCount++] = {
+                    parser.dcsCapabilityOffset,
+                    ragelStringSize() - parser.dcsCapabilityOffset,
+                    value,
+                };
             } else {
-                iface.dcs_XTGETTCAP(parser.dcsDecoded, encoded, {});
+                parser.overflow = true;
             }
         }
     }
 
     action dcsXtSeparator {
         ragelAppendString(fc, parser.maxDcsBytes);
-        parser.dcsCapabilityOffset = parser.scratch.used();
+        parser.dcsCapabilityOffset = ragelStringSize();
         parser.dcsCapabilityDecodedLength = 0;
         parser.dcsCapabilityCandidates = 0x0f;
         parser.dcsCapabilityHasHighNibble = false;
@@ -1424,8 +1411,22 @@
 
     action dcsXtDone {
         if (parser.dcsCapabilityComplete) {
-            if (!parser.overflow && iface.parserCompatibilityLevel() >= CompatibilityLevel::VT200) {
-                iface.dcs_XTGETTCAP_COMMIT(StringView(parser.dcsDecoded));
+            if (!parser.overflow &&
+                iface.parserCompatibilityLevel() >= CompatibilityLevel::VT200) {
+                const auto* data = ragelStringData();
+                for (size_t index = 0; index < parser.dcsTermcapQueryCount; ++index) {
+                    const ParserTermcapQuery& query = parser.dcsTermcapQueries[index];
+                    const StringView encoded(data + query.offset, query.length);
+                    if (query.value == 1) {
+                        iface.dcs_XTGETTCAP(encoded, StringView(u8"xterm-256color"));
+                    } else if (query.value == 2) {
+                        iface.dcs_XTGETTCAP(encoded, StringView(u8"256"));
+                    } else if (query.value == 3) {
+                        iface.dcs_XTGETTCAP(encoded, StringView(u8"8"));
+                    } else {
+                        iface.dcs_XTGETTCAP(encoded, {});
+                    }
+                }
             }
             fnext main;
             fbreak;
@@ -1437,15 +1438,7 @@
     }
 
     action dcsXtEscapedEscape {
-        if constexpr (traced) {
-            parserTrace->stringData((const u8*)("\x1b"), 1);
-        }
-        if (parser.scratch.used() < parser.maxDcsBytes) {
-            const u8 ch = '\x1b';
-            parser.scratch.append(&ch, 1);
-        } else {
-            parser.overflow = true;
-        }
+        ragelAppendSynthetic('\x1b', parser.maxDcsBytes);
         parser.dcsCapabilityValid = false;
     }
 
@@ -1489,7 +1482,7 @@
             parser.dcsUdkKey = VtKey::NONE;
             parser.dcsUdkValid = false;
         }
-        parser.dcsUdkValueOffset = parser.dcsDecoded.used();
+        parser.dcsUdkValueOffset = parser.decodedSize;
         parser.dcsUdkHasHighNibble = false;
         fgoto dcsUdkValue;
     }
@@ -1502,9 +1495,9 @@
             parser.dcsUdkHasHighNibble = true;
         } else {
             if (!parser.overflow &&
-                parser.dcsDecoded.used() - parser.dcsUdkValueOffset < 255) {
+                parser.decodedSize - parser.dcsUdkValueOffset < 255) {
                 const u8 decoded = (parser.dcsUdkHighNibble << 4) | nibble;
-                parser.dcsDecoded.append(&decoded, 1);
+                appendDecoded(decoded);
             } else {
                 parser.dcsUdkValid = false;
             }
@@ -1524,11 +1517,15 @@
 
     action dcsUdkValueSeparator {
         if (!parser.overflow && parser.dcsUdkValid && !parser.dcsUdkHasHighNibble) {
-            parser.dcsUdkDefinitions.pushBack({
-                parser.dcsUdkValueOffset,
-                parser.dcsDecoded.used() - parser.dcsUdkValueOffset,
-                parser.dcsUdkKey,
-            });
+            if (parser.dcsUdkDefinitionCount != parser.maxUdkDefinitions) {
+                parser.dcsUdkDefinitions[parser.dcsUdkDefinitionCount++] = {
+                    parser.dcsUdkValueOffset,
+                    parser.decodedSize - parser.dcsUdkValueOffset,
+                    parser.dcsUdkKey,
+                };
+            } else {
+                parser.overflow = true;
+            }
         }
         ragelAppendString(fc, parser.maxDcsBytes);
         parser.dcsUdkCode = 0;
@@ -1566,11 +1563,15 @@
         } else {
             if (!parser.overflow && parser.dcsUdkInValue && parser.dcsUdkValid &&
                 !parser.dcsUdkHasHighNibble) {
-                parser.dcsUdkDefinitions.pushBack({
-                    parser.dcsUdkValueOffset,
-                    parser.dcsDecoded.used() - parser.dcsUdkValueOffset,
-                    parser.dcsUdkKey,
-                });
+                if (parser.dcsUdkDefinitionCount != parser.maxUdkDefinitions) {
+                    parser.dcsUdkDefinitions[parser.dcsUdkDefinitionCount++] = {
+                        parser.dcsUdkValueOffset,
+                        parser.decodedSize - parser.dcsUdkValueOffset,
+                        parser.dcsUdkKey,
+                    };
+                } else {
+                    parser.overflow = true;
+                }
             }
             ragelFinishDcs();
             if (!parser.overflow && parser.dcsUdkHeaderValid &&
@@ -1578,9 +1579,9 @@
                 iface.dcs_DECUDK(
                     parser.dcsUdkClearDefinitions,
                     parser.dcsUdkLockDefinitions,
-                    parser.dcsUdkDefinitions.data(),
-                    parser.dcsUdkDefinitions.length(),
-                    StringView(parser.dcsDecoded)
+                    parser.dcsUdkDefinitions,
+                    parser.dcsUdkDefinitionCount,
+                    decodedString()
                 );
             }
             fnext main;
@@ -1593,15 +1594,7 @@
     }
 
     action dcsUdkEscapedEscape {
-        if constexpr (traced) {
-            parserTrace->stringData((const u8*)("\x1b"), 1);
-        }
-        if (parser.scratch.used() < parser.maxDcsBytes) {
-            const u8 ch = '\x1b';
-            parser.scratch.append(&ch, 1);
-        } else {
-            parser.overflow = true;
-        }
+        ragelAppendSynthetic('\x1b', parser.maxDcsBytes);
         parser.dcsUdkValid = false;
     }
 
@@ -1626,13 +1619,12 @@
         if (!parser.oscCommandValid) {
             fgoto oscInvalid;
         }
-        parser.oscPayloadOffset = parser.scratch.used();
+        parser.oscPayloadOffset = ragelStringSize();
         if (parser.oscCommand == 0 || parser.oscCommand == 1 || parser.oscCommand == 2) {
             parser.oscTitleHex = iface.parserHexTitleInput();
             parser.oscTitleHasHighNibble = false;
             parser.oscTitleValid = true;
-            parser.oscTitleStopped = false;
-            parser.oscDecoded.reset();
+            resetDecoded();
             if (parser.oscCommand == 0) {
                 fgoto oscTitle0;
             }
@@ -1641,10 +1633,8 @@
             }
             fgoto oscTitle2;
         } else if (parser.oscCommand == 7) {
-            parser.oscDecoded.reset();
-            parser.oscCwdPercentHigh = 0;
+            resetDecoded();
             parser.oscCwdValid = false;
-            parser.oscCwdDecode = false;
             fgoto oscCwdEntry;
         } else if (parser.oscCommand >= 10 && parser.oscCommand <= 19) {
             resetOscColor();
@@ -1681,7 +1671,6 @@
             parser.oscProgressValid = true;
             fgoto oscProgressEntry;
         } else if (parser.oscCommand == 52) {
-            parser.oscBase64.reset();
             parser.osc52ReplySelector = 0;
             parser.osc52Primary = false;
             parser.osc52Clipboard = false;
@@ -1721,14 +1710,14 @@
             parser.oscTerminated = false;
             fgoto oscInvalid;
         } else {
-            parser.oscPayloadOffset = parser.scratch.used();
+            parser.oscPayloadOffset = ragelStringSize();
             ragelFinishOsc();
             parser.oscTerminated = true;
         }
     }
 
     action oscCommandBell {
-        parser.oscPayloadOffset = parser.scratch.used();
+        parser.oscPayloadOffset = ragelStringSize();
         ragelFinishOsc();
         parser.oscTerminated = true;
     }
@@ -1787,7 +1776,7 @@
             } else if (parser.oscCommand == 9) {
                 iface.osc_NOTIFY(payload);
             } else if (parser.oscCommand == 52) {
-                iface.osc_CLIPBOARD_MALFORMED(payload);
+                iface.osc_RAW(52, payload);
             } else if (parser.oscCommand == 104 && payload.empty()) {
                 iface.osc_RESET_PALETTE();
             } else if (parser.oscCommand == 105 && payload.empty()) {
@@ -1822,15 +1811,7 @@
     }
 
     action oscEscapedEscape {
-        if constexpr (traced) {
-            parserTrace->stringData((const u8*)("\x1b"), 1);
-        }
-        if (parser.scratch.used() < parser.maxOscBytes) {
-            const u8 ch = '\x1b';
-            parser.scratch.append(&ch, 1);
-        } else {
-            parser.overflow = true;
-        }
+        ragelAppendSynthetic('\x1b', parser.maxOscBytes);
     }
 
     action oscEscapedData {
@@ -1877,7 +1858,6 @@
             ragelAppendString(fc, parser.maxOscBytes);
         }
         parser.oscCwdValid = false;
-        parser.oscCwdDecode = false;
         fgoto oscCwdInvalid;
     }
 
@@ -1887,12 +1867,9 @@
     }
 
     action oscCwdPathStart {
+        parser.oscCwdPathOffset = ragelStringSize();
         ragelAppendString(fc, parser.maxOscBytes);
-        if (!parser.overflow) {
-            parser.oscDecoded.append(&fc, 1);
-        }
         parser.oscCwdValid = true;
-        parser.oscCwdDecode = true;
         fgoto oscCwdPath;
     }
 
@@ -1907,36 +1884,23 @@
         consumeStringUtf8Byte(fc);
         if (!executeC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
-            if (!parser.overflow) {
-                parser.oscDecoded.append(&fc, 1);
-            }
         }
     }
 
     action oscCwdPercentStart {
         ragelAppendString(fc, parser.maxOscBytes);
         parser.oscCwdValid = false;
-        parser.oscCwdDecode = false;
         fgoto oscCwdPercentHigh;
     }
 
     action oscCwdPercentHigh {
         ragelAppendString(fc, parser.maxOscBytes);
-        parser.oscCwdPercentHigh =
-            fc <= '9' ? fc - '0' : (fc | 0x20) - 'a' + 10;
         fgoto oscCwdPercentLow;
     }
 
     action oscCwdPercentLow {
         ragelAppendString(fc, parser.maxOscBytes);
-        if (!parser.overflow) {
-            const u8 decoded =
-                (parser.oscCwdPercentHigh << 4) |
-                (fc <= '9' ? fc - '0' : (fc | 0x20) - 'a' + 10);
-            parser.oscDecoded.append(&decoded, 1);
-        }
         parser.oscCwdValid = true;
-        parser.oscCwdDecode = true;
         fgoto oscCwdPath;
     }
 
@@ -1956,16 +1920,17 @@
 
     action oscCwdDispatch {
         if (parser.oscTerminated && !parser.overflow) {
-            iface.osc_CWD(
-                ragelOscPayload(), StringView(parser.oscDecoded), parser.oscCwdValid
-            );
+            iface.osc_RAW(7, ragelOscPayload());
+            if (parser.oscCwdValid) {
+                decodeCwd();
+            }
+            iface.osc_CWD(decodedString(), parser.oscCwdValid);
         }
     }
 
     action oscCwdInvalidEscaped {
         ragelAppendEscapedString(fc, parser.maxOscBytes);
         parser.oscCwdValid = false;
-        parser.oscCwdDecode = false;
         fgoto oscCwdInvalid;
     }
 
@@ -1975,18 +1940,10 @@
     }
 
     action oscCwdPathEscapedEscape {
-        if (!parser.overflow) {
-            const u8 escape = '\x1b';
-            parser.oscDecoded.append(&escape, 1);
-        }
     }
 
     action oscCwdPathEscaped {
         ragelAppendEscapedString(fc, parser.maxOscBytes);
-        if (!parser.overflow) {
-            const u8 bytes[] = {'\x1b', (u8)(fc)};
-            parser.oscDecoded.append(bytes, sizeof(bytes));
-        }
         fgoto oscCwdPath;
     }
 
@@ -2117,44 +2074,20 @@
         if (!executeC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             if (parser.oscTitleHex) {
-                u8 nibble = 0;
-                if (fc >= '0' && fc <= '9') {
-                    nibble = fc - '0';
-                } else if ((fc | 0x20) >= 'a' && (fc | 0x20) <= 'f') {
-                    nibble = (fc | 0x20) - 'a' + 10;
-                } else {
+                if (!((fc >= '0' && fc <= '9') ||
+                      ((fc | 0x20) >= 'a' && (fc | 0x20) <= 'f'))) {
                     parser.oscTitleValid = false;
                 }
                 if (parser.oscTitleValid) {
-                    if (!parser.oscTitleHasHighNibble) {
-                        parser.oscTitleHighNibble = nibble;
-                        parser.oscTitleHasHighNibble = true;
-                    } else {
-                        const u8 decoded = (parser.oscTitleHighNibble << 4) | nibble;
-                        if (decoded < 32) {
-                            parser.oscTitleStopped = true;
-                        } else if (!parser.oscTitleStopped) {
-                        if (!parser.overflow) {
-                            parser.oscDecoded.append(&decoded, 1);
-                        }
-                        }
-                        parser.oscTitleHasHighNibble = false;
-                    }
+                    parser.oscTitleHasHighNibble =
+                        !parser.oscTitleHasHighNibble;
                 }
             }
         }
     }
 
     action oscTitleEscapedEscape {
-        if constexpr (traced) {
-            parserTrace->stringData((const u8*)("\x1b"), 1);
-        }
-        if (parser.scratch.used() < parser.maxOscBytes) {
-            const u8 ch = '\x1b';
-            parser.scratch.append(&ch, 1);
-        } else {
-            parser.overflow = true;
-        }
+        ragelAppendSynthetic('\x1b', parser.maxOscBytes);
         if (parser.oscTitleHex) {
             parser.oscTitleValid = false;
         }
@@ -2193,7 +2126,10 @@
         } else {
             ragelFinishOsc();
             if (!parser.overflow && parser.oscTitleValid && (!parser.oscTitleHex || !parser.oscTitleHasHighNibble)) {
-                iface.osc_TITLE_0(parser.oscTitleHex ? StringView(parser.oscDecoded) : ragelOscPayload());
+                if (parser.oscTitleHex) {
+                    decodeTitle();
+                }
+                iface.osc_TITLE_0(parser.oscTitleHex ? decodedString() : ragelOscPayload());
             }
             fnext main;
             fbreak;
@@ -2209,7 +2145,10 @@
         } else {
             ragelFinishOsc();
             if (!parser.overflow && parser.oscTitleValid && (!parser.oscTitleHex || !parser.oscTitleHasHighNibble)) {
-                iface.osc_TITLE_1(parser.oscTitleHex ? StringView(parser.oscDecoded) : ragelOscPayload());
+                if (parser.oscTitleHex) {
+                    decodeTitle();
+                }
+                iface.osc_TITLE_1(parser.oscTitleHex ? decodedString() : ragelOscPayload());
             }
             fnext main;
             fbreak;
@@ -2225,7 +2164,10 @@
         } else {
             ragelFinishOsc();
             if (!parser.overflow && parser.oscTitleValid && (!parser.oscTitleHex || !parser.oscTitleHasHighNibble)) {
-                iface.osc_TITLE_2(parser.oscTitleHex ? StringView(parser.oscDecoded) : ragelOscPayload());
+                if (parser.oscTitleHex) {
+                    decodeTitle();
+                }
+                iface.osc_TITLE_2(parser.oscTitleHex ? decodedString() : ragelOscPayload());
             }
             fnext main;
             fbreak;
@@ -2253,7 +2195,7 @@
     action oscHyperlinkEqual {
         ragelAppendString(fc, parser.maxOscBytes);
         if (!parser.oscHyperlinkHasId) {
-            parser.oscHyperlinkIdOffset = parser.scratch.used();
+            parser.oscHyperlinkIdOffset = ragelStringSize();
         }
         fgoto oscHyperlinkIdValue;
     }
@@ -2265,7 +2207,7 @@
 
     action oscHyperlinkIdColon {
         if (!parser.oscHyperlinkHasId) {
-            parser.oscHyperlinkIdLength = parser.scratch.used() - parser.oscHyperlinkIdOffset;
+            parser.oscHyperlinkIdLength = ragelStringSize() - parser.oscHyperlinkIdOffset;
             parser.oscHyperlinkHasId = true;
         }
         ragelAppendString(fc, parser.maxOscBytes);
@@ -2274,17 +2216,17 @@
 
     action oscHyperlinkUri {
         ragelAppendString(fc, parser.maxOscBytes);
-        parser.oscHyperlinkUriOffset = parser.scratch.used();
+        parser.oscHyperlinkUriOffset = ragelStringSize();
         fgoto oscHyperlinkUri;
     }
 
     action oscHyperlinkIdUri {
         if (!parser.oscHyperlinkHasId) {
-            parser.oscHyperlinkIdLength = parser.scratch.used() - parser.oscHyperlinkIdOffset;
+            parser.oscHyperlinkIdLength = ragelStringSize() - parser.oscHyperlinkIdOffset;
             parser.oscHyperlinkHasId = true;
         }
         ragelAppendString(fc, parser.maxOscBytes);
-        parser.oscHyperlinkUriOffset = parser.scratch.used();
+        parser.oscHyperlinkUriOffset = ragelStringSize();
         fgoto oscHyperlinkUri;
     }
 
@@ -2305,11 +2247,11 @@
         } else {
             ragelFinishOsc();
             if (!parser.overflow) {
-                const auto* data = (const u8*)(parser.scratch.data());
+                const auto* data = ragelStringData();
                 iface.osc_HYPERLINK(
                     StringView(data + parser.oscHyperlinkIdOffset, parser.oscHyperlinkHasId ? parser.oscHyperlinkIdLength : 0),
                     parser.oscHyperlinkHasId,
-                    StringView(data + parser.oscHyperlinkUriOffset, parser.scratch.used() - parser.oscHyperlinkUriOffset)
+                    StringView(data + parser.oscHyperlinkUriOffset, ragelStringSize() - parser.oscHyperlinkUriOffset)
                 );
             }
             fnext main;
@@ -2449,12 +2391,11 @@
 
     action osc52BeginPayload {
         ragelAppendString(fc, parser.maxOscBytes);
+        parser.osc52PayloadOffset = ragelStringSize();
         if (!parser.osc52SelectorSeen) {
             parser.osc52Primary = true;
             parser.osc52Clipboard = true;
         }
-        parser.oscDecoded.reset();
-        parser.oscBase64.reset();
         parser.osc52PayloadSeen = false;
         parser.osc52Query = false;
         fgoto osc52Payload;
@@ -2467,14 +2408,8 @@
             if (!parser.osc52PayloadSeen) {
                 parser.osc52PayloadSeen = true;
                 parser.osc52Query = fc == '?';
-                if (!parser.osc52Query && !parser.overflow) {
-                    parser.oscBase64.push(fc, parser.oscDecoded);
-                }
             } else if (parser.osc52Query) {
                 parser.osc52Query = false;
-                parser.oscBase64.valid = false;
-            } else if (!parser.overflow) {
-                parser.oscBase64.push(fc, parser.oscDecoded);
             }
         }
     }
@@ -2486,7 +2421,7 @@
         } else {
             ragelFinishOsc();
             if (!parser.overflow) {
-                iface.osc_CLIPBOARD_MALFORMED(ragelOscPayload());
+                iface.osc_RAW(52, ragelOscPayload());
             }
             fnext main;
             fbreak;
@@ -2496,7 +2431,7 @@
     action osc52MalformedBell {
         ragelFinishOsc();
         if (!parser.overflow) {
-            iface.osc_CLIPBOARD_MALFORMED(ragelOscPayload());
+            iface.osc_RAW(52, ragelOscPayload());
         }
         fnext main;
         fbreak;
@@ -2521,15 +2456,16 @@
     action osc52Dispatch {
         if (parser.oscTerminated && !parser.overflow) {
             const StringView raw = ragelOscPayload();
+            iface.osc_RAW(52, raw);
             if (parser.osc52PayloadSeen && parser.osc52Query) {
                 iface.osc_CLIPBOARD_QUERY(
-                    raw, parser.osc52Primary, parser.osc52Clipboard, parser.osc52ReplySelector,
+                    parser.osc52Primary, parser.osc52Clipboard, parser.osc52ReplySelector,
                     !parser.osc52SelectorSeen
                 );
             } else {
-                const bool valid = parser.oscBase64.finish(parser.oscDecoded);
+                const bool valid = decodeBase64(parser.osc52PayloadOffset);
                 iface.osc_CLIPBOARD_WRITE(
-                    raw, StringView(parser.oscDecoded), valid, parser.osc52Primary,
+                    decodedString(), valid, parser.osc52Primary,
                     parser.osc52Clipboard
                 );
             }
@@ -2545,7 +2481,6 @@
         ragelAppendEscapedString(fc, parser.maxOscBytes);
         parser.osc52PayloadSeen = true;
         parser.osc52Query = false;
-        parser.oscBase64.valid = false;
         fgoto osc52Payload;
     }
 
@@ -2557,7 +2492,7 @@
 
     action oscNotificationBeginValue {
         ragelAppendString(fc, parser.maxOscBytes);
-        parser.oscNotificationFieldOffset = parser.scratch.used();
+        parser.oscNotificationFieldOffset = ragelStringSize();
         fgoto oscNotificationValue;
     }
 
@@ -2575,10 +2510,10 @@
     }
 
     action oscNotificationFinishField {
-        const auto* data = (const u8*)(parser.scratch.data());
+        const auto* data = ragelStringData();
         const StringView value(
             data + parser.oscNotificationFieldOffset,
-            parser.scratch.used() - parser.oscNotificationFieldOffset
+            ragelStringSize() - parser.oscNotificationFieldOffset
         );
         if (parser.oscNotificationKey == 'i') {
             parser.oscNotificationIdOffset = parser.oscNotificationFieldOffset;
@@ -2620,18 +2555,8 @@
 
     action oscNotificationBeginPayload {
         ragelAppendString(fc, parser.maxOscBytes);
-        parser.oscNotificationPayloadOffset = parser.scratch.used();
+        parser.oscNotificationPayloadOffset = ragelStringSize();
         parser.oscNotificationPayloadBytes = 0;
-        parser.oscDecoded.reset();
-        parser.oscBase64.reset();
-        if (parser.oscNotificationEncoded && parser.oscNotificationValid &&
-            !parser.oscNotificationQuery && !parser.oscNotificationClose) {
-            const auto* data = (const u8*)(parser.scratch.data());
-            const StringView id(
-                data + parser.oscNotificationIdOffset, parser.oscNotificationIdLength
-            );
-            parser.oscBase64 = iface.parserNotificationDecoder(id, parser.oscNotificationBody);
-        }
         fgoto oscNotificationPayload;
     }
 
@@ -2643,8 +2568,6 @@
             const u32 limit = parser.oscNotificationEncoded ? 4096 : 2048;
             if (parser.oscNotificationPayloadBytes > limit) {
                 parser.oscNotificationValid = false;
-            } else if (parser.oscNotificationEncoded && !parser.overflow) {
-                parser.oscBase64.push(fc, parser.oscDecoded);
             }
         }
     }
@@ -2677,32 +2600,27 @@
 
     action oscNotificationDispatch {
         if (parser.oscTerminated && !parser.overflow && parser.oscNotificationValid) {
-            const auto* data = (const u8*)(parser.scratch.data());
+            const auto* data = ragelStringData();
             const StringView id(
                 data + parser.oscNotificationIdOffset, parser.oscNotificationIdLength
             );
             const StringView payload(
                 data + parser.oscNotificationPayloadOffset,
-                parser.scratch.used() - parser.oscNotificationPayloadOffset
+                ragelStringSize() - parser.oscNotificationPayloadOffset
             );
-            if (parser.oscNotificationEncoded && parser.oscNotificationFinal) {
-                parser.oscBase64.finish(parser.oscDecoded);
-            }
             if (parser.oscNotificationQuery) {
                 iface.osc_NOTIFICATION_CAPABILITIES(id);
             } else if (parser.oscNotificationClose) {
                 iface.osc_NOTIFICATION_CLOSE(id);
             } else if (parser.oscNotificationBody) {
                 iface.osc_NOTIFICATION_BODY(
-                    id,
-                    parser.oscNotificationEncoded ? StringView(parser.oscDecoded) : payload,
-                    parser.oscBase64, parser.oscNotificationEncoded, parser.oscNotificationFinal
+                    id, payload, parser.oscNotificationEncoded,
+                    parser.oscNotificationFinal
                 );
             } else {
                 iface.osc_NOTIFICATION_TITLE(
-                    id,
-                    parser.oscNotificationEncoded ? StringView(parser.oscDecoded) : payload,
-                    parser.oscBase64, parser.oscNotificationEncoded, parser.oscNotificationFinal
+                    id, payload, parser.oscNotificationEncoded,
+                    parser.oscNotificationFinal
                 );
             }
         }
@@ -2730,9 +2648,6 @@
         const u32 limit = parser.oscNotificationEncoded ? 4096 : 2048;
         if (parser.oscNotificationPayloadBytes > limit) {
             parser.oscNotificationValid = false;
-        } else if (parser.oscNotificationEncoded && !parser.overflow) {
-            parser.oscBase64.push('\x1b', parser.oscDecoded);
-            parser.oscBase64.push(fc, parser.oscDecoded);
         }
         fgoto oscNotificationPayload;
     }
@@ -3134,7 +3049,7 @@
                 }
             }
         } else if (!parser.overflow &&
-                   parser.scratch.used() == parser.oscPayloadOffset) {
+                   ragelStringSize() == parser.oscPayloadOffset) {
             if (parser.oscCommand == 104) {
                 iface.osc_RESET_PALETTE();
             } else if (parser.oscCommand == 105) {

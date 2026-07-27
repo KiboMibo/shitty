@@ -6,7 +6,6 @@
 
 #pragma once
 
-#include "base64.h"
 #include "color.h"
 #include "terminal_types.h"
 #include "vterm.h"
@@ -121,7 +120,6 @@ struct ParserIface {
     virtual void parserSetApplicationKeypad(bool enabled) = 0;
     virtual void parserMoveCursorBackward(u32 count) = 0;
     virtual bool parserHexTitleInput() const = 0;
-    virtual Base64Decoder parserNotificationDecoder(stl::StringView id, bool body) const = 0;
     virtual void parserSingleShift(u8 index) = 0;
     virtual void parserLockingShiftGl(u8 index) = 0;
     virtual void parserLockingShiftGr(u8 index) = 0;
@@ -292,7 +290,8 @@ struct ParserIface {
     virtual void osc_PALETTE(u32 index, Color color, bool query) = 0;
     virtual void osc_SPECIAL_COLOR(u32 index, Color color, bool query) = 0;
     virtual void osc_SPECIAL_COLOR_MODE(u32 index, u32 mode) = 0;
-    virtual void osc_CWD(stl::StringView uri, stl::StringView path, bool valid) = 0;
+    virtual void osc_RAW(u32 command, stl::StringView payload) = 0;
+    virtual void osc_CWD(stl::StringView path, bool valid) = 0;
     virtual void osc_HYPERLINK(stl::StringView id, bool hasId, stl::StringView uri) = 0;
     virtual void osc_NOTIFY(stl::StringView payload) = 0;
     virtual void osc_PROGRESS(u32 state, u32 percent) = 0;
@@ -301,13 +300,12 @@ struct ParserIface {
     virtual void osc_CURSOR_COLOR(Color color, bool query) = 0;
     virtual void osc_SELECTION_BACKGROUND(Color color, bool query) = 0;
     virtual void osc_SELECTION_FOREGROUND(Color color, bool query) = 0;
-    virtual void osc_CLIPBOARD_QUERY(stl::StringView selectors, bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) = 0;
-    virtual void osc_CLIPBOARD_WRITE(stl::StringView selectors, stl::StringView content, bool valid, bool primary, bool clipboard) = 0;
-    virtual void osc_CLIPBOARD_MALFORMED(stl::StringView selectors) = 0;
+    virtual void osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) = 0;
+    virtual void osc_CLIPBOARD_WRITE(stl::StringView content, bool valid, bool primary, bool clipboard) = 0;
     virtual void osc_NOTIFICATION_CAPABILITIES(stl::StringView payload) = 0;
     virtual void osc_NOTIFICATION_CLOSE(stl::StringView id) = 0;
-    virtual void osc_NOTIFICATION_TITLE(stl::StringView id, stl::StringView content, const Base64Decoder& decoder, bool encoded, bool final) = 0;
-    virtual void osc_NOTIFICATION_BODY(stl::StringView id, stl::StringView content, const Base64Decoder& decoder, bool encoded, bool final) = 0;
+    virtual void osc_NOTIFICATION_TITLE(stl::StringView id, stl::StringView content, bool encoded, bool final) = 0;
+    virtual void osc_NOTIFICATION_BODY(stl::StringView id, stl::StringView content, bool encoded, bool final) = 0;
     virtual void osc_RESET_PALETTE() = 0;
     virtual void osc_RESET_PALETTE(u32 index) = 0;
     virtual void osc_RESET_SPECIAL_COLOR() = 0;
@@ -374,8 +372,7 @@ struct ParserIface {
     virtual void dcs_DECRQSS_DECSCUSR() = 0;
     virtual void dcs_DECRQSS_DECSCA() = 0;
     virtual void dcs_DECRQSS_UNKNOWN() = 0;
-    virtual void dcs_XTGETTCAP(stl::Buffer& replies, stl::StringView encoded, stl::StringView value) = 0;
-    virtual void dcs_XTGETTCAP_COMMIT(stl::StringView replies) = 0;
+    virtual void dcs_XTGETTCAP(stl::StringView encoded, stl::StringView value) = 0;
     virtual void dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, const ParserUdkDefinition* definitions, size_t definitionCount, stl::StringView values) = 0;
 };
 

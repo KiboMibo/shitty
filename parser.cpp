@@ -6,11 +6,11 @@
 
 #include "parser.h"
 
+#include "base64.h"
 #include "color_spec.h"
 #include "vterm_trace.h"
 
 #include <std/alg/minmax.h>
-#include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 
 #include <cstring>
@@ -28,6 +28,12 @@
 using namespace stl;
 
 namespace {
+    struct ParserTermcapQuery {
+        size_t offset;
+        size_t length;
+        u8 value;
+    };
+
     [[gnu::always_inline]] size_t printableAsciiPrefix(const u8* input, size_t size) {
         using Bytes = u8 __attribute__((vector_size(16)));
 #if !defined(__SSE2__)
@@ -101,6 +107,8 @@ namespace {
         constexpr const static size_t maxParameters = 32;
         constexpr const static size_t maxDcsBytes = 4095;
         constexpr const static size_t maxOscBytes = 1024 * 1024;
+        constexpr const static size_t maxUdkDefinitions = maxDcsBytes / 4 + 1;
+        constexpr const static size_t maxTermcapQueries = maxDcsBytes / 2 + 1;
 
         int state = 0;
         u8 csiPrefix = 0;
@@ -111,7 +119,10 @@ namespace {
         bool present[maxParameters] = {};
         size_t parameterCount = 0;
         bool csiHadParameters = false;
-        Buffer scratch;
+        u8 scratch[maxOscBytes];
+        size_t scratchSize = 0;
+        size_t decodedOffset = 0;
+        size_t decodedSize = 0;
         bool overflow = false;
         size_t stringLimit = 0;
         u8 stringUtf8Remaining = 0;
@@ -126,8 +137,10 @@ namespace {
         bool dcsCapabilityHasHighNibble = false;
         bool dcsCapabilityValid = false;
         bool dcsCapabilityComplete = false;
-        Vector<ParserUdkDefinition> dcsUdkDefinitions;
-        Buffer dcsDecoded;
+        ParserTermcapQuery dcsTermcapQueries[maxTermcapQueries];
+        size_t dcsTermcapQueryCount = 0;
+        ParserUdkDefinition dcsUdkDefinitions[maxUdkDefinitions];
+        size_t dcsUdkDefinitionCount = 0;
         size_t dcsUdkValueOffset = 0;
         u32 dcsUdkCode = 0;
         VtKey dcsUdkKey = VtKey::NONE;
@@ -144,15 +157,11 @@ namespace {
         size_t oscPayloadOffset = 0;
         bool oscCommandValid = false;
         bool oscTerminated = false;
-        Buffer oscDecoded;
-        u8 oscTitleHighNibble = 0;
         bool oscTitleHex = false;
         bool oscTitleHasHighNibble = false;
         bool oscTitleValid = false;
-        bool oscTitleStopped = false;
-        u8 oscCwdPercentHigh = 0;
+        size_t oscCwdPathOffset = 0;
         bool oscCwdValid = false;
-        bool oscCwdDecode = false;
         size_t oscHyperlinkIdOffset = 0;
         size_t oscHyperlinkIdLength = 0;
         size_t oscHyperlinkUriOffset = 0;
@@ -162,13 +171,13 @@ namespace {
         bool oscProgressStatePresent = false;
         bool oscProgressPercentPresent = false;
         bool oscProgressValid = false;
-        Base64Decoder oscBase64;
         u8 osc52ReplySelector = 0;
         bool osc52Primary = false;
         bool osc52Clipboard = false;
         bool osc52SelectorSeen = false;
         bool osc52PayloadSeen = false;
         bool osc52Query = false;
+        size_t osc52PayloadOffset = 0;
         size_t oscNotificationFieldOffset = 0;
         size_t oscNotificationIdOffset = 0;
         size_t oscNotificationIdLength = 0;
@@ -218,18 +227,27 @@ namespace {
         bool ragelGroundContinuation(u8 ch);
         void ragelGroundHigh(u8 ch);
         void ragelGroundAscii(u8 ch);
+        size_t ragelStringSize() const noexcept;
+        const u8* ragelStringData() const noexcept;
+        void resetDecoded(size_t offset = 0) noexcept;
+        StringView decodedString() const noexcept;
+        void appendDecoded(u8 ch) noexcept;
+        bool decodeBase64(size_t offset) noexcept;
+        void decodeCwd() noexcept;
+        void decodeTitle() noexcept;
         void ragelAppendStringSpan(const u8* data, size_t size, size_t limit);
-        void ragelAppendString(u8 ch, size_t limit);
+        void ragelAppendString(const u8& ch, size_t limit);
+        void ragelAppendSynthetic(u8 ch, size_t limit);
         void ragelAppendEscapedString(u8 ch, size_t limit);
         void ragelBeginString(VtermTraceString type, bool buffered);
         void ragelBeginDcs();
         void ragelBeginOsc();
         void resetOscColor();
-        bool ragelStringContinuation(u8 ch);
+        bool ragelStringContinuation(const u8& ch);
         void ragelFinishString();
         void ragelFinishDcs();
         void ragelFinishOsc();
-        StringView ragelOscPayload() noexcept;
+        StringView ragelOscPayload();
         void beginCsi();
         u32 parameter(size_t index) const noexcept;
         u32 countParameter(size_t index) const noexcept;
@@ -464,15 +482,87 @@ void ParserImpl<traced>::ragelGroundAscii(u8 ch) {
 }
 
 template <bool traced>
+size_t ParserImpl<traced>::ragelStringSize() const noexcept {
+    return parser.scratchSize;
+}
+
+template <bool traced>
+const u8* ParserImpl<traced>::ragelStringData() const noexcept {
+    return parser.scratch;
+}
+
+template <bool traced>
+void ParserImpl<traced>::resetDecoded(size_t offset) noexcept {
+    parser.decodedOffset = offset;
+    parser.decodedSize = 0;
+}
+
+template <bool traced>
+StringView ParserImpl<traced>::decodedString() const noexcept {
+    return StringView(parser.scratch + parser.decodedOffset, parser.decodedSize);
+}
+
+template <bool traced>
+void ParserImpl<traced>::appendDecoded(u8 ch) noexcept {
+    if (parser.decodedOffset + parser.decodedSize == sizeof(parser.scratch)) {
+        parser.overflow = true;
+        return;
+    }
+    parser.scratch[parser.decodedOffset + parser.decodedSize++] = ch;
+}
+
+template <bool traced>
+bool ParserImpl<traced>::decodeBase64(size_t offset) noexcept {
+    resetDecoded(offset);
+    parser.decodedSize = parser.scratchSize - offset;
+    const bool valid = base64DecodeInPlace(parser.scratch + offset, parser.decodedSize);
+    return valid;
+}
+
+template <bool traced>
+void ParserImpl<traced>::decodeCwd() noexcept {
+    const size_t begin = parser.oscCwdPathOffset;
+    const size_t end = parser.scratchSize;
+    resetDecoded(begin);
+    for (size_t source = begin; source < end;) {
+        if (parser.scratch[source] != '%') {
+            parser.scratch[begin + parser.decodedSize++] = parser.scratch[source++];
+            continue;
+        }
+        const auto nibble = [](u8 ch) {
+            return ch <= '9' ? ch - '0' : (ch | 0x20) - 'a' + 10;
+        };
+        parser.scratch[begin + parser.decodedSize++] = (nibble(parser.scratch[source + 1]) << 4) | nibble(parser.scratch[source + 2]);
+        source += 3;
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::decodeTitle() noexcept {
+    const size_t begin = parser.oscPayloadOffset;
+    resetDecoded(begin);
+    for (size_t source = begin; source + 1 < parser.scratchSize; source += 2) {
+        const auto nibble = [](u8 ch) {
+            return ch <= '9' ? ch - '0' : (ch | 0x20) - 'a' + 10;
+        };
+        const u8 decoded = (nibble(parser.scratch[source]) << 4) | nibble(parser.scratch[source + 1]);
+        if (decoded < 32) {
+            break;
+        }
+        parser.scratch[begin + parser.decodedSize++] = decoded;
+    }
+}
+
+template <bool traced>
 void ParserImpl<traced>::ragelAppendStringSpan(const u8* data, size_t size, size_t limit) {
     if constexpr (traced) {
         parserTrace->stringData(data, size);
     }
-    const size_t used = parser.scratch.used();
-    const size_t available = used < limit ? limit - used : 0;
+    const size_t available = parser.scratchSize < limit ? limit - parser.scratchSize : 0;
     const size_t appendSize = min(size, available);
     if (appendSize != 0) {
-        parser.scratch.append(data, appendSize);
+        memcpy(parser.scratch + parser.scratchSize, data, appendSize);
+        parser.scratchSize += appendSize;
     }
     if (appendSize != size) {
         parser.overflow = true;
@@ -480,8 +570,20 @@ void ParserImpl<traced>::ragelAppendStringSpan(const u8* data, size_t size, size
 }
 
 template <bool traced>
-void ParserImpl<traced>::ragelAppendString(u8 ch, size_t limit) {
-    ragelAppendStringSpan(&ch, 1, limit);
+void ParserImpl<traced>::ragelAppendString(const u8& ch, size_t limit) {
+    if constexpr (traced) {
+        parserTrace->stringData(&ch, 1);
+    }
+    if (parser.scratchSize == limit) {
+        parser.overflow = true;
+        return;
+    }
+    parser.scratch[parser.scratchSize++] = ch;
+}
+
+template <bool traced>
+void ParserImpl<traced>::ragelAppendSynthetic(u8 ch, size_t limit) {
+    ragelAppendString(ch, limit);
 }
 
 template <bool traced>
@@ -495,9 +597,9 @@ void ParserImpl<traced>::ragelBeginString(VtermTraceString type, bool buffered) 
     iface.parserResetGraphemeInput();
     parser.stringUtf8Remaining = 0;
     parser.stringLimit = type == VtermTraceString::Dcs ? parser.maxDcsBytes : type == VtermTraceString::Osc ? parser.maxOscBytes : 0;
-    parser.oscCwdDecode = false;
     if (buffered) {
-        parser.scratch.reset();
+        parser.scratchSize = 0;
+        resetDecoded();
         parser.overflow = false;
     }
     if constexpr (traced) {
@@ -519,8 +621,9 @@ void ParserImpl<traced>::ragelBeginDcs() {
     parser.dcsCapabilityHasHighNibble = false;
     parser.dcsCapabilityValid = false;
     parser.dcsCapabilityComplete = false;
-    parser.dcsUdkDefinitions.clear();
-    parser.dcsDecoded.reset();
+    parser.dcsTermcapQueryCount = 0;
+    parser.dcsUdkDefinitionCount = 0;
+    resetDecoded();
     parser.dcsUdkValueOffset = 0;
     parser.dcsUdkCode = 0;
     parser.dcsUdkKey = VtKey::NONE;
@@ -540,15 +643,12 @@ void ParserImpl<traced>::ragelBeginOsc() {
     parser.oscPayloadOffset = 0;
     parser.oscCommandValid = false;
     parser.oscTerminated = false;
-    parser.oscDecoded.reset();
-    parser.oscTitleHighNibble = 0;
+    resetDecoded();
     parser.oscTitleHex = false;
     parser.oscTitleHasHighNibble = false;
     parser.oscTitleValid = false;
-    parser.oscTitleStopped = false;
-    parser.oscCwdPercentHigh = 0;
+    parser.oscCwdPathOffset = 0;
     parser.oscCwdValid = false;
-    parser.oscCwdDecode = false;
     parser.oscHyperlinkIdOffset = 0;
     parser.oscHyperlinkIdLength = 0;
     parser.oscHyperlinkUriOffset = 0;
@@ -558,7 +658,6 @@ void ParserImpl<traced>::ragelBeginOsc() {
     parser.oscProgressStatePresent = false;
     parser.oscProgressPercentPresent = false;
     parser.oscProgressValid = false;
-    parser.oscBase64.reset();
     parser.osc52ReplySelector = 0;
     parser.osc52Primary = false;
     parser.osc52Clipboard = false;
@@ -581,7 +680,7 @@ void ParserImpl<traced>::resetOscColor() {
 }
 
 template <bool traced>
-bool ParserImpl<traced>::ragelStringContinuation(u8 ch) {
+bool ParserImpl<traced>::ragelStringContinuation(const u8& ch) {
     if (!consumeStringUtf8Byte(ch)) {
         return false;
     }
@@ -589,9 +688,6 @@ bool ParserImpl<traced>::ragelStringContinuation(u8 ch) {
         ragelAppendString(ch, parser.stringLimit);
     } else if constexpr (traced) {
         parserTrace->stringData(&ch, 1);
-    }
-    if (parser.oscCwdDecode && !parser.overflow) {
-        parser.oscDecoded.append(&ch, 1);
     }
     return true;
 }
@@ -616,9 +712,8 @@ void ParserImpl<traced>::ragelFinishOsc() {
 }
 
 template <bool traced>
-StringView ParserImpl<traced>::ragelOscPayload() noexcept {
-    const auto* data = (const u8*)(parser.scratch.data());
-    return StringView(data + parser.oscPayloadOffset, parser.scratch.used() - parser.oscPayloadOffset);
+StringView ParserImpl<traced>::ragelOscPayload() {
+    return StringView(parser.scratch + parser.oscPayloadOffset, parser.scratchSize - parser.oscPayloadOffset);
 }
 
 template <bool traced>
