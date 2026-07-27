@@ -268,7 +268,7 @@ return changed;
 
 Таким образом generated code, parser state, actions и semantic implementation остаются полностью инкапсулированы в `vterm.cpp`. Не появляется `Parser` component, parser interface, virtual sink или публичный header.
 
-Начальный backend — `-G2 -L`. Сравнение `-G2`, `-G1` и `-T1` откладывается до функционального завершения и не задерживает первую понятную версию.
+До функционального завершения используется компактный табличный backend. После завершения сравниваются `-G2`, `-G1` и `-T1`; выбранный по результатам измерений backend фиксируется в build graph.
 
 Generated include:
 
@@ -724,3 +724,45 @@ Parser-facing API trace переводится со `std::string` на `StringVi
 - parser fuzz и chunk-invariance fuzz проходят;
 - performance baseline новой версии снят и возможная небольшая регрессия локализована для последующей доводки;
 - generated source полностью воспроизводится build graph.
+
+## Результат реализации
+
+План завершён 2026-07-27.
+
+Архитектурный результат:
+
+- `ProtocolParser::state` и сгенерированная Ragel statechart являются единственным владельцем protocol framing;
+- ground/text, C0/C1, ESC, CSI, OSC, DCS, SOS/PM/APC, VT52, charset и printer controller входят в одну machine;
+- semantic methods получают уже распознанные POD-параметры и локальные `StringView`, не меняют состояние parser и вызываются непосредственно из Ragel actions;
+- parser не хранит raw pointers или `StringView` между `consume()`, не использует `std::` и ограничивает незаконченные OSC/DCS;
+- OSC 52 и OSC 99 декодируются во время parsing, DECUDK, XTGETTCAP и DECRQSS коммитятся транзакционно;
+- bulk paths сохранены для обычного текста и сырых string payloads;
+- старые `InputState`, `processCsiByte`, `dispatchCsi`, `handle_OSC`, `handle_DCS`, `consumePrinterController`, `setState`, `argBuf` и повторные string subparsers удалены.
+
+Размер handwritten C++ действительно уменьшился:
+
+- `vterm.cpp`: 10 255 → 8 142 строк;
+- `color_spec.cpp`: 375 → 251 строк;
+- diff `vterm.cpp` относительно последнего состояния до Ragel: `+953/-3066`, то есть минус 2 113 строк.
+
+`vterm_parser.rl` содержит 5 709 строк. Он не заменяет terminal semantics: его объём — явная grammar, transitions и короткие actions, которые вызывают оставшиеся semantic methods в `vterm.cpp`. Перенос этих методов в generated fragment уменьшил бы только счётчик `.cpp`, смешав protocol syntax с поведением terminal.
+
+Финальная проверка:
+
+- весь build/test graph: 2 555 из 2 555 целей;
+- 799 проектных Python-тестов;
+- parser fuzz, chunk-invariance, upstream DEC/xterm/libvterm и vtebench suites;
+- отдельная регрессия для неизвестных C1 final bytes после `ESC` в VT52;
+- packed corpus: 1 190.8 MiB без parser error-state, зависания или роста памяти.
+
+Сравнение Ragel 6 backend’ов на одном исходнике и одном clang:
+
+| Backend | Generated header | `parseWithRagel<false>` | ELF `.text` | Packed corpus | `~/2` × 4 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `-T1 -L` | 788 224 B | 106 245 B | 27 143 476 B | 97.9 MiB/s | 308.6 MiB/s |
+| `-G1 -L` | 1 303 074 B | 196 593 B | 28 571 944 B | 116.6 MiB/s | 311.9 MiB/s |
+| `-G2 -L` | 4 569 942 B | 990 189 B | 30 522 008 B | 120.6 MiB/s | 311.7 MiB/s |
+
+`-G1 -L` выбран как итоговый backend. Он ускоряет mixed packed corpus примерно на 19% относительно `-T1`, совпадает с `-G2` на text-heavy workload и уступает ему около 3% на packed corpus. При этом `-G2` компилировал один `vterm.cpp` около 18 минут и потреблял примерно 1.8 GiB RSS; `-G1` собирает тот же шаг примерно за минуту.
+
+Контрольный `perf stat` на packed corpus подтверждает выбор: `-T1` исполнил 237.4 млрд instructions и 56.5 млрд cycles, `-G1` — 185.8 и 46.8 млрд, `-G2` — 190.8 и 44.8 млрд соответственно. Небольшой остаточный runtime-выигрыш `-G2` не оправдывает десятикратный размер parser function и восемнадцатиминутную компиляцию.
