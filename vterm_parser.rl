@@ -4253,6 +4253,8 @@
         cancel |
         0x1b @repeatEscape |
         c1Dispatch |
+        (0x80..0x83 | 0x86..0x87 | 0x89..0x8c |
+         0x91..0x95 | 0x99) @escapeFinal |
         0x7f |
         highToGround |
         '=' @vt52AppKeypad |

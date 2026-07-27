@@ -139,6 +139,19 @@ class DecProtocolTest(unittest.TestCase):
             self.assertEqual(snapshot.lines[0][:2], " X")
             self.assertEqual(snapshot.cursor_x, 2)
 
+    def test_vt52_unknown_c1_escape_finals_recover_to_ground(self):
+        unknown = (
+            tuple(range(0x80, 0x84))
+            + tuple(range(0x86, 0x88))
+            + tuple(range(0x89, 0x8D))
+            + tuple(range(0x91, 0x96))
+            + (0x99,)
+        )
+        sequence = b"".join(b"\x1b" + bytes((byte,)) for byte in unknown)
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[?2l" + sequence + b"X")
+            self.assertEqual(terminal.snapshot().cell(0, 0).char, "X")
+
     def test_vt100_compatibility_ignores_decrqss_and_s8c1t(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[?2l\x1b<\x1bP$q\"p\x1b\\")
