@@ -863,7 +863,6 @@
 
     action printerEnd {
         printerControllerMode = false;
-        flushPrinter();
         fnext main;
         fbreak;
     }
@@ -1369,11 +1368,13 @@
                 capability = DcsCapability::Rgb;
             }
         }
-        dcsCapabilityRequests.pushBack({
-            dcsCapabilityOffset,
-            argBuf.used() - dcsCapabilityOffset,
-            capability,
-        });
+        if (!argBufOverflowed) {
+            dcsCapabilityRequests.pushBack({
+                dcsCapabilityOffset,
+                argBuf.used() - dcsCapabilityOffset,
+                capability,
+            });
+        }
         ragelAppendString(fc, maxDcsBytes);
         dcsCapabilityOffset = argBuf.used();
         dcsCapabilityDecodedLength = 0;
@@ -1398,11 +1399,13 @@
                     capability = DcsCapability::Rgb;
                 }
             }
-            dcsCapabilityRequests.pushBack({
-                dcsCapabilityOffset,
-                argBuf.used() - dcsCapabilityOffset,
-                capability,
-            });
+            if (!argBufOverflowed) {
+                dcsCapabilityRequests.pushBack({
+                    dcsCapabilityOffset,
+                    argBuf.used() - dcsCapabilityOffset,
+                    capability,
+                });
+            }
             ragelFinishDcs();
             if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT200) {
                 dcs_XTGETTCAP();
@@ -1461,7 +1464,8 @@
             dcsUdkHighNibble = nibble;
             dcsUdkHasHighNibble = true;
         } else {
-            if (dcsDecoded.used() - dcsUdkValueOffset < 255) {
+            if (!argBufOverflowed &&
+                dcsDecoded.used() - dcsUdkValueOffset < 255) {
                 const u8 decoded = (dcsUdkHighNibble << 4) | nibble;
                 dcsDecoded.append(&decoded, 1);
             } else {
@@ -1481,7 +1485,7 @@
     }
 
     action dcsUdkValueSeparator {
-        if (dcsUdkValid && !dcsUdkHasHighNibble) {
+        if (!argBufOverflowed && dcsUdkValid && !dcsUdkHasHighNibble) {
             dcsUdkDefinitions.pushBack({
                 dcsUdkValueOffset,
                 dcsDecoded.used() - dcsUdkValueOffset,
@@ -1520,7 +1524,8 @@
             dcsUdkValid = false;
             fgoto dcsUdkInvalid;
         } else {
-            if (dcsUdkInValue && dcsUdkValid && !dcsUdkHasHighNibble) {
+            if (!argBufOverflowed && dcsUdkInValue && dcsUdkValid &&
+                !dcsUdkHasHighNibble) {
                 dcsUdkDefinitions.pushBack({
                     dcsUdkValueOffset,
                     dcsDecoded.used() - dcsUdkValueOffset,
@@ -1960,7 +1965,9 @@
                         if (decoded < 32) {
                             oscTitleStopped = true;
                         } else if (!oscTitleStopped) {
+                        if (!argBufOverflowed) {
                             oscDecoded.append(&decoded, 1);
+                        }
                         }
                         oscTitleHasHighNibble = false;
                     }
@@ -2545,12 +2552,14 @@
     }
 
     action oscFieldSeparator {
-        oscFields.pushBack({
-            oscFieldOffset,
-            argBuf.used() - oscFieldOffset,
-            oscFieldNumber,
-            oscFieldNumeric && argBuf.used() != oscFieldOffset,
-        });
+        if (!argBufOverflowed) {
+            oscFields.pushBack({
+                oscFieldOffset,
+                argBuf.used() - oscFieldOffset,
+                oscFieldNumber,
+                oscFieldNumeric && argBuf.used() != oscFieldOffset,
+            });
+        }
         ragelAppendString(fc, maxOscBytes);
         oscFieldOffset = argBuf.used();
         oscFieldNumber = 0;

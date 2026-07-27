@@ -575,7 +575,6 @@ namespace {
         UnicodeMap<u8>* const unicodeProperties;
         Buffer ptyOutput;
         Buffer protocolResponseScratch;
-        Buffer printerScratch;
         size_t ptyOutputOffset = 0;
         u64 droppedPtyResponses = 0;
         Vector<TerminalCellSpan> outputSpans;
@@ -3490,7 +3489,8 @@ std::string VtermImpl<traced>::printableLine(u16 row) const {
 
 template <bool traced>
 void VtermImpl<traced>::printLine(u16 row) {
-    host.print(printableLine(std::min<u16>(row, composer.rows - 1)));
+    const std::string line = printableLine(std::min<u16>(row, composer.rows - 1));
+    host.print(StringView((const u8*)(line.data()), line.size()));
 }
 
 template <bool traced>
@@ -3515,7 +3515,7 @@ void VtermImpl<traced>::csi_MC(bool privateMode) {
             if (printFormFeedMode) {
                 screen.push_back('\f');
             }
-            host.print(screen);
+            host.print(StringView((const u8*)(screen.data()), screen.size()));
         } else if (operation == 4) {
             printerControllerMode = false;
         } else if (operation == 5) {
@@ -8442,22 +8442,13 @@ void VtermImpl<traced>::parseWithRagel(const u8* data, size_t len) {
     const u8* const pe = data + len;
     int& cs = ragelState;
     const bool printerHandled = host.handlesPrinter();
-    printerScratch.reset();
     const auto appendPrinter = [&](const void* bytes, size_t size) {
-        if (printerHandled) {
-            printerScratch.append(bytes, size);
-        }
-    };
-    const auto flushPrinter = [&] {
-        if (printerScratch.used()) {
-            host.print(std::string((const char*)(printerScratch.data()), printerScratch.used()));
-            printerScratch.reset();
+        if (printerHandled && size != 0) {
+            host.print(StringView((const u8*)(bytes), size));
         }
     };
 
 #include "vterm_parser.rl.h"
-
-    flushPrinter();
 }
 
 template <bool traced>

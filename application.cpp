@@ -101,7 +101,7 @@ namespace {
         void cwd(StringView path) override;
         void bell() override;
         bool handlesPrinter() const override;
-        void print(const std::string& output) override;
+        void print(StringView output) override;
         void leds(u8) override;
         void notify(const std::string&, const std::string& title, const std::string& body, bool close) override;
         void progress(u32 state, u32) override;
@@ -479,11 +479,11 @@ bool ApplicationImpl::handlesPrinter() const {
     return printerPipe != nullptr;
 }
 
-void ApplicationImpl::print(const std::string& output) {
+void ApplicationImpl::print(StringView output) {
     if (printerPipe == nullptr || output.empty()) {
         return;
     }
-    fwrite(output.data(), 1, output.size(), printerPipe);
+    fwrite(output.data(), 1, output.length(), printerPipe);
     fflush(printerPipe);
 }
 

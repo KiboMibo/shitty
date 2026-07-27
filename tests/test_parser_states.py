@@ -243,6 +243,18 @@ class ParserStateMachineTest(unittest.TestCase):
             self.assertEqual(terminal.read_actions(), [])
             self.assertEqual(terminal.snapshot().cell(0, 0).char, "X")
 
+    def test_over_limit_structured_payloads_discard_auxiliary_state(self):
+        sequences = (
+            b"\x1bP0;0|" + b"17/41;" * 1024 + b"\x1b\\",
+            b"\x1b]4;" + b"1;#000;" * (1024 * 1024 // 7 + 16) + b"\x1b\\",
+        )
+        for sequence in sequences:
+            with self.subTest(sequence=sequence[:8]):
+                with Shitty(columns=8, rows=2) as terminal:
+                    terminal.write(sequence + b"X")
+                    self.assertEqual(terminal.snapshot().cell(0, 0).char, "X")
+                    self.assertEqual(terminal.read_input(), b"")
+
     def test_utf8_continuation_in_c1_range_is_not_a_control(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.write_chunks(b"\xd0", b"\x9bX")

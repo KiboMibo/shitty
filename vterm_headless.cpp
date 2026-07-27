@@ -28,7 +28,7 @@ namespace {
         void cwd(StringView) override;
         void bell() override;
         bool handlesPrinter() const override;
-        void print(const std::string& output) override;
+        void print(StringView output) override;
         void leds(u8 state) override;
         void notify(const std::string& id, const std::string& title, const std::string& body, bool close) override;
         void progress(u32 state, u32 percent) override;
@@ -73,7 +73,7 @@ bool HeadlessHost::handlesPrinter() const {
     return false;
 }
 
-void HeadlessHost::print(const std::string&) {
+void HeadlessHost::print(StringView) {
 }
 
 void HeadlessHost::leds(u8) {
