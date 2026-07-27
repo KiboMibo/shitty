@@ -311,6 +311,16 @@ namespace {
         std::string getLocalEcho(const u8* const begin, const u8* const end);
         bool processInput(const u8* input, int size, bool refresh = true);
         [[gnu::noinline]] bool processInputImpl(const u8* input, int size, bool refresh);
+        [[gnu::noinline]] bool processInputLegacy(const u8* input, int size, bool refresh);
+        void parseWithRagel(const u8* data, size_t len);
+        bool ragelGroundContinuation(u8 ch);
+        void ragelGroundHigh(u8 ch);
+        void ragelGroundAscii(u8 ch);
+        void ragelBeginString(VtermTraceString type, bool buffered);
+        void ragelAppendString(u8 ch, size_t limit);
+        void ragelAppendEscapedString(u8 ch, size_t limit);
+        void ragelFinishDcs();
+        void ragelFinishOsc();
 
         struct PresentationState {
             Screen* frame;
@@ -656,6 +666,8 @@ namespace {
         bool hasFocus = false;
 
         InputState inputState = InputState::Normal;
+        int ragelState = 0;
+        bool ragelInitialized = false;
         // Whether a private/intermediate CSI prefix may still occur.  This is
         // parser state, rather than an input-buffer offset: PTY reads may split an
         // escape sequence at any byte.
@@ -9098,7 +9110,7 @@ bool VtermImpl<traced>::processInput(const u8* input, int inputSize, bool refres
 }
 
 template <bool traced>
-[[gnu::noinline]] bool VtermImpl<traced>::processInputImpl(const u8* input, int inputSize, bool refresh) {
+[[gnu::noinline]] bool VtermImpl<traced>::processInputLegacy(const u8* input, int inputSize, bool refresh) {
     const PresentationState presentationBefore = capturePresentationState();
     hideCursor();
     const u8* cursor = input;
@@ -10012,6 +10024,146 @@ template <bool traced>
         redraw();
     }
     return changed;
+}
+
+template <bool traced>
+[[gnu::noinline]] bool VtermImpl<traced>::processInputImpl(const u8* input, int inputSize, bool refresh) {
+    const PresentationState presentationBefore = capturePresentationState();
+    hideCursor();
+    parseWithRagel(input, inputSize);
+    syncPresentationCursor();
+    const bool changed = presentationChanged(presentationBefore);
+    if (refresh && changed) {
+        redraw();
+    }
+    return changed;
+}
+
+template <bool traced>
+void VtermImpl<traced>::parseWithRagel(const u8* data, size_t len) {
+    const u8* p = data;
+    const u8* const pe = data + len;
+    int& cs = ragelState;
+
+    #include "vterm_parser.rl.h"
+}
+
+template <bool traced>
+bool VtermImpl<traced>::ragelGroundContinuation(u8 ch) {
+    if (!utf8dec.expectsContinuation() || ch < 0x80) {
+        return false;
+    }
+    if constexpr (traced) {
+        parserTrace->text(&ch, 1);
+    }
+    if (charsetState.g[charsetState.gr] == Charset::UTF8) {
+        for (int completed = utf8dec.pushByte(ch); completed > 0; --completed) {
+            placeGraphicChar();
+        }
+    } else {
+        inputGraphicChar(ch);
+    }
+    return true;
+}
+
+template <bool traced>
+void VtermImpl<traced>::ragelGroundHigh(u8 ch) {
+    if (ragelGroundContinuation(ch)) {
+        return;
+    }
+    if constexpr (traced) {
+        if (ch >= 0xa0) {
+            parserTrace->text(&ch, 1);
+        } else {
+            parserTrace->control(ch);
+        }
+    }
+    if (ch <= 0x9f) {
+        resetGraphemeInput();
+    }
+    if (charsetState.g[charsetState.gr] == Charset::UTF8) {
+        for (int completed = utf8dec.pushByte(ch); completed > 0; --completed) {
+            placeGraphicChar();
+        }
+    } else {
+        inputGraphicChar(ch);
+    }
+}
+
+template <bool traced>
+void VtermImpl<traced>::ragelGroundAscii(u8 ch) {
+    if constexpr (traced) {
+        parserTrace->text(&ch, 1);
+    }
+    inputGraphicChar(ch);
+}
+
+template <bool traced>
+void VtermImpl<traced>::ragelBeginString(VtermTraceString type, bool buffered) {
+    if (buffered) {
+        argBuf.clear();
+        argBufOverflowed = false;
+    }
+    if constexpr (traced) {
+        parserTrace->stringBegin(type);
+    }
+    if (type == VtermTraceString::Dcs) {
+        setState(InputState::DCS);
+    } else if (type == VtermTraceString::Osc) {
+        setState(InputState::OSC);
+    } else {
+        setState(InputState::String);
+    }
+}
+
+template <bool traced>
+void VtermImpl<traced>::ragelAppendString(u8 ch, size_t limit) {
+    if constexpr (traced) {
+        parserTrace->stringData(&ch, 1);
+    }
+    if (argBuf.size() < limit) {
+        argBuf.push_back(ch);
+    } else {
+        argBufOverflowed = true;
+    }
+}
+
+template <bool traced>
+void VtermImpl<traced>::ragelAppendEscapedString(u8 ch, size_t limit) {
+    if constexpr (traced) {
+        const u8 bytes[] = {'\x1b', ch};
+        parserTrace->stringData(bytes, sizeof(bytes));
+    }
+    if (argBuf.size() <= limit - 2) {
+        argBuf.push_back('\x1b');
+        argBuf.push_back(ch);
+    } else {
+        argBufOverflowed = true;
+    }
+}
+
+template <bool traced>
+void VtermImpl<traced>::ragelFinishDcs() {
+    if constexpr (traced) {
+        parserTrace->stringEnd();
+    }
+    if (argBufOverflowed) {
+        setState(InputState::Normal);
+    } else {
+        handle_DCS();
+    }
+}
+
+template <bool traced>
+void VtermImpl<traced>::ragelFinishOsc() {
+    if constexpr (traced) {
+        parserTrace->stringEnd();
+    }
+    if (argBufOverflowed) {
+        setState(InputState::Normal);
+    } else {
+        handle_OSC();
+    }
 }
 
 template <bool traced>

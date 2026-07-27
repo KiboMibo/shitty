@@ -181,6 +181,23 @@ render_spv = command(
     color="magenta",
 )
 
+vterm_parser = command(
+    name="vterm_parser",
+    inputs=["$(S)/vterm_parser.rl"],
+    outputs=["$(B)/vterm_parser.rl.h"],
+    cmd=[
+        "ragel",
+        "-C",
+        "-G2",
+        "-L",
+        "-o",
+        "$(B)/vterm_parser.rl.h",
+        "$(S)/vterm_parser.rl",
+    ],
+    descr="RG",
+    color="magenta",
+)
+
 
 main_source = "$(S)/main.cpp"
 fuzz_source = "$(S)/main_fuzz.cpp"
@@ -192,6 +209,7 @@ all_libshitty_sources = [
 ]
 libshitty_sources = all_libshitty_sources
 libshitty_deps = [
+    vterm_parser,
     freetype, fontconfig, harfbuzz, glfw, vulkan, threads, libstd, brotli_common,
     utf8proc, simdutf,
 ]
