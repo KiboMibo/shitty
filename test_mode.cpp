@@ -295,15 +295,19 @@ namespace {
         return output;
     }
 
-    std::string encodeHex(const std::string& input) {
+    std::string encodeHex(StringView input) {
         static constexpr char digits[] = "0123456789abcdef";
         std::string output;
-        output.reserve(input.size() * 2);
-        for (const unsigned char ch : input) {
+        output.reserve(input.length() * 2);
+        for (const u8 ch : input) {
             output.push_back(digits[ch >> 4]);
             output.push_back(digits[ch & 15]);
         }
         return output;
+    }
+
+    std::string encodeHex(const std::string& input) {
+        return encodeHex(StringView((const u8*)(input.data()), input.size()));
     }
 
     void appendHex(StringBuilder& output, StringView input) {
@@ -348,7 +352,7 @@ namespace {
 
         void attach(TestApi& testApi);
         bool update(const TerminalUpdate& update);
-        void osc(int command, const std::string& argument) override;
+        void osc(int command, StringView argument) override;
         bool handlesOsc() const override;
         void title(StringView) override;
         void cwd(StringView) override;
@@ -356,7 +360,7 @@ namespace {
         bool handlesPrinter() const override;
         void print(StringView output) override;
         void leds(u8 state) override;
-        void notify(const std::string& id, const std::string& title, const std::string& body, bool close) override;
+        void notify(StringView id, StringView title, StringView body, bool close) override;
         void progress(u32 state, u32 percent) override;
         void windowOperation(u32 operation, u32 first, u32 second) override;
         VtermWindowInfo windowInfo() override;
@@ -640,7 +644,7 @@ bool TestDisplay::update(const TerminalUpdate& update) {
     return true;
 }
 
-void TestDisplay::osc(int command, const std::string& argument) {
+void TestDisplay::osc(int command, StringView argument) {
     actions += "OSC " + std::to_string(command) + " " + encodeHex(argument) + "\n";
 }
 
@@ -675,7 +679,7 @@ void TestDisplay::leds(u8 state) {
     actions += "LEDS " + std::to_string(state) + "\n";
 }
 
-void TestDisplay::notify(const std::string& id, const std::string& title, const std::string& body, bool close) {
+void TestDisplay::notify(StringView id, StringView title, StringView body, bool close) {
     if (close) {
         actions += "NOTIFY_CLOSE " + encodeHex(id) + "\n";
     } else {

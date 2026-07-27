@@ -95,7 +95,7 @@ namespace {
         ~ApplicationImpl();
 
         int run(int argc, char* argv[]) override;
-        void osc(int command, const std::string& argument) override;
+        void osc(int command, StringView argument) override;
         bool handlesOsc() const override;
         void title(StringView value) override;
         void cwd(StringView path) override;
@@ -103,7 +103,7 @@ namespace {
         bool handlesPrinter() const override;
         void print(StringView output) override;
         void leds(u8) override;
-        void notify(const std::string&, const std::string& title, const std::string& body, bool close) override;
+        void notify(StringView id, StringView title, StringView body, bool close) override;
         void progress(u32 state, u32) override;
         void windowOperation(u32 operation, u32 first, u32 second) override;
         VtermWindowInfo windowInfo() override;
@@ -453,7 +453,7 @@ bool ApplicationImpl::servicePty(bool readable, bool writable) {
     return readable && readPty();
 }
 
-void ApplicationImpl::osc(int, const std::string&) {
+void ApplicationImpl::osc(int, StringView) {
 }
 
 bool ApplicationImpl::handlesOsc() const {
@@ -490,7 +490,7 @@ void ApplicationImpl::print(StringView output) {
 void ApplicationImpl::leds(u8) {
 }
 
-void ApplicationImpl::notify(const std::string&, const std::string& title, const std::string& body, bool close) {
+void ApplicationImpl::notify(StringView, StringView, StringView, bool close) {
     if (close) {
         return;
     }

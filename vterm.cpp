@@ -85,15 +85,8 @@ void MouseTrackingState::setEncoding(MouseTrackingEnc value) {
 namespace {
     constexpr size_t ptyProtocolHighWater = 1024 * 1024;
 
-    std::string encodeHex(const std::string& value) {
-        static constexpr char hex[] = "0123456789ABCDEF";
-        std::string result;
-        result.reserve(value.size() * 2);
-        for (unsigned char ch : value) {
-            result.push_back(hex[ch >> 4]);
-            result.push_back(hex[ch & 0x0f]);
-        }
-        return result;
+    StringView stringView(const std::string& value) {
+        return StringView((const u8*)(value.data()), value.size());
     }
 
     struct GraphemeBuffer {
@@ -567,7 +560,7 @@ namespace {
 
         void reportInBandResize();
         void reportColorScheme();
-        void writeTitleResponse(char, const std::string&);
+        void writeTitleResponse(char, StringView);
         void applyPaletteColor(u16 index, Color color);
 
         VtermInput<traced> input;
@@ -1829,7 +1822,7 @@ template <bool traced>
 VtermTextResult VtermImpl<traced>::selectionFinish() {
     inputResult.clear();
     const bool selected = selectFinish(inputResult);
-    return {StringView((const u8*)(inputResult.data()), inputResult.size()), selected};
+    return {stringView(inputResult), selected};
 }
 
 template <bool traced>
@@ -1868,7 +1861,7 @@ StringView VtermImpl<traced>::hyperlinkAt(int pixelX, int pixelY) {
     } else {
         inputResult.assign((const char*)(payload.data()), payload.length());
     }
-    return StringView((const u8*)(inputResult.data()), inputResult.size());
+    return stringView(inputResult);
 }
 
 template <bool traced>
@@ -3494,7 +3487,7 @@ std::string VtermImpl<traced>::printableLine(u16 row) const {
 template <bool traced>
 void VtermImpl<traced>::printLine(u16 row) {
     const std::string line = printableLine(std::min<u16>(row, composer.rows - 1));
-    host.print(StringView((const u8*)(line.data()), line.size()));
+    host.print(stringView(line));
 }
 
 template <bool traced>
@@ -3519,7 +3512,7 @@ void VtermImpl<traced>::csi_MC(bool privateMode) {
             if (printFormFeedMode) {
                 screen.push_back('\f');
             }
-            host.print(StringView((const u8*)(screen.data()), screen.size()));
+            host.print(stringView(screen));
         } else if (operation == 4) {
             printerControllerMode = false;
         } else if (operation == 5) {
@@ -5534,27 +5527,24 @@ void VtermImpl<traced>::dcs_XTGETTCAP_COMMIT() {
 
 template <bool traced>
 void VtermImpl<traced>::osc_TITLE_0(StringView payload) {
-    const std::string title((const char*)(payload.data()), payload.length());
-    iconTitle = title;
-    windowTitle = title;
+    iconTitle.assign((const char*)(payload.data()), payload.length());
+    windowTitle = iconTitle;
     host.title(payload);
-    host.osc(0, title);
+    host.osc(0, payload);
 }
 
 template <bool traced>
 void VtermImpl<traced>::osc_TITLE_1(StringView payload) {
-    const std::string title((const char*)(payload.data()), payload.length());
-    iconTitle = title;
+    iconTitle.assign((const char*)(payload.data()), payload.length());
     host.title(payload);
-    host.osc(1, title);
+    host.osc(1, payload);
 }
 
 template <bool traced>
 void VtermImpl<traced>::osc_TITLE_2(StringView payload) {
-    const std::string title((const char*)(payload.data()), payload.length());
-    windowTitle = title;
+    windowTitle.assign((const char*)(payload.data()), payload.length());
     host.title(payload);
-    host.osc(2, title);
+    host.osc(2, payload);
 }
 
 template <bool traced>
@@ -5615,7 +5605,7 @@ void VtermImpl<traced>::osc_SPECIAL_COLOR_MODE(u32 index, u32 value) {
 
 template <bool traced>
 void VtermImpl<traced>::osc_CWD(StringView raw, StringView path, bool valid) {
-    host.osc(7, std::string((const char*)(raw.data()), raw.length()));
+    host.osc(7, raw);
     if (valid) {
         host.cwd(path);
     }
@@ -5650,7 +5640,7 @@ void VtermImpl<traced>::osc_HYPERLINK(StringView id, bool hasId, StringView uri)
 
 template <bool traced>
 void VtermImpl<traced>::osc_NOTIFY(StringView payload) {
-    host.notify({}, windowTitle, std::string((const char*)(payload.data()), payload.length()), false);
+    host.notify({}, stringView(windowTitle), payload, false);
 }
 
 template <bool traced>
@@ -5720,7 +5710,7 @@ void VtermImpl<traced>::osc_DYNAMIC_COLOR(u32 command, Color color, bool query) 
 
 template <bool traced>
 void VtermImpl<traced>::osc_CLIPBOARD_QUERY(StringView raw, bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) {
-    host.osc(52, std::string((const char*)(raw.data()), raw.length()));
+    host.osc(52, raw);
 
     StringView content;
     if (opts.allowOsc52Read) {
@@ -5747,7 +5737,7 @@ void VtermImpl<traced>::osc_CLIPBOARD_QUERY(StringView raw, bool primary, bool c
 
 template <bool traced>
 void VtermImpl<traced>::osc_CLIPBOARD_WRITE(StringView raw, StringView decoded, bool valid, bool primary, bool clipboard) {
-    host.osc(52, std::string((const char*)(raw.data()), raw.length()));
+    host.osc(52, raw);
 
     if (!valid) {
         return;
@@ -5762,7 +5752,7 @@ void VtermImpl<traced>::osc_CLIPBOARD_WRITE(StringView raw, StringView decoded, 
 
 template <bool traced>
 void VtermImpl<traced>::osc_CLIPBOARD_MALFORMED(StringView raw) {
-    host.osc(52, std::string((const char*)(raw.data()), raw.length()));
+    host.osc(52, raw);
 }
 
 template <bool traced>
@@ -5842,7 +5832,7 @@ void VtermImpl<traced>::osc_RESET_SELECTION_FOREGROUND() {
 template <bool traced>
 void VtermImpl<traced>::osc_SHELL_A(StringView payload) {
     currentSemantic = 1;
-    host.osc(133, std::string((const char*)(payload.data()), payload.length()));
+    host.osc(133, payload);
 }
 
 template <bool traced>
@@ -5850,7 +5840,7 @@ void VtermImpl<traced>::osc_SHELL_B(StringView payload) {
     if (currentSemantic == 1) {
         currentSemantic = 2;
     }
-    host.osc(133, std::string((const char*)(payload.data()), payload.length()));
+    host.osc(133, payload);
 }
 
 template <bool traced>
@@ -5858,7 +5848,7 @@ void VtermImpl<traced>::osc_SHELL_C(StringView payload) {
     if (currentSemantic == 2) {
         currentSemantic = 3;
     }
-    host.osc(133, std::string((const char*)(payload.data()), payload.length()));
+    host.osc(133, payload);
 }
 
 template <bool traced>
@@ -5866,17 +5856,17 @@ void VtermImpl<traced>::osc_SHELL_D(StringView payload) {
     if (currentSemantic == 3) {
         currentSemantic = 0;
     }
-    host.osc(133, std::string((const char*)(payload.data()), payload.length()));
+    host.osc(133, payload);
 }
 
 template <bool traced>
 void VtermImpl<traced>::osc_SHELL_UNKNOWN(StringView payload) {
-    host.osc(133, std::string((const char*)(payload.data()), payload.length()));
+    host.osc(133, payload);
 }
 
 template <bool traced>
 void VtermImpl<traced>::osc_UNKNOWN(u32 command, StringView payload) {
-    host.osc(command, std::string((const char*)(payload.data()), payload.length()));
+    host.osc(command, payload);
 }
 
 template <bool traced>
@@ -5892,7 +5882,7 @@ void VtermImpl<traced>::osc_NOTIFICATION_CLOSE(StringView id) {
     if (key.empty() || !activeNotificationIds.erase(key)) {
         return;
     }
-    host.notify(key, {}, {}, true);
+    host.notify(stringView(key), {}, {}, true);
     notifications.erase(key);
 }
 
@@ -6012,7 +6002,7 @@ void VtermImpl<traced>::applyNotificationPart(StringView id, StringView payload,
         notifications.erase(key);
         return;
     }
-    host.notify(key, notification.title.text, notification.body.text, false);
+    host.notify(stringView(key), stringView(notification.title.text), stringView(notification.body.text), false);
     if (!key.empty()) {
         activeNotificationIds.insert(key);
     }
@@ -6039,12 +6029,19 @@ void VtermImpl<traced>::reportColorScheme() {
 }
 
 template <bool traced>
-void VtermImpl<traced>::writeTitleResponse(char kind, const std::string& title) {
-    std::string response = "\x1b]";
-    response.push_back(kind);
-    response += titleModes & 2 ? encodeHex(title) : title;
-    response += "\x1b\\";
-    writePty(response.c_str());
+void VtermImpl<traced>::writeTitleResponse(char kind, StringView title) {
+    StringBuilder response;
+    response << StringView(u8"\x1b]");
+    response.append(&kind, 1);
+    if (titleModes & 2) {
+        for (u8 byte : title) {
+            response << Hex{byte, 2, true};
+        }
+    } else {
+        response << title;
+    }
+    response << StringView(u8"\x1b\\");
+    writePty((const u8*)(response.data()), response.used());
 }
 
 template <bool traced>
@@ -6175,10 +6172,10 @@ void VtermImpl<traced>::csi_XTWINOPS() {
             writeCsiResponse(StringView(response));
         } break;
         case 20:
-            writeTitleResponse('L', iconTitle);
+            writeTitleResponse('L', stringView(iconTitle));
             break;
         case 21:
-            writeTitleResponse('l', windowTitle);
+            writeTitleResponse('l', stringView(windowTitle));
             break;
         case 22: {
             const u32 which = nInputOps > 1 ? inputOps[1] : 0;
@@ -6219,11 +6216,11 @@ void VtermImpl<traced>::csi_XTWINOPS() {
                 }
                 if ((which == 0 || which == 1) && saved.hasIcon) {
                     iconTitle = saved.icon;
-                    host.osc(1, iconTitle);
+                    host.osc(1, stringView(iconTitle));
                 }
                 if ((which == 0 || which == 2) && saved.hasWindow) {
                     windowTitle = saved.window;
-                    host.osc(2, windowTitle);
+                    host.osc(2, stringView(windowTitle));
                 }
             }
         } break;

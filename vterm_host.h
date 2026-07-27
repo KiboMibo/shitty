@@ -8,8 +8,6 @@
 #include <std/sys/types.h>
 #include <std/str/view.h>
 
-#include <string>
-
 struct VtermWindowInfo {
     i32 x = 0;
     i32 y = 0;
@@ -21,7 +19,7 @@ struct VtermWindowInfo {
 };
 
 struct VtermHost {
-    virtual void osc(int command, const std::string& argument) = 0;
+    virtual void osc(int command, stl::StringView argument) = 0;
     virtual bool handlesOsc() const = 0;
     virtual void title(stl::StringView title) = 0;
     virtual void cwd(stl::StringView path) = 0;
@@ -29,7 +27,7 @@ struct VtermHost {
     virtual bool handlesPrinter() const = 0;
     virtual void print(stl::StringView output) = 0;
     virtual void leds(u8 state) = 0;
-    virtual void notify(const std::string& id, const std::string& title, const std::string& body, bool close) = 0;
+    virtual void notify(stl::StringView id, stl::StringView title, stl::StringView body, bool close) = 0;
     virtual void progress(u32 state, u32 percent) = 0;
     virtual void windowOperation(u32 operation, u32 first, u32 second) = 0;
     virtual VtermWindowInfo windowInfo() = 0;
