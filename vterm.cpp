@@ -508,7 +508,7 @@ namespace {
         void osc_PROGRESS(u32, u32);
         void osc_DYNAMIC_COLOR(u32, StringView);
         void osc_CLIPBOARD_QUERY(StringView, bool, bool, u8, bool);
-        void osc_CLIPBOARD_WRITE(StringView, StringView, bool, bool);
+        void osc_CLIPBOARD_WRITE(StringView, StringView, bool, bool, bool);
         void osc_CLIPBOARD_MALFORMED(StringView);
         void osc_NOTIFICATION_CAPABILITIES(StringView);
         void osc_NOTIFICATION_CLOSE(StringView);
@@ -730,11 +730,13 @@ namespace {
         bool oscProgressStatePresent = false;
         bool oscProgressPercentPresent = false;
         bool oscProgressValid = false;
-        size_t osc52PayloadOffset = 0;
+        Base64Decoder oscBase64;
         u8 osc52ReplySelector = 0;
         bool osc52Primary = false;
         bool osc52Clipboard = false;
         bool osc52SelectorSeen = false;
+        bool osc52PayloadSeen = false;
+        bool osc52Query = false;
         size_t oscNotificationFieldOffset = 0;
         size_t oscNotificationIdOffset = 0;
         size_t oscNotificationIdLength = 0;
@@ -5767,21 +5769,17 @@ void VtermImpl<traced>::osc_CLIPBOARD_QUERY(StringView raw, bool primary, bool c
 }
 
 template <bool traced>
-void VtermImpl<traced>::osc_CLIPBOARD_WRITE(StringView raw, StringView encoded, bool primary, bool clipboard) {
+void VtermImpl<traced>::osc_CLIPBOARD_WRITE(StringView raw, StringView decoded, bool valid, bool primary, bool clipboard) {
     host.osc(52, std::string((const char*)(raw.data()), raw.length()));
 
-    Buffer decoded;
-    bool valid = false;
-    base64Decode(encoded, decoded, valid);
     if (!valid) {
         return;
     }
-    const StringView content(decoded);
     if (primary) {
-        composer.clipboard->writePrimary(content);
+        composer.clipboard->writePrimary(decoded);
     }
     if (clipboard) {
-        composer.clipboard->writeClipboard(content);
+        composer.clipboard->writeClipboard(decoded);
     }
 }
 
@@ -8561,11 +8559,13 @@ void VtermImpl<traced>::ragelBeginOsc() {
     oscProgressStatePresent = false;
     oscProgressPercentPresent = false;
     oscProgressValid = false;
-    osc52PayloadOffset = 0;
+    oscBase64.reset();
     osc52ReplySelector = 0;
     osc52Primary = false;
     osc52Clipboard = false;
     osc52SelectorSeen = false;
+    osc52PayloadSeen = false;
+    osc52Query = false;
 }
 
 template <bool traced>

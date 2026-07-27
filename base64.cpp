@@ -19,18 +19,6 @@
 using namespace stl;
 
 namespace {
-#if SHITTY_BASE64_SIMDUTF
-    bool containsSpace(StringView input) noexcept {
-        for (const u8 byte : input) {
-            if (byte == ' ' || byte == '\t' || byte == '\n' || byte == '\r' || byte == '\f') {
-                return true;
-            }
-        }
-        return false;
-    }
-#else
-    constexpr u8 alphabet[] = u8"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
     u8 decodeValue(u8 byte) noexcept {
         if (byte >= u8'A' && byte <= u8'Z') {
             return byte - u8'A';
@@ -49,7 +37,129 @@ namespace {
         }
         return (u8)0xff;
     }
+
+#if SHITTY_BASE64_SIMDUTF
+    bool containsSpace(StringView input) noexcept {
+        for (const u8 byte : input) {
+            if (byte == ' ' || byte == '\t' || byte == '\n' || byte == '\r' || byte == '\f') {
+                return true;
+            }
+        }
+        return false;
+    }
+#else
+    constexpr u8 alphabet[] = u8"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 #endif
+}
+
+void Base64Decoder::reset() noexcept {
+    count = 0;
+    padding = false;
+    complete = false;
+    valid = true;
+}
+
+bool Base64Decoder::push(u8 byte, Buffer& output) {
+    if (!valid || complete) {
+        valid = false;
+        return false;
+    }
+
+    if (byte == '=') {
+        if (count == 2 && !padding) {
+            padding = true;
+            count = 3;
+            return true;
+        }
+        if (count != 3) {
+            valid = false;
+            return false;
+        }
+
+        if (padding) {
+            if ((values[1] & 0x0f) != 0) {
+                valid = false;
+                return false;
+            }
+            const u8 decoded = (values[0] << 2) | (values[1] >> 4);
+            output.append(&decoded, 1);
+        } else {
+            if ((values[2] & 0x03) != 0) {
+                valid = false;
+                return false;
+            }
+            const u8 decoded[] = {
+                (u8)((values[0] << 2) | (values[1] >> 4)),
+                (u8)((values[1] << 4) | (values[2] >> 2)),
+            };
+            output.append(decoded, sizeof(decoded));
+        }
+        count = 0;
+        padding = false;
+        complete = true;
+        return true;
+    }
+
+    if (padding) {
+        valid = false;
+        return false;
+    }
+    const u8 value = decodeValue(byte);
+    if (value == (u8)0xff) {
+        valid = false;
+        return false;
+    }
+    values[count++] = value;
+    if (count == 3) {
+        return true;
+    }
+    if (count != 4) {
+        return true;
+    }
+
+    const u8 decoded[] = {
+        (u8)((values[0] << 2) | (values[1] >> 4)),
+        (u8)((values[1] << 4) | (values[2] >> 2)),
+        (u8)((values[2] << 6) | value),
+    };
+    output.append(decoded, sizeof(decoded));
+    count = 0;
+    return true;
+}
+
+bool Base64Decoder::finish(Buffer& output) {
+    if (!valid || padding) {
+        valid = false;
+        return false;
+    }
+    if (complete || count == 0) {
+        return valid;
+    }
+    if (count == 1) {
+        valid = false;
+        return false;
+    }
+    if (count == 2) {
+        if ((values[1] & 0x0f) != 0) {
+            valid = false;
+            return false;
+        }
+        const u8 decoded = (values[0] << 2) | (values[1] >> 4);
+        output.append(&decoded, 1);
+    } else {
+        if ((values[2] & 0x03) != 0) {
+            valid = false;
+            return false;
+        }
+        const u8 decoded[] = {
+            (u8)((values[0] << 2) | (values[1] >> 4)),
+            (u8)((values[1] << 4) | (values[2] >> 2)),
+        };
+        output.append(decoded, sizeof(decoded));
+    }
+    count = 0;
+    complete = true;
+    return true;
 }
 
 Buffer& base64Encode(StringView input, Buffer& output) {
@@ -129,64 +239,14 @@ Buffer& base64Decode(StringView input, Buffer& output, bool& valid) {
     return output;
 #else
     output.reset();
-    valid = false;
-
-    size_t padding = 0;
-    if (!input.empty() && input.back() == u8'=') {
-        ++padding;
-        if (input.length() > 1 && input[input.length() - 2] == u8'=') {
-            ++padding;
-        }
+    Base64Decoder decoder;
+    for (const u8 byte : input) {
+        decoder.push(byte, output);
     }
-    if (padding != 0 && input.length() % 4 != 0) {
-        return output;
+    valid = decoder.finish(output);
+    if (!valid) {
+        output.reset();
     }
-
-    const size_t encodedLength = input.length() - padding;
-    const size_t remainder = encodedLength % 4;
-    if (remainder == 1 || (padding == 1 && remainder != 3) || (padding == 2 && remainder != 2)) {
-        return output;
-    }
-
-    const size_t outputSize = encodedLength / 4 * 3 + (remainder == 0 ? 0 : remainder - 1);
-    output.grow(outputSize);
-    auto* decoded = (u8*)output.mutData();
-
-    size_t source = 0;
-    size_t target = 0;
-    while (encodedLength - source >= 4) {
-        const u8 a = decodeValue(input[source]);
-        const u8 b = decodeValue(input[source + 1]);
-        const u8 c = decodeValue(input[source + 2]);
-        const u8 d = decodeValue(input[source + 3]);
-        if (a == (u8)0xff || b == (u8)0xff || c == (u8)0xff || d == (u8)0xff) {
-            return output;
-        }
-        decoded[target++] = (u8)((a << 2) | (b >> 4));
-        decoded[target++] = (u8)((b << 4) | (c >> 2));
-        decoded[target++] = (u8)((c << 6) | d);
-        source += 4;
-    }
-
-    if (remainder != 0) {
-        const u8 a = decodeValue(input[source]);
-        const u8 b = decodeValue(input[source + 1]);
-        if (a == (u8)0xff || b == (u8)0xff || ((b & 0x0f) != 0 && remainder == 2)) {
-            return output;
-        }
-        decoded[target++] = (u8)((a << 2) | (b >> 4));
-
-        if (remainder == 3) {
-            const u8 c = decodeValue(input[source + 2]);
-            if (c == (u8)0xff || (c & 0x03) != 0) {
-                return output;
-            }
-            decoded[target++] = (u8)((b << 4) | (c >> 2));
-        }
-    }
-
-    output.seekAbsolute(target);
-    valid = true;
     return output;
 #endif
 }

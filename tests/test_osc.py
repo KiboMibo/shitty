@@ -54,6 +54,23 @@ class OscProtocolTest(unittest.TestCase):
             self.assertEqual(terminal.get_selection(primary=False), b"old")
             self.assertEqual(terminal.read_input(), b"")
 
+    def test_osc52_stream_decoder_survives_every_input_boundary(self):
+        sequence = b"\x1b]52;c;AAECA3+A/v8=\x1b\\"
+        expected = b"\0\1\2\3\x7f\x80\xfe\xff"
+        chunkings = [
+            (sequence[:split], sequence[split:])
+            for split in range(1, len(sequence))
+        ]
+        chunkings.append(tuple(bytes((byte,)) for byte in sequence))
+
+        for chunks in chunkings:
+            with self.subTest(chunks=chunks):
+                with Shitty(columns=8, rows=2) as terminal:
+                    terminal.write_chunks(*chunks)
+                    self.assertEqual(
+                        terminal.get_selection(primary=False), expected
+                    )
+
     def test_osc52_reply_encodes_arbitrary_bytes(self):
         with Shitty(
             columns=8,

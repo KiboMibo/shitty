@@ -128,4 +128,60 @@ STD_TEST_SUITE(Base64) {
         STD_INSIST(&base64Decode(StringView(u8"eA=="), output, valid) == &output);
         STD_INSIST(valid);
     }
+
+    STD_TEST(StreamDecoderAcceptsEveryInputBoundary) {
+        const StringView encoded(u8"AAECA3+A/v8=");
+        const u8 expected[] = {0, 1, 2, 3, 0x7f, 0x80, 0xfe, 0xff};
+
+        for (size_t split = 0; split <= encoded.length(); ++split) {
+            Base64Decoder decoder;
+            Buffer output;
+            for (size_t index = 0; index < split; ++index) {
+                STD_INSIST(decoder.push(encoded[index], output));
+            }
+            for (size_t index = split; index < encoded.length(); ++index) {
+                STD_INSIST(decoder.push(encoded[index], output));
+            }
+            STD_INSIST(decoder.finish(output));
+            STD_INSIST(StringView(output) == StringView(expected, sizeof(expected)));
+        }
+    }
+
+    STD_TEST(StreamDecoderMatchesOneShotValidation) {
+        const StringView inputs[] = {
+            StringView(u8""),
+            StringView(u8"Zg"),
+            StringView(u8"Zg=="),
+            StringView(u8"Zm8"),
+            StringView(u8"Zm8="),
+            StringView(u8"Zm9v"),
+            StringView(u8"="),
+            StringView(u8"Z"),
+            StringView(u8"Zg="),
+            StringView(u8"Zg==="),
+            StringView(u8"Zm=8"),
+            StringView(u8"Zg==Zg=="),
+            StringView(u8"Zh=="),
+            StringView(u8"Zm9="),
+            StringView(u8"Zh"),
+            StringView(u8"Zm9"),
+        };
+
+        for (const StringView input : inputs) {
+            Buffer expected;
+            bool expectedValid = false;
+            base64Decode(input, expected, expectedValid);
+
+            Base64Decoder decoder;
+            Buffer actual;
+            for (const u8 byte : input) {
+                decoder.push(byte, actual);
+            }
+            const bool actualValid = decoder.finish(actual);
+            STD_INSIST(actualValid == expectedValid);
+            if (actualValid) {
+                STD_INSIST(StringView(actual) == StringView(expected));
+            }
+        }
+    }
 }
