@@ -543,7 +543,7 @@ namespace {
         void writeDecrqssResponse(StringView);
         void dcs_XTGETTCAP(StringView encoded, StringView value);
         void dcs_XTGETTCAP_COMMIT();
-        void dcs_DECUDK();
+        void dcs_DECUDK(bool clearDefinitions, bool lockDefinitions);
 
         void reportInBandResize();
         void reportColorScheme();
@@ -683,6 +683,9 @@ namespace {
         bool dcsUdkHasHighNibble = false;
         bool dcsUdkValid = false;
         bool dcsUdkInValue = false;
+        bool dcsUdkHeaderValid = false;
+        bool dcsUdkClearDefinitions = false;
+        bool dcsUdkLockDefinitions = false;
         u32 oscCommand = 0;
         size_t oscPayloadOffset = 0;
         bool oscCommandValid = false;
@@ -4911,16 +4914,11 @@ void VtermImpl<traced>::csi_DECSTR() {
 }
 
 template <bool traced>
-void VtermImpl<traced>::dcs_DECUDK() {
-    if (userDefinedKeysLocked || nInputOps > 2) {
+void VtermImpl<traced>::dcs_DECUDK(bool clearDefinitions, bool lockDefinitions) {
+    if (userDefinedKeysLocked) {
         return;
     }
-    const u32 clear = inputPresent[0] ? inputOps[0] : 0;
-    const u32 lock = nInputOps > 1 && inputPresent[1] ? inputOps[1] : 0;
-    if (clear > 1 || lock > 1 || (nInputOps > 1 && inputSeparators[1] != ';')) {
-        return;
-    }
-    if (clear == 0) {
+    if (clearDefinitions) {
         userDefinedKeys.clear();
     }
 
@@ -4928,7 +4926,7 @@ void VtermImpl<traced>::dcs_DECUDK() {
         const auto* value = (const char*)(dcsDecoded.data()) + definition.valueOffset;
         userDefinedKeys[definition.key] = std::string(value, definition.valueLength);
     }
-    userDefinedKeysLocked = lock == 0;
+    userDefinedKeysLocked = lockDefinitions;
 }
 
 template <bool traced>

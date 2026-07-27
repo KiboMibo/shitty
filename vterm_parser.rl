@@ -1423,6 +1423,17 @@
             dcsCapabilityComplete = false;
             fgoto dcsXtgettcap;
         } else if (dcsIntermediateCount == 0 && fc == '|') {
+            const bool secondParameterValid =
+                nInputOps < 2 || !inputPresent[1] || inputOps[1] <= 1;
+            dcsUdkHeaderValid =
+                nInputOps <= 2 &&
+                (!inputPresent[0] || inputOps[0] <= 1) &&
+                secondParameterValid &&
+                (nInputOps < 2 || inputSeparators[1] == ';');
+            dcsUdkClearDefinitions =
+                !inputPresent[0] || inputOps[0] == 0;
+            dcsUdkLockDefinitions =
+                nInputOps < 2 || !inputPresent[1] || inputOps[1] == 0;
             dcsUdkValueOffset = dcsDecoded.used();
             dcsUdkCode = 0;
             dcsUdkKey = VtKey::NONE;
@@ -1846,8 +1857,12 @@
                 });
             }
             ragelFinishDcs();
-            if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT200) {
-                dcs_DECUDK();
+            if (!argBufOverflowed && dcsUdkHeaderValid &&
+                compatLevel >= CompatibilityLevel::VT200) {
+                dcs_DECUDK(
+                    dcsUdkClearDefinitions,
+                    dcsUdkLockDefinitions
+                );
             }
             fnext main;
             fbreak;
@@ -5484,6 +5499,9 @@ const auto ragelBeginDcs = [&] {
     dcsUdkHasHighNibble = false;
     dcsUdkValid = false;
     dcsUdkInValue = false;
+    dcsUdkHeaderValid = false;
+    dcsUdkClearDefinitions = false;
+    dcsUdkLockDefinitions = false;
 };
 
 const auto ragelBeginOsc = [&] {
