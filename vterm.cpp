@@ -427,7 +427,7 @@ namespace {
         void csi_VPR();
         void csi_CUP();
         void csi_SU();
-        void csi_SD();
+        void csi_SD(u32 count);
         void csi_CHT();
         void csi_CBT();
         void csi_REP();
@@ -444,7 +444,7 @@ namespace {
         void csi_DECRQCRA();
         void csi_IL();
         void csi_DL();
-        void csi_ICH();
+        void csi_ICH(u32 count);
         void csi_DCH();
         void csi_ECH();
         void csi_DECIC();
@@ -627,21 +627,121 @@ namespace {
         bool underlineColorDefault = true;
         bool hasFocus = false;
 
-        int ragelState = 0;
-        bool ragelInitialized = false;
-        // Whether a private/intermediate CSI prefix may still occur.  This is
-        // parser state, rather than an input-buffer offset: PTY reads may split an
-        // escape sequence at any byte.
-        u8 csiPrefix = 0;
-        u8 csiIntermediates[4] = {};
-        u8 csiIntermediateCount = 0;
-        constexpr const static size_t maxEscOps = 32;
-        constexpr const static size_t maxDcsBytes = 4095;
-        constexpr const static size_t maxOscBytes = 1024 * 1024;
-        u32 inputOps[maxEscOps];
-        unsigned char inputSeparators[maxEscOps] = {};
-        bool inputPresent[maxEscOps] = {};
-        size_t nInputOps = 0;
+        struct DcsUdkDefinition {
+            size_t valueOffset;
+            size_t valueLength;
+            VtKey key;
+        };
+
+        struct ProtocolParser {
+            constexpr const static size_t maxParameters = 32;
+            constexpr const static size_t maxDcsBytes = 4095;
+            constexpr const static size_t maxOscBytes = 1024 * 1024;
+
+            int state = 0;
+            bool initialized = false;
+            u8 csiPrefix = 0;
+            u8 csiIntermediates[4] = {};
+            u8 csiIntermediateCount = 0;
+            u32 parameters[maxParameters];
+            unsigned char separators[maxParameters] = {};
+            bool present[maxParameters] = {};
+            size_t parameterCount = 0;
+            bool csiHadParameters = false;
+            Buffer scratch;
+            bool overflow = false;
+            size_t stringLimit = 0;
+            u8 stringUtf8Remaining = 0;
+
+            u8 dcsIntermediates[4] = {};
+            u8 dcsIntermediateCount = 0;
+            size_t dcsCapabilityOffset = 0;
+            size_t dcsCapabilityDecodedLength = 0;
+            u8 dcsCapabilityCandidates = 0;
+            u8 dcsCapabilityHighNibble = 0;
+            bool dcsCapabilityHasHighNibble = false;
+            bool dcsCapabilityValid = false;
+            bool dcsCapabilityComplete = false;
+            Vector<DcsUdkDefinition> dcsUdkDefinitions;
+            Buffer dcsDecoded;
+            size_t dcsUdkValueOffset = 0;
+            u32 dcsUdkCode = 0;
+            VtKey dcsUdkKey = VtKey::NONE;
+            u8 dcsUdkHighNibble = 0;
+            bool dcsUdkHasCode = false;
+            bool dcsUdkHasHighNibble = false;
+            bool dcsUdkValid = false;
+            bool dcsUdkInValue = false;
+            bool dcsUdkHeaderValid = false;
+            bool dcsUdkClearDefinitions = false;
+            bool dcsUdkLockDefinitions = false;
+
+            u32 oscCommand = 0;
+            size_t oscPayloadOffset = 0;
+            bool oscCommandValid = false;
+            bool oscTerminated = false;
+            Buffer oscDecoded;
+            u8 oscTitleHighNibble = 0;
+            bool oscTitleHex = false;
+            bool oscTitleHasHighNibble = false;
+            bool oscTitleValid = false;
+            bool oscTitleStopped = false;
+            u8 oscCwdPercentHigh = 0;
+            bool oscCwdValid = false;
+            bool oscCwdDecode = false;
+            size_t oscHyperlinkIdOffset = 0;
+            size_t oscHyperlinkIdLength = 0;
+            size_t oscHyperlinkUriOffset = 0;
+            bool oscHyperlinkHasId = false;
+            u32 oscProgressState = 0;
+            u32 oscProgressPercent = 0;
+            bool oscProgressStatePresent = false;
+            bool oscProgressPercentPresent = false;
+            bool oscProgressValid = false;
+            Base64Decoder oscBase64;
+            u8 osc52ReplySelector = 0;
+            bool osc52Primary = false;
+            bool osc52Clipboard = false;
+            bool osc52SelectorSeen = false;
+            bool osc52PayloadSeen = false;
+            bool osc52Query = false;
+            size_t oscNotificationFieldOffset = 0;
+            size_t oscNotificationIdOffset = 0;
+            size_t oscNotificationIdLength = 0;
+            size_t oscNotificationPayloadOffset = 0;
+            u32 oscNotificationPayloadBytes = 0;
+            u8 oscNotificationKey = 0;
+            bool oscNotificationValid = false;
+            bool oscNotificationEncoded = false;
+            bool oscNotificationFinal = false;
+            bool oscNotificationQuery = false;
+            bool oscNotificationClose = false;
+            bool oscNotificationBody = false;
+            Color oscColor{};
+            double oscColorComponents[3]{};
+            double oscColorMantissa = 0.0;
+            double oscColorFraction = 0.1;
+            u64 oscColorHex = 0;
+            u32 oscColorExponent = 0;
+            u8 oscColorComponent = 0;
+            u8 oscColorDigits = 0;
+            bool oscColorNegative = false;
+            bool oscColorExponentNegative = false;
+            bool oscColorValid = false;
+            bool oscColorQuery = false;
+
+            u32 oscFieldNumber = 0;
+            u32 oscFieldFirst = 0;
+            bool oscFieldNumeric = false;
+            bool oscFieldPresent = false;
+            bool oscFieldFirstValid = false;
+            bool oscFieldHaveFirst = false;
+            u8 scsIndex = 0;
+            u8 scsMod = 0;
+            bool scs96 = false;
+        };
+
+        ProtocolParser parser;
         Utf8Decoder utf8dec;
         GraphemeBuffer inputGrapheme;
         u32 inputGraphemeBase = 0;
@@ -653,102 +753,6 @@ namespace {
         TerminalCell inputGraphemeAttrs{};
         u32 inputGraphemeHyperlink = 0;
         u32 inputGraphemeSemantic = 0;
-        Buffer argBuf;
-        bool argBufOverflowed = false;
-        size_t ragelStringLimit = 0;
-        u8 stringUtf8Remaining = 0;
-
-        struct DcsUdkDefinition {
-            size_t valueOffset;
-            size_t valueLength;
-            VtKey key;
-        };
-
-        u8 dcsIntermediates[4] = {};
-        u8 dcsIntermediateCount = 0;
-        size_t dcsCapabilityOffset = 0;
-        size_t dcsCapabilityDecodedLength = 0;
-        u8 dcsCapabilityCandidates = 0;
-        u8 dcsCapabilityHighNibble = 0;
-        bool dcsCapabilityHasHighNibble = false;
-        bool dcsCapabilityValid = false;
-        bool dcsCapabilityComplete = false;
-        Vector<DcsUdkDefinition> dcsUdkDefinitions;
-        Buffer dcsDecoded;
-        size_t dcsUdkValueOffset = 0;
-        u32 dcsUdkCode = 0;
-        VtKey dcsUdkKey = VtKey::NONE;
-        u8 dcsUdkHighNibble = 0;
-        bool dcsUdkHasCode = false;
-        bool dcsUdkHasHighNibble = false;
-        bool dcsUdkValid = false;
-        bool dcsUdkInValue = false;
-        bool dcsUdkHeaderValid = false;
-        bool dcsUdkClearDefinitions = false;
-        bool dcsUdkLockDefinitions = false;
-        u32 oscCommand = 0;
-        size_t oscPayloadOffset = 0;
-        bool oscCommandValid = false;
-        bool oscTerminated = false;
-        Buffer oscDecoded;
-        u8 oscTitleHighNibble = 0;
-        bool oscTitleHex = false;
-        bool oscTitleHasHighNibble = false;
-        bool oscTitleValid = false;
-        bool oscTitleStopped = false;
-        u8 oscCwdPercentHigh = 0;
-        bool oscCwdValid = false;
-        bool oscCwdDecode = false;
-        size_t oscHyperlinkIdOffset = 0;
-        size_t oscHyperlinkIdLength = 0;
-        size_t oscHyperlinkUriOffset = 0;
-        bool oscHyperlinkHasId = false;
-        u32 oscProgressState = 0;
-        u32 oscProgressPercent = 0;
-        bool oscProgressStatePresent = false;
-        bool oscProgressPercentPresent = false;
-        bool oscProgressValid = false;
-        Base64Decoder oscBase64;
-        u8 osc52ReplySelector = 0;
-        bool osc52Primary = false;
-        bool osc52Clipboard = false;
-        bool osc52SelectorSeen = false;
-        bool osc52PayloadSeen = false;
-        bool osc52Query = false;
-        size_t oscNotificationFieldOffset = 0;
-        size_t oscNotificationIdOffset = 0;
-        size_t oscNotificationIdLength = 0;
-        size_t oscNotificationPayloadOffset = 0;
-        u32 oscNotificationPayloadBytes = 0;
-        u8 oscNotificationKey = 0;
-        bool oscNotificationValid = false;
-        bool oscNotificationEncoded = false;
-        bool oscNotificationFinal = false;
-        bool oscNotificationQuery = false;
-        bool oscNotificationClose = false;
-        bool oscNotificationBody = false;
-        Color oscColor{};
-        double oscColorComponents[3]{};
-        double oscColorMantissa = 0.0;
-        double oscColorFraction = 0.1;
-        u64 oscColorHex = 0;
-        u32 oscColorExponent = 0;
-        u8 oscColorComponent = 0;
-        u8 oscColorDigits = 0;
-        bool oscColorNegative = false;
-        bool oscColorExponentNegative = false;
-        bool oscColorValid = false;
-        bool oscColorQuery = false;
-
-        u32 oscFieldNumber = 0;
-        u32 oscFieldFirst = 0;
-        bool oscFieldNumeric = false;
-        bool oscFieldPresent = false;
-        bool oscFieldFirstValid = false;
-        bool oscFieldHaveFirst = false;
-        u8 scsIndex = 0;
-        u8 scsMod = 0;
-        bool scs96 = false;
 
         VtModifier modifiers = VtModifier::none;
 
@@ -794,7 +798,6 @@ namespace {
         u8 modifyOtherKeys = 1;
         u8 modifyKeyResources[8] = {};
         u8 initialModifyKeyResources[8] = {};
-        bool csiHadParams = false;
         std::map<u32, bool> savedPrivModes;
         std::map<VtKey, std::string> userDefinedKeys;
         bool userDefinedKeysLocked = false;
@@ -2378,8 +2381,6 @@ void VtermImpl<traced>::setHasFocus(bool hasFocus_) {
 template <bool traced>
 void VtermImpl<traced>::pageUp() {
     if (altScrollMode && altScreenBufferMode) {
-        inputOps[0] = 1;
-        nInputOps = 1;
         for (int k = 0; k < (marginBottom - marginTop) / 2; ++k) {
             writePty(VtKey::Up);
         }
@@ -2392,8 +2393,6 @@ void VtermImpl<traced>::pageUp() {
 template <bool traced>
 void VtermImpl<traced>::pageDown() {
     if (altScrollMode && altScreenBufferMode) {
-        inputOps[0] = 1;
-        nInputOps = 1;
         for (int k = 0; k < (marginBottom - marginTop) / 2; ++k) {
             writePty(VtKey::Down);
         }
@@ -2406,8 +2405,6 @@ void VtermImpl<traced>::pageDown() {
 template <bool traced>
 void VtermImpl<traced>::mouseWheelUp(u16 count) {
     if (altScrollMode && altScreenBufferMode) {
-        inputOps[0] = 1;
-        nInputOps = 1;
         for (u16 k = 0; k < count; ++k) {
             writePty(VtKey::Up);
         }
@@ -2420,8 +2417,6 @@ void VtermImpl<traced>::mouseWheelUp(u16 count) {
 template <bool traced>
 void VtermImpl<traced>::mouseWheelDown(u16 count) {
     if (altScrollMode && altScreenBufferMode) {
-        inputOps[0] = 1;
-        nInputOps = 1;
         for (u16 k = 0; k < count; ++k) {
             writePty(VtKey::Down);
         }
@@ -2805,10 +2800,10 @@ bool VtermImpl<traced>::rectangleFromParams(size_t offset, Rectangle& rectangle)
     rectangleOrigin(rowBase, columnBase, rowLimit, columnLimit);
     const u32 rows = rowLimit - rowBase;
     const u32 columns = columnLimit - columnBase;
-    const u32 topParam = offset < nInputOps ? inputOps[offset] : 0;
-    const u32 leftParam = offset + 1 < nInputOps ? inputOps[offset + 1] : 0;
-    const u32 bottomParam = offset + 2 < nInputOps ? inputOps[offset + 2] : 0;
-    const u32 rightParam = offset + 3 < nInputOps ? inputOps[offset + 3] : 0;
+    const u32 topParam = offset < parser.parameterCount ? parser.parameters[offset] : 0;
+    const u32 leftParam = offset + 1 < parser.parameterCount ? parser.parameters[offset + 1] : 0;
+    const u32 bottomParam = offset + 2 < parser.parameterCount ? parser.parameters[offset + 2] : 0;
+    const u32 rightParam = offset + 3 < parser.parameterCount ? parser.parameters[offset + 3] : 0;
     const u32 rawTop = topParam ? topParam : 1;
     const u32 rawLeft = leftParam ? leftParam : 1;
     const u32 rawBottom = bottomParam ? bottomParam : rows;
@@ -2991,9 +2986,7 @@ void VtermImpl<traced>::placeGraphicChar(bool graphemeBoundary, u8 width) {
     }
 
     if (insertMode) {
-        nInputOps = 1;
-        inputOps[0] = 1;
-        csi_ICH();
+        csi_ICH(1);
     }
 
     if (w == 0) {
@@ -3369,7 +3362,7 @@ void VtermImpl<traced>::printLine(u16 row) {
 
 template <bool traced>
 void VtermImpl<traced>::csi_MC(bool privateMode) {
-    const u32 operation = inputOps[0];
+    const u32 operation = parser.parameters[0];
     if (privateMode) {
         if (operation == 1) {
             printLine(posY);
@@ -3400,8 +3393,8 @@ void VtermImpl<traced>::csi_MC(bool privateMode) {
 
 template <bool traced>
 void VtermImpl<traced>::csi_DECLL() {
-    for (size_t index = 0; index < nInputOps; ++index) {
-        const u32 operation = inputOps[index];
+    for (size_t index = 0; index < parser.parameterCount; ++index) {
+        const u32 operation = parser.parameters[index];
         if (operation == 0) {
             ledState = 0;
         } else if (operation >= 1 && operation <= 3) {
@@ -3417,9 +3410,7 @@ template <bool traced>
 void VtermImpl<traced>::esc_RI() {
     if (posY == marginTop) {
         if (posX >= hMargin && posX < nColsEff) {
-            nInputOps = 1;
-            inputOps[0] = 1;
-            csi_SD();
+            csi_SD(1);
         }
     } else if (posY > 0) {
         --posY;
@@ -3430,7 +3421,7 @@ void VtermImpl<traced>::esc_RI() {
 template <bool traced>
 void VtermImpl<traced>::csi_ecma48_SL() {
     if (isCursorInsideMargins()) {
-        u32 arg = inputOps[0] ? inputOps[0] : 1u;
+        u32 arg = parser.parameters[0] ? parser.parameters[0] : 1u;
         arg = std::min<u32>(arg, nColsEff - hMargin);
         deleteCols(hMargin, (u16)(arg));
     }
@@ -3439,7 +3430,7 @@ void VtermImpl<traced>::csi_ecma48_SL() {
 template <bool traced>
 void VtermImpl<traced>::csi_ecma48_SR() {
     if (isCursorInsideMargins()) {
-        u32 arg = inputOps[0] ? inputOps[0] : 1u;
+        u32 arg = parser.parameters[0] ? parser.parameters[0] : 1u;
         arg = std::min<u32>(arg, nColsEff - hMargin);
         insertCols(hMargin, (u16)(arg));
     }
@@ -3448,21 +3439,21 @@ void VtermImpl<traced>::csi_ecma48_SR() {
 template <bool traced>
 void VtermImpl<traced>::csi_DECSCUSR() {
     using CS = TerminalCursor::Style;
-    switch (inputOps[0]) {
+    switch (parser.parameters[0]) {
         case 0:
         case 1:
         case 2:
-            cursorStyleParam = inputOps[0] == 0 ? 1 : inputOps[0];
+            cursorStyleParam = parser.parameters[0] == 0 ? 1 : parser.parameters[0];
             cursorShape = CS::filled_block;
             break;
         case 3:
         case 4:
-            cursorStyleParam = inputOps[0];
+            cursorStyleParam = parser.parameters[0];
             cursorShape = CS::underline;
             break;
         case 5:
         case 6:
-            cursorStyleParam = inputOps[0];
+            cursorStyleParam = parser.parameters[0];
             cursorShape = CS::bar;
             break;
         default:
@@ -3477,7 +3468,7 @@ void VtermImpl<traced>::csi_DECSCUSR() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_DECIC() {
-    u32 arg = inputOps[0] ? inputOps[0] : 1u;
+    u32 arg = parser.parameters[0] ? parser.parameters[0] : 1u;
     if (isCursorInsideMargins()) {
         arg = min<u32>(arg, nColsEff - posX);
         insertCols(posX, (u16)(arg));
@@ -3486,7 +3477,7 @@ void VtermImpl<traced>::csi_DECIC() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_DECDC() {
-    u32 arg = inputOps[0] ? inputOps[0] : 1u;
+    u32 arg = parser.parameters[0] ? parser.parameters[0] : 1u;
     if (isCursorInsideMargins()) {
         arg = min<u32>(arg, nColsEff - posX);
         deleteCols(posX, (u16)(arg));
@@ -3593,7 +3584,7 @@ void VtermImpl<traced>::esc_DECRC() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_CUU() {
-    u32 arg = inputOps[0] ? inputOps[0] : 1;
+    u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
     const u16 top = posY >= marginTop ? marginTop : 0;
     arg = std::min<u32>(arg, posY - top);
     posY -= arg;
@@ -3602,7 +3593,7 @@ void VtermImpl<traced>::csi_CUU() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_CUD() {
-    u32 arg = inputOps[0] ? inputOps[0] : 1;
+    u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
     const u16 bottom = posY < marginBottom ? marginBottom : composer.rows;
     arg = std::min<u32>(arg, bottom - posY - 1);
     posY += arg;
@@ -3611,7 +3602,7 @@ void VtermImpl<traced>::csi_CUD() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_CUF() {
-    u32 arg = inputOps[0] ? inputOps[0] : 1;
+    u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
     const bool insideMargins = posX >= hMargin && posX < nColsEff;
     const u16 right = insideMargins ? nColsEff : composer.columns;
     arg = std::min<u32>(arg, right - posX - 1);
@@ -3621,7 +3612,7 @@ void VtermImpl<traced>::csi_CUF() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_CUB() {
-    moveCursorBackward(inputOps[0] ? inputOps[0] : 1);
+    moveCursorBackward(parser.parameters[0] ? parser.parameters[0] : 1);
 }
 
 template <bool traced>
@@ -3668,7 +3659,7 @@ void VtermImpl<traced>::csi_CPL() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_CHA() {
-    u32 col = inputOps[0] ? inputOps[0] : 1;
+    u32 col = parser.parameters[0] ? parser.parameters[0] : 1;
     if (originMode == OriginMode::ScrollingRegion) {
         col = std::max<u32>(1, std::min<u32>(col, nColsEff - hMargin));
         posX = hMargin + col - 1;
@@ -3686,7 +3677,7 @@ void VtermImpl<traced>::csi_HPA() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_HPR() {
-    const u32 arg = inputOps[0] ? inputOps[0] : 1;
+    const u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
     const u16 right = originMode == OriginMode::ScrollingRegion ? nColsEff : composer.columns;
     posX = (u16)(std::min<u64>((u64)(posX) + arg, right - 1));
     lastCol = false;
@@ -3694,7 +3685,7 @@ void VtermImpl<traced>::csi_HPR() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_VPA() {
-    u32 row = inputOps[0] ? inputOps[0] : 1;
+    u32 row = parser.parameters[0] ? parser.parameters[0] : 1;
     if (originMode == OriginMode::ScrollingRegion) {
         row = std::max<u32>(1, std::min<u32>(row, marginBottom - marginTop));
         posY = marginTop + row - 1;
@@ -3707,7 +3698,7 @@ void VtermImpl<traced>::csi_VPA() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_VPR() {
-    const u32 arg = inputOps[0] ? inputOps[0] : 1;
+    const u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
     const u16 bottom = originMode == OriginMode::ScrollingRegion ? marginBottom : composer.rows;
     posY = (u16)(std::min<u64>((u64)(posY) + arg, bottom - 1));
     lastCol = false;
@@ -3715,8 +3706,8 @@ void VtermImpl<traced>::csi_VPR() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_CUP() {
-    u32 row = inputOps[0] ? inputOps[0] : 1;
-    u32 col = (nInputOps > 1 && inputOps[1]) ? inputOps[1] : 1;
+    u32 row = parser.parameters[0] ? parser.parameters[0] : 1;
+    u32 col = (parser.parameterCount > 1 && parser.parameters[1]) ? parser.parameters[1] : 1;
     switch (originMode) {
         case OriginMode::Absolute:
             row = std::max<u32>(1, std::min<u32>(row, composer.rows)) - 1;
@@ -3735,7 +3726,7 @@ void VtermImpl<traced>::csi_CUP() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_SU() {
-    u32 arg = inputOps[0] ? inputOps[0] : 1;
+    u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
     arg = std::min<u32>(arg, marginBottom - marginTop);
     const bool pendingWrap = lastCol;
     scrollRegionUp((u16)(arg));
@@ -3763,17 +3754,16 @@ void VtermImpl<traced>::scrollRegionDown(u16 count) {
 }
 
 template <bool traced>
-void VtermImpl<traced>::csi_SD() {
-    u32 arg = inputOps[0] ? inputOps[0] : 1;
-    arg = std::min<u32>(arg, marginBottom - marginTop);
+void VtermImpl<traced>::csi_SD(u32 count) {
+    count = std::min<u32>(count, marginBottom - marginTop);
     const bool pendingWrap = lastCol;
-    scrollRegionDown((u16)(arg));
+    scrollRegionDown((u16)(count));
     lastCol = pendingWrap;
 }
 
 template <bool traced>
 void VtermImpl<traced>::csi_CHT() {
-    u32 arg = inputOps[0] ? inputOps[0] : 1;
+    u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
     arg = std::min<u32>(arg, composer.columns);
     if (arg == 1) {
         inp_HT();
@@ -3786,7 +3776,7 @@ void VtermImpl<traced>::csi_CHT() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_CBT() {
-    u32 arg = inputOps[0] ? inputOps[0] : 1;
+    u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
     arg = std::min<u32>(arg, composer.columns);
     for (u32 k = 0; k < arg; ++k) {
         const u16 left = originMode == OriginMode::ScrollingRegion ? hMargin : 0;
@@ -3815,7 +3805,7 @@ void VtermImpl<traced>::csi_REP() {
     if (!preceding || codepointWidth(preceding) == 0) {
         return;
     }
-    u32 arg = inputOps[0] ? inputOps[0] : 1;
+    u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
     const u64 observableCells = ((u64)(opts.saveLines) + composer.rows + 1) * composer.columns;
     if (arg > observableCells) {
         arg = (u32)(observableCells + (arg - observableCells) % composer.columns);
@@ -3828,7 +3818,7 @@ void VtermImpl<traced>::csi_REP() {
 template <bool traced>
 void VtermImpl<traced>::csi_ED() {
     normalizeCursorPos();
-    switch (inputOps[0]) {
+    switch (parser.parameters[0]) {
         case 0:
             eraseEcmaRangeInRow(posY, posX, composer.columns - posX);
             for (u16 pY = posY + 1; pY < composer.rows; ++pY) {
@@ -3858,7 +3848,7 @@ void VtermImpl<traced>::csi_ED() {
 template <bool traced>
 void VtermImpl<traced>::csi_EL() {
     normalizeCursorPos();
-    switch (inputOps[0]) {
+    switch (parser.parameters[0]) {
         case 0:
             eraseEcmaRangeInRow(posY, posX, composer.columns - posX);
             break;
@@ -3876,14 +3866,14 @@ void VtermImpl<traced>::csi_EL() {
 template <bool traced>
 void VtermImpl<traced>::csi_DECSED() {
     normalizeCursorPos();
-    if (inputOps[0] == 0 || inputOps[0] == 2) {
-        const u16 firstRow = inputOps[0] == 2 ? 0 : posY;
+    if (parser.parameters[0] == 0 || parser.parameters[0] == 2) {
+        const u16 firstRow = parser.parameters[0] == 2 ? 0 : posY;
         const u16 lastRow = composer.rows - 1;
         for (u16 row = firstRow; row <= lastRow; ++row) {
-            const u16 first = row == posY && inputOps[0] == 0 ? posX : 0;
+            const u16 first = row == posY && parser.parameters[0] == 0 ? posX : 0;
             selectiveEraseRangeInRow(row, first, composer.columns - first);
         }
-    } else if (inputOps[0] == 1) {
+    } else if (parser.parameters[0] == 1) {
         for (u16 row = 0; row <= posY; ++row) {
             const u16 count = row == posY ? posX + 1 : composer.columns;
             selectiveEraseRangeInRow(row, 0, count);
@@ -3894,18 +3884,18 @@ void VtermImpl<traced>::csi_DECSED() {
 template <bool traced>
 void VtermImpl<traced>::csi_DECSEL() {
     normalizeCursorPos();
-    if (inputOps[0] == 0) {
+    if (parser.parameters[0] == 0) {
         selectiveEraseRangeInRow(posY, posX, composer.columns - posX);
-    } else if (inputOps[0] == 1) {
+    } else if (parser.parameters[0] == 1) {
         selectiveEraseRangeInRow(posY, 0, posX + 1);
-    } else if (inputOps[0] == 2) {
+    } else if (parser.parameters[0] == 2) {
         selectiveEraseRangeInRow(posY, 0, composer.columns);
     }
 }
 
 template <bool traced>
 void VtermImpl<traced>::csi_DECSCA() {
-    if (inputOps[0] == 1) {
+    if (parser.parameters[0] == 1) {
         attrs.protected_char |= TerminalCell::decProtection;
     } else {
         attrs.protected_char &= ~TerminalCell::decProtection;
@@ -3914,12 +3904,12 @@ void VtermImpl<traced>::csi_DECSCA() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_DECFRA() {
-    if (inputOps[0] >= 32 && inputOps[0] <= 0x10ffff) {
+    if (parser.parameters[0] >= 32 && parser.parameters[0] <= 0x10ffff) {
         Rectangle rectangle;
         if (!rectangleFromParams(1, rectangle)) {
             return;
         }
-        cf->fillRectangle(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, inputOps[0], attrs, eraseAttrs);
+        cf->fillRectangle(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, parser.parameters[0], attrs, eraseAttrs);
     }
 }
 
@@ -3946,8 +3936,8 @@ void VtermImpl<traced>::csi_DECCRA() {
     }
     u16 rowBase, columnBase, rowLimit, columnLimit;
     rectangleOrigin(rowBase, columnBase, rowLimit, columnLimit);
-    const u32 targetRowParam = 5 < nInputOps ? inputOps[5] : 0;
-    const u32 targetColumnParam = 6 < nInputOps ? inputOps[6] : 0;
+    const u32 targetRowParam = 5 < parser.parameterCount ? parser.parameters[5] : 0;
+    const u32 targetColumnParam = 6 < parser.parameterCount ? parser.parameters[6] : 0;
     const u32 targetRow = targetRowParam ? targetRowParam : 1;
     const u32 targetColumn = targetColumnParam ? targetColumnParam : 1;
     const u16 targetTop = rowBase + std::min<u32>(targetRow, rowLimit - rowBase) - 1;
@@ -3959,25 +3949,25 @@ void VtermImpl<traced>::csi_DECCRA() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_DECCARA(bool reverse) {
-    if (nInputOps >= 5) {
+    if (parser.parameterCount >= 5) {
         Rectangle rectangle;
         if (!rectangleFromParams(0, rectangle)) {
             return;
         }
-        cf->changeRectangleAttributes(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, inputOps + 4, nInputOps - 4, reverse);
+        cf->changeRectangleAttributes(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, parser.parameters + 4, parser.parameterCount - 4, reverse);
     }
 }
 
 template <bool traced>
 void VtermImpl<traced>::csi_DECRQCRA() {
-    if (nInputOps >= 6) {
+    if (parser.parameterCount >= 6) {
         Rectangle rectangle;
         if (!rectangleFromParams(2, rectangle)) {
             return;
         }
         const u16 checksum = cf->checksum(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right);
         StringBuilder response;
-        response << inputOps[0] << StringView(u8"!~") << Hex{checksum, 4, true};
+        response << parser.parameters[0] << StringView(u8"!~") << Hex{checksum, 4, true};
         writeDcsResponse(StringView(response));
     }
 }
@@ -3985,7 +3975,7 @@ void VtermImpl<traced>::csi_DECRQCRA() {
 template <bool traced>
 void VtermImpl<traced>::csi_IL() {
     if (isCursorInsideMargins()) {
-        u32 arg = inputOps[0] ? inputOps[0] : 1;
+        u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
         arg = std::min<u32>(arg, marginBottom - posY);
         insertRows(posY, (u16)(arg));
         inp_CR();
@@ -3995,7 +3985,7 @@ void VtermImpl<traced>::csi_IL() {
 template <bool traced>
 void VtermImpl<traced>::csi_DL() {
     if (isCursorInsideMargins()) {
-        u32 arg = inputOps[0] ? inputOps[0] : 1;
+        u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
         arg = std::min<u32>(arg, marginBottom - posY);
         deleteRows(posY, (u16)(arg));
         inp_CR();
@@ -4003,11 +3993,10 @@ void VtermImpl<traced>::csi_DL() {
 }
 
 template <bool traced>
-void VtermImpl<traced>::csi_ICH() {
+void VtermImpl<traced>::csi_ICH(u32 count) {
     if (isCursorInsideMargins()) {
-        u32 arg = inputOps[0] ? inputOps[0] : 1;
-        arg = min<u32>(arg, nColsEff - posX);
-        cf->insertCells(posY, posX, nColsEff, (u16)(arg), eraseAttrs);
+        count = min<u32>(count, nColsEff - posX);
+        cf->insertCells(posY, posX, nColsEff, (u16)(count), eraseAttrs);
     }
     lastCol = false;
 }
@@ -4015,7 +4004,7 @@ void VtermImpl<traced>::csi_ICH() {
 template <bool traced>
 void VtermImpl<traced>::csi_DCH() {
     if (posX >= hMargin && posX < nColsEff) {
-        u32 arg = inputOps[0] ? inputOps[0] : 1;
+        u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
         arg = min<u32>(arg, nColsEff - posX);
         cf->deleteCells(posY, posX, nColsEff, (u16)(arg), eraseAttrs);
     }
@@ -4024,7 +4013,7 @@ void VtermImpl<traced>::csi_DCH() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_ECH() {
-    u32 arg = inputOps[0] ? inputOps[0] : 1;
+    u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
     const u32 len = composer.columns - posX;
     arg = std::min(arg, len);
     eraseEcmaRangeInRow(posY, posX, arg);
@@ -4033,9 +4022,9 @@ void VtermImpl<traced>::csi_ECH() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_STBM() {
-    if (nInputOps <= 2) {
-        u32 newMarginTop = inputOps[0] > 0 ? inputOps[0] - 1 : 0;
-        u32 newMarginBottom = nInputOps < 2 || inputOps[1] == 0 ? composer.rows : inputOps[1];
+    if (parser.parameterCount <= 2) {
+        u32 newMarginTop = parser.parameters[0] > 0 ? parser.parameters[0] - 1 : 0;
+        u32 newMarginBottom = parser.parameterCount < 2 || parser.parameters[1] == 0 ? composer.rows : parser.parameters[1];
 
         const bool illegal = newMarginTop >= composer.rows || newMarginBottom > composer.rows || newMarginBottom <= newMarginTop + 1;
         if (!illegal && (newMarginTop != marginTop || newMarginBottom != marginBottom)) {
@@ -4056,9 +4045,9 @@ void VtermImpl<traced>::csi_STBM() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_SLRM() {
-    if (nInputOps <= 2) {
-        u32 newMarginLeft = inputOps[0] > 0 ? inputOps[0] - 1 : 0;
-        u32 newMarginRight = nInputOps < 2 || inputOps[1] == 0 ? composer.columns : inputOps[1];
+    if (parser.parameterCount <= 2) {
+        u32 newMarginLeft = parser.parameters[0] > 0 ? parser.parameters[0] - 1 : 0;
+        u32 newMarginRight = parser.parameterCount < 2 || parser.parameters[1] == 0 ? composer.columns : parser.parameters[1];
 
         const bool illegal = newMarginLeft >= composer.columns || newMarginRight > composer.columns || newMarginRight <= newMarginLeft + 1;
         if (!illegal && (newMarginLeft != hMargin || newMarginRight != nColsEff)) {
@@ -4079,7 +4068,7 @@ void VtermImpl<traced>::csi_SLRM() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_TBC() {
-    switch (inputOps[0]) {
+    switch (parser.parameters[0]) {
         case 0: {
             if (!tabStopsCustomized) {
                 for (unsigned column = 8; column < composer.columns; column += 8) {
@@ -4103,8 +4092,8 @@ void VtermImpl<traced>::csi_TBC() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_SM() {
-    for (size_t k = 0; k < nInputOps; ++k) {
-        const auto& arg = inputOps[k];
+    for (size_t k = 0; k < parser.parameterCount; ++k) {
+        const auto& arg = parser.parameters[k];
 
         switch (arg) {
             case 2:
@@ -4130,8 +4119,8 @@ void VtermImpl<traced>::csi_SM() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_RM() {
-    for (size_t k = 0; k < nInputOps; ++k) {
-        const auto& arg = inputOps[k];
+    for (size_t k = 0; k < parser.parameterCount; ++k) {
+        const auto& arg = parser.parameters[k];
 
         switch (arg) {
             case 2:
@@ -4547,22 +4536,22 @@ bool VtermImpl<traced>::getPrivateMode(u32 arg) const {
 
 template <bool traced>
 void VtermImpl<traced>::csi_privSM() {
-    for (size_t k = 0; k < nInputOps; ++k) {
-        setPrivMode(inputOps[k], true);
+    for (size_t k = 0; k < parser.parameterCount; ++k) {
+        setPrivMode(parser.parameters[k], true);
     }
 }
 
 template <bool traced>
 void VtermImpl<traced>::csi_privRM() {
-    for (size_t k = 0; k < nInputOps; ++k) {
-        setPrivMode(inputOps[k], false);
+    for (size_t k = 0; k < parser.parameterCount; ++k) {
+        setPrivMode(parser.parameters[k], false);
     }
 }
 
 template <bool traced>
 void VtermImpl<traced>::csi_privSave() {
-    for (size_t k = 0; k < nInputOps; ++k) {
-        const auto& arg = inputOps[k];
+    for (size_t k = 0; k < parser.parameterCount; ++k) {
+        const auto& arg = parser.parameters[k];
         switch (arg) {
             case 2:
             case 1048:
@@ -4577,8 +4566,8 @@ void VtermImpl<traced>::csi_privSave() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_privRestore() {
-    for (size_t k = 0; k < nInputOps; ++k) {
-        const auto& arg = inputOps[k];
+    for (size_t k = 0; k < parser.parameterCount; ++k) {
+        const auto& arg = parser.parameters[k];
         const auto it = savedPrivModes.find(arg);
         if (it != savedPrivModes.end()) {
             setPrivMode(arg, it->second);
@@ -4647,7 +4636,7 @@ void VtermImpl<traced>::csi_DECRQM(bool privateMode) {
     if (compatLevel < CompatibilityLevel::VT300) {
         return;
     }
-    const u32 mode = inputOps[0];
+    const u32 mode = parser.parameters[0];
     u8 state = 0;
 
     if (privateMode) {
@@ -4793,7 +4782,7 @@ void VtermImpl<traced>::csi_DECRQM(bool privateMode) {
 template <bool traced>
 void VtermImpl<traced>::csi_DSR(bool privateMode) {
     if (privateMode) {
-        switch (inputOps[0]) {
+        switch (parser.parameters[0]) {
             case 6: {
                 StringBuilder response;
                 response << StringView(u8"?");
@@ -4825,7 +4814,7 @@ void VtermImpl<traced>::csi_DSR(bool privateMode) {
                 break;
             case 63: {
                 StringBuilder response;
-                response << (nInputOps > 1 ? inputOps[1] : 0) << StringView(u8"!~0000");
+                response << (parser.parameterCount > 1 ? parser.parameters[1] : 0) << StringView(u8"!~0000");
                 writeDcsResponse(StringView(response));
             } break;
             case 75:
@@ -4842,7 +4831,7 @@ void VtermImpl<traced>::csi_DSR(bool privateMode) {
         }
         return;
     }
-    switch (inputOps[0]) {
+    switch (parser.parameters[0]) {
         case 5:
             writeCsiResponse("0n");
             break;
@@ -4922,8 +4911,8 @@ void VtermImpl<traced>::dcs_DECUDK(bool clearDefinitions, bool lockDefinitions) 
         userDefinedKeys.clear();
     }
 
-    for (const DcsUdkDefinition& definition : dcsUdkDefinitions) {
-        const auto* value = (const char*)(dcsDecoded.data()) + definition.valueOffset;
+    for (const DcsUdkDefinition& definition : parser.dcsUdkDefinitions) {
+        const auto* value = (const char*)(parser.dcsDecoded.data()) + definition.valueOffset;
         userDefinedKeys[definition.key] = std::string(value, definition.valueLength);
     }
     userDefinedKeysLocked = lockDefinitions;
@@ -5051,7 +5040,7 @@ void VtermImpl<traced>::dcs_DECRQSS_UNKNOWN() {
 
 template <bool traced>
 void VtermImpl<traced>::dcs_XTGETTCAP(StringView encoded, StringView value) {
-    StringBuilder replies(static_cast<Buffer&&>(dcsDecoded));
+    StringBuilder replies(static_cast<Buffer&&>(parser.dcsDecoded));
     replies << (send8BitControls ? StringView(u8"\x90") : StringView(u8"\x1bP"));
     replies << (value.empty() ? StringView(u8"0+r") : StringView(u8"1+r"));
     replies << encoded;
@@ -5064,12 +5053,12 @@ void VtermImpl<traced>::dcs_XTGETTCAP(StringView encoded, StringView value) {
         }
     }
     replies << (send8BitControls ? StringView(u8"\x9c") : StringView(u8"\x1b\\"));
-    dcsDecoded = static_cast<Buffer&&>(replies);
+    parser.dcsDecoded = static_cast<Buffer&&>(replies);
 }
 
 template <bool traced>
 void VtermImpl<traced>::dcs_XTGETTCAP_COMMIT() {
-    writePty((const u8*)(dcsDecoded.data()), dcsDecoded.used(), false);
+    writePty((const u8*)(parser.dcsDecoded.data()), parser.dcsDecoded.used(), false);
 }
 
 template <bool traced>
@@ -5594,14 +5583,14 @@ void VtermImpl<traced>::writeTitleResponse(char kind, StringView title) {
 
 template <bool traced>
 void VtermImpl<traced>::csi_XTTITLEMODE(bool set) {
-    if (!csiHadParams) {
+    if (!parser.csiHadParameters) {
         titleModes = 0;
     } else {
-        for (size_t k = 0; k < nInputOps; ++k) {
-            if (inputOps[k] > 3) {
+        for (size_t k = 0; k < parser.parameterCount; ++k) {
+            if (parser.parameters[k] > 3) {
                 continue;
             }
-            const u8 bit = (u8)(1 << inputOps[k]);
+            const u8 bit = (u8)(1 << parser.parameters[k]);
             if (set) {
                 titleModes |= bit;
             } else {
@@ -5622,7 +5611,7 @@ void VtermImpl<traced>::applyPaletteColor(u16 index, Color color) {
 template <bool traced>
 void VtermImpl<traced>::csiq_DECSCL() {
     CompatibilityLevel level;
-    switch (inputOps[0]) {
+    switch (parser.parameters[0]) {
         case 61:
             level = CompatibilityLevel::VT100;
             break;
@@ -5642,7 +5631,7 @@ void VtermImpl<traced>::csiq_DECSCL() {
             return;
     }
 
-    const u32 controlMode = nInputOps > 1 ? inputOps[1] : 0;
+    const u32 controlMode = parser.parameterCount > 1 ? parser.parameters[1] : 0;
     if (controlMode > 2) {
         return;
     }
@@ -5657,7 +5646,7 @@ void VtermImpl<traced>::csi_XTWINOPS() {
     if (!opts.allowWindowOps) {
         return;
     }
-    const u32 operation = inputOps[0];
+    const u32 operation = parser.parameters[0];
     StringBuilder response;
     switch (operation) {
         case 4:
@@ -5668,10 +5657,10 @@ void VtermImpl<traced>::csi_XTWINOPS() {
             const u32 maximumHeight = operation == 4 ? info.screenPixelHeight : info.screenPixelHeight / composer.glyphHeight;
             const u32 maximumWidth = operation == 4 ? info.screenPixelWidth : info.screenPixelWidth / composer.glyphWidth;
             const auto dimension = [&](size_t index, u32 current, u32 maximum) {
-                if (index >= nInputOps || !inputPresent[index]) {
+                if (index >= parser.parameterCount || !parser.present[index]) {
                     return current;
                 }
-                return inputOps[index] ? inputOps[index] : maximum;
+                return parser.parameters[index] ? parser.parameters[index] : maximum;
             };
             host.windowOperation(operation, dimension(1, currentHeight, maximumHeight), dimension(2, currentWidth, maximumWidth));
         } break;
@@ -5683,7 +5672,7 @@ void VtermImpl<traced>::csi_XTWINOPS() {
         case 7:
         case 9:
         case 10:
-            host.windowOperation(operation, nInputOps > 1 ? inputOps[1] : 0, nInputOps > 2 ? inputOps[2] : 0);
+            host.windowOperation(operation, parser.parameterCount > 1 ? parser.parameters[1] : 0, parser.parameterCount > 2 ? parser.parameters[2] : 0);
             break;
         case 11:
             writeCsiResponse(host.windowInfo().iconified ? "2t" : "1t");
@@ -5694,7 +5683,7 @@ void VtermImpl<traced>::csi_XTWINOPS() {
             writeCsiResponse(StringView(response));
         } break;
         case 14:
-            if (nInputOps > 1 && inputOps[1] == 2) {
+            if (parser.parameterCount > 1 && parser.parameters[1] == 2) {
                 response << StringView(u8"4;") << composer.pixelHeight << StringView(u8";") << composer.pixelWidth << StringView(u8"t");
             } else {
                 response << StringView(u8"4;") << composer.rows * composer.glyphHeight << StringView(u8";") << composer.columns * composer.glyphWidth << StringView(u8"t");
@@ -5726,7 +5715,7 @@ void VtermImpl<traced>::csi_XTWINOPS() {
             writeTitleResponse('l', stringView(windowTitle));
             break;
         case 22: {
-            const u32 which = nInputOps > 1 ? inputOps[1] : 0;
+            const u32 which = parser.parameterCount > 1 ? parser.parameters[1] : 0;
             if (which > 2) {
                 break;
             }
@@ -5745,7 +5734,7 @@ void VtermImpl<traced>::csi_XTWINOPS() {
             }
         } break;
         case 23: {
-            const u32 which = nInputOps > 1 ? inputOps[1] : 0;
+            const u32 which = parser.parameterCount > 1 ? parser.parameters[1] : 0;
             if (which > 2) {
                 break;
             }
@@ -5782,12 +5771,12 @@ void VtermImpl<traced>::csi_XTWINOPS() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_XTHIMOUSE() {
-    if (mouseTrk.mode == MouseTrackingMode::VT200_Highlight && nInputOps == 5 && inputOps[0] != 0) {
+    if (mouseTrk.mode == MouseTrackingMode::VT200_Highlight && parser.parameterCount == 5 && parser.parameters[0] != 0) {
         mouseHighlight.active = true;
-        mouseHighlight.startX = std::max<u32>(1, inputOps[1]);
-        mouseHighlight.startY = std::max<u32>(1, inputOps[2]);
-        mouseHighlight.firstRow = std::max<u32>(1, inputOps[3]);
-        mouseHighlight.lastRow = std::max<u32>(mouseHighlight.firstRow, inputOps[4]);
+        mouseHighlight.startX = std::max<u32>(1, parser.parameters[1]);
+        mouseHighlight.startY = std::max<u32>(1, parser.parameters[2]);
+        mouseHighlight.firstRow = std::max<u32>(1, parser.parameters[3]);
+        mouseHighlight.lastRow = std::max<u32>(mouseHighlight.firstRow, parser.parameters[4]);
     } else {
         mouseHighlight.active = false;
     }
@@ -5795,16 +5784,16 @@ void VtermImpl<traced>::csi_XTHIMOUSE() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_DECELR() {
-    const u32 mode = inputOps[0];
+    const u32 mode = parser.parameters[0];
     locator.enabled = mode <= 2 ? mode : 0;
-    locator.pixels = nInputOps > 1 && inputOps[1] == 1;
+    locator.pixels = parser.parameterCount > 1 && parser.parameters[1] == 1;
     locator.filter = false;
 }
 
 template <bool traced>
 void VtermImpl<traced>::csi_DECSLE() {
-    for (size_t k = 0; k < nInputOps; ++k) {
-        switch (inputOps[k]) {
+    for (size_t k = 0; k < parser.parameterCount; ++k) {
+        switch (parser.parameters[k]) {
             case 0:
                 locator.reportDown = locator.reportUp = false;
                 locator.filter = false;
@@ -5844,7 +5833,7 @@ void VtermImpl<traced>::csi_DECRQLP() {
 template <bool traced>
 void VtermImpl<traced>::csi_DECEFR() {
     const auto value = [this](size_t k, u16 current) {
-        return k < nInputOps && inputOps[k] ? (u16)(inputOps[k]) : current;
+        return k < parser.parameterCount && parser.parameters[k] ? (u16)(parser.parameters[k]) : current;
     };
     locator.filterTop = value(0, locator.pixels ? locator.pixelY : locator.row);
     locator.filterLeft = value(1, locator.pixels ? locator.pixelX : locator.column);
@@ -5858,11 +5847,11 @@ void VtermImpl<traced>::csi_XTMODKEYS() {
     const auto supported = [](u32 resource) {
         return resource <= 4 || resource == 6 || resource == 7;
     };
-    if (!csiHadParams) {
+    if (!parser.csiHadParameters) {
         std::copy(std::begin(initialModifyKeyResources), std::end(initialModifyKeyResources), std::begin(modifyKeyResources));
-    } else if (supported(inputOps[0])) {
-        const u32 resource = inputOps[0];
-        const u32 value = nInputOps > 1 ? inputOps[1] : initialModifyKeyResources[resource];
+    } else if (supported(parser.parameters[0])) {
+        const u32 resource = parser.parameters[0];
+        const u32 value = parser.parameterCount > 1 ? parser.parameters[1] : initialModifyKeyResources[resource];
         const u32 maximum = resource == 4 ? 2 : 4;
         if (value <= maximum) {
             modifyKeyResources[resource] = value;
@@ -5873,7 +5862,7 @@ void VtermImpl<traced>::csi_XTMODKEYS() {
 
 template <bool traced>
 void VtermImpl<traced>::csi_XTQMODKEYS() {
-    const u32 resource = inputOps[0];
+    const u32 resource = parser.parameters[0];
     if (resource <= 4 || resource == 6 || resource == 7) {
         StringBuilder response;
         response << StringView(u8">") << resource << StringView(u8";") << (unsigned)(modifyKeyResources[resource]) << StringView(u8"m");
@@ -5889,13 +5878,13 @@ void VtermImpl<traced>::csi_kittyKeyboardPush() {
         state.stack.erase(state.stack.begin());
     }
     state.stack.push_back(state.flags);
-    state.flags = inputOps[0] & 0x1f;
+    state.flags = parser.parameters[0] & 0x1f;
 }
 
 template <bool traced>
 void VtermImpl<traced>::csi_kittyKeyboardPop() {
     auto& state = kittyKeyboardState();
-    const u32 count = inputOps[0] ? inputOps[0] : 1;
+    const u32 count = parser.parameters[0] ? parser.parameters[0] : 1;
     for (u32 k = 0; k < count; ++k) {
         if (state.stack.empty()) {
             state.flags = 0;
@@ -5909,8 +5898,8 @@ void VtermImpl<traced>::csi_kittyKeyboardPop() {
 template <bool traced>
 void VtermImpl<traced>::csi_kittyKeyboardSet() {
     auto& state = kittyKeyboardState();
-    const u8 flags = inputOps[0] & 0x1f;
-    const u32 mode = nInputOps > 1 ? inputOps[1] : 1;
+    const u8 flags = parser.parameters[0] & 0x1f;
+    const u32 mode = parser.parameterCount > 1 ? parser.parameters[1] : 1;
     switch (mode) {
         case 1:
             state.flags = flags;
@@ -7944,7 +7933,7 @@ void VtermImpl<traced>::parseWithRagel(const u8* data, size_t len) {
     const u8* p = data;
     const u8* const pe = data + len;
     const u8* const eof = nullptr;
-    int& cs = ragelState;
+    int& cs = parser.state;
     const bool printerHandled = host.handlesPrinter();
     const auto appendPrinter = [&](const void* bytes, size_t size) {
         if (printerHandled && size != 0) {

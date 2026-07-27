@@ -18,8 +18,8 @@
     }
 
     action cancel {
-        stringUtf8Remaining = 0;
-        ragelStringLimit = 0;
+        parser.stringUtf8Remaining = 0;
+        parser.stringLimit = 0;
         if constexpr (traced) {
             parserTrace->control(fc);
             parserTrace->stringCancel();
@@ -31,16 +31,16 @@
 
     action beginEscape {
         resetGraphemeInput();
-        stringUtf8Remaining = 0;
-        ragelStringLimit = 0;
+        parser.stringUtf8Remaining = 0;
+        parser.stringLimit = 0;
         if constexpr (traced) {
             parserTrace->stringCancel();
             parserTrace->escapeCancel();
             parserTrace->escapeBegin();
         }
-        inputOps[0] = 0;
-        inputSeparators[0] = 0;
-        nInputOps = 1;
+        parser.parameters[0] = 0;
+        parser.separators[0] = 0;
+        parser.parameterCount = 1;
         if (compatLevel == CompatibilityLevel::VT52) {
             fgoto escapeVt52;
         }
@@ -52,9 +52,9 @@
             parserTrace->escapeCancel();
             parserTrace->escapeBegin();
         }
-        inputOps[0] = 0;
-        inputSeparators[0] = 0;
-        nInputOps = 1;
+        parser.parameters[0] = 0;
+        parser.separators[0] = 0;
+        parser.parameterCount = 1;
     }
 
     action beginCsi {
@@ -508,9 +508,9 @@
         if constexpr (traced) {
             parserTrace->escapeByte(fc);
         }
-        scsIndex = 0;
-        scsMod = 0;
-        scs96 = false;
+        parser.scsIndex = 0;
+        parser.scsMod = 0;
+        parser.scs96 = false;
         fgoto selectCharset;
     }
 
@@ -518,9 +518,9 @@
         if constexpr (traced) {
             parserTrace->escapeByte(fc);
         }
-        scsIndex = 1;
-        scsMod = 0;
-        scs96 = false;
+        parser.scsIndex = 1;
+        parser.scsMod = 0;
+        parser.scs96 = false;
         fgoto selectCharset;
     }
 
@@ -528,9 +528,9 @@
         if constexpr (traced) {
             parserTrace->escapeByte(fc);
         }
-        scsIndex = 2;
-        scsMod = 0;
-        scs96 = false;
+        parser.scsIndex = 2;
+        parser.scsMod = 0;
+        parser.scs96 = false;
         fgoto selectCharset;
     }
 
@@ -538,9 +538,9 @@
         if constexpr (traced) {
             parserTrace->escapeByte(fc);
         }
-        scsIndex = 3;
-        scsMod = 0;
-        scs96 = false;
+        parser.scsIndex = 3;
+        parser.scsMod = 0;
+        parser.scs96 = false;
         fgoto selectCharset;
     }
 
@@ -548,9 +548,9 @@
         if constexpr (traced) {
             parserTrace->escapeByte(fc);
         }
-        scsIndex = 1;
-        scsMod = 0;
-        scs96 = true;
+        parser.scsIndex = 1;
+        parser.scsMod = 0;
+        parser.scs96 = true;
         fgoto selectCharset;
     }
 
@@ -558,9 +558,9 @@
         if constexpr (traced) {
             parserTrace->escapeByte(fc);
         }
-        scsIndex = 2;
-        scsMod = 0;
-        scs96 = true;
+        parser.scsIndex = 2;
+        parser.scsMod = 0;
+        parser.scs96 = true;
         fgoto selectCharset;
     }
 
@@ -568,9 +568,9 @@
         if constexpr (traced) {
             parserTrace->escapeByte(fc);
         }
-        scsIndex = 3;
-        scsMod = 0;
-        scs96 = true;
+        parser.scsIndex = 3;
+        parser.scsMod = 0;
+        parser.scs96 = true;
         fgoto selectCharset;
     }
 
@@ -836,7 +836,7 @@
         if constexpr (traced) {
             parserTrace->escapeByte(fc);
         }
-        scsMod = fc;
+        parser.scsMod = fc;
     }
 
     action charsetFinal {
@@ -849,38 +849,38 @@
     }
 
     action csiDigit {
-        csiHadParams = true;
-        inputPresent[nInputOps - 1] = true;
-        if (inputOps[nInputOps - 1] > (UINT32_MAX - (u32)(fc - '0')) / 10) {
-            inputOps[nInputOps - 1] = UINT32_MAX;
+        parser.csiHadParameters = true;
+        parser.present[parser.parameterCount - 1] = true;
+        if (parser.parameters[parser.parameterCount - 1] > (UINT32_MAX - (u32)(fc - '0')) / 10) {
+            parser.parameters[parser.parameterCount - 1] = UINT32_MAX;
         } else {
-            inputOps[nInputOps - 1] = inputOps[nInputOps - 1] * 10 + fc - '0';
+            parser.parameters[parser.parameterCount - 1] = parser.parameters[parser.parameterCount - 1] * 10 + fc - '0';
         }
     }
 
     action csiSeparator {
-        if (nInputOps >= maxEscOps) {
+        if (parser.parameterCount >= parser.maxParameters) {
             fgoto csiIgnore;
         }
-        csiHadParams = true;
-        inputSeparators[nInputOps] = fc;
-        inputOps[nInputOps] = 0;
-        inputPresent[nInputOps] = false;
-        ++nInputOps;
+        parser.csiHadParameters = true;
+        parser.separators[parser.parameterCount] = fc;
+        parser.parameters[parser.parameterCount] = 0;
+        parser.present[parser.parameterCount] = false;
+        ++parser.parameterCount;
     }
 
     action csiPrefix {
-        if (csiPrefix != 0) {
+        if (parser.csiPrefix != 0) {
             fgoto csiIgnore;
         }
-        csiPrefix = fc;
+        parser.csiPrefix = fc;
     }
 
     action csiIntermediate {
-        if (csiIntermediateCount >= sizeof(csiIntermediates)) {
+        if (parser.csiIntermediateCount >= sizeof(parser.csiIntermediates)) {
             fgoto csiIgnore;
         }
-        csiIntermediates[csiIntermediateCount++] = fc;
+        parser.csiIntermediates[parser.csiIntermediateCount++] = fc;
     }
 
     action csiTrace {
@@ -889,26 +889,26 @@
 
     action csiSgr {
         const auto parseColor = [&](size_t& k, CellColor& color, int* palette) {
-            if (k + 1 >= nInputOps) {
+            if (k + 1 >= parser.parameterCount) {
                 return false;
             }
-            const bool colon = inputSeparators[k + 1] == ':';
-            const u32 mode = inputOps[++k];
+            const bool colon = parser.separators[k + 1] == ':';
+            const u32 mode = parser.parameters[++k];
             if (colon) {
                 const size_t first = k + 1;
                 size_t end = k;
-                while (end + 1 < nInputOps && inputSeparators[end + 1] == ':') {
+                while (end + 1 < parser.parameterCount && parser.separators[end + 1] == ':') {
                     ++end;
                 }
                 k = end;
 
                 if (mode == 5) {
-                    if (end - first + 1 != 1 || inputOps[first] > 255) {
+                    if (end - first + 1 != 1 || parser.parameters[first] > 255) {
                         return false;
                     }
-                    color = CellColor::indexed(inputOps[first]);
+                    color = CellColor::indexed(parser.parameters[first]);
                     if (palette) {
-                        *palette = inputOps[first];
+                        *palette = parser.parameters[first];
                     }
                     return true;
                 }
@@ -918,19 +918,19 @@
                 const size_t count = end - first + 1;
                 const size_t rgbFirst = first + (count >= 4);
                 if (mode != 2 || count < 3 ||
-                    (count == 3 && !inputPresent[first]) ||
-                    !inputPresent[rgbFirst] ||
-                    !inputPresent[rgbFirst + 1] ||
-                    !inputPresent[rgbFirst + 2] ||
-                    inputOps[rgbFirst] > 255 ||
-                    inputOps[rgbFirst + 1] > 255 ||
-                    inputOps[rgbFirst + 2] > 255) {
+                    (count == 3 && !parser.present[first]) ||
+                    !parser.present[rgbFirst] ||
+                    !parser.present[rgbFirst + 1] ||
+                    !parser.present[rgbFirst + 2] ||
+                    parser.parameters[rgbFirst] > 255 ||
+                    parser.parameters[rgbFirst + 1] > 255 ||
+                    parser.parameters[rgbFirst + 2] > 255) {
                     return false;
                 }
                 color = CellColor::direct({
-                    (u8)(inputOps[rgbFirst]),
-                    (u8)(inputOps[rgbFirst + 1]),
-                    (u8)(inputOps[rgbFirst + 2]),
+                    (u8)(parser.parameters[rgbFirst]),
+                    (u8)(parser.parameters[rgbFirst + 1]),
+                    (u8)(parser.parameters[rgbFirst + 2]),
                 });
                 if (palette) {
                     *palette = -1;
@@ -939,10 +939,10 @@
             }
 
             if (mode == 5) {
-                if (k + 1 >= nInputOps) {
+                if (k + 1 >= parser.parameterCount) {
                     return false;
                 }
-                const unsigned index = inputOps[++k];
+                const unsigned index = parser.parameters[++k];
                 if (index > 255) {
                     return false;
                 }
@@ -957,18 +957,18 @@
             }
 
             const size_t first = k + 1;
-            const size_t available = nInputOps - first;
+            const size_t available = parser.parameterCount - first;
             k += min<size_t>(available, 3);
             if (available < 3 ||
-                inputOps[first] > 255 ||
-                inputOps[first + 1] > 255 ||
-                inputOps[first + 2] > 255) {
+                parser.parameters[first] > 255 ||
+                parser.parameters[first + 1] > 255 ||
+                parser.parameters[first + 2] > 255) {
                 return false;
             }
             color = CellColor::direct({
-                (u8)(inputOps[first]),
-                (u8)(inputOps[first + 1]),
-                (u8)(inputOps[first + 2]),
+                (u8)(parser.parameters[first]),
+                (u8)(parser.parameters[first + 1]),
+                (u8)(parser.parameters[first + 2]),
             });
             k = first + 2;
             if (palette) {
@@ -977,8 +977,8 @@
             return true;
         };
 
-        for (size_t k = 0; k < nInputOps; ++k) {
-            const u32 attr = inputOps[k];
+        for (size_t k = 0; k < parser.parameterCount; ++k) {
+            const u32 attr = parser.parameters[k];
 
             switch (attr) {
                 case 0:
@@ -995,8 +995,8 @@
                     attrs.italic = 1;
                     break;
                 case 4:
-                    if (k + 1 < nInputOps && inputSeparators[k + 1] == ':') {
-                        const u32 style = inputOps[++k];
+                    if (k + 1 < parser.parameterCount && parser.separators[k + 1] == ':') {
+                        const u32 style = parser.parameters[++k];
                         if (style <= 5) {
                             attrs.underline_style = style;
                         }
@@ -1198,16 +1198,16 @@
 
     action csiFinalSelect {
         fhold;
-        if (csiPrefix == '>') {
+        if (parser.csiPrefix == '>') {
             fgoto csiGreaterDispatch;
         }
-        if (csiPrefix == '<') {
+        if (parser.csiPrefix == '<') {
             fgoto csiLessDispatch;
         }
-        if (csiPrefix == '=') {
+        if (parser.csiPrefix == '=') {
             fgoto csiEqualDispatch;
         }
-        if (csiPrefix == '?') {
+        if (parser.csiPrefix == '?') {
             fgoto csiQuestionDispatch;
         }
         fgoto csiPlainDispatch;
@@ -1215,31 +1215,31 @@
 
     action csiIntermediateFinalSelect {
         fhold;
-        if (csiIntermediateCount != 1) {
+        if (parser.csiIntermediateCount != 1) {
             fgoto csiUnknownDispatch;
         }
-        if (csiPrefix == '?' && csiIntermediates[0] == '$') {
+        if (parser.csiPrefix == '?' && parser.csiIntermediates[0] == '$') {
             fgoto csiQuestionDollarDispatch;
         }
-        if (csiPrefix != 0) {
+        if (parser.csiPrefix != 0) {
             fgoto csiUnknownDispatch;
         }
-        if (csiIntermediates[0] == '!') {
+        if (parser.csiIntermediates[0] == '!') {
             fgoto csiBangDispatch;
         }
-        if (csiIntermediates[0] == '"') {
+        if (parser.csiIntermediates[0] == '"') {
             fgoto csiQuoteDispatch;
         }
-        if (csiIntermediates[0] == ' ') {
+        if (parser.csiIntermediates[0] == ' ') {
             fgoto csiSpaceDispatch;
         }
-        if (csiIntermediates[0] == '\'') {
+        if (parser.csiIntermediates[0] == '\'') {
             fgoto csiApostropheDispatch;
         }
-        if (csiIntermediates[0] == '$') {
+        if (parser.csiIntermediates[0] == '$') {
             fgoto csiDollarDispatch;
         }
-        if (csiIntermediates[0] == '*') {
+        if (parser.csiIntermediates[0] == '*') {
             fgoto csiStarDispatch;
         }
         fgoto csiUnknownDispatch;
@@ -1359,88 +1359,88 @@
     }
 
     action vt52Row {
-        inputOps[0] = fc - 31;
+        parser.parameters[0] = fc - 31;
         fgoto vt52CupColumn;
     }
 
     action vt52Column {
-        inputOps[1] = fc - 31;
-        nInputOps = 2;
+        parser.parameters[1] = fc - 31;
+        parser.parameterCount = 2;
         csi_CUP();
         fnext main;
         fbreak;
     }
 
     action dcsHeaderByte {
-        ragelAppendString(fc, maxDcsBytes);
+        ragelAppendString(fc, parser.maxDcsBytes);
     }
 
     action dcsDigit {
-        ragelAppendString(fc, maxDcsBytes);
-        inputPresent[nInputOps - 1] = true;
-        if (inputOps[nInputOps - 1] > (UINT32_MAX - (u32)(fc - '0')) / 10) {
-            inputOps[nInputOps - 1] = UINT32_MAX;
+        ragelAppendString(fc, parser.maxDcsBytes);
+        parser.present[parser.parameterCount - 1] = true;
+        if (parser.parameters[parser.parameterCount - 1] > (UINT32_MAX - (u32)(fc - '0')) / 10) {
+            parser.parameters[parser.parameterCount - 1] = UINT32_MAX;
         } else {
-            inputOps[nInputOps - 1] = inputOps[nInputOps - 1] * 10 + fc - '0';
+            parser.parameters[parser.parameterCount - 1] = parser.parameters[parser.parameterCount - 1] * 10 + fc - '0';
         }
     }
 
     action dcsSeparator {
-        ragelAppendString(fc, maxDcsBytes);
-        if (nInputOps >= maxEscOps) {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        if (parser.parameterCount >= parser.maxParameters) {
             if constexpr (traced) {
                 parserTrace->stringCancel();
             }
             fgoto dcsIgnore;
         }
-        inputSeparators[nInputOps] = fc;
-        inputOps[nInputOps] = 0;
-        inputPresent[nInputOps] = false;
-        ++nInputOps;
+        parser.separators[parser.parameterCount] = fc;
+        parser.parameters[parser.parameterCount] = 0;
+        parser.present[parser.parameterCount] = false;
+        ++parser.parameterCount;
     }
 
     action dcsIntermediate {
-        ragelAppendString(fc, maxDcsBytes);
-        if (dcsIntermediateCount >= sizeof(dcsIntermediates)) {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        if (parser.dcsIntermediateCount >= sizeof(parser.dcsIntermediates)) {
             if constexpr (traced) {
                 parserTrace->stringCancel();
             }
             fgoto dcsIgnore;
         }
-        dcsIntermediates[dcsIntermediateCount++] = fc;
+        parser.dcsIntermediates[parser.dcsIntermediateCount++] = fc;
     }
 
     action dcsFinal {
-        ragelAppendString(fc, maxDcsBytes);
-        if (dcsIntermediateCount == 1 && dcsIntermediates[0] == '$' && fc == 'q') {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        if (parser.dcsIntermediateCount == 1 && parser.dcsIntermediates[0] == '$' && fc == 'q') {
             fgoto dcsDecrqssEntry;
-        } else if (dcsIntermediateCount == 1 && dcsIntermediates[0] == '+' && fc == 'q') {
-            dcsCapabilityOffset = argBuf.used();
-            dcsCapabilityDecodedLength = 0;
-            dcsCapabilityCandidates = 0x0f;
-            dcsCapabilityHasHighNibble = false;
-            dcsCapabilityValid = true;
-            dcsCapabilityComplete = false;
+        } else if (parser.dcsIntermediateCount == 1 && parser.dcsIntermediates[0] == '+' && fc == 'q') {
+            parser.dcsCapabilityOffset = parser.scratch.used();
+            parser.dcsCapabilityDecodedLength = 0;
+            parser.dcsCapabilityCandidates = 0x0f;
+            parser.dcsCapabilityHasHighNibble = false;
+            parser.dcsCapabilityValid = true;
+            parser.dcsCapabilityComplete = false;
             fgoto dcsXtgettcap;
-        } else if (dcsIntermediateCount == 0 && fc == '|') {
+        } else if (parser.dcsIntermediateCount == 0 && fc == '|') {
             const bool secondParameterValid =
-                nInputOps < 2 || !inputPresent[1] || inputOps[1] <= 1;
-            dcsUdkHeaderValid =
-                nInputOps <= 2 &&
-                (!inputPresent[0] || inputOps[0] <= 1) &&
+                parser.parameterCount < 2 || !parser.present[1] || parser.parameters[1] <= 1;
+            parser.dcsUdkHeaderValid =
+                parser.parameterCount <= 2 &&
+                (!parser.present[0] || parser.parameters[0] <= 1) &&
                 secondParameterValid &&
-                (nInputOps < 2 || inputSeparators[1] == ';');
-            dcsUdkClearDefinitions =
-                !inputPresent[0] || inputOps[0] == 0;
-            dcsUdkLockDefinitions =
-                nInputOps < 2 || !inputPresent[1] || inputOps[1] == 0;
-            dcsUdkValueOffset = dcsDecoded.used();
-            dcsUdkCode = 0;
-            dcsUdkKey = VtKey::NONE;
-            dcsUdkHasCode = false;
-            dcsUdkHasHighNibble = false;
-            dcsUdkValid = true;
-            dcsUdkInValue = false;
+                (parser.parameterCount < 2 || parser.separators[1] == ';');
+            parser.dcsUdkClearDefinitions =
+                !parser.present[0] || parser.parameters[0] == 0;
+            parser.dcsUdkLockDefinitions =
+                parser.parameterCount < 2 || !parser.present[1] || parser.parameters[1] == 0;
+            parser.dcsUdkValueOffset = parser.dcsDecoded.used();
+            parser.dcsUdkCode = 0;
+            parser.dcsUdkKey = VtKey::NONE;
+            parser.dcsUdkHasCode = false;
+            parser.dcsUdkHasHighNibble = false;
+            parser.dcsUdkValid = true;
+            parser.dcsUdkInValue = false;
             fgoto dcsUdkCode;
         } else {
             fgoto dcsPayload;
@@ -1455,8 +1455,8 @@
     }
 
     action dcsHeaderTerminated {
-        stringUtf8Remaining = 0;
-        ragelStringLimit = 0;
+        parser.stringUtf8Remaining = 0;
+        parser.stringLimit = 0;
         if constexpr (traced) {
             parserTrace->stringCancel();
         }
@@ -1465,8 +1465,8 @@
     }
 
     action dcsIgnoreSt {
-        stringUtf8Remaining = 0;
-        ragelStringLimit = 0;
+        parser.stringUtf8Remaining = 0;
+        parser.stringLimit = 0;
         fnext main;
         fbreak;
     }
@@ -1474,13 +1474,13 @@
     action dcsPayloadData {
         stringUtf8Continuation(fc);
         if (!executeC0InSequence(fc, true)) {
-            ragelAppendString(fc, maxDcsBytes);
+            ragelAppendString(fc, parser.maxDcsBytes);
         }
     }
 
     action dcsSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxDcsBytes);
+            ragelAppendString(fc, parser.maxDcsBytes);
         } else {
             ragelFinishDcs();
             fnext main;
@@ -1500,16 +1500,16 @@
         if constexpr (traced) {
             parserTrace->stringData((const u8*)("\x1b"), 1);
         }
-        if (argBuf.used() < maxDcsBytes) {
+        if (parser.scratch.used() < parser.maxDcsBytes) {
             const u8 ch = '\x1b';
-            argBuf.append(&ch, 1);
+            parser.scratch.append(&ch, 1);
         } else {
-            argBufOverflowed = true;
+            parser.overflow = true;
         }
     }
 
     action dcsEscapedData {
-        ragelAppendEscapedString(fc, maxDcsBytes);
+        ragelAppendEscapedString(fc, parser.maxDcsBytes);
         fgoto dcsPayload;
     }
 
@@ -1520,7 +1520,7 @@
 
     action dcsDecrqssInvalid {
         stringUtf8Continuation(fc);
-        ragelAppendString(fc, maxDcsBytes);
+        ragelAppendString(fc, parser.maxDcsBytes);
         fgoto dcsDecrqssInvalid;
     }
 
@@ -1532,27 +1532,27 @@
         if constexpr (traced) {
             parserTrace->stringData((const u8*)("\x1b"), 1);
         }
-        if (argBuf.used() < maxDcsBytes) {
+        if (parser.scratch.used() < parser.maxDcsBytes) {
             const u8 ch = '\x1b';
-            argBuf.append(&ch, 1);
+            parser.scratch.append(&ch, 1);
         } else {
-            argBufOverflowed = true;
+            parser.overflow = true;
         }
         fgoto dcsDecrqssEscape;
     }
 
     action dcsDecrqssEscapedData {
-        ragelAppendEscapedString(fc, maxDcsBytes);
+        ragelAppendEscapedString(fc, parser.maxDcsBytes);
         fgoto dcsDecrqssInvalid;
     }
 
     action dcsDecrqssUnknownSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxDcsBytes);
+            ragelAppendString(fc, parser.maxDcsBytes);
             fgoto dcsDecrqssInvalid;
         } else {
             ragelFinishDcs();
-            if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT400) {
+            if (!parser.overflow && compatLevel >= CompatibilityLevel::VT400) {
                 dcs_DECRQSS_UNKNOWN();
             }
             fnext main;
@@ -1562,7 +1562,7 @@
 
     action dcsDecrqssDecsclSt {
         ragelFinishDcs();
-        if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT400) {
+        if (!parser.overflow && compatLevel >= CompatibilityLevel::VT400) {
             dcs_DECRQSS_DECSCL();
         }
         fnext main;
@@ -1571,7 +1571,7 @@
 
     action dcsDecrqssSgrSt {
         ragelFinishDcs();
-        if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT400) {
+        if (!parser.overflow && compatLevel >= CompatibilityLevel::VT400) {
             dcs_DECRQSS_SGR();
         }
         fnext main;
@@ -1580,7 +1580,7 @@
 
     action dcsDecrqssDecstbmSt {
         ragelFinishDcs();
-        if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT400) {
+        if (!parser.overflow && compatLevel >= CompatibilityLevel::VT400) {
             dcs_DECRQSS_DECSTBM();
         }
         fnext main;
@@ -1589,7 +1589,7 @@
 
     action dcsDecrqssDecslrmSt {
         ragelFinishDcs();
-        if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT400) {
+        if (!parser.overflow && compatLevel >= CompatibilityLevel::VT400) {
             dcs_DECRQSS_DECSLRM();
         }
         fnext main;
@@ -1598,7 +1598,7 @@
 
     action dcsDecrqssDecslppSt {
         ragelFinishDcs();
-        if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT400) {
+        if (!parser.overflow && compatLevel >= CompatibilityLevel::VT400) {
             dcs_DECRQSS_DECSLPP();
         }
         fnext main;
@@ -1607,7 +1607,7 @@
 
     action dcsDecrqssDecscusrSt {
         ragelFinishDcs();
-        if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT400) {
+        if (!parser.overflow && compatLevel >= CompatibilityLevel::VT400) {
             dcs_DECRQSS_DECSCUSR();
         }
         fnext main;
@@ -1616,7 +1616,7 @@
 
     action dcsDecrqssDecscaSt {
         ragelFinishDcs();
-        if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT400) {
+        if (!parser.overflow && compatLevel >= CompatibilityLevel::VT400) {
             dcs_DECRQSS_DECSCA();
         }
         fnext main;
@@ -1624,60 +1624,60 @@
     }
 
     action dcsXtHex {
-        ragelAppendString(fc, maxDcsBytes);
+        ragelAppendString(fc, parser.maxDcsBytes);
         const u8 nibble = fc <= '9' ? fc - '0' : (fc | 0x20) - 'a' + 10;
-        if (!dcsCapabilityHasHighNibble) {
-            dcsCapabilityHighNibble = nibble;
-            dcsCapabilityHasHighNibble = true;
+        if (!parser.dcsCapabilityHasHighNibble) {
+            parser.dcsCapabilityHighNibble = nibble;
+            parser.dcsCapabilityHasHighNibble = true;
         } else {
-            const u8 decoded = (dcsCapabilityHighNibble << 4) | nibble;
+            const u8 decoded = (parser.dcsCapabilityHighNibble << 4) | nibble;
             static constexpr u8 terminalName[] = {'T', 'N'};
             static constexpr u8 colorCount[] = {'C', 'o'};
             static constexpr u8 colors[] = {'c', 'o', 'l', 'o', 'r', 's'};
             static constexpr u8 rgb[] = {'R', 'G', 'B'};
-            const size_t index = dcsCapabilityDecodedLength++;
+            const size_t index = parser.dcsCapabilityDecodedLength++;
             if (index >= sizeof(terminalName) || terminalName[index] != decoded) {
-                dcsCapabilityCandidates &= ~0x01;
+                parser.dcsCapabilityCandidates &= ~0x01;
             }
             if (index >= sizeof(colorCount) || colorCount[index] != decoded) {
-                dcsCapabilityCandidates &= ~0x02;
+                parser.dcsCapabilityCandidates &= ~0x02;
             }
             if (index >= sizeof(colors) || colors[index] != decoded) {
-                dcsCapabilityCandidates &= ~0x04;
+                parser.dcsCapabilityCandidates &= ~0x04;
             }
             if (index >= sizeof(rgb) || rgb[index] != decoded) {
-                dcsCapabilityCandidates &= ~0x08;
+                parser.dcsCapabilityCandidates &= ~0x08;
             }
-            dcsCapabilityHasHighNibble = false;
+            parser.dcsCapabilityHasHighNibble = false;
         }
     }
 
     action dcsXtInvalid {
         stringUtf8Continuation(fc);
-        ragelAppendString(fc, maxDcsBytes);
-        dcsCapabilityValid = false;
+        ragelAppendString(fc, parser.maxDcsBytes);
+        parser.dcsCapabilityValid = false;
     }
 
     action dcsXtField {
-        if (dcsCapabilityComplete && !argBufOverflowed) {
-            const auto* data = (const u8*)(argBuf.data());
+        if (parser.dcsCapabilityComplete && !parser.overflow) {
+            const auto* data = (const u8*)(parser.scratch.data());
             const StringView encoded(
-                data + dcsCapabilityOffset,
-                argBuf.used() - dcsCapabilityOffset
+                data + parser.dcsCapabilityOffset,
+                parser.scratch.used() - parser.dcsCapabilityOffset
             );
-            if (dcsCapabilityValid && !dcsCapabilityHasHighNibble &&
-                (dcsCapabilityCandidates & 0x01) &&
-                dcsCapabilityDecodedLength == 2) {
+            if (parser.dcsCapabilityValid && !parser.dcsCapabilityHasHighNibble &&
+                (parser.dcsCapabilityCandidates & 0x01) &&
+                parser.dcsCapabilityDecodedLength == 2) {
                 dcs_XTGETTCAP(encoded, StringView(u8"xterm-256color"));
-            } else if (dcsCapabilityValid && !dcsCapabilityHasHighNibble &&
-                       (((dcsCapabilityCandidates & 0x02) &&
-                         dcsCapabilityDecodedLength == 2) ||
-                        ((dcsCapabilityCandidates & 0x04) &&
-                         dcsCapabilityDecodedLength == 6))) {
+            } else if (parser.dcsCapabilityValid && !parser.dcsCapabilityHasHighNibble &&
+                       (((parser.dcsCapabilityCandidates & 0x02) &&
+                         parser.dcsCapabilityDecodedLength == 2) ||
+                        ((parser.dcsCapabilityCandidates & 0x04) &&
+                         parser.dcsCapabilityDecodedLength == 6))) {
                 dcs_XTGETTCAP(encoded, StringView(u8"256"));
-            } else if (dcsCapabilityValid && !dcsCapabilityHasHighNibble &&
-                       (dcsCapabilityCandidates & 0x08) &&
-                       dcsCapabilityDecodedLength == 3) {
+            } else if (parser.dcsCapabilityValid && !parser.dcsCapabilityHasHighNibble &&
+                       (parser.dcsCapabilityCandidates & 0x08) &&
+                       parser.dcsCapabilityDecodedLength == 3) {
                 dcs_XTGETTCAP(encoded, StringView(u8"8"));
             } else {
                 dcs_XTGETTCAP(encoded, {});
@@ -1686,29 +1686,29 @@
     }
 
     action dcsXtSeparator {
-        ragelAppendString(fc, maxDcsBytes);
-        dcsCapabilityOffset = argBuf.used();
-        dcsCapabilityDecodedLength = 0;
-        dcsCapabilityCandidates = 0x0f;
-        dcsCapabilityHasHighNibble = false;
-        dcsCapabilityValid = true;
-        dcsCapabilityComplete = false;
+        ragelAppendString(fc, parser.maxDcsBytes);
+        parser.dcsCapabilityOffset = parser.scratch.used();
+        parser.dcsCapabilityDecodedLength = 0;
+        parser.dcsCapabilityCandidates = 0x0f;
+        parser.dcsCapabilityHasHighNibble = false;
+        parser.dcsCapabilityValid = true;
+        parser.dcsCapabilityComplete = false;
     }
 
     action dcsXtSt {
-        dcsCapabilityComplete = false;
+        parser.dcsCapabilityComplete = false;
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxDcsBytes);
-            dcsCapabilityValid = false;
+            ragelAppendString(fc, parser.maxDcsBytes);
+            parser.dcsCapabilityValid = false;
         } else {
             ragelFinishDcs();
-            dcsCapabilityComplete = true;
+            parser.dcsCapabilityComplete = true;
         }
     }
 
     action dcsXtDone {
-        if (dcsCapabilityComplete) {
-            if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT200) {
+        if (parser.dcsCapabilityComplete) {
+            if (!parser.overflow && compatLevel >= CompatibilityLevel::VT200) {
                 dcs_XTGETTCAP_COMMIT();
             }
             fnext main;
@@ -1724,144 +1724,144 @@
         if constexpr (traced) {
             parserTrace->stringData((const u8*)("\x1b"), 1);
         }
-        if (argBuf.used() < maxDcsBytes) {
+        if (parser.scratch.used() < parser.maxDcsBytes) {
             const u8 ch = '\x1b';
-            argBuf.append(&ch, 1);
+            parser.scratch.append(&ch, 1);
         } else {
-            argBufOverflowed = true;
+            parser.overflow = true;
         }
-        dcsCapabilityValid = false;
+        parser.dcsCapabilityValid = false;
     }
 
     action dcsXtEscapedData {
-        ragelAppendEscapedString(fc, maxDcsBytes);
-        dcsCapabilityValid = false;
+        ragelAppendEscapedString(fc, parser.maxDcsBytes);
+        parser.dcsCapabilityValid = false;
         fgoto dcsXtgettcap;
     }
 
     action dcsUdkDigit {
-        ragelAppendString(fc, maxDcsBytes);
-        dcsUdkHasCode = true;
-        if (dcsUdkCode > (UINT32_MAX - (u32)(fc - '0')) / 10) {
-            dcsUdkValid = false;
+        ragelAppendString(fc, parser.maxDcsBytes);
+        parser.dcsUdkHasCode = true;
+        if (parser.dcsUdkCode > (UINT32_MAX - (u32)(fc - '0')) / 10) {
+            parser.dcsUdkValid = false;
         } else {
-            dcsUdkCode = dcsUdkCode * 10 + fc - '0';
+            parser.dcsUdkCode = parser.dcsUdkCode * 10 + fc - '0';
         }
     }
 
     action dcsUdkSlash {
-        ragelAppendString(fc, maxDcsBytes);
-        dcsUdkInValue = true;
-        dcsUdkValid = dcsUdkValid && dcsUdkHasCode;
-        if (dcsUdkCode >= 17 && dcsUdkCode <= 21) {
-            dcsUdkKey = (VtKey)(
-                (int)(VtKey::F6) + dcsUdkCode - 17
+        ragelAppendString(fc, parser.maxDcsBytes);
+        parser.dcsUdkInValue = true;
+        parser.dcsUdkValid = parser.dcsUdkValid && parser.dcsUdkHasCode;
+        if (parser.dcsUdkCode >= 17 && parser.dcsUdkCode <= 21) {
+            parser.dcsUdkKey = (VtKey)(
+                (int)(VtKey::F6) + parser.dcsUdkCode - 17
             );
-        } else if (dcsUdkCode >= 23 && dcsUdkCode <= 26) {
-            dcsUdkKey = (VtKey)(
-                (int)(VtKey::F11) + dcsUdkCode - 23
+        } else if (parser.dcsUdkCode >= 23 && parser.dcsUdkCode <= 26) {
+            parser.dcsUdkKey = (VtKey)(
+                (int)(VtKey::F11) + parser.dcsUdkCode - 23
             );
-        } else if (dcsUdkCode >= 28 && dcsUdkCode <= 29) {
-            dcsUdkKey = (VtKey)(
-                (int)(VtKey::F15) + dcsUdkCode - 28
+        } else if (parser.dcsUdkCode >= 28 && parser.dcsUdkCode <= 29) {
+            parser.dcsUdkKey = (VtKey)(
+                (int)(VtKey::F15) + parser.dcsUdkCode - 28
             );
-        } else if (dcsUdkCode >= 31 && dcsUdkCode <= 34) {
-            dcsUdkKey = (VtKey)(
-                (int)(VtKey::F17) + dcsUdkCode - 31
+        } else if (parser.dcsUdkCode >= 31 && parser.dcsUdkCode <= 34) {
+            parser.dcsUdkKey = (VtKey)(
+                (int)(VtKey::F17) + parser.dcsUdkCode - 31
             );
         } else {
-            dcsUdkKey = VtKey::NONE;
-            dcsUdkValid = false;
+            parser.dcsUdkKey = VtKey::NONE;
+            parser.dcsUdkValid = false;
         }
-        dcsUdkValueOffset = dcsDecoded.used();
-        dcsUdkHasHighNibble = false;
+        parser.dcsUdkValueOffset = parser.dcsDecoded.used();
+        parser.dcsUdkHasHighNibble = false;
         fgoto dcsUdkValue;
     }
 
     action dcsUdkHex {
-        ragelAppendString(fc, maxDcsBytes);
+        ragelAppendString(fc, parser.maxDcsBytes);
         const u8 nibble = fc <= '9' ? fc - '0' : (fc | 0x20) - 'a' + 10;
-        if (!dcsUdkHasHighNibble) {
-            dcsUdkHighNibble = nibble;
-            dcsUdkHasHighNibble = true;
+        if (!parser.dcsUdkHasHighNibble) {
+            parser.dcsUdkHighNibble = nibble;
+            parser.dcsUdkHasHighNibble = true;
         } else {
-            if (!argBufOverflowed &&
-                dcsDecoded.used() - dcsUdkValueOffset < 255) {
-                const u8 decoded = (dcsUdkHighNibble << 4) | nibble;
-                dcsDecoded.append(&decoded, 1);
+            if (!parser.overflow &&
+                parser.dcsDecoded.used() - parser.dcsUdkValueOffset < 255) {
+                const u8 decoded = (parser.dcsUdkHighNibble << 4) | nibble;
+                parser.dcsDecoded.append(&decoded, 1);
             } else {
-                dcsUdkValid = false;
+                parser.dcsUdkValid = false;
             }
-            dcsUdkHasHighNibble = false;
+            parser.dcsUdkHasHighNibble = false;
         }
     }
 
     action dcsUdkCodeSeparator {
-        ragelAppendString(fc, maxDcsBytes);
-        dcsUdkCode = 0;
-        dcsUdkKey = VtKey::NONE;
-        dcsUdkHasCode = false;
-        dcsUdkHasHighNibble = false;
-        dcsUdkValid = true;
-        dcsUdkInValue = false;
+        ragelAppendString(fc, parser.maxDcsBytes);
+        parser.dcsUdkCode = 0;
+        parser.dcsUdkKey = VtKey::NONE;
+        parser.dcsUdkHasCode = false;
+        parser.dcsUdkHasHighNibble = false;
+        parser.dcsUdkValid = true;
+        parser.dcsUdkInValue = false;
     }
 
     action dcsUdkValueSeparator {
-        if (!argBufOverflowed && dcsUdkValid && !dcsUdkHasHighNibble) {
-            dcsUdkDefinitions.pushBack({
-                dcsUdkValueOffset,
-                dcsDecoded.used() - dcsUdkValueOffset,
-                dcsUdkKey,
+        if (!parser.overflow && parser.dcsUdkValid && !parser.dcsUdkHasHighNibble) {
+            parser.dcsUdkDefinitions.pushBack({
+                parser.dcsUdkValueOffset,
+                parser.dcsDecoded.used() - parser.dcsUdkValueOffset,
+                parser.dcsUdkKey,
             });
         }
-        ragelAppendString(fc, maxDcsBytes);
-        dcsUdkCode = 0;
-        dcsUdkKey = VtKey::NONE;
-        dcsUdkHasCode = false;
-        dcsUdkHasHighNibble = false;
-        dcsUdkValid = true;
-        dcsUdkInValue = false;
+        ragelAppendString(fc, parser.maxDcsBytes);
+        parser.dcsUdkCode = 0;
+        parser.dcsUdkKey = VtKey::NONE;
+        parser.dcsUdkHasCode = false;
+        parser.dcsUdkHasHighNibble = false;
+        parser.dcsUdkValid = true;
+        parser.dcsUdkInValue = false;
         fgoto dcsUdkCode;
     }
 
     action dcsUdkInvalidSeparator {
-        ragelAppendString(fc, maxDcsBytes);
-        dcsUdkCode = 0;
-        dcsUdkKey = VtKey::NONE;
-        dcsUdkHasCode = false;
-        dcsUdkHasHighNibble = false;
-        dcsUdkValid = true;
-        dcsUdkInValue = false;
+        ragelAppendString(fc, parser.maxDcsBytes);
+        parser.dcsUdkCode = 0;
+        parser.dcsUdkKey = VtKey::NONE;
+        parser.dcsUdkHasCode = false;
+        parser.dcsUdkHasHighNibble = false;
+        parser.dcsUdkValid = true;
+        parser.dcsUdkInValue = false;
         fgoto dcsUdkCode;
     }
 
     action dcsUdkInvalid {
         stringUtf8Continuation(fc);
-        ragelAppendString(fc, maxDcsBytes);
-        dcsUdkValid = false;
+        ragelAppendString(fc, parser.maxDcsBytes);
+        parser.dcsUdkValid = false;
         fgoto dcsUdkInvalid;
     }
 
     action dcsUdkSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxDcsBytes);
-            dcsUdkValid = false;
+            ragelAppendString(fc, parser.maxDcsBytes);
+            parser.dcsUdkValid = false;
             fgoto dcsUdkInvalid;
         } else {
-            if (!argBufOverflowed && dcsUdkInValue && dcsUdkValid &&
-                !dcsUdkHasHighNibble) {
-                dcsUdkDefinitions.pushBack({
-                    dcsUdkValueOffset,
-                    dcsDecoded.used() - dcsUdkValueOffset,
-                    dcsUdkKey,
+            if (!parser.overflow && parser.dcsUdkInValue && parser.dcsUdkValid &&
+                !parser.dcsUdkHasHighNibble) {
+                parser.dcsUdkDefinitions.pushBack({
+                    parser.dcsUdkValueOffset,
+                    parser.dcsDecoded.used() - parser.dcsUdkValueOffset,
+                    parser.dcsUdkKey,
                 });
             }
             ragelFinishDcs();
-            if (!argBufOverflowed && dcsUdkHeaderValid &&
+            if (!parser.overflow && parser.dcsUdkHeaderValid &&
                 compatLevel >= CompatibilityLevel::VT200) {
                 dcs_DECUDK(
-                    dcsUdkClearDefinitions,
-                    dcsUdkLockDefinitions
+                    parser.dcsUdkClearDefinitions,
+                    parser.dcsUdkLockDefinitions
                 );
             }
             fnext main;
@@ -1877,114 +1877,114 @@
         if constexpr (traced) {
             parserTrace->stringData((const u8*)("\x1b"), 1);
         }
-        if (argBuf.used() < maxDcsBytes) {
+        if (parser.scratch.used() < parser.maxDcsBytes) {
             const u8 ch = '\x1b';
-            argBuf.append(&ch, 1);
+            parser.scratch.append(&ch, 1);
         } else {
-            argBufOverflowed = true;
+            parser.overflow = true;
         }
-        dcsUdkValid = false;
+        parser.dcsUdkValid = false;
     }
 
     action dcsUdkEscapedData {
-        ragelAppendEscapedString(fc, maxDcsBytes);
-        dcsUdkValid = false;
+        ragelAppendEscapedString(fc, parser.maxDcsBytes);
+        parser.dcsUdkValid = false;
         fgoto dcsUdkInvalid;
     }
 
     action oscCommandDigit {
-        ragelAppendString(fc, maxOscBytes);
-        oscCommandValid = true;
-        if (oscCommand > (2147483647u - (u32)(fc - '0')) / 10) {
-            oscCommandValid = false;
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscCommandValid = true;
+        if (parser.oscCommand > (2147483647u - (u32)(fc - '0')) / 10) {
+            parser.oscCommandValid = false;
         } else {
-            oscCommand = oscCommand * 10 + fc - '0';
+            parser.oscCommand = parser.oscCommand * 10 + fc - '0';
         }
     }
 
     action oscCommandSeparator {
-        ragelAppendString(fc, maxOscBytes);
-        if (!oscCommandValid) {
+        ragelAppendString(fc, parser.maxOscBytes);
+        if (!parser.oscCommandValid) {
             fgoto oscInvalid;
         }
-        oscPayloadOffset = argBuf.used();
-        if (oscCommand == 0 || oscCommand == 1 || oscCommand == 2) {
-            oscTitleHex = titleModes & 1;
-            oscTitleHasHighNibble = false;
-            oscTitleValid = true;
-            oscTitleStopped = false;
-            oscDecoded.reset();
-            if (oscCommand == 0) {
+        parser.oscPayloadOffset = parser.scratch.used();
+        if (parser.oscCommand == 0 || parser.oscCommand == 1 || parser.oscCommand == 2) {
+            parser.oscTitleHex = titleModes & 1;
+            parser.oscTitleHasHighNibble = false;
+            parser.oscTitleValid = true;
+            parser.oscTitleStopped = false;
+            parser.oscDecoded.reset();
+            if (parser.oscCommand == 0) {
                 fgoto oscTitle0;
             }
-            if (oscCommand == 1) {
+            if (parser.oscCommand == 1) {
                 fgoto oscTitle1;
             }
             fgoto oscTitle2;
-        } else if (oscCommand == 7) {
-            oscDecoded.reset();
-            oscCwdPercentHigh = 0;
-            oscCwdValid = false;
-            oscCwdDecode = false;
+        } else if (parser.oscCommand == 7) {
+            parser.oscDecoded.reset();
+            parser.oscCwdPercentHigh = 0;
+            parser.oscCwdValid = false;
+            parser.oscCwdDecode = false;
             fgoto oscCwdEntry;
-        } else if (oscCommand >= 10 && oscCommand <= 19) {
+        } else if (parser.oscCommand >= 10 && parser.oscCommand <= 19) {
             resetOscColor();
             fgoto oscDynamicColor;
-        } else if (oscCommand == 4 || oscCommand == 5) {
-            oscFieldNumber = 0;
-            oscFieldNumeric = true;
-            oscFieldPresent = false;
+        } else if (parser.oscCommand == 4 || parser.oscCommand == 5) {
+            parser.oscFieldNumber = 0;
+            parser.oscFieldNumeric = true;
+            parser.oscFieldPresent = false;
             fgoto oscIndexedColorIndex;
-        } else if (oscCommand == 6 || oscCommand == 106) {
-            oscFieldNumber = 0;
-            oscFieldNumeric = true;
-            oscFieldPresent = false;
-            oscFieldFirst = 0;
-            oscFieldFirstValid = false;
-            oscFieldHaveFirst = false;
+        } else if (parser.oscCommand == 6 || parser.oscCommand == 106) {
+            parser.oscFieldNumber = 0;
+            parser.oscFieldNumeric = true;
+            parser.oscFieldPresent = false;
+            parser.oscFieldFirst = 0;
+            parser.oscFieldFirstValid = false;
+            parser.oscFieldHaveFirst = false;
             fgoto oscNumericFields;
-        } else if (oscCommand == 104 || oscCommand == 105) {
-            oscFieldNumber = 0;
-            oscFieldNumeric = true;
-            oscFieldPresent = false;
+        } else if (parser.oscCommand == 104 || parser.oscCommand == 105) {
+            parser.oscFieldNumber = 0;
+            parser.oscFieldNumeric = true;
+            parser.oscFieldPresent = false;
             fgoto oscNumericFields;
-        } else if (oscCommand == 8) {
-            oscHyperlinkIdOffset = 0;
-            oscHyperlinkIdLength = 0;
-            oscHyperlinkUriOffset = 0;
-            oscHyperlinkHasId = false;
+        } else if (parser.oscCommand == 8) {
+            parser.oscHyperlinkIdOffset = 0;
+            parser.oscHyperlinkIdLength = 0;
+            parser.oscHyperlinkUriOffset = 0;
+            parser.oscHyperlinkHasId = false;
             fgoto oscHyperlinkParamStart;
-        } else if (oscCommand == 9) {
-            oscProgressState = 0;
-            oscProgressPercent = 0;
-            oscProgressStatePresent = false;
-            oscProgressPercentPresent = false;
-            oscProgressValid = true;
+        } else if (parser.oscCommand == 9) {
+            parser.oscProgressState = 0;
+            parser.oscProgressPercent = 0;
+            parser.oscProgressStatePresent = false;
+            parser.oscProgressPercentPresent = false;
+            parser.oscProgressValid = true;
             fgoto oscProgressEntry;
-        } else if (oscCommand == 52) {
-            oscBase64.reset();
-            osc52ReplySelector = 0;
-            osc52Primary = false;
-            osc52Clipboard = false;
-            osc52SelectorSeen = false;
-            osc52PayloadSeen = false;
-            osc52Query = false;
+        } else if (parser.oscCommand == 52) {
+            parser.oscBase64.reset();
+            parser.osc52ReplySelector = 0;
+            parser.osc52Primary = false;
+            parser.osc52Clipboard = false;
+            parser.osc52SelectorSeen = false;
+            parser.osc52PayloadSeen = false;
+            parser.osc52Query = false;
             fgoto osc52Selectors;
-        } else if (oscCommand == 99) {
-            oscNotificationFieldOffset = 0;
-            oscNotificationIdOffset = 0;
-            oscNotificationIdLength = 0;
-            oscNotificationPayloadOffset = 0;
-            oscNotificationPayloadBytes = 0;
-            oscNotificationKey = 0;
-            oscNotificationValid = true;
-            oscNotificationEncoded = false;
-            oscNotificationFinal = true;
-            oscNotificationQuery = false;
-            oscNotificationClose = false;
-            oscNotificationBody = false;
+        } else if (parser.oscCommand == 99) {
+            parser.oscNotificationFieldOffset = 0;
+            parser.oscNotificationIdOffset = 0;
+            parser.oscNotificationIdLength = 0;
+            parser.oscNotificationPayloadOffset = 0;
+            parser.oscNotificationPayloadBytes = 0;
+            parser.oscNotificationKey = 0;
+            parser.oscNotificationValid = true;
+            parser.oscNotificationEncoded = false;
+            parser.oscNotificationFinal = true;
+            parser.oscNotificationQuery = false;
+            parser.oscNotificationClose = false;
+            parser.oscNotificationBody = false;
             fgoto oscNotificationField;
-        } else if (oscCommand == 133) {
+        } else if (parser.oscCommand == 133) {
             fgoto oscShellEntry;
         }
         fgoto oscPayload;
@@ -1992,89 +1992,89 @@
 
     action oscCommandInvalid {
         stringUtf8Continuation(fc);
-        ragelAppendString(fc, maxOscBytes);
+        ragelAppendString(fc, parser.maxOscBytes);
         fgoto oscInvalid;
     }
 
     action oscCommandSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
-            oscTerminated = false;
+            ragelAppendString(fc, parser.maxOscBytes);
+            parser.oscTerminated = false;
             fgoto oscInvalid;
         } else {
-            oscPayloadOffset = argBuf.used();
+            parser.oscPayloadOffset = parser.scratch.used();
             ragelFinishOsc();
-            oscTerminated = true;
+            parser.oscTerminated = true;
         }
     }
 
     action oscCommandBell {
-        oscPayloadOffset = argBuf.used();
+        parser.oscPayloadOffset = parser.scratch.used();
         ragelFinishOsc();
-        oscTerminated = true;
+        parser.oscTerminated = true;
     }
 
     action oscData {
         stringUtf8Continuation(fc);
         if (!executeC0InSequence(fc, true)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
         }
     }
 
     action oscSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
-            oscTerminated = false;
+            ragelAppendString(fc, parser.maxOscBytes);
+            parser.oscTerminated = false;
         } else {
             ragelFinishOsc();
-            oscTerminated = true;
+            parser.oscTerminated = true;
         }
     }
 
     action oscBell {
         ragelFinishOsc();
-        oscTerminated = true;
+        parser.oscTerminated = true;
     }
 
     action oscDispatch {
-        if (oscTerminated && oscCommandValid && !argBufOverflowed) {
+        if (parser.oscTerminated && parser.oscCommandValid && !parser.overflow) {
             const StringView payload = ragelOscPayload();
-            if (oscCommand == 0) {
+            if (parser.oscCommand == 0) {
                 osc_TITLE_0(payload);
-            } else if (oscCommand == 1) {
+            } else if (parser.oscCommand == 1) {
                 osc_TITLE_1(payload);
-            } else if (oscCommand == 2) {
+            } else if (parser.oscCommand == 2) {
                 osc_TITLE_2(payload);
-            } else if (oscCommand == 8) {
+            } else if (parser.oscCommand == 8) {
                 (void)payload;
-            } else if (oscCommand == 9) {
+            } else if (parser.oscCommand == 9) {
                 osc_NOTIFY(payload);
-            } else if (oscCommand == 52) {
+            } else if (parser.oscCommand == 52) {
                 osc_CLIPBOARD_MALFORMED(payload);
-            } else if (oscCommand == 104 && payload.empty()) {
+            } else if (parser.oscCommand == 104 && payload.empty()) {
                 osc_RESET_PALETTE();
-            } else if (oscCommand == 105 && payload.empty()) {
+            } else if (parser.oscCommand == 105 && payload.empty()) {
                 osc_RESET_SPECIAL_COLOR();
-            } else if (oscCommand == 110) {
+            } else if (parser.oscCommand == 110) {
                 osc_RESET_DEFAULT_FOREGROUND();
-            } else if (oscCommand == 111) {
+            } else if (parser.oscCommand == 111) {
                 osc_RESET_DEFAULT_BACKGROUND();
-            } else if (oscCommand == 112) {
+            } else if (parser.oscCommand == 112) {
                 osc_RESET_CURSOR_COLOR();
-            } else if (oscCommand == 117) {
+            } else if (parser.oscCommand == 117) {
                 osc_RESET_SELECTION_BACKGROUND();
-            } else if (oscCommand == 119) {
+            } else if (parser.oscCommand == 119) {
                 osc_RESET_SELECTION_FOREGROUND();
-            } else if (oscCommand == 133) {
+            } else if (parser.oscCommand == 133) {
                 osc_SHELL_UNKNOWN(payload);
             } else {
-                osc_UNKNOWN(oscCommand, payload);
+                osc_UNKNOWN(parser.oscCommand, payload);
             }
         }
     }
 
     action oscDone {
-        if (oscTerminated) {
+        if (parser.oscTerminated) {
             fnext main;
             fbreak;
         }
@@ -2088,25 +2088,25 @@
         if constexpr (traced) {
             parserTrace->stringData((const u8*)("\x1b"), 1);
         }
-        if (argBuf.used() < maxOscBytes) {
+        if (parser.scratch.used() < parser.maxOscBytes) {
             const u8 ch = '\x1b';
-            argBuf.append(&ch, 1);
+            parser.scratch.append(&ch, 1);
         } else {
-            argBufOverflowed = true;
+            parser.overflow = true;
         }
     }
 
     action oscEscapedData {
-        ragelAppendEscapedString(fc, maxOscBytes);
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
         fgoto oscPayload;
     }
 
     action oscInvalidSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
         } else {
-            stringUtf8Remaining = 0;
-            ragelStringLimit = 0;
+            parser.stringUtf8Remaining = 0;
+            parser.stringLimit = 0;
             if constexpr (traced) {
                 parserTrace->stringEnd();
             }
@@ -2116,8 +2116,8 @@
     }
 
     action oscInvalidBell {
-        stringUtf8Remaining = 0;
-        ragelStringLimit = 0;
+        parser.stringUtf8Remaining = 0;
+        parser.stringLimit = 0;
         if constexpr (traced) {
             parserTrace->stringEnd();
         }
@@ -2126,21 +2126,21 @@
     }
 
     action oscInvalidEscapedData {
-        ragelAppendEscapedString(fc, maxOscBytes);
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
         fgoto oscInvalid;
     }
 
     action oscCwdRaw {
-        ragelAppendString(fc, maxOscBytes);
+        ragelAppendString(fc, parser.maxOscBytes);
     }
 
     action oscCwdInvalidData {
         stringUtf8Continuation(fc);
         if (!executeC0InSequence(fc, true)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
         }
-        oscCwdValid = false;
-        oscCwdDecode = false;
+        parser.oscCwdValid = false;
+        parser.oscCwdDecode = false;
         fgoto oscCwdInvalid;
     }
 
@@ -2150,144 +2150,144 @@
     }
 
     action oscCwdPathStart {
-        ragelAppendString(fc, maxOscBytes);
-        if (!argBufOverflowed) {
-            oscDecoded.append(&fc, 1);
+        ragelAppendString(fc, parser.maxOscBytes);
+        if (!parser.overflow) {
+            parser.oscDecoded.append(&fc, 1);
         }
-        oscCwdValid = true;
-        oscCwdDecode = true;
+        parser.oscCwdValid = true;
+        parser.oscCwdDecode = true;
         fgoto oscCwdPath;
     }
 
     action oscCwdAuthorityData {
         stringUtf8Continuation(fc);
         if (!executeC0InSequence(fc, true)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
         }
     }
 
     action oscCwdPathData {
         stringUtf8Continuation(fc);
         if (!executeC0InSequence(fc, true)) {
-            ragelAppendString(fc, maxOscBytes);
-            if (!argBufOverflowed) {
-                oscDecoded.append(&fc, 1);
+            ragelAppendString(fc, parser.maxOscBytes);
+            if (!parser.overflow) {
+                parser.oscDecoded.append(&fc, 1);
             }
         }
     }
 
     action oscCwdPercentStart {
-        ragelAppendString(fc, maxOscBytes);
-        oscCwdValid = false;
-        oscCwdDecode = false;
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscCwdValid = false;
+        parser.oscCwdDecode = false;
         fgoto oscCwdPercentHigh;
     }
 
     action oscCwdPercentHigh {
-        ragelAppendString(fc, maxOscBytes);
-        oscCwdPercentHigh =
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscCwdPercentHigh =
             fc <= '9' ? fc - '0' : (fc | 0x20) - 'a' + 10;
         fgoto oscCwdPercentLow;
     }
 
     action oscCwdPercentLow {
-        ragelAppendString(fc, maxOscBytes);
-        if (!argBufOverflowed) {
+        ragelAppendString(fc, parser.maxOscBytes);
+        if (!parser.overflow) {
             const u8 decoded =
-                (oscCwdPercentHigh << 4) |
+                (parser.oscCwdPercentHigh << 4) |
                 (fc <= '9' ? fc - '0' : (fc | 0x20) - 'a' + 10);
-            oscDecoded.append(&decoded, 1);
+            parser.oscDecoded.append(&decoded, 1);
         }
-        oscCwdValid = true;
-        oscCwdDecode = true;
+        parser.oscCwdValid = true;
+        parser.oscCwdDecode = true;
         fgoto oscCwdPath;
     }
 
     action oscCwdSt {
         if (ragelStringContinuation(fc)) {
-            oscTerminated = false;
+            parser.oscTerminated = false;
         } else {
             ragelFinishOsc();
-            oscTerminated = true;
+            parser.oscTerminated = true;
         }
     }
 
     action oscCwdBell {
         ragelFinishOsc();
-        oscTerminated = true;
+        parser.oscTerminated = true;
     }
 
     action oscCwdDispatch {
-        if (oscTerminated && !argBufOverflowed) {
+        if (parser.oscTerminated && !parser.overflow) {
             osc_CWD(
-                ragelOscPayload(), StringView(oscDecoded), oscCwdValid
+                ragelOscPayload(), StringView(parser.oscDecoded), parser.oscCwdValid
             );
         }
     }
 
     action oscCwdInvalidEscaped {
-        ragelAppendEscapedString(fc, maxOscBytes);
-        oscCwdValid = false;
-        oscCwdDecode = false;
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
+        parser.oscCwdValid = false;
+        parser.oscCwdDecode = false;
         fgoto oscCwdInvalid;
     }
 
     action oscCwdAuthorityEscaped {
-        ragelAppendEscapedString(fc, maxOscBytes);
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
         fgoto oscCwdAuthority;
     }
 
     action oscCwdPathEscapedEscape {
-        if (!argBufOverflowed) {
+        if (!parser.overflow) {
             const u8 escape = '\x1b';
-            oscDecoded.append(&escape, 1);
+            parser.oscDecoded.append(&escape, 1);
         }
     }
 
     action oscCwdPathEscaped {
-        ragelAppendEscapedString(fc, maxOscBytes);
-        if (!argBufOverflowed) {
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
+        if (!parser.overflow) {
             const u8 bytes[] = {'\x1b', (u8)(fc)};
-            oscDecoded.append(bytes, sizeof(bytes));
+            parser.oscDecoded.append(bytes, sizeof(bytes));
         }
         fgoto oscCwdPath;
     }
 
     action oscShellA {
-        ragelAppendString(fc, maxOscBytes);
+        ragelAppendString(fc, parser.maxOscBytes);
         fgoto oscShellAComplete;
     }
 
     action oscShellB {
-        ragelAppendString(fc, maxOscBytes);
+        ragelAppendString(fc, parser.maxOscBytes);
         fgoto oscShellBComplete;
     }
 
     action oscShellC {
-        ragelAppendString(fc, maxOscBytes);
+        ragelAppendString(fc, parser.maxOscBytes);
         fgoto oscShellCComplete;
     }
 
     action oscShellD {
-        ragelAppendString(fc, maxOscBytes);
+        ragelAppendString(fc, parser.maxOscBytes);
         fgoto oscShellDComplete;
     }
 
     action oscShellInvalid {
         stringUtf8Continuation(fc);
         if (!executeC0InSequence(fc, true)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
         }
         fgoto oscShellUnknown;
     }
 
     action oscShellASt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
             fgoto oscShellUnknown;
         } else {
             ragelFinishOsc();
-            if (!argBufOverflowed) {
+            if (!parser.overflow) {
                 osc_SHELL_A(ragelOscPayload());
             }
             fnext main;
@@ -2297,11 +2297,11 @@
 
     action oscShellBSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
             fgoto oscShellUnknown;
         } else {
             ragelFinishOsc();
-            if (!argBufOverflowed) {
+            if (!parser.overflow) {
                 osc_SHELL_B(ragelOscPayload());
             }
             fnext main;
@@ -2311,11 +2311,11 @@
 
     action oscShellCSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
             fgoto oscShellUnknown;
         } else {
             ragelFinishOsc();
-            if (!argBufOverflowed) {
+            if (!parser.overflow) {
                 osc_SHELL_C(ragelOscPayload());
             }
             fnext main;
@@ -2325,11 +2325,11 @@
 
     action oscShellDSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
             fgoto oscShellUnknown;
         } else {
             ragelFinishOsc();
-            if (!argBufOverflowed) {
+            if (!parser.overflow) {
                 osc_SHELL_D(ragelOscPayload());
             }
             fnext main;
@@ -2339,10 +2339,10 @@
 
     action oscShellUnknownSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
         } else {
             ragelFinishOsc();
-            if (!argBufOverflowed) {
+            if (!parser.overflow) {
                 osc_SHELL_UNKNOWN(ragelOscPayload());
             }
             fnext main;
@@ -2351,57 +2351,57 @@
     }
 
     action oscShellEscapedUnknown {
-        ragelAppendEscapedString(fc, maxOscBytes);
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
         fgoto oscShellUnknown;
     }
 
     action oscShellEscapedA {
-        ragelAppendEscapedString(fc, maxOscBytes);
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
         fgoto oscShellATail;
     }
 
     action oscShellEscapedB {
-        ragelAppendEscapedString(fc, maxOscBytes);
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
         fgoto oscShellBTail;
     }
 
     action oscShellEscapedC {
-        ragelAppendEscapedString(fc, maxOscBytes);
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
         fgoto oscShellCTail;
     }
 
     action oscShellEscapedD {
-        ragelAppendEscapedString(fc, maxOscBytes);
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
         fgoto oscShellDTail;
     }
 
     action oscTitleData {
         stringUtf8Continuation(fc);
         if (!executeC0InSequence(fc, true)) {
-            ragelAppendString(fc, maxOscBytes);
-            if (oscTitleHex) {
+            ragelAppendString(fc, parser.maxOscBytes);
+            if (parser.oscTitleHex) {
                 u8 nibble = 0;
                 if (fc >= '0' && fc <= '9') {
                     nibble = fc - '0';
                 } else if ((fc | 0x20) >= 'a' && (fc | 0x20) <= 'f') {
                     nibble = (fc | 0x20) - 'a' + 10;
                 } else {
-                    oscTitleValid = false;
+                    parser.oscTitleValid = false;
                 }
-                if (oscTitleValid) {
-                    if (!oscTitleHasHighNibble) {
-                        oscTitleHighNibble = nibble;
-                        oscTitleHasHighNibble = true;
+                if (parser.oscTitleValid) {
+                    if (!parser.oscTitleHasHighNibble) {
+                        parser.oscTitleHighNibble = nibble;
+                        parser.oscTitleHasHighNibble = true;
                     } else {
-                        const u8 decoded = (oscTitleHighNibble << 4) | nibble;
+                        const u8 decoded = (parser.oscTitleHighNibble << 4) | nibble;
                         if (decoded < 32) {
-                            oscTitleStopped = true;
-                        } else if (!oscTitleStopped) {
-                        if (!argBufOverflowed) {
-                            oscDecoded.append(&decoded, 1);
+                            parser.oscTitleStopped = true;
+                        } else if (!parser.oscTitleStopped) {
+                        if (!parser.overflow) {
+                            parser.oscDecoded.append(&decoded, 1);
                         }
                         }
-                        oscTitleHasHighNibble = false;
+                        parser.oscTitleHasHighNibble = false;
                     }
                 }
             }
@@ -2412,51 +2412,51 @@
         if constexpr (traced) {
             parserTrace->stringData((const u8*)("\x1b"), 1);
         }
-        if (argBuf.used() < maxOscBytes) {
+        if (parser.scratch.used() < parser.maxOscBytes) {
             const u8 ch = '\x1b';
-            argBuf.append(&ch, 1);
+            parser.scratch.append(&ch, 1);
         } else {
-            argBufOverflowed = true;
+            parser.overflow = true;
         }
-        if (oscTitleHex) {
-            oscTitleValid = false;
+        if (parser.oscTitleHex) {
+            parser.oscTitleValid = false;
         }
     }
 
     action oscTitleEscaped0 {
-        ragelAppendEscapedString(fc, maxOscBytes);
-        if (oscTitleHex) {
-            oscTitleValid = false;
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
+        if (parser.oscTitleHex) {
+            parser.oscTitleValid = false;
         }
         fgoto oscTitle0;
     }
 
     action oscTitleEscaped1 {
-        ragelAppendEscapedString(fc, maxOscBytes);
-        if (oscTitleHex) {
-            oscTitleValid = false;
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
+        if (parser.oscTitleHex) {
+            parser.oscTitleValid = false;
         }
         fgoto oscTitle1;
     }
 
     action oscTitleEscaped2 {
-        ragelAppendEscapedString(fc, maxOscBytes);
-        if (oscTitleHex) {
-            oscTitleValid = false;
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
+        if (parser.oscTitleHex) {
+            parser.oscTitleValid = false;
         }
         fgoto oscTitle2;
     }
 
     action oscTitle0St {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
-            if (oscTitleHex) {
-                oscTitleValid = false;
+            ragelAppendString(fc, parser.maxOscBytes);
+            if (parser.oscTitleHex) {
+                parser.oscTitleValid = false;
             }
         } else {
             ragelFinishOsc();
-            if (!argBufOverflowed && oscTitleValid && (!oscTitleHex || !oscTitleHasHighNibble)) {
-                osc_TITLE_0(oscTitleHex ? StringView(oscDecoded) : ragelOscPayload());
+            if (!parser.overflow && parser.oscTitleValid && (!parser.oscTitleHex || !parser.oscTitleHasHighNibble)) {
+                osc_TITLE_0(parser.oscTitleHex ? StringView(parser.oscDecoded) : ragelOscPayload());
             }
             fnext main;
             fbreak;
@@ -2465,14 +2465,14 @@
 
     action oscTitle1St {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
-            if (oscTitleHex) {
-                oscTitleValid = false;
+            ragelAppendString(fc, parser.maxOscBytes);
+            if (parser.oscTitleHex) {
+                parser.oscTitleValid = false;
             }
         } else {
             ragelFinishOsc();
-            if (!argBufOverflowed && oscTitleValid && (!oscTitleHex || !oscTitleHasHighNibble)) {
-                osc_TITLE_1(oscTitleHex ? StringView(oscDecoded) : ragelOscPayload());
+            if (!parser.overflow && parser.oscTitleValid && (!parser.oscTitleHex || !parser.oscTitleHasHighNibble)) {
+                osc_TITLE_1(parser.oscTitleHex ? StringView(parser.oscDecoded) : ragelOscPayload());
             }
             fnext main;
             fbreak;
@@ -2481,14 +2481,14 @@
 
     action oscTitle2St {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
-            if (oscTitleHex) {
-                oscTitleValid = false;
+            ragelAppendString(fc, parser.maxOscBytes);
+            if (parser.oscTitleHex) {
+                parser.oscTitleValid = false;
             }
         } else {
             ragelFinishOsc();
-            if (!argBufOverflowed && oscTitleValid && (!oscTitleHex || !oscTitleHasHighNibble)) {
-                osc_TITLE_2(oscTitleHex ? StringView(oscDecoded) : ragelOscPayload());
+            if (!parser.overflow && parser.oscTitleValid && (!parser.oscTitleHex || !parser.oscTitleHasHighNibble)) {
+                osc_TITLE_2(parser.oscTitleHex ? StringView(parser.oscDecoded) : ragelOscPayload());
             }
             fnext main;
             fbreak;
@@ -2498,62 +2498,62 @@
     action oscHyperlinkParamData {
         stringUtf8Continuation(fc);
         if (!executeC0InSequence(fc, true)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
         }
         fgoto oscHyperlinkParamSkip;
     }
 
     action oscHyperlinkI {
-        ragelAppendString(fc, maxOscBytes);
+        ragelAppendString(fc, parser.maxOscBytes);
         fgoto oscHyperlinkParamI;
     }
 
     action oscHyperlinkD {
-        ragelAppendString(fc, maxOscBytes);
+        ragelAppendString(fc, parser.maxOscBytes);
         fgoto oscHyperlinkParamId;
     }
 
     action oscHyperlinkEqual {
-        ragelAppendString(fc, maxOscBytes);
-        if (!oscHyperlinkHasId) {
-            oscHyperlinkIdOffset = argBuf.used();
+        ragelAppendString(fc, parser.maxOscBytes);
+        if (!parser.oscHyperlinkHasId) {
+            parser.oscHyperlinkIdOffset = parser.scratch.used();
         }
         fgoto oscHyperlinkIdValue;
     }
 
     action oscHyperlinkColon {
-        ragelAppendString(fc, maxOscBytes);
+        ragelAppendString(fc, parser.maxOscBytes);
         fgoto oscHyperlinkParamStart;
     }
 
     action oscHyperlinkIdColon {
-        if (!oscHyperlinkHasId) {
-            oscHyperlinkIdLength = argBuf.used() - oscHyperlinkIdOffset;
-            oscHyperlinkHasId = true;
+        if (!parser.oscHyperlinkHasId) {
+            parser.oscHyperlinkIdLength = parser.scratch.used() - parser.oscHyperlinkIdOffset;
+            parser.oscHyperlinkHasId = true;
         }
-        ragelAppendString(fc, maxOscBytes);
+        ragelAppendString(fc, parser.maxOscBytes);
         fgoto oscHyperlinkParamStart;
     }
 
     action oscHyperlinkUri {
-        ragelAppendString(fc, maxOscBytes);
-        oscHyperlinkUriOffset = argBuf.used();
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscHyperlinkUriOffset = parser.scratch.used();
         fgoto oscHyperlinkUri;
     }
 
     action oscHyperlinkIdUri {
-        if (!oscHyperlinkHasId) {
-            oscHyperlinkIdLength = argBuf.used() - oscHyperlinkIdOffset;
-            oscHyperlinkHasId = true;
+        if (!parser.oscHyperlinkHasId) {
+            parser.oscHyperlinkIdLength = parser.scratch.used() - parser.oscHyperlinkIdOffset;
+            parser.oscHyperlinkHasId = true;
         }
-        ragelAppendString(fc, maxOscBytes);
-        oscHyperlinkUriOffset = argBuf.used();
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscHyperlinkUriOffset = parser.scratch.used();
         fgoto oscHyperlinkUri;
     }
 
     action oscHyperlinkMalformedSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
             fgoto oscHyperlinkParamSkip;
         } else {
             ragelFinishOsc();
@@ -2564,15 +2564,15 @@
 
     action oscHyperlinkSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
         } else {
             ragelFinishOsc();
-            if (!argBufOverflowed) {
-                const auto* data = (const u8*)(argBuf.data());
+            if (!parser.overflow) {
+                const auto* data = (const u8*)(parser.scratch.data());
                 osc_HYPERLINK(
-                    StringView(data + oscHyperlinkIdOffset, oscHyperlinkHasId ? oscHyperlinkIdLength : 0),
-                    oscHyperlinkHasId,
-                    StringView(data + oscHyperlinkUriOffset, argBuf.used() - oscHyperlinkUriOffset)
+                    StringView(data + parser.oscHyperlinkIdOffset, parser.oscHyperlinkHasId ? parser.oscHyperlinkIdLength : 0),
+                    parser.oscHyperlinkHasId,
+                    StringView(data + parser.oscHyperlinkUriOffset, parser.scratch.used() - parser.oscHyperlinkUriOffset)
                 );
             }
             fnext main;
@@ -2581,78 +2581,78 @@
     }
 
     action oscHyperlinkParamEscaped {
-        ragelAppendEscapedString(fc, maxOscBytes);
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
         fgoto oscHyperlinkParamSkip;
     }
 
     action oscHyperlinkIdEscaped {
-        ragelAppendEscapedString(fc, maxOscBytes);
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
         fgoto oscHyperlinkIdValue;
     }
 
     action oscHyperlinkUriEscaped {
-        ragelAppendEscapedString(fc, maxOscBytes);
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
         fgoto oscHyperlinkUri;
     }
 
     action oscProgressFour {
-        ragelAppendString(fc, maxOscBytes);
+        ragelAppendString(fc, parser.maxOscBytes);
         fgoto oscProgressFour;
     }
 
     action oscProgressBeginState {
-        ragelAppendString(fc, maxOscBytes);
+        ragelAppendString(fc, parser.maxOscBytes);
         fgoto oscProgressState;
     }
 
     action oscProgressNotifyData {
         stringUtf8Continuation(fc);
         if (!executeC0InSequence(fc, true)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
         }
         fgoto oscProgressNotify;
     }
 
     action oscProgressStateDigit {
-        ragelAppendString(fc, maxOscBytes);
-        oscProgressStatePresent = true;
-        if (oscProgressState > (UINT32_MAX - (u32)(fc - '0')) / 10) {
-            oscProgressValid = false;
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscProgressStatePresent = true;
+        if (parser.oscProgressState > (UINT32_MAX - (u32)(fc - '0')) / 10) {
+            parser.oscProgressValid = false;
         } else {
-            oscProgressState = oscProgressState * 10 + fc - '0';
+            parser.oscProgressState = parser.oscProgressState * 10 + fc - '0';
         }
     }
 
     action oscProgressBeginPercent {
-        ragelAppendString(fc, maxOscBytes);
-        oscProgressValid = oscProgressValid && oscProgressStatePresent;
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscProgressValid = parser.oscProgressValid && parser.oscProgressStatePresent;
         fgoto oscProgressPercent;
     }
 
     action oscProgressPercentDigit {
-        ragelAppendString(fc, maxOscBytes);
-        oscProgressPercentPresent = true;
-        if (oscProgressPercent > (UINT32_MAX - (u32)(fc - '0')) / 10) {
-            oscProgressValid = false;
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscProgressPercentPresent = true;
+        if (parser.oscProgressPercent > (UINT32_MAX - (u32)(fc - '0')) / 10) {
+            parser.oscProgressValid = false;
         } else {
-            oscProgressPercent = oscProgressPercent * 10 + fc - '0';
+            parser.oscProgressPercent = parser.oscProgressPercent * 10 + fc - '0';
         }
     }
 
     action oscProgressDiscardData {
         stringUtf8Continuation(fc);
         if (!executeC0InSequence(fc, true)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
         }
         fgoto oscProgressDiscard;
     }
 
     action oscProgressNotifySt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
         } else {
             ragelFinishOsc();
-            if (!argBufOverflowed) {
+            if (!parser.overflow) {
                 osc_NOTIFY(ragelOscPayload());
             }
             fnext main;
@@ -2662,14 +2662,14 @@
 
     action oscProgressSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
-            oscProgressValid = false;
+            ragelAppendString(fc, parser.maxOscBytes);
+            parser.oscProgressValid = false;
             fgoto oscProgressDiscard;
         } else {
             ragelFinishOsc();
-            if (!argBufOverflowed && oscProgressValid && oscProgressPercentPresent &&
-                oscProgressState <= 4 && oscProgressPercent <= 100) {
-                osc_PROGRESS(oscProgressState, oscProgressPercent);
+            if (!parser.overflow && parser.oscProgressValid && parser.oscProgressPercentPresent &&
+                parser.oscProgressState <= 4 && parser.oscProgressPercent <= 100) {
+                osc_PROGRESS(parser.oscProgressState, parser.oscProgressPercent);
             }
             fnext main;
             fbreak;
@@ -2678,7 +2678,7 @@
 
     action oscProgressDiscardSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
         } else {
             ragelFinishOsc();
             fnext main;
@@ -2687,68 +2687,68 @@
     }
 
     action oscProgressNotifyEscaped {
-        ragelAppendEscapedString(fc, maxOscBytes);
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
         fgoto oscProgressNotify;
     }
 
     action oscProgressDiscardEscaped {
-        ragelAppendEscapedString(fc, maxOscBytes);
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
         fgoto oscProgressDiscard;
     }
 
     action osc52Selector {
-        ragelAppendString(fc, maxOscBytes);
-        osc52SelectorSeen = true;
-        if (osc52ReplySelector == 0 && (fc == 's' || fc == 'p' || fc == 'c')) {
-            osc52ReplySelector = fc;
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.osc52SelectorSeen = true;
+        if (parser.osc52ReplySelector == 0 && (fc == 's' || fc == 'p' || fc == 'c')) {
+            parser.osc52ReplySelector = fc;
         }
         if (fc == 'p' || (fc == 's' && !opts.osc52SelectClipboard)) {
-            osc52Primary = true;
+            parser.osc52Primary = true;
         }
         if (fc == 'c' || (fc == 's' && opts.osc52SelectClipboard)) {
-            osc52Clipboard = true;
+            parser.osc52Clipboard = true;
         }
     }
 
     action osc52BeginPayload {
-        ragelAppendString(fc, maxOscBytes);
-        if (!osc52SelectorSeen) {
-            osc52Primary = true;
-            osc52Clipboard = true;
+        ragelAppendString(fc, parser.maxOscBytes);
+        if (!parser.osc52SelectorSeen) {
+            parser.osc52Primary = true;
+            parser.osc52Clipboard = true;
         }
-        oscDecoded.reset();
-        oscBase64.reset();
-        osc52PayloadSeen = false;
-        osc52Query = false;
+        parser.oscDecoded.reset();
+        parser.oscBase64.reset();
+        parser.osc52PayloadSeen = false;
+        parser.osc52Query = false;
         fgoto osc52Payload;
     }
 
     action osc52Data {
         stringUtf8Continuation(fc);
         if (!executeC0InSequence(fc, true)) {
-            ragelAppendString(fc, maxOscBytes);
-            if (!osc52PayloadSeen) {
-                osc52PayloadSeen = true;
-                osc52Query = fc == '?';
-                if (!osc52Query && !argBufOverflowed) {
-                    oscBase64.push(fc, oscDecoded);
+            ragelAppendString(fc, parser.maxOscBytes);
+            if (!parser.osc52PayloadSeen) {
+                parser.osc52PayloadSeen = true;
+                parser.osc52Query = fc == '?';
+                if (!parser.osc52Query && !parser.overflow) {
+                    parser.oscBase64.push(fc, parser.oscDecoded);
                 }
-            } else if (osc52Query) {
-                osc52Query = false;
-                oscBase64.valid = false;
-            } else if (!argBufOverflowed) {
-                oscBase64.push(fc, oscDecoded);
+            } else if (parser.osc52Query) {
+                parser.osc52Query = false;
+                parser.oscBase64.valid = false;
+            } else if (!parser.overflow) {
+                parser.oscBase64.push(fc, parser.oscDecoded);
             }
         }
     }
 
     action osc52MalformedSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
             fgoto oscInvalid;
         } else {
             ragelFinishOsc();
-            if (!argBufOverflowed) {
+            if (!parser.overflow) {
                 osc_CLIPBOARD_MALFORMED(ragelOscPayload());
             }
             fnext main;
@@ -2758,7 +2758,7 @@
 
     action osc52MalformedBell {
         ragelFinishOsc();
-        if (!argBufOverflowed) {
+        if (!parser.overflow) {
             osc_CLIPBOARD_MALFORMED(ragelOscPayload());
         }
         fnext main;
@@ -2767,133 +2767,133 @@
 
     action osc52St {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
-            oscTerminated = false;
+            ragelAppendString(fc, parser.maxOscBytes);
+            parser.oscTerminated = false;
             fgoto oscInvalid;
         } else {
             ragelFinishOsc();
-            oscTerminated = true;
+            parser.oscTerminated = true;
         }
     }
 
     action osc52Bell {
         ragelFinishOsc();
-        oscTerminated = true;
+        parser.oscTerminated = true;
     }
 
     action osc52Dispatch {
-        if (oscTerminated && !argBufOverflowed) {
+        if (parser.oscTerminated && !parser.overflow) {
             const StringView raw = ragelOscPayload();
-            if (osc52PayloadSeen && osc52Query) {
+            if (parser.osc52PayloadSeen && parser.osc52Query) {
                 osc_CLIPBOARD_QUERY(
-                    raw, osc52Primary, osc52Clipboard, osc52ReplySelector,
-                    !osc52SelectorSeen
+                    raw, parser.osc52Primary, parser.osc52Clipboard, parser.osc52ReplySelector,
+                    !parser.osc52SelectorSeen
                 );
             } else {
-                const bool valid = oscBase64.finish(oscDecoded);
+                const bool valid = parser.oscBase64.finish(parser.oscDecoded);
                 osc_CLIPBOARD_WRITE(
-                    raw, StringView(oscDecoded), valid, osc52Primary,
-                    osc52Clipboard
+                    raw, StringView(parser.oscDecoded), valid, parser.osc52Primary,
+                    parser.osc52Clipboard
                 );
             }
         }
     }
 
     action osc52SelectorEscaped {
-        ragelAppendEscapedString(fc, maxOscBytes);
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
         fgoto oscInvalid;
     }
 
     action osc52PayloadEscaped {
-        ragelAppendEscapedString(fc, maxOscBytes);
-        osc52PayloadSeen = true;
-        osc52Query = false;
-        oscBase64.valid = false;
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
+        parser.osc52PayloadSeen = true;
+        parser.osc52Query = false;
+        parser.oscBase64.valid = false;
         fgoto osc52Payload;
     }
 
     action oscNotificationKey {
-        ragelAppendString(fc, maxOscBytes);
-        oscNotificationKey = fc;
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscNotificationKey = fc;
         fgoto oscNotificationEqual;
     }
 
     action oscNotificationBeginValue {
-        ragelAppendString(fc, maxOscBytes);
-        oscNotificationFieldOffset = argBuf.used();
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscNotificationFieldOffset = parser.scratch.used();
         fgoto oscNotificationValue;
     }
 
     action oscNotificationValueData {
         stringUtf8Continuation(fc);
         if (!executeC0InSequence(fc, true)) {
-            ragelAppendString(fc, maxOscBytes);
-            if (oscNotificationKey == 'i' &&
+            ragelAppendString(fc, parser.maxOscBytes);
+            if (parser.oscNotificationKey == 'i' &&
                 !((fc >= 'a' && fc <= 'z') || (fc >= 'A' && fc <= 'Z') ||
                   (fc >= '0' && fc <= '9') || fc == '_' || fc == '-' ||
                   fc == '+' || fc == '.')) {
-                oscNotificationValid = false;
+                parser.oscNotificationValid = false;
             }
         }
     }
 
     action oscNotificationFinishField {
-        const auto* data = (const u8*)(argBuf.data());
+        const auto* data = (const u8*)(parser.scratch.data());
         const StringView value(
-            data + oscNotificationFieldOffset,
-            argBuf.used() - oscNotificationFieldOffset
+            data + parser.oscNotificationFieldOffset,
+            parser.scratch.used() - parser.oscNotificationFieldOffset
         );
-        if (oscNotificationKey == 'i') {
-            oscNotificationIdOffset = oscNotificationFieldOffset;
-            oscNotificationIdLength = value.length();
+        if (parser.oscNotificationKey == 'i') {
+            parser.oscNotificationIdOffset = parser.oscNotificationFieldOffset;
+            parser.oscNotificationIdLength = value.length();
             if (value.length() > 256) {
-                oscNotificationValid = false;
+                parser.oscNotificationValid = false;
             }
-        } else if (oscNotificationKey == 'p') {
-            oscNotificationQuery = value == StringView(u8"?");
-            oscNotificationClose = value == StringView(u8"close");
-            oscNotificationBody = value == StringView(u8"body");
-            if (!oscNotificationQuery && !oscNotificationClose &&
-                !oscNotificationBody && value != StringView(u8"title")) {
-                oscNotificationValid = false;
+        } else if (parser.oscNotificationKey == 'p') {
+            parser.oscNotificationQuery = value == StringView(u8"?");
+            parser.oscNotificationClose = value == StringView(u8"close");
+            parser.oscNotificationBody = value == StringView(u8"body");
+            if (!parser.oscNotificationQuery && !parser.oscNotificationClose &&
+                !parser.oscNotificationBody && value != StringView(u8"title")) {
+                parser.oscNotificationValid = false;
             }
-        } else if (oscNotificationKey == 'e') {
+        } else if (parser.oscNotificationKey == 'e') {
             if (value == StringView(u8"0")) {
-                oscNotificationEncoded = false;
+                parser.oscNotificationEncoded = false;
             } else if (value == StringView(u8"1")) {
-                oscNotificationEncoded = true;
+                parser.oscNotificationEncoded = true;
             } else {
-                oscNotificationValid = false;
+                parser.oscNotificationValid = false;
             }
-        } else if (oscNotificationKey == 'd') {
+        } else if (parser.oscNotificationKey == 'd') {
             if (value == StringView(u8"0")) {
-                oscNotificationFinal = false;
+                parser.oscNotificationFinal = false;
             } else if (value == StringView(u8"1")) {
-                oscNotificationFinal = true;
+                parser.oscNotificationFinal = true;
             } else {
-                oscNotificationValid = false;
+                parser.oscNotificationValid = false;
             }
         }
     }
 
     action oscNotificationNextField {
-        ragelAppendString(fc, maxOscBytes);
+        ragelAppendString(fc, parser.maxOscBytes);
         fgoto oscNotificationField;
     }
 
     action oscNotificationBeginPayload {
-        ragelAppendString(fc, maxOscBytes);
-        oscNotificationPayloadOffset = argBuf.used();
-        oscNotificationPayloadBytes = 0;
-        oscDecoded.reset();
-        oscBase64.reset();
-        if (oscNotificationEncoded && oscNotificationValid &&
-            !oscNotificationQuery && !oscNotificationClose) {
-            const auto* data = (const u8*)(argBuf.data());
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscNotificationPayloadOffset = parser.scratch.used();
+        parser.oscNotificationPayloadBytes = 0;
+        parser.oscDecoded.reset();
+        parser.oscBase64.reset();
+        if (parser.oscNotificationEncoded && parser.oscNotificationValid &&
+            !parser.oscNotificationQuery && !parser.oscNotificationClose) {
+            const auto* data = (const u8*)(parser.scratch.data());
             const StringView id(
-                data + oscNotificationIdOffset, oscNotificationIdLength
+                data + parser.oscNotificationIdOffset, parser.oscNotificationIdLength
             );
-            oscBase64 = notificationDecoder(id, oscNotificationBody);
+            parser.oscBase64 = notificationDecoder(id, parser.oscNotificationBody);
         }
         fgoto oscNotificationPayload;
     }
@@ -2901,13 +2901,13 @@
     action oscNotificationPayloadData {
         stringUtf8Continuation(fc);
         if (!executeC0InSequence(fc, true)) {
-            ragelAppendString(fc, maxOscBytes);
-            ++oscNotificationPayloadBytes;
-            const u32 limit = oscNotificationEncoded ? 4096 : 2048;
-            if (oscNotificationPayloadBytes > limit) {
-                oscNotificationValid = false;
-            } else if (oscNotificationEncoded && !argBufOverflowed) {
-                oscBase64.push(fc, oscDecoded);
+            ragelAppendString(fc, parser.maxOscBytes);
+            ++parser.oscNotificationPayloadBytes;
+            const u32 limit = parser.oscNotificationEncoded ? 4096 : 2048;
+            if (parser.oscNotificationPayloadBytes > limit) {
+                parser.oscNotificationValid = false;
+            } else if (parser.oscNotificationEncoded && !parser.overflow) {
+                parser.oscBase64.push(fc, parser.oscDecoded);
             }
         }
     }
@@ -2915,57 +2915,57 @@
     action oscNotificationInvalidData {
         stringUtf8Continuation(fc);
         if (!executeC0InSequence(fc, true)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
         }
-        oscNotificationValid = false;
+        parser.oscNotificationValid = false;
         fgoto oscNotificationInvalid;
     }
 
     action oscNotificationSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
-            oscNotificationValid = false;
-            oscTerminated = false;
+            ragelAppendString(fc, parser.maxOscBytes);
+            parser.oscNotificationValid = false;
+            parser.oscTerminated = false;
             fgoto oscNotificationInvalid;
         } else {
             ragelFinishOsc();
-            oscTerminated = true;
+            parser.oscTerminated = true;
         }
     }
 
     action oscNotificationBell {
         ragelFinishOsc();
-        oscTerminated = true;
+        parser.oscTerminated = true;
     }
 
     action oscNotificationDispatch {
-        if (oscTerminated && !argBufOverflowed && oscNotificationValid) {
-            const auto* data = (const u8*)(argBuf.data());
+        if (parser.oscTerminated && !parser.overflow && parser.oscNotificationValid) {
+            const auto* data = (const u8*)(parser.scratch.data());
             const StringView id(
-                data + oscNotificationIdOffset, oscNotificationIdLength
+                data + parser.oscNotificationIdOffset, parser.oscNotificationIdLength
             );
             const StringView payload(
-                data + oscNotificationPayloadOffset,
-                argBuf.used() - oscNotificationPayloadOffset
+                data + parser.oscNotificationPayloadOffset,
+                parser.scratch.used() - parser.oscNotificationPayloadOffset
             );
-            if (oscNotificationEncoded && oscNotificationFinal) {
-                oscBase64.finish(oscDecoded);
+            if (parser.oscNotificationEncoded && parser.oscNotificationFinal) {
+                parser.oscBase64.finish(parser.oscDecoded);
             }
-            if (oscNotificationQuery) {
+            if (parser.oscNotificationQuery) {
                 osc_NOTIFICATION_CAPABILITIES(id);
-            } else if (oscNotificationClose) {
+            } else if (parser.oscNotificationClose) {
                 osc_NOTIFICATION_CLOSE(id);
-            } else if (oscNotificationBody) {
+            } else if (parser.oscNotificationBody) {
                 osc_NOTIFICATION_BODY(
                     id,
-                    oscNotificationEncoded ? StringView(oscDecoded) : payload,
-                    oscBase64, oscNotificationEncoded, oscNotificationFinal
+                    parser.oscNotificationEncoded ? StringView(parser.oscDecoded) : payload,
+                    parser.oscBase64, parser.oscNotificationEncoded, parser.oscNotificationFinal
                 );
             } else {
                 osc_NOTIFICATION_TITLE(
                     id,
-                    oscNotificationEncoded ? StringView(oscDecoded) : payload,
-                    oscBase64, oscNotificationEncoded, oscNotificationFinal
+                    parser.oscNotificationEncoded ? StringView(parser.oscDecoded) : payload,
+                    parser.oscBase64, parser.oscNotificationEncoded, parser.oscNotificationFinal
                 );
             }
         }
@@ -2973,7 +2973,7 @@
 
     action oscNotificationInvalidSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
         } else {
             ragelFinishOsc();
             fnext main;
@@ -2988,202 +2988,202 @@
     }
 
     action oscNotificationPayloadEscaped {
-        ragelAppendEscapedString(fc, maxOscBytes);
-        oscNotificationPayloadBytes += 2;
-        const u32 limit = oscNotificationEncoded ? 4096 : 2048;
-        if (oscNotificationPayloadBytes > limit) {
-            oscNotificationValid = false;
-        } else if (oscNotificationEncoded && !argBufOverflowed) {
-            oscBase64.push('\x1b', oscDecoded);
-            oscBase64.push(fc, oscDecoded);
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
+        parser.oscNotificationPayloadBytes += 2;
+        const u32 limit = parser.oscNotificationEncoded ? 4096 : 2048;
+        if (parser.oscNotificationPayloadBytes > limit) {
+            parser.oscNotificationValid = false;
+        } else if (parser.oscNotificationEncoded && !parser.overflow) {
+            parser.oscBase64.push('\x1b', parser.oscDecoded);
+            parser.oscBase64.push(fc, parser.oscDecoded);
         }
         fgoto oscNotificationPayload;
     }
 
     action oscNotificationInvalidEscaped {
-        ragelAppendEscapedString(fc, maxOscBytes);
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
         fgoto oscNotificationInvalid;
     }
 
     action oscColorByte {
-        ragelAppendString(fc, maxOscBytes);
+        ragelAppendString(fc, parser.maxOscBytes);
     }
 
     action oscColorQuery {
-        ragelAppendString(fc, maxOscBytes);
-        oscColorQuery = true;
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscColorQuery = true;
     }
 
     action oscColorHashDigit {
-        ragelAppendString(fc, maxOscBytes);
+        ragelAppendString(fc, parser.maxOscBytes);
         const u8 digit =
             fc <= '9' ? fc - '0' : (fc | 0x20) - 'a' + 10;
-        oscColorHex = (oscColorHex << 4) | digit;
-        ++oscColorDigits;
+        parser.oscColorHex = (parser.oscColorHex << 4) | digit;
+        ++parser.oscColorDigits;
     }
 
     action oscColorHashDone {
-        const u8 width = oscColorDigits / 3;
+        const u8 width = parser.oscColorDigits / 3;
         const u8 bits = width * 4;
         const u32 mask = (1u << bits) - 1;
-        const u32 red = (oscColorHex >> (bits * 2)) & mask;
-        const u32 green = (oscColorHex >> bits) & mask;
-        const u32 blue = oscColorHex & mask;
+        const u32 red = (parser.oscColorHex >> (bits * 2)) & mask;
+        const u32 green = (parser.oscColorHex >> bits) & mask;
+        const u32 blue = parser.oscColorHex & mask;
         const u8 shift = width < 2 ? 4 : (width - 2) * 4;
-        oscColor.red =
+        parser.oscColor.red =
             width < 2 ? (u8)(red << shift) : (u8)(red >> shift);
-        oscColor.green =
+        parser.oscColor.green =
             width < 2 ? (u8)(green << shift) : (u8)(green >> shift);
-        oscColor.blue =
+        parser.oscColor.blue =
             width < 2 ? (u8)(blue << shift) : (u8)(blue >> shift);
     }
 
     action oscColorRgbComponentStart {
-        oscColorHex = 0;
-        oscColorDigits = 0;
+        parser.oscColorHex = 0;
+        parser.oscColorDigits = 0;
     }
 
     action oscColorRgbComponentDone {
-        const u32 maximum = (1u << (4 * oscColorDigits)) - 1;
+        const u32 maximum = (1u << (4 * parser.oscColorDigits)) - 1;
         const u8 value =
-            (u8)((oscColorHex * 255 + maximum / 2) / maximum);
-        if (oscColorComponent == 0) {
-            oscColor.red = value;
-        } else if (oscColorComponent == 1) {
-            oscColor.green = value;
+            (u8)((parser.oscColorHex * 255 + maximum / 2) / maximum);
+        if (parser.oscColorComponent == 0) {
+            parser.oscColor.red = value;
+        } else if (parser.oscColorComponent == 1) {
+            parser.oscColor.green = value;
         } else {
-            oscColor.blue = value;
+            parser.oscColor.blue = value;
         }
     }
 
     action oscColorNextComponent {
-        ragelAppendString(fc, maxOscBytes);
-        ++oscColorComponent;
+        ragelAppendString(fc, parser.maxOscBytes);
+        ++parser.oscColorComponent;
     }
 
     action oscColorNumberStart {
-        oscColorMantissa = 0.0;
-        oscColorFraction = 0.1;
-        oscColorExponent = 0;
-        oscColorNegative = false;
-        oscColorExponentNegative = false;
+        parser.oscColorMantissa = 0.0;
+        parser.oscColorFraction = 0.1;
+        parser.oscColorExponent = 0;
+        parser.oscColorNegative = false;
+        parser.oscColorExponentNegative = false;
     }
 
     action oscColorNegative {
-        ragelAppendString(fc, maxOscBytes);
-        oscColorNegative = true;
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscColorNegative = true;
     }
 
     action oscColorNumberSign {
-        ragelAppendString(fc, maxOscBytes);
+        ragelAppendString(fc, parser.maxOscBytes);
     }
 
     action oscColorIntegerDigit {
-        ragelAppendString(fc, maxOscBytes);
-        oscColorMantissa =
-            oscColorMantissa * 10.0 + (double)(fc - '0');
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscColorMantissa =
+            parser.oscColorMantissa * 10.0 + (double)(fc - '0');
     }
 
     action oscColorPoint {
-        ragelAppendString(fc, maxOscBytes);
+        ragelAppendString(fc, parser.maxOscBytes);
     }
 
     action oscColorFractionDigit {
-        ragelAppendString(fc, maxOscBytes);
-        oscColorMantissa += (double)(fc - '0') * oscColorFraction;
-        oscColorFraction *= 0.1;
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscColorMantissa += (double)(fc - '0') * parser.oscColorFraction;
+        parser.oscColorFraction *= 0.1;
     }
 
     action oscColorExponentStart {
-        ragelAppendString(fc, maxOscBytes);
-        oscColorExponent = 0;
-        oscColorExponentNegative = false;
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscColorExponent = 0;
+        parser.oscColorExponentNegative = false;
     }
 
     action oscColorExponentNegative {
-        ragelAppendString(fc, maxOscBytes);
-        oscColorExponentNegative = true;
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscColorExponentNegative = true;
     }
 
     action oscColorExponentSign {
-        ragelAppendString(fc, maxOscBytes);
+        ragelAppendString(fc, parser.maxOscBytes);
     }
 
     action oscColorExponentDigit {
-        ragelAppendString(fc, maxOscBytes);
-        if (oscColorExponent < 10000) {
-            oscColorExponent = oscColorExponent * 10 + fc - '0';
-            if (oscColorExponent > 10000) {
-                oscColorExponent = 10000;
+        ragelAppendString(fc, parser.maxOscBytes);
+        if (parser.oscColorExponent < 10000) {
+            parser.oscColorExponent = parser.oscColorExponent * 10 + fc - '0';
+            if (parser.oscColorExponent > 10000) {
+                parser.oscColorExponent = 10000;
             }
         }
     }
 
     action oscColorNumberDone {
-        oscColorValid =
+        parser.oscColorValid =
             finishColorNumber(
-                oscColorMantissa,
-                oscColorNegative,
-                oscColorExponent,
-                oscColorExponentNegative,
-                oscColorComponents[oscColorComponent]
+                parser.oscColorMantissa,
+                parser.oscColorNegative,
+                parser.oscColorExponent,
+                parser.oscColorExponentNegative,
+                parser.oscColorComponents[parser.oscColorComponent]
             ) &&
-            oscColorValid;
+            parser.oscColorValid;
     }
 
     action oscColorRgbIntensity {
-        oscColorValid = oscColorValid && colorFromRgbIntensity(
-            oscColorComponents[0], oscColorComponents[1],
-            oscColorComponents[2], oscColor
+        parser.oscColorValid = parser.oscColorValid && colorFromRgbIntensity(
+            parser.oscColorComponents[0], parser.oscColorComponents[1],
+            parser.oscColorComponents[2], parser.oscColor
         );
     }
 
     action oscColorCieXyz {
-        oscColorValid = oscColorValid && colorFromCieXyz(
-            oscColorComponents[0], oscColorComponents[1],
-            oscColorComponents[2], oscColor
+        parser.oscColorValid = parser.oscColorValid && colorFromCieXyz(
+            parser.oscColorComponents[0], parser.oscColorComponents[1],
+            parser.oscColorComponents[2], parser.oscColor
         );
     }
 
     action oscColorCieUvY {
-        oscColorValid = oscColorValid && colorFromCieUvY(
-            oscColorComponents[0], oscColorComponents[1],
-            oscColorComponents[2], oscColor
+        parser.oscColorValid = parser.oscColorValid && colorFromCieUvY(
+            parser.oscColorComponents[0], parser.oscColorComponents[1],
+            parser.oscColorComponents[2], parser.oscColor
         );
     }
 
     action oscColorCieXyY {
-        oscColorValid = oscColorValid && colorFromCieXyY(
-            oscColorComponents[0], oscColorComponents[1],
-            oscColorComponents[2], oscColor
+        parser.oscColorValid = parser.oscColorValid && colorFromCieXyY(
+            parser.oscColorComponents[0], parser.oscColorComponents[1],
+            parser.oscColorComponents[2], parser.oscColor
         );
     }
 
     action oscColorCieLab {
-        oscColorValid = oscColorValid && colorFromCieLab(
-            oscColorComponents[0], oscColorComponents[1],
-            oscColorComponents[2], oscColor
+        parser.oscColorValid = parser.oscColorValid && colorFromCieLab(
+            parser.oscColorComponents[0], parser.oscColorComponents[1],
+            parser.oscColorComponents[2], parser.oscColor
         );
     }
 
     action oscColorCieLuv {
-        oscColorValid = oscColorValid && colorFromCieLuv(
-            oscColorComponents[0], oscColorComponents[1],
-            oscColorComponents[2], oscColor
+        parser.oscColorValid = parser.oscColorValid && colorFromCieLuv(
+            parser.oscColorComponents[0], parser.oscColorComponents[1],
+            parser.oscColorComponents[2], parser.oscColor
         );
     }
 
     action oscColorTekHvc {
-        oscColorValid = oscColorValid && colorFromTekHvc(
-            oscColorComponents[0], oscColorComponents[1],
-            oscColorComponents[2], oscColor
+        parser.oscColorValid = parser.oscColorValid && colorFromTekHvc(
+            parser.oscColorComponents[0], parser.oscColorComponents[1],
+            parser.oscColorComponents[2], parser.oscColor
         );
     }
 
     action oscDynamicColorNext {
-        ragelAppendString(fc, maxOscBytes);
-        ++oscCommand;
-        if (oscCommand > 19) {
+        ragelAppendString(fc, parser.maxOscBytes);
+        ++parser.oscCommand;
+        if (parser.oscCommand > 19) {
             fgoto oscInvalid;
         }
         resetOscColor();
@@ -3191,35 +3191,35 @@
     }
 
     action oscDynamicColorCommit {
-        if (!argBufOverflowed && oscColorValid) {
-            if (oscCommand == 10) {
-                osc_DEFAULT_FOREGROUND(oscColor, oscColorQuery);
-            } else if (oscCommand == 11) {
-                osc_DEFAULT_BACKGROUND(oscColor, oscColorQuery);
-            } else if (oscCommand == 12) {
-                osc_CURSOR_COLOR(oscColor, oscColorQuery);
-            } else if (oscCommand == 17) {
-                osc_SELECTION_BACKGROUND(oscColor, oscColorQuery);
-            } else if (oscCommand == 19) {
-                osc_SELECTION_FOREGROUND(oscColor, oscColorQuery);
+        if (!parser.overflow && parser.oscColorValid) {
+            if (parser.oscCommand == 10) {
+                osc_DEFAULT_FOREGROUND(parser.oscColor, parser.oscColorQuery);
+            } else if (parser.oscCommand == 11) {
+                osc_DEFAULT_BACKGROUND(parser.oscColor, parser.oscColorQuery);
+            } else if (parser.oscCommand == 12) {
+                osc_CURSOR_COLOR(parser.oscColor, parser.oscColorQuery);
+            } else if (parser.oscCommand == 17) {
+                osc_SELECTION_BACKGROUND(parser.oscColor, parser.oscColorQuery);
+            } else if (parser.oscCommand == 19) {
+                osc_SELECTION_FOREGROUND(parser.oscColor, parser.oscColorQuery);
             }
         }
     }
 
     action oscDynamicColorSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
-            oscTerminated = false;
+            ragelAppendString(fc, parser.maxOscBytes);
+            parser.oscTerminated = false;
             fgoto oscInvalid;
         } else {
             ragelFinishOsc();
-            oscTerminated = true;
+            parser.oscTerminated = true;
         }
     }
 
     action oscDynamicColorBell {
         ragelFinishOsc();
-        oscTerminated = true;
+        parser.oscTerminated = true;
     }
 
     action oscDynamicColorInvalid {
@@ -3228,9 +3228,9 @@
     }
 
     action oscDynamicColorDiscardNext {
-        ragelAppendString(fc, maxOscBytes);
-        ++oscCommand;
-        if (oscCommand > 19) {
+        ragelAppendString(fc, parser.maxOscBytes);
+        ++parser.oscCommand;
+        if (parser.oscCommand > 19) {
             fgoto oscInvalid;
         } else {
             resetOscColor();
@@ -3239,37 +3239,37 @@
     }
 
     action oscDynamicColorEscapedInvalid {
-        ragelAppendEscapedString(fc, maxOscBytes);
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
         fgoto oscDynamicColorDiscard;
     }
 
     action oscIndexedColorIndexDigit {
-        ragelAppendString(fc, maxOscBytes);
-        oscFieldPresent = true;
-        if (oscFieldNumber > (UINT32_MAX - (u32)(fc - '0')) / 10) {
-            oscFieldNumeric = false;
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscFieldPresent = true;
+        if (parser.oscFieldNumber > (UINT32_MAX - (u32)(fc - '0')) / 10) {
+            parser.oscFieldNumeric = false;
         } else {
-            oscFieldNumber = oscFieldNumber * 10 + fc - '0';
+            parser.oscFieldNumber = parser.oscFieldNumber * 10 + fc - '0';
         }
     }
 
     action oscIndexedColorIndexInvalid {
         stringUtf8Continuation(fc);
         if (!executeC0InSequence(fc, true)) {
-            ragelAppendString(fc, maxOscBytes);
+            ragelAppendString(fc, parser.maxOscBytes);
         }
-        oscFieldNumeric = false;
+        parser.oscFieldNumeric = false;
     }
 
     action oscIndexedColorIndexEscapedInvalid {
-        ragelAppendEscapedString(fc, maxOscBytes);
-        oscFieldNumeric = false;
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
+        parser.oscFieldNumeric = false;
         fgoto oscIndexedColorIndex;
     }
 
     action oscIndexedColorBegin {
-        ragelAppendString(fc, maxOscBytes);
-        if (!oscFieldPresent || !oscFieldNumeric) {
+        ragelAppendString(fc, parser.maxOscBytes);
+        if (!parser.oscFieldPresent || !parser.oscFieldNumeric) {
             fgoto oscIndexedColorDiscard;
         }
         resetOscColor();
@@ -3277,41 +3277,41 @@
     }
 
     action oscIndexedColorCommit {
-        if (!argBufOverflowed && oscColorValid) {
-            if (oscCommand == 4) {
+        if (!parser.overflow && parser.oscColorValid) {
+            if (parser.oscCommand == 4) {
                 osc_PALETTE(
-                    oscFieldNumber, oscColor, oscColorQuery
+                    parser.oscFieldNumber, parser.oscColor, parser.oscColorQuery
                 );
             } else {
                 osc_SPECIAL_COLOR(
-                    oscFieldNumber, oscColor, oscColorQuery
+                    parser.oscFieldNumber, parser.oscColor, parser.oscColorQuery
                 );
             }
         }
     }
 
     action oscIndexedColorNext {
-        ragelAppendString(fc, maxOscBytes);
-        oscFieldNumber = 0;
-        oscFieldNumeric = true;
-        oscFieldPresent = false;
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscFieldNumber = 0;
+        parser.oscFieldNumeric = true;
+        parser.oscFieldPresent = false;
         fgoto oscIndexedColorIndex;
     }
 
     action oscIndexedColorSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
-            oscTerminated = false;
+            ragelAppendString(fc, parser.maxOscBytes);
+            parser.oscTerminated = false;
             fgoto oscInvalid;
         } else {
             ragelFinishOsc();
-            oscTerminated = true;
+            parser.oscTerminated = true;
         }
     }
 
     action oscIndexedColorBell {
         ragelFinishOsc();
-        oscTerminated = true;
+        parser.oscTerminated = true;
     }
 
     action oscIndexedColorInvalid {
@@ -3320,120 +3320,120 @@
     }
 
     action oscIndexedColorDiscardNext {
-        ragelAppendString(fc, maxOscBytes);
-        oscFieldNumber = 0;
-        oscFieldNumeric = true;
-        oscFieldPresent = false;
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscFieldNumber = 0;
+        parser.oscFieldNumeric = true;
+        parser.oscFieldPresent = false;
         fgoto oscIndexedColorIndex;
     }
 
     action oscIndexedColorEscapedInvalid {
-        ragelAppendEscapedString(fc, maxOscBytes);
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
         fgoto oscIndexedColorDiscard;
     }
 
     action oscNumericDigit {
-        ragelAppendString(fc, maxOscBytes);
-        oscFieldPresent = true;
-        if (oscFieldNumber > (UINT32_MAX - (u32)(fc - '0')) / 10) {
-            oscFieldNumeric = false;
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscFieldPresent = true;
+        if (parser.oscFieldNumber > (UINT32_MAX - (u32)(fc - '0')) / 10) {
+            parser.oscFieldNumeric = false;
         } else {
-            oscFieldNumber = oscFieldNumber * 10 + fc - '0';
+            parser.oscFieldNumber = parser.oscFieldNumber * 10 + fc - '0';
         }
     }
 
     action oscNumericInvalid {
         stringUtf8Continuation(fc);
         if (!executeC0InSequence(fc, true)) {
-            ragelAppendString(fc, maxOscBytes);
-            oscFieldPresent = true;
-            oscFieldNumeric = false;
+            ragelAppendString(fc, parser.maxOscBytes);
+            parser.oscFieldPresent = true;
+            parser.oscFieldNumeric = false;
         }
     }
 
     action oscNumericField {
-        const bool valid = oscFieldPresent && oscFieldNumeric;
-        if (oscCommand == 6 || oscCommand == 106) {
-            if (!oscFieldHaveFirst) {
-                oscFieldFirst = oscFieldNumber;
-                oscFieldFirstValid = valid;
-                oscFieldHaveFirst = true;
+        const bool valid = parser.oscFieldPresent && parser.oscFieldNumeric;
+        if (parser.oscCommand == 6 || parser.oscCommand == 106) {
+            if (!parser.oscFieldHaveFirst) {
+                parser.oscFieldFirst = parser.oscFieldNumber;
+                parser.oscFieldFirstValid = valid;
+                parser.oscFieldHaveFirst = true;
             } else {
-                if (!argBufOverflowed && oscFieldFirstValid && valid) {
+                if (!parser.overflow && parser.oscFieldFirstValid && valid) {
                     osc_SPECIAL_COLOR_MODE(
-                        oscFieldFirst, oscFieldNumber
+                        parser.oscFieldFirst, parser.oscFieldNumber
                     );
                 }
-                oscFieldHaveFirst = false;
+                parser.oscFieldHaveFirst = false;
             }
-        } else if (!argBufOverflowed && valid) {
-            if (oscCommand == 104) {
-                osc_RESET_PALETTE(oscFieldNumber);
+        } else if (!parser.overflow && valid) {
+            if (parser.oscCommand == 104) {
+                osc_RESET_PALETTE(parser.oscFieldNumber);
             } else {
-                osc_RESET_SPECIAL_COLOR(oscFieldNumber);
+                osc_RESET_SPECIAL_COLOR(parser.oscFieldNumber);
             }
         }
     }
 
     action oscNumericFinalField {
-        if (oscFieldPresent) {
-            const bool valid = oscFieldNumeric;
-            if (oscCommand == 6 || oscCommand == 106) {
-                if (!oscFieldHaveFirst) {
-                    oscFieldFirst = oscFieldNumber;
-                    oscFieldFirstValid = valid;
-                    oscFieldHaveFirst = true;
-                } else if (!argBufOverflowed &&
-                           oscFieldFirstValid && valid) {
+        if (parser.oscFieldPresent) {
+            const bool valid = parser.oscFieldNumeric;
+            if (parser.oscCommand == 6 || parser.oscCommand == 106) {
+                if (!parser.oscFieldHaveFirst) {
+                    parser.oscFieldFirst = parser.oscFieldNumber;
+                    parser.oscFieldFirstValid = valid;
+                    parser.oscFieldHaveFirst = true;
+                } else if (!parser.overflow &&
+                           parser.oscFieldFirstValid && valid) {
                     osc_SPECIAL_COLOR_MODE(
-                        oscFieldFirst, oscFieldNumber
+                        parser.oscFieldFirst, parser.oscFieldNumber
                     );
                 }
-            } else if (!argBufOverflowed && valid) {
-                if (oscCommand == 104) {
-                    osc_RESET_PALETTE(oscFieldNumber);
+            } else if (!parser.overflow && valid) {
+                if (parser.oscCommand == 104) {
+                    osc_RESET_PALETTE(parser.oscFieldNumber);
                 } else {
-                    osc_RESET_SPECIAL_COLOR(oscFieldNumber);
+                    osc_RESET_SPECIAL_COLOR(parser.oscFieldNumber);
                 }
             }
-        } else if (!argBufOverflowed &&
-                   argBuf.used() == oscPayloadOffset) {
-            if (oscCommand == 104) {
+        } else if (!parser.overflow &&
+                   parser.scratch.used() == parser.oscPayloadOffset) {
+            if (parser.oscCommand == 104) {
                 osc_RESET_PALETTE();
-            } else if (oscCommand == 105) {
+            } else if (parser.oscCommand == 105) {
                 osc_RESET_SPECIAL_COLOR();
             }
         }
     }
 
     action oscNumericSeparator {
-        ragelAppendString(fc, maxOscBytes);
-        oscFieldNumber = 0;
-        oscFieldNumeric = true;
-        oscFieldPresent = false;
+        ragelAppendString(fc, parser.maxOscBytes);
+        parser.oscFieldNumber = 0;
+        parser.oscFieldNumeric = true;
+        parser.oscFieldPresent = false;
     }
 
     action oscNumericSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, maxOscBytes);
-            oscFieldPresent = true;
-            oscFieldNumeric = false;
+            ragelAppendString(fc, parser.maxOscBytes);
+            parser.oscFieldPresent = true;
+            parser.oscFieldNumeric = false;
             fgoto oscNumericFields;
         } else {
             ragelFinishOsc();
-            oscTerminated = true;
+            parser.oscTerminated = true;
         }
     }
 
     action oscNumericBell {
         ragelFinishOsc();
-        oscTerminated = true;
+        parser.oscTerminated = true;
     }
 
     action oscNumericEscapedInvalid {
-        ragelAppendEscapedString(fc, maxOscBytes);
-        oscFieldPresent = true;
-        oscFieldNumeric = false;
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
+        parser.oscFieldPresent = true;
+        parser.oscFieldNumeric = false;
         fgoto oscNumericFields;
     }
 
@@ -3454,8 +3454,8 @@
                 parserTrace->stringData(&fc, 1);
             }
         } else {
-            stringUtf8Remaining = 0;
-            ragelStringLimit = 0;
+            parser.stringUtf8Remaining = 0;
+            parser.stringLimit = 0;
             if constexpr (traced) {
                 parserTrace->stringEnd();
             }
@@ -3520,8 +3520,8 @@
 
     action stringControlSpa {
         if (!ragelStringContinuation(fc)) {
-            stringUtf8Remaining = 0;
-            ragelStringLimit = 0;
+            parser.stringUtf8Remaining = 0;
+            parser.stringLimit = 0;
             if constexpr (traced) {
                 parserTrace->stringCancel();
                 parserTrace->control(fc);
@@ -3534,8 +3534,8 @@
 
     action stringControlEpa {
         if (!ragelStringContinuation(fc)) {
-            stringUtf8Remaining = 0;
-            ragelStringLimit = 0;
+            parser.stringUtf8Remaining = 0;
+            parser.stringLimit = 0;
             if constexpr (traced) {
                 parserTrace->stringCancel();
                 parserTrace->control(fc);
@@ -3548,8 +3548,8 @@
 
     action stringControlDa {
         if (!ragelStringContinuation(fc)) {
-            stringUtf8Remaining = 0;
-            ragelStringLimit = 0;
+            parser.stringUtf8Remaining = 0;
+            parser.stringLimit = 0;
             if constexpr (traced) {
                 parserTrace->stringCancel();
             }
@@ -3561,7 +3561,7 @@
 
     csiPlainKnown = [@ABCDEFGHIJKLMPSTXZ`abcdefghijklmnqrstu];
     csiPlainFinal = (
-        'T' @csiTrace @{ if (nInputOps == 5 && mouseTrk.mode == MouseTrackingMode::VT200_Highlight) { csi_XTHIMOUSE(); } else { csi_SD(); } } |
+        'T' @csiTrace @{ if (parser.parameterCount == 5 && mouseTrk.mode == MouseTrackingMode::VT200_Highlight) { csi_XTHIMOUSE(); } else { csi_SD(parser.parameters[0] ? parser.parameters[0] : 1); } } |
         'A' @csiTrace @{ csi_CUU(); } |
         'B' @csiTrace @{ csi_CUD(); } |
         'C' @csiTrace @{ csi_CUF(); } |
@@ -3579,7 +3579,7 @@
         'S' @csiTrace @{ csi_SU(); } |
         'X' @csiTrace @{ csi_ECH(); } |
         'Z' @csiTrace @{ csi_CBT(); } |
-        '@' @csiTrace @{ csi_ICH(); } |
+        '@' @csiTrace @{ csi_ICH(parser.parameters[0] ? parser.parameters[0] : 1); } |
         '`' @csiTrace @{ csi_HPA(); } |
         'a' @csiTrace @{ csi_HPR(); } |
         'b' @csiTrace @{ csi_REP(); } |
@@ -4101,45 +4101,45 @@
         0x7f |
         highToGround |
         0x00..0x2f @charsetModifier |
-        'A' @{ charsetState.g[scsIndex] = scs96 ? Charset::IsoLatin1 : Charset::IsoUK; } @charsetFinal |
-        'B' @{ charsetState.g[scsIndex] = Charset::UTF8; } @charsetFinal |
-        '0' @{ charsetState.g[scsIndex] = Charset::DecSpec; } @charsetFinal |
+        'A' @{ charsetState.g[parser.scsIndex] = parser.scs96 ? Charset::IsoLatin1 : Charset::IsoUK; } @charsetFinal |
+        'B' @{ charsetState.g[parser.scsIndex] = Charset::UTF8; } @charsetFinal |
+        '0' @{ charsetState.g[parser.scsIndex] = Charset::DecSpec; } @charsetFinal |
         '5' @{
-            charsetState.g[scsIndex] =
-                scsMod == '%' ? Charset::DecSuppl :
-                scsMod == '&' ? Charset::NrcRussian : Charset::NrcFinnish;
+            charsetState.g[parser.scsIndex] =
+                parser.scsMod == '%' ? Charset::DecSuppl :
+                parser.scsMod == '&' ? Charset::NrcRussian : Charset::NrcFinnish;
         } @charsetFinal |
-        '<' @{ charsetState.g[scsIndex] = Charset::DecUserPref; } @charsetFinal |
+        '<' @{ charsetState.g[parser.scsIndex] = Charset::DecUserPref; } @charsetFinal |
         '>' @{
-            charsetState.g[scsIndex] =
-                scsMod == '"' ? Charset::NrcGreek : Charset::DecTechn;
+            charsetState.g[parser.scsIndex] =
+                parser.scsMod == '"' ? Charset::NrcGreek : Charset::DecTechn;
         } @charsetFinal |
-        '4' @{ charsetState.g[scsIndex] = Charset::NrcDutch; } @charsetFinal |
-        'C' @{ charsetState.g[scsIndex] = Charset::NrcFinnish; } @charsetFinal |
-        ('R' | 'f') @{ charsetState.g[scsIndex] = Charset::NrcFrench; } @charsetFinal |
-        ('9' | 'Q') @{ charsetState.g[scsIndex] = Charset::NrcFrenchCanadian; } @charsetFinal |
-        'K' @{ charsetState.g[scsIndex] = Charset::NrcGerman; } @charsetFinal |
-        'Y' @{ charsetState.g[scsIndex] = Charset::NrcItalian; } @charsetFinal |
+        '4' @{ charsetState.g[parser.scsIndex] = Charset::NrcDutch; } @charsetFinal |
+        'C' @{ charsetState.g[parser.scsIndex] = Charset::NrcFinnish; } @charsetFinal |
+        ('R' | 'f') @{ charsetState.g[parser.scsIndex] = Charset::NrcFrench; } @charsetFinal |
+        ('9' | 'Q') @{ charsetState.g[parser.scsIndex] = Charset::NrcFrenchCanadian; } @charsetFinal |
+        'K' @{ charsetState.g[parser.scsIndex] = Charset::NrcGerman; } @charsetFinal |
+        'Y' @{ charsetState.g[parser.scsIndex] = Charset::NrcItalian; } @charsetFinal |
         ('`' | 'E' | '6') @{
-            charsetState.g[scsIndex] =
-                scsMod == '%' ? Charset::NrcPortuguese : Charset::NrcNorwegianDanish;
+            charsetState.g[parser.scsIndex] =
+                parser.scsMod == '%' ? Charset::NrcPortuguese : Charset::NrcNorwegianDanish;
         } @charsetFinal |
-        'Z' @{ charsetState.g[scsIndex] = Charset::NrcSpanish; } @charsetFinal |
-        ('7' | 'H') @{ charsetState.g[scsIndex] = Charset::NrcSwedish; } @charsetFinal |
+        'Z' @{ charsetState.g[parser.scsIndex] = Charset::NrcSpanish; } @charsetFinal |
+        ('7' | 'H') @{ charsetState.g[parser.scsIndex] = Charset::NrcSwedish; } @charsetFinal |
         '=' @{
-            charsetState.g[scsIndex] =
-                scsMod == '%' ? Charset::NrcHebrew : Charset::NrcSwiss;
+            charsetState.g[parser.scsIndex] =
+                parser.scsMod == '%' ? Charset::NrcHebrew : Charset::NrcSwiss;
         } @charsetFinal |
         '3' @{
-            charsetState.g[scsIndex] =
-                scsMod == '%' ? Charset::NrcSerboCroatian : Charset::UTF8;
+            charsetState.g[parser.scsIndex] =
+                parser.scsMod == '%' ? Charset::NrcSerboCroatian : Charset::UTF8;
         } @charsetFinal |
         '2' @{
-            charsetState.g[scsIndex] =
-                scsMod == '%' ? Charset::NrcTurkish : Charset::UTF8;
+            charsetState.g[parser.scsIndex] =
+                parser.scsMod == '%' ? Charset::NrcTurkish : Charset::UTF8;
         } @charsetFinal |
         (0x30..0x7e - charsetKnown) @{
-            charsetState.g[scsIndex] = Charset::UTF8;
+            charsetState.g[parser.scsIndex] = Charset::UTF8;
         } @charsetFinal |
         0x80..0x9f @escapeFinal
     )*;
@@ -4365,7 +4365,7 @@
         0x7f |
         sequenceC0 |
         xdigit @dcsXtHex |
-        ';' @{ dcsCapabilityComplete = true; } @dcsXtField @dcsXtSeparator |
+        ';' @{ parser.dcsCapabilityComplete = true; } @dcsXtField @dcsXtSeparator |
         (0x20..0x7e - (xdigit | ';')) @dcsXtInvalid |
         (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsXtInvalid
     )*;
@@ -5021,7 +5021,7 @@
         cancel |
         '\\' @oscInvalidSt |
         0x1b @oscEscapedEscape
-            @{ oscFieldNumeric = false; fgoto oscIndexedColorIndexEscape; } |
+            @{ parser.oscFieldNumeric = false; fgoto oscIndexedColorIndexEscape; } |
         (any - (0x18 | 0x1a | 0x1b | '\\'))
             @oscIndexedColorIndexEscapedInvalid
     )*;
@@ -5123,7 +5123,7 @@
         cancel |
         '\\' @oscNumericFinalField @oscNumericSt @oscDone |
         0x1b @oscEscapedEscape
-            @{ oscFieldPresent = true; oscFieldNumeric = false; } |
+            @{ parser.oscFieldPresent = true; parser.oscFieldNumeric = false; } |
         (any - (0x18 | 0x1a | 0x1b | '\\'))
             @oscNumericEscapedInvalid
     )*;
@@ -5152,7 +5152,7 @@
         0x1b @{ fgoto oscShellACompleteEscape; } |
         0x7f |
         sequenceC0 |
-        ';' @{ ragelAppendString(fc, maxOscBytes); fgoto oscShellATail; } |
+        ';' @{ ragelAppendString(fc, parser.maxOscBytes); fgoto oscShellATail; } |
         (0x20..0x7e - ';') @oscShellInvalid |
         (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscShellInvalid
     )*;
@@ -5165,7 +5165,7 @@
         0x1b @{ fgoto oscShellBCompleteEscape; } |
         0x7f |
         sequenceC0 |
-        ';' @{ ragelAppendString(fc, maxOscBytes); fgoto oscShellBTail; } |
+        ';' @{ ragelAppendString(fc, parser.maxOscBytes); fgoto oscShellBTail; } |
         (0x20..0x7e - ';') @oscShellInvalid |
         (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscShellInvalid
     )*;
@@ -5178,7 +5178,7 @@
         0x1b @{ fgoto oscShellCCompleteEscape; } |
         0x7f |
         sequenceC0 |
-        ';' @{ ragelAppendString(fc, maxOscBytes); fgoto oscShellCTail; } |
+        ';' @{ ragelAppendString(fc, parser.maxOscBytes); fgoto oscShellCTail; } |
         (0x20..0x7e - ';') @oscShellInvalid |
         (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscShellInvalid
     )*;
@@ -5191,7 +5191,7 @@
         0x1b @{ fgoto oscShellDCompleteEscape; } |
         0x7f |
         sequenceC0 |
-        ';' @{ ragelAppendString(fc, maxOscBytes); fgoto oscShellDTail; } |
+        ';' @{ ragelAppendString(fc, parser.maxOscBytes); fgoto oscShellDTail; } |
         (0x20..0x7e - ';') @oscShellInvalid |
         (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscShellInvalid
     )*;
@@ -5362,7 +5362,7 @@
 
     stringEscape := (
         cancel |
-        '\\' @{ stringUtf8Remaining = 0; ragelStringLimit = 0; if constexpr (traced) { parserTrace->stringEnd(); } fnext main; fbreak; } |
+        '\\' @{ parser.stringUtf8Remaining = 0; parser.stringLimit = 0; if constexpr (traced) { parserTrace->stringEnd(); } fnext main; fbreak; } |
         0x1b |
         (any - (0x18 | 0x1a | 0x1b | '\\')) @ignoredEscapedData
     )*;
@@ -5372,20 +5372,20 @@
 %% write data;
 
 const auto stringUtf8Continuation = [&](u8 ch) {
-    if (stringUtf8Remaining != 0) {
+    if (parser.stringUtf8Remaining != 0) {
         if ((ch & 0xc0) == 0x80) {
-            --stringUtf8Remaining;
+            --parser.stringUtf8Remaining;
             return true;
         }
-        stringUtf8Remaining = 0;
+        parser.stringUtf8Remaining = 0;
     }
 
     if (ch >= 0xc2 && ch <= 0xdf) {
-        stringUtf8Remaining = 1;
+        parser.stringUtf8Remaining = 1;
     } else if (ch >= 0xe0 && ch <= 0xef) {
-        stringUtf8Remaining = 2;
+        parser.stringUtf8Remaining = 2;
     } else if (ch >= 0xf0 && ch <= 0xf4) {
-        stringUtf8Remaining = 3;
+        parser.stringUtf8Remaining = 3;
     }
     return false;
 };
@@ -5441,10 +5441,10 @@ const auto ragelAppendString = [&](u8 ch, size_t limit) {
     if constexpr (traced) {
         parserTrace->stringData(&ch, 1);
     }
-    if (argBuf.used() < limit) {
-        argBuf.append(&ch, 1);
+    if (parser.scratch.used() < limit) {
+        parser.scratch.append(&ch, 1);
     } else {
-        argBufOverflowed = true;
+        parser.overflow = true;
     }
 };
 
@@ -5453,24 +5453,24 @@ const auto ragelAppendEscapedString = [&](u8 ch, size_t limit) {
         const u8 bytes[] = {'\x1b', ch};
         parserTrace->stringData(bytes, sizeof(bytes));
     }
-    if (argBuf.used() <= limit - 2) {
+    if (parser.scratch.used() <= limit - 2) {
         const u8 bytes[] = {'\x1b', ch};
-        argBuf.append(bytes, sizeof(bytes));
+        parser.scratch.append(bytes, sizeof(bytes));
     } else {
-        argBufOverflowed = true;
+        parser.overflow = true;
     }
 };
 
 const auto ragelBeginString = [&](VtermTraceString type, bool buffered) {
     resetGraphemeInput();
-    stringUtf8Remaining = 0;
-    ragelStringLimit =
-        type == VtermTraceString::Dcs ? maxDcsBytes :
-        type == VtermTraceString::Osc ? maxOscBytes : 0;
-    oscCwdDecode = false;
+    parser.stringUtf8Remaining = 0;
+    parser.stringLimit =
+        type == VtermTraceString::Dcs ? parser.maxDcsBytes :
+        type == VtermTraceString::Osc ? parser.maxOscBytes : 0;
+    parser.oscCwdDecode = false;
     if (buffered) {
-        argBuf.reset();
-        argBufOverflowed = false;
+        parser.scratch.reset();
+        parser.overflow = false;
     }
     if constexpr (traced) {
         parserTrace->stringBegin(type);
@@ -5479,94 +5479,94 @@ const auto ragelBeginString = [&](VtermTraceString type, bool buffered) {
 
 const auto ragelBeginDcs = [&] {
     ragelBeginString(VtermTraceString::Dcs, true);
-    inputOps[0] = 0;
-    inputSeparators[0] = 0;
-    inputPresent[0] = false;
-    nInputOps = 1;
-    dcsIntermediateCount = 0;
-    dcsCapabilityOffset = 0;
-    dcsCapabilityDecodedLength = 0;
-    dcsCapabilityCandidates = 0;
-    dcsCapabilityHasHighNibble = false;
-    dcsCapabilityValid = false;
-    dcsCapabilityComplete = false;
-    dcsUdkDefinitions.clear();
-    dcsDecoded.reset();
-    dcsUdkValueOffset = 0;
-    dcsUdkCode = 0;
-    dcsUdkKey = VtKey::NONE;
-    dcsUdkHasCode = false;
-    dcsUdkHasHighNibble = false;
-    dcsUdkValid = false;
-    dcsUdkInValue = false;
-    dcsUdkHeaderValid = false;
-    dcsUdkClearDefinitions = false;
-    dcsUdkLockDefinitions = false;
+    parser.parameters[0] = 0;
+    parser.separators[0] = 0;
+    parser.present[0] = false;
+    parser.parameterCount = 1;
+    parser.dcsIntermediateCount = 0;
+    parser.dcsCapabilityOffset = 0;
+    parser.dcsCapabilityDecodedLength = 0;
+    parser.dcsCapabilityCandidates = 0;
+    parser.dcsCapabilityHasHighNibble = false;
+    parser.dcsCapabilityValid = false;
+    parser.dcsCapabilityComplete = false;
+    parser.dcsUdkDefinitions.clear();
+    parser.dcsDecoded.reset();
+    parser.dcsUdkValueOffset = 0;
+    parser.dcsUdkCode = 0;
+    parser.dcsUdkKey = VtKey::NONE;
+    parser.dcsUdkHasCode = false;
+    parser.dcsUdkHasHighNibble = false;
+    parser.dcsUdkValid = false;
+    parser.dcsUdkInValue = false;
+    parser.dcsUdkHeaderValid = false;
+    parser.dcsUdkClearDefinitions = false;
+    parser.dcsUdkLockDefinitions = false;
 };
 
 const auto ragelBeginOsc = [&] {
     ragelBeginString(VtermTraceString::Osc, true);
-    oscCommand = 0;
-    oscPayloadOffset = 0;
-    oscCommandValid = false;
-    oscTerminated = false;
-    oscDecoded.reset();
-    oscTitleHighNibble = 0;
-    oscTitleHex = false;
-    oscTitleHasHighNibble = false;
-    oscTitleValid = false;
-    oscTitleStopped = false;
-    oscCwdPercentHigh = 0;
-    oscCwdValid = false;
-    oscCwdDecode = false;
-    oscHyperlinkIdOffset = 0;
-    oscHyperlinkIdLength = 0;
-    oscHyperlinkUriOffset = 0;
-    oscHyperlinkHasId = false;
-    oscProgressState = 0;
-    oscProgressPercent = 0;
-    oscProgressStatePresent = false;
-    oscProgressPercentPresent = false;
-    oscProgressValid = false;
-    oscBase64.reset();
-    osc52ReplySelector = 0;
-    osc52Primary = false;
-    osc52Clipboard = false;
-    osc52SelectorSeen = false;
-    osc52PayloadSeen = false;
-    osc52Query = false;
+    parser.oscCommand = 0;
+    parser.oscPayloadOffset = 0;
+    parser.oscCommandValid = false;
+    parser.oscTerminated = false;
+    parser.oscDecoded.reset();
+    parser.oscTitleHighNibble = 0;
+    parser.oscTitleHex = false;
+    parser.oscTitleHasHighNibble = false;
+    parser.oscTitleValid = false;
+    parser.oscTitleStopped = false;
+    parser.oscCwdPercentHigh = 0;
+    parser.oscCwdValid = false;
+    parser.oscCwdDecode = false;
+    parser.oscHyperlinkIdOffset = 0;
+    parser.oscHyperlinkIdLength = 0;
+    parser.oscHyperlinkUriOffset = 0;
+    parser.oscHyperlinkHasId = false;
+    parser.oscProgressState = 0;
+    parser.oscProgressPercent = 0;
+    parser.oscProgressStatePresent = false;
+    parser.oscProgressPercentPresent = false;
+    parser.oscProgressValid = false;
+    parser.oscBase64.reset();
+    parser.osc52ReplySelector = 0;
+    parser.osc52Primary = false;
+    parser.osc52Clipboard = false;
+    parser.osc52SelectorSeen = false;
+    parser.osc52PayloadSeen = false;
+    parser.osc52Query = false;
 };
 
 const auto resetOscColor = [&] {
-    oscColor = {};
-    oscColorComponents[0] = 0.0;
-    oscColorComponents[1] = 0.0;
-    oscColorComponents[2] = 0.0;
-    oscColorHex = 0;
-    oscColorComponent = 0;
-    oscColorDigits = 0;
-    oscColorValid = true;
-    oscColorQuery = false;
+    parser.oscColor = {};
+    parser.oscColorComponents[0] = 0.0;
+    parser.oscColorComponents[1] = 0.0;
+    parser.oscColorComponents[2] = 0.0;
+    parser.oscColorHex = 0;
+    parser.oscColorComponent = 0;
+    parser.oscColorDigits = 0;
+    parser.oscColorValid = true;
+    parser.oscColorQuery = false;
 };
 
 const auto ragelStringContinuation = [&](u8 ch) {
     if (!stringUtf8Continuation(ch)) {
         return false;
     }
-    if (ragelStringLimit != 0) {
-        ragelAppendString(ch, ragelStringLimit);
+    if (parser.stringLimit != 0) {
+        ragelAppendString(ch, parser.stringLimit);
     } else if constexpr (traced) {
         parserTrace->stringData(&ch, 1);
     }
-    if (oscCwdDecode && !argBufOverflowed) {
-        oscDecoded.append(&ch, 1);
+    if (parser.oscCwdDecode && !parser.overflow) {
+        parser.oscDecoded.append(&ch, 1);
     }
     return true;
 };
 
 const auto ragelFinishString = [&] {
-    stringUtf8Remaining = 0;
-    ragelStringLimit = 0;
+    parser.stringUtf8Remaining = 0;
+    parser.stringLimit = 0;
     if constexpr (traced) {
         parserTrace->stringEnd();
     }
@@ -5575,40 +5575,40 @@ const auto& ragelFinishDcs = ragelFinishString;
 const auto& ragelFinishOsc = ragelFinishString;
 
 const auto ragelOscPayload = [&]() noexcept {
-    const auto* data = (const u8*)(argBuf.data());
-    return StringView(data + oscPayloadOffset, argBuf.used() - oscPayloadOffset);
+    const auto* data = (const u8*)(parser.scratch.data());
+    return StringView(data + parser.oscPayloadOffset, parser.scratch.used() - parser.oscPayloadOffset);
 };
 
 const auto beginCsi = [&] {
-    stringUtf8Remaining = 0;
-    ragelStringLimit = 0;
+    parser.stringUtf8Remaining = 0;
+    parser.stringLimit = 0;
     resetGraphemeInput();
-    inputOps[0] = 0;
-    inputSeparators[0] = 0;
-    inputPresent[0] = false;
-    nInputOps = 1;
-    csiHadParams = false;
-    csiPrefix = 0;
-    csiIntermediateCount = 0;
+    parser.parameters[0] = 0;
+    parser.separators[0] = 0;
+    parser.present[0] = false;
+    parser.parameterCount = 1;
+    parser.csiHadParameters = false;
+    parser.csiPrefix = 0;
+    parser.csiIntermediateCount = 0;
 };
 
 const auto traceCsi = [&](u8 finalByte) {
     if constexpr (traced) {
         parserTrace->csi(
             finalByte,
-            StringView(&csiPrefix, csiPrefix == 0 ? 0 : 1),
-            StringView(csiIntermediates, csiIntermediateCount),
-            inputOps,
-            inputSeparators,
-            nInputOps,
-            csiHadParams
+            StringView(&parser.csiPrefix, parser.csiPrefix == 0 ? 0 : 1),
+            StringView(parser.csiIntermediates, parser.csiIntermediateCount),
+            parser.parameters,
+            parser.separators,
+            parser.parameterCount,
+            parser.csiHadParameters
         );
     }
 };
 
-if (!ragelInitialized) {
+if (!parser.initialized) {
     %% write init;
-    ragelInitialized = true;
+    parser.initialized = true;
 }
 
 while (p != pe) {
