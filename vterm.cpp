@@ -722,6 +722,9 @@ namespace {
         bool oscTitleHasHighNibble = false;
         bool oscTitleValid = false;
         bool oscTitleStopped = false;
+        u8 oscCwdPercentHigh = 0;
+        bool oscCwdValid = false;
+        bool oscCwdDecode = false;
         size_t oscHyperlinkIdOffset = 0;
         size_t oscHyperlinkIdLength = 0;
         size_t oscHyperlinkUriOffset = 0;
@@ -8444,6 +8447,7 @@ template <bool traced>
 void VtermImpl<traced>::parseWithRagel(const u8* data, size_t len) {
     const u8* p = data;
     const u8* const pe = data + len;
+    const u8* const eof = nullptr;
     int& cs = ragelState;
     const bool printerHandled = host.handlesPrinter();
     const auto appendPrinter = [&](const void* bytes, size_t size) {
@@ -8510,6 +8514,7 @@ void VtermImpl<traced>::ragelBeginString(VtermTraceString type, bool buffered) {
     resetGraphemeInput();
     stringUtf8Remaining = 0;
     ragelStringLimit = type == VtermTraceString::Dcs ? maxDcsBytes : type == VtermTraceString::Osc ? maxOscBytes : 0;
+    oscCwdDecode = false;
     if (buffered) {
         argBuf.reset();
         argBufOverflowed = false;
@@ -8556,6 +8561,9 @@ void VtermImpl<traced>::ragelBeginOsc() {
     oscTitleHasHighNibble = false;
     oscTitleValid = false;
     oscTitleStopped = false;
+    oscCwdPercentHigh = 0;
+    oscCwdValid = false;
+    oscCwdDecode = false;
     oscHyperlinkIdOffset = 0;
     oscHyperlinkIdLength = 0;
     oscHyperlinkUriOffset = 0;
@@ -8583,6 +8591,9 @@ bool VtermImpl<traced>::ragelStringContinuation(u8 ch) {
         ragelAppendString(ch, ragelStringLimit);
     } else if constexpr (traced) {
         parserTrace->stringData(&ch, 1);
+    }
+    if (oscCwdDecode && !argBufOverflowed) {
+        oscDecoded.append(&ch, 1);
     }
     return true;
 }

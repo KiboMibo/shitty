@@ -2100,6 +2100,12 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 }
                 const StringView content = primary ? composer.clipboard->readPrimary() : composer.clipboard->readClipboard();
                 writeAll(controlFd, "OK " + encodeHex(std::string((const char*)(content.data()), content.length())) + "\n");
+            } else if (line == "GET_CWD") {
+                StringBuilder output;
+                output << StringView(u8"OK ");
+                appendHex(output, StringView(display.currentCwd));
+                output << StringView(u8"\n");
+                writeAll(controlFd, StringView(output));
             } else if (line.compare(0, 9, "OSC7_CWD ") == 0) {
                 display.currentCwd.reset();
                 const std::string input = "\x1b]7;" + decodeHex(line.substr(9)) + "\x1b\\";

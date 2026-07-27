@@ -743,6 +743,9 @@ class Shitty:
     def get_selection(self, primary):
         return self._read_hex_response(f"GET_SELECTION {int(primary)}")
 
+    def current_cwd(self):
+        return self._read_hex_response("GET_CWD")
+
     def osc7_cwd(self, argument):
         return self._read_hex_response("OSC7_CWD " + argument.hex())
 

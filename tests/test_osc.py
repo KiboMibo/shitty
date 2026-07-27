@@ -98,6 +98,28 @@ class OscProtocolTest(unittest.TestCase):
             )
             self.assertEqual(terminal.osc7_cwd(b"/plain/path"), b"/plain/path")
 
+    def test_osc7_parser_survives_every_input_boundary(self):
+        sequence = b"\x1b]7;file://host/a%2fb%2Fc\x1b\\"
+        chunkings = [
+            (sequence[:split], sequence[split:])
+            for split in range(1, len(sequence))
+        ]
+        chunkings.append(tuple(bytes((byte,)) for byte in sequence))
+
+        for chunks in chunkings:
+            with self.subTest(chunks=chunks):
+                with Shitty(columns=8, rows=2) as terminal:
+                    terminal.write_chunks(*chunks)
+                    self.assertEqual(terminal.current_cwd(), b"/a/b/c")
+
+    def test_osc7_keeps_utf8_continuations_from_the_c1_range(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write_chunks(
+                b"\x1b]7;file://host/\xd0",
+                b"\x9b\x1b\\",
+            )
+            self.assertEqual(terminal.current_cwd(), b"/\xd0\x9b")
+
     def test_osc7_rejects_non_absolute_paths(self):
         with Shitty(columns=8, rows=2) as terminal:
             self.assertEqual(terminal.osc7_cwd(b"relative/path"), b"")

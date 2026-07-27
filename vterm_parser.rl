@@ -1593,6 +1593,12 @@
                 fgoto oscTitle1;
             }
             fgoto oscTitle2;
+        } else if (oscCommand == 7) {
+            oscDecoded.reset();
+            oscCwdPercentHigh = 0;
+            oscCwdValid = false;
+            oscCwdDecode = false;
+            fgoto oscCwdEntry;
         } else if (oscCommand == 4 || oscCommand == 5 || oscCommand == 6 ||
                    (oscCommand >= 10 && oscCommand <= 19) ||
                    oscCommand == 104 || oscCommand == 105 ||
@@ -1699,46 +1705,6 @@
                 osc_TITLE_1(payload);
             } else if (oscCommand == 2) {
                 osc_TITLE_2(payload);
-            } else if (oscCommand == 7) {
-                StringView path = payload;
-                if (path.startsWith(StringView(u8"file://"))) {
-                    path = StringView(
-                        path.data() + 7, path.length() - 7
-                    );
-                    const u8* slash = path.memChr('/');
-                    path = slash == nullptr
-                        ? StringView()
-                        : StringView(slash, path.end());
-                }
-                bool valid = !path.empty() && path[0] == '/';
-                oscDecoded.reset();
-                for (size_t i = 0; valid && i < path.length(); ++i) {
-                    u8 ch = path[i];
-                    if (ch == '%') {
-                        if (i + 2 >= path.length()) {
-                            valid = false;
-                            break;
-                        }
-                        const auto hex = [](u8 digit) -> u8 {
-                            if (digit >= '0' && digit <= '9') {
-                                return digit - '0';
-                            }
-                            digit |= 0x20;
-                            return digit >= 'a' && digit <= 'f'
-                                ? digit - 'a' + 10
-                                : 0xff;
-                        };
-                        const u8 high = hex(path[++i]);
-                        const u8 low = hex(path[++i]);
-                        if (high == 0xff || low == 0xff) {
-                            valid = false;
-                            break;
-                        }
-                        ch = (high << 4) | low;
-                    }
-                    oscDecoded.append(&ch, 1);
-                }
-                osc_CWD(payload, StringView(oscDecoded), valid);
             } else if (oscCommand == 8) {
                 (void)payload;
             } else if (oscCommand == 9) {
@@ -1822,6 +1788,129 @@
     action oscInvalidEscapedData {
         ragelAppendEscapedString(fc, maxOscBytes);
         fgoto oscInvalid;
+    }
+
+    action oscCwdRaw {
+        ragelAppendString(fc, maxOscBytes);
+    }
+
+    action oscCwdInvalidData {
+        stringUtf8Continuation(fc);
+        if (!executeC0InSequence(fc, true)) {
+            ragelAppendString(fc, maxOscBytes);
+        }
+        oscCwdValid = false;
+        oscCwdDecode = false;
+        fgoto oscCwdInvalid;
+    }
+
+    action oscCwdPrefixError {
+        fhold;
+        fgoto oscCwdInvalid;
+    }
+
+    action oscCwdPathStart {
+        ragelAppendString(fc, maxOscBytes);
+        if (!argBufOverflowed) {
+            oscDecoded.append(&fc, 1);
+        }
+        oscCwdValid = true;
+        oscCwdDecode = true;
+        fgoto oscCwdPath;
+    }
+
+    action oscCwdAuthorityData {
+        stringUtf8Continuation(fc);
+        if (!executeC0InSequence(fc, true)) {
+            ragelAppendString(fc, maxOscBytes);
+        }
+    }
+
+    action oscCwdPathData {
+        stringUtf8Continuation(fc);
+        if (!executeC0InSequence(fc, true)) {
+            ragelAppendString(fc, maxOscBytes);
+            if (!argBufOverflowed) {
+                oscDecoded.append(&fc, 1);
+            }
+        }
+    }
+
+    action oscCwdPercentStart {
+        ragelAppendString(fc, maxOscBytes);
+        oscCwdValid = false;
+        oscCwdDecode = false;
+        fgoto oscCwdPercentHigh;
+    }
+
+    action oscCwdPercentHigh {
+        ragelAppendString(fc, maxOscBytes);
+        oscCwdPercentHigh =
+            fc <= '9' ? fc - '0' : (fc | 0x20) - 'a' + 10;
+        fgoto oscCwdPercentLow;
+    }
+
+    action oscCwdPercentLow {
+        ragelAppendString(fc, maxOscBytes);
+        if (!argBufOverflowed) {
+            const u8 decoded =
+                (oscCwdPercentHigh << 4) |
+                (fc <= '9' ? fc - '0' : (fc | 0x20) - 'a' + 10);
+            oscDecoded.append(&decoded, 1);
+        }
+        oscCwdValid = true;
+        oscCwdDecode = true;
+        fgoto oscCwdPath;
+    }
+
+    action oscCwdSt {
+        if (ragelStringContinuation(fc)) {
+            oscTerminated = false;
+        } else {
+            ragelFinishOsc();
+            oscTerminated = true;
+        }
+    }
+
+    action oscCwdBell {
+        ragelFinishOsc();
+        oscTerminated = true;
+    }
+
+    action oscCwdDispatch {
+        if (oscTerminated && !argBufOverflowed) {
+            osc_CWD(
+                ragelOscPayload(), StringView(oscDecoded), oscCwdValid
+            );
+        }
+    }
+
+    action oscCwdInvalidEscaped {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        oscCwdValid = false;
+        oscCwdDecode = false;
+        fgoto oscCwdInvalid;
+    }
+
+    action oscCwdAuthorityEscaped {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        fgoto oscCwdAuthority;
+    }
+
+    action oscCwdPathEscapedEscape {
+        if (!argBufOverflowed) {
+            const u8 escape = '\x1b';
+            oscDecoded.append(&escape, 1);
+        }
+    }
+
+    action oscCwdPathEscaped {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        if (!argBufOverflowed) {
+            const u8 bytes[] = {'\x1b', (u8)(fc)};
+            oscDecoded.append(bytes, sizeof(bytes));
+        }
+        fgoto oscCwdPath;
     }
 
     action oscShellA {
@@ -3687,6 +3776,136 @@
         '\\' @oscCommandSt @oscDispatch @oscDone |
         0x1b @oscEscapedEscape @{ fgoto oscInvalidEscape; } |
         (any - (0x18 | 0x1a | 0x1b | '\\')) @oscInvalidEscapedData
+    )*;
+
+    oscCwdEntry := (
+        cancel |
+        stringC1 |
+        0x9c @oscCwdSt @oscCwdDispatch @oscDone |
+        0x07 @oscCwdBell @oscCwdDispatch @oscDone |
+        0x1b @{ fgoto oscCwdInvalidEscape; } |
+        0x7f |
+        sequenceC0 |
+        '/' @oscCwdPathStart |
+        'f' @oscCwdRaw @{ fgoto oscCwdFile; } |
+        (0x20..0x7e - ('/' | 'f')) @oscCwdInvalidData |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff)
+            @oscCwdInvalidData
+    )*;
+
+    oscCwdPrefixGap = (
+        cancel |
+        stringC1 |
+        0x9c @oscCwdSt @oscCwdDispatch @oscDone |
+        0x07 @oscCwdBell @oscCwdDispatch @oscDone |
+        0x1b @{ fgoto oscCwdInvalidEscape; } |
+        0x7f |
+        sequenceC0
+    )*;
+
+    oscCwdFile := (
+        oscCwdPrefixGap
+        'i' @oscCwdRaw
+        oscCwdPrefixGap
+        'l' @oscCwdRaw
+        oscCwdPrefixGap
+        'e' @oscCwdRaw
+        oscCwdPrefixGap
+        ':' @oscCwdRaw
+        oscCwdPrefixGap
+        '/' @oscCwdRaw
+        oscCwdPrefixGap
+        '/' @oscCwdRaw
+        @{ fgoto oscCwdAuthority; }
+    ) $err(oscCwdPrefixError);
+
+    oscCwdAuthority := (
+        cancel |
+        stringC1 |
+        0x9c @oscCwdSt @oscCwdDispatch @oscDone |
+        0x07 @oscCwdBell @oscCwdDispatch @oscDone |
+        0x1b @{ fgoto oscCwdAuthorityEscape; } |
+        0x7f |
+        sequenceC0 |
+        '/' @oscCwdPathStart |
+        (0x20..0x7e - '/') @oscCwdAuthorityData |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff)
+            @oscCwdAuthorityData
+    )*;
+
+    oscCwdPath := (
+        cancel |
+        stringC1 |
+        0x9c @oscCwdSt @oscCwdDispatch @oscDone |
+        0x07 @oscCwdBell @oscCwdDispatch @oscDone |
+        0x1b @{ fgoto oscCwdPathEscape; } |
+        0x7f |
+        sequenceC0 |
+        '%' @oscCwdPercentStart |
+        (0x20..0x7e - '%') @oscCwdPathData |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff)
+            @oscCwdPathData
+    )*;
+
+    oscCwdPercentHigh := (
+        cancel |
+        stringC1 |
+        0x9c @oscCwdSt @oscCwdDispatch @oscDone |
+        0x07 @oscCwdBell @oscCwdDispatch @oscDone |
+        0x1b @{ fgoto oscCwdInvalidEscape; } |
+        0x7f |
+        sequenceC0 |
+        xdigit @oscCwdPercentHigh |
+        (0x20..0x7e - xdigit) @oscCwdInvalidData |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff)
+            @oscCwdInvalidData
+    )*;
+
+    oscCwdPercentLow := (
+        cancel |
+        stringC1 |
+        0x9c @oscCwdSt @oscCwdDispatch @oscDone |
+        0x07 @oscCwdBell @oscCwdDispatch @oscDone |
+        0x1b @{ fgoto oscCwdInvalidEscape; } |
+        0x7f |
+        sequenceC0 |
+        xdigit @oscCwdPercentLow |
+        (0x20..0x7e - xdigit) @oscCwdInvalidData |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff)
+            @oscCwdInvalidData
+    )*;
+
+    oscCwdInvalid := (
+        cancel |
+        stringC1 |
+        0x9c @oscCwdSt @oscCwdDispatch @oscDone |
+        0x07 @oscCwdBell @oscCwdDispatch @oscDone |
+        0x1b @{ fgoto oscCwdInvalidEscape; } |
+        0x7f |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
+    oscCwdInvalidEscape := (
+        cancel |
+        '\\' @oscCwdSt @oscCwdDispatch @oscDone |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscCwdInvalidEscaped
+    )*;
+
+    oscCwdAuthorityEscape := (
+        cancel |
+        '\\' @oscCwdSt @oscCwdDispatch @oscDone |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\'))
+            @oscCwdAuthorityEscaped
+    )*;
+
+    oscCwdPathEscape := (
+        cancel |
+        '\\' @oscCwdSt @oscCwdDispatch @oscDone |
+        0x1b @oscEscapedEscape @oscCwdPathEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscCwdPathEscaped
     )*;
 
     oscTitle0 := (
