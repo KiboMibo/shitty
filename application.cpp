@@ -21,11 +21,10 @@
 #include "input_bindings.h"
 #include "listener.h"
 #include "options.h"
-#include "poller.h"
 #include "pty.h"
-#include "vk_renderer.h"
 #include "startup.h"
 #include "test_mode.h"
+#include "vk_renderer.h"
 #include "vterm.h"
 #include "vterm_host.h"
 #include "window.h"
@@ -87,26 +86,10 @@ namespace {
         ApplicationImpl* application;
     };
 
-    struct CallApplicationFDReady final: public Listener {
-        explicit CallApplicationFDReady(ApplicationImpl* application);
-
-        void onListen(void* argument) override;
-
-        ApplicationImpl* application;
-    };
-
     struct CallApplicationWindowEvents final: public Listener {
         explicit CallApplicationWindowEvents(ApplicationImpl* application);
 
         void onListen(void* argument) override;
-
-        ApplicationImpl* application;
-    };
-
-    struct CallApplicationTimeout final: public Listener {
-        explicit CallApplicationTimeout(ApplicationImpl* application);
-
-        void onListen(void*) override;
 
         ApplicationImpl* application;
     };
@@ -132,26 +115,16 @@ namespace {
         Composer& composer;
         ObjPool* fontpackPool = nullptr;
         FILE* printerPipe = nullptr;
-        bool refreshAllowed = true;
-        bool refreshPending = false;
-        bool committedRepaintPending = false;
-        bool frameReady = true;
         bool titleSet = false;
         u16 initialFontSize = 0;
         u16 logicalBorder = 0;
-        u64 refreshDeadline = 0;
 
         int takeTestFd(int& argc, char* argv[]);
         static void childSignalHandler(int signal, siginfo_t* info, void*);
         void setupSignals();
         int startShell(const char* execPath, const char* const argv[]);
-        bool presentTerminal();
-        bool repaint();
-        void fdReady(const FDReady& event);
+        bool presentFrame();
         void windowEvents(const WindowEvents& events);
-        void timeout();
-        void drivePresentation(bool resized);
-        void armTimeout();
         bool eventLoop();
         void checkLocale();
         void fontInc();
@@ -200,15 +173,6 @@ void CallContentScaleChanged::onListen(void*) {
     application->contentScaleChanged();
 }
 
-CallApplicationFDReady::CallApplicationFDReady(ApplicationImpl* application_)
-    : application(application_)
-{
-}
-
-void CallApplicationFDReady::onListen(void* argument) {
-    application->fdReady(*(const FDReady*)(argument));
-}
-
 CallApplicationWindowEvents::CallApplicationWindowEvents(ApplicationImpl* application_)
     : application(application_)
 {
@@ -218,15 +182,6 @@ void CallApplicationWindowEvents::onListen(void* argument) {
     application->windowEvents(*(const WindowEvents*)(argument));
 }
 
-CallApplicationTimeout::CallApplicationTimeout(ApplicationImpl* application_)
-    : application(application_)
-{
-}
-
-void CallApplicationTimeout::onListen(void*) {
-    application->timeout();
-}
-
 ApplicationImpl::ApplicationImpl(Composer& composer_)
     : composer(composer_)
 {
@@ -234,9 +189,7 @@ ApplicationImpl::ApplicationImpl(Composer& composer_)
     composer.fontDecListeners.pushBack(composer.pool->make<CallFontDec>(this));
     composer.fontResetListeners.pushBack(composer.pool->make<CallFontReset>(this));
     composer.contentScaleChangedListeners.pushBack(composer.pool->make<CallContentScaleChanged>(this));
-    composer.onFDReady.pushBack(composer.pool->make<CallApplicationFDReady>(this));
     composer.windowEventListeners.pushBack(composer.pool->make<CallApplicationWindowEvents>(this));
-    composer.onTimeout.pushBack(composer.pool->make<CallApplicationTimeout>(this));
 
     composer.inputBindings->add({InputKey::Printable, InputControl | InputShift, '=', '+'}, &composer.fontIncListeners);
     composer.inputBindings->add({InputKey::Printable, InputControl, '-', '-'}, &composer.fontDecListeners);
@@ -402,117 +355,33 @@ int ApplicationImpl::startShell(const char* execPath, const char* const argv[]) 
     return ptyFd;
 }
 
-bool ApplicationImpl::presentTerminal() {
+bool ApplicationImpl::presentFrame() {
     Vterm* const vterm = composer.vterm;
     Renderer* const renderer = composer.renderer;
     Window* const window = composer.window;
-    while (true) {
-        const VtermOutput output = vterm->output();
-        if (output.terminal == nullptr) {
-            refreshPending = false;
-            return true;
-        }
-        refreshPending = true;
-        if (!refreshAllowed || !frameReady) {
-            return false;
-        }
-        const bool paced = window->requestFrame();
-        if (!renderer->update(*output.terminal)) {
-            if (paced) {
-                window->cancelFrame();
-            }
-            return false;
-        }
-        frameReady = !paced;
-        vterm->consume(VtermConsume{0, true});
-    }
-}
-
-bool ApplicationImpl::repaint() {
-    if (!frameReady) {
-        return false;
-    }
-    Window* const window = composer.window;
+    const TerminalUpdate* const update = vterm->output();
     const bool paced = window->requestFrame();
-    if (!composer.renderer->repaint()) {
+    const bool presented = update == nullptr ? renderer->repaint() : renderer->update(*update);
+    if (!presented) {
         if (paced) {
             window->cancelFrame();
         }
         return false;
     }
-    frameReady = !paced;
+    if (update != nullptr) {
+        vterm->consume();
+    }
     return true;
 }
 
-void ApplicationImpl::fdReady(const FDReady& event) {
-    Vterm* const vterm = composer.vterm;
-    if (vterm == nullptr) {
-        return;
-    }
-    if (event.fd == composer.pty->fd() && (event.what & (PollRead | PollError | PollHangup))) {
-        refreshDeadline = 0;
-    }
-    drivePresentation(false);
-}
-
 void ApplicationImpl::windowEvents(const WindowEvents& events) {
+    if (events.resized || events.redraw) {
+        if (!composer.vterm->state().synchronizedOutput) {
+            composer.vterm->expose();
+        }
+    }
     if (events.frameReady) {
-        frameReady = true;
-    }
-    if (events.resized) {
-        const VtermState resizedState = composer.vterm->state();
-        committedRepaintPending = resizedState.synchronizedOutput;
-        if (!committedRepaintPending) {
-            composer.vterm->expose();
-        }
-        refreshDeadline = monotonicNowUs() + 10'000;
-    } else if (events.redraw) {
-        if (composer.vterm->state().synchronizedOutput) {
-            committedRepaintPending = true;
-        } else {
-            composer.vterm->expose();
-        }
-    }
-    drivePresentation(events.resized);
-}
-
-void ApplicationImpl::timeout() {
-    drivePresentation(false);
-}
-
-void ApplicationImpl::drivePresentation(bool resized) {
-    constexpr u64 retryDelay = 10'000;
-    Vterm* const vterm = composer.vterm;
-    refreshAllowed = false;
-    presentTerminal();
-
-    const u64 now = monotonicNowUs();
-    if (!vterm->state().synchronizedOutput) {
-        committedRepaintPending = false;
-    }
-    const bool deadlineReached = refreshDeadline == 0 || now >= refreshDeadline;
-    if (frameReady && committedRepaintPending && deadlineReached) {
-        if (repaint()) {
-            committedRepaintPending = false;
-            refreshDeadline = 0;
-        } else {
-            refreshDeadline = now + retryDelay;
-        }
-    }
-    if (frameReady && refreshPending && deadlineReached) {
-        refreshAllowed = true;
-        presentTerminal();
-        refreshAllowed = false;
-        refreshDeadline = refreshPending ? now + retryDelay : 0;
-    } else if (resized && !refreshPending) {
-        refreshDeadline = 0;
-    }
-    armTimeout();
-}
-
-void ApplicationImpl::armTimeout() {
-    if (refreshDeadline != 0) {
-        composer.poller->deadline(refreshDeadline);
+        presentFrame();
     }
 }
 
@@ -700,9 +569,6 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     }
     composer.vterm = Vterm::create(composer, *this, nullptr);
     composer.window->activate();
-    presentTerminal();
-    refreshAllowed = false;
-    armTimeout();
 
     eventLoop();
     if (printerPipe != nullptr) {
