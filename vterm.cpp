@@ -64,6 +64,10 @@
 #include <sstream>
 #include <sys/types.h>
 
+#if defined(__SSE2__)
+    #include <emmintrin.h>
+#endif
+
 using namespace stl;
 
 void MouseTrackingState::setMode(MouseTrackingMode value) {
@@ -8982,20 +8986,23 @@ namespace {
 
     [[gnu::always_inline]] size_t printableAsciiPrefix(const u8* input, size_t size) {
         using Bytes = u8 __attribute__((vector_size(16)));
+#if !defined(__SSE2__)
         using Bits = unsigned __int128;
+#endif
         constexpr Bytes spaces = {0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20};
         constexpr Bytes deletes = {0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f};
         size_t offset = 0;
-        while (offset < size && offset < 4 && input[offset] >= 0x20 && input[offset] < 0x7f) {
-            ++offset;
-        }
-        if (offset != 4 || offset == size) {
-            return offset;
-        }
         while (size - offset >= sizeof(Bytes)) {
             Bytes word;
             memcpy(&word, input + offset, sizeof(word));
-            const Bits invalid = __builtin_bit_cast(Bits, (word < spaces) | (word >= deletes));
+            const Bytes invalidBytes = (word < spaces) | (word >= deletes);
+#if defined(__SSE2__)
+            const u32 invalid = _mm_movemask_epi8(__builtin_bit_cast(__m128i, invalidBytes));
+            if (invalid != 0) {
+                return offset + __builtin_ctz(invalid);
+            }
+#else
+            const Bits invalid = __builtin_bit_cast(Bits, invalidBytes);
             const u64 low = invalid;
             if (low != 0) {
                 return offset + __builtin_ctzll(low) / 8;
@@ -9004,6 +9011,7 @@ namespace {
             if (high != 0) {
                 return offset + 8 + __builtin_ctzll(high) / 8;
             }
+#endif
             offset += sizeof(word);
         }
         while (offset < size && input[offset] >= 0x20 && input[offset] < 0x7f) {
