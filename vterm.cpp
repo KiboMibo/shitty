@@ -3160,6 +3160,9 @@ void VtermImpl::placePreparedRun(const u32* input, const u8* widths, size_t size
         }
         const u16 startX = posX;
         const u16 endX = startX + cellCount;
+        if (insertMode) {
+            cf->insertCells(posY, startX, lineCols, cellCount, eraseAttrs);
+        }
         if constexpr (hasWide) {
             cf->writeGlyphRun(posY, startX, input, widths, count, cellCount, attrs, activeHyperlink, currentSemantic, eraseAttrs);
         } else {
@@ -7239,7 +7242,7 @@ void VtermImpl::parserGroundAscii(u8 byte) {
 }
 
 bool VtermImpl::parserUtf8BulkEligible() const {
-    return !insertMode && !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8 && charsetState.g[charsetState.gr] == Charset::UTF8;
+    return !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8 && charsetState.g[charsetState.gr] == Charset::UTF8;
 }
 
 size_t VtermImpl::parserPlaceAscii(StringView bytes) {

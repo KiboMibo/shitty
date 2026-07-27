@@ -284,6 +284,11 @@ class EditingTest(unittest.TestCase):
             terminal.write(b"abcd\x1b[1;2H\x1b[4hX\x1b[4lY")
             self.assertEqual(terminal.snapshot().lines[0], "aXYcd ")
 
+    def test_insert_mode_batches_utf8_with_cell_widths(self):
+        with Shitty(columns=12, rows=2) as terminal:
+            terminal.write(b"abcdef\x1b[1;2H\x1b[4h" + "é界Z".encode())
+            self.assertEqual(terminal.snapshot().lines[0], "aé界 Zbcdef  ")
+
     def test_scroll_up_and_down(self):
         with Shitty(columns=5, rows=4) as terminal:
             terminal.write(b"one\r\ntwo\r\nthree\r\nfour\x1b[2S")
