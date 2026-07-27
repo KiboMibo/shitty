@@ -405,8 +405,6 @@ void GlfwWindowImpl::activate() {
     callbacksActive = true;
     refreshContentScale();
     composer.input->focus(glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_TRUE);
-    frameReadyPending = true;
-    glfwPostEmptyEvent();
 }
 
 int GlfwWindowImpl::pollCallback(struct pollfd* fds, size_t count, double* timeout, void* user) {

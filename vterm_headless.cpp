@@ -122,12 +122,12 @@ void VtermHeadlessImpl::feed(const u8* data, size_t len) {
     }
     Vterm* const vterm = composer.vterm;
     vterm->feedPty(StringView(data, len));
-    const StringView ptyOutput = vterm->ptyOutput();
-    if (!ptyOutput.empty()) {
-        vterm->consumePtyOutput(ptyOutput.length());
-    }
-    if (vterm->output() != nullptr) {
-        vterm->consume();
+    while (true) {
+        const VtermOutput output = vterm->output();
+        if (output.pty.empty() && output.terminal == nullptr) {
+            return;
+        }
+        vterm->consume({output.pty.length(), output.terminal != nullptr});
     }
 }
 

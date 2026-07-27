@@ -901,14 +901,14 @@ TestTerminal::TestTerminal(Vterm& terminal, TestApi& testApi, TestPty& pty, Test
 
 bool TestTerminal::present() {
     while (true) {
-        const TerminalUpdate* const output = terminal.output();
-        if (output == nullptr) {
+        const VtermOutput output = terminal.output();
+        if (output.terminal == nullptr) {
             return true;
         }
-        if (!display.update(*output)) {
+        if (!display.update(*output.terminal)) {
             return false;
         }
-        terminal.consume();
+        terminal.consume(VtermConsume{0, true});
         refreshState();
     }
 }
@@ -973,13 +973,13 @@ int TestTerminal::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 
 
 bool TestTerminal::flushPtyOutput() {
     while (true) {
-        const StringView output = terminal.ptyOutput();
-        if (output.empty()) {
+        const VtermOutput output = terminal.output();
+        if (output.pty.empty()) {
             return true;
         }
-        const ssize_t count = pty.write(output.data(), output.length());
+        const ssize_t count = pty.write(output.pty.data(), output.pty.length());
         if (count > 0) {
-            terminal.consumePtyOutput((size_t)(count));
+            terminal.consume(VtermConsume{(size_t)(count), false});
             continue;
         }
         if (count < 0 && errno == EINTR) {
@@ -990,7 +990,7 @@ bool TestTerminal::flushPtyOutput() {
 }
 
 size_t TestTerminal::pendingPtyOutputBytes() {
-    return terminal.ptyOutput().length();
+    return terminal.output().pty.length();
 }
 
 u64 TestTerminal::droppedPtyResponses() {

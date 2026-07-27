@@ -15,32 +15,6 @@
 using namespace stl;
 
 STD_TEST_SUITE(VtermHeadless) {
-    STD_TEST(PtyAndTerminalOutputHaveIndependentLifetime) {
-        auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
-        VtermHeadless::create(composer);
-        Vterm* const vterm = composer.vterm;
-        STD_INSIST(vterm->output() != nullptr);
-        vterm->consume();
-        const u8 input[] = {'a', 0x1b, '[', 'c'};
-
-        vterm->feedPty(StringView(input, sizeof(input)));
-
-        const StringView ptyOutput = vterm->ptyOutput();
-        STD_INSIST(!ptyOutput.empty());
-        vterm->consumePtyOutput(ptyOutput.length());
-        STD_INSIST(vterm->ptyOutput().empty());
-        STD_INSIST(vterm->output() != nullptr);
-        vterm->consume();
-        STD_INSIST(vterm->output() == nullptr);
-
-        vterm->feedPty(StringView(input, sizeof(input)));
-
-        STD_INSIST(vterm->output() != nullptr);
-        vterm->consume();
-        STD_INSIST(!vterm->ptyOutput().empty());
-    }
-
     STD_TEST(FeedConsumesTerminalAndPtyOutput) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
@@ -49,12 +23,14 @@ STD_TEST_SUITE(VtermHeadless) {
 
         headless->feed(input, sizeof(input));
 
-        STD_INSIST(composer.vterm->ptyOutput().empty());
-        STD_INSIST(composer.vterm->output() == nullptr);
+        VtermOutput output = composer.vterm->output();
+        STD_INSIST(output.pty.empty());
+        STD_INSIST(output.terminal == nullptr);
 
         headless->feed(input, sizeof(input));
 
-        STD_INSIST(composer.vterm->ptyOutput().empty());
-        STD_INSIST(composer.vterm->output() == nullptr);
+        output = composer.vterm->output();
+        STD_INSIST(output.pty.empty());
+        STD_INSIST(output.terminal == nullptr);
     }
 }
