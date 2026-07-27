@@ -674,7 +674,7 @@ namespace {
         struct DcsUdkDefinition {
             size_t valueOffset;
             size_t valueLength;
-            u32 code;
+            VtKey key;
         };
 
         u8 dcsIntermediates[4] = {};
@@ -690,6 +690,7 @@ namespace {
         Buffer dcsDecoded;
         size_t dcsUdkValueOffset = 0;
         u32 dcsUdkCode = 0;
+        VtKey dcsUdkKey = VtKey::NONE;
         u8 dcsUdkHighNibble = 0;
         bool dcsUdkHasCode = false;
         bool dcsUdkHasHighNibble = false;
@@ -5337,47 +5338,8 @@ void VtermImpl<traced>::dcs_DECUDK() {
     }
 
     for (const DcsUdkDefinition& definition : dcsUdkDefinitions) {
-        const VtKey key = [&] {
-            switch (definition.code) {
-                case 17:
-                    return VtKey::F6;
-                case 18:
-                    return VtKey::F7;
-                case 19:
-                    return VtKey::F8;
-                case 20:
-                    return VtKey::F9;
-                case 21:
-                    return VtKey::F10;
-                case 23:
-                    return VtKey::F11;
-                case 24:
-                    return VtKey::F12;
-                case 25:
-                    return VtKey::F13;
-                case 26:
-                    return VtKey::F14;
-                case 28:
-                    return VtKey::F15;
-                case 29:
-                    return VtKey::F16;
-                case 31:
-                    return VtKey::F17;
-                case 32:
-                    return VtKey::F18;
-                case 33:
-                    return VtKey::F19;
-                case 34:
-                    return VtKey::F20;
-                default:
-                    return VtKey::NONE;
-            }
-        }();
-        if (key == VtKey::NONE) {
-            continue;
-        }
         const auto* value = (const char*)(dcsDecoded.data()) + definition.valueOffset;
-        userDefinedKeys[key] = std::string(value, definition.valueLength);
+        userDefinedKeys[definition.key] = std::string(value, definition.valueLength);
     }
     userDefinedKeysLocked = lock == 0;
 }
@@ -8511,6 +8473,7 @@ void VtermImpl<traced>::ragelBeginDcs() {
     dcsDecoded.reset();
     dcsUdkValueOffset = 0;
     dcsUdkCode = 0;
+    dcsUdkKey = VtKey::NONE;
     dcsUdkHasCode = false;
     dcsUdkHasHighNibble = false;
     dcsUdkValid = false;

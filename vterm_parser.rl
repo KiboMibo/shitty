@@ -1096,6 +1096,7 @@
         } else if (dcsIntermediateCount == 0 && fc == '|') {
             dcsUdkValueOffset = dcsDecoded.used();
             dcsUdkCode = 0;
+            dcsUdkKey = VtKey::NONE;
             dcsUdkHasCode = false;
             dcsUdkHasHighNibble = false;
             dcsUdkValid = true;
@@ -1412,6 +1413,26 @@
         ragelAppendString(fc, maxDcsBytes);
         dcsUdkInValue = true;
         dcsUdkValid = dcsUdkValid && dcsUdkHasCode;
+        if (dcsUdkCode >= 17 && dcsUdkCode <= 21) {
+            dcsUdkKey = (VtKey)(
+                (int)(VtKey::F6) + dcsUdkCode - 17
+            );
+        } else if (dcsUdkCode >= 23 && dcsUdkCode <= 26) {
+            dcsUdkKey = (VtKey)(
+                (int)(VtKey::F11) + dcsUdkCode - 23
+            );
+        } else if (dcsUdkCode >= 28 && dcsUdkCode <= 29) {
+            dcsUdkKey = (VtKey)(
+                (int)(VtKey::F15) + dcsUdkCode - 28
+            );
+        } else if (dcsUdkCode >= 31 && dcsUdkCode <= 34) {
+            dcsUdkKey = (VtKey)(
+                (int)(VtKey::F17) + dcsUdkCode - 31
+            );
+        } else {
+            dcsUdkKey = VtKey::NONE;
+            dcsUdkValid = false;
+        }
         dcsUdkValueOffset = dcsDecoded.used();
         dcsUdkHasHighNibble = false;
         fgoto dcsUdkValue;
@@ -1438,6 +1459,7 @@
     action dcsUdkCodeSeparator {
         ragelAppendString(fc, maxDcsBytes);
         dcsUdkCode = 0;
+        dcsUdkKey = VtKey::NONE;
         dcsUdkHasCode = false;
         dcsUdkHasHighNibble = false;
         dcsUdkValid = true;
@@ -1449,11 +1471,12 @@
             dcsUdkDefinitions.pushBack({
                 dcsUdkValueOffset,
                 dcsDecoded.used() - dcsUdkValueOffset,
-                dcsUdkCode,
+                dcsUdkKey,
             });
         }
         ragelAppendString(fc, maxDcsBytes);
         dcsUdkCode = 0;
+        dcsUdkKey = VtKey::NONE;
         dcsUdkHasCode = false;
         dcsUdkHasHighNibble = false;
         dcsUdkValid = true;
@@ -1464,6 +1487,7 @@
     action dcsUdkInvalidSeparator {
         ragelAppendString(fc, maxDcsBytes);
         dcsUdkCode = 0;
+        dcsUdkKey = VtKey::NONE;
         dcsUdkHasCode = false;
         dcsUdkHasHighNibble = false;
         dcsUdkValid = true;
@@ -1489,7 +1513,7 @@
                 dcsUdkDefinitions.pushBack({
                     dcsUdkValueOffset,
                     dcsDecoded.used() - dcsUdkValueOffset,
-                    dcsUdkCode,
+                    dcsUdkKey,
                 });
             }
             ragelFinishDcs();
