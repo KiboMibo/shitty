@@ -222,7 +222,7 @@
             parserTrace->control(fc);
         }
         resetGraphemeInput();
-        csi_CUB();
+        moveCursorBackward(1);
         fbreak;
     }
 

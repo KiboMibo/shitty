@@ -38,6 +38,13 @@ def observable(terminal):
 
 
 class ParserStreamingTest(unittest.TestCase):
+    def test_backspace_does_not_reuse_the_previous_csi_parameter(self):
+        with Shitty(columns=20, rows=2) as terminal:
+            terminal.write(b"\x1b[10CX\bY")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(1, 0).char, " ")
+            self.assertEqual(snapshot.cell(10, 0).char, "Y")
+
     def test_control_exposes_normalized_parser_events(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.parser_trace_on()
