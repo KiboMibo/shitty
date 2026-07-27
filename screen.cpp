@@ -80,6 +80,40 @@ struct ResizeState {
 };
 
 namespace {
+    struct ExactDamageCache {
+        static constexpr size_t capacity = 512;
+
+        static size_t index(u64 key) {
+            key ^= key >> 30;
+            key *= 0xbf58476d1ce4e5b9ULL;
+            key ^= key >> 27;
+            key *= 0x94d049bb133111ebULL;
+            key ^= key >> 31;
+            return key & (capacity - 1);
+        }
+
+        bool find(size_t slot, u64 key) const {
+            return epochs[slot] == epoch && keys[slot] == key;
+        }
+
+        void insert(size_t slot, u64 key) {
+            keys[slot] = key;
+            epochs[slot] = epoch;
+        }
+
+        void reset() {
+            ++epoch;
+            if (epoch == 0) {
+                memset(epochs, 0, sizeof(epochs));
+                epoch = 1;
+            }
+        }
+
+        u64 keys[capacity];
+        u16 epochs[capacity]{};
+        u16 epoch = 1;
+    };
+
     TerminalCell* rowData(RowSlot slot) {
         return slot == nullptr ? nullptr : slot->cells;
     }
@@ -272,6 +306,7 @@ namespace {
             u16 width = 0;
             u16 height = 0;
             u16 fullRows = 0;
+            ExactDamageCache exactCache;
 
             Damage& operator=(Damage&& other) noexcept;
             void configure(void* storage, u16 columns, u16 rows);
@@ -3229,6 +3264,7 @@ auto ScreenImpl<Coord, Epoch>::Damage::operator=(Damage&& other) noexcept -> Dam
     other.width = 0;
     other.height = 0;
     other.fullRows = 0;
+    exactCache.reset();
     return *this;
 }
 
@@ -3249,6 +3285,7 @@ void ScreenImpl<Coord, Epoch>::Damage::configure(void* storage, u16 columns, u16
         rows[row].end = 0;
     }
     epoch = 1;
+    exactCache.reset();
 }
 
 template <typename Coord, typename Epoch>
@@ -3266,6 +3303,7 @@ void ScreenImpl<Coord, Epoch>::Damage::reset() {
         }
         epoch = 1;
     }
+    exactCache.reset();
 }
 
 template <typename Coord, typename Epoch>
@@ -3325,6 +3363,12 @@ void ScreenImpl<Coord, Epoch>::Damage::addRow(u16 row, u16 begin, u16 end) {
     if (damaged.count != 0 && damaged.count == damaged.end - damaged.begin && begin >= damaged.begin && end <= damaged.end) {
         return;
     }
+    const u64 key = begin | ((u64)(row) << 16) | ((u64)(end) << 32) | ((u64)(row + 1) << 48);
+    const size_t slot = ExactDamageCache::index(key);
+    if (exactCache.find(slot, key)) {
+        return;
+    }
+    exactCache.insert(slot, key);
     if (begin == 0 && end == width) {
         damaged.count = (Coord)(width);
         damaged.begin = 0;
@@ -3368,7 +3412,13 @@ void ScreenImpl<Coord, Epoch>::Damage::addRect(u16 top, u16 left, u16 bottom, u1
         expose();
         return;
     }
+    const u64 key = left | ((u64)(top) << 16) | ((u64)(right) << 32) | ((u64)(bottom) << 48);
+    const size_t slot = ExactDamageCache::index(key);
+    if (exactCache.find(slot, key)) {
+        return;
+    }
     for (u16 row = top; row < bottom; ++row) {
         addRow(row, left, right);
     }
+    exactCache.insert(slot, key);
 }
