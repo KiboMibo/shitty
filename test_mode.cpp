@@ -640,36 +640,6 @@ bool TestDisplay::update(const TerminalUpdate& update) {
 
 void TestDisplay::osc(int command, const std::string& argument) {
     actions += "OSC " + std::to_string(command) + " " + encodeHex(argument) + "\n";
-    if (command == 52) {
-        const Osc52Request request = parseOsc52(argument, opts.osc52SelectClipboard);
-        if (!request.valid) {
-            return;
-        }
-        if (request.query) {
-            std::string primary;
-            std::string system;
-            if (opts.allowOsc52Read) {
-                if (request.primary) {
-                    const StringView value = composer.clipboard->readPrimary();
-                    primary.assign((const char*)(value.data()), value.length());
-                }
-                if (primary.empty() && request.clipboard) {
-                    const StringView value = composer.clipboard->readClipboard();
-                    system.assign((const char*)(value.data()), value.length());
-                }
-            }
-            const std::string reply = encodeOsc52QueryReply(request, opts.allowOsc52Read, primary, system);
-            composer.vterm->sendBytes(StringView((const u8*)(reply.data()), reply.size()), false);
-        } else {
-            const StringView content((const u8*)(request.content.data()), request.content.size());
-            if (request.primary) {
-                composer.clipboard->writePrimary(content);
-            }
-            if (request.clipboard) {
-                composer.clipboard->writeClipboard(content);
-            }
-        }
-    }
 }
 
 bool TestDisplay::handlesOsc() const {

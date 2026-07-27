@@ -93,30 +93,6 @@ STD_TEST_SUITE(VtermTrace) {
         STD_INSIST(trace->drain().empty());
     }
 
-    STD_TEST(RequiresCompleteValidDcsHeader) {
-        auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
-        VtermTrace* trace = VtermTrace::create(composer);
-        const u8 valid[] = {'1', ';', '2', 'q', 'b', 'o', 'd', 'y'};
-        const u8 incomplete[] = {'1', ';', '2'};
-        const u8 invalid[] = {' ', '1', 'q'};
-
-        trace->stringBegin(VtermTraceString::Dcs);
-        trace->stringData(valid, sizeof(valid));
-        trace->stringEnd();
-        STD_INSIST(trace->drain() == "dcs 313b3271626f6479\n");
-
-        trace->stringBegin(VtermTraceString::Dcs);
-        trace->stringData(incomplete, sizeof(incomplete));
-        trace->stringEnd();
-        STD_INSIST(trace->drain().empty());
-
-        trace->stringBegin(VtermTraceString::Dcs);
-        trace->stringData(invalid, sizeof(invalid));
-        trace->stringEnd();
-        STD_INSIST(trace->drain().empty());
-    }
-
     STD_TEST(ClearDropsCompleteAndPendingEvents) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());

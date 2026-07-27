@@ -68,8 +68,8 @@
     }
 
     action beginOsc {
-        ragelBeginString(VtermTraceString::Osc, true);
-        fgoto osc;
+        ragelBeginOsc();
+        fgoto oscCommand;
     }
 
     action beginSos {
@@ -435,8 +435,8 @@
             fbreak;
         }
         resetGraphemeInput();
-        ragelBeginString(VtermTraceString::Osc, true);
-        fgoto osc;
+        ragelBeginOsc();
+        fgoto oscCommand;
     }
 
     action groundC1Pm {
@@ -1523,6 +1523,107 @@
         fgoto dcsUdkInvalid;
     }
 
+    action oscCommandDigit {
+        ragelAppendString(fc, maxOscBytes);
+        oscCommandValid = true;
+        if (oscCommand > (2147483647u - (u32)(fc - '0')) / 10) {
+            oscCommandValid = false;
+        } else {
+            oscCommand = oscCommand * 10 + fc - '0';
+        }
+    }
+
+    action oscCommandSeparator {
+        ragelAppendString(fc, maxOscBytes);
+        if (!oscCommandValid) {
+            fgoto oscInvalid;
+        }
+        oscPayloadOffset = argBuf.used();
+        if (oscCommand == 0 || oscCommand == 1 || oscCommand == 2) {
+            oscTitleHex = titleModes & 1;
+            oscTitleHasHighNibble = false;
+            oscTitleValid = true;
+            oscTitleStopped = false;
+            oscDecoded.reset();
+            if (oscCommand == 0) {
+                fgoto oscTitle0;
+            }
+            if (oscCommand == 1) {
+                fgoto oscTitle1;
+            }
+            fgoto oscTitle2;
+        } else if (oscCommand == 4 || oscCommand == 5 || oscCommand == 6 ||
+                   (oscCommand >= 10 && oscCommand <= 19) ||
+                   oscCommand == 104 || oscCommand == 105 ||
+                   oscCommand == 106) {
+            oscFields.clear();
+            oscFieldOffset = argBuf.used();
+            oscFieldNumber = 0;
+            oscFieldNumeric = true;
+            fgoto oscFieldList;
+        } else if (oscCommand == 8) {
+            oscHyperlinkIdOffset = 0;
+            oscHyperlinkIdLength = 0;
+            oscHyperlinkUriOffset = 0;
+            oscHyperlinkHasId = false;
+            fgoto oscHyperlinkParamStart;
+        } else if (oscCommand == 9) {
+            oscProgressState = 0;
+            oscProgressPercent = 0;
+            oscProgressStatePresent = false;
+            oscProgressPercentPresent = false;
+            oscProgressValid = true;
+            fgoto oscProgressEntry;
+        } else if (oscCommand == 52) {
+            osc52PayloadOffset = 0;
+            osc52ReplySelector = 0;
+            osc52Primary = false;
+            osc52Clipboard = false;
+            osc52SelectorSeen = false;
+            fgoto osc52Selectors;
+        } else if (oscCommand == 99) {
+            oscNotificationFieldOffset = 0;
+            oscNotificationIdOffset = 0;
+            oscNotificationIdLength = 0;
+            oscNotificationPayloadOffset = 0;
+            oscNotificationKey = 0;
+            oscNotificationValid = true;
+            oscNotificationEncoded = false;
+            oscNotificationFinal = true;
+            oscNotificationQuery = false;
+            oscNotificationClose = false;
+            oscNotificationBody = false;
+            fgoto oscNotificationField;
+        } else if (oscCommand == 133) {
+            fgoto oscShellEntry;
+        }
+        fgoto oscPayload;
+    }
+
+    action oscCommandInvalid {
+        stringUtf8Continuation(fc);
+        ragelAppendString(fc, maxOscBytes);
+        fgoto oscInvalid;
+    }
+
+    action oscCommandSt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+            oscTerminated = false;
+            fgoto oscInvalid;
+        } else {
+            oscPayloadOffset = argBuf.used();
+            ragelFinishOsc();
+            oscTerminated = true;
+        }
+    }
+
+    action oscCommandBell {
+        oscPayloadOffset = argBuf.used();
+        ragelFinishOsc();
+        oscTerminated = true;
+    }
+
     action oscData {
         stringUtf8Continuation(fc);
         if (!executeC0InSequence(fc, true)) {
@@ -1533,17 +1634,62 @@
     action oscSt {
         if (stringUtf8Continuation(fc)) {
             ragelAppendString(fc, maxOscBytes);
+            oscTerminated = false;
         } else {
             ragelFinishOsc();
-            fnext main;
-            fbreak;
+            oscTerminated = true;
         }
     }
 
     action oscBell {
         ragelFinishOsc();
-        fnext main;
-        fbreak;
+        oscTerminated = true;
+    }
+
+    action oscDispatch {
+        if (oscTerminated && oscCommandValid && !argBufOverflowed) {
+            const StringView payload = ragelOscPayload();
+            if (oscCommand == 0) {
+                osc_TITLE_0(payload);
+            } else if (oscCommand == 1) {
+                osc_TITLE_1(payload);
+            } else if (oscCommand == 2) {
+                osc_TITLE_2(payload);
+            } else if (oscCommand == 7) {
+                osc_CWD(payload);
+            } else if (oscCommand == 8) {
+                (void)payload;
+            } else if (oscCommand == 9) {
+                osc_NOTIFY(payload);
+            } else if (oscCommand == 52) {
+                osc_CLIPBOARD_MALFORMED(payload);
+            } else if (oscCommand == 104) {
+                osc_RESET_PALETTE();
+            } else if (oscCommand == 105) {
+                osc_RESET_SPECIAL_COLOR();
+            } else if (oscCommand == 110) {
+                osc_RESET_DEFAULT_FOREGROUND();
+            } else if (oscCommand == 111) {
+                osc_RESET_DEFAULT_BACKGROUND();
+            } else if (oscCommand == 112) {
+                osc_RESET_CURSOR_COLOR();
+            } else if (oscCommand == 117) {
+                osc_RESET_SELECTION_BACKGROUND();
+            } else if (oscCommand == 119) {
+                osc_RESET_SELECTION_FOREGROUND();
+            } else if (oscCommand == 133) {
+                osc_SHELL_UNKNOWN(payload);
+            } else {
+                osc_UNKNOWN(oscCommand, payload);
+            }
+        }
+    }
+
+    action oscDone {
+        if (oscTerminated) {
+            fnext main;
+            fbreak;
+        }
     }
 
     action oscEscape {
@@ -1564,7 +1710,864 @@
 
     action oscEscapedData {
         ragelAppendEscapedString(fc, maxOscBytes);
-        fgoto osc;
+        fgoto oscPayload;
+    }
+
+    action oscInvalidSt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+        } else {
+            stringUtf8Remaining = 0;
+            ragelStringLimit = 0;
+            if constexpr (traced) {
+                parserTrace->stringEnd();
+            }
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action oscInvalidBell {
+        stringUtf8Remaining = 0;
+        ragelStringLimit = 0;
+        if constexpr (traced) {
+            parserTrace->stringEnd();
+        }
+        fnext main;
+        fbreak;
+    }
+
+    action oscInvalidEscapedData {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        fgoto oscInvalid;
+    }
+
+    action oscShellA {
+        ragelAppendString(fc, maxOscBytes);
+        fgoto oscShellAComplete;
+    }
+
+    action oscShellB {
+        ragelAppendString(fc, maxOscBytes);
+        fgoto oscShellBComplete;
+    }
+
+    action oscShellC {
+        ragelAppendString(fc, maxOscBytes);
+        fgoto oscShellCComplete;
+    }
+
+    action oscShellD {
+        ragelAppendString(fc, maxOscBytes);
+        fgoto oscShellDComplete;
+    }
+
+    action oscShellInvalid {
+        stringUtf8Continuation(fc);
+        if (!executeC0InSequence(fc, true)) {
+            ragelAppendString(fc, maxOscBytes);
+        }
+        fgoto oscShellUnknown;
+    }
+
+    action oscShellASt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+            fgoto oscShellUnknown;
+        } else {
+            ragelFinishOsc();
+            if (!argBufOverflowed) {
+                osc_SHELL_A(ragelOscPayload());
+            }
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action oscShellBSt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+            fgoto oscShellUnknown;
+        } else {
+            ragelFinishOsc();
+            if (!argBufOverflowed) {
+                osc_SHELL_B(ragelOscPayload());
+            }
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action oscShellCSt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+            fgoto oscShellUnknown;
+        } else {
+            ragelFinishOsc();
+            if (!argBufOverflowed) {
+                osc_SHELL_C(ragelOscPayload());
+            }
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action oscShellDSt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+            fgoto oscShellUnknown;
+        } else {
+            ragelFinishOsc();
+            if (!argBufOverflowed) {
+                osc_SHELL_D(ragelOscPayload());
+            }
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action oscShellUnknownSt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+        } else {
+            ragelFinishOsc();
+            if (!argBufOverflowed) {
+                osc_SHELL_UNKNOWN(ragelOscPayload());
+            }
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action oscShellEscapedUnknown {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        fgoto oscShellUnknown;
+    }
+
+    action oscShellEscapedA {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        fgoto oscShellATail;
+    }
+
+    action oscShellEscapedB {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        fgoto oscShellBTail;
+    }
+
+    action oscShellEscapedC {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        fgoto oscShellCTail;
+    }
+
+    action oscShellEscapedD {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        fgoto oscShellDTail;
+    }
+
+    action oscTitleData {
+        stringUtf8Continuation(fc);
+        if (!executeC0InSequence(fc, true)) {
+            ragelAppendString(fc, maxOscBytes);
+            if (oscTitleHex) {
+                u8 nibble = 0;
+                if (fc >= '0' && fc <= '9') {
+                    nibble = fc - '0';
+                } else if ((fc | 0x20) >= 'a' && (fc | 0x20) <= 'f') {
+                    nibble = (fc | 0x20) - 'a' + 10;
+                } else {
+                    oscTitleValid = false;
+                }
+                if (oscTitleValid) {
+                    if (!oscTitleHasHighNibble) {
+                        oscTitleHighNibble = nibble;
+                        oscTitleHasHighNibble = true;
+                    } else {
+                        const u8 decoded = (oscTitleHighNibble << 4) | nibble;
+                        if (decoded < 32) {
+                            oscTitleStopped = true;
+                        } else if (!oscTitleStopped) {
+                            oscDecoded.append(&decoded, 1);
+                        }
+                        oscTitleHasHighNibble = false;
+                    }
+                }
+            }
+        }
+    }
+
+    action oscTitleEscapedEscape {
+        if constexpr (traced) {
+            parserTrace->stringData((const u8*)("\x1b"), 1);
+        }
+        if (argBuf.used() < maxOscBytes) {
+            const u8 ch = '\x1b';
+            argBuf.append(&ch, 1);
+        } else {
+            argBufOverflowed = true;
+        }
+        if (oscTitleHex) {
+            oscTitleValid = false;
+        }
+    }
+
+    action oscTitleEscaped0 {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        if (oscTitleHex) {
+            oscTitleValid = false;
+        }
+        fgoto oscTitle0;
+    }
+
+    action oscTitleEscaped1 {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        if (oscTitleHex) {
+            oscTitleValid = false;
+        }
+        fgoto oscTitle1;
+    }
+
+    action oscTitleEscaped2 {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        if (oscTitleHex) {
+            oscTitleValid = false;
+        }
+        fgoto oscTitle2;
+    }
+
+    action oscTitle0St {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+            if (oscTitleHex) {
+                oscTitleValid = false;
+            }
+        } else {
+            ragelFinishOsc();
+            if (!argBufOverflowed && oscTitleValid && (!oscTitleHex || !oscTitleHasHighNibble)) {
+                osc_TITLE_0(oscTitleHex ? StringView(oscDecoded) : ragelOscPayload());
+            }
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action oscTitle1St {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+            if (oscTitleHex) {
+                oscTitleValid = false;
+            }
+        } else {
+            ragelFinishOsc();
+            if (!argBufOverflowed && oscTitleValid && (!oscTitleHex || !oscTitleHasHighNibble)) {
+                osc_TITLE_1(oscTitleHex ? StringView(oscDecoded) : ragelOscPayload());
+            }
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action oscTitle2St {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+            if (oscTitleHex) {
+                oscTitleValid = false;
+            }
+        } else {
+            ragelFinishOsc();
+            if (!argBufOverflowed && oscTitleValid && (!oscTitleHex || !oscTitleHasHighNibble)) {
+                osc_TITLE_2(oscTitleHex ? StringView(oscDecoded) : ragelOscPayload());
+            }
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action oscHyperlinkParamData {
+        stringUtf8Continuation(fc);
+        if (!executeC0InSequence(fc, true)) {
+            ragelAppendString(fc, maxOscBytes);
+        }
+        fgoto oscHyperlinkParamSkip;
+    }
+
+    action oscHyperlinkI {
+        ragelAppendString(fc, maxOscBytes);
+        fgoto oscHyperlinkParamI;
+    }
+
+    action oscHyperlinkD {
+        ragelAppendString(fc, maxOscBytes);
+        fgoto oscHyperlinkParamId;
+    }
+
+    action oscHyperlinkEqual {
+        ragelAppendString(fc, maxOscBytes);
+        if (!oscHyperlinkHasId) {
+            oscHyperlinkIdOffset = argBuf.used();
+        }
+        fgoto oscHyperlinkIdValue;
+    }
+
+    action oscHyperlinkColon {
+        ragelAppendString(fc, maxOscBytes);
+        fgoto oscHyperlinkParamStart;
+    }
+
+    action oscHyperlinkIdColon {
+        if (!oscHyperlinkHasId) {
+            oscHyperlinkIdLength = argBuf.used() - oscHyperlinkIdOffset;
+            oscHyperlinkHasId = true;
+        }
+        ragelAppendString(fc, maxOscBytes);
+        fgoto oscHyperlinkParamStart;
+    }
+
+    action oscHyperlinkUri {
+        ragelAppendString(fc, maxOscBytes);
+        oscHyperlinkUriOffset = argBuf.used();
+        fgoto oscHyperlinkUri;
+    }
+
+    action oscHyperlinkIdUri {
+        if (!oscHyperlinkHasId) {
+            oscHyperlinkIdLength = argBuf.used() - oscHyperlinkIdOffset;
+            oscHyperlinkHasId = true;
+        }
+        ragelAppendString(fc, maxOscBytes);
+        oscHyperlinkUriOffset = argBuf.used();
+        fgoto oscHyperlinkUri;
+    }
+
+    action oscHyperlinkMalformedSt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+            fgoto oscHyperlinkParamSkip;
+        } else {
+            ragelFinishOsc();
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action oscHyperlinkSt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+        } else {
+            ragelFinishOsc();
+            if (!argBufOverflowed) {
+                const auto* data = (const u8*)(argBuf.data());
+                osc_HYPERLINK(
+                    StringView(data + oscHyperlinkIdOffset, oscHyperlinkHasId ? oscHyperlinkIdLength : 0),
+                    oscHyperlinkHasId,
+                    StringView(data + oscHyperlinkUriOffset, argBuf.used() - oscHyperlinkUriOffset)
+                );
+            }
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action oscHyperlinkParamEscaped {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        fgoto oscHyperlinkParamSkip;
+    }
+
+    action oscHyperlinkIdEscaped {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        fgoto oscHyperlinkIdValue;
+    }
+
+    action oscHyperlinkUriEscaped {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        fgoto oscHyperlinkUri;
+    }
+
+    action oscProgressFour {
+        ragelAppendString(fc, maxOscBytes);
+        fgoto oscProgressFour;
+    }
+
+    action oscProgressBeginState {
+        ragelAppendString(fc, maxOscBytes);
+        fgoto oscProgressState;
+    }
+
+    action oscProgressNotifyData {
+        stringUtf8Continuation(fc);
+        if (!executeC0InSequence(fc, true)) {
+            ragelAppendString(fc, maxOscBytes);
+        }
+        fgoto oscProgressNotify;
+    }
+
+    action oscProgressStateDigit {
+        ragelAppendString(fc, maxOscBytes);
+        oscProgressStatePresent = true;
+        if (oscProgressState > (UINT32_MAX - (u32)(fc - '0')) / 10) {
+            oscProgressValid = false;
+        } else {
+            oscProgressState = oscProgressState * 10 + fc - '0';
+        }
+    }
+
+    action oscProgressBeginPercent {
+        ragelAppendString(fc, maxOscBytes);
+        oscProgressValid = oscProgressValid && oscProgressStatePresent;
+        fgoto oscProgressPercent;
+    }
+
+    action oscProgressPercentDigit {
+        ragelAppendString(fc, maxOscBytes);
+        oscProgressPercentPresent = true;
+        if (oscProgressPercent > (UINT32_MAX - (u32)(fc - '0')) / 10) {
+            oscProgressValid = false;
+        } else {
+            oscProgressPercent = oscProgressPercent * 10 + fc - '0';
+        }
+    }
+
+    action oscProgressDiscardData {
+        stringUtf8Continuation(fc);
+        if (!executeC0InSequence(fc, true)) {
+            ragelAppendString(fc, maxOscBytes);
+        }
+        fgoto oscProgressDiscard;
+    }
+
+    action oscProgressNotifySt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+        } else {
+            ragelFinishOsc();
+            if (!argBufOverflowed) {
+                osc_NOTIFY(ragelOscPayload());
+            }
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action oscProgressSt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+            oscProgressValid = false;
+            fgoto oscProgressDiscard;
+        } else {
+            ragelFinishOsc();
+            if (!argBufOverflowed && oscProgressValid && oscProgressPercentPresent &&
+                oscProgressState <= 4 && oscProgressPercent <= 100) {
+                osc_PROGRESS(oscProgressState, oscProgressPercent);
+            }
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action oscProgressDiscardSt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+        } else {
+            ragelFinishOsc();
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action oscProgressNotifyEscaped {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        fgoto oscProgressNotify;
+    }
+
+    action oscProgressDiscardEscaped {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        fgoto oscProgressDiscard;
+    }
+
+    action osc52Selector {
+        ragelAppendString(fc, maxOscBytes);
+        osc52SelectorSeen = true;
+        if (osc52ReplySelector == 0 && (fc == 's' || fc == 'p' || fc == 'c')) {
+            osc52ReplySelector = fc;
+        }
+        if (fc == 'p' || (fc == 's' && !opts.osc52SelectClipboard)) {
+            osc52Primary = true;
+        }
+        if (fc == 'c' || (fc == 's' && opts.osc52SelectClipboard)) {
+            osc52Clipboard = true;
+        }
+    }
+
+    action osc52BeginPayload {
+        ragelAppendString(fc, maxOscBytes);
+        if (!osc52SelectorSeen) {
+            osc52Primary = true;
+            osc52Clipboard = true;
+        }
+        osc52PayloadOffset = argBuf.used();
+        fgoto osc52Payload;
+    }
+
+    action osc52MalformedSt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+            fgoto oscInvalid;
+        } else {
+            ragelFinishOsc();
+            if (!argBufOverflowed) {
+                osc_CLIPBOARD_MALFORMED(ragelOscPayload());
+            }
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action osc52MalformedBell {
+        ragelFinishOsc();
+        if (!argBufOverflowed) {
+            osc_CLIPBOARD_MALFORMED(ragelOscPayload());
+        }
+        fnext main;
+        fbreak;
+    }
+
+    action osc52St {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+            fgoto oscInvalid;
+        } else {
+            ragelFinishOsc();
+            if (!argBufOverflowed) {
+                const StringView raw = ragelOscPayload();
+                const auto* data = (const u8*)(argBuf.data());
+                const StringView payload(data + osc52PayloadOffset, argBuf.used() - osc52PayloadOffset);
+                if (payload == StringView(u8"?")) {
+                    osc_CLIPBOARD_QUERY(
+                        raw, osc52Primary, osc52Clipboard, osc52ReplySelector,
+                        !osc52SelectorSeen
+                    );
+                } else {
+                    osc_CLIPBOARD_WRITE(raw, payload, osc52Primary, osc52Clipboard);
+                }
+            }
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action osc52Bell {
+        ragelFinishOsc();
+        if (!argBufOverflowed) {
+            const StringView raw = ragelOscPayload();
+            const auto* data = (const u8*)(argBuf.data());
+            const StringView payload(data + osc52PayloadOffset, argBuf.used() - osc52PayloadOffset);
+            if (payload == StringView(u8"?")) {
+                osc_CLIPBOARD_QUERY(
+                    raw, osc52Primary, osc52Clipboard, osc52ReplySelector,
+                    !osc52SelectorSeen
+                );
+            } else {
+                osc_CLIPBOARD_WRITE(raw, payload, osc52Primary, osc52Clipboard);
+            }
+        }
+        fnext main;
+        fbreak;
+    }
+
+    action osc52SelectorEscaped {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        fgoto oscInvalid;
+    }
+
+    action osc52PayloadEscaped {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        fgoto osc52Payload;
+    }
+
+    action oscNotificationKey {
+        ragelAppendString(fc, maxOscBytes);
+        oscNotificationKey = fc;
+        fgoto oscNotificationEqual;
+    }
+
+    action oscNotificationBeginValue {
+        ragelAppendString(fc, maxOscBytes);
+        oscNotificationFieldOffset = argBuf.used();
+        fgoto oscNotificationValue;
+    }
+
+    action oscNotificationValueData {
+        stringUtf8Continuation(fc);
+        if (!executeC0InSequence(fc, true)) {
+            ragelAppendString(fc, maxOscBytes);
+            if (oscNotificationKey == 'i' &&
+                !((fc >= 'a' && fc <= 'z') || (fc >= 'A' && fc <= 'Z') ||
+                  (fc >= '0' && fc <= '9') || fc == '_' || fc == '-' ||
+                  fc == '+' || fc == '.')) {
+                oscNotificationValid = false;
+            }
+        }
+    }
+
+    action oscNotificationFinishField {
+        const auto* data = (const u8*)(argBuf.data());
+        const StringView value(
+            data + oscNotificationFieldOffset,
+            argBuf.used() - oscNotificationFieldOffset
+        );
+        if (oscNotificationKey == 'i') {
+            oscNotificationIdOffset = oscNotificationFieldOffset;
+            oscNotificationIdLength = value.length();
+            if (value.length() > 256) {
+                oscNotificationValid = false;
+            }
+        } else if (oscNotificationKey == 'p') {
+            oscNotificationQuery = value == StringView(u8"?");
+            oscNotificationClose = value == StringView(u8"close");
+            oscNotificationBody = value == StringView(u8"body");
+            if (!oscNotificationQuery && !oscNotificationClose &&
+                !oscNotificationBody && value != StringView(u8"title")) {
+                oscNotificationValid = false;
+            }
+        } else if (oscNotificationKey == 'e') {
+            if (value == StringView(u8"0")) {
+                oscNotificationEncoded = false;
+            } else if (value == StringView(u8"1")) {
+                oscNotificationEncoded = true;
+            } else {
+                oscNotificationValid = false;
+            }
+        } else if (oscNotificationKey == 'd') {
+            if (value == StringView(u8"0")) {
+                oscNotificationFinal = false;
+            } else if (value == StringView(u8"1")) {
+                oscNotificationFinal = true;
+            } else {
+                oscNotificationValid = false;
+            }
+        }
+    }
+
+    action oscNotificationNextField {
+        ragelAppendString(fc, maxOscBytes);
+        fgoto oscNotificationField;
+    }
+
+    action oscNotificationBeginPayload {
+        ragelAppendString(fc, maxOscBytes);
+        oscNotificationPayloadOffset = argBuf.used();
+        fgoto oscNotificationPayload;
+    }
+
+    action oscNotificationInvalidData {
+        stringUtf8Continuation(fc);
+        if (!executeC0InSequence(fc, true)) {
+            ragelAppendString(fc, maxOscBytes);
+        }
+        oscNotificationValid = false;
+        fgoto oscNotificationInvalid;
+    }
+
+    action oscNotificationSt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+            oscNotificationValid = false;
+            fgoto oscNotificationInvalid;
+        } else {
+            ragelFinishOsc();
+            if (!argBufOverflowed && oscNotificationValid) {
+                const auto* data = (const u8*)(argBuf.data());
+                const StringView id(
+                    data + oscNotificationIdOffset, oscNotificationIdLength
+                );
+                const StringView payload(
+                    data + oscNotificationPayloadOffset,
+                    argBuf.used() - oscNotificationPayloadOffset
+                );
+                if (oscNotificationQuery) {
+                    osc_NOTIFICATION_CAPABILITIES(id);
+                } else if (oscNotificationClose) {
+                    osc_NOTIFICATION_CLOSE(id);
+                } else if (oscNotificationBody) {
+                    osc_NOTIFICATION_BODY(
+                        id, payload, oscNotificationEncoded, oscNotificationFinal
+                    );
+                } else {
+                    osc_NOTIFICATION_TITLE(
+                        id, payload, oscNotificationEncoded, oscNotificationFinal
+                    );
+                }
+            }
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action oscNotificationBell {
+        ragelFinishOsc();
+        if (!argBufOverflowed && oscNotificationValid) {
+            const auto* data = (const u8*)(argBuf.data());
+            const StringView id(
+                data + oscNotificationIdOffset, oscNotificationIdLength
+            );
+            const StringView payload(
+                data + oscNotificationPayloadOffset,
+                argBuf.used() - oscNotificationPayloadOffset
+            );
+            if (oscNotificationQuery) {
+                osc_NOTIFICATION_CAPABILITIES(id);
+            } else if (oscNotificationClose) {
+                osc_NOTIFICATION_CLOSE(id);
+            } else if (oscNotificationBody) {
+                osc_NOTIFICATION_BODY(
+                    id, payload, oscNotificationEncoded, oscNotificationFinal
+                );
+            } else {
+                osc_NOTIFICATION_TITLE(
+                    id, payload, oscNotificationEncoded, oscNotificationFinal
+                );
+            }
+        }
+        fnext main;
+        fbreak;
+    }
+
+    action oscNotificationInvalidSt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+        } else {
+            ragelFinishOsc();
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action oscNotificationInvalidBell {
+        ragelFinishOsc();
+        fnext main;
+        fbreak;
+    }
+
+    action oscNotificationPayloadEscaped {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        fgoto oscNotificationPayload;
+    }
+
+    action oscNotificationInvalidEscaped {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        fgoto oscNotificationInvalid;
+    }
+
+    action oscFieldData {
+        stringUtf8Continuation(fc);
+        if (!executeC0InSequence(fc, true)) {
+            ragelAppendString(fc, maxOscBytes);
+            if (fc < '0' || fc > '9' ||
+                oscFieldNumber > (UINT32_MAX - (u32)(fc - '0')) / 10) {
+                oscFieldNumeric = false;
+            } else {
+                oscFieldNumber = oscFieldNumber * 10 + fc - '0';
+            }
+        }
+    }
+
+    action oscFieldSeparator {
+        oscFields.pushBack({
+            oscFieldOffset,
+            argBuf.used() - oscFieldOffset,
+            oscFieldNumber,
+            oscFieldNumeric && argBuf.used() != oscFieldOffset,
+        });
+        ragelAppendString(fc, maxOscBytes);
+        oscFieldOffset = argBuf.used();
+        oscFieldNumber = 0;
+        oscFieldNumeric = true;
+    }
+
+    action oscFieldSt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+            oscTerminated = false;
+            fgoto oscInvalid;
+        } else {
+            ragelFinishOsc();
+            oscTerminated = true;
+        }
+    }
+
+    action oscFieldBell {
+        ragelFinishOsc();
+        oscTerminated = true;
+    }
+
+    action oscFieldDispatch {
+        if (oscTerminated && !argBufOverflowed) {
+            if (argBuf.used() != oscFieldOffset) {
+                oscFields.pushBack({
+                    oscFieldOffset,
+                    argBuf.used() - oscFieldOffset,
+                    oscFieldNumber,
+                    oscFieldNumeric,
+                });
+            }
+            const auto* data = (const u8*)(argBuf.data());
+            if (oscCommand == 4 || oscCommand == 5) {
+                for (size_t i = 0; i + 1 < oscFields.length(); i += 2) {
+                    if (!oscFields[i].numeric) {
+                        continue;
+                    }
+                    const OscField& spec = oscFields[i + 1];
+                    const StringView value(data + spec.offset, spec.length);
+                    if (oscCommand == 4) {
+                        osc_PALETTE(oscFields[i].number, value);
+                    } else {
+                        osc_SPECIAL_COLOR(oscFields[i].number, value);
+                    }
+                }
+            } else if (oscCommand == 6 || oscCommand == 106) {
+                for (size_t i = 0; i + 1 < oscFields.length(); i += 2) {
+                    if (oscFields[i].numeric && oscFields[i + 1].numeric) {
+                        osc_SPECIAL_COLOR_MODE(
+                            oscFields[i].number, oscFields[i + 1].number
+                        );
+                    }
+                }
+            } else if (oscCommand >= 10 && oscCommand <= 19) {
+                u32 command = oscCommand;
+                for (size_t i = 0; i < oscFields.length() && command <= 19;
+                     ++i, ++command) {
+                    const OscField& spec = oscFields[i];
+                    osc_DYNAMIC_COLOR(
+                        command, StringView(data + spec.offset, spec.length)
+                    );
+                }
+            } else if (oscCommand == 104) {
+                if (oscFields.empty()) {
+                    osc_RESET_PALETTE();
+                } else {
+                    for (const OscField& field : oscFields) {
+                        if (field.numeric) {
+                            osc_RESET_PALETTE(field.number);
+                        }
+                    }
+                }
+            } else if (oscCommand == 105) {
+                if (oscFields.empty()) {
+                    osc_RESET_SPECIAL_COLOR();
+                } else {
+                    for (const OscField& field : oscFields) {
+                        if (field.numeric) {
+                            osc_RESET_SPECIAL_COLOR(field.number);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    action oscFieldEscaped {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        oscFieldNumeric = false;
+        fgoto oscFieldList;
     }
 
     action ignoredData {
@@ -1615,8 +2618,8 @@
 
     action stringRestartOsc {
         if (!ragelStringContinuation(fc)) {
-            ragelBeginString(VtermTraceString::Osc, true);
-            fgoto osc;
+            ragelBeginOsc();
+            fgoto oscCommand;
         }
     }
 
@@ -2483,11 +3486,619 @@
                 0x9a..0x9f)) @{ fgoto dcsIgnore; }
     )*;
 
-    osc := (
+    oscCommand := (
         cancel |
         stringC1 |
-        0x9c @oscSt |
-        0x07 @oscBell |
+        0x9c @oscCommandSt @oscDispatch @oscDone |
+        0x07 @oscCommandBell @oscDispatch @oscDone |
+        0x1b @{ fgoto oscCommandEscape; } |
+        0x7f |
+        sequenceC0 |
+        digit @oscCommandDigit |
+        ';' @oscCommandSeparator |
+        (0x20..0x7e - (digit | ';')) @oscCommandInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscCommandInvalid
+    )*;
+
+    oscCommandEscape := (
+        cancel |
+        '\\' @oscCommandSt @oscDispatch @oscDone |
+        0x1b @oscEscapedEscape @{ fgoto oscInvalidEscape; } |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscInvalidEscapedData
+    )*;
+
+    oscTitle0 := (
+        cancel |
+        stringC1 |
+        0x9c @oscTitle0St |
+        0x07 @oscTitle0St |
+        0x1b @{ fgoto oscTitle0Escape; } |
+        0x7f |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscTitleData
+    )*;
+
+    oscTitle1 := (
+        cancel |
+        stringC1 |
+        0x9c @oscTitle1St |
+        0x07 @oscTitle1St |
+        0x1b @{ fgoto oscTitle1Escape; } |
+        0x7f |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscTitleData
+    )*;
+
+    oscTitle2 := (
+        cancel |
+        stringC1 |
+        0x9c @oscTitle2St |
+        0x07 @oscTitle2St |
+        0x1b @{ fgoto oscTitle2Escape; } |
+        0x7f |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscTitleData
+    )*;
+
+    oscTitle0Escape := (
+        cancel |
+        '\\' @oscTitle0St |
+        0x1b @oscTitleEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscTitleEscaped0
+    )*;
+
+    oscTitle1Escape := (
+        cancel |
+        '\\' @oscTitle1St |
+        0x1b @oscTitleEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscTitleEscaped1
+    )*;
+
+    oscTitle2Escape := (
+        cancel |
+        '\\' @oscTitle2St |
+        0x1b @oscTitleEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscTitleEscaped2
+    )*;
+
+    oscHyperlinkParamStart := (
+        cancel |
+        stringC1 |
+        0x9c @oscHyperlinkMalformedSt |
+        0x07 @oscHyperlinkMalformedSt |
+        0x1b @{ fgoto oscHyperlinkParamEscape; } |
+        0x7f |
+        sequenceC0 |
+        'i' @oscHyperlinkI |
+        ':' @oscHyperlinkColon |
+        ';' @oscHyperlinkUri |
+        (0x20..0x7e - ('i' | ':' | ';')) @oscHyperlinkParamData |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscHyperlinkParamData
+    )*;
+
+    oscHyperlinkParamI := (
+        cancel |
+        stringC1 |
+        0x9c @oscHyperlinkMalformedSt |
+        0x07 @oscHyperlinkMalformedSt |
+        0x1b @{ fgoto oscHyperlinkParamEscape; } |
+        0x7f |
+        sequenceC0 |
+        'd' @oscHyperlinkD |
+        ':' @oscHyperlinkColon |
+        ';' @oscHyperlinkUri |
+        (0x20..0x7e - ('d' | ':' | ';')) @oscHyperlinkParamData |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscHyperlinkParamData
+    )*;
+
+    oscHyperlinkParamId := (
+        cancel |
+        stringC1 |
+        0x9c @oscHyperlinkMalformedSt |
+        0x07 @oscHyperlinkMalformedSt |
+        0x1b @{ fgoto oscHyperlinkParamEscape; } |
+        0x7f |
+        sequenceC0 |
+        '=' @oscHyperlinkEqual |
+        ':' @oscHyperlinkColon |
+        ';' @oscHyperlinkUri |
+        (0x20..0x7e - ('=' | ':' | ';')) @oscHyperlinkParamData |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscHyperlinkParamData
+    )*;
+
+    oscHyperlinkIdValue := (
+        cancel |
+        stringC1 |
+        0x9c @oscHyperlinkMalformedSt |
+        0x07 @oscHyperlinkMalformedSt |
+        0x1b @{ fgoto oscHyperlinkIdEscape; } |
+        0x7f |
+        ':' @oscHyperlinkIdColon |
+        ';' @oscHyperlinkIdUri |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
+    oscHyperlinkParamSkip := (
+        cancel |
+        stringC1 |
+        0x9c @oscHyperlinkMalformedSt |
+        0x07 @oscHyperlinkMalformedSt |
+        0x1b @{ fgoto oscHyperlinkParamEscape; } |
+        0x7f |
+        ':' @oscHyperlinkColon |
+        ';' @oscHyperlinkUri |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
+    oscHyperlinkUri := (
+        cancel |
+        stringC1 |
+        0x9c @oscHyperlinkSt |
+        0x07 @oscHyperlinkSt |
+        0x1b @{ fgoto oscHyperlinkUriEscape; } |
+        0x7f |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
+    oscHyperlinkParamEscape := (
+        cancel |
+        '\\' @oscHyperlinkMalformedSt |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscHyperlinkParamEscaped
+    )*;
+
+    oscHyperlinkIdEscape := (
+        cancel |
+        '\\' @oscHyperlinkMalformedSt |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscHyperlinkIdEscaped
+    )*;
+
+    oscHyperlinkUriEscape := (
+        cancel |
+        '\\' @oscHyperlinkSt |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscHyperlinkUriEscaped
+    )*;
+
+    oscProgressEntry := (
+        cancel |
+        stringC1 |
+        0x9c @oscProgressNotifySt |
+        0x07 @oscProgressNotifySt |
+        0x1b @{ fgoto oscProgressEntryEscape; } |
+        0x7f |
+        sequenceC0 |
+        '4' @oscProgressFour |
+        (0x20..0x7e - '4') @oscProgressNotifyData |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscProgressNotifyData
+    )*;
+
+    oscProgressFour := (
+        cancel |
+        stringC1 |
+        0x9c @oscProgressNotifySt |
+        0x07 @oscProgressNotifySt |
+        0x1b @{ fgoto oscProgressFourEscape; } |
+        0x7f |
+        sequenceC0 |
+        ';' @oscProgressBeginState |
+        (0x20..0x7e - ';') @oscProgressNotifyData |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscProgressNotifyData
+    )*;
+
+    oscProgressState := (
+        cancel |
+        stringC1 |
+        0x9c @oscProgressDiscardSt |
+        0x07 @oscProgressDiscardSt |
+        0x1b @{ fgoto oscProgressDiscardEscape; } |
+        0x7f |
+        sequenceC0 |
+        digit @oscProgressStateDigit |
+        ';' @oscProgressBeginPercent |
+        (0x20..0x7e - (digit | ';')) @oscProgressDiscardData |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscProgressDiscardData
+    )*;
+
+    oscProgressPercent := (
+        cancel |
+        stringC1 |
+        0x9c @oscProgressSt |
+        0x07 @oscProgressSt |
+        0x1b @{ fgoto oscProgressPercentEscape; } |
+        0x7f |
+        sequenceC0 |
+        digit @oscProgressPercentDigit |
+        (0x20..0x7e - digit) @oscProgressDiscardData |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscProgressDiscardData
+    )*;
+
+    oscProgressNotify := (
+        cancel |
+        stringC1 |
+        0x9c @oscProgressNotifySt |
+        0x07 @oscProgressNotifySt |
+        0x1b @{ fgoto oscProgressNotifyEscape; } |
+        0x7f |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
+    oscProgressDiscard := (
+        cancel |
+        stringC1 |
+        0x9c @oscProgressDiscardSt |
+        0x07 @oscProgressDiscardSt |
+        0x1b @{ fgoto oscProgressDiscardEscape; } |
+        0x7f |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
+    oscProgressEntryEscape := (
+        cancel |
+        '\\' @oscProgressNotifySt |
+        0x1b @oscEscapedEscape @{ fgoto oscProgressNotifyEscape; } |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscProgressNotifyEscaped
+    )*;
+
+    oscProgressFourEscape := (
+        cancel |
+        '\\' @oscProgressNotifySt |
+        0x1b @oscEscapedEscape @{ fgoto oscProgressNotifyEscape; } |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscProgressNotifyEscaped
+    )*;
+
+    oscProgressNotifyEscape := (
+        cancel |
+        '\\' @oscProgressNotifySt |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscProgressNotifyEscaped
+    )*;
+
+    oscProgressDiscardEscape := (
+        cancel |
+        '\\' @oscProgressDiscardSt |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscProgressDiscardEscaped
+    )*;
+
+    oscProgressPercentEscape := (
+        cancel |
+        '\\' @oscProgressSt |
+        0x1b @oscEscapedEscape @{ fgoto oscProgressDiscardEscape; } |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscProgressDiscardEscaped
+    )*;
+
+    osc52Selectors := (
+        cancel |
+        stringC1 |
+        0x9c @osc52MalformedSt |
+        0x07 @osc52MalformedBell |
+        0x1b @{ fgoto osc52SelectorsEscape; } |
+        0x7f |
+        sequenceC0 |
+        ';' @osc52BeginPayload |
+        (0x20..0x7e - ';') @osc52Selector |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @osc52Selector
+    )*;
+
+    osc52Payload := (
+        cancel |
+        stringC1 |
+        0x9c @osc52St |
+        0x07 @osc52Bell |
+        0x1b @{ fgoto osc52PayloadEscape; } |
+        0x7f |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
+    osc52SelectorsEscape := (
+        cancel |
+        '\\' @osc52MalformedSt |
+        0x1b @oscEscapedEscape @{ fgoto oscInvalidEscape; } |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @osc52SelectorEscaped
+    )*;
+
+    osc52PayloadEscape := (
+        cancel |
+        '\\' @osc52St |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @osc52PayloadEscaped
+    )*;
+
+    oscNotificationField := (
+        cancel |
+        stringC1 |
+        0x9c @oscNotificationInvalidSt |
+        0x07 @oscNotificationInvalidBell |
+        0x1b @{ fgoto oscNotificationInvalidEscape; } |
+        0x7f |
+        sequenceC0 |
+        [A-Za-z] @oscNotificationKey |
+        ';' @oscNotificationBeginPayload |
+        (0x20..0x7e - ([A-Za-z] | ';')) @oscNotificationInvalidData |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscNotificationInvalidData
+    )*;
+
+    oscNotificationEqual := (
+        cancel |
+        stringC1 |
+        0x9c @oscNotificationInvalidSt |
+        0x07 @oscNotificationInvalidBell |
+        0x1b @{ fgoto oscNotificationInvalidEscape; } |
+        0x7f |
+        sequenceC0 |
+        '=' @oscNotificationBeginValue |
+        (0x20..0x7e - '=') @oscNotificationInvalidData |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscNotificationInvalidData
+    )*;
+
+    oscNotificationValue := (
+        cancel |
+        stringC1 |
+        0x9c @oscNotificationInvalidSt |
+        0x07 @oscNotificationInvalidBell |
+        0x1b @{ fgoto oscNotificationInvalidEscape; } |
+        0x7f |
+        ':' @oscNotificationFinishField @oscNotificationNextField |
+        ';' @oscNotificationFinishField @oscNotificationBeginPayload |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e -
+         (':' | ';')) @oscNotificationValueData |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscNotificationValueData
+    )*;
+
+    oscNotificationPayload := (
+        cancel |
+        stringC1 |
+        0x9c @oscNotificationSt |
+        0x07 @oscNotificationBell |
+        0x1b @{ fgoto oscNotificationPayloadEscape; } |
+        0x7f |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
+    oscNotificationInvalid := (
+        cancel |
+        stringC1 |
+        0x9c @oscNotificationInvalidSt |
+        0x07 @oscNotificationInvalidBell |
+        0x1b @{ fgoto oscNotificationInvalidEscape; } |
+        0x7f |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
+    oscNotificationPayloadEscape := (
+        cancel |
+        '\\' @oscNotificationSt |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscNotificationPayloadEscaped
+    )*;
+
+    oscNotificationInvalidEscape := (
+        cancel |
+        '\\' @oscNotificationInvalidSt |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscNotificationInvalidEscaped
+    )*;
+
+    oscFieldList := (
+        cancel |
+        stringC1 |
+        0x9c @oscFieldSt @oscFieldDispatch @oscDone |
+        0x07 @oscFieldBell @oscFieldDispatch @oscDone |
+        0x1b @{ fgoto oscFieldEscape; } |
+        0x7f |
+        ';' @oscFieldSeparator |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | (0x1c..0x7e - ';') |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscFieldData
+    )*;
+
+    oscFieldEscape := (
+        cancel |
+        '\\' @oscFieldSt @oscFieldDispatch @oscDone |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscFieldEscaped
+    )*;
+
+    oscShellEntry := (
+        cancel |
+        stringC1 |
+        0x9c @oscShellUnknownSt |
+        0x07 @oscShellUnknownSt |
+        0x1b @{ fgoto oscShellUnknownEscape; } |
+        0x7f |
+        sequenceC0 |
+        'A' @oscShellA |
+        'B' @oscShellB |
+        'C' @oscShellC |
+        'D' @oscShellD |
+        (0x20..0x7e - ('A' | 'B' | 'C' | 'D')) @oscShellInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscShellInvalid
+    )*;
+
+    oscShellAComplete := (
+        cancel |
+        stringC1 |
+        0x9c @oscShellASt |
+        0x07 @oscShellASt |
+        0x1b @{ fgoto oscShellACompleteEscape; } |
+        0x7f |
+        sequenceC0 |
+        ';' @{ ragelAppendString(fc, maxOscBytes); fgoto oscShellATail; } |
+        (0x20..0x7e - ';') @oscShellInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscShellInvalid
+    )*;
+
+    oscShellBComplete := (
+        cancel |
+        stringC1 |
+        0x9c @oscShellBSt |
+        0x07 @oscShellBSt |
+        0x1b @{ fgoto oscShellBCompleteEscape; } |
+        0x7f |
+        sequenceC0 |
+        ';' @{ ragelAppendString(fc, maxOscBytes); fgoto oscShellBTail; } |
+        (0x20..0x7e - ';') @oscShellInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscShellInvalid
+    )*;
+
+    oscShellCComplete := (
+        cancel |
+        stringC1 |
+        0x9c @oscShellCSt |
+        0x07 @oscShellCSt |
+        0x1b @{ fgoto oscShellCCompleteEscape; } |
+        0x7f |
+        sequenceC0 |
+        ';' @{ ragelAppendString(fc, maxOscBytes); fgoto oscShellCTail; } |
+        (0x20..0x7e - ';') @oscShellInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscShellInvalid
+    )*;
+
+    oscShellDComplete := (
+        cancel |
+        stringC1 |
+        0x9c @oscShellDSt |
+        0x07 @oscShellDSt |
+        0x1b @{ fgoto oscShellDCompleteEscape; } |
+        0x7f |
+        sequenceC0 |
+        ';' @{ ragelAppendString(fc, maxOscBytes); fgoto oscShellDTail; } |
+        (0x20..0x7e - ';') @oscShellInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscShellInvalid
+    )*;
+
+    oscShellATail := (
+        cancel |
+        stringC1 |
+        0x9c @oscShellASt |
+        0x07 @oscShellASt |
+        0x1b @{ fgoto oscShellATailEscape; } |
+        0x7f |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
+    oscShellBTail := (
+        cancel |
+        stringC1 |
+        0x9c @oscShellBSt |
+        0x07 @oscShellBSt |
+        0x1b @{ fgoto oscShellBTailEscape; } |
+        0x7f |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
+    oscShellCTail := (
+        cancel |
+        stringC1 |
+        0x9c @oscShellCSt |
+        0x07 @oscShellCSt |
+        0x1b @{ fgoto oscShellCTailEscape; } |
+        0x7f |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
+    oscShellDTail := (
+        cancel |
+        stringC1 |
+        0x9c @oscShellDSt |
+        0x07 @oscShellDSt |
+        0x1b @{ fgoto oscShellDTailEscape; } |
+        0x7f |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
+    oscShellUnknown := (
+        cancel |
+        stringC1 |
+        0x9c @oscShellUnknownSt |
+        0x07 @oscShellUnknownSt |
+        0x1b @{ fgoto oscShellUnknownEscape; } |
+        0x7f |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
+    oscShellACompleteEscape := (
+        cancel |
+        '\\' @oscShellASt |
+        0x1b @oscEscapedEscape @{ fgoto oscShellUnknownEscape; } |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
+    )*;
+
+    oscShellBCompleteEscape := (
+        cancel |
+        '\\' @oscShellBSt |
+        0x1b @oscEscapedEscape @{ fgoto oscShellUnknownEscape; } |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
+    )*;
+
+    oscShellCCompleteEscape := (
+        cancel |
+        '\\' @oscShellCSt |
+        0x1b @oscEscapedEscape @{ fgoto oscShellUnknownEscape; } |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
+    )*;
+
+    oscShellDCompleteEscape := (
+        cancel |
+        '\\' @oscShellDSt |
+        0x1b @oscEscapedEscape @{ fgoto oscShellUnknownEscape; } |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
+    )*;
+
+    oscShellATailEscape := (
+        cancel |
+        '\\' @oscShellASt |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedA
+    )*;
+
+    oscShellBTailEscape := (
+        cancel |
+        '\\' @oscShellBSt |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedB
+    )*;
+
+    oscShellCTailEscape := (
+        cancel |
+        '\\' @oscShellCSt |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedC
+    )*;
+
+    oscShellDTailEscape := (
+        cancel |
+        '\\' @oscShellDSt |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedD
+    )*;
+
+    oscShellUnknownEscape := (
+        cancel |
+        '\\' @oscShellUnknownSt |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
+    )*;
+
+    oscPayload := (
+        cancel |
+        stringC1 |
+        0x9c @oscSt @oscDispatch @oscDone |
+        0x07 @oscBell @oscDispatch @oscDone |
         0x1b @oscEscape |
         0x7f |
         (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
@@ -2496,9 +4107,27 @@
 
     oscEscape := (
         cancel |
-        '\\' @{ ragelFinishOsc(); fnext main; fbreak; } |
+        '\\' @oscSt @oscDispatch @oscDone |
         0x1b @oscEscapedEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\')) @oscEscapedData
+    )*;
+
+    oscInvalid := (
+        cancel |
+        stringC1 |
+        0x9c @oscInvalidSt |
+        0x07 @oscInvalidBell |
+        0x1b @{ fgoto oscInvalidEscape; } |
+        0x7f |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
+    oscInvalidEscape := (
+        cancel |
+        '\\' @oscInvalidSt |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscInvalidEscapedData
     )*;
 
     string := (

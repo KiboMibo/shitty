@@ -8,6 +8,6 @@
 
 #include "color.h"
 
-#include <string>
+#include <std/str/view.h>
 
-bool parseXColor(const std::string& spec, Color& color);
+bool parseXColor(stl::StringView spec, Color& color);

@@ -122,7 +122,6 @@ namespace {
         static void childSignalHandler(int signal, siginfo_t* info, void*);
         void setupSignals();
         int startShell(const char* execPath, const char* const argv[]);
-        std::string getSelectionForOsc(bool primary);
         void handleOsc(int command, const std::string& argument);
         bool presentTerminal();
         bool repaint();
@@ -349,11 +348,6 @@ int ApplicationImpl::startShell(const char* execPath, const char* const argv[]) 
     return ptyFd;
 }
 
-std::string ApplicationImpl::getSelectionForOsc(bool primary) {
-    const StringView selection = primary ? composer.clipboard->readPrimary() : composer.clipboard->readClipboard();
-    return std::string((const char*)(selection.data()), selection.length());
-}
-
 bool appTitleSet = false;
 
 void ApplicationImpl::handleOsc(int command, const std::string& argument) {
@@ -373,40 +367,10 @@ void ApplicationImpl::handleOsc(int command, const std::string& argument) {
             return;
         }
         case 133:
-            return;
         case 52:
-            break;
+            return;
         default:
             return;
-    }
-
-    const Osc52Request request = parseOsc52(argument, opts.osc52SelectClipboard);
-    if (!request.valid) {
-        return;
-    }
-
-    if (request.query) {
-        std::string primary;
-        std::string clipboard;
-        if (opts.allowOsc52Read) {
-            if (request.primary) {
-                primary = getSelectionForOsc(true);
-            }
-            if (primary.empty() && request.clipboard) {
-                clipboard = getSelectionForOsc(false);
-            }
-        }
-        const std::string reply = encodeOsc52QueryReply(request, opts.allowOsc52Read, primary, clipboard);
-        composer.vterm->sendBytes(StringView((const u8*)(reply.data()), reply.size()), false);
-        return;
-    }
-
-    const StringView content((const u8*)(request.content.data()), request.content.size());
-    if (request.primary) {
-        composer.clipboard->writePrimary(content);
-    }
-    if (request.clipboard) {
-        composer.clipboard->writeClipboard(content);
     }
 }
 

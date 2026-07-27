@@ -8,9 +8,10 @@
 
 #include <algorithm>
 #include <cmath>
-#include <string_view>
 
 namespace {
+    using stl::StringView;
+
     struct Triple {
         double x;
         double y;
@@ -25,13 +26,13 @@ namespace {
     constexpr double bestRedV = 0.4931;
     constexpr double pi = 3.14159265358979323846;
 
-    bool prefixEqual(std::string_view lhs, std::string_view rhs) {
-        if (lhs.size() != rhs.size()) {
+    bool prefixEqual(StringView lhs, StringView rhs) {
+        if (lhs.length() != rhs.length()) {
             return false;
         }
-        for (size_t i = 0; i < lhs.size(); ++i) {
-            unsigned char a = (unsigned char)lhs[i];
-            unsigned char b = (unsigned char)rhs[i];
+        for (size_t i = 0; i < lhs.length(); ++i) {
+            u8 a = lhs[i];
+            u8 b = rhs[i];
             if (a >= 'A' && a <= 'Z') {
                 a = (unsigned char)(a - 'A' + 'a');
             }
@@ -45,7 +46,7 @@ namespace {
         return true;
     }
 
-    bool parseNumber(std::string_view text, double& value) {
+    bool parseNumber(StringView text, double& value) {
         if (text.empty()) {
             return false;
         }
@@ -56,14 +57,14 @@ namespace {
         }
         double mantissa = 0.0;
         bool digits = false;
-        while (index < text.size() && text[index] >= '0' && text[index] <= '9') {
+        while (index < text.length() && text[index] >= '0' && text[index] <= '9') {
             mantissa = mantissa * 10.0 + text[index++] - '0';
             digits = true;
         }
-        if (index < text.size() && text[index] == '.') {
+        if (index < text.length() && text[index] == '.') {
             ++index;
             double place = 0.1;
-            while (index < text.size() && text[index] >= '0' && text[index] <= '9') {
+            while (index < text.length() && text[index] >= '0' && text[index] <= '9') {
                 mantissa += (text[index++] - '0') * place;
                 place *= 0.1;
                 digits = true;
@@ -71,13 +72,13 @@ namespace {
         }
         int exponent = 0;
         int exponentSign = 1;
-        if (index < text.size() && (text[index] == 'e' || text[index] == 'E')) {
+        if (index < text.length() && (text[index] == 'e' || text[index] == 'E')) {
             ++index;
-            if (index < text.size() && (text[index] == '+' || text[index] == '-')) {
+            if (index < text.length() && (text[index] == '+' || text[index] == '-')) {
                 exponentSign = text[index++] == '-' ? -1 : 1;
             }
             bool exponentDigits = false;
-            while (index < text.size() && text[index] >= '0' && text[index] <= '9') {
+            while (index < text.length() && text[index] >= '0' && text[index] <= '9') {
                 exponent = std::min(10000, exponent * 10 + text[index++] - '0');
                 exponentDigits = true;
             }
@@ -86,20 +87,23 @@ namespace {
             }
         }
         value = sign * mantissa * std::pow(10.0, exponentSign * exponent);
-        return digits && index == text.size() && std::isfinite(value);
+        return digits && index == text.length() && std::isfinite(value);
     }
 
-    bool parseTriple(const std::string& spec, std::string_view prefix, Triple& value) {
-        const size_t colon = spec.find(':');
-        if (colon == std::string::npos || !prefixEqual(std::string_view(spec).substr(0, colon), prefix)) {
+    bool parseTriple(StringView spec, StringView prefix, Triple& value) {
+        StringView name;
+        StringView components;
+        if (!spec.split(':', name, components) || !prefixEqual(name, prefix)) {
             return false;
         }
-        const size_t first = spec.find('/', colon + 1);
-        const size_t second = first == std::string::npos ? std::string::npos : spec.find('/', first + 1);
-        if (first == std::string::npos || second == std::string::npos || spec.find('/', second + 1) != std::string::npos) {
+        StringView x;
+        StringView tail;
+        StringView y;
+        StringView z;
+        if (!components.split('/', x, tail) || !tail.split('/', y, z) || z.memChr('/') != nullptr) {
             return false;
         }
-        return parseNumber(std::string_view(spec).substr(colon + 1, first - colon - 1), value.x) && parseNumber(std::string_view(spec).substr(first + 1, second - first - 1), value.y) && parseNumber(std::string_view(spec).substr(second + 1), value.z);
+        return parseNumber(x, value.x) && parseNumber(y, value.y) && parseNumber(z, value.z);
     }
 
     Triple whiteUvY() {
@@ -223,7 +227,7 @@ namespace {
         return (u8)std::lround(value * 255.0);
     }
 
-    bool convertedColor(const std::string& spec, Color& color) {
+    bool convertedColor(StringView spec, Color& color) {
         Triple value;
         Triple xyz;
         if (parseTriple(spec, "rgbi", value)) {
@@ -312,7 +316,7 @@ namespace {
     }
 }
 
-bool parseXColor(const std::string& spec, Color& color) {
+bool parseXColor(stl::StringView spec, Color& color) {
     const auto hexDigit = [](unsigned char ch) -> int {
         if (ch >= '0' && ch <= '9') {
             return ch - '0';
@@ -325,8 +329,8 @@ bool parseXColor(const std::string& spec, Color& color) {
         }
         return -1;
     };
-    const auto component = [&](const std::string& value, u8& out) {
-        if (value.empty() || value.size() > 4) {
+    const auto component = [&](stl::StringView value, u8& out) {
+        if (value.empty() || value.length() > 4) {
             return false;
         }
         unsigned parsed = 0;
@@ -337,12 +341,12 @@ bool parseXColor(const std::string& spec, Color& color) {
             }
             parsed = parsed * 16 + (unsigned)digit;
         }
-        const unsigned maximum = (1u << (4 * value.size())) - 1;
+        const unsigned maximum = (1u << (4 * value.length())) - 1;
         out = (u8)((parsed * 255 + maximum / 2) / maximum);
         return true;
     };
-    const auto hashComponent = [&](const std::string& value, u8& out) {
-        if (value.empty() || value.size() > 4) {
+    const auto hashComponent = [&](stl::StringView value, u8& out) {
+        if (value.empty() || value.length() > 4) {
             return false;
         }
         unsigned parsed = 0;
@@ -353,23 +357,27 @@ bool parseXColor(const std::string& spec, Color& color) {
             }
             parsed = parsed * 16 + (unsigned)digit;
         }
-        if (value.size() < 2) {
+        if (value.length() < 2) {
             parsed <<= 4;
-        } else if (value.size() > 2) {
-            parsed >>= 4 * (value.size() - 2);
+        } else if (value.length() > 2) {
+            parsed >>= 4 * (value.length() - 2);
         }
         out = (u8)parsed;
         return true;
     };
 
-    if (spec.size() >= 4 && spec.size() <= 13 && spec[0] == '#' && (spec.size() - 1) % 3 == 0) {
-        const size_t width = (spec.size() - 1) / 3;
-        return hashComponent(spec.substr(1, width), color.red) && hashComponent(spec.substr(1 + width, width), color.green) && hashComponent(spec.substr(1 + 2 * width, width), color.blue);
+    if (spec.length() >= 4 && spec.length() <= 13 && spec[0] == '#' && (spec.length() - 1) % 3 == 0) {
+        const size_t width = (spec.length() - 1) / 3;
+        const u8* const components = spec.data() + 1;
+        return hashComponent(stl::StringView(components, width), color.red) && hashComponent(stl::StringView(components + width, width), color.green) && hashComponent(stl::StringView(components + 2 * width, width), color.blue);
     }
-    if (spec.size() >= 4 && prefixEqual(std::string_view(spec).substr(0, 4), "rgb:")) {
-        const size_t first = spec.find('/', 4);
-        const size_t second = first == std::string::npos ? std::string::npos : spec.find('/', first + 1);
-        return first != std::string::npos && second != std::string::npos && spec.find('/', second + 1) == std::string::npos && component(spec.substr(4, first - 4), color.red) && component(spec.substr(first + 1, second - first - 1), color.green) && component(spec.substr(second + 1), color.blue);
+    if (spec.length() >= 4 && prefixEqual(spec.prefix(4), "rgb:")) {
+        StringView red;
+        StringView tail;
+        StringView green;
+        StringView blue;
+        const StringView components(spec.data() + 4, spec.length() - 4);
+        return components.split('/', red, tail) && tail.split('/', green, blue) && blue.memChr('/') == nullptr && component(red, color.red) && component(green, color.green) && component(blue, color.blue);
     }
     return convertedColor(spec, color);
 }

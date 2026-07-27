@@ -53,7 +53,6 @@
 #include <algorithm>
 #include <array>
 #include <cerrno>
-#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -61,7 +60,6 @@
 #include <functional>
 #include <map>
 #include <set>
-#include <sstream>
 #include <sys/types.h>
 
 #if defined(__SSE2__)
@@ -294,7 +292,6 @@ namespace {
         void reportLocatorButton(u8 button, bool pressed);
 
         void setHasFocus(bool);
-        void setHyperlink(const std::string& parametersAndUri);
         std::string getHyperlink(int pX, int pY) const;
         void mouseWheelUp(u16 count = 1);
         void mouseWheelDown(u16 count = 1);
@@ -317,11 +314,13 @@ namespace {
         void ragelGroundAscii(u8 ch);
         void ragelBeginString(VtermTraceString type, bool buffered);
         void ragelBeginDcs();
+        void ragelBeginOsc();
         bool ragelStringContinuation(u8 ch);
         void ragelAppendString(u8 ch, size_t limit);
         void ragelAppendEscapedString(u8 ch, size_t limit);
         void ragelFinishDcs();
         void ragelFinishOsc();
+        StringView ragelOscPayload() const noexcept;
 
         struct PresentationState {
             Screen* frame;
@@ -525,7 +524,40 @@ namespace {
         void csi_DSR(bool privateMode = false);
         void esch_DECALN();
         void setLineAttribute(u8 attribute);
-        void handle_OSC();
+        void osc_TITLE_0(StringView);
+        void osc_TITLE_1(StringView);
+        void osc_TITLE_2(StringView);
+        void osc_PALETTE(u32, StringView);
+        void osc_SPECIAL_COLOR(u32, StringView);
+        void osc_SPECIAL_COLOR_MODE(u32, u32);
+        void osc_CWD(StringView);
+        void osc_HYPERLINK(StringView, bool, StringView);
+        void osc_NOTIFY(StringView);
+        void osc_PROGRESS(u32, u32);
+        void osc_DYNAMIC_COLOR(u32, StringView);
+        void osc_CLIPBOARD_QUERY(StringView, bool, bool, u8, bool);
+        void osc_CLIPBOARD_WRITE(StringView, StringView, bool, bool);
+        void osc_CLIPBOARD_MALFORMED(StringView);
+        void osc_NOTIFICATION_CAPABILITIES(StringView);
+        void osc_NOTIFICATION_CLOSE(StringView);
+        void osc_NOTIFICATION_TITLE(StringView, StringView, bool, bool);
+        void osc_NOTIFICATION_BODY(StringView, StringView, bool, bool);
+        void applyNotificationPart(StringView, StringView, bool, bool, bool);
+        void osc_RESET_PALETTE();
+        void osc_RESET_PALETTE(u32);
+        void osc_RESET_SPECIAL_COLOR();
+        void osc_RESET_SPECIAL_COLOR(u32);
+        void osc_RESET_DEFAULT_FOREGROUND();
+        void osc_RESET_DEFAULT_BACKGROUND();
+        void osc_RESET_CURSOR_COLOR();
+        void osc_RESET_SELECTION_BACKGROUND();
+        void osc_RESET_SELECTION_FOREGROUND();
+        void osc_SHELL_A(StringView);
+        void osc_SHELL_B(StringView);
+        void osc_SHELL_C(StringView);
+        void osc_SHELL_D(StringView);
+        void osc_SHELL_UNKNOWN(StringView);
+        void osc_UNKNOWN(u32, StringView);
         void csiq_DECSCL();
         void csi_XTWINOPS();
         void csi_XTTITLEMODE(bool set);
@@ -560,13 +592,6 @@ namespace {
         void dcs_XTGETTCAP();
         void dcs_DECUDK();
 
-        void osc_PaletteQuery(int, const std::string&);
-        void osc_SpecialColorQuery(const std::string&);
-        void osc_SpecialColorModes(const std::string&);
-        void osc_ResetSpecialColors(const std::string&);
-        void osc_DynamicColorQuery(int, const std::string&);
-        void osc_ShellIntegration(const std::string&);
-        void osc_Notification(const std::string&);
         void reportInBandResize();
         void reportColorScheme();
         void writeTitleResponse(char, const std::string&);
@@ -716,6 +741,53 @@ namespace {
         bool dcsUdkHasHighNibble = false;
         bool dcsUdkValid = false;
         bool dcsUdkInValue = false;
+        u32 oscCommand = 0;
+        size_t oscPayloadOffset = 0;
+        bool oscCommandValid = false;
+        bool oscTerminated = false;
+        Buffer oscDecoded;
+        u8 oscTitleHighNibble = 0;
+        bool oscTitleHex = false;
+        bool oscTitleHasHighNibble = false;
+        bool oscTitleValid = false;
+        bool oscTitleStopped = false;
+        size_t oscHyperlinkIdOffset = 0;
+        size_t oscHyperlinkIdLength = 0;
+        size_t oscHyperlinkUriOffset = 0;
+        bool oscHyperlinkHasId = false;
+        u32 oscProgressState = 0;
+        u32 oscProgressPercent = 0;
+        bool oscProgressStatePresent = false;
+        bool oscProgressPercentPresent = false;
+        bool oscProgressValid = false;
+        size_t osc52PayloadOffset = 0;
+        u8 osc52ReplySelector = 0;
+        bool osc52Primary = false;
+        bool osc52Clipboard = false;
+        bool osc52SelectorSeen = false;
+        size_t oscNotificationFieldOffset = 0;
+        size_t oscNotificationIdOffset = 0;
+        size_t oscNotificationIdLength = 0;
+        size_t oscNotificationPayloadOffset = 0;
+        u8 oscNotificationKey = 0;
+        bool oscNotificationValid = false;
+        bool oscNotificationEncoded = false;
+        bool oscNotificationFinal = false;
+        bool oscNotificationQuery = false;
+        bool oscNotificationClose = false;
+        bool oscNotificationBody = false;
+
+        struct OscField {
+            size_t offset;
+            size_t length;
+            u32 number;
+            bool numeric;
+        };
+
+        Vector<OscField> oscFields;
+        size_t oscFieldOffset = 0;
+        u32 oscFieldNumber = 0;
+        bool oscFieldNumeric = false;
         unsigned char scsDst;
         unsigned char scsMod;
 
@@ -2449,12 +2521,7 @@ void VtermImpl<traced>::resetTerminal() {
     nColsEff = composer.columns;
 
     if (host.handlesOsc()) {
-        argBuf.reset();
-        argBuf.append("0;", 2);
-        for (const char* p = opts.title; *p != '\0'; ++p) {
-            argBuf.append(p, 1);
-        }
-        handle_OSC();
+        osc_TITLE_0(StringView((const u8*)(opts.title), std::strlen(opts.title)));
     }
 }
 
@@ -5628,261 +5695,395 @@ void VtermImpl<traced>::dcs_XTGETTCAP() {
 }
 
 template <bool traced>
-void VtermImpl<traced>::handle_OSC() {
-    auto osc = std::string((char*)argBuf.data(), argBuf.used());
-    std::size_t p = osc.find_first_of(";");
-    std::string arg;
-    if (p != std::string::npos) {
-        arg = osc.substr(p + 1);
+void VtermImpl<traced>::osc_TITLE_0(StringView payload) {
+    const std::string title((const char*)(payload.data()), payload.length());
+    iconTitle = title;
+    windowTitle = title;
+    host.osc(0, title);
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_TITLE_1(StringView payload) {
+    const std::string title((const char*)(payload.data()), payload.length());
+    iconTitle = title;
+    host.osc(1, title);
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_TITLE_2(StringView payload) {
+    const std::string title((const char*)(payload.data()), payload.length());
+    windowTitle = title;
+    host.osc(2, title);
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_PALETTE(u32 index, StringView spec) {
+    if (index >= 256 + TerminalColors::specialCount) {
+        return;
     }
-
-    int cmd = -1;
-    const char* commandEnd = p == std::string::npos ? osc.data() + osc.size() : osc.data() + p;
-    const auto parsed = std::from_chars(osc.data(), commandEnd, cmd);
-    if (!osc.empty() && parsed.ec == std::errc{} && parsed.ptr == commandEnd && cmd >= 0) {
-        if ((cmd == 0 || cmd == 1 || cmd == 2) && (titleModes & 1)) {
-            std::string decoded;
-            if (!decodeHex(arg, decoded)) {
-                return;
-            }
-            const auto control = std::find_if(decoded.begin(), decoded.end(), [](unsigned char ch) {
-                return ch < 32;
-            });
-            if (control != decoded.end()) {
-                decoded.erase(control, decoded.end());
-            }
-            arg = std::move(decoded);
-        }
-        switch (cmd) {
-            case 0:
-                iconTitle = arg;
-                windowTitle = arg;
-                host.osc(cmd, arg);
-                break;
-            case 1:
-                iconTitle = arg;
-                host.osc(cmd, arg);
-                break;
-            case 2:
-                windowTitle = arg;
-                host.osc(cmd, arg);
-                break;
-            case 4:
-                osc_PaletteQuery(cmd, arg);
-                break;
-            case 5:
-                osc_SpecialColorQuery(arg);
-                break;
-            case 6:
-            case 106:
-                osc_SpecialColorModes(arg);
-                break;
-            case 104: {
-                if (arg.empty()) {
-                    std::copy(std::begin(originalPalette256), std::end(originalPalette256), std::begin(colors.palette));
-                    colors.changed();
-                    frame_pri->expose();
-                    frame_alt->expose();
-                } else {
-                    bool changed = false;
-                    std::stringstream indices(arg);
-                    std::string value;
-                    while (std::getline(indices, value, ';')) {
-                        int index = -1;
-                        const auto parsed = std::from_chars(value.data(), value.data() + value.size(), index);
-                        if (parsed.ec == std::errc{} && parsed.ptr == value.data() + value.size() && index >= 0 && index <= 255) {
-                            colors.palette[index] = originalPalette256[index];
-                            changed = true;
-                        }
-                    }
-                    if (changed) {
-                        colors.changed();
-                        frame_pri->expose();
-                        frame_alt->expose();
-                    }
-                }
-            } break;
-            case 105:
-                osc_ResetSpecialColors(arg);
-                break;
-            case 10:
-            case 11:
-            case 12:
-            case 13:
-            case 14:
-            case 15:
-            case 16:
-            case 17:
-            case 18:
-            case 19: {
-                std::stringstream specs(arg);
-                std::string spec;
-                int dynamicCmd = cmd;
-                while (dynamicCmd <= 19 && std::getline(specs, spec, ';')) {
-                    osc_DynamicColorQuery(dynamicCmd++, spec);
-                }
-            } break;
-            case 110:
-                colors.defaultForeground = opts.fg;
-                colors.changed();
-                defaultFgPalIx = -1;
-                frame_pri->expose();
-                frame_alt->expose();
-                break;
-            case 111:
-                colors.defaultBackground = opts.bg;
-                colors.changed();
-                defaultBgPalIx = -1;
-                frame_pri->expose();
-                frame_alt->expose();
-                break;
-            case 112:
-                cursorColor = opts.cr;
-                frame_pri->setCursorColor(cursorColor);
-                frame_alt->setCursorColor(cursorColor);
-                break;
-            case 117:
-                selectionBgColor = opts.bg;
-                frame_pri->setSelectionColor(false, selectionBgColor, false);
-                frame_alt->setSelectionColor(false, selectionBgColor, false);
-                break;
-            case 119:
-                selectionFgColor = opts.fg;
-                frame_pri->setSelectionColor(true, selectionFgColor, false);
-                frame_alt->setSelectionColor(true, selectionFgColor, false);
-                break;
-            case 9: {
-                if (arg.compare(0, 2, "4;") == 0) {
-                    const size_t separator = arg.find(';', 2);
-                    u32 state = 0;
-                    u32 percent = 0;
-                    if (separator != std::string::npos) {
-                        const auto stateResult = std::from_chars(arg.data() + 2, arg.data() + separator, state);
-                        const auto percentResult = std::from_chars(arg.data() + separator + 1, arg.data() + arg.size(), percent);
-                        if (stateResult.ec == std::errc{} && stateResult.ptr == arg.data() + separator && percentResult.ec == std::errc{} && percentResult.ptr == arg.data() + arg.size() && state <= 4 && percent <= 100) {
-                            host.progress(state, percent);
-                        }
-                    }
-                } else {
-                    host.notify({}, windowTitle, arg, false);
-                }
-            } break;
-            case 8:
-                setHyperlink(arg);
-                break;
-            case 99:
-                osc_Notification(arg);
-                break;
-            case 133:
-                osc_ShellIntegration(arg);
-                host.osc(cmd, arg);
-                break;
-
-            default:
-                host.osc(cmd, arg);
-                break;
-        }
+    const bool special = index >= 256;
+    const u16 colorIndex = (u16)(special ? index - 256 : index);
+    if (spec == StringView(u8"?")) {
+        StringBuilder reply;
+        reply << StringView(u8"4;") << index << StringView(u8";") << (special ? colors.special[colorIndex] : colors.palette[colorIndex]);
+        writeOscResponse(StringView(reply));
+        return;
+    }
+    Color color;
+    if (!parseXColor(spec, color)) {
+        return;
+    }
+    if (special) {
+        colors.special[colorIndex] = color;
+        colors.changed();
+        frame_pri->expose();
+        frame_alt->expose();
+    } else {
+        applyPaletteColor(colorIndex, color);
     }
 }
 
 template <bool traced>
-void VtermImpl<traced>::osc_ShellIntegration(const std::string& arg) {
-    if (arg.empty()) {
+void VtermImpl<traced>::osc_SPECIAL_COLOR(u32 index, StringView spec) {
+    if (index >= TerminalColors::specialCount) {
         return;
     }
-    const size_t separator = arg.find(';');
-    const std::string marker = arg.substr(0, separator);
-    if (marker == "A") {
-        currentSemantic = 1;
-    } else if (marker == "B" && currentSemantic == 1) {
+    if (spec == StringView(u8"?")) {
+        StringBuilder reply;
+        reply << StringView(u8"5;") << index << StringView(u8";") << colors.special[index];
+        writeOscResponse(StringView(reply));
+        return;
+    }
+    Color color;
+    if (!parseXColor(spec, color)) {
+        return;
+    }
+    colors.special[index] = color;
+    colors.changed();
+    frame_pri->expose();
+    frame_alt->expose();
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_SPECIAL_COLOR_MODE(u32 index, u32 value) {
+    if (index > TerminalColors::specialCount) {
+        return;
+    }
+    const u8 bit = (u8)(1u << index);
+    const u8 modes = value == 0 ? (u8)(colors.specialModes & ~bit) : (u8)(colors.specialModes | bit);
+    if (modes == colors.specialModes) {
+        return;
+    }
+    colors.specialModes = modes;
+    colors.changed();
+    frame_pri->expose();
+    frame_alt->expose();
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_CWD(StringView payload) {
+    host.osc(7, std::string((const char*)(payload.data()), payload.length()));
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_HYPERLINK(StringView id, bool hasId, StringView uri) {
+    if (uri.empty()) {
+        activeHyperlink = 0;
+        return;
+    }
+
+    StringBuilder identity;
+    if (hasId) {
+        identity << StringView(u8"id=") << id << StringView(u8";uri=") << uri;
+    } else {
+        identity << StringView(u8"uri=") << uri;
+    }
+    const StringView identityView(identity);
+
+    CellExtraStore& extras = *composer.cellExtras;
+    if (const u32 known = extras.findHyperlink(identityView); known != 0) {
+        activeHyperlink = known;
+        return;
+    }
+    if (nextHyperlink == 0) {
+        activeHyperlink = 0;
+        return;
+    }
+    activeHyperlink = extras.getOrCreateHyperlink(identityView, uri, nextHyperlink++);
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_NOTIFY(StringView payload) {
+    host.notify({}, windowTitle, std::string((const char*)(payload.data()), payload.length()), false);
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_PROGRESS(u32 state, u32 percent) {
+    host.progress(state, percent);
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_DYNAMIC_COLOR(u32 command, StringView payload) {
+    if (payload == StringView(u8"?")) {
+        Color color;
+        switch (command) {
+            case 10:
+                color = colors.defaultForeground;
+                break;
+            case 11:
+                color = colors.defaultBackground;
+                break;
+            case 12:
+                color = cursorColor;
+                break;
+            case 17:
+                color = selectionBgColor;
+                break;
+            case 19:
+                color = selectionFgColor;
+                break;
+            default:
+                return;
+        }
+        StringBuilder response;
+        response << command << StringView(u8";") << color;
+        writeOscResponse(StringView(response));
+        return;
+    }
+    Color color;
+    if (!parseXColor(payload, color)) {
+        return;
+    }
+    switch (command) {
+        case 10:
+            colors.defaultForeground = color;
+            colors.changed();
+            defaultFgPalIx = -1;
+            frame_pri->expose();
+            frame_alt->expose();
+            break;
+        case 11:
+            colors.defaultBackground = color;
+            colors.changed();
+            defaultBgPalIx = -1;
+            frame_pri->expose();
+            frame_alt->expose();
+            break;
+        case 12:
+            cursorColor = color;
+            frame_pri->setCursorColor(color);
+            frame_alt->setCursorColor(color);
+            break;
+        case 17:
+            selectionBgColor = color;
+            frame_pri->setSelectionColor(false, color, true);
+            frame_alt->setSelectionColor(false, color, true);
+            break;
+        case 19:
+            selectionFgColor = color;
+            frame_pri->setSelectionColor(true, color, true);
+            frame_alt->setSelectionColor(true, color, true);
+            break;
+    }
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_CLIPBOARD_QUERY(StringView raw, bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) {
+    host.osc(52, std::string((const char*)(raw.data()), raw.length()));
+
+    StringView content;
+    if (opts.allowOsc52Read) {
+        if (primary) {
+            content = composer.clipboard->readPrimary();
+        }
+        if (content.empty() && clipboard) {
+            content = composer.clipboard->readClipboard();
+        }
+    }
+
+    Buffer encoded;
+    base64Encode(content, encoded);
+    StringBuilder reply;
+    reply << StringView(u8"52;");
+    if (selectorsEmpty) {
+        reply << StringView(u8"s0");
+    } else if (replySelector != 0) {
+        reply.append(&replySelector, 1);
+    }
+    reply << StringView(u8";") << StringView(encoded);
+    writeOscResponse(StringView(reply));
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_CLIPBOARD_WRITE(StringView raw, StringView encoded, bool primary, bool clipboard) {
+    host.osc(52, std::string((const char*)(raw.data()), raw.length()));
+
+    Buffer decoded;
+    bool valid = false;
+    base64Decode(encoded, decoded, valid);
+    if (!valid) {
+        return;
+    }
+    const StringView content(decoded);
+    if (primary) {
+        composer.clipboard->writePrimary(content);
+    }
+    if (clipboard) {
+        composer.clipboard->writeClipboard(content);
+    }
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_CLIPBOARD_MALFORMED(StringView raw) {
+    host.osc(52, std::string((const char*)(raw.data()), raw.length()));
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_RESET_PALETTE() {
+    std::copy(std::begin(originalPalette256), std::end(originalPalette256), std::begin(colors.palette));
+    colors.changed();
+    frame_pri->expose();
+    frame_alt->expose();
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_RESET_PALETTE(u32 index) {
+    if (index > 255) {
+        return;
+    }
+    applyPaletteColor((u16)(index), originalPalette256[index]);
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_RESET_SPECIAL_COLOR() {
+    std::copy(std::begin(colors.originalSpecial), std::end(colors.originalSpecial), std::begin(colors.special));
+    colors.changed();
+    frame_pri->expose();
+    frame_alt->expose();
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_RESET_SPECIAL_COLOR(u32 index) {
+    if (index >= TerminalColors::specialCount) {
+        return;
+    }
+    colors.special[index] = colors.originalSpecial[index];
+    colors.changed();
+    frame_pri->expose();
+    frame_alt->expose();
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_RESET_DEFAULT_FOREGROUND() {
+    colors.defaultForeground = opts.fg;
+    colors.changed();
+    defaultFgPalIx = -1;
+    frame_pri->expose();
+    frame_alt->expose();
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_RESET_DEFAULT_BACKGROUND() {
+    colors.defaultBackground = opts.bg;
+    colors.changed();
+    defaultBgPalIx = -1;
+    frame_pri->expose();
+    frame_alt->expose();
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_RESET_CURSOR_COLOR() {
+    cursorColor = opts.cr;
+    frame_pri->setCursorColor(cursorColor);
+    frame_alt->setCursorColor(cursorColor);
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_RESET_SELECTION_BACKGROUND() {
+    selectionBgColor = opts.bg;
+    frame_pri->setSelectionColor(false, selectionBgColor, false);
+    frame_alt->setSelectionColor(false, selectionBgColor, false);
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_RESET_SELECTION_FOREGROUND() {
+    selectionFgColor = opts.fg;
+    frame_pri->setSelectionColor(true, selectionFgColor, false);
+    frame_alt->setSelectionColor(true, selectionFgColor, false);
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_SHELL_A(StringView payload) {
+    currentSemantic = 1;
+    host.osc(133, std::string((const char*)(payload.data()), payload.length()));
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_SHELL_B(StringView payload) {
+    if (currentSemantic == 1) {
         currentSemantic = 2;
-    } else if (marker == "C" && currentSemantic == 2) {
+    }
+    host.osc(133, std::string((const char*)(payload.data()), payload.length()));
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_SHELL_C(StringView payload) {
+    if (currentSemantic == 2) {
         currentSemantic = 3;
-    } else if (marker == "D" && currentSemantic == 3) {
+    }
+    host.osc(133, std::string((const char*)(payload.data()), payload.length()));
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_SHELL_D(StringView payload) {
+    if (currentSemantic == 3) {
         currentSemantic = 0;
     }
+    host.osc(133, std::string((const char*)(payload.data()), payload.length()));
 }
 
 template <bool traced>
-void VtermImpl<traced>::osc_Notification(const std::string& arg) {
-    const size_t separator = arg.find(';');
-    if (separator == std::string::npos) {
-        return;
-    }
+void VtermImpl<traced>::osc_SHELL_UNKNOWN(StringView payload) {
+    host.osc(133, std::string((const char*)(payload.data()), payload.length()));
+}
 
-    std::string id;
-    std::string payloadType = "title";
-    bool encoded = false;
-    bool finalChunk = true;
-    bool valid = true;
-    size_t begin = 0;
-    const std::string metadata = arg.substr(0, separator);
-    while (begin <= metadata.size()) {
-        const size_t end = metadata.find(':', begin);
-        const std::string field = metadata.substr(begin, end - begin);
-        if (field.empty() && metadata.empty()) {
-            break;
-        }
-        const size_t equal = field.find('=');
-        if (equal == 1 && std::isalpha((unsigned char)(field[0]))) {
-            const std::string key = field.substr(0, equal);
-            const std::string value = field.substr(equal + 1);
-            if (key == "i") {
-                id = value;
-            } else if (key == "p") {
-                payloadType = value;
-            } else if (key == "e") {
-                if (value != "0" && value != "1") {
-                    valid = false;
-                } else {
-                    encoded = value == "1";
-                }
-            } else if (key == "d") {
-                if (value != "0" && value != "1") {
-                    valid = false;
-                } else {
-                    finalChunk = value == "1";
-                }
-            }
-        } else {
-            valid = false;
-        }
-        if (end == std::string::npos) {
-            break;
-        }
-        begin = end + 1;
-    }
+template <bool traced>
+void VtermImpl<traced>::osc_UNKNOWN(u32 command, StringView payload) {
+    host.osc(command, std::string((const char*)(payload.data()), payload.length()));
+}
 
-    const auto validIdentifier = [](const std::string& value) {
-        if (value.size() > 256) {
-            return false;
-        }
-        return std::all_of(value.begin(), value.end(), [](unsigned char ch) {
-            return std::isalnum(ch) || ch == '_' || ch == '-' || ch == '+' || ch == '.';
-        });
-    };
-    if (!valid || !validIdentifier(id)) {
-        return;
-    }
+template <bool traced>
+void VtermImpl<traced>::osc_NOTIFICATION_CAPABILITIES(StringView id) {
+    StringBuilder response;
+    response << StringView(u8"99;i=") << id << StringView(u8":p=?;p=title,body,close");
+    writeOscResponse(StringView(response));
+}
 
-    if (payloadType == "?") {
-        writePty(("\x1b]99;i=" + id + ":p=?;p=title,body,close\x1b\\").c_str());
+template <bool traced>
+void VtermImpl<traced>::osc_NOTIFICATION_CLOSE(StringView id) {
+    const std::string key((const char*)(id.data()), id.length());
+    if (key.empty() || !activeNotificationIds.erase(key)) {
         return;
     }
-    if (payloadType == "close") {
-        if (id.empty() || !activeNotificationIds.erase(id)) {
-            return;
-        }
-        host.notify(id, {}, {}, true);
-        notifications.erase(id);
-        return;
-    }
-    if (payloadType != "title" && payloadType != "body") {
-        return;
-    }
+    host.notify(key, {}, {}, true);
+    notifications.erase(key);
+}
 
-    auto& notification = notifications[id];
-    NotificationPart& destination = payloadType == "title" ? notification.title : notification.body;
+template <bool traced>
+void VtermImpl<traced>::osc_NOTIFICATION_TITLE(StringView id, StringView payload, bool encoded, bool finalChunk) {
+    applyNotificationPart(id, payload, encoded, finalChunk, false);
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_NOTIFICATION_BODY(StringView id, StringView payload, bool encoded, bool finalChunk) {
+    applyNotificationPart(id, payload, encoded, finalChunk, true);
+}
+
+template <bool traced>
+void VtermImpl<traced>::applyNotificationPart(StringView id, StringView payload, bool encoded, bool finalChunk, bool body) {
+    const std::string key((const char*)(id.data()), id.length());
+    auto& notification = notifications[key];
+    NotificationPart& destination = body ? notification.body : notification.title;
     const auto flushEncoded = [](NotificationPart& part) {
         if (part.encoded.empty()) {
             return true;
@@ -5898,88 +6099,78 @@ void VtermImpl<traced>::osc_Notification(const std::string& arg) {
         return true;
     };
 
-    const std::string payload = arg.substr(separator + 1);
     if (encoded) {
-        if (payload.size() > 4096) {
-            notifications.erase(id);
+        if (payload.length() > 4096) {
+            notifications.erase(key);
             return;
         }
-        destination.encoded += payload;
+        destination.encoded.append((const char*)(payload.data()), payload.length());
         const bool decodableBoundary = finalChunk || (!destination.encoded.empty() && destination.encoded.back() == '=') || destination.encoded.size() % 4 == 0;
         if (decodableBoundary && !flushEncoded(destination)) {
-            notifications.erase(id);
+            notifications.erase(key);
             return;
         }
     } else {
-        if (payload.size() > 2048 || !flushEncoded(destination) || destination.text.size() + payload.size() > 8192) {
-            notifications.erase(id);
+        if (payload.length() > 2048 || !flushEncoded(destination) || destination.text.size() + payload.length() > 8192) {
+            notifications.erase(key);
             return;
         }
-        destination.text += payload;
+        destination.text.append((const char*)(payload.data()), payload.length());
     }
 
     if (!finalChunk) {
         return;
     }
     if (!flushEncoded(notification.title) || !flushEncoded(notification.body)) {
-        notifications.erase(id);
+        notifications.erase(key);
         return;
     }
 
     const auto escapeSafeUtf8 = [](const std::string& value) {
         for (size_t k = 0; k < value.size();) {
-            const unsigned char first = value[k++];
+            const u8 first = value[k++];
             if (first <= 0x1f || first == 0x7f) {
                 return false;
             }
             if (first < 0x80) {
                 continue;
             }
-            size_t continuation = 0;
-            unsigned char secondMin = 0x80;
-            unsigned char secondMax = 0xbf;
-            if (first >= 0xc2 && first <= 0xdf) {
+            u32 codepoint;
+            u32 minimum;
+            size_t continuation;
+            if ((first & 0xe0) == 0xc0) {
+                codepoint = first & 0x1f;
+                minimum = 0x80;
                 continuation = 1;
-                if (first == 0xc2) {
-                    secondMin = 0xa0;
-                }
-            } else if (first >= 0xe0 && first <= 0xef) {
+            } else if ((first & 0xf0) == 0xe0) {
+                codepoint = first & 0x0f;
+                minimum = 0x800;
                 continuation = 2;
-                if (first == 0xe0) {
-                    secondMin = 0xa0;
-                }
-                if (first == 0xed) {
-                    secondMax = 0x9f;
-                }
-            } else if (first >= 0xf0 && first <= 0xf4) {
+            } else if ((first & 0xf8) == 0xf0) {
+                codepoint = first & 0x07;
+                minimum = 0x10000;
                 continuation = 3;
-                if (first == 0xf0) {
-                    secondMin = 0x90;
-                }
-                if (first == 0xf4) {
-                    secondMax = 0x8f;
-                }
             } else {
                 return false;
             }
             if (k + continuation > value.size()) {
                 return false;
             }
-            const unsigned char second = value[k];
-            if (second < secondMin || second > secondMax) {
-                return false;
-            }
             for (size_t n = 0; n < continuation; ++n) {
-                const unsigned char ch = value[k++];
+                const u8 ch = value[k++];
                 if ((ch & 0xc0) != 0x80) {
                     return false;
                 }
+                codepoint = (codepoint << 6) | (ch & 0x3f);
+            }
+            if (codepoint < minimum || codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff) || (codepoint >= 0x7f && codepoint <= 0x9f)) {
+                return false;
             }
         }
         return true;
     };
     if (!escapeSafeUtf8(notification.title.text) || !escapeSafeUtf8(notification.body.text)) {
-        notifications.erase(id);
+        notifications.erase(key);
         return;
     }
     if (notification.title.text.empty()) {
@@ -5987,14 +6178,14 @@ void VtermImpl<traced>::osc_Notification(const std::string& arg) {
         notification.body.text.clear();
     }
     if (notification.title.text.empty()) {
-        notifications.erase(id);
+        notifications.erase(key);
         return;
     }
-    host.notify(id, notification.title.text, notification.body.text, false);
-    if (!id.empty()) {
-        activeNotificationIds.insert(id);
+    host.notify(key, notification.title.text, notification.body.text, false);
+    if (!key.empty()) {
+        activeNotificationIds.insert(key);
     }
-    notifications.erase(id);
+    notifications.erase(key);
 }
 
 template <bool traced>
@@ -6050,186 +6241,6 @@ void VtermImpl<traced>::applyPaletteColor(u16 index, Color color) {
     colors.changed();
     frame_pri->expose();
     frame_alt->expose();
-}
-
-template <bool traced>
-void VtermImpl<traced>::osc_PaletteQuery(int cmd, const std::string& arg) {
-    std::stringstream fields(arg);
-    std::string indexText;
-    std::string spec;
-    while (std::getline(fields, indexText, ';') && std::getline(fields, spec, ';')) {
-        int paletteIdx = -1;
-        const auto parsed = std::from_chars(indexText.data(), indexText.data() + indexText.size(), paletteIdx);
-        if (parsed.ec != std::errc{} || parsed.ptr != indexText.data() + indexText.size() || paletteIdx < 0 || paletteIdx >= 256 + TerminalColors::specialCount) {
-            continue;
-        }
-        const bool special = paletteIdx >= 256;
-        const u16 colorIndex = (u16)(special ? paletteIdx - 256 : paletteIdx);
-        if (spec == "?") {
-            StringBuilder reply;
-            reply << cmd << StringView(u8";") << paletteIdx << StringView(u8";") << (special ? colors.special[colorIndex] : colors.palette[colorIndex]);
-            writeOscResponse(StringView(reply));
-        } else {
-            Color color;
-            if (parseXColor(spec, color)) {
-                if (special) {
-                    colors.special[colorIndex] = color;
-                    colors.changed();
-                    frame_pri->expose();
-                    frame_alt->expose();
-                } else {
-                    applyPaletteColor(colorIndex, color);
-                }
-            }
-        }
-    }
-}
-
-template <bool traced>
-void VtermImpl<traced>::osc_SpecialColorQuery(const std::string& arg) {
-    std::stringstream fields(arg);
-    std::string indexText;
-    std::string spec;
-    bool changed = false;
-    while (std::getline(fields, indexText, ';') && std::getline(fields, spec, ';')) {
-        int index = -1;
-        const auto parsed = std::from_chars(indexText.data(), indexText.data() + indexText.size(), index);
-        if (parsed.ec != std::errc{} || parsed.ptr != indexText.data() + indexText.size() || index < 0 || index >= TerminalColors::specialCount) {
-            continue;
-        }
-        if (spec == "?") {
-            StringBuilder reply;
-            reply << StringView(u8"5;") << index << StringView(u8";") << colors.special[index];
-            writeOscResponse(StringView(reply));
-        } else {
-            Color color;
-            if (parseXColor(spec, color)) {
-                colors.special[index] = color;
-                changed = true;
-            }
-        }
-    }
-    if (changed) {
-        colors.changed();
-        frame_pri->expose();
-        frame_alt->expose();
-    }
-}
-
-template <bool traced>
-void VtermImpl<traced>::osc_SpecialColorModes(const std::string& arg) {
-    std::stringstream fields(arg);
-    std::string indexText;
-    std::string valueText;
-    bool changed = false;
-    while (std::getline(fields, indexText, ';') && std::getline(fields, valueText, ';')) {
-        int index = -1;
-        int value = -1;
-        const auto indexResult = std::from_chars(indexText.data(), indexText.data() + indexText.size(), index);
-        const auto valueResult = std::from_chars(valueText.data(), valueText.data() + valueText.size(), value);
-        if (indexResult.ec != std::errc{} || indexResult.ptr != indexText.data() + indexText.size() || valueResult.ec != std::errc{} || valueResult.ptr != valueText.data() + valueText.size() || index < 0 || index > TerminalColors::specialCount || value < 0) {
-            continue;
-        }
-        const u8 bit = (u8)(1u << index);
-        const u8 modes = value == 0 ? (u8)(colors.specialModes & ~bit) : (u8)(colors.specialModes | bit);
-        changed = changed || modes != colors.specialModes;
-        colors.specialModes = modes;
-    }
-    if (changed) {
-        colors.changed();
-        frame_pri->expose();
-        frame_alt->expose();
-    }
-}
-
-template <bool traced>
-void VtermImpl<traced>::osc_ResetSpecialColors(const std::string& arg) {
-    bool changed = false;
-    if (arg.empty()) {
-        std::copy(std::begin(colors.originalSpecial), std::end(colors.originalSpecial), std::begin(colors.special));
-        changed = true;
-    } else {
-        std::stringstream fields(arg);
-        std::string indexText;
-        while (std::getline(fields, indexText, ';')) {
-            int index = -1;
-            const auto parsed = std::from_chars(indexText.data(), indexText.data() + indexText.size(), index);
-            if (parsed.ec == std::errc{} && parsed.ptr == indexText.data() + indexText.size() && index >= 0 && index < TerminalColors::specialCount) {
-                colors.special[index] = colors.originalSpecial[index];
-                changed = true;
-            }
-        }
-    }
-    if (changed) {
-        colors.changed();
-        frame_pri->expose();
-        frame_alt->expose();
-    }
-}
-
-template <bool traced>
-void VtermImpl<traced>::osc_DynamicColorQuery(int cmd, const std::string& arg) {
-    if (arg == "?") {
-        Color c;
-        switch (cmd) {
-            case 10:
-                c = colors.defaultForeground;
-                break;
-            case 11:
-                c = colors.defaultBackground;
-                break;
-            case 12:
-                c = cursorColor;
-                break;
-            case 17:
-                c = selectionBgColor;
-                break;
-            case 19:
-                c = selectionFgColor;
-                break;
-            default:
-                return;
-        }
-        StringBuilder response;
-        response << cmd << StringView(u8";") << c;
-        writeOscResponse(StringView(response));
-    } else {
-        Color color;
-        if (!parseXColor(arg, color)) {
-            return;
-        }
-        switch (cmd) {
-            case 10:
-                colors.defaultForeground = color;
-                colors.changed();
-                defaultFgPalIx = -1;
-                frame_pri->expose();
-                frame_alt->expose();
-                break;
-            case 11:
-                colors.defaultBackground = color;
-                colors.changed();
-                defaultBgPalIx = -1;
-                frame_pri->expose();
-                frame_alt->expose();
-                break;
-            case 12:
-                cursorColor = color;
-                frame_pri->setCursorColor(color);
-                frame_alt->setCursorColor(color);
-                break;
-            case 17:
-                selectionBgColor = color;
-                frame_pri->setSelectionColor(false, color, true);
-                frame_alt->setSelectionColor(false, color, true);
-                break;
-            case 19:
-                selectionFgColor = color;
-                frame_pri->setSelectionColor(true, color, true);
-                frame_alt->setSelectionColor(true, color, true);
-                break;
-        }
-    }
 }
 
 template <bool traced>
@@ -8392,15 +8403,7 @@ void VtermImpl<traced>::beginCsi() {
 template <bool traced>
 void VtermImpl<traced>::traceCsi(u8 finalByte) {
     if constexpr (traced) {
-        parserTrace->csi(
-            finalByte,
-            StringView(&csiPrefix, csiPrefix == 0 ? 0 : 1),
-            StringView(csiIntermediates, csiIntermediateCount),
-            inputOps,
-            inputSeparators,
-            nInputOps,
-            csiHadParams
-        );
+        parserTrace->csi(finalByte, StringView(&csiPrefix, csiPrefix == 0 ? 0 : 1), StringView(csiIntermediates, csiIntermediateCount), inputOps, inputSeparators, nInputOps, csiHadParams);
     }
 }
 
@@ -8587,7 +8590,7 @@ void VtermImpl<traced>::parseWithRagel(const u8* data, size_t len) {
     const u8* const pe = data + len;
     int& cs = ragelState;
 
-    #include "vterm_parser.rl.h"
+#include "vterm_parser.rl.h"
 }
 
 template <bool traced>
@@ -8679,6 +8682,35 @@ void VtermImpl<traced>::ragelBeginDcs() {
 }
 
 template <bool traced>
+void VtermImpl<traced>::ragelBeginOsc() {
+    ragelBeginString(VtermTraceString::Osc, true);
+    oscCommand = 0;
+    oscPayloadOffset = 0;
+    oscCommandValid = false;
+    oscTerminated = false;
+    oscDecoded.reset();
+    oscTitleHighNibble = 0;
+    oscTitleHex = false;
+    oscTitleHasHighNibble = false;
+    oscTitleValid = false;
+    oscTitleStopped = false;
+    oscHyperlinkIdOffset = 0;
+    oscHyperlinkIdLength = 0;
+    oscHyperlinkUriOffset = 0;
+    oscHyperlinkHasId = false;
+    oscProgressState = 0;
+    oscProgressPercent = 0;
+    oscProgressStatePresent = false;
+    oscProgressPercentPresent = false;
+    oscProgressValid = false;
+    osc52PayloadOffset = 0;
+    osc52ReplySelector = 0;
+    osc52Primary = false;
+    osc52Clipboard = false;
+    osc52SelectorSeen = false;
+}
+
+template <bool traced>
 bool VtermImpl<traced>::ragelStringContinuation(u8 ch) {
     if (!stringUtf8Continuation(ch)) {
         return false;
@@ -8733,55 +8765,12 @@ void VtermImpl<traced>::ragelFinishOsc() {
     if constexpr (traced) {
         parserTrace->stringEnd();
     }
-    if (argBufOverflowed) {
-    } else {
-        handle_OSC();
-    }
 }
 
 template <bool traced>
-void VtermImpl<traced>::setHyperlink(const std::string& parametersAndUri) {
-    CellExtraStore& extras = *composer.cellExtras;
-    const size_t separator = parametersAndUri.find(';');
-    if (separator == std::string::npos) {
-        return;
-    }
-
-    const std::string parameters = parametersAndUri.substr(0, separator);
-    const std::string uri = parametersAndUri.substr(separator + 1);
-    if (uri.empty()) {
-        activeHyperlink = 0;
-        return;
-    }
-
-    std::string identity = "uri=" + uri;
-    size_t begin = 0;
-    while (begin <= parameters.size()) {
-        const size_t end = parameters.find(':', begin);
-        const std::string parameter = parameters.substr(begin, end - begin);
-        if (parameter.compare(0, 3, "id=") == 0) {
-            identity = parameter + ";uri=" + uri;
-            break;
-        }
-        if (end == std::string::npos) {
-            break;
-        }
-        begin = end + 1;
-    }
-
-    const StringView identityView(reinterpret_cast<const u8*>(identity.data()), identity.size());
-    if (const u32 known = extras.findHyperlink(identityView); known != 0) {
-        activeHyperlink = known;
-        return;
-    }
-
-    if (nextHyperlink == 0) {
-        activeHyperlink = 0;
-        return;
-    }
-
-    const StringView uriView(reinterpret_cast<const u8*>(uri.data()), uri.size());
-    activeHyperlink = extras.getOrCreateHyperlink(identityView, uriView, nextHyperlink++);
+StringView VtermImpl<traced>::ragelOscPayload() const noexcept {
+    const auto* data = (const u8*)(argBuf.data());
+    return StringView(data + oscPayloadOffset, argBuf.used() - oscPayloadOffset);
 }
 
 template <bool traced>
