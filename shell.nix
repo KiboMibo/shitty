@@ -1,23 +1,38 @@
 # Copyright (C) 2026 Shitty team
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
+#
+# Legacy entry point for `nix-shell`. Prefer `nix develop` from the flake.
+# Keep this package set aligned with flake.nix's mkDevShell / mkShitty.
 
-{ pkgs ? import <nixpkgs> {} }:
+{
+  pkgs ? import <nixpkgs> { },
+}:
 
 (pkgs.mkShell.override { stdenv = pkgs.llvmPackages.stdenv; }) {
   FONTCONFIG_FILE = pkgs.makeFontsConf {
-    fontDirectories = [ pkgs.dejavu_fonts pkgs.ibm-plex ];
+    fontDirectories = [
+      pkgs.dejavu_fonts
+      pkgs.ibm-plex
+    ];
   };
 
   packages = with pkgs; [
     brotli
+    clang-tools
     fontconfig
     freetype
     glslang
-    glfw
+    harfbuzz
+    libxkbcommon
     pkg-config
     python3
+    ragel
+    simdutf
     utf8proc
+    vulkan-headers
     vulkan-loader
+    wayland
+    wayland-scanner
   ];
 }

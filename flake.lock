@@ -1,0 +1,63 @@
+{
+  "nodes": {
+    "glfw-shitty": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1785164325,
+        "narHash": "sha256-KK5xVA6HomHSgxgTusDs1o41EcBC9FgtpTxPI7G+QSE=",
+        "owner": "pg83",
+        "repo": "glfw",
+        "rev": "a2b295420d899be60c6a27ced21eb172bf51f675",
+        "type": "github"
+      },
+      "original": {
+        "owner": "pg83",
+        "repo": "glfw",
+        "rev": "a2b295420d899be60c6a27ced21eb172bf51f675",
+        "type": "github"
+      }
+    },
+    "libstd": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1784759405,
+        "narHash": "sha256-K209YAJSDrcadjFyI0/oL8W5nW/P5YtpJYUnwKtwfyY=",
+        "owner": "pg83",
+        "repo": "std",
+        "rev": "6ab662255eb2c459e5e69e13248c964eef5eedc1",
+        "type": "github"
+      },
+      "original": {
+        "owner": "pg83",
+        "repo": "std",
+        "rev": "6ab662255eb2c459e5e69e13248c964eef5eedc1",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1785090369,
+        "narHash": "sha256-m0pDuRJG7EDo9ri+4Ksu83VsI+PlxNC9lNBfydejce4=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "624af665418d3c65d544145b4d34ad696439570e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "glfw-shitty": "glfw-shitty",
+        "libstd": "libstd",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
