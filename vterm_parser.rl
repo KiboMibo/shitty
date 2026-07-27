@@ -2848,7 +2848,17 @@
 
     action oscDynamicColorCommit {
         if (!argBufOverflowed && oscColorValid) {
-            osc_DYNAMIC_COLOR(oscCommand, oscColor, oscColorQuery);
+            if (oscCommand == 10) {
+                osc_DEFAULT_FOREGROUND(oscColor, oscColorQuery);
+            } else if (oscCommand == 11) {
+                osc_DEFAULT_BACKGROUND(oscColor, oscColorQuery);
+            } else if (oscCommand == 12) {
+                osc_CURSOR_COLOR(oscColor, oscColorQuery);
+            } else if (oscCommand == 17) {
+                osc_SELECTION_BACKGROUND(oscColor, oscColorQuery);
+            } else if (oscCommand == 19) {
+                osc_SELECTION_FOREGROUND(oscColor, oscColorQuery);
+            }
         }
     }
 

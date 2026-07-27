@@ -500,7 +500,12 @@ namespace {
         void osc_HYPERLINK(StringView, bool, StringView);
         void osc_NOTIFY(StringView);
         void osc_PROGRESS(u32, u32);
-        void osc_DYNAMIC_COLOR(u32, Color, bool);
+        void osc_DEFAULT_FOREGROUND(Color, bool);
+        void osc_DEFAULT_BACKGROUND(Color, bool);
+        void osc_CURSOR_COLOR(Color, bool);
+        void osc_SELECTION_BACKGROUND(Color, bool);
+        void osc_SELECTION_FOREGROUND(Color, bool);
+        void writeDynamicColorResponse(u32, Color);
         void osc_CLIPBOARD_QUERY(StringView, bool, bool, u8, bool);
         void osc_CLIPBOARD_WRITE(StringView, StringView, bool, bool, bool);
         void osc_CLIPBOARD_MALFORMED(StringView);
@@ -5611,63 +5616,64 @@ void VtermImpl<traced>::osc_PROGRESS(u32 state, u32 percent) {
 }
 
 template <bool traced>
-void VtermImpl<traced>::osc_DYNAMIC_COLOR(u32 command, Color color, bool query) {
+void VtermImpl<traced>::writeDynamicColorResponse(u32 command, Color color) {
+    StringBuilder response;
+    response << command << StringView(u8";") << color;
+    writeOscResponse(StringView(response));
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_DEFAULT_FOREGROUND(Color color, bool query) {
     if (query) {
-        switch (command) {
-            case 10:
-                color = colors.defaultForeground;
-                break;
-            case 11:
-                color = colors.defaultBackground;
-                break;
-            case 12:
-                color = cursorColor;
-                break;
-            case 17:
-                color = selectionBgColor;
-                break;
-            case 19:
-                color = selectionFgColor;
-                break;
-            default:
-                return;
-        }
-        StringBuilder response;
-        response << command << StringView(u8";") << color;
-        writeOscResponse(StringView(response));
-        return;
+        return writeDynamicColorResponse(10, colors.defaultForeground);
     }
-    switch (command) {
-        case 10:
-            colors.defaultForeground = color;
-            colors.changed();
-            defaultFgPalIx = -1;
-            frame_pri->expose();
-            frame_alt->expose();
-            break;
-        case 11:
-            colors.defaultBackground = color;
-            colors.changed();
-            defaultBgPalIx = -1;
-            frame_pri->expose();
-            frame_alt->expose();
-            break;
-        case 12:
-            cursorColor = color;
-            frame_pri->setCursorColor(color);
-            frame_alt->setCursorColor(color);
-            break;
-        case 17:
-            selectionBgColor = color;
-            frame_pri->setSelectionColor(false, color, true);
-            frame_alt->setSelectionColor(false, color, true);
-            break;
-        case 19:
-            selectionFgColor = color;
-            frame_pri->setSelectionColor(true, color, true);
-            frame_alt->setSelectionColor(true, color, true);
-            break;
+    colors.defaultForeground = color;
+    colors.changed();
+    defaultFgPalIx = -1;
+    frame_pri->expose();
+    frame_alt->expose();
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_DEFAULT_BACKGROUND(Color color, bool query) {
+    if (query) {
+        return writeDynamicColorResponse(11, colors.defaultBackground);
     }
+    colors.defaultBackground = color;
+    colors.changed();
+    defaultBgPalIx = -1;
+    frame_pri->expose();
+    frame_alt->expose();
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_CURSOR_COLOR(Color color, bool query) {
+    if (query) {
+        return writeDynamicColorResponse(12, cursorColor);
+    }
+    cursorColor = color;
+    frame_pri->setCursorColor(color);
+    frame_alt->setCursorColor(color);
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_SELECTION_BACKGROUND(Color color, bool query) {
+    if (query) {
+        return writeDynamicColorResponse(17, selectionBgColor);
+    }
+    selectionBgColor = color;
+    frame_pri->setSelectionColor(false, color, true);
+    frame_alt->setSelectionColor(false, color, true);
+}
+
+template <bool traced>
+void VtermImpl<traced>::osc_SELECTION_FOREGROUND(Color color, bool query) {
+    if (query) {
+        return writeDynamicColorResponse(19, selectionFgColor);
+    }
+    selectionFgColor = color;
+    frame_pri->setSelectionColor(true, color, true);
+    frame_alt->setSelectionColor(true, color, true);
 }
 
 template <bool traced>
