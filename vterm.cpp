@@ -369,9 +369,8 @@ namespace {
 
         bool stringUtf8Continuation(u8 ch);
         void beginCsi();
+        void traceCsi(u8 finalByte);
         [[gnu::always_inline]] bool executeC0InSequence(unsigned char ch, bool stringData = false);
-        void dispatchCsi(unsigned char finalByte);
-
         void normalizeCursorPos();
         bool isCursorInsideMargins();
         void eraseRow(u16 pY);
@@ -647,9 +646,9 @@ namespace {
         // Whether a private/intermediate CSI prefix may still occur.  This is
         // parser state, rather than an input-buffer offset: PTY reads may split an
         // escape sequence at any byte.
-        bool csiPrefixAllowed = false;
-        std::string csiPrivatePrefix;
-        std::string csiIntermediates;
+        u8 csiPrefix = 0;
+        u8 csiIntermediates[4] = {};
+        u8 csiIntermediateCount = 0;
         constexpr const static size_t maxEscOps = 32;
         constexpr const static size_t maxOscBytes = 1024 * 1024;
         u32 inputOps[maxEscOps];
@@ -8417,9 +8416,23 @@ void VtermImpl<traced>::beginCsi() {
     inputPresent[0] = false;
     nInputOps = 1;
     csiHadParams = false;
-    csiPrefixAllowed = true;
-    csiPrivatePrefix.clear();
-    csiIntermediates.clear();
+    csiPrefix = 0;
+    csiIntermediateCount = 0;
+}
+
+template <bool traced>
+void VtermImpl<traced>::traceCsi(u8 finalByte) {
+    if constexpr (traced) {
+        parserTrace->csi(
+            finalByte,
+            StringView(&csiPrefix, csiPrefix == 0 ? 0 : 1),
+            StringView(csiIntermediates, csiIntermediateCount),
+            inputOps,
+            inputSeparators,
+            nInputOps,
+            csiHadParams
+        );
+    }
 }
 
 template <bool traced>
@@ -8470,269 +8483,6 @@ bool VtermImpl<traced>::executeC0InSequence(unsigned char ch, bool stringData) {
     }
 
     return true;
-}
-
-namespace {
-    constexpr u32 csiKey(char prefix, char intermediate, char final) {
-        return ((u32)((u8)(prefix)) << 16) | ((u32)((u8)(intermediate)) << 8) | (u8)(final);
-    }
-}
-
-template <bool traced>
-void VtermImpl<traced>::dispatchCsi(unsigned char finalByte) {
-    if constexpr (traced) {
-        parserTrace->csi(finalByte, csiPrivatePrefix, csiIntermediates, inputOps, inputSeparators, nInputOps, csiHadParams);
-    }
-    // No recognized sequence carries more than one intermediate byte.
-    if (csiIntermediates.size() > 1) {
-        return;
-    }
-    const u32 key = csiKey(csiPrivatePrefix.empty() ? 0 : csiPrivatePrefix[0], csiIntermediates.empty() ? 0 : csiIntermediates[0], (char)(finalByte));
-    switch (key) {
-        case csiKey(0, 0, 'T'):
-            if (nInputOps == 5 && mouseTrk.mode == MouseTrackingMode::VT200_Highlight) {
-                csi_XTHIMOUSE();
-            } else {
-                csi_SD();
-            }
-            break;
-        case csiKey(0, 0, 'A'):
-            csi_CUU();
-            break;
-        case csiKey(0, 0, 'B'):
-            csi_CUD();
-            break;
-        case csiKey(0, 0, 'C'):
-            csi_CUF();
-            break;
-        case csiKey(0, 0, 'D'):
-            csi_CUB();
-            break;
-        case csiKey(0, 0, 'E'):
-            csi_CNL();
-            break;
-        case csiKey(0, 0, 'F'):
-            csi_CPL();
-            break;
-        case csiKey(0, 0, 'G'):
-            csi_CHA();
-            break;
-        case csiKey(0, 0, 'H'):
-            csi_CUP();
-            break;
-        case csiKey(0, 0, 'f'):
-            csi_CUP();
-            break;
-        case csiKey(0, 0, 'I'):
-            csi_CHT();
-            break;
-        case csiKey(0, 0, 'J'):
-            csi_ED();
-            break;
-        case csiKey(0, 0, 'K'):
-            csi_EL();
-            break;
-        case csiKey(0, 0, 'L'):
-            csi_IL();
-            break;
-        case csiKey(0, 0, 'M'):
-            csi_DL();
-            break;
-        case csiKey(0, 0, 'P'):
-            csi_DCH();
-            break;
-        case csiKey(0, 0, 'S'):
-            csi_SU();
-            break;
-        case csiKey(0, 0, 'X'):
-            csi_ECH();
-            break;
-        case csiKey(0, 0, 'Z'):
-            csi_CBT();
-            break;
-        case csiKey(0, 0, '@'):
-            csi_ICH();
-            break;
-        case csiKey(0, 0, '`'):
-            csi_HPA();
-            break;
-        case csiKey(0, 0, 'a'):
-            csi_HPR();
-            break;
-        case csiKey(0, 0, 'b'):
-            csi_REP();
-            break;
-        case csiKey(0, 0, 'c'):
-            csi_priDA();
-            break;
-        case csiKey(0, 0, 'd'):
-            csi_VPA();
-            break;
-        case csiKey(0, 0, 'e'):
-            csi_VPR();
-            break;
-        case csiKey(0, 0, 'g'):
-            csi_TBC();
-            break;
-        case csiKey(0, 0, 'h'):
-            csi_SM();
-            break;
-        case csiKey(0, 0, 'l'):
-            csi_RM();
-            break;
-        case csiKey(0, 0, 'm'):
-            csi_SGR();
-            break;
-        case csiKey(0, 0, 'n'):
-            csi_DSR();
-            break;
-        case csiKey('?', 0, 'n'):
-            csi_DSR(true);
-            break;
-        case csiKey(0, 0, 'q'):
-            csi_DECLL();
-            break;
-        case csiKey(0, 0, 'i'):
-            csi_MC(false);
-            break;
-        case csiKey(0, 0, 'j'):
-            csi_CUB();
-            break;
-        case csiKey(0, 0, 'k'):
-            csi_CUU();
-            break;
-        case csiKey(0, 0, 'r'):
-            csi_STBM();
-            break;
-        case csiKey(0, 0, 's'):
-            csi_SCOSC_SLRM();
-            break;
-        case csiKey('>', 0, 'T'):
-            csi_XTTITLEMODE(false);
-            break;
-        case csiKey('>', 0, 't'):
-            csi_XTTITLEMODE(true);
-            break;
-        case csiKey(0, 0, 't'):
-            csi_XTWINOPS();
-            break;
-        case csiKey(0, 0, 'u'):
-            csi_SCORC();
-            break;
-        case csiKey(0, '!', 'p'):
-            csi_DECSTR();
-            break;
-        case csiKey(0, '\'', '}'):
-            csi_DECIC();
-            break;
-        case csiKey(0, '\'', '~'):
-            csi_DECDC();
-            break;
-        case csiKey(0, '\'', 'z'):
-            csi_DECELR();
-            break;
-        case csiKey(0, '\'', '{'):
-            csi_DECSLE();
-            break;
-        case csiKey(0, '\'', '|'):
-            csi_DECRQLP();
-            break;
-        case csiKey(0, '\'', 'w'):
-            csi_DECEFR();
-            break;
-        case csiKey(0, '"', 'p'):
-            csiq_DECSCL();
-            break;
-        case csiKey(0, '"', 'q'):
-            csi_DECSCA();
-            break;
-        case csiKey(0, ' ', '@'):
-            csi_ecma48_SL();
-            break;
-        case csiKey(0, ' ', 'A'):
-            csi_ecma48_SR();
-            break;
-        case csiKey(0, ' ', 'q'):
-            csi_DECSCUSR();
-            break;
-        case csiKey('>', 0, 'c'):
-            csi_secDA();
-            break;
-        case csiKey('>', 0, 'm'):
-            csi_XTMODKEYS();
-            break;
-        case csiKey('>', 0, 'u'):
-            csi_kittyKeyboardPush();
-            break;
-        case csiKey('>', 0, 'q'):
-            csi_XTVERSION();
-            break;
-        case csiKey('<', 0, 'u'):
-            csi_kittyKeyboardPop();
-            break;
-        case csiKey('=', 0, 'u'):
-            csi_kittyKeyboardSet();
-            break;
-        case csiKey('=', 0, 'c'):
-            csi_terDA();
-            break;
-        case csiKey('?', 0, 'h'):
-            csi_privSM();
-            break;
-        case csiKey('?', 0, 'l'):
-            csi_privRM();
-            break;
-        case csiKey('?', 0, 's'):
-            csi_privSave();
-            break;
-        case csiKey('?', 0, 'r'):
-            csi_privRestore();
-            break;
-        case csiKey('?', 0, 'u'):
-            csi_kittyKeyboardQuery();
-            break;
-        case csiKey('?', 0, 'm'):
-            csi_XTQMODKEYS();
-            break;
-        case csiKey('?', 0, 'J'):
-            csi_DECSED();
-            break;
-        case csiKey('?', 0, 'K'):
-            csi_DECSEL();
-            break;
-        case csiKey('?', 0, 'i'):
-            csi_MC(true);
-            break;
-        case csiKey(0, '$', 'p'):
-            csi_DECRQM(false);
-            break;
-        case csiKey(0, '$', 'r'):
-            csi_DECCARA(false);
-            break;
-        case csiKey(0, '$', 't'):
-            csi_DECCARA(true);
-            break;
-        case csiKey(0, '$', 'v'):
-            csi_DECCRA();
-            break;
-        case csiKey(0, '$', 'x'):
-            csi_DECFRA();
-            break;
-        case csiKey(0, '$', 'z'):
-            csi_DECERA();
-            break;
-        case csiKey(0, '$', '{'):
-            csi_DECERA(true);
-            break;
-        case csiKey(0, '*', 'y'):
-            csi_DECRQCRA();
-            break;
-        case csiKey('?', '$', 'p'):
-            csi_DECRQM(true);
-            break;
-        default:
-            break;
-    }
 }
 
 namespace {

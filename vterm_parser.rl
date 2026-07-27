@@ -790,7 +790,6 @@
 
     action csiDigit {
         csiHadParams = true;
-        csiPrefixAllowed = false;
         inputPresent[nInputOps - 1] = true;
         if (inputOps[nInputOps - 1] > (UINT32_MAX - (u32)(fc - '0')) / 10) {
             inputOps[nInputOps - 1] = UINT32_MAX;
@@ -804,7 +803,6 @@
             fgoto csiIgnore;
         }
         csiHadParams = true;
-        csiPrefixAllowed = false;
         inputSeparators[nInputOps] = fc;
         inputOps[nInputOps] = 0;
         inputPresent[nInputOps] = false;
@@ -812,22 +810,75 @@
     }
 
     action csiPrefix {
-        csiPrivatePrefix.push_back((char)(fc));
-        csiPrefixAllowed = false;
+        if (csiPrefix != 0) {
+            fgoto csiIgnore;
+        }
+        csiPrefix = fc;
     }
 
     action csiIntermediate {
-        csiPrefixAllowed = false;
-        if (csiIntermediates.size() >= 4) {
+        if (csiIntermediateCount >= sizeof(csiIntermediates)) {
             fgoto csiIgnore;
         }
-        csiIntermediates.push_back((char)(fc));
+        csiIntermediates[csiIntermediateCount++] = fc;
     }
 
-    action csiFinal {
-        dispatchCsi(fc);
+    action csiTrace {
+        traceCsi(fc);
+    }
+
+    action csiDone {
         fnext main;
         fbreak;
+    }
+
+    action csiFinalSelect {
+        fhold;
+        if (csiPrefix == '>') {
+            fgoto csiGreaterDispatch;
+        }
+        if (csiPrefix == '<') {
+            fgoto csiLessDispatch;
+        }
+        if (csiPrefix == '=') {
+            fgoto csiEqualDispatch;
+        }
+        if (csiPrefix == '?') {
+            fgoto csiQuestionDispatch;
+        }
+        fgoto csiPlainDispatch;
+    }
+
+    action csiIntermediateFinalSelect {
+        fhold;
+        if (csiIntermediateCount != 1) {
+            fgoto csiUnknownDispatch;
+        }
+        if (csiPrefix == '?' && csiIntermediates[0] == '$') {
+            fgoto csiQuestionDollarDispatch;
+        }
+        if (csiPrefix != 0) {
+            fgoto csiUnknownDispatch;
+        }
+        if (csiIntermediates[0] == '!') {
+            fgoto csiBangDispatch;
+        }
+        if (csiIntermediates[0] == '"') {
+            fgoto csiQuoteDispatch;
+        }
+        if (csiIntermediates[0] == ' ') {
+            fgoto csiSpaceDispatch;
+        }
+        if (csiIntermediates[0] == '\'') {
+            fgoto csiApostropheDispatch;
+        }
+        if (csiIntermediates[0] == '$') {
+            fgoto csiDollarDispatch;
+        }
+        if (csiIntermediates[0] == '*') {
+            fgoto csiStarDispatch;
+        }
+        fgoto csiUnknownDispatch;
     }
 
     action csiInvalid {
@@ -1158,6 +1209,142 @@
         }
     }
 
+    csiPlainKnown = [@ABCDEFGHIJKLMPSTXZ`abcdefghijklmnqrstu];
+    csiPlainFinal = (
+        'T' @csiTrace @{ if (nInputOps == 5 && mouseTrk.mode == MouseTrackingMode::VT200_Highlight) { csi_XTHIMOUSE(); } else { csi_SD(); } } |
+        'A' @csiTrace @{ csi_CUU(); } |
+        'B' @csiTrace @{ csi_CUD(); } |
+        'C' @csiTrace @{ csi_CUF(); } |
+        'D' @csiTrace @{ csi_CUB(); } |
+        'E' @csiTrace @{ csi_CNL(); } |
+        'F' @csiTrace @{ csi_CPL(); } |
+        'G' @csiTrace @{ csi_CHA(); } |
+        ('H' | 'f') @csiTrace @{ csi_CUP(); } |
+        'I' @csiTrace @{ csi_CHT(); } |
+        'J' @csiTrace @{ csi_ED(); } |
+        'K' @csiTrace @{ csi_EL(); } |
+        'L' @csiTrace @{ csi_IL(); } |
+        'M' @csiTrace @{ csi_DL(); } |
+        'P' @csiTrace @{ csi_DCH(); } |
+        'S' @csiTrace @{ csi_SU(); } |
+        'X' @csiTrace @{ csi_ECH(); } |
+        'Z' @csiTrace @{ csi_CBT(); } |
+        '@' @csiTrace @{ csi_ICH(); } |
+        '`' @csiTrace @{ csi_HPA(); } |
+        'a' @csiTrace @{ csi_HPR(); } |
+        'b' @csiTrace @{ csi_REP(); } |
+        'c' @csiTrace @{ csi_priDA(); } |
+        'd' @csiTrace @{ csi_VPA(); } |
+        'e' @csiTrace @{ csi_VPR(); } |
+        'g' @csiTrace @{ csi_TBC(); } |
+        'h' @csiTrace @{ csi_SM(); } |
+        'i' @csiTrace @{ csi_MC(false); } |
+        'j' @csiTrace @{ csi_CUB(); } |
+        'k' @csiTrace @{ csi_CUU(); } |
+        'l' @csiTrace @{ csi_RM(); } |
+        'm' @csiTrace @{ csi_SGR(); } |
+        'n' @csiTrace @{ csi_DSR(); } |
+        'q' @csiTrace @{ csi_DECLL(); } |
+        'r' @csiTrace @{ csi_STBM(); } |
+        's' @csiTrace @{ csi_SCOSC_SLRM(); } |
+        't' @csiTrace @{ csi_XTWINOPS(); } |
+        'u' @csiTrace @{ csi_SCORC(); } |
+        (0x40..0x7e - csiPlainKnown) @csiTrace
+    ) @csiDone;
+
+    csiGreaterKnown = [Tcmqtu];
+    csiGreaterFinal = (
+        'T' @csiTrace @{ csi_XTTITLEMODE(false); } |
+        'c' @csiTrace @{ csi_secDA(); } |
+        'm' @csiTrace @{ csi_XTMODKEYS(); } |
+        'q' @csiTrace @{ csi_XTVERSION(); } |
+        't' @csiTrace @{ csi_XTTITLEMODE(true); } |
+        'u' @csiTrace @{ csi_kittyKeyboardPush(); } |
+        (0x40..0x7e - csiGreaterKnown) @csiTrace
+    ) @csiDone;
+
+    csiLessFinal = (
+        'u' @csiTrace @{ csi_kittyKeyboardPop(); } |
+        (0x40..0x7e - 'u') @csiTrace
+    ) @csiDone;
+
+    csiEqualKnown = [cu];
+    csiEqualFinal = (
+        'c' @csiTrace @{ csi_terDA(); } |
+        'u' @csiTrace @{ csi_kittyKeyboardSet(); } |
+        (0x40..0x7e - csiEqualKnown) @csiTrace
+    ) @csiDone;
+
+    csiQuestionKnown = [JKhilmnrsu];
+    csiQuestionFinal = (
+        'J' @csiTrace @{ csi_DECSED(); } |
+        'K' @csiTrace @{ csi_DECSEL(); } |
+        'h' @csiTrace @{ csi_privSM(); } |
+        'i' @csiTrace @{ csi_MC(true); } |
+        'l' @csiTrace @{ csi_privRM(); } |
+        'm' @csiTrace @{ csi_XTQMODKEYS(); } |
+        'n' @csiTrace @{ csi_DSR(true); } |
+        'r' @csiTrace @{ csi_privRestore(); } |
+        's' @csiTrace @{ csi_privSave(); } |
+        'u' @csiTrace @{ csi_kittyKeyboardQuery(); } |
+        (0x40..0x7e - csiQuestionKnown) @csiTrace
+    ) @csiDone;
+
+    csiBangFinal = (
+        'p' @csiTrace @{ csi_DECSTR(); } |
+        (0x40..0x7e - 'p') @csiTrace
+    ) @csiDone;
+
+    csiQuoteKnown = [pq];
+    csiQuoteFinal = (
+        'p' @csiTrace @{ csiq_DECSCL(); } |
+        'q' @csiTrace @{ csi_DECSCA(); } |
+        (0x40..0x7e - csiQuoteKnown) @csiTrace
+    ) @csiDone;
+
+    csiSpaceKnown = [@Aq];
+    csiSpaceFinal = (
+        '@' @csiTrace @{ csi_ecma48_SL(); } |
+        'A' @csiTrace @{ csi_ecma48_SR(); } |
+        'q' @csiTrace @{ csi_DECSCUSR(); } |
+        (0x40..0x7e - csiSpaceKnown) @csiTrace
+    ) @csiDone;
+
+    csiApostropheKnown = [wz-~];
+    csiApostropheFinal = (
+        'w' @csiTrace @{ csi_DECEFR(); } |
+        'z' @csiTrace @{ csi_DECELR(); } |
+        '{' @csiTrace @{ csi_DECSLE(); } |
+        '|' @csiTrace @{ csi_DECRQLP(); } |
+        '}' @csiTrace @{ csi_DECIC(); } |
+        '~' @csiTrace @{ csi_DECDC(); } |
+        (0x40..0x7e - csiApostropheKnown) @csiTrace
+    ) @csiDone;
+
+    csiDollarKnown = [prtvxz{];
+    csiDollarFinal = (
+        'p' @csiTrace @{ csi_DECRQM(false); } |
+        'r' @csiTrace @{ csi_DECCARA(false); } |
+        't' @csiTrace @{ csi_DECCARA(true); } |
+        'v' @csiTrace @{ csi_DECCRA(); } |
+        'x' @csiTrace @{ csi_DECFRA(); } |
+        'z' @csiTrace @{ csi_DECERA(); } |
+        '{' @csiTrace @{ csi_DECERA(true); } |
+        (0x40..0x7e - csiDollarKnown) @csiTrace
+    ) @csiDone;
+
+    csiStarFinal = (
+        'y' @csiTrace @{ csi_DECRQCRA(); } |
+        (0x40..0x7e - 'y') @csiTrace
+    ) @csiDone;
+
+    csiQuestionDollarFinal = (
+        'p' @csiTrace @{ csi_DECRQM(true); } |
+        (0x40..0x7e - 'p') @csiTrace
+    ) @csiDone;
+
+    csiUnknownFinal = 0x40..0x7e @csiTrace @csiDone;
+
     cancel = (0x18 | 0x1a) @cancel;
     restartEscape = 0x1b @beginEscape;
     sequenceC0 = (0x00..0x17 | 0x19 | 0x1c..0x1f) @sequenceC0;
@@ -1357,7 +1544,7 @@
         (';' | ':') @csiSeparator @{ fgoto csiParameter; } |
         0x3c..0x3f @csiPrefix |
         0x20..0x2f @csiIntermediate @{ fgoto csiIntermediate; } |
-        0x40..0x7e @csiFinal |
+        0x40..0x7e @csiFinalSelect |
         0x80..0x9f @csiInvalid
     )*;
 
@@ -1371,7 +1558,7 @@
         '0'..'9' @csiDigit |
         (';' | ':') @csiSeparator |
         0x20..0x2f @csiIntermediate @{ fgoto csiIntermediate; } |
-        0x40..0x7e @csiFinal |
+        0x40..0x7e @csiFinalSelect |
         0x3c..0x3f @csiInvalid |
         0x80..0x9f @csiInvalid
     )*;
@@ -1384,7 +1571,7 @@
         highToGround |
         sequenceC0 |
         0x20..0x2f @csiIntermediate |
-        0x40..0x7e @csiFinal |
+        0x40..0x7e @csiIntermediateFinalSelect |
         0x30..0x3f @csiInvalid |
         0x80..0x9f @csiInvalid
     )*;
@@ -1399,6 +1586,20 @@
         0x40..0x7e @csiIgnoredFinal |
         (0x20..0x3f | 0x80..0x9f)
     )*;
+
+    csiPlainDispatch := csiPlainFinal;
+    csiGreaterDispatch := csiGreaterFinal;
+    csiLessDispatch := csiLessFinal;
+    csiEqualDispatch := csiEqualFinal;
+    csiQuestionDispatch := csiQuestionFinal;
+    csiBangDispatch := csiBangFinal;
+    csiQuoteDispatch := csiQuoteFinal;
+    csiSpaceDispatch := csiSpaceFinal;
+    csiApostropheDispatch := csiApostropheFinal;
+    csiDollarDispatch := csiDollarFinal;
+    csiStarDispatch := csiStarFinal;
+    csiQuestionDollarDispatch := csiQuestionDollarFinal;
+    csiUnknownDispatch := csiUnknownFinal;
 
     escapeVt52 := (
         cancel |

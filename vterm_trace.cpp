@@ -30,7 +30,7 @@ namespace {
         void escapeByte(u8 ch) override;
         void escapeEnd() override;
         void escapeCancel() override;
-        void csi(u8 finalByte, const std::string& privatePrefix, const std::string& intermediates, const u32* parameters, const unsigned char* separators, size_t parameterCount, bool hadParameters) override;
+        void csi(u8 finalByte, StringView privatePrefix, StringView intermediates, const u32* parameters, const unsigned char* separators, size_t parameterCount, bool hadParameters) override;
         void stringBegin(VtermTraceString type) override;
         void stringData(const u8* data, size_t size) override;
         void stringEnd() override;
@@ -136,11 +136,11 @@ void VtermTraceImpl::escapeCancel() {
     erase(escapeEvent);
 }
 
-void VtermTraceImpl::csi(u8 finalByte, const std::string& privatePrefix, const std::string& intermediates, const u32* parameters, const unsigned char* separators, size_t parameterCount, bool hadParameters) {
+void VtermTraceImpl::csi(u8 finalByte, StringView privatePrefix, StringView intermediates, const u32* parameters, const unsigned char* separators, size_t parameterCount, bool hadParameters) {
     escapeCancel();
     const size_t index = add("csi");
     std::string& sequence = events[index].data;
-    sequence = privatePrefix;
+    sequence.assign((const char*)(privatePrefix.data()), privatePrefix.length());
     if (hadParameters) {
         for (size_t k = 0; k < parameterCount; ++k) {
             if (k) {
@@ -149,7 +149,7 @@ void VtermTraceImpl::csi(u8 finalByte, const std::string& privatePrefix, const s
             sequence += std::to_string(parameters[k]);
         }
     }
-    sequence += intermediates;
+    sequence.append((const char*)(intermediates.data()), intermediates.length());
     sequence.push_back((char)(finalByte));
 }
 
