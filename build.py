@@ -124,17 +124,58 @@ glfw = library(
 )
 
 
-render_spv = command(
-    inputs=["$(S)/render.comp", "$(S)/generate_render_shaders.py"],
-    outputs=["$(B)/render_spv.h"],
-    cmd=[
-        [
+render_shader_names = [
+    "rgba8_unorm",
+    "bgra8_unorm",
+    "a8b8g8r8_unorm",
+    "rgba8_srgb",
+    "bgra8_srgb",
+    "a8b8g8r8_srgb",
+    "a2b10g10r10_unorm",
+    "a2r10g10b10_unorm",
+    "rgba16_unorm",
+    "rgba16_sfloat_linear",
+    "r5g6b5_unorm",
+    "b5g6r5_unorm",
+    "r4g4b4a4_unorm",
+    "b4g4r4a4_unorm",
+    "r5g5b5a1_unorm",
+    "b5g5r5a1_unorm",
+    "a1r5g5b5_unorm",
+]
+render_shader_outputs = []
+render_shader_targets = []
+for render_shader_name in render_shader_names:
+    render_shader_output = f"$(B)/render_shader_{render_shader_name}.inc"
+    render_shader_outputs.append(render_shader_output)
+    render_shader_targets.append(command(
+        name=f"render_shader_{render_shader_name}",
+        inputs=["$(S)/render.comp", "$(S)/generate_render_shaders.py"],
+        outputs=[render_shader_output],
+        cmd=[
             "python3",
             "$(S)/generate_render_shaders.py",
+            "compile",
             "$(S)/render.comp",
-            "$(B)/render_spv.h",
+            render_shader_name,
+            render_shader_output,
             "glslangValidator",
         ],
+        descr="SH",
+        color="magenta",
+    ))
+
+render_spv = command(
+    name="render_spv",
+    inputs=["$(S)/generate_render_shaders.py", *render_shader_outputs],
+    outputs=["$(B)/render_spv.h"],
+    deps=render_shader_targets,
+    cmd=[
+        "python3",
+        "$(S)/generate_render_shaders.py",
+        "combine",
+        "$(B)/render_spv.h",
+        *render_shader_outputs,
     ],
     descr="SH",
     color="magenta",

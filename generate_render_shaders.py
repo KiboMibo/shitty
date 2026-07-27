@@ -280,35 +280,52 @@ def format_words(name: str, values: tuple[int, ...]) -> list[str]:
     return result
 
 
-def main() -> None:
-    source_path = Path(sys.argv[1])
-    output_path = Path(sys.argv[2])
-    compiler = sys.argv[3] if len(sys.argv) > 3 else "glslangValidator"
+def find_variant(name: str) -> Variant:
+    for variant in VARIANTS:
+        if variant.name == name:
+            return variant
+    raise ValueError(f"unknown render shader variant: {name}")
+
+
+def compile_variant(
+    source_path: Path,
+    name: str,
+    output_path: Path,
+    compiler: str,
+) -> None:
+    variant = find_variant(name)
     template = source_path.read_text(encoding="utf-8")
-    compiled: dict[str, tuple[int, ...]] = {}
+    source = template.replace(
+        "@OUTPUT_DECLARATION@", variant.declaration
+    ).replace("@OUTPUT_STORE@", variant.store)
 
     with tempfile.TemporaryDirectory(prefix="shitty-render-") as directory:
         temporary = Path(directory)
-        for variant in VARIANTS:
-            source = template.replace(
-                "@OUTPUT_DECLARATION@", variant.declaration
-            ).replace("@OUTPUT_STORE@", variant.store)
-            shader_path = temporary / f"{variant.name}.comp"
-            spirv_path = temporary / f"{variant.name}.spv"
-            shader_path.write_text(source, encoding="utf-8")
-            subprocess.run(
-                [
-                    compiler,
-                    "--quiet",
-                    "--target-env", "vulkan1.1",
-                    "-V", "-S", "comp",
-                    "-o", str(spirv_path),
-                    str(shader_path),
-                ],
-                check=True,
-            )
-            compiled[variant.name] = words(spirv_path)
+        shader_path = temporary / f"{variant.name}.comp"
+        spirv_path = temporary / f"{variant.name}.spv"
+        shader_path.write_text(source, encoding="utf-8")
+        subprocess.run(
+            [
+                compiler,
+                "--quiet",
+                "--target-env", "vulkan1.1",
+                "-V", "-S", "comp",
+                "-o", str(spirv_path),
+                str(shader_path),
+            ],
+            check=True,
+        )
+        output_path.write_text(
+            "\n".join(format_words(variant.name, words(spirv_path))),
+            encoding="utf-8",
+        )
 
+
+def combine(output_path: Path, inputs: list[Path]) -> None:
+    if len(inputs) != len(VARIANTS):
+        raise ValueError(
+            f"expected {len(VARIANTS)} shader fragments, got {len(inputs)}"
+        )
     output = [
         "#pragma once",
         "",
@@ -329,8 +346,13 @@ def main() -> None:
         "inline constexpr u32 renderShaderExtendedStorage = 2u;",
         "",
     ]
-    for variant in VARIANTS:
-        output += format_words(variant.name, compiled[variant.name])
+    for variant, input_path in zip(VARIANTS, inputs):
+        if variant.name not in input_path.name:
+            raise ValueError(
+                f"expected fragment for {variant.name}, got {input_path}"
+            )
+        output += input_path.read_text(encoding="utf-8").rstrip().splitlines()
+        output.append("")
     output += [
         "inline constexpr GeneratedRenderShader generatedRenderShaders[] = {",
     ]
@@ -350,6 +372,32 @@ def main() -> None:
         "",
     ]
     output_path.write_text("\n".join(output), encoding="utf-8")
+
+
+def main() -> None:
+    if len(sys.argv) >= 2 and sys.argv[1] == "compile":
+        if len(sys.argv) not in (5, 6):
+            raise ValueError(
+                "usage: generate_render_shaders.py compile "
+                "SOURCE VARIANT OUTPUT [COMPILER]"
+            )
+        compile_variant(
+            Path(sys.argv[2]),
+            sys.argv[3],
+            Path(sys.argv[4]),
+            sys.argv[5] if len(sys.argv) == 6 else "glslangValidator",
+        )
+        return
+    if len(sys.argv) >= 2 and sys.argv[1] == "combine":
+        if len(sys.argv) < 4:
+            raise ValueError(
+                "usage: generate_render_shaders.py combine OUTPUT INPUT..."
+            )
+        combine(Path(sys.argv[2]), [Path(path) for path in sys.argv[3:]])
+        return
+    raise ValueError(
+        "usage: generate_render_shaders.py {compile|combine} ..."
+    )
 
 
 if __name__ == "__main__":
