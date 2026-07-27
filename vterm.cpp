@@ -311,12 +311,12 @@ namespace {
         std::string getLocalEcho(const u8* const begin, const u8* const end);
         bool processInput(const u8* input, int size, bool refresh = true);
         [[gnu::noinline]] bool processInputImpl(const u8* input, int size, bool refresh);
-        [[gnu::noinline]] bool processInputLegacy(const u8* input, int size, bool refresh);
         void parseWithRagel(const u8* data, size_t len);
         bool ragelGroundContinuation(u8 ch);
         void ragelGroundHigh(u8 ch);
         void ragelGroundAscii(u8 ch);
         void ragelBeginString(VtermTraceString type, bool buffered);
+        bool ragelStringContinuation(u8 ch);
         void ragelAppendString(u8 ch, size_t limit);
         void ragelAppendEscapedString(u8 ch, size_t limit);
         void ragelFinishDcs();
@@ -367,32 +367,9 @@ namespace {
         void collectCellExtras();
         void updateExtraCellCount();
 
-        enum class InputState : u8 {
-            Normal,
-            IgnoreSequence,
-            Escape,
-            EscapeIntermediate,
-            Escape_VT52,
-            Esc_SPC,
-            Esc_Hash,
-            Esc_Pct,
-            SelectCharset,
-            CSI,
-            DCS,
-            DCS_Esc,
-            OSC,
-            OSC_Esc,
-            String,
-            String_Esc,
-            VT52_CUP_Arg1,
-            VT52_CUP_Arg2
-        };
-
-        void setState(InputState inputState);
         bool stringUtf8Continuation(u8 ch);
         void beginCsi();
-        [[gnu::always_inline]] bool executeC0InSequence(unsigned char ch);
-        [[gnu::always_inline]] void processCsiByte(unsigned char ch);
+        [[gnu::always_inline]] bool executeC0InSequence(unsigned char ch, bool stringData = false);
         void dispatchCsi(unsigned char finalByte);
 
         void normalizeCursorPos();
@@ -665,7 +642,6 @@ namespace {
         bool underlineColorDefault = true;
         bool hasFocus = false;
 
-        InputState inputState = InputState::Normal;
         int ragelState = 0;
         bool ragelInitialized = false;
         // Whether a private/intermediate CSI prefix may still occur.  This is
@@ -693,6 +669,7 @@ namespace {
         u32 inputGraphemeSemantic = 0;
         std::vector<unsigned char> argBuf;
         bool argBufOverflowed = false;
+        size_t ragelStringLimit = 0;
         u8 stringUtf8Remaining = 0;
         unsigned char scsDst;
         unsigned char scsMod;
@@ -2142,16 +2119,7 @@ size_t VtermInputSpec::getLength() const {
 
 template <bool traced>
 void VtermImpl<traced>::unhandledInput(unsigned char ch) {
-    if ((ch >= 0x20 && ch <= 0x2f) || ch == ':') {
-        switch (inputState) {
-            case InputState::CSI:
-                setState(InputState::IgnoreSequence);
-                return;
-            default:
-                break;
-        }
-    }
-    setState(InputState::Normal);
+    (void)ch;
 }
 
 template <bool traced>
@@ -2435,8 +2403,6 @@ void VtermImpl<traced>::resetTerminal() {
     hMargin = 0;
     nColsEff = composer.columns;
 
-    setState(InputState::Normal);
-
     if (host.handlesOsc()) {
         argBuf.clear();
         argBuf.push_back('0');
@@ -2620,25 +2586,6 @@ void VtermImpl<traced>::switchScreenBufferMode(bool altScreenBufferMode_, bool c
         altScreenBufferMode = false;
     }
     updateExtraCellCount();
-}
-
-template <bool traced>
-void VtermImpl<traced>::setState(InputState newState) {
-    if (newState == inputState) {
-        return;
-    }
-
-    stringUtf8Remaining = 0;
-
-    if (newState == InputState::Normal) {
-        csiPrefixAllowed = false;
-        nInputOps = 0;
-        inputOps[0] = 0;
-    } else if (inputState == InputState::Normal) {
-        resetGraphemeInput();
-    }
-
-    inputState = newState;
 }
 
 template <bool traced>
@@ -3319,7 +3266,7 @@ void VtermImpl<traced>::inp_HT() {
 
 template <bool traced>
 void VtermImpl<traced>::showCursor() {
-    if (showCursorMode && inputState == InputState::Normal) {
+    if (showCursorMode) {
         cf->setCursorPos(posY, posX);
         using CS = TerminalCursor::Style;
         cf->setCursorStyle(hasFocus ? cursorShape : CS::hollow_block);
@@ -3437,13 +3384,11 @@ void VtermImpl<traced>::esc_DCS(unsigned char fin) {
     }
 
     charsetState.g[ix] = cs;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
 bool VtermImpl<traced>::esc_IND() {
     const bool scrolled = performIndex();
-    setState(InputState::Normal);
     return scrolled;
 }
 
@@ -3508,7 +3453,6 @@ void VtermImpl<traced>::csi_MC(bool privateMode) {
             printerControllerState = PrinterControllerState::Normal;
         }
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3524,7 +3468,6 @@ void VtermImpl<traced>::csi_DECLL() {
         }
     }
     host.leds(ledState);
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3651,7 +3594,6 @@ void VtermImpl<traced>::esc_RI() {
         --posY;
         lastCol = false;
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3661,7 +3603,6 @@ void VtermImpl<traced>::csi_ecma48_SL() {
         arg = std::min<u32>(arg, nColsEff - hMargin);
         deleteCols(hMargin, (u16)(arg));
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3671,7 +3612,6 @@ void VtermImpl<traced>::csi_ecma48_SR() {
         arg = std::min<u32>(arg, nColsEff - hMargin);
         insertCols(hMargin, (u16)(arg));
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3702,7 +3642,6 @@ void VtermImpl<traced>::csi_DECSCUSR() {
     nextBlink = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
     frame_pri->setBlinkState(true, cursorBlinkMode);
     frame_alt->setBlinkState(true, cursorBlinkMode);
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3712,7 +3651,6 @@ void VtermImpl<traced>::csi_DECIC() {
         arg = min<u32>(arg, nColsEff - posX);
         insertCols(posX, (u16)(arg));
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3722,7 +3660,6 @@ void VtermImpl<traced>::csi_DECDC() {
         arg = min<u32>(arg, nColsEff - posX);
         deleteCols(posX, (u16)(arg));
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3734,7 +3671,6 @@ void VtermImpl<traced>::esc_FI() {
         ++posX;
         lastCol = false;
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3746,14 +3682,12 @@ void VtermImpl<traced>::esc_BI() {
         --posX;
         lastCol = false;
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
 void VtermImpl<traced>::esc_NEL() {
     esc_IND();
     inp_CR();
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3768,19 +3702,16 @@ void VtermImpl<traced>::esc_HTS() {
         tabStops.push_back(posX);
         std::sort(tabStops.begin(), tabStops.end());
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
 void VtermImpl<traced>::esc_SPA() {
     attrs.protected_char |= TerminalCell::isoProtection;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
 void VtermImpl<traced>::esc_EPA() {
     attrs.protected_char &= ~TerminalCell::isoProtection;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3812,7 +3743,6 @@ void VtermImpl<traced>::esc_DECSC() {
     savedCursor->originMode = originMode;
     savedCursor->charsetState = charsetState;
     savedCursor->isSet = true;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3828,7 +3758,6 @@ void VtermImpl<traced>::esc_DECRC() {
         originMode = savedCursor->originMode;
         charsetState = savedCursor->charsetState;
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3838,7 +3767,6 @@ void VtermImpl<traced>::csi_CUU() {
     arg = std::min<u32>(arg, posY - top);
     posY -= arg;
     lastCol = false;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3848,7 +3776,6 @@ void VtermImpl<traced>::csi_CUD() {
     arg = std::min<u32>(arg, bottom - posY - 1);
     posY += arg;
     lastCol = false;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3859,13 +3786,11 @@ void VtermImpl<traced>::csi_CUF() {
     arg = std::min<u32>(arg, right - posX - 1);
     posX += arg;
     lastCol = false;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
 void VtermImpl<traced>::csi_CUB() {
     moveCursorBackward(inputOps[0] ? inputOps[0] : 1);
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3902,14 +3827,12 @@ template <bool traced>
 void VtermImpl<traced>::csi_CNL() {
     csi_CUD();
     inp_CR();
-    setState(InputState::Normal);
 }
 
 template <bool traced>
 void VtermImpl<traced>::csi_CPL() {
     csi_CUU();
     inp_CR();
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3923,13 +3846,11 @@ void VtermImpl<traced>::csi_CHA() {
         posX = col - 1;
     }
     lastCol = false;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
 void VtermImpl<traced>::csi_HPA() {
     csi_CHA();
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3938,7 +3859,6 @@ void VtermImpl<traced>::csi_HPR() {
     const u16 right = originMode == OriginMode::ScrollingRegion ? nColsEff : composer.columns;
     posX = (u16)(std::min<u64>((u64)(posX) + arg, right - 1));
     lastCol = false;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3952,7 +3872,6 @@ void VtermImpl<traced>::csi_VPA() {
         posY = row - 1;
     }
     lastCol = false;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3961,7 +3880,6 @@ void VtermImpl<traced>::csi_VPR() {
     const u16 bottom = originMode == OriginMode::ScrollingRegion ? marginBottom : composer.rows;
     posY = (u16)(std::min<u64>((u64)(posY) + arg, bottom - 1));
     lastCol = false;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3982,7 +3900,6 @@ void VtermImpl<traced>::csi_CUP() {
     posX = col;
     posY = row;
     lastCol = false;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -3992,7 +3909,6 @@ void VtermImpl<traced>::csi_SU() {
     const bool pendingWrap = lastCol;
     scrollRegionUp((u16)(arg));
     lastCol = pendingWrap;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4022,7 +3938,6 @@ void VtermImpl<traced>::csi_SD() {
     const bool pendingWrap = lastCol;
     scrollRegionDown((u16)(arg));
     lastCol = pendingWrap;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4036,7 +3951,6 @@ void VtermImpl<traced>::csi_CHT() {
             jumpToNextTabStop();
         }
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4062,14 +3976,12 @@ void VtermImpl<traced>::csi_CBT() {
         }
         lastCol = false;
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
 void VtermImpl<traced>::csi_REP() {
     const u32 preceding = utf8dec.getUnicode();
     if (!preceding || codepointWidth(preceding) == 0) {
-        setState(InputState::Normal);
         return;
     }
     u32 arg = inputOps[0] ? inputOps[0] : 1;
@@ -4080,7 +3992,6 @@ void VtermImpl<traced>::csi_REP() {
     for (u32 k = 0; k < arg; ++k) {
         placeGraphicChar();
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4111,7 +4022,6 @@ void VtermImpl<traced>::csi_ED() {
         default:
             break;
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4130,7 +4040,6 @@ void VtermImpl<traced>::csi_EL() {
         default:
             break;
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4149,7 +4058,6 @@ void VtermImpl<traced>::csi_DECSED() {
             selectiveEraseRangeInRow(row, 0, count);
         }
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4162,7 +4070,6 @@ void VtermImpl<traced>::csi_DECSEL() {
     } else if (inputOps[0] == 2) {
         selectiveEraseRangeInRow(posY, 0, composer.columns);
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4172,7 +4079,6 @@ void VtermImpl<traced>::csi_DECSCA() {
     } else {
         attrs.protected_char &= ~TerminalCell::decProtection;
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4180,19 +4086,16 @@ void VtermImpl<traced>::csi_DECFRA() {
     if (inputOps[0] >= 32 && inputOps[0] <= 0x10ffff) {
         Rectangle rectangle;
         if (!rectangleFromParams(1, rectangle)) {
-            setState(InputState::Normal);
             return;
         }
         cf->fillRectangle(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, inputOps[0], attrs, eraseAttrs);
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
 void VtermImpl<traced>::csi_DECERA(bool selective) {
     Rectangle rectangle;
     if (!rectangleFromParams(0, rectangle)) {
-        setState(InputState::Normal);
         return;
     }
     for (u16 y = rectangle.top; y < rectangle.bottom; ++y) {
@@ -4202,14 +4105,12 @@ void VtermImpl<traced>::csi_DECERA(bool selective) {
             eraseRangeInRow(y, rectangle.left, rectangle.right - rectangle.left);
         }
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
 void VtermImpl<traced>::csi_DECCRA() {
     Rectangle source;
     if (!rectangleFromParams(0, source)) {
-        setState(InputState::Normal);
         return;
     }
     u16 rowBase, columnBase, rowLimit, columnLimit;
@@ -4223,7 +4124,6 @@ void VtermImpl<traced>::csi_DECCRA() {
     const u16 height = std::min<u16>(source.bottom - source.top, rowLimit - targetTop);
     const u16 width = std::min<u16>(source.right - source.left, columnLimit - targetLeft);
     cf->copyRectangle(source.top, source.left, targetTop, targetLeft, height, width, eraseAttrs);
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4231,12 +4131,10 @@ void VtermImpl<traced>::csi_DECCARA(bool reverse) {
     if (nInputOps >= 5) {
         Rectangle rectangle;
         if (!rectangleFromParams(0, rectangle)) {
-            setState(InputState::Normal);
             return;
         }
         cf->changeRectangleAttributes(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, inputOps + 4, nInputOps - 4, reverse);
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4244,7 +4142,6 @@ void VtermImpl<traced>::csi_DECRQCRA() {
     if (nInputOps >= 6) {
         Rectangle rectangle;
         if (!rectangleFromParams(2, rectangle)) {
-            setState(InputState::Normal);
             return;
         }
         const u16 checksum = cf->checksum(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right);
@@ -4252,7 +4149,6 @@ void VtermImpl<traced>::csi_DECRQCRA() {
         response << inputOps[0] << StringView(u8"!~") << Hex{checksum, 4, true};
         writeDcsResponse(StringView(response));
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4263,7 +4159,6 @@ void VtermImpl<traced>::csi_IL() {
         insertRows(posY, (u16)(arg));
         inp_CR();
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4274,7 +4169,6 @@ void VtermImpl<traced>::csi_DL() {
         deleteRows(posY, (u16)(arg));
         inp_CR();
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4285,7 +4179,6 @@ void VtermImpl<traced>::csi_ICH() {
         cf->insertCells(posY, posX, nColsEff, (u16)(arg), eraseAttrs);
     }
     lastCol = false;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4296,7 +4189,6 @@ void VtermImpl<traced>::csi_DCH() {
         cf->deleteCells(posY, posX, nColsEff, (u16)(arg), eraseAttrs);
     }
     lastCol = false;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4306,7 +4198,6 @@ void VtermImpl<traced>::csi_ECH() {
     arg = std::min(arg, len);
     eraseEcmaRangeInRow(posY, posX, arg);
     lastCol = false;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4330,7 +4221,6 @@ void VtermImpl<traced>::csi_STBM() {
         posY = marginTop;
     }
     lastCol = false;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4354,7 +4244,6 @@ void VtermImpl<traced>::csi_SLRM() {
         posY = marginTop;
     }
     lastCol = false;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4379,7 +4268,6 @@ void VtermImpl<traced>::csi_TBC() {
         default:
             break;
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4407,7 +4295,6 @@ void VtermImpl<traced>::csi_SM() {
                 break;
         }
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4435,7 +4322,6 @@ void VtermImpl<traced>::csi_RM() {
                 break;
         }
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4833,7 +4719,6 @@ void VtermImpl<traced>::csi_privSM() {
     for (size_t k = 0; k < nInputOps; ++k) {
         setPrivMode(inputOps[k], true);
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4841,7 +4726,6 @@ void VtermImpl<traced>::csi_privRM() {
     for (size_t k = 0; k < nInputOps; ++k) {
         setPrivMode(inputOps[k], false);
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4858,7 +4742,6 @@ void VtermImpl<traced>::csi_privSave() {
                 break;
         }
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -4870,7 +4753,6 @@ void VtermImpl<traced>::csi_privRestore() {
             setPrivMode(arg, it->second);
         }
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -5185,7 +5067,6 @@ void VtermImpl<traced>::csi_SGR() {
     if (underlineColorDefault) {
         setAttrUnderlineColor(reverseVideo ? attrBackground() : attrForeground());
     }
-    setState(InputState::Normal);
 }
 
 /* 64 - VT420 family
@@ -5199,31 +5080,26 @@ void VtermImpl<traced>::csi_SGR() {
 template <bool traced>
 void VtermImpl<traced>::csi_priDA() {
     writeCsiResponse("?" DEVICE_ID);
-    setState(InputState::Normal);
 }
 
 template <bool traced>
 void VtermImpl<traced>::csi_secDA() {
     writeCsiResponse(">41;14;0c");
-    setState(InputState::Normal);
 }
 
 template <bool traced>
 void VtermImpl<traced>::csi_terDA() {
     writeDcsResponse("!|00000000");
-    setState(InputState::Normal);
 }
 
 template <bool traced>
 void VtermImpl<traced>::csi_XTVERSION() {
     writeDcsResponse(">|Shitty " SHITTY_VERSION);
-    setState(InputState::Normal);
 }
 
 template <bool traced>
 void VtermImpl<traced>::csi_DECRQM(bool privateMode) {
     if (compatLevel < CompatibilityLevel::VT300) {
-        setState(InputState::Normal);
         return;
     }
     const u32 mode = inputOps[0];
@@ -5367,7 +5243,6 @@ void VtermImpl<traced>::csi_DECRQM(bool privateMode) {
     }
     response << mode << StringView(u8";") << (unsigned)(state) << StringView(u8"$y");
     writeCsiResponse(StringView(response));
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -5420,7 +5295,6 @@ void VtermImpl<traced>::csi_DSR(bool privateMode) {
             default:
                 break;
         }
-        setState(InputState::Normal);
         return;
     }
     switch (inputOps[0]) {
@@ -5439,7 +5313,6 @@ void VtermImpl<traced>::csi_DSR(bool privateMode) {
         default:
             break;
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -5462,8 +5335,6 @@ void VtermImpl<traced>::esch_DECALN() {
     attrs = origAttrs;
     eraseAttrs = origEraseAttrs;
     reverseVideo = attrs.inverse;
-
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -5472,13 +5343,11 @@ void VtermImpl<traced>::setLineAttribute(u8 attribute) {
     if (attribute) {
         posX = std::min<u16>(posX, std::max(1, composer.columns / 2) - 1);
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
 void VtermImpl<traced>::esc_RIS() {
     resetTerminal();
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -5497,19 +5366,16 @@ void VtermImpl<traced>::csi_DECSTR() {
     savedCursor->originMode = OriginMode::Absolute;
     savedCursor->charsetState = CharsetState{};
     savedCursor->isSet = true;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
 void VtermImpl<traced>::handle_DCS() {
     if (compatLevel < CompatibilityLevel::VT200) {
-        setState(InputState::Normal);
         return;
     }
     auto arg = std::string((char*)argBuf.data(), argBuf.size());
     if (arg.substr(0, 2) == "$q") {
         if (compatLevel < CompatibilityLevel::VT400) {
-            setState(InputState::Normal);
             return;
         }
         dcs_DECRQSS(arg);
@@ -5518,7 +5384,6 @@ void VtermImpl<traced>::handle_DCS() {
     } else if (arg.find('|') != std::string::npos) {
         dcs_DECUDK(arg);
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -5810,7 +5675,6 @@ void VtermImpl<traced>::handle_OSC() {
         if ((cmd == 0 || cmd == 1 || cmd == 2) && (titleModes & 1)) {
             std::string decoded;
             if (!decodeHex(arg, decoded)) {
-                setState(InputState::Normal);
                 return;
             }
             const auto control = std::find_if(decoded.begin(), decoded.end(), [](unsigned char ch) {
@@ -5951,7 +5815,6 @@ void VtermImpl<traced>::handle_OSC() {
                 break;
         }
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -6211,7 +6074,6 @@ void VtermImpl<traced>::csi_XTTITLEMODE(bool set) {
             }
         }
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -6422,26 +6284,22 @@ void VtermImpl<traced>::csiq_DECSCL() {
             level = CompatibilityLevel::VT500;
             break;
         default:
-            setState(InputState::Normal);
             return;
     }
 
     const u32 controlMode = nInputOps > 1 ? inputOps[1] : 0;
     if (controlMode > 2) {
-        setState(InputState::Normal);
         return;
     }
 
     resetTerminal();
     compatLevel = level;
     send8BitControls = level != CompatibilityLevel::VT100 && controlMode != 1;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
 void VtermImpl<traced>::csi_XTWINOPS() {
     if (!opts.allowWindowOps) {
-        setState(InputState::Normal);
         return;
     }
     const u32 operation = inputOps[0];
@@ -6565,7 +6423,6 @@ void VtermImpl<traced>::csi_XTWINOPS() {
             }
             break;
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -6579,7 +6436,6 @@ void VtermImpl<traced>::csi_XTHIMOUSE() {
     } else {
         mouseHighlight.active = false;
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -6588,7 +6444,6 @@ void VtermImpl<traced>::csi_DECELR() {
     locator.enabled = mode <= 2 ? mode : 0;
     locator.pixels = nInputOps > 1 && inputOps[1] == 1;
     locator.filter = false;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -6613,7 +6468,6 @@ void VtermImpl<traced>::csi_DECSLE() {
                 break;
         }
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -6630,7 +6484,6 @@ void VtermImpl<traced>::csi_DECRQLP() {
     } else {
         writeCsiResponse("0&w");
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -6643,7 +6496,6 @@ void VtermImpl<traced>::csi_DECEFR() {
     locator.filterBottom = value(2, locator.filterTop);
     locator.filterRight = value(3, locator.filterLeft);
     locator.filter = locator.enabled != 0;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -6662,7 +6514,6 @@ void VtermImpl<traced>::csi_XTMODKEYS() {
         }
     }
     modifyOtherKeys = modifyKeyResources[4];
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -6673,7 +6524,6 @@ void VtermImpl<traced>::csi_XTQMODKEYS() {
         response << StringView(u8">") << resource << StringView(u8";") << (unsigned)(modifyKeyResources[resource]) << StringView(u8"m");
         writeCsiResponse(StringView(response));
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -6685,7 +6535,6 @@ void VtermImpl<traced>::csi_kittyKeyboardPush() {
     }
     state.stack.push_back(state.flags);
     state.flags = inputOps[0] & 0x1f;
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -6700,7 +6549,6 @@ void VtermImpl<traced>::csi_kittyKeyboardPop() {
         state.flags = state.stack.back();
         state.stack.pop_back();
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -6721,7 +6569,6 @@ void VtermImpl<traced>::csi_kittyKeyboardSet() {
         default:
             break;
     }
-    setState(InputState::Normal);
 }
 
 template <bool traced>
@@ -6729,7 +6576,6 @@ void VtermImpl<traced>::csi_kittyKeyboardQuery() {
     StringBuilder response;
     response << StringView(u8"?") << (unsigned)(getKittyKeyboardFlags()) << StringView(u8"u");
     writeCsiResponse(StringView(response));
-    setState(InputState::Normal);
 }
 
 namespace {
@@ -8563,6 +8409,9 @@ void VtermImpl<traced>::syncPresentationCursor() {
 
 template <bool traced>
 void VtermImpl<traced>::beginCsi() {
+    stringUtf8Remaining = 0;
+    ragelStringLimit = 0;
+    resetGraphemeInput();
     inputOps[0] = 0;
     inputSeparators[0] = 0;
     inputPresent[0] = false;
@@ -8571,17 +8420,16 @@ void VtermImpl<traced>::beginCsi() {
     csiPrefixAllowed = true;
     csiPrivatePrefix.clear();
     csiIntermediates.clear();
-    setState(InputState::CSI);
 }
 
 template <bool traced>
-bool VtermImpl<traced>::executeC0InSequence(unsigned char ch) {
+bool VtermImpl<traced>::executeC0InSequence(unsigned char ch, bool stringData) {
     if (ch >= 0x20 || ch == '\x18' || ch == '\x1a' || ch == '\x1b') {
         return false;
     }
 
     if constexpr (traced) {
-        if (inputState != InputState::String && inputState != InputState::String_Esc) {
+        if (!stringData) {
             parserTrace->control(ch);
         }
     }
@@ -8637,7 +8485,6 @@ void VtermImpl<traced>::dispatchCsi(unsigned char finalByte) {
     }
     // No recognized sequence carries more than one intermediate byte.
     if (csiIntermediates.size() > 1) {
-        setState(InputState::Normal);
         return;
     }
     const u32 key = csiKey(csiPrivatePrefix.empty() ? 0 : csiPrivatePrefix[0], csiIntermediates.empty() ? 0 : csiIntermediates[0], (char)(finalByte));
@@ -8884,118 +8731,11 @@ void VtermImpl<traced>::dispatchCsi(unsigned char finalByte) {
             csi_DECRQM(true);
             break;
         default:
-            setState(InputState::Normal);
             break;
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::processCsiByte(unsigned char ch) {
-    if (ch == 0x7f || executeC0InSequence(ch)) {
-        return;
-    }
-    if (ch >= '0' && ch <= '9') {
-        if (!csiIntermediates.empty()) {
-            setState(InputState::IgnoreSequence);
-            return;
-        }
-        csiHadParams = true;
-        csiPrefixAllowed = false;
-        inputPresent[nInputOps - 1] = true;
-        if (inputOps[nInputOps - 1] > (UINT32_MAX - (u32)(ch - '0')) / 10) {
-            inputOps[nInputOps - 1] = UINT32_MAX;
-        } else {
-            inputOps[nInputOps - 1] = inputOps[nInputOps - 1] * 10 + ch - '0';
-        }
-        return;
-    }
-    if (ch == ';' || ch == ':') {
-        if (!csiIntermediates.empty() || nInputOps >= maxEscOps) {
-            setState(InputState::IgnoreSequence);
-            return;
-        }
-        csiHadParams = true;
-        csiPrefixAllowed = false;
-        inputSeparators[nInputOps] = ch;
-        inputOps[nInputOps++] = 0;
-        inputPresent[nInputOps - 1] = false;
-        return;
-    }
-    if (ch >= '<' && ch <= '?' && csiPrefixAllowed && csiPrivatePrefix.empty()) {
-        csiPrivatePrefix.push_back((char)(ch));
-        return;
-    }
-    if (ch >= 0x20 && ch <= 0x2f) {
-        csiPrefixAllowed = false;
-        if (csiIntermediates.size() >= 4) {
-            setState(InputState::IgnoreSequence);
-            return;
-        }
-        csiIntermediates.push_back((char)(ch));
-        return;
-    }
-    if (ch >= 0x40 && ch <= 0x7e) {
-        dispatchCsi(ch);
-        return;
-    }
-    setState(InputState::IgnoreSequence);
-}
-
 namespace {
-    // Pre-dispatch classification for in-sequence states: one state-mask
-    // load and one byte-mask load decide whether any cross-cutting rule
-    // (cancel, escape begin, C1, abort, intermediates, string handling)
-    // can apply before the state switch.
-    constexpr u8 kPreCtrl = 0x01;
-    constexpr u8 kPreHigh = 0x02;
-    constexpr u8 kPreIntermediate = 0x04;
-    constexpr u8 kPreStringBulk = 0x08;
-    constexpr u8 kPreStringAll = 0x10;
-
-    constexpr std::array<u8, 256> makeByteHit() {
-        std::array<u8, 256> table{};
-        for (int ch = 0; ch < 256; ++ch) {
-            u8 flags = kPreStringAll;
-            if (ch == 0x18 || ch == 0x1a || ch == 0x1b || ch == 0x7f) {
-                flags |= kPreCtrl;
-            }
-            if (ch >= 0x80) {
-                flags |= kPreHigh;
-            }
-            if (ch >= 0x20 && ch <= 0x2f) {
-                flags |= kPreIntermediate;
-            }
-            if (ch >= 0x20 && ch < 0x7f) {
-                flags |= kPreStringBulk;
-            }
-            table[ch] = flags;
-        }
-        return table;
-    }
-
-    constexpr std::array<u8, 256> kByteHit = makeByteHit();
-
-    constexpr u8 kStateHit[] = {
-        0,                                      // Normal (has its own branch)
-        kPreCtrl | kPreHigh,                    // IgnoreSequence
-        kPreCtrl | kPreHigh,                    // Escape
-        kPreCtrl | kPreHigh,                    // EscapeIntermediate
-        kPreCtrl | kPreHigh,                    // Escape_VT52
-        kPreCtrl | kPreHigh | kPreIntermediate, // Esc_SPC
-        kPreCtrl | kPreHigh | kPreIntermediate, // Esc_Hash
-        kPreCtrl | kPreHigh | kPreIntermediate, // Esc_Pct
-        kPreCtrl | kPreHigh,                    // SelectCharset
-        kPreCtrl | kPreHigh,                    // CSI
-        kPreStringBulk | kPreStringAll,         // DCS
-        kPreStringAll,                          // DCS_Esc
-        kPreStringBulk | kPreStringAll,         // OSC
-        kPreStringAll,                          // OSC_Esc
-        kPreStringBulk | kPreStringAll,         // String
-        kPreStringAll,                          // String_Esc
-        kPreCtrl | kPreHigh,                    // VT52_CUP_Arg1
-        kPreCtrl | kPreHigh,                    // VT52_CUP_Arg2
-    };
-
     [[gnu::always_inline]] size_t printableAsciiPrefix(const u8* input, size_t size) {
         using Bytes = u8 __attribute__((vector_size(16)));
 #if !defined(__SSE2__)
@@ -9110,923 +8850,6 @@ bool VtermImpl<traced>::processInput(const u8* input, int inputSize, bool refres
 }
 
 template <bool traced>
-[[gnu::noinline]] bool VtermImpl<traced>::processInputLegacy(const u8* input, int inputSize, bool refresh) {
-    const PresentationState presentationBefore = capturePresentationState();
-    hideCursor();
-    const u8* cursor = input;
-    const u8* const inputEnd = input + inputSize;
-    while (cursor != inputEnd) {
-        const u8* const current = cursor++;
-        const u8 ch = *current;
-        if (printerControllerMode) [[unlikely]] {
-            cursor = current + consumePrinterController(current, inputEnd - current);
-            continue;
-        }
-        if (inputState == InputState::Normal) [[likely]] {
-            if (ch >= 0x20 && ch < 0x7f && !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8) {
-                const size_t lines = placeAsciiLines(current, inputEnd - current);
-                if (lines != 0) {
-                    cursor = current + lines;
-                    continue;
-                }
-                const size_t count = printableAsciiPrefix(current, inputEnd - current);
-                if constexpr (traced) {
-                    parserTrace->text(current, count);
-                }
-                if (insertMode) {
-                    placeAsciiRun<true>(current, count);
-                } else {
-                    placeAsciiRun<false>(current, count);
-                }
-                cursor = current + count;
-                if (cursor + 1 < inputEnd && cursor[0] == '\r' && cursor[1] == '\n') {
-                    if constexpr (traced) {
-                        parserTrace->control('\r');
-                        parserTrace->control('\n');
-                    }
-                    resetGraphemeInput();
-                    inp_CR();
-                    if (autoNewlineMode) {
-                        inp_CR();
-                    }
-                    esc_IND();
-                    cursor += 2;
-                }
-                continue;
-            }
-            if (ch >= 0xc2 && ch <= 0xf4 && !insertMode && !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8 && charsetState.g[charsetState.gr] == Charset::UTF8) {
-                const int consumed = placeUtf8Run(current, inputEnd - current);
-                if (consumed > 0) {
-                    if constexpr (traced) {
-                        parserTrace->text(current, consumed);
-                    }
-                    cursor = current + consumed;
-                    continue;
-                }
-            }
-            if (ch == '\x18' || ch == '\x1a') {
-                if constexpr (traced) {
-                    parserTrace->control(ch);
-                }
-                resetGraphemeInput();
-                continue;
-            }
-            if (ch == 0x7f) {
-                continue;
-            }
-            if constexpr (traced) {
-                if (ch > 0 && ch < 0x20 && ch != '\x1b') {
-                    parserTrace->control(ch);
-                } else if (ch >= 0xa0 || (ch >= 0x80 && utf8dec.expectsContinuation())) {
-                    parserTrace->text(&ch, 1);
-                } else if (ch >= 0x80 && ch <= 0x9f && ch != 0x90 && ch != 0x98 && ch != 0x9b && ch != 0x9d && ch != 0x9e && ch != 0x9f) {
-                    parserTrace->control(ch);
-                }
-            }
-            if (utf8dec.expectsContinuation() && ch >= 0x80) {
-                if (charsetState.g[charsetState.gr] == Charset::UTF8) {
-                    for (int completed = utf8dec.pushByte(ch); completed > 0; --completed) {
-                        placeGraphicChar();
-                    }
-                } else {
-                    inputGraphicChar(ch);
-                }
-                continue;
-            }
-            if (ch < 0x20 || ch == 0x7f || (ch >= 0x80 && ch <= 0x9f)) {
-                resetGraphemeInput();
-            }
-            switch (ch) {
-                case '\x00':
-                case '\x7f':
-                    break;
-                case '\x1b':
-                    if constexpr (traced) {
-                        parserTrace->escapeBegin();
-                    }
-                    setState(compatLevel == CompatibilityLevel::VT52 ? InputState::Escape_VT52 : InputState::Escape);
-                    inputOps[0] = 0;
-                    inputSeparators[0] = 0;
-                    nInputOps = 1;
-                    break;
-                case 0x84:
-                    esc_IND();
-                    break;
-                case 0x85:
-                    esc_NEL();
-                    break;
-                case 0x88:
-                    esc_HTS();
-                    break;
-                case 0x8d:
-                    esc_RI();
-                    break;
-                case 0x8e:
-                    charsetState.ss = 2;
-                    break;
-                case 0x8f:
-                    charsetState.ss = 3;
-                    break;
-                case 0x90:
-                    argBuf.clear();
-                    argBufOverflowed = false;
-                    if constexpr (traced) {
-                        parserTrace->stringBegin(VtermTraceString::Dcs);
-                    }
-                    setState(InputState::DCS);
-                    break;
-                case 0x96:
-                    esc_SPA();
-                    break;
-                case 0x97:
-                    esc_EPA();
-                    break;
-                case 0x98:
-                    if constexpr (traced) {
-                        parserTrace->stringBegin(VtermTraceString::Sos);
-                    }
-                    setState(InputState::String);
-                    break;
-                case 0x9a:
-                    csi_priDA();
-                    break;
-                case 0x9e:
-                    if constexpr (traced) {
-                        parserTrace->stringBegin(VtermTraceString::Pm);
-                    }
-                    setState(InputState::String);
-                    break;
-                case 0x9f:
-                    if constexpr (traced) {
-                        parserTrace->stringBegin(VtermTraceString::Apc);
-                    }
-                    setState(InputState::String);
-                    break;
-                case 0x9b:
-                    beginCsi();
-                    break;
-                case 0x9c:
-                    break;
-                case 0x9d:
-                    argBuf.clear();
-                    argBufOverflowed = false;
-                    if constexpr (traced) {
-                        parserTrace->stringBegin(VtermTraceString::Osc);
-                    }
-                    setState(InputState::OSC);
-                    break;
-                case '\r':
-                    inp_CR();
-                    break;
-                case '\f':
-                case '\v':
-                case '\n':
-                    if (autoNewlineMode) {
-                        inp_CR();
-                    }
-                    esc_IND();
-                    break;
-                case '\t':
-                    inp_HT();
-                    break;
-                case '\b':
-                    csi_CUB();
-                    break;
-                case '\a':
-                    host.bell();
-                    break;
-                case '\x0e':
-                    charsetState.gl = 1;
-                    break;
-                case '\x0f':
-                    charsetState.gl = 0;
-                    break;
-                case '\x05':
-                    break;
-                default:
-                    if (ch >= 0x80 && charsetState.g[charsetState.gr] == Charset::UTF8) {
-                        for (int completed = utf8dec.pushByte(ch); completed > 0; --completed) {
-                            placeGraphicChar();
-                        }
-                    } else {
-                        inputGraphicChar(ch);
-                    }
-            }
-            continue;
-        }
-        bool utf8StringContinuation = false;
-        const u8 stateHit = kStateHit[(size_t)(inputState)];
-        const u8 pre = stateHit & kByteHit[ch];
-        if (pre == 0) {
-            goto dispatch;
-        }
-        if (pre & kPreStringBulk) {
-            stringUtf8Remaining = 0;
-            const u8* end = current + 1;
-            while (end != inputEnd && *end >= 0x20 && *end < 0x7f) {
-                ++end;
-            }
-            if constexpr (traced) {
-                parserTrace->stringData(current, end - current);
-            }
-            if (inputState != InputState::String && !argBufOverflowed) {
-                const size_t limit = inputState == InputState::DCS ? 4095 : maxOscBytes;
-                const size_t count = end - current;
-                const size_t available = argBuf.size() < limit ? limit - argBuf.size() : 0;
-                const size_t append = std::min(count, available);
-                argBuf.insert(argBuf.end(), current, current + append);
-                if (append < count) {
-                    argBufOverflowed = true;
-                }
-            }
-            cursor = end;
-            continue;
-        }
-        utf8StringContinuation = (stateHit & kPreStringBulk) != 0 && stringUtf8Continuation(ch);
-        if (ch == '\x18' || ch == '\x1a') {
-            if constexpr (traced) {
-                parserTrace->control(ch);
-                parserTrace->stringCancel();
-                parserTrace->escapeCancel();
-            }
-            setState(InputState::Normal);
-            continue;
-        }
-        if (ch == 0x7f) {
-            continue;
-        }
-        if (ch == '\x1b' && inputState != InputState::Escape && inputState != InputState::Escape_VT52 && inputState != InputState::DCS && inputState != InputState::DCS_Esc && inputState != InputState::OSC && inputState != InputState::OSC_Esc && inputState != InputState::String && inputState != InputState::String_Esc) {
-            if constexpr (traced) {
-                parserTrace->stringCancel();
-                parserTrace->escapeCancel();
-                parserTrace->escapeBegin();
-            }
-            setState(compatLevel == CompatibilityLevel::VT52 ? InputState::Escape_VT52 : InputState::Escape);
-            inputOps[0] = 0;
-            inputSeparators[0] = 0;
-            nInputOps = 1;
-            continue;
-        }
-        if (ch >= 0xa0 && inputState != InputState::DCS && inputState != InputState::DCS_Esc && inputState != InputState::OSC && inputState != InputState::OSC_Esc && inputState != InputState::String && inputState != InputState::String_Esc) {
-            if constexpr (traced) {
-                parserTrace->escapeCancel();
-            }
-            setState(InputState::Normal);
-            --cursor;
-            continue;
-        }
-        if (!utf8StringContinuation) {
-            switch (ch) {
-                case 0x90:
-                    argBuf.clear();
-                    argBufOverflowed = false;
-                    if constexpr (traced) {
-                        parserTrace->stringBegin(VtermTraceString::Dcs);
-                    }
-                    setState(InputState::DCS);
-                    continue;
-                case 0x96:
-                    if constexpr (traced) {
-                        parserTrace->escapeCancel();
-                        parserTrace->control(ch);
-                    }
-                    esc_SPA();
-                    continue;
-                case 0x97:
-                    if constexpr (traced) {
-                        parserTrace->escapeCancel();
-                        parserTrace->control(ch);
-                    }
-                    esc_EPA();
-                    continue;
-                case 0x98:
-                    if constexpr (traced) {
-                        parserTrace->stringBegin(VtermTraceString::Sos);
-                    }
-                    setState(InputState::String);
-                    continue;
-                case 0x9a:
-                    if constexpr (traced) {
-                        parserTrace->escapeCancel();
-                    }
-                    csi_priDA();
-                    continue;
-                case 0x9e:
-                    if constexpr (traced) {
-                        parserTrace->stringBegin(VtermTraceString::Pm);
-                    }
-                    setState(InputState::String);
-                    continue;
-                case 0x9f:
-                    if constexpr (traced) {
-                        parserTrace->stringBegin(VtermTraceString::Apc);
-                    }
-                    setState(InputState::String);
-                    continue;
-                case 0x9b:
-                    beginCsi();
-                    continue;
-                case 0x9c:
-                    if (inputState != InputState::DCS && inputState != InputState::OSC) {
-                        if constexpr (traced) {
-                            parserTrace->escapeCancel();
-                            parserTrace->control(ch);
-                        }
-                        setState(InputState::Normal);
-                        continue;
-                    }
-                    break;
-                case 0x9d:
-                    argBuf.clear();
-                    argBufOverflowed = false;
-                    if constexpr (traced) {
-                        parserTrace->stringBegin(VtermTraceString::Osc);
-                    }
-                    setState(InputState::OSC);
-                    continue;
-            }
-        }
-        if ((inputState == InputState::Esc_SPC || inputState == InputState::Esc_Hash || inputState == InputState::Esc_Pct) && ch >= 0x20 && ch <= 0x2f) {
-            if constexpr (traced) {
-                parserTrace->escapeByte(ch);
-            }
-            setState(InputState::EscapeIntermediate);
-            continue;
-        }
-    dispatch:
-        switch (inputState) {
-            case InputState::Normal:
-                break;
-            case InputState::IgnoreSequence:
-                if (executeC0InSequence(ch)) {
-                    break;
-                } else if (ch >= '\x40' && ch <= '\x7e') {
-                    if constexpr (traced) {
-                        parserTrace->escapeCancel();
-                    }
-                    setState(InputState::Normal);
-                }
-                break;
-            case InputState::Escape_VT52:
-                switch (ch) {
-                    case '\x18':
-                    case '\x1a':
-                        setState(InputState::Normal);
-                        break;
-                    case '\x1b':
-                        inputOps[0] = 0;
-                        nInputOps = 1;
-                        break;
-                    case '=':
-                        keypadMode = KeypadMode::Application;
-                        setState(InputState::Normal);
-                        break;
-                    case '>':
-                        keypadMode = KeypadMode::Normal;
-                        setState(InputState::Normal);
-                        break;
-                    case '<':
-                        compatLevel = CompatibilityLevel::VT100;
-                        setState(InputState::Normal);
-                        break;
-                    case 'A':
-                        csi_CUU();
-                        break;
-                    case 'B':
-                        csi_CUD();
-                        break;
-                    case 'C':
-                        csi_CUF();
-                        break;
-                    case 'D':
-                        csi_CUB();
-                        break;
-                    case 'F':
-                        charsetState = CharsetState{};
-                        charsetState.g[charsetState.gl] = Charset::DecSpec;
-                        setState(InputState::Normal);
-                        break;
-                    case 'G':
-                        charsetState = CharsetState{};
-                        setState(InputState::Normal);
-                        break;
-                    case 'H':
-                        csi_CUP();
-                        break;
-                    case 'I':
-                        esc_RI();
-                        break;
-                    case 'J':
-                        csi_ED();
-                        break;
-                    case 'K':
-                        csi_EL();
-                        break;
-                    case 'Y':
-                        setState(InputState::VT52_CUP_Arg1);
-                        break;
-                    case 'Z':
-                        writePty("\x1b/Z");
-                        break;
-                    case 'c':
-                        esc_RIS();
-                        break;
-                    default:
-                        unhandledInput(ch);
-                        break;
-                }
-                break;
-            case InputState::VT52_CUP_Arg1:
-                inputOps[0] = ch - 31;
-                setState(InputState::VT52_CUP_Arg2);
-                break;
-            case InputState::VT52_CUP_Arg2:
-                inputOps[1] = ch - 31;
-                nInputOps = 2;
-                csi_CUP();
-                break;
-            case InputState::Escape:
-                if constexpr (traced) {
-                    if (ch == '\x1b') {
-                        parserTrace->escapeCancel();
-                        parserTrace->escapeBegin();
-                    } else if (ch > 0 && ch < 0x20) {
-                        parserTrace->control(ch);
-                    } else if (ch >= 0x20 && ch <= 0x2f) {
-                        parserTrace->escapeByte(ch);
-                    } else if (ch != 'P' && ch != 'X' && ch != '[' && ch != '\\' && ch != ']' && ch != '^' && ch != '_') {
-                        parserTrace->escapeByte(ch);
-                        parserTrace->escapeEnd();
-                    }
-                }
-                switch (ch) {
-                    case '\x18':
-                    case '\x1a':
-                        setState(InputState::Normal);
-                        break;
-                    case '\x1b':
-                        inputOps[0] = 0;
-                        nInputOps = 1;
-                        break;
-                    case ' ':
-                        setState(InputState::Esc_SPC);
-                        break;
-                    case '#':
-                        setState(InputState::Esc_Hash);
-                        break;
-                    case '%':
-                        setState(InputState::Esc_Pct);
-                        break;
-                    case '[':
-                        beginCsi();
-                        break;
-                    case ']':
-                        argBuf.clear();
-                        argBufOverflowed = false;
-                        if constexpr (traced) {
-                            parserTrace->stringBegin(VtermTraceString::Osc);
-                        }
-                        setState(InputState::OSC);
-                        break;
-                    case 'X':
-                        if constexpr (traced) {
-                            parserTrace->stringBegin(VtermTraceString::Sos);
-                        }
-                        setState(InputState::String);
-                        break;
-                    case '^':
-                        if constexpr (traced) {
-                            parserTrace->stringBegin(VtermTraceString::Pm);
-                        }
-                        setState(InputState::String);
-                        break;
-                    case '_':
-                        if constexpr (traced) {
-                            parserTrace->stringBegin(VtermTraceString::Apc);
-                        }
-                        setState(InputState::String);
-                        break;
-                    case '(':
-                    case ')':
-                    case '*':
-                    case '+':
-                    case '-':
-                    case '.':
-                    case '/':
-                    case ',':
-                    case '$':
-                        scsDst = ch;
-                        scsMod = '\0';
-                        setState(InputState::SelectCharset);
-                        break;
-                    case 'D':
-                        esc_IND();
-                        break;
-                    case 'M':
-                        esc_RI();
-                        break;
-                    case 'E':
-                        esc_NEL();
-                        break;
-                    case 'H':
-                        esc_HTS();
-                        break;
-                    case 'N':
-                        charsetState.ss = 2;
-                        setState(InputState::Normal);
-                        break;
-                    case 'O':
-                        charsetState.ss = 3;
-                        setState(InputState::Normal);
-                        break;
-                    case 'P':
-                        argBuf.clear();
-                        argBufOverflowed = false;
-                        if constexpr (traced) {
-                            parserTrace->stringBegin(VtermTraceString::Dcs);
-                        }
-                        setState(InputState::DCS);
-                        break;
-                    case 'V':
-                        esc_SPA();
-                        break;
-                    case 'W':
-                        esc_EPA();
-                        break;
-                    case 'Z':
-                        csi_priDA();
-                        break;
-                    case 'c':
-                        esc_RIS();
-                        break;
-                    case '6':
-                        esc_BI();
-                        break;
-                    case '7':
-                        esc_DECSC();
-                        break;
-                    case '8':
-                        esc_DECRC();
-                        break;
-                    case '9':
-                        esc_FI();
-                        break;
-                    case '=':
-                        keypadMode = KeypadMode::Application;
-                        setState(InputState::Normal);
-                        break;
-                    case '>':
-                        keypadMode = KeypadMode::Normal;
-                        setState(InputState::Normal);
-                        break;
-                    case '<':
-                        compatLevel = CompatibilityLevel::VT400;
-                        setState(InputState::Normal);
-                        break;
-                    case '~':
-                        charsetState.gr = 1;
-                        setState(InputState::Normal);
-                        break;
-                    case 'n':
-                        charsetState.gl = 2;
-                        setState(InputState::Normal);
-                        break;
-                    case '}':
-                        charsetState.gr = 2;
-                        setState(InputState::Normal);
-                        break;
-                    case 'o':
-                        charsetState.gl = 3;
-                        setState(InputState::Normal);
-                        break;
-                    case '|':
-                        charsetState.gr = 3;
-                        setState(InputState::Normal);
-                        break;
-                    case '\\':
-                        if constexpr (traced) {
-                            parserTrace->escapeByte(ch);
-                            parserTrace->escapeEnd();
-                        }
-                        setState(InputState::Normal);
-                        break;
-                    default:
-                        if (ch >= 0x20 && ch <= 0x2f) {
-                            setState(InputState::EscapeIntermediate);
-                        } else {
-                            unhandledInput(ch);
-                        }
-                        break;
-                }
-                break;
-            case InputState::EscapeIntermediate:
-                if (executeC0InSequence(ch)) {
-                    break;
-                }
-                if (ch >= 0x20 && ch <= 0x2f) {
-                    if constexpr (traced) {
-                        parserTrace->escapeByte(ch);
-                    }
-                } else if (ch >= 0x30 && ch <= 0x7e) {
-                    if constexpr (traced) {
-                        parserTrace->escapeByte(ch);
-                        parserTrace->escapeEnd();
-                    }
-                    setState(InputState::Normal);
-                } else {
-                    unhandledInput(ch);
-                }
-                break;
-            case InputState::Esc_SPC:
-                if constexpr (traced) {
-                    parserTrace->escapeByte(ch);
-                    parserTrace->escapeEnd();
-                }
-                switch (ch) {
-                    case 'F':
-                        if (compatLevel >= CompatibilityLevel::VT200) {
-                            send8BitControls = false;
-                        }
-                        setState(InputState::Normal);
-                        break;
-                    case 'G':
-                        if (compatLevel >= CompatibilityLevel::VT200) {
-                            send8BitControls = true;
-                        }
-                        setState(InputState::Normal);
-                        break;
-                    case 'L':
-                        setState(InputState::Normal);
-                        break;
-                    case 'M':
-                        setState(InputState::Normal);
-                        break;
-                    case 'N':
-                        setState(InputState::Normal);
-                        break;
-                    default:
-                        unhandledInput(ch);
-                        break;
-                }
-                break;
-            case InputState::Esc_Hash:
-                if constexpr (traced) {
-                    parserTrace->escapeByte(ch);
-                    parserTrace->escapeEnd();
-                }
-                switch (ch) {
-                    case '3':
-                        setLineAttribute(1);
-                        break;
-                    case '4':
-                        setLineAttribute(2);
-                        break;
-                    case '5':
-                        setLineAttribute(0);
-                        break;
-                    case '6':
-                        setLineAttribute(3);
-                        break;
-                    case '8':
-                        esch_DECALN();
-                        break;
-                    default:
-                        unhandledInput(ch);
-                        break;
-                }
-                break;
-            case InputState::Esc_Pct:
-                if constexpr (traced) {
-                    parserTrace->escapeByte(ch);
-                    parserTrace->escapeEnd();
-                }
-                switch (ch) {
-                    case '@':
-                        charsetState = CharsetState{};
-                        charsetState.g[charsetState.gr] = Charset::IsoLatin1;
-                        charsetState.g[3] = Charset::IsoLatin1;
-                        setState(InputState::Normal);
-                        break;
-                    case 'G':
-                        charsetState = CharsetState{};
-                        setState(InputState::Normal);
-                        break;
-                    default:
-                        unhandledInput(ch);
-                        break;
-                }
-                break;
-            case InputState::SelectCharset:
-                if (ch < 0x30) {
-                    if constexpr (traced) {
-                        parserTrace->escapeByte(ch);
-                    }
-                    scsMod = ch;
-                } else {
-                    if constexpr (traced) {
-                        parserTrace->escapeByte(ch);
-                        parserTrace->escapeEnd();
-                    }
-                    esc_DCS(ch);
-                }
-                break;
-            case InputState::CSI:
-                processCsiByte(ch);
-                break;
-            case InputState::DCS:
-                switch (ch) {
-                    case 0x9c:
-                        if (!utf8StringContinuation) {
-                            if constexpr (traced) {
-                                parserTrace->stringEnd();
-                            }
-                            if (argBufOverflowed) {
-                                setState(InputState::Normal);
-                            } else {
-                                handle_DCS();
-                            }
-                            break;
-                        }
-                        [[fallthrough]];
-                    default:
-                        if (executeC0InSequence(ch)) {
-                            break;
-                        } else if (argBuf.size() < 4095) {
-                            if constexpr (traced) {
-                                parserTrace->stringData(&ch, 1);
-                            }
-                            argBuf.push_back(ch);
-                        } else if (!argBufOverflowed) {
-                            argBufOverflowed = true;
-                        }
-                        break;
-                    case '\x1b':
-                        setState(InputState::DCS_Esc);
-                        break;
-                    case '\x7f':
-                        break;
-                }
-                break;
-            case InputState::DCS_Esc:
-                switch (ch) {
-                    case '\\':
-                        if constexpr (traced) {
-                            parserTrace->stringEnd();
-                        }
-                        if (argBufOverflowed) {
-                            setState(InputState::Normal);
-                        } else {
-                            handle_DCS();
-                        }
-                        break;
-                    case '\x1b':
-                        if (!argBufOverflowed && argBuf.size() < 4095) {
-                            if constexpr (traced) {
-                                parserTrace->stringData(&ch, 1);
-                            }
-                            argBuf.push_back('\x1b');
-                        } else {
-                            argBufOverflowed = true;
-                        }
-                        break;
-                    default:
-                        if (!argBufOverflowed && argBuf.size() <= 4093) {
-                            if constexpr (traced) {
-                                const u8 prefix[] = {'\x1b', ch};
-                                parserTrace->stringData(prefix, 2);
-                            }
-                            argBuf.push_back('\x1b');
-                            argBuf.push_back(ch);
-                        } else {
-                            argBufOverflowed = true;
-                        }
-                        setState(InputState::DCS);
-                        break;
-                }
-                break;
-            case InputState::OSC:
-                switch (ch) {
-                    case 0x9c:
-                        if (!utf8StringContinuation) {
-                            if constexpr (traced) {
-                                parserTrace->stringEnd();
-                            }
-                            if (argBufOverflowed) {
-                                setState(InputState::Normal);
-                            } else {
-                                handle_OSC();
-                            }
-                            break;
-                        }
-                        [[fallthrough]];
-                    default:
-                        if (executeC0InSequence(ch)) {
-                            break;
-                        } else if (argBuf.size() < maxOscBytes) {
-                            if constexpr (traced) {
-                                parserTrace->stringData(&ch, 1);
-                            }
-                            argBuf.push_back(ch);
-                        } else if (!argBufOverflowed) {
-                            argBufOverflowed = true;
-                        }
-                        break;
-                    case '\a':
-                        if constexpr (traced) {
-                            parserTrace->stringEnd();
-                        }
-                        if (argBufOverflowed) {
-                            setState(InputState::Normal);
-                        } else {
-                            handle_OSC();
-                        }
-                        break;
-                    case '\x1b':
-                        setState(InputState::OSC_Esc);
-                        break;
-                    case '\x7f':
-                        break;
-                }
-                break;
-            case InputState::OSC_Esc:
-                switch (ch) {
-                    case '\\':
-                        if constexpr (traced) {
-                            parserTrace->stringEnd();
-                        }
-                        if (argBufOverflowed) {
-                            setState(InputState::Normal);
-                        } else {
-                            handle_OSC();
-                        }
-                        break;
-                    case '\x1b':
-                        if (!argBufOverflowed && argBuf.size() < maxOscBytes) {
-                            if constexpr (traced) {
-                                parserTrace->stringData(&ch, 1);
-                            }
-                            argBuf.push_back('\x1b');
-                        } else {
-                            argBufOverflowed = true;
-                        }
-                        break;
-                    default:
-                        if (!argBufOverflowed && argBuf.size() <= maxOscBytes - 2) {
-                            if constexpr (traced) {
-                                const u8 prefix[] = {'\x1b', ch};
-                                parserTrace->stringData(prefix, 2);
-                            }
-                            argBuf.push_back('\x1b');
-                            argBuf.push_back(ch);
-                        } else {
-                            argBufOverflowed = true;
-                        }
-                        setState(InputState::OSC);
-                        break;
-                }
-                break;
-            case InputState::String:
-                if (ch == 0x9c && !utf8StringContinuation) {
-                    if constexpr (traced) {
-                        parserTrace->stringEnd();
-                    }
-                    setState(InputState::Normal);
-                } else if (ch == '\x1b') {
-                    setState(InputState::String_Esc);
-                } else if (executeC0InSequence(ch)) {
-                    if constexpr (traced) {
-                        parserTrace->stringData(&ch, 1);
-                    }
-                    break;
-                } else if constexpr (traced) {
-                    parserTrace->stringData(&ch, 1);
-                }
-                break;
-            case InputState::String_Esc:
-                if (ch == '\\') {
-                    if constexpr (traced) {
-                        parserTrace->stringEnd();
-                    }
-                    setState(InputState::Normal);
-                } else if (ch != '\x1b') {
-                    if constexpr (traced) {
-                        const u8 prefix[] = {'\x1b', ch};
-                        parserTrace->stringData(prefix, 2);
-                    }
-                    setState(InputState::String);
-                }
-                break;
-        }
-    }
-    syncPresentationCursor();
-    const bool changed = presentationChanged(presentationBefore);
-    if (refresh && changed) {
-        redraw();
-    }
-    return changed;
-}
-
-template <bool traced>
 [[gnu::noinline]] bool VtermImpl<traced>::processInputImpl(const u8* input, int inputSize, bool refresh) {
     const PresentationState presentationBefore = capturePresentationState();
     hideCursor();
@@ -10100,6 +8923,9 @@ void VtermImpl<traced>::ragelGroundAscii(u8 ch) {
 
 template <bool traced>
 void VtermImpl<traced>::ragelBeginString(VtermTraceString type, bool buffered) {
+    resetGraphemeInput();
+    stringUtf8Remaining = 0;
+    ragelStringLimit = type == VtermTraceString::Dcs ? 4095 : type == VtermTraceString::Osc ? maxOscBytes : 0;
     if (buffered) {
         argBuf.clear();
         argBufOverflowed = false;
@@ -10107,13 +8933,19 @@ void VtermImpl<traced>::ragelBeginString(VtermTraceString type, bool buffered) {
     if constexpr (traced) {
         parserTrace->stringBegin(type);
     }
-    if (type == VtermTraceString::Dcs) {
-        setState(InputState::DCS);
-    } else if (type == VtermTraceString::Osc) {
-        setState(InputState::OSC);
-    } else {
-        setState(InputState::String);
+}
+
+template <bool traced>
+bool VtermImpl<traced>::ragelStringContinuation(u8 ch) {
+    if (!stringUtf8Continuation(ch)) {
+        return false;
     }
+    if (ragelStringLimit != 0) {
+        ragelAppendString(ch, ragelStringLimit);
+    } else if constexpr (traced) {
+        parserTrace->stringData(&ch, 1);
+    }
+    return true;
 }
 
 template <bool traced>
@@ -10144,11 +8976,12 @@ void VtermImpl<traced>::ragelAppendEscapedString(u8 ch, size_t limit) {
 
 template <bool traced>
 void VtermImpl<traced>::ragelFinishDcs() {
+    stringUtf8Remaining = 0;
+    ragelStringLimit = 0;
     if constexpr (traced) {
         parserTrace->stringEnd();
     }
     if (argBufOverflowed) {
-        setState(InputState::Normal);
     } else {
         handle_DCS();
     }
@@ -10156,11 +8989,12 @@ void VtermImpl<traced>::ragelFinishDcs() {
 
 template <bool traced>
 void VtermImpl<traced>::ragelFinishOsc() {
+    stringUtf8Remaining = 0;
+    ragelStringLimit = 0;
     if constexpr (traced) {
         parserTrace->stringEnd();
     }
     if (argBufOverflowed) {
-        setState(InputState::Normal);
     } else {
         handle_OSC();
     }

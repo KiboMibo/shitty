@@ -18,17 +18,21 @@
     }
 
     action cancel {
+        stringUtf8Remaining = 0;
+        ragelStringLimit = 0;
         if constexpr (traced) {
             parserTrace->control(fc);
             parserTrace->stringCancel();
             parserTrace->escapeCancel();
         }
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
 
     action beginEscape {
+        resetGraphemeInput();
+        stringUtf8Remaining = 0;
+        ragelStringLimit = 0;
         if constexpr (traced) {
             parserTrace->stringCancel();
             parserTrace->escapeCancel();
@@ -38,10 +42,8 @@
         inputSeparators[0] = 0;
         nInputOps = 1;
         if (compatLevel == CompatibilityLevel::VT52) {
-            setState(InputState::Escape_VT52);
             fgoto escapeVt52;
         }
-        setState(InputState::Escape);
         fgoto escape;
     }
 
@@ -131,7 +133,6 @@
             parserTrace->control(fc);
         }
         charsetState.ss = 2;
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
@@ -142,7 +143,6 @@
             parserTrace->control(fc);
         }
         charsetState.ss = 3;
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
@@ -182,7 +182,6 @@
             parserTrace->escapeCancel();
             parserTrace->control(fc);
         }
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
@@ -195,7 +194,6 @@
         if constexpr (traced) {
             parserTrace->escapeCancel();
         }
-        setState(InputState::Normal);
         fhold;
         fgoto main;
     }
@@ -463,7 +461,6 @@
         if constexpr (traced) {
             parserTrace->escapeByte(fc);
         }
-        setState(InputState::EscapeIntermediate);
         fgoto escapeIntermediate;
     }
 
@@ -490,7 +487,6 @@
         if constexpr (traced) {
             parserTrace->escapeByte(fc);
         }
-        setState(InputState::Esc_SPC);
         fgoto escapeSpace;
     }
 
@@ -498,7 +494,6 @@
         if constexpr (traced) {
             parserTrace->escapeByte(fc);
         }
-        setState(InputState::Esc_Hash);
         fgoto escapeHash;
     }
 
@@ -506,7 +501,6 @@
         if constexpr (traced) {
             parserTrace->escapeByte(fc);
         }
-        setState(InputState::Esc_Pct);
         fgoto escapePercent;
     }
 
@@ -516,7 +510,6 @@
         }
         scsDst = fc;
         scsMod = '\0';
-        setState(InputState::SelectCharset);
         fgoto selectCharset;
     }
 
@@ -525,7 +518,6 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
@@ -576,7 +568,6 @@
             parserTrace->escapeEnd();
         }
         charsetState.ss = 2;
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
@@ -587,7 +578,6 @@
             parserTrace->escapeEnd();
         }
         charsetState.ss = 3;
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
@@ -678,7 +668,6 @@
             parserTrace->escapeEnd();
         }
         keypadMode = KeypadMode::Application;
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
@@ -689,7 +678,6 @@
             parserTrace->escapeEnd();
         }
         keypadMode = KeypadMode::Normal;
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
@@ -700,7 +688,6 @@
             parserTrace->escapeEnd();
         }
         compatLevel = CompatibilityLevel::VT400;
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
@@ -711,7 +698,6 @@
             parserTrace->escapeEnd();
         }
         charsetState.gr = 1;
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
@@ -722,7 +708,6 @@
             parserTrace->escapeEnd();
         }
         charsetState.gl = 2;
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
@@ -733,7 +718,6 @@
             parserTrace->escapeEnd();
         }
         charsetState.gr = 2;
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
@@ -744,7 +728,6 @@
             parserTrace->escapeEnd();
         }
         charsetState.gl = 3;
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
@@ -755,7 +738,6 @@
             parserTrace->escapeEnd();
         }
         charsetState.gr = 3;
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
@@ -771,7 +753,6 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
@@ -780,7 +761,6 @@
         if constexpr (traced) {
             parserTrace->escapeByte(fc);
         }
-        setState(InputState::EscapeIntermediate);
         fgoto escapeIntermediate;
     }
 
@@ -821,7 +801,6 @@
 
     action csiSeparator {
         if (nInputOps >= maxEscOps) {
-            setState(InputState::IgnoreSequence);
             fgoto csiIgnore;
         }
         csiHadParams = true;
@@ -840,7 +819,6 @@
     action csiIntermediate {
         csiPrefixAllowed = false;
         if (csiIntermediates.size() >= 4) {
-            setState(InputState::IgnoreSequence);
             fgoto csiIgnore;
         }
         csiIntermediates.push_back((char)(fc));
@@ -853,7 +831,6 @@
     }
 
     action csiInvalid {
-        setState(InputState::IgnoreSequence);
         fgoto csiIgnore;
     }
 
@@ -861,28 +838,24 @@
         if constexpr (traced) {
             parserTrace->escapeCancel();
         }
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
 
     action vt52AppKeypad {
         keypadMode = KeypadMode::Application;
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
 
     action vt52NormalKeypad {
         keypadMode = KeypadMode::Normal;
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
 
     action vt52Ansi {
         compatLevel = CompatibilityLevel::VT100;
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
@@ -914,14 +887,12 @@
     action vt52Graphics {
         charsetState = CharsetState{};
         charsetState.g[charsetState.gl] = Charset::DecSpec;
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
 
     action vt52Ascii {
         charsetState = CharsetState{};
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
@@ -951,13 +922,11 @@
     }
 
     action vt52CupBegin {
-        setState(InputState::VT52_CUP_Arg1);
         fgoto vt52CupRow;
     }
 
     action vt52Identify {
         writePty("\x1b/Z");
-        setState(InputState::Normal);
         fnext main;
         fbreak;
     }
@@ -976,7 +945,6 @@
 
     action vt52Row {
         inputOps[0] = fc - 31;
-        setState(InputState::VT52_CUP_Arg2);
         fgoto vt52CupColumn;
     }
 
@@ -990,7 +958,7 @@
 
     action dcsData {
         stringUtf8Continuation(fc);
-        if (!executeC0InSequence(fc)) {
+        if (!executeC0InSequence(fc, true)) {
             ragelAppendString(fc, 4095);
         }
     }
@@ -1006,7 +974,6 @@
     }
 
     action dcsEscape {
-        setState(InputState::DCS_Esc);
         fgoto dcsEscape;
     }
 
@@ -1023,13 +990,12 @@
 
     action dcsEscapedData {
         ragelAppendEscapedString(fc, 4095);
-        setState(InputState::DCS);
         fgoto dcs;
     }
 
     action oscData {
         stringUtf8Continuation(fc);
-        if (!executeC0InSequence(fc)) {
+        if (!executeC0InSequence(fc, true)) {
             ragelAppendString(fc, maxOscBytes);
         }
     }
@@ -1051,7 +1017,6 @@
     }
 
     action oscEscape {
-        setState(InputState::OSC_Esc);
         fgoto oscEscape;
     }
 
@@ -1068,13 +1033,12 @@
 
     action oscEscapedData {
         ragelAppendEscapedString(fc, maxOscBytes);
-        setState(InputState::OSC);
         fgoto osc;
     }
 
     action ignoredData {
         stringUtf8Continuation(fc);
-        if (executeC0InSequence(fc)) {
+        if (executeC0InSequence(fc, true)) {
             if constexpr (traced) {
                 parserTrace->stringData(&fc, 1);
             }
@@ -1089,17 +1053,17 @@
                 parserTrace->stringData(&fc, 1);
             }
         } else {
+            stringUtf8Remaining = 0;
+            ragelStringLimit = 0;
             if constexpr (traced) {
                 parserTrace->stringEnd();
             }
-            setState(InputState::Normal);
             fnext main;
             fbreak;
         }
     }
 
     action ignoredEscape {
-        setState(InputState::String_Esc);
         fgoto stringEscape;
     }
 
@@ -1108,88 +1072,55 @@
             const u8 bytes[] = {'\x1b', (u8)(fc)};
             parserTrace->stringData(bytes, sizeof(bytes));
         }
-        setState(InputState::String);
         fgoto string;
     }
 
     action stringRestartDcs {
-        if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, inputState == InputState::DCS ? 4095 : maxOscBytes);
-        } else {
+        if (!ragelStringContinuation(fc)) {
             ragelBeginString(VtermTraceString::Dcs, true);
             fgoto dcs;
         }
     }
 
     action stringRestartOsc {
-        if (stringUtf8Continuation(fc)) {
-            if (inputState == InputState::String) {
-                if constexpr (traced) {
-                    parserTrace->stringData(&fc, 1);
-                }
-            } else {
-                ragelAppendString(fc, inputState == InputState::DCS ? 4095 : maxOscBytes);
-            }
-        } else {
+        if (!ragelStringContinuation(fc)) {
             ragelBeginString(VtermTraceString::Osc, true);
             fgoto osc;
         }
     }
 
     action stringRestartSos {
-        if (stringUtf8Continuation(fc)) {
-            if constexpr (traced) {
-                parserTrace->stringData(&fc, 1);
-            }
-        } else {
+        if (!ragelStringContinuation(fc)) {
             ragelBeginString(VtermTraceString::Sos, false);
             fgoto string;
         }
     }
 
     action stringRestartPm {
-        if (stringUtf8Continuation(fc)) {
-            if constexpr (traced) {
-                parserTrace->stringData(&fc, 1);
-            }
-        } else {
+        if (!ragelStringContinuation(fc)) {
             ragelBeginString(VtermTraceString::Pm, false);
             fgoto string;
         }
     }
 
     action stringRestartApc {
-        if (stringUtf8Continuation(fc)) {
-            if constexpr (traced) {
-                parserTrace->stringData(&fc, 1);
-            }
-        } else {
+        if (!ragelStringContinuation(fc)) {
             ragelBeginString(VtermTraceString::Apc, false);
             fgoto string;
         }
     }
 
     action stringRestartCsi {
-        if (stringUtf8Continuation(fc)) {
-            if (inputState == InputState::String) {
-                if constexpr (traced) {
-                    parserTrace->stringData(&fc, 1);
-                }
-            } else {
-                ragelAppendString(fc, inputState == InputState::DCS ? 4095 : maxOscBytes);
-            }
-        } else {
+        if (!ragelStringContinuation(fc)) {
             beginCsi();
             fgoto csiEntry;
         }
     }
 
     action stringControlSpa {
-        if (stringUtf8Continuation(fc)) {
-            if constexpr (traced) {
-                parserTrace->stringData(&fc, 1);
-            }
-        } else {
+        if (!ragelStringContinuation(fc)) {
+            stringUtf8Remaining = 0;
+            ragelStringLimit = 0;
             if constexpr (traced) {
                 parserTrace->stringCancel();
                 parserTrace->control(fc);
@@ -1201,11 +1132,9 @@
     }
 
     action stringControlEpa {
-        if (stringUtf8Continuation(fc)) {
-            if constexpr (traced) {
-                parserTrace->stringData(&fc, 1);
-            }
-        } else {
+        if (!ragelStringContinuation(fc)) {
+            stringUtf8Remaining = 0;
+            ragelStringLimit = 0;
             if constexpr (traced) {
                 parserTrace->stringCancel();
                 parserTrace->control(fc);
@@ -1217,11 +1146,9 @@
     }
 
     action stringControlDa {
-        if (stringUtf8Continuation(fc)) {
-            if constexpr (traced) {
-                parserTrace->stringData(&fc, 1);
-            }
-        } else {
+        if (!ragelStringContinuation(fc)) {
+            stringUtf8Remaining = 0;
+            ragelStringLimit = 0;
             if constexpr (traced) {
                 parserTrace->stringCancel();
             }
@@ -1375,9 +1302,9 @@
         0x7f |
         highToGround |
         0x20..0x2f @specialIntermediate |
-        'F' @specialFinal @{ if (compatLevel >= CompatibilityLevel::VT200) { send8BitControls = false; } setState(InputState::Normal); fnext main; fbreak; } |
-        'G' @specialFinal @{ if (compatLevel >= CompatibilityLevel::VT200) { send8BitControls = true; } setState(InputState::Normal); fnext main; fbreak; } |
-        ('L' | 'M' | 'N') @specialFinal @{ setState(InputState::Normal); fnext main; fbreak; } |
+        'F' @specialFinal @{ if (compatLevel >= CompatibilityLevel::VT200) { send8BitControls = false; } fnext main; fbreak; } |
+        'G' @specialFinal @{ if (compatLevel >= CompatibilityLevel::VT200) { send8BitControls = true; } fnext main; fbreak; } |
+        ('L' | 'M' | 'N') @specialFinal @{ fnext main; fbreak; } |
         any @specialFinal @vt52Unhandled
     )*;
 
@@ -1403,8 +1330,8 @@
         0x7f |
         highToGround |
         0x20..0x2f @specialIntermediate |
-        '@' @specialFinal @{ charsetState = CharsetState{}; charsetState.g[charsetState.gr] = Charset::IsoLatin1; charsetState.g[3] = Charset::IsoLatin1; setState(InputState::Normal); fnext main; fbreak; } |
-        'G' @specialFinal @{ charsetState = CharsetState{}; setState(InputState::Normal); fnext main; fbreak; } |
+        '@' @specialFinal @{ charsetState = CharsetState{}; charsetState.g[charsetState.gr] = Charset::IsoLatin1; charsetState.g[3] = Charset::IsoLatin1; fnext main; fbreak; } |
+        'G' @specialFinal @{ charsetState = CharsetState{}; fnext main; fbreak; } |
         any @specialFinal @vt52Unhandled
     )*;
 
@@ -1550,7 +1477,7 @@
 
     stringEscape := (
         cancel |
-        '\\' @{ if constexpr (traced) { parserTrace->stringEnd(); } setState(InputState::Normal); fnext main; fbreak; } |
+        '\\' @{ stringUtf8Remaining = 0; ragelStringLimit = 0; if constexpr (traced) { parserTrace->stringEnd(); } fnext main; fbreak; } |
         0x1b |
         (any - (0x18 | 0x1a | 0x1b | '\\')) @ignoredEscapedData
     )*;
