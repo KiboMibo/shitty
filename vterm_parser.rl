@@ -1478,7 +1478,7 @@
             ragelAppendStringSpan(p, count, parser.maxDcsBytes);
             p += count - 1;
         } else {
-            stringUtf8Continuation(fc);
+            consumeStringUtf8Byte(fc);
             if (!executeC0InSequence(fc, true)) {
                 ragelAppendString(fc, parser.maxDcsBytes);
             }
@@ -1493,7 +1493,7 @@
     }
 
     action dcsSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxDcsBytes);
         } else {
             ragelFinishDcs();
@@ -1533,7 +1533,7 @@
     }
 
     action dcsDecrqssInvalid {
-        stringUtf8Continuation(fc);
+        consumeStringUtf8Byte(fc);
         ragelAppendString(fc, parser.maxDcsBytes);
         fgoto dcsDecrqssInvalid;
     }
@@ -1561,7 +1561,7 @@
     }
 
     action dcsDecrqssUnknownSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxDcsBytes);
             fgoto dcsDecrqssInvalid;
         } else {
@@ -1667,7 +1667,7 @@
     }
 
     action dcsXtInvalid {
-        stringUtf8Continuation(fc);
+        consumeStringUtf8Byte(fc);
         ragelAppendString(fc, parser.maxDcsBytes);
         parser.dcsCapabilityValid = false;
     }
@@ -1711,7 +1711,7 @@
 
     action dcsXtSt {
         parser.dcsCapabilityComplete = false;
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxDcsBytes);
             parser.dcsCapabilityValid = false;
         } else {
@@ -1850,14 +1850,14 @@
     }
 
     action dcsUdkInvalid {
-        stringUtf8Continuation(fc);
+        consumeStringUtf8Byte(fc);
         ragelAppendString(fc, parser.maxDcsBytes);
         parser.dcsUdkValid = false;
         fgoto dcsUdkInvalid;
     }
 
     action dcsUdkSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxDcsBytes);
             parser.dcsUdkValid = false;
             fgoto dcsUdkInvalid;
@@ -2008,13 +2008,13 @@
     }
 
     action oscCommandInvalid {
-        stringUtf8Continuation(fc);
+        consumeStringUtf8Byte(fc);
         ragelAppendString(fc, parser.maxOscBytes);
         fgoto oscInvalid;
     }
 
     action oscCommandSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             parser.oscTerminated = false;
             fgoto oscInvalid;
@@ -2032,7 +2032,7 @@
     }
 
     action oscData {
-        stringUtf8Continuation(fc);
+        consumeStringUtf8Byte(fc);
         if (!executeC0InSequence(fc, true)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
@@ -2045,7 +2045,7 @@
             ragelAppendStringSpan(p, count, parser.maxOscBytes);
             p += count - 1;
         } else {
-            stringUtf8Continuation(fc);
+            consumeStringUtf8Byte(fc);
             if (!executeC0InSequence(fc, true)) {
                 ragelAppendString(fc, parser.maxOscBytes);
             }
@@ -2053,7 +2053,7 @@
     }
 
     action oscSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             parser.oscTerminated = false;
         } else {
@@ -2133,7 +2133,7 @@
     }
 
     action oscInvalidSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         } else {
             parser.stringUtf8Remaining = 0;
@@ -2166,7 +2166,7 @@
     }
 
     action oscCwdInvalidData {
-        stringUtf8Continuation(fc);
+        consumeStringUtf8Byte(fc);
         if (!executeC0InSequence(fc, true)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
@@ -2191,14 +2191,14 @@
     }
 
     action oscCwdAuthorityData {
-        stringUtf8Continuation(fc);
+        consumeStringUtf8Byte(fc);
         if (!executeC0InSequence(fc, true)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
     }
 
     action oscCwdPathData {
-        stringUtf8Continuation(fc);
+        consumeStringUtf8Byte(fc);
         if (!executeC0InSequence(fc, true)) {
             ragelAppendString(fc, parser.maxOscBytes);
             if (!parser.overflow) {
@@ -2305,7 +2305,7 @@
     }
 
     action oscShellInvalid {
-        stringUtf8Continuation(fc);
+        consumeStringUtf8Byte(fc);
         if (!executeC0InSequence(fc, true)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
@@ -2313,7 +2313,7 @@
     }
 
     action oscShellASt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             fgoto oscShellUnknown;
         } else {
@@ -2327,7 +2327,7 @@
     }
 
     action oscShellBSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             fgoto oscShellUnknown;
         } else {
@@ -2341,7 +2341,7 @@
     }
 
     action oscShellCSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             fgoto oscShellUnknown;
         } else {
@@ -2355,7 +2355,7 @@
     }
 
     action oscShellDSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             fgoto oscShellUnknown;
         } else {
@@ -2369,7 +2369,7 @@
     }
 
     action oscShellUnknownSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         } else {
             ragelFinishOsc();
@@ -2407,7 +2407,7 @@
     }
 
     action oscTitleData {
-        stringUtf8Continuation(fc);
+        consumeStringUtf8Byte(fc);
         if (!executeC0InSequence(fc, true)) {
             ragelAppendString(fc, parser.maxOscBytes);
             if (parser.oscTitleHex) {
@@ -2479,7 +2479,7 @@
     }
 
     action oscTitle0St {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             if (parser.oscTitleHex) {
                 parser.oscTitleValid = false;
@@ -2495,7 +2495,7 @@
     }
 
     action oscTitle1St {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             if (parser.oscTitleHex) {
                 parser.oscTitleValid = false;
@@ -2511,7 +2511,7 @@
     }
 
     action oscTitle2St {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             if (parser.oscTitleHex) {
                 parser.oscTitleValid = false;
@@ -2527,7 +2527,7 @@
     }
 
     action oscHyperlinkParamData {
-        stringUtf8Continuation(fc);
+        consumeStringUtf8Byte(fc);
         if (!executeC0InSequence(fc, true)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
@@ -2583,7 +2583,7 @@
     }
 
     action oscHyperlinkMalformedSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             fgoto oscHyperlinkParamSkip;
         } else {
@@ -2594,7 +2594,7 @@
     }
 
     action oscHyperlinkSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         } else {
             ragelFinishOsc();
@@ -2637,7 +2637,7 @@
     }
 
     action oscProgressNotifyData {
-        stringUtf8Continuation(fc);
+        consumeStringUtf8Byte(fc);
         if (!executeC0InSequence(fc, true)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
@@ -2671,7 +2671,7 @@
     }
 
     action oscProgressDiscardData {
-        stringUtf8Continuation(fc);
+        consumeStringUtf8Byte(fc);
         if (!executeC0InSequence(fc, true)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
@@ -2679,7 +2679,7 @@
     }
 
     action oscProgressNotifySt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         } else {
             ragelFinishOsc();
@@ -2692,7 +2692,7 @@
     }
 
     action oscProgressSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             parser.oscProgressValid = false;
             fgoto oscProgressDiscard;
@@ -2708,7 +2708,7 @@
     }
 
     action oscProgressDiscardSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         } else {
             ragelFinishOsc();
@@ -2755,7 +2755,7 @@
     }
 
     action osc52Data {
-        stringUtf8Continuation(fc);
+        consumeStringUtf8Byte(fc);
         if (!executeC0InSequence(fc, true)) {
             ragelAppendString(fc, parser.maxOscBytes);
             if (!parser.osc52PayloadSeen) {
@@ -2774,7 +2774,7 @@
     }
 
     action osc52MalformedSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             fgoto oscInvalid;
         } else {
@@ -2797,7 +2797,7 @@
     }
 
     action osc52St {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             parser.oscTerminated = false;
             fgoto oscInvalid;
@@ -2856,7 +2856,7 @@
     }
 
     action oscNotificationValueData {
-        stringUtf8Continuation(fc);
+        consumeStringUtf8Byte(fc);
         if (!executeC0InSequence(fc, true)) {
             ragelAppendString(fc, parser.maxOscBytes);
             if (parser.oscNotificationKey == 'i' &&
@@ -2930,7 +2930,7 @@
     }
 
     action oscNotificationPayloadData {
-        stringUtf8Continuation(fc);
+        consumeStringUtf8Byte(fc);
         if (!executeC0InSequence(fc, true)) {
             ragelAppendString(fc, parser.maxOscBytes);
             ++parser.oscNotificationPayloadBytes;
@@ -2944,7 +2944,7 @@
     }
 
     action oscNotificationInvalidData {
-        stringUtf8Continuation(fc);
+        consumeStringUtf8Byte(fc);
         if (!executeC0InSequence(fc, true)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
@@ -2953,7 +2953,7 @@
     }
 
     action oscNotificationSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             parser.oscNotificationValid = false;
             parser.oscTerminated = false;
@@ -3003,7 +3003,7 @@
     }
 
     action oscNotificationInvalidSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         } else {
             ragelFinishOsc();
@@ -3238,7 +3238,7 @@
     }
 
     action oscDynamicColorSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             parser.oscTerminated = false;
             fgoto oscInvalid;
@@ -3285,7 +3285,7 @@
     }
 
     action oscIndexedColorIndexInvalid {
-        stringUtf8Continuation(fc);
+        consumeStringUtf8Byte(fc);
         if (!executeC0InSequence(fc, true)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
@@ -3330,7 +3330,7 @@
     }
 
     action oscIndexedColorSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             parser.oscTerminated = false;
             fgoto oscInvalid;
@@ -3374,7 +3374,7 @@
     }
 
     action oscNumericInvalid {
-        stringUtf8Continuation(fc);
+        consumeStringUtf8Byte(fc);
         if (!executeC0InSequence(fc, true)) {
             ragelAppendString(fc, parser.maxOscBytes);
             parser.oscFieldPresent = true;
@@ -3445,7 +3445,7 @@
     }
 
     action oscNumericSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             parser.oscFieldPresent = true;
             parser.oscFieldNumeric = false;
@@ -3477,7 +3477,7 @@
             }
             p += count - 1;
         } else {
-            stringUtf8Continuation(fc);
+            consumeStringUtf8Byte(fc);
             executeC0InSequence(fc, true);
             if constexpr (traced) {
                 parserTrace->stringData(&fc, 1);
@@ -3486,7 +3486,7 @@
     }
 
     action ignoredSt {
-        if (stringUtf8Continuation(fc)) {
+        if (consumeStringUtf8Byte(fc)) {
             if constexpr (traced) {
                 parserTrace->stringData(&fc, 1);
             }
@@ -5410,7 +5410,7 @@
 
 %% write data;
 
-const auto stringUtf8Continuation = [&](u8 ch) {
+const auto consumeStringUtf8Byte = [&](u8 ch) {
     if (parser.stringUtf8Remaining != 0) {
         if ((ch & 0xc0) == 0x80) {
             --parser.stringUtf8Remaining;
@@ -5589,7 +5589,7 @@ const auto resetOscColor = [&] {
 };
 
 const auto ragelStringContinuation = [&](u8 ch) {
-    if (!stringUtf8Continuation(ch)) {
+    if (!consumeStringUtf8Byte(ch)) {
         return false;
     }
     if (parser.stringLimit != 0) {
