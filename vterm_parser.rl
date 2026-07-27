@@ -1049,11 +1049,8 @@
     action dcsFinal {
         ragelAppendString(fc, maxDcsBytes);
         if (dcsIntermediateCount == 1 && dcsIntermediates[0] == '$' && fc == 'q') {
-            dcsCommand = DcsCommand::Decrqss;
-            decrqssQuery = DecrqssQuery::Unknown;
             fgoto dcsDecrqssEntry;
         } else if (dcsIntermediateCount == 1 && dcsIntermediates[0] == '+' && fc == 'q') {
-            dcsCommand = DcsCommand::Xtgettcap;
             dcsCapabilityOffset = argBuf.used();
             dcsCapabilityDecodedLength = 0;
             dcsCapabilityCandidates = 0x0f;
@@ -1061,7 +1058,6 @@
             dcsCapabilityValid = true;
             fgoto dcsXtgettcap;
         } else if (dcsIntermediateCount == 0 && fc == '|') {
-            dcsCommand = DcsCommand::Decudk;
             dcsUdkValueOffset = dcsDecoded.used();
             dcsUdkCode = 0;
             dcsUdkHasCode = false;
@@ -1070,7 +1066,6 @@
             dcsUdkInValue = false;
             fgoto dcsUdkCode;
         } else {
-            dcsCommand = DcsCommand::Ignore;
             fgoto dcsPayload;
         }
     }
@@ -1153,50 +1148,42 @@
 
     action dcsDecrqssDecscl {
         ragelAppendString(fc, maxDcsBytes);
-        decrqssQuery = DecrqssQuery::Decscl;
-        fgoto dcsDecrqssComplete;
+        fgoto dcsDecrqssDecsclComplete;
     }
 
     action dcsDecrqssSgr {
         ragelAppendString(fc, maxDcsBytes);
-        decrqssQuery = DecrqssQuery::Sgr;
-        fgoto dcsDecrqssComplete;
+        fgoto dcsDecrqssSgrComplete;
     }
 
     action dcsDecrqssDecstbm {
         ragelAppendString(fc, maxDcsBytes);
-        decrqssQuery = DecrqssQuery::Decstbm;
-        fgoto dcsDecrqssComplete;
+        fgoto dcsDecrqssDecstbmComplete;
     }
 
     action dcsDecrqssDecslrm {
         ragelAppendString(fc, maxDcsBytes);
-        decrqssQuery = DecrqssQuery::Decslrm;
-        fgoto dcsDecrqssComplete;
+        fgoto dcsDecrqssDecslrmComplete;
     }
 
     action dcsDecrqssDecslpp {
         ragelAppendString(fc, maxDcsBytes);
-        decrqssQuery = DecrqssQuery::Decslpp;
-        fgoto dcsDecrqssComplete;
+        fgoto dcsDecrqssDecslppComplete;
     }
 
     action dcsDecrqssDecscusr {
         ragelAppendString(fc, maxDcsBytes);
-        decrqssQuery = DecrqssQuery::Decscusr;
-        fgoto dcsDecrqssComplete;
+        fgoto dcsDecrqssDecscusrComplete;
     }
 
     action dcsDecrqssDecsca {
         ragelAppendString(fc, maxDcsBytes);
-        decrqssQuery = DecrqssQuery::Decsca;
-        fgoto dcsDecrqssComplete;
+        fgoto dcsDecrqssDecscaComplete;
     }
 
     action dcsDecrqssInvalid {
         stringUtf8Continuation(fc);
         ragelAppendString(fc, maxDcsBytes);
-        decrqssQuery = DecrqssQuery::Unknown;
         fgoto dcsDecrqssInvalid;
     }
 
@@ -1214,25 +1201,89 @@
         } else {
             argBufOverflowed = true;
         }
-        decrqssQuery = DecrqssQuery::Unknown;
+        fgoto dcsDecrqssEscape;
     }
 
     action dcsDecrqssEscapedData {
         ragelAppendEscapedString(fc, maxDcsBytes);
-        decrqssQuery = DecrqssQuery::Unknown;
         fgoto dcsDecrqssInvalid;
     }
 
-    action dcsDecrqssSt {
+    action dcsDecrqssUnknownSt {
         if (stringUtf8Continuation(fc)) {
             ragelAppendString(fc, maxDcsBytes);
-            decrqssQuery = DecrqssQuery::Unknown;
             fgoto dcsDecrqssInvalid;
         } else {
             ragelFinishDcs();
+            if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT400) {
+                dcs_DECRQSS_UNKNOWN();
+            }
             fnext main;
             fbreak;
         }
+    }
+
+    action dcsDecrqssDecsclSt {
+        ragelFinishDcs();
+        if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT400) {
+            dcs_DECRQSS_DECSCL();
+        }
+        fnext main;
+        fbreak;
+    }
+
+    action dcsDecrqssSgrSt {
+        ragelFinishDcs();
+        if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT400) {
+            dcs_DECRQSS_SGR();
+        }
+        fnext main;
+        fbreak;
+    }
+
+    action dcsDecrqssDecstbmSt {
+        ragelFinishDcs();
+        if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT400) {
+            dcs_DECRQSS_DECSTBM();
+        }
+        fnext main;
+        fbreak;
+    }
+
+    action dcsDecrqssDecslrmSt {
+        ragelFinishDcs();
+        if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT400) {
+            dcs_DECRQSS_DECSLRM();
+        }
+        fnext main;
+        fbreak;
+    }
+
+    action dcsDecrqssDecslppSt {
+        ragelFinishDcs();
+        if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT400) {
+            dcs_DECRQSS_DECSLPP();
+        }
+        fnext main;
+        fbreak;
+    }
+
+    action dcsDecrqssDecscusrSt {
+        ragelFinishDcs();
+        if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT400) {
+            dcs_DECRQSS_DECSCUSR();
+        }
+        fnext main;
+        fbreak;
+    }
+
+    action dcsDecrqssDecscaSt {
+        ragelFinishDcs();
+        if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT400) {
+            dcs_DECRQSS_DECSCA();
+        }
+        fnext main;
+        fbreak;
     }
 
     action dcsXtHex {
@@ -1317,6 +1368,9 @@
                 capability,
             });
             ragelFinishDcs();
+            if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT200) {
+                dcs_XTGETTCAP();
+            }
             fnext main;
             fbreak;
         }
@@ -1438,6 +1492,9 @@
                 });
             }
             ragelFinishDcs();
+            if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT200) {
+                dcs_DECUDK();
+            }
             fnext main;
             fbreak;
         }
@@ -2108,7 +2165,7 @@
     dcsDecrqssEntry := (
         cancel |
         stringC1 |
-        0x9c @dcsDecrqssSt |
+        0x9c @dcsDecrqssUnknownSt |
         0x1b @dcsDecrqssEscape |
         0x7f |
         sequenceC0 |
@@ -2125,7 +2182,7 @@
     dcsDecrqssQuote := (
         cancel |
         stringC1 |
-        0x9c @dcsDecrqssSt |
+        0x9c @dcsDecrqssUnknownSt |
         0x1b @dcsDecrqssEscape |
         0x7f |
         sequenceC0 |
@@ -2138,7 +2195,7 @@
     dcsDecrqssSpace := (
         cancel |
         stringC1 |
-        0x9c @dcsDecrqssSt |
+        0x9c @dcsDecrqssUnknownSt |
         0x1b @dcsDecrqssEscape |
         0x7f |
         sequenceC0 |
@@ -2147,11 +2204,77 @@
         (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
     )*;
 
-    dcsDecrqssComplete := (
+    dcsDecrqssDecsclComplete := (
         cancel |
         stringC1 |
-        0x9c @dcsDecrqssSt |
-        0x1b @dcsDecrqssEscape |
+        0x9c @dcsDecrqssDecsclSt |
+        0x1b @{ fgoto dcsDecrqssDecsclEscape; } |
+        0x7f |
+        sequenceC0 |
+        0x20..0x7e @dcsDecrqssInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
+    )*;
+
+    dcsDecrqssSgrComplete := (
+        cancel |
+        stringC1 |
+        0x9c @dcsDecrqssSgrSt |
+        0x1b @{ fgoto dcsDecrqssSgrEscape; } |
+        0x7f |
+        sequenceC0 |
+        0x20..0x7e @dcsDecrqssInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
+    )*;
+
+    dcsDecrqssDecstbmComplete := (
+        cancel |
+        stringC1 |
+        0x9c @dcsDecrqssDecstbmSt |
+        0x1b @{ fgoto dcsDecrqssDecstbmEscape; } |
+        0x7f |
+        sequenceC0 |
+        0x20..0x7e @dcsDecrqssInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
+    )*;
+
+    dcsDecrqssDecslrmComplete := (
+        cancel |
+        stringC1 |
+        0x9c @dcsDecrqssDecslrmSt |
+        0x1b @{ fgoto dcsDecrqssDecslrmEscape; } |
+        0x7f |
+        sequenceC0 |
+        0x20..0x7e @dcsDecrqssInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
+    )*;
+
+    dcsDecrqssDecslppComplete := (
+        cancel |
+        stringC1 |
+        0x9c @dcsDecrqssDecslppSt |
+        0x1b @{ fgoto dcsDecrqssDecslppEscape; } |
+        0x7f |
+        sequenceC0 |
+        0x20..0x7e @dcsDecrqssInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
+    )*;
+
+    dcsDecrqssDecscusrComplete := (
+        cancel |
+        stringC1 |
+        0x9c @dcsDecrqssDecscusrSt |
+        0x1b @{ fgoto dcsDecrqssDecscusrEscape; } |
+        0x7f |
+        sequenceC0 |
+        0x20..0x7e @dcsDecrqssInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
+    )*;
+
+    dcsDecrqssDecscaComplete := (
+        cancel |
+        stringC1 |
+        0x9c @dcsDecrqssDecscaSt |
+        0x1b @{ fgoto dcsDecrqssDecscaEscape; } |
         0x7f |
         sequenceC0 |
         0x20..0x7e @dcsDecrqssInvalid |
@@ -2161,7 +2284,7 @@
     dcsDecrqssInvalid := (
         cancel |
         stringC1 |
-        0x9c @dcsDecrqssSt |
+        0x9c @dcsDecrqssUnknownSt |
         0x1b @dcsDecrqssEscape |
         0x7f |
         sequenceC0 |
@@ -2172,8 +2295,78 @@
     dcsDecrqssEscape := (
         cancel |
         stringC1 |
-        0x9c @dcsDecrqssSt |
-        '\\' @dcsDecrqssSt |
+        0x9c @dcsDecrqssUnknownSt |
+        '\\' @dcsDecrqssUnknownSt |
+        0x1b @dcsDecrqssEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
+                0x9a..0x9f)) @dcsDecrqssEscapedData
+    )*;
+
+    dcsDecrqssDecsclEscape := (
+        cancel |
+        stringC1 |
+        0x9c @dcsDecrqssDecsclSt |
+        '\\' @dcsDecrqssDecsclSt |
+        0x1b @dcsDecrqssEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
+                0x9a..0x9f)) @dcsDecrqssEscapedData
+    )*;
+
+    dcsDecrqssSgrEscape := (
+        cancel |
+        stringC1 |
+        0x9c @dcsDecrqssSgrSt |
+        '\\' @dcsDecrqssSgrSt |
+        0x1b @dcsDecrqssEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
+                0x9a..0x9f)) @dcsDecrqssEscapedData
+    )*;
+
+    dcsDecrqssDecstbmEscape := (
+        cancel |
+        stringC1 |
+        0x9c @dcsDecrqssDecstbmSt |
+        '\\' @dcsDecrqssDecstbmSt |
+        0x1b @dcsDecrqssEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
+                0x9a..0x9f)) @dcsDecrqssEscapedData
+    )*;
+
+    dcsDecrqssDecslrmEscape := (
+        cancel |
+        stringC1 |
+        0x9c @dcsDecrqssDecslrmSt |
+        '\\' @dcsDecrqssDecslrmSt |
+        0x1b @dcsDecrqssEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
+                0x9a..0x9f)) @dcsDecrqssEscapedData
+    )*;
+
+    dcsDecrqssDecslppEscape := (
+        cancel |
+        stringC1 |
+        0x9c @dcsDecrqssDecslppSt |
+        '\\' @dcsDecrqssDecslppSt |
+        0x1b @dcsDecrqssEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
+                0x9a..0x9f)) @dcsDecrqssEscapedData
+    )*;
+
+    dcsDecrqssDecscusrEscape := (
+        cancel |
+        stringC1 |
+        0x9c @dcsDecrqssDecscusrSt |
+        '\\' @dcsDecrqssDecscusrSt |
+        0x1b @dcsDecrqssEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
+                0x9a..0x9f)) @dcsDecrqssEscapedData
+    )*;
+
+    dcsDecrqssDecscaEscape := (
+        cancel |
+        stringC1 |
+        0x9c @dcsDecrqssDecscaSt |
+        '\\' @dcsDecrqssDecscaSt |
         0x1b @dcsDecrqssEscapedEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
                 0x9a..0x9f)) @dcsDecrqssEscapedData

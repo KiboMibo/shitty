@@ -548,7 +548,15 @@ namespace {
         void printLine(u16 row);
         size_t consumePrinterController(const u8* input, size_t size);
 
-        void dcs_DECRQSS();
+        void dcs_DECRQSS_DECSCL();
+        void dcs_DECRQSS_SGR();
+        void dcs_DECRQSS_DECSTBM();
+        void dcs_DECRQSS_DECSLRM();
+        void dcs_DECRQSS_DECSLPP();
+        void dcs_DECRQSS_DECSCUSR();
+        void dcs_DECRQSS_DECSCA();
+        void dcs_DECRQSS_UNKNOWN();
+        void writeDecrqssResponse(StringView);
         void dcs_XTGETTCAP();
         void dcs_DECUDK();
 
@@ -671,24 +679,6 @@ namespace {
         bool argBufOverflowed = false;
         size_t ragelStringLimit = 0;
         u8 stringUtf8Remaining = 0;
-        enum class DcsCommand : u8 {
-            Ignore,
-            Decrqss,
-            Xtgettcap,
-            Decudk
-        };
-
-        enum class DecrqssQuery : u8 {
-            Unknown,
-            Decscl,
-            Sgr,
-            Decstbm,
-            Decslrm,
-            Decslpp,
-            Decscusr,
-            Decsca
-        };
-
         enum class DcsCapability : u8 {
             Unknown,
             TerminalName,
@@ -708,10 +698,8 @@ namespace {
             u32 code;
         };
 
-        DcsCommand dcsCommand = DcsCommand::Ignore;
         u8 dcsIntermediates[4] = {};
         u8 dcsIntermediateCount = 0;
-        DecrqssQuery decrqssQuery = DecrqssQuery::Unknown;
         Vector<DcsCapabilityRequest> dcsCapabilityRequests;
         size_t dcsCapabilityOffset = 0;
         size_t dcsCapabilityDecodedLength = 0;
@@ -5485,97 +5473,123 @@ void VtermImpl<traced>::dcs_DECUDK() {
 }
 
 template <bool traced>
-void VtermImpl<traced>::dcs_DECRQSS() {
-    StringBuilder value;
-    switch (decrqssQuery) {
-        case DecrqssQuery::Decscl:
-            value << 60 + (u8)(compatLevel) << StringView(u8";") << (send8BitControls ? 0 : 1) << StringView(u8"\"p");
-            break;
-        case DecrqssQuery::Sgr:
-            value << StringView(u8"0");
-            if (attrs.bold) {
-                value << StringView(u8";1");
-            }
-            if (attrs.faint) {
-                value << StringView(u8";2");
-            }
-            if (attrs.italic) {
-                value << StringView(u8";3");
-            }
-            if (attrs.underlined()) {
-                value << StringView(u8";4");
-                if (attrs.underline_style > 1) {
-                    value << StringView(u8":") << (unsigned)(attrs.underline_style);
-                }
-            }
-            if (attrs.blink) {
-                value << StringView(u8";5");
-            }
-            if (reverseVideo) {
-                value << StringView(u8";7");
-            }
-            if (attrs.conceal) {
-                value << StringView(u8";8");
-            }
-            if (attrs.strike) {
-                value << StringView(u8";9");
-            }
-            if (attrs.overline) {
-                value << StringView(u8";53");
-            }
-            if (fgPalIx >= 0 && fgPalIx < 8) {
-                value << StringView(u8";") << 30 + fgPalIx;
-            } else if (fgPalIx >= 8 && fgPalIx < 16) {
-                value << StringView(u8";") << 90 + fgPalIx - 8;
-            } else if (fgPalIx >= 0) {
-                value << StringView(u8";38:5:") << fgPalIx;
-            } else if (attrForeground().source() == CellColor::Source::Direct) {
-                const Color color = attrForeground().color();
-                value << StringView(u8";38:2::") << (unsigned)(color.red) << StringView(u8":") << (unsigned)(color.green) << StringView(u8":") << (unsigned)(color.blue);
-            }
-            if (bgPalIx >= 0 && bgPalIx < 8) {
-                value << StringView(u8";") << 40 + bgPalIx;
-            } else if (bgPalIx >= 8 && bgPalIx < 16) {
-                value << StringView(u8";") << 100 + bgPalIx - 8;
-            } else if (bgPalIx >= 0) {
-                value << StringView(u8";48:5:") << bgPalIx;
-            } else if (attrBackground().source() == CellColor::Source::Direct) {
-                const Color color = attrBackground().color();
-                value << StringView(u8";48:2::") << (unsigned)(color.red) << StringView(u8":") << (unsigned)(color.green) << StringView(u8":") << (unsigned)(color.blue);
-            }
-            if (!underlineColorDefault) {
-                if (underlinePalIx >= 0) {
-                    value << StringView(u8";58:5:") << underlinePalIx;
-                } else {
-                    const Color color = attrUnderlineColor().color();
-                    value << StringView(u8";58:2::") << (unsigned)(color.red) << StringView(u8":") << (unsigned)(color.green) << StringView(u8":") << (unsigned)(color.blue);
-                }
-            }
-            value << StringView(u8"m");
-            break;
-        case DecrqssQuery::Decstbm:
-            value << marginTop + 1 << StringView(u8";") << marginBottom << StringView(u8"r");
-            break;
-        case DecrqssQuery::Decslrm:
-            value << hMargin + 1 << StringView(u8";") << nColsEff << StringView(u8"s");
-            break;
-        case DecrqssQuery::Decslpp:
-            value << composer.rows << StringView(u8"t");
-            break;
-        case DecrqssQuery::Decscusr:
-            value << (unsigned)(cursorStyleParam) << StringView(u8" q");
-            break;
-        case DecrqssQuery::Decsca:
-            value << ((attrs.protected_char & TerminalCell::decProtection) ? 1 : 0) << StringView(u8"\"q");
-            break;
-        case DecrqssQuery::Unknown:
-            writeDcsResponse("0$r");
-            return;
-    }
-
+void VtermImpl<traced>::writeDecrqssResponse(StringView value) {
     StringBuilder response;
-    response << StringView(u8"1$r") << StringView(value);
+    response << StringView(u8"1$r") << value;
     writeDcsResponse(StringView(response));
+}
+
+template <bool traced>
+void VtermImpl<traced>::dcs_DECRQSS_DECSCL() {
+    StringBuilder value;
+    value << 60 + (u8)(compatLevel) << StringView(u8";") << (send8BitControls ? 0 : 1) << StringView(u8"\"p");
+    writeDecrqssResponse(StringView(value));
+}
+
+template <bool traced>
+void VtermImpl<traced>::dcs_DECRQSS_SGR() {
+    StringBuilder value;
+    value << StringView(u8"0");
+    if (attrs.bold) {
+        value << StringView(u8";1");
+    }
+    if (attrs.faint) {
+        value << StringView(u8";2");
+    }
+    if (attrs.italic) {
+        value << StringView(u8";3");
+    }
+    if (attrs.underlined()) {
+        value << StringView(u8";4");
+        if (attrs.underline_style > 1) {
+            value << StringView(u8":") << (unsigned)(attrs.underline_style);
+        }
+    }
+    if (attrs.blink) {
+        value << StringView(u8";5");
+    }
+    if (reverseVideo) {
+        value << StringView(u8";7");
+    }
+    if (attrs.conceal) {
+        value << StringView(u8";8");
+    }
+    if (attrs.strike) {
+        value << StringView(u8";9");
+    }
+    if (attrs.overline) {
+        value << StringView(u8";53");
+    }
+    if (fgPalIx >= 0 && fgPalIx < 8) {
+        value << StringView(u8";") << 30 + fgPalIx;
+    } else if (fgPalIx >= 8 && fgPalIx < 16) {
+        value << StringView(u8";") << 90 + fgPalIx - 8;
+    } else if (fgPalIx >= 0) {
+        value << StringView(u8";38:5:") << fgPalIx;
+    } else if (attrForeground().source() == CellColor::Source::Direct) {
+        const Color color = attrForeground().color();
+        value << StringView(u8";38:2::") << (unsigned)(color.red) << StringView(u8":") << (unsigned)(color.green) << StringView(u8":") << (unsigned)(color.blue);
+    }
+    if (bgPalIx >= 0 && bgPalIx < 8) {
+        value << StringView(u8";") << 40 + bgPalIx;
+    } else if (bgPalIx >= 8 && bgPalIx < 16) {
+        value << StringView(u8";") << 100 + bgPalIx - 8;
+    } else if (bgPalIx >= 0) {
+        value << StringView(u8";48:5:") << bgPalIx;
+    } else if (attrBackground().source() == CellColor::Source::Direct) {
+        const Color color = attrBackground().color();
+        value << StringView(u8";48:2::") << (unsigned)(color.red) << StringView(u8":") << (unsigned)(color.green) << StringView(u8":") << (unsigned)(color.blue);
+    }
+    if (!underlineColorDefault) {
+        if (underlinePalIx >= 0) {
+            value << StringView(u8";58:5:") << underlinePalIx;
+        } else {
+            const Color color = attrUnderlineColor().color();
+            value << StringView(u8";58:2::") << (unsigned)(color.red) << StringView(u8":") << (unsigned)(color.green) << StringView(u8":") << (unsigned)(color.blue);
+        }
+    }
+    value << StringView(u8"m");
+    writeDecrqssResponse(StringView(value));
+}
+
+template <bool traced>
+void VtermImpl<traced>::dcs_DECRQSS_DECSTBM() {
+    StringBuilder value;
+    value << marginTop + 1 << StringView(u8";") << marginBottom << StringView(u8"r");
+    writeDecrqssResponse(StringView(value));
+}
+
+template <bool traced>
+void VtermImpl<traced>::dcs_DECRQSS_DECSLRM() {
+    StringBuilder value;
+    value << hMargin + 1 << StringView(u8";") << nColsEff << StringView(u8"s");
+    writeDecrqssResponse(StringView(value));
+}
+
+template <bool traced>
+void VtermImpl<traced>::dcs_DECRQSS_DECSLPP() {
+    StringBuilder value;
+    value << composer.rows << StringView(u8"t");
+    writeDecrqssResponse(StringView(value));
+}
+
+template <bool traced>
+void VtermImpl<traced>::dcs_DECRQSS_DECSCUSR() {
+    StringBuilder value;
+    value << (unsigned)(cursorStyleParam) << StringView(u8" q");
+    writeDecrqssResponse(StringView(value));
+}
+
+template <bool traced>
+void VtermImpl<traced>::dcs_DECRQSS_DECSCA() {
+    StringBuilder value;
+    value << ((attrs.protected_char & TerminalCell::decProtection) ? 1 : 0) << StringView(u8"\"q");
+    writeDecrqssResponse(StringView(value));
+}
+
+template <bool traced>
+void VtermImpl<traced>::dcs_DECRQSS_UNKNOWN() {
+    writeDcsResponse("0$r");
 }
 
 template <bool traced>
@@ -8647,9 +8661,7 @@ void VtermImpl<traced>::ragelBeginDcs() {
     inputSeparators[0] = 0;
     inputPresent[0] = false;
     nInputOps = 1;
-    dcsCommand = DcsCommand::Ignore;
     dcsIntermediateCount = 0;
-    decrqssQuery = DecrqssQuery::Unknown;
     dcsCapabilityRequests.clear();
     dcsCapabilityOffset = 0;
     dcsCapabilityDecodedLength = 0;
@@ -8711,23 +8723,6 @@ void VtermImpl<traced>::ragelFinishDcs() {
     ragelStringLimit = 0;
     if constexpr (traced) {
         parserTrace->stringEnd();
-    }
-    if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT200) {
-        switch (dcsCommand) {
-            case DcsCommand::Decrqss:
-                if (compatLevel >= CompatibilityLevel::VT400) {
-                    dcs_DECRQSS();
-                }
-                break;
-            case DcsCommand::Xtgettcap:
-                dcs_XTGETTCAP();
-                break;
-            case DcsCommand::Decudk:
-                dcs_DECUDK();
-                break;
-            case DcsCommand::Ignore:
-                break;
-        }
     }
 }
 
