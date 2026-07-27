@@ -6,4 +6,7 @@
 /unit_tests
 /test_suite
 /main_fuzz
+/result
+/result-*
 __pycache__/
+.codegraph/

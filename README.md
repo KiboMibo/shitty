@@ -143,6 +143,30 @@ install -Dm644 shitty.svg \
 `Exec=st` is resolved through `PATH`, while `Icon=shitty` is resolved through
 the active icon theme.
 
+### Nix
+
+A flake provides the `shitty` package and a development shell. Bundled
+submodules are fetched from pinned flake inputs, so a plain build works
+without `git submodule update`:
+
+```sh
+nix build           # ./result/bin/st
+nix run             # run st directly
+nix develop         # clang toolchain + build dependencies
+```
+
+Add the package to a NixOS system from the flake overlay or via:
+
+```nix
+{
+  inputs.shitty.url = "github:pg83/shitty";
+  # ...
+  environment.systemPackages = [ inputs.shitty.packages.${system}.default ];
+}
+```
+
+`shell.nix` remains available for `nix-shell` without flakes.
+
 ## Tests
 
 Run the full native and imported conformance suite:
