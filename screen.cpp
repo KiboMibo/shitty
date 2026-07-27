@@ -2672,12 +2672,18 @@ void ScreenImpl<Coord, Epoch>::scrollRectangleDown(u16 top, u16 left, u16 bottom
 template <typename Coord, typename Epoch>
 [[gnu::always_inline]] inline void ScreenImpl<Coord, Epoch>::scrollPartialRectangleRow(RowSlot& destinationObject, const Row* sourceObject, u16 destinationRow, u16 left, u16 right, const TerminalCell& attrs) {
     const u16 width = right - left;
-    clearWideBoundary(destinationObject, destinationRow, left, attrs);
-    clearWideBoundary(destinationObject, destinationRow, right, attrs);
     const TerminalCell* const source = sourceObject->cells + left;
     if (destinationObject == nullptr && (sourceObject == zeroRow || emptyRow(source, width))) {
         return;
     }
+    if (!sourceObject->metadata.wide && (destinationObject == nullptr || !destinationObject->metadata.wide)) {
+        TerminalCell* const destination = mutableRow(destinationObject);
+        copyCells(destination + left, source, width);
+        destinationObject->metadata.protection |= sourceObject->metadata.protection;
+        return;
+    }
+    clearWideBoundary(destinationObject, destinationRow, left, attrs);
+    clearWideBoundary(destinationObject, destinationRow, right, attrs);
     TerminalCell* const destination = mutableRow(destinationObject);
     copyCells(destination + left, source, width);
     destinationObject->metadata.protection |= sourceObject->metadata.protection;
@@ -2714,8 +2720,10 @@ void ScreenImpl<Coord, Epoch>::scrollRectangle(u16 top, u16 left, u16 bottom, u1
         const TerminalCell empty{};
         for (u16 row = eraseTop; row < eraseBottom; ++row) {
             RowSlot& object = rowRing[wrapRow(rowBase + row)];
-            clearWideBoundary(object, row, left, attrs);
-            clearWideBoundary(object, row, right, attrs);
+            if (object != nullptr && object->metadata.wide) {
+                clearWideBoundary(object, row, left, attrs);
+                clearWideBoundary(object, row, right, attrs);
+            }
             if (object != nullptr || attrs != empty) {
                 TerminalCell* const cells = mutableRow(object);
                 eraseRange(cells + left, cells + right, attrs);

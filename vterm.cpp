@@ -8986,14 +8986,27 @@ namespace {
 
     [[gnu::always_inline]] size_t printableAsciiPrefix(const u8* input, size_t size) {
         using Bytes = u8 __attribute__((vector_size(16)));
+        using Bits = unsigned __int128;
         constexpr Bytes spaces = {0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20};
         constexpr Bytes deletes = {0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f};
         size_t offset = 0;
+        while (offset < size && offset < 4 && input[offset] >= 0x20 && input[offset] < 0x7f) {
+            ++offset;
+        }
+        if (offset != 4 || offset == size) {
+            return offset;
+        }
         while (size - offset >= sizeof(Bytes)) {
             Bytes word;
             memcpy(&word, input + offset, sizeof(word));
-            if (__builtin_reduce_or((word < spaces) | (word >= deletes))) {
-                break;
+            const Bits invalid = __builtin_bit_cast(Bits, (word < spaces) | (word >= deletes));
+            const u64 low = invalid;
+            if (low != 0) {
+                return offset + __builtin_ctzll(low) / 8;
+            }
+            const u64 high = invalid >> 64;
+            if (high != 0) {
+                return offset + 8 + __builtin_ctzll(high) / 8;
             }
             offset += sizeof(word);
         }
