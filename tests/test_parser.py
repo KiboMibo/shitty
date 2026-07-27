@@ -239,6 +239,36 @@ class ParserStreamingTest(unittest.TestCase):
                     terminal.write(b"A" + sequence + b"B")
                     self.assertEqual(terminal.snapshot().lines[0], "AB      ")
 
+    def test_bulk_string_payloads_match_fragmented_input(self):
+        payload = b"printable payload " * 256
+        sequences = (
+            b"\x1b]777;" + payload + b"\x1b\\",
+            b"\x1bPz" + payload + b"\x1b\\",
+            b"\x1b_" + payload + b"\x1b\\",
+        )
+        for sequence in sequences:
+            with self.subTest(introducer=sequence[:3]):
+                with Shitty(columns=8, rows=2) as terminal:
+                    terminal.parser_trace_on()
+                    terminal.write(sequence + b"X")
+                    expected_trace = terminal.parser_trace()
+                    expected = observable(terminal)
+
+                chunks = []
+                offset = 0
+                sizes = (1, 7, 31, 127)
+                while offset < len(sequence):
+                    size = sizes[len(chunks) % len(sizes)]
+                    chunks.append(sequence[offset:offset + size])
+                    offset += size
+                chunks.append(b"X")
+
+                with Shitty(columns=8, rows=2) as terminal:
+                    terminal.parser_trace_on()
+                    terminal.write_chunks(*chunks)
+                    self.assertEqual(terminal.parser_trace(), expected_trace)
+                    self.assertEqual(observable(terminal), expected)
+
     def test_oversized_osc_and_dcs_are_discarded_through_st(self):
         sequences = (
             b"\x1b]2;" + b"x" * (1024 * 1024 + 1) + b"\x1b\\",

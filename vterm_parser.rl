@@ -1472,9 +1472,23 @@
     }
 
     action dcsPayloadData {
-        stringUtf8Continuation(fc);
-        if (!executeC0InSequence(fc, true)) {
-            ragelAppendString(fc, parser.maxDcsBytes);
+        if (fc >= 0x20 && fc < 0x7f) {
+            const size_t count = printableAsciiPrefix(p, pe - p);
+            parser.stringUtf8Remaining = 0;
+            ragelAppendStringSpan(p, count, parser.maxDcsBytes);
+            p += count - 1;
+        } else {
+            stringUtf8Continuation(fc);
+            if (!executeC0InSequence(fc, true)) {
+                ragelAppendString(fc, parser.maxDcsBytes);
+            }
+        }
+    }
+
+    action dcsIgnoreData {
+        if (fc >= 0x20 && fc < 0x7f) {
+            const size_t count = printableAsciiPrefix(p, pe - p);
+            p += count - 1;
         }
     }
 
@@ -2018,6 +2032,20 @@
         stringUtf8Continuation(fc);
         if (!executeC0InSequence(fc, true)) {
             ragelAppendString(fc, parser.maxOscBytes);
+        }
+    }
+
+    action oscRawData {
+        if (fc >= 0x20 && fc < 0x7f) {
+            const size_t count = printableAsciiPrefix(p, pe - p);
+            parser.stringUtf8Remaining = 0;
+            ragelAppendStringSpan(p, count, parser.maxOscBytes);
+            p += count - 1;
+        } else {
+            stringUtf8Continuation(fc);
+            if (!executeC0InSequence(fc, true)) {
+                ragelAppendString(fc, parser.maxOscBytes);
+            }
         }
     }
 
@@ -3438,13 +3466,19 @@
     }
 
     action ignoredData {
-        stringUtf8Continuation(fc);
-        if (executeC0InSequence(fc, true)) {
+        if (fc >= 0x20 && fc < 0x7f) {
+            const size_t count = printableAsciiPrefix(p, pe - p);
+            parser.stringUtf8Remaining = 0;
+            if constexpr (traced) {
+                parserTrace->stringData(p, count);
+            }
+            p += count - 1;
+        } else {
+            stringUtf8Continuation(fc);
+            executeC0InSequence(fc, true);
             if constexpr (traced) {
                 parserTrace->stringData(&fc, 1);
             }
-        } else if constexpr (traced) {
-            parserTrace->stringData(&fc, 1);
         }
     }
 
@@ -4455,7 +4489,7 @@
         0x9c @dcsIgnoreSt |
         0x1b @{ fgoto dcsIgnoreEscape; } |
         (0x00..0x17 | 0x19 | 0x1c..0x8f |
-         0x91..0x95 | 0x99 | 0xa0..0xff)
+         0x91..0x95 | 0x99 | 0xa0..0xff) @dcsIgnoreData
     )*;
 
     dcsIgnoreEscape := (
@@ -5322,7 +5356,7 @@
         0x1b @oscEscape |
         0x7f |
         (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
-         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscRawData
     )*;
 
     oscEscape := (
@@ -5340,7 +5374,7 @@
         0x1b @{ fgoto oscInvalidEscape; } |
         0x7f |
         (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
-         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscRawData
     )*;
 
     oscInvalidEscape := (
@@ -5437,28 +5471,28 @@ const auto ragelGroundAscii = [&](u8 ch) {
     inputGraphicChar(ch);
 };
 
-const auto ragelAppendString = [&](u8 ch, size_t limit) {
+const auto ragelAppendStringSpan = [&](const u8* data, size_t size, size_t limit) {
     if constexpr (traced) {
-        parserTrace->stringData(&ch, 1);
+        parserTrace->stringData(data, size);
     }
-    if (parser.scratch.used() < limit) {
-        parser.scratch.append(&ch, 1);
-    } else {
+    const size_t used = parser.scratch.used();
+    const size_t available = used < limit ? limit - used : 0;
+    const size_t appendSize = min(size, available);
+    if (appendSize != 0) {
+        parser.scratch.append(data, appendSize);
+    }
+    if (appendSize != size) {
         parser.overflow = true;
     }
 };
 
+const auto ragelAppendString = [&](u8 ch, size_t limit) {
+    ragelAppendStringSpan(&ch, 1, limit);
+};
+
 const auto ragelAppendEscapedString = [&](u8 ch, size_t limit) {
-    if constexpr (traced) {
-        const u8 bytes[] = {'\x1b', ch};
-        parserTrace->stringData(bytes, sizeof(bytes));
-    }
-    if (parser.scratch.used() <= limit - 2) {
-        const u8 bytes[] = {'\x1b', ch};
-        parser.scratch.append(bytes, sizeof(bytes));
-    } else {
-        parser.overflow = true;
-    }
+    const u8 bytes[] = {'\x1b', ch};
+    ragelAppendStringSpan(bytes, sizeof(bytes), limit);
 };
 
 const auto ragelBeginString = [&](VtermTraceString type, bool buffered) {
