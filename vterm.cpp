@@ -316,6 +316,7 @@ namespace {
         void ragelGroundHigh(u8 ch);
         void ragelGroundAscii(u8 ch);
         void ragelBeginString(VtermTraceString type, bool buffered);
+        void ragelBeginDcs();
         bool ragelStringContinuation(u8 ch);
         void ragelAppendString(u8 ch, size_t limit);
         void ragelAppendEscapedString(u8 ch, size_t limit);
@@ -524,7 +525,6 @@ namespace {
         void csi_DSR(bool privateMode = false);
         void esch_DECALN();
         void setLineAttribute(u8 attribute);
-        void handle_DCS();
         void handle_OSC();
         void csiq_DECSCL();
         void csi_XTWINOPS();
@@ -548,9 +548,9 @@ namespace {
         void printLine(u16 row);
         size_t consumePrinterController(const u8* input, size_t size);
 
-        void dcs_DECRQSS(const std::string&);
-        void dcs_XTGETTCAP(const std::string&);
-        void dcs_DECUDK(const std::string&);
+        void dcs_DECRQSS();
+        void dcs_XTGETTCAP();
+        void dcs_DECUDK();
 
         void osc_PaletteQuery(int, const std::string&);
         void osc_SpecialColorQuery(const std::string&);
@@ -650,6 +650,7 @@ namespace {
         u8 csiIntermediates[4] = {};
         u8 csiIntermediateCount = 0;
         constexpr const static size_t maxEscOps = 32;
+        constexpr const static size_t maxDcsBytes = 4095;
         constexpr const static size_t maxOscBytes = 1024 * 1024;
         u32 inputOps[maxEscOps];
         unsigned char inputSeparators[maxEscOps] = {};
@@ -666,10 +667,67 @@ namespace {
         TerminalCell inputGraphemeAttrs{};
         u32 inputGraphemeHyperlink = 0;
         u32 inputGraphemeSemantic = 0;
-        std::vector<unsigned char> argBuf;
+        Buffer argBuf;
         bool argBufOverflowed = false;
         size_t ragelStringLimit = 0;
         u8 stringUtf8Remaining = 0;
+        enum class DcsCommand : u8 {
+            Ignore,
+            Decrqss,
+            Xtgettcap,
+            Decudk
+        };
+
+        enum class DecrqssQuery : u8 {
+            Unknown,
+            Decscl,
+            Sgr,
+            Decstbm,
+            Decslrm,
+            Decslpp,
+            Decscusr,
+            Decsca
+        };
+
+        enum class DcsCapability : u8 {
+            Unknown,
+            TerminalName,
+            Colors,
+            Rgb
+        };
+
+        struct DcsCapabilityRequest {
+            size_t encodedOffset;
+            size_t encodedLength;
+            DcsCapability capability;
+        };
+
+        struct DcsUdkDefinition {
+            size_t valueOffset;
+            size_t valueLength;
+            u32 code;
+        };
+
+        DcsCommand dcsCommand = DcsCommand::Ignore;
+        u8 dcsIntermediates[4] = {};
+        u8 dcsIntermediateCount = 0;
+        DecrqssQuery decrqssQuery = DecrqssQuery::Unknown;
+        Vector<DcsCapabilityRequest> dcsCapabilityRequests;
+        size_t dcsCapabilityOffset = 0;
+        size_t dcsCapabilityDecodedLength = 0;
+        u8 dcsCapabilityCandidates = 0;
+        u8 dcsCapabilityHighNibble = 0;
+        bool dcsCapabilityHasHighNibble = false;
+        bool dcsCapabilityValid = false;
+        Vector<DcsUdkDefinition> dcsUdkDefinitions;
+        Buffer dcsDecoded;
+        size_t dcsUdkValueOffset = 0;
+        u32 dcsUdkCode = 0;
+        u8 dcsUdkHighNibble = 0;
+        bool dcsUdkHasCode = false;
+        bool dcsUdkHasHighNibble = false;
+        bool dcsUdkValid = false;
+        bool dcsUdkInValue = false;
         unsigned char scsDst;
         unsigned char scsMod;
 
@@ -2403,11 +2461,10 @@ void VtermImpl<traced>::resetTerminal() {
     nColsEff = composer.columns;
 
     if (host.handlesOsc()) {
-        argBuf.clear();
-        argBuf.push_back('0');
-        argBuf.push_back(';');
+        argBuf.reset();
+        argBuf.append("0;", 2);
         for (const char* p = opts.title; *p != '\0'; ++p) {
-            argBuf.push_back(*p);
+            argBuf.append(p, 1);
         }
         handle_OSC();
     }
@@ -5368,220 +5425,152 @@ void VtermImpl<traced>::csi_DECSTR() {
 }
 
 template <bool traced>
-void VtermImpl<traced>::handle_DCS() {
-    if (compatLevel < CompatibilityLevel::VT200) {
+void VtermImpl<traced>::dcs_DECUDK() {
+    if (userDefinedKeysLocked || nInputOps > 2) {
         return;
     }
-    auto arg = std::string((char*)argBuf.data(), argBuf.size());
-    if (arg.substr(0, 2) == "$q") {
-        if (compatLevel < CompatibilityLevel::VT400) {
-            return;
-        }
-        dcs_DECRQSS(arg);
-    } else if (arg.substr(0, 2) == "+q") {
-        dcs_XTGETTCAP(arg.substr(2));
-    } else if (arg.find('|') != std::string::npos) {
-        dcs_DECUDK(arg);
-    }
-}
-
-template <bool traced>
-void VtermImpl<traced>::dcs_DECUDK(const std::string& request) {
-    if (userDefinedKeysLocked) {
-        return;
-    }
-    const size_t bar = request.find('|');
-    if (bar == std::string::npos) {
-        return;
-    }
-    u32 clear = 0;
-    u32 lock = 0;
-    const std::string parameters = request.substr(0, bar);
-    const size_t separator = parameters.find(';');
-    if (separator != std::string::npos && parameters.find(';', separator + 1) != std::string::npos) {
-        return;
-    }
-    const auto parseParameter = [](const char* begin, const char* end, u32& value) {
-        if (begin == end) {
-            value = 0;
-            return true;
-        }
-        const auto result = std::from_chars(begin, end, value);
-        return result.ec == std::errc{} && result.ptr == end && value <= 1;
-    };
-    const char* const parameterBegin = parameters.data();
-    const char* const parameterEnd = parameterBegin + parameters.size();
-    const char* const clearEnd = separator == std::string::npos ? parameterEnd : parameterBegin + separator;
-    if (!parseParameter(parameterBegin, clearEnd, clear)) {
-        return;
-    }
-    if (separator != std::string::npos && !parseParameter(clearEnd + 1, parameterEnd, lock)) {
+    const u32 clear = inputPresent[0] ? inputOps[0] : 0;
+    const u32 lock = nInputOps > 1 && inputPresent[1] ? inputOps[1] : 0;
+    if (clear > 1 || lock > 1 || (nInputOps > 1 && inputSeparators[1] != ';')) {
         return;
     }
     if (clear == 0) {
         userDefinedKeys.clear();
     }
 
-    const auto keyForCode = [](u32 code) {
-        switch (code) {
-            case 17:
-                return VtKey::F6;
-            case 18:
-                return VtKey::F7;
-            case 19:
-                return VtKey::F8;
-            case 20:
-                return VtKey::F9;
-            case 21:
-                return VtKey::F10;
-            case 23:
-                return VtKey::F11;
-            case 24:
-                return VtKey::F12;
-            case 25:
-                return VtKey::F13;
-            case 26:
-                return VtKey::F14;
-            case 28:
-                return VtKey::F15;
-            case 29:
-                return VtKey::F16;
-            case 31:
-                return VtKey::F17;
-            case 32:
-                return VtKey::F18;
-            case 33:
-                return VtKey::F19;
-            case 34:
-                return VtKey::F20;
-            default:
-                return VtKey::NONE;
-        }
-    };
-    size_t begin = bar + 1;
-    while (begin <= request.size()) {
-        const size_t end = request.find(';', begin);
-        const std::string definition = request.substr(begin, end - begin);
-        const size_t slash = definition.find('/');
-        u32 code = 0;
-        const auto codeResult = slash == std::string::npos ? std::from_chars(definition.data(), definition.data(), code) : std::from_chars(definition.data(), definition.data() + slash, code);
-        if (slash != std::string::npos && codeResult.ec == std::errc{} && codeResult.ptr == definition.data() + slash) {
-            std::string value;
-            const size_t encodedSize = definition.size() - slash - 1;
-            bool valid = encodedSize % 2 == 0 && encodedSize / 2 <= 255;
-            for (size_t k = slash + 1; valid && k < definition.size(); k += 2) {
-                const auto digit = [](char ch) -> int {
-                    if (ch >= '0' && ch <= '9') {
-                        return ch - '0';
-                    }
-                    if (ch >= 'a' && ch <= 'f') {
-                        return ch - 'a' + 10;
-                    }
-                    if (ch >= 'A' && ch <= 'F') {
-                        return ch - 'A' + 10;
-                    }
-                    return -1;
-                };
-                const int high = digit(definition[k]);
-                const int low = digit(definition[k + 1]);
-                valid = high >= 0 && low >= 0;
-                if (valid) {
-                    value.push_back((char)(high * 16 + low));
-                }
+    for (const DcsUdkDefinition& definition : dcsUdkDefinitions) {
+        const VtKey key = [&] {
+            switch (definition.code) {
+                case 17:
+                    return VtKey::F6;
+                case 18:
+                    return VtKey::F7;
+                case 19:
+                    return VtKey::F8;
+                case 20:
+                    return VtKey::F9;
+                case 21:
+                    return VtKey::F10;
+                case 23:
+                    return VtKey::F11;
+                case 24:
+                    return VtKey::F12;
+                case 25:
+                    return VtKey::F13;
+                case 26:
+                    return VtKey::F14;
+                case 28:
+                    return VtKey::F15;
+                case 29:
+                    return VtKey::F16;
+                case 31:
+                    return VtKey::F17;
+                case 32:
+                    return VtKey::F18;
+                case 33:
+                    return VtKey::F19;
+                case 34:
+                    return VtKey::F20;
+                default:
+                    return VtKey::NONE;
             }
-            const VtKey key = keyForCode(code);
-            if (valid && key != VtKey::NONE) {
-                userDefinedKeys[key] = value;
-            }
+        }();
+        if (key == VtKey::NONE) {
+            continue;
         }
-        if (end == std::string::npos) {
-            break;
-        }
-        begin = end + 1;
+        const auto* value = (const char*)(dcsDecoded.data()) + definition.valueOffset;
+        userDefinedKeys[key] = std::string(value, definition.valueLength);
     }
     userDefinedKeysLocked = lock == 0;
 }
 
 template <bool traced>
-void VtermImpl<traced>::dcs_DECRQSS(const std::string& arg) {
+void VtermImpl<traced>::dcs_DECRQSS() {
     StringBuilder value;
-    const std::string query = arg.substr(2);
-    if (query == "\"p") {
-        value << 60 + (u8)(compatLevel) << StringView(u8";") << (send8BitControls ? 0 : 1) << StringView(u8"\"p");
-    } else if (query == "m") {
-        value << StringView(u8"0");
-        if (attrs.bold) {
-            value << StringView(u8";1");
-        }
-        if (attrs.faint) {
-            value << StringView(u8";2");
-        }
-        if (attrs.italic) {
-            value << StringView(u8";3");
-        }
-        if (attrs.underlined()) {
-            value << StringView(u8";4");
-            if (attrs.underline_style > 1) {
-                value << StringView(u8":") << (unsigned)(attrs.underline_style);
+    switch (decrqssQuery) {
+        case DecrqssQuery::Decscl:
+            value << 60 + (u8)(compatLevel) << StringView(u8";") << (send8BitControls ? 0 : 1) << StringView(u8"\"p");
+            break;
+        case DecrqssQuery::Sgr:
+            value << StringView(u8"0");
+            if (attrs.bold) {
+                value << StringView(u8";1");
             }
-        }
-        if (attrs.blink) {
-            value << StringView(u8";5");
-        }
-        if (reverseVideo) {
-            value << StringView(u8";7");
-        }
-        if (attrs.conceal) {
-            value << StringView(u8";8");
-        }
-        if (attrs.strike) {
-            value << StringView(u8";9");
-        }
-        if (attrs.overline) {
-            value << StringView(u8";53");
-        }
-        if (fgPalIx >= 0 && fgPalIx < 8) {
-            value << StringView(u8";") << 30 + fgPalIx;
-        } else if (fgPalIx >= 8 && fgPalIx < 16) {
-            value << StringView(u8";") << 90 + fgPalIx - 8;
-        } else if (fgPalIx >= 0) {
-            value << StringView(u8";38:5:") << fgPalIx;
-        } else if (attrForeground().source() == CellColor::Source::Direct) {
-            const Color color = attrForeground().color();
-            value << StringView(u8";38:2::") << (unsigned)(color.red) << StringView(u8":") << (unsigned)(color.green) << StringView(u8":") << (unsigned)(color.blue);
-        }
-        if (bgPalIx >= 0 && bgPalIx < 8) {
-            value << StringView(u8";") << 40 + bgPalIx;
-        } else if (bgPalIx >= 8 && bgPalIx < 16) {
-            value << StringView(u8";") << 100 + bgPalIx - 8;
-        } else if (bgPalIx >= 0) {
-            value << StringView(u8";48:5:") << bgPalIx;
-        } else if (attrBackground().source() == CellColor::Source::Direct) {
-            const Color color = attrBackground().color();
-            value << StringView(u8";48:2::") << (unsigned)(color.red) << StringView(u8":") << (unsigned)(color.green) << StringView(u8":") << (unsigned)(color.blue);
-        }
-        if (!underlineColorDefault) {
-            if (underlinePalIx >= 0) {
-                value << StringView(u8";58:5:") << underlinePalIx;
-            } else {
-                const Color color = attrUnderlineColor().color();
-                value << StringView(u8";58:2::") << (unsigned)(color.red) << StringView(u8":") << (unsigned)(color.green) << StringView(u8":") << (unsigned)(color.blue);
+            if (attrs.faint) {
+                value << StringView(u8";2");
             }
-        }
-        value << StringView(u8"m");
-    } else if (query == "r") {
-        value << marginTop + 1 << StringView(u8";") << marginBottom << StringView(u8"r");
-    } else if (query == "s") {
-        value << hMargin + 1 << StringView(u8";") << nColsEff << StringView(u8"s");
-    } else if (query == "t") {
-        value << composer.rows << StringView(u8"t");
-    } else if (query == " q") {
-        value << (unsigned)(cursorStyleParam) << StringView(u8" q");
-    } else if (query == "\"q") {
-        value << ((attrs.protected_char & TerminalCell::decProtection) ? 1 : 0) << StringView(u8"\"q");
-    } else {
-        writeDcsResponse("0$r");
-        return;
+            if (attrs.italic) {
+                value << StringView(u8";3");
+            }
+            if (attrs.underlined()) {
+                value << StringView(u8";4");
+                if (attrs.underline_style > 1) {
+                    value << StringView(u8":") << (unsigned)(attrs.underline_style);
+                }
+            }
+            if (attrs.blink) {
+                value << StringView(u8";5");
+            }
+            if (reverseVideo) {
+                value << StringView(u8";7");
+            }
+            if (attrs.conceal) {
+                value << StringView(u8";8");
+            }
+            if (attrs.strike) {
+                value << StringView(u8";9");
+            }
+            if (attrs.overline) {
+                value << StringView(u8";53");
+            }
+            if (fgPalIx >= 0 && fgPalIx < 8) {
+                value << StringView(u8";") << 30 + fgPalIx;
+            } else if (fgPalIx >= 8 && fgPalIx < 16) {
+                value << StringView(u8";") << 90 + fgPalIx - 8;
+            } else if (fgPalIx >= 0) {
+                value << StringView(u8";38:5:") << fgPalIx;
+            } else if (attrForeground().source() == CellColor::Source::Direct) {
+                const Color color = attrForeground().color();
+                value << StringView(u8";38:2::") << (unsigned)(color.red) << StringView(u8":") << (unsigned)(color.green) << StringView(u8":") << (unsigned)(color.blue);
+            }
+            if (bgPalIx >= 0 && bgPalIx < 8) {
+                value << StringView(u8";") << 40 + bgPalIx;
+            } else if (bgPalIx >= 8 && bgPalIx < 16) {
+                value << StringView(u8";") << 100 + bgPalIx - 8;
+            } else if (bgPalIx >= 0) {
+                value << StringView(u8";48:5:") << bgPalIx;
+            } else if (attrBackground().source() == CellColor::Source::Direct) {
+                const Color color = attrBackground().color();
+                value << StringView(u8";48:2::") << (unsigned)(color.red) << StringView(u8":") << (unsigned)(color.green) << StringView(u8":") << (unsigned)(color.blue);
+            }
+            if (!underlineColorDefault) {
+                if (underlinePalIx >= 0) {
+                    value << StringView(u8";58:5:") << underlinePalIx;
+                } else {
+                    const Color color = attrUnderlineColor().color();
+                    value << StringView(u8";58:2::") << (unsigned)(color.red) << StringView(u8":") << (unsigned)(color.green) << StringView(u8":") << (unsigned)(color.blue);
+                }
+            }
+            value << StringView(u8"m");
+            break;
+        case DecrqssQuery::Decstbm:
+            value << marginTop + 1 << StringView(u8";") << marginBottom << StringView(u8"r");
+            break;
+        case DecrqssQuery::Decslrm:
+            value << hMargin + 1 << StringView(u8";") << nColsEff << StringView(u8"s");
+            break;
+        case DecrqssQuery::Decslpp:
+            value << composer.rows << StringView(u8"t");
+            break;
+        case DecrqssQuery::Decscusr:
+            value << (unsigned)(cursorStyleParam) << StringView(u8" q");
+            break;
+        case DecrqssQuery::Decsca:
+            value << ((attrs.protected_char & TerminalCell::decProtection) ? 1 : 0) << StringView(u8"\"q");
+            break;
+        case DecrqssQuery::Unknown:
+            writeDcsResponse("0$r");
+            return;
     }
 
     StringBuilder response;
@@ -5590,77 +5579,43 @@ void VtermImpl<traced>::dcs_DECRQSS(const std::string& arg) {
 }
 
 template <bool traced>
-void VtermImpl<traced>::dcs_XTGETTCAP(const std::string& request) {
-    const auto hexValue = [](const std::string& value) {
-        static constexpr char hex[] = "0123456789abcdef";
-        std::string result;
-        result.reserve(value.size() * 2);
-        for (unsigned char ch : value) {
-            result.push_back(hex[ch >> 4]);
-            result.push_back(hex[ch & 0x0f]);
-        }
-        return result;
-    };
-    const auto decodeHex = [](const std::string& value, std::string& result) {
-        const auto digit = [](unsigned char ch) -> int {
-            if (ch >= '0' && ch <= '9') {
-                return ch - '0';
-            }
-            if (ch >= 'a' && ch <= 'f') {
-                return ch - 'a' + 10;
-            }
-            if (ch >= 'A' && ch <= 'F') {
-                return ch - 'A' + 10;
-            }
-            return -1;
-        };
-        if (value.size() % 2 != 0) {
-            return false;
-        }
-        result.clear();
-        for (size_t pos = 0; pos < value.size(); pos += 2) {
-            const int high = digit(value[pos]);
-            const int low = digit(value[pos + 1]);
-            if (high < 0 || low < 0) {
-                return false;
-            }
-            result.push_back((char)((high << 4) | low));
-        }
-        return true;
-    };
-
-    size_t begin = 0;
-    while (begin <= request.size()) {
-        const size_t end = request.find(';', begin);
-        const std::string encoded = request.substr(begin, end - begin);
-        std::string name;
-        std::string value;
-        bool found = decodeHex(encoded, name);
-        if (name == "TN") {
-            value = "xterm-256color";
-        } else if (name == "Co" || name == "colors") {
-            value = "256";
-        } else if (name == "RGB") {
-            value = "8";
-        } else {
-            found = false;
+void VtermImpl<traced>::dcs_XTGETTCAP() {
+    for (const DcsCapabilityRequest& request : dcsCapabilityRequests) {
+        StringView value;
+        switch (request.capability) {
+            case DcsCapability::TerminalName:
+                value = "xterm-256color";
+                break;
+            case DcsCapability::Colors:
+                value = "256";
+                break;
+            case DcsCapability::Rgb:
+                value = "8";
+                break;
+            case DcsCapability::Unknown:
+                break;
         }
 
-        std::string reply = std::string(found ? "1+r" : "0+r") + encoded;
-        if (found) {
-            reply += "=" + hexValue(value);
+        const auto* encodedData = (const u8*)(argBuf.data()) + request.encodedOffset;
+        const StringView encoded(encodedData, request.encodedLength);
+        StringBuilder reply;
+        reply << (request.capability == DcsCapability::Unknown ? StringView(u8"0+r") : StringView(u8"1+r"));
+        reply.append(encoded.data(), encoded.length());
+        if (request.capability != DcsCapability::Unknown) {
+            static constexpr u8 hex[] = u8"0123456789abcdef";
+            reply << StringView(u8"=");
+            for (u8 ch : value) {
+                const u8 pair[] = {hex[ch >> 4], hex[ch & 15]};
+                reply.append(pair, sizeof(pair));
+            }
         }
-        writeDcsResponse(StringView((const u8*)(reply.data()), reply.size()));
-        if (end == std::string::npos) {
-            break;
-        }
-        begin = end + 1;
+        writeDcsResponse(StringView(reply));
     }
 }
 
 template <bool traced>
 void VtermImpl<traced>::handle_OSC() {
-    auto osc = std::string((char*)argBuf.data(), argBuf.size());
+    auto osc = std::string((char*)argBuf.data(), argBuf.used());
     std::size_t p = osc.find_first_of(";");
     std::string arg;
     if (p != std::string::npos) {
@@ -8675,14 +8630,40 @@ template <bool traced>
 void VtermImpl<traced>::ragelBeginString(VtermTraceString type, bool buffered) {
     resetGraphemeInput();
     stringUtf8Remaining = 0;
-    ragelStringLimit = type == VtermTraceString::Dcs ? 4095 : type == VtermTraceString::Osc ? maxOscBytes : 0;
+    ragelStringLimit = type == VtermTraceString::Dcs ? maxDcsBytes : type == VtermTraceString::Osc ? maxOscBytes : 0;
     if (buffered) {
-        argBuf.clear();
+        argBuf.reset();
         argBufOverflowed = false;
     }
     if constexpr (traced) {
         parserTrace->stringBegin(type);
     }
+}
+
+template <bool traced>
+void VtermImpl<traced>::ragelBeginDcs() {
+    ragelBeginString(VtermTraceString::Dcs, true);
+    inputOps[0] = 0;
+    inputSeparators[0] = 0;
+    inputPresent[0] = false;
+    nInputOps = 1;
+    dcsCommand = DcsCommand::Ignore;
+    dcsIntermediateCount = 0;
+    decrqssQuery = DecrqssQuery::Unknown;
+    dcsCapabilityRequests.clear();
+    dcsCapabilityOffset = 0;
+    dcsCapabilityDecodedLength = 0;
+    dcsCapabilityCandidates = 0;
+    dcsCapabilityHasHighNibble = false;
+    dcsCapabilityValid = false;
+    dcsUdkDefinitions.clear();
+    dcsDecoded.reset();
+    dcsUdkValueOffset = 0;
+    dcsUdkCode = 0;
+    dcsUdkHasCode = false;
+    dcsUdkHasHighNibble = false;
+    dcsUdkValid = false;
+    dcsUdkInValue = false;
 }
 
 template <bool traced>
@@ -8703,8 +8684,8 @@ void VtermImpl<traced>::ragelAppendString(u8 ch, size_t limit) {
     if constexpr (traced) {
         parserTrace->stringData(&ch, 1);
     }
-    if (argBuf.size() < limit) {
-        argBuf.push_back(ch);
+    if (argBuf.used() < limit) {
+        argBuf.append(&ch, 1);
     } else {
         argBufOverflowed = true;
     }
@@ -8716,9 +8697,9 @@ void VtermImpl<traced>::ragelAppendEscapedString(u8 ch, size_t limit) {
         const u8 bytes[] = {'\x1b', ch};
         parserTrace->stringData(bytes, sizeof(bytes));
     }
-    if (argBuf.size() <= limit - 2) {
-        argBuf.push_back('\x1b');
-        argBuf.push_back(ch);
+    if (argBuf.used() <= limit - 2) {
+        const u8 bytes[] = {'\x1b', ch};
+        argBuf.append(bytes, sizeof(bytes));
     } else {
         argBufOverflowed = true;
     }
@@ -8731,9 +8712,22 @@ void VtermImpl<traced>::ragelFinishDcs() {
     if constexpr (traced) {
         parserTrace->stringEnd();
     }
-    if (argBufOverflowed) {
-    } else {
-        handle_DCS();
+    if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT200) {
+        switch (dcsCommand) {
+            case DcsCommand::Decrqss:
+                if (compatLevel >= CompatibilityLevel::VT400) {
+                    dcs_DECRQSS();
+                }
+                break;
+            case DcsCommand::Xtgettcap:
+                dcs_XTGETTCAP();
+                break;
+            case DcsCommand::Decudk:
+                dcs_DECUDK();
+                break;
+            case DcsCommand::Ignore:
+                break;
+        }
     }
 }
 

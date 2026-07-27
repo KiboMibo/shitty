@@ -63,8 +63,8 @@
     }
 
     action beginDcs {
-        ragelBeginString(VtermTraceString::Dcs, true);
-        fgoto dcs;
+        ragelBeginDcs();
+        fgoto dcsEntry;
     }
 
     action beginOsc {
@@ -361,8 +361,8 @@
             fbreak;
         }
         resetGraphemeInput();
-        ragelBeginString(VtermTraceString::Dcs, true);
-        fgoto dcs;
+        ragelBeginDcs();
+        fgoto dcsEntry;
     }
 
     action groundC1Spa {
@@ -1007,16 +1007,108 @@
         fbreak;
     }
 
-    action dcsData {
+    action dcsHeaderByte {
+        ragelAppendString(fc, maxDcsBytes);
+    }
+
+    action dcsDigit {
+        ragelAppendString(fc, maxDcsBytes);
+        inputPresent[nInputOps - 1] = true;
+        if (inputOps[nInputOps - 1] > (UINT32_MAX - (u32)(fc - '0')) / 10) {
+            inputOps[nInputOps - 1] = UINT32_MAX;
+        } else {
+            inputOps[nInputOps - 1] = inputOps[nInputOps - 1] * 10 + fc - '0';
+        }
+    }
+
+    action dcsSeparator {
+        ragelAppendString(fc, maxDcsBytes);
+        if (nInputOps >= maxEscOps) {
+            if constexpr (traced) {
+                parserTrace->stringCancel();
+            }
+            fgoto dcsIgnore;
+        }
+        inputSeparators[nInputOps] = fc;
+        inputOps[nInputOps] = 0;
+        inputPresent[nInputOps] = false;
+        ++nInputOps;
+    }
+
+    action dcsIntermediate {
+        ragelAppendString(fc, maxDcsBytes);
+        if (dcsIntermediateCount >= sizeof(dcsIntermediates)) {
+            if constexpr (traced) {
+                parserTrace->stringCancel();
+            }
+            fgoto dcsIgnore;
+        }
+        dcsIntermediates[dcsIntermediateCount++] = fc;
+    }
+
+    action dcsFinal {
+        ragelAppendString(fc, maxDcsBytes);
+        if (dcsIntermediateCount == 1 && dcsIntermediates[0] == '$' && fc == 'q') {
+            dcsCommand = DcsCommand::Decrqss;
+            decrqssQuery = DecrqssQuery::Unknown;
+            fgoto dcsDecrqssEntry;
+        } else if (dcsIntermediateCount == 1 && dcsIntermediates[0] == '+' && fc == 'q') {
+            dcsCommand = DcsCommand::Xtgettcap;
+            dcsCapabilityOffset = argBuf.used();
+            dcsCapabilityDecodedLength = 0;
+            dcsCapabilityCandidates = 0x0f;
+            dcsCapabilityHasHighNibble = false;
+            dcsCapabilityValid = true;
+            fgoto dcsXtgettcap;
+        } else if (dcsIntermediateCount == 0 && fc == '|') {
+            dcsCommand = DcsCommand::Decudk;
+            dcsUdkValueOffset = dcsDecoded.used();
+            dcsUdkCode = 0;
+            dcsUdkHasCode = false;
+            dcsUdkHasHighNibble = false;
+            dcsUdkValid = true;
+            dcsUdkInValue = false;
+            fgoto dcsUdkCode;
+        } else {
+            dcsCommand = DcsCommand::Ignore;
+            fgoto dcsPayload;
+        }
+    }
+
+    action dcsHeaderInvalid {
+        if constexpr (traced) {
+            parserTrace->stringCancel();
+        }
+        fgoto dcsIgnore;
+    }
+
+    action dcsHeaderTerminated {
+        stringUtf8Remaining = 0;
+        ragelStringLimit = 0;
+        if constexpr (traced) {
+            parserTrace->stringCancel();
+        }
+        fnext main;
+        fbreak;
+    }
+
+    action dcsIgnoreSt {
+        stringUtf8Remaining = 0;
+        ragelStringLimit = 0;
+        fnext main;
+        fbreak;
+    }
+
+    action dcsPayloadData {
         stringUtf8Continuation(fc);
         if (!executeC0InSequence(fc, true)) {
-            ragelAppendString(fc, 4095);
+            ragelAppendString(fc, maxDcsBytes);
         }
     }
 
     action dcsSt {
         if (stringUtf8Continuation(fc)) {
-            ragelAppendString(fc, 4095);
+            ragelAppendString(fc, maxDcsBytes);
         } else {
             ragelFinishDcs();
             fnext main;
@@ -1024,24 +1116,354 @@
         }
     }
 
-    action dcsEscape {
-        fgoto dcsEscape;
+    action dcsHeaderEscape {
+        fgoto dcsHeaderEscape;
+    }
+
+    action dcsPayloadEscape {
+        fgoto dcsPayloadEscape;
     }
 
     action dcsEscapedEscape {
         if constexpr (traced) {
             parserTrace->stringData((const u8*)("\x1b"), 1);
         }
-        if (argBuf.size() < 4095) {
-            argBuf.push_back('\x1b');
+        if (argBuf.used() < maxDcsBytes) {
+            const u8 ch = '\x1b';
+            argBuf.append(&ch, 1);
         } else {
             argBufOverflowed = true;
         }
     }
 
     action dcsEscapedData {
-        ragelAppendEscapedString(fc, 4095);
-        fgoto dcs;
+        ragelAppendEscapedString(fc, maxDcsBytes);
+        fgoto dcsPayload;
+    }
+
+    action dcsDecrqssQuote {
+        ragelAppendString(fc, maxDcsBytes);
+        fgoto dcsDecrqssQuote;
+    }
+
+    action dcsDecrqssSpace {
+        ragelAppendString(fc, maxDcsBytes);
+        fgoto dcsDecrqssSpace;
+    }
+
+    action dcsDecrqssDecscl {
+        ragelAppendString(fc, maxDcsBytes);
+        decrqssQuery = DecrqssQuery::Decscl;
+        fgoto dcsDecrqssComplete;
+    }
+
+    action dcsDecrqssSgr {
+        ragelAppendString(fc, maxDcsBytes);
+        decrqssQuery = DecrqssQuery::Sgr;
+        fgoto dcsDecrqssComplete;
+    }
+
+    action dcsDecrqssDecstbm {
+        ragelAppendString(fc, maxDcsBytes);
+        decrqssQuery = DecrqssQuery::Decstbm;
+        fgoto dcsDecrqssComplete;
+    }
+
+    action dcsDecrqssDecslrm {
+        ragelAppendString(fc, maxDcsBytes);
+        decrqssQuery = DecrqssQuery::Decslrm;
+        fgoto dcsDecrqssComplete;
+    }
+
+    action dcsDecrqssDecslpp {
+        ragelAppendString(fc, maxDcsBytes);
+        decrqssQuery = DecrqssQuery::Decslpp;
+        fgoto dcsDecrqssComplete;
+    }
+
+    action dcsDecrqssDecscusr {
+        ragelAppendString(fc, maxDcsBytes);
+        decrqssQuery = DecrqssQuery::Decscusr;
+        fgoto dcsDecrqssComplete;
+    }
+
+    action dcsDecrqssDecsca {
+        ragelAppendString(fc, maxDcsBytes);
+        decrqssQuery = DecrqssQuery::Decsca;
+        fgoto dcsDecrqssComplete;
+    }
+
+    action dcsDecrqssInvalid {
+        stringUtf8Continuation(fc);
+        ragelAppendString(fc, maxDcsBytes);
+        decrqssQuery = DecrqssQuery::Unknown;
+        fgoto dcsDecrqssInvalid;
+    }
+
+    action dcsDecrqssEscape {
+        fgoto dcsDecrqssEscape;
+    }
+
+    action dcsDecrqssEscapedEscape {
+        if constexpr (traced) {
+            parserTrace->stringData((const u8*)("\x1b"), 1);
+        }
+        if (argBuf.used() < maxDcsBytes) {
+            const u8 ch = '\x1b';
+            argBuf.append(&ch, 1);
+        } else {
+            argBufOverflowed = true;
+        }
+        decrqssQuery = DecrqssQuery::Unknown;
+    }
+
+    action dcsDecrqssEscapedData {
+        ragelAppendEscapedString(fc, maxDcsBytes);
+        decrqssQuery = DecrqssQuery::Unknown;
+        fgoto dcsDecrqssInvalid;
+    }
+
+    action dcsDecrqssSt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxDcsBytes);
+            decrqssQuery = DecrqssQuery::Unknown;
+            fgoto dcsDecrqssInvalid;
+        } else {
+            ragelFinishDcs();
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action dcsXtHex {
+        ragelAppendString(fc, maxDcsBytes);
+        const u8 nibble = fc <= '9' ? fc - '0' : (fc | 0x20) - 'a' + 10;
+        if (!dcsCapabilityHasHighNibble) {
+            dcsCapabilityHighNibble = nibble;
+            dcsCapabilityHasHighNibble = true;
+        } else {
+            const u8 decoded = (dcsCapabilityHighNibble << 4) | nibble;
+            static constexpr u8 terminalName[] = {'T', 'N'};
+            static constexpr u8 colorCount[] = {'C', 'o'};
+            static constexpr u8 colors[] = {'c', 'o', 'l', 'o', 'r', 's'};
+            static constexpr u8 rgb[] = {'R', 'G', 'B'};
+            const size_t index = dcsCapabilityDecodedLength++;
+            if (index >= sizeof(terminalName) || terminalName[index] != decoded) {
+                dcsCapabilityCandidates &= ~0x01;
+            }
+            if (index >= sizeof(colorCount) || colorCount[index] != decoded) {
+                dcsCapabilityCandidates &= ~0x02;
+            }
+            if (index >= sizeof(colors) || colors[index] != decoded) {
+                dcsCapabilityCandidates &= ~0x04;
+            }
+            if (index >= sizeof(rgb) || rgb[index] != decoded) {
+                dcsCapabilityCandidates &= ~0x08;
+            }
+            dcsCapabilityHasHighNibble = false;
+        }
+    }
+
+    action dcsXtInvalid {
+        stringUtf8Continuation(fc);
+        ragelAppendString(fc, maxDcsBytes);
+        dcsCapabilityValid = false;
+    }
+
+    action dcsXtSeparator {
+        DcsCapability capability = DcsCapability::Unknown;
+        if (dcsCapabilityValid && !dcsCapabilityHasHighNibble) {
+            if ((dcsCapabilityCandidates & 0x01) && dcsCapabilityDecodedLength == 2) {
+                capability = DcsCapability::TerminalName;
+            } else if (((dcsCapabilityCandidates & 0x02) && dcsCapabilityDecodedLength == 2) ||
+                       ((dcsCapabilityCandidates & 0x04) && dcsCapabilityDecodedLength == 6)) {
+                capability = DcsCapability::Colors;
+            } else if ((dcsCapabilityCandidates & 0x08) && dcsCapabilityDecodedLength == 3) {
+                capability = DcsCapability::Rgb;
+            }
+        }
+        dcsCapabilityRequests.pushBack({
+            dcsCapabilityOffset,
+            argBuf.used() - dcsCapabilityOffset,
+            capability,
+        });
+        ragelAppendString(fc, maxDcsBytes);
+        dcsCapabilityOffset = argBuf.used();
+        dcsCapabilityDecodedLength = 0;
+        dcsCapabilityCandidates = 0x0f;
+        dcsCapabilityHasHighNibble = false;
+        dcsCapabilityValid = true;
+    }
+
+    action dcsXtSt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxDcsBytes);
+            dcsCapabilityValid = false;
+        } else {
+            DcsCapability capability = DcsCapability::Unknown;
+            if (dcsCapabilityValid && !dcsCapabilityHasHighNibble) {
+                if ((dcsCapabilityCandidates & 0x01) && dcsCapabilityDecodedLength == 2) {
+                    capability = DcsCapability::TerminalName;
+                } else if (((dcsCapabilityCandidates & 0x02) && dcsCapabilityDecodedLength == 2) ||
+                           ((dcsCapabilityCandidates & 0x04) && dcsCapabilityDecodedLength == 6)) {
+                    capability = DcsCapability::Colors;
+                } else if ((dcsCapabilityCandidates & 0x08) && dcsCapabilityDecodedLength == 3) {
+                    capability = DcsCapability::Rgb;
+                }
+            }
+            dcsCapabilityRequests.pushBack({
+                dcsCapabilityOffset,
+                argBuf.used() - dcsCapabilityOffset,
+                capability,
+            });
+            ragelFinishDcs();
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action dcsXtEscape {
+        fgoto dcsXtEscape;
+    }
+
+    action dcsXtEscapedEscape {
+        if constexpr (traced) {
+            parserTrace->stringData((const u8*)("\x1b"), 1);
+        }
+        if (argBuf.used() < maxDcsBytes) {
+            const u8 ch = '\x1b';
+            argBuf.append(&ch, 1);
+        } else {
+            argBufOverflowed = true;
+        }
+        dcsCapabilityValid = false;
+    }
+
+    action dcsXtEscapedData {
+        ragelAppendEscapedString(fc, maxDcsBytes);
+        dcsCapabilityValid = false;
+        fgoto dcsXtgettcap;
+    }
+
+    action dcsUdkDigit {
+        ragelAppendString(fc, maxDcsBytes);
+        dcsUdkHasCode = true;
+        if (dcsUdkCode > (UINT32_MAX - (u32)(fc - '0')) / 10) {
+            dcsUdkValid = false;
+        } else {
+            dcsUdkCode = dcsUdkCode * 10 + fc - '0';
+        }
+    }
+
+    action dcsUdkSlash {
+        ragelAppendString(fc, maxDcsBytes);
+        dcsUdkInValue = true;
+        dcsUdkValid = dcsUdkValid && dcsUdkHasCode;
+        dcsUdkValueOffset = dcsDecoded.used();
+        dcsUdkHasHighNibble = false;
+        fgoto dcsUdkValue;
+    }
+
+    action dcsUdkHex {
+        ragelAppendString(fc, maxDcsBytes);
+        const u8 nibble = fc <= '9' ? fc - '0' : (fc | 0x20) - 'a' + 10;
+        if (!dcsUdkHasHighNibble) {
+            dcsUdkHighNibble = nibble;
+            dcsUdkHasHighNibble = true;
+        } else {
+            if (dcsDecoded.used() - dcsUdkValueOffset < 255) {
+                const u8 decoded = (dcsUdkHighNibble << 4) | nibble;
+                dcsDecoded.append(&decoded, 1);
+            } else {
+                dcsUdkValid = false;
+            }
+            dcsUdkHasHighNibble = false;
+        }
+    }
+
+    action dcsUdkCodeSeparator {
+        ragelAppendString(fc, maxDcsBytes);
+        dcsUdkCode = 0;
+        dcsUdkHasCode = false;
+        dcsUdkHasHighNibble = false;
+        dcsUdkValid = true;
+        dcsUdkInValue = false;
+    }
+
+    action dcsUdkValueSeparator {
+        if (dcsUdkValid && !dcsUdkHasHighNibble) {
+            dcsUdkDefinitions.pushBack({
+                dcsUdkValueOffset,
+                dcsDecoded.used() - dcsUdkValueOffset,
+                dcsUdkCode,
+            });
+        }
+        ragelAppendString(fc, maxDcsBytes);
+        dcsUdkCode = 0;
+        dcsUdkHasCode = false;
+        dcsUdkHasHighNibble = false;
+        dcsUdkValid = true;
+        dcsUdkInValue = false;
+        fgoto dcsUdkCode;
+    }
+
+    action dcsUdkInvalidSeparator {
+        ragelAppendString(fc, maxDcsBytes);
+        dcsUdkCode = 0;
+        dcsUdkHasCode = false;
+        dcsUdkHasHighNibble = false;
+        dcsUdkValid = true;
+        dcsUdkInValue = false;
+        fgoto dcsUdkCode;
+    }
+
+    action dcsUdkInvalid {
+        stringUtf8Continuation(fc);
+        ragelAppendString(fc, maxDcsBytes);
+        dcsUdkValid = false;
+        fgoto dcsUdkInvalid;
+    }
+
+    action dcsUdkSt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxDcsBytes);
+            dcsUdkValid = false;
+            fgoto dcsUdkInvalid;
+        } else {
+            if (dcsUdkInValue && dcsUdkValid && !dcsUdkHasHighNibble) {
+                dcsUdkDefinitions.pushBack({
+                    dcsUdkValueOffset,
+                    dcsDecoded.used() - dcsUdkValueOffset,
+                    dcsUdkCode,
+                });
+            }
+            ragelFinishDcs();
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action dcsUdkEscape {
+        fgoto dcsUdkEscape;
+    }
+
+    action dcsUdkEscapedEscape {
+        if constexpr (traced) {
+            parserTrace->stringData((const u8*)("\x1b"), 1);
+        }
+        if (argBuf.used() < maxDcsBytes) {
+            const u8 ch = '\x1b';
+            argBuf.append(&ch, 1);
+        } else {
+            argBufOverflowed = true;
+        }
+        dcsUdkValid = false;
+    }
+
+    action dcsUdkEscapedData {
+        ragelAppendEscapedString(fc, maxDcsBytes);
+        dcsUdkValid = false;
+        fgoto dcsUdkInvalid;
     }
 
     action oscData {
@@ -1075,8 +1497,9 @@
         if constexpr (traced) {
             parserTrace->stringData((const u8*)("\x1b"), 1);
         }
-        if (argBuf.size() < maxOscBytes) {
-            argBuf.push_back('\x1b');
+        if (argBuf.used() < maxOscBytes) {
+            const u8 ch = '\x1b';
+            argBuf.append(&ch, 1);
         } else {
             argBufOverflowed = true;
         }
@@ -1128,8 +1551,8 @@
 
     action stringRestartDcs {
         if (!ragelStringContinuation(fc)) {
-            ragelBeginString(VtermTraceString::Dcs, true);
-            fgoto dcs;
+            ragelBeginDcs();
+            fgoto dcsEntry;
         }
     }
 
@@ -1631,21 +2054,240 @@
     vt52CupRow := any @vt52Row;
     vt52CupColumn := any @vt52Column;
 
-    dcs := (
+    dcsEntry := (
+        cancel |
+        stringC1 |
+        0x9c @dcsHeaderTerminated |
+        0x1b @dcsHeaderEscape |
+        0x7f |
+        sequenceC0 |
+        '0'..'9' @dcsDigit @{ fgoto dcsParameter; } |
+        (';' | ':') @dcsSeparator @{ fgoto dcsParameter; } |
+        0x3c..0x3f @dcsHeaderByte |
+        0x20..0x2f @dcsIntermediate @{ fgoto dcsIntermediate; } |
+        0x40..0x7e @dcsFinal |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsHeaderInvalid
+    )*;
+
+    dcsParameter := (
+        cancel |
+        stringC1 |
+        0x9c @dcsHeaderTerminated |
+        0x1b @dcsHeaderEscape |
+        0x7f |
+        sequenceC0 |
+        '0'..'9' @dcsDigit |
+        (';' | ':') @dcsSeparator |
+        0x20..0x2f @dcsIntermediate @{ fgoto dcsIntermediate; } |
+        0x40..0x7e @dcsFinal |
+        (0x3c..0x3f | 0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsHeaderInvalid
+    )*;
+
+    dcsIntermediate := (
+        cancel |
+        stringC1 |
+        0x9c @dcsHeaderTerminated |
+        0x1b @dcsHeaderEscape |
+        0x7f |
+        sequenceC0 |
+        0x20..0x2f @dcsIntermediate |
+        0x40..0x7e @dcsFinal |
+        (0x30..0x3f | 0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsHeaderInvalid
+    )*;
+
+    dcsHeaderEscape := (
+        cancel |
+        stringC1 |
+        0x9c @dcsHeaderTerminated |
+        '\\' @dcsHeaderTerminated |
+        0x1b |
+        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
+                0x9a..0x9f)) @dcsHeaderInvalid
+    )*;
+
+    dcsDecrqssEntry := (
+        cancel |
+        stringC1 |
+        0x9c @dcsDecrqssSt |
+        0x1b @dcsDecrqssEscape |
+        0x7f |
+        sequenceC0 |
+        '"' @dcsDecrqssQuote |
+        ' ' @dcsDecrqssSpace |
+        'm' @dcsDecrqssSgr |
+        'r' @dcsDecrqssDecstbm |
+        's' @dcsDecrqssDecslrm |
+        't' @dcsDecrqssDecslpp |
+        (0x20..0x7e - ('"' | ' ' | 'm' | 'r' | 's' | 't')) @dcsDecrqssInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
+    )*;
+
+    dcsDecrqssQuote := (
+        cancel |
+        stringC1 |
+        0x9c @dcsDecrqssSt |
+        0x1b @dcsDecrqssEscape |
+        0x7f |
+        sequenceC0 |
+        'p' @dcsDecrqssDecscl |
+        'q' @dcsDecrqssDecsca |
+        (0x20..0x7e - ('p' | 'q')) @dcsDecrqssInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
+    )*;
+
+    dcsDecrqssSpace := (
+        cancel |
+        stringC1 |
+        0x9c @dcsDecrqssSt |
+        0x1b @dcsDecrqssEscape |
+        0x7f |
+        sequenceC0 |
+        'q' @dcsDecrqssDecscusr |
+        (0x20..0x7e - 'q') @dcsDecrqssInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
+    )*;
+
+    dcsDecrqssComplete := (
+        cancel |
+        stringC1 |
+        0x9c @dcsDecrqssSt |
+        0x1b @dcsDecrqssEscape |
+        0x7f |
+        sequenceC0 |
+        0x20..0x7e @dcsDecrqssInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
+    )*;
+
+    dcsDecrqssInvalid := (
+        cancel |
+        stringC1 |
+        0x9c @dcsDecrqssSt |
+        0x1b @dcsDecrqssEscape |
+        0x7f |
+        sequenceC0 |
+        0x20..0x7e @dcsDecrqssInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
+    )*;
+
+    dcsDecrqssEscape := (
+        cancel |
+        stringC1 |
+        0x9c @dcsDecrqssSt |
+        '\\' @dcsDecrqssSt |
+        0x1b @dcsDecrqssEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
+                0x9a..0x9f)) @dcsDecrqssEscapedData
+    )*;
+
+    dcsXtgettcap := (
+        cancel |
+        stringC1 |
+        0x9c @dcsXtSt |
+        0x1b @dcsXtEscape |
+        0x7f |
+        sequenceC0 |
+        xdigit @dcsXtHex |
+        ';' @dcsXtSeparator |
+        (0x20..0x7e - (xdigit | ';')) @dcsXtInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsXtInvalid
+    )*;
+
+    dcsXtEscape := (
+        cancel |
+        stringC1 |
+        0x9c @dcsXtSt |
+        '\\' @dcsXtSt |
+        0x1b @dcsXtEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
+                0x9a..0x9f)) @dcsXtEscapedData
+    )*;
+
+    dcsUdkCode := (
+        cancel |
+        stringC1 |
+        0x9c @dcsUdkSt |
+        0x1b @dcsUdkEscape |
+        0x7f |
+        sequenceC0 |
+        digit @dcsUdkDigit |
+        '/' @dcsUdkSlash |
+        ';' @dcsUdkCodeSeparator |
+        (0x20..0x7e - (digit | '/' | ';')) @dcsUdkInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsUdkInvalid
+    )*;
+
+    dcsUdkValue := (
+        cancel |
+        stringC1 |
+        0x9c @dcsUdkSt |
+        0x1b @dcsUdkEscape |
+        0x7f |
+        sequenceC0 |
+        xdigit @dcsUdkHex |
+        ';' @dcsUdkValueSeparator |
+        (0x20..0x7e - (xdigit | ';')) @dcsUdkInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsUdkInvalid
+    )*;
+
+    dcsUdkInvalid := (
+        cancel |
+        stringC1 |
+        0x9c @dcsUdkSt |
+        0x1b @dcsUdkEscape |
+        0x7f |
+        sequenceC0 |
+        ';' @dcsUdkInvalidSeparator |
+        (0x20..0x7e - ';') @dcsUdkInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsUdkInvalid
+    )*;
+
+    dcsUdkEscape := (
+        cancel |
+        stringC1 |
+        0x9c @dcsUdkSt |
+        '\\' @dcsUdkSt |
+        0x1b @dcsUdkEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
+                0x9a..0x9f)) @dcsUdkEscapedData
+    )*;
+
+    dcsPayload := (
         cancel |
         stringC1 |
         0x9c @dcsSt |
-        0x1b @dcsEscape |
+        0x1b @dcsPayloadEscape |
         0x7f |
         (0x00..0x17 | 0x19 | 0x1c..0x7e |
-         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsData
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsPayloadData
     )*;
 
-    dcsEscape := (
+    dcsPayloadEscape := (
         cancel |
+        stringC1 |
+        0x9c @{ ragelFinishDcs(); fnext main; fbreak; } |
         '\\' @{ ragelFinishDcs(); fnext main; fbreak; } |
         0x1b @dcsEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @dcsEscapedData
+        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
+                0x9a..0x9f)) @dcsEscapedData
+    )*;
+
+    dcsIgnore := (
+        cancel |
+        stringC1 |
+        0x9c @dcsIgnoreSt |
+        0x1b @{ fgoto dcsIgnoreEscape; } |
+        (0x00..0x17 | 0x19 | 0x1c..0x8f |
+         0x91..0x95 | 0x99 | 0xa0..0xff)
+    )*;
+
+    dcsIgnoreEscape := (
+        cancel |
+        stringC1 |
+        0x9c @dcsIgnoreSt |
+        '\\' @dcsIgnoreSt |
+        0x1b |
+        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
+                0x9a..0x9f)) @{ fgoto dcsIgnore; }
     )*;
 
     osc := (
