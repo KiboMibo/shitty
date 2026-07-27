@@ -6,6 +6,7 @@
 
 #include "vterm_headless.h"
 
+#include "clipboard.h"
 #include "composer.h"
 #include "options.h"
 #include "vterm.h"
@@ -38,10 +39,14 @@ namespace {
         Composer& composer;
     };
 
-    struct VtermHeadlessImpl final: public VtermHeadless {
+    struct VtermHeadlessImpl final: public VtermHeadless, public Clipboard {
         explicit VtermHeadlessImpl(Composer& composer);
 
         void feed(const u8* data, size_t len) override;
+        StringView readPrimary() override;
+        StringView readClipboard() override;
+        void writePrimary(StringView) override;
+        void writeClipboard(StringView) override;
 
         Composer& composer;
         HeadlessHost host;
@@ -104,6 +109,7 @@ VtermHeadlessImpl::VtermHeadlessImpl(Composer& composer_)
     : composer(composer_)
     , host(composer)
 {
+    composer.clipboard = this;
     composer.vterm = Vterm::create(composer, host, nullptr);
 }
 
@@ -123,6 +129,20 @@ void VtermHeadlessImpl::feed(const u8* data, size_t len) {
         }
         vterm->consume({output.pty.length(), output.terminal != nullptr});
     }
+}
+
+StringView VtermHeadlessImpl::readPrimary() {
+    return {};
+}
+
+StringView VtermHeadlessImpl::readClipboard() {
+    return {};
+}
+
+void VtermHeadlessImpl::writePrimary(StringView) {
+}
+
+void VtermHeadlessImpl::writeClipboard(StringView) {
 }
 
 VtermHeadless* VtermHeadless::create(Composer& composer) {
