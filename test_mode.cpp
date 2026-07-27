@@ -334,6 +334,16 @@ namespace {
         u64 openCount = 0;
     };
 
+    struct DisplayCell {
+        TerminalCell source{};
+        Color foreground;
+        Color background;
+        Color underlineColor;
+        u32 hyperlink = 0;
+        u32 grapheme = 0;
+        u8 lineAttribute = 0;
+    };
+
     struct TestDisplay final: public VtermHost {
         TestDisplay(Composer& composer, std::string& actions, std::string& printerOutput);
 
@@ -351,6 +361,7 @@ namespace {
         VtermWindowInfo windowInfo() override;
 
         void applyWindowSize(u32 pixelWidth, u32 pixelHeight);
+        DisplayCell materialize(const TerminalCell& cell, u8 lineAttribute, const TerminalColors& colors) const;
         void failNextPresent();
         std::string snapshot() const;
         std::string modelSnapshot() const;
@@ -379,8 +390,8 @@ namespace {
         size_t graphemeCodepoints = 0;
         TerminalCursor cursor;
         Rect selection;
-        std::vector<RenderCell> cells;
-        mutable RenderCellSpan renderSpan;
+        std::vector<DisplayCell> cells;
+        mutable Vector<TerminalCellSpan> renderSpans;
         std::vector<TerminalCell> modelCells;
         Vector<u8> modelLineAttributes;
         std::vector<std::vector<u32>> cellGraphemes;
@@ -389,6 +400,7 @@ namespace {
         std::string& actions;
         std::string& printerOutput;
         TestApi* testApi = nullptr;
+        const TerminalColors* colors = nullptr;
         VtermWindowInfo currentWindow;
         u16 restoredPixelWidth = 0;
         u16 restoredPixelHeight = 0;
@@ -466,8 +478,8 @@ namespace {
         return (cell.dwidth << 0) | (cell.dwidth_cont << 1) | (cell.bold << 2) | (cell.italic << 3) | (cellUnderline(cell) << 4) | (cell.inverse << 5) | (cell.wrap << 6) | (cell.faint << 7) | (cell.blink << 8) | (cell.conceal << 9) | (cell.strike << 10) | (cell.overline << 11) | (cell.underline_style << 12) | ((cell.protected_char != 0) << 15) | (lineAttribute << 16) | (cell.drawn << 18);
     }
 
-    unsigned cellFlags(const RenderCell& cell) {
-        return cellFlags(cell, cell.line_attr);
+    unsigned cellFlags(const DisplayCell& cell) {
+        return cellFlags(cell.source, cell.lineAttribute);
     }
 
     unsigned cellFlags(const TerminalCell& cell) {
@@ -537,6 +549,26 @@ void TestDisplay::attach(TestApi& testApiValue) {
     testApi = &testApiValue;
 }
 
+DisplayCell TestDisplay::materialize(const TerminalCell& cell, u8 lineAttribute, const TerminalColors& colors_) const {
+    DisplayCell result;
+    result.source = cell;
+    result.foreground = colors_.resolveForeground(cell);
+    result.background = colors_.resolveBackground(cell);
+    result.underlineColor = result.foreground;
+    result.lineAttribute = lineAttribute;
+    if (cell.hasExtra()) {
+        const CellExtraView extra = composer.cellExtras->view(cell);
+        result.hyperlink = extra.hyperlinkDisplayId;
+        result.grapheme = extra.grapheme.empty() ? 0 : cell.extraRef();
+        if (cell.underlined() && extra.underlineColor != cell.foreground()) {
+            result.underlineColor = colors_.resolve(extra.underlineColor);
+        }
+    } else if (cell.underlined() && cell.inlineUnderlineColor() != cell.foreground()) {
+        result.underlineColor = colors_.resolve(cell.inlineUnderlineColor());
+    }
+    return result;
+}
+
 bool TestDisplay::update(const TerminalUpdate& update) {
     if (failNextUpdate) {
         failNextUpdate = false;
@@ -550,12 +582,14 @@ bool TestDisplay::update(const TerminalUpdate& update) {
         modelCells.resize(count);
         modelLineAttributes.grow(count);
     }
+    STD_ASSERT(update.colors != nullptr);
+    colors = update.colors;
     for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
-        const RenderCellSpan& span = update.spans[spanIndex];
+        const TerminalCellSpan& span = update.spans[spanIndex];
         STD_ASSERT((size_t)(span.index) + span.count <= count);
         STD_ASSERT(span.cells != nullptr);
         for (u32 index = 0; index < span.count; ++index) {
-            cells[span.index + index] = span.cells[index];
+            cells[span.index + index] = materialize(span.cells[index], span.lineAttribute, *update.colors);
         }
     }
     cellGraphemes.resize(count);
@@ -743,7 +777,8 @@ std::string TestDisplay::snapshot() const {
     output << StringView(u8"OK ") << columns << StringView(u8" ") << rows << StringView(u8" ") << cursor.posX << StringView(u8" ") << cursor.posY << StringView(u8" ") << (unsigned)(cursor.style) << StringView(u8" ") << viewOffset << StringView(u8" ") << refreshCount << StringView(u8" ") << selection.tl.x << StringView(u8" ") << selection.tl.y << StringView(u8" ") << selection.br.x << StringView(u8" ") << selection.br.y << StringView(u8" ") << (unsigned)(selection.rectangular) << StringView(u8" ");
     for (const auto& cell : cells) {
         const unsigned flags = cellFlags(cell);
-        output << Hex{cell.uc_pt, 8} << Hex{flags, 8} << Hex{cell.fg.red, 2} << Hex{cell.fg.green, 2} << Hex{cell.fg.blue, 2} << Hex{cell.bg.red, 2} << Hex{cell.bg.green, 2} << Hex{cell.bg.blue, 2} << Hex{cell.underline_color.red, 2} << Hex{cell.underline_color.green, 2} << Hex{cell.underline_color.blue, 2} << Hex{cell.hyperlink, 8} << Hex{cell.semantic, 8};
+        const u32 codepoint = cell.source.uc_pt ? cell.source.uc_pt : ' ';
+        output << Hex{codepoint, 8} << Hex{flags, 8} << Hex{cell.foreground.red, 2} << Hex{cell.foreground.green, 2} << Hex{cell.foreground.blue, 2} << Hex{cell.background.red, 2} << Hex{cell.background.green, 2} << Hex{cell.background.blue, 2} << Hex{cell.underlineColor.red, 2} << Hex{cell.underlineColor.green, 2} << Hex{cell.underlineColor.blue, 2} << Hex{cell.hyperlink, 8} << Hex{cell.source.semantic, 8};
     }
     output << StringView(u8"\n");
     return toString(output);
@@ -756,7 +791,8 @@ std::string TestDisplay::modelSnapshot() const {
         const auto& cell = cells[index];
         const auto& modelCell = modelCells[index];
         const unsigned flags = cellFlags(modelCell, modelLineAttributes[index]);
-        output << Hex{cell.uc_pt, 8} << Hex{flags, 8} << Hex{cell.fg.red, 2} << Hex{cell.fg.green, 2} << Hex{cell.fg.blue, 2} << Hex{cell.bg.red, 2} << Hex{cell.bg.green, 2} << Hex{cell.bg.blue, 2} << Hex{cell.underline_color.red, 2} << Hex{cell.underline_color.green, 2} << Hex{cell.underline_color.blue, 2} << Hex{cell.hyperlink, 8} << Hex{cell.semantic, 8} << Hex{(u32)(modelCell.foreground().legacyIndex()), 8} << Hex{(u32)(modelCell.background().legacyIndex()), 8} << Hex{(u32)(modelUnderlineColors[index].legacyIndex()), 8} << Hex{cellGraphemes[index].size(), 8};
+        const u32 codepoint = cell.source.uc_pt ? cell.source.uc_pt : ' ';
+        output << Hex{codepoint, 8} << Hex{flags, 8} << Hex{cell.foreground.red, 2} << Hex{cell.foreground.green, 2} << Hex{cell.foreground.blue, 2} << Hex{cell.background.red, 2} << Hex{cell.background.green, 2} << Hex{cell.background.blue, 2} << Hex{cell.underlineColor.red, 2} << Hex{cell.underlineColor.green, 2} << Hex{cell.underlineColor.blue, 2} << Hex{cell.hyperlink, 8} << Hex{cell.source.semantic, 8} << Hex{(u32)(modelCell.foreground().legacyIndex()), 8} << Hex{(u32)(modelCell.background().legacyIndex()), 8} << Hex{(u32)(modelUnderlineColors[index].legacyIndex()), 8} << Hex{cellGraphemes[index].size(), 8};
         for (const u32 codepoint : cellGraphemes[index]) {
             output << Hex{codepoint, 8};
         }
@@ -782,19 +818,19 @@ std::string TestDisplay::modelDigest() const {
     for (size_t index = 0; index < cells.size(); ++index) {
         const auto& cell = cells[index];
         const auto& modelCell = modelCells[index];
-        digest.add(cell.uc_pt);
+        digest.add(cell.source.uc_pt ? cell.source.uc_pt : ' ');
         digest.add(cellFlags(modelCell, modelLineAttributes[index]));
-        digest.add(cell.fg.red);
-        digest.add(cell.fg.green);
-        digest.add(cell.fg.blue);
-        digest.add(cell.bg.red);
-        digest.add(cell.bg.green);
-        digest.add(cell.bg.blue);
-        digest.add(cell.underline_color.red);
-        digest.add(cell.underline_color.green);
-        digest.add(cell.underline_color.blue);
+        digest.add(cell.foreground.red);
+        digest.add(cell.foreground.green);
+        digest.add(cell.foreground.blue);
+        digest.add(cell.background.red);
+        digest.add(cell.background.green);
+        digest.add(cell.background.blue);
+        digest.add(cell.underlineColor.red);
+        digest.add(cell.underlineColor.green);
+        digest.add(cell.underlineColor.blue);
         digest.add(cell.hyperlink);
-        digest.add(cell.semantic);
+        digest.add(cell.source.semantic);
         digest.add((u32)(modelCell.foreground().legacyIndex()));
         digest.add((u32)(modelCell.background().legacyIndex()));
         digest.add((u32)(modelUnderlineColors[index].legacyIndex()));
@@ -822,10 +858,20 @@ std::string TestDisplay::renderState() const {
 }
 
 TerminalUpdate TestDisplay::renderUpdate() const {
-    renderSpan = {0, (u32)(cells.size()), cells.data()};
+    renderSpans.clear();
+    renderSpans.grow(rows);
+    for (u16 row = 0; row < rows; ++row) {
+        renderSpans.pushBack({
+            (u32)(row)*columns,
+            columns,
+            modelCells.data() + (size_t)(row)*columns,
+            modelLineAttributes[(size_t)(row)*columns],
+        });
+    }
     return {
-        .spans = &renderSpan,
-        .spanCount = 1,
+        .spans = renderSpans.data(),
+        .spanCount = renderSpans.length(),
+        .colors = colors,
         .viewOffset = viewOffset,
         .historyRows = historyRows,
         .cursor = cursor,
@@ -847,7 +893,7 @@ std::string TestDisplay::screenText() const {
     std::string output;
     output.reserve(cells.size() + rows);
     for (size_t index = 0; index < cells.size(); ++index) {
-        const u32 codepoint = cells[index].uc_pt;
+        const u32 codepoint = cells[index].source.uc_pt;
         output.push_back(codepoint >= 0x20 && codepoint <= 0x7e ? (char)(codepoint) : ' ');
         if ((index + 1) % columns == 0) {
             output.push_back('\n');
@@ -1687,7 +1733,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 terminal.redraw();
                 writeAll(controlFd, "OK\n");
             } else if (line == "GPU_ATTRIBUTE_MASKS") {
-                RenderCell cell;
+                TerminalCell cell{};
                 cell.dwidth = true;
                 const u32 doubleWidth = Renderer::rendererCellAttributesForTest(cell);
                 cell.dwidth = false;

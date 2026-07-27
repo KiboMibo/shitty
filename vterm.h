@@ -188,8 +188,9 @@ struct VtermState {
 };
 
 struct TerminalUpdate {
-    const RenderCellSpan* spans = nullptr;
+    const TerminalCellSpan* spans = nullptr;
     size_t spanCount = 0;
+    const TerminalColors* colors = nullptr;
     u32 viewOffset = 0;
     u32 historyRows = 0;
     TerminalCursor cursor;

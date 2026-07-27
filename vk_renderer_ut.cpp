@@ -14,10 +14,10 @@ using namespace stl;
 
 STD_TEST_SUITE(Renderer) {
     STD_TEST(PacksCellAttributeBits) {
-        RenderCell cell;
+        TerminalCell cell{};
         cell.bold = true;
         cell.italic = true;
-        cell.underline = true;
+        cell.underline_style = 1;
         cell.inverse = true;
         cell.wrap = true;
         cell.faint = true;

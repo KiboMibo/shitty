@@ -27,6 +27,16 @@ namespace {
         u8 blue;
     };
 
+    struct ReferenceCell {
+        TerminalCell source{};
+        Color foreground;
+        Color background;
+        Color underlineColor;
+        u32 hyperlink = 0;
+        u32 grapheme = 0;
+        u8 lineAttribute = 0;
+    };
+
     struct ReferenceRendererImpl final: public ReferenceRenderer {
         explicit ReferenceRendererImpl(Composer& composer);
 
@@ -36,7 +46,7 @@ namespace {
         Buffer pixels_;
         Buffer coverage_;
         Buffer color_;
-        Vector<RenderCell> cells_;
+        Vector<ReferenceCell> cells_;
         u16 columns_ = 0;
         u16 rows_ = 0;
         bool hasColor_ = false;
@@ -48,7 +58,8 @@ namespace {
         static Color blend(Color foreground, Color background, u8 coverage);
         void addGlyph(const u32* codepoints, size_t count, FontStyle style, bool doubleWidth, int cellWidth, int cellHeight);
         void addFallback(int cellWidth, int cellHeight);
-        void renderCell(const TerminalUpdate& update, const RenderCell& cell, const GraphemeView& grapheme, u16 column, u16 row);
+        ReferenceCell materialize(const TerminalCell& cell, u8 lineAttribute, const TerminalColors& colors, const CellExtraStore& extras) const;
+        void renderCell(const TerminalUpdate& update, const ReferenceCell& cell, const GraphemeView& grapheme, u16 column, u16 row);
         void putPixel(int x, int y, Color color);
     };
 }
@@ -154,28 +165,50 @@ void ReferenceRendererImpl::addGlyph(const u32* codepoints, size_t count, FontSt
     }
 }
 
-void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const RenderCell& cell, const GraphemeView& grapheme, u16 column, u16 row) {
-    if (cell.dwidth_cont && cell.line_attr == 0) {
+ReferenceCell ReferenceRendererImpl::materialize(const TerminalCell& cell, u8 lineAttribute, const TerminalColors& colors, const CellExtraStore& extras) const {
+    ReferenceCell result;
+    result.source = cell;
+    result.foreground = colors.resolveForeground(cell);
+    result.background = colors.resolveBackground(cell);
+    result.underlineColor = result.foreground;
+    result.lineAttribute = lineAttribute;
+    if (cell.hasExtra()) {
+        const CellExtraView extra = extras.view(cell);
+        result.hyperlink = extra.hyperlinkDisplayId;
+        result.grapheme = extra.grapheme.empty() ? 0 : cell.extraRef();
+        if (cell.underlined() && extra.underlineColor != cell.foreground()) {
+            result.underlineColor = colors.resolve(extra.underlineColor);
+        }
+    } else if (cell.underlined() && cell.inlineUnderlineColor() != cell.foreground()) {
+        result.underlineColor = colors.resolve(cell.inlineUnderlineColor());
+    }
+    return result;
+}
+
+void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const ReferenceCell& cell, const GraphemeView& grapheme, u16 column, u16 row) {
+    const TerminalCell& source = cell.source;
+    if (source.dwidth_cont && cell.lineAttribute == 0) {
         return;
     }
 
-    const bool doubleLine = cell.line_attr != 0;
-    const bool doubleWidth = doubleLine || cell.dwidth;
+    const bool doubleLine = cell.lineAttribute != 0;
+    const bool doubleWidth = doubleLine || source.dwidth;
     const int cellWidth = composer_.glyphWidth * (doubleWidth && !doubleLine ? 2 : 1);
     const int cellHeight = composer_.glyphHeight;
     coverage_.zero((size_t)(cellWidth)*cellHeight);
     color_.zero((size_t)(cellWidth)*cellHeight * 4);
     hasColor_ = false;
-    const FontStyle style = doubleWidth ? FontStyle::Regular : (FontStyle)((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0));
+    const FontStyle style = doubleWidth ? FontStyle::Regular : (FontStyle)((source.bold ? 1 : 0) | (source.italic ? 2 : 0));
     if (grapheme.empty()) {
-        addGlyph(&cell.uc_pt, 1, style, doubleWidth, cellWidth, cellHeight);
+        const u32 codepoint = source.uc_pt ? source.uc_pt : ' ';
+        addGlyph(&codepoint, 1, style, doubleWidth, cellWidth, cellHeight);
     } else {
         addGlyph(grapheme.data(), grapheme.size(), style, doubleWidth, cellWidth, cellHeight);
     }
 
-    Color foreground = cell.fg;
-    Color background = cell.bg;
-    if ((cell.inverse != 0) != update.screenReverse) {
+    Color foreground = cell.foreground;
+    Color background = cell.background;
+    if ((source.inverse != 0) != update.screenReverse) {
         const Color temporary = foreground;
         foreground = background;
         background = temporary;
@@ -194,10 +227,10 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Rende
             }
         }
     }
-    if (cell.faint) {
+    if (source.faint) {
         foreground = blend(foreground, background, 128);
     }
-    if (cell.conceal || (cell.blink && !update.blinkVisible)) {
+    if (source.conceal || (source.blink && !update.blinkVisible)) {
         foreground = background;
     }
 
@@ -205,12 +238,12 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Rende
     const int outputY = opts.border + row * composer_.glyphHeight;
     const auto* coverage = (const u8*)(coverage_.data());
     const auto* color = (const u8*)(color_.data());
-    const bool hidden = cell.conceal || (cell.blink && !update.blinkVisible);
+    const bool hidden = source.conceal || (source.blink && !update.blinkVisible);
     for (int y = 0; y < cellHeight; ++y) {
         for (int x = 0; x < cellWidth; ++x) {
             const size_t index = (size_t)(y)*cellWidth + x;
             if (hasColor_ && !hidden && color[4 * index + 3] != 0) {
-                const unsigned strength = cell.faint ? 128 : 255;
+                const unsigned strength = source.faint ? 128 : 255;
                 const unsigned alpha = (unsigned)(color[4 * index + 3]) * strength / 255;
                 putPixel(
                     outputX + x,
@@ -230,10 +263,10 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Rende
     const u32 cellIndex = (u32)(row)*composer_.columns + column;
     const bool explicitLink = cell.hyperlink != 0 && cell.hyperlink == update.hoveredHyperlink;
     const bool plainLink = cellIndex >= update.hoveredLinkBegin && cellIndex < update.hoveredLinkEnd;
-    const bool hyperlinkUnderline = !cell.underline && (explicitLink || plainLink);
-    if (cell.underline || hyperlinkUnderline) {
-        const u8 underlineStyle = hyperlinkUnderline ? 1 : cell.underline_style;
-        const Color underlineColor = hyperlinkUnderline ? foreground : cell.underline_color;
+    const bool hyperlinkUnderline = !source.underlined() && (explicitLink || plainLink);
+    if (source.underlined() || hyperlinkUnderline) {
+        const u8 underlineStyle = hyperlinkUnderline ? 1 : source.underline_style;
+        const Color underlineColor = hyperlinkUnderline ? foreground : cell.underlineColor;
         for (int x = 0; x < cellWidth; ++x) {
             const bool draw = underlineStyle != 4 || (x & 1) == 0;
             const bool patterned = underlineStyle != 5 || x % 6 < 4;
@@ -246,12 +279,12 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Rende
             }
         }
     }
-    if (cell.strike) {
+    if (source.strike) {
         for (int x = 0; x < cellWidth; ++x) {
             putPixel(outputX + x, outputY + cellHeight / 2, foreground);
         }
     }
-    if (cell.overline) {
+    if (source.overline) {
         for (int x = 0; x < cellWidth; ++x) {
             putPixel(outputX + x, outputY, foreground);
         }
@@ -260,12 +293,15 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Rende
 
 ReferenceImage ReferenceRendererImpl::render(const TerminalUpdate& update) {
     const size_t cellCount = (size_t)(composer_.columns) * composer_.rows;
+    if (update.colors == nullptr) {
+        return {};
+    }
     CellExtraStore& extras = *composer_.cellExtras;
     const bool shapeChanged = columns_ != composer_.columns || rows_ != composer_.rows;
     if (shapeChanged) {
         size_t covered = 0;
         for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
-            const RenderCellSpan& span = update.spans[spanIndex];
+            const TerminalCellSpan& span = update.spans[spanIndex];
             if (span.cells == nullptr || span.index != covered) {
                 return {};
             }
@@ -276,7 +312,7 @@ ReferenceImage ReferenceRendererImpl::render(const TerminalUpdate& update) {
         }
         cells_.clear();
         cells_.grow(cellCount);
-        const RenderCell empty;
+        const ReferenceCell empty{};
         for (size_t index = 0; index < cellCount; ++index) {
             cells_.pushBack(empty);
         }
@@ -284,19 +320,19 @@ ReferenceImage ReferenceRendererImpl::render(const TerminalUpdate& update) {
         rows_ = composer_.rows;
     }
     for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
-        const RenderCellSpan& span = update.spans[spanIndex];
+        const TerminalCellSpan& span = update.spans[spanIndex];
         if ((size_t)(span.index) + span.count > cellCount || span.cells == nullptr) {
             return {};
         }
         for (u32 index = 0; index < span.count; ++index) {
-            cells_.mut(span.index + index) = span.cells[index];
+            cells_.mut(span.index + index) = materialize(span.cells[index], span.lineAttribute, *update.colors, extras);
         }
     }
 
     pixels_.zero((size_t)(composer_.pixelWidth) * composer_.pixelHeight * sizeof(Pixel));
     for (u16 row = 0; row < composer_.rows; ++row) {
         for (u16 column = 0; column < composer_.columns; ++column) {
-            const RenderCell& cell = cells_[(size_t)(row)*composer_.columns + column];
+            const ReferenceCell& cell = cells_[(size_t)(row)*composer_.columns + column];
             const GraphemeView grapheme = cell.grapheme ? extras.grapheme(cell.grapheme) : GraphemeView{};
             renderCell(update, cell, grapheme, column, row);
         }

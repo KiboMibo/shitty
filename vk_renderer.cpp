@@ -21,9 +21,14 @@
 #include <std/sys/crt.h>
 #include <std/ios/sys.h>
 #include <std/lib/buffer.h>
+#include <std/lib/list.h>
 #include <std/lib/vector.h>
+#include <std/mem/new.h>
 #include <std/mem/obj_pool.h>
+#include <std/rng/mix.h>
+#include <std/str/hash.h>
 #include <std/str/view.h>
+#include <std/typ/intrin.h>
 
 #include <vulkan/vulkan.h>
 
@@ -64,18 +69,69 @@ namespace {
     };
 
     struct GpuCell {
-        u32 codepoint;
-        u32 attributes;
-        u32 foreground;
-        u32 background;
-        u32 underlineColor;
-        u32 hyperlink;
-        u32 glyph;
-        u32 semantic;
-        u32 lineAttribute;
+        u32 codepoint = ' ';
+        u32 attributes = 0;
+        u32 foreground = 0;
+        u32 background = 0;
+        u32 underlineColor = 0;
+        u32 hyperlink = 0;
+        u32 glyph = 0;
+        u32 semantic = 0;
+        u32 lineAttribute = 0;
     };
 
     static_assert(sizeof(GpuCell) == 36, "Vulkan cell layout mismatch");
+
+    constexpr u32 gpuBold = 1u << 2;
+    constexpr u32 gpuItalic = 1u << 3;
+    constexpr u32 gpuUnderline = 1u << 4;
+    constexpr u32 gpuInverse = 1u << 5;
+    constexpr u32 gpuWrap = 1u << 6;
+    constexpr u32 gpuFaint = 1u << 8;
+    constexpr u32 gpuBlink = 1u << 9;
+    constexpr u32 gpuConceal = 1u << 10;
+    constexpr u32 gpuStrike = 1u << 11;
+    constexpr u32 gpuOverline = 1u << 12;
+    constexpr u32 gpuUnderlineStyle = 0x7u << 13;
+    constexpr u32 gpuDoubleWidth = 1u << 16;
+    constexpr u32 gpuDoubleWidthContinuation = 1u << 17;
+    constexpr u32 gpuProtection = 0x3u << 18;
+    constexpr u32 gpuDrawn = 1u << 20;
+
+    constexpr size_t renderCacheBytes = 1000000;
+    constexpr u16 renderCacheChunkCells = 32;
+
+    struct RenderCacheBlock final: public IntrusiveNode, public Newable {
+        u64 hash = 0;
+        GpuCell cells[renderCacheChunkCells];
+    };
+
+    constexpr size_t renderCacheBlockCount = renderCacheBytes / sizeof(RenderCacheBlock);
+
+    constexpr size_t renderCacheBucketCount() {
+        size_t result = 1;
+        while (result < renderCacheBlockCount * 2) {
+            result <<= 1;
+        }
+        return result;
+    }
+
+    struct RenderCache {
+        RenderCache();
+
+        void render(RendererImpl& renderer, const TerminalCell* cells, u16 count, u8 lineAttribute, GpuCell* output, const TerminalColors& colors, u64 context);
+
+        static constexpr size_t bucketCount = renderCacheBucketCount();
+        static constexpr size_t bucketMask = bucketCount - 1;
+
+        Buffer storage;
+        Vector<RenderCacheBlock*> freeBlocks;
+        IntrusiveList lru;
+        RenderCacheBlock* buckets[bucketCount]{};
+    };
+
+    static_assert(renderCacheBlockCount != 0);
+    static_assert(stdHasTrivialDestructor(RenderCacheBlock));
 
     struct GpuCellUpdate {
         u32 sourceIndex;
@@ -250,7 +306,8 @@ namespace {
         RenderDamage damage;
         u64 clearDamageGeneration = 0;
         u64 outputGeneration = 0;
-        Vector<RenderCell> cells;
+        Vector<GpuCell> cells;
+        RenderCache renderCache;
         Vector<VkBufferImageCopy> atlasCopies;
         Vector<VkBufferImageCopy> colorAtlasCopies;
         Vector<VkBufferImageCopy> doubleWidthAtlasCopies;
@@ -312,6 +369,7 @@ namespace {
         void updateOutputDescriptor(FrameResources& frame, VkImageView view);
         void updateCellDescriptor(FrameResources& frame);
         void beginGlyphFrame();
+        void pinVisibleGlyphs();
         void configureGlyphCache(GlyphCache& cache, u32 width, u32 layers, size_t byteBudget, u32 maxImageDimension);
         u16 allocateGlyphSlot(GlyphCache& cache, u32 id, bool grapheme);
         u32 ensureGlyph(Fontpack& fonts, bool hasDoubleWidth, const u32* codepoints, size_t count, u32 id, bool grapheme, FontStyle style, bool doubleWidth);
@@ -324,6 +382,8 @@ namespace {
         bool submitPresentFrame(u32 width, u32 height, FrameResources& frame, u32 imageIndex, bool recreateAfterPresent);
         bool present(const TerminalUpdate& update);
         u32 materializeUpdates(FrameResources& frame, u64 appliedGeneration, bool initialized);
+        void materializeCells(const TerminalCell* input, GpuCell* output, u16 count, u8 lineAttribute, const TerminalColors& colors);
+        bool validateCachedCells(const TerminalCell* input, const GpuCell* output, u16 count, u8 lineAttribute);
         void ensureDamageJournal(u32 cellCount);
         void appendDamage(u32 begin, u32 count);
         void fullDamage();
@@ -386,8 +446,59 @@ namespace {
         throw std::runtime_error("Vulkan surface has no composite alpha mode");
     }
 
-    u32 packCellAttributes(const RenderCell& cell) {
-        return cell.attributes & RenderCell::gpuAttributeMask;
+    u32 packCellAttributes(const TerminalCell& cell) {
+        return ((u32)(cell.bold) << 2) | ((u32)(cell.italic) << 3) | ((u32)(cell.underlined()) << 4) | ((u32)(cell.inverse) << 5) | ((u32)(cell.wrap) << 6) | ((u32)(cell.faint) << 8) | ((u32)(cell.blink) << 9) | ((u32)(cell.conceal) << 10) | ((u32)(cell.strike) << 11) | ((u32)(cell.overline) << 12) | ((u32)(cell.underline_style) << 13) | ((u32)(cell.dwidth) << 16) | ((u32)(cell.dwidth_cont) << 17) | ((u32)(cell.protected_char) << 18) | ((u32)(cell.drawn) << 20);
+    }
+}
+
+RenderCache::RenderCache()
+    : storage(renderCacheBytes)
+{
+    storage.setCapacity(renderCacheBytes);
+    freeBlocks.grow(renderCacheBlockCount);
+    u8* const memory = (u8*)(storage.mutData());
+    for (size_t index = 0; index < renderCacheBlockCount; ++index) {
+        freeBlocks.pushBack(new (memory + index * sizeof(RenderCacheBlock)) RenderCacheBlock);
+    }
+}
+
+void RenderCache::render(RendererImpl& renderer, const TerminalCell* input, u16 count, u8 lineAttribute, GpuCell* output, const TerminalColors& colors, u64 context) {
+    constexpr u16 minimumCachedCells = 8;
+
+    if (count < minimumCachedCells) {
+        renderer.materializeCells(input, output, count, lineAttribute, colors);
+        return;
+    }
+    for (u16 offset = 0; offset < count;) {
+        const u16 chunk = count - offset < renderCacheChunkCells ? count - offset : renderCacheChunkCells;
+        u64 hash = shash64(input + offset, (size_t)(chunk) * sizeof(TerminalCell));
+        hash ^= ((u64)(lineAttribute) + 1) * 0x9e3779b97f4a7c15ULL;
+        hash ^= context;
+        RenderCacheBlock*& bucket = buckets[hash & bucketMask];
+        if (bucket != nullptr && bucket->hash == hash && renderer.validateCachedCells(input + offset, bucket->cells, chunk, lineAttribute)) {
+            bucket->remove();
+            lru.pushFront(bucket);
+            memcpy(output + offset, bucket->cells, (size_t)(chunk) * sizeof(GpuCell));
+            offset += chunk;
+            continue;
+        }
+        if (bucket != nullptr) {
+            bucket->remove();
+            freeBlocks.pushBack(bucket);
+            bucket = nullptr;
+        }
+        if (freeBlocks.empty()) {
+            auto* const evicted = static_cast<RenderCacheBlock*>(lru.popBack());
+            buckets[evicted->hash & bucketMask] = nullptr;
+            freeBlocks.pushBack(evicted);
+        }
+        RenderCacheBlock* const block = freeBlocks.popBack();
+        block->hash = hash;
+        renderer.materializeCells(input + offset, block->cells, chunk, lineAttribute, colors);
+        bucket = block;
+        lru.pushFront(block);
+        memcpy(output + offset, block->cells, (size_t)(chunk) * sizeof(GpuCell));
+        offset += chunk;
     }
 }
 
@@ -409,7 +520,7 @@ void CallRendererCellExtrasChanged::onListen(void*) {
     renderer->cellExtrasChanged();
 }
 
-u32 Renderer::rendererCellAttributesForTest(const RenderCell& cell) {
+u32 Renderer::rendererCellAttributesForTest(const TerminalCell& cell) {
     return packCellAttributes(cell);
 }
 
@@ -1404,6 +1515,19 @@ void RendererImpl::beginGlyphFrame() {
     }
 }
 
+void RendererImpl::pinVisibleGlyphs() {
+    for (GpuCell* cell = cells.mutBegin(); cell != cells.mutEnd(); ++cell) {
+        if (cell->glyph == 0) {
+            continue;
+        }
+        GlyphCache& cache = cell->lineAttribute != 0 || (cell->attributes & gpuDoubleWidth) != 0 ? doubleWidthGlyphs : glyphs;
+        const u32 slot = (cell->glyph & 0xff) + (((cell->glyph >> 8) & 0xff) * cache.columns);
+        if (slot < cache.slots.length()) {
+            cache.slots.mut(slot).generation = cache.generation;
+        }
+    }
+}
+
 u16 RendererImpl::allocateGlyphSlot(GlyphCache& cache, u32 id, bool grapheme) {
     if (cache.next < cache.slots.length()) {
         const u16 slot = (u16)(cache.next++);
@@ -1537,6 +1661,104 @@ u32 RendererImpl::ensureGlyph(Fontpack& fonts, bool hasDoubleWidth, const u32* c
     return (slot % cache.columns) | ((slot / cache.columns) << 8) | ((u32)(glyph.color) << 16);
 }
 
+void RendererImpl::materializeCells(const TerminalCell* input, GpuCell* output, u16 count, u8 lineAttribute, const TerminalColors& colors) {
+    CellExtraStore& extras = *composer.cellExtras;
+    Fontpack& fonts = *composer.fonts;
+    const bool hasDoubleWidth = fonts.hasDoubleWidth();
+    const bool specialColors = colors.specialModes != 0;
+    for (u16 index = 0; index < count; ++index) {
+        const TerminalCell& cell = input[index];
+        const u32 codepoint = cell.uc_pt ? cell.uc_pt : ' ';
+        const u32 attributes = packCellAttributes(cell);
+        const u32 foreground = specialColors ? colors.resolveForegroundSpecial(cell).packed() : colors.resolvePacked(cell.foreground());
+        const u32 background = specialColors ? colors.resolveBackgroundSpecial(cell).packed() : colors.resolvePacked(cell.background());
+        u32 underlineColor = foreground;
+        u32 hyperlink = 0;
+        u32 graphemeId = 0;
+        GraphemeView grapheme;
+        if (cell.hasExtra()) {
+            const CellExtraView extra = extras.view(cell);
+            hyperlink = extra.hyperlinkDisplayId;
+            grapheme = extra.grapheme;
+            graphemeId = grapheme.empty() ? 0 : cell.extraRef();
+            if (cell.underlined() && extra.underlineColor != cell.foreground()) {
+                underlineColor = colors.resolvePacked(extra.underlineColor);
+            }
+        } else if (cell.underlined() && cell.inlineUnderlineColor() != cell.foreground()) {
+            underlineColor = colors.resolvePacked(cell.inlineUnderlineColor());
+        }
+
+        u32 glyph = 0;
+        const bool doubleWidth = lineAttribute != 0 || cell.dwidth;
+        if (!cell.dwidth_cont || lineAttribute != 0) {
+            const FontStyle style = (FontStyle)((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0));
+            if (graphemeId != 0) {
+                glyph = ensureGlyph(fonts, hasDoubleWidth, grapheme.data(), grapheme.size(), graphemeId, true, style, doubleWidth);
+            } else {
+                glyph = ensureGlyph(fonts, hasDoubleWidth, &codepoint, 1, codepoint, false, style, doubleWidth);
+            }
+        }
+        output[index] = {
+            codepoint,
+            attributes,
+            foreground,
+            background,
+            underlineColor,
+            hyperlink,
+            glyph,
+            cell.semantic,
+            lineAttribute,
+        };
+    }
+}
+
+bool RendererImpl::validateCachedCells(const TerminalCell* input, const GpuCell* output, u16 count, u8 lineAttribute) {
+    CellExtraStore& extras = *composer.cellExtras;
+    const bool hasDoubleWidth = composer.fonts->hasDoubleWidth();
+    for (u16 index = 0; index < count; ++index) {
+        const TerminalCell& cell = input[index];
+        const GpuCell& rendered = output[index];
+        const bool doubleWidth = lineAttribute != 0 || cell.dwidth;
+        if (cell.dwidth_cont && lineAttribute == 0) {
+            if (rendered.glyph != 0) {
+                return false;
+            }
+            continue;
+        }
+        u32 id = cell.uc_pt ? cell.uc_pt : ' ';
+        bool grapheme = false;
+        if (cell.hasExtra()) {
+            const CellExtraView extra = extras.view(cell);
+            if (!extra.grapheme.empty()) {
+                id = cell.extraRef();
+                grapheme = true;
+            }
+        }
+        if ((!grapheme && !needsFontGlyph(id)) || (doubleWidth && !hasDoubleWidth)) {
+            if (rendered.glyph != 0) {
+                return false;
+            }
+            continue;
+        }
+        if (rendered.glyph == 0) {
+            return false;
+        }
+        GlyphCache& cache = doubleWidth ? doubleWidthGlyphs : glyphs;
+        const u32 slot = (rendered.glyph & 0xff) + (((rendered.glyph >> 8) & 0xff) * cache.columns);
+        if (slot >= cache.slots.length()) {
+            return false;
+        }
+        GlyphSlot& state = cache.slots.mut(slot);
+        const u32 layer = doubleWidth ? 0 : ((cell.bold ? 1u : 0u) | (cell.italic ? 2u : 0u));
+        const u8 layerMask = (u8)(1u << layer);
+        if (state.id != id || state.grapheme != grapheme || (state.layers & layerMask) == 0 || ((state.colorLayers & layerMask) != 0) != ((rendered.glyph & (1u << 16)) != 0)) {
+            return false;
+        }
+        state.generation = cache.generation;
+    }
+    return true;
+}
+
 void RendererImpl::recordImageUploads(VkCommandBuffer commandBuffer, VkBuffer stagingBuffer, const ImageResource& image, const Vector<VkBufferImageCopy>& copies, bool initialize) {
     if (!initialize && copies.empty()) {
         return;
@@ -1668,10 +1890,6 @@ void RendererImpl::capturePresentationState(const TerminalUpdate& update) {
 
 u32 RendererImpl::materializeUpdates(FrameResources& frame, u64 appliedGeneration, bool initialized) {
     const size_t cellCount = cells.length();
-    CellExtraStore& extras = *composer.cellExtras;
-    Fontpack& fonts = *composer.fonts;
-    const bool hasDoubleWidth = fonts.hasDoubleWidth();
-    beginGlyphFrame();
     ensureCellBuffer(frame, cellCount * sizeof(GpuCellUpdate));
     auto* const gpuUpdates = (GpuCellUpdate*)(frame.cells);
 
@@ -1690,7 +1908,7 @@ u32 RendererImpl::materializeUpdates(FrameResources& frame, u64 appliedGeneratio
         const u32 sourceRow = sourceIndex / cellColumns;
         const u32 sourceColumn = sourceIndex - sourceRow * cellColumns;
         const u32 rowIndex = sourceRow * cellColumns;
-        const u8 lineAttribute = cells[rowIndex].line_attr;
+        const u8 lineAttribute = (u8)(cells[rowIndex].lineAttribute);
 
         u32 outputIndices[2];
         u32 outputCount = 1;
@@ -1723,37 +1941,10 @@ u32 RendererImpl::materializeUpdates(FrameResources& frame, u64 appliedGeneratio
             return;
         }
 
-        const RenderCell& cell = cells[sourceIndex];
-        u32 attributes = packCellAttributes(cell);
-        bool doubleWidth = lineAttribute != 0 || cell.dwidth;
-        if (lineAttribute == 0 && cell.dwidth && (sourceColumn + 1 >= cellColumns || !cells[sourceIndex + 1].dwidth_cont)) {
-            attributes &= ~(1u << 16);
-            doubleWidth = false;
+        GpuCell cell = cells[sourceIndex];
+        if (lineAttribute == 0 && (cell.attributes & gpuDoubleWidth) != 0 && (sourceColumn + 1 >= cellColumns || (cells[sourceIndex + 1].attributes & gpuDoubleWidthContinuation) == 0)) {
+            cell.attributes &= ~gpuDoubleWidth;
         }
-        u32 glyph = 0;
-        if (!cell.dwidth_cont || lineAttribute != 0) {
-            const FontStyle style = (FontStyle)((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0));
-            if (cell.grapheme) {
-                const GraphemeView grapheme = extras.grapheme(cell.grapheme);
-                if (!grapheme.empty()) {
-                    glyph = ensureGlyph(fonts, hasDoubleWidth, grapheme.data(), grapheme.size(), cell.grapheme, true, style, doubleWidth);
-                }
-            }
-            if (glyph == 0 && !cell.grapheme) {
-                glyph = ensureGlyph(fonts, hasDoubleWidth, &cell.uc_pt, 1, cell.uc_pt, false, style, doubleWidth);
-            }
-        }
-        const GpuCell gpuCell{
-            cell.uc_pt,
-            attributes,
-            packColor(cell.fg),
-            packColor(cell.bg),
-            packColor(cell.underline_color),
-            cell.hyperlink,
-            glyph,
-            cell.semantic,
-            lineAttribute,
-        };
         for (u32 index = 0; index < outputCount; ++index) {
             if (!needed[index]) {
                 continue;
@@ -1762,7 +1953,7 @@ u32 RendererImpl::materializeUpdates(FrameResources& frame, u64 appliedGeneratio
             gpuUpdates[gpuUpdateCount++] = {
                 sourceIndex,
                 outputIndices[index],
-                gpuCell,
+                cell,
             };
         }
     };
@@ -2069,6 +2260,8 @@ bool RendererImpl::repaint() {
     if (!directSwapchain && outputInitialized) {
         recordRepaintCommands(*frame, imageIndex);
     } else {
+        beginGlyphFrame();
+        pinVisibleGlyphs();
         const bool initialized = directSwapchain ? imageInitialized[imageIndex] : outputInitialized;
         const u64 appliedGeneration = directSwapchain ? imageGenerations[imageIndex] : outputGeneration;
         const u32 updateCount = materializeUpdates(*frame, appliedGeneration, initialized);
@@ -2104,12 +2297,15 @@ bool RendererImpl::present(const TerminalUpdate& update) {
     if (swapchain == VK_NULL_HANDLE) {
         return false;
     }
+    if (update.colors == nullptr) {
+        return false;
+    }
 
     const bool shapeChanged = cellColumns != composer.columns || cellRows != composer.rows;
     if (shapeChanged) {
         size_t covered = 0;
         for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
-            const RenderCellSpan& span = update.spans[spanIndex];
+            const TerminalCellSpan& span = update.spans[spanIndex];
             if (span.cells == nullptr || span.index != covered) {
                 return false;
             }
@@ -2118,12 +2314,27 @@ bool RendererImpl::present(const TerminalUpdate& update) {
         if (covered != cellCount) {
             return false;
         }
+    }
+
+    FrameResources* frame = nullptr;
+    u32 imageIndex = 0;
+    bool recreateAfterPresent = false;
+    if (!acquirePresentFrame(width, height, frame, imageIndex, recreateAfterPresent)) {
+        return false;
+    }
+
+    beginGlyphFrame();
+    if (previousStateValid) {
+        pinVisibleGlyphs();
+    }
+    const u64 renderContext = mix(update.colors, composer.cellExtras, composer.fonts) ^ ((u64)(update.colors->generation) * 0x9e3779b97f4a7c15ULL);
+    if (shapeChanged) {
         damage.begin = 0;
         damage.count = 0;
         ensureDamageJournal(cellCount);
         cells.clear();
         cells.grow(cellCount);
-        const RenderCell empty;
+        const GpuCell empty;
         for (size_t index = 0; index < cellCount; ++index) {
             cells.pushBack(empty);
         }
@@ -2133,12 +2344,10 @@ bool RendererImpl::present(const TerminalUpdate& update) {
         ensureDamageJournal(cellCount);
     }
     for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
-        const RenderCellSpan& span = update.spans[spanIndex];
+        const TerminalCellSpan& span = update.spans[spanIndex];
         STD_ASSERT((size_t)(span.index) + span.count <= cellCount);
         STD_ASSERT(span.cells != nullptr);
-        for (u32 index = 0; index < span.count; ++index) {
-            cells.mut(span.index + index) = span.cells[index];
-        }
+        renderCache.render(*this, span.cells, (u16)(span.count), span.lineAttribute, cells.mutData() + span.index, *update.colors, renderContext);
     }
 
     if (damage.advance()) {
@@ -2157,7 +2366,7 @@ bool RendererImpl::present(const TerminalUpdate& update) {
         }
     } else {
         for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
-            const RenderCellSpan& span = update.spans[spanIndex];
+            const TerminalCellSpan& span = update.spans[spanIndex];
             appendDamage(span.index, span.count);
         }
 
@@ -2179,20 +2388,13 @@ bool RendererImpl::present(const TerminalUpdate& update) {
         }
         if (presentationState.blinkVisible != update.blinkVisible) {
             for (u32 index = 0; index < cellCount; ++index) {
-                if (cells[index].blink) {
+                if ((cells[index].attributes & gpuBlink) != 0) {
                     appendDamage(index, 1);
                 }
             }
         }
     }
     capturePresentationState(update);
-
-    FrameResources* frame = nullptr;
-    u32 imageIndex = 0;
-    bool recreateAfterPresent = false;
-    if (!acquirePresentFrame(width, height, frame, imageIndex, recreateAfterPresent)) {
-        return false;
-    }
 
     const bool targetInitialized = directSwapchain ? imageInitialized[imageIndex] : outputInitialized;
     const u64 appliedGeneration = directSwapchain ? imageGenerations[imageIndex] : outputGeneration;

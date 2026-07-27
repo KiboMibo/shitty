@@ -282,57 +282,14 @@ static_assert(__is_standard_layout(TerminalCell), "TerminalCell must remain stan
     return resolveBackgroundSpecial(cell);
 }
 
-struct RenderCell {
-    u32 uc_pt = ' ';
-
-    union {
-        u32 attributes = 0;
-
-        struct {
-            u32 _reserved0 : 2;
-            u32 bold : 1;
-            u32 italic : 1;
-            u32 underline : 1;
-            u32 inverse : 1;
-            u32 wrap : 1;
-            u32 _reserved1 : 1;
-            u32 faint : 1;
-            u32 blink : 1;
-            u32 conceal : 1;
-            u32 strike : 1;
-            u32 overline : 1;
-            u32 underline_style : 3;
-            u32 dwidth : 1;
-            u32 dwidth_cont : 1;
-            u32 protected_char : 2;
-            u32 drawn : 1;
-            u32 _reserved2 : 3;
-            u32 line_attr : 8;
-        };
-    };
-
-    Color fg;
-    Color bg;
-    Color underline_color;
-    u32 hyperlink = 0;
-    u32 grapheme = 0;
-    u32 semantic = 0;
-
-    RenderCell();
-
-    static constexpr u32 gpuAttributeMask = 0x0003ff7c;
-};
-
-static_assert(sizeof(RenderCell) == 32, "RenderCell size mismatch");
-static_assert(offsetof(RenderCell, fg) == 8, "RenderCell foreground offset mismatch");
-
-struct RenderCellSpan {
+struct TerminalCellSpan {
     u32 index = 0;
     u32 count = 0;
-    const RenderCell* cells = nullptr;
+    const TerminalCell* cells = nullptr;
+    u8 lineAttribute = 0;
 };
 
-struct RenderCellBatch {
+struct TerminalCellBatch {
     size_t cellCount = 0;
     size_t spanCount = 0;
 };

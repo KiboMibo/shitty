@@ -71,7 +71,7 @@ struct Screen {
     virtual void appendPrintableLine(u16 row, std::string& output) const = 0;
     virtual ScreenHyperlink hyperlinkAt(u16 row, u16 column) const = 0;
     virtual TerminalCell testCell(u16 row, u16 column) const noexcept = 0;
-    virtual RenderCellBatch copyDamage(RenderCell* cells, RenderCellSpan* spans) const = 0;
+    virtual TerminalCellBatch copyDamage(TerminalCellSpan* spans) const = 0;
 
     virtual bool active() const noexcept = 0;
 
@@ -90,8 +90,8 @@ struct Screen {
     virtual void rotateRowsUp(u16 top, u16 bottom, u16 count) = 0;
     virtual void rotateRowsDown(u16 top, u16 bottom, u16 count) = 0;
 
-    virtual void scrollUp(u16 top, u16 bottom, u16 count) = 0;
-    virtual void scrollDown(u16 top, u16 bottom, u16 count) = 0;
+    virtual void scrollUp(u16 top, u16 bottom, u16 count, const TerminalCell& attrs) = 0;
+    virtual void scrollDown(u16 top, u16 bottom, u16 count, const TerminalCell& attrs) = 0;
     virtual void restoreHistory(u16 count) = 0;
 
     virtual void pageUp(u16 count) = 0;

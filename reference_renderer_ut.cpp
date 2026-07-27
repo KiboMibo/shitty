@@ -56,6 +56,13 @@ namespace {
     Color cellPixel(const ReferenceImage& image, u16 x, u16 y) {
         return pixel(image, (u16)(opts.border + x), (u16)(opts.border + y));
     }
+
+    TerminalCell coloredCell(Color foreground, Color background) {
+        TerminalCell cell{};
+        cell.setForeground(CellColor::direct(foreground));
+        cell.setBackground(CellColor::direct(background));
+        return cell;
+    }
 }
 
 u16 FakeFontpack::getPx() const {
@@ -103,7 +110,9 @@ STD_TEST_SUITE(ReferenceRenderer) {
         FakeFontpack fonts;
         configure(composer, fonts, 1, 1, 1, 1);
         ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
+        TerminalColors colors;
         TerminalUpdate update;
+        update.colors = &colors;
 
         const ReferenceImage image = renderer->render(update);
 
@@ -122,14 +131,13 @@ STD_TEST_SUITE(ReferenceRenderer) {
         fonts.bitmapLength = 4;
         configure(composer, fonts, 1, 1, 2, 2);
         ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
-        RenderCell cell;
-        cell.fg = {255, 0, 0};
-        cell.bg = {0, 0, 255};
-        RenderCell damaged = cell;
-        RenderCellSpan span{0, 1, &damaged};
+        TerminalColors colors;
+        TerminalCell cell = coloredCell({255, 0, 0}, {0, 0, 255});
+        TerminalCellSpan span{0, 1, &cell};
         TerminalUpdate update;
         update.spans = &span;
         update.spanCount = 1;
+        update.colors = &colors;
 
         const ReferenceImage image = renderer->render(update);
 
@@ -147,15 +155,14 @@ STD_TEST_SUITE(ReferenceRenderer) {
         fonts.bitmapLength = 1;
         configure(composer, fonts, 1, 1, 1, 1);
         ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
-        RenderCell cell;
-        cell.fg = {255, 0, 0};
-        cell.bg = {0, 0, 255};
+        TerminalColors colors;
+        TerminalCell cell = coloredCell({255, 0, 0}, {0, 0, 255});
         cell.inverse = true;
-        RenderCell damaged = cell;
-        RenderCellSpan span{0, 1, &damaged};
+        TerminalCellSpan span{0, 1, &cell};
         TerminalUpdate update;
         update.spans = &span;
         update.spanCount = 1;
+        update.colors = &colors;
 
         ReferenceImage image = renderer->render(update);
         STD_INSIST((cellPixel(image, 0, 0) == Color{0, 0, 255}));
@@ -171,20 +178,22 @@ STD_TEST_SUITE(ReferenceRenderer) {
         FakeFontpack fonts;
         configure(composer, fonts, 2, 1, 1, 1);
         ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
-        RenderCell initial[2];
-        initial[0].bg = {10, 20, 30};
-        initial[1].bg = {40, 50, 60};
-        RenderCellSpan span{0, 2, initial};
+        TerminalColors colors;
+        TerminalCell initial[2]{};
+        initial[0].setBackground(CellColor::direct({10, 20, 30}));
+        initial[1].setBackground(CellColor::direct({40, 50, 60}));
+        TerminalCellSpan span{0, 2, initial};
         TerminalUpdate update;
         update.spans = &span;
         update.spanCount = 1;
+        update.colors = &colors;
 
         ReferenceImage image = renderer->render(update);
         STD_INSIST((cellPixel(image, 0, 0) == Color{10, 20, 30}));
         STD_INSIST((cellPixel(image, 1, 0) == Color{40, 50, 60}));
 
-        RenderCell changed = initial[1];
-        changed.bg = {70, 80, 90};
+        TerminalCell changed = initial[1];
+        changed.setBackground(CellColor::direct({70, 80, 90}));
         span = {1, 1, &changed};
         image = renderer->render(update);
 
@@ -201,14 +210,13 @@ STD_TEST_SUITE(ReferenceRenderer) {
         fonts.bitmapLength = 2;
         configure(composer, fonts, 1, 1, 2, 1);
         ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
-        RenderCell cell;
-        cell.fg = {255, 0, 0};
-        cell.bg = {0, 0, 255};
-        RenderCell damaged = cell;
-        RenderCellSpan span{0, 1, &damaged};
+        TerminalColors colors;
+        TerminalCell cell = coloredCell({255, 0, 0}, {0, 0, 255});
+        TerminalCellSpan span{0, 1, &cell};
         TerminalUpdate update;
         update.spans = &span;
         update.spanCount = 1;
+        update.colors = &colors;
         update.snappedSelection = Rect(0, 0);
         update.selectionColorMask = 3;
         update.selectionForeground = {1, 2, 3};
@@ -232,13 +240,14 @@ STD_TEST_SUITE(ReferenceRenderer) {
         fonts.colorGlyph = true;
         configure(composer, fonts, 1, 1, 1, 1);
         ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
-        RenderCell cell;
-        cell.bg = {0, 0, 100};
-        RenderCell damaged = cell;
-        RenderCellSpan span{0, 1, &damaged};
+        TerminalColors colors;
+        TerminalCell cell{};
+        cell.setBackground(CellColor::direct({0, 0, 100}));
+        TerminalCellSpan span{0, 1, &cell};
         TerminalUpdate update;
         update.spans = &span;
         update.spanCount = 1;
+        update.colors = &colors;
 
         const ReferenceImage image = renderer->render(update);
 
@@ -253,18 +262,17 @@ STD_TEST_SUITE(ReferenceRenderer) {
         fonts.bitmapLength = 1;
         configure(composer, fonts, 1, 1, 1, 1);
         ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
+        TerminalColors colors;
         const u32 codepoints[] = {'a', 0x0301};
         TerminalCell stored{};
+        stored.bold = true;
+        stored.italic = true;
         composer.cellExtras->setGrapheme(stored, codepoints, 2);
-        RenderCell cell;
-        cell.bold = true;
-        cell.italic = true;
-        cell.grapheme = stored.extraRef();
-        RenderCell damaged = cell;
-        RenderCellSpan span{0, 1, &damaged};
+        TerminalCellSpan span{0, 1, &stored};
         TerminalUpdate update;
         update.spans = &span;
         update.spanCount = 1;
+        update.colors = &colors;
 
         renderer->render(update);
 

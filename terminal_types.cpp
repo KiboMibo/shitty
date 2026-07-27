@@ -25,14 +25,6 @@ void TerminalCell::setExtraRef(u32 ref) noexcept {
     payload = ref == 0 ? 0 : (ref << 8) | extraRefSentinel;
 }
 
-RenderCell::RenderCell()
-    : attributes(0)
-    , fg(opts.fg)
-    , bg(opts.bg)
-    , underline_color(opts.fg)
-{
-}
-
 Color TerminalColors::resolveForegroundSpecial(const TerminalCell& cell) const {
     const bool overrideAnsi = (specialModes & (1u << 5)) != 0;
     const CellColor foreground = cell.foreground();

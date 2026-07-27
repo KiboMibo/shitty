@@ -28,7 +28,6 @@
 #include "keyboard.h"
 #include "mouse_frontend.h"
 #include "mouse_protocol.h"
-#include "render_cache.h"
 #include "screen.h"
 #include "unicode_map.h"
 #include "grapheme.h"
@@ -327,7 +326,7 @@ namespace {
         PresentationState capturePresentationState() const;
         bool presentationChanged(const PresentationState& before) const;
         void syncPresentationCursor();
-        void fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const RenderCellSpan* spans, size_t spanCount);
+        void fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const TerminalCellSpan* spans, size_t spanCount);
 
         void writeCsiResponse(StringView payload);
         void writeDcsResponse(StringView payload);
@@ -584,8 +583,7 @@ namespace {
         Buffer protocolResponseScratch;
         size_t ptyOutputOffset = 0;
         u64 droppedPtyResponses = 0;
-        Vector<RenderCell> outputCells;
-        Vector<RenderCellSpan> outputSpans;
+        Vector<TerminalCellSpan> outputSpans;
         TerminalUpdate terminalUpdate;
 
         std::string inputResult;
@@ -1799,10 +1797,11 @@ StringView VtermImpl<traced>::hyperlinkAt(int pixelX, int pixelY) {
 }
 
 template <bool traced>
-void VtermImpl<traced>::fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const RenderCellSpan* spans, size_t spanCount) {
+void VtermImpl<traced>::fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const TerminalCellSpan* spans, size_t spanCount) {
     update = {};
     update.spans = spans;
     update.spanCount = spanCount;
+    update.colors = &colors;
     update.viewOffset = frame.getViewOffset();
     update.historyRows = frame.getHistoryRows();
     update.cursor = frame.getCursor();
@@ -1830,7 +1829,7 @@ VtermOutput VtermImpl<traced>::output() {
     }
 
     Screen* const frame = cf;
-    const RenderCellBatch output = frame->copyDamage(outputCells.mutData(), outputSpans.mutData());
+    const TerminalCellBatch output = frame->copyDamage(outputSpans.mutData());
 
     updateScreen = frame;
     fillTerminalUpdate(terminalUpdate, *frame, outputSpans.data(), output.spanCount);
@@ -3984,8 +3983,7 @@ void VtermImpl<traced>::scrollRegionUp(u16 count) {
     if (horizMarginMode) {
         deleteRows(marginTop, count);
     } else {
-        cf->scrollUp(marginTop, marginBottom, count);
-        eraseRows(marginBottom - count, count);
+        cf->scrollUp(marginTop, marginBottom, count, eraseAttrs);
         lastCol = false;
     }
 }
@@ -3995,8 +3993,7 @@ void VtermImpl<traced>::scrollRegionDown(u16 count) {
     if (horizMarginMode) {
         insertRows(marginTop, count);
     } else {
-        cf->scrollDown(marginTop, marginBottom, count);
-        eraseRows(marginTop, count);
+        cf->scrollDown(marginTop, marginBottom, count, eraseAttrs);
         lastCol = false;
     }
 }
@@ -8027,8 +8024,7 @@ VtermImpl<traced>::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* 
         throw;
     }
     cf = frame_pri;
-    outputCells.grow((size_t)(composer.columns) * composer.rows);
-    outputSpans.grow(composer.renderCache->spanCapacity(composer.columns, composer.rows));
+    outputSpans.grow(composer.rows);
     makePalette256(colors.palette);
     std::copy(std::begin(colors.palette), std::end(colors.palette), std::begin(originalPalette256));
     colors.defaultForeground = opts.fg;
@@ -8109,8 +8105,7 @@ void VtermImpl<traced>::resizeGrid() {
     }
     showCursor();
 
-    outputCells.grow((size_t)(composer.columns) * composer.rows);
-    outputSpans.grow(composer.renderCache->spanCapacity(composer.columns, composer.rows));
+    outputSpans.grow(composer.rows);
     updateExtraCellCount();
     if (inBandResizeMode) {
         reportInBandResize();
@@ -9059,6 +9054,19 @@ template <bool traced>
                     placeAsciiRun<false>(current, count);
                 }
                 cursor = current + count;
+                if (cursor + 1 < inputEnd && cursor[0] == '\r' && cursor[1] == '\n') {
+                    if constexpr (traced) {
+                        parserTrace->control('\r');
+                        parserTrace->control('\n');
+                    }
+                    resetGraphemeInput();
+                    inp_CR();
+                    if (autoNewlineMode) {
+                        inp_CR();
+                    }
+                    esc_IND();
+                    cursor += 2;
+                }
                 continue;
             }
             if (ch >= 0xc2 && ch <= 0xf4 && !insertMode && !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8 && charsetState.g[charsetState.gr] == Charset::UTF8) {

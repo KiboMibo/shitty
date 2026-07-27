@@ -70,7 +70,6 @@ STD_TEST_SUITE(Composer) {
         STD_INSIST(composer.pool == pool.mutPtr());
         STD_INSIST(composer.input != nullptr);
         STD_INSIST(composer.inputBindings != nullptr);
-        STD_INSIST(composer.renderCache != nullptr);
         STD_INSIST(composer.inputSinks.front() != composer.inputSinks.end());
     }
 

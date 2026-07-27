@@ -10,7 +10,6 @@
 #include "input_router.h"
 #include "listener.h"
 #include "options.h"
-#include "render_cache.h"
 
 #include <std/alg/minmax.h>
 #include <std/dbg/assert.h>
@@ -22,7 +21,6 @@ Composer::Composer(ObjPool* pool_)
 {
     input = createInputRouter(*this);
     inputBindings = InputBindings::create(*this);
-    renderCache = RenderCache::create(*this);
 }
 
 void Composer::setContentScale(float scale) {

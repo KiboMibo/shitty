@@ -62,7 +62,7 @@ STD_TEST_SUITE(Screen) {
 
         STD_INSIST(screen->cellCapacity() == 16);
         for (u16 index = 0; index < 6; ++index) {
-            screen->scrollUp(0, 3, 1);
+            screen->scrollUp(0, 3, 1, TerminalCell{});
         }
         STD_INSIST(screen->getHistoryRows() == 5);
     }
@@ -75,13 +75,13 @@ STD_TEST_SUITE(Screen) {
         configureColors(colors);
 
         Screen* screen = Screen::create(composer, *pool, 2, 3, &colors);
-        screen->scrollUp(0, 3, 1);
+        screen->scrollUp(0, 3, 1, TerminalCell{});
 
         STD_INSIST(screen->cellCapacity() == 6);
         STD_INSIST(screen->getHistoryRows() == 0);
     }
 
-    STD_TEST(WritesAsciiAndMaterializesOnlyDamagedCells) {
+    STD_TEST(WritesAsciiAndExposesOnlyDamagedCells) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
         CellExtraStore::create(composer, 8);
@@ -91,11 +91,10 @@ STD_TEST_SUITE(Screen) {
         TerminalCell attrs = attributes();
         attrs.bold = true;
         const u8 text[] = {'a', 'b'};
-        RenderCell rendered[8];
-        RenderCellSpan spans[2];
+        TerminalCellSpan spans[2];
 
         screen->expose();
-        RenderCellBatch batch = screen->copyDamage(rendered, spans);
+        TerminalCellBatch batch = screen->copyDamage(spans);
         STD_INSIST(batch.cellCount == 8);
         STD_INSIST(batch.spanCount == 2);
         STD_INSIST(spans[0].index == 0);
@@ -104,72 +103,16 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(spans[1].count == 4);
         screen->resetDamage();
         screen->writeAsciiRun(1, 1, text, 2, attrs, 0, 3, TerminalCell{});
-        batch = screen->copyDamage(rendered, spans);
+        batch = screen->copyDamage(spans);
 
         STD_INSIST(batch.cellCount == 2);
         STD_INSIST(batch.spanCount == 1);
         STD_INSIST(spans[0].index == 5);
         STD_INSIST(spans[0].count == 2);
-        STD_INSIST(spans[0].cells == rendered);
         STD_INSIST(spans[0].cells[0].uc_pt == 'a');
         STD_INSIST(spans[0].cells[1].uc_pt == 'b');
         STD_INSIST(spans[0].cells[0].bold);
         STD_INSIST(spans[0].cells[0].semantic == 3);
-        STD_INSIST((spans[0].cells[0].fg == Color{1, 2, 3}));
-        STD_INSIST((spans[0].cells[0].bg == Color{4, 5, 6}));
-    }
-
-    STD_TEST(CachesRenderedSpansAndInvalidatesOnPaletteChange) {
-        auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
-        CellExtraStore::create(composer, 8);
-        TerminalColors colors;
-        configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 8, 1, &colors);
-        RenderCell scratch[8];
-        RenderCellSpan span[1];
-
-        screen->expose();
-        screen->copyDamage(scratch, span);
-        const RenderCell* const cached = span[0].cells;
-        STD_INSIST(cached != scratch);
-        STD_INSIST((cached[0].fg == Color{1, 2, 3}));
-
-        screen->resetDamage();
-        screen->expose();
-        screen->copyDamage(scratch, span);
-        STD_INSIST(span[0].cells == cached);
-
-        colors.defaultForeground = {7, 8, 9};
-        colors.changed();
-        screen->resetDamage();
-        screen->expose();
-        screen->copyDamage(scratch, span);
-        STD_INSIST((span[0].cells[0].fg == Color{7, 8, 9}));
-    }
-
-    STD_TEST(SharesRenderedSpansBetweenScreens) {
-        auto composerPool = ObjPool::fromMemory();
-        auto firstPool = ObjPool::fromMemory();
-        auto secondPool = ObjPool::fromMemory();
-        Composer composer(composerPool.mutPtr());
-        CellExtraStore::create(composer, 16);
-        TerminalColors colors;
-        configureColors(colors);
-        Screen* first = Screen::create(composer, *firstPool, 8, 1, &colors);
-        Screen* second = Screen::create(composer, *secondPool, 8, 1, &colors);
-        RenderCell firstScratch[8];
-        RenderCell secondScratch[8];
-        RenderCellSpan firstSpan[1];
-        RenderCellSpan secondSpan[1];
-
-        first->expose();
-        first->copyDamage(firstScratch, firstSpan);
-        second->expose();
-        second->copyDamage(secondScratch, secondSpan);
-
-        STD_INSIST(firstSpan[0].cells != firstScratch);
-        STD_INSIST(secondSpan[0].cells == firstSpan[0].cells);
     }
 
     STD_TEST(StoresLineAttributesInRowMetadata) {
@@ -179,16 +122,13 @@ STD_TEST_SUITE(Screen) {
         TerminalColors colors;
         configureColors(colors);
         Screen* screen = Screen::create(composer, *pool, 4, 1, &colors);
-        RenderCell rendered[4];
-        RenderCellSpan spans[1];
+        TerminalCellSpan spans[1];
 
         screen->setLineAttribute(0, 2);
         STD_INSIST(screen->lineAttribute(0) == 2);
-        const RenderCellBatch batch = screen->copyDamage(rendered, spans);
+        const TerminalCellBatch batch = screen->copyDamage(spans);
         STD_INSIST(batch.cellCount == 4);
-        for (u32 index = 0; index < spans[0].count; ++index) {
-            STD_INSIST(spans[0].cells[index].line_attr == 2);
-        }
+        STD_INSIST(spans[0].lineAttribute == 2);
         screen->setLineAttribute(0, 0);
         STD_INSIST(screen->lineAttribute(0) == 0);
     }
@@ -371,7 +311,7 @@ STD_TEST_SUITE(Screen) {
         screen->writeAsciiRun(1, 0, second, 1, attrs, 0, 0, TerminalCell{});
         screen->writeAsciiRun(2, 0, third, 1, attrs, 0, 0, TerminalCell{});
 
-        screen->scrollUp(0, 3, 1);
+        screen->scrollUp(0, 3, 1, TerminalCell{});
 
         STD_INSIST(screen->getHistoryRows() == 1);
         STD_INSIST(screen->testCell(0, 0).uc_pt == 'B');
@@ -404,13 +344,13 @@ STD_TEST_SUITE(Screen) {
         screen->writeAsciiRun(0, 0, first, 1, attrs, 0, 0, TerminalCell{});
         screen->writeAsciiRun(1, 0, second, 1, attrs, 0, 0, TerminalCell{});
 
-        screen->scrollUp(0, 2, 1);
+        screen->scrollUp(0, 2, 1, TerminalCell{});
         screen->eraseCells(1, 0, 2, TerminalCell{});
         screen->writeAsciiRun(1, 0, third, 1, attrs, 0, 0, TerminalCell{});
-        screen->scrollUp(0, 2, 1);
+        screen->scrollUp(0, 2, 1, TerminalCell{});
         screen->eraseCells(1, 0, 2, TerminalCell{});
         screen->writeAsciiRun(1, 0, fourth, 1, attrs, 0, 0, TerminalCell{});
-        screen->scrollUp(0, 2, 1);
+        screen->scrollUp(0, 2, 1, TerminalCell{});
         screen->eraseCells(1, 0, 2, TerminalCell{});
         screen->writeAsciiRun(1, 0, fifth, 1, attrs, 0, 0, TerminalCell{});
 
@@ -442,7 +382,7 @@ STD_TEST_SUITE(Screen) {
         screen->writeAsciiRun(2, 0, third, 1, attrs, 0, 0, TerminalCell{});
         screen->writeAsciiRun(3, 0, fourth, 1, attrs, 0, 0, TerminalCell{});
 
-        screen->scrollUp(0, 3, 1);
+        screen->scrollUp(0, 3, 1, TerminalCell{});
         screen->eraseCells(2, 0, 2, TerminalCell{});
 
         STD_INSIST(screen->getHistoryRows() == 1);

@@ -160,14 +160,3 @@ STD_TEST_SUITE(TerminalColors) {
         STD_INSIST(colors.resolveBackground(cell) == colors.special[3]);
     }
 }
-
-STD_TEST_SUITE(RenderCell) {
-    STD_TEST(ConstructorUsesCurrentDefaultColors) {
-        RenderCell cell;
-
-        STD_INSIST(cell.uc_pt == ' ');
-        STD_INSIST(cell.fg == opts.fg);
-        STD_INSIST(cell.bg == opts.bg);
-        STD_INSIST(cell.underline_color == opts.fg);
-    }
-}
