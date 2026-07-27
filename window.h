@@ -17,7 +17,6 @@ struct WindowEvents {
     bool close = false;
     bool resized = false;
     bool redraw = false;
-    bool frameReady = false;
 };
 
 struct WindowInfo {
@@ -36,8 +35,6 @@ struct Window {
     virtual void activate() = 0;
     virtual void requestClose() = 0;
     virtual bool dispatchEvents() = 0;
-    virtual bool requestFrame() = 0;
-    virtual void cancelFrame() = 0;
 
     virtual void setTitle(stl::StringView title) = 0;
     virtual void requestAttention() = 0;

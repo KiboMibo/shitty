@@ -230,8 +230,10 @@ namespace {
         StringView hyperlinkAt(int pixelX, int pixelY);
         bool expireSynchronizedOutput(bool force) override;
         bool advanceAnimation(bool force) override;
-        VtermOutput output() override;
-        void consume(const VtermConsume& consumed) override;
+        StringView ptyOutput() override;
+        void consumePtyOutput(size_t bytes) override;
+        const TerminalUpdate* output() override;
+        void consume() override;
         VtermState state() const override;
         TestApi* testApi() override;
 
@@ -680,7 +682,7 @@ namespace {
         VtermHost& host;
         Output* dump;
         UnicodeMap<u8>* const unicodeProperties;
-        Buffer ptyOutput;
+        Buffer ptyBuffer;
         Buffer protocolResponseScratch;
         size_t ptyOutputOffset = 0;
         u64 droppedPtyResponses = 0;
@@ -1806,13 +1808,26 @@ void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const 
     update.cursorBlink = frame.getCursorBlink();
 }
 
-VtermOutput VtermImpl::output() {
-    VtermOutput result;
-    if (ptyOutputOffset < ptyOutput.used()) {
-        result.pty = StringView((const u8*)(ptyOutput.data()) + ptyOutputOffset, ptyOutput.used() - ptyOutputOffset);
+StringView VtermImpl::ptyOutput() {
+    if (ptyOutputOffset == ptyBuffer.used()) {
+        return {};
     }
+    return StringView((const u8*)(ptyBuffer.data()) + ptyOutputOffset, ptyBuffer.used() - ptyOutputOffset);
+}
+
+void VtermImpl::consumePtyOutput(size_t bytes) {
+    const size_t pending = ptyBuffer.used() - ptyOutputOffset;
+    STD_ASSERT(bytes <= pending);
+    ptyOutputOffset += bytes;
+    if (ptyOutputOffset == ptyBuffer.used()) {
+        ptyBuffer.reset();
+        ptyOutputOffset = 0;
+    }
+}
+
+const TerminalUpdate* VtermImpl::output() {
     if (!outputPending) {
-        return result;
+        return nullptr;
     }
 
     Screen* const frame = cf;
@@ -1820,21 +1835,11 @@ VtermOutput VtermImpl::output() {
 
     updateScreen = frame;
     fillTerminalUpdate(terminalUpdate, *frame, outputSpans.data(), output.spanCount);
-    result.terminal = &terminalUpdate;
-    return result;
+    return &terminalUpdate;
 }
 
-void VtermImpl::consume(const VtermConsume& consumed) {
-    const size_t pending = ptyOutput.used() - ptyOutputOffset;
-    STD_ASSERT(consumed.ptyBytes <= pending);
-    ptyOutputOffset += consumed.ptyBytes;
-    if (ptyOutputOffset == ptyOutput.used()) {
-        ptyOutput.reset();
-        ptyOutputOffset = 0;
-    }
-    if (!consumed.terminal) {
-        return;
-    }
+void VtermImpl::consume() {
+    STD_ASSERT(updateScreen != nullptr);
     updateScreen->resetDamage();
     updateScreen = nullptr;
     outputPending = false;
@@ -6928,11 +6933,11 @@ void VtermImpl::writeProtocolResponse(StringView prefix, StringView payload, Str
 }
 
 void VtermImpl::compactPtyOutput() {
-    const size_t pending = ptyOutput.used() - ptyOutputOffset;
+    const size_t pending = ptyBuffer.used() - ptyOutputOffset;
     if (pending != 0) {
-        memmove(ptyOutput.mutData(), (const u8*)(ptyOutput.data()) + ptyOutputOffset, pending);
+        memmove(ptyBuffer.mutData(), (const u8*)(ptyBuffer.data()) + ptyOutputOffset, pending);
     }
-    ptyOutput.seekAbsolute(pending);
+    ptyBuffer.seekAbsolute(pending);
     ptyOutputOffset = 0;
 }
 
@@ -6950,21 +6955,21 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
         const std::string localEcho = getLocalEcho(ucstr, ucstr + len);
         processInput((const u8*)localEcho.data(), (int)localEcho.size());
     }
-    if (ptyOutputOffset == ptyOutput.used()) {
-        ptyOutput.reset();
+    if (ptyOutputOffset == ptyBuffer.used()) {
+        ptyBuffer.reset();
         ptyOutputOffset = 0;
     }
-    const size_t pending = ptyOutput.used() - ptyOutputOffset;
+    const size_t pending = ptyBuffer.used() - ptyOutputOffset;
     if (!userInput && len != 0 && (pending > ptyProtocolHighWater || len > ptyProtocolHighWater - pending)) {
         ++droppedPtyResponses;
         return 0;
     }
-    if (!userInput && ptyOutputOffset != 0 && ptyOutput.used() + len > ptyProtocolHighWater) {
+    if (!userInput && ptyOutputOffset != 0 && ptyBuffer.used() + len > ptyProtocolHighWater) {
         compactPtyOutput();
-    } else if (userInput && ptyOutputOffset != 0 && ptyOutput.used() + len > ptyOutput.capacity()) {
+    } else if (userInput && ptyOutputOffset != 0 && ptyBuffer.used() + len > ptyBuffer.capacity()) {
         compactPtyOutput();
     }
-    ptyOutput.append(ucstr, len);
+    ptyBuffer.append(ucstr, len);
     return len;
 }
 
