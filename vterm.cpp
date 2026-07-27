@@ -398,7 +398,6 @@ namespace {
         void scrollRegionUp(u16 count);
         void scrollRegionDown(u16 count);
 
-        void esc_DCS(unsigned char fin);
         bool esc_IND();
         void esc_RI();
         void esc_NEL();
@@ -744,8 +743,9 @@ namespace {
         bool oscFieldPresent = false;
         bool oscFieldFirstValid = false;
         bool oscFieldHaveFirst = false;
-        unsigned char scsDst;
-        unsigned char scsMod;
+        u8 scsIndex = 0;
+        u8 scsMod = 0;
+        bool scs96 = false;
 
         VtModifier modifiers = VtModifier::none;
 
@@ -3325,113 +3325,6 @@ template <bool traced>
 void VtermImpl<traced>::hideCursor() {
     using CS = TerminalCursor::Style;
     cf->setCursorStyle(CS::hidden);
-}
-
-template <bool traced>
-void VtermImpl<traced>::esc_DCS(unsigned char fin) {
-    u8 ix = 0;
-    bool cs96 = false;
-    switch (scsDst) {
-        case '(':
-            ix = 0;
-            break;
-        case ')':
-            ix = 1;
-            break;
-        case '*':
-            ix = 2;
-            break;
-        case '+':
-            ix = 3;
-            break;
-        case '-':
-            ix = 1;
-            cs96 = true;
-            break;
-        case '.':
-            ix = 2;
-            cs96 = true;
-            break;
-        case '/':
-            ix = 3;
-            cs96 = true;
-            break;
-    }
-
-    Charset cs = Charset::UTF8;
-    switch (fin) {
-        case 'A':
-            cs = cs96 ? Charset::IsoLatin1 : Charset::IsoUK;
-            break;
-        case 'B':
-            cs = Charset::UTF8;
-            break;
-        case '0':
-            cs = Charset::DecSpec;
-            break;
-        case '5':
-            if (scsMod == '%') {
-                cs = Charset::DecSuppl;
-            } else if (scsMod == '&') {
-                cs = Charset::NrcRussian;
-            } else {
-                cs = Charset::NrcFinnish;
-            }
-            break;
-        case '<':
-            cs = Charset::DecUserPref;
-            break;
-        case '>':
-            cs = scsMod == '"' ? Charset::NrcGreek : Charset::DecTechn;
-            break;
-        case '4':
-            cs = Charset::NrcDutch;
-            break;
-        case 'C':
-            cs = Charset::NrcFinnish;
-            break;
-        case 'R':
-        case 'f':
-            cs = Charset::NrcFrench;
-            break;
-        case '9':
-        case 'Q':
-            cs = Charset::NrcFrenchCanadian;
-            break;
-        case 'K':
-            cs = Charset::NrcGerman;
-            break;
-        case 'Y':
-            cs = Charset::NrcItalian;
-            break;
-        case '`':
-        case 'E':
-        case '6':
-            cs = scsMod == '%' ? Charset::NrcPortuguese : Charset::NrcNorwegianDanish;
-            break;
-        case 'Z':
-            cs = Charset::NrcSpanish;
-            break;
-        case '7':
-        case 'H':
-            cs = Charset::NrcSwedish;
-            break;
-        case '=':
-            cs = scsMod == '%' ? Charset::NrcHebrew : Charset::NrcSwiss;
-            break;
-        case '3':
-            if (scsMod == '%') {
-                cs = Charset::NrcSerboCroatian;
-            }
-            break;
-        case '2':
-            if (scsMod == '%') {
-                cs = Charset::NrcTurkish;
-            }
-            break;
-    }
-
-    charsetState.g[ix] = cs;
 }
 
 template <bool traced>

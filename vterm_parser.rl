@@ -504,12 +504,73 @@
         fgoto escapePercent;
     }
 
-    action escapeCharset {
+    action charsetG0 {
         if constexpr (traced) {
             parserTrace->escapeByte(fc);
         }
-        scsDst = fc;
-        scsMod = '\0';
+        scsIndex = 0;
+        scsMod = 0;
+        scs96 = false;
+        fgoto selectCharset;
+    }
+
+    action charsetG1 {
+        if constexpr (traced) {
+            parserTrace->escapeByte(fc);
+        }
+        scsIndex = 1;
+        scsMod = 0;
+        scs96 = false;
+        fgoto selectCharset;
+    }
+
+    action charsetG2 {
+        if constexpr (traced) {
+            parserTrace->escapeByte(fc);
+        }
+        scsIndex = 2;
+        scsMod = 0;
+        scs96 = false;
+        fgoto selectCharset;
+    }
+
+    action charsetG3 {
+        if constexpr (traced) {
+            parserTrace->escapeByte(fc);
+        }
+        scsIndex = 3;
+        scsMod = 0;
+        scs96 = false;
+        fgoto selectCharset;
+    }
+
+    action charsetG1_96 {
+        if constexpr (traced) {
+            parserTrace->escapeByte(fc);
+        }
+        scsIndex = 1;
+        scsMod = 0;
+        scs96 = true;
+        fgoto selectCharset;
+    }
+
+    action charsetG2_96 {
+        if constexpr (traced) {
+            parserTrace->escapeByte(fc);
+        }
+        scsIndex = 2;
+        scsMod = 0;
+        scs96 = true;
+        fgoto selectCharset;
+    }
+
+    action charsetG3_96 {
+        if constexpr (traced) {
+            parserTrace->escapeByte(fc);
+        }
+        scsIndex = 3;
+        scsMod = 0;
+        scs96 = true;
         fgoto selectCharset;
     }
 
@@ -783,7 +844,6 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        esc_DCS(fc);
         fnext main;
         fbreak;
     }
@@ -3924,7 +3984,13 @@
         ' ' @escapeSpace |
         '#' @escapeHash |
         '%' @escapePercent |
-        ('(' | ')' | '*' | '+' | '-' | '.' | '/' | ',' | '$') @escapeCharset |
+        ('(' | ',' | '$') @charsetG0 |
+        ')' @charsetG1 |
+        '*' @charsetG2 |
+        '+' @charsetG3 |
+        '-' @charsetG1_96 |
+        '.' @charsetG2_96 |
+        '/' @charsetG3_96 |
         '[' @beginCsi |
         ']' @beginOsc |
         'X' @beginSos |
@@ -4011,6 +4077,8 @@
         any @specialFinal @vt52Unhandled
     )*;
 
+    charsetKnown = [AB05<>4CRf9QKY`E6Z7H=32];
+
     selectCharset := (
         cancel |
         restartEscape |
@@ -4018,7 +4086,46 @@
         0x7f |
         highToGround |
         0x00..0x2f @charsetModifier |
-        0x30..0x7e @charsetFinal |
+        'A' @{ charsetState.g[scsIndex] = scs96 ? Charset::IsoLatin1 : Charset::IsoUK; } @charsetFinal |
+        'B' @{ charsetState.g[scsIndex] = Charset::UTF8; } @charsetFinal |
+        '0' @{ charsetState.g[scsIndex] = Charset::DecSpec; } @charsetFinal |
+        '5' @{
+            charsetState.g[scsIndex] =
+                scsMod == '%' ? Charset::DecSuppl :
+                scsMod == '&' ? Charset::NrcRussian : Charset::NrcFinnish;
+        } @charsetFinal |
+        '<' @{ charsetState.g[scsIndex] = Charset::DecUserPref; } @charsetFinal |
+        '>' @{
+            charsetState.g[scsIndex] =
+                scsMod == '"' ? Charset::NrcGreek : Charset::DecTechn;
+        } @charsetFinal |
+        '4' @{ charsetState.g[scsIndex] = Charset::NrcDutch; } @charsetFinal |
+        'C' @{ charsetState.g[scsIndex] = Charset::NrcFinnish; } @charsetFinal |
+        ('R' | 'f') @{ charsetState.g[scsIndex] = Charset::NrcFrench; } @charsetFinal |
+        ('9' | 'Q') @{ charsetState.g[scsIndex] = Charset::NrcFrenchCanadian; } @charsetFinal |
+        'K' @{ charsetState.g[scsIndex] = Charset::NrcGerman; } @charsetFinal |
+        'Y' @{ charsetState.g[scsIndex] = Charset::NrcItalian; } @charsetFinal |
+        ('`' | 'E' | '6') @{
+            charsetState.g[scsIndex] =
+                scsMod == '%' ? Charset::NrcPortuguese : Charset::NrcNorwegianDanish;
+        } @charsetFinal |
+        'Z' @{ charsetState.g[scsIndex] = Charset::NrcSpanish; } @charsetFinal |
+        ('7' | 'H') @{ charsetState.g[scsIndex] = Charset::NrcSwedish; } @charsetFinal |
+        '=' @{
+            charsetState.g[scsIndex] =
+                scsMod == '%' ? Charset::NrcHebrew : Charset::NrcSwiss;
+        } @charsetFinal |
+        '3' @{
+            charsetState.g[scsIndex] =
+                scsMod == '%' ? Charset::NrcSerboCroatian : Charset::UTF8;
+        } @charsetFinal |
+        '2' @{
+            charsetState.g[scsIndex] =
+                scsMod == '%' ? Charset::NrcTurkish : Charset::UTF8;
+        } @charsetFinal |
+        (0x30..0x7e - charsetKnown) @{
+            charsetState.g[scsIndex] = Charset::UTF8;
+        } @charsetFinal |
         0x80..0x9f @escapeFinal
     )*;
 
