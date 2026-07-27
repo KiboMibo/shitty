@@ -561,7 +561,8 @@ namespace {
         void dcs_DECRQSS_DECSCA();
         void dcs_DECRQSS_UNKNOWN();
         void writeDecrqssResponse(StringView);
-        void dcs_XTGETTCAP();
+        void dcs_XTGETTCAP(StringView encoded, StringView value);
+        void dcs_XTGETTCAP_COMMIT();
         void dcs_DECUDK();
 
         void reportInBandResize();
@@ -676,18 +677,6 @@ namespace {
         bool argBufOverflowed = false;
         size_t ragelStringLimit = 0;
         u8 stringUtf8Remaining = 0;
-        enum class DcsCapability : u8 {
-            Unknown,
-            TerminalName,
-            Colors,
-            Rgb
-        };
-
-        struct DcsCapabilityRequest {
-            size_t encodedOffset;
-            size_t encodedLength;
-            DcsCapability capability;
-        };
 
         struct DcsUdkDefinition {
             size_t valueOffset;
@@ -697,13 +686,13 @@ namespace {
 
         u8 dcsIntermediates[4] = {};
         u8 dcsIntermediateCount = 0;
-        Vector<DcsCapabilityRequest> dcsCapabilityRequests;
         size_t dcsCapabilityOffset = 0;
         size_t dcsCapabilityDecodedLength = 0;
         u8 dcsCapabilityCandidates = 0;
         u8 dcsCapabilityHighNibble = 0;
         bool dcsCapabilityHasHighNibble = false;
         bool dcsCapabilityValid = false;
+        bool dcsCapabilityComplete = false;
         Vector<DcsUdkDefinition> dcsUdkDefinitions;
         Buffer dcsDecoded;
         size_t dcsUdkValueOffset = 0;
@@ -5521,38 +5510,26 @@ void VtermImpl<traced>::dcs_DECRQSS_UNKNOWN() {
 }
 
 template <bool traced>
-void VtermImpl<traced>::dcs_XTGETTCAP() {
-    for (const DcsCapabilityRequest& request : dcsCapabilityRequests) {
-        StringView value;
-        switch (request.capability) {
-            case DcsCapability::TerminalName:
-                value = "xterm-256color";
-                break;
-            case DcsCapability::Colors:
-                value = "256";
-                break;
-            case DcsCapability::Rgb:
-                value = "8";
-                break;
-            case DcsCapability::Unknown:
-                break;
+void VtermImpl<traced>::dcs_XTGETTCAP(StringView encoded, StringView value) {
+    StringBuilder replies(static_cast<Buffer&&>(dcsDecoded));
+    replies << (send8BitControls ? StringView(u8"\x90") : StringView(u8"\x1bP"));
+    replies << (value.empty() ? StringView(u8"0+r") : StringView(u8"1+r"));
+    replies << encoded;
+    if (!value.empty()) {
+        static constexpr u8 hex[] = u8"0123456789abcdef";
+        replies << StringView(u8"=");
+        for (u8 ch : value) {
+            const u8 pair[] = {hex[ch >> 4], hex[ch & 15]};
+            replies.append(pair, sizeof(pair));
         }
-
-        const auto* encodedData = (const u8*)(argBuf.data()) + request.encodedOffset;
-        const StringView encoded(encodedData, request.encodedLength);
-        StringBuilder reply;
-        reply << (request.capability == DcsCapability::Unknown ? StringView(u8"0+r") : StringView(u8"1+r"));
-        reply.append(encoded.data(), encoded.length());
-        if (request.capability != DcsCapability::Unknown) {
-            static constexpr u8 hex[] = u8"0123456789abcdef";
-            reply << StringView(u8"=");
-            for (u8 ch : value) {
-                const u8 pair[] = {hex[ch >> 4], hex[ch & 15]};
-                reply.append(pair, sizeof(pair));
-            }
-        }
-        writeDcsResponse(StringView(reply));
     }
+    replies << (send8BitControls ? StringView(u8"\x9c") : StringView(u8"\x1b\\"));
+    dcsDecoded = static_cast<Buffer&&>(replies);
+}
+
+template <bool traced>
+void VtermImpl<traced>::dcs_XTGETTCAP_COMMIT() {
+    writePty((const u8*)(dcsDecoded.data()), dcsDecoded.used(), false);
 }
 
 template <bool traced>
@@ -8527,12 +8504,12 @@ void VtermImpl<traced>::ragelBeginDcs() {
     inputPresent[0] = false;
     nInputOps = 1;
     dcsIntermediateCount = 0;
-    dcsCapabilityRequests.clear();
     dcsCapabilityOffset = 0;
     dcsCapabilityDecodedLength = 0;
     dcsCapabilityCandidates = 0;
     dcsCapabilityHasHighNibble = false;
     dcsCapabilityValid = false;
+    dcsCapabilityComplete = false;
     dcsUdkDefinitions.clear();
     dcsDecoded.reset();
     dcsUdkValueOffset = 0;

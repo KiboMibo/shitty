@@ -290,6 +290,9 @@ class ParserStateMachineTest(unittest.TestCase):
         self.assert_chunkings_equal(
             b"\x1bP$qz\x1bQ\x18\x1bP$q\"p\x1b\\X"
         )
+        self.assert_chunkings_equal(
+            b"\x1bP+q544e;436f;524742\x1b\\X"
+        )
 
     def test_osc_escape_and_bel_are_chunk_independent(self):
         self.assert_chunkings_equal(

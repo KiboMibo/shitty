@@ -69,6 +69,20 @@ class DcsMatrixTest(unittest.TestCase):
                 b"\x901+r436f=323536\x9c\x900+r00\x9c",
             )
 
+    def test_xtgettcap_publishes_queued_replies_only_after_terminator(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1bP+q544e;")
+            self.assertEqual(terminal.read_input(), b"")
+
+            terminal.write(b"\x18")
+            self.assertEqual(terminal.read_input(), b"")
+
+            terminal.write(b"\x1bP+q544e\x1b\\")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1bP1+r544e=787465726d2d323536636f6c6f72\x1b\\",
+            )
+
     def test_decudk_programs_every_defined_function_key(self):
         codes = (17, 18, 19, 20, 21, 23, 24, 25, 26, 28, 29, 31, 32, 33, 34)
         keys = tuple(f"F{number}" for number in range(6, 21))

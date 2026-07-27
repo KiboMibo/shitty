@@ -1091,6 +1091,7 @@
             dcsCapabilityCandidates = 0x0f;
             dcsCapabilityHasHighNibble = false;
             dcsCapabilityValid = true;
+            dcsCapabilityComplete = false;
             fgoto dcsXtgettcap;
         } else if (dcsIntermediateCount == 0 && fc == '|') {
             dcsUdkValueOffset = dcsDecoded.used();
@@ -1316,59 +1317,58 @@
         dcsCapabilityValid = false;
     }
 
-    action dcsXtSeparator {
-        DcsCapability capability = DcsCapability::Unknown;
-        if (dcsCapabilityValid && !dcsCapabilityHasHighNibble) {
-            if ((dcsCapabilityCandidates & 0x01) && dcsCapabilityDecodedLength == 2) {
-                capability = DcsCapability::TerminalName;
-            } else if (((dcsCapabilityCandidates & 0x02) && dcsCapabilityDecodedLength == 2) ||
-                       ((dcsCapabilityCandidates & 0x04) && dcsCapabilityDecodedLength == 6)) {
-                capability = DcsCapability::Colors;
-            } else if ((dcsCapabilityCandidates & 0x08) && dcsCapabilityDecodedLength == 3) {
-                capability = DcsCapability::Rgb;
+    action dcsXtField {
+        if (dcsCapabilityComplete && !argBufOverflowed) {
+            const auto* data = (const u8*)(argBuf.data());
+            const StringView encoded(
+                data + dcsCapabilityOffset,
+                argBuf.used() - dcsCapabilityOffset
+            );
+            if (dcsCapabilityValid && !dcsCapabilityHasHighNibble &&
+                (dcsCapabilityCandidates & 0x01) &&
+                dcsCapabilityDecodedLength == 2) {
+                dcs_XTGETTCAP(encoded, StringView(u8"xterm-256color"));
+            } else if (dcsCapabilityValid && !dcsCapabilityHasHighNibble &&
+                       (((dcsCapabilityCandidates & 0x02) &&
+                         dcsCapabilityDecodedLength == 2) ||
+                        ((dcsCapabilityCandidates & 0x04) &&
+                         dcsCapabilityDecodedLength == 6))) {
+                dcs_XTGETTCAP(encoded, StringView(u8"256"));
+            } else if (dcsCapabilityValid && !dcsCapabilityHasHighNibble &&
+                       (dcsCapabilityCandidates & 0x08) &&
+                       dcsCapabilityDecodedLength == 3) {
+                dcs_XTGETTCAP(encoded, StringView(u8"8"));
+            } else {
+                dcs_XTGETTCAP(encoded, {});
             }
         }
-        if (!argBufOverflowed) {
-            dcsCapabilityRequests.pushBack({
-                dcsCapabilityOffset,
-                argBuf.used() - dcsCapabilityOffset,
-                capability,
-            });
-        }
+    }
+
+    action dcsXtSeparator {
         ragelAppendString(fc, maxDcsBytes);
         dcsCapabilityOffset = argBuf.used();
         dcsCapabilityDecodedLength = 0;
         dcsCapabilityCandidates = 0x0f;
         dcsCapabilityHasHighNibble = false;
         dcsCapabilityValid = true;
+        dcsCapabilityComplete = false;
     }
 
     action dcsXtSt {
+        dcsCapabilityComplete = false;
         if (stringUtf8Continuation(fc)) {
             ragelAppendString(fc, maxDcsBytes);
             dcsCapabilityValid = false;
         } else {
-            DcsCapability capability = DcsCapability::Unknown;
-            if (dcsCapabilityValid && !dcsCapabilityHasHighNibble) {
-                if ((dcsCapabilityCandidates & 0x01) && dcsCapabilityDecodedLength == 2) {
-                    capability = DcsCapability::TerminalName;
-                } else if (((dcsCapabilityCandidates & 0x02) && dcsCapabilityDecodedLength == 2) ||
-                           ((dcsCapabilityCandidates & 0x04) && dcsCapabilityDecodedLength == 6)) {
-                    capability = DcsCapability::Colors;
-                } else if ((dcsCapabilityCandidates & 0x08) && dcsCapabilityDecodedLength == 3) {
-                    capability = DcsCapability::Rgb;
-                }
-            }
-            if (!argBufOverflowed) {
-                dcsCapabilityRequests.pushBack({
-                    dcsCapabilityOffset,
-                    argBuf.used() - dcsCapabilityOffset,
-                    capability,
-                });
-            }
             ragelFinishDcs();
+            dcsCapabilityComplete = true;
+        }
+    }
+
+    action dcsXtDone {
+        if (dcsCapabilityComplete) {
             if (!argBufOverflowed && compatLevel >= CompatibilityLevel::VT200) {
-                dcs_XTGETTCAP();
+                dcs_XTGETTCAP_COMMIT();
             }
             fnext main;
             fbreak;
@@ -3935,12 +3935,12 @@
     dcsXtgettcap := (
         cancel |
         stringC1 |
-        0x9c @dcsXtSt |
+        0x9c @dcsXtSt @dcsXtField @dcsXtDone |
         0x1b @dcsXtEscape |
         0x7f |
         sequenceC0 |
         xdigit @dcsXtHex |
-        ';' @dcsXtSeparator |
+        ';' @{ dcsCapabilityComplete = true; } @dcsXtField @dcsXtSeparator |
         (0x20..0x7e - (xdigit | ';')) @dcsXtInvalid |
         (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsXtInvalid
     )*;
@@ -3948,8 +3948,8 @@
     dcsXtEscape := (
         cancel |
         stringC1 |
-        0x9c @dcsXtSt |
-        '\\' @dcsXtSt |
+        0x9c @dcsXtSt @dcsXtField @dcsXtDone |
+        '\\' @dcsXtSt @dcsXtField @dcsXtDone |
         0x1b @dcsXtEscapedEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
                 0x9a..0x9f)) @dcsXtEscapedData
