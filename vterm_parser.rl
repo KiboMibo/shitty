@@ -827,6 +827,275 @@
         traceCsi(fc);
     }
 
+    action csiSgr {
+        const auto parseColor = [&](size_t& k, CellColor& color, int* palette) {
+            if (k + 1 >= nInputOps) {
+                return false;
+            }
+            const bool colon = inputSeparators[k + 1] == ':';
+            const u32 mode = inputOps[++k];
+            if (colon) {
+                const size_t first = k + 1;
+                size_t end = k;
+                while (end + 1 < nInputOps && inputSeparators[end + 1] == ':') {
+                    ++end;
+                }
+                k = end;
+
+                if (mode == 5) {
+                    if (end - first + 1 != 1 || inputOps[first] > 255) {
+                        return false;
+                    }
+                    color = CellColor::indexed(inputOps[first]);
+                    if (palette) {
+                        *palette = inputOps[first];
+                    }
+                    return true;
+                }
+                // Xterm accepts both 2:Pr:Pg:Pb and ISO 8613-6's
+                // 2:Pi:Pr:Pg:Pb form.  Pi and any later optional fields are
+                // ignored.
+                const size_t count = end - first + 1;
+                const size_t rgbFirst = first + (count >= 4);
+                if (mode != 2 || count < 3 ||
+                    (count == 3 && !inputPresent[first]) ||
+                    !inputPresent[rgbFirst] ||
+                    !inputPresent[rgbFirst + 1] ||
+                    !inputPresent[rgbFirst + 2] ||
+                    inputOps[rgbFirst] > 255 ||
+                    inputOps[rgbFirst + 1] > 255 ||
+                    inputOps[rgbFirst + 2] > 255) {
+                    return false;
+                }
+                color = CellColor::direct({
+                    (u8)(inputOps[rgbFirst]),
+                    (u8)(inputOps[rgbFirst + 1]),
+                    (u8)(inputOps[rgbFirst + 2]),
+                });
+                if (palette) {
+                    *palette = -1;
+                }
+                return true;
+            }
+
+            if (mode == 5) {
+                if (k + 1 >= nInputOps) {
+                    return false;
+                }
+                const unsigned index = inputOps[++k];
+                if (index > 255) {
+                    return false;
+                }
+                color = CellColor::indexed(index);
+                if (palette) {
+                    *palette = index;
+                }
+                return true;
+            }
+            if (mode != 2) {
+                return false;
+            }
+
+            const size_t first = k + 1;
+            const size_t available = nInputOps - first;
+            k += min<size_t>(available, 3);
+            if (available < 3 ||
+                inputOps[first] > 255 ||
+                inputOps[first + 1] > 255 ||
+                inputOps[first + 2] > 255) {
+                return false;
+            }
+            color = CellColor::direct({
+                (u8)(inputOps[first]),
+                (u8)(inputOps[first + 1]),
+                (u8)(inputOps[first + 2]),
+            });
+            k = first + 2;
+            if (palette) {
+                *palette = -1;
+            }
+            return true;
+        };
+
+        for (size_t k = 0; k < nInputOps; ++k) {
+            const u32 attr = inputOps[k];
+
+            switch (attr) {
+                case 0:
+                    resetAttrs();
+                    break;
+                case 1:
+                    attrs.bold = 1;
+                    setFgFromPalIx();
+                    break;
+                case 2:
+                    attrs.faint = 1;
+                    break;
+                case 3:
+                    attrs.italic = 1;
+                    break;
+                case 4:
+                    if (k + 1 < nInputOps && inputSeparators[k + 1] == ':') {
+                        const u32 style = inputOps[++k];
+                        if (style <= 5) {
+                            attrs.underline_style = style;
+                        }
+                    } else {
+                        attrs.underline_style = 1;
+                    }
+                    break;
+                case 5:
+                case 6:
+                    attrs.blink = 1;
+                    break;
+                case 7:
+                    if (!reverseVideo) {
+                        reverseVideo = true;
+                        attrs.inverse = 1;
+                    }
+                    break;
+                case 8:
+                    attrs.conceal = 1;
+                    break;
+                case 9:
+                    attrs.strike = 1;
+                    break;
+                case 10:
+                case 11:
+                case 12:
+                case 13:
+                case 14:
+                case 15:
+                case 16:
+                case 17:
+                case 18:
+                case 19:
+                    break;
+                case 21:
+                    attrs.underline_style = 2;
+                    break;
+                case 22:
+                    attrs.bold = 0;
+                    attrs.faint = 0;
+                    setFgFromPalIx();
+                    break;
+                case 23:
+                    attrs.italic = 0;
+                    break;
+                case 24:
+                    attrs.underline_style = 0;
+                    break;
+                case 25:
+                    attrs.blink = 0;
+                    break;
+                case 27:
+                    if (reverseVideo) {
+                        reverseVideo = false;
+                        attrs.inverse = 0;
+                    }
+                    break;
+                case 28:
+                    attrs.conceal = 0;
+                    break;
+                case 29:
+                    attrs.strike = 0;
+                    break;
+                case 30:
+                case 31:
+                case 32:
+                case 33:
+                case 34:
+                case 35:
+                case 36:
+                case 37:
+                    fgPalIx = attr - 30;
+                    setFgFromPalIx();
+                    break;
+                case 38: {
+                    CellColor color = attrForeground();
+                    if (parseColor(k, color, &fgPalIx)) {
+                        setAttrForeground(color);
+                    }
+                    if (underlineColorDefault) {
+                        setAttrUnderlineColor(attrForeground());
+                    }
+                } break;
+                case 39:
+                    fgPalIx = defaultFgPalIx;
+                    setFgFromPalIx();
+                    break;
+                case 40:
+                case 41:
+                case 42:
+                case 43:
+                case 44:
+                case 45:
+                case 46:
+                case 47:
+                    bgPalIx = attr - 40;
+                    setBgFromPalIx();
+                    break;
+                case 48: {
+                    CellColor color = attrBackground();
+                    if (parseColor(k, color, &bgPalIx)) {
+                        setAttrBackground(color);
+                    }
+                } break;
+                case 49:
+                    bgPalIx = defaultBgPalIx;
+                    setBgFromPalIx();
+                    break;
+                case 53:
+                    attrs.overline = 1;
+                    break;
+                case 55:
+                    attrs.overline = 0;
+                    break;
+                case 58: {
+                    underlinePalIx = -1;
+                    CellColor color = attrUnderlineColor();
+                    if (parseColor(k, color, &underlinePalIx)) {
+                        setAttrUnderlineColor(color);
+                        underlineColorDefault = false;
+                    }
+                } break;
+                case 59:
+                    underlineColorDefault = true;
+                    setAttrUnderlineColor(attrForeground());
+                    break;
+                case 90:
+                case 91:
+                case 92:
+                case 93:
+                case 94:
+                case 95:
+                case 96:
+                case 97:
+                    fgPalIx = attr - 82;
+                    setFgFromPalIx();
+                    break;
+                case 100:
+                case 101:
+                case 102:
+                case 103:
+                case 104:
+                case 105:
+                case 106:
+                case 107:
+                    bgPalIx = attr - 92;
+                    setBgFromPalIx();
+                    break;
+                default:
+                    break;
+            }
+        }
+        if (underlineColorDefault) {
+            setAttrUnderlineColor(
+                reverseVideo ? attrBackground() : attrForeground()
+            );
+        }
+    }
+
     action csiDone {
         if (printerControllerMode) {
             fnext printer;
@@ -3248,7 +3517,7 @@
         'j' @csiTrace @{ csi_CUB(); } |
         'k' @csiTrace @{ csi_CUU(); } |
         'l' @csiTrace @{ csi_RM(); } |
-        'm' @csiTrace @{ csi_SGR(); } |
+        'm' @csiTrace @csiSgr |
         'n' @csiTrace @{ csi_DSR(); } |
         'q' @csiTrace @{ csi_DECLL(); } |
         'r' @csiTrace @{ csi_STBM(); } |
