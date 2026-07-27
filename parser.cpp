@@ -1749,43 +1749,43 @@ void ParserImpl<traced>::feed(StringView bytes) {
                 p += zeroPrefix(p, pe - p);
                 continue;
             }
-            if (parser.groundUtf8Remaining == 0 && current >= 0x20 && current < 0x7f && iface.parserAsciiBulkEligible()) {
-                const size_t lines = iface.parserPlaceAsciiLines(StringView(p, pe - p));
-                if (lines != 0) {
+            if (parser.groundUtf8Remaining == 0 && current >= 0x20 && current < 0x7f) {
+                const size_t consumed = iface.parserPlaceAscii(StringView(p, pe - p));
+                if (consumed != 0) {
                     if constexpr (traced) {
                         const u8* trace = p;
-                        const u8* const traceEnd = p + lines;
+                        const u8* const traceEnd = p + consumed;
                         while (trace != traceEnd) {
                             const u8* carriageReturn = (const u8*)memchr(trace, '\r', traceEnd - trace);
+                            if (carriageReturn == nullptr) {
+                                parserTrace->text(trace, traceEnd - trace);
+                                break;
+                            }
                             parserTrace->text(trace, carriageReturn - trace);
                             parserTrace->control('\r');
-                            parserTrace->control('\n');
-                            trace = carriageReturn + 2;
+                            trace = carriageReturn + 1;
+                            if (trace != traceEnd && *trace == '\n') {
+                                parserTrace->control('\n');
+                                ++trace;
+                            }
                         }
                     }
-                    p += lines;
+                    p += consumed;
+                    if (p + 1 < pe && p[0] == '\r' && p[1] == '\n') {
+                        if constexpr (traced) {
+                            parserTrace->control('\r');
+                            parserTrace->control('\n');
+                        }
+                        iface.parserResetGraphemeInput();
+                        iface.inp_CR();
+                        if (iface.parserAutoNewlineMode()) {
+                            iface.inp_CR();
+                        }
+                        iface.esc_IND();
+                        p += 2;
+                    }
                     continue;
                 }
-                const size_t count = printableAsciiPrefix(p, pe - p);
-                if constexpr (traced) {
-                    parserTrace->text(p, count);
-                }
-                iface.parserPlaceAsciiRun(StringView(p, count));
-                p += count;
-                if (p + 1 < pe && p[0] == '\r' && p[1] == '\n') {
-                    if constexpr (traced) {
-                        parserTrace->control('\r');
-                        parserTrace->control('\n');
-                    }
-                    iface.parserResetGraphemeInput();
-                    iface.inp_CR();
-                    if (iface.parserAutoNewlineMode()) {
-                        iface.inp_CR();
-                    }
-                    iface.esc_IND();
-                    p += 2;
-                }
-                continue;
             }
             if (parser.groundUtf8Remaining == 0 && current >= 0xa0 && iface.parserUtf8BulkEligible()) {
                 const size_t consumed = iface.parserPlaceUtf8Run(StringView(p, pe - p));

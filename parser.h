@@ -135,10 +135,8 @@ struct ParserIface {
     virtual bool parserGroundUtf8Enabled() const = 0;
     virtual void parserGroundHigh(u8 byte) = 0;
     virtual void parserGroundAscii(u8 byte) = 0;
-    virtual bool parserAsciiBulkEligible() const = 0;
     virtual bool parserUtf8BulkEligible() const = 0;
-    virtual size_t parserPlaceAsciiLines(stl::StringView bytes) = 0;
-    virtual void parserPlaceAsciiRun(stl::StringView bytes) = 0;
+    virtual size_t parserPlaceAscii(stl::StringView bytes) = 0;
     virtual size_t parserPlaceUtf8Run(stl::StringView bytes) = 0;
 
     virtual void unhandledInput(unsigned char byte) = 0;

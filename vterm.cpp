@@ -258,10 +258,8 @@ namespace {
         bool parserGroundUtf8Enabled() const override;
         void parserGroundHigh(u8 byte) override;
         void parserGroundAscii(u8 byte) override;
-        bool parserAsciiBulkEligible() const override;
         bool parserUtf8BulkEligible() const override;
-        size_t parserPlaceAsciiLines(StringView bytes) override;
-        void parserPlaceAsciiRun(StringView bytes) override;
+        size_t parserPlaceAscii(StringView bytes) override;
         size_t parserPlaceUtf8Run(StringView bytes) override;
 
         void resizeGrid();
@@ -7218,6 +7216,10 @@ bool VtermImpl::parserHighlightMouseTracking() const {
     return mouseTrk.mode == MouseTrackingMode::VT200_Highlight;
 }
 
+namespace {
+    [[gnu::always_inline]] size_t printableAsciiPrefix(const u8* input, size_t size);
+}
+
 bool VtermImpl::windowOperationsAllowed() const {
     return opts.allowWindowOps;
 }
@@ -7252,24 +7254,25 @@ void VtermImpl::parserGroundAscii(u8 byte) {
     inputGraphicChar(byte);
 }
 
-bool VtermImpl::parserAsciiBulkEligible() const {
-    return !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8;
-}
-
 bool VtermImpl::parserUtf8BulkEligible() const {
     return !insertMode && !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8 && charsetState.g[charsetState.gr] == Charset::UTF8;
 }
 
-size_t VtermImpl::parserPlaceAsciiLines(StringView bytes) {
-    return placeAsciiLines(bytes.data(), bytes.length());
-}
-
-void VtermImpl::parserPlaceAsciiRun(StringView bytes) {
-    if (insertMode) {
-        placeAsciiRun<true>(bytes.data(), bytes.length());
-    } else {
-        placeAsciiRun<false>(bytes.data(), bytes.length());
+size_t VtermImpl::parserPlaceAscii(StringView bytes) {
+    if (utf8dec.expectsContinuation() || charsetState.ss != 0 || charsetState.g[charsetState.gl] != Charset::UTF8) {
+        return 0;
     }
+    const size_t lines = placeAsciiLines(bytes.data(), bytes.length());
+    if (lines != 0) {
+        return lines;
+    }
+    const size_t count = printableAsciiPrefix(bytes.data(), bytes.length());
+    if (insertMode) {
+        placeAsciiRun<true>(bytes.data(), count);
+    } else {
+        placeAsciiRun<false>(bytes.data(), count);
+    }
+    return count;
 }
 
 size_t VtermImpl::parserPlaceUtf8Run(StringView bytes) {

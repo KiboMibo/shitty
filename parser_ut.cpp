@@ -178,25 +178,15 @@ namespace {
             record("parserGroundAscii", byte);
         }
 
-        bool parserAsciiBulkEligible() const override {
-            record("parserAsciiBulkEligible", asciiBulkEligible);
-            return asciiBulkEligible;
-        }
-
         bool parserUtf8BulkEligible() const override {
             record("parserUtf8BulkEligible", utf8BulkEligible);
             return utf8BulkEligible;
         }
 
-        size_t parserPlaceAsciiLines(StringView bytes) override {
-            ParserCall& call = record("parserPlaceAsciiLines", asciiLinesConsumed);
+        size_t parserPlaceAscii(StringView bytes) override {
+            ParserCall& call = record("parserPlaceAscii", asciiConsumed);
             saveText(call, 0, bytes);
-            return asciiLinesConsumed;
-        }
-
-        void parserPlaceAsciiRun(StringView bytes) override {
-            ParserCall& call = record("parserPlaceAsciiRun");
-            saveText(call, 0, bytes);
+            return asciiConsumed;
         }
 
         size_t parserPlaceUtf8Run(StringView bytes) override {
@@ -957,9 +947,8 @@ namespace {
         bool allowWindowOperations = true;
         bool handlesPrinter = true;
         bool groundUtf8Enabled = true;
-        bool asciiBulkEligible = false;
         bool utf8BulkEligible = false;
-        size_t asciiLinesConsumed = 0;
+        size_t asciiConsumed = 0;
         size_t utf8RunConsumed = 0;
         bool indexResult = false;
         bool horizontalMargins = false;
@@ -1124,7 +1113,6 @@ STD_TEST_SUITE(ParserCallbacks) {
     }
 
     SHITTY_PARSER_CALLBACK_TEST1(PlaceGroundAsciiByte, parserGroundAscii, u8"x", 'x')
-    SHITTY_PARSER_CALLBACK_TEST1(ReadAsciiBulkEligibility, parserAsciiBulkEligible, u8"x", false)
 
     STD_TEST(ReadUtf8BulkEligibility) {
         ParserFixture fixture;
@@ -1133,23 +1121,13 @@ STD_TEST_SUITE(ParserCallbacks) {
         expectValues(fixture.expect("parserUtf8BulkEligible"), false);
     }
 
-    STD_TEST(PlaceAsciiLines) {
+    STD_TEST(PlaceAscii) {
         ParserFixture fixture;
-        fixture.iface.asciiBulkEligible = true;
-        fixture.iface.asciiLinesConsumed = 3;
+        fixture.iface.asciiConsumed = 3;
         fixture.feed(StringView(u8"a\r\n"));
-        const ParserCall& call = fixture.expect("parserPlaceAsciiLines");
+        const ParserCall& call = fixture.expect("parserPlaceAscii");
         expectValues(call, 3);
         expectText(fixture.iface, call, 0, StringView(u8"a\r\n"));
-    }
-
-    STD_TEST(PlaceAsciiRun) {
-        ParserFixture fixture;
-        fixture.iface.asciiBulkEligible = true;
-        fixture.feed(StringView(u8"abc"));
-        const ParserCall& call = fixture.expect("parserPlaceAsciiRun");
-        expectValues(call);
-        expectText(fixture.iface, call, 0, StringView(u8"abc"));
     }
 
     STD_TEST(PlaceUtf8Run) {
