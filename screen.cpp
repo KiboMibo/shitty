@@ -262,6 +262,8 @@ namespace {
         struct DamageRow {
             Epoch* epochs = nullptr;
             Coord count = 0;
+            Coord begin = 0;
+            Coord end = 0;
         };
 
         struct Damage {
@@ -314,6 +316,7 @@ namespace {
         void moveWrap(u16 row, u16 sourceColumn, u16 destinationColumn);
         void moveInRow(u16 row, u16 destination, u16 source, u16 count);
         void scrollRectangle(u16 top, u16 left, u16 bottom, u16 right, u16 count, const TerminalCell& attrs, bool down);
+        void scrollPartialRectangleUpOne(u16 top, u16 left, u16 bottom, u16 right, const TerminalCell& attrs);
         [[gnu::always_inline]] inline void scrollPartialRectangleRow(RowSlot& destinationObject, const Row* sourceObject, u16 destinationRow, u16 left, u16 right, const TerminalCell& attrs);
         void rotateRowPointersUp(u16 top, u16 bottom, u16 count);
         void rotateRowPointersDown(u16 top, u16 bottom, u16 count);
@@ -1648,11 +1651,15 @@ TerminalCell* ScreenImpl<Coord, Epoch>::prepareSpan(RowSlot& slot, u16 row, u16 
         return mutableRow(slot) + start;
     }
     const u16 end = start + count;
-    const TerminalCell* cells_ = getLogicalRowPtr(row);
+    const TerminalCell* cells_ = slot->cells;
     const bool splitLeft = start > 0 && (cells_[start - 1].dwidth || cells_[start].dwidth_cont);
     const bool splitRight = end < nCols && (cells_[end - 1].dwidth || cells_[end].dwidth_cont);
     if (!splitLeft && !splitRight) {
-        return dirtySpan(row, start, count);
+        damageRow(row, start, end);
+        if (!selection.empty()) {
+            invalidateSelection(Rect(start, row, end, row));
+        }
+        return slot->cells + start;
     }
     return overwriteWideSpan(row, start, count, eraseAttrs);
 }
@@ -1689,7 +1696,8 @@ template <typename Coord, typename Epoch>
 [[gnu::always_inline]] void ScreenImpl<Coord, Epoch>::writePreparedCell(u16 row, u16 column, const TerminalCell& lead, bool wide, const TerminalCell& attrs, const TerminalCell& eraseAttrs) {
     if (!wide) {
         RowSlot& slot = logicalRowSlot(row);
-        if (slot == nullptr || !slot->metadata.wide) {
+        const TerminalCell* const previous = rowData(slot);
+        if (previous == nullptr || (!previous[column].dwidth && !previous[column].dwidth_cont)) {
             damageCell(row, column);
             if (!selection.empty()) {
                 invalidateSelection(Rect(column, row));
@@ -2747,12 +2755,43 @@ void ScreenImpl<Coord, Epoch>::copyRow(u16 dstY, u16 srcY, u16 startX, u16 count
 
 template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::scrollRectangleUp(u16 top, u16 left, u16 bottom, u16 right, u16 count, const TerminalCell& attrs) {
+    if (count == 1 && top < bottom && left < right && (left != 0 || right != nCols)) {
+        scrollPartialRectangleUpOne(top, left, bottom, right, attrs);
+        return;
+    }
     scrollRectangle(top, left, bottom, right, count, attrs, false);
 }
 
 template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::scrollRectangleDown(u16 top, u16 left, u16 bottom, u16 right, u16 count, const TerminalCell& attrs) {
     scrollRectangle(top, left, bottom, right, count, attrs, true);
+}
+
+template <typename Coord, typename Epoch>
+void ScreenImpl<Coord, Epoch>::scrollPartialRectangleUpOne(u16 top, u16 left, u16 bottom, u16 right, const TerminalCell& attrs) {
+    const i64 rowBase = (i64)(rowEnd)-nRows;
+    for (u16 destination = top; destination + 1 < bottom; ++destination) {
+        RowSlot& destinationObject = rowRing[wrapRow(rowBase + destination)];
+        const Row* const sourceObject = rowRing[wrapRow(rowBase + destination + 1)];
+        scrollPartialRectangleRow(destinationObject, sourceObject != nullptr ? sourceObject : zeroRow, destination, left, right, attrs);
+    }
+
+    const u16 row = bottom - 1;
+    RowSlot& object = rowRing[wrapRow(rowBase + row)];
+    if (object != nullptr && object->metadata.wide) {
+        clearWideBoundary(object, row, left, attrs);
+        clearWideBoundary(object, row, right, attrs);
+    }
+    const TerminalCell empty{};
+    if (object != nullptr || attrs != empty) {
+        TerminalCell* const cells = mutableRow(object);
+        eraseRange(cells + left, cells + right, attrs);
+        object->metadata.protection |= attrs.protected_char;
+    }
+    damageRectangle(top, left, bottom, right);
+    if (!selection.empty()) {
+        invalidateSelection(Rect(left, top, right, bottom));
+    }
 }
 
 template <typename Coord, typename Epoch>
@@ -2768,16 +2807,54 @@ template <typename Coord, typename Epoch>
         destinationObject->metadata.protection |= sourceObject->metadata.protection;
         return;
     }
-    clearWideBoundary(destinationObject, destinationRow, left, attrs);
-    clearWideBoundary(destinationObject, destinationRow, right, attrs);
     TerminalCell* const destination = mutableRow(destinationObject);
+    const bool eraseOutsideLeft = left != 0 && destination[left - 1].dwidth;
+    const bool eraseInsideLeft = source[0].dwidth_cont;
+    const bool eraseInsideRight = source[width - 1].dwidth;
+    const bool eraseOutsideRight = right != nCols && destination[right - 1].dwidth;
+    if (!eraseOutsideLeft && !eraseInsideLeft && !eraseInsideRight && !eraseOutsideRight) {
+        copyCells(destination + left, source, width);
+        destinationObject->metadata.protection |= sourceObject->metadata.protection;
+        if (sourceObject->metadata.wide) {
+            destinationObject->metadata.wide = true;
+        }
+        return;
+    }
     copyCells(destination + left, source, width);
+
+    bool erasedBoundary = false;
+    if (eraseOutsideLeft) {
+        destination[left - 1] = attrs;
+        damageCell(destinationRow, left - 1);
+        if (!selection.empty()) {
+            invalidateSelection(Rect(left - 1, destinationRow));
+        }
+        erasedBoundary = true;
+    }
+    if (eraseInsideLeft) {
+        destination[left] = attrs;
+        erasedBoundary = true;
+    }
+    if (eraseInsideRight) {
+        destination[right - 1] = attrs;
+        erasedBoundary = true;
+    }
+    if (eraseOutsideRight) {
+        destination[right] = attrs;
+        damageCell(destinationRow, right);
+        if (!selection.empty()) {
+            invalidateSelection(Rect(right, destinationRow));
+        }
+        erasedBoundary = true;
+    }
+
     destinationObject->metadata.protection |= sourceObject->metadata.protection;
+    if (erasedBoundary) {
+        destinationObject->metadata.protection |= attrs.protected_char;
+    }
     if (sourceObject->metadata.wide) {
         destinationObject->metadata.wide = true;
     }
-    repairWideBoundary(destinationObject, destinationRow, left, attrs);
-    repairWideBoundary(destinationObject, destinationRow, right, attrs);
 }
 
 template <typename Coord, typename Epoch>
@@ -2939,6 +3016,31 @@ void ScreenImpl<Coord, Epoch>::rotateRowPointersUp(u16 top, u16 bottom, u16 coun
     const u16 length = bottom - top;
     count %= length;
     if (count == 0) {
+        return;
+    }
+
+    const u32 mask = rowCapacity - 1;
+    const u32 firstIndex = wrapRow((i64)(rowEnd)-nRows + top);
+    if (count == 1) {
+        RowSlot first = rowRing[firstIndex];
+        u32 destination = firstIndex;
+        for (u16 offset = 1; offset < length; ++offset) {
+            const u32 source = (destination + 1) & mask;
+            rowRing[destination] = rowRing[source];
+            destination = source;
+        }
+        rowRing[destination] = first;
+        return;
+    }
+    if (count == length - 1) {
+        u32 source = (firstIndex + length - 1) & mask;
+        RowSlot last = rowRing[source];
+        for (u16 offset = length - 1; offset != 0; --offset) {
+            const u32 destination = source;
+            source = (source - 1) & mask;
+            rowRing[destination] = rowRing[source];
+        }
+        rowRing[firstIndex] = last;
         return;
     }
 
@@ -3143,6 +3245,8 @@ void ScreenImpl<Coord, Epoch>::Damage::configure(void* storage, u16 columns, u16
     for (u16 row = 0; row < height; ++row) {
         rows[row].epochs = epochs + (size_t)(row)*width;
         rows[row].count = 0;
+        rows[row].begin = (Coord)(width);
+        rows[row].end = 0;
     }
     epoch = 1;
 }
@@ -3151,6 +3255,8 @@ template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::Damage::reset() {
     for (u16 row = 0; row < height; ++row) {
         rows[row].count = 0;
+        rows[row].begin = (Coord)(width);
+        rows[row].end = 0;
     }
     fullRows = 0;
     ++epoch;
@@ -3166,6 +3272,8 @@ template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::Damage::expose() {
     for (u16 row = 0; row < height; ++row) {
         rows[row].count = (Coord)(width);
+        rows[row].begin = 0;
+        rows[row].end = (Coord)(width);
     }
     fullRows = height;
 }
@@ -3198,6 +3306,8 @@ void ScreenImpl<Coord, Epoch>::Damage::addCell(u16 row, u16 column) {
     }
     cellEpoch = epoch;
     ++damaged.count;
+    damaged.begin = min<Coord>(damaged.begin, (Coord)(column));
+    damaged.end = max<Coord>(damaged.end, (Coord)(column + 1));
     if (damaged.count == width) {
         ++fullRows;
     }
@@ -3212,8 +3322,13 @@ void ScreenImpl<Coord, Epoch>::Damage::addRow(u16 row, u16 begin, u16 end) {
     if (damaged.count == width) {
         return;
     }
+    if (damaged.count != 0 && damaged.count == damaged.end - damaged.begin && begin >= damaged.begin && end <= damaged.end) {
+        return;
+    }
     if (begin == 0 && end == width) {
         damaged.count = (Coord)(width);
+        damaged.begin = 0;
+        damaged.end = (Coord)(width);
         ++fullRows;
         return;
     }
@@ -3222,6 +3337,8 @@ void ScreenImpl<Coord, Epoch>::Damage::addRow(u16 row, u16 begin, u16 end) {
             damaged.epochs[column] = epoch;
         }
         damaged.count = (Coord)(end - begin);
+        damaged.begin = (Coord)(begin);
+        damaged.end = (Coord)(end);
         return;
     }
     for (u16 column = begin; column < end; ++column) {
@@ -3232,10 +3349,14 @@ void ScreenImpl<Coord, Epoch>::Damage::addRow(u16 row, u16 begin, u16 end) {
         cellEpoch = epoch;
         ++damaged.count;
         if (damaged.count == width) {
+            damaged.begin = 0;
+            damaged.end = (Coord)(width);
             ++fullRows;
             return;
         }
     }
+    damaged.begin = min<Coord>(damaged.begin, (Coord)(begin));
+    damaged.end = max<Coord>(damaged.end, (Coord)(end));
 }
 
 template <typename Coord, typename Epoch>

@@ -286,6 +286,58 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(screen->testCell(2, 4).uc_pt == 'O');
     }
 
+    STD_TEST(PartialScrollUpClearsWideGlyphsAtBothBoundaries) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 14);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::create(composer, *pool, 7, 2, &colors);
+        const TerminalCell attrs = attributes();
+        constexpr u32 wide = 0x4e00;
+        const u8 middle[] = {'x'};
+
+        screen->writeCodepoint(0, 1, wide, true, attrs, 0, 0, TerminalCell{});
+        screen->writeCodepoint(0, 4, wide, true, attrs, 0, 0, TerminalCell{});
+        screen->writeCodepoint(1, 1, wide, true, attrs, 0, 0, TerminalCell{});
+        screen->writeCodepoint(1, 4, wide, true, attrs, 0, 0, TerminalCell{});
+        screen->writeAsciiRun(1, 3, middle, 1, attrs, 0, 0, TerminalCell{});
+
+        screen->scrollRectangleUp(0, 2, 2, 5, 1, TerminalCell{});
+
+        STD_INSIST(screen->testCell(0, 1) == TerminalCell{});
+        STD_INSIST(screen->testCell(0, 2) == TerminalCell{});
+        STD_INSIST(screen->testCell(0, 3).uc_pt == 'x');
+        STD_INSIST(screen->testCell(0, 4) == TerminalCell{});
+        STD_INSIST(screen->testCell(0, 5) == TerminalCell{});
+    }
+
+    STD_TEST(PartialScrollDownClearsWideGlyphsAtBothBoundaries) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 14);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::create(composer, *pool, 7, 2, &colors);
+        const TerminalCell attrs = attributes();
+        constexpr u32 wide = 0x4e00;
+        const u8 middle[] = {'x'};
+
+        screen->writeCodepoint(0, 1, wide, true, attrs, 0, 0, TerminalCell{});
+        screen->writeCodepoint(0, 4, wide, true, attrs, 0, 0, TerminalCell{});
+        screen->writeAsciiRun(0, 3, middle, 1, attrs, 0, 0, TerminalCell{});
+        screen->writeCodepoint(1, 1, wide, true, attrs, 0, 0, TerminalCell{});
+        screen->writeCodepoint(1, 4, wide, true, attrs, 0, 0, TerminalCell{});
+
+        screen->scrollRectangleDown(0, 2, 2, 5, 1, TerminalCell{});
+
+        STD_INSIST(screen->testCell(1, 1) == TerminalCell{});
+        STD_INSIST(screen->testCell(1, 2) == TerminalCell{});
+        STD_INSIST(screen->testCell(1, 3).uc_pt == 'x');
+        STD_INSIST(screen->testCell(1, 4) == TerminalCell{});
+        STD_INSIST(screen->testCell(1, 5) == TerminalCell{});
+    }
+
     STD_TEST(RotatesMultipleRowsInOnePass) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());

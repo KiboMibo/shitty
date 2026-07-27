@@ -2163,7 +2163,7 @@ void VtermImpl::collectCellExtras() {
     if (activeHyperlink != 0) {
         roots[rootCount++] = &activeHyperlink;
     }
-    if (inputGraphemeHyperlink != 0) {
+    if (inputGraphemeScreen != nullptr && inputGraphemeHyperlink != 0) {
         roots[rootCount++] = &inputGraphemeHyperlink;
     }
     if (frame_pri->active()) {
@@ -2760,17 +2760,7 @@ void VtermImpl::inputGraphicChar(unsigned char ch) {
 }
 
 void VtermImpl::resetGraphemeInput() {
-    if (inputGraphemeScreen == nullptr) {
-        return;
-    }
-    inputGrapheme.clear();
-    inputGraphemeBase = 0;
-    inputGraphemeBreaker.reset();
     inputGraphemeScreen = nullptr;
-    inputGraphemeWide = false;
-    inputGraphemeAttrs = {};
-    inputGraphemeHyperlink = 0;
-    inputGraphemeSemantic = 0;
 }
 
 u8 VtermImpl::codepointData(u32 codepoint) {
@@ -2933,6 +2923,63 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
             --size;
             continue;
         }
+        if constexpr (!insert) {
+            if (autoWrapMode && lastCol && !autoPrintMode && horizMarginMode && posY == marginBottom - 1 && (hMargin != 0 || nColsEff != composer.columns)) {
+                const u16 lineWidth = nColsEff - hMargin;
+                const u16 fullLines = min<size_t>(size / lineWidth, 0xffff);
+                if (fullLines >= 2) {
+                    bool plainRows = true;
+                    for (u16 row = marginTop; row < marginBottom; ++row) {
+                        if (cf->lineAttribute(row) != 0) {
+                            plainRows = false;
+                            break;
+                        }
+                    }
+                    if (plainRows) {
+                        const u16 regionHeight = marginBottom - marginTop;
+                        if (fullLines < regionHeight) {
+                            cf->setWrapped(posY, posX);
+                            scrollRegionUp(fullLines);
+                        }
+
+                        const u16 survivors = min<u16>(fullLines, regionHeight);
+                        const u16 firstLine = fullLines - survivors;
+                        const u8* text = input + (size_t)(firstLine)*lineWidth;
+                        u16 row = marginBottom - survivors;
+                        for (u16 line = firstLine; line < fullLines; ++line, ++row, text += lineWidth) {
+                            const Screen::WriteResult written = cf->writeAsciiRun(row, hMargin, nColsEff, doubleEnd, text, lineWidth, attrs, activeHyperlink, currentSemantic, eraseAttrs);
+                            STD_ASSERT(written.count == lineWidth);
+                            if (line + 1 != fullLines) {
+                                cf->setWrapped(row, nColsEff - 1);
+                            }
+                        }
+
+                        if (attrs.blink) {
+                            enableBlinkingText();
+                        }
+                        const size_t consumed = (size_t)(fullLines)*lineWidth;
+                        const u32 codepoint = input[consumed - 1];
+                        inputGrapheme.clear();
+                        inputGraphemeBase = codepoint;
+                        inputGraphemeScreen = cf;
+                        inputGraphemeX = nColsEff - 1;
+                        inputGraphemeY = marginBottom - 1;
+                        inputGraphemeWide = false;
+                        inputGraphemeAttrs = attrs;
+                        inputGraphemeHyperlink = activeHyperlink;
+                        inputGraphemeSemantic = currentSemantic;
+                        inputGraphemeBreaker.setBoundaryAfter(codepoint);
+                        utf8dec.setUnicode(codepoint);
+                        posX = nColsEff - 1;
+                        posY = marginBottom - 1;
+                        lastCol = true;
+                        input += consumed;
+                        size -= consumed;
+                        continue;
+                    }
+                }
+            }
+        }
         if (autoWrapMode && lastCol) {
             cf->setWrapped(posY, posX);
             inp_CR();
@@ -3037,6 +3084,10 @@ int VtermImpl::placeUtf8Run(const u8* input, int size) {
             codepoint = lead & 0x07;
             minimum = 0x10000;
             length = 4;
+        } else if (lead >= 0xa0) {
+            codepoint = Unicode_Replacement_Character;
+            minimum = 0;
+            length = 1;
         } else {
             break;
         }
@@ -3689,15 +3740,57 @@ void VtermImpl::csi_CBT(u32 count) {
 
 void VtermImpl::csi_REP(u32 count) {
     const u32 preceding = utf8dec.getUnicode();
-    if (!preceding || codepointWidth(preceding) == 0) {
+    if (!preceding) {
+        return;
+    }
+    const u8 data = codepointData(preceding);
+    const u8 width = data & 0x03;
+    if (width == 0) {
         return;
     }
     const u64 observableCells = ((u64)(opts.saveLines) + composer.rows + 1) * composer.columns;
     if (count > observableCells) {
         count = (u32)(observableCells + (count - observableCells) % composer.columns);
     }
-    for (u32 k = 0; k < count; ++k) {
-        placeGraphicChar();
+    if ((data & 0x04) == 0 || insertMode) {
+        for (u32 k = 0; k < count; ++k) {
+            placeGraphicChar();
+        }
+        return;
+    }
+
+    constexpr u16 batchLimit = 64;
+    u32 codepoints[batchLimit];
+    u8 widths[batchLimit];
+    for (u16 index = 0; index < batchLimit; ++index) {
+        codepoints[index] = preceding;
+        widths[index] = width;
+    }
+
+    if (inputGraphemeScreen != cf) {
+        inputGraphemeBreaker.reset();
+    }
+    bool firstBoundary = inputGraphemeBreaker.breakBefore(preceding, true);
+    if (!firstBoundary) {
+        placeGraphicChar(false, width);
+        if (--count == 0) {
+            return;
+        }
+        firstBoundary = inputGraphemeBreaker.breakBefore(preceding, true);
+    }
+
+    while (count != 0) {
+        const u16 batch = min<u32>(count, batchLimit);
+        for (u16 index = firstBoundary; index < batch; ++index) {
+            inputGraphemeBreaker.breakBefore(preceding, true);
+        }
+        if (width == 2) {
+            placePreparedRun<true>(codepoints, widths, batch);
+        } else {
+            placePreparedRun<false>(codepoints, widths, batch);
+        }
+        count -= batch;
+        firstBoundary = false;
     }
 }
 

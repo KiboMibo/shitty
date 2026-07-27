@@ -121,6 +121,27 @@ class CursorAndMovementTest(unittest.TestCase):
                 ["AAAAA", "CCCCC", "     ", "DDDDD"],
             )
 
+    def test_batched_autowrap_inside_horizontal_margins(self):
+        with Shitty(columns=8, rows=6) as terminal:
+            terminal.write(
+                b"00000000\r\n11111111\r\n22222222\r\n33333333\r\nijklmnop"
+                b"\x1b[2;5r\x1b[?69h\x1b[3;6s"
+                b"\x1b[5;3HWXYZaaaabbbbccccddddeeeeffff"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(
+                snapshot.lines,
+                [
+                    "00000000",
+                    "11cccc11",
+                    "22dddd22",
+                    "33eeee33",
+                    "ijffffop",
+                    "        ",
+                ],
+            )
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (5, 4))
+
     def test_index_controls_do_not_scroll_outside_horizontal_margins(self):
         for control in (b"\n", b"\v", b"\f", b"\x1bD", b"\x1bE"):
             with self.subTest(control=control):
