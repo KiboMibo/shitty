@@ -1682,19 +1682,19 @@
             if (parser.dcsCapabilityValid && !parser.dcsCapabilityHasHighNibble &&
                 (parser.dcsCapabilityCandidates & 0x01) &&
                 parser.dcsCapabilityDecodedLength == 2) {
-                dcs_XTGETTCAP(encoded, StringView(u8"xterm-256color"));
+                dcs_XTGETTCAP(parser.dcsDecoded, encoded, StringView(u8"xterm-256color"));
             } else if (parser.dcsCapabilityValid && !parser.dcsCapabilityHasHighNibble &&
                        (((parser.dcsCapabilityCandidates & 0x02) &&
                          parser.dcsCapabilityDecodedLength == 2) ||
                         ((parser.dcsCapabilityCandidates & 0x04) &&
                          parser.dcsCapabilityDecodedLength == 6))) {
-                dcs_XTGETTCAP(encoded, StringView(u8"256"));
+                dcs_XTGETTCAP(parser.dcsDecoded, encoded, StringView(u8"256"));
             } else if (parser.dcsCapabilityValid && !parser.dcsCapabilityHasHighNibble &&
                        (parser.dcsCapabilityCandidates & 0x08) &&
                        parser.dcsCapabilityDecodedLength == 3) {
-                dcs_XTGETTCAP(encoded, StringView(u8"8"));
+                dcs_XTGETTCAP(parser.dcsDecoded, encoded, StringView(u8"8"));
             } else {
-                dcs_XTGETTCAP(encoded, {});
+                dcs_XTGETTCAP(parser.dcsDecoded, encoded, {});
             }
         }
     }
@@ -1723,7 +1723,7 @@
     action dcsXtDone {
         if (parser.dcsCapabilityComplete) {
             if (!parser.overflow && compatLevel >= CompatibilityLevel::VT200) {
-                dcs_XTGETTCAP_COMMIT();
+                dcs_XTGETTCAP_COMMIT(StringView(parser.dcsDecoded));
             }
             fnext main;
             fbreak;
@@ -1875,7 +1875,10 @@
                 compatLevel >= CompatibilityLevel::VT200) {
                 dcs_DECUDK(
                     parser.dcsUdkClearDefinitions,
-                    parser.dcsUdkLockDefinitions
+                    parser.dcsUdkLockDefinitions,
+                    parser.dcsUdkDefinitions.data(),
+                    parser.dcsUdkDefinitions.length(),
+                    StringView(parser.dcsDecoded)
                 );
             }
             fnext main;

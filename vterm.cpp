@@ -541,9 +541,10 @@ namespace {
         void dcs_DECRQSS_DECSCA();
         void dcs_DECRQSS_UNKNOWN();
         void writeDecrqssResponse(StringView);
-        void dcs_XTGETTCAP(StringView encoded, StringView value);
-        void dcs_XTGETTCAP_COMMIT();
-        void dcs_DECUDK(bool clearDefinitions, bool lockDefinitions);
+        struct DcsUdkDefinition;
+        void dcs_XTGETTCAP(Buffer& replies, StringView encoded, StringView value);
+        void dcs_XTGETTCAP_COMMIT(StringView replies);
+        void dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, const DcsUdkDefinition* definitions, size_t definitionCount, StringView values);
 
         void reportInBandResize();
         void reportColorScheme();
@@ -643,7 +644,7 @@ namespace {
             u8 csiPrefix = 0;
             u8 csiIntermediates[4] = {};
             u8 csiIntermediateCount = 0;
-            u32 parameters[maxParameters];
+            u32 parameters[maxParameters] = {};
             unsigned char separators[maxParameters] = {};
             bool present[maxParameters] = {};
             size_t parameterCount = 0;
@@ -4903,7 +4904,7 @@ void VtermImpl<traced>::csi_DECSTR() {
 }
 
 template <bool traced>
-void VtermImpl<traced>::dcs_DECUDK(bool clearDefinitions, bool lockDefinitions) {
+void VtermImpl<traced>::dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, const DcsUdkDefinition* definitions, size_t definitionCount, StringView values) {
     if (userDefinedKeysLocked) {
         return;
     }
@@ -4911,8 +4912,9 @@ void VtermImpl<traced>::dcs_DECUDK(bool clearDefinitions, bool lockDefinitions) 
         userDefinedKeys.clear();
     }
 
-    for (const DcsUdkDefinition& definition : parser.dcsUdkDefinitions) {
-        const auto* value = (const char*)(parser.dcsDecoded.data()) + definition.valueOffset;
+    for (size_t index = 0; index < definitionCount; ++index) {
+        const DcsUdkDefinition& definition = definitions[index];
+        const auto* value = (const char*)(values.data()) + definition.valueOffset;
         userDefinedKeys[definition.key] = std::string(value, definition.valueLength);
     }
     userDefinedKeysLocked = lockDefinitions;
@@ -5039,8 +5041,8 @@ void VtermImpl<traced>::dcs_DECRQSS_UNKNOWN() {
 }
 
 template <bool traced>
-void VtermImpl<traced>::dcs_XTGETTCAP(StringView encoded, StringView value) {
-    StringBuilder replies(static_cast<Buffer&&>(parser.dcsDecoded));
+void VtermImpl<traced>::dcs_XTGETTCAP(Buffer& output, StringView encoded, StringView value) {
+    StringBuilder replies(static_cast<Buffer&&>(output));
     replies << (send8BitControls ? StringView(u8"\x90") : StringView(u8"\x1bP"));
     replies << (value.empty() ? StringView(u8"0+r") : StringView(u8"1+r"));
     replies << encoded;
@@ -5053,12 +5055,12 @@ void VtermImpl<traced>::dcs_XTGETTCAP(StringView encoded, StringView value) {
         }
     }
     replies << (send8BitControls ? StringView(u8"\x9c") : StringView(u8"\x1b\\"));
-    parser.dcsDecoded = static_cast<Buffer&&>(replies);
+    output = static_cast<Buffer&&>(replies);
 }
 
 template <bool traced>
-void VtermImpl<traced>::dcs_XTGETTCAP_COMMIT() {
-    writePty((const u8*)(parser.dcsDecoded.data()), parser.dcsDecoded.used(), false);
+void VtermImpl<traced>::dcs_XTGETTCAP_COMMIT(StringView replies) {
+    writePty(replies.data(), replies.length(), false);
 }
 
 template <bool traced>
