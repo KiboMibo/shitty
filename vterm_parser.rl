@@ -1629,6 +1629,7 @@
             oscNotificationIdOffset = 0;
             oscNotificationIdLength = 0;
             oscNotificationPayloadOffset = 0;
+            oscNotificationPayloadBytes = 0;
             oscNotificationKey = 0;
             oscNotificationValid = true;
             oscNotificationEncoded = false;
@@ -2454,7 +2455,32 @@
     action oscNotificationBeginPayload {
         ragelAppendString(fc, maxOscBytes);
         oscNotificationPayloadOffset = argBuf.used();
+        oscNotificationPayloadBytes = 0;
+        oscDecoded.reset();
+        oscBase64.reset();
+        if (oscNotificationEncoded && oscNotificationValid &&
+            !oscNotificationQuery && !oscNotificationClose) {
+            const auto* data = (const u8*)(argBuf.data());
+            const StringView id(
+                data + oscNotificationIdOffset, oscNotificationIdLength
+            );
+            oscBase64 = notificationDecoder(id, oscNotificationBody);
+        }
         fgoto oscNotificationPayload;
+    }
+
+    action oscNotificationPayloadData {
+        stringUtf8Continuation(fc);
+        if (!executeC0InSequence(fc, true)) {
+            ragelAppendString(fc, maxOscBytes);
+            ++oscNotificationPayloadBytes;
+            const u32 limit = oscNotificationEncoded ? 4096 : 2048;
+            if (oscNotificationPayloadBytes > limit) {
+                oscNotificationValid = false;
+            } else if (oscNotificationEncoded && !argBufOverflowed) {
+                oscBase64.push(fc, oscDecoded);
+            }
+        }
     }
 
     action oscNotificationInvalidData {
@@ -2470,40 +2496,21 @@
         if (stringUtf8Continuation(fc)) {
             ragelAppendString(fc, maxOscBytes);
             oscNotificationValid = false;
+            oscTerminated = false;
             fgoto oscNotificationInvalid;
         } else {
             ragelFinishOsc();
-            if (!argBufOverflowed && oscNotificationValid) {
-                const auto* data = (const u8*)(argBuf.data());
-                const StringView id(
-                    data + oscNotificationIdOffset, oscNotificationIdLength
-                );
-                const StringView payload(
-                    data + oscNotificationPayloadOffset,
-                    argBuf.used() - oscNotificationPayloadOffset
-                );
-                if (oscNotificationQuery) {
-                    osc_NOTIFICATION_CAPABILITIES(id);
-                } else if (oscNotificationClose) {
-                    osc_NOTIFICATION_CLOSE(id);
-                } else if (oscNotificationBody) {
-                    osc_NOTIFICATION_BODY(
-                        id, payload, oscNotificationEncoded, oscNotificationFinal
-                    );
-                } else {
-                    osc_NOTIFICATION_TITLE(
-                        id, payload, oscNotificationEncoded, oscNotificationFinal
-                    );
-                }
-            }
-            fnext main;
-            fbreak;
+            oscTerminated = true;
         }
     }
 
     action oscNotificationBell {
         ragelFinishOsc();
-        if (!argBufOverflowed && oscNotificationValid) {
+        oscTerminated = true;
+    }
+
+    action oscNotificationDispatch {
+        if (oscTerminated && !argBufOverflowed && oscNotificationValid) {
             const auto* data = (const u8*)(argBuf.data());
             const StringView id(
                 data + oscNotificationIdOffset, oscNotificationIdLength
@@ -2512,22 +2519,27 @@
                 data + oscNotificationPayloadOffset,
                 argBuf.used() - oscNotificationPayloadOffset
             );
+            if (oscNotificationEncoded && oscNotificationFinal) {
+                oscBase64.finish(oscDecoded);
+            }
             if (oscNotificationQuery) {
                 osc_NOTIFICATION_CAPABILITIES(id);
             } else if (oscNotificationClose) {
                 osc_NOTIFICATION_CLOSE(id);
             } else if (oscNotificationBody) {
                 osc_NOTIFICATION_BODY(
-                    id, payload, oscNotificationEncoded, oscNotificationFinal
+                    id,
+                    oscNotificationEncoded ? StringView(oscDecoded) : payload,
+                    oscBase64, oscNotificationEncoded, oscNotificationFinal
                 );
             } else {
                 osc_NOTIFICATION_TITLE(
-                    id, payload, oscNotificationEncoded, oscNotificationFinal
+                    id,
+                    oscNotificationEncoded ? StringView(oscDecoded) : payload,
+                    oscBase64, oscNotificationEncoded, oscNotificationFinal
                 );
             }
         }
-        fnext main;
-        fbreak;
     }
 
     action oscNotificationInvalidSt {
@@ -2548,6 +2560,14 @@
 
     action oscNotificationPayloadEscaped {
         ragelAppendEscapedString(fc, maxOscBytes);
+        oscNotificationPayloadBytes += 2;
+        const u32 limit = oscNotificationEncoded ? 4096 : 2048;
+        if (oscNotificationPayloadBytes > limit) {
+            oscNotificationValid = false;
+        } else if (oscNotificationEncoded && !argBufOverflowed) {
+            oscBase64.push('\x1b', oscDecoded);
+            oscBase64.push(fc, oscDecoded);
+        }
         fgoto oscNotificationPayload;
     }
 
@@ -4018,12 +4038,13 @@
     oscNotificationPayload := (
         cancel |
         stringC1 |
-        0x9c @oscNotificationSt |
-        0x07 @oscNotificationBell |
+        0x9c @oscNotificationSt @oscNotificationDispatch @oscDone |
+        0x07 @oscNotificationBell @oscNotificationDispatch @oscDone |
         0x1b @{ fgoto oscNotificationPayloadEscape; } |
         0x7f |
         (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
-         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff)
+            @oscNotificationPayloadData
     )*;
 
     oscNotificationInvalid := (
@@ -4039,7 +4060,7 @@
 
     oscNotificationPayloadEscape := (
         cancel |
-        '\\' @oscNotificationSt |
+        '\\' @oscNotificationSt @oscNotificationDispatch @oscDone |
         0x1b @oscEscapedEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\')) @oscNotificationPayloadEscaped
     )*;

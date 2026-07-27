@@ -512,9 +512,10 @@ namespace {
         void osc_CLIPBOARD_MALFORMED(StringView);
         void osc_NOTIFICATION_CAPABILITIES(StringView);
         void osc_NOTIFICATION_CLOSE(StringView);
-        void osc_NOTIFICATION_TITLE(StringView, StringView, bool, bool);
-        void osc_NOTIFICATION_BODY(StringView, StringView, bool, bool);
-        void applyNotificationPart(StringView, StringView, bool, bool, bool);
+        Base64Decoder notificationDecoder(StringView, bool) const;
+        void osc_NOTIFICATION_TITLE(StringView, StringView, const Base64Decoder&, bool, bool);
+        void osc_NOTIFICATION_BODY(StringView, StringView, const Base64Decoder&, bool, bool);
+        void applyNotificationPart(StringView, StringView, const Base64Decoder&, bool, bool, bool);
         void osc_RESET_PALETTE();
         void osc_RESET_PALETTE(u32);
         void osc_RESET_SPECIAL_COLOR();
@@ -624,7 +625,7 @@ namespace {
 
         struct NotificationPart {
             std::string text;
-            std::string encoded;
+            Base64Decoder decoder;
         };
 
         struct Notification {
@@ -741,6 +742,7 @@ namespace {
         size_t oscNotificationIdOffset = 0;
         size_t oscNotificationIdLength = 0;
         size_t oscNotificationPayloadOffset = 0;
+        u32 oscNotificationPayloadBytes = 0;
         u8 oscNotificationKey = 0;
         bool oscNotificationValid = false;
         bool oscNotificationEncoded = false;
@@ -5920,48 +5922,52 @@ void VtermImpl<traced>::osc_NOTIFICATION_CLOSE(StringView id) {
 }
 
 template <bool traced>
-void VtermImpl<traced>::osc_NOTIFICATION_TITLE(StringView id, StringView payload, bool encoded, bool finalChunk) {
-    applyNotificationPart(id, payload, encoded, finalChunk, false);
+Base64Decoder VtermImpl<traced>::notificationDecoder(StringView id, bool body) const {
+    const std::string key((const char*)(id.data()), id.length());
+    const auto found = notifications.find(key);
+    if (found == notifications.end()) {
+        return {};
+    }
+    return body ? found->second.body.decoder : found->second.title.decoder;
 }
 
 template <bool traced>
-void VtermImpl<traced>::osc_NOTIFICATION_BODY(StringView id, StringView payload, bool encoded, bool finalChunk) {
-    applyNotificationPart(id, payload, encoded, finalChunk, true);
+void VtermImpl<traced>::osc_NOTIFICATION_TITLE(StringView id, StringView payload, const Base64Decoder& decoder, bool encoded, bool finalChunk) {
+    applyNotificationPart(id, payload, decoder, encoded, finalChunk, false);
 }
 
 template <bool traced>
-void VtermImpl<traced>::applyNotificationPart(StringView id, StringView payload, bool encoded, bool finalChunk, bool body) {
+void VtermImpl<traced>::osc_NOTIFICATION_BODY(StringView id, StringView payload, const Base64Decoder& decoder, bool encoded, bool finalChunk) {
+    applyNotificationPart(id, payload, decoder, encoded, finalChunk, true);
+}
+
+template <bool traced>
+void VtermImpl<traced>::applyNotificationPart(StringView id, StringView payload, const Base64Decoder& decoder, bool encoded, bool finalChunk, bool body) {
     const std::string key((const char*)(id.data()), id.length());
     auto& notification = notifications[key];
     NotificationPart& destination = body ? notification.body : notification.title;
-    const auto flushEncoded = [](NotificationPart& part) {
-        if (part.encoded.empty()) {
-            return true;
-        }
+    const auto flushDecoder = [](NotificationPart& part) {
         Buffer decoded;
-        bool valid = false;
-        base64Decode(StringView((const u8*)(part.encoded.data()), part.encoded.size()), decoded, valid);
-        if (!valid || part.text.size() + decoded.used() > 8192) {
+        if (!part.decoder.finish(decoded) || part.text.size() + decoded.used() > 8192) {
             return false;
         }
         part.text.append((const char*)(decoded.data()), decoded.used());
-        part.encoded.clear();
+        part.decoder.reset();
         return true;
     };
 
     if (encoded) {
-        if (payload.length() > 4096) {
+        if (!decoder.valid || destination.text.size() + payload.length() > 8192) {
             notifications.erase(key);
             return;
         }
-        destination.encoded.append((const char*)(payload.data()), payload.length());
-        const bool decodableBoundary = finalChunk || (!destination.encoded.empty() && destination.encoded.back() == '=') || destination.encoded.size() % 4 == 0;
-        if (decodableBoundary && !flushEncoded(destination)) {
-            notifications.erase(key);
-            return;
+        destination.text.append((const char*)(payload.data()), payload.length());
+        destination.decoder = decoder;
+        if (destination.decoder.complete) {
+            destination.decoder.reset();
         }
     } else {
-        if (payload.length() > 2048 || !flushEncoded(destination) || destination.text.size() + payload.length() > 8192) {
+        if (!flushDecoder(destination) || destination.text.size() + payload.length() > 8192) {
             notifications.erase(key);
             return;
         }
@@ -5971,7 +5977,7 @@ void VtermImpl<traced>::applyNotificationPart(StringView id, StringView payload,
     if (!finalChunk) {
         return;
     }
-    if (!flushEncoded(notification.title) || !flushEncoded(notification.body)) {
+    if (!flushDecoder(notification.title) || !flushDecoder(notification.body)) {
         notifications.erase(key);
         return;
     }

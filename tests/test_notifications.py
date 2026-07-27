@@ -53,6 +53,23 @@ class NotificationProtocolTest(unittest.TestCase):
                 ["NOTIFY 6a6f62 4275696c64 "],
             )
 
+    def test_base64_decoder_survives_every_pty_boundary(self):
+        sequence = b"\x1b]99;i=job:e=1;QnVpbGQ=\x1b\\"
+        chunkings = [
+            (sequence[:split], sequence[split:])
+            for split in range(1, len(sequence))
+        ]
+        chunkings.append(tuple(bytes((byte,)) for byte in sequence))
+
+        for chunks in chunkings:
+            with self.subTest(chunks=chunks):
+                with Shitty(columns=8, rows=2) as terminal:
+                    terminal.write_chunks(*chunks)
+                    self.assertEqual(
+                        terminal.read_actions(),
+                        ["NOTIFY 6a6f62 4275696c64 "],
+                    )
+
     def test_title_and_body_chunks_are_accumulated_independently(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
