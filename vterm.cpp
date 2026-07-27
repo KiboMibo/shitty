@@ -228,11 +228,8 @@ namespace {
         bool getPrivateMode(u32 mode) const;
 
         void parserResetGraphemeInput() override;
-        bool parserExecuteC0(u8 byte) override;
         void parserBell() override;
         bool parserAutoNewlineMode() const override;
-        bool parserPrinterControllerMode() const override;
-        void parserSetPrinterControllerMode(bool enabled) override;
         CompatibilityLevel parserCompatibilityLevel() const override;
         void parserSetCompatibilityLevel(CompatibilityLevel level) override;
         void parserSet8BitControls(bool enabled) override;
@@ -246,10 +243,11 @@ namespace {
         void parserResetCharsets(bool isoLatin1) override;
         void parserDesignateCharset(u8 index, Charset charset) override;
         bool parserHighlightMouseTracking() const override;
+        bool windowOperationsAllowed() const override;
         bool parserHandlesPrinter() const override;
         void parserPrint(StringView bytes) override;
         void parserWritePty(StringView bytes) override;
-        bool parserGroundContinuation(u8 byte) override;
+        bool parserGroundUtf8Enabled() const override;
         void parserGroundHigh(u8 byte) override;
         void parserGroundAscii(u8 byte) override;
         bool parserAsciiBulkEligible() const override;
@@ -367,7 +365,7 @@ namespace {
             u16 right;
         };
 
-        bool rectangleFromParams(const ParserParameters& parameters, size_t offset, Rectangle& rectangle) const;
+        bool rectangleFromParams(CsiRectangle parameters, Rectangle& rectangle) const;
         void rectangleOrigin(u16& rowBase, u16& columnBase, u16& rowLimit, u16& columnLimit) const;
 
         void showCursor();
@@ -431,7 +429,8 @@ namespace {
         void esc_HTS() override;
         void esc_SPA() override;
         void esc_EPA() override;
-        void csi_SCOSC_SLRM(const ParserParameters& parameters) override;
+        bool horizontalMarginMode() const override;
+        void csi_SLRM(u32 left, u32 right, bool valid) override;
         void csi_SCOSC();
         void csi_SCORC() override;
         void esc_DECSC() override;
@@ -439,63 +438,89 @@ namespace {
         void esc_RIS() override;
         void csi_DECSTR() override;
 
-        void csi_CUU(const ParserParameters& parameters) override;
-        void csi_CUD(const ParserParameters& parameters) override;
-        void csi_CUF(const ParserParameters& parameters) override;
-        void csi_CUB(const ParserParameters& parameters) override;
-        void csi_CNL(const ParserParameters& parameters) override;
-        void csi_CPL(const ParserParameters& parameters) override;
-        void csi_CHA(const ParserParameters& parameters) override;
-        void csi_HPA(const ParserParameters& parameters) override;
-        void csi_HPR(const ParserParameters& parameters) override;
-        void csi_VPA(const ParserParameters& parameters) override;
-        void csi_VPR(const ParserParameters& parameters) override;
-        void csi_CUP(const ParserParameters& parameters) override;
-        void csi_SU(const ParserParameters& parameters) override;
+        void csi_CUU(u32 count) override;
+        void csi_CUD(u32 count) override;
+        void csi_CUF(u32 count) override;
+        void csi_CUB(u32 count) override;
+        void csi_CNL(u32 count) override;
+        void csi_CPL(u32 count) override;
+        void csi_CHA(u32 column) override;
+        void csi_HPA(u32 column) override;
+        void csi_HPR(u32 count) override;
+        void csi_VPA(u32 row) override;
+        void csi_VPR(u32 count) override;
+        void csi_CUP(u32 row, u32 column) override;
+        void csi_SU(u32 count) override;
         void csi_SD(u32 count) override;
-        void csi_CHT(const ParserParameters& parameters) override;
-        void csi_CBT(const ParserParameters& parameters) override;
-        void csi_REP(const ParserParameters& parameters) override;
+        void csi_CHT(u32 count) override;
+        void csi_CBT(u32 count) override;
+        void csi_REP(u32 count) override;
 
-        void csi_ED(const ParserParameters& parameters) override;
-        void csi_EL(const ParserParameters& parameters) override;
-        void csi_DECSED(const ParserParameters& parameters) override;
-        void csi_DECSEL(const ParserParameters& parameters) override;
-        void csi_DECSCA(const ParserParameters& parameters) override;
-        void csi_DECFRA(const ParserParameters& parameters) override;
-        void csi_DECCRA(const ParserParameters& parameters) override;
-        void csi_DECERA(const ParserParameters& parameters, bool selective) override;
-        void csi_DECCARA(const ParserParameters& parameters, bool reverse) override;
-        void csi_DECRQCRA(const ParserParameters& parameters) override;
-        void csi_IL(const ParserParameters& parameters) override;
-        void csi_DL(const ParserParameters& parameters) override;
+        void csi_ED(u32 mode) override;
+        void csi_EL(u32 mode) override;
+        void csi_DECSED(u32 mode) override;
+        void csi_DECSEL(u32 mode) override;
+        void csi_DECSCA(u32 mode) override;
+        void csi_DECFRA(u32 codepoint, CsiRectangle rectangle) override;
+        void csi_DECCRA(CsiRectangle source, u32 targetRow, u32 targetColumn) override;
+        void csi_DECERA(CsiRectangle rectangle, bool selective) override;
+        void csi_DECCARA(CsiRectangle rectangle, u32 mode, bool reverse) override;
+        void csi_DECRQCRA(u32 requestId, CsiRectangle rectangle) override;
+        void csi_IL(u32 count) override;
+        void csi_DL(u32 count) override;
         void csi_ICH(u32 count) override;
-        void csi_DCH(const ParserParameters& parameters) override;
-        void csi_ECH(const ParserParameters& parameters) override;
-        void csi_DECIC(const ParserParameters& parameters) override;
-        void csi_DECDC(const ParserParameters& parameters) override;
+        void csi_DCH(u32 count) override;
+        void csi_ECH(u32 count) override;
+        void csi_DECIC(u32 count) override;
+        void csi_DECDC(u32 count) override;
 
-        void csi_STBM(const ParserParameters& parameters) override;
-        void csi_SLRM(const ParserParameters& parameters);
-        void csi_TBC(const ParserParameters& parameters) override;
+        void csi_STBM(u32 top, u32 bottom, bool valid) override;
+        void csi_TBC(u32 mode) override;
 
-        void csi_SM(const ParserParameters& parameters) override;
-        void csi_RM(const ParserParameters& parameters) override;
-        void csi_privSM(const ParserParameters& parameters) override;
-        void csi_privRM(const ParserParameters& parameters) override;
-        void csi_privSave(const ParserParameters& parameters) override;
-        void csi_privRestore(const ParserParameters& parameters) override;
+        void csi_SM(u32 mode) override;
+        void csi_RM(u32 mode) override;
+        void csi_privSM(u32 mode) override;
+        void csi_privRM(u32 mode) override;
+        void csi_privSave(u32 mode) override;
+        void csi_privRestore(u32 mode) override;
         void setPrivMode(u32 mode, bool set);
 
-        void csi_ecma48_SL(const ParserParameters& parameters) override;
-        void csi_ecma48_SR(const ParserParameters& parameters) override;
-        void csi_DECSCUSR(const ParserParameters& parameters) override;
+        void csi_ecma48_SL(u32 count) override;
+        void csi_ecma48_SR(u32 count) override;
+        void csi_DECSCUSR(u32 style) override;
 
         void csi_priDA() override;
         void csi_secDA() override;
         void csi_terDA() override;
-        void csi_DSR(const ParserParameters& parameters, bool privateMode) override;
-        void csi_SGR(const ParserParameters& parameters) override;
+        void dsrOperatingStatus() override;
+        void dsrCursorPosition(bool privateMode) override;
+        void dsrPrinterStatus() override;
+        void dsrUserDefinedKeys() override;
+        void dsrKeyboard() override;
+        void dsrLocator() override;
+        void dsrLocatorType() override;
+        void dsrMacroSpace() override;
+        void dsrMemoryChecksum(u32 requestId) override;
+        void dsrDataIntegrity() override;
+        void dsrMultipleSession() override;
+        void dsrColorScheme() override;
+        void sgrReset() override;
+        void sgrBold(bool enabled) override;
+        void sgrFaint(bool enabled) override;
+        void sgrItalic(bool enabled) override;
+        void sgrUnderline(u8 style) override;
+        void sgrBlink(bool enabled) override;
+        void sgrInverse(bool enabled) override;
+        void sgrConceal(bool enabled) override;
+        void sgrStrike(bool enabled) override;
+        void sgrOverline(bool enabled) override;
+        void sgrForeground(CellColor color, int paletteIndex, bool brightenBold) override;
+        void sgrDefaultForeground() override;
+        void sgrBackground(CellColor color, int paletteIndex) override;
+        void sgrDefaultBackground() override;
+        void sgrUnderlineColor(CellColor color, int paletteIndex) override;
+        void sgrDefaultUnderlineColor() override;
+        void sgrFinish() override;
         void esch_DECALN() override;
         void setLineAttribute(u8 attribute) override;
         void osc_TITLE_0(StringView) override;
@@ -538,24 +563,40 @@ namespace {
         void osc_SHELL_D(StringView) override;
         void osc_SHELL_UNKNOWN(StringView) override;
         void osc_UNKNOWN(u32, StringView) override;
-        void csiq_DECSCL(const ParserParameters& parameters) override;
-        void csi_XTWINOPS(const ParserParameters& parameters) override;
-        void csi_XTTITLEMODE(const ParserParameters& parameters, bool set) override;
-        void csi_XTHIMOUSE(const ParserParameters& parameters) override;
-        void csi_DECELR(const ParserParameters& parameters) override;
-        void csi_DECSLE(const ParserParameters& parameters) override;
+        void csi_DECSCL(CompatibilityLevel level, bool send8BitControls) override;
+        void xtResizePixels(u32 height, bool heightPresent, u32 width, bool widthPresent) override;
+        void xtResizeCells(u32 height, bool heightPresent, u32 width, bool widthPresent) override;
+        void xtWindowOperation(u32 operation, u32 first, u32 second) override;
+        void xtReportWindowState() override;
+        void xtReportWindowPosition() override;
+        void xtReportWindowPixelSize(bool compositorSize) override;
+        void xtReportScreenPixelSize() override;
+        void xtReportCellSize() override;
+        void xtReportGridSize() override;
+        void xtReportScreenGridSize() override;
+        void xtReportIconTitle() override;
+        void xtReportWindowTitle() override;
+        void xtPushTitle(u32 target) override;
+        void xtPopTitle(u32 target) override;
+        void xtResizeRows(u32 rows) override;
+        void csi_XTTITLEMODE(u32 mode, bool set, bool reset) override;
+        void csi_XTHIMOUSE(u32 start, u32 startX, u32 startY, u32 firstRow, u32 lastRow) override;
+        void csi_DECELR(u32 mode, u32 units) override;
+        void csi_DECSLE(u32 operation) override;
         void csi_DECRQLP() override;
-        void csi_DECEFR(const ParserParameters& parameters) override;
-        void csi_XTMODKEYS(const ParserParameters& parameters) override;
-        void csi_XTQMODKEYS(const ParserParameters& parameters) override;
-        void csi_kittyKeyboardPush(const ParserParameters& parameters) override;
-        void csi_kittyKeyboardPop(const ParserParameters& parameters) override;
-        void csi_kittyKeyboardSet(const ParserParameters& parameters) override;
+        void csi_DECEFR(u32 top, u32 left, u32 bottom, u32 right) override;
+        void csi_XTMODKEYS(u32 resource, u32 value, bool valuePresent, bool reset) override;
+        void csi_XTQMODKEYS(u32 resource) override;
+        void csi_kittyKeyboardPush(u32 flags) override;
+        void csi_kittyKeyboardPop(u32 count) override;
+        void csi_kittyKeyboardSet(u32 flags, u32 mode) override;
         void csi_kittyKeyboardQuery() override;
-        void csi_DECRQM(const ParserParameters& parameters, bool privateMode) override;
+        void csi_DECRQM(u32 mode, bool privateMode) override;
         void csi_XTVERSION() override;
-        void csi_MC(const ParserParameters& parameters, bool privateMode) override;
-        void csi_DECLL(const ParserParameters& parameters) override;
+        void mediaCopyScreen() override;
+        void mediaCopyLine() override;
+        void setAutoPrint(bool enabled) override;
+        void csi_DECLL(u32 operation, bool final) override;
         std::string printableLine(u16 row) const;
         void printLine(u16 row);
         void dcs_DECRQSS_DECSCL() override;
@@ -692,7 +733,6 @@ namespace {
         bool synchronizedOutputMode = false;
         bool colorSchemeUpdateMode = false;
         bool inBandResizeMode = false;
-        bool printerControllerMode = false;
         bool autoPrintMode = false;
         bool printFormFeedMode = false;
         bool printExtentMode = false;
@@ -2268,7 +2308,6 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     synchronizedOutputMode = false;
     colorSchemeUpdateMode = false;
     inBandResizeMode = false;
-    printerControllerMode = false;
     autoPrintMode = false;
     printFormFeedMode = false;
     printExtentMode = false;
@@ -2548,19 +2587,15 @@ void VtermImpl::rectangleOrigin(u16& rowBase, u16& columnBase, u16& rowLimit, u1
     }
 }
 
-bool VtermImpl::rectangleFromParams(const ParserParameters& parameters, size_t offset, Rectangle& rectangle) const {
+bool VtermImpl::rectangleFromParams(CsiRectangle parameters, Rectangle& rectangle) const {
     u16 rowBase, columnBase, rowLimit, columnLimit;
     rectangleOrigin(rowBase, columnBase, rowLimit, columnLimit);
     const u32 rows = rowLimit - rowBase;
     const u32 columns = columnLimit - columnBase;
-    const u32 topParam = offset < parameters.count ? parameters.values[offset] : 0;
-    const u32 leftParam = offset + 1 < parameters.count ? parameters.values[offset + 1] : 0;
-    const u32 bottomParam = offset + 2 < parameters.count ? parameters.values[offset + 2] : 0;
-    const u32 rightParam = offset + 3 < parameters.count ? parameters.values[offset + 3] : 0;
-    const u32 rawTop = topParam ? topParam : 1;
-    const u32 rawLeft = leftParam ? leftParam : 1;
-    const u32 rawBottom = bottomParam ? bottomParam : rows;
-    const u32 rawRight = rightParam ? rightParam : columns;
+    const u32 rawTop = parameters.top ? parameters.top : 1;
+    const u32 rawLeft = parameters.left ? parameters.left : 1;
+    const u32 rawBottom = parameters.bottom ? parameters.bottom : rows;
+    const u32 rawRight = parameters.right ? parameters.right : columns;
     if (rawTop > rawBottom || rawLeft > rawRight) {
         return false;
     }
@@ -3094,298 +3129,120 @@ void VtermImpl::printLine(u16 row) {
     host.print(stringView(line));
 }
 
-void VtermImpl::csi_MC(const ParserParameters& parameters, bool privateMode) {
-    const u32 operation = parameters.values[0];
-    if (privateMode) {
-        if (operation == 1) {
-            printLine(posY);
-        } else if (operation == 4) {
-            autoPrintMode = false;
-        } else if (operation == 5) {
-            autoPrintMode = true;
-        }
-    } else {
-        if (operation == 0) {
-            std::string screen;
-            const u16 firstRow = printExtentMode ? 0 : marginTop;
-            const u16 lastRow = printExtentMode ? composer.rows : marginBottom;
-            for (u16 row = firstRow; row < lastRow; ++row) {
-                screen += printableLine(row);
-            }
-            if (printFormFeedMode) {
-                screen.push_back('\f');
-            }
-            host.print(stringView(screen));
-        } else if (operation == 4) {
-            printerControllerMode = false;
-        } else if (operation == 5) {
-            printerControllerMode = true;
-        }
+void VtermImpl::mediaCopyScreen() {
+    std::string screen;
+    const u16 firstRow = printExtentMode ? 0 : marginTop;
+    const u16 lastRow = printExtentMode ? composer.rows : marginBottom;
+    for (u16 row = firstRow; row < lastRow; ++row) {
+        screen += printableLine(row);
+    }
+    if (printFormFeedMode) {
+        screen.push_back('\f');
+    }
+    host.print(stringView(screen));
+}
+
+void VtermImpl::mediaCopyLine() {
+    printLine(posY);
+}
+
+void VtermImpl::setAutoPrint(bool enabled) {
+    autoPrintMode = enabled;
+}
+
+void VtermImpl::csi_DECLL(u32 operation, bool final) {
+    if (operation == 0) {
+        ledState = 0;
+    } else if (operation >= 1 && operation <= 3) {
+        ledState |= (u8)(1u << (operation - 1));
+    } else if (operation >= 21 && operation <= 23) {
+        ledState &= (u8)(~(1u << (operation - 21)));
+    }
+    if (final) {
+        host.leds(ledState);
     }
 }
 
-void VtermImpl::csi_DECLL(const ParserParameters& parameters) {
-    for (size_t index = 0; index < parameters.count; ++index) {
-        const u32 operation = parameters.values[index];
-        if (operation == 0) {
-            ledState = 0;
-        } else if (operation >= 1 && operation <= 3) {
-            ledState |= (u8)(1u << (operation - 1));
-        } else if (operation >= 21 && operation <= 23) {
-            ledState &= (u8)(~(1u << (operation - 21)));
-        }
-    }
-    host.leds(ledState);
+void VtermImpl::sgrReset() {
+    resetAttrs();
 }
 
-void VtermImpl::csi_SGR(const ParserParameters& parameters) {
-    const auto parseColor = [&](size_t& index, CellColor& color, int* palette) {
-        if (index + 1 >= parameters.count) {
-            return false;
-        }
-        const bool colon = parameters.separators[index + 1] == ':';
-        const u32 mode = parameters.values[++index];
-        if (colon) {
-            const size_t first = index + 1;
-            size_t end = index;
-            while (end + 1 < parameters.count && parameters.separators[end + 1] == ':') {
-                ++end;
-            }
-            index = end;
+void VtermImpl::sgrBold(bool enabled) {
+    attrs.bold = enabled;
+    setFgFromPalIx();
+}
 
-            if (mode == 5) {
-                if (end - first + 1 != 1 || parameters.values[first] > 255) {
-                    return false;
-                }
-                color = CellColor::indexed(parameters.values[first]);
-                if (palette != nullptr) {
-                    *palette = parameters.values[first];
-                }
-                return true;
-            }
-            const size_t count = end - first + 1;
-            const size_t rgbFirst = first + (count >= 4);
-            if (mode != 2 || count < 3 || (count == 3 && !parameters.present[first]) || !parameters.present[rgbFirst] || !parameters.present[rgbFirst + 1] || !parameters.present[rgbFirst + 2] || parameters.values[rgbFirst] > 255 || parameters.values[rgbFirst + 1] > 255 || parameters.values[rgbFirst + 2] > 255) {
-                return false;
-            }
-            color = CellColor::direct({
-                (u8)(parameters.values[rgbFirst]),
-                (u8)(parameters.values[rgbFirst + 1]),
-                (u8)(parameters.values[rgbFirst + 2]),
-            });
-            if (palette != nullptr) {
-                *palette = -1;
-            }
-            return true;
-        }
+void VtermImpl::sgrFaint(bool enabled) {
+    attrs.faint = enabled;
+}
 
-        if (mode == 5) {
-            if (index + 1 >= parameters.count) {
-                return false;
-            }
-            const unsigned paletteIndex = parameters.values[++index];
-            if (paletteIndex > 255) {
-                return false;
-            }
-            color = CellColor::indexed(paletteIndex);
-            if (palette != nullptr) {
-                *palette = paletteIndex;
-            }
-            return true;
-        }
-        if (mode != 2) {
-            return false;
-        }
+void VtermImpl::sgrItalic(bool enabled) {
+    attrs.italic = enabled;
+}
 
-        const size_t first = index + 1;
-        const size_t available = parameters.count - first;
-        index += min<size_t>(available, 3);
-        if (available < 3 || parameters.values[first] > 255 || parameters.values[first + 1] > 255 || parameters.values[first + 2] > 255) {
-            return false;
-        }
-        color = CellColor::direct({
-            (u8)(parameters.values[first]),
-            (u8)(parameters.values[first + 1]),
-            (u8)(parameters.values[first + 2]),
-        });
-        index = first + 2;
-        if (palette != nullptr) {
-            *palette = -1;
-        }
-        return true;
-    };
+void VtermImpl::sgrUnderline(u8 style) {
+    attrs.underline_style = style;
+}
 
-    for (size_t index = 0; index < parameters.count; ++index) {
-        const u32 attribute = parameters.values[index];
-        switch (attribute) {
-            case 0:
-                resetAttrs();
-                break;
-            case 1:
-                attrs.bold = 1;
-                setFgFromPalIx();
-                break;
-            case 2:
-                attrs.faint = 1;
-                break;
-            case 3:
-                attrs.italic = 1;
-                break;
-            case 4:
-                if (index + 1 < parameters.count && parameters.separators[index + 1] == ':') {
-                    const u32 style = parameters.values[++index];
-                    if (style <= 5) {
-                        attrs.underline_style = style;
-                    }
-                } else {
-                    attrs.underline_style = 1;
-                }
-                break;
-            case 5:
-            case 6:
-                attrs.blink = 1;
-                break;
-            case 7:
-                if (!reverseVideo) {
-                    reverseVideo = true;
-                    attrs.inverse = 1;
-                }
-                break;
-            case 8:
-                attrs.conceal = 1;
-                break;
-            case 9:
-                attrs.strike = 1;
-                break;
-            case 10:
-            case 11:
-            case 12:
-            case 13:
-            case 14:
-            case 15:
-            case 16:
-            case 17:
-            case 18:
-            case 19:
-                break;
-            case 21:
-                attrs.underline_style = 2;
-                break;
-            case 22:
-                attrs.bold = 0;
-                attrs.faint = 0;
-                setFgFromPalIx();
-                break;
-            case 23:
-                attrs.italic = 0;
-                break;
-            case 24:
-                attrs.underline_style = 0;
-                break;
-            case 25:
-                attrs.blink = 0;
-                break;
-            case 27:
-                if (reverseVideo) {
-                    reverseVideo = false;
-                    attrs.inverse = 0;
-                }
-                break;
-            case 28:
-                attrs.conceal = 0;
-                break;
-            case 29:
-                attrs.strike = 0;
-                break;
-            case 30:
-            case 31:
-            case 32:
-            case 33:
-            case 34:
-            case 35:
-            case 36:
-            case 37:
-                fgPalIx = attribute - 30;
-                setFgFromPalIx();
-                break;
-            case 38: {
-                CellColor color = attrForeground();
-                if (parseColor(index, color, &fgPalIx)) {
-                    setAttrForeground(color);
-                }
-                if (underlineColorDefault) {
-                    setAttrUnderlineColor(attrForeground());
-                }
-            } break;
-            case 39:
-                fgPalIx = defaultFgPalIx;
-                setFgFromPalIx();
-                break;
-            case 40:
-            case 41:
-            case 42:
-            case 43:
-            case 44:
-            case 45:
-            case 46:
-            case 47:
-                bgPalIx = attribute - 40;
-                setBgFromPalIx();
-                break;
-            case 48: {
-                CellColor color = attrBackground();
-                if (parseColor(index, color, &bgPalIx)) {
-                    setAttrBackground(color);
-                }
-            } break;
-            case 49:
-                bgPalIx = defaultBgPalIx;
-                setBgFromPalIx();
-                break;
-            case 53:
-                attrs.overline = 1;
-                break;
-            case 55:
-                attrs.overline = 0;
-                break;
-            case 58: {
-                underlinePalIx = -1;
-                CellColor color = attrUnderlineColor();
-                if (parseColor(index, color, &underlinePalIx)) {
-                    setAttrUnderlineColor(color);
-                    underlineColorDefault = false;
-                }
-            } break;
-            case 59:
-                underlineColorDefault = true;
-                setAttrUnderlineColor(attrForeground());
-                break;
-            case 90:
-            case 91:
-            case 92:
-            case 93:
-            case 94:
-            case 95:
-            case 96:
-            case 97:
-                fgPalIx = attribute - 82;
-                setFgFromPalIx();
-                break;
-            case 100:
-            case 101:
-            case 102:
-            case 103:
-            case 104:
-            case 105:
-            case 106:
-            case 107:
-                bgPalIx = attribute - 92;
-                setBgFromPalIx();
-                break;
-            default:
-                break;
-        }
+void VtermImpl::sgrBlink(bool enabled) {
+    attrs.blink = enabled;
+}
+
+void VtermImpl::sgrInverse(bool enabled) {
+    reverseVideo = enabled;
+    attrs.inverse = enabled;
+}
+
+void VtermImpl::sgrConceal(bool enabled) {
+    attrs.conceal = enabled;
+}
+
+void VtermImpl::sgrStrike(bool enabled) {
+    attrs.strike = enabled;
+}
+
+void VtermImpl::sgrOverline(bool enabled) {
+    attrs.overline = enabled;
+}
+
+void VtermImpl::sgrForeground(CellColor color, int paletteIndex, bool brightenBold) {
+    fgPalIx = paletteIndex;
+    setAttrForeground(color);
+    if (brightenBold && opts.boldColors && attrs.bold && paletteIndex >= 0 && paletteIndex <= 7) {
+        attrs.setForeground(CellColor::indexed(paletteIndex + 8));
     }
+    if (underlineColorDefault) {
+        setAttrUnderlineColor(attrForeground());
+    }
+}
+
+void VtermImpl::sgrDefaultForeground() {
+    fgPalIx = defaultFgPalIx;
+    setFgFromPalIx();
+}
+
+void VtermImpl::sgrBackground(CellColor color, int paletteIndex) {
+    bgPalIx = paletteIndex;
+    setAttrBackground(color);
+}
+
+void VtermImpl::sgrDefaultBackground() {
+    bgPalIx = defaultBgPalIx;
+    setBgFromPalIx();
+}
+
+void VtermImpl::sgrUnderlineColor(CellColor color, int paletteIndex) {
+    underlinePalIx = paletteIndex;
+    setAttrUnderlineColor(color);
+    underlineColorDefault = false;
+}
+
+void VtermImpl::sgrDefaultUnderlineColor() {
+    underlineColorDefault = true;
+    setAttrUnderlineColor(attrForeground());
+}
+
+void VtermImpl::sgrFinish() {
     if (underlineColorDefault) {
         setAttrUnderlineColor(reverseVideo ? attrBackground() : attrForeground());
     }
@@ -3402,39 +3259,37 @@ void VtermImpl::esc_RI() {
     }
 }
 
-void VtermImpl::csi_ecma48_SL(const ParserParameters& parameters) {
+void VtermImpl::csi_ecma48_SL(u32 count) {
     if (isCursorInsideMargins()) {
-        u32 arg = parameters.values[0] ? parameters.values[0] : 1u;
-        arg = std::min<u32>(arg, nColsEff - hMargin);
-        deleteCols(hMargin, (u16)(arg));
+        count = std::min<u32>(count, nColsEff - hMargin);
+        deleteCols(hMargin, (u16)(count));
     }
 }
 
-void VtermImpl::csi_ecma48_SR(const ParserParameters& parameters) {
+void VtermImpl::csi_ecma48_SR(u32 count) {
     if (isCursorInsideMargins()) {
-        u32 arg = parameters.values[0] ? parameters.values[0] : 1u;
-        arg = std::min<u32>(arg, nColsEff - hMargin);
-        insertCols(hMargin, (u16)(arg));
+        count = std::min<u32>(count, nColsEff - hMargin);
+        insertCols(hMargin, (u16)(count));
     }
 }
 
-void VtermImpl::csi_DECSCUSR(const ParserParameters& parameters) {
+void VtermImpl::csi_DECSCUSR(u32 style) {
     using CS = TerminalCursor::Style;
-    switch (parameters.values[0]) {
+    switch (style) {
         case 0:
         case 1:
         case 2:
-            cursorStyleParam = parameters.values[0] == 0 ? 1 : parameters.values[0];
+            cursorStyleParam = style == 0 ? 1 : style;
             cursorShape = CS::filled_block;
             break;
         case 3:
         case 4:
-            cursorStyleParam = parameters.values[0];
+            cursorStyleParam = style;
             cursorShape = CS::underline;
             break;
         case 5:
         case 6:
-            cursorStyleParam = parameters.values[0];
+            cursorStyleParam = style;
             cursorShape = CS::bar;
             break;
         default:
@@ -3447,19 +3302,17 @@ void VtermImpl::csi_DECSCUSR(const ParserParameters& parameters) {
     frame_alt->setBlinkState(true, cursorBlinkMode);
 }
 
-void VtermImpl::csi_DECIC(const ParserParameters& parameters) {
-    u32 arg = parameters.values[0] ? parameters.values[0] : 1u;
+void VtermImpl::csi_DECIC(u32 count) {
     if (isCursorInsideMargins()) {
-        arg = min<u32>(arg, nColsEff - posX);
-        insertCols(posX, (u16)(arg));
+        count = min<u32>(count, nColsEff - posX);
+        insertCols(posX, (u16)(count));
     }
 }
 
-void VtermImpl::csi_DECDC(const ParserParameters& parameters) {
-    u32 arg = parameters.values[0] ? parameters.values[0] : 1u;
+void VtermImpl::csi_DECDC(u32 count) {
     if (isCursorInsideMargins()) {
-        arg = min<u32>(arg, nColsEff - posX);
-        deleteCols(posX, (u16)(arg));
+        count = min<u32>(count, nColsEff - posX);
+        deleteCols(posX, (u16)(count));
     }
 }
 
@@ -3509,12 +3362,8 @@ void VtermImpl::esc_EPA() {
     attrs.protected_char &= ~TerminalCell::isoProtection;
 }
 
-void VtermImpl::csi_SCOSC_SLRM(const ParserParameters& parameters) {
-    if (horizMarginMode) {
-        csi_SLRM(parameters);
-    } else {
-        csi_SCOSC();
-    }
+bool VtermImpl::horizontalMarginMode() const {
+    return horizMarginMode;
 }
 
 void VtermImpl::csi_SCOSC() {
@@ -3550,33 +3399,30 @@ void VtermImpl::esc_DECRC() {
     }
 }
 
-void VtermImpl::csi_CUU(const ParserParameters& parameters) {
-    u32 arg = parameters.values[0] ? parameters.values[0] : 1;
+void VtermImpl::csi_CUU(u32 count) {
     const u16 top = posY >= marginTop ? marginTop : 0;
-    arg = std::min<u32>(arg, posY - top);
-    posY -= arg;
+    count = std::min<u32>(count, posY - top);
+    posY -= count;
     lastCol = false;
 }
 
-void VtermImpl::csi_CUD(const ParserParameters& parameters) {
-    u32 arg = parameters.values[0] ? parameters.values[0] : 1;
+void VtermImpl::csi_CUD(u32 count) {
     const u16 bottom = posY < marginBottom ? marginBottom : composer.rows;
-    arg = std::min<u32>(arg, bottom - posY - 1);
-    posY += arg;
+    count = std::min<u32>(count, bottom - posY - 1);
+    posY += count;
     lastCol = false;
 }
 
-void VtermImpl::csi_CUF(const ParserParameters& parameters) {
-    u32 arg = parameters.values[0] ? parameters.values[0] : 1;
+void VtermImpl::csi_CUF(u32 count) {
     const bool insideMargins = posX >= hMargin && posX < nColsEff;
     const u16 right = insideMargins ? nColsEff : composer.columns;
-    arg = std::min<u32>(arg, right - posX - 1);
-    posX += arg;
+    count = std::min<u32>(count, right - posX - 1);
+    posX += count;
     lastCol = false;
 }
 
-void VtermImpl::csi_CUB(const ParserParameters& parameters) {
-    moveCursorBackward(parameters.values[0] ? parameters.values[0] : 1);
+void VtermImpl::csi_CUB(u32 count) {
+    moveCursorBackward(count);
 }
 
 void VtermImpl::moveCursorBackward(u32 count) {
@@ -3608,41 +3454,38 @@ void VtermImpl::moveCursorBackward(u32 count) {
     lastCol = false;
 }
 
-void VtermImpl::csi_CNL(const ParserParameters& parameters) {
-    csi_CUD(parameters);
+void VtermImpl::csi_CNL(u32 count) {
+    csi_CUD(count);
     inp_CR();
 }
 
-void VtermImpl::csi_CPL(const ParserParameters& parameters) {
-    csi_CUU(parameters);
+void VtermImpl::csi_CPL(u32 count) {
+    csi_CUU(count);
     inp_CR();
 }
 
-void VtermImpl::csi_CHA(const ParserParameters& parameters) {
-    u32 col = parameters.values[0] ? parameters.values[0] : 1;
+void VtermImpl::csi_CHA(u32 column) {
     if (originMode == OriginMode::ScrollingRegion) {
-        col = std::max<u32>(1, std::min<u32>(col, nColsEff - hMargin));
-        posX = hMargin + col - 1;
+        column = std::max<u32>(1, std::min<u32>(column, nColsEff - hMargin));
+        posX = hMargin + column - 1;
     } else {
-        col = std::max<u32>(1, std::min<u32>(col, composer.columns));
-        posX = col - 1;
+        column = std::max<u32>(1, std::min<u32>(column, composer.columns));
+        posX = column - 1;
     }
     lastCol = false;
 }
 
-void VtermImpl::csi_HPA(const ParserParameters& parameters) {
-    csi_CHA(parameters);
+void VtermImpl::csi_HPA(u32 column) {
+    csi_CHA(column);
 }
 
-void VtermImpl::csi_HPR(const ParserParameters& parameters) {
-    const u32 arg = parameters.values[0] ? parameters.values[0] : 1;
+void VtermImpl::csi_HPR(u32 count) {
     const u16 right = originMode == OriginMode::ScrollingRegion ? nColsEff : composer.columns;
-    posX = (u16)(std::min<u64>((u64)(posX) + arg, right - 1));
+    posX = (u16)(std::min<u64>((u64)(posX) + count, right - 1));
     lastCol = false;
 }
 
-void VtermImpl::csi_VPA(const ParserParameters& parameters) {
-    u32 row = parameters.values[0] ? parameters.values[0] : 1;
+void VtermImpl::csi_VPA(u32 row) {
     if (originMode == OriginMode::ScrollingRegion) {
         row = std::max<u32>(1, std::min<u32>(row, marginBottom - marginTop));
         posY = marginTop + row - 1;
@@ -3653,37 +3496,33 @@ void VtermImpl::csi_VPA(const ParserParameters& parameters) {
     lastCol = false;
 }
 
-void VtermImpl::csi_VPR(const ParserParameters& parameters) {
-    const u32 arg = parameters.values[0] ? parameters.values[0] : 1;
+void VtermImpl::csi_VPR(u32 count) {
     const u16 bottom = originMode == OriginMode::ScrollingRegion ? marginBottom : composer.rows;
-    posY = (u16)(std::min<u64>((u64)(posY) + arg, bottom - 1));
+    posY = (u16)(std::min<u64>((u64)(posY) + count, bottom - 1));
     lastCol = false;
 }
 
-void VtermImpl::csi_CUP(const ParserParameters& parameters) {
-    u32 row = parameters.values[0] ? parameters.values[0] : 1;
-    u32 col = (parameters.count > 1 && parameters.values[1]) ? parameters.values[1] : 1;
+void VtermImpl::csi_CUP(u32 row, u32 column) {
     switch (originMode) {
         case OriginMode::Absolute:
             row = std::max<u32>(1, std::min<u32>(row, composer.rows)) - 1;
-            col = std::max<u32>(1, std::min<u32>(col, composer.columns)) - 1;
+            column = std::max<u32>(1, std::min<u32>(column, composer.columns)) - 1;
             break;
         case OriginMode::ScrollingRegion:
             row = marginTop + std::max<u32>(1, std::min<u32>(row, marginBottom - marginTop)) - 1;
-            col = hMargin + std::max<u32>(1, std::min<u32>(col, nColsEff - hMargin)) - 1;
+            column = hMargin + std::max<u32>(1, std::min<u32>(column, nColsEff - hMargin)) - 1;
             break;
     }
 
-    posX = col;
+    posX = column;
     posY = row;
     lastCol = false;
 }
 
-void VtermImpl::csi_SU(const ParserParameters& parameters) {
-    u32 arg = parameters.values[0] ? parameters.values[0] : 1;
-    arg = std::min<u32>(arg, marginBottom - marginTop);
+void VtermImpl::csi_SU(u32 count) {
+    count = std::min<u32>(count, marginBottom - marginTop);
     const bool pendingWrap = lastCol;
-    scrollRegionUp((u16)(arg));
+    scrollRegionUp((u16)(count));
     lastCol = pendingWrap;
 }
 
@@ -3712,22 +3551,20 @@ void VtermImpl::csi_SD(u32 count) {
     lastCol = pendingWrap;
 }
 
-void VtermImpl::csi_CHT(const ParserParameters& parameters) {
-    u32 arg = parameters.values[0] ? parameters.values[0] : 1;
-    arg = std::min<u32>(arg, composer.columns);
-    if (arg == 1) {
+void VtermImpl::csi_CHT(u32 count) {
+    count = std::min<u32>(count, composer.columns);
+    if (count == 1) {
         inp_HT();
     } else {
-        for (int k = 0; k < arg; ++k) {
+        for (u32 k = 0; k < count; ++k) {
             jumpToNextTabStop();
         }
     }
 }
 
-void VtermImpl::csi_CBT(const ParserParameters& parameters) {
-    u32 arg = parameters.values[0] ? parameters.values[0] : 1;
-    arg = std::min<u32>(arg, composer.columns);
-    for (u32 k = 0; k < arg; ++k) {
+void VtermImpl::csi_CBT(u32 count) {
+    count = std::min<u32>(count, composer.columns);
+    for (u32 k = 0; k < count; ++k) {
         const u16 left = originMode == OriginMode::ScrollingRegion ? hMargin : 0;
         if (!tabStopsCustomized) {
             if (posX > 0 && posX % 8 == 0) {
@@ -3748,24 +3585,23 @@ void VtermImpl::csi_CBT(const ParserParameters& parameters) {
     }
 }
 
-void VtermImpl::csi_REP(const ParserParameters& parameters) {
+void VtermImpl::csi_REP(u32 count) {
     const u32 preceding = utf8dec.getUnicode();
     if (!preceding || codepointWidth(preceding) == 0) {
         return;
     }
-    u32 arg = parameters.values[0] ? parameters.values[0] : 1;
     const u64 observableCells = ((u64)(opts.saveLines) + composer.rows + 1) * composer.columns;
-    if (arg > observableCells) {
-        arg = (u32)(observableCells + (arg - observableCells) % composer.columns);
+    if (count > observableCells) {
+        count = (u32)(observableCells + (count - observableCells) % composer.columns);
     }
-    for (u32 k = 0; k < arg; ++k) {
+    for (u32 k = 0; k < count; ++k) {
         placeGraphicChar();
     }
 }
 
-void VtermImpl::csi_ED(const ParserParameters& parameters) {
+void VtermImpl::csi_ED(u32 mode) {
     normalizeCursorPos();
-    switch (parameters.values[0]) {
+    switch (mode) {
         case 0:
             eraseEcmaRangeInRow(posY, posX, composer.columns - posX);
             for (u16 pY = posY + 1; pY < composer.rows; ++pY) {
@@ -3792,9 +3628,9 @@ void VtermImpl::csi_ED(const ParserParameters& parameters) {
     }
 }
 
-void VtermImpl::csi_EL(const ParserParameters& parameters) {
+void VtermImpl::csi_EL(u32 mode) {
     normalizeCursorPos();
-    switch (parameters.values[0]) {
+    switch (mode) {
         case 0:
             eraseEcmaRangeInRow(posY, posX, composer.columns - posX);
             break;
@@ -3809,16 +3645,16 @@ void VtermImpl::csi_EL(const ParserParameters& parameters) {
     }
 }
 
-void VtermImpl::csi_DECSED(const ParserParameters& parameters) {
+void VtermImpl::csi_DECSED(u32 mode) {
     normalizeCursorPos();
-    if (parameters.values[0] == 0 || parameters.values[0] == 2) {
-        const u16 firstRow = parameters.values[0] == 2 ? 0 : posY;
+    if (mode == 0 || mode == 2) {
+        const u16 firstRow = mode == 2 ? 0 : posY;
         const u16 lastRow = composer.rows - 1;
         for (u16 row = firstRow; row <= lastRow; ++row) {
-            const u16 first = row == posY && parameters.values[0] == 0 ? posX : 0;
+            const u16 first = row == posY && mode == 0 ? posX : 0;
             selectiveEraseRangeInRow(row, first, composer.columns - first);
         }
-    } else if (parameters.values[0] == 1) {
+    } else if (mode == 1) {
         for (u16 row = 0; row <= posY; ++row) {
             const u16 count = row == posY ? posX + 1 : composer.columns;
             selectiveEraseRangeInRow(row, 0, count);
@@ -3826,38 +3662,38 @@ void VtermImpl::csi_DECSED(const ParserParameters& parameters) {
     }
 }
 
-void VtermImpl::csi_DECSEL(const ParserParameters& parameters) {
+void VtermImpl::csi_DECSEL(u32 mode) {
     normalizeCursorPos();
-    if (parameters.values[0] == 0) {
+    if (mode == 0) {
         selectiveEraseRangeInRow(posY, posX, composer.columns - posX);
-    } else if (parameters.values[0] == 1) {
+    } else if (mode == 1) {
         selectiveEraseRangeInRow(posY, 0, posX + 1);
-    } else if (parameters.values[0] == 2) {
+    } else if (mode == 2) {
         selectiveEraseRangeInRow(posY, 0, composer.columns);
     }
 }
 
-void VtermImpl::csi_DECSCA(const ParserParameters& parameters) {
-    if (parameters.values[0] == 1) {
+void VtermImpl::csi_DECSCA(u32 mode) {
+    if (mode == 1) {
         attrs.protected_char |= TerminalCell::decProtection;
     } else {
         attrs.protected_char &= ~TerminalCell::decProtection;
     }
 }
 
-void VtermImpl::csi_DECFRA(const ParserParameters& parameters) {
-    if (parameters.values[0] >= 32 && parameters.values[0] <= 0x10ffff) {
+void VtermImpl::csi_DECFRA(u32 codepoint, CsiRectangle parameters) {
+    if (codepoint >= 32 && codepoint <= 0x10ffff) {
         Rectangle rectangle;
-        if (!rectangleFromParams(parameters, 1, rectangle)) {
+        if (!rectangleFromParams(parameters, rectangle)) {
             return;
         }
-        cf->fillRectangle(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, parameters.values[0], attrs, eraseAttrs);
+        cf->fillRectangle(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, codepoint, attrs, eraseAttrs);
     }
 }
 
-void VtermImpl::csi_DECERA(const ParserParameters& parameters, bool selective) {
+void VtermImpl::csi_DECERA(CsiRectangle parameters, bool selective) {
     Rectangle rectangle;
-    if (!rectangleFromParams(parameters, 0, rectangle)) {
+    if (!rectangleFromParams(parameters, rectangle)) {
         return;
     }
     for (u16 y = rectangle.top; y < rectangle.bottom; ++y) {
@@ -3869,17 +3705,13 @@ void VtermImpl::csi_DECERA(const ParserParameters& parameters, bool selective) {
     }
 }
 
-void VtermImpl::csi_DECCRA(const ParserParameters& parameters) {
+void VtermImpl::csi_DECCRA(CsiRectangle parameters, u32 targetRow, u32 targetColumn) {
     Rectangle source;
-    if (!rectangleFromParams(parameters, 0, source)) {
+    if (!rectangleFromParams(parameters, source)) {
         return;
     }
     u16 rowBase, columnBase, rowLimit, columnLimit;
     rectangleOrigin(rowBase, columnBase, rowLimit, columnLimit);
-    const u32 targetRowParam = 5 < parameters.count ? parameters.values[5] : 0;
-    const u32 targetColumnParam = 6 < parameters.count ? parameters.values[6] : 0;
-    const u32 targetRow = targetRowParam ? targetRowParam : 1;
-    const u32 targetColumn = targetColumnParam ? targetColumnParam : 1;
     const u16 targetTop = rowBase + std::min<u32>(targetRow, rowLimit - rowBase) - 1;
     const u16 targetLeft = columnBase + std::min<u32>(targetColumn, columnLimit - columnBase) - 1;
     const u16 height = std::min<u16>(source.bottom - source.top, rowLimit - targetTop);
@@ -3887,43 +3719,37 @@ void VtermImpl::csi_DECCRA(const ParserParameters& parameters) {
     cf->copyRectangle(source.top, source.left, targetTop, targetLeft, height, width, eraseAttrs);
 }
 
-void VtermImpl::csi_DECCARA(const ParserParameters& parameters, bool reverse) {
-    if (parameters.count >= 5) {
-        Rectangle rectangle;
-        if (!rectangleFromParams(parameters, 0, rectangle)) {
-            return;
-        }
-        cf->changeRectangleAttributes(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, parameters.values + 4, parameters.count - 4, reverse);
+void VtermImpl::csi_DECCARA(CsiRectangle parameters, u32 mode, bool reverse) {
+    Rectangle rectangle;
+    if (!rectangleFromParams(parameters, rectangle)) {
+        return;
     }
+    cf->changeRectangleAttributes(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, &mode, 1, reverse);
 }
 
-void VtermImpl::csi_DECRQCRA(const ParserParameters& parameters) {
-    if (parameters.count >= 6) {
-        Rectangle rectangle;
-        if (!rectangleFromParams(parameters, 2, rectangle)) {
-            return;
-        }
-        const u16 checksum = cf->checksum(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right);
-        StringBuilder response;
-        response << parameters.values[0] << StringView(u8"!~") << Hex{checksum, 4, true};
-        writeDcsResponse(StringView(response));
+void VtermImpl::csi_DECRQCRA(u32 requestId, CsiRectangle parameters) {
+    Rectangle rectangle;
+    if (!rectangleFromParams(parameters, rectangle)) {
+        return;
     }
+    const u16 checksum = cf->checksum(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right);
+    StringBuilder response;
+    response << requestId << StringView(u8"!~") << Hex{checksum, 4, true};
+    writeDcsResponse(StringView(response));
 }
 
-void VtermImpl::csi_IL(const ParserParameters& parameters) {
+void VtermImpl::csi_IL(u32 count) {
     if (isCursorInsideMargins()) {
-        u32 arg = parameters.values[0] ? parameters.values[0] : 1;
-        arg = std::min<u32>(arg, marginBottom - posY);
-        insertRows(posY, (u16)(arg));
+        count = std::min<u32>(count, marginBottom - posY);
+        insertRows(posY, (u16)(count));
         inp_CR();
     }
 }
 
-void VtermImpl::csi_DL(const ParserParameters& parameters) {
+void VtermImpl::csi_DL(u32 count) {
     if (isCursorInsideMargins()) {
-        u32 arg = parameters.values[0] ? parameters.values[0] : 1;
-        arg = std::min<u32>(arg, marginBottom - posY);
-        deleteRows(posY, (u16)(arg));
+        count = std::min<u32>(count, marginBottom - posY);
+        deleteRows(posY, (u16)(count));
         inp_CR();
     }
 }
@@ -3936,33 +3762,28 @@ void VtermImpl::csi_ICH(u32 count) {
     lastCol = false;
 }
 
-void VtermImpl::csi_DCH(const ParserParameters& parameters) {
+void VtermImpl::csi_DCH(u32 count) {
     if (posX >= hMargin && posX < nColsEff) {
-        u32 arg = parameters.values[0] ? parameters.values[0] : 1;
-        arg = min<u32>(arg, nColsEff - posX);
-        cf->deleteCells(posY, posX, nColsEff, (u16)(arg), eraseAttrs);
+        count = min<u32>(count, nColsEff - posX);
+        cf->deleteCells(posY, posX, nColsEff, (u16)(count), eraseAttrs);
     }
     lastCol = false;
 }
 
-void VtermImpl::csi_ECH(const ParserParameters& parameters) {
-    u32 arg = parameters.values[0] ? parameters.values[0] : 1;
+void VtermImpl::csi_ECH(u32 count) {
     const u32 len = composer.columns - posX;
-    arg = std::min(arg, len);
-    eraseEcmaRangeInRow(posY, posX, arg);
+    count = std::min(count, len);
+    eraseEcmaRangeInRow(posY, posX, count);
     lastCol = false;
 }
 
-void VtermImpl::csi_STBM(const ParserParameters& parameters) {
-    if (parameters.count <= 2) {
-        u32 newMarginTop = parameters.values[0] > 0 ? parameters.values[0] - 1 : 0;
-        u32 newMarginBottom = parameters.count < 2 || parameters.values[1] == 0 ? composer.rows : parameters.values[1];
-
-        const bool illegal = newMarginTop >= composer.rows || newMarginBottom > composer.rows || newMarginBottom <= newMarginTop + 1;
-        if (!illegal && (newMarginTop != marginTop || newMarginBottom != marginBottom)) {
-            marginTop = (u16)(newMarginTop);
-            marginBottom = (u16)(newMarginBottom);
-        }
+void VtermImpl::csi_STBM(u32 top, u32 bottom, bool valid) {
+    const u32 newMarginTop = top > 0 ? top - 1 : 0;
+    const u32 newMarginBottom = bottom == 0 ? composer.rows : bottom;
+    const bool illegal = newMarginTop >= composer.rows || newMarginBottom > composer.rows || newMarginBottom <= newMarginTop + 1;
+    if (valid && !illegal && (newMarginTop != marginTop || newMarginBottom != marginBottom)) {
+        marginTop = (u16)(newMarginTop);
+        marginBottom = (u16)(newMarginBottom);
     }
 
     if (originMode == OriginMode::Absolute) {
@@ -3975,16 +3796,13 @@ void VtermImpl::csi_STBM(const ParserParameters& parameters) {
     lastCol = false;
 }
 
-void VtermImpl::csi_SLRM(const ParserParameters& parameters) {
-    if (parameters.count <= 2) {
-        u32 newMarginLeft = parameters.values[0] > 0 ? parameters.values[0] - 1 : 0;
-        u32 newMarginRight = parameters.count < 2 || parameters.values[1] == 0 ? composer.columns : parameters.values[1];
-
-        const bool illegal = newMarginLeft >= composer.columns || newMarginRight > composer.columns || newMarginRight <= newMarginLeft + 1;
-        if (!illegal && (newMarginLeft != hMargin || newMarginRight != nColsEff)) {
-            hMargin = (u16)(newMarginLeft);
-            nColsEff = (u16)(newMarginRight);
-        }
+void VtermImpl::csi_SLRM(u32 left, u32 right, bool valid) {
+    const u32 newMarginLeft = left > 0 ? left - 1 : 0;
+    const u32 newMarginRight = right == 0 ? composer.columns : right;
+    const bool illegal = newMarginLeft >= composer.columns || newMarginRight > composer.columns || newMarginRight <= newMarginLeft + 1;
+    if (valid && !illegal && (newMarginLeft != hMargin || newMarginRight != nColsEff)) {
+        hMargin = (u16)(newMarginLeft);
+        nColsEff = (u16)(newMarginRight);
     }
 
     if (originMode == OriginMode::Absolute) {
@@ -3997,8 +3815,8 @@ void VtermImpl::csi_SLRM(const ParserParameters& parameters) {
     lastCol = false;
 }
 
-void VtermImpl::csi_TBC(const ParserParameters& parameters) {
-    switch (parameters.values[0]) {
+void VtermImpl::csi_TBC(u32 mode) {
+    switch (mode) {
         case 0: {
             if (!tabStopsCustomized) {
                 for (unsigned column = 8; column < composer.columns; column += 8) {
@@ -4020,55 +3838,47 @@ void VtermImpl::csi_TBC(const ParserParameters& parameters) {
     }
 }
 
-void VtermImpl::csi_SM(const ParserParameters& parameters) {
-    for (size_t k = 0; k < parameters.count; ++k) {
-        const auto& arg = parameters.values[k];
-
-        switch (arg) {
-            case 2:
-                keyboardLocked = true;
-                break;
-            case 4:
-                insertMode = true;
-                break;
-            case 6:
-                eraseModeAll = true;
-                break;
-            case 12:
-                localEcho = false;
-                break;
-            case 20:
-                autoNewlineMode = true;
-                break;
-            default:
-                break;
-        }
+void VtermImpl::csi_SM(u32 mode) {
+    switch (mode) {
+        case 2:
+            keyboardLocked = true;
+            break;
+        case 4:
+            insertMode = true;
+            break;
+        case 6:
+            eraseModeAll = true;
+            break;
+        case 12:
+            localEcho = false;
+            break;
+        case 20:
+            autoNewlineMode = true;
+            break;
+        default:
+            break;
     }
 }
 
-void VtermImpl::csi_RM(const ParserParameters& parameters) {
-    for (size_t k = 0; k < parameters.count; ++k) {
-        const auto& arg = parameters.values[k];
-
-        switch (arg) {
-            case 2:
-                keyboardLocked = false;
-                break;
-            case 4:
-                insertMode = false;
-                break;
-            case 6:
-                eraseModeAll = false;
-                break;
-            case 12:
-                localEcho = true;
-                break;
-            case 20:
-                autoNewlineMode = false;
-                break;
-            default:
-                break;
-        }
+void VtermImpl::csi_RM(u32 mode) {
+    switch (mode) {
+        case 2:
+            keyboardLocked = false;
+            break;
+        case 4:
+            insertMode = false;
+            break;
+        case 6:
+            eraseModeAll = false;
+            break;
+        case 12:
+            localEcho = true;
+            break;
+        case 20:
+            autoNewlineMode = false;
+            break;
+        default:
+            break;
     }
 }
 
@@ -4460,40 +4270,30 @@ bool VtermImpl::getPrivateMode(u32 arg) const {
     }
 }
 
-void VtermImpl::csi_privSM(const ParserParameters& parameters) {
-    for (size_t k = 0; k < parameters.count; ++k) {
-        setPrivMode(parameters.values[k], true);
+void VtermImpl::csi_privSM(u32 mode) {
+    setPrivMode(mode, true);
+}
+
+void VtermImpl::csi_privRM(u32 mode) {
+    setPrivMode(mode, false);
+}
+
+void VtermImpl::csi_privSave(u32 mode) {
+    switch (mode) {
+        case 2:
+        case 1048:
+        case 1049:
+            break;
+        default:
+            savedPrivModes[mode] = getPrivateMode(mode);
+            break;
     }
 }
 
-void VtermImpl::csi_privRM(const ParserParameters& parameters) {
-    for (size_t k = 0; k < parameters.count; ++k) {
-        setPrivMode(parameters.values[k], false);
-    }
-}
-
-void VtermImpl::csi_privSave(const ParserParameters& parameters) {
-    for (size_t k = 0; k < parameters.count; ++k) {
-        const auto& arg = parameters.values[k];
-        switch (arg) {
-            case 2:
-            case 1048:
-            case 1049:
-                break;
-            default:
-                savedPrivModes[arg] = getPrivateMode(arg);
-                break;
-        }
-    }
-}
-
-void VtermImpl::csi_privRestore(const ParserParameters& parameters) {
-    for (size_t k = 0; k < parameters.count; ++k) {
-        const auto& arg = parameters.values[k];
-        const auto it = savedPrivModes.find(arg);
-        if (it != savedPrivModes.end()) {
-            setPrivMode(arg, it->second);
-        }
+void VtermImpl::csi_privRestore(u32 mode) {
+    const auto it = savedPrivModes.find(mode);
+    if (it != savedPrivModes.end()) {
+        setPrivMode(mode, it->second);
     }
 }
 
@@ -4547,11 +4347,10 @@ void VtermImpl::csi_XTVERSION() {
     writeDcsResponse(">|Shitty " SHITTY_VERSION);
 }
 
-void VtermImpl::csi_DECRQM(const ParserParameters& parameters, bool privateMode) {
+void VtermImpl::csi_DECRQM(u32 mode, bool privateMode) {
     if (compatLevel < CompatibilityLevel::VT300) {
         return;
     }
-    const u32 mode = parameters.values[0];
     u8 state = 0;
 
     if (privateMode) {
@@ -4694,73 +4493,68 @@ void VtermImpl::csi_DECRQM(const ParserParameters& parameters, bool privateMode)
     writeCsiResponse(StringView(response));
 }
 
-void VtermImpl::csi_DSR(const ParserParameters& parameters, bool privateMode) {
+void VtermImpl::dsrOperatingStatus() {
+    writeCsiResponse("0n");
+}
+
+void VtermImpl::dsrCursorPosition(bool privateMode) {
+    StringBuilder response;
     if (privateMode) {
-        switch (parameters.values[0]) {
-            case 6: {
-                StringBuilder response;
-                response << StringView(u8"?");
-                if (originMode == OriginMode::Absolute) {
-                    response << (posY + 1) << StringView(u8";") << (posX + 1);
-                } else {
-                    response << (posY - marginTop + 1) << StringView(u8";") << (posX - hMargin + 1);
-                }
-                response << StringView(u8";1R");
-                writeCsiResponse(StringView(response));
-            } break;
-            case 15:
-                writeCsiResponse("?10n");
-                break;
-            case 25:
-                writeCsiResponse(userDefinedKeysLocked ? "?21n" : "?20n");
-                break;
-            case 26:
-                writeCsiResponse("?27;1;0;0n");
-                break;
-            case 55:
-                writeCsiResponse("?50n");
-                break;
-            case 56:
-                writeCsiResponse("?57;1n");
-                break;
-            case 62:
-                writeCsiResponse("0*{");
-                break;
-            case 63: {
-                StringBuilder response;
-                response << (parameters.count > 1 ? parameters.values[1] : 0) << StringView(u8"!~0000");
-                writeDcsResponse(StringView(response));
-            } break;
-            case 75:
-                writeCsiResponse("?70n");
-                break;
-            case 85:
-                writeCsiResponse("?83n");
-                break;
-            case 996:
-                reportColorScheme();
-                break;
-            default:
-                break;
-        }
-        return;
+        response << StringView(u8"?");
     }
-    switch (parameters.values[0]) {
-        case 5:
-            writeCsiResponse("0n");
-            break;
-        case 6: {
-            StringBuilder response;
-            if (originMode == OriginMode::Absolute) {
-                response << (posY + 1) << StringView(u8";") << (posX + 1) << StringView(u8"R");
-            } else {
-                response << (posY - marginTop + 1) << StringView(u8";") << (posX - hMargin + 1) << StringView(u8"R");
-            }
-            writeCsiResponse(StringView(response));
-        } break;
-        default:
-            break;
+    if (originMode == OriginMode::Absolute) {
+        response << (posY + 1) << StringView(u8";") << (posX + 1);
+    } else {
+        response << (posY - marginTop + 1) << StringView(u8";") << (posX - hMargin + 1);
     }
+    if (privateMode) {
+        response << StringView(u8";1R");
+    } else {
+        response << StringView(u8"R");
+    }
+    writeCsiResponse(StringView(response));
+}
+
+void VtermImpl::dsrPrinterStatus() {
+    writeCsiResponse("?10n");
+}
+
+void VtermImpl::dsrUserDefinedKeys() {
+    writeCsiResponse(userDefinedKeysLocked ? "?21n" : "?20n");
+}
+
+void VtermImpl::dsrKeyboard() {
+    writeCsiResponse("?27;1;0;0n");
+}
+
+void VtermImpl::dsrLocator() {
+    writeCsiResponse("?50n");
+}
+
+void VtermImpl::dsrLocatorType() {
+    writeCsiResponse("?57;1n");
+}
+
+void VtermImpl::dsrMacroSpace() {
+    writeCsiResponse("0*{");
+}
+
+void VtermImpl::dsrMemoryChecksum(u32 requestId) {
+    StringBuilder response;
+    response << requestId << StringView(u8"!~0000");
+    writeDcsResponse(StringView(response));
+}
+
+void VtermImpl::dsrDataIntegrity() {
+    writeCsiResponse("?70n");
+}
+
+void VtermImpl::dsrMultipleSession() {
+    writeCsiResponse("?83n");
+}
+
+void VtermImpl::dsrColorScheme() {
+    reportColorScheme();
 }
 
 void VtermImpl::esch_DECALN() {
@@ -5437,20 +5231,15 @@ void VtermImpl::writeTitleResponse(char kind, StringView title) {
     writePty((const u8*)(response.data()), response.used());
 }
 
-void VtermImpl::csi_XTTITLEMODE(const ParserParameters& parameters, bool set) {
-    if (!parameters.hadAny) {
+void VtermImpl::csi_XTTITLEMODE(u32 mode, bool set, bool reset) {
+    if (reset) {
         titleModes = 0;
-    } else {
-        for (size_t k = 0; k < parameters.count; ++k) {
-            if (parameters.values[k] > 3) {
-                continue;
-            }
-            const u8 bit = (u8)(1 << parameters.values[k]);
-            if (set) {
-                titleModes |= bit;
-            } else {
-                titleModes &= (u8)~bit;
-            }
+    } else if (mode <= 3) {
+        const u8 bit = (u8)(1 << mode);
+        if (set) {
+            titleModes |= bit;
+        } else {
+            titleModes &= (u8)~bit;
         }
     }
 }
@@ -5462,204 +5251,172 @@ void VtermImpl::applyPaletteColor(u16 index, Color color) {
     frame_alt->expose();
 }
 
-void VtermImpl::csiq_DECSCL(const ParserParameters& parameters) {
-    CompatibilityLevel level;
-    switch (parameters.values[0]) {
-        case 61:
-            level = CompatibilityLevel::VT100;
-            break;
-        case 62:
-            level = CompatibilityLevel::VT200;
-            break;
-        case 63:
-            level = CompatibilityLevel::VT300;
-            break;
-        case 64:
-            level = CompatibilityLevel::VT400;
-            break;
-        case 65:
-            level = CompatibilityLevel::VT500;
-            break;
-        default:
-            return;
-    }
-
-    const u32 controlMode = parameters.count > 1 ? parameters.values[1] : 0;
-    if (controlMode > 2) {
-        return;
-    }
-
+void VtermImpl::csi_DECSCL(CompatibilityLevel level, bool enable8BitControls) {
     resetTerminal();
     compatLevel = level;
-    send8BitControls = level != CompatibilityLevel::VT100 && controlMode != 1;
+    send8BitControls = enable8BitControls;
 }
 
-void VtermImpl::csi_XTWINOPS(const ParserParameters& parameters) {
-    if (!opts.allowWindowOps) {
+void VtermImpl::xtResizePixels(u32 height, bool heightPresent, u32 width, bool widthPresent) {
+    const auto info = host.windowInfo();
+    const auto dimension = [](u32 value, bool present, u32 current, u32 maximum) {
+        return present ? value ? value : maximum : current;
+    };
+    host.windowOperation(4, dimension(height, heightPresent, composer.pixelHeight, info.screenPixelHeight), dimension(width, widthPresent, composer.pixelWidth, info.screenPixelWidth));
+}
+
+void VtermImpl::xtResizeCells(u32 height, bool heightPresent, u32 width, bool widthPresent) {
+    const auto info = host.windowInfo();
+    const auto dimension = [](u32 value, bool present, u32 current, u32 maximum) {
+        return present ? value ? value : maximum : current;
+    };
+    host.windowOperation(8, dimension(height, heightPresent, composer.rows, info.screenPixelHeight / composer.glyphHeight), dimension(width, widthPresent, composer.columns, info.screenPixelWidth / composer.glyphWidth));
+}
+
+void VtermImpl::xtWindowOperation(u32 operation, u32 first, u32 second) {
+    host.windowOperation(operation, first, second);
+}
+
+void VtermImpl::xtReportWindowState() {
+    writeCsiResponse(host.windowInfo().iconified ? "2t" : "1t");
+}
+
+void VtermImpl::xtReportWindowPosition() {
+    StringBuilder response;
+    const auto info = host.windowInfo();
+    response << StringView(u8"3;") << (u16)(info.x) << StringView(u8";") << (u16)(info.y) << StringView(u8"t");
+    writeCsiResponse(StringView(response));
+}
+
+void VtermImpl::xtReportWindowPixelSize(bool compositorSize) {
+    StringBuilder response;
+    if (compositorSize) {
+        response << StringView(u8"4;") << composer.pixelHeight << StringView(u8";") << composer.pixelWidth << StringView(u8"t");
+    } else {
+        response << StringView(u8"4;") << composer.rows * composer.glyphHeight << StringView(u8";") << composer.columns * composer.glyphWidth << StringView(u8"t");
+    }
+    writeCsiResponse(StringView(response));
+}
+
+void VtermImpl::xtReportScreenPixelSize() {
+    StringBuilder response;
+    const auto info = host.windowInfo();
+    response << StringView(u8"5;") << info.screenPixelHeight << StringView(u8";") << info.screenPixelWidth << StringView(u8"t");
+    writeCsiResponse(StringView(response));
+}
+
+void VtermImpl::xtReportCellSize() {
+    StringBuilder response;
+    response << StringView(u8"6;") << composer.glyphHeight << StringView(u8";") << composer.glyphWidth << StringView(u8"t");
+    writeCsiResponse(StringView(response));
+}
+
+void VtermImpl::xtReportGridSize() {
+    StringBuilder response;
+    response << StringView(u8"8;") << composer.rows << StringView(u8";") << composer.columns << StringView(u8"t");
+    writeCsiResponse(StringView(response));
+}
+
+void VtermImpl::xtReportScreenGridSize() {
+    StringBuilder response;
+    const auto info = host.windowInfo();
+    response << StringView(u8"9;") << info.screenPixelHeight / composer.glyphHeight << StringView(u8";") << info.screenPixelWidth / composer.glyphWidth << StringView(u8"t");
+    writeCsiResponse(StringView(response));
+}
+
+void VtermImpl::xtReportIconTitle() {
+    writeTitleResponse('L', stringView(iconTitle));
+}
+
+void VtermImpl::xtReportWindowTitle() {
+    writeTitleResponse('l', stringView(windowTitle));
+}
+
+void VtermImpl::xtPushTitle(u32 target) {
+    if (target > 2) {
         return;
     }
-    const u32 operation = parameters.values[0];
-    StringBuilder response;
-    switch (operation) {
-        case 4:
-        case 8: {
-            const auto info = host.windowInfo();
-            const u32 currentHeight = operation == 4 ? composer.pixelHeight : composer.rows;
-            const u32 currentWidth = operation == 4 ? composer.pixelWidth : composer.columns;
-            const u32 maximumHeight = operation == 4 ? info.screenPixelHeight : info.screenPixelHeight / composer.glyphHeight;
-            const u32 maximumWidth = operation == 4 ? info.screenPixelWidth : info.screenPixelWidth / composer.glyphWidth;
-            const auto dimension = [&](size_t index, u32 current, u32 maximum) {
-                if (index >= parameters.count || !parameters.present[index]) {
-                    return current;
-                }
-                return parameters.values[index] ? parameters.values[index] : maximum;
-            };
-            host.windowOperation(operation, dimension(1, currentHeight, maximumHeight), dimension(2, currentWidth, maximumWidth));
-        } break;
-        case 1:
-        case 2:
-        case 3:
-        case 5:
-        case 6:
-        case 7:
-        case 9:
-        case 10:
-            host.windowOperation(operation, parameters.count > 1 ? parameters.values[1] : 0, parameters.count > 2 ? parameters.values[2] : 0);
-            break;
-        case 11:
-            writeCsiResponse(host.windowInfo().iconified ? "2t" : "1t");
-            break;
-        case 13: {
-            const auto info = host.windowInfo();
-            response << StringView(u8"3;") << (u16)(info.x) << StringView(u8";") << (u16)(info.y) << StringView(u8"t");
-            writeCsiResponse(StringView(response));
-        } break;
-        case 14:
-            if (parameters.count > 1 && parameters.values[1] == 2) {
-                response << StringView(u8"4;") << composer.pixelHeight << StringView(u8";") << composer.pixelWidth << StringView(u8"t");
-            } else {
-                response << StringView(u8"4;") << composer.rows * composer.glyphHeight << StringView(u8";") << composer.columns * composer.glyphWidth << StringView(u8"t");
-            }
-            writeCsiResponse(StringView(response));
-            break;
-        case 15: {
-            const auto info = host.windowInfo();
-            response << StringView(u8"5;") << info.screenPixelHeight << StringView(u8";") << info.screenPixelWidth << StringView(u8"t");
-            writeCsiResponse(StringView(response));
-        } break;
-        case 16:
-            response << StringView(u8"6;") << composer.glyphHeight << StringView(u8";") << composer.glyphWidth << StringView(u8"t");
-            writeCsiResponse(StringView(response));
-            break;
-        case 18:
-            response << StringView(u8"8;") << composer.rows << StringView(u8";") << composer.columns << StringView(u8"t");
-            writeCsiResponse(StringView(response));
-            break;
-        case 19: {
-            const auto info = host.windowInfo();
-            response << StringView(u8"9;") << info.screenPixelHeight / composer.glyphHeight << StringView(u8";") << info.screenPixelWidth / composer.glyphWidth << StringView(u8"t");
-            writeCsiResponse(StringView(response));
-        } break;
-        case 20:
-            writeTitleResponse('L', stringView(iconTitle));
-            break;
-        case 21:
-            writeTitleResponse('l', stringView(windowTitle));
-            break;
-        case 22: {
-            const u32 which = parameters.count > 1 ? parameters.values[1] : 0;
-            if (which > 2) {
-                break;
-            }
-            SavedTitles saved;
-            if (which == 0 || which == 1) {
-                saved.hasIcon = true;
-                saved.icon = iconTitle;
-            }
-            if (which == 0 || which == 2) {
-                saved.hasWindow = true;
-                saved.window = windowTitle;
-            }
-            titleStack.push_back(std::move(saved));
-            if (titleStack.size() > 10) {
-                titleStack.erase(titleStack.begin());
-            }
-        } break;
-        case 23: {
-            const u32 which = parameters.count > 1 ? parameters.values[1] : 0;
-            if (which > 2) {
-                break;
-            }
-            if (!titleStack.empty()) {
-                SavedTitles saved = std::move(titleStack.back());
-                titleStack.pop_back();
-                for (auto it = titleStack.rbegin(); it != titleStack.rend() && (!saved.hasIcon || !saved.hasWindow); ++it) {
-                    if (!saved.hasIcon && it->hasIcon) {
-                        saved.hasIcon = true;
-                        saved.icon = it->icon;
-                    }
-                    if (!saved.hasWindow && it->hasWindow) {
-                        saved.hasWindow = true;
-                        saved.window = it->window;
-                    }
-                }
-                if ((which == 0 || which == 1) && saved.hasIcon) {
-                    iconTitle = saved.icon;
-                    host.osc(1, stringView(iconTitle));
-                }
-                if ((which == 0 || which == 2) && saved.hasWindow) {
-                    windowTitle = saved.window;
-                    host.osc(2, stringView(windowTitle));
-                }
-            }
-        } break;
-        default:
-            if (operation >= 24) {
-                host.windowOperation(8, operation, composer.columns);
-            }
-            break;
+    SavedTitles saved;
+    if (target == 0 || target == 1) {
+        saved.hasIcon = true;
+        saved.icon = iconTitle;
+    }
+    if (target == 0 || target == 2) {
+        saved.hasWindow = true;
+        saved.window = windowTitle;
+    }
+    titleStack.push_back(std::move(saved));
+    if (titleStack.size() > 10) {
+        titleStack.erase(titleStack.begin());
     }
 }
 
-void VtermImpl::csi_XTHIMOUSE(const ParserParameters& parameters) {
-    if (mouseTrk.mode == MouseTrackingMode::VT200_Highlight && parameters.count == 5 && parameters.values[0] != 0) {
+void VtermImpl::xtPopTitle(u32 target) {
+    if (target > 2 || titleStack.empty()) {
+        return;
+    }
+    SavedTitles saved = std::move(titleStack.back());
+    titleStack.pop_back();
+    for (auto it = titleStack.rbegin(); it != titleStack.rend() && (!saved.hasIcon || !saved.hasWindow); ++it) {
+        if (!saved.hasIcon && it->hasIcon) {
+            saved.hasIcon = true;
+            saved.icon = it->icon;
+        }
+        if (!saved.hasWindow && it->hasWindow) {
+            saved.hasWindow = true;
+            saved.window = it->window;
+        }
+    }
+    if ((target == 0 || target == 1) && saved.hasIcon) {
+        iconTitle = saved.icon;
+        host.osc(1, stringView(iconTitle));
+    }
+    if ((target == 0 || target == 2) && saved.hasWindow) {
+        windowTitle = saved.window;
+        host.osc(2, stringView(windowTitle));
+    }
+}
+
+void VtermImpl::xtResizeRows(u32 rows) {
+    host.windowOperation(8, rows, composer.columns);
+}
+
+void VtermImpl::csi_XTHIMOUSE(u32 start, u32 startX, u32 startY, u32 firstRow, u32 lastRow) {
+    if (mouseTrk.mode == MouseTrackingMode::VT200_Highlight && start != 0) {
         mouseHighlight.active = true;
-        mouseHighlight.startX = std::max<u32>(1, parameters.values[1]);
-        mouseHighlight.startY = std::max<u32>(1, parameters.values[2]);
-        mouseHighlight.firstRow = std::max<u32>(1, parameters.values[3]);
-        mouseHighlight.lastRow = std::max<u32>(mouseHighlight.firstRow, parameters.values[4]);
+        mouseHighlight.startX = std::max<u32>(1, startX);
+        mouseHighlight.startY = std::max<u32>(1, startY);
+        mouseHighlight.firstRow = std::max<u32>(1, firstRow);
+        mouseHighlight.lastRow = std::max<u32>(mouseHighlight.firstRow, lastRow);
     } else {
         mouseHighlight.active = false;
     }
 }
 
-void VtermImpl::csi_DECELR(const ParserParameters& parameters) {
-    const u32 mode = parameters.values[0];
+void VtermImpl::csi_DECELR(u32 mode, u32 units) {
     locator.enabled = mode <= 2 ? mode : 0;
-    locator.pixels = parameters.count > 1 && parameters.values[1] == 1;
+    locator.pixels = units == 1;
     locator.filter = false;
 }
 
-void VtermImpl::csi_DECSLE(const ParserParameters& parameters) {
-    for (size_t k = 0; k < parameters.count; ++k) {
-        switch (parameters.values[k]) {
-            case 0:
-                locator.reportDown = locator.reportUp = false;
-                locator.filter = false;
-                break;
-            case 1:
-                locator.reportDown = true;
-                break;
-            case 2:
-                locator.reportDown = false;
-                break;
-            case 3:
-                locator.reportUp = true;
-                break;
-            case 4:
-                locator.reportUp = false;
-                break;
-        }
+void VtermImpl::csi_DECSLE(u32 operation) {
+    switch (operation) {
+        case 0:
+            locator.reportDown = locator.reportUp = false;
+            locator.filter = false;
+            break;
+        case 1:
+            locator.reportDown = true;
+            break;
+        case 2:
+            locator.reportDown = false;
+            break;
+        case 3:
+            locator.reportUp = true;
+            break;
+        case 4:
+            locator.reportUp = false;
+            break;
     }
 }
 
@@ -5678,26 +5435,24 @@ void VtermImpl::csi_DECRQLP() {
     }
 }
 
-void VtermImpl::csi_DECEFR(const ParserParameters& parameters) {
-    const auto value = [&parameters](size_t k, u16 current) {
-        return k < parameters.count && parameters.values[k] ? (u16)(parameters.values[k]) : current;
-    };
-    locator.filterTop = value(0, locator.pixels ? locator.pixelY : locator.row);
-    locator.filterLeft = value(1, locator.pixels ? locator.pixelX : locator.column);
-    locator.filterBottom = value(2, locator.filterTop);
-    locator.filterRight = value(3, locator.filterLeft);
+void VtermImpl::csi_DECEFR(u32 top, u32 left, u32 bottom, u32 right) {
+    locator.filterTop = top ? (u16)(top) : locator.pixels ? locator.pixelY : locator.row;
+    locator.filterLeft = left ? (u16)(left) : locator.pixels ? locator.pixelX : locator.column;
+    locator.filterBottom = bottom ? (u16)(bottom) : locator.filterTop;
+    locator.filterRight = right ? (u16)(right) : locator.filterLeft;
     locator.filter = locator.enabled != 0;
 }
 
-void VtermImpl::csi_XTMODKEYS(const ParserParameters& parameters) {
+void VtermImpl::csi_XTMODKEYS(u32 resource, u32 value, bool valuePresent, bool reset) {
     const auto supported = [](u32 resource) {
         return resource <= 4 || resource == 6 || resource == 7;
     };
-    if (!parameters.hadAny) {
+    if (reset) {
         std::copy(std::begin(initialModifyKeyResources), std::end(initialModifyKeyResources), std::begin(modifyKeyResources));
-    } else if (supported(parameters.values[0])) {
-        const u32 resource = parameters.values[0];
-        const u32 value = parameters.count > 1 ? parameters.values[1] : initialModifyKeyResources[resource];
+    } else if (supported(resource)) {
+        if (!valuePresent) {
+            value = initialModifyKeyResources[resource];
+        }
         const u32 maximum = resource == 4 ? 2 : 4;
         if (value <= maximum) {
             modifyKeyResources[resource] = value;
@@ -5706,8 +5461,7 @@ void VtermImpl::csi_XTMODKEYS(const ParserParameters& parameters) {
     modifyOtherKeys = modifyKeyResources[4];
 }
 
-void VtermImpl::csi_XTQMODKEYS(const ParserParameters& parameters) {
-    const u32 resource = parameters.values[0];
+void VtermImpl::csi_XTQMODKEYS(u32 resource) {
     if (resource <= 4 || resource == 6 || resource == 7) {
         StringBuilder response;
         response << StringView(u8">") << resource << StringView(u8";") << (unsigned)(modifyKeyResources[resource]) << StringView(u8"m");
@@ -5715,19 +5469,18 @@ void VtermImpl::csi_XTQMODKEYS(const ParserParameters& parameters) {
     }
 }
 
-void VtermImpl::csi_kittyKeyboardPush(const ParserParameters& parameters) {
+void VtermImpl::csi_kittyKeyboardPush(u32 flags) {
     constexpr size_t maxStackDepth = 16;
     auto& state = kittyKeyboardState();
     if (state.stack.size() == maxStackDepth) {
         state.stack.erase(state.stack.begin());
     }
     state.stack.push_back(state.flags);
-    state.flags = parameters.values[0] & 0x1f;
+    state.flags = flags & 0x1f;
 }
 
-void VtermImpl::csi_kittyKeyboardPop(const ParserParameters& parameters) {
+void VtermImpl::csi_kittyKeyboardPop(u32 count) {
     auto& state = kittyKeyboardState();
-    const u32 count = parameters.values[0] ? parameters.values[0] : 1;
     for (u32 k = 0; k < count; ++k) {
         if (state.stack.empty()) {
             state.flags = 0;
@@ -5738,10 +5491,9 @@ void VtermImpl::csi_kittyKeyboardPop(const ParserParameters& parameters) {
     }
 }
 
-void VtermImpl::csi_kittyKeyboardSet(const ParserParameters& parameters) {
+void VtermImpl::csi_kittyKeyboardSet(u32 rawFlags, u32 mode) {
     auto& state = kittyKeyboardState();
-    const u8 flags = parameters.values[0] & 0x1f;
-    const u32 mode = parameters.count > 1 ? parameters.values[1] : 1;
+    const u8 flags = rawFlags & 0x1f;
     switch (mode) {
         case 1:
             state.flags = flags;
@@ -7575,14 +7327,6 @@ bool VtermImpl::parserAutoNewlineMode() const {
     return autoNewlineMode;
 }
 
-bool VtermImpl::parserPrinterControllerMode() const {
-    return printerControllerMode;
-}
-
-void VtermImpl::parserSetPrinterControllerMode(bool enabled) {
-    printerControllerMode = enabled;
-}
-
 CompatibilityLevel VtermImpl::parserCompatibilityLevel() const {
     return compatLevel;
 }
@@ -7641,6 +7385,10 @@ bool VtermImpl::parserHighlightMouseTracking() const {
     return mouseTrk.mode == MouseTrackingMode::VT200_Highlight;
 }
 
+bool VtermImpl::windowOperationsAllowed() const {
+    return opts.allowWindowOps;
+}
+
 bool VtermImpl::parserHandlesPrinter() const {
     return host.handlesPrinter();
 }
@@ -7653,18 +7401,8 @@ void VtermImpl::parserWritePty(StringView bytes) {
     writePty(bytes.data(), bytes.length());
 }
 
-bool VtermImpl::parserGroundContinuation(u8 byte) {
-    if (!utf8dec.expectsContinuation() || byte < 0x80) {
-        return false;
-    }
-    if (charsetState.g[charsetState.gr] == Charset::UTF8) {
-        for (int completed = utf8dec.pushByte(byte); completed > 0; --completed) {
-            placeGraphicChar();
-        }
-    } else {
-        inputGraphicChar(byte);
-    }
-    return true;
+bool VtermImpl::parserGroundUtf8Enabled() const {
+    return charsetState.g[charsetState.gr] == Charset::UTF8;
 }
 
 void VtermImpl::parserGroundHigh(u8 byte) {
@@ -7704,49 +7442,6 @@ void VtermImpl::parserPlaceAsciiRun(StringView bytes) {
 size_t VtermImpl::parserPlaceUtf8Run(StringView bytes) {
     const int consumed = placeUtf8Run(bytes.data(), bytes.length());
     return consumed > 0 ? (size_t)(consumed) : 0;
-}
-
-bool VtermImpl::parserExecuteC0(u8 ch) {
-    if (ch >= 0x20 || ch == '\x18' || ch == '\x1a' || ch == '\x1b') {
-        return false;
-    }
-
-    if (ch == '\a') {
-        host.bell();
-        return true;
-    }
-    if (ch == '\x0e') {
-        charsetState.gl = 1;
-        return true;
-    }
-    if (ch == '\x0f') {
-        charsetState.gl = 0;
-        return true;
-    }
-    if (ch != '\b' && ch != '\t' && ch != '\n' && ch != '\v' && ch != '\f' && ch != '\r') {
-        return true;
-    }
-
-    switch (ch) {
-        case '\b':
-            moveCursorBackward(1);
-            break;
-        case '\t':
-            inp_HT();
-            break;
-        case '\n':
-        case '\v':
-        case '\f':
-            performIndex();
-            break;
-        case '\r':
-            inp_CR();
-            break;
-        default:
-            break;
-    }
-
-    return true;
 }
 
 namespace {

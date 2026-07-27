@@ -734,37 +734,94 @@ Parser-facing API trace переводится со `std::string` на `StringVi
 - performance baseline новой версии снят и возможная небольшая регрессия локализована для последующей доводки;
 - generated source полностью воспроизводится build graph.
 
-## Результат реализации
+## Состояние реализации
 
-План завершён 2026-07-27.
+План завершён 2026-07-27. Ragel parser владеет не только byte-level framing, но и command-specific syntax; `VtermImpl` получает типизированные terminal operations.
+
+Завершена миграция byte-level framing:
+
+- `ProtocolParser::state` и сгенерированная Ragel statechart являются единственным владельцем основного ESC/CSI/OSC/DCS/SOS/PM/APC/VT52 framing;
+- старые `InputState`, `processCsiByte`, `dispatchCsi`, `handle_OSC`, `handle_DCS`, `consumePrinterController`, `setState`, `argBuf` и повторные string subparsers удалены;
+- OSC/DCS command grammars, транзакции, лимиты, cancel/restart и chunk invariance перенесены в Parser;
+- bulk paths сохранены для обычного текста, сырых string payloads и printer controller;
+- `Parser` выделен в `parser.h`/`parser.cpp`, а generated include удалён из `vterm.cpp`.
+
+Финальная граница command-specific parsing и terminal semantics:
+
+- SGR `;`/`:`, omitted fields и variable-length color forms разбираются в `ParserImpl`, а `VtermImpl` получает отдельные операции атрибутов и готовые `CellColor`;
+- C0 классифицируется в `ParserImpl` и сразу вызывает конкретную terminal operation;
+- printer controller целиком является состоянием Ragel machine;
+- XTWINOPS, DSR, DECSCL и media-copy dispatch и нормализация аргументов находятся в `ParserImpl`;
+- parser-owned UTF-8 continuation count определяет, является ли байт text или C1; `VtermImpl` только декодирует text;
+- `ParserParameters` удалён: parser arrays, separators, presence bits и cursor не раскрываются через `ParserIface`.
+
+Реализованная граница:
+
+```text
+ParserImpl
+  распознаёт framing и command-specific syntax
+  нормализует optional/default/compound parameters
+  вызывает типизированные semantic callbacks
+
+VtermImpl
+  применяет уже распознанную операцию
+  читает и меняет только terminal state
+  не видит parser cursor, separators, presence bits или ParserParameters
+```
+
+Для SGR не создаётся промежуточный массив операций. `ParserImpl` последовательно разбирает SGR items и сразу вызывает узкие semantic methods для reset, attributes, underline style и трёх видов color. Корректные предыдущие items сохраняют эффект, malformed item игнорируется с тем же потреблением параметров, что и сейчас.
+
+Этапы закрыты в следующем порядке:
+
+1. SGR item/color parsing перенесён в `ParserImpl`, `csi_SGR(ParserParameters)` заменён типизированными semantic callbacks.
+2. `parserExecuteC0(u8)` удалён; Parser классифицирует C0 и вызывает конкретные terminal operations.
+3. Printer controller сделан исключительно состоянием Parser; его parser-facing флаг удалён из Vterm.
+4. Command selection и argument normalization для XTWINOPS, DSR, DECSCL и media-copy перенесены в Parser.
+5. Все остальные `ParserParameters` в `ParserIface` заменены: scalar commands получают scalar, fixed-arity commands — отдельные аргументы или POD, repeatable lists dispatch-ятся по одному semantic item.
+6. Решение UTF-8 continuation против C1 замкнуто в Parser, Vterm оставлено декодирование и размещение text.
+7. Full test target, parser fuzz и chunk-invariance пройдены.
+
+Дополнительные критерии завершения:
+
+- `ParserParameters` полностью отсутствует;
+- `vterm.cpp` не читает `separators`, `present`, `hadAny` и не двигает cursor по parser parameters;
+- `parserExecuteC0`, `parserPrinterControllerMode` и `parserSetPrinterControllerMode` отсутствуют;
+- ни один semantic callback не принимает raw input byte для последующей protocol classification;
+- значение входного байта как UTF-8 continuation или C1 определяется parser-owned framing state.
+
+## Результат 2026-07-27
 
 Архитектурный результат:
 
 - `Parser` выделен в `parser.h`/`parser.cpp`, а `VtermImpl` реализует его semantic interface `ParserIface`;
 - `ProtocolParser`, generated include и trace specialization полностью удалены из `vterm.cpp`;
 - `VtermImpl`, `VtermInput`, listeners и `TestApiImpl` больше не шаблонизированы и не дублируются для trace/no-trace;
-- `ProtocolParser::state` и сгенерированная Ragel statechart являются единственным владельцем protocol framing;
+- `ProtocolParser::state` и сгенерированная Ragel statechart владеют основным protocol framing;
 - ground/text, C0/C1, ESC, CSI, OSC, DCS, SOS/PM/APC, VT52, charset и printer controller входят в одну machine;
-- semantic methods получают уже распознанные POD-параметры и локальные `StringView`, не меняют состояние parser и вызываются из Ragel actions через `ParserIface`;
+- OSC/DCS semantic methods получают уже распознанные POD-параметры и локальные `StringView`, не меняют состояние parser и вызываются из Ragel actions через `ParserIface`;
 - parser не хранит raw pointers или `StringView` между `consume()`, не использует `std::` и ограничивает незаконченные OSC/DCS;
 - OSC 52 и OSC 99 декодируются во время parsing, DECUDK, XTGETTCAP и DECRQSS коммитятся транзакционно;
 - bulk paths сохранены для обычного текста и сырых string payloads;
-- старые `InputState`, `processCsiByte`, `dispatchCsi`, `handle_OSC`, `handle_DCS`, `consumePrinterController`, `setState`, `argBuf` и повторные string subparsers удалены.
+- старые byte-level FSM и повторные OSC/DCS string subparsers удалены.
 
-Размер handwritten C++ действительно уменьшился:
+Текущий размер кода:
 
-- `vterm.cpp`: 10 255 → 8 045 строк;
-- parser component: `parser.cpp` 212 строк и `parser.h` 254 строки;
+- `vterm.cpp`: 10 255 → 7 740 строк;
+- parser component: `parser.cpp` 1 152 строки и `parser.h` 295 строк;
+- parser grammar: `parser.rl` 5 163 строки;
 - `color_spec.cpp`: 375 → 251 строк;
 
-`parser.rl` содержит 5 460 строк. Он не заменяет terminal semantics: его объём — явная grammar, transitions и короткие actions, которые вызывают semantic methods Vterm через узкий interface.
+Рост `parser.cpp` относительно промежуточного состояния — намеренный: туда перенесены SGR, CSI normalization, C0, DSR, XTWINOPS, DECSCL, media-copy и UTF-8/C1 framing. `parser.rl` остаётся явной grammar с короткими actions, а terminal semantics остаётся в `vterm.cpp`.
 
 Финальная проверка:
 
-- весь build/test graph: 2 552 из 2 552 целей;
+- весь build/test graph: 2 556 из 2 556 целей;
 - 167 unit tests;
+- 799 integration tests;
+- 280 real-world snapshots;
 - parser fuzz, chunk-invariance, upstream DEC/xterm/libvterm и vtebench suites;
 - отдельная регрессия для неизвестных C1 final bytes после `ESC` в VT52;
+- real-world `clifm_initial` подтвердил различие ANSI bold-color remap и точного indexed color `38;5;n`;
 - production `-G1` на packed corpus: 1 190.8 MiB, два контрольных запуска 112.4 и 114.0 MiB/s, без parser error-state, зависания или роста памяти.
 
 Сравнение Ragel 6 backend’ов на одном исходнике и одном clang:

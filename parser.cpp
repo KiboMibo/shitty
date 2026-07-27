@@ -82,6 +82,7 @@ namespace {
         bool overflow = false;
         size_t stringLimit = 0;
         u8 stringUtf8Remaining = 0;
+        u8 groundUtf8Remaining = 0;
 
         u8 dcsIntermediates[4] = {};
         u8 dcsIntermediateCount = 0;
@@ -159,6 +160,7 @@ namespace {
         bool oscColorExponentNegative = false;
         bool oscColorValid = false;
         bool oscColorQuery = false;
+        bool enterPrinter = false;
 
         u32 oscFieldNumber = 0;
         u32 oscFieldFirst = 0;
@@ -177,6 +179,7 @@ namespace {
 
         void feed(StringView bytes) override;
         bool consumeStringUtf8Byte(u8 ch);
+        bool executeC0(u8 ch);
         bool ragelGroundContinuation(u8 ch);
         void ragelGroundHigh(u8 ch);
         void ragelGroundAscii(u8 ch);
@@ -193,7 +196,29 @@ namespace {
         void ragelFinishOsc();
         StringView ragelOscPayload() noexcept;
         void beginCsi();
-        ParserParameters csiParameters() noexcept;
+        u32 parameter(size_t index) const noexcept;
+        u32 countParameter(size_t index) const noexcept;
+        CsiRectangle rectangle(size_t offset) const noexcept;
+        void dispatchScoscSlrm();
+        void dispatchStandardModes(bool set);
+        void dispatchPrivateModes(bool set);
+        void dispatchPrivateSave();
+        void dispatchPrivateRestore();
+        void dispatchDecfra();
+        void dispatchDeccra();
+        void dispatchDecera(bool selective);
+        void dispatchDeccara(bool reverse);
+        void dispatchDecrqcra();
+        void dispatchDecll();
+        void dispatchDsr(bool privateMode);
+        void dispatchTitleMode(bool set);
+        void dispatchDecscl();
+        void dispatchWindowOps();
+        void dispatchDecsle();
+        void dispatchXtmodkeys();
+        bool parseSgrColor(size_t& index, CellColor& color, int& paletteIndex);
+        void dispatchSgr();
+        void dispatchMediaCopy(bool privateMode);
         void traceCsi(u8 finalByte);
 
         ParserIface& iface;
@@ -238,12 +263,62 @@ bool ParserImpl<traced>::consumeStringUtf8Byte(u8 ch) {
 }
 
 template <bool traced>
+bool ParserImpl<traced>::executeC0(u8 ch) {
+    if (ch >= 0x20 || ch == '\x18' || ch == '\x1a' || ch == '\x1b') {
+        return false;
+    }
+    if (ch == '\a') {
+        iface.parserBell();
+        return true;
+    }
+    if (ch == '\x0e') {
+        iface.parserLockingShiftGl(1);
+        return true;
+    }
+    if (ch == '\x0f') {
+        iface.parserLockingShiftGl(0);
+        return true;
+    }
+    switch (ch) {
+        case '\b':
+            iface.parserMoveCursorBackward(1);
+            break;
+        case '\t':
+            iface.inp_HT();
+            break;
+        case '\n':
+        case '\v':
+        case '\f':
+            iface.esc_IND();
+            break;
+        case '\r':
+            iface.inp_CR();
+            break;
+        default:
+            break;
+    }
+    return true;
+}
+
+template <bool traced>
 bool ParserImpl<traced>::ragelGroundContinuation(u8 ch) {
-    if (!iface.parserGroundContinuation(ch)) {
+    if (parser.groundUtf8Remaining == 0 || ch < 0x80) {
         return false;
     }
     if constexpr (traced) {
         parserTrace->text(&ch, 1);
+    }
+    iface.parserGroundHigh(ch);
+    if ((ch & 0xc0) == 0x80) {
+        --parser.groundUtf8Remaining;
+    } else if (ch >= 0xc2 && ch <= 0xdf) {
+        parser.groundUtf8Remaining = 1;
+    } else if (ch >= 0xe0 && ch <= 0xef) {
+        parser.groundUtf8Remaining = 2;
+    } else if (ch >= 0xf0 && ch <= 0xf4) {
+        parser.groundUtf8Remaining = 3;
+    } else {
+        parser.groundUtf8Remaining = 0;
     }
     return true;
 }
@@ -264,10 +339,22 @@ void ParserImpl<traced>::ragelGroundHigh(u8 ch) {
         iface.parserResetGraphemeInput();
     }
     iface.parserGroundHigh(ch);
+    if (!iface.parserGroundUtf8Enabled()) {
+        parser.groundUtf8Remaining = 0;
+    } else if (ch >= 0xc2 && ch <= 0xdf) {
+        parser.groundUtf8Remaining = 1;
+    } else if (ch >= 0xe0 && ch <= 0xef) {
+        parser.groundUtf8Remaining = 2;
+    } else if (ch >= 0xf0 && ch <= 0xf4) {
+        parser.groundUtf8Remaining = 3;
+    } else {
+        parser.groundUtf8Remaining = 0;
+    }
 }
 
 template <bool traced>
 void ParserImpl<traced>::ragelGroundAscii(u8 ch) {
+    parser.groundUtf8Remaining = 0;
     if constexpr (traced) {
         parserTrace->text(&ch, 1);
     }
@@ -442,19 +529,529 @@ void ParserImpl<traced>::beginCsi() {
     parser.present[0] = false;
     parser.parameterCount = 1;
     parser.csiHadParameters = false;
+    parser.enterPrinter = false;
     parser.csiPrefix = 0;
     parser.csiIntermediateCount = 0;
 }
 
 template <bool traced>
-ParserParameters ParserImpl<traced>::csiParameters() noexcept {
+u32 ParserImpl<traced>::parameter(size_t index) const noexcept {
+    return index < parser.parameterCount ? parser.parameters[index] : 0;
+}
+
+template <bool traced>
+u32 ParserImpl<traced>::countParameter(size_t index) const noexcept {
+    const u32 value = parameter(index);
+    return value ? value : 1;
+}
+
+template <bool traced>
+CsiRectangle ParserImpl<traced>::rectangle(size_t offset) const noexcept {
     return {
-        parser.parameters,
-        parser.separators,
-        parser.present,
-        parser.parameterCount,
-        parser.csiHadParameters,
+        parameter(offset),
+        parameter(offset + 1),
+        parameter(offset + 2),
+        parameter(offset + 3),
     };
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchScoscSlrm() {
+    if (iface.horizontalMarginMode()) {
+        iface.csi_SLRM(parameter(0), parameter(1), parser.parameterCount <= 2);
+    } else {
+        iface.esc_DECSC();
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchStandardModes(bool set) {
+    for (size_t index = 0; index < parser.parameterCount; ++index) {
+        if (set) {
+            iface.csi_SM(parser.parameters[index]);
+        } else {
+            iface.csi_RM(parser.parameters[index]);
+        }
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchPrivateModes(bool set) {
+    for (size_t index = 0; index < parser.parameterCount; ++index) {
+        if (set) {
+            iface.csi_privSM(parser.parameters[index]);
+        } else {
+            iface.csi_privRM(parser.parameters[index]);
+        }
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchPrivateSave() {
+    for (size_t index = 0; index < parser.parameterCount; ++index) {
+        iface.csi_privSave(parser.parameters[index]);
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchPrivateRestore() {
+    for (size_t index = 0; index < parser.parameterCount; ++index) {
+        iface.csi_privRestore(parser.parameters[index]);
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchDecfra() {
+    iface.csi_DECFRA(parameter(0), rectangle(1));
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchDeccra() {
+    iface.csi_DECCRA(rectangle(0), countParameter(5), countParameter(6));
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchDecera(bool selective) {
+    iface.csi_DECERA(rectangle(0), selective);
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchDeccara(bool reverse) {
+    if (parser.parameterCount < 5) {
+        return;
+    }
+    const CsiRectangle area = rectangle(0);
+    for (size_t index = 4; index < parser.parameterCount; ++index) {
+        iface.csi_DECCARA(area, parser.parameters[index], reverse);
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchDecrqcra() {
+    if (parser.parameterCount >= 6) {
+        iface.csi_DECRQCRA(parameter(0), rectangle(2));
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchDecll() {
+    for (size_t index = 0; index < parser.parameterCount; ++index) {
+        iface.csi_DECLL(parser.parameters[index], index + 1 == parser.parameterCount);
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchDsr(bool privateMode) {
+    const u32 operation = parameter(0);
+    if (!privateMode) {
+        if (operation == 5) {
+            iface.dsrOperatingStatus();
+        } else if (operation == 6) {
+            iface.dsrCursorPosition(false);
+        }
+        return;
+    }
+    switch (operation) {
+        case 6:
+            iface.dsrCursorPosition(true);
+            break;
+        case 15:
+            iface.dsrPrinterStatus();
+            break;
+        case 25:
+            iface.dsrUserDefinedKeys();
+            break;
+        case 26:
+            iface.dsrKeyboard();
+            break;
+        case 55:
+            iface.dsrLocator();
+            break;
+        case 56:
+            iface.dsrLocatorType();
+            break;
+        case 62:
+            iface.dsrMacroSpace();
+            break;
+        case 63:
+            iface.dsrMemoryChecksum(parameter(1));
+            break;
+        case 75:
+            iface.dsrDataIntegrity();
+            break;
+        case 85:
+            iface.dsrMultipleSession();
+            break;
+        case 996:
+            iface.dsrColorScheme();
+            break;
+        default:
+            break;
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchTitleMode(bool set) {
+    if (!parser.csiHadParameters) {
+        iface.csi_XTTITLEMODE(0, set, true);
+        return;
+    }
+    for (size_t index = 0; index < parser.parameterCount; ++index) {
+        iface.csi_XTTITLEMODE(parser.parameters[index], set, false);
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchDecscl() {
+    CompatibilityLevel level;
+    switch (parameter(0)) {
+        case 61:
+            level = CompatibilityLevel::VT100;
+            break;
+        case 62:
+            level = CompatibilityLevel::VT200;
+            break;
+        case 63:
+            level = CompatibilityLevel::VT300;
+            break;
+        case 64:
+            level = CompatibilityLevel::VT400;
+            break;
+        case 65:
+            level = CompatibilityLevel::VT500;
+            break;
+        default:
+            return;
+    }
+    const u32 controlMode = parameter(1);
+    if (controlMode <= 2) {
+        iface.csi_DECSCL(level, level != CompatibilityLevel::VT100 && controlMode != 1);
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchWindowOps() {
+    if (!iface.windowOperationsAllowed()) {
+        return;
+    }
+    const u32 operation = parameter(0);
+    const u32 first = parameter(1);
+    const u32 second = parameter(2);
+    const bool firstPresent = parser.parameterCount > 1 && parser.present[1];
+    const bool secondPresent = parser.parameterCount > 2 && parser.present[2];
+    switch (operation) {
+        case 4:
+            iface.xtResizePixels(first, firstPresent, second, secondPresent);
+            break;
+        case 8:
+            iface.xtResizeCells(first, firstPresent, second, secondPresent);
+            break;
+        case 1:
+        case 2:
+        case 3:
+        case 5:
+        case 6:
+        case 7:
+        case 9:
+        case 10:
+            iface.xtWindowOperation(operation, first, second);
+            break;
+        case 11:
+            iface.xtReportWindowState();
+            break;
+        case 13:
+            iface.xtReportWindowPosition();
+            break;
+        case 14:
+            iface.xtReportWindowPixelSize(firstPresent && first == 2);
+            break;
+        case 15:
+            iface.xtReportScreenPixelSize();
+            break;
+        case 16:
+            iface.xtReportCellSize();
+            break;
+        case 18:
+            iface.xtReportGridSize();
+            break;
+        case 19:
+            iface.xtReportScreenGridSize();
+            break;
+        case 20:
+            iface.xtReportIconTitle();
+            break;
+        case 21:
+            iface.xtReportWindowTitle();
+            break;
+        case 22:
+            iface.xtPushTitle(first);
+            break;
+        case 23:
+            iface.xtPopTitle(first);
+            break;
+        default:
+            if (operation >= 24) {
+                iface.xtResizeRows(operation);
+            }
+            break;
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchDecsle() {
+    for (size_t index = 0; index < parser.parameterCount; ++index) {
+        iface.csi_DECSLE(parser.parameters[index]);
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchXtmodkeys() {
+    iface.csi_XTMODKEYS(parameter(0), parameter(1), parser.parameterCount > 1, !parser.csiHadParameters);
+}
+
+template <bool traced>
+bool ParserImpl<traced>::parseSgrColor(size_t& index, CellColor& color, int& paletteIndex) {
+    if (index + 1 >= parser.parameterCount) {
+        return false;
+    }
+    const bool colon = parser.separators[index + 1] == ':';
+    const u32 mode = parser.parameters[++index];
+    if (colon) {
+        const size_t first = index + 1;
+        size_t end = index;
+        while (end + 1 < parser.parameterCount && parser.separators[end + 1] == ':') {
+            ++end;
+        }
+        index = end;
+
+        if (mode == 5) {
+            if (end - first + 1 != 1 || parser.parameters[first] > 255) {
+                return false;
+            }
+            paletteIndex = parser.parameters[first];
+            color = CellColor::indexed(paletteIndex);
+            return true;
+        }
+        const size_t count = end - first + 1;
+        const size_t rgbFirst = first + (count >= 4);
+        if (mode != 2 || count < 3 || (count == 3 && !parser.present[first]) || !parser.present[rgbFirst] || !parser.present[rgbFirst + 1] || !parser.present[rgbFirst + 2] || parser.parameters[rgbFirst] > 255 || parser.parameters[rgbFirst + 1] > 255 || parser.parameters[rgbFirst + 2] > 255) {
+            return false;
+        }
+        paletteIndex = -1;
+        color = CellColor::direct({
+            (u8)(parser.parameters[rgbFirst]),
+            (u8)(parser.parameters[rgbFirst + 1]),
+            (u8)(parser.parameters[rgbFirst + 2]),
+        });
+        return true;
+    }
+
+    if (mode == 5) {
+        if (index + 1 >= parser.parameterCount) {
+            return false;
+        }
+        const u32 value = parser.parameters[++index];
+        if (value > 255) {
+            return false;
+        }
+        paletteIndex = value;
+        color = CellColor::indexed(value);
+        return true;
+    }
+    if (mode != 2) {
+        return false;
+    }
+
+    const size_t first = index + 1;
+    const size_t available = parser.parameterCount - first;
+    index += min<size_t>(available, 3);
+    if (available < 3 || parser.parameters[first] > 255 || parser.parameters[first + 1] > 255 || parser.parameters[first + 2] > 255) {
+        return false;
+    }
+    paletteIndex = -1;
+    color = CellColor::direct({
+        (u8)(parser.parameters[first]),
+        (u8)(parser.parameters[first + 1]),
+        (u8)(parser.parameters[first + 2]),
+    });
+    index = first + 2;
+    return true;
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchSgr() {
+    for (size_t index = 0; index < parser.parameterCount; ++index) {
+        const u32 attribute = parser.parameters[index];
+        switch (attribute) {
+            case 0:
+                iface.sgrReset();
+                break;
+            case 1:
+                iface.sgrBold(true);
+                break;
+            case 2:
+                iface.sgrFaint(true);
+                break;
+            case 3:
+                iface.sgrItalic(true);
+                break;
+            case 4:
+                if (index + 1 < parser.parameterCount && parser.separators[index + 1] == ':') {
+                    const u32 style = parser.parameters[++index];
+                    if (style <= 5) {
+                        iface.sgrUnderline(style);
+                    }
+                } else {
+                    iface.sgrUnderline(1);
+                }
+                break;
+            case 5:
+            case 6:
+                iface.sgrBlink(true);
+                break;
+            case 7:
+                iface.sgrInverse(true);
+                break;
+            case 8:
+                iface.sgrConceal(true);
+                break;
+            case 9:
+                iface.sgrStrike(true);
+                break;
+            case 10:
+            case 11:
+            case 12:
+            case 13:
+            case 14:
+            case 15:
+            case 16:
+            case 17:
+            case 18:
+            case 19:
+                break;
+            case 21:
+                iface.sgrUnderline(2);
+                break;
+            case 22:
+                iface.sgrBold(false);
+                iface.sgrFaint(false);
+                break;
+            case 23:
+                iface.sgrItalic(false);
+                break;
+            case 24:
+                iface.sgrUnderline(0);
+                break;
+            case 25:
+                iface.sgrBlink(false);
+                break;
+            case 27:
+                iface.sgrInverse(false);
+                break;
+            case 28:
+                iface.sgrConceal(false);
+                break;
+            case 29:
+                iface.sgrStrike(false);
+                break;
+            case 30:
+            case 31:
+            case 32:
+            case 33:
+            case 34:
+            case 35:
+            case 36:
+            case 37:
+                iface.sgrForeground(CellColor::indexed(attribute - 30), attribute - 30, true);
+                break;
+            case 38: {
+                CellColor color{};
+                int paletteIndex;
+                if (parseSgrColor(index, color, paletteIndex)) {
+                    iface.sgrForeground(color, paletteIndex, false);
+                }
+            } break;
+            case 39:
+                iface.sgrDefaultForeground();
+                break;
+            case 40:
+            case 41:
+            case 42:
+            case 43:
+            case 44:
+            case 45:
+            case 46:
+            case 47:
+                iface.sgrBackground(CellColor::indexed(attribute - 40), attribute - 40);
+                break;
+            case 48: {
+                CellColor color{};
+                int paletteIndex;
+                if (parseSgrColor(index, color, paletteIndex)) {
+                    iface.sgrBackground(color, paletteIndex);
+                }
+            } break;
+            case 49:
+                iface.sgrDefaultBackground();
+                break;
+            case 53:
+                iface.sgrOverline(true);
+                break;
+            case 55:
+                iface.sgrOverline(false);
+                break;
+            case 58: {
+                CellColor color{};
+                int paletteIndex;
+                if (parseSgrColor(index, color, paletteIndex)) {
+                    iface.sgrUnderlineColor(color, paletteIndex);
+                }
+            } break;
+            case 59:
+                iface.sgrDefaultUnderlineColor();
+                break;
+            case 90:
+            case 91:
+            case 92:
+            case 93:
+            case 94:
+            case 95:
+            case 96:
+            case 97:
+                iface.sgrForeground(CellColor::indexed(attribute - 82), attribute - 82, false);
+                break;
+            case 100:
+            case 101:
+            case 102:
+            case 103:
+            case 104:
+            case 105:
+            case 106:
+            case 107:
+                iface.sgrBackground(CellColor::indexed(attribute - 92), attribute - 92);
+                break;
+            default:
+                break;
+        }
+    }
+    iface.sgrFinish();
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchMediaCopy(bool privateMode) {
+    const u32 operation = parser.parameters[0];
+    if (privateMode) {
+        if (operation == 1) {
+            iface.mediaCopyLine();
+        } else if (operation == 4) {
+            iface.setAutoPrint(false);
+        } else if (operation == 5) {
+            iface.setAutoPrint(true);
+        }
+    } else if (operation == 0) {
+        iface.mediaCopyScreen();
+    }
+    parser.enterPrinter = !privateMode && operation == 5;
 }
 
 template <bool traced>
@@ -490,7 +1087,7 @@ void ParserImpl<traced>::feed(StringView bytes) {
                 continue;
             }
         }
-        if (cs == parser_en_main && *p >= 0x20 && *p < 0x7f && iface.parserAsciiBulkEligible()) {
+        if (cs == parser_en_main && parser.groundUtf8Remaining == 0 && *p >= 0x20 && *p < 0x7f && iface.parserAsciiBulkEligible()) {
             const size_t lines = iface.parserPlaceAsciiLines(StringView(p, pe - p));
             if (lines != 0) {
                 if constexpr (traced) {
@@ -528,7 +1125,7 @@ void ParserImpl<traced>::feed(StringView bytes) {
             }
             continue;
         }
-        if (cs == parser_en_main && *p >= 0xc2 && *p <= 0xf4 && iface.parserUtf8BulkEligible()) {
+        if (cs == parser_en_main && parser.groundUtf8Remaining == 0 && *p >= 0xc2 && *p <= 0xf4 && iface.parserUtf8BulkEligible()) {
             const size_t consumed = iface.parserPlaceUtf8Run(StringView(p, pe - p));
             if (consumed > 0) {
                 if constexpr (traced) {

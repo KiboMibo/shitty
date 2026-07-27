@@ -187,7 +187,7 @@
     }
 
     action sequenceC0 {
-        iface.parserExecuteC0(fc);
+        executeC0(fc);
     }
 
     action highToGround {
@@ -888,11 +888,11 @@
     }
 
     action csiSgr {
-        iface.csi_SGR(csiParameters());
+        dispatchSgr();
     }
 
     action csiDone {
-        if (iface.parserPrinterControllerMode()) {
+        if (parser.enterPrinter) {
             fnext printer;
         } else {
             fnext main;
@@ -926,7 +926,6 @@
     }
 
     action printerEnd {
-        iface.parserSetPrinterControllerMode(false);
         fnext main;
         fbreak;
     }
@@ -1011,25 +1010,25 @@
     }
 
     action vt52Cuu {
-        iface.csi_CUU(csiParameters());
+        iface.csi_CUU(1);
         fnext main;
         fbreak;
     }
 
     action vt52Cud {
-        iface.csi_CUD(csiParameters());
+        iface.csi_CUD(1);
         fnext main;
         fbreak;
     }
 
     action vt52Cuf {
-        iface.csi_CUF(csiParameters());
+        iface.csi_CUF(1);
         fnext main;
         fbreak;
     }
 
     action vt52Cub {
-        iface.csi_CUB(csiParameters());
+        iface.csi_CUB(1);
         fnext main;
         fbreak;
     }
@@ -1048,7 +1047,7 @@
     }
 
     action vt52Cup {
-        iface.csi_CUP(csiParameters());
+        iface.csi_CUP(parameter(0), parameter(1));
         fnext main;
         fbreak;
     }
@@ -1060,13 +1059,13 @@
     }
 
     action vt52Ed {
-        iface.csi_ED(csiParameters());
+        iface.csi_ED(0);
         fnext main;
         fbreak;
     }
 
     action vt52El {
-        iface.csi_EL(csiParameters());
+        iface.csi_EL(0);
         fnext main;
         fbreak;
     }
@@ -1101,7 +1100,7 @@
     action vt52Column {
         parser.parameters[1] = fc - 31;
         parser.parameterCount = 2;
-        iface.csi_CUP(csiParameters());
+        iface.csi_CUP(parameter(0), parameter(1));
         fnext main;
         fbreak;
     }
@@ -1214,7 +1213,7 @@
             p += count - 1;
         } else {
             consumeStringUtf8Byte(fc);
-            if (!iface.parserExecuteC0(fc)) {
+            if (!executeC0(fc)) {
                 ragelAppendString(fc, parser.maxDcsBytes);
             }
         }
@@ -1768,7 +1767,7 @@
 
     action oscData {
         consumeStringUtf8Byte(fc);
-        if (!iface.parserExecuteC0(fc)) {
+        if (!executeC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
     }
@@ -1781,7 +1780,7 @@
             p += count - 1;
         } else {
             consumeStringUtf8Byte(fc);
-            if (!iface.parserExecuteC0(fc)) {
+            if (!executeC0(fc)) {
                 ragelAppendString(fc, parser.maxOscBytes);
             }
         }
@@ -1902,7 +1901,7 @@
 
     action oscCwdInvalidData {
         consumeStringUtf8Byte(fc);
-        if (!iface.parserExecuteC0(fc)) {
+        if (!executeC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
         parser.oscCwdValid = false;
@@ -1927,14 +1926,14 @@
 
     action oscCwdAuthorityData {
         consumeStringUtf8Byte(fc);
-        if (!iface.parserExecuteC0(fc)) {
+        if (!executeC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
     }
 
     action oscCwdPathData {
         consumeStringUtf8Byte(fc);
-        if (!iface.parserExecuteC0(fc)) {
+        if (!executeC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             if (!parser.overflow) {
                 parser.oscDecoded.append(&fc, 1);
@@ -2041,7 +2040,7 @@
 
     action oscShellInvalid {
         consumeStringUtf8Byte(fc);
-        if (!iface.parserExecuteC0(fc)) {
+        if (!executeC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
         fgoto oscShellUnknown;
@@ -2143,7 +2142,7 @@
 
     action oscTitleData {
         consumeStringUtf8Byte(fc);
-        if (!iface.parserExecuteC0(fc)) {
+        if (!executeC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             if (parser.oscTitleHex) {
                 u8 nibble = 0;
@@ -2263,7 +2262,7 @@
 
     action oscHyperlinkParamData {
         consumeStringUtf8Byte(fc);
-        if (!iface.parserExecuteC0(fc)) {
+        if (!executeC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
         fgoto oscHyperlinkParamSkip;
@@ -2373,7 +2372,7 @@
 
     action oscProgressNotifyData {
         consumeStringUtf8Byte(fc);
-        if (!iface.parserExecuteC0(fc)) {
+        if (!executeC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
         fgoto oscProgressNotify;
@@ -2407,7 +2406,7 @@
 
     action oscProgressDiscardData {
         consumeStringUtf8Byte(fc);
-        if (!iface.parserExecuteC0(fc)) {
+        if (!executeC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
         fgoto oscProgressDiscard;
@@ -2491,7 +2490,7 @@
 
     action osc52Data {
         consumeStringUtf8Byte(fc);
-        if (!iface.parserExecuteC0(fc)) {
+        if (!executeC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             if (!parser.osc52PayloadSeen) {
                 parser.osc52PayloadSeen = true;
@@ -2592,7 +2591,7 @@
 
     action oscNotificationValueData {
         consumeStringUtf8Byte(fc);
-        if (!iface.parserExecuteC0(fc)) {
+        if (!executeC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             if (parser.oscNotificationKey == 'i' &&
                 !((fc >= 'a' && fc <= 'z') || (fc >= 'A' && fc <= 'Z') ||
@@ -2666,7 +2665,7 @@
 
     action oscNotificationPayloadData {
         consumeStringUtf8Byte(fc);
-        if (!iface.parserExecuteC0(fc)) {
+        if (!executeC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             ++parser.oscNotificationPayloadBytes;
             const u32 limit = parser.oscNotificationEncoded ? 4096 : 2048;
@@ -2680,7 +2679,7 @@
 
     action oscNotificationInvalidData {
         consumeStringUtf8Byte(fc);
-        if (!iface.parserExecuteC0(fc)) {
+        if (!executeC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
         parser.oscNotificationValid = false;
@@ -3021,7 +3020,7 @@
 
     action oscIndexedColorIndexInvalid {
         consumeStringUtf8Byte(fc);
-        if (!iface.parserExecuteC0(fc)) {
+        if (!executeC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
         parser.oscFieldNumeric = false;
@@ -3110,7 +3109,7 @@
 
     action oscNumericInvalid {
         consumeStringUtf8Byte(fc);
-        if (!iface.parserExecuteC0(fc)) {
+        if (!executeC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             parser.oscFieldPresent = true;
             parser.oscFieldNumeric = false;
@@ -3213,7 +3212,7 @@
             p += count - 1;
         } else {
             consumeStringUtf8Byte(fc);
-            iface.parserExecuteC0(fc);
+            executeC0(fc);
             if constexpr (traced) {
                 parserTrace->stringData(&fc, 1);
             }
@@ -3333,81 +3332,81 @@
 
     csiPlainKnown = [@ABCDEFGHIJKLMPSTXZ`abcdefghijklmnqrstu];
     csiPlainFinal = (
-        'T' @csiTrace @{ if (parser.parameterCount == 5 && iface.parserHighlightMouseTracking()) { iface.csi_XTHIMOUSE(csiParameters()); } else { iface.csi_SD(parser.parameters[0] ? parser.parameters[0] : 1); } } |
-        'A' @csiTrace @{ iface.csi_CUU(csiParameters()); } |
-        'B' @csiTrace @{ iface.csi_CUD(csiParameters()); } |
-        'C' @csiTrace @{ iface.csi_CUF(csiParameters()); } |
-        'D' @csiTrace @{ iface.csi_CUB(csiParameters()); } |
-        'E' @csiTrace @{ iface.csi_CNL(csiParameters()); } |
-        'F' @csiTrace @{ iface.csi_CPL(csiParameters()); } |
-        'G' @csiTrace @{ iface.csi_CHA(csiParameters()); } |
-        ('H' | 'f') @csiTrace @{ iface.csi_CUP(csiParameters()); } |
-        'I' @csiTrace @{ iface.csi_CHT(csiParameters()); } |
-        'J' @csiTrace @{ iface.csi_ED(csiParameters()); } |
-        'K' @csiTrace @{ iface.csi_EL(csiParameters()); } |
-        'L' @csiTrace @{ iface.csi_IL(csiParameters()); } |
-        'M' @csiTrace @{ iface.csi_DL(csiParameters()); } |
-        'P' @csiTrace @{ iface.csi_DCH(csiParameters()); } |
-        'S' @csiTrace @{ iface.csi_SU(csiParameters()); } |
-        'X' @csiTrace @{ iface.csi_ECH(csiParameters()); } |
-        'Z' @csiTrace @{ iface.csi_CBT(csiParameters()); } |
+        'T' @csiTrace @{ if (parser.parameterCount == 5 && iface.parserHighlightMouseTracking()) { iface.csi_XTHIMOUSE(parameter(0), parameter(1), parameter(2), parameter(3), parameter(4)); } else { iface.csi_SD(countParameter(0)); } } |
+        'A' @csiTrace @{ iface.csi_CUU(countParameter(0)); } |
+        'B' @csiTrace @{ iface.csi_CUD(countParameter(0)); } |
+        'C' @csiTrace @{ iface.csi_CUF(countParameter(0)); } |
+        'D' @csiTrace @{ iface.csi_CUB(countParameter(0)); } |
+        'E' @csiTrace @{ iface.csi_CNL(countParameter(0)); } |
+        'F' @csiTrace @{ iface.csi_CPL(countParameter(0)); } |
+        'G' @csiTrace @{ iface.csi_CHA(countParameter(0)); } |
+        ('H' | 'f') @csiTrace @{ iface.csi_CUP(countParameter(0), countParameter(1)); } |
+        'I' @csiTrace @{ iface.csi_CHT(countParameter(0)); } |
+        'J' @csiTrace @{ iface.csi_ED(parameter(0)); } |
+        'K' @csiTrace @{ iface.csi_EL(parameter(0)); } |
+        'L' @csiTrace @{ iface.csi_IL(countParameter(0)); } |
+        'M' @csiTrace @{ iface.csi_DL(countParameter(0)); } |
+        'P' @csiTrace @{ iface.csi_DCH(countParameter(0)); } |
+        'S' @csiTrace @{ iface.csi_SU(countParameter(0)); } |
+        'X' @csiTrace @{ iface.csi_ECH(countParameter(0)); } |
+        'Z' @csiTrace @{ iface.csi_CBT(countParameter(0)); } |
         '@' @csiTrace @{ iface.csi_ICH(parser.parameters[0] ? parser.parameters[0] : 1); } |
-        '`' @csiTrace @{ iface.csi_HPA(csiParameters()); } |
-        'a' @csiTrace @{ iface.csi_HPR(csiParameters()); } |
-        'b' @csiTrace @{ iface.csi_REP(csiParameters()); } |
+        '`' @csiTrace @{ iface.csi_HPA(countParameter(0)); } |
+        'a' @csiTrace @{ iface.csi_HPR(countParameter(0)); } |
+        'b' @csiTrace @{ iface.csi_REP(countParameter(0)); } |
         'c' @csiTrace @{ iface.csi_priDA(); } |
-        'd' @csiTrace @{ iface.csi_VPA(csiParameters()); } |
-        'e' @csiTrace @{ iface.csi_VPR(csiParameters()); } |
-        'g' @csiTrace @{ iface.csi_TBC(csiParameters()); } |
-        'h' @csiTrace @{ iface.csi_SM(csiParameters()); } |
-        'i' @csiTrace @{ iface.csi_MC(csiParameters(), false); } |
-        'j' @csiTrace @{ iface.csi_CUB(csiParameters()); } |
-        'k' @csiTrace @{ iface.csi_CUU(csiParameters()); } |
-        'l' @csiTrace @{ iface.csi_RM(csiParameters()); } |
+        'd' @csiTrace @{ iface.csi_VPA(countParameter(0)); } |
+        'e' @csiTrace @{ iface.csi_VPR(countParameter(0)); } |
+        'g' @csiTrace @{ iface.csi_TBC(parameter(0)); } |
+        'h' @csiTrace @{ dispatchStandardModes(true); } |
+        'i' @csiTrace @{ dispatchMediaCopy(false); } |
+        'j' @csiTrace @{ iface.csi_CUB(countParameter(0)); } |
+        'k' @csiTrace @{ iface.csi_CUU(countParameter(0)); } |
+        'l' @csiTrace @{ dispatchStandardModes(false); } |
         'm' @csiTrace @csiSgr |
-        'n' @csiTrace @{ iface.csi_DSR(csiParameters(), false); } |
-        'q' @csiTrace @{ iface.csi_DECLL(csiParameters()); } |
-        'r' @csiTrace @{ iface.csi_STBM(csiParameters()); } |
-        's' @csiTrace @{ iface.csi_SCOSC_SLRM(csiParameters()); } |
-        't' @csiTrace @{ iface.csi_XTWINOPS(csiParameters()); } |
+        'n' @csiTrace @{ dispatchDsr(false); } |
+        'q' @csiTrace @{ dispatchDecll(); } |
+        'r' @csiTrace @{ iface.csi_STBM(parameter(0), parameter(1), parser.parameterCount <= 2); } |
+        's' @csiTrace @{ dispatchScoscSlrm(); } |
+        't' @csiTrace @{ dispatchWindowOps(); } |
         'u' @csiTrace @{ iface.csi_SCORC(); } |
         (0x40..0x7e - csiPlainKnown) @csiTrace
     ) @csiDone;
 
     csiGreaterKnown = [Tcmqtu];
     csiGreaterFinal = (
-        'T' @csiTrace @{ iface.csi_XTTITLEMODE(csiParameters(), false); } |
+        'T' @csiTrace @{ dispatchTitleMode(false); } |
         'c' @csiTrace @{ iface.csi_secDA(); } |
-        'm' @csiTrace @{ iface.csi_XTMODKEYS(csiParameters()); } |
+        'm' @csiTrace @{ dispatchXtmodkeys(); } |
         'q' @csiTrace @{ iface.csi_XTVERSION(); } |
-        't' @csiTrace @{ iface.csi_XTTITLEMODE(csiParameters(), true); } |
-        'u' @csiTrace @{ iface.csi_kittyKeyboardPush(csiParameters()); } |
+        't' @csiTrace @{ dispatchTitleMode(true); } |
+        'u' @csiTrace @{ iface.csi_kittyKeyboardPush(parameter(0)); } |
         (0x40..0x7e - csiGreaterKnown) @csiTrace
     ) @csiDone;
 
     csiLessFinal = (
-        'u' @csiTrace @{ iface.csi_kittyKeyboardPop(csiParameters()); } |
+        'u' @csiTrace @{ iface.csi_kittyKeyboardPop(countParameter(0)); } |
         (0x40..0x7e - 'u') @csiTrace
     ) @csiDone;
 
     csiEqualKnown = [cu];
     csiEqualFinal = (
         'c' @csiTrace @{ iface.csi_terDA(); } |
-        'u' @csiTrace @{ iface.csi_kittyKeyboardSet(csiParameters()); } |
+        'u' @csiTrace @{ iface.csi_kittyKeyboardSet(parameter(0), parser.parameterCount > 1 ? parameter(1) : 1); } |
         (0x40..0x7e - csiEqualKnown) @csiTrace
     ) @csiDone;
 
     csiQuestionKnown = [JKhilmnrsu];
     csiQuestionFinal = (
-        'J' @csiTrace @{ iface.csi_DECSED(csiParameters()); } |
-        'K' @csiTrace @{ iface.csi_DECSEL(csiParameters()); } |
-        'h' @csiTrace @{ iface.csi_privSM(csiParameters()); } |
-        'i' @csiTrace @{ iface.csi_MC(csiParameters(), true); } |
-        'l' @csiTrace @{ iface.csi_privRM(csiParameters()); } |
-        'm' @csiTrace @{ iface.csi_XTQMODKEYS(csiParameters()); } |
-        'n' @csiTrace @{ iface.csi_DSR(csiParameters(), true); } |
-        'r' @csiTrace @{ iface.csi_privRestore(csiParameters()); } |
-        's' @csiTrace @{ iface.csi_privSave(csiParameters()); } |
+        'J' @csiTrace @{ iface.csi_DECSED(parameter(0)); } |
+        'K' @csiTrace @{ iface.csi_DECSEL(parameter(0)); } |
+        'h' @csiTrace @{ dispatchPrivateModes(true); } |
+        'i' @csiTrace @{ dispatchMediaCopy(true); } |
+        'l' @csiTrace @{ dispatchPrivateModes(false); } |
+        'm' @csiTrace @{ iface.csi_XTQMODKEYS(parameter(0)); } |
+        'n' @csiTrace @{ dispatchDsr(true); } |
+        'r' @csiTrace @{ dispatchPrivateRestore(); } |
+        's' @csiTrace @{ dispatchPrivateSave(); } |
         'u' @csiTrace @{ iface.csi_kittyKeyboardQuery(); } |
         (0x40..0x7e - csiQuestionKnown) @csiTrace
     ) @csiDone;
@@ -3419,49 +3418,49 @@
 
     csiQuoteKnown = [pq];
     csiQuoteFinal = (
-        'p' @csiTrace @{ iface.csiq_DECSCL(csiParameters()); } |
-        'q' @csiTrace @{ iface.csi_DECSCA(csiParameters()); } |
+        'p' @csiTrace @{ dispatchDecscl(); } |
+        'q' @csiTrace @{ iface.csi_DECSCA(parameter(0)); } |
         (0x40..0x7e - csiQuoteKnown) @csiTrace
     ) @csiDone;
 
     csiSpaceKnown = [@Aq];
     csiSpaceFinal = (
-        '@' @csiTrace @{ iface.csi_ecma48_SL(csiParameters()); } |
-        'A' @csiTrace @{ iface.csi_ecma48_SR(csiParameters()); } |
-        'q' @csiTrace @{ iface.csi_DECSCUSR(csiParameters()); } |
+        '@' @csiTrace @{ iface.csi_ecma48_SL(countParameter(0)); } |
+        'A' @csiTrace @{ iface.csi_ecma48_SR(countParameter(0)); } |
+        'q' @csiTrace @{ iface.csi_DECSCUSR(parameter(0)); } |
         (0x40..0x7e - csiSpaceKnown) @csiTrace
     ) @csiDone;
 
     csiApostropheKnown = [wz-~];
     csiApostropheFinal = (
-        'w' @csiTrace @{ iface.csi_DECEFR(csiParameters()); } |
-        'z' @csiTrace @{ iface.csi_DECELR(csiParameters()); } |
-        '{' @csiTrace @{ iface.csi_DECSLE(csiParameters()); } |
+        'w' @csiTrace @{ iface.csi_DECEFR(parameter(0), parameter(1), parameter(2), parameter(3)); } |
+        'z' @csiTrace @{ iface.csi_DECELR(parameter(0), parameter(1)); } |
+        '{' @csiTrace @{ dispatchDecsle(); } |
         '|' @csiTrace @{ iface.csi_DECRQLP(); } |
-        '}' @csiTrace @{ iface.csi_DECIC(csiParameters()); } |
-        '~' @csiTrace @{ iface.csi_DECDC(csiParameters()); } |
+        '}' @csiTrace @{ iface.csi_DECIC(countParameter(0)); } |
+        '~' @csiTrace @{ iface.csi_DECDC(countParameter(0)); } |
         (0x40..0x7e - csiApostropheKnown) @csiTrace
     ) @csiDone;
 
     csiDollarKnown = [prtvxz{];
     csiDollarFinal = (
-        'p' @csiTrace @{ iface.csi_DECRQM(csiParameters(), false); } |
-        'r' @csiTrace @{ iface.csi_DECCARA(csiParameters(), false); } |
-        't' @csiTrace @{ iface.csi_DECCARA(csiParameters(), true); } |
-        'v' @csiTrace @{ iface.csi_DECCRA(csiParameters()); } |
-        'x' @csiTrace @{ iface.csi_DECFRA(csiParameters()); } |
-        'z' @csiTrace @{ iface.csi_DECERA(csiParameters(), false); } |
-        '{' @csiTrace @{ iface.csi_DECERA(csiParameters(), true); } |
+        'p' @csiTrace @{ iface.csi_DECRQM(parameter(0), false); } |
+        'r' @csiTrace @{ dispatchDeccara(false); } |
+        't' @csiTrace @{ dispatchDeccara(true); } |
+        'v' @csiTrace @{ dispatchDeccra(); } |
+        'x' @csiTrace @{ dispatchDecfra(); } |
+        'z' @csiTrace @{ dispatchDecera(false); } |
+        '{' @csiTrace @{ dispatchDecera(true); } |
         (0x40..0x7e - csiDollarKnown) @csiTrace
     ) @csiDone;
 
     csiStarFinal = (
-        'y' @csiTrace @{ iface.csi_DECRQCRA(csiParameters()); } |
+        'y' @csiTrace @{ dispatchDecrqcra(); } |
         (0x40..0x7e - 'y') @csiTrace
     ) @csiDone;
 
     csiQuestionDollarFinal = (
-        'p' @csiTrace @{ iface.csi_DECRQM(csiParameters(), true); } |
+        'p' @csiTrace @{ iface.csi_DECRQM(parameter(0), true); } |
         (0x40..0x7e - 'p') @csiTrace
     ) @csiDone;
 
