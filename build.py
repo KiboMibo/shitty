@@ -188,7 +188,7 @@ vterm_parser = command(
     cmd=[
         "ragel",
         "-C",
-        "-G2",
+        "-T1",
         "-L",
         "-o",
         "$(B)/vterm_parser.rl.h",

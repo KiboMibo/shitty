@@ -10,8 +10,6 @@
 #include <cmath>
 
 namespace {
-    using stl::StringView;
-
     struct Triple {
         double x;
         double y;
@@ -25,86 +23,6 @@ namespace {
     constexpr double bestRedU = 0.7127;
     constexpr double bestRedV = 0.4931;
     constexpr double pi = 3.14159265358979323846;
-
-    bool prefixEqual(StringView lhs, StringView rhs) {
-        if (lhs.length() != rhs.length()) {
-            return false;
-        }
-        for (size_t i = 0; i < lhs.length(); ++i) {
-            u8 a = lhs[i];
-            u8 b = rhs[i];
-            if (a >= 'A' && a <= 'Z') {
-                a = (unsigned char)(a - 'A' + 'a');
-            }
-            if (b >= 'A' && b <= 'Z') {
-                b = (unsigned char)(b - 'A' + 'a');
-            }
-            if (a != b) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    bool parseNumber(StringView text, double& value) {
-        if (text.empty()) {
-            return false;
-        }
-        size_t index = 0;
-        double sign = 1.0;
-        if (text[index] == '+' || text[index] == '-') {
-            sign = text[index++] == '-' ? -1.0 : 1.0;
-        }
-        double mantissa = 0.0;
-        bool digits = false;
-        while (index < text.length() && text[index] >= '0' && text[index] <= '9') {
-            mantissa = mantissa * 10.0 + text[index++] - '0';
-            digits = true;
-        }
-        if (index < text.length() && text[index] == '.') {
-            ++index;
-            double place = 0.1;
-            while (index < text.length() && text[index] >= '0' && text[index] <= '9') {
-                mantissa += (text[index++] - '0') * place;
-                place *= 0.1;
-                digits = true;
-            }
-        }
-        int exponent = 0;
-        int exponentSign = 1;
-        if (index < text.length() && (text[index] == 'e' || text[index] == 'E')) {
-            ++index;
-            if (index < text.length() && (text[index] == '+' || text[index] == '-')) {
-                exponentSign = text[index++] == '-' ? -1 : 1;
-            }
-            bool exponentDigits = false;
-            while (index < text.length() && text[index] >= '0' && text[index] <= '9') {
-                exponent = std::min(10000, exponent * 10 + text[index++] - '0');
-                exponentDigits = true;
-            }
-            if (!exponentDigits) {
-                return false;
-            }
-        }
-        value = sign * mantissa * std::pow(10.0, exponentSign * exponent);
-        return digits && index == text.length() && std::isfinite(value);
-    }
-
-    bool parseTriple(StringView spec, StringView prefix, Triple& value) {
-        StringView name;
-        StringView components;
-        if (!spec.split(':', name, components) || !prefixEqual(name, prefix)) {
-            return false;
-        }
-        StringView x;
-        StringView tail;
-        StringView y;
-        StringView z;
-        if (!components.split('/', x, tail) || !tail.split('/', y, z) || z.memChr('/') != nullptr) {
-            return false;
-        }
-        return parseNumber(x, value.x) && parseNumber(y, value.y) && parseNumber(z, value.z);
-    }
 
     Triple whiteUvY() {
         const double divisor = whiteX + 15.0 * whiteY + 3.0 * whiteZ;
@@ -227,83 +145,7 @@ namespace {
         return (u8)std::lround(value * 255.0);
     }
 
-    bool convertedColor(StringView spec, Color& color) {
-        Triple value;
-        Triple xyz;
-        if (parseTriple(spec, "rgbi", value)) {
-            if (value.x < 0.0 || value.x > 1.0 || value.y < 0.0 || value.y > 1.0 || value.z < 0.0 || value.z > 1.0) {
-                return false;
-            }
-            color = {encodeSrgb(value.x), encodeSrgb(value.y), encodeSrgb(value.z)};
-            return true;
-        }
-        if (parseTriple(spec, "CIEXYZ", value)) {
-            if (value.y < 0.0 || value.y > 1.0) {
-                return false;
-            }
-            xyz = value;
-        } else if (parseTriple(spec, "CIEuvY", value)) {
-            if (value.z < 0.0 || value.z > 1.0) {
-                return false;
-            }
-            xyz = uvYToXyz(value);
-        } else if (parseTriple(spec, "CIExyY", value)) {
-            if (value.x < 0.0 || value.x > 1.0 || value.y < 0.0 || value.y > 1.0 || value.z < 0.0 || value.z > 1.0) {
-                return false;
-            }
-            if (value.y == 0.0) {
-                xyz = {};
-            } else {
-                xyz = {
-                    value.x * value.z / value.y,
-                    value.z,
-                    (1.0 - value.x - value.y) * value.z / value.y,
-                };
-            }
-        } else if (parseTriple(spec, "CIELab", value)) {
-            if (value.x < 0.0 || value.x > 100.0) {
-                return false;
-            }
-            double lightness = (value.x + 16.0) / 116.0;
-            xyz.y = lightness * lightness * lightness;
-            if (xyz.y < 0.008856) {
-                lightness = value.x / 9.03292;
-                xyz = {
-                    whiteX * (value.y / 3893.5 + lightness),
-                    lightness,
-                    whiteZ * (lightness - value.z / 1557.4),
-                };
-            } else {
-                const double x = lightness + value.y / 5.0;
-                const double z = lightness - value.z / 2.0;
-                xyz.x = whiteX * x * x * x;
-                xyz.z = whiteZ * z * z * z;
-            }
-        } else if (parseTriple(spec, "CIELuv", value)) {
-            if (value.x < 0.0 || value.x > 100.0) {
-                return false;
-            }
-            Triple uvY = whiteUvY();
-            uvY.z = valueToY(value.x);
-            if (value.x != 0.0) {
-                const double scale = 13.0 * (value.x / 100.0);
-                uvY.x += value.y / scale;
-                uvY.y += value.z / scale;
-            }
-            xyz = uvYToXyz(uvY);
-        } else if (parseTriple(spec, "TekHVC", value)) {
-            if (value.y < 0.0 || value.y > 100.0 || value.z < 0.0) {
-                return false;
-            }
-            value.x = std::fmod(value.x, 360.0);
-            if (value.x < 0.0) {
-                value.x += 360.0;
-            }
-            xyz = tekHvcToXyz(value);
-        } else {
-            return false;
-        }
-
+    bool colorFromXyz(Triple xyz, Color& color) {
         if (!std::isfinite(xyz.x) || !std::isfinite(xyz.y) || !std::isfinite(xyz.z) || xyz.y < 0.0 || xyz.y > 1.0) {
             return false;
         }
@@ -316,68 +158,94 @@ namespace {
     }
 }
 
-bool parseXColor(stl::StringView spec, Color& color) {
-    const auto hexDigit = [](unsigned char ch) -> int {
-        if (ch >= '0' && ch <= '9') {
-            return ch - '0';
-        }
-        if (ch >= 'a' && ch <= 'f') {
-            return ch - 'a' + 10;
-        }
-        if (ch >= 'A' && ch <= 'F') {
-            return ch - 'A' + 10;
-        }
-        return -1;
-    };
-    const auto component = [&](stl::StringView value, u8& out) {
-        if (value.empty() || value.length() > 4) {
-            return false;
-        }
-        unsigned parsed = 0;
-        for (unsigned char ch : value) {
-            const int digit = hexDigit(ch);
-            if (digit < 0) {
-                return false;
-            }
-            parsed = parsed * 16 + (unsigned)digit;
-        }
-        const unsigned maximum = (1u << (4 * value.length())) - 1;
-        out = (u8)((parsed * 255 + maximum / 2) / maximum);
-        return true;
-    };
-    const auto hashComponent = [&](stl::StringView value, u8& out) {
-        if (value.empty() || value.length() > 4) {
-            return false;
-        }
-        unsigned parsed = 0;
-        for (unsigned char ch : value) {
-            const int digit = hexDigit(ch);
-            if (digit < 0) {
-                return false;
-            }
-            parsed = parsed * 16 + (unsigned)digit;
-        }
-        if (value.length() < 2) {
-            parsed <<= 4;
-        } else if (value.length() > 2) {
-            parsed >>= 4 * (value.length() - 2);
-        }
-        out = (u8)parsed;
-        return true;
-    };
+bool colorFromRgbIntensity(double red, double green, double blue, Color& color) {
+    if (red < 0.0 || red > 1.0 || green < 0.0 || green > 1.0 || blue < 0.0 || blue > 1.0) {
+        return false;
+    }
+    color = {encodeSrgb(red), encodeSrgb(green), encodeSrgb(blue)};
+    return true;
+}
 
-    if (spec.length() >= 4 && spec.length() <= 13 && spec[0] == '#' && (spec.length() - 1) % 3 == 0) {
-        const size_t width = (spec.length() - 1) / 3;
-        const u8* const components = spec.data() + 1;
-        return hashComponent(stl::StringView(components, width), color.red) && hashComponent(stl::StringView(components + width, width), color.green) && hashComponent(stl::StringView(components + 2 * width, width), color.blue);
+bool colorFromCieXyz(double x, double y, double z, Color& color) {
+    if (y < 0.0 || y > 1.0) {
+        return false;
     }
-    if (spec.length() >= 4 && prefixEqual(spec.prefix(4), "rgb:")) {
-        StringView red;
-        StringView tail;
-        StringView green;
-        StringView blue;
-        const StringView components(spec.data() + 4, spec.length() - 4);
-        return components.split('/', red, tail) && tail.split('/', green, blue) && blue.memChr('/') == nullptr && component(red, color.red) && component(green, color.green) && component(blue, color.blue);
+    return colorFromXyz({x, y, z}, color);
+}
+
+bool colorFromCieUvY(double u, double v, double y, Color& color) {
+    if (y < 0.0 || y > 1.0) {
+        return false;
     }
-    return convertedColor(spec, color);
+    return colorFromXyz(uvYToXyz({u, v, y}), color);
+}
+
+bool colorFromCieXyY(double x, double y, double luminance, Color& color) {
+    if (x < 0.0 || x > 1.0 || y < 0.0 || y > 1.0 || luminance < 0.0 || luminance > 1.0) {
+        return false;
+    }
+    if (y == 0.0) {
+        return colorFromXyz({}, color);
+    }
+    return colorFromXyz(
+        {
+            x * luminance / y,
+            luminance,
+            (1.0 - x - y) * luminance / y,
+        },
+        color
+    );
+}
+
+bool colorFromCieLab(double lightness, double a, double b, Color& color) {
+    if (lightness < 0.0 || lightness > 100.0) {
+        return false;
+    }
+    double scaledLightness = (lightness + 16.0) / 116.0;
+    Triple xyz{};
+    xyz.y = scaledLightness * scaledLightness * scaledLightness;
+    if (xyz.y < 0.008856) {
+        scaledLightness = lightness / 9.03292;
+        xyz = {
+            whiteX * (a / 3893.5 + scaledLightness),
+            scaledLightness,
+            whiteZ * (scaledLightness - b / 1557.4),
+        };
+    } else {
+        const double x = scaledLightness + a / 5.0;
+        const double z = scaledLightness - b / 2.0;
+        xyz.x = whiteX * x * x * x;
+        xyz.z = whiteZ * z * z * z;
+    }
+    return colorFromXyz(xyz, color);
+}
+
+bool colorFromCieLuv(double lightness, double u, double v, Color& color) {
+    if (lightness < 0.0 || lightness > 100.0) {
+        return false;
+    }
+    Triple uvY = whiteUvY();
+    uvY.z = valueToY(lightness);
+    if (lightness != 0.0) {
+        const double scale = 13.0 * (lightness / 100.0);
+        uvY.x += u / scale;
+        uvY.y += v / scale;
+    }
+    return colorFromXyz(uvYToXyz(uvY), color);
+}
+
+bool colorFromTekHvc(double hue, double value, double chroma, Color& color) {
+    if (value < 0.0 || value > 100.0 || chroma < 0.0) {
+        return false;
+    }
+    hue = std::fmod(hue, 360.0);
+    if (hue < 0.0) {
+        hue += 360.0;
+    }
+    return colorFromXyz(tekHvcToXyz({hue, value, chroma}), color);
+}
+
+bool finishColorNumber(double mantissa, bool negative, u32 exponent, bool exponentNegative, double& value) {
+    value = (negative ? -mantissa : mantissa) * std::pow(10.0, exponentNegative ? -(double)(exponent) : (double)(exponent));
+    return std::isfinite(value);
 }

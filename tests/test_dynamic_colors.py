@@ -15,6 +15,27 @@ def dynamic_query(terminal, *commands):
 
 
 class DynamicColorTest(unittest.TestCase):
+    def test_xcolor_parser_survives_every_input_boundary(self):
+        sequence = (
+            b"\x1b]10;RgBi:+0e0/5e-1/1E0;"
+            b"CIELab:53.2408/0.800925/0.672032\x1b\\"
+        )
+        expected = (
+            b"\x1b]10;rgb:0000/bcbc/ffff\x1b\\"
+            b"\x1b]11;rgb:ffff/0000/0000\x1b\\"
+        )
+        chunkings = [
+            (sequence[:split], sequence[split:])
+            for split in range(1, len(sequence))
+        ]
+        chunkings.append(tuple(bytes((byte,)) for byte in sequence))
+
+        for chunks in chunkings:
+            with self.subTest(chunks=chunks):
+                with Shitty(columns=4, rows=2) as terminal:
+                    terminal.write_chunks(*chunks)
+                    self.assertEqual(dynamic_query(terminal, 10, 11), expected)
+
     def test_palette_change_recolors_all_indexed_cell_channels(self):
         with Shitty(columns=4, rows=2) as terminal:
             terminal.write(

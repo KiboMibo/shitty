@@ -287,6 +287,7 @@ namespace {
         void ragelBeginString(VtermTraceString type, bool buffered);
         void ragelBeginDcs();
         void ragelBeginOsc();
+        void resetOscColor();
         bool ragelStringContinuation(u8 ch);
         void ragelAppendString(u8 ch, size_t limit);
         void ragelAppendEscapedString(u8 ch, size_t limit);
@@ -499,14 +500,14 @@ namespace {
         void osc_TITLE_0(StringView);
         void osc_TITLE_1(StringView);
         void osc_TITLE_2(StringView);
-        void osc_PALETTE(u32, StringView);
-        void osc_SPECIAL_COLOR(u32, StringView);
+        void osc_PALETTE(u32, Color, bool);
+        void osc_SPECIAL_COLOR(u32, Color, bool);
         void osc_SPECIAL_COLOR_MODE(u32, u32);
         void osc_CWD(StringView, StringView, bool);
         void osc_HYPERLINK(StringView, bool, StringView);
         void osc_NOTIFY(StringView);
         void osc_PROGRESS(u32, u32);
-        void osc_DYNAMIC_COLOR(u32, StringView);
+        void osc_DYNAMIC_COLOR(u32, Color, bool);
         void osc_CLIPBOARD_QUERY(StringView, bool, bool, u8, bool);
         void osc_CLIPBOARD_WRITE(StringView, StringView, bool, bool, bool);
         void osc_CLIPBOARD_MALFORMED(StringView);
@@ -753,18 +754,25 @@ namespace {
         bool oscNotificationQuery = false;
         bool oscNotificationClose = false;
         bool oscNotificationBody = false;
+        Color oscColor{};
+        double oscColorComponents[3]{};
+        double oscColorMantissa = 0.0;
+        double oscColorFraction = 0.1;
+        u64 oscColorHex = 0;
+        u32 oscColorExponent = 0;
+        u8 oscColorComponent = 0;
+        u8 oscColorDigits = 0;
+        bool oscColorNegative = false;
+        bool oscColorExponentNegative = false;
+        bool oscColorValid = false;
+        bool oscColorQuery = false;
 
-        struct OscField {
-            size_t offset;
-            size_t length;
-            u32 number;
-            bool numeric;
-        };
-
-        Vector<OscField> oscFields;
-        size_t oscFieldOffset = 0;
         u32 oscFieldNumber = 0;
+        u32 oscFieldFirst = 0;
         bool oscFieldNumeric = false;
+        bool oscFieldPresent = false;
+        bool oscFieldFirstValid = false;
+        bool oscFieldHaveFirst = false;
         unsigned char scsDst;
         unsigned char scsMod;
 
@@ -5573,20 +5581,16 @@ void VtermImpl<traced>::osc_TITLE_2(StringView payload) {
 }
 
 template <bool traced>
-void VtermImpl<traced>::osc_PALETTE(u32 index, StringView spec) {
+void VtermImpl<traced>::osc_PALETTE(u32 index, Color color, bool query) {
     if (index >= 256 + TerminalColors::specialCount) {
         return;
     }
     const bool special = index >= 256;
     const u16 colorIndex = (u16)(special ? index - 256 : index);
-    if (spec == StringView(u8"?")) {
+    if (query) {
         StringBuilder reply;
         reply << StringView(u8"4;") << index << StringView(u8";") << (special ? colors.special[colorIndex] : colors.palette[colorIndex]);
         writeOscResponse(StringView(reply));
-        return;
-    }
-    Color color;
-    if (!parseXColor(spec, color)) {
         return;
     }
     if (special) {
@@ -5600,18 +5604,14 @@ void VtermImpl<traced>::osc_PALETTE(u32 index, StringView spec) {
 }
 
 template <bool traced>
-void VtermImpl<traced>::osc_SPECIAL_COLOR(u32 index, StringView spec) {
+void VtermImpl<traced>::osc_SPECIAL_COLOR(u32 index, Color color, bool query) {
     if (index >= TerminalColors::specialCount) {
         return;
     }
-    if (spec == StringView(u8"?")) {
+    if (query) {
         StringBuilder reply;
         reply << StringView(u8"5;") << index << StringView(u8";") << colors.special[index];
         writeOscResponse(StringView(reply));
-        return;
-    }
-    Color color;
-    if (!parseXColor(spec, color)) {
         return;
     }
     colors.special[index] = color;
@@ -5682,9 +5682,8 @@ void VtermImpl<traced>::osc_PROGRESS(u32 state, u32 percent) {
 }
 
 template <bool traced>
-void VtermImpl<traced>::osc_DYNAMIC_COLOR(u32 command, StringView payload) {
-    if (payload == StringView(u8"?")) {
-        Color color;
+void VtermImpl<traced>::osc_DYNAMIC_COLOR(u32 command, Color color, bool query) {
+    if (query) {
         switch (command) {
             case 10:
                 color = colors.defaultForeground;
@@ -5707,10 +5706,6 @@ void VtermImpl<traced>::osc_DYNAMIC_COLOR(u32 command, StringView payload) {
         StringBuilder response;
         response << command << StringView(u8";") << color;
         writeOscResponse(StringView(response));
-        return;
-    }
-    Color color;
-    if (!parseXColor(payload, color)) {
         return;
     }
     switch (command) {
@@ -8580,6 +8575,19 @@ void VtermImpl<traced>::ragelBeginOsc() {
     osc52SelectorSeen = false;
     osc52PayloadSeen = false;
     osc52Query = false;
+}
+
+template <bool traced>
+void VtermImpl<traced>::resetOscColor() {
+    oscColor = {};
+    oscColorComponents[0] = 0.0;
+    oscColorComponents[1] = 0.0;
+    oscColorComponents[2] = 0.0;
+    oscColorHex = 0;
+    oscColorComponent = 0;
+    oscColorDigits = 0;
+    oscColorValid = true;
+    oscColorQuery = false;
 }
 
 template <bool traced>

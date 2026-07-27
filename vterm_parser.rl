@@ -1171,49 +1171,9 @@
         fgoto dcsPayload;
     }
 
-    action dcsDecrqssQuote {
-        ragelAppendString(fc, maxDcsBytes);
-        fgoto dcsDecrqssQuote;
-    }
-
-    action dcsDecrqssSpace {
-        ragelAppendString(fc, maxDcsBytes);
-        fgoto dcsDecrqssSpace;
-    }
-
-    action dcsDecrqssDecscl {
-        ragelAppendString(fc, maxDcsBytes);
-        fgoto dcsDecrqssDecsclComplete;
-    }
-
-    action dcsDecrqssSgr {
-        ragelAppendString(fc, maxDcsBytes);
-        fgoto dcsDecrqssSgrComplete;
-    }
-
-    action dcsDecrqssDecstbm {
-        ragelAppendString(fc, maxDcsBytes);
-        fgoto dcsDecrqssDecstbmComplete;
-    }
-
-    action dcsDecrqssDecslrm {
-        ragelAppendString(fc, maxDcsBytes);
-        fgoto dcsDecrqssDecslrmComplete;
-    }
-
-    action dcsDecrqssDecslpp {
-        ragelAppendString(fc, maxDcsBytes);
-        fgoto dcsDecrqssDecslppComplete;
-    }
-
-    action dcsDecrqssDecscusr {
-        ragelAppendString(fc, maxDcsBytes);
-        fgoto dcsDecrqssDecscusrComplete;
-    }
-
-    action dcsDecrqssDecsca {
-        ragelAppendString(fc, maxDcsBytes);
-        fgoto dcsDecrqssDecscaComplete;
+    action dcsDecrqssInvalidStart {
+        fhold;
+        fgoto dcsDecrqssInvalid;
     }
 
     action dcsDecrqssInvalid {
@@ -1599,15 +1559,27 @@
             oscCwdValid = false;
             oscCwdDecode = false;
             fgoto oscCwdEntry;
-        } else if (oscCommand == 4 || oscCommand == 5 || oscCommand == 6 ||
-                   (oscCommand >= 10 && oscCommand <= 19) ||
-                   oscCommand == 104 || oscCommand == 105 ||
-                   oscCommand == 106) {
-            oscFields.clear();
-            oscFieldOffset = argBuf.used();
+        } else if (oscCommand >= 10 && oscCommand <= 19) {
+            resetOscColor();
+            fgoto oscDynamicColor;
+        } else if (oscCommand == 4 || oscCommand == 5) {
             oscFieldNumber = 0;
             oscFieldNumeric = true;
-            fgoto oscFieldList;
+            oscFieldPresent = false;
+            fgoto oscIndexedColorIndex;
+        } else if (oscCommand == 6 || oscCommand == 106) {
+            oscFieldNumber = 0;
+            oscFieldNumeric = true;
+            oscFieldPresent = false;
+            oscFieldFirst = 0;
+            oscFieldFirstValid = false;
+            oscFieldHaveFirst = false;
+            fgoto oscNumericFields;
+        } else if (oscCommand == 104 || oscCommand == 105) {
+            oscFieldNumber = 0;
+            oscFieldNumeric = true;
+            oscFieldPresent = false;
+            fgoto oscNumericFields;
         } else if (oscCommand == 8) {
             oscHyperlinkIdOffset = 0;
             oscHyperlinkIdLength = 0;
@@ -1711,9 +1683,9 @@
                 osc_NOTIFY(payload);
             } else if (oscCommand == 52) {
                 osc_CLIPBOARD_MALFORMED(payload);
-            } else if (oscCommand == 104) {
+            } else if (oscCommand == 104 && payload.empty()) {
                 osc_RESET_PALETTE();
-            } else if (oscCommand == 105) {
+            } else if (oscCommand == 105 && payload.empty()) {
                 osc_RESET_SPECIAL_COLOR();
             } else if (oscCommand == 110) {
                 osc_RESET_DEFAULT_FOREGROUND();
@@ -2665,35 +2637,198 @@
         fgoto oscNotificationInvalid;
     }
 
-    action oscFieldData {
-        stringUtf8Continuation(fc);
-        if (!executeC0InSequence(fc, true)) {
-            ragelAppendString(fc, maxOscBytes);
-            if (fc < '0' || fc > '9' ||
-                oscFieldNumber > (UINT32_MAX - (u32)(fc - '0')) / 10) {
-                oscFieldNumeric = false;
-            } else {
-                oscFieldNumber = oscFieldNumber * 10 + fc - '0';
+    action oscColorByte {
+        ragelAppendString(fc, maxOscBytes);
+    }
+
+    action oscColorQuery {
+        ragelAppendString(fc, maxOscBytes);
+        oscColorQuery = true;
+    }
+
+    action oscColorHashDigit {
+        ragelAppendString(fc, maxOscBytes);
+        const u8 digit =
+            fc <= '9' ? fc - '0' : (fc | 0x20) - 'a' + 10;
+        oscColorHex = (oscColorHex << 4) | digit;
+        ++oscColorDigits;
+    }
+
+    action oscColorHashDone {
+        const u8 width = oscColorDigits / 3;
+        const u8 bits = width * 4;
+        const u32 mask = (1u << bits) - 1;
+        const u32 red = (oscColorHex >> (bits * 2)) & mask;
+        const u32 green = (oscColorHex >> bits) & mask;
+        const u32 blue = oscColorHex & mask;
+        const u8 shift = width < 2 ? 4 : (width - 2) * 4;
+        oscColor.red =
+            width < 2 ? (u8)(red << shift) : (u8)(red >> shift);
+        oscColor.green =
+            width < 2 ? (u8)(green << shift) : (u8)(green >> shift);
+        oscColor.blue =
+            width < 2 ? (u8)(blue << shift) : (u8)(blue >> shift);
+    }
+
+    action oscColorRgbComponentStart {
+        oscColorHex = 0;
+        oscColorDigits = 0;
+    }
+
+    action oscColorRgbComponentDone {
+        const u32 maximum = (1u << (4 * oscColorDigits)) - 1;
+        const u8 value =
+            (u8)((oscColorHex * 255 + maximum / 2) / maximum);
+        if (oscColorComponent == 0) {
+            oscColor.red = value;
+        } else if (oscColorComponent == 1) {
+            oscColor.green = value;
+        } else {
+            oscColor.blue = value;
+        }
+    }
+
+    action oscColorNextComponent {
+        ragelAppendString(fc, maxOscBytes);
+        ++oscColorComponent;
+    }
+
+    action oscColorNumberStart {
+        oscColorMantissa = 0.0;
+        oscColorFraction = 0.1;
+        oscColorExponent = 0;
+        oscColorNegative = false;
+        oscColorExponentNegative = false;
+    }
+
+    action oscColorNegative {
+        ragelAppendString(fc, maxOscBytes);
+        oscColorNegative = true;
+    }
+
+    action oscColorNumberSign {
+        ragelAppendString(fc, maxOscBytes);
+    }
+
+    action oscColorIntegerDigit {
+        ragelAppendString(fc, maxOscBytes);
+        oscColorMantissa =
+            oscColorMantissa * 10.0 + (double)(fc - '0');
+    }
+
+    action oscColorPoint {
+        ragelAppendString(fc, maxOscBytes);
+    }
+
+    action oscColorFractionDigit {
+        ragelAppendString(fc, maxOscBytes);
+        oscColorMantissa += (double)(fc - '0') * oscColorFraction;
+        oscColorFraction *= 0.1;
+    }
+
+    action oscColorExponentStart {
+        ragelAppendString(fc, maxOscBytes);
+        oscColorExponent = 0;
+        oscColorExponentNegative = false;
+    }
+
+    action oscColorExponentNegative {
+        ragelAppendString(fc, maxOscBytes);
+        oscColorExponentNegative = true;
+    }
+
+    action oscColorExponentSign {
+        ragelAppendString(fc, maxOscBytes);
+    }
+
+    action oscColorExponentDigit {
+        ragelAppendString(fc, maxOscBytes);
+        if (oscColorExponent < 10000) {
+            oscColorExponent = oscColorExponent * 10 + fc - '0';
+            if (oscColorExponent > 10000) {
+                oscColorExponent = 10000;
             }
         }
     }
 
-    action oscFieldSeparator {
-        if (!argBufOverflowed) {
-            oscFields.pushBack({
-                oscFieldOffset,
-                argBuf.used() - oscFieldOffset,
-                oscFieldNumber,
-                oscFieldNumeric && argBuf.used() != oscFieldOffset,
-            });
-        }
-        ragelAppendString(fc, maxOscBytes);
-        oscFieldOffset = argBuf.used();
-        oscFieldNumber = 0;
-        oscFieldNumeric = true;
+    action oscColorNumberDone {
+        oscColorValid =
+            finishColorNumber(
+                oscColorMantissa,
+                oscColorNegative,
+                oscColorExponent,
+                oscColorExponentNegative,
+                oscColorComponents[oscColorComponent]
+            ) &&
+            oscColorValid;
     }
 
-    action oscFieldSt {
+    action oscColorRgbIntensity {
+        oscColorValid = oscColorValid && colorFromRgbIntensity(
+            oscColorComponents[0], oscColorComponents[1],
+            oscColorComponents[2], oscColor
+        );
+    }
+
+    action oscColorCieXyz {
+        oscColorValid = oscColorValid && colorFromCieXyz(
+            oscColorComponents[0], oscColorComponents[1],
+            oscColorComponents[2], oscColor
+        );
+    }
+
+    action oscColorCieUvY {
+        oscColorValid = oscColorValid && colorFromCieUvY(
+            oscColorComponents[0], oscColorComponents[1],
+            oscColorComponents[2], oscColor
+        );
+    }
+
+    action oscColorCieXyY {
+        oscColorValid = oscColorValid && colorFromCieXyY(
+            oscColorComponents[0], oscColorComponents[1],
+            oscColorComponents[2], oscColor
+        );
+    }
+
+    action oscColorCieLab {
+        oscColorValid = oscColorValid && colorFromCieLab(
+            oscColorComponents[0], oscColorComponents[1],
+            oscColorComponents[2], oscColor
+        );
+    }
+
+    action oscColorCieLuv {
+        oscColorValid = oscColorValid && colorFromCieLuv(
+            oscColorComponents[0], oscColorComponents[1],
+            oscColorComponents[2], oscColor
+        );
+    }
+
+    action oscColorTekHvc {
+        oscColorValid = oscColorValid && colorFromTekHvc(
+            oscColorComponents[0], oscColorComponents[1],
+            oscColorComponents[2], oscColor
+        );
+    }
+
+    action oscDynamicColorNext {
+        ragelAppendString(fc, maxOscBytes);
+        ++oscCommand;
+        if (oscCommand > 19) {
+            fgoto oscInvalid;
+        }
+        resetOscColor();
+        fgoto oscDynamicColor;
+    }
+
+    action oscDynamicColorCommit {
+        if (!argBufOverflowed && oscColorValid) {
+            osc_DYNAMIC_COLOR(oscCommand, oscColor, oscColorQuery);
+        }
+    }
+
+    action oscDynamicColorSt {
         if (stringUtf8Continuation(fc)) {
             ragelAppendString(fc, maxOscBytes);
             oscTerminated = false;
@@ -2704,80 +2839,224 @@
         }
     }
 
-    action oscFieldBell {
+    action oscDynamicColorBell {
         ragelFinishOsc();
         oscTerminated = true;
     }
 
-    action oscFieldDispatch {
-        if (oscTerminated && !argBufOverflowed) {
-            if (argBuf.used() != oscFieldOffset) {
-                oscFields.pushBack({
-                    oscFieldOffset,
-                    argBuf.used() - oscFieldOffset,
-                    oscFieldNumber,
-                    oscFieldNumeric,
-                });
-            }
-            const auto* data = (const u8*)(argBuf.data());
-            if (oscCommand == 4 || oscCommand == 5) {
-                for (size_t i = 0; i + 1 < oscFields.length(); i += 2) {
-                    if (!oscFields[i].numeric) {
-                        continue;
-                    }
-                    const OscField& spec = oscFields[i + 1];
-                    const StringView value(data + spec.offset, spec.length);
-                    if (oscCommand == 4) {
-                        osc_PALETTE(oscFields[i].number, value);
-                    } else {
-                        osc_SPECIAL_COLOR(oscFields[i].number, value);
-                    }
-                }
-            } else if (oscCommand == 6 || oscCommand == 106) {
-                for (size_t i = 0; i + 1 < oscFields.length(); i += 2) {
-                    if (oscFields[i].numeric && oscFields[i + 1].numeric) {
-                        osc_SPECIAL_COLOR_MODE(
-                            oscFields[i].number, oscFields[i + 1].number
-                        );
-                    }
-                }
-            } else if (oscCommand >= 10 && oscCommand <= 19) {
-                u32 command = oscCommand;
-                for (size_t i = 0; i < oscFields.length() && command <= 19;
-                     ++i, ++command) {
-                    const OscField& spec = oscFields[i];
-                    osc_DYNAMIC_COLOR(
-                        command, StringView(data + spec.offset, spec.length)
-                    );
-                }
-            } else if (oscCommand == 104) {
-                if (oscFields.empty()) {
-                    osc_RESET_PALETTE();
-                } else {
-                    for (const OscField& field : oscFields) {
-                        if (field.numeric) {
-                            osc_RESET_PALETTE(field.number);
-                        }
-                    }
-                }
-            } else if (oscCommand == 105) {
-                if (oscFields.empty()) {
-                    osc_RESET_SPECIAL_COLOR();
-                } else {
-                    for (const OscField& field : oscFields) {
-                        if (field.numeric) {
-                            osc_RESET_SPECIAL_COLOR(field.number);
-                        }
-                    }
-                }
+    action oscDynamicColorInvalid {
+        fhold;
+        fgoto oscDynamicColorDiscard;
+    }
+
+    action oscDynamicColorDiscardNext {
+        ragelAppendString(fc, maxOscBytes);
+        ++oscCommand;
+        if (oscCommand > 19) {
+            fgoto oscInvalid;
+        } else {
+            resetOscColor();
+            fgoto oscDynamicColor;
+        }
+    }
+
+    action oscDynamicColorEscapedInvalid {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        fgoto oscDynamicColorDiscard;
+    }
+
+    action oscIndexedColorIndexDigit {
+        ragelAppendString(fc, maxOscBytes);
+        oscFieldPresent = true;
+        if (oscFieldNumber > (UINT32_MAX - (u32)(fc - '0')) / 10) {
+            oscFieldNumeric = false;
+        } else {
+            oscFieldNumber = oscFieldNumber * 10 + fc - '0';
+        }
+    }
+
+    action oscIndexedColorIndexInvalid {
+        stringUtf8Continuation(fc);
+        if (!executeC0InSequence(fc, true)) {
+            ragelAppendString(fc, maxOscBytes);
+        }
+        oscFieldNumeric = false;
+    }
+
+    action oscIndexedColorIndexEscapedInvalid {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        oscFieldNumeric = false;
+        fgoto oscIndexedColorIndex;
+    }
+
+    action oscIndexedColorBegin {
+        ragelAppendString(fc, maxOscBytes);
+        if (!oscFieldPresent || !oscFieldNumeric) {
+            fgoto oscIndexedColorDiscard;
+        }
+        resetOscColor();
+        fgoto oscIndexedColor;
+    }
+
+    action oscIndexedColorCommit {
+        if (!argBufOverflowed && oscColorValid) {
+            if (oscCommand == 4) {
+                osc_PALETTE(
+                    oscFieldNumber, oscColor, oscColorQuery
+                );
+            } else {
+                osc_SPECIAL_COLOR(
+                    oscFieldNumber, oscColor, oscColorQuery
+                );
             }
         }
     }
 
-    action oscFieldEscaped {
+    action oscIndexedColorNext {
+        ragelAppendString(fc, maxOscBytes);
+        oscFieldNumber = 0;
+        oscFieldNumeric = true;
+        oscFieldPresent = false;
+        fgoto oscIndexedColorIndex;
+    }
+
+    action oscIndexedColorSt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+            oscTerminated = false;
+            fgoto oscInvalid;
+        } else {
+            ragelFinishOsc();
+            oscTerminated = true;
+        }
+    }
+
+    action oscIndexedColorBell {
+        ragelFinishOsc();
+        oscTerminated = true;
+    }
+
+    action oscIndexedColorInvalid {
+        fhold;
+        fgoto oscIndexedColorDiscard;
+    }
+
+    action oscIndexedColorDiscardNext {
+        ragelAppendString(fc, maxOscBytes);
+        oscFieldNumber = 0;
+        oscFieldNumeric = true;
+        oscFieldPresent = false;
+        fgoto oscIndexedColorIndex;
+    }
+
+    action oscIndexedColorEscapedInvalid {
         ragelAppendEscapedString(fc, maxOscBytes);
+        fgoto oscIndexedColorDiscard;
+    }
+
+    action oscNumericDigit {
+        ragelAppendString(fc, maxOscBytes);
+        oscFieldPresent = true;
+        if (oscFieldNumber > (UINT32_MAX - (u32)(fc - '0')) / 10) {
+            oscFieldNumeric = false;
+        } else {
+            oscFieldNumber = oscFieldNumber * 10 + fc - '0';
+        }
+    }
+
+    action oscNumericInvalid {
+        stringUtf8Continuation(fc);
+        if (!executeC0InSequence(fc, true)) {
+            ragelAppendString(fc, maxOscBytes);
+            oscFieldPresent = true;
+            oscFieldNumeric = false;
+        }
+    }
+
+    action oscNumericField {
+        const bool valid = oscFieldPresent && oscFieldNumeric;
+        if (oscCommand == 6 || oscCommand == 106) {
+            if (!oscFieldHaveFirst) {
+                oscFieldFirst = oscFieldNumber;
+                oscFieldFirstValid = valid;
+                oscFieldHaveFirst = true;
+            } else {
+                if (!argBufOverflowed && oscFieldFirstValid && valid) {
+                    osc_SPECIAL_COLOR_MODE(
+                        oscFieldFirst, oscFieldNumber
+                    );
+                }
+                oscFieldHaveFirst = false;
+            }
+        } else if (!argBufOverflowed && valid) {
+            if (oscCommand == 104) {
+                osc_RESET_PALETTE(oscFieldNumber);
+            } else {
+                osc_RESET_SPECIAL_COLOR(oscFieldNumber);
+            }
+        }
+    }
+
+    action oscNumericFinalField {
+        if (oscFieldPresent) {
+            const bool valid = oscFieldNumeric;
+            if (oscCommand == 6 || oscCommand == 106) {
+                if (!oscFieldHaveFirst) {
+                    oscFieldFirst = oscFieldNumber;
+                    oscFieldFirstValid = valid;
+                    oscFieldHaveFirst = true;
+                } else if (!argBufOverflowed &&
+                           oscFieldFirstValid && valid) {
+                    osc_SPECIAL_COLOR_MODE(
+                        oscFieldFirst, oscFieldNumber
+                    );
+                }
+            } else if (!argBufOverflowed && valid) {
+                if (oscCommand == 104) {
+                    osc_RESET_PALETTE(oscFieldNumber);
+                } else {
+                    osc_RESET_SPECIAL_COLOR(oscFieldNumber);
+                }
+            }
+        } else if (!argBufOverflowed &&
+                   argBuf.used() == oscPayloadOffset) {
+            if (oscCommand == 104) {
+                osc_RESET_PALETTE();
+            } else if (oscCommand == 105) {
+                osc_RESET_SPECIAL_COLOR();
+            }
+        }
+    }
+
+    action oscNumericSeparator {
+        ragelAppendString(fc, maxOscBytes);
+        oscFieldNumber = 0;
+        oscFieldNumeric = true;
+        oscFieldPresent = false;
+    }
+
+    action oscNumericSt {
+        if (stringUtf8Continuation(fc)) {
+            ragelAppendString(fc, maxOscBytes);
+            oscFieldPresent = true;
+            oscFieldNumeric = false;
+            fgoto oscNumericFields;
+        } else {
+            ragelFinishOsc();
+            oscTerminated = true;
+        }
+    }
+
+    action oscNumericBell {
+        ragelFinishOsc();
+        oscTerminated = true;
+    }
+
+    action oscNumericEscapedInvalid {
+        ragelAppendEscapedString(fc, maxOscBytes);
+        oscFieldPresent = true;
         oscFieldNumeric = false;
-        fgoto oscFieldList;
+        fgoto oscNumericFields;
     }
 
     action ignoredData {
@@ -3135,6 +3414,159 @@
         0x9f @stringRestartApc
     );
 
+    oscColorGap = (
+        cancel |
+        stringC1 |
+        0x7f |
+        sequenceC0
+    );
+
+    oscColorA = [aA] @oscColorByte oscColorGap*;
+    oscColorB = [bB] @oscColorByte oscColorGap*;
+    oscColorC = [cC] @oscColorByte oscColorGap*;
+    oscColorE = [eE] @oscColorByte oscColorGap*;
+    oscColorG = [gG] @oscColorByte oscColorGap*;
+    oscColorH = [hH] @oscColorByte oscColorGap*;
+    oscColorI = [iI] @oscColorByte oscColorGap*;
+    oscColorK = [kK] @oscColorByte oscColorGap*;
+    oscColorL = [lL] @oscColorByte oscColorGap*;
+    oscColorR = [rR] @oscColorByte oscColorGap*;
+    oscColorT = [tT] @oscColorByte oscColorGap*;
+    oscColorU = [uU] @oscColorByte oscColorGap*;
+    oscColorV = [vV] @oscColorByte oscColorGap*;
+    oscColorX = [xX] @oscColorByte oscColorGap*;
+    oscColorY = [yY] @oscColorByte oscColorGap*;
+    oscColorZ = [zZ] @oscColorByte oscColorGap*;
+    oscColorColon = ':' @oscColorByte;
+
+    oscColorHexDigit =
+        oscColorGap* xdigit @oscColorHashDigit;
+
+    oscColorIntegerDigit =
+        oscColorGap* digit @oscColorIntegerDigit;
+
+    oscColorFractionDigit =
+        oscColorGap* digit @oscColorFractionDigit;
+
+    oscColorExponentDigit =
+        oscColorGap* digit @oscColorExponentDigit;
+
+    oscColorNumber = (
+        oscColorGap*
+        (
+            '+' @oscColorNumberSign |
+            '-' @oscColorNegative
+        )?
+        (
+            oscColorIntegerDigit+
+            (
+                oscColorGap* '.' @oscColorPoint
+                oscColorFractionDigit*
+            )? |
+            oscColorGap* '.' @oscColorPoint
+            oscColorFractionDigit+
+        )
+        (
+            oscColorGap* [eE] @oscColorExponentStart
+            (
+                oscColorGap* '+' @oscColorExponentSign |
+                oscColorGap* '-' @oscColorExponentNegative
+            )?
+            oscColorExponentDigit+
+        )?
+    ) >oscColorNumberStart %oscColorNumberDone;
+
+    oscColorSlash =
+        oscColorGap* '/' @oscColorNextComponent;
+
+    oscColorTriple =
+        oscColorNumber
+        oscColorSlash
+        oscColorNumber
+        oscColorSlash
+        oscColorNumber;
+
+    oscColorHash = (
+        '#' @oscColorByte
+        (
+            oscColorHexDigit{3} |
+            oscColorHexDigit{6} |
+            oscColorHexDigit{9} |
+            oscColorHexDigit{12}
+        )
+    ) %oscColorHashDone;
+
+    oscColorRgbComponent = (
+        oscColorHexDigit{1,4}
+    ) >oscColorRgbComponentStart %oscColorRgbComponentDone;
+
+    oscColorRgb = (
+        oscColorR oscColorG oscColorB oscColorColon
+        oscColorRgbComponent
+        oscColorSlash
+        oscColorRgbComponent
+        oscColorSlash
+        oscColorRgbComponent
+    );
+
+    oscColorRgbIntensity = (
+        oscColorR oscColorG oscColorB oscColorI oscColorColon
+        oscColorTriple
+    ) %oscColorRgbIntensity;
+
+    oscColorCieXyz = (
+        oscColorC oscColorI oscColorE
+        oscColorX oscColorY oscColorZ oscColorColon
+        oscColorTriple
+    ) %oscColorCieXyz;
+
+    oscColorCieUvY = (
+        oscColorC oscColorI oscColorE
+        oscColorU oscColorV oscColorY oscColorColon
+        oscColorTriple
+    ) %oscColorCieUvY;
+
+    oscColorCieXyY = (
+        oscColorC oscColorI oscColorE
+        oscColorX oscColorY oscColorY oscColorColon
+        oscColorTriple
+    ) %oscColorCieXyY;
+
+    oscColorCieLab = (
+        oscColorC oscColorI oscColorE
+        oscColorL oscColorA oscColorB oscColorColon
+        oscColorTriple
+    ) %oscColorCieLab;
+
+    oscColorCieLuv = (
+        oscColorC oscColorI oscColorE
+        oscColorL oscColorU oscColorV oscColorColon
+        oscColorTriple
+    ) %oscColorCieLuv;
+
+    oscColorTekHvc = (
+        oscColorT oscColorE oscColorK
+        oscColorH oscColorV oscColorC oscColorColon
+        oscColorTriple
+    ) %oscColorTekHvc;
+
+    oscColorValue = (
+        oscColorGap*
+        (
+            '?' @oscColorQuery |
+            oscColorHash |
+            oscColorRgb |
+            oscColorRgbIntensity |
+            oscColorCieXyz |
+            oscColorCieUvY |
+            oscColorCieXyY |
+            oscColorCieLab |
+            oscColorCieLuv |
+            oscColorTekHvc
+        )
+        oscColorGap*
+    );
+
     main := (
         0x00 @groundIgnored |
         0x01..0x06 @groundIgnored |
@@ -3436,124 +3868,48 @@
                 0x9a..0x9f)) @dcsHeaderInvalid
     )*;
 
+    dcsDecrqssGap = (
+        cancel |
+        stringC1 |
+        0x7f |
+        sequenceC0
+    );
+
+    dcsDecrqssTerminator = (
+        0x9c |
+        0x1b (
+            '\\' |
+            0x9c |
+            0x1b @dcsDecrqssEscapedEscape |
+            (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
+                    0x9a..0x9f)) @dcsDecrqssEscapedData |
+            cancel |
+            stringC1
+        )
+    );
+
     dcsDecrqssEntry := (
-        cancel |
-        stringC1 |
-        0x9c @dcsDecrqssUnknownSt |
-        0x1b @dcsDecrqssEscape |
-        0x7f |
-        sequenceC0 |
-        '"' @dcsDecrqssQuote |
-        ' ' @dcsDecrqssSpace |
-        'm' @dcsDecrqssSgr |
-        'r' @dcsDecrqssDecstbm |
-        's' @dcsDecrqssDecslrm |
-        't' @dcsDecrqssDecslpp |
-        (0x20..0x7e - ('"' | ' ' | 'm' | 'r' | 's' | 't')) @dcsDecrqssInvalid |
-        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
-    )*;
-
-    dcsDecrqssQuote := (
-        cancel |
-        stringC1 |
-        0x9c @dcsDecrqssUnknownSt |
-        0x1b @dcsDecrqssEscape |
-        0x7f |
-        sequenceC0 |
-        'p' @dcsDecrqssDecscl |
-        'q' @dcsDecrqssDecsca |
-        (0x20..0x7e - ('p' | 'q')) @dcsDecrqssInvalid |
-        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
-    )*;
-
-    dcsDecrqssSpace := (
-        cancel |
-        stringC1 |
-        0x9c @dcsDecrqssUnknownSt |
-        0x1b @dcsDecrqssEscape |
-        0x7f |
-        sequenceC0 |
-        'q' @dcsDecrqssDecscusr |
-        (0x20..0x7e - 'q') @dcsDecrqssInvalid |
-        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
-    )*;
-
-    dcsDecrqssDecsclComplete := (
-        cancel |
-        stringC1 |
-        0x9c @dcsDecrqssDecsclSt |
-        0x1b @{ fgoto dcsDecrqssDecsclEscape; } |
-        0x7f |
-        sequenceC0 |
-        0x20..0x7e @dcsDecrqssInvalid |
-        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
-    )*;
-
-    dcsDecrqssSgrComplete := (
-        cancel |
-        stringC1 |
-        0x9c @dcsDecrqssSgrSt |
-        0x1b @{ fgoto dcsDecrqssSgrEscape; } |
-        0x7f |
-        sequenceC0 |
-        0x20..0x7e @dcsDecrqssInvalid |
-        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
-    )*;
-
-    dcsDecrqssDecstbmComplete := (
-        cancel |
-        stringC1 |
-        0x9c @dcsDecrqssDecstbmSt |
-        0x1b @{ fgoto dcsDecrqssDecstbmEscape; } |
-        0x7f |
-        sequenceC0 |
-        0x20..0x7e @dcsDecrqssInvalid |
-        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
-    )*;
-
-    dcsDecrqssDecslrmComplete := (
-        cancel |
-        stringC1 |
-        0x9c @dcsDecrqssDecslrmSt |
-        0x1b @{ fgoto dcsDecrqssDecslrmEscape; } |
-        0x7f |
-        sequenceC0 |
-        0x20..0x7e @dcsDecrqssInvalid |
-        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
-    )*;
-
-    dcsDecrqssDecslppComplete := (
-        cancel |
-        stringC1 |
-        0x9c @dcsDecrqssDecslppSt |
-        0x1b @{ fgoto dcsDecrqssDecslppEscape; } |
-        0x7f |
-        sequenceC0 |
-        0x20..0x7e @dcsDecrqssInvalid |
-        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
-    )*;
-
-    dcsDecrqssDecscusrComplete := (
-        cancel |
-        stringC1 |
-        0x9c @dcsDecrqssDecscusrSt |
-        0x1b @{ fgoto dcsDecrqssDecscusrEscape; } |
-        0x7f |
-        sequenceC0 |
-        0x20..0x7e @dcsDecrqssInvalid |
-        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
-    )*;
-
-    dcsDecrqssDecscaComplete := (
-        cancel |
-        stringC1 |
-        0x9c @dcsDecrqssDecscaSt |
-        0x1b @{ fgoto dcsDecrqssDecscaEscape; } |
-        0x7f |
-        sequenceC0 |
-        0x20..0x7e @dcsDecrqssInvalid |
-        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
-    )*;
+        dcsDecrqssGap*
+        (
+            '"' @dcsHeaderByte dcsDecrqssGap* (
+                'p' @dcsHeaderByte dcsDecrqssGap*
+                    dcsDecrqssTerminator @dcsDecrqssDecsclSt |
+                'q' @dcsHeaderByte dcsDecrqssGap*
+                    dcsDecrqssTerminator @dcsDecrqssDecscaSt
+            ) |
+            'm' @dcsHeaderByte dcsDecrqssGap*
+                dcsDecrqssTerminator @dcsDecrqssSgrSt |
+            'r' @dcsHeaderByte dcsDecrqssGap*
+                dcsDecrqssTerminator @dcsDecrqssDecstbmSt |
+            's' @dcsHeaderByte dcsDecrqssGap*
+                dcsDecrqssTerminator @dcsDecrqssDecslrmSt |
+            't' @dcsHeaderByte dcsDecrqssGap*
+                dcsDecrqssTerminator @dcsDecrqssDecslppSt |
+            ' ' @dcsHeaderByte dcsDecrqssGap*
+                'q' @dcsHeaderByte dcsDecrqssGap*
+                dcsDecrqssTerminator @dcsDecrqssDecscusrSt
+        )
+    ) $err(dcsDecrqssInvalidStart);
 
     dcsDecrqssInvalid := (
         cancel |
@@ -3571,76 +3927,6 @@
         stringC1 |
         0x9c @dcsDecrqssUnknownSt |
         '\\' @dcsDecrqssUnknownSt |
-        0x1b @dcsDecrqssEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
-                0x9a..0x9f)) @dcsDecrqssEscapedData
-    )*;
-
-    dcsDecrqssDecsclEscape := (
-        cancel |
-        stringC1 |
-        0x9c @dcsDecrqssDecsclSt |
-        '\\' @dcsDecrqssDecsclSt |
-        0x1b @dcsDecrqssEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
-                0x9a..0x9f)) @dcsDecrqssEscapedData
-    )*;
-
-    dcsDecrqssSgrEscape := (
-        cancel |
-        stringC1 |
-        0x9c @dcsDecrqssSgrSt |
-        '\\' @dcsDecrqssSgrSt |
-        0x1b @dcsDecrqssEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
-                0x9a..0x9f)) @dcsDecrqssEscapedData
-    )*;
-
-    dcsDecrqssDecstbmEscape := (
-        cancel |
-        stringC1 |
-        0x9c @dcsDecrqssDecstbmSt |
-        '\\' @dcsDecrqssDecstbmSt |
-        0x1b @dcsDecrqssEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
-                0x9a..0x9f)) @dcsDecrqssEscapedData
-    )*;
-
-    dcsDecrqssDecslrmEscape := (
-        cancel |
-        stringC1 |
-        0x9c @dcsDecrqssDecslrmSt |
-        '\\' @dcsDecrqssDecslrmSt |
-        0x1b @dcsDecrqssEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
-                0x9a..0x9f)) @dcsDecrqssEscapedData
-    )*;
-
-    dcsDecrqssDecslppEscape := (
-        cancel |
-        stringC1 |
-        0x9c @dcsDecrqssDecslppSt |
-        '\\' @dcsDecrqssDecslppSt |
-        0x1b @dcsDecrqssEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
-                0x9a..0x9f)) @dcsDecrqssEscapedData
-    )*;
-
-    dcsDecrqssDecscusrEscape := (
-        cancel |
-        stringC1 |
-        0x9c @dcsDecrqssDecscusrSt |
-        '\\' @dcsDecrqssDecscusrSt |
-        0x1b @dcsDecrqssEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
-                0x9a..0x9f)) @dcsDecrqssEscapedData
-    )*;
-
-    dcsDecrqssDecscaEscape := (
-        cancel |
-        stringC1 |
-        0x9c @dcsDecrqssDecscaSt |
-        '\\' @dcsDecrqssDecscaSt |
         0x1b @dcsDecrqssEscapedEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
                 0x9a..0x9f)) @dcsDecrqssEscapedData
@@ -4291,23 +4577,130 @@
         (any - (0x18 | 0x1a | 0x1b | '\\')) @oscNotificationInvalidEscaped
     )*;
 
-    oscFieldList := (
+    oscIndexedColorIndex := (
         cancel |
         stringC1 |
-        0x9c @oscFieldSt @oscFieldDispatch @oscDone |
-        0x07 @oscFieldBell @oscFieldDispatch @oscDone |
-        0x1b @{ fgoto oscFieldEscape; } |
+        0x9c @oscInvalidSt |
+        0x07 @oscInvalidBell |
+        0x1b @{ fgoto oscIndexedColorIndexEscape; } |
         0x7f |
-        ';' @oscFieldSeparator |
-        (0x00..0x06 | 0x08..0x17 | 0x19 | (0x1c..0x7e - ';') |
-         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscFieldData
+        sequenceC0 |
+        digit @oscIndexedColorIndexDigit |
+        ';' @oscIndexedColorBegin |
+        (0x20..0x7e - (digit | ';')) @oscIndexedColorIndexInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff)
+            @oscIndexedColorIndexInvalid
     )*;
 
-    oscFieldEscape := (
+    oscIndexedColorIndexEscape := (
         cancel |
-        '\\' @oscFieldSt @oscFieldDispatch @oscDone |
+        '\\' @oscInvalidSt |
+        0x1b @oscEscapedEscape
+            @{ oscFieldNumeric = false; fgoto oscIndexedColorIndexEscape; } |
+        (any - (0x18 | 0x1a | 0x1b | '\\'))
+            @oscIndexedColorIndexEscapedInvalid
+    )*;
+
+    oscIndexedColor := (
+        oscColorValue (
+            ';' @oscIndexedColorCommit @oscIndexedColorNext |
+            0x9c @oscIndexedColorSt @oscIndexedColorCommit @oscDone |
+            0x07 @oscIndexedColorBell @oscIndexedColorCommit @oscDone |
+            0x1b @{ fgoto oscIndexedColorEscape; }
+        )
+    ) $err(oscIndexedColorInvalid);
+
+    oscIndexedColorEscape := (
+        cancel |
+        '\\' @oscIndexedColorSt @oscIndexedColorCommit @oscDone |
+        0x1b @oscEscapedEscape
+            @{ fgoto oscIndexedColorDiscardEscape; } |
+        (any - (0x18 | 0x1a | 0x1b | '\\'))
+            @oscIndexedColorEscapedInvalid
+    )*;
+
+    oscIndexedColorDiscard := (
+        cancel |
+        stringC1 |
+        0x9c @oscInvalidSt |
+        0x07 @oscInvalidBell |
+        0x1b @{ fgoto oscIndexedColorDiscardEscape; } |
+        0x7f |
+        sequenceC0 |
+        ';' @oscIndexedColorDiscardNext |
+        (0x20..0x7e - ';') @oscData |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
+    oscIndexedColorDiscardEscape := (
+        cancel |
+        '\\' @oscInvalidSt |
         0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscFieldEscaped
+        (any - (0x18 | 0x1a | 0x1b | '\\'))
+            @oscIndexedColorEscapedInvalid
+    )*;
+
+    oscDynamicColor := (
+        oscColorValue (
+            ';' @oscDynamicColorCommit @oscDynamicColorNext |
+            0x9c @oscDynamicColorSt @oscDynamicColorCommit @oscDone |
+            0x07 @oscDynamicColorBell @oscDynamicColorCommit @oscDone |
+            0x1b @{ fgoto oscDynamicColorEscape; }
+        )
+    ) $err(oscDynamicColorInvalid);
+
+    oscDynamicColorEscape := (
+        cancel |
+        '\\' @oscDynamicColorSt @oscDynamicColorCommit @oscDone |
+        0x1b @oscEscapedEscape
+            @{ fgoto oscDynamicColorDiscardEscape; } |
+        (any - (0x18 | 0x1a | 0x1b | '\\'))
+            @oscDynamicColorEscapedInvalid
+    )*;
+
+    oscDynamicColorDiscard := (
+        cancel |
+        stringC1 |
+        0x9c @oscInvalidSt |
+        0x07 @oscInvalidBell |
+        0x1b @{ fgoto oscDynamicColorDiscardEscape; } |
+        0x7f |
+        sequenceC0 |
+        ';' @oscDynamicColorDiscardNext |
+        (0x20..0x7e - ';') @oscData |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
+    oscDynamicColorDiscardEscape := (
+        cancel |
+        '\\' @oscInvalidSt |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\'))
+            @oscDynamicColorEscapedInvalid
+    )*;
+
+    oscNumericFields := (
+        cancel |
+        stringC1 |
+        0x9c @oscNumericSt @oscNumericFinalField @oscDone |
+        0x07 @oscNumericFinalField @oscNumericBell @oscDone |
+        0x1b @{ fgoto oscNumericEscape; } |
+        0x7f |
+        sequenceC0 |
+        digit @oscNumericDigit |
+        ';' @oscNumericField @oscNumericSeparator |
+        (0x20..0x7e - (digit | ';')) @oscNumericInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff)
+            @oscNumericInvalid
+    )*;
+
+    oscNumericEscape := (
+        cancel |
+        '\\' @oscNumericFinalField @oscNumericSt @oscDone |
+        0x1b @oscEscapedEscape
+            @{ oscFieldPresent = true; oscFieldNumeric = false; } |
+        (any - (0x18 | 0x1a | 0x1b | '\\'))
+            @oscNumericEscapedInvalid
     )*;
 
     oscShellEntry := (
