@@ -303,8 +303,8 @@ struct ParserIface {
     virtual void osc_CURSOR_COLOR(Color color, bool query) = 0;
     virtual void osc_SELECTION_BACKGROUND(Color color, bool query) = 0;
     virtual void osc_SELECTION_FOREGROUND(Color color, bool query) = 0;
-    virtual void osc_CLIPBOARD_QUERY(stl::StringView selectors, bool primary, bool clipboard, u8 replySelector, bool valid) = 0;
-    virtual void osc_CLIPBOARD_WRITE(stl::StringView selectors, stl::StringView content, bool primary, bool clipboard, bool valid) = 0;
+    virtual void osc_CLIPBOARD_QUERY(stl::StringView selectors, bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) = 0;
+    virtual void osc_CLIPBOARD_WRITE(stl::StringView selectors, stl::StringView content, bool valid, bool primary, bool clipboard) = 0;
     virtual void osc_CLIPBOARD_MALFORMED(stl::StringView selectors) = 0;
     virtual void osc_NOTIFICATION_CAPABILITIES(stl::StringView payload) = 0;
     virtual void osc_NOTIFICATION_CLOSE(stl::StringView id) = 0;
