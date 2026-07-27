@@ -48,7 +48,7 @@ Shitty is written in C++23 and built with Clang. Building the terminal requires:
 - `libstd`, either in `third_party/libstd` or installed system-wide.
 
 A scalar Base64 implementation is always available. If simdutf 6.5 or newer
-is installed, the build uses it automatically to accelerate Base64 processing.
+is installed, the build uses it automatically to accelerate Base64 encoding.
 Fontconfig is also optional. When present, it enables font-family lookup;
 explicit font file paths are handled directly through FreeType.
 

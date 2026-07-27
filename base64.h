@@ -14,5 +14,4 @@ namespace stl {
 }
 
 stl::Buffer& base64Encode(stl::StringView input, stl::Buffer& output);
-stl::Buffer& base64Decode(stl::StringView input, stl::Buffer& output, bool& valid);
 bool base64DecodeInPlace(u8* data, size_t& size) noexcept;

@@ -18,6 +18,15 @@ namespace {
     bool bytesEqual(const Buffer& buffer, StringView expected) {
         return StringView(buffer) == expected;
     }
+
+    bool decodeBufferInPlace(Buffer& buffer) {
+        size_t size = buffer.used();
+        if (!base64DecodeInPlace((u8*)buffer.mutData(), size)) {
+            return false;
+        }
+        buffer.seekAbsolute(size);
+        return true;
+    }
 }
 
 STD_TEST_SUITE(Base64) {
@@ -36,15 +45,12 @@ STD_TEST_SUITE(Base64) {
     STD_TEST(RoundTripsBinaryData) {
         const u8 bytes[] = {0, 1, 2, 0x7f, 0x80, 0xfe, 0xff};
         Buffer encoded;
-        Buffer decoded;
-        bool valid = false;
 
         base64Encode(StringView(bytes, sizeof(bytes)), encoded);
-        base64Decode(StringView(encoded), decoded, valid);
 
-        STD_INSIST(valid);
-        STD_INSIST(decoded.used() == sizeof(bytes));
-        STD_INSIST(StringView(decoded) == StringView(bytes, sizeof(bytes)));
+        STD_INSIST(decodeBufferInPlace(encoded));
+        STD_INSIST(encoded.used() == sizeof(bytes));
+        STD_INSIST(StringView(encoded) == StringView(bytes, sizeof(bytes)));
     }
 
     STD_TEST(RoundTripsEveryByteAcrossBlockBoundaries) {
@@ -54,46 +60,38 @@ STD_TEST_SUITE(Base64) {
         }
 
         Buffer encoded;
-        Buffer decoded;
         for (size_t length = 0; length <= sizeof(bytes); ++length) {
             const StringView input(bytes, length);
-            bool valid = false;
             base64Encode(input, encoded);
-            base64Decode(StringView(encoded), decoded, valid);
-            STD_INSIST(valid);
-            STD_INSIST(StringView(decoded) == input);
+            STD_INSIST(decodeBufferInPlace(encoded));
+            STD_INSIST(StringView(encoded) == input);
         }
     }
 
     STD_TEST(AcceptsCanonicalUnpaddedTail) {
-        Buffer output;
-        bool valid = false;
+        u8 one[] = u8"Zg";
+        size_t oneSize = sizeof(one) - 1;
+        STD_INSIST(base64DecodeInPlace(one, oneSize));
+        STD_INSIST(StringView(one, oneSize) == StringView(u8"f"));
 
-        base64Decode(StringView(u8"Zg"), output, valid);
-        STD_INSIST(valid);
-        STD_INSIST(bytesEqual(output, StringView(u8"f")));
-
-        base64Decode(StringView(u8"Zm8"), output, valid);
-        STD_INSIST(valid);
-        STD_INSIST(bytesEqual(output, StringView(u8"fo")));
+        u8 two[] = u8"Zm8";
+        size_t twoSize = sizeof(two) - 1;
+        STD_INSIST(base64DecodeInPlace(two, twoSize));
+        STD_INSIST(StringView(two, twoSize) == StringView(u8"fo"));
     }
 
     STD_TEST(RejectsWhitespaceAndMalformedInput) {
-        Buffer output;
-        output.append("stale", 5);
-        bool valid = true;
+        u8 whitespace[] = u8"Zm 9v";
+        size_t whitespaceSize = sizeof(whitespace) - 1;
+        STD_INSIST(!base64DecodeInPlace(whitespace, whitespaceSize));
 
-        base64Decode(StringView(u8"Zm 9v"), output, valid);
-        STD_INSIST(!valid);
-        STD_INSIST(output.empty());
+        u8 truncated[] = u8"Z";
+        size_t truncatedSize = sizeof(truncated) - 1;
+        STD_INSIST(!base64DecodeInPlace(truncated, truncatedSize));
 
-        base64Decode(StringView(u8"Z"), output, valid);
-        STD_INSIST(!valid);
-        STD_INSIST(output.empty());
-
-        base64Decode(StringView(u8"Zm9*"), output, valid);
-        STD_INSIST(!valid);
-        STD_INSIST(output.empty());
+        u8 invalid[] = u8"Zm9*";
+        size_t invalidSize = sizeof(invalid) - 1;
+        STD_INSIST(!base64DecodeInPlace(invalid, invalidSize));
     }
 
     STD_TEST(RejectsBadPaddingAndNonCanonicalTails) {
@@ -110,61 +108,19 @@ STD_TEST_SUITE(Base64) {
             StringView(u8"Zh"),
             StringView(u8"Zm9"),
         };
-        Buffer output;
 
         for (const StringView input : malformed) {
-            output.reset();
-            output.append("stale", 5);
-            bool valid = true;
-            base64Decode(input, output, valid);
-            STD_INSIST(!valid);
-            STD_INSIST(output.empty());
+            u8 bytes[16];
+            memcpy(bytes, input.data(), input.length());
+            size_t size = input.length();
+            STD_INSIST(!base64DecodeInPlace(bytes, size));
         }
     }
 
-    STD_TEST(ReturnsCallerBuffer) {
+    STD_TEST(EncodeReturnsCallerBuffer) {
         Buffer output;
-        bool valid = false;
 
         STD_INSIST(&base64Encode(StringView(u8"x"), output) == &output);
-        STD_INSIST(&base64Decode(StringView(u8"eA=="), output, valid) == &output);
-        STD_INSIST(valid);
-    }
-
-    STD_TEST(InPlaceDecoderMatchesOneShotValidation) {
-        const StringView inputs[] = {
-            StringView(u8""),
-            StringView(u8"Zg"),
-            StringView(u8"Zg=="),
-            StringView(u8"Zm8"),
-            StringView(u8"Zm8="),
-            StringView(u8"Zm9v"),
-            StringView(u8"="),
-            StringView(u8"Z"),
-            StringView(u8"Zg="),
-            StringView(u8"Zg==="),
-            StringView(u8"Zm=8"),
-            StringView(u8"Zg==Zg=="),
-            StringView(u8"Zh=="),
-            StringView(u8"Zm9="),
-            StringView(u8"Zh"),
-            StringView(u8"Zm9"),
-        };
-
-        for (const StringView input : inputs) {
-            Buffer expected;
-            bool expectedValid = false;
-            base64Decode(input, expected, expectedValid);
-
-            u8 actual[16];
-            memcpy(actual, input.data(), input.length());
-            size_t actualSize = input.length();
-            const bool actualValid = base64DecodeInPlace(actual, actualSize);
-            STD_INSIST(actualValid == expectedValid);
-            if (actualValid) {
-                STD_INSIST(StringView(actual, actualSize) == StringView(expected));
-            }
-        }
     }
 
     STD_TEST(DecodesInPlace) {
