@@ -2917,6 +2917,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
 template <bool insert>
 void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
     bool checkBoundary = true;
+    const u16 doubleEnd = hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2);
     while (size > 0) {
         bool graphemeBoundary = true;
         if (checkBoundary) {
@@ -2938,23 +2939,24 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
             inp_LF();
         }
 
-        const u8 lineAttribute = cf->lineAttribute(posY);
-        const u16 lineCols = lineAttribute ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2) : nColsEff;
-        if (posX >= lineCols) {
+        const u16 requested = std::min<size_t>(size, 0xffff);
+        Screen::WriteResult written;
+        if constexpr (insert) {
+            written = cf->writeAsciiRunInsert(posY, posX, nColsEff, doubleEnd, input, requested, attrs, activeHyperlink, currentSemantic, eraseAttrs);
+        } else {
+            written = cf->writeAsciiRun(posY, posX, nColsEff, doubleEnd, input, requested, attrs, activeHyperlink, currentSemantic, eraseAttrs);
+        }
+        if (written.count == 0) {
             inputGraphemeBreaker.setBoundaryAfter(*input);
             utf8dec.setUnicode(*input++);
             placeGraphicChar(true);
             --size;
             continue;
         }
-        const u16 count = std::min<size_t>(size, lineCols - posX);
+        const u16 count = written.count;
+        const u16 lineCols = written.end;
         const u16 startX = posX;
         const u16 endX = startX + count;
-        if constexpr (insert) {
-            cf->writeAsciiRunInsert(posY, startX, nColsEff, input, count, attrs, activeHyperlink, currentSemantic, eraseAttrs);
-        } else {
-            cf->writeAsciiRun(posY, startX, input, count, attrs, activeHyperlink, currentSemantic, eraseAttrs);
-        }
         if (attrs.blink) {
             enableBlinkingText();
         }

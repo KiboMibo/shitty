@@ -1211,6 +1211,10 @@
             parser.stringUtf8Remaining = 0;
             ragelAppendStringSpan(p, count, parser.maxDcsBytes);
             p += count - 1;
+        } else if (fc >= 0xa0) {
+            const size_t count = highStringPrefix(p, pe - p);
+            ragelAppendStringSpan(p, count, parser.maxDcsBytes);
+            p += count - 1;
         } else {
             consumeStringUtf8Byte(fc);
             if (!executeC0(fc)) {
@@ -1776,6 +1780,10 @@
         if (fc >= 0x20 && fc < 0x7f) {
             const size_t count = printableAsciiPrefix(p, pe - p);
             parser.stringUtf8Remaining = 0;
+            ragelAppendStringSpan(p, count, parser.maxOscBytes);
+            p += count - 1;
+        } else if (fc >= 0xa0) {
+            const size_t count = highStringPrefix(p, pe - p);
             ragelAppendStringSpan(p, count, parser.maxOscBytes);
             p += count - 1;
         } else {
@@ -3206,6 +3214,12 @@
         if (fc >= 0x20 && fc < 0x7f) {
             const size_t count = printableAsciiPrefix(p, pe - p);
             parser.stringUtf8Remaining = 0;
+            if constexpr (traced) {
+                parserTrace->stringData(p, count);
+            }
+            p += count - 1;
+        } else if (fc >= 0xa0) {
+            const size_t count = highStringPrefix(p, pe - p);
             if constexpr (traced) {
                 parserTrace->stringData(p, count);
             }

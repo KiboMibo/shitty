@@ -64,6 +64,39 @@ namespace {
         return offset;
     }
 
+    [[gnu::always_inline]] size_t zeroPrefix(const u8* input, size_t size) {
+        using Bytes = u8 __attribute__((vector_size(16)));
+        constexpr Bytes zero = {};
+        size_t offset = 0;
+        while (size - offset >= sizeof(Bytes)) {
+            Bytes word;
+            memcpy(&word, input + offset, sizeof(word));
+#if defined(__SSE2__)
+            const u32 zeros = _mm_movemask_epi8(__builtin_bit_cast(__m128i, word == zero));
+            if (zeros != 0xffff) {
+                return offset + __builtin_ctz((~zeros) & 0xffff);
+            }
+#else
+            const Bytes nonzero = word != zero;
+            using Bits = unsigned __int128;
+            const Bits bits = __builtin_bit_cast(Bits, nonzero);
+            const u64 low = bits;
+            if (low != 0) {
+                return offset + __builtin_ctzll(low) / 8;
+            }
+            const u64 high = bits >> 64;
+            if (high != 0) {
+                return offset + 8 + __builtin_ctzll(high) / 8;
+            }
+#endif
+            offset += sizeof(word);
+        }
+        while (offset < size && input[offset] == 0) {
+            ++offset;
+        }
+        return offset;
+    }
+
     struct ProtocolParser {
         constexpr const static size_t maxParameters = 32;
         constexpr const static size_t maxDcsBytes = 4095;
@@ -178,8 +211,9 @@ namespace {
         ParserImpl(ParserIface& iface, VtermTrace* trace);
 
         void feed(StringView bytes) override;
-        bool consumeStringUtf8Byte(u8 ch);
-        bool executeC0(u8 ch);
+        [[gnu::always_inline]] bool consumeStringUtf8Byte(u8 ch);
+        [[gnu::always_inline]] bool executeC0(u8 ch);
+        [[gnu::always_inline]] size_t highStringPrefix(const u8* data, size_t size);
         bool ragelGroundContinuation(u8 ch);
         void ragelGroundHigh(u8 ch);
         void ragelGroundAscii(u8 ch);
@@ -254,7 +288,7 @@ ParserImpl<traced>::ParserImpl(ParserIface& iface_, VtermTrace* trace)
 }
 
 template <bool traced>
-bool ParserImpl<traced>::consumeStringUtf8Byte(u8 ch) {
+[[gnu::always_inline]] inline bool ParserImpl<traced>::consumeStringUtf8Byte(u8 ch) {
     if (parser.stringUtf8Remaining != 0) {
         if ((ch & 0xc0) == 0x80) {
             --parser.stringUtf8Remaining;
@@ -274,7 +308,7 @@ bool ParserImpl<traced>::consumeStringUtf8Byte(u8 ch) {
 }
 
 template <bool traced>
-bool ParserImpl<traced>::executeC0(u8 ch) {
+[[gnu::always_inline]] inline bool ParserImpl<traced>::executeC0(u8 ch) {
     if (ch >= 0x20 || ch == '\x18' || ch == '\x1a' || ch == '\x1b') {
         return false;
     }
@@ -309,6 +343,22 @@ bool ParserImpl<traced>::executeC0(u8 ch) {
             break;
     }
     return true;
+}
+
+template <bool traced>
+[[gnu::always_inline]] inline size_t ParserImpl<traced>::highStringPrefix(const u8* data, size_t size) {
+    size_t count = 0;
+    while (count < size) {
+        const u8 ch = data[count];
+        const bool passive = ch >= 0xa0 || (ch >= 0x80 && ch <= 0x8f) || (ch >= 0x91 && ch <= 0x95) || ch == 0x99;
+        const bool continuation = parser.stringUtf8Remaining != 0 && (ch & 0xc0) == 0x80;
+        if (!passive && !continuation) {
+            break;
+        }
+        consumeStringUtf8Byte(ch);
+        ++count;
+    }
+    return count;
 }
 
 template <bool traced>
@@ -1692,6 +1742,11 @@ void ParserImpl<traced>::feed(StringView bytes) {
                 continue;
             }
         }
+        if (cs == parser_en_main && *p == 0) {
+            iface.parserResetGraphemeInput();
+            p += zeroPrefix(p, pe - p);
+            continue;
+        }
         if (cs == parser_en_main && parser.groundUtf8Remaining == 0 && *p >= 0x20 && *p < 0x7f && iface.parserAsciiBulkEligible()) {
             const size_t lines = iface.parserPlaceAsciiLines(StringView(p, pe - p));
             if (lines != 0) {
@@ -1748,9 +1803,11 @@ void ParserImpl<traced>::feed(StringView bytes) {
 }
 
 Parser* Parser::create(ObjPool* pool, ParserIface& iface, VtermTrace* trace) {
-    if (trace != nullptr) {
+#if defined(SHITTY_FOR_TESTS)
+    if (trace) {
         return pool->make<ParserImpl<true>>(iface, trace);
     }
+#endif
     return pool->make<ParserImpl<false>>(iface, trace);
 }
 

@@ -142,9 +142,9 @@ namespace {
         void setWrapped(u16 row, u16 column) override;
         void writeCodepoint(u16 row, u16 column, u32 codepoint, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeGrapheme(u16 row, u16 column, const u32* codepoints, size_t count, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
-        void writeAsciiRun(u16 row, u16 column, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
+        WriteResult writeAsciiRun(u16 row, u16 column, u16 normalEnd, u16 doubleEnd, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeAsciiLines(u16 row, const u8* input, const u16* lengths, u16 lineCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
-        void writeAsciiRunInsert(u16 row, u16 column, u16 end, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
+        WriteResult writeAsciiRunInsert(u16 row, u16 column, u16 normalEnd, u16 doubleEnd, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeRun(u16 row, u16 column, const u32* codepoints, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeGlyphRun(u16 row, u16 column, const u32* codepoints, const u8* widths, u16 glyphCount, u16 cellCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void fillRectangle(u16 top, u16 left, u16 bottom, u16 right, u32 codepoint, const TerminalCell& attrs, const TerminalCell& eraseAttrs) override;
@@ -309,7 +309,7 @@ namespace {
         [[gnu::always_inline]] inline void clearWideBoundary(RowSlot& slot, u16 row, u16 boundary, const TerminalCell& attrs);
         [[gnu::always_inline]] inline void repairWideBoundary(u16 row, u16 boundary, const TerminalCell& attrs);
         [[gnu::always_inline]] inline void repairWideBoundary(RowSlot& slot, u16 row, u16 boundary, const TerminalCell& attrs);
-        [[gnu::noinline]] void clearWideBoundarySlow(TerminalCell* cells, u16 row, u16 boundary, const TerminalCell& attrs, bool eraseLeft, bool eraseRight);
+        [[gnu::noinline]] void clearWideBoundarySlow(TerminalCell* cells, u16 row, u16 boundary, const TerminalCell& attrs);
         [[gnu::noinline]] void repairWideBoundarySlow(TerminalCell* cells, u16 row, u16 boundary, const TerminalCell& attrs, bool eraseLeft);
         void moveWrap(u16 row, u16 sourceColumn, u16 destinationColumn);
         void moveInRow(u16 row, u16 destination, u16 source, u16 count);
@@ -324,7 +324,9 @@ namespace {
         void resizeDamage(u16 columns, u16 rows);
         TerminalCell* dirtySpan(u16 row, u16 start, u16 count);
         TerminalCell* overwriteWideSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs);
+        TerminalCell* prepareSpan(RowSlot& slot, u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs);
         TerminalCell* prepareSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs);
+        TerminalCell& prepareCell(RowSlot& slot, u16 row, u16 column, const TerminalCell& eraseAttrs);
         TerminalCell& prepareCell(u16 row, u16 column, const TerminalCell& eraseAttrs);
         [[gnu::always_inline]] void writePreparedCell(u16 row, u16 column, const TerminalCell& lead, bool wide, const TerminalCell& attrs, const TerminalCell& eraseAttrs);
 
@@ -1633,6 +1635,11 @@ void ScreenImpl<Coord, Epoch>::moveWrap(u16 row, u16 sourceColumn, u16 destinati
 template <typename Coord, typename Epoch>
 TerminalCell* ScreenImpl<Coord, Epoch>::prepareSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs) {
     RowSlot& slot = logicalRowSlot(row);
+    return prepareSpan(slot, row, start, count, eraseAttrs);
+}
+
+template <typename Coord, typename Epoch>
+TerminalCell* ScreenImpl<Coord, Epoch>::prepareSpan(RowSlot& slot, u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs) {
     if (slot == nullptr || !slot->metadata.wide) {
         damageRow(row, start, start + count);
         if (!selection.empty()) {
@@ -1653,6 +1660,11 @@ TerminalCell* ScreenImpl<Coord, Epoch>::prepareSpan(u16 row, u16 start, u16 coun
 template <typename Coord, typename Epoch>
 TerminalCell& ScreenImpl<Coord, Epoch>::prepareCell(u16 row, u16 column, const TerminalCell& eraseAttrs) {
     RowSlot& slot = logicalRowSlot(row);
+    return prepareCell(slot, row, column, eraseAttrs);
+}
+
+template <typename Coord, typename Epoch>
+TerminalCell& ScreenImpl<Coord, Epoch>::prepareCell(RowSlot& slot, u16 row, u16 column, const TerminalCell& eraseAttrs) {
     if (slot == nullptr || !slot->metadata.wide) {
         damageCell(row, column);
         if (!selection.empty()) {
@@ -1660,17 +1672,17 @@ TerminalCell& ScreenImpl<Coord, Epoch>::prepareCell(u16 row, u16 column, const T
         }
         return mutableRow(slot)[column];
     }
-    const TerminalCell* cells_ = getLogicalRowPtr(row);
+    const TerminalCell* cells_ = slot->cells;
     if (cells_[column].dwidth_cont) {
-        clearWideBoundary(row, column, eraseAttrs);
+        clearWideBoundary(slot, row, column, eraseAttrs);
     } else if (cells_[column].dwidth) {
-        clearWideBoundary(row, column + 1, eraseAttrs);
+        clearWideBoundary(slot, row, column + 1, eraseAttrs);
     }
     damageCell(row, column);
     if (!selection.empty()) {
         invalidateSelection(Rect(column, row));
     }
-    return mutableLogicalRow(row)[column];
+    return mutableRow(slot)[column];
 }
 
 template <typename Coord, typename Epoch>
@@ -1686,13 +1698,12 @@ template <typename Coord, typename Epoch>
             cells[column] = lead;
             slot->metadata.protection |= lead.protected_char;
         } else {
-            prepareCell(row, column, eraseAttrs) = lead;
-            logicalRowSlot(row)->metadata.protection |= lead.protected_char;
+            prepareCell(slot, row, column, eraseAttrs) = lead;
+            slot->metadata.protection |= lead.protected_char;
         }
         return;
     }
 
-    prepareCell(row, column, eraseAttrs) = lead;
     TerminalCell continuation = attrs;
     continuation.dwidth_cont = 1;
     continuation.drawn = 1;
@@ -1700,8 +1711,10 @@ template <typename Coord, typename Epoch>
     if (lead.extraRef() != 0 || continuation.hasExtra()) {
         cellExtras().setHyperlink(continuation, lead.extraRef());
     }
-    prepareCell(row, column + 1, eraseAttrs) = continuation;
     RowSlot& slot = logicalRowSlot(row);
+    TerminalCell* const cells = prepareSpan(slot, row, column, 2, eraseAttrs);
+    cells[0] = lead;
+    cells[1] = continuation;
     slot->metadata.wide = true;
     slot->metadata.protection |= lead.protected_char | continuation.protected_char;
 }
@@ -1736,7 +1749,13 @@ void ScreenImpl<Coord, Epoch>::writeGrapheme(u16 row, u16 column, const u32* cod
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::writeAsciiRun(u16 row, u16 column, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
+auto ScreenImpl<Coord, Epoch>::writeAsciiRun(u16 row, u16 column, u16 normalEnd, u16 doubleEnd, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) -> WriteResult {
+    RowSlot& slot = logicalRowSlot(row);
+    const u16 end = slot != nullptr && slot->metadata.lineAttribute != 0 ? doubleEnd : normalEnd;
+    if (column >= end) {
+        return {0, end};
+    }
+    count = min<u16>(count, end - column);
     TerminalCell linkedAttrs = attrs;
     if (hyperlink != 0 || linkedAttrs.hasExtra()) {
         cellExtras().setHyperlink(linkedAttrs, hyperlink);
@@ -1744,11 +1763,12 @@ void ScreenImpl<Coord, Epoch>::writeAsciiRun(u16 row, u16 column, const u8* inpu
     linkedAttrs.uc_pt = 0;
     linkedAttrs.drawn = 1;
     linkedAttrs.semantic = semantic;
-    TerminalCell* const cells = prepareSpan(row, column, count, eraseAttrs);
+    TerminalCell* const cells = prepareSpan(slot, row, column, count, eraseAttrs);
     u64 content;
     memcpy(&content, &linkedAttrs.content, sizeof(content));
     storeAsciiCells(reinterpret_cast<u64*>(cells), input, count, linkedAttrs.style, content);
-    logicalRowSlot(row)->metadata.protection |= linkedAttrs.protected_char;
+    slot->metadata.protection |= linkedAttrs.protected_char;
+    return {count, end};
 }
 
 template <typename Coord, typename Epoch>
@@ -1758,7 +1778,7 @@ void ScreenImpl<Coord, Epoch>::writeAsciiLines(u16 row, const u8* input, const u
             const u16 count = lengths[line];
             STD_ASSERT(input[count] == '\r' && input[count + 1] == '\n');
             if (count != 0) {
-                writeAsciiRun(row, 0, input, count, attrs, hyperlink, semantic, eraseAttrs);
+                writeAsciiRun(row, 0, nCols, nCols, input, count, attrs, hyperlink, semantic, eraseAttrs);
             }
             input += count + 2;
             if (row + 1 < nRows) {
@@ -1871,16 +1891,19 @@ void ScreenImpl<Coord, Epoch>::writeAsciiLines(u16 row, const u8* input, const u
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::writeAsciiRunInsert(u16 row, u16 column, u16 end, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
+auto ScreenImpl<Coord, Epoch>::writeAsciiRunInsert(u16 row, u16 column, u16 normalEnd, u16 doubleEnd, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) -> WriteResult {
+    RowSlot& slot = logicalRowSlot(row);
+    const u16 end = slot != nullptr && slot->metadata.lineAttribute != 0 ? doubleEnd : normalEnd;
+    if (column >= end) {
+        return {0, end};
+    }
     count = min<u16>(count, end - column);
     if (count == 0) {
-        return;
+        return {0, end};
     }
-    RowSlot& slot = logicalRowSlot(row);
     if (slot != nullptr && slot->metadata.wide) {
         insertCells(row, column, end, count, eraseAttrs);
-        writeAsciiRun(row, column, input, count, attrs, hyperlink, semantic, eraseAttrs);
-        return;
+        return writeAsciiRun(row, column, end, end, input, count, attrs, hyperlink, semantic, eraseAttrs);
     }
     TerminalCell linkedAttrs = attrs;
     if (hyperlink != 0 || linkedAttrs.hasExtra()) {
@@ -1902,15 +1925,13 @@ void ScreenImpl<Coord, Epoch>::writeAsciiRunInsert(u16 row, u16 column, u16 end,
     u64 content;
     memcpy(&content, &linkedAttrs.content, sizeof(content));
     auto* const output = reinterpret_cast<u64*>(cells + column);
-    for (u16 index = 0; index < count; ++index) {
-        output[2 * index] = linkedAttrs.style;
-        output[2 * index + 1] = content | input[index];
-    }
+    storeAsciiCells(output, input, count, linkedAttrs.style, content);
     slot->metadata.protection |= linkedAttrs.protected_char;
     damageRow(row, column, end);
     if (!selection.empty()) {
         invalidateSelection(Rect(column, row, end, row));
     }
+    return {count, end};
 }
 
 template <typename Coord, typename Epoch>
@@ -1919,7 +1940,8 @@ void ScreenImpl<Coord, Epoch>::writeRun(u16 row, u16 column, const u32* codepoin
     if (hyperlink != 0 || linkedAttrs.hasExtra()) {
         cellExtras().setHyperlink(linkedAttrs, hyperlink);
     }
-    TerminalCell* cells_ = prepareSpan(row, column, count, eraseAttrs);
+    RowSlot& slot = logicalRowSlot(row);
+    TerminalCell* cells_ = prepareSpan(slot, row, column, count, eraseAttrs);
     for (u16 index = 0; index < count; ++index) {
         TerminalCell& cell = cells_[index];
         cell = linkedAttrs;
@@ -1927,7 +1949,7 @@ void ScreenImpl<Coord, Epoch>::writeRun(u16 row, u16 column, const u32* codepoin
         cell.drawn = 1;
         cell.semantic = semantic;
     }
-    logicalRowSlot(row)->metadata.protection |= linkedAttrs.protected_char;
+    slot->metadata.protection |= linkedAttrs.protected_char;
 }
 
 template <typename Coord, typename Epoch>
@@ -1936,7 +1958,8 @@ void ScreenImpl<Coord, Epoch>::writeGlyphRun(u16 row, u16 column, const u32* cod
     if (hyperlink != 0 || linkedAttrs.hasExtra()) {
         cellExtras().setHyperlink(linkedAttrs, hyperlink);
     }
-    TerminalCell* const cells = prepareSpan(row, column, cellCount, eraseAttrs);
+    RowSlot& slot = logicalRowSlot(row);
+    TerminalCell* const cells = prepareSpan(slot, row, column, cellCount, eraseAttrs);
     u16 offset = 0;
     bool wide = false;
     for (u16 index = 0; index < glyphCount; ++index) {
@@ -1956,7 +1979,6 @@ void ScreenImpl<Coord, Epoch>::writeGlyphRun(u16 row, u16 column, const u32* cod
         }
     }
     STD_ASSERT(offset == cellCount);
-    RowSlot& slot = logicalRowSlot(row);
     slot->metadata.protection |= linkedAttrs.protected_char;
     slot->metadata.wide |= wide;
 }
@@ -2466,31 +2488,28 @@ template <typename Coord, typename Epoch>
     if (slot == nullptr || !slot->metadata.wide) {
         return;
     }
-    const TerminalCell* source = rowData(slot);
-    const bool eraseLeft = boundary > 0 && source[boundary - 1].dwidth;
-    const bool eraseRight = boundary < nCols && source[boundary].dwidth_cont;
-    if (!eraseLeft && !eraseRight) {
+    if (boundary == 0 || boundary >= nCols) {
         return;
     }
-    clearWideBoundarySlow(rowData(slot), pY, boundary, attrs, eraseLeft, eraseRight);
+    const TerminalCell* source = rowData(slot);
+    if (!source[boundary - 1].dwidth) {
+        return;
+    }
+    clearWideBoundarySlow(rowData(slot), pY, boundary, attrs);
 }
 
 template <typename Coord, typename Epoch>
-[[gnu::noinline]] void ScreenImpl<Coord, Epoch>::clearWideBoundarySlow(TerminalCell* row, u16 pY, u16 boundary, const TerminalCell& attrs, bool eraseLeft, bool eraseRight) {
+[[gnu::noinline]] void ScreenImpl<Coord, Epoch>::clearWideBoundarySlow(TerminalCell* row, u16 pY, u16 boundary, const TerminalCell& attrs) {
     TerminalCell erased = attrs;
-    if (eraseLeft) {
-        row[boundary - 1] = erased;
-        damageCell(pY, boundary - 1);
-        if (!selection.empty()) {
-            invalidateSelection(Rect(boundary - 1, pY));
-        }
+    row[boundary - 1] = erased;
+    damageCell(pY, boundary - 1);
+    if (!selection.empty()) {
+        invalidateSelection(Rect(boundary - 1, pY));
     }
-    if (eraseRight) {
-        row[boundary] = erased;
-        damageCell(pY, boundary);
-        if (!selection.empty()) {
-            invalidateSelection(Rect(boundary, pY));
-        }
+    row[boundary] = erased;
+    damageCell(pY, boundary);
+    if (!selection.empty()) {
+        invalidateSelection(Rect(boundary, pY));
     }
     logicalRowSlot(pY)->metadata.protection |= erased.protected_char;
 }
@@ -3196,6 +3215,13 @@ void ScreenImpl<Coord, Epoch>::Damage::addRow(u16 row, u16 begin, u16 end) {
     if (begin == 0 && end == width) {
         damaged.count = (Coord)(width);
         ++fullRows;
+        return;
+    }
+    if (damaged.count == 0) {
+        for (u16 column = begin; column < end; ++column) {
+            damaged.epochs[column] = epoch;
+        }
+        damaged.count = (Coord)(end - begin);
         return;
     }
     for (u16 column = begin; column < end; ++column) {
