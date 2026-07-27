@@ -19,7 +19,7 @@ build.cxxflags += [
 
 
 freetype = pkg_config("freetype2")
-fontconfig = pkg_config("fontconfig")
+fontconfig = pkg_config("fontconfig", required=False)
 harfbuzz = pkg_config("harfbuzz")
 vulkan = pkg_config("vulkan")
 wayland = pkg_config("wayland-client >= 1.20")
@@ -28,6 +28,9 @@ brotli_common = pkg_config("libbrotlicommon", required=False)
 utf8proc = pkg_config("libutf8proc")
 simdutf = pkg_config("simdutf >= 6.5.0", required=False)
 threads = dependency(ldflags=["-pthread"])
+
+if fontconfig:
+    build.cppflags += ["-DSHITTY_HAS_FONTCONFIG=1"]
 
 
 if '-lstd' in build.ldflags:
@@ -341,6 +344,7 @@ test_suite = command(
     cwd="$(S)",
     env={
         "SHITTY_TEST_BINARY": "$(B)/st_test",
+        "SHITTY_TEST_FONTCONFIG": "1" if fontconfig else "0",
         "SHITTY_TEST_VERSION": shitty_version,
         "SHITTY_PRODUCTION_BINARY": "$(B)/st",
     },

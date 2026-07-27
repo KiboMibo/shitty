@@ -15,12 +15,7 @@ namespace stl {
     class ObjPool;
 }
 
-enum class FontStyle : u8 {
-    Regular,
-    Bold,
-    Italic,
-    BoldItalic,
-};
+struct Composer;
 
 struct Fontpack {
     virtual u16 getPx() const = 0;
@@ -33,5 +28,5 @@ struct Fontpack {
 
     virtual FontGlyph glyph(const u32* codepoints, size_t count, FontStyle style, bool doubleWidth) = 0;
 
-    static Fontpack* create(stl::ObjPool& pool, stl::StringView fontname, stl::StringView dwfontname, u16 size);
+    static Fontpack* create(Composer& composer, stl::ObjPool& pool, stl::StringView fontname, stl::StringView dwfontname, u16 size);
 };

@@ -11,7 +11,6 @@
 #include "composer.h"
 #include "desktop_actions.h"
 #include "grapheme.h"
-#include "font_resolver.h"
 #include "font_pack.h"
 #include "hex.h"
 #include "input_sink.h"
@@ -1480,25 +1479,6 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                     encoded += argument;
                 }
                 writeAll(controlFd, "OK " + encodeHex(encoded) + "\n");
-            } else if (line.compare(0, 19, "FONTCONFIG_RESOLVE ") == 0) {
-                const StringView encodedFamily((const u8*)(line.data() + 19), line.size() - 19);
-                const Buffer family = decodeHex(encodedFamily);
-                ObjPool::Ref fontPool = ObjPool::fromMemory();
-                const FontVariants variants = resolveFontconfig(fontPool.mutPtr(), StringView(family));
-                StringBuilder encoded;
-                const FontSource sources[] = {variants.regular, variants.bold, variants.italic, variants.boldItalic};
-                for (size_t index = 0; index < sizeof(sources) / sizeof(*sources); ++index) {
-                    if (index != 0) {
-                        encoded << StringView(u8"\0");
-                    }
-                    const FontSource source = sources[index];
-                    encoded << source.filename << StringView(u8"\0") << source.index;
-                }
-                StringBuilder output;
-                output << StringView(u8"OK ");
-                appendHex(output, StringView(encoded));
-                output << StringView(u8"\n");
-                writeAll(controlFd, StringView(output));
             } else if (line.compare(0, 10, "FONT_LOAD ") == 0) {
                 const std::string request = decodeHex(line.substr(10));
                 const size_t first = request.find('\0');
@@ -1508,7 +1488,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 ObjPool::Ref fontPool = ObjPool::fromMemory();
                 const StringView fontname((const u8*)(request.data()), first);
                 const StringView dwfontname((const u8*)(request.data() + first + 1), request.size() - first - 1);
-                Fontpack* fonts = Fontpack::create(*fontPool, fontname, dwfontname, opts.fontsize);
+                Fontpack* fonts = Fontpack::create(composer, *fontPool, fontname, dwfontname, opts.fontsize);
                 writeAll(controlFd, "OK " + std::to_string(fonts->getPx()) + " " + std::to_string(fonts->getPy()) + " " + std::to_string(fonts->hasBold()) + " " + std::to_string(fonts->hasItalic()) + " " + std::to_string(fonts->hasBoldItalic()) + " " + std::to_string(fonts->hasDoubleWidth()) + "\n");
             } else if (line.compare(0, 13, "RENDER_IMAGE ") == 0) {
                 const std::string request = decodeHex(line.substr(13));
@@ -1520,7 +1500,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 Composer renderComposer(renderPool.mutPtr());
                 const StringView fontname((const u8*)(request.data()), first);
                 const StringView dwfontname((const u8*)(request.data() + first + 1), request.size() - first - 1);
-                Fontpack* fonts = Fontpack::create(*renderPool, fontname, dwfontname, opts.fontsize);
+                Fontpack* fonts = Fontpack::create(renderComposer, *renderPool, fontname, dwfontname, opts.fontsize);
                 renderComposer.fonts = fonts;
                 renderComposer.setCellExtras(composer.cellExtras);
                 renderComposer.setGlyphSize(fonts->getPx(), fonts->getPy());

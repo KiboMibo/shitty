@@ -6,22 +6,19 @@
 
 #pragma once
 
-#include <std/str/view.h>
 #include <std/sys/types.h>
-
-namespace stl {
-    class ObjPool;
-}
-
-struct FontSource {
-    stl::StringView filename;
-    i32 index = 0;
-};
 
 struct FontGlyph {
     const void* data = nullptr;
     size_t len = 0;
     bool color = false;
+};
+
+enum class FontStyle : u8 {
+    Regular,
+    Bold,
+    Italic,
+    BoldItalic,
 };
 
 enum class FontKind : u8 {
@@ -41,6 +38,4 @@ struct FontMetrics {
 // bitmap remains valid until the next glyph() call on the same Font.
 struct Font {
     virtual FontGlyph glyph(const u32* codepoints, size_t count) = 0;
-
-    static Font* create(stl::ObjPool& pool, FontSource source, u16 size, FontKind kind, FontMetrics& metrics);
 };

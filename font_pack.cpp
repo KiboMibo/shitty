@@ -6,8 +6,9 @@
 
 #include "font_pack.h"
 
-#include "font_resolver.h"
 #include "utf8.h"
+#include "composer.h"
+#include "font_resolver.h"
 
 #include <std/mem/obj_pool.h>
 #include <std/str/builder.h>
@@ -19,7 +20,7 @@ using namespace stl;
 
 namespace {
     struct FontpackImpl final: public Fontpack {
-        FontpackImpl(ObjPool& pool, StringView fontname, StringView dwfontname, u16 size);
+        FontpackImpl(Composer& composer, ObjPool& pool, StringView fontname, StringView dwfontname, u16 size);
 
         u16 getPx() const override;
         u16 getPy() const override;
@@ -29,7 +30,7 @@ namespace {
         bool hasDoubleWidth() const override;
         FontGlyph glyph(const u32* codepoints, size_t count, FontStyle style, bool doubleWidth) override;
 
-        Font* createOptional(ObjPool& pool, FontSource source, u16 size, FontKind kind, FontMetrics metrics);
+        Font* createOptional(Composer& composer, ObjPool& pool, StringView name, u16 size, FontStyle style, FontKind kind, FontMetrics metrics);
         Font* select(FontStyle style) const noexcept;
         FontGlyph fallback(Font* font, Font* base, const u32* codepoints, size_t count);
 
@@ -42,34 +43,29 @@ namespace {
     };
 }
 
-FontpackImpl::FontpackImpl(ObjPool& pool, StringView fontname, StringView dwfontname, u16 size) {
-    const FontVariants variants = resolveFontconfig(&pool, fontname);
-    if (variants.regular.filename.empty()) {
+FontpackImpl::FontpackImpl(Composer& composer, ObjPool& pool, StringView fontname, StringView dwfontname, u16 size) {
+    regular_ = composer.loadFont(pool, {fontname, size, FontStyle::Regular, FontKind::Primary}, metrics_);
+    if (regular_ == nullptr) {
         Errno(EINVAL).raise(StringBuilder() << StringView(u8"no suitable font found for ") << fontname);
     }
 
-    regular_ = Font::create(pool, variants.regular, size, FontKind::Primary, metrics_);
-    bold_ = createOptional(pool, variants.bold, size, FontKind::Overlay, metrics_);
-    italic_ = createOptional(pool, variants.italic, size, FontKind::Overlay, metrics_);
-    boldItalic_ = createOptional(pool, variants.boldItalic, size, FontKind::Overlay, metrics_);
+    bold_ = createOptional(composer, pool, fontname, size, FontStyle::Bold, FontKind::Overlay, metrics_);
+    italic_ = createOptional(composer, pool, fontname, size, FontStyle::Italic, FontKind::Overlay, metrics_);
+    boldItalic_ = createOptional(composer, pool, fontname, size, FontStyle::BoldItalic, FontKind::Overlay, metrics_);
 
     if (!dwfontname.empty()) {
-        const FontVariants wideVariants = resolveFontconfig(&pool, dwfontname);
         FontMetrics wideMetrics{
             .width = (u16)(2 * metrics_.width),
             .height = metrics_.height,
             .baseline = metrics_.baseline,
         };
-        doubleWidth_ = createOptional(pool, wideVariants.regular, size, FontKind::DoubleWidth, wideMetrics);
+        doubleWidth_ = createOptional(composer, pool, dwfontname, size, FontStyle::Regular, FontKind::DoubleWidth, wideMetrics);
     }
 }
 
-Font* FontpackImpl::createOptional(ObjPool& pool, FontSource source, u16 size, FontKind kind, FontMetrics metrics) {
-    if (source.filename.empty()) {
-        return nullptr;
-    }
+Font* FontpackImpl::createOptional(Composer& composer, ObjPool& pool, StringView name, u16 size, FontStyle style, FontKind kind, FontMetrics metrics) {
     try {
-        return Font::create(pool, source, size, kind, metrics);
+        return composer.loadFont(pool, {name, size, style, kind}, metrics);
     } catch (Exception&) {
         return nullptr;
     }
@@ -143,6 +139,6 @@ FontGlyph FontpackImpl::glyph(const u32* codepoints, size_t count, FontStyle sty
     return fallback(select(style), regular_, codepoints, count);
 }
 
-Fontpack* Fontpack::create(ObjPool& pool, StringView fontname, StringView dwfontname, u16 size) {
-    return pool.make<FontpackImpl>(pool, fontname, dwfontname, size);
+Fontpack* Fontpack::create(Composer& composer, ObjPool& pool, StringView fontname, StringView dwfontname, u16 size) {
+    return pool.make<FontpackImpl>(composer, pool, fontname, dwfontname, size);
 }

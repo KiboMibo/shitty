@@ -8,16 +8,22 @@
 
 #include "font.h"
 
+#include <std/lib/node.h>
+#include <std/str/view.h>
+
 namespace stl {
     class ObjPool;
 }
 
-struct FontVariants {
-    FontSource regular;
-    FontSource bold;
-    FontSource italic;
-    FontSource boldItalic;
+struct FontRequest {
+    stl::StringView name;
+    u16 pixels = 0;
+    FontStyle style = FontStyle::Regular;
+    FontKind kind = FontKind::Primary;
 };
 
-FontVariants resolveFontconfig(stl::ObjPool* pool, stl::StringView fontname);
-void finalizeFontconfig() noexcept;
+struct FontResolver: stl::IntrusiveNode {
+    // The returned font belongs to owner. nullptr lets the next resolver try.
+    // Views from request are valid only for the duration of this call.
+    virtual Font* load(stl::ObjPool& owner, const FontRequest& request, FontMetrics& metrics) = 0;
+};

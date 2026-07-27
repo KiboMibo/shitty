@@ -71,6 +71,7 @@ STD_TEST_SUITE(Composer) {
         STD_INSIST(composer.input != nullptr);
         STD_INSIST(composer.inputBindings != nullptr);
         STD_INSIST(composer.inputSinks.front() != composer.inputSinks.end());
+        STD_INSIST(composer.fontResolvers.front() != composer.fontResolvers.end());
     }
 
     STD_TEST(PublishesContentScaleOnlyAfterChange) {

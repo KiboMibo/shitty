@@ -6,10 +6,13 @@
 
 #include "composer.h"
 
-#include "input_bindings.h"
-#include "input_router.h"
-#include "listener.h"
 #include "options.h"
+#include "listener.h"
+#include "font_path.h"
+#include "input_router.h"
+#include "font_resolver.h"
+#include "input_bindings.h"
+#include "font_fontconfig.h"
 
 #include <std/alg/minmax.h>
 #include <std/dbg/assert.h>
@@ -21,6 +24,8 @@ Composer::Composer(ObjPool* pool_)
 {
     input = createInputRouter(*this);
     inputBindings = InputBindings::create(*this);
+    createFontconfigResolver(*this);
+    createPathFontResolver(*this);
 }
 
 void Composer::setContentScale(float scale) {
@@ -82,4 +87,16 @@ void Composer::resize(u16 pixelWidth_, u16 pixelHeight_) {
         node = node->next;
         listener->onListen();
     }
+}
+
+Font* Composer::loadFont(ObjPool& owner, const FontRequest& request, FontMetrics& metrics) {
+    for (IntrusiveNode* node = fontResolvers.mutFront(); node != fontResolvers.mutEnd();) {
+        FontResolver* const resolver = static_cast<FontResolver*>(node);
+        node = node->next;
+        Font* const font = resolver->load(owner, request, metrics);
+        if (font != nullptr) {
+            return font;
+        }
+    }
+    return nullptr;
 }

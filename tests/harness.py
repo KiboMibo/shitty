@@ -228,20 +228,6 @@ class Shitty:
         fields = self._read_hex_response("LAUNCH_COMMAND").split(b"\0")
         return os.fsdecode(fields[0]), [os.fsdecode(value) for value in fields[1:]]
 
-    def resolve_fontconfig(self, family):
-        fields = self._read_hex_response(
-            "FONTCONFIG_RESOLVE " + os.fsencode(family).hex()
-        ).split(b"\0")
-        if len(fields) != 8:
-            raise RuntimeError("invalid fontconfig response")
-        result = {}
-        for index, name in enumerate(
-            ("regular", "bold", "italic", "bold_italic")
-        ):
-            result[name] = os.fsdecode(fields[2 * index])
-            result[name + "_index"] = int(fields[2 * index + 1])
-        return result
-
     def load_font(self, family, double_width):
         request = b"\0".join(map(os.fsencode, (family, double_width)))
         self.stream.write(b"FONT_LOAD " + request.hex().encode() + b"\n")

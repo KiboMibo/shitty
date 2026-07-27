@@ -6,7 +6,6 @@
 
 #include "application.h"
 #include "composer.h"
-#include "font_resolver.h"
 #include "vterm_headless.h"
 
 #ifdef SHITTY_HEAP_PROFILE
@@ -158,6 +157,5 @@ int main(int argc, char* argv[]) {
     } catch (const std::exception& error) {
         sysE << StringView(u8"Error: ") << StringView(error.what()) << endL;
     }
-    finalizeFontconfig();
     return status;
 }

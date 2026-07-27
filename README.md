@@ -41,7 +41,7 @@ Shitty is written in C++23 and built with Clang. Building the terminal requires:
 - Python 3 and `glslangValidator`;
 - pkg-config;
 - Brotli and utf8proc;
-- FreeType and fontconfig;
+- FreeType and HarfBuzz;
 - Wayland client headers, xkbcommon, and `wayland-scanner`;
 - Vulkan headers and loader;
 - POSIX threads and PTY support;
@@ -49,6 +49,8 @@ Shitty is written in C++23 and built with Clang. Building the terminal requires:
 
 A scalar Base64 implementation is always available. If simdutf 6.5 or newer
 is installed, the build uses it automatically to accelerate Base64 processing.
+Fontconfig is also optional. When present, it enables font-family lookup;
+explicit font file paths are handled directly through FreeType.
 
 A working Vulkan driver and a Wayland compositor are required at runtime. GLFW
 is built from the pinned `third_party/glfw` submodule of the project fork; the
@@ -105,10 +107,11 @@ Choose fonts:
 ./st -font 'DejaVu Sans Mono' -dwfont 'Noto Sans Mono CJK JP'
 ```
 
-`-font` and `-dwfont` are fontconfig family queries. Shitty resolves regular,
-bold, italic, and bold-italic faces automatically. An optional double-width
-font is used only when its cell is exactly twice as wide as the primary font
-at the same height.
+`-font` and `-dwfont` accept explicit font file paths. When Fontconfig is
+available, they also accept family queries and Shitty resolves regular, bold,
+italic, and bold-italic faces automatically. An optional double-width font is
+used only when its cell is exactly twice as wide as the primary font at the
+same height.
 
 Use `./st -v` to print the build version without opening a window,
 `./st -help` for the main option list, and `./st -listres` for advanced

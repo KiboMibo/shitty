@@ -13,6 +13,7 @@ from harness import Shitty
 
 ROOT = Path(__file__).resolve().parents[1]
 COLOR_FONT = ROOT / "tests" / "fonts" / "NotoColorEmoji.ttf"
+FONTCONFIG_AVAILABLE = os.environ.get("SHITTY_TEST_FONTCONFIG", "1") == "1"
 
 
 class FontResolverTest(unittest.TestCase):
@@ -30,6 +31,7 @@ class FontResolverTest(unittest.TestCase):
         )
         return config
 
+    @unittest.skipUnless(FONTCONFIG_AVAILABLE, "Fontconfig is not available")
     def test_collection_face_and_representative_advances_define_cells(self):
         collection = make_collection(
             make_font("Shitty Wrong Face", 750, 1500, 2000),
@@ -43,17 +45,15 @@ class FontResolverTest(unittest.TestCase):
             with Shitty(
                 extra_environment={"FONTCONFIG_FILE": str(config)}
             ) as terminal:
-                variants = terminal.resolve_fontconfig("Shitty Test Mono")
                 loaded = terminal.load_font(
                     "Shitty Test Mono",
                     "Shitty Test Mono",
                 )
 
-        self.assertEqual(variants["regular"], str(font))
-        self.assertEqual(variants["regular_index"], 1)
         self.assertEqual(loaded["px"], 8)
         self.assertEqual(loaded["double_width"], 1)
 
+    @unittest.skipUnless(FONTCONFIG_AVAILABLE, "Fontconfig is not available")
     def test_overlay_width_is_independent_but_vertical_metrics_must_match(self):
         family = "Shitty Overlay Test"
         collection = make_collection(
@@ -85,21 +85,13 @@ class FontResolverTest(unittest.TestCase):
             with Shitty(
                 extra_environment={"FONTCONFIG_FILE": str(config)}
             ) as terminal:
-                variants = terminal.resolve_fontconfig(family)
                 loaded = terminal.load_font(family, "")
 
-        self.assertEqual(variants["regular"], str(font))
-        self.assertEqual(variants["bold"], str(font))
-        self.assertEqual(variants["italic"], str(font))
-        self.assertEqual(variants["bold_italic"], str(font))
-        self.assertEqual(variants["regular_index"], 0)
-        self.assertEqual(variants["bold_index"], 1)
-        self.assertEqual(variants["italic_index"], 2)
-        self.assertEqual(variants["bold_italic_index"], 3)
         self.assertEqual(loaded["bold"], 1)
         self.assertEqual(loaded["italic"], 0)
         self.assertEqual(loaded["bold_italic"], 0)
 
+    @unittest.skipUnless(FONTCONFIG_AVAILABLE, "Fontconfig is not available")
     def test_missing_or_incompatible_double_width_font_keeps_primary_fallback(self):
         with Shitty() as terminal:
             primary = terminal.load_font("monospace", "")
@@ -110,14 +102,16 @@ class FontResolverTest(unittest.TestCase):
             (primary["px"], primary["py"]),
         )
 
-    def test_fontconfig_resolves_family_and_alias_to_existing_files(self):
+    @unittest.skipUnless(FONTCONFIG_AVAILABLE, "Fontconfig is not available")
+    def test_fontconfig_resolves_family_and_alias(self):
         with Shitty() as terminal:
             for family in ("monospace", "IBM Plex Mono"):
                 with self.subTest(family=family):
-                    variants = terminal.resolve_fontconfig(family)
-                    self.assertTrue(variants["regular"])
-                    self.assertTrue(os.path.isfile(variants["regular"]))
+                    loaded = terminal.load_font(family, "")
+                    self.assertGreater(loaded["px"], 0)
+                    self.assertGreater(loaded["py"], 0)
 
+    @unittest.skipUnless(FONTCONFIG_AVAILABLE, "Fontconfig is not available")
     def test_fontconfig_loads_all_four_style_faces_when_available(self):
         with Shitty() as terminal:
             loaded = terminal.load_font("IBM Plex Mono", "")
@@ -126,6 +120,7 @@ class FontResolverTest(unittest.TestCase):
             (1, 1, 1),
         )
 
+    @unittest.skipUnless(FONTCONFIG_AVAILABLE, "Fontconfig is not available")
     def test_fontconfig_family_loads_without_a_search_path(self):
         with Shitty() as terminal:
             loaded = terminal.load_font("monospace", "")
@@ -134,12 +129,24 @@ class FontResolverTest(unittest.TestCase):
 
     def test_font_file_path_is_not_treated_as_a_family(self):
         with Shitty(extra_arguments=("-fontsize", "32")) as terminal:
-            variants = terminal.resolve_fontconfig(COLOR_FONT)
             primary = terminal.load_font(COLOR_FONT, "")
-            fallback = terminal.load_font("monospace", COLOR_FONT)
-        self.assertEqual(variants["regular"], str(COLOR_FONT))
         self.assertLessEqual(primary["py"], 64)
-        self.assertEqual(fallback["double_width"], 1)
+
+    def test_font_file_paths_load_primary_and_double_width_fonts(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / ".build") as directory:
+            root = Path(directory)
+            primary_font = root / "primary.ttf"
+            double_width_font = root / "double-width.ttf"
+            primary_font.write_bytes(
+                make_font("Shitty Path Primary", 500, 1000, 1000)
+            )
+            double_width_font.write_bytes(
+                make_font("Shitty Path Double Width", 1000, 1000, 1000)
+            )
+            with Shitty() as terminal:
+                loaded = terminal.load_font(primary_font, double_width_font)
+
+        self.assertEqual(loaded["double_width"], 1)
 
 
 if __name__ == "__main__":

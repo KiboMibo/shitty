@@ -18,6 +18,8 @@ struct Application;
 struct CellExtraStore;
 struct Clipboard;
 struct DesktopActions;
+struct Font;
+struct FontMetrics;
 struct InputBindings;
 struct InputSink;
 struct Renderer;
@@ -26,6 +28,7 @@ struct PtyEventHost;
 struct PtyEventSource;
 struct Vterm;
 struct Window;
+struct FontRequest;
 
 // Application wiring. Components retain Composer itself and read dependencies
 // here when needed; they do not cache aliases of these canonical fields.
@@ -37,6 +40,7 @@ struct Composer {
     void setGlyphSize(u16 width, u16 height);
     void setCellExtras(CellExtraStore* extras);
     void resize(u16 pixelWidth, u16 pixelHeight);
+    Font* loadFont(stl::ObjPool& owner, const FontRequest& request, FontMetrics& metrics);
 
     stl::ObjPool* pool = nullptr;
     Application* application = nullptr;
@@ -70,6 +74,8 @@ struct Composer {
     stl::IntrusiveList fontResetListeners;
     stl::IntrusiveList fontChangedListeners;
     stl::IntrusiveList cellExtrasChangedListeners;
+    // Font resolvers are tried in registration order.
+    stl::IntrusiveList fontResolvers;
     // Input producers call input; the router walks this list in registration
     // order and stops at the first sink which accepts the event.
     stl::IntrusiveList inputSinks;
