@@ -101,6 +101,28 @@ namespace {
         return false;
     }
 
+    [[gnu::always_inline]] inline void storeAsciiCells(u64* __restrict output, const u8* __restrict input, u16 count, u64 style, u64 content) {
+        while (count >= 4) {
+            output[0] = style;
+            output[1] = content | input[0];
+            output[2] = style;
+            output[3] = content | input[1];
+            output[4] = style;
+            output[5] = content | input[2];
+            output[6] = style;
+            output[7] = content | input[3];
+            output += 8;
+            input += 4;
+            count -= 4;
+        }
+        while (count != 0) {
+            output[0] = style;
+            output[1] = content | *input++;
+            output += 2;
+            --count;
+        }
+    }
+
     // Coord holds one grid coordinate and Epoch a damage generation counter.
     // The factories pick an instantiation from the actual geometry; resize
     // rebuilds convert between instantiations through ResizeState.
@@ -121,7 +143,7 @@ namespace {
         void writeCodepoint(u16 row, u16 column, u32 codepoint, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeGrapheme(u16 row, u16 column, const u32* codepoints, size_t count, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeAsciiRun(u16 row, u16 column, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
-        void writeAsciiLines(u16 row, const u8* input, size_t size, u16 lineCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
+        void writeAsciiLines(u16 row, const u8* input, const u16* lengths, u16 lineCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeAsciiRunInsert(u16 row, u16 column, u16 end, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeRun(u16 row, u16 column, const u32* codepoints, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeGlyphRun(u16 row, u16 column, const u32* codepoints, const u8* widths, u16 glyphCount, u16 cellCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
@@ -1693,35 +1715,127 @@ void ScreenImpl<Coord, Epoch>::writeAsciiRun(u16 row, u16 column, const u8* inpu
     TerminalCell* const cells = prepareSpan(row, column, count, eraseAttrs);
     u64 content;
     memcpy(&content, &linkedAttrs.content, sizeof(content));
-    auto* const output = reinterpret_cast<u64*>(cells);
-    for (u16 index = 0; index < count; ++index) {
-        output[2 * index] = linkedAttrs.style;
-        output[2 * index + 1] = content | input[index];
-    }
+    storeAsciiCells(reinterpret_cast<u64*>(cells), input, count, linkedAttrs.style, content);
     logicalRowSlot(row)->metadata.protection |= linkedAttrs.protected_char;
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::writeAsciiLines(u16 row, const u8* input, size_t size, u16 lineCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
-    const u8* const end = input + size;
+void ScreenImpl<Coord, Epoch>::writeAsciiLines(u16 row, const u8* input, const u16* lengths, u16 lineCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
+    if (!selection.null() || viewOffset != 0) {
+        for (u16 line = 0; line < lineCount; ++line) {
+            const u16 count = lengths[line];
+            STD_ASSERT(input[count] == '\r' && input[count + 1] == '\n');
+            if (count != 0) {
+                writeAsciiRun(row, 0, input, count, attrs, hyperlink, semantic, eraseAttrs);
+            }
+            input += count + 2;
+            if (row + 1 < nRows) {
+                ++row;
+            } else {
+                scrollUp(0, nRows, 1, eraseAttrs);
+            }
+        }
+        return;
+    }
+
+    TerminalCell linkedAttrs = attrs;
+    if (hyperlink != 0 || linkedAttrs.hasExtra()) {
+        cellExtras().setHyperlink(linkedAttrs, hyperlink);
+    }
+    linkedAttrs.uc_pt = 0;
+    linkedAttrs.drawn = 1;
+    linkedAttrs.semantic = semantic;
+    u64 style;
+    u64 content;
+    memcpy(&style, &linkedAttrs.style, sizeof(style));
+    memcpy(&content, &linkedAttrs.content, sizeof(content));
+    const bool eraseZero = eraseAttrs == TerminalCell{};
+    u64 eraseStyle;
+    u64 eraseContent;
+    memcpy(&eraseStyle, &eraseAttrs.style, sizeof(eraseStyle));
+    memcpy(&eraseContent, &eraseAttrs.content, sizeof(eraseContent));
+
+    const auto storeText = [style, content](TerminalCell* cells, const u8* text, u16 count) {
+        storeAsciiCells(reinterpret_cast<u64*>(cells), text, count, style, content);
+    };
+    const auto overwriteClearedRow = [&](RowSlot& slot, const u8* text, u16 count) {
+        if (count == 0 && eraseZero) {
+            releaseRow(slot);
+            slot = nullptr;
+            return;
+        }
+        TerminalCell* const cells = mutableRow(slot);
+        storeText(cells, text, count);
+        if (eraseZero) {
+            memset(cells + count, 0, (size_t)(nCols - count) * cellSize);
+        } else {
+            auto* output = reinterpret_cast<u64*>(cells);
+            for (u16 index = count; index < nCols; ++index) {
+                output[2 * index] = eraseStyle;
+                output[2 * index + 1] = eraseContent;
+            }
+        }
+        slot->metadata.lineAttribute = 0;
+        slot->metadata.protection = eraseAttrs.protected_char | (count != 0 ? linkedAttrs.protected_char : 0);
+        slot->metadata.wide = eraseAttrs.dwidth || eraseAttrs.dwidth_cont;
+    };
+    const auto advanceRing = [&]() {
+        RowSlot incoming = nullptr;
+        if (saveLines != 0) {
+            if (historyRows == saveLines) {
+                RowSlot& oldest = logicalRowSlot(-(int)(historyRows));
+                incoming = oldest;
+                oldest = nullptr;
+            } else {
+                ++historyRows;
+            }
+        } else {
+            RowSlot& first = logicalRowSlot(0);
+            incoming = first;
+            first = nullptr;
+        }
+        rowEnd = (rowEnd + 1) & (rowCapacity - 1);
+        RowSlot& last = logicalRowSlot(nRows - 1);
+        STD_ASSERT(last == nullptr);
+        last = incoming;
+    };
+
+    const bool scrolls = lineCount > nRows - row - 1;
+    bool cleared = false;
     for (u16 line = 0; line < lineCount; ++line) {
-        const u8* lineEnd = input;
-        while (lineEnd != end && *lineEnd != '\r') {
-            ++lineEnd;
+        const u16 count = lengths[line];
+        STD_ASSERT(input[count] == '\r' && input[count + 1] == '\n');
+        RowSlot& slot = logicalRowSlot(row);
+        if (cleared) {
+            overwriteClearedRow(slot, input, count);
+        } else if (count != 0) {
+            TerminalCell* cells;
+            if (slot == nullptr || !slot->metadata.wide) {
+                cells = mutableRow(slot);
+            } else {
+                cells = overwriteWideSpan(row, 0, count, eraseAttrs);
+            }
+            storeText(cells, input, count);
+            slot->metadata.protection |= linkedAttrs.protected_char;
+            if (!scrolls) {
+                damageRow(row, 0, count);
+            }
         }
-        STD_ASSERT(end - lineEnd >= 2 && lineEnd[1] == '\n');
-        const u16 count = (u16)(lineEnd - input);
-        if (count != 0) {
-            writeAsciiRun(row, 0, input, count, attrs, hyperlink, semantic, eraseAttrs);
-        }
-        input = lineEnd + 2;
+        input += count + 2;
         if (row + 1 < nRows) {
             ++row;
+            cleared = false;
         } else {
-            scrollUp(0, nRows, 1, eraseAttrs);
+            advanceRing();
+            cleared = true;
         }
     }
-    STD_ASSERT(input == end);
+    if (cleared) {
+        overwriteClearedRow(logicalRowSlot(nRows - 1), nullptr, 0);
+    }
+    if (scrolls) {
+        damage.expose();
+    }
 }
 
 template <typename Coord, typename Epoch>

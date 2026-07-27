@@ -115,7 +115,7 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(spans[0].cells[0].semantic == 3);
     }
 
-    STD_TEST(WritesAsciiLinesAndScrollsOncePerLine) {
+    STD_TEST(WritesAsciiLinesAndRecyclesFullHistory) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
         CellExtraStore::create(composer, 16);
@@ -123,19 +123,67 @@ STD_TEST_SUITE(Screen) {
         configureColors(colors);
         Screen* screen = Screen::create(composer, *pool, 3, 2, &colors, 2);
         const TerminalCell attrs = attributes();
-        const u8 text[] = {'A', 'B', '\r', '\n', 'C', '\r', '\n', 'D', 'E', '\r', '\n'};
+        const u8 text[] = {'A', 'B', '\r', '\n', 'C', '\r', '\n', 'D', 'E', '\r', '\n', 'F', '\r', '\n'};
+        const u16 lengths[] = {2, 1, 2, 1};
 
-        screen->writeAsciiLines(0, text, sizeof(text), 3, attrs, 0, 0, TerminalCell{});
+        screen->writeAsciiLines(0, text, lengths, 4, attrs, 0, 0, TerminalCell{});
 
         STD_INSIST(screen->getHistoryRows() == 2);
-        STD_INSIST(screen->testCell(0, 0).uc_pt == 'D');
-        STD_INSIST(screen->testCell(0, 1).uc_pt == 'E');
-        STD_INSIST(screen->testCell(0, 2).uc_pt == 0);
+        STD_INSIST(screen->testCell(0, 0).uc_pt == 'F');
+        STD_INSIST(screen->testCell(0, 1).uc_pt == 0);
         STD_INSIST(screen->testCell(1, 0).uc_pt == 0);
         screen->pageUp(2);
-        STD_INSIST(screen->testCell(0, 0).uc_pt == 'A');
-        STD_INSIST(screen->testCell(0, 1).uc_pt == 'B');
-        STD_INSIST(screen->testCell(1, 0).uc_pt == 'C');
+        STD_INSIST(screen->testCell(0, 0).uc_pt == 'C');
+        STD_INSIST(screen->testCell(1, 0).uc_pt == 'D');
+        STD_INSIST(screen->testCell(1, 1).uc_pt == 'E');
+    }
+
+    STD_TEST(WritesAsciiLinesIntoClearedRowsWithEraseAttributes) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 16);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::create(composer, *pool, 4, 2, &colors);
+        const TerminalCell attrs = attributes();
+        TerminalCell eraseAttrs{};
+        eraseAttrs.bold = true;
+        const u8 text[] = {'A', '\r', '\n', 'B', '\r', '\n', 'C', '\r', '\n'};
+        const u16 lengths[] = {1, 1, 1};
+
+        screen->writeAsciiLines(0, text, lengths, 3, attrs, 0, 0, eraseAttrs);
+
+        STD_INSIST(screen->testCell(0, 0).uc_pt == 'C');
+        STD_INSIST(!screen->testCell(0, 0).bold);
+        STD_INSIST(screen->testCell(0, 1).uc_pt == 0);
+        STD_INSIST(screen->testCell(0, 1).bold);
+        STD_INSIST(screen->testCell(1, 0).uc_pt == 0);
+        STD_INSIST(screen->testCell(1, 0).bold);
+    }
+
+    STD_TEST(WritesAsciiLinesWithoutTouchingOtherRows) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 16);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::create(composer, *pool, 3, 4, &colors);
+        const TerminalCell attrs = attributes();
+        const u8 original[] = {'x', 'y', 'z'};
+        const u8 text[] = {'A', '\r', '\n', 'B', '\r', '\n'};
+        const u16 lengths[] = {1, 1};
+        screen->writeAsciiRun(3, 0, original, 3, attrs, 0, 0, TerminalCell{});
+        screen->resetDamage();
+
+        screen->writeAsciiLines(0, text, lengths, 2, attrs, 0, 0, TerminalCell{});
+
+        TerminalCellSpan spans[4];
+        const TerminalCellBatch batch = screen->copyDamage(spans);
+        STD_INSIST(batch.spanCount == 2);
+        STD_INSIST(batch.cellCount == 2);
+        STD_INSIST(screen->testCell(2, 0).uc_pt == 0);
+        STD_INSIST(screen->testCell(3, 0).uc_pt == 'x');
+        STD_INSIST(screen->testCell(3, 2).uc_pt == 'z');
     }
 
     STD_TEST(StoresLineAttributesInRowMetadata) {

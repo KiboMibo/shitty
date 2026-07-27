@@ -8,6 +8,11 @@ from harness import Shitty
 
 
 class EditingTest(unittest.TestCase):
+    def test_repeat_uses_last_character_from_batched_lines(self):
+        with Shitty(columns=8, rows=4) as terminal:
+            terminal.write(b"A\r\nB\r\n\r\n\x1b[3b")
+            self.assertEqual(terminal.snapshot().lines[3], "BBB     ")
+
     def test_rectangle_origin_tracks_origin_mode_and_both_margin_pairs(self):
         with Shitty(columns=8, rows=4) as terminal:
             self.assertEqual(terminal.rectangle_origin(), (0, 0, 4, 8))

@@ -9021,16 +9021,25 @@ size_t VtermImpl<traced>::placeAsciiLines(const u8* input, size_t size) {
 
     const u8* cursor = input;
     const u8* const end = input + size;
+    constexpr u16 maxLines = 256;
+    u16 lengths[maxLines];
     u16 lineCount = 0;
-    while (cursor != end && lineCount != UINT16_MAX) {
+    u32 preceding = 0;
+    bool havePreceding = false;
+    while (cursor != end && lineCount != maxLines) {
         const size_t length = printableAsciiPrefix(cursor, end - cursor);
         if (length > nColsEff || (size_t)(end - cursor) - length < 2 || cursor[length] != '\r' || cursor[length + 1] != '\n') {
             break;
         }
-        const u16 row = min<u32>((u32)(posY) + lineCount, composer.rows - 1);
-        if (cf->lineAttribute(row) != 0) {
+        const u32 row = (u32)(posY) + lineCount;
+        if (row < composer.rows && cf->lineAttribute(row) != 0) {
             break;
         }
+        if (length != 0) {
+            preceding = cursor[length - 1];
+            havePreceding = true;
+        }
+        lengths[lineCount] = (u16)(length);
         ++lineCount;
         cursor += length + 2;
     }
@@ -9041,7 +9050,7 @@ size_t VtermImpl<traced>::placeAsciiLines(const u8* input, size_t size) {
     if constexpr (traced) {
         const u8* tracedInput = input;
         for (u16 line = 0; line < lineCount; ++line) {
-            const size_t length = printableAsciiPrefix(tracedInput, cursor - tracedInput);
+            const u16 length = lengths[line];
             if (length != 0) {
                 parserTrace->text(tracedInput, length);
             }
@@ -9050,7 +9059,10 @@ size_t VtermImpl<traced>::placeAsciiLines(const u8* input, size_t size) {
             tracedInput += length + 2;
         }
     }
-    cf->writeAsciiLines(posY, input, cursor - input, lineCount, attrs, activeHyperlink, currentSemantic, eraseAttrs);
+    cf->writeAsciiLines(posY, input, lengths, lineCount, attrs, activeHyperlink, currentSemantic, eraseAttrs);
+    if (havePreceding) {
+        utf8dec.setUnicode(preceding);
+    }
     posY = min<u32>((u32)(posY) + lineCount, composer.rows - 1);
     posX = 0;
     lastCol = false;
