@@ -247,7 +247,6 @@ ParserImpl::ParserImpl(...) {
 }
 
 void ParserImpl::feed(StringView bytes) {
-    #include SHITTY_PARSER_GENERATED // action helpers
     while (p != pe) {
         // C++ bulk fast paths
         #define SHITTY_PARSER_EXEC
@@ -256,7 +255,7 @@ void ParserImpl::feed(StringView bytes) {
 }
 ```
 
-`write init` выполняется ровно один раз в конструкторе без runtime-флага. Цикл и bulk fast paths принадлежат `parser.cpp`; в exec-ветке `parser.rl` остаётся только `write exec`. Точный набор локальных имён задаётся требованиями Ragel. Generated fragment:
+`write init` выполняется ровно один раз в конструкторе без runtime-флага. Цикл и bulk fast paths принадлежат `parser.cpp`; действия автомата вызывают обычные методы `ParserImpl`, а после grammar в `parser.rl` остаются только `write data`, `write init` и `write exec`. Точный набор локальных имён задаётся требованиями Ragel. Generated fragment:
 
 - загружает `cs` и остальные persistent поля из `ProtocolParser`;
 - исполняет `write init` только при создании parser;

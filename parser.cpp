@@ -176,6 +176,25 @@ namespace {
         ParserImpl(ParserIface& iface, VtermTrace* trace);
 
         void feed(StringView bytes) override;
+        bool consumeStringUtf8Byte(u8 ch);
+        bool ragelGroundContinuation(u8 ch);
+        void ragelGroundHigh(u8 ch);
+        void ragelGroundAscii(u8 ch);
+        void ragelAppendStringSpan(const u8* data, size_t size, size_t limit);
+        void ragelAppendString(u8 ch, size_t limit);
+        void ragelAppendEscapedString(u8 ch, size_t limit);
+        void ragelBeginString(VtermTraceString type, bool buffered);
+        void ragelBeginDcs();
+        void ragelBeginOsc();
+        void resetOscColor();
+        bool ragelStringContinuation(u8 ch);
+        void ragelFinishString();
+        void ragelFinishDcs();
+        void ragelFinishOsc();
+        StringView ragelOscPayload() noexcept;
+        void beginCsi();
+        ParserParameters csiParameters() noexcept;
+        void traceCsi(u8 finalByte);
 
         ParserIface& iface;
         VtermTrace* parserTrace;
@@ -199,6 +218,253 @@ ParserImpl<traced>::ParserImpl(ParserIface& iface_, VtermTrace* trace)
 }
 
 template <bool traced>
+bool ParserImpl<traced>::consumeStringUtf8Byte(u8 ch) {
+    if (parser.stringUtf8Remaining != 0) {
+        if ((ch & 0xc0) == 0x80) {
+            --parser.stringUtf8Remaining;
+            return true;
+        }
+        parser.stringUtf8Remaining = 0;
+    }
+
+    if (ch >= 0xc2 && ch <= 0xdf) {
+        parser.stringUtf8Remaining = 1;
+    } else if (ch >= 0xe0 && ch <= 0xef) {
+        parser.stringUtf8Remaining = 2;
+    } else if (ch >= 0xf0 && ch <= 0xf4) {
+        parser.stringUtf8Remaining = 3;
+    }
+    return false;
+}
+
+template <bool traced>
+bool ParserImpl<traced>::ragelGroundContinuation(u8 ch) {
+    if (!iface.parserGroundContinuation(ch)) {
+        return false;
+    }
+    if constexpr (traced) {
+        parserTrace->text(&ch, 1);
+    }
+    return true;
+}
+
+template <bool traced>
+void ParserImpl<traced>::ragelGroundHigh(u8 ch) {
+    if (ragelGroundContinuation(ch)) {
+        return;
+    }
+    if constexpr (traced) {
+        if (ch >= 0xa0) {
+            parserTrace->text(&ch, 1);
+        } else {
+            parserTrace->control(ch);
+        }
+    }
+    if (ch <= 0x9f) {
+        iface.parserResetGraphemeInput();
+    }
+    iface.parserGroundHigh(ch);
+}
+
+template <bool traced>
+void ParserImpl<traced>::ragelGroundAscii(u8 ch) {
+    if constexpr (traced) {
+        parserTrace->text(&ch, 1);
+    }
+    iface.parserGroundAscii(ch);
+}
+
+template <bool traced>
+void ParserImpl<traced>::ragelAppendStringSpan(const u8* data, size_t size, size_t limit) {
+    if constexpr (traced) {
+        parserTrace->stringData(data, size);
+    }
+    const size_t used = parser.scratch.used();
+    const size_t available = used < limit ? limit - used : 0;
+    const size_t appendSize = min(size, available);
+    if (appendSize != 0) {
+        parser.scratch.append(data, appendSize);
+    }
+    if (appendSize != size) {
+        parser.overflow = true;
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::ragelAppendString(u8 ch, size_t limit) {
+    ragelAppendStringSpan(&ch, 1, limit);
+}
+
+template <bool traced>
+void ParserImpl<traced>::ragelAppendEscapedString(u8 ch, size_t limit) {
+    const u8 bytes[] = {'\x1b', ch};
+    ragelAppendStringSpan(bytes, sizeof(bytes), limit);
+}
+
+template <bool traced>
+void ParserImpl<traced>::ragelBeginString(VtermTraceString type, bool buffered) {
+    iface.parserResetGraphemeInput();
+    parser.stringUtf8Remaining = 0;
+    parser.stringLimit = type == VtermTraceString::Dcs ? parser.maxDcsBytes : type == VtermTraceString::Osc ? parser.maxOscBytes : 0;
+    parser.oscCwdDecode = false;
+    if (buffered) {
+        parser.scratch.reset();
+        parser.overflow = false;
+    }
+    if constexpr (traced) {
+        parserTrace->stringBegin(type);
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::ragelBeginDcs() {
+    ragelBeginString(VtermTraceString::Dcs, true);
+    parser.parameters[0] = 0;
+    parser.separators[0] = 0;
+    parser.present[0] = false;
+    parser.parameterCount = 1;
+    parser.dcsIntermediateCount = 0;
+    parser.dcsCapabilityOffset = 0;
+    parser.dcsCapabilityDecodedLength = 0;
+    parser.dcsCapabilityCandidates = 0;
+    parser.dcsCapabilityHasHighNibble = false;
+    parser.dcsCapabilityValid = false;
+    parser.dcsCapabilityComplete = false;
+    parser.dcsUdkDefinitions.clear();
+    parser.dcsDecoded.reset();
+    parser.dcsUdkValueOffset = 0;
+    parser.dcsUdkCode = 0;
+    parser.dcsUdkKey = VtKey::NONE;
+    parser.dcsUdkHasCode = false;
+    parser.dcsUdkHasHighNibble = false;
+    parser.dcsUdkValid = false;
+    parser.dcsUdkInValue = false;
+    parser.dcsUdkHeaderValid = false;
+    parser.dcsUdkClearDefinitions = false;
+    parser.dcsUdkLockDefinitions = false;
+}
+
+template <bool traced>
+void ParserImpl<traced>::ragelBeginOsc() {
+    ragelBeginString(VtermTraceString::Osc, true);
+    parser.oscCommand = 0;
+    parser.oscPayloadOffset = 0;
+    parser.oscCommandValid = false;
+    parser.oscTerminated = false;
+    parser.oscDecoded.reset();
+    parser.oscTitleHighNibble = 0;
+    parser.oscTitleHex = false;
+    parser.oscTitleHasHighNibble = false;
+    parser.oscTitleValid = false;
+    parser.oscTitleStopped = false;
+    parser.oscCwdPercentHigh = 0;
+    parser.oscCwdValid = false;
+    parser.oscCwdDecode = false;
+    parser.oscHyperlinkIdOffset = 0;
+    parser.oscHyperlinkIdLength = 0;
+    parser.oscHyperlinkUriOffset = 0;
+    parser.oscHyperlinkHasId = false;
+    parser.oscProgressState = 0;
+    parser.oscProgressPercent = 0;
+    parser.oscProgressStatePresent = false;
+    parser.oscProgressPercentPresent = false;
+    parser.oscProgressValid = false;
+    parser.oscBase64.reset();
+    parser.osc52ReplySelector = 0;
+    parser.osc52Primary = false;
+    parser.osc52Clipboard = false;
+    parser.osc52SelectorSeen = false;
+    parser.osc52PayloadSeen = false;
+    parser.osc52Query = false;
+}
+
+template <bool traced>
+void ParserImpl<traced>::resetOscColor() {
+    parser.oscColor = {};
+    parser.oscColorComponents[0] = 0.0;
+    parser.oscColorComponents[1] = 0.0;
+    parser.oscColorComponents[2] = 0.0;
+    parser.oscColorHex = 0;
+    parser.oscColorComponent = 0;
+    parser.oscColorDigits = 0;
+    parser.oscColorValid = true;
+    parser.oscColorQuery = false;
+}
+
+template <bool traced>
+bool ParserImpl<traced>::ragelStringContinuation(u8 ch) {
+    if (!consumeStringUtf8Byte(ch)) {
+        return false;
+    }
+    if (parser.stringLimit != 0) {
+        ragelAppendString(ch, parser.stringLimit);
+    } else if constexpr (traced) {
+        parserTrace->stringData(&ch, 1);
+    }
+    if (parser.oscCwdDecode && !parser.overflow) {
+        parser.oscDecoded.append(&ch, 1);
+    }
+    return true;
+}
+
+template <bool traced>
+void ParserImpl<traced>::ragelFinishString() {
+    parser.stringUtf8Remaining = 0;
+    parser.stringLimit = 0;
+    if constexpr (traced) {
+        parserTrace->stringEnd();
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::ragelFinishDcs() {
+    ragelFinishString();
+}
+
+template <bool traced>
+void ParserImpl<traced>::ragelFinishOsc() {
+    ragelFinishString();
+}
+
+template <bool traced>
+StringView ParserImpl<traced>::ragelOscPayload() noexcept {
+    const auto* data = (const u8*)(parser.scratch.data());
+    return StringView(data + parser.oscPayloadOffset, parser.scratch.used() - parser.oscPayloadOffset);
+}
+
+template <bool traced>
+void ParserImpl<traced>::beginCsi() {
+    parser.stringUtf8Remaining = 0;
+    parser.stringLimit = 0;
+    iface.parserResetGraphemeInput();
+    parser.parameters[0] = 0;
+    parser.separators[0] = 0;
+    parser.present[0] = false;
+    parser.parameterCount = 1;
+    parser.csiHadParameters = false;
+    parser.csiPrefix = 0;
+    parser.csiIntermediateCount = 0;
+}
+
+template <bool traced>
+ParserParameters ParserImpl<traced>::csiParameters() noexcept {
+    return {
+        parser.parameters,
+        parser.separators,
+        parser.present,
+        parser.parameterCount,
+        parser.csiHadParameters,
+    };
+}
+
+template <bool traced>
+void ParserImpl<traced>::traceCsi(u8 finalByte) {
+    if constexpr (traced) {
+        parserTrace->csi(finalByte, StringView(&parser.csiPrefix, parser.csiPrefix == 0 ? 0 : 1), StringView(parser.csiIntermediates, parser.csiIntermediateCount), parser.parameters, parser.separators, parser.parameterCount, parser.csiHadParameters);
+    }
+}
+
+template <bool traced>
 void ParserImpl<traced>::feed(StringView bytes) {
     const u8* p = bytes.data();
     const u8* const pe = p + bytes.length();
@@ -209,8 +475,6 @@ void ParserImpl<traced>::feed(StringView bytes) {
             iface.parserPrint(StringView((const u8*)(data), size));
         }
     };
-
-#include SHITTY_PARSER_GENERATED
 
     while (p != pe) {
         if (cs == parser_en_printer) {
