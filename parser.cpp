@@ -213,6 +213,7 @@ namespace {
         void feed(StringView bytes) override;
         [[gnu::always_inline]] bool consumeStringUtf8Byte(u8 ch);
         [[gnu::always_inline]] bool executeC0(u8 ch);
+        [[gnu::always_inline]] void groundControl(u8 ch);
         [[gnu::always_inline]] size_t highStringPrefix(const u8* data, size_t size);
         bool ragelGroundContinuation(u8 ch);
         void ragelGroundHigh(u8 ch);
@@ -343,6 +344,46 @@ template <bool traced>
             break;
     }
     return true;
+}
+
+template <bool traced>
+[[gnu::always_inline]] inline void ParserImpl<traced>::groundControl(u8 ch) {
+    if constexpr (traced) {
+        if (ch != 0) {
+            parserTrace->control(ch);
+        }
+    }
+    iface.parserResetGraphemeInput();
+    switch (ch) {
+        case '\a':
+            iface.parserBell();
+            break;
+        case '\b':
+            iface.parserMoveCursorBackward(1);
+            break;
+        case '\t':
+            iface.inp_HT();
+            break;
+        case '\n':
+        case '\v':
+        case '\f':
+            if (iface.parserAutoNewlineMode()) {
+                iface.inp_CR();
+            }
+            iface.esc_IND();
+            break;
+        case '\r':
+            iface.inp_CR();
+            break;
+        case '\x0e':
+            iface.parserLockingShiftGl(1);
+            break;
+        case '\x0f':
+            iface.parserLockingShiftGl(0);
+            break;
+        default:
+            break;
+    }
 }
 
 template <bool traced>
@@ -1747,6 +1788,15 @@ void ParserImpl<traced>::feed(StringView bytes) {
             if (current == 0) {
                 iface.parserResetGraphemeInput();
                 p += zeroPrefix(p, pe - p);
+                continue;
+            }
+            if (current < 0x20 && current != 0x1b) {
+                groundControl(current);
+                ++p;
+                continue;
+            }
+            if (current == 0x7f) {
+                ++p;
                 continue;
             }
             if (parser.groundUtf8Remaining == 0 && current >= 0x20 && current < 0x7f) {

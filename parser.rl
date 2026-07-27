@@ -199,78 +199,42 @@
     }
 
     action groundIgnored {
-        if constexpr (traced) {
-            if (fc != 0) {
-                parserTrace->control(fc);
-            }
-        }
-        iface.parserResetGraphemeInput();
+        groundControl(fc);
         fbreak;
     }
 
     action groundBell {
-        if constexpr (traced) {
-            parserTrace->control(fc);
-        }
-        iface.parserResetGraphemeInput();
-        iface.parserBell();
+        groundControl(fc);
         fbreak;
     }
 
     action groundBackspace {
-        if constexpr (traced) {
-            parserTrace->control(fc);
-        }
-        iface.parserResetGraphemeInput();
-        iface.parserMoveCursorBackward(1);
+        groundControl(fc);
         fbreak;
     }
 
     action groundTab {
-        if constexpr (traced) {
-            parserTrace->control(fc);
-        }
-        iface.parserResetGraphemeInput();
-        iface.inp_HT();
+        groundControl(fc);
         fbreak;
     }
 
     action groundLineFeed {
-        if constexpr (traced) {
-            parserTrace->control(fc);
-        }
-        iface.parserResetGraphemeInput();
-        if (iface.parserAutoNewlineMode()) {
-            iface.inp_CR();
-        }
-        iface.esc_IND();
+        groundControl(fc);
         fbreak;
     }
 
     action groundCarriageReturn {
-        if constexpr (traced) {
-            parserTrace->control(fc);
-        }
-        iface.parserResetGraphemeInput();
-        iface.inp_CR();
+        groundControl(fc);
         fbreak;
     }
 
     action groundShiftOut {
-        if constexpr (traced) {
-            parserTrace->control(fc);
-        }
-        iface.parserResetGraphemeInput();
-        iface.parserLockingShiftGl(1);
+        groundControl(fc);
         fbreak;
     }
 
     action groundShiftIn {
-        if constexpr (traced) {
-            parserTrace->control(fc);
-        }
-        iface.parserResetGraphemeInput();
-        iface.parserLockingShiftGl(0);
+        groundControl(fc);
         fbreak;
     }
 
