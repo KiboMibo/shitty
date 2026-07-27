@@ -424,6 +424,7 @@ bool GlfwWindowImpl::dispatchEvents() {
     if (callbackError != nullptr) {
         std::rethrow_exception(callbackError);
     }
+    composer.poller->dispatch();
     composer.input->flush();
 
     const bool resized = resizePending;

@@ -78,6 +78,9 @@ STD_TEST_SUITE(Poller) {
 
         STD_INSIST(result == 1);
         STD_INSIST(source.revents == 0);
+        STD_INSIST(capture.calls == 0);
+        STD_INSIST(composer.poller->poll(&source, 1, &timeout) == 0);
+        composer.poller->dispatch();
         STD_INSIST(capture.calls == 1);
         STD_INSIST(capture.ready.fd == externalPipe[0]);
         STD_INSIST(capture.ready.what == PollRead);
@@ -100,13 +103,52 @@ STD_TEST_SUITE(Poller) {
         double timeout = 0.0;
 
         STD_INSIST(composer.poller->poll(nullptr, 0, &timeout) == 1);
+        STD_INSIST(composer.poller->poll(nullptr, 0, &timeout) == 0);
+        composer.poller->dispatch();
         STD_INSIST(capture.calls == 1);
         STD_INSIST(capture.ready.fd == externalPipe[1]);
         STD_INSIST(capture.ready.what == PollWrite);
 
         composer.poller->disarm(externalPipe[1]);
         STD_INSIST(composer.poller->poll(nullptr, 0, &timeout) == 0);
+        composer.poller->dispatch();
         STD_INSIST(capture.calls == 1);
+        close(externalPipe[0]);
+        close(externalPipe[1]);
+        delete pool;
+    }
+
+    STD_TEST(DefersSourceReadinessBehindExternalReadiness) {
+        ObjPool* const pool = ObjPool::fromMemoryRaw();
+        Composer composer(pool);
+        CaptureReady capture;
+        composer.onFDReady.pushBack(&capture);
+        int sourcePipe[2];
+        int externalPipe[2];
+        STD_INSIST(pipe(sourcePipe) == 0);
+        STD_INSIST(pipe(externalPipe) == 0);
+        composer.poller->arm(externalPipe[0], PollRead);
+        const u8 byte = 1;
+        STD_INSIST(write(sourcePipe[1], &byte, sizeof(byte)) == sizeof(byte));
+        STD_INSIST(write(externalPipe[1], &byte, sizeof(byte)) == sizeof(byte));
+        struct pollfd source{
+            .fd = sourcePipe[0],
+            .events = POLLIN,
+        };
+        double timeout = 0.0;
+
+        STD_INSIST(composer.poller->poll(&source, 1, &timeout) == 2);
+        STD_INSIST(source.revents == 0);
+        STD_INSIST(capture.calls == 0);
+        STD_INSIST(composer.poller->poll(&source, 1, &timeout) == 1);
+        STD_INSIST(source.revents == POLLIN);
+        STD_INSIST(capture.calls == 0);
+        composer.poller->dispatch();
+        STD_INSIST(capture.calls == 1);
+        STD_INSIST(capture.ready.fd == externalPipe[0]);
+        STD_INSIST(capture.ready.what == PollRead);
+        close(sourcePipe[0]);
+        close(sourcePipe[1]);
         close(externalPipe[0]);
         close(externalPipe[1]);
         delete pool;
@@ -129,6 +171,7 @@ STD_TEST_SUITE(Poller) {
 
         STD_INSIST(composer.poller->poll(&source, 1, &timeout) == 1);
         STD_INSIST(source.revents == POLLIN);
+        composer.poller->dispatch();
         STD_INSIST(capture.calls == 0);
         close(sourcePipe[0]);
         close(sourcePipe[1]);
@@ -145,10 +188,12 @@ STD_TEST_SUITE(Poller) {
         double timeout = 1.0;
 
         STD_INSIST(composer.poller->poll(nullptr, 0, &timeout) == 0);
+        composer.poller->dispatch();
         STD_INSIST(capture.calls == 1);
 
         timeout = 0.0;
         STD_INSIST(composer.poller->poll(nullptr, 0, &timeout) == 0);
+        composer.poller->dispatch();
         STD_INSIST(capture.calls == 1);
         delete pool;
     }
@@ -163,10 +208,12 @@ STD_TEST_SUITE(Poller) {
         double timeout = 1.0;
 
         STD_INSIST(composer.poller->poll(nullptr, 0, &timeout) == 0);
+        composer.poller->dispatch();
         STD_INSIST(capture.calls == 1);
 
         timeout = 1.0;
         STD_INSIST(composer.poller->poll(nullptr, 0, &timeout) == 0);
+        composer.poller->dispatch();
         STD_INSIST(capture.calls == 2);
         delete pool;
     }
@@ -180,11 +227,13 @@ STD_TEST_SUITE(Poller) {
         double timeout = 0.0;
 
         STD_INSIST(composer.poller->poll(nullptr, 0, &timeout) == 0);
+        composer.poller->dispatch();
         STD_INSIST(capture.calls == 0);
 
         composer.poller->timeout(0);
         timeout = 1.0;
         STD_INSIST(composer.poller->poll(nullptr, 0, &timeout) == 0);
+        composer.poller->dispatch();
         STD_INSIST(capture.calls == 1);
         delete pool;
     }

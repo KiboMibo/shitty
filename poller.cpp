@@ -33,16 +33,20 @@ namespace {
         void timeout(u64 microseconds) override;
         void deadline(u64 monotonicMicroseconds) override;
         int poll(struct pollfd* sourceFDs, size_t sourceCount, double* timeout) override;
+        void dispatch() override;
 
         static short toNative(int mode);
         static int fromNative(short events);
         static int toMilliseconds(double seconds);
-        void publishTimeout();
 
         Composer& composer;
         IntMap<ArmedFD> armed;
         Vector<struct pollfd> waiting;
+        Vector<struct pollfd> pendingSource;
+        Vector<FDReady> ready;
         u64 minDeadline = 0;
+        bool sourcePending = false;
+        bool timeoutReady = false;
     };
 }
 
@@ -111,16 +115,27 @@ int PollerImpl::toMilliseconds(double seconds) {
     return (int)(seconds * 1000.0 + 0.999);
 }
 
-void PollerImpl::publishTimeout() {
-    minDeadline = 0;
-    for (IntrusiveNode* node = composer.onTimeout.mutFront(); node != composer.onTimeout.mutEnd();) {
-        Listener* const listener = static_cast<Listener*>(node);
-        node = node->next;
-        listener->onListen();
-    }
-}
-
 int PollerImpl::poll(struct pollfd* sourceFDs, size_t sourceCount, double* timeout) {
+    if (sourcePending) {
+        int result = 0;
+        for (size_t index = 0; index != sourceCount; ++index) {
+            sourceFDs[index].revents = pendingSource[index].revents;
+            result += sourceFDs[index].revents != 0;
+        }
+        pendingSource.clear();
+        sourcePending = false;
+        return result;
+    }
+    if (!ready.empty() || timeoutReady) {
+        for (size_t index = 0; index != sourceCount; ++index) {
+            sourceFDs[index].revents = 0;
+        }
+        if (timeout != nullptr) {
+            *timeout = 0.0;
+        }
+        return 0;
+    }
+
     waiting.clear();
     if (sourceCount != 0) {
         waiting.append(sourceFDs, sourceCount);
@@ -152,27 +167,59 @@ int PollerImpl::poll(struct pollfd* sourceFDs, size_t sourceCount, double* timeo
     for (size_t index = 0; index != sourceCount; ++index) {
         sourceFDs[index].revents = waiting[index].revents;
     }
+    bool externalReady = false;
     if (result > 0) {
         for (size_t index = sourceCount; index != waiting.length(); ++index) {
             const struct pollfd& source = waiting[index];
             if (source.revents == 0) {
                 continue;
             }
+            externalReady = true;
             FDReady ready{
                 .fd = source.fd,
                 .what = fromNative(source.revents),
             };
-            for (IntrusiveNode* node = composer.onFDReady.mutFront(); node != composer.onFDReady.mutEnd();) {
-                Listener* const listener = static_cast<Listener*>(node);
-                node = node->next;
-                listener->onListen(&ready);
-            }
+            // GLFW calls us with a prepared Wayland read.  Dispatching here
+            // would deadlock any listener that enters another Wayland queue.
+            this->ready.pushBack(ready);
         }
     }
     if (minDeadline != 0 && monotonicNowUs() >= minDeadline) {
-        publishTimeout();
+        minDeadline = 0;
+        timeoutReady = true;
+    }
+    if (externalReady) {
+        pendingSource.clear();
+        if (sourceCount != 0) {
+            pendingSource.append(sourceFDs, sourceCount);
+        }
+        sourcePending = true;
+        for (size_t index = 0; index != sourceCount; ++index) {
+            sourceFDs[index].revents = 0;
+        }
     }
     return result;
+}
+
+void PollerImpl::dispatch() {
+    for (const FDReady& event : ready) {
+        for (IntrusiveNode* node = composer.onFDReady.mutFront(); node != composer.onFDReady.mutEnd();) {
+            Listener* const listener = static_cast<Listener*>(node);
+            node = node->next;
+            listener->onListen((void*)(&event));
+        }
+    }
+    ready.clear();
+
+    if (!timeoutReady) {
+        return;
+    }
+    timeoutReady = false;
+    for (IntrusiveNode* node = composer.onTimeout.mutFront(); node != composer.onTimeout.mutEnd();) {
+        Listener* const listener = static_cast<Listener*>(node);
+        node = node->next;
+        listener->onListen();
+    }
 }
 
 Poller* Poller::create(Composer& composer) {

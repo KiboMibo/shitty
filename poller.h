@@ -31,6 +31,9 @@ struct Poller {
     virtual void timeout(u64 microseconds) = 0;
     virtual void deadline(u64 monotonicMicroseconds) = 0;
     virtual int poll(struct pollfd* fds, size_t count, double* timeout) = 0;
+    // Publish readiness only after the platform event wait has released its
+    // native display read.
+    virtual void dispatch() = 0;
 
     static Poller* create(Composer& composer);
 };
