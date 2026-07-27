@@ -219,19 +219,31 @@ parser_test = command(
 main_source = "$(S)/main.cpp"
 fuzz_source = "$(S)/main_fuzz.cpp"
 heap_profile_source = "$(S)/heap_profile.cpp"
+parser_source = "$(S)/parser.cpp"
 unit_sources = sorted(build.glob("$(S)/*_ut.cpp"))
 all_libshitty_sources = [
     source for source in build.glob("$(S)/*.cpp")
     if source not in (main_source, fuzz_source, heap_profile_source, *unit_sources)
 ]
-libshitty_sources = all_libshitty_sources
+libshitty_sources = [
+    {
+        "src": source,
+        "inputs": ["$(B)/parser.rl.h"],
+    } if source == parser_source else source
+    for source in all_libshitty_sources
+]
+libshitty_test_sources = [
+    {
+        "src": source,
+        "inputs": ["$(B)/parser_test.rl.h"],
+    } if source == parser_source else source
+    for source in all_libshitty_sources
+]
 libshitty_deps = [
-    parser_prod,
     freetype, fontconfig, harfbuzz, glfw, vulkan, threads, libstd, brotli_common,
     utf8proc, simdutf,
 ]
 libshitty_test_deps = [
-    parser_test,
     freetype, fontconfig, harfbuzz, glfw, vulkan, threads, libstd, brotli_common,
     utf8proc, simdutf,
 ]
@@ -280,7 +292,7 @@ st_memprofile = program(
 # opens its application entry point and exposes Vterm::testApi().
 libshitty_test = library(
     name="libshitty_test",
-    srcs=all_libshitty_sources,
+    srcs=libshitty_test_sources,
     cppflags=["-DSHITTY_FOR_TESTS=1", "-DSHITTY_COMPACT_PARSER=1"],
     deps=libshitty_test_deps,
     output="$(B)/libshitty_test.a",

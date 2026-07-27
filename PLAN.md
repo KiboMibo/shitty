@@ -233,19 +233,30 @@ parser.rl ──────┤
                 └─ ragel -T1 ─→ $(B)/parser_test.rl.h ─→ libshitty_test
 ```
 
-Generated fragment включается только внутри `ParserImpl<traced>::feed()` в `parser.cpp`:
+Один generated fragment включается в трёх режимах:
 
 ```cpp
-template <bool traced>
-void ParserImpl<traced>::feed(StringView bytes) {
-    const u8* p = bytes.data();
-    const u8* pe = p + bytes.length();
+namespace {
+    #define SHITTY_PARSER_DATA
+    #include SHITTY_PARSER_GENERATED
+}
 
-    #include "parser.rl.h"
+ParserImpl::ParserImpl(...) {
+    #define SHITTY_PARSER_INIT
+    #include SHITTY_PARSER_GENERATED
+}
+
+void ParserImpl::feed(StringView bytes) {
+    #include SHITTY_PARSER_GENERATED // action helpers
+    while (p != pe) {
+        // C++ bulk fast paths
+        #define SHITTY_PARSER_EXEC
+        #include SHITTY_PARSER_GENERATED
+    }
 }
 ```
 
-Точный набор локальных имён задаётся требованиями Ragel. Generated fragment:
+`write init` выполняется ровно один раз в конструкторе без runtime-флага. Цикл и bulk fast paths принадлежат `parser.cpp`; в exec-ветке `parser.rl` остаётся только `write exec`. Точный набор локальных имён задаётся требованиями Ragel. Generated fragment:
 
 - загружает `cs` и остальные persistent поля из `ProtocolParser`;
 - исполняет `write init` только при создании parser;

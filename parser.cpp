@@ -19,6 +19,12 @@
     #include <emmintrin.h>
 #endif
 
+#if defined(SHITTY_COMPACT_PARSER)
+    #define SHITTY_PARSER_GENERATED "parser_test.rl.h"
+#else
+    #define SHITTY_PARSER_GENERATED "parser.rl.h"
+#endif
+
 using namespace stl;
 
 namespace {
@@ -64,7 +70,6 @@ namespace {
         constexpr const static size_t maxOscBytes = 1024 * 1024;
 
         int state = 0;
-        bool initialized = false;
         u8 csiPrefix = 0;
         u8 csiIntermediates[4] = {};
         u8 csiIntermediateCount = 0;
@@ -176,6 +181,10 @@ namespace {
         VtermTrace* parserTrace;
         ProtocolParser parser;
     };
+
+#define SHITTY_PARSER_DATA
+#include SHITTY_PARSER_GENERATED
+#undef SHITTY_PARSER_DATA
 }
 
 template <bool traced>
@@ -183,6 +192,10 @@ ParserImpl<traced>::ParserImpl(ParserIface& iface_, VtermTrace* trace)
     : iface(iface_)
     , parserTrace(trace)
 {
+    int& cs = parser.state;
+#define SHITTY_PARSER_INIT
+#include SHITTY_PARSER_GENERATED
+#undef SHITTY_PARSER_INIT
 }
 
 template <bool traced>
@@ -197,11 +210,75 @@ void ParserImpl<traced>::feed(StringView bytes) {
         }
     };
 
-#if defined(SHITTY_COMPACT_PARSER)
-    #include "parser_test.rl.h"
-#else
-    #include "parser.rl.h"
-#endif
+#include SHITTY_PARSER_GENERATED
+
+    while (p != pe) {
+        if (cs == parser_en_printer) {
+            const size_t remaining = pe - p;
+            const u8* escape = (const u8*)memchr(p, 0x1b, remaining);
+            const size_t beforeEscape = escape == nullptr ? remaining : escape - p;
+            const u8* csi = (const u8*)memchr(p, 0x9b, beforeEscape);
+            const u8* next = csi == nullptr ? escape : csi;
+            const size_t count = next == nullptr ? remaining : next - p;
+            appendPrinter(p, count);
+            p += count;
+            if (p == pe) {
+                continue;
+            }
+        }
+        if (cs == parser_en_main && *p >= 0x20 && *p < 0x7f && iface.parserAsciiBulkEligible()) {
+            const size_t lines = iface.parserPlaceAsciiLines(StringView(p, pe - p));
+            if (lines != 0) {
+                if constexpr (traced) {
+                    const u8* trace = p;
+                    const u8* const traceEnd = p + lines;
+                    while (trace != traceEnd) {
+                        const u8* carriageReturn = (const u8*)memchr(trace, '\r', traceEnd - trace);
+                        parserTrace->text(trace, carriageReturn - trace);
+                        parserTrace->control('\r');
+                        parserTrace->control('\n');
+                        trace = carriageReturn + 2;
+                    }
+                }
+                p += lines;
+                continue;
+            }
+            const size_t count = printableAsciiPrefix(p, pe - p);
+            if constexpr (traced) {
+                parserTrace->text(p, count);
+            }
+            iface.parserPlaceAsciiRun(StringView(p, count));
+            p += count;
+            if (p + 1 < pe && p[0] == '\r' && p[1] == '\n') {
+                if constexpr (traced) {
+                    parserTrace->control('\r');
+                    parserTrace->control('\n');
+                }
+                iface.parserResetGraphemeInput();
+                iface.inp_CR();
+                if (iface.parserAutoNewlineMode()) {
+                    iface.inp_CR();
+                }
+                iface.esc_IND();
+                p += 2;
+            }
+            continue;
+        }
+        if (cs == parser_en_main && *p >= 0xc2 && *p <= 0xf4 && iface.parserUtf8BulkEligible()) {
+            const size_t consumed = iface.parserPlaceUtf8Run(StringView(p, pe - p));
+            if (consumed > 0) {
+                if constexpr (traced) {
+                    parserTrace->text(p, consumed);
+                }
+                p += consumed;
+                continue;
+            }
+        }
+
+#define SHITTY_PARSER_EXEC
+#include SHITTY_PARSER_GENERATED
+#undef SHITTY_PARSER_EXEC
+    }
 }
 
 Parser* Parser::create(ObjPool* pool, ParserIface& iface, VtermTrace* trace) {
@@ -210,3 +287,5 @@ Parser* Parser::create(ObjPool* pool, ParserIface& iface, VtermTrace* trace) {
     }
     return pool->make<ParserImpl<false>>(iface, trace);
 }
+
+#undef SHITTY_PARSER_GENERATED
