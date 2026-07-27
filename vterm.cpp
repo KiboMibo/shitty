@@ -8029,7 +8029,7 @@ VtermImpl<traced>::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* 
         throw;
     }
     cf = frame_pri;
-    outputSpans.grow(composer.rows);
+    outputSpans.grow((size_t)(composer.rows) * ((composer.columns + 1u) / 2u));
     makePalette256(colors.palette);
     std::copy(std::begin(colors.palette), std::end(colors.palette), std::begin(originalPalette256));
     colors.defaultForeground = opts.fg;
@@ -8110,7 +8110,7 @@ void VtermImpl<traced>::resizeGrid() {
     }
     showCursor();
 
-    outputSpans.grow(composer.rows);
+    outputSpans.grow((size_t)(composer.rows) * ((composer.columns + 1u) / 2u));
     updateExtraCellCount();
     if (inBandResizeMode) {
         reportInBandResize();

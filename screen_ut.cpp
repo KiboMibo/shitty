@@ -115,6 +115,40 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(spans[0].cells[0].semantic == 3);
     }
 
+    STD_TEST(PreservesDisjointDamageWithinOneRow) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 8);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::create(composer, *pool, 8, 2, &colors);
+        const TerminalCell attrs = attributes();
+        const u8 left[] = {'L'};
+        const u8 right[] = {'R'};
+        TerminalCellSpan spans[2];
+
+        screen->writeAsciiRun(1, 6, right, 1, attrs, 0, 0, TerminalCell{});
+        screen->writeAsciiRun(1, 1, left, 1, attrs, 0, 0, TerminalCell{});
+        screen->writeAsciiRun(1, 6, right, 1, attrs, 0, 0, TerminalCell{});
+
+        TerminalCellBatch batch = screen->copyDamage(spans);
+        STD_INSIST(batch.cellCount == 2);
+        STD_INSIST(batch.spanCount == 2);
+        STD_INSIST(spans[0].index == 9);
+        STD_INSIST(spans[0].count == 1);
+        STD_INSIST(spans[0].cells[0].uc_pt == 'L');
+        STD_INSIST(spans[1].index == 14);
+        STD_INSIST(spans[1].count == 1);
+        STD_INSIST(spans[1].cells[0].uc_pt == 'R');
+
+        screen->resetDamage();
+        screen->writeAsciiRun(1, 3, left, 1, attrs, 0, 0, TerminalCell{});
+        batch = screen->copyDamage(spans);
+        STD_INSIST(batch.cellCount == 1);
+        STD_INSIST(batch.spanCount == 1);
+        STD_INSIST(spans[0].index == 11);
+    }
+
     STD_TEST(WritesAsciiLinesAndRecyclesFullHistory) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());

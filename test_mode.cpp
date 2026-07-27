@@ -560,10 +560,10 @@ DisplayCell TestDisplay::materialize(const TerminalCell& cell, u8 lineAttribute,
         const CellExtraView extra = composer.cellExtras->view(cell);
         result.hyperlink = extra.hyperlinkDisplayId;
         result.grapheme = extra.grapheme.empty() ? 0 : cell.extraRef();
-        if (cell.underlined() && extra.underlineColor != cell.foreground()) {
+        if (extra.underlineColor != cell.foreground()) {
             result.underlineColor = colors_.resolve(extra.underlineColor);
         }
-    } else if (cell.underlined() && cell.inlineUnderlineColor() != cell.foreground()) {
+    } else if (cell.inlineUnderlineColor() != cell.foreground()) {
         result.underlineColor = colors_.resolve(cell.inlineUnderlineColor());
     }
     return result;

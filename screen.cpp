@@ -259,12 +259,13 @@ namespace {
         mutable Buffer linkScratch;
 
         struct DamageRow {
-            Coord begin = 0;
-            Coord end = 0;
+            Epoch* epochs = nullptr;
+            Coord count = 0;
         };
 
         struct Damage {
             DamageRow* rows = nullptr;
+            Epoch epoch = 0;
             u16 width = 0;
             u16 height = 0;
             u16 fullRows = 0;
@@ -1195,10 +1196,27 @@ TerminalCellBatch ScreenImpl<Coord, Epoch>::copyDamage(TerminalCellSpan* spans) 
 
     for (u16 row = 0; row < damage.height; ++row) {
         const DamageRow& damaged = damage.rows[row];
-        if (damaged.begin == damaged.end) {
+        if (damaged.count == 0) {
             continue;
         }
-        append(row, damaged.begin, damaged.end);
+        if (damaged.count == damage.width) {
+            append(row, 0, damage.width);
+            continue;
+        }
+
+        u16 column = 0;
+        u16 remaining = damaged.count;
+        while (remaining != 0) {
+            while (damaged.epochs[column] != damage.epoch) {
+                ++column;
+            }
+            const u16 begin = column;
+            do {
+                ++column;
+                --remaining;
+            } while (remaining != 0 && column < damage.width && damaged.epochs[column] == damage.epoch);
+            append(row, begin, column);
+        }
     }
     return {cellCount, (size_t)(span - spans)};
 }
@@ -3106,17 +3124,19 @@ void ScreenImpl<Coord, Epoch>::damageRectangle(u16 top, u16 left, u16 bottom, u1
 
 template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::resizeDamage(u16 columns, u16 rows) {
-    damageStorage.grow((size_t)(rows) * sizeof(DamageRow));
+    damageStorage.grow((size_t)(rows) * sizeof(DamageRow) + (size_t)(columns)*rows * sizeof(Epoch));
     damage.configure(damageStorage.mutData(), columns, rows);
 }
 
 template <typename Coord, typename Epoch>
 auto ScreenImpl<Coord, Epoch>::Damage::operator=(Damage&& other) noexcept -> Damage& {
     rows = other.rows;
+    epoch = other.epoch;
     width = other.width;
     height = other.height;
     fullRows = other.fullRows;
     other.rows = nullptr;
+    other.epoch = 0;
     other.width = 0;
     other.height = 0;
     other.fullRows = 0;
@@ -3129,21 +3149,37 @@ void ScreenImpl<Coord, Epoch>::Damage::configure(void* storage, u16 columns, u16
     height = rows_;
     fullRows = 0;
     rows = static_cast<DamageRow*>(storage);
-    for (u16 row = 0; row < height; ++row) {
-        rows[row] = {};
+    Epoch* const epochs = reinterpret_cast<Epoch*>(rows + height);
+    if (width != 0 && height != 0) {
+        memset(epochs, 0, (size_t)(width)*height * sizeof(Epoch));
     }
+    for (u16 row = 0; row < height; ++row) {
+        rows[row].epochs = epochs + (size_t)(row)*width;
+        rows[row].count = 0;
+    }
+    epoch = 1;
 }
 
 template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::Damage::reset() {
     for (u16 row = 0; row < height; ++row) {
-        rows[row] = {};
+        rows[row].count = 0;
     }
     fullRows = 0;
+    ++epoch;
+    if (epoch == 0) {
+        if (width != 0 && height != 0) {
+            memset(rows[0].epochs, 0, (size_t)(width)*height * sizeof(Epoch));
+        }
+        epoch = 1;
+    }
 }
 
 template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::Damage::expose() {
+    for (u16 row = 0; row < height; ++row) {
+        rows[row].count = (Coord)(width);
+    }
     fullRows = height;
 }
 
@@ -3153,7 +3189,7 @@ bool ScreenImpl<Coord, Epoch>::Damage::hasDamage() const noexcept {
         return true;
     }
     for (u16 row = 0; row < height; ++row) {
-        if (rows[row].begin != rows[row].end) {
+        if (rows[row].count != 0) {
             return true;
         }
     }
@@ -3166,17 +3202,16 @@ void ScreenImpl<Coord, Epoch>::Damage::addCell(u16 row, u16 column) {
         return;
     }
     DamageRow& damaged = rows[row];
-    if (damaged.begin == 0 && damaged.end == width) {
+    if (damaged.count == width) {
         return;
     }
-    const bool empty = damaged.begin == damaged.end;
-    if (empty || column < damaged.begin) {
-        damaged.begin = (Coord)(column);
+    Epoch& cellEpoch = damaged.epochs[column];
+    if (cellEpoch == epoch) {
+        return;
     }
-    if (empty || column >= damaged.end) {
-        damaged.end = (Coord)(column + 1);
-    }
-    if (damaged.begin == 0 && damaged.end == width) {
+    cellEpoch = epoch;
+    ++damaged.count;
+    if (damaged.count == width) {
         ++fullRows;
     }
 }
@@ -3187,18 +3222,25 @@ void ScreenImpl<Coord, Epoch>::Damage::addRow(u16 row, u16 begin, u16 end) {
         return;
     }
     DamageRow& damaged = rows[row];
-    if (damaged.begin == 0 && damaged.end == width) {
+    if (damaged.count == width) {
         return;
     }
-    const bool empty = damaged.begin == damaged.end;
-    if (empty || begin < damaged.begin) {
-        damaged.begin = (Coord)(begin);
-    }
-    if (empty || end > damaged.end) {
-        damaged.end = (Coord)(end);
-    }
-    if (damaged.begin == 0 && damaged.end == width) {
+    if (begin == 0 && end == width) {
+        damaged.count = (Coord)(width);
         ++fullRows;
+        return;
+    }
+    for (u16 column = begin; column < end; ++column) {
+        Epoch& cellEpoch = damaged.epochs[column];
+        if (cellEpoch == epoch) {
+            continue;
+        }
+        cellEpoch = epoch;
+        ++damaged.count;
+        if (damaged.count == width) {
+            ++fullRows;
+            return;
+        }
     }
 }
 
@@ -3208,7 +3250,7 @@ void ScreenImpl<Coord, Epoch>::Damage::addRect(u16 top, u16 left, u16 bottom, u1
         return;
     }
     if (top == 0 && left == 0 && bottom == height && right == width) {
-        fullRows = height;
+        expose();
         return;
     }
     for (u16 row = top; row < bottom; ++row) {
