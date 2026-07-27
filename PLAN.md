@@ -216,48 +216,49 @@ Performance на этом этапе является диагностикой, 
 
 ### 1. Добавить Ragel в build graph
 
-Исходником автомата становится `vterm_parser.rl`.
+Исходником автомата становится `parser.rl`.
 
-Один build target вызывает Ragel и создаёт `$(B)/vterm_parser.rl.h`. Это не самостоятельный header с интерфейсом, а generated fragment, валидный только внутри тела метода. Отдельный generated `.cpp` не подходит: actions должны без виртуального semantic sink вызывать методы конкретного `VtermImpl<traced>`, который целиком определён в `vterm.cpp`.
+Build graph создаёт два generated fragment из одной grammar:
+
+- production: `$(B)/parser.rl.h`, backend `-G1`;
+- tests/fuzz: `$(B)/parser_test.rl.h`, компактный backend `-T1`.
+
+Они имеют разные outputs и никогда не перетирают друг друга. Production, memprofile и обычный `st` зависят от быстрого автомата. `st_test`, unit tests и fuzz зависят от компактного.
 
 Схема сборки:
 
 ```text
-vterm_parser.rl
-       ↓ ragel
-$(B)/vterm_parser.rl.h
-       ↓ include внутри parseWithRagel()
-     vterm.cpp
+                ┌─ ragel -G1 ─→ $(B)/parser.rl.h ──────→ libshitty_prod
+parser.rl ──────┤
+                └─ ragel -T1 ─→ $(B)/parser_test.rl.h ─→ libshitty_test
 ```
 
-Точка интеграции:
+Generated fragment включается только внутри `ParserImpl<traced>::feed()` в `parser.cpp`:
 
 ```cpp
 template <bool traced>
-void VtermImpl<traced>::parseWithRagel(const u8* data, size_t len) {
-    const u8* p = data;
-    const u8* pe = data + len;
+void ParserImpl<traced>::feed(StringView bytes) {
+    const u8* p = bytes.data();
+    const u8* pe = p + bytes.length();
 
-    #include "vterm_parser.rl.h"
+    #include "parser.rl.h"
 }
 ```
 
-Точный набор локальных имён задаётся требованиями Ragel, но архитектурная форма остаётся такой. Generated fragment:
+Точный набор локальных имён задаётся требованиями Ragel. Generated fragment:
 
-- загружает `cs` и остальные persistent поля из внутреннего состояния `VtermImpl`;
+- загружает `cs` и остальные persistent поля из `ProtocolParser`;
 - исполняет `write init` только при создании parser;
 - исполняет `write exec` над `[p, pe)`;
 - сохраняет `cs` и незаконченные accumulators перед выходом;
-- напрямую вызывает приватные semantic methods `VtermImpl<traced>`.
-
-`parseWithRagel()` возвращает `void`: malformed input восстанавливается состояниями ignore/cancel, а корректный вызов всегда потребляет весь предоставленный chunk. Наблюдаемое изменение terminal вычисляется не parser.
+- вызывает распознанные semantic operations через `ParserIface`.
 
 `processInputImpl()` после переделки имеет только presentation-обвязку:
 
 ```cpp
 const PresentationState before = capturePresentationState();
 hideCursor();
-parseWithRagel(input, inputSize);
+parser->feed(StringView(input, inputSize));
 syncPresentationCursor();
 const bool changed = presentationChanged(before);
 if (refresh && changed) {
@@ -266,22 +267,20 @@ if (refresh && changed) {
 return changed;
 ```
 
-Таким образом generated code, parser state, actions и semantic implementation остаются полностью инкапсулированы в `vterm.cpp`. Не появляется `Parser` component, parser interface, virtual sink или публичный header.
-
-До функционального завершения используется компактный табличный backend. После завершения сравниваются `-G2`, `-G1` и `-T1`; выбранный по результатам измерений backend фиксируется в build graph.
+`Parser` является отдельным внутренним компонентом с интерфейсом `ParserIface`. `VtermImpl` реализует terminal semantics, но не владеет синтаксическим состоянием и не содержит Ragel include. Шаблонизирован только `ParserImpl<traced>`; `VtermImpl`, input adapter и test API существуют в одном экземпляре независимо от трассировки.
 
 Generated include:
 
 - не форматируется `style.py`;
 - не редактируется вручную;
 - детерминированно пересоздаётся;
-- является явной зависимостью всех вариантов `libshitty`: prod, tests и memprofile.
+- является явной зависимостью соответствующего варианта `libshitty`.
 
-Новый публичный header для parser не создаётся. Это внутренняя часть Vterm, а не компонент Composer и не новый интерфейс.
+`Parser` выделяется из того же `ObjPool`, что и Vterm, но не регистрируется в `Composer`: это private dependency Vterm, а не общесистемная роль.
 
 ### 2. Ввести единое persistent-состояние parser
 
-В `vterm.cpp` появляется внутренняя структура `ProtocolParser`. Она хранится по значению в `VtermImpl`:
+В `parser.cpp` появляется внутренняя структура `ProtocolParser`. Она хранится по значению в `ParserImpl<traced>`:
 
 ```cpp
 struct ProtocolParser {
@@ -627,7 +626,7 @@ Ragel actions непосредственно сообщают:
 
 `VtermTrace::consumeDcsHeader()` удаляется. Parser уже знает точную границу DCS header.
 
-Для `VtermImpl<false>` trace actions полностью исчезают через `if constexpr`. Runtime-проверки trace pointer в hot path не добавляются.
+Для `ParserImpl<false>` trace actions полностью исчезают через `if constexpr`. Runtime-проверки trace pointer в hot path не добавляются. `VtermImpl` от trace больше не шаблонизирован.
 
 Parser-facing API trace переводится со `std::string` на `StringView` и массивы POD. Внутреннее тестовое хранение trace можно менять отдельно, но новый production parser не использует STL.
 
@@ -731,9 +730,12 @@ Parser-facing API trace переводится со `std::string` на `StringVi
 
 Архитектурный результат:
 
+- `Parser` выделен в `parser.h`/`parser.cpp`, а `VtermImpl` реализует его semantic interface `ParserIface`;
+- `ProtocolParser`, generated include и trace specialization полностью удалены из `vterm.cpp`;
+- `VtermImpl`, `VtermInput`, listeners и `TestApiImpl` больше не шаблонизированы и не дублируются для trace/no-trace;
 - `ProtocolParser::state` и сгенерированная Ragel statechart являются единственным владельцем protocol framing;
 - ground/text, C0/C1, ESC, CSI, OSC, DCS, SOS/PM/APC, VT52, charset и printer controller входят в одну machine;
-- semantic methods получают уже распознанные POD-параметры и локальные `StringView`, не меняют состояние parser и вызываются непосредственно из Ragel actions;
+- semantic methods получают уже распознанные POD-параметры и локальные `StringView`, не меняют состояние parser и вызываются из Ragel actions через `ParserIface`;
 - parser не хранит raw pointers или `StringView` между `consume()`, не использует `std::` и ограничивает незаконченные OSC/DCS;
 - OSC 52 и OSC 99 декодируются во время parsing, DECUDK, XTGETTCAP и DECRQSS коммитятся транзакционно;
 - bulk paths сохранены для обычного текста и сырых string payloads;
@@ -741,28 +743,28 @@ Parser-facing API trace переводится со `std::string` на `StringVi
 
 Размер handwritten C++ действительно уменьшился:
 
-- `vterm.cpp`: 10 255 → 8 142 строк;
+- `vterm.cpp`: 10 255 → 8 045 строк;
+- parser component: `parser.cpp` 212 строк и `parser.h` 254 строки;
 - `color_spec.cpp`: 375 → 251 строк;
-- diff `vterm.cpp` относительно последнего состояния до Ragel: `+953/-3066`, то есть минус 2 113 строк.
 
-`vterm_parser.rl` содержит 5 709 строк. Он не заменяет terminal semantics: его объём — явная grammar, transitions и короткие actions, которые вызывают оставшиеся semantic methods в `vterm.cpp`. Перенос этих методов в generated fragment уменьшил бы только счётчик `.cpp`, смешав protocol syntax с поведением terminal.
+`parser.rl` содержит 5 460 строк. Он не заменяет terminal semantics: его объём — явная grammar, transitions и короткие actions, которые вызывают semantic methods Vterm через узкий interface.
 
 Финальная проверка:
 
-- весь build/test graph: 2 555 из 2 555 целей;
-- 799 проектных Python-тестов;
+- весь build/test graph: 2 552 из 2 552 целей;
+- 167 unit tests;
 - parser fuzz, chunk-invariance, upstream DEC/xterm/libvterm и vtebench suites;
 - отдельная регрессия для неизвестных C1 final bytes после `ESC` в VT52;
-- packed corpus: 1 190.8 MiB без parser error-state, зависания или роста памяти.
+- production `-G1` на packed corpus: 1 190.8 MiB, два контрольных запуска 112.4 и 114.0 MiB/s, без parser error-state, зависания или роста памяти.
 
 Сравнение Ragel 6 backend’ов на одном исходнике и одном clang:
 
-| Backend | Generated header | `parseWithRagel<false>` | ELF `.text` | Packed corpus | `~/2` × 4 |
+| Backend | Generated header | parser function | ELF `.text` | Packed corpus | `~/2` × 4 |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `-T1 -L` | 788 224 B | 106 245 B | 27 143 476 B | 97.9 MiB/s | 308.6 MiB/s |
 | `-G1 -L` | 1 303 074 B | 196 593 B | 28 571 944 B | 116.6 MiB/s | 311.9 MiB/s |
 | `-G2 -L` | 4 569 942 B | 990 189 B | 30 522 008 B | 120.6 MiB/s | 311.7 MiB/s |
 
-`-G1 -L` выбран как итоговый backend. Он ускоряет mixed packed corpus примерно на 19% относительно `-T1`, совпадает с `-G2` на text-heavy workload и уступает ему около 3% на packed corpus. При этом `-G2` компилировал один `vterm.cpp` около 18 минут и потреблял примерно 1.8 GiB RSS; `-G1` собирает тот же шаг примерно за минуту.
+`-G1 -L` выбран для production. Он ускоряет mixed packed corpus примерно на 19% относительно `-T1`, совпадает с `-G2` на text-heavy workload и уступает ему около 3% на packed corpus. Компактный `-T1 -L` остаётся отдельным backend для test/fuzz binaries. При этом `-G2` компилировал generated parser около 18 минут и потреблял примерно 1.8 GiB RSS; `-G1` собирает тот же шаг примерно за минуту.
 
 Контрольный `perf stat` на packed corpus подтверждает выбор: `-T1` исполнил 237.4 млрд instructions и 56.5 млрд cycles, `-G1` — 185.8 и 46.8 млрд, `-G2` — 190.8 и 44.8 млрд соответственно. Небольшой остаточный runtime-выигрыш `-G2` не оправдывает десятикратный размер parser function и восемнадцатиминутную компиляцию.

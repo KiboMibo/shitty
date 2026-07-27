@@ -5,7 +5,7 @@
  */
 
 %%{
-    machine vterm_parser;
+    machine parser;
     alphtype unsigned char;
 
     action groundDone {
@@ -30,7 +30,7 @@
     }
 
     action beginEscape {
-        resetGraphemeInput();
+        iface.parserResetGraphemeInput();
         parser.stringUtf8Remaining = 0;
         parser.stringLimit = 0;
         if constexpr (traced) {
@@ -41,7 +41,7 @@
         parser.parameters[0] = 0;
         parser.separators[0] = 0;
         parser.parameterCount = 1;
-        if (compatLevel == CompatibilityLevel::VT52) {
+        if (iface.parserCompatibilityLevel() == CompatibilityLevel::VT52) {
             fgoto escapeVt52;
         }
         fgoto escape;
@@ -92,7 +92,7 @@
             parserTrace->escapeCancel();
             parserTrace->control(fc);
         }
-        esc_IND();
+        iface.esc_IND();
         fnext main;
         fbreak;
     }
@@ -102,7 +102,7 @@
             parserTrace->escapeCancel();
             parserTrace->control(fc);
         }
-        esc_NEL();
+        iface.esc_NEL();
         fnext main;
         fbreak;
     }
@@ -112,7 +112,7 @@
             parserTrace->escapeCancel();
             parserTrace->control(fc);
         }
-        esc_HTS();
+        iface.esc_HTS();
         fnext main;
         fbreak;
     }
@@ -122,7 +122,7 @@
             parserTrace->escapeCancel();
             parserTrace->control(fc);
         }
-        esc_RI();
+        iface.esc_RI();
         fnext main;
         fbreak;
     }
@@ -132,7 +132,7 @@
             parserTrace->escapeCancel();
             parserTrace->control(fc);
         }
-        charsetState.ss = 2;
+        iface.parserSingleShift(2);
         fnext main;
         fbreak;
     }
@@ -142,7 +142,7 @@
             parserTrace->escapeCancel();
             parserTrace->control(fc);
         }
-        charsetState.ss = 3;
+        iface.parserSingleShift(3);
         fnext main;
         fbreak;
     }
@@ -152,7 +152,7 @@
             parserTrace->escapeCancel();
             parserTrace->control(fc);
         }
-        esc_SPA();
+        iface.esc_SPA();
         fnext main;
         fbreak;
     }
@@ -162,7 +162,7 @@
             parserTrace->escapeCancel();
             parserTrace->control(fc);
         }
-        esc_EPA();
+        iface.esc_EPA();
         fnext main;
         fbreak;
     }
@@ -172,7 +172,7 @@
             parserTrace->escapeCancel();
             parserTrace->control(fc);
         }
-        csi_priDA();
+        iface.csi_priDA();
         fnext main;
         fbreak;
     }
@@ -187,7 +187,7 @@
     }
 
     action sequenceC0 {
-        executeC0InSequence(fc);
+        iface.parserExecuteC0(fc);
     }
 
     action highToGround {
@@ -204,7 +204,7 @@
                 parserTrace->control(fc);
             }
         }
-        resetGraphemeInput();
+        iface.parserResetGraphemeInput();
         fbreak;
     }
 
@@ -212,8 +212,8 @@
         if constexpr (traced) {
             parserTrace->control(fc);
         }
-        resetGraphemeInput();
-        host.bell();
+        iface.parserResetGraphemeInput();
+        iface.parserBell();
         fbreak;
     }
 
@@ -221,8 +221,8 @@
         if constexpr (traced) {
             parserTrace->control(fc);
         }
-        resetGraphemeInput();
-        moveCursorBackward(1);
+        iface.parserResetGraphemeInput();
+        iface.parserMoveCursorBackward(1);
         fbreak;
     }
 
@@ -230,8 +230,8 @@
         if constexpr (traced) {
             parserTrace->control(fc);
         }
-        resetGraphemeInput();
-        inp_HT();
+        iface.parserResetGraphemeInput();
+        iface.inp_HT();
         fbreak;
     }
 
@@ -239,11 +239,11 @@
         if constexpr (traced) {
             parserTrace->control(fc);
         }
-        resetGraphemeInput();
-        if (autoNewlineMode) {
-            inp_CR();
+        iface.parserResetGraphemeInput();
+        if (iface.parserAutoNewlineMode()) {
+            iface.inp_CR();
         }
-        esc_IND();
+        iface.esc_IND();
         fbreak;
     }
 
@@ -251,8 +251,8 @@
         if constexpr (traced) {
             parserTrace->control(fc);
         }
-        resetGraphemeInput();
-        inp_CR();
+        iface.parserResetGraphemeInput();
+        iface.inp_CR();
         fbreak;
     }
 
@@ -260,8 +260,8 @@
         if constexpr (traced) {
             parserTrace->control(fc);
         }
-        resetGraphemeInput();
-        charsetState.gl = 1;
+        iface.parserResetGraphemeInput();
+        iface.parserLockingShiftGl(1);
         fbreak;
     }
 
@@ -269,8 +269,8 @@
         if constexpr (traced) {
             parserTrace->control(fc);
         }
-        resetGraphemeInput();
-        charsetState.gl = 0;
+        iface.parserResetGraphemeInput();
+        iface.parserLockingShiftGl(0);
         fbreak;
     }
 
@@ -288,11 +288,11 @@
         if (ragelGroundContinuation(fc)) {
             fbreak;
         }
-        resetGraphemeInput();
+        iface.parserResetGraphemeInput();
         if constexpr (traced) {
             parserTrace->control(fc);
         }
-        esc_IND();
+        iface.esc_IND();
         fbreak;
     }
 
@@ -300,11 +300,11 @@
         if (ragelGroundContinuation(fc)) {
             fbreak;
         }
-        resetGraphemeInput();
+        iface.parserResetGraphemeInput();
         if constexpr (traced) {
             parserTrace->control(fc);
         }
-        esc_NEL();
+        iface.esc_NEL();
         fbreak;
     }
 
@@ -312,11 +312,11 @@
         if (ragelGroundContinuation(fc)) {
             fbreak;
         }
-        resetGraphemeInput();
+        iface.parserResetGraphemeInput();
         if constexpr (traced) {
             parserTrace->control(fc);
         }
-        esc_HTS();
+        iface.esc_HTS();
         fbreak;
     }
 
@@ -324,11 +324,11 @@
         if (ragelGroundContinuation(fc)) {
             fbreak;
         }
-        resetGraphemeInput();
+        iface.parserResetGraphemeInput();
         if constexpr (traced) {
             parserTrace->control(fc);
         }
-        esc_RI();
+        iface.esc_RI();
         fbreak;
     }
 
@@ -336,11 +336,11 @@
         if (ragelGroundContinuation(fc)) {
             fbreak;
         }
-        resetGraphemeInput();
+        iface.parserResetGraphemeInput();
         if constexpr (traced) {
             parserTrace->control(fc);
         }
-        charsetState.ss = 2;
+        iface.parserSingleShift(2);
         fbreak;
     }
 
@@ -348,11 +348,11 @@
         if (ragelGroundContinuation(fc)) {
             fbreak;
         }
-        resetGraphemeInput();
+        iface.parserResetGraphemeInput();
         if constexpr (traced) {
             parserTrace->control(fc);
         }
-        charsetState.ss = 3;
+        iface.parserSingleShift(3);
         fbreak;
     }
 
@@ -360,7 +360,7 @@
         if (ragelGroundContinuation(fc)) {
             fbreak;
         }
-        resetGraphemeInput();
+        iface.parserResetGraphemeInput();
         ragelBeginDcs();
         fgoto dcsEntry;
     }
@@ -369,11 +369,11 @@
         if (ragelGroundContinuation(fc)) {
             fbreak;
         }
-        resetGraphemeInput();
+        iface.parserResetGraphemeInput();
         if constexpr (traced) {
             parserTrace->control(fc);
         }
-        esc_SPA();
+        iface.esc_SPA();
         fbreak;
     }
 
@@ -381,11 +381,11 @@
         if (ragelGroundContinuation(fc)) {
             fbreak;
         }
-        resetGraphemeInput();
+        iface.parserResetGraphemeInput();
         if constexpr (traced) {
             parserTrace->control(fc);
         }
-        esc_EPA();
+        iface.esc_EPA();
         fbreak;
     }
 
@@ -393,7 +393,7 @@
         if (ragelGroundContinuation(fc)) {
             fbreak;
         }
-        resetGraphemeInput();
+        iface.parserResetGraphemeInput();
         ragelBeginString(VtermTraceString::Sos, false);
         fgoto string;
     }
@@ -402,11 +402,11 @@
         if (ragelGroundContinuation(fc)) {
             fbreak;
         }
-        resetGraphemeInput();
+        iface.parserResetGraphemeInput();
         if constexpr (traced) {
             parserTrace->control(fc);
         }
-        csi_priDA();
+        iface.csi_priDA();
         fbreak;
     }
 
@@ -414,7 +414,7 @@
         if (ragelGroundContinuation(fc)) {
             fbreak;
         }
-        resetGraphemeInput();
+        iface.parserResetGraphemeInput();
         beginCsi();
         fgoto csiEntry;
     }
@@ -423,7 +423,7 @@
         if (ragelGroundContinuation(fc)) {
             fbreak;
         }
-        resetGraphemeInput();
+        iface.parserResetGraphemeInput();
         if constexpr (traced) {
             parserTrace->control(fc);
         }
@@ -434,7 +434,7 @@
         if (ragelGroundContinuation(fc)) {
             fbreak;
         }
-        resetGraphemeInput();
+        iface.parserResetGraphemeInput();
         ragelBeginOsc();
         fgoto oscCommand;
     }
@@ -443,7 +443,7 @@
         if (ragelGroundContinuation(fc)) {
             fbreak;
         }
-        resetGraphemeInput();
+        iface.parserResetGraphemeInput();
         ragelBeginString(VtermTraceString::Pm, false);
         fgoto string;
     }
@@ -452,7 +452,7 @@
         if (ragelGroundContinuation(fc)) {
             fbreak;
         }
-        resetGraphemeInput();
+        iface.parserResetGraphemeInput();
         ragelBeginString(VtermTraceString::Apc, false);
         fgoto string;
     }
@@ -469,7 +469,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        unhandledInput(fc);
+        iface.unhandledInput(fc);
         fnext main;
         fbreak;
     }
@@ -478,7 +478,7 @@
         if constexpr (traced) {
             parserTrace->control(fc);
         }
-        unhandledInput(fc);
+        iface.unhandledInput(fc);
         fnext main;
         fbreak;
     }
@@ -588,7 +588,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        esc_IND();
+        iface.esc_IND();
         fnext main;
         fbreak;
     }
@@ -598,7 +598,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        esc_RI();
+        iface.esc_RI();
         fnext main;
         fbreak;
     }
@@ -608,7 +608,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        esc_NEL();
+        iface.esc_NEL();
         fnext main;
         fbreak;
     }
@@ -618,7 +618,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        esc_HTS();
+        iface.esc_HTS();
         fnext main;
         fbreak;
     }
@@ -628,7 +628,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        charsetState.ss = 2;
+        iface.parserSingleShift(2);
         fnext main;
         fbreak;
     }
@@ -638,7 +638,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        charsetState.ss = 3;
+        iface.parserSingleShift(3);
         fnext main;
         fbreak;
     }
@@ -648,7 +648,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        esc_SPA();
+        iface.esc_SPA();
         fnext main;
         fbreak;
     }
@@ -658,7 +658,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        esc_EPA();
+        iface.esc_EPA();
         fnext main;
         fbreak;
     }
@@ -668,7 +668,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        csi_priDA();
+        iface.csi_priDA();
         fnext main;
         fbreak;
     }
@@ -678,7 +678,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        esc_RIS();
+        iface.esc_RIS();
         fnext main;
         fbreak;
     }
@@ -688,7 +688,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        esc_BI();
+        iface.esc_BI();
         fnext main;
         fbreak;
     }
@@ -698,7 +698,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        esc_DECSC();
+        iface.esc_DECSC();
         fnext main;
         fbreak;
     }
@@ -708,7 +708,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        esc_DECRC();
+        iface.esc_DECRC();
         fnext main;
         fbreak;
     }
@@ -718,7 +718,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        esc_FI();
+        iface.esc_FI();
         fnext main;
         fbreak;
     }
@@ -728,7 +728,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        keypadMode = KeypadMode::Application;
+        iface.parserSetApplicationKeypad(true);
         fnext main;
         fbreak;
     }
@@ -738,7 +738,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        keypadMode = KeypadMode::Normal;
+        iface.parserSetApplicationKeypad(false);
         fnext main;
         fbreak;
     }
@@ -748,7 +748,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        compatLevel = CompatibilityLevel::VT400;
+        iface.parserSetCompatibilityLevel(CompatibilityLevel::VT400);
         fnext main;
         fbreak;
     }
@@ -758,7 +758,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        charsetState.gr = 1;
+        iface.parserLockingShiftGr(1);
         fnext main;
         fbreak;
     }
@@ -768,7 +768,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        charsetState.gl = 2;
+        iface.parserLockingShiftGl(2);
         fnext main;
         fbreak;
     }
@@ -778,7 +778,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        charsetState.gr = 2;
+        iface.parserLockingShiftGr(2);
         fnext main;
         fbreak;
     }
@@ -788,7 +788,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        charsetState.gl = 3;
+        iface.parserLockingShiftGl(3);
         fnext main;
         fbreak;
     }
@@ -798,7 +798,7 @@
             parserTrace->escapeByte(fc);
             parserTrace->escapeEnd();
         }
-        charsetState.gr = 3;
+        iface.parserLockingShiftGr(3);
         fnext main;
         fbreak;
     }
@@ -888,276 +888,11 @@
     }
 
     action csiSgr {
-        const auto parseColor = [&](size_t& k, CellColor& color, int* palette) {
-            if (k + 1 >= parser.parameterCount) {
-                return false;
-            }
-            const bool colon = parser.separators[k + 1] == ':';
-            const u32 mode = parser.parameters[++k];
-            if (colon) {
-                const size_t first = k + 1;
-                size_t end = k;
-                while (end + 1 < parser.parameterCount && parser.separators[end + 1] == ':') {
-                    ++end;
-                }
-                k = end;
-
-                if (mode == 5) {
-                    if (end - first + 1 != 1 || parser.parameters[first] > 255) {
-                        return false;
-                    }
-                    color = CellColor::indexed(parser.parameters[first]);
-                    if (palette) {
-                        *palette = parser.parameters[first];
-                    }
-                    return true;
-                }
-                // Xterm accepts both 2:Pr:Pg:Pb and ISO 8613-6's
-                // 2:Pi:Pr:Pg:Pb form.  Pi and any later optional fields are
-                // ignored.
-                const size_t count = end - first + 1;
-                const size_t rgbFirst = first + (count >= 4);
-                if (mode != 2 || count < 3 ||
-                    (count == 3 && !parser.present[first]) ||
-                    !parser.present[rgbFirst] ||
-                    !parser.present[rgbFirst + 1] ||
-                    !parser.present[rgbFirst + 2] ||
-                    parser.parameters[rgbFirst] > 255 ||
-                    parser.parameters[rgbFirst + 1] > 255 ||
-                    parser.parameters[rgbFirst + 2] > 255) {
-                    return false;
-                }
-                color = CellColor::direct({
-                    (u8)(parser.parameters[rgbFirst]),
-                    (u8)(parser.parameters[rgbFirst + 1]),
-                    (u8)(parser.parameters[rgbFirst + 2]),
-                });
-                if (palette) {
-                    *palette = -1;
-                }
-                return true;
-            }
-
-            if (mode == 5) {
-                if (k + 1 >= parser.parameterCount) {
-                    return false;
-                }
-                const unsigned index = parser.parameters[++k];
-                if (index > 255) {
-                    return false;
-                }
-                color = CellColor::indexed(index);
-                if (palette) {
-                    *palette = index;
-                }
-                return true;
-            }
-            if (mode != 2) {
-                return false;
-            }
-
-            const size_t first = k + 1;
-            const size_t available = parser.parameterCount - first;
-            k += min<size_t>(available, 3);
-            if (available < 3 ||
-                parser.parameters[first] > 255 ||
-                parser.parameters[first + 1] > 255 ||
-                parser.parameters[first + 2] > 255) {
-                return false;
-            }
-            color = CellColor::direct({
-                (u8)(parser.parameters[first]),
-                (u8)(parser.parameters[first + 1]),
-                (u8)(parser.parameters[first + 2]),
-            });
-            k = first + 2;
-            if (palette) {
-                *palette = -1;
-            }
-            return true;
-        };
-
-        for (size_t k = 0; k < parser.parameterCount; ++k) {
-            const u32 attr = parser.parameters[k];
-
-            switch (attr) {
-                case 0:
-                    resetAttrs();
-                    break;
-                case 1:
-                    attrs.bold = 1;
-                    setFgFromPalIx();
-                    break;
-                case 2:
-                    attrs.faint = 1;
-                    break;
-                case 3:
-                    attrs.italic = 1;
-                    break;
-                case 4:
-                    if (k + 1 < parser.parameterCount && parser.separators[k + 1] == ':') {
-                        const u32 style = parser.parameters[++k];
-                        if (style <= 5) {
-                            attrs.underline_style = style;
-                        }
-                    } else {
-                        attrs.underline_style = 1;
-                    }
-                    break;
-                case 5:
-                case 6:
-                    attrs.blink = 1;
-                    break;
-                case 7:
-                    if (!reverseVideo) {
-                        reverseVideo = true;
-                        attrs.inverse = 1;
-                    }
-                    break;
-                case 8:
-                    attrs.conceal = 1;
-                    break;
-                case 9:
-                    attrs.strike = 1;
-                    break;
-                case 10:
-                case 11:
-                case 12:
-                case 13:
-                case 14:
-                case 15:
-                case 16:
-                case 17:
-                case 18:
-                case 19:
-                    break;
-                case 21:
-                    attrs.underline_style = 2;
-                    break;
-                case 22:
-                    attrs.bold = 0;
-                    attrs.faint = 0;
-                    setFgFromPalIx();
-                    break;
-                case 23:
-                    attrs.italic = 0;
-                    break;
-                case 24:
-                    attrs.underline_style = 0;
-                    break;
-                case 25:
-                    attrs.blink = 0;
-                    break;
-                case 27:
-                    if (reverseVideo) {
-                        reverseVideo = false;
-                        attrs.inverse = 0;
-                    }
-                    break;
-                case 28:
-                    attrs.conceal = 0;
-                    break;
-                case 29:
-                    attrs.strike = 0;
-                    break;
-                case 30:
-                case 31:
-                case 32:
-                case 33:
-                case 34:
-                case 35:
-                case 36:
-                case 37:
-                    fgPalIx = attr - 30;
-                    setFgFromPalIx();
-                    break;
-                case 38: {
-                    CellColor color = attrForeground();
-                    if (parseColor(k, color, &fgPalIx)) {
-                        setAttrForeground(color);
-                    }
-                    if (underlineColorDefault) {
-                        setAttrUnderlineColor(attrForeground());
-                    }
-                } break;
-                case 39:
-                    fgPalIx = defaultFgPalIx;
-                    setFgFromPalIx();
-                    break;
-                case 40:
-                case 41:
-                case 42:
-                case 43:
-                case 44:
-                case 45:
-                case 46:
-                case 47:
-                    bgPalIx = attr - 40;
-                    setBgFromPalIx();
-                    break;
-                case 48: {
-                    CellColor color = attrBackground();
-                    if (parseColor(k, color, &bgPalIx)) {
-                        setAttrBackground(color);
-                    }
-                } break;
-                case 49:
-                    bgPalIx = defaultBgPalIx;
-                    setBgFromPalIx();
-                    break;
-                case 53:
-                    attrs.overline = 1;
-                    break;
-                case 55:
-                    attrs.overline = 0;
-                    break;
-                case 58: {
-                    underlinePalIx = -1;
-                    CellColor color = attrUnderlineColor();
-                    if (parseColor(k, color, &underlinePalIx)) {
-                        setAttrUnderlineColor(color);
-                        underlineColorDefault = false;
-                    }
-                } break;
-                case 59:
-                    underlineColorDefault = true;
-                    setAttrUnderlineColor(attrForeground());
-                    break;
-                case 90:
-                case 91:
-                case 92:
-                case 93:
-                case 94:
-                case 95:
-                case 96:
-                case 97:
-                    fgPalIx = attr - 82;
-                    setFgFromPalIx();
-                    break;
-                case 100:
-                case 101:
-                case 102:
-                case 103:
-                case 104:
-                case 105:
-                case 106:
-                case 107:
-                    bgPalIx = attr - 92;
-                    setBgFromPalIx();
-                    break;
-                default:
-                    break;
-            }
-        }
-        if (underlineColorDefault) {
-            setAttrUnderlineColor(
-                reverseVideo ? attrBackground() : attrForeground()
-            );
-        }
+        iface.csi_SGR(csiParameters());
     }
 
     action csiDone {
-        if (printerControllerMode) {
+        if (iface.parserPrinterControllerMode()) {
             fnext printer;
         } else {
             fnext main;
@@ -1191,7 +926,7 @@
     }
 
     action printerEnd {
-        printerControllerMode = false;
+        iface.parserSetPrinterControllerMode(false);
         fnext main;
         fbreak;
     }
@@ -1258,80 +993,80 @@
     }
 
     action vt52AppKeypad {
-        keypadMode = KeypadMode::Application;
+        iface.parserSetApplicationKeypad(true);
         fnext main;
         fbreak;
     }
 
     action vt52NormalKeypad {
-        keypadMode = KeypadMode::Normal;
+        iface.parserSetApplicationKeypad(false);
         fnext main;
         fbreak;
     }
 
     action vt52Ansi {
-        compatLevel = CompatibilityLevel::VT100;
+        iface.parserSetCompatibilityLevel(CompatibilityLevel::VT100);
         fnext main;
         fbreak;
     }
 
     action vt52Cuu {
-        csi_CUU();
+        iface.csi_CUU(csiParameters());
         fnext main;
         fbreak;
     }
 
     action vt52Cud {
-        csi_CUD();
+        iface.csi_CUD(csiParameters());
         fnext main;
         fbreak;
     }
 
     action vt52Cuf {
-        csi_CUF();
+        iface.csi_CUF(csiParameters());
         fnext main;
         fbreak;
     }
 
     action vt52Cub {
-        csi_CUB();
+        iface.csi_CUB(csiParameters());
         fnext main;
         fbreak;
     }
 
     action vt52Graphics {
-        charsetState = CharsetState{};
-        charsetState.g[charsetState.gl] = Charset::DecSpec;
+        iface.parserResetCharsets(false);
+        iface.parserDesignateCharset(0, Charset::DecSpec);
         fnext main;
         fbreak;
     }
 
     action vt52Ascii {
-        charsetState = CharsetState{};
+        iface.parserResetCharsets(false);
         fnext main;
         fbreak;
     }
 
     action vt52Cup {
-        csi_CUP();
+        iface.csi_CUP(csiParameters());
         fnext main;
         fbreak;
     }
 
     action vt52Ri {
-        esc_RI();
+        iface.esc_RI();
         fnext main;
         fbreak;
     }
 
     action vt52Ed {
-        csi_ED();
+        iface.csi_ED(csiParameters());
         fnext main;
         fbreak;
     }
 
     action vt52El {
-        csi_EL();
+        iface.csi_EL(csiParameters());
         fnext main;
         fbreak;
     }
@@ -1341,19 +1076,19 @@
     }
 
     action vt52Identify {
-        writePty("\x1b/Z");
+        iface.parserWritePty(StringView(u8"\x1b/Z"));
         fnext main;
         fbreak;
     }
 
     action vt52Ris {
-        esc_RIS();
+        iface.esc_RIS();
         fnext main;
         fbreak;
     }
 
     action vt52Unhandled {
-        unhandledInput(fc);
+        iface.unhandledInput(fc);
         fnext main;
         fbreak;
     }
@@ -1366,7 +1101,7 @@
     action vt52Column {
         parser.parameters[1] = fc - 31;
         parser.parameterCount = 2;
-        csi_CUP();
+        iface.csi_CUP(csiParameters());
         fnext main;
         fbreak;
     }
@@ -1479,7 +1214,7 @@
             p += count - 1;
         } else {
             consumeStringUtf8Byte(fc);
-            if (!executeC0InSequence(fc, true)) {
+            if (!iface.parserExecuteC0(fc)) {
                 ragelAppendString(fc, parser.maxDcsBytes);
             }
         }
@@ -1566,8 +1301,8 @@
             fgoto dcsDecrqssInvalid;
         } else {
             ragelFinishDcs();
-            if (!parser.overflow && compatLevel >= CompatibilityLevel::VT400) {
-                dcs_DECRQSS_UNKNOWN();
+            if (!parser.overflow && iface.parserCompatibilityLevel() >= CompatibilityLevel::VT400) {
+                iface.dcs_DECRQSS_UNKNOWN();
             }
             fnext main;
             fbreak;
@@ -1576,8 +1311,8 @@
 
     action dcsDecrqssDecsclSt {
         ragelFinishDcs();
-        if (!parser.overflow && compatLevel >= CompatibilityLevel::VT400) {
-            dcs_DECRQSS_DECSCL();
+        if (!parser.overflow && iface.parserCompatibilityLevel() >= CompatibilityLevel::VT400) {
+            iface.dcs_DECRQSS_DECSCL();
         }
         fnext main;
         fbreak;
@@ -1585,8 +1320,8 @@
 
     action dcsDecrqssSgrSt {
         ragelFinishDcs();
-        if (!parser.overflow && compatLevel >= CompatibilityLevel::VT400) {
-            dcs_DECRQSS_SGR();
+        if (!parser.overflow && iface.parserCompatibilityLevel() >= CompatibilityLevel::VT400) {
+            iface.dcs_DECRQSS_SGR();
         }
         fnext main;
         fbreak;
@@ -1594,8 +1329,8 @@
 
     action dcsDecrqssDecstbmSt {
         ragelFinishDcs();
-        if (!parser.overflow && compatLevel >= CompatibilityLevel::VT400) {
-            dcs_DECRQSS_DECSTBM();
+        if (!parser.overflow && iface.parserCompatibilityLevel() >= CompatibilityLevel::VT400) {
+            iface.dcs_DECRQSS_DECSTBM();
         }
         fnext main;
         fbreak;
@@ -1603,8 +1338,8 @@
 
     action dcsDecrqssDecslrmSt {
         ragelFinishDcs();
-        if (!parser.overflow && compatLevel >= CompatibilityLevel::VT400) {
-            dcs_DECRQSS_DECSLRM();
+        if (!parser.overflow && iface.parserCompatibilityLevel() >= CompatibilityLevel::VT400) {
+            iface.dcs_DECRQSS_DECSLRM();
         }
         fnext main;
         fbreak;
@@ -1612,8 +1347,8 @@
 
     action dcsDecrqssDecslppSt {
         ragelFinishDcs();
-        if (!parser.overflow && compatLevel >= CompatibilityLevel::VT400) {
-            dcs_DECRQSS_DECSLPP();
+        if (!parser.overflow && iface.parserCompatibilityLevel() >= CompatibilityLevel::VT400) {
+            iface.dcs_DECRQSS_DECSLPP();
         }
         fnext main;
         fbreak;
@@ -1621,8 +1356,8 @@
 
     action dcsDecrqssDecscusrSt {
         ragelFinishDcs();
-        if (!parser.overflow && compatLevel >= CompatibilityLevel::VT400) {
-            dcs_DECRQSS_DECSCUSR();
+        if (!parser.overflow && iface.parserCompatibilityLevel() >= CompatibilityLevel::VT400) {
+            iface.dcs_DECRQSS_DECSCUSR();
         }
         fnext main;
         fbreak;
@@ -1630,8 +1365,8 @@
 
     action dcsDecrqssDecscaSt {
         ragelFinishDcs();
-        if (!parser.overflow && compatLevel >= CompatibilityLevel::VT400) {
-            dcs_DECRQSS_DECSCA();
+        if (!parser.overflow && iface.parserCompatibilityLevel() >= CompatibilityLevel::VT400) {
+            iface.dcs_DECRQSS_DECSCA();
         }
         fnext main;
         fbreak;
@@ -1682,19 +1417,19 @@
             if (parser.dcsCapabilityValid && !parser.dcsCapabilityHasHighNibble &&
                 (parser.dcsCapabilityCandidates & 0x01) &&
                 parser.dcsCapabilityDecodedLength == 2) {
-                dcs_XTGETTCAP(parser.dcsDecoded, encoded, StringView(u8"xterm-256color"));
+                iface.dcs_XTGETTCAP(parser.dcsDecoded, encoded, StringView(u8"xterm-256color"));
             } else if (parser.dcsCapabilityValid && !parser.dcsCapabilityHasHighNibble &&
                        (((parser.dcsCapabilityCandidates & 0x02) &&
                          parser.dcsCapabilityDecodedLength == 2) ||
                         ((parser.dcsCapabilityCandidates & 0x04) &&
                          parser.dcsCapabilityDecodedLength == 6))) {
-                dcs_XTGETTCAP(parser.dcsDecoded, encoded, StringView(u8"256"));
+                iface.dcs_XTGETTCAP(parser.dcsDecoded, encoded, StringView(u8"256"));
             } else if (parser.dcsCapabilityValid && !parser.dcsCapabilityHasHighNibble &&
                        (parser.dcsCapabilityCandidates & 0x08) &&
                        parser.dcsCapabilityDecodedLength == 3) {
-                dcs_XTGETTCAP(parser.dcsDecoded, encoded, StringView(u8"8"));
+                iface.dcs_XTGETTCAP(parser.dcsDecoded, encoded, StringView(u8"8"));
             } else {
-                dcs_XTGETTCAP(parser.dcsDecoded, encoded, {});
+                iface.dcs_XTGETTCAP(parser.dcsDecoded, encoded, {});
             }
         }
     }
@@ -1722,8 +1457,8 @@
 
     action dcsXtDone {
         if (parser.dcsCapabilityComplete) {
-            if (!parser.overflow && compatLevel >= CompatibilityLevel::VT200) {
-                dcs_XTGETTCAP_COMMIT(StringView(parser.dcsDecoded));
+            if (!parser.overflow && iface.parserCompatibilityLevel() >= CompatibilityLevel::VT200) {
+                iface.dcs_XTGETTCAP_COMMIT(StringView(parser.dcsDecoded));
             }
             fnext main;
             fbreak;
@@ -1872,8 +1607,8 @@
             }
             ragelFinishDcs();
             if (!parser.overflow && parser.dcsUdkHeaderValid &&
-                compatLevel >= CompatibilityLevel::VT200) {
-                dcs_DECUDK(
+                iface.parserCompatibilityLevel() >= CompatibilityLevel::VT200) {
+                iface.dcs_DECUDK(
                     parser.dcsUdkClearDefinitions,
                     parser.dcsUdkLockDefinitions,
                     parser.dcsUdkDefinitions.data(),
@@ -1926,7 +1661,7 @@
         }
         parser.oscPayloadOffset = parser.scratch.used();
         if (parser.oscCommand == 0 || parser.oscCommand == 1 || parser.oscCommand == 2) {
-            parser.oscTitleHex = titleModes & 1;
+            parser.oscTitleHex = iface.parserHexTitleInput();
             parser.oscTitleHasHighNibble = false;
             parser.oscTitleValid = true;
             parser.oscTitleStopped = false;
@@ -2033,7 +1768,7 @@
 
     action oscData {
         consumeStringUtf8Byte(fc);
-        if (!executeC0InSequence(fc, true)) {
+        if (!iface.parserExecuteC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
     }
@@ -2046,7 +1781,7 @@
             p += count - 1;
         } else {
             consumeStringUtf8Byte(fc);
-            if (!executeC0InSequence(fc, true)) {
+            if (!iface.parserExecuteC0(fc)) {
                 ragelAppendString(fc, parser.maxOscBytes);
             }
         }
@@ -2071,35 +1806,35 @@
         if (parser.oscTerminated && parser.oscCommandValid && !parser.overflow) {
             const StringView payload = ragelOscPayload();
             if (parser.oscCommand == 0) {
-                osc_TITLE_0(payload);
+                iface.osc_TITLE_0(payload);
             } else if (parser.oscCommand == 1) {
-                osc_TITLE_1(payload);
+                iface.osc_TITLE_1(payload);
             } else if (parser.oscCommand == 2) {
-                osc_TITLE_2(payload);
+                iface.osc_TITLE_2(payload);
             } else if (parser.oscCommand == 8) {
                 (void)payload;
             } else if (parser.oscCommand == 9) {
-                osc_NOTIFY(payload);
+                iface.osc_NOTIFY(payload);
             } else if (parser.oscCommand == 52) {
-                osc_CLIPBOARD_MALFORMED(payload);
+                iface.osc_CLIPBOARD_MALFORMED(payload);
             } else if (parser.oscCommand == 104 && payload.empty()) {
-                osc_RESET_PALETTE();
+                iface.osc_RESET_PALETTE();
             } else if (parser.oscCommand == 105 && payload.empty()) {
-                osc_RESET_SPECIAL_COLOR();
+                iface.osc_RESET_SPECIAL_COLOR();
             } else if (parser.oscCommand == 110) {
-                osc_RESET_DEFAULT_FOREGROUND();
+                iface.osc_RESET_DEFAULT_FOREGROUND();
             } else if (parser.oscCommand == 111) {
-                osc_RESET_DEFAULT_BACKGROUND();
+                iface.osc_RESET_DEFAULT_BACKGROUND();
             } else if (parser.oscCommand == 112) {
-                osc_RESET_CURSOR_COLOR();
+                iface.osc_RESET_CURSOR_COLOR();
             } else if (parser.oscCommand == 117) {
-                osc_RESET_SELECTION_BACKGROUND();
+                iface.osc_RESET_SELECTION_BACKGROUND();
             } else if (parser.oscCommand == 119) {
-                osc_RESET_SELECTION_FOREGROUND();
+                iface.osc_RESET_SELECTION_FOREGROUND();
             } else if (parser.oscCommand == 133) {
-                osc_SHELL_UNKNOWN(payload);
+                iface.osc_SHELL_UNKNOWN(payload);
             } else {
-                osc_UNKNOWN(parser.oscCommand, payload);
+                iface.osc_UNKNOWN(parser.oscCommand, payload);
             }
         }
     }
@@ -2167,7 +1902,7 @@
 
     action oscCwdInvalidData {
         consumeStringUtf8Byte(fc);
-        if (!executeC0InSequence(fc, true)) {
+        if (!iface.parserExecuteC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
         parser.oscCwdValid = false;
@@ -2192,14 +1927,14 @@
 
     action oscCwdAuthorityData {
         consumeStringUtf8Byte(fc);
-        if (!executeC0InSequence(fc, true)) {
+        if (!iface.parserExecuteC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
     }
 
     action oscCwdPathData {
         consumeStringUtf8Byte(fc);
-        if (!executeC0InSequence(fc, true)) {
+        if (!iface.parserExecuteC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             if (!parser.overflow) {
                 parser.oscDecoded.append(&fc, 1);
@@ -2250,7 +1985,7 @@
 
     action oscCwdDispatch {
         if (parser.oscTerminated && !parser.overflow) {
-            osc_CWD(
+            iface.osc_CWD(
                 ragelOscPayload(), StringView(parser.oscDecoded), parser.oscCwdValid
             );
         }
@@ -2306,7 +2041,7 @@
 
     action oscShellInvalid {
         consumeStringUtf8Byte(fc);
-        if (!executeC0InSequence(fc, true)) {
+        if (!iface.parserExecuteC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
         fgoto oscShellUnknown;
@@ -2319,7 +2054,7 @@
         } else {
             ragelFinishOsc();
             if (!parser.overflow) {
-                osc_SHELL_A(ragelOscPayload());
+                iface.osc_SHELL_A(ragelOscPayload());
             }
             fnext main;
             fbreak;
@@ -2333,7 +2068,7 @@
         } else {
             ragelFinishOsc();
             if (!parser.overflow) {
-                osc_SHELL_B(ragelOscPayload());
+                iface.osc_SHELL_B(ragelOscPayload());
             }
             fnext main;
             fbreak;
@@ -2347,7 +2082,7 @@
         } else {
             ragelFinishOsc();
             if (!parser.overflow) {
-                osc_SHELL_C(ragelOscPayload());
+                iface.osc_SHELL_C(ragelOscPayload());
             }
             fnext main;
             fbreak;
@@ -2361,7 +2096,7 @@
         } else {
             ragelFinishOsc();
             if (!parser.overflow) {
-                osc_SHELL_D(ragelOscPayload());
+                iface.osc_SHELL_D(ragelOscPayload());
             }
             fnext main;
             fbreak;
@@ -2374,7 +2109,7 @@
         } else {
             ragelFinishOsc();
             if (!parser.overflow) {
-                osc_SHELL_UNKNOWN(ragelOscPayload());
+                iface.osc_SHELL_UNKNOWN(ragelOscPayload());
             }
             fnext main;
             fbreak;
@@ -2408,7 +2143,7 @@
 
     action oscTitleData {
         consumeStringUtf8Byte(fc);
-        if (!executeC0InSequence(fc, true)) {
+        if (!iface.parserExecuteC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             if (parser.oscTitleHex) {
                 u8 nibble = 0;
@@ -2487,7 +2222,7 @@
         } else {
             ragelFinishOsc();
             if (!parser.overflow && parser.oscTitleValid && (!parser.oscTitleHex || !parser.oscTitleHasHighNibble)) {
-                osc_TITLE_0(parser.oscTitleHex ? StringView(parser.oscDecoded) : ragelOscPayload());
+                iface.osc_TITLE_0(parser.oscTitleHex ? StringView(parser.oscDecoded) : ragelOscPayload());
             }
             fnext main;
             fbreak;
@@ -2503,7 +2238,7 @@
         } else {
             ragelFinishOsc();
             if (!parser.overflow && parser.oscTitleValid && (!parser.oscTitleHex || !parser.oscTitleHasHighNibble)) {
-                osc_TITLE_1(parser.oscTitleHex ? StringView(parser.oscDecoded) : ragelOscPayload());
+                iface.osc_TITLE_1(parser.oscTitleHex ? StringView(parser.oscDecoded) : ragelOscPayload());
             }
             fnext main;
             fbreak;
@@ -2519,7 +2254,7 @@
         } else {
             ragelFinishOsc();
             if (!parser.overflow && parser.oscTitleValid && (!parser.oscTitleHex || !parser.oscTitleHasHighNibble)) {
-                osc_TITLE_2(parser.oscTitleHex ? StringView(parser.oscDecoded) : ragelOscPayload());
+                iface.osc_TITLE_2(parser.oscTitleHex ? StringView(parser.oscDecoded) : ragelOscPayload());
             }
             fnext main;
             fbreak;
@@ -2528,7 +2263,7 @@
 
     action oscHyperlinkParamData {
         consumeStringUtf8Byte(fc);
-        if (!executeC0InSequence(fc, true)) {
+        if (!iface.parserExecuteC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
         fgoto oscHyperlinkParamSkip;
@@ -2600,7 +2335,7 @@
             ragelFinishOsc();
             if (!parser.overflow) {
                 const auto* data = (const u8*)(parser.scratch.data());
-                osc_HYPERLINK(
+                iface.osc_HYPERLINK(
                     StringView(data + parser.oscHyperlinkIdOffset, parser.oscHyperlinkHasId ? parser.oscHyperlinkIdLength : 0),
                     parser.oscHyperlinkHasId,
                     StringView(data + parser.oscHyperlinkUriOffset, parser.scratch.used() - parser.oscHyperlinkUriOffset)
@@ -2638,7 +2373,7 @@
 
     action oscProgressNotifyData {
         consumeStringUtf8Byte(fc);
-        if (!executeC0InSequence(fc, true)) {
+        if (!iface.parserExecuteC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
         fgoto oscProgressNotify;
@@ -2672,7 +2407,7 @@
 
     action oscProgressDiscardData {
         consumeStringUtf8Byte(fc);
-        if (!executeC0InSequence(fc, true)) {
+        if (!iface.parserExecuteC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
         fgoto oscProgressDiscard;
@@ -2684,7 +2419,7 @@
         } else {
             ragelFinishOsc();
             if (!parser.overflow) {
-                osc_NOTIFY(ragelOscPayload());
+                iface.osc_NOTIFY(ragelOscPayload());
             }
             fnext main;
             fbreak;
@@ -2700,7 +2435,7 @@
             ragelFinishOsc();
             if (!parser.overflow && parser.oscProgressValid && parser.oscProgressPercentPresent &&
                 parser.oscProgressState <= 4 && parser.oscProgressPercent <= 100) {
-                osc_PROGRESS(parser.oscProgressState, parser.oscProgressPercent);
+                iface.osc_PROGRESS(parser.oscProgressState, parser.oscProgressPercent);
             }
             fnext main;
             fbreak;
@@ -2756,7 +2491,7 @@
 
     action osc52Data {
         consumeStringUtf8Byte(fc);
-        if (!executeC0InSequence(fc, true)) {
+        if (!iface.parserExecuteC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             if (!parser.osc52PayloadSeen) {
                 parser.osc52PayloadSeen = true;
@@ -2780,7 +2515,7 @@
         } else {
             ragelFinishOsc();
             if (!parser.overflow) {
-                osc_CLIPBOARD_MALFORMED(ragelOscPayload());
+                iface.osc_CLIPBOARD_MALFORMED(ragelOscPayload());
             }
             fnext main;
             fbreak;
@@ -2790,7 +2525,7 @@
     action osc52MalformedBell {
         ragelFinishOsc();
         if (!parser.overflow) {
-            osc_CLIPBOARD_MALFORMED(ragelOscPayload());
+            iface.osc_CLIPBOARD_MALFORMED(ragelOscPayload());
         }
         fnext main;
         fbreak;
@@ -2816,13 +2551,13 @@
         if (parser.oscTerminated && !parser.overflow) {
             const StringView raw = ragelOscPayload();
             if (parser.osc52PayloadSeen && parser.osc52Query) {
-                osc_CLIPBOARD_QUERY(
+                iface.osc_CLIPBOARD_QUERY(
                     raw, parser.osc52Primary, parser.osc52Clipboard, parser.osc52ReplySelector,
                     !parser.osc52SelectorSeen
                 );
             } else {
                 const bool valid = parser.oscBase64.finish(parser.oscDecoded);
-                osc_CLIPBOARD_WRITE(
+                iface.osc_CLIPBOARD_WRITE(
                     raw, StringView(parser.oscDecoded), valid, parser.osc52Primary,
                     parser.osc52Clipboard
                 );
@@ -2857,7 +2592,7 @@
 
     action oscNotificationValueData {
         consumeStringUtf8Byte(fc);
-        if (!executeC0InSequence(fc, true)) {
+        if (!iface.parserExecuteC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             if (parser.oscNotificationKey == 'i' &&
                 !((fc >= 'a' && fc <= 'z') || (fc >= 'A' && fc <= 'Z') ||
@@ -2924,14 +2659,14 @@
             const StringView id(
                 data + parser.oscNotificationIdOffset, parser.oscNotificationIdLength
             );
-            parser.oscBase64 = notificationDecoder(id, parser.oscNotificationBody);
+            parser.oscBase64 = iface.parserNotificationDecoder(id, parser.oscNotificationBody);
         }
         fgoto oscNotificationPayload;
     }
 
     action oscNotificationPayloadData {
         consumeStringUtf8Byte(fc);
-        if (!executeC0InSequence(fc, true)) {
+        if (!iface.parserExecuteC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             ++parser.oscNotificationPayloadBytes;
             const u32 limit = parser.oscNotificationEncoded ? 4096 : 2048;
@@ -2945,7 +2680,7 @@
 
     action oscNotificationInvalidData {
         consumeStringUtf8Byte(fc);
-        if (!executeC0InSequence(fc, true)) {
+        if (!iface.parserExecuteC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
         parser.oscNotificationValid = false;
@@ -2983,17 +2718,17 @@
                 parser.oscBase64.finish(parser.oscDecoded);
             }
             if (parser.oscNotificationQuery) {
-                osc_NOTIFICATION_CAPABILITIES(id);
+                iface.osc_NOTIFICATION_CAPABILITIES(id);
             } else if (parser.oscNotificationClose) {
-                osc_NOTIFICATION_CLOSE(id);
+                iface.osc_NOTIFICATION_CLOSE(id);
             } else if (parser.oscNotificationBody) {
-                osc_NOTIFICATION_BODY(
+                iface.osc_NOTIFICATION_BODY(
                     id,
                     parser.oscNotificationEncoded ? StringView(parser.oscDecoded) : payload,
                     parser.oscBase64, parser.oscNotificationEncoded, parser.oscNotificationFinal
                 );
             } else {
-                osc_NOTIFICATION_TITLE(
+                iface.osc_NOTIFICATION_TITLE(
                     id,
                     parser.oscNotificationEncoded ? StringView(parser.oscDecoded) : payload,
                     parser.oscBase64, parser.oscNotificationEncoded, parser.oscNotificationFinal
@@ -3224,15 +2959,15 @@
     action oscDynamicColorCommit {
         if (!parser.overflow && parser.oscColorValid) {
             if (parser.oscCommand == 10) {
-                osc_DEFAULT_FOREGROUND(parser.oscColor, parser.oscColorQuery);
+                iface.osc_DEFAULT_FOREGROUND(parser.oscColor, parser.oscColorQuery);
             } else if (parser.oscCommand == 11) {
-                osc_DEFAULT_BACKGROUND(parser.oscColor, parser.oscColorQuery);
+                iface.osc_DEFAULT_BACKGROUND(parser.oscColor, parser.oscColorQuery);
             } else if (parser.oscCommand == 12) {
-                osc_CURSOR_COLOR(parser.oscColor, parser.oscColorQuery);
+                iface.osc_CURSOR_COLOR(parser.oscColor, parser.oscColorQuery);
             } else if (parser.oscCommand == 17) {
-                osc_SELECTION_BACKGROUND(parser.oscColor, parser.oscColorQuery);
+                iface.osc_SELECTION_BACKGROUND(parser.oscColor, parser.oscColorQuery);
             } else if (parser.oscCommand == 19) {
-                osc_SELECTION_FOREGROUND(parser.oscColor, parser.oscColorQuery);
+                iface.osc_SELECTION_FOREGROUND(parser.oscColor, parser.oscColorQuery);
             }
         }
     }
@@ -3286,7 +3021,7 @@
 
     action oscIndexedColorIndexInvalid {
         consumeStringUtf8Byte(fc);
-        if (!executeC0InSequence(fc, true)) {
+        if (!iface.parserExecuteC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
         }
         parser.oscFieldNumeric = false;
@@ -3310,11 +3045,11 @@
     action oscIndexedColorCommit {
         if (!parser.overflow && parser.oscColorValid) {
             if (parser.oscCommand == 4) {
-                osc_PALETTE(
+                iface.osc_PALETTE(
                     parser.oscFieldNumber, parser.oscColor, parser.oscColorQuery
                 );
             } else {
-                osc_SPECIAL_COLOR(
+                iface.osc_SPECIAL_COLOR(
                     parser.oscFieldNumber, parser.oscColor, parser.oscColorQuery
                 );
             }
@@ -3375,7 +3110,7 @@
 
     action oscNumericInvalid {
         consumeStringUtf8Byte(fc);
-        if (!executeC0InSequence(fc, true)) {
+        if (!iface.parserExecuteC0(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
             parser.oscFieldPresent = true;
             parser.oscFieldNumeric = false;
@@ -3391,7 +3126,7 @@
                 parser.oscFieldHaveFirst = true;
             } else {
                 if (!parser.overflow && parser.oscFieldFirstValid && valid) {
-                    osc_SPECIAL_COLOR_MODE(
+                    iface.osc_SPECIAL_COLOR_MODE(
                         parser.oscFieldFirst, parser.oscFieldNumber
                     );
                 }
@@ -3399,9 +3134,9 @@
             }
         } else if (!parser.overflow && valid) {
             if (parser.oscCommand == 104) {
-                osc_RESET_PALETTE(parser.oscFieldNumber);
+                iface.osc_RESET_PALETTE(parser.oscFieldNumber);
             } else {
-                osc_RESET_SPECIAL_COLOR(parser.oscFieldNumber);
+                iface.osc_RESET_SPECIAL_COLOR(parser.oscFieldNumber);
             }
         }
     }
@@ -3416,23 +3151,23 @@
                     parser.oscFieldHaveFirst = true;
                 } else if (!parser.overflow &&
                            parser.oscFieldFirstValid && valid) {
-                    osc_SPECIAL_COLOR_MODE(
+                    iface.osc_SPECIAL_COLOR_MODE(
                         parser.oscFieldFirst, parser.oscFieldNumber
                     );
                 }
             } else if (!parser.overflow && valid) {
                 if (parser.oscCommand == 104) {
-                    osc_RESET_PALETTE(parser.oscFieldNumber);
+                    iface.osc_RESET_PALETTE(parser.oscFieldNumber);
                 } else {
-                    osc_RESET_SPECIAL_COLOR(parser.oscFieldNumber);
+                    iface.osc_RESET_SPECIAL_COLOR(parser.oscFieldNumber);
                 }
             }
         } else if (!parser.overflow &&
                    parser.scratch.used() == parser.oscPayloadOffset) {
             if (parser.oscCommand == 104) {
-                osc_RESET_PALETTE();
+                iface.osc_RESET_PALETTE();
             } else if (parser.oscCommand == 105) {
-                osc_RESET_SPECIAL_COLOR();
+                iface.osc_RESET_SPECIAL_COLOR();
             }
         }
     }
@@ -3478,7 +3213,7 @@
             p += count - 1;
         } else {
             consumeStringUtf8Byte(fc);
-            executeC0InSequence(fc, true);
+            iface.parserExecuteC0(fc);
             if constexpr (traced) {
                 parserTrace->stringData(&fc, 1);
             }
@@ -3563,7 +3298,7 @@
                 parserTrace->stringCancel();
                 parserTrace->control(fc);
             }
-            esc_SPA();
+            iface.esc_SPA();
             fnext main;
             fbreak;
         }
@@ -3577,7 +3312,7 @@
                 parserTrace->stringCancel();
                 parserTrace->control(fc);
             }
-            esc_EPA();
+            iface.esc_EPA();
             fnext main;
             fbreak;
         }
@@ -3590,7 +3325,7 @@
             if constexpr (traced) {
                 parserTrace->stringCancel();
             }
-            csi_priDA();
+            iface.csi_priDA();
             fnext main;
             fbreak;
         }
@@ -3598,135 +3333,135 @@
 
     csiPlainKnown = [@ABCDEFGHIJKLMPSTXZ`abcdefghijklmnqrstu];
     csiPlainFinal = (
-        'T' @csiTrace @{ if (parser.parameterCount == 5 && mouseTrk.mode == MouseTrackingMode::VT200_Highlight) { csi_XTHIMOUSE(); } else { csi_SD(parser.parameters[0] ? parser.parameters[0] : 1); } } |
-        'A' @csiTrace @{ csi_CUU(); } |
-        'B' @csiTrace @{ csi_CUD(); } |
-        'C' @csiTrace @{ csi_CUF(); } |
-        'D' @csiTrace @{ csi_CUB(); } |
-        'E' @csiTrace @{ csi_CNL(); } |
-        'F' @csiTrace @{ csi_CPL(); } |
-        'G' @csiTrace @{ csi_CHA(); } |
-        ('H' | 'f') @csiTrace @{ csi_CUP(); } |
-        'I' @csiTrace @{ csi_CHT(); } |
-        'J' @csiTrace @{ csi_ED(); } |
-        'K' @csiTrace @{ csi_EL(); } |
-        'L' @csiTrace @{ csi_IL(); } |
-        'M' @csiTrace @{ csi_DL(); } |
-        'P' @csiTrace @{ csi_DCH(); } |
-        'S' @csiTrace @{ csi_SU(); } |
-        'X' @csiTrace @{ csi_ECH(); } |
-        'Z' @csiTrace @{ csi_CBT(); } |
-        '@' @csiTrace @{ csi_ICH(parser.parameters[0] ? parser.parameters[0] : 1); } |
-        '`' @csiTrace @{ csi_HPA(); } |
-        'a' @csiTrace @{ csi_HPR(); } |
-        'b' @csiTrace @{ csi_REP(); } |
-        'c' @csiTrace @{ csi_priDA(); } |
-        'd' @csiTrace @{ csi_VPA(); } |
-        'e' @csiTrace @{ csi_VPR(); } |
-        'g' @csiTrace @{ csi_TBC(); } |
-        'h' @csiTrace @{ csi_SM(); } |
-        'i' @csiTrace @{ csi_MC(false); } |
-        'j' @csiTrace @{ csi_CUB(); } |
-        'k' @csiTrace @{ csi_CUU(); } |
-        'l' @csiTrace @{ csi_RM(); } |
+        'T' @csiTrace @{ if (parser.parameterCount == 5 && iface.parserHighlightMouseTracking()) { iface.csi_XTHIMOUSE(csiParameters()); } else { iface.csi_SD(parser.parameters[0] ? parser.parameters[0] : 1); } } |
+        'A' @csiTrace @{ iface.csi_CUU(csiParameters()); } |
+        'B' @csiTrace @{ iface.csi_CUD(csiParameters()); } |
+        'C' @csiTrace @{ iface.csi_CUF(csiParameters()); } |
+        'D' @csiTrace @{ iface.csi_CUB(csiParameters()); } |
+        'E' @csiTrace @{ iface.csi_CNL(csiParameters()); } |
+        'F' @csiTrace @{ iface.csi_CPL(csiParameters()); } |
+        'G' @csiTrace @{ iface.csi_CHA(csiParameters()); } |
+        ('H' | 'f') @csiTrace @{ iface.csi_CUP(csiParameters()); } |
+        'I' @csiTrace @{ iface.csi_CHT(csiParameters()); } |
+        'J' @csiTrace @{ iface.csi_ED(csiParameters()); } |
+        'K' @csiTrace @{ iface.csi_EL(csiParameters()); } |
+        'L' @csiTrace @{ iface.csi_IL(csiParameters()); } |
+        'M' @csiTrace @{ iface.csi_DL(csiParameters()); } |
+        'P' @csiTrace @{ iface.csi_DCH(csiParameters()); } |
+        'S' @csiTrace @{ iface.csi_SU(csiParameters()); } |
+        'X' @csiTrace @{ iface.csi_ECH(csiParameters()); } |
+        'Z' @csiTrace @{ iface.csi_CBT(csiParameters()); } |
+        '@' @csiTrace @{ iface.csi_ICH(parser.parameters[0] ? parser.parameters[0] : 1); } |
+        '`' @csiTrace @{ iface.csi_HPA(csiParameters()); } |
+        'a' @csiTrace @{ iface.csi_HPR(csiParameters()); } |
+        'b' @csiTrace @{ iface.csi_REP(csiParameters()); } |
+        'c' @csiTrace @{ iface.csi_priDA(); } |
+        'd' @csiTrace @{ iface.csi_VPA(csiParameters()); } |
+        'e' @csiTrace @{ iface.csi_VPR(csiParameters()); } |
+        'g' @csiTrace @{ iface.csi_TBC(csiParameters()); } |
+        'h' @csiTrace @{ iface.csi_SM(csiParameters()); } |
+        'i' @csiTrace @{ iface.csi_MC(csiParameters(), false); } |
+        'j' @csiTrace @{ iface.csi_CUB(csiParameters()); } |
+        'k' @csiTrace @{ iface.csi_CUU(csiParameters()); } |
+        'l' @csiTrace @{ iface.csi_RM(csiParameters()); } |
         'm' @csiTrace @csiSgr |
-        'n' @csiTrace @{ csi_DSR(); } |
-        'q' @csiTrace @{ csi_DECLL(); } |
-        'r' @csiTrace @{ csi_STBM(); } |
-        's' @csiTrace @{ csi_SCOSC_SLRM(); } |
-        't' @csiTrace @{ csi_XTWINOPS(); } |
-        'u' @csiTrace @{ csi_SCORC(); } |
+        'n' @csiTrace @{ iface.csi_DSR(csiParameters(), false); } |
+        'q' @csiTrace @{ iface.csi_DECLL(csiParameters()); } |
+        'r' @csiTrace @{ iface.csi_STBM(csiParameters()); } |
+        's' @csiTrace @{ iface.csi_SCOSC_SLRM(csiParameters()); } |
+        't' @csiTrace @{ iface.csi_XTWINOPS(csiParameters()); } |
+        'u' @csiTrace @{ iface.csi_SCORC(); } |
         (0x40..0x7e - csiPlainKnown) @csiTrace
     ) @csiDone;
 
     csiGreaterKnown = [Tcmqtu];
     csiGreaterFinal = (
-        'T' @csiTrace @{ csi_XTTITLEMODE(false); } |
-        'c' @csiTrace @{ csi_secDA(); } |
-        'm' @csiTrace @{ csi_XTMODKEYS(); } |
-        'q' @csiTrace @{ csi_XTVERSION(); } |
-        't' @csiTrace @{ csi_XTTITLEMODE(true); } |
-        'u' @csiTrace @{ csi_kittyKeyboardPush(); } |
+        'T' @csiTrace @{ iface.csi_XTTITLEMODE(csiParameters(), false); } |
+        'c' @csiTrace @{ iface.csi_secDA(); } |
+        'm' @csiTrace @{ iface.csi_XTMODKEYS(csiParameters()); } |
+        'q' @csiTrace @{ iface.csi_XTVERSION(); } |
+        't' @csiTrace @{ iface.csi_XTTITLEMODE(csiParameters(), true); } |
+        'u' @csiTrace @{ iface.csi_kittyKeyboardPush(csiParameters()); } |
         (0x40..0x7e - csiGreaterKnown) @csiTrace
     ) @csiDone;
 
     csiLessFinal = (
-        'u' @csiTrace @{ csi_kittyKeyboardPop(); } |
+        'u' @csiTrace @{ iface.csi_kittyKeyboardPop(csiParameters()); } |
         (0x40..0x7e - 'u') @csiTrace
     ) @csiDone;
 
     csiEqualKnown = [cu];
     csiEqualFinal = (
-        'c' @csiTrace @{ csi_terDA(); } |
-        'u' @csiTrace @{ csi_kittyKeyboardSet(); } |
+        'c' @csiTrace @{ iface.csi_terDA(); } |
+        'u' @csiTrace @{ iface.csi_kittyKeyboardSet(csiParameters()); } |
         (0x40..0x7e - csiEqualKnown) @csiTrace
     ) @csiDone;
 
     csiQuestionKnown = [JKhilmnrsu];
     csiQuestionFinal = (
-        'J' @csiTrace @{ csi_DECSED(); } |
-        'K' @csiTrace @{ csi_DECSEL(); } |
-        'h' @csiTrace @{ csi_privSM(); } |
-        'i' @csiTrace @{ csi_MC(true); } |
-        'l' @csiTrace @{ csi_privRM(); } |
-        'm' @csiTrace @{ csi_XTQMODKEYS(); } |
-        'n' @csiTrace @{ csi_DSR(true); } |
-        'r' @csiTrace @{ csi_privRestore(); } |
-        's' @csiTrace @{ csi_privSave(); } |
-        'u' @csiTrace @{ csi_kittyKeyboardQuery(); } |
+        'J' @csiTrace @{ iface.csi_DECSED(csiParameters()); } |
+        'K' @csiTrace @{ iface.csi_DECSEL(csiParameters()); } |
+        'h' @csiTrace @{ iface.csi_privSM(csiParameters()); } |
+        'i' @csiTrace @{ iface.csi_MC(csiParameters(), true); } |
+        'l' @csiTrace @{ iface.csi_privRM(csiParameters()); } |
+        'm' @csiTrace @{ iface.csi_XTQMODKEYS(csiParameters()); } |
+        'n' @csiTrace @{ iface.csi_DSR(csiParameters(), true); } |
+        'r' @csiTrace @{ iface.csi_privRestore(csiParameters()); } |
+        's' @csiTrace @{ iface.csi_privSave(csiParameters()); } |
+        'u' @csiTrace @{ iface.csi_kittyKeyboardQuery(); } |
         (0x40..0x7e - csiQuestionKnown) @csiTrace
     ) @csiDone;
 
     csiBangFinal = (
-        'p' @csiTrace @{ csi_DECSTR(); } |
+        'p' @csiTrace @{ iface.csi_DECSTR(); } |
         (0x40..0x7e - 'p') @csiTrace
     ) @csiDone;
 
     csiQuoteKnown = [pq];
     csiQuoteFinal = (
-        'p' @csiTrace @{ csiq_DECSCL(); } |
-        'q' @csiTrace @{ csi_DECSCA(); } |
+        'p' @csiTrace @{ iface.csiq_DECSCL(csiParameters()); } |
+        'q' @csiTrace @{ iface.csi_DECSCA(csiParameters()); } |
         (0x40..0x7e - csiQuoteKnown) @csiTrace
     ) @csiDone;
 
     csiSpaceKnown = [@Aq];
     csiSpaceFinal = (
-        '@' @csiTrace @{ csi_ecma48_SL(); } |
-        'A' @csiTrace @{ csi_ecma48_SR(); } |
-        'q' @csiTrace @{ csi_DECSCUSR(); } |
+        '@' @csiTrace @{ iface.csi_ecma48_SL(csiParameters()); } |
+        'A' @csiTrace @{ iface.csi_ecma48_SR(csiParameters()); } |
+        'q' @csiTrace @{ iface.csi_DECSCUSR(csiParameters()); } |
         (0x40..0x7e - csiSpaceKnown) @csiTrace
     ) @csiDone;
 
     csiApostropheKnown = [wz-~];
     csiApostropheFinal = (
-        'w' @csiTrace @{ csi_DECEFR(); } |
-        'z' @csiTrace @{ csi_DECELR(); } |
-        '{' @csiTrace @{ csi_DECSLE(); } |
-        '|' @csiTrace @{ csi_DECRQLP(); } |
-        '}' @csiTrace @{ csi_DECIC(); } |
-        '~' @csiTrace @{ csi_DECDC(); } |
+        'w' @csiTrace @{ iface.csi_DECEFR(csiParameters()); } |
+        'z' @csiTrace @{ iface.csi_DECELR(csiParameters()); } |
+        '{' @csiTrace @{ iface.csi_DECSLE(csiParameters()); } |
+        '|' @csiTrace @{ iface.csi_DECRQLP(); } |
+        '}' @csiTrace @{ iface.csi_DECIC(csiParameters()); } |
+        '~' @csiTrace @{ iface.csi_DECDC(csiParameters()); } |
         (0x40..0x7e - csiApostropheKnown) @csiTrace
     ) @csiDone;
 
     csiDollarKnown = [prtvxz{];
     csiDollarFinal = (
-        'p' @csiTrace @{ csi_DECRQM(false); } |
-        'r' @csiTrace @{ csi_DECCARA(false); } |
-        't' @csiTrace @{ csi_DECCARA(true); } |
-        'v' @csiTrace @{ csi_DECCRA(); } |
-        'x' @csiTrace @{ csi_DECFRA(); } |
-        'z' @csiTrace @{ csi_DECERA(); } |
-        '{' @csiTrace @{ csi_DECERA(true); } |
+        'p' @csiTrace @{ iface.csi_DECRQM(csiParameters(), false); } |
+        'r' @csiTrace @{ iface.csi_DECCARA(csiParameters(), false); } |
+        't' @csiTrace @{ iface.csi_DECCARA(csiParameters(), true); } |
+        'v' @csiTrace @{ iface.csi_DECCRA(csiParameters()); } |
+        'x' @csiTrace @{ iface.csi_DECFRA(csiParameters()); } |
+        'z' @csiTrace @{ iface.csi_DECERA(csiParameters(), false); } |
+        '{' @csiTrace @{ iface.csi_DECERA(csiParameters(), true); } |
         (0x40..0x7e - csiDollarKnown) @csiTrace
     ) @csiDone;
 
     csiStarFinal = (
-        'y' @csiTrace @{ csi_DECRQCRA(); } |
+        'y' @csiTrace @{ iface.csi_DECRQCRA(csiParameters()); } |
         (0x40..0x7e - 'y') @csiTrace
     ) @csiDone;
 
     csiQuestionDollarFinal = (
-        'p' @csiTrace @{ csi_DECRQM(true); } |
+        'p' @csiTrace @{ iface.csi_DECRQM(csiParameters(), true); } |
         (0x40..0x7e - 'p') @csiTrace
     ) @csiDone;
 
@@ -4096,8 +3831,8 @@
         0x7f |
         highToGround |
         0x20..0x2f @specialIntermediate |
-        'F' @specialFinal @{ if (compatLevel >= CompatibilityLevel::VT200) { send8BitControls = false; } fnext main; fbreak; } |
-        'G' @specialFinal @{ if (compatLevel >= CompatibilityLevel::VT200) { send8BitControls = true; } fnext main; fbreak; } |
+        'F' @specialFinal @{ if (iface.parserCompatibilityLevel() >= CompatibilityLevel::VT200) { iface.parserSet8BitControls(false); } fnext main; fbreak; } |
+        'G' @specialFinal @{ if (iface.parserCompatibilityLevel() >= CompatibilityLevel::VT200) { iface.parserSet8BitControls(true); } fnext main; fbreak; } |
         ('L' | 'M' | 'N') @specialFinal @{ fnext main; fbreak; } |
         any @specialFinal @vt52Unhandled
     )*;
@@ -4109,11 +3844,11 @@
         0x7f |
         highToGround |
         0x20..0x2f @specialIntermediate |
-        '3' @specialFinal @{ setLineAttribute(1); fnext main; fbreak; } |
-        '4' @specialFinal @{ setLineAttribute(2); fnext main; fbreak; } |
-        '5' @specialFinal @{ setLineAttribute(0); fnext main; fbreak; } |
-        '6' @specialFinal @{ setLineAttribute(3); fnext main; fbreak; } |
-        '8' @specialFinal @{ esch_DECALN(); fnext main; fbreak; } |
+        '3' @specialFinal @{ iface.setLineAttribute(1); fnext main; fbreak; } |
+        '4' @specialFinal @{ iface.setLineAttribute(2); fnext main; fbreak; } |
+        '5' @specialFinal @{ iface.setLineAttribute(0); fnext main; fbreak; } |
+        '6' @specialFinal @{ iface.setLineAttribute(3); fnext main; fbreak; } |
+        '8' @specialFinal @{ iface.esch_DECALN(); fnext main; fbreak; } |
         any @specialFinal @vt52Unhandled
     )*;
 
@@ -4124,8 +3859,8 @@
         0x7f |
         highToGround |
         0x20..0x2f @specialIntermediate |
-        '@' @specialFinal @{ charsetState = CharsetState{}; charsetState.g[charsetState.gr] = Charset::IsoLatin1; charsetState.g[3] = Charset::IsoLatin1; fnext main; fbreak; } |
-        'G' @specialFinal @{ charsetState = CharsetState{}; fnext main; fbreak; } |
+        '@' @specialFinal @{ iface.parserResetCharsets(true); fnext main; fbreak; } |
+        'G' @specialFinal @{ iface.parserResetCharsets(false); fnext main; fbreak; } |
         any @specialFinal @vt52Unhandled
     )*;
 
@@ -4138,45 +3873,57 @@
         0x7f |
         highToGround |
         0x00..0x2f @charsetModifier |
-        'A' @{ charsetState.g[parser.scsIndex] = parser.scs96 ? Charset::IsoLatin1 : Charset::IsoUK; } @charsetFinal |
-        'B' @{ charsetState.g[parser.scsIndex] = Charset::UTF8; } @charsetFinal |
-        '0' @{ charsetState.g[parser.scsIndex] = Charset::DecSpec; } @charsetFinal |
+        'A' @{ iface.parserDesignateCharset(parser.scsIndex, parser.scs96 ? Charset::IsoLatin1 : Charset::IsoUK); } @charsetFinal |
+        'B' @{ iface.parserDesignateCharset(parser.scsIndex, Charset::UTF8); } @charsetFinal |
+        '0' @{ iface.parserDesignateCharset(parser.scsIndex, Charset::DecSpec); } @charsetFinal |
         '5' @{
-            charsetState.g[parser.scsIndex] =
+            iface.parserDesignateCharset(
+                parser.scsIndex,
                 parser.scsMod == '%' ? Charset::DecSuppl :
-                parser.scsMod == '&' ? Charset::NrcRussian : Charset::NrcFinnish;
+                parser.scsMod == '&' ? Charset::NrcRussian : Charset::NrcFinnish
+            );
         } @charsetFinal |
-        '<' @{ charsetState.g[parser.scsIndex] = Charset::DecUserPref; } @charsetFinal |
+        '<' @{ iface.parserDesignateCharset(parser.scsIndex, Charset::DecUserPref); } @charsetFinal |
         '>' @{
-            charsetState.g[parser.scsIndex] =
-                parser.scsMod == '"' ? Charset::NrcGreek : Charset::DecTechn;
+            iface.parserDesignateCharset(
+                parser.scsIndex,
+                parser.scsMod == '"' ? Charset::NrcGreek : Charset::DecTechn
+            );
         } @charsetFinal |
-        '4' @{ charsetState.g[parser.scsIndex] = Charset::NrcDutch; } @charsetFinal |
-        'C' @{ charsetState.g[parser.scsIndex] = Charset::NrcFinnish; } @charsetFinal |
-        ('R' | 'f') @{ charsetState.g[parser.scsIndex] = Charset::NrcFrench; } @charsetFinal |
-        ('9' | 'Q') @{ charsetState.g[parser.scsIndex] = Charset::NrcFrenchCanadian; } @charsetFinal |
-        'K' @{ charsetState.g[parser.scsIndex] = Charset::NrcGerman; } @charsetFinal |
-        'Y' @{ charsetState.g[parser.scsIndex] = Charset::NrcItalian; } @charsetFinal |
+        '4' @{ iface.parserDesignateCharset(parser.scsIndex, Charset::NrcDutch); } @charsetFinal |
+        'C' @{ iface.parserDesignateCharset(parser.scsIndex, Charset::NrcFinnish); } @charsetFinal |
+        ('R' | 'f') @{ iface.parserDesignateCharset(parser.scsIndex, Charset::NrcFrench); } @charsetFinal |
+        ('9' | 'Q') @{ iface.parserDesignateCharset(parser.scsIndex, Charset::NrcFrenchCanadian); } @charsetFinal |
+        'K' @{ iface.parserDesignateCharset(parser.scsIndex, Charset::NrcGerman); } @charsetFinal |
+        'Y' @{ iface.parserDesignateCharset(parser.scsIndex, Charset::NrcItalian); } @charsetFinal |
         ('`' | 'E' | '6') @{
-            charsetState.g[parser.scsIndex] =
-                parser.scsMod == '%' ? Charset::NrcPortuguese : Charset::NrcNorwegianDanish;
+            iface.parserDesignateCharset(
+                parser.scsIndex,
+                parser.scsMod == '%' ? Charset::NrcPortuguese : Charset::NrcNorwegianDanish
+            );
         } @charsetFinal |
-        'Z' @{ charsetState.g[parser.scsIndex] = Charset::NrcSpanish; } @charsetFinal |
-        ('7' | 'H') @{ charsetState.g[parser.scsIndex] = Charset::NrcSwedish; } @charsetFinal |
+        'Z' @{ iface.parserDesignateCharset(parser.scsIndex, Charset::NrcSpanish); } @charsetFinal |
+        ('7' | 'H') @{ iface.parserDesignateCharset(parser.scsIndex, Charset::NrcSwedish); } @charsetFinal |
         '=' @{
-            charsetState.g[parser.scsIndex] =
-                parser.scsMod == '%' ? Charset::NrcHebrew : Charset::NrcSwiss;
+            iface.parserDesignateCharset(
+                parser.scsIndex,
+                parser.scsMod == '%' ? Charset::NrcHebrew : Charset::NrcSwiss
+            );
         } @charsetFinal |
         '3' @{
-            charsetState.g[parser.scsIndex] =
-                parser.scsMod == '%' ? Charset::NrcSerboCroatian : Charset::UTF8;
+            iface.parserDesignateCharset(
+                parser.scsIndex,
+                parser.scsMod == '%' ? Charset::NrcSerboCroatian : Charset::UTF8
+            );
         } @charsetFinal |
         '2' @{
-            charsetState.g[parser.scsIndex] =
-                parser.scsMod == '%' ? Charset::NrcTurkish : Charset::UTF8;
+            iface.parserDesignateCharset(
+                parser.scsIndex,
+                parser.scsMod == '%' ? Charset::NrcTurkish : Charset::UTF8
+            );
         } @charsetFinal |
         (0x30..0x7e - charsetKnown) @{
-            charsetState.g[parser.scsIndex] = Charset::UTF8;
+            iface.parserDesignateCharset(parser.scsIndex, Charset::UTF8);
         } @charsetFinal |
         0x80..0x9f @escapeFinal
     )*;
@@ -5430,18 +5177,11 @@ const auto consumeStringUtf8Byte = [&](u8 ch) {
 };
 
 const auto ragelGroundContinuation = [&](u8 ch) {
-    if (!utf8dec.expectsContinuation() || ch < 0x80) {
+    if (!iface.parserGroundContinuation(ch)) {
         return false;
     }
     if constexpr (traced) {
         parserTrace->text(&ch, 1);
-    }
-    if (charsetState.g[charsetState.gr] == Charset::UTF8) {
-        for (int completed = utf8dec.pushByte(ch); completed > 0; --completed) {
-            placeGraphicChar();
-        }
-    } else {
-        inputGraphicChar(ch);
     }
     return true;
 };
@@ -5458,22 +5198,16 @@ const auto ragelGroundHigh = [&](u8 ch) {
         }
     }
     if (ch <= 0x9f) {
-        resetGraphemeInput();
+        iface.parserResetGraphemeInput();
     }
-    if (charsetState.g[charsetState.gr] == Charset::UTF8) {
-        for (int completed = utf8dec.pushByte(ch); completed > 0; --completed) {
-            placeGraphicChar();
-        }
-    } else {
-        inputGraphicChar(ch);
-    }
+    iface.parserGroundHigh(ch);
 };
 
 const auto ragelGroundAscii = [&](u8 ch) {
     if constexpr (traced) {
         parserTrace->text(&ch, 1);
     }
-    inputGraphicChar(ch);
+    iface.parserGroundAscii(ch);
 };
 
 const auto ragelAppendStringSpan = [&](const u8* data, size_t size, size_t limit) {
@@ -5501,7 +5235,7 @@ const auto ragelAppendEscapedString = [&](u8 ch, size_t limit) {
 };
 
 const auto ragelBeginString = [&](VtermTraceString type, bool buffered) {
-    resetGraphemeInput();
+    iface.parserResetGraphemeInput();
     parser.stringUtf8Remaining = 0;
     parser.stringLimit =
         type == VtermTraceString::Dcs ? parser.maxDcsBytes :
@@ -5621,7 +5355,7 @@ const auto ragelOscPayload = [&]() noexcept {
 const auto beginCsi = [&] {
     parser.stringUtf8Remaining = 0;
     parser.stringLimit = 0;
-    resetGraphemeInput();
+    iface.parserResetGraphemeInput();
     parser.parameters[0] = 0;
     parser.separators[0] = 0;
     parser.present[0] = false;
@@ -5629,6 +5363,16 @@ const auto beginCsi = [&] {
     parser.csiHadParameters = false;
     parser.csiPrefix = 0;
     parser.csiIntermediateCount = 0;
+};
+
+const auto csiParameters = [&]() noexcept {
+    return ParserParameters{
+        parser.parameters,
+        parser.separators,
+        parser.present,
+        parser.parameterCount,
+        parser.csiHadParameters,
+    };
 };
 
 const auto traceCsi = [&](u8 finalByte) {
@@ -5651,7 +5395,7 @@ if (!parser.initialized) {
 }
 
 while (p != pe) {
-    if (cs == vterm_parser_en_printer) {
+    if (cs == parser_en_printer) {
         const size_t remaining = pe - p;
         const u8* escape = (const u8*)memchr(p, 0x1b, remaining);
         const size_t beforeEscape = escape == nullptr ? remaining : escape - p;
@@ -5664,9 +5408,20 @@ while (p != pe) {
             continue;
         }
     }
-    if (cs == vterm_parser_en_main && *p >= 0x20 && *p < 0x7f && !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8) {
-        const size_t lines = placeAsciiLines(p, pe - p);
+    if (cs == parser_en_main && *p >= 0x20 && *p < 0x7f && iface.parserAsciiBulkEligible()) {
+        const size_t lines = iface.parserPlaceAsciiLines(StringView(p, pe - p));
         if (lines != 0) {
+            if constexpr (traced) {
+                const u8* trace = p;
+                const u8* const traceEnd = p + lines;
+                while (trace != traceEnd) {
+                    const u8* carriageReturn = (const u8*)memchr(trace, '\r', traceEnd - trace);
+                    parserTrace->text(trace, carriageReturn - trace);
+                    parserTrace->control('\r');
+                    parserTrace->control('\n');
+                    trace = carriageReturn + 2;
+                }
+            }
             p += lines;
             continue;
         }
@@ -5674,29 +5429,25 @@ while (p != pe) {
         if constexpr (traced) {
             parserTrace->text(p, count);
         }
-        if (insertMode) {
-            placeAsciiRun<true>(p, count);
-        } else {
-            placeAsciiRun<false>(p, count);
-        }
+        iface.parserPlaceAsciiRun(StringView(p, count));
         p += count;
         if (p + 1 < pe && p[0] == '\r' && p[1] == '\n') {
             if constexpr (traced) {
                 parserTrace->control('\r');
                 parserTrace->control('\n');
             }
-            resetGraphemeInput();
-            inp_CR();
-            if (autoNewlineMode) {
-                inp_CR();
+            iface.parserResetGraphemeInput();
+            iface.inp_CR();
+            if (iface.parserAutoNewlineMode()) {
+                iface.inp_CR();
             }
-            esc_IND();
+            iface.esc_IND();
             p += 2;
         }
         continue;
     }
-    if (cs == vterm_parser_en_main && *p >= 0xc2 && *p <= 0xf4 && !insertMode && !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8 && charsetState.g[charsetState.gr] == Charset::UTF8) {
-        const int consumed = placeUtf8Run(p, pe - p);
+    if (cs == parser_en_main && *p >= 0xc2 && *p <= 0xf4 && iface.parserUtf8BulkEligible()) {
+        const size_t consumed = iface.parserPlaceUtf8Run(StringView(p, pe - p));
         if (consumed > 0) {
             if constexpr (traced) {
                 parserTrace->text(p, consumed);

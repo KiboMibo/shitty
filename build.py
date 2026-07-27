@@ -181,18 +181,35 @@ render_spv = command(
     color="magenta",
 )
 
-vterm_parser = command(
-    name="vterm_parser",
-    inputs=["$(S)/vterm_parser.rl"],
-    outputs=["$(B)/vterm_parser.rl.h"],
+parser_prod = command(
+    name="parser_prod",
+    inputs=["$(S)/parser.rl"],
+    outputs=["$(B)/parser.rl.h"],
     cmd=[
         "ragel",
         "-C",
         "-G1",
         "-L",
         "-o",
-        "$(B)/vterm_parser.rl.h",
-        "$(S)/vterm_parser.rl",
+        "$(B)/parser.rl.h",
+        "$(S)/parser.rl",
+    ],
+    descr="RG",
+    color="magenta",
+)
+
+parser_test = command(
+    name="parser_test",
+    inputs=["$(S)/parser.rl"],
+    outputs=["$(B)/parser_test.rl.h"],
+    cmd=[
+        "ragel",
+        "-C",
+        "-T1",
+        "-L",
+        "-o",
+        "$(B)/parser_test.rl.h",
+        "$(S)/parser.rl",
     ],
     descr="RG",
     color="magenta",
@@ -209,7 +226,12 @@ all_libshitty_sources = [
 ]
 libshitty_sources = all_libshitty_sources
 libshitty_deps = [
-    vterm_parser,
+    parser_prod,
+    freetype, fontconfig, harfbuzz, glfw, vulkan, threads, libstd, brotli_common,
+    utf8proc, simdutf,
+]
+libshitty_test_deps = [
+    parser_test,
     freetype, fontconfig, harfbuzz, glfw, vulkan, threads, libstd, brotli_common,
     utf8proc, simdutf,
 ]
@@ -259,8 +281,8 @@ st_memprofile = program(
 libshitty_test = library(
     name="libshitty_test",
     srcs=all_libshitty_sources,
-    cppflags=["-DSHITTY_FOR_TESTS=1"],
-    deps=libshitty_deps,
+    cppflags=["-DSHITTY_FOR_TESTS=1", "-DSHITTY_COMPACT_PARSER=1"],
+    deps=libshitty_test_deps,
     output="$(B)/libshitty_test.a",
 )
 
@@ -276,7 +298,7 @@ st_test = program(
 
 main_fuzz = program(
     srcs=[fuzz_source],
-    deps=[libshitty],
+    deps=[libshitty_test],
 )
 
 
@@ -284,7 +306,7 @@ unit_tests = program(
     name="unit_tests",
     output="$(B)/unit_tests",
     srcs=["$(S)/third_party/libstd/tst/test.cpp", *unit_sources],
-    deps=[libshitty, libstd],
+    deps=[libshitty_test, libstd],
 )
 
 

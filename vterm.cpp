@@ -28,6 +28,7 @@
 #include "keyboard.h"
 #include "mouse_frontend.h"
 #include "mouse_protocol.h"
+#include "parser.h"
 #include "screen.h"
 #include "unicode_map.h"
 #include "grapheme.h"
@@ -110,12 +111,10 @@ namespace {
         size_t getLength() const;
     };
 
-    template <bool traced>
     struct VtermImpl;
 
-    template <bool traced>
     struct VtermInput {
-        explicit VtermInput(VtermImpl<traced>* terminal);
+        explicit VtermInput(VtermImpl* terminal);
 
         bool key(const KeyInput& input);
         bool text(const TextInput& input);
@@ -148,7 +147,7 @@ namespace {
             VtermKeyEventType event = VtermKeyEventType::Press;
         };
 
-        VtermImpl<traced>* terminal;
+        VtermImpl* terminal;
         MouseFrontendState mouse;
         PendingTextKey pendingTextKey;
         unsigned suppressedTextInputs = 0;
@@ -167,26 +166,23 @@ namespace {
         bool locallyConsumedKeys[(unsigned)(InputKey::Count) + 128]{};
     };
 
-    template <bool traced>
     struct CallVtermResize: Listener {
-        explicit CallVtermResize(VtermImpl<traced>* parent);
+        explicit CallVtermResize(VtermImpl* parent);
 
         void onListen(void*) override;
 
-        VtermImpl<traced>* parent;
+        VtermImpl* parent;
     };
 
-    template <bool traced>
     struct CallVtermFontChanged: Listener {
-        explicit CallVtermFontChanged(VtermImpl<traced>* parent);
+        explicit CallVtermFontChanged(VtermImpl* parent);
 
         void onListen(void*) override;
 
-        VtermImpl<traced>* parent;
+        VtermImpl* parent;
     };
 
-    template <bool traced>
-    struct VtermImpl final: public Vterm, public InputSink {
+    struct VtermImpl final: public Vterm, public InputSink, public ParserIface {
         VtermImpl(Composer& composer, VtermHost& host, VtermTrace* trace, Output* dump);
 
         ~VtermImpl();
@@ -231,6 +227,37 @@ namespace {
 
         bool getPrivateMode(u32 mode) const;
 
+        void parserResetGraphemeInput() override;
+        bool parserExecuteC0(u8 byte) override;
+        void parserBell() override;
+        bool parserAutoNewlineMode() const override;
+        bool parserPrinterControllerMode() const override;
+        void parserSetPrinterControllerMode(bool enabled) override;
+        CompatibilityLevel parserCompatibilityLevel() const override;
+        void parserSetCompatibilityLevel(CompatibilityLevel level) override;
+        void parserSet8BitControls(bool enabled) override;
+        void parserSetApplicationKeypad(bool enabled) override;
+        void parserMoveCursorBackward(u32 count) override;
+        bool parserHexTitleInput() const override;
+        Base64Decoder parserNotificationDecoder(StringView id, bool body) const override;
+        void parserSingleShift(u8 index) override;
+        void parserLockingShiftGl(u8 index) override;
+        void parserLockingShiftGr(u8 index) override;
+        void parserResetCharsets(bool isoLatin1) override;
+        void parserDesignateCharset(u8 index, Charset charset) override;
+        bool parserHighlightMouseTracking() const override;
+        bool parserHandlesPrinter() const override;
+        void parserPrint(StringView bytes) override;
+        void parserWritePty(StringView bytes) override;
+        bool parserGroundContinuation(u8 byte) override;
+        void parserGroundHigh(u8 byte) override;
+        void parserGroundAscii(u8 byte) override;
+        bool parserAsciiBulkEligible() const override;
+        bool parserUtf8BulkEligible() const override;
+        size_t parserPlaceAsciiLines(StringView bytes) override;
+        void parserPlaceAsciiRun(StringView bytes) override;
+        size_t parserPlaceUtf8Run(StringView bytes) override;
+
         void resizeGrid();
         void fontChanged();
         void createFreshScreen(Screen*& frame, ObjPool*& pool, u16 saveLines);
@@ -273,7 +300,6 @@ namespace {
         std::string getLocalEcho(const u8* const begin, const u8* const end);
         bool processInput(const u8* input, int size, bool refresh = true);
         [[gnu::noinline]] bool processInputImpl(const u8* input, int size, bool refresh);
-        void parseWithRagel(const u8* data, size_t len);
 
         struct PresentationState {
             Screen* frame;
@@ -310,7 +336,7 @@ namespace {
         const InputSpec* selectInputSpecs();
         const InputSpec& getInputSpec(VtKey key);
 
-        void unhandledInput(unsigned char ch);
+        void unhandledInput(unsigned char ch) override;
         void resetTerminal();
         void resetAttrs();
         void resetScreen(bool resetTabStops = true);
@@ -320,7 +346,6 @@ namespace {
         void collectCellExtras();
         void updateExtraCellCount();
 
-        [[gnu::always_inline]] bool executeC0InSequence(unsigned char ch, bool stringData = false);
         void normalizeCursorPos();
         bool isCursorInsideMargins();
         void eraseRow(u16 pY);
@@ -342,7 +367,7 @@ namespace {
             u16 right;
         };
 
-        bool rectangleFromParams(size_t offset, Rectangle& rectangle) const;
+        bool rectangleFromParams(const ParserParameters& parameters, size_t offset, Rectangle& rectangle) const;
         void rectangleOrigin(u16& rowBase, u16& columnBase, u16& rowLimit, u16& columnLimit) const;
 
         void showCursor();
@@ -391,171 +416,170 @@ namespace {
         }
 
         void inp_LF();
-        void inp_CR();
-        void inp_HT();
+        void inp_CR() override;
+        void inp_HT() override;
         bool performIndex();
         void moveCursorBackward(u32 count);
         void scrollRegionUp(u16 count);
         void scrollRegionDown(u16 count);
 
-        bool esc_IND();
-        void esc_RI();
-        void esc_NEL();
-        void esc_BI();
-        void esc_FI();
-        void esc_HTS();
-        void esc_SPA();
-        void esc_EPA();
-        void csi_SCOSC_SLRM();
+        bool esc_IND() override;
+        void esc_RI() override;
+        void esc_NEL() override;
+        void esc_BI() override;
+        void esc_FI() override;
+        void esc_HTS() override;
+        void esc_SPA() override;
+        void esc_EPA() override;
+        void csi_SCOSC_SLRM(const ParserParameters& parameters) override;
         void csi_SCOSC();
-        void csi_SCORC();
-        void esc_DECSC();
-        void esc_DECRC();
-        void esc_RIS();
-        void csi_DECSTR();
+        void csi_SCORC() override;
+        void esc_DECSC() override;
+        void esc_DECRC() override;
+        void esc_RIS() override;
+        void csi_DECSTR() override;
 
-        void csi_CUU();
-        void csi_CUD();
-        void csi_CUF();
-        void csi_CUB();
-        void csi_CNL();
-        void csi_CPL();
-        void csi_CHA();
-        void csi_HPA();
-        void csi_HPR();
-        void csi_VPA();
-        void csi_VPR();
-        void csi_CUP();
-        void csi_SU();
-        void csi_SD(u32 count);
-        void csi_CHT();
-        void csi_CBT();
-        void csi_REP();
+        void csi_CUU(const ParserParameters& parameters) override;
+        void csi_CUD(const ParserParameters& parameters) override;
+        void csi_CUF(const ParserParameters& parameters) override;
+        void csi_CUB(const ParserParameters& parameters) override;
+        void csi_CNL(const ParserParameters& parameters) override;
+        void csi_CPL(const ParserParameters& parameters) override;
+        void csi_CHA(const ParserParameters& parameters) override;
+        void csi_HPA(const ParserParameters& parameters) override;
+        void csi_HPR(const ParserParameters& parameters) override;
+        void csi_VPA(const ParserParameters& parameters) override;
+        void csi_VPR(const ParserParameters& parameters) override;
+        void csi_CUP(const ParserParameters& parameters) override;
+        void csi_SU(const ParserParameters& parameters) override;
+        void csi_SD(u32 count) override;
+        void csi_CHT(const ParserParameters& parameters) override;
+        void csi_CBT(const ParserParameters& parameters) override;
+        void csi_REP(const ParserParameters& parameters) override;
 
-        void csi_ED();
-        void csi_EL();
-        void csi_DECSED();
-        void csi_DECSEL();
-        void csi_DECSCA();
-        void csi_DECFRA();
-        void csi_DECCRA();
-        void csi_DECERA(bool selective = false);
-        void csi_DECCARA(bool reverse);
-        void csi_DECRQCRA();
-        void csi_IL();
-        void csi_DL();
-        void csi_ICH(u32 count);
-        void csi_DCH();
-        void csi_ECH();
-        void csi_DECIC();
-        void csi_DECDC();
+        void csi_ED(const ParserParameters& parameters) override;
+        void csi_EL(const ParserParameters& parameters) override;
+        void csi_DECSED(const ParserParameters& parameters) override;
+        void csi_DECSEL(const ParserParameters& parameters) override;
+        void csi_DECSCA(const ParserParameters& parameters) override;
+        void csi_DECFRA(const ParserParameters& parameters) override;
+        void csi_DECCRA(const ParserParameters& parameters) override;
+        void csi_DECERA(const ParserParameters& parameters, bool selective) override;
+        void csi_DECCARA(const ParserParameters& parameters, bool reverse) override;
+        void csi_DECRQCRA(const ParserParameters& parameters) override;
+        void csi_IL(const ParserParameters& parameters) override;
+        void csi_DL(const ParserParameters& parameters) override;
+        void csi_ICH(u32 count) override;
+        void csi_DCH(const ParserParameters& parameters) override;
+        void csi_ECH(const ParserParameters& parameters) override;
+        void csi_DECIC(const ParserParameters& parameters) override;
+        void csi_DECDC(const ParserParameters& parameters) override;
 
-        void csi_STBM();
-        void csi_SLRM();
-        void csi_TBC();
+        void csi_STBM(const ParserParameters& parameters) override;
+        void csi_SLRM(const ParserParameters& parameters);
+        void csi_TBC(const ParserParameters& parameters) override;
 
-        void csi_SM();
-        void csi_RM();
-        void csi_privSM();
-        void csi_privRM();
-        void csi_privSave();
-        void csi_privRestore();
+        void csi_SM(const ParserParameters& parameters) override;
+        void csi_RM(const ParserParameters& parameters) override;
+        void csi_privSM(const ParserParameters& parameters) override;
+        void csi_privRM(const ParserParameters& parameters) override;
+        void csi_privSave(const ParserParameters& parameters) override;
+        void csi_privRestore(const ParserParameters& parameters) override;
         void setPrivMode(u32 mode, bool set);
 
-        void csi_ecma48_SL();
-        void csi_ecma48_SR();
-        void csi_DECSCUSR();
+        void csi_ecma48_SL(const ParserParameters& parameters) override;
+        void csi_ecma48_SR(const ParserParameters& parameters) override;
+        void csi_DECSCUSR(const ParserParameters& parameters) override;
 
-        void csi_priDA();
-        void csi_secDA();
-        void csi_terDA();
-        void csi_DSR(bool privateMode = false);
-        void esch_DECALN();
-        void setLineAttribute(u8 attribute);
-        void osc_TITLE_0(StringView);
-        void osc_TITLE_1(StringView);
-        void osc_TITLE_2(StringView);
-        void osc_PALETTE(u32, Color, bool);
-        void osc_SPECIAL_COLOR(u32, Color, bool);
-        void osc_SPECIAL_COLOR_MODE(u32, u32);
-        void osc_CWD(StringView, StringView, bool);
-        void osc_HYPERLINK(StringView, bool, StringView);
-        void osc_NOTIFY(StringView);
-        void osc_PROGRESS(u32, u32);
-        void osc_DEFAULT_FOREGROUND(Color, bool);
-        void osc_DEFAULT_BACKGROUND(Color, bool);
-        void osc_CURSOR_COLOR(Color, bool);
-        void osc_SELECTION_BACKGROUND(Color, bool);
-        void osc_SELECTION_FOREGROUND(Color, bool);
+        void csi_priDA() override;
+        void csi_secDA() override;
+        void csi_terDA() override;
+        void csi_DSR(const ParserParameters& parameters, bool privateMode) override;
+        void csi_SGR(const ParserParameters& parameters) override;
+        void esch_DECALN() override;
+        void setLineAttribute(u8 attribute) override;
+        void osc_TITLE_0(StringView) override;
+        void osc_TITLE_1(StringView) override;
+        void osc_TITLE_2(StringView) override;
+        void osc_PALETTE(u32, Color, bool) override;
+        void osc_SPECIAL_COLOR(u32, Color, bool) override;
+        void osc_SPECIAL_COLOR_MODE(u32, u32) override;
+        void osc_CWD(StringView, StringView, bool) override;
+        void osc_HYPERLINK(StringView, bool, StringView) override;
+        void osc_NOTIFY(StringView) override;
+        void osc_PROGRESS(u32, u32) override;
+        void osc_DEFAULT_FOREGROUND(Color, bool) override;
+        void osc_DEFAULT_BACKGROUND(Color, bool) override;
+        void osc_CURSOR_COLOR(Color, bool) override;
+        void osc_SELECTION_BACKGROUND(Color, bool) override;
+        void osc_SELECTION_FOREGROUND(Color, bool) override;
         void writeDynamicColorResponse(u32, Color);
-        void osc_CLIPBOARD_QUERY(StringView, bool, bool, u8, bool);
-        void osc_CLIPBOARD_WRITE(StringView, StringView, bool, bool, bool);
-        void osc_CLIPBOARD_MALFORMED(StringView);
-        void osc_NOTIFICATION_CAPABILITIES(StringView);
-        void osc_NOTIFICATION_CLOSE(StringView);
+        void osc_CLIPBOARD_QUERY(StringView, bool, bool, u8, bool) override;
+        void osc_CLIPBOARD_WRITE(StringView, StringView, bool, bool, bool) override;
+        void osc_CLIPBOARD_MALFORMED(StringView) override;
+        void osc_NOTIFICATION_CAPABILITIES(StringView) override;
+        void osc_NOTIFICATION_CLOSE(StringView) override;
         Base64Decoder notificationDecoder(StringView, bool) const;
-        void osc_NOTIFICATION_TITLE(StringView, StringView, const Base64Decoder&, bool, bool);
-        void osc_NOTIFICATION_BODY(StringView, StringView, const Base64Decoder&, bool, bool);
+        void osc_NOTIFICATION_TITLE(StringView, StringView, const Base64Decoder&, bool, bool) override;
+        void osc_NOTIFICATION_BODY(StringView, StringView, const Base64Decoder&, bool, bool) override;
         void applyNotificationPart(StringView, StringView, const Base64Decoder&, bool, bool, bool);
-        void osc_RESET_PALETTE();
-        void osc_RESET_PALETTE(u32);
-        void osc_RESET_SPECIAL_COLOR();
-        void osc_RESET_SPECIAL_COLOR(u32);
-        void osc_RESET_DEFAULT_FOREGROUND();
-        void osc_RESET_DEFAULT_BACKGROUND();
-        void osc_RESET_CURSOR_COLOR();
-        void osc_RESET_SELECTION_BACKGROUND();
-        void osc_RESET_SELECTION_FOREGROUND();
-        void osc_SHELL_A(StringView);
-        void osc_SHELL_B(StringView);
-        void osc_SHELL_C(StringView);
-        void osc_SHELL_D(StringView);
-        void osc_SHELL_UNKNOWN(StringView);
-        void osc_UNKNOWN(u32, StringView);
-        void csiq_DECSCL();
-        void csi_XTWINOPS();
-        void csi_XTTITLEMODE(bool set);
-        void csi_XTHIMOUSE();
-        void csi_DECELR();
-        void csi_DECSLE();
-        void csi_DECRQLP();
-        void csi_DECEFR();
-        void csi_XTMODKEYS();
-        void csi_XTQMODKEYS();
-        void csi_kittyKeyboardPush();
-        void csi_kittyKeyboardPop();
-        void csi_kittyKeyboardSet();
-        void csi_kittyKeyboardQuery();
-        void csi_DECRQM(bool privateMode);
-        void csi_XTVERSION();
-        void csi_MC(bool privateMode);
-        void csi_DECLL();
+        void osc_RESET_PALETTE() override;
+        void osc_RESET_PALETTE(u32) override;
+        void osc_RESET_SPECIAL_COLOR() override;
+        void osc_RESET_SPECIAL_COLOR(u32) override;
+        void osc_RESET_DEFAULT_FOREGROUND() override;
+        void osc_RESET_DEFAULT_BACKGROUND() override;
+        void osc_RESET_CURSOR_COLOR() override;
+        void osc_RESET_SELECTION_BACKGROUND() override;
+        void osc_RESET_SELECTION_FOREGROUND() override;
+        void osc_SHELL_A(StringView) override;
+        void osc_SHELL_B(StringView) override;
+        void osc_SHELL_C(StringView) override;
+        void osc_SHELL_D(StringView) override;
+        void osc_SHELL_UNKNOWN(StringView) override;
+        void osc_UNKNOWN(u32, StringView) override;
+        void csiq_DECSCL(const ParserParameters& parameters) override;
+        void csi_XTWINOPS(const ParserParameters& parameters) override;
+        void csi_XTTITLEMODE(const ParserParameters& parameters, bool set) override;
+        void csi_XTHIMOUSE(const ParserParameters& parameters) override;
+        void csi_DECELR(const ParserParameters& parameters) override;
+        void csi_DECSLE(const ParserParameters& parameters) override;
+        void csi_DECRQLP() override;
+        void csi_DECEFR(const ParserParameters& parameters) override;
+        void csi_XTMODKEYS(const ParserParameters& parameters) override;
+        void csi_XTQMODKEYS(const ParserParameters& parameters) override;
+        void csi_kittyKeyboardPush(const ParserParameters& parameters) override;
+        void csi_kittyKeyboardPop(const ParserParameters& parameters) override;
+        void csi_kittyKeyboardSet(const ParserParameters& parameters) override;
+        void csi_kittyKeyboardQuery() override;
+        void csi_DECRQM(const ParserParameters& parameters, bool privateMode) override;
+        void csi_XTVERSION() override;
+        void csi_MC(const ParserParameters& parameters, bool privateMode) override;
+        void csi_DECLL(const ParserParameters& parameters) override;
         std::string printableLine(u16 row) const;
         void printLine(u16 row);
-        void dcs_DECRQSS_DECSCL();
-        void dcs_DECRQSS_SGR();
-        void dcs_DECRQSS_DECSTBM();
-        void dcs_DECRQSS_DECSLRM();
-        void dcs_DECRQSS_DECSLPP();
-        void dcs_DECRQSS_DECSCUSR();
-        void dcs_DECRQSS_DECSCA();
-        void dcs_DECRQSS_UNKNOWN();
+        void dcs_DECRQSS_DECSCL() override;
+        void dcs_DECRQSS_SGR() override;
+        void dcs_DECRQSS_DECSTBM() override;
+        void dcs_DECRQSS_DECSLRM() override;
+        void dcs_DECRQSS_DECSLPP() override;
+        void dcs_DECRQSS_DECSCUSR() override;
+        void dcs_DECRQSS_DECSCA() override;
+        void dcs_DECRQSS_UNKNOWN() override;
         void writeDecrqssResponse(StringView);
-        struct DcsUdkDefinition;
-        void dcs_XTGETTCAP(Buffer& replies, StringView encoded, StringView value);
-        void dcs_XTGETTCAP_COMMIT(StringView replies);
-        void dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, const DcsUdkDefinition* definitions, size_t definitionCount, StringView values);
+        void dcs_XTGETTCAP(Buffer& replies, StringView encoded, StringView value) override;
+        void dcs_XTGETTCAP_COMMIT(StringView replies) override;
+        void dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, const ParserUdkDefinition* definitions, size_t definitionCount, StringView values) override;
 
         void reportInBandResize();
         void reportColorScheme();
         void writeTitleResponse(char, StringView);
         void applyPaletteColor(u16 index, Color color);
 
-        VtermInput<traced> input;
+        VtermInput input;
         Composer& composer;
         VtermHost& host;
         Output* dump;
-        VtermTrace* const parserTrace;
         UnicodeMap<u8>* const unicodeProperties;
         Buffer ptyOutput;
         Buffer protocolResponseScratch;
@@ -628,121 +652,7 @@ namespace {
         bool underlineColorDefault = true;
         bool hasFocus = false;
 
-        struct DcsUdkDefinition {
-            size_t valueOffset;
-            size_t valueLength;
-            VtKey key;
-        };
-
-        struct ProtocolParser {
-            constexpr const static size_t maxParameters = 32;
-            constexpr const static size_t maxDcsBytes = 4095;
-            constexpr const static size_t maxOscBytes = 1024 * 1024;
-
-            int state = 0;
-            bool initialized = false;
-            u8 csiPrefix = 0;
-            u8 csiIntermediates[4] = {};
-            u8 csiIntermediateCount = 0;
-            u32 parameters[maxParameters] = {};
-            unsigned char separators[maxParameters] = {};
-            bool present[maxParameters] = {};
-            size_t parameterCount = 0;
-            bool csiHadParameters = false;
-            Buffer scratch;
-            bool overflow = false;
-            size_t stringLimit = 0;
-            u8 stringUtf8Remaining = 0;
-
-            u8 dcsIntermediates[4] = {};
-            u8 dcsIntermediateCount = 0;
-            size_t dcsCapabilityOffset = 0;
-            size_t dcsCapabilityDecodedLength = 0;
-            u8 dcsCapabilityCandidates = 0;
-            u8 dcsCapabilityHighNibble = 0;
-            bool dcsCapabilityHasHighNibble = false;
-            bool dcsCapabilityValid = false;
-            bool dcsCapabilityComplete = false;
-            Vector<DcsUdkDefinition> dcsUdkDefinitions;
-            Buffer dcsDecoded;
-            size_t dcsUdkValueOffset = 0;
-            u32 dcsUdkCode = 0;
-            VtKey dcsUdkKey = VtKey::NONE;
-            u8 dcsUdkHighNibble = 0;
-            bool dcsUdkHasCode = false;
-            bool dcsUdkHasHighNibble = false;
-            bool dcsUdkValid = false;
-            bool dcsUdkInValue = false;
-            bool dcsUdkHeaderValid = false;
-            bool dcsUdkClearDefinitions = false;
-            bool dcsUdkLockDefinitions = false;
-
-            u32 oscCommand = 0;
-            size_t oscPayloadOffset = 0;
-            bool oscCommandValid = false;
-            bool oscTerminated = false;
-            Buffer oscDecoded;
-            u8 oscTitleHighNibble = 0;
-            bool oscTitleHex = false;
-            bool oscTitleHasHighNibble = false;
-            bool oscTitleValid = false;
-            bool oscTitleStopped = false;
-            u8 oscCwdPercentHigh = 0;
-            bool oscCwdValid = false;
-            bool oscCwdDecode = false;
-            size_t oscHyperlinkIdOffset = 0;
-            size_t oscHyperlinkIdLength = 0;
-            size_t oscHyperlinkUriOffset = 0;
-            bool oscHyperlinkHasId = false;
-            u32 oscProgressState = 0;
-            u32 oscProgressPercent = 0;
-            bool oscProgressStatePresent = false;
-            bool oscProgressPercentPresent = false;
-            bool oscProgressValid = false;
-            Base64Decoder oscBase64;
-            u8 osc52ReplySelector = 0;
-            bool osc52Primary = false;
-            bool osc52Clipboard = false;
-            bool osc52SelectorSeen = false;
-            bool osc52PayloadSeen = false;
-            bool osc52Query = false;
-            size_t oscNotificationFieldOffset = 0;
-            size_t oscNotificationIdOffset = 0;
-            size_t oscNotificationIdLength = 0;
-            size_t oscNotificationPayloadOffset = 0;
-            u32 oscNotificationPayloadBytes = 0;
-            u8 oscNotificationKey = 0;
-            bool oscNotificationValid = false;
-            bool oscNotificationEncoded = false;
-            bool oscNotificationFinal = false;
-            bool oscNotificationQuery = false;
-            bool oscNotificationClose = false;
-            bool oscNotificationBody = false;
-            Color oscColor{};
-            double oscColorComponents[3]{};
-            double oscColorMantissa = 0.0;
-            double oscColorFraction = 0.1;
-            u64 oscColorHex = 0;
-            u32 oscColorExponent = 0;
-            u8 oscColorComponent = 0;
-            u8 oscColorDigits = 0;
-            bool oscColorNegative = false;
-            bool oscColorExponentNegative = false;
-            bool oscColorValid = false;
-            bool oscColorQuery = false;
-
-            u32 oscFieldNumber = 0;
-            u32 oscFieldFirst = 0;
-            bool oscFieldNumeric = false;
-            bool oscFieldPresent = false;
-            bool oscFieldFirstValid = false;
-            bool oscFieldHaveFirst = false;
-            u8 scsIndex = 0;
-            u8 scsMod = 0;
-            bool scs96 = false;
-        };
-
-        ProtocolParser parser;
+        Parser* parser;
         Utf8Decoder utf8dec;
         GraphemeBuffer inputGrapheme;
         u32 inputGraphemeBase = 0;
@@ -821,14 +731,6 @@ namespace {
         std::vector<u16> tabStops;
         bool tabStopsCustomized = false;
 
-        enum class CompatibilityLevel : u8 {
-            VT52,
-            VT100,
-            VT200,
-            VT300,
-            VT400,
-            VT500,
-        };
         CompatibilityLevel compatLevel = CompatibilityLevel::VT400;
 
         enum class CursorKeyMode : u8 {
@@ -857,32 +759,6 @@ namespace {
 
         void switchColMode(ColMode colMode);
         void switchScreenBufferMode(bool altScreenBufferMode, bool clearAlternate = false);
-
-        enum class Charset : u8 {
-            UTF8,
-            DecSpec,
-            DecSuppl,
-            DecUserPref,
-            DecTechn,
-            IsoLatin1,
-            IsoUK,
-            NrcDutch,
-            NrcFinnish,
-            NrcFrench,
-            NrcFrenchCanadian,
-            NrcGerman,
-            NrcItalian,
-            NrcNorwegianDanish,
-            NrcPortuguese,
-            NrcSpanish,
-            NrcSwedish,
-            NrcSwiss,
-            NrcGreek,
-            NrcHebrew,
-            NrcRussian,
-            NrcSerboCroatian,
-            NrcTurkish
-        };
 
         struct CharsetState {
             Charset g[4] = {Charset::UTF8, Charset::UTF8, Charset::UTF8, Charset::UTF8};
@@ -944,9 +820,8 @@ namespace {
         } locator;
     };
 
-    template <bool traced>
     struct TestApiImpl final: public TestApi {
-        explicit TestApiImpl(VtermImpl<traced>* vterm);
+        explicit TestApiImpl(VtermImpl* vterm);
 
         VtermTestState inspect() const override;
         bool ansiMode(u32 mode) const override;
@@ -971,7 +846,7 @@ namespace {
         void paste(StringView text) override;
         StringView hyperlinkAt(int pixelX, int pixelY) override;
 
-        VtermImpl<traced>* vterm;
+        VtermImpl* vterm;
     };
 
     void GraphemeBuffer::clear() {
@@ -1003,14 +878,12 @@ namespace {
     }
 }
 
-template <bool traced>
-VtermInput<traced>::VtermInput(VtermImpl<traced>* terminal_)
+VtermInput::VtermInput(VtermImpl* terminal_)
     : terminal(terminal_)
 {
 }
 
-template <bool traced>
-VtModifier VtermInput<traced>::legacyModifiers(u16 modifiers) const {
+VtModifier VtermInput::legacyModifiers(u16 modifiers) const {
     VtModifier result = VtModifier::none;
     if (modifiers & InputShift) {
         result = result | VtModifier::shift;
@@ -1027,8 +900,7 @@ VtModifier VtermInput<traced>::legacyModifiers(u16 modifiers) const {
     return result;
 }
 
-template <bool traced>
-u16 VtermInput<traced>::kittyModifiers(u16 modifiers) const {
+u16 VtermInput::kittyModifiers(u16 modifiers) const {
     u16 result = 0;
     if (modifiers & InputShift) {
         result |= 1;
@@ -1051,8 +923,7 @@ u16 VtermInput<traced>::kittyModifiers(u16 modifiers) const {
     return result;
 }
 
-template <bool traced>
-VtKey VtermInput<traced>::keypadKey(InputKey key, bool numLock) const {
+VtKey VtermInput::keypadKey(InputKey key, bool numLock) const {
     using Key = VtKey;
     if (!numLock) {
         switch (key) {
@@ -1122,8 +993,7 @@ VtKey VtermInput<traced>::keypadKey(InputKey key, bool numLock) const {
     }
 }
 
-template <bool traced>
-VtKey VtermInput<traced>::specialKey(InputKey key, u16 modifiers) const {
+VtKey VtermInput::specialKey(InputKey key, u16 modifiers) const {
     using Key = VtKey;
     const Key keypad = keypadKey(key, (modifiers & InputNumLock) != 0);
     if (keypad != Key::NONE) {
@@ -1229,8 +1099,7 @@ VtKey VtermInput<traced>::specialKey(InputKey key, u16 modifiers) const {
     }
 }
 
-template <bool traced>
-bool VtermInput<traced>::paste(bool primary) {
+bool VtermInput::paste(bool primary) {
     if (terminal->composer.clipboard == nullptr) {
         return false;
     }
@@ -1242,8 +1111,7 @@ bool VtermInput<traced>::paste(bool primary) {
     return true;
 }
 
-template <bool traced>
-ScreenHyperlink VtermInput<traced>::resolveLink(int pixelX, int pixelY) {
+ScreenHyperlink VtermInput::resolveLink(int pixelX, int pixelY) {
     const ScreenHyperlink link = terminal->resolveHyperlink(pixelX, pixelY);
     if (link.payload.empty() || link.displayId != 0) {
         return link;
@@ -1256,8 +1124,7 @@ ScreenHyperlink VtermInput<traced>::resolveLink(int pixelX, int pixelY) {
     return desktop->handlesUriScheme(scheme) ? link : ScreenHyperlink{};
 }
 
-template <bool traced>
-bool VtermInput<traced>::refreshHyperlink() {
+bool VtermInput::refreshHyperlink() {
     ScreenHyperlink next;
     if (pointerFocused && pointerPresent && pointerPositionKnown && (pointerModifiers & InputControl)) {
         next = resolveLink(pointerX, pointerY);
@@ -1276,15 +1143,13 @@ bool VtermInput<traced>::refreshHyperlink() {
     return true;
 }
 
-template <bool traced>
-void VtermInput<traced>::refreshHyperlinkAndRedraw() {
+void VtermInput::refreshHyperlinkAndRedraw() {
     if (refreshHyperlink()) {
         terminal->redraw();
     }
 }
 
-template <bool traced>
-void VtermInput<traced>::updatePointer(int pixelX, int pixelY, u16 modifiers) {
+void VtermInput::updatePointer(int pixelX, int pixelY, u16 modifiers) {
     pointerX = pixelX;
     pointerY = pixelY;
     pointerModifiers = modifiers;
@@ -1293,8 +1158,7 @@ void VtermInput<traced>::updatePointer(int pixelX, int pixelY, u16 modifiers) {
     refreshHyperlinkAndRedraw();
 }
 
-template <bool traced>
-void VtermInput<traced>::updatePointerModifiers(const KeyInput& input) {
+void VtermInput::updatePointerModifiers(const KeyInput& input) {
     pointerModifiers = input.modifiers;
     if (input.key == InputKey::LeftControl || input.key == InputKey::RightControl) {
         if (input.action == InputAction::Release) {
@@ -1306,8 +1170,7 @@ void VtermInput<traced>::updatePointerModifiers(const KeyInput& input) {
     refreshHyperlinkAndRedraw();
 }
 
-template <bool traced>
-void VtermInput<traced>::flush() {
+void VtermInput::flush() {
     if (!pendingTextKey.active) {
         return;
     }
@@ -1316,8 +1179,7 @@ void VtermInput<traced>::flush() {
     terminal->writeKittyKey(pending.primary, 0, pending.base, pending.modifiers, pending.event);
 }
 
-template <bool traced>
-bool VtermInput<traced>::key(const KeyInput& input) {
+bool VtermInput::key(const KeyInput& input) {
     flush();
     updatePointerModifiers(input);
     suppressRepeatedTextInput = input.action == InputAction::Repeat && !terminal->autoRepeatMode;
@@ -1435,8 +1297,7 @@ bool VtermInput<traced>::key(const KeyInput& input) {
     return true;
 }
 
-template <bool traced>
-bool VtermInput<traced>::text(const TextInput& input) {
+bool VtermInput::text(const TextInput& input) {
     if (suppressRepeatedTextInput) {
         return true;
     }
@@ -1471,16 +1332,14 @@ bool VtermInput<traced>::text(const TextInput& input) {
     return true;
 }
 
-template <bool traced>
-void VtermInput<traced>::mouseProtocolCoordinates(MouseTrackingEnc encoding, int pixelX, int pixelY, u16& column, u16& row) const {
+void VtermInput::mouseProtocolCoordinates(MouseTrackingEnc encoding, int pixelX, int pixelY, u16& column, u16& row) const {
     const MouseGeometry geometry = {terminal->composer.pixelWidth, terminal->composer.pixelHeight, opts.border, terminal->composer.glyphWidth, terminal->composer.glyphHeight};
     const MouseProtocolPoint point = mouseProtocolPoint(encoding, pixelX, pixelY, geometry);
     column = point.column;
     row = point.row;
 }
 
-template <bool traced>
-void VtermInput<traced>::sendMouseProtocol(MouseTrackingEnc encoding, MouseEventType type, u16 modifiers, int button, int column, int row) {
+void VtermInput::sendMouseProtocol(MouseTrackingEnc encoding, MouseEventType type, u16 modifiers, int button, int column, int row) {
     const unsigned protocolModifiers = mouseProtocolModifiers(modifiers);
     StringBuilder report;
     if (encodeMouseProtocol(report, encoding, type, protocolModifiers, mouse.motionButton(), button, column, row)) {
@@ -1488,8 +1347,7 @@ void VtermInput<traced>::sendMouseProtocol(MouseTrackingEnc encoding, MouseEvent
     }
 }
 
-template <bool traced>
-void VtermInput<traced>::sendMouseButtonProtocol(MouseEventType type, int button, int pixelX, int pixelY, u16 modifiers, const MouseTrackingState& tracking) {
+void VtermInput::sendMouseButtonProtocol(MouseEventType type, int button, int pixelX, int pixelY, u16 modifiers, const MouseTrackingState& tracking) {
     if (!mouseButtonReportAllowed(tracking.mode, type, button)) {
         return;
     }
@@ -1503,8 +1361,7 @@ void VtermInput<traced>::sendMouseButtonProtocol(MouseEventType type, int button
     sendMouseProtocol(tracking.enc, type, tracking.mode == MouseTrackingMode::X10_Compat ? 0 : modifiers, button, column, row);
 }
 
-template <bool traced>
-bool VtermInput<traced>::pointerButton(const PointerButtonInput& input) {
+bool VtermInput::pointerButton(const PointerButtonInput& input) {
     updatePointer(input.pixelX, input.pixelY, input.modifiers);
     const int button = (int)(input.button);
     mouse.updateButton(button, input.pressed);
@@ -1562,8 +1419,7 @@ bool VtermInput<traced>::pointerButton(const PointerButtonInput& input) {
     return true;
 }
 
-template <bool traced>
-bool VtermInput<traced>::pointerMotion(const PointerMotionInput& input) {
+bool VtermInput::pointerMotion(const PointerMotionInput& input) {
     updatePointer(input.pixelX, input.pixelY, input.modifiers);
     u16 locatorColumn = 1;
     u16 locatorRow = 1;
@@ -1589,8 +1445,7 @@ bool VtermInput<traced>::pointerMotion(const PointerMotionInput& input) {
     return true;
 }
 
-template <bool traced>
-bool VtermInput<traced>::scroll(const ScrollInput& input) {
+bool VtermInput::scroll(const ScrollInput& input) {
     updatePointer(input.pixelX, input.pixelY, input.modifiers);
     const MouseTrackingState tracking = terminal->mouseTrk;
     const bool reporting = mouse.protocolActive(input.modifiers, tracking.mode);
@@ -1616,8 +1471,7 @@ bool VtermInput<traced>::scroll(const ScrollInput& input) {
     return true;
 }
 
-template <bool traced>
-void VtermInput<traced>::focus(bool focused) {
+void VtermInput::focus(bool focused) {
     pointerFocused = focused;
     if (!focused) {
         pointerModifiers = 0;
@@ -1633,8 +1487,7 @@ void VtermInput<traced>::focus(bool focused) {
     terminal->setHasFocus(focused);
 }
 
-template <bool traced>
-void VtermInput<traced>::pointerPresence(bool present) {
+void VtermInput::pointerPresence(bool present) {
     mouse.resetMotion();
     pointerPresent = present;
     if (!present) {
@@ -1643,15 +1496,13 @@ void VtermInput<traced>::pointerPresence(bool present) {
     refreshHyperlinkAndRedraw();
 }
 
-template <bool traced>
-VtermImpl<traced>::~VtermImpl() {
+VtermImpl::~VtermImpl() {
     delete framePriPool;
     delete frameAltPool;
     composer.vterm = nullptr;
 }
 
-template <bool traced>
-void VtermImpl<traced>::createFreshScreen(Screen*& frame, ObjPool*& pool, u16 saveLines) {
+void VtermImpl::createFreshScreen(Screen*& frame, ObjPool*& pool, u16 saveLines) {
     ObjPool* const next = ObjPool::fromMemoryRaw();
     Screen* screen;
     try {
@@ -1665,8 +1516,7 @@ void VtermImpl<traced>::createFreshScreen(Screen*& frame, ObjPool*& pool, u16 sa
     frame = screen;
 }
 
-template <bool traced>
-void VtermImpl<traced>::createInactiveScreen(Screen*& frame, ObjPool*& pool) {
+void VtermImpl::createInactiveScreen(Screen*& frame, ObjPool*& pool) {
     ObjPool* const next = ObjPool::fromMemoryRaw();
     Screen* screen;
     try {
@@ -1680,8 +1530,7 @@ void VtermImpl<traced>::createInactiveScreen(Screen*& frame, ObjPool*& pool) {
     frame = screen;
 }
 
-template <bool traced>
-void VtermImpl<traced>::resizeScreen(Screen*& frame, ObjPool*& pool, bool reflow, Screen::Cursor* cursor) {
+void VtermImpl::resizeScreen(Screen*& frame, ObjPool*& pool, bool reflow, Screen::Cursor* cursor) {
     // The state handle lives in the screen's own pool, so the old pool must
     // survive until the replacement has been laid out from it.
     ResizeState* const state = frame->moveInto();
@@ -1698,8 +1547,7 @@ void VtermImpl<traced>::resizeScreen(Screen*& frame, ObjPool*& pool, bool reflow
     frame = screen;
 }
 
-template <bool traced>
-void VtermImpl<traced>::feedPty(StringView bytes) {
+void VtermImpl::feedPty(StringView bytes) {
     if (bytes.empty()) {
         return;
     }
@@ -1709,135 +1557,109 @@ void VtermImpl<traced>::feedPty(StringView bytes) {
     processInput(bytes.data(), (int)(bytes.length()));
 }
 
-template <bool traced>
-void VtermImpl<traced>::expose() {
+void VtermImpl::expose() {
     redraw();
 }
 
-template <bool traced>
-void VtermImpl<traced>::focus(bool focused) {
+void VtermImpl::focus(bool focused) {
     input.focus(focused);
 }
 
-template <bool traced>
-bool VtermImpl<traced>::key(const KeyInput& value) {
+bool VtermImpl::key(const KeyInput& value) {
     return input.key(value);
 }
 
-template <bool traced>
-bool VtermImpl<traced>::text(const TextInput& value) {
+bool VtermImpl::text(const TextInput& value) {
     return input.text(value);
 }
 
-template <bool traced>
-bool VtermImpl<traced>::pointerMotion(const PointerMotionInput& value) {
+bool VtermImpl::pointerMotion(const PointerMotionInput& value) {
     return input.pointerMotion(value);
 }
 
-template <bool traced>
-bool VtermImpl<traced>::pointerButton(const PointerButtonInput& value) {
+bool VtermImpl::pointerButton(const PointerButtonInput& value) {
     return input.pointerButton(value);
 }
 
-template <bool traced>
-bool VtermImpl<traced>::scroll(const ScrollInput& value) {
+bool VtermImpl::scroll(const ScrollInput& value) {
     return input.scroll(value);
 }
 
-template <bool traced>
-void VtermImpl<traced>::pointerPresence(bool present) {
+void VtermImpl::pointerPresence(bool present) {
     input.pointerPresence(present);
 }
 
-template <bool traced>
-void VtermImpl<traced>::flush() {
+void VtermImpl::flush() {
     input.flush();
 }
 
-template <bool traced>
-void VtermImpl<traced>::key(VtKey key_, VtModifier modifiers_) {
+void VtermImpl::key(VtKey key_, VtModifier modifiers_) {
     writePty(key_, modifiers_, true);
 }
 
-template <bool traced>
-void VtermImpl<traced>::character(u8 byte, VtModifier modifiers_) {
+void VtermImpl::character(u8 byte, VtModifier modifiers_) {
     writePty(byte, modifiers_, true);
 }
 
-template <bool traced>
-void VtermImpl<traced>::sendBytes(StringView bytes, bool userInput) {
+void VtermImpl::sendBytes(StringView bytes, bool userInput) {
     writePty(bytes.data(), bytes.length(), userInput);
 }
 
-template <bool traced>
-void VtermImpl<traced>::kittyKey(VtKey key_, u16 modifiers_, VtermKeyEventType event) {
+void VtermImpl::kittyKey(VtKey key_, u16 modifiers_, VtermKeyEventType event) {
     writeKittyKey(key_, modifiers_, event);
 }
 
-template <bool traced>
-void VtermImpl<traced>::kittyKey(u32 key_, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers_, VtermKeyEventType event) {
+void VtermImpl::kittyKey(u32 key_, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers_, VtermKeyEventType event) {
     writeKittyKey(key_, shiftedKey, baseLayoutKey, modifiers_, event);
 }
 
-template <bool traced>
-void VtermImpl<traced>::locatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons) {
+void VtermImpl::locatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons) {
     setLocatorPosition(column, row, pixelX, pixelY, buttons);
 }
 
-template <bool traced>
-void VtermImpl<traced>::locatorButton(u8 button, bool pressed) {
+void VtermImpl::locatorButton(u8 button, bool pressed) {
     reportLocatorButton(button, pressed);
 }
 
-template <bool traced>
-void VtermImpl<traced>::scrollUp(u16 count) {
+void VtermImpl::scrollUp(u16 count) {
     mouseWheelUp(count);
 }
 
-template <bool traced>
-void VtermImpl<traced>::scrollDown(u16 count) {
+void VtermImpl::scrollDown(u16 count) {
     mouseWheelDown(count);
 }
 
-template <bool traced>
-void VtermImpl<traced>::selectionStart(int pixelX, int pixelY, bool cycleSnapTo) {
+void VtermImpl::selectionStart(int pixelX, int pixelY, bool cycleSnapTo) {
     selectStart(pixelX, pixelY, cycleSnapTo);
 }
 
-template <bool traced>
-void VtermImpl<traced>::selectionExtend(int pixelX, int pixelY, bool cycleSnapTo) {
+void VtermImpl::selectionExtend(int pixelX, int pixelY, bool cycleSnapTo) {
     selectExtend(pixelX, pixelY, cycleSnapTo);
 }
 
-template <bool traced>
-void VtermImpl<traced>::selectionUpdate(int pixelX, int pixelY) {
+void VtermImpl::selectionUpdate(int pixelX, int pixelY) {
     selectUpdate(pixelX, pixelY);
 }
 
-template <bool traced>
-VtermTextResult VtermImpl<traced>::selectionFinish() {
+VtermTextResult VtermImpl::selectionFinish() {
     inputResult.clear();
     const bool selected = selectFinish(inputResult);
     return {stringView(inputResult), selected};
 }
 
-template <bool traced>
-void VtermImpl<traced>::selectionClear() {
+void VtermImpl::selectionClear() {
     selectClear();
 }
 
-template <bool traced>
-void VtermImpl<traced>::selectionRectangular() {
+void VtermImpl::selectionRectangular() {
     selectRectangularModeToggle();
 }
 
-template <bool traced>
-void VtermImpl<traced>::paste(StringView text) {
+void VtermImpl::paste(StringView text) {
     pasteSelection(std::string((const char*)(text.data()), text.length()));
 }
 
-template <bool traced>
-ScreenHyperlink VtermImpl<traced>::resolveHyperlink(int pixelX, int pixelY) const {
+ScreenHyperlink VtermImpl::resolveHyperlink(int pixelX, int pixelY) const {
     if (pixelX < opts.border || pixelY < opts.border || pixelX >= composer.pixelWidth - opts.border || pixelY >= composer.pixelHeight - opts.border) {
         return {};
     }
@@ -1849,8 +1671,7 @@ ScreenHyperlink VtermImpl<traced>::resolveHyperlink(int pixelX, int pixelY) cons
     return cf->hyperlinkAt(row, column);
 }
 
-template <bool traced>
-StringView VtermImpl<traced>::hyperlinkAt(int pixelX, int pixelY) {
+StringView VtermImpl::hyperlinkAt(int pixelX, int pixelY) {
     const StringView payload = resolveHyperlink(pixelX, pixelY).payload;
     if (payload.empty()) {
         inputResult.clear();
@@ -1860,8 +1681,7 @@ StringView VtermImpl<traced>::hyperlinkAt(int pixelX, int pixelY) {
     return stringView(inputResult);
 }
 
-template <bool traced>
-void VtermImpl<traced>::fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const TerminalCellSpan* spans, size_t spanCount) {
+void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const TerminalCellSpan* spans, size_t spanCount) {
     update = {};
     update.spans = spans;
     update.spanCount = spanCount;
@@ -1882,8 +1702,7 @@ void VtermImpl<traced>::fillTerminalUpdate(TerminalUpdate& update, Screen& frame
     update.cursorBlink = frame.getCursorBlink();
 }
 
-template <bool traced>
-VtermOutput VtermImpl<traced>::output() {
+VtermOutput VtermImpl::output() {
     VtermOutput result;
     if (ptyOutputOffset < ptyOutput.used()) {
         result.pty = StringView((const u8*)(ptyOutput.data()) + ptyOutputOffset, ptyOutput.used() - ptyOutputOffset);
@@ -1901,8 +1720,7 @@ VtermOutput VtermImpl<traced>::output() {
     return result;
 }
 
-template <bool traced>
-void VtermImpl<traced>::consume(const VtermConsume& consumed) {
+void VtermImpl::consume(const VtermConsume& consumed) {
     const size_t pending = ptyOutput.used() - ptyOutputOffset;
     STD_ASSERT(consumed.ptyBytes <= pending);
     ptyOutputOffset += consumed.ptyBytes;
@@ -1920,31 +1738,27 @@ void VtermImpl<traced>::consume(const VtermConsume& consumed) {
     collectCellExtrasIfNeeded();
 }
 
-template <bool traced>
-VtermState VtermImpl<traced>::state() const {
+VtermState VtermImpl::state() const {
     VtermState result;
     result.synchronizedOutput = synchronizedOutputMode;
     result.animation = haveBlinkingText || cursorBlinkMode;
     return result;
 }
 
-template <bool traced>
-TestApi* VtermImpl<traced>::testApi() {
+TestApi* VtermImpl::testApi() {
 #ifdef SHITTY_FOR_TESTS
-    return composer.pool->make<TestApiImpl<traced>>(this);
+    return composer.pool->make<TestApiImpl>(this);
 #else
     return nullptr;
 #endif
 }
 
-template <bool traced>
-TestApiImpl<traced>::TestApiImpl(VtermImpl<traced>* vterm_)
+TestApiImpl::TestApiImpl(VtermImpl* vterm_)
     : vterm(vterm_)
 {
 }
 
-template <bool traced>
-VtermTestState TestApiImpl<traced>::inspect() const {
+VtermTestState TestApiImpl::inspect() const {
     VtermTestState result;
     result.mouse = vterm->mouseTrk;
     result.droppedPtyResponses = vterm->droppedPtyResponses;
@@ -1957,7 +1771,7 @@ VtermTestState TestApiImpl<traced>::inspect() const {
     result.pen.cell = vterm->attrs;
     result.pen.fg = vterm->colors.resolve(vterm->attrs.foreground());
     result.pen.bg = vterm->colors.resolve(vterm->attrs.background());
-    if (vterm->originMode == VtermImpl<traced>::OriginMode::ScrollingRegion) {
+    if (vterm->originMode == VtermImpl::OriginMode::ScrollingRegion) {
         result.rectangleOrigin = {vterm->marginTop, vterm->hMargin, vterm->marginBottom, vterm->nColsEff};
     } else {
         result.rectangleOrigin = {0, 0, vterm->composer.rows, vterm->composer.columns};
@@ -1966,8 +1780,7 @@ VtermTestState TestApiImpl<traced>::inspect() const {
     return result;
 }
 
-template <bool traced>
-bool TestApiImpl<traced>::ansiMode(u32 mode) const {
+bool TestApiImpl::ansiMode(u32 mode) const {
     switch (mode) {
         case 4:
             return vterm->insertMode;
@@ -1982,12 +1795,11 @@ bool TestApiImpl<traced>::ansiMode(u32 mode) const {
     }
 }
 
-template <bool traced>
-bool TestApiImpl<traced>::privateMode(u32 mode) const {
-    using CursorKeyMode = typename VtermImpl<traced>::CursorKeyMode;
-    using ColMode = typename VtermImpl<traced>::ColMode;
-    using KeypadMode = typename VtermImpl<traced>::KeypadMode;
-    using OriginMode = typename VtermImpl<traced>::OriginMode;
+bool TestApiImpl::privateMode(u32 mode) const {
+    using CursorKeyMode = typename VtermImpl::CursorKeyMode;
+    using ColMode = typename VtermImpl::ColMode;
+    using KeypadMode = typename VtermImpl::KeypadMode;
+    using OriginMode = typename VtermImpl::OriginMode;
     switch (mode) {
         case 1:
             return vterm->cursorKeyMode == CursorKeyMode::Application;
@@ -2072,8 +1884,7 @@ bool TestApiImpl<traced>::privateMode(u32 mode) const {
     }
 }
 
-template <bool traced>
-VtermTestCell TestApiImpl<traced>::cell(u16 row, u16 column) const {
+VtermTestCell TestApiImpl::cell(u16 row, u16 column) const {
     if (row >= vterm->cf->rows() || column >= vterm->cf->columns()) {
         return {};
     }
@@ -2088,98 +1899,79 @@ VtermTestCell TestApiImpl<traced>::cell(u16 row, u16 column) const {
     return result;
 }
 
-template <bool traced>
-void TestApiImpl<traced>::key(VtKey key_, VtModifier modifiers) {
+void TestApiImpl::key(VtKey key_, VtModifier modifiers) {
     vterm->key(key_, modifiers);
 }
 
-template <bool traced>
-void TestApiImpl<traced>::character(u8 byte, VtModifier modifiers) {
+void TestApiImpl::character(u8 byte, VtModifier modifiers) {
     vterm->character(byte, modifiers);
 }
 
-template <bool traced>
-void TestApiImpl<traced>::kittyKey(VtKey key_, u16 modifiers, VtermKeyEventType event) {
+void TestApiImpl::kittyKey(VtKey key_, u16 modifiers, VtermKeyEventType event) {
     vterm->kittyKey(key_, modifiers, event);
 }
 
-template <bool traced>
-void TestApiImpl<traced>::kittyKey(u32 key_, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event) {
+void TestApiImpl::kittyKey(u32 key_, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event) {
     vterm->kittyKey(key_, shiftedKey, baseLayoutKey, modifiers, event);
 }
 
-template <bool traced>
-bool TestApiImpl<traced>::mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY) {
+bool TestApiImpl::mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY) {
     return vterm->mouseHighlightRelease(endX, endY, mouseX, mouseY);
 }
 
-template <bool traced>
-void TestApiImpl<traced>::locatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons) {
+void TestApiImpl::locatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons) {
     vterm->locatorPosition(column, row, pixelX, pixelY, buttons);
 }
 
-template <bool traced>
-void TestApiImpl<traced>::locatorButton(u8 button, bool pressed) {
+void TestApiImpl::locatorButton(u8 button, bool pressed) {
     vterm->locatorButton(button, pressed);
 }
 
-template <bool traced>
-void TestApiImpl<traced>::scrollUp(u16 count) {
+void TestApiImpl::scrollUp(u16 count) {
     vterm->scrollUp(count);
 }
 
-template <bool traced>
-void TestApiImpl<traced>::scrollDown(u16 count) {
+void TestApiImpl::scrollDown(u16 count) {
     vterm->scrollDown(count);
 }
 
-template <bool traced>
-void TestApiImpl<traced>::pageUp() {
+void TestApiImpl::pageUp() {
     vterm->pageUp();
 }
 
-template <bool traced>
-void TestApiImpl<traced>::pageDown() {
+void TestApiImpl::pageDown() {
     vterm->pageDown();
 }
 
-template <bool traced>
-void TestApiImpl<traced>::selectionStart(int pixelX, int pixelY, bool cycleSnapTo) {
+void TestApiImpl::selectionStart(int pixelX, int pixelY, bool cycleSnapTo) {
     vterm->selectionStart(pixelX, pixelY, cycleSnapTo);
 }
 
-template <bool traced>
-void TestApiImpl<traced>::selectionExtend(int pixelX, int pixelY, bool cycleSnapTo) {
+void TestApiImpl::selectionExtend(int pixelX, int pixelY, bool cycleSnapTo) {
     vterm->selectionExtend(pixelX, pixelY, cycleSnapTo);
 }
 
-template <bool traced>
-void TestApiImpl<traced>::selectionUpdate(int pixelX, int pixelY) {
+void TestApiImpl::selectionUpdate(int pixelX, int pixelY) {
     vterm->selectionUpdate(pixelX, pixelY);
 }
 
-template <bool traced>
-VtermTextResult TestApiImpl<traced>::selectionFinish() {
+VtermTextResult TestApiImpl::selectionFinish() {
     return vterm->selectionFinish();
 }
 
-template <bool traced>
-void TestApiImpl<traced>::selectionRectangular() {
+void TestApiImpl::selectionRectangular() {
     vterm->selectionRectangular();
 }
 
-template <bool traced>
-void TestApiImpl<traced>::paste(StringView text) {
+void TestApiImpl::paste(StringView text) {
     vterm->paste(text);
 }
 
-template <bool traced>
-StringView TestApiImpl<traced>::hyperlinkAt(int pixelX, int pixelY) {
+StringView TestApiImpl::hyperlinkAt(int pixelX, int pixelY) {
     return vterm->hyperlinkAt(pixelX, pixelY);
 }
 
-template <bool traced>
-bool VtermImpl<traced>::animationActive() const {
+bool VtermImpl::animationActive() const {
     return haveBlinkingText || cursorBlinkMode;
 }
 
@@ -2187,13 +1979,11 @@ size_t VtermInputSpec::getLength() const {
     return length ? length : strlen(input);
 }
 
-template <bool traced>
-void VtermImpl<traced>::unhandledInput(unsigned char ch) {
+void VtermImpl::unhandledInput(unsigned char ch) {
     (void)ch;
 }
 
-template <bool traced>
-void VtermImpl<traced>::redraw() {
+void VtermImpl::redraw() {
     input.refreshHyperlink();
     if (synchronizedOutputMode) {
         return;
@@ -2201,15 +1991,13 @@ void VtermImpl<traced>::redraw() {
     outputPending = true;
 }
 
-template <bool traced>
-void VtermImpl<traced>::updateExtraCellCount() {
+void VtermImpl::updateExtraCellCount() {
     size_t count = frame_pri->active() ? frame_pri->cellCapacity() : 0;
     count += frame_alt->active() ? frame_alt->cellCapacity() : 0;
     composer.cellExtras->setCellCount(count);
 }
 
-template <bool traced>
-void VtermImpl<traced>::collectCellExtrasIfNeeded(bool force) {
+void VtermImpl::collectCellExtrasIfNeeded(bool force) {
     CellExtraStore& extras = *composer.cellExtras;
     const bool hardLimit = extras.hardLimitExceeded();
     if (processInputDepth != 0) {
@@ -2226,8 +2014,7 @@ void VtermImpl<traced>::collectCellExtrasIfNeeded(bool force) {
     presentedSinceGcSafePoint = false;
 }
 
-template <bool traced>
-void VtermImpl<traced>::collectCellExtras() {
+void VtermImpl::collectCellExtras() {
     extraCells.clear();
     u32* roots[2];
     size_t rootCount = 0;
@@ -2255,8 +2042,7 @@ void VtermImpl<traced>::collectCellExtras() {
     extraCells.clear();
 }
 
-template <bool traced>
-bool VtermImpl<traced>::advanceAnimation(bool force) {
+bool VtermImpl::advanceAnimation(bool force) {
     if (!animationActive()) {
         return false;
     }
@@ -2271,8 +2057,7 @@ bool VtermImpl<traced>::advanceAnimation(bool force) {
     return true;
 }
 
-template <bool traced>
-bool VtermImpl<traced>::expireSynchronizedOutput(bool force) {
+bool VtermImpl::expireSynchronizedOutput(bool force) {
     if (!synchronizedOutputMode || (!force && std::chrono::steady_clock::now() < synchronizedOutputDeadline)) {
         return false;
     }
@@ -2281,8 +2066,7 @@ bool VtermImpl<traced>::expireSynchronizedOutput(bool force) {
     return true;
 }
 
-template <bool traced>
-bool VtermImpl<traced>::mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY) {
+bool VtermImpl::mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY) {
     if (mouseTrk.mode != MouseTrackingMode::VT200_Highlight || !mouseHighlight.active) {
         return false;
     }
@@ -2310,8 +2094,7 @@ bool VtermImpl<traced>::mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u1
     return true;
 }
 
-template <bool traced>
-void VtermImpl<traced>::setLocatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons) {
+void VtermImpl::setLocatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons) {
     locator.column = std::max<u16>(1, column);
     locator.row = std::max<u16>(1, row);
     locator.pixelX = std::max<u16>(1, pixelX);
@@ -2332,8 +2115,7 @@ void VtermImpl<traced>::setLocatorPosition(u16 column, u16 row, u16 pixelX, u16 
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::reportLocatorButton(u8 button, bool pressed) {
+void VtermImpl::reportLocatorButton(u8 button, bool pressed) {
     if (!locator.enabled || (pressed ? !locator.reportDown : !locator.reportUp) || button < 1 || button > 4) {
         return;
     }
@@ -2354,23 +2136,19 @@ void VtermImpl<traced>::reportLocatorButton(u8 button, bool pressed) {
     }
 }
 
-template <bool traced>
-VtermImpl<traced>::KittyKeyboardState& VtermImpl<traced>::kittyKeyboardState() {
+VtermImpl::KittyKeyboardState& VtermImpl::kittyKeyboardState() {
     return altScreenBufferMode ? kittyKeyboardAlt : kittyKeyboardPri;
 }
 
-template <bool traced>
-const VtermImpl<traced>::KittyKeyboardState& VtermImpl<traced>::kittyKeyboardState() const {
+const VtermImpl::KittyKeyboardState& VtermImpl::kittyKeyboardState() const {
     return altScreenBufferMode ? kittyKeyboardAlt : kittyKeyboardPri;
 }
 
-template <bool traced>
-u8 VtermImpl<traced>::getKittyKeyboardFlags() const {
+u8 VtermImpl::getKittyKeyboardFlags() const {
     return kittyKeyboardState().flags;
 }
 
-template <bool traced>
-void VtermImpl<traced>::setHasFocus(bool hasFocus_) {
+void VtermImpl::setHasFocus(bool hasFocus_) {
     hasFocus = hasFocus_;
     if (mouseTrk.focusEventMode) {
         writeCsiResponse(hasFocus ? "I" : "O");
@@ -2379,8 +2157,7 @@ void VtermImpl<traced>::setHasFocus(bool hasFocus_) {
     redraw();
 }
 
-template <bool traced>
-void VtermImpl<traced>::pageUp() {
+void VtermImpl::pageUp() {
     if (altScrollMode && altScreenBufferMode) {
         for (int k = 0; k < (marginBottom - marginTop) / 2; ++k) {
             writePty(VtKey::Up);
@@ -2391,8 +2168,7 @@ void VtermImpl<traced>::pageUp() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::pageDown() {
+void VtermImpl::pageDown() {
     if (altScrollMode && altScreenBufferMode) {
         for (int k = 0; k < (marginBottom - marginTop) / 2; ++k) {
             writePty(VtKey::Down);
@@ -2403,8 +2179,7 @@ void VtermImpl<traced>::pageDown() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::mouseWheelUp(u16 count) {
+void VtermImpl::mouseWheelUp(u16 count) {
     if (altScrollMode && altScreenBufferMode) {
         for (u16 k = 0; k < count; ++k) {
             writePty(VtKey::Up);
@@ -2415,8 +2190,7 @@ void VtermImpl<traced>::mouseWheelUp(u16 count) {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::mouseWheelDown(u16 count) {
+void VtermImpl::mouseWheelDown(u16 count) {
     if (altScrollMode && altScreenBufferMode) {
         for (u16 k = 0; k < count; ++k) {
             writePty(VtKey::Down);
@@ -2427,8 +2201,7 @@ void VtermImpl<traced>::mouseWheelDown(u16 count) {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::resetTerminal() {
+void VtermImpl::resetTerminal() {
     switchScreenBufferMode(false, true);
     resetScreen();
     resetAttrs();
@@ -2470,8 +2243,7 @@ void VtermImpl<traced>::resetTerminal() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::resetScreen(bool resetTabStops) {
+void VtermImpl::resetScreen(bool resetTabStops) {
     utf8dec.reset();
     showCursorMode = true;
     cursorShape = TerminalCursor::Style::filled_block;
@@ -2533,8 +2305,7 @@ void VtermImpl<traced>::resetScreen(bool resetTabStops) {
     cf->getSelection().clear();
 }
 
-template <bool traced>
-void VtermImpl<traced>::resetAttrs() {
+void VtermImpl::resetAttrs() {
     attrs.uc_pt = 0;
     attrs.bold = 0;
     attrs.faint = 0;
@@ -2554,21 +2325,18 @@ void VtermImpl<traced>::resetAttrs() {
     setAttrUnderlineColor(attrForeground());
 }
 
-template <bool traced>
-void VtermImpl<traced>::clearScreen() {
+void VtermImpl::clearScreen() {
     posX = 0;
     posY = 0;
     lastCol = false;
     fillScreen(' ');
 }
 
-template <bool traced>
-void VtermImpl<traced>::fillScreen(u16 ch) {
+void VtermImpl::fillScreen(u16 ch) {
     cf->fillCells(ch, attrs);
 }
 
-template <bool traced>
-void VtermImpl<traced>::switchColMode(ColMode colMode_) {
+void VtermImpl::switchColMode(ColMode colMode_) {
     if (colMode == colMode_) {
         return;
     }
@@ -2592,8 +2360,7 @@ void VtermImpl<traced>::switchColMode(ColMode colMode_) {
     colMode = colMode_;
 }
 
-template <bool traced>
-void VtermImpl<traced>::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlternate) {
+void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlternate) {
     if (altScreenBufferMode == altScreenBufferMode_) {
         if (clearAlternate) {
             if (altScreenBufferMode_) {
@@ -2655,8 +2422,7 @@ void VtermImpl<traced>::switchScreenBufferMode(bool altScreenBufferMode_, bool c
     updateExtraCellCount();
 }
 
-template <bool traced>
-void VtermImpl<traced>::normalizeCursorPos() {
+void VtermImpl::normalizeCursorPos() {
     if (nColsEff < posX + 1) {
         posX = nColsEff - 1;
     }
@@ -2668,28 +2434,24 @@ void VtermImpl<traced>::normalizeCursorPos() {
     lastCol = false;
 }
 
-template <bool traced>
-bool VtermImpl<traced>::isCursorInsideMargins() {
+bool VtermImpl::isCursorInsideMargins() {
     return posX >= hMargin && posX < nColsEff && posY >= marginTop && posY < marginBottom;
 }
 
-template <bool traced>
-void VtermImpl<traced>::eraseRow(u16 pY) {
+void VtermImpl::eraseRow(u16 pY) {
     eraseRangeInRow(pY, hMargin, nColsEff - hMargin);
     if (hMargin == 0 && nColsEff == composer.columns) {
         cf->setLineAttribute(pY, 0);
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::eraseRows(u16 startY, u16 count) {
+void VtermImpl::eraseRows(u16 startY, u16 count) {
     for (u16 pY = startY; pY < startY + count; ++pY) {
         eraseRow(pY);
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::copyRow(u16 dstY, u16 srcY) {
+void VtermImpl::copyRow(u16 dstY, u16 srcY) {
     if (dstY == srcY) {
         return;
     }
@@ -2697,8 +2459,7 @@ void VtermImpl<traced>::copyRow(u16 dstY, u16 srcY) {
     cf->copyRow(dstY, srcY, hMargin, nColsEff - hMargin, eraseAttrs);
 }
 
-template <bool traced>
-void VtermImpl<traced>::insertRows(u16 startY, u16 count) {
+void VtermImpl::insertRows(u16 startY, u16 count) {
     if (hMargin == 0 && nColsEff == composer.columns) {
         cf->rotateRowsDown(startY, marginBottom, count);
     } else {
@@ -2711,8 +2472,7 @@ void VtermImpl<traced>::insertRows(u16 startY, u16 count) {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::deleteRows(u16 startY, u16 count) {
+void VtermImpl::deleteRows(u16 startY, u16 count) {
     if (hMargin == 0 && nColsEff == composer.columns) {
         cf->rotateRowsUp(startY, marginBottom, count);
     } else {
@@ -2725,30 +2485,26 @@ void VtermImpl<traced>::deleteRows(u16 startY, u16 count) {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::insertCols(u16 startX, u16 count) {
+void VtermImpl::insertCols(u16 startX, u16 count) {
     for (u16 r = marginTop; r < marginBottom; ++r) {
         cf->insertCells(r, startX, nColsEff, count, eraseAttrs);
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::deleteCols(u16 startX, u16 count) {
+void VtermImpl::deleteCols(u16 startX, u16 count) {
     for (u16 r = marginTop; r < marginBottom; ++r) {
         cf->deleteCells(r, startX, nColsEff, count, eraseAttrs);
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::eraseRangeInRow(u16 row, u16 start, u16 count) {
+void VtermImpl::eraseRangeInRow(u16 row, u16 start, u16 count) {
     if (!count) {
         return;
     }
     cf->eraseCells(row, start, count, eraseAttrs);
 }
 
-template <bool traced>
-void VtermImpl<traced>::eraseEcmaRangeInRow(u16 row, u16 start, u16 count) {
+void VtermImpl::eraseEcmaRangeInRow(u16 row, u16 start, u16 count) {
     if (eraseModeAll) {
         eraseRangeInRow(row, start, count);
         return;
@@ -2759,8 +2515,7 @@ void VtermImpl<traced>::eraseEcmaRangeInRow(u16 row, u16 start, u16 count) {
     cf->selectiveEraseCells(row, start, count, eraseAttrs, TerminalCell::isoProtection);
 }
 
-template <bool traced>
-void VtermImpl<traced>::eraseEcmaRow(u16 row) {
+void VtermImpl::eraseEcmaRow(u16 row) {
     if (eraseModeAll) {
         eraseRow(row);
         return;
@@ -2772,16 +2527,14 @@ void VtermImpl<traced>::eraseEcmaRow(u16 row) {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::selectiveEraseRangeInRow(u16 row, u16 start, u16 count) {
+void VtermImpl::selectiveEraseRangeInRow(u16 row, u16 start, u16 count) {
     if (!count) {
         return;
     }
     cf->selectiveEraseCells(row, start, count, eraseAttrs, TerminalCell::decProtection);
 }
 
-template <bool traced>
-void VtermImpl<traced>::rectangleOrigin(u16& rowBase, u16& columnBase, u16& rowLimit, u16& columnLimit) const {
+void VtermImpl::rectangleOrigin(u16& rowBase, u16& columnBase, u16& rowLimit, u16& columnLimit) const {
     if (originMode == OriginMode::ScrollingRegion) {
         rowBase = marginTop;
         columnBase = hMargin;
@@ -2795,16 +2548,15 @@ void VtermImpl<traced>::rectangleOrigin(u16& rowBase, u16& columnBase, u16& rowL
     }
 }
 
-template <bool traced>
-bool VtermImpl<traced>::rectangleFromParams(size_t offset, Rectangle& rectangle) const {
+bool VtermImpl::rectangleFromParams(const ParserParameters& parameters, size_t offset, Rectangle& rectangle) const {
     u16 rowBase, columnBase, rowLimit, columnLimit;
     rectangleOrigin(rowBase, columnBase, rowLimit, columnLimit);
     const u32 rows = rowLimit - rowBase;
     const u32 columns = columnLimit - columnBase;
-    const u32 topParam = offset < parser.parameterCount ? parser.parameters[offset] : 0;
-    const u32 leftParam = offset + 1 < parser.parameterCount ? parser.parameters[offset + 1] : 0;
-    const u32 bottomParam = offset + 2 < parser.parameterCount ? parser.parameters[offset + 2] : 0;
-    const u32 rightParam = offset + 3 < parser.parameterCount ? parser.parameters[offset + 3] : 0;
+    const u32 topParam = offset < parameters.count ? parameters.values[offset] : 0;
+    const u32 leftParam = offset + 1 < parameters.count ? parameters.values[offset + 1] : 0;
+    const u32 bottomParam = offset + 2 < parameters.count ? parameters.values[offset + 2] : 0;
+    const u32 rightParam = offset + 3 < parameters.count ? parameters.values[offset + 3] : 0;
     const u32 rawTop = topParam ? topParam : 1;
     const u32 rawLeft = leftParam ? leftParam : 1;
     const u32 rawBottom = bottomParam ? bottomParam : rows;
@@ -2820,8 +2572,7 @@ bool VtermImpl<traced>::rectangleFromParams(size_t offset, Rectangle& rectangle)
     return true;
 }
 
-template <bool traced>
-void VtermImpl<traced>::inputGraphicChar(unsigned char ch) {
+void VtermImpl::inputGraphicChar(unsigned char ch) {
     if ((ch & 0x80) == 0) {
         if (utf8dec.checkPrematureEOS()) {
             placeGraphicChar();
@@ -2863,8 +2614,7 @@ void VtermImpl<traced>::inputGraphicChar(unsigned char ch) {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::resetGraphemeInput() {
+void VtermImpl::resetGraphemeInput() {
     if (inputGraphemeScreen == nullptr) {
         return;
     }
@@ -2878,8 +2628,7 @@ void VtermImpl<traced>::resetGraphemeInput() {
     inputGraphemeSemantic = 0;
 }
 
-template <bool traced>
-u8 VtermImpl<traced>::codepointData(u32 codepoint) {
+u8 VtermImpl::codepointData(u32 codepoint) {
     constexpr u8 valid = 0x80;
     constexpr u8 simple = 0x04;
     u8& cached = (*unicodeProperties)[codepoint];
@@ -2890,8 +2639,7 @@ u8 VtermImpl<traced>::codepointData(u32 codepoint) {
     return cached;
 }
 
-template <bool traced>
-void VtermImpl<traced>::placeGraphicChar() {
+void VtermImpl::placeGraphicChar() {
     const u32 pt = utf8dec.getUnicode();
     if (inputGraphemeScreen != cf) {
         inputGraphemeBreaker.reset();
@@ -2900,13 +2648,11 @@ void VtermImpl<traced>::placeGraphicChar() {
     placeGraphicChar(inputGraphemeBreaker.breakBefore(pt, (data & 0x04) != 0), data & 0x03);
 }
 
-template <bool traced>
-void VtermImpl<traced>::placeGraphicChar(bool graphemeBoundary) {
+void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
     placeGraphicChar(graphemeBoundary, codepointData(utf8dec.getUnicode()) & 0x03);
 }
 
-template <bool traced>
-void VtermImpl<traced>::placeGraphicChar(bool graphemeBoundary, u8 width) {
+void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
     u32 pt = utf8dec.getUnicode();
     u8 w = width;
     const u8 lineAttribute = cf->lineAttribute(posY);
@@ -3023,9 +2769,8 @@ void VtermImpl<traced>::placeGraphicChar(bool graphemeBoundary, u8 width) {
     }
 }
 
-template <bool traced>
 template <bool insert>
-void VtermImpl<traced>::placeAsciiRun(const u8* input, size_t size) {
+void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
     bool checkBoundary = true;
     while (size > 0) {
         bool graphemeBoundary = true;
@@ -3098,8 +2843,7 @@ void VtermImpl<traced>::placeAsciiRun(const u8* input, size_t size) {
 // Decodes complete UTF-8 sequences ahead and batches independent glyphs into
 // span writes.  Joining codepoints fall back to the standard cluster path;
 // invalid or split sequences stop before the streaming decoder takes over.
-template <bool traced>
-int VtermImpl<traced>::placeUtf8Run(const u8* input, int size) {
+int VtermImpl::placeUtf8Run(const u8* input, int size) {
     constexpr size_t batchLimit = 64;
     u32 batch[batchLimit];
     u8 widths[batchLimit];
@@ -3187,9 +2931,8 @@ int VtermImpl<traced>::placeUtf8Run(const u8* input, int size) {
     return consumed;
 }
 
-template <bool traced>
 template <bool hasWide>
-void VtermImpl<traced>::placePreparedRun(const u32* input, const u8* widths, size_t size) {
+void VtermImpl::placePreparedRun(const u32* input, const u8* widths, size_t size) {
     while (size > 0) {
         if (autoWrapMode && lastCol) {
             cf->setWrapped(posY, posX);
@@ -3262,15 +3005,13 @@ void VtermImpl<traced>::placePreparedRun(const u32* input, const u8* widths, siz
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::inp_LF() {
+void VtermImpl::inp_LF() {
     if (esc_IND()) {
         eraseRangeInRow(posY, posX, nColsEff - posX);
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::inp_CR() {
+void VtermImpl::inp_CR() {
     if (originMode == OriginMode::Absolute && posX < hMargin) {
         posX = 0;
     } else {
@@ -3279,8 +3020,7 @@ void VtermImpl<traced>::inp_CR() {
     lastCol = false;
 }
 
-template <bool traced>
-void VtermImpl<traced>::jumpToNextTabStop() {
+void VtermImpl::jumpToNextTabStop() {
     const u16 previous = posX;
     const bool insideMargins = isCursorInsideMargins();
     const u16 left = insideMargins ? hMargin : 0;
@@ -3299,8 +3039,7 @@ void VtermImpl<traced>::jumpToNextTabStop() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::inp_HT() {
+void VtermImpl::inp_HT() {
     if (moreFixMode && lastCol && autoWrapMode) {
         esc_IND();
         posX = 0;
@@ -3309,8 +3048,7 @@ void VtermImpl<traced>::inp_HT() {
     jumpToNextTabStop();
 }
 
-template <bool traced>
-void VtermImpl<traced>::showCursor() {
+void VtermImpl::showCursor() {
     if (showCursorMode) {
         cf->setCursorPos(posY, posX);
         using CS = TerminalCursor::Style;
@@ -3318,20 +3056,17 @@ void VtermImpl<traced>::showCursor() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::hideCursor() {
+void VtermImpl::hideCursor() {
     using CS = TerminalCursor::Style;
     cf->setCursorStyle(CS::hidden);
 }
 
-template <bool traced>
-bool VtermImpl<traced>::esc_IND() {
+bool VtermImpl::esc_IND() {
     const bool scrolled = performIndex();
     return scrolled;
 }
 
-template <bool traced>
-bool VtermImpl<traced>::performIndex() {
+bool VtermImpl::performIndex() {
     if (autoPrintMode) {
         printLine(posY);
     }
@@ -3348,22 +3083,19 @@ bool VtermImpl<traced>::performIndex() {
     return scrolled;
 }
 
-template <bool traced>
-std::string VtermImpl<traced>::printableLine(u16 row) const {
+std::string VtermImpl::printableLine(u16 row) const {
     std::string result;
     cf->appendPrintableLine(row, result);
     return result;
 }
 
-template <bool traced>
-void VtermImpl<traced>::printLine(u16 row) {
+void VtermImpl::printLine(u16 row) {
     const std::string line = printableLine(std::min<u16>(row, composer.rows - 1));
     host.print(stringView(line));
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_MC(bool privateMode) {
-    const u32 operation = parser.parameters[0];
+void VtermImpl::csi_MC(const ParserParameters& parameters, bool privateMode) {
+    const u32 operation = parameters.values[0];
     if (privateMode) {
         if (operation == 1) {
             printLine(posY);
@@ -3392,10 +3124,9 @@ void VtermImpl<traced>::csi_MC(bool privateMode) {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DECLL() {
-    for (size_t index = 0; index < parser.parameterCount; ++index) {
-        const u32 operation = parser.parameters[index];
+void VtermImpl::csi_DECLL(const ParserParameters& parameters) {
+    for (size_t index = 0; index < parameters.count; ++index) {
+        const u32 operation = parameters.values[index];
         if (operation == 0) {
             ledState = 0;
         } else if (operation >= 1 && operation <= 3) {
@@ -3407,8 +3138,260 @@ void VtermImpl<traced>::csi_DECLL() {
     host.leds(ledState);
 }
 
-template <bool traced>
-void VtermImpl<traced>::esc_RI() {
+void VtermImpl::csi_SGR(const ParserParameters& parameters) {
+    const auto parseColor = [&](size_t& index, CellColor& color, int* palette) {
+        if (index + 1 >= parameters.count) {
+            return false;
+        }
+        const bool colon = parameters.separators[index + 1] == ':';
+        const u32 mode = parameters.values[++index];
+        if (colon) {
+            const size_t first = index + 1;
+            size_t end = index;
+            while (end + 1 < parameters.count && parameters.separators[end + 1] == ':') {
+                ++end;
+            }
+            index = end;
+
+            if (mode == 5) {
+                if (end - first + 1 != 1 || parameters.values[first] > 255) {
+                    return false;
+                }
+                color = CellColor::indexed(parameters.values[first]);
+                if (palette != nullptr) {
+                    *palette = parameters.values[first];
+                }
+                return true;
+            }
+            const size_t count = end - first + 1;
+            const size_t rgbFirst = first + (count >= 4);
+            if (mode != 2 || count < 3 || (count == 3 && !parameters.present[first]) || !parameters.present[rgbFirst] || !parameters.present[rgbFirst + 1] || !parameters.present[rgbFirst + 2] || parameters.values[rgbFirst] > 255 || parameters.values[rgbFirst + 1] > 255 || parameters.values[rgbFirst + 2] > 255) {
+                return false;
+            }
+            color = CellColor::direct({
+                (u8)(parameters.values[rgbFirst]),
+                (u8)(parameters.values[rgbFirst + 1]),
+                (u8)(parameters.values[rgbFirst + 2]),
+            });
+            if (palette != nullptr) {
+                *palette = -1;
+            }
+            return true;
+        }
+
+        if (mode == 5) {
+            if (index + 1 >= parameters.count) {
+                return false;
+            }
+            const unsigned paletteIndex = parameters.values[++index];
+            if (paletteIndex > 255) {
+                return false;
+            }
+            color = CellColor::indexed(paletteIndex);
+            if (palette != nullptr) {
+                *palette = paletteIndex;
+            }
+            return true;
+        }
+        if (mode != 2) {
+            return false;
+        }
+
+        const size_t first = index + 1;
+        const size_t available = parameters.count - first;
+        index += min<size_t>(available, 3);
+        if (available < 3 || parameters.values[first] > 255 || parameters.values[first + 1] > 255 || parameters.values[first + 2] > 255) {
+            return false;
+        }
+        color = CellColor::direct({
+            (u8)(parameters.values[first]),
+            (u8)(parameters.values[first + 1]),
+            (u8)(parameters.values[first + 2]),
+        });
+        index = first + 2;
+        if (palette != nullptr) {
+            *palette = -1;
+        }
+        return true;
+    };
+
+    for (size_t index = 0; index < parameters.count; ++index) {
+        const u32 attribute = parameters.values[index];
+        switch (attribute) {
+            case 0:
+                resetAttrs();
+                break;
+            case 1:
+                attrs.bold = 1;
+                setFgFromPalIx();
+                break;
+            case 2:
+                attrs.faint = 1;
+                break;
+            case 3:
+                attrs.italic = 1;
+                break;
+            case 4:
+                if (index + 1 < parameters.count && parameters.separators[index + 1] == ':') {
+                    const u32 style = parameters.values[++index];
+                    if (style <= 5) {
+                        attrs.underline_style = style;
+                    }
+                } else {
+                    attrs.underline_style = 1;
+                }
+                break;
+            case 5:
+            case 6:
+                attrs.blink = 1;
+                break;
+            case 7:
+                if (!reverseVideo) {
+                    reverseVideo = true;
+                    attrs.inverse = 1;
+                }
+                break;
+            case 8:
+                attrs.conceal = 1;
+                break;
+            case 9:
+                attrs.strike = 1;
+                break;
+            case 10:
+            case 11:
+            case 12:
+            case 13:
+            case 14:
+            case 15:
+            case 16:
+            case 17:
+            case 18:
+            case 19:
+                break;
+            case 21:
+                attrs.underline_style = 2;
+                break;
+            case 22:
+                attrs.bold = 0;
+                attrs.faint = 0;
+                setFgFromPalIx();
+                break;
+            case 23:
+                attrs.italic = 0;
+                break;
+            case 24:
+                attrs.underline_style = 0;
+                break;
+            case 25:
+                attrs.blink = 0;
+                break;
+            case 27:
+                if (reverseVideo) {
+                    reverseVideo = false;
+                    attrs.inverse = 0;
+                }
+                break;
+            case 28:
+                attrs.conceal = 0;
+                break;
+            case 29:
+                attrs.strike = 0;
+                break;
+            case 30:
+            case 31:
+            case 32:
+            case 33:
+            case 34:
+            case 35:
+            case 36:
+            case 37:
+                fgPalIx = attribute - 30;
+                setFgFromPalIx();
+                break;
+            case 38: {
+                CellColor color = attrForeground();
+                if (parseColor(index, color, &fgPalIx)) {
+                    setAttrForeground(color);
+                }
+                if (underlineColorDefault) {
+                    setAttrUnderlineColor(attrForeground());
+                }
+            } break;
+            case 39:
+                fgPalIx = defaultFgPalIx;
+                setFgFromPalIx();
+                break;
+            case 40:
+            case 41:
+            case 42:
+            case 43:
+            case 44:
+            case 45:
+            case 46:
+            case 47:
+                bgPalIx = attribute - 40;
+                setBgFromPalIx();
+                break;
+            case 48: {
+                CellColor color = attrBackground();
+                if (parseColor(index, color, &bgPalIx)) {
+                    setAttrBackground(color);
+                }
+            } break;
+            case 49:
+                bgPalIx = defaultBgPalIx;
+                setBgFromPalIx();
+                break;
+            case 53:
+                attrs.overline = 1;
+                break;
+            case 55:
+                attrs.overline = 0;
+                break;
+            case 58: {
+                underlinePalIx = -1;
+                CellColor color = attrUnderlineColor();
+                if (parseColor(index, color, &underlinePalIx)) {
+                    setAttrUnderlineColor(color);
+                    underlineColorDefault = false;
+                }
+            } break;
+            case 59:
+                underlineColorDefault = true;
+                setAttrUnderlineColor(attrForeground());
+                break;
+            case 90:
+            case 91:
+            case 92:
+            case 93:
+            case 94:
+            case 95:
+            case 96:
+            case 97:
+                fgPalIx = attribute - 82;
+                setFgFromPalIx();
+                break;
+            case 100:
+            case 101:
+            case 102:
+            case 103:
+            case 104:
+            case 105:
+            case 106:
+            case 107:
+                bgPalIx = attribute - 92;
+                setBgFromPalIx();
+                break;
+            default:
+                break;
+        }
+    }
+    if (underlineColorDefault) {
+        setAttrUnderlineColor(reverseVideo ? attrBackground() : attrForeground());
+    }
+}
+
+void VtermImpl::esc_RI() {
     if (posY == marginTop) {
         if (posX >= hMargin && posX < nColsEff) {
             csi_SD(1);
@@ -3419,42 +3402,39 @@ void VtermImpl<traced>::esc_RI() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_ecma48_SL() {
+void VtermImpl::csi_ecma48_SL(const ParserParameters& parameters) {
     if (isCursorInsideMargins()) {
-        u32 arg = parser.parameters[0] ? parser.parameters[0] : 1u;
+        u32 arg = parameters.values[0] ? parameters.values[0] : 1u;
         arg = std::min<u32>(arg, nColsEff - hMargin);
         deleteCols(hMargin, (u16)(arg));
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_ecma48_SR() {
+void VtermImpl::csi_ecma48_SR(const ParserParameters& parameters) {
     if (isCursorInsideMargins()) {
-        u32 arg = parser.parameters[0] ? parser.parameters[0] : 1u;
+        u32 arg = parameters.values[0] ? parameters.values[0] : 1u;
         arg = std::min<u32>(arg, nColsEff - hMargin);
         insertCols(hMargin, (u16)(arg));
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DECSCUSR() {
+void VtermImpl::csi_DECSCUSR(const ParserParameters& parameters) {
     using CS = TerminalCursor::Style;
-    switch (parser.parameters[0]) {
+    switch (parameters.values[0]) {
         case 0:
         case 1:
         case 2:
-            cursorStyleParam = parser.parameters[0] == 0 ? 1 : parser.parameters[0];
+            cursorStyleParam = parameters.values[0] == 0 ? 1 : parameters.values[0];
             cursorShape = CS::filled_block;
             break;
         case 3:
         case 4:
-            cursorStyleParam = parser.parameters[0];
+            cursorStyleParam = parameters.values[0];
             cursorShape = CS::underline;
             break;
         case 5:
         case 6:
-            cursorStyleParam = parser.parameters[0];
+            cursorStyleParam = parameters.values[0];
             cursorShape = CS::bar;
             break;
         default:
@@ -3467,26 +3447,23 @@ void VtermImpl<traced>::csi_DECSCUSR() {
     frame_alt->setBlinkState(true, cursorBlinkMode);
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DECIC() {
-    u32 arg = parser.parameters[0] ? parser.parameters[0] : 1u;
+void VtermImpl::csi_DECIC(const ParserParameters& parameters) {
+    u32 arg = parameters.values[0] ? parameters.values[0] : 1u;
     if (isCursorInsideMargins()) {
         arg = min<u32>(arg, nColsEff - posX);
         insertCols(posX, (u16)(arg));
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DECDC() {
-    u32 arg = parser.parameters[0] ? parser.parameters[0] : 1u;
+void VtermImpl::csi_DECDC(const ParserParameters& parameters) {
+    u32 arg = parameters.values[0] ? parameters.values[0] : 1u;
     if (isCursorInsideMargins()) {
         arg = min<u32>(arg, nColsEff - posX);
         deleteCols(posX, (u16)(arg));
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::esc_FI() {
+void VtermImpl::esc_FI() {
     if (posX >= hMargin && posX == nColsEff - 1) {
         deleteCols(hMargin, 1);
         lastCol = false;
@@ -3496,8 +3473,7 @@ void VtermImpl<traced>::esc_FI() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::esc_BI() {
+void VtermImpl::esc_BI() {
     if (posX == hMargin && posX < nColsEff) {
         insertCols(hMargin, 1);
         lastCol = false;
@@ -3507,14 +3483,12 @@ void VtermImpl<traced>::esc_BI() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::esc_NEL() {
+void VtermImpl::esc_NEL() {
     esc_IND();
     inp_CR();
 }
 
-template <bool traced>
-void VtermImpl<traced>::esc_HTS() {
+void VtermImpl::esc_HTS() {
     if (!tabStopsCustomized) {
         for (unsigned column = 8; column < composer.columns; column += 8) {
             tabStops.push_back((u16)(column));
@@ -3527,37 +3501,31 @@ void VtermImpl<traced>::esc_HTS() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::esc_SPA() {
+void VtermImpl::esc_SPA() {
     attrs.protected_char |= TerminalCell::isoProtection;
 }
 
-template <bool traced>
-void VtermImpl<traced>::esc_EPA() {
+void VtermImpl::esc_EPA() {
     attrs.protected_char &= ~TerminalCell::isoProtection;
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_SCOSC_SLRM() {
+void VtermImpl::csi_SCOSC_SLRM(const ParserParameters& parameters) {
     if (horizMarginMode) {
-        csi_SLRM();
+        csi_SLRM(parameters);
     } else {
         csi_SCOSC();
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_SCOSC() {
+void VtermImpl::csi_SCOSC() {
     esc_DECSC();
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_SCORC() {
+void VtermImpl::csi_SCORC() {
     esc_DECRC();
 }
 
-template <bool traced>
-void VtermImpl<traced>::esc_DECSC() {
+void VtermImpl::esc_DECSC() {
     savedCursor->posX = posX;
     savedCursor->posY = posY;
     savedCursor->lastCol = lastCol;
@@ -3568,8 +3536,7 @@ void VtermImpl<traced>::esc_DECSC() {
     savedCursor->isSet = true;
 }
 
-template <bool traced>
-void VtermImpl<traced>::esc_DECRC() {
+void VtermImpl::esc_DECRC() {
     if (savedCursor->isSet) {
         posX = savedCursor->posX;
         posY = savedCursor->posY;
@@ -3583,27 +3550,24 @@ void VtermImpl<traced>::esc_DECRC() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_CUU() {
-    u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
+void VtermImpl::csi_CUU(const ParserParameters& parameters) {
+    u32 arg = parameters.values[0] ? parameters.values[0] : 1;
     const u16 top = posY >= marginTop ? marginTop : 0;
     arg = std::min<u32>(arg, posY - top);
     posY -= arg;
     lastCol = false;
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_CUD() {
-    u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
+void VtermImpl::csi_CUD(const ParserParameters& parameters) {
+    u32 arg = parameters.values[0] ? parameters.values[0] : 1;
     const u16 bottom = posY < marginBottom ? marginBottom : composer.rows;
     arg = std::min<u32>(arg, bottom - posY - 1);
     posY += arg;
     lastCol = false;
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_CUF() {
-    u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
+void VtermImpl::csi_CUF(const ParserParameters& parameters) {
+    u32 arg = parameters.values[0] ? parameters.values[0] : 1;
     const bool insideMargins = posX >= hMargin && posX < nColsEff;
     const u16 right = insideMargins ? nColsEff : composer.columns;
     arg = std::min<u32>(arg, right - posX - 1);
@@ -3611,13 +3575,11 @@ void VtermImpl<traced>::csi_CUF() {
     lastCol = false;
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_CUB() {
-    moveCursorBackward(parser.parameters[0] ? parser.parameters[0] : 1);
+void VtermImpl::csi_CUB(const ParserParameters& parameters) {
+    moveCursorBackward(parameters.values[0] ? parameters.values[0] : 1);
 }
 
-template <bool traced>
-void VtermImpl<traced>::moveCursorBackward(u32 count) {
+void VtermImpl::moveCursorBackward(u32 count) {
     const bool insideMargins = posX >= hMargin && posX < nColsEff;
     if (count && lastCol && autoWrapMode && (reverseWrapMode || extendedReverseWrapMode)) {
         lastCol = false;
@@ -3646,21 +3608,18 @@ void VtermImpl<traced>::moveCursorBackward(u32 count) {
     lastCol = false;
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_CNL() {
-    csi_CUD();
+void VtermImpl::csi_CNL(const ParserParameters& parameters) {
+    csi_CUD(parameters);
     inp_CR();
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_CPL() {
-    csi_CUU();
+void VtermImpl::csi_CPL(const ParserParameters& parameters) {
+    csi_CUU(parameters);
     inp_CR();
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_CHA() {
-    u32 col = parser.parameters[0] ? parser.parameters[0] : 1;
+void VtermImpl::csi_CHA(const ParserParameters& parameters) {
+    u32 col = parameters.values[0] ? parameters.values[0] : 1;
     if (originMode == OriginMode::ScrollingRegion) {
         col = std::max<u32>(1, std::min<u32>(col, nColsEff - hMargin));
         posX = hMargin + col - 1;
@@ -3671,22 +3630,19 @@ void VtermImpl<traced>::csi_CHA() {
     lastCol = false;
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_HPA() {
-    csi_CHA();
+void VtermImpl::csi_HPA(const ParserParameters& parameters) {
+    csi_CHA(parameters);
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_HPR() {
-    const u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
+void VtermImpl::csi_HPR(const ParserParameters& parameters) {
+    const u32 arg = parameters.values[0] ? parameters.values[0] : 1;
     const u16 right = originMode == OriginMode::ScrollingRegion ? nColsEff : composer.columns;
     posX = (u16)(std::min<u64>((u64)(posX) + arg, right - 1));
     lastCol = false;
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_VPA() {
-    u32 row = parser.parameters[0] ? parser.parameters[0] : 1;
+void VtermImpl::csi_VPA(const ParserParameters& parameters) {
+    u32 row = parameters.values[0] ? parameters.values[0] : 1;
     if (originMode == OriginMode::ScrollingRegion) {
         row = std::max<u32>(1, std::min<u32>(row, marginBottom - marginTop));
         posY = marginTop + row - 1;
@@ -3697,18 +3653,16 @@ void VtermImpl<traced>::csi_VPA() {
     lastCol = false;
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_VPR() {
-    const u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
+void VtermImpl::csi_VPR(const ParserParameters& parameters) {
+    const u32 arg = parameters.values[0] ? parameters.values[0] : 1;
     const u16 bottom = originMode == OriginMode::ScrollingRegion ? marginBottom : composer.rows;
     posY = (u16)(std::min<u64>((u64)(posY) + arg, bottom - 1));
     lastCol = false;
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_CUP() {
-    u32 row = parser.parameters[0] ? parser.parameters[0] : 1;
-    u32 col = (parser.parameterCount > 1 && parser.parameters[1]) ? parser.parameters[1] : 1;
+void VtermImpl::csi_CUP(const ParserParameters& parameters) {
+    u32 row = parameters.values[0] ? parameters.values[0] : 1;
+    u32 col = (parameters.count > 1 && parameters.values[1]) ? parameters.values[1] : 1;
     switch (originMode) {
         case OriginMode::Absolute:
             row = std::max<u32>(1, std::min<u32>(row, composer.rows)) - 1;
@@ -3725,17 +3679,15 @@ void VtermImpl<traced>::csi_CUP() {
     lastCol = false;
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_SU() {
-    u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
+void VtermImpl::csi_SU(const ParserParameters& parameters) {
+    u32 arg = parameters.values[0] ? parameters.values[0] : 1;
     arg = std::min<u32>(arg, marginBottom - marginTop);
     const bool pendingWrap = lastCol;
     scrollRegionUp((u16)(arg));
     lastCol = pendingWrap;
 }
 
-template <bool traced>
-void VtermImpl<traced>::scrollRegionUp(u16 count) {
+void VtermImpl::scrollRegionUp(u16 count) {
     if (horizMarginMode) {
         deleteRows(marginTop, count);
     } else {
@@ -3744,8 +3696,7 @@ void VtermImpl<traced>::scrollRegionUp(u16 count) {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::scrollRegionDown(u16 count) {
+void VtermImpl::scrollRegionDown(u16 count) {
     if (horizMarginMode) {
         insertRows(marginTop, count);
     } else {
@@ -3754,17 +3705,15 @@ void VtermImpl<traced>::scrollRegionDown(u16 count) {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_SD(u32 count) {
+void VtermImpl::csi_SD(u32 count) {
     count = std::min<u32>(count, marginBottom - marginTop);
     const bool pendingWrap = lastCol;
     scrollRegionDown((u16)(count));
     lastCol = pendingWrap;
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_CHT() {
-    u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
+void VtermImpl::csi_CHT(const ParserParameters& parameters) {
+    u32 arg = parameters.values[0] ? parameters.values[0] : 1;
     arg = std::min<u32>(arg, composer.columns);
     if (arg == 1) {
         inp_HT();
@@ -3775,9 +3724,8 @@ void VtermImpl<traced>::csi_CHT() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_CBT() {
-    u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
+void VtermImpl::csi_CBT(const ParserParameters& parameters) {
+    u32 arg = parameters.values[0] ? parameters.values[0] : 1;
     arg = std::min<u32>(arg, composer.columns);
     for (u32 k = 0; k < arg; ++k) {
         const u16 left = originMode == OriginMode::ScrollingRegion ? hMargin : 0;
@@ -3800,13 +3748,12 @@ void VtermImpl<traced>::csi_CBT() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_REP() {
+void VtermImpl::csi_REP(const ParserParameters& parameters) {
     const u32 preceding = utf8dec.getUnicode();
     if (!preceding || codepointWidth(preceding) == 0) {
         return;
     }
-    u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
+    u32 arg = parameters.values[0] ? parameters.values[0] : 1;
     const u64 observableCells = ((u64)(opts.saveLines) + composer.rows + 1) * composer.columns;
     if (arg > observableCells) {
         arg = (u32)(observableCells + (arg - observableCells) % composer.columns);
@@ -3816,10 +3763,9 @@ void VtermImpl<traced>::csi_REP() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_ED() {
+void VtermImpl::csi_ED(const ParserParameters& parameters) {
     normalizeCursorPos();
-    switch (parser.parameters[0]) {
+    switch (parameters.values[0]) {
         case 0:
             eraseEcmaRangeInRow(posY, posX, composer.columns - posX);
             for (u16 pY = posY + 1; pY < composer.rows; ++pY) {
@@ -3846,10 +3792,9 @@ void VtermImpl<traced>::csi_ED() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_EL() {
+void VtermImpl::csi_EL(const ParserParameters& parameters) {
     normalizeCursorPos();
-    switch (parser.parameters[0]) {
+    switch (parameters.values[0]) {
         case 0:
             eraseEcmaRangeInRow(posY, posX, composer.columns - posX);
             break;
@@ -3864,17 +3809,16 @@ void VtermImpl<traced>::csi_EL() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DECSED() {
+void VtermImpl::csi_DECSED(const ParserParameters& parameters) {
     normalizeCursorPos();
-    if (parser.parameters[0] == 0 || parser.parameters[0] == 2) {
-        const u16 firstRow = parser.parameters[0] == 2 ? 0 : posY;
+    if (parameters.values[0] == 0 || parameters.values[0] == 2) {
+        const u16 firstRow = parameters.values[0] == 2 ? 0 : posY;
         const u16 lastRow = composer.rows - 1;
         for (u16 row = firstRow; row <= lastRow; ++row) {
-            const u16 first = row == posY && parser.parameters[0] == 0 ? posX : 0;
+            const u16 first = row == posY && parameters.values[0] == 0 ? posX : 0;
             selectiveEraseRangeInRow(row, first, composer.columns - first);
         }
-    } else if (parser.parameters[0] == 1) {
+    } else if (parameters.values[0] == 1) {
         for (u16 row = 0; row <= posY; ++row) {
             const u16 count = row == posY ? posX + 1 : composer.columns;
             selectiveEraseRangeInRow(row, 0, count);
@@ -3882,42 +3826,38 @@ void VtermImpl<traced>::csi_DECSED() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DECSEL() {
+void VtermImpl::csi_DECSEL(const ParserParameters& parameters) {
     normalizeCursorPos();
-    if (parser.parameters[0] == 0) {
+    if (parameters.values[0] == 0) {
         selectiveEraseRangeInRow(posY, posX, composer.columns - posX);
-    } else if (parser.parameters[0] == 1) {
+    } else if (parameters.values[0] == 1) {
         selectiveEraseRangeInRow(posY, 0, posX + 1);
-    } else if (parser.parameters[0] == 2) {
+    } else if (parameters.values[0] == 2) {
         selectiveEraseRangeInRow(posY, 0, composer.columns);
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DECSCA() {
-    if (parser.parameters[0] == 1) {
+void VtermImpl::csi_DECSCA(const ParserParameters& parameters) {
+    if (parameters.values[0] == 1) {
         attrs.protected_char |= TerminalCell::decProtection;
     } else {
         attrs.protected_char &= ~TerminalCell::decProtection;
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DECFRA() {
-    if (parser.parameters[0] >= 32 && parser.parameters[0] <= 0x10ffff) {
+void VtermImpl::csi_DECFRA(const ParserParameters& parameters) {
+    if (parameters.values[0] >= 32 && parameters.values[0] <= 0x10ffff) {
         Rectangle rectangle;
-        if (!rectangleFromParams(1, rectangle)) {
+        if (!rectangleFromParams(parameters, 1, rectangle)) {
             return;
         }
-        cf->fillRectangle(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, parser.parameters[0], attrs, eraseAttrs);
+        cf->fillRectangle(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, parameters.values[0], attrs, eraseAttrs);
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DECERA(bool selective) {
+void VtermImpl::csi_DECERA(const ParserParameters& parameters, bool selective) {
     Rectangle rectangle;
-    if (!rectangleFromParams(0, rectangle)) {
+    if (!rectangleFromParams(parameters, 0, rectangle)) {
         return;
     }
     for (u16 y = rectangle.top; y < rectangle.bottom; ++y) {
@@ -3929,16 +3869,15 @@ void VtermImpl<traced>::csi_DECERA(bool selective) {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DECCRA() {
+void VtermImpl::csi_DECCRA(const ParserParameters& parameters) {
     Rectangle source;
-    if (!rectangleFromParams(0, source)) {
+    if (!rectangleFromParams(parameters, 0, source)) {
         return;
     }
     u16 rowBase, columnBase, rowLimit, columnLimit;
     rectangleOrigin(rowBase, columnBase, rowLimit, columnLimit);
-    const u32 targetRowParam = 5 < parser.parameterCount ? parser.parameters[5] : 0;
-    const u32 targetColumnParam = 6 < parser.parameterCount ? parser.parameters[6] : 0;
+    const u32 targetRowParam = 5 < parameters.count ? parameters.values[5] : 0;
+    const u32 targetColumnParam = 6 < parameters.count ? parameters.values[6] : 0;
     const u32 targetRow = targetRowParam ? targetRowParam : 1;
     const u32 targetColumn = targetColumnParam ? targetColumnParam : 1;
     const u16 targetTop = rowBase + std::min<u32>(targetRow, rowLimit - rowBase) - 1;
@@ -3948,53 +3887,48 @@ void VtermImpl<traced>::csi_DECCRA() {
     cf->copyRectangle(source.top, source.left, targetTop, targetLeft, height, width, eraseAttrs);
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DECCARA(bool reverse) {
-    if (parser.parameterCount >= 5) {
+void VtermImpl::csi_DECCARA(const ParserParameters& parameters, bool reverse) {
+    if (parameters.count >= 5) {
         Rectangle rectangle;
-        if (!rectangleFromParams(0, rectangle)) {
+        if (!rectangleFromParams(parameters, 0, rectangle)) {
             return;
         }
-        cf->changeRectangleAttributes(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, parser.parameters + 4, parser.parameterCount - 4, reverse);
+        cf->changeRectangleAttributes(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, parameters.values + 4, parameters.count - 4, reverse);
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DECRQCRA() {
-    if (parser.parameterCount >= 6) {
+void VtermImpl::csi_DECRQCRA(const ParserParameters& parameters) {
+    if (parameters.count >= 6) {
         Rectangle rectangle;
-        if (!rectangleFromParams(2, rectangle)) {
+        if (!rectangleFromParams(parameters, 2, rectangle)) {
             return;
         }
         const u16 checksum = cf->checksum(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right);
         StringBuilder response;
-        response << parser.parameters[0] << StringView(u8"!~") << Hex{checksum, 4, true};
+        response << parameters.values[0] << StringView(u8"!~") << Hex{checksum, 4, true};
         writeDcsResponse(StringView(response));
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_IL() {
+void VtermImpl::csi_IL(const ParserParameters& parameters) {
     if (isCursorInsideMargins()) {
-        u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
+        u32 arg = parameters.values[0] ? parameters.values[0] : 1;
         arg = std::min<u32>(arg, marginBottom - posY);
         insertRows(posY, (u16)(arg));
         inp_CR();
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DL() {
+void VtermImpl::csi_DL(const ParserParameters& parameters) {
     if (isCursorInsideMargins()) {
-        u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
+        u32 arg = parameters.values[0] ? parameters.values[0] : 1;
         arg = std::min<u32>(arg, marginBottom - posY);
         deleteRows(posY, (u16)(arg));
         inp_CR();
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_ICH(u32 count) {
+void VtermImpl::csi_ICH(u32 count) {
     if (isCursorInsideMargins()) {
         count = min<u32>(count, nColsEff - posX);
         cf->insertCells(posY, posX, nColsEff, (u16)(count), eraseAttrs);
@@ -4002,30 +3936,27 @@ void VtermImpl<traced>::csi_ICH(u32 count) {
     lastCol = false;
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DCH() {
+void VtermImpl::csi_DCH(const ParserParameters& parameters) {
     if (posX >= hMargin && posX < nColsEff) {
-        u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
+        u32 arg = parameters.values[0] ? parameters.values[0] : 1;
         arg = min<u32>(arg, nColsEff - posX);
         cf->deleteCells(posY, posX, nColsEff, (u16)(arg), eraseAttrs);
     }
     lastCol = false;
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_ECH() {
-    u32 arg = parser.parameters[0] ? parser.parameters[0] : 1;
+void VtermImpl::csi_ECH(const ParserParameters& parameters) {
+    u32 arg = parameters.values[0] ? parameters.values[0] : 1;
     const u32 len = composer.columns - posX;
     arg = std::min(arg, len);
     eraseEcmaRangeInRow(posY, posX, arg);
     lastCol = false;
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_STBM() {
-    if (parser.parameterCount <= 2) {
-        u32 newMarginTop = parser.parameters[0] > 0 ? parser.parameters[0] - 1 : 0;
-        u32 newMarginBottom = parser.parameterCount < 2 || parser.parameters[1] == 0 ? composer.rows : parser.parameters[1];
+void VtermImpl::csi_STBM(const ParserParameters& parameters) {
+    if (parameters.count <= 2) {
+        u32 newMarginTop = parameters.values[0] > 0 ? parameters.values[0] - 1 : 0;
+        u32 newMarginBottom = parameters.count < 2 || parameters.values[1] == 0 ? composer.rows : parameters.values[1];
 
         const bool illegal = newMarginTop >= composer.rows || newMarginBottom > composer.rows || newMarginBottom <= newMarginTop + 1;
         if (!illegal && (newMarginTop != marginTop || newMarginBottom != marginBottom)) {
@@ -4044,11 +3975,10 @@ void VtermImpl<traced>::csi_STBM() {
     lastCol = false;
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_SLRM() {
-    if (parser.parameterCount <= 2) {
-        u32 newMarginLeft = parser.parameters[0] > 0 ? parser.parameters[0] - 1 : 0;
-        u32 newMarginRight = parser.parameterCount < 2 || parser.parameters[1] == 0 ? composer.columns : parser.parameters[1];
+void VtermImpl::csi_SLRM(const ParserParameters& parameters) {
+    if (parameters.count <= 2) {
+        u32 newMarginLeft = parameters.values[0] > 0 ? parameters.values[0] - 1 : 0;
+        u32 newMarginRight = parameters.count < 2 || parameters.values[1] == 0 ? composer.columns : parameters.values[1];
 
         const bool illegal = newMarginLeft >= composer.columns || newMarginRight > composer.columns || newMarginRight <= newMarginLeft + 1;
         if (!illegal && (newMarginLeft != hMargin || newMarginRight != nColsEff)) {
@@ -4067,9 +3997,8 @@ void VtermImpl<traced>::csi_SLRM() {
     lastCol = false;
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_TBC() {
-    switch (parser.parameters[0]) {
+void VtermImpl::csi_TBC(const ParserParameters& parameters) {
+    switch (parameters.values[0]) {
         case 0: {
             if (!tabStopsCustomized) {
                 for (unsigned column = 8; column < composer.columns; column += 8) {
@@ -4091,10 +4020,9 @@ void VtermImpl<traced>::csi_TBC() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_SM() {
-    for (size_t k = 0; k < parser.parameterCount; ++k) {
-        const auto& arg = parser.parameters[k];
+void VtermImpl::csi_SM(const ParserParameters& parameters) {
+    for (size_t k = 0; k < parameters.count; ++k) {
+        const auto& arg = parameters.values[k];
 
         switch (arg) {
             case 2:
@@ -4118,10 +4046,9 @@ void VtermImpl<traced>::csi_SM() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_RM() {
-    for (size_t k = 0; k < parser.parameterCount; ++k) {
-        const auto& arg = parser.parameters[k];
+void VtermImpl::csi_RM(const ParserParameters& parameters) {
+    for (size_t k = 0; k < parameters.count; ++k) {
+        const auto& arg = parameters.values[k];
 
         switch (arg) {
             case 2:
@@ -4145,8 +4072,7 @@ void VtermImpl<traced>::csi_RM() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::setPrivMode(u32 arg, bool set) {
+void VtermImpl::setPrivMode(u32 arg, bool set) {
     if (set) {
         switch (arg) {
             case 1:
@@ -4449,8 +4375,7 @@ void VtermImpl<traced>::setPrivMode(u32 arg, bool set) {
     }
 }
 
-template <bool traced>
-bool VtermImpl<traced>::getPrivateMode(u32 arg) const {
+bool VtermImpl::getPrivateMode(u32 arg) const {
     switch (arg) {
         case 1:
             return cursorKeyMode == CursorKeyMode::Application;
@@ -4535,24 +4460,21 @@ bool VtermImpl<traced>::getPrivateMode(u32 arg) const {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_privSM() {
-    for (size_t k = 0; k < parser.parameterCount; ++k) {
-        setPrivMode(parser.parameters[k], true);
+void VtermImpl::csi_privSM(const ParserParameters& parameters) {
+    for (size_t k = 0; k < parameters.count; ++k) {
+        setPrivMode(parameters.values[k], true);
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_privRM() {
-    for (size_t k = 0; k < parser.parameterCount; ++k) {
-        setPrivMode(parser.parameters[k], false);
+void VtermImpl::csi_privRM(const ParserParameters& parameters) {
+    for (size_t k = 0; k < parameters.count; ++k) {
+        setPrivMode(parameters.values[k], false);
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_privSave() {
-    for (size_t k = 0; k < parser.parameterCount; ++k) {
-        const auto& arg = parser.parameters[k];
+void VtermImpl::csi_privSave(const ParserParameters& parameters) {
+    for (size_t k = 0; k < parameters.count; ++k) {
+        const auto& arg = parameters.values[k];
         switch (arg) {
             case 2:
             case 1048:
@@ -4565,10 +4487,9 @@ void VtermImpl<traced>::csi_privSave() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_privRestore() {
-    for (size_t k = 0; k < parser.parameterCount; ++k) {
-        const auto& arg = parser.parameters[k];
+void VtermImpl::csi_privRestore(const ParserParameters& parameters) {
+    for (size_t k = 0; k < parameters.count; ++k) {
+        const auto& arg = parameters.values[k];
         const auto it = savedPrivModes.find(arg);
         if (it != savedPrivModes.end()) {
             setPrivMode(arg, it->second);
@@ -4576,8 +4497,7 @@ void VtermImpl<traced>::csi_privRestore() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::setFgFromPalIx() {
+void VtermImpl::setFgFromPalIx() {
     if (fgPalIx < 0) {
         setAttrForeground(CellColor::defaultForeground());
     } else if (fgPalIx > 255) {
@@ -4593,8 +4513,7 @@ void VtermImpl<traced>::setFgFromPalIx() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::setBgFromPalIx() {
+void VtermImpl::setBgFromPalIx() {
     if (bgPalIx < 0) {
         setAttrBackground(CellColor::defaultBackground());
     } else if (bgPalIx > 255) {
@@ -4612,32 +4531,27 @@ void VtermImpl<traced>::setBgFromPalIx() {
     */
 #define DEVICE_ID "64;1;2;6;8;9;15;21;22;28;29c"
 
-template <bool traced>
-void VtermImpl<traced>::csi_priDA() {
+void VtermImpl::csi_priDA() {
     writeCsiResponse("?" DEVICE_ID);
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_secDA() {
+void VtermImpl::csi_secDA() {
     writeCsiResponse(">41;14;0c");
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_terDA() {
+void VtermImpl::csi_terDA() {
     writeDcsResponse("!|00000000");
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_XTVERSION() {
+void VtermImpl::csi_XTVERSION() {
     writeDcsResponse(">|Shitty " SHITTY_VERSION);
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DECRQM(bool privateMode) {
+void VtermImpl::csi_DECRQM(const ParserParameters& parameters, bool privateMode) {
     if (compatLevel < CompatibilityLevel::VT300) {
         return;
     }
-    const u32 mode = parser.parameters[0];
+    const u32 mode = parameters.values[0];
     u8 state = 0;
 
     if (privateMode) {
@@ -4780,10 +4694,9 @@ void VtermImpl<traced>::csi_DECRQM(bool privateMode) {
     writeCsiResponse(StringView(response));
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DSR(bool privateMode) {
+void VtermImpl::csi_DSR(const ParserParameters& parameters, bool privateMode) {
     if (privateMode) {
-        switch (parser.parameters[0]) {
+        switch (parameters.values[0]) {
             case 6: {
                 StringBuilder response;
                 response << StringView(u8"?");
@@ -4815,7 +4728,7 @@ void VtermImpl<traced>::csi_DSR(bool privateMode) {
                 break;
             case 63: {
                 StringBuilder response;
-                response << (parser.parameterCount > 1 ? parser.parameters[1] : 0) << StringView(u8"!~0000");
+                response << (parameters.count > 1 ? parameters.values[1] : 0) << StringView(u8"!~0000");
                 writeDcsResponse(StringView(response));
             } break;
             case 75:
@@ -4832,7 +4745,7 @@ void VtermImpl<traced>::csi_DSR(bool privateMode) {
         }
         return;
     }
-    switch (parser.parameters[0]) {
+    switch (parameters.values[0]) {
         case 5:
             writeCsiResponse("0n");
             break;
@@ -4850,8 +4763,7 @@ void VtermImpl<traced>::csi_DSR(bool privateMode) {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::esch_DECALN() {
+void VtermImpl::esch_DECALN() {
     originMode = OriginMode::Absolute;
     marginTop = 0;
     marginBottom = composer.rows;
@@ -4872,21 +4784,18 @@ void VtermImpl<traced>::esch_DECALN() {
     reverseVideo = attrs.inverse;
 }
 
-template <bool traced>
-void VtermImpl<traced>::setLineAttribute(u8 attribute) {
+void VtermImpl::setLineAttribute(u8 attribute) {
     cf->setLineAttribute(posY, attribute);
     if (attribute) {
         posX = std::min<u16>(posX, std::max(1, composer.columns / 2) - 1);
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::esc_RIS() {
+void VtermImpl::esc_RIS() {
     resetTerminal();
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DECSTR() {
+void VtermImpl::csi_DECSTR() {
     resetScreen(false);
     resetAttrs();
     marginTop = 0;
@@ -4903,8 +4812,7 @@ void VtermImpl<traced>::csi_DECSTR() {
     savedCursor->isSet = true;
 }
 
-template <bool traced>
-void VtermImpl<traced>::dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, const DcsUdkDefinition* definitions, size_t definitionCount, StringView values) {
+void VtermImpl::dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, const ParserUdkDefinition* definitions, size_t definitionCount, StringView values) {
     if (userDefinedKeysLocked) {
         return;
     }
@@ -4913,29 +4821,26 @@ void VtermImpl<traced>::dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, 
     }
 
     for (size_t index = 0; index < definitionCount; ++index) {
-        const DcsUdkDefinition& definition = definitions[index];
+        const ParserUdkDefinition& definition = definitions[index];
         const auto* value = (const char*)(values.data()) + definition.valueOffset;
         userDefinedKeys[definition.key] = std::string(value, definition.valueLength);
     }
     userDefinedKeysLocked = lockDefinitions;
 }
 
-template <bool traced>
-void VtermImpl<traced>::writeDecrqssResponse(StringView value) {
+void VtermImpl::writeDecrqssResponse(StringView value) {
     StringBuilder response;
     response << StringView(u8"1$r") << value;
     writeDcsResponse(StringView(response));
 }
 
-template <bool traced>
-void VtermImpl<traced>::dcs_DECRQSS_DECSCL() {
+void VtermImpl::dcs_DECRQSS_DECSCL() {
     StringBuilder value;
     value << 60 + (u8)(compatLevel) << StringView(u8";") << (send8BitControls ? 0 : 1) << StringView(u8"\"p");
     writeDecrqssResponse(StringView(value));
 }
 
-template <bool traced>
-void VtermImpl<traced>::dcs_DECRQSS_SGR() {
+void VtermImpl::dcs_DECRQSS_SGR() {
     StringBuilder value;
     value << StringView(u8"0");
     if (attrs.bold) {
@@ -5000,48 +4905,41 @@ void VtermImpl<traced>::dcs_DECRQSS_SGR() {
     writeDecrqssResponse(StringView(value));
 }
 
-template <bool traced>
-void VtermImpl<traced>::dcs_DECRQSS_DECSTBM() {
+void VtermImpl::dcs_DECRQSS_DECSTBM() {
     StringBuilder value;
     value << marginTop + 1 << StringView(u8";") << marginBottom << StringView(u8"r");
     writeDecrqssResponse(StringView(value));
 }
 
-template <bool traced>
-void VtermImpl<traced>::dcs_DECRQSS_DECSLRM() {
+void VtermImpl::dcs_DECRQSS_DECSLRM() {
     StringBuilder value;
     value << hMargin + 1 << StringView(u8";") << nColsEff << StringView(u8"s");
     writeDecrqssResponse(StringView(value));
 }
 
-template <bool traced>
-void VtermImpl<traced>::dcs_DECRQSS_DECSLPP() {
+void VtermImpl::dcs_DECRQSS_DECSLPP() {
     StringBuilder value;
     value << composer.rows << StringView(u8"t");
     writeDecrqssResponse(StringView(value));
 }
 
-template <bool traced>
-void VtermImpl<traced>::dcs_DECRQSS_DECSCUSR() {
+void VtermImpl::dcs_DECRQSS_DECSCUSR() {
     StringBuilder value;
     value << (unsigned)(cursorStyleParam) << StringView(u8" q");
     writeDecrqssResponse(StringView(value));
 }
 
-template <bool traced>
-void VtermImpl<traced>::dcs_DECRQSS_DECSCA() {
+void VtermImpl::dcs_DECRQSS_DECSCA() {
     StringBuilder value;
     value << ((attrs.protected_char & TerminalCell::decProtection) ? 1 : 0) << StringView(u8"\"q");
     writeDecrqssResponse(StringView(value));
 }
 
-template <bool traced>
-void VtermImpl<traced>::dcs_DECRQSS_UNKNOWN() {
+void VtermImpl::dcs_DECRQSS_UNKNOWN() {
     writeDcsResponse("0$r");
 }
 
-template <bool traced>
-void VtermImpl<traced>::dcs_XTGETTCAP(Buffer& output, StringView encoded, StringView value) {
+void VtermImpl::dcs_XTGETTCAP(Buffer& output, StringView encoded, StringView value) {
     StringBuilder replies(static_cast<Buffer&&>(output));
     replies << (send8BitControls ? StringView(u8"\x90") : StringView(u8"\x1bP"));
     replies << (value.empty() ? StringView(u8"0+r") : StringView(u8"1+r"));
@@ -5058,35 +4956,30 @@ void VtermImpl<traced>::dcs_XTGETTCAP(Buffer& output, StringView encoded, String
     output = static_cast<Buffer&&>(replies);
 }
 
-template <bool traced>
-void VtermImpl<traced>::dcs_XTGETTCAP_COMMIT(StringView replies) {
+void VtermImpl::dcs_XTGETTCAP_COMMIT(StringView replies) {
     writePty(replies.data(), replies.length(), false);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_TITLE_0(StringView payload) {
+void VtermImpl::osc_TITLE_0(StringView payload) {
     iconTitle.assign((const char*)(payload.data()), payload.length());
     windowTitle = iconTitle;
     host.title(payload);
     host.osc(0, payload);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_TITLE_1(StringView payload) {
+void VtermImpl::osc_TITLE_1(StringView payload) {
     iconTitle.assign((const char*)(payload.data()), payload.length());
     host.title(payload);
     host.osc(1, payload);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_TITLE_2(StringView payload) {
+void VtermImpl::osc_TITLE_2(StringView payload) {
     windowTitle.assign((const char*)(payload.data()), payload.length());
     host.title(payload);
     host.osc(2, payload);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_PALETTE(u32 index, Color color, bool query) {
+void VtermImpl::osc_PALETTE(u32 index, Color color, bool query) {
     if (index >= 256 + TerminalColors::specialCount) {
         return;
     }
@@ -5108,8 +5001,7 @@ void VtermImpl<traced>::osc_PALETTE(u32 index, Color color, bool query) {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_SPECIAL_COLOR(u32 index, Color color, bool query) {
+void VtermImpl::osc_SPECIAL_COLOR(u32 index, Color color, bool query) {
     if (index >= TerminalColors::specialCount) {
         return;
     }
@@ -5125,8 +5017,7 @@ void VtermImpl<traced>::osc_SPECIAL_COLOR(u32 index, Color color, bool query) {
     frame_alt->expose();
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_SPECIAL_COLOR_MODE(u32 index, u32 value) {
+void VtermImpl::osc_SPECIAL_COLOR_MODE(u32 index, u32 value) {
     if (index > TerminalColors::specialCount) {
         return;
     }
@@ -5141,16 +5032,14 @@ void VtermImpl<traced>::osc_SPECIAL_COLOR_MODE(u32 index, u32 value) {
     frame_alt->expose();
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_CWD(StringView raw, StringView path, bool valid) {
+void VtermImpl::osc_CWD(StringView raw, StringView path, bool valid) {
     host.osc(7, raw);
     if (valid) {
         host.cwd(path);
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_HYPERLINK(StringView id, bool hasId, StringView uri) {
+void VtermImpl::osc_HYPERLINK(StringView id, bool hasId, StringView uri) {
     if (uri.empty()) {
         activeHyperlink = 0;
         return;
@@ -5176,25 +5065,21 @@ void VtermImpl<traced>::osc_HYPERLINK(StringView id, bool hasId, StringView uri)
     activeHyperlink = extras.getOrCreateHyperlink(identityView, uri, nextHyperlink++);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_NOTIFY(StringView payload) {
+void VtermImpl::osc_NOTIFY(StringView payload) {
     host.notify({}, stringView(windowTitle), payload, false);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_PROGRESS(u32 state, u32 percent) {
+void VtermImpl::osc_PROGRESS(u32 state, u32 percent) {
     host.progress(state, percent);
 }
 
-template <bool traced>
-void VtermImpl<traced>::writeDynamicColorResponse(u32 command, Color color) {
+void VtermImpl::writeDynamicColorResponse(u32 command, Color color) {
     StringBuilder response;
     response << command << StringView(u8";") << color;
     writeOscResponse(StringView(response));
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_DEFAULT_FOREGROUND(Color color, bool query) {
+void VtermImpl::osc_DEFAULT_FOREGROUND(Color color, bool query) {
     if (query) {
         return writeDynamicColorResponse(10, colors.defaultForeground);
     }
@@ -5205,8 +5090,7 @@ void VtermImpl<traced>::osc_DEFAULT_FOREGROUND(Color color, bool query) {
     frame_alt->expose();
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_DEFAULT_BACKGROUND(Color color, bool query) {
+void VtermImpl::osc_DEFAULT_BACKGROUND(Color color, bool query) {
     if (query) {
         return writeDynamicColorResponse(11, colors.defaultBackground);
     }
@@ -5217,8 +5101,7 @@ void VtermImpl<traced>::osc_DEFAULT_BACKGROUND(Color color, bool query) {
     frame_alt->expose();
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_CURSOR_COLOR(Color color, bool query) {
+void VtermImpl::osc_CURSOR_COLOR(Color color, bool query) {
     if (query) {
         return writeDynamicColorResponse(12, cursorColor);
     }
@@ -5227,8 +5110,7 @@ void VtermImpl<traced>::osc_CURSOR_COLOR(Color color, bool query) {
     frame_alt->setCursorColor(color);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_SELECTION_BACKGROUND(Color color, bool query) {
+void VtermImpl::osc_SELECTION_BACKGROUND(Color color, bool query) {
     if (query) {
         return writeDynamicColorResponse(17, selectionBgColor);
     }
@@ -5237,8 +5119,7 @@ void VtermImpl<traced>::osc_SELECTION_BACKGROUND(Color color, bool query) {
     frame_alt->setSelectionColor(false, color, true);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_SELECTION_FOREGROUND(Color color, bool query) {
+void VtermImpl::osc_SELECTION_FOREGROUND(Color color, bool query) {
     if (query) {
         return writeDynamicColorResponse(19, selectionFgColor);
     }
@@ -5247,8 +5128,7 @@ void VtermImpl<traced>::osc_SELECTION_FOREGROUND(Color color, bool query) {
     frame_alt->setSelectionColor(true, color, true);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_CLIPBOARD_QUERY(StringView raw, bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) {
+void VtermImpl::osc_CLIPBOARD_QUERY(StringView raw, bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) {
     host.osc(52, raw);
 
     StringView content;
@@ -5274,8 +5154,7 @@ void VtermImpl<traced>::osc_CLIPBOARD_QUERY(StringView raw, bool primary, bool c
     writeOscResponse(StringView(reply));
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_CLIPBOARD_WRITE(StringView raw, StringView decoded, bool valid, bool primary, bool clipboard) {
+void VtermImpl::osc_CLIPBOARD_WRITE(StringView raw, StringView decoded, bool valid, bool primary, bool clipboard) {
     host.osc(52, raw);
 
     if (!valid) {
@@ -5289,37 +5168,32 @@ void VtermImpl<traced>::osc_CLIPBOARD_WRITE(StringView raw, StringView decoded, 
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_CLIPBOARD_MALFORMED(StringView raw) {
+void VtermImpl::osc_CLIPBOARD_MALFORMED(StringView raw) {
     host.osc(52, raw);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_RESET_PALETTE() {
+void VtermImpl::osc_RESET_PALETTE() {
     std::copy(std::begin(originalPalette256), std::end(originalPalette256), std::begin(colors.palette));
     colors.changed();
     frame_pri->expose();
     frame_alt->expose();
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_RESET_PALETTE(u32 index) {
+void VtermImpl::osc_RESET_PALETTE(u32 index) {
     if (index > 255) {
         return;
     }
     applyPaletteColor((u16)(index), originalPalette256[index]);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_RESET_SPECIAL_COLOR() {
+void VtermImpl::osc_RESET_SPECIAL_COLOR() {
     std::copy(std::begin(colors.originalSpecial), std::end(colors.originalSpecial), std::begin(colors.special));
     colors.changed();
     frame_pri->expose();
     frame_alt->expose();
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_RESET_SPECIAL_COLOR(u32 index) {
+void VtermImpl::osc_RESET_SPECIAL_COLOR(u32 index) {
     if (index >= TerminalColors::specialCount) {
         return;
     }
@@ -5329,8 +5203,7 @@ void VtermImpl<traced>::osc_RESET_SPECIAL_COLOR(u32 index) {
     frame_alt->expose();
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_RESET_DEFAULT_FOREGROUND() {
+void VtermImpl::osc_RESET_DEFAULT_FOREGROUND() {
     colors.defaultForeground = opts.fg;
     colors.changed();
     defaultFgPalIx = -1;
@@ -5338,8 +5211,7 @@ void VtermImpl<traced>::osc_RESET_DEFAULT_FOREGROUND() {
     frame_alt->expose();
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_RESET_DEFAULT_BACKGROUND() {
+void VtermImpl::osc_RESET_DEFAULT_BACKGROUND() {
     colors.defaultBackground = opts.bg;
     colors.changed();
     defaultBgPalIx = -1;
@@ -5347,76 +5219,65 @@ void VtermImpl<traced>::osc_RESET_DEFAULT_BACKGROUND() {
     frame_alt->expose();
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_RESET_CURSOR_COLOR() {
+void VtermImpl::osc_RESET_CURSOR_COLOR() {
     cursorColor = opts.cr;
     frame_pri->setCursorColor(cursorColor);
     frame_alt->setCursorColor(cursorColor);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_RESET_SELECTION_BACKGROUND() {
+void VtermImpl::osc_RESET_SELECTION_BACKGROUND() {
     selectionBgColor = opts.bg;
     frame_pri->setSelectionColor(false, selectionBgColor, false);
     frame_alt->setSelectionColor(false, selectionBgColor, false);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_RESET_SELECTION_FOREGROUND() {
+void VtermImpl::osc_RESET_SELECTION_FOREGROUND() {
     selectionFgColor = opts.fg;
     frame_pri->setSelectionColor(true, selectionFgColor, false);
     frame_alt->setSelectionColor(true, selectionFgColor, false);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_SHELL_A(StringView payload) {
+void VtermImpl::osc_SHELL_A(StringView payload) {
     currentSemantic = 1;
     host.osc(133, payload);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_SHELL_B(StringView payload) {
+void VtermImpl::osc_SHELL_B(StringView payload) {
     if (currentSemantic == 1) {
         currentSemantic = 2;
     }
     host.osc(133, payload);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_SHELL_C(StringView payload) {
+void VtermImpl::osc_SHELL_C(StringView payload) {
     if (currentSemantic == 2) {
         currentSemantic = 3;
     }
     host.osc(133, payload);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_SHELL_D(StringView payload) {
+void VtermImpl::osc_SHELL_D(StringView payload) {
     if (currentSemantic == 3) {
         currentSemantic = 0;
     }
     host.osc(133, payload);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_SHELL_UNKNOWN(StringView payload) {
+void VtermImpl::osc_SHELL_UNKNOWN(StringView payload) {
     host.osc(133, payload);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_UNKNOWN(u32 command, StringView payload) {
+void VtermImpl::osc_UNKNOWN(u32 command, StringView payload) {
     host.osc(command, payload);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_NOTIFICATION_CAPABILITIES(StringView id) {
+void VtermImpl::osc_NOTIFICATION_CAPABILITIES(StringView id) {
     StringBuilder response;
     response << StringView(u8"99;i=") << id << StringView(u8":p=?;p=title,body,close");
     writeOscResponse(StringView(response));
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_NOTIFICATION_CLOSE(StringView id) {
+void VtermImpl::osc_NOTIFICATION_CLOSE(StringView id) {
     const std::string key((const char*)(id.data()), id.length());
     if (key.empty() || !activeNotificationIds.erase(key)) {
         return;
@@ -5425,8 +5286,7 @@ void VtermImpl<traced>::osc_NOTIFICATION_CLOSE(StringView id) {
     notifications.erase(key);
 }
 
-template <bool traced>
-Base64Decoder VtermImpl<traced>::notificationDecoder(StringView id, bool body) const {
+Base64Decoder VtermImpl::notificationDecoder(StringView id, bool body) const {
     const std::string key((const char*)(id.data()), id.length());
     const auto found = notifications.find(key);
     if (found == notifications.end()) {
@@ -5435,18 +5295,15 @@ Base64Decoder VtermImpl<traced>::notificationDecoder(StringView id, bool body) c
     return body ? found->second.body.decoder : found->second.title.decoder;
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_NOTIFICATION_TITLE(StringView id, StringView payload, const Base64Decoder& decoder, bool encoded, bool finalChunk) {
+void VtermImpl::osc_NOTIFICATION_TITLE(StringView id, StringView payload, const Base64Decoder& decoder, bool encoded, bool finalChunk) {
     applyNotificationPart(id, payload, decoder, encoded, finalChunk, false);
 }
 
-template <bool traced>
-void VtermImpl<traced>::osc_NOTIFICATION_BODY(StringView id, StringView payload, const Base64Decoder& decoder, bool encoded, bool finalChunk) {
+void VtermImpl::osc_NOTIFICATION_BODY(StringView id, StringView payload, const Base64Decoder& decoder, bool encoded, bool finalChunk) {
     applyNotificationPart(id, payload, decoder, encoded, finalChunk, true);
 }
 
-template <bool traced>
-void VtermImpl<traced>::applyNotificationPart(StringView id, StringView payload, const Base64Decoder& decoder, bool encoded, bool finalChunk, bool body) {
+void VtermImpl::applyNotificationPart(StringView id, StringView payload, const Base64Decoder& decoder, bool encoded, bool finalChunk, bool body) {
     const std::string key((const char*)(id.data()), id.length());
     auto& notification = notifications[key];
     NotificationPart& destination = body ? notification.body : notification.title;
@@ -5548,15 +5405,13 @@ void VtermImpl<traced>::applyNotificationPart(StringView id, StringView payload,
     notifications.erase(key);
 }
 
-template <bool traced>
-void VtermImpl<traced>::reportInBandResize() {
+void VtermImpl::reportInBandResize() {
     StringBuilder response;
     response << StringView(u8"48;") << composer.rows << StringView(u8";") << composer.columns << StringView(u8";") << composer.rows * composer.glyphHeight << StringView(u8";") << composer.columns * composer.glyphWidth << StringView(u8"t");
     writeCsiResponse(StringView(response));
 }
 
-template <bool traced>
-void VtermImpl<traced>::reportColorScheme() {
+void VtermImpl::reportColorScheme() {
     // Shitty has no runtime profile or operating-system theme switching.  Its
     // configured background therefore remains the authoritative preference;
     // application-originated OSC color changes must not affect this report.
@@ -5567,8 +5422,7 @@ void VtermImpl<traced>::reportColorScheme() {
     writeCsiResponse(StringView(response));
 }
 
-template <bool traced>
-void VtermImpl<traced>::writeTitleResponse(char kind, StringView title) {
+void VtermImpl::writeTitleResponse(char kind, StringView title) {
     StringBuilder response;
     response << StringView(u8"\x1b]");
     response.append(&kind, 1);
@@ -5583,16 +5437,15 @@ void VtermImpl<traced>::writeTitleResponse(char kind, StringView title) {
     writePty((const u8*)(response.data()), response.used());
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_XTTITLEMODE(bool set) {
-    if (!parser.csiHadParameters) {
+void VtermImpl::csi_XTTITLEMODE(const ParserParameters& parameters, bool set) {
+    if (!parameters.hadAny) {
         titleModes = 0;
     } else {
-        for (size_t k = 0; k < parser.parameterCount; ++k) {
-            if (parser.parameters[k] > 3) {
+        for (size_t k = 0; k < parameters.count; ++k) {
+            if (parameters.values[k] > 3) {
                 continue;
             }
-            const u8 bit = (u8)(1 << parser.parameters[k]);
+            const u8 bit = (u8)(1 << parameters.values[k]);
             if (set) {
                 titleModes |= bit;
             } else {
@@ -5602,18 +5455,16 @@ void VtermImpl<traced>::csi_XTTITLEMODE(bool set) {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::applyPaletteColor(u16 index, Color color) {
+void VtermImpl::applyPaletteColor(u16 index, Color color) {
     colors.palette[index] = color;
     colors.changed();
     frame_pri->expose();
     frame_alt->expose();
 }
 
-template <bool traced>
-void VtermImpl<traced>::csiq_DECSCL() {
+void VtermImpl::csiq_DECSCL(const ParserParameters& parameters) {
     CompatibilityLevel level;
-    switch (parser.parameters[0]) {
+    switch (parameters.values[0]) {
         case 61:
             level = CompatibilityLevel::VT100;
             break;
@@ -5633,7 +5484,7 @@ void VtermImpl<traced>::csiq_DECSCL() {
             return;
     }
 
-    const u32 controlMode = parser.parameterCount > 1 ? parser.parameters[1] : 0;
+    const u32 controlMode = parameters.count > 1 ? parameters.values[1] : 0;
     if (controlMode > 2) {
         return;
     }
@@ -5643,12 +5494,11 @@ void VtermImpl<traced>::csiq_DECSCL() {
     send8BitControls = level != CompatibilityLevel::VT100 && controlMode != 1;
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_XTWINOPS() {
+void VtermImpl::csi_XTWINOPS(const ParserParameters& parameters) {
     if (!opts.allowWindowOps) {
         return;
     }
-    const u32 operation = parser.parameters[0];
+    const u32 operation = parameters.values[0];
     StringBuilder response;
     switch (operation) {
         case 4:
@@ -5659,10 +5509,10 @@ void VtermImpl<traced>::csi_XTWINOPS() {
             const u32 maximumHeight = operation == 4 ? info.screenPixelHeight : info.screenPixelHeight / composer.glyphHeight;
             const u32 maximumWidth = operation == 4 ? info.screenPixelWidth : info.screenPixelWidth / composer.glyphWidth;
             const auto dimension = [&](size_t index, u32 current, u32 maximum) {
-                if (index >= parser.parameterCount || !parser.present[index]) {
+                if (index >= parameters.count || !parameters.present[index]) {
                     return current;
                 }
-                return parser.parameters[index] ? parser.parameters[index] : maximum;
+                return parameters.values[index] ? parameters.values[index] : maximum;
             };
             host.windowOperation(operation, dimension(1, currentHeight, maximumHeight), dimension(2, currentWidth, maximumWidth));
         } break;
@@ -5674,7 +5524,7 @@ void VtermImpl<traced>::csi_XTWINOPS() {
         case 7:
         case 9:
         case 10:
-            host.windowOperation(operation, parser.parameterCount > 1 ? parser.parameters[1] : 0, parser.parameterCount > 2 ? parser.parameters[2] : 0);
+            host.windowOperation(operation, parameters.count > 1 ? parameters.values[1] : 0, parameters.count > 2 ? parameters.values[2] : 0);
             break;
         case 11:
             writeCsiResponse(host.windowInfo().iconified ? "2t" : "1t");
@@ -5685,7 +5535,7 @@ void VtermImpl<traced>::csi_XTWINOPS() {
             writeCsiResponse(StringView(response));
         } break;
         case 14:
-            if (parser.parameterCount > 1 && parser.parameters[1] == 2) {
+            if (parameters.count > 1 && parameters.values[1] == 2) {
                 response << StringView(u8"4;") << composer.pixelHeight << StringView(u8";") << composer.pixelWidth << StringView(u8"t");
             } else {
                 response << StringView(u8"4;") << composer.rows * composer.glyphHeight << StringView(u8";") << composer.columns * composer.glyphWidth << StringView(u8"t");
@@ -5717,7 +5567,7 @@ void VtermImpl<traced>::csi_XTWINOPS() {
             writeTitleResponse('l', stringView(windowTitle));
             break;
         case 22: {
-            const u32 which = parser.parameterCount > 1 ? parser.parameters[1] : 0;
+            const u32 which = parameters.count > 1 ? parameters.values[1] : 0;
             if (which > 2) {
                 break;
             }
@@ -5736,7 +5586,7 @@ void VtermImpl<traced>::csi_XTWINOPS() {
             }
         } break;
         case 23: {
-            const u32 which = parser.parameterCount > 1 ? parser.parameters[1] : 0;
+            const u32 which = parameters.count > 1 ? parameters.values[1] : 0;
             if (which > 2) {
                 break;
             }
@@ -5771,31 +5621,28 @@ void VtermImpl<traced>::csi_XTWINOPS() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_XTHIMOUSE() {
-    if (mouseTrk.mode == MouseTrackingMode::VT200_Highlight && parser.parameterCount == 5 && parser.parameters[0] != 0) {
+void VtermImpl::csi_XTHIMOUSE(const ParserParameters& parameters) {
+    if (mouseTrk.mode == MouseTrackingMode::VT200_Highlight && parameters.count == 5 && parameters.values[0] != 0) {
         mouseHighlight.active = true;
-        mouseHighlight.startX = std::max<u32>(1, parser.parameters[1]);
-        mouseHighlight.startY = std::max<u32>(1, parser.parameters[2]);
-        mouseHighlight.firstRow = std::max<u32>(1, parser.parameters[3]);
-        mouseHighlight.lastRow = std::max<u32>(mouseHighlight.firstRow, parser.parameters[4]);
+        mouseHighlight.startX = std::max<u32>(1, parameters.values[1]);
+        mouseHighlight.startY = std::max<u32>(1, parameters.values[2]);
+        mouseHighlight.firstRow = std::max<u32>(1, parameters.values[3]);
+        mouseHighlight.lastRow = std::max<u32>(mouseHighlight.firstRow, parameters.values[4]);
     } else {
         mouseHighlight.active = false;
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DECELR() {
-    const u32 mode = parser.parameters[0];
+void VtermImpl::csi_DECELR(const ParserParameters& parameters) {
+    const u32 mode = parameters.values[0];
     locator.enabled = mode <= 2 ? mode : 0;
-    locator.pixels = parser.parameterCount > 1 && parser.parameters[1] == 1;
+    locator.pixels = parameters.count > 1 && parameters.values[1] == 1;
     locator.filter = false;
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DECSLE() {
-    for (size_t k = 0; k < parser.parameterCount; ++k) {
-        switch (parser.parameters[k]) {
+void VtermImpl::csi_DECSLE(const ParserParameters& parameters) {
+    for (size_t k = 0; k < parameters.count; ++k) {
+        switch (parameters.values[k]) {
             case 0:
                 locator.reportDown = locator.reportUp = false;
                 locator.filter = false;
@@ -5816,8 +5663,7 @@ void VtermImpl<traced>::csi_DECSLE() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DECRQLP() {
+void VtermImpl::csi_DECRQLP() {
     if (locator.enabled) {
         const u16 x = locator.pixels ? locator.pixelX : locator.column;
         const u16 y = locator.pixels ? locator.pixelY : locator.row;
@@ -5832,10 +5678,9 @@ void VtermImpl<traced>::csi_DECRQLP() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_DECEFR() {
-    const auto value = [this](size_t k, u16 current) {
-        return k < parser.parameterCount && parser.parameters[k] ? (u16)(parser.parameters[k]) : current;
+void VtermImpl::csi_DECEFR(const ParserParameters& parameters) {
+    const auto value = [&parameters](size_t k, u16 current) {
+        return k < parameters.count && parameters.values[k] ? (u16)(parameters.values[k]) : current;
     };
     locator.filterTop = value(0, locator.pixels ? locator.pixelY : locator.row);
     locator.filterLeft = value(1, locator.pixels ? locator.pixelX : locator.column);
@@ -5844,16 +5689,15 @@ void VtermImpl<traced>::csi_DECEFR() {
     locator.filter = locator.enabled != 0;
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_XTMODKEYS() {
+void VtermImpl::csi_XTMODKEYS(const ParserParameters& parameters) {
     const auto supported = [](u32 resource) {
         return resource <= 4 || resource == 6 || resource == 7;
     };
-    if (!parser.csiHadParameters) {
+    if (!parameters.hadAny) {
         std::copy(std::begin(initialModifyKeyResources), std::end(initialModifyKeyResources), std::begin(modifyKeyResources));
-    } else if (supported(parser.parameters[0])) {
-        const u32 resource = parser.parameters[0];
-        const u32 value = parser.parameterCount > 1 ? parser.parameters[1] : initialModifyKeyResources[resource];
+    } else if (supported(parameters.values[0])) {
+        const u32 resource = parameters.values[0];
+        const u32 value = parameters.count > 1 ? parameters.values[1] : initialModifyKeyResources[resource];
         const u32 maximum = resource == 4 ? 2 : 4;
         if (value <= maximum) {
             modifyKeyResources[resource] = value;
@@ -5862,9 +5706,8 @@ void VtermImpl<traced>::csi_XTMODKEYS() {
     modifyOtherKeys = modifyKeyResources[4];
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_XTQMODKEYS() {
-    const u32 resource = parser.parameters[0];
+void VtermImpl::csi_XTQMODKEYS(const ParserParameters& parameters) {
+    const u32 resource = parameters.values[0];
     if (resource <= 4 || resource == 6 || resource == 7) {
         StringBuilder response;
         response << StringView(u8">") << resource << StringView(u8";") << (unsigned)(modifyKeyResources[resource]) << StringView(u8"m");
@@ -5872,21 +5715,19 @@ void VtermImpl<traced>::csi_XTQMODKEYS() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_kittyKeyboardPush() {
+void VtermImpl::csi_kittyKeyboardPush(const ParserParameters& parameters) {
     constexpr size_t maxStackDepth = 16;
     auto& state = kittyKeyboardState();
     if (state.stack.size() == maxStackDepth) {
         state.stack.erase(state.stack.begin());
     }
     state.stack.push_back(state.flags);
-    state.flags = parser.parameters[0] & 0x1f;
+    state.flags = parameters.values[0] & 0x1f;
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_kittyKeyboardPop() {
+void VtermImpl::csi_kittyKeyboardPop(const ParserParameters& parameters) {
     auto& state = kittyKeyboardState();
-    const u32 count = parser.parameters[0] ? parser.parameters[0] : 1;
+    const u32 count = parameters.values[0] ? parameters.values[0] : 1;
     for (u32 k = 0; k < count; ++k) {
         if (state.stack.empty()) {
             state.flags = 0;
@@ -5897,11 +5738,10 @@ void VtermImpl<traced>::csi_kittyKeyboardPop() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_kittyKeyboardSet() {
+void VtermImpl::csi_kittyKeyboardSet(const ParserParameters& parameters) {
     auto& state = kittyKeyboardState();
-    const u8 flags = parser.parameters[0] & 0x1f;
-    const u32 mode = parser.parameterCount > 1 ? parser.parameters[1] : 1;
+    const u8 flags = parameters.values[0] & 0x1f;
+    const u32 mode = parameters.count > 1 ? parameters.values[1] : 1;
     switch (mode) {
         case 1:
             state.flags = flags;
@@ -5917,8 +5757,7 @@ void VtermImpl<traced>::csi_kittyKeyboardSet() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::csi_kittyKeyboardQuery() {
+void VtermImpl::csi_kittyKeyboardQuery() {
     StringBuilder response;
     response << StringView(u8"?") << (unsigned)(getKittyKeyboardFlags()) << StringView(u8"u");
     writeCsiResponse(StringView(response));
@@ -6591,7 +6430,7 @@ namespace {
     * to 16-bit Unicode points. All sets are defined as 96 characters, even
     * those originally designated by DEC as 94-character sets.
     *
-    * These tables are referenced by VtermImpl<traced>::charCodes (see below).
+    * These tables are referenced by VtermImpl::charCodes (see below).
     */
 
     const u16 uc_DecSpec[] = {
@@ -7101,8 +6940,7 @@ namespace {
 
 }
 
-template <bool traced>
-const u16* VtermImpl<traced>::charCodes[] = {
+const u16* VtermImpl::charCodes[] = {
 
     nullptr,
     uc_DecSpec,
@@ -7113,8 +6951,7 @@ const u16* VtermImpl<traced>::charCodes[] = {
     uc_IsoUK
 };
 
-template <bool traced>
-u32 VtermImpl<traced>::translateCharset(Charset charset, unsigned char ch) const {
+u32 VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
     if (charset <= Charset::IsoUK) {
         return charCodes[(u8)(charset)][ch - 32];
     }
@@ -7190,37 +7027,32 @@ u32 VtermImpl<traced>::translateCharset(Charset charset, unsigned char ch) const
 #undef LOOKUP
 }
 
-template <bool traced>
-CallVtermResize<traced>::CallVtermResize(VtermImpl<traced>* parent_)
+CallVtermResize::CallVtermResize(VtermImpl* parent_)
     : parent(parent_)
 {
 }
 
-template <bool traced>
-void CallVtermResize<traced>::onListen(void*) {
+void CallVtermResize::onListen(void*) {
     parent->resizeGrid();
     parent->redraw();
 }
 
-template <bool traced>
-CallVtermFontChanged<traced>::CallVtermFontChanged(VtermImpl<traced>* parent_)
+CallVtermFontChanged::CallVtermFontChanged(VtermImpl* parent_)
     : parent(parent_)
 {
 }
 
-template <bool traced>
-void CallVtermFontChanged<traced>::onListen(void*) {
+void CallVtermFontChanged::onListen(void*) {
     parent->fontChanged();
 }
 
-template <bool traced>
-VtermImpl<traced>::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, Output* dump_)
+VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, Output* dump_)
     : input(this)
     , composer(composer_)
     , host(host_)
     , dump(dump_)
-    , parserTrace(trace)
     , unicodeProperties(UnicodeMap<u8>::create(*composer.pool))
+    , parser(Parser::create(composer.pool, *this, trace))
     , nColsEff(composer.columns)
     , hMargin(0)
 {
@@ -7259,13 +7091,12 @@ VtermImpl<traced>::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* 
     bgPalIx = defaultBgPalIx;
 
     resetTerminal();
-    composer.resizedListeners.pushBack(composer.pool->make<CallVtermResize<traced>>(this));
-    composer.fontChangedListeners.pushBack(composer.pool->make<CallVtermFontChanged<traced>>(this));
+    composer.resizedListeners.pushBack(composer.pool->make<CallVtermResize>(this));
+    composer.fontChangedListeners.pushBack(composer.pool->make<CallVtermFontChanged>(this));
     composer.inputSinks.pushBack(this);
 }
 
-template <bool traced>
-void VtermImpl<traced>::fontChanged() {
+void VtermImpl::fontChanged() {
     const u32 width = 2u * opts.border + (u32)(composer.columns) * composer.glyphWidth;
     const u32 height = 2u * opts.border + (u32)(composer.rows) * composer.glyphHeight;
     if (composer.pixelWidth == width && composer.pixelHeight == height) {
@@ -7273,8 +7104,7 @@ void VtermImpl<traced>::fontChanged() {
     }
 }
 
-template <bool traced>
-void VtermImpl<traced>::resizeGrid() {
+void VtermImpl::resizeGrid() {
     const u16 previousColumns = cf->columns();
     const u16 previousRows = cf->rows();
     if (previousColumns == composer.columns && previousRows == composer.rows) {
@@ -7321,8 +7151,7 @@ void VtermImpl<traced>::resizeGrid() {
     }
 }
 
-template <bool traced>
-std::string VtermImpl<traced>::getLocalEcho(const u8* const begin, const u8* const end) {
+std::string VtermImpl::getLocalEcho(const u8* const begin, const u8* const end) {
     StringBuilder output((end - begin) * 2);
     for (const u8* p = begin; p < end; ++p) {
         if (*p == '\r' || *p >= ' ') {
@@ -7335,8 +7164,7 @@ std::string VtermImpl<traced>::getLocalEcho(const u8* const begin, const u8* con
     return std::string((const char*)(output.data()), output.used());
 }
 
-template <bool traced>
-int VtermImpl<traced>::writePty(VtKey key, VtModifier modifiers_, bool userInput) {
+int VtermImpl::writePty(VtKey key, VtModifier modifiers_, bool userInput) {
     const auto userDefined = userDefinedKeys.find(key);
     if (userDefined != userDefinedKeys.end()) {
         return writePty(userDefined->second.data(), userDefined->second.size(), userInput);
@@ -7361,8 +7189,7 @@ int VtermImpl<traced>::writePty(VtKey key, VtModifier modifiers_, bool userInput
     }
 }
 
-template <bool traced>
-int VtermImpl<traced>::writePty(u8 ch, VtModifier modifiers, bool userInput) {
+int VtermImpl::writePty(u8 ch, VtModifier modifiers, bool userInput) {
     using VM = VtModifier;
 
     auto uch = &ch;
@@ -7428,8 +7255,7 @@ int VtermImpl<traced>::writePty(u8 ch, VtModifier modifiers, bool userInput) {
     }
 }
 
-template <bool traced>
-int VtermImpl<traced>::writeKittyKey(VtKey key, u16 modifiers, VtermKeyEventType event) {
+int VtermImpl::writeKittyKey(VtKey key, u16 modifiers, VtermKeyEventType event) {
     const KittyKeySpec spec = kittyKeySpec(key);
     if (!spec.code) {
         return 0;
@@ -7462,8 +7288,7 @@ int VtermImpl<traced>::writeKittyKey(VtKey key, u16 modifiers, VtermKeyEventType
     return writePty((const u8*)(sequence.data()), sequence.used(), true);
 }
 
-template <bool traced>
-int VtermImpl<traced>::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event) {
+int VtermImpl::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event) {
     if (!key || (event == VtermKeyEventType::Release && !(getKittyKeyboardFlags() & 0x02))) {
         return 0;
     }
@@ -7496,38 +7321,32 @@ int VtermImpl<traced>::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey,
     return writePty((const u8*)(sequence.data()), sequence.used(), true);
 }
 
-template <bool traced>
-int VtermImpl<traced>::writePty(const char* cstr, bool userInput) {
+int VtermImpl::writePty(const char* cstr, bool userInput) {
     return writePty(cstr, strlen(cstr), userInput);
 }
 
-template <bool traced>
-int VtermImpl<traced>::writePty(const char* data, size_t size, bool userInput) {
+int VtermImpl::writePty(const char* data, size_t size, bool userInput) {
     return writePty((const u8*)(data), size, userInput);
 }
 
-template <bool traced>
-void VtermImpl<traced>::writeCsiResponse(StringView payload) {
+void VtermImpl::writeCsiResponse(StringView payload) {
     const StringView prefix = send8BitControls ? StringView(u8"\x9b") : StringView(u8"\x1b[");
     writeProtocolResponse(prefix, payload);
 }
 
-template <bool traced>
-void VtermImpl<traced>::writeDcsResponse(StringView payload) {
+void VtermImpl::writeDcsResponse(StringView payload) {
     const StringView prefix = send8BitControls ? StringView(u8"\x90") : StringView(u8"\x1bP");
     const StringView suffix = send8BitControls ? StringView(u8"\x9c") : StringView(u8"\x1b\\");
     writeProtocolResponse(prefix, payload, suffix);
 }
 
-template <bool traced>
-void VtermImpl<traced>::writeOscResponse(StringView payload) {
+void VtermImpl::writeOscResponse(StringView payload) {
     const StringView prefix = send8BitControls ? StringView(u8"\x9d") : StringView(u8"\x1b]");
     const StringView suffix = send8BitControls ? StringView(u8"\x9c") : StringView(u8"\x1b\\");
     writeProtocolResponse(prefix, payload, suffix);
 }
 
-template <bool traced>
-void VtermImpl<traced>::writeProtocolResponse(StringView prefix, StringView payload, StringView suffix) {
+void VtermImpl::writeProtocolResponse(StringView prefix, StringView payload, StringView suffix) {
     StringBuilder response(static_cast<Buffer&&>(protocolResponseScratch));
     response.reset();
     response << prefix << payload << suffix;
@@ -7535,8 +7354,7 @@ void VtermImpl<traced>::writeProtocolResponse(StringView prefix, StringView payl
     protocolResponseScratch = static_cast<Buffer&&>(response);
 }
 
-template <bool traced>
-void VtermImpl<traced>::compactPtyOutput() {
+void VtermImpl::compactPtyOutput() {
     const size_t pending = ptyOutput.used() - ptyOutputOffset;
     if (pending != 0) {
         memmove(ptyOutput.mutData(), (const u8*)(ptyOutput.data()) + ptyOutputOffset, pending);
@@ -7545,8 +7363,7 @@ void VtermImpl<traced>::compactPtyOutput() {
     ptyOutputOffset = 0;
 }
 
-template <bool traced>
-int VtermImpl<traced>::writePty(const u8* ucstr, size_t len, bool userInput) {
+int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
     if (userInput && keyboardLocked) {
         return len;
     }
@@ -7580,8 +7397,7 @@ int VtermImpl<traced>::writePty(const u8* ucstr, size_t len, bool userInput) {
 using Key = VtKey;
 using Mod = VtModifier;
 
-template <bool traced>
-VtermImpl<traced>::InputSpecTable* VtermImpl<traced>::getInputSpecTable() {
+VtermImpl::InputSpecTable* VtermImpl::getInputSpecTable() {
     static InputSpecTable ist[] = {
         {[this]() {
         return (autoNewlineMode == true);
@@ -7677,15 +7493,13 @@ VtermImpl<traced>::InputSpecTable* VtermImpl<traced>::getInputSpecTable() {
     return ist;
 }
 
-template <bool traced>
-void VtermImpl<traced>::resetInputSpecTable() {
+void VtermImpl::resetInputSpecTable() {
     for (InputSpecTable* e = getInputSpecTable(); e->specs != nullptr; ++e) {
         e->visited = false;
     }
 }
 
-template <bool traced>
-const VtermImpl<traced>::InputSpec* VtermImpl<traced>::selectInputSpecs() {
+const VtermImpl::InputSpec* VtermImpl::selectInputSpecs() {
     InputSpecTable* ist = getInputSpecTable();
     for (auto e = ist; e->specs != nullptr; ++e) {
         if (!e->visited) {
@@ -7698,8 +7512,7 @@ const VtermImpl<traced>::InputSpec* VtermImpl<traced>::selectInputSpecs() {
     return nullptr;
 }
 
-template <bool traced>
-const VtermImpl<traced>::InputSpec& VtermImpl<traced>::getInputSpec(Key key) {
+const VtermImpl::InputSpec& VtermImpl::getInputSpec(Key key) {
     static InputSpec nullSpec = {Key::NONE, ""};
 
     resetInputSpecTable();
@@ -7715,8 +7528,7 @@ const VtermImpl<traced>::InputSpec& VtermImpl<traced>::getInputSpec(Key key) {
     return nullSpec;
 }
 
-template <bool traced>
-VtermImpl<traced>::PresentationState VtermImpl<traced>::capturePresentationState() const {
+VtermImpl::PresentationState VtermImpl::capturePresentationState() const {
     return {
         cf,
         cf->getCursor(),
@@ -7733,8 +7545,7 @@ VtermImpl<traced>::PresentationState VtermImpl<traced>::capturePresentationState
     };
 }
 
-template <bool traced>
-bool VtermImpl<traced>::presentationChanged(const PresentationState& before) const {
+bool VtermImpl::presentationChanged(const PresentationState& before) const {
     if (before.frame != cf || cf->hasDamage() || before.columns != cf->columns() || before.rows != cf->rows() || before.viewOffset != cf->getViewOffset() || before.screenReverse != cf->getScreenReverseVideo() || before.blinkVisible != cf->getBlinkVisible() || before.cursorBlink != cf->getCursorBlink() || !(before.selectionForeground == cf->getSelectionForeground()) || !(before.selectionBackground == cf->getSelectionBackground()) || before.selectionColorMask != cf->getSelectionColorMask()) {
         return true;
     }
@@ -7746,23 +7557,158 @@ bool VtermImpl<traced>::presentationChanged(const PresentationState& before) con
     return !(before.selection.tl == selection.tl) || !(before.selection.br == selection.br) || before.selection.rectangular != selection.rectangular;
 }
 
-template <bool traced>
-void VtermImpl<traced>::syncPresentationCursor() {
+void VtermImpl::syncPresentationCursor() {
     cf->setCursorPos(posY, posX);
     using CS = TerminalCursor::Style;
     cf->setCursorStyle(showCursorMode ? (hasFocus ? cursorShape : CS::hollow_block) : CS::hidden);
 }
 
-template <bool traced>
-bool VtermImpl<traced>::executeC0InSequence(unsigned char ch, bool stringData) {
-    if (ch >= 0x20 || ch == '\x18' || ch == '\x1a' || ch == '\x1b') {
+void VtermImpl::parserResetGraphemeInput() {
+    resetGraphemeInput();
+}
+
+void VtermImpl::parserBell() {
+    host.bell();
+}
+
+bool VtermImpl::parserAutoNewlineMode() const {
+    return autoNewlineMode;
+}
+
+bool VtermImpl::parserPrinterControllerMode() const {
+    return printerControllerMode;
+}
+
+void VtermImpl::parserSetPrinterControllerMode(bool enabled) {
+    printerControllerMode = enabled;
+}
+
+CompatibilityLevel VtermImpl::parserCompatibilityLevel() const {
+    return compatLevel;
+}
+
+void VtermImpl::parserSetCompatibilityLevel(CompatibilityLevel level) {
+    compatLevel = level;
+}
+
+void VtermImpl::parserSet8BitControls(bool enabled) {
+    send8BitControls = enabled;
+}
+
+void VtermImpl::parserSetApplicationKeypad(bool enabled) {
+    keypadMode = enabled ? KeypadMode::Application : KeypadMode::Normal;
+}
+
+void VtermImpl::parserMoveCursorBackward(u32 count) {
+    moveCursorBackward(count);
+}
+
+bool VtermImpl::parserHexTitleInput() const {
+    return titleModes & 1;
+}
+
+Base64Decoder VtermImpl::parserNotificationDecoder(StringView id, bool body) const {
+    return notificationDecoder(id, body);
+}
+
+void VtermImpl::parserSingleShift(u8 index) {
+    charsetState.ss = index;
+}
+
+void VtermImpl::parserLockingShiftGl(u8 index) {
+    charsetState.gl = index;
+}
+
+void VtermImpl::parserLockingShiftGr(u8 index) {
+    charsetState.gr = index;
+}
+
+void VtermImpl::parserResetCharsets(bool isoLatin1) {
+    charsetState = CharsetState{};
+    if (isoLatin1) {
+        charsetState.g[charsetState.gr] = Charset::IsoLatin1;
+        charsetState.g[3] = Charset::IsoLatin1;
+    }
+}
+
+void VtermImpl::parserDesignateCharset(u8 index, Charset charset) {
+    if (index < 4) {
+        charsetState.g[index] = charset;
+    }
+}
+
+bool VtermImpl::parserHighlightMouseTracking() const {
+    return mouseTrk.mode == MouseTrackingMode::VT200_Highlight;
+}
+
+bool VtermImpl::parserHandlesPrinter() const {
+    return host.handlesPrinter();
+}
+
+void VtermImpl::parserPrint(StringView bytes) {
+    host.print(bytes);
+}
+
+void VtermImpl::parserWritePty(StringView bytes) {
+    writePty(bytes.data(), bytes.length());
+}
+
+bool VtermImpl::parserGroundContinuation(u8 byte) {
+    if (!utf8dec.expectsContinuation() || byte < 0x80) {
         return false;
     }
-
-    if constexpr (traced) {
-        if (!stringData) {
-            parserTrace->control(ch);
+    if (charsetState.g[charsetState.gr] == Charset::UTF8) {
+        for (int completed = utf8dec.pushByte(byte); completed > 0; --completed) {
+            placeGraphicChar();
         }
+    } else {
+        inputGraphicChar(byte);
+    }
+    return true;
+}
+
+void VtermImpl::parserGroundHigh(u8 byte) {
+    if (charsetState.g[charsetState.gr] == Charset::UTF8) {
+        for (int completed = utf8dec.pushByte(byte); completed > 0; --completed) {
+            placeGraphicChar();
+        }
+    } else {
+        inputGraphicChar(byte);
+    }
+}
+
+void VtermImpl::parserGroundAscii(u8 byte) {
+    inputGraphicChar(byte);
+}
+
+bool VtermImpl::parserAsciiBulkEligible() const {
+    return !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8;
+}
+
+bool VtermImpl::parserUtf8BulkEligible() const {
+    return !insertMode && !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8 && charsetState.g[charsetState.gr] == Charset::UTF8;
+}
+
+size_t VtermImpl::parserPlaceAsciiLines(StringView bytes) {
+    return placeAsciiLines(bytes.data(), bytes.length());
+}
+
+void VtermImpl::parserPlaceAsciiRun(StringView bytes) {
+    if (insertMode) {
+        placeAsciiRun<true>(bytes.data(), bytes.length());
+    } else {
+        placeAsciiRun<false>(bytes.data(), bytes.length());
+    }
+}
+
+size_t VtermImpl::parserPlaceUtf8Run(StringView bytes) {
+    const int consumed = placeUtf8Run(bytes.data(), bytes.length());
+    return consumed > 0 ? (size_t)(consumed) : 0;
+}
+
+bool VtermImpl::parserExecuteC0(u8 ch) {
+    if (ch >= 0x20 || ch == '\x18' || ch == '\x1a' || ch == '\x1b') {
+        return false;
     }
 
     if (ch == '\a') {
@@ -7841,8 +7787,7 @@ namespace {
     }
 }
 
-template <bool traced>
-size_t VtermImpl<traced>::placeAsciiLines(const u8* input, size_t size) {
+size_t VtermImpl::placeAsciiLines(const u8* input, size_t size) {
     if (insertMode || posX != 0 || lastCol || inputGraphemeScreen != nullptr || horizMarginMode || hMargin != 0 || nColsEff != composer.columns || marginTop != 0 || marginBottom != composer.rows || autoPrintMode) {
         return 0;
     }
@@ -7875,18 +7820,6 @@ size_t VtermImpl<traced>::placeAsciiLines(const u8* input, size_t size) {
         return 0;
     }
 
-    if constexpr (traced) {
-        const u8* tracedInput = input;
-        for (u16 line = 0; line < lineCount; ++line) {
-            const u16 length = lengths[line];
-            if (length != 0) {
-                parserTrace->text(tracedInput, length);
-            }
-            parserTrace->control('\r');
-            parserTrace->control('\n');
-            tracedInput += length + 2;
-        }
-    }
     cf->writeAsciiLines(posY, input, lengths, lineCount, attrs, activeHyperlink, currentSemantic, eraseAttrs);
     if (havePreceding) {
         utf8dec.setUnicode(preceding);
@@ -7900,8 +7833,7 @@ size_t VtermImpl<traced>::placeAsciiLines(const u8* input, size_t size) {
     return cursor - input;
 }
 
-template <bool traced>
-bool VtermImpl<traced>::processInput(const u8* input, int inputSize, bool refresh) {
+bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
     ++processInputDepth;
     bool changed;
     try {
@@ -7917,11 +7849,10 @@ bool VtermImpl<traced>::processInput(const u8* input, int inputSize, bool refres
     return changed;
 }
 
-template <bool traced>
-[[gnu::noinline]] bool VtermImpl<traced>::processInputImpl(const u8* input, int inputSize, bool refresh) {
+[[gnu::noinline]] bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
     const PresentationState presentationBefore = capturePresentationState();
     hideCursor();
-    parseWithRagel(input, inputSize);
+    parser->feed(StringView(input, inputSize));
     syncPresentationCursor();
     const bool changed = presentationChanged(presentationBefore);
     if (refresh && changed) {
@@ -7930,30 +7861,12 @@ template <bool traced>
     return changed;
 }
 
-template <bool traced>
-void VtermImpl<traced>::parseWithRagel(const u8* data, size_t len) {
-    const u8* p = data;
-    const u8* const pe = data + len;
-    const u8* const eof = nullptr;
-    int& cs = parser.state;
-    const bool printerHandled = host.handlesPrinter();
-    const auto appendPrinter = [&](const void* bytes, size_t size) {
-        if (printerHandled && size != 0) {
-            host.print(StringView((const u8*)(bytes), size));
-        }
-    };
-
-#include "vterm_parser.rl.h"
-}
-
-template <bool traced>
-std::string VtermImpl<traced>::getHyperlink(int pX, int pY) const {
+std::string VtermImpl::getHyperlink(int pX, int pY) const {
     const StringView link = resolveHyperlink(pX, pY).payload;
     return link.empty() ? std::string{} : std::string(reinterpret_cast<const char*>(link.data()), link.length());
 }
 
-template <bool traced>
-Point VtermImpl<traced>::selectionPoint(int pX, int pY) const {
+Point VtermImpl::selectionPoint(int pX, int pY) const {
     const int contentWidth = std::max(0, (int)composer.pixelWidth - 2 * opts.border);
     const int contentHeight = std::max(1, (int)composer.pixelHeight - 2 * opts.border);
     pX = std::min(std::max(0, pX - opts.border), contentWidth);
@@ -7961,8 +7874,7 @@ Point VtermImpl<traced>::selectionPoint(int pX, int pY) const {
     return cf->getLogicalPoint(Point(std::min(pX / composer.glyphWidth, (int)composer.columns), std::min(pY / composer.glyphHeight, (int)composer.rows - 1)));
 }
 
-template <bool traced>
-void VtermImpl<traced>::selectStart(int pX, int pY, bool cycleSnapTo) {
+void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
     if (cycleSnapTo) {
         selectExtend(pX, pY, true);
         return;
@@ -7981,8 +7893,7 @@ void VtermImpl<traced>::selectStart(int pX, int pY, bool cycleSnapTo) {
     redraw();
 }
 
-template <bool traced>
-void VtermImpl<traced>::selectExtend(int pX, int pY, bool cycleSnapTo) {
+void VtermImpl::selectExtend(int pX, int pY, bool cycleSnapTo) {
     Point pt = selectionPoint(pX, pY);
 
     Rect& selection = cf->getSelection();
@@ -8013,8 +7924,7 @@ void VtermImpl<traced>::selectExtend(int pX, int pY, bool cycleSnapTo) {
     redraw();
 }
 
-template <bool traced>
-void VtermImpl<traced>::selectUpdate(int pX, int pY) {
+void VtermImpl::selectUpdate(int pX, int pY) {
     Point pt = selectionPoint(pX, pY);
 
     Rect& selection = cf->getSelection();
@@ -8067,22 +7977,19 @@ void VtermImpl<traced>::selectUpdate(int pX, int pY) {
     redraw();
 }
 
-template <bool traced>
-bool VtermImpl<traced>::selectFinish(std::string& utf8_selection) {
+bool VtermImpl::selectFinish(std::string& utf8_selection) {
     showCursor();
     redraw();
 
     return cf->getSelectedUtf8(utf8_selection);
 }
 
-template <bool traced>
-void VtermImpl<traced>::selectClear() {
+void VtermImpl::selectClear() {
     cf->getSelection().clear();
     redraw();
 }
 
-template <bool traced>
-void VtermImpl<traced>::selectRectangularModeToggle() {
+void VtermImpl::selectRectangularModeToggle() {
     Rect& selection = cf->getSelection();
     selection.toggleRectangular();
     if (selection.rectangular && selection.br.x < selection.tl.x) {
@@ -8096,8 +8003,7 @@ void VtermImpl<traced>::selectRectangularModeToggle() {
     redraw();
 }
 
-template <bool traced>
-void VtermImpl<traced>::pasteSelection(const std::string& utf8_selection) {
+void VtermImpl::pasteSelection(const std::string& utf8_selection) {
     StringBuilder output(utf8_selection.size() + 12);
 
     if (bracketedPasteMode) {
@@ -8131,10 +8037,7 @@ Vterm* Vterm::create(Composer& composer, VtermHost& host, VtermTrace* trace) {
 
     CellExtraStore::create(composer, (size_t)(composer.columns) * (composer.rows + opts.saveLines));
     try {
-        if (trace != nullptr) {
-            return composer.pool->make<VtermImpl<true>>(composer, host, trace, dump);
-        }
-        return composer.pool->make<VtermImpl<false>>(composer, host, trace, dump);
+        return composer.pool->make<VtermImpl>(composer, host, trace, dump);
     } catch (...) {
         composer.setCellExtras(nullptr);
         throw;
