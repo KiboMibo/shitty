@@ -187,13 +187,13 @@ CSI разумно оставить с общей машиной парамет�
 
 ### 0. Зафиксировать контракт старого parser
 
-До первой замены кода нужно сохранить три базовые величины:
+До первой замены кода нужно сохранить функциональный контракт и снять performance baseline:
 
 - результат полного test target;
 - результат `parser_fuzz`;
 - performance baseline на packed corpus с текущей нарезкой 8 KiB, на `cat ~/2 ~/2 ~/2 ~/2` и на отдельном escape-heavy потоке.
 
-Для performance фиксируются:
+Performance на этом этапе является диагностикой, а не блокирующим условием первой версии. Фиксируются:
 
 - MiB/s;
 - cycles и instructions;
@@ -218,19 +218,57 @@ CSI разумно оставить с общей машиной парамет�
 
 Исходником автомата становится `vterm_parser.rl`.
 
-Один build target вызывает Ragel и создаёт `$(B)/vterm_parser.inc`. `vterm.cpp` включает этот generated include. Отдельный generated `.cpp` не подходит: actions должны без виртуального semantic sink вызывать методы конкретного `VtermImpl<traced>`, который целиком определён в `vterm.cpp`.
+Один build target вызывает Ragel и создаёт `$(B)/vterm_parser.rl.h`. Это не самостоятельный header с интерфейсом, а generated fragment, валидный только внутри тела метода. Отдельный generated `.cpp` не подходит: actions должны без виртуального semantic sink вызывать методы конкретного `VtermImpl<traced>`, который целиком определён в `vterm.cpp`.
 
 Схема сборки:
 
 ```text
 vterm_parser.rl
        ↓ ragel
-$(B)/vterm_parser.inc
-       ↓ include
+$(B)/vterm_parser.rl.h
+       ↓ include внутри parseWithRagel()
      vterm.cpp
 ```
 
-Начальный backend — `-G2 -L`, но это только стартовая конфигурация. После функционального завершения сравниваются `-G2`, `-G1` и `-T1`.
+Точка интеграции:
+
+```cpp
+template <bool traced>
+void VtermImpl<traced>::parseWithRagel(const u8* data, size_t len) {
+    const u8* p = data;
+    const u8* pe = data + len;
+
+    #include "vterm_parser.rl.h"
+}
+```
+
+Точный набор локальных имён задаётся требованиями Ragel, но архитектурная форма остаётся такой. Generated fragment:
+
+- загружает `cs` и остальные persistent поля из внутреннего состояния `VtermImpl`;
+- исполняет `write init` только при создании parser;
+- исполняет `write exec` над `[p, pe)`;
+- сохраняет `cs` и незаконченные accumulators перед выходом;
+- напрямую вызывает приватные semantic methods `VtermImpl<traced>`.
+
+`parseWithRagel()` возвращает `void`: malformed input восстанавливается состояниями ignore/cancel, а корректный вызов всегда потребляет весь предоставленный chunk. Наблюдаемое изменение terminal вычисляется не parser.
+
+`processInputImpl()` после переделки имеет только presentation-обвязку:
+
+```cpp
+const PresentationState before = capturePresentationState();
+hideCursor();
+parseWithRagel(input, inputSize);
+syncPresentationCursor();
+const bool changed = presentationChanged(before);
+if (refresh && changed) {
+    redraw();
+}
+return changed;
+```
+
+Таким образом generated code, parser state, actions и semantic implementation остаются полностью инкапсулированы в `vterm.cpp`. Не появляется `Parser` component, parser interface, virtual sink или публичный header.
+
+Начальный backend — `-G2 -L`. Сравнение `-G2`, `-G1` и `-T1` откладывается до функционального завершения и не задерживает первую понятную версию.
 
 Generated include:
 
@@ -307,6 +345,22 @@ Semantic handler выполняет команду и ничего не знае
 Параметры сначала можно оставить в фиксированных массивах Vterm, чтобы не переписывать одновременно все 79 CSI handlers. После переключения они переезжают в `ProtocolParser`; handlers получают к ним read-only доступ на время action.
 
 Отдельные значения, которые нужны семантике дольше одного action, копируются в принадлежащее соответствующему компоненту состояние. Parser-owned `StringView` наружу не выходит.
+
+Одновременно существенно перестраивается сам `vterm.cpp`. Цель не в том, чтобы заменить последние две тысячи строк одним include и оставить окружающий исторический слой нетронутым.
+
+Перетряхиваются:
+
+- declaration `VtermImpl`: parser state и parser actions собираются в одном месте, terminal state отделяется от них;
+- `processInputImpl()`: превращается в короткую presentation-обвязку;
+- все `setState()` из semantic handlers;
+- CSI handlers: остаётся семантика команд, разбор prefix/intermediate/final уходит;
+- OSC/DCS helpers: остаётся применение уже разобранных значений, строковые parsers исчезают;
+- OSC 52 path в `ApplicationImpl` и `TestDisplay`: повторный parsing исчезает;
+- printer controller: отдельный ручной автомат поглощается Ragel;
+- `VtermTrace`: перестаёт повторно разбирать DCS header;
+- порядок функций в `vterm.cpp`: рядом располагаются parser actions соответствующей группы и вызываемая ими семантика.
+
+Ожидаемо будет переписана значительная часть `vterm.cpp`, а не только текущий `processInputImpl()`. При этом наружная поверхность `Vterm` не расширяется.
 
 ### 4. Построить верхнеуровневую statechart
 
@@ -389,7 +443,7 @@ Gate этапа:
 
 - all-splits тесты этой группы совпадают со старым parser;
 - trace совпадает;
-- обычный ASCII throughput не ухудшился.
+- bulk ASCII path сохранился архитектурно и не превратился в заведомо побайтовый цикл.
 
 ### 7. Перенести CSI целиком
 
@@ -624,7 +678,7 @@ Parser-facing API trace переводится со `std::string` на `StringVi
 
 ### 15. Performance tuning после функционального завершения
 
-Оптимизация выполняется только на полностью новой machine.
+Оптимизация выполняется только на полностью новой и понятной machine. Первая функционально полная версия может быть немного медленнее старой; это принимается сознательно и не задерживает архитектурную переделку.
 
 Последовательность измерений:
 
@@ -636,7 +690,7 @@ Parser-facing API trace переводится со `std::string` на `StringVi
 6. Проверка escape-heavy instructions/byte.
 7. Просмотр annotated assembly наиболее горячих actions.
 
-Нельзя принимать вариант, который ускоряет escape-heavy synthetic workload, но замедляет основной packed corpus из-за I-cache.
+Результаты этих измерений формируют следующий цикл оптимизаций. На первой версии блокируется только очевидная алгоритмическая поломка, например случайная побайтовая обработка обычного ASCII вместо сохранённого bulk path.
 
 Решение о `memchr` против текущего SIMD scanner принимается отдельно для:
 
@@ -668,6 +722,5 @@ Parser-facing API trace переводится со `std::string` на `StringVi
 - лимиты не приводят к неограниченным аллокациям;
 - полный test target и все upstream suites проходят;
 - parser fuzz и chunk-invariance fuzz проходят;
-- основной performance workload не регрессировал;
-- выбранный Ragel backend подтверждён измерением;
+- performance baseline новой версии снят и возможная небольшая регрессия локализована для последующей доводки;
 - generated source полностью воспроизводится build graph.
