@@ -6,9 +6,9 @@
 
 #version 450
 
-layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-layout (set = 0, binding = 0, rgba8) uniform writeonly image2D outputImage;
+@OUTPUT_DECLARATION@
 
 struct Cell
 {
@@ -23,9 +23,16 @@ struct Cell
    uint lineAttribute;
 };
 
+struct CellUpdate
+{
+   uint sourceIndex;
+   uint outputIndex;
+   Cell cell;
+};
+
 layout (std430, set = 0, binding = 1) readonly buffer CellBuffer
 {
-   Cell cells[];
+   CellUpdate updates[];
 };
 
 layout (set = 0, binding = 2) uniform sampler2DArray atlas;
@@ -54,19 +61,15 @@ layout (push_constant) uniform PushConstants
    uint rectangularSelection;
    uint showWraps;
    uint hasDoubleWidth;
-   int previousCursorX;
-   int previousCursorY;
-   uint deltaFrame;
-   uint selectionChanged;
    uint selectionForeground;
    uint selectionBackground;
    uint selectionColorMask;
    uint blinkVisible;
    uint cursorBlink;
-   uint previousHoveredHyperlink;
    uint hoveredHyperlink;
    uint hoveredLinkBegin;
    uint hoveredLinkEnd;
+   uint updateCount;
 } parameters;
 
 vec3 unpackColor (uint color)
@@ -83,7 +86,7 @@ void storePixel (ivec2 position, vec3 color)
        position.x >= int (parameters.outputWidth) ||
        position.y >= int (parameters.outputHeight))
       return;
-   imageStore (outputImage, position, vec4 (color, 1.0));
+@OUTPUT_STORE@
 }
 
 bool selected (ivec2 cellPosition)
@@ -341,49 +344,33 @@ float glyphCoverage (uint codepoint, uint glyph, uint doubleWidth,
 
 void main ()
 {
-   uvec2 globalPosition = gl_GlobalInvocationID.xy;
-   if (globalPosition.x >= parameters.columns ||
-       globalPosition.y >= parameters.rows)
+   uint updateIndex = gl_GlobalInvocationID.x;
+   if (updateIndex >= parameters.updateCount)
       return;
 
-   uint rowIndex = parameters.columns * globalPosition.y;
-   uint lineAttribute = cells [rowIndex].lineAttribute;
-   bool doubleLine = lineAttribute != 0;
-   uint sourceColumn = doubleLine ? globalPosition.x / 2 : globalPosition.x;
-   ivec2 cellPosition = ivec2 (sourceColumn, globalPosition.y);
-   uint index = rowIndex + sourceColumn;
-   Cell cell = cells [index];
+   CellUpdate update = updates [updateIndex];
+   uint sourceRow = update.sourceIndex / parameters.columns;
+   uint sourceColumn = update.sourceIndex -
+                       sourceRow * parameters.columns;
+   uint outputRow = update.outputIndex / parameters.columns;
+   uint outputColumn = update.outputIndex -
+                       outputRow * parameters.columns;
+   if (sourceColumn >= parameters.columns ||
+       sourceRow >= parameters.rows ||
+       outputColumn >= parameters.columns ||
+       outputRow >= parameters.rows)
+      return;
 
-   if (parameters.deltaFrame != 0)
-   {
-      uint dirty = bitfieldExtract (cell.charData, 23, 1);
-      bool currentCursor = cellPosition.x == parameters.cursorX &&
-                           cellPosition.y == parameters.cursorY;
-      bool previousCursor =
-         cellPosition.x == parameters.previousCursorX &&
-         cellPosition.y == parameters.previousCursorY;
-      bool hyperlinkChanged =
-         cell.hyperlink != 0 &&
-         parameters.hoveredHyperlink != parameters.previousHoveredHyperlink &&
-         (cell.hyperlink == parameters.hoveredHyperlink ||
-          cell.hyperlink == parameters.previousHoveredHyperlink);
-      if (dirty == 0 && !currentCursor && !previousCursor &&
-          parameters.selectionChanged == 0 && !hyperlinkChanged)
-         return;
-   }
+   uvec2 globalPosition = uvec2 (outputColumn, outputRow);
+   ivec2 cellPosition = ivec2 (sourceColumn, sourceRow);
+   uint lineAttribute = update.cell.lineAttribute;
+   bool doubleLine = lineAttribute != 0;
+   Cell cell = update.cell;
 
    uint doubleWidth = doubleLine ? 1u : bitfieldExtract (cell.charData, 16, 1);
    uint doubleWidthContinuation = doubleLine ? 0u : bitfieldExtract (cell.charData, 17, 1);
    if (doubleWidthContinuation != 0)
       return;
-
-   if (!doubleLine && doubleWidth != 0 && globalPosition.x + 1 < parameters.columns)
-   {
-      if (bitfieldExtract (cells [index + 1].charData, 17, 1) == 0)
-         doubleWidth = 0;
-   }
-   else if (!doubleLine && globalPosition.x + 1 >= parameters.columns)
-      doubleWidth = 0;
 
    uint fontIndex = doubleWidth == 0
       ? bitfieldExtract (cell.charData, 2, 2)
@@ -433,8 +420,8 @@ void main ()
       foreground = background;
    bool explicitLink = cell.hyperlink != 0 &&
       cell.hyperlink == parameters.hoveredHyperlink;
-   bool plainLink = index >= parameters.hoveredLinkBegin &&
-      index < parameters.hoveredLinkEnd;
+   bool plainLink = update.sourceIndex >= parameters.hoveredLinkBegin &&
+      update.sourceIndex < parameters.hoveredLinkEnd;
    if (underline == 0 && (explicitLink || plainLink))
    {
       underline = 1;

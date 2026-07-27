@@ -321,7 +321,6 @@ struct RenderCell {
     RenderCell();
 
     static constexpr u32 gpuAttributeMask = 0x0003ff7c;
-    static constexpr u32 dirtyMask = 1u << 23;
 };
 
 static_assert(sizeof(RenderCell) == 32, "RenderCell size mismatch");

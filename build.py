@@ -125,21 +125,15 @@ glfw = library(
 
 
 render_spv = command(
-    inputs=["$(S)/render.comp", "$(S)/embed_spirv.py"],
-    outputs=["$(B)/render_spv.h", "$(B)/render.comp.spv"],
+    inputs=["$(S)/render.comp", "$(S)/generate_render_shaders.py"],
+    outputs=["$(B)/render_spv.h"],
     cmd=[
         [
-            "glslangValidator",
-            "--target-env", "vulkan1.1",
-            "-V", "-S", "comp",
-            "-o", "$(B)/render.comp.spv",
-            "$(S)/render.comp",
-        ],
-        [
             "python3",
-            "$(S)/embed_spirv.py",
-            "$(B)/render.comp.spv",
+            "$(S)/generate_render_shaders.py",
+            "$(S)/render.comp",
             "$(B)/render_spv.h",
+            "glslangValidator",
         ],
     ],
     descr="SH",

@@ -359,7 +359,7 @@ class Shitty:
     def gpu_attribute_masks(self):
         self.stream.write(b"GPU_ATTRIBUTE_MASKS\n")
         response = self._readline().split()
-        if len(response) != 4 or response[0] != "OK":
+        if len(response) != 3 or response[0] != "OK":
             raise RuntimeError("invalid GPU attribute response")
         return tuple(map(int, response[1:]))
 

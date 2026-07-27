@@ -12,7 +12,7 @@
 #include "listener.h"
 
 #include "options.h"
-#include "render_spv.h"
+#include "render_damage.h"
 #include "unicode_map.h"
 #include "utf8.h"
 #include "vterm.h"
@@ -26,6 +26,8 @@
 #include <std/str/view.h>
 
 #include <vulkan/vulkan.h>
+
+#include "render_spv.h"
 
 #define GLFW_INCLUDE_NONE
 #include "third_party/glfw/include/GLFW/glfw3.h"
@@ -74,6 +76,14 @@ namespace {
     };
 
     static_assert(sizeof(GpuCell) == 36, "Vulkan cell layout mismatch");
+
+    struct GpuCellUpdate {
+        u32 sourceIndex;
+        u32 outputIndex;
+        GpuCell cell;
+    };
+
+    static_assert(sizeof(GpuCellUpdate) == 44, "Vulkan cell update layout mismatch");
 
     struct RendererImpl final: public Renderer {
         RendererImpl(Composer& composer, GLFWwindow* window);
@@ -126,22 +136,18 @@ namespace {
             u32 rectangularSelection;
             u32 showWraps;
             u32 hasDoubleWidth;
-            i32 previousCursorX;
-            i32 previousCursorY;
-            u32 deltaFrame;
-            u32 selectionChanged;
             u32 selectionForeground;
             u32 selectionBackground;
             u32 selectionColorMask;
             u32 blinkVisible;
             u32 cursorBlink;
-            u32 previousHoveredHyperlink;
             u32 hoveredHyperlink;
             u32 hoveredLinkBegin;
             u32 hoveredLinkEnd;
+            u32 updateCount;
         };
 
-        static_assert(sizeof(PushConstants) == 128, "Vulkan push constant layout mismatch");
+        static_assert(sizeof(PushConstants) == 112, "Vulkan push constant layout mismatch");
 
         struct GlyphSlot {
             u32 id = 0;
@@ -180,12 +186,30 @@ namespace {
         struct SwapchainResources {
             VkSwapchainKHR swapchain = VK_NULL_HANDLE;
             VkFormat format = VK_FORMAT_UNDEFINED;
+            VkFormat storageViewFormat = VK_FORMAT_UNDEFINED;
             VkExtent2D extent{};
             Vector<VkImage> images;
+            Vector<VkImageView> views;
             Vector<VkSemaphore> semaphores;
             Vector<u8> initialized;
+            Vector<u64> generations;
             ImageResource output;
-            bool replacesOutput = false;
+            const GeneratedRenderShader* shader = nullptr;
+            bool direct = false;
+        };
+
+        struct PresentationState {
+            TerminalCursor cursor;
+            Rect selection;
+            Color selectionForeground;
+            Color selectionBackground;
+            u32 selectionColorMask = 0;
+            u32 hoveredHyperlink = 0;
+            u32 hoveredLinkBegin = 0;
+            u32 hoveredLinkEnd = 0;
+            bool screenReverse = false;
+            bool blinkVisible = false;
+            bool cursorBlink = false;
         };
 
         static constexpr u32 framesInFlight = 2;
@@ -205,6 +229,7 @@ namespace {
         VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
         VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
         VkPipeline pipeline = VK_NULL_HANDLE;
+        const GeneratedRenderShader* activeShader = nullptr;
         VkSampler atlasSampler = VK_NULL_HANDLE;
 
         ImageResource atlas;
@@ -219,6 +244,12 @@ namespace {
         GlyphCache glyphs;
         GlyphCache doubleWidthGlyphs;
         Buffer fontUploadData;
+        Buffer updateEpochs;
+        u32 updateEpoch = 0;
+        Buffer damageJournalStorage;
+        RenderDamage damage;
+        u64 clearDamageGeneration = 0;
+        u64 outputGeneration = 0;
         Vector<RenderCell> cells;
         Vector<VkBufferImageCopy> atlasCopies;
         Vector<VkBufferImageCopy> colorAtlasCopies;
@@ -232,16 +263,23 @@ namespace {
         u32 previousHoveredLinkBegin = 0;
         u32 previousHoveredLinkEnd = 0;
         bool previousStateValid = false;
+        PresentationState presentationState;
         u16 cellColumns = 0;
         u16 cellRows = 0;
+        bool mutableSwapchainFormats = false;
+        bool extendedStorageFormats = false;
 
         VkSwapchainKHR swapchain = VK_NULL_HANDLE;
         VkFormat swapchainFormat = VK_FORMAT_UNDEFINED;
+        VkFormat swapchainStorageViewFormat = VK_FORMAT_UNDEFINED;
         VkExtent2D swapchainExtent{};
         VkExtent2D renderExtent{};
+        bool directSwapchain = false;
         Vector<VkImage> swapchainImages;
+        Vector<VkImageView> swapchainViews;
         Vector<VkSemaphore> presentSemaphores;
         Vector<u8> imageInitialized;
+        Vector<u64> imageGenerations;
 
         std::array<FrameResources, framesInFlight> frames;
         u32 currentFrame = 0;
@@ -256,7 +294,8 @@ namespace {
         void resetFontResources();
         void cellExtrasChanged();
         void createDescriptors();
-        void createPipeline();
+        void createPipelineLayout();
+        void selectPipeline(const GeneratedRenderShader& shader);
         void createSwapchain(u32 width, u32 height);
         void destroySwapchainResources(SwapchainResources& resources);
         void destroySwapchain();
@@ -266,10 +305,11 @@ namespace {
 
         ImageResource createImage(u32 width, u32 height, u32 layers, VkFormat format, VkImageUsageFlags usage, bool arrayView = false);
         void destroyImage(ImageResource& image);
+        VkImageView createImageView(VkImage image, VkFormat format) const;
         void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory) const;
         u32 findMemoryType(u32 allowed, VkMemoryPropertyFlags properties) const;
         void updateStaticDescriptors();
-        void updateOutputDescriptors();
+        void updateOutputDescriptor(FrameResources& frame, VkImageView view);
         void updateCellDescriptor(FrameResources& frame);
         void beginGlyphFrame();
         void configureGlyphCache(GlyphCache& cache, u32 width, u32 layers, size_t byteBudget, u32 maxImageDimension);
@@ -278,11 +318,17 @@ namespace {
         VkDeviceSize stageFontData(const void* data, size_t len, size_t expected);
         void recordFontUploads(FrameResources& frame);
         void recordImageUploads(VkCommandBuffer commandBuffer, VkBuffer stagingBuffer, const ImageResource& image, const Vector<VkBufferImageCopy>& copies, bool initialize);
-        void recordCommands(FrameResources& frame, u32 imageIndex, const TerminalUpdate& update, bool deltaFrame);
+        void recordCommands(FrameResources& frame, u32 imageIndex, const PresentationState& state, u32 updateCount, bool clearOutput);
         void recordRepaintCommands(FrameResources& frame, u32 imageIndex);
         bool acquirePresentFrame(u32 width, u32 height, FrameResources*& frame, u32& imageIndex, bool& recreateAfterPresent);
         bool submitPresentFrame(u32 width, u32 height, FrameResources& frame, u32 imageIndex, bool recreateAfterPresent);
         bool present(const TerminalUpdate& update);
+        u32 materializeUpdates(FrameResources& frame, u64 appliedGeneration, bool initialized);
+        void ensureDamageJournal(u32 cellCount);
+        void appendDamage(u32 begin, u32 count);
+        void fullDamage();
+        void collectDamage();
+        void capturePresentationState(const TerminalUpdate& update);
 
         static bool needsFontGlyph(u32 id);
         static u32 packColor(const Color& color);
@@ -299,7 +345,7 @@ namespace {
         }
     }
 
-    bool deviceHasSwapchain(VkPhysicalDevice physicalDevice) {
+    bool deviceHasExtension(VkPhysicalDevice physicalDevice, const char* name) {
         u32 count = 0;
         if (vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &count, nullptr) != VK_SUCCESS) {
             return false;
@@ -310,8 +356,8 @@ namespace {
             return false;
         }
 
-        return std::any_of(extensions.begin(), extensions.end(), [](const VkExtensionProperties& extension) {
-            return std::strcmp(extension.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0;
+        return std::any_of(extensions.begin(), extensions.end(), [name](const VkExtensionProperties& extension) {
+            return std::strcmp(extension.extensionName, name) == 0;
         });
     }
 
@@ -340,8 +386,8 @@ namespace {
         throw std::runtime_error("Vulkan surface has no composite alpha mode");
     }
 
-    u32 packCellAttributes(const RenderCell& cell, bool dirty = false) {
-        return (cell.attributes & RenderCell::gpuAttributeMask) | (dirty ? RenderCell::dirtyMask : 0);
+    u32 packCellAttributes(const RenderCell& cell) {
+        return cell.attributes & RenderCell::gpuAttributeMask;
     }
 }
 
@@ -363,8 +409,8 @@ void CallRendererCellExtrasChanged::onListen(void*) {
     renderer->cellExtrasChanged();
 }
 
-u32 Renderer::rendererCellAttributesForTest(const RenderCell& cell, bool dirty) {
-    return packCellAttributes(cell, dirty);
+u32 Renderer::rendererCellAttributesForTest(const RenderCell& cell) {
+    return packCellAttributes(cell);
 }
 
 RendererImpl::RendererImpl(Composer& composer_, GLFWwindow* window_)
@@ -381,7 +427,7 @@ RendererImpl::RendererImpl(Composer& composer_, GLFWwindow* window_)
     createCommandResources();
     createFontResources();
     createDescriptors();
-    createPipeline();
+    createPipelineLayout();
     composer.fontChangedListeners.pushBack(composer.pool->make<CallRendererFontChanged>(this));
     composer.cellExtrasChangedListeners.pushBack(composer.pool->make<CallRendererCellExtrasChanged>(this));
 }
@@ -494,7 +540,7 @@ void RendererImpl::selectPhysicalDevice() {
     int bestScore = -1;
     VkPhysicalDeviceProperties bestProperties{};
     for (const auto candidate : devices) {
-        if (!deviceHasSwapchain(candidate) || !deviceSupportsRenderer(candidate)) {
+        if (!deviceHasExtension(candidate, VK_KHR_SWAPCHAIN_EXTENSION_NAME) || !deviceSupportsRenderer(candidate)) {
             continue;
         }
 
@@ -533,6 +579,11 @@ void RendererImpl::selectPhysicalDevice() {
     if (opts.vulkanInfo) {
         sysO << StringView(u8"Vulkan device: ") << StringView(bestProperties.deviceName) << StringView(u8"\nVulkan API: ") << (u64)(VK_VERSION_MAJOR(bestProperties.apiVersion)) << StringView(u8".") << (u64)(VK_VERSION_MINOR(bestProperties.apiVersion)) << StringView(u8".") << (u64)(VK_VERSION_PATCH(bestProperties.apiVersion)) << endL;
     }
+
+    mutableSwapchainFormats = deviceHasExtension(physicalDevice, VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME) && deviceHasExtension(physicalDevice, VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME);
+    VkPhysicalDeviceFeatures features{};
+    vkGetPhysicalDeviceFeatures(physicalDevice, &features);
+    extendedStorageFormats = features.shaderStorageImageExtendedFormats;
 }
 
 void RendererImpl::createDevice() {
@@ -543,13 +594,21 @@ void RendererImpl::createDevice() {
     queueInfo.queueCount = 1;
     queueInfo.pQueuePriorities = &priority;
 
-    const char* extensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    const char* extensions[3] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    u32 extensionCount = 1;
+    if (mutableSwapchainFormats) {
+        extensions[extensionCount++] = VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME;
+        extensions[extensionCount++] = VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME;
+    }
+    VkPhysicalDeviceFeatures features{};
+    features.shaderStorageImageExtendedFormats = extendedStorageFormats;
     VkDeviceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     createInfo.queueCreateInfoCount = 1;
     createInfo.pQueueCreateInfos = &queueInfo;
-    createInfo.enabledExtensionCount = 1;
+    createInfo.enabledExtensionCount = extensionCount;
     createInfo.ppEnabledExtensionNames = extensions;
+    createInfo.pEnabledFeatures = &features;
     checkVk(vkCreateDevice(physicalDevice, &createInfo, nullptr, &device), "vkCreateDevice");
     vkGetDeviceQueue(device, queueFamily, 0, &queue);
 }
@@ -654,6 +713,20 @@ RendererImpl::ImageResource RendererImpl::createImage(u32 width, u32 height, u32
         throw;
     }
     return result;
+}
+
+VkImageView RendererImpl::createImageView(VkImage image, VkFormat format) const {
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = image;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = format;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.layerCount = 1;
+    VkImageView view = VK_NULL_HANDLE;
+    checkVk(vkCreateImageView(device, &viewInfo, nullptr, &view), "vkCreateImageView");
+    return view;
 }
 
 void RendererImpl::destroyImage(ImageResource& image) {
@@ -938,18 +1011,16 @@ void RendererImpl::updateStaticDescriptors() {
     }
 }
 
-void RendererImpl::updateOutputDescriptors() {
-    const VkDescriptorImageInfo imageInfo{VK_NULL_HANDLE, outputImage.view, VK_IMAGE_LAYOUT_GENERAL};
-    for (auto& frame : frames) {
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = frame.descriptorSet;
-        write.dstBinding = 0;
-        write.descriptorCount = 1;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        write.pImageInfo = &imageInfo;
-        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
-    }
+void RendererImpl::updateOutputDescriptor(FrameResources& frame, VkImageView view) {
+    const VkDescriptorImageInfo imageInfo{VK_NULL_HANDLE, view, VK_IMAGE_LAYOUT_GENERAL};
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = frame.descriptorSet;
+    write.dstBinding = 0;
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    write.pImageInfo = &imageInfo;
+    vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
 }
 
 void RendererImpl::updateCellDescriptor(FrameResources& frame) {
@@ -966,14 +1037,7 @@ void RendererImpl::updateCellDescriptor(FrameResources& frame) {
     vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
 }
 
-void RendererImpl::createPipeline() {
-    VkShaderModuleCreateInfo moduleInfo{};
-    moduleInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    moduleInfo.codeSize = renderShaderSpvSize;
-    moduleInfo.pCode = renderShaderSpv;
-    VkShaderModule shaderModule = VK_NULL_HANDLE;
-    checkVk(vkCreateShaderModule(device, &moduleInfo, nullptr, &shaderModule), "vkCreateShaderModule");
-
+void RendererImpl::createPipelineLayout() {
     VkPushConstantRange pushConstant{};
     pushConstant.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     pushConstant.size = sizeof(PushConstants);
@@ -984,6 +1048,18 @@ void RendererImpl::createPipeline() {
     layoutInfo.pushConstantRangeCount = 1;
     layoutInfo.pPushConstantRanges = &pushConstant;
     checkVk(vkCreatePipelineLayout(device, &layoutInfo, nullptr, &pipelineLayout), "vkCreatePipelineLayout");
+}
+
+void RendererImpl::selectPipeline(const GeneratedRenderShader& shader) {
+    if (activeShader == &shader) {
+        return;
+    }
+    VkShaderModuleCreateInfo moduleInfo{};
+    moduleInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    moduleInfo.codeSize = shader.codeSize;
+    moduleInfo.pCode = shader.code;
+    VkShaderModule shaderModule = VK_NULL_HANDLE;
+    checkVk(vkCreateShaderModule(device, &moduleInfo, nullptr, &shaderModule), "vkCreateShaderModule");
 
     VkPipelineShaderStageCreateInfo shaderStage{};
     shaderStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -994,41 +1070,63 @@ void RendererImpl::createPipeline() {
     pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     pipelineInfo.stage = shaderStage;
     pipelineInfo.layout = pipelineLayout;
-    const VkResult result = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline);
+    VkPipeline replacement = VK_NULL_HANDLE;
+    const VkResult result = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &replacement);
     vkDestroyShaderModule(device, shaderModule, nullptr);
     checkVk(result, "vkCreateComputePipelines");
+    if (pipeline != VK_NULL_HANDLE) {
+        vkDestroyPipeline(device, pipeline, nullptr);
+    }
+    pipeline = replacement;
+    activeShader = &shader;
 }
 
 void RendererImpl::destroySwapchainResources(SwapchainResources& resources) {
+    for (const auto view : resources.views) {
+        if (device != VK_NULL_HANDLE && view != VK_NULL_HANDLE) {
+            vkDestroyImageView(device, view, nullptr);
+        }
+    }
     for (const auto semaphore : resources.semaphores) {
         if (device != VK_NULL_HANDLE && semaphore != VK_NULL_HANDLE) {
             vkDestroySemaphore(device, semaphore, nullptr);
         }
     }
+    resources.views.clear();
     resources.semaphores.clear();
     resources.images.clear();
     resources.initialized.clear();
+    resources.generations.clear();
     if (resources.swapchain != VK_NULL_HANDLE && device != VK_NULL_HANDLE) {
         vkDestroySwapchainKHR(device, resources.swapchain, nullptr);
     }
     resources.swapchain = VK_NULL_HANDLE;
     resources.format = VK_FORMAT_UNDEFINED;
+    resources.storageViewFormat = VK_FORMAT_UNDEFINED;
     resources.extent = {};
     destroyImage(resources.output);
-    resources.replacesOutput = false;
+    resources.shader = nullptr;
+    resources.direct = false;
 }
 
 void RendererImpl::destroySwapchain() {
     SwapchainResources resources;
     resources.swapchain = swapchain;
     resources.format = swapchainFormat;
+    resources.storageViewFormat = swapchainStorageViewFormat;
     resources.extent = swapchainExtent;
+    resources.direct = directSwapchain;
+    resources.shader = activeShader;
     resources.images.xchg(swapchainImages);
+    resources.views.xchg(swapchainViews);
     resources.semaphores.xchg(presentSemaphores);
     resources.initialized.xchg(imageInitialized);
+    resources.generations.xchg(imageGenerations);
     swapchain = VK_NULL_HANDLE;
     swapchainFormat = VK_FORMAT_UNDEFINED;
+    swapchainStorageViewFormat = VK_FORMAT_UNDEFINED;
     swapchainExtent = {};
+    directSwapchain = false;
     destroySwapchainResources(resources);
 }
 
@@ -1041,10 +1139,6 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
 
     VkSurfaceCapabilitiesKHR capabilities{};
     checkVk(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &capabilities), "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
-    if (!(capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT)) {
-        throw std::runtime_error("Vulkan surface cannot be used as a transfer target");
-    }
-
     u32 formatCount = 0;
     checkVk(vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, nullptr), "vkGetPhysicalDeviceSurfaceFormatsKHR");
     if (formatCount == 0) {
@@ -1053,26 +1147,61 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     std::vector<VkSurfaceFormatKHR> formats(formatCount);
     checkVk(vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, formats.data()), "vkGetPhysicalDeviceSurfaceFormatsKHR");
 
-    const VkFormat preferredFormats[] = {
-        VK_FORMAT_B8G8R8A8_UNORM,
-        VK_FORMAT_R8G8B8A8_UNORM,
-        VK_FORMAT_B8G8R8A8_SRGB,
-        VK_FORMAT_R8G8B8A8_SRGB,
-    };
     VkSurfaceFormatKHR surfaceFormat{};
-    bool formatFound = false;
-    for (const auto preferred : preferredFormats) {
-        const auto found = std::find_if(formats.begin(), formats.end(), [this, preferred](const VkSurfaceFormatKHR& format) {
-            return format.format == preferred && formatSupports(physicalDevice, format.format, VK_FORMAT_FEATURE_BLIT_DST_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT);
-        });
-        if (found != formats.end()) {
-            surfaceFormat = *found;
-            formatFound = true;
-            break;
+    const GeneratedRenderShader* renderShader = nullptr;
+    const VkImageUsageFlags directUsage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    if ((capabilities.supportedUsageFlags & directUsage) == directUsage) {
+        for (const GeneratedRenderShader& candidate : generatedRenderShaders) {
+            if ((candidate.flags & renderShaderMutableFormat) && !mutableSwapchainFormats) {
+                continue;
+            }
+            if ((candidate.flags & renderShaderExtendedStorage) && !extendedStorageFormats) {
+                continue;
+            }
+            if (!formatSupports(physicalDevice, candidate.storageViewFormat, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT)) {
+                continue;
+            }
+            for (const VkSurfaceFormatKHR& format : formats) {
+                if (format.format == candidate.presentFormat && format.colorSpace == candidate.colorSpace) {
+                    surfaceFormat = format;
+                    renderShader = &candidate;
+                    break;
+                }
+            }
+            if (renderShader != nullptr) {
+                break;
+            }
         }
     }
-    if (!formatFound) {
-        throw std::runtime_error("Vulkan surface has no blit-capable 32-bit RGBA/BGRA format");
+
+    const bool direct = renderShader != nullptr;
+    if (!direct) {
+        if (!(capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT)) {
+            throw std::runtime_error("Vulkan surface supports neither storage output nor transfer destination");
+        }
+        const VkFormat preferredFormats[] = {
+            VK_FORMAT_B8G8R8A8_UNORM,
+            VK_FORMAT_R8G8B8A8_UNORM,
+            VK_FORMAT_B8G8R8A8_SRGB,
+            VK_FORMAT_R8G8B8A8_SRGB,
+        };
+        for (const auto preferred : preferredFormats) {
+            const auto found = std::find_if(formats.begin(), formats.end(), [this, preferred](const VkSurfaceFormatKHR& format) {
+                return format.format == preferred && formatSupports(physicalDevice, format.format, VK_FORMAT_FEATURE_BLIT_DST_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT);
+            });
+            if (found != formats.end()) {
+                surfaceFormat = *found;
+                break;
+            }
+        }
+        if (surfaceFormat.format == VK_FORMAT_UNDEFINED) {
+            throw std::runtime_error("Vulkan surface has no usable direct or blit format");
+        }
+        renderShader = &fallbackRenderShader;
+    }
+
+    if (direct && surfaceFormat.format != renderShader->storageViewFormat && !(renderShader->flags & renderShaderMutableFormat)) {
+        throw std::runtime_error("Generated render shader requires an undeclared mutable format");
     }
 
     u32 presentModeCount = 0;
@@ -1105,7 +1234,7 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     createInfo.imageColorSpace = surfaceFormat.colorSpace;
     createInfo.imageExtent = extent;
     createInfo.imageArrayLayers = 1;
-    createInfo.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    createInfo.imageUsage = direct ? directUsage : VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     createInfo.preTransform = capabilities.currentTransform;
     createInfo.compositeAlpha = selectCompositeAlpha(capabilities.supportedCompositeAlpha);
@@ -1113,18 +1242,40 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     createInfo.clipped = VK_TRUE;
     createInfo.oldSwapchain = swapchain;
 
+    VkFormat viewFormats[2] = {
+        surfaceFormat.format,
+        renderShader->storageViewFormat,
+    };
+    VkImageFormatListCreateInfo formatList{};
+    const bool mutableFormat = direct && (renderShader->flags & renderShaderMutableFormat);
+    if (mutableFormat) {
+        formatList.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO;
+        formatList.viewFormatCount = viewFormats[0] == viewFormats[1] ? 1u : 2u;
+        formatList.pViewFormats = viewFormats;
+        createInfo.flags |= VK_SWAPCHAIN_CREATE_MUTABLE_FORMAT_BIT_KHR;
+        createInfo.pNext = &formatList;
+    }
+
     SwapchainResources replacement;
     replacement.format = surfaceFormat.format;
+    replacement.storageViewFormat = renderShader->storageViewFormat;
     replacement.extent = extent;
-    replacement.replacesOutput = renderExtent.width != width || renderExtent.height != height;
+    replacement.shader = renderShader;
+    replacement.direct = direct;
     try {
-        if (replacement.replacesOutput) {
+        if (!direct) {
             replacement.output = createImage(width, height, 1, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
         }
         checkVk(vkCreateSwapchainKHR(device, &createInfo, nullptr, &replacement.swapchain), "vkCreateSwapchainKHR");
         checkVk(vkGetSwapchainImagesKHR(device, replacement.swapchain, &imageCount, nullptr), "vkGetSwapchainImagesKHR");
         replacement.images.zero(imageCount);
         checkVk(vkGetSwapchainImagesKHR(device, replacement.swapchain, &imageCount, replacement.images.mutData()), "vkGetSwapchainImagesKHR");
+        if (direct) {
+            replacement.views.zero(imageCount);
+            for (u32 index = 0; index < imageCount; ++index) {
+                replacement.views.mut(index) = createImageView(replacement.images[index], replacement.storageViewFormat);
+            }
+        }
         replacement.semaphores.zero(imageCount);
         VkSemaphoreCreateInfo semaphoreInfo{};
         semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -1132,6 +1283,8 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
             checkVk(vkCreateSemaphore(device, &semaphoreInfo, nullptr, semaphore), "vkCreateSemaphore");
         }
         replacement.initialized.zero(imageCount);
+        replacement.generations.zero(imageCount);
+        selectPipeline(*renderShader);
     } catch (...) {
         destroySwapchainResources(replacement);
         throw;
@@ -1143,20 +1296,28 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     VkFormat format = swapchainFormat;
     swapchainFormat = replacement.format;
     replacement.format = format;
+    format = swapchainStorageViewFormat;
+    swapchainStorageViewFormat = replacement.storageViewFormat;
+    replacement.storageViewFormat = format;
     VkExtent2D previousExtent = swapchainExtent;
     swapchainExtent = replacement.extent;
     replacement.extent = previousExtent;
+    const bool previousDirect = directSwapchain;
+    directSwapchain = replacement.direct;
+    replacement.direct = previousDirect;
     swapchainImages.xchg(replacement.images);
+    swapchainViews.xchg(replacement.views);
     presentSemaphores.xchg(replacement.semaphores);
     imageInitialized.xchg(replacement.initialized);
-    if (replacement.replacesOutput) {
-        ImageResource image = outputImage;
-        outputImage = replacement.output;
-        replacement.output = image;
-        renderExtent = {width, height};
-        outputInitialized = false;
-        previousStateValid = false;
-        updateOutputDescriptors();
+    imageGenerations.xchg(replacement.generations);
+    ImageResource image = outputImage;
+    outputImage = replacement.output;
+    replacement.output = image;
+    renderExtent = {width, height};
+    outputInitialized = false;
+    outputGeneration = 0;
+    if (opts.vulkanInfo) {
+        sysO << StringView(u8"Vulkan presentation: ") << StringView(direct ? u8"direct storage (" : u8"offscreen blit (") << StringView(renderShader->name) << StringView(u8")") << endL;
     }
     destroySwapchainResources(replacement);
 }
@@ -1459,12 +1620,187 @@ bool RendererImpl::sameSelection(const Rect& lhs, const Rect& rhs) {
     return lhs.tl == rhs.tl && lhs.br == rhs.br && lhs.rectangular == rhs.rectangular;
 }
 
-void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const TerminalUpdate& update, bool deltaFrame) {
+void RendererImpl::ensureDamageJournal(u32 cellCount) {
+    if (damage.capacity >= cellCount) {
+        return;
+    }
+    STD_ASSERT(damage.count == 0);
+    damageJournalStorage.grow((size_t)(cellCount) * sizeof(RenderDamage::Entry));
+    damage.configure((RenderDamage::Entry*)(damageJournalStorage.mutData()), cellCount);
+}
+
+void RendererImpl::fullDamage() {
+    damage.full();
+}
+
+void RendererImpl::appendDamage(u32 begin, u32 count) {
+    STD_ASSERT((size_t)(begin) + count <= cells.length());
+    damage.add(begin, count);
+}
+
+void RendererImpl::collectDamage() {
+    u64 applied = damage.generation;
+    if (directSwapchain) {
+        for (u32 index = 0; index < imageInitialized.length(); ++index) {
+            if (imageInitialized[index] && imageGenerations[index] < applied) {
+                applied = imageGenerations[index];
+            }
+        }
+    } else if (outputInitialized) {
+        applied = outputGeneration;
+    }
+    damage.collect(applied);
+}
+
+void RendererImpl::capturePresentationState(const TerminalUpdate& update) {
+    presentationState.cursor = update.cursor;
+    presentationState.selection = update.snappedSelection;
+    presentationState.selectionForeground = update.selectionForeground;
+    presentationState.selectionBackground = update.selectionBackground;
+    presentationState.selectionColorMask = update.selectionColorMask;
+    presentationState.hoveredHyperlink = update.hoveredHyperlink;
+    presentationState.hoveredLinkBegin = update.hoveredLinkBegin;
+    presentationState.hoveredLinkEnd = update.hoveredLinkEnd;
+    presentationState.screenReverse = update.screenReverse;
+    presentationState.blinkVisible = update.blinkVisible;
+    presentationState.cursorBlink = update.cursorBlink;
+}
+
+u32 RendererImpl::materializeUpdates(FrameResources& frame, u64 appliedGeneration, bool initialized) {
+    const size_t cellCount = cells.length();
+    CellExtraStore& extras = *composer.cellExtras;
+    Fontpack& fonts = *composer.fonts;
+    const bool hasDoubleWidth = fonts.hasDoubleWidth();
+    beginGlyphFrame();
+    ensureCellBuffer(frame, cellCount * sizeof(GpuCellUpdate));
+    auto* const gpuUpdates = (GpuCellUpdate*)(frame.cells);
+
+    if (updateEpochs.used() < cellCount * sizeof(u32)) {
+        updateEpochs.zero(cellCount * sizeof(u32));
+    }
+    if (++updateEpoch == 0) {
+        updateEpochs.zero(updateEpochs.used());
+        updateEpoch = 1;
+    }
+    auto* const epochs = (u32*)(updateEpochs.mutData());
+    u32 gpuUpdateCount = 0;
+
+    const auto appendSource = [&](u32 sourceIndex) {
+        STD_ASSERT(sourceIndex < cellCount);
+        const u32 sourceRow = sourceIndex / cellColumns;
+        const u32 sourceColumn = sourceIndex - sourceRow * cellColumns;
+        const u32 rowIndex = sourceRow * cellColumns;
+        const u8 lineAttribute = cells[rowIndex].line_attr;
+
+        u32 outputIndices[2];
+        u32 outputCount = 1;
+        if (lineAttribute == 0) {
+            outputIndices[0] = sourceIndex;
+        } else {
+            const u32 firstColumn = sourceColumn * 2;
+            if (firstColumn >= cellColumns) {
+                return;
+            }
+            outputIndices[0] = rowIndex + firstColumn;
+            if (firstColumn + 1 < cellColumns) {
+                outputIndices[1] = outputIndices[0] + 1;
+                outputCount = 2;
+            }
+        }
+
+        bool needed[2]{};
+        bool anyNeeded = false;
+        for (u32 index = 0; index < outputCount; ++index) {
+            const u32 outputIndex = outputIndices[index];
+            if (epochs[outputIndex] == updateEpoch) {
+                continue;
+            }
+            epochs[outputIndex] = updateEpoch;
+            needed[index] = true;
+            anyNeeded = true;
+        }
+        if (!anyNeeded) {
+            return;
+        }
+
+        const RenderCell& cell = cells[sourceIndex];
+        u32 attributes = packCellAttributes(cell);
+        bool doubleWidth = lineAttribute != 0 || cell.dwidth;
+        if (lineAttribute == 0 && cell.dwidth && (sourceColumn + 1 >= cellColumns || !cells[sourceIndex + 1].dwidth_cont)) {
+            attributes &= ~(1u << 16);
+            doubleWidth = false;
+        }
+        u32 glyph = 0;
+        if (!cell.dwidth_cont || lineAttribute != 0) {
+            const FontStyle style = (FontStyle)((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0));
+            if (cell.grapheme) {
+                const GraphemeView grapheme = extras.grapheme(cell.grapheme);
+                if (!grapheme.empty()) {
+                    glyph = ensureGlyph(fonts, hasDoubleWidth, grapheme.data(), grapheme.size(), cell.grapheme, true, style, doubleWidth);
+                }
+            }
+            if (glyph == 0 && !cell.grapheme) {
+                glyph = ensureGlyph(fonts, hasDoubleWidth, &cell.uc_pt, 1, cell.uc_pt, false, style, doubleWidth);
+            }
+        }
+        const GpuCell gpuCell{
+            cell.uc_pt,
+            attributes,
+            packColor(cell.fg),
+            packColor(cell.bg),
+            packColor(cell.underline_color),
+            cell.hyperlink,
+            glyph,
+            cell.semantic,
+            lineAttribute,
+        };
+        for (u32 index = 0; index < outputCount; ++index) {
+            if (!needed[index]) {
+                continue;
+            }
+            STD_ASSERT(gpuUpdateCount < cellCount);
+            gpuUpdates[gpuUpdateCount++] = {
+                sourceIndex,
+                outputIndices[index],
+                gpuCell,
+            };
+        }
+    };
+
+    if (damage.requiresFull(appliedGeneration, initialized)) {
+        for (u32 index = 0; index < cellCount; ++index) {
+            appendSource(index);
+        }
+    } else {
+        for (u32 entryIndex = 0; entryIndex < damage.count; ++entryIndex) {
+            const RenderDamage::Entry& entry = damage.entry(entryIndex);
+            if (entry.generation <= appliedGeneration) {
+                continue;
+            }
+            for (u32 index = 0; index < entry.count; ++index) {
+                appendSource(entry.begin + index);
+            }
+        }
+    }
+
+    if (!fontUploadData.empty()) {
+        ensureFontUploadBuffer(frame, fontUploadData.used());
+        __builtin_memcpy(frame.fontUploads, fontUploadData.data(), fontUploadData.used());
+    }
+    return gpuUpdateCount;
+}
+
+void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const PresentationState& state, u32 updateCount, bool clearOutput) {
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     checkVk(vkBeginCommandBuffer(frame.commandBuffer, &beginInfo), "vkBeginCommandBuffer");
     recordFontUploads(frame);
+
+    const VkImage output = directSwapchain ? swapchainImages[imageIndex] : outputImage.image;
+    const VkImageView outputView = directSwapchain ? swapchainViews[imageIndex] : outputImage.view;
+    const bool initialized = directSwapchain ? imageInitialized[imageIndex] : outputInitialized;
+    updateOutputDescriptor(frame, outputView);
 
     VkImageSubresourceRange outputRange{};
     outputRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -1476,18 +1812,14 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const T
     outputForCompute.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     outputForCompute.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     outputForCompute.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    outputForCompute.image = outputImage.image;
+    outputForCompute.image = output;
     outputForCompute.subresourceRange = outputRange;
-    if (deltaFrame) {
-        outputForCompute.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        outputForCompute.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &outputForCompute);
-    } else {
+    if (clearOutput) {
         VkImageMemoryBarrier outputForClear = outputForCompute;
-        outputForClear.srcAccessMask = outputInitialized ? VK_ACCESS_TRANSFER_READ_BIT : 0;
+        outputForClear.srcAccessMask = initialized ? (directSwapchain ? VK_ACCESS_MEMORY_READ_BIT : VK_ACCESS_TRANSFER_READ_BIT) : 0;
         outputForClear.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        outputForClear.oldLayout = outputInitialized ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_UNDEFINED;
-        vkCmdPipelineBarrier(frame.commandBuffer, outputInitialized ? VK_PIPELINE_STAGE_TRANSFER_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &outputForClear);
+        outputForClear.oldLayout = initialized ? (directSwapchain ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_GENERAL) : VK_IMAGE_LAYOUT_UNDEFINED;
+        vkCmdPipelineBarrier(frame.commandBuffer, initialized ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &outputForClear);
 
         VkClearColorValue clearColor{{
             opts.bg.red / 255.0f,
@@ -1495,61 +1827,74 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const T
             opts.bg.blue / 255.0f,
             1.0f,
         }};
-        vkCmdClearColorImage(frame.commandBuffer, outputImage.image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &outputRange);
+        vkCmdClearColorImage(frame.commandBuffer, output, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &outputRange);
 
         outputForCompute.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         outputForCompute.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
         vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &outputForCompute);
+    } else {
+        outputForCompute.srcAccessMask = directSwapchain ? VK_ACCESS_MEMORY_READ_BIT : VK_ACCESS_TRANSFER_READ_BIT;
+        outputForCompute.oldLayout = directSwapchain ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_GENERAL;
+        vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &outputForCompute);
     }
 
-    VkBufferMemoryBarrier cellsForCompute{};
-    cellsForCompute.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-    cellsForCompute.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
-    cellsForCompute.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    cellsForCompute.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    cellsForCompute.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    cellsForCompute.buffer = frame.cellBuffer;
-    cellsForCompute.size = frame.cellCapacity;
-    vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &cellsForCompute, 0, nullptr);
+    if (updateCount != 0) {
+        VkBufferMemoryBarrier cellsForCompute{};
+        cellsForCompute.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        cellsForCompute.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
+        cellsForCompute.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        cellsForCompute.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        cellsForCompute.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        cellsForCompute.buffer = frame.cellBuffer;
+        cellsForCompute.size = (size_t)(updateCount) * sizeof(GpuCellUpdate);
+        vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &cellsForCompute, 0, nullptr);
 
-    const PushConstants pushConstants{
-        composer.glyphWidth,
-        composer.glyphHeight,
-        composer.columns,
-        composer.rows,
-        composer.pixelWidth,
-        composer.pixelHeight,
-        opts.border,
-        packColor(update.cursor.color),
-        update.cursor.posX,
-        update.cursor.posY,
-        (u32)(update.cursor.style),
-        update.screenReverse ? 1u : 0u,
-        update.snappedSelection.tl.x,
-        update.snappedSelection.tl.y,
-        update.snappedSelection.br.x,
-        update.snappedSelection.br.y,
-        update.snappedSelection.rectangular ? 1u : 0u,
-        opts.showWraps ? 1u : 0u,
-        doubleWidthAtlas.image != VK_NULL_HANDLE ? 1u : 0u,
-        previousCursor.posX,
-        previousCursor.posY,
-        deltaFrame ? 1u : 0u,
-        (!sameSelection(update.snappedSelection, previousSelection) || previousHoveredLinkBegin != update.hoveredLinkBegin || previousHoveredLinkEnd != update.hoveredLinkEnd) ? 1u : 0u,
-        packColor(update.selectionForeground),
-        packColor(update.selectionBackground),
-        update.selectionColorMask,
-        update.blinkVisible ? 1u : 0u,
-        update.cursorBlink ? 1u : 0u,
-        previousHoveredHyperlink,
-        update.hoveredHyperlink,
-        update.hoveredLinkBegin,
-        update.hoveredLinkEnd,
-    };
-    vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
-    vkCmdBindDescriptorSets(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &frame.descriptorSet, 0, nullptr);
-    vkCmdPushConstants(frame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants), &pushConstants);
-    vkCmdDispatch(frame.commandBuffer, (composer.columns + 7) / 8, (composer.rows + 7) / 8, 1);
+        const PushConstants pushConstants{
+            composer.glyphWidth,
+            composer.glyphHeight,
+            composer.columns,
+            composer.rows,
+            directSwapchain ? swapchainExtent.width : composer.pixelWidth,
+            directSwapchain ? swapchainExtent.height : composer.pixelHeight,
+            opts.border,
+            packColor(state.cursor.color),
+            state.cursor.posX,
+            state.cursor.posY,
+            (u32)(state.cursor.style),
+            state.screenReverse ? 1u : 0u,
+            state.selection.tl.x,
+            state.selection.tl.y,
+            state.selection.br.x,
+            state.selection.br.y,
+            state.selection.rectangular ? 1u : 0u,
+            opts.showWraps ? 1u : 0u,
+            doubleWidthAtlas.image != VK_NULL_HANDLE ? 1u : 0u,
+            packColor(state.selectionForeground),
+            packColor(state.selectionBackground),
+            state.selectionColorMask,
+            state.blinkVisible ? 1u : 0u,
+            state.cursorBlink ? 1u : 0u,
+            state.hoveredHyperlink,
+            state.hoveredLinkBegin,
+            state.hoveredLinkEnd,
+            updateCount,
+        };
+        vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+        vkCmdBindDescriptorSets(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &frame.descriptorSet, 0, nullptr);
+        vkCmdPushConstants(frame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants), &pushConstants);
+        vkCmdDispatch(frame.commandBuffer, (updateCount + 63) / 64, 1, 1);
+    }
+
+    if (directSwapchain) {
+        VkImageMemoryBarrier outputForPresent = outputForCompute;
+        outputForPresent.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+        outputForPresent.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+        outputForPresent.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        outputForPresent.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &outputForPresent);
+        checkVk(vkEndCommandBuffer(frame.commandBuffer), "vkEndCommandBuffer");
+        return;
+    }
 
     VkImageMemoryBarrier outputForBlit = outputForCompute;
     outputForBlit.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -1577,7 +1922,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const T
     blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     blit.dstSubresource.layerCount = 1;
     blit.dstOffsets[1] = {(i32)(swapchainExtent.width), (i32)(swapchainExtent.height), 1};
-    vkCmdBlitImage(frame.commandBuffer, outputImage.image, VK_IMAGE_LAYOUT_GENERAL, swapchainImages[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
+    vkCmdBlitImage(frame.commandBuffer, output, VK_IMAGE_LAYOUT_GENERAL, swapchainImages[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
 
     VkImageMemoryBarrier swapchainForPresent = swapchainForBlit;
     swapchainForPresent.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -1661,7 +2006,7 @@ bool RendererImpl::acquirePresentFrame(u32 width, u32 height, FrameResources*& f
 }
 
 bool RendererImpl::submitPresentFrame(u32 width, u32 height, FrameResources& frame, u32 imageIndex, bool recreateAfterPresent) {
-    const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT;
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.waitSemaphoreCount = 1;
@@ -1700,7 +2045,7 @@ bool RendererImpl::submitPresentFrame(u32 width, u32 height, FrameResources& fra
 bool RendererImpl::repaint() {
     const u32 width = renderExtent.width;
     const u32 height = renderExtent.height;
-    if (!outputInitialized || width == 0 || height == 0) {
+    if (!previousStateValid || cells.empty() || width == 0 || height == 0) {
         return false;
     }
     if (swapchain == VK_NULL_HANDLE) {
@@ -1720,8 +2065,25 @@ bool RendererImpl::repaint() {
     if (!acquirePresentFrame(width, height, frame, imageIndex, recreateAfterPresent)) {
         return false;
     }
-    recordRepaintCommands(*frame, imageIndex);
-    return submitPresentFrame(width, height, *frame, imageIndex, recreateAfterPresent);
+
+    if (!directSwapchain && outputInitialized) {
+        recordRepaintCommands(*frame, imageIndex);
+    } else {
+        const bool initialized = directSwapchain ? imageInitialized[imageIndex] : outputInitialized;
+        const u64 appliedGeneration = directSwapchain ? imageGenerations[imageIndex] : outputGeneration;
+        const u32 updateCount = materializeUpdates(*frame, appliedGeneration, initialized);
+        const bool clearOutput = !initialized || appliedGeneration < clearDamageGeneration;
+        recordCommands(*frame, imageIndex, presentationState, updateCount, clearOutput);
+        if (directSwapchain) {
+            imageGenerations.mut(imageIndex) = damage.generation;
+        } else {
+            outputGeneration = damage.generation;
+            outputInitialized = true;
+        }
+    }
+    const bool presented = submitPresentFrame(width, height, *frame, imageIndex, recreateAfterPresent);
+    collectDamage();
+    return presented;
 }
 
 bool RendererImpl::present(const TerminalUpdate& update) {
@@ -1756,6 +2118,9 @@ bool RendererImpl::present(const TerminalUpdate& update) {
         if (covered != cellCount) {
             return false;
         }
+        damage.begin = 0;
+        damage.count = 0;
+        ensureDamageJournal(cellCount);
         cells.clear();
         cells.grow(cellCount);
         const RenderCell empty;
@@ -1764,6 +2129,8 @@ bool RendererImpl::present(const TerminalUpdate& update) {
         }
         cellColumns = composer.columns;
         cellRows = composer.rows;
+    } else {
+        ensureDamageJournal(cellCount);
     }
     for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
         const RenderCellSpan& span = update.spans[spanIndex];
@@ -1773,7 +2140,52 @@ bool RendererImpl::present(const TerminalUpdate& update) {
             cells.mut(span.index + index) = span.cells[index];
         }
     }
-    const bool deltaFrame = !shapeChanged && outputInitialized && previousStateValid;
+
+    if (damage.advance()) {
+        clearDamageGeneration = damage.generation;
+        for (u32 index = 0; index < imageGenerations.length(); ++index) {
+            imageGenerations.mut(index) = 0;
+        }
+        outputGeneration = 0;
+    }
+    const bool selectionChanged = previousStateValid && (!sameSelection(update.snappedSelection, previousSelection) || previousHoveredLinkBegin != update.hoveredLinkBegin || previousHoveredLinkEnd != update.hoveredLinkEnd);
+    const bool globalPresentationChanged = previousStateValid && (presentationState.screenReverse != update.screenReverse || !(presentationState.selectionForeground == update.selectionForeground) || !(presentationState.selectionBackground == update.selectionBackground) || presentationState.selectionColorMask != update.selectionColorMask);
+    if (shapeChanged || !previousStateValid || selectionChanged || globalPresentationChanged) {
+        fullDamage();
+        if (shapeChanged) {
+            clearDamageGeneration = damage.generation;
+        }
+    } else {
+        for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
+            const RenderCellSpan& span = update.spans[spanIndex];
+            appendDamage(span.index, span.count);
+        }
+
+        const auto appendCursor = [&](const TerminalCursor& cursor) {
+            if (cursor.posX >= 0 && cursor.posY >= 0 && cursor.posX < cellColumns && cursor.posY < cellRows) {
+                appendDamage((u32)(cursor.posY) * cellColumns + cursor.posX, 1);
+            }
+        };
+        appendCursor(previousCursor);
+        appendCursor(update.cursor);
+
+        if (previousHoveredHyperlink != update.hoveredHyperlink) {
+            for (u32 index = 0; index < cellCount; ++index) {
+                const u32 hyperlink = cells[index].hyperlink;
+                if (hyperlink == previousHoveredHyperlink || hyperlink == update.hoveredHyperlink) {
+                    appendDamage(index, 1);
+                }
+            }
+        }
+        if (presentationState.blinkVisible != update.blinkVisible) {
+            for (u32 index = 0; index < cellCount; ++index) {
+                if (cells[index].blink) {
+                    appendDamage(index, 1);
+                }
+            }
+        }
+    }
+    capturePresentationState(update);
 
     FrameResources* frame = nullptr;
     u32 imageIndex = 0;
@@ -1782,62 +2194,26 @@ bool RendererImpl::present(const TerminalUpdate& update) {
         return false;
     }
 
-    CellExtraStore& extras = *composer.cellExtras;
-    Fontpack& fonts = *composer.fonts;
-    const bool hasDoubleWidth = fonts.hasDoubleWidth();
-    beginGlyphFrame();
-    const size_t cellBytes = cellCount * sizeof(GpuCell);
-    ensureCellBuffer(*frame, cellBytes);
-    GpuCell* const gpuCells = (GpuCell*)(frame->cells);
-    for (size_t index = 0; index < cellCount; ++index) {
-        const RenderCell& cell = cells[index];
-        u32 glyph = 0;
-        if (!cell.dwidth_cont || cell.line_attr != 0) {
-            const FontStyle style = (FontStyle)((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0));
-            const bool doubleWidth = cell.dwidth || cell.line_attr != 0;
-            if (cell.grapheme) {
-                const GraphemeView grapheme = extras.grapheme(cell.grapheme);
-                if (!grapheme.empty()) {
-                    glyph = ensureGlyph(fonts, hasDoubleWidth, grapheme.data(), grapheme.size(), cell.grapheme, true, style, doubleWidth);
-                }
-            }
-            if (glyph == 0 && !cell.grapheme) {
-                glyph = ensureGlyph(fonts, hasDoubleWidth, &cell.uc_pt, 1, cell.uc_pt, false, style, doubleWidth);
-            }
-        }
-        gpuCells[index] = {
-            cell.uc_pt,
-            packCellAttributes(cell),
-            packColor(cell.fg),
-            packColor(cell.bg),
-            packColor(cell.underline_color),
-            cell.hyperlink,
-            glyph,
-            cell.semantic,
-            cell.line_attr,
-        };
+    const bool targetInitialized = directSwapchain ? imageInitialized[imageIndex] : outputInitialized;
+    const u64 appliedGeneration = directSwapchain ? imageGenerations[imageIndex] : outputGeneration;
+    const u32 gpuUpdateCount = materializeUpdates(*frame, appliedGeneration, targetInitialized);
+    const bool clearOutput = !targetInitialized || appliedGeneration < clearDamageGeneration;
+    recordCommands(*frame, imageIndex, presentationState, gpuUpdateCount, clearOutput);
+    if (directSwapchain) {
+        imageGenerations.mut(imageIndex) = damage.generation;
+    } else {
+        outputGeneration = damage.generation;
+        outputInitialized = true;
     }
-    for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
-        const RenderCellSpan& span = update.spans[spanIndex];
-        for (u32 index = 0; index < span.count; ++index) {
-            gpuCells[span.index + index].attributes |= RenderCell::dirtyMask;
-        }
-    }
-
-    if (!fontUploadData.empty()) {
-        ensureFontUploadBuffer(*frame, fontUploadData.used());
-        std::memcpy(frame->fontUploads, fontUploadData.data(), fontUploadData.used());
-    }
-
-    recordCommands(*frame, imageIndex, update, deltaFrame);
-    outputInitialized = true;
     previousCursor = update.cursor;
     previousSelection = update.snappedSelection;
     previousHoveredHyperlink = update.hoveredHyperlink;
     previousHoveredLinkBegin = update.hoveredLinkBegin;
     previousHoveredLinkEnd = update.hoveredLinkEnd;
     previousStateValid = true;
-    return submitPresentFrame(width, height, *frame, imageIndex, recreateAfterPresent);
+    const bool presented = submitPresentFrame(width, height, *frame, imageIndex, recreateAfterPresent);
+    collectDamage();
+    return presented;
 }
 
 bool RendererImpl::update(const TerminalUpdate& update) {

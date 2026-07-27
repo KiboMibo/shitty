@@ -12,7 +12,7 @@ class RenderContractTest(unittest.TestCase):
         with Shitty(columns=8, rows=2) as terminal:
             self.assertEqual(
                 terminal.gpu_attribute_masks(),
-                (1 << 16, 1 << 17, 1 << 23),
+                (1 << 16, 1 << 17),
             )
 
     def test_blink_and_reverse_screen_reach_renderer(self):
