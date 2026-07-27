@@ -274,19 +274,6 @@ namespace {
         bool processInput(const u8* input, int size, bool refresh = true);
         [[gnu::noinline]] bool processInputImpl(const u8* input, int size, bool refresh);
         void parseWithRagel(const u8* data, size_t len);
-        bool ragelGroundContinuation(u8 ch);
-        void ragelGroundHigh(u8 ch);
-        void ragelGroundAscii(u8 ch);
-        void ragelBeginString(VtermTraceString type, bool buffered);
-        void ragelBeginDcs();
-        void ragelBeginOsc();
-        void resetOscColor();
-        bool ragelStringContinuation(u8 ch);
-        void ragelAppendString(u8 ch, size_t limit);
-        void ragelAppendEscapedString(u8 ch, size_t limit);
-        void ragelFinishDcs();
-        void ragelFinishOsc();
-        StringView ragelOscPayload() const noexcept;
 
         struct PresentationState {
             Screen* frame;
@@ -333,9 +320,6 @@ namespace {
         void collectCellExtras();
         void updateExtraCellCount();
 
-        bool stringUtf8Continuation(u8 ch);
-        void beginCsi();
-        void traceCsi(u8 finalByte);
         [[gnu::always_inline]] bool executeC0InSequence(unsigned char ch, bool stringData = false);
         void normalizeCursorPos();
         bool isCursorInsideMargins();
@@ -2659,26 +2643,6 @@ void VtermImpl<traced>::switchScreenBufferMode(bool altScreenBufferMode_, bool c
         altScreenBufferMode = false;
     }
     updateExtraCellCount();
-}
-
-template <bool traced>
-bool VtermImpl<traced>::stringUtf8Continuation(u8 ch) {
-    if (stringUtf8Remaining != 0) {
-        if ((ch & 0xc0) == 0x80) {
-            --stringUtf8Remaining;
-            return true;
-        }
-        stringUtf8Remaining = 0;
-    }
-
-    if (ch >= 0xc2 && ch <= 0xdf) {
-        stringUtf8Remaining = 1;
-    } else if (ch >= 0xe0 && ch <= 0xef) {
-        stringUtf8Remaining = 2;
-    } else if (ch >= 0xf0 && ch <= 0xf4) {
-        stringUtf8Remaining = 3;
-    }
-    return false;
 }
 
 template <bool traced>
@@ -8183,27 +8147,6 @@ void VtermImpl<traced>::syncPresentationCursor() {
 }
 
 template <bool traced>
-void VtermImpl<traced>::beginCsi() {
-    stringUtf8Remaining = 0;
-    ragelStringLimit = 0;
-    resetGraphemeInput();
-    inputOps[0] = 0;
-    inputSeparators[0] = 0;
-    inputPresent[0] = false;
-    nInputOps = 1;
-    csiHadParams = false;
-    csiPrefix = 0;
-    csiIntermediateCount = 0;
-}
-
-template <bool traced>
-void VtermImpl<traced>::traceCsi(u8 finalByte) {
-    if constexpr (traced) {
-        parserTrace->csi(finalByte, StringView(&csiPrefix, csiPrefix == 0 ? 0 : 1), StringView(csiIntermediates, csiIntermediateCount), inputOps, inputSeparators, nInputOps, csiHadParams);
-    }
-}
-
-template <bool traced>
 bool VtermImpl<traced>::executeC0InSequence(unsigned char ch, bool stringData) {
     if (ch >= 0x20 || ch == '\x18' || ch == '\x1a' || ch == '\x1b') {
         return false;
@@ -8394,209 +8337,6 @@ void VtermImpl<traced>::parseWithRagel(const u8* data, size_t len) {
     };
 
 #include "vterm_parser.rl.h"
-}
-
-template <bool traced>
-bool VtermImpl<traced>::ragelGroundContinuation(u8 ch) {
-    if (!utf8dec.expectsContinuation() || ch < 0x80) {
-        return false;
-    }
-    if constexpr (traced) {
-        parserTrace->text(&ch, 1);
-    }
-    if (charsetState.g[charsetState.gr] == Charset::UTF8) {
-        for (int completed = utf8dec.pushByte(ch); completed > 0; --completed) {
-            placeGraphicChar();
-        }
-    } else {
-        inputGraphicChar(ch);
-    }
-    return true;
-}
-
-template <bool traced>
-void VtermImpl<traced>::ragelGroundHigh(u8 ch) {
-    if (ragelGroundContinuation(ch)) {
-        return;
-    }
-    if constexpr (traced) {
-        if (ch >= 0xa0) {
-            parserTrace->text(&ch, 1);
-        } else {
-            parserTrace->control(ch);
-        }
-    }
-    if (ch <= 0x9f) {
-        resetGraphemeInput();
-    }
-    if (charsetState.g[charsetState.gr] == Charset::UTF8) {
-        for (int completed = utf8dec.pushByte(ch); completed > 0; --completed) {
-            placeGraphicChar();
-        }
-    } else {
-        inputGraphicChar(ch);
-    }
-}
-
-template <bool traced>
-void VtermImpl<traced>::ragelGroundAscii(u8 ch) {
-    if constexpr (traced) {
-        parserTrace->text(&ch, 1);
-    }
-    inputGraphicChar(ch);
-}
-
-template <bool traced>
-void VtermImpl<traced>::ragelBeginString(VtermTraceString type, bool buffered) {
-    resetGraphemeInput();
-    stringUtf8Remaining = 0;
-    ragelStringLimit = type == VtermTraceString::Dcs ? maxDcsBytes : type == VtermTraceString::Osc ? maxOscBytes : 0;
-    oscCwdDecode = false;
-    if (buffered) {
-        argBuf.reset();
-        argBufOverflowed = false;
-    }
-    if constexpr (traced) {
-        parserTrace->stringBegin(type);
-    }
-}
-
-template <bool traced>
-void VtermImpl<traced>::ragelBeginDcs() {
-    ragelBeginString(VtermTraceString::Dcs, true);
-    inputOps[0] = 0;
-    inputSeparators[0] = 0;
-    inputPresent[0] = false;
-    nInputOps = 1;
-    dcsIntermediateCount = 0;
-    dcsCapabilityOffset = 0;
-    dcsCapabilityDecodedLength = 0;
-    dcsCapabilityCandidates = 0;
-    dcsCapabilityHasHighNibble = false;
-    dcsCapabilityValid = false;
-    dcsCapabilityComplete = false;
-    dcsUdkDefinitions.clear();
-    dcsDecoded.reset();
-    dcsUdkValueOffset = 0;
-    dcsUdkCode = 0;
-    dcsUdkKey = VtKey::NONE;
-    dcsUdkHasCode = false;
-    dcsUdkHasHighNibble = false;
-    dcsUdkValid = false;
-    dcsUdkInValue = false;
-}
-
-template <bool traced>
-void VtermImpl<traced>::ragelBeginOsc() {
-    ragelBeginString(VtermTraceString::Osc, true);
-    oscCommand = 0;
-    oscPayloadOffset = 0;
-    oscCommandValid = false;
-    oscTerminated = false;
-    oscDecoded.reset();
-    oscTitleHighNibble = 0;
-    oscTitleHex = false;
-    oscTitleHasHighNibble = false;
-    oscTitleValid = false;
-    oscTitleStopped = false;
-    oscCwdPercentHigh = 0;
-    oscCwdValid = false;
-    oscCwdDecode = false;
-    oscHyperlinkIdOffset = 0;
-    oscHyperlinkIdLength = 0;
-    oscHyperlinkUriOffset = 0;
-    oscHyperlinkHasId = false;
-    oscProgressState = 0;
-    oscProgressPercent = 0;
-    oscProgressStatePresent = false;
-    oscProgressPercentPresent = false;
-    oscProgressValid = false;
-    oscBase64.reset();
-    osc52ReplySelector = 0;
-    osc52Primary = false;
-    osc52Clipboard = false;
-    osc52SelectorSeen = false;
-    osc52PayloadSeen = false;
-    osc52Query = false;
-}
-
-template <bool traced>
-void VtermImpl<traced>::resetOscColor() {
-    oscColor = {};
-    oscColorComponents[0] = 0.0;
-    oscColorComponents[1] = 0.0;
-    oscColorComponents[2] = 0.0;
-    oscColorHex = 0;
-    oscColorComponent = 0;
-    oscColorDigits = 0;
-    oscColorValid = true;
-    oscColorQuery = false;
-}
-
-template <bool traced>
-bool VtermImpl<traced>::ragelStringContinuation(u8 ch) {
-    if (!stringUtf8Continuation(ch)) {
-        return false;
-    }
-    if (ragelStringLimit != 0) {
-        ragelAppendString(ch, ragelStringLimit);
-    } else if constexpr (traced) {
-        parserTrace->stringData(&ch, 1);
-    }
-    if (oscCwdDecode && !argBufOverflowed) {
-        oscDecoded.append(&ch, 1);
-    }
-    return true;
-}
-
-template <bool traced>
-void VtermImpl<traced>::ragelAppendString(u8 ch, size_t limit) {
-    if constexpr (traced) {
-        parserTrace->stringData(&ch, 1);
-    }
-    if (argBuf.used() < limit) {
-        argBuf.append(&ch, 1);
-    } else {
-        argBufOverflowed = true;
-    }
-}
-
-template <bool traced>
-void VtermImpl<traced>::ragelAppendEscapedString(u8 ch, size_t limit) {
-    if constexpr (traced) {
-        const u8 bytes[] = {'\x1b', ch};
-        parserTrace->stringData(bytes, sizeof(bytes));
-    }
-    if (argBuf.used() <= limit - 2) {
-        const u8 bytes[] = {'\x1b', ch};
-        argBuf.append(bytes, sizeof(bytes));
-    } else {
-        argBufOverflowed = true;
-    }
-}
-
-template <bool traced>
-void VtermImpl<traced>::ragelFinishDcs() {
-    stringUtf8Remaining = 0;
-    ragelStringLimit = 0;
-    if constexpr (traced) {
-        parserTrace->stringEnd();
-    }
-}
-
-template <bool traced>
-void VtermImpl<traced>::ragelFinishOsc() {
-    stringUtf8Remaining = 0;
-    ragelStringLimit = 0;
-    if constexpr (traced) {
-        parserTrace->stringEnd();
-    }
-}
-
-template <bool traced>
-StringView VtermImpl<traced>::ragelOscPayload() const noexcept {
-    const auto* data = (const u8*)(argBuf.data());
-    return StringView(data + oscPayloadOffset, argBuf.used() - oscPayloadOffset);
 }
 
 template <bool traced>
