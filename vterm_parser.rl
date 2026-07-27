@@ -828,6 +828,42 @@
     }
 
     action csiDone {
+        if (printerControllerMode) {
+            fnext printer;
+        } else {
+            fnext main;
+        }
+        fbreak;
+    }
+
+    action printerByte {
+        appendPrinter(&fc, 1);
+    }
+
+    action printerEscapePrefix {
+        appendPrinter("\x1b", 1);
+    }
+
+    action printerEscapeBracketPrefix {
+        appendPrinter("\x1b[", 2);
+    }
+
+    action printerEscapeBracket4Prefix {
+        appendPrinter("\x1b[4", 3);
+    }
+
+    action printerCsiPrefix {
+        appendPrinter("\x9b", 1);
+    }
+
+    action printerCsi4Prefix {
+        appendPrinter("\x9b"
+                      "4", 2);
+    }
+
+    action printerEnd {
+        printerControllerMode = false;
+        flushPrinter();
         fnext main;
         fbreak;
     }
@@ -2866,6 +2902,67 @@
 
     csiUnknownFinal = 0x40..0x7e @csiTrace @csiDone;
 
+    printer := (
+        0x1b @{ fnext printerEscape; fbreak; } |
+        0x9b @{ fnext printerCsi; fbreak; } |
+        any @printerByte
+    )*;
+
+    printerEscape := (
+        '[' @{ fnext printerEscapeBracket; fbreak; } |
+        0x1b @printerEscapePrefix
+            @{ fnext printerEscape; fbreak; } |
+        0x9b @printerEscapePrefix
+            @{ fnext printerCsi; fbreak; } |
+        (any - ('[' | 0x1b | 0x9b))
+            @printerEscapePrefix @printerByte
+            @{ fnext printer; fbreak; }
+    )*;
+
+    printerEscapeBracket := (
+        '4' @{ fnext printerEscapeBracket4; fbreak; } |
+        0x1b @printerEscapeBracketPrefix
+            @{ fnext printerEscape; fbreak; } |
+        0x9b @printerEscapeBracketPrefix
+            @{ fnext printerCsi; fbreak; } |
+        (any - ('4' | 0x1b | 0x9b))
+            @printerEscapeBracketPrefix @printerByte
+            @{ fnext printer; fbreak; }
+    )*;
+
+    printerEscapeBracket4 := (
+        'i' @printerEnd |
+        0x1b @printerEscapeBracket4Prefix
+            @{ fnext printerEscape; fbreak; } |
+        0x9b @printerEscapeBracket4Prefix
+            @{ fnext printerCsi; fbreak; } |
+        (any - ('i' | 0x1b | 0x9b))
+            @printerEscapeBracket4Prefix @printerByte
+            @{ fnext printer; fbreak; }
+    )*;
+
+    printerCsi := (
+        '4' @{ fnext printerCsi4; fbreak; } |
+        0x1b @printerCsiPrefix
+            @{ fnext printerEscape; fbreak; } |
+        0x9b @printerCsiPrefix
+            @{ fnext printerCsi; fbreak; } |
+        (any - ('4' | 0x1b | 0x9b))
+            @printerCsiPrefix @printerByte
+            @{ fnext printer; fbreak; }
+    )*;
+
+    printerCsi4 := (
+        'i' @printerEnd |
+        0x1b @printerCsi4Prefix
+            @{ fnext printerEscape; fbreak; } |
+        0x9b @printerCsi4Prefix
+            @{ fnext printerCsi; fbreak; } |
+        (any - ('i' | 0x1b | 0x9b))
+            @printerCsi4Prefix @printerByte
+            @{ fnext printer; fbreak; }
+    )*;
+
     cancel = (0x18 | 0x1a) @cancel;
     restartEscape = 0x1b @beginEscape;
     sequenceC0 = (0x00..0x17 | 0x19 | 0x1c..0x1f) @sequenceC0;
@@ -4195,9 +4292,18 @@ if (!ragelInitialized) {
 }
 
 while (p != pe) {
-    if (printerControllerMode) {
-        p += consumePrinterController(p, pe - p);
-        continue;
+    if (cs == vterm_parser_en_printer) {
+        const size_t remaining = pe - p;
+        const u8* escape = (const u8*)memchr(p, 0x1b, remaining);
+        const size_t beforeEscape = escape == nullptr ? remaining : escape - p;
+        const u8* csi = (const u8*)memchr(p, 0x9b, beforeEscape);
+        const u8* next = csi == nullptr ? escape : csi;
+        const size_t count = next == nullptr ? remaining : next - p;
+        appendPrinter(p, count);
+        p += count;
+        if (p == pe) {
+            continue;
+        }
     }
     if (cs == vterm_parser_en_main && *p >= 0x20 && *p < 0x7f && !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8) {
         const size_t lines = placeAsciiLines(p, pe - p);

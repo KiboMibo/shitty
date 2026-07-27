@@ -59,6 +59,27 @@ class PrinterProtocolTest(unittest.TestCase):
             self.assertEqual(terminal.read_printer(), b"a\x1bxb\x9bxc")
             self.assertEqual(terminal.snapshot().lines[0], "beforeaf")
 
+    def test_printer_controller_is_independent_of_input_boundaries(self):
+        payload = (
+            b"before\x1b[5i"
+            b"a\x1bxb\x1b[\x1b[4xb\x9bxc\x9b4x"
+            b"\x1b[4iafter"
+        )
+        expected = b"a\x1bxb\x1b[\x1b[4xb\x9bxc\x9b4x"
+        chunkings = [
+            (payload[:split], payload[split:])
+            for split in range(1, len(payload))
+        ]
+        chunkings.append(tuple(bytes((byte,)) for byte in payload))
+        for chunks in chunkings:
+            with self.subTest(chunks=chunks):
+                with Shitty(columns=8, rows=2) as terminal:
+                    terminal.write_chunks(*chunks)
+                    self.assertEqual(terminal.read_printer(), expected)
+                    self.assertEqual(
+                        terminal.snapshot().lines[0], "beforeaf"
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()

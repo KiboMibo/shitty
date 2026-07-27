@@ -85,34 +85,6 @@ void MouseTrackingState::setEncoding(MouseTrackingEnc value) {
 namespace {
     constexpr size_t ptyProtocolHighWater = 1024 * 1024;
 
-    bool decodeHex(const std::string& value, std::string& result) {
-        const auto digit = [](unsigned char ch) -> int {
-            if (ch >= '0' && ch <= '9') {
-                return ch - '0';
-            }
-            if (ch >= 'a' && ch <= 'f') {
-                return ch - 'a' + 10;
-            }
-            if (ch >= 'A' && ch <= 'F') {
-                return ch - 'A' + 10;
-            }
-            return -1;
-        };
-        if (value.size() % 2 != 0) {
-            return false;
-        }
-        result.clear();
-        for (size_t pos = 0; pos < value.size(); pos += 2) {
-            const int high = digit(value[pos]);
-            const int low = digit(value[pos + 1]);
-            if (high < 0 || low < 0) {
-                return false;
-            }
-            result.push_back((char)((high << 4) | low));
-        }
-        return true;
-    }
-
     std::string encodeHex(const std::string& value) {
         static constexpr char hex[] = "0123456789ABCDEF";
         std::string result;
@@ -578,8 +550,6 @@ namespace {
         void csi_DECLL();
         std::string printableLine(u16 row) const;
         void printLine(u16 row);
-        size_t consumePrinterController(const u8* input, size_t size);
-
         void dcs_DECRQSS_DECSCL();
         void dcs_DECRQSS_SGR();
         void dcs_DECRQSS_DECSTBM();
@@ -605,6 +575,7 @@ namespace {
         UnicodeMap<u8>* const unicodeProperties;
         Buffer ptyOutput;
         Buffer protocolResponseScratch;
+        Buffer printerScratch;
         size_t ptyOutputOffset = 0;
         u64 droppedPtyResponses = 0;
         Vector<TerminalCellSpan> outputSpans;
@@ -822,16 +793,6 @@ namespace {
         bool autoPrintMode = false;
         bool printFormFeedMode = false;
         bool printExtentMode = false;
-
-        enum class PrinterControllerState : u8 {
-            Normal,
-            Escape,
-            EscapeBracket,
-            EscapeBracket4,
-            Csi,
-            Csi4
-        };
-        PrinterControllerState printerControllerState = PrinterControllerState::Normal;
 
         std::chrono::steady_clock::time_point synchronizedOutputDeadline;
         bool send8BitControls = false;
@@ -2555,7 +2516,6 @@ void VtermImpl<traced>::resetScreen(bool resetTabStops) {
     autoPrintMode = false;
     printFormFeedMode = false;
     printExtentMode = false;
-    printerControllerState = PrinterControllerState::Normal;
     screenReverseVideo = false;
     frame_pri->setScreenReverseVideo(false);
     frame_alt->setScreenReverseVideo(false);
@@ -3558,10 +3518,8 @@ void VtermImpl<traced>::csi_MC(bool privateMode) {
             host.print(screen);
         } else if (operation == 4) {
             printerControllerMode = false;
-            printerControllerState = PrinterControllerState::Normal;
         } else if (operation == 5) {
             printerControllerMode = true;
-            printerControllerState = PrinterControllerState::Normal;
         }
     }
 }
@@ -3579,118 +3537,6 @@ void VtermImpl<traced>::csi_DECLL() {
         }
     }
     host.leds(ledState);
-}
-
-template <bool traced>
-size_t VtermImpl<traced>::consumePrinterController(const u8* input, size_t size) {
-    const bool handlesPrinter = host.handlesPrinter();
-    std::string output;
-    if (handlesPrinter) {
-        output.reserve(size);
-    }
-
-    const auto beginPrefix = [&](u8 ch) {
-        if (ch == 0x1b) {
-            printerControllerState = PrinterControllerState::Escape;
-        } else if (ch == 0x9b) {
-            printerControllerState = PrinterControllerState::Csi;
-        } else {
-            printerControllerState = PrinterControllerState::Normal;
-            if (handlesPrinter) {
-                output.push_back((char)(ch));
-            }
-        }
-    };
-    const auto appendPrefix = [&](const char* prefix, size_t prefixSize) {
-        if (handlesPrinter) {
-            output.append(prefix, prefixSize);
-        }
-    };
-
-    size_t consumed = 0;
-    while (consumed < size) {
-        if (printerControllerState == PrinterControllerState::Normal) {
-            const u8* const begin = input + consumed;
-            const size_t remaining = size - consumed;
-            const u8* const escape = (const u8*)memchr(begin, 0x1b, remaining);
-            const size_t prefixSize = escape == nullptr ? remaining : escape - begin;
-            const u8* const csi = (const u8*)memchr(begin, 0x9b, prefixSize);
-            const u8* const next = csi == nullptr ? escape : csi;
-            if (next == nullptr) {
-                if (handlesPrinter) {
-                    output.append((const char*)(begin), remaining);
-                }
-                consumed = size;
-                break;
-            }
-            if (handlesPrinter) {
-                output.append((const char*)(begin), next - begin);
-            }
-            consumed += next - begin + 1;
-            beginPrefix(*next);
-            continue;
-        }
-
-        const u8 ch = input[consumed++];
-        switch (printerControllerState) {
-            case PrinterControllerState::Escape:
-                if (ch == '[') {
-                    printerControllerState = PrinterControllerState::EscapeBracket;
-                } else {
-                    appendPrefix("\x1b", 1);
-                    beginPrefix(ch);
-                }
-                break;
-            case PrinterControllerState::EscapeBracket:
-                if (ch == '4') {
-                    printerControllerState = PrinterControllerState::EscapeBracket4;
-                } else {
-                    appendPrefix("\x1b[", 2);
-                    beginPrefix(ch);
-                }
-                break;
-            case PrinterControllerState::EscapeBracket4:
-                if (ch == 'i') {
-                    printerControllerState = PrinterControllerState::Normal;
-                    printerControllerMode = false;
-                } else {
-                    appendPrefix("\x1b[4", 3);
-                    beginPrefix(ch);
-                }
-                break;
-            case PrinterControllerState::Csi:
-                if (ch == '4') {
-                    printerControllerState = PrinterControllerState::Csi4;
-                } else {
-                    appendPrefix("\x9b", 1);
-                    beginPrefix(ch);
-                }
-                break;
-            case PrinterControllerState::Csi4:
-                if (ch == 'i') {
-                    printerControllerState = PrinterControllerState::Normal;
-                    printerControllerMode = false;
-                } else {
-                    appendPrefix(
-                        "\x9b"
-                        "4",
-                        2
-                    );
-                    beginPrefix(ch);
-                }
-                break;
-            case PrinterControllerState::Normal:
-                break;
-        }
-        if (!printerControllerMode) {
-            break;
-        }
-    }
-
-    if (!output.empty()) {
-        host.print(output);
-    }
-    return consumed;
 }
 
 template <bool traced>
@@ -8595,8 +8441,23 @@ void VtermImpl<traced>::parseWithRagel(const u8* data, size_t len) {
     const u8* p = data;
     const u8* const pe = data + len;
     int& cs = ragelState;
+    const bool printerHandled = host.handlesPrinter();
+    printerScratch.reset();
+    const auto appendPrinter = [&](const void* bytes, size_t size) {
+        if (printerHandled) {
+            printerScratch.append(bytes, size);
+        }
+    };
+    const auto flushPrinter = [&] {
+        if (printerScratch.used()) {
+            host.print(std::string((const char*)(printerScratch.data()), printerScratch.used()));
+            printerScratch.reset();
+        }
+    };
 
 #include "vterm_parser.rl.h"
+
+    flushPrinter();
 }
 
 template <bool traced>
