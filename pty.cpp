@@ -29,8 +29,12 @@
 #include "composer.h"
 #include "fd_redirect.h"
 #include "listener.h"
+#include "poller.h"
+#include "vterm.h"
+#include "window.h"
 
 #include <std/mem/obj_pool.h>
+#include <std/str/view.h>
 
 #define _POSIX_C_SOURCE 200809L
 
@@ -65,21 +69,63 @@ using namespace stl;
 
 namespace {
 
-    struct PtyImpl final: public Pty, public Listener {
+    struct PtyImpl;
+
+    struct CallPtyResize final: public Listener {
+        explicit CallPtyResize(PtyImpl* pty);
+
+        void onListen(void*) override;
+
+        PtyImpl* pty;
+    };
+
+    struct CallPtyReady final: public Listener {
+        explicit CallPtyReady(PtyImpl* pty);
+
+        void onListen(void* argument) override;
+
+        PtyImpl* pty;
+    };
+
+    struct PtyImpl final: public Pty {
         PtyImpl(Composer& composer, int fd);
         ~PtyImpl();
 
         int fd() const override;
         ssize_t read(u8* buffer, size_t size) override;
         ssize_t write(const u8* buffer, size_t size) override;
-        void onListen(void*) override;
+        void outputReady() override;
 
         void applySize();
+        void ready(const FDReady& event);
+        void updateInterest();
+        bool flushOutput();
+        bool readInput();
 
         Composer& composer_;
         int fd_;
+        bool handlingReady = false;
+        bool finished = false;
     };
 
+}
+
+CallPtyResize::CallPtyResize(PtyImpl* pty_)
+    : pty(pty_)
+{
+}
+
+void CallPtyResize::onListen(void*) {
+    pty->applySize();
+}
+
+CallPtyReady::CallPtyReady(PtyImpl* pty_)
+    : pty(pty_)
+{
+}
+
+void CallPtyReady::onListen(void* argument) {
+    pty->ready(*(const FDReady*)(argument));
 }
 
 PtyImpl::PtyImpl(Composer& composer, int fd)
@@ -93,11 +139,14 @@ PtyImpl::PtyImpl(Composer& composer, int fd)
         fd_ = -1;
         throw std::runtime_error("cannot make PTY nonblocking: " + std::string(strerror(error)));
     }
-    composer_.resizedListeners.pushBack(this);
+    composer_.resizedListeners.pushBack(composer_.pool->make<CallPtyResize>(this));
+    composer_.onFDReady.pushFront(composer_.pool->make<CallPtyReady>(this));
+    composer_.poller->arm(fd_, PollRead);
 }
 
 PtyImpl::~PtyImpl() {
     if (fd_ >= 0) {
+        composer_.poller->disarm(fd_);
         close(fd_);
     }
     composer_.pty = nullptr;
@@ -115,12 +164,98 @@ ssize_t PtyImpl::write(const u8* buffer, size_t size) {
     return ::write(fd_, buffer, size);
 }
 
-void PtyImpl::onListen(void*) {
-    applySize();
+void PtyImpl::outputReady() {
+    if (!handlingReady && !finished) {
+        flushOutput();
+        updateInterest();
+    }
 }
 
 void PtyImpl::applySize() {
     pty_resize(fd_, composer_.columns, composer_.rows);
+}
+
+void PtyImpl::ready(const FDReady& event) {
+    if (event.fd != fd_ || finished) {
+        return;
+    }
+
+    handlingReady = true;
+    if (event.what & PollWrite) {
+        flushOutput();
+    }
+    if (event.what & (PollRead | PollError | PollHangup)) {
+        finished = readInput();
+    }
+    flushOutput();
+    handlingReady = false;
+
+    if (finished) {
+        composer_.poller->disarm(fd_);
+        composer_.window->requestClose();
+    } else {
+        updateInterest();
+    }
+}
+
+void PtyImpl::updateInterest() {
+    int mode = PollRead;
+    if (composer_.vterm != nullptr && !composer_.vterm->output().pty.empty()) {
+        mode |= PollWrite;
+    }
+    composer_.poller->arm(fd_, mode);
+}
+
+bool PtyImpl::flushOutput() {
+    Vterm* const vterm = composer_.vterm;
+    if (vterm == nullptr) {
+        return true;
+    }
+    while (true) {
+        const VtermOutput output = vterm->output();
+        if (output.pty.empty()) {
+            return true;
+        }
+        const ssize_t count = write(output.pty.data(), output.pty.length());
+        if (count > 0) {
+            vterm->consume({(size_t)(count), false});
+            continue;
+        }
+        if (count < 0 && errno == EINTR) {
+            continue;
+        }
+        if (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+            sysWarn("pty write");
+        }
+        return false;
+    }
+}
+
+bool PtyImpl::readInput() {
+    constexpr size_t maxDrainBytes = 20 * 1024 * 1024;
+    Vterm* const vterm = composer_.vterm;
+    u8 buffer[8192];
+    size_t drained = 0;
+    while (drained < maxDrainBytes) {
+        const ssize_t count = read(buffer, sizeof(buffer));
+        if (count > 0) {
+            vterm->feedPty(StringView(buffer, count));
+            drained += (size_t)(count);
+            continue;
+        }
+        if (count == 0 || (count < 0 && errno == EIO)) {
+            return true;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return false;
+        }
+        sysWarn("pty read");
+        return true;
+    }
+    return false;
 }
 
 Pty* Pty::adopt(Composer& composer, int fd) {

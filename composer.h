@@ -24,8 +24,7 @@ struct InputBindings;
 struct InputSink;
 struct Renderer;
 struct Pty;
-struct PtyEventHost;
-struct PtyEventSource;
+struct Poller;
 struct Vterm;
 struct Window;
 struct FontRequest;
@@ -52,8 +51,7 @@ struct Composer {
     InputSink* input = nullptr;
     Renderer* renderer = nullptr;
     Pty* pty = nullptr;
-    PtyEventHost* ptyEventHost = nullptr;
-    PtyEventSource* ptyEvents = nullptr;
+    Poller* poller = nullptr;
     Vterm* vterm = nullptr;
     Window* window = nullptr;
 
@@ -74,6 +72,11 @@ struct Composer {
     stl::IntrusiveList fontResetListeners;
     stl::IntrusiveList fontChangedListeners;
     stl::IntrusiveList cellExtrasChangedListeners;
+    // FDReady points to stack storage and is valid only during the callback.
+    stl::IntrusiveList onFDReady;
+    stl::IntrusiveList onTimeout;
+    // WindowEvents points to stack storage and is valid only during the callback.
+    stl::IntrusiveList windowEventListeners;
     // Font resolvers are tried in registration order.
     stl::IntrusiveList fontResolvers;
     // Input producers call input; the router walks this list in registration

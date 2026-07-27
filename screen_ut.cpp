@@ -606,4 +606,21 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST((screen->getSelectionForeground() == Color{10, 11, 12}));
         STD_INSIST((screen->getSelectionBackground() == Color{13, 14, 15}));
     }
+
+    STD_TEST(FindsBlinkingTextInVisibleCells) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        CellExtraStore::create(composer, 4);
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::create(composer, *pool, 2, 2, &colors);
+        TerminalCell attrs = attributes();
+
+        STD_INSIST(!screen->hasBlinkingText());
+        attrs.blink = true;
+        screen->writeCodepoint(1, 1, 'x', false, attrs, 0, 0, TerminalCell{});
+        STD_INSIST(screen->hasBlinkingText());
+        screen->eraseCells(1, 1, 1, TerminalCell{});
+        STD_INSIST(!screen->hasBlinkingText());
+    }
 }

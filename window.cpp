@@ -10,8 +10,9 @@
 #include "composer.h"
 #include "desktop_actions.h"
 #include "input_sink.h"
+#include "listener.h"
 #include "options.h"
-#include "pty_event_source.h"
+#include "poller.h"
 #include "test_mode.h"
 #include "vk_renderer.h"
 
@@ -51,14 +52,15 @@ namespace {
         static void updateContentScale(Composer& composer, float xScale, float yScale);
     };
 
-    struct GlfwWindowImpl final: public Window, public Clipboard, public DesktopActions, public PtyEventHost {
+    struct GlfwWindowImpl final: public Window, public Clipboard, public DesktopActions {
         explicit GlfwWindowImpl(Composer& composer);
         ~GlfwWindowImpl();
 
         void initialize() override;
         void show() override;
         void activate() override;
-        WindowEvents dispatchEvents(double timeout) override;
+        void requestClose() override;
+        bool dispatchEvents() override;
         bool requestFrame() override;
         void cancelFrame() override;
 
@@ -86,8 +88,6 @@ namespace {
         void openUri(StringView uri) override;
         void pointerIcon(PointerIcon icon) override;
 
-        void wake() override;
-
         bool keyPressed(int key);
         u16 keyboardModifiers();
         u16 inputModifiers(int modifiers);
@@ -109,6 +109,7 @@ namespace {
         void setupCallbacks();
         void frameReady(struct wl_callback* callback);
         static void frameDone(void* data, struct wl_callback* callback, uint32_t time);
+        static int pollCallback(struct pollfd* fds, size_t count, double* timeout, void* user);
         bool queryUriScheme(StringView scheme);
         static GlfwWindowImpl& fromWindow(GLFWwindow* window);
 
@@ -161,7 +162,8 @@ namespace {
         void initialize() override;
         void show() override;
         void activate() override;
-        WindowEvents dispatchEvents(double timeout) override;
+        void requestClose() override;
+        bool dispatchEvents() override;
         bool requestFrame() override;
         void cancelFrame() override;
 
@@ -194,14 +196,12 @@ GlfwWindowImpl::GlfwWindowImpl(Composer& composer_)
     composer.window = this;
     composer.clipboard = this;
     composer.desktopActions = this;
-    composer.ptyEventHost = this;
 }
 
 GlfwWindowImpl::~GlfwWindowImpl() {
     composer.window = nullptr;
     composer.clipboard = nullptr;
     composer.desktopActions = nullptr;
-    composer.ptyEventHost = nullptr;
     cancelFrame();
     if (cursor != nullptr) {
         glfwDestroyCursor(cursor);
@@ -213,6 +213,7 @@ GlfwWindowImpl::~GlfwWindowImpl() {
         glfwDestroyWindow(window);
     }
     if (initialized) {
+        glfwSetPollCallback(nullptr, nullptr);
         glfwTerminate();
     }
 }
@@ -236,8 +237,11 @@ void HeadlessWindowImpl::show() {
 void HeadlessWindowImpl::activate() {
 }
 
-WindowEvents HeadlessWindowImpl::dispatchEvents(double) {
-    return {};
+void HeadlessWindowImpl::requestClose() {
+}
+
+bool HeadlessWindowImpl::dispatchEvents() {
+    return false;
 }
 
 bool HeadlessWindowImpl::requestFrame() {
@@ -396,21 +400,26 @@ void GlfwWindowImpl::activate() {
     if (callbacksActive) {
         return;
     }
+    glfwSetPollCallback(pollCallback, this);
     setupCallbacks();
     callbacksActive = true;
     refreshContentScale();
     composer.input->focus(glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_TRUE);
 }
 
-WindowEvents GlfwWindowImpl::dispatchEvents(double timeout) {
+int GlfwWindowImpl::pollCallback(struct pollfd* fds, size_t count, double* timeout, void* user) {
+    GlfwWindowImpl* const self = (GlfwWindowImpl*)(user);
+    return self->composer.poller->poll(fds, count, timeout);
+}
+
+void GlfwWindowImpl::requestClose() {
+    glfwSetWindowShouldClose(window, GLFW_TRUE);
+    glfwPostEmptyEvent();
+}
+
+bool GlfwWindowImpl::dispatchEvents() {
     if (!glfwWindowShouldClose(window)) {
-        if (timeout == 0.0) {
-            glfwPollEvents();
-        } else if (timeout > 0.0) {
-            glfwWaitEventsTimeout(timeout);
-        } else {
-            glfwWaitEvents();
-        }
+        glfwWaitEvents();
     }
     if (callbackError != nullptr) {
         std::rethrow_exception(callbackError);
@@ -431,7 +440,12 @@ WindowEvents GlfwWindowImpl::dispatchEvents(double timeout) {
     };
     redrawPending = false;
     frameReadyPending = false;
-    return result;
+    for (IntrusiveNode* node = composer.windowEventListeners.mutFront(); node != composer.windowEventListeners.mutEnd();) {
+        Listener* const listener = static_cast<Listener*>(node);
+        node = node->next;
+        listener->onListen((void*)(&result));
+    }
+    return !result.close;
 }
 
 bool GlfwWindowImpl::requestFrame() {
@@ -495,7 +509,7 @@ void GlfwWindowImpl::requestAttention() {
 
 void GlfwWindowImpl::requestRedraw() {
     redrawPending = true;
-    wake();
+    glfwPostEmptyEvent();
 }
 
 void GlfwWindowImpl::restore() {
@@ -692,10 +706,6 @@ void GlfwWindowImpl::openUri(StringView uri) {
 void GlfwWindowImpl::pointerIcon(PointerIcon icon) {
     GLFWcursor* const selected = icon == PointerIcon::Link && hyperlinkCursor != nullptr ? hyperlinkCursor : cursor;
     glfwSetCursor(window, selected);
-}
-
-void GlfwWindowImpl::wake() {
-    glfwPostEmptyEvent();
 }
 
 bool GlfwWindowImpl::keyPressed(int key) {

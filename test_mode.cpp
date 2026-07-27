@@ -69,6 +69,7 @@ namespace {
         int fd() const override;
         ssize_t read(u8* buffer, size_t size) override;
         ssize_t write(const u8* buffer, size_t size) override;
+        void outputReady() override;
         void onListen(void*) override;
 
         void setReadHandler(std::function<ssize_t(u8*, size_t)> handler);
@@ -133,6 +134,9 @@ ssize_t TestPty::read(u8* buffer, size_t size) {
 
 ssize_t TestPty::write(const u8* buffer, size_t size) {
     return onWrite(buffer, size);
+}
+
+void TestPty::outputReady() {
 }
 
 void TestPty::onListen(void*) {

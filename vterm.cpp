@@ -29,6 +29,8 @@
 #include "mouse_frontend.h"
 #include "mouse_protocol.h"
 #include "parser.h"
+#include "poller.h"
+#include "pty.h"
 #include "screen.h"
 #include "unicode_map.h"
 #include "grapheme.h"
@@ -48,13 +50,13 @@
 #include <std/ios/output.h>
 #include <std/str/builder.h>
 #include <std/str/view.h>
+#include <std/sys/crt.h>
 #include <std/sys/fd.h>
 #include <std/sys/throw.h>
 
 #include <algorithm>
 #include <array>
 #include <cerrno>
-#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <fcntl.h>
@@ -182,6 +184,14 @@ namespace {
         VtermImpl* parent;
     };
 
+    struct CallVtermTimeout: Listener {
+        explicit CallVtermTimeout(VtermImpl* parent);
+
+        void onListen(void*) override;
+
+        VtermImpl* parent;
+    };
+
     struct VtermImpl final: public Vterm, public InputSink, public ParserIface {
         VtermImpl(Composer& composer, VtermHost& host, VtermTrace* trace, Output* dump);
 
@@ -262,6 +272,10 @@ namespace {
 
         void redraw();
         bool animationActive() const;
+        void enableBlinkingText();
+        void refreshBlinkingText();
+        void armTimeout();
+        void timeout();
 
         using InputSpec = VtermInputSpec;
 
@@ -764,7 +778,7 @@ namespace {
         bool cursorBlinkMode = false;
         bool haveBlinkingText = false;
         bool blinkVisible = true;
-        std::chrono::steady_clock::time_point nextBlink;
+        u64 nextBlink = 0;
         bool altScreenBufferMode = false;
         bool altScreenInitialized = false;
         bool autoWrapMode = true;
@@ -786,7 +800,7 @@ namespace {
         bool printFormFeedMode = false;
         bool printExtentMode = false;
 
-        std::chrono::steady_clock::time_point synchronizedOutputDeadline;
+        u64 synchronizedOutputDeadline = 0;
         bool send8BitControls = false;
         bool altScrollMode = false;
         bool altSendsEscape = true;
@@ -1644,6 +1658,9 @@ void VtermImpl::feedPty(StringView bytes) {
         dump->write(bytes.data(), bytes.length());
     }
     processInput(bytes.data(), (int)(bytes.length()));
+    if (composer.pty != nullptr) {
+        composer.pty->outputReady();
+    }
 }
 
 void VtermImpl::expose() {
@@ -1680,6 +1697,9 @@ void VtermImpl::pointerPresence(bool present) {
 
 void VtermImpl::flush() {
     input.flush();
+    if (composer.pty != nullptr) {
+        composer.pty->outputReady();
+    }
 }
 
 void VtermImpl::key(VtKey key_, VtModifier modifiers_) {
@@ -1830,7 +1850,6 @@ void VtermImpl::consume(const VtermConsume& consumed) {
 VtermState VtermImpl::state() const {
     VtermState result;
     result.synchronizedOutput = synchronizedOutputMode;
-    result.animation = haveBlinkingText || cursorBlinkMode;
     return result;
 }
 
@@ -2064,6 +2083,40 @@ bool VtermImpl::animationActive() const {
     return haveBlinkingText || cursorBlinkMode;
 }
 
+void VtermImpl::enableBlinkingText() {
+    if (!animationActive()) {
+        nextBlink = monotonicNowUs() + 500'000;
+        composer.poller->deadline(nextBlink);
+    }
+    haveBlinkingText = true;
+}
+
+void VtermImpl::refreshBlinkingText() {
+    const bool blinking = cf->hasBlinkingText();
+    if (blinking && !animationActive()) {
+        nextBlink = monotonicNowUs() + 500'000;
+        composer.poller->deadline(nextBlink);
+    }
+    haveBlinkingText = blinking;
+}
+
+void VtermImpl::armTimeout() {
+    if (synchronizedOutputMode) {
+        composer.poller->deadline(synchronizedOutputDeadline);
+    }
+    if (animationActive()) {
+        composer.poller->deadline(nextBlink);
+    }
+}
+
+void VtermImpl::timeout() {
+    expireSynchronizedOutput(false);
+    if (advanceAnimation(false)) {
+        expose();
+    }
+    armTimeout();
+}
+
 size_t VtermInputSpec::getLength() const {
     return length ? length : strlen(input);
 }
@@ -2132,22 +2185,24 @@ void VtermImpl::collectCellExtras() {
 }
 
 bool VtermImpl::advanceAnimation(bool force) {
+    refreshBlinkingText();
     if (!animationActive()) {
         return false;
     }
-    const auto now = std::chrono::steady_clock::now();
+    const u64 now = monotonicNowUs();
     if (!force && now < nextBlink) {
         return false;
     }
     blinkVisible = !blinkVisible;
-    nextBlink = now + std::chrono::milliseconds(500);
+    nextBlink = now + 500'000;
     frame_pri->setBlinkState(blinkVisible, cursorBlinkMode);
     frame_alt->setBlinkState(blinkVisible, cursorBlinkMode);
+    armTimeout();
     return true;
 }
 
 bool VtermImpl::expireSynchronizedOutput(bool force) {
-    if (!synchronizedOutputMode || (!force && std::chrono::steady_clock::now() < synchronizedOutputDeadline)) {
+    if (!synchronizedOutputMode || (!force && monotonicNowUs() < synchronizedOutputDeadline)) {
         return false;
     }
     synchronizedOutputMode = false;
@@ -2253,6 +2308,7 @@ void VtermImpl::pageUp() {
         }
     } else {
         cf->pageUp(composer.rows / 2);
+        refreshBlinkingText();
         redraw();
     }
 }
@@ -2264,6 +2320,7 @@ void VtermImpl::pageDown() {
         }
     } else {
         cf->pageDown(composer.rows / 2);
+        refreshBlinkingText();
         redraw();
     }
 }
@@ -2275,6 +2332,7 @@ void VtermImpl::mouseWheelUp(u16 count) {
         }
     } else {
         cf->pageUp(count);
+        refreshBlinkingText();
         redraw();
     }
 }
@@ -2286,6 +2344,7 @@ void VtermImpl::mouseWheelDown(u16 count) {
         }
     } else {
         cf->pageDown(count);
+        refreshBlinkingText();
         redraw();
     }
 }
@@ -2340,7 +2399,7 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     cursorBlinkMode = false;
     haveBlinkingText = false;
     blinkVisible = true;
-    nextBlink = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+    nextBlink = monotonicNowUs() + 500'000;
     frame_pri->setBlinkState(true, false);
     frame_alt->setBlinkState(true, false);
     autoWrapMode = true;
@@ -2464,6 +2523,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
                 altScreenInitialized = false;
             }
             updateExtraCellCount();
+            refreshBlinkingText();
         }
         return;
     }
@@ -2508,6 +2568,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         altScreenBufferMode = false;
     }
     updateExtraCellCount();
+    refreshBlinkingText();
 }
 
 void VtermImpl::normalizeCursorPos() {
@@ -2829,7 +2890,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
     const bool wide = w == 2 && posX < lineCols - 1;
     cf->writeCodepoint(posY, posX, pt, wide, attrs, activeHyperlink, currentSemantic, eraseAttrs);
     if (attrs.blink) {
-        haveBlinkingText = true;
+        enableBlinkingText();
     }
 
     inputGrapheme.clear();
@@ -2895,7 +2956,7 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
             cf->writeAsciiRun(posY, startX, input, count, attrs, activeHyperlink, currentSemantic, eraseAttrs);
         }
         if (attrs.blink) {
-            haveBlinkingText = true;
+            enableBlinkingText();
         }
 
         const u16 clusterX = endX - 1;
@@ -3057,7 +3118,7 @@ void VtermImpl::placePreparedRun(const u32* input, const u8* widths, size_t size
             cf->writeRun(posY, startX, input, count, attrs, activeHyperlink, currentSemantic, eraseAttrs);
         }
         if (attrs.blink) {
-            haveBlinkingText = true;
+            enableBlinkingText();
         }
 
         const bool lastWide = widths[count - 1] == 2;
@@ -3335,9 +3396,10 @@ void VtermImpl::setCursorStyle(u8 reportStyle, TerminalCursor::Style shape, bool
 
 void VtermImpl::refreshCursorStyle() {
     blinkVisible = true;
-    nextBlink = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+    nextBlink = monotonicNowUs() + 500'000;
     frame_pri->setBlinkState(true, cursorBlinkMode);
     frame_alt->setBlinkState(true, cursorBlinkMode);
+    armTimeout();
 }
 
 void VtermImpl::csi_DECIC(u32 count) {
@@ -3770,6 +3832,7 @@ void VtermImpl::changeRectangleAttributes(CsiRectangle parameters, CellAttribute
         return;
     }
     cf->changeRectangleAttributes(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, change);
+    refreshBlinkingText();
 }
 
 void VtermImpl::csi_DECRQCRA(u32 requestId, CsiRectangle parameters) {
@@ -4020,9 +4083,10 @@ void VtermImpl::setCursorBlink(bool enabled) {
     if (!enabled) {
         blinkVisible = true;
     }
-    nextBlink = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+    nextBlink = monotonicNowUs() + 500'000;
     frame_pri->setBlinkState(blinkVisible, enabled);
     frame_alt->setBlinkState(blinkVisible, enabled);
+    armTimeout();
 }
 
 void VtermImpl::setCursorVisible(bool enabled) {
@@ -4093,7 +4157,8 @@ void VtermImpl::setBracketedPaste(bool enabled) {
 void VtermImpl::setSynchronizedOutput(bool enabled) {
     synchronizedOutputMode = enabled;
     if (enabled) {
-        synchronizedOutputDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(150);
+        synchronizedOutputDeadline = monotonicNowUs() + 150'000;
+        composer.poller->deadline(synchronizedOutputDeadline);
     }
 }
 
@@ -6458,6 +6523,15 @@ void CallVtermFontChanged::onListen(void*) {
     parent->fontChanged();
 }
 
+CallVtermTimeout::CallVtermTimeout(VtermImpl* parent_)
+    : parent(parent_)
+{
+}
+
+void CallVtermTimeout::onListen(void*) {
+    parent->timeout();
+}
+
 VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, Output* dump_)
     : input(this)
     , composer(composer_)
@@ -6505,7 +6579,9 @@ VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, O
     resetTerminal();
     composer.resizedListeners.pushBack(composer.pool->make<CallVtermResize>(this));
     composer.fontChangedListeners.pushBack(composer.pool->make<CallVtermFontChanged>(this));
+    composer.onTimeout.pushFront(composer.pool->make<CallVtermTimeout>(this));
     composer.inputSinks.pushBack(this);
+    armTimeout();
 }
 
 void VtermImpl::fontChanged() {
@@ -6558,6 +6634,7 @@ void VtermImpl::resizeGrid() {
 
     outputSpans.grow((size_t)(composer.rows) * ((composer.columns + 1u) / 2u));
     updateExtraCellCount();
+    refreshBlinkingText();
     if (inBandResizeMode) {
         reportInBandResize();
     }
@@ -6781,6 +6858,7 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
     }
 
     if (userInput && cf->pageToBottom()) {
+        refreshBlinkingText();
         redraw();
     }
 
@@ -7183,7 +7261,7 @@ size_t VtermImpl::placeAsciiLines(const u8* input, size_t size) {
     posX = 0;
     lastCol = false;
     if (attrs.blink) {
-        haveBlinkingText = true;
+        enableBlinkingText();
     }
     return cursor - input;
 }

@@ -1,0 +1,180 @@
+/*
+ * Copyright (C) 2026 Shitty team
+ * MIT licensed
+ * See the file LICENSE.MIT for the full license.
+ */
+
+#include "poller.h"
+
+#include "composer.h"
+#include "listener.h"
+
+#include <std/lib/vector.h>
+#include <std/mem/obj_pool.h>
+#include <std/sym/i_map.h>
+#include <std/sys/crt.h>
+
+#include <climits>
+#include <poll.h>
+
+using namespace stl;
+
+namespace {
+    struct ArmedFD {
+        int fd;
+        int mode;
+    };
+
+    struct PollerImpl final: public Poller {
+        explicit PollerImpl(Composer& composer);
+
+        void arm(int fd, int mode) override;
+        void disarm(int fd) override;
+        void timeout(u64 microseconds) override;
+        void deadline(u64 monotonicMicroseconds) override;
+        int poll(struct pollfd* sourceFDs, size_t sourceCount, double* timeout) override;
+
+        static short toNative(int mode);
+        static int fromNative(short events);
+        static int toMilliseconds(double seconds);
+        void publishTimeout();
+
+        Composer& composer;
+        IntMap<ArmedFD> armed;
+        Vector<struct pollfd> waiting;
+        u64 minDeadline = 0;
+    };
+}
+
+PollerImpl::PollerImpl(Composer& composer_)
+    : composer(composer_)
+    , armed(ObjPool::create(composer.pool))
+{
+}
+
+void PollerImpl::arm(int fd, int mode) {
+    armed[fd] = {fd, mode};
+}
+
+void PollerImpl::disarm(int fd) {
+    armed.erase(fd);
+}
+
+void PollerImpl::timeout(u64 microseconds) {
+    deadline(monotonicNowUs() + microseconds);
+}
+
+void PollerImpl::deadline(u64 monotonicMicroseconds) {
+    if (monotonicMicroseconds == 0) {
+        monotonicMicroseconds = monotonicNowUs();
+    }
+    if (minDeadline == 0 || monotonicMicroseconds < minDeadline) {
+        minDeadline = monotonicMicroseconds;
+    }
+}
+
+short PollerImpl::toNative(int mode) {
+    short events = 0;
+    if (mode & PollRead) {
+        events |= POLLIN;
+    }
+    if (mode & PollWrite) {
+        events |= POLLOUT;
+    }
+    return events;
+}
+
+int PollerImpl::fromNative(short events) {
+    int mode = 0;
+    if (events & POLLIN) {
+        mode |= PollRead;
+    }
+    if (events & POLLOUT) {
+        mode |= PollWrite;
+    }
+    if (events & (POLLERR | POLLNVAL)) {
+        mode |= PollError;
+    }
+    if (events & POLLHUP) {
+        mode |= PollHangup;
+    }
+    return mode;
+}
+
+int PollerImpl::toMilliseconds(double seconds) {
+    if (seconds <= 0.0) {
+        return 0;
+    }
+    if (seconds >= INT_MAX / 1000.0) {
+        return INT_MAX;
+    }
+    return (int)(seconds * 1000.0 + 0.999);
+}
+
+void PollerImpl::publishTimeout() {
+    minDeadline = 0;
+    for (IntrusiveNode* node = composer.onTimeout.mutFront(); node != composer.onTimeout.mutEnd();) {
+        Listener* const listener = static_cast<Listener*>(node);
+        node = node->next;
+        listener->onListen();
+    }
+}
+
+int PollerImpl::poll(struct pollfd* sourceFDs, size_t sourceCount, double* timeout) {
+    waiting.clear();
+    if (sourceCount != 0) {
+        waiting.append(sourceFDs, sourceCount);
+    }
+    armed.visit([this](const ArmedFD& current) {
+        waiting.pushBack({
+            .fd = current.fd,
+            .events = toNative(current.mode),
+            .revents = 0,
+        });
+    });
+
+    const u64 started = monotonicNowUs();
+    double waitSeconds = timeout == nullptr ? 0.0 : *timeout;
+    bool waitForever = timeout == nullptr;
+    if (minDeadline != 0) {
+        const double untilDeadline = minDeadline > started ? (minDeadline - started) / 1'000'000.0 : 0.0;
+        if (waitForever || untilDeadline < waitSeconds) {
+            waitSeconds = untilDeadline;
+            waitForever = false;
+        }
+    }
+    const int milliseconds = waitForever ? -1 : toMilliseconds(waitSeconds);
+    const int result = ::poll(waiting.mutData(), waiting.length(), milliseconds);
+    if (timeout != nullptr) {
+        const double elapsed = (monotonicNowUs() - started) / 1'000'000.0;
+        *timeout = elapsed < *timeout ? *timeout - elapsed : 0.0;
+    }
+    for (size_t index = 0; index != sourceCount; ++index) {
+        sourceFDs[index].revents = waiting[index].revents;
+    }
+    if (result > 0) {
+        for (size_t index = sourceCount; index != waiting.length(); ++index) {
+            const struct pollfd& source = waiting[index];
+            if (source.revents == 0) {
+                continue;
+            }
+            FDReady ready{
+                .fd = source.fd,
+                .what = fromNative(source.revents),
+            };
+            for (IntrusiveNode* node = composer.onFDReady.mutFront(); node != composer.onFDReady.mutEnd();) {
+                Listener* const listener = static_cast<Listener*>(node);
+                node = node->next;
+                listener->onListen(&ready);
+            }
+        }
+    }
+    if (minDeadline != 0 && monotonicNowUs() >= minDeadline) {
+        publishTimeout();
+    }
+    return result;
+}
+
+Poller* Poller::create(Composer& composer) {
+    return composer.pool->make<PollerImpl>(composer);
+}

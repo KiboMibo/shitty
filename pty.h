@@ -29,6 +29,7 @@ struct Pty {
     virtual int fd() const = 0;
     virtual ssize_t read(u8* buffer, size_t size) = 0;
     virtual ssize_t write(const u8* buffer, size_t size) = 0;
+    virtual void outputReady() = 0;
 
     // Takes ownership of an already-open PTY master.
     static Pty* adopt(Composer& composer, int fd);

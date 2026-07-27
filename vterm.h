@@ -184,7 +184,6 @@ struct VtermTextResult {
 
 struct VtermState {
     bool synchronizedOutput = false;
-    bool animation = false;
 };
 
 struct TerminalUpdate {

@@ -13,6 +13,7 @@
 #include "font_resolver.h"
 #include "input_bindings.h"
 #include "font_fontconfig.h"
+#include "poller.h"
 
 #include <std/alg/minmax.h>
 #include <std/dbg/assert.h>
@@ -22,6 +23,7 @@ using namespace stl;
 Composer::Composer(ObjPool* pool_)
     : pool(pool_)
 {
+    poller = Poller::create(*this);
     input = createInputRouter(*this);
     inputBindings = InputBindings::create(*this);
     createFontconfigResolver(*this);

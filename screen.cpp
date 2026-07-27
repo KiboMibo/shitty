@@ -201,6 +201,7 @@ namespace {
         u8 getSelectionColorMask() const noexcept override;
 
         void setBlinkState(bool visible, bool cursor) override;
+        bool hasBlinkingText() const noexcept override;
         bool getBlinkVisible() const noexcept override;
         bool getCursorBlink() const noexcept override;
 
@@ -555,6 +556,19 @@ template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::setBlinkState(bool visible, bool cursor) {
     blinkVisible = visible;
     cursorBlink = cursor;
+}
+
+template <typename Coord, typename Epoch>
+bool ScreenImpl<Coord, Epoch>::hasBlinkingText() const noexcept {
+    for (Coord row = 0; row != nRows; ++row) {
+        const TerminalCell* const cells = getViewRowPtr(row);
+        for (Coord column = 0; column != nCols; ++column) {
+            if (cells[column].blink) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 template <typename Coord, typename Epoch>

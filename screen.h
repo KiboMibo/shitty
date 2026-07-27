@@ -119,6 +119,7 @@ struct Screen {
     virtual u8 getSelectionColorMask() const noexcept = 0;
 
     virtual void setBlinkState(bool visible, bool cursor) = 0;
+    virtual bool hasBlinkingText() const noexcept = 0;
     virtual bool getBlinkVisible() const noexcept = 0;
     virtual bool getCursorBlink() const noexcept = 0;
 

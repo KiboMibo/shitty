@@ -90,7 +90,6 @@ STD_TEST_SUITE(Window) {
         STD_INSIST(composer.window == window);
         STD_INSIST(composer.clipboard == nullptr);
         STD_INSIST(composer.desktopActions == nullptr);
-        STD_INSIST(composer.ptyEventHost == nullptr);
         STD_INSIST(window->testApi() != nullptr);
     }
 
@@ -101,7 +100,7 @@ STD_TEST_SUITE(Window) {
 
         STD_INSIST(!window.requestFrame());
         window.cancelFrame();
-        STD_INSIST(!window.dispatchEvents(0.0).frameReady);
+        STD_INSIST(!window.dispatchEvents());
     }
 
     STD_TEST(GlfwWindowDoesNotExposeTestInput) {
