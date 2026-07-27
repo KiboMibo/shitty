@@ -20,7 +20,6 @@
 #include "options.h"
 #include "mouse_protocol.h"
 #include "mouse_frontend.h"
-#include "osc_protocol.h"
 #include "pty.h"
 #include "reference_renderer.h"
 #include "startup.h"
@@ -351,6 +350,8 @@ namespace {
         bool update(const TerminalUpdate& update);
         void osc(int command, const std::string& argument) override;
         bool handlesOsc() const override;
+        void title(StringView) override;
+        void cwd(StringView) override;
         void bell() override;
         bool handlesPrinter() const override;
         void print(const std::string& output) override;
@@ -399,6 +400,7 @@ namespace {
         Composer& composer;
         std::string& actions;
         std::string& printerOutput;
+        Buffer currentCwd;
         TestApi* testApi = nullptr;
         const TerminalColors* colors = nullptr;
         VtermWindowInfo currentWindow;
@@ -644,6 +646,14 @@ void TestDisplay::osc(int command, const std::string& argument) {
 
 bool TestDisplay::handlesOsc() const {
     return composer.vterm != nullptr;
+}
+
+void TestDisplay::title(StringView) {
+}
+
+void TestDisplay::cwd(StringView path) {
+    currentCwd.reset();
+    currentCwd.append(path.data(), path.length());
 }
 
 void TestDisplay::bell() {
@@ -2063,32 +2073,6 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                     throw std::runtime_error("invalid mouse event");
                 }
                 writeAll(controlFd, "OK " + encodeHex(encodeMouseProtocol((MouseTrackingEnc)(encoding), (MouseEventType)(type), modifiers, motionButton, button, column, row)) + "\n");
-            } else if (line.compare(0, 6, "OSC52 ") == 0) {
-                const Osc52Request request = parseOsc52(decodeHex(line.substr(6)));
-                writeAll(controlFd, "OK " + std::to_string(request.valid) + " " + std::to_string(request.query) + " " + std::to_string(request.primary) + " " + std::to_string(request.clipboard) + " " + encodeHex(request.content) + "\n");
-            } else if (line.compare(0, 12, "OSC52_REPLY ") == 0) {
-                const size_t separator = line.find(' ', 12);
-                if (separator == std::string::npos) {
-                    throw std::runtime_error("invalid OSC 52 reply");
-                }
-                writeAll(controlFd, "OK " + encodeHex(encodeOsc52Reply(decodeHex(line.substr(12, separator - 12)), decodeHex(line.substr(separator + 1)))) + "\n");
-            } else if (line.compare(0, 13, "OSC52_POLICY ") == 0) {
-                std::istringstream args(line.substr(13));
-                int allowRead;
-                int selectClipboard;
-                std::string encoded;
-                if (!(args >> allowRead >> selectClipboard >> encoded) || allowRead < 0 || allowRead > 1 || selectClipboard < 0 || selectClipboard > 1) {
-                    throw std::runtime_error("invalid OSC 52 policy request");
-                }
-                const std::string payload = decodeHex(encoded);
-                const size_t first = payload.find('\0');
-                const size_t second = first == std::string::npos ? std::string::npos : payload.find('\0', first + 1);
-                if (first == std::string::npos || second == std::string::npos || payload.find('\0', second + 1) != std::string::npos) {
-                    throw std::runtime_error("invalid OSC 52 policy payload");
-                }
-                const Osc52Request request = parseOsc52(payload.substr(0, first), selectClipboard);
-                const std::string reply = request.valid && request.query ? encodeOsc52QueryReply(request, allowRead, payload.substr(first + 1, second - first - 1), payload.substr(second + 1)) : std::string{};
-                writeAll(controlFd, "OK " + encodeHex(reply) + "\n");
             } else if (line.compare(0, 12, "SET_PRIMARY ") == 0) {
                 const size_t separator = line.find(' ', 12);
                 if (separator == std::string::npos) {
@@ -2116,21 +2100,15 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 }
                 const StringView content = primary ? composer.clipboard->readPrimary() : composer.clipboard->readClipboard();
                 writeAll(controlFd, "OK " + encodeHex(std::string((const char*)(content.data()), content.length())) + "\n");
-            } else if (line.compare(0, 22, "APPLY_CLIPBOARD_OSC52 ") == 0) {
-                const Osc52Request request = parseOsc52(decodeHex(line.substr(22)), opts.osc52SelectClipboard);
-                if (!request.valid) {
-                    throw std::runtime_error("invalid OSC 52 clipboard write");
-                }
-                const StringView content((const u8*)(request.content.data()), request.content.size());
-                if (request.primary) {
-                    composer.clipboard->writePrimary(content);
-                }
-                if (request.clipboard) {
-                    composer.clipboard->writeClipboard(content);
-                }
-                writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 9, "OSC7_CWD ") == 0) {
-                writeAll(controlFd, "OK " + encodeHex(oscCwdToPath(decodeHex(line.substr(9)))) + "\n");
+                display.currentCwd.reset();
+                const std::string input = "\x1b]7;" + decodeHex(line.substr(9)) + "\x1b\\";
+                terminal.feedPtyOutput((const u8*)(input.data()), input.size());
+                StringBuilder output;
+                output << StringView(u8"OK ");
+                appendHex(output, StringView(display.currentCwd));
+                output << StringView(u8"\n");
+                writeAll(controlFd, StringView(output));
             } else if (line == "SNAPSHOT") {
                 writeAll(controlFd, display.snapshot());
             } else if (line == "MODEL_SNAPSHOT") {

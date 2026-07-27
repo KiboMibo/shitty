@@ -734,34 +734,6 @@ class Shitty:
             f"{button} {column} {row}"
         )
 
-    def osc52(self, argument):
-        self.stream.write(b"OSC52 " + argument.hex().encode() + b"\n")
-        response = self._readline().split()
-        if len(response) not in (5, 6) or response[0] != "OK":
-            raise RuntimeError("invalid OSC 52 response")
-        fields = tuple(bool(int(value)) for value in response[1:5])
-        content = bytes.fromhex(response[5]) if len(response) == 6 else b""
-        return fields + (content,)
-
-    def osc52_reply(self, content, selector=b""):
-        return self._read_hex_response(
-            "OSC52_REPLY " + selector.hex() + " " + content.hex()
-        )
-
-    def osc52_policy(
-        self,
-        argument,
-        allow_read=False,
-        select_clipboard=False,
-        primary=b"",
-        clipboard=b"",
-    ):
-        payload = b"\0".join((argument, primary, clipboard))
-        return self._read_hex_response(
-            f"OSC52_POLICY {int(allow_read)} {int(select_clipboard)} "
-            + payload.hex()
-        )
-
     def set_primary_selection(self, content, auto_copy=False):
         self.command(f"SET_PRIMARY {int(auto_copy)} {content.hex()}")
 
@@ -770,9 +742,6 @@ class Shitty:
 
     def get_selection(self, primary):
         return self._read_hex_response(f"GET_SELECTION {int(primary)}")
-
-    def apply_clipboard_osc52(self, argument):
-        self.command("APPLY_CLIPBOARD_OSC52 " + argument.hex())
 
     def osc7_cwd(self, argument):
         return self._read_hex_response("OSC7_CWD " + argument.hex())

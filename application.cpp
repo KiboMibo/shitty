@@ -20,7 +20,6 @@
 #include "font_pack.h"
 #include "input_bindings.h"
 #include "listener.h"
-#include "osc_protocol.h"
 #include "options.h"
 #include "pty.h"
 #include "pty_event_source.h"
@@ -98,6 +97,8 @@ namespace {
         int run(int argc, char* argv[]) override;
         void osc(int command, const std::string& argument) override;
         bool handlesOsc() const override;
+        void title(StringView value) override;
+        void cwd(StringView path) override;
         void bell() override;
         bool handlesPrinter() const override;
         void print(const std::string& output) override;
@@ -114,6 +115,7 @@ namespace {
         bool refreshPending = false;
         bool committedRepaintPending = false;
         bool frameReady = true;
+        bool titleSet = false;
         u16 initialFontSize = 0;
         u16 logicalBorder = 0;
         std::optional<std::chrono::steady_clock::time_point> refreshDeadline;
@@ -122,7 +124,6 @@ namespace {
         static void childSignalHandler(int signal, siginfo_t* info, void*);
         void setupSignals();
         int startShell(const char* execPath, const char* const argv[]);
-        void handleOsc(int command, const std::string& argument);
         bool presentTerminal();
         bool repaint();
         bool flushPtyOutput();
@@ -348,32 +349,6 @@ int ApplicationImpl::startShell(const char* execPath, const char* const argv[]) 
     return ptyFd;
 }
 
-bool appTitleSet = false;
-
-void ApplicationImpl::handleOsc(int command, const std::string& argument) {
-    switch (command) {
-        case 0:
-        case 1:
-        case 2:
-
-            appTitleSet = argument != opts.title;
-            composer.window->setTitle(StringView((const u8*)(argument.data()), argument.size()));
-            return;
-        case 7: {
-            const std::string cwd = oscCwdToPath(argument);
-            if (!cwd.empty() && !appTitleSet) {
-                composer.window->setTitle(StringView((const u8*)(cwd.data()), cwd.size()));
-            }
-            return;
-        }
-        case 133:
-        case 52:
-            return;
-        default:
-            return;
-    }
-}
-
 bool ApplicationImpl::presentTerminal() {
     Vterm* const vterm = composer.vterm;
     Renderer* const renderer = composer.renderer;
@@ -478,12 +453,22 @@ bool ApplicationImpl::servicePty(bool readable, bool writable) {
     return readable && readPty();
 }
 
-void ApplicationImpl::osc(int command, const std::string& argument) {
-    handleOsc(command, argument);
+void ApplicationImpl::osc(int, const std::string&) {
 }
 
 bool ApplicationImpl::handlesOsc() const {
     return composer.vterm != nullptr;
+}
+
+void ApplicationImpl::title(StringView value) {
+    titleSet = value != StringView(opts.title);
+    composer.window->setTitle(value);
+}
+
+void ApplicationImpl::cwd(StringView path) {
+    if (!titleSet) {
+        composer.window->setTitle(path);
+    }
 }
 
 void ApplicationImpl::bell() {

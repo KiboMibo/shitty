@@ -152,21 +152,27 @@ class OscMatrixTest(unittest.TestCase):
 
     def test_osc52_empty_payload_clears_selected_destinations(self):
         with Shitty(columns=8, rows=2) as terminal:
-            self.assertEqual(
-                terminal.osc52(b"pc;"),
-                (True, False, True, True, b""),
-            )
+            terminal.set_primary_selection(b"primary")
+            terminal.set_system_clipboard(b"clipboard")
+            terminal.write(b"\x1b]52;pc;\x1b\\")
+            self.assertEqual(terminal.get_selection(primary=True), b"")
+            self.assertEqual(terminal.get_selection(primary=False), b"")
 
     def test_osc52_selector_order_does_not_change_destinations(self):
         with Shitty(columns=8, rows=2) as terminal:
             for selectors in (b"pc", b"cp", b"ppcc", b"spc"):
                 with self.subTest(selectors=selectors):
-                    request = terminal.osc52(selectors + b";WA==")
-                    self.assertTrue(request[0])
-                    self.assertFalse(request[1])
-                    self.assertTrue(request[2])
-                    self.assertTrue(request[3])
-                    self.assertEqual(request[4], b"X")
+                    terminal.set_primary_selection(b"primary")
+                    terminal.set_system_clipboard(b"clipboard")
+                    terminal.write(
+                        b"\x1b]52;" + selectors + b";WA==\x1b\\"
+                    )
+                    self.assertEqual(
+                        terminal.get_selection(primary=True), b"X"
+                    )
+                    self.assertEqual(
+                        terminal.get_selection(primary=False), b"X"
+                    )
 
     def test_osc52_rejects_malformed_base64_without_partial_content(self):
         with Shitty(columns=8, rows=2) as terminal:
@@ -177,78 +183,99 @@ class OscMatrixTest(unittest.TestCase):
                 b"SGVsbG8!",
                 b"A",
                 b"AB",
-                b"AA==\n",
             ):
                 with self.subTest(payload=payload):
+                    terminal.set_system_clipboard(b"unchanged")
+                    terminal.write(b"\x1b]52;c;" + payload + b"\x1b\\")
                     self.assertEqual(
-                        terminal.osc52(b"c;" + payload),
-                        (False, False, False, False, b""),
+                        terminal.get_selection(primary=False),
+                        b"unchanged",
                     )
+
+    def test_osc52_executes_c0_without_feeding_it_to_base64(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.set_system_clipboard(b"unchanged")
+            terminal.write(b"\x1b]52;c;AA==\n\x1b\\")
+            self.assertEqual(terminal.get_selection(primary=False), b"\0")
 
     def test_osc52_empty_reply_is_well_formed(self):
         with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]52;p;?\x1b\\")
             self.assertEqual(
-                terminal.osc52_reply(b"", b"p"), b"\x1b]52;p;\x1b\\"
+                terminal.read_input(), b"\x1b]52;p;\x1b\\"
             )
 
     def test_osc52_read_policy_blocks_content_but_still_replies(self):
         with Shitty(columns=8, rows=2) as terminal:
+            terminal.set_primary_selection(b"secret")
+            terminal.set_system_clipboard(b"clipboard")
+            terminal.write(b"\x1b]52;p;?\x1b\\")
             self.assertEqual(
-                terminal.osc52_policy(
-                    b"p;?", primary=b"secret", clipboard=b"clipboard"
-                ),
+                terminal.read_input(),
                 b"\x1b]52;p;\x1b\\",
             )
 
     def test_osc52_read_prefers_primary_and_falls_back_to_clipboard(self):
-        with Shitty(columns=8, rows=2) as terminal:
+        with Shitty(
+            columns=8,
+            rows=2,
+            extra_arguments=("-allowOsc52Read", "true"),
+        ) as terminal:
+            terminal.set_primary_selection(b"primary")
+            terminal.set_system_clipboard(b"clipboard")
+            terminal.write(b"\x1b]52;pc;?\x1b\\")
             self.assertEqual(
-                terminal.osc52_policy(
-                    b"pc;?",
-                    allow_read=True,
-                    primary=b"primary",
-                    clipboard=b"clipboard",
-                ),
+                terminal.read_input(),
                 b"\x1b]52;p;cHJpbWFyeQ==\x1b\\",
             )
+            terminal.set_primary_selection(b"")
+            terminal.write(b"\x1b]52;pc;?\x1b\\")
             self.assertEqual(
-                terminal.osc52_policy(
-                    b"pc;?",
-                    allow_read=True,
-                    primary=b"",
-                    clipboard=b"clipboard",
-                ),
+                terminal.read_input(),
                 b"\x1b]52;p;Y2xpcGJvYXJk\x1b\\",
             )
 
     def test_osc52_default_selector_reports_xterm_s0_alias(self):
-        with Shitty(columns=8, rows=2) as terminal:
+        with Shitty(
+            columns=8,
+            rows=2,
+            extra_arguments=("-allowOsc52Read", "true"),
+        ) as terminal:
+            terminal.set_primary_selection(b"primary")
+            terminal.write(b"\x1b]52;;?\x1b\\")
             self.assertEqual(
-                terminal.osc52_policy(
-                    b";?", allow_read=True, primary=b"primary"
-                ),
+                terminal.read_input(),
                 b"\x1b]52;s0;cHJpbWFyeQ==\x1b\\",
             )
 
     def test_osc52_select_resource_redirects_selector_s(self):
-        with Shitty(columns=8, rows=2) as terminal:
+        with Shitty(
+            columns=8,
+            rows=2,
+            extra_arguments=("-allowOsc52Read", "true"),
+        ) as terminal:
+            terminal.set_primary_selection(b"primary")
+            terminal.set_system_clipboard(b"clipboard")
+            terminal.write(b"\x1b]52;s;?\x1b\\")
             self.assertEqual(
-                terminal.osc52_policy(
-                    b"s;?",
-                    allow_read=True,
-                    primary=b"primary",
-                    clipboard=b"clipboard",
-                ),
+                terminal.read_input(),
                 b"\x1b]52;s;cHJpbWFyeQ==\x1b\\",
             )
+        with Shitty(
+            columns=8,
+            rows=2,
+            extra_arguments=(
+                "-allowOsc52Read",
+                "true",
+                "-osc52Select",
+                "clipboard",
+            ),
+        ) as terminal:
+            terminal.set_primary_selection(b"primary")
+            terminal.set_system_clipboard(b"clipboard")
+            terminal.write(b"\x1b]52;s;?\x1b\\")
             self.assertEqual(
-                terminal.osc52_policy(
-                    b"s;?",
-                    allow_read=True,
-                    select_clipboard=True,
-                    primary=b"primary",
-                    clipboard=b"clipboard",
-                ),
+                terminal.read_input(),
                 b"\x1b]52;s;Y2xpcGJvYXJk\x1b\\",
             )
 

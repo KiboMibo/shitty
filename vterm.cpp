@@ -530,7 +530,7 @@ namespace {
         void osc_PALETTE(u32, StringView);
         void osc_SPECIAL_COLOR(u32, StringView);
         void osc_SPECIAL_COLOR_MODE(u32, u32);
-        void osc_CWD(StringView);
+        void osc_CWD(StringView, StringView, bool);
         void osc_HYPERLINK(StringView, bool, StringView);
         void osc_NOTIFY(StringView);
         void osc_PROGRESS(u32, u32);
@@ -5699,6 +5699,7 @@ void VtermImpl<traced>::osc_TITLE_0(StringView payload) {
     const std::string title((const char*)(payload.data()), payload.length());
     iconTitle = title;
     windowTitle = title;
+    host.title(payload);
     host.osc(0, title);
 }
 
@@ -5706,6 +5707,7 @@ template <bool traced>
 void VtermImpl<traced>::osc_TITLE_1(StringView payload) {
     const std::string title((const char*)(payload.data()), payload.length());
     iconTitle = title;
+    host.title(payload);
     host.osc(1, title);
 }
 
@@ -5713,6 +5715,7 @@ template <bool traced>
 void VtermImpl<traced>::osc_TITLE_2(StringView payload) {
     const std::string title((const char*)(payload.data()), payload.length());
     windowTitle = title;
+    host.title(payload);
     host.osc(2, title);
 }
 
@@ -5781,8 +5784,11 @@ void VtermImpl<traced>::osc_SPECIAL_COLOR_MODE(u32 index, u32 value) {
 }
 
 template <bool traced>
-void VtermImpl<traced>::osc_CWD(StringView payload) {
-    host.osc(7, std::string((const char*)(payload.data()), payload.length()));
+void VtermImpl<traced>::osc_CWD(StringView raw, StringView path, bool valid) {
+    host.osc(7, std::string((const char*)(raw.data()), raw.length()));
+    if (valid) {
+        host.cwd(path);
+    }
 }
 
 template <bool traced>

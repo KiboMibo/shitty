@@ -24,6 +24,8 @@ namespace {
 
         void osc(int command, const std::string& argument) override;
         bool handlesOsc() const override;
+        void title(StringView) override;
+        void cwd(StringView) override;
         void bell() override;
         bool handlesPrinter() const override;
         void print(const std::string& output) override;
@@ -56,6 +58,12 @@ void HeadlessHost::osc(int, const std::string&) {
 
 bool HeadlessHost::handlesOsc() const {
     return false;
+}
+
+void HeadlessHost::title(StringView) {
+}
+
+void HeadlessHost::cwd(StringView) {
 }
 
 void HeadlessHost::bell() {

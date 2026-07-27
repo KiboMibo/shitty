@@ -6,6 +6,7 @@
 
 #pragma once
 #include <std/sys/types.h>
+#include <std/str/view.h>
 
 #include <string>
 
@@ -22,6 +23,8 @@ struct VtermWindowInfo {
 struct VtermHost {
     virtual void osc(int command, const std::string& argument) = 0;
     virtual bool handlesOsc() const = 0;
+    virtual void title(stl::StringView title) = 0;
+    virtual void cwd(stl::StringView path) = 0;
     virtual void bell() = 0;
     virtual bool handlesPrinter() const = 0;
     virtual void print(const std::string& output) = 0;

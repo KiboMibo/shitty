@@ -1656,7 +1656,45 @@
             } else if (oscCommand == 2) {
                 osc_TITLE_2(payload);
             } else if (oscCommand == 7) {
-                osc_CWD(payload);
+                StringView path = payload;
+                if (path.startsWith(StringView(u8"file://"))) {
+                    path = StringView(
+                        path.data() + 7, path.length() - 7
+                    );
+                    const u8* slash = path.memChr('/');
+                    path = slash == nullptr
+                        ? StringView()
+                        : StringView(slash, path.end());
+                }
+                bool valid = !path.empty() && path[0] == '/';
+                oscDecoded.reset();
+                for (size_t i = 0; valid && i < path.length(); ++i) {
+                    u8 ch = path[i];
+                    if (ch == '%') {
+                        if (i + 2 >= path.length()) {
+                            valid = false;
+                            break;
+                        }
+                        const auto hex = [](u8 digit) -> u8 {
+                            if (digit >= '0' && digit <= '9') {
+                                return digit - '0';
+                            }
+                            digit |= 0x20;
+                            return digit >= 'a' && digit <= 'f'
+                                ? digit - 'a' + 10
+                                : 0xff;
+                        };
+                        const u8 high = hex(path[++i]);
+                        const u8 low = hex(path[++i]);
+                        if (high == 0xff || low == 0xff) {
+                            valid = false;
+                            break;
+                        }
+                        ch = (high << 4) | low;
+                    }
+                    oscDecoded.append(&ch, 1);
+                }
+                osc_CWD(payload, StringView(oscDecoded), valid);
             } else if (oscCommand == 8) {
                 (void)payload;
             } else if (oscCommand == 9) {

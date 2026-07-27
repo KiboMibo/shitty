@@ -23,13 +23,13 @@ class ClipboardTest(unittest.TestCase):
         with Shitty() as terminal:
             terminal.set_primary_selection(b"old-primary")
             terminal.set_system_clipboard(b"old-clipboard")
-            terminal.apply_clipboard_osc52(b"p;bmV3LXByaW1hcnk=")
+            terminal.write(b"\x1b]52;p;bmV3LXByaW1hcnk=\x1b\\")
             self.assertEqual(terminal.get_selection(primary=True), b"new-primary")
             self.assertEqual(
                 terminal.get_selection(primary=False), b"old-clipboard"
             )
 
-            terminal.apply_clipboard_osc52(b"c;bmV3LWNsaXBib2FyZA==")
+            terminal.write(b"\x1b]52;c;bmV3LWNsaXBib2FyZA==\x1b\\")
             self.assertEqual(terminal.get_selection(primary=True), b"new-primary")
             self.assertEqual(
                 terminal.get_selection(primary=False), b"new-clipboard"

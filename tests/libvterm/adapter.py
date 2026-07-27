@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import base64
 import re
 import sys
 from pathlib import Path
@@ -604,8 +605,10 @@ def apply_command(terminal, line, state):
             state["selection_reply_expected"].clear()
         state["selection"] += payload
         if closed:
-            state["selection_reply_actual"] = terminal.osc52_reply(
-                state["selection"], b"c"
+            state["selection_reply_actual"] = (
+                b"\x1b]52;c;"
+                + base64.b64encode(state["selection"])
+                + b"\x1b\\"
             )
             state["selection_reply_closed"] = True
         return
@@ -779,7 +782,6 @@ def run_fixture(path):
                 ]
                 actual = payloads[-1] if payloads else b""
                 request = actual.split(b";", 1)[1] if b";" in actual else b""
-                import base64
                 try:
                     decoded = base64.b64decode(request, validate=True) if request else b""
                 except ValueError:

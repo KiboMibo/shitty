@@ -29,37 +29,47 @@ class OscProtocolTest(unittest.TestCase):
         with Shitty(columns=8, rows=2) as terminal:
             for argument, destinations in cases.items():
                 with self.subTest(argument=argument):
-                    valid, query, primary, clipboard, content = terminal.osc52(
-                        argument
+                    terminal.set_primary_selection(b"old-primary")
+                    terminal.set_system_clipboard(b"old-clipboard")
+                    terminal.write(b"\x1b]52;" + argument + b"\x1b\\")
+                    self.assertEqual(
+                        terminal.get_selection(primary=True),
+                        b"X" if destinations[0] else b"old-primary",
                     )
-                    self.assertTrue(valid)
-                    self.assertFalse(query)
-                    self.assertEqual((primary, clipboard), destinations)
-                    self.assertEqual(content, b"X")
+                    self.assertEqual(
+                        terminal.get_selection(primary=False),
+                        b"X" if destinations[1] else b"old-clipboard",
+                    )
 
     def test_osc52_query_and_malformed_request(self):
         with Shitty(columns=8, rows=2) as terminal:
+            terminal.set_system_clipboard(b"old")
+            terminal.write(b"\x1b]52;c;?\x1b\\")
             self.assertEqual(
-                terminal.osc52(b"c;?"),
-                (True, True, False, True, b""),
+                terminal.read_input(),
+                b"\x1b]52;c;\x1b\\",
             )
-            self.assertEqual(
-                terminal.osc52(b"missing-separator"),
-                (False, False, False, False, b""),
-            )
-            self.assertEqual(
-                terminal.osc52(b"c;SGVsbG8!"),
-                (False, False, False, False, b""),
-            )
+            terminal.write(b"\x1b]52;missing-separator\x1b\\")
+            terminal.write(b"\x1b]52;c;SGVsbG8!\x1b\\")
+            self.assertEqual(terminal.get_selection(primary=False), b"old")
+            self.assertEqual(terminal.read_input(), b"")
 
     def test_osc52_reply_encodes_arbitrary_bytes(self):
-        with Shitty(columns=8, rows=2) as terminal:
+        with Shitty(
+            columns=8,
+            rows=2,
+            extra_arguments=("-allowOsc52Read", "true"),
+        ) as terminal:
+            terminal.set_primary_selection(b"hello\x00world")
+            terminal.write(b"\x1b]52;;?\x1b\\")
             self.assertEqual(
-                terminal.osc52_reply(b"hello\x00world"),
-                b"\x1b]52;;aGVsbG8Ad29ybGQ=\x1b\\",
+                terminal.read_input(),
+                b"\x1b]52;s0;aGVsbG8Ad29ybGQ=\x1b\\",
             )
+            terminal.set_system_clipboard(b"clipboard")
+            terminal.write(b"\x1b]52;c;?\x1b\\")
             self.assertEqual(
-                terminal.osc52_reply(b"clipboard", b"c"),
+                terminal.read_input(),
                 b"\x1b]52;c;Y2xpcGJvYXJk\x1b\\",
             )
 
