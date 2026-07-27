@@ -1059,13 +1059,13 @@
     }
 
     action vt52Ed {
-        iface.csi_ED(0);
+        iface.eraseDisplayAfter();
         fnext main;
         fbreak;
     }
 
     action vt52El {
-        iface.csi_EL(0);
+        iface.eraseLineAfter();
         fnext main;
         fbreak;
     }
@@ -3342,8 +3342,8 @@
         'G' @csiTrace @{ iface.csi_CHA(countParameter(0)); } |
         ('H' | 'f') @csiTrace @{ iface.csi_CUP(countParameter(0), countParameter(1)); } |
         'I' @csiTrace @{ iface.csi_CHT(countParameter(0)); } |
-        'J' @csiTrace @{ iface.csi_ED(parameter(0)); } |
-        'K' @csiTrace @{ iface.csi_EL(parameter(0)); } |
+        'J' @csiTrace @{ dispatchEraseDisplay(false); } |
+        'K' @csiTrace @{ dispatchEraseLine(false); } |
         'L' @csiTrace @{ iface.csi_IL(countParameter(0)); } |
         'M' @csiTrace @{ iface.csi_DL(countParameter(0)); } |
         'P' @csiTrace @{ iface.csi_DCH(countParameter(0)); } |
@@ -3357,7 +3357,7 @@
         'c' @csiTrace @{ iface.csi_priDA(); } |
         'd' @csiTrace @{ iface.csi_VPA(countParameter(0)); } |
         'e' @csiTrace @{ iface.csi_VPR(countParameter(0)); } |
-        'g' @csiTrace @{ iface.csi_TBC(parameter(0)); } |
+        'g' @csiTrace @{ dispatchTabClear(); } |
         'h' @csiTrace @{ dispatchStandardModes(true); } |
         'i' @csiTrace @{ dispatchMediaCopy(false); } |
         'j' @csiTrace @{ iface.csi_CUB(countParameter(0)); } |
@@ -3392,18 +3392,18 @@
     csiEqualKnown = [cu];
     csiEqualFinal = (
         'c' @csiTrace @{ iface.csi_terDA(); } |
-        'u' @csiTrace @{ iface.csi_kittyKeyboardSet(parameter(0), parser.parameterCount > 1 ? parameter(1) : 1); } |
+        'u' @csiTrace @{ dispatchKittyKeyboardSet(); } |
         (0x40..0x7e - csiEqualKnown) @csiTrace
     ) @csiDone;
 
     csiQuestionKnown = [JKhilmnrsu];
     csiQuestionFinal = (
-        'J' @csiTrace @{ iface.csi_DECSED(parameter(0)); } |
-        'K' @csiTrace @{ iface.csi_DECSEL(parameter(0)); } |
+        'J' @csiTrace @{ dispatchEraseDisplay(true); } |
+        'K' @csiTrace @{ dispatchEraseLine(true); } |
         'h' @csiTrace @{ dispatchPrivateModes(true); } |
         'i' @csiTrace @{ dispatchMediaCopy(true); } |
         'l' @csiTrace @{ dispatchPrivateModes(false); } |
-        'm' @csiTrace @{ iface.csi_XTQMODKEYS(parameter(0)); } |
+        'm' @csiTrace @{ dispatchXtqmodkeys(); } |
         'n' @csiTrace @{ dispatchDsr(true); } |
         'r' @csiTrace @{ dispatchPrivateRestore(); } |
         's' @csiTrace @{ dispatchPrivateSave(); } |
@@ -3419,7 +3419,7 @@
     csiQuoteKnown = [pq];
     csiQuoteFinal = (
         'p' @csiTrace @{ dispatchDecscl(); } |
-        'q' @csiTrace @{ iface.csi_DECSCA(parameter(0)); } |
+        'q' @csiTrace @{ iface.setDecProtection(parameter(0) == 1); } |
         (0x40..0x7e - csiQuoteKnown) @csiTrace
     ) @csiDone;
 
@@ -3427,14 +3427,14 @@
     csiSpaceFinal = (
         '@' @csiTrace @{ iface.csi_ecma48_SL(countParameter(0)); } |
         'A' @csiTrace @{ iface.csi_ecma48_SR(countParameter(0)); } |
-        'q' @csiTrace @{ iface.csi_DECSCUSR(parameter(0)); } |
+        'q' @csiTrace @{ dispatchCursorStyle(); } |
         (0x40..0x7e - csiSpaceKnown) @csiTrace
     ) @csiDone;
 
     csiApostropheKnown = [wz-~];
     csiApostropheFinal = (
         'w' @csiTrace @{ iface.csi_DECEFR(parameter(0), parameter(1), parameter(2), parameter(3)); } |
-        'z' @csiTrace @{ iface.csi_DECELR(parameter(0), parameter(1)); } |
+        'z' @csiTrace @{ dispatchLocatorReporting(); } |
         '{' @csiTrace @{ dispatchDecsle(); } |
         '|' @csiTrace @{ iface.csi_DECRQLP(); } |
         '}' @csiTrace @{ iface.csi_DECIC(countParameter(0)); } |
@@ -3444,7 +3444,7 @@
 
     csiDollarKnown = [prtvxz{];
     csiDollarFinal = (
-        'p' @csiTrace @{ iface.csi_DECRQM(parameter(0), false); } |
+        'p' @csiTrace @{ dispatchModeReport(false); } |
         'r' @csiTrace @{ dispatchDeccara(false); } |
         't' @csiTrace @{ dispatchDeccara(true); } |
         'v' @csiTrace @{ dispatchDeccra(); } |
@@ -3460,7 +3460,7 @@
     ) @csiDone;
 
     csiQuestionDollarFinal = (
-        'p' @csiTrace @{ iface.csi_DECRQM(parameter(0), true); } |
+        'p' @csiTrace @{ dispatchModeReport(true); } |
         (0x40..0x7e - 'p') @csiTrace
     ) @csiDone;
 

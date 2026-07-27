@@ -200,10 +200,18 @@ namespace {
         u32 countParameter(size_t index) const noexcept;
         CsiRectangle rectangle(size_t offset) const noexcept;
         void dispatchScoscSlrm();
+        void dispatchEraseDisplay(bool selective);
+        void dispatchEraseLine(bool selective);
+        void dispatchTabClear();
+        void dispatchCursorStyle();
+        void dispatchStandardMode(u32 mode, bool enabled);
         void dispatchStandardModes(bool set);
+        void dispatchPrivateMode(u32 mode, bool enabled);
         void dispatchPrivateModes(bool set);
+        bool privateModeValue(u32 mode, const ParserModeState& state, bool& value) const;
         void dispatchPrivateSave();
         void dispatchPrivateRestore();
+        void dispatchModeReport(bool privateMode);
         void dispatchDecfra();
         void dispatchDeccra();
         void dispatchDecera(bool selective);
@@ -214,8 +222,11 @@ namespace {
         void dispatchTitleMode(bool set);
         void dispatchDecscl();
         void dispatchWindowOps();
+        void dispatchLocatorReporting();
         void dispatchDecsle();
         void dispatchXtmodkeys();
+        void dispatchXtqmodkeys();
+        void dispatchKittyKeyboardSet();
         bool parseSgrColor(size_t& index, CellColor& color, int& paletteIndex);
         void dispatchSgr();
         void dispatchMediaCopy(bool privateMode);
@@ -565,39 +576,494 @@ void ParserImpl<traced>::dispatchScoscSlrm() {
 }
 
 template <bool traced>
+void ParserImpl<traced>::dispatchEraseDisplay(bool selective) {
+    switch (parameter(0)) {
+        case 0:
+            if (selective) {
+                iface.selectiveEraseDisplayAfter();
+            } else {
+                iface.eraseDisplayAfter();
+            }
+            break;
+        case 1:
+            if (selective) {
+                iface.selectiveEraseDisplayBefore();
+            } else {
+                iface.eraseDisplayBefore();
+            }
+            break;
+        case 2:
+            if (selective) {
+                iface.selectiveEraseDisplayAll();
+            } else {
+                iface.eraseDisplayAll();
+            }
+            break;
+        case 3:
+            if (!selective) {
+                iface.eraseScrollback();
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchEraseLine(bool selective) {
+    switch (parameter(0)) {
+        case 0:
+            if (selective) {
+                iface.selectiveEraseLineAfter();
+            } else {
+                iface.eraseLineAfter();
+            }
+            break;
+        case 1:
+            if (selective) {
+                iface.selectiveEraseLineBefore();
+            } else {
+                iface.eraseLineBefore();
+            }
+            break;
+        case 2:
+            if (selective) {
+                iface.selectiveEraseLineAll();
+            } else {
+                iface.eraseLineAll();
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchTabClear() {
+    if (parameter(0) == 0) {
+        iface.clearTabStop();
+    } else if (parameter(0) == 3) {
+        iface.clearAllTabStops();
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchCursorStyle() {
+    using Style = TerminalCursor::Style;
+    switch (parameter(0)) {
+        case 0:
+            iface.setCursorStyle(1, Style::filled_block, true);
+            break;
+        case 1:
+            iface.setCursorStyle(1, Style::filled_block, true);
+            break;
+        case 2:
+            iface.setCursorStyle(2, Style::filled_block, false);
+            break;
+        case 3:
+            iface.setCursorStyle(3, Style::underline, true);
+            break;
+        case 4:
+            iface.setCursorStyle(4, Style::underline, false);
+            break;
+        case 5:
+            iface.setCursorStyle(5, Style::bar, true);
+            break;
+        case 6:
+            iface.setCursorStyle(6, Style::bar, false);
+            break;
+        default:
+            iface.refreshCursorStyle();
+            break;
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchStandardMode(u32 mode, bool enabled) {
+    switch (mode) {
+        case 2:
+            iface.setKeyboardLocked(enabled);
+            break;
+        case 4:
+            iface.setInsertMode(enabled);
+            break;
+        case 6:
+            iface.setEraseModeAll(enabled);
+            break;
+        case 12:
+            iface.setLocalEcho(!enabled);
+            break;
+        case 20:
+            iface.setAutoNewline(enabled);
+            break;
+        default:
+            break;
+    }
+}
+
+template <bool traced>
 void ParserImpl<traced>::dispatchStandardModes(bool set) {
     for (size_t index = 0; index < parser.parameterCount; ++index) {
-        if (set) {
-            iface.csi_SM(parser.parameters[index]);
-        } else {
-            iface.csi_RM(parser.parameters[index]);
-        }
+        dispatchStandardMode(parser.parameters[index], set);
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchPrivateMode(u32 mode, bool enabled) {
+    switch (mode) {
+        case 1:
+            iface.setApplicationCursorKeys(enabled);
+            break;
+        case 2:
+            iface.setAnsiMode(enabled);
+            break;
+        case 3:
+            iface.setColumn132(enabled);
+            break;
+        case 4:
+            iface.setSmoothScroll(enabled);
+            break;
+        case 5:
+            iface.setScreenReverseVideo(enabled);
+            break;
+        case 6:
+            iface.setOriginMode(enabled);
+            break;
+        case 7:
+            iface.setAutoWrap(enabled);
+            break;
+        case 8:
+            iface.setAutoRepeat(enabled);
+            break;
+        case 9:
+            iface.setMouseTracking(enabled ? MouseTrackingMode::X10_Compat : MouseTrackingMode::Disabled);
+            break;
+        case 12:
+            iface.setCursorBlink(enabled);
+            break;
+        case 18:
+            iface.setPrintFormFeed(enabled);
+            break;
+        case 19:
+            iface.setPrintExtent(enabled);
+            break;
+        case 25:
+            iface.setCursorVisible(enabled);
+            break;
+        case 40:
+            iface.setAllowColumnMode(enabled);
+            break;
+        case 41:
+            iface.setMoreFix(enabled);
+            break;
+        case 42:
+            iface.setNationalReplacement(enabled);
+            break;
+        case 45:
+            iface.setReverseWrap(enabled);
+            break;
+        case 47:
+            iface.setAlternateScreen(enabled, false);
+            break;
+        case 66:
+            iface.parserSetApplicationKeypad(enabled);
+            break;
+        case 67:
+            iface.setBackspaceSendsBackspace(enabled);
+            break;
+        case 69:
+            iface.setHorizontalMargins(enabled);
+            break;
+        case 95:
+            iface.setNoClearColumn(enabled);
+            break;
+        case 1000:
+            iface.setMouseTracking(enabled ? MouseTrackingMode::VT200 : MouseTrackingMode::Disabled);
+            break;
+        case 1001:
+            iface.setMouseTracking(enabled ? MouseTrackingMode::VT200_Highlight : MouseTrackingMode::Disabled);
+            break;
+        case 1002:
+            iface.setMouseTracking(enabled ? MouseTrackingMode::VT200_ButtonEvent : MouseTrackingMode::Disabled);
+            break;
+        case 1003:
+            iface.setMouseTracking(enabled ? MouseTrackingMode::VT200_AnyEvent : MouseTrackingMode::Disabled);
+            break;
+        case 1004:
+            iface.setFocusEvents(enabled);
+            break;
+        case 1005:
+            iface.setMouseEncoding(enabled ? MouseTrackingEnc::UTF8 : MouseTrackingEnc::Default);
+            break;
+        case 1006:
+            iface.setMouseEncoding(enabled ? MouseTrackingEnc::SGR : MouseTrackingEnc::Default);
+            break;
+        case 1007:
+            iface.setAlternateScroll(enabled);
+            break;
+        case 1015:
+            iface.setMouseEncoding(enabled ? MouseTrackingEnc::URXVT : MouseTrackingEnc::Default);
+            break;
+        case 1016:
+            iface.setMouseEncoding(enabled ? MouseTrackingEnc::SGRPixels : MouseTrackingEnc::Default);
+            break;
+        case 1034:
+            iface.setEightBitInput(enabled);
+            break;
+        case 1036:
+        case 1039:
+            iface.setAltSendsEscape(enabled);
+            break;
+        case 1045:
+            iface.setExtendedReverseWrap(enabled);
+            break;
+        case 1047:
+            iface.setAlternateScreen(enabled, !enabled);
+            break;
+        case 1048:
+            if (enabled) {
+                iface.esc_DECSC();
+            } else {
+                iface.esc_DECRC();
+            }
+            break;
+        case 1049:
+            iface.setSavedAlternateScreen(enabled);
+            break;
+        case 2004:
+            iface.setBracketedPaste(enabled);
+            break;
+        case 2026:
+            iface.setSynchronizedOutput(enabled);
+            break;
+        case 2031:
+            iface.setColorSchemeUpdates(enabled);
+            break;
+        case 2048:
+            iface.setInBandResize(enabled);
+            break;
+        default:
+            break;
     }
 }
 
 template <bool traced>
 void ParserImpl<traced>::dispatchPrivateModes(bool set) {
     for (size_t index = 0; index < parser.parameterCount; ++index) {
-        if (set) {
-            iface.csi_privSM(parser.parameters[index]);
-        } else {
-            iface.csi_privRM(parser.parameters[index]);
-        }
+        dispatchPrivateMode(parser.parameters[index], set);
+    }
+}
+
+template <bool traced>
+bool ParserImpl<traced>::privateModeValue(u32 mode, const ParserModeState& state, bool& value) const {
+    switch (mode) {
+        case 1:
+            value = state.applicationCursorKeys;
+            return true;
+        case 2:
+            value = state.ansiMode;
+            return true;
+        case 3:
+            value = state.column132;
+            return true;
+        case 4:
+            value = state.smoothScroll;
+            return true;
+        case 5:
+            value = state.screenReverseVideo;
+            return true;
+        case 6:
+            value = state.originMode;
+            return true;
+        case 7:
+            value = state.autoWrap;
+            return true;
+        case 8:
+            value = state.autoRepeat;
+            return true;
+        case 9:
+            value = state.mouseTracking == MouseTrackingMode::X10_Compat;
+            return true;
+        case 12:
+            value = state.cursorBlink;
+            return true;
+        case 18:
+            value = state.printFormFeed;
+            return true;
+        case 19:
+            value = state.printExtent;
+            return true;
+        case 25:
+            value = state.showCursor;
+            return true;
+        case 40:
+            value = state.allowColumnMode;
+            return true;
+        case 41:
+            value = state.moreFix;
+            return true;
+        case 42:
+            value = state.nationalReplacement;
+            return true;
+        case 45:
+            value = state.reverseWrap;
+            return true;
+        case 47:
+        case 1047:
+        case 1049:
+            value = state.alternateScreen;
+            return true;
+        case 66:
+            value = state.applicationKeypad;
+            return true;
+        case 67:
+            value = state.backspaceSendsBackspace;
+            return true;
+        case 69:
+            value = state.horizontalMargins;
+            return true;
+        case 95:
+            value = state.noClearColumn;
+            return true;
+        case 1000:
+            value = state.mouseTracking == MouseTrackingMode::VT200;
+            return true;
+        case 1001:
+            value = state.mouseTracking == MouseTrackingMode::VT200_Highlight;
+            return true;
+        case 1002:
+            value = state.mouseTracking == MouseTrackingMode::VT200_ButtonEvent;
+            return true;
+        case 1003:
+            value = state.mouseTracking == MouseTrackingMode::VT200_AnyEvent;
+            return true;
+        case 1004:
+            value = state.focusEvents;
+            return true;
+        case 1005:
+            value = state.mouseEncoding == MouseTrackingEnc::UTF8;
+            return true;
+        case 1006:
+            value = state.mouseEncoding == MouseTrackingEnc::SGR;
+            return true;
+        case 1007:
+            value = state.alternateScroll;
+            return true;
+        case 1015:
+            value = state.mouseEncoding == MouseTrackingEnc::URXVT;
+            return true;
+        case 1016:
+            value = state.mouseEncoding == MouseTrackingEnc::SGRPixels;
+            return true;
+        case 1034:
+            value = state.eightBitInput;
+            return true;
+        case 1036:
+        case 1039:
+            value = state.altSendsEscape;
+            return true;
+        case 1045:
+            value = state.extendedReverseWrap;
+            return true;
+        case 2004:
+            value = state.bracketedPaste;
+            return true;
+        case 2026:
+            value = state.synchronizedOutput;
+            return true;
+        case 2031:
+            value = state.colorSchemeUpdates;
+            return true;
+        case 2048:
+            value = state.inBandResize;
+            return true;
+        default:
+            return false;
     }
 }
 
 template <bool traced>
 void ParserImpl<traced>::dispatchPrivateSave() {
+    const ParserModeState state = iface.parserModeState();
     for (size_t index = 0; index < parser.parameterCount; ++index) {
-        iface.csi_privSave(parser.parameters[index]);
+        const u32 mode = parser.parameters[index];
+        if (mode == 2 || mode == 1048 || mode == 1049) {
+            continue;
+        }
+        bool enabled = false;
+        privateModeValue(mode, state, enabled);
+        iface.savePrivateMode(mode, enabled);
     }
 }
 
 template <bool traced>
 void ParserImpl<traced>::dispatchPrivateRestore() {
     for (size_t index = 0; index < parser.parameterCount; ++index) {
-        iface.csi_privRestore(parser.parameters[index]);
+        const u32 mode = parser.parameters[index];
+        bool enabled;
+        if (iface.restorePrivateMode(mode, enabled)) {
+            dispatchPrivateMode(mode, enabled);
+        }
     }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchModeReport(bool privateMode) {
+    const CompatibilityLevel compatibility = iface.parserCompatibilityLevel();
+    if (compatibility < CompatibilityLevel::VT300) {
+        return;
+    }
+    const u32 mode = parameter(0);
+    const ParserModeState state = iface.parserModeState();
+    u8 result = 0;
+    bool enabled;
+    if (privateMode) {
+        if (privateModeValue(mode, state, enabled)) {
+            if ((mode == 69 && compatibility < CompatibilityLevel::VT400) || (mode == 95 && compatibility < CompatibilityLevel::VT500)) {
+                result = 0;
+            } else {
+                result = enabled ? 1 : 2;
+            }
+        } else if (mode == 60 || mode == 61 || mode == 64 || mode == 68 || mode == 73 || (mode == 81 && compatibility >= CompatibilityLevel::VT400) || ((mode == 34 || mode == 35 || mode == 36 || mode == 57 || (mode >= 96 && mode <= 104) || mode == 106) && compatibility >= CompatibilityLevel::VT500)) {
+            result = 4;
+        }
+    } else {
+        switch (mode) {
+            case 2:
+                result = state.keyboardLocked ? 1 : 2;
+                break;
+            case 4:
+                result = state.insertMode ? 1 : 2;
+                break;
+            case 6:
+                result = state.eraseModeAll ? 1 : 2;
+                break;
+            case 12:
+                result = state.localEcho ? 2 : 1;
+                break;
+            case 20:
+                result = state.autoNewline ? 1 : 2;
+                break;
+            case 1:
+            case 3:
+            case 5:
+            case 7:
+            case 10:
+            case 11:
+            case 13:
+            case 14:
+            case 15:
+            case 16:
+            case 17:
+            case 18:
+            case 19:
+                result = 4;
+                break;
+            default:
+                break;
+        }
+    }
+    iface.reportMode(mode, privateMode, result);
 }
 
 template <bool traced>
@@ -621,8 +1087,69 @@ void ParserImpl<traced>::dispatchDeccara(bool reverse) {
         return;
     }
     const CsiRectangle area = rectangle(0);
+    CellAttributeChange change;
+    const auto enable = [&change, reverse](u8 bit) {
+        if (reverse) {
+            change.toggle(bit);
+        } else {
+            change.set(bit, true);
+        }
+    };
     for (size_t index = 4; index < parser.parameterCount; ++index) {
-        iface.csi_DECCARA(area, parser.parameters[index], reverse);
+        switch (parser.parameters[index]) {
+            case 0:
+                if (reverse) {
+                    change.toggle(CellAttributeChange::Bold | CellAttributeChange::Underline | CellAttributeChange::Blink | CellAttributeChange::Inverse);
+                } else {
+                    change.set(CellAttributeChange::Bold | CellAttributeChange::Underline | CellAttributeChange::Blink | CellAttributeChange::Inverse, false);
+                }
+                break;
+            case 1:
+                enable(CellAttributeChange::Bold);
+                break;
+            case 4:
+                enable(CellAttributeChange::Underline);
+                break;
+            case 5:
+                enable(CellAttributeChange::Blink);
+                break;
+            case 7:
+                enable(CellAttributeChange::Inverse);
+                break;
+            case 8:
+                enable(CellAttributeChange::Conceal);
+                break;
+            case 22:
+                if (!reverse) {
+                    change.set(CellAttributeChange::Bold, false);
+                }
+                break;
+            case 24:
+                if (!reverse) {
+                    change.set(CellAttributeChange::Underline, false);
+                }
+                break;
+            case 25:
+                if (!reverse) {
+                    change.set(CellAttributeChange::Blink, false);
+                }
+                break;
+            case 27:
+                if (!reverse) {
+                    change.set(CellAttributeChange::Inverse, false);
+                }
+                break;
+            case 28:
+                if (!reverse) {
+                    change.set(CellAttributeChange::Conceal, false);
+                }
+                break;
+            default:
+                break;
+        }
+    }
+    if (!change.empty()) {
+        iface.changeRectangleAttributes(area, change);
     }
 }
 
@@ -636,7 +1163,47 @@ void ParserImpl<traced>::dispatchDecrqcra() {
 template <bool traced>
 void ParserImpl<traced>::dispatchDecll() {
     for (size_t index = 0; index < parser.parameterCount; ++index) {
-        iface.csi_DECLL(parser.parameters[index], index + 1 == parser.parameterCount);
+        const u32 operation = parser.parameters[index];
+        if (operation == 0) {
+            iface.resetLeds();
+        } else if (operation >= 1 && operation <= 3) {
+            iface.setLed(operation - 1, true);
+        } else if (operation >= 21 && operation <= 23) {
+            iface.setLed(operation - 21, false);
+        }
+    }
+    iface.commitLeds();
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchLocatorReporting() {
+    const u32 mode = parameter(0);
+    iface.setLocatorReporting(mode == 1 || mode == 2, mode == 2, parameter(1) == 1);
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchXtqmodkeys() {
+    const u32 resource = parameter(0);
+    if (resource <= 4 || resource == 6 || resource == 7) {
+        iface.reportModifyKeyResource(resource);
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchKittyKeyboardSet() {
+    const u8 flags = parameter(0) & 0x1f;
+    switch (parser.parameterCount > 1 ? parameter(1) : 1) {
+        case 1:
+            iface.setKittyKeyboardFlags(flags);
+            break;
+        case 2:
+            iface.addKittyKeyboardFlags(flags);
+            break;
+        case 3:
+            iface.removeKittyKeyboardFlags(flags);
+            break;
+        default:
+            break;
     }
 }
 
@@ -693,11 +1260,14 @@ void ParserImpl<traced>::dispatchDsr(bool privateMode) {
 template <bool traced>
 void ParserImpl<traced>::dispatchTitleMode(bool set) {
     if (!parser.csiHadParameters) {
-        iface.csi_XTTITLEMODE(0, set, true);
+        iface.resetTitleModes();
         return;
     }
     for (size_t index = 0; index < parser.parameterCount; ++index) {
-        iface.csi_XTTITLEMODE(parser.parameters[index], set, false);
+        const u32 mode = parser.parameters[index];
+        if (mode <= 3) {
+            iface.setTitleMode(1 << mode, set);
+        }
     }
 }
 
@@ -784,10 +1354,14 @@ void ParserImpl<traced>::dispatchWindowOps() {
             iface.xtReportWindowTitle();
             break;
         case 22:
-            iface.xtPushTitle(first);
+            if (first <= 2) {
+                iface.xtPushTitle(first != 2, first != 1);
+            }
             break;
         case 23:
-            iface.xtPopTitle(first);
+            if (first <= 2) {
+                iface.xtPopTitle(first != 2, first != 1);
+            }
             break;
         default:
             if (operation >= 24) {
@@ -800,13 +1374,44 @@ void ParserImpl<traced>::dispatchWindowOps() {
 template <bool traced>
 void ParserImpl<traced>::dispatchDecsle() {
     for (size_t index = 0; index < parser.parameterCount; ++index) {
-        iface.csi_DECSLE(parser.parameters[index]);
+        switch (parser.parameters[index]) {
+            case 0:
+                iface.resetLocatorEvents();
+                break;
+            case 1:
+                iface.setLocatorButtonDown(true);
+                break;
+            case 2:
+                iface.setLocatorButtonDown(false);
+                break;
+            case 3:
+                iface.setLocatorButtonUp(true);
+                break;
+            case 4:
+                iface.setLocatorButtonUp(false);
+                break;
+            default:
+                break;
+        }
     }
 }
 
 template <bool traced>
 void ParserImpl<traced>::dispatchXtmodkeys() {
-    iface.csi_XTMODKEYS(parameter(0), parameter(1), parser.parameterCount > 1, !parser.csiHadParameters);
+    if (!parser.csiHadParameters) {
+        iface.resetModifyKeyResources();
+        return;
+    }
+    const u32 resource = parameter(0);
+    if (resource > 4 && resource != 6 && resource != 7) {
+        return;
+    }
+    const bool valuePresent = parser.parameterCount > 1;
+    const u32 value = parameter(1);
+    const u32 maximum = resource == 4 ? 2 : 4;
+    if (!valuePresent || value <= maximum) {
+        iface.setModifyKeyResource(resource, value, !valuePresent);
+    }
 }
 
 template <bool traced>

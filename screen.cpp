@@ -149,7 +149,7 @@ namespace {
         void writeGlyphRun(u16 row, u16 column, const u32* codepoints, const u8* widths, u16 glyphCount, u16 cellCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void fillRectangle(u16 top, u16 left, u16 bottom, u16 right, u32 codepoint, const TerminalCell& attrs, const TerminalCell& eraseAttrs) override;
         void copyRectangle(u16 sourceTop, u16 sourceLeft, u16 targetTop, u16 targetLeft, u16 height, u16 width, const TerminalCell& eraseAttrs) override;
-        void changeRectangleAttributes(u16 top, u16 left, u16 bottom, u16 right, const u32* modes, size_t modeCount, bool reverse) override;
+        void changeRectangleAttributes(u16 top, u16 left, u16 bottom, u16 right, CellAttributeChange change) override;
         u16 checksum(u16 top, u16 left, u16 bottom, u16 right) const noexcept override;
         void appendPrintableLine(u16 row, std::string& output) const override;
         ScreenHyperlink hyperlinkAt(u16 row, u16 column) const override;
@@ -1995,65 +1995,19 @@ void ScreenImpl<Coord, Epoch>::copyRectangle(u16 sourceTop, u16 sourceLeft, u16 
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::changeRectangleAttributes(u16 top, u16 left, u16 bottom, u16 right, const u32* modes, size_t modeCount, bool reverse) {
-    const auto apply = [reverse](TerminalCell& cell, u32 mode) {
-        switch (mode) {
-            case 0:
-                cell.bold = reverse ? !cell.bold : false;
-                cell.underline_style = reverse ? !cell.underlined() : 0;
-                cell.blink = reverse ? !cell.blink : false;
-                cell.inverse = reverse ? !cell.inverse : false;
-                break;
-            case 1:
-                cell.bold = reverse ? !cell.bold : true;
-                break;
-            case 4:
-                cell.underline_style = reverse ? !cell.underlined() : 1;
-                break;
-            case 5:
-                cell.blink = reverse ? !cell.blink : true;
-                break;
-            case 7:
-                cell.inverse = reverse ? !cell.inverse : true;
-                break;
-            case 8:
-                cell.conceal = reverse ? !cell.conceal : true;
-                break;
-            case 22:
-                if (!reverse) {
-                    cell.bold = 0;
-                }
-                break;
-            case 24:
-                if (!reverse) {
-                    cell.underline_style = 0;
-                }
-                break;
-            case 25:
-                if (!reverse) {
-                    cell.blink = 0;
-                }
-                break;
-            case 27:
-                if (!reverse) {
-                    cell.inverse = 0;
-                }
-                break;
-            case 28:
-                if (!reverse) {
-                    cell.conceal = 0;
-                }
-                break;
-        }
+void ScreenImpl<Coord, Epoch>::changeRectangleAttributes(u16 top, u16 left, u16 bottom, u16 right, CellAttributeChange change) {
+    const auto apply = [change](u8 value, u8 bit) {
+        return change.toggleMask & bit ? (u8)(!value) : change.setMask & bit ? (u8)(1) : change.clearMask & bit ? (u8)(0) : value;
     };
-
     for (u16 row = top; row < bottom; ++row) {
         TerminalCell* cells_ = mutableLogicalRow(row) + left;
         for (u16 column = left; column < right; ++column) {
             TerminalCell& cell = cells_[column - left];
-            for (size_t index = 0; index < modeCount; ++index) {
-                apply(cell, modes[index]);
-            }
+            cell.bold = apply(cell.bold, CellAttributeChange::Bold);
+            cell.underline_style = apply(cell.underline_style, CellAttributeChange::Underline);
+            cell.blink = apply(cell.blink, CellAttributeChange::Blink);
+            cell.inverse = apply(cell.inverse, CellAttributeChange::Inverse);
+            cell.conceal = apply(cell.conceal, CellAttributeChange::Conceal);
         }
     }
     damageRectangle(top, left, bottom, right);

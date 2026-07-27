@@ -225,8 +225,6 @@ namespace {
         VtermState state() const override;
         TestApi* testApi() override;
 
-        bool getPrivateMode(u32 mode) const;
-
         void parserResetGraphemeInput() override;
         void parserBell() override;
         bool parserAutoNewlineMode() const override;
@@ -456,15 +454,24 @@ namespace {
         void csi_CBT(u32 count) override;
         void csi_REP(u32 count) override;
 
-        void csi_ED(u32 mode) override;
-        void csi_EL(u32 mode) override;
-        void csi_DECSED(u32 mode) override;
-        void csi_DECSEL(u32 mode) override;
-        void csi_DECSCA(u32 mode) override;
+        void eraseDisplayAfter() override;
+        void eraseDisplayBefore() override;
+        void eraseDisplayAll() override;
+        void eraseScrollback() override;
+        void eraseLineAfter() override;
+        void eraseLineBefore() override;
+        void eraseLineAll() override;
+        void selectiveEraseDisplayAfter() override;
+        void selectiveEraseDisplayBefore() override;
+        void selectiveEraseDisplayAll() override;
+        void selectiveEraseLineAfter() override;
+        void selectiveEraseLineBefore() override;
+        void selectiveEraseLineAll() override;
+        void setDecProtection(bool enabled) override;
         void csi_DECFRA(u32 codepoint, CsiRectangle rectangle) override;
         void csi_DECCRA(CsiRectangle source, u32 targetRow, u32 targetColumn) override;
         void csi_DECERA(CsiRectangle rectangle, bool selective) override;
-        void csi_DECCARA(CsiRectangle rectangle, u32 mode, bool reverse) override;
+        void changeRectangleAttributes(CsiRectangle rectangle, CellAttributeChange change) override;
         void csi_DECRQCRA(u32 requestId, CsiRectangle rectangle) override;
         void csi_IL(u32 count) override;
         void csi_DL(u32 count) override;
@@ -475,19 +482,54 @@ namespace {
         void csi_DECDC(u32 count) override;
 
         void csi_STBM(u32 top, u32 bottom, bool valid) override;
-        void csi_TBC(u32 mode) override;
-
-        void csi_SM(u32 mode) override;
-        void csi_RM(u32 mode) override;
-        void csi_privSM(u32 mode) override;
-        void csi_privRM(u32 mode) override;
-        void csi_privSave(u32 mode) override;
-        void csi_privRestore(u32 mode) override;
-        void setPrivMode(u32 mode, bool set);
+        void clearTabStop() override;
+        void clearAllTabStops() override;
+        ParserModeState parserModeState() const override;
+        void setKeyboardLocked(bool enabled) override;
+        void setInsertMode(bool enabled) override;
+        void setEraseModeAll(bool enabled) override;
+        void setLocalEcho(bool enabled) override;
+        void setAutoNewline(bool enabled) override;
+        void setAnsiMode(bool enabled) override;
+        void setApplicationCursorKeys(bool enabled) override;
+        void setColumn132(bool enabled) override;
+        void setSmoothScroll(bool enabled) override;
+        void setScreenReverseVideo(bool enabled) override;
+        void setOriginMode(bool enabled) override;
+        void setAutoWrap(bool enabled) override;
+        void setAutoRepeat(bool enabled) override;
+        void setPrintFormFeed(bool enabled) override;
+        void setPrintExtent(bool enabled) override;
+        void setAllowColumnMode(bool enabled) override;
+        void setMoreFix(bool enabled) override;
+        void setNationalReplacement(bool enabled) override;
+        void setReverseWrap(bool enabled) override;
+        void setMouseTracking(MouseTrackingMode mode) override;
+        void setCursorBlink(bool enabled) override;
+        void setCursorVisible(bool enabled) override;
+        void setAlternateScreen(bool enabled, bool clear) override;
+        void setBackspaceSendsBackspace(bool enabled) override;
+        void setHorizontalMargins(bool enabled) override;
+        void setNoClearColumn(bool enabled) override;
+        void setFocusEvents(bool enabled) override;
+        void setMouseEncoding(MouseTrackingEnc encoding) override;
+        void setAlternateScroll(bool enabled) override;
+        void setEightBitInput(bool enabled) override;
+        void setAltSendsEscape(bool enabled) override;
+        void setSavedAlternateScreen(bool enabled) override;
+        void setExtendedReverseWrap(bool enabled) override;
+        void setBracketedPaste(bool enabled) override;
+        void setSynchronizedOutput(bool enabled) override;
+        void setColorSchemeUpdates(bool enabled) override;
+        void setInBandResize(bool enabled) override;
+        void savePrivateMode(u32 mode, bool enabled) override;
+        bool restorePrivateMode(u32 mode, bool& enabled) const override;
+        void reportMode(u32 mode, bool privateMode, u8 state) override;
 
         void csi_ecma48_SL(u32 count) override;
         void csi_ecma48_SR(u32 count) override;
-        void csi_DECSCUSR(u32 style) override;
+        void setCursorStyle(u8 reportStyle, TerminalCursor::Style shape, bool blink) override;
+        void refreshCursorStyle() override;
 
         void csi_priDA() override;
         void csi_secDA() override;
@@ -576,27 +618,34 @@ namespace {
         void xtReportScreenGridSize() override;
         void xtReportIconTitle() override;
         void xtReportWindowTitle() override;
-        void xtPushTitle(u32 target) override;
-        void xtPopTitle(u32 target) override;
+        void xtPushTitle(bool icon, bool window) override;
+        void xtPopTitle(bool icon, bool window) override;
         void xtResizeRows(u32 rows) override;
-        void csi_XTTITLEMODE(u32 mode, bool set, bool reset) override;
+        void resetTitleModes() override;
+        void setTitleMode(u8 bit, bool enabled) override;
         void csi_XTHIMOUSE(u32 start, u32 startX, u32 startY, u32 firstRow, u32 lastRow) override;
-        void csi_DECELR(u32 mode, u32 units) override;
-        void csi_DECSLE(u32 operation) override;
+        void setLocatorReporting(bool enabled, bool oneShot, bool pixels) override;
+        void resetLocatorEvents() override;
+        void setLocatorButtonDown(bool enabled) override;
+        void setLocatorButtonUp(bool enabled) override;
         void csi_DECRQLP() override;
         void csi_DECEFR(u32 top, u32 left, u32 bottom, u32 right) override;
-        void csi_XTMODKEYS(u32 resource, u32 value, bool valuePresent, bool reset) override;
-        void csi_XTQMODKEYS(u32 resource) override;
+        void resetModifyKeyResources() override;
+        void setModifyKeyResource(u8 resource, u8 value, bool useDefault) override;
+        void reportModifyKeyResource(u8 resource) override;
         void csi_kittyKeyboardPush(u32 flags) override;
         void csi_kittyKeyboardPop(u32 count) override;
-        void csi_kittyKeyboardSet(u32 flags, u32 mode) override;
+        void setKittyKeyboardFlags(u8 flags) override;
+        void addKittyKeyboardFlags(u8 flags) override;
+        void removeKittyKeyboardFlags(u8 flags) override;
         void csi_kittyKeyboardQuery() override;
-        void csi_DECRQM(u32 mode, bool privateMode) override;
         void csi_XTVERSION() override;
         void mediaCopyScreen() override;
         void mediaCopyLine() override;
         void setAutoPrint(bool enabled) override;
-        void csi_DECLL(u32 operation, bool final) override;
+        void resetLeds() override;
+        void setLed(u8 index, bool enabled) override;
+        void commitLeds() override;
         std::string printableLine(u16 row) const;
         void printLine(u16 row);
         void dcs_DECRQSS_DECSCL() override;
@@ -3150,17 +3199,21 @@ void VtermImpl::setAutoPrint(bool enabled) {
     autoPrintMode = enabled;
 }
 
-void VtermImpl::csi_DECLL(u32 operation, bool final) {
-    if (operation == 0) {
-        ledState = 0;
-    } else if (operation >= 1 && operation <= 3) {
-        ledState |= (u8)(1u << (operation - 1));
-    } else if (operation >= 21 && operation <= 23) {
-        ledState &= (u8)(~(1u << (operation - 21)));
+void VtermImpl::resetLeds() {
+    ledState = 0;
+}
+
+void VtermImpl::setLed(u8 index, bool enabled) {
+    const u8 bit = 1 << index;
+    if (enabled) {
+        ledState |= bit;
+    } else {
+        ledState &= ~bit;
     }
-    if (final) {
-        host.leds(ledState);
-    }
+}
+
+void VtermImpl::commitLeds() {
+    host.leds(ledState);
 }
 
 void VtermImpl::sgrReset() {
@@ -3273,29 +3326,14 @@ void VtermImpl::csi_ecma48_SR(u32 count) {
     }
 }
 
-void VtermImpl::csi_DECSCUSR(u32 style) {
-    using CS = TerminalCursor::Style;
-    switch (style) {
-        case 0:
-        case 1:
-        case 2:
-            cursorStyleParam = style == 0 ? 1 : style;
-            cursorShape = CS::filled_block;
-            break;
-        case 3:
-        case 4:
-            cursorStyleParam = style;
-            cursorShape = CS::underline;
-            break;
-        case 5:
-        case 6:
-            cursorStyleParam = style;
-            cursorShape = CS::bar;
-            break;
-        default:
-            break;
-    }
-    cursorBlinkMode = (cursorStyleParam & 1) != 0;
+void VtermImpl::setCursorStyle(u8 reportStyle, TerminalCursor::Style shape, bool blink) {
+    cursorStyleParam = reportStyle;
+    cursorShape = shape;
+    cursorBlinkMode = blink;
+    refreshCursorStyle();
+}
+
+void VtermImpl::refreshCursorStyle() {
     blinkVisible = true;
     nextBlink = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
     frame_pri->setBlinkState(true, cursorBlinkMode);
@@ -3599,82 +3637,89 @@ void VtermImpl::csi_REP(u32 count) {
     }
 }
 
-void VtermImpl::csi_ED(u32 mode) {
+void VtermImpl::eraseDisplayAfter() {
     normalizeCursorPos();
-    switch (mode) {
-        case 0:
-            eraseEcmaRangeInRow(posY, posX, composer.columns - posX);
-            for (u16 pY = posY + 1; pY < composer.rows; ++pY) {
-                eraseEcmaRow(pY);
-            }
-            break;
-        case 1:
-            for (u16 pY = 0; pY < posY; ++pY) {
-                eraseEcmaRow(pY);
-            }
-            eraseEcmaRangeInRow(posY, 0, posX + 1);
-            break;
-        case 3:
-            cf->dropScrollbackHistory();
-            break;
-
-        case 2:
-            for (u16 pY = 0; pY < composer.rows; ++pY) {
-                eraseEcmaRow(pY);
-            }
-            break;
-        default:
-            break;
+    eraseEcmaRangeInRow(posY, posX, composer.columns - posX);
+    for (u16 row = posY + 1; row < composer.rows; ++row) {
+        eraseEcmaRow(row);
     }
 }
 
-void VtermImpl::csi_EL(u32 mode) {
+void VtermImpl::eraseDisplayBefore() {
     normalizeCursorPos();
-    switch (mode) {
-        case 0:
-            eraseEcmaRangeInRow(posY, posX, composer.columns - posX);
-            break;
-        case 1:
-            eraseEcmaRangeInRow(posY, 0, posX + 1);
-            break;
-        case 2:
-            eraseEcmaRangeInRow(posY, 0, composer.columns);
-            break;
-        default:
-            break;
+    for (u16 row = 0; row < posY; ++row) {
+        eraseEcmaRow(row);
+    }
+    eraseEcmaRangeInRow(posY, 0, posX + 1);
+}
+
+void VtermImpl::eraseDisplayAll() {
+    normalizeCursorPos();
+    for (u16 row = 0; row < composer.rows; ++row) {
+        eraseEcmaRow(row);
     }
 }
 
-void VtermImpl::csi_DECSED(u32 mode) {
+void VtermImpl::eraseScrollback() {
     normalizeCursorPos();
-    if (mode == 0 || mode == 2) {
-        const u16 firstRow = mode == 2 ? 0 : posY;
-        const u16 lastRow = composer.rows - 1;
-        for (u16 row = firstRow; row <= lastRow; ++row) {
-            const u16 first = row == posY && mode == 0 ? posX : 0;
-            selectiveEraseRangeInRow(row, first, composer.columns - first);
-        }
-    } else if (mode == 1) {
-        for (u16 row = 0; row <= posY; ++row) {
-            const u16 count = row == posY ? posX + 1 : composer.columns;
-            selectiveEraseRangeInRow(row, 0, count);
-        }
+    cf->dropScrollbackHistory();
+}
+
+void VtermImpl::eraseLineAfter() {
+    normalizeCursorPos();
+    eraseEcmaRangeInRow(posY, posX, composer.columns - posX);
+}
+
+void VtermImpl::eraseLineBefore() {
+    normalizeCursorPos();
+    eraseEcmaRangeInRow(posY, 0, posX + 1);
+}
+
+void VtermImpl::eraseLineAll() {
+    normalizeCursorPos();
+    eraseEcmaRangeInRow(posY, 0, composer.columns);
+}
+
+void VtermImpl::selectiveEraseDisplayAfter() {
+    normalizeCursorPos();
+    selectiveEraseRangeInRow(posY, posX, composer.columns - posX);
+    for (u16 row = posY + 1; row < composer.rows; ++row) {
+        selectiveEraseRangeInRow(row, 0, composer.columns);
     }
 }
 
-void VtermImpl::csi_DECSEL(u32 mode) {
+void VtermImpl::selectiveEraseDisplayBefore() {
     normalizeCursorPos();
-    if (mode == 0) {
-        selectiveEraseRangeInRow(posY, posX, composer.columns - posX);
-    } else if (mode == 1) {
-        selectiveEraseRangeInRow(posY, 0, posX + 1);
-    } else if (mode == 2) {
-        selectiveEraseRangeInRow(posY, 0, composer.columns);
+    for (u16 row = 0; row < posY; ++row) {
+        selectiveEraseRangeInRow(row, 0, composer.columns);
+    }
+    selectiveEraseRangeInRow(posY, 0, posX + 1);
+}
+
+void VtermImpl::selectiveEraseDisplayAll() {
+    normalizeCursorPos();
+    for (u16 row = 0; row < composer.rows; ++row) {
+        selectiveEraseRangeInRow(row, 0, composer.columns);
     }
 }
 
-void VtermImpl::csi_DECSCA(u32 mode) {
-    if (mode == 1) {
+void VtermImpl::selectiveEraseLineAfter() {
+    normalizeCursorPos();
+    selectiveEraseRangeInRow(posY, posX, composer.columns - posX);
+}
+
+void VtermImpl::selectiveEraseLineBefore() {
+    normalizeCursorPos();
+    selectiveEraseRangeInRow(posY, 0, posX + 1);
+}
+
+void VtermImpl::selectiveEraseLineAll() {
+    normalizeCursorPos();
+    selectiveEraseRangeInRow(posY, 0, composer.columns);
+}
+
+void VtermImpl::setDecProtection(bool enabled) {
+    if (enabled) {
         attrs.protected_char |= TerminalCell::decProtection;
     } else {
         attrs.protected_char &= ~TerminalCell::decProtection;
@@ -3719,12 +3764,12 @@ void VtermImpl::csi_DECCRA(CsiRectangle parameters, u32 targetRow, u32 targetCol
     cf->copyRectangle(source.top, source.left, targetTop, targetLeft, height, width, eraseAttrs);
 }
 
-void VtermImpl::csi_DECCARA(CsiRectangle parameters, u32 mode, bool reverse) {
+void VtermImpl::changeRectangleAttributes(CsiRectangle parameters, CellAttributeChange change) {
     Rectangle rectangle;
     if (!rectangleFromParams(parameters, rectangle)) {
         return;
     }
-    cf->changeRectangleAttributes(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, &mode, 1, reverse);
+    cf->changeRectangleAttributes(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, change);
 }
 
 void VtermImpl::csi_DECRQCRA(u32 requestId, CsiRectangle parameters) {
@@ -3815,486 +3860,265 @@ void VtermImpl::csi_SLRM(u32 left, u32 right, bool valid) {
     lastCol = false;
 }
 
-void VtermImpl::csi_TBC(u32 mode) {
-    switch (mode) {
-        case 0: {
-            if (!tabStopsCustomized) {
-                for (unsigned column = 8; column < composer.columns; column += 8) {
-                    tabStops.push_back((u16)(column));
-                }
-                tabStopsCustomized = true;
-            }
-            auto it = std::find(tabStops.begin(), tabStops.end(), posX);
-            if (it != tabStops.end()) {
-                tabStops.erase(it);
-            }
-        } break;
-        case 3:
-            tabStops.clear();
-            tabStopsCustomized = true;
-            break;
-        default:
-            break;
-    }
-}
-
-void VtermImpl::csi_SM(u32 mode) {
-    switch (mode) {
-        case 2:
-            keyboardLocked = true;
-            break;
-        case 4:
-            insertMode = true;
-            break;
-        case 6:
-            eraseModeAll = true;
-            break;
-        case 12:
-            localEcho = false;
-            break;
-        case 20:
-            autoNewlineMode = true;
-            break;
-        default:
-            break;
-    }
-}
-
-void VtermImpl::csi_RM(u32 mode) {
-    switch (mode) {
-        case 2:
-            keyboardLocked = false;
-            break;
-        case 4:
-            insertMode = false;
-            break;
-        case 6:
-            eraseModeAll = false;
-            break;
-        case 12:
-            localEcho = true;
-            break;
-        case 20:
-            autoNewlineMode = false;
-            break;
-        default:
-            break;
-    }
-}
-
-void VtermImpl::setPrivMode(u32 arg, bool set) {
-    if (set) {
-        switch (arg) {
-            case 1:
-                cursorKeyMode = CursorKeyMode::Application;
-                break;
-            case 2:
-                charsetState = CharsetState{};
-                compatLevel = CompatibilityLevel::VT400;
-                break;
-            case 3:
-                if (allowColumnMode) {
-                    switchColMode(ColMode::C132);
-                }
-                break;
-            case 4:
-                smoothScrollMode = true;
-                break;
-            case 5:
-                screenReverseVideo = true;
-                frame_pri->setScreenReverseVideo(true);
-                frame_alt->setScreenReverseVideo(true);
-                break;
-            case 6:
-                originMode = OriginMode::ScrollingRegion;
-                posX = hMargin;
-                posY = marginTop;
-                lastCol = false;
-                break;
-            case 7:
-                autoWrapMode = true;
-                break;
-            case 8:
-                autoRepeatMode = true;
-                break;
-            case 18:
-                if (compatLevel >= CompatibilityLevel::VT200) {
-                    printFormFeedMode = true;
-                }
-                break;
-            case 19:
-                if (compatLevel >= CompatibilityLevel::VT200) {
-                    printExtentMode = true;
-                }
-                break;
-            case 40:
-                allowColumnMode = true;
-                break;
-            case 41:
-                moreFixMode = true;
-                break;
-            case 42:
-                nationalReplacementMode = true;
-                break;
-            case 66:
-                keypadMode = KeypadMode::Application;
-                break;
-            case 45:
-                reverseWrapMode = true;
-                break;
-            case 9:
-                mouseTrk.setMode(MouseTrackingMode::X10_Compat);
-                break;
-            case 12:
-                cursorBlinkMode = true;
-                nextBlink = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
-                frame_pri->setBlinkState(blinkVisible, true);
-                frame_alt->setBlinkState(blinkVisible, true);
-                break;
-            case 25:
-                showCursorMode = true;
-                break;
-            case 47:
-                switchScreenBufferMode(true);
-                break;
-            case 67:
-                bkspSendsDel = false;
-                break;
-            case 69:
-                if (compatLevel >= CompatibilityLevel::VT400) {
-                    horizMarginMode = true;
-                    hMargin = 0;
-                    nColsEff = composer.columns;
-                }
-                break;
-            case 95:
-                if (compatLevel >= CompatibilityLevel::VT500) {
-                    noClearColumnMode = true;
-                }
-                break;
-            case 1000:
-                mouseTrk.setMode(MouseTrackingMode::VT200);
-                break;
-            case 1001:
-                mouseTrk.setMode(MouseTrackingMode::VT200_Highlight);
-                mouseHighlight.active = false;
-                break;
-            case 1002:
-                mouseTrk.setMode(MouseTrackingMode::VT200_ButtonEvent);
-                break;
-            case 1003:
-                mouseTrk.setMode(MouseTrackingMode::VT200_AnyEvent);
-                break;
-            case 1004:
-                mouseTrk.focusEventMode = true;
-                break;
-            case 1005:
-                mouseTrk.setEncoding(MouseTrackingEnc::UTF8);
-                break;
-            case 1006:
-                mouseTrk.setEncoding(MouseTrackingEnc::SGR);
-                break;
-            case 1007:
-                altScrollMode = true;
-                break;
-            case 1015:
-                mouseTrk.setEncoding(MouseTrackingEnc::URXVT);
-                break;
-            case 1016:
-                mouseTrk.setEncoding(MouseTrackingEnc::SGRPixels);
-                break;
-            case 1034:
-                eightBitInput = true;
-                break;
-            case 1036:
-            case 1039:
-                altSendsEscape = true;
-                break;
-            case 1047:
-                switchScreenBufferMode(true);
-                break;
-            case 1048:
-                esc_DECSC();
-                break;
-            case 1049:
-                esc_DECSC();
-                switchScreenBufferMode(true, true);
-                break;
-            case 1045:
-                extendedReverseWrapMode = true;
-                break;
-            case 2004:
-                bracketedPasteMode = true;
-                break;
-            case 2026:
-                synchronizedOutputMode = true;
-                synchronizedOutputDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(150);
-                break;
-            case 2031:
-                colorSchemeUpdateMode = true;
-                break;
-            case 2048:
-                inBandResizeMode = true;
-                reportInBandResize();
-                break;
-            default:
-                break;
+void VtermImpl::clearTabStop() {
+    if (!tabStopsCustomized) {
+        for (unsigned column = 8; column < composer.columns; column += 8) {
+            tabStops.push_back((u16)(column));
         }
+        tabStopsCustomized = true;
+    }
+    auto it = std::find(tabStops.begin(), tabStops.end(), posX);
+    if (it != tabStops.end()) {
+        tabStops.erase(it);
+    }
+}
+
+void VtermImpl::clearAllTabStops() {
+    tabStops.clear();
+    tabStopsCustomized = true;
+}
+
+void VtermImpl::setKeyboardLocked(bool enabled) {
+    keyboardLocked = enabled;
+}
+
+void VtermImpl::setInsertMode(bool enabled) {
+    insertMode = enabled;
+}
+
+void VtermImpl::setEraseModeAll(bool enabled) {
+    eraseModeAll = enabled;
+}
+
+void VtermImpl::setLocalEcho(bool enabled) {
+    localEcho = enabled;
+}
+
+void VtermImpl::setAutoNewline(bool enabled) {
+    autoNewlineMode = enabled;
+}
+
+ParserModeState VtermImpl::parserModeState() const {
+    ParserModeState result;
+    result.mouseTracking = mouseTrk.mode;
+    result.mouseEncoding = mouseTrk.enc;
+    result.keyboardLocked = keyboardLocked;
+    result.insertMode = insertMode;
+    result.eraseModeAll = eraseModeAll;
+    result.localEcho = localEcho;
+    result.autoNewline = autoNewlineMode;
+    result.ansiMode = compatLevel != CompatibilityLevel::VT52;
+    result.applicationCursorKeys = cursorKeyMode == CursorKeyMode::Application;
+    result.column132 = colMode == ColMode::C132;
+    result.smoothScroll = smoothScrollMode;
+    result.screenReverseVideo = screenReverseVideo;
+    result.originMode = originMode == OriginMode::ScrollingRegion;
+    result.autoWrap = autoWrapMode;
+    result.autoRepeat = autoRepeatMode;
+    result.cursorBlink = cursorBlinkMode;
+    result.printFormFeed = printFormFeedMode;
+    result.printExtent = printExtentMode;
+    result.allowColumnMode = allowColumnMode;
+    result.moreFix = moreFixMode;
+    result.nationalReplacement = nationalReplacementMode;
+    result.reverseWrap = reverseWrapMode;
+    result.showCursor = showCursorMode;
+    result.alternateScreen = altScreenBufferMode;
+    result.applicationKeypad = keypadMode == KeypadMode::Application;
+    result.backspaceSendsBackspace = !bkspSendsDel;
+    result.horizontalMargins = horizMarginMode;
+    result.noClearColumn = noClearColumnMode;
+    result.focusEvents = mouseTrk.focusEventMode;
+    result.alternateScroll = altScrollMode;
+    result.eightBitInput = eightBitInput;
+    result.altSendsEscape = altSendsEscape;
+    result.extendedReverseWrap = extendedReverseWrapMode;
+    result.bracketedPaste = bracketedPasteMode;
+    result.synchronizedOutput = synchronizedOutputMode;
+    result.colorSchemeUpdates = colorSchemeUpdateMode;
+    result.inBandResize = inBandResizeMode;
+    return result;
+}
+
+void VtermImpl::setAnsiMode(bool enabled) {
+    charsetState = CharsetState{};
+    compatLevel = enabled ? CompatibilityLevel::VT400 : CompatibilityLevel::VT52;
+}
+
+void VtermImpl::setApplicationCursorKeys(bool enabled) {
+    cursorKeyMode = enabled ? CursorKeyMode::Application : CursorKeyMode::ANSI;
+}
+
+void VtermImpl::setColumn132(bool enabled) {
+    if (allowColumnMode) {
+        switchColMode(enabled ? ColMode::C132 : ColMode::C80);
+    }
+}
+
+void VtermImpl::setSmoothScroll(bool enabled) {
+    smoothScrollMode = enabled;
+}
+
+void VtermImpl::setScreenReverseVideo(bool enabled) {
+    screenReverseVideo = enabled;
+    frame_pri->setScreenReverseVideo(enabled);
+    frame_alt->setScreenReverseVideo(enabled);
+}
+
+void VtermImpl::setOriginMode(bool enabled) {
+    originMode = enabled ? OriginMode::ScrollingRegion : OriginMode::Absolute;
+    posX = enabled ? hMargin : 0;
+    posY = enabled ? marginTop : 0;
+    lastCol = false;
+}
+
+void VtermImpl::setAutoWrap(bool enabled) {
+    autoWrapMode = enabled;
+}
+
+void VtermImpl::setAutoRepeat(bool enabled) {
+    autoRepeatMode = enabled;
+}
+
+void VtermImpl::setPrintFormFeed(bool enabled) {
+    if (compatLevel >= CompatibilityLevel::VT200) {
+        printFormFeedMode = enabled;
+    }
+}
+
+void VtermImpl::setPrintExtent(bool enabled) {
+    if (compatLevel >= CompatibilityLevel::VT200) {
+        printExtentMode = enabled;
+    }
+}
+
+void VtermImpl::setAllowColumnMode(bool enabled) {
+    allowColumnMode = enabled;
+}
+
+void VtermImpl::setMoreFix(bool enabled) {
+    moreFixMode = enabled;
+}
+
+void VtermImpl::setNationalReplacement(bool enabled) {
+    nationalReplacementMode = enabled;
+}
+
+void VtermImpl::setReverseWrap(bool enabled) {
+    reverseWrapMode = enabled;
+}
+
+void VtermImpl::setMouseTracking(MouseTrackingMode mode) {
+    mouseTrk.setMode(mode);
+    if (mode == MouseTrackingMode::VT200_Highlight || mode == MouseTrackingMode::Disabled) {
+        mouseHighlight.active = false;
+    }
+}
+
+void VtermImpl::setCursorBlink(bool enabled) {
+    cursorBlinkMode = enabled;
+    if (!enabled) {
+        blinkVisible = true;
+    }
+    nextBlink = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+    frame_pri->setBlinkState(blinkVisible, enabled);
+    frame_alt->setBlinkState(blinkVisible, enabled);
+}
+
+void VtermImpl::setCursorVisible(bool enabled) {
+    showCursorMode = enabled;
+}
+
+void VtermImpl::setAlternateScreen(bool enabled, bool clear) {
+    switchScreenBufferMode(enabled, clear);
+}
+
+void VtermImpl::setBackspaceSendsBackspace(bool enabled) {
+    bkspSendsDel = !enabled;
+}
+
+void VtermImpl::setHorizontalMargins(bool enabled) {
+    if (compatLevel >= CompatibilityLevel::VT400) {
+        horizMarginMode = enabled;
+        hMargin = 0;
+        nColsEff = composer.columns;
+    }
+}
+
+void VtermImpl::setNoClearColumn(bool enabled) {
+    if (compatLevel >= CompatibilityLevel::VT500) {
+        noClearColumnMode = enabled;
+    }
+}
+
+void VtermImpl::setFocusEvents(bool enabled) {
+    mouseTrk.focusEventMode = enabled;
+}
+
+void VtermImpl::setMouseEncoding(MouseTrackingEnc encoding) {
+    mouseTrk.setEncoding(encoding);
+}
+
+void VtermImpl::setAlternateScroll(bool enabled) {
+    altScrollMode = enabled;
+}
+
+void VtermImpl::setEightBitInput(bool enabled) {
+    eightBitInput = enabled;
+}
+
+void VtermImpl::setAltSendsEscape(bool enabled) {
+    altSendsEscape = enabled;
+}
+
+void VtermImpl::setSavedAlternateScreen(bool enabled) {
+    if (enabled) {
+        esc_DECSC();
+        switchScreenBufferMode(true, true);
     } else {
-        switch (arg) {
-            case 1:
-                cursorKeyMode = CursorKeyMode::ANSI;
-                break;
-            case 2:
-                charsetState = CharsetState{};
-                compatLevel = CompatibilityLevel::VT52;
-                break;
-            case 3:
-                if (allowColumnMode) {
-                    switchColMode(ColMode::C80);
-                }
-                break;
-            case 4:
-                smoothScrollMode = false;
-                break;
-            case 5:
-                screenReverseVideo = false;
-                frame_pri->setScreenReverseVideo(false);
-                frame_alt->setScreenReverseVideo(false);
-                break;
-            case 6:
-                originMode = OriginMode::Absolute;
-                posX = 0;
-                posY = 0;
-                lastCol = false;
-                break;
-            case 7:
-                autoWrapMode = false;
-                break;
-            case 8:
-                autoRepeatMode = false;
-                break;
-            case 18:
-                if (compatLevel >= CompatibilityLevel::VT200) {
-                    printFormFeedMode = false;
-                }
-                break;
-            case 19:
-                if (compatLevel >= CompatibilityLevel::VT200) {
-                    printExtentMode = false;
-                }
-                break;
-            case 40:
-                allowColumnMode = false;
-                break;
-            case 41:
-                moreFixMode = false;
-                break;
-            case 42:
-                nationalReplacementMode = false;
-                break;
-            case 66:
-                keypadMode = KeypadMode::Normal;
-                break;
-            case 45:
-                reverseWrapMode = false;
-                break;
-            case 9:
-            case 1000:
-            case 1001:
-            case 1002:
-            case 1003:
-                mouseTrk.setMode(MouseTrackingMode::Disabled);
-                mouseHighlight.active = false;
-                break;
-            case 12:
-                cursorBlinkMode = false;
-                blinkVisible = true;
-                frame_pri->setBlinkState(true, false);
-                frame_alt->setBlinkState(true, false);
-                break;
-            case 25:
-                showCursorMode = false;
-                break;
-            case 47:
-                switchScreenBufferMode(false);
-                break;
-            case 67:
-                bkspSendsDel = true;
-                break;
-            case 69:
-                if (compatLevel >= CompatibilityLevel::VT400) {
-                    horizMarginMode = false;
-                    hMargin = 0;
-                    nColsEff = composer.columns;
-                }
-                break;
-            case 95:
-                if (compatLevel >= CompatibilityLevel::VT500) {
-                    noClearColumnMode = false;
-                }
-                break;
-            case 1004:
-                mouseTrk.focusEventMode = false;
-                break;
-            case 1005:
-            case 1006:
-            case 1015:
-            case 1016:
-                mouseTrk.setEncoding(MouseTrackingEnc::Default);
-                break;
-            case 1034:
-                eightBitInput = false;
-                break;
-            case 1007:
-                altScrollMode = false;
-                break;
-            case 1036:
-            case 1039:
-                altSendsEscape = false;
-                break;
-            case 1047:
-                switchScreenBufferMode(false, true);
-                break;
-            case 1048:
-                esc_DECRC();
-                break;
-            case 1049:
-                savedCursor = &savedCursorPri;
-                esc_DECRC();
-                switchScreenBufferMode(false, true);
-                break;
-            case 1045:
-                extendedReverseWrapMode = false;
-                break;
-            case 2004:
-                bracketedPasteMode = false;
-                break;
-            case 2026:
-                synchronizedOutputMode = false;
-                break;
-            case 2031:
-                colorSchemeUpdateMode = false;
-                break;
-            case 2048:
-                inBandResizeMode = false;
-                break;
-            default:
-                break;
-        }
+        savedCursor = &savedCursorPri;
+        esc_DECRC();
+        switchScreenBufferMode(false, true);
     }
 }
 
-bool VtermImpl::getPrivateMode(u32 arg) const {
-    switch (arg) {
-        case 1:
-            return cursorKeyMode == CursorKeyMode::Application;
-        case 3:
-            return colMode == ColMode::C132;
-        case 4:
-            return smoothScrollMode;
-        case 5:
-            return screenReverseVideo;
-        case 6:
-            return originMode == OriginMode::ScrollingRegion;
-        case 7:
-            return autoWrapMode;
-        case 8:
-            return autoRepeatMode;
-        case 12:
-            return cursorBlinkMode;
-        case 18:
-            return printFormFeedMode;
-        case 19:
-            return printExtentMode;
-        case 40:
-            return allowColumnMode;
-        case 41:
-            return moreFixMode;
-        case 42:
-            return nationalReplacementMode;
-        case 45:
-            return reverseWrapMode;
-        case 9:
-            return mouseTrk.mode == MouseTrackingMode::X10_Compat;
-        case 25:
-            return showCursorMode;
-        case 47:
-        case 1047:
-            return altScreenBufferMode;
-        case 66:
-            return keypadMode == KeypadMode::Application;
-        case 67:
-            return !bkspSendsDel;
-        case 69:
-            return horizMarginMode;
-        case 95:
-            return noClearColumnMode;
-        case 1000:
-            return mouseTrk.mode == MouseTrackingMode::VT200;
-        case 1001:
-            return mouseTrk.mode == MouseTrackingMode::VT200_Highlight;
-        case 1002:
-            return mouseTrk.mode == MouseTrackingMode::VT200_ButtonEvent;
-        case 1003:
-            return mouseTrk.mode == MouseTrackingMode::VT200_AnyEvent;
-        case 1004:
-            return mouseTrk.focusEventMode;
-        case 1005:
-            return mouseTrk.enc == MouseTrackingEnc::UTF8;
-        case 1006:
-            return mouseTrk.enc == MouseTrackingEnc::SGR;
-        case 1007:
-            return altScrollMode;
-        case 1015:
-            return mouseTrk.enc == MouseTrackingEnc::URXVT;
-        case 1016:
-            return mouseTrk.enc == MouseTrackingEnc::SGRPixels;
-        case 1034:
-            return eightBitInput;
-        case 1036:
-        case 1039:
-            return altSendsEscape;
-        case 1045:
-            return extendedReverseWrapMode;
-        case 2004:
-            return bracketedPasteMode;
-        case 2031:
-            return colorSchemeUpdateMode;
-        case 2048:
-            return inBandResizeMode;
-        case 2026:
-            return synchronizedOutputMode;
-        default:
-            return false;
+void VtermImpl::setExtendedReverseWrap(bool enabled) {
+    extendedReverseWrapMode = enabled;
+}
+
+void VtermImpl::setBracketedPaste(bool enabled) {
+    bracketedPasteMode = enabled;
+}
+
+void VtermImpl::setSynchronizedOutput(bool enabled) {
+    synchronizedOutputMode = enabled;
+    if (enabled) {
+        synchronizedOutputDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(150);
     }
 }
 
-void VtermImpl::csi_privSM(u32 mode) {
-    setPrivMode(mode, true);
+void VtermImpl::setColorSchemeUpdates(bool enabled) {
+    colorSchemeUpdateMode = enabled;
 }
 
-void VtermImpl::csi_privRM(u32 mode) {
-    setPrivMode(mode, false);
-}
-
-void VtermImpl::csi_privSave(u32 mode) {
-    switch (mode) {
-        case 2:
-        case 1048:
-        case 1049:
-            break;
-        default:
-            savedPrivModes[mode] = getPrivateMode(mode);
-            break;
+void VtermImpl::setInBandResize(bool enabled) {
+    inBandResizeMode = enabled;
+    if (enabled) {
+        reportInBandResize();
     }
 }
 
-void VtermImpl::csi_privRestore(u32 mode) {
+void VtermImpl::savePrivateMode(u32 mode, bool enabled) {
+    savedPrivModes[mode] = enabled;
+}
+
+bool VtermImpl::restorePrivateMode(u32 mode, bool& enabled) const {
     const auto it = savedPrivModes.find(mode);
-    if (it != savedPrivModes.end()) {
-        setPrivMode(mode, it->second);
+    if (it == savedPrivModes.end()) {
+        return false;
     }
+    enabled = it->second;
+    return true;
 }
 
 void VtermImpl::setFgFromPalIx() {
@@ -4347,144 +4171,7 @@ void VtermImpl::csi_XTVERSION() {
     writeDcsResponse(">|Shitty " SHITTY_VERSION);
 }
 
-void VtermImpl::csi_DECRQM(u32 mode, bool privateMode) {
-    if (compatLevel < CompatibilityLevel::VT300) {
-        return;
-    }
-    u8 state = 0;
-
-    if (privateMode) {
-        switch (mode) {
-            case 1:
-            case 2:
-            case 3:
-            case 4:
-            case 5:
-            case 6:
-            case 7:
-            case 8:
-            case 9:
-            case 12:
-            case 18:
-            case 19:
-            case 25:
-            case 40:
-            case 41:
-            case 42:
-            case 45:
-            case 47:
-            case 66:
-            case 67:
-                state = (mode == 2 ? compatLevel != CompatibilityLevel::VT52 : getPrivateMode(mode)) ? 1 : 2;
-                break;
-            case 60:
-            case 61:
-            case 64:
-            case 68:
-            case 73:
-                state = 4;
-                break;
-            case 69:
-                if (compatLevel < CompatibilityLevel::VT400) {
-                    break;
-                }
-                state = getPrivateMode(mode) ? 1 : 2;
-                break;
-            case 81:
-                if (compatLevel < CompatibilityLevel::VT400) {
-                    break;
-                }
-                state = 4;
-                break;
-            case 95:
-                if (compatLevel < CompatibilityLevel::VT500) {
-                    break;
-                }
-                state = getPrivateMode(mode) ? 1 : 2;
-                break;
-            case 34:
-            case 35:
-            case 36:
-            case 57:
-            case 96:
-            case 97:
-            case 98:
-            case 99:
-            case 100:
-            case 101:
-            case 102:
-            case 103:
-            case 104:
-            case 106:
-                if (compatLevel < CompatibilityLevel::VT500) {
-                    break;
-                }
-                state = 4;
-                break;
-            case 1000:
-            case 1001:
-            case 1002:
-            case 1003:
-            case 1004:
-            case 1005:
-            case 1006:
-            case 1007:
-            case 1015:
-            case 1016:
-            case 1034:
-            case 1036:
-            case 1039:
-            case 1045:
-            case 1047:
-            case 2004:
-            case 2026:
-            case 2031:
-            case 2048:
-                state = getPrivateMode(mode) ? 1 : 2;
-                break;
-            case 1049:
-                state = altScreenBufferMode ? 1 : 2;
-                break;
-            default:
-                break;
-        }
-    } else {
-        switch (mode) {
-            case 1:
-            case 3:
-            case 5:
-            case 7:
-            case 10:
-            case 11:
-            case 13:
-            case 14:
-            case 15:
-            case 16:
-            case 17:
-            case 18:
-            case 19:
-                state = 4;
-                break;
-            case 2:
-                state = keyboardLocked ? 1 : 2;
-                break;
-            case 4:
-                state = insertMode ? 1 : 2;
-                break;
-            case 6:
-                state = eraseModeAll ? 1 : 2;
-                break;
-            case 12:
-                state = !localEcho ? 1 : 2;
-                break;
-            case 20:
-                state = autoNewlineMode ? 1 : 2;
-                break;
-            default:
-                break;
-        }
-    }
-
+void VtermImpl::reportMode(u32 mode, bool privateMode, u8 state) {
     StringBuilder response;
     if (privateMode) {
         response << StringView(u8"?");
@@ -5231,16 +4918,15 @@ void VtermImpl::writeTitleResponse(char kind, StringView title) {
     writePty((const u8*)(response.data()), response.used());
 }
 
-void VtermImpl::csi_XTTITLEMODE(u32 mode, bool set, bool reset) {
-    if (reset) {
-        titleModes = 0;
-    } else if (mode <= 3) {
-        const u8 bit = (u8)(1 << mode);
-        if (set) {
-            titleModes |= bit;
-        } else {
-            titleModes &= (u8)~bit;
-        }
+void VtermImpl::resetTitleModes() {
+    titleModes = 0;
+}
+
+void VtermImpl::setTitleMode(u8 bit, bool enabled) {
+    if (enabled) {
+        titleModes |= bit;
+    } else {
+        titleModes &= ~bit;
     }
 }
 
@@ -5332,16 +5018,13 @@ void VtermImpl::xtReportWindowTitle() {
     writeTitleResponse('l', stringView(windowTitle));
 }
 
-void VtermImpl::xtPushTitle(u32 target) {
-    if (target > 2) {
-        return;
-    }
+void VtermImpl::xtPushTitle(bool icon, bool window) {
     SavedTitles saved;
-    if (target == 0 || target == 1) {
+    if (icon) {
         saved.hasIcon = true;
         saved.icon = iconTitle;
     }
-    if (target == 0 || target == 2) {
+    if (window) {
         saved.hasWindow = true;
         saved.window = windowTitle;
     }
@@ -5351,8 +5034,8 @@ void VtermImpl::xtPushTitle(u32 target) {
     }
 }
 
-void VtermImpl::xtPopTitle(u32 target) {
-    if (target > 2 || titleStack.empty()) {
+void VtermImpl::xtPopTitle(bool icon, bool window) {
+    if (titleStack.empty()) {
         return;
     }
     SavedTitles saved = std::move(titleStack.back());
@@ -5367,11 +5050,11 @@ void VtermImpl::xtPopTitle(u32 target) {
             saved.window = it->window;
         }
     }
-    if ((target == 0 || target == 1) && saved.hasIcon) {
+    if (icon && saved.hasIcon) {
         iconTitle = saved.icon;
         host.osc(1, stringView(iconTitle));
     }
-    if ((target == 0 || target == 2) && saved.hasWindow) {
+    if (window && saved.hasWindow) {
         windowTitle = saved.window;
         host.osc(2, stringView(windowTitle));
     }
@@ -5393,31 +5076,24 @@ void VtermImpl::csi_XTHIMOUSE(u32 start, u32 startX, u32 startY, u32 firstRow, u
     }
 }
 
-void VtermImpl::csi_DECELR(u32 mode, u32 units) {
-    locator.enabled = mode <= 2 ? mode : 0;
-    locator.pixels = units == 1;
+void VtermImpl::setLocatorReporting(bool enabled, bool oneShot, bool pixels) {
+    locator.enabled = enabled ? oneShot ? 2 : 1 : 0;
+    locator.pixels = pixels;
     locator.filter = false;
 }
 
-void VtermImpl::csi_DECSLE(u32 operation) {
-    switch (operation) {
-        case 0:
-            locator.reportDown = locator.reportUp = false;
-            locator.filter = false;
-            break;
-        case 1:
-            locator.reportDown = true;
-            break;
-        case 2:
-            locator.reportDown = false;
-            break;
-        case 3:
-            locator.reportUp = true;
-            break;
-        case 4:
-            locator.reportUp = false;
-            break;
-    }
+void VtermImpl::resetLocatorEvents() {
+    locator.reportDown = false;
+    locator.reportUp = false;
+    locator.filter = false;
+}
+
+void VtermImpl::setLocatorButtonDown(bool enabled) {
+    locator.reportDown = enabled;
+}
+
+void VtermImpl::setLocatorButtonUp(bool enabled) {
+    locator.reportUp = enabled;
 }
 
 void VtermImpl::csi_DECRQLP() {
@@ -5443,30 +5119,20 @@ void VtermImpl::csi_DECEFR(u32 top, u32 left, u32 bottom, u32 right) {
     locator.filter = locator.enabled != 0;
 }
 
-void VtermImpl::csi_XTMODKEYS(u32 resource, u32 value, bool valuePresent, bool reset) {
-    const auto supported = [](u32 resource) {
-        return resource <= 4 || resource == 6 || resource == 7;
-    };
-    if (reset) {
-        std::copy(std::begin(initialModifyKeyResources), std::end(initialModifyKeyResources), std::begin(modifyKeyResources));
-    } else if (supported(resource)) {
-        if (!valuePresent) {
-            value = initialModifyKeyResources[resource];
-        }
-        const u32 maximum = resource == 4 ? 2 : 4;
-        if (value <= maximum) {
-            modifyKeyResources[resource] = value;
-        }
-    }
+void VtermImpl::resetModifyKeyResources() {
+    std::copy(std::begin(initialModifyKeyResources), std::end(initialModifyKeyResources), std::begin(modifyKeyResources));
     modifyOtherKeys = modifyKeyResources[4];
 }
 
-void VtermImpl::csi_XTQMODKEYS(u32 resource) {
-    if (resource <= 4 || resource == 6 || resource == 7) {
-        StringBuilder response;
-        response << StringView(u8">") << resource << StringView(u8";") << (unsigned)(modifyKeyResources[resource]) << StringView(u8"m");
-        writeCsiResponse(StringView(response));
-    }
+void VtermImpl::setModifyKeyResource(u8 resource, u8 value, bool useDefault) {
+    modifyKeyResources[resource] = useDefault ? initialModifyKeyResources[resource] : value;
+    modifyOtherKeys = modifyKeyResources[4];
+}
+
+void VtermImpl::reportModifyKeyResource(u8 resource) {
+    StringBuilder response;
+    response << StringView(u8">") << (unsigned)(resource) << StringView(u8";") << (unsigned)(modifyKeyResources[resource]) << StringView(u8"m");
+    writeCsiResponse(StringView(response));
 }
 
 void VtermImpl::csi_kittyKeyboardPush(u32 flags) {
@@ -5491,22 +5157,16 @@ void VtermImpl::csi_kittyKeyboardPop(u32 count) {
     }
 }
 
-void VtermImpl::csi_kittyKeyboardSet(u32 rawFlags, u32 mode) {
-    auto& state = kittyKeyboardState();
-    const u8 flags = rawFlags & 0x1f;
-    switch (mode) {
-        case 1:
-            state.flags = flags;
-            break;
-        case 2:
-            state.flags |= flags;
-            break;
-        case 3:
-            state.flags &= ~flags;
-            break;
-        default:
-            break;
-    }
+void VtermImpl::setKittyKeyboardFlags(u8 flags) {
+    kittyKeyboardState().flags = flags;
+}
+
+void VtermImpl::addKittyKeyboardFlags(u8 flags) {
+    kittyKeyboardState().flags |= flags;
+}
+
+void VtermImpl::removeKittyKeyboardFlags(u8 flags) {
+    kittyKeyboardState().flags &= ~flags;
 }
 
 void VtermImpl::csi_kittyKeyboardQuery() {

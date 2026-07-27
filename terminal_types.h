@@ -314,3 +314,36 @@ struct TerminalCursor {
     };
     Style style = Style::hidden;
 };
+
+struct CellAttributeChange {
+    enum : u8 {
+        Bold = 1 << 0,
+        Underline = 1 << 1,
+        Blink = 1 << 2,
+        Inverse = 1 << 3,
+        Conceal = 1 << 4,
+    };
+
+    void set(u8 mask, bool enabled) {
+        setMask = (setMask & ~mask) | (enabled ? mask : 0);
+        clearMask = (clearMask & ~mask) | (enabled ? 0 : mask);
+        toggleMask &= ~mask;
+    }
+
+    void toggle(u8 mask) {
+        const u8 identity = mask & ~(setMask | clearMask | toggleMask);
+        const u8 wasSet = setMask & mask;
+        const u8 wasClear = clearMask & mask;
+        setMask = (setMask & ~mask) | wasClear;
+        clearMask = (clearMask & ~mask) | wasSet;
+        toggleMask = (toggleMask & ~mask) | identity;
+    }
+
+    bool empty() const {
+        return !(setMask | clearMask | toggleMask);
+    }
+
+    u8 setMask = 0;
+    u8 clearMask = 0;
+    u8 toggleMask = 0;
+};

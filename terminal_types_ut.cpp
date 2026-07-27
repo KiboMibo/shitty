@@ -94,6 +94,51 @@ STD_TEST_SUITE(TerminalCell) {
     }
 }
 
+STD_TEST_SUITE(CellAttributeChange) {
+    STD_TEST(ComposesAssignmentsInOrder) {
+        CellAttributeChange change;
+        change.set(CellAttributeChange::Bold, true);
+        change.set(CellAttributeChange::Bold, false);
+
+        STD_INSIST(change.setMask == 0);
+        STD_INSIST(change.clearMask == CellAttributeChange::Bold);
+        STD_INSIST(change.toggleMask == 0);
+
+        change.set(CellAttributeChange::Bold, true);
+        STD_INSIST(change.setMask == CellAttributeChange::Bold);
+        STD_INSIST(change.clearMask == 0);
+    }
+
+    STD_TEST(ComposesToggleWithAssignments) {
+        CellAttributeChange change;
+        change.set(CellAttributeChange::Bold, true);
+        change.toggle(CellAttributeChange::Bold);
+        STD_INSIST(change.clearMask == CellAttributeChange::Bold);
+
+        change.toggle(CellAttributeChange::Bold);
+        STD_INSIST(change.setMask == CellAttributeChange::Bold);
+        STD_INSIST(change.clearMask == 0);
+
+        change.set(CellAttributeChange::Bold, false);
+        change.toggle(CellAttributeChange::Bold);
+        STD_INSIST(change.setMask == CellAttributeChange::Bold);
+        STD_INSIST(change.clearMask == 0);
+    }
+
+    STD_TEST(CancelsDoubleToggleIndependently) {
+        CellAttributeChange change;
+        change.toggle(CellAttributeChange::Bold | CellAttributeChange::Underline);
+        change.toggle(CellAttributeChange::Bold);
+
+        STD_INSIST(change.setMask == 0);
+        STD_INSIST(change.clearMask == 0);
+        STD_INSIST(change.toggleMask == CellAttributeChange::Underline);
+
+        change.toggle(CellAttributeChange::Underline);
+        STD_INSIST(change.empty());
+    }
+}
+
 STD_TEST_SUITE(TerminalColors) {
     STD_TEST(ResolvesDefaultIndexedAndDirectColors) {
         TerminalColors colors;
