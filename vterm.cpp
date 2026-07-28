@@ -7046,6 +7046,9 @@ void VtermImpl::compactPtyOutput() {
 }
 
 int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
+    if (len == 0) {
+        return 0;
+    }
     if (userInput && keyboardLocked) {
         return len;
     }
