@@ -16,14 +16,13 @@ using namespace stl;
 
 namespace {
     struct PathFontResolverImpl final: public FontResolver {
-        explicit PathFontResolverImpl(Composer& composer);
+        PathFontResolverImpl();
 
         Font* load(ObjPool& owner, const FontRequest& request, FontMetrics& metrics) override;
     };
 }
 
-PathFontResolverImpl::PathFontResolverImpl(Composer& composer) {
-    composer.fontResolvers.pushBack(this);
+PathFontResolverImpl::PathFontResolverImpl() {
 }
 
 Font* PathFontResolverImpl::load(ObjPool& owner, const FontRequest& request, FontMetrics& metrics) {
@@ -34,5 +33,5 @@ Font* PathFontResolverImpl::load(ObjPool& owner, const FontRequest& request, Fon
 }
 
 FontResolver* createPathFontResolver(Composer& composer) {
-    return composer.pool->make<PathFontResolverImpl>(composer);
+    return composer.pool->make<PathFontResolverImpl>();
 }

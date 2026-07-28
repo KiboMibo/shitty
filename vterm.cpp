@@ -30,8 +30,9 @@
 #include "mouse_frontend.h"
 #include "mouse_protocol.h"
 #include "parser.h"
-#include "pty.h"
+#include "pty_output.h"
 #include "screen.h"
+#include "small_obj_allocator.h"
 #include "unicode_map.h"
 #include "grapheme.h"
 #include "hex.h"
@@ -39,6 +40,7 @@
 #include "options.h"
 #include "utf8.h"
 #include "vterm_host.h"
+#include "window.h"
 
 #include <plt/platform.h>
 #include <plt/poller.h>
@@ -65,6 +67,7 @@
 #include <fcntl.h>
 #include <functional>
 #include <map>
+#include <new>
 #include <set>
 #include <sys/types.h>
 
@@ -89,23 +92,81 @@ void MouseTrackingState::setEncoding(MouseTrackingEnc value) {
 }
 
 namespace {
-    constexpr size_t ptyProtocolHighWater = 1024 * 1024;
     constexpr u64 selectionAutoscrollInterval = 50'000;
 
     StringView stringView(const std::string& value) {
         return StringView((const u8*)(value.data()), value.size());
     }
 
+    struct PasteOutput final: public Output {
+        PasteOutput(SmallObjAllocator* allocator, Output* output, bool bracketed);
+        ~PasteOutput() noexcept override;
+
+        void operator delete(PasteOutput* output, std::destroying_delete_t) noexcept;
+
+        size_t writeImpl(const void* data, size_t size) override;
+        void begin();
+
+        SmallObjAllocator* allocator;
+        Output* output;
+        Buffer scratch;
+        bool bracketed;
+        bool started = false;
+    };
+
+    struct ClipboardCopyOutput final: public Output {
+        ClipboardCopyOutput(SmallObjAllocator* allocator, Clipboard* clipboard);
+
+        void operator delete(ClipboardCopyOutput* output, std::destroying_delete_t) noexcept;
+
+        size_t writeImpl(const void* data, size_t size) override;
+        void finishImpl() override;
+
+        SmallObjAllocator* allocator;
+        Clipboard* clipboard;
+        Buffer content;
+    };
+
+    struct ClipboardQueryOutput final: public Output {
+        ClipboardQueryOutput(
+            SmallObjAllocator* allocator,
+            Clipboard* clipboard,
+            Output* output,
+            bool tryClipboard,
+            u8 replySelector,
+            bool selectorsEmpty,
+            bool send8BitControls
+        );
+        ~ClipboardQueryOutput() noexcept override;
+
+        void operator delete(ClipboardQueryOutput* output, std::destroying_delete_t) noexcept;
+
+        size_t writeImpl(const void* data, size_t size) override;
+        void finishImpl() override;
+        void reply();
+
+        SmallObjAllocator* allocator;
+        Clipboard* clipboard;
+        Output* output;
+        Buffer content;
+        bool tryClipboard;
+        u8 replySelector;
+        bool selectorsEmpty;
+        bool send8BitControls;
+    };
+
     struct GraphemeBuffer {
         void clear();
-        void push_back(u32 codepoint);
+        bool pushBack(u32 codepoint);
         bool empty() const;
         size_t size() const;
         const u32* data() const;
 
-        constexpr static size_t inlineCapacity = 4;
-        std::array<u32, inlineCapacity> inlineValues = {};
-        std::vector<u32> overflowValues;
+        // Keep pathological combining sequences from turning every appended
+        // codepoint into a larger CellExtra allocation and copy.  This is the
+        // same complete-cluster limit used by Kitty.
+        constexpr static size_t capacity = 24;
+        u32 values[capacity] = {};
         size_t size_ = 0;
     };
 
@@ -175,7 +236,6 @@ namespace {
         bool pointerFocused = true;
         int selectionAutoscrollDirection = 0;
         u64 selectionAutoscrollDeadline = 0;
-        Buffer schemeScratch;
         bool locallyConsumedKeys[(unsigned)(InputKey::Count) + 128]{};
     };
 
@@ -242,8 +302,6 @@ namespace {
         StringView hyperlinkAt(int pixelX, int pixelY);
         bool expireSynchronizedOutput(bool force) override;
         bool advanceAnimation(bool force) override;
-        StringView ptyOutput() override;
-        void consumePtyOutput(size_t bytes) override;
         const TerminalUpdate* output() override;
         void consume() override;
         VtermState state() const override;
@@ -265,8 +323,6 @@ namespace {
         void parserDesignateCharset(u8 index, Charset charset) override;
         bool parserHighlightMouseTracking() const override;
         bool windowOperationsAllowed() const override;
-        bool parserHandlesPrinter() const override;
-        void parserPrint(StringView bytes) override;
         void parserWritePty(StringView bytes) override;
         bool parserGroundUtf8Enabled() const override;
         void parserGroundHigh(u8 byte) override;
@@ -296,7 +352,6 @@ namespace {
         int writePty(const char* data, size_t size, bool userInput);
         int writePty(const u8* ucstr, size_t len, bool userInput = false);
         void writeProtocolResponse(StringView prefix, StringView payload, StringView suffix = {});
-        void compactPtyOutput();
         int writeKittyKey(VtKey key, u16 modifiers, VtermKeyEventType event);
         int writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event);
         u8 getKittyKeyboardFlags() const;
@@ -397,6 +452,7 @@ namespace {
         void placeGraphicChar();
         void placeGraphicChar(bool graphemeBoundary);
         void placeGraphicChar(bool graphemeBoundary, u8 width);
+        void placeRepeatedCodepoint(u32 codepoint, u32 count);
         template <bool insert>
         void placeAsciiRun(const u8* input, size_t size);
         size_t placeAsciiLines(const u8* input, size_t size);
@@ -523,8 +579,6 @@ namespace {
         void setOriginMode(bool enabled) override;
         void setAutoWrap(bool enabled) override;
         void setAutoRepeat(bool enabled) override;
-        void setPrintFormFeed(bool enabled) override;
-        void setPrintExtent(bool enabled) override;
         void setAllowColumnMode(bool enabled) override;
         void setMoreFix(bool enabled) override;
         void setNationalReplacement(bool enabled) override;
@@ -561,7 +615,6 @@ namespace {
         void csi_terDA() override;
         void dsrOperatingStatus() override;
         void dsrCursorPosition(bool privateMode) override;
-        void dsrPrinterStatus() override;
         void dsrUserDefinedKeys() override;
         void dsrKeyboard() override;
         void dsrLocator() override;
@@ -664,14 +717,9 @@ namespace {
         void removeKittyKeyboardFlags(u8 flags) override;
         void csi_kittyKeyboardQuery() override;
         void csi_XTVERSION() override;
-        void mediaCopyScreen() override;
-        void mediaCopyLine() override;
-        void setAutoPrint(bool enabled) override;
         void resetLeds() override;
         void setLed(u8 index, bool enabled) override;
         void commitLeds() override;
-        std::string printableLine(u16 row) const;
-        void printLine(u16 row);
         void dcs_DECRQSS_DECSCL() override;
         void dcs_DECRQSS_SGR() override;
         void dcs_DECRQSS_DECSTBM() override;
@@ -695,10 +743,7 @@ namespace {
         VtermHost& host;
         Output* dump;
         UnicodeMap<u8>* const unicodeProperties;
-        Buffer ptyBuffer;
         Buffer protocolResponseScratch;
-        size_t ptyOutputOffset = 0;
-        u64 droppedPtyResponses = 0;
         Vector<TerminalCellSpan> outputSpans;
         TerminalUpdate terminalUpdate;
 
@@ -755,7 +800,6 @@ namespace {
         };
 
         std::map<std::string, Notification> notifications;
-        std::set<std::string> activeNotificationIds;
         int defaultFgPalIx;
         int defaultBgPalIx;
         int fgPalIx;
@@ -806,10 +850,6 @@ namespace {
         bool synchronizedOutputMode = false;
         bool colorSchemeUpdateMode = false;
         bool inBandResizeMode = false;
-        bool autoPrintMode = false;
-        bool printFormFeedMode = false;
-        bool printExtentMode = false;
-
         u64 synchronizedOutputDeadline = 0;
         bool send8BitControls = false;
         bool altScrollMode = false;
@@ -967,16 +1007,12 @@ namespace {
         size_ = 0;
     }
 
-    void GraphemeBuffer::push_back(u32 codepoint) {
-        if (size_ < inlineCapacity) {
-            inlineValues[size_++] = codepoint;
-            return;
+    bool GraphemeBuffer::pushBack(u32 codepoint) {
+        if (size_ == capacity) {
+            return false;
         }
-        if (size_ == inlineCapacity) {
-            overflowValues.assign(inlineValues.begin(), inlineValues.end());
-        }
-        overflowValues.push_back(codepoint);
-        ++size_;
+        values[size_++] = codepoint;
+        return true;
     }
 
     bool GraphemeBuffer::empty() const {
@@ -988,7 +1024,7 @@ namespace {
     }
 
     const u32* GraphemeBuffer::data() const {
-        return size_ <= inlineCapacity ? inlineValues.data() : overflowValues.data();
+        return values;
     }
 }
 
@@ -1214,28 +1250,24 @@ VtKey VtermInput::specialKey(InputKey key, u16 modifiers) const {
 }
 
 bool VtermInput::paste(bool primary) {
-    if (terminal->composer.clipboard == nullptr) {
+    Clipboard* const clipboard = terminal->composer.window->clipboard();
+    if (clipboard == nullptr || terminal->composer.ptyOutputs == nullptr || terminal->composer.ptyOutput == nullptr) {
         return false;
     }
-    const StringView text = primary ? terminal->composer.clipboard->readPrimary() : terminal->composer.clipboard->readClipboard();
-    if (text.empty()) {
-        return false;
+    Output* const insertion = terminal->composer.ptyOutput;
+    terminal->composer.ptyOutput = terminal->composer.ptyOutputs->append();
+    PasteOutput* const output = terminal->composer.smallObjects->make<PasteOutput>(terminal->composer.smallObjects, insertion, terminal->bracketedPasteMode);
+    if (primary) {
+        clipboard->readPrimary(output);
+    } else {
+        clipboard->readClipboard(output);
     }
-    terminal->paste(text);
     return true;
 }
 
 ScreenHyperlink VtermInput::resolveLink(int pixelX, int pixelY) {
     const ScreenHyperlink link = terminal->resolveHyperlink(pixelX, pixelY);
-    if (link.payload.empty() || link.displayId != 0) {
-        return link;
-    }
-    DesktopActions* const desktop = terminal->composer.desktopActions;
-    if (desktop == nullptr || link.scheme.empty()) {
-        return {};
-    }
-    const StringView scheme = link.scheme.lower(schemeScratch);
-    return desktop->handlesUriScheme(scheme) ? link : ScreenHyperlink{};
+    return terminal->composer.window->desktopActions() == nullptr ? ScreenHyperlink{} : link;
 }
 
 bool VtermInput::refreshHyperlink() {
@@ -1251,8 +1283,9 @@ bool VtermInput::refreshHyperlink() {
     hoveredLinkBegin = next.begin;
     hoveredLinkEnd = next.end;
     const bool active = hoveredHyperlink != 0 || hoveredLinkBegin < hoveredLinkEnd;
-    if (active != wasActive && terminal->composer.desktopActions != nullptr) {
-        terminal->composer.desktopActions->pointerIcon(active ? PointerIcon::Link : PointerIcon::Text);
+    DesktopActions* const desktopActions = terminal->composer.window->desktopActions();
+    if (active != wasActive && desktopActions != nullptr) {
+        desktopActions->pointerIcon(active ? PointerIcon::Link : PointerIcon::Text);
     }
     return true;
 }
@@ -1362,6 +1395,142 @@ void VtermInput::flush() {
     terminal->writeKittyKey(pending.primary, 0, pending.base, pending.modifiers, pending.event);
 }
 
+PasteOutput::PasteOutput(SmallObjAllocator* allocator_, Output* output_, bool bracketed_)
+    : allocator(allocator_)
+    , output(output_)
+    , bracketed(bracketed_)
+{
+}
+
+PasteOutput::~PasteOutput() noexcept {
+    if (started && bracketed) {
+        output->write(StringView(u8"\x1b[201~").data(), 6);
+    }
+    delete output;
+}
+
+void PasteOutput::operator delete(PasteOutput* output, std::destroying_delete_t) noexcept {
+    SmallObjAllocator* const allocator = output->allocator;
+    allocator->release(output);
+}
+
+size_t PasteOutput::writeImpl(const void* data, size_t size) {
+    if (size == 0) {
+        return 0;
+    }
+    begin();
+    scratch.reset();
+    scratch.grow(size);
+    const u8* const source = static_cast<const u8*>(data);
+    u8* const target = static_cast<u8*>(scratch.mutData());
+    for (size_t index = 0; index < size; ++index) {
+        target[index] = source[index] == '\n' ? '\r' : source[index];
+    }
+    scratch.seekAbsolute(size);
+    output->write(scratch.data(), scratch.used());
+    return size;
+}
+
+void PasteOutput::begin() {
+    if (started) {
+        return;
+    }
+    started = true;
+    if (bracketed) {
+        output->write(StringView(u8"\x1b[200~").data(), 6);
+    }
+}
+
+ClipboardCopyOutput::ClipboardCopyOutput(SmallObjAllocator* allocator_, Clipboard* clipboard_)
+    : allocator(allocator_)
+    , clipboard(clipboard_)
+{
+}
+
+void ClipboardCopyOutput::operator delete(ClipboardCopyOutput* output, std::destroying_delete_t) noexcept {
+    SmallObjAllocator* const allocator = output->allocator;
+    allocator->release(output);
+}
+
+size_t ClipboardCopyOutput::writeImpl(const void* data, size_t size) {
+    content.append(data, size);
+    return size;
+}
+
+void ClipboardCopyOutput::finishImpl() {
+    if (!content.empty()) {
+        clipboard->writeClipboard(StringView(content));
+    }
+}
+
+ClipboardQueryOutput::ClipboardQueryOutput(
+    SmallObjAllocator* allocator_,
+    Clipboard* clipboard_,
+    Output* output_,
+    bool tryClipboard_,
+    u8 replySelector_,
+    bool selectorsEmpty_,
+    bool send8BitControls_
+)
+    : allocator(allocator_)
+    , clipboard(clipboard_)
+    , output(output_)
+    , tryClipboard(tryClipboard_)
+    , replySelector(replySelector_)
+    , selectorsEmpty(selectorsEmpty_)
+    , send8BitControls(send8BitControls_)
+{
+}
+
+ClipboardQueryOutput::~ClipboardQueryOutput() noexcept {
+    delete output;
+}
+
+void ClipboardQueryOutput::operator delete(ClipboardQueryOutput* output, std::destroying_delete_t) noexcept {
+    SmallObjAllocator* const allocator = output->allocator;
+    allocator->release(output);
+}
+
+size_t ClipboardQueryOutput::writeImpl(const void* data, size_t size) {
+    content.append(data, size);
+    return size;
+}
+
+void ClipboardQueryOutput::finishImpl() {
+    if (content.empty() && tryClipboard) {
+        ClipboardQueryOutput* const fallback = allocator->make<ClipboardQueryOutput>(
+            allocator,
+            clipboard,
+            output,
+            false,
+            replySelector,
+            selectorsEmpty,
+            send8BitControls
+        );
+        output = nullptr;
+        clipboard->readClipboard(fallback);
+        return;
+    }
+    reply();
+}
+
+void ClipboardQueryOutput::reply() {
+    Buffer encoded;
+    base64Encode(StringView(content), encoded);
+    StringBuilder reply;
+    reply << (send8BitControls ? StringView(u8"\x9d") : StringView(u8"\x1b]")) << StringView(u8"52;");
+    if (selectorsEmpty) {
+        reply << StringView(u8"s0");
+    } else if (replySelector != 0) {
+        reply.append(&replySelector, 1);
+    }
+    reply << StringView(u8";") << StringView(encoded) << (send8BitControls ? StringView(u8"\x9c") : StringView(u8"\x1b\\"));
+    const StringView bytes(reply);
+    output->write(bytes.data(), bytes.length());
+    delete output;
+    output = nullptr;
+}
+
 bool VtermInput::key(const KeyInput& input) {
     flush();
     updatePointerModifiers(input);
@@ -1397,11 +1566,9 @@ bool VtermInput::key(const KeyInput& input) {
     }
     if (input.baseCodepoint == 'c' && modifiers == VtModifier::shift_control) {
         runLocal([&]() {
-            if (terminal->composer.clipboard != nullptr) {
-                const StringView content = terminal->composer.clipboard->readPrimary();
-                if (!content.empty()) {
-                    terminal->composer.clipboard->writeClipboard(content);
-                }
+            Clipboard* const clipboard = terminal->composer.window->clipboard();
+            if (clipboard != nullptr) {
+                clipboard->readPrimary(terminal->composer.smallObjects->make<ClipboardCopyOutput>(terminal->composer.smallObjects, clipboard));
             }
         });
         return true;
@@ -1568,9 +1735,10 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
         hyperlinkClick = false;
         if (input.modifiers & InputControl) {
             const ScreenHyperlink link = resolveLink(input.pixelX, input.pixelY);
-            if (!link.payload.empty() && terminal->composer.desktopActions != nullptr) {
+            DesktopActions* const desktopActions = terminal->composer.window->desktopActions();
+            if (!link.payload.empty() && desktopActions != nullptr) {
                 hyperlinkClick = true;
-                terminal->composer.desktopActions->openUri(link.payload);
+                desktopActions->openUri(link.payload);
                 return true;
             }
         }
@@ -1597,10 +1765,11 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
     if (input.button == PointerButton::Primary || input.button == PointerButton::Secondary) {
         mouse.endSelection();
         const VtermTextResult selected = terminal->selectionFinish();
-        if (selected.status && terminal->composer.clipboard != nullptr) {
-            terminal->composer.clipboard->writePrimary(selected.text);
+        Clipboard* const clipboard = terminal->composer.window->clipboard();
+        if (selected.status && clipboard != nullptr) {
+            clipboard->writePrimary(selected.text);
             if (opts.autoCopyMode) {
-                terminal->composer.clipboard->writeClipboard(selected.text);
+                clipboard->writeClipboard(selected.text);
             }
         }
     } else if (input.button == PointerButton::Middle) {
@@ -1698,7 +1867,6 @@ VtermImpl::~VtermImpl() {
     }
     delete framePriPool;
     delete frameAltPool;
-    composer.vterm = nullptr;
 }
 
 void VtermImpl::createFreshScreen(Screen*& frame, ObjPool*& pool, u16 saveLines) {
@@ -1754,9 +1922,6 @@ void VtermImpl::feedPty(StringView bytes) {
         dump->write(bytes.data(), bytes.length());
     }
     processInput(bytes.data(), (int)(bytes.length()));
-    if (composer.pty != nullptr) {
-        composer.pty->outputReady();
-    }
 }
 
 void VtermImpl::expose() {
@@ -1793,9 +1958,6 @@ void VtermImpl::pointerPresence(bool present) {
 
 void VtermImpl::flush() {
     input.flush();
-    if (composer.pty != nullptr) {
-        composer.pty->outputReady();
-    }
     composer.application->defer();
 }
 
@@ -1912,23 +2074,6 @@ void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const 
     update.cursorBlink = frame.getCursorBlink();
 }
 
-StringView VtermImpl::ptyOutput() {
-    if (ptyOutputOffset == ptyBuffer.used()) {
-        return {};
-    }
-    return StringView((const u8*)(ptyBuffer.data()) + ptyOutputOffset, ptyBuffer.used() - ptyOutputOffset);
-}
-
-void VtermImpl::consumePtyOutput(size_t bytes) {
-    const size_t pending = ptyBuffer.used() - ptyOutputOffset;
-    STD_ASSERT(bytes <= pending);
-    ptyOutputOffset += bytes;
-    if (ptyOutputOffset == ptyBuffer.used()) {
-        ptyBuffer.reset();
-        ptyOutputOffset = 0;
-    }
-}
-
 const TerminalUpdate* VtermImpl::output() {
     if (!outputPending) {
         return nullptr;
@@ -1973,7 +2118,6 @@ TestApiImpl::TestApiImpl(VtermImpl* vterm_)
 VtermTestState TestApiImpl::inspect() const {
     VtermTestState result;
     result.mouse = vterm->mouseTrk;
-    result.droppedPtyResponses = vterm->droppedPtyResponses;
     result.kittyKeyboardFlags = vterm->getKittyKeyboardFlags();
     result.screenReverseVideo = vterm->screenReverseVideo;
     result.ledState = vterm->ledState;
@@ -2029,10 +2173,6 @@ bool TestApiImpl::privateMode(u32 mode) const {
             return vterm->autoRepeatMode;
         case 12:
             return vterm->cursorBlinkMode;
-        case 18:
-            return vterm->printFormFeedMode;
-        case 19:
-            return vterm->printExtentMode;
         case 40:
             return vterm->allowColumnMode;
         case 41:
@@ -2503,7 +2643,6 @@ void VtermImpl::resetTerminal() {
     titleModes = 0;
     titleStack.clear();
     notifications.clear();
-    activeNotificationIds.clear();
 
     horizMarginMode = false;
     hMargin = 0;
@@ -2539,9 +2678,6 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     synchronizedOutputMode = false;
     colorSchemeUpdateMode = false;
     inBandResizeMode = false;
-    autoPrintMode = false;
-    printFormFeedMode = false;
-    printExtentMode = false;
     screenReverseVideo = false;
     frame_pri->setScreenReverseVideo(false);
     frame_alt->setScreenReverseVideo(false);
@@ -2922,9 +3058,11 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
     if (inputGraphemeScreen == cf && !graphemeBoundary) {
         const u32 previous = inputGrapheme.empty() ? inputGraphemeBase : inputGrapheme.data()[inputGrapheme.size() - 1];
         if (inputGrapheme.empty()) {
-            inputGrapheme.push_back(inputGraphemeBase);
+            inputGrapheme.pushBack(inputGraphemeBase);
         }
-        inputGrapheme.push_back(pt);
+        if (!inputGrapheme.pushBack(pt)) {
+            return;
+        }
         u16 targetX = inputGraphemeX;
         u16 targetY = inputGraphemeY;
         bool wide = inputGraphemeWide;
@@ -3050,7 +3188,7 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
             continue;
         }
         if constexpr (!insert) {
-            if (autoWrapMode && lastCol && !autoPrintMode && horizMarginMode && posY == marginBottom - 1 && (hMargin != 0 || nColsEff != composer.columns)) {
+            if (autoWrapMode && lastCol && horizMarginMode && posY == marginBottom - 1 && (hMargin != 0 || nColsEff != composer.columns)) {
                 const u16 lineWidth = nColsEff - hMargin;
                 const u16 fullLines = min<size_t>(size / lineWidth, 0xffff);
                 if (fullLines >= 2) {
@@ -3157,6 +3295,52 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
         }
         input += count;
         size -= count;
+    }
+}
+
+void VtermImpl::placeRepeatedCodepoint(u32 codepoint, u32 count) {
+    while (count != 0) {
+        if (autoWrapMode && lastCol) {
+            cf->setWrapped(posY, posX);
+            inp_CR();
+            inp_LF();
+        }
+
+        const u8 lineAttribute = cf->lineAttribute(posY);
+        const u16 lineCols = lineAttribute ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2) : nColsEff;
+        if (posX >= lineCols) {
+            utf8dec.setUnicode(codepoint);
+            placeGraphicChar(true, 1);
+            --count;
+            continue;
+        }
+        const u16 written = min<u32>(count, lineCols - posX);
+        const u16 startX = posX;
+        const u16 endX = startX + written;
+        cf->writeRepeatedCodepoint(posY, startX, written, codepoint, attrs, activeHyperlink, currentSemantic, eraseAttrs);
+
+        inputGrapheme.clear();
+        inputGraphemeBase = codepoint;
+        inputGraphemeScreen = cf;
+        inputGraphemeX = endX - 1;
+        inputGraphemeY = posY;
+        inputGraphemeWide = false;
+        inputGraphemeAttrs = attrs;
+        inputGraphemeHyperlink = activeHyperlink;
+        inputGraphemeSemantic = currentSemantic;
+
+        if (endX == lineCols) {
+            posX = lineCols - 1;
+            lastCol = true;
+        } else {
+            posX = endX;
+            lastCol = false;
+        }
+        count -= written;
+    }
+    utf8dec.setUnicode(codepoint);
+    if (attrs.blink) {
+        enableBlinkingText();
     }
 }
 
@@ -3394,9 +3578,6 @@ bool VtermImpl::esc_IND() {
 }
 
 bool VtermImpl::performIndex() {
-    if (autoPrintMode) {
-        printLine(posY);
-    }
     bool scrolled = false;
     if (posY == marginBottom - 1) {
         if (posX >= hMargin && posX < nColsEff) {
@@ -3408,38 +3589,6 @@ bool VtermImpl::performIndex() {
         lastCol = false;
     }
     return scrolled;
-}
-
-std::string VtermImpl::printableLine(u16 row) const {
-    std::string result;
-    cf->appendPrintableLine(row, result);
-    return result;
-}
-
-void VtermImpl::printLine(u16 row) {
-    const std::string line = printableLine(std::min<u16>(row, composer.rows - 1));
-    host.print(stringView(line));
-}
-
-void VtermImpl::mediaCopyScreen() {
-    std::string screen;
-    const u16 firstRow = printExtentMode ? 0 : marginTop;
-    const u16 lastRow = printExtentMode ? composer.rows : marginBottom;
-    for (u16 row = firstRow; row < lastRow; ++row) {
-        screen += printableLine(row);
-    }
-    if (printFormFeedMode) {
-        screen.push_back('\f');
-    }
-    host.print(stringView(screen));
-}
-
-void VtermImpl::mediaCopyLine() {
-    printLine(posY);
-}
-
-void VtermImpl::setAutoPrint(bool enabled) {
-    autoPrintMode = enabled;
 }
 
 void VtermImpl::resetLeds() {
@@ -3888,6 +4037,23 @@ void VtermImpl::csi_REP(u32 count) {
         return;
     }
 
+    if (inputGraphemeScreen != cf) {
+        inputGraphemeBreaker.reset();
+    }
+    if (!inputGraphemeBreaker.breakBefore(preceding, true)) {
+        placeGraphicChar(false, width);
+        if (--count == 0) {
+            return;
+        }
+        inputGraphemeBreaker.breakBefore(preceding, true);
+    }
+
+    if (width == 1) {
+        placeRepeatedCodepoint(preceding, count);
+        inputGraphemeBreaker.setBoundaryAfter(preceding);
+        return;
+    }
+
     constexpr u16 batchLimit = 64;
     u32 codepoints[batchLimit];
     u8 widths[batchLimit];
@@ -3895,32 +4061,12 @@ void VtermImpl::csi_REP(u32 count) {
         codepoints[index] = preceding;
         widths[index] = width;
     }
-
-    if (inputGraphemeScreen != cf) {
-        inputGraphemeBreaker.reset();
-    }
-    bool firstBoundary = inputGraphemeBreaker.breakBefore(preceding, true);
-    if (!firstBoundary) {
-        placeGraphicChar(false, width);
-        if (--count == 0) {
-            return;
-        }
-        firstBoundary = inputGraphemeBreaker.breakBefore(preceding, true);
-    }
-
     while (count != 0) {
         const u16 batch = min<u32>(count, batchLimit);
-        for (u16 index = firstBoundary; index < batch; ++index) {
-            inputGraphemeBreaker.breakBefore(preceding, true);
-        }
-        if (width == 2) {
-            placePreparedRun<true>(codepoints, widths, batch);
-        } else {
-            placePreparedRun<false>(codepoints, widths, batch);
-        }
+        placePreparedRun<true>(codepoints, widths, batch);
         count -= batch;
-        firstBoundary = false;
     }
+    inputGraphemeBreaker.setBoundaryAfter(preceding);
 }
 
 void VtermImpl::eraseDisplayAfter() {
@@ -4203,8 +4349,6 @@ ParserModeState VtermImpl::parserModeState() const {
     result.autoWrap = autoWrapMode;
     result.autoRepeat = autoRepeatMode;
     result.cursorBlink = cursorBlinkMode;
-    result.printFormFeed = printFormFeedMode;
-    result.printExtent = printExtentMode;
     result.allowColumnMode = allowColumnMode;
     result.moreFix = moreFixMode;
     result.nationalReplacement = nationalReplacementMode;
@@ -4265,18 +4409,6 @@ void VtermImpl::setAutoWrap(bool enabled) {
 
 void VtermImpl::setAutoRepeat(bool enabled) {
     autoRepeatMode = enabled;
-}
-
-void VtermImpl::setPrintFormFeed(bool enabled) {
-    if (compatLevel >= CompatibilityLevel::VT200) {
-        printFormFeedMode = enabled;
-    }
-}
-
-void VtermImpl::setPrintExtent(bool enabled) {
-    if (compatLevel >= CompatibilityLevel::VT200) {
-        printExtentMode = enabled;
-    }
 }
 
 void VtermImpl::setAllowColumnMode(bool enabled) {
@@ -4489,10 +4621,6 @@ void VtermImpl::dsrCursorPosition(bool privateMode) {
         response << StringView(u8"R");
     }
     writeCsiResponse(StringView(response));
-}
-
-void VtermImpl::dsrPrinterStatus() {
-    writeCsiResponse("?10n");
 }
 
 void VtermImpl::dsrUserDefinedKeys() {
@@ -4899,38 +5027,53 @@ void VtermImpl::osc_SELECTION_FOREGROUND(Color color, bool query) {
 }
 
 void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) {
-    StringView content;
-    if (opts.allowOsc52Read) {
-        if (primary) {
-            content = composer.clipboard->readPrimary();
+    Clipboard* const target = composer.window->clipboard();
+    if (!opts.allowOsc52Read || target == nullptr || composer.ptyOutputs == nullptr || composer.ptyOutput == nullptr) {
+        StringBuilder reply;
+        reply << StringView(u8"52;");
+        if (selectorsEmpty) {
+            reply << StringView(u8"s0");
+        } else if (replySelector != 0) {
+            reply.append(&replySelector, 1);
         }
-        if (content.empty() && clipboard) {
-            content = composer.clipboard->readClipboard();
-        }
+        reply << StringView(u8";");
+        writeOscResponse(StringView(reply));
+        return;
     }
-
-    Buffer encoded;
-    base64Encode(content, encoded);
-    StringBuilder reply;
-    reply << StringView(u8"52;");
-    if (selectorsEmpty) {
-        reply << StringView(u8"s0");
-    } else if (replySelector != 0) {
-        reply.append(&replySelector, 1);
+    Output* const insertion = composer.ptyOutput;
+    composer.ptyOutput = composer.ptyOutputs->append();
+    ClipboardQueryOutput* const output = composer.smallObjects->make<ClipboardQueryOutput>(
+        composer.smallObjects,
+        target,
+        insertion,
+        primary && clipboard,
+        replySelector,
+        selectorsEmpty,
+        send8BitControls
+    );
+    if (primary) {
+        target->readPrimary(output);
+    } else if (clipboard) {
+        target->readClipboard(output);
+    } else {
+        output->finish();
+        delete output;
     }
-    reply << StringView(u8";") << StringView(encoded);
-    writeOscResponse(StringView(reply));
 }
 
 void VtermImpl::osc_CLIPBOARD_WRITE(StringView decoded, bool valid, bool primary, bool clipboard) {
     if (!valid) {
         return;
     }
+    Clipboard* const target = composer.window->clipboard();
+    if (target == nullptr) {
+        return;
+    }
     if (primary) {
-        composer.clipboard->writePrimary(decoded);
+        target->writePrimary(decoded);
     }
     if (clipboard) {
-        composer.clipboard->writeClipboard(decoded);
+        target->writeClipboard(decoded);
     }
 }
 
@@ -5041,9 +5184,12 @@ void VtermImpl::osc_NOTIFICATION_CAPABILITIES(StringView id) {
 
 void VtermImpl::osc_NOTIFICATION_CLOSE(StringView id) {
     const std::string key((const char*)(id.data()), id.length());
-    if (key.empty() || !activeNotificationIds.erase(key)) {
+    if (key.empty()) {
         return;
     }
+    // The notification backend owns completed IDs.  Retaining them in the
+    // terminal just to validate close requests makes terminal state grow
+    // without bound, while forwarding an unknown close is harmless.
     host.notify(stringView(key), {}, {}, true);
     notifications.erase(key);
 }
@@ -5160,9 +5306,6 @@ void VtermImpl::applyNotificationPart(StringView id, StringView payload, bool en
         return;
     }
     host.notify(stringView(key), stringView(notification.title.text), stringView(notification.body.text), false);
-    if (!key.empty()) {
-        activeNotificationIds.insert(key);
-    }
     notifications.erase(key);
 }
 
@@ -6793,10 +6936,6 @@ VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, O
     bgPalIx = defaultBgPalIx;
 
     resetTerminal();
-    composer.resizedListeners.pushBack(composer.pool->make<CallVtermResize>(this));
-    composer.fontChangedListeners.pushBack(composer.pool->make<CallVtermFontChanged>(this));
-    composer.inputSinks.pushBack(this);
-    armTimeout();
 }
 
 void VtermImpl::fontChanged() {
@@ -7055,15 +7194,6 @@ void VtermImpl::writeProtocolResponse(StringView prefix, StringView payload, Str
     protocolResponseScratch = static_cast<Buffer&&>(response);
 }
 
-void VtermImpl::compactPtyOutput() {
-    const size_t pending = ptyBuffer.used() - ptyOutputOffset;
-    if (pending != 0) {
-        memmove(ptyBuffer.mutData(), (const u8*)(ptyBuffer.data()) + ptyOutputOffset, pending);
-    }
-    ptyBuffer.seekAbsolute(pending);
-    ptyOutputOffset = 0;
-}
-
 int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
     if (len == 0) {
         return 0;
@@ -7081,21 +7211,12 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
         const std::string localEcho = getLocalEcho(ucstr, ucstr + len);
         processInput((const u8*)localEcho.data(), (int)localEcho.size());
     }
-    if (ptyOutputOffset == ptyBuffer.used()) {
-        ptyBuffer.reset();
-        ptyOutputOffset = 0;
-    }
-    const size_t pending = ptyBuffer.used() - ptyOutputOffset;
-    if (!userInput && len != 0 && (pending > ptyProtocolHighWater || len > ptyProtocolHighWater - pending)) {
-        ++droppedPtyResponses;
+    Output* const output = composer.ptyOutput;
+    if (output == nullptr) {
         return 0;
     }
-    if (!userInput && ptyOutputOffset != 0 && ptyBuffer.used() + len > ptyProtocolHighWater) {
-        compactPtyOutput();
-    } else if (userInput && ptyOutputOffset != 0 && ptyBuffer.used() + len > ptyBuffer.capacity()) {
-        compactPtyOutput();
-    }
-    ptyBuffer.append(ucstr, len);
+    const StringView bytes(ucstr, len);
+    output->write(bytes.data(), bytes.length());
     return len;
 }
 
@@ -7342,14 +7463,6 @@ bool VtermImpl::windowOperationsAllowed() const {
     return opts.allowWindowOps;
 }
 
-bool VtermImpl::parserHandlesPrinter() const {
-    return host.handlesPrinter();
-}
-
-void VtermImpl::parserPrint(StringView bytes) {
-    host.print(bytes);
-}
-
 void VtermImpl::parserWritePty(StringView bytes) {
     writePty(bytes.data(), bytes.length());
 }
@@ -7437,7 +7550,7 @@ namespace {
 }
 
 size_t VtermImpl::placeAsciiLines(const u8* input, size_t size) {
-    if (insertMode || posX != 0 || lastCol || inputGraphemeScreen != nullptr || horizMarginMode || hMargin != 0 || nColsEff != composer.columns || marginTop != 0 || marginBottom != composer.rows || autoPrintMode) {
+    if (insertMode || posX != 0 || lastCol || inputGraphemeScreen != nullptr || horizMarginMode || hMargin != 0 || nColsEff != composer.columns || marginTop != 0 || marginBottom != composer.rows) {
         return 0;
     }
 
@@ -7684,9 +7797,14 @@ Vterm* Vterm::create(Composer& composer, VtermHost& host, VtermTrace* trace) {
         dump = createOutBuf(composer.pool, *createFDRegular(composer.pool, *fd));
     }
 
-    CellExtraStore::create(composer, (size_t)(composer.columns) * (composer.rows + opts.saveLines));
+    composer.setCellExtras(CellExtraStore::create(composer, (size_t)(composer.columns) * (composer.rows + opts.saveLines)));
     try {
-        return composer.pool->make<VtermImpl>(composer, host, trace, dump);
+        VtermImpl* const vterm = composer.pool->make<VtermImpl>(composer, host, trace, dump);
+        composer.resizedListeners.pushBack(composer.pool->make<CallVtermResize>(vterm));
+        composer.fontChangedListeners.pushBack(composer.pool->make<CallVtermFontChanged>(vterm));
+        composer.inputSinks.pushBack(vterm);
+        vterm->armTimeout();
+        return vterm;
     } catch (...) {
         composer.setCellExtras(nullptr);
         throw;

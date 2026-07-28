@@ -511,7 +511,5 @@ void CellExtraStoreImpl::collect(Vector<TerminalCell*>& cells, u32* const* roots
 CellExtraStore* CellExtraStore::create(Composer& composer, size_t cellCount) {
     STD_ASSERT(composer.cellExtras == nullptr);
     auto* owner = composer.pool->make<CellExtraStoreOwner>();
-    auto* result = CellExtraStoreImpl::create(composer, cellCount, *owner);
-    composer.setCellExtras(result);
-    return result;
+    return CellExtraStoreImpl::create(composer, cellCount, *owner);
 }

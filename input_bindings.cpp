@@ -24,8 +24,8 @@ namespace {
         bool consumed = false;
     };
 
-    struct InputBindingsImpl final: public InputBindings, public InputSink {
-        explicit InputBindingsImpl(Composer& composer);
+    struct InputBindingsImpl final: public InputBindings {
+        InputBindingsImpl();
 
         void add(const InputBinding& binding, IntrusiveList* listeners) override;
         bool key(const KeyInput& input) override;
@@ -41,15 +41,11 @@ namespace {
         static u16 normalizedModifiers(u16 modifiers);
         RegisteredBinding* find(const KeyInput& input);
 
-        Composer& composer_;
         Vector<RegisteredBinding> bindings_;
     };
 }
 
-InputBindingsImpl::InputBindingsImpl(Composer& composer)
-    : composer_(composer)
-{
-    composer_.inputSinks.pushBack(this);
+InputBindingsImpl::InputBindingsImpl() {
 }
 
 void InputBindingsImpl::add(const InputBinding& binding, IntrusiveList* listeners) {
@@ -145,5 +141,5 @@ void InputBindingsImpl::flush() {
 }
 
 InputBindings* InputBindings::create(Composer& composer) {
-    return composer.pool->make<InputBindingsImpl>(composer);
+    return composer.pool->make<InputBindingsImpl>();
 }

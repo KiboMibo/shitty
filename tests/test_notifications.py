@@ -163,13 +163,15 @@ class NotificationProtocolTest(unittest.TestCase):
             terminal.write(b"\x1b]99;i=over;B\x1b\\")
             self.assertEqual(terminal.read_actions(), [])
 
-    def test_close_requires_a_live_nonempty_identifier(self):
+    def test_close_is_forwarded_without_retaining_completed_identifiers(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b]99;p=close;\x1b\\"
                 b"\x1b]99;i=missing:p=close;\x1b\\"
             )
-            self.assertEqual(terminal.read_actions(), [])
+            self.assertEqual(
+                terminal.read_actions(), ["NOTIFY_CLOSE 6d697373696e67"]
+            )
 
             terminal.write(
                 b"\x1b]99;i=job;Title\x1b\\"
@@ -178,7 +180,11 @@ class NotificationProtocolTest(unittest.TestCase):
             )
             self.assertEqual(
                 terminal.read_actions(),
-                ["NOTIFY 6a6f62 5469746c65 ", "NOTIFY_CLOSE 6a6f62"],
+                [
+                    "NOTIFY 6a6f62 5469746c65 ",
+                    "NOTIFY_CLOSE 6a6f62",
+                    "NOTIFY_CLOSE 6a6f62",
+                ],
             )
 
     def test_reusing_identifier_dispatches_an_update(self):

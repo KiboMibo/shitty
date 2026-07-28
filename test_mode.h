@@ -7,11 +7,15 @@
 #pragma once
 
 struct Composer;
+struct Clipboard;
+struct DesktopActions;
 
 struct TestModeInput {
     virtual void testKeyEvent(int key, int scancode, int action, int modifiers) = 0;
     virtual void testTextInput(unsigned codepoint, int modifiers) = 0;
     virtual void testContentScale(float xScale, float yScale) = 0;
+    virtual void testClipboard(Clipboard* clipboard) = 0;
+    virtual void testDesktopActions(DesktopActions* actions) = 0;
 };
 
 int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int argc, char* argv[]);

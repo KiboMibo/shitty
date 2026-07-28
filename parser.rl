@@ -856,40 +856,6 @@
     }
 
     action csiDone {
-        if (parser.enterPrinter) {
-            fnext printer;
-        } else {
-            fnext main;
-        }
-        fbreak;
-    }
-
-    action printerByte {
-        appendPrinter(&fc, 1);
-    }
-
-    action printerEscapePrefix {
-        appendPrinter("\x1b", 1);
-    }
-
-    action printerEscapeBracketPrefix {
-        appendPrinter("\x1b[", 2);
-    }
-
-    action printerEscapeBracket4Prefix {
-        appendPrinter("\x1b[4", 3);
-    }
-
-    action printerCsiPrefix {
-        appendPrinter("\x9b", 1);
-    }
-
-    action printerCsi4Prefix {
-        appendPrinter("\x9b"
-                      "4", 2);
-    }
-
-    action printerEnd {
         fnext main;
         fbreak;
     }
@@ -3252,7 +3218,7 @@
         'e' @csiTrace @{ iface.csi_VPR(countParameter(0)); } |
         'g' @csiTrace @{ dispatchTabClear(); } |
         'h' @csiTrace @{ dispatchStandardModes(true); } |
-        'i' @csiTrace @{ dispatchMediaCopy(false); } |
+        'i' @csiTrace |
         'j' @csiTrace @{ iface.csi_CUB(countParameter(0)); } |
         'k' @csiTrace @{ iface.csi_CUU(countParameter(0)); } |
         'l' @csiTrace @{ dispatchStandardModes(false); } |
@@ -3294,7 +3260,7 @@
         'J' @csiTrace @{ dispatchEraseDisplay(true); } |
         'K' @csiTrace @{ dispatchEraseLine(true); } |
         'h' @csiTrace @{ dispatchPrivateModes(true); } |
-        'i' @csiTrace @{ dispatchMediaCopy(true); } |
+        'i' @csiTrace |
         'l' @csiTrace @{ dispatchPrivateModes(false); } |
         'm' @csiTrace @{ dispatchXtqmodkeys(); } |
         'n' @csiTrace @{ dispatchDsr(true); } |
@@ -3358,67 +3324,6 @@
     ) @csiDone;
 
     csiUnknownFinal = 0x40..0x7e @csiTrace @csiDone;
-
-    printer := (
-        0x1b @{ fnext printerEscape; fbreak; } |
-        0x9b @{ fnext printerCsi; fbreak; } |
-        any @printerByte
-    )*;
-
-    printerEscape := (
-        '[' @{ fnext printerEscapeBracket; fbreak; } |
-        0x1b @printerEscapePrefix
-            @{ fnext printerEscape; fbreak; } |
-        0x9b @printerEscapePrefix
-            @{ fnext printerCsi; fbreak; } |
-        (any - ('[' | 0x1b | 0x9b))
-            @printerEscapePrefix @printerByte
-            @{ fnext printer; fbreak; }
-    )*;
-
-    printerEscapeBracket := (
-        '4' @{ fnext printerEscapeBracket4; fbreak; } |
-        0x1b @printerEscapeBracketPrefix
-            @{ fnext printerEscape; fbreak; } |
-        0x9b @printerEscapeBracketPrefix
-            @{ fnext printerCsi; fbreak; } |
-        (any - ('4' | 0x1b | 0x9b))
-            @printerEscapeBracketPrefix @printerByte
-            @{ fnext printer; fbreak; }
-    )*;
-
-    printerEscapeBracket4 := (
-        'i' @printerEnd |
-        0x1b @printerEscapeBracket4Prefix
-            @{ fnext printerEscape; fbreak; } |
-        0x9b @printerEscapeBracket4Prefix
-            @{ fnext printerCsi; fbreak; } |
-        (any - ('i' | 0x1b | 0x9b))
-            @printerEscapeBracket4Prefix @printerByte
-            @{ fnext printer; fbreak; }
-    )*;
-
-    printerCsi := (
-        '4' @{ fnext printerCsi4; fbreak; } |
-        0x1b @printerCsiPrefix
-            @{ fnext printerEscape; fbreak; } |
-        0x9b @printerCsiPrefix
-            @{ fnext printerCsi; fbreak; } |
-        (any - ('4' | 0x1b | 0x9b))
-            @printerCsiPrefix @printerByte
-            @{ fnext printer; fbreak; }
-    )*;
-
-    printerCsi4 := (
-        'i' @printerEnd |
-        0x1b @printerCsi4Prefix
-            @{ fnext printerEscape; fbreak; } |
-        0x9b @printerCsi4Prefix
-            @{ fnext printerCsi; fbreak; } |
-        (any - ('i' | 0x1b | 0x9b))
-            @printerCsi4Prefix @printerByte
-            @{ fnext printer; fbreak; }
-    )*;
 
     cancel = (0x18 | 0x1a) @cancel;
     restartEscape = 0x1b @beginEscape;

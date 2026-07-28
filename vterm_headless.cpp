@@ -11,7 +11,11 @@
 #include "options.h"
 #include "vterm.h"
 #include "vterm_host.h"
+#include "window.h"
+#include "test_mode.h"
 
+#include <std/ios/out.h>
+#include <std/ios/output.h>
 #include <std/mem/obj_pool.h>
 
 #include <stdexcept>
@@ -28,8 +32,6 @@ namespace {
         void title(StringView) override;
         void cwd(StringView) override;
         void bell() override;
-        bool handlesPrinter() const override;
-        void print(StringView output) override;
         void leds(u8 state) override;
         void notify(StringView id, StringView title, StringView body, bool close) override;
         void progress(u32 state, u32 percent) override;
@@ -43,8 +45,8 @@ namespace {
         explicit VtermHeadlessImpl(Composer& composer);
 
         void feed(const u8* data, size_t len) override;
-        StringView readPrimary() override;
-        StringView readClipboard() override;
+        void readPrimary(Output* output) override;
+        void readClipboard(Output* output) override;
         void writePrimary(StringView) override;
         void writeClipboard(StringView) override;
 
@@ -72,13 +74,6 @@ void HeadlessHost::cwd(StringView) {
 }
 
 void HeadlessHost::bell() {
-}
-
-bool HeadlessHost::handlesPrinter() const {
-    return false;
-}
-
-void HeadlessHost::print(StringView) {
 }
 
 void HeadlessHost::leds(u8) {
@@ -109,8 +104,6 @@ VtermHeadlessImpl::VtermHeadlessImpl(Composer& composer_)
     : composer(composer_)
     , host(composer)
 {
-    composer.clipboard = this;
-    composer.vterm = Vterm::create(composer, host, nullptr);
 }
 
 void VtermHeadlessImpl::feed(const u8* data, size_t len) {
@@ -122,19 +115,19 @@ void VtermHeadlessImpl::feed(const u8* data, size_t len) {
     }
     Vterm* const vterm = composer.vterm;
     vterm->feedPty(StringView(data, len));
-    const StringView pty = vterm->ptyOutput();
-    vterm->consumePtyOutput(pty.length());
     if (vterm->output() != nullptr) {
         vterm->consume();
     }
 }
 
-StringView VtermHeadlessImpl::readPrimary() {
-    return {};
+void VtermHeadlessImpl::readPrimary(Output* output) {
+    output->finish();
+    delete output;
 }
 
-StringView VtermHeadlessImpl::readClipboard() {
-    return {};
+void VtermHeadlessImpl::readClipboard(Output* output) {
+    output->finish();
+    delete output;
 }
 
 void VtermHeadlessImpl::writePrimary(StringView) {
@@ -158,7 +151,14 @@ VtermHeadless* VtermHeadless::create(Composer& composer) {
 
     composer.setGlyphSize(glyphWidth, glyphHeight);
     composer.resize(pixelWidth, pixelHeight);
+    Window* const window = Window::createHeadless(composer);
+    composer.window = window;
     VtermHeadlessImpl* result = composer.pool->make<VtermHeadlessImpl>(composer);
+    window->testApi()->testClipboard(result);
+    if (composer.ptyOutput == nullptr) {
+        composer.ptyOutput = createNullOutput(composer.pool);
+    }
+    composer.vterm = Vterm::create(composer, result->host, nullptr);
     opts.title = title;
     return result;
 }

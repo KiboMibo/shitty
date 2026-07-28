@@ -11,6 +11,7 @@
 
 namespace stl {
     class ObjPool;
+    class Output;
 }
 
 namespace plt {
@@ -20,14 +21,14 @@ namespace plt {
 struct Fontpack;
 struct Application;
 struct CellExtraStore;
-struct Clipboard;
-struct DesktopActions;
 struct Font;
 struct FontMetrics;
 struct InputBindings;
 struct InputSink;
 struct Renderer;
+struct SmallObjAllocator;
 struct Pty;
+struct PtyOutputQueue;
 struct Vterm;
 struct Window;
 struct FontRequest;
@@ -45,13 +46,14 @@ struct Composer {
     Font* loadFont(stl::ObjPool& owner, const FontRequest& request, FontMetrics& metrics);
 
     stl::ObjPool* pool = nullptr;
+    SmallObjAllocator* smallObjects = nullptr;
     Application* application = nullptr;
     CellExtraStore* cellExtras = nullptr;
-    Clipboard* clipboard = nullptr;
-    DesktopActions* desktopActions = nullptr;
     Fontpack* fonts = nullptr;
     InputBindings* inputBindings = nullptr;
     InputSink* input = nullptr;
+    stl::Output* ptyOutput = nullptr;
+    PtyOutputQueue* ptyOutputs = nullptr;
     Renderer* renderer = nullptr;
     Pty* pty = nullptr;
     plt::Platform* platform = nullptr;

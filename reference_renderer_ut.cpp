@@ -40,7 +40,7 @@ namespace {
     void configure(Composer& composer, FakeFontpack& fonts, u16 columns, u16 rows, u16 glyphWidth, u16 glyphHeight) {
         composer.fonts = &fonts;
         composer.setGlyphSize(glyphWidth, glyphHeight);
-        CellExtraStore::create(composer, (size_t)(columns)*rows);
+        composer.setCellExtras(CellExtraStore::create(composer, (size_t)(columns)*rows));
         composer.resize((u16)(columns * glyphWidth + 2 * opts.border), (u16)(rows * glyphHeight + 2 * opts.border));
     }
 

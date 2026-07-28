@@ -12,6 +12,7 @@
 #include "input_sink.h"
 #include "listener.h"
 #include "options.h"
+#include "small_obj_allocator.h"
 #include "test_mode.h"
 #include "vk_renderer.h"
 
@@ -19,15 +20,16 @@
 #include <plt/window.h>
 
 #include <std/alg/minmax.h>
+#include <std/ios/output.h>
 #include <std/lib/buffer.h>
+#include <std/lib/list.h>
 #include <std/mem/obj_pool.h>
 #include <std/sys/throw.h>
 
-#include <cerrno>
 #include <cmath>
+#include <cerrno>
+#include <new>
 #include <spawn.h>
-#include <sys/wait.h>
-#include <unistd.h>
 
 using namespace stl;
 
@@ -76,16 +78,17 @@ namespace {
         void setFullscreen(bool fullscreen) override;
         void resizePixels(u32 width, u32 height) override;
         WindowInfo info() override;
+        Clipboard* clipboard() override;
+        DesktopActions* desktopActions() override;
 
         Renderer* createRender() override;
         TestModeInput* testApi() override;
 
-        StringView readPrimary() override;
-        StringView readClipboard() override;
+        void readPrimary(Output* output) override;
+        void readClipboard(Output* output) override;
         void writePrimary(StringView content) override;
         void writeClipboard(StringView content) override;
 
-        bool handlesUriScheme(StringView scheme) override;
         void openUri(StringView uri) override;
         void pointerIcon(PointerIcon icon) override;
 
@@ -105,27 +108,32 @@ namespace {
 
         void publish(stl::IntrusiveList& listeners, void* argument = nullptr);
         void publishWindow(const ::WindowEvents& events);
-        bool queryUriScheme(StringView scheme);
-
-        struct UriScheme {
-            StringView name;
-            bool handled = false;
-        };
-
-        static constexpr size_t uriSchemeCapacity = 64;
+        void cancelClipboardReads();
 
         Composer& composer;
         plt::Window* native = nullptr;
         Buffer uriBuffer;
-        UriScheme uriSchemes[uriSchemeCapacity];
-        size_t uriSchemeCount = 0;
+        IntrusiveList clipboardReads;
         bool initialized = false;
         bool callbacksActive = false;
     };
 
+    struct ClipboardOutput final: public plt::ClipboardRead, public IntrusiveNode {
+        ClipboardOutput(NativeWindowImpl* window, Output* output);
+
+        void operator delete(ClipboardOutput* read, std::destroying_delete_t) noexcept;
+
+        bool data(StringView chunk) override;
+        void done(bool success) override;
+        void cancel();
+        void complete(bool success);
+
+        NativeWindowImpl* window;
+        Output* output;
+    };
+
     struct HeadlessWindowImpl final: public Window, public TestModeInput {
         explicit HeadlessWindowImpl(Composer& composer);
-        ~HeadlessWindowImpl();
 
         void initialize() override;
         void show() override;
@@ -145,6 +153,8 @@ namespace {
         void setFullscreen(bool fullscreen) override;
         void resizePixels(u32 width, u32 height) override;
         WindowInfo info() override;
+        Clipboard* clipboard() override;
+        DesktopActions* desktopActions() override;
 
         Renderer* createRender() override;
         TestModeInput* testApi() override;
@@ -152,24 +162,22 @@ namespace {
         void testKeyEvent(int key, int scancode, int action, int modifiers) override;
         void testTextInput(unsigned codepoint, int modifiers) override;
         void testContentScale(float xScale, float yScale) override;
+        void testClipboard(Clipboard* clipboard) override;
+        void testDesktopActions(DesktopActions* actions) override;
 
         Composer& composer;
+        Clipboard* clipboard_ = nullptr;
+        DesktopActions* desktopActions_ = nullptr;
     };
 }
 
 NativeWindowImpl::NativeWindowImpl(Composer& composer_)
     : composer(composer_)
 {
-    composer.window = this;
-    composer.clipboard = this;
-    composer.desktopActions = this;
 }
 
 NativeWindowImpl::~NativeWindowImpl() {
-    composer.platform = nullptr;
-    composer.window = nullptr;
-    composer.clipboard = nullptr;
-    composer.desktopActions = nullptr;
+    cancelClipboardReads();
 }
 
 void NativeWindowImpl::initialize() {
@@ -177,7 +185,6 @@ void NativeWindowImpl::initialize() {
         return;
     }
     initialized = true;
-    composer.platform = plt::Platform::create(*composer.pool);
     native = composer.platform->createWindow(
         *composer.pool,
         {
@@ -275,6 +282,14 @@ WindowInfo NativeWindowImpl::info() {
     };
 }
 
+Clipboard* NativeWindowImpl::clipboard() {
+    return this;
+}
+
+DesktopActions* NativeWindowImpl::desktopActions() {
+    return this;
+}
+
 Renderer* NativeWindowImpl::createRender() {
     const plt::RenderContext context = native->renderContext();
     return Renderer::create(composer, context);
@@ -284,12 +299,16 @@ TestModeInput* NativeWindowImpl::testApi() {
     return nullptr;
 }
 
-StringView NativeWindowImpl::readPrimary() {
-    return native->readPrimary();
+void NativeWindowImpl::readPrimary(Output* output) {
+    ClipboardOutput* const read = composer.smallObjects->make<ClipboardOutput>(this, output);
+    clipboardReads.pushBack(read);
+    native->readPrimary(*read);
 }
 
-StringView NativeWindowImpl::readClipboard() {
-    return native->readClipboard();
+void NativeWindowImpl::readClipboard(Output* output) {
+    ClipboardOutput* const read = composer.smallObjects->make<ClipboardOutput>(this, output);
+    clipboardReads.pushBack(read);
+    native->readClipboard(*read);
 }
 
 void NativeWindowImpl::writePrimary(StringView content) {
@@ -298,85 +317,6 @@ void NativeWindowImpl::writePrimary(StringView content) {
 
 void NativeWindowImpl::writeClipboard(StringView content) {
     native->writeClipboard(content);
-}
-
-bool NativeWindowImpl::queryUriScheme(StringView scheme) {
-    Buffer mime;
-    mime.append("x-scheme-handler/", 17);
-    mime.append(scheme.data(), scheme.length());
-
-    int output[2];
-    if (pipe(output) != 0) {
-        return false;
-    }
-    posix_spawn_file_actions_t actions;
-    if (posix_spawn_file_actions_init(&actions) != 0) {
-        ::close(output[0]);
-        ::close(output[1]);
-        return false;
-    }
-    posix_spawn_file_actions_adddup2(&actions, output[1], STDOUT_FILENO);
-    posix_spawn_file_actions_addclose(&actions, output[0]);
-    posix_spawn_file_actions_addclose(&actions, output[1]);
-
-    char* const arguments[] = {
-        (char*)("xdg-mime"),
-        (char*)("query"),
-        (char*)("default"),
-        mime.cStr(),
-        nullptr,
-    };
-    pid_t pid = -1;
-    const int spawned = posix_spawnp(&pid, arguments[0], &actions, nullptr, arguments, environ);
-    posix_spawn_file_actions_destroy(&actions);
-    ::close(output[1]);
-    if (spawned != 0) {
-        ::close(output[0]);
-        return false;
-    }
-
-    bool content = false;
-    u8 bytes[256];
-    for (;;) {
-        const ssize_t count = read(output[0], bytes, sizeof(bytes));
-        if (count > 0) {
-            for (ssize_t index = 0; index < count; ++index) {
-                content |= bytes[index] > ' ';
-            }
-            continue;
-        }
-        if (count < 0 && errno == EINTR) {
-            continue;
-        }
-        break;
-    }
-    ::close(output[0]);
-
-    int status = 0;
-    while (waitpid(pid, &status, 0) < 0) {
-        if (errno != EINTR) {
-            return false;
-        }
-    }
-    return content && WIFEXITED(status) && WEXITSTATUS(status) == 0;
-}
-
-bool NativeWindowImpl::handlesUriScheme(StringView scheme) {
-    for (size_t index = 0; index < uriSchemeCount; ++index) {
-        const UriScheme& cached = uriSchemes[index];
-        if (cached.name == scheme) {
-            return cached.handled;
-        }
-    }
-    if (uriSchemeCount == uriSchemeCapacity) {
-        return false;
-    }
-    const bool handled = queryUriScheme(scheme);
-    uriSchemes[uriSchemeCount++] = {
-        .name = composer.pool->intern(scheme),
-        .handled = handled,
-    };
-    return handled;
 }
 
 void NativeWindowImpl::openUri(StringView uri) {
@@ -405,6 +345,48 @@ void NativeWindowImpl::publish(IntrusiveList& listeners, void* argument) {
 
 void NativeWindowImpl::publishWindow(const ::WindowEvents& events) {
     publish(composer.windowEventListeners, (void*)(&events));
+}
+
+void NativeWindowImpl::cancelClipboardReads() {
+    while (!clipboardReads.empty()) {
+        static_cast<ClipboardOutput*>(clipboardReads.mutFront())->cancel();
+    }
+}
+
+ClipboardOutput::ClipboardOutput(NativeWindowImpl* window_, Output* output_)
+    : window(window_)
+    , output(output_)
+{
+}
+
+void ClipboardOutput::operator delete(ClipboardOutput* read, std::destroying_delete_t) noexcept {
+    SmallObjAllocator* const allocator = read->window->composer.smallObjects;
+    allocator->release(read);
+}
+
+bool ClipboardOutput::data(StringView chunk) {
+    output->write(chunk.data(), chunk.length());
+    return true;
+}
+
+void ClipboardOutput::done(bool success) {
+    complete(success);
+}
+
+void ClipboardOutput::cancel() {
+    window->native->cancelClipboardRead(*this);
+    complete(false);
+}
+
+void ClipboardOutput::complete(bool success) {
+    unlink();
+    Output* const completed = output;
+    output = nullptr;
+    if (success) {
+        completed->finish();
+    }
+    delete completed;
+    delete this;
 }
 
 void NativeWindowImpl::close() {
@@ -487,11 +469,6 @@ void NativeWindowImpl::flush() {
 HeadlessWindowImpl::HeadlessWindowImpl(Composer& composer_)
     : composer(composer_)
 {
-    composer.window = this;
-}
-
-HeadlessWindowImpl::~HeadlessWindowImpl() {
-    composer.window = nullptr;
 }
 
 void HeadlessWindowImpl::initialize() {
@@ -551,6 +528,14 @@ WindowInfo HeadlessWindowImpl::info() {
     };
 }
 
+Clipboard* HeadlessWindowImpl::clipboard() {
+    return clipboard_;
+}
+
+DesktopActions* HeadlessWindowImpl::desktopActions() {
+    return desktopActions_;
+}
+
 Renderer* HeadlessWindowImpl::createRender() {
     Errno(ENOTSUP).raise(StringView(u8"headless window has no renderer"));
 }
@@ -569,6 +554,14 @@ void HeadlessWindowImpl::testTextInput(unsigned codepoint, int modifiers) {
 
 void HeadlessWindowImpl::testContentScale(float xScale, float yScale) {
     TestInputTranslator::contentScale(composer, xScale, yScale);
+}
+
+void HeadlessWindowImpl::testClipboard(Clipboard* clipboard) {
+    clipboard_ = clipboard;
+}
+
+void HeadlessWindowImpl::testDesktopActions(DesktopActions* actions) {
+    desktopActions_ = actions;
 }
 
 InputKey TestInputTranslator::key(int key) {

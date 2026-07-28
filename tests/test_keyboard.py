@@ -12,12 +12,12 @@ class KeyboardTest(unittest.TestCase):
         payload = b"0123456789abcdef" * 16384
         with Shitty(columns=8, rows=2) as terminal:
             terminal.paste(payload)
-            self.assertGreater(terminal.pending_output(), 0)
 
             received = bytearray()
-            while terminal.pending_output():
+            complete = False
+            while not complete:
                 received.extend(terminal.read_input())
-                terminal.flush_output()
+                complete = terminal.flush_output_result()
             received.extend(terminal.read_input())
             self.assertEqual(received, payload)
 

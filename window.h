@@ -10,6 +10,8 @@
 #include <std/sys/types.h>
 
 struct Composer;
+struct Clipboard;
+struct DesktopActions;
 struct Renderer;
 struct TestModeInput;
 
@@ -48,6 +50,8 @@ struct Window {
     virtual void setFullscreen(bool fullscreen) = 0;
     virtual void resizePixels(u32 width, u32 height) = 0;
     virtual WindowInfo info() = 0;
+    virtual Clipboard* clipboard() = 0;
+    virtual DesktopActions* desktopActions() = 0;
 
     virtual Renderer* createRender() = 0;
     virtual TestModeInput* testApi() = 0;

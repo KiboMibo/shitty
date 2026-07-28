@@ -29,7 +29,6 @@ def reset(terminal):
     terminal.write(b"\x18\x1bc")
     terminal.read_input()
     terminal.read_actions()
-    terminal.read_printer()
 
 
 def visible_hyperlinks(terminal, snapshot):
@@ -51,7 +50,6 @@ def compare_member(whole, chunked, payload):
     comparisons = (
         ("PTY reply", whole.read_input(), chunked.read_input()),
         ("actions", whole.read_actions(), chunked.read_actions()),
-        ("printer output", whole.read_printer(), chunked.read_printer()),
         ("input state", whole.state(), chunked.state()),
         ("protocol state", whole.protocol_state(), chunked.protocol_state()),
         (

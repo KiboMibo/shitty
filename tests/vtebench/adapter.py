@@ -113,7 +113,6 @@ def observable(terminal):
     return (
         terminal.read_input(),
         terminal.read_actions(),
-        terminal.read_printer(),
         terminal.state(),
         terminal.protocol_state(),
         terminal.conformance_state(),

@@ -180,12 +180,12 @@ namespace {
         void writeAsciiLines(u16 row, const u8* input, const u16* lengths, u16 lineCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         WriteResult writeAsciiRunInsert(u16 row, u16 column, u16 normalEnd, u16 doubleEnd, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeRun(u16 row, u16 column, const u32* codepoints, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
+        void writeRepeatedCodepoint(u16 row, u16 column, u16 count, u32 codepoint, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeGlyphRun(u16 row, u16 column, const u32* codepoints, const u8* widths, u16 glyphCount, u16 cellCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void fillRectangle(u16 top, u16 left, u16 bottom, u16 right, u32 codepoint, const TerminalCell& attrs, const TerminalCell& eraseAttrs) override;
         void copyRectangle(u16 sourceTop, u16 sourceLeft, u16 targetTop, u16 targetLeft, u16 height, u16 width, const TerminalCell& eraseAttrs) override;
         void changeRectangleAttributes(u16 top, u16 left, u16 bottom, u16 right, CellAttributeChange change) override;
         u16 checksum(u16 top, u16 left, u16 bottom, u16 right) const noexcept override;
-        void appendPrintableLine(u16 row, std::string& output) const override;
         ScreenHyperlink hyperlinkAt(u16 row, u16 column) const override;
         TerminalCell testCell(u16 row, u16 column) const noexcept override;
         TerminalCellBatch copyDamage(TerminalCellSpan* spans) const override;
@@ -2306,6 +2306,23 @@ void ScreenImpl<Coord, Epoch>::writeRun(u16 row, u16 column, const u32* codepoin
 }
 
 template <typename Coord, typename Epoch>
+void ScreenImpl<Coord, Epoch>::writeRepeatedCodepoint(u16 row, u16 column, u16 count, u32 codepoint, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
+    TerminalCell cell = attrs;
+    if (hyperlink != 0 || cell.hasExtra()) {
+        cellExtras().setHyperlink(cell, hyperlink);
+    }
+    cell.uc_pt = codepoint;
+    cell.drawn = 1;
+    cell.semantic = semantic;
+    RowSlot& slot = logicalRowSlot(row);
+    TerminalCell* const cells = prepareSpan(slot, row, column, count, eraseAttrs);
+    for (u16 index = 0; index < count; ++index) {
+        cells[index] = cell;
+    }
+    slot->metadata.protection |= cell.protected_char;
+}
+
+template <typename Coord, typename Epoch>
 void ScreenImpl<Coord, Epoch>::writeGlyphRun(u16 row, u16 column, const u32* codepoints, const u8* widths, u16 glyphCount, u16 cellCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
     TerminalCell linkedAttrs = attrs;
     if (hyperlink != 0 || linkedAttrs.hasExtra()) {
@@ -2417,35 +2434,6 @@ u16 ScreenImpl<Coord, Epoch>::checksum(u16 top, u16 left, u16 bottom, u16 right)
         }
     }
     return -result;
-}
-
-template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::appendPrintableLine(u16 row, std::string& output) const {
-    std::vector<u32> codepoints;
-    const TerminalCell* cells_ = getLogicalRowPtr(row);
-    CellExtraStore& extras = cellExtras();
-    for (u16 column = 0; column < nCols; ++column) {
-        const TerminalCell& cell = cells_[column];
-        if (cell.dwidth_cont) {
-            continue;
-        }
-        const GraphemeView grapheme = extras.grapheme(cell);
-        if (grapheme.empty()) {
-            codepoints.push_back(cell.uc_pt ? cell.uc_pt : ' ');
-        } else {
-            codepoints.insert(codepoints.end(), grapheme.begin(), grapheme.end());
-        }
-    }
-    while (!codepoints.empty() && codepoints.back() == ' ') {
-        codepoints.pop_back();
-    }
-    const auto sink = [&output](char ch) {
-        output.push_back(ch);
-    };
-    for (u32 codepoint : codepoints) {
-        Utf8Encoder::pushUnicode(codepoint, sink);
-    }
-    output.push_back('\n');
 }
 
 template <typename Coord, typename Epoch>

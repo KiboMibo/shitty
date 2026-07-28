@@ -18,7 +18,6 @@ struct VtermTestCell {
 
 struct VtermTestState {
     MouseTrackingState mouse;
-    u64 droppedPtyResponses = 0;
     u8 kittyKeyboardFlags = 0;
     bool screenReverseVideo = false;
     u8 ledState = 0;

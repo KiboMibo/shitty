@@ -215,8 +215,6 @@ struct Vterm {
 
     virtual bool expireSynchronizedOutput(bool force) = 0;
     virtual bool advanceAnimation(bool force) = 0;
-    virtual stl::StringView ptyOutput() = 0;
-    virtual void consumePtyOutput(size_t bytes) = 0;
     virtual const TerminalUpdate* output() = 0;
     virtual void consume() = 0;
     virtual VtermState state() const = 0;

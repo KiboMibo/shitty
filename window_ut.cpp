@@ -90,14 +90,14 @@ void CountListener::onListen(void*) {
 }
 
 STD_TEST_SUITE(Window) {
-    STD_TEST(HeadlessRegistersOnlyWindowRole) {
+    STD_TEST(HeadlessFactoryDoesNotWireComposer) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
         Window* const window = Window::createHeadless(composer);
 
-        STD_INSIST(composer.window == window);
-        STD_INSIST(composer.clipboard == nullptr);
-        STD_INSIST(composer.desktopActions == nullptr);
+        STD_INSIST(composer.window == nullptr);
+        STD_INSIST(window->clipboard() == nullptr);
+        STD_INSIST(window->desktopActions() == nullptr);
         STD_INSIST(window->testApi() != nullptr);
     }
 
@@ -115,7 +115,9 @@ STD_TEST_SUITE(Window) {
         Composer composer(pool.mutPtr());
         Window* const window = Window::create(composer);
 
-        STD_INSIST(composer.window == window);
+        STD_INSIST(composer.window == nullptr);
+        STD_INSIST(window->clipboard() != nullptr);
+        STD_INSIST(window->desktopActions() != nullptr);
         STD_INSIST(window->testApi() == nullptr);
     }
 
@@ -210,13 +212,14 @@ STD_TEST_SUITE(Window) {
         STD_INSIST(listener.calls == 1);
     }
 
-    STD_TEST(WindowDestructionClearsComposerRole) {
+    STD_TEST(WindowDestructionDoesNotChangeComposerWiring) {
         ObjPool* pool = ObjPool::fromMemoryRaw();
         Composer composer(pool);
-        Window::createHeadless(composer);
+        Window* const window = Window::createHeadless(composer);
+        composer.window = window;
 
         delete pool;
 
-        STD_INSIST(composer.window == nullptr);
+        STD_INSIST(composer.window == window);
     }
 }

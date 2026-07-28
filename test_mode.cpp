@@ -20,6 +20,7 @@
 #include "mouse_protocol.h"
 #include "mouse_frontend.h"
 #include "pty.h"
+#include "pty_output.h"
 #include "reference_renderer.h"
 #include "startup.h"
 #include "utf8.h"
@@ -30,6 +31,7 @@
 #include "vterm_trace.h"
 
 #include <std/dbg/assert.h>
+#include <std/ios/output.h>
 #include <std/str/builder.h>
 #include <std/str/view.h>
 #include <std/lib/buffer.h>
@@ -73,6 +75,7 @@ namespace {
         void outputReady() override;
         void onListen(void*) override;
 
+        bool flushOutput();
         void setReadHandler(std::function<ssize_t(u8*, size_t)> handler);
         void setWriteHandler(std::function<ssize_t(const u8*, size_t)> handler);
         std::string takeReadData();
@@ -117,8 +120,6 @@ TestPty::TestPty(Composer& composer, int fd)
     if (flags < 0 || fcntl(fd_, F_SETFL, flags | O_NONBLOCK) < 0) {
         throw std::runtime_error("test PTY nonblocking setup failed");
     }
-    applySize();
-    composer_.resizedListeners.pushBack(this);
 }
 
 int TestPty::fd() const {
@@ -142,6 +143,10 @@ void TestPty::outputReady() {
 
 void TestPty::onListen(void*) {
     applySize();
+}
+
+bool TestPty::flushOutput() {
+    return !composer_.ptyOutputs->flush();
 }
 
 void TestPty::applySize() {
@@ -321,8 +326,8 @@ namespace {
     }
 
     struct TestClipboard final: public Clipboard {
-        StringView readPrimary() override;
-        StringView readClipboard() override;
+        void readPrimary(Output* output) override;
+        void readClipboard(Output* output) override;
         void writePrimary(StringView content) override;
         void writeClipboard(StringView content) override;
 
@@ -332,7 +337,6 @@ namespace {
     };
 
     struct TestDesktopActions final: public DesktopActions {
-        bool handlesUriScheme(StringView scheme) override;
         void openUri(StringView uri) override;
         void pointerIcon(PointerIcon icon) override;
 
@@ -352,7 +356,7 @@ namespace {
     };
 
     struct TestDisplay final: public VtermHost {
-        TestDisplay(Composer& composer, std::string& actions, std::string& printerOutput);
+        TestDisplay(Composer& composer, std::string& actions);
 
         void attach(TestApi& testApi);
         bool update(const TerminalUpdate& update);
@@ -361,8 +365,6 @@ namespace {
         void title(StringView) override;
         void cwd(StringView) override;
         void bell() override;
-        bool handlesPrinter() const override;
-        void print(StringView output) override;
         void leds(u8 state) override;
         void notify(StringView id, StringView title, StringView body, bool close) override;
         void progress(u32 state, u32 percent) override;
@@ -409,7 +411,6 @@ namespace {
         std::vector<CellColor> modelUnderlineColors;
         Composer& composer;
         std::string& actions;
-        std::string& printerOutput;
         Buffer currentCwd;
         TestApi* testApi = nullptr;
         const TerminalColors* colors = nullptr;
@@ -435,8 +436,6 @@ namespace {
         bool readPty(bool flushOutput = true);
         bool servicePty(bool readable, bool writable);
         bool flushPtyOutput();
-        size_t pendingPtyOutputBytes();
-        u64 droppedPtyResponses();
         MouseTrackingState getMouseTrackingState();
         u8 getKittyKeyboardFlags();
         bool getScreenReverseVideo();
@@ -515,12 +514,16 @@ namespace {
 
 }
 
-StringView TestClipboard::readPrimary() {
-    return StringView(primary);
+void TestClipboard::readPrimary(Output* output) {
+    output->write(primary.data(), primary.used());
+    output->finish();
+    delete output;
 }
 
-StringView TestClipboard::readClipboard() {
-    return StringView(system);
+void TestClipboard::readClipboard(Output* output) {
+    output->write(system.data(), system.used());
+    output->finish();
+    delete output;
 }
 
 void TestClipboard::writePrimary(StringView content) {
@@ -540,18 +543,13 @@ void TestDesktopActions::openUri(StringView uri) {
     ++openCount;
 }
 
-bool TestDesktopActions::handlesUriScheme(StringView scheme) {
-    return scheme == StringView(u8"https") || scheme == StringView(u8"mailto");
-}
-
 void TestDesktopActions::pointerIcon(PointerIcon icon_) {
     icon = icon_;
 }
 
-TestDisplay::TestDisplay(Composer& composer_, std::string& actions, std::string& printerOutput)
+TestDisplay::TestDisplay(Composer& composer_, std::string& actions)
     : composer(composer_)
     , actions(actions)
-    , printerOutput(printerOutput)
 {
     currentWindow.x = 10;
     currentWindow.y = 20;
@@ -673,14 +671,6 @@ void TestDisplay::cwd(StringView path) {
 
 void TestDisplay::bell() {
     actions += "BELL\n";
-}
-
-bool TestDisplay::handlesPrinter() const {
-    return composer.vterm != nullptr;
-}
-
-void TestDisplay::print(StringView output) {
-    printerOutput.append((const char*)(output.data()), output.length());
 }
 
 void TestDisplay::leds(u8 state) {
@@ -979,26 +969,7 @@ int TestTerminal::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 
 }
 
 bool TestTerminal::flushPtyOutput() {
-    const StringView output = terminal.ptyOutput();
-    if (output.empty()) {
-        return true;
-    }
-    constexpr size_t maxWrite = 64 * 1024;
-    const size_t size = output.length() < maxWrite ? output.length() : maxWrite;
-    const ssize_t count = pty.write(output.data(), size);
-    if (count <= 0) {
-        return false;
-    }
-    terminal.consumePtyOutput((size_t)(count));
-    return (size_t)(count) == output.length();
-}
-
-size_t TestTerminal::pendingPtyOutputBytes() {
-    return terminal.ptyOutput().length();
-}
-
-u64 TestTerminal::droppedPtyResponses() {
-    return testApi.inspect().droppedPtyResponses;
+    return pty.flushOutput();
 }
 
 bool TestTerminal::readPty(bool flushOutput) {
@@ -1331,13 +1302,16 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
     composer.resize(width, height);
     TestPty terminalPty(composer, io[0]);
     composer.pty = &terminalPty;
+    terminalPty.applySize();
+    composer.resizedListeners.pushBack(&terminalPty);
+    composer.ptyOutputs = PtyOutputQueue::create(composer.pool, composer.smallObjects, terminalPty);
+    composer.ptyOutput = composer.ptyOutputs->append();
     std::string actions;
-    std::string printerOutput;
     TestClipboard clipboard;
     TestDesktopActions desktopActions;
-    composer.clipboard = &clipboard;
-    composer.desktopActions = &desktopActions;
-    TestDisplay display(composer, actions, printerOutput);
+    input.testClipboard(&clipboard);
+    input.testDesktopActions(&desktopActions);
+    TestDisplay display(composer, actions);
     VtermTrace& vtermTrace = *VtermTrace::create(composer);
     Vterm& vterm = *Vterm::create(composer, display, &vtermTrace);
     composer.vterm = &vterm;
@@ -1763,7 +1737,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 terminal.update();
                 std::string selection;
                 if (clipboard.generation != clipboardGeneration) {
-                    const StringView content = composer.clipboard->readPrimary();
+                    const StringView content(clipboard.primary);
                     selection.assign((const char*)(content.data()), content.length());
                 }
                 writeAll(controlFd, "OK " + encodeHex(selection) + "\n");
@@ -2012,9 +1986,6 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
             } else if (line == "READ_ACTIONS") {
                 writeAll(controlFd, "OK " + encodeHex(actions) + "\n");
                 actions.clear();
-            } else if (line == "READ_PRINTER") {
-                writeAll(controlFd, "OK " + encodeHex(printerOutput) + "\n");
-                printerOutput.clear();
             } else if (line == "STATE") {
                 const auto& mouse = terminal.getMouseTrackingState();
                 writeAll(controlFd, "OK " + std::to_string((unsigned)(mouse.mode)) + " " + std::to_string((unsigned)(mouse.enc)) + " " + std::to_string(mouse.focusEventMode) + " " + std::to_string(terminal.getKittyKeyboardFlags()) + "\n");
@@ -2077,21 +2048,21 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 }
                 const std::string content = decodeHex(line.substr(separator + 1));
                 const StringView selection((const u8*)(content.data()), content.size());
-                composer.clipboard->writePrimary(selection);
+                clipboard.writePrimary(selection);
                 if (autoCopy) {
-                    composer.clipboard->writeClipboard(selection);
+                    clipboard.writeClipboard(selection);
                 }
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 11, "SET_SYSTEM ") == 0) {
                 const std::string content = decodeHex(line.substr(11));
-                composer.clipboard->writeClipboard(StringView((const u8*)(content.data()), content.size()));
+                clipboard.writeClipboard(StringView((const u8*)(content.data()), content.size()));
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 14, "GET_SELECTION ") == 0) {
                 const int primary = std::stoi(line.substr(14));
                 if (primary < 0 || primary > 1) {
                     throw std::runtime_error("invalid selection kind");
                 }
-                const StringView content = primary ? composer.clipboard->readPrimary() : composer.clipboard->readClipboard();
+                const StringView content = primary ? StringView(clipboard.primary) : StringView(clipboard.system);
                 writeAll(controlFd, "OK " + encodeHex(std::string((const char*)(content.data()), content.length())) + "\n");
             } else if (line == "GET_CWD") {
                 StringBuilder output;
@@ -2120,12 +2091,6 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 writeAll(controlFd, "OK " + encodeHex(display.screenText()) + "\n");
             } else if (line == "READ_INPUT") {
                 writeAll(controlFd, "OK " + encodeHex(drainInput(io[1])) + "\n");
-            } else if (line == "PENDING_OUTPUT") {
-                writeAll(controlFd, "OK " + std::to_string(terminal.pendingPtyOutputBytes()) + "\n");
-            } else if (line == "DROPPED_PTY_RESPONSES") {
-                StringBuilder output;
-                output << StringView(u8"OK ") << terminal.droppedPtyResponses() << StringView(u8"\n");
-                writeAll(controlFd, StringView(output));
             } else if (line == "FLUSH_OUTPUT") {
                 terminal.flushPtyOutput();
                 writeAll(controlFd, "OK\n");
@@ -2167,11 +2132,13 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
         }
     }
 
-    close(io[0]);
-    close(io[1]);
+    terminalPty.unlink();
+    delete composer.ptyOutput;
+    composer.ptyOutput = nullptr;
+    composer.ptyOutputs = nullptr;
     composer.vterm = nullptr;
     composer.pty = nullptr;
-    composer.clipboard = nullptr;
-    composer.desktopActions = nullptr;
+    close(io[0]);
+    close(io[1]);
     return 0;
 }

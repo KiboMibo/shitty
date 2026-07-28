@@ -202,8 +202,6 @@ namespace {
         bool oscColorExponentNegative = false;
         bool oscColorValid = false;
         bool oscColorQuery = false;
-        bool enterPrinter = false;
-
         u32 oscFieldNumber = 0;
         u32 oscFieldFirst = 0;
         bool oscFieldNumeric = false;
@@ -282,7 +280,6 @@ namespace {
         void dispatchKittyKeyboardSet();
         bool parseSgrColor(size_t& index, CellColor& color, int& paletteIndex);
         void dispatchSgr();
-        void dispatchMediaCopy(bool privateMode);
         void traceCsi(u8 finalByte);
 
         ParserIface& iface;
@@ -726,7 +723,6 @@ void ParserImpl<traced>::beginCsi() {
     parser.present[0] = false;
     parser.parameterCount = 1;
     parser.csiHadParameters = false;
-    parser.enterPrinter = false;
     parser.csiPrefix = 0;
     parser.csiIntermediateCount = 0;
 }
@@ -927,12 +923,6 @@ void ParserImpl<traced>::dispatchPrivateMode(u32 mode, bool enabled) {
         case 12:
             iface.setCursorBlink(enabled);
             break;
-        case 18:
-            iface.setPrintFormFeed(enabled);
-            break;
-        case 19:
-            iface.setPrintExtent(enabled);
-            break;
         case 25:
             iface.setCursorVisible(enabled);
             break;
@@ -1073,12 +1063,6 @@ bool ParserImpl<traced>::privateModeValue(u32 mode, const ParserModeState& state
         case 12:
             value = state.cursorBlink;
             return true;
-        case 18:
-            value = state.printFormFeed;
-            return true;
-        case 19:
-            value = state.printExtent;
-            return true;
         case 25:
             value = state.showCursor;
             return true;
@@ -1177,8 +1161,9 @@ void ParserImpl<traced>::dispatchPrivateSave() {
             continue;
         }
         bool enabled = false;
-        privateModeValue(mode, state, enabled);
-        iface.savePrivateMode(mode, enabled);
+        if (privateModeValue(mode, state, enabled)) {
+            iface.savePrivateMode(mode, enabled);
+        }
     }
 }
 
@@ -1407,9 +1392,6 @@ void ParserImpl<traced>::dispatchDsr(bool privateMode) {
     switch (operation) {
         case 6:
             iface.dsrCursorPosition(true);
-            break;
-        case 15:
-            iface.dsrPrinterStatus();
             break;
         case 25:
             iface.dsrUserDefinedKeys();
@@ -1829,23 +1811,6 @@ void ParserImpl<traced>::dispatchSgr() {
 }
 
 template <bool traced>
-void ParserImpl<traced>::dispatchMediaCopy(bool privateMode) {
-    const u32 operation = parser.parameters[0];
-    if (privateMode) {
-        if (operation == 1) {
-            iface.mediaCopyLine();
-        } else if (operation == 4) {
-            iface.setAutoPrint(false);
-        } else if (operation == 5) {
-            iface.setAutoPrint(true);
-        }
-    } else if (operation == 0) {
-        iface.mediaCopyScreen();
-    }
-    parser.enterPrinter = !privateMode && operation == 5;
-}
-
-template <bool traced>
 void ParserImpl<traced>::traceCsi(u8 finalByte) {
     if constexpr (traced) {
         parserTrace->csi(finalByte, StringView(&parser.csiPrefix, parser.csiPrefix == 0 ? 0 : 1), StringView(parser.csiIntermediates, parser.csiIntermediateCount), parser.parameters, parser.separators, parser.parameterCount, parser.csiHadParameters);
@@ -1858,26 +1823,7 @@ void ParserImpl<traced>::feed(StringView bytes) {
     const u8* const pe = p + bytes.length();
     const u8* const eof = nullptr;
     int& cs = parser.state;
-    const auto appendPrinter = [&](const void* data, size_t size) {
-        if (size != 0 && iface.parserHandlesPrinter()) {
-            iface.parserPrint(StringView((const u8*)(data), size));
-        }
-    };
-
     while (p != pe) {
-        if (cs == parser_en_printer) {
-            const size_t remaining = pe - p;
-            const u8* escape = (const u8*)memchr(p, 0x1b, remaining);
-            const size_t beforeEscape = escape == nullptr ? remaining : escape - p;
-            const u8* csi = (const u8*)memchr(p, 0x9b, beforeEscape);
-            const u8* next = csi == nullptr ? escape : csi;
-            const size_t count = next == nullptr ? remaining : next - p;
-            appendPrinter(p, count);
-            p += count;
-            if (p == pe) {
-                continue;
-            }
-        }
         if (cs == parser_en_main) {
             const u8 current = *p;
             if (current == 0) {

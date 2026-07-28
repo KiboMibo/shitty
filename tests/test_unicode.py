@@ -97,6 +97,19 @@ class UnicodeTest(unittest.TestCase):
                 "e\N{COMBINING ACUTE ACCENT}".encode(),
             )
 
+    def test_pathological_grapheme_is_limited_to_24_codepoints(self):
+        payload = ("A" + "\N{COMBINING ACUTE ACCENT}" * 40 + "X").encode()
+        for chunks in ((payload,), tuple(bytes((byte,)) for byte in payload)):
+            with self.subTest(chunk_count=len(chunks)):
+                with Shitty(columns=6, rows=2) as terminal:
+                    terminal.write_chunks(*chunks)
+                    snapshot = terminal.model_snapshot()
+                    self.assertEqual(
+                        snapshot.cell(0, 0).grapheme,
+                        (ord("A"),) + (0x301,) * 23,
+                    )
+                    self.assertEqual(snapshot.cell(1, 0).char, "X")
+
     def test_variation_selector_is_preserved_in_cluster(self):
         text = "\N{HEAVY BLACK HEART}\N{VARIATION SELECTOR-16}"
         with Shitty(columns=6, rows=2) as terminal:

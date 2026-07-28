@@ -87,8 +87,6 @@ struct ParserModeState {
     bool autoWrap;
     bool autoRepeat;
     bool cursorBlink;
-    bool printFormFeed;
-    bool printExtent;
     bool allowColumnMode;
     bool moreFix;
     bool nationalReplacement;
@@ -127,8 +125,6 @@ struct ParserIface {
     virtual void parserDesignateCharset(u8 index, Charset charset) = 0;
     virtual bool parserHighlightMouseTracking() const = 0;
     virtual bool windowOperationsAllowed() const = 0;
-    virtual bool parserHandlesPrinter() const = 0;
-    virtual void parserPrint(stl::StringView bytes) = 0;
     virtual void parserWritePty(stl::StringView bytes) = 0;
     virtual bool parserGroundUtf8Enabled() const = 0;
     virtual void parserGroundHigh(u8 byte) = 0;
@@ -217,8 +213,6 @@ struct ParserIface {
     virtual void setOriginMode(bool enabled) = 0;
     virtual void setAutoWrap(bool enabled) = 0;
     virtual void setAutoRepeat(bool enabled) = 0;
-    virtual void setPrintFormFeed(bool enabled) = 0;
-    virtual void setPrintExtent(bool enabled) = 0;
     virtual void setAllowColumnMode(bool enabled) = 0;
     virtual void setMoreFix(bool enabled) = 0;
     virtual void setNationalReplacement(bool enabled) = 0;
@@ -254,7 +248,6 @@ struct ParserIface {
     virtual void csi_terDA() = 0;
     virtual void dsrOperatingStatus() = 0;
     virtual void dsrCursorPosition(bool privateMode) = 0;
-    virtual void dsrPrinterStatus() = 0;
     virtual void dsrUserDefinedKeys() = 0;
     virtual void dsrKeyboard() = 0;
     virtual void dsrLocator() = 0;
@@ -357,9 +350,6 @@ struct ParserIface {
     virtual void removeKittyKeyboardFlags(u8 flags) = 0;
     virtual void csi_kittyKeyboardQuery() = 0;
     virtual void csi_XTVERSION() = 0;
-    virtual void mediaCopyScreen() = 0;
-    virtual void mediaCopyLine() = 0;
-    virtual void setAutoPrint(bool enabled) = 0;
     virtual void resetLeds() = 0;
     virtual void setLed(u8 index, bool enabled) = 0;
     virtual void commitLeds() = 0;

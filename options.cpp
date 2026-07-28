@@ -88,7 +88,6 @@ namespace {
         {"allowOsc52Read", "false", "Allow applications to read clipboard via OSC 52"},
         {"allowWindowOps", "false", "Allow applications to manipulate and query the window"},
         {"osc52Select", "primary", "Selection used by OSC 52 selector s: primary or clipboard"},
-        {"printerCommand", "", "Command receiving DEC printer output on stdin"},
         {"color0", "#000000", "Palette color 0"},
         {"color1", "#cd0000", "Palette color 1"},
         {"color2", "#00cd00", "Palette color 2"},
@@ -401,7 +400,6 @@ void Options::parse() {
         }
         title = get("title", nullptr, &titleSource);
         dump = get("dump");
-        printerCommand = get("printerCommand");
         getColor("fg", fg);
         getColor("bg", bg);
         rv = getBool("rv");

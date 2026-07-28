@@ -6,11 +6,15 @@
 
 #pragma once
 
-#include <std/str/view.h>
+namespace stl {
+    class Output;
+    class StringView;
+}
 
 struct Clipboard {
-    virtual stl::StringView readPrimary() = 0;
-    virtual stl::StringView readClipboard() = 0;
+    // The clipboard owns output and deletes it after the asynchronous read.
+    virtual void readPrimary(stl::Output* output) = 0;
+    virtual void readClipboard(stl::Output* output) = 0;
     virtual void writePrimary(stl::StringView content) = 0;
     virtual void writeClipboard(stl::StringView content) = 0;
 };

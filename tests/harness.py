@@ -614,9 +614,6 @@ class Shitty:
     def read_actions(self):
         return self._read_hex_response("READ_ACTIONS").decode().splitlines()
 
-    def read_printer(self):
-        return self._read_hex_response("READ_PRINTER")
-
     def state(self):
         self.stream.write(b"STATE\n")
         response = self._readline().split()
@@ -750,20 +747,6 @@ class Shitty:
 
     def screen_text(self):
         return self._read_hex_response("SCREEN_TEXT").decode("ascii")
-
-    def pending_output(self):
-        self.stream.write(b"PENDING_OUTPUT\n")
-        response = self._readline().split()
-        if len(response) != 2 or response[0] != "OK":
-            raise RuntimeError("invalid pending output response")
-        return int(response[1])
-
-    def dropped_pty_responses(self):
-        self.stream.write(b"DROPPED_PTY_RESPONSES\n")
-        response = self._readline().split()
-        if len(response) != 2 or response[0] != "OK":
-            raise RuntimeError("invalid dropped PTY response count")
-        return int(response[1])
 
     def flush_output(self):
         self.command("FLUSH_OUTPUT")

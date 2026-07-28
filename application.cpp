@@ -22,6 +22,7 @@
 #include "listener.h"
 #include "options.h"
 #include "pty.h"
+#include "pty_output.h"
 #include "vk_renderer.h"
 #include "startup.h"
 #include "test_mode.h"
@@ -117,8 +118,6 @@ namespace {
         void title(StringView value) override;
         void cwd(StringView path) override;
         void bell() override;
-        bool handlesPrinter() const override;
-        void print(StringView output) override;
         void leds(u8) override;
         void notify(StringView id, StringView title, StringView body, bool close) override;
         void progress(u32 state, u32) override;
@@ -127,7 +126,6 @@ namespace {
 
         Composer& composer;
         ObjPool* fontpackPool = nullptr;
-        FILE* printerPipe = nullptr;
         bool frameReady = true;
         bool titleSet = false;
         u16 initialFontSize = 0;
@@ -149,6 +147,7 @@ namespace {
         void contentScaleChanged();
         void replaceFontpack(u16 size);
         void publishFontChanged();
+        void wire();
     };
 }
 
@@ -209,6 +208,9 @@ void CallApplicationFrameReady::onListen(void*) {
 ApplicationImpl::ApplicationImpl(Composer& composer_)
     : composer(composer_)
 {
+}
+
+void ApplicationImpl::wire() {
     composer.fontIncListeners.pushBack(composer.pool->make<CallFontInc>(this));
     composer.fontDecListeners.pushBack(composer.pool->make<CallFontDec>(this));
     composer.fontResetListeners.pushBack(composer.pool->make<CallFontReset>(this));
@@ -224,9 +226,7 @@ ApplicationImpl::~ApplicationImpl() {
     if (composer.platform != nullptr) {
         composer.platform->poller()->cancel(*this);
     }
-    composer.fonts = nullptr;
     delete fontpackPool;
-    composer.application = nullptr;
 }
 
 void ApplicationImpl::defer() {
@@ -448,18 +448,6 @@ void ApplicationImpl::bell() {
     composer.window->requestAttention();
 }
 
-bool ApplicationImpl::handlesPrinter() const {
-    return printerPipe != nullptr;
-}
-
-void ApplicationImpl::print(StringView output) {
-    if (printerPipe == nullptr || output.empty()) {
-        return;
-    }
-    fwrite(output.data(), 1, output.length(), printerPipe);
-    fflush(printerPipe);
-}
-
 void ApplicationImpl::leds(u8) {
 }
 
@@ -562,6 +550,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     testFd = takeTestFd(argc, argv);
 #endif
     Window* const window = testFd < 0 ? Window::create(composer) : Window::createHeadless(composer);
+    composer.window = window;
     checkLocale();
     opts.initialize(&argc, argv);
     opts.parse();
@@ -590,6 +579,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     }
     shellArgv.push_back(nullptr);
 
+    composer.platform = plt::Platform::create(*composer.pool);
     composer.window->initialize();
     contentScaleChanged();
 
@@ -599,26 +589,20 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     setupSignals();
     const int ptyFd = startShell(launch.executable.c_str(), shellArgv.data());
     composer.pty = Pty::adopt(composer, ptyFd);
+    composer.ptyOutputs = PtyOutputQueue::create(composer.pool, composer.smallObjects, *composer.pty);
+    composer.ptyOutput = composer.ptyOutputs->append();
 
     composer.renderer = composer.window->createRender();
-    if (opts.printerCommand[0] != '\0') {
-        printerPipe = popen(opts.printerCommand, "w");
-        if (printerPipe == nullptr) {
-            throw std::runtime_error("Cannot start printer command");
-        }
-    }
     composer.vterm = Vterm::create(composer, *this, nullptr);
     composer.window->activate();
     presentTerminal();
 
     eventLoop();
-    if (printerPipe != nullptr) {
-        pclose(printerPipe);
-        printerPipe = nullptr;
-    }
     return 0;
 }
 
 Application* Application::create(Composer& composer) {
-    return composer.pool->make<ApplicationImpl>(composer);
+    ApplicationImpl* const application = composer.pool->make<ApplicationImpl>(composer);
+    application->wire();
+    return application;
 }

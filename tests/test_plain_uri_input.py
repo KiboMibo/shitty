@@ -39,7 +39,7 @@ class PlainUriInputTest(unittest.TestCase):
         self.assertEqual(state["opened_uri"], expected)
         return state
 
-    def test_registered_scheme_is_case_insensitive_and_uri_is_preserved(self):
+    def test_scheme_is_case_insensitive_and_uri_is_preserved(self):
         with Shitty(columns=48, rows=2) as terminal:
             uri = b"HTTPS://Example.Test/Original"
             terminal.write(uri + b" ftp://example.test")
@@ -55,22 +55,20 @@ class PlainUriInputTest(unittest.TestCase):
             self.assertEqual(state["open_count"], 1)
 
             terminal.pointer(2 + len(uri) + 5, 2, modifiers=CONTROL)
-            self.assertEqual(terminal.desktop_state()["icon"], 0)
-            terminal.button(
+            self.assertEqual(terminal.desktop_state()["icon"], 1)
+            state = self.assert_opened(
+                terminal,
+                len(uri) + 5,
                 0,
-                True,
-                x=2 + len(uri) + 5,
-                y=2,
-                modifiers=CONTROL,
+                b"ftp://example.test",
             )
-            self.assertEqual(terminal.desktop_state()["open_count"], 1)
+            self.assertEqual(state["open_count"], 2)
 
     def test_malformed_scheme_and_empty_target_are_not_links(self):
         cases = (
             b"1https://example.test",
             b"https//example.test",
             b"https:",
-            b"nosuch://example.test",
         )
         for value in cases:
             with self.subTest(value=value):

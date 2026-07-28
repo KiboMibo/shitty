@@ -38,7 +38,6 @@ class ProtocolTest(unittest.TestCase):
             self.assertEqual(
                 terminal.read_input(),
                 b"\x1b[?2;4;1R"
-                b"\x1b[?10n"
                 b"\x1b[?20n"
                 b"\x1b[?27;1;0;0n"
                 b"\x1b[?50n"

@@ -27,7 +27,7 @@ namespace {
     };
 
     struct FontconfigResolverImpl final: public FontResolver {
-        explicit FontconfigResolverImpl(Composer& composer);
+        FontconfigResolverImpl();
         ~FontconfigResolverImpl() noexcept;
 
         Font* load(ObjPool& owner, const FontRequest& request, FontMetrics& metrics) override;
@@ -54,8 +54,7 @@ namespace {
     }
 }
 
-FontconfigResolverImpl::FontconfigResolverImpl(Composer& composer) {
-    composer.fontResolvers.pushBack(this);
+FontconfigResolverImpl::FontconfigResolverImpl() {
 }
 
 FontconfigResolverImpl::~FontconfigResolverImpl() noexcept {
@@ -158,7 +157,7 @@ Font* FontconfigResolverImpl::load(ObjPool& owner, const FontRequest& request, F
 
 FontResolver* createFontconfigResolver(Composer& composer) {
 #if defined(SHITTY_HAS_FONTCONFIG)
-    return composer.pool->make<FontconfigResolverImpl>(composer);
+    return composer.pool->make<FontconfigResolverImpl>();
 #else
     (void)(composer);
     return nullptr;

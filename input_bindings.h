@@ -23,7 +23,7 @@ struct InputBinding {
     u32 textCodepoint = 0;
 };
 
-struct InputBindings {
+struct InputBindings: public InputSink {
     virtual void add(const InputBinding& binding, stl::IntrusiveList* listeners) = 0;
 
     static InputBindings* create(Composer& composer);

@@ -153,16 +153,6 @@ namespace {
             return allowWindowOperations;
         }
 
-        bool parserHandlesPrinter() const override {
-            record("parserHandlesPrinter", handlesPrinter);
-            return handlesPrinter;
-        }
-
-        void parserPrint(StringView bytes) override {
-            ParserCall& call = record("parserPrint");
-            saveText(call, 0, bytes);
-        }
-
         void parserWritePty(StringView bytes) override {
             ParserCall& call = record("parserWritePty");
             saveText(call, 0, bytes);
@@ -403,8 +393,6 @@ namespace {
         RECORD_BOOL_METHOD(setOriginMode)
         RECORD_BOOL_METHOD(setAutoWrap)
         RECORD_BOOL_METHOD(setAutoRepeat)
-        RECORD_BOOL_METHOD(setPrintFormFeed)
-        RECORD_BOOL_METHOD(setPrintExtent)
         RECORD_BOOL_METHOD(setAllowColumnMode)
         RECORD_BOOL_METHOD(setMoreFix)
         RECORD_BOOL_METHOD(setNationalReplacement)
@@ -514,7 +502,6 @@ namespace {
         record(#method);           \
     }
 
-        RECORD_VOID_METHOD(dsrPrinterStatus)
         RECORD_VOID_METHOD(dsrUserDefinedKeys)
         RECORD_VOID_METHOD(dsrKeyboard)
         RECORD_VOID_METHOD(dsrLocator)
@@ -881,14 +868,7 @@ namespace {
 
         RECORD_VOID_METHOD(csi_kittyKeyboardQuery)
         RECORD_VOID_METHOD(csi_XTVERSION)
-        RECORD_VOID_METHOD(mediaCopyScreen)
-        RECORD_VOID_METHOD(mediaCopyLine)
-
 #undef RECORD_VOID_METHOD
-
-        void setAutoPrint(bool enabled) override {
-            record("setAutoPrint", enabled);
-        }
 
         void resetLeds() override {
             record("resetLeds");
@@ -938,7 +918,6 @@ namespace {
         bool hexTitleInput = false;
         bool highlightMouseTracking = false;
         bool allowWindowOperations = true;
-        bool handlesPrinter = true;
         bool groundUtf8Enabled = true;
         bool utf8BulkEligible = false;
         size_t asciiConsumed = 0;
@@ -1062,24 +1041,6 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST2(DesignateCharset, parserDesignateCharset, u8"\x1b(0", 0, Charset::DecSpec)
     SHITTY_PARSER_CALLBACK_TEST1(ReadHighlightMouseTracking, parserHighlightMouseTracking, u8"\x1b[1;2;3;4;5T", false)
     SHITTY_PARSER_CALLBACK_TEST1(ReadWindowOperationsAllowed, windowOperationsAllowed, u8"\x1b[1t", true)
-
-    STD_TEST(ReadPrinterSupport) {
-        ParserFixture fixture;
-        fixture.feed(StringView(u8"\x1b[5i"));
-        fixture.iface.resetCalls();
-        fixture.feed(StringView(u8"x"));
-        expectValues(fixture.expect("parserHandlesPrinter"), true);
-    }
-
-    STD_TEST(PrintBytes) {
-        ParserFixture fixture;
-        fixture.feed(StringView(u8"\x1b[5i"));
-        fixture.iface.resetCalls();
-        fixture.feed(StringView(u8"abc"));
-        const ParserCall& call = fixture.expect("parserPrint");
-        expectValues(call);
-        expectText(fixture.iface, call, 0, StringView(u8"abc"));
-    }
 
     STD_TEST(WritePty) {
         ParserFixture fixture;
@@ -1312,8 +1273,6 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST1(SetOriginMode, setOriginMode, u8"\x1b[?6h", true)
     SHITTY_PARSER_CALLBACK_TEST1(SetAutoWrap, setAutoWrap, u8"\x1b[?7h", true)
     SHITTY_PARSER_CALLBACK_TEST1(SetAutoRepeat, setAutoRepeat, u8"\x1b[?8h", true)
-    SHITTY_PARSER_CALLBACK_TEST1(SetPrintFormFeed, setPrintFormFeed, u8"\x1b[?18h", true)
-    SHITTY_PARSER_CALLBACK_TEST1(SetPrintExtent, setPrintExtent, u8"\x1b[?19h", true)
     SHITTY_PARSER_CALLBACK_TEST1(SetAllowColumnMode, setAllowColumnMode, u8"\x1b[?40h", true)
     SHITTY_PARSER_CALLBACK_TEST1(SetMoreFix, setMoreFix, u8"\x1b[?41h", true)
     SHITTY_PARSER_CALLBACK_TEST1(SetNationalReplacement, setNationalReplacement, u8"\x1b[?42h", true)
@@ -1338,6 +1297,12 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST1(SetInBandResize, setInBandResize, u8"\x1b[?2048h", true)
     SHITTY_PARSER_CALLBACK_TEST2(SavePrivateMode, savePrivateMode, u8"\x1b[?7s", 7, false)
 
+    STD_TEST(UnknownPrivateModeIsNotSaved) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b[?9999s"));
+        STD_INSIST(!fixture.iface.called("savePrivateMode"));
+    }
+
     STD_TEST(RestorePrivateMode) {
         ParserFixture fixture;
         fixture.feed(StringView(u8"\x1b[?7r"));
@@ -1355,7 +1320,6 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST0(TertiaryDeviceAttributes, csi_terDA, u8"\x1b[=c")
     SHITTY_PARSER_CALLBACK_TEST0(OperatingStatus, dsrOperatingStatus, u8"\x1b[5n")
     SHITTY_PARSER_CALLBACK_TEST1(CursorPositionReport, dsrCursorPosition, u8"\x1b[6n", false)
-    SHITTY_PARSER_CALLBACK_TEST0(PrinterStatus, dsrPrinterStatus, u8"\x1b[?15n")
     SHITTY_PARSER_CALLBACK_TEST0(UserDefinedKeysStatus, dsrUserDefinedKeys, u8"\x1b[?25n")
     SHITTY_PARSER_CALLBACK_TEST0(KeyboardStatus, dsrKeyboard, u8"\x1b[?26n")
     SHITTY_PARSER_CALLBACK_TEST0(LocatorStatus, dsrLocator, u8"\x1b[?55n")
@@ -1562,9 +1526,6 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST1(RemoveKittyKeyboardFlags, removeKittyKeyboardFlags, u8"\x1b[=3;3u", 3)
     SHITTY_PARSER_CALLBACK_TEST0(QueryKittyKeyboard, csi_kittyKeyboardQuery, u8"\x1b[?u")
     SHITTY_PARSER_CALLBACK_TEST0(XtermVersion, csi_XTVERSION, u8"\x1b[>q")
-    SHITTY_PARSER_CALLBACK_TEST0(MediaCopyScreen, mediaCopyScreen, u8"\x1b[i")
-    SHITTY_PARSER_CALLBACK_TEST0(MediaCopyLine, mediaCopyLine, u8"\x1b[?1i")
-    SHITTY_PARSER_CALLBACK_TEST1(DisableAutoPrint, setAutoPrint, u8"\x1b[?4i", false)
     SHITTY_PARSER_CALLBACK_TEST0(ResetLeds, resetLeds, u8"\x1b[0q")
     SHITTY_PARSER_CALLBACK_TEST2(SetLed, setLed, u8"\x1b[2q", 1, true)
     SHITTY_PARSER_CALLBACK_TEST0(CommitLeds, commitLeds, u8"\x1b[q")

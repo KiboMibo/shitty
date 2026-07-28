@@ -24,8 +24,6 @@ struct VtermHost {
     virtual void title(stl::StringView title) = 0;
     virtual void cwd(stl::StringView path) = 0;
     virtual void bell() = 0;
-    virtual bool handlesPrinter() const = 0;
-    virtual void print(stl::StringView output) = 0;
     virtual void leds(u8 state) = 0;
     virtual void notify(stl::StringView id, stl::StringView title, stl::StringView body, bool close) = 0;
     virtual void progress(u32 state, u32 percent) = 0;

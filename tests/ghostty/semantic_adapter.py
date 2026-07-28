@@ -31,7 +31,6 @@ def exercise(chunks, mode):
             "parser trace": terminal.parser_trace(),
             "PTY reply": terminal.read_input(),
             "actions": terminal.read_actions(),
-            "printer output": terminal.read_printer(),
             "input state": terminal.state(),
             "protocol state": terminal.protocol_state(),
             "conformance state": terminal.conformance_state(),

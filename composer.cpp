@@ -7,6 +7,7 @@
 #include "composer.h"
 
 #include "options.h"
+#include "small_obj_allocator.h"
 #include "listener.h"
 #include "font_path.h"
 #include "input_router.h"
@@ -22,10 +23,14 @@ using namespace stl;
 Composer::Composer(ObjPool* pool_)
     : pool(pool_)
 {
+    smallObjects = SmallObjAllocator::create(pool);
     input = createInputRouter(*this);
     inputBindings = InputBindings::create(*this);
-    createFontconfigResolver(*this);
-    createPathFontResolver(*this);
+    inputSinks.pushBack(inputBindings);
+    if (FontResolver* const resolver = createFontconfigResolver(*this)) {
+        fontResolvers.pushBack(resolver);
+    }
+    fontResolvers.pushBack(createPathFontResolver(*this));
 }
 
 void Composer::setContentScale(float scale) {

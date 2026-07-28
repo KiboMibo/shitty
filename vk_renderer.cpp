@@ -544,8 +544,6 @@ RendererImpl::RendererImpl(Composer& composer_, const plt::RenderContext& contex
     createFontResources();
     createDescriptors();
     createPipelineLayout();
-    composer.fontChangedListeners.pushBack(composer.pool->make<CallRendererFontChanged>(this));
-    composer.cellExtrasChangedListeners.pushBack(composer.pool->make<CallRendererCellExtrasChanged>(this));
 }
 
 RendererImpl::~RendererImpl() {
@@ -615,7 +613,6 @@ RendererImpl::~RendererImpl() {
     if (instance != VK_NULL_HANDLE) {
         vkDestroyInstance(instance, nullptr);
     }
-    composer.renderer = nullptr;
 }
 
 void RendererImpl::createInstance() {
@@ -2425,5 +2422,8 @@ bool RendererImpl::update(const TerminalUpdate& update) {
 }
 
 Renderer* Renderer::create(Composer& composer, const plt::RenderContext& context) {
-    return composer.pool->make<RendererImpl>(composer, context);
+    RendererImpl* const renderer = composer.pool->make<RendererImpl>(composer, context);
+    composer.fontChangedListeners.pushBack(composer.pool->make<CallRendererFontChanged>(renderer));
+    composer.cellExtrasChangedListeners.pushBack(composer.pool->make<CallRendererCellExtrasChanged>(renderer));
+    return renderer;
 }
