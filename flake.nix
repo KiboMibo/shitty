@@ -13,8 +13,8 @@
       url = "github:pg83/std/6ab662255eb2c459e5e69e13248c964eef5eedc1";
       flake = false;
     };
-    platform = {
-      url = "github:pg83/platform/89647e91af45513de60e731071401f9161404857";
+    plt = {
+      url = "github:pg83/plt/ef74e553bc2d5f72d74dbf8f0cee26d6b73e5896";
       flake = false;
     };
   };
@@ -24,7 +24,7 @@
       self,
       nixpkgs,
       libstd,
-      platform,
+      plt,
     }:
     let
       inherit (nixpkgs) lib;
@@ -61,12 +61,9 @@
           # without `?submodules=1`.
           postUnpack = ''
             mkdir -p "$sourceRoot/third_party"
-            rm -rf "$sourceRoot/third_party/libstd" "$sourceRoot/third_party/platform"
+            rm -rf "$sourceRoot/third_party/libstd" "$sourceRoot/third_party/plt"
             cp -a ${libstd} "$sourceRoot/third_party/libstd"
-            cp -a ${platform} "$sourceRoot/third_party/platform"
-            mkdir -p "$sourceRoot/third_party/platform/third_party"
-            rm -rf "$sourceRoot/third_party/platform/third_party/libstd"
-            cp -a ${libstd} "$sourceRoot/third_party/platform/third_party/libstd"
+            cp -a ${plt} "$sourceRoot/third_party/plt"
             chmod -R u+w "$sourceRoot/third_party"
           '';
 

@@ -7,7 +7,7 @@ import build
 
 
 std_build = os.path.join("third_party", "libstd", "build.py")
-platform_build = os.path.join("third_party", "platform", "build.py")
+plt_build = os.path.join("third_party", "plt", "build.py")
 shitty_version = date.today().strftime("%Y.%m.%d")
 
 build.includes += ["$(B)", "$(S)/third_party"]
@@ -39,15 +39,15 @@ else:
     libstd = dependency(ldflags=["-lstd"])
 
 
-if "-lplatform" in build.ldflags:
-    platform = dependency(ldflags=["-lplatform"])
-elif os.path.isfile(os.path.join(os.path.dirname(__file__), platform_build)):
-    platform_cppflags = ["-Dno_vendored_std"]
+if "-lplt" in build.ldflags:
+    plt = dependency(ldflags=["-lplt"])
+elif os.path.isfile(os.path.join(os.path.dirname(__file__), plt_build)):
+    plt_cppflags = ["-Dno_vendored_std"]
     if os.path.isfile(os.path.join(os.path.dirname(__file__), std_build)):
-        platform_cppflags.append("-I$(S)/../libstd")
-    platform = import_build(platform_build, "libplatform.a", extra_cflags=["-Wno-error"], extra_cppflags=platform_cppflags)
+        plt_cppflags.append("-I$(S)/../libstd")
+    plt = import_build(plt_build, "libplt.a", extra_cflags=["-Wno-error"], extra_cppflags=plt_cppflags)
 else:
-    platform = dependency(ldflags=["-lplatform"])
+    plt = dependency(ldflags=["-lplt"])
 
 
 render_shader_names = [
@@ -166,11 +166,11 @@ libshitty_test_sources = [
     for source in all_libshitty_sources
 ]
 libshitty_deps = [
-    freetype, fontconfig, harfbuzz, platform, vulkan, threads, libstd, brotli_common,
+    freetype, fontconfig, harfbuzz, plt, vulkan, threads, libstd, brotli_common,
     utf8proc, simdutf,
 ]
 libshitty_test_deps = [
-    freetype, fontconfig, harfbuzz, platform, vulkan, threads, libstd, brotli_common,
+    freetype, fontconfig, harfbuzz, plt, vulkan, threads, libstd, brotli_common,
     utf8proc, simdutf,
 ]
 

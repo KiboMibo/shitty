@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include <platform/input.h>
+#include <plt/input.h>
 
 #include <std/lib/node.h>
 

@@ -40,8 +40,8 @@
 #include "utf8.h"
 #include "vterm_host.h"
 
-#include <platform/platform.h>
-#include <platform/poller.h>
+#include <plt/platform.h>
+#include <plt/poller.h>
 
 #include <std/alg/minmax.h>
 #include <std/dbg/assert.h>

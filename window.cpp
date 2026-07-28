@@ -15,8 +15,8 @@
 #include "test_mode.h"
 #include "vk_renderer.h"
 
-#include <platform/platform.h>
-#include <platform/window.h>
+#include <plt/platform.h>
+#include <plt/window.h>
 
 #include <std/alg/minmax.h>
 #include <std/lib/buffer.h>

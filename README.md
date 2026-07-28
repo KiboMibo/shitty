@@ -54,7 +54,7 @@ explicit font file paths are handled directly through FreeType.
 
 A working Vulkan driver and a Wayland compositor are required at runtime. The
 native window and event-loop layer is built from the pinned
-`third_party/platform` submodule; the terminal does not depend on a generic
+`third_party/plt` submodule; the terminal does not depend on a generic
 windowing toolkit.
 
 The complete imported conformance suite additionally needs ncurses and Perl.

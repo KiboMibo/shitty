@@ -17,7 +17,7 @@
 #include "utf8.h"
 #include "vterm.h"
 
-#include <platform/window.h>
+#include <plt/window.h>
 
 #include <std/dbg/assert.h>
 #include <std/sys/crt.h>

@@ -29,8 +29,8 @@
 #include "vterm_host.h"
 #include "window.h"
 
-#include <platform/platform.h>
-#include <platform/poller.h>
+#include <plt/platform.h>
+#include <plt/poller.h>
 
 #include <std/ios/sys.h>
 #include <std/str/view.h>
