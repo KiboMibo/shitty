@@ -94,6 +94,22 @@ namespace {
         ApplicationImpl* application;
     };
 
+    struct CallApplicationFrameReady final: public Listener {
+        explicit CallApplicationFrameReady(ApplicationImpl* application);
+
+        void onListen(void*) override;
+
+        ApplicationImpl* application;
+    };
+
+    struct CallApplicationCheck final: public Listener {
+        explicit CallApplicationCheck(ApplicationImpl* application);
+
+        void onListen(void*) override;
+
+        ApplicationImpl* application;
+    };
+
     struct ApplicationImpl final: public Application, public VtermHost {
         explicit ApplicationImpl(Composer& composer);
         ~ApplicationImpl();
@@ -126,6 +142,8 @@ namespace {
         int startShell(const char* execPath, const char* const argv[]);
         bool presentTerminal();
         void windowEvents(const WindowEvents& events);
+        void grantFrame();
+        void check();
         bool eventLoop();
         void checkLocale();
         void fontInc();
@@ -183,6 +201,24 @@ void CallApplicationWindowEvents::onListen(void* argument) {
     application->windowEvents(*(const WindowEvents*)(argument));
 }
 
+CallApplicationFrameReady::CallApplicationFrameReady(ApplicationImpl* application_)
+    : application(application_)
+{
+}
+
+void CallApplicationFrameReady::onListen(void*) {
+    application->grantFrame();
+}
+
+CallApplicationCheck::CallApplicationCheck(ApplicationImpl* application_)
+    : application(application_)
+{
+}
+
+void CallApplicationCheck::onListen(void*) {
+    application->check();
+}
+
 ApplicationImpl::ApplicationImpl(Composer& composer_)
     : composer(composer_)
 {
@@ -191,6 +227,8 @@ ApplicationImpl::ApplicationImpl(Composer& composer_)
     composer.fontResetListeners.pushBack(composer.pool->make<CallFontReset>(this));
     composer.contentScaleChangedListeners.pushBack(composer.pool->make<CallContentScaleChanged>(this));
     composer.windowEventListeners.pushBack(composer.pool->make<CallApplicationWindowEvents>(this));
+    composer.frameReadyListeners.pushBack(composer.pool->make<CallApplicationFrameReady>(this));
+    composer.eventLoopCheckListeners.pushBack(composer.pool->make<CallApplicationCheck>(this));
     composer.inputBindings->add({InputKey::Printable, InputControl | InputShift, '=', '+'}, &composer.fontIncListeners);
     composer.inputBindings->add({InputKey::Printable, InputControl, '-', '-'}, &composer.fontDecListeners);
     composer.inputBindings->add({InputKey::Printable, InputControl, '0', '0'}, &composer.fontResetListeners);
@@ -357,12 +395,12 @@ int ApplicationImpl::startShell(const char* execPath, const char* const argv[]) 
 
 bool ApplicationImpl::presentTerminal() {
     Vterm* const vterm = composer.vterm;
+    if (!frameReady) {
+        return false;
+    }
     const TerminalUpdate* const output = vterm->output();
     if (output == nullptr) {
         return true;
-    }
-    if (!frameReady) {
-        return false;
     }
     Window* const window = composer.window;
     const bool paced = window->requestFrame();
@@ -378,12 +416,16 @@ bool ApplicationImpl::presentTerminal() {
 }
 
 void ApplicationImpl::windowEvents(const WindowEvents& events) {
-    if (events.frameReady) {
-        frameReady = true;
-    }
     if (events.resized || events.redraw) {
         composer.vterm->expose();
     }
+}
+
+void ApplicationImpl::grantFrame() {
+    frameReady = true;
+}
+
+void ApplicationImpl::check() {
     presentTerminal();
 }
 

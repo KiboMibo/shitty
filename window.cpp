@@ -127,7 +127,6 @@ namespace {
         bool callbacksActive = false;
         bool resizePending = false;
         bool redrawPending = false;
-        bool frameReadyPending = false;
         bool correctingResize = false;
         bool attentionRequested = false;
         struct wl_callback* frameCallback = nullptr;
@@ -437,14 +436,21 @@ bool GlfwWindowImpl::dispatchEvents() {
         .close = glfwWindowShouldClose(window) != 0,
         .resized = resized,
         .redraw = redrawPending,
-        .frameReady = frameReadyPending,
     };
     redrawPending = false;
-    frameReadyPending = false;
-    for (IntrusiveNode* node = composer.windowEventListeners.mutFront(); node != composer.windowEventListeners.mutEnd();) {
-        Listener* const listener = static_cast<Listener*>(node);
-        node = node->next;
-        listener->onListen((void*)(&result));
+    if (result.close || result.resized || result.redraw) {
+        for (IntrusiveNode* node = composer.windowEventListeners.mutFront(); node != composer.windowEventListeners.mutEnd();) {
+            Listener* const listener = static_cast<Listener*>(node);
+            node = node->next;
+            listener->onListen((void*)(&result));
+        }
+    }
+    if (!result.close) {
+        for (IntrusiveNode* node = composer.eventLoopCheckListeners.mutFront(); node != composer.eventLoopCheckListeners.mutEnd();) {
+            Listener* const listener = static_cast<Listener*>(node);
+            node = node->next;
+            listener->onListen();
+        }
     }
     return !result.close;
 }
@@ -484,7 +490,11 @@ void GlfwWindowImpl::frameReady(struct wl_callback* callback) {
     }
     wl_callback_destroy(frameCallback);
     frameCallback = nullptr;
-    frameReadyPending = true;
+    for (IntrusiveNode* node = composer.frameReadyListeners.mutFront(); node != composer.frameReadyListeners.mutEnd();) {
+        Listener* const listener = static_cast<Listener*>(node);
+        node = node->next;
+        listener->onListen();
+    }
 }
 
 void GlfwWindowImpl::frameDone(void* data, struct wl_callback* callback, uint32_t) {

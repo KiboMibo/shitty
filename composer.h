@@ -77,6 +77,10 @@ struct Composer {
     stl::IntrusiveList onTimeout;
     // WindowEvents points to stack storage and is valid only during the callback.
     stl::IntrusiveList windowEventListeners;
+    // Frame callbacks grant presentation; check runs once after a complete
+    // batch of window, input, timer and external-FD callbacks.
+    stl::IntrusiveList frameReadyListeners;
+    stl::IntrusiveList eventLoopCheckListeners;
     // Font resolvers are tried in registration order.
     stl::IntrusiveList fontResolvers;
     // Input producers call input; the router walks this list in registration

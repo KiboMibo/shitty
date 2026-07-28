@@ -17,7 +17,6 @@ struct WindowEvents {
     bool close = false;
     bool resized = false;
     bool redraw = false;
-    bool frameReady = false;
 };
 
 struct WindowInfo {
