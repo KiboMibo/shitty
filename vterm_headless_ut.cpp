@@ -53,4 +53,28 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(composer.vterm->ptyOutput().empty());
         STD_INSIST(composer.vterm->output() == nullptr);
     }
+
+    STD_TEST(RawDeviceAttributesDoesNotProducePtyOutputInUtf8Mode) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        VtermHeadless::create(composer);
+        const u8 rawDeviceAttributes = 0x9a;
+
+        composer.vterm->feedPty(StringView(&rawDeviceAttributes, 1));
+
+        STD_INSIST(composer.vterm->ptyOutput().empty());
+        composer.vterm->feedPty(StringView(u8"\x1bZ"));
+        STD_INSIST(!composer.vterm->ptyOutput().empty());
+    }
+
+    STD_TEST(RawDeviceAttributesWorksInSingleByteMode) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        VtermHeadless::create(composer);
+        const u8 input[] = {'\x1b', '%', '@', 0x9a};
+
+        composer.vterm->feedPty(StringView(input, sizeof(input)));
+
+        STD_INSIST(!composer.vterm->ptyOutput().empty());
+    }
 }

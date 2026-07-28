@@ -193,13 +193,18 @@ class ProtocolTest(unittest.TestCase):
                 b"\x1b[?64;1;2;6;8;9;15;21;22;28;29c",
             )
 
-    def test_decid_uses_selected_eight_bit_response_controls(self):
+    def test_decid_uses_selected_eight_bit_response_controls_in_single_byte_mode(self):
         with Shitty(columns=8, rows=2) as terminal:
-            terminal.write(b"\x1b G\x9a")
+            terminal.write(b"\x1b%@\x1b G\x9a")
             self.assertEqual(
                 terminal.read_input(),
                 b"\x9b?64;1;2;6;8;9;15;21;22;28;29c",
             )
+
+    def test_s8c1t_does_not_enable_eight_bit_input_in_utf8_mode(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b G\x9a")
+            self.assertEqual(terminal.read_input(), b"")
 
     def test_decscl_selects_response_control_width(self):
         with Shitty(columns=8, rows=2) as terminal:

@@ -65,18 +65,23 @@ def summarize(events):
     return [(event, data[:80], len(data)) for event, data in events]
 
 
-def run_batches(items, batch_size=BATCH_SIZE):
+def run_batches(items, batch_size=BATCH_SIZE, single_byte=False):
     checked = 0
     first_mismatch = None
     with Shitty(columns=5, rows=5, save_lines=5) as terminal:
+        if single_byte:
+            terminal.write(b"\x1b%@")
         terminal.parser_trace_on()
         iterator = iter(items)
         while True:
             batch = list(itertools.islice(iterator, batch_size))
             if not batch:
                 break
-            terminal.write(b"".join(sequence for sequence, _ in batch))
+            prefix = b"\x1b%@" if single_byte else b""
+            terminal.write(b"".join(prefix + sequence for sequence, _ in batch))
             actual = terminal.parser_trace()
+            if single_byte:
+                actual = [event for event in actual if event != ("escape", b"%@")]
             expected = [event for _, event in batch]
             if actual != expected:
                 limit = min(len(actual), len(expected))
@@ -94,11 +99,13 @@ def run_batches(items, batch_size=BATCH_SIZE):
     return checked, first_mismatch
 
 
-def run_isolated(items):
+def run_isolated(items, single_byte=False):
     checked = 0
     first_mismatch = None
     for sequence, expected in items:
         with Shitty(columns=5, rows=5, save_lines=5) as terminal:
+            if single_byte:
+                terminal.write(b"\x1b%@")
             terminal.parser_trace_on()
             terminal.write(sequence)
             actual = terminal.parser_trace()
@@ -294,10 +301,15 @@ def main():
     signal.signal(signal.SIGALRM, timed_out)
     signal.alarm(30)
     isolated = name in {"csi_max", "csi_misc", "dcs_misc", "osc_oversize"} or name.startswith("osc_controls_")
+    single_byte = name in {"csi", "csi_parameters", "dcs", "dcs_misc"} or name.startswith("osc_controls_")
     if isolated:
-        checked, mismatch = run_isolated(items(name))
+        checked, mismatch = run_isolated(items(name), single_byte=single_byte)
     else:
-        checked, mismatch = run_batches(items(name), 64 if name == "osc_lengths" else BATCH_SIZE)
+        checked, mismatch = run_batches(
+            items(name),
+            64 if name == "osc_lengths" else BATCH_SIZE,
+            single_byte=single_byte,
+        )
     signal.alarm(0)
     if (mismatch is not None) != (name in known):
         status = "FAIL" if mismatch is not None else "XPASS"

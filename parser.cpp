@@ -1894,6 +1894,11 @@ void ParserImpl<traced>::feed(StringView bytes) {
                 ++p;
                 continue;
             }
+            if (current >= 0x80 && current <= 0x9f && iface.parserGroundUtf8Enabled()) {
+                ragelGroundHigh(current);
+                ++p;
+                continue;
+            }
             if (parser.groundUtf8Remaining == 0 && current >= 0x20 && current < 0x7f) {
                 const size_t consumed = iface.parserPlaceAscii(StringView(p, pe - p));
                 if (consumed != 0) {

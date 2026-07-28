@@ -6,6 +6,11 @@
 # adopting VTE's generic SCI interpretation.
 escape_nf
 escape_fpes
+# VTE feeds decoded Unicode codepoints to its parser, so this matrix can mix a
+# C1 introducer with a non-ASCII Unicode payload.  A byte parser must select one
+# input encoding: in UTF-8 raw C1 bytes are malformed text, while in the ISO
+# single-byte mode the UTF-8 payload bytes no longer encode that codepoint.
+csi_misc
 # ECMA-48 5.3/5.6 makes OSC and ST control functions; it does not prescribe
 # recovery for a stream mixing their 7-bit and 8-bit representations.  Xterm's
 # shared string state accepts either ST form, as Shitty deliberately does.

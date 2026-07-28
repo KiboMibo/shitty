@@ -70,6 +70,15 @@ namespace {
             return calls[0];
         }
 
+        bool called(const char* name) const {
+            for (size_t index = 0; index < callCount; ++index) {
+                if (StringView(calls[index].name) == StringView(name)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         StringView text(const ParserCall& call, size_t index = 0) const {
             return StringView((const u8*)(strings.data()) + call.textOffsets[index], call.textLengths[index]);
         }
@@ -1092,6 +1101,46 @@ STD_TEST_SUITE(ParserCallbacks) {
         ParserFixture fixture;
         const u8 input[] = {0xc2, 0xa2};
         fixture.feed(StringView(input, sizeof(input)));
+        expectValues(fixture.expect("parserGroundHigh"), 0xc2);
+    }
+
+    STD_TEST(TreatRawC1AsTextInUtf8Mode) {
+        for (u16 value = 0x80; value <= 0x9f; ++value) {
+            ParserFixture fixture;
+            const u8 input = value;
+            fixture.feed(StringView(&input, 1));
+            expectValues(fixture.expect("parserGroundHigh"), input);
+        }
+    }
+
+    STD_TEST(InterpretRawDeviceAttributesOutsideUtf8Mode) {
+        ParserFixture fixture;
+        fixture.iface.groundUtf8Enabled = false;
+        const u8 input = 0x9a;
+        fixture.feed(StringView(&input, 1));
+        expectValues(fixture.expect("csi_priDA"));
+    }
+
+    STD_TEST(S8c1tDoesNotChangeInputEncoding) {
+        ParserFixture fixture;
+        const u8 input[] = {'\x1b', ' ', 'G', 0x9a};
+        fixture.feed(StringView(input, sizeof(input)));
+        expectValues(fixture.expect("parserSet8BitControls"), true);
+        expectValues(fixture.expect("parserGroundHigh"), 0x9a);
+        STD_INSIST(!fixture.iface.called("csi_priDA"));
+    }
+
+    STD_TEST(InterpretSevenBitControlInUtf8Mode) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1bZ"));
+        expectValues(fixture.expect("csi_priDA"));
+    }
+
+    STD_TEST(PreserveUtf8EncodedC1Codepoint) {
+        ParserFixture fixture;
+        const u8 input[] = {0xc2, 0x9a};
+        fixture.feed(StringView(input, sizeof(input)));
+        STD_INSIST(!fixture.iface.called("csi_priDA"));
         expectValues(fixture.expect("parserGroundHigh"), 0xc2);
     }
 

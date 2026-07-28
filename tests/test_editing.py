@@ -20,10 +20,13 @@ class EditingTest(unittest.TestCase):
             self.assertEqual(terminal.rectangle_origin(), (1, 2, 3, 6))
 
     def test_ecma48_spa_epa_mark_only_guarded_characters(self):
-        for spa, epa in ((b"\x1bV", b"\x1bW"), (b"\x96", b"\x97")):
+        for prefix, spa, epa in (
+            (b"", b"\x1bV", b"\x1bW"),
+            (b"\x1b%@", b"\x96", b"\x97"),
+        ):
             with self.subTest(spa=spa):
                 with Shitty(columns=8, rows=2) as terminal:
-                    terminal.write(b"A" + spa + b"BC" + epa + b"D")
+                    terminal.write(prefix + b"A" + spa + b"BC" + epa + b"D")
                     snapshot = terminal.snapshot()
                     self.assertFalse(snapshot.cell(0, 0).protected)
                     self.assertTrue(snapshot.cell(1, 0).protected)

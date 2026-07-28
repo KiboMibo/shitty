@@ -135,7 +135,9 @@ class ParserStreamingTest(unittest.TestCase):
                 ],
             )
 
-    def test_osc_accepts_mixed_width_terminators_and_legacy_bel(self):
+    def test_osc_accepts_mixed_width_terminators_and_legacy_bel_in_single_byte_mode(
+        self,
+    ):
         cases = (
             b"\x1b]TEST\x1b\\",
             b"\x1b]TEST\x9c",
@@ -147,6 +149,7 @@ class ParserStreamingTest(unittest.TestCase):
         for sequence in cases:
             with self.subTest(sequence=sequence):
                 with Shitty(columns=8, rows=2) as terminal:
+                    terminal.write(b"\x1b%@")
                     terminal.parser_trace_on()
                     terminal.write(sequence)
                     self.assertEqual(terminal.parser_trace(), [("osc", b"TEST")])
@@ -293,9 +296,10 @@ class ParserStreamingTest(unittest.TestCase):
                     terminal.write(b"A" + sequence + b"B")
                     self.assertEqual(terminal.snapshot().lines[0], "AB      ")
 
-    def test_eight_bit_c1_sequences_match_seven_bit_forms(self):
+    def test_eight_bit_c1_sequences_work_in_single_byte_mode(self):
         with Shitty(columns=8, rows=3) as terminal:
             terminal.write(
+                b"\x1b%@"
                 b"\x9b2;3HX"
                 b"\x9d2;eight bit title\x9c"
                 b"\x90$q\"p\x9c"
@@ -311,11 +315,11 @@ class ParserStreamingTest(unittest.TestCase):
                 terminal.read_input(), b"\x1bP1$r64;1\"p\x1b\\"
             )
 
-    def test_eight_bit_string_protocols_are_ignored_through_st(self):
+    def test_eight_bit_string_protocols_are_ignored_through_st_in_single_byte_mode(self):
         for sequence in (b"\x9fignored\x9c", b"\x9eignored\x9c", b"\x98ignored\x9c"):
             with self.subTest(sequence=sequence):
                 with Shitty(columns=8, rows=2) as terminal:
-                    terminal.write(b"A" + sequence + b"B")
+                    terminal.write(b"\x1b%@A" + sequence + b"B")
                     self.assertEqual(terminal.snapshot().lines[0], "AB      ")
 
 
