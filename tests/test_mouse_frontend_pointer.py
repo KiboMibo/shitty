@@ -98,10 +98,49 @@ class MouseFrontendPointerTest(unittest.TestCase):
     def test_shift_override_drags_a_local_selection_during_mouse_reporting(self):
         with Shitty(columns=8, rows=4) as terminal:
             terminal.write(b"one two\x1b[?1000h\x1b[?1006h")
-            terminal.button(0, True, x=2, y=2, modifiers=1)
+            terminal.button(0, True, x=2, y=2, modifiers=1, time=1)
             terminal.pointer(5, 2, modifiers=1)
-            selected = terminal.button(0, False, x=5, y=2, modifiers=1)
-            self.assertEqual(selected, b"one")
+            self.assertEqual(
+                terminal.button(
+                    0, False, x=5, y=2, modifiers=1, time=1.01
+                ),
+                b"one",
+            )
+
+            terminal.button(0, True, x=8, y=2, modifiers=1, time=2)
+            self.assertEqual(terminal.snapshot().selection, (0, 0, 6, 0))
+            terminal.pointer(9, 2, modifiers=1)
+            self.assertEqual(terminal.snapshot().selection, (0, 0, 7, 0))
+            self.assertEqual(
+                terminal.button(
+                    0, False, x=9, y=2, modifiers=1, time=2.01
+                ),
+                b"one two",
+            )
+            self.assertEqual(terminal.read_input(), b"")
+
+    def test_shift_primary_extends_left_endpoint_and_continues_drag(self):
+        with Shitty(columns=8, rows=3) as terminal:
+            terminal.write(b"abcdefgh\x1b[?1000h\x1b[?1006h")
+            terminal.button(0, True, x=5, y=2, modifiers=1, time=1)
+            terminal.pointer(8, 2, modifiers=1)
+            self.assertEqual(
+                terminal.button(
+                    0, False, x=8, y=2, modifiers=1, time=1.01
+                ),
+                b"def",
+            )
+
+            terminal.button(0, True, x=3, y=2, modifiers=1, time=2)
+            self.assertEqual(terminal.snapshot().selection, (1, 0, 6, 0))
+            terminal.pointer(2, 2, modifiers=1)
+            self.assertEqual(terminal.snapshot().selection, (0, 0, 6, 0))
+            self.assertEqual(
+                terminal.button(
+                    0, False, x=2, y=2, modifiers=1, time=2.01
+                ),
+                b"abcdef",
+            )
             self.assertEqual(terminal.read_input(), b"")
 
     def test_double_and_triple_click_cycle_word_and_line_selection(self):
@@ -123,6 +162,56 @@ class MouseFrontendPointerTest(unittest.TestCase):
             self.assertEqual(
                 terminal.button(0, False, x=6, y=2, time=1.31), b""
             )
+
+    def test_shift_primary_extends_completed_word_selection_with_drag(self):
+        with Shitty(columns=16, rows=3) as terminal:
+            terminal.write(b"one two three")
+            terminal.button(0, True, x=6, y=2, time=1)
+            terminal.button(0, False, x=6, y=2, time=1.01)
+            terminal.button(0, True, x=6, y=2, time=1.1)
+            self.assertEqual(
+                terminal.button(0, False, x=6, y=2, time=1.11),
+                b"two",
+            )
+            self.assertEqual(terminal.snapshot().selection, (4, 0, 4, 0))
+
+            terminal.write(b"\x1b[?1000h\x1b[?1006h")
+            terminal.button(0, True, x=9, y=2, modifiers=1, time=2)
+            terminal.pointer(10, 2, modifiers=1)
+            self.assertEqual(
+                terminal.button(
+                    0, False, x=10, y=2, modifiers=1, time=2.01
+                ),
+                b"two three",
+            )
+            self.assertEqual(terminal.read_input(), b"")
+
+    def test_shift_primary_extends_completed_line_selection_with_drag(self):
+        with Shitty(columns=8, rows=4) as terminal:
+            terminal.write(
+                b"first\x1b[2;1Hsecond\x1b[3;1Hthird\x1b[4;1Hfourth"
+            )
+            terminal.button(0, True, x=2, y=3, time=1)
+            terminal.button(0, False, x=2, y=3, time=1.01)
+            terminal.button(0, True, x=2, y=3, time=1.1)
+            terminal.button(0, False, x=2, y=3, time=1.11)
+            terminal.button(0, True, x=2, y=3, time=1.2)
+            self.assertEqual(
+                terminal.button(0, False, x=2, y=3, time=1.21),
+                b"second",
+            )
+            self.assertEqual(terminal.snapshot().selection, (0, 1, 0, 1))
+
+            terminal.write(b"\x1b[?1000h\x1b[?1006h")
+            terminal.button(0, True, x=2, y=4, modifiers=1, time=2)
+            terminal.pointer(2, 5, modifiers=1)
+            self.assertEqual(
+                terminal.button(
+                    0, False, x=2, y=5, modifiers=1, time=2.01
+                ),
+                b"second\nthird\nfourth",
+            )
+            self.assertEqual(terminal.read_input(), b"")
 
     def test_click_timeout_and_distance_restart_at_character_selection(self):
         with Shitty(columns=12, rows=3) as terminal:
