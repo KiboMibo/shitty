@@ -397,6 +397,8 @@ namespace {
         u32 hoveredLinkEnd = 0;
         size_t graphemeCells = 0;
         size_t graphemeCodepoints = 0;
+        size_t lastUpdateCells = 0;
+        size_t lastUpdateSpans = 0;
         TerminalCursor cursor;
         Rect selection;
         std::vector<DisplayCell> cells;
@@ -594,8 +596,11 @@ bool TestDisplay::update(const TerminalUpdate& update) {
     }
     STD_ASSERT(update.colors != nullptr);
     colors = update.colors;
+    lastUpdateCells = 0;
+    lastUpdateSpans = update.spanCount;
     for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
         const TerminalCellSpan& span = update.spans[spanIndex];
+        lastUpdateCells += span.count;
         STD_ASSERT((size_t)(span.index) + span.count <= count);
         STD_ASSERT(span.cells != nullptr);
         for (u32 index = 0; index < span.count; ++index) {
@@ -1820,6 +1825,10 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
             } else if (line == "FONT_STATE") {
                 StringBuilder output;
                 output << StringView(u8"OK ") << composer.fontSize << StringView(u8" ") << composer.glyphWidth << StringView(u8" ") << composer.glyphHeight << StringView(u8" ") << composer.pixelWidth << StringView(u8" ") << composer.pixelHeight << StringView(u8" ") << composer.columns << StringView(u8" ") << composer.rows << StringView(u8" ") << (unsigned)(composer.contentScale * 1000.0f + 0.5f) << StringView(u8" ") << opts.border << StringView(u8"\n");
+                writeAll(controlFd, StringView(output));
+            } else if (line == "LAST_UPDATE") {
+                StringBuilder output;
+                output << StringView(u8"OK ") << display.lastUpdateCells << StringView(u8" ") << display.lastUpdateSpans << StringView(u8"\n");
                 writeAll(controlFd, StringView(output));
             } else if (line.compare(0, 15, "FRONTEND_SCALE ") == 0) {
                 unsigned xNumerator = 0;

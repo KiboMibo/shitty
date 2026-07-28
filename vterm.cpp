@@ -6674,11 +6674,8 @@ VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, O
 }
 
 void VtermImpl::fontChanged() {
-    const u32 width = 2u * opts.border + (u32)(composer.columns) * composer.glyphWidth;
-    const u32 height = 2u * opts.border + (u32)(composer.rows) * composer.glyphHeight;
-    if (composer.pixelWidth == width && composer.pixelHeight == height) {
-        redraw();
-    }
+    cf->expose();
+    redraw();
 }
 
 void VtermImpl::resizeGrid() {

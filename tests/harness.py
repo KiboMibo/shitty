@@ -458,6 +458,13 @@ class Shitty:
             raise RuntimeError("invalid font state response")
         return tuple(map(int, response[1:]))
 
+    def last_update(self):
+        self.stream.write(b"LAST_UPDATE\n")
+        response = self._readline().split()
+        if len(response) != 3 or response[0] != "OK":
+            raise RuntimeError("invalid last update response")
+        return tuple(map(int, response[1:]))
+
     def frontend_content_scale(
         self,
         x_numerator,

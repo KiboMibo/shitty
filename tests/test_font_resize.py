@@ -107,6 +107,28 @@ class FontResizeTest(unittest.TestCase):
             )
             self.assertEqual(terminal.read_input(), b"\x01")
 
+    def test_font_change_rematerializes_every_visible_cell(self):
+        with Shitty(
+            columns=40,
+            rows=8,
+            glyph_px=8,
+            glyph_py=16,
+            extra_arguments=("-fontsize", "16"),
+        ) as terminal:
+            terminal.write(b"visible contents")
+            terminal.snapshot()
+
+            self.shortcut(
+                terminal,
+                KEY_EQUAL,
+                "+",
+                MOD_CONTROL | MOD_SHIFT,
+            )
+
+            cells, spans = terminal.last_update()
+            self.assertEqual(cells, 40 * 8)
+            self.assertEqual(spans, 8)
+
 
 if __name__ == "__main__":
     unittest.main()
