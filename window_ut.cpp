@@ -15,12 +15,20 @@
 #include <std/mem/obj_pool.h>
 #include <std/tst/ut.h>
 
-#define GLFW_INCLUDE_NONE
-#include "third_party/glfw/include/GLFW/glfw3.h"
-
 using namespace stl;
 
 namespace {
+    constexpr int testKeyUnknown = -1;
+    constexpr int testKeyA = 65;
+    constexpr int testKeyUp = 265;
+    constexpr int testKeyRightAlt = 346;
+    constexpr int testPress = 1;
+    constexpr int testRepeat = 2;
+    constexpr int testModControl = 0x0002;
+    constexpr int testModAlt = 0x0004;
+    constexpr int testModCapsLock = 0x0010;
+    constexpr int testModNumLock = 0x0020;
+
     struct CaptureInput final: public InputSink {
         bool key(const KeyInput& input) override;
         bool text(const TextInput& input) override;
@@ -100,10 +108,9 @@ STD_TEST_SUITE(Window) {
 
         STD_INSIST(!window.requestFrame());
         window.cancelFrame();
-        STD_INSIST(!window.dispatchEvents());
     }
 
-    STD_TEST(GlfwWindowDoesNotExposeTestInput) {
+    STD_TEST(NativeWindowDoesNotExposeTestInput) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
         Window* const window = Window::create(composer);
@@ -139,8 +146,8 @@ STD_TEST_SUITE(Window) {
         CaptureInput capture;
         composer.inputSinks.pushBack(&capture);
 
-        input.testKeyEvent(GLFW_KEY_A, 0, GLFW_PRESS, GLFW_MOD_CONTROL | GLFW_MOD_CAPS_LOCK);
-        input.testTextInput('a', GLFW_MOD_ALT | GLFW_MOD_NUM_LOCK);
+        input.testKeyEvent(testKeyA, 0, testPress, testModControl | testModCapsLock);
+        input.testTextInput('a', testModAlt | testModNumLock);
 
         STD_INSIST(capture.keys == 1);
         STD_INSIST(capture.lastKey.key == InputKey::Printable);
@@ -160,14 +167,14 @@ STD_TEST_SUITE(Window) {
         CaptureInput capture;
         composer.inputSinks.pushBack(&capture);
 
-        input.testKeyEvent(GLFW_KEY_UP, 0, GLFW_REPEAT, 0);
+        input.testKeyEvent(testKeyUp, 0, testRepeat, 0);
 
         STD_INSIST(capture.lastKey.key == InputKey::Up);
         STD_INSIST(capture.lastKey.action == InputAction::Repeat);
         STD_INSIST(capture.lastKey.baseCodepoint == 0);
         STD_INSIST(capture.lastKey.layoutCodepoint == 0);
 
-        input.testKeyEvent(GLFW_KEY_RIGHT_ALT, 0, GLFW_PRESS, GLFW_MOD_ALT);
+        input.testKeyEvent(testKeyRightAlt, 0, testPress, testModAlt);
 
         STD_INSIST(capture.lastKey.key == InputKey::RightAlt);
         STD_INSIST((capture.lastKey.modifiers & InputAltGraph) != 0);
@@ -181,8 +188,8 @@ STD_TEST_SUITE(Window) {
         CaptureInput capture;
         composer.inputSinks.pushBack(&capture);
 
-        input.testKeyEvent(GLFW_KEY_UNKNOWN, 0, GLFW_PRESS, 0);
-        input.testKeyEvent(GLFW_KEY_A, 0, 99, 0);
+        input.testKeyEvent(testKeyUnknown, 0, testPress, 0);
+        input.testKeyEvent(testKeyA, 0, 99, 0);
         input.testTextInput(0, 0);
 
         STD_INSIST(capture.keys == 0);

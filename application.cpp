@@ -29,6 +29,8 @@
 #include "vterm_host.h"
 #include "window.h"
 
+#include <platform/platform.h>
+
 #include <std/ios/sys.h>
 #include <std/str/view.h>
 #include <std/sys/crt.h>
@@ -544,8 +546,7 @@ VtermWindowInfo ApplicationImpl::windowInfo() {
 }
 
 bool ApplicationImpl::eventLoop() {
-    while (composer.window->dispatchEvents()) {
-    }
+    composer.platform->run();
     return true;
 }
 

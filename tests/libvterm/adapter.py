@@ -576,9 +576,9 @@ def apply_command(terminal, line, state):
         button = int(button)
         row, column = state["mouse"]
         if button <= 3:
-            glfw_button = {1: 0, 2: 2, 3: 1}[button]
+            button_code = {1: 0, 2: 2, 3: 1}[button]
             terminal.button(
-                glfw_button,
+                button_code,
                 direction == "d",
                 x=column + 3,
                 y=row + 3,

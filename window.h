@@ -34,7 +34,6 @@ struct Window {
     virtual void show() = 0;
     virtual void activate() = 0;
     virtual void requestClose() = 0;
-    virtual bool dispatchEvents() = 0;
     virtual bool requestFrame() = 0;
     virtual void cancelFrame() = 0;
 

@@ -7,20 +7,20 @@ import unittest
 from harness import Shitty
 
 
-GLFW_RELEASE = 0
-GLFW_PRESS = 1
-GLFW_KEY_EQUAL = 61
-GLFW_KEY_MINUS = 45
-GLFW_MOD_SHIFT = 1
-GLFW_MOD_CONTROL = 2
+RELEASE = 0
+PRESS = 1
+KEY_EQUAL = 61
+KEY_MINUS = 45
+MOD_SHIFT = 1
+MOD_CONTROL = 2
 
 
 class OutputScaleTest(unittest.TestCase):
     @staticmethod
     def shortcut(terminal, key, text, modifiers):
-        terminal.frontend_key_event(key, GLFW_PRESS, modifiers=modifiers)
+        terminal.frontend_key_event(key, PRESS, modifiers=modifiers)
         terminal.frontend_text_event(text, modifiers=modifiers)
-        terminal.frontend_key_event(key, GLFW_RELEASE, modifiers=modifiers)
+        terminal.frontend_key_event(key, RELEASE, modifiers=modifiers)
 
     def assert_geometry(self, terminal, state, columns, rows, scale, border):
         self.assertEqual(state[0], 16)
@@ -41,15 +41,15 @@ class OutputScaleTest(unittest.TestCase):
         ) as terminal:
             self.shortcut(
                 terminal,
-                GLFW_KEY_EQUAL,
+                KEY_EQUAL,
                 "+",
-                GLFW_MOD_CONTROL | GLFW_MOD_SHIFT,
+                MOD_CONTROL | MOD_SHIFT,
             )
             self.shortcut(
                 terminal,
-                GLFW_KEY_MINUS,
+                KEY_MINUS,
                 "-",
-                GLFW_MOD_CONTROL,
+                MOD_CONTROL,
             )
             terminal.write(b"scale")
             initial = terminal.font_state()

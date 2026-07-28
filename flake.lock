@@ -1,19 +1,19 @@
 {
   "nodes": {
-    "glfw-shitty": {
+    "platform": {
       "flake": false,
       "locked": {
-        "lastModified": 1785164325,
-        "narHash": "sha256-KK5xVA6HomHSgxgTusDs1o41EcBC9FgtpTxPI7G+QSE=",
+        "lastModified": 1785207764,
+        "narHash": "sha256-3ZkMjWop0/c57oteBXfHUGvXksRK3EHEMJeShIAccFI=",
         "owner": "pg83",
-        "repo": "glfw",
-        "rev": "a2b295420d899be60c6a27ced21eb172bf51f675",
+        "repo": "platform",
+        "rev": "89647e91af45513de60e731071401f9161404857",
         "type": "github"
       },
       "original": {
         "owner": "pg83",
-        "repo": "glfw",
-        "rev": "a2b295420d899be60c6a27ced21eb172bf51f675",
+        "repo": "platform",
+        "rev": "89647e91af45513de60e731071401f9161404857",
         "type": "github"
       }
     },
@@ -52,9 +52,9 @@
     },
     "root": {
       "inputs": {
-        "glfw-shitty": "glfw-shitty",
         "libstd": "libstd",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "platform": "platform"
       }
     }
   },

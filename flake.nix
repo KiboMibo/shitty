@@ -13,8 +13,8 @@
       url = "github:pg83/std/6ab662255eb2c459e5e69e13248c964eef5eedc1";
       flake = false;
     };
-    glfw-shitty = {
-      url = "github:pg83/glfw/a2b295420d899be60c6a27ced21eb172bf51f675";
+    platform = {
+      url = "github:pg83/platform/89647e91af45513de60e731071401f9161404857";
       flake = false;
     };
   };
@@ -24,7 +24,7 @@
       self,
       nixpkgs,
       libstd,
-      glfw-shitty,
+      platform,
     }:
     let
       inherit (nixpkgs) lib;
@@ -61,9 +61,12 @@
           # without `?submodules=1`.
           postUnpack = ''
             mkdir -p "$sourceRoot/third_party"
-            rm -rf "$sourceRoot/third_party/libstd" "$sourceRoot/third_party/glfw"
+            rm -rf "$sourceRoot/third_party/libstd" "$sourceRoot/third_party/platform"
             cp -a ${libstd} "$sourceRoot/third_party/libstd"
-            cp -a ${glfw-shitty} "$sourceRoot/third_party/glfw"
+            cp -a ${platform} "$sourceRoot/third_party/platform"
+            mkdir -p "$sourceRoot/third_party/platform/third_party"
+            rm -rf "$sourceRoot/third_party/platform/third_party/libstd"
+            cp -a ${libstd} "$sourceRoot/third_party/platform/third_party/libstd"
             chmod -R u+w "$sourceRoot/third_party"
           '';
 

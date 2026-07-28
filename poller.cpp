@@ -9,6 +9,8 @@
 #include "composer.h"
 #include "listener.h"
 
+#include <platform/platform.h>
+
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 #include <std/sym/i_map.h>
@@ -28,6 +30,7 @@ namespace {
     struct PollerImpl final: public Poller {
         explicit PollerImpl(Composer& composer);
 
+        void attach(plt::Platform* platform) override;
         void arm(int fd, int mode) override;
         void disarm(int fd) override;
         void timeout(u64 microseconds) override;
@@ -44,6 +47,7 @@ namespace {
         Vector<struct pollfd> waiting;
         Vector<struct pollfd> pendingSource;
         Vector<FDReady> ready;
+        plt::Platform* platform = nullptr;
         u64 minDeadline = 0;
         bool sourcePending = false;
         bool timeoutReady = false;
@@ -56,19 +60,46 @@ PollerImpl::PollerImpl(Composer& composer_)
 {
 }
 
+void PollerImpl::attach(plt::Platform* value) {
+    platform = value;
+    if (platform == nullptr) {
+        return;
+    }
+    armed.visit([this](const ArmedFD& current) {
+        platform->arm(current.fd, current.mode);
+    });
+    if (minDeadline != 0) {
+        platform->deadline(minDeadline);
+    }
+}
+
 void PollerImpl::arm(int fd, int mode) {
     armed[fd] = {fd, mode};
+    if (platform != nullptr) {
+        platform->arm(fd, mode);
+    }
 }
 
 void PollerImpl::disarm(int fd) {
     armed.erase(fd);
+    if (platform != nullptr) {
+        platform->disarm(fd);
+    }
 }
 
 void PollerImpl::timeout(u64 microseconds) {
+    if (platform != nullptr) {
+        platform->timeout(microseconds);
+        return;
+    }
     deadline(monotonicNowUs() + microseconds);
 }
 
 void PollerImpl::deadline(u64 monotonicMicroseconds) {
+    if (platform != nullptr) {
+        platform->deadline(monotonicMicroseconds);
+        return;
+    }
     if (monotonicMicroseconds == 0) {
         monotonicMicroseconds = monotonicNowUs();
     }
@@ -179,8 +210,8 @@ int PollerImpl::poll(struct pollfd* sourceFDs, size_t sourceCount, double* timeo
                 .fd = source.fd,
                 .what = fromNative(source.revents),
             };
-            // GLFW calls us with a prepared Wayland read.  Dispatching here
-            // would deadlock any listener that enters another Wayland queue.
+            // The caller may have prepared an event source read. Dispatching
+            // here would deadlock a listener that enters that source again.
             this->ready.pushBack(ready);
         }
     }

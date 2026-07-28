@@ -32,7 +32,8 @@ Covered now:
 - incomplete CSI, OSC and UTF-8 input without spurious frames or transient
   parser-driven cursor hiding;
 - startup font-size precedence across command line, `SHITTY_FONT_SIZE` and the
-  compiled default, through the real option parser without GLFW;
+  compiled default, through the real option parser without native desktop
+  startup;
 - inclusive font-size boundaries 1/255 and startup rejection below/above the
   range from both CLI and environment sources;
 - strict whole-value parsing for font size, border, history size, geometry and
@@ -117,7 +118,8 @@ terminals are installed.
 
 Still requiring a platform boundary before it can be tested headlessly:
 
-- GLFW event translation, including physical keyboard layout and IME input;
+- native platform event translation, including physical keyboard layout and
+  IME input;
 - clipboard ownership and OSC 52 integration;
 - Vulkan raster output, font fallback and glyph metrics;
 - native window state, scale and grid-snapped interactive resizing.

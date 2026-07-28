@@ -8,9 +8,9 @@ from harness import Shitty
 
 
 CONTROL = 2
-GLFW_LEFT_CONTROL = 341
-GLFW_PRESS = 1
-GLFW_RELEASE = 0
+LEFT_CONTROL = 341
+PRESS = 1
+RELEASE = 0
 
 
 def cell_pixels(image, width, border, cell_width, cell_height, column):
@@ -35,8 +35,8 @@ class HyperlinkInputTest(unittest.TestCase):
             self.assertEqual(terminal.desktop_state()["icon"], 0)
 
             terminal.frontend_key_event(
-                GLFW_LEFT_CONTROL,
-                GLFW_PRESS,
+                LEFT_CONTROL,
+                PRESS,
                 modifiers=CONTROL,
             )
             state = terminal.desktop_state()
@@ -73,8 +73,8 @@ class HyperlinkInputTest(unittest.TestCase):
             self.assertEqual(terminal.desktop_state()["icon"], 1)
 
             terminal.frontend_key_event(
-                GLFW_LEFT_CONTROL,
-                GLFW_RELEASE,
+                LEFT_CONTROL,
+                RELEASE,
                 modifiers=0,
             )
             self.assertEqual(terminal.desktop_state()["icon"], 0)

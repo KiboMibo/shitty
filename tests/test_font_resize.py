@@ -7,22 +7,22 @@ import unittest
 from harness import Shitty
 
 
-GLFW_RELEASE = 0
-GLFW_PRESS = 1
-GLFW_KEY_0 = 48
-GLFW_KEY_A = 65
-GLFW_KEY_EQUAL = 61
-GLFW_KEY_MINUS = 45
-GLFW_MOD_SHIFT = 1
-GLFW_MOD_CONTROL = 2
+RELEASE = 0
+PRESS = 1
+KEY_0 = 48
+KEY_A = 65
+KEY_EQUAL = 61
+KEY_MINUS = 45
+MOD_SHIFT = 1
+MOD_CONTROL = 2
 
 
 class FontResizeTest(unittest.TestCase):
     @staticmethod
     def shortcut(terminal, key, text, modifiers):
-        terminal.frontend_key_event(key, GLFW_PRESS, modifiers=modifiers)
+        terminal.frontend_key_event(key, PRESS, modifiers=modifiers)
         terminal.frontend_text_event(text, modifiers=modifiers)
-        terminal.frontend_key_event(key, GLFW_RELEASE, modifiers=modifiers)
+        terminal.frontend_key_event(key, RELEASE, modifiers=modifiers)
 
     def test_font_bindings_resize_and_reset_without_reaching_child(self):
         with Shitty(
@@ -44,9 +44,9 @@ class FontResizeTest(unittest.TestCase):
 
             self.shortcut(
                 terminal,
-                GLFW_KEY_EQUAL,
+                KEY_EQUAL,
                 "+",
-                GLFW_MOD_CONTROL | GLFW_MOD_SHIFT,
+                MOD_CONTROL | MOD_SHIFT,
             )
             increased = terminal.font_state()
 
@@ -68,42 +68,42 @@ class FontResizeTest(unittest.TestCase):
 
             self.shortcut(
                 terminal,
-                GLFW_KEY_MINUS,
+                KEY_MINUS,
                 "-",
-                GLFW_MOD_CONTROL,
+                MOD_CONTROL,
             )
             self.assertEqual(terminal.font_state()[0], 16)
             self.shortcut(
                 terminal,
-                GLFW_KEY_EQUAL,
+                KEY_EQUAL,
                 "+",
-                GLFW_MOD_CONTROL | GLFW_MOD_SHIFT,
+                MOD_CONTROL | MOD_SHIFT,
             )
             self.shortcut(
                 terminal,
-                GLFW_KEY_EQUAL,
+                KEY_EQUAL,
                 "+",
-                GLFW_MOD_CONTROL | GLFW_MOD_SHIFT,
+                MOD_CONTROL | MOD_SHIFT,
             )
             self.assertEqual(terminal.font_state()[0], 18)
             self.shortcut(
                 terminal,
-                GLFW_KEY_0,
+                KEY_0,
                 "0",
-                GLFW_MOD_CONTROL,
+                MOD_CONTROL,
             )
             self.assertEqual(terminal.font_state()[0], 16)
             self.assertEqual(terminal.read_input(), b"")
 
             terminal.frontend_key_event(
-                GLFW_KEY_A,
-                GLFW_PRESS,
-                modifiers=GLFW_MOD_CONTROL,
+                KEY_A,
+                PRESS,
+                modifiers=MOD_CONTROL,
             )
             terminal.frontend_key_event(
-                GLFW_KEY_A,
-                GLFW_RELEASE,
-                modifiers=GLFW_MOD_CONTROL,
+                KEY_A,
+                RELEASE,
+                modifiers=MOD_CONTROL,
             )
             self.assertEqual(terminal.read_input(), b"\x01")
 

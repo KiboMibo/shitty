@@ -13,6 +13,10 @@
 struct Composer;
 struct pollfd;
 
+namespace plt {
+    struct Platform;
+}
+
 enum PollMode {
     PollRead = 1 << 0,
     PollWrite = 1 << 1,
@@ -26,6 +30,7 @@ struct FDReady {
 };
 
 struct Poller {
+    virtual void attach(plt::Platform* platform) = 0;
     virtual void arm(int fd, int mode) = 0;
     virtual void disarm(int fd) = 0;
     virtual void timeout(u64 microseconds) = 0;

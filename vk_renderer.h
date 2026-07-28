@@ -9,15 +9,18 @@
 #include <std/sys/types.h>
 
 struct Composer;
-struct GLFWwindow;
 struct TerminalCell;
 
 struct TerminalUpdate;
+
+namespace plt {
+    struct RenderContext;
+}
 
 struct Renderer {
     virtual bool update(const TerminalUpdate& update) = 0;
     virtual bool repaint() = 0;
 
-    static Renderer* create(Composer& composer, GLFWwindow* window);
+    static Renderer* create(Composer& composer, const plt::RenderContext& context);
     static u32 rendererCellAttributesForTest(const TerminalCell& cell);
 };

@@ -13,6 +13,10 @@ namespace stl {
     class ObjPool;
 }
 
+namespace plt {
+    struct Platform;
+}
+
 struct Fontpack;
 struct Application;
 struct CellExtraStore;
@@ -52,6 +56,7 @@ struct Composer {
     Renderer* renderer = nullptr;
     Pty* pty = nullptr;
     Poller* poller = nullptr;
+    plt::Platform* platform = nullptr;
     Vterm* vterm = nullptr;
     Window* window = nullptr;
 

@@ -17,6 +17,8 @@
 #include "utf8.h"
 #include "vterm.h"
 
+#include <platform/window.h>
+
 #include <std/dbg/assert.h>
 #include <std/sys/crt.h>
 #include <std/ios/sys.h>
@@ -31,11 +33,9 @@
 #include <std/typ/intrin.h>
 
 #include <vulkan/vulkan.h>
+#include <vulkan/vulkan_wayland.h>
 
 #include "render_spv.h"
-
-#define GLFW_INCLUDE_NONE
-#include "third_party/glfw/include/GLFW/glfw3.h"
 
 #include <algorithm>
 #include <array>
@@ -142,7 +142,7 @@ namespace {
     static_assert(sizeof(GpuCellUpdate) == 44, "Vulkan cell update layout mismatch");
 
     struct RendererImpl final: public Renderer {
-        RendererImpl(Composer& composer, GLFWwindow* window);
+        RendererImpl(Composer& composer, const plt::RenderContext& context);
         ~RendererImpl();
 
         bool update(const TerminalUpdate& update) override;
@@ -271,7 +271,6 @@ namespace {
         static constexpr u32 framesInFlight = 2;
 
         Composer& composer;
-        GLFWwindow* window = nullptr;
 
         VkInstance instance = VK_NULL_HANDLE;
         VkSurfaceKHR surface = VK_NULL_HANDLE;
@@ -524,15 +523,21 @@ u32 Renderer::rendererCellAttributesForTest(const TerminalCell& cell) {
     return packCellAttributes(cell);
 }
 
-RendererImpl::RendererImpl(Composer& composer_, GLFWwindow* window_)
+RendererImpl::RendererImpl(Composer& composer_, const plt::RenderContext& context)
     : composer(composer_)
-    , window(window_)
     , glyphPool(ObjPool::fromMemory())
     , glyphs(*glyphPool)
     , doubleWidthGlyphs(*glyphPool)
 {
+    if (context.backend != plt::RenderBackend::Wayland || context.connection == nullptr || context.window == nullptr) {
+        throw std::runtime_error("Vulkan renderer requires a Wayland render context");
+    }
     createInstance();
-    checkVk(glfwCreateWindowSurface(instance, window, nullptr, &surface), "glfwCreateWindowSurface");
+    VkWaylandSurfaceCreateInfoKHR surfaceInfo{};
+    surfaceInfo.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
+    surfaceInfo.display = (struct wl_display*)(context.connection);
+    surfaceInfo.surface = (struct wl_surface*)(context.window);
+    checkVk(vkCreateWaylandSurfaceKHR(instance, &surfaceInfo, nullptr, &surface), "vkCreateWaylandSurfaceKHR");
     selectPhysicalDevice();
     createDevice();
     createCommandResources();
@@ -614,13 +619,10 @@ RendererImpl::~RendererImpl() {
 }
 
 void RendererImpl::createInstance() {
-    u32 extensionCount = 0;
-    const char* const* extensions = glfwGetRequiredInstanceExtensions(&extensionCount);
-    if (extensions == nullptr) {
-        const char* description = nullptr;
-        glfwGetError(&description);
-        throw std::runtime_error(std::string("glfwGetRequiredInstanceExtensions failed") + (description != nullptr ? ": " + std::string(description) : ""));
-    }
+    const char* const extensions[] = {
+        VK_KHR_SURFACE_EXTENSION_NAME,
+        VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME,
+    };
 
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -633,7 +635,7 @@ void RendererImpl::createInstance() {
     VkInstanceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     createInfo.pApplicationInfo = &appInfo;
-    createInfo.enabledExtensionCount = extensionCount;
+    createInfo.enabledExtensionCount = sizeof(extensions) / sizeof(extensions[0]);
     createInfo.ppEnabledExtensionNames = extensions;
     checkVk(vkCreateInstance(&createInfo, nullptr, &instance), "vkCreateInstance");
 }
@@ -2422,6 +2424,6 @@ bool RendererImpl::update(const TerminalUpdate& update) {
     return present(update);
 }
 
-Renderer* Renderer::create(Composer& composer, GLFWwindow* window) {
-    return composer.pool->make<RendererImpl>(composer, window);
+Renderer* Renderer::create(Composer& composer, const plt::RenderContext& context) {
+    return composer.pool->make<RendererImpl>(composer, context);
 }
