@@ -381,9 +381,10 @@ namespace {
         static constexpr size_t cellSize = sizeof(TerminalCell);
     };
 
+    constexpr u32 whitespaceClass = 0x110000;
+    constexpr u32 identifierClass = 0x110001;
+
     u32 wordClass(u32 codepoint) {
-        constexpr u32 whitespaceClass = 0x110000;
-        constexpr u32 identifierClass = 0x110001;
         switch (utf8proc_category(codepoint)) {
             case UTF8PROC_CATEGORY_LU:
             case UTF8PROC_CATEGORY_LL:
@@ -407,6 +408,244 @@ namespace {
                 // a useful selectable run, while unlike punctuation stays split.
                 return codepoint;
         }
+    }
+
+    struct SelectionRow {
+        const TerminalCell* cells;
+        int columns;
+    };
+
+    struct TokenBounds {
+        int left;
+        int right;
+    };
+
+    int selectionCellLead(const SelectionRow& row, int column) {
+        column = std::max(0, std::min(column, row.columns - 1));
+        return row.cells[column].dwidth_cont && column > 0 ? column - 1 : column;
+    }
+
+    u32 selectionCodepoint(const SelectionRow& row, int column) {
+        const u32 codepoint = row.cells[selectionCellLead(row, column)].uc_pt;
+        return codepoint == 0 ? (u32)(' ') : codepoint;
+    }
+
+    int nextSelectionCell(const SelectionRow& row, int column) {
+        const int lead = selectionCellLead(row, column);
+        return std::min(row.columns, lead + (row.cells[lead].dwidth ? 2 : 1));
+    }
+
+    int previousSelectionCell(const SelectionRow& row, int column) {
+        return selectionCellLead(row, std::max(0, column - 1));
+    }
+
+    bool identifierCodepoint(u32 codepoint) {
+        return wordClass(codepoint) == identifierClass;
+    }
+
+    bool asciiAlpha(u32 codepoint) {
+        return (codepoint >= 'a' && codepoint <= 'z') || (codepoint >= 'A' && codepoint <= 'Z');
+    }
+
+    bool uriCodepoint(u32 codepoint) {
+        return identifierCodepoint(codepoint) || (codepoint < 0x80 && std::strchr("-._~:/?#[]@!$&'()*+,;=%", (int)(codepoint)) != nullptr);
+    }
+
+    bool uriSchemeCodepoint(u32 codepoint) {
+        return asciiAlpha(codepoint) || (codepoint >= '0' && codepoint <= '9') || codepoint == '+' || codepoint == '-' || codepoint == '.';
+    }
+
+    bool compoundCodepoint(u32 codepoint) {
+        return identifierCodepoint(codepoint) || codepoint == '.' || codepoint == '-' || codepoint == '/' || codepoint == ':' || codepoint == '@' || codepoint == '\\' || codepoint == '~';
+    }
+
+    TokenBounds expandTokenRun(const SelectionRow& row, int column, bool (*included)(u32)) {
+        int left = selectionCellLead(row, column);
+        if (!included(selectionCodepoint(row, left))) {
+            return {left, left};
+        }
+        while (left > 0) {
+            const int previous = previousSelectionCell(row, left);
+            if (!included(selectionCodepoint(row, previous))) {
+                break;
+            }
+            left = previous;
+        }
+
+        int right = left;
+        while (right < row.columns && included(selectionCodepoint(row, right))) {
+            right = nextSelectionCell(row, right);
+        }
+        return {left, right};
+    }
+
+    bool unmatchedClosingDelimiter(const SelectionRow& row, int left, int right, u32 opening, u32 closing) {
+        int balance = 0;
+        for (int column = left; column < right; column = nextSelectionCell(row, column)) {
+            const u32 codepoint = selectionCodepoint(row, column);
+            balance += codepoint == opening;
+            balance -= codepoint == closing;
+        }
+        return balance < 0;
+    }
+
+    int schemeLessUriLeft(const SelectionRow& row, const TokenBounds& run) {
+        int candidate = -1;
+        bool hasDot = false;
+        bool previousDot = false;
+        for (int cursor = run.left; cursor < run.right; cursor = nextSelectionCell(row, cursor)) {
+            const u32 codepoint = selectionCodepoint(row, cursor);
+            if (identifierCodepoint(codepoint)) {
+                if (candidate < 0) {
+                    candidate = cursor;
+                }
+                previousDot = false;
+                continue;
+            }
+            if (codepoint == '-' && candidate >= 0) {
+                previousDot = false;
+                continue;
+            }
+            if (codepoint == '.' && candidate >= 0 && !previousDot) {
+                hasDot = true;
+                previousDot = true;
+                continue;
+            }
+            if (codepoint == '/' && candidate >= 0 && hasDot && !previousDot) {
+                return candidate;
+            }
+            candidate = -1;
+            hasDot = false;
+            previousDot = false;
+        }
+        return -1;
+    }
+
+    TokenBounds uriTokenBounds(const SelectionRow& row, int column) {
+        const int clicked = selectionCellLead(row, column);
+        const TokenBounds run = expandTokenRun(row, clicked, uriCodepoint);
+        if (run.left == run.right) {
+            return {clicked, clicked};
+        }
+
+        int schemeLeft = -1;
+        int uriLeft = -1;
+        for (int cursor = run.left; cursor < run.right; cursor = nextSelectionCell(row, cursor)) {
+            const u32 codepoint = selectionCodepoint(row, cursor);
+            if (schemeLeft < 0) {
+                if (asciiAlpha(codepoint)) {
+                    schemeLeft = cursor;
+                }
+                continue;
+            }
+            if (uriSchemeCodepoint(codepoint)) {
+                continue;
+            }
+            if (codepoint != ':') {
+                schemeLeft = -1;
+                continue;
+            }
+            const int firstSlash = nextSelectionCell(row, cursor);
+            const int secondSlash = firstSlash < run.right ? nextSelectionCell(row, firstSlash) : run.right;
+            if (firstSlash < run.right && selectionCodepoint(row, firstSlash) == '/' && secondSlash < run.right && selectionCodepoint(row, secondSlash) == '/') {
+                uriLeft = schemeLeft;
+                break;
+            }
+            schemeLeft = -1;
+        }
+        if (uriLeft < 0) {
+            uriLeft = schemeLessUriLeft(row, run);
+        }
+        if (uriLeft < 0 || clicked < uriLeft) {
+            return {clicked, clicked};
+        }
+
+        int uriRight = run.right;
+        while (uriRight > uriLeft) {
+            const int last = previousSelectionCell(row, uriRight);
+            const u32 codepoint = selectionCodepoint(row, last);
+            const bool trailingPunctuation = codepoint == '.' || codepoint == ',' || codepoint == ';' || codepoint == ':' || codepoint == '!' || codepoint == '?' || codepoint == '\'';
+            const bool unmatchedBracket = (codepoint == ')' && unmatchedClosingDelimiter(row, uriLeft, uriRight, '(', ')')) || (codepoint == ']' && unmatchedClosingDelimiter(row, uriLeft, uriRight, '[', ']'));
+            if (!trailingPunctuation && !unmatchedBracket) {
+                break;
+            }
+            uriRight = last;
+        }
+        return clicked < uriRight ? TokenBounds{uriLeft, uriRight} : TokenBounds{clicked, clicked};
+    }
+
+    bool validCompoundPrefix(const SelectionRow& row, int left, int firstIdentifier) {
+        const u32 first = selectionCodepoint(row, left);
+        const int secondColumn = nextSelectionCell(row, left);
+        if (secondColumn == firstIdentifier) {
+            return first == '/' || first == '\\' || first == '.' || first == '-' || first == '@';
+        }
+
+        const u32 second = selectionCodepoint(row, secondColumn);
+        const int thirdColumn = nextSelectionCell(row, secondColumn);
+        if (thirdColumn == firstIdentifier) {
+            return (first == '~' && (second == '/' || second == '\\')) || (first == '.' && (second == '/' || second == '\\')) || (first == '-' && second == '-');
+        }
+
+        const u32 third = selectionCodepoint(row, thirdColumn);
+        const int fourthColumn = nextSelectionCell(row, thirdColumn);
+        return fourthColumn == firstIdentifier && first == '.' && second == '.' && (third == '/' || third == '\\');
+    }
+
+    TokenBounds compoundTokenBounds(const SelectionRow& row, int column) {
+        const int clicked = selectionCellLead(row, column);
+        if (!identifierCodepoint(selectionCodepoint(row, clicked))) {
+            return {clicked, clicked};
+        }
+
+        TokenBounds token = expandTokenRun(row, clicked, compoundCodepoint);
+        while (token.right > token.left) {
+            const int last = previousSelectionCell(row, token.right);
+            const u32 codepoint = selectionCodepoint(row, last);
+            if (identifierCodepoint(codepoint) || codepoint == '/' || codepoint == '\\') {
+                break;
+            }
+            token.right = last;
+        }
+
+        int firstIdentifier = token.left;
+        while (firstIdentifier < token.right && !identifierCodepoint(selectionCodepoint(row, firstIdentifier))) {
+            firstIdentifier = nextSelectionCell(row, firstIdentifier);
+        }
+        if (firstIdentifier == token.right || clicked >= token.right) {
+            return {clicked, clicked};
+        }
+
+        if (firstIdentifier != token.left && !validCompoundPrefix(row, token.left, firstIdentifier)) {
+            token.left = firstIdentifier;
+        }
+        return token;
+    }
+
+    TokenBounds semanticTokenBounds(const SelectionRow& row, int column) {
+        const TokenBounds uri = uriTokenBounds(row, column);
+        if (uri.left != uri.right) {
+            return uri;
+        }
+        return compoundTokenBounds(row, column);
+    }
+
+    TokenBounds wordTokenBounds(const SelectionRow& row, int column) {
+        int left = selectionCellLead(row, column);
+        const u32 selectedClass = wordClass(selectionCodepoint(row, left));
+        while (left > 0) {
+            const int previous = previousSelectionCell(row, left);
+            if (wordClass(selectionCodepoint(row, previous)) != selectedClass) {
+                break;
+            }
+            left = previous;
+        }
+
+        int right = left;
+        while (right < row.columns && wordClass(selectionCodepoint(row, right)) == selectedClass) {
+            right = nextSelectionCell(row, right);
+        }
+        return {left, right};
     }
 
     // A column shrink can copy the leading half of a wide glyph while
@@ -1310,37 +1549,79 @@ Rect ScreenImpl<Coord, Epoch>::getSnappedSelection() const {
         case SelectSnapTo::Char:
             break;
         case SelectSnapTo::Word: {
-            const auto cellLead = [this](const TerminalCell* row, int x) {
-                x = std::max(0, std::min(x, (int)(nCols)-1));
-                return row[x].dwidth_cont && x > 0 ? x - 1 : x;
-            };
-            const auto expand = [this, &cellLead](int rowIndex, int x) {
-                const auto* row = getLogicalRowPtr(rowIndex);
-                int left = cellLead(row, x);
-                const u32 selectedClass = wordClass(row[left].uc_pt ? row[left].uc_pt : ' ');
-                while (left > 0) {
-                    const int previous = cellLead(row, left - 1);
-                    const u32 codepoint = row[previous].uc_pt ? row[previous].uc_pt : ' ';
-                    if (wordClass(codepoint) != selectedClass) {
-                        break;
+            const auto expand = [this](int rowIndex, int column) {
+                const auto wrapLength = [this](int logicalRow) {
+                    const TerminalCell* cells = getLogicalRowPtr(logicalRow);
+                    for (int x = 0; x < nCols; ++x) {
+                        if (cells[x].wrap) {
+                            return x + 1;
+                        }
                     }
-                    left = previous;
+                    return 0;
+                };
+
+                const int currentWrapLength = wrapLength(rowIndex);
+                if (currentWrapLength != 0 && column >= currentWrapLength) {
+                    const SelectionRow row{getLogicalRowPtr(rowIndex), (int)(nCols)};
+                    const TokenBounds word = wordTokenBounds(row, column);
+                    return Rect(word.left, rowIndex, word.right, rowIndex);
                 }
 
-                int right = left;
-                while (right < nCols) {
-                    const int lead = cellLead(row, right);
-                    const u32 codepoint = row[lead].uc_pt ? row[lead].uc_pt : ' ';
-                    if (wordClass(codepoint) != selectedClass) {
+                int firstRow = rowIndex;
+                while (firstRow > -(int)(historyRows) && wrapLength(firstRow - 1) != 0) {
+                    --firstRow;
+                }
+                int lastRow = rowIndex;
+                while (lastRow + 1 < nRows && wrapLength(lastRow) != 0) {
+                    ++lastRow;
+                }
+
+                struct RowSpan {
+                    int row;
+                    int offset;
+                    int length;
+                };
+                std::vector<RowSpan> spans;
+                std::vector<TerminalCell> cells;
+                int clicked = -1;
+                for (int logicalRow = firstRow; logicalRow <= lastRow; ++logicalRow) {
+                    const int wrapped = wrapLength(logicalRow);
+                    const int length = wrapped != 0 ? wrapped : (int)(nCols);
+                    const int offset = cells.size();
+                    const TerminalCell* source = getLogicalRowPtr(logicalRow);
+                    cells.insert(cells.end(), source, source + length);
+                    spans.push_back({logicalRow, offset, length});
+                    if (logicalRow == rowIndex) {
+                        clicked = offset + column;
+                    }
+                }
+
+                const SelectionRow logicalLine{cells.data(), (int)(cells.size())};
+                const TokenBounds semantic = semanticTokenBounds(logicalLine, clicked);
+                if (semantic.left == semantic.right) {
+                    const SelectionRow row{getLogicalRowPtr(rowIndex), (int)(nCols)};
+                    const TokenBounds word = wordTokenBounds(row, column);
+                    return Rect(word.left, rowIndex, word.right, rowIndex);
+                }
+
+                Point left;
+                Point right;
+                for (const RowSpan& span : spans) {
+                    if (semantic.left >= span.offset && semantic.left < span.offset + span.length) {
+                        left = Point(semantic.left - span.offset, span.row);
+                    }
+                    if (semantic.right >= span.offset && semantic.right <= span.offset + span.length) {
+                        right = Point(semantic.right - span.offset, span.row);
                         break;
                     }
-                    right = lead + (row[lead].dwidth ? 2 : 1);
                 }
-                return std::pair<int, int>{left, right};
+                return Rect(left, right);
             };
 
-            ret.tl.x = expand(ret.tl.y, ret.tl.x).first;
-            ret.br.x = expand(ret.br.y, ret.br.x).second;
+            const Rect start = expand(ret.tl.y, ret.tl.x);
+            const Rect end = expand(ret.br.y, ret.br.x);
+            ret.tl = start.tl;
+            ret.br = end.br;
         } break;
         case SelectSnapTo::Line:
             ret.tl.x = 0;
