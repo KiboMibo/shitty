@@ -39,10 +39,13 @@ else:
     libstd = dependency(ldflags=["-lstd"])
 
 
+platform_test_deps = []
 if "-lplatform" in build.ldflags:
     platform = dependency(ldflags=["-lplatform"])
 elif os.path.isfile(os.path.join(os.path.dirname(__file__), platform_build)):
     platform = import_build(platform_build, "libplatform.a", extra_cflags=["-Wno-error"])
+    platform_test_suite = import_build(platform_build, "platform_tests.stamp", extra_cflags=["-Wno-error"])
+    platform_test_deps.append(platform_test_suite)
 else:
     platform = dependency(ldflags=["-lplatform"])
 
@@ -252,7 +255,7 @@ test_suite = command(
         "$(S)/shitty.desktop",
     ],
     outputs=["$(B)/tests.stamp"],
-    deps=[unit_tests, st_test, st],
+    deps=[unit_tests, st_test, st, *platform_test_deps],
     cmd=[
         ["$(B)/unit_tests"],
         ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],

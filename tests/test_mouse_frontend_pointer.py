@@ -213,6 +213,25 @@ class MouseFrontendPointerTest(unittest.TestCase):
             )
             self.assertEqual(terminal.read_input(), b"")
 
+    def test_selection_drag_finishes_after_pointer_leaves_window(self):
+        with Shitty(columns=8, rows=3) as terminal:
+            terminal.write(b"abcdefgh")
+            terminal.button(0, True, x=2, y=2, time=1)
+            terminal.pointer(x=5, y=2)
+            terminal.pointer_presence(False)
+            terminal.pointer(x=7, y=2)
+
+            self.assertEqual(
+                terminal.button(0, False, x=7, y=2, time=1.01),
+                b"abcde",
+            )
+            completed = terminal.snapshot().selection
+
+            terminal.pointer_presence(True)
+            terminal.pointer(x=9, y=2)
+
+            self.assertEqual(terminal.snapshot().selection, completed)
+
     def test_click_timeout_and_distance_restart_at_character_selection(self):
         with Shitty(columns=12, rows=3) as terminal:
             terminal.write(b"one two")
