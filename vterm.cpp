@@ -127,31 +127,25 @@ namespace {
     };
 
     struct ClipboardQueryOutput final: public Output {
-        ClipboardQueryOutput(
-            SmallObjAllocator* allocator,
-            Clipboard* clipboard,
-            Output* output,
-            bool tryClipboard,
-            u8 replySelector,
-            bool selectorsEmpty,
-            bool send8BitControls
-        );
+        ClipboardQueryOutput(SmallObjAllocator* allocator, Clipboard* clipboard, Output* output, bool tryClipboard, u8 replySelector, bool selectorsEmpty, bool send8BitControls);
         ~ClipboardQueryOutput() noexcept override;
 
         void operator delete(ClipboardQueryOutput* output, std::destroying_delete_t) noexcept;
 
         size_t writeImpl(const void* data, size_t size) override;
         void finishImpl() override;
-        void reply();
+        void beginReply();
+        void finishReply();
 
         SmallObjAllocator* allocator;
         Clipboard* clipboard;
         Output* output;
-        Buffer content;
+        Base64Encoder encoder;
         bool tryClipboard;
         u8 replySelector;
         bool selectorsEmpty;
         bool send8BitControls;
+        bool started = false;
     };
 
     struct GraphemeBuffer {
@@ -1469,15 +1463,7 @@ void ClipboardCopyOutput::finishImpl() {
     }
 }
 
-ClipboardQueryOutput::ClipboardQueryOutput(
-    SmallObjAllocator* allocator_,
-    Clipboard* clipboard_,
-    Output* output_,
-    bool tryClipboard_,
-    u8 replySelector_,
-    bool selectorsEmpty_,
-    bool send8BitControls_
-)
+ClipboardQueryOutput::ClipboardQueryOutput(SmallObjAllocator* allocator_, Clipboard* clipboard_, Output* output_, bool tryClipboard_, u8 replySelector_, bool selectorsEmpty_, bool send8BitControls_)
     : allocator(allocator_)
     , clipboard(clipboard_)
     , output(output_)
@@ -1489,7 +1475,7 @@ ClipboardQueryOutput::ClipboardQueryOutput(
 }
 
 ClipboardQueryOutput::~ClipboardQueryOutput() noexcept {
-    delete output;
+    finishReply();
 }
 
 void ClipboardQueryOutput::operator delete(ClipboardQueryOutput* output, std::destroying_delete_t) noexcept {
@@ -1498,31 +1484,30 @@ void ClipboardQueryOutput::operator delete(ClipboardQueryOutput* output, std::de
 }
 
 size_t ClipboardQueryOutput::writeImpl(const void* data, size_t size) {
-    content.append(data, size);
+    if (size == 0) {
+        return 0;
+    }
+    beginReply();
+    encoder.write(*output, StringView((const u8*)(data), size));
+    output->flush();
     return size;
 }
 
 void ClipboardQueryOutput::finishImpl() {
-    if (content.empty() && tryClipboard) {
-        ClipboardQueryOutput* const fallback = allocator->make<ClipboardQueryOutput>(
-            allocator,
-            clipboard,
-            output,
-            false,
-            replySelector,
-            selectorsEmpty,
-            send8BitControls
-        );
+    if (!started && tryClipboard) {
+        ClipboardQueryOutput* const fallback = allocator->make<ClipboardQueryOutput>(allocator, clipboard, output, false, replySelector, selectorsEmpty, send8BitControls);
         output = nullptr;
         clipboard->readClipboard(fallback);
         return;
     }
-    reply();
+    finishReply();
 }
 
-void ClipboardQueryOutput::reply() {
-    Buffer encoded;
-    base64Encode(StringView(content), encoded);
+void ClipboardQueryOutput::beginReply() {
+    if (started) {
+        return;
+    }
+    started = true;
     StringBuilder reply;
     reply << (send8BitControls ? StringView(u8"\x9d") : StringView(u8"\x1b]")) << StringView(u8"52;");
     if (selectorsEmpty) {
@@ -1530,11 +1515,23 @@ void ClipboardQueryOutput::reply() {
     } else if (replySelector != 0) {
         reply.append(&replySelector, 1);
     }
-    reply << StringView(u8";") << StringView(encoded) << (send8BitControls ? StringView(u8"\x9c") : StringView(u8"\x1b\\"));
+    reply << StringView(u8";");
     const StringView bytes(reply);
     output->write(bytes.data(), bytes.length());
-    delete output;
+}
+
+void ClipboardQueryOutput::finishReply() {
+    if (output == nullptr) {
+        return;
+    }
+    beginReply();
+    encoder.finish(*output);
+    const StringView suffix = send8BitControls ? StringView(u8"\x9c") : StringView(u8"\x1b\\");
+    output->write(suffix.data(), suffix.length());
+    output->flush();
+    Output* const completed = output;
     output = nullptr;
+    delete completed;
 }
 
 bool VtermInput::key(const KeyInput& input) {
@@ -5048,15 +5045,7 @@ void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelect
     }
     Output* const insertion = composer.ptyOutput;
     composer.ptyOutput = composer.ptyOutputs->append();
-    ClipboardQueryOutput* const output = composer.smallObjects->make<ClipboardQueryOutput>(
-        composer.smallObjects,
-        target,
-        insertion,
-        primary && clipboard,
-        replySelector,
-        selectorsEmpty,
-        send8BitControls
-    );
+    ClipboardQueryOutput* const output = composer.smallObjects->make<ClipboardQueryOutput>(composer.smallObjects, target, insertion, primary && clipboard, replySelector, selectorsEmpty, send8BitControls);
     if (primary) {
         target->readPrimary(output);
     } else if (clipboard) {

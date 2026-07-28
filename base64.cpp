@@ -6,6 +6,7 @@
 
 #include "base64.h"
 
+#include <std/ios/output.h>
 #include <std/lib/buffer.h>
 #include <std/str/view.h>
 
@@ -19,6 +20,16 @@
 using namespace stl;
 
 namespace {
+    constexpr u8 alphabet[] = u8"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    void encodeTriple(const u8* source, u8* target) {
+        const u32 bits = ((u32)source[0] << 16) | ((u32)source[1] << 8) | source[2];
+        target[0] = alphabet[(bits >> 18) & 0x3f];
+        target[1] = alphabet[(bits >> 12) & 0x3f];
+        target[2] = alphabet[(bits >> 6) & 0x3f];
+        target[3] = alphabet[bits & 0x3f];
+    }
+
     u8 decodeValue(u8 byte) noexcept {
         if (byte >= u8'A' && byte <= u8'Z') {
             return byte - u8'A';
@@ -37,10 +48,54 @@ namespace {
         }
         return (u8)0xff;
     }
+}
 
-#if !SHITTY_BASE64_SIMDUTF
-    constexpr u8 alphabet[] = u8"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-#endif
+void Base64Encoder::write(Output& output, StringView input) {
+    const u8* source = input.data();
+    size_t size = input.length();
+    while (pendingSize != 0 && pendingSize != 3 && size != 0) {
+        pending[pendingSize++] = *source++;
+        --size;
+    }
+    if (pendingSize == 3) {
+        u8 encoded[4];
+        encodeTriple(pending, encoded);
+        output.write(encoded, sizeof(encoded));
+        pendingSize = 0;
+    }
+
+    constexpr size_t maximumTriples = 1024;
+    while (size >= 3) {
+        const size_t available = size / 3;
+        const size_t triples = available < maximumTriples ? available : maximumTriples;
+        u8 encoded[maximumTriples * 4];
+        for (size_t index = 0; index != triples; ++index) {
+            encodeTriple(source + index * 3, encoded + index * 4);
+        }
+        output.write(encoded, triples * 4);
+        source += triples * 3;
+        size -= triples * 3;
+    }
+
+    while (size != 0) {
+        pending[pendingSize++] = *source++;
+        --size;
+    }
+}
+
+void Base64Encoder::finish(Output& output) {
+    if (pendingSize == 0) {
+        return;
+    }
+    const u32 bits = ((u32)pending[0] << 16) | (pendingSize == 2 ? (u32)pending[1] << 8 : 0);
+    const u8 encoded[] = {
+        alphabet[(bits >> 18) & 0x3f],
+        alphabet[(bits >> 12) & 0x3f],
+        pendingSize == 2 ? alphabet[(bits >> 6) & 0x3f] : u8'=',
+        u8'=',
+    };
+    pendingSize = 0;
+    output.write(encoded, sizeof(encoded));
 }
 
 bool base64DecodeInPlace(u8* data, size_t& size) noexcept {
@@ -125,11 +180,8 @@ Buffer& base64Encode(StringView input, Buffer& output) {
     size_t source = 0;
     size_t target = 0;
     while (input.length() - source >= 3) {
-        const u32 bits = ((u32)input[source] << 16) | ((u32)input[source + 1] << 8) | (u32)input[source + 2];
-        encoded[target++] = alphabet[(bits >> 18) & 0x3f];
-        encoded[target++] = alphabet[(bits >> 12) & 0x3f];
-        encoded[target++] = alphabet[(bits >> 6) & 0x3f];
-        encoded[target++] = alphabet[bits & 0x3f];
+        encodeTriple(input.data() + source, encoded + target);
+        target += 4;
         source += 3;
     }
 

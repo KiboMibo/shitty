@@ -6,6 +6,7 @@
 
 #include "base64.h"
 
+#include <std/ios/output.h>
 #include <std/lib/buffer.h>
 #include <std/str/view.h>
 #include <std/tst/ut.h>
@@ -15,6 +16,12 @@
 using namespace stl;
 
 namespace {
+    struct CaptureOutput final: public Output {
+        size_t writeImpl(const void* data, size_t size) override;
+
+        Buffer bytes;
+    };
+
     bool bytesEqual(const Buffer& buffer, StringView expected) {
         return StringView(buffer) == expected;
     }
@@ -29,6 +36,11 @@ namespace {
     }
 }
 
+size_t CaptureOutput::writeImpl(const void* data, size_t size) {
+    bytes.append(data, size);
+    return size;
+}
+
 STD_TEST_SUITE(Base64) {
     STD_TEST(EncodesKnownVectors) {
         Buffer output;
@@ -40,6 +52,29 @@ STD_TEST_SUITE(Base64) {
         STD_INSIST(bytesEqual(base64Encode(StringView(u8"foob"), output), StringView(u8"Zm9vYg==")));
         STD_INSIST(bytesEqual(base64Encode(StringView(u8"fooba"), output), StringView(u8"Zm9vYmE=")));
         STD_INSIST(bytesEqual(base64Encode(StringView(u8"foobar"), output), StringView(u8"Zm9vYmFy")));
+    }
+
+    STD_TEST(StreamsAcrossEveryInputBoundary) {
+        u8 bytes[257];
+        for (size_t index = 0; index != sizeof(bytes); ++index) {
+            bytes[index] = (u8)index;
+        }
+
+        for (size_t length = 0; length <= sizeof(bytes); ++length) {
+            Buffer expected;
+            base64Encode(StringView(bytes, length), expected);
+            for (size_t chunk = 1; chunk <= 17; ++chunk) {
+                CaptureOutput output;
+                Base64Encoder encoder;
+                for (size_t offset = 0; offset < length; offset += chunk) {
+                    const size_t remaining = length - offset;
+                    const size_t current = remaining < chunk ? remaining : chunk;
+                    encoder.write(output, StringView(bytes + offset, current));
+                }
+                encoder.finish(output);
+                STD_INSIST(StringView(output.bytes) == StringView(expected));
+            }
+        }
     }
 
     STD_TEST(RoundTripsBinaryData) {
