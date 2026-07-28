@@ -10,7 +10,7 @@ std_build = os.path.join("third_party", "libstd", "build.py")
 platform_build = os.path.join("third_party", "platform", "build.py")
 shitty_version = date.today().strftime("%Y.%m.%d")
 
-build.includes += ["$(B)"]
+build.includes += ["$(B)", "$(S)/third_party"]
 build.cppflags += [f'-DSHITTY_VERSION="{shitty_version}"']
 build.cxxflags += [
     "-std=c++23",
@@ -32,20 +32,20 @@ if fontconfig:
 
 
 if '-lstd' in build.ldflags:
-    libstd = dependency(ldflags=["-lstd"])
+    libstd = dependency()
 elif os.path.isfile(os.path.join(os.path.dirname(__file__), std_build)):
     libstd = import_build(std_build, "libstd.a", extra_cflags=["-Wno-error"])
 else:
     libstd = dependency(ldflags=["-lstd"])
 
 
-platform_test_deps = []
 if "-lplatform" in build.ldflags:
     platform = dependency(ldflags=["-lplatform"])
 elif os.path.isfile(os.path.join(os.path.dirname(__file__), platform_build)):
-    platform = import_build(platform_build, "libplatform.a", extra_cflags=["-Wno-error"])
-    platform_test_suite = import_build(platform_build, "platform_tests.stamp", extra_cflags=["-Wno-error"])
-    platform_test_deps.append(platform_test_suite)
+    platform_cppflags = ["-Dno_vendored_std"]
+    if os.path.isfile(os.path.join(os.path.dirname(__file__), std_build)):
+        platform_cppflags.append("-I$(S)/../libstd")
+    platform = import_build(platform_build, "libplatform.a", extra_cflags=["-Wno-error"], extra_cppflags=platform_cppflags)
 else:
     platform = dependency(ldflags=["-lplatform"])
 
@@ -255,7 +255,7 @@ test_suite = command(
         "$(S)/shitty.desktop",
     ],
     outputs=["$(B)/tests.stamp"],
-    deps=[unit_tests, st_test, st, *platform_test_deps],
+    deps=[unit_tests, st_test, st],
     cmd=[
         ["$(B)/unit_tests"],
         ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],

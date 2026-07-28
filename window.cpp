@@ -12,11 +12,11 @@
 #include "input_sink.h"
 #include "listener.h"
 #include "options.h"
-#include "poller.h"
 #include "test_mode.h"
 #include "vk_renderer.h"
 
 #include <platform/platform.h>
+#include <platform/window.h>
 
 #include <std/alg/minmax.h>
 #include <std/lib/buffer.h>
@@ -54,7 +54,7 @@ namespace {
         static void contentScale(Composer& composer, float xScale, float yScale);
     };
 
-    struct NativeWindowImpl final: public Window, public Clipboard, public DesktopActions, public plt::PlatformEvents, public plt::WindowEvents, public plt::InputSink {
+    struct NativeWindowImpl final: public Window, public Clipboard, public DesktopActions, public plt::WindowEvents, public plt::InputSink {
         explicit NativeWindowImpl(Composer& composer);
         ~NativeWindowImpl();
 
@@ -88,10 +88,6 @@ namespace {
         bool handlesUriScheme(StringView scheme) override;
         void openUri(StringView uri) override;
         void pointerIcon(PointerIcon icon) override;
-
-        void fdReady(const plt::FDReady& event) override;
-        void timeout() override;
-        void check() override;
 
         void close() override;
         void resized(const plt::WindowInfo& info) override;
@@ -170,7 +166,6 @@ NativeWindowImpl::NativeWindowImpl(Composer& composer_)
 }
 
 NativeWindowImpl::~NativeWindowImpl() {
-    composer.poller->attach(nullptr);
     composer.platform = nullptr;
     composer.window = nullptr;
     composer.clipboard = nullptr;
@@ -182,8 +177,7 @@ void NativeWindowImpl::initialize() {
         return;
     }
     initialized = true;
-    composer.platform = plt::Platform::create(*composer.pool, *this);
-    composer.poller->attach(composer.platform);
+    composer.platform = plt::Platform::create(*composer.pool);
     native = composer.platform->createWindow(
         *composer.pool,
         {
@@ -411,22 +405,6 @@ void NativeWindowImpl::publish(IntrusiveList& listeners, void* argument) {
 
 void NativeWindowImpl::publishWindow(const ::WindowEvents& events) {
     publish(composer.windowEventListeners, (void*)(&events));
-}
-
-void NativeWindowImpl::fdReady(const plt::FDReady& source) {
-    const FDReady event{
-        .fd = source.fd,
-        .what = source.what,
-    };
-    publish(composer.onFDReady, (void*)(&event));
-}
-
-void NativeWindowImpl::timeout() {
-    publish(composer.onTimeout);
-}
-
-void NativeWindowImpl::check() {
-    publish(composer.eventLoopCheckListeners);
 }
 
 void NativeWindowImpl::close() {

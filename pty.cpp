@@ -26,15 +26,19 @@
 
 #include "pty.h"
 
+#include "application.h"
 #include "composer.h"
 #include "fd_redirect.h"
 #include "listener.h"
-#include "poller.h"
 #include "vterm.h"
 #include "window.h"
 
+#include <platform/platform.h>
+#include <platform/poller.h>
+
 #include <std/mem/obj_pool.h>
 #include <std/str/view.h>
+#include <std/thr/poll_fd.h>
 
 #define _POSIX_C_SOURCE 200809L
 
@@ -79,15 +83,7 @@ namespace {
         PtyImpl* pty;
     };
 
-    struct CallPtyReady final: public Listener {
-        explicit CallPtyReady(PtyImpl* pty);
-
-        void onListen(void* argument) override;
-
-        PtyImpl* pty;
-    };
-
-    struct PtyImpl final: public Pty {
+    struct PtyImpl final: public Pty, public plt::PollCallback {
         PtyImpl(Composer& composer, int fd);
         ~PtyImpl();
 
@@ -95,9 +91,9 @@ namespace {
         ssize_t read(u8* buffer, size_t size) override;
         ssize_t write(const u8* buffer, size_t size) override;
         void outputReady() override;
+        void ready(PollFD event) override;
 
         void applySize();
-        void ready(const FDReady& event);
         void updateInterest();
         bool flushOutput();
         bool readInput();
@@ -119,15 +115,6 @@ void CallPtyResize::onListen(void*) {
     pty->applySize();
 }
 
-CallPtyReady::CallPtyReady(PtyImpl* pty_)
-    : pty(pty_)
-{
-}
-
-void CallPtyReady::onListen(void* argument) {
-    pty->ready(*(const FDReady*)(argument));
-}
-
 PtyImpl::PtyImpl(Composer& composer, int fd)
     : composer_(composer)
     , fd_(fd)
@@ -140,13 +127,12 @@ PtyImpl::PtyImpl(Composer& composer, int fd)
         throw std::runtime_error("cannot make PTY nonblocking: " + std::string(strerror(error)));
     }
     composer_.resizedListeners.pushBack(composer_.pool->make<CallPtyResize>(this));
-    composer_.onFDReady.pushFront(composer_.pool->make<CallPtyReady>(this));
-    composer_.poller->arm(fd_, PollRead);
+    composer_.platform->poller()->arm({fd_, PollFlag::In}, *this);
 }
 
 PtyImpl::~PtyImpl() {
     if (fd_ >= 0) {
-        composer_.poller->disarm(fd_);
+        composer_.platform->poller()->disarm(fd_);
         close(fd_);
     }
     composer_.pty = nullptr;
@@ -175,35 +161,36 @@ void PtyImpl::applySize() {
     pty_resize(fd_, composer_.columns, composer_.rows);
 }
 
-void PtyImpl::ready(const FDReady& event) {
+void PtyImpl::ready(PollFD event) {
     if (event.fd != fd_ || finished) {
         return;
     }
 
     handlingReady = true;
-    if (event.what & PollWrite) {
+    if (event.flags & PollFlag::Out) {
         flushOutput();
     }
-    if (event.what & (PollRead | PollError | PollHangup)) {
+    if (event.flags & (PollFlag::In | PollFlag::Err | PollFlag::Hup)) {
         finished = readInput();
     }
     flushOutput();
     handlingReady = false;
 
     if (finished) {
-        composer_.poller->disarm(fd_);
+        composer_.platform->poller()->disarm(fd_);
         composer_.window->requestClose();
     } else {
         updateInterest();
     }
+    composer_.application->defer();
 }
 
 void PtyImpl::updateInterest() {
-    int mode = PollRead;
+    u32 mode = PollFlag::In;
     if (composer_.vterm != nullptr && !composer_.vterm->ptyOutput().empty()) {
-        mode |= PollWrite;
+        mode |= PollFlag::Out;
     }
-    composer_.poller->arm(fd_, mode);
+    composer_.platform->poller()->arm({fd_, mode}, *this);
 }
 
 bool PtyImpl::flushOutput() {

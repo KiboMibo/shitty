@@ -30,6 +30,7 @@
 #include "window.h"
 
 #include <platform/platform.h>
+#include <platform/poller.h>
 
 #include <std/ios/sys.h>
 #include <std/str/view.h>
@@ -104,19 +105,13 @@ namespace {
         ApplicationImpl* application;
     };
 
-    struct CallApplicationCheck final: public Listener {
-        explicit CallApplicationCheck(ApplicationImpl* application);
-
-        void onListen(void*) override;
-
-        ApplicationImpl* application;
-    };
-
-    struct ApplicationImpl final: public Application, public VtermHost {
+    struct ApplicationImpl final: public Application, public VtermHost, public plt::TimerCallback {
         explicit ApplicationImpl(Composer& composer);
         ~ApplicationImpl();
 
         int run(int argc, char* argv[]) override;
+        void defer() override;
+        void ready() override;
         void osc(int command, StringView argument) override;
         bool handlesOsc() const override;
         void title(StringView value) override;
@@ -145,7 +140,6 @@ namespace {
         bool presentTerminal();
         void windowEvents(const WindowEvents& events);
         void grantFrame();
-        void check();
         bool eventLoop();
         void checkLocale();
         void fontInc();
@@ -212,15 +206,6 @@ void CallApplicationFrameReady::onListen(void*) {
     application->grantFrame();
 }
 
-CallApplicationCheck::CallApplicationCheck(ApplicationImpl* application_)
-    : application(application_)
-{
-}
-
-void CallApplicationCheck::onListen(void*) {
-    application->check();
-}
-
 ApplicationImpl::ApplicationImpl(Composer& composer_)
     : composer(composer_)
 {
@@ -230,16 +215,28 @@ ApplicationImpl::ApplicationImpl(Composer& composer_)
     composer.contentScaleChangedListeners.pushBack(composer.pool->make<CallContentScaleChanged>(this));
     composer.windowEventListeners.pushBack(composer.pool->make<CallApplicationWindowEvents>(this));
     composer.frameReadyListeners.pushBack(composer.pool->make<CallApplicationFrameReady>(this));
-    composer.eventLoopCheckListeners.pushBack(composer.pool->make<CallApplicationCheck>(this));
     composer.inputBindings->add({InputKey::Printable, InputControl | InputShift, '=', '+'}, &composer.fontIncListeners);
     composer.inputBindings->add({InputKey::Printable, InputControl, '-', '-'}, &composer.fontDecListeners);
     composer.inputBindings->add({InputKey::Printable, InputControl, '0', '0'}, &composer.fontResetListeners);
 }
 
 ApplicationImpl::~ApplicationImpl() {
+    if (composer.platform != nullptr) {
+        composer.platform->poller()->cancel(*this);
+    }
     composer.fonts = nullptr;
     delete fontpackPool;
     composer.application = nullptr;
+}
+
+void ApplicationImpl::defer() {
+    if (composer.platform != nullptr) {
+        composer.platform->poller()->timeout(0, *this);
+    }
+}
+
+void ApplicationImpl::ready() {
+    presentTerminal();
 }
 
 void ApplicationImpl::publishFontChanged() {
@@ -420,15 +417,13 @@ bool ApplicationImpl::presentTerminal() {
 void ApplicationImpl::windowEvents(const WindowEvents& events) {
     if (events.resized || events.redraw) {
         composer.vterm->expose();
+        defer();
     }
 }
 
 void ApplicationImpl::grantFrame() {
     frameReady = true;
-}
-
-void ApplicationImpl::check() {
-    presentTerminal();
+    defer();
 }
 
 void ApplicationImpl::osc(int, StringView) {

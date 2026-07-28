@@ -18,6 +18,7 @@
 #include "vterm.h"
 #include "vterm_trace.h"
 #include "vterm_test.h"
+#include "application.h"
 #include "base64.h"
 #include "cell_extra_store.h"
 #include "clipboard.h"
@@ -29,7 +30,6 @@
 #include "mouse_frontend.h"
 #include "mouse_protocol.h"
 #include "parser.h"
-#include "poller.h"
 #include "pty.h"
 #include "screen.h"
 #include "unicode_map.h"
@@ -39,6 +39,9 @@
 #include "options.h"
 #include "utf8.h"
 #include "vterm_host.h"
+
+#include <platform/platform.h>
+#include <platform/poller.h>
 
 #include <std/alg/minmax.h>
 #include <std/dbg/assert.h>
@@ -192,10 +195,10 @@ namespace {
         VtermImpl* parent;
     };
 
-    struct CallVtermTimeout: Listener {
+    struct CallVtermTimeout: plt::TimerCallback {
         explicit CallVtermTimeout(VtermImpl* parent);
 
-        void onListen(void*) override;
+        void ready() override;
 
         VtermImpl* parent;
     };
@@ -687,6 +690,7 @@ namespace {
         void applyPaletteColor(u16 index, Color color);
 
         VtermInput input;
+        CallVtermTimeout callTimeout;
         Composer& composer;
         VtermHost& host;
         Output* dump;
@@ -1316,9 +1320,7 @@ void VtermInput::stopSelectionAutoscroll() {
 }
 
 void VtermInput::armTimeout() {
-    if (selectionAutoscrollDeadline != 0) {
-        terminal->composer.poller->deadline(selectionAutoscrollDeadline);
-    }
+    terminal->armTimeout();
 }
 
 bool VtermInput::advanceSelectionAutoscroll(bool force) {
@@ -1691,6 +1693,9 @@ void VtermInput::pointerPresence(bool present) {
 }
 
 VtermImpl::~VtermImpl() {
+    if (composer.platform != nullptr) {
+        composer.platform->poller()->cancel(callTimeout);
+    }
     delete framePriPool;
     delete frameAltPool;
     composer.vterm = nullptr;
@@ -1791,6 +1796,7 @@ void VtermImpl::flush() {
     if (composer.pty != nullptr) {
         composer.pty->outputReady();
     }
+    composer.application->defer();
 }
 
 void VtermImpl::key(VtKey key_, VtModifier modifiers_) {
@@ -2188,28 +2194,40 @@ bool VtermImpl::animationActive() const {
 void VtermImpl::enableBlinkingText() {
     if (!animationActive()) {
         nextBlink = monotonicNowUs() + 500'000;
-        composer.poller->deadline(nextBlink);
     }
     haveBlinkingText = true;
+    armTimeout();
 }
 
 void VtermImpl::refreshBlinkingText() {
     const bool blinking = cf->hasBlinkingText();
     if (blinking && !animationActive()) {
         nextBlink = monotonicNowUs() + 500'000;
-        composer.poller->deadline(nextBlink);
     }
     haveBlinkingText = blinking;
+    armTimeout();
 }
 
 void VtermImpl::armTimeout() {
+    if (composer.platform == nullptr) {
+        return;
+    }
+    u64 deadline = 0;
     if (synchronizedOutputMode) {
-        composer.poller->deadline(synchronizedOutputDeadline);
+        deadline = synchronizedOutputDeadline;
     }
-    if (animationActive()) {
-        composer.poller->deadline(nextBlink);
+    if (animationActive() && (deadline == 0 || nextBlink < deadline)) {
+        deadline = nextBlink;
     }
-    input.armTimeout();
+    if (input.selectionAutoscrollDeadline != 0 && (deadline == 0 || input.selectionAutoscrollDeadline < deadline)) {
+        deadline = input.selectionAutoscrollDeadline;
+    }
+    plt::Poller* const poller = composer.platform->poller();
+    if (deadline == 0) {
+        poller->cancel(callTimeout);
+    } else {
+        poller->deadline(deadline, callTimeout);
+    }
 }
 
 void VtermImpl::timeout() {
@@ -2219,6 +2237,7 @@ void VtermImpl::timeout() {
         expose();
     }
     armTimeout();
+    composer.application->defer();
 }
 
 size_t VtermInputSpec::getLength() const {
@@ -4363,8 +4382,8 @@ void VtermImpl::setSynchronizedOutput(bool enabled) {
     synchronizedOutputMode = enabled;
     if (enabled) {
         synchronizedOutputDeadline = monotonicNowUs() + 150'000;
-        composer.poller->deadline(synchronizedOutputDeadline);
     }
+    armTimeout();
 }
 
 void VtermImpl::setColorSchemeUpdates(bool enabled) {
@@ -6724,12 +6743,13 @@ CallVtermTimeout::CallVtermTimeout(VtermImpl* parent_)
 {
 }
 
-void CallVtermTimeout::onListen(void*) {
+void CallVtermTimeout::ready() {
     parent->timeout();
 }
 
 VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, Output* dump_)
     : input(this)
+    , callTimeout(this)
     , composer(composer_)
     , host(host_)
     , dump(dump_)
@@ -6775,7 +6795,6 @@ VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, O
     resetTerminal();
     composer.resizedListeners.pushBack(composer.pool->make<CallVtermResize>(this));
     composer.fontChangedListeners.pushBack(composer.pool->make<CallVtermFontChanged>(this));
-    composer.onTimeout.pushFront(composer.pool->make<CallVtermTimeout>(this));
     composer.inputSinks.pushBack(this);
     armTimeout();
 }
