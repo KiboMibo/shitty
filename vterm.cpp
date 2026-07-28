@@ -231,6 +231,7 @@ namespace {
         void selectionExtend(int pixelX, int pixelY, bool cycleSnapTo);
         void selectionUpdate(int pixelX, int pixelY);
         VtermTextResult selectionFinish();
+        bool hasSelection() const;
         void selectionClear();
         void selectionRectangular();
         void paste(StringView text);
@@ -1579,7 +1580,11 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
     if (input.pressed) {
         const bool cycleSnapTo = mouse.registerClick(button, input.pixelX, input.pixelY, input.time) > 1;
         if (input.button == PointerButton::Primary) {
-            terminal->selectionStart(input.pixelX, input.pixelY, cycleSnapTo);
+            if ((input.modifiers & InputShift) && terminal->hasSelection()) {
+                terminal->selectionExtend(input.pixelX, input.pixelY, cycleSnapTo);
+            } else {
+                terminal->selectionStart(input.pixelX, input.pixelY, cycleSnapTo);
+            }
             mouse.beginSelection();
         } else if (input.button == PointerButton::Secondary) {
             terminal->selectionExtend(input.pixelX, input.pixelY, cycleSnapTo);
@@ -1840,6 +1845,10 @@ VtermTextResult VtermImpl::selectionFinish() {
     inputResult.clear();
     const bool selected = selectFinish(inputResult);
     return {stringView(inputResult), selected};
+}
+
+bool VtermImpl::hasSelection() const {
+    return !cf->getSnappedSelection().empty();
 }
 
 void VtermImpl::selectionClear() {
