@@ -1285,7 +1285,7 @@ int VtermInput::currentSelectionAutoscrollDirection() const {
         return 0;
     }
     const int top = opts.border;
-    const int bottom = std::max(top, (int)(terminal->composer.pixelHeight) - opts.border - 1);
+    const int bottom = max(top, (int)(terminal->composer.pixelHeight) - opts.border - 1);
     if (pointerY <= top) {
         return -1;
     }
