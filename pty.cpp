@@ -168,13 +168,17 @@ void PtyImpl::ready(PollFD event) {
     }
 
     handlingReady = true;
+    bool outputAttempted = false;
     if (event.flags & PollFlag::Out) {
         flushOutput();
+        outputAttempted = true;
     }
     if (event.flags & (PollFlag::In | PollFlag::Err | PollFlag::Hup)) {
         finished = readInput();
     }
-    flushOutput();
+    if (!outputAttempted) {
+        flushOutput();
+    }
     handlingReady = false;
 
     if (finished) {
@@ -199,24 +203,18 @@ bool PtyImpl::flushOutput() {
     if (vterm == nullptr) {
         return true;
     }
-    while (true) {
-        const StringView output = vterm->ptyOutput();
-        if (output.empty()) {
-            return true;
-        }
-        const ssize_t count = write(output.data(), output.length());
-        if (count > 0) {
-            vterm->consumePtyOutput((size_t)(count));
-            continue;
-        }
-        if (count < 0 && errno == EINTR) {
-            continue;
-        }
-        if (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-            sysWarn("pty write");
-        }
+    const StringView output = vterm->ptyOutput();
+    if (output.empty()) {
+        return true;
+    }
+    constexpr size_t maxWrite = 64 * 1024;
+    const size_t size = output.length() < maxWrite ? output.length() : maxWrite;
+    const ssize_t count = write(output.data(), size);
+    if (count <= 0) {
         return false;
     }
+    vterm->consumePtyOutput((size_t)(count));
+    return (size_t)(count) == output.length();
 }
 
 bool PtyImpl::readInput() {

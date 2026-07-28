@@ -432,7 +432,7 @@ namespace {
         int writePty(const u8* data, size_t size, bool userInput = false);
         int writeKittyKey(VtKey key, u16 modifiers, VtermKeyEventType event);
         int writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event);
-        bool readPty();
+        bool readPty(bool flushOutput = true);
         bool servicePty(bool readable, bool writable);
         bool flushPtyOutput();
         size_t pendingPtyOutputBytes();
@@ -979,21 +979,18 @@ int TestTerminal::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 
 }
 
 bool TestTerminal::flushPtyOutput() {
-    while (true) {
-        const StringView output = terminal.ptyOutput();
-        if (output.empty()) {
-            return true;
-        }
-        const ssize_t count = pty.write(output.data(), output.length());
-        if (count > 0) {
-            terminal.consumePtyOutput((size_t)(count));
-            continue;
-        }
-        if (count < 0 && errno == EINTR) {
-            continue;
-        }
+    const StringView output = terminal.ptyOutput();
+    if (output.empty()) {
+        return true;
+    }
+    constexpr size_t maxWrite = 64 * 1024;
+    const size_t size = output.length() < maxWrite ? output.length() : maxWrite;
+    const ssize_t count = pty.write(output.data(), size);
+    if (count <= 0) {
         return false;
     }
+    terminal.consumePtyOutput((size_t)(count));
+    return (size_t)(count) == output.length();
 }
 
 size_t TestTerminal::pendingPtyOutputBytes() {
@@ -1004,7 +1001,7 @@ u64 TestTerminal::droppedPtyResponses() {
     return testApi.inspect().droppedPtyResponses;
 }
 
-bool TestTerminal::readPty() {
+bool TestTerminal::readPty(bool flushOutput) {
     bool finished = false;
     const ssize_t count = pty.read(ptyInputBuffer, sizeof(ptyInputBuffer));
     if (count > 0) {
@@ -1014,7 +1011,9 @@ bool TestTerminal::readPty() {
     } else if (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) {
         finished = true;
     }
-    flushPtyOutput();
+    if (flushOutput) {
+        flushPtyOutput();
+    }
     present();
     refreshState();
     return finished;
@@ -1024,7 +1023,7 @@ bool TestTerminal::servicePty(bool readable, bool writable) {
     if (writable) {
         flushPtyOutput();
     }
-    return readable && readPty();
+    return readable && readPty(!writable);
 }
 
 MouseTrackingState TestTerminal::getMouseTrackingState() {

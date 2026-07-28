@@ -10,6 +10,20 @@ from harness import Shitty
 
 class PtyOutputTest(unittest.TestCase):
     protocol_high_water = 1024 * 1024
+    max_write = 64 * 1024
+
+    def test_one_flush_writes_at_most_64_kib(self):
+        payload = b"x" * (self.max_write + 7)
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.script_pty_writes(len(payload))
+            terminal.input(payload)
+
+            self.assertEqual(len(terminal.read_written_pty()), self.max_write)
+            self.assertEqual(terminal.pending_output(), 7)
+
+            terminal.script_pty_writes(7)
+            self.assertTrue(terminal.flush_output_result())
+            self.assertEqual(terminal.read_written_pty(), b"x" * 7)
 
     def test_simultaneous_read_and_write_flushes_older_bytes_before_reply(self):
         with Shitty(columns=8, rows=2) as terminal:
@@ -24,22 +38,35 @@ class PtyOutputTest(unittest.TestCase):
 
     def test_partial_writes_resume_at_exact_unsent_byte_after_backpressure(self):
         with Shitty(columns=8, rows=2) as terminal:
-            terminal.script_pty_writes(2, 3, ("error", errno.EAGAIN))
+            terminal.script_pty_writes(2)
             terminal.input(b"abcdefghi")
-            self.assertEqual(terminal.read_written_pty(), b"abcde")
+            self.assertEqual(terminal.read_written_pty(), b"ab")
+            self.assertEqual(terminal.pending_output(), 7)
+
+            terminal.script_pty_writes(3)
+            self.assertFalse(terminal.flush_output_result())
+            self.assertEqual(terminal.read_written_pty(), b"cde")
             self.assertEqual(terminal.pending_output(), 4)
 
-            terminal.script_pty_writes(1, 3)
+            terminal.script_pty_writes(("error", errno.EAGAIN))
+            self.assertFalse(terminal.flush_output_result())
+            self.assertEqual(terminal.read_written_pty(), b"")
+            self.assertEqual(terminal.pending_output(), 4)
+
+            terminal.script_pty_writes(4)
             self.assertTrue(terminal.flush_output_result())
             self.assertEqual(terminal.read_written_pty(), b"fghi")
             self.assertEqual(terminal.pending_output(), 0)
 
-    def test_interrupted_write_is_retried_without_duplication(self):
+    def test_interrupted_write_is_left_for_next_callback_without_duplication(self):
         with Shitty(columns=8, rows=2) as terminal:
-            terminal.script_pty_writes(
-                ("error", errno.EINTR), 1, ("error", errno.EINTR), 8
-            )
+            terminal.script_pty_writes(("error", errno.EINTR))
             terminal.input(b"retry")
+            self.assertEqual(terminal.read_written_pty(), b"")
+            self.assertEqual(terminal.pending_output(), 5)
+
+            terminal.script_pty_writes(5)
+            self.assertTrue(terminal.flush_output_result())
             self.assertEqual(terminal.read_written_pty(), b"retry")
             self.assertEqual(terminal.pending_output(), 0)
 
@@ -96,7 +123,10 @@ class PtyOutputTest(unittest.TestCase):
             )
             self.assertEqual(terminal.dropped_pty_responses(), 0)
 
-            terminal.script_pty_writes(self.protocol_high_water + 4)
+            while terminal.pending_output() > self.max_write:
+                terminal.script_pty_writes(self.max_write)
+                self.assertFalse(terminal.flush_output_result())
+            terminal.script_pty_writes(self.max_write)
             self.assertTrue(terminal.flush_output_result())
             self.assertTrue(terminal.read_written_pty().endswith(b"user"))
 
@@ -107,8 +137,9 @@ class PtyOutputTest(unittest.TestCase):
             terminal.write(b"\x1b[5n")
             self.assertEqual(terminal.dropped_pty_responses(), 1)
 
-            terminal.script_pty_writes(self.protocol_high_water)
-            self.assertTrue(terminal.flush_output_result())
+            while terminal.pending_output():
+                terminal.script_pty_writes(self.max_write)
+                terminal.flush_output()
             terminal.script_pty_writes(("error", errno.EAGAIN))
             terminal.write(b"\x1b[5n")
 
