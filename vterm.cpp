@@ -87,6 +87,7 @@ void MouseTrackingState::setEncoding(MouseTrackingEnc value) {
 
 namespace {
     constexpr size_t ptyProtocolHighWater = 1024 * 1024;
+    constexpr u64 selectionAutoscrollInterval = 50'000;
 
     StringView stringView(const std::string& value) {
         return StringView((const u8*)(value.data()), value.size());
@@ -138,6 +139,11 @@ namespace {
         void refreshHyperlinkAndRedraw();
         void updatePointer(int pixelX, int pixelY, u16 modifiers);
         void updatePointerModifiers(const KeyInput& input);
+        int currentSelectionAutoscrollDirection() const;
+        void updateSelectionAutoscroll();
+        void stopSelectionAutoscroll();
+        void armTimeout();
+        bool advanceSelectionAutoscroll(bool force);
         ScreenHyperlink resolveLink(int pixelX, int pixelY);
         bool paste(bool primary);
 
@@ -164,6 +170,8 @@ namespace {
         bool pointerPresent = false;
         bool pointerPositionKnown = false;
         bool pointerFocused = true;
+        int selectionAutoscrollDirection = 0;
+        u64 selectionAutoscrollDeadline = 0;
         Buffer schemeScratch;
         bool locallyConsumedKeys[(unsigned)(InputKey::Count) + 128]{};
     };
@@ -943,6 +951,7 @@ namespace {
         void selectionUpdate(int pixelX, int pixelY) override;
         VtermTextResult selectionFinish() override;
         void selectionRectangular() override;
+        bool advanceSelectionAutoscroll() override;
         void paste(StringView text) override;
         StringView hyperlinkAt(int pixelX, int pixelY) override;
 
@@ -1270,6 +1279,77 @@ void VtermInput::updatePointerModifiers(const KeyInput& input) {
     refreshHyperlinkAndRedraw();
 }
 
+int VtermInput::currentSelectionAutoscrollDirection() const {
+    const unsigned selectionButtons = (1u << (unsigned)(PointerButton::Primary)) | (1u << (unsigned)(PointerButton::Secondary));
+    if (!mouse.selectionOngoing() || !(mouse.buttons() & selectionButtons) || terminal->cf->getSelection().null() || !pointerFocused || !pointerPresent || !pointerPositionKnown) {
+        return 0;
+    }
+    const int top = opts.border;
+    const int bottom = std::max(top, (int)(terminal->composer.pixelHeight) - opts.border - 1);
+    if (pointerY <= top) {
+        return -1;
+    }
+    if (pointerY >= bottom) {
+        return 1;
+    }
+    return 0;
+}
+
+void VtermInput::updateSelectionAutoscroll() {
+    const int direction = currentSelectionAutoscrollDirection();
+    if (direction == 0) {
+        stopSelectionAutoscroll();
+        return;
+    }
+    if (direction == selectionAutoscrollDirection && selectionAutoscrollDeadline != 0) {
+        return;
+    }
+    selectionAutoscrollDirection = direction;
+    selectionAutoscrollDeadline = monotonicNowUs() + selectionAutoscrollInterval;
+    armTimeout();
+}
+
+void VtermInput::stopSelectionAutoscroll() {
+    selectionAutoscrollDirection = 0;
+    selectionAutoscrollDeadline = 0;
+}
+
+void VtermInput::armTimeout() {
+    if (selectionAutoscrollDeadline != 0) {
+        terminal->composer.poller->deadline(selectionAutoscrollDeadline);
+    }
+}
+
+bool VtermInput::advanceSelectionAutoscroll(bool force) {
+    if (selectionAutoscrollDeadline == 0) {
+        return false;
+    }
+    const u64 now = monotonicNowUs();
+    if (!force && now < selectionAutoscrollDeadline) {
+        return false;
+    }
+    const int direction = currentSelectionAutoscrollDirection();
+    if (direction == 0 || direction != selectionAutoscrollDirection) {
+        stopSelectionAutoscroll();
+        return false;
+    }
+    const u32 previousOffset = terminal->cf->getViewOffset();
+    if (direction < 0) {
+        terminal->cf->pageUp(1);
+    } else {
+        terminal->cf->pageDown(1);
+    }
+    if (terminal->cf->getViewOffset() == previousOffset) {
+        stopSelectionAutoscroll();
+        return false;
+    }
+    terminal->refreshBlinkingText();
+    terminal->selectUpdate(pointerX, pointerY);
+    selectionAutoscrollDeadline = now + selectionAutoscrollInterval;
+    armTimeout();
+    return true;
+}
+
 void VtermInput::flush() {
     if (!pendingTextKey.active) {
         return;
@@ -1465,6 +1545,9 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
     updatePointer(input.pixelX, input.pixelY, input.modifiers);
     const int button = (int)(input.button);
     mouse.updateButton(button, input.pressed);
+    if (!input.pressed && (input.button == PointerButton::Primary || input.button == PointerButton::Secondary)) {
+        stopSelectionAutoscroll();
+    }
     const MouseTrackingState tracking = terminal->mouseTrk;
     const int protocolButton = mouseTerminalButton(button);
     u16 locatorColumn = 1;
@@ -1527,6 +1610,7 @@ bool VtermInput::pointerMotion(const PointerMotionInput& input) {
     terminal->setLocatorPosition(locatorColumn, locatorRow, std::max(1, input.pixelX + 1), std::max(1, input.pixelY + 1), 0);
     const MouseTrackingState tracking = terminal->mouseTrk;
     if (mouse.protocolActive(input.modifiers, tracking.mode)) {
+        stopSelectionAutoscroll();
         if (tracking.mode == MouseTrackingMode::VT200_ButtonEvent && !mouse.primaryButtonPressed()) {
             return true;
         }
@@ -1541,6 +1625,9 @@ bool VtermInput::pointerMotion(const PointerMotionInput& input) {
         }
     } else if (mouse.buttons() & ((1u << (unsigned)(PointerButton::Primary)) | (1u << (unsigned)(PointerButton::Secondary)))) {
         terminal->selectionUpdate(input.pixelX, input.pixelY);
+        updateSelectionAutoscroll();
+    } else {
+        stopSelectionAutoscroll();
     }
     return true;
 }
@@ -1578,6 +1665,7 @@ void VtermInput::focus(bool focused) {
         hyperlinkClick = false;
         mouse.clearButtons();
         mouse.endSelection();
+        stopSelectionAutoscroll();
         suppressedTextInputs = 0;
         suppressRepeatedTextInput = false;
         pendingTextKey.active = false;
@@ -1592,6 +1680,7 @@ void VtermInput::pointerPresence(bool present) {
     pointerPresent = present;
     if (!present) {
         pointerPositionKnown = false;
+        stopSelectionAutoscroll();
     }
     refreshHyperlinkAndRedraw();
 }
@@ -2071,6 +2160,10 @@ void TestApiImpl::selectionRectangular() {
     vterm->selectionRectangular();
 }
 
+bool TestApiImpl::advanceSelectionAutoscroll() {
+    return vterm->input.advanceSelectionAutoscroll(true);
+}
+
 void TestApiImpl::paste(StringView text) {
     vterm->paste(text);
 }
@@ -2107,10 +2200,12 @@ void VtermImpl::armTimeout() {
     if (animationActive()) {
         composer.poller->deadline(nextBlink);
     }
+    input.armTimeout();
 }
 
 void VtermImpl::timeout() {
     expireSynchronizedOutput(false);
+    input.advanceSelectionAutoscroll(false);
     if (advanceAnimation(false)) {
         expose();
     }
@@ -2508,6 +2603,9 @@ void VtermImpl::switchColMode(ColMode colMode_) {
 }
 
 void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlternate) {
+    if (altScreenBufferMode != altScreenBufferMode_ || (altScreenBufferMode_ && clearAlternate)) {
+        input.stopSelectionAutoscroll();
+    }
     if (altScreenBufferMode == altScreenBufferMode_) {
         if (clearAlternate) {
             if (altScreenBufferMode_) {
