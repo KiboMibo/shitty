@@ -47,6 +47,7 @@ namespace {
         void operator delete(PtyOutputImpl* output, std::destroying_delete_t) noexcept;
 
         size_t writeImpl(const void* data, size_t size) override;
+        void flushImpl() override;
 
         SmallObjAllocator* allocator;
         PtyOutputQueueImpl* queue;
@@ -123,8 +124,14 @@ size_t PtyOutputImpl::writeImpl(const void* data, size_t size) {
         return size;
     }
     node->append(data, size);
-    queue->pty.outputReady();
     return size;
+}
+
+void PtyOutputImpl::flushImpl() {
+    if (node == nullptr) {
+        return;
+    }
+    queue->pty.outputReady();
 }
 
 PtyOutputQueueImpl::PtyOutputQueueImpl(SmallObjAllocator* allocator_, Pty& pty_)

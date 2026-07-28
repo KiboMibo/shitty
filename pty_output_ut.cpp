@@ -49,6 +49,24 @@ void TestPty::outputReady() {
 }
 
 STD_TEST_SUITE(PtyOutput) {
+    STD_TEST(NotifiesPtyAfterFlushOrClose) {
+        auto pool = ObjPool::fromMemory();
+        SmallObjAllocator* const allocator = SmallObjAllocator::create(pool.mutPtr());
+        TestPty pty;
+        PtyOutputQueue* const queue = PtyOutputQueue::create(pool.mutPtr(), allocator, pty);
+        Output* output = queue->append();
+
+        output->write(StringView(u8"first").data(), 5);
+        output->write(StringView(u8"second").data(), 6);
+        STD_INSIST(pty.readyCount == 0);
+
+        output->flush();
+        STD_INSIST(pty.readyCount == 1);
+
+        delete output;
+        STD_INSIST(pty.readyCount == 2);
+    }
+
     STD_TEST(AnOpenInsertionBlocksLaterOutput) {
         auto pool = ObjPool::fromMemory();
         SmallObjAllocator* const allocator = SmallObjAllocator::create(pool.mutPtr());

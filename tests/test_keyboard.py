@@ -71,8 +71,8 @@ class KeyboardTest(unittest.TestCase):
 
     def test_plain_paste_normalizes_newlines_without_markers(self):
         with Shitty(columns=8, rows=2) as terminal:
-            terminal.paste(b"one\ntwo")
-            self.assertEqual(terminal.read_input(), b"one\rtwo")
+            terminal.paste(b"\none\n\ntwo\n")
+            self.assertEqual(terminal.read_input(), b"\rone\r\rtwo\r")
 
     def test_keyboard_lock_discards_user_input(self):
         with Shitty(columns=8, rows=2) as terminal:

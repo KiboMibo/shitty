@@ -109,7 +109,6 @@ namespace {
 
         SmallObjAllocator* allocator;
         Output* output;
-        Buffer scratch;
         bool bracketed;
         bool started = false;
     };
@@ -1419,15 +1418,22 @@ size_t PasteOutput::writeImpl(const void* data, size_t size) {
         return 0;
     }
     begin();
-    scratch.reset();
-    scratch.grow(size);
-    const u8* const source = static_cast<const u8*>(data);
-    u8* const target = static_cast<u8*>(scratch.mutData());
-    for (size_t index = 0; index < size; ++index) {
-        target[index] = source[index] == '\n' ? '\r' : source[index];
+    const u8 carriageReturn = '\r';
+    const u8* current = static_cast<const u8*>(data);
+    const u8* const end = current + size;
+    while (current != end) {
+        const u8* const newline = static_cast<const u8*>(memchr(current, '\n', end - current));
+        const u8* const spanEnd = newline == nullptr ? end : newline;
+        if (current != spanEnd) {
+            output->write(current, spanEnd - current);
+        }
+        if (newline == nullptr) {
+            break;
+        }
+        output->write(&carriageReturn, 1);
+        current = newline + 1;
     }
-    scratch.seekAbsolute(size);
-    output->write(scratch.data(), scratch.used());
+    output->flush();
     return size;
 }
 
@@ -7217,6 +7223,7 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
     }
     const StringView bytes(ucstr, len);
     output->write(bytes.data(), bytes.length());
+    output->flush();
     return len;
 }
 
