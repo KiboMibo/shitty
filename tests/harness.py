@@ -560,6 +560,9 @@ class Shitty:
     def blink_tick(self):
         self.command("BLINK_TICK")
 
+    def selection_autoscroll_tick(self):
+        self.command("SELECTION_AUTOSCROLL_TICK")
+
     def select_start(self, column, row):
         self.command(f"SELECT_START {column} {row}")
 

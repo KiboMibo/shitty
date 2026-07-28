@@ -51,6 +51,7 @@ struct TestApi {
     virtual void selectionUpdate(int pixelX, int pixelY) = 0;
     virtual VtermTextResult selectionFinish() = 0;
     virtual void selectionRectangular() = 0;
+    virtual bool advanceSelectionAutoscroll() = 0;
     virtual void paste(stl::StringView text) = 0;
     virtual stl::StringView hyperlinkAt(int pixelX, int pixelY) = 0;
 };

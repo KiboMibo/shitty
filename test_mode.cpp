@@ -466,6 +466,7 @@ namespace {
         void setHasFocus(bool focused);
         bool expireSynchronizedOutput(bool force = false);
         bool advanceAnimation(bool force = false);
+        bool advanceSelectionAutoscroll();
 
         Vterm& terminal;
         TestApi& testApi;
@@ -1174,6 +1175,12 @@ bool TestTerminal::expireSynchronizedOutput(bool force) {
 
 bool TestTerminal::advanceAnimation(bool force) {
     const bool result = terminal.advanceAnimation(force);
+    update();
+    return result;
+}
+
+bool TestTerminal::advanceSelectionAutoscroll() {
+    const bool result = testApi.advanceSelectionAutoscroll();
     update();
     return result;
 }
@@ -1972,6 +1979,9 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 if (terminal.advanceAnimation(true)) {
                     terminal.redraw();
                 }
+                writeAll(controlFd, "OK\n");
+            } else if (line == "SELECTION_AUTOSCROLL_TICK") {
+                terminal.advanceSelectionAutoscroll();
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 13, "SELECT_START ") == 0 || line.compare(0, 14, "SELECT_UPDATE ") == 0) {
                 const bool start = line.compare(0, 13, "SELECT_START ") == 0;
