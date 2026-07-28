@@ -292,6 +292,7 @@ namespace {
         mutable Vector<LinkPosition> linkLeft;
         mutable Vector<LinkPart> linkParts;
         mutable Buffer linkScratch;
+        mutable Vector<TerminalCell> selectionScratch;
 
         struct DamageRow {
             Epoch* epochs = nullptr;
@@ -421,7 +422,7 @@ namespace {
     };
 
     int selectionCellLead(const SelectionRow& row, int column) {
-        column = std::max(0, std::min(column, row.columns - 1));
+        column = max(0, min(column, row.columns - 1));
         return row.cells[column].dwidth_cont && column > 0 ? column - 1 : column;
     }
 
@@ -432,11 +433,11 @@ namespace {
 
     int nextSelectionCell(const SelectionRow& row, int column) {
         const int lead = selectionCellLead(row, column);
-        return std::min(row.columns, lead + (row.cells[lead].dwidth ? 2 : 1));
+        return min(row.columns, lead + (row.cells[lead].dwidth ? 2 : 1));
     }
 
     int previousSelectionCell(const SelectionRow& row, int column) {
-        return selectionCellLead(row, std::max(0, column - 1));
+        return selectionCellLead(row, max(0, column - 1));
     }
 
     bool identifierCodepoint(u32 codepoint) {
@@ -448,7 +449,37 @@ namespace {
     }
 
     bool uriCodepoint(u32 codepoint) {
-        return identifierCodepoint(codepoint) || (codepoint < 0x80 && std::strchr("-._~:/?#[]@!$&'()*+,;=%", (int)(codepoint)) != nullptr);
+        if (identifierCodepoint(codepoint)) {
+            return true;
+        }
+        switch (codepoint) {
+            case '-':
+            case '.':
+            case '_':
+            case '~':
+            case ':':
+            case '/':
+            case '?':
+            case '#':
+            case '[':
+            case ']':
+            case '@':
+            case '!':
+            case '$':
+            case '&':
+            case '\'':
+            case '(':
+            case ')':
+            case '*':
+            case '+':
+            case ',':
+            case ';':
+            case '=':
+            case '%':
+                return true;
+            default:
+                return false;
+        }
     }
 
     bool uriSchemeCodepoint(u32 codepoint) {
@@ -1576,27 +1607,20 @@ Rect ScreenImpl<Coord, Epoch>::getSnappedSelection() const {
                     ++lastRow;
                 }
 
-                struct RowSpan {
-                    int row;
-                    int offset;
-                    int length;
-                };
-                std::vector<RowSpan> spans;
-                std::vector<TerminalCell> cells;
+                selectionScratch.clear();
                 int clicked = -1;
                 for (int logicalRow = firstRow; logicalRow <= lastRow; ++logicalRow) {
                     const int wrapped = wrapLength(logicalRow);
                     const int length = wrapped != 0 ? wrapped : (int)(nCols);
-                    const int offset = cells.size();
+                    const int offset = (int)(selectionScratch.length());
                     const TerminalCell* source = getLogicalRowPtr(logicalRow);
-                    cells.insert(cells.end(), source, source + length);
-                    spans.push_back({logicalRow, offset, length});
+                    selectionScratch.append(source, length);
                     if (logicalRow == rowIndex) {
                         clicked = offset + column;
                     }
                 }
 
-                const SelectionRow logicalLine{cells.data(), (int)(cells.size())};
+                const SelectionRow logicalLine{selectionScratch.data(), (int)(selectionScratch.length())};
                 const TokenBounds semantic = semanticTokenBounds(logicalLine, clicked);
                 if (semantic.left == semantic.right) {
                     const SelectionRow row{getLogicalRowPtr(rowIndex), (int)(nCols)};
@@ -1606,14 +1630,19 @@ Rect ScreenImpl<Coord, Epoch>::getSnappedSelection() const {
 
                 Point left;
                 Point right;
-                for (const RowSpan& span : spans) {
-                    if (semantic.left >= span.offset && semantic.left < span.offset + span.length) {
-                        left = Point(semantic.left - span.offset, span.row);
+                int offset = 0;
+                for (int logicalRow = firstRow; logicalRow <= lastRow; ++logicalRow) {
+                    const int wrapped = wrapLength(logicalRow);
+                    const int length = wrapped != 0 ? wrapped : (int)(nCols);
+                    const int end = offset + length;
+                    if (semantic.left >= offset && semantic.left < end) {
+                        left = Point(semantic.left - offset, logicalRow);
                     }
-                    if (semantic.right >= span.offset && semantic.right <= span.offset + span.length) {
-                        right = Point(semantic.right - span.offset, span.row);
+                    if (semantic.right >= offset && semantic.right <= end) {
+                        right = Point(semantic.right - offset, logicalRow);
                         break;
                     }
+                    offset = end;
                 }
                 return Rect(left, right);
             };
