@@ -11,15 +11,16 @@ from harness import Shitty
 
 
 class PtyTest(unittest.TestCase):
-    def test_twenty_mibibyte_drain_limit_yields_with_input_remaining(self):
-        limit = 20 * 1024 * 1024
+    def test_each_readiness_dispatch_reads_at_most_one_buffer(self):
+        limit = 64 * 1024
         with Shitty(columns=8, rows=2) as terminal:
             terminal.script_pty_repeat(0, limit + 1, eof=True)
             self.assertFalse(terminal.read_pty())
             self.assertEqual(terminal.pending_scripted_pty_read_bytes(), 1)
 
-            self.assertTrue(terminal.read_pty())
+            self.assertFalse(terminal.read_pty())
             self.assertEqual(terminal.pending_scripted_pty_read_bytes(), 0)
+            self.assertTrue(terminal.read_pty())
 
     def test_eof_finishes_even_before_the_first_payload(self):
         with Shitty(columns=8, rows=2) as terminal:
@@ -32,11 +33,12 @@ class PtyTest(unittest.TestCase):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.script_pty_reads(b"before-hup", ("error", errno.EIO))
             before = terminal.snapshot().refresh_count
-            self.assertTrue(terminal.read_pty())
+            self.assertFalse(terminal.read_pty())
             after = terminal.snapshot()
             self.assertEqual(after.lines[0], "before-h")
             self.assertEqual(after.lines[1], "up      ")
             self.assertEqual(after.refresh_count, before + 1)
+            self.assertTrue(terminal.read_pty())
 
     def test_fatal_read_error_finishes_without_presenting(self):
         with Shitty(columns=8, rows=2) as terminal:
@@ -160,16 +162,22 @@ class PtyTest(unittest.TestCase):
             after = terminal.snapshot().refresh_count
             self.assertEqual(after, before + 1)
 
-    def test_one_drain_consumes_every_chunk_until_eagain(self):
+    def test_each_readiness_dispatch_consumes_one_chunk(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.script_pty_reads(
                 b"ab", b"cd", b"ef", ("error", errno.EAGAIN)
             )
             before = terminal.snapshot().refresh_count
             self.assertFalse(terminal.read_pty())
+            self.assertEqual(terminal.snapshot().lines[0], "ab      ")
+            self.assertFalse(terminal.read_pty())
+            self.assertEqual(terminal.snapshot().lines[0], "abcd    ")
+            self.assertFalse(terminal.read_pty())
             after = terminal.snapshot()
             self.assertEqual(after.lines[0], "abcdef  ")
-            self.assertEqual(after.refresh_count, before + 1)
+            self.assertEqual(after.refresh_count, before + 3)
+            self.assertFalse(terminal.read_pty())
+            self.assertEqual(terminal.snapshot().refresh_count, before + 3)
 
 
 if __name__ == "__main__":

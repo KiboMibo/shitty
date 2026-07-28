@@ -102,6 +102,7 @@ namespace {
         int fd_;
         bool handlingReady = false;
         bool finished = false;
+        u8 inputBuffer[64 * 1024];
     };
 
 }
@@ -219,30 +220,20 @@ bool PtyImpl::flushOutput() {
 }
 
 bool PtyImpl::readInput() {
-    constexpr size_t maxDrainBytes = 20 * 1024 * 1024;
     Vterm* const vterm = composer_.vterm;
-    u8 buffer[8192];
-    size_t drained = 0;
-    while (drained < maxDrainBytes) {
-        const ssize_t count = read(buffer, sizeof(buffer));
-        if (count > 0) {
-            vterm->feedPty(StringView(buffer, count));
-            drained += (size_t)(count);
-            continue;
-        }
-        if (count == 0 || (count < 0 && errno == EIO)) {
-            return true;
-        }
-        if (errno == EINTR) {
-            continue;
-        }
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            return false;
-        }
-        sysWarn("pty read");
+    const ssize_t count = read(inputBuffer, sizeof(inputBuffer));
+    if (count > 0) {
+        vterm->feedPty(StringView(inputBuffer, count));
+        return false;
+    }
+    if (count == 0 || (count < 0 && errno == EIO)) {
         return true;
     }
-    return false;
+    if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+        return false;
+    }
+    sysWarn("pty read");
+    return true;
 }
 
 Pty* Pty::adopt(Composer& composer, int fd) {

@@ -26,7 +26,8 @@ class DumpTest(unittest.TestCase):
                     *chunks,
                     ("error", errno.EAGAIN),
                 )
-                self.assertFalse(terminal.read_pty())
+                for _ in chunks:
+                    self.assertFalse(terminal.read_pty())
 
             self.assertEqual(path.read_bytes(), b"".join(chunks))
 

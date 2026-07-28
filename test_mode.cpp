@@ -472,6 +472,7 @@ namespace {
         TestApi& testApi;
         TestPty& pty;
         TestDisplay& display;
+        u8 ptyInputBuffer[64 * 1024];
         bool present();
         void refreshState();
     };
@@ -1004,29 +1005,14 @@ u64 TestTerminal::droppedPtyResponses() {
 }
 
 bool TestTerminal::readPty() {
-    constexpr size_t maxDrainBytes = 20 * 1024 * 1024;
-    u8 buffer[8192];
-    size_t drained = 0;
     bool finished = false;
-    while (drained < maxDrainBytes) {
-        const ssize_t count = pty.read(buffer, sizeof(buffer));
-        if (count > 0) {
-            terminal.feedPty(StringView(buffer, count));
-            drained += count;
-            continue;
-        }
-        if (count == 0 || (count < 0 && errno == EIO)) {
-            finished = true;
-            break;
-        }
-        if (errno == EINTR) {
-            continue;
-        }
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            break;
-        }
+    const ssize_t count = pty.read(ptyInputBuffer, sizeof(ptyInputBuffer));
+    if (count > 0) {
+        terminal.feedPty(StringView(ptyInputBuffer, count));
+    } else if (count == 0 || (count < 0 && errno == EIO)) {
         finished = true;
-        break;
+    } else if (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) {
+        finished = true;
     }
     flushPtyOutput();
     present();
