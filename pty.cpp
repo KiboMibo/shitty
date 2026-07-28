@@ -200,7 +200,7 @@ void PtyImpl::ready(const FDReady& event) {
 
 void PtyImpl::updateInterest() {
     int mode = PollRead;
-    if (composer_.vterm != nullptr && !composer_.vterm->output().pty.empty()) {
+    if (composer_.vterm != nullptr && !composer_.vterm->ptyOutput().empty()) {
         mode |= PollWrite;
     }
     composer_.poller->arm(fd_, mode);
@@ -212,13 +212,13 @@ bool PtyImpl::flushOutput() {
         return true;
     }
     while (true) {
-        const VtermOutput output = vterm->output();
-        if (output.pty.empty()) {
+        const StringView output = vterm->ptyOutput();
+        if (output.empty()) {
             return true;
         }
-        const ssize_t count = write(output.pty.data(), output.pty.length());
+        const ssize_t count = write(output.data(), output.length());
         if (count > 0) {
-            vterm->consume({(size_t)(count), false});
+            vterm->consumePtyOutput((size_t)(count));
             continue;
         }
         if (count < 0 && errno == EINTR) {

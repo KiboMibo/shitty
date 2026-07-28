@@ -206,16 +206,6 @@ struct TerminalUpdate {
     bool cursorBlink = false;
 };
 
-struct VtermOutput {
-    stl::StringView pty;
-    const TerminalUpdate* terminal = nullptr;
-};
-
-struct VtermConsume {
-    size_t ptyBytes = 0;
-    bool terminal = false;
-};
-
 struct TestApi;
 
 struct Vterm {
@@ -225,8 +215,10 @@ struct Vterm {
 
     virtual bool expireSynchronizedOutput(bool force) = 0;
     virtual bool advanceAnimation(bool force) = 0;
-    virtual VtermOutput output() = 0;
-    virtual void consume(const VtermConsume& consumed) = 0;
+    virtual stl::StringView ptyOutput() = 0;
+    virtual void consumePtyOutput(size_t bytes) = 0;
+    virtual const TerminalUpdate* output() = 0;
+    virtual void consume() = 0;
     virtual VtermState state() const = 0;
     virtual TestApi* testApi() = 0;
 

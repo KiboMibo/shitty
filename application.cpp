@@ -407,8 +407,8 @@ bool ApplicationImpl::presentTerminal() {
     Renderer* const renderer = composer.renderer;
     Window* const window = composer.window;
     while (true) {
-        const VtermOutput output = vterm->output();
-        if (output.terminal == nullptr) {
+        const TerminalUpdate* const output = vterm->output();
+        if (output == nullptr) {
             refreshPending = false;
             return true;
         }
@@ -417,14 +417,14 @@ bool ApplicationImpl::presentTerminal() {
             return false;
         }
         const bool paced = window->requestFrame();
-        if (!renderer->update(*output.terminal)) {
+        if (!renderer->update(*output)) {
             if (paced) {
                 window->cancelFrame();
             }
             return false;
         }
         frameReady = !paced;
-        vterm->consume(VtermConsume{0, true});
+        vterm->consume();
     }
 }
 
