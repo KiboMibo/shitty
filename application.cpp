@@ -87,14 +87,6 @@ namespace {
         ApplicationImpl* application;
     };
 
-    struct CallApplicationFDReady final: public Listener {
-        explicit CallApplicationFDReady(ApplicationImpl* application);
-
-        void onListen(void* argument) override;
-
-        ApplicationImpl* application;
-    };
-
     struct CallApplicationWindowEvents final: public Listener {
         explicit CallApplicationWindowEvents(ApplicationImpl* application);
 
@@ -147,7 +139,6 @@ namespace {
         int startShell(const char* execPath, const char* const argv[]);
         bool presentTerminal();
         bool repaint();
-        void fdReady(const FDReady& event);
         void windowEvents(const WindowEvents& events);
         void timeout();
         void drivePresentation(bool resized);
@@ -200,15 +191,6 @@ void CallContentScaleChanged::onListen(void*) {
     application->contentScaleChanged();
 }
 
-CallApplicationFDReady::CallApplicationFDReady(ApplicationImpl* application_)
-    : application(application_)
-{
-}
-
-void CallApplicationFDReady::onListen(void* argument) {
-    application->fdReady(*(const FDReady*)(argument));
-}
-
 CallApplicationWindowEvents::CallApplicationWindowEvents(ApplicationImpl* application_)
     : application(application_)
 {
@@ -234,7 +216,6 @@ ApplicationImpl::ApplicationImpl(Composer& composer_)
     composer.fontDecListeners.pushBack(composer.pool->make<CallFontDec>(this));
     composer.fontResetListeners.pushBack(composer.pool->make<CallFontReset>(this));
     composer.contentScaleChangedListeners.pushBack(composer.pool->make<CallContentScaleChanged>(this));
-    composer.onFDReady.pushBack(composer.pool->make<CallApplicationFDReady>(this));
     composer.windowEventListeners.pushBack(composer.pool->make<CallApplicationWindowEvents>(this));
     composer.onTimeout.pushBack(composer.pool->make<CallApplicationTimeout>(this));
 
@@ -442,17 +423,6 @@ bool ApplicationImpl::repaint() {
     }
     frameReady = !paced;
     return true;
-}
-
-void ApplicationImpl::fdReady(const FDReady& event) {
-    Vterm* const vterm = composer.vterm;
-    if (vterm == nullptr) {
-        return;
-    }
-    if (event.fd == composer.pty->fd() && (event.what & (PollRead | PollError | PollHangup))) {
-        refreshDeadline = 0;
-    }
-    drivePresentation(false);
 }
 
 void ApplicationImpl::windowEvents(const WindowEvents& events) {
