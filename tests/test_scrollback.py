@@ -47,6 +47,60 @@ class ScrollbackTest(unittest.TestCase):
             self.assertEqual(after.view_offset, 2)
             self.assertEqual(after.lines, ["one     ", "two     ", "three   "])
 
+    def test_modifier_only_keys_do_not_exit_scrollback(self):
+        modifiers = (
+            (340, 1),
+            (341, 2),
+            (342, 4),
+            (343, 8),
+            (344, 1),
+            (345, 2),
+            (346, 4),
+            (347, 8),
+        )
+        for key, mask in modifiers:
+            with self.subTest(key=key):
+                with Shitty(columns=8, rows=3, save_lines=8) as terminal:
+                    terminal.write(b"one\r\ntwo\r\nthree\r\nfour")
+                    terminal.page_up()
+
+                    terminal.frontend_key_event(key, 1, modifiers=mask)
+                    terminal.frontend_key_event(key, 0)
+
+                    self.assertEqual(terminal.snapshot().view_offset, 1)
+                    self.assertEqual(terminal.read_input(), b"")
+
+        with Shitty(columns=8, rows=3, save_lines=8) as terminal:
+            terminal.write(b"one\r\ntwo\r\nthree\r\nfour")
+            terminal.page_up()
+
+            terminal.frontend_text_event("x")
+
+            self.assertEqual(terminal.snapshot().view_offset, 0)
+            self.assertEqual(terminal.read_input(), b"x")
+
+        with Shitty(columns=8, rows=3, save_lines=8) as terminal:
+            terminal.write(b"one\r\ntwo\r\nthree\r\nfour\x1b[>2u")
+            terminal.page_up()
+
+            terminal.frontend_key_event(340, 1, modifiers=1)
+            terminal.frontend_key_event(340, 0)
+
+            self.assertEqual(terminal.snapshot().view_offset, 1)
+            self.assertEqual(terminal.read_input(), b"")
+
+        with Shitty(columns=8, rows=3, save_lines=8) as terminal:
+            terminal.write(b"one\r\ntwo\r\nthree\r\nfour\x1b[>10u")
+            terminal.page_up()
+
+            terminal.frontend_key_event(340, 1, modifiers=1)
+
+            self.assertEqual(terminal.snapshot().view_offset, 0)
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[57441;2:1u",
+            )
+
     def test_alternate_screen_does_not_keep_scrollback(self):
         with Shitty(columns=8, rows=3, save_lines=8) as terminal:
             terminal.write(
