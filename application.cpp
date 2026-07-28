@@ -21,7 +21,6 @@
 #include "input_bindings.h"
 #include "listener.h"
 #include "options.h"
-#include "poller.h"
 #include "pty.h"
 #include "vk_renderer.h"
 #include "startup.h"
@@ -95,14 +94,6 @@ namespace {
         ApplicationImpl* application;
     };
 
-    struct CallApplicationTimeout final: public Listener {
-        explicit CallApplicationTimeout(ApplicationImpl* application);
-
-        void onListen(void*) override;
-
-        ApplicationImpl* application;
-    };
-
     struct ApplicationImpl final: public Application, public VtermHost {
         explicit ApplicationImpl(Composer& composer);
         ~ApplicationImpl();
@@ -124,25 +115,17 @@ namespace {
         Composer& composer;
         ObjPool* fontpackPool = nullptr;
         FILE* printerPipe = nullptr;
-        bool refreshAllowed = true;
-        bool refreshPending = false;
-        bool committedRepaintPending = false;
         bool frameReady = true;
         bool titleSet = false;
         u16 initialFontSize = 0;
         u16 logicalBorder = 0;
-        u64 refreshDeadline = 0;
 
         int takeTestFd(int& argc, char* argv[]);
         static void childSignalHandler(int signal, siginfo_t* info, void*);
         void setupSignals();
         int startShell(const char* execPath, const char* const argv[]);
         bool presentTerminal();
-        bool repaint();
         void windowEvents(const WindowEvents& events);
-        void timeout();
-        void drivePresentation(bool resized);
-        void armTimeout();
         bool eventLoop();
         void checkLocale();
         void fontInc();
@@ -200,15 +183,6 @@ void CallApplicationWindowEvents::onListen(void* argument) {
     application->windowEvents(*(const WindowEvents*)(argument));
 }
 
-CallApplicationTimeout::CallApplicationTimeout(ApplicationImpl* application_)
-    : application(application_)
-{
-}
-
-void CallApplicationTimeout::onListen(void*) {
-    application->timeout();
-}
-
 ApplicationImpl::ApplicationImpl(Composer& composer_)
     : composer(composer_)
 {
@@ -217,8 +191,6 @@ ApplicationImpl::ApplicationImpl(Composer& composer_)
     composer.fontResetListeners.pushBack(composer.pool->make<CallFontReset>(this));
     composer.contentScaleChangedListeners.pushBack(composer.pool->make<CallContentScaleChanged>(this));
     composer.windowEventListeners.pushBack(composer.pool->make<CallApplicationWindowEvents>(this));
-    composer.onTimeout.pushBack(composer.pool->make<CallApplicationTimeout>(this));
-
     composer.inputBindings->add({InputKey::Printable, InputControl | InputShift, '=', '+'}, &composer.fontIncListeners);
     composer.inputBindings->add({InputKey::Printable, InputControl, '-', '-'}, &composer.fontDecListeners);
     composer.inputBindings->add({InputKey::Printable, InputControl, '0', '0'}, &composer.fontResetListeners);
@@ -385,43 +357,23 @@ int ApplicationImpl::startShell(const char* execPath, const char* const argv[]) 
 
 bool ApplicationImpl::presentTerminal() {
     Vterm* const vterm = composer.vterm;
-    Renderer* const renderer = composer.renderer;
-    Window* const window = composer.window;
-    while (true) {
-        const TerminalUpdate* const output = vterm->output();
-        if (output == nullptr) {
-            refreshPending = false;
-            return true;
-        }
-        refreshPending = true;
-        if (!refreshAllowed || !frameReady) {
-            return false;
-        }
-        const bool paced = window->requestFrame();
-        if (!renderer->update(*output)) {
-            if (paced) {
-                window->cancelFrame();
-            }
-            return false;
-        }
-        frameReady = !paced;
-        vterm->consume();
+    const TerminalUpdate* const output = vterm->output();
+    if (output == nullptr) {
+        return true;
     }
-}
-
-bool ApplicationImpl::repaint() {
     if (!frameReady) {
         return false;
     }
     Window* const window = composer.window;
     const bool paced = window->requestFrame();
-    if (!composer.renderer->repaint()) {
+    if (!composer.renderer->update(*output)) {
         if (paced) {
             window->cancelFrame();
         }
         return false;
     }
     frameReady = !paced;
+    vterm->consume();
     return true;
 }
 
@@ -429,61 +381,10 @@ void ApplicationImpl::windowEvents(const WindowEvents& events) {
     if (events.frameReady) {
         frameReady = true;
     }
-    if (events.resized) {
-        const VtermState resizedState = composer.vterm->state();
-        committedRepaintPending = resizedState.synchronizedOutput;
-        if (!committedRepaintPending) {
-            composer.vterm->expose();
-        }
-        refreshDeadline = monotonicNowUs() + 10'000;
-    } else if (events.redraw) {
-        if (composer.vterm->state().synchronizedOutput) {
-            committedRepaintPending = true;
-        } else {
-            composer.vterm->expose();
-        }
+    if (events.resized || events.redraw) {
+        composer.vterm->expose();
     }
-    drivePresentation(events.resized);
-}
-
-void ApplicationImpl::timeout() {
-    drivePresentation(false);
-}
-
-void ApplicationImpl::drivePresentation(bool resized) {
-    constexpr u64 retryDelay = 10'000;
-    Vterm* const vterm = composer.vterm;
-    refreshAllowed = false;
     presentTerminal();
-
-    const u64 now = monotonicNowUs();
-    if (!vterm->state().synchronizedOutput) {
-        committedRepaintPending = false;
-    }
-    const bool deadlineReached = refreshDeadline == 0 || now >= refreshDeadline;
-    if (frameReady && committedRepaintPending && deadlineReached) {
-        if (repaint()) {
-            committedRepaintPending = false;
-            refreshDeadline = 0;
-        } else {
-            refreshDeadline = now + retryDelay;
-        }
-    }
-    if (frameReady && refreshPending && deadlineReached) {
-        refreshAllowed = true;
-        presentTerminal();
-        refreshAllowed = false;
-        refreshDeadline = refreshPending ? now + retryDelay : 0;
-    } else if (resized && !refreshPending) {
-        refreshDeadline = 0;
-    }
-    armTimeout();
-}
-
-void ApplicationImpl::armTimeout() {
-    if (refreshDeadline != 0) {
-        composer.poller->deadline(refreshDeadline);
-    }
 }
 
 void ApplicationImpl::osc(int, StringView) {
@@ -671,8 +572,6 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     composer.vterm = Vterm::create(composer, *this, nullptr);
     composer.window->activate();
     presentTerminal();
-    refreshAllowed = false;
-    armTimeout();
 
     eventLoop();
     if (printerPipe != nullptr) {
