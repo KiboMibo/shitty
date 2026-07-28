@@ -13,7 +13,7 @@
 #include "grapheme.h"
 #include "font_pack.h"
 #include "hex.h"
-#include "input_sink.h"
+#include "input_handler.h"
 #include "keyboard.h"
 #include "listener.h"
 #include "options.h"
@@ -23,6 +23,7 @@
 #include "pty_output.h"
 #include "reference_renderer.h"
 #include "startup.h"
+#include "test_input.h"
 #include "utf8.h"
 #include "vk_renderer.h"
 #include "vterm.h"
@@ -62,6 +63,7 @@
 #include <vector>
 
 using namespace stl;
+using namespace plt;
 
 namespace {
     extern "C" int openpty(int*, int*, char*, const termios*, const winsize*);
@@ -356,7 +358,7 @@ namespace {
     };
 
     struct TestDisplay final: public VtermHost {
-        TestDisplay(Composer& composer, std::string& actions);
+        TestDisplay(Composer& composer, std::string& actions, Clipboard* clipboard, DesktopActions* desktopActions);
 
         void attach(TestApi& testApi);
         bool update(const TerminalUpdate& update);
@@ -370,6 +372,8 @@ namespace {
         void progress(u32 state, u32 percent) override;
         void windowOperation(u32 operation, u32 first, u32 second) override;
         VtermWindowInfo windowInfo() override;
+        Clipboard* clipboard() override;
+        DesktopActions* desktopActions() override;
 
         void applyWindowSize(u32 pixelWidth, u32 pixelHeight);
         DisplayCell materialize(const TerminalCell& cell, u8 lineAttribute, const TerminalColors& colors) const;
@@ -411,6 +415,8 @@ namespace {
         std::vector<CellColor> modelUnderlineColors;
         Composer& composer;
         std::string& actions;
+        Clipboard* clipboard_;
+        DesktopActions* desktopActions_;
         Buffer currentCwd;
         TestApi* testApi = nullptr;
         const TerminalColors* colors = nullptr;
@@ -547,9 +553,11 @@ void TestDesktopActions::pointerIcon(PointerIcon icon_) {
     icon = icon_;
 }
 
-TestDisplay::TestDisplay(Composer& composer_, std::string& actions)
+TestDisplay::TestDisplay(Composer& composer_, std::string& actions, Clipboard* clipboard, DesktopActions* desktopActions)
     : composer(composer_)
     , actions(actions)
+    , clipboard_(clipboard)
+    , desktopActions_(desktopActions)
 {
     currentWindow.x = 10;
     currentWindow.y = 20;
@@ -751,6 +759,14 @@ void TestDisplay::windowOperation(u32 operation, u32 first, u32 second) {
 
 VtermWindowInfo TestDisplay::windowInfo() {
     return currentWindow;
+}
+
+Clipboard* TestDisplay::clipboard() {
+    return clipboard_;
+}
+
+DesktopActions* TestDisplay::desktopActions() {
+    return desktopActions_;
 }
 
 void TestDisplay::failNextPresent() {
@@ -1260,7 +1276,7 @@ namespace {
     }
 }
 
-int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int argc, char* argv[]) {
+int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, char* argv[]) {
     int io[2];
     if (openpty(&io[0], &io[1], nullptr, nullptr, nullptr) < 0) {
         throw std::runtime_error("test openpty failed");
@@ -1309,9 +1325,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
     std::string actions;
     TestClipboard clipboard;
     TestDesktopActions desktopActions;
-    input.testClipboard(&clipboard);
-    input.testDesktopActions(&desktopActions);
-    TestDisplay display(composer, actions);
+    TestDisplay display(composer, actions, &clipboard, &desktopActions);
     VtermTrace& vtermTrace = *VtermTrace::create(composer);
     Vterm& vterm = *Vterm::create(composer, display, &vtermTrace);
     composer.vterm = &vterm;
@@ -1805,7 +1819,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 if (sscanf(line.c_str() + 15, "%u %u %u %u %c", &xNumerator, &xDenominator, &yNumerator, &yDenominator, &trailing) != 4 || xNumerator == 0 || xDenominator == 0 || yNumerator == 0 || yDenominator == 0 || xNumerator > 10000 || xDenominator > 10000 || yNumerator > 10000 || yDenominator > 10000) {
                     Errno(EINVAL).raise(StringView(u8"invalid frontend scale"));
                 }
-                input.testContentScale((float)(xNumerator) / xDenominator, (float)(yNumerator) / yDenominator);
+                input.contentScale((float)(xNumerator) / xDenominator, (float)(yNumerator) / yDenominator);
                 terminal.update();
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 4, "KEY ") == 0) {
@@ -1862,7 +1876,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 if (!(args >> key >> scancode >> action >> modifiers) || action < 0 || action > 2 || modifiers < 0) {
                     throw std::runtime_error("invalid frontend key event");
                 }
-                input.testKeyEvent(key, scancode, action, modifiers);
+                input.key(key, scancode, action, modifiers);
                 terminal.update();
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 20, "FRONTEND_TEXT_EVENT ") == 0) {
@@ -1872,7 +1886,7 @@ int runTestMode(Composer& composer, TestModeInput& input, int controlFd, int arg
                 if (!(args >> codepoint >> modifiers) || codepoint > 0x10ffff || modifiers < 0) {
                     throw std::runtime_error("invalid frontend text event");
                 }
-                input.testTextInput(codepoint, modifiers);
+                input.text(codepoint, modifiers);
                 terminal.update();
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 10, "KITTY_KEY ") == 0) {

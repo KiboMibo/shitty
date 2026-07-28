@@ -8,6 +8,9 @@
 #include <std/sys/types.h>
 #include <std/str/view.h>
 
+struct Clipboard;
+struct DesktopActions;
+
 struct VtermWindowInfo {
     i32 x = 0;
     i32 y = 0;
@@ -29,4 +32,6 @@ struct VtermHost {
     virtual void progress(u32 state, u32 percent) = 0;
     virtual void windowOperation(u32 operation, u32 first, u32 second) = 0;
     virtual VtermWindowInfo windowInfo() = 0;
+    virtual Clipboard* clipboard() = 0;
+    virtual DesktopActions* desktopActions() = 0;
 };

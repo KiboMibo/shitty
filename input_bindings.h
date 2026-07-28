@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "input_sink.h"
+#include "input_handler.h"
 
 #include <std/sys/types.h>
 
@@ -17,13 +17,13 @@ namespace stl {
 struct Composer;
 
 struct InputBinding {
-    InputKey key = InputKey::Unknown;
+    plt::InputKey key = plt::InputKey::Unknown;
     u16 modifiers = 0;
     u32 baseCodepoint = 0;
     u32 textCodepoint = 0;
 };
 
-struct InputBindings: public InputSink {
+struct InputBindings: public InputHandler {
     virtual void add(const InputBinding& binding, stl::IntrusiveList* listeners) = 0;
 
     static InputBindings* create(Composer& composer);

@@ -32,10 +32,10 @@
 #include "listener.h"
 #include "pty_output.h"
 #include "vterm.h"
-#include "window.h"
 
 #include <plt/platform.h>
 #include <plt/poller.h>
+#include <plt/window.h>
 
 #include <std/mem/obj_pool.h>
 #include <std/str/view.h>

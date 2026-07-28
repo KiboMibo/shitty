@@ -8,11 +8,10 @@
 
 #include "clipboard.h"
 #include "composer.h"
+#include "desktop_actions.h"
 #include "options.h"
 #include "vterm.h"
 #include "vterm_host.h"
-#include "window.h"
-#include "test_mode.h"
 
 #include <std/ios/out.h>
 #include <std/ios/output.h>
@@ -25,7 +24,7 @@ using namespace stl;
 
 namespace {
     struct HeadlessHost final: public VtermHost {
-        explicit HeadlessHost(Composer& composer);
+        HeadlessHost(Composer& composer, Clipboard* clipboard);
 
         void osc(int command, StringView argument) override;
         bool handlesOsc() const override;
@@ -37,8 +36,11 @@ namespace {
         void progress(u32 state, u32 percent) override;
         void windowOperation(u32 operation, u32 first, u32 second) override;
         VtermWindowInfo windowInfo() override;
+        Clipboard* clipboard() override;
+        DesktopActions* desktopActions() override;
 
         Composer& composer;
+        Clipboard* clipboard_;
     };
 
     struct VtermHeadlessImpl final: public VtermHeadless, public Clipboard {
@@ -55,8 +57,9 @@ namespace {
     };
 }
 
-HeadlessHost::HeadlessHost(Composer& composer_)
+HeadlessHost::HeadlessHost(Composer& composer_, Clipboard* clipboard)
     : composer(composer_)
+    , clipboard_(clipboard)
 {
 }
 
@@ -100,9 +103,17 @@ VtermWindowInfo HeadlessHost::windowInfo() {
     return info;
 }
 
+Clipboard* HeadlessHost::clipboard() {
+    return clipboard_;
+}
+
+DesktopActions* HeadlessHost::desktopActions() {
+    return nullptr;
+}
+
 VtermHeadlessImpl::VtermHeadlessImpl(Composer& composer_)
     : composer(composer_)
-    , host(composer)
+    , host(composer, this)
 {
 }
 
@@ -151,10 +162,7 @@ VtermHeadless* VtermHeadless::create(Composer& composer) {
 
     composer.setGlyphSize(glyphWidth, glyphHeight);
     composer.resize(pixelWidth, pixelHeight);
-    Window* const window = Window::createHeadless(composer);
-    composer.window = window;
     VtermHeadlessImpl* result = composer.pool->make<VtermHeadlessImpl>(composer);
-    window->testApi()->testClipboard(result);
     if (composer.ptyOutput == nullptr) {
         composer.ptyOutput = createNullOutput(composer.pool);
     }

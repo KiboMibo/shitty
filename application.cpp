@@ -16,6 +16,7 @@
 #include "application.h"
 #include "clipboard.h"
 #include "composer.h"
+#include "desktop_actions.h"
 #include "fd_redirect.h"
 #include "font_pack.h"
 #include "input_bindings.h"
@@ -25,14 +26,16 @@
 #include "pty_output.h"
 #include "vk_renderer.h"
 #include "startup.h"
+#include "test_input.h"
 #include "test_mode.h"
 #include "vterm.h"
 #include "vterm_host.h"
-#include "window.h"
 
 #include <plt/platform.h>
 #include <plt/poller.h>
+#include <plt/window.h>
 
+#include <std/alg/minmax.h>
 #include <std/ios/sys.h>
 #include <std/str/view.h>
 #include <std/sys/crt.h>
@@ -43,6 +46,7 @@
 #include <cstring>
 #include <langinfo.h>
 #include <limits.h>
+#include <math.h>
 #include <signal.h>
 #include <stdexcept>
 #include <string>
@@ -54,6 +58,7 @@
 #include <std/mem/obj_pool.h>
 
 using namespace stl;
+using namespace plt;
 
 namespace {
     struct ApplicationImpl;
@@ -90,23 +95,7 @@ namespace {
         ApplicationImpl* application;
     };
 
-    struct CallApplicationWindowEvents final: public Listener {
-        explicit CallApplicationWindowEvents(ApplicationImpl* application);
-
-        void onListen(void* argument) override;
-
-        ApplicationImpl* application;
-    };
-
-    struct CallApplicationFrameReady final: public Listener {
-        explicit CallApplicationFrameReady(ApplicationImpl* application);
-
-        void onListen(void*) override;
-
-        ApplicationImpl* application;
-    };
-
-    struct ApplicationImpl final: public Application, public VtermHost, public plt::TimerCallback {
+    struct ApplicationImpl final: public Application, public VtermHost, public plt::TimerCallback, public plt::WindowEvents {
         explicit ApplicationImpl(Composer& composer);
         ~ApplicationImpl();
 
@@ -123,9 +112,17 @@ namespace {
         void progress(u32 state, u32) override;
         void windowOperation(u32 operation, u32 first, u32 second) override;
         VtermWindowInfo windowInfo() override;
+        Clipboard* clipboard() override;
+        DesktopActions* desktopActions() override;
+        void close() override;
+        void resized(const plt::WindowInfo& info) override;
+        void redraw() override;
+        void frame() override;
 
         Composer& composer;
         ObjPool* fontpackPool = nullptr;
+        Clipboard* clipboard_ = nullptr;
+        DesktopActions* desktopActions_ = nullptr;
         bool frameReady = true;
         bool titleSet = false;
         u16 initialFontSize = 0;
@@ -136,9 +133,9 @@ namespace {
         void setupSignals();
         int startShell(const char* execPath, const char* const argv[]);
         bool presentTerminal();
-        void windowEvents(const WindowEvents& events);
-        void grantFrame();
         bool eventLoop();
+        void updateWindowInfo(const plt::WindowInfo& info);
+        void showWindow();
         void checkLocale();
         void fontInc();
         void fontDec();
@@ -187,24 +184,6 @@ void CallContentScaleChanged::onListen(void*) {
     application->contentScaleChanged();
 }
 
-CallApplicationWindowEvents::CallApplicationWindowEvents(ApplicationImpl* application_)
-    : application(application_)
-{
-}
-
-void CallApplicationWindowEvents::onListen(void* argument) {
-    application->windowEvents(*(const WindowEvents*)(argument));
-}
-
-CallApplicationFrameReady::CallApplicationFrameReady(ApplicationImpl* application_)
-    : application(application_)
-{
-}
-
-void CallApplicationFrameReady::onListen(void*) {
-    application->grantFrame();
-}
-
 ApplicationImpl::ApplicationImpl(Composer& composer_)
     : composer(composer_)
 {
@@ -215,17 +194,12 @@ void ApplicationImpl::wire() {
     composer.fontDecListeners.pushBack(composer.pool->make<CallFontDec>(this));
     composer.fontResetListeners.pushBack(composer.pool->make<CallFontReset>(this));
     composer.contentScaleChangedListeners.pushBack(composer.pool->make<CallContentScaleChanged>(this));
-    composer.windowEventListeners.pushBack(composer.pool->make<CallApplicationWindowEvents>(this));
-    composer.frameReadyListeners.pushBack(composer.pool->make<CallApplicationFrameReady>(this));
     composer.inputBindings->add({InputKey::Printable, InputControl | InputShift, '=', '+'}, &composer.fontIncListeners);
     composer.inputBindings->add({InputKey::Printable, InputControl, '-', '-'}, &composer.fontDecListeners);
     composer.inputBindings->add({InputKey::Printable, InputControl, '0', '0'}, &composer.fontResetListeners);
 }
 
 ApplicationImpl::~ApplicationImpl() {
-    if (composer.platform != nullptr) {
-        composer.platform->poller()->cancel(*this);
-    }
     delete fontpackPool;
 }
 
@@ -284,7 +258,13 @@ void ApplicationImpl::replaceFontpack(u16 size) {
     }
     delete previousPool;
     if (columns != 0 && rows != 0) {
-        composer.window->resizePixels(2u * opts.border + (u32)(columns)*composer.glyphWidth, 2u * opts.border + (u32)(rows)*composer.glyphHeight);
+        const u32 width = 2u * opts.border + (u32)(columns)*composer.glyphWidth;
+        const u32 height = 2u * opts.border + (u32)(rows)*composer.glyphHeight;
+        if (composer.window != nullptr) {
+            composer.window->resize(width, height);
+        } else {
+            composer.resize((u16)(min(width, (u32)(UINT16_MAX))), (u16)(min(height, (u32)(UINT16_MAX))));
+        }
     }
 }
 
@@ -401,7 +381,7 @@ bool ApplicationImpl::presentTerminal() {
     if (output == nullptr) {
         return true;
     }
-    Window* const window = composer.window;
+    plt::Window* const window = composer.window;
     const bool paced = window->requestFrame();
     if (!composer.renderer->update(*output)) {
         if (paced) {
@@ -414,14 +394,29 @@ bool ApplicationImpl::presentTerminal() {
     return true;
 }
 
-void ApplicationImpl::windowEvents(const WindowEvents& events) {
-    if (events.resized || events.redraw) {
-        composer.vterm->expose();
-        defer();
-    }
+void ApplicationImpl::close() {
+    composer.platform->stop();
 }
 
-void ApplicationImpl::grantFrame() {
+void ApplicationImpl::updateWindowInfo(const plt::WindowInfo& info) {
+    if (isfinite(info.contentScale) && info.contentScale > 0.0f) {
+        composer.setContentScale(info.contentScale);
+    }
+    composer.resize((u16)(min(info.width, (u32)(UINT16_MAX))), (u16)(min(info.height, (u32)(UINT16_MAX))));
+}
+
+void ApplicationImpl::resized(const plt::WindowInfo& info) {
+    updateWindowInfo(info);
+    composer.vterm->expose();
+    defer();
+}
+
+void ApplicationImpl::redraw() {
+    composer.vterm->expose();
+    defer();
+}
+
+void ApplicationImpl::frame() {
     frameReady = true;
     defer();
 }
@@ -482,7 +477,7 @@ void ApplicationImpl::windowOperation(u32 operation, u32 first, u32 second) {
             composer.window->requestRedraw();
             return;
         case 9: {
-            const WindowInfo current = composer.window->info();
+            const plt::WindowInfo current = composer.window->info();
             if (first == 0) {
                 composer.window->setMaximized(false);
             } else if (first == 1) {
@@ -493,7 +488,7 @@ void ApplicationImpl::windowOperation(u32 operation, u32 first, u32 second) {
             return;
         }
         case 10: {
-            const WindowInfo current = composer.window->info();
+            const plt::WindowInfo current = composer.window->info();
             composer.window->setFullscreen(first == 1 || (first == 2 && !current.fullscreen));
             return;
         }
@@ -512,11 +507,11 @@ void ApplicationImpl::windowOperation(u32 operation, u32 first, u32 second) {
     } else {
         return;
     }
-    composer.window->resizePixels(pixelWidth, pixelHeight);
+    composer.window->resize(pixelWidth, pixelHeight);
 }
 
 VtermWindowInfo ApplicationImpl::windowInfo() {
-    const WindowInfo source = composer.window->info();
+    const plt::WindowInfo source = composer.window->info();
     return {
         .x = source.x,
         .y = source.y,
@@ -528,9 +523,28 @@ VtermWindowInfo ApplicationImpl::windowInfo() {
     };
 }
 
+Clipboard* ApplicationImpl::clipboard() {
+    return clipboard_;
+}
+
+DesktopActions* ApplicationImpl::desktopActions() {
+    return desktopActions_;
+}
+
 bool ApplicationImpl::eventLoop() {
     composer.platform->run();
     return true;
+}
+
+void ApplicationImpl::showWindow() {
+    const u32 border = 2u * opts.border;
+    const u32 width = border + (u32)(opts.nCols) * composer.glyphWidth;
+    const u32 height = border + (u32)(opts.nRows) * composer.glyphHeight;
+    composer.window->setMinimumSize(border + composer.glyphWidth, border + composer.glyphHeight);
+    composer.window->setResizeUnit(composer.glyphWidth, composer.glyphHeight, border, border);
+    composer.window->resize(width, height);
+    composer.window->show();
+    updateWindowInfo(composer.window->info());
 }
 
 void ApplicationImpl::checkLocale() {
@@ -549,8 +563,6 @@ int ApplicationImpl::run(int argc, char* argv[]) {
 #ifdef SHITTY_FOR_TESTS
     testFd = takeTestFd(argc, argv);
 #endif
-    Window* const window = testFd < 0 ? Window::create(composer) : Window::createHeadless(composer);
-    composer.window = window;
     checkLocale();
     opts.initialize(&argc, argv);
     opts.parse();
@@ -564,7 +576,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         sysError("setenv SHITTY_VERSION");
     }
     if (testFd >= 0) {
-        return runTestMode(composer, *window->testApi(), testFd, argc, argv);
+        return runTestMode(composer, *TestInput::create(composer), testFd, argc, argv);
     }
 
     LaunchCommand launch = buildLaunchCommand(argc, argv, opts.shell, opts.login);
@@ -580,11 +592,27 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     shellArgv.push_back(nullptr);
 
     composer.platform = plt::Platform::create(*composer.pool);
-    composer.window->initialize();
+    composer.window = composer.platform->createWindow(
+        *composer.pool,
+        {
+            .appId = StringView(u8"shitty"),
+            .title = StringView(opts.title),
+            .width = (u32)(max(320, (int)(opts.nCols) * opts.fontsize / 2)),
+            .height = (u32)(max(200, (int)(opts.nRows) * opts.fontsize)),
+            .input = composer.input,
+            .events = this,
+        }
+    );
+    clipboard_ = Clipboard::create(composer, *composer.window);
+    desktopActions_ = DesktopActions::create(composer, *composer.window);
+    const plt::WindowInfo initialWindow = composer.window->info();
+    if (isfinite(initialWindow.contentScale) && initialWindow.contentScale > 0.0f) {
+        composer.setContentScale(initialWindow.contentScale);
+    }
     contentScaleChanged();
 
     replaceFontpack(initialFontSize);
-    composer.window->show();
+    showWindow();
 
     setupSignals();
     const int ptyFd = startShell(launch.executable.c_str(), shellArgv.data());
@@ -592,9 +620,8 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     composer.ptyOutputs = PtyOutputQueue::create(composer.pool, composer.smallObjects, *composer.pty);
     composer.ptyOutput = composer.ptyOutputs->append();
 
-    composer.renderer = composer.window->createRender();
+    composer.renderer = Renderer::create(composer, composer.window->renderContext());
     composer.vterm = Vterm::create(composer, *this, nullptr);
-    composer.window->activate();
     presentTerminal();
 
     eventLoop();

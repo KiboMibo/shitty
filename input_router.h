@@ -6,7 +6,10 @@
 
 #pragma once
 
-struct Composer;
-struct InputSink;
+namespace plt {
+    struct InputSink;
+}
 
-InputSink* createInputRouter(Composer& composer);
+struct Composer;
+
+plt::InputSink* createInputRouter(Composer& composer);

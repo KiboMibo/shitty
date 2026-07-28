@@ -15,7 +15,9 @@ namespace stl {
 }
 
 namespace plt {
+    struct InputSink;
     struct Platform;
+    struct Window;
 }
 
 struct Fontpack;
@@ -24,13 +26,11 @@ struct CellExtraStore;
 struct Font;
 struct FontMetrics;
 struct InputBindings;
-struct InputSink;
 struct Renderer;
 struct SmallObjAllocator;
 struct Pty;
 struct PtyOutputQueue;
 struct Vterm;
-struct Window;
 struct FontRequest;
 
 // Application wiring. Components retain Composer itself and read dependencies
@@ -51,14 +51,14 @@ struct Composer {
     CellExtraStore* cellExtras = nullptr;
     Fontpack* fonts = nullptr;
     InputBindings* inputBindings = nullptr;
-    InputSink* input = nullptr;
+    plt::InputSink* input = nullptr;
     stl::Output* ptyOutput = nullptr;
     PtyOutputQueue* ptyOutputs = nullptr;
     Renderer* renderer = nullptr;
     Pty* pty = nullptr;
     plt::Platform* platform = nullptr;
     Vterm* vterm = nullptr;
-    Window* window = nullptr;
+    plt::Window* window = nullptr;
 
     u16 columns = 0;
     u16 rows = 0;
@@ -77,12 +77,9 @@ struct Composer {
     stl::IntrusiveList fontResetListeners;
     stl::IntrusiveList fontChangedListeners;
     stl::IntrusiveList cellExtrasChangedListeners;
-    // WindowEvents points to stack storage and is valid only during the callback.
-    stl::IntrusiveList windowEventListeners;
-    stl::IntrusiveList frameReadyListeners;
     // Font resolvers are tried in registration order.
     stl::IntrusiveList fontResolvers;
     // Input producers call input; the router walks this list in registration
-    // order and stops at the first sink which accepts the event.
-    stl::IntrusiveList inputSinks;
+    // order and stops at the first handler which accepts the event.
+    stl::IntrusiveList inputHandlers;
 };

@@ -25,7 +25,7 @@
 #include "color_spec.h"
 #include "composer.h"
 #include "desktop_actions.h"
-#include "input_sink.h"
+#include "input_handler.h"
 #include "keyboard.h"
 #include "mouse_frontend.h"
 #include "mouse_protocol.h"
@@ -40,7 +40,6 @@
 #include "options.h"
 #include "utf8.h"
 #include "vterm_host.h"
-#include "window.h"
 
 #include <plt/platform.h>
 #include <plt/poller.h>
@@ -76,6 +75,7 @@
 #endif
 
 using namespace stl;
+using namespace plt;
 
 void MouseTrackingState::setMode(MouseTrackingMode value) {
     if (mode != value) {
@@ -256,7 +256,7 @@ namespace {
         VtermImpl* parent;
     };
 
-    struct VtermImpl final: public Vterm, public InputSink, public ParserIface {
+    struct VtermImpl final: public Vterm, public InputHandler, public ParserIface {
         VtermImpl(Composer& composer, VtermHost& host, VtermTrace* trace, Output* dump);
 
         ~VtermImpl();
@@ -1243,7 +1243,7 @@ VtKey VtermInput::specialKey(InputKey key, u16 modifiers) const {
 }
 
 bool VtermInput::paste(bool primary) {
-    Clipboard* const clipboard = terminal->composer.window->clipboard();
+    Clipboard* const clipboard = terminal->host.clipboard();
     if (clipboard == nullptr || terminal->composer.ptyOutputs == nullptr || terminal->composer.ptyOutput == nullptr) {
         return false;
     }
@@ -1260,7 +1260,7 @@ bool VtermInput::paste(bool primary) {
 
 ScreenHyperlink VtermInput::resolveLink(int pixelX, int pixelY) {
     const ScreenHyperlink link = terminal->resolveHyperlink(pixelX, pixelY);
-    return terminal->composer.window->desktopActions() == nullptr ? ScreenHyperlink{} : link;
+    return terminal->host.desktopActions() == nullptr ? ScreenHyperlink{} : link;
 }
 
 bool VtermInput::refreshHyperlink() {
@@ -1276,7 +1276,7 @@ bool VtermInput::refreshHyperlink() {
     hoveredLinkBegin = next.begin;
     hoveredLinkEnd = next.end;
     const bool active = hoveredHyperlink != 0 || hoveredLinkBegin < hoveredLinkEnd;
-    DesktopActions* const desktopActions = terminal->composer.window->desktopActions();
+    DesktopActions* const desktopActions = terminal->host.desktopActions();
     if (active != wasActive && desktopActions != nullptr) {
         desktopActions->pointerIcon(active ? PointerIcon::Link : PointerIcon::Text);
     }
@@ -1569,7 +1569,7 @@ bool VtermInput::key(const KeyInput& input) {
     }
     if (input.baseCodepoint == 'c' && modifiers == VtModifier::shift_control) {
         runLocal([&]() {
-            Clipboard* const clipboard = terminal->composer.window->clipboard();
+            Clipboard* const clipboard = terminal->host.clipboard();
             if (clipboard != nullptr) {
                 clipboard->readPrimary(terminal->composer.smallObjects->make<ClipboardCopyOutput>(terminal->composer.smallObjects, clipboard));
             }
@@ -1738,7 +1738,7 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
         hyperlinkClick = false;
         if (input.modifiers & InputControl) {
             const ScreenHyperlink link = resolveLink(input.pixelX, input.pixelY);
-            DesktopActions* const desktopActions = terminal->composer.window->desktopActions();
+            DesktopActions* const desktopActions = terminal->host.desktopActions();
             if (!link.payload.empty() && desktopActions != nullptr) {
                 hyperlinkClick = true;
                 desktopActions->openUri(link.payload);
@@ -1768,7 +1768,7 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
     if (input.button == PointerButton::Primary || input.button == PointerButton::Secondary) {
         mouse.endSelection();
         const VtermTextResult selected = terminal->selectionFinish();
-        Clipboard* const clipboard = terminal->composer.window->clipboard();
+        Clipboard* const clipboard = terminal->host.clipboard();
         if (selected.status && clipboard != nullptr) {
             clipboard->writePrimary(selected.text);
             if (opts.autoCopyMode) {
@@ -5030,7 +5030,7 @@ void VtermImpl::osc_SELECTION_FOREGROUND(Color color, bool query) {
 }
 
 void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) {
-    Clipboard* const target = composer.window->clipboard();
+    Clipboard* const target = host.clipboard();
     if (!opts.allowOsc52Read || target == nullptr || composer.ptyOutputs == nullptr || composer.ptyOutput == nullptr) {
         StringBuilder reply;
         reply << StringView(u8"52;");
@@ -5060,7 +5060,7 @@ void VtermImpl::osc_CLIPBOARD_WRITE(StringView decoded, bool valid, bool primary
     if (!valid) {
         return;
     }
-    Clipboard* const target = composer.window->clipboard();
+    Clipboard* const target = host.clipboard();
     if (target == nullptr) {
         return;
     }
@@ -7798,7 +7798,7 @@ Vterm* Vterm::create(Composer& composer, VtermHost& host, VtermTrace* trace) {
         VtermImpl* const vterm = composer.pool->make<VtermImpl>(composer, host, trace, dump);
         composer.resizedListeners.pushBack(composer.pool->make<CallVtermResize>(vterm));
         composer.fontChangedListeners.pushBack(composer.pool->make<CallVtermFontChanged>(vterm));
-        composer.inputSinks.pushBack(vterm);
+        composer.inputHandlers.pushBack(vterm);
         vterm->armTimeout();
         return vterm;
     } catch (...) {

@@ -7,15 +7,16 @@
 #include "input_router.h"
 
 #include "composer.h"
-#include "input_sink.h"
+#include "input_handler.h"
 
 #include <std/mem/obj_pool.h>
 #include <std/tst/ut.h>
 
 using namespace stl;
+using namespace plt;
 
 namespace {
-    struct CaptureSink final: public InputSink {
+    struct CaptureHandler final: public InputHandler {
         bool key(const KeyInput& input) override;
         bool text(const TextInput& input) override;
         bool pointerMotion(const PointerMotionInput& input) override;
@@ -45,7 +46,7 @@ namespace {
     };
 }
 
-bool CaptureSink::key(const KeyInput& input) {
+bool CaptureHandler::key(const KeyInput& input) {
     lastKey = input;
     ++keys;
     if (unlinkOnKey) {
@@ -54,69 +55,69 @@ bool CaptureSink::key(const KeyInput& input) {
     return consume;
 }
 
-bool CaptureSink::text(const TextInput& input) {
+bool CaptureHandler::text(const TextInput& input) {
     lastText = input;
     ++texts;
     return consume;
 }
 
-bool CaptureSink::pointerMotion(const PointerMotionInput& input) {
+bool CaptureHandler::pointerMotion(const PointerMotionInput& input) {
     lastMotion = input;
     ++motions;
     return consume;
 }
 
-bool CaptureSink::pointerButton(const PointerButtonInput& input) {
+bool CaptureHandler::pointerButton(const PointerButtonInput& input) {
     lastButton = input;
     ++buttons;
     return consume;
 }
 
-bool CaptureSink::scroll(const ScrollInput& input) {
+bool CaptureHandler::scroll(const ScrollInput& input) {
     lastScroll = input;
     ++scrolls;
     return consume;
 }
 
-void CaptureSink::focus(bool focused_) {
+void CaptureHandler::focus(bool focused_) {
     focused = focused_;
     ++focuses;
 }
 
-void CaptureSink::pointerPresence(bool present_) {
+void CaptureHandler::pointerPresence(bool present_) {
     present = present_;
     ++presences;
 }
 
-void CaptureSink::flush() {
+void CaptureHandler::flush() {
     ++flushes;
 }
 
 STD_TEST_SUITE(InputRouter) {
-    STD_TEST(StopsAtFirstConsumingSink) {
+    STD_TEST(StopsAtFirstConsumingHandler) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
-        CaptureSink first;
-        CaptureSink second;
+        CaptureHandler first;
+        CaptureHandler second;
         first.consume = true;
-        composer.inputSinks.pushBack(&first);
-        composer.inputSinks.pushBack(&second);
+        composer.inputHandlers.pushBack(&first);
+        composer.inputHandlers.pushBack(&second);
 
-        STD_INSIST(composer.input->key({InputKey::Enter}));
+        composer.input->key({InputKey::Enter});
         STD_INSIST(first.keys == 1);
         STD_INSIST(second.keys == 0);
     }
 
-    STD_TEST(ContinuesAfterSinkRemovesItself) {
+    STD_TEST(ContinuesAfterHandlerRemovesItself) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
-        CaptureSink removing;
-        CaptureSink trailing;
+        CaptureHandler removing;
+        CaptureHandler trailing;
         removing.unlinkOnKey = true;
-        composer.inputSinks.pushBack(&removing);
-        composer.inputSinks.pushBack(&trailing);
+        composer.inputHandlers.pushBack(&removing);
+        composer.inputHandlers.pushBack(&trailing);
 
-        STD_INSIST(!composer.input->key({InputKey::Enter}));
+        composer.input->key({InputKey::Enter});
         STD_INSIST(removing.keys == 1);
         STD_INSIST(trailing.keys == 1);
 
@@ -128,8 +129,8 @@ STD_TEST_SUITE(InputRouter) {
     STD_TEST(RoutesEveryInputShape) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
-        CaptureSink sink;
-        composer.inputSinks.pushBack(&sink);
+        CaptureHandler sink;
+        composer.inputHandlers.pushBack(&sink);
 
         composer.input->text({0x20ac, InputAlt});
         composer.input->pointerMotion({12, 34, InputShift});
@@ -149,10 +150,10 @@ STD_TEST_SUITE(InputRouter) {
     STD_TEST(BroadcastsStateAndFlushEvents) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
-        CaptureSink first;
-        CaptureSink second;
-        composer.inputSinks.pushBack(&first);
-        composer.inputSinks.pushBack(&second);
+        CaptureHandler first;
+        CaptureHandler second;
+        composer.inputHandlers.pushBack(&first);
+        composer.inputHandlers.pushBack(&second);
 
         composer.input->focus(true);
         composer.input->pointerPresence(true);

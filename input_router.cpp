@@ -7,21 +7,21 @@
 #include "input_router.h"
 
 #include "composer.h"
-#include "input_sink.h"
+#include "input_handler.h"
 
 #include <std/mem/obj_pool.h>
 
 using namespace stl;
 
 namespace {
-    struct InputRouter final: public InputSink {
+    struct InputRouter final: public plt::InputSink {
         explicit InputRouter(Composer& composer);
 
-        bool key(const KeyInput& input) override;
-        bool text(const TextInput& input) override;
-        bool pointerMotion(const PointerMotionInput& input) override;
-        bool pointerButton(const PointerButtonInput& input) override;
-        bool scroll(const ScrollInput& input) override;
+        void key(const plt::KeyInput& input) override;
+        void text(const plt::TextInput& input) override;
+        void pointerMotion(const plt::PointerMotionInput& input) override;
+        void pointerButton(const plt::PointerButtonInput& input) override;
+        void scroll(const plt::ScrollInput& input) override;
         void focus(bool focused) override;
         void pointerPresence(bool present) override;
         void flush() override;
@@ -35,85 +35,80 @@ InputRouter::InputRouter(Composer& composer_)
 {
 }
 
-bool InputRouter::key(const KeyInput& input) {
-    for (IntrusiveNode* node = composer.inputSinks.mutFront(); node != composer.inputSinks.mutEnd();) {
-        InputSink* const sink = static_cast<InputSink*>(node);
+void InputRouter::key(const plt::KeyInput& input) {
+    for (IntrusiveNode* node = composer.inputHandlers.mutFront(); node != composer.inputHandlers.mutEnd();) {
+        InputHandler* const handler = static_cast<InputHandler*>(node);
         node = node->next;
-        if (sink->key(input)) {
-            return true;
+        if (handler->key(input)) {
+            return;
         }
     }
-    return false;
 }
 
-bool InputRouter::text(const TextInput& input) {
-    for (IntrusiveNode* node = composer.inputSinks.mutFront(); node != composer.inputSinks.mutEnd();) {
-        InputSink* const sink = static_cast<InputSink*>(node);
+void InputRouter::text(const plt::TextInput& input) {
+    for (IntrusiveNode* node = composer.inputHandlers.mutFront(); node != composer.inputHandlers.mutEnd();) {
+        InputHandler* const handler = static_cast<InputHandler*>(node);
         node = node->next;
-        if (sink->text(input)) {
-            return true;
+        if (handler->text(input)) {
+            return;
         }
     }
-    return false;
 }
 
-bool InputRouter::pointerMotion(const PointerMotionInput& input) {
-    for (IntrusiveNode* node = composer.inputSinks.mutFront(); node != composer.inputSinks.mutEnd();) {
-        InputSink* const sink = static_cast<InputSink*>(node);
+void InputRouter::pointerMotion(const plt::PointerMotionInput& input) {
+    for (IntrusiveNode* node = composer.inputHandlers.mutFront(); node != composer.inputHandlers.mutEnd();) {
+        InputHandler* const handler = static_cast<InputHandler*>(node);
         node = node->next;
-        if (sink->pointerMotion(input)) {
-            return true;
+        if (handler->pointerMotion(input)) {
+            return;
         }
     }
-    return false;
 }
 
-bool InputRouter::pointerButton(const PointerButtonInput& input) {
-    for (IntrusiveNode* node = composer.inputSinks.mutFront(); node != composer.inputSinks.mutEnd();) {
-        InputSink* const sink = static_cast<InputSink*>(node);
+void InputRouter::pointerButton(const plt::PointerButtonInput& input) {
+    for (IntrusiveNode* node = composer.inputHandlers.mutFront(); node != composer.inputHandlers.mutEnd();) {
+        InputHandler* const handler = static_cast<InputHandler*>(node);
         node = node->next;
-        if (sink->pointerButton(input)) {
-            return true;
+        if (handler->pointerButton(input)) {
+            return;
         }
     }
-    return false;
 }
 
-bool InputRouter::scroll(const ScrollInput& input) {
-    for (IntrusiveNode* node = composer.inputSinks.mutFront(); node != composer.inputSinks.mutEnd();) {
-        InputSink* const sink = static_cast<InputSink*>(node);
+void InputRouter::scroll(const plt::ScrollInput& input) {
+    for (IntrusiveNode* node = composer.inputHandlers.mutFront(); node != composer.inputHandlers.mutEnd();) {
+        InputHandler* const handler = static_cast<InputHandler*>(node);
         node = node->next;
-        if (sink->scroll(input)) {
-            return true;
+        if (handler->scroll(input)) {
+            return;
         }
     }
-    return false;
 }
 
 void InputRouter::focus(bool focused) {
-    for (IntrusiveNode* node = composer.inputSinks.mutFront(); node != composer.inputSinks.mutEnd();) {
-        InputSink* const sink = static_cast<InputSink*>(node);
+    for (IntrusiveNode* node = composer.inputHandlers.mutFront(); node != composer.inputHandlers.mutEnd();) {
+        InputHandler* const handler = static_cast<InputHandler*>(node);
         node = node->next;
-        sink->focus(focused);
+        handler->focus(focused);
     }
 }
 
 void InputRouter::pointerPresence(bool present) {
-    for (IntrusiveNode* node = composer.inputSinks.mutFront(); node != composer.inputSinks.mutEnd();) {
-        InputSink* const sink = static_cast<InputSink*>(node);
+    for (IntrusiveNode* node = composer.inputHandlers.mutFront(); node != composer.inputHandlers.mutEnd();) {
+        InputHandler* const handler = static_cast<InputHandler*>(node);
         node = node->next;
-        sink->pointerPresence(present);
+        handler->pointerPresence(present);
     }
 }
 
 void InputRouter::flush() {
-    for (IntrusiveNode* node = composer.inputSinks.mutFront(); node != composer.inputSinks.mutEnd();) {
-        InputSink* const sink = static_cast<InputSink*>(node);
+    for (IntrusiveNode* node = composer.inputHandlers.mutFront(); node != composer.inputHandlers.mutEnd();) {
+        InputHandler* const handler = static_cast<InputHandler*>(node);
         node = node->next;
-        sink->flush();
+        handler->flush();
     }
 }
 
-InputSink* createInputRouter(Composer& composer) {
+plt::InputSink* createInputRouter(Composer& composer) {
     return composer.pool->make<InputRouter>(composer);
 }

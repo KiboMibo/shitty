@@ -8,7 +8,6 @@
 
 #include "cell_extra_store.h"
 #include "input_bindings.h"
-#include "input_sink.h"
 #include "listener.h"
 #include "options.h"
 
@@ -71,7 +70,7 @@ STD_TEST_SUITE(Composer) {
         STD_INSIST(composer.smallObjects != nullptr);
         STD_INSIST(composer.input != nullptr);
         STD_INSIST(composer.inputBindings != nullptr);
-        STD_INSIST(composer.inputSinks.front() != composer.inputSinks.end());
+        STD_INSIST(composer.inputHandlers.front() != composer.inputHandlers.end());
         STD_INSIST(composer.fontResolvers.front() != composer.fontResolvers.end());
     }
 

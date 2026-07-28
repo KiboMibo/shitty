@@ -8,6 +8,12 @@
 
 #include <std/str/view.h>
 
+namespace plt {
+    struct Window;
+}
+
+struct Composer;
+
 enum class PointerIcon {
     Text,
     Link
@@ -16,4 +22,6 @@ enum class PointerIcon {
 struct DesktopActions {
     virtual void openUri(stl::StringView uri) = 0;
     virtual void pointerIcon(PointerIcon icon) = 0;
+
+    static DesktopActions* create(Composer& composer, plt::Window& window);
 };

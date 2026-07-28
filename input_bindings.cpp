@@ -7,7 +7,6 @@
 #include "input_bindings.h"
 
 #include "composer.h"
-#include "input_sink.h"
 #include "listener.h"
 
 #include <std/dbg/assert.h>
@@ -15,6 +14,7 @@
 #include <std/mem/obj_pool.h>
 
 using namespace stl;
+using namespace plt;
 
 namespace {
     struct RegisteredBinding {

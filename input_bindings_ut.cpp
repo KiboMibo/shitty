@@ -13,6 +13,7 @@
 #include <std/tst/ut.h>
 
 using namespace stl;
+using namespace plt;
 
 namespace {
     struct CountBinding final: public Listener {
@@ -35,7 +36,7 @@ STD_TEST_SUITE(InputBindings) {
         listeners.pushBack(&listener);
         composer.inputBindings->add({InputKey::Printable, InputControl, 'a', 'a'}, &listeners);
 
-        const bool consumed = composer.input->key({
+        const bool consumed = composer.inputBindings->key({
             .key = InputKey::Printable,
             .action = InputAction::Press,
             .modifiers = InputControl | InputCapsLock | InputNumLock,
@@ -44,8 +45,8 @@ STD_TEST_SUITE(InputBindings) {
 
         STD_INSIST(consumed);
         STD_INSIST(listener.calls == 1);
-        STD_INSIST(composer.input->text({'a', InputControl}));
-        STD_INSIST(composer.input->key({InputKey::Printable, InputAction::Release, InputControl, 0, 'a'}));
+        STD_INSIST(composer.inputBindings->text({'a', InputControl}));
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Release, InputControl, 0, 'a'}));
     }
 
     STD_TEST(DoesNotConsumeMismatchedBinding) {
@@ -56,8 +57,8 @@ STD_TEST_SUITE(InputBindings) {
         listeners.pushBack(&listener);
         composer.inputBindings->add({InputKey::Printable, InputControl, 'a', 0}, &listeners);
 
-        STD_INSIST(!composer.input->key({InputKey::Printable, InputAction::Press, InputShift, 0, 'a'}));
-        STD_INSIST(!composer.input->key({InputKey::Printable, InputAction::Press, InputControl, 0, 'b'}));
+        STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputShift, 0, 'a'}));
+        STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputControl, 0, 'b'}));
         STD_INSIST(listener.calls == 0);
     }
 
@@ -70,12 +71,12 @@ STD_TEST_SUITE(InputBindings) {
         composer.inputBindings->add({InputKey::Printable, InputControl, '=', '+'}, &listeners);
         const KeyInput input{InputKey::Printable, InputAction::Press, InputControl, '=', '='};
 
-        STD_INSIST(composer.input->key(input));
-        STD_INSIST(composer.input->key(input));
+        STD_INSIST(composer.inputBindings->key(input));
+        STD_INSIST(composer.inputBindings->key(input));
         STD_INSIST(listener.calls == 2);
-        STD_INSIST(composer.input->text({'+', InputControl}));
-        STD_INSIST(composer.input->text({'+', InputControl}));
-        STD_INSIST(!composer.input->text({'+', InputControl}));
+        STD_INSIST(composer.inputBindings->text({'+', InputControl}));
+        STD_INSIST(composer.inputBindings->text({'+', InputControl}));
+        STD_INSIST(!composer.inputBindings->text({'+', InputControl}));
     }
 
     STD_TEST(FlushDropsPendingTextButReleaseRemainsConsumed) {
@@ -89,8 +90,8 @@ STD_TEST_SUITE(InputBindings) {
 
         composer.input->flush();
 
-        STD_INSIST(!composer.input->text({'+', InputControl}));
-        STD_INSIST(composer.input->key({InputKey::Printable, InputAction::Release, InputControl, '=', '='}));
+        STD_INSIST(!composer.inputBindings->text({'+', InputControl}));
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Release, InputControl, '=', '='}));
     }
 
     STD_TEST(FocusLossClearsConsumedAndPendingState) {
@@ -104,7 +105,7 @@ STD_TEST_SUITE(InputBindings) {
 
         composer.input->focus(false);
 
-        STD_INSIST(!composer.input->text({'+', InputControl}));
-        STD_INSIST(!composer.input->key({InputKey::Printable, InputAction::Release, InputControl, '=', '='}));
+        STD_INSIST(!composer.inputBindings->text({'+', InputControl}));
+        STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Release, InputControl, '=', '='}));
     }
 }

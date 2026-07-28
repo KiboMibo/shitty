@@ -26,7 +26,7 @@ Composer::Composer(ObjPool* pool_)
     smallObjects = SmallObjAllocator::create(pool);
     input = createInputRouter(*this);
     inputBindings = InputBindings::create(*this);
-    inputSinks.pushBack(inputBindings);
+    inputHandlers.pushBack(inputBindings);
     if (FontResolver* const resolver = createFontconfigResolver(*this)) {
         fontResolvers.pushBack(resolver);
     }

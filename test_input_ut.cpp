@@ -4,18 +4,19 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "window.h"
+#include "test_input.h"
 
 #include "composer.h"
-#include "input_sink.h"
+#include "input_handler.h"
 #include "listener.h"
-#include "options.h"
-#include "test_mode.h"
+
+#include <plt/input.h>
 
 #include <std/mem/obj_pool.h>
 #include <std/tst/ut.h>
 
 using namespace stl;
+using namespace plt;
 
 namespace {
     constexpr int testKeyUnknown = -1;
@@ -29,7 +30,7 @@ namespace {
     constexpr int testModCapsLock = 0x0010;
     constexpr int testModNumLock = 0x0020;
 
-    struct CaptureInput final: public InputSink {
+    struct CaptureInput final: public InputHandler {
         bool key(const KeyInput& input) override;
         bool text(const TextInput& input) override;
         bool pointerMotion(const PointerMotionInput&) override;
@@ -89,67 +90,16 @@ void CountListener::onListen(void*) {
     ++calls;
 }
 
-STD_TEST_SUITE(Window) {
-    STD_TEST(HeadlessFactoryDoesNotWireComposer) {
+STD_TEST_SUITE(TestInput) {
+    STD_TEST(TranslatesPrintableAndTextInput) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
-        Window* const window = Window::createHeadless(composer);
-
-        STD_INSIST(composer.window == nullptr);
-        STD_INSIST(window->clipboard() == nullptr);
-        STD_INSIST(window->desktopActions() == nullptr);
-        STD_INSIST(window->testApi() != nullptr);
-    }
-
-    STD_TEST(HeadlessLeavesFramePacingDisabled) {
-        auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
-        Window& window = *Window::createHeadless(composer);
-
-        STD_INSIST(!window.requestFrame());
-        window.cancelFrame();
-    }
-
-    STD_TEST(NativeWindowDoesNotExposeTestInput) {
-        auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
-        Window* const window = Window::create(composer);
-
-        STD_INSIST(composer.window == nullptr);
-        STD_INSIST(window->clipboard() != nullptr);
-        STD_INSIST(window->desktopActions() != nullptr);
-        STD_INSIST(window->testApi() == nullptr);
-    }
-
-    STD_TEST(HeadlessResizeUpdatesComposerGeometry) {
-        auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
-        Window& window = *Window::createHeadless(composer);
-        CountListener listener;
-        composer.resizedListeners.pushBack(&listener);
-        composer.setGlyphSize(8, 16);
-        const u32 width = 2 * opts.border + 12 * composer.glyphWidth + 3;
-        const u32 height = 2 * opts.border + 5 * composer.glyphHeight + 7;
-
-        window.resizePixels(width, height);
-
-        STD_INSIST(composer.pixelWidth == width);
-        STD_INSIST(composer.pixelHeight == height);
-        STD_INSIST(composer.columns == 12);
-        STD_INSIST(composer.rows == 5);
-        STD_INSIST(listener.calls == 1);
-    }
-
-    STD_TEST(HeadlessTranslatesPrintableAndTextInput) {
-        auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
-        Window& window = *Window::createHeadless(composer);
-        TestModeInput& input = *window.testApi();
+        TestInput& input = *TestInput::create(composer);
         CaptureInput capture;
-        composer.inputSinks.pushBack(&capture);
+        composer.inputHandlers.pushBack(&capture);
 
-        input.testKeyEvent(testKeyA, 0, testPress, testModControl | testModCapsLock);
-        input.testTextInput('a', testModAlt | testModNumLock);
+        input.key(testKeyA, 0, testPress, testModControl | testModCapsLock);
+        input.text('a', testModAlt | testModNumLock);
 
         STD_INSIST(capture.keys == 1);
         STD_INSIST(capture.lastKey.key == InputKey::Printable);
@@ -162,64 +112,53 @@ STD_TEST_SUITE(Window) {
         STD_INSIST(capture.lastText.modifiers == (InputAlt | InputNumLock));
     }
 
-    STD_TEST(HeadlessTranslatesSpecialKeysAndAltGraph) {
+    STD_TEST(TranslatesSpecialKeysAndAltGraph) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
-        TestModeInput& input = *Window::createHeadless(composer)->testApi();
+        TestInput& input = *TestInput::create(composer);
         CaptureInput capture;
-        composer.inputSinks.pushBack(&capture);
+        composer.inputHandlers.pushBack(&capture);
 
-        input.testKeyEvent(testKeyUp, 0, testRepeat, 0);
+        input.key(testKeyUp, 0, testRepeat, 0);
 
         STD_INSIST(capture.lastKey.key == InputKey::Up);
         STD_INSIST(capture.lastKey.action == InputAction::Repeat);
         STD_INSIST(capture.lastKey.baseCodepoint == 0);
         STD_INSIST(capture.lastKey.layoutCodepoint == 0);
 
-        input.testKeyEvent(testKeyRightAlt, 0, testPress, testModAlt);
+        input.key(testKeyRightAlt, 0, testPress, testModAlt);
 
         STD_INSIST(capture.lastKey.key == InputKey::RightAlt);
         STD_INSIST((capture.lastKey.modifiers & InputAltGraph) != 0);
         STD_INSIST((capture.lastKey.modifiers & InputAlt) == 0);
     }
 
-    STD_TEST(HeadlessRejectsUnknownKeyEvents) {
+    STD_TEST(RejectsUnknownKeyEvents) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
-        TestModeInput& input = *Window::createHeadless(composer)->testApi();
+        TestInput& input = *TestInput::create(composer);
         CaptureInput capture;
-        composer.inputSinks.pushBack(&capture);
+        composer.inputHandlers.pushBack(&capture);
 
-        input.testKeyEvent(testKeyUnknown, 0, testPress, 0);
-        input.testKeyEvent(testKeyA, 0, 99, 0);
-        input.testTextInput(0, 0);
+        input.key(testKeyUnknown, 0, testPress, 0);
+        input.key(testKeyA, 0, 99, 0);
+        input.text(0, 0);
 
         STD_INSIST(capture.keys == 0);
         STD_INSIST(capture.texts == 0);
     }
 
-    STD_TEST(HeadlessPublishesContentScale) {
+    STD_TEST(PublishesContentScale) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
-        TestModeInput& input = *Window::createHeadless(composer)->testApi();
+        TestInput& input = *TestInput::create(composer);
         CountListener listener;
         composer.contentScaleChangedListeners.pushBack(&listener);
 
-        input.testContentScale(1.25f, 1.5f);
-        input.testContentScale(1.5f, 1.25f);
+        input.contentScale(1.25f, 1.5f);
+        input.contentScale(1.5f, 1.25f);
 
         STD_INSIST(composer.contentScale == 1.5f);
         STD_INSIST(listener.calls == 1);
-    }
-
-    STD_TEST(WindowDestructionDoesNotChangeComposerWiring) {
-        ObjPool* pool = ObjPool::fromMemoryRaw();
-        Composer composer(pool);
-        Window* const window = Window::createHeadless(composer);
-        composer.window = window;
-
-        delete pool;
-
-        STD_INSIST(composer.window == window);
     }
 }

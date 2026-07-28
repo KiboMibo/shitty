@@ -4,8 +4,8 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "input_sink.h"
+#include "input_handler.h"
 
-InputSink::~InputSink() noexcept {
+InputHandler::~InputHandler() noexcept {
     unlink();
 }

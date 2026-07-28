@@ -11,10 +11,18 @@ namespace stl {
     class StringView;
 }
 
+namespace plt {
+    struct Window;
+}
+
+struct Composer;
+
 struct Clipboard {
     // The clipboard owns output and deletes it after the asynchronous read.
     virtual void readPrimary(stl::Output* output) = 0;
     virtual void readClipboard(stl::Output* output) = 0;
     virtual void writePrimary(stl::StringView content) = 0;
     virtual void writeClipboard(stl::StringView content) = 0;
+
+    static Clipboard* create(Composer& composer, plt::Window& window);
 };
