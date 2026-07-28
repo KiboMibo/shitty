@@ -93,11 +93,13 @@ STD_TEST_SUITE(Window) {
         STD_INSIST(window->testApi() != nullptr);
     }
 
-    STD_TEST(HeadlessDispatchStops) {
+    STD_TEST(HeadlessLeavesFramePacingDisabled) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());
         Window& window = *Window::createHeadless(composer);
 
+        STD_INSIST(!window.requestFrame());
+        window.cancelFrame();
         STD_INSIST(!window.dispatchEvents());
     }
 

@@ -25,6 +25,9 @@
 #define GLFW_INCLUDE_NONE
 #include "third_party/glfw/include/GLFW/glfw3.h"
 
+#define GLFW_EXPOSE_NATIVE_WAYLAND
+#include "third_party/glfw/include/GLFW/glfw3native.h"
+
 #include <cerrno>
 #include <climits>
 #include <cmath>
@@ -58,6 +61,8 @@ namespace {
         void activate() override;
         void requestClose() override;
         bool dispatchEvents() override;
+        bool requestFrame() override;
+        void cancelFrame() override;
 
         void setTitle(StringView title) override;
         void requestAttention() override;
@@ -102,6 +107,8 @@ namespace {
         void queueResize(int width, int height);
         void onFramebufferSize(int width, int height);
         void setupCallbacks();
+        void frameReady(struct wl_callback* callback);
+        static void frameDone(void* data, struct wl_callback* callback, uint32_t time);
         static int pollCallback(struct pollfd* fds, size_t count, double* timeout, void* user);
         bool queryUriScheme(StringView scheme);
         static GlfwWindowImpl& fromWindow(GLFWwindow* window);
@@ -120,8 +127,10 @@ namespace {
         bool callbacksActive = false;
         bool resizePending = false;
         bool redrawPending = false;
+        bool frameReadyPending = false;
         bool correctingResize = false;
         bool attentionRequested = false;
+        struct wl_callback* frameCallback = nullptr;
         // A dispatch can carry several configures; terminal reflow consumes only the last one after GLFW returns.
         u16 pendingPixelWidth = 0;
         u16 pendingPixelHeight = 0;
@@ -155,6 +164,8 @@ namespace {
         void activate() override;
         void requestClose() override;
         bool dispatchEvents() override;
+        bool requestFrame() override;
+        void cancelFrame() override;
 
         void setTitle(StringView title) override;
         void requestAttention() override;
@@ -191,6 +202,7 @@ GlfwWindowImpl::~GlfwWindowImpl() {
     composer.window = nullptr;
     composer.clipboard = nullptr;
     composer.desktopActions = nullptr;
+    cancelFrame();
     if (cursor != nullptr) {
         glfwDestroyCursor(cursor);
     }
@@ -230,6 +242,13 @@ void HeadlessWindowImpl::requestClose() {
 
 bool HeadlessWindowImpl::dispatchEvents() {
     return false;
+}
+
+bool HeadlessWindowImpl::requestFrame() {
+    return false;
+}
+
+void HeadlessWindowImpl::cancelFrame() {
 }
 
 void HeadlessWindowImpl::setTitle(StringView) {
@@ -418,14 +437,58 @@ bool GlfwWindowImpl::dispatchEvents() {
         .close = glfwWindowShouldClose(window) != 0,
         .resized = resized,
         .redraw = redrawPending,
+        .frameReady = frameReadyPending,
     };
     redrawPending = false;
+    frameReadyPending = false;
     for (IntrusiveNode* node = composer.windowEventListeners.mutFront(); node != composer.windowEventListeners.mutEnd();) {
         Listener* const listener = static_cast<Listener*>(node);
         node = node->next;
         listener->onListen((void*)(&result));
     }
     return !result.close;
+}
+
+bool GlfwWindowImpl::requestFrame() {
+    if (frameCallback != nullptr) {
+        return true;
+    }
+    struct wl_surface* const surface = glfwGetWaylandWindow(window);
+    if (surface == nullptr) {
+        return false;
+    }
+    frameCallback = wl_surface_frame(surface);
+    if (frameCallback == nullptr) {
+        return false;
+    }
+    static const struct wl_callback_listener listener{frameDone};
+    if (wl_callback_add_listener(frameCallback, &listener, this) < 0) {
+        wl_callback_destroy(frameCallback);
+        frameCallback = nullptr;
+        return false;
+    }
+    return true;
+}
+
+void GlfwWindowImpl::cancelFrame() {
+    if (frameCallback != nullptr) {
+        wl_callback_destroy(frameCallback);
+        frameCallback = nullptr;
+    }
+}
+
+void GlfwWindowImpl::frameReady(struct wl_callback* callback) {
+    if (callback != frameCallback) {
+        wl_callback_destroy(callback);
+        return;
+    }
+    wl_callback_destroy(frameCallback);
+    frameCallback = nullptr;
+    frameReadyPending = true;
+}
+
+void GlfwWindowImpl::frameDone(void* data, struct wl_callback* callback, uint32_t) {
+    ((GlfwWindowImpl*)(data))->frameReady(callback);
 }
 
 void GlfwWindowImpl::setTitle(StringView title) {

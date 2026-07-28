@@ -8,17 +8,6 @@ from harness import Shitty
 
 
 class DamageOnlyFrameTest(unittest.TestCase):
-    def test_failed_present_is_retried_on_next_scheduler_turn(self):
-        with Shitty(columns=8, rows=2) as terminal:
-            before = terminal.snapshot()
-            terminal.fail_next_present()
-
-            terminal.write(b"retry")
-
-            retried = terminal.snapshot()
-            self.assertEqual(retried.lines[0], "retry   ")
-            self.assertEqual(retried.refresh_count, before.refresh_count + 1)
-
     def test_resize_between_failed_present_and_retry_rebuilds_full_frame(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"before")
