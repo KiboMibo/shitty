@@ -30,8 +30,8 @@ MouseProtocolPoint mouseProtocolPoint(MouseTrackingEnc encoding, int pixelX, int
     const int columns = std::max(1, contentWidth / std::max(1, geometry.glyphWidth));
     const int rows = std::max(1, contentHeight / std::max(1, geometry.glyphHeight));
     return {
-        std::clamp((pixelX - geometry.border) / std::max(1, geometry.glyphWidth) + 1, 1, columns),
-        std::clamp((pixelY - geometry.border) / std::max(1, geometry.glyphHeight) + 1, 1, rows),
+        std::clamp((pixelX - geometry.border - 1) / std::max(1, geometry.glyphWidth) + 1, 1, columns),
+        std::clamp((pixelY - geometry.border - 1) / std::max(1, geometry.glyphHeight) + 1, 1, rows),
     };
 }
 

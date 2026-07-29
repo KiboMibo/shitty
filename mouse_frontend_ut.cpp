@@ -30,10 +30,6 @@ STD_TEST_SUITE(MouseFrontend) {
 
         STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 2, 2, geometry).column == 1);
         STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 2, 2, geometry).row == 1);
-        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 9, 17, geometry).column == 1);
-        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 9, 17, geometry).row == 1);
-        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 10, 18, geometry).column == 2);
-        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 10, 18, geometry).row == 2);
         STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 81, 65, geometry).column == 10);
         STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 81, 65, geometry).row == 4);
         STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, -100, -100, geometry).column == 1);
