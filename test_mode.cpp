@@ -451,6 +451,7 @@ namespace {
         bool getNationalReplacementMode();
         bool getAnsiMode(u32 mode);
         bool getPrivateMode(u32 mode);
+        bool getTabStop(u16 column);
         bool getPendingWrap();
         TerminalCursor::Style getCursorStyle();
         TerminalPen getPenState();
@@ -1097,6 +1098,10 @@ bool TestTerminal::getAnsiMode(u32 mode) {
 
 bool TestTerminal::getPrivateMode(u32 mode) {
     return testApi.privateMode(mode);
+}
+
+bool TestTerminal::getTabStop(u16 column) {
+    return testApi.tabStop(column);
 }
 
 bool TestTerminal::getPendingWrap() {
@@ -2081,6 +2086,27 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
                 writeAll(controlFd, "OK " + std::to_string(terminal.getPrivateMode(25)) + " " + std::to_string(terminal.getPrivateMode(12)) + " " + std::to_string((unsigned)(terminal.getCursorStyle())) + "\n");
             } else if (line == "CURSOR_PENDING_WRAP") {
                 writeAll(controlFd, "OK " + std::to_string(terminal.getPendingWrap()) + "\n");
+            } else if (line.compare(0, 9, "TAB_STOP ") == 0) {
+                std::istringstream args(line.substr(9));
+                unsigned column;
+                if (!(args >> column) || column > 65535) {
+                    throw std::runtime_error("invalid tab stop column");
+                }
+                writeAll(controlFd, "OK " + std::to_string(terminal.getTabStop(column)) + "\n");
+            } else if (line.compare(0, 10, "TAB_STOPS ") == 0) {
+                std::istringstream args(line.substr(10));
+                unsigned parsedColumns;
+                if (!(args >> parsedColumns) || parsedColumns > 65535) {
+                    throw std::runtime_error("invalid tab stop columns");
+                }
+                const u16 columns = parsedColumns;
+                StringBuilder output;
+                output << StringView(u8"OK ");
+                for (u16 column = 0; column < columns; ++column) {
+                    output << (terminal.getTabStop(column) ? StringView(u8"1") : StringView(u8"0"));
+                }
+                output << StringView(u8"\n");
+                writeAll(controlFd, StringView(output));
             } else if (line == "CONFORMANCE_STATE") {
                 StringBuilder output;
                 output << StringView(u8"OK screen=") << (terminal.getPrivateMode(47) ? StringView(u8"Alternate") : StringView(u8"Primary")) << StringView(u8" IRM=") << (unsigned)(terminal.getAnsiMode(4)) << StringView(u8" SRM=") << (unsigned)(terminal.getAnsiMode(12)) << StringView(u8" LNM=") << (unsigned)(terminal.getAnsiMode(20)) << StringView(u8" DECCKM=") << (unsigned)(terminal.getPrivateMode(1)) << StringView(u8" DECCOLM=") << (unsigned)(terminal.getPrivateMode(3)) << StringView(u8" DECSCLM=") << (unsigned)(terminal.getPrivateMode(4)) << StringView(u8" DECSCNM=") << (unsigned)(terminal.getPrivateMode(5)) << StringView(u8" DECOM=") << (unsigned)(terminal.getPrivateMode(6)) << StringView(u8" DECAWM=") << (unsigned)(terminal.getPrivateMode(7)) << StringView(u8" DECARM=") << (unsigned)(terminal.getPrivateMode(8)) << StringView(u8" DECTCEM=") << (unsigned)(terminal.getPrivateMode(25)) << StringView(u8" DECNKM=") << (unsigned)(terminal.getPrivateMode(66)) << StringView(u8" DECBKM=") << (unsigned)(terminal.getPrivateMode(67)) << StringView(u8" DECLRMM=") << (unsigned)(terminal.getPrivateMode(69)) << StringView(u8"\n");

@@ -19,3 +19,13 @@ width 1, splits large ranges at 256-codepoint boundaries, and verifies 930
 codepoints through the terminal's standard CPR reply. VTE's GLib comparison
 and ambiguous-width-2 assertions are deferred because Shitty does not expose a
 CJK ambiguous-width setting.
+
+`upstream/tabstops-test.cc` is copied verbatim from the same revision. All
+seven registered families are translated by `tabstop_adapter.py`. The adapter
+uses real HTS, TBC, CHT, CBT, RIS, and terminal resize operations, plus a
+read-only test API that exposes the resulting stop table. VTE's configurable
+tab widths are represented by explicitly setting the same stop positions.
+VTE's internal `resize(fill=false)` policy and the synthetic `endpos` argument
+have no terminal protocol equivalent: Shitty follows its public rule of
+filling newly addressable columns, and CHT/CBT clamp a missing stop to the
+applicable screen or margin edge.

@@ -969,6 +969,7 @@ namespace {
         VtermTestState inspect() const override;
         bool ansiMode(u32 mode) const override;
         bool privateMode(u32 mode) const override;
+        bool tabStop(u16 column) const override;
         VtermTestCell cell(u16 row, u16 column) const override;
         VtermTestCell logicalCell(i32 row, u16 column) const override;
         void key(VtKey key, VtModifier modifiers) override;
@@ -2254,6 +2255,16 @@ bool TestApiImpl::privateMode(u32 mode) const {
         default:
             return false;
     }
+}
+
+bool TestApiImpl::tabStop(u16 column) const {
+    if (column >= vterm->composer.columns) {
+        return false;
+    }
+    if (!vterm->tabStopsCustomized) {
+        return column % 8 == 0;
+    }
+    return std::find(vterm->tabStops.begin(), vterm->tabStops.end(), column) != vterm->tabStops.end();
 }
 
 VtermTestCell TestApiImpl::cell(u16 row, u16 column) const {

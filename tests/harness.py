@@ -842,6 +842,22 @@ class Shitty:
             raise RuntimeError("invalid model digest response")
         return tuple(int(value, 16) for value in response[1:])
 
+    def tab_stop(self, column):
+        self.stream.write(f"TAB_STOP {column}\n".encode())
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid tab stop response")
+        return bool(int(response[1]))
+
+    def tab_stops(self, columns=None):
+        if columns is None:
+            columns = self.snapshot().columns
+        self.stream.write(f"TAB_STOPS {columns}\n".encode())
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid tab stops response")
+        return tuple(value == "1" for value in response[1])
+
     def scrollback_state(self):
         self.stream.write(b"SCROLLBACK_STATE\n")
         response = self._readline().split()

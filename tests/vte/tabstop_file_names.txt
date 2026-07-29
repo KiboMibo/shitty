@@ -1,0 +1,7 @@
+default
+get-set
+clear
+reset
+resize
+previous
+next

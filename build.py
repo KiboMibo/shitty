@@ -898,6 +898,56 @@ vte_validation = command(
 )
 
 
+vte_tabstop_cases = (vte_root / "tabstop_file_names.txt").read_text().split()
+vte_tabstop_tests = []
+for case in vte_tabstop_cases:
+    vte_tabstop_tests.append(command(
+        name="vte_tabstop_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/vte/tabstop_adapter.py",
+            "$(S)/tests/vte/tabstop_cases.py",
+            "$(S)/tests/vte/tabstop_file_names.txt",
+            "$(S)/tests/vte/upstream/tabstops-test.cc",
+        ],
+        outputs=[f"$(B)/tests/vte/tabstops/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/vte/tabstop_adapter.py",
+            case,
+            f"$(B)/tests/vte/tabstops/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="VT",
+        color="cyan",
+    ))
+
+
+vte_tabstop_validation = command(
+    name="vte_tabstop_catalog",
+    inputs=[
+        "$(S)/tests/vte/tabstop_cases.py",
+        "$(S)/tests/vte/tabstop_file_names.txt",
+        "$(S)/tests/vte/tabstop_validate.py",
+        "$(S)/tests/vte/upstream/tabstops-test.cc",
+    ],
+    outputs=["$(B)/tests/vte/tabstops/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/vte/tabstop_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/vte/tabstops/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="VT",
+    color="cyan",
+)
+
+
 vte_width_cases = (vte_root / "width_file_names.txt").read_text().split()
 vte_width_tests = []
 for case in vte_width_cases:
@@ -2408,6 +2458,8 @@ group(
     kitty_screen_validation,
     *vte_tests,
     vte_validation,
+    *vte_tabstop_tests,
+    vte_tabstop_validation,
     *vte_width_tests,
     vte_width_validation,
     *windows_terminal_tests,

@@ -192,7 +192,12 @@ keys.~~
 
 Последние не особо полезны, зато отдельно стоит взять:
 
-- tab stops и resize — 7;
+- ~~tab stops и resize — все 7 зарегистрированных семейств перенесены через
+  реальные HTS/TBC/CHT/CBT/RIS/resize и read-only oracle полной таблицы;~~
+- VTE-внутренние `Tabstops::resize(fill=false)` и synthetic `endpos` не имеют
+  terminal protocol эквивалента. Исходные assertions сохранены у нас, но
+  помечены неприменимыми: Shitty всегда заполняет новые доступные колонки, а
+  отсутствие следующего/предыдущего stop зажимает в границу экрана или margin;
 - bracketed paste sanitization — 6;
 - UTF-8 replacement/error behavior — 2;
 - modes/color — небольшой остаток.
