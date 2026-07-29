@@ -277,7 +277,7 @@ def main() -> int:
             raise RuntimeError(f"Darwin build did not produce {binary}")
         binary = binary.resolve(strict=True)
         file_description = run(["file", os.fspath(binary)], capture=True)
-        if "Mach-O 64-bit executable arm64" not in file_description:
+        if not all(marker in file_description for marker in ("Mach-O 64-bit", "arm64", "executable")):
             raise RuntimeError(f"unexpected Darwin artifact: {file_description}")
         create_binary_archive(binary, binary_archive, timestamp)
 
