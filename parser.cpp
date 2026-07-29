@@ -238,6 +238,7 @@ namespace {
         void ragelAppendSynthetic(u8 ch, size_t limit);
         void ragelAppendEscapedString(u8 ch, size_t limit);
         void ragelBeginString(VtermTraceString type, bool buffered);
+        [[gnu::always_inline]] void traceVt52Byte(u8 ch, bool final);
         void ragelBeginDcs();
         void ragelBeginOsc();
         void resetOscColor();
@@ -587,6 +588,16 @@ template <bool traced>
 void ParserImpl<traced>::ragelAppendEscapedString(u8 ch, size_t limit) {
     const u8 bytes[] = {'\x1b', ch};
     ragelAppendStringSpan(bytes, sizeof(bytes), limit);
+}
+
+template <bool traced>
+[[gnu::always_inline]] inline void ParserImpl<traced>::traceVt52Byte(u8 ch, bool final) {
+    if constexpr (traced) {
+        parserTrace->escapeByte(ch);
+        if (final) {
+            parserTrace->escapeEnd();
+        }
+    }
 }
 
 template <bool traced>

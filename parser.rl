@@ -922,48 +922,56 @@
     }
 
     action vt52AppKeypad {
+        traceVt52Byte(fc, true);
         iface.parserSetApplicationKeypad(true);
         fnext main;
         fbreak;
     }
 
     action vt52NormalKeypad {
+        traceVt52Byte(fc, true);
         iface.parserSetApplicationKeypad(false);
         fnext main;
         fbreak;
     }
 
     action vt52Ansi {
+        traceVt52Byte(fc, true);
         iface.parserSetCompatibilityLevel(CompatibilityLevel::VT100);
         fnext main;
         fbreak;
     }
 
     action vt52Cuu {
+        traceVt52Byte(fc, true);
         iface.csi_CUU(1);
         fnext main;
         fbreak;
     }
 
     action vt52Cud {
+        traceVt52Byte(fc, true);
         iface.csi_CUD(1);
         fnext main;
         fbreak;
     }
 
     action vt52Cuf {
+        traceVt52Byte(fc, true);
         iface.csi_CUF(1);
         fnext main;
         fbreak;
     }
 
     action vt52Cub {
+        traceVt52Byte(fc, true);
         iface.csi_CUB(1);
         fnext main;
         fbreak;
     }
 
     action vt52Graphics {
+        traceVt52Byte(fc, true);
         iface.parserResetCharsets(false);
         iface.parserDesignateCharset(0, Charset::DecSpec);
         fnext main;
@@ -971,63 +979,74 @@
     }
 
     action vt52Ascii {
+        traceVt52Byte(fc, true);
         iface.parserResetCharsets(false);
         fnext main;
         fbreak;
     }
 
     action vt52Cup {
+        traceVt52Byte(fc, true);
         iface.csi_CUP(parameter(0), parameter(1));
         fnext main;
         fbreak;
     }
 
     action vt52Ri {
+        traceVt52Byte(fc, true);
         iface.esc_RI();
         fnext main;
         fbreak;
     }
 
     action vt52Ed {
+        traceVt52Byte(fc, true);
         iface.eraseDisplayAfter();
         fnext main;
         fbreak;
     }
 
     action vt52El {
+        traceVt52Byte(fc, true);
         iface.eraseLineAfter();
         fnext main;
         fbreak;
     }
 
     action vt52CupBegin {
+        traceVt52Byte(fc, false);
         fgoto vt52CupRow;
     }
 
     action vt52Identify {
+        traceVt52Byte(fc, true);
         iface.parserWritePty(StringView(u8"\x1b/Z"));
         fnext main;
         fbreak;
     }
 
     action vt52Ris {
+        traceVt52Byte(fc, true);
         iface.esc_RIS();
         fnext main;
         fbreak;
     }
 
     action vt52Unhandled {
+        traceVt52Byte(fc, true);
         iface.unhandledInput(fc);
         fnext main;
         fbreak;
     }
 
     action vt52Row {
+        traceVt52Byte(fc, false);
         parser.parameters[0] = fc - 31;
         fgoto vt52CupColumn;
     }
 
     action vt52Column {
+        traceVt52Byte(fc, true);
         parser.parameters[1] = fc - 31;
         parser.parameterCount = 2;
         iface.csi_CUP(parameter(0), parameter(1));

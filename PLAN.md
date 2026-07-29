@@ -72,7 +72,11 @@ Assertions Ghostty не исполняются. Это прямо отражен
 
 ### Konsole
 
-Взяты все 146 declarative tokenizer inputs, но не их ожидаемые внутренние tokens.
+~~Все 146 declarative tokenizer rows теперь assertion-based: из upstream
+`ProcessToken` извлекается ожидаемое семейство control/ESC/CSI/VT52 и
+нормализованный payload, после чего проверяются whole и bytewise feeds.
+Единственная современная адаптация — standalone NUL игнорируется согласно
+ECMA-48, тогда как Konsole создаёт внутренний token и игнорирует его позже.~~
 
 ~~Все 11 semantic methods из `Vt102EmulationTest.cpp` перенесены как
 транзакции: parser output/replies, buffered/synchronized updates и 9 семейств
@@ -84,8 +88,10 @@ keys.~~
 
 Осталось:
 
-- ожидаемые внутренние tokens для 146 tokenizer inputs;
-- внутренний `testTokenFunctions`, привязанный к encoding макросов Konsole;
+- ~~`testTokenFunctions` неприменим: это self-test числового ABI Konsole,
+  сравнивающий новые constexpr с продублированными старыми `TY_*` macros.
+  Наш catalog вместо этого проверяет все 13 встречающихся token constructors и
+  отклоняет неизвестные, а продуктовый parser не имеет этого packed ABI.~~
 - ~~CharacterWidth — все 25 data rows перенесены; внутренний width primitive
   доступен batch test API. Импорт исправил ширину Cf format controls и
   U+1160..U+11FF по консенсусу Konsole/Ghostty/Kitty/Foot/VTE/WezTerm/xterm.js.~~
@@ -263,7 +269,7 @@ Search и vi-mode нам пока не нужны.
 1. ~~Mosh semantic display tests.~~
 2. ~~libtsm — все 32.~~
 3. ~~Konsole Screen/History и оставшиеся semantic methods текущего файла.~~
-   Остаток: token oracle и `testTokenFunctions`, selection/copy и mouse/PTY.
+   Остаток: selection/copy и mouse/PTY.
 4. Расширить существующий WezTerm screen adapter до всех 74 checkpoints.
 5. Windows Terminal adapter/input/mouse/selection/reflow.
 6. VTE tabstops/paste/UTF-8 и known-sequence matrices.

@@ -5,12 +5,20 @@
 GPL-2.0-or-later; its license is preserved as `LICENSE.upstream`.
 
 The catalog statically extracts all 146 declarative ANSI and VT52 tokenizer
-input rows without compiling or executing Qt or Konsole. Every row is an
-independent build target and is compared whole versus bytewise across parser
-events and the full observable terminal state. VT52 rows include the DECANM
-reset needed to put Shitty in the upstream test's mode. Konsole's expected
-internal token values, Vt102Emulation semantic methods, and width assertions
-remain for later adapters.
+rows, including their expected `ProcessToken` constructors, without compiling
+or executing Qt or Konsole. Every row is an independent build target. The
+upstream packed-token ABI is translated to Shitty's control, ESC, CSI, or VT52
+parser event and normalized payload; both whole and bytewise feeds must match
+that oracle as well as the full observable terminal state. VT52 rows first
+apply DECANM, clear the setup trace, and then test the original input.
+
+Standalone NUL is the one intentional modernization: ECMA-48 permits it to be
+ignored, so Shitty's zero-run fast path emits no parser event. Konsole emits an
+internal control token and ignores it during dispatch. `testTokenFunctions`
+only proves that Konsole's copied legacy `TY_*` macros equal its replacement
+constexpr functions; Shitty has no equivalent packed-token ABI. The catalog
+instead recognizes all 13 constructors used by the corpus and rejects any
+unknown constructor.
 
 `semantic_cases.py` additionally ports all six named `ScreenTest.cpp` tests and
 all seven named `HistoryTest.cpp` tests. Konsole's file-backed unlimited and
