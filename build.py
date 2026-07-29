@@ -1175,6 +1175,55 @@ konsole_validation = command(
 )
 
 
+konsole_semantic_cases = (
+    konsole_root / "semantic_file_names.txt"
+).read_text().split()
+konsole_semantic_tests = []
+for case in konsole_semantic_cases:
+    konsole_semantic_tests.append(command(
+        name="konsole_semantic_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/konsole/semantic_adapter.py",
+            "$(S)/tests/konsole/semantic_cases.py",
+            "$(S)/tests/konsole/semantic_file_names.txt",
+        ],
+        outputs=[f"$(B)/tests/konsole/semantic/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/konsole/semantic_adapter.py",
+            case,
+            f"$(B)/tests/konsole/semantic/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="KS",
+        color="cyan",
+    ))
+
+konsole_semantic_validation = command(
+    name="konsole_semantic_catalog",
+    inputs=[
+        "$(S)/tests/konsole/semantic_cases.py",
+        "$(S)/tests/konsole/semantic_file_names.txt",
+        "$(S)/tests/konsole/semantic_validate.py",
+    ],
+    outputs=["$(B)/tests/konsole/semantic/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/konsole/semantic_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/konsole/semantic/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="KS",
+    color="cyan",
+)
+
+
 tmux_root = Path(__file__).parent / "tests" / "tmux"
 tmux_corpus_members = [
     "corpus/" + path.name
@@ -1796,6 +1845,8 @@ group(
     wezterm_screen_validation,
     *konsole_tests,
     konsole_validation,
+    *konsole_semantic_tests,
+    konsole_semantic_validation,
     *tmux_tests,
     wraptest_helper,
     *wraptest_tests,

@@ -79,14 +79,17 @@ Assertions Ghostty не исполняются. Это прямо отражен
 - 11 тестов Kitty keyboard push/pop/query/set/reset/event types;
 - legacy keys, Ctrl letters и text keys.
 
-Полностью отсутствуют:
+~~Screen — все 6 именованных тестов и все внутренние assertions; History — все
+7, включая reflow, finite/disabled policy и вытеснение, перенесены в Python.~~
 
-- Screen — 5 поведенческих тестов;
-- History — 7, включая reflow;
+Осталось:
+
+- ожидаемые внутренние tokens для 146 tokenizer inputs;
+- parser output/replies и buffered updates;
+- 9 семейств Kitty keyboard и legacy/text keys;
 - CharacterWidth;
 - KeyboardTranslator;
-- selection/copy;
-- mouse/PTY tests.
+- отдельные selection/copy и mouse/PTY tests.
 
 ### Windows Terminal
 
@@ -254,7 +257,9 @@ Search и vi-mode нам пока не нужны.
 
 1. ~~Mosh semantic display tests.~~
 2. ~~libtsm — все 32.~~
-3. Konsole Screen/History и оставшиеся semantic methods текущего файла.
+3. ~~Konsole Screen/History и оставшиеся semantic methods текущего файла.~~
+   Остаток: token oracle, Vt102 replies/buffering/keyboard, CharacterWidth,
+   KeyboardTranslator, selection/copy и mouse/PTY.
 4. Расширить существующий WezTerm screen adapter до всех 74 checkpoints.
 5. Windows Terminal adapter/input/mouse/selection/reflow.
 6. VTE tabstops/paste/UTF-8 и known-sequence matrices.

@@ -1,0 +1,13 @@
+testLargeScreenCopyShortLine
+testLargeScreenCopyEmptyLine
+testLargeScreenCopyLongLine
+testBlockSelection
+testCJKBlockSelection
+testCursorPosition
+testHistoryNone
+testHistoryFile
+testCompactHistory
+testEmulationHistory
+testHistoryScroll
+testHistoryReflow
+testHistoryTypeChange

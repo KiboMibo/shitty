@@ -9,5 +9,16 @@ input rows without compiling or executing Qt or Konsole. Every row is an
 independent build target and is compared whole versus bytewise across parser
 events and the full observable terminal state. VT52 rows include the DECANM
 reset needed to put Shitty in the upstream test's mode. Konsole's expected
-internal token values and semantic screen/history/width assertions remain for
-a later adapter.
+internal token values, Vt102Emulation semantic methods, and width assertions
+remain for later adapters.
+
+`semantic_cases.py` additionally ports all six named `ScreenTest.cpp` tests and
+all seven named `HistoryTest.cpp` tests. Konsole's file-backed unlimited and
+runtime-polymorphic history types have no Shitty counterpart; those assertions
+are represented by the public disabled/finite `saveLines` policies rather than
+by test-only storage classes.
+
+Two selection details intentionally follow current desktop behavior instead of
+Konsole's internal API: selecting a single blank row yields empty text rather
+than a bare newline, and rectangular rows are newline-delimited rather than
+space-delimited.
