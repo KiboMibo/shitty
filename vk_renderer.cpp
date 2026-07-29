@@ -20,6 +20,7 @@
 #include <plt/window.h>
 
 #include <std/dbg/assert.h>
+#include <std/alg/xchg.h>
 #include <std/sys/crt.h>
 #include <std/ios/sys.h>
 #include <std/lib/buffer.h>
@@ -50,6 +51,9 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#if defined(SHITTY_FRAME_TRACE)
+    #include <cstdio>
+#endif
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -247,6 +251,8 @@ namespace {
         };
 
         struct SwapchainResources {
+            void xchg(SwapchainResources& other) noexcept;
+
             VkSwapchainKHR swapchain = VK_NULL_HANDLE;
             VkFormat format = VK_FORMAT_UNDEFINED;
             VkFormat storageViewFormat = VK_FORMAT_UNDEFINED;
@@ -254,6 +260,8 @@ namespace {
             Vector<VkImage> images;
             Vector<VkImageView> views;
             Vector<VkSemaphore> semaphores;
+            Vector<VkFence> presentFences;
+            Vector<u8> presentFencePending;
             Vector<u8> initialized;
             Vector<u64> generations;
             ImageResource output;
@@ -331,6 +339,9 @@ namespace {
         u16 cellRows = 0;
         bool mutableSwapchainFormats = false;
         bool extendedStorageFormats = false;
+        bool khrSurfaceMaintenance = false;
+        bool extSurfaceMaintenance = false;
+        const char* swapchainMaintenanceExtension = nullptr;
 
         VkSwapchainKHR swapchain = VK_NULL_HANDLE;
         VkFormat swapchainFormat = VK_FORMAT_UNDEFINED;
@@ -341,12 +352,15 @@ namespace {
         Vector<VkImage> swapchainImages;
         Vector<VkImageView> swapchainViews;
         Vector<VkSemaphore> presentSemaphores;
+        Vector<VkFence> presentFences;
+        Vector<u8> presentFencePending;
         Vector<u8> imageInitialized;
         Vector<u64> imageGenerations;
+        Vector<SwapchainResources*> retiredSwapchains;
+        Vector<VkPipeline> retiredPipelines;
 
         std::array<FrameResources, framesInFlight> frames;
         u32 currentFrame = 0;
-
         void createInstance();
         void createSurface(const plt::RenderContext& context);
         void selectPhysicalDevice();
@@ -362,6 +376,8 @@ namespace {
         void selectPipeline(const GeneratedRenderShader& shader);
         void createSwapchain(u32 width, u32 height);
         void destroySwapchainResources(SwapchainResources& resources);
+        void retireSwapchain(SwapchainResources& resources);
+        void collectRetiredSwapchains(bool force = false);
         void destroySwapchain();
         void ensureCellBuffer(FrameResources& frame, size_t bytes);
         void ensureFontUploadBuffer(FrameResources& frame, size_t bytes);
@@ -573,8 +589,12 @@ RendererImpl::~RendererImpl() {
     }
 
     destroySwapchain();
+    collectRetiredSwapchains(true);
     if (pipeline != VK_NULL_HANDLE) {
         vkDestroyPipeline(device, pipeline, nullptr);
+    }
+    for (const VkPipeline retired : retiredPipelines) {
+        vkDestroyPipeline(device, retired, nullptr);
     }
     if (pipelineLayout != VK_NULL_HANDLE) {
         vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
@@ -637,7 +657,7 @@ RendererImpl::~RendererImpl() {
 }
 
 void RendererImpl::createInstance() {
-    const char* extensions[3] = {VK_KHR_SURFACE_EXTENSION_NAME};
+    const char* extensions[5] = {VK_KHR_SURFACE_EXTENSION_NAME};
     u32 extensionCount = 1;
 #if defined(HAVE_VULKAN_WAYLAND)
     extensions[extensionCount++] = VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME;
@@ -648,6 +668,14 @@ void RendererImpl::createInstance() {
         extensions[extensionCount++] = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
     }
 #endif
+    khrSurfaceMaintenance = instanceHasExtension(VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
+    extSurfaceMaintenance = instanceHasExtension(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
+    if (khrSurfaceMaintenance) {
+        extensions[extensionCount++] = VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME;
+    }
+    if (extSurfaceMaintenance) {
+        extensions[extensionCount++] = VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME;
+    }
 
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -748,6 +776,23 @@ void RendererImpl::selectPhysicalDevice() {
     VkPhysicalDeviceFeatures features{};
     vkGetPhysicalDeviceFeatures(physicalDevice, &features);
     extendedStorageFormats = features.shaderStorageImageExtendedFormats;
+
+    if (khrSurfaceMaintenance && deviceHasExtension(physicalDevice, VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME)) {
+        swapchainMaintenanceExtension = VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME;
+    } else if (extSurfaceMaintenance && deviceHasExtension(physicalDevice, VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME)) {
+        swapchainMaintenanceExtension = VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME;
+    }
+    if (swapchainMaintenanceExtension != nullptr) {
+        VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR maintenance{};
+        maintenance.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR;
+        VkPhysicalDeviceFeatures2 available{};
+        available.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        available.pNext = &maintenance;
+        vkGetPhysicalDeviceFeatures2(physicalDevice, &available);
+        if (!maintenance.swapchainMaintenance1) {
+            swapchainMaintenanceExtension = nullptr;
+        }
+    }
 }
 
 void RendererImpl::createDevice() {
@@ -758,7 +803,7 @@ void RendererImpl::createDevice() {
     queueInfo.queueCount = 1;
     queueInfo.pQueuePriorities = &priority;
 
-    const char* extensions[4] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    const char* extensions[5] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     u32 extensionCount = 1;
     if (mutableSwapchainFormats) {
         extensions[extensionCount++] = VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME;
@@ -768,10 +813,19 @@ void RendererImpl::createDevice() {
     if (deviceHasExtension(physicalDevice, portabilitySubset)) {
         extensions[extensionCount++] = portabilitySubset;
     }
+    if (swapchainMaintenanceExtension != nullptr) {
+        extensions[extensionCount++] = swapchainMaintenanceExtension;
+    }
     VkPhysicalDeviceFeatures features{};
     features.shaderStorageImageExtendedFormats = extendedStorageFormats;
+    VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR maintenance{};
+    if (swapchainMaintenanceExtension != nullptr) {
+        maintenance.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR;
+        maintenance.swapchainMaintenance1 = VK_TRUE;
+    }
     VkDeviceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    createInfo.pNext = swapchainMaintenanceExtension == nullptr ? nullptr : &maintenance;
     createInfo.queueCreateInfoCount = 1;
     createInfo.pQueueCreateInfos = &queueInfo;
     createInfo.enabledExtensionCount = extensionCount;
@@ -1243,10 +1297,27 @@ void RendererImpl::selectPipeline(const GeneratedRenderShader& shader) {
     vkDestroyShaderModule(device, shaderModule, nullptr);
     checkVk(result, "vkCreateComputePipelines");
     if (pipeline != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device, pipeline, nullptr);
+        retiredPipelines.pushBack(pipeline);
     }
     pipeline = replacement;
     activeShader = &shader;
+}
+
+void RendererImpl::SwapchainResources::xchg(SwapchainResources& other) noexcept {
+    stl::xchg(swapchain, other.swapchain);
+    stl::xchg(format, other.format);
+    stl::xchg(storageViewFormat, other.storageViewFormat);
+    stl::xchg(extent, other.extent);
+    images.xchg(other.images);
+    views.xchg(other.views);
+    semaphores.xchg(other.semaphores);
+    presentFences.xchg(other.presentFences);
+    presentFencePending.xchg(other.presentFencePending);
+    initialized.xchg(other.initialized);
+    generations.xchg(other.generations);
+    stl::xchg(output, other.output);
+    stl::xchg(shader, other.shader);
+    stl::xchg(direct, other.direct);
 }
 
 void RendererImpl::destroySwapchainResources(SwapchainResources& resources) {
@@ -1260,8 +1331,15 @@ void RendererImpl::destroySwapchainResources(SwapchainResources& resources) {
             vkDestroySemaphore(device, semaphore, nullptr);
         }
     }
+    for (const VkFence fence : resources.presentFences) {
+        if (device != VK_NULL_HANDLE && fence != VK_NULL_HANDLE) {
+            vkDestroyFence(device, fence, nullptr);
+        }
+    }
     resources.views.clear();
     resources.semaphores.clear();
+    resources.presentFences.clear();
+    resources.presentFencePending.clear();
     resources.images.clear();
     resources.initialized.clear();
     resources.generations.clear();
@@ -1277,6 +1355,50 @@ void RendererImpl::destroySwapchainResources(SwapchainResources& resources) {
     resources.direct = false;
 }
 
+void RendererImpl::retireSwapchain(SwapchainResources& resources) {
+    if (resources.swapchain == VK_NULL_HANDLE && resources.output.image == VK_NULL_HANDLE) {
+        destroySwapchainResources(resources);
+        return;
+    }
+    SwapchainResources* const retired = new SwapchainResources;
+    retired->xchg(resources);
+    retiredSwapchains.pushBack(retired);
+    collectRetiredSwapchains();
+    if (swapchainMaintenanceExtension == nullptr && retiredSwapchains.length() >= 8) {
+        checkVk(vkDeviceWaitIdle(device), "vkDeviceWaitIdle");
+        collectRetiredSwapchains(true);
+    }
+}
+
+void RendererImpl::collectRetiredSwapchains(bool force) {
+    for (size_t index = 0; index != retiredSwapchains.length();) {
+        SwapchainResources* const resources = retiredSwapchains[index];
+        bool ready = force;
+        if (!ready && swapchainMaintenanceExtension != nullptr) {
+            ready = true;
+            for (size_t fenceIndex = 0; fenceIndex != resources->presentFences.length(); ++fenceIndex) {
+                if (!resources->presentFencePending[fenceIndex]) {
+                    continue;
+                }
+                const VkResult status = vkGetFenceStatus(device, resources->presentFences[fenceIndex]);
+                if (status == VK_NOT_READY) {
+                    ready = false;
+                    break;
+                }
+                checkVk(status, "vkGetFenceStatus");
+            }
+        }
+        if (!ready) {
+            ++index;
+            continue;
+        }
+        destroySwapchainResources(*resources);
+        delete resources;
+        retiredSwapchains.mut(index) = retiredSwapchains.back();
+        retiredSwapchains.popBack();
+    }
+}
+
 void RendererImpl::destroySwapchain() {
     SwapchainResources resources;
     resources.swapchain = swapchain;
@@ -1288,6 +1410,8 @@ void RendererImpl::destroySwapchain() {
     resources.images.xchg(swapchainImages);
     resources.views.xchg(swapchainViews);
     resources.semaphores.xchg(presentSemaphores);
+    resources.presentFences.xchg(presentFences);
+    resources.presentFencePending.xchg(presentFencePending);
     resources.initialized.xchg(imageInitialized);
     resources.generations.xchg(imageGenerations);
     swapchain = VK_NULL_HANDLE;
@@ -1302,8 +1426,6 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     if (width == 0 || height == 0) {
         return;
     }
-
-    checkVk(vkDeviceWaitIdle(device), "vkDeviceWaitIdle");
 
     VkSurfaceCapabilitiesKHR capabilities{};
     checkVk(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &capabilities), "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
@@ -1455,6 +1577,15 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
         for (VkSemaphore* semaphore = replacement.semaphores.mutBegin(); semaphore != replacement.semaphores.mutEnd(); ++semaphore) {
             checkVk(vkCreateSemaphore(device, &semaphoreInfo, nullptr, semaphore), "vkCreateSemaphore");
         }
+        if (swapchainMaintenanceExtension != nullptr) {
+            replacement.presentFences.zero(imageCount);
+            replacement.presentFencePending.zero(imageCount);
+            VkFenceCreateInfo fenceInfo{};
+            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            for (VkFence* fence = replacement.presentFences.mutBegin(); fence != replacement.presentFences.mutEnd(); ++fence) {
+                checkVk(vkCreateFence(device, &fenceInfo, nullptr, fence), "vkCreateFence");
+            }
+        }
         replacement.initialized.zero(imageCount);
         replacement.generations.zero(imageCount);
         selectPipeline(*renderShader);
@@ -1481,6 +1612,8 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     swapchainImages.xchg(replacement.images);
     swapchainViews.xchg(replacement.views);
     presentSemaphores.xchg(replacement.semaphores);
+    presentFences.xchg(replacement.presentFences);
+    presentFencePending.xchg(replacement.presentFencePending);
     imageInitialized.xchg(replacement.initialized);
     imageGenerations.xchg(replacement.generations);
     ImageResource image = outputImage;
@@ -1492,7 +1625,7 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     if (opts.vulkanInfo) {
         sysO << StringView(u8"Vulkan presentation: ") << StringView(direct ? u8"direct storage (" : u8"offscreen blit (") << StringView(renderShader->name) << StringView(u8")") << endL;
     }
-    destroySwapchainResources(replacement);
+    retireSwapchain(replacement);
 }
 
 void RendererImpl::ensureCellBuffer(FrameResources& frame, size_t bytes) {
@@ -2239,9 +2372,17 @@ void RendererImpl::recordRepaintCommands(FrameResources& frame, u32 imageIndex) 
 }
 
 bool RendererImpl::acquirePresentFrame(u32 width, u32 height, FrameResources*& frame, u32& imageIndex, bool& recreateAfterPresent) {
+#if defined(SHITTY_FRAME_TRACE)
+    fprintf(stderr, "renderer acquire begin extent=%ux%u frame=%u swapchain=%p\n", width, height, currentFrame, (void*)(swapchain));
+    fflush(stderr);
+#endif
     frame = &frames[currentFrame];
     checkVk(vkWaitForFences(device, 1, &frame->fence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
     VkResult result = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, frame->imageAvailable, VK_NULL_HANDLE, &imageIndex);
+#if defined(SHITTY_FRAME_TRACE)
+    fprintf(stderr, "renderer acquire result=%d image=%u\n", result, imageIndex);
+    fflush(stderr);
+#endif
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         try {
             createSwapchain(width, height);
@@ -2259,6 +2400,10 @@ bool RendererImpl::acquirePresentFrame(u32 width, u32 height, FrameResources*& f
 }
 
 bool RendererImpl::submitPresentFrame(u32 width, u32 height, FrameResources& frame, u32 imageIndex, bool recreateAfterPresent) {
+#if defined(SHITTY_FRAME_TRACE)
+    fprintf(stderr, "renderer submit begin image=%u recreate=%d\n", imageIndex, recreateAfterPresent);
+    fflush(stderr);
+#endif
     const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT;
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -2272,16 +2417,36 @@ bool RendererImpl::submitPresentFrame(u32 width, u32 height, FrameResources& fra
     checkVk(vkQueueSubmit(queue, 1, &submitInfo, frame.fence), "vkQueueSubmit");
     imageInitialized.mut(imageIndex) = true;
 
+    VkSwapchainPresentFenceInfoKHR presentFenceInfo{};
+    VkFence presentFence = VK_NULL_HANDLE;
+    if (swapchainMaintenanceExtension != nullptr) {
+        presentFence = presentFences[imageIndex];
+        if (presentFencePending[imageIndex]) {
+            checkVk(vkWaitForFences(device, 1, &presentFence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
+            checkVk(vkResetFences(device, 1, &presentFence), "vkResetFences");
+        }
+        presentFenceInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_KHR;
+        presentFenceInfo.swapchainCount = 1;
+        presentFenceInfo.pFences = &presentFence;
+    }
     VkPresentInfoKHR presentInfo{};
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presentInfo.pNext = swapchainMaintenanceExtension == nullptr ? nullptr : &presentFenceInfo;
     presentInfo.waitSemaphoreCount = 1;
     presentInfo.pWaitSemaphores = &presentSemaphores[imageIndex];
     presentInfo.swapchainCount = 1;
     presentInfo.pSwapchains = &swapchain;
     presentInfo.pImageIndices = &imageIndex;
     VkResult result = vkQueuePresentKHR(queue, &presentInfo);
+#if defined(SHITTY_FRAME_TRACE)
+    fprintf(stderr, "renderer present result=%d image=%u\n", result, imageIndex);
+    fflush(stderr);
+#endif
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR && result != VK_ERROR_OUT_OF_DATE_KHR) {
         failVk("vkQueuePresentKHR", result);
+    }
+    if (swapchainMaintenanceExtension != nullptr) {
+        presentFencePending.mut(imageIndex) = true;
     }
 
     const bool presented = result != VK_ERROR_OUT_OF_DATE_KHR;
@@ -2292,6 +2457,7 @@ bool RendererImpl::submitPresentFrame(u32 width, u32 height, FrameResources& fra
         } catch (...) {
         }
     }
+    collectRetiredSwapchains();
     return presented;
 }
 
@@ -2345,6 +2511,10 @@ bool RendererImpl::present(const TerminalUpdate& update) {
     const u32 width = composer.pixelWidth;
     const u32 height = composer.pixelHeight;
     const size_t cellCount = (size_t)(composer.columns) * composer.rows;
+#if defined(SHITTY_FRAME_TRACE)
+    fprintf(stderr, "renderer update begin pixels=%ux%u cells=%zu spans=%zu swapchain=%p renderExtent=%ux%u\n", width, height, cellCount, update.spanCount, (void*)(swapchain), renderExtent.width, renderExtent.height);
+    fflush(stderr);
+#endif
     if (cellCount == 0 || width == 0 || height == 0) {
         return false;
     }
@@ -2481,7 +2651,12 @@ bool RendererImpl::present(const TerminalUpdate& update) {
 }
 
 bool RendererImpl::update(const TerminalUpdate& update) {
-    return present(update);
+    const bool result = present(update);
+#if defined(SHITTY_FRAME_TRACE)
+    fprintf(stderr, "renderer update end result=%d\n", result);
+    fflush(stderr);
+#endif
+    return result;
 }
 
 Renderer* Renderer::create(Composer& composer, const plt::RenderContext& context) {

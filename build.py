@@ -39,12 +39,16 @@ else:
     brotli_common = dependency()
 
 if darwin:
+    darwin_frameworks = os.path.join(os.environ["OSX_SDK"], "System", "Library", "Frameworks") if "OSX_SDK" in os.environ else None
     darwin_backend = dependency(ldflags=[
+        *([f"-F{darwin_frameworks}"] if darwin_frameworks else []),
         "-Wl,-ObjC",
         "-Wl,-framework,CoreFoundation",
         "-Wl,-framework,CoreGraphics",
         "-Wl,-framework,CoreText",
     ])
+    if darwin_frameworks:
+        build.cppflags += [f"-F{darwin_frameworks}"]
     build.cppflags += ["-DHAVE_CORETEXT=1"]
 else:
     darwin_backend = dependency()

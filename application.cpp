@@ -32,7 +32,6 @@
 #include "vterm_host.h"
 
 #include <plt/platform.h>
-#include <plt/poller.h>
 #include <plt/window.h>
 
 #include <std/alg/minmax.h>
@@ -61,6 +60,13 @@ using namespace stl;
 using namespace plt;
 
 namespace {
+#if defined(SHITTY_FRAME_TRACE)
+    void applicationTrace(const char* event) {
+        fprintf(stderr, "application %llu %s\n", (unsigned long long)(monotonicNowUs()), event);
+        fflush(stderr);
+    }
+#endif
+
     struct ApplicationImpl;
 
     struct CallFontInc final: public Listener {
@@ -95,13 +101,12 @@ namespace {
         ApplicationImpl* application;
     };
 
-    struct ApplicationImpl final: public Application, public VtermHost, public plt::TimerCallback, public plt::WindowEvents {
+    struct ApplicationImpl final: public Application, public VtermHost, public plt::WindowEvents, public plt::FrameCallback {
         explicit ApplicationImpl(Composer& composer);
         ~ApplicationImpl();
 
         int run(int argc, char* argv[]) override;
         void defer() override;
-        void ready() override;
         void osc(int command, StringView argument) override;
         bool handlesOsc() const override;
         void title(StringView value) override;
@@ -115,15 +120,13 @@ namespace {
         Clipboard* clipboard() override;
         DesktopActions* desktopActions() override;
         void close() override;
-        void resized(const plt::WindowInfo& info) override;
-        void redraw() override;
-        void frame() override;
+        bool frame(const plt::WindowInfo& info) override;
 
         Composer& composer;
         ObjPool* fontpackPool = nullptr;
         Clipboard* clipboard_ = nullptr;
         DesktopActions* desktopActions_ = nullptr;
-        bool frameReady = true;
+        plt::WindowInfo windowInfo_;
         bool titleSet = false;
         u16 initialFontSize = 0;
         u16 logicalBorder = 0;
@@ -204,13 +207,12 @@ ApplicationImpl::~ApplicationImpl() {
 }
 
 void ApplicationImpl::defer() {
-    if (composer.platform != nullptr) {
-        composer.platform->poller()->timeout(0, *this);
+#if defined(SHITTY_FRAME_TRACE)
+    applicationTrace("defer");
+#endif
+    if (composer.window != nullptr) {
+        composer.window->invalidate();
     }
-}
-
-void ApplicationImpl::ready() {
-    presentTerminal();
 }
 
 void ApplicationImpl::publishFontChanged() {
@@ -261,7 +263,7 @@ void ApplicationImpl::replaceFontpack(u16 size) {
         const u32 width = 2u * opts.border + (u32)(columns)*composer.glyphWidth;
         const u32 height = 2u * opts.border + (u32)(rows)*composer.glyphHeight;
         if (composer.window != nullptr) {
-            composer.window->resize(width, height);
+            composer.window->requestResize(width, height);
         } else {
             composer.resize((u16)(min(width, (u32)(UINT16_MAX))), (u16)(min(height, (u32)(UINT16_MAX))));
         }
@@ -373,24 +375,40 @@ int ApplicationImpl::startShell(const char* execPath, const char* const argv[]) 
 }
 
 bool ApplicationImpl::presentTerminal() {
+#if defined(SHITTY_FRAME_TRACE)
+    applicationTrace("present begin");
+#endif
     Vterm* const vterm = composer.vterm;
-    if (!frameReady) {
+    if (vterm == nullptr || composer.renderer == nullptr) {
+#if defined(SHITTY_FRAME_TRACE)
+        applicationTrace("present missing components");
+#endif
         return false;
     }
     const TerminalUpdate* const output = vterm->output();
     if (output == nullptr) {
-        return true;
-    }
-    plt::Window* const window = composer.window;
-    const bool paced = window->requestFrame();
-    if (!composer.renderer->update(*output)) {
-        if (paced) {
-            window->cancelFrame();
+#if defined(SHITTY_FRAME_TRACE)
+        applicationTrace("present repaint");
+#endif
+        const bool repainted = composer.renderer->repaint();
+        if (!repainted) {
+            composer.window->invalidate();
         }
+        return repainted;
+    }
+    const bool presented = composer.renderer->update(*output);
+#if defined(SHITTY_FRAME_TRACE)
+    fprintf(stderr, "application %llu renderer update=%d\n", (unsigned long long)(monotonicNowUs()), presented);
+    fflush(stderr);
+#endif
+    if (!presented) {
+        composer.window->invalidate();
         return false;
     }
-    frameReady = !paced;
     vterm->consume();
+#if defined(SHITTY_FRAME_TRACE)
+    applicationTrace("present consumed");
+#endif
     return true;
 }
 
@@ -399,32 +417,23 @@ void ApplicationImpl::close() {
 }
 
 void ApplicationImpl::updateWindowInfo(const plt::WindowInfo& info) {
+    windowInfo_ = info;
     if (isfinite(info.contentScale) && info.contentScale > 0.0f) {
         composer.setContentScale(info.contentScale);
     }
     composer.resize((u16)(min(info.width, (u32)(UINT16_MAX))), (u16)(min(info.height, (u32)(UINT16_MAX))));
 }
 
-void ApplicationImpl::resized(const plt::WindowInfo& info) {
+bool ApplicationImpl::frame(const plt::WindowInfo& info) {
+#if defined(SHITTY_FRAME_TRACE)
+    fprintf(stderr, "application %llu frame %ux%u scale=%g vterm=%p\n", (unsigned long long)(monotonicNowUs()), info.width, info.height, info.contentScale, composer.vterm);
+    fflush(stderr);
+#endif
     updateWindowInfo(info);
     if (composer.vterm == nullptr) {
-        return;
+        return false;
     }
-    composer.vterm->expose();
-    defer();
-}
-
-void ApplicationImpl::redraw() {
-    if (composer.vterm == nullptr) {
-        return;
-    }
-    composer.vterm->expose();
-    defer();
-}
-
-void ApplicationImpl::frame() {
-    frameReady = true;
-    defer();
+    return presentTerminal();
 }
 
 void ApplicationImpl::osc(int, StringView) {
@@ -480,22 +489,20 @@ void ApplicationImpl::windowOperation(u32 operation, u32 first, u32 second) {
             composer.window->focus();
             return;
         case 7:
-            composer.window->requestRedraw();
+            composer.window->invalidate();
             return;
         case 9: {
-            const plt::WindowInfo current = composer.window->info();
             if (first == 0) {
                 composer.window->setMaximized(false);
             } else if (first == 1) {
                 composer.window->setMaximized(true);
             } else if (first == 2) {
-                composer.window->setMaximized(!current.maximized);
+                composer.window->setMaximized(!windowInfo_.maximized);
             }
             return;
         }
         case 10: {
-            const plt::WindowInfo current = composer.window->info();
-            composer.window->setFullscreen(first == 1 || (first == 2 && !current.fullscreen));
+            composer.window->setFullscreen(first == 1 || (first == 2 && !windowInfo_.fullscreen));
             return;
         }
         default:
@@ -513,19 +520,18 @@ void ApplicationImpl::windowOperation(u32 operation, u32 first, u32 second) {
     } else {
         return;
     }
-    composer.window->resize(pixelWidth, pixelHeight);
+    composer.window->requestResize(pixelWidth, pixelHeight);
 }
 
 VtermWindowInfo ApplicationImpl::windowInfo() {
-    const plt::WindowInfo source = composer.window->info();
     return {
-        .x = source.x,
-        .y = source.y,
-        .screenPixelWidth = source.screenPixelWidth,
-        .screenPixelHeight = source.screenPixelHeight,
-        .iconified = source.iconified,
-        .maximized = source.maximized,
-        .fullscreen = source.fullscreen,
+        .x = windowInfo_.x,
+        .y = windowInfo_.y,
+        .screenPixelWidth = windowInfo_.screenPixelWidth,
+        .screenPixelHeight = windowInfo_.screenPixelHeight,
+        .iconified = windowInfo_.iconified,
+        .maximized = windowInfo_.maximized,
+        .fullscreen = windowInfo_.fullscreen,
     };
 }
 
@@ -543,14 +549,20 @@ bool ApplicationImpl::eventLoop() {
 }
 
 void ApplicationImpl::showWindow() {
+#if defined(SHITTY_FRAME_TRACE)
+    applicationTrace("showWindow begin");
+#endif
     const u32 border = 2u * opts.border;
     const u32 width = border + (u32)(opts.nCols) * composer.glyphWidth;
     const u32 height = border + (u32)(opts.nRows) * composer.glyphHeight;
     composer.window->setMinimumSize(border + composer.glyphWidth, border + composer.glyphHeight);
     composer.window->setResizeUnit(composer.glyphWidth, composer.glyphHeight, border, border);
-    composer.window->resize(width, height);
+    composer.window->requestResize(width, height);
     composer.window->show();
-    updateWindowInfo(composer.window->info());
+    composer.resize((u16)(min(width, (u32)(UINT16_MAX))), (u16)(min(height, (u32)(UINT16_MAX))));
+#if defined(SHITTY_FRAME_TRACE)
+    applicationTrace("showWindow end");
+#endif
 }
 
 void ApplicationImpl::checkLocale() {
@@ -565,6 +577,9 @@ void ApplicationImpl::checkLocale() {
 }
 
 int ApplicationImpl::run(int argc, char* argv[]) {
+#if defined(SHITTY_FRAME_TRACE)
+    applicationTrace("run begin");
+#endif
     int testFd = -1;
 #ifdef SHITTY_FOR_TESTS
     testFd = takeTestFd(argc, argv);
@@ -607,14 +622,11 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .height = (u32)(max(200, (int)(opts.nRows) * opts.fontsize)),
             .input = composer.input,
             .events = this,
+            .frame = this,
         }
     );
     clipboard_ = Clipboard::create(composer, *composer.window);
     desktopActions_ = DesktopActions::create(composer, *composer.window);
-    const plt::WindowInfo initialWindow = composer.window->info();
-    if (isfinite(initialWindow.contentScale) && initialWindow.contentScale > 0.0f) {
-        composer.setContentScale(initialWindow.contentScale);
-    }
     contentScaleChanged();
 
     replaceFontpack(initialFontSize);
@@ -627,9 +639,18 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     composer.ptyOutput = composer.ptyOutputs->append();
 
     composer.renderer = Renderer::create(composer, composer.window->renderContext());
+#if defined(SHITTY_FRAME_TRACE)
+    applicationTrace("renderer created");
+#endif
     composer.vterm = Vterm::create(composer, *this, nullptr);
-    presentTerminal();
+#if defined(SHITTY_FRAME_TRACE)
+    applicationTrace("vterm created");
+#endif
+    defer();
 
+#if defined(SHITTY_FRAME_TRACE)
+    applicationTrace("eventLoop begin");
+#endif
     eventLoop();
     return 0;
 }

@@ -53,6 +53,9 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <termios.h>
+#if defined(SHITTY_FRAME_TRACE)
+    #include <stdio.h>
+#endif
 
 #include <stdexcept>
 #include <string>
@@ -135,6 +138,10 @@ ssize_t PtyImpl::write(const u8* buffer, size_t size) {
 }
 
 void PtyImpl::outputReady() {
+#if defined(SHITTY_FRAME_TRACE)
+    fprintf(stderr, "pty outputReady handling=%d finished=%d\n", handlingReady, finished);
+    fflush(stderr);
+#endif
     if (!handlingReady && !finished) {
         updateInterest(composer_.ptyOutputs->flush());
     }
@@ -150,6 +157,10 @@ void PtyImpl::wire() {
 }
 
 void PtyImpl::ready(PollFD event) {
+#if defined(SHITTY_FRAME_TRACE)
+    fprintf(stderr, "pty ready fd=%d expected=%d flags=%u finished=%d\n", event.fd, fd_, (unsigned)(event.flags), finished);
+    fflush(stderr);
+#endif
     if (event.fd != fd_ || finished) {
         return;
     }
@@ -159,6 +170,10 @@ void PtyImpl::ready(PollFD event) {
         finished = readInput();
     }
     const bool outputPending = composer_.ptyOutputs->flush();
+#if defined(SHITTY_FRAME_TRACE)
+    fprintf(stderr, "pty ready after io finished=%d outputPending=%d\n", finished, outputPending);
+    fflush(stderr);
+#endif
     handlingReady = false;
 
     if (finished) {
@@ -175,12 +190,20 @@ void PtyImpl::updateInterest(bool outputPending) {
     if (outputPending) {
         mode |= PollFlag::Out;
     }
+#if defined(SHITTY_FRAME_TRACE)
+    fprintf(stderr, "pty arm fd=%d mode=%u outputPending=%d\n", fd_, mode, outputPending);
+    fflush(stderr);
+#endif
     composer_.platform->poller()->arm({fd_, mode}, *this);
 }
 
 bool PtyImpl::readInput() {
     Vterm* const vterm = composer_.vterm;
     const ssize_t count = read(inputBuffer, sizeof(inputBuffer));
+#if defined(SHITTY_FRAME_TRACE)
+    fprintf(stderr, "pty read count=%zd errno=%d\n", count, count < 0 ? errno : 0);
+    fflush(stderr);
+#endif
     if (count > 0) {
         vterm->feedPty(StringView(inputBuffer, count));
         return false;

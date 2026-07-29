@@ -566,17 +566,19 @@ class BuildContext:
         return module
 
     def _invoke_graph(self, build_file: Path, target: str,
-                      env: dict[str, str]) -> str:
+                      env: dict[str, str], selectors: Iterable[str]) -> str:
+        command = [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "-G",
+            "--target",
+            target,
+            "--build-file",
+            str(build_file),
+        ]
+        command.extend(selectors)
         result = subprocess.run(
-            [
-                sys.executable,
-                str(Path(__file__).resolve()),
-                "-G",
-                "--target",
-                target,
-                "--build-file",
-                str(build_file),
-            ],
+            command,
             cwd=build_file.parent,
             env=env,
             text=True,
@@ -748,9 +750,11 @@ class BuildContext:
                              extra_cflags: Iterable[str] = (),
                              extra_cxxflags: Iterable[str] = (),
                              extra_cppflags: Iterable[str] = (),
+                             selectors: Iterable[str] = (),
                              source_prefix: str | None = None,
                              build_prefix: str | None = None,
                              index_primary: bool) -> ImportedGraph:
+        selectors = tuple(selectors)
         extras = (
             tuple(str(flag) for flag in extra_cflags),
             tuple(str(flag) for flag in extra_cxxflags),
@@ -760,6 +764,7 @@ class BuildContext:
             str(build_file),
             target,
             extras,
+            selectors,
             source_prefix,
             build_prefix,
             index_primary,
@@ -780,7 +785,12 @@ class BuildContext:
                 env[variable] = shlex.join(values)
             else:
                 env.pop(variable, None)
-        encoded = self._invoke_graph(build_file, target, env)
+        encoded = self._invoke_graph(
+            build_file,
+            target,
+            env,
+            selectors,
+        )
         if source_prefix is not None:
             assert build_prefix is not None
             encoded = encoded.replace(S, source_prefix).replace(B, build_prefix)
@@ -853,6 +863,7 @@ class BuildContext:
             extra_cflags=[*self.extra_cflags, *[str(x) for x in _items(extra_cflags)]],
             extra_cxxflags=[*self.extra_cxxflags, *[str(x) for x in _items(extra_cxxflags)]],
             extra_cppflags=[*self.extra_cppflags, *[str(x) for x in _items(extra_cppflags)]],
+            selectors=[output_name],
             source_prefix=source_prefix,
             build_prefix=build_prefix,
             index_primary=True,
@@ -977,11 +988,13 @@ class BuildContext:
             if name in self.target_names:
                 raise BuildError(f"group name conflicts with target name: {name}")
 
-    def _prepare_host_dependencies(self) -> None:
+    def _prepare_host_dependencies(self, targets: Iterable[Target]) -> None:
         referenced: list[Target] = []
-        for target in self.targets:
+        commands: list[Target] = []
+        for target in targets:
             if target.kind != "command":
                 continue
+            commands.append(target)
             host_deps = self.command_host_deps.get(target)
             if host_deps is None:
                 values = [*target.inputs]
@@ -1009,6 +1022,7 @@ class BuildContext:
             extra_cflags=self.host_cflags,
             extra_cxxflags=self.host_cxxflags,
             extra_cppflags=self.host_cppflags,
+            selectors=[program.name for program in referenced if program.name is not None],
             index_primary=False,
         )
 
@@ -1034,19 +1048,39 @@ class BuildContext:
             program.root = root
             program.nodes = [node for node in imported_nodes if node in program_closure]
             program.uses_cxx = True
+        for command in commands:
+            if command.root is None:
+                continue
+            command.root.deps = _uniq([
+                *command.root.deps,
+                *[dep.root for dep in command.host_deps if dep.root is not None],
+            ])
 
-    def build_graph(self) -> None:
-        self._prepare_host_dependencies()
+    def build_graph(self, selected: Iterable[Target]) -> None:
+        selected = _uniq(selected)
         for target in self.targets:
             if target.kind == "command":
                 self._emit_target(target, set())
-        for target in self.targets:
-            if target.kind not in ("interface", "command"):
-                self._emit_target(target, set())
+        for target in selected:
+            self._emit_target(target, set())
         scanner = IncludeScanner(self)
         for node in self.nodes:
             if node.scan_sources:
                 scanner.scan_node(node)
+        roots = _uniq(target.root for target in selected if target.root is not None)
+        closure = self._node_closure(roots)
+        commands = [
+            target for target in self.targets
+            if target.kind == "command" and target.root in closure
+        ]
+        self._prepare_host_dependencies(commands)
+        closure = self._node_closure(roots)
+        self.nodes = [node for node in self.nodes if node in closure]
+        self.output_nodes = {
+            output: node
+            for node in self.nodes
+            for output in node.outputs
+        }
         self._validate_graph()
 
     def _emit_target(self, target: Target, active: set[Target]) -> Node | None:
@@ -1943,6 +1977,47 @@ def flag_help(build_file: Path, source_root: Path, build_dir: str,
     return "\n".join(out) + "\n"
 
 
+def target_outputs(target: Target) -> list[str]:
+    if target.kind == "command":
+        return target.outputs
+    if target.kind == "library":
+        return [target.output or f"{B}/lib{target.name}.a"]
+    if target.kind == "program":
+        return [target.output or f"{B}/{target.name}"]
+    return []
+
+
+def select_targets(context: BuildContext,
+                   selectors: Iterable[str]) -> tuple[list[Target], list[Target]]:
+    selected: list[Target] = []
+    publish: list[Target] = []
+    for selector in selectors:
+        target = context.target_names.get(selector)
+        if target is not None:
+            selected.append(target)
+            publish.append(target)
+            continue
+        targets = context.groups.get(selector)
+        if targets is not None:
+            selected.extend(targets)
+            continue
+        matches = [
+            target for target in context.targets
+            if any(Path(output).name == Path(selector).name for output in target_outputs(target))
+        ]
+        if len(matches) == 1:
+            selected.append(matches[0])
+            continue
+        if matches:
+            raise BuildError(f"expected one target producing {selector!r}, got {len(matches)}")
+        raise BuildError(f"unknown target, group or output: {selector}")
+    if not selected:
+        selected = context.groups.get("install", [])
+        if not selected:
+            raise BuildError("no targets requested and build.py defined no install group")
+    return _uniq(selected), publish
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = make_parser()
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
@@ -1967,32 +2042,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     try:
         context.load(build_file)
-        context.build_graph()
-        if args.graph:
-            print(context.serialize_graph())
-            return 0
         if args.list:
             for name in sorted(context.target_names.keys() | context.groups.keys()):
                 print(name)
             return 0
-        publish: list[Target] = []
-        if args.targets:
-            selected: list[Target] = []
-            for name in args.targets:
-                target = context.target_names.get(name)
-                if target is not None:
-                    selected.append(target)
-                    publish.append(target)
-                    continue
-                targets = context.groups.get(name)
-                if targets is None:
-                    raise BuildError(f"unknown target or group: {name}")
-                selected.extend(targets)
-        else:
-            selected = context.groups.get("install", [])
-            if not selected:
-                raise BuildError("no targets requested and build.py defined no install group")
-        selected = _uniq(selected)
+        selected, publish = select_targets(context, args.targets)
+        context.build_graph(selected)
+        if args.graph:
+            print(context.serialize_graph())
+            return 0
         roots = _uniq(target.root for target in selected if target.root is not None)
         context.calculate_uids(roots)
         if args.clear:
