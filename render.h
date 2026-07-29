@@ -6,11 +6,7 @@
 
 #pragma once
 
-#include <std/sys/types.h>
-
 struct Composer;
-struct TerminalCell;
-
 struct TerminalUpdate;
 
 namespace plt {
@@ -22,5 +18,4 @@ struct Renderer {
     virtual bool repaint() = 0;
 
     static Renderer* create(Composer& composer, const plt::RenderContext& context);
-    static u32 rendererCellAttributesForTest(const TerminalCell& cell);
 };

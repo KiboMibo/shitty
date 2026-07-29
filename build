@@ -243,6 +243,9 @@ class Target:
     nodes: list[Node] = dataclasses.field(default_factory=list)
     uses_cxx: bool = False
 
+    def __post_init__(self) -> None:
+        _validate_descr(self.descr)
+
     def __bool__(self) -> bool:
         return self.enabled
 

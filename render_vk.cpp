@@ -4,12 +4,13 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "vk_renderer.h"
+#include "render_vk.h"
 
 #include "cell_extra_store.h"
 #include "composer.h"
 #include "font_pack.h"
 #include "listener.h"
+#include "render.h"
 
 #include "options.h"
 #include "render_damage.h"
@@ -563,7 +564,7 @@ void CallRendererCellExtrasChanged::onListen(void*) {
     renderer->cellExtrasChanged();
 }
 
-u32 Renderer::rendererCellAttributesForTest(const TerminalCell& cell) {
+u32 vulkanRendererCellAttributesForTest(const TerminalCell& cell) {
     return packCellAttributes(cell);
 }
 
@@ -2659,7 +2660,7 @@ bool RendererImpl::update(const TerminalUpdate& update) {
     return result;
 }
 
-Renderer* Renderer::create(Composer& composer, const plt::RenderContext& context) {
+Renderer* createVulkanRenderer(Composer& composer, const plt::RenderContext& context) {
     RendererImpl* const renderer = composer.pool->make<RendererImpl>(composer, context);
     composer.fontChangedListeners.pushBack(composer.pool->make<CallRendererFontChanged>(renderer));
     composer.cellExtrasChangedListeners.pushBack(composer.pool->make<CallRendererCellExtrasChanged>(renderer));

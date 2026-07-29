@@ -24,7 +24,7 @@
 #include "options.h"
 #include "pty.h"
 #include "pty_output.h"
-#include "vk_renderer.h"
+#include "render.h"
 #include "startup.h"
 #include "test_input.h"
 #include "test_mode.h"
@@ -288,9 +288,7 @@ void ApplicationImpl::fontChanged() {
         composer.window->requestResize(border + (u32)(columns)*composer.glyphWidth, border + (u32)(rows)*composer.glyphHeight);
         return;
     }
-    composer.resize(
-        (u16)(min(border + (u32)(columns)*composer.glyphWidth, (u32)(UINT16_MAX))),
-        (u16)(min(border + (u32)(rows)*composer.glyphHeight, (u32)(UINT16_MAX))));
+    composer.resize((u16)(min(border + (u32)(columns)*composer.glyphWidth, (u32)(UINT16_MAX))), (u16)(min(border + (u32)(rows)*composer.glyphHeight, (u32)(UINT16_MAX))));
 }
 
 void ApplicationImpl::setFontSize(u16 size) {

@@ -321,6 +321,62 @@ def compile_variant(
         )
 
 
+def compile_metal(
+    source_path: Path,
+    output_path: Path,
+    glsl_compiler: str,
+    spirv_cross: str,
+) -> None:
+    variant = find_variant("rgba8_unorm")
+    template = source_path.read_text(encoding="utf-8")
+    source = template.replace(
+        "@OUTPUT_DECLARATION@", variant.declaration
+    ).replace("@OUTPUT_STORE@", variant.store)
+
+    with tempfile.TemporaryDirectory(prefix="shitty-metal-") as directory:
+        temporary = Path(directory)
+        shader_path = temporary / "render.comp"
+        spirv_path = temporary / "render.spv"
+        metal_path = temporary / "render.metal"
+        shader_path.write_text(source, encoding="utf-8")
+        subprocess.run(
+            [
+                glsl_compiler,
+                "--quiet",
+                "--target-env", "vulkan1.1",
+                "-V", "-S", "comp",
+                "-o", str(spirv_path),
+                str(shader_path),
+            ],
+            check=True,
+        )
+        subprocess.run(
+            [
+                spirv_cross,
+                str(spirv_path),
+                "--msl",
+                "--msl-version", "24000",
+                "--output", str(metal_path),
+            ],
+            check=True,
+        )
+        metal = metal_path.read_text(encoding="utf-8")
+        delimiter = "ST_METAL"
+        if f"){delimiter}" in metal:
+            raise ValueError("Metal shader contains its raw string delimiter")
+        output_path.write_text(
+            "\n".join([
+                "#pragma once",
+                "",
+                f'inline constexpr char renderMetalSource[] = R"{delimiter}(',
+                metal.rstrip(),
+                f'){delimiter}";',
+                "",
+            ]),
+            encoding="utf-8",
+        )
+
+
 def combine(output_path: Path, inputs: list[Path]) -> None:
     if len(inputs) != len(VARIANTS):
         raise ValueError(
@@ -388,6 +444,19 @@ def main() -> None:
             sys.argv[5] if len(sys.argv) == 6 else "glslangValidator",
         )
         return
+    if len(sys.argv) >= 2 and sys.argv[1] == "metal":
+        if len(sys.argv) not in (4, 6):
+            raise ValueError(
+                "usage: generate_render_shaders.py metal "
+                "SOURCE OUTPUT [GLSL_COMPILER SPIRV_CROSS]"
+            )
+        compile_metal(
+            Path(sys.argv[2]),
+            Path(sys.argv[3]),
+            sys.argv[4] if len(sys.argv) == 6 else "glslangValidator",
+            sys.argv[5] if len(sys.argv) == 6 else "spirv-cross",
+        )
+        return
     if len(sys.argv) >= 2 and sys.argv[1] == "combine":
         if len(sys.argv) < 4:
             raise ValueError(
@@ -396,7 +465,7 @@ def main() -> None:
         combine(Path(sys.argv[2]), [Path(path) for path in sys.argv[3:]])
         return
     raise ValueError(
-        "usage: generate_render_shaders.py {compile|combine} ..."
+        "usage: generate_render_shaders.py {compile|metal|combine} ..."
     )
 
 

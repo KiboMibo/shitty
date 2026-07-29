@@ -46,10 +46,13 @@ if darwin:
         "-Wl,-framework,CoreFoundation",
         "-Wl,-framework,CoreGraphics",
         "-Wl,-framework,CoreText",
+        "-Wl,-framework,IOSurface",
+        "-Wl,-framework,Metal",
+        "-Wl,-framework,QuartzCore",
     ])
     if darwin_frameworks:
         build.cppflags += [f"-F{darwin_frameworks}"]
-    build.cppflags += ["-DHAVE_CORETEXT=1"]
+    build.cppflags += ["-DHAVE_CORETEXT=1", "-DHAVE_METAL_RENDERER=1"]
 else:
     darwin_backend = dependency()
 
@@ -144,6 +147,24 @@ render_spv = command(
     color="magenta",
 )
 
+if darwin:
+    render_msl = command(
+        name="render_msl",
+        inputs=["$(S)/render.comp", "$(S)/generate_render_shaders.py"],
+        outputs=["$(B)/render_msl.h"],
+        cmd=[
+            "python3",
+            "$(S)/generate_render_shaders.py",
+            "metal",
+            "$(S)/render.comp",
+            "$(B)/render_msl.h",
+            "glslangValidator",
+            "spirv-cross",
+        ],
+        descr="SH",
+        color="magenta",
+    )
+
 parser_prod = command(
     name="parser_prod",
     inputs=["$(S)/parser.rl"],
@@ -195,6 +216,11 @@ all_libshitty_sources = [
     if source not in (main_source, fuzz_source, heap_profile_source, *unit_sources)
     and (source not in platform_font_sources or source in enabled_font_sources)
 ]
+if darwin:
+    all_libshitty_sources.append({
+        "src": "$(S)/render_metal.mm",
+        "inputs": ["$(B)/render_msl.h"],
+    })
 libshitty_sources = [
     {
         "src": source,

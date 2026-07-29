@@ -25,7 +25,8 @@
 #include "startup.h"
 #include "test_input.h"
 #include "utf8.h"
-#include "vk_renderer.h"
+#include "render.h"
+#include "render_vk.h"
 #include "vterm.h"
 #include "vterm_host.h"
 #include "vterm_test.h"
@@ -1689,10 +1690,10 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
             } else if (line == "GPU_ATTRIBUTE_MASKS") {
                 TerminalCell cell{};
                 cell.dwidth = true;
-                const u32 doubleWidth = Renderer::rendererCellAttributesForTest(cell);
+                const u32 doubleWidth = vulkanRendererCellAttributesForTest(cell);
                 cell.dwidth = false;
                 cell.dwidth_cont = true;
-                const u32 continuation = Renderer::rendererCellAttributesForTest(cell);
+                const u32 continuation = vulkanRendererCellAttributesForTest(cell);
                 writeAll(controlFd, "OK " + std::to_string(doubleWidth) + " " + std::to_string(continuation) + "\n");
             } else if (line == "POLL_CHILD") {
                 pumpChild();
