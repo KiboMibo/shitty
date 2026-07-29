@@ -723,6 +723,7 @@ namespace {
         RECORD_TEXT_METHOD(osc_SHELL_B)
         RECORD_TEXT_METHOD(osc_SHELL_C)
         RECORD_TEXT_METHOD(osc_SHELL_D)
+        RECORD_TEXT_METHOD(osc_SHELL_I)
         RECORD_TEXT_METHOD(osc_SHELL_L)
         RECORD_TEXT_METHOD(osc_SHELL_UNKNOWN)
 
@@ -1475,6 +1476,7 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_TEXT_TEST(ShellCommandStart, osc_SHELL_B, u8"\x1b]133;B;payload\a", u8"B;payload")
     SHITTY_PARSER_TEXT_TEST(ShellCommandExecuted, osc_SHELL_C, u8"\x1b]133;C;payload\a", u8"C;payload")
     SHITTY_PARSER_TEXT_TEST(ShellCommandFinished, osc_SHELL_D, u8"\x1b]133;D;payload\a", u8"D;payload")
+    SHITTY_PARSER_TEXT_TEST(ShellInputUntilEndOfLine, osc_SHELL_I, u8"\x1b]133;I;payload\a", u8"I;payload")
     SHITTY_PARSER_TEXT_TEST(ShellFreshLine, osc_SHELL_L, u8"\x1b]133;L;payload\a", u8"L;payload")
     SHITTY_PARSER_TEXT_TEST(ShellUnknown, osc_SHELL_UNKNOWN, u8"\x1b]133;X;payload\a", u8"X;payload")
 

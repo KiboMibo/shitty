@@ -59,6 +59,11 @@ use; only its final implicit blank is normalized. The U+008D reverse-index
 input is represented by its standard seven-bit `ESC M` form because C1
 codepoints in UTF-8 are text, not controls.
 
-Remaining non-visible upstream oracles are semantic zones and cell attributes,
-hyperlink identity, and rich cell/line metadata. They are listed explicitly in
-`PLAN.md`.
+The semantic catalog covers all three semantic-zone snapshots and the one
+cell-attribute assertion. It added OSC 133 `I`, whose input region ends at the
+next line, and corrected OSC 133 `A` to start its prompt on a fresh line. The
+latter behavior agrees with current WezTerm, Ghostty, and the semantic-prompts
+specification.
+
+Remaining non-visible upstream oracles are hyperlink identity and rich
+cell/line metadata. They are listed explicitly in `PLAN.md`.

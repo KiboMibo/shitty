@@ -662,6 +662,7 @@ namespace {
         void osc_SHELL_B(StringView) override;
         void osc_SHELL_C(StringView) override;
         void osc_SHELL_D(StringView) override;
+        void osc_SHELL_I(StringView) override;
         void osc_SHELL_L(StringView) override;
         void osc_SHELL_UNKNOWN(StringView) override;
         void osc_UNKNOWN(u32, StringView) override;
@@ -763,6 +764,7 @@ namespace {
         u32 activeHyperlink = 0;
         u32 nextHyperlink = 1;
         u32 currentSemantic = 0;
+        bool semanticUntilEndOfLine = false;
         std::string windowTitle;
         std::string iconTitle;
         u8 titleModes = 0;
@@ -2670,6 +2672,7 @@ void VtermImpl::resetTerminal() {
     activeHyperlink = 0;
     nextHyperlink = 1;
     currentSemantic = 0;
+    semanticUntilEndOfLine = false;
     titleModes = 0;
     titleStack.clear();
     notifications.clear();
@@ -3608,6 +3611,10 @@ bool VtermImpl::performIndex() {
     } else if (posY < composer.rows - 1) {
         ++posY;
         lastCol = false;
+    }
+    if (semanticUntilEndOfLine) {
+        currentSemantic = 0;
+        semanticUntilEndOfLine = false;
     }
     return scrolled;
 }
@@ -5160,14 +5167,16 @@ void VtermImpl::osc_RESET_SELECTION_FOREGROUND() {
 }
 
 void VtermImpl::osc_SHELL_A(StringView payload) {
+    osc_SHELL_L(payload);
     currentSemantic = 1;
-    host.osc(133, payload);
+    semanticUntilEndOfLine = false;
 }
 
 void VtermImpl::osc_SHELL_B(StringView payload) {
     if (currentSemantic == 1) {
         currentSemantic = 2;
     }
+    semanticUntilEndOfLine = false;
     host.osc(133, payload);
 }
 
@@ -5175,6 +5184,7 @@ void VtermImpl::osc_SHELL_C(StringView payload) {
     if (currentSemantic == 2) {
         currentSemantic = 3;
     }
+    semanticUntilEndOfLine = false;
     host.osc(133, payload);
 }
 
@@ -5182,6 +5192,13 @@ void VtermImpl::osc_SHELL_D(StringView payload) {
     if (currentSemantic == 3) {
         currentSemantic = 0;
     }
+    semanticUntilEndOfLine = false;
+    host.osc(133, payload);
+}
+
+void VtermImpl::osc_SHELL_I(StringView payload) {
+    currentSemantic = 2;
+    semanticUntilEndOfLine = true;
     host.osc(133, payload);
 }
 
@@ -7574,7 +7591,7 @@ namespace {
 }
 
 size_t VtermImpl::placeAsciiLines(const u8* input, size_t size) {
-    if (insertMode || posX != 0 || lastCol || inputGraphemeScreen != nullptr || horizMarginMode || hMargin != 0 || nColsEff != composer.columns || marginTop != 0 || marginBottom != composer.rows) {
+    if (insertMode || posX != 0 || lastCol || inputGraphemeScreen != nullptr || horizMarginMode || hMargin != 0 || nColsEff != composer.columns || marginTop != 0 || marginBottom != composer.rows || semanticUntilEndOfLine) {
         return 0;
     }
 

@@ -158,7 +158,10 @@ keys.~~
   origin. Четыре snapshots адаптированы к нашему power-of-two ring, который
   хранит больше запрошенного минимума; отключённый upstream selection test
   нормализует неявный padding последней строки;~~
-- semantic zones и semantic cell attributes;
+- ~~все 3 semantic-zone snapshots и единственный semantic cell-attribute
+  assertion перенесены. Импорт добавил OSC 133 `I` (input до конца строки) и
+  исправил OSC 133 `A`: prompt начинается с новой строки по согласованному
+  поведению WezTerm, Ghostty и semantic-prompts specification;~~
 - hyperlink identity/attributes;
 - ~~все 12 selection clipboard assertions перенесены. Современные адаптации:
   не создаём trailing newline за границей экрана, сохраняем явно записанный
@@ -296,8 +299,8 @@ Search и vi-mode нам пока не нужны.
    применимые PTY methods.~~
 4. ~~Расширить существующий WezTerm screen adapter до всех 73 исполняемых
    visible checkpoints.~~
-5. ~~WezTerm cursor, selection, damage и history/stable-row non-visible
-   oracles.~~ Остались semantic zones, hyperlinks и line/cell metadata.
+5. ~~WezTerm cursor, selection, damage, history/stable-row и semantic
+   non-visible oracles.~~ Остались hyperlinks и line/cell metadata.
 6. Windows Terminal adapter/input/mouse/selection/reflow.
 7. VTE tabstops/paste/UTF-8 и known-sequence matrices.
 8. Kitty — сохранить исходные test transactions и callbacks.

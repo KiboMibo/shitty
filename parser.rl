@@ -1952,6 +1952,11 @@
         fgoto oscShellDComplete;
     }
 
+    action oscShellI {
+        ragelAppendString(fc, parser.maxOscBytes);
+        fgoto oscShellIComplete;
+    }
+
     action oscShellL {
         ragelAppendString(fc, parser.maxOscBytes);
         fgoto oscShellLComplete;
@@ -2021,6 +2026,20 @@
         }
     }
 
+    action oscShellISt {
+        if (consumeStringUtf8Byte(fc)) {
+            ragelAppendString(fc, parser.maxOscBytes);
+            fgoto oscShellUnknown;
+        } else {
+            ragelFinishOsc();
+            if (!parser.overflow) {
+                iface.osc_SHELL_I(ragelOscPayload());
+            }
+            fnext main;
+            fbreak;
+        }
+    }
+
     action oscShellLSt {
         if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
@@ -2071,6 +2090,11 @@
     action oscShellEscapedD {
         ragelAppendEscapedString(fc, parser.maxOscBytes);
         fgoto oscShellDTail;
+    }
+
+    action oscShellEscapedI {
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
+        fgoto oscShellITail;
     }
 
     action oscShellEscapedL {
@@ -4766,8 +4790,9 @@
         'B' @oscShellB |
         'C' @oscShellC |
         'D' @oscShellD |
+        'I' @oscShellI |
         'L' @oscShellL |
-        (0x20..0x7e - ('A' | 'B' | 'C' | 'D' | 'L')) @oscShellInvalid |
+        (0x20..0x7e - ('A' | 'B' | 'C' | 'D' | 'I' | 'L')) @oscShellInvalid |
         (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscShellInvalid
     )*;
 
@@ -4819,6 +4844,19 @@
         0x7f |
         sequenceC0 |
         ';' @{ ragelAppendString(fc, parser.maxOscBytes); fgoto oscShellDTail; } |
+        (0x20..0x7e - ';') @oscShellInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscShellInvalid
+    )*;
+
+    oscShellIComplete := (
+        cancel |
+        stringC1 |
+        0x9c @oscShellISt |
+        0x07 @oscShellISt |
+        0x1b @{ fgoto oscShellICompleteEscape; } |
+        0x7f |
+        sequenceC0 |
+        ';' @{ ragelAppendString(fc, parser.maxOscBytes); fgoto oscShellITail; } |
         (0x20..0x7e - ';') @oscShellInvalid |
         (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscShellInvalid
     )*;
@@ -4880,6 +4918,17 @@
          0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
     )*;
 
+    oscShellITail := (
+        cancel |
+        stringC1 |
+        0x9c @oscShellISt |
+        0x07 @oscShellISt |
+        0x1b @{ fgoto oscShellITailEscape; } |
+        0x7f |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
     oscShellLTail := (
         cancel |
         stringC1 |
@@ -4930,6 +4979,13 @@
         (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
     )*;
 
+    oscShellICompleteEscape := (
+        cancel |
+        '\\' @oscShellISt |
+        0x1b @oscEscapedEscape @{ fgoto oscShellUnknownEscape; } |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
+    )*;
+
     oscShellLCompleteEscape := (
         cancel |
         '\\' @oscShellLSt |
@@ -4963,6 +5019,13 @@
         '\\' @oscShellDSt |
         0x1b @oscEscapedEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedD
+    )*;
+
+    oscShellITailEscape := (
+        cancel |
+        '\\' @oscShellISt |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedI
     )*;
 
     oscShellLTailEscape := (

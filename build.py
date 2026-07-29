@@ -1336,6 +1336,57 @@ wezterm_history_validation = command(
 )
 
 
+wezterm_semantic_cases = (
+    wezterm_root / "semantic_file_names.txt"
+).read_text().split()
+wezterm_semantic_tests = []
+for case in wezterm_semantic_cases:
+    wezterm_semantic_tests.append(command(
+        name="wezterm_semantic_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/wezterm/semantic_adapter.py",
+            "$(S)/tests/wezterm/semantic_cases.py",
+            "$(S)/tests/wezterm/semantic_file_names.txt",
+            "$(S)/tests/wezterm/upstream/mod.rs",
+        ],
+        outputs=[f"$(B)/tests/wezterm/semantic/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/wezterm/semantic_adapter.py",
+            case,
+            f"$(B)/tests/wezterm/semantic/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="WM",
+        color="cyan",
+    ))
+
+wezterm_semantic_validation = command(
+    name="wezterm_semantic_catalog",
+    inputs=[
+        "$(S)/tests/wezterm/semantic_cases.py",
+        "$(S)/tests/wezterm/semantic_file_names.txt",
+        "$(S)/tests/wezterm/semantic_validate.py",
+        "$(S)/tests/wezterm/upstream/mod.rs",
+    ],
+    outputs=["$(B)/tests/wezterm/semantic/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/wezterm/semantic_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/wezterm/semantic/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="WM",
+    color="cyan",
+)
+
+
 konsole_root = Path(__file__).parent / "tests" / "konsole"
 konsole_cases = (konsole_root / "file_names.txt").read_text().split()
 konsole_tests = []
@@ -2269,6 +2320,8 @@ group(
     wezterm_damage_validation,
     *wezterm_history_tests,
     wezterm_history_validation,
+    *wezterm_semantic_tests,
+    wezterm_semantic_validation,
     *konsole_tests,
     konsole_validation,
     *konsole_semantic_tests,
