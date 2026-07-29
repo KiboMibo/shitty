@@ -51,18 +51,18 @@ STD_TEST_SUITE(Utf8) {
         Utf8Decoder decoder;
 
         STD_INSIST(decoder.pushByte(0xe0) == 0);
-        STD_INSIST(decoder.pushByte(0x80) == 0);
+        STD_INSIST(decoder.pushByte(0x80) == 2);
         STD_INSIST(decoder.pushByte(0x80) == 1);
         STD_INSIST(decoder.getUnicode() == Unicode_Replacement_Character);
 
         STD_INSIST(decoder.pushByte(0xed) == 0);
-        STD_INSIST(decoder.pushByte(0xa0) == 0);
+        STD_INSIST(decoder.pushByte(0xa0) == 2);
         STD_INSIST(decoder.pushByte(0x80) == 1);
         STD_INSIST(decoder.getUnicode() == Unicode_Replacement_Character);
 
         STD_INSIST(decoder.pushByte(0xf4) == 0);
-        STD_INSIST(decoder.pushByte(0x90) == 0);
-        STD_INSIST(decoder.pushByte(0x80) == 0);
+        STD_INSIST(decoder.pushByte(0x90) == 2);
+        STD_INSIST(decoder.pushByte(0x80) == 1);
         STD_INSIST(decoder.pushByte(0x80) == 1);
         STD_INSIST(decoder.getUnicode() == Unicode_Replacement_Character);
     }

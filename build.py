@@ -948,6 +948,54 @@ vte_tabstop_validation = command(
 )
 
 
+vte_utf8_cases = (vte_root / "utf8_file_names.txt").read_text().split()
+vte_utf8_tests = []
+for case in vte_utf8_cases:
+    vte_utf8_tests.append(command(
+        name="vte_utf8_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/vte/utf8_adapter.py",
+            "$(S)/tests/vte/utf8_cases.py",
+            "$(S)/tests/vte/utf8_file_names.txt",
+        ],
+        outputs=[f"$(B)/tests/vte/utf8/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/vte/utf8_adapter.py",
+            case,
+            f"$(B)/tests/vte/utf8/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="VU",
+        color="cyan",
+    ))
+
+
+vte_utf8_validation = command(
+    name="vte_utf8_catalog",
+    inputs=[
+        "$(S)/tests/vte/utf8_cases.py",
+        "$(S)/tests/vte/utf8_file_names.txt",
+        "$(S)/tests/vte/utf8_validate.py",
+    ],
+    outputs=["$(B)/tests/vte/utf8/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/vte/utf8_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/vte/utf8/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="VU",
+    color="cyan",
+)
+
+
 vte_width_cases = (vte_root / "width_file_names.txt").read_text().split()
 vte_width_tests = []
 for case in vte_width_cases:
@@ -2460,6 +2508,8 @@ group(
     vte_validation,
     *vte_tabstop_tests,
     vte_tabstop_validation,
+    *vte_utf8_tests,
+    vte_utf8_validation,
     *vte_width_tests,
     vte_width_validation,
     *windows_terminal_tests,

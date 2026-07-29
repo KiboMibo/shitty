@@ -95,6 +95,8 @@ namespace {
         TestUtf8Decoder();
 
         std::vector<u32> push(const std::string& input);
+        std::vector<u32> flush();
+        void reset();
 
         std::vector<u32> output;
         Utf8Decoder decoder;
@@ -178,9 +180,7 @@ std::vector<u32> TestUtf8Decoder::push(const std::string& input) {
             if (decoder.checkPrematureEOS()) {
                 output.push_back(decoder.getUnicode());
             }
-            if (decoder.onUnicode(ch)) {
-                output.push_back(decoder.getUnicode());
-            }
+            output.push_back(ch);
         } else {
             for (int completed = decoder.pushByte(ch); completed > 0; --completed) {
                 output.push_back(decoder.getUnicode());
@@ -190,6 +190,20 @@ std::vector<u32> TestUtf8Decoder::push(const std::string& input) {
     std::vector<u32> result;
     result.swap(output);
     return result;
+}
+
+std::vector<u32> TestUtf8Decoder::flush() {
+    if (decoder.checkPrematureEOS()) {
+        output.push_back(decoder.getUnicode());
+    }
+    std::vector<u32> result;
+    result.swap(output);
+    return result;
+}
+
+void TestUtf8Decoder::reset() {
+    output.clear();
+    decoder.reset();
 }
 
 void FailFontChange::arm() {
@@ -2136,6 +2150,18 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
                 }
                 output << StringView(u8"\n");
                 writeAll(controlFd, StringView(output));
+            } else if (line == "UTF8_FLUSH") {
+                const auto codepoints = testUtf8Decoder.flush();
+                StringBuilder output;
+                output << StringView(u8"OK");
+                for (const u32 codepoint : codepoints) {
+                    output << StringView(u8" ") << Hex{codepoint};
+                }
+                output << StringView(u8"\n");
+                writeAll(controlFd, StringView(output));
+            } else if (line == "UTF8_RESET") {
+                testUtf8Decoder.reset();
+                writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 17, "CODEPOINT_WIDTHS ") == 0) {
                 std::istringstream args(line.substr(17));
                 std::string token;

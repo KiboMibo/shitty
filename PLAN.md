@@ -199,7 +199,9 @@ keys.~~
   помечены неприменимыми: Shitty всегда заполняет новые доступные колонки, а
   отсутствие следующего/предыдущего stop зажимает в границу экрана или margin;
 - bracketed paste sanitization — 6;
-- UTF-8 replacement/error behavior — 2;
+- ~~UTF-8 replacement/error behavior — оба теста перенесены полностью:
+  1 112 064 допустимых scalar values и все 108 encoding_rs malformed
+  vectors. Импорт исправил maximal-subpart replacement для E0/ED/F0/F4;~~
 - modes/color — небольшой остаток.
 
 ## Крупные полностью неиспользованные источники

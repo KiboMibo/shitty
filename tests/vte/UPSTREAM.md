@@ -29,3 +29,11 @@ VTE's internal `resize(fill=false)` policy and the synthetic `endpos` argument
 have no terminal protocol equivalent: Shitty follows its public rule of
 filling newly addressable columns, and CHT/CBT clamp a missing stop to the
 applicable screen or margin edge.
+
+The two tests from VTE `src/utf8-test.cc` are translated into
+`utf8_adapter.py` and `utf8_cases.py`. The decode target checks every one of
+the 1,112,064 Unicode scalar values. The replacement target retains all 108
+encoding_rs vectors, including NUL, truncated sequences, overlong encodings,
+surrogates, out-of-range values, and obsolete five/six-byte forms. The oracle
+uses the modern maximal-subpart replacement behavior shared by VTE,
+encoding_rs, WHATWG Encoding, and current Unicode recommendations.

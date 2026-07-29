@@ -48,6 +48,12 @@ int Utf8Decoder::pushByte(unsigned char ch) {
             unicode = Unicode_Replacement_Character;
             return 1;
         }
+        const bool invalidFirstContinuation = (remaining == 2 && accumulator == 0 && ch < 0xa0) || (remaining == 2 && accumulator == 0x0d && ch >= 0xa0) || (remaining == 3 && accumulator == 0 && ch < 0x90) || (remaining == 3 && accumulator == 4 && ch >= 0x90);
+        if (invalidFirstContinuation) {
+            remaining = 0;
+            unicode = Unicode_Replacement_Character;
+            return 2;
+        }
         accumulator = (accumulator << 6) | (ch & 0x3f);
         if (--remaining != 0) {
             return 0;

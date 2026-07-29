@@ -163,9 +163,9 @@ class UnicodeTest(unittest.TestCase):
     def test_invalid_utf8_is_replaced_without_aliasing_unicode(self):
         cases = (
             (b"\xc0\xafX", "��X"),
-            (b"\xed\xa0\x80X", "�X"),
-            (b"\xf4\x90\x80\x80X", "�X"),
-            (b"\xf0\x80\x80\x80X", "�X"),
+            (b"\xed\xa0\x80X", "���X"),
+            (b"\xf4\x90\x80\x80X", "����X"),
+            (b"\xf0\x80\x80\x80X", "����X"),
             (b"\xf5\x80\x80\x80X", "����X"),
         )
         for encoded, expected in cases:

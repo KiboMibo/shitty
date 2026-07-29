@@ -697,6 +697,16 @@ class Shitty:
             raise RuntimeError("invalid UTF-8 decoder response")
         return tuple(int(value, 16) for value in response[1:])
 
+    def utf8_flush(self):
+        self.stream.write(b"UTF8_FLUSH\n")
+        response = self._readline().split()
+        if not response or response[0] != "OK":
+            raise RuntimeError("invalid UTF-8 decoder flush response")
+        return tuple(int(value, 16) for value in response[1:])
+
+    def utf8_reset(self):
+        self.command("UTF8_RESET")
+
     def codepoint_widths(self, *codepoints):
         if not codepoints:
             raise ValueError("empty codepoint width request")
