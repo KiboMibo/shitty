@@ -2036,6 +2036,26 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
                 }
                 output << StringView(u8"\n");
                 writeAll(controlFd, StringView(output));
+            } else if (line.compare(0, 17, "CODEPOINT_WIDTHS ") == 0) {
+                std::istringstream args(line.substr(17));
+                std::string token;
+                StringBuilder output;
+                output << StringView(u8"OK");
+                size_t count = 0;
+                while (args >> token) {
+                    size_t consumed = 0;
+                    const unsigned long codepoint = std::stoul(token, &consumed, 16);
+                    if (consumed != token.size() || codepoint > 0x10ffff) {
+                        throw std::runtime_error("invalid codepoint");
+                    }
+                    output << StringView(u8" ") << codepointWidth((u32)(codepoint));
+                    ++count;
+                }
+                if (!count) {
+                    throw std::runtime_error("empty codepoint width request");
+                }
+                output << StringView(u8"\n");
+                writeAll(controlFd, StringView(output));
             } else if (line == "RENDER_STATE") {
                 writeAll(controlFd, display.renderState());
             } else if (line.compare(0, 13, "MOUSE_ENCODE ") == 0) {

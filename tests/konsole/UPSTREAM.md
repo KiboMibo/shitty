@@ -29,3 +29,10 @@ transactions. Tertiary DA reports Shitty's identifier instead of Konsole's.
 Keyboard events use Shitty's split platform key/text input and current Kitty
 protocol encodings; in particular, report-all and functional keys retain the
 explicit default modifier field emitted by the product input path.
+
+`upstream/CharacterWidthTest.cpp` is copied from the same Konsole revision and
+retains its GPL-2.0-or-later notice. All 25 data rows are extracted into
+independent Python-driven targets which query Shitty's internal codepoint-width
+primitive. Konsole's `-1` sentinel for DEL is represented as the observable
+zero advance. Importing these rows also aligned Cf format controls and trailing
+Hangul Jamo with the current terminal consensus.

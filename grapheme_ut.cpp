@@ -14,9 +14,28 @@ STD_TEST_SUITE(Grapheme) {
     STD_TEST(ReportsRepresentativeCodepointWidths) {
         STD_INSIST(codepointWidth('A') == 1);
         STD_INSIST(codepointWidth(0x0301) == 0);
+        STD_INSIST(codepointWidth(0x1160) == 0);
+        STD_INSIST(codepointWidth(0x11ff) == 0);
         STD_INSIST(codepointWidth(0x4e00) == 2);
         STD_INSIST(codepointWidth(0x1f1fa) == 2);
         STD_INSIST(codepointWidth(0) == 0);
+    }
+
+    STD_TEST(KeepsTerminalFormatControlsZeroWidth) {
+        constexpr u32 controls[] = {
+            0x0600,
+            0x0605,
+            0x06dd,
+            0x070f,
+            0x0890,
+            0x0891,
+            0x08e2,
+            0x110bd,
+            0x110cd,
+        };
+        for (const u32 codepoint : controls) {
+            STD_INSIST(codepointWidth(codepoint) == 0);
+        }
     }
 
     STD_TEST(AppliesVariationSelectorWidthOverrides) {

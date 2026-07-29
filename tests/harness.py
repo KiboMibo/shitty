@@ -676,6 +676,18 @@ class Shitty:
             raise RuntimeError("invalid UTF-8 decoder response")
         return tuple(int(value, 16) for value in response[1:])
 
+    def codepoint_widths(self, *codepoints):
+        if not codepoints:
+            raise ValueError("empty codepoint width request")
+        request = " ".join(f"{codepoint:x}" for codepoint in codepoints)
+        self.stream.write(
+            ("CODEPOINT_WIDTHS " + request + "\n").encode("ascii")
+        )
+        response = self._readline().split()
+        if not response or response[0] != "OK":
+            raise RuntimeError("invalid codepoint width response")
+        return tuple(map(int, response[1:]))
+
     def parser_trace_on(self):
         self.command("PARSER_TRACE_ON")
 

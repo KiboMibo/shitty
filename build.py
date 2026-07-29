@@ -1273,6 +1273,57 @@ konsole_vt_validation = command(
 )
 
 
+konsole_width_cases = (
+    konsole_root / "width_file_names.txt"
+).read_text().split()
+konsole_width_tests = []
+for case in konsole_width_cases:
+    konsole_width_tests.append(command(
+        name="konsole_width_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/konsole/upstream/CharacterWidthTest.cpp",
+            "$(S)/tests/konsole/width_adapter.py",
+            "$(S)/tests/konsole/width_catalog.py",
+            "$(S)/tests/konsole/width_file_names.txt",
+        ],
+        outputs=[f"$(B)/tests/konsole/width/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/konsole/width_adapter.py",
+            case,
+            f"$(B)/tests/konsole/width/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="KW",
+        color="cyan",
+    ))
+
+konsole_width_validation = command(
+    name="konsole_width_catalog",
+    inputs=[
+        "$(S)/tests/konsole/upstream/CharacterWidthTest.cpp",
+        "$(S)/tests/konsole/width_catalog.py",
+        "$(S)/tests/konsole/width_file_names.txt",
+        "$(S)/tests/konsole/width_validate.py",
+    ],
+    outputs=["$(B)/tests/konsole/width/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/konsole/width_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/konsole/width/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="KW",
+    color="cyan",
+)
+
+
 tmux_root = Path(__file__).parent / "tests" / "tmux"
 tmux_corpus_members = [
     "corpus/" + path.name
@@ -1898,6 +1949,8 @@ group(
     konsole_semantic_validation,
     *konsole_vt_tests,
     konsole_vt_validation,
+    *konsole_width_tests,
+    konsole_width_validation,
     *tmux_tests,
     wraptest_helper,
     *wraptest_tests,
