@@ -21,6 +21,15 @@ PARAMETER_SETS = (
 )
 SPECIAL_ESC_FINALS = b"PXZ[]^_"
 BATCH_SIZE = 4096
+VTE_CONTROLS = (
+    *range(0x00, 0x18),
+    0x19,
+    0x1a,
+    *range(0x1c, 0x20),
+    *range(0x82, 0x90),
+    *range(0x91, 0x98),
+    0x9c,
+)
 
 
 def params(values):
@@ -82,7 +91,7 @@ def run_batches(items, batch_size=BATCH_SIZE, single_byte=False):
             actual = terminal.parser_trace()
             if single_byte:
                 actual = [event for event in actual if event != ("escape", b"%@")]
-            expected = [event for _, event in batch]
+            expected = [event for _, event in batch if event is not None]
             if actual != expected:
                 limit = min(len(actual), len(expected))
                 index = next((n for n in range(limit)
@@ -109,10 +118,75 @@ def run_isolated(items, single_byte=False):
             terminal.parser_trace_on()
             terminal.write(sequence)
             actual = terminal.parser_trace()
-        if actual != [expected] and first_mismatch is None:
+        wanted = [] if expected is None else [expected]
+        if actual != wanted and first_mismatch is None:
             first_mismatch = (f"case {checked}: got {summarize(actual)!r}, "
-                              f"expected {summarize([expected])!r}")
+                              f"expected {summarize(wanted)!r}")
         checked += 1
+    return checked, first_mismatch
+
+
+def controls():
+    for control in VTE_CONTROLS:
+        yield bytes((control,)), (
+            None if control == 0 else ("control", bytes((control,)))
+        )
+
+
+def run_escape_invalid():
+    checked = 0
+    first_mismatch = None
+    with Shitty(columns=5, rows=5, save_lines=5) as terminal:
+        terminal.parser_trace_on()
+        for chunked in (False, True):
+            for final in range(0x20):
+                terminal.parser_trace_clear()
+                if chunked:
+                    terminal.write(b"\x1b")
+                    terminal.write(bytes((final,)))
+                else:
+                    terminal.write(b"\x1b" + bytes((final,)))
+                actual = terminal.parser_trace()
+                if any(event == "escape" for event, _ in actual) and first_mismatch is None:
+                    first_mismatch = (
+                        f"ESC {final:#04x}, chunked={chunked}: "
+                        f"unexpected {summarize(actual)!r}"
+                    )
+                terminal.write(b"\x18")
+                checked += 1
+    return checked, first_mismatch
+
+
+def csi_clear_source():
+    arguments = b";".join(str(127 * index + 17).encode() for index in range(16))
+    return b"\x1b[?" + arguments + b"m"
+
+
+def run_csi_clear():
+    checked = 0
+    first_mismatch = None
+    source = csi_clear_source()
+    with Shitty(columns=5, rows=5, save_lines=5) as terminal:
+        terminal.parser_trace_on()
+        for length in range(1, len(source) + 1):
+            for argument_count in range(16):
+                terminal.write(source[:length])
+                terminal.parser_trace_clear()
+                arguments = b";".join(
+                    str(257 * index + 31).encode()
+                    for index in range(argument_count)
+                )
+                sequence = b"\x1b[>" + arguments + b"n"
+                terminal.write(sequence)
+                actual = terminal.parser_trace()
+                expected = [("csi", b">" + arguments + b"n")]
+                if actual != expected and first_mismatch is None:
+                    first_mismatch = (
+                        f"prefix length {length}, arguments {argument_count}: "
+                        f"got {summarize(actual)!r}, "
+                        f"expected {summarize(expected)!r}"
+                    )
+                checked += 1
     return checked, first_mismatch
 
 
@@ -261,6 +335,8 @@ def osc_controls(name):
 
 
 def items(name):
+    if name == "controls":
+        return controls()
     if name == "escape_nf":
         return escape_nf()
     if name == "escape_fpes":
@@ -300,9 +376,17 @@ def main():
         os._exit(124)
     signal.signal(signal.SIGALRM, timed_out)
     signal.alarm(30)
-    isolated = name in {"csi_max", "csi_misc", "dcs_misc", "osc_oversize"} or name.startswith("osc_controls_")
-    single_byte = name in {"csi", "csi_parameters", "dcs", "dcs_misc"} or name.startswith("osc_controls_")
-    if isolated:
+    isolated = name in {
+        "csi_max", "csi_misc", "dcs_misc", "osc_oversize",
+    } or name.startswith("osc_controls_")
+    single_byte = name in {
+        "controls", "csi", "csi_parameters", "dcs", "dcs_misc",
+    } or name.startswith("osc_controls_")
+    if name == "escape_invalid":
+        checked, mismatch = run_escape_invalid()
+    elif name == "csi_clear":
+        checked, mismatch = run_csi_clear()
+    elif isolated:
         checked, mismatch = run_isolated(items(name), single_byte=single_byte)
     else:
         checked, mismatch = run_batches(

@@ -9,9 +9,10 @@ def main():
     root = Path(__file__).resolve().parent
     source = (root / "upstream" / "parser-test.cc").read_text()
     required = (
+        "test_seq_control(void)", "test_seq_esc_invalid(void)",
         "test_seq_esc_nF", "test_seq_esc_Fpes", "test_seq_csi(void)",
         "test_seq_csi_param(void)", "test_seq_csi_max(void)",
-        "test_seq_csi_misc(void)", "test_seq_dcs(void)",
+        "test_seq_csi_clear(void)", "test_seq_csi_misc(void)", "test_seq_dcs(void)",
         "test_seq_dcs_misc(void)", "test_seq_osc(void)",
     )
     missing = [marker for marker in required if marker not in source]

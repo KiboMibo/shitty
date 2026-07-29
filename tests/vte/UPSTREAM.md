@@ -13,6 +13,26 @@ upstream `g_test_add_func` family is exposed as a separate build target; the
 OSC control introducer/terminator cross-product is split further so failures
 remain local.
 
+The complete product-observable recovery families are also translated:
+
+- all 52 controls listed by VTE, with raw C1 enabled explicitly;
+- all 32 invalid `ESC 0/n` and `ESC 1/n` finals, both contiguous and split at
+  the input boundary;
+- all 1,184 combinations from `test_seq_csi_clear`, covering every prefix of
+  the 74-byte maximum-argument CSI followed by zero through fifteen fresh
+  arguments.
+
+VTE exposes NUL as an internal no-op token when its tests are built with
+`PARSER_INCLUDE_NOP`. Shitty instead verifies that NUL produces no parser
+event. This is the terminal-observable ECMA-48 behaviour and agrees with
+xterm.js and the existing Konsole adaptation.
+
+VTE's two SCI families are intentionally not adopted as terminal behaviour.
+Its generic ECMA parser interprets `ESC Z` as the 7-bit form of SCI, while DEC
+terminals and current Foot, Ghostty, WezTerm, Konsole, and xterm-compatible
+applications use `ESC Z` as DECID, the obsolete form of primary DA. Shitty
+keeps DECID; its 7-bit and 8-bit behaviour is already covered by esctest.
+
 `upstream/unicode-width-test.cc` is copied verbatim from the same revision.
 The width adapter extracts its explicit Unicode ranges and points for ambiguous
 width 1, splits large ranges at 256-codepoint boundaries, and verifies 930

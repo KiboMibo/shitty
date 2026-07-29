@@ -178,16 +178,13 @@ keys.~~
 
 ### VTE
 
-В upstream `parser-test.cc` зарегистрировано 36 семейств. Мы покрываем девять семейств, развёрнутых в 34 targets.
+В upstream `parser-test.cc` зарегистрировано 36 семейств. Мы покрываем
+двенадцать семейств, развёрнутых в 37 targets.
 
 Не взяты:
 
-- invalid ESC;
 - все charset 94/96 варианты;
 - known ESC/CSI/SCI/DCS tables;
-- CSI clear/recovery;
-- SCI;
-- часть control handling;
 - внутренние sequence-builder/glue tests.
 
 Последние не особо полезны, зато отдельно стоит взять:
@@ -205,6 +202,20 @@ keys.~~
   разбиение. Импорт исправил небезопасный passthrough controls и состояние на
   границах chunks. Единственный C1-bracket case неприменим: это параметр
   внутреннего VTE helper, который сам VTE в production всегда выключает;~~
+- ~~control handling — все 52 записи VTE проверяются через parser trace,
+  включая raw C1 mode. Внутренний VTE NOP-token для NUL адаптирован к
+  observable ECMA-48 поведению: NUL игнорируется, как также делают xterm.js и
+  уже перенесённый Konsole corpus;~~
+- ~~invalid ESC — все 32 `ESC 0/n`/`ESC 1/n` проверяются целиком и с разрывом
+  перед final: ни один не может завершиться как escape sequence;~~
+- ~~CSI clear/recovery — полный upstream matrix: все 74 префикса
+  maximum-argument CSI × 16 размеров следующего CSI, итого 1 184 случая,
+  подтверждают очистку параметров и состояния после abort;~~
+- ~~SCI и SCI known не переносятся как поведение: VTE generic ECMA parser
+  занимает `ESC Z` под SCI, но DEC/xterm и современные Foot, Ghostty, WezTerm
+  и Konsole используют его как DECID. По правилу majority-over-obsolete-spec
+  Shitty сохраняет DECID; его 7/8-bit варианты уже покрыты esctest. Исходный
+  VTE corpus сохранён verbatim;~~
 - ~~UTF-8 replacement/error behavior — оба теста перенесены полностью:
   1 112 064 допустимых scalar values и все 108 encoding_rs malformed
   vectors. Импорт исправил maximal-subpart replacement для E0/ED/F0/F4;~~

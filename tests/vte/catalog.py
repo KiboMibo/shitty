@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 
 CASES = (
+    "controls",
+    "escape_invalid",
     "escape_nf",
     "escape_fpes",
     "csi",
     "csi_parameters",
+    "csi_clear",
     "csi_max",
     "csi_misc",
     "dcs",
