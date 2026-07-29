@@ -948,6 +948,108 @@ vte_tabstop_validation = command(
 )
 
 
+vte_mode_cases = (vte_root / "mode_file_names.txt").read_text().split()
+vte_mode_tests = []
+for case in vte_mode_cases:
+    vte_mode_tests.append(command(
+        name="vte_mode_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/vte/mode_adapter.py",
+            "$(S)/tests/vte/mode_cases.py",
+            "$(S)/tests/vte/mode_file_names.txt",
+            "$(S)/tests/vte/upstream/modes-test.cc",
+        ],
+        outputs=[f"$(B)/tests/vte/modes/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/vte/mode_adapter.py",
+            case,
+            f"$(B)/tests/vte/modes/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="VM",
+        color="cyan",
+    ))
+
+
+vte_mode_validation = command(
+    name="vte_mode_catalog",
+    inputs=[
+        "$(S)/tests/vte/mode_cases.py",
+        "$(S)/tests/vte/mode_file_names.txt",
+        "$(S)/tests/vte/mode_validate.py",
+        "$(S)/tests/vte/upstream/modes-test.cc",
+    ],
+    outputs=["$(B)/tests/vte/modes/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/vte/mode_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/vte/modes/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="VM",
+    color="cyan",
+)
+
+
+vte_color_cases = (vte_root / "color_file_names.txt").read_text().split()
+vte_color_tests = []
+for case in vte_color_cases:
+    vte_color_tests.append(command(
+        name="vte_color_" + case.replace("-", "_"),
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/vte/color_adapter.py",
+            "$(S)/tests/vte/color_cases.py",
+            "$(S)/tests/vte/color_file_names.txt",
+            "$(S)/tests/vte/upstream/color-test.cc",
+            "$(S)/tests/vte/upstream/color-names-tests.hh",
+        ],
+        outputs=[f"$(B)/tests/vte/color/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/vte/color_adapter.py",
+            case,
+            f"$(B)/tests/vte/color/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="VC",
+        color="cyan",
+    ))
+
+
+vte_color_validation = command(
+    name="vte_color_catalog",
+    inputs=[
+        "$(S)/tests/vte/color_cases.py",
+        "$(S)/tests/vte/color_file_names.txt",
+        "$(S)/tests/vte/color_validate.py",
+        "$(S)/tests/vte/upstream/color-test.cc",
+        "$(S)/tests/vte/upstream/color-names-tests.hh",
+    ],
+    outputs=["$(B)/tests/vte/color/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/vte/color_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/vte/color/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="VC",
+    color="cyan",
+)
+
+
 vte_utf8_cases = (vte_root / "utf8_file_names.txt").read_text().split()
 vte_utf8_tests = []
 for case in vte_utf8_cases:
@@ -2508,6 +2610,10 @@ group(
     vte_validation,
     *vte_tabstop_tests,
     vte_tabstop_validation,
+    *vte_mode_tests,
+    vte_mode_validation,
+    *vte_color_tests,
+    vte_color_validation,
     *vte_utf8_tests,
     vte_utf8_validation,
     *vte_width_tests,

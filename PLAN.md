@@ -202,9 +202,26 @@ keys.~~
 - ~~UTF-8 replacement/error behavior — оба теста перенесены полностью:
   1 112 064 допустимых scalar values и все 108 encoding_rs malformed
   vectors. Импорт исправил maximal-subpart replacement для E0/ED/F0/F4;~~
-- modes/color — небольшой остаток.
+- ~~modes/color — все 2 mode и 5 color families перенесены. Mode tests идут
+  через SM/RM/RIS, DECRQM и XTSAVE/XTRESTORE; все 782 X11 names проверяются
+  через OSC 12. Импорт добавил standard XParseColor named colors. Hash-form
+  следует настоящему Xlib: компоненты left-justified, а не low-bit replicated,
+  как во внутреннем value-object parser VTE; `rgbi:` оставлен валидным по
+  Xcms/xterm/Ghostty. CSS/alpha/stringify inputs сохранены и адаптированы к
+  OSC: непротокольные формы не меняют цвет.~~
+- VTE C++ bitset copy/BDSM и CSS rgba/hsl/alpha serialization не имеют
+  terminal-protocol observable; исходные assertions сохранены verbatim и
+  помечены неприменимыми к Shitty.
 
 ## Крупные полностью неиспользованные источники
+
+Отдельная неприменимая проверка уже импортированного xterm `vttests`:
+`query-xres.pl` требует xterm X resource database через XTGETXRES. У Shitty
+на Wayland/Cocoa такого database нет; сценарий сохранён и исполняется как
+ожидаемо неприменимый. Чужая shell/TTY обвязка `resize.sh`, `title.sh` и
+`version.sh` переведена в конечные Python-сценарии: проверяются geometry
+query/resize request, title query/update/restore и version query; оригиналы
+сохранены verbatim.
 
 ### Contour unit tests
 

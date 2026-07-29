@@ -195,6 +195,7 @@ namespace {
         double oscColorMantissa = 0.0;
         double oscColorFraction = 0.1;
         u64 oscColorHex = 0;
+        size_t oscColorNameOffset = 0;
         u32 oscColorExponent = 0;
         u8 oscColorComponent = 0;
         u8 oscColorDigits = 0;

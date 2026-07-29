@@ -37,3 +37,23 @@ encoding_rs vectors, including NUL, truncated sequences, overlong encodings,
 surrogates, out-of-range values, and obsolete five/six-byte forms. The oracle
 uses the modern maximal-subpart replacement behavior shared by VTE,
 encoding_rs, WHATWG Encoding, and current Unicode recommendations.
+
+`upstream/modes-test.cc` is copied verbatim from the same revision. Its two
+registered tests are translated through the public protocol: SM/RM/RIS and
+DECRQM cover IRM; DECAWM, meta-sends-escape and focus-event defaults are
+queried with DECRQM; XTSAVE/XTRESTORE and RIS cover saved focus state.
+VTE's independent BDSM bit and C++ bitset copy operations are implementation
+details with no terminal-protocol observable and are therefore inapplicable.
+
+`upstream/color-test.cc` and its generated `color-names-tests.hh` are copied
+verbatim from the same revision. All five registered families are translated
+through OSC 12 set/query operations. This includes all 782 X11 color-name
+vectors. The oracle follows the terminal contract documented by xterm:
+`name or RGB specification as per XParseColor`. Consequently, old-style
+`#RGB` components are left-justified exactly like Xlib, while `rgb:` component
+precision is scaled; this intentionally differs from VTE's value-object test,
+which replicates low bits for both forms. `rgbi:` remains valid as specified
+by Xcms and implemented by xterm, Ghostty and Shitty. CSS-only rgba/rgb/hsl,
+alpha serialization and the opposite-parser-mode assertions are retained as
+inputs but adapted to their OSC meaning: non-XParseColor forms are rejected
+without changing the current color.

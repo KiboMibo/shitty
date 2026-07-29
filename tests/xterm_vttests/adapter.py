@@ -20,8 +20,11 @@ LIVE_CASES = {
     "dynamic.sh",
     "dynamic2.sh",
     "fonts.sh",
-    "resize.sh",
     "tab0.sh",
+}
+
+TRANSLATED_CASES = {
+    "resize.sh",
     "title.sh",
     "version.sh",
 }
@@ -79,6 +82,7 @@ PERL_LIVE_CASES = {
 }
 
 PERL_INTERACTIVE_CASES = {
+    "cursor.pl",
     "lrmm-scroll.pl",
     "palettes.pl",
     "paste64.pl",
@@ -121,6 +125,10 @@ def command_for(root, case):
                 "1.25",
                 *arguments,
             ]
+        elif case == "cursor.pl":
+            # cursor.pl is a viewer: without an input file it only clears an
+            # already empty screen, so the scenario has no observable oracle.
+            arguments.append(script)
         return arguments
     return [script]
 
@@ -277,6 +285,56 @@ def run_live_case(root, case):
     return ""
 
 
+def run_translated_case(case):
+    with Shitty(
+        columns=80,
+        rows=25,
+        save_lines=500,
+        extra_arguments=("-allowWindowOps", "true"),
+    ) as terminal:
+        if case == "resize.sh":
+            terminal.write(b"\x1b[18t\x1b[19t")
+            if terminal.read_input() != (
+                b"\x1b[8;25;80t\x1b[9;1080;1920t"
+            ):
+                return "current or maximum geometry report is incorrect"
+            terminal.write(b"\x1b[8;26;81t")
+            if terminal.read_actions() != ["WINDOW 8 26 81"]:
+                return "resize request did not reach the window backend"
+            return ""
+
+        if case == "title.sh":
+            terminal.write(b"\x1b[21t")
+            original = terminal.read_input()
+            if original != b"\x1b]lShitty\x1b\\":
+                return "initial window title report is incorrect"
+            terminal.write(
+                b"\x1b]2;Mon Jul 29 12:34:56 UTC 2026\x07"
+                b"\x1b[21t"
+            )
+            if terminal.read_input() != (
+                b"\x1b]lMon Jul 29 12:34:56 UTC 2026\x1b\\"
+            ):
+                return "clock title update or report is incorrect"
+            terminal.write(b"\x1b]2;Shitty\x07\x1b[21t")
+            if terminal.read_input() != original:
+                return "original window title was not restored"
+            return ""
+
+        if case == "version.sh":
+            terminal.write(b"\x1b[>0q")
+            response = terminal.read_input()
+            if not (
+                response.startswith(b"\x1bP>|Shitty ")
+                and response.endswith(b"\x1b\\")
+                and len(response) > len(b"\x1bP>|Shitty \x1b\\")
+            ):
+                return "version response is malformed"
+            return ""
+
+    raise RuntimeError(f"unclassified translated scenario: {case}")
+
+
 def main():
     if len(sys.argv) != 4:
         raise SystemExit("usage: adapter.py SCRIPT XFAIL_FILE STAMP")
@@ -296,6 +354,10 @@ def main():
             whole.write(payload)
             write_chunked(chunked, payload)
             mismatch = observable(whole) != observable(chunked)
+    elif case in TRANSLATED_CASES:
+        message = run_translated_case(case)
+        mismatch = bool(message)
+        payload = b""
     elif case in LIVE_CASES or case in PERL_LIVE_CASES:
         message = run_live_case(root, case)
         mismatch = bool(message)
@@ -324,7 +386,9 @@ def main():
         return 1
     else:
         detail = (
-            "live PTY scenario"
+            "translated finite protocol scenario"
+            if case in TRANSLATED_CASES
+            else "live PTY scenario"
             if case in LIVE_CASES or case in PERL_LIVE_CASES
             else f"{len(payload)}-byte live stream prefix"
             if case in PREFIX_CASES

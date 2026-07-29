@@ -2699,6 +2699,29 @@
         parser.oscColorQuery = true;
     }
 
+    action oscColorNameStart {
+        parser.oscColorNameOffset = ragelStringSize();
+    }
+
+    action oscColorNameByte {
+        ragelAppendString(fc, parser.maxOscBytes);
+    }
+
+    action oscColorNameDone {
+        const auto* data = ragelStringData();
+        parser.oscColorValid = parser.oscColorValid && colorFromName(
+            StringView(
+                data + parser.oscColorNameOffset,
+                ragelStringSize() - parser.oscColorNameOffset
+            ),
+            parser.oscColor
+        );
+    }
+
+    action oscColorTealDone {
+        parser.oscColor = {0x00, 0x80, 0x80};
+    }
+
     action oscColorHashDigit {
         ragelAppendString(fc, parser.maxOscBytes);
         const u8 digit =
@@ -3558,11 +3581,29 @@
         oscColorTriple
     ) %oscColorCieLuv;
 
-    oscColorTekHvc = (
-        oscColorT oscColorE oscColorK
-        oscColorH oscColorV oscColorC oscColorColon
-        oscColorTriple
-    ) %oscColorTekHvc;
+    oscColorTealOrTekHvc = (
+        oscColorT oscColorE
+        (
+            oscColorA oscColorL %oscColorTealDone |
+            (
+                oscColorK oscColorH oscColorV oscColorC oscColorColon
+                oscColorTriple
+            ) %oscColorTekHvc
+        )
+    );
+
+    oscColorNameByteChar = [a-zA-Z0-9 ] @oscColorNameByte;
+
+    oscColorName = (
+        ([a-sA-Su-zU-Z0-9 ] @oscColorNameByte)
+        oscColorNameByteChar*
+    ) >oscColorNameStart %oscColorNameDone;
+
+    oscColorNameT = (
+        ([tT] @oscColorNameByte)
+        ([a-df-zA-DF-Z0-9 ] @oscColorNameByte)
+        oscColorNameByteChar*
+    ) >oscColorNameStart %oscColorNameDone;
 
     oscColorValue = (
         oscColorGap*
@@ -3576,7 +3617,9 @@
             oscColorCieXyY |
             oscColorCieLab |
             oscColorCieLuv |
-            oscColorTekHvc
+            oscColorTealOrTekHvc |
+            oscColorName |
+            oscColorNameT
         )
         oscColorGap*
     );

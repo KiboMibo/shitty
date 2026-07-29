@@ -6,6 +6,7 @@
 
 #include "color_spec.h"
 
+#include <std/str/view.h>
 #include <std/tst/ut.h>
 
 using namespace stl;
@@ -17,6 +18,16 @@ namespace {
 }
 
 STD_TEST_SUITE(ColorSpec) {
+    STD_TEST(ResolvesX11ColorNamesCaseInsensitively) {
+        Color color{};
+
+        STD_INSIST(colorFromName(StringView(u8"teal"), color));
+        STD_INSIST((color == Color{0x00, 0x80, 0x80}));
+        STD_INSIST(colorFromName(StringView(u8"AliceBlue"), color));
+        STD_INSIST((color == Color{0xf0, 0xf8, 0xff}));
+        STD_INSIST(!colorFromName(StringView(u8"not a color"), color));
+    }
+
     STD_TEST(ConvertsLinearRgbIntensity) {
         Color color{};
 
