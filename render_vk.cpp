@@ -1825,7 +1825,7 @@ void RendererImpl::materializeCells(const TerminalCell* input, GpuCell* output, 
     for (u16 index = 0; index < count; ++index) {
         const TerminalCell& cell = input[index];
         const u32 codepoint = cell.uc_pt ? cell.uc_pt : ' ';
-        const u32 attributes = rendererCellAttributes(cell);
+        const u32 attributes = cellAttributes(cell);
         const u32 foreground = specialColors ? colors.resolveForegroundSpecial(cell).packed() : colors.resolvePacked(cell.foreground());
         const u32 background = specialColors ? colors.resolveBackgroundSpecial(cell).packed() : colors.resolvePacked(cell.background());
         u32 underlineColor = foreground;

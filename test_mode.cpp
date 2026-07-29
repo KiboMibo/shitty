@@ -1689,10 +1689,10 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
             } else if (line == "GPU_ATTRIBUTE_MASKS") {
                 TerminalCell cell{};
                 cell.dwidth = true;
-                const u32 doubleWidth = rendererCellAttributes(cell);
+                const u32 doubleWidth = Renderer::cellAttributes(cell);
                 cell.dwidth = false;
                 cell.dwidth_cont = true;
-                const u32 continuation = rendererCellAttributes(cell);
+                const u32 continuation = Renderer::cellAttributes(cell);
                 writeAll(controlFd, "OK " + std::to_string(doubleWidth) + " " + std::to_string(continuation) + "\n");
             } else if (line == "POLL_CHILD") {
                 pumpChild();

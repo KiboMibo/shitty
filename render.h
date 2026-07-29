@@ -21,6 +21,6 @@ struct Renderer {
     virtual bool repaint() = 0;
 
     static Renderer* create(Composer& composer, const plt::RenderContext& context);
-};
 
-u32 rendererCellAttributes(const TerminalCell& cell);
+    static u32 cellAttributes(const TerminalCell& cell);
+};
