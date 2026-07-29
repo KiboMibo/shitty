@@ -162,7 +162,10 @@ keys.~~
   assertion перенесены. Импорт добавил OSC 133 `I` (input до конца строки) и
   исправил OSC 133 `A`: prompt начинается с новой строки по согласованному
   поведению WezTerm, Ghostty и semantic-prompts specification;~~
-- hyperlink identity/attributes;
+- ~~все 3 hyperlink attribute assertions перенесены. Проверяются URI,
+  стабильность identity между OSC 8 и SGR reset, смена identity и отключение
+  ссылки через DECSTR. Импорт исправил soft reset: активная OSC 8 ссылка
+  теперь сбрасывается по согласованному поведению WezTerm, Kitty и VTE;~~
 - ~~все 12 selection clipboard assertions перенесены. Современные адаптации:
   не создаём trailing newline за границей экрана, сохраняем явно записанный
   trailing blank и соединяем soft-wrapped строки в одну логическую;~~
@@ -299,8 +302,8 @@ Search и vi-mode нам пока не нужны.
    применимые PTY methods.~~
 4. ~~Расширить существующий WezTerm screen adapter до всех 73 исполняемых
    visible checkpoints.~~
-5. ~~WezTerm cursor, selection, damage, history/stable-row и semantic
-   non-visible oracles.~~ Остались hyperlinks и line/cell metadata.
+5. ~~WezTerm cursor, selection, damage, history/stable-row, semantic и
+   hyperlink non-visible oracles.~~ Остались line/cell metadata.
 6. Windows Terminal adapter/input/mouse/selection/reflow.
 7. VTE tabstops/paste/UTF-8 и known-sequence matrices.
 8. Kitty — сохранить исходные test transactions и callbacks.

@@ -4730,6 +4730,7 @@ void VtermImpl::esc_RIS() {
 void VtermImpl::csi_DECSTR() {
     resetScreen(false);
     resetAttrs();
+    activeHyperlink = 0;
     marginTop = 0;
     marginBottom = composer.rows;
     hMargin = 0;

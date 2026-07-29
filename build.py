@@ -1387,6 +1387,57 @@ wezterm_semantic_validation = command(
 )
 
 
+wezterm_hyperlink_cases = (
+    wezterm_root / "hyperlink_file_names.txt"
+).read_text().split()
+wezterm_hyperlink_tests = []
+for case in wezterm_hyperlink_cases:
+    wezterm_hyperlink_tests.append(command(
+        name="wezterm_hyperlink_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/wezterm/hyperlink_adapter.py",
+            "$(S)/tests/wezterm/hyperlink_cases.py",
+            "$(S)/tests/wezterm/hyperlink_file_names.txt",
+            "$(S)/tests/wezterm/upstream/mod.rs",
+        ],
+        outputs=[f"$(B)/tests/wezterm/hyperlink/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/wezterm/hyperlink_adapter.py",
+            case,
+            f"$(B)/tests/wezterm/hyperlink/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="WL",
+        color="cyan",
+    ))
+
+wezterm_hyperlink_validation = command(
+    name="wezterm_hyperlink_catalog",
+    inputs=[
+        "$(S)/tests/wezterm/hyperlink_cases.py",
+        "$(S)/tests/wezterm/hyperlink_file_names.txt",
+        "$(S)/tests/wezterm/hyperlink_validate.py",
+        "$(S)/tests/wezterm/upstream/mod.rs",
+    ],
+    outputs=["$(B)/tests/wezterm/hyperlink/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/wezterm/hyperlink_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/wezterm/hyperlink/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="WL",
+    color="cyan",
+)
+
+
 konsole_root = Path(__file__).parent / "tests" / "konsole"
 konsole_cases = (konsole_root / "file_names.txt").read_text().split()
 konsole_tests = []
@@ -2322,6 +2373,8 @@ group(
     wezterm_history_validation,
     *wezterm_semantic_tests,
     wezterm_semantic_validation,
+    *wezterm_hyperlink_tests,
+    wezterm_hyperlink_validation,
     *konsole_tests,
     konsole_validation,
     *konsole_semantic_tests,

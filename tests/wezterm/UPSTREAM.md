@@ -65,5 +65,10 @@ next line, and corrected OSC 133 `A` to start its prompt on a fresh line. The
 latter behavior agrees with current WezTerm, Ghostty, and the semantic-prompts
 specification.
 
-Remaining non-visible upstream oracles are hyperlink identity and rich
-cell/line metadata. They are listed explicitly in `PLAN.md`.
+The hyperlink catalog covers all three attribute assertions. It checks URI and
+identity across explicit OSC 8 close/open, SGR reset, explicit identifiers,
+and DECSTR. Importing it fixed soft reset to close the active OSC 8 hyperlink,
+matching WezTerm, Kitty, and VTE.
+
+The remaining non-visible upstream oracles are rich cell/line metadata. They
+are listed explicitly in `PLAN.md`.
