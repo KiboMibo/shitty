@@ -662,6 +662,7 @@ namespace {
         void osc_SHELL_B(StringView) override;
         void osc_SHELL_C(StringView) override;
         void osc_SHELL_D(StringView) override;
+        void osc_SHELL_L(StringView) override;
         void osc_SHELL_UNKNOWN(StringView) override;
         void osc_UNKNOWN(u32, StringView) override;
         void csi_DECSCL(CompatibilityLevel level, bool send8BitControls) override;
@@ -5163,6 +5164,15 @@ void VtermImpl::osc_SHELL_C(StringView payload) {
 void VtermImpl::osc_SHELL_D(StringView payload) {
     if (currentSemantic == 3) {
         currentSemantic = 0;
+    }
+    host.osc(133, payload);
+}
+
+void VtermImpl::osc_SHELL_L(StringView payload) {
+    const u16 leftMargin = posX < hMargin ? 0 : hMargin;
+    if (posX != leftMargin) {
+        inp_CR();
+        esc_IND();
     }
     host.osc(133, payload);
 }

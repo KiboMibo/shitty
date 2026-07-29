@@ -130,23 +130,28 @@ keys.~~
 
 - 53 исходных теста;
 - 157 `term.print()` sites;
-- 74 `assert_visible_contents`.
+- 73 исполняемых `assert_visible_contents` (прежние 74 включали определение
+  самого helper).
 
 У нас сейчас:
 
 - 136 отдельных stream cases;
-- 28 видимых screen checkpoints.
+- ~~все 73 visible-screen checkpoints: 28 извлекаются статически, ещё 45
+  переписаны как явные Python transactions для dynamic strings, reset,
+  left/right margins, selection side effects и resize/reflow. Catalog
+  инвентаризирует каждый call site, все проходят без XFAIL. Импорт добавил
+  подтверждённую WezTerm/Ghostty/spec семантику OSC 133 `L` fresh-line.~~
 
-Пропущено то, что адаптер пока не умеет выразить:
+Остались non-visible oracles из тех же файлов:
 
-- resize/reflow;
-- history и scrollback;
-- dirty-line/damage assertions;
-- semantic zones;
-- left/right margins;
-- hyperlinks;
-- richer selection;
-- динамически построенные streams.
+- 64 cursor assertions;
+- 17 dirty-line/damage assertions;
+- 27 `assert_all_contents` и viewport/history/stable-row assertions;
+- semantic zones и semantic cell attributes;
+- hyperlink identity/attributes;
+- 12 selection clipboard assertions;
+- rich cell/line metadata snapshots, включая background after DCH и
+  double-width/double-height flags.
 
 Файлы уже лежат у нас — выгоднее расширить DSL адаптера, чем добавлять новые источники.
 
@@ -276,13 +281,16 @@ Search и vi-mode нам пока не нужны.
 2. ~~libtsm — все 32.~~
 3. ~~Konsole Screen/History, selection/copy, tokenizer, width, keyboard и
    применимые PTY methods.~~
-4. Расширить существующий WezTerm screen adapter до всех 74 checkpoints.
-5. Windows Terminal adapter/input/mouse/selection/reflow.
-6. VTE tabstops/paste/UTF-8 и known-sequence matrices.
-7. Kitty — сохранить исходные test transactions и callbacks.
-8. Contour Screen/Terminal/InputGenerator.
-9. Ghostty Terminal/Screen/PageList и OSC assertions.
-10. xterm.js InputHandler/reflow/keyboard/selection.
+4. ~~Расширить существующий WezTerm screen adapter до всех 73 исполняемых
+   visible checkpoints.~~
+5. WezTerm non-visible oracles: cursor, damage, history, semantic zones,
+   hyperlinks, selection и line/cell metadata.
+6. Windows Terminal adapter/input/mouse/selection/reflow.
+7. VTE tabstops/paste/UTF-8 и known-sequence matrices.
+8. Kitty — сохранить исходные test transactions и callbacks.
+9. Contour Screen/Terminal/InputGenerator.
+10. Ghostty Terminal/Screen/PageList и OSC assertions.
+11. xterm.js InputHandler/reflow/keyboard/selection.
 11. iTerm2 Grid/Screen/LineBuffer.
 
 Самые важные поведенческие области, где нам нужен именно независимый внешний oracle: resize/reflow/history, selection lifetime, input encoding, OSC replies/effects и семантика damage. Собственных тестов на это у нас много, но они подтверждают нашу модель нашей же моделью.

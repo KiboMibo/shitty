@@ -1952,6 +1952,11 @@
         fgoto oscShellDComplete;
     }
 
+    action oscShellL {
+        ragelAppendString(fc, parser.maxOscBytes);
+        fgoto oscShellLComplete;
+    }
+
     action oscShellInvalid {
         consumeStringUtf8Byte(fc);
         if (!executeC0(fc)) {
@@ -2016,6 +2021,20 @@
         }
     }
 
+    action oscShellLSt {
+        if (consumeStringUtf8Byte(fc)) {
+            ragelAppendString(fc, parser.maxOscBytes);
+            fgoto oscShellUnknown;
+        } else {
+            ragelFinishOsc();
+            if (!parser.overflow) {
+                iface.osc_SHELL_L(ragelOscPayload());
+            }
+            fnext main;
+            fbreak;
+        }
+    }
+
     action oscShellUnknownSt {
         if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
@@ -2052,6 +2071,11 @@
     action oscShellEscapedD {
         ragelAppendEscapedString(fc, parser.maxOscBytes);
         fgoto oscShellDTail;
+    }
+
+    action oscShellEscapedL {
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
+        fgoto oscShellLTail;
     }
 
     action oscTitleData {
@@ -4742,7 +4766,8 @@
         'B' @oscShellB |
         'C' @oscShellC |
         'D' @oscShellD |
-        (0x20..0x7e - ('A' | 'B' | 'C' | 'D')) @oscShellInvalid |
+        'L' @oscShellL |
+        (0x20..0x7e - ('A' | 'B' | 'C' | 'D' | 'L')) @oscShellInvalid |
         (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscShellInvalid
     )*;
 
@@ -4798,6 +4823,19 @@
         (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscShellInvalid
     )*;
 
+    oscShellLComplete := (
+        cancel |
+        stringC1 |
+        0x9c @oscShellLSt |
+        0x07 @oscShellLSt |
+        0x1b @{ fgoto oscShellLCompleteEscape; } |
+        0x7f |
+        sequenceC0 |
+        ';' @{ ragelAppendString(fc, parser.maxOscBytes); fgoto oscShellLTail; } |
+        (0x20..0x7e - ';') @oscShellInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscShellInvalid
+    )*;
+
     oscShellATail := (
         cancel |
         stringC1 |
@@ -4842,6 +4880,17 @@
          0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
     )*;
 
+    oscShellLTail := (
+        cancel |
+        stringC1 |
+        0x9c @oscShellLSt |
+        0x07 @oscShellLSt |
+        0x1b @{ fgoto oscShellLTailEscape; } |
+        0x7f |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
     oscShellUnknown := (
         cancel |
         stringC1 |
@@ -4881,6 +4930,13 @@
         (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
     )*;
 
+    oscShellLCompleteEscape := (
+        cancel |
+        '\\' @oscShellLSt |
+        0x1b @oscEscapedEscape @{ fgoto oscShellUnknownEscape; } |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
+    )*;
+
     oscShellATailEscape := (
         cancel |
         '\\' @oscShellASt |
@@ -4907,6 +4963,13 @@
         '\\' @oscShellDSt |
         0x1b @oscEscapedEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedD
+    )*;
+
+    oscShellLTailEscape := (
+        cancel |
+        '\\' @oscShellLSt |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedL
     )*;
 
     oscShellUnknownEscape := (

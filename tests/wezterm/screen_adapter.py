@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+# Copyright (C) 2026 Shitty team
+# MIT licensed
+# See the file LICENSE.MIT for the full license.
+
 import os
 import signal
 import sys
@@ -38,9 +42,15 @@ def main():
 
     signal.signal(signal.SIGALRM, timed_out)
     signal.alarm(10)
-    label, rows, columns, save_lines, payload, expected = case_data(name)
+    label, rows, columns, save_lines, actions, expected = case_data(name)
     with Shitty(columns=columns, rows=rows, save_lines=save_lines) as terminal:
-        terminal.write(payload)
+        for action in actions:
+            if action[0] == "write":
+                terminal.write(action[1])
+            elif action[0] == "resize":
+                terminal.resize(action[1], action[2])
+            else:
+                raise AssertionError(f"unknown screen action: {action!r}")
         actual = visible_lines(terminal.snapshot())
     normalized_expected = tuple(line.rstrip(" ") for line in expected)
     mismatch = None if actual == normalized_expected else (
