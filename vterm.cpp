@@ -968,6 +968,7 @@ namespace {
         bool ansiMode(u32 mode) const override;
         bool privateMode(u32 mode) const override;
         VtermTestCell cell(u16 row, u16 column) const override;
+        VtermTestCell logicalCell(i32 row, u16 column) const override;
         void key(VtKey key, VtModifier modifiers) override;
         void character(u8 byte, VtModifier modifiers) override;
         void kittyKey(VtKey key, u16 modifiers, VtermKeyEventType event) override;
@@ -2266,6 +2267,21 @@ VtermTestCell TestApiImpl::cell(u16 row, u16 column) const {
     result.graphemeSize = grapheme.size();
     result.underlineColor = extras.underlineColor(result.cell);
     result.lineAttribute = vterm->cf->lineAttribute(row);
+    return result;
+}
+
+VtermTestCell TestApiImpl::logicalCell(i32 row, u16 column) const {
+    const ScreenInfo info = vterm->cf->info();
+    if (row < -(i32)(info.historyRows) || row >= info.rows || column >= info.columns) {
+        return {};
+    }
+    VtermTestCell result;
+    result.cell = vterm->cf->testLogicalCell(row, column);
+    CellExtraStore& extras = *vterm->composer.cellExtras;
+    const GraphemeView grapheme = extras.grapheme(result.cell.extraRef());
+    result.grapheme = grapheme.data();
+    result.graphemeSize = grapheme.size();
+    result.underlineColor = extras.underlineColor(result.cell);
     return result;
 }
 

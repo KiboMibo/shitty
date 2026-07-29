@@ -1277,6 +1277,65 @@ wezterm_damage_validation = command(
 )
 
 
+wezterm_history_cases = (
+    wezterm_root / "history_file_names.txt"
+).read_text().split()
+wezterm_history_tests = []
+for case in wezterm_history_cases:
+    wezterm_history_tests.append(command(
+        name="wezterm_history_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/wezterm/catalog.py",
+            "$(S)/tests/wezterm/history_adapter.py",
+            "$(S)/tests/wezterm/history_cases.py",
+            "$(S)/tests/wezterm/history_file_names.txt",
+            "$(S)/tests/wezterm/screen_catalog.py",
+            "$(S)/tests/wezterm/upstream/csi.rs",
+            "$(S)/tests/wezterm/upstream/mod.rs",
+            "$(S)/tests/wezterm/upstream/selection.rs",
+        ],
+        outputs=[f"$(B)/tests/wezterm/history/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/wezterm/history_adapter.py",
+            case,
+            f"$(B)/tests/wezterm/history/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="WH",
+        color="cyan",
+    ))
+
+wezterm_history_validation = command(
+    name="wezterm_history_catalog",
+    inputs=[
+        "$(S)/tests/wezterm/catalog.py",
+        "$(S)/tests/wezterm/history_cases.py",
+        "$(S)/tests/wezterm/history_file_names.txt",
+        "$(S)/tests/wezterm/history_validate.py",
+        "$(S)/tests/wezterm/screen_catalog.py",
+        "$(S)/tests/wezterm/upstream/csi.rs",
+        "$(S)/tests/wezterm/upstream/mod.rs",
+        "$(S)/tests/wezterm/upstream/selection.rs",
+    ],
+    outputs=["$(B)/tests/wezterm/history/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/wezterm/history_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/wezterm/history/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="WH",
+    color="cyan",
+)
+
+
 konsole_root = Path(__file__).parent / "tests" / "konsole"
 konsole_cases = (konsole_root / "file_names.txt").read_text().split()
 konsole_tests = []
@@ -2208,6 +2267,8 @@ group(
     wezterm_cursor_validation,
     *wezterm_damage_tests,
     wezterm_damage_validation,
+    *wezterm_history_tests,
+    wezterm_history_validation,
     *konsole_tests,
     konsole_validation,
     *konsole_semantic_tests,

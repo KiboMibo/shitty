@@ -152,7 +152,12 @@ keys.~~
   ожидания сохранены как oracle и явно переведены в visible renderer rows:
   WezTerm индексирует физические строки вместе с history, Shitty передаёт
   renderer координаты текущего viewport;~~
-- 27 `assert_all_contents` и viewport/history/stable-row assertions;
+- ~~все 27 `assert_all_contents` и 20 соседних stable-row assertions
+  перенесены. Stable RowId в Shitty намеренно отсутствует, поэтому проверяются
+  эквивалентные ordered history contents, retained-row count и viewport
+  origin. Четыре snapshots адаптированы к нашему power-of-two ring, который
+  хранит больше запрошенного минимума; отключённый upstream selection test
+  нормализует неявный padding последней строки;~~
 - semantic zones и semantic cell attributes;
 - hyperlink identity/attributes;
 - ~~все 12 selection clipboard assertions перенесены. Современные адаптации:
@@ -291,8 +296,8 @@ Search и vi-mode нам пока не нужны.
    применимые PTY methods.~~
 4. ~~Расширить существующий WezTerm screen adapter до всех 73 исполняемых
    visible checkpoints.~~
-5. ~~WezTerm cursor, selection и damage non-visible oracles.~~ Остались
-   history/stable rows, semantic zones, hyperlinks и line/cell metadata.
+5. ~~WezTerm cursor, selection, damage и history/stable-row non-visible
+   oracles.~~ Остались semantic zones, hyperlinks и line/cell metadata.
 6. Windows Terminal adapter/input/mouse/selection/reflow.
 7. VTE tabstops/paste/UTF-8 и known-sequence matrices.
 8. Kitty — сохранить исходные test transactions и callbacks.

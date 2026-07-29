@@ -48,6 +48,17 @@ Shitty's incremental renderer addresses the current viewport. Cursor-only
 movement produces no cell damage; scrolling damages the visible coordinates
 whose contents changed.
 
-Remaining non-visible upstream oracles are all-lines/history and stable-row
-assertions, semantic zones and cell attributes, hyperlink identity, and rich
-cell/line metadata. They are listed explicitly in `PLAN.md`.
+The history catalog covers all 27 `assert_all_contents` call sites and
+inventories all 20 adjacent stable-row assertions. Shitty deliberately has no
+stable RowId: it checks the equivalent ordered history contents, retained-row
+count, and viewport origin. Four source snapshots are translated because
+Shitty rounds `rows + history` up to a power of two and therefore retains more
+rows than WezTerm's exact limit. The old, upstream-disabled selection module
+also includes fixed-width padding that current WezTerm model tests no longer
+use; only its final implicit blank is normalized. The U+008D reverse-index
+input is represented by its standard seven-bit `ESC M` form because C1
+codepoints in UTF-8 are text, not controls.
+
+Remaining non-visible upstream oracles are semantic zones and cell attributes,
+hyperlink identity, and rich cell/line metadata. They are listed explicitly in
+`PLAN.md`.

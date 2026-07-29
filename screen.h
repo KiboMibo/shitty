@@ -89,6 +89,7 @@ struct Screen {
     virtual u16 checksum(u16 top, u16 left, u16 bottom, u16 right) const noexcept = 0;
     virtual ScreenHyperlink hyperlinkAt(u16 row, u16 column) const = 0;
     virtual TerminalCell testCell(u16 row, u16 column) const noexcept = 0;
+    virtual TerminalCell testLogicalCell(i32 row, u16 column) const noexcept = 0;
     virtual ScreenFrame captureFrame(TerminalCellSpan* spans) const = 0;
     virtual ScreenInfo info() const noexcept = 0;
 

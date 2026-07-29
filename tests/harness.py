@@ -781,6 +781,15 @@ class Shitty:
     def screen_text(self):
         return self._read_hex_response("SCREEN_TEXT").decode("ascii")
 
+    def all_text(self):
+        encoded = self._read_hex_response("ALL_TEXT")
+        if not encoded.endswith(b"\0"):
+            raise RuntimeError("invalid all text response")
+        return tuple(
+            line.decode("utf-8")
+            for line in encoded[:-1].split(b"\0")
+        )
+
     def flush_output(self):
         self.command("FLUSH_OUTPUT")
 

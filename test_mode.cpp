@@ -474,6 +474,7 @@ namespace {
         bool expireSynchronizedOutput(bool force = false);
         bool advanceAnimation(bool force = false);
         bool advanceSelectionAutoscroll();
+        Buffer allText() const;
 
         Vterm& terminal;
         TestApi& testApi;
@@ -968,6 +969,39 @@ void TestTerminal::redraw() {
 void TestTerminal::resize(u16 width, u16 height) {
     display.applyWindowSize(width, height);
     update();
+}
+
+Buffer TestTerminal::allText() const {
+    Buffer output((display.historyRows + display.rows) * ((size_t)(display.columns) * 4 + 1));
+    const auto appendCodepoint = [&](u32 codepoint) {
+        Utf8Encoder::pushUnicode(codepoint, [&](u8 byte) {
+            output.append(&byte, 1);
+        });
+    };
+    for (i32 row = -(i32)(display.historyRows); row < display.rows; ++row) {
+        size_t contentEnd = output.used();
+        for (u16 column = 0; column < display.columns; ++column) {
+            const VtermTestCell value = testApi.logicalCell(row, column);
+            const TerminalCell& cell = value.cell;
+            if (cell.dwidth_cont) {
+                continue;
+            }
+            if (value.graphemeSize != 0) {
+                for (size_t index = 0; index < value.graphemeSize; ++index) {
+                    appendCodepoint(value.grapheme[index]);
+                }
+            } else {
+                appendCodepoint(cell.uc_pt == 0 ? ' ' : cell.uc_pt);
+            }
+            if (cell.drawn || (cell.uc_pt != 0 && cell.uc_pt != ' ') || value.graphemeSize != 0) {
+                contentEnd = output.used();
+            }
+        }
+        output.seekAbsolute(contentEnd);
+        const u8 separator = 0;
+        output.append(&separator, 1);
+    }
+    return output;
 }
 
 int TestTerminal::writePty(VtKey key, VtModifier modifiers, bool) {
@@ -2163,6 +2197,13 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
                 writeAll(controlFd, display.scrollbackState());
             } else if (line == "SCREEN_TEXT") {
                 writeAll(controlFd, "OK " + encodeHex(display.screenText()) + "\n");
+            } else if (line == "ALL_TEXT") {
+                const Buffer contents = terminal.allText();
+                StringBuilder output;
+                output << StringView(u8"OK ");
+                appendHex(output, StringView(contents));
+                output << StringView(u8"\n");
+                writeAll(controlFd, StringView(output));
             } else if (line == "READ_INPUT") {
                 writeAll(controlFd, "OK " + encodeHex(drainInput(io[1])) + "\n");
             } else if (line == "FLUSH_OUTPUT") {

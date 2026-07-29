@@ -176,6 +176,7 @@ namespace {
         u16 checksum(u16 top, u16 left, u16 bottom, u16 right) const noexcept override;
         ScreenHyperlink hyperlinkAt(u16 row, u16 column) const override;
         TerminalCell testCell(u16 row, u16 column) const noexcept override;
+        TerminalCell testLogicalCell(i32 row, u16 column) const noexcept override;
         ScreenFrame captureFrame(TerminalCellSpan* spans) const override;
         ScreenInfo info() const noexcept override;
 
@@ -2687,6 +2688,11 @@ ScreenHyperlink ScreenBase<Coord, Epoch>::hyperlinkAt(u16 row, u16 column) const
 template <typename Coord, typename Epoch>
 TerminalCell ScreenBase<Coord, Epoch>::testCell(u16 row, u16 column) const noexcept {
     return getViewRowPtr(row)[column];
+}
+
+template <typename Coord, typename Epoch>
+TerminalCell ScreenBase<Coord, Epoch>::testLogicalCell(i32 row, u16 column) const noexcept {
+    return getLogicalRowPtr(row)[column];
 }
 
 template <typename Coord, typename Epoch>
