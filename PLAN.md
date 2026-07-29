@@ -169,8 +169,10 @@ keys.~~
 - ~~все 12 selection clipboard assertions перенесены. Современные адаптации:
   не создаём trailing newline за границей экрана, сохраняем явно записанный
   trailing blank и соединяем soft-wrapped строки в одну логическую;~~
-- rich cell/line metadata snapshots, включая background after DCH и
-  double-width/double-height flags.
+- ~~все оставшиеся metadata assertions перенесены: 2 cell/BCE snapshots,
+  4 line-mode assertions и 2 Unicode/NFC/grapheme assertions. Проверяются
+  background after DCH, ED background-color erase, double-width и обе половины
+  double-height строк, single-width reset и исходный Hangul cluster.~~
 
 Файлы уже лежат у нас — выгоднее расширить DSL адаптера, чем добавлять новые источники.
 
@@ -302,8 +304,8 @@ Search и vi-mode нам пока не нужны.
    применимые PTY methods.~~
 4. ~~Расширить существующий WezTerm screen adapter до всех 73 исполняемых
    visible checkpoints.~~
-5. ~~WezTerm cursor, selection, damage, history/stable-row, semantic и
-   hyperlink non-visible oracles.~~ Остались line/cell metadata.
+5. ~~Все WezTerm non-visible oracles: cursor, selection, damage,
+   history/stable-row, semantic, hyperlink и line/cell metadata.~~
 6. Windows Terminal adapter/input/mouse/selection/reflow.
 7. VTE tabstops/paste/UTF-8 и known-sequence matrices.
 8. Kitty — сохранить исходные test transactions и callbacks.

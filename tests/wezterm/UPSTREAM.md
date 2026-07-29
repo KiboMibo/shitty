@@ -70,5 +70,9 @@ identity across explicit OSC 8 close/open, SGR reset, explicit identifiers,
 and DECSTR. Importing it fixed soft reset to close the active OSC 8 hyperlink,
 matching WezTerm, Kitty, and VTE.
 
-The remaining non-visible upstream oracles are rich cell/line metadata. They
-are listed explicitly in `PLAN.md`.
+The metadata catalog completes the remaining source assertions: two exact
+cell-attribute/BCE oracles, four DEC double-width/double-height line-mode
+checks, and the two Hangul NFC/grapheme assertions. All behavioral assertions
+in the copied WezTerm test sources are now represented by an executable Shitty
+adapter; Rust helper-internal checks are inventoried through their callers
+rather than duplicated.
