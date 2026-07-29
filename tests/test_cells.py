@@ -31,7 +31,7 @@ class CellStateTest(unittest.TestCase):
             Shitty(columns=4, rows=2) as chunked,
         ):
             whole.write(payload)
-            chunked.write_chunks(payload[:3], payload[3:12], payload[12:])
+            chunked.write_chunks(payload[:21], payload[21:])
 
             self.assertNotEqual(
                 whole.snapshot().refresh_count,

@@ -77,49 +77,51 @@ namespace {
     }
 
     TerminalUpdate takeUpdate(Screen& screen, const TerminalColors& colors, Vector<TerminalCellSpan>& spans) {
-        const size_t maximumSpans = (size_t)(screen.rows()) * ((screen.columns() + 1u) / 2u);
+        const ScreenInfo info = screen.info();
+        const size_t maximumSpans = (size_t)(info.rows) * ((info.columns + 1u) / 2u);
         spans.grow(maximumSpans);
-        const TerminalCellBatch batch = screen.copyDamage(spans.mutData());
+        const ScreenFrame frame = screen.captureFrame(spans.mutData());
+        const TerminalCellBatch batch = frame.damage;
         STD_INSIST(batch.spanCount <= maximumSpans);
 
         size_t cellCount = 0;
         u32 previousEnd = 0;
-        Vector<u8> touched((size_t)(screen.columns()) * screen.rows());
-        touched.zero((size_t)(screen.columns()) * screen.rows());
+        Vector<u8> touched((size_t)(info.columns) * info.rows);
+        touched.zero((size_t)(info.columns) * info.rows);
         for (size_t index = 0; index < batch.spanCount; ++index) {
             const TerminalCellSpan& span = spans[index];
             STD_INSIST(span.count != 0);
             STD_INSIST(span.cells != nullptr);
             STD_INSIST(span.index >= previousEnd);
-            STD_INSIST(span.index + span.count <= (u32)(screen.columns()) * screen.rows());
-            STD_INSIST(span.index / screen.columns() == (span.index + span.count - 1) / screen.columns());
+            STD_INSIST(span.index + span.count <= (u32)(info.columns) * info.rows);
+            STD_INSIST(span.index / info.columns == (span.index + span.count - 1) / info.columns);
             for (u32 offset = 0; offset < span.count; ++offset) {
                 const u32 cellIndex = span.index + offset;
                 STD_INSIST(touched[cellIndex] == 0);
                 touched.mut(cellIndex) = 1;
-                STD_INSIST(span.cells[offset] == screen.testCell(cellIndex / screen.columns(), cellIndex % screen.columns()));
+                STD_INSIST(span.cells[offset] == screen.testCell(cellIndex / info.columns, cellIndex % info.columns));
             }
             previousEnd = span.index + span.count;
             cellCount += span.count;
         }
         STD_INSIST(cellCount == batch.cellCount);
 
-        TerminalUpdate update;
+        TerminalUpdate update{};
         update.spans = spans.data();
         update.spanCount = batch.spanCount;
         update.colors = &colors;
-        update.viewOffset = screen.getViewOffset();
-        update.historyRows = screen.getHistoryRows();
-        update.cursor = screen.getCursor();
-        update.selection = screen.getSelectionForView();
-        update.snappedSelection = screen.getSnappedSelection();
-        update.selectionForeground = screen.getSelectionForeground();
-        update.selectionBackground = screen.getSelectionBackground();
-        update.selectionColorMask = screen.getSelectionColorMask();
-        update.screenReverse = screen.getScreenReverseVideo();
-        update.blinkVisible = screen.getBlinkVisible();
-        update.cursorBlink = screen.getCursorBlink();
+        update.viewOffset = frame.viewOffset;
+        update.historyRows = frame.historyRows;
+        update.selection = frame.selection;
+        update.snappedSelection = frame.snappedSelection;
         return update;
+    }
+
+    bool hasDamage(Screen& screen) {
+        const ScreenInfo info = screen.info();
+        Vector<TerminalCellSpan> spans;
+        spans.grow((size_t)(info.rows) * ((info.columns + 1u) / 2u));
+        return screen.captureFrame(spans.mutData()).damage.spanCount != 0;
     }
 
     void applyUpdate(DamageCanvas& canvas, const TerminalUpdate& update) {
@@ -159,19 +161,21 @@ namespace {
     }
 
     void renderFull(Screen& screen, const TerminalColors& colors, DamageCanvas& canvas) {
-        clearCanvas(canvas, screen.columns(), screen.rows());
+        const ScreenInfo info = screen.info();
+        clearCanvas(canvas, info.columns, info.rows);
         screen.expose();
         Vector<TerminalCellSpan> spans;
         const TerminalUpdate update = takeUpdate(screen, colors, spans);
         applyUpdate(canvas, update);
         screen.resetDamage();
-        STD_INSIST(!screen.hasDamage());
+        STD_INSIST(!hasDamage(screen));
     }
 
     void fillDamagePattern(Screen& screen, Composer& composer) {
-        Vector<u8> text(screen.columns());
-        for (u16 row = 0; row < screen.rows(); ++row) {
-            for (u16 column = 0; column < screen.columns(); ++column) {
+        const ScreenInfo info = screen.info();
+        Vector<u8> text(info.columns);
+        for (u16 row = 0; row < info.rows; ++row) {
+            for (u16 column = 0; column < info.columns; ++column) {
                 text.mut(column) = (u8)(33 + ((u32)(row) * 17 + column) % 90);
             }
             TerminalCell attrs = attributes();
@@ -179,7 +183,7 @@ namespace {
             attrs.setBackground(CellColor::indexed((u8)(row + 17)));
             attrs.bold = row & 1;
             attrs.italic = (row & 2) != 0;
-            screen.writeAsciiRun(row, 0, text.data(), screen.columns(), attrs, 0, row & 3, TerminalCell{});
+            screen.writeAsciiRun(row, 0, text.data(), info.columns, attrs, 0, row & 3, TerminalCell{});
             screen.setLineAttribute(row, row % 3);
         }
 
@@ -187,18 +191,19 @@ namespace {
         protectedAttrs.protected_char = TerminalCell::isoProtection;
         screen.writeCodepoint(2, 3, 'P', false, protectedAttrs, 0, 1, TerminalCell{});
         screen.writeCodepoint(1, 2, 0x4e00, true, attributes(), 0, 2, TerminalCell{});
-        screen.writeCodepoint(3, screen.columns() - 3, 0x4e01, true, attributes(), 0, 3, TerminalCell{});
+        screen.writeCodepoint(3, info.columns - 3, 0x4e01, true, attributes(), 0, 3, TerminalCell{});
         const u32 hyperlink = composer.cellExtras->getOrCreateHyperlink(StringView(u8"damage"), StringView(u8"https://damage.test"), 7);
         screen.writeCodepoint(4, 4, 'H', false, attributes(), hyperlink, 2, TerminalCell{});
-        screen.setWrapped(0, screen.columns() - 1);
+        screen.setWrapped(0, info.columns - 1);
     }
 
     void prepareHistory(Screen& screen) {
-        screen.scrollUp(0, screen.rows(), 2, TerminalCell{});
+        const ScreenInfo info = screen.info();
+        screen.scrollRows(0, info.rows, -2, TerminalCell{});
         const u8 first[] = {'n', 'e', 'w', '1'};
         const u8 second[] = {'n', 'e', 'w', '2'};
-        screen.writeAsciiRun(screen.rows() - 2, 0, first, sizeof(first), attributes(), 0, 0, TerminalCell{});
-        screen.writeAsciiRun(screen.rows() - 1, 0, second, sizeof(second), attributes(), 0, 0, TerminalCell{});
+        screen.writeAsciiRun(info.rows - 2, 0, first, sizeof(first), attributes(), 0, 0, TerminalCell{});
+        screen.writeAsciiRun(info.rows - 1, 0, second, sizeof(second), attributes(), 0, 0, TerminalCell{});
     }
 
     template <typename Setup, typename Operation>
@@ -215,9 +220,10 @@ namespace {
         DamageCanvas incremental;
         renderFull(*screen, colors, incremental);
         operation(*screen);
-        STD_INSIST(screen->hasDamage() == expectsDamage);
-        if (incremental.columns != screen->columns() || incremental.rows != screen->rows()) {
-            clearCanvas(incremental, screen->columns(), screen->rows());
+        STD_INSIST(hasDamage(*screen) == expectsDamage);
+        const ScreenInfo info = screen->info();
+        if (incremental.columns != info.columns || incremental.rows != info.rows) {
+            clearCanvas(incremental, info.columns, info.rows);
         }
 
         Vector<TerminalCellSpan> spans;
@@ -258,8 +264,9 @@ namespace {
         cursor.position = Point(columns - 2, 3);
         const u16 destinationColumns = primary ? columns - 2 : columns + 2;
         Screen* const destination = source->resized(*destinationPool, destinationColumns, 6, cursor);
-        STD_INSIST(destination->hasDamage());
-        clearCanvas(incremental, destination->columns(), destination->rows());
+        STD_INSIST(hasDamage(*destination));
+        const ScreenInfo destinationInfo = destination->info();
+        clearCanvas(incremental, destinationInfo.columns, destinationInfo.rows);
 
         Vector<TerminalCellSpan> spans;
         const TerminalUpdate update = takeUpdate(*destination, colors, spans);
@@ -285,17 +292,44 @@ STD_TEST_SUITE(Screen) {
         configureColors(colors);
 
         Screen* screen = Screen::createPrimary(composer, *pool, 4, 3, &colors, 5);
+        const ScreenInfo info = screen->info();
 
-        STD_INSIST(screen->active());
-        STD_INSIST(screen->columns() == 4);
-        STD_INSIST(screen->rows() == 3);
-        STD_INSIST(screen->cellCapacity() == 32);
-        STD_INSIST(!screen->hasDamage());
+        STD_INSIST(info.columns == 4);
+        STD_INSIST(info.rows == 3);
+        STD_INSIST(info.cellCapacity == 32);
+        STD_INSIST(!hasDamage(*screen));
 
         screen->expose();
-        STD_INSIST(screen->hasDamage());
+        STD_INSIST(hasDamage(*screen));
         screen->resetDamage();
-        STD_INSIST(!screen->hasDamage());
+        STD_INSIST(!hasDamage(*screen));
+    }
+
+    STD_TEST(RevisionTracksVisibleState) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        composer.setCellExtras(CellExtraStore::create(composer, 32));
+        TerminalColors colors;
+        configureColors(colors);
+
+        Screen* screen = Screen::createPrimary(composer, *pool, 4, 3, &colors, 5);
+        const u32 initial = screen->info().revision;
+        screen->resetDamage();
+        STD_INSIST(screen->info().revision == initial);
+
+        screen->expose();
+        const u32 exposed = screen->info().revision;
+        STD_INSIST(exposed != initial);
+        screen->resetDamage();
+        STD_INSIST(screen->info().revision == exposed);
+
+        const u8 text[] = {'x'};
+        screen->writeAsciiRun(0, 0, text, 1, attributes(), 0, 0, TerminalCell{});
+        const u32 written = screen->info().revision;
+        STD_INSIST(written != exposed);
+
+        screen->beginSelection(Point(0, 0));
+        STD_INSIST(screen->info().revision != written);
     }
 
     STD_TEST(ExpandsScrollbackToPowerOfTwoRing) {
@@ -307,11 +341,11 @@ STD_TEST_SUITE(Screen) {
 
         Screen* screen = Screen::createPrimary(composer, *pool, 2, 3, &colors, 2);
 
-        STD_INSIST(screen->cellCapacity() == 16);
+        STD_INSIST(screen->info().cellCapacity == 16);
         for (u16 index = 0; index < 6; ++index) {
-            screen->scrollUp(0, 3, 1, TerminalCell{});
+            screen->scrollRows(0, 3, -1, TerminalCell{});
         }
-        STD_INSIST(screen->getHistoryRows() == 5);
+        STD_INSIST(screen->info().historyRows == 5);
     }
 
     STD_TEST(KeepsZeroScrollbackDisabled) {
@@ -322,10 +356,10 @@ STD_TEST_SUITE(Screen) {
         configureColors(colors);
 
         Screen* screen = Screen::createAlternate(composer, *pool, 2, 3, &colors);
-        screen->scrollUp(0, 3, 1, TerminalCell{});
+        screen->scrollRows(0, 3, -1, TerminalCell{});
 
-        STD_INSIST(screen->cellCapacity() == 6);
-        STD_INSIST(screen->getHistoryRows() == 0);
+        STD_INSIST(screen->info().cellCapacity == 6);
+        STD_INSIST(screen->info().historyRows == 0);
     }
 
     STD_TEST(AlternateResizeKeepsTopRows) {
@@ -349,7 +383,7 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(resized->testCell(1, 0).uc_pt == 'B');
         STD_INSIST(resized->testCell(2, 0).uc_pt == 'C');
         STD_INSIST(cursor.position.y == 2);
-        STD_INSIST(resized->getHistoryRows() == 0);
+        STD_INSIST(resized->info().historyRows == 0);
     }
 
     STD_TEST(PrimaryResizeKeepsCursorRowsAndCapturesHistory) {
@@ -373,7 +407,7 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(resized->testCell(1, 0).uc_pt == 'C');
         STD_INSIST(resized->testCell(2, 0).uc_pt == 'D');
         STD_INSIST(cursor.position.y == 2);
-        STD_INSIST(resized->getHistoryRows() == 1);
+        STD_INSIST(resized->info().historyRows == 1);
     }
 
     STD_TEST(WritesAsciiAndExposesOnlyDamagedCells) {
@@ -389,7 +423,7 @@ STD_TEST_SUITE(Screen) {
         TerminalCellSpan spans[2];
 
         screen->expose();
-        TerminalCellBatch batch = screen->copyDamage(spans);
+        TerminalCellBatch batch = screen->captureFrame(spans).damage;
         STD_INSIST(batch.cellCount == 8);
         STD_INSIST(batch.spanCount == 2);
         STD_INSIST(spans[0].index == 0);
@@ -398,7 +432,7 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(spans[1].count == 4);
         screen->resetDamage();
         screen->writeAsciiRun(1, 1, text, 2, attrs, 0, 3, TerminalCell{});
-        batch = screen->copyDamage(spans);
+        batch = screen->captureFrame(spans).damage;
 
         STD_INSIST(batch.cellCount == 2);
         STD_INSIST(batch.spanCount == 1);
@@ -426,7 +460,7 @@ STD_TEST_SUITE(Screen) {
         screen->writeAsciiRun(1, 1, left, 1, attrs, 0, 0, TerminalCell{});
         screen->writeAsciiRun(1, 6, right, 1, attrs, 0, 0, TerminalCell{});
 
-        TerminalCellBatch batch = screen->copyDamage(spans);
+        TerminalCellBatch batch = screen->captureFrame(spans).damage;
         STD_INSIST(batch.cellCount == 2);
         STD_INSIST(batch.spanCount == 2);
         STD_INSIST(spans[0].index == 9);
@@ -438,7 +472,7 @@ STD_TEST_SUITE(Screen) {
 
         screen->resetDamage();
         screen->writeAsciiRun(1, 3, left, 1, attrs, 0, 0, TerminalCell{});
-        batch = screen->copyDamage(spans);
+        batch = screen->captureFrame(spans).damage;
         STD_INSIST(batch.cellCount == 1);
         STD_INSIST(batch.spanCount == 1);
         STD_INSIST(spans[0].index == 11);
@@ -457,11 +491,11 @@ STD_TEST_SUITE(Screen) {
 
         screen->writeAsciiLines(0, text, lengths, 4, attrs, 0, 0, TerminalCell{});
 
-        STD_INSIST(screen->getHistoryRows() == 2);
+        STD_INSIST(screen->info().historyRows == 2);
         STD_INSIST(screen->testCell(0, 0).uc_pt == 'F');
         STD_INSIST(screen->testCell(0, 1).uc_pt == 0);
         STD_INSIST(screen->testCell(1, 0).uc_pt == 0);
-        screen->pageUp(2);
+        screen->scrollView(2);
         STD_INSIST(screen->testCell(0, 0).uc_pt == 'C');
         STD_INSIST(screen->testCell(1, 0).uc_pt == 'D');
         STD_INSIST(screen->testCell(1, 1).uc_pt == 'E');
@@ -507,7 +541,7 @@ STD_TEST_SUITE(Screen) {
         screen->writeAsciiLines(0, text, lengths, 2, attrs, 0, 0, TerminalCell{});
 
         TerminalCellSpan spans[4];
-        const TerminalCellBatch batch = screen->copyDamage(spans);
+        const TerminalCellBatch batch = screen->captureFrame(spans).damage;
         STD_INSIST(batch.spanCount == 2);
         STD_INSIST(batch.cellCount == 2);
         STD_INSIST(screen->testCell(2, 0).uc_pt == 0);
@@ -526,7 +560,7 @@ STD_TEST_SUITE(Screen) {
 
         screen->setLineAttribute(0, 2);
         STD_INSIST(screen->lineAttribute(0) == 2);
-        const TerminalCellBatch batch = screen->copyDamage(spans);
+        const TerminalCellBatch batch = screen->captureFrame(spans).damage;
         STD_INSIST(batch.cellCount == 4);
         STD_INSIST(spans[0].lineAttribute == 2);
         screen->setLineAttribute(0, 0);
@@ -567,7 +601,7 @@ STD_TEST_SUITE(Screen) {
         screen->writeAsciiRun(1, 0, second, 5, attrs, 0, 0, TerminalCell{});
         screen->writeAsciiRun(2, 0, third, 5, attrs, 0, 0, TerminalCell{});
 
-        screen->scrollRectangleUp(0, 1, 3, 4, 1, TerminalCell{});
+        screen->scrollRectangle(0, 1, 3, 4, -1, TerminalCell{});
 
         STD_INSIST(screen->testCell(0, 0).uc_pt == 'A');
         STD_INSIST(screen->testCell(0, 1).uc_pt == 'G');
@@ -598,7 +632,7 @@ STD_TEST_SUITE(Screen) {
         screen->writeCodepoint(1, 4, wide, true, attrs, 0, 0, TerminalCell{});
         screen->writeAsciiRun(1, 3, middle, 1, attrs, 0, 0, TerminalCell{});
 
-        screen->scrollRectangleUp(0, 2, 2, 5, 1, TerminalCell{});
+        screen->scrollRectangle(0, 2, 2, 5, -1, TerminalCell{});
 
         STD_INSIST(screen->testCell(0, 1) == TerminalCell{});
         STD_INSIST(screen->testCell(0, 2) == TerminalCell{});
@@ -624,7 +658,7 @@ STD_TEST_SUITE(Screen) {
         screen->writeCodepoint(1, 1, wide, true, attrs, 0, 0, TerminalCell{});
         screen->writeCodepoint(1, 4, wide, true, attrs, 0, 0, TerminalCell{});
 
-        screen->scrollRectangleDown(0, 2, 2, 5, 1, TerminalCell{});
+        screen->scrollRectangle(0, 2, 2, 5, 1, TerminalCell{});
 
         STD_INSIST(screen->testCell(1, 1) == TerminalCell{});
         STD_INSIST(screen->testCell(1, 2) == TerminalCell{});
@@ -646,12 +680,12 @@ STD_TEST_SUITE(Screen) {
             screen->writeAsciiRun(row, 0, &value, 1, attrs, 0, 0, TerminalCell{});
         }
 
-        screen->rotateRowsUp(0, 5, 2);
+        screen->rotateRows(0, 5, -2);
         for (u16 row = 0; row < 5; ++row) {
             STD_INSIST(screen->testCell(row, 0).uc_pt == (u32)("CDEAB"[row]));
         }
 
-        screen->rotateRowsDown(0, 5, 2);
+        screen->rotateRows(0, 5, 2);
         for (u16 row = 0; row < 5; ++row) {
             STD_INSIST(screen->testCell(row, 0).uc_pt == (u32)("ABCDE"[row]));
         }
@@ -763,21 +797,21 @@ STD_TEST_SUITE(Screen) {
         screen->writeAsciiRun(1, 0, second, 1, attrs, 0, 0, TerminalCell{});
         screen->writeAsciiRun(2, 0, third, 1, attrs, 0, 0, TerminalCell{});
 
-        screen->scrollUp(0, 3, 1, TerminalCell{});
+        screen->scrollRows(0, 3, -1, TerminalCell{});
 
-        STD_INSIST(screen->getHistoryRows() == 1);
+        STD_INSIST(screen->info().historyRows == 1);
         STD_INSIST(screen->testCell(0, 0).uc_pt == 'B');
         STD_INSIST(screen->testCell(1, 0).uc_pt == 'C');
 
-        screen->pageUp(1);
-        STD_INSIST(screen->getViewOffset() == 1);
+        screen->scrollView(1);
+        STD_INSIST(screen->info().viewOffset == 1);
         STD_INSIST(screen->testCell(0, 0).uc_pt == 'A');
         STD_INSIST(screen->testCell(1, 0).uc_pt == 'B');
         STD_INSIST(screen->testCell(2, 0).uc_pt == 'C');
 
-        STD_INSIST(screen->pageToBottom());
-        STD_INSIST(screen->getViewOffset() == 0);
-        STD_INSIST(!screen->pageToBottom());
+        STD_INSIST(screen->scrollView(-0x7fffffff));
+        STD_INSIST(screen->info().viewOffset == 0);
+        STD_INSIST(!screen->scrollView(-0x7fffffff));
     }
 
     STD_TEST(FullHistoryRingKeepsNewestRowsAndRestoresThem) {
@@ -796,25 +830,24 @@ STD_TEST_SUITE(Screen) {
         screen->writeAsciiRun(0, 0, first, 1, attrs, 0, 0, TerminalCell{});
         screen->writeAsciiRun(1, 0, second, 1, attrs, 0, 0, TerminalCell{});
 
-        screen->scrollUp(0, 2, 1, TerminalCell{});
+        screen->scrollRows(0, 2, -1, TerminalCell{});
         screen->eraseCells(1, 0, 2, TerminalCell{});
         screen->writeAsciiRun(1, 0, third, 1, attrs, 0, 0, TerminalCell{});
-        screen->scrollUp(0, 2, 1, TerminalCell{});
+        screen->scrollRows(0, 2, -1, TerminalCell{});
         screen->eraseCells(1, 0, 2, TerminalCell{});
         screen->writeAsciiRun(1, 0, fourth, 1, attrs, 0, 0, TerminalCell{});
-        screen->scrollUp(0, 2, 1, TerminalCell{});
+        screen->scrollRows(0, 2, -1, TerminalCell{});
         screen->eraseCells(1, 0, 2, TerminalCell{});
         screen->writeAsciiRun(1, 0, fifth, 1, attrs, 0, 0, TerminalCell{});
 
-        STD_INSIST(screen->getHistoryRows() == 2);
-        screen->pageUp(2);
+        STD_INSIST(screen->info().historyRows == 2);
+        screen->scrollView(2);
         STD_INSIST(screen->testCell(0, 0).uc_pt == 'B');
         STD_INSIST(screen->testCell(1, 0).uc_pt == 'C');
-        screen->pageToBottom();
-        screen->restoreHistory(1);
-        STD_INSIST(screen->getHistoryRows() == 1);
-        STD_INSIST(screen->testCell(0, 0).uc_pt == 'C');
-        STD_INSIST(screen->testCell(1, 0).uc_pt == 'D');
+        STD_INSIST(screen->scrollView(-0x7fffffff));
+        STD_INSIST(screen->info().historyRows == 2);
+        STD_INSIST(screen->testCell(0, 0).uc_pt == 'D');
+        STD_INSIST(screen->testCell(1, 0).uc_pt == 'E');
     }
 
     STD_TEST(TopAnchoredPartialScrollPreservesRowsBelowRegion) {
@@ -834,15 +867,15 @@ STD_TEST_SUITE(Screen) {
         screen->writeAsciiRun(2, 0, third, 1, attrs, 0, 0, TerminalCell{});
         screen->writeAsciiRun(3, 0, fourth, 1, attrs, 0, 0, TerminalCell{});
 
-        screen->scrollUp(0, 3, 1, TerminalCell{});
+        screen->scrollRows(0, 3, -1, TerminalCell{});
         screen->eraseCells(2, 0, 2, TerminalCell{});
 
-        STD_INSIST(screen->getHistoryRows() == 1);
+        STD_INSIST(screen->info().historyRows == 1);
         STD_INSIST(screen->testCell(0, 0).uc_pt == 'B');
         STD_INSIST(screen->testCell(1, 0).uc_pt == 'C');
         STD_INSIST(screen->testCell(2, 0).uc_pt == 0);
         STD_INSIST(screen->testCell(3, 0).uc_pt == 'D');
-        screen->pageUp(1);
+        screen->scrollView(1);
         STD_INSIST(screen->testCell(0, 0).uc_pt == 'A');
         STD_INSIST(screen->testCell(1, 0).uc_pt == 'B');
         STD_INSIST(screen->testCell(2, 0).uc_pt == 'C');
@@ -917,40 +950,9 @@ STD_TEST_SUITE(Screen) {
         Screen::Cursor cursor;
         Screen* replacement = screen->resized(*destinationPool, 4, 2, cursor);
 
-        STD_INSIST(!screen->active());
-        STD_INSIST(replacement->active());
         STD_INSIST(replacement->testCell(0, 0).uc_pt == 'a');
         STD_INSIST(replacement->testCell(0, 1).uc_pt == 'b');
         STD_INSIST(replacement->testCell(0, 2).uc_pt == 'c');
-    }
-
-    STD_TEST(TracksCursorAndPresentationState) {
-        auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
-        composer.setCellExtras(CellExtraStore::create(composer, 4));
-        TerminalColors colors;
-        configureColors(colors);
-        Screen* screen = Screen::createAlternate(composer, *pool, 2, 2, &colors);
-
-        screen->setCursorPos(1, 1);
-        screen->setCursorStyle(TerminalCursor::Style::bar);
-        screen->setCursorColor({7, 8, 9});
-        screen->setBlinkState(false, true);
-        screen->setScreenReverseVideo(true);
-        screen->setSelectionColor(true, {10, 11, 12}, true);
-        screen->setSelectionColor(false, {13, 14, 15}, true);
-
-        const TerminalCursor cursor = screen->getCursor();
-        STD_INSIST(cursor.posX == 1);
-        STD_INSIST(cursor.posY == 1);
-        STD_INSIST(cursor.style == TerminalCursor::Style::bar);
-        STD_INSIST((cursor.color == Color{7, 8, 9}));
-        STD_INSIST(!screen->getBlinkVisible());
-        STD_INSIST(screen->getCursorBlink());
-        STD_INSIST(screen->getScreenReverseVideo());
-        STD_INSIST(screen->getSelectionColorMask() == 3);
-        STD_INSIST((screen->getSelectionForeground() == Color{10, 11, 12}));
-        STD_INSIST((screen->getSelectionBackground() == Color{13, 14, 15}));
     }
 
     STD_TEST(FindsBlinkingTextInVisibleCells) {
@@ -1027,7 +1029,7 @@ STD_TEST_SUITE(Screen) {
     STD_TEST(WriteAsciiLinesWhileScrolledProducesCompleteIncrementalUpdate) {
         verifyDamage([](Screen& screen) {
             prepareHistory(screen);
-            screen.pageUp(2);
+            screen.scrollView(2);
         }, [](Screen& screen) {
             const u8 text[] = {'a', 'b', '\r', '\n', 'c', '\r', '\n'};
             const u16 lengths[] = {2, 1};
@@ -1038,7 +1040,7 @@ STD_TEST_SUITE(Screen) {
     STD_TEST(WriteAsciiRunInsertProducesCompleteIncrementalUpdate) {
         verifyDamage([](Screen& screen) {
             const u8 text[] = {'i', 'n', 's'};
-            screen.writeAsciiRunInsert(1, 1, screen.columns(), text, sizeof(text), attributes(), 0, 1, TerminalCell{});
+            screen.writeAsciiRunInsert(1, 1, screen.info().columns, text, sizeof(text), attributes(), 0, 1, TerminalCell{});
         });
     }
 
@@ -1065,7 +1067,7 @@ STD_TEST_SUITE(Screen) {
 
     STD_TEST(FillRectangleProducesCompleteIncrementalUpdate) {
         verifyDamage([](Screen& screen) {
-            screen.fillRectangle(1, 1, 4, screen.columns() - 1, 'F', attributes(), TerminalCell{});
+            screen.fillRectangle(1, 1, 4, screen.info().columns - 1, 'F', attributes(), TerminalCell{});
         });
     }
 
@@ -1079,13 +1081,14 @@ STD_TEST_SUITE(Screen) {
         verifyDamage([](Screen& screen) {
             CellAttributeChange change;
             change.toggle(CellAttributeChange::Bold | CellAttributeChange::Inverse);
-            screen.changeRectangleAttributes(1, 1, 4, screen.columns() - 1, change);
+            screen.changeRectangleAttributes(1, 1, 4, screen.info().columns - 1, change);
         });
     }
 
-    STD_TEST(DamageExtraCellsProducesValidIncrementalUpdate) {
+    STD_TEST(CollectExtraCellsProducesValidIncrementalUpdate) {
         verifyDamage([](Screen& screen) {
-            screen.damageExtraCells();
+            Vector<TerminalCell*> cells;
+            screen.collectExtraCells(cells);
         });
     }
 
@@ -1103,90 +1106,82 @@ STD_TEST_SUITE(Screen) {
 
     STD_TEST(InsertCellsProducesCompleteIncrementalUpdate) {
         verifyDamage([](Screen& screen) {
-            screen.insertCells(1, 2, screen.columns() - 1, 2, TerminalCell{});
+            screen.insertCells(1, 2, screen.info().columns - 1, 2, TerminalCell{});
         });
     }
 
     STD_TEST(DeleteCellsProducesCompleteIncrementalUpdate) {
         verifyDamage([](Screen& screen) {
-            screen.deleteCells(1, 2, screen.columns() - 1, 2, TerminalCell{});
+            screen.deleteCells(1, 2, screen.info().columns - 1, 2, TerminalCell{});
         });
     }
 
     STD_TEST(CopyRowProducesCompleteIncrementalUpdate) {
         verifyDamage([](Screen& screen) {
-            screen.copyRow(4, 1, 0, screen.columns(), TerminalCell{});
+            screen.copyRow(4, 1, 0, screen.info().columns, TerminalCell{});
         });
     }
 
     STD_TEST(ScrollPartialRectangleUpProducesCompleteIncrementalUpdate) {
         verifyDamage([](Screen& screen) {
-            screen.scrollRectangleUp(0, 1, 5, screen.columns() - 1, 1, TerminalCell{});
+            screen.scrollRectangle(0, 1, 5, screen.info().columns - 1, -1, TerminalCell{});
         });
     }
 
     STD_TEST(ScrollFullRectangleUpProducesCompleteIncrementalUpdate) {
         verifyDamage([](Screen& screen) {
-            screen.scrollRectangleUp(0, 0, 5, screen.columns(), 2, TerminalCell{});
+            screen.scrollRectangle(0, 0, 5, screen.info().columns, -2, TerminalCell{});
         });
     }
 
     STD_TEST(ScrollPartialRectangleDownProducesCompleteIncrementalUpdate) {
         verifyDamage([](Screen& screen) {
-            screen.scrollRectangleDown(0, 1, 5, screen.columns() - 1, 1, TerminalCell{});
+            screen.scrollRectangle(0, 1, 5, screen.info().columns - 1, 1, TerminalCell{});
         });
     }
 
     STD_TEST(ScrollFullRectangleDownProducesCompleteIncrementalUpdate) {
         verifyDamage([](Screen& screen) {
-            screen.scrollRectangleDown(0, 0, 5, screen.columns(), 2, TerminalCell{});
+            screen.scrollRectangle(0, 0, 5, screen.info().columns, 2, TerminalCell{});
         });
     }
 
     STD_TEST(RotateRowsUpProducesCompleteIncrementalUpdate) {
         verifyDamage([](Screen& screen) {
-            screen.rotateRowsUp(0, 5, 2);
+            screen.rotateRows(0, 5, -2);
         });
     }
 
     STD_TEST(RotateRowsDownProducesCompleteIncrementalUpdate) {
         verifyDamage([](Screen& screen) {
-            screen.rotateRowsDown(0, 5, 2);
+            screen.rotateRows(0, 5, 2);
         });
     }
 
     STD_TEST(ScrollUpProducesCompleteIncrementalUpdate) {
         verifyDamage([](Screen& screen) {
-            screen.scrollUp(0, 5, 2, TerminalCell{});
+            screen.scrollRows(0, 5, -2, TerminalCell{});
         });
     }
 
     STD_TEST(ScrollPartialRegionUpProducesCompleteIncrementalUpdate) {
         verifyDamage([](Screen& screen) {
-            screen.scrollUp(1, 4, 1, TerminalCell{});
+            screen.scrollRows(1, 4, -1, TerminalCell{});
         });
     }
 
     STD_TEST(ScrollDownProducesCompleteIncrementalUpdate) {
         verifyDamage([](Screen& screen) {
-            screen.scrollDown(0, 5, 2, TerminalCell{});
-        });
-    }
-
-    STD_TEST(RestoreHistoryProducesCompleteIncrementalUpdate) {
-        verifyDamage([](Screen& screen) {
-            prepareHistory(screen);
-        }, [](Screen& screen) {
-            screen.restoreHistory(1);
+            screen.scrollRows(0, 5, 2, TerminalCell{});
         });
     }
 
     STD_TEST(DropScrollbackHistoryProducesCompleteIncrementalUpdate) {
         verifyDamage([](Screen& screen) {
             prepareHistory(screen);
-            screen.pageUp(2);
+            screen.scrollView(2);
         }, [](Screen& screen) {
-            screen.dropScrollbackHistory();
+            screen.dropHistory();
         });
     }
 
@@ -1194,25 +1189,25 @@ STD_TEST_SUITE(Screen) {
         verifyDamage([](Screen& screen) {
             prepareHistory(screen);
         }, [](Screen& screen) {
-            screen.pageUp(2);
+            screen.scrollView(2);
         });
     }
 
     STD_TEST(PageDownProducesCompleteIncrementalUpdate) {
         verifyDamage([](Screen& screen) {
             prepareHistory(screen);
-            screen.pageUp(2);
+            screen.scrollView(2);
         }, [](Screen& screen) {
-            screen.pageDown(1);
+            screen.scrollView(-1);
         });
     }
 
     STD_TEST(PageToBottomProducesCompleteIncrementalUpdate) {
         verifyDamage([](Screen& screen) {
             prepareHistory(screen);
-            screen.pageUp(2);
+            screen.scrollView(2);
         }, [](Screen& screen) {
-            STD_INSIST(screen.pageToBottom());
+            STD_INSIST(screen.scrollView(-0x7fffffff));
         });
     }
 
@@ -1222,67 +1217,27 @@ STD_TEST_SUITE(Screen) {
         });
     }
 
-    STD_TEST(SetCursorPosProducesCompleteMetadataUpdate) {
+    STD_TEST(CycleSelectionSnapProducesCompleteMetadataUpdate) {
         verifyDamage([](Screen& screen) {
-            screen.setCursorPos(3, 6);
-        }, false);
-    }
-
-    STD_TEST(SetCursorStyleProducesCompleteMetadataUpdate) {
-        verifyDamage([](Screen& screen) {
-            screen.setCursorStyle(TerminalCursor::Style::bar);
-        }, false);
-    }
-
-    STD_TEST(SetCursorColorProducesCompleteMetadataUpdate) {
-        verifyDamage([](Screen& screen) {
-            screen.setCursorColor({7, 8, 9});
-        }, false);
-    }
-
-    STD_TEST(SetSelectionForegroundProducesCompleteUpdate) {
-        verifyDamage([](Screen& screen) {
-            screen.setSelectionColor(true, {10, 11, 12}, true);
-        });
-    }
-
-    STD_TEST(SetSelectionBackgroundProducesCompleteUpdate) {
-        verifyDamage([](Screen& screen) {
-            screen.setSelectionColor(false, {13, 14, 15}, true);
-        });
-    }
-
-    STD_TEST(SetBlinkStateProducesCompleteMetadataUpdate) {
-        verifyDamage([](Screen& screen) {
-            screen.setBlinkState(false, true);
-        }, false);
-    }
-
-    STD_TEST(SetScreenReverseVideoProducesCompleteUpdate) {
-        verifyDamage([](Screen& screen) {
-            screen.setScreenReverseVideo(true);
-        });
-    }
-
-    STD_TEST(SetSelectSnapToProducesCompleteMetadataUpdate) {
-        verifyDamage([](Screen& screen) {
-            screen.getSelection() = Rect(2, 1, 4, 2);
+            screen.beginSelection(Point(2, 1));
+            screen.updateSelection(Rect(2, 1, 4, 2));
         }, [](Screen& screen) {
-            screen.setSelectSnapTo(Screen::SelectSnapTo::Line);
+            screen.cycleSelectionSnap();
         }, false);
     }
 
-    STD_TEST(CycleSelectSnapToProducesCompleteMetadataUpdate) {
+    STD_TEST(UpdateSelectionProducesCompleteMetadataUpdate) {
         verifyDamage([](Screen& screen) {
-            screen.getSelection() = Rect(2, 1, 4, 2);
+            screen.beginSelection(Point(2, 1));
         }, [](Screen& screen) {
-            screen.cycleSelectSnapTo();
+            screen.updateSelection(Rect(2, 1, 4, 2));
         }, false);
     }
 
-    STD_TEST(MutableSelectionProducesCompleteMetadataUpdate) {
+    STD_TEST(BeginSelectionProducesCompleteMetadataUpdate) {
         verifyDamage([](Screen& screen) {
-            screen.getSelection() = Rect(1, 1, 5, 3);
+            screen.beginSelection(Point(1, 1));
+            screen.updateSelection(Rect(1, 1, 5, 3));
         }, false);
     }
 

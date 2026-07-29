@@ -47,6 +47,7 @@
 #include <std/alg/minmax.h>
 #include <std/dbg/assert.h>
 #include <std/mem/obj_pool.h>
+#include <std/rng/split_mix_64.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
 #include <std/sys/types.h>
@@ -374,25 +375,12 @@ namespace {
         bool processInput(const u8* input, int size, bool refresh = true);
         [[gnu::noinline]] bool processInputImpl(const u8* input, int size, bool refresh);
 
-        struct PresentationState {
-            Screen* frame;
-            TerminalCursor cursor;
-            Rect selection;
-            u16 columns;
-            u16 rows;
-            u32 viewOffset;
-            bool screenReverse;
-            bool blinkVisible;
-            bool cursorBlink;
-            Color selectionForeground;
-            Color selectionBackground;
-            u8 selectionColorMask;
-        };
-
-        PresentationState capturePresentationState() const;
-        bool presentationChanged(const PresentationState& before) const;
-        void syncPresentationCursor();
-        void fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const TerminalCellSpan* spans, size_t spanCount);
+        bool presentationChanged() const;
+        void syncPresentationCursor(const TerminalCursor& before);
+        void changePresentation();
+        u64 presentationRevision() const;
+        TerminalCursor presentationCursor(u32 viewOffset) const;
+        void fillTerminalUpdate(TerminalUpdate& update, const ScreenFrame& frame, const TerminalCellSpan* spans);
 
         void writeCsiResponse(StringView payload);
         void writeDcsResponse(StringView payload);
@@ -747,6 +735,9 @@ namespace {
         std::string inputResult;
         bool outputPending = false;
         Screen* updateScreen = nullptr;
+        u64 presentedRevision = 0;
+        u64 updatingRevision = 0;
+        u32 revision = 1;
 
         Vector<TerminalCell*> extraCells;
         u32 processInputDepth = 0;
@@ -770,6 +761,7 @@ namespace {
         Color cursorColor;
         Color selectionFgColor;
         Color selectionBgColor;
+        u8 selectionColorMask = 0;
         u32 activeHyperlink = 0;
         u32 nextHyperlink = 1;
         u32 currentSemantic = 0;
@@ -829,6 +821,7 @@ namespace {
         bool cursorBlinkMode = false;
         bool haveBlinkingText = false;
         bool blinkVisible = true;
+        bool cursorTemporarilyHidden = false;
         u64 nextBlink = 0;
         bool altScreenBufferMode = false;
         bool altScreenInitialized = false;
@@ -1316,7 +1309,7 @@ void VtermInput::updatePointerModifiers(const KeyInput& input) {
 
 int VtermInput::currentSelectionAutoscrollDirection() const {
     const unsigned selectionButtons = (1u << (unsigned)(PointerButton::Primary)) | (1u << (unsigned)(PointerButton::Secondary));
-    if (!mouse.selectionOngoing() || !(mouse.buttons() & selectionButtons) || terminal->cf->getSelection().null() || !pointerFocused || !pointerPresent || !pointerPositionKnown) {
+    if (!mouse.selectionOngoing() || !(mouse.buttons() & selectionButtons) || terminal->cf->currentSelection().null() || !pointerFocused || !pointerPresent || !pointerPositionKnown) {
         return 0;
     }
     const int top = opts.border;
@@ -1366,13 +1359,7 @@ bool VtermInput::advanceSelectionAutoscroll(bool force) {
         stopSelectionAutoscroll();
         return false;
     }
-    const u32 previousOffset = terminal->cf->getViewOffset();
-    if (direction < 0) {
-        terminal->cf->pageUp(1);
-    } else {
-        terminal->cf->pageDown(1);
-    }
-    if (terminal->cf->getViewOffset() == previousOffset) {
+    if (!terminal->cf->scrollView(direction < 0 ? 1 : -1)) {
         stopSelectionAutoscroll();
         return false;
     }
@@ -2038,7 +2025,7 @@ VtermTextResult VtermImpl::selectionFinish() {
 }
 
 bool VtermImpl::hasSelection() const {
-    return !cf->getSnappedSelection().empty();
+    return cf->hasSelection();
 }
 
 void VtermImpl::selectionClear() {
@@ -2059,7 +2046,8 @@ ScreenHyperlink VtermImpl::resolveHyperlink(int pixelX, int pixelY) const {
     }
     const u16 column = (pixelX - opts.border) / composer.glyphWidth;
     const u16 row = (pixelY - opts.border) / composer.glyphHeight;
-    if (column >= cf->columns() || row >= cf->rows()) {
+    const ScreenInfo info = cf->info();
+    if (column >= info.columns || row >= info.rows) {
         return {};
     }
     return cf->hyperlinkAt(row, column);
@@ -2075,25 +2063,34 @@ StringView VtermImpl::hyperlinkAt(int pixelX, int pixelY) {
     return stringView(inputResult);
 }
 
-void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, Screen& frame, const TerminalCellSpan* spans, size_t spanCount) {
+TerminalCursor VtermImpl::presentationCursor(u32 viewOffset) const {
+    TerminalCursor result;
+    result.posX = posX;
+    result.posY = posY + viewOffset;
+    result.style = cursorTemporarilyHidden || !showCursorMode ? TerminalCursor::Style::hidden : hasFocus ? cursorShape : TerminalCursor::Style::hollow_block;
+    result.color = cursorColor;
+    return result;
+}
+
+void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, const ScreenFrame& frame, const TerminalCellSpan* spans) {
     update = {};
     update.spans = spans;
-    update.spanCount = spanCount;
+    update.spanCount = frame.damage.spanCount;
     update.colors = &colors;
-    update.viewOffset = frame.getViewOffset();
-    update.historyRows = frame.getHistoryRows();
-    update.cursor = frame.getCursor();
-    update.selection = frame.getSelectionForView();
-    update.snappedSelection = frame.getSnappedSelection();
-    update.selectionForeground = frame.getSelectionForeground();
-    update.selectionBackground = frame.getSelectionBackground();
-    update.selectionColorMask = frame.getSelectionColorMask();
+    update.viewOffset = frame.viewOffset;
+    update.historyRows = frame.historyRows;
+    update.cursor = presentationCursor(frame.viewOffset);
+    update.selection = frame.selection;
+    update.snappedSelection = frame.snappedSelection;
+    update.selectionForeground = selectionFgColor;
+    update.selectionBackground = selectionBgColor;
+    update.selectionColorMask = selectionColorMask;
     update.hoveredHyperlink = input.hoveredHyperlink;
     update.hoveredLinkBegin = input.hoveredLinkBegin;
     update.hoveredLinkEnd = input.hoveredLinkEnd;
-    update.screenReverse = frame.getScreenReverseVideo();
-    update.blinkVisible = frame.getBlinkVisible();
-    update.cursorBlink = frame.getCursorBlink();
+    update.screenReverse = screenReverseVideo;
+    update.blinkVisible = blinkVisible;
+    update.cursorBlink = cursorBlinkMode;
 }
 
 const TerminalUpdate* VtermImpl::output() {
@@ -2102,16 +2099,19 @@ const TerminalUpdate* VtermImpl::output() {
     }
 
     Screen* const frame = cf;
-    const TerminalCellBatch output = frame->copyDamage(outputSpans.mutData());
+    const ScreenFrame output = frame->captureFrame(outputSpans.mutData());
 
     updateScreen = frame;
-    fillTerminalUpdate(terminalUpdate, *frame, outputSpans.data(), output.spanCount);
+    updatingRevision = presentationRevision();
+    fillTerminalUpdate(terminalUpdate, output, outputSpans.data());
     return &terminalUpdate;
 }
 
 void VtermImpl::consume() {
     STD_ASSERT(updateScreen != nullptr);
     updateScreen->resetDamage();
+    presentedRevision = updatingRevision;
+    updatingRevision = 0;
     updateScreen = nullptr;
     outputPending = false;
     presentedSinceGcSafePoint = true;
@@ -2259,7 +2259,8 @@ bool TestApiImpl::privateMode(u32 mode) const {
 }
 
 VtermTestCell TestApiImpl::cell(u16 row, u16 column) const {
-    if (row >= vterm->cf->rows() || column >= vterm->cf->columns()) {
+    const ScreenInfo info = vterm->cf->info();
+    if (row >= info.rows || column >= info.columns) {
         return {};
     }
     VtermTestCell result;
@@ -2435,8 +2436,10 @@ void VtermImpl::redraw() {
 }
 
 void VtermImpl::updateExtraCellCount() {
-    size_t count = frame_pri->active() ? frame_pri->cellCapacity() : 0;
-    count += frame_alt->active() ? frame_alt->cellCapacity() : 0;
+    size_t count = frame_pri->info().cellCapacity;
+    if (altScreenInitialized) {
+        count += frame_alt->info().cellCapacity;
+    }
     composer.cellExtras->setCellCount(count);
 }
 
@@ -2467,21 +2470,13 @@ void VtermImpl::collectCellExtras() {
     if (inputGraphemeScreen != nullptr && inputGraphemeHyperlink != 0) {
         roots[rootCount++] = &inputGraphemeHyperlink;
     }
-    if (frame_pri->active()) {
-        frame_pri->collectExtraCells(extraCells);
-    }
-    if (frame_alt->active()) {
+    frame_pri->collectExtraCells(extraCells);
+    if (altScreenInitialized) {
         frame_alt->collectExtraCells(extraCells);
     }
 
     CellExtraStore& extras = *composer.cellExtras;
     extras.collect(extraCells, roots, rootCount);
-    if (frame_pri->active()) {
-        frame_pri->damageExtraCells();
-    }
-    if (frame_alt->active()) {
-        frame_alt->damageExtraCells();
-    }
     extraCells.clear();
 }
 
@@ -2495,9 +2490,8 @@ bool VtermImpl::advanceAnimation(bool force) {
         return false;
     }
     blinkVisible = !blinkVisible;
+    changePresentation();
     nextBlink = now + 500'000;
-    frame_pri->setBlinkState(blinkVisible, cursorBlinkMode);
-    frame_alt->setBlinkState(blinkVisible, cursorBlinkMode);
     armTimeout();
     return true;
 }
@@ -2594,7 +2588,10 @@ u8 VtermImpl::getKittyKeyboardFlags() const {
 }
 
 void VtermImpl::setHasFocus(bool hasFocus_) {
-    hasFocus = hasFocus_;
+    if (hasFocus != hasFocus_) {
+        hasFocus = hasFocus_;
+        changePresentation();
+    }
     if (mouseTrk.focusEventMode) {
         writeCsiResponse(hasFocus ? "I" : "O");
     }
@@ -2608,7 +2605,7 @@ void VtermImpl::pageUp() {
             writePty(VtKey::Up);
         }
     } else {
-        cf->pageUp(composer.rows / 2);
+        cf->scrollView(composer.rows / 2);
         refreshBlinkingText();
         redraw();
     }
@@ -2620,7 +2617,7 @@ void VtermImpl::pageDown() {
             writePty(VtKey::Down);
         }
     } else {
-        cf->pageDown(composer.rows / 2);
+        cf->scrollView(-(i32)(composer.rows / 2));
         refreshBlinkingText();
         redraw();
     }
@@ -2632,7 +2629,7 @@ void VtermImpl::mouseWheelUp(u16 count) {
             writePty(VtKey::Up);
         }
     } else {
-        cf->pageUp(count);
+        cf->scrollView(count);
         refreshBlinkingText();
         redraw();
     }
@@ -2644,7 +2641,7 @@ void VtermImpl::mouseWheelDown(u16 count) {
             writePty(VtKey::Down);
         }
     } else {
-        cf->pageDown(count);
+        cf->scrollView(-(i32)(count));
         refreshBlinkingText();
         redraw();
     }
@@ -2658,7 +2655,7 @@ void VtermImpl::resetTerminal() {
     noClearColumnMode = false;
     switchColMode(ColMode::C80);
 
-    cf->dropScrollbackHistory();
+    cf->dropHistory();
     marginTop = 0;
     marginBottom = composer.rows;
     clearScreen();
@@ -2700,8 +2697,6 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     haveBlinkingText = false;
     blinkVisible = true;
     nextBlink = monotonicNowUs() + 500'000;
-    frame_pri->setBlinkState(true, false);
-    frame_alt->setBlinkState(true, false);
     autoWrapMode = true;
     autoRepeatMode = true;
     smoothScrollMode = false;
@@ -2717,8 +2712,6 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     colorSchemeUpdateMode = false;
     inBandResizeMode = false;
     screenReverseVideo = false;
-    frame_pri->setScreenReverseVideo(false);
-    frame_alt->setScreenReverseVideo(false);
     eightBitInput = false;
     reverseWrapMode = false;
     extendedReverseWrapMode = false;
@@ -2746,7 +2739,7 @@ void VtermImpl::resetScreen(bool resetTabStops) {
         tabStops.clear();
         tabStopsCustomized = false;
     }
-    cf->getSelection().clear();
+    cf->clearSelection();
 }
 
 void VtermImpl::resetAttrs() {
@@ -2818,6 +2811,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
                 altScreenInitialized = true;
                 cf = frame_alt;
                 cf->expose();
+                changePresentation();
             } else if (altScreenInitialized) {
                 createInactiveAlternateScreen();
                 altScreenInitialized = false;
@@ -2835,7 +2829,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
             marginTop = 0;
             marginBottom = composer.rows;
             altScreenInitialized = true;
-        } else if (frame_alt->columns() != composer.columns || frame_alt->rows() != composer.rows) {
+        } else if (const ScreenInfo info = frame_alt->info(); info.columns != composer.columns || info.rows != composer.rows) {
             Screen::Cursor cursorState;
             resizeScreen(frame_alt, frameAltPool, cursorState);
             marginTop = 0;
@@ -2847,7 +2841,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         savedCursor = &savedCursorAlt;
         altScreenBufferMode = true;
     } else {
-        if (frame_pri->columns() != composer.columns || frame_pri->rows() != composer.rows) {
+        if (const ScreenInfo info = frame_pri->info(); info.columns != composer.columns || info.rows != composer.rows) {
             Screen::Cursor cursorState{Point(posX, posY), lastCol};
             resizeScreen(frame_pri, framePriPool, cursorState);
             posX = cursorState.position.x;
@@ -2867,6 +2861,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
     }
     updateExtraCellCount();
     refreshBlinkingText();
+    changePresentation();
 }
 
 void VtermImpl::normalizeCursorPos() {
@@ -2908,9 +2903,9 @@ void VtermImpl::copyRow(u16 dstY, u16 srcY) {
 
 void VtermImpl::insertRows(u16 startY, u16 count) {
     if (hMargin == 0 && nColsEff == composer.columns) {
-        cf->rotateRowsDown(startY, marginBottom, count);
+        cf->rotateRows(startY, marginBottom, count);
     } else {
-        cf->scrollRectangleDown(startY, hMargin, marginBottom, nColsEff, count, eraseAttrs);
+        cf->scrollRectangle(startY, hMargin, marginBottom, nColsEff, count, eraseAttrs);
         return;
     }
 
@@ -2921,9 +2916,9 @@ void VtermImpl::insertRows(u16 startY, u16 count) {
 
 void VtermImpl::deleteRows(u16 startY, u16 count) {
     if (hMargin == 0 && nColsEff == composer.columns) {
-        cf->rotateRowsUp(startY, marginBottom, count);
+        cf->rotateRows(startY, marginBottom, -(i32)(count));
     } else {
-        cf->scrollRectangleUp(startY, hMargin, marginBottom, nColsEff, count, eraseAttrs);
+        cf->scrollRectangle(startY, hMargin, marginBottom, nColsEff, -(i32)(count), eraseAttrs);
         return;
     }
 
@@ -3596,16 +3591,11 @@ void VtermImpl::inp_HT() {
 }
 
 void VtermImpl::showCursor() {
-    if (showCursorMode) {
-        cf->setCursorPos(posY, posX);
-        using CS = TerminalCursor::Style;
-        cf->setCursorStyle(hasFocus ? cursorShape : CS::hollow_block);
-    }
+    cursorTemporarilyHidden = false;
 }
 
 void VtermImpl::hideCursor() {
-    using CS = TerminalCursor::Style;
-    cf->setCursorStyle(CS::hidden);
+    cursorTemporarilyHidden = true;
 }
 
 bool VtermImpl::esc_IND() {
@@ -3758,14 +3748,13 @@ void VtermImpl::setCursorStyle(u8 reportStyle, TerminalCursor::Style shape, bool
     cursorStyleParam = reportStyle;
     cursorShape = shape;
     cursorBlinkMode = blink;
+    changePresentation();
     refreshCursorStyle();
 }
 
 void VtermImpl::refreshCursorStyle() {
     blinkVisible = true;
     nextBlink = monotonicNowUs() + 500'000;
-    frame_pri->setBlinkState(true, cursorBlinkMode);
-    frame_alt->setBlinkState(true, cursorBlinkMode);
     armTimeout();
 }
 
@@ -3997,7 +3986,7 @@ void VtermImpl::scrollRegionUp(u16 count) {
     if (horizMarginMode) {
         deleteRows(marginTop, count);
     } else {
-        cf->scrollUp(marginTop, marginBottom, count, eraseAttrs);
+        cf->scrollRows(marginTop, marginBottom, -(i32)(count), eraseAttrs);
         lastCol = false;
     }
 }
@@ -4006,7 +3995,7 @@ void VtermImpl::scrollRegionDown(u16 count) {
     if (horizMarginMode) {
         insertRows(marginTop, count);
     } else {
-        cf->scrollDown(marginTop, marginBottom, count, eraseAttrs);
+        cf->scrollRows(marginTop, marginBottom, count, eraseAttrs);
         lastCol = false;
     }
 }
@@ -4130,7 +4119,7 @@ void VtermImpl::eraseDisplayAll() {
 
 void VtermImpl::eraseScrollback() {
     normalizeCursorPos();
-    cf->dropScrollbackHistory();
+    cf->dropHistory();
 }
 
 void VtermImpl::eraseLineAfter() {
@@ -4427,9 +4416,11 @@ void VtermImpl::setSmoothScroll(bool enabled) {
 }
 
 void VtermImpl::setScreenReverseVideo(bool enabled) {
+    if (screenReverseVideo == enabled) {
+        return;
+    }
     screenReverseVideo = enabled;
-    frame_pri->setScreenReverseVideo(enabled);
-    frame_alt->setScreenReverseVideo(enabled);
+    changePresentation();
 }
 
 void VtermImpl::setOriginMode(bool enabled) {
@@ -4471,18 +4462,23 @@ void VtermImpl::setMouseTracking(MouseTrackingMode mode) {
 }
 
 void VtermImpl::setCursorBlink(bool enabled) {
-    cursorBlinkMode = enabled;
+    if (cursorBlinkMode != enabled) {
+        cursorBlinkMode = enabled;
+        changePresentation();
+    }
     if (!enabled) {
         blinkVisible = true;
     }
     nextBlink = monotonicNowUs() + 500'000;
-    frame_pri->setBlinkState(blinkVisible, enabled);
-    frame_alt->setBlinkState(blinkVisible, enabled);
     armTimeout();
 }
 
 void VtermImpl::setCursorVisible(bool enabled) {
+    if (showCursorMode == enabled) {
+        return;
+    }
     showCursorMode = enabled;
+    changePresentation();
 }
 
 void VtermImpl::setAlternateScreen(bool enabled, bool clear) {
@@ -5040,8 +5036,7 @@ void VtermImpl::osc_CURSOR_COLOR(Color color, bool query) {
         return writeDynamicColorResponse(12, cursorColor);
     }
     cursorColor = color;
-    frame_pri->setCursorColor(color);
-    frame_alt->setCursorColor(color);
+    changePresentation();
 }
 
 void VtermImpl::osc_SELECTION_BACKGROUND(Color color, bool query) {
@@ -5049,8 +5044,8 @@ void VtermImpl::osc_SELECTION_BACKGROUND(Color color, bool query) {
         return writeDynamicColorResponse(17, selectionBgColor);
     }
     selectionBgColor = color;
-    frame_pri->setSelectionColor(false, color, true);
-    frame_alt->setSelectionColor(false, color, true);
+    selectionColorMask |= 2;
+    changePresentation();
 }
 
 void VtermImpl::osc_SELECTION_FOREGROUND(Color color, bool query) {
@@ -5058,8 +5053,8 @@ void VtermImpl::osc_SELECTION_FOREGROUND(Color color, bool query) {
         return writeDynamicColorResponse(19, selectionFgColor);
     }
     selectionFgColor = color;
-    frame_pri->setSelectionColor(true, color, true);
-    frame_alt->setSelectionColor(true, color, true);
+    selectionColorMask |= 1;
+    changePresentation();
 }
 
 void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) {
@@ -5154,20 +5149,19 @@ void VtermImpl::osc_RESET_DEFAULT_BACKGROUND() {
 
 void VtermImpl::osc_RESET_CURSOR_COLOR() {
     cursorColor = opts.cr;
-    frame_pri->setCursorColor(cursorColor);
-    frame_alt->setCursorColor(cursorColor);
+    changePresentation();
 }
 
 void VtermImpl::osc_RESET_SELECTION_BACKGROUND() {
     selectionBgColor = opts.bg;
-    frame_pri->setSelectionColor(false, selectionBgColor, false);
-    frame_alt->setSelectionColor(false, selectionBgColor, false);
+    selectionColorMask &= ~2;
+    changePresentation();
 }
 
 void VtermImpl::osc_RESET_SELECTION_FOREGROUND() {
     selectionFgColor = opts.fg;
-    frame_pri->setSelectionColor(true, selectionFgColor, false);
-    frame_alt->setSelectionColor(true, selectionFgColor, false);
+    selectionColorMask &= ~1;
+    changePresentation();
 }
 
 void VtermImpl::osc_SHELL_A(StringView payload) {
@@ -6972,8 +6966,9 @@ void VtermImpl::fontChanged() {
 }
 
 void VtermImpl::resizeGrid() {
-    const u16 previousColumns = cf->columns();
-    const u16 previousRows = cf->rows();
+    const ScreenInfo info = cf->info();
+    const u16 previousColumns = info.columns;
+    const u16 previousRows = info.rows;
     if (previousColumns == composer.columns && previousRows == composer.rows) {
         if (inBandResizeMode) {
             reportInBandResize();
@@ -6992,6 +6987,7 @@ void VtermImpl::resizeGrid() {
         resizeScreen(frame_alt, frameAltPool, cursorState);
         cf = frame_alt;
     }
+    changePresentation();
     posX = cursorState.position.x;
     posY = cursorState.position.y;
     lastCol = cursorState.pendingWrap;
@@ -7227,7 +7223,7 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
         return len;
     }
 
-    if (userInput && cf->pageToBottom()) {
+    if (userInput && cf->scrollView(-0x7fffffff)) {
         refreshBlinkingText();
         redraw();
     }
@@ -7380,39 +7376,26 @@ const VtermImpl::InputSpec& VtermImpl::getInputSpec(Key key) {
     return nullSpec;
 }
 
-VtermImpl::PresentationState VtermImpl::capturePresentationState() const {
-    return {
-        cf,
-        cf->getCursor(),
-        cf->getSelectionForView(),
-        cf->columns(),
-        cf->rows(),
-        cf->getViewOffset(),
-        cf->getScreenReverseVideo(),
-        cf->getBlinkVisible(),
-        cf->getCursorBlink(),
-        cf->getSelectionForeground(),
-        cf->getSelectionBackground(),
-        cf->getSelectionColorMask(),
-    };
+bool VtermImpl::presentationChanged() const {
+    return presentedRevision != presentationRevision();
 }
 
-bool VtermImpl::presentationChanged(const PresentationState& before) const {
-    if (before.frame != cf || cf->hasDamage() || before.columns != cf->columns() || before.rows != cf->rows() || before.viewOffset != cf->getViewOffset() || before.screenReverse != cf->getScreenReverseVideo() || before.blinkVisible != cf->getBlinkVisible() || before.cursorBlink != cf->getCursorBlink() || !(before.selectionForeground == cf->getSelectionForeground()) || !(before.selectionBackground == cf->getSelectionBackground()) || before.selectionColorMask != cf->getSelectionColorMask()) {
-        return true;
+void VtermImpl::syncPresentationCursor(const TerminalCursor& before) {
+    cursorTemporarilyHidden = false;
+    const TerminalCursor after = presentationCursor(cf->info().viewOffset);
+    if (before.posX != after.posX || before.posY != after.posY || before.style != after.style || !(before.color == after.color)) {
+        changePresentation();
     }
-    const auto cursor = cf->getCursor();
-    if (before.cursor.posX != cursor.posX || before.cursor.posY != cursor.posY || before.cursor.style != cursor.style || !(before.cursor.color == cursor.color)) {
-        return true;
-    }
-    const Rect selection = cf->getSelectionForView();
-    return !(before.selection.tl == selection.tl) || !(before.selection.br == selection.br) || before.selection.rectangular != selection.rectangular;
 }
 
-void VtermImpl::syncPresentationCursor() {
-    cf->setCursorPos(posY, posX);
-    using CS = TerminalCursor::Style;
-    cf->setCursorStyle(showCursorMode ? (hasFocus ? cursorShape : CS::hollow_block) : CS::hidden);
+void VtermImpl::changePresentation() {
+    if (++revision == 0) {
+        revision = 1;
+    }
+}
+
+u64 VtermImpl::presentationRevision() const {
+    return splitMix64((u64)(revision) << 32 | cf->info().revision);
 }
 
 void VtermImpl::parserResetGraphemeInput() {
@@ -7638,11 +7621,11 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
 }
 
 [[gnu::noinline]] bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
-    const PresentationState presentationBefore = capturePresentationState();
+    const TerminalCursor cursorBefore = presentationCursor(cf->info().viewOffset);
     hideCursor();
     parser->feed(StringView(input, inputSize));
-    syncPresentationCursor();
-    const bool changed = presentationChanged(presentationBefore);
+    syncPresentationCursor(cursorBefore);
+    const bool changed = presentationChanged();
     if (refresh && changed) {
         redraw();
     }
@@ -7659,7 +7642,7 @@ Point VtermImpl::selectionPoint(int pX, int pY) const {
     const int contentHeight = std::max(1, (int)composer.pixelHeight - 2 * opts.border);
     pX = std::min(std::max(0, pX - opts.border), contentWidth);
     pY = std::min(std::max(0, pY - opts.border), contentHeight - 1);
-    return cf->getLogicalPoint(Point(std::min(pX / composer.glyphWidth, (int)composer.columns), std::min(pY / composer.glyphHeight, (int)composer.rows - 1)));
+    return cf->logicalPoint(Point(std::min(pX / composer.glyphWidth, (int)composer.columns), std::min(pY / composer.glyphHeight, (int)composer.rows - 1)));
 }
 
 void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
@@ -7670,13 +7653,11 @@ void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
 
     Point pt = selectionPoint(pX, pY);
 
-    Rect& selection = cf->getSelection();
-    cf->setSelectSnapTo(Screen::SelectSnapTo::Char);
-    selection.tl = pt;
-    selection.br = pt;
+    cf->beginSelection(pt);
     selectUpdatesTop = false;
     selectUpdatesLeft = false;
 
+    changePresentation();
     hideCursor();
     redraw();
 }
@@ -7684,9 +7665,9 @@ void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
 void VtermImpl::selectExtend(int pX, int pY, bool cycleSnapTo) {
     Point pt = selectionPoint(pX, pY);
 
-    Rect& selection = cf->getSelection();
+    Rect selection = cf->currentSelection();
     if (cycleSnapTo) {
-        cf->cycleSelectSnapTo();
+        cf->cycleSelectionSnap();
     }
 
     if (selection.rectangular) {
@@ -7708,6 +7689,8 @@ void VtermImpl::selectExtend(int pX, int pY, bool cycleSnapTo) {
         selection.br = pt;
     }
 
+    cf->updateSelection(selection);
+    changePresentation();
     hideCursor();
     redraw();
 }
@@ -7715,7 +7698,7 @@ void VtermImpl::selectExtend(int pX, int pY, bool cycleSnapTo) {
 void VtermImpl::selectUpdate(int pX, int pY) {
     Point pt = selectionPoint(pX, pY);
 
-    Rect& selection = cf->getSelection();
+    Rect selection = cf->currentSelection();
 
     if (selection.rectangular) {
         if (selectUpdatesLeft && pt.x > selection.br.x) {
@@ -7762,23 +7745,27 @@ void VtermImpl::selectUpdate(int pX, int pY) {
             selection.br = pt;
         }
     }
+    cf->updateSelection(selection);
+    changePresentation();
     redraw();
 }
 
 bool VtermImpl::selectFinish(std::string& utf8_selection) {
+    changePresentation();
     showCursor();
     redraw();
 
-    return cf->getSelectedUtf8(utf8_selection);
+    return cf->selectedText(utf8_selection);
 }
 
 void VtermImpl::selectClear() {
-    cf->getSelection().clear();
+    cf->clearSelection();
+    changePresentation();
     redraw();
 }
 
 void VtermImpl::selectRectangularModeToggle() {
-    Rect& selection = cf->getSelection();
+    Rect selection = cf->currentSelection();
     selection.toggleRectangular();
     if (selection.rectangular && selection.br.x < selection.tl.x) {
         // A valid linear selection is ordered by row and may therefore have
@@ -7788,6 +7775,8 @@ void VtermImpl::selectRectangularModeToggle() {
         std::swap(selection.tl.x, selection.br.x);
         selectUpdatesLeft = true;
     }
+    cf->updateSelection(selection);
+    changePresentation();
     redraw();
 }
 
