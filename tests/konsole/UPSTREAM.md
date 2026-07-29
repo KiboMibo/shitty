@@ -36,3 +36,13 @@ independent Python-driven targets which query Shitty's internal codepoint-width
 primitive. Konsole's `-1` sentinel for DEL is represented as the observable
 zero advance. Importing these rows also aligned Cf format controls and trailing
 Hangul Jamo with the current terminal consensus.
+
+`upstream/KeyboardTranslatorTest.cpp` is likewise an exact source copy. Its 24
+modifier-wildcard rows are independent targets. The adapter obtains the actual
+xterm modifier parameter from Shitty's generic frontend-input path and F12
+encoding, then applies the upstream wildcard oracle. Konsole's `testHexKeys`
+exercises its private user-keytab parser rather than terminal protocol: Shitty
+has no keytab DSL. Its standard default assertion, Backspace producing DEL, is
+already covered by `tests/test_keyboard.py`; the Delete-to-BS and Space-to-NUL
+rows are deliberate settings of the imported test keytab (and the latter is
+an upstream expected failure), not portable terminal defaults.

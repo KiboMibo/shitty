@@ -1324,6 +1324,57 @@ konsole_width_validation = command(
 )
 
 
+konsole_keyboard_cases = (
+    konsole_root / "keyboard_file_names.txt"
+).read_text().split()
+konsole_keyboard_tests = []
+for case in konsole_keyboard_cases:
+    konsole_keyboard_tests.append(command(
+        name="konsole_keyboard_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/konsole/upstream/KeyboardTranslatorTest.cpp",
+            "$(S)/tests/konsole/keyboard_adapter.py",
+            "$(S)/tests/konsole/keyboard_catalog.py",
+            "$(S)/tests/konsole/keyboard_file_names.txt",
+        ],
+        outputs=[f"$(B)/tests/konsole/keyboard/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/konsole/keyboard_adapter.py",
+            case,
+            f"$(B)/tests/konsole/keyboard/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="KK",
+        color="cyan",
+    ))
+
+konsole_keyboard_validation = command(
+    name="konsole_keyboard_catalog",
+    inputs=[
+        "$(S)/tests/konsole/upstream/KeyboardTranslatorTest.cpp",
+        "$(S)/tests/konsole/keyboard_catalog.py",
+        "$(S)/tests/konsole/keyboard_file_names.txt",
+        "$(S)/tests/konsole/keyboard_validate.py",
+    ],
+    outputs=["$(B)/tests/konsole/keyboard/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/konsole/keyboard_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/konsole/keyboard/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="KK",
+    color="cyan",
+)
+
+
 tmux_root = Path(__file__).parent / "tests" / "tmux"
 tmux_corpus_members = [
     "corpus/" + path.name
@@ -1951,6 +2002,8 @@ group(
     konsole_vt_validation,
     *konsole_width_tests,
     konsole_width_validation,
+    *konsole_keyboard_tests,
+    konsole_keyboard_validation,
     *tmux_tests,
     wraptest_helper,
     *wraptest_tests,

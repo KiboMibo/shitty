@@ -89,7 +89,11 @@ keys.~~
 - ~~CharacterWidth — все 25 data rows перенесены; внутренний width primitive
   доступен batch test API. Импорт исправил ширину Cf format controls и
   U+1160..U+11FF по консенсусу Konsole/Ghostty/Kitty/Foot/VTE/WezTerm/xterm.js.~~
-- KeyboardTranslator;
+- ~~KeyboardTranslator — все 24 modifier-wildcard data rows проверяются через
+  реальный generic frontend input и F12 encoding. `testHexKeys` проверяет
+  Konsole-specific parser пользовательских keytab; он неприменим, поскольку
+  Shitty намеренно не имеет keytab DSL. Его единственный стандартный default,
+  Backspace → DEL, уже покрыт продуктовым тестом.~~
 - отдельные selection/copy и mouse/PTY tests.
 
 ### Windows Terminal
@@ -259,8 +263,7 @@ Search и vi-mode нам пока не нужны.
 1. ~~Mosh semantic display tests.~~
 2. ~~libtsm — все 32.~~
 3. ~~Konsole Screen/History и оставшиеся semantic methods текущего файла.~~
-   Остаток: token oracle и `testTokenFunctions`, KeyboardTranslator,
-   selection/copy и mouse/PTY.
+   Остаток: token oracle и `testTokenFunctions`, selection/copy и mouse/PTY.
 4. Расширить существующий WezTerm screen adapter до всех 74 checkpoints.
 5. Windows Terminal adapter/input/mouse/selection/reflow.
 6. VTE tabstops/paste/UTF-8 и known-sequence matrices.
