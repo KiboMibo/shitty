@@ -101,21 +101,21 @@ ClipboardImpl::~ClipboardImpl() {
 void ClipboardImpl::readPrimary(Output* output) {
     ClipboardOutput* const read = composer.smallObjects->make<ClipboardOutput>(this, output);
     reads.pushBack(read);
-    window.readPrimary(*read);
+    window.requestReadPrimary(*read);
 }
 
 void ClipboardImpl::readClipboard(Output* output) {
     ClipboardOutput* const read = composer.smallObjects->make<ClipboardOutput>(this, output);
     reads.pushBack(read);
-    window.readClipboard(*read);
+    window.requestReadClipboard(*read);
 }
 
 void ClipboardImpl::writePrimary(StringView content) {
-    window.writePrimary(content);
+    window.requestWritePrimary(content);
 }
 
 void ClipboardImpl::writeClipboard(StringView content) {
-    window.writeClipboard(content);
+    window.requestWriteClipboard(content);
 }
 
 void ClipboardImpl::cancelReads() {

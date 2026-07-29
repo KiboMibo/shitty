@@ -211,7 +211,7 @@ void ApplicationImpl::defer() {
     applicationTrace("defer");
 #endif
     if (composer.window != nullptr) {
-        composer.window->invalidate();
+        composer.window->requestFrame();
     }
 }
 
@@ -392,7 +392,7 @@ bool ApplicationImpl::presentTerminal() {
 #endif
         const bool repainted = composer.renderer->repaint();
         if (!repainted) {
-            composer.window->invalidate();
+            composer.window->requestFrame();
         }
         return repainted;
     }
@@ -402,7 +402,7 @@ bool ApplicationImpl::presentTerminal() {
     fflush(stderr);
 #endif
     if (!presented) {
-        composer.window->invalidate();
+        composer.window->requestFrame();
         return false;
     }
     vterm->consume();
@@ -445,12 +445,12 @@ bool ApplicationImpl::handlesOsc() const {
 
 void ApplicationImpl::title(StringView value) {
     titleSet = value != StringView(opts.title);
-    composer.window->setTitle(value);
+    composer.window->requestTitle(value);
 }
 
 void ApplicationImpl::cwd(StringView path) {
     if (!titleSet) {
-        composer.window->setTitle(path);
+        composer.window->requestTitle(path);
     }
 }
 
@@ -477,32 +477,32 @@ void ApplicationImpl::progress(u32 state, u32) {
 void ApplicationImpl::windowOperation(u32 operation, u32 first, u32 second) {
     switch (operation) {
         case 1:
-            composer.window->restore();
+            composer.window->requestRestore();
             return;
         case 2:
-            composer.window->iconify();
+            composer.window->requestIconify();
             return;
         case 3:
-            composer.window->move((i32)(first), (i32)(second));
+            composer.window->requestMove((i32)(first), (i32)(second));
             return;
         case 5:
-            composer.window->focus();
+            composer.window->requestFocus();
             return;
         case 7:
-            composer.window->invalidate();
+            composer.window->requestFrame();
             return;
         case 9: {
             if (first == 0) {
-                composer.window->setMaximized(false);
+                composer.window->requestMaximized(false);
             } else if (first == 1) {
-                composer.window->setMaximized(true);
+                composer.window->requestMaximized(true);
             } else if (first == 2) {
-                composer.window->setMaximized(!windowInfo_.maximized);
+                composer.window->requestMaximized(!windowInfo_.maximized);
             }
             return;
         }
         case 10: {
-            composer.window->setFullscreen(first == 1 || (first == 2 && !windowInfo_.fullscreen));
+            composer.window->requestFullscreen(first == 1 || (first == 2 && !windowInfo_.fullscreen));
             return;
         }
         default:
@@ -555,10 +555,10 @@ void ApplicationImpl::showWindow() {
     const u32 border = 2u * opts.border;
     const u32 width = border + (u32)(opts.nCols) * composer.glyphWidth;
     const u32 height = border + (u32)(opts.nRows) * composer.glyphHeight;
-    composer.window->setMinimumSize(border + composer.glyphWidth, border + composer.glyphHeight);
-    composer.window->setResizeUnit(composer.glyphWidth, composer.glyphHeight, border, border);
+    composer.window->requestMinimumSize(border + composer.glyphWidth, border + composer.glyphHeight);
+    composer.window->requestResizeUnit(composer.glyphWidth, composer.glyphHeight, border, border);
     composer.window->requestResize(width, height);
-    composer.window->show();
+    composer.window->requestShow();
     composer.resize((u16)(min(width, (u32)(UINT16_MAX))), (u16)(min(height, (u32)(UINT16_MAX))));
 #if defined(SHITTY_FRAME_TRACE)
     applicationTrace("showWindow end");
