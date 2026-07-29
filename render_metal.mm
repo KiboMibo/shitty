@@ -28,6 +28,7 @@
 #define Point MacLegacyPoint
 #define Rect MacLegacyRect
 
+#import <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
 #import <IOSurface/IOSurface.h>
 #import <Metal/Metal.h>
@@ -790,6 +791,18 @@ bool MetalRendererImpl::ensureTargets(u32 width, u32 height) {
         return false;
     }
 
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    if (colorSpace == nullptr) {
+        destroyTargets();
+        return false;
+    }
+    CFPropertyListRef serializedColorSpace = CGColorSpaceCopyPropertyList(colorSpace);
+    CGColorSpaceRelease(colorSpace);
+    if (serializedColorSpace == nullptr) {
+        destroyTargets();
+        return false;
+    }
+
     const size_t bytesPerRow = ((size_t)(width) * 4 + 63) & ~(size_t)(63);
     for (PresentationFrame& frame : frames) {
         NSDictionary* properties = @{
@@ -802,18 +815,22 @@ bool MetalRendererImpl::ensureTargets(u32 width, u32 height) {
         };
         frame.surface = IOSurfaceCreate((CFDictionaryRef)(properties));
         if (frame.surface == nullptr) {
+            CFRelease(serializedColorSpace);
             destroyTargets();
             return false;
         }
+        IOSurfaceSetValue(frame.surface, kIOSurfaceColorSpace, serializedColorSpace);
         MTLTextureDescriptor* descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm width:width height:height mipmapped:NO];
         descriptor.storageMode = textureStorageMode;
         descriptor.usage = MTLTextureUsageShaderRead;
         frame.texture = [device newTextureWithDescriptor:descriptor iosurface:frame.surface plane:0];
         if (frame.texture == nil) {
+            CFRelease(serializedColorSpace);
             destroyTargets();
             return false;
         }
     }
+    CFRelease(serializedColorSpace);
     outputWidth = width;
     outputHeight = height;
     currentFrame = 0;
