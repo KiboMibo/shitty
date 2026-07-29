@@ -15,6 +15,8 @@
 #include <std/str/view.h>
 #include <std/tst/ut.h>
 
+#include <cerrno>
+
 using namespace stl;
 
 namespace {
@@ -26,6 +28,7 @@ namespace {
 
         Buffer written;
         size_t writeLimit = SIZE_MAX;
+        int writeError = 0;
         size_t readyCount = 0;
     };
 }
@@ -39,6 +42,10 @@ ssize_t TestPty::read(u8*, size_t) {
 }
 
 ssize_t TestPty::write(const u8* buffer, size_t size) {
+    if (writeError != 0) {
+        errno = writeError;
+        return -1;
+    }
     const size_t count = size < writeLimit ? size : writeLimit;
     written.append(buffer, count);
     return (ssize_t)(count);
@@ -123,6 +130,37 @@ STD_TEST_SUITE(PtyOutput) {
         STD_INSIST(pty.written.used() == 64 * 1024);
         STD_INSIST(!queue->flush());
         STD_INSIST(pty.written.used() == 64 * 1024 + 1);
+
+        delete output;
+    }
+
+    STD_TEST(RetriesTemporaryWriteErrors) {
+        auto pool = ObjPool::fromMemory();
+        SmallObjAllocator* const allocator = SmallObjAllocator::create(pool.mutPtr());
+        TestPty pty;
+        PtyOutputQueue* const queue = PtyOutputQueue::create(pool.mutPtr(), allocator, pty);
+        Output* output = queue->append();
+        output->write(StringView(u8"pending").data(), 7);
+
+        pty.writeError = EAGAIN;
+        STD_INSIST(queue->flush());
+        pty.writeError = 0;
+        STD_INSIST(!queue->flush());
+        STD_INSIST(StringView(pty.written) == StringView(u8"pending"));
+
+        delete output;
+    }
+
+    STD_TEST(DoesNotSpinOnFatalWriteErrors) {
+        auto pool = ObjPool::fromMemory();
+        SmallObjAllocator* const allocator = SmallObjAllocator::create(pool.mutPtr());
+        TestPty pty;
+        PtyOutputQueue* const queue = PtyOutputQueue::create(pool.mutPtr(), allocator, pty);
+        Output* output = queue->append();
+        output->write(StringView(u8"pending").data(), 7);
+
+        pty.writeError = EIO;
+        STD_INSIST(!queue->flush());
 
         delete output;
     }

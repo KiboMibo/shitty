@@ -6,6 +6,7 @@
 
 #include "pty_output.h"
 
+#include "fd_redirect.h"
 #include "pty.h"
 #include "small_obj_allocator.h"
 
@@ -17,6 +18,7 @@
 #include <std/str/view.h>
 
 #include <cstring>
+#include <cerrno>
 #include <new>
 
 using namespace stl;
@@ -172,8 +174,14 @@ bool PtyOutputQueueImpl::flush() {
     }
     const size_t size = bytes.length() < maximumWrite ? bytes.length() : maximumWrite;
     const ssize_t count = pty.write(bytes.data(), size);
-    if (count <= 0) {
+    if (count < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
         return true;
+    }
+    if (count <= 0) {
+        if (count < 0) {
+            sysWarn("pty write");
+        }
+        return false;
     }
     node->consume((size_t)(count));
     releaseDrained();

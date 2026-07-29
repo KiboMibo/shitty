@@ -37,7 +37,11 @@ void Rect::clear() {
 namespace stl {
 
     template <>
+#if __SIZEOF_LONG_DOUBLE__ >= 16
     void output<ZeroCopyOutput, ::Rect>(ZeroCopyOutput& output, ::Rect rect) {
+#else
+    void output<ZeroCopyOutput, ::Rect>(ZeroCopyOutput& output, const ::Rect& rect) {
+#endif
         output << StringView(u8"Rect{tl=") << rect.tl << StringView(u8" br=") << rect.br << (rect.rectangular ? StringView(u8" rectangular}") : StringView(u8" regular}"));
     }
 

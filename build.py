@@ -18,17 +18,50 @@ build.cxxflags += [
 ]
 
 
-freetype = pkg_config("freetype2")
+darwin = "apple-darwin" in build.target
+linux = "linux" in build.target
+
+freetype = pkg_config("freetype2", required=False)
 fontconfig = pkg_config("fontconfig", required=False)
-harfbuzz = pkg_config("harfbuzz")
-vulkan = pkg_config("vulkan")
+harfbuzz = pkg_config("harfbuzz", required=False)
 brotli_common = pkg_config("libbrotlicommon", required=False)
-utf8proc = pkg_config("libutf8proc")
 simdutf = pkg_config("simdutf >= 6.5.0", required=False)
+
+have_freetype_backend = bool(freetype and harfbuzz)
+if have_freetype_backend:
+    build.cppflags += ["-DHAVE_FREETYPE=1", "-DHAVE_HARFBUZZ=1"]
+    if fontconfig:
+        build.cppflags += ["-DHAVE_FONTCONFIG=1"]
+else:
+    freetype = dependency()
+    fontconfig = dependency()
+    harfbuzz = dependency()
+    brotli_common = dependency()
+
+if darwin:
+    darwin_backend = dependency(ldflags=[
+        "-Wl,-ObjC",
+        "-Wl,-framework,CoreFoundation",
+        "-Wl,-framework,CoreGraphics",
+        "-Wl,-framework,CoreText",
+    ])
+    build.cppflags += ["-DHAVE_CORETEXT=1"]
+else:
+    darwin_backend = dependency()
+
+utf8proc = pkg_config("libutf8proc")
 threads = dependency(ldflags=["-pthread"])
 
-if fontconfig:
-    build.cppflags += ["-DSHITTY_HAS_FONTCONFIG=1"]
+if darwin:
+    vulkan = pkg_config("MoltenVK", required=False)
+    if not vulkan and "-lMoltenVK" not in build.ldflags:
+        raise RuntimeError("Darwin target requires MoltenVK in LDFLAGS")
+    if not vulkan:
+        vulkan = dependency()
+    build.cppflags += ["-DHAVE_VULKAN_METAL=1"]
+elif linux:
+    vulkan = pkg_config("vulkan")
+    build.cppflags += ["-DHAVE_VULKAN_WAYLAND=1"]
 
 
 if '-lstd' in build.ldflags:
@@ -147,9 +180,16 @@ fuzz_source = "$(S)/main_fuzz.cpp"
 heap_profile_source = "$(S)/heap_profile.cpp"
 parser_source = "$(S)/parser.cpp"
 unit_sources = sorted(build.glob("$(S)/*_ut.cpp"))
+platform_font_sources = {
+    "$(S)/font_freetype.cpp",
+}
+enabled_font_sources = set()
+if have_freetype_backend:
+    enabled_font_sources.add("$(S)/font_freetype.cpp")
 all_libshitty_sources = [
     source for source in build.glob("$(S)/*.cpp")
     if source not in (main_source, fuzz_source, heap_profile_source, *unit_sources)
+    and (source not in platform_font_sources or source in enabled_font_sources)
 ]
 libshitty_sources = [
     {
@@ -166,12 +206,12 @@ libshitty_test_sources = [
     for source in all_libshitty_sources
 ]
 libshitty_deps = [
-    freetype, fontconfig, harfbuzz, plt, vulkan, threads, libstd, brotli_common,
-    utf8proc, simdutf,
+    freetype, fontconfig, harfbuzz, darwin_backend, plt, vulkan, threads, libstd,
+    brotli_common, utf8proc, simdutf,
 ]
 libshitty_test_deps = [
-    freetype, fontconfig, harfbuzz, plt, vulkan, threads, libstd, brotli_common,
-    utf8proc, simdutf,
+    freetype, fontconfig, harfbuzz, darwin_backend, plt, vulkan, threads, libstd,
+    brotli_common, utf8proc, simdutf,
 ]
 
 

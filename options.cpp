@@ -33,6 +33,12 @@ using namespace stl;
 
 namespace {
 
+#if defined(HAVE_CORETEXT)
+    constexpr const char* defaultDoubleWidthFont = "monospace";
+#else
+    constexpr const char* defaultDoubleWidthFont = "18x18ja";
+#endif
+
     enum class OptionKind {
         NoArg,
         SepArg,
@@ -62,7 +68,7 @@ namespace {
         {"border", OptionKind::SepArg, nullptr, "2", "Border width in pixels"},
         {"cr", OptionKind::SepArg, nullptr, nullptr, "Cursor color"},
         {"dump", OptionKind::SepArg, nullptr, nullptr, "Dump raw PTY input to file"},
-        {"dwfont", OptionKind::SepArg, nullptr, "18x18ja", "Double-width font to use"},
+        {"dwfont", OptionKind::SepArg, nullptr, defaultDoubleWidthFont, "Double-width font to use"},
         {"fg", OptionKind::SepArg, nullptr, "#fff", "Foreground color"},
         {"font", OptionKind::SepArg, nullptr, "monospace", "Font to use"},
         {"fontsize", OptionKind::SepArg, nullptr, "16", "Font size"},

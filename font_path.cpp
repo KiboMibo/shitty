@@ -14,6 +14,7 @@
 
 using namespace stl;
 
+#if defined(HAVE_FREETYPE) && defined(HAVE_HARFBUZZ)
 namespace {
     struct PathFontResolverImpl final: public FontResolver {
         PathFontResolverImpl();
@@ -31,7 +32,13 @@ Font* PathFontResolverImpl::load(ObjPool& owner, const FontRequest& request, Fon
     }
     return createFreeTypeFont(owner, request.name, 0, request.pixels, request.kind, metrics);
 }
+#endif
 
 FontResolver* createPathFontResolver(Composer& composer) {
+#if defined(HAVE_FREETYPE) && defined(HAVE_HARFBUZZ)
     return composer.pool->make<PathFontResolverImpl>();
+#else
+    (void)(composer);
+    return nullptr;
+#endif
 }

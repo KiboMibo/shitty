@@ -24,6 +24,11 @@
  *   http://www.apuebook.com/code3e.html
  */
 
+#if defined(__APPLE__)
+    #define _DARWIN_C_SOURCE
+#endif
+#define _XOPEN_SOURCE 700
+
 #include "pty.h"
 
 #include "application.h"
@@ -41,36 +46,18 @@
 #include <std/str/view.h>
 #include <std/thr/poll_fd.h>
 
-#define _POSIX_C_SOURCE 200809L
-
-#if defined(SOLARIS) /* Solaris 10 */
-    #define _XOPEN_SOURCE 600
-#else
-    #define _XOPEN_SOURCE 700
-#endif
-
 #include <errno.h>
 #include <fcntl.h>
-#include <stdarg.h>
-#include <stddef.h>
-#include <stdio.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
+#include <sys/ioctl.h>
 #include <termios.h>
 
 #include <stdexcept>
 #include <string>
 
 using namespace stl;
-
-#if defined(BSD) || defined(MACOS) || !defined(TIOCGWINSZ)
-    #include <sys/ioctl.h>
-#endif
-
-#if defined(SOLARIS)
-    #include <stropts.h>
-#endif
 
 namespace {
     struct PtyImpl;
@@ -241,32 +228,12 @@ int ptys_open(char* pts_name) {
     if (fds < 0) {
         sysError("can't open slave pty: open()");
     }
-
-#if defined(SOLARIS)
-
-    int setup;
-    if ((setup = ioctl(fds, I_FIND, "ldterm")) < 0) {
-        sysError("can't open slave pty: ioctl(I_FIND, ldterm)");
-    }
-
-    if (setup == 0) {
-        if (ioctl(fds, I_PUSH, "ptem") < 0) {
-            sysError("can't open slave pty: ioctl(I_PUSH, ptem)");
-        }
-        if (ioctl(fds, I_PUSH, "ldterm") < 0) {
-            sysError("can't open slave pty: ioctl(I_PUSH, ldterm)");
-        }
-        if (ioctl(fds, I_PUSH, "ttcompat") < 0) {
-            sysError("can't open slave pty: ioctl(I_PUSH, ttcompat)");
-        }
-    }
-#endif
     return fds;
 }
 
 pid_t pty_fork(int& o_ptyFd, int cols, int rows) {
     pid_t pid;
-    char pts_name[20];
+    char pts_name[PATH_MAX];
     int fdm = ptym_open(pts_name, sizeof(pts_name));
 
     pid = fork();
@@ -282,18 +249,9 @@ pid_t pty_fork(int& o_ptyFd, int cols, int rows) {
 
         close(fdm);
 
-#if defined(BSD)
-
-        if (ioctl(fds, TIOCSCTTY, nullptr) < 0) {
-            sysError("TIOCSCTTY");
-        }
-#endif
-
         pty_resize(fds, cols, rows);
 
         redirectFds(fds);
-
-#if defined(LINUX) || defined(MACOS)
 
         struct termios term;
         if (tcgetattr(STDIN_FILENO, &term) < 0) {
@@ -303,7 +261,6 @@ pid_t pty_fork(int& o_ptyFd, int cols, int rows) {
         if (tcsetattr(STDIN_FILENO, TCSANOW, &term) < 0) {
             sysError("tcsetattr");
         }
-#endif
     } else {
         o_ptyFd = fdm;
     }

@@ -13,13 +13,13 @@
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
 
-#if defined(SHITTY_HAS_FONTCONFIG)
+#if defined(HAVE_FONTCONFIG)
     #include <fontconfig/fontconfig.h>
 #endif
 
 using namespace stl;
 
-#if defined(SHITTY_HAS_FONTCONFIG)
+#if defined(HAVE_FONTCONFIG)
 namespace {
     struct FontSource {
         StringView filename;
@@ -156,7 +156,7 @@ Font* FontconfigResolverImpl::load(ObjPool& owner, const FontRequest& request, F
 #endif
 
 FontResolver* createFontconfigResolver(Composer& composer) {
-#if defined(SHITTY_HAS_FONTCONFIG)
+#if defined(HAVE_FONTCONFIG)
     return composer.pool->make<FontconfigResolverImpl>();
 #else
     (void)(composer);

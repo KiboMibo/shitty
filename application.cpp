@@ -407,11 +407,17 @@ void ApplicationImpl::updateWindowInfo(const plt::WindowInfo& info) {
 
 void ApplicationImpl::resized(const plt::WindowInfo& info) {
     updateWindowInfo(info);
+    if (composer.vterm == nullptr) {
+        return;
+    }
     composer.vterm->expose();
     defer();
 }
 
 void ApplicationImpl::redraw() {
+    if (composer.vterm == nullptr) {
+        return;
+    }
     composer.vterm->expose();
     defer();
 }

@@ -6,14 +6,15 @@
 
 #include "composer.h"
 
-#include "options.h"
-#include "small_obj_allocator.h"
-#include "listener.h"
+#include "font_coretext.h"
+#include "font_fontconfig.h"
 #include "font_path.h"
-#include "input_router.h"
+#include "options.h"
 #include "font_resolver.h"
 #include "input_bindings.h"
-#include "font_fontconfig.h"
+#include "input_router.h"
+#include "listener.h"
+#include "small_obj_allocator.h"
 
 #include <std/alg/minmax.h>
 #include <std/dbg/assert.h>
@@ -27,10 +28,15 @@ Composer::Composer(ObjPool* pool_)
     input = createInputRouter(*this);
     inputBindings = InputBindings::create(*this);
     inputHandlers.pushBack(inputBindings);
+    if (FontResolver* const resolver = createCoreTextFontResolver(*this)) {
+        fontResolvers.pushBack(resolver);
+    }
     if (FontResolver* const resolver = createFontconfigResolver(*this)) {
         fontResolvers.pushBack(resolver);
     }
-    fontResolvers.pushBack(createPathFontResolver(*this));
+    if (FontResolver* const resolver = createPathFontResolver(*this)) {
+        fontResolvers.pushBack(resolver);
+    }
 }
 
 void Composer::setContentScale(float scale) {

@@ -33,7 +33,14 @@
 #include <std/typ/intrin.h>
 
 #include <vulkan/vulkan.h>
-#include <vulkan/vulkan_wayland.h>
+
+#if defined(HAVE_VULKAN_WAYLAND)
+    #include <vulkan/vulkan_wayland.h>
+#elif defined(HAVE_VULKAN_METAL)
+    #include <vulkan/vulkan_metal.h>
+#else
+    #error No Vulkan window-system backend selected
+#endif
 
 #include "render_spv.h"
 
@@ -341,6 +348,7 @@ namespace {
         u32 currentFrame = 0;
 
         void createInstance();
+        void createSurface(const plt::RenderContext& context);
         void selectPhysicalDevice();
         void createDevice();
         void createCommandResources();
@@ -404,20 +412,40 @@ namespace {
         }
     }
 
+    bool instanceHasExtension(const char* name) {
+        u32 count = 0;
+        if (vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr) != VK_SUCCESS) {
+            return false;
+        }
+
+        Vector<VkExtensionProperties> extensions(count);
+        if (vkEnumerateInstanceExtensionProperties(nullptr, &count, extensions.mutData()) != VK_SUCCESS) {
+            return false;
+        }
+        for (u32 index = 0; index < count; ++index) {
+            if (StringView(extensions[index].extensionName) == StringView(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     bool deviceHasExtension(VkPhysicalDevice physicalDevice, const char* name) {
         u32 count = 0;
         if (vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &count, nullptr) != VK_SUCCESS) {
             return false;
         }
 
-        std::vector<VkExtensionProperties> extensions(count);
-        if (vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &count, extensions.data()) != VK_SUCCESS) {
+        Vector<VkExtensionProperties> extensions(count);
+        if (vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &count, extensions.mutData()) != VK_SUCCESS) {
             return false;
         }
-
-        return std::any_of(extensions.begin(), extensions.end(), [name](const VkExtensionProperties& extension) {
-            return std::strcmp(extension.extensionName, name) == 0;
-        });
+        for (u32 index = 0; index < count; ++index) {
+            if (StringView(extensions[index].extensionName) == StringView(name)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     bool formatSupports(VkPhysicalDevice physicalDevice, VkFormat format, VkFormatFeatureFlags features) {
@@ -529,15 +557,8 @@ RendererImpl::RendererImpl(Composer& composer_, const plt::RenderContext& contex
     , glyphs(*glyphPool)
     , doubleWidthGlyphs(*glyphPool)
 {
-    if (context.backend != plt::RenderBackend::Wayland || context.connection == nullptr || context.window == nullptr) {
-        throw std::runtime_error("Vulkan renderer requires a Wayland render context");
-    }
     createInstance();
-    VkWaylandSurfaceCreateInfoKHR surfaceInfo{};
-    surfaceInfo.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
-    surfaceInfo.display = (struct wl_display*)(context.connection);
-    surfaceInfo.surface = (struct wl_surface*)(context.window);
-    checkVk(vkCreateWaylandSurfaceKHR(instance, &surfaceInfo, nullptr, &surface), "vkCreateWaylandSurfaceKHR");
+    createSurface(context);
     selectPhysicalDevice();
     createDevice();
     createCommandResources();
@@ -616,10 +637,17 @@ RendererImpl::~RendererImpl() {
 }
 
 void RendererImpl::createInstance() {
-    const char* const extensions[] = {
-        VK_KHR_SURFACE_EXTENSION_NAME,
-        VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME,
-    };
+    const char* extensions[3] = {VK_KHR_SURFACE_EXTENSION_NAME};
+    u32 extensionCount = 1;
+#if defined(HAVE_VULKAN_WAYLAND)
+    extensions[extensionCount++] = VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME;
+#elif defined(HAVE_VULKAN_METAL)
+    extensions[extensionCount++] = VK_EXT_METAL_SURFACE_EXTENSION_NAME;
+    const bool portabilityEnumeration = instanceHasExtension(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+    if (portabilityEnumeration) {
+        extensions[extensionCount++] = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
+    }
+#endif
 
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -631,10 +659,36 @@ void RendererImpl::createInstance() {
 
     VkInstanceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+#if defined(HAVE_VULKAN_METAL)
+    if (portabilityEnumeration) {
+        createInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+    }
+#endif
     createInfo.pApplicationInfo = &appInfo;
-    createInfo.enabledExtensionCount = sizeof(extensions) / sizeof(extensions[0]);
+    createInfo.enabledExtensionCount = extensionCount;
     createInfo.ppEnabledExtensionNames = extensions;
     checkVk(vkCreateInstance(&createInfo, nullptr, &instance), "vkCreateInstance");
+}
+
+void RendererImpl::createSurface(const plt::RenderContext& context) {
+#if defined(HAVE_VULKAN_WAYLAND)
+    if (context.backend != plt::RenderBackend::Wayland || context.connection == nullptr || context.window == nullptr) {
+        throw std::runtime_error("Vulkan renderer requires a Wayland render context");
+    }
+    VkWaylandSurfaceCreateInfoKHR surfaceInfo{};
+    surfaceInfo.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
+    surfaceInfo.display = (struct wl_display*)(context.connection);
+    surfaceInfo.surface = (struct wl_surface*)(context.window);
+    checkVk(vkCreateWaylandSurfaceKHR(instance, &surfaceInfo, nullptr, &surface), "vkCreateWaylandSurfaceKHR");
+#elif defined(HAVE_VULKAN_METAL)
+    if (context.backend != plt::RenderBackend::Cocoa || context.window == nullptr) {
+        throw std::runtime_error("Vulkan renderer requires a Cocoa render context");
+    }
+    VkMetalSurfaceCreateInfoEXT surfaceInfo{};
+    surfaceInfo.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT;
+    surfaceInfo.pLayer = (const CAMetalLayer*)(context.window);
+    checkVk(vkCreateMetalSurfaceEXT(instance, &surfaceInfo, nullptr, &surface), "vkCreateMetalSurfaceEXT");
+#endif
 }
 
 void RendererImpl::selectPhysicalDevice() {
@@ -704,11 +758,15 @@ void RendererImpl::createDevice() {
     queueInfo.queueCount = 1;
     queueInfo.pQueuePriorities = &priority;
 
-    const char* extensions[3] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    const char* extensions[4] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     u32 extensionCount = 1;
     if (mutableSwapchainFormats) {
         extensions[extensionCount++] = VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME;
         extensions[extensionCount++] = VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME;
+    }
+    constexpr const char* portabilitySubset = "VK_KHR_portability_subset";
+    if (deviceHasExtension(physicalDevice, portabilitySubset)) {
+        extensions[extensionCount++] = portabilitySubset;
     }
     VkPhysicalDeviceFeatures features{};
     features.shaderStorageImageExtendedFormats = extendedStorageFormats;
