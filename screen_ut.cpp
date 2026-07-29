@@ -208,7 +208,7 @@ namespace {
         composer.setCellExtras(CellExtraStore::create(composer, (size_t)(columns)*rows * 2));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, columns, rows, &colors, 8);
+        Screen* screen = Screen::createPrimary(composer, *pool, columns, rows, &colors, 8);
         fillDamagePattern(*screen, composer);
         setup(*screen);
 
@@ -241,7 +241,7 @@ namespace {
         verifyDamage([](Screen&) {}, operation, expectsDamage);
     }
 
-    void verifyResizeDamageGeometry(u16 columns, bool reflow) {
+    void verifyResizeDamageGeometry(u16 columns, bool primary) {
         auto composerPool = ObjPool::fromMemory();
         auto sourcePool = ObjPool::fromMemory();
         auto destinationPool = ObjPool::fromMemory();
@@ -249,16 +249,15 @@ namespace {
         composer.setCellExtras(CellExtraStore::create(composer, (size_t)(columns) * 10));
         TerminalColors colors;
         configureColors(colors);
-        Screen* source = Screen::create(composer, *sourcePool, columns, 5, &colors, 8);
+        Screen* source = primary ? Screen::createPrimary(composer, *sourcePool, columns, 5, &colors, 8) : Screen::createAlternate(composer, *sourcePool, columns, 5, &colors);
         fillDamagePattern(*source, composer);
 
         DamageCanvas incremental;
         renderFull(*source, colors, incremental);
-        ResizeState* const state = source->moveInto();
         Screen::Cursor cursor;
         cursor.position = Point(columns - 2, 3);
-        const u16 destinationColumns = reflow ? columns - 2 : columns + 2;
-        Screen* const destination = Screen::create(composer, *destinationPool, *state, destinationColumns, 6, &colors, reflow, &cursor);
+        const u16 destinationColumns = primary ? columns - 2 : columns + 2;
+        Screen* const destination = source->resized(*destinationPool, destinationColumns, 6, cursor);
         STD_INSIST(destination->hasDamage());
         clearCanvas(incremental, destination->columns(), destination->rows());
 
@@ -271,9 +270,9 @@ namespace {
         STD_INSIST(equalCanvas(incremental, expected));
     }
 
-    void verifyResizeDamage(bool reflow) {
-        verifyResizeDamageGeometry(8, reflow);
-        verifyResizeDamageGeometry(260, reflow);
+    void verifyResizeDamage(bool primary) {
+        verifyResizeDamageGeometry(8, primary);
+        verifyResizeDamageGeometry(260, primary);
     }
 }
 
@@ -285,7 +284,7 @@ STD_TEST_SUITE(Screen) {
         TerminalColors colors;
         configureColors(colors);
 
-        Screen* screen = Screen::create(composer, *pool, 4, 3, &colors, 5);
+        Screen* screen = Screen::createPrimary(composer, *pool, 4, 3, &colors, 5);
 
         STD_INSIST(screen->active());
         STD_INSIST(screen->columns() == 4);
@@ -306,7 +305,7 @@ STD_TEST_SUITE(Screen) {
         TerminalColors colors;
         configureColors(colors);
 
-        Screen* screen = Screen::create(composer, *pool, 2, 3, &colors, 2);
+        Screen* screen = Screen::createPrimary(composer, *pool, 2, 3, &colors, 2);
 
         STD_INSIST(screen->cellCapacity() == 16);
         for (u16 index = 0; index < 6; ++index) {
@@ -322,11 +321,59 @@ STD_TEST_SUITE(Screen) {
         TerminalColors colors;
         configureColors(colors);
 
-        Screen* screen = Screen::create(composer, *pool, 2, 3, &colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 2, 3, &colors);
         screen->scrollUp(0, 3, 1, TerminalCell{});
 
         STD_INSIST(screen->cellCapacity() == 6);
         STD_INSIST(screen->getHistoryRows() == 0);
+    }
+
+    STD_TEST(AlternateResizeKeepsTopRows) {
+        auto composerPool = ObjPool::fromMemory();
+        auto sourcePool = ObjPool::fromMemory();
+        auto destinationPool = ObjPool::fromMemory();
+        Composer composer(composerPool.mutPtr());
+        composer.setCellExtras(CellExtraStore::create(composer, 8));
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::createAlternate(composer, *sourcePool, 1, 4, &colors);
+        const u8 text[] = {'A', 'B', 'C', 'D'};
+        for (u16 row = 0; row < 4; ++row) {
+            screen->writeAsciiRun(row, 0, text + row, 1, attributes(), 0, 0, TerminalCell{});
+        }
+        Screen::Cursor cursor{Point(0, 3), false};
+
+        Screen* resized = screen->resized(*destinationPool, 1, 3, cursor);
+
+        STD_INSIST(resized->testCell(0, 0).uc_pt == 'A');
+        STD_INSIST(resized->testCell(1, 0).uc_pt == 'B');
+        STD_INSIST(resized->testCell(2, 0).uc_pt == 'C');
+        STD_INSIST(cursor.position.y == 2);
+        STD_INSIST(resized->getHistoryRows() == 0);
+    }
+
+    STD_TEST(PrimaryResizeKeepsCursorRowsAndCapturesHistory) {
+        auto composerPool = ObjPool::fromMemory();
+        auto sourcePool = ObjPool::fromMemory();
+        auto destinationPool = ObjPool::fromMemory();
+        Composer composer(composerPool.mutPtr());
+        composer.setCellExtras(CellExtraStore::create(composer, 8));
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::createPrimary(composer, *sourcePool, 1, 4, &colors, 4);
+        const u8 text[] = {'A', 'B', 'C', 'D'};
+        for (u16 row = 0; row < 4; ++row) {
+            screen->writeAsciiRun(row, 0, text + row, 1, attributes(), 0, 0, TerminalCell{});
+        }
+        Screen::Cursor cursor{Point(0, 3), false};
+
+        Screen* resized = screen->resized(*destinationPool, 1, 3, cursor);
+
+        STD_INSIST(resized->testCell(0, 0).uc_pt == 'B');
+        STD_INSIST(resized->testCell(1, 0).uc_pt == 'C');
+        STD_INSIST(resized->testCell(2, 0).uc_pt == 'D');
+        STD_INSIST(cursor.position.y == 2);
+        STD_INSIST(resized->getHistoryRows() == 1);
     }
 
     STD_TEST(WritesAsciiAndExposesOnlyDamagedCells) {
@@ -335,7 +382,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 8));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 4, 2, &colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 4, 2, &colors);
         TerminalCell attrs = attributes();
         attrs.bold = true;
         const u8 text[] = {'a', 'b'};
@@ -369,7 +416,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 8));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 8, 2, &colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 8, 2, &colors);
         const TerminalCell attrs = attributes();
         const u8 left[] = {'L'};
         const u8 right[] = {'R'};
@@ -403,7 +450,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 16));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 3, 2, &colors, 2);
+        Screen* screen = Screen::createPrimary(composer, *pool, 3, 2, &colors, 2);
         const TerminalCell attrs = attributes();
         const u8 text[] = {'A', 'B', '\r', '\n', 'C', '\r', '\n', 'D', 'E', '\r', '\n', 'F', '\r', '\n'};
         const u16 lengths[] = {2, 1, 2, 1};
@@ -426,7 +473,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 16));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 4, 2, &colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 4, 2, &colors);
         const TerminalCell attrs = attributes();
         TerminalCell eraseAttrs{};
         eraseAttrs.bold = true;
@@ -449,7 +496,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 16));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 3, 4, &colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 3, 4, &colors);
         const TerminalCell attrs = attributes();
         const u8 original[] = {'x', 'y', 'z'};
         const u8 text[] = {'A', '\r', '\n', 'B', '\r', '\n'};
@@ -474,7 +521,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 4));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 4, 1, &colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 4, 1, &colors);
         TerminalCellSpan spans[1];
 
         screen->setLineAttribute(0, 2);
@@ -492,7 +539,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 4));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 4, 1, &colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 4, 1, &colors);
         TerminalCell attrs = attributes();
         attrs.protected_char = TerminalCell::isoProtection;
         const u8 text[] = {'x'};
@@ -511,7 +558,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 15));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 5, 3, &colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 5, 3, &colors);
         const TerminalCell attrs = attributes();
         const u8 first[] = {'A', 'B', 'C', 'D', 'E'};
         const u8 second[] = {'F', 'G', 'H', 'I', 'J'};
@@ -540,7 +587,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 14));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 7, 2, &colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 7, 2, &colors);
         const TerminalCell attrs = attributes();
         constexpr u32 wide = 0x4e00;
         const u8 middle[] = {'x'};
@@ -566,7 +613,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 14));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 7, 2, &colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 7, 2, &colors);
         const TerminalCell attrs = attributes();
         constexpr u32 wide = 0x4e00;
         const u8 middle[] = {'x'};
@@ -592,7 +639,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 5));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 1, 5, &colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 1, 5, &colors);
         const TerminalCell attrs = attributes();
         for (u16 row = 0; row < 5; ++row) {
             const u8 value = (u8)('A' + row);
@@ -616,7 +663,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 5));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 5, 1, &colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 5, 1, &colors);
         const TerminalCell attrs = attributes();
         const u8 initial[] = {'a', 'b', 'c', 'd', 'e'};
         const u8 inserted[] = {'X', 'Y'};
@@ -636,7 +683,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 4));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 4, 1, &colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 4, 1, &colors);
         const TerminalCell attrs = attributes();
         constexpr u32 wide = 0x4e00;
         const u8 replacement[] = {'x'};
@@ -659,7 +706,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 16));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 8, 1, &colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 8, 1, &colors);
         const TerminalCell attrs = attributes();
         constexpr u32 wide = 0x4e00;
         const u8 text[] = {'a', 'b'};
@@ -687,7 +734,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 8));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 4, 1, &colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 4, 1, &colors);
         const TerminalCell attrs = attributes();
         constexpr u32 wide = 0x4e00;
         screen->writeCodepoint(0, 1, wide, true, attrs, 0, 0, TerminalCell{});
@@ -707,7 +754,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 8));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 2, 3, &colors, 1);
+        Screen* screen = Screen::createPrimary(composer, *pool, 2, 3, &colors, 1);
         const TerminalCell attrs = attributes();
         const u8 first[] = {'A'};
         const u8 second[] = {'B'};
@@ -739,7 +786,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 8));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 2, 2, &colors, 2);
+        Screen* screen = Screen::createPrimary(composer, *pool, 2, 2, &colors, 2);
         const TerminalCell attrs = attributes();
         const u8 first[] = {'A'};
         const u8 second[] = {'B'};
@@ -776,7 +823,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 8));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 2, 4, &colors, 2);
+        Screen* screen = Screen::createPrimary(composer, *pool, 2, 4, &colors, 2);
         const TerminalCell attrs = attributes();
         const u8 first[] = {'A'};
         const u8 second[] = {'B'};
@@ -807,7 +854,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 64));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 32, 2, &colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 32, 2, &colors);
         const TerminalCell attrs = attributes();
         const u32 link = composer.cellExtras->getOrCreateHyperlink(StringView(u8"id"), StringView(u8"https://explicit.test"), 17);
         const u8 explicitText[] = {'x'};
@@ -833,7 +880,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 16));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 4, 1, &colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 4, 1, &colors);
         TerminalCell ordinary = attributes();
         ordinary.setInlineUnderlineColor(CellColor::direct({TerminalCell::extraRefSentinel, 1, 2}));
         const u8 filler[] = {'a', 'b', 'c', 'd'};
@@ -854,7 +901,7 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(cells[1]->extraRef() == link);
     }
 
-    STD_TEST(MoveIntoTransfersContentToReplacement) {
+    STD_TEST(ResizeTransfersContentToReplacement) {
         auto composerPool = ObjPool::fromMemory();
         auto sourcePool = ObjPool::fromMemory();
         auto destinationPool = ObjPool::fromMemory();
@@ -862,14 +909,13 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 8));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *sourcePool, 4, 2, &colors);
+        Screen* screen = Screen::createAlternate(composer, *sourcePool, 4, 2, &colors);
         const TerminalCell attrs = attributes();
         const u8 text[] = {'a', 'b', 'c'};
         screen->writeAsciiRun(0, 0, text, 3, attrs, 0, 0, TerminalCell{});
 
-        ResizeState* state = screen->moveInto();
         Screen::Cursor cursor;
-        Screen* replacement = Screen::create(composer, *destinationPool, *state, 4, 2, &colors, false, &cursor);
+        Screen* replacement = screen->resized(*destinationPool, 4, 2, cursor);
 
         STD_INSIST(!screen->active());
         STD_INSIST(replacement->active());
@@ -884,7 +930,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 4));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 2, 2, &colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 2, 2, &colors);
 
         screen->setCursorPos(1, 1);
         screen->setCursorStyle(TerminalCursor::Style::bar);
@@ -913,7 +959,7 @@ STD_TEST_SUITE(Screen) {
         composer.setCellExtras(CellExtraStore::create(composer, 4));
         TerminalColors colors;
         configureColors(colors);
-        Screen* screen = Screen::create(composer, *pool, 2, 2, &colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 2, 2, &colors);
         TerminalCell attrs = attributes();
 
         STD_INSIST(!screen->hasBlinkingText());

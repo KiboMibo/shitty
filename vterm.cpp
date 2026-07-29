@@ -329,9 +329,10 @@ namespace {
 
         void resizeGrid();
         void fontChanged();
-        void createFreshScreen(Screen*& frame, ObjPool*& pool, u16 saveLines);
-        void createInactiveScreen(Screen*& frame, ObjPool*& pool);
-        void resizeScreen(Screen*& frame, ObjPool*& pool, bool reflow, Screen::Cursor* cursor);
+        void createPrimaryScreen();
+        void createAlternateScreen();
+        void createInactiveAlternateScreen();
+        void resizeScreen(Screen*& frame, ObjPool*& pool, Screen::Cursor& cursor);
 
         void redraw();
         bool animationActive() const;
@@ -1875,42 +1876,53 @@ VtermImpl::~VtermImpl() {
     delete frameAltPool;
 }
 
-void VtermImpl::createFreshScreen(Screen*& frame, ObjPool*& pool, u16 saveLines) {
+void VtermImpl::createPrimaryScreen() {
     ObjPool* const next = ObjPool::fromMemoryRaw();
     Screen* screen;
     try {
-        screen = Screen::create(composer, *next, composer.columns, composer.rows, &colors, saveLines);
+        screen = Screen::createPrimary(composer, *next, composer.columns, composer.rows, &colors, opts.saveLines);
     } catch (...) {
         delete next;
         throw;
     }
-    delete pool;
-    pool = next;
-    frame = screen;
+    delete framePriPool;
+    framePriPool = next;
+    frame_pri = screen;
 }
 
-void VtermImpl::createInactiveScreen(Screen*& frame, ObjPool*& pool) {
+void VtermImpl::createAlternateScreen() {
     ObjPool* const next = ObjPool::fromMemoryRaw();
     Screen* screen;
     try {
-        screen = Screen::create(composer, *next);
+        screen = Screen::createAlternate(composer, *next, composer.columns, composer.rows, &colors);
     } catch (...) {
         delete next;
         throw;
     }
-    delete pool;
-    pool = next;
-    frame = screen;
+    delete frameAltPool;
+    frameAltPool = next;
+    frame_alt = screen;
 }
 
-void VtermImpl::resizeScreen(Screen*& frame, ObjPool*& pool, bool reflow, Screen::Cursor* cursor) {
-    // The state handle lives in the screen's own pool, so the old pool must
-    // survive until the replacement has been laid out from it.
-    ResizeState* const state = frame->moveInto();
+void VtermImpl::createInactiveAlternateScreen() {
     ObjPool* const next = ObjPool::fromMemoryRaw();
     Screen* screen;
     try {
-        screen = Screen::create(composer, *next, *state, composer.columns, composer.rows, &colors, reflow, cursor);
+        screen = Screen::createInactiveAlternate(composer, *next);
+    } catch (...) {
+        delete next;
+        throw;
+    }
+    delete frameAltPool;
+    frameAltPool = next;
+    frame_alt = screen;
+}
+
+void VtermImpl::resizeScreen(Screen*& frame, ObjPool*& pool, Screen::Cursor& cursor) {
+    ObjPool* const next = ObjPool::fromMemoryRaw();
+    Screen* screen;
+    try {
+        screen = frame->resized(*next, composer.columns, composer.rows, cursor);
     } catch (...) {
         delete next;
         throw;
@@ -2800,14 +2812,14 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         if (clearAlternate) {
             if (altScreenBufferMode_) {
                 kittyKeyboardAlt = {};
-                createFreshScreen(frame_alt, frameAltPool, 0);
+                createAlternateScreen();
                 marginTop = 0;
                 marginBottom = composer.rows;
                 altScreenInitialized = true;
                 cf = frame_alt;
                 cf->expose();
             } else if (altScreenInitialized) {
-                createInactiveScreen(frame_alt, frameAltPool);
+                createInactiveAlternateScreen();
                 altScreenInitialized = false;
             }
             updateExtraCellCount();
@@ -2819,12 +2831,13 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
     if (altScreenBufferMode_) {
         if (clearAlternate || !altScreenInitialized) {
             kittyKeyboardAlt = {};
-            createFreshScreen(frame_alt, frameAltPool, 0);
+            createAlternateScreen();
             marginTop = 0;
             marginBottom = composer.rows;
             altScreenInitialized = true;
         } else if (frame_alt->columns() != composer.columns || frame_alt->rows() != composer.rows) {
-            resizeScreen(frame_alt, frameAltPool, false, nullptr);
+            Screen::Cursor cursorState;
+            resizeScreen(frame_alt, frameAltPool, cursorState);
             marginTop = 0;
             marginBottom = composer.rows;
         }
@@ -2835,21 +2848,18 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         altScreenBufferMode = true;
     } else {
         if (frame_pri->columns() != composer.columns || frame_pri->rows() != composer.rows) {
-            const bool reflow = frame_pri->columns() != composer.columns;
             Screen::Cursor cursorState{Point(posX, posY), lastCol};
-            resizeScreen(frame_pri, framePriPool, reflow, reflow ? &cursorState : nullptr);
-            if (reflow) {
-                posX = cursorState.position.x;
-                posY = cursorState.position.y;
-                lastCol = cursorState.pendingWrap;
-            }
+            resizeScreen(frame_pri, framePriPool, cursorState);
+            posX = cursorState.position.x;
+            posY = cursorState.position.y;
+            lastCol = cursorState.pendingWrap;
             marginTop = 0;
             marginBottom = composer.rows;
         }
         cf = frame_pri;
         cf->expose();
         if (clearAlternate) {
-            createInactiveScreen(frame_alt, frameAltPool);
+            createInactiveAlternateScreen();
             altScreenInitialized = false;
         }
         savedCursor = &savedCursorPri;
@@ -6920,8 +6930,8 @@ VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, O
     , hMargin(0)
 {
     try {
-        createFreshScreen(frame_pri, framePriPool, opts.saveLines);
-        createInactiveScreen(frame_alt, frameAltPool);
+        createPrimaryScreen();
+        createInactiveAlternateScreen();
     } catch (...) {
         delete framePriPool;
         delete frameAltPool;
@@ -6974,13 +6984,12 @@ void VtermImpl::resizeGrid() {
     hideCursor();
     resetGraphemeInput();
 
-    const bool reflow = cf == frame_pri && previousColumns != composer.columns;
     Screen::Cursor cursorState{Point(posX, posY), lastCol};
     if (cf == frame_pri) {
-        resizeScreen(frame_pri, framePriPool, reflow, &cursorState);
+        resizeScreen(frame_pri, framePriPool, cursorState);
         cf = frame_pri;
     } else {
-        resizeScreen(frame_alt, frameAltPool, false, &cursorState);
+        resizeScreen(frame_alt, frameAltPool, cursorState);
         cf = frame_alt;
     }
     posX = cursorState.position.x;
@@ -6994,11 +7003,9 @@ void VtermImpl::resizeGrid() {
     marginBottom = composer.rows;
     nColsEff = composer.columns;
     hMargin = 0;
-    if (!reflow) {
-        const bool pendingWrap = lastCol;
-        normalizeCursorPos();
-        lastCol = pendingWrap;
-    }
+    const bool pendingWrap = lastCol;
+    normalizeCursorPos();
+    lastCol = pendingWrap;
     showCursor();
 
     outputSpans.grow((size_t)(composer.rows) * ((composer.columns + 1u) / 2u));

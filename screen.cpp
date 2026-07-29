@@ -161,12 +161,9 @@ namespace {
     // The factories pick an instantiation from the actual geometry; resize
     // rebuilds convert between instantiations through ResizeState.
     template <typename Coord, typename Epoch>
-    struct ScreenImpl final: public Screen {
-        ScreenImpl(Composer& composer, ObjPool& pool);
-        ScreenImpl(Composer& composer, ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors, u16 saveLines);
-
-        ResizeState* moveInto() override;
-        void dropScrollbackHistory() override;
+    struct ScreenBase: public Screen {
+        ScreenBase(Composer& composer, ObjPool& pool);
+        ScreenBase(Composer& composer, ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors, u16 saveLines);
 
         void fillCells(u16 ch, const TerminalCell& attrs) override;
         void setLineAttribute(u16 row, u8 attribute) override;
@@ -177,7 +174,6 @@ namespace {
         void writeCodepoint(u16 row, u16 column, u32 codepoint, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeGrapheme(u16 row, u16 column, const u32* codepoints, size_t count, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         WriteResult writeAsciiRun(u16 row, u16 column, u16 normalEnd, u16 doubleEnd, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
-        void writeAsciiLines(u16 row, const u8* input, const u16* lengths, u16 lineCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         WriteResult writeAsciiRunInsert(u16 row, u16 column, u16 normalEnd, u16 doubleEnd, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeRun(u16 row, u16 column, const u32* codepoints, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeRepeatedCodepoint(u16 row, u16 column, u16 count, u32 codepoint, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
@@ -207,13 +203,7 @@ namespace {
         void rotateRowsUp(u16 top, u16 bottom, u16 count) override;
         void rotateRowsDown(u16 top, u16 bottom, u16 count) override;
 
-        void scrollUp(u16 top, u16 bottom, u16 count, const TerminalCell& attrs) override;
         void scrollDown(u16 top, u16 bottom, u16 count, const TerminalCell& attrs) override;
-        void restoreHistory(u16 count) override;
-
-        void pageUp(u16 count) override;
-        void pageDown(u16 count) override;
-        bool pageToBottom() override;
 
         u32 getHistoryRows() const noexcept override;
         u32 getViewOffset() const noexcept override;
@@ -369,9 +359,25 @@ namespace {
         TerminalCell& prepareCell(u16 row, u16 column, const TerminalCell& eraseAttrs);
         [[gnu::always_inline]] void writePreparedCell(u16 row, u16 column, const TerminalCell& lead, bool wide, const TerminalCell& attrs, const TerminalCell& eraseAttrs);
 
-        void layout(ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, bool reflow, Cursor* cursorState);
-        void layoutCopy(ResizeState& state, u16 columns, u16 rows, Cursor* cursorState);
-        void layoutReflow(ResizeState& state, u16 columns, u16 rows, Cursor* cursorState);
+        ResizeState* moveIntoState();
+        void restoreLayoutState(ResizeState& state, u16 rows, const TerminalColors* colors);
+        void layoutPrimary(ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Cursor& cursor);
+        void layoutAlternate(ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors);
+
+        template <bool primary>
+        void layoutCopy(ResizeState& state, u16 columns, u16 rows, Cursor& cursor);
+
+        void layoutReflow(ResizeState& state, u16 columns, u16 rows, Cursor& cursor);
+        void dropScrollbackHistoryImpl();
+        void scrollUpVisible(u16 top, u16 bottom, u16 count, const TerminalCell& attrs);
+        void scrollUpWithHistory(u16 top, u16 bottom, u16 count, const TerminalCell& attrs);
+        void restoreHistoryImpl(u16 count);
+        void pageUpImpl(u16 count);
+        void pageDownImpl(u16 count);
+        bool pageToBottomImpl();
+
+        template <bool captureHistory>
+        void writeAsciiLinesImpl(u16 row, const u8* input, const u16* lengths, u16 lineCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs);
 
         static SelectSnapTo nextSelectSnapTo(SelectSnapTo snapTo);
 
@@ -380,6 +386,34 @@ namespace {
         bool selectionValid() const;
 
         static constexpr size_t cellSize = sizeof(TerminalCell);
+    };
+
+    template <typename Coord, typename Epoch>
+    struct PrimaryScreen final: public ScreenBase<Coord, Epoch> {
+        using ScreenBase<Coord, Epoch>::ScreenBase;
+
+        Screen* resized(ObjPool& pool, u16 columns, u16 rows, Screen::Cursor& cursor) override;
+        void dropScrollbackHistory() override;
+        void writeAsciiLines(u16 row, const u8* input, const u16* lengths, u16 lineCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
+        void scrollUp(u16 top, u16 bottom, u16 count, const TerminalCell& attrs) override;
+        void restoreHistory(u16 count) override;
+        void pageUp(u16 count) override;
+        void pageDown(u16 count) override;
+        bool pageToBottom() override;
+    };
+
+    template <typename Coord, typename Epoch>
+    struct AlternateScreen final: public ScreenBase<Coord, Epoch> {
+        using ScreenBase<Coord, Epoch>::ScreenBase;
+
+        Screen* resized(ObjPool& pool, u16 columns, u16 rows, Screen::Cursor& cursor) override;
+        void dropScrollbackHistory() override;
+        void writeAsciiLines(u16 row, const u8* input, const u16* lengths, u16 lineCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
+        void scrollUp(u16 top, u16 bottom, u16 count, const TerminalCell& attrs) override;
+        void restoreHistory(u16 count) override;
+        void pageUp(u16 count) override;
+        void pageDown(u16 count) override;
+        bool pageToBottom() override;
     };
 
     constexpr u32 whitespaceClass = 0x110000;
@@ -713,7 +747,7 @@ namespace {
 }
 
 template <typename Coord, typename Epoch>
-ScreenImpl<Coord, Epoch>::ScreenImpl(Composer& composer_, ObjPool& pool_)
+ScreenBase<Coord, Epoch>::ScreenBase(Composer& composer_, ObjPool& pool_)
     : composer(composer_)
     , pool(pool_)
 {
@@ -721,8 +755,10 @@ ScreenImpl<Coord, Epoch>::ScreenImpl(Composer& composer_, ObjPool& pool_)
 
 namespace {
 
-    using SmallScreen = ScreenImpl<u8, u16>;
-    using LargeScreen = ScreenImpl<u16, u32>;
+    using SmallPrimaryScreen = PrimaryScreen<u8, u16>;
+    using LargePrimaryScreen = PrimaryScreen<u16, u32>;
+    using SmallAlternateScreen = AlternateScreen<u8, u16>;
+    using LargeAlternateScreen = AlternateScreen<u16, u32>;
 
     constexpr bool smallScreenGeometry(u32 columns, u32 rows, u32) {
         return columns <= 0xff && rows <= 0xff;
@@ -734,142 +770,180 @@ namespace {
     }
 
     template <typename Impl>
-    Screen* makeScreenFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, bool reflow, Screen::Cursor* cursor) {
+    Screen* makePrimaryScreenFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Screen::Cursor& cursor) {
         Impl* const result = makeScreen<Impl>(composer, pool);
         if (state.active) {
-            result->layout(state, columns, rows, colors, reflow, cursor);
+            result->layoutPrimary(state, columns, rows, colors, cursor);
         }
         return result;
     }
 
+    template <typename Impl>
+    Screen* makeAlternateScreenFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors) {
+        Impl* const result = makeScreen<Impl>(composer, pool);
+        if (state.active) {
+            result->layoutAlternate(state, columns, rows, colors);
+        }
+        return result;
+    }
+
+    Screen* makePrimaryFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Screen::Cursor& cursor) {
+        if (smallScreenGeometry(columns, rows, state.saveLines)) {
+            return makePrimaryScreenFromState<SmallPrimaryScreen>(composer, pool, state, columns, rows, colors, cursor);
+        }
+        return makePrimaryScreenFromState<LargePrimaryScreen>(composer, pool, state, columns, rows, colors, cursor);
+    }
+
+    Screen* makeAlternateFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors) {
+        if (smallScreenGeometry(columns, rows, 0)) {
+            return makeAlternateScreenFromState<SmallAlternateScreen>(composer, pool, state, columns, rows, colors);
+        }
+        return makeAlternateScreenFromState<LargeAlternateScreen>(composer, pool, state, columns, rows, colors);
+    }
+
 }
 
-Screen* Screen::create(Composer& composer, ObjPool& pool) {
-    return makeScreen<SmallScreen>(composer, pool);
-}
-
-Screen* Screen::create(Composer& composer, ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors, u16 saveLines) {
+Screen* Screen::createPrimary(Composer& composer, ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors, u16 saveLines) {
     if (smallScreenGeometry(columns, rows, saveLines)) {
-        return pool.make<SmallScreen>(composer, pool, columns, rows, colors, saveLines);
+        return pool.make<SmallPrimaryScreen>(composer, pool, columns, rows, colors, saveLines);
     }
-    return pool.make<LargeScreen>(composer, pool, columns, rows, colors, saveLines);
+    return pool.make<LargePrimaryScreen>(composer, pool, columns, rows, colors, saveLines);
 }
 
-Screen* Screen::create(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, bool reflow, Cursor* cursor) {
-    if (smallScreenGeometry(columns, rows, state.saveLines)) {
-        return makeScreenFromState<SmallScreen>(composer, pool, state, columns, rows, colors, reflow, cursor);
+Screen* Screen::createAlternate(Composer& composer, ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors) {
+    if (smallScreenGeometry(columns, rows, 0)) {
+        return pool.make<SmallAlternateScreen>(composer, pool, columns, rows, colors, 0);
     }
-    return makeScreenFromState<LargeScreen>(composer, pool, state, columns, rows, colors, reflow, cursor);
+    return pool.make<LargeAlternateScreen>(composer, pool, columns, rows, colors, 0);
+}
+
+Screen* Screen::createInactiveAlternate(Composer& composer, ObjPool& pool) {
+    return makeScreen<SmallAlternateScreen>(composer, pool);
 }
 
 template <typename Coord, typename Epoch>
-bool ScreenImpl<Coord, Epoch>::active() const noexcept {
+Screen* PrimaryScreen<Coord, Epoch>::resized(ObjPool& destination, u16 columns, u16 rows, Screen::Cursor& cursor) {
+    ResizeState* const state = this->moveIntoState();
+    return makePrimaryFromState(this->composer, destination, *state, columns, rows, this->colors, cursor);
+}
+
+template <typename Coord, typename Epoch>
+Screen* AlternateScreen<Coord, Epoch>::resized(ObjPool& destination, u16 columns, u16 rows, Screen::Cursor& cursor) {
+    ResizeState* const state = this->moveIntoState();
+    Screen* const result = makeAlternateFromState(this->composer, destination, *state, columns, rows, this->colors);
+    cursor.position.x = min<int>(cursor.position.x, columns - 1);
+    cursor.position.y = min<int>(cursor.position.y, rows - 1);
+    return result;
+}
+
+template <typename Coord, typename Epoch>
+bool ScreenBase<Coord, Epoch>::active() const noexcept {
     return rowRing != nullptr;
 }
 
 template <typename Coord, typename Epoch>
-size_t ScreenImpl<Coord, Epoch>::cellCapacity() const noexcept {
+size_t ScreenBase<Coord, Epoch>::cellCapacity() const noexcept {
     return (size_t)(nCols) * (nRows + saveLines);
 }
 
 template <typename Coord, typename Epoch>
-u32 ScreenImpl<Coord, Epoch>::getHistoryRows() const noexcept {
+u32 ScreenBase<Coord, Epoch>::getHistoryRows() const noexcept {
     return historyRows;
 }
 
 template <typename Coord, typename Epoch>
-u32 ScreenImpl<Coord, Epoch>::getViewOffset() const noexcept {
+u32 ScreenBase<Coord, Epoch>::getViewOffset() const noexcept {
     return viewOffset;
 }
 
 template <typename Coord, typename Epoch>
-u16 ScreenImpl<Coord, Epoch>::columns() const noexcept {
+u16 ScreenBase<Coord, Epoch>::columns() const noexcept {
     return nCols;
 }
 
 template <typename Coord, typename Epoch>
-u16 ScreenImpl<Coord, Epoch>::rows() const noexcept {
+u16 ScreenBase<Coord, Epoch>::rows() const noexcept {
     return nRows;
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::expose() {
+void ScreenBase<Coord, Epoch>::expose() {
     damage.expose();
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::resetDamage() {
+void ScreenBase<Coord, Epoch>::resetDamage() {
     damage.reset();
 }
 
 template <typename Coord, typename Epoch>
-bool ScreenImpl<Coord, Epoch>::hasDamage() const noexcept {
+bool ScreenBase<Coord, Epoch>::hasDamage() const noexcept {
     return damage.hasDamage();
 }
 
 template <typename Coord, typename Epoch>
-Color ScreenImpl<Coord, Epoch>::getSelectionForeground() const noexcept {
+Color ScreenBase<Coord, Epoch>::getSelectionForeground() const noexcept {
     return selectionForeground;
 }
 
 template <typename Coord, typename Epoch>
-Color ScreenImpl<Coord, Epoch>::getSelectionBackground() const noexcept {
+Color ScreenBase<Coord, Epoch>::getSelectionBackground() const noexcept {
     return selectionBackground;
 }
 
 template <typename Coord, typename Epoch>
-u8 ScreenImpl<Coord, Epoch>::getSelectionColorMask() const noexcept {
+u8 ScreenBase<Coord, Epoch>::getSelectionColorMask() const noexcept {
     return selectionColorMask;
 }
 
 template <typename Coord, typename Epoch>
-bool ScreenImpl<Coord, Epoch>::getBlinkVisible() const noexcept {
+bool ScreenBase<Coord, Epoch>::getBlinkVisible() const noexcept {
     return blinkVisible;
 }
 
 template <typename Coord, typename Epoch>
-bool ScreenImpl<Coord, Epoch>::getCursorBlink() const noexcept {
+bool ScreenBase<Coord, Epoch>::getCursorBlink() const noexcept {
     return cursorBlink;
 }
 
 template <typename Coord, typename Epoch>
-bool ScreenImpl<Coord, Epoch>::getScreenReverseVideo() const noexcept {
+bool ScreenBase<Coord, Epoch>::getScreenReverseVideo() const noexcept {
     return screenReverseVideo;
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::setSelectSnapTo(SelectSnapTo value) {
+void ScreenBase<Coord, Epoch>::setSelectSnapTo(SelectSnapTo value) {
     snapTo = value;
 }
 
 template <typename Coord, typename Epoch>
-Screen::SelectSnapTo ScreenImpl<Coord, Epoch>::nextSelectSnapTo(SelectSnapTo value) {
+Screen::SelectSnapTo ScreenBase<Coord, Epoch>::nextSelectSnapTo(SelectSnapTo value) {
     return (SelectSnapTo)(((u8)(value) + 1) % (u8)(SelectSnapTo::COUNT));
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::cycleSelectSnapTo() {
+void ScreenBase<Coord, Epoch>::cycleSelectSnapTo() {
     snapTo = nextSelectSnapTo(snapTo);
 }
 
 template <typename Coord, typename Epoch>
-Rect& ScreenImpl<Coord, Epoch>::getSelection() {
+Rect& ScreenBase<Coord, Epoch>::getSelection() {
     return selection;
 }
 
 template <typename Coord, typename Epoch>
-const Rect& ScreenImpl<Coord, Epoch>::getSelection() const {
+const Rect& ScreenBase<Coord, Epoch>::getSelection() const {
     return selection;
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::setBlinkState(bool visible, bool cursor) {
+void ScreenBase<Coord, Epoch>::setBlinkState(bool visible, bool cursor) {
     blinkVisible = visible;
     cursorBlink = cursor;
 }
 
 template <typename Coord, typename Epoch>
-bool ScreenImpl<Coord, Epoch>::hasBlinkingText() const noexcept {
+bool ScreenBase<Coord, Epoch>::hasBlinkingText() const noexcept {
     for (Coord row = 0; row != nRows; ++row) {
         const TerminalCell* const cells = getViewRowPtr(row);
         for (Coord column = 0; column != nCols; ++column) {
@@ -882,13 +956,13 @@ bool ScreenImpl<Coord, Epoch>::hasBlinkingText() const noexcept {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::setScreenReverseVideo(bool enabled) {
+void ScreenBase<Coord, Epoch>::setScreenReverseVideo(bool enabled) {
     screenReverseVideo = enabled;
     expose();
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::setSelectionColor(bool foreground, Color color, bool enabled) {
+void ScreenBase<Coord, Epoch>::setSelectionColor(bool foreground, Color color, bool enabled) {
     const u8 bit = foreground ? 1 : 2;
     if (foreground) {
         selectionForeground = color;
@@ -904,12 +978,12 @@ void ScreenImpl<Coord, Epoch>::setSelectionColor(bool foreground, Color color, b
 }
 
 template <typename Coord, typename Epoch>
-CellExtraStore& ScreenImpl<Coord, Epoch>::cellExtras() const noexcept {
+CellExtraStore& ScreenBase<Coord, Epoch>::cellExtras() const noexcept {
     return *composer.cellExtras;
 }
 
 template <typename Coord, typename Epoch>
-ScreenImpl<Coord, Epoch>::ScreenImpl(Composer& composer_, ObjPool& pool_, u16 nCols_, u16 nRows_, const TerminalColors* colors_, u16 saveLines_)
+ScreenBase<Coord, Epoch>::ScreenBase(Composer& composer_, ObjPool& pool_, u16 nCols_, u16 nRows_, const TerminalColors* colors_, u16 saveLines_)
     : nCols((Coord)(nCols_))
     , nRows((Coord)(nRows_))
     , saveLines(saveLines_)
@@ -923,28 +997,28 @@ ScreenImpl<Coord, Epoch>::ScreenImpl(Composer& composer_, ObjPool& pool_, u16 nC
 }
 
 template <typename Coord, typename Epoch>
-u32 ScreenImpl<Coord, Epoch>::wrapRow(i64 row) const noexcept {
+u32 ScreenBase<Coord, Epoch>::wrapRow(i64 row) const noexcept {
     return (u32)(row) & (rowCapacity - 1);
 }
 
 template <typename Coord, typename Epoch>
-RowSlot& ScreenImpl<Coord, Epoch>::logicalRowSlot(int row) {
+RowSlot& ScreenBase<Coord, Epoch>::logicalRowSlot(int row) {
     return rowRing[wrapRow((i64)(rowEnd)-nRows + row)];
 }
 
 template <typename Coord, typename Epoch>
-TerminalCell* ScreenImpl<Coord, Epoch>::rawLogicalRow(int row) const noexcept {
+TerminalCell* ScreenBase<Coord, Epoch>::rawLogicalRow(int row) const noexcept {
     return rowData(rawLogicalRowObject(row));
 }
 
 template <typename Coord, typename Epoch>
-bool ScreenImpl<Coord, Epoch>::logicalRowHasWide(int row) const noexcept {
+bool ScreenBase<Coord, Epoch>::logicalRowHasWide(int row) const noexcept {
     const Row* const object = rawLogicalRowObject(row);
     return object != nullptr && object->metadata.wide;
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::markLogicalRowWide(int row) {
+void ScreenBase<Coord, Epoch>::markLogicalRowWide(int row) {
     RowSlot& slot = logicalRowSlot(row);
     if (slot == nullptr) {
         mutableRow(slot);
@@ -953,23 +1027,23 @@ void ScreenImpl<Coord, Epoch>::markLogicalRowWide(int row) {
 }
 
 template <typename Coord, typename Epoch>
-Row* ScreenImpl<Coord, Epoch>::rawLogicalRowObject(int row) const noexcept {
+Row* ScreenBase<Coord, Epoch>::rawLogicalRowObject(int row) const noexcept {
     return rowRing[wrapRow((i64)(rowEnd)-nRows + row)];
 }
 
 template <typename Coord, typename Epoch>
-const Row* ScreenImpl<Coord, Epoch>::getLogicalRowObject(int row) const noexcept {
+const Row* ScreenBase<Coord, Epoch>::getLogicalRowObject(int row) const noexcept {
     const Row* const result = rawLogicalRowObject(row);
     return result != nullptr ? result : zeroRow;
 }
 
 template <typename Coord, typename Epoch>
-const Row* ScreenImpl<Coord, Epoch>::getViewRowObject(int row) const noexcept {
+const Row* ScreenBase<Coord, Epoch>::getViewRowObject(int row) const noexcept {
     return getLogicalRowObject(row - viewOffset);
 }
 
 template <typename Coord, typename Epoch>
-Row* ScreenImpl<Coord, Epoch>::allocateRow() {
+Row* ScreenBase<Coord, Epoch>::allocateRow() {
     Row* result;
     if (freeRows == nullptr) {
         result = static_cast<Row*>(pool.allocate(sizeof(Row) + (size_t)(nCols)*cellSize));
@@ -982,7 +1056,7 @@ Row* ScreenImpl<Coord, Epoch>::allocateRow() {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::releaseRow(Row* row) {
+void ScreenBase<Coord, Epoch>::releaseRow(Row* row) {
     if (row != nullptr) {
         row->freeNext = freeRows;
         freeRows = row;
@@ -990,12 +1064,12 @@ void ScreenImpl<Coord, Epoch>::releaseRow(Row* row) {
 }
 
 template <typename Coord, typename Epoch>
-TerminalCell* ScreenImpl<Coord, Epoch>::mutableLogicalRow(int row) {
+TerminalCell* ScreenBase<Coord, Epoch>::mutableLogicalRow(int row) {
     return mutableRow(logicalRowSlot(row));
 }
 
 template <typename Coord, typename Epoch>
-TerminalCell* ScreenImpl<Coord, Epoch>::mutableRow(RowSlot& slot) {
+TerminalCell* ScreenBase<Coord, Epoch>::mutableRow(RowSlot& slot) {
     if (slot == nullptr) {
         slot = allocateRow();
     }
@@ -1003,7 +1077,7 @@ TerminalCell* ScreenImpl<Coord, Epoch>::mutableRow(RowSlot& slot) {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::initializeRows(u16 columns, u16 rows, u32 history) {
+void ScreenBase<Coord, Epoch>::initializeRows(u16 columns, u16 rows, u32 history) {
     nCols = (Coord)(columns);
     nRows = (Coord)(rows);
     rowCapacity = nextPowerOfTwo((u32)(rows) + saveLines);
@@ -1019,12 +1093,12 @@ void ScreenImpl<Coord, Epoch>::initializeRows(u16 columns, u16 rows, u32 history
 }
 
 template <typename Coord, typename Epoch>
-bool ScreenImpl<Coord, Epoch>::emptyRow(const TerminalCell* row, u16 columns) const {
+bool ScreenBase<Coord, Epoch>::emptyRow(const TerminalCell* row, u16 columns) const {
     return memcmp(row, zeroRow->cells, (size_t)(columns)*cellSize) == 0;
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::installRow(int row, const TerminalCell* source, u16 sourceColumns, u8 lineAttribute_, u8 protection) {
+void ScreenBase<Coord, Epoch>::installRow(int row, const TerminalCell* source, u16 sourceColumns, u8 lineAttribute_, u8 protection) {
     const u16 count = min<u16>(sourceColumns, nCols);
     if (lineAttribute_ == 0 && emptyRow(source, count)) {
         return;
@@ -1043,7 +1117,7 @@ void ScreenImpl<Coord, Epoch>::installRow(int row, const TerminalCell* source, u
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::dropScrollbackHistory() {
+void ScreenBase<Coord, Epoch>::dropScrollbackHistoryImpl() {
     viewOffset = 0;
     if (!selection.null() && selection.tl.y < 0) {
         selection.clear();
@@ -1058,7 +1132,7 @@ void ScreenImpl<Coord, Epoch>::dropScrollbackHistory() {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::collectExtraCells(Vector<TerminalCell*>& cells) {
+void ScreenBase<Coord, Epoch>::collectExtraCells(Vector<TerminalCell*>& cells) {
     const auto collectRow = [&](TerminalCell* first) {
         if (first == nullptr) {
             return;
@@ -1087,7 +1161,7 @@ void ScreenImpl<Coord, Epoch>::collectExtraCells(Vector<TerminalCell*>& cells) {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::damageExtraCells() {
+void ScreenBase<Coord, Epoch>::damageExtraCells() {
     for (u16 row = 0; row < nRows; ++row) {
         TerminalCell* const first = rawLogicalRow((int)(row) - (int)(viewOffset));
         if (first == nullptr) {
@@ -1114,7 +1188,7 @@ void ScreenImpl<Coord, Epoch>::damageExtraCells() {
 }
 
 template <typename Coord, typename Epoch>
-ResizeState* ScreenImpl<Coord, Epoch>::moveInto() {
+ResizeState* ScreenBase<Coord, Epoch>::moveIntoState() {
     ResizeState* const state = pool.make<ResizeState>();
     state->columns = nCols;
     state->rows = nRows;
@@ -1144,7 +1218,7 @@ ResizeState* ScreenImpl<Coord, Epoch>::moveInto() {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::layout(ResizeState& state, u16 nCols_, u16 nRows_, const TerminalColors* colors_, bool reflow, Cursor* cursorState) {
+void ScreenBase<Coord, Epoch>::restoreLayoutState(ResizeState& state, u16 nRows_, const TerminalColors* colors_) {
     colors = colors_;
     saveLines = state.saveLines == 0 ? 0 : max<u32>(state.rowCapacity, nextPowerOfTwo((u32)(nRows_) + 1)) - nRows_;
     viewOffset = state.viewOffset;
@@ -1157,18 +1231,34 @@ void ScreenImpl<Coord, Epoch>::layout(ResizeState& state, u16 nCols_, u16 nRows_
     cursorBlink = state.cursorBlink;
     screenReverseVideo = state.screenReverseVideo;
     cursor = state.cursor;
+}
 
-    if (reflow && state.columns != nCols_) {
+template <typename Coord, typename Epoch>
+void ScreenBase<Coord, Epoch>::layoutPrimary(ResizeState& state, u16 nCols_, u16 nRows_, const TerminalColors* colors_, Cursor& cursorState) {
+    restoreLayoutState(state, nRows_, colors_);
+    if (state.columns != nCols_) {
         layoutReflow(state, nCols_, nRows_, cursorState);
     } else {
-        layoutCopy(state, nCols_, nRows_, cursorState);
+        layoutCopy<true>(state, nCols_, nRows_, cursorState);
     }
     resizeDamage(nCols, nRows);
     expose();
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::layoutCopy(ResizeState& state, u16 nCols_, u16 nRows_, Cursor* cursorState) {
+void ScreenBase<Coord, Epoch>::layoutAlternate(ResizeState& state, u16 nCols_, u16 nRows_, const TerminalColors* colors_) {
+    restoreLayoutState(state, nRows_, colors_);
+    saveLines = 0;
+    viewOffset = 0;
+    Cursor unused;
+    layoutCopy<false>(state, nCols_, nRows_, unused);
+    resizeDamage(nCols, nRows);
+    expose();
+}
+
+template <typename Coord, typename Epoch>
+template <bool primary>
+void ScreenBase<Coord, Epoch>::layoutCopy(ResizeState& state, u16 nCols_, u16 nRows_, Cursor& cursorState) {
     Vector<const Row*> sourceHistory;
     sourceHistory.grow(state.historyRows);
     for (int row = -(int)(state.historyRows); row < 0; ++row) {
@@ -1185,72 +1275,76 @@ void ScreenImpl<Coord, Epoch>::layoutCopy(ResizeState& state, u16 nCols_, u16 nR
     // fits by pushing the top rows into history.  Scrolling by the full
     // height delta would needlessly discard additional rows whenever the
     // cursor is not on the old bottom row.
-    if (cursorState != nullptr && cursorState->position.y + 1 > (int)(nRows_)) {
-        const u16 preScroll = (u16)(cursorState->position.y + 1 - nRows_);
-        if (saveLines != 0) {
-            for (u16 k = 0; k < preScroll; ++k) {
-                sourceHistory.pushBack(sourceScreen[visibleStart + k]);
-                if (sourceHistory.length() > saveLines) {
-                    memmove(sourceHistory.mutData(), sourceHistory.data() + 1, (sourceHistory.length() - 1) * sizeof(Row*));
-                    sourceHistory.popBack();
-                }
-            }
-            if (!selection.null()) {
-                if (selection.br.y >= (int)(state.rows)) {
-                    if (selection.tl.y < (int)(state.rows)) {
-                        selection.clear();
+    if constexpr (primary) {
+        if (cursorState.position.y + 1 > (int)(nRows_)) {
+            const u16 preScroll = (u16)(cursorState.position.y + 1 - nRows_);
+            if (saveLines != 0) {
+                for (u16 k = 0; k < preScroll; ++k) {
+                    sourceHistory.pushBack(sourceScreen[visibleStart + k]);
+                    if (sourceHistory.length() > saveLines) {
+                        memmove(sourceHistory.mutData(), sourceHistory.data() + 1, (sourceHistory.length() - 1) * sizeof(Row*));
+                        sourceHistory.popBack();
                     }
-                } else {
+                }
+                if (!selection.null()) {
+                    if (selection.br.y >= (int)(state.rows)) {
+                        if (selection.tl.y < (int)(state.rows)) {
+                            selection.clear();
+                        }
+                    } else {
+                        selection.tl.y -= preScroll;
+                        selection.br.y -= preScroll;
+                        if (selection.tl.y < -(int)(sourceHistory.length())) {
+                            selection.clear();
+                        }
+                    }
+                }
+                if (viewOffset != 0) {
+                    viewOffset = min<size_t>(viewOffset + preScroll, sourceHistory.length());
+                }
+            } else if (!selection.null()) {
+                const bool topInside = selection.tl.y >= 0 && selection.tl.y < (int)(state.rows);
+                const bool bottomInside = selection.br.y >= 0 && selection.br.y < (int)(state.rows);
+                if (topInside != bottomInside) {
+                    selection.clear();
+                } else if (topInside) {
                     selection.tl.y -= preScroll;
                     selection.br.y -= preScroll;
-                    if (selection.tl.y < -(int)(sourceHistory.length())) {
+                    if (selection.tl.y < 0) {
                         selection.clear();
                     }
-                }
-            }
-            if (viewOffset != 0) {
-                viewOffset = min<size_t>(viewOffset + preScroll, sourceHistory.length());
-            }
-        } else if (!selection.null()) {
-            const bool topInside = selection.tl.y >= 0 && selection.tl.y < (int)(state.rows);
-            const bool bottomInside = selection.br.y >= 0 && selection.br.y < (int)(state.rows);
-            if (topInside != bottomInside) {
-                selection.clear();
-            } else if (topInside) {
-                selection.tl.y -= preScroll;
-                selection.br.y -= preScroll;
-                if (selection.tl.y < 0) {
+                } else if (!(selection.br.y < 0 || selection.tl.y >= (int)(state.rows))) {
                     selection.clear();
                 }
-            } else if (!(selection.br.y < 0 || selection.tl.y >= (int)(state.rows))) {
-                selection.clear();
             }
+            visibleStart = preScroll;
+            cursorState.position.y -= preScroll;
         }
-        visibleStart = preScroll;
-        cursorState->position.y -= preScroll;
     }
 
     viewOffset = min<size_t>(viewOffset, sourceHistory.length());
 
     // An interactive growth restores rows from history above the screen.
     Vector<const Row*> restored;
-    if (cursorState != nullptr && nRows_ > state.rows) {
-        const u16 restore = (u16)(min<size_t>(nRows_ - state.rows, sourceHistory.length()));
-        restored.grow(restore);
-        for (u16 k = 0; k < restore; ++k) {
-            restored.pushBack(sourceHistory.popBack());
+    if constexpr (primary) {
+        if (nRows_ > state.rows) {
+            const u16 restore = (u16)(min<size_t>(nRows_ - state.rows, sourceHistory.length()));
+            restored.grow(restore);
+            for (u16 k = 0; k < restore; ++k) {
+                restored.pushBack(sourceHistory.popBack());
+            }
+            for (size_t left = 0, right = restored.length(); left < right && left < --right; ++left) {
+                const Row* const value = restored[left];
+                restored.mut(left) = restored[right];
+                restored.mut(right) = value;
+            }
+            cursorState.position.y += restore;
+            if (!selection.null()) {
+                selection.tl.y += restore;
+                selection.br.y += restore;
+            }
+            viewOffset = viewOffset > restore ? viewOffset - restore : 0;
         }
-        for (size_t left = 0, right = restored.length(); left < right && left < --right; ++left) {
-            const Row* const value = restored[left];
-            restored.mut(left) = restored[right];
-            restored.mut(right) = value;
-        }
-        cursorState->position.y += restore;
-        if (!selection.null()) {
-            selection.tl.y += restore;
-            selection.br.y += restore;
-        }
-        viewOffset = viewOffset > restore ? viewOffset - restore : 0;
     }
 
     const u32 historyCount = (u32)(sourceHistory.length());
@@ -1274,7 +1368,7 @@ void ScreenImpl<Coord, Epoch>::layoutCopy(ResizeState& state, u16 nCols_, u16 nR
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 nRows_, Cursor* cursorState) {
+void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 nRows_, Cursor& cursorState) {
     struct LogicalLine {
         std::vector<TerminalCell> cells;
         u8 lineAttribute = 0;
@@ -1298,14 +1392,10 @@ void ScreenImpl<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
     const int oldHistoryCount = state.historyRows;
     const bool wasScrolled = viewOffset != 0;
     const int oldTotalRows = oldHistoryCount + state.rows;
-    // Without a cursor the bottom of the content is the stable point.
-    Anchor cursorAnchor{oldTotalRows - 1, 0};
-    if (cursorState != nullptr) {
-        cursorAnchor = Anchor{
-            oldHistoryCount + cursorState->position.y,
-            cursorState->position.x + (cursorState->pendingWrap ? 1 : 0),
-        };
-    }
+    Anchor cursorAnchor{
+        oldHistoryCount + cursorState.position.y,
+        cursorState.position.x + (cursorState.pendingWrap ? 1 : 0),
+    };
     Anchor viewAnchor{oldHistoryCount - (int)(viewOffset), 0};
     Anchor screenAnchor{oldHistoryCount, 0};
     Anchor selectionStart;
@@ -1488,15 +1578,13 @@ void ScreenImpl<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
         selection.clear();
     }
 
-    if (cursorState != nullptr) {
-        cursorState->pendingWrap = cursorAnchor.mapped.x == nCols_;
-        cursorState->position.x = cursorState->pendingWrap ? nCols_ - 1 : std::min(cursorAnchor.mapped.x, (int)(nCols_ - 1));
-        cursorState->position.y = std::max(0, std::min(cursorAnchor.mapped.y - (int)(screenStart), (int)(nRows_ - 1)));
-    }
+    cursorState.pendingWrap = cursorAnchor.mapped.x == nCols_;
+    cursorState.position.x = cursorState.pendingWrap ? nCols_ - 1 : std::min(cursorAnchor.mapped.x, (int)(nCols_ - 1));
+    cursorState.position.y = std::max(0, std::min(cursorAnchor.mapped.y - (int)(screenStart), (int)(nRows_ - 1)));
 }
 
 template <typename Coord, typename Epoch>
-TerminalCellBatch ScreenImpl<Coord, Epoch>::copyDamage(TerminalCellSpan* spans) const {
+TerminalCellBatch ScreenBase<Coord, Epoch>::copyDamage(TerminalCellSpan* spans) const {
     TerminalCellSpan* span = spans;
     size_t cellCount = 0;
 
@@ -1546,7 +1634,7 @@ TerminalCellBatch ScreenImpl<Coord, Epoch>::copyDamage(TerminalCellSpan* spans) 
 }
 
 template <typename Coord, typename Epoch>
-Rect ScreenImpl<Coord, Epoch>::getSelectionForView() const {
+Rect ScreenBase<Coord, Epoch>::getSelectionForView() const {
     if (!selectionValid()) {
         return {};
     }
@@ -1560,7 +1648,7 @@ Rect ScreenImpl<Coord, Epoch>::getSelectionForView() const {
 }
 
 template <typename Coord, typename Epoch>
-Rect ScreenImpl<Coord, Epoch>::getSnappedSelection() const {
+Rect ScreenBase<Coord, Epoch>::getSnappedSelection() const {
     Rect ret = selection;
 
     if (ret.null()) {
@@ -1666,7 +1754,7 @@ Rect ScreenImpl<Coord, Epoch>::getSnappedSelection() const {
 }
 
 template <typename Coord, typename Epoch>
-bool ScreenImpl<Coord, Epoch>::getSelectedUtf8(std::string& utf8_selection) const {
+bool ScreenBase<Coord, Epoch>::getSelectedUtf8(std::string& utf8_selection) const {
     Rect sel = getSnappedSelection();
 
     if (sel.empty()) {
@@ -1753,49 +1841,49 @@ bool ScreenImpl<Coord, Epoch>::getSelectedUtf8(std::string& utf8_selection) cons
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::setCursorPos(u16 pY, u16 pX) {
+void ScreenBase<Coord, Epoch>::setCursorPos(u16 pY, u16 pX) {
     cursor.posY = pY;
     cursor.posX = pX;
 }
 
 template <typename Coord, typename Epoch>
-TerminalCursor ScreenImpl<Coord, Epoch>::getCursor() const {
+TerminalCursor ScreenBase<Coord, Epoch>::getCursor() const {
     TerminalCursor ret = cursor;
     ret.posY += viewOffset;
     return ret;
 }
 
 template <typename Coord, typename Epoch>
-Point ScreenImpl<Coord, Epoch>::getLogicalPoint(Point point) const {
+Point ScreenBase<Coord, Epoch>::getLogicalPoint(Point point) const {
     point.y -= viewOffset;
     return point;
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::setCursorStyle(TerminalCursor::Style cs) {
+void ScreenBase<Coord, Epoch>::setCursorStyle(TerminalCursor::Style cs) {
     cursor.style = cs;
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::setCursorColor(Color color) {
+void ScreenBase<Coord, Epoch>::setCursorColor(Color color) {
     cursor.color = color;
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::pageUp(u16 count) {
+void ScreenBase<Coord, Epoch>::pageUpImpl(u16 count) {
     u32 viewOffset_ = min<u32>(viewOffset + count, historyRows);
     viewOffset = viewOffset_;
     expose();
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::pageDown(u16 count) {
+void ScreenBase<Coord, Epoch>::pageDownImpl(u16 count) {
     viewOffset = viewOffset > count ? viewOffset - count : 0;
     expose();
 }
 
 template <typename Coord, typename Epoch>
-bool ScreenImpl<Coord, Epoch>::pageToBottom() {
+bool ScreenBase<Coord, Epoch>::pageToBottomImpl() {
     if (!viewOffset) {
         return false;
     }
@@ -1806,7 +1894,7 @@ bool ScreenImpl<Coord, Epoch>::pageToBottom() {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::scrollUp(u16 top, u16 bottom, u16 count, const TerminalCell& attrs) {
+void ScreenBase<Coord, Epoch>::scrollUpWithHistory(u16 top, u16 bottom, u16 count, const TerminalCell& attrs) {
     count = std::min<u16>(count, bottom - top);
     if (count == 0) {
         return;
@@ -1856,7 +1944,7 @@ void ScreenImpl<Coord, Epoch>::scrollUp(u16 top, u16 bottom, u16 count, const Te
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::scrollDown(u16 top, u16 bottom, u16 count, const TerminalCell& attrs) {
+void ScreenBase<Coord, Epoch>::scrollDown(u16 top, u16 bottom, u16 count, const TerminalCell& attrs) {
     count = std::min<u16>(count, bottom - top);
     if (count == 0) {
         return;
@@ -1868,7 +1956,7 @@ void ScreenImpl<Coord, Epoch>::scrollDown(u16 top, u16 bottom, u16 count, const 
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::restoreHistory(u16 count) {
+void ScreenBase<Coord, Epoch>::restoreHistoryImpl(u16 count) {
     count = std::min<u32>(count, historyRows);
     for (u16 k = 0; k < count; ++k) {
         RowSlot& bottom = logicalRowSlot(nRows - 1);
@@ -1887,7 +1975,75 @@ void ScreenImpl<Coord, Epoch>::restoreHistory(u16 count) {
 }
 
 template <typename Coord, typename Epoch>
-TerminalCell* ScreenImpl<Coord, Epoch>::dirtySpan(u16 pY, u16 startX, u16 count) {
+void ScreenBase<Coord, Epoch>::scrollUpVisible(u16 top, u16 bottom, u16 count, const TerminalCell& attrs) {
+    count = min<u16>(count, bottom - top);
+    if (count == 0) {
+        return;
+    }
+    vscrollSelection(top, bottom, -count, false);
+    rotateRowPointersUp(top, bottom, count);
+    clearRows(bottom - count, bottom, attrs);
+    damageRectangle(top, 0, bottom, nCols);
+}
+
+template <typename Coord, typename Epoch>
+void PrimaryScreen<Coord, Epoch>::dropScrollbackHistory() {
+    this->dropScrollbackHistoryImpl();
+}
+
+template <typename Coord, typename Epoch>
+void PrimaryScreen<Coord, Epoch>::scrollUp(u16 top, u16 bottom, u16 count, const TerminalCell& attrs) {
+    this->scrollUpWithHistory(top, bottom, count, attrs);
+}
+
+template <typename Coord, typename Epoch>
+void PrimaryScreen<Coord, Epoch>::restoreHistory(u16 count) {
+    this->restoreHistoryImpl(count);
+}
+
+template <typename Coord, typename Epoch>
+void PrimaryScreen<Coord, Epoch>::pageUp(u16 count) {
+    this->pageUpImpl(count);
+}
+
+template <typename Coord, typename Epoch>
+void PrimaryScreen<Coord, Epoch>::pageDown(u16 count) {
+    this->pageDownImpl(count);
+}
+
+template <typename Coord, typename Epoch>
+bool PrimaryScreen<Coord, Epoch>::pageToBottom() {
+    return this->pageToBottomImpl();
+}
+
+template <typename Coord, typename Epoch>
+void AlternateScreen<Coord, Epoch>::dropScrollbackHistory() {
+}
+
+template <typename Coord, typename Epoch>
+void AlternateScreen<Coord, Epoch>::scrollUp(u16 top, u16 bottom, u16 count, const TerminalCell& attrs) {
+    this->scrollUpVisible(top, bottom, count, attrs);
+}
+
+template <typename Coord, typename Epoch>
+void AlternateScreen<Coord, Epoch>::restoreHistory(u16) {
+}
+
+template <typename Coord, typename Epoch>
+void AlternateScreen<Coord, Epoch>::pageUp(u16) {
+}
+
+template <typename Coord, typename Epoch>
+void AlternateScreen<Coord, Epoch>::pageDown(u16) {
+}
+
+template <typename Coord, typename Epoch>
+bool AlternateScreen<Coord, Epoch>::pageToBottom() {
+    return false;
+}
+
+template <typename Coord, typename Epoch>
+TerminalCell* ScreenBase<Coord, Epoch>::dirtySpan(u16 pY, u16 startX, u16 count) {
     damageRow(pY, startX, startX + count);
     if (!selection.empty()) {
         invalidateSelection(Rect(startX, pY, startX + count, pY));
@@ -1896,7 +2052,7 @@ TerminalCell* ScreenImpl<Coord, Epoch>::dirtySpan(u16 pY, u16 startX, u16 count)
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::fillCells(u16 ch, const TerminalCell& attrs) {
+void ScreenBase<Coord, Epoch>::fillCells(u16 ch, const TerminalCell& attrs) {
     TerminalCell fill = attrs;
     fill.uc_pt = ch == ' ' ? 0 : ch;
     fill.drawn = ch != ' ';
@@ -1919,7 +2075,7 @@ void ScreenImpl<Coord, Epoch>::fillCells(u16 ch, const TerminalCell& attrs) {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::setLineAttribute(u16 row, u8 attribute) {
+void ScreenBase<Coord, Epoch>::setLineAttribute(u16 row, u8 attribute) {
     RowSlot& slot = logicalRowSlot(row);
     if (slot == nullptr) {
         if (attribute == 0) {
@@ -1938,22 +2094,22 @@ void ScreenImpl<Coord, Epoch>::setLineAttribute(u16 row, u8 attribute) {
 }
 
 template <typename Coord, typename Epoch>
-u8 ScreenImpl<Coord, Epoch>::lineAttribute(u16 row) const noexcept {
+u8 ScreenBase<Coord, Epoch>::lineAttribute(u16 row) const noexcept {
     return getLogicalRowObject(row)->metadata.lineAttribute;
 }
 
 template <typename Coord, typename Epoch>
-bool ScreenImpl<Coord, Epoch>::hasProtection(u16 row, u8 mask) const noexcept {
+bool ScreenBase<Coord, Epoch>::hasProtection(u16 row, u8 mask) const noexcept {
     return (getLogicalRowObject(row)->metadata.protection & mask) != 0;
 }
 
 template <typename Coord, typename Epoch>
-bool ScreenImpl<Coord, Epoch>::wrapped(u16 row, u16 column) const noexcept {
+bool ScreenBase<Coord, Epoch>::wrapped(u16 row, u16 column) const noexcept {
     return getLogicalRowPtr(row)[column].wrap;
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::setWrapped(u16 row, u16 column) {
+void ScreenBase<Coord, Epoch>::setWrapped(u16 row, u16 column) {
     TerminalCell* cells_ = mutableLogicalRow(row);
     cells_[column].wrap = 1;
     damageCell(row, column);
@@ -1963,7 +2119,7 @@ void ScreenImpl<Coord, Epoch>::setWrapped(u16 row, u16 column) {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::moveWrap(u16 row, u16 sourceColumn, u16 destinationColumn) {
+void ScreenBase<Coord, Epoch>::moveWrap(u16 row, u16 sourceColumn, u16 destinationColumn) {
     const TerminalCell* cells_ = getLogicalRowPtr(row);
     if (!cells_[sourceColumn].wrap || sourceColumn == destinationColumn) {
         return;
@@ -1981,13 +2137,13 @@ void ScreenImpl<Coord, Epoch>::moveWrap(u16 row, u16 sourceColumn, u16 destinati
 }
 
 template <typename Coord, typename Epoch>
-TerminalCell* ScreenImpl<Coord, Epoch>::prepareSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs) {
+TerminalCell* ScreenBase<Coord, Epoch>::prepareSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs) {
     RowSlot& slot = logicalRowSlot(row);
     return prepareSpan(slot, row, start, count, eraseAttrs);
 }
 
 template <typename Coord, typename Epoch>
-TerminalCell* ScreenImpl<Coord, Epoch>::prepareSpan(RowSlot& slot, u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs) {
+TerminalCell* ScreenBase<Coord, Epoch>::prepareSpan(RowSlot& slot, u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs) {
     if (slot == nullptr || !slot->metadata.wide) {
         damageRow(row, start, start + count);
         if (!selection.empty()) {
@@ -2010,13 +2166,13 @@ TerminalCell* ScreenImpl<Coord, Epoch>::prepareSpan(RowSlot& slot, u16 row, u16 
 }
 
 template <typename Coord, typename Epoch>
-TerminalCell& ScreenImpl<Coord, Epoch>::prepareCell(u16 row, u16 column, const TerminalCell& eraseAttrs) {
+TerminalCell& ScreenBase<Coord, Epoch>::prepareCell(u16 row, u16 column, const TerminalCell& eraseAttrs) {
     RowSlot& slot = logicalRowSlot(row);
     return prepareCell(slot, row, column, eraseAttrs);
 }
 
 template <typename Coord, typename Epoch>
-TerminalCell& ScreenImpl<Coord, Epoch>::prepareCell(RowSlot& slot, u16 row, u16 column, const TerminalCell& eraseAttrs) {
+TerminalCell& ScreenBase<Coord, Epoch>::prepareCell(RowSlot& slot, u16 row, u16 column, const TerminalCell& eraseAttrs) {
     if (slot == nullptr || !slot->metadata.wide) {
         damageCell(row, column);
         if (!selection.empty()) {
@@ -2038,7 +2194,7 @@ TerminalCell& ScreenImpl<Coord, Epoch>::prepareCell(RowSlot& slot, u16 row, u16 
 }
 
 template <typename Coord, typename Epoch>
-[[gnu::always_inline]] void ScreenImpl<Coord, Epoch>::writePreparedCell(u16 row, u16 column, const TerminalCell& lead, bool wide, const TerminalCell& attrs, const TerminalCell& eraseAttrs) {
+[[gnu::always_inline]] void ScreenBase<Coord, Epoch>::writePreparedCell(u16 row, u16 column, const TerminalCell& lead, bool wide, const TerminalCell& attrs, const TerminalCell& eraseAttrs) {
     if (!wide) {
         RowSlot& slot = logicalRowSlot(row);
         const TerminalCell* const previous = rowData(slot);
@@ -2073,7 +2229,7 @@ template <typename Coord, typename Epoch>
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::writeCodepoint(u16 row, u16 column, u32 codepoint, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
+void ScreenBase<Coord, Epoch>::writeCodepoint(u16 row, u16 column, u32 codepoint, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
     TerminalCell lead = attrs;
     lead.uc_pt = codepoint;
     lead.drawn = 1;
@@ -2086,7 +2242,7 @@ void ScreenImpl<Coord, Epoch>::writeCodepoint(u16 row, u16 column, u32 codepoint
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::writeGrapheme(u16 row, u16 column, const u32* codepoints, size_t count, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
+void ScreenBase<Coord, Epoch>::writeGrapheme(u16 row, u16 column, const u32* codepoints, size_t count, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
     STD_ASSERT(count > 1);
     TerminalCell lead = attrs;
     lead.uc_pt = codepoints[0];
@@ -2102,7 +2258,7 @@ void ScreenImpl<Coord, Epoch>::writeGrapheme(u16 row, u16 column, const u32* cod
 }
 
 template <typename Coord, typename Epoch>
-auto ScreenImpl<Coord, Epoch>::writeAsciiRun(u16 row, u16 column, u16 normalEnd, u16 doubleEnd, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) -> WriteResult {
+auto ScreenBase<Coord, Epoch>::writeAsciiRun(u16 row, u16 column, u16 normalEnd, u16 doubleEnd, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) -> WriteResult {
     RowSlot& slot = logicalRowSlot(row);
     const u16 end = slot != nullptr && slot->metadata.lineAttribute != 0 ? doubleEnd : normalEnd;
     if (column >= end) {
@@ -2125,7 +2281,8 @@ auto ScreenImpl<Coord, Epoch>::writeAsciiRun(u16 row, u16 column, u16 normalEnd,
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::writeAsciiLines(u16 row, const u8* input, const u16* lengths, u16 lineCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
+template <bool captureHistory>
+void ScreenBase<Coord, Epoch>::writeAsciiLinesImpl(u16 row, const u8* input, const u16* lengths, u16 lineCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
     if (!selection.null() || viewOffset != 0) {
         for (u16 line = 0; line < lineCount; ++line) {
             const u16 count = lengths[line];
@@ -2186,13 +2343,19 @@ void ScreenImpl<Coord, Epoch>::writeAsciiLines(u16 row, const u8* input, const u
     };
     const auto advanceRing = [&]() {
         RowSlot incoming = nullptr;
-        if (saveLines != 0) {
-            if (historyRows == saveLines) {
-                RowSlot& oldest = logicalRowSlot(-(int)(historyRows));
-                incoming = oldest;
-                oldest = nullptr;
+        if constexpr (captureHistory) {
+            if (saveLines != 0) {
+                if (historyRows == saveLines) {
+                    RowSlot& oldest = logicalRowSlot(-(int)(historyRows));
+                    incoming = oldest;
+                    oldest = nullptr;
+                } else {
+                    ++historyRows;
+                }
             } else {
-                ++historyRows;
+                RowSlot& first = logicalRowSlot(0);
+                incoming = first;
+                first = nullptr;
             }
         } else {
             RowSlot& first = logicalRowSlot(0);
@@ -2244,7 +2407,17 @@ void ScreenImpl<Coord, Epoch>::writeAsciiLines(u16 row, const u8* input, const u
 }
 
 template <typename Coord, typename Epoch>
-auto ScreenImpl<Coord, Epoch>::writeAsciiRunInsert(u16 row, u16 column, u16 normalEnd, u16 doubleEnd, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) -> WriteResult {
+void PrimaryScreen<Coord, Epoch>::writeAsciiLines(u16 row, const u8* input, const u16* lengths, u16 lineCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
+    this->template writeAsciiLinesImpl<true>(row, input, lengths, lineCount, attrs, hyperlink, semantic, eraseAttrs);
+}
+
+template <typename Coord, typename Epoch>
+void AlternateScreen<Coord, Epoch>::writeAsciiLines(u16 row, const u8* input, const u16* lengths, u16 lineCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
+    this->template writeAsciiLinesImpl<false>(row, input, lengths, lineCount, attrs, hyperlink, semantic, eraseAttrs);
+}
+
+template <typename Coord, typename Epoch>
+auto ScreenBase<Coord, Epoch>::writeAsciiRunInsert(u16 row, u16 column, u16 normalEnd, u16 doubleEnd, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) -> WriteResult {
     RowSlot& slot = logicalRowSlot(row);
     const u16 end = slot != nullptr && slot->metadata.lineAttribute != 0 ? doubleEnd : normalEnd;
     if (column >= end) {
@@ -2288,7 +2461,7 @@ auto ScreenImpl<Coord, Epoch>::writeAsciiRunInsert(u16 row, u16 column, u16 norm
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::writeRun(u16 row, u16 column, const u32* codepoints, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
+void ScreenBase<Coord, Epoch>::writeRun(u16 row, u16 column, const u32* codepoints, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
     TerminalCell linkedAttrs = attrs;
     if (hyperlink != 0 || linkedAttrs.hasExtra()) {
         cellExtras().setHyperlink(linkedAttrs, hyperlink);
@@ -2306,7 +2479,7 @@ void ScreenImpl<Coord, Epoch>::writeRun(u16 row, u16 column, const u32* codepoin
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::writeRepeatedCodepoint(u16 row, u16 column, u16 count, u32 codepoint, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
+void ScreenBase<Coord, Epoch>::writeRepeatedCodepoint(u16 row, u16 column, u16 count, u32 codepoint, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
     TerminalCell cell = attrs;
     if (hyperlink != 0 || cell.hasExtra()) {
         cellExtras().setHyperlink(cell, hyperlink);
@@ -2323,7 +2496,7 @@ void ScreenImpl<Coord, Epoch>::writeRepeatedCodepoint(u16 row, u16 column, u16 c
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::writeGlyphRun(u16 row, u16 column, const u32* codepoints, const u8* widths, u16 glyphCount, u16 cellCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
+void ScreenBase<Coord, Epoch>::writeGlyphRun(u16 row, u16 column, const u32* codepoints, const u8* widths, u16 glyphCount, u16 cellCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) {
     TerminalCell linkedAttrs = attrs;
     if (hyperlink != 0 || linkedAttrs.hasExtra()) {
         cellExtras().setHyperlink(linkedAttrs, hyperlink);
@@ -2354,7 +2527,7 @@ void ScreenImpl<Coord, Epoch>::writeGlyphRun(u16 row, u16 column, const u32* cod
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::fillRectangle(u16 top, u16 left, u16 bottom, u16 right, u32 codepoint, const TerminalCell& attrs, const TerminalCell& eraseAttrs) {
+void ScreenBase<Coord, Epoch>::fillRectangle(u16 top, u16 left, u16 bottom, u16 right, u32 codepoint, const TerminalCell& attrs, const TerminalCell& eraseAttrs) {
     for (u16 row = top; row < bottom; ++row) {
         clearWideBoundary(row, left, eraseAttrs);
         clearWideBoundary(row, right, eraseAttrs);
@@ -2373,7 +2546,7 @@ void ScreenImpl<Coord, Epoch>::fillRectangle(u16 top, u16 left, u16 bottom, u16 
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::copyRectangle(u16 sourceTop, u16 sourceLeft, u16 targetTop, u16 targetLeft, u16 height, u16 width, const TerminalCell& eraseAttrs) {
+void ScreenBase<Coord, Epoch>::copyRectangle(u16 sourceTop, u16 sourceLeft, u16 targetTop, u16 targetLeft, u16 height, u16 width, const TerminalCell& eraseAttrs) {
     std::vector<TerminalCell> copied;
     copied.reserve((size_t)(height)*width);
     for (u16 row = 0; row < height; ++row) {
@@ -2401,7 +2574,7 @@ void ScreenImpl<Coord, Epoch>::copyRectangle(u16 sourceTop, u16 sourceLeft, u16 
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::changeRectangleAttributes(u16 top, u16 left, u16 bottom, u16 right, CellAttributeChange change) {
+void ScreenBase<Coord, Epoch>::changeRectangleAttributes(u16 top, u16 left, u16 bottom, u16 right, CellAttributeChange change) {
     const auto apply = [change](u8 value, u8 bit) {
         return change.toggleMask & bit ? (u8)(!value) : change.setMask & bit ? (u8)(1) : change.clearMask & bit ? (u8)(0) : value;
     };
@@ -2423,7 +2596,7 @@ void ScreenImpl<Coord, Epoch>::changeRectangleAttributes(u16 top, u16 left, u16 
 }
 
 template <typename Coord, typename Epoch>
-u16 ScreenImpl<Coord, Epoch>::checksum(u16 top, u16 left, u16 bottom, u16 right) const noexcept {
+u16 ScreenBase<Coord, Epoch>::checksum(u16 top, u16 left, u16 bottom, u16 right) const noexcept {
     u16 result = 0;
     for (u16 row = top; row < bottom; ++row) {
         const TerminalCell* cells_ = getLogicalRowPtr(row);
@@ -2437,7 +2610,7 @@ u16 ScreenImpl<Coord, Epoch>::checksum(u16 top, u16 left, u16 bottom, u16 right)
 }
 
 template <typename Coord, typename Epoch>
-ScreenHyperlink ScreenImpl<Coord, Epoch>::hyperlinkAt(u16 row, u16 column) const {
+ScreenHyperlink ScreenBase<Coord, Epoch>::hyperlinkAt(u16 row, u16 column) const {
     static constexpr size_t scanLimit = 4096;
     if (row >= nRows || column >= nCols) {
         return {};
@@ -2705,12 +2878,12 @@ ScreenHyperlink ScreenImpl<Coord, Epoch>::hyperlinkAt(u16 row, u16 column) const
 }
 
 template <typename Coord, typename Epoch>
-TerminalCell ScreenImpl<Coord, Epoch>::testCell(u16 row, u16 column) const noexcept {
+TerminalCell ScreenBase<Coord, Epoch>::testCell(u16 row, u16 column) const noexcept {
     return getViewRowPtr(row)[column];
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::eraseInRow(RowSlot& slot, u16 pY, u16 startX, u16 count, const TerminalCell& attrs) {
+void ScreenBase<Coord, Epoch>::eraseInRow(RowSlot& slot, u16 pY, u16 startX, u16 count, const TerminalCell& attrs) {
     if (!count) {
         return;
     }
@@ -2745,7 +2918,7 @@ void ScreenImpl<Coord, Epoch>::eraseInRow(RowSlot& slot, u16 pY, u16 startX, u16
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::eraseCells(u16 pY, u16 startX, u16 count, const TerminalCell& attrs) {
+void ScreenBase<Coord, Epoch>::eraseCells(u16 pY, u16 startX, u16 count, const TerminalCell& attrs) {
     if (!count) {
         return;
     }
@@ -2796,7 +2969,7 @@ void ScreenImpl<Coord, Epoch>::eraseCells(u16 pY, u16 startX, u16 count, const T
 }
 
 template <typename Coord, typename Epoch>
-TerminalCell* ScreenImpl<Coord, Epoch>::overwriteWideSpan(u16 pY, u16 startX, u16 count, const TerminalCell& eraseAttrs) {
+TerminalCell* ScreenBase<Coord, Epoch>::overwriteWideSpan(u16 pY, u16 startX, u16 count, const TerminalCell& eraseAttrs) {
     const u16 endX = startX + count;
     TerminalCell* row = mutableLogicalRow(pY);
     TerminalCell erased = eraseAttrs;
@@ -2819,13 +2992,13 @@ TerminalCell* ScreenImpl<Coord, Epoch>::overwriteWideSpan(u16 pY, u16 startX, u1
 }
 
 template <typename Coord, typename Epoch>
-[[gnu::always_inline]] inline void ScreenImpl<Coord, Epoch>::clearWideBoundary(u16 pY, u16 boundary, const TerminalCell& attrs) {
+[[gnu::always_inline]] inline void ScreenBase<Coord, Epoch>::clearWideBoundary(u16 pY, u16 boundary, const TerminalCell& attrs) {
     RowSlot& slot = logicalRowSlot(pY);
     clearWideBoundary(slot, pY, boundary, attrs);
 }
 
 template <typename Coord, typename Epoch>
-[[gnu::always_inline]] inline void ScreenImpl<Coord, Epoch>::clearWideBoundary(RowSlot& slot, u16 pY, u16 boundary, const TerminalCell& attrs) {
+[[gnu::always_inline]] inline void ScreenBase<Coord, Epoch>::clearWideBoundary(RowSlot& slot, u16 pY, u16 boundary, const TerminalCell& attrs) {
     if (slot == nullptr || !slot->metadata.wide) {
         return;
     }
@@ -2840,7 +3013,7 @@ template <typename Coord, typename Epoch>
 }
 
 template <typename Coord, typename Epoch>
-[[gnu::noinline]] void ScreenImpl<Coord, Epoch>::clearWideBoundarySlow(TerminalCell* row, u16 pY, u16 boundary, const TerminalCell& attrs) {
+[[gnu::noinline]] void ScreenBase<Coord, Epoch>::clearWideBoundarySlow(TerminalCell* row, u16 pY, u16 boundary, const TerminalCell& attrs) {
     TerminalCell erased = attrs;
     row[boundary - 1] = erased;
     damageCell(pY, boundary - 1);
@@ -2856,13 +3029,13 @@ template <typename Coord, typename Epoch>
 }
 
 template <typename Coord, typename Epoch>
-[[gnu::always_inline]] inline void ScreenImpl<Coord, Epoch>::repairWideBoundary(u16 pY, u16 boundary, const TerminalCell& attrs) {
+[[gnu::always_inline]] inline void ScreenBase<Coord, Epoch>::repairWideBoundary(u16 pY, u16 boundary, const TerminalCell& attrs) {
     RowSlot& slot = logicalRowSlot(pY);
     repairWideBoundary(slot, pY, boundary, attrs);
 }
 
 template <typename Coord, typename Epoch>
-[[gnu::always_inline]] inline void ScreenImpl<Coord, Epoch>::repairWideBoundary(RowSlot& slot, u16 pY, u16 boundary, const TerminalCell& attrs) {
+[[gnu::always_inline]] inline void ScreenBase<Coord, Epoch>::repairWideBoundary(RowSlot& slot, u16 pY, u16 boundary, const TerminalCell& attrs) {
     if (slot == nullptr || !slot->metadata.wide) {
         return;
     }
@@ -2876,7 +3049,7 @@ template <typename Coord, typename Epoch>
 }
 
 template <typename Coord, typename Epoch>
-[[gnu::noinline]] void ScreenImpl<Coord, Epoch>::repairWideBoundarySlow(TerminalCell* row, u16 pY, u16 boundary, const TerminalCell& attrs, bool eraseLeft) {
+[[gnu::noinline]] void ScreenBase<Coord, Epoch>::repairWideBoundarySlow(TerminalCell* row, u16 pY, u16 boundary, const TerminalCell& attrs, bool eraseLeft) {
     TerminalCell erased = attrs;
     if (eraseLeft) {
         row[boundary - 1] = erased;
@@ -2895,7 +3068,7 @@ template <typename Coord, typename Epoch>
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::selectiveEraseCells(u16 pY, u16 startX, u16 count, const TerminalCell& attrs, u8 protectionMask) {
+void ScreenBase<Coord, Epoch>::selectiveEraseCells(u16 pY, u16 startX, u16 count, const TerminalCell& attrs, u8 protectionMask) {
     CellExtraStore& extras = cellExtras();
     TerminalCell erased = attrs;
     erased.uc_pt = 0;
@@ -2940,7 +3113,7 @@ void ScreenImpl<Coord, Epoch>::selectiveEraseCells(u16 pY, u16 startX, u16 count
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::moveInRow(u16 pY, u16 dstX, u16 srcX, u16 count) {
+void ScreenBase<Coord, Epoch>::moveInRow(u16 pY, u16 dstX, u16 srcX, u16 count) {
     if (!count) {
         return;
     }
@@ -2956,7 +3129,7 @@ void ScreenImpl<Coord, Epoch>::moveInRow(u16 pY, u16 dstX, u16 srcX, u16 count) 
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::insertCells(u16 row, u16 start, u16 end, u16 count, const TerminalCell& attrs) {
+void ScreenBase<Coord, Epoch>::insertCells(u16 row, u16 start, u16 end, u16 count, const TerminalCell& attrs) {
     count = min<u16>(count, end - start);
     if (count == 0) {
         return;
@@ -3000,7 +3173,7 @@ void ScreenImpl<Coord, Epoch>::insertCells(u16 row, u16 start, u16 end, u16 coun
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::deleteCells(u16 row, u16 start, u16 end, u16 count, const TerminalCell& attrs) {
+void ScreenBase<Coord, Epoch>::deleteCells(u16 row, u16 start, u16 end, u16 count, const TerminalCell& attrs) {
     count = min<u16>(count, end - start);
     if (count == 0) {
         return;
@@ -3039,7 +3212,7 @@ void ScreenImpl<Coord, Epoch>::deleteCells(u16 row, u16 start, u16 end, u16 coun
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::copyRow(u16 dstY, u16 srcY, u16 startX, u16 count, const TerminalCell& attrs) {
+void ScreenBase<Coord, Epoch>::copyRow(u16 dstY, u16 srcY, u16 startX, u16 count, const TerminalCell& attrs) {
     if (!count) {
         return;
     }
@@ -3087,7 +3260,7 @@ void ScreenImpl<Coord, Epoch>::copyRow(u16 dstY, u16 srcY, u16 startX, u16 count
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::scrollRectangleUp(u16 top, u16 left, u16 bottom, u16 right, u16 count, const TerminalCell& attrs) {
+void ScreenBase<Coord, Epoch>::scrollRectangleUp(u16 top, u16 left, u16 bottom, u16 right, u16 count, const TerminalCell& attrs) {
     if (count == 1 && top < bottom && left < right && (left != 0 || right != nCols)) {
         scrollPartialRectangleUpOne(top, left, bottom, right, attrs);
         return;
@@ -3096,12 +3269,12 @@ void ScreenImpl<Coord, Epoch>::scrollRectangleUp(u16 top, u16 left, u16 bottom, 
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::scrollRectangleDown(u16 top, u16 left, u16 bottom, u16 right, u16 count, const TerminalCell& attrs) {
+void ScreenBase<Coord, Epoch>::scrollRectangleDown(u16 top, u16 left, u16 bottom, u16 right, u16 count, const TerminalCell& attrs) {
     scrollRectangle(top, left, bottom, right, count, attrs, true);
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::scrollPartialRectangleUpOne(u16 top, u16 left, u16 bottom, u16 right, const TerminalCell& attrs) {
+void ScreenBase<Coord, Epoch>::scrollPartialRectangleUpOne(u16 top, u16 left, u16 bottom, u16 right, const TerminalCell& attrs) {
     const i64 rowBase = (i64)(rowEnd)-nRows;
     for (u16 destination = top; destination + 1 < bottom; ++destination) {
         RowSlot& destinationObject = rowRing[wrapRow(rowBase + destination)];
@@ -3128,7 +3301,7 @@ void ScreenImpl<Coord, Epoch>::scrollPartialRectangleUpOne(u16 top, u16 left, u1
 }
 
 template <typename Coord, typename Epoch>
-[[gnu::always_inline]] inline void ScreenImpl<Coord, Epoch>::scrollPartialRectangleRow(RowSlot& destinationObject, const Row* sourceObject, u16 destinationRow, u16 left, u16 right, const TerminalCell& attrs) {
+[[gnu::always_inline]] inline void ScreenBase<Coord, Epoch>::scrollPartialRectangleRow(RowSlot& destinationObject, const Row* sourceObject, u16 destinationRow, u16 left, u16 right, const TerminalCell& attrs) {
     const u16 width = right - left;
     const TerminalCell* const source = sourceObject->cells + left;
     if (destinationObject == nullptr && (sourceObject == zeroRow || emptyRow(source, width))) {
@@ -3191,7 +3364,7 @@ template <typename Coord, typename Epoch>
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::scrollRectangle(u16 top, u16 left, u16 bottom, u16 right, u16 count, const TerminalCell& attrs, bool down) {
+void ScreenBase<Coord, Epoch>::scrollRectangle(u16 top, u16 left, u16 bottom, u16 right, u16 count, const TerminalCell& attrs, bool down) {
     count = min<u16>(count, bottom - top);
     if (count == 0 || right <= left) {
         return;
@@ -3299,7 +3472,7 @@ void ScreenImpl<Coord, Epoch>::scrollRectangle(u16 top, u16 left, u16 bottom, u1
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::rotateRowsUp(u16 top, u16 bottom, u16 count) {
+void ScreenBase<Coord, Epoch>::rotateRowsUp(u16 top, u16 bottom, u16 count) {
     count = std::min<u16>(count, bottom - top);
     if (!count) {
         return;
@@ -3312,7 +3485,7 @@ void ScreenImpl<Coord, Epoch>::rotateRowsUp(u16 top, u16 bottom, u16 count) {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::rotateRowsDown(u16 top, u16 bottom, u16 count) {
+void ScreenBase<Coord, Epoch>::rotateRowsDown(u16 top, u16 bottom, u16 count) {
     count = std::min<u16>(count, bottom - top);
     if (!count) {
         return;
@@ -3325,7 +3498,7 @@ void ScreenImpl<Coord, Epoch>::rotateRowsDown(u16 top, u16 bottom, u16 count) {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::clearRows(u16 begin, u16 end, const TerminalCell& attrs) {
+void ScreenBase<Coord, Epoch>::clearRows(u16 begin, u16 end, const TerminalCell& attrs) {
     for (u16 row = begin; row < end; ++row) {
         RowSlot& slot = logicalRowSlot(row);
         if (attrs == TerminalCell{}) {
@@ -3345,7 +3518,7 @@ void ScreenImpl<Coord, Epoch>::clearRows(u16 begin, u16 end, const TerminalCell&
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::rotateRowPointersUp(u16 top, u16 bottom, u16 count) {
+void ScreenBase<Coord, Epoch>::rotateRowPointersUp(u16 top, u16 bottom, u16 count) {
     const u16 length = bottom - top;
     count %= length;
     if (count == 0) {
@@ -3404,7 +3577,7 @@ void ScreenImpl<Coord, Epoch>::rotateRowPointersUp(u16 top, u16 bottom, u16 coun
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::rotateRowPointersDown(u16 top, u16 bottom, u16 count) {
+void ScreenBase<Coord, Epoch>::rotateRowPointersDown(u16 top, u16 bottom, u16 count) {
     const u16 length = bottom - top;
     count %= length;
     if (count != 0) {
@@ -3413,7 +3586,7 @@ void ScreenImpl<Coord, Epoch>::rotateRowPointersDown(u16 top, u16 bottom, u16 co
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::invalidateSelection(const Rect&& damage) {
+void ScreenBase<Coord, Epoch>::invalidateSelection(const Rect&& damage) {
     if (selection.empty()) {
         return;
     }
@@ -3436,7 +3609,7 @@ void ScreenImpl<Coord, Epoch>::invalidateSelection(const Rect&& damage) {
 }
 
 template <typename Coord, typename Epoch>
-bool ScreenImpl<Coord, Epoch>::selectionValid() const {
+bool ScreenBase<Coord, Epoch>::selectionValid() const {
     if (selection.null()) {
         return true;
     }
@@ -3449,7 +3622,7 @@ bool ScreenImpl<Coord, Epoch>::selectionValid() const {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::vscrollSelection(u16 top, u16 bottom, int vertOffset, bool captureHistory) {
+void ScreenBase<Coord, Epoch>::vscrollSelection(u16 top, u16 bottom, int vertOffset, bool captureHistory) {
     if (selection.null()) {
         return;
     }
@@ -3492,34 +3665,34 @@ void ScreenImpl<Coord, Epoch>::vscrollSelection(u16 top, u16 bottom, int vertOff
 }
 
 template <typename Coord, typename Epoch>
-const TerminalCell* ScreenImpl<Coord, Epoch>::getLogicalRowPtr(int pY) const {
+const TerminalCell* ScreenBase<Coord, Epoch>::getLogicalRowPtr(int pY) const {
     return getLogicalRowObject(pY)->cells;
 }
 
 template <typename Coord, typename Epoch>
-const TerminalCell* ScreenImpl<Coord, Epoch>::getViewRowPtr(int pY) const {
+const TerminalCell* ScreenBase<Coord, Epoch>::getViewRowPtr(int pY) const {
     return getLogicalRowPtr(pY - viewOffset);
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::eraseRange(TerminalCell* start, TerminalCell* end, const TerminalCell& attrs) {
+void ScreenBase<Coord, Epoch>::eraseRange(TerminalCell* start, TerminalCell* end, const TerminalCell& attrs) {
     while (start < end) {
         *start++ = attrs;
     }
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::copyCells(TerminalCell* destination, const TerminalCell* source, u32 count) {
+void ScreenBase<Coord, Epoch>::copyCells(TerminalCell* destination, const TerminalCell* source, u32 count) {
     memcpy(destination, source, count * cellSize);
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::moveCells(TerminalCell* destination, const TerminalCell* source, u32 count) {
+void ScreenBase<Coord, Epoch>::moveCells(TerminalCell* destination, const TerminalCell* source, u32 count) {
     memmove(destination, source, count * cellSize);
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::damageCell(u16 row, u16 column) {
+void ScreenBase<Coord, Epoch>::damageCell(u16 row, u16 column) {
     const u32 viewRow = (u32)(row) + viewOffset;
     if (viewRow < nRows) {
         damage.addCell(viewRow, column);
@@ -3527,7 +3700,7 @@ void ScreenImpl<Coord, Epoch>::damageCell(u16 row, u16 column) {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::damageRow(u16 row, u16 begin, u16 end) {
+void ScreenBase<Coord, Epoch>::damageRow(u16 row, u16 begin, u16 end) {
     const u32 viewRow = (u32)(row) + viewOffset;
     if (viewRow < nRows) {
         damage.addRow(viewRow, begin, end);
@@ -3535,7 +3708,7 @@ void ScreenImpl<Coord, Epoch>::damageRow(u16 row, u16 begin, u16 end) {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::damageRectangle(u16 top, u16 left, u16 bottom, u16 right) {
+void ScreenBase<Coord, Epoch>::damageRectangle(u16 top, u16 left, u16 bottom, u16 right) {
     const u32 viewTop = (u32)(top) + viewOffset;
     const u32 viewBottom = (u32)(bottom) + viewOffset;
     if (viewTop >= nRows) {
@@ -3545,13 +3718,13 @@ void ScreenImpl<Coord, Epoch>::damageRectangle(u16 top, u16 left, u16 bottom, u1
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::resizeDamage(u16 columns, u16 rows) {
+void ScreenBase<Coord, Epoch>::resizeDamage(u16 columns, u16 rows) {
     damageStorage.grow((size_t)(rows) * sizeof(DamageRow) + (size_t)(columns)*rows * sizeof(Epoch));
     damage.configure(damageStorage.mutData(), columns, rows);
 }
 
 template <typename Coord, typename Epoch>
-auto ScreenImpl<Coord, Epoch>::Damage::operator=(Damage&& other) noexcept -> Damage& {
+auto ScreenBase<Coord, Epoch>::Damage::operator=(Damage&& other) noexcept -> Damage& {
     rows = other.rows;
     epoch = other.epoch;
     width = other.width;
@@ -3567,7 +3740,7 @@ auto ScreenImpl<Coord, Epoch>::Damage::operator=(Damage&& other) noexcept -> Dam
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::Damage::configure(void* storage, u16 columns, u16 rows_) {
+void ScreenBase<Coord, Epoch>::Damage::configure(void* storage, u16 columns, u16 rows_) {
     width = columns;
     height = rows_;
     fullRows = 0;
@@ -3587,7 +3760,7 @@ void ScreenImpl<Coord, Epoch>::Damage::configure(void* storage, u16 columns, u16
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::Damage::reset() {
+void ScreenBase<Coord, Epoch>::Damage::reset() {
     for (u16 row = 0; row < height; ++row) {
         rows[row].count = 0;
         rows[row].begin = (Coord)(width);
@@ -3605,7 +3778,7 @@ void ScreenImpl<Coord, Epoch>::Damage::reset() {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::Damage::expose() {
+void ScreenBase<Coord, Epoch>::Damage::expose() {
     for (u16 row = 0; row < height; ++row) {
         rows[row].count = (Coord)(width);
         rows[row].begin = 0;
@@ -3615,7 +3788,7 @@ void ScreenImpl<Coord, Epoch>::Damage::expose() {
 }
 
 template <typename Coord, typename Epoch>
-bool ScreenImpl<Coord, Epoch>::Damage::hasDamage() const noexcept {
+bool ScreenBase<Coord, Epoch>::Damage::hasDamage() const noexcept {
     if (fullRows == height) {
         return true;
     }
@@ -3628,7 +3801,7 @@ bool ScreenImpl<Coord, Epoch>::Damage::hasDamage() const noexcept {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::Damage::addCell(u16 row, u16 column) {
+void ScreenBase<Coord, Epoch>::Damage::addCell(u16 row, u16 column) {
     if (fullRows == height) {
         return;
     }
@@ -3650,7 +3823,7 @@ void ScreenImpl<Coord, Epoch>::Damage::addCell(u16 row, u16 column) {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::Damage::addRow(u16 row, u16 begin, u16 end) {
+void ScreenBase<Coord, Epoch>::Damage::addRow(u16 row, u16 begin, u16 end) {
     if (fullRows == height || end <= begin) {
         return;
     }
@@ -3702,7 +3875,7 @@ void ScreenImpl<Coord, Epoch>::Damage::addRow(u16 row, u16 begin, u16 end) {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenImpl<Coord, Epoch>::Damage::addRect(u16 top, u16 left, u16 bottom, u16 right) {
+void ScreenBase<Coord, Epoch>::Damage::addRect(u16 top, u16 left, u16 bottom, u16 right) {
     if (fullRows == height || bottom <= top || right <= left) {
         return;
     }

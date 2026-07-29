@@ -18,7 +18,6 @@
 
 struct CellExtraStore;
 struct Composer;
-struct ResizeState;
 
 namespace stl {
     class ObjPool;
@@ -50,11 +49,7 @@ struct Screen {
         COUNT
     };
 
-    // Exposes the geometry-independent screen state through an opaque handle
-    // allocated from the screen's own pool; the screen itself becomes empty.
-    // The handle borrows row storage, so the pool must stay alive until a
-    // replacement screen has copied the retained rows.
-    virtual ResizeState* moveInto() = 0;
+    virtual Screen* resized(stl::ObjPool& pool, u16 columns, u16 rows, Cursor& cursor) = 0;
     virtual void dropScrollbackHistory() = 0;
 
     virtual void fillCells(u16 ch, const TerminalCell& attrs) = 0;
@@ -148,7 +143,7 @@ struct Screen {
         writeAsciiRunInsert(row, column, end, end, input, count, attrs, hyperlink, semantic, eraseAttrs);
     }
 
-    static Screen* create(Composer& composer, stl::ObjPool& pool);
-    static Screen* create(Composer& composer, stl::ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors, u16 saveLines = 0);
-    static Screen* create(Composer& composer, stl::ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, bool reflow, Cursor* cursor);
+    static Screen* createPrimary(Composer& composer, stl::ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors, u16 saveLines);
+    static Screen* createAlternate(Composer& composer, stl::ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors);
+    static Screen* createInactiveAlternate(Composer& composer, stl::ObjPool& pool);
 };
