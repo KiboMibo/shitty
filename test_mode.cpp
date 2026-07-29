@@ -346,10 +346,12 @@ namespace {
         void readClipboard(Output* output) override;
         void writePrimary(StringView content) override;
         void writeClipboard(StringView content) override;
+        void read(Output* output, const Buffer& content);
 
         Buffer primary;
         Buffer system;
         u64 generation = 0;
+        size_t readChunk = 0;
     };
 
     struct TestDesktopActions final: public DesktopActions {
@@ -539,13 +541,22 @@ namespace {
 }
 
 void TestClipboard::readPrimary(Output* output) {
-    output->write(primary.data(), primary.used());
-    output->finish();
-    delete output;
+    read(output, primary);
 }
 
 void TestClipboard::readClipboard(Output* output) {
-    output->write(system.data(), system.used());
+    read(output, system);
+}
+
+void TestClipboard::read(Output* output, const Buffer& content) {
+    const size_t chunk = readChunk == 0 ? content.used() : readChunk;
+    size_t offset = 0;
+    while (offset != content.used()) {
+        const size_t remaining = content.used() - offset;
+        const size_t size = remaining < chunk ? remaining : chunk;
+        output->write((const u8*)(content.data()) + offset, size);
+        offset += size;
+    }
     output->finish();
     delete output;
 }
@@ -2216,6 +2227,13 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
             } else if (line.compare(0, 11, "SET_SYSTEM ") == 0) {
                 const std::string content = decodeHex(line.substr(11));
                 clipboard.writeClipboard(StringView((const u8*)(content.data()), content.size()));
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 20, "SET_CLIPBOARD_CHUNK ") == 0) {
+                const unsigned long long size = std::stoull(line.substr(20));
+                if (size > SIZE_MAX) {
+                    throw std::runtime_error("invalid clipboard chunk size");
+                }
+                clipboard.readChunk = (size_t)(size);
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 14, "GET_SELECTION ") == 0) {
                 const int primary = std::stoi(line.substr(14));

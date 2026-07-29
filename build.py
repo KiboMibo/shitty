@@ -1050,6 +1050,56 @@ vte_color_validation = command(
 )
 
 
+vte_paste_cases = (vte_root / "paste_file_names.txt").read_text().split()
+vte_paste_tests = []
+for case in vte_paste_cases:
+    vte_paste_tests.append(command(
+        name="vte_paste_" + case.replace("-", "_"),
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/vte/paste_adapter.py",
+            "$(S)/tests/vte/paste_cases.py",
+            "$(S)/tests/vte/paste_file_names.txt",
+            "$(S)/tests/vte/upstream/pastify-test.cc",
+        ],
+        outputs=[f"$(B)/tests/vte/paste/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/vte/paste_adapter.py",
+            case,
+            f"$(B)/tests/vte/paste/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="VP",
+        color="cyan",
+    ))
+
+
+vte_paste_validation = command(
+    name="vte_paste_catalog",
+    inputs=[
+        "$(S)/tests/vte/paste_cases.py",
+        "$(S)/tests/vte/paste_file_names.txt",
+        "$(S)/tests/vte/paste_validate.py",
+        "$(S)/tests/vte/upstream/pastify-test.cc",
+    ],
+    outputs=["$(B)/tests/vte/paste/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/vte/paste_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/vte/paste/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="VP",
+    color="cyan",
+)
+
+
 vte_utf8_cases = (vte_root / "utf8_file_names.txt").read_text().split()
 vte_utf8_tests = []
 for case in vte_utf8_cases:
@@ -2614,6 +2664,8 @@ group(
     vte_mode_validation,
     *vte_color_tests,
     vte_color_validation,
+    *vte_paste_tests,
+    vte_paste_validation,
     *vte_utf8_tests,
     vte_utf8_validation,
     *vte_width_tests,

@@ -112,6 +112,8 @@ namespace {
         Output* output;
         bool bracketed;
         bool started = false;
+        bool previousCarriageReturn = false;
+        bool pendingC1Lead = false;
     };
 
     struct ClipboardCopyOutput final: public Output {
@@ -1389,6 +1391,10 @@ PasteOutput::PasteOutput(SmallObjAllocator* allocator_, Output* output_, bool br
 }
 
 PasteOutput::~PasteOutput() noexcept {
+    if (pendingC1Lead) {
+        const u8 lead = 0xc2;
+        output->write(&lead, 1);
+    }
     if (started && bracketed) {
         output->write(StringView(u8"\x1b[201~").data(), 6);
     }
@@ -1408,17 +1414,64 @@ size_t PasteOutput::writeImpl(const void* data, size_t size) {
     const u8 carriageReturn = '\r';
     const u8* current = static_cast<const u8*>(data);
     const u8* const end = current + size;
-    while (current != end) {
-        const u8* const newline = static_cast<const u8*>(memchr(current, '\n', end - current));
-        const u8* const spanEnd = newline == nullptr ? end : newline;
-        if (current != spanEnd) {
-            output->write(current, spanEnd - current);
+
+    if (pendingC1Lead) {
+        pendingC1Lead = false;
+        if (*current >= 0x80 && *current <= 0x9f) {
+            output->write(StringView(u8"\xef\xbf\xbd").data(), 3);
+            ++current;
+        } else {
+            const u8 lead = 0xc2;
+            output->write(&lead, 1);
         }
-        if (newline == nullptr) {
+    }
+
+    while (current != end) {
+        if (previousCarriageReturn) {
+            previousCarriageReturn = false;
+            if (*current == '\n') {
+                ++current;
+                continue;
+            }
+        }
+
+        const u8* span = current;
+        while (current != end) {
+            const u8 byte = *current;
+            if ((byte >= 0x01 && byte <= 0x08) || (byte >= 0x0a && byte <= 0x1f) || byte == 0x7f || byte == 0xc2) {
+                break;
+            }
+            ++current;
+        }
+        if (span != current) {
+            output->write(span, current - span);
+        }
+        if (current == end) {
             break;
         }
-        output->write(&carriageReturn, 1);
-        current = newline + 1;
+
+        const u8 byte = *current++;
+        if (byte == '\n') {
+            output->write(&carriageReturn, 1);
+        } else if (byte == '\r') {
+            output->write(&carriageReturn, 1);
+            previousCarriageReturn = true;
+        } else if (byte == 0xc2) {
+            if (current == end) {
+                pendingC1Lead = true;
+            } else if (*current >= 0x80 && *current <= 0x9f) {
+                output->write(StringView(u8"\xef\xbf\xbd").data(), 3);
+                ++current;
+            } else {
+                output->write(&byte, 1);
+            }
+        } else {
+            u8 picture[] = {0xe2, 0x90, (u8)(byte + 0x80)};
+            if (byte == 0x7f) {
+                picture[2] = 0xa1;
+            }
+            output->write(picture, sizeof(picture));
+        }
     }
     output->flush();
     return size;

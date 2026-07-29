@@ -198,7 +198,13 @@ keys.~~
   terminal protocol эквивалента. Исходные assertions сохранены у нас, но
   помечены неприменимыми: Shitty всегда заполняет новые доступные колонки, а
   отсутствие следующего/предыдущего stop зажимает в границу экрана или margin;
-- bracketed paste sanitization — 6;
+- ~~bracketed paste sanitization — полный `pastify-test.cc`: 71
+  зарегистрированный случай классифицирован, 70 production-reachable cases
+  перенесены через настоящий Clipboard/input/PTY path. Проверяются 29 C0/DEL,
+  32 C1, восемь размещений каждого control, idempotence, CR/LF и побайтовое
+  разбиение. Импорт исправил небезопасный passthrough controls и состояние на
+  границах chunks. Единственный C1-bracket case неприменим: это параметр
+  внутреннего VTE helper, который сам VTE в production всегда выключает;~~
 - ~~UTF-8 replacement/error behavior — оба теста перенесены полностью:
   1 112 064 допустимых scalar values и все 108 encoding_rs malformed
   vectors. Импорт исправил maximal-subpart replacement для E0/ED/F0/F4;~~

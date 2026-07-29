@@ -57,3 +57,21 @@ by Xcms and implemented by xterm, Ghostty and Shitty. CSS-only rgba/rgb/hsl,
 alpha serialization and the opposite-parser-mode assertions are retained as
 inputs but adapted to their OSC meaning: non-XParseColor forms are rejected
 without changing the current color.
+
+`upstream/pastify-test.cc` is copied verbatim from the same revision. Its 71
+registered cases are fully classified. The 70 cases reachable through VTE's
+real paste path are translated through Shitty's real Clipboard, generic input
+and PTY output queue, both whole and one byte per clipboard callback. This
+covers the C0/DEL and UTF-8 C1 matrices, all eight placements per control,
+idempotence, CR/LF folding, and C0 bracket markers. The import fixed unsafe
+control forwarding and chunk-boundary handling in Shitty's streaming paste
+adapter.
+
+There is no standard mandating how a terminal visualizes unsafe paste
+controls. Current VTE uses Unicode control pictures, Ghostty replaces a
+security-oriented set with spaces, foot strips controls, and
+Alacritty/WezTerm/Kitty remove dangerous subsets. The interoperable consensus
+is not to forward terminal-control injection unchanged; Shitty adopts VTE's
+lossless visible representation. VTE's C1 bracket-marker test is the sole
+inapplicable case: it tests a parameter of the internal helper that VTE's own
+production `widget_paste()` always calls with C1 disabled.
