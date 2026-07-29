@@ -21,7 +21,7 @@
 #include "mouse_frontend.h"
 #include "pty.h"
 #include "pty_output.h"
-#include "reference_renderer.h"
+#include "render_reference.h"
 #include "startup.h"
 #include "test_input.h"
 #include "utf8.h"

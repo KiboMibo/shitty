@@ -4,7 +4,7 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "reference_renderer.h"
+#include "render_reference.h"
 
 #include "cell_extra_store.h"
 #include "composer.h"
