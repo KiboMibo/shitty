@@ -275,6 +275,7 @@ def main() -> int:
         binary = checkout / ".build-darwin" / "st"
         if not binary.is_file():
             raise RuntimeError(f"Darwin build did not produce {binary}")
+        binary = binary.resolve(strict=True)
         file_description = run(["file", os.fspath(binary)], capture=True)
         if "Mach-O 64-bit executable arm64" not in file_description:
             raise RuntimeError(f"unexpected Darwin artifact: {file_description}")
