@@ -405,6 +405,7 @@ namespace {
         size_t graphemeCodepoints = 0;
         size_t lastUpdateCells = 0;
         size_t lastUpdateSpans = 0;
+        Vector<u16> lastUpdateRows;
         TerminalCursor cursor;
         Rect selection;
         std::vector<DisplayCell> cells;
@@ -607,11 +608,26 @@ bool TestDisplay::update(const TerminalUpdate& update) {
     colors = update.colors;
     lastUpdateCells = 0;
     lastUpdateSpans = update.spanCount;
+    lastUpdateRows.clear();
     for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
         const TerminalCellSpan& span = update.spans[spanIndex];
         lastUpdateCells += span.count;
         STD_ASSERT((size_t)(span.index) + span.count <= count);
         STD_ASSERT(span.cells != nullptr);
+        const u16 firstRow = span.index / columns;
+        const u16 lastRow = (span.index + span.count - 1) / columns;
+        for (u16 row = firstRow; row <= lastRow; ++row) {
+            bool found = false;
+            for (const u16* existing = lastUpdateRows.begin(); existing != lastUpdateRows.end(); ++existing) {
+                if (*existing == row) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                lastUpdateRows.pushBack(row);
+            }
+        }
         for (u32 index = 0; index < span.count; ++index) {
             cells[span.index + index] = materialize(span.cells[index], span.lineAttribute, *update.colors);
         }
@@ -931,6 +947,9 @@ void TestTerminal::refreshState() {
 }
 
 void TestTerminal::feedPtyOutput(const u8* data, size_t size) {
+    display.lastUpdateCells = 0;
+    display.lastUpdateSpans = 0;
+    display.lastUpdateRows.clear();
     terminal.feedPty(StringView(data, size));
     update();
 }
@@ -1820,6 +1839,14 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
             } else if (line == "LAST_UPDATE") {
                 StringBuilder output;
                 output << StringView(u8"OK ") << display.lastUpdateCells << StringView(u8" ") << display.lastUpdateSpans << StringView(u8"\n");
+                writeAll(controlFd, StringView(output));
+            } else if (line == "LAST_UPDATE_ROWS") {
+                StringBuilder output;
+                output << StringView(u8"OK");
+                for (const u16* row = display.lastUpdateRows.begin(); row != display.lastUpdateRows.end(); ++row) {
+                    output << StringView(u8" ") << *row;
+                }
+                output << StringView(u8"\n");
                 writeAll(controlFd, StringView(output));
             } else if (line.compare(0, 15, "FRONTEND_SCALE ") == 0) {
                 unsigned xNumerator = 0;

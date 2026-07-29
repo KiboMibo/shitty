@@ -472,6 +472,13 @@ class Shitty:
             raise RuntimeError("invalid last update response")
         return tuple(map(int, response[1:]))
 
+    def last_update_rows(self):
+        self.stream.write(b"LAST_UPDATE_ROWS\n")
+        response = self._readline().split()
+        if not response or response[0] != "OK":
+            raise RuntimeError("invalid last update rows response")
+        return tuple(map(int, response[1:]))
+
     def frontend_content_scale(
         self,
         x_numerator,

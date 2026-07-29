@@ -1224,6 +1224,59 @@ wezterm_cursor_validation = command(
 )
 
 
+wezterm_damage_cases = (
+    wezterm_root / "damage_file_names.txt"
+).read_text().split()
+wezterm_damage_tests = []
+for case in wezterm_damage_cases:
+    wezterm_damage_tests.append(command(
+        name="wezterm_damage_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/wezterm/damage_adapter.py",
+            "$(S)/tests/wezterm/damage_cases.py",
+            "$(S)/tests/wezterm/damage_file_names.txt",
+            "$(S)/tests/wezterm/screen_catalog.py",
+            "$(S)/tests/wezterm/upstream/mod.rs",
+        ],
+        outputs=[f"$(B)/tests/wezterm/damage/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/wezterm/damage_adapter.py",
+            case,
+            f"$(B)/tests/wezterm/damage/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="WD",
+        color="cyan",
+    ))
+
+wezterm_damage_validation = command(
+    name="wezterm_damage_catalog",
+    inputs=[
+        "$(S)/tests/wezterm/damage_cases.py",
+        "$(S)/tests/wezterm/damage_file_names.txt",
+        "$(S)/tests/wezterm/damage_validate.py",
+        "$(S)/tests/wezterm/screen_catalog.py",
+        "$(S)/tests/wezterm/upstream/mod.rs",
+    ],
+    outputs=["$(B)/tests/wezterm/damage/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/wezterm/damage_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/wezterm/damage/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="WD",
+    color="cyan",
+)
+
+
 konsole_root = Path(__file__).parent / "tests" / "konsole"
 konsole_cases = (konsole_root / "file_names.txt").read_text().split()
 konsole_tests = []
@@ -2153,6 +2206,8 @@ group(
     wezterm_selection_validation,
     *wezterm_cursor_tests,
     wezterm_cursor_validation,
+    *wezterm_damage_tests,
+    wezterm_damage_validation,
     *konsole_tests,
     konsole_validation,
     *konsole_semantic_tests,

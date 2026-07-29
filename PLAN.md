@@ -148,7 +148,10 @@ keys.~~
   visibility/default shape и wrap-pending. Три one-past-grid ожидания WezTerm
   нормализованы к последней физической клетке по DEC/xterm; импорт исправил
   расширение default tab stops после resize кастомизированной таблицы;~~
-- 17 dirty-line/damage assertions;
+- ~~все 17 dirty-line/damage assertions перенесены. Исходные stable-line
+  ожидания сохранены как oracle и явно переведены в visible renderer rows:
+  WezTerm индексирует физические строки вместе с history, Shitty передаёт
+  renderer координаты текущего viewport;~~
 - 27 `assert_all_contents` и viewport/history/stable-row assertions;
 - semantic zones и semantic cell attributes;
 - hyperlink identity/attributes;
@@ -288,7 +291,7 @@ Search и vi-mode нам пока не нужны.
    применимые PTY methods.~~
 4. ~~Расширить существующий WezTerm screen adapter до всех 73 исполняемых
    visible checkpoints.~~
-5. ~~WezTerm cursor и selection non-visible oracles.~~ Остались damage,
+5. ~~WezTerm cursor, selection и damage non-visible oracles.~~ Остались
    history/stable rows, semantic zones, hyperlinks и line/cell metadata.
 6. Windows Terminal adapter/input/mouse/selection/reflow.
 7. VTE tabstops/paste/UTF-8 и known-sequence matrices.
@@ -299,5 +302,3 @@ Search и vi-mode нам пока не нужны.
 11. iTerm2 Grid/Screen/LineBuffer.
 
 Самые важные поведенческие области, где нам нужен именно независимый внешний oracle: resize/reflow/history, selection lifetime, input encoding, OSC replies/effects и семантика damage. Собственных тестов на это у нас много, но они подтверждают нашу модель нашей же моделью.
-
-Репозиторий не изменял; рабочее дерево чистое.

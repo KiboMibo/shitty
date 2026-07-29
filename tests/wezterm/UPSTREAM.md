@@ -11,7 +11,7 @@ without compiling or executing WezTerm. Rust byte, Unicode, and continuation
 escapes are decoded by the adapter. Each call site is an independent build
 target and is compared whole versus bytewise across parser events and the full
 observable terminal state. Variable-built streams and WezTerm's semantic
-selection, resize, and dirty-line assertions remain for a later adapter.
+selection and resize assertions are handled by explicit adapters.
 
 The screen catalog covers every executable `assert_visible_contents`
 checkpoint. The often-quoted count of 74 includes the helper's own definition;
@@ -41,7 +41,13 @@ last physical cell, matching DEC/xterm behavior. Importing this catalog exposed
 and fixed missing default tab stops when a customized tab table grows during
 resize.
 
-Remaining non-visible upstream oracles are dirty-line metadata, all-lines/
-history and stable-row assertions, semantic zones and cell attributes,
-hyperlink identity, and rich cell/line metadata. They are listed explicitly in
-`PLAN.md`.
+The damage catalog covers all 17 `assert_dirty_lines` call sites. We retain the
+upstream stable-line oracle and explicitly translate it to the visible rows
+sent to Shitty's renderer: WezTerm numbers physical history lines, while
+Shitty's incremental renderer addresses the current viewport. Cursor-only
+movement produces no cell damage; scrolling damages the visible coordinates
+whose contents changed.
+
+Remaining non-visible upstream oracles are all-lines/history and stable-row
+assertions, semantic zones and cell attributes, hyperlink identity, and rich
+cell/line metadata. They are listed explicitly in `PLAN.md`.
