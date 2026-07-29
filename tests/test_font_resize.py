@@ -4,7 +4,7 @@
 
 import unittest
 
-from harness import Shitty
+from harness import Shitty, TEST_PLATFORM
 
 
 RELEASE = 0
@@ -15,13 +15,35 @@ KEY_EQUAL = 61
 KEY_MINUS = 45
 MOD_SHIFT = 1
 MOD_CONTROL = 2
+MOD_SUPER = 8
+
+if TEST_PLATFORM == "cocoa":
+    FONT_INC = (KEY_EQUAL, None, MOD_SUPER)
+    FONT_DEC = (KEY_MINUS, None, MOD_SUPER)
+    FONT_RESET = (KEY_0, None, MOD_SUPER)
+    INACTIVE_FONT_CHORDS = (
+        (KEY_EQUAL, MOD_CONTROL | MOD_SHIFT),
+        (KEY_MINUS, MOD_CONTROL),
+        (KEY_0, MOD_CONTROL),
+    )
+else:
+    FONT_INC = (KEY_EQUAL, "+", MOD_CONTROL | MOD_SHIFT)
+    FONT_DEC = (KEY_MINUS, "-", MOD_CONTROL)
+    FONT_RESET = (KEY_0, "0", MOD_CONTROL)
+    INACTIVE_FONT_CHORDS = (
+        (KEY_EQUAL, MOD_SUPER),
+        (KEY_EQUAL, MOD_SUPER | MOD_SHIFT),
+        (KEY_MINUS, MOD_SUPER),
+        (KEY_0, MOD_SUPER),
+    )
 
 
 class FontResizeTest(unittest.TestCase):
     @staticmethod
     def shortcut(terminal, key, text, modifiers):
         terminal.frontend_key_event(key, PRESS, modifiers=modifiers)
-        terminal.frontend_text_event(text, modifiers=modifiers)
+        if text is not None:
+            terminal.frontend_text_event(text, modifiers=modifiers)
         terminal.frontend_key_event(key, RELEASE, modifiers=modifiers)
 
     def test_font_bindings_resize_and_reset_without_reaching_child(self):
@@ -42,12 +64,7 @@ class FontResizeTest(unittest.TestCase):
             horizontal_padding = initial[3] - initial[5] * initial[1]
             vertical_padding = initial[4] - initial[6] * initial[2]
 
-            self.shortcut(
-                terminal,
-                KEY_EQUAL,
-                "+",
-                MOD_CONTROL | MOD_SHIFT,
-            )
+            self.shortcut(terminal, *FONT_INC)
             increased = terminal.font_state()
 
             self.assertEqual(increased[0], 17)
@@ -66,32 +83,12 @@ class FontResizeTest(unittest.TestCase):
             self.assertGreater(terminal.snapshot().refresh_count, before.refresh_count)
             self.assertEqual(terminal.select_finish(), b"one")
 
-            self.shortcut(
-                terminal,
-                KEY_MINUS,
-                "-",
-                MOD_CONTROL,
-            )
+            self.shortcut(terminal, *FONT_DEC)
             self.assertEqual(terminal.font_state()[0], 16)
-            self.shortcut(
-                terminal,
-                KEY_EQUAL,
-                "+",
-                MOD_CONTROL | MOD_SHIFT,
-            )
-            self.shortcut(
-                terminal,
-                KEY_EQUAL,
-                "+",
-                MOD_CONTROL | MOD_SHIFT,
-            )
+            self.shortcut(terminal, *FONT_INC)
+            self.shortcut(terminal, *FONT_INC)
             self.assertEqual(terminal.font_state()[0], 18)
-            self.shortcut(
-                terminal,
-                KEY_0,
-                "0",
-                MOD_CONTROL,
-            )
+            self.shortcut(terminal, *FONT_RESET)
             self.assertEqual(terminal.font_state()[0], 16)
             self.assertEqual(terminal.read_input(), b"")
 
@@ -107,6 +104,20 @@ class FontResizeTest(unittest.TestCase):
             )
             self.assertEqual(terminal.read_input(), b"\x01")
 
+    def test_inactive_font_chords_are_inert(self):
+        with Shitty(
+            columns=40,
+            rows=8,
+            save_lines=8,
+            glyph_px=8,
+            glyph_py=16,
+            extra_arguments=("-fontsize", "16"),
+        ) as terminal:
+            for key, modifiers in INACTIVE_FONT_CHORDS:
+                self.shortcut(terminal, key, None, modifiers)
+                self.assertEqual(terminal.font_state()[0], 16)
+                terminal.read_input()
+
     def test_font_change_rematerializes_every_visible_cell(self):
         with Shitty(
             columns=40,
@@ -118,12 +129,7 @@ class FontResizeTest(unittest.TestCase):
             terminal.write(b"visible contents")
             terminal.snapshot()
 
-            self.shortcut(
-                terminal,
-                KEY_EQUAL,
-                "+",
-                MOD_CONTROL | MOD_SHIFT,
-            )
+            self.shortcut(terminal, *FONT_INC)
 
             cells, spans = terminal.last_update()
             self.assertEqual(cells, 40 * 8)

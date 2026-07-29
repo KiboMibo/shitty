@@ -1555,7 +1555,9 @@ bool VtermInput::key(const KeyInput& input) {
         });
         return true;
     }
-    if (input.baseCodepoint == 'c' && modifiers == VtModifier::shift_control) {
+    const bool superOnly = (input.modifiers & (InputShift | InputControl | InputAlt | InputSuper)) == InputSuper;
+    const bool copyPasteModifiers = terminal->composer.superShortcuts ? superOnly : modifiers == VtModifier::shift_control;
+    if (input.baseCodepoint == 'c' && copyPasteModifiers) {
         runLocal([&]() {
             Clipboard* const clipboard = terminal->host.clipboard();
             if (clipboard != nullptr) {
@@ -1564,7 +1566,7 @@ bool VtermInput::key(const KeyInput& input) {
         });
         return true;
     }
-    if (input.baseCodepoint == 'v' && modifiers == VtModifier::shift_control) {
+    if (input.baseCodepoint == 'v' && copyPasteModifiers) {
         runLocal([&]() {
             paste(false);
         });
