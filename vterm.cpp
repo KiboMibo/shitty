@@ -69,9 +69,6 @@
 #include <map>
 #include <new>
 #include <set>
-#if defined(SHITTY_FRAME_TRACE)
-    #include <stdio.h>
-#endif
 #include <sys/types.h>
 
 #if defined(__SSE2__)
@@ -1962,10 +1959,6 @@ void VtermImpl::pointerPresence(bool present) {
 }
 
 void VtermImpl::flush() {
-#if defined(SHITTY_FRAME_TRACE)
-    fprintf(stderr, "vterm flush\n");
-    fflush(stderr);
-#endif
     input.flush();
     composer.application->defer();
 }
@@ -2387,25 +2380,13 @@ void VtermImpl::armTimeout() {
     }
     plt::Poller* const poller = composer.platform->poller();
     if (deadline == 0) {
-#if defined(SHITTY_FRAME_TRACE)
-        fprintf(stderr, "vterm armTimeout cancel sync=%d animation=%d autoscroll=%llu\n", synchronizedOutputMode, animationActive(), (unsigned long long)(input.selectionAutoscrollDeadline));
-        fflush(stderr);
-#endif
         poller->cancel(callTimeout);
     } else {
-#if defined(SHITTY_FRAME_TRACE)
-        fprintf(stderr, "vterm armTimeout deadline=%llu sync=%d animation=%d nextBlink=%llu autoscroll=%llu\n", (unsigned long long)(deadline), synchronizedOutputMode, animationActive(), (unsigned long long)(nextBlink), (unsigned long long)(input.selectionAutoscrollDeadline));
-        fflush(stderr);
-#endif
         poller->deadline(deadline, callTimeout);
     }
 }
 
 void VtermImpl::timeout() {
-#if defined(SHITTY_FRAME_TRACE)
-    fprintf(stderr, "vterm timeout begin now=%llu\n", (unsigned long long)(monotonicNowUs()));
-    fflush(stderr);
-#endif
     expireSynchronizedOutput(false);
     input.advanceSelectionAutoscroll(false);
     if (advanceAnimation(false)) {
@@ -2413,10 +2394,6 @@ void VtermImpl::timeout() {
     }
     armTimeout();
     composer.application->defer();
-#if defined(SHITTY_FRAME_TRACE)
-    fprintf(stderr, "vterm timeout end\n");
-    fflush(stderr);
-#endif
 }
 
 size_t VtermInputSpec::getLength() const {

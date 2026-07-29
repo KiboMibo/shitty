@@ -1,6 +1,6 @@
 # Shitty
 
-**A small, fast terminal emulator with a Linux Wayland/Vulkan frontend.**
+**A small, fast terminal emulator for Linux and macOS.**
 
 Shitty is a hard fork and complete rewrite of **Zutty**. The original Zutty
 terminal emulator was created by **Tom Szilagyi**. Shitty keeps that lineage,
@@ -8,8 +8,8 @@ but replaces the architecture, renderer, platform integration, testing
 strategy, and project identity.
 
 Shitty is built for low latency, fast startup, and predictable resource use.
-It keeps terminal state on the CPU and renders changed cells directly with a
-Vulkan compute shader.
+It keeps terminal state on the CPU and renders cells with native compute
+backends: Vulkan on Linux and Metal on macOS.
 
 ## Features
 
@@ -36,25 +36,26 @@ processes. The host must provide the corresponding terminfo entry.
 
 ## Requirements
 
-Shitty is written in C++23 and built with Clang. Building the terminal requires:
+Shitty is written in C++23 and built with Clang. Every build requires:
 
 - Python 3 and `glslangValidator`;
 - pkg-config;
 - Brotli and utf8proc;
-- FreeType and HarfBuzz;
-- Wayland client headers, xkbcommon, and `wayland-scanner`;
-- Vulkan headers and loader;
 - POSIX threads and PTY support;
 - `libstd`, either in `third_party/libstd` or installed system-wide.
+
+Linux additionally requires FreeType, HarfBuzz, Wayland client headers,
+xkbcommon, `wayland-scanner`, and Vulkan headers and loader. macOS requires
+SPIRV-Cross and uses CoreText, Cocoa, Metal, and IOSurface from the system SDK.
 
 A scalar Base64 implementation is always available. If simdutf 6.5 or newer
 is installed, the build uses it automatically to accelerate Base64 encoding.
 Fontconfig is also optional. When present, it enables font-family lookup;
 explicit font file paths are handled directly through FreeType.
 
-A working Vulkan driver and a Wayland compositor are required at runtime. The
-native window and event-loop layer is built from the pinned
-`third_party/plt` submodule; the terminal does not depend on a generic
+Linux requires a working Vulkan driver and Wayland compositor at runtime.
+macOS uses the native Metal driver. The native window and event-loop layer is
+built from `third_party/plt`; the terminal does not depend on a generic
 windowing toolkit.
 
 The complete imported conformance suite additionally needs ncurses and Perl.

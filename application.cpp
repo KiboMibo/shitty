@@ -40,7 +40,6 @@
 #include <std/sys/crt.h>
 
 #include <cerrno>
-#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <langinfo.h>
@@ -60,13 +59,6 @@ using namespace stl;
 using namespace plt;
 
 namespace {
-#if defined(SHITTY_FRAME_TRACE)
-    void applicationTrace(const char* event) {
-        fprintf(stderr, "application %llu %s\n", (unsigned long long)(monotonicNowUs()), event);
-        fflush(stderr);
-    }
-#endif
-
     struct ApplicationImpl;
 
     struct CallFontInc final: public Listener {
@@ -226,9 +218,6 @@ ApplicationImpl::~ApplicationImpl() {
 }
 
 void ApplicationImpl::defer() {
-#if defined(SHITTY_FRAME_TRACE)
-    applicationTrace("defer");
-#endif
     if (composer.window != nullptr) {
         composer.window->requestFrame();
     }
@@ -396,21 +385,12 @@ int ApplicationImpl::startShell(const char* execPath, const char* const argv[]) 
 }
 
 bool ApplicationImpl::presentTerminal() {
-#if defined(SHITTY_FRAME_TRACE)
-    applicationTrace("present begin");
-#endif
     Vterm* const vterm = composer.vterm;
     if (vterm == nullptr || composer.renderer == nullptr) {
-#if defined(SHITTY_FRAME_TRACE)
-        applicationTrace("present missing components");
-#endif
         return false;
     }
     const TerminalUpdate* const output = vterm->output();
     if (output == nullptr) {
-#if defined(SHITTY_FRAME_TRACE)
-        applicationTrace("present repaint");
-#endif
         const bool repainted = composer.renderer->repaint();
         if (!repainted) {
             composer.window->requestFrame();
@@ -418,18 +398,11 @@ bool ApplicationImpl::presentTerminal() {
         return repainted;
     }
     const bool presented = composer.renderer->update(*output);
-#if defined(SHITTY_FRAME_TRACE)
-    fprintf(stderr, "application %llu renderer update=%d\n", (unsigned long long)(monotonicNowUs()), presented);
-    fflush(stderr);
-#endif
     if (!presented) {
         composer.window->requestFrame();
         return false;
     }
     vterm->consume();
-#if defined(SHITTY_FRAME_TRACE)
-    applicationTrace("present consumed");
-#endif
     return true;
 }
 
@@ -446,10 +419,6 @@ void ApplicationImpl::updateWindowInfo(const plt::WindowInfo& info) {
 }
 
 bool ApplicationImpl::frame(const plt::WindowInfo& info) {
-#if defined(SHITTY_FRAME_TRACE)
-    fprintf(stderr, "application %llu frame %ux%u scale=%g vterm=%p\n", (unsigned long long)(monotonicNowUs()), info.width, info.height, info.contentScale, composer.vterm);
-    fflush(stderr);
-#endif
     updateWindowInfo(info);
     if (composer.vterm == nullptr) {
         return false;
@@ -570,17 +539,11 @@ bool ApplicationImpl::eventLoop() {
 }
 
 void ApplicationImpl::showWindow() {
-#if defined(SHITTY_FRAME_TRACE)
-    applicationTrace("showWindow begin");
-#endif
     const u32 border = 2u * opts.border;
     const u32 width = border + (u32)(opts.nCols) * composer.glyphWidth;
     const u32 height = border + (u32)(opts.nRows) * composer.glyphHeight;
     composer.window->requestShow();
     composer.resize((u16)(min(width, (u32)(UINT16_MAX))), (u16)(min(height, (u32)(UINT16_MAX))));
-#if defined(SHITTY_FRAME_TRACE)
-    applicationTrace("showWindow end");
-#endif
 }
 
 void ApplicationImpl::checkLocale() {
@@ -595,9 +558,6 @@ void ApplicationImpl::checkLocale() {
 }
 
 int ApplicationImpl::run(int argc, char* argv[]) {
-#if defined(SHITTY_FRAME_TRACE)
-    applicationTrace("run begin");
-#endif
     int testFd = -1;
 #ifdef SHITTY_FOR_TESTS
     testFd = takeTestFd(argc, argv);
@@ -657,18 +617,9 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     composer.ptyOutput = composer.ptyOutputs->append();
 
     composer.renderer = Renderer::create(composer, composer.window->renderContext());
-#if defined(SHITTY_FRAME_TRACE)
-    applicationTrace("renderer created");
-#endif
     composer.vterm = Vterm::create(composer, *this, nullptr);
-#if defined(SHITTY_FRAME_TRACE)
-    applicationTrace("vterm created");
-#endif
     defer();
 
-#if defined(SHITTY_FRAME_TRACE)
-    applicationTrace("eventLoop begin");
-#endif
     eventLoop();
     return 0;
 }

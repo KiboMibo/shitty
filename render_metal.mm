@@ -32,7 +32,6 @@
 #import <IOSurface/IOSurface.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/CALayer.h>
-#import <QuartzCore/CAMetalLayer.h>
 #import <QuartzCore/CATransaction.h>
 
 #undef Rect
@@ -45,11 +44,10 @@ using namespace stl;
 
 @interface ShittyMetalPresenter: NSObject {
     CALayer* root_;
-    CAMetalLayer* fallback_;
     u64 generation_;
 }
 
-- (instancetype)initWithRoot:(CALayer*)root fallback:(CAMetalLayer*)fallback;
+- (instancetype)initWithRoot:(CALayer*)root;
 - (u64)advance;
 - (void)publish:(IOSurfaceRef)surface generation:(u64)generation;
 - (void)invalidate;
@@ -58,15 +56,13 @@ using namespace stl;
 
 @implementation ShittyMetalPresenter
 
-- (instancetype)initWithRoot:(CALayer*)root fallback:(CAMetalLayer*)fallback {
+- (instancetype)initWithRoot:(CALayer*)root {
     self = [super init];
     if (self != nil) {
         root_ = [root retain];
-        fallback_ = [fallback retain];
         generation_ = 1;
         [CATransaction begin];
         [CATransaction setDisableActions:YES];
-        fallback_.hidden = YES;
         root_.contentsGravity = kCAGravityTopLeft;
         root_.magnificationFilter = kCAFilterNearest;
         root_.minificationFilter = kCAFilterNearest;
@@ -77,7 +73,6 @@ using namespace stl;
 
 - (void)dealloc {
     [root_ release];
-    [fallback_ release];
     [super dealloc];
 }
 
@@ -111,7 +106,6 @@ using namespace stl;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     root_.contents = nil;
-    fallback_.hidden = NO;
     [CATransaction commit];
 }
 
@@ -250,7 +244,7 @@ namespace {
     };
 
     struct MetalRendererImpl final: public Renderer {
-        MetalRendererImpl(Composer& composer, CALayer* root, CAMetalLayer* fallback);
+        MetalRendererImpl(Composer& composer, CALayer* root);
         ~MetalRendererImpl();
 
         bool initialize();
@@ -280,7 +274,6 @@ namespace {
 
         Composer& composer;
         CALayer* root;
-        CAMetalLayer* fallback;
         ShittyMetalPresenter* presenter = nil;
         id<MTLDevice> device = nil;
         id<MTLCommandQueue> queue = nil;
@@ -313,7 +306,6 @@ namespace {
         bool ready = false;
     };
 
-    u32 packCellAttributes(const TerminalCell& cell);
 }
 
 GlyphCache::GlyphCache(ObjPool& pool)
@@ -339,10 +331,9 @@ void CallMetalCellExtrasChanged::onListen(void*) {
     renderer->resetFontResources();
 }
 
-MetalRendererImpl::MetalRendererImpl(Composer& composer_, CALayer* root_, CAMetalLayer* fallback_)
+MetalRendererImpl::MetalRendererImpl(Composer& composer_, CALayer* root_)
     : composer(composer_)
     , root([root_ retain])
-    , fallback([fallback_ retain])
     , glyphPool(ObjPool::fromMemory())
 {
 }
@@ -362,7 +353,6 @@ MetalRendererImpl::~MetalRendererImpl() {
     [queue release];
     [device release];
     [presenter release];
-    [fallback release];
     [root release];
 }
 
@@ -422,7 +412,7 @@ bool MetalRendererImpl::initialize() {
     [emptyMask replaceRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0 slice:0 withBytes:&zeroMask bytesPerRow:1 bytesPerImage:1];
     [emptyColor replaceRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0 slice:0 withBytes:&zeroColor bytesPerRow:4 bytesPerImage:4];
 
-    presenter = [[ShittyMetalPresenter alloc] initWithRoot:root fallback:fallback];
+    presenter = [[ShittyMetalPresenter alloc] initWithRoot:root];
     ready = presenter != nil;
     return ready;
 }
@@ -707,7 +697,7 @@ void MetalRendererImpl::materializeCells(const TerminalCell* input, GpuCell* out
     for (u16 index = 0; index < count; ++index) {
         const TerminalCell& cell = input[index];
         const u32 codepoint = cell.uc_pt ? cell.uc_pt : ' ';
-        const u32 attributes = packCellAttributes(cell);
+        const u32 attributes = rendererCellAttributes(cell);
         const u32 foreground = specialColors ? colors.resolveForegroundSpecial(cell).packed() : colors.resolvePacked(cell.foreground());
         const u32 background = specialColors ? colors.resolveBackgroundSpecial(cell).packed() : colors.resolvePacked(cell.background());
         u32 underlineColor = foreground;
@@ -1039,17 +1029,11 @@ bool MetalRendererImpl::update(const TerminalUpdate& update) {
     return draw();
 }
 
-namespace {
-    u32 packCellAttributes(const TerminalCell& cell) {
-        return ((u32)(cell.bold) << 2) | ((u32)(cell.italic) << 3) | ((u32)(cell.underlined()) << 4) | ((u32)(cell.inverse) << 5) | ((u32)(cell.wrap) << 6) | ((u32)(cell.faint) << 8) | ((u32)(cell.blink) << 9) | ((u32)(cell.conceal) << 10) | ((u32)(cell.strike) << 11) | ((u32)(cell.overline) << 12) | ((u32)(cell.underline_style) << 13) | ((u32)(cell.dwidth) << 16) | ((u32)(cell.dwidth_cont) << 17) | ((u32)(cell.protected_char) << 18) | ((u32)(cell.drawn) << 20);
-    }
-}
-
 Renderer* createMetalRenderer(Composer& composer, const plt::RenderContext& context) {
-    if (context.backend != plt::RenderBackend::Cocoa || context.connection == nullptr || context.window == nullptr) {
+    if (context.backend != plt::RenderBackend::Cocoa || context.connection == nullptr) {
         return nullptr;
     }
-    auto* const renderer = composer.pool->make<MetalRendererImpl>(composer, (CALayer*)(context.connection), (CAMetalLayer*)(context.window));
+    auto* const renderer = composer.pool->make<MetalRendererImpl>(composer, (CALayer*)(context.connection));
     if (!renderer->initialize()) {
         return nullptr;
     }

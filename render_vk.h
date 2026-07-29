@@ -6,15 +6,11 @@
 
 #pragma once
 
-#include <std/sys/types.h>
-
 struct Composer;
 struct Renderer;
-struct TerminalCell;
 
 namespace plt {
     struct RenderContext;
 }
 
 Renderer* createVulkanRenderer(Composer& composer, const plt::RenderContext& context);
-u32 vulkanRendererCellAttributesForTest(const TerminalCell& cell);

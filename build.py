@@ -43,9 +43,11 @@ if darwin:
     darwin_backend = dependency(ldflags=[
         *([f"-F{darwin_frameworks}"] if darwin_frameworks else []),
         "-Wl,-ObjC",
+        "-Wl,-framework,AppKit",
         "-Wl,-framework,CoreFoundation",
         "-Wl,-framework,CoreGraphics",
         "-Wl,-framework,CoreText",
+        "-Wl,-framework,Foundation",
         "-Wl,-framework,IOSurface",
         "-Wl,-framework,Metal",
         "-Wl,-framework,QuartzCore",
@@ -59,14 +61,8 @@ else:
 utf8proc = pkg_config("libutf8proc")
 threads = dependency(ldflags=["-pthread"])
 
-if darwin:
-    vulkan = pkg_config("MoltenVK", required=False)
-    if not vulkan and "-lMoltenVK" not in build.ldflags:
-        raise RuntimeError("Darwin target requires MoltenVK in LDFLAGS")
-    if not vulkan:
-        vulkan = dependency()
-    build.cppflags += ["-DHAVE_VULKAN_METAL=1"]
-elif linux:
+vulkan = dependency()
+if linux:
     vulkan = pkg_config("vulkan")
     build.cppflags += ["-DHAVE_VULKAN_WAYLAND=1"]
 
@@ -208,13 +204,20 @@ unit_sources = sorted(build.glob("$(S)/*_ut.cpp"))
 platform_font_sources = {
     "$(S)/font_freetype.cpp",
 }
+platform_renderer_sources = {
+    "$(S)/render_vk.cpp",
+}
 enabled_font_sources = set()
 if have_freetype_backend:
     enabled_font_sources.add("$(S)/font_freetype.cpp")
+enabled_renderer_sources = set()
+if linux:
+    enabled_renderer_sources.add("$(S)/render_vk.cpp")
 all_libshitty_sources = [
     source for source in build.glob("$(S)/*.cpp")
     if source not in (main_source, fuzz_source, heap_profile_source, *unit_sources)
     and (source not in platform_font_sources or source in enabled_font_sources)
+    and (source not in platform_renderer_sources or source in enabled_renderer_sources)
 ]
 if darwin:
     all_libshitty_sources.append({

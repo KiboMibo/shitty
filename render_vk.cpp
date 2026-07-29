@@ -38,8 +38,6 @@
 
 #if defined(HAVE_VULKAN_WAYLAND)
     #include <vulkan/vulkan_wayland.h>
-#elif defined(HAVE_VULKAN_METAL)
-    #include <vulkan/vulkan_metal.h>
 #else
     #error No Vulkan window-system backend selected
 #endif
@@ -52,9 +50,6 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
-#if defined(SHITTY_FRAME_TRACE)
-    #include <cstdio>
-#endif
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -490,9 +485,6 @@ namespace {
         throw std::runtime_error("Vulkan surface has no composite alpha mode");
     }
 
-    u32 packCellAttributes(const TerminalCell& cell) {
-        return ((u32)(cell.bold) << 2) | ((u32)(cell.italic) << 3) | ((u32)(cell.underlined()) << 4) | ((u32)(cell.inverse) << 5) | ((u32)(cell.wrap) << 6) | ((u32)(cell.faint) << 8) | ((u32)(cell.blink) << 9) | ((u32)(cell.conceal) << 10) | ((u32)(cell.strike) << 11) | ((u32)(cell.overline) << 12) | ((u32)(cell.underline_style) << 13) | ((u32)(cell.dwidth) << 16) | ((u32)(cell.dwidth_cont) << 17) | ((u32)(cell.protected_char) << 18) | ((u32)(cell.drawn) << 20);
-    }
 }
 
 RenderCache::RenderCache()
@@ -562,10 +554,6 @@ CallRendererCellExtrasChanged::CallRendererCellExtrasChanged(RendererImpl* rende
 
 void CallRendererCellExtrasChanged::onListen(void*) {
     renderer->cellExtrasChanged();
-}
-
-u32 vulkanRendererCellAttributesForTest(const TerminalCell& cell) {
-    return packCellAttributes(cell);
 }
 
 RendererImpl::RendererImpl(Composer& composer_, const plt::RenderContext& context)
@@ -660,15 +648,7 @@ RendererImpl::~RendererImpl() {
 void RendererImpl::createInstance() {
     const char* extensions[5] = {VK_KHR_SURFACE_EXTENSION_NAME};
     u32 extensionCount = 1;
-#if defined(HAVE_VULKAN_WAYLAND)
     extensions[extensionCount++] = VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME;
-#elif defined(HAVE_VULKAN_METAL)
-    extensions[extensionCount++] = VK_EXT_METAL_SURFACE_EXTENSION_NAME;
-    const bool portabilityEnumeration = instanceHasExtension(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
-    if (portabilityEnumeration) {
-        extensions[extensionCount++] = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
-    }
-#endif
     khrSurfaceMaintenance = instanceHasExtension(VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
     extSurfaceMaintenance = instanceHasExtension(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
     if (khrSurfaceMaintenance) {
@@ -688,11 +668,6 @@ void RendererImpl::createInstance() {
 
     VkInstanceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-#if defined(HAVE_VULKAN_METAL)
-    if (portabilityEnumeration) {
-        createInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
-    }
-#endif
     createInfo.pApplicationInfo = &appInfo;
     createInfo.enabledExtensionCount = extensionCount;
     createInfo.ppEnabledExtensionNames = extensions;
@@ -700,7 +675,6 @@ void RendererImpl::createInstance() {
 }
 
 void RendererImpl::createSurface(const plt::RenderContext& context) {
-#if defined(HAVE_VULKAN_WAYLAND)
     if (context.backend != plt::RenderBackend::Wayland || context.connection == nullptr || context.window == nullptr) {
         throw std::runtime_error("Vulkan renderer requires a Wayland render context");
     }
@@ -709,15 +683,6 @@ void RendererImpl::createSurface(const plt::RenderContext& context) {
     surfaceInfo.display = (struct wl_display*)(context.connection);
     surfaceInfo.surface = (struct wl_surface*)(context.window);
     checkVk(vkCreateWaylandSurfaceKHR(instance, &surfaceInfo, nullptr, &surface), "vkCreateWaylandSurfaceKHR");
-#elif defined(HAVE_VULKAN_METAL)
-    if (context.backend != plt::RenderBackend::Cocoa || context.window == nullptr) {
-        throw std::runtime_error("Vulkan renderer requires a Cocoa render context");
-    }
-    VkMetalSurfaceCreateInfoEXT surfaceInfo{};
-    surfaceInfo.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT;
-    surfaceInfo.pLayer = (const CAMetalLayer*)(context.window);
-    checkVk(vkCreateMetalSurfaceEXT(instance, &surfaceInfo, nullptr, &surface), "vkCreateMetalSurfaceEXT");
-#endif
 }
 
 void RendererImpl::selectPhysicalDevice() {
@@ -1441,12 +1406,7 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     VkSurfaceFormatKHR surfaceFormat{};
     const GeneratedRenderShader* renderShader = nullptr;
     const VkImageUsageFlags directUsage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-#if defined(HAVE_VULKAN_METAL)
-    const bool directContentsPreserved = false;
-#else
-    const bool directContentsPreserved = true;
-#endif
-    if (directContentsPreserved && (capabilities.supportedUsageFlags & directUsage) == directUsage) {
+    if ((capabilities.supportedUsageFlags & directUsage) == directUsage) {
         for (const GeneratedRenderShader& candidate : generatedRenderShaders) {
             if ((candidate.flags & renderShaderMutableFormat) && !mutableSwapchainFormats) {
                 continue;
@@ -1865,7 +1825,7 @@ void RendererImpl::materializeCells(const TerminalCell* input, GpuCell* output, 
     for (u16 index = 0; index < count; ++index) {
         const TerminalCell& cell = input[index];
         const u32 codepoint = cell.uc_pt ? cell.uc_pt : ' ';
-        const u32 attributes = packCellAttributes(cell);
+        const u32 attributes = rendererCellAttributes(cell);
         const u32 foreground = specialColors ? colors.resolveForegroundSpecial(cell).packed() : colors.resolvePacked(cell.foreground());
         const u32 background = specialColors ? colors.resolveBackgroundSpecial(cell).packed() : colors.resolvePacked(cell.background());
         u32 underlineColor = foreground;
@@ -2373,17 +2333,9 @@ void RendererImpl::recordRepaintCommands(FrameResources& frame, u32 imageIndex) 
 }
 
 bool RendererImpl::acquirePresentFrame(u32 width, u32 height, FrameResources*& frame, u32& imageIndex, bool& recreateAfterPresent) {
-#if defined(SHITTY_FRAME_TRACE)
-    fprintf(stderr, "renderer acquire begin extent=%ux%u frame=%u swapchain=%p\n", width, height, currentFrame, (void*)(swapchain));
-    fflush(stderr);
-#endif
     frame = &frames[currentFrame];
     checkVk(vkWaitForFences(device, 1, &frame->fence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
     VkResult result = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, frame->imageAvailable, VK_NULL_HANDLE, &imageIndex);
-#if defined(SHITTY_FRAME_TRACE)
-    fprintf(stderr, "renderer acquire result=%d image=%u\n", result, imageIndex);
-    fflush(stderr);
-#endif
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         try {
             createSwapchain(width, height);
@@ -2401,10 +2353,6 @@ bool RendererImpl::acquirePresentFrame(u32 width, u32 height, FrameResources*& f
 }
 
 bool RendererImpl::submitPresentFrame(u32 width, u32 height, FrameResources& frame, u32 imageIndex, bool recreateAfterPresent) {
-#if defined(SHITTY_FRAME_TRACE)
-    fprintf(stderr, "renderer submit begin image=%u recreate=%d\n", imageIndex, recreateAfterPresent);
-    fflush(stderr);
-#endif
     const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT;
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -2439,10 +2387,6 @@ bool RendererImpl::submitPresentFrame(u32 width, u32 height, FrameResources& fra
     presentInfo.pSwapchains = &swapchain;
     presentInfo.pImageIndices = &imageIndex;
     VkResult result = vkQueuePresentKHR(queue, &presentInfo);
-#if defined(SHITTY_FRAME_TRACE)
-    fprintf(stderr, "renderer present result=%d image=%u\n", result, imageIndex);
-    fflush(stderr);
-#endif
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR && result != VK_ERROR_OUT_OF_DATE_KHR) {
         failVk("vkQueuePresentKHR", result);
     }
@@ -2512,10 +2456,6 @@ bool RendererImpl::present(const TerminalUpdate& update) {
     const u32 width = composer.pixelWidth;
     const u32 height = composer.pixelHeight;
     const size_t cellCount = (size_t)(composer.columns) * composer.rows;
-#if defined(SHITTY_FRAME_TRACE)
-    fprintf(stderr, "renderer update begin pixels=%ux%u cells=%zu spans=%zu swapchain=%p renderExtent=%ux%u\n", width, height, cellCount, update.spanCount, (void*)(swapchain), renderExtent.width, renderExtent.height);
-    fflush(stderr);
-#endif
     if (cellCount == 0 || width == 0 || height == 0) {
         return false;
     }
@@ -2652,12 +2592,7 @@ bool RendererImpl::present(const TerminalUpdate& update) {
 }
 
 bool RendererImpl::update(const TerminalUpdate& update) {
-    const bool result = present(update);
-#if defined(SHITTY_FRAME_TRACE)
-    fprintf(stderr, "renderer update end result=%d\n", result);
-    fflush(stderr);
-#endif
-    return result;
+    return present(update);
 }
 
 Renderer* createVulkanRenderer(Composer& composer, const plt::RenderContext& context) {

@@ -6,7 +6,10 @@
 
 #pragma once
 
+#include <std/sys/types.h>
+
 struct Composer;
+struct TerminalCell;
 struct TerminalUpdate;
 
 namespace plt {
@@ -19,3 +22,5 @@ struct Renderer {
 
     static Renderer* create(Composer& composer, const plt::RenderContext& context);
 };
+
+u32 rendererCellAttributes(const TerminalCell& cell);
