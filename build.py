@@ -574,6 +574,56 @@ mosh_semantic_validation = command(
 )
 
 
+libtsm_root = Path(__file__).parent / "tests" / "libtsm"
+libtsm_semantic_cases = (
+    libtsm_root / "semantic_file_names.txt"
+).read_text().split()
+libtsm_semantic_tests = []
+for case in libtsm_semantic_cases:
+    libtsm_semantic_tests.append(command(
+        name="libtsm_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/libtsm/semantic_adapter.py",
+            "$(S)/tests/libtsm/semantic_cases.py",
+            "$(S)/tests/libtsm/semantic_file_names.txt",
+        ],
+        outputs=[f"$(B)/tests/libtsm/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/libtsm/semantic_adapter.py",
+            case,
+            f"$(B)/tests/libtsm/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="LT",
+        color="cyan",
+    ))
+
+libtsm_semantic_validation = command(
+    name="libtsm_semantic_catalog",
+    inputs=[
+        "$(S)/tests/libtsm/semantic_cases.py",
+        "$(S)/tests/libtsm/semantic_file_names.txt",
+        "$(S)/tests/libtsm/semantic_validate.py",
+    ],
+    outputs=["$(B)/tests/libtsm/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/libtsm/semantic_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/libtsm/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="LT",
+    color="cyan",
+)
+
+
 ghostty_root = Path(__file__).parent / "tests" / "ghostty"
 ghostty_members = []
 for corpus in ("osc-cmin", "parser-cmin", "stream-cmin"):
@@ -1725,6 +1775,8 @@ group(
     *mosh_tests,
     *mosh_semantic_tests,
     mosh_semantic_validation,
+    *libtsm_semantic_tests,
+    libtsm_semantic_validation,
     *ghostty_tests,
     *ghostty_semantic_tests,
     ghostty_semantic_validation,

@@ -1746,8 +1746,9 @@ void ScreenBase<Coord, Epoch>::scrollUpWithHistory(u16 top, u16 bottom, u16 coun
         return;
     }
     const bool capture = top == 0 && saveLines != 0;
+    const bool logicalScroll = top == 0;
     const u32 previousViewOffset = viewOffset;
-    if (!capture) {
+    if (!logicalScroll) {
         vscrollSelection(top, bottom, -count, false);
     }
 
@@ -1773,11 +1774,10 @@ void ScreenBase<Coord, Epoch>::scrollUpWithHistory(u16 top, u16 bottom, u16 coun
     } else {
         rotateRowPointersUp(top, bottom, count);
     }
-    clearRows(bottom - count, bottom, attrs);
-
-    if (capture) {
+    if (logicalScroll) {
         vscrollSelection(top, bottom, -count, true);
     }
+    clearRows(bottom - count, bottom, attrs);
 
     if (capture && viewOffset) {
         viewOffset = std::min<u32>(viewOffset + count, historyRows);
@@ -3440,8 +3440,11 @@ void ScreenBase<Coord, Epoch>::vscrollSelection(u16 top, u16 bottom, int vertOff
         }
         selection.tl.y += vertOffset;
         selection.br.y += vertOffset;
-        if (selection.tl.y < -(int)(historyRows)) {
+        const int firstRow = -(int)(historyRows);
+        if (selection.br.y < firstRow) {
             selection.clear();
+        } else if (selection.tl.y < firstRow) {
+            selection.tl = Point(0, firstRow);
         }
         return;
     }

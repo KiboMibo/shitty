@@ -32,7 +32,7 @@ bool encodeMouseProtocol(StringBuilder& output, MouseTrackingEnc encoding, Mouse
                 code = 35;
                 break;
         }
-    } else if (type == MouseEventType::Release && encoding != MouseTrackingEnc::SGR) {
+    } else if (type == MouseEventType::Release && encoding != MouseTrackingEnc::SGR && encoding != MouseTrackingEnc::SGRPixels) {
         code = 3;
     } else {
         switch (button) {

@@ -206,16 +206,14 @@ Legacy fixtures взяты, современные unit tests — нет:
 
 Это очень сильный oracle для grid/history/resize, но самый дорогой для адаптации из-за Swift/Objective-C модели. [VT100GridTests.swift](/home/pg/monorepo/tmp/terminal-repos/iterm2/ModernTests/VT100GridTests.swift)
 
-### libtsm
+### ~~libtsm~~ — готово
 
-Полностью отсутствует, хотя набор маленький и удобный:
-
-- screen — 4;
-- selection — 12;
-- VTE — 9;
-- mouse — 7.
-
-Итого 32 прямых assertion-based теста. Особенно полезны selection lifetime при scrollback и X10/SGR/SGR-pixel mouse. Это хороший быстрый импорт.
+~~Все 32 assertion-based теста перенесены в Python: screen — 4, selection —
+12, VTE — 9, mouse — 7. Импорт нашёл и исправил lifetime selection при
+прокрутке видимой строки, частичное клипование selection при вытеснении из
+history и кодирование release в SGR-pixel mouse. Специфичные для nullable C
+ABI проверки отмечены как неприменимые; устаревшее ожидание игнорировать OSC 4
+set заменено современной проверкой set+query.~~
 
 ### ~~Mosh semantic display tests~~ — готово
 
@@ -255,7 +253,7 @@ Search и vi-mode нам пока не нужны.
 Я бы импортировал так:
 
 1. ~~Mosh semantic display tests.~~
-2. libtsm — все 32.
+2. ~~libtsm — все 32.~~
 3. Konsole Screen/History и оставшиеся semantic methods текущего файла.
 4. Расширить существующий WezTerm screen adapter до всех 74 checkpoints.
 5. Windows Terminal adapter/input/mouse/selection/reflow.

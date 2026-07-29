@@ -21,6 +21,7 @@ STD_TEST_SUITE(MouseProtocol) {
     STD_TEST(EncodesSgrPressReleaseAndMotion) {
         STD_INSIST(encodeMouseProtocol(MouseTrackingEnc::SGR, MouseEventType::Press, MouseControl, 0, 1, 10, 20) == "\x1b[<16;10;20M");
         STD_INSIST(encodeMouseProtocol(MouseTrackingEnc::SGR, MouseEventType::Release, 0, 0, 1, 10, 20) == "\x1b[<0;10;20m");
+        STD_INSIST(encodeMouseProtocol(MouseTrackingEnc::SGRPixels, MouseEventType::Release, 0, 0, 1, 236, 120) == "\x1b[<0;236;120m");
         STD_INSIST(encodeMouseProtocol(MouseTrackingEnc::SGR, MouseEventType::Motion, MouseShift, 2, 0, 10, 20) == "\x1b[<37;10;20M");
     }
 
