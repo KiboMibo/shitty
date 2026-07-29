@@ -35,6 +35,6 @@ struct Pty {
     static Pty* adopt(Composer& composer, int fd);
 };
 
-pid_t pty_fork(int& o_ptyFd, int cols, int rows);
+pid_t pty_fork(int& o_ptyFd, int cols, int rows, int pixelWidth, int pixelHeight);
 
-void pty_resize(int ptyFd, int cols, int rows);
+void pty_resize(int ptyFd, int cols, int rows, int pixelWidth, int pixelHeight);

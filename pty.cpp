@@ -141,7 +141,7 @@ void PtyImpl::outputReady() {
 }
 
 void PtyImpl::applySize() {
-    pty_resize(fd_, composer_.columns, composer_.rows);
+    pty_resize(fd_, composer_.columns, composer_.rows, composer_.columns * composer_.glyphWidth, composer_.rows * composer_.glyphHeight);
 }
 
 void PtyImpl::wire() {
@@ -231,7 +231,7 @@ int ptys_open(char* pts_name) {
     return fds;
 }
 
-pid_t pty_fork(int& o_ptyFd, int cols, int rows) {
+pid_t pty_fork(int& o_ptyFd, int cols, int rows, int pixelWidth, int pixelHeight) {
     pid_t pid;
     char pts_name[PATH_MAX];
     int fdm = ptym_open(pts_name, sizeof(pts_name));
@@ -249,7 +249,7 @@ pid_t pty_fork(int& o_ptyFd, int cols, int rows) {
 
         close(fdm);
 
-        pty_resize(fds, cols, rows);
+        pty_resize(fds, cols, rows, pixelWidth, pixelHeight);
 
         redirectFds(fds);
 
@@ -267,10 +267,12 @@ pid_t pty_fork(int& o_ptyFd, int cols, int rows) {
     return pid;
 }
 
-void pty_resize(int ptyFd, int cols, int rows) {
+void pty_resize(int ptyFd, int cols, int rows, int pixelWidth, int pixelHeight) {
     struct winsize wsize{};
     wsize.ws_col = cols;
     wsize.ws_row = rows;
+    wsize.ws_xpixel = pixelWidth;
+    wsize.ws_ypixel = pixelHeight;
     if (ioctl(ptyFd, TIOCSWINSZ, &wsize) < 0) {
         sysError("TIOCSWINSZ on pty");
     }

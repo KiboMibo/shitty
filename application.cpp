@@ -371,7 +371,7 @@ void ApplicationImpl::setupSignals() {
 
 int ApplicationImpl::startShell(const char* execPath, const char* const argv[]) {
     int ptyFd = -1;
-    const pid_t pid = pty_fork(ptyFd, composer.columns, composer.rows);
+    const pid_t pid = pty_fork(ptyFd, composer.columns, composer.rows, composer.columns * composer.glyphWidth, composer.rows * composer.glyphHeight);
     if (pid < 0) {
         sysError("fork");
     }

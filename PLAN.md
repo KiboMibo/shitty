@@ -100,7 +100,13 @@ keys.~~
   Konsole-specific parser пользовательских keytab; он неприменим, поскольку
   Shitty намеренно не имеет keytab DSL. Его единственный стандартный default,
   Backspace → DEL, уже покрыт продуктовым тестом.~~
-- отдельные selection/copy и mouse/PTY tests.
+- ~~PtyTest — применимые `testWindowSize` и `testRunProgram` перенесены.
+  `testWindowSize` нашёл отсутствие `ws_xpixel/ws_ypixel`; теперь PTY получает
+  точный pixel extent клеточной области при старте и resize. Три оставшихся
+  метода являются setter/getter tests внутренней конфигурации Konsole
+  (flow-control, erase char, utmp) и классифицированы как неприменимые.
+  Отдельного mouse autotest в текущем Konsole нет, а все selection/copy
+  assertions уже входят в шесть перенесённых Screen tests.~~
 
 ### Windows Terminal
 
@@ -268,8 +274,8 @@ Search и vi-mode нам пока не нужны.
 
 1. ~~Mosh semantic display tests.~~
 2. ~~libtsm — все 32.~~
-3. ~~Konsole Screen/History и оставшиеся semantic methods текущего файла.~~
-   Остаток: selection/copy и mouse/PTY.
+3. ~~Konsole Screen/History, selection/copy, tokenizer, width, keyboard и
+   применимые PTY methods.~~
 4. Расширить существующий WezTerm screen adapter до всех 74 checkpoints.
 5. Windows Terminal adapter/input/mouse/selection/reflow.
 6. VTE tabstops/paste/UTF-8 и known-sequence matrices.

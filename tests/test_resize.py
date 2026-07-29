@@ -41,6 +41,18 @@ class ResizeTest(unittest.TestCase):
         with Shitty(columns=11, rows=7) as terminal:
             self.assertEqual(terminal.winsize(), (11, 7))
 
+    def test_pty_winsize_includes_grid_pixels(self):
+        with Shitty(columns=11, rows=7, glyph_px=8, glyph_py=16) as terminal:
+            self.assertEqual(
+                terminal.winsize_full(),
+                (11, 7, 88, 112),
+            )
+            terminal.resize(13, 9)
+            self.assertEqual(
+                terminal.winsize_full(),
+                (13, 9, 104, 144),
+            )
+
     def test_resize_across_compact_screen_boundary(self):
         # Crossing 255 columns/rows switches the screen implementation to
         # wider coordinate types; content, history, cursor and scrollback

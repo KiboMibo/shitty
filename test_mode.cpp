@@ -152,7 +152,7 @@ bool TestPty::flushOutput() {
 }
 
 void TestPty::applySize() {
-    pty_resize(fd_, composer_.columns, composer_.rows);
+    pty_resize(fd_, composer_.columns, composer_.rows, composer_.columns * composer_.glyphWidth, composer_.rows * composer_.glyphHeight);
 }
 
 void TestPty::setReadHandler(std::function<ssize_t(u8*, size_t)> handler) {
@@ -1802,6 +1802,12 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
                     throw std::runtime_error("test TIOCGWINSZ failed");
                 }
                 writeAll(controlFd, "OK " + std::to_string(size.ws_col) + " " + std::to_string(size.ws_row) + "\n");
+            } else if (line == "WINSIZE_FULL") {
+                winsize size{};
+                if (ioctl(io[0], TIOCGWINSZ, &size) < 0) {
+                    throw std::runtime_error("test TIOCGWINSZ failed");
+                }
+                writeAll(controlFd, "OK " + std::to_string(size.ws_col) + " " + std::to_string(size.ws_row) + " " + std::to_string(size.ws_xpixel) + " " + std::to_string(size.ws_ypixel) + "\n");
             } else if (line == "FONT_STATE") {
                 StringBuilder output;
                 output << StringView(u8"OK ") << composer.fontSize << StringView(u8" ") << composer.glyphWidth << StringView(u8" ") << composer.glyphHeight << StringView(u8" ") << composer.pixelWidth << StringView(u8" ") << composer.pixelHeight << StringView(u8" ") << composer.columns << StringView(u8" ") << composer.rows << StringView(u8" ") << (unsigned)(composer.contentScale * 1000.0f + 0.5f) << StringView(u8" ") << opts.border << StringView(u8"\n");

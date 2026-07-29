@@ -54,3 +54,13 @@ has no keytab DSL. Its standard default assertion, Backspace producing DEL, is
 already covered by `tests/test_keyboard.py`; the Delete-to-BS and Space-to-NUL
 rows are deliberate settings of the imported test keytab (and the latter is
 an upstream expected failure), not portable terminal defaults.
+
+`upstream/PtyTest.cpp` is also an exact source copy. Its applicable window-size
+and process-start tests are independent targets. The former verifies both the
+cell and pixel fields of the real PTY `winsize`; this import fixed Shitty to
+publish the grid's pixel extent on initial setup and resize. The flow-control,
+erase-character, and utmp methods only round-trip private Konsole configuration
+setters and have no generic terminal behavior to exercise. The source catalog
+classifies all five methods so additions cannot disappear silently. Konsole has
+no separate mouse autotest in this revision; its six Screen tests, including
+all selection and copy assertions, are already covered by `semantic_cases.py`.

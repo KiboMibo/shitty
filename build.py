@@ -1375,6 +1375,57 @@ konsole_keyboard_validation = command(
 )
 
 
+konsole_pty_cases = (
+    konsole_root / "pty_file_names.txt"
+).read_text().split()
+konsole_pty_tests = []
+for case in konsole_pty_cases:
+    konsole_pty_tests.append(command(
+        name="konsole_pty_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/konsole/upstream/PtyTest.cpp",
+            "$(S)/tests/konsole/pty_adapter.py",
+            "$(S)/tests/konsole/pty_catalog.py",
+            "$(S)/tests/konsole/pty_file_names.txt",
+        ],
+        outputs=[f"$(B)/tests/konsole/pty/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/konsole/pty_adapter.py",
+            case,
+            f"$(B)/tests/konsole/pty/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="KP",
+        color="cyan",
+    ))
+
+konsole_pty_validation = command(
+    name="konsole_pty_catalog",
+    inputs=[
+        "$(S)/tests/konsole/upstream/PtyTest.cpp",
+        "$(S)/tests/konsole/pty_catalog.py",
+        "$(S)/tests/konsole/pty_file_names.txt",
+        "$(S)/tests/konsole/pty_validate.py",
+    ],
+    outputs=["$(B)/tests/konsole/pty/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/konsole/pty_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/konsole/pty/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="KP",
+    color="cyan",
+)
+
+
 tmux_root = Path(__file__).parent / "tests" / "tmux"
 tmux_corpus_members = [
     "corpus/" + path.name
@@ -2004,6 +2055,8 @@ group(
     konsole_width_validation,
     *konsole_keyboard_tests,
     konsole_keyboard_validation,
+    *konsole_pty_tests,
+    konsole_pty_validation,
     *tmux_tests,
     wraptest_helper,
     *wraptest_tests,
