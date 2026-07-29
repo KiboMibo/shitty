@@ -101,6 +101,14 @@ namespace {
         ApplicationImpl* application;
     };
 
+    struct CallFontChanged final: public Listener {
+        explicit CallFontChanged(ApplicationImpl* application);
+
+        void onListen(void*) override;
+
+        ApplicationImpl* application;
+    };
+
     struct ApplicationImpl final: public Application, public VtermHost, public plt::WindowEvents, public plt::FrameCallback {
         explicit ApplicationImpl(Composer& composer);
         ~ApplicationImpl();
@@ -143,6 +151,7 @@ namespace {
         void fontInc();
         void fontDec();
         void fontReset();
+        void fontChanged();
         void setFontSize(u16 size);
         void contentScaleChanged();
         void replaceFontpack(u16 size);
@@ -187,6 +196,15 @@ void CallContentScaleChanged::onListen(void*) {
     application->contentScaleChanged();
 }
 
+CallFontChanged::CallFontChanged(ApplicationImpl* application_)
+    : application(application_)
+{
+}
+
+void CallFontChanged::onListen(void*) {
+    application->fontChanged();
+}
+
 ApplicationImpl::ApplicationImpl(Composer& composer_)
     : composer(composer_)
 {
@@ -197,6 +215,7 @@ void ApplicationImpl::wire() {
     composer.fontDecListeners.pushBack(composer.pool->make<CallFontDec>(this));
     composer.fontResetListeners.pushBack(composer.pool->make<CallFontReset>(this));
     composer.contentScaleChangedListeners.pushBack(composer.pool->make<CallContentScaleChanged>(this));
+    composer.fontChangedListeners.pushBack(composer.pool->make<CallFontChanged>(this));
     composer.inputBindings->add({InputKey::Printable, InputControl | InputShift, '=', '+'}, &composer.fontIncListeners);
     composer.inputBindings->add({InputKey::Printable, InputControl, '-', '-'}, &composer.fontDecListeners);
     composer.inputBindings->add({InputKey::Printable, InputControl, '0', '0'}, &composer.fontResetListeners);
@@ -224,8 +243,6 @@ void ApplicationImpl::publishFontChanged() {
 }
 
 void ApplicationImpl::replaceFontpack(u16 size) {
-    const u16 columns = composer.columns == 0 ? opts.nCols : composer.columns;
-    const u16 rows = composer.rows == 0 ? opts.nRows : composer.rows;
     ObjPool* const previousPool = fontpackPool;
     Fontpack* const previousFonts = composer.fonts;
     const u16 previousFontSize = composer.fontSize;
@@ -259,15 +276,21 @@ void ApplicationImpl::replaceFontpack(u16 size) {
         throw;
     }
     delete previousPool;
-    if (columns != 0 && rows != 0) {
-        const u32 width = 2u * opts.border + (u32)(columns)*composer.glyphWidth;
-        const u32 height = 2u * opts.border + (u32)(rows)*composer.glyphHeight;
-        if (composer.window != nullptr) {
-            composer.window->requestResize(width, height);
-        } else {
-            composer.resize((u16)(min(width, (u32)(UINT16_MAX))), (u16)(min(height, (u32)(UINT16_MAX))));
-        }
+}
+
+void ApplicationImpl::fontChanged() {
+    const u16 columns = composer.columns == 0 ? opts.nCols : composer.columns;
+    const u16 rows = composer.rows == 0 ? opts.nRows : composer.rows;
+    const u32 border = 2u * opts.border;
+    if (composer.window != nullptr) {
+        composer.window->requestMinimumSize(border + composer.glyphWidth, border + composer.glyphHeight);
+        composer.window->requestResizeUnit(composer.glyphWidth, composer.glyphHeight, border, border);
+        composer.window->requestResize(border + (u32)(columns)*composer.glyphWidth, border + (u32)(rows)*composer.glyphHeight);
+        return;
     }
+    composer.resize(
+        (u16)(min(border + (u32)(columns)*composer.glyphWidth, (u32)(UINT16_MAX))),
+        (u16)(min(border + (u32)(rows)*composer.glyphHeight, (u32)(UINT16_MAX))));
 }
 
 void ApplicationImpl::setFontSize(u16 size) {
@@ -555,9 +578,6 @@ void ApplicationImpl::showWindow() {
     const u32 border = 2u * opts.border;
     const u32 width = border + (u32)(opts.nCols) * composer.glyphWidth;
     const u32 height = border + (u32)(opts.nRows) * composer.glyphHeight;
-    composer.window->requestMinimumSize(border + composer.glyphWidth, border + composer.glyphHeight);
-    composer.window->requestResizeUnit(composer.glyphWidth, composer.glyphHeight, border, border);
-    composer.window->requestResize(width, height);
     composer.window->requestShow();
     composer.resize((u16)(min(width, (u32)(UINT16_MAX))), (u16)(min(height, (u32)(UINT16_MAX))));
 #if defined(SHITTY_FRAME_TRACE)
