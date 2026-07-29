@@ -1318,7 +1318,12 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     VkSurfaceFormatKHR surfaceFormat{};
     const GeneratedRenderShader* renderShader = nullptr;
     const VkImageUsageFlags directUsage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    if ((capabilities.supportedUsageFlags & directUsage) == directUsage) {
+#if defined(HAVE_VULKAN_METAL)
+    const bool directContentsPreserved = false;
+#else
+    const bool directContentsPreserved = true;
+#endif
+    if (directContentsPreserved && (capabilities.supportedUsageFlags & directUsage) == directUsage) {
         for (const GeneratedRenderShader& candidate : generatedRenderShaders) {
             if ((candidate.flags & renderShaderMutableFormat) && !mutableSwapchainFormats) {
                 continue;
