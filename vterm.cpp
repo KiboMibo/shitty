@@ -2139,6 +2139,7 @@ VtermTestState TestApiImpl::inspect() const {
     result.ledState = vterm->ledState;
     result.reverseWrapMode = vterm->reverseWrapMode;
     result.nationalReplacementMode = vterm->nationalReplacementMode;
+    result.pendingWrap = vterm->lastCol;
     result.cursorStyle = vterm->cursorShape;
     result.pen.cell = vterm->attrs;
     result.pen.fg = vterm->colors.resolve(vterm->attrs.foreground());
@@ -6986,6 +6987,17 @@ void VtermImpl::resizeGrid() {
     marginBottom = composer.rows;
     nColsEff = composer.columns;
     hMargin = 0;
+    if (tabStopsCustomized) {
+        while (!tabStops.empty() && tabStops.back() >= composer.columns) {
+            tabStops.pop_back();
+        }
+        if (composer.columns > previousColumns) {
+            unsigned column = ((unsigned)(previousColumns) + 7) & ~7u;
+            for (; column < composer.columns; column += 8) {
+                tabStops.push_back((u16)(column));
+            }
+        }
+    }
     const bool pendingWrap = lastCol;
     normalizeCursorPos();
     lastCol = pendingWrap;

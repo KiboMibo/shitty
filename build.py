@@ -1171,6 +1171,59 @@ wezterm_selection_validation = command(
 )
 
 
+wezterm_cursor_cases = (
+    wezterm_root / "cursor_file_names.txt"
+).read_text().split()
+wezterm_cursor_tests = []
+for case in wezterm_cursor_cases:
+    wezterm_cursor_tests.append(command(
+        name="wezterm_cursor_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/wezterm/cursor_adapter.py",
+            "$(S)/tests/wezterm/cursor_cases.py",
+            "$(S)/tests/wezterm/cursor_file_names.txt",
+            "$(S)/tests/wezterm/screen_catalog.py",
+            *build.glob("$(S)/tests/wezterm/upstream/*.rs"),
+        ],
+        outputs=[f"$(B)/tests/wezterm/cursor/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/wezterm/cursor_adapter.py",
+            case,
+            f"$(B)/tests/wezterm/cursor/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="WC",
+        color="cyan",
+    ))
+
+wezterm_cursor_validation = command(
+    name="wezterm_cursor_catalog",
+    inputs=[
+        "$(S)/tests/wezterm/cursor_cases.py",
+        "$(S)/tests/wezterm/cursor_file_names.txt",
+        "$(S)/tests/wezterm/cursor_validate.py",
+        "$(S)/tests/wezterm/screen_catalog.py",
+        *build.glob("$(S)/tests/wezterm/upstream/*.rs"),
+    ],
+    outputs=["$(B)/tests/wezterm/cursor/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/wezterm/cursor_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/wezterm/cursor/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="WC",
+    color="cyan",
+)
+
+
 konsole_root = Path(__file__).parent / "tests" / "konsole"
 konsole_cases = (konsole_root / "file_names.txt").read_text().split()
 konsole_tests = []
@@ -2098,6 +2151,8 @@ group(
     wezterm_screen_validation,
     *wezterm_selection_tests,
     wezterm_selection_validation,
+    *wezterm_cursor_tests,
+    wezterm_cursor_validation,
     *konsole_tests,
     konsole_validation,
     *konsole_semantic_tests,

@@ -28,8 +28,20 @@ FinalTerm OSC 133 `L` fresh-line behavior, independently corroborated by
 Ghostty and the semantic-prompts specification. All 73 currently agree without
 an expected failure.
 
-Non-visible upstream oracles remain separate work: cursor and dirty-line
-metadata, all-lines/history and stable-row assertions, semantic zones and cell
-attributes, hyperlink identity, and clipboard selection results. They are
-listed explicitly in `PLAN.md` rather than being treated as part of the now
-complete visible-screen catalog.
+The selection catalog covers all 12 clipboard assertions. Three expectations
+are deliberately adapted to the current terminal consensus: selection never
+manufactures a trailing newline beyond the screen, explicitly written trailing
+spaces are preserved, and soft-wrapped rows are copied as one logical line.
+
+The cursor catalog covers all 64 `assert_cursor_pos` call sites, including the
+15 checkpoints that require explicit resize transactions. Position, visibility,
+default shape, and the resize wrap-pending case are checked. WezTerm's
+one-past-the-grid coordinate for oversized CUP/HVP/CHA is normalized to the
+last physical cell, matching DEC/xterm behavior. Importing this catalog exposed
+and fixed missing default tab stops when a customized tab table grows during
+resize.
+
+Remaining non-visible upstream oracles are dirty-line metadata, all-lines/
+history and stable-row assertions, semantic zones and cell attributes,
+hyperlink identity, and rich cell/line metadata. They are listed explicitly in
+`PLAN.md`.

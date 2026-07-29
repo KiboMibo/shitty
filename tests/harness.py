@@ -642,6 +642,13 @@ class Shitty:
             raise RuntimeError("invalid cursor state response")
         return tuple(map(int, response[1:]))
 
+    def cursor_pending_wrap(self):
+        self.stream.write(b"CURSOR_PENDING_WRAP\n")
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid cursor pending-wrap response")
+        return bool(int(response[1]))
+
     def conformance_state(self):
         self.stream.write(b"CONFORMANCE_STATE\n")
         response = self._readline().split()

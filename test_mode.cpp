@@ -450,6 +450,7 @@ namespace {
         bool getNationalReplacementMode();
         bool getAnsiMode(u32 mode);
         bool getPrivateMode(u32 mode);
+        bool getPendingWrap();
         TerminalCursor::Style getCursorStyle();
         TerminalPen getPenState();
         RectangleOrigin getRectangleOrigin();
@@ -1043,6 +1044,10 @@ bool TestTerminal::getAnsiMode(u32 mode) {
 
 bool TestTerminal::getPrivateMode(u32 mode) {
     return testApi.privateMode(mode);
+}
+
+bool TestTerminal::getPendingWrap() {
+    return testApi.inspect().pendingWrap;
 }
 
 TerminalCursor::Style TestTerminal::getCursorStyle() {
@@ -2013,6 +2018,8 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
                 writeAll(controlFd, "OK " + std::to_string(terminal.getScreenReverseVideo()) + " " + std::to_string(terminal.getLedState()) + " " + std::to_string(terminal.getReverseWrapMode()) + " " + std::to_string(terminal.getNationalReplacementMode()) + " 0\n");
             } else if (line == "CURSOR_STATE") {
                 writeAll(controlFd, "OK " + std::to_string(terminal.getPrivateMode(25)) + " " + std::to_string(terminal.getPrivateMode(12)) + " " + std::to_string((unsigned)(terminal.getCursorStyle())) + "\n");
+            } else if (line == "CURSOR_PENDING_WRAP") {
+                writeAll(controlFd, "OK " + std::to_string(terminal.getPendingWrap()) + "\n");
             } else if (line == "CONFORMANCE_STATE") {
                 StringBuilder output;
                 output << StringView(u8"OK screen=") << (terminal.getPrivateMode(47) ? StringView(u8"Alternate") : StringView(u8"Primary")) << StringView(u8" IRM=") << (unsigned)(terminal.getAnsiMode(4)) << StringView(u8" SRM=") << (unsigned)(terminal.getAnsiMode(12)) << StringView(u8" LNM=") << (unsigned)(terminal.getAnsiMode(20)) << StringView(u8" DECCKM=") << (unsigned)(terminal.getPrivateMode(1)) << StringView(u8" DECCOLM=") << (unsigned)(terminal.getPrivateMode(3)) << StringView(u8" DECSCLM=") << (unsigned)(terminal.getPrivateMode(4)) << StringView(u8" DECSCNM=") << (unsigned)(terminal.getPrivateMode(5)) << StringView(u8" DECOM=") << (unsigned)(terminal.getPrivateMode(6)) << StringView(u8" DECAWM=") << (unsigned)(terminal.getPrivateMode(7)) << StringView(u8" DECARM=") << (unsigned)(terminal.getPrivateMode(8)) << StringView(u8" DECTCEM=") << (unsigned)(terminal.getPrivateMode(25)) << StringView(u8" DECNKM=") << (unsigned)(terminal.getPrivateMode(66)) << StringView(u8" DECBKM=") << (unsigned)(terminal.getPrivateMode(67)) << StringView(u8" DECLRMM=") << (unsigned)(terminal.getPrivateMode(69)) << StringView(u8"\n");

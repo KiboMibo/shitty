@@ -23,6 +23,7 @@ struct VtermTestState {
     u8 ledState = 0;
     bool reverseWrapMode = false;
     bool nationalReplacementMode = false;
+    bool pendingWrap = false;
     TerminalCursor::Style cursorStyle = TerminalCursor::Style::hidden;
     TerminalPen pen;
     RectangleOrigin rectangleOrigin{};

@@ -144,12 +144,17 @@ keys.~~
 
 Остались non-visible oracles из тех же файлов:
 
-- 64 cursor assertions;
+- ~~все 64 cursor assertions перенесены, включая 15 resize checkpoints,
+  visibility/default shape и wrap-pending. Три one-past-grid ожидания WezTerm
+  нормализованы к последней физической клетке по DEC/xterm; импорт исправил
+  расширение default tab stops после resize кастомизированной таблицы;~~
 - 17 dirty-line/damage assertions;
 - 27 `assert_all_contents` и viewport/history/stable-row assertions;
 - semantic zones и semantic cell attributes;
 - hyperlink identity/attributes;
-- 12 selection clipboard assertions;
+- ~~все 12 selection clipboard assertions перенесены. Современные адаптации:
+  не создаём trailing newline за границей экрана, сохраняем явно записанный
+  trailing blank и соединяем soft-wrapped строки в одну логическую;~~
 - rich cell/line metadata snapshots, включая background after DCH и
   double-width/double-height flags.
 
@@ -283,8 +288,8 @@ Search и vi-mode нам пока не нужны.
    применимые PTY methods.~~
 4. ~~Расширить существующий WezTerm screen adapter до всех 73 исполняемых
    visible checkpoints.~~
-5. WezTerm non-visible oracles: cursor, damage, history, semantic zones,
-   hyperlinks, selection и line/cell metadata.
+5. ~~WezTerm cursor и selection non-visible oracles.~~ Остались damage,
+   history/stable rows, semantic zones, hyperlinks и line/cell metadata.
 6. Windows Terminal adapter/input/mouse/selection/reflow.
 7. VTE tabstops/paste/UTF-8 и known-sequence matrices.
 8. Kitty — сохранить исходные test transactions и callbacks.
