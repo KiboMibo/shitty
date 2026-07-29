@@ -217,21 +217,11 @@ Legacy fixtures взяты, современные unit tests — нет:
 
 Итого 32 прямых assertion-based теста. Особенно полезны selection lifetime при scrollback и X10/SGR/SGR-pixel mouse. Это хороший быстрый импорт.
 
-### Mosh semantic display tests
+### ~~Mosh semantic display tests~~ — готово
 
-Fuzz corpora взяты, но отсутствуют display regressions:
-
-- 80-я колонка и pending wrap;
-- wrap across separate frames;
-- insert/delete lines;
-- scroll preserving cursor;
-- back-tab;
-- cursor motion;
-- SGR/16/256/truecolor/BCE/OSC 8;
-- combining character on cleared/empty cell;
-- resize.
-
-Это примерно 17 непосредственно полезных сценариев и, вероятно, самый дешёвый следующий импорт: streams уже выражены shell-скриптами, ожидаемые captures понятны. [Mosh Makefile.am](/home/pg/monorepo/tmp/terminal-repos/mosh/src/tests/Makefile.am)
+~~Все 17 terminal-display regressions перенесены в Python с прямым oracle по
+ячейкам, цветам, OSC 8, wrap-флагам, курсору и resize. Старый upstream XFAIL
+для первых восьми indexed colors заменён современной SGR-проверкой.~~
 
 ### Alacritty units
 
@@ -264,7 +254,7 @@ Search и vi-mode нам пока не нужны.
 
 Я бы импортировал так:
 
-1. Mosh semantic display tests.
+1. ~~Mosh semantic display tests.~~
 2. libtsm — все 32.
 3. Konsole Screen/History и оставшиеся semantic methods текущего файла.
 4. Расширить существующий WezTerm screen adapter до всех 74 checkpoints.

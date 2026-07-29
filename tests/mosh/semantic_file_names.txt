@@ -1,0 +1,17 @@
+ascii_iso_8859
+column_80
+attributes_vt100
+attributes_16color
+attributes_256color8
+attributes_256color248
+attributes_truecolor
+attributes_bce
+attributes_osc8
+back_tab
+cursor_motion
+multiline_scroll
+scroll
+wrap_across_frames
+unicode_combine_fallback
+unicode_later_combining
+window_resize

@@ -524,6 +524,55 @@ for corpus in ("terminal_corpus", "terminal_parser_corpus"):
         color="cyan",
     ))
 
+mosh_root = Path(__file__).parent / "tests" / "mosh"
+mosh_semantic_cases = (
+    mosh_root / "semantic_file_names.txt"
+).read_text().split()
+mosh_semantic_tests = []
+for case in mosh_semantic_cases:
+    mosh_semantic_tests.append(command(
+        name="mosh_semantic_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/mosh/semantic_adapter.py",
+            "$(S)/tests/mosh/semantic_cases.py",
+            "$(S)/tests/mosh/semantic_file_names.txt",
+        ],
+        outputs=[f"$(B)/tests/mosh/semantic/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/mosh/semantic_adapter.py",
+            case,
+            f"$(B)/tests/mosh/semantic/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="MO",
+        color="cyan",
+    ))
+
+mosh_semantic_validation = command(
+    name="mosh_semantic_catalog",
+    inputs=[
+        "$(S)/tests/mosh/semantic_cases.py",
+        "$(S)/tests/mosh/semantic_file_names.txt",
+        "$(S)/tests/mosh/semantic_validate.py",
+    ],
+    outputs=["$(B)/tests/mosh/semantic/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/mosh/semantic_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/mosh/semantic/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="MO",
+    color="cyan",
+)
+
 
 ghostty_root = Path(__file__).parent / "tests" / "ghostty"
 ghostty_members = []
@@ -1674,6 +1723,8 @@ group(
     contour_vttest,
     *contour_tests,
     *mosh_tests,
+    *mosh_semantic_tests,
+    mosh_semantic_validation,
     *ghostty_tests,
     *ghostty_semantic_tests,
     ghostty_semantic_validation,
