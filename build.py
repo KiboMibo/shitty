@@ -1120,6 +1120,57 @@ wezterm_screen_validation = command(
 )
 
 
+wezterm_selection_cases = (
+    wezterm_root / "selection_file_names.txt"
+).read_text().split()
+wezterm_selection_tests = []
+for case in wezterm_selection_cases:
+    wezterm_selection_tests.append(command(
+        name="wezterm_selection_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/wezterm/upstream/selection.rs",
+            "$(S)/tests/wezterm/selection_adapter.py",
+            "$(S)/tests/wezterm/selection_cases.py",
+            "$(S)/tests/wezterm/selection_file_names.txt",
+        ],
+        outputs=[f"$(B)/tests/wezterm/selection/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/wezterm/selection_adapter.py",
+            case,
+            f"$(B)/tests/wezterm/selection/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="WQ",
+        color="cyan",
+    ))
+
+wezterm_selection_validation = command(
+    name="wezterm_selection_catalog",
+    inputs=[
+        "$(S)/tests/wezterm/upstream/selection.rs",
+        "$(S)/tests/wezterm/selection_cases.py",
+        "$(S)/tests/wezterm/selection_file_names.txt",
+        "$(S)/tests/wezterm/selection_validate.py",
+    ],
+    outputs=["$(B)/tests/wezterm/selection/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/wezterm/selection_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/wezterm/selection/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="WQ",
+    color="cyan",
+)
+
+
 konsole_root = Path(__file__).parent / "tests" / "konsole"
 konsole_cases = (konsole_root / "file_names.txt").read_text().split()
 konsole_tests = []
@@ -2045,6 +2096,8 @@ group(
     wezterm_validation,
     *wezterm_screen_tests,
     wezterm_screen_validation,
+    *wezterm_selection_tests,
+    wezterm_selection_validation,
     *konsole_tests,
     konsole_validation,
     *konsole_semantic_tests,
