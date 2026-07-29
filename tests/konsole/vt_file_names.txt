@@ -1,0 +1,11 @@
+testParse
+testBufferedUpdates
+testKittyKeyboardPushPopQuery
+testKittyKeyboardSet
+testKittyKeyboardReset
+testKittyKeyboardDisambiguate
+testKittyKeyboardEventTypes
+testKittyKeyboardReportAllKeys
+testKittyKeyboardLegacyKeys
+testKittyKeyboardCtrlLetters
+testKittyKeyboardTextKeys

@@ -1224,6 +1224,55 @@ konsole_semantic_validation = command(
 )
 
 
+konsole_vt_cases = (
+    konsole_root / "vt_file_names.txt"
+).read_text().split()
+konsole_vt_tests = []
+for case in konsole_vt_cases:
+    konsole_vt_tests.append(command(
+        name="konsole_vt_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/konsole/vt_adapter.py",
+            "$(S)/tests/konsole/vt_cases.py",
+            "$(S)/tests/konsole/vt_file_names.txt",
+        ],
+        outputs=[f"$(B)/tests/konsole/vt/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/konsole/vt_adapter.py",
+            case,
+            f"$(B)/tests/konsole/vt/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="KV",
+        color="cyan",
+    ))
+
+konsole_vt_validation = command(
+    name="konsole_vt_catalog",
+    inputs=[
+        "$(S)/tests/konsole/vt_cases.py",
+        "$(S)/tests/konsole/vt_file_names.txt",
+        "$(S)/tests/konsole/vt_validate.py",
+    ],
+    outputs=["$(B)/tests/konsole/vt/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/konsole/vt_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/konsole/vt/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="KV",
+    color="cyan",
+)
+
+
 tmux_root = Path(__file__).parent / "tests" / "tmux"
 tmux_corpus_members = [
     "corpus/" + path.name
@@ -1847,6 +1896,8 @@ group(
     konsole_validation,
     *konsole_semantic_tests,
     konsole_semantic_validation,
+    *konsole_vt_tests,
+    konsole_vt_validation,
     *tmux_tests,
     wraptest_helper,
     *wraptest_tests,

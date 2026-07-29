@@ -22,3 +22,10 @@ Two selection details intentionally follow current desktop behavior instead of
 Konsole's internal API: selecting a single blank row yields empty text rather
 than a bare newline, and rectangular rows are newline-delimited rather than
 space-delimited.
+
+`vt_cases.py` ports all 11 semantic methods from `Vt102EmulationTest.cpp`:
+parser output, buffered/synchronized updates, and nine Kitty keyboard
+transactions. Tertiary DA reports Shitty's identifier instead of Konsole's.
+Keyboard events use Shitty's split platform key/text input and current Kitty
+protocol encodings; in particular, report-all and functional keys retain the
+explicit default modifier field emitted by the product input path.
