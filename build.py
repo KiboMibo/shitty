@@ -21,6 +21,31 @@ build.cxxflags += [
 darwin = "apple-darwin" in build.target
 linux = "linux" in build.target
 
+
+untimed_command = command
+
+def command(**kwargs):
+    # Hard per-invocation timeout so one hung test cannot wedge the whole CI
+    # run. Only test invocations are wrapped: build steps (ragel, shaders,
+    # helper binaries) run untimed.
+    def is_test(argv):
+        if argv[0] == "$(B)/unit_tests":
+            return True
+        return argv[0] == "python3" and len(argv) > 1 and (
+            argv[1].startswith("tests/") or argv[1] == "-m"
+        )
+
+    cmd = kwargs.get("cmd")
+    if cmd:
+        nested = cmd if isinstance(cmd[0], list) else [cmd]
+        if any(is_test(argv) for argv in nested):
+            kwargs["cmd"] = [
+                ["python3", "$(S)/tests/run_timed.py", "120", *argv]
+                if is_test(argv) else argv
+                for argv in nested
+            ]
+    return untimed_command(**kwargs)
+
 freetype = pkg_config("freetype2", required=False)
 fontconfig = pkg_config("fontconfig", required=False)
 harfbuzz = pkg_config("harfbuzz", required=False)

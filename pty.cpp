@@ -182,6 +182,12 @@ namespace {
         if (master < 0) {
             sysError("can't open master pty: posix_openpt()");
         }
+        // Close-on-exec: without it every spawned helper (xdg-open and the
+        // browser it launches) inherits the master and can read terminal
+        // output and inject input.
+        if (fcntl(master, F_SETFD, FD_CLOEXEC) < 0) {
+            sysError("can't open master pty: fcntl(FD_CLOEXEC)");
+        }
         if (grantpt(master) < 0) {
             sysError("can't open master pty: grantpt()");
         }

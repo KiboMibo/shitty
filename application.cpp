@@ -311,9 +311,12 @@ int ApplicationImpl::takeTestFd(int& argc, char* argv[]) {
     return -1;
 }
 
-void ApplicationImpl::childSignalHandler(int signal, siginfo_t* info, void*) {
+void ApplicationImpl::childSignalHandler(int signal, siginfo_t*, void*) {
+    // SIGCHLD does not queue: one delivery may stand for several exited
+    // children (the shell plus xdg-open helpers), so reap until drained.
     if (signal == SIGCHLD) {
-        waitpid(info->si_pid, nullptr, WNOHANG);
+        while (waitpid(-1, nullptr, WNOHANG) > 0) {
+        }
     }
 }
 

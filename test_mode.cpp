@@ -982,6 +982,14 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     if (openpty(&io[0], &io[1], nullptr, nullptr, nullptr) < 0) {
         throw std::runtime_error("test openpty failed");
     }
+    // Terminal-side descriptors must not leak into spawned children: a child
+    // holding the control socket or the pty pair alive wedges the harness
+    // when st_test itself dies.
+    if (fcntl(controlFd, F_SETFD, FD_CLOEXEC) < 0
+        || fcntl(io[0], F_SETFD, FD_CLOEXEC) < 0
+        || fcntl(io[1], F_SETFD, FD_CLOEXEC) < 0) {
+        throw std::runtime_error("test FD_CLOEXEC setup failed");
+    }
     termios childTtyAttrs;
     if (tcgetattr(io[1], &childTtyAttrs) < 0) {
         close(io[0]);

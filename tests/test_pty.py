@@ -90,6 +90,25 @@ class PtyTest(unittest.TestCase):
             status, _ = terminal.wait_child()
             self.assertEqual(status, 128 + signal.SIGTERM)
 
+    @unittest.skipUnless(sys.platform == "linux", "needs /proc/self/fd")
+    def test_child_inherits_no_stray_descriptors(self):
+        # Terminal-side descriptors (control socket, pty master) must be
+        # close-on-exec: leaked into children they outlive the terminal,
+        # keep the pty open, and expose the control protocol.
+        with Shitty(columns=40, rows=4) as terminal:
+            # Re-check liveness after listing: enumerating /proc/self/fd
+            # briefly opens descriptors of its own.
+            terminal.spawn(
+                sys.executable,
+                "-c",
+                "import os; fds = [int(fd) for fd in os.listdir('/proc/self/fd')]; "
+                "print('fds', [fd for fd in fds"
+                " if fd > 2 and os.path.exists(f'/proc/self/fd/{fd}')])",
+            )
+            status, screen = terminal.wait_child()
+            self.assertEqual(status, 0)
+            self.assertIn("fds []", screen)
+
     def test_child_output_bytes_are_read_once_through_control(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.spawn(
