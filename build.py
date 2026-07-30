@@ -844,6 +844,28 @@ kitty_screen_validation = command(
 )
 
 
+kitty_utf8 = command(
+    name="kitty_utf8",
+    inputs=[
+        "$(S)/tests/harness.py",
+        "$(S)/tests/kitty/utf8_adapter.py",
+        "$(S)/tests/kitty/utf8_catalog.py",
+        "$(S)/tests/kitty/upstream/parser.py",
+    ],
+    outputs=["$(B)/tests/kitty/utf8.stamp"],
+    deps=[st_test],
+    cmd=[
+        "python3",
+        "tests/kitty/utf8_adapter.py",
+        "$(B)/tests/kitty/utf8.stamp",
+    ],
+    cwd="$(S)",
+    env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+    descr="KU",
+    color="cyan",
+)
+
+
 vte_root = Path(__file__).parent / "tests" / "vte"
 vte_cases = (vte_root / "file_names.txt").read_text().split()
 vte_tests = []
@@ -2767,6 +2789,7 @@ group(
     kitty_validation,
     *kitty_screen_tests,
     kitty_screen_validation,
+    kitty_utf8,
     *vte_tests,
     vte_validation,
     *vte_known_tests,
