@@ -128,6 +128,29 @@ namespace {
         return false;
     }
 
+    u16 rowWrapColumn(const Row* row, u16 columns) {
+        if (row != nullptr) {
+            for (u16 column = 0; column < columns; ++column) {
+                if (row->cells[column].wrap) {
+                    return column;
+                }
+            }
+        }
+        return columns;
+    }
+
+    void restoreRowWrap(Row* row, u16 columns, u16 wrapColumn) {
+        if (row == nullptr) {
+            return;
+        }
+        for (u16 column = 0; column < columns; ++column) {
+            row->cells[column].wrap = 0;
+        }
+        if (wrapColumn < columns) {
+            row->cells[wrapColumn].wrap = 1;
+        }
+    }
+
     [[gnu::always_inline]] inline void storeAsciiCells(u64* __restrict output, const u8* __restrict input, u16 count, u64 style, u64 content) {
         while (count >= 4) {
             output[0] = style;
@@ -3200,6 +3223,7 @@ void ScreenBase<Coord, Epoch>::scrollPartialRectangleUpOne(u16 top, u16 left, u1
 
     const u16 row = bottom - 1;
     RowSlot& object = rowRing[wrapRow(rowBase + row)];
+    const u16 wrapColumn = rowWrapColumn(object, nCols);
     if (object != nullptr && object->metadata.wide) {
         clearWideBoundary(object, row, left, attrs);
         clearWideBoundary(object, row, right, attrs);
@@ -3210,6 +3234,7 @@ void ScreenBase<Coord, Epoch>::scrollPartialRectangleUpOne(u16 top, u16 left, u1
         eraseRange(cells + left, cells + right, attrs);
         object->metadata.protection |= attrs.protected_char;
     }
+    restoreRowWrap(object, nCols, wrapColumn);
     damageRectangle(top, left, bottom, right);
     if (!selection.empty()) {
         invalidateSelection(Rect(left, top, right, bottom));
@@ -3223,10 +3248,12 @@ template <typename Coord, typename Epoch>
     if (destinationObject == nullptr && (sourceObject == zeroRow || emptyRow(source, width))) {
         return;
     }
+    const u16 wrapColumn = rowWrapColumn(destinationObject, nCols);
     if (!sourceObject->metadata.wide && (destinationObject == nullptr || !destinationObject->metadata.wide)) {
         TerminalCell* const destination = mutableRow(destinationObject);
         copyCells(destination + left, source, width);
         destinationObject->metadata.protection |= sourceObject->metadata.protection;
+        restoreRowWrap(destinationObject, nCols, wrapColumn);
         return;
     }
     TerminalCell* const destination = mutableRow(destinationObject);
@@ -3240,6 +3267,7 @@ template <typename Coord, typename Epoch>
         if (sourceObject->metadata.wide) {
             destinationObject->metadata.wide = true;
         }
+        restoreRowWrap(destinationObject, nCols, wrapColumn);
         return;
     }
     copyCells(destination + left, source, width);
@@ -3277,6 +3305,7 @@ template <typename Coord, typename Epoch>
     if (sourceObject->metadata.wide) {
         destinationObject->metadata.wide = true;
     }
+    restoreRowWrap(destinationObject, nCols, wrapColumn);
 }
 
 template <typename Coord, typename Epoch>
@@ -3305,6 +3334,7 @@ void ScreenBase<Coord, Epoch>::scrollRectangleImpl(u16 top, u16 left, u16 bottom
         const TerminalCell empty{};
         for (u16 row = eraseTop; row < eraseBottom; ++row) {
             RowSlot& object = rowRing[wrapRow(rowBase + row)];
+            const u16 wrapColumn = rowWrapColumn(object, nCols);
             if (object != nullptr && object->metadata.wide) {
                 clearWideBoundary(object, row, left, attrs);
                 clearWideBoundary(object, row, right, attrs);
@@ -3314,6 +3344,7 @@ void ScreenBase<Coord, Epoch>::scrollRectangleImpl(u16 top, u16 left, u16 bottom
                 eraseRange(cells + left, cells + right, attrs);
                 object->metadata.protection |= attrs.protected_char;
             }
+            restoreRowWrap(object, nCols, wrapColumn);
         }
         damageRectangle(top, left, bottom, right);
         if (!selection.empty()) {
@@ -3405,6 +3436,9 @@ void ScreenBase<Coord, Epoch>::rotateRows(u16 top, u16 bottom, i32 rows) {
         rotateRowPointersDown(top, bottom, count);
     } else {
         rotateRowPointersUp(top, bottom, count);
+    }
+    for (u16 row = top; row < bottom; ++row) {
+        restoreRowWrap(logicalRowSlot(row), nCols, nCols);
     }
     damageRectangle(top, 0, bottom, nCols);
 }

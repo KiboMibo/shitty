@@ -196,6 +196,20 @@ DECRQM, но `moveCursorBackward()` ошибочно требовал однов
 и совпадающим Ghostty/Contour semantics; устаревшие esctest expectations для
 старого mode 45 остаются XFAIL.~~
 
+~~Блок `Terminal.zig:10294-11053` учтён. DL проверяется для full screen,
+vertical и horizontal regions, cursor outside, default/large count, точного
+damage, pending-wrap, erase colors, row-wrap, dense unique hyperlinks и всех
+wide-boundary комбинаций Ghostty. Page-boundary capacity retry неприменим к
+нашему pointer-ring/CellExtraStore, но его наблюдаемый инвариант перенесён:
+десять уникальных hyperlink identity/URI проходят сдвиг без aliasing и stale
+refs. Импорт нашёл два product defects в wrap metadata. Full-width IL/DL
+теперь очищают soft-wrap у всех переставленных physical rows; partial-width
+scroll сохраняет исходный wrap каждой строки и не импортирует marker из
+source row. Wide-glyph pre-wrap уже хранился на последней занятой клетке
+вместо Ghostty spacer head; tests учитывают наш более компактный эквивалент.
+Внутренний `deleteLines(0)` неприменим: у публичного ECMA-48 `CSI 0 M`
+default count равен единице и уже покрыт parser/editing matrices.~~
+
 Не взяты также 94 initial fuzz seeds, но они имеют низкую ценность рядом с полным cmin.
 
 ### Kitty
