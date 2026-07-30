@@ -176,8 +176,21 @@ Windows expands ICH/DCH to the full line when the cursor is outside separately
 configured vertical margins. That result is adapted: VT510 defines these as
 horizontal operations, and xterm and Ghostty continue using the configured
 left/right margins independently of the cursor row. Both original vertical
-margin branches remain exercised. The remaining 55 methods stay explicitly
-listed in `PLAN.md`.
+margin branches remain exercised.
+
+The next three methods cover ED3, all 12 combinations of EL/ED,
+to-end/from-beginning/all, and regular/selective erasure, plus every upstream
+DECSCA parameter case. The Win32 console-storage tail after its movable
+viewport has no terminal equivalent; ED3 is checked through its observable
+contract: history is removed, a scrolled view returns to the live screen, and
+live cells, colors, and cursor remain unchanged. Two upstream policies are
+adapted to current terminal behavior. Windows selective erase preserves the
+old colors of erased cells, while xterm, Ghostty, and Shitty create blanks
+using current erase colors. DECSCA has one parameter in the DEC grammar;
+Windows applies the last parameter of a malformed list, xterm applies the
+first, and Ghostty rejects the list. Both malformed cases remain covered with
+xterm-compatible first-parameter behavior. The remaining 52 methods stay
+explicitly listed in `PLAN.md`.
 
 The 25 methods in `src/terminal/parser/ut_parser/InputEngineTest.cpp` test the
 opposite, Windows-only boundary: decoding a VT input byte stream into Win32

@@ -190,7 +190,13 @@ keys.~~
   ICH и DCH. Windows разворачивает horizontal operation на всю строку вне
   vertical margins; адаптировано к VT510 и consensus xterm/Ghostty, где
   заданные horizontal margins продолжают действовать;~~
-- `ScreenBufferTests`, remaining — 55 методов; portable assertions переносить
+- ~~`ScreenBufferTests`, erase/protection block — ещё 3 метода: ED3,
+  полная 3×line/display×regular/selective erase matrix и DECSCA. Win32
+  storage tail заменён observable history contract. Windows selective erase
+  сохраняет старые colors, а malformed multi-parameter DECSCA применяет
+  последний параметр; адаптировано к xterm/Ghostty erase colors и
+  xterm-compatible first parameter;~~
+- `ScreenBufferTests`, remaining — 52 метода; portable assertions переносить
   блоками, Win32-only console buffer/virtual-bottom ABI явно
   классифицировать, не выдавая его за terminal semantics.
 

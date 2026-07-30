@@ -73,6 +73,9 @@ PORTED_METHODS = {
     "DeleteChars",
     "HorizontalScrollOperations",
     "ScrollingWideCharsHorizontally",
+    "EraseScrollbackTests",
+    "EraseTests",
+    "ProtectedAttributeTests",
 }
 
 CLASSIFIED_METHODS = {
@@ -1373,4 +1376,166 @@ class WindowsTerminalScreenBufferEditingTest(unittest.TestCase):
                 self.assertTrue(copied.cell(column, 0).double_width)
                 self.assertTrue(
                     copied.cell(column + 1, 0).double_width_continuation
+                )
+
+
+class WindowsTerminalScreenBufferEraseTest(unittest.TestCase):
+    def test_erase_scrollback(self):
+        with Shitty(columns=8, rows=3, save_lines=8) as terminal:
+            terminal.write(
+                b"\x1b[31;44mold\r\n"
+                b"\x1b[32;41mone\r\n"
+                b"two\r\nthree"
+            )
+            live_before = terminal.model_snapshot()
+            terminal.wheel_up(1)
+            self.assertEqual(terminal.snapshot().view_offset, 1)
+
+            terminal.write(b"\x1b[32;41m\x1b[3J")
+
+            live_after = terminal.model_snapshot()
+            self.assertEqual(terminal.scrollback_state()[0], 0)
+            self.assertEqual(live_after.view_offset, 0)
+            self.assertEqual(
+                (live_after.cursor_x, live_after.cursor_y),
+                (live_before.cursor_x, live_before.cursor_y),
+            )
+            self.assertEqual(live_after.cells, live_before.cells)
+
+    def test_erase_matrix(self):
+        columns = 8
+        rows = 4
+        cursor_x = 4
+        cursor_y = 2
+        for erase_type in (0, 1, 2):
+            for display in (False, True):
+                for selective in (False, True):
+                    with self.subTest(
+                        erase_type=erase_type,
+                        display=display,
+                        selective=selective,
+                    ), Shitty(columns=columns, rows=rows) as terminal:
+                        terminal.write(b"\x1b[34;42m")
+                        for row in range(rows):
+                            terminal.write(
+                                f"\x1b[{row + 1};1H".encode()
+                                + (
+                                    b"\x1b[1\"qZZ\x1b[0\"q"
+                                    if selective
+                                    else b"ZZ"
+                                )
+                                + b"Z" * (columns - 2)
+                            )
+                        terminal.write(
+                            b"\x1b[38;2;12;34;56;48;2;78;90;12"
+                            b";9;7;4:3m"
+                            + f"\x1b[{cursor_y + 1};{cursor_x + 1}H".encode()
+                            + b"\x1b["
+                            + (b"?" if selective else b"")
+                            + str(erase_type).encode()
+                            + (b"J" if display else b"K")
+                        )
+                        snapshot = terminal.model_snapshot()
+
+                        erased = set()
+                        if display:
+                            if erase_type == 0:
+                                erased.update(
+                                    (row, column)
+                                    for row in range(cursor_y + 1, rows)
+                                    for column in range(columns)
+                                )
+                                erased.update(
+                                    (cursor_y, column)
+                                    for column in range(cursor_x, columns)
+                                )
+                            elif erase_type == 1:
+                                erased.update(
+                                    (row, column)
+                                    for row in range(cursor_y)
+                                    for column in range(columns)
+                                )
+                                erased.update(
+                                    (cursor_y, column)
+                                    for column in range(cursor_x + 1)
+                                )
+                            else:
+                                erased.update(
+                                    (row, column)
+                                    for row in range(rows)
+                                    for column in range(columns)
+                                )
+                        elif erase_type == 0:
+                            erased.update(
+                                (cursor_y, column)
+                                for column in range(cursor_x, columns)
+                            )
+                        elif erase_type == 1:
+                            erased.update(
+                                (cursor_y, column)
+                                for column in range(cursor_x + 1)
+                            )
+                        else:
+                            erased.update(
+                                (cursor_y, column)
+                                for column in range(columns)
+                            )
+
+                        for row in range(rows):
+                            for column in range(columns):
+                                cell = snapshot.cell(column, row)
+                                protected = selective and column < 2
+                                should_erase = (
+                                    (row, column) in erased
+                                    and not protected
+                                )
+                                self.assertEqual(
+                                    cell.char,
+                                    " " if should_erase else "Z",
+                                )
+                                self.assertEqual(cell.protected, protected)
+                                if should_erase:
+                                    self.assertEqual(
+                                        (
+                                            cell.foreground,
+                                            cell.background,
+                                        ),
+                                        ((12, 34, 56), (78, 90, 12)),
+                                    )
+                                    self.assertFalse(cell.strike)
+                                    self.assertFalse(cell.inverse)
+                                    self.assertEqual(cell.underline_style, 0)
+                                else:
+                                    self.assertEqual(
+                                        (
+                                            cell.foreground,
+                                            cell.background,
+                                        ),
+                                        ((0, 0, 238), (0, 205, 0)),
+                                    )
+
+    def test_protected_attribute(self):
+        cases = (
+            (b"\x1b[\"q", False),
+            (b"\x1b[0\"q", False),
+            (b"\x1b[1\"q", True),
+            (b"\x1b[2\"q", False),
+            (b"\x1b[2;1\"q", False),
+            (b"\x1b[1;2\"q", True),
+        )
+        with Shitty(columns=8, rows=len(cases)) as terminal:
+            for row, (sequence, expected) in enumerate(cases):
+                terminal.write(
+                    f"\x1b[{row + 1};1H".encode()
+                    + b"\x1b[1\"q"
+                    + sequence
+                    + b"ZZZZZ"
+                )
+                snapshot = terminal.model_snapshot()
+                self.assertEqual(
+                    [
+                        snapshot.cell(column, row).protected
+                        for column in range(5)
+                    ],
+                    [expected] * 5,
                 )
