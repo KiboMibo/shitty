@@ -10,7 +10,7 @@ from harness import Shitty
 
 
 ROOT = Path(__file__).resolve().parents[1]
-COLOR_FONT = ROOT / "tests" / "fonts" / "NotoColorEmoji.ttf"
+COLOR_FONT = ROOT / "fonts" / "NotoColorEmoji.ttf"
 
 
 class ColorFontRenderTest(unittest.TestCase):

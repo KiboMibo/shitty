@@ -260,6 +260,28 @@ parser_test = command(
 )
 
 
+font_data = command(
+    name="font_data",
+    inputs=[
+        "$(S)/generate_font_data.py",
+        "$(S)/fonts/JetBrainsMonoNerdFont-Regular.ttf",
+        "$(S)/fonts/NotoColorEmoji.ttf",
+        "$(S)/fonts/NotoEmoji-Regular.ttf",
+    ],
+    outputs=["$(B)/font_data.h"],
+    cmd=[
+        "python3",
+        "$(S)/generate_font_data.py",
+        "$(B)/font_data.h",
+        "embeddedFontMono=$(S)/fonts/JetBrainsMonoNerdFont-Regular.ttf",
+        "embeddedFontEmoji=$(S)/fonts/NotoColorEmoji.ttf",
+        "embeddedFontEmojiText=$(S)/fonts/NotoEmoji-Regular.ttf",
+    ],
+    descr="FD",
+    color="magenta",
+)
+
+
 main_source = "$(S)/main.cpp"
 fuzz_source = "$(S)/main_fuzz.cpp"
 heap_profile_source = "$(S)/heap_profile.cpp"

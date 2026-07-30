@@ -12,7 +12,7 @@ from harness import Shitty
 
 
 ROOT = Path(__file__).resolve().parents[1]
-COLOR_FONT = ROOT / "tests" / "fonts" / "NotoColorEmoji.ttf"
+COLOR_FONT = ROOT / "fonts" / "NotoColorEmoji.ttf"
 FONTCONFIG_AVAILABLE = os.environ.get("SHITTY_TEST_FONTCONFIG", "1") == "1"
 
 
@@ -124,6 +124,12 @@ class FontResolverTest(unittest.TestCase):
     def test_fontconfig_family_loads_without_a_search_path(self):
         with Shitty() as terminal:
             loaded = terminal.load_font("monospace", "")
+        self.assertGreater(loaded["px"], 0)
+        self.assertGreater(loaded["py"], 0)
+
+    def test_unresolvable_family_falls_back_to_the_embedded_font(self):
+        with Shitty() as terminal:
+            loaded = terminal.load_font("Shitty No Such Family 8b3f", "")
         self.assertGreater(loaded["px"], 0)
         self.assertGreater(loaded["py"], 0)
 

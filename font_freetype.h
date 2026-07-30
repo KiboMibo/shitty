@@ -15,3 +15,6 @@ namespace stl {
 }
 
 Font* createFreeTypeFont(stl::ObjPool& owner, stl::StringView filename, i32 faceIndex, u16 pixels, FontKind kind, FontMetrics& metrics);
+
+// The data must stay valid for the lifetime of the font.
+Font* createFreeTypeMemoryFont(stl::ObjPool& owner, const void* data, size_t size, i32 faceIndex, u16 pixels, FontKind kind, FontMetrics& metrics);

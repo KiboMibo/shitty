@@ -7,6 +7,7 @@
 #include "composer.h"
 
 #include "font_coretext.h"
+#include "font_embedded.h"
 #include "font_fontconfig.h"
 #include "font_path.h"
 #include "options.h"
@@ -35,6 +36,9 @@ Composer::Composer(ObjPool* pool_)
         fontResolvers.pushBack(resolver);
     }
     if (FontResolver* const resolver = createPathFontResolver(*this)) {
+        fontResolvers.pushBack(resolver);
+    }
+    if (FontResolver* const resolver = createEmbeddedFontResolver(*this)) {
         fontResolvers.pushBack(resolver);
     }
 }

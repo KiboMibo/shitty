@@ -29,7 +29,7 @@ using namespace stl;
 
 namespace {
     struct FontImpl final: public Font {
-        FontImpl(StringView filename, i32 faceIndex, u16 size, FontKind kind, FontMetrics& metrics);
+        FontImpl(StringView filename, const void* data, size_t dataSize, i32 faceIndex, u16 size, FontKind kind, FontMetrics& metrics);
         ~FontImpl() noexcept;
 
         FontGlyph glyph(const u32* codepoints, size_t count) override;
@@ -97,7 +97,7 @@ namespace {
     }
 }
 
-FontImpl::FontImpl(StringView filename, i32 faceIndex, u16 size, FontKind kind, FontMetrics& metrics)
+FontImpl::FontImpl(StringView filename, const void* data, size_t dataSize, i32 faceIndex, u16 size, FontKind kind, FontMetrics& metrics)
     : size_(size)
     , kind_(kind)
     , metrics_(metrics)
@@ -107,10 +107,17 @@ FontImpl::FontImpl(StringView filename, i32 faceIndex, u16 size, FontKind kind, 
         fail(StringView(u8"could not initialize FreeType"));
     }
 
-    Buffer filenameBuffer(filename);
-    if (FT_New_Face(library_, filenameBuffer.cStr(), faceIndex, &face_)) {
-        close();
-        fail(StringBuilder() << StringView(u8"failed to open font ") << filename << StringView(u8" face ") << faceIndex);
+    if (data != nullptr) {
+        if (FT_New_Memory_Face(library_, (const FT_Byte*)(data), (FT_Long)(dataSize), faceIndex, &face_)) {
+            close();
+            fail(StringView(u8"failed to open embedded font"));
+        }
+    } else {
+        Buffer filenameBuffer(filename);
+        if (FT_New_Face(library_, filenameBuffer.cStr(), faceIndex, &face_)) {
+            close();
+            fail(StringBuilder() << StringView(u8"failed to open font ") << filename << StringView(u8" face ") << faceIndex);
+        }
     }
 
     try {
@@ -526,5 +533,9 @@ FontGlyph FontImpl::glyph(const u32* codepoints, size_t count) {
 }
 
 Font* createFreeTypeFont(ObjPool& owner, StringView filename, i32 faceIndex, u16 pixels, FontKind kind, FontMetrics& metrics) {
-    return owner.make<FontImpl>(filename, faceIndex, pixels, kind, metrics);
+    return owner.make<FontImpl>(filename, nullptr, 0, faceIndex, pixels, kind, metrics);
+}
+
+Font* createFreeTypeMemoryFont(ObjPool& owner, const void* data, size_t size, i32 faceIndex, u16 pixels, FontKind kind, FontMetrics& metrics) {
+    return owner.make<FontImpl>(StringView(), data, size, faceIndex, pixels, kind, metrics);
 }
