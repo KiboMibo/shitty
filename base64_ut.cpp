@@ -166,4 +166,34 @@ STD_TEST_SUITE(Base64) {
         STD_INSIST(base64DecodeInPlace(bytes, size));
         STD_INSIST(StringView(bytes, size) == StringView(expected, sizeof(expected)));
     }
+
+    STD_TEST(KittyVectorsAcceptPaddedAndUnpaddedInput) {
+        struct Vector {
+            StringView padded;
+            StringView unpadded;
+            StringView plain;
+        };
+
+        const Vector vectors[] = {
+            {StringView(u8"bGlnaHQgdw=="), StringView(u8"bGlnaHQgdw"), StringView(u8"light w")},
+            {StringView(u8"bGlnaHQgd28="), StringView(u8"bGlnaHQgd28"), StringView(u8"light wo")},
+            {StringView(u8"bGlnaHQgd29y"), StringView(u8"bGlnaHQgd29y"), StringView(u8"light wor")},
+        };
+
+        for (const Vector& vector : vectors) {
+            Buffer encoded;
+            STD_INSIST(base64Encode(vector.plain, encoded) == vector.padded);
+
+            u8 bytes[16];
+            memcpy(bytes, vector.padded.data(), vector.padded.length());
+            size_t size = vector.padded.length();
+            STD_INSIST(base64DecodeInPlace(bytes, size));
+            STD_INSIST(StringView(bytes, size) == vector.plain);
+
+            memcpy(bytes, vector.unpadded.data(), vector.unpadded.length());
+            size = vector.unpadded.length();
+            STD_INSIST(base64DecodeInPlace(bytes, size));
+            STD_INSIST(StringView(bytes, size) == vector.plain);
+        }
+    }
 }

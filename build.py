@@ -866,6 +866,35 @@ kitty_utf8 = command(
 )
 
 
+kitty_transaction_cases = (
+    kitty_root / "transaction_file_names.txt"
+).read_text().split()
+kitty_transaction_tests = []
+for case in kitty_transaction_cases:
+    kitty_transaction_tests.append(command(
+        name="kitty_transaction_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/kitty/transaction_adapter.py",
+            "$(S)/tests/kitty/transaction_cases.py",
+            "$(S)/tests/kitty/transaction_file_names.txt",
+            "$(S)/tests/kitty/upstream/parser.py",
+        ],
+        outputs=[f"$(B)/tests/kitty/transaction/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/kitty/transaction_adapter.py",
+            case,
+            f"$(B)/tests/kitty/transaction/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="KT",
+        color="cyan",
+    ))
+
+
 vte_root = Path(__file__).parent / "tests" / "vte"
 vte_cases = (vte_root / "file_names.txt").read_text().split()
 vte_tests = []
@@ -2790,6 +2819,7 @@ group(
     *kitty_screen_tests,
     kitty_screen_validation,
     kitty_utf8,
+    *kitty_transaction_tests,
     *vte_tests,
     vte_validation,
     *vte_known_tests,

@@ -7516,6 +7516,9 @@ u64 VtermImpl::presentationRevision() const {
 }
 
 void VtermImpl::parserResetGraphemeInput() {
+    if (utf8dec.checkPrematureEOS()) {
+        placeGraphicChar();
+    }
     resetGraphemeInput();
 }
 
