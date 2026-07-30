@@ -265,6 +265,19 @@ pending-wrap, rendition, charset GL/GR state, origin mode относительн
 нормативное восстановление rendition не имеет аварийного fallback и
 проверяется напрямую.~~
 
+~~Блок `Terminal.zig:12525-13020` учтён. Все 23 setProtectedMode/eraseLine
+tests перенесены в девять Python transactions: right/left/complete EL,
+точный row damage, pending-wrap и soft-wrap reset, BCE без переноса visual
+attributes, обе wide-glyph boundaries, ISO SPA/EPA protection, DEC DECSCA
+protection и selective DECSEL для всех трёх направлений. Ghostty хранит один
+protected flag вместе с «последним» видом protection, поэтому его cases
+`dec most recent` теряют ранее установленную ISO protection. Этот storage
+artifact не перенесён: ECMA EL независимо уважает ISO protected areas, DECSEL
+уважает только DECSCA, а переключение одного механизма не уничтожает другой.
+Именно такая раздельная семантика уже используется DEC/ECMA matrices проекта;
+историческое xterm-исключение, где DECSEL также уважает ISO protection,
+остаётся backward-compatibility divergence, а не oracle.~~
+
 Не взяты также 94 initial fuzz seeds, но они имеют низкую ценность рядом с полным cmin.
 
 ### Kitty
