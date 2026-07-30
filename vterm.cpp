@@ -360,6 +360,8 @@ namespace {
         std::string getHyperlink(int pX, int pY) const;
         void mouseWheelUp(u16 count = 1);
         void mouseWheelDown(u16 count = 1);
+        void mouseWheelRight(u16 count = 1);
+        void mouseWheelLeft(u16 count = 1);
         void selectStart(int pX, int pY, bool cycleSnapTo);
         void selectExtend(int pX, int pY, bool cycleSnapTo);
         void selectUpdate(int pX, int pY);
@@ -1863,7 +1865,8 @@ bool VtermInput::scroll(const ScrollInput& input) {
     updatePointer(input.pixelX, input.pixelY, input.modifiers);
     const MouseTrackingState tracking = terminal->mouseTrk;
     const bool reporting = mouse.protocolActive(input.modifiers, tracking.mode);
-    const MouseWheelSteps steps = mouse.consumeWheel(input.x, input.y, reporting);
+    const bool alternate = terminal->altScrollMode && terminal->altScreenBufferMode;
+    const MouseWheelSteps steps = mouse.consumeWheel(input.x, input.y, reporting || alternate);
     if (reporting) {
         for (int k = 0; k < steps.y; ++k) {
             sendMouseButtonProtocol(MouseEventType::Press, 4, input.pixelX, input.pixelY, input.modifiers, tracking);
@@ -1877,10 +1880,17 @@ bool VtermInput::scroll(const ScrollInput& input) {
         for (int k = 0; k < steps.x; ++k) {
             sendMouseButtonProtocol(MouseEventType::Press, 7, input.pixelX, input.pixelY, input.modifiers, tracking);
         }
-    } else if (steps.y > 0) {
-        terminal->mouseWheelUp(steps.y);
-    } else if (steps.y < 0) {
-        terminal->mouseWheelDown(-steps.y);
+    } else {
+        if (steps.y > 0) {
+            terminal->mouseWheelUp(steps.y);
+        } else if (steps.y < 0) {
+            terminal->mouseWheelDown(-steps.y);
+        }
+        if (steps.x > 0) {
+            terminal->mouseWheelRight(steps.x);
+        } else if (steps.x < 0) {
+            terminal->mouseWheelLeft(-steps.x);
+        }
     }
     return true;
 }
@@ -2710,6 +2720,22 @@ void VtermImpl::mouseWheelDown(u16 count) {
         cf->scrollView(-(i32)(count));
         refreshBlinkingText();
         redraw();
+    }
+}
+
+void VtermImpl::mouseWheelRight(u16 count) {
+    if (altScrollMode && altScreenBufferMode) {
+        for (u16 k = 0; k < count; ++k) {
+            writePty(VtKey::Right);
+        }
+    }
+}
+
+void VtermImpl::mouseWheelLeft(u16 count) {
+    if (altScrollMode && altScreenBufferMode) {
+        for (u16 k = 0; k < count; ++k) {
+            writePty(VtKey::Left);
+        }
     }
 }
 

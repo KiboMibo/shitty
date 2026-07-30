@@ -122,7 +122,11 @@ keys.~~
 - adapter — 53 теста;
 - InputEngine — 25;
 - input adapter — 9;
-- mouse — 5;
+- ~~mouse — все 5 methods и 1 430 data assertions перенесены. Для legacy
+  coordinates сохранены bounds xterm (223 byte, 2015 UTF-8), а не
+  Windows Terminal (95 и `SHORT_MAX - 32`). Импорт добавил отсутствовавший
+  horizontal alternate-scroll: wheel теперь порождает Left/Right, включая
+  application cursor mode;~~
 - Kitty keyboard — 4;
 - selection — 21;
 - terminal buffer — 10;
