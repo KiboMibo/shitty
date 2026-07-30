@@ -169,6 +169,20 @@ guarded-area и DEC selective-erase semantics. Ghostty style refcount —
 проверяется native GC tests, а продуктовый ECH проверяет отсутствие stale
 attributes и hyperlink.~~
 
+~~Блок `Terminal.zig:8980-9808` учтён. Все варианты IND и RI перенесены либо
+сопоставлены с независимыми esctest: обычное перемещение, верхняя/нижняя
+граница экрана, vertical region, нахождение снаружи region и совместная
+семантика horizontal margins. Добавлены буквальные product transactions для
+partial-width RI, точного cursor/cell damage, переноса и очистки hyperlink,
+blank-row erase colors, top-anchored primary history, отсутствия history у
+alternate и полного сочетания обеих пар margins. Primary и alternate
+проверяются через наблюдаемый viewport/history, а не внутренний Ghostty
+PageList. Ghostty помечает обе строки dirty даже при IND без изменения cells;
+Shitty корректнее передаёт cursor отдельно и оставляет клеточный damage пустым.
+Page-local `hyperlink_set.count()` является деталью чужого storage: отсутствие
+stale ссылок в cells проверено здесь, а освобождение недостижимого CellExtra —
+native GC tests.~~
+
 Не взяты также 94 initial fuzz seeds, но они имеют низкую ценность рядом с полным cmin.
 
 ### Kitty
