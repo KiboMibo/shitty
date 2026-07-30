@@ -329,6 +329,8 @@ namespace {
         void eraseMultilineMulticellsInRow(u16 row, u16 left, u16 right, const TerminalCell& attrs);
         void eraseMulticellSplitAt(u16 row, u16 boundary, const TerminalCell& attrs);
         void eraseIncompleteSingleLineMulticells(u16 row, u16 left, u16 right, const TerminalCell& attrs);
+        bool completeMulticellAt(i32 row, u16 column) const noexcept;
+        void eraseIncompleteMulticellsInRect(u16 top, u16 left, u16 bottom, u16 right, const TerminalCell& attrs);
 
         ResizeState* moveIntoState();
         void restoreLayoutState(ResizeState& state, u16 rows, const TerminalColors* colors);
@@ -2155,6 +2157,49 @@ void ScreenBase<Coord, Epoch>::eraseIncompleteSingleLineMulticells(u16 row, u16 
 }
 
 template <typename Coord, typename Epoch>
+bool ScreenBase<Coord, Epoch>::completeMulticellAt(i32 row, u16 column) const noexcept {
+    const MulticellView block = cellExtras().multicell(getLogicalRowPtr(row)[column]);
+    if (!block.valid()) {
+        return true;
+    }
+    if (block.column > column) {
+        return false;
+    }
+    const i32 originRow = row - block.row;
+    const u16 originColumn = column - block.column;
+    if (originRow < -(i32)(historyRows) || originRow + block.spec.rows > nRows || (u32)(originColumn) + block.spec.columns > nCols) {
+        return false;
+    }
+    for (u16 bandRow = 0; bandRow < block.spec.rows; ++bandRow) {
+        const TerminalCell* cells = getLogicalRowPtr(originRow + bandRow);
+        for (u16 bandColumn = 0; bandColumn < block.spec.columns; ++bandColumn) {
+            const MulticellView member = cellExtras().multicell(cells[originColumn + bandColumn]);
+            if (member.identity != block.identity || member.row != bandRow || member.column != bandColumn) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+template <typename Coord, typename Epoch>
+void ScreenBase<Coord, Epoch>::eraseIncompleteMulticellsInRect(u16 top, u16 left, u16 bottom, u16 right, const TerminalCell& attrs) {
+    for (u16 row = top; row < bottom; ++row) {
+        Row* object = rawLogicalRowObject(row);
+        if (object == nullptr || !object->metadata.multicell) {
+            continue;
+        }
+        for (u16 column = left; column < right; ++column) {
+            TerminalCell& cell = object->cells[column];
+            if (cellExtras().multicell(cell).valid() && !completeMulticellAt(row, column)) {
+                cell = attrs;
+            }
+        }
+        refreshRowMetadata(*object);
+    }
+}
+
+template <typename Coord, typename Epoch>
 TerminalCell* ScreenBase<Coord, Epoch>::prepareSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs) {
     RowSlot& slot = logicalRowSlot(row);
     return prepareSpan(slot, row, start, count, eraseAttrs);
@@ -2634,16 +2679,14 @@ void ScreenBase<Coord, Epoch>::copyRectangle(u16 sourceTop, u16 sourceLeft, u16 
         if (rowWidth == 0) {
             continue;
         }
+        eraseMulticellsInRect(targetTop + row, targetLeft, targetTop + row + 1, targetLeft + rowWidth, eraseAttrs);
         clearWideBoundary(targetTop + row, targetLeft, eraseAttrs);
         clearWideBoundary(targetTop + row, targetLeft + rowWidth, eraseAttrs);
         TerminalCell* destination = mutableLogicalRow(targetTop + row) + targetLeft;
         for (u16 column = 0; column < rowWidth; ++column) {
             destination[column] = source[column];
         }
-        logicalRowSlot(targetTop + row)->metadata.protection |= rowProtection(source, rowWidth);
-        if (rowContainsWide(source, rowWidth)) {
-            markLogicalRowWide(targetTop + row);
-        }
+        refreshRowMetadata(*logicalRowSlot(targetTop + row));
         repairWideBoundary(targetTop + row, targetLeft, eraseAttrs);
         repairWideBoundary(targetTop + row, targetLeft + rowWidth, eraseAttrs);
         damageRow(targetTop + row, targetLeft, targetLeft + rowWidth);
@@ -2651,6 +2694,10 @@ void ScreenBase<Coord, Epoch>::copyRectangle(u16 sourceTop, u16 sourceLeft, u16 
             invalidateSelection(Rect(targetLeft, targetTop + row, targetLeft + rowWidth, targetTop + row));
         }
         source += rowWidth;
+    }
+    for (u16 row = 0; row < height; ++row) {
+        const u16 rowWidth = copiedWidths[row];
+        eraseIncompleteMulticellsInRect(targetTop + row, targetLeft, targetTop + row + 1, targetLeft + rowWidth, eraseAttrs);
     }
 }
 

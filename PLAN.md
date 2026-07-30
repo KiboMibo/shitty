@@ -417,10 +417,13 @@ query/resize request, title query/update/restore и version query; оригин�
 - ~~TextSizing scrollback identity — pointer-row scrolling preserves the
   shared block handle and every band's coordinate after the head enters
   history.~~
-- TextSizing editing/selection/render — 20 cases remain: partial
-  rectangle/copy boundary rules; visual selection expansion and drag
-  clamping; blocks crossing margins, wrapping runs and deferred wrap;
-  reference/GPU emission of every visible band with fractional alignment.
+- ~~TextSizing DECCRA — a complete copied block preserves every band's
+  sizing coordinates; partial source copies are blanked, and intersecting
+  destination blocks are erased whole before the copy.~~
+- TextSizing editing/selection/render — 19 cases remain: partial rectangle
+  boundary rules; visual selection expansion and drag clamping; blocks
+  crossing margins, wrapping runs and deferred wrap; reference/GPU emission
+  of every visible band with fractional alignment.
 - ~~Grid — all 32 cases accounted: 25 terminal-observable resize, reflow,
   history, viewport, sparse-row and semantic-region cases are rewritten in
   Python; seven private storage/rendering cases are mapped to native Screen

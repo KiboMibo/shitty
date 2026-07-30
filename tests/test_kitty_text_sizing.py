@@ -231,6 +231,35 @@ class KittyTextSizingTest(unittest.TestCase):
             self.assertEqual([block.row for _, block in blocks], [0, 1, 2])
             self.assertTrue(all(block.rows == 3 for _, block in blocks))
 
+    def test_deccra_copies_a_complete_block_with_every_band(self):
+        with Shitty(columns=10, rows=8) as terminal:
+            terminal.write(osc66(b"s=2", b"A"))
+            terminal.write(b"\x1b[1;1;2;2;1;5;1;1$v")
+            for row in range(2):
+                for column in range(2):
+                    block = terminal.multicell(4 + row, column)
+                    self.assertTrue(block.valid)
+                    self.assertEqual((block.row, block.column), (row, column))
+                    self.assertEqual((block.rows, block.columns), (2, 2))
+
+    def test_deccra_drops_a_partial_source_block(self):
+        with Shitty(columns=10, rows=8) as terminal:
+            terminal.write(osc66(b"s=2", b"A"))
+            terminal.write(b"\x1b[1;1;1;2;1;5;1;1$v")
+            for column in range(2):
+                self.assertFalse(terminal.multicell(4, column).valid)
+            self.assertTrue(terminal.multicell(0, 0).valid)
+            self.assertTrue(terminal.multicell(1, 0).valid)
+
+    def test_deccra_intersection_erases_the_old_destination_block(self):
+        with Shitty(columns=10, rows=8) as terminal:
+            terminal.write(b"A\x1b[5;1H" + osc66(b"s=2", b"X"))
+            terminal.write(b"\x1b[1;1;1;1;1;5;1;1$v")
+            for row in range(4, 6):
+                for column in range(2):
+                    self.assertFalse(terminal.multicell(row, column).valid)
+            self.assertEqual(terminal.snapshot().cell(0, 4).char, "A")
+
     def test_adjacent_blocks_keep_distinct_identity(self):
         with Shitty(columns=12, rows=2) as terminal:
             terminal.write(osc66(b"w=2", b"A") + osc66(b"w=2", b"B"))
