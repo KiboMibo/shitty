@@ -129,7 +129,7 @@ jobs:
 
   tests-asan:
     name: Tests ASan
-    needs: build-asan
+    needs: [tests, build-asan]
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -207,7 +207,7 @@ jobs:
 
   tests-ubsan:
     name: Tests UBSan
-    needs: build-ubsan
+    needs: [tests, build-ubsan]
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
