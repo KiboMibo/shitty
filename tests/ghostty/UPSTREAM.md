@@ -22,5 +22,11 @@ and bytewise. The five resize tests preceding those streams are accounted in
 allocator-failure case is inapplicable to libstd's fatal OOM contract. Dynamic
 semantic prompt inputs and assertions from `Terminal.zig:13845-14320` are
 ported in `test_ghostty_semantic_prompt.py`, including adjacent OSC 133 N/P
-stream cases. Other dynamic inputs and internal semantic assertions remain for
-a later adapter.
+stream cases. The observable tail of `Terminal.zig:14321-EOF` is ported in
+`test_ghostty_terminal_tail.py`: reset state, resize/reflow, DECCOLM,
+alternate-screen modes, style preservation, and the wide-glyph delete-lines
+regression. Four exposed interoperability gaps remain explicit skipped tests.
+Runtime cursor-default mutation has no corresponding public Shitty option,
+tracked pins are Ghostty storage internals, status-display selection is not
+implemented, and Ghostty's private glyph APC protocol is outside the terminal
+protocol scope.

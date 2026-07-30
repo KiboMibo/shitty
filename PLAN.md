@@ -314,6 +314,20 @@ Fish-эвристика для marker C в начале строки, `click_eve
 требовавшие строгого порядка A/B/C/D, исправлены по совпадающей семантике
 Ghostty и WezTerm: каждый marker независимо восстанавливает состояние.~~
 
+~~Хвост `Terminal.zig:14321-EOF` полностью инвентаризирован и его наблюдаемая
+часть перенесена в `test_ghostty_terminal_tail.py`: RIS state, resize/reflow,
+DECCOLM, режимы alternate screen, сохранение уникальных styles и wide-glyph
+delete-lines regression. Runtime mutation cursor defaults не имеет аналога в
+публичной конфигурации Shitty, tracked pins являются внутренностью Ghostty,
+status display пока не реализован, а частный Ghostty glyph APC исключён вместе
+с graphics protocols. Четыре найденных продуктовых расхождения сохранены
+явными skipped tests, а не потеряны при переносе.~~
+
+- Исправить четыре расхождения из хвоста Ghostty Terminal: не reflow hard
+  lines при выключенном DECAWM, отслеживать saved cursor при reflow, сбрасывать
+  pending-wrap у восстановленного cursor и сохранять DECLRMM при DECCOLM,
+  сбрасывая только сами margins.
+
 Не взяты также 94 initial fuzz seeds, но они имеют низкую ценность рядом с полным cmin.
 
 ### Kitty
