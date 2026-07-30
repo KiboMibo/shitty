@@ -37,6 +37,23 @@ class GhosttyTerminalInputTest(unittest.TestCase):
             self.assertTrue(snapshot.cell(4, 0).wrapped)
             self.assertTrue(snapshot.cell(4, 1).wrapped)
 
+    def test_soft_wrap_preserves_prompt_semantics(self):
+        with Shitty(columns=3, rows=3) as terminal:
+            terminal.write(b"\x1b]133;A\x1b\\")
+            self.assertEqual(terminal.last_update(), (0, 0))
+            terminal.write(b"hello")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[:2], ["hel", "lo "])
+            self.assertTrue(snapshot.cell(2, 0).wrapped)
+            self.assertEqual(
+                [
+                    snapshot.cell(column, row).semantic
+                    for row, width in ((0, 3), (1, 2))
+                    for column in range(width)
+                ],
+                [1] * 5,
+            )
+
     def test_input_forces_scroll(self):
         with Shitty(columns=1, rows=5) as terminal:
             terminal.write_chunks(*[bytes((byte,)) for byte in b"abcdef"])
@@ -109,6 +126,57 @@ class GhosttyTerminalInputTest(unittest.TestCase):
             self.assertTrue(snapshot.cell(0, 1).double_width)
             self.assertTrue(snapshot.cell(1, 1).double_width_continuation)
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (2, 1))
+
+    def test_wide_character_without_autowrap_is_not_truncated(self):
+        for prefix in (b"AAAA", b"AAAAA"):
+            with self.subTest(prefix=prefix), Shitty(
+                columns=5,
+                rows=2,
+            ) as terminal:
+                terminal.write(b"\x1b[?7l" + prefix)
+                before = terminal.model_digest()
+                terminal.write("🚨".encode())
+                snapshot = terminal.model_snapshot()
+                self.assertEqual(snapshot.lines[0], prefix.decode().ljust(5))
+                self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (4, 0))
+                self.assertFalse(snapshot.cell(4, 0).double_width)
+                self.assertFalse(
+                    snapshot.cell(4, 0).double_width_continuation
+                )
+                self.assertEqual(terminal.model_digest(), before)
+                self.assertEqual(terminal.last_update(), (0, 0))
+
+    def test_right_margin_wrap_and_damage_are_row_precise(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(
+                b"123456789"
+                b"\x1b[?69h\x1b[3;5s"
+                b"\x1b[1;5H"
+            )
+            terminal.write(b"X")
+            self.assertEqual(terminal.last_update_rows(), (0,))
+            self.assertTrue(terminal.cursor_pending_wrap())
+
+            terminal.write(b"Y")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[:2], ["1234X6789 ", "  Y       "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (3, 1))
+            self.assertEqual(terminal.last_update_rows(), (0, 1))
+            self.assertTrue(snapshot.cell(4, 0).wrapped)
+
+    def test_wide_character_wraps_wholly_inside_horizontal_margins(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(b"\x1b[?69h\x1b[3;5s\x1b[1;5H")
+            terminal.write("😀".encode())
+            snapshot = terminal.model_snapshot()
+            self.assertFalse(snapshot.cell(4, 0).drawn)
+            self.assertFalse(snapshot.cell(4, 0).wrapped)
+            self.assertTrue(snapshot.cell(2, 1).double_width)
+            self.assertTrue(
+                snapshot.cell(3, 1).double_width_continuation
+            )
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (4, 1))
+            self.assertEqual(terminal.last_update_rows(), (0, 1))
 
     def test_wide_character_in_single_column_terminal(self):
         with Shitty(columns=1, rows=2) as terminal:

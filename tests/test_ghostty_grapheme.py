@@ -129,6 +129,22 @@ class GhosttyGraphemeTest(unittest.TestCase):
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
             self.assertEqual(snapshot.cell(0, 1).char, "X")
 
+    def test_vs16_without_autowrap_does_not_make_half_wide_cluster(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b[?7lAAAA" + "❤".encode())
+            before = terminal.model_digest()
+            terminal.write("️".encode())
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[0], "AAAA❤")
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (4, 0))
+            self.assertEqual(snapshot.cell(4, 0).grapheme, ())
+            self.assertFalse(snapshot.cell(4, 0).double_width)
+            self.assertFalse(
+                snapshot.cell(4, 0).double_width_continuation
+            )
+            self.assertEqual(terminal.model_digest(), before)
+            self.assertEqual(terminal.last_update(), (0, 0))
+
     def test_repeated_vs16_clusters_remain_distinct(self):
         with Shitty(columns=6, rows=2) as terminal:
             terminal.write_chunks(

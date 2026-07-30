@@ -111,6 +111,22 @@ Prepend+ASCII отвергнут в пользу UAX #29 GB9b, уже прове
 Запись при открытом scrollback уже покрыта более строгим
 `test_write_while_scrolled_changes_only_live_screen`.~~
 
+~~Блок `Terminal.zig:6073-6899` учтён. Charset designation, locking/single
+shifts, GL/GR, полный DEC/NRC mapping и отсутствие damage от одной смены
+charset проверяются `test_unicode_charset_matrix.py`; non-ASCII после
+designation остаётся Unicode. Kitty unicode placeholder относится к
+исключённому Kitty Graphics protocol. Soft wrap и продолжение semantic prompt
+перенесены как наблюдаемые cell semantics. Right-margin wrap, выход за margin,
+перенос wide glyph целиком и точные damage rows проверяются вместе с
+горизонтальными margins. Найден и исправлен grid-инвариант DECAWM=off:
+двухколоночный glyph больше не записывается усечённой одноколоночной клеткой,
+а VS16 не превращает последнюю клетку в половину wide pair. Это соответствует
+большинству Ghostty/Alacritty/xterm.js; отличающиеся Kitty и Foot допускают
+clip/overwrite. Hyperlink start/reuse/end/change/overwrite, wide-edge
+hyperlink и GC identity уже строже покрыты OSC matrix и protocol tests.
+LF/CR/LNM, pending-wrap reset, origin/margins, BS, HT/CBT и tab stops покрыты
+cursor/mode matrices и импортированными esctest cases.~~
+
 Не взяты также 94 initial fuzz seeds, но они имеют низкую ценность рядом с полным cmin.
 
 ### Kitty
