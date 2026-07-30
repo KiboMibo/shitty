@@ -423,10 +423,12 @@ query/resize request, title query/update/restore и version query; оригин�
 - ~~TextSizing placement boundaries — imported the deferred-wrap, block
   extending beyond horizontal margins, cursor below the scrolling region and
   multi-block wrapping-run cases; every surviving block is complete.~~
-- TextSizing editing/selection/render — 15 cases remain: partial rectangle
-  boundary rules; visual selection expansion and drag clamping; replacement
-  interactions between differently sized blocks; and reference/GPU emission
-  of every visible band with fractional alignment.
+- ~~TextSizing replacement invariants — a short block erases an intersected
+  tall block whole, a block replacing a wide continuation clears its head,
+  and insert mode never orphans a neighbouring tall block.~~
+- TextSizing editing/selection/render — 12 cases remain: partial rectangle
+  boundary rules; visual selection expansion and drag clamping; and
+  reference/GPU emission of every visible band with fractional alignment.
 - ~~Grid — all 32 cases accounted: 25 terminal-observable resize, reflow,
   history, viewport, sparse-row and semantic-region cases are rewritten in
   Python; seven private storage/rendering cases are mapped to native Screen

@@ -309,6 +309,41 @@ class KittyTextSizingTest(unittest.TestCase):
                                 (band_row, band_column),
                             )
 
+    def test_short_block_over_tall_block_erases_the_tall_block_whole(self):
+        with Shitty(columns=20, rows=6) as terminal:
+            terminal.write(osc66(b"s=3:w=2", b"X"))
+            terminal.write(b"\x1b[2;3H" + osc66(b"w=2", b"Y"))
+            for row in range(3):
+                for column in range(6):
+                    if row == 1 and 2 <= column < 4:
+                        continue
+                    self.assertFalse(terminal.multicell(row, column).valid)
+            replacement = terminal.multicell(1, 2)
+            self.assertTrue(replacement.valid)
+            self.assertEqual((replacement.rows, replacement.columns), (1, 2))
+
+    def test_sized_block_over_wide_continuation_clears_the_wide_head(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write("中".encode())
+            terminal.write(b"\x1b[1;2H" + osc66(b"w=2", b"Z"))
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).char, " ")
+            self.assertEqual(snapshot.cell(1, 0).char, "Z")
+            self.assertTrue(terminal.multicell(0, 1).valid)
+
+    def test_insert_mode_does_not_orphan_a_neighbouring_block(self):
+        with Shitty(columns=12, rows=3) as terminal:
+            terminal.write(b"\x1b[1;5H" + osc66(b"s=2", b"B"))
+            terminal.write(b"\x1b[H\x1b[4h" + osc66(b"s=2", b"X"))
+            for row in range(2):
+                for column in range(12):
+                    block = terminal.multicell(row, column)
+                    if column < 2:
+                        self.assertTrue(block.valid)
+                        self.assertEqual((block.row, block.column), (row, column))
+                    else:
+                        self.assertFalse(block.valid)
+
     def test_adjacent_blocks_keep_distinct_identity(self):
         with Shitty(columns=12, rows=2) as terminal:
             terminal.write(osc66(b"w=2", b"A") + osc66(b"w=2", b"B"))
