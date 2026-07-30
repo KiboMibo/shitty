@@ -81,6 +81,20 @@ zero-width start/pending-wrap, long line и все right-edge/one-column wide-ch
 без базы игнорируется; standalone combining marks сохранены ради Mosh и
 существующего терминального fallback.~~
 
+~~Блок `Terminal.zig:4615-5172` учтён. Пять wide-cell overwrite regressions
+перенесены в `test_ghostty_terminal_input.py`: очистка обеих половин, отсутствие
+порчи хвоста предыдущей строки и удаление bold/direct-background metadata.
+Применимая Unicode-семантика перенесена в `test_ghostty_grapheme.py` через
+побуквенную подачу: family/pirate ZWJ, VS15/VS16 и valid emoji modifier.
+Disabled/toggled mode 2027 неприменимы, поскольку Shitty намеренно сообщает
+permanently set и всегда хранит extended grapheme clusters. `graphemeWidth`
+parity полнее проверяется официальными Unicode 17 vectors и полным
+ucs-detect. Ghostty-разрыв quote + emoji modifier сохраняет удалённое из
+Unicode 11 правило GB10; актуальный UAX #29 GB9 и Kitty/utf8proc объединяют
+modifier как Extend, поэтому зафиксирован современный результат. Из этого же
+следуют неприменимость четырёх disabled-mode VS tests и отсутствие их dirty
+transition.~~
+
 Не взяты также 94 initial fuzz seeds, но они имеют низкую ценность рядом с полным cmin.
 
 ### Kitty

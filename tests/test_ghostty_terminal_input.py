@@ -118,6 +118,56 @@ class GhosttyTerminalInputTest(unittest.TestCase):
             self.assertFalse(snapshot.cell(1 - 1, 1).double_width)
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 1))
 
+    def test_narrow_character_replaces_both_halves_of_wide_character(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write("😀".encode())
+            terminal.write(b"\x1b[H")
+            terminal.write(b"A")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 0))
+            self.assertEqual(snapshot.cell(0, 0).char, "A")
+            self.assertFalse(snapshot.cell(0, 0).double_width)
+            self.assertFalse(snapshot.cell(1, 0).drawn)
+            self.assertFalse(snapshot.cell(1, 0).double_width_continuation)
+
+    def test_overwriting_wide_cell_does_not_corrupt_previous_row_tail(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(("中" * 10).encode())
+            terminal.write(b"\x1b[2;1H")
+            terminal.write(b"A")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.cell(0, 1).char, "A")
+            self.assertFalse(snapshot.cell(0, 1).double_width)
+            self.assertEqual(snapshot.cell(8, 0).char, "中")
+            self.assertTrue(snapshot.cell(8, 0).double_width)
+            self.assertTrue(snapshot.cell(9, 0).double_width_continuation)
+
+    def test_overwriting_wide_continuation_clears_leading_half(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write("橋".encode())
+            terminal.write(b"\x1b[1;2H")
+            terminal.write(b"X")
+            snapshot = terminal.model_snapshot()
+            self.assertFalse(snapshot.cell(0, 0).drawn)
+            self.assertFalse(snapshot.cell(0, 0).double_width)
+            self.assertEqual(snapshot.cell(1, 0).char, "X")
+            self.assertFalse(snapshot.cell(1, 0).double_width_continuation)
+            self.assertEqual(snapshot.lines[0], " X   ")
+
+    def test_replacing_wide_character_clears_attributes_on_both_halves(self):
+        for attribute in (b"\x1b[1m", b"\x1b[48;2;255;0;0m"):
+            with self.subTest(attribute=attribute):
+                with Shitty(columns=8, rows=2) as terminal:
+                    terminal.write(attribute + "😀".encode())
+                    terminal.write(b"\x1b[H\x1b[0mA")
+                    snapshot = terminal.model_snapshot()
+                    self.assertEqual(snapshot.cell(0, 0).char, "A")
+                    self.assertFalse(snapshot.cell(0, 0).bold)
+                    self.assertEqual(snapshot.cell(0, 0).background, (0, 0, 0))
+                    self.assertFalse(snapshot.cell(1, 0).drawn)
+                    self.assertFalse(snapshot.cell(1, 0).bold)
+                    self.assertEqual(snapshot.cell(1, 0).background, (0, 0, 0))
+
 
 if __name__ == "__main__":
     unittest.main()
