@@ -200,7 +200,13 @@ keys.~~
   SU/SD/IL/DL/RI внутри vertical margins, без margins и внутри совместного
   vertical/horizontal rectangular region. Перенесены все 12 upstream-ветвей
   с полным grid и cursor assertions;~~
-- `ScreenBufferTests`, remaining — 47 методов; portable assertions переносить
+- ~~`ScreenBufferTests`, line-feed/mode/reset block — ещё 7 методов:
+  IND/NEL на page edges и в rectangular margins, 3×3 IL/DL/RI erase-color
+  matrix, LNM, DECSCNM, DECOM вместе с DECLRMM, DECAWM с wide glyph и RIS
+  после заполнения history. Win32 movable viewport адаптирован к terminal
+  screen+history, а private render-settings lookup проверяется через
+  опубликованный renderer state и сохранённые cell colors;~~
+- `ScreenBufferTests`, remaining — 40 методов; portable assertions переносить
   блоками, Win32-only console buffer/virtual-bottom ABI явно
   классифицировать, не выдавая его за terminal semantics.
 

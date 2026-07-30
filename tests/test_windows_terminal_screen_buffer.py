@@ -81,6 +81,13 @@ PORTED_METHODS = {
     "InsertLinesInMargins",
     "DeleteLinesInMargins",
     "ReverseLineFeedInMargins",
+    "LineFeedEscapeSequences",
+    "ScrollLines256Colors",
+    "SetLineFeedMode",
+    "SetScreenMode",
+    "SetOriginMode",
+    "SetAutoWrapMode",
+    "HardResetBuffer",
 }
 
 CLASSIFIED_METHODS = {
@@ -1618,6 +1625,324 @@ class WindowsTerminalScreenBufferMarginScrollingTest(unittest.TestCase):
             horizontal=True,
             position=(4, 1),
         )
+
+
+class WindowsTerminalScreenBufferModesTest(unittest.TestCase):
+    def test_line_feed_escape_sequences(self):
+        for name, sequence, expected_x in (
+            ("IND", b"\x1bD", 4),
+            ("NEL", b"\x1bE", 0),
+        ):
+            with self.subTest(control=name, location="top"), Shitty(
+                columns=8,
+                rows=6,
+                save_lines=0,
+            ) as terminal:
+                terminal.write(b"\x1b[1;5H" + sequence)
+                snapshot = terminal.snapshot()
+                self.assertEqual(
+                    (snapshot.cursor_x, snapshot.cursor_y),
+                    (expected_x, 1),
+                )
+
+            with self.subTest(control=name, location="bottom"), Shitty(
+                columns=8,
+                rows=6,
+                save_lines=0,
+            ) as terminal:
+                terminal.write(
+                    put_rows(*(bytes((digit,)) * 8 for digit in b"012345"))
+                    + b"\x1b[6;5H"
+                    + sequence
+                )
+                snapshot = terminal.snapshot()
+                self.assertEqual(
+                    snapshot.lines,
+                    [
+                        "1" * 8,
+                        "2" * 8,
+                        "3" * 8,
+                        "4" * 8,
+                        "5" * 8,
+                        " " * 8,
+                    ],
+                )
+                self.assertEqual(
+                    (snapshot.cursor_x, snapshot.cursor_y),
+                    (expected_x, 5),
+                )
+
+            with self.subTest(
+                control=name,
+                location="vertical-margin",
+            ), Shitty(columns=8, rows=6, save_lines=0) as terminal:
+                terminal.write(
+                    put_rows(
+                        b"A" * 8,
+                        b"1" * 8,
+                        b"2" * 8,
+                        b"3" * 8,
+                        b"Q" * 8,
+                        b"B" * 8,
+                    )
+                    + b"\x1b[2;5r\x1b[5;5H"
+                    + sequence
+                )
+                snapshot = terminal.snapshot()
+                self.assertEqual(
+                    snapshot.lines,
+                    [
+                        "A" * 8,
+                        "2" * 8,
+                        "3" * 8,
+                        "Q" * 8,
+                        " " * 8,
+                        "B" * 8,
+                    ],
+                )
+                self.assertEqual(
+                    (snapshot.cursor_x, snapshot.cursor_y),
+                    (expected_x, 4),
+                )
+
+            with self.subTest(
+                control=name,
+                location="rectangular-margin",
+            ), Shitty(columns=8, rows=6, save_lines=0) as terminal:
+                terminal.write(
+                    put_rows(
+                        b"A" * 8,
+                        b"1" * 8,
+                        b"2" * 8,
+                        b"Q" * 8,
+                        b"R" * 8,
+                        b"B" * 8,
+                    )
+                    + b"\x1b[2;5r\x1b[?69h\x1b[3;6s"
+                    + b"\x1b[5;6H"
+                    + sequence
+                )
+                snapshot = terminal.snapshot()
+                self.assertEqual(
+                    snapshot.lines,
+                    [
+                        "A" * 8,
+                        "11222211",
+                        "22QQQQ22",
+                        "QQRRRRQQ",
+                        "RR    RR",
+                        "B" * 8,
+                    ],
+                )
+                self.assertEqual(
+                    (snapshot.cursor_x, snapshot.cursor_y),
+                    (2 if name == "NEL" else 5, 4),
+                )
+
+    def test_scroll_lines_256_colors(self):
+        colors = (
+            ("ansi", b"\x1b[42m", 2, (0, 205, 0)),
+            ("indexed", b"\x1b[48;5;20m", 20, (0, 0, 215)),
+            ("rgb", b"\x1b[48;2;1;2;3m", -1, (1, 2, 3)),
+        )
+        operations = (
+            ("IL", b"\x1b[10L"),
+            ("DL", b"\x1b[10M"),
+            ("RI", b"\x1bM" * 10),
+        )
+        for color_name, sgr, index, rgb in colors:
+            for operation_name, operation in operations:
+                with self.subTest(
+                    color=color_name,
+                    operation=operation_name,
+                ), Shitty(columns=8, rows=4, save_lines=0) as terminal:
+                    terminal.write(
+                        b"\x1b[1;3r" + sgr + b"\x1b[H"
+                        + operation + b"foo"
+                    )
+                    snapshot = terminal.model_snapshot()
+                    self.assertEqual(
+                        (snapshot.cursor_x, snapshot.cursor_y),
+                        (3, 0),
+                    )
+                    self.assertEqual(
+                        snapshot.lines[:3],
+                        ["foo     "] + [" " * 8] * 2,
+                    )
+                    for column, row in (
+                        (0, 0),
+                        (1, 0),
+                        (2, 0),
+                        (3, 0),
+                        (0, 1),
+                        (0, 2),
+                    ):
+                        cell = snapshot.cell(column, row)
+                        self.assertEqual(cell.background_index, index)
+                        self.assertEqual(cell.background, rgb)
+
+    def test_set_line_feed_mode(self):
+        with Shitty(columns=8, rows=3) as terminal:
+            terminal.write(b"\x1b[20h\x1b[1;5H\nX")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[1][0], "X")
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
+            terminal.key("RETURN")
+            self.assertEqual(terminal.read_input(), b"\r\n")
+
+            terminal.write(b"\x1b[20l\x1b[1;5H\nX")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[1][4], "X")
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (5, 1))
+            terminal.key("RETURN")
+            self.assertEqual(terminal.read_input(), b"\r")
+
+    def test_set_screen_mode(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            self.assertFalse(terminal.render_state().screen_reverse)
+            terminal.write(b"\x1b[38;2;12;34;56;48;2;78;90;12mX")
+            cell = terminal.model_snapshot().cell(0, 0)
+            self.assertEqual(cell.foreground, (12, 34, 56))
+            self.assertEqual(cell.background, (78, 90, 12))
+
+            terminal.write(b"\x1b[?5h")
+            self.assertTrue(terminal.render_state().screen_reverse)
+            cell = terminal.model_snapshot().cell(0, 0)
+            self.assertEqual(cell.foreground, (12, 34, 56))
+            self.assertEqual(cell.background, (78, 90, 12))
+
+            terminal.write(b"\x1b[?5l")
+            self.assertFalse(terminal.render_state().screen_reverse)
+
+    def test_set_origin_mode(self):
+        with Shitty(columns=80, rows=25) as terminal:
+            terminal.write(b"\x1b[13;41H\x1b[6;20r")
+            self.assertEqual(
+                (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                (0, 0),
+            )
+            terminal.write(b"\x1b[?69h\x1b[13;41H\x1b[31;50s")
+            self.assertEqual(
+                (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                (0, 0),
+            )
+            for position, expected in (
+                (b"\x1b[13;41H", (40, 12)),
+                (b"\x1b[23;61H", (60, 22)),
+            ):
+                terminal.write(position)
+                snapshot = terminal.snapshot()
+                self.assertEqual(
+                    (snapshot.cursor_x, snapshot.cursor_y),
+                    expected,
+                )
+
+            terminal.write(b"\x1b[13;41H\x1b[?6h")
+            self.assertEqual(
+                (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                (30, 5),
+            )
+            terminal.write(b"\x1b[13;41H\x1b[6;20r")
+            self.assertEqual(
+                (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                (30, 5),
+            )
+            terminal.write(b"\x1b[13;41H\x1b[31;50s")
+            self.assertEqual(
+                (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                (30, 5),
+            )
+            terminal.write(b"\x1b[8;11H")
+            self.assertEqual(
+                (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                (40, 12),
+            )
+            terminal.write(b"\x1b[100;100H")
+            self.assertEqual(
+                (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                (49, 19),
+            )
+
+            terminal.write(b"\x1b[?6l")
+            self.assertEqual(
+                (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                (0, 0),
+            )
+            terminal.write(b"\x1b[13;41H\x1b[6;20r")
+            self.assertEqual(
+                (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                (0, 0),
+            )
+            terminal.write(b"\x1b[13;41H\x1b[31;50s")
+            self.assertEqual(
+                (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                (0, 0),
+            )
+            terminal.write(b"\x1b[23;61H")
+            self.assertEqual(
+                (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                (60, 22),
+            )
+
+            terminal.write(b"\x1b[r\x1b[s\x1b[13;41H\x1b[?6h")
+            self.assertEqual(
+                (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                (0, 0),
+            )
+            terminal.write(b"\x1b[13;41H")
+            self.assertEqual(
+                (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                (40, 12),
+            )
+
+    def test_set_auto_wrap_mode(self):
+        with Shitty(columns=8, rows=6) as terminal:
+            terminal.write(b"\x1b[1;6Habcdef")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[0][5:], "abc")
+            self.assertEqual(snapshot.lines[1][:3], "def")
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (3, 1))
+
+            terminal.write(b"\x1b[?7l\x1b[3;6Habcdef")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[2][5:], "abf")
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (7, 2))
+
+            terminal.write(b"\x1b[3;6H" + "a😄b".encode())
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[2][5:], "a b")
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (7, 2))
+
+            terminal.write(b"\x1b[3;6H" + "ab😄c".encode())
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[2][5:], "abc")
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (7, 2))
+
+            terminal.write(b"\x1b[?7h\x1b[5;6Habcdef")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[4][5:], "abc")
+            self.assertEqual(snapshot.lines[5][:3], "def")
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (3, 5))
+
+    def test_hard_reset_buffer(self):
+        with Shitty(columns=8, rows=4, save_lines=8) as terminal:
+            default_pen = terminal.pen_state()
+            terminal.write(b"Hello!\r\n")
+            self.assertNotEqual(terminal.snapshot().lines, [" " * 8] * 4)
+            terminal.write(b"\x1bc")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, [" " * 8] * 4)
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
+
+            terminal.write(b"\x1b[41m" + b"Hello!\r\n" * 12)
+            self.assertGreater(terminal.scrollback_state()[0], 0)
+            self.assertNotEqual(terminal.pen_state(), default_pen)
+            terminal.write(b"\x1bc")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, [" " * 8] * 4)
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
+            self.assertEqual(terminal.scrollback_state()[0], 0)
+            self.assertEqual(terminal.pen_state(), default_pen)
 
 
 class WindowsTerminalScreenBufferEraseTest(unittest.TestCase):

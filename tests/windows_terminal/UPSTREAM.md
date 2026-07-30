@@ -196,7 +196,17 @@ the vertical region with and without horizontal margins; IL and DL cover
 vertical margins, the full screen, and the rectangular region; RI covers a
 nonzero top margin, a top margin at the first row, and the rectangular region.
 Every branch compares the complete six-row grid, and every cursor assertion
-made by the upstream test is retained. The remaining 47 methods stay
+made by the upstream test is retained.
+
+The following seven methods cover IND and NEL at the top and bottom of the
+screen and both kinds of scrolling region; the nine IL/DL/RI and
+16/256/direct-color combinations; LNM, DECSCNM, DECOM with DECLRMM, DECAWM
+including both wide-glyph edge cases, and RIS before and after filling
+history. The Win32 movable viewport is translated to the terminal's
+screen-plus-history behavior. Its private render-settings color lookup is
+represented by the published renderer reverse-screen state while the
+underlying cell colors are verified to remain unchanged. RIS additionally
+checks that observable history is removed. The remaining 40 methods stay
 explicitly listed in `PLAN.md`.
 
 The 25 methods in `src/terminal/parser/ut_parser/InputEngineTest.cpp` test the
