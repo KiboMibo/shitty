@@ -7,11 +7,12 @@ import unittest
 from harness import Shitty
 
 
-def window_terminal():
+def window_terminal(**kwargs):
     return Shitty(
         columns=10,
         rows=4,
         extra_arguments=("-allowWindowOps", "true"),
+        **kwargs,
     )
 
 
@@ -46,7 +47,7 @@ class WindowOperationsTest(unittest.TestCase):
             )
 
     def test_resize_distinguishes_omitted_and_zero_dimensions(self):
-        with window_terminal() as terminal:
+        with window_terminal(glyph_px=2, glyph_py=4) as terminal:
             terminal.window_info(screen_width=30, screen_height=20)
             terminal.write(b"\x1b[8;;12t\x1b[8;6;t\x1b[8;0;0t")
             self.assertEqual(
@@ -54,11 +55,11 @@ class WindowOperationsTest(unittest.TestCase):
                 [
                     "WINDOW 8 4 12",
                     "WINDOW 8 6 12",
-                    "WINDOW 8 20 30",
+                    "WINDOW 8 4 13",
                 ],
             )
             snapshot = terminal.model_snapshot()
-            self.assertEqual((snapshot.columns, snapshot.rows), (30, 20))
+            self.assertEqual((snapshot.columns, snapshot.rows), (13, 4))
 
     def test_window_state_reports_normal_and_iconified(self):
         with window_terminal() as terminal:
@@ -117,7 +118,7 @@ class WindowOperationsTest(unittest.TestCase):
                 b"\x1b[5;1080;1920t"
                 b"\x1b[6;1;1t"
                 b"\x1b[8;4;10t"
-                b"\x1b[9;1080;1920t",
+                b"\x1b[9;1076;1916t",
             )
 
     def test_undefined_queries_twelve_and_seventeen_are_ignored(self):

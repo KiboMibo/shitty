@@ -156,11 +156,12 @@ def replace_tab_stops(terminal, columns):
         terminal.write(f"\x1b[{column + 1}G\x1bH".encode())
 
 
-def window_terminal(columns=10, rows=4):
+def window_terminal(columns=10, rows=4, **kwargs):
     return Shitty(
         columns=columns,
         rows=rows,
         extra_arguments=("-allowWindowOps", "true"),
+        **kwargs,
     )
 
 
@@ -379,7 +380,7 @@ class WindowsTerminalScreenBufferInitialTest(unittest.TestCase):
 
 class WindowsTerminalScreenBufferResizeAndColorTest(unittest.TestCase):
     def test_vt_resize(self):
-        with window_terminal() as terminal:
+        with window_terminal(glyph_px=8, glyph_py=16) as terminal:
             for rows, columns in ((30, 80), (40, 80), (40, 90), (12, 12)):
                 terminal.write(f"\x1b[8;{rows};{columns}t".encode())
                 snapshot = terminal.snapshot()
@@ -387,7 +388,7 @@ class WindowsTerminalScreenBufferResizeAndColorTest(unittest.TestCase):
 
             terminal.write(b"\x1b[8;0;0t")
             snapshot = terminal.snapshot()
-            self.assertEqual((snapshot.columns, snapshot.rows), (1920, 1080))
+            self.assertEqual((snapshot.columns, snapshot.rows), (239, 67))
 
     def test_vt_resize_comprehensive(self):
         for delta_columns in (-10, -1, 0, 1, 10):

@@ -196,12 +196,29 @@ def generate(root, case):
 def generate_prefix(root, case, limit=256 * 1024):
     environment = os.environ.copy()
     environment["PATH"] = str(root / "bin") + os.pathsep + environment["PATH"]
+    source = (root / "upstream" / case).read_text()
+    echo_assignment = "CMD='/bin/echo'"
+    option_assignment = "OPT='-n'"
+    if (
+        source.count(echo_assignment) != 1
+        or source.count(option_assignment) != 1
+    ):
+        raise RuntimeError(f"{case} has unexpected echo configuration")
+    # These unbounded generators emit every short fragment through
+    # /bin/echo. Running the same byte stream through the shell builtin
+    # avoids tens of thousands of fork/exec calls while keeping the
+    # preserved upstream source untouched.
+    source = source.replace(echo_assignment, "CMD='printf %s'", 1)
+    source = source.replace(option_assignment, "OPT=''", 1)
+    shell = shutil.which("sh")
+    if shell is None:
+        raise RuntimeError("xterm prefix scenarios require sh")
     # The selected upstream scripts are unbounded generators. Keep stderr out
     # of a pipe so a noisy failure cannot deadlock stdout collection before we
     # have read the requested prefix.
     with tempfile.TemporaryFile() as errors:
         process = subprocess.Popen(
-            [str(root / "upstream" / case)],
+            [shell, "-c", source],
             stdout=subprocess.PIPE,
             stderr=errors,
             env=environment,
@@ -310,7 +327,7 @@ def run_translated_case(case):
         if case == "resize.sh":
             terminal.write(b"\x1b[18t\x1b[19t")
             if terminal.read_input() != (
-                b"\x1b[8;25;80t\x1b[9;1080;1920t"
+                b"\x1b[8;25;80t\x1b[9;1076;1916t"
             ):
                 return "current or maximum geometry report is incorrect"
             terminal.write(b"\x1b[8;26;81t")

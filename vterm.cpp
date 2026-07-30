@@ -520,8 +520,12 @@ namespace {
         void publishProgress(u32 state, u32 percent);
         void windowOperation(u32 operation, u32 first, u32 second);
         plt::WindowInfo windowInfo() const;
+        u32 columnsForPixelWidth(u32 width) const;
+        u32 rowsForPixelHeight(u32 height) const;
         u32 windowColumns() const;
         u32 windowRows() const;
+        u32 screenColumns() const;
+        u32 screenRows() const;
 
         struct InputSpecTable {
             bool (*predicate)(const VtermImpl&) = nullptr;
@@ -5864,22 +5868,36 @@ plt::WindowInfo VtermImpl::windowInfo() const {
     };
 }
 
-u32 VtermImpl::windowColumns() const {
+u32 VtermImpl::columnsForPixelWidth(u32 width) const {
     if (composer.glyphWidth == 0) {
         return composer.columns;
     }
     const u32 border = 2u * opts.border;
-    const u32 width = windowInfo().width;
     return std::max(1u, (width > border ? width - border : 0u) / composer.glyphWidth);
 }
 
-u32 VtermImpl::windowRows() const {
+u32 VtermImpl::rowsForPixelHeight(u32 height) const {
     if (composer.glyphHeight == 0) {
         return composer.rows;
     }
     const u32 border = 2u * opts.border;
-    const u32 height = windowInfo().height;
     return std::max(1u, (height > border ? height - border : 0u) / composer.glyphHeight);
+}
+
+u32 VtermImpl::windowColumns() const {
+    return columnsForPixelWidth(windowInfo().width);
+}
+
+u32 VtermImpl::windowRows() const {
+    return rowsForPixelHeight(windowInfo().height);
+}
+
+u32 VtermImpl::screenColumns() const {
+    return columnsForPixelWidth(windowInfo().screenPixelWidth);
+}
+
+u32 VtermImpl::screenRows() const {
+    return rowsForPixelHeight(windowInfo().screenPixelHeight);
 }
 
 void VtermImpl::windowOperation(u32 operation, u32 first, u32 second) {
@@ -6621,11 +6639,10 @@ void VtermImpl::xtResizePixels(u32 height, bool heightPresent, u32 width, bool w
 }
 
 void VtermImpl::xtResizeCells(u32 height, bool heightPresent, u32 width, bool widthPresent) {
-    const auto info = windowInfo();
     const auto dimension = [](u32 value, bool present, u32 current, u32 maximum) {
         return present ? value ? value : maximum : current;
     };
-    windowOperation(8, dimension(height, heightPresent, windowRows(), info.screenPixelHeight / composer.glyphHeight), dimension(width, widthPresent, windowColumns(), info.screenPixelWidth / composer.glyphWidth));
+    windowOperation(8, dimension(height, heightPresent, windowRows(), screenRows()), dimension(width, widthPresent, windowColumns(), screenColumns()));
 }
 
 void VtermImpl::xtWindowOperation(u32 operation, u32 first, u32 second) {
@@ -6674,8 +6691,7 @@ void VtermImpl::xtReportGridSize() {
 
 void VtermImpl::xtReportScreenGridSize() {
     StringBuilder response;
-    const auto info = windowInfo();
-    response << StringView(u8"9;") << info.screenPixelHeight / composer.glyphHeight << StringView(u8";") << info.screenPixelWidth / composer.glyphWidth << StringView(u8"t");
+    response << StringView(u8"9;") << screenRows() << StringView(u8";") << screenColumns() << StringView(u8"t");
     writeCsiResponse(StringView(response));
 }
 
