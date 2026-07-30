@@ -224,6 +224,11 @@ namespace {
         IOSurfaceRef surface = nullptr;
         id<MTLTexture> texture = nil;
         id<MTLCommandBuffer> commandBuffer = nil;
+        // Per-frame: draw() waits only this frame's fence, so a shared
+        // update buffer would be rewritten while older frames still read
+        // it on the GPU.
+        id<MTLBuffer> cellBuffer = nil;
+        size_t cellCapacity = 0;
     };
 
     struct MetalRendererImpl;
@@ -263,8 +268,8 @@ namespace {
         u32 ensureGlyph(Fontpack& fonts, bool hasDoubleWidth, const u32* codepoints, size_t count, u32 glyphId, bool grapheme, FontStyle style, bool doubleWidth);
         void materializeCells(const TerminalCell* input, GpuCell* output, u16 count, u8 lineAttribute, const TerminalColors& colors);
         bool ensureTargets(u32 width, u32 height);
-        bool ensureCellBuffer(size_t count);
-        u32 buildCellUpdates();
+        bool ensureCellBuffer(PresentationFrame& frame, size_t count);
+        u32 buildCellUpdates(PresentationFrame& frame);
         bool draw();
         void waitFrames();
         void destroyTargets();
@@ -287,9 +292,7 @@ namespace {
         id<MTLTexture> doubleWidthColorAtlas = nil;
         id<MTLTexture> emptyMask = nil;
         id<MTLTexture> emptyColor = nil;
-        id<MTLBuffer> cellBuffer = nil;
         MTLStorageMode textureStorageMode = MTLStorageModeShared;
-        size_t cellCapacity = 0;
         PresentationFrame frames[framesInFlight];
         u32 currentFrame = 0;
         u32 outputWidth = 0;
@@ -346,7 +349,11 @@ MetalRendererImpl::~MetalRendererImpl() {
     }
     destroyTargets();
     destroyFontResources();
-    [cellBuffer release];
+    for (PresentationFrame& frame : frames) {
+        [frame.cellBuffer release];
+        frame.cellBuffer = nil;
+        frame.cellCapacity = 0;
+    }
     [emptyColor release];
     [emptyMask release];
     [sampler release];
@@ -737,17 +744,17 @@ void MetalRendererImpl::materializeCells(const TerminalCell* input, GpuCell* out
     }
 }
 
-bool MetalRendererImpl::ensureCellBuffer(size_t count) {
-    if (cellCapacity >= count) {
+bool MetalRendererImpl::ensureCellBuffer(PresentationFrame& frame, size_t count) {
+    if (frame.cellCapacity >= count) {
         return true;
     }
-    [cellBuffer release];
-    cellBuffer = [device newBufferWithLength:count * sizeof(GpuCellUpdate) options:MTLResourceStorageModeShared];
-    if (cellBuffer == nil) {
-        cellCapacity = 0;
+    [frame.cellBuffer release];
+    frame.cellBuffer = [device newBufferWithLength:count * sizeof(GpuCellUpdate) options:MTLResourceStorageModeShared];
+    if (frame.cellBuffer == nil) {
+        frame.cellCapacity = 0;
         return false;
     }
-    cellCapacity = count;
+    frame.cellCapacity = count;
     return true;
 }
 
@@ -839,12 +846,12 @@ bool MetalRendererImpl::ensureTargets(u32 width, u32 height) {
     return true;
 }
 
-u32 MetalRendererImpl::buildCellUpdates() {
+u32 MetalRendererImpl::buildCellUpdates(PresentationFrame& frame) {
     const u32 count = (u32)(cells.length());
-    if (!ensureCellBuffer(count)) {
+    if (!ensureCellBuffer(frame, count)) {
         return 0;
     }
-    auto* const updates = (GpuCellUpdate*)(cellBuffer.contents);
+    auto* const updates = (GpuCellUpdate*)(frame.cellBuffer.contents);
     u32 updateCount = 0;
     for (u32 sourceIndex = 0; sourceIndex < count; ++sourceIndex) {
         const u32 sourceRow = sourceIndex / cellColumns;
@@ -901,7 +908,7 @@ bool MetalRendererImpl::draw() {
         frame.commandBuffer = nil;
     }
 
-    const u32 updateCount = buildCellUpdates();
+    const u32 updateCount = buildCellUpdates(frame);
     if (updateCount == 0) {
         return false;
     }
@@ -954,7 +961,7 @@ bool MetalRendererImpl::draw() {
     id<MTLComputeCommandEncoder> compute = [commandBuffer computeCommandEncoder];
     [compute setComputePipelineState:pipeline];
     [compute setBytes:&constants length:sizeof(constants) atIndex:0];
-    [compute setBuffer:cellBuffer offset:0 atIndex:1];
+    [compute setBuffer:frame.cellBuffer offset:0 atIndex:1];
     [compute setTexture:output atIndex:0];
     [compute setTexture:colorAtlas != nil ? colorAtlas : emptyColor atIndex:1];
     [compute setTexture:doubleWidthColorAtlas != nil ? doubleWidthColorAtlas : emptyColor atIndex:2];

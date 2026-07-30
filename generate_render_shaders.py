@@ -38,11 +38,6 @@ def float_store(expression: str) -> str:
     return f"   imageStore (outputImage, position, vec4 ({expression}, 1.0));"
 
 
-SRGB_ENCODE = """mix (
-      color * 12.92,
-      1.055 * pow (color, vec3 (1.0 / 2.4)) - 0.055,
-      greaterThan (color, vec3 (0.0031308)))"""
-
 SRGB_DECODE = """mix (
       color / 12.92,
       pow ((color + 0.055) / 1.055, vec3 (2.4)),
@@ -99,7 +94,7 @@ VARIANTS = (
         "VK_COLOR_SPACE_SRGB_NONLINEAR_KHR",
         "VK_FORMAT_R8G8B8A8_UNORM",
         FLOAT_DECLARATIONS["rgba8"],
-        float_store(SRGB_ENCODE),
+        float_store("color"),
         MUTABLE,
     ),
     Variant(
@@ -108,7 +103,7 @@ VARIANTS = (
         "VK_COLOR_SPACE_SRGB_NONLINEAR_KHR",
         "VK_FORMAT_R8G8B8A8_UNORM",
         FLOAT_DECLARATIONS["rgba8"],
-        float_store(f"({SRGB_ENCODE}).bgr"),
+        float_store("color.bgr"),
         MUTABLE,
     ),
     Variant(
@@ -117,7 +112,7 @@ VARIANTS = (
         "VK_COLOR_SPACE_SRGB_NONLINEAR_KHR",
         "VK_FORMAT_R8G8B8A8_UNORM",
         FLOAT_DECLARATIONS["rgba8"],
-        float_store(SRGB_ENCODE),
+        float_store("color"),
         MUTABLE,
     ),
     Variant(

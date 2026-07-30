@@ -263,6 +263,10 @@ namespace {
             ImageResource output;
             const GeneratedRenderShader* shader = nullptr;
             bool direct = false;
+            // Without swapchain maintenance there is no presentation fence:
+            // destroy after this many further presented frames instead of
+            // piling retirees up to a device-wide wait.
+            u32 gracePresents = 0;
         };
 
         struct PresentationState {
@@ -379,7 +383,7 @@ namespace {
         void ensureFontUploadBuffer(FrameResources& frame, size_t bytes);
         void ensureColorAtlas(bool doubleWidth);
 
-        ImageResource createImage(u32 width, u32 height, u32 layers, VkFormat format, VkImageUsageFlags usage, bool arrayView = false);
+        ImageResource createImage(u32 width, u32 height, u32 layers, VkFormat format, VkImageUsageFlags usage, bool arrayView = false, VkFormat viewFormat = VK_FORMAT_UNDEFINED);
         void destroyImage(ImageResource& image);
         VkImageView createImageView(VkImage image, VkFormat format) const;
         void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory) const;
@@ -857,7 +861,10 @@ void RendererImpl::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkM
     checkVk(vkBindBufferMemory(device, buffer, memory, 0), "vkBindBufferMemory");
 }
 
-RendererImpl::ImageResource RendererImpl::createImage(u32 width, u32 height, u32 layers, VkFormat format, VkImageUsageFlags usage, bool arrayView) {
+RendererImpl::ImageResource RendererImpl::createImage(u32 width, u32 height, u32 layers, VkFormat format, VkImageUsageFlags usage, bool arrayView, VkFormat viewFormat) {
+    if (viewFormat == VK_FORMAT_UNDEFINED) {
+        viewFormat = format;
+    }
     ImageResource result;
     result.width = width;
     result.height = height;
@@ -868,6 +875,9 @@ RendererImpl::ImageResource RendererImpl::createImage(u32 width, u32 height, u32
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         imageInfo.imageType = VK_IMAGE_TYPE_2D;
         imageInfo.format = format;
+        if (viewFormat != format) {
+            imageInfo.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+        }
         imageInfo.extent = {width, height, 1};
         imageInfo.mipLevels = 1;
         imageInfo.arrayLayers = layers;
@@ -891,7 +901,7 @@ RendererImpl::ImageResource RendererImpl::createImage(u32 width, u32 height, u32
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image = result.image;
         viewInfo.viewType = arrayView ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
-        viewInfo.format = format;
+        viewInfo.format = viewFormat;
         viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         viewInfo.subresourceRange.levelCount = 1;
         viewInfo.subresourceRange.layerCount = layers;
@@ -1284,6 +1294,7 @@ void RendererImpl::SwapchainResources::xchg(SwapchainResources& other) noexcept 
     stl::xchg(output, other.output);
     stl::xchg(shader, other.shader);
     stl::xchg(direct, other.direct);
+    stl::xchg(gracePresents, other.gracePresents);
 }
 
 void RendererImpl::destroySwapchainResources(SwapchainResources& resources) {
@@ -1328,9 +1339,14 @@ void RendererImpl::retireSwapchain(SwapchainResources& resources) {
     }
     SwapchainResources* const retired = new SwapchainResources;
     retired->xchg(resources);
+    if (swapchainMaintenanceExtension == nullptr) {
+        retired->gracePresents = framesInFlight + 1;
+    }
     retiredSwapchains.pushBack(retired);
     collectRetiredSwapchains();
     if (swapchainMaintenanceExtension == nullptr && retiredSwapchains.length() >= 8) {
+        // No frame was presented since several retirements (a resize storm
+        // with failing presents): fall back to a hard sync.
         checkVk(vkDeviceWaitIdle(device), "vkDeviceWaitIdle");
         collectRetiredSwapchains(true);
     }
@@ -1340,6 +1356,12 @@ void RendererImpl::collectRetiredSwapchains(bool force) {
     for (size_t index = 0; index != retiredSwapchains.length();) {
         SwapchainResources* const resources = retiredSwapchains[index];
         bool ready = force;
+        if (!ready && swapchainMaintenanceExtension == nullptr) {
+            // Own queue work is fenced framesInFlight frames later; the
+            // extra frame is margin for the presentation engine, which is
+            // unobservable without the maintenance extension.
+            ready = resources->gracePresents == 0;
+        }
         if (!ready && swapchainMaintenanceExtension != nullptr) {
             ready = true;
             for (size_t fenceIndex = 0; fenceIndex != resources->presentFences.length(); ++fenceIndex) {
@@ -1443,7 +1465,9 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
         };
         for (const auto preferred : preferredFormats) {
             const auto found = std::find_if(formats.begin(), formats.end(), [this, preferred](const VkSurfaceFormatKHR& format) {
-                return format.format == preferred && formatSupports(physicalDevice, format.format, VK_FORMAT_FEATURE_BLIT_DST_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT);
+                // The shader produces sRGB-encoded bytes; other color
+                // spaces would need a conversion the blit path lacks.
+                return format.format == preferred && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR && formatSupports(physicalDevice, format.format, VK_FORMAT_FEATURE_BLIT_DST_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT);
             });
             if (found != formats.end()) {
                 surfaceFormat = *found;
@@ -1520,7 +1544,14 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     replacement.direct = direct;
     try {
         if (!direct) {
-            replacement.output = createImage(width, height, 1, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+            // The shader stores already-sRGB-encoded bytes through a raw
+            // UNORM view. Blitting a UNORM image into an sRGB swapchain
+            // image would encode them a second time; giving the output
+            // image an sRGB format makes the blit's decode+encode cancel
+            // (and handles the channel order of BGRA targets).
+            const bool srgbTarget = surfaceFormat.format == VK_FORMAT_R8G8B8A8_SRGB || surfaceFormat.format == VK_FORMAT_B8G8R8A8_SRGB;
+            const VkFormat outputFormat = srgbTarget ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
+            replacement.output = createImage(width, height, 1, outputFormat, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, false, VK_FORMAT_R8G8B8A8_UNORM);
         }
         checkVk(vkCreateSwapchainKHR(device, &createInfo, nullptr, &replacement.swapchain), "vkCreateSwapchainKHR");
         checkVk(vkGetSwapchainImagesKHR(device, replacement.swapchain, &imageCount, nullptr), "vkGetSwapchainImagesKHR");
@@ -2347,7 +2378,6 @@ bool RendererImpl::acquirePresentFrame(u32 width, u32 height, FrameResources*& f
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         failVk("vkAcquireNextImageKHR", result);
     }
-    checkVk(vkResetFences(device, 1, &frame->fence), "vkResetFences");
     checkVk(vkResetCommandBuffer(frame->commandBuffer, 0), "vkResetCommandBuffer");
     return true;
 }
@@ -2363,6 +2393,10 @@ bool RendererImpl::submitPresentFrame(u32 width, u32 height, FrameResources& fra
     submitInfo.pCommandBuffers = &frame.commandBuffer;
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = &presentSemaphores[imageIndex];
+    // Reset only when committed to submitting: a throw between an early
+    // reset and the submit would leave the fence unsignaled forever, and
+    // the next wait on it would hang.
+    checkVk(vkResetFences(device, 1, &frame.fence), "vkResetFences");
     checkVk(vkQueueSubmit(queue, 1, &submitInfo, frame.fence), "vkQueueSubmit");
     imageInitialized.mut(imageIndex) = true;
 
@@ -2395,6 +2429,14 @@ bool RendererImpl::submitPresentFrame(u32 width, u32 height, FrameResources& fra
     }
 
     const bool presented = result != VK_ERROR_OUT_OF_DATE_KHR;
+    if (presented && !retiredSwapchains.empty()) {
+        for (SwapchainResources* const retired : retiredSwapchains) {
+            if (retired->gracePresents != 0) {
+                --retired->gracePresents;
+            }
+        }
+        collectRetiredSwapchains();
+    }
     currentFrame = (currentFrame + 1) % framesInFlight;
     if (recreateAfterPresent || result == VK_SUBOPTIMAL_KHR || result == VK_ERROR_OUT_OF_DATE_KHR) {
         try {
@@ -2532,12 +2574,33 @@ bool RendererImpl::present(const TerminalUpdate& update) {
     }
     const bool selectionChanged = previousStateValid && (!sameSelection(update.snappedSelection, previousSelection) || previousHoveredLinkBegin != update.hoveredLinkBegin || previousHoveredLinkEnd != update.hoveredLinkEnd);
     const bool globalPresentationChanged = previousStateValid && (presentationState.screenReverse != update.screenReverse || !(presentationState.selectionForeground == update.selectionForeground) || !(presentationState.selectionBackground == update.selectionBackground) || presentationState.selectionColorMask != update.selectionColorMask);
-    if (shapeChanged || !previousStateValid || selectionChanged || globalPresentationChanged) {
+    if (shapeChanged || !previousStateValid || globalPresentationChanged) {
         fullDamage();
         if (shapeChanged) {
             clearDamageGeneration = damage.generation;
         }
     } else {
+        if (selectionChanged) {
+            // Repaint only the rows the old and new selections cover: a
+            // drag must not repaint the whole grid every frame.
+            const auto damageSelectionRows = [&](const Rect& selection) {
+                const i32 firstRow = std::max(selection.tl.y, 0);
+                const i32 lastRow = std::min<i32>(selection.br.y, (i32)(cellRows) - 1);
+                if (firstRow > lastRow) {
+                    return;
+                }
+                appendDamage((u32)(firstRow) * cellColumns, (u32)(lastRow - firstRow + 1) * cellColumns);
+            };
+            damageSelectionRows(previousSelection);
+            damageSelectionRows(update.snappedSelection);
+            const auto damageLinkSpan = [&](u32 begin, u32 end) {
+                if (begin < end && end <= cellCount) {
+                    appendDamage(begin, end - begin);
+                }
+            };
+            damageLinkSpan(previousHoveredLinkBegin, previousHoveredLinkEnd);
+            damageLinkSpan(update.hoveredLinkBegin, update.hoveredLinkEnd);
+        }
         for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
             const TerminalCellSpan& span = update.spans[spanIndex];
             appendDamage(span.index, span.count);
