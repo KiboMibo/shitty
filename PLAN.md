@@ -393,46 +393,14 @@ query/resize request, title query/update/restore и version query; оригин�
   wheel policies, and 50 private ConPTY DECSET 9001 cases are explicitly
   inapplicable; Shitty has no ConPTY frontend and continues to report 9001
   unsupported.~~
-- ~~TextSizing parser — all seven Contour metadata-parser cases are imported
-  into the native Ragel parser suite. The implementation also covers Kitty's
-  current 4096-byte and safe-UTF-8 requirements. Unknown metadata is ignored
-  for forward compatibility, following the Contour/Ghostty consensus rather
-  than Kitty's stricter generated parser; malformed known fields remain
-  invalid.~~
-- ~~TextSizing grid core — imported the column/scale arithmetic, pooled
-  multicell storage, every-band lookup, safe whole-block overwrite/erase,
-  ordinary-text lower-band skipping per the current Kitty specification,
-  autowrap/no-autowrap placement, vertical room-making, insert mode,
-  fractional metadata and incremental-damage cases. The implementation uses
-  one shared payload per block and per-cell band coordinates, preserved by
-  CellExtra GC.~~
-- ~~TextSizing ICH/DCH — multiline blocks in the shifted tail are erased;
-  intact single-line blocks move, while blocks split at either movement
-  boundary are erased. This follows the current Kitty specification rather
-  than Contour's conservative erase-all behavior.~~
-- ~~TextSizing selection extraction — a selected block contributes its
-  payload exactly once, including when selection starts on a continuation
-  column or lower band; lower bands add no trailing blank line and adjacent
-  blocks retain separate identity.~~
-- ~~TextSizing scrollback identity — pointer-row scrolling preserves the
-  shared block handle and every band's coordinate after the head enters
-  history.~~
-- ~~TextSizing DECCRA — a complete copied block preserves every band's
-  sizing coordinates; partial source copies are blanked, and intersecting
-  destination blocks are erased whole before the copy.~~
-- ~~TextSizing placement boundaries — imported the deferred-wrap, block
-  extending beyond horizontal margins, cursor below the scrolling region and
-  multi-block wrapping-run cases; every surviving block is complete.~~
-- ~~TextSizing replacement invariants — a short block erases an intersected
-  tall block whole, a block replacing a wide continuation clears its head,
-  and insert mode never orphans a neighbouring tall block.~~
-- ~~TextSizing payload storage — unlike Contour's fixed 16-codepoint cell,
-  the pooled block payload preserves the protocol's complete explicit-width
-  text (up to the parser's specified 4096-byte limit); variable-width input
-  is segmented into independent grapheme blocks.~~
-- TextSizing editing/selection/render — 11 cases remain: partial rectangle
-  boundary rules; visual selection expansion and drag clamping; and
-  reference/GPU emission of every visible band with fractional alignment.
+- TextSizing — 59. OSC 66 support was reverted: the first implementation
+  spread Kitty-specific multicell state through Parser, CellExtra, Screen,
+  Vterm, Font and every renderer before the parser/grid/rendering ownership
+  model had been agreed. Keeping that design would make the compact cell and
+  generic rendering interfaces depend on an unfinished extension. The
+  imported behavioral tests remain in `tests/test_kitty_text_sizing.py` as
+  expected failures; they are the oracle for a later implementation after its
+  representation and component boundaries are designed explicitly.
 - ~~Grid — all 32 cases accounted: 25 terminal-observable resize, reflow,
   history, viewport, sparse-row and semantic-region cases are rewritten in
   Python; seven private storage/rendering cases are mapped to native Screen

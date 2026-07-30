@@ -39,7 +39,6 @@ struct RowMetadata {
     u8 lineAttribute = 0;
     u8 protection = 0;
     bool wide = false;
-    bool multicell = false;
 };
 
 struct alignas(16) Row {
@@ -162,13 +161,10 @@ namespace {
         void fillCells(u16 ch, const TerminalCell& attrs) override;
         void setLineAttribute(u16 row, u8 attribute) override;
         u8 lineAttribute(u16 row) const noexcept override;
-        bool hasMulticell(i32 row) const noexcept override;
-        MulticellView multicellAt(i32 row, u16 column) const noexcept override;
         bool hasProtection(u16 row, u8 mask) const noexcept override;
         bool wrapped(u16 row, u16 column) const noexcept override;
         void setWrapped(u16 row, u16 column) override;
         void writeGrapheme(u16 row, u16 column, const u32* codepoints, size_t count, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
-        void writeMulticell(u16 row, u16 column, const u32* codepoints, size_t count, const MulticellSpec& spec, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs, bool insert) override;
         WriteResult writeAsciiRun(u16 row, u16 column, u16 normalEnd, u16 doubleEnd, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         WriteResult writeAsciiRunInsert(u16 row, u16 column, u16 normalEnd, u16 doubleEnd, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeRun(u16 row, u16 column, const u32* codepoints, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
@@ -244,7 +240,6 @@ namespace {
         mutable Vector<LinkPart> linkParts;
         mutable Buffer linkScratch;
         mutable Vector<TerminalCell> selectionScratch;
-        mutable Vector<const void*> selectionMulticells;
 
         struct DamageRow {
             Epoch* epochs = nullptr;
@@ -321,16 +316,6 @@ namespace {
         TerminalCell& prepareCell(RowSlot& slot, u16 row, u16 column, const TerminalCell& eraseAttrs);
         TerminalCell& prepareCell(u16 row, u16 column, const TerminalCell& eraseAttrs);
         [[gnu::always_inline]] void writePreparedCell(u16 row, u16 column, const TerminalCell& lead, bool wide, const TerminalCell& attrs, const TerminalCell& eraseAttrs);
-        bool rowContainsMulticell(const TerminalCell* row) const noexcept;
-        u16 writableMulticellPrefix(u16 row, u16 column, u16 count) const noexcept;
-        void refreshRowMetadata(Row& row) const noexcept;
-        void eraseMulticellAt(i32 row, u16 column, const TerminalCell& attrs);
-        void eraseMulticellsInRect(i32 top, u16 left, i32 bottom, u16 right, const TerminalCell& attrs);
-        void eraseMultilineMulticellsInRow(u16 row, u16 left, u16 right, const TerminalCell& attrs);
-        void eraseMulticellSplitAt(u16 row, u16 boundary, const TerminalCell& attrs);
-        void eraseIncompleteSingleLineMulticells(u16 row, u16 left, u16 right, const TerminalCell& attrs);
-        bool completeMulticellAt(i32 row, u16 column) const noexcept;
-        void eraseIncompleteMulticellsInRect(u16 top, u16 left, u16 bottom, u16 right, const TerminalCell& attrs);
 
         ResizeState* moveIntoState();
         void restoreLayoutState(ResizeState& state, u16 rows, const TerminalColors* colors);
@@ -1021,7 +1006,6 @@ void ScreenBase<Coord, Epoch>::installRow(int row, const TerminalCell* source, u
     destination->metadata.lineAttribute = lineAttribute_;
     destination->metadata.protection = rowProtection(destination->cells, nCols) | protection;
     destination->metadata.wide = rowContainsWide(destination->cells, nCols);
-    destination->metadata.multicell = rowContainsMulticell(destination->cells);
     logicalRowSlot(row) = destination;
 }
 
@@ -1668,7 +1652,6 @@ bool ScreenBase<Coord, Epoch>::selectedText(std::string& utf8_selection) const {
     using unicodeString = std::vector<u32>;
     std::vector<unicodeString> lines;
     CellExtraStore& extras = cellExtras();
-    selectionMulticells.clear();
     bool wrap = false;
 
     auto addLine = [&](int y, u16 x1, u16 x2) {
@@ -1679,22 +1662,6 @@ bool ScreenBase<Coord, Epoch>::selectedText(std::string& utf8_selection) const {
         const auto* cp = getLogicalRowPtr(y);
         for (u16 x = x1; x < x2; ++x) {
             const auto& cell = cp[x];
-            const MulticellView multicell = extras.multicell(cell);
-            if (multicell.valid()) {
-                bool emitted = false;
-                for (const void* identity : selectionMulticells) {
-                    if (identity == multicell.identity) {
-                        emitted = true;
-                        break;
-                    }
-                }
-                if (!emitted) {
-                    selectionMulticells.pushBack(multicell.identity);
-                    line.insert(line.end(), multicell.text.begin(), multicell.text.end());
-                    contentEnd = line.size();
-                }
-                continue;
-            }
             if (!cell.dwidth_cont) {
                 const auto grapheme = extras.grapheme(cell);
                 if (grapheme.empty()) {
@@ -1934,7 +1901,6 @@ void ScreenBase<Coord, Epoch>::fillCells(u16 ch, const TerminalCell& attrs) {
         slot->metadata.lineAttribute = 0;
         slot->metadata.protection = fill.protected_char;
         slot->metadata.wide = fill.dwidth || fill.dwidth_cont;
-        slot->metadata.multicell = false;
     }
     damageRectangle(0, 0, nRows, nCols);
 }
@@ -1961,16 +1927,6 @@ void ScreenBase<Coord, Epoch>::setLineAttribute(u16 row, u8 attribute) {
 template <typename Coord, typename Epoch>
 u8 ScreenBase<Coord, Epoch>::lineAttribute(u16 row) const noexcept {
     return getLogicalRowObject(row)->metadata.lineAttribute;
-}
-
-template <typename Coord, typename Epoch>
-bool ScreenBase<Coord, Epoch>::hasMulticell(i32 row) const noexcept {
-    return getLogicalRowObject(row)->metadata.multicell;
-}
-
-template <typename Coord, typename Epoch>
-MulticellView ScreenBase<Coord, Epoch>::multicellAt(i32 row, u16 column) const noexcept {
-    return cellExtras().multicell(getLogicalRowPtr(row)[column]);
 }
 
 template <typename Coord, typename Epoch>
@@ -2012,194 +1968,6 @@ void ScreenBase<Coord, Epoch>::moveWrap(u16 row, u16 sourceColumn, u16 destinati
 }
 
 template <typename Coord, typename Epoch>
-bool ScreenBase<Coord, Epoch>::rowContainsMulticell(const TerminalCell* row) const noexcept {
-    if (row == nullptr) {
-        return false;
-    }
-    CellExtraStore& extras = cellExtras();
-    for (u16 column = 0; column < nCols; ++column) {
-        if (extras.multicell(row[column]).valid()) {
-            return true;
-        }
-    }
-    return false;
-}
-
-template <typename Coord, typename Epoch>
-u16 ScreenBase<Coord, Epoch>::writableMulticellPrefix(u16 row, u16 column, u16 count) const noexcept {
-    const Row* const object = rawLogicalRowObject(row);
-    if (object == nullptr || !object->metadata.multicell) {
-        return count;
-    }
-    for (u16 offset = 0; offset < count; ++offset) {
-        const MulticellView block = cellExtras().multicell(object->cells[column + offset]);
-        if (block.valid() && block.row != 0) {
-            return offset;
-        }
-    }
-    return count;
-}
-
-template <typename Coord, typename Epoch>
-void ScreenBase<Coord, Epoch>::refreshRowMetadata(Row& row) const noexcept {
-    row.metadata.protection = rowProtection(row.cells, nCols);
-    row.metadata.wide = rowContainsWide(row.cells, nCols);
-    row.metadata.multicell = rowContainsMulticell(row.cells);
-}
-
-template <typename Coord, typename Epoch>
-void ScreenBase<Coord, Epoch>::eraseMulticellAt(i32 row, u16 column, const TerminalCell& attrs) {
-    if (row < -(i32)(historyRows) || row >= nRows || column >= nCols) {
-        return;
-    }
-    const MulticellView block = cellExtras().multicell(getLogicalRowPtr(row)[column]);
-    if (!block.valid() || block.column > column) {
-        return;
-    }
-
-    const i32 originRow = row - block.row;
-    const u16 originColumn = column - block.column;
-    const i32 endRow = min<i32>(nRows, originRow + block.spec.rows);
-    const u16 endColumn = min<u16>(nCols, originColumn + block.spec.columns);
-    const i32 beginRow = max<i32>(-(i32)(historyRows), originRow);
-    for (i32 currentRow = beginRow; currentRow < endRow; ++currentRow) {
-        RowSlot& slot = logicalRowSlot(currentRow);
-        if (slot == nullptr) {
-            continue;
-        }
-        TerminalCell* const cells = slot->cells;
-        for (u16 currentColumn = originColumn; currentColumn < endColumn; ++currentColumn) {
-            if (cellExtras().multicell(cells[currentColumn]).identity == block.identity) {
-                cells[currentColumn] = attrs;
-            }
-        }
-        refreshRowMetadata(*slot);
-        if (currentRow >= 0) {
-            damageRow(currentRow, originColumn, endColumn);
-            if (!selection.empty()) {
-                invalidateSelection(Rect(originColumn, currentRow, endColumn, currentRow));
-            }
-        }
-    }
-}
-
-template <typename Coord, typename Epoch>
-void ScreenBase<Coord, Epoch>::eraseMulticellsInRect(i32 top, u16 left, i32 bottom, u16 right, const TerminalCell& attrs) {
-    top = max<i32>(top, -(i32)(historyRows));
-    bottom = min<i32>(bottom, nRows);
-    right = min<u16>(right, nCols);
-    for (i32 row = top; row < bottom; ++row) {
-        const Row* object = rawLogicalRowObject(row);
-        if (object == nullptr || !object->metadata.multicell) {
-            continue;
-        }
-        for (u16 column = left; column < right; ++column) {
-            if (cellExtras().multicell(getLogicalRowPtr(row)[column]).valid()) {
-                eraseMulticellAt(row, column, attrs);
-            }
-        }
-    }
-}
-
-template <typename Coord, typename Epoch>
-void ScreenBase<Coord, Epoch>::eraseMultilineMulticellsInRow(u16 row, u16 left, u16 right, const TerminalCell& attrs) {
-    const Row* object = rawLogicalRowObject(row);
-    if (object == nullptr || !object->metadata.multicell) {
-        return;
-    }
-    for (u16 column = left; column < right; ++column) {
-        const MulticellView block = cellExtras().multicell(getLogicalRowPtr(row)[column]);
-        if (block.valid() && block.spec.rows > 1) {
-            eraseMulticellAt(row, column, attrs);
-        }
-    }
-}
-
-template <typename Coord, typename Epoch>
-void ScreenBase<Coord, Epoch>::eraseMulticellSplitAt(u16 row, u16 boundary, const TerminalCell& attrs) {
-    const Row* object = rawLogicalRowObject(row);
-    if (object == nullptr || !object->metadata.multicell || boundary >= nCols) {
-        return;
-    }
-    const MulticellView block = cellExtras().multicell(object->cells[boundary]);
-    if (block.valid() && block.spec.rows == 1 && block.column != 0) {
-        eraseMulticellAt(row, boundary, attrs);
-    }
-}
-
-template <typename Coord, typename Epoch>
-void ScreenBase<Coord, Epoch>::eraseIncompleteSingleLineMulticells(u16 row, u16 left, u16 right, const TerminalCell& attrs) {
-    Row* object = rawLogicalRowObject(row);
-    if (object == nullptr || !object->metadata.multicell) {
-        return;
-    }
-
-    CellExtraStore& extras = cellExtras();
-    for (u16 column = left; column < right; ++column) {
-        const MulticellView block = extras.multicell(object->cells[column]);
-        if (!block.valid() || block.spec.rows != 1) {
-            continue;
-        }
-
-        const u16 origin = block.column <= column ? column - block.column : nCols;
-        bool complete = origin < nCols && block.spec.columns <= nCols - origin;
-        for (u16 band = 0; complete && band < block.spec.columns; ++band) {
-            const MulticellView member = extras.multicell(object->cells[origin + band]);
-            complete = member.identity == block.identity && member.row == 0 && member.column == band;
-        }
-        if (!complete) {
-            eraseMulticellAt(row, column, attrs);
-        } else {
-            column = origin + block.spec.columns - 1;
-        }
-    }
-    refreshRowMetadata(*object);
-}
-
-template <typename Coord, typename Epoch>
-bool ScreenBase<Coord, Epoch>::completeMulticellAt(i32 row, u16 column) const noexcept {
-    const MulticellView block = cellExtras().multicell(getLogicalRowPtr(row)[column]);
-    if (!block.valid()) {
-        return true;
-    }
-    if (block.column > column) {
-        return false;
-    }
-    const i32 originRow = row - block.row;
-    const u16 originColumn = column - block.column;
-    if (originRow < -(i32)(historyRows) || originRow + block.spec.rows > nRows || (u32)(originColumn) + block.spec.columns > nCols) {
-        return false;
-    }
-    for (u16 bandRow = 0; bandRow < block.spec.rows; ++bandRow) {
-        const TerminalCell* cells = getLogicalRowPtr(originRow + bandRow);
-        for (u16 bandColumn = 0; bandColumn < block.spec.columns; ++bandColumn) {
-            const MulticellView member = cellExtras().multicell(cells[originColumn + bandColumn]);
-            if (member.identity != block.identity || member.row != bandRow || member.column != bandColumn) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
-template <typename Coord, typename Epoch>
-void ScreenBase<Coord, Epoch>::eraseIncompleteMulticellsInRect(u16 top, u16 left, u16 bottom, u16 right, const TerminalCell& attrs) {
-    for (u16 row = top; row < bottom; ++row) {
-        Row* object = rawLogicalRowObject(row);
-        if (object == nullptr || !object->metadata.multicell) {
-            continue;
-        }
-        for (u16 column = left; column < right; ++column) {
-            TerminalCell& cell = object->cells[column];
-            if (cellExtras().multicell(cell).valid() && !completeMulticellAt(row, column)) {
-                cell = attrs;
-            }
-        }
-        refreshRowMetadata(*object);
-    }
-}
-
-template <typename Coord, typename Epoch>
 TerminalCell* ScreenBase<Coord, Epoch>::prepareSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs) {
     RowSlot& slot = logicalRowSlot(row);
     return prepareSpan(slot, row, start, count, eraseAttrs);
@@ -2207,9 +1975,6 @@ TerminalCell* ScreenBase<Coord, Epoch>::prepareSpan(u16 row, u16 start, u16 coun
 
 template <typename Coord, typename Epoch>
 TerminalCell* ScreenBase<Coord, Epoch>::prepareSpan(RowSlot& slot, u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs) {
-    if (slot != nullptr && slot->metadata.multicell) {
-        eraseMulticellsInRect(row, start, row + 1, start + count, eraseAttrs);
-    }
     if (slot == nullptr || !slot->metadata.wide) {
         damageRow(row, start, start + count);
         if (!selection.empty()) {
@@ -2239,9 +2004,6 @@ TerminalCell& ScreenBase<Coord, Epoch>::prepareCell(u16 row, u16 column, const T
 
 template <typename Coord, typename Epoch>
 TerminalCell& ScreenBase<Coord, Epoch>::prepareCell(RowSlot& slot, u16 row, u16 column, const TerminalCell& eraseAttrs) {
-    if (slot != nullptr && slot->metadata.multicell) {
-        eraseMulticellsInRect(row, column, row + 1, column + 1, eraseAttrs);
-    }
     if (slot == nullptr || !slot->metadata.wide) {
         damageCell(row, column);
         if (!selection.empty()) {
@@ -2267,7 +2029,7 @@ template <typename Coord, typename Epoch>
     if (!wide) {
         RowSlot& slot = logicalRowSlot(row);
         const TerminalCell* const previous = rowData(slot);
-        if (previous == nullptr || (!slot->metadata.multicell && !previous[column].dwidth && !previous[column].dwidth_cont)) {
+        if (previous == nullptr || (!previous[column].dwidth && !previous[column].dwidth_cont)) {
             damageCell(row, column);
             if (!selection.empty()) {
                 invalidateSelection(Rect(column, row));
@@ -2320,51 +2082,6 @@ void ScreenBase<Coord, Epoch>::writeGrapheme(u16 row, u16 column, const u32* cod
 }
 
 template <typename Coord, typename Epoch>
-void ScreenBase<Coord, Epoch>::writeMulticell(u16 row, u16 column, const u32* codepoints, size_t count, const MulticellSpec& spec, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs, bool insert) {
-    STD_ASSERT(codepoints != nullptr);
-    STD_ASSERT(count != 0);
-    STD_ASSERT(spec.columns != 0);
-    STD_ASSERT(spec.rows != 0);
-    STD_ASSERT(column + spec.columns <= nCols);
-    STD_ASSERT(row + spec.rows <= nRows);
-
-    if (insert) {
-        for (u16 band = 0; band < spec.rows; ++band) {
-            eraseMulticellsInRect(row + band, column, row + band + 1, nCols, eraseAttrs);
-            insertCells(row + band, column, nCols, spec.columns, eraseAttrs);
-        }
-    }
-    eraseMulticellsInRect(row, column, row + spec.rows, column + spec.columns, eraseAttrs);
-
-    CellExtraStore& extras = cellExtras();
-    MulticellHandle* const handle = extras.createMulticell(codepoints, count, spec);
-    TerminalCell base = attrs;
-    base.uc_pt = 0;
-    base.drawn = 1;
-    base.dwidth = 0;
-    base.dwidth_cont = 0;
-    base.semantic = semantic;
-    if (hyperlink != 0 || base.hasExtra()) {
-        extras.setHyperlink(base, hyperlink);
-    }
-
-    for (u16 band = 0; band < spec.rows; ++band) {
-        RowSlot& slot = logicalRowSlot(row + band);
-        TerminalCell* const cells = prepareSpan(slot, row + band, column, spec.columns, eraseAttrs);
-        for (u16 offset = 0; offset < spec.columns; ++offset) {
-            TerminalCell cell = base;
-            if (band == 0 && offset == 0) {
-                cell.uc_pt = codepoints[0];
-            }
-            extras.setMulticell(cell, handle, offset, band);
-            cells[offset] = cell;
-        }
-        slot->metadata.multicell = true;
-        slot->metadata.protection |= base.protected_char;
-    }
-}
-
-template <typename Coord, typename Epoch>
 auto ScreenBase<Coord, Epoch>::writeAsciiRun(u16 row, u16 column, u16 normalEnd, u16 doubleEnd, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) -> WriteResult {
     RowSlot& slot = logicalRowSlot(row);
     const u16 end = slot != nullptr && slot->metadata.lineAttribute != 0 ? doubleEnd : normalEnd;
@@ -2372,10 +2089,6 @@ auto ScreenBase<Coord, Epoch>::writeAsciiRun(u16 row, u16 column, u16 normalEnd,
         return {0, end};
     }
     count = min<u16>(count, end - column);
-    count = writableMulticellPrefix(row, column, count);
-    if (count == 0) {
-        return {0, end};
-    }
     TerminalCell linkedAttrs = attrs;
     if (hyperlink != 0 || linkedAttrs.hasExtra()) {
         cellExtras().setHyperlink(linkedAttrs, hyperlink);
@@ -2451,7 +2164,6 @@ void ScreenBase<Coord, Epoch>::writeAsciiLinesImpl(u16 row, const u8* input, con
         slot->metadata.lineAttribute = 0;
         slot->metadata.protection = eraseAttrs.protected_char | (count != 0 ? linkedAttrs.protected_char : 0);
         slot->metadata.wide = eraseAttrs.dwidth || eraseAttrs.dwidth_cont;
-        slot->metadata.multicell = false;
     };
     const auto advanceRing = [&]() {
         RowSlot incoming = nullptr;
@@ -2490,10 +2202,10 @@ void ScreenBase<Coord, Epoch>::writeAsciiLinesImpl(u16 row, const u8* input, con
             overwriteClearedRow(slot, input, count);
         } else if (count != 0) {
             TerminalCell* cells;
-            if (slot == nullptr || (!slot->metadata.wide && !slot->metadata.multicell)) {
+            if (slot == nullptr || !slot->metadata.wide) {
                 cells = mutableRow(slot);
             } else {
-                cells = prepareSpan(slot, row, 0, count, eraseAttrs);
+                cells = overwriteWideSpan(row, 0, count, eraseAttrs);
             }
             storeText(cells, input, count);
             slot->metadata.protection |= linkedAttrs.protected_char;
@@ -2536,11 +2248,10 @@ auto ScreenBase<Coord, Epoch>::writeAsciiRunInsert(u16 row, u16 column, u16 norm
         return {0, end};
     }
     count = min<u16>(count, end - column);
-    count = writableMulticellPrefix(row, column, count);
     if (count == 0) {
         return {0, end};
     }
-    if (slot != nullptr && (slot->metadata.wide || slot->metadata.multicell)) {
+    if (slot != nullptr && slot->metadata.wide) {
         insertCells(row, column, end, count, eraseAttrs);
         return writeAsciiRun(row, column, end, end, input, count, attrs, hyperlink, semantic, eraseAttrs);
     }
@@ -2679,14 +2390,16 @@ void ScreenBase<Coord, Epoch>::copyRectangle(u16 sourceTop, u16 sourceLeft, u16 
         if (rowWidth == 0) {
             continue;
         }
-        eraseMulticellsInRect(targetTop + row, targetLeft, targetTop + row + 1, targetLeft + rowWidth, eraseAttrs);
         clearWideBoundary(targetTop + row, targetLeft, eraseAttrs);
         clearWideBoundary(targetTop + row, targetLeft + rowWidth, eraseAttrs);
         TerminalCell* destination = mutableLogicalRow(targetTop + row) + targetLeft;
         for (u16 column = 0; column < rowWidth; ++column) {
             destination[column] = source[column];
         }
-        refreshRowMetadata(*logicalRowSlot(targetTop + row));
+        logicalRowSlot(targetTop + row)->metadata.protection |= rowProtection(source, rowWidth);
+        if (rowContainsWide(source, rowWidth)) {
+            markLogicalRowWide(targetTop + row);
+        }
         repairWideBoundary(targetTop + row, targetLeft, eraseAttrs);
         repairWideBoundary(targetTop + row, targetLeft + rowWidth, eraseAttrs);
         damageRow(targetTop + row, targetLeft, targetLeft + rowWidth);
@@ -2694,10 +2407,6 @@ void ScreenBase<Coord, Epoch>::copyRectangle(u16 sourceTop, u16 sourceLeft, u16 
             invalidateSelection(Rect(targetLeft, targetTop + row, targetLeft + rowWidth, targetTop + row));
         }
         source += rowWidth;
-    }
-    for (u16 row = 0; row < height; ++row) {
-        const u16 rowWidth = copiedWidths[row];
-        eraseIncompleteMulticellsInRect(targetTop + row, targetLeft, targetTop + row + 1, targetLeft + rowWidth, eraseAttrs);
     }
 }
 
@@ -3112,7 +2821,6 @@ void ScreenBase<Coord, Epoch>::eraseInRow(RowSlot& slot, u16 pY, u16 startX, u16
             memcpy(mutableRow(slot), erasedRowTemplate.data(), nCols * cellSize);
             slot->metadata.protection = erased.protected_char;
             slot->metadata.wide = false;
-            slot->metadata.multicell = false;
         }
     } else if (row != nullptr || erased != TerminalCell{}) {
         TerminalCell* const start = mutableRow(slot) + startX;
@@ -3131,9 +2839,6 @@ void ScreenBase<Coord, Epoch>::eraseCells(u16 pY, u16 startX, u16 count, const T
         return;
     }
     RowSlot& slot = logicalRowSlot(pY);
-    if (slot != nullptr && slot->metadata.multicell) {
-        eraseMulticellsInRect(pY, startX, pY + 1, startX + count, attrs);
-    }
     if (slot == nullptr || !slot->metadata.wide) {
         eraseInRow(slot, pY, startX, count, attrs);
         return;
@@ -3170,7 +2875,6 @@ void ScreenBase<Coord, Epoch>::eraseCells(u16 pY, u16 startX, u16 count, const T
     if (startX == 0 && count == nCols) {
         slot->metadata.protection = erased.protected_char;
         slot->metadata.wide = false;
-        slot->metadata.multicell = false;
     }
     const u16 damageStart = eraseLeft ? startX - 1 : startX;
     const u16 damageEnd = eraseRight ? endX + 1 : endX;
@@ -3286,15 +2990,6 @@ void ScreenBase<Coord, Epoch>::selectiveEraseCells(u16 pY, u16 startX, u16 count
     erased.uc_pt = 0;
     erased.protected_char = 0;
     extras.clearExtra(erased, extras.underlineColor(attrs));
-    RowSlot& object = logicalRowSlot(pY);
-    if (object != nullptr && object->metadata.multicell) {
-        for (u16 column = startX; column < startX + count; ++column) {
-            const TerminalCell& cell = getLogicalRowPtr(pY)[column];
-            if (!(cell.protected_char & protectionMask) && extras.multicell(cell).valid()) {
-                eraseMulticellAt(pY, column, erased);
-            }
-        }
-    }
     if (rawLogicalRow(pY) == nullptr && erased == TerminalCell{}) {
         damageRow(pY, startX, startX + count);
         if (!selection.empty()) {
@@ -3326,7 +3021,7 @@ void ScreenBase<Coord, Epoch>::selectiveEraseCells(u16 pY, u16 startX, u16 count
         invalidateSelection(Rect(changedStart, pY, startX + count, pY));
     }
     if (changed) {
-        refreshRowMetadata(*logicalRowSlot(pY));
+        logicalRowSlot(pY)->metadata.protection = rowProtection(row, nCols);
         damageRow(pY, startX, startX + count);
     }
     repairWideBoundary(pY, startX, attrs);
@@ -3357,11 +3052,6 @@ void ScreenBase<Coord, Epoch>::insertCells(u16 row, u16 start, u16 end, u16 coun
     }
     const u16 moved = end - start - count;
     RowSlot& slot = logicalRowSlot(row);
-    const bool hasMulticells = slot != nullptr && slot->metadata.multicell;
-    if (hasMulticells) {
-        eraseMultilineMulticellsInRow(row, start, end, attrs);
-        eraseMulticellSplitAt(row, start, attrs);
-    }
     if (slot == nullptr || !slot->metadata.wide) {
         TerminalCell* cells = rowData(slot);
         if (moved != 0 && cells != nullptr) {
@@ -3373,9 +3063,6 @@ void ScreenBase<Coord, Epoch>::insertCells(u16 row, u16 start, u16 end, u16 coun
         }
         if (moved == 0) {
             eraseInRow(slot, row, start, count, attrs);
-            if (hasMulticells && slot != nullptr) {
-                refreshRowMetadata(*slot);
-            }
             return;
         }
         TerminalCell erased = attrs;
@@ -3388,9 +3075,6 @@ void ScreenBase<Coord, Epoch>::insertCells(u16 row, u16 start, u16 end, u16 coun
         if (!selection.empty()) {
             invalidateSelection(Rect(start, row, end, row));
         }
-        if (hasMulticells) {
-            eraseIncompleteSingleLineMulticells(row, start, end, attrs);
-        }
         return;
     }
     if (moved != 0) {
@@ -3402,9 +3086,6 @@ void ScreenBase<Coord, Epoch>::insertCells(u16 row, u16 start, u16 end, u16 coun
         repairWideBoundary(row, end, attrs);
     }
     eraseCells(row, start, count, attrs);
-    if (hasMulticells) {
-        eraseIncompleteSingleLineMulticells(row, start, end, attrs);
-    }
 }
 
 template <typename Coord, typename Epoch>
@@ -3415,11 +3096,6 @@ void ScreenBase<Coord, Epoch>::deleteCells(u16 row, u16 start, u16 end, u16 coun
     }
     const u16 moved = end - start - count;
     RowSlot& slot = logicalRowSlot(row);
-    const bool hasMulticells = slot != nullptr && slot->metadata.multicell;
-    if (hasMulticells) {
-        eraseMultilineMulticellsInRow(row, start, end, attrs);
-        eraseMulticellSplitAt(row, start, attrs);
-    }
     if (slot == nullptr || !slot->metadata.wide) {
         TerminalCell* cells = rowData(slot);
         if (moved != 0 && cells != nullptr) {
@@ -3427,9 +3103,6 @@ void ScreenBase<Coord, Epoch>::deleteCells(u16 row, u16 start, u16 end, u16 coun
         }
         if (moved == 0) {
             eraseInRow(slot, row, start, count, attrs);
-            if (hasMulticells && slot != nullptr) {
-                refreshRowMetadata(*slot);
-            }
             return;
         }
         TerminalCell erased = attrs;
@@ -3442,9 +3115,6 @@ void ScreenBase<Coord, Epoch>::deleteCells(u16 row, u16 start, u16 end, u16 coun
         if (!selection.empty()) {
             invalidateSelection(Rect(start, row, end, row));
         }
-        if (hasMulticells) {
-            eraseIncompleteSingleLineMulticells(row, start, end, attrs);
-        }
         return;
     }
     if (moved != 0) {
@@ -3455,9 +3125,6 @@ void ScreenBase<Coord, Epoch>::deleteCells(u16 row, u16 start, u16 end, u16 coun
         repairWideBoundary(row, start + moved, attrs);
     }
     eraseCells(row, start + moved, count, attrs);
-    if (hasMulticells) {
-        eraseIncompleteSingleLineMulticells(row, start, end, attrs);
-    }
 }
 
 template <typename Coord, typename Epoch>

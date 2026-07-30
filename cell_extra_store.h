@@ -48,38 +48,8 @@ struct CellExtraView {
     u32 hyperlinkDisplayId = 0;
 };
 
-struct MulticellSpec {
-    u16 columns = 0;
-    u16 rows = 0;
-    u8 scale = 1;
-    u8 width = 0;
-    u8 numerator = 0;
-    u8 denominator = 0;
-    u8 verticalAlignment = 0;
-    u8 horizontalAlignment = 0;
-};
-
-struct MulticellView {
-    const void* identity = nullptr;
-    GraphemeView text;
-    MulticellSpec spec;
-    u16 column = 0;
-    u16 row = 0;
-
-    bool valid() const noexcept {
-        return identity != nullptr;
-    }
-
-    bool head() const noexcept {
-        return valid() && column == 0 && row == 0;
-    }
-};
-
-struct MulticellHandle;
-
 struct CellExtraStore {
     virtual CellExtraView view(const TerminalCell& cell) const noexcept = 0;
-    virtual MulticellView multicell(const TerminalCell& cell) const noexcept = 0;
     virtual CellColor underlineColor(const TerminalCell& cell) const noexcept = 0;
     virtual GraphemeView grapheme(const TerminalCell& cell) const noexcept = 0;
     virtual GraphemeView grapheme(u32 ref) const noexcept = 0;
@@ -93,8 +63,6 @@ struct CellExtraStore {
     virtual void setUnderlineColor(TerminalCell& cell, CellColor color) = 0;
     virtual void setGrapheme(TerminalCell& cell, const u32* codepoints, size_t count) = 0;
     virtual void clearGrapheme(TerminalCell& cell) = 0;
-    virtual MulticellHandle* createMulticell(const u32* codepoints, size_t count, const MulticellSpec& spec) = 0;
-    virtual void setMulticell(TerminalCell& cell, MulticellHandle* handle, u16 column, u16 row) = 0;
     virtual void setHyperlink(TerminalCell& cell, u32 hyperlinkRef) = 0;
     virtual void clearHyperlink(TerminalCell& cell) = 0;
     virtual void clearExtra(TerminalCell& cell, CellColor underlineColor) = 0;

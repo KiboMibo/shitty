@@ -1955,8 +1955,6 @@
             parser.osc52PayloadSeen = false;
             parser.osc52Query = false;
             fgoto osc52Selectors;
-        } else if (parser.oscCommand == 66) {
-            parser.oscTextSizingValid = true;
         } else if (parser.oscCommand == 99) {
             parser.oscNotificationFieldOffset = 0;
             parser.oscNotificationIdOffset = 0;
@@ -2008,12 +2006,6 @@
         }
     }
 
-    action oscDelete {
-        if (parser.oscCommandValid && parser.oscCommand == 66) {
-            parser.oscTextSizingValid = false;
-        }
-    }
-
     action oscRawData {
         if (fc >= 0x20 && fc < 0x7f) {
             const size_t count = printableAsciiPrefix(p, pe - p);
@@ -2026,11 +2018,7 @@
             p += count - 1;
         } else {
             consumeStringUtf8Byte(fc);
-            if (executeC0(fc)) {
-                if (parser.oscCommandValid && parser.oscCommand == 66) {
-                    parser.oscTextSizingValid = false;
-                }
-            } else {
+            if (!executeC0(fc)) {
                 ragelAppendString(fc, parser.maxOscBytes);
             }
         }
@@ -2066,8 +2054,6 @@
                 iface.osc_NOTIFY(payload);
             } else if (parser.oscCommand == 52) {
                 iface.osc_RAW(52, payload);
-            } else if (parser.oscCommand == 66) {
-                dispatchKittyTextSizing(payload);
             } else if (parser.oscCommand == 104 && payload.empty()) {
                 iface.osc_RESET_PALETTE();
             } else if (parser.oscCommand == 105 && payload.empty()) {
@@ -5490,7 +5476,7 @@
         0x9c @oscSt @oscDispatch @oscDone |
         0x07 @oscBell @oscDispatch @oscDone |
         0x1b @oscEscape |
-        0x7f @oscDelete |
+        0x7f |
         (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
          0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscRawData
     )*;

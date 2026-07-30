@@ -79,21 +79,6 @@ class Cell:
 
 
 @dataclass
-class Multicell:
-    valid: bool
-    column: int
-    row: int
-    columns: int
-    rows: int
-    scale: int
-    width: int
-    numerator: int
-    denominator: int
-    vertical_alignment: int
-    horizontal_alignment: int
-
-
-@dataclass
 class Snapshot:
     columns: int
     rows: int
@@ -929,14 +914,6 @@ class Shitty:
 
     def set_wrapped(self, row):
         self.command(f"SET_WRAPPED {row}")
-
-    def multicell(self, row, column):
-        self.stream.write(f"MULTICELL {row} {column}\n".encode())
-        response = self._readline().split()
-        if len(response) != 12 or response[0] != "OK":
-            raise RuntimeError("invalid multicell response")
-        values = tuple(map(int, response[1:]))
-        return Multicell(bool(values[0]), *values[1:])
 
     def scrollback_state(self):
         self.stream.write(b"SCROLLBACK_STATE\n")

@@ -1019,8 +1019,7 @@ Buffer TestTerminal::allText() const {
         for (u16 column = 0; column < display.columns; ++column) {
             const VtermTestCell value = testApi.logicalCell(row, column);
             const TerminalCell& cell = value.cell;
-            const MulticellView multicell = testApi.multicell(row, column);
-            if (cell.dwidth_cont || (multicell.valid() && !multicell.head())) {
+            if (cell.dwidth_cont) {
                 continue;
             }
             if (value.graphemeSize != 0) {
@@ -2165,15 +2164,6 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
                 writeAll(controlFd, "OK " + std::to_string(terminal.getPrivateMode(25)) + " " + std::to_string(terminal.getPrivateMode(12)) + " " + std::to_string((unsigned)(terminal.getCursorStyle())) + "\n");
             } else if (line == "CURSOR_PENDING_WRAP") {
                 writeAll(controlFd, "OK " + std::to_string(terminal.getPendingWrap()) + "\n");
-            } else if (line.compare(0, 10, "MULTICELL ") == 0) {
-                std::istringstream args(line.substr(10));
-                i32 row;
-                u16 column;
-                if (!(args >> row >> column)) {
-                    throw std::runtime_error("invalid multicell query");
-                }
-                const MulticellView value = testApi.multicell(row, column);
-                writeAll(controlFd, "OK " + std::to_string(value.valid()) + " " + std::to_string(value.column) + " " + std::to_string(value.row) + " " + std::to_string(value.spec.columns) + " " + std::to_string(value.spec.rows) + " " + std::to_string(value.spec.scale) + " " + std::to_string(value.spec.width) + " " + std::to_string(value.spec.numerator) + " " + std::to_string(value.spec.denominator) + " " + std::to_string(value.spec.verticalAlignment) + " " + std::to_string(value.spec.horizontalAlignment) + "\n");
             } else if (line.compare(0, 9, "TAB_STOP ") == 0) {
                 std::istringstream args(line.substr(9));
                 unsigned column;

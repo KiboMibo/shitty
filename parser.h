@@ -70,16 +70,6 @@ struct CsiRectangle {
     u32 right;
 };
 
-struct KittyTextSizing {
-    stl::StringView text;
-    u8 scale = 1;
-    u8 width = 0;
-    u8 numerator = 0;
-    u8 denominator = 0;
-    u8 verticalAlignment = 0;
-    u8 horizontalAlignment = 0;
-};
-
 struct ParserModeState {
     MouseTrackingMode mouseTracking;
     MouseTrackingEnc mouseEncoding;
@@ -319,7 +309,6 @@ struct ParserIface {
     virtual void osc_SELECTION_FOREGROUND(Color color, bool query) = 0;
     virtual void osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) = 0;
     virtual void osc_CLIPBOARD_WRITE(stl::StringView content, bool valid, bool primary, bool clipboard) = 0;
-    virtual void osc_KITTY_TEXT_SIZING(const KittyTextSizing& sizing) = 0;
     virtual void osc_KITTY_CLIPBOARD_READ(stl::StringView id, stl::StringView mimeTypes, bool primary, bool valid) = 0;
     virtual void osc_KITTY_CLIPBOARD_WRITE(stl::StringView id, bool primary) = 0;
     virtual void osc_KITTY_CLIPBOARD_WRITE_DATA(stl::StringView id, stl::StringView mimeType, stl::StringView content, bool valid) = 0;

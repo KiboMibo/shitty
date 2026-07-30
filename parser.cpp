@@ -104,64 +104,6 @@ namespace {
         return offset;
     }
 
-    bool safeUtf8(StringView text) {
-        const u8* current = text.data();
-        const u8* const end = current + text.length();
-        while (current != end) {
-            const u8 first = *current++;
-            u32 codepoint = first;
-            u32 minimum = 0;
-            unsigned remaining = 0;
-            if (first >= 0xc2 && first <= 0xdf) {
-                codepoint = first & 0x1f;
-                minimum = 0x80;
-                remaining = 1;
-            } else if (first >= 0xe0 && first <= 0xef) {
-                codepoint = first & 0x0f;
-                minimum = 0x800;
-                remaining = 2;
-            } else if (first >= 0xf0 && first <= 0xf4) {
-                codepoint = first & 0x07;
-                minimum = 0x10000;
-                remaining = 3;
-            } else if (first >= 0x80) {
-                return false;
-            }
-            if ((size_t)(end - current) < remaining) {
-                return false;
-            }
-            while (remaining-- != 0) {
-                const u8 continuation = *current++;
-                if ((continuation & 0xc0) != 0x80) {
-                    return false;
-                }
-                codepoint = (codepoint << 6) | (continuation & 0x3f);
-            }
-            if (codepoint < minimum || codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff) || codepoint <= 0x1f || (codepoint >= 0x7f && codepoint <= 0x9f)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    bool parseUnsigned(StringView text, u8& value) {
-        if (text.empty()) {
-            return false;
-        }
-        unsigned parsed = 0;
-        for (const u8 byte : text) {
-            if (byte < '0' || byte > '9') {
-                return false;
-            }
-            parsed = parsed * 10 + byte - '0';
-            if (parsed > 255) {
-                return false;
-            }
-        }
-        value = (u8)(parsed);
-        return true;
-    }
-
     struct ProtocolParser {
         constexpr const static size_t maxParameters = 32;
         constexpr const static size_t maxDcsBytes = 4095;
@@ -230,7 +172,6 @@ namespace {
         size_t oscPayloadOffset = 0;
         bool oscCommandValid = false;
         bool oscTerminated = false;
-        bool oscTextSizingValid = false;
         bool oscTitleHex = false;
         bool oscTitleHasHighNibble = false;
         bool oscTitleValid = false;
@@ -358,7 +299,6 @@ namespace {
         void dispatchXtmodkeys();
         void dispatchXtqmodkeys();
         void dispatchKittyKeyboardSet();
-        void dispatchKittyTextSizing(StringView payload);
         void dispatchKittyClipboard(StringView payload);
         void designateCharset(u8 final);
         Charset decodeCharset(u16 id, bool is96) const;
@@ -736,7 +676,6 @@ void ParserImpl<traced>::ragelBeginOsc() {
     parser.oscPayloadOffset = 0;
     parser.oscCommandValid = false;
     parser.oscTerminated = false;
-    parser.oscTextSizingValid = false;
     resetDecoded();
     parser.oscTitleHex = false;
     parser.oscTitleHasHighNibble = false;
@@ -1282,100 +1221,6 @@ bool ParserImpl<traced>::privateModeValue(u32 mode, const ParserModeState& state
         default:
             return false;
     }
-}
-
-template <bool traced>
-void ParserImpl<traced>::dispatchKittyTextSizing(StringView payload) {
-    StringView metadata;
-    StringView text;
-    if (!payload.split(';', metadata, text) || text.length() > 4096 || !parser.oscTextSizingValid || !safeUtf8(text)) {
-        return;
-    }
-
-    KittyTextSizing sizing{
-        .text = text,
-    };
-    while (!metadata.empty()) {
-        StringView field = metadata;
-        StringView rest;
-        if (metadata.split(':', field, rest)) {
-            metadata = rest;
-        } else {
-            metadata = {};
-        }
-        if (field.empty()) {
-            continue;
-        }
-
-        StringView key;
-        StringView encodedValue;
-        if (!field.split('=', key, encodedValue) || key.empty()) {
-            return;
-        }
-        if (key.length() != 1) {
-            continue;
-        }
-        switch (key[0]) {
-            case 's':
-            case 'w':
-            case 'n':
-            case 'd':
-            case 'v':
-            case 'h':
-                break;
-            default:
-                continue;
-        }
-
-        u8 value = 0;
-        if (!parseUnsigned(encodedValue, value)) {
-            return;
-        }
-        switch (key[0]) {
-            case 's':
-                if (value < 1 || value > 7) {
-                    return;
-                }
-                sizing.scale = value;
-                break;
-            case 'w':
-                if (value > 7) {
-                    return;
-                }
-                sizing.width = value;
-                break;
-            case 'n':
-                if (value > 15) {
-                    return;
-                }
-                sizing.numerator = value;
-                break;
-            case 'd':
-                if (value > 15) {
-                    return;
-                }
-                sizing.denominator = value;
-                break;
-            case 'v':
-                if (value > 2) {
-                    return;
-                }
-                sizing.verticalAlignment = value;
-                break;
-            case 'h':
-                if (value > 2) {
-                    return;
-                }
-                sizing.horizontalAlignment = value;
-                break;
-            default:
-                __builtin_unreachable();
-        }
-    }
-    if (sizing.denominator != 0 && sizing.denominator <= sizing.numerator) {
-        return;
-    }
-    iface.osc_KITTY_TEXT_SIZING(sizing);
 }
 
 template <bool traced>

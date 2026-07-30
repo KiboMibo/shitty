@@ -712,11 +712,6 @@ namespace {
             saveText(call, 0, content);
         }
 
-        void osc_KITTY_TEXT_SIZING(const KittyTextSizing& sizing) override {
-            ParserCall& call = record("osc_KITTY_TEXT_SIZING", sizing.scale, sizing.width, sizing.numerator, sizing.denominator, sizing.verticalAlignment, sizing.horizontalAlignment);
-            saveText(call, 0, sizing.text);
-        }
-
         void osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bool primary, bool valid) override {
             ParserCall& call = record("osc_KITTY_CLIPBOARD_READ", primary, valid);
             saveText(call, 0, id);
@@ -1938,117 +1933,6 @@ STD_TEST_SUITE(ParserCallbacks) {
         const ParserCall& call = fixture.expect("osc_CLIPBOARD_WRITE");
         expectValues(call, true, false, true);
         expectText(fixture.iface, call, 0, StringView(u8"a"));
-    }
-
-    STD_TEST(KittyTextSizingDefaults) {
-        ParserFixture fixture;
-        fixture.feed(StringView(u8"\x1b]66;;hello\a"));
-        const ParserCall& call = fixture.expect("osc_KITTY_TEXT_SIZING");
-        expectValues(call, 1, 0, 0, 0, 0, 0);
-        expectText(fixture.iface, call, 0, StringView(u8"hello"));
-    }
-
-    STD_TEST(KittyTextSizingMetadataIsColonSeparated) {
-        ParserFixture fixture;
-        fixture.feed(StringView(u8"\x1b]66;s=2:w=3:n=1:d=2:v=1:h=2;x\x1b\\"));
-        const ParserCall& call = fixture.expect("osc_KITTY_TEXT_SIZING");
-        expectValues(call, 2, 3, 1, 2, 1, 2);
-        expectText(fixture.iface, call, 0, StringView(u8"x"));
-    }
-
-    STD_TEST(KittyTextSizingTextMayContainSemicolons) {
-        ParserFixture fixture;
-        fixture.feed(StringView(u8"\x1b]66;s=2;a;b\a"));
-        const ParserCall& call = fixture.expect("osc_KITTY_TEXT_SIZING");
-        expectText(fixture.iface, call, 0, StringView(u8"a;b"));
-    }
-
-    STD_TEST(KittyTextSizingRejectsInvalidMetadata) {
-        static const StringView invalid[] = {
-            StringView(u8"\x1b]66;s=0;x\a"),
-            StringView(u8"\x1b]66;s=8;x\a"),
-            StringView(u8"\x1b]66;w=8;x\a"),
-            StringView(u8"\x1b]66;n=16;x\a"),
-            StringView(u8"\x1b]66;v=3;x\a"),
-            StringView(u8"\x1b]66;s=x;x\a"),
-            StringView(u8"\x1b]66;s;x\a"),
-        };
-        for (const StringView input : invalid) {
-            ParserFixture fixture;
-            fixture.feed(input);
-            STD_INSIST(!fixture.iface.called("osc_KITTY_TEXT_SIZING"));
-        }
-    }
-
-    STD_TEST(KittyTextSizingIgnoresUnknownMetadata) {
-        {
-            ParserFixture fixture;
-            fixture.feed(StringView(u8"\x1b]66;s=2:Q=9;x\a"));
-            expectValues(fixture.expect("osc_KITTY_TEXT_SIZING"), 2, 0, 0, 0, 0, 0);
-        }
-        for (const StringView input : {
-                 StringView(u8"\x1b]66;s=2:name=title;Hello\a"),
-                 StringView(u8"\x1b]66;name=title;Hello\a"),
-                 StringView(u8"\x1b]66;qq=;Hello\a"),
-             }) {
-            ParserFixture fixture;
-            fixture.feed(input);
-            const ParserCall& call = fixture.expect("osc_KITTY_TEXT_SIZING");
-            expectText(fixture.iface, call, 0, StringView(u8"Hello"));
-        }
-    }
-
-    STD_TEST(KittyTextSizingFractionMustBeProper) {
-        {
-            ParserFixture fixture;
-            fixture.feed(StringView(u8"\x1b]66;n=3:d=2;x\a"));
-            STD_INSIST(!fixture.iface.called("osc_KITTY_TEXT_SIZING"));
-        }
-        {
-            ParserFixture fixture;
-            fixture.feed(StringView(u8"\x1b]66;n=1:d=2;x\a"));
-            expectValues(fixture.expect("osc_KITTY_TEXT_SIZING"), 1, 0, 1, 2, 0, 0);
-        }
-        {
-            ParserFixture fixture;
-            fixture.feed(StringView(u8"\x1b]66;n=5;x\a"));
-            expectValues(fixture.expect("osc_KITTY_TEXT_SIZING"), 1, 0, 5, 0, 0, 0);
-        }
-    }
-
-    STD_TEST(KittyTextSizingRequiresSafeUtf8) {
-        {
-            ParserFixture fixture;
-            fixture.feed(StringView(u8"\x1b]66;;👻魑魅魍魉ゴースッティ\a"));
-            const ParserCall& call = fixture.expect("osc_KITTY_TEXT_SIZING");
-            expectText(fixture.iface, call, 0, StringView(u8"👻魑魅魍魉ゴースッティ"));
-        }
-        static const StringView invalid[] = {
-            StringView(u8"\x1b]66;;line\nbreak\a"),
-            StringView(u8"\x1b]66;;delete\x7f\a"),
-            StringView(u8"\x1b]66;;c1\xc2\x80\a"),
-            StringView(u8"\x1b]66;;overlong\xc0\x80\a"),
-        };
-        for (const StringView input : invalid) {
-            ParserFixture fixture;
-            fixture.feed(input);
-            STD_INSIST(!fixture.iface.called("osc_KITTY_TEXT_SIZING"));
-        }
-    }
-
-    STD_TEST(KittyTextSizingPayloadIsBounded) {
-        for (const size_t length : {4096UL, 4097UL}) {
-            Buffer input(StringView(u8"\x1b]66;;"));
-            for (size_t index = 0; index < length; ++index) {
-                const u8 byte = 'x';
-                input.append(&byte, 1);
-            }
-            const u8 terminator = '\a';
-            input.append(&terminator, 1);
-            ParserFixture fixture;
-            fixture.feed(StringView(input));
-            STD_INSIST(fixture.iface.called("osc_KITTY_TEXT_SIZING") == (length == 4096));
-        }
     }
 
     STD_TEST(KittyClipboardRead) {
