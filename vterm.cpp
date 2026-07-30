@@ -7174,12 +7174,33 @@ int VtermImpl::writePty(VtKey key, VtModifier modifiers_, bool userInput) {
     if (userDefined != userDefinedKeys.end()) {
         return writePty(userDefined->second.data(), userDefined->second.size(), userInput);
     }
+    const auto writeKey = [&](const char* data, size_t size) {
+        if (!send8BitControls) {
+            return writePty(data, size, userInput);
+        }
+        u8 folded[32];
+        STD_INSIST(size <= sizeof(folded));
+        size_t output = 0;
+        for (size_t input = 0; input < size; ++input) {
+            const u8 byte = data[input];
+            if (byte == 0x1b && input + 1 < size) {
+                const u8 next = data[input + 1];
+                if (next >= 0x40 && next <= 0x5f) {
+                    folded[output++] = next + 0x40;
+                    ++input;
+                    continue;
+                }
+            }
+            folded[output++] = byte;
+        }
+        return writePty(folded, output, userInput);
+    };
     modifiers = modifiers_;
     const auto& spec = getInputSpec(key);
     if (modifiers == VtModifier::none) {
-        return writePty(spec.input, spec.getLength(), userInput);
+        return writeKey(spec.input, spec.getLength());
     } else {
-        static u8 buf[32];
+        char buf[32];
         int k = 0;
         const char* end = spec.input + spec.getLength();
         for (const char* p = spec.input; p != end; ++p) {
@@ -7190,7 +7211,7 @@ int VtermImpl::writePty(VtKey key, VtModifier modifiers_, bool userInput) {
             }
         }
         buf[k] = '\0';
-        return writePty(buf, k, userInput);
+        return writeKey(buf, k);
     }
 }
 

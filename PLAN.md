@@ -120,8 +120,13 @@ keys.~~
 Остались особенно полезные:
 
 - adapter — 53 теста;
-- InputEngine — 25;
-- input adapter — 9;
+- ~~InputEngine — все 25 методов проверяют отсутствующий у терминала слой
+  VT input stream → Win32 `INPUT_RECORD`. Обратная, наблюдаемая сторона
+  протокола покрыта keyboard/mouse matrices; Win32 ABI неприменим;~~
+- ~~input adapter — все 9 методов перенесены на generic input boundary.
+  Сохранена xterm-compatible политика modifier resources вместо Windows
+  host-specific Ctrl+Backspace/Ctrl+number; импорт исправил S8C1T для
+  keyboard-generated CSI/SS3;~~
 - ~~mouse — все 5 methods и 1 430 data assertions перенесены. Для legacy
   coordinates сохранены bounds xterm (223 byte, 2015 UTF-8), а не
   Windows Terminal (95 и `SHORT_MAX - 32`). Импорт добавил отсутствовавший
