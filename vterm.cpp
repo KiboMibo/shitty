@@ -523,6 +523,8 @@ namespace {
         void placeGraphicChar();
         void placeGraphicChar(bool graphemeBoundary);
         void placeGraphicChar(bool graphemeBoundary, u8 width);
+        void movePastMulticellContinuation(u16 width);
+        void placeSizedText(const u32* codepoints, size_t count, const KittyTextSizing& sizing, u16 naturalWidth);
         void placeRepeatedCodepoint(u32 codepoint, u32 count);
         template <bool insert>
         void placeAsciiRun(const u8* input, size_t size);
@@ -848,6 +850,7 @@ namespace {
         Output* dump;
         UnicodeMap<u8>* const unicodeProperties;
         Buffer protocolResponseScratch;
+        Buffer textSizingScratch;
         Vector<TerminalCellSpan> outputSpans;
         TerminalUpdate terminalUpdate;
 
@@ -1123,6 +1126,7 @@ namespace {
         void setWrapped(u16 row) override;
         VtermTestCell cell(u16 row, u16 column) const override;
         VtermTestCell logicalCell(i32 row, u16 column) const override;
+        MulticellView multicell(i32 row, u16 column) const override;
         void key(InputKey key, VtModifier modifiers) override;
         void character(u8 byte, VtModifier modifiers) override;
         void kittyKey(InputKey key, u16 modifiers, VtermKeyEventType event) override;
@@ -2432,7 +2436,7 @@ VtermTestCell TestApiImpl::cell(u16 row, u16 column) const {
     VtermTestCell result;
     result.cell = vterm->cf->testCell(row, column);
     CellExtraStore& extras = *vterm->composer.cellExtras;
-    const GraphemeView grapheme = extras.grapheme(result.cell.extraRef());
+    const GraphemeView grapheme = extras.grapheme(result.cell);
     result.grapheme = grapheme.data();
     result.graphemeSize = grapheme.size();
     result.underlineColor = extras.underlineColor(result.cell);
@@ -2448,11 +2452,19 @@ VtermTestCell TestApiImpl::logicalCell(i32 row, u16 column) const {
     VtermTestCell result;
     result.cell = vterm->cf->testLogicalCell(row, column);
     CellExtraStore& extras = *vterm->composer.cellExtras;
-    const GraphemeView grapheme = extras.grapheme(result.cell.extraRef());
+    const GraphemeView grapheme = extras.grapheme(result.cell);
     result.grapheme = grapheme.data();
     result.graphemeSize = grapheme.size();
     result.underlineColor = extras.underlineColor(result.cell);
     return result;
+}
+
+MulticellView TestApiImpl::multicell(i32 row, u16 column) const {
+    const ScreenInfo info = vterm->cf->info();
+    if (row < -(i32)(info.historyRows) || row >= info.rows || column >= info.columns) {
+        return {};
+    }
+    return vterm->composer.cellExtras->multicell(vterm->cf->testLogicalCell(row, column));
 }
 
 void TestApiImpl::key(InputKey key_, VtModifier modifiers) {
@@ -3311,6 +3323,43 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
     placeGraphicChar(graphemeBoundary, codepointData(utf8dec.getUnicode()) & 0x03);
 }
 
+void VtermImpl::movePastMulticellContinuation(u16 width) {
+    while (cf->hasMulticell(posY)) {
+        u16 lineBegin, lineEnd;
+        activeLine(lineBegin, lineEnd);
+        bool moved = false;
+        const u16 checkEnd = min<u16>(lineEnd, posX + width);
+        for (u16 column = posX; column < checkEnd; ++column) {
+            const MulticellView block = cf->multicellAt(posY, column);
+            if (!block.valid() || block.row == 0 || block.column > column) {
+                continue;
+            }
+            posX = min<u16>(lineEnd, column - block.column + block.spec.columns);
+            lastCol = false;
+            moved = true;
+            break;
+        }
+        if (!moved) {
+            return;
+        }
+        if (posX + width <= lineEnd) {
+            continue;
+        }
+        if (autoWrapMode) {
+            inp_CR();
+            inp_LF();
+            continue;
+        }
+        posX = lineEnd - width;
+        const MulticellView edge = cf->multicellAt(posY, posX);
+        if (!edge.valid() || edge.row == 0) {
+            return;
+        }
+        inp_CR();
+        inp_LF();
+    }
+}
+
 void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
     u32 pt = utf8dec.getUnicode();
     u8 w = width;
@@ -3399,6 +3448,8 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
         w = 1;
     }
 
+    movePastMulticellContinuation(w == 2 && lineCols - lineBegin >= 2 ? 2 : 1);
+    activeLine(lineBegin, lineCols);
     const u16 clusterX = posX;
     const u16 clusterY = posY;
     const bool wide = w == 2 && posX < lineCols - 1;
@@ -3435,6 +3486,81 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
     }
 }
 
+void VtermImpl::placeSizedText(const u32* codepoints, size_t count, const KittyTextSizing& sizing, u16 naturalWidth) {
+    u16 lineBegin, lineEnd;
+    activeLine(lineBegin, lineEnd);
+    const u16 lineWidth = lineEnd - lineBegin;
+    const u32 requestedColumns = (u32)(sizing.scale) * (sizing.width != 0 ? sizing.width : naturalWidth);
+    const u16 rows = sizing.scale;
+    if (requestedColumns == 0 || requestedColumns > lineWidth || rows > composer.rows) {
+        return;
+    }
+    const u16 columns = requestedColumns;
+
+    if (autoWrapMode && lastCol) {
+        cf->setWrapped(posY, posX);
+        inp_CR();
+        inp_LF();
+        activeLine(lineBegin, lineEnd);
+    }
+    if (posX < lineBegin) {
+        posX = lineBegin;
+        lastCol = false;
+    }
+    if (posX + columns > lineEnd) {
+        if (autoWrapMode) {
+            if (posX != lineBegin) {
+                cf->setWrapped(posY, posX > lineBegin ? posX - 1 : posX);
+            }
+            inp_CR();
+            inp_LF();
+            activeLine(lineBegin, lineEnd);
+        } else {
+            posX = lineEnd - columns;
+            lastCol = false;
+        }
+    }
+
+    if (posY >= marginTop && posY < marginBottom) {
+        const u16 regionRows = marginBottom - marginTop;
+        if (rows > regionRows) {
+            return;
+        }
+        if (posY + rows > marginBottom) {
+            const u16 scroll = posY + rows - marginBottom;
+            scrollRegionUp(scroll);
+            posY -= scroll;
+        }
+    } else if (posY + rows > composer.rows) {
+        return;
+    }
+
+    const MulticellSpec spec{
+        .columns = columns,
+        .rows = rows,
+        .scale = sizing.scale,
+        .width = sizing.width,
+        .numerator = sizing.numerator,
+        .denominator = sizing.denominator,
+        .verticalAlignment = sizing.verticalAlignment,
+        .horizontalAlignment = sizing.horizontalAlignment,
+    };
+    cf->writeMulticell(posY, posX, codepoints, count, spec, attrs, activeHyperlink, currentSemantic, eraseAttrs, insertMode);
+    if (attrs.blink) {
+        enableBlinkingText();
+    }
+    resetGraphemeInput();
+
+    const u16 end = posX + columns;
+    if (end == lineEnd) {
+        posX = lineEnd - 1;
+        lastCol = true;
+    } else {
+        posX = end;
+        lastCol = false;
+    }
+}
+
 template <bool insert>
 void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
     bool checkBoundary = true;
@@ -3460,7 +3586,7 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
                 if (fullLines >= 2) {
                     bool plainRows = true;
                     for (u16 row = marginTop; row < marginBottom; ++row) {
-                        if (cf->lineAttribute(row) != 0) {
+                        if (cf->lineAttribute(row) != 0 || cf->hasMulticell(row)) {
                             plainRows = false;
                             break;
                         }
@@ -3570,6 +3696,12 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
 
 void VtermImpl::placeRepeatedCodepoint(u32 codepoint, u32 count) {
     while (count != 0) {
+        if (cf->hasMulticell(posY)) {
+            utf8dec.setUnicode(codepoint);
+            placeGraphicChar(true, 1);
+            --count;
+            continue;
+        }
         if (autoWrapMode && lastCol) {
             cf->setWrapped(posY, posX);
             inp_CR();
@@ -3712,6 +3844,12 @@ int VtermImpl::placeUtf8Run(const u8* input, int size) {
 template <bool hasWide>
 void VtermImpl::placePreparedRun(const u32* input, const u8* widths, size_t size) {
     while (size > 0) {
+        if (cf->hasMulticell(posY)) {
+            utf8dec.setUnicode(*input++);
+            placeGraphicChar(true, *widths++);
+            --size;
+            continue;
+        }
         if (autoWrapMode && lastCol) {
             cf->setWrapped(posY, posX);
             inp_CR();
@@ -5735,7 +5873,62 @@ void VtermImpl::osc_CLIPBOARD_WRITE(StringView decoded, bool valid, bool primary
     }
 }
 
-void VtermImpl::osc_KITTY_TEXT_SIZING(const KittyTextSizing&) {
+void VtermImpl::osc_KITTY_TEXT_SIZING(const KittyTextSizing& sizing) {
+    textSizingScratch.reset();
+    textSizingScratch.grow(sizing.text.length() * sizeof(u32));
+    auto* codepoints = static_cast<u32*>(textSizingScratch.mutData());
+    size_t count = 0;
+    Utf8Decoder decoder;
+    for (const u8 byte : sizing.text) {
+        if (byte < 0x80) {
+            codepoints[count++] = byte;
+            continue;
+        }
+        if (decoder.pushByte(byte) == 1) {
+            codepoints[count++] = decoder.getUnicode();
+        }
+    }
+    textSizingScratch.seekAbsolute(count * sizeof(u32));
+    if (count == 0) {
+        return;
+    }
+
+    if (sizing.width != 0) {
+        placeSizedText(codepoints, count, sizing, 1);
+        return;
+    }
+
+    GraphemeBreaker breaker;
+    size_t begin = 0;
+    u16 width = 0;
+    u32 previous = 0;
+    for (size_t index = 0; index < count; ++index) {
+        const u32 codepoint = codepoints[index];
+        const u8 data = codepointData(codepoint);
+        if (breaker.breakBefore(codepoint, (data & 0x04) != 0)) {
+            if (index != begin) {
+                placeSizedText(codepoints + begin, index - begin, sizing, width);
+            }
+            begin = index;
+            width = data & 0x03;
+            if (width == 0) {
+                width = 1;
+            }
+        } else {
+            switch (graphemeWidthEffect(previous, codepoint)) {
+                case GraphemeWidthEffect::Wide:
+                    width = 2;
+                    break;
+                case GraphemeWidthEffect::Narrow:
+                    width = 1;
+                    break;
+                case GraphemeWidthEffect::Unchanged:
+                    break;
+            }
+        }
+        previous = codepoint;
+    }
+    placeSizedText(codepoints + begin, count - begin, sizing, width);
 }
 
 void VtermImpl::writeKittyClipboardStatus(StringView type, StringView id, StringView status) {
@@ -8398,7 +8591,7 @@ size_t VtermImpl::placeAsciiLines(const u8* input, size_t size) {
             break;
         }
         const u32 row = (u32)(posY) + lineCount;
-        if (row < composer.rows && cf->lineAttribute(row) != 0) {
+        if (row < composer.rows && (cf->lineAttribute(row) != 0 || cf->hasMulticell(row))) {
             break;
         }
         if (length != 0) {

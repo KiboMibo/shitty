@@ -284,6 +284,110 @@ namespace {
 }
 
 STD_TEST_SUITE(Screen) {
+    STD_TEST(WriteMulticellClaimsEveryBand) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        composer.setCellExtras(CellExtraStore::create(composer, 40));
+        TerminalColors colors;
+        configureColors(colors);
+        Screen& screen = *Screen::createPrimary(composer, *pool, 10, 4, &colors, 0);
+        const u32 text[] = {'A', 0x0301};
+        const MulticellSpec spec{
+            .columns = 3,
+            .rows = 2,
+            .scale = 2,
+        };
+
+        screen.writeMulticell(1, 2, text, 2, spec, attributes(), 0, 3, TerminalCell{}, false);
+
+        const void* identity = nullptr;
+        for (u16 row = 0; row < spec.rows; ++row) {
+            for (u16 column = 0; column < spec.columns; ++column) {
+                const TerminalCell cell = screen.testCell(1 + row, 2 + column);
+                const MulticellView view = composer.cellExtras->multicell(cell);
+                STD_INSIST(view.valid());
+                STD_INSIST(view.column == column);
+                STD_INSIST(view.row == row);
+                STD_INSIST(view.spec.columns == 3);
+                STD_INSIST(view.spec.rows == 2);
+                STD_INSIST(view.text.size() == 2);
+                if (identity == nullptr) {
+                    identity = view.identity;
+                }
+                STD_INSIST(view.identity == identity);
+            }
+        }
+        STD_INSIST(composer.cellExtras->grapheme(screen.testCell(1, 2)).size() == 2);
+        STD_INSIST(composer.cellExtras->grapheme(screen.testCell(1, 3)).empty());
+        STD_INSIST(composer.cellExtras->grapheme(screen.testCell(2, 2)).empty());
+    }
+
+    STD_TEST(OrdinaryWriteErasesIntersectedMulticell) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        composer.setCellExtras(CellExtraStore::create(composer, 40));
+        TerminalColors colors;
+        configureColors(colors);
+        Screen& screen = *Screen::createPrimary(composer, *pool, 10, 4, &colors, 0);
+        const u32 block[] = {'X'};
+        const MulticellSpec spec{
+            .columns = 4,
+            .rows = 2,
+            .scale = 2,
+        };
+        screen.writeMulticell(0, 1, block, 1, spec, attributes(), 0, 0, TerminalCell{}, false);
+
+        screen.writeCodepoint(1, 3, 'y', false, attributes(), 0, 0, TerminalCell{});
+
+        for (u16 row = 0; row < spec.rows; ++row) {
+            for (u16 column = 1; column < 5; ++column) {
+                const TerminalCell cell = screen.testCell(row, column);
+                STD_INSIST(!composer.cellExtras->multicell(cell).valid());
+                if (row == 1 && column == 3) {
+                    STD_INSIST(cell.uc_pt == 'y');
+                } else {
+                    STD_INSIST(cell.uc_pt == 0);
+                }
+            }
+        }
+    }
+
+    STD_TEST(EraseExpandsToWholeMulticell) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        composer.setCellExtras(CellExtraStore::create(composer, 40));
+        TerminalColors colors;
+        configureColors(colors);
+        Screen& screen = *Screen::createPrimary(composer, *pool, 10, 4, &colors, 0);
+        const u32 block[] = {'X'};
+        const MulticellSpec spec{
+            .columns = 4,
+            .rows = 3,
+            .scale = 3,
+        };
+        screen.writeMulticell(0, 2, block, 1, spec, attributes(), 0, 0, TerminalCell{}, false);
+
+        screen.eraseCells(2, 4, 1, TerminalCell{});
+
+        for (u16 row = 0; row < spec.rows; ++row) {
+            for (u16 column = 2; column < 6; ++column) {
+                STD_INSIST(!composer.cellExtras->multicell(screen.testCell(row, column)).valid());
+            }
+        }
+    }
+
+    STD_TEST(WriteMulticellProducesCompleteIncrementalUpdate) {
+        verifyDamage([](Screen& screen) {
+            const u32 text[] = {'X'};
+            const MulticellSpec spec{
+                .columns = 3,
+                .rows = 2,
+                .scale = 2,
+            };
+            screen.writeMulticell(1, 2, text, 1, spec, attributes(), 0, 0, TerminalCell{}, false);
+        });
+    }
+
     STD_TEST(EmptyRectangleChecksumsToZero) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());

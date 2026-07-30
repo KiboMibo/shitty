@@ -18,6 +18,8 @@
 
 struct CellExtraStore;
 struct Composer;
+struct MulticellView;
+struct MulticellSpec;
 
 namespace stl {
     class ObjPool;
@@ -81,10 +83,13 @@ struct Screen {
     virtual void fillCells(u16 ch, const TerminalCell& attrs) = 0;
     virtual void setLineAttribute(u16 row, u8 attribute) = 0;
     virtual u8 lineAttribute(u16 row) const noexcept = 0;
+    virtual bool hasMulticell(i32 row) const noexcept = 0;
+    virtual MulticellView multicellAt(i32 row, u16 column) const noexcept = 0;
     virtual bool hasProtection(u16 row, u8 mask) const noexcept = 0;
     virtual bool wrapped(u16 row, u16 column) const noexcept = 0;
     virtual void setWrapped(u16 row, u16 column) = 0;
     virtual void writeGrapheme(u16 row, u16 column, const u32* codepoints, size_t count, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) = 0;
+    virtual void writeMulticell(u16 row, u16 column, const u32* codepoints, size_t count, const MulticellSpec& spec, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs, bool insert) = 0;
     virtual WriteResult writeAsciiRun(u16 row, u16 column, u16 normalEnd, u16 doubleEnd, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) = 0;
     virtual void writeAsciiLines(u16 row, const u8* input, const u16* lengths, u16 lineCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) = 0;
     virtual WriteResult writeAsciiRunInsert(u16 row, u16 column, u16 normalEnd, u16 doubleEnd, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) = 0;

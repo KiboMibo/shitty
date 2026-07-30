@@ -399,9 +399,18 @@ query/resize request, title query/update/restore и version query; оригин�
   for forward compatibility, following the Contour/Ghostty consensus rather
   than Kitty's stricter generated parser; malformed known fields remain
   invalid.~~
-- TextSizing grid/render — 52 cases remain: column calculation, multicell
-  storage and overwrite/edit/selection/history invariants, fractional
-  alignment, deferred wrap and per-row rendering bands.
+- ~~TextSizing grid core — imported the column/scale arithmetic, pooled
+  multicell storage, every-band lookup, safe whole-block overwrite/erase,
+  ordinary-text lower-band skipping per the current Kitty specification,
+  autowrap/no-autowrap placement, vertical room-making, insert mode,
+  fractional metadata and incremental-damage cases. The implementation uses
+  one shared payload per block and per-cell band coordinates, preserved by
+  CellExtra GC.~~
+- TextSizing editing/selection/history/render — 26 cases remain: ICH/DCH and
+  partial rectangle/copy boundary rules; selection expansion, drag clamping
+  and extraction; blocks crossing margins, wrapping runs and deferred wrap;
+  scrollback lookup; and reference/GPU emission of every visible band with
+  fractional alignment.
 - ~~Grid — all 32 cases accounted: 25 terminal-observable resize, reflow,
   history, viewport, sparse-row and semantic-region cases are rewritten in
   Python; seven private storage/rendering cases are mapped to native Screen
