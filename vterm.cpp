@@ -405,7 +405,9 @@ namespace {
         void updateExtraCellCount();
 
         void normalizeCursorPos();
-        bool isCursorInsideMargins();
+        bool isCursorInsideMargins() const;
+        void activeColumns(u16& begin, u16& end) const;
+        void activeLine(u16& begin, u16& end) const;
         void eraseRow(u16 pY);
         void eraseRows(u16 startY, u16 count);
         void copyRow(u16 dstY, u16 srcY);
@@ -2809,8 +2811,25 @@ void VtermImpl::normalizeCursorPos() {
     lastCol = false;
 }
 
-bool VtermImpl::isCursorInsideMargins() {
+bool VtermImpl::isCursorInsideMargins() const {
     return posX >= hMargin && posX < nColsEff && posY >= marginTop && posY < marginBottom;
+}
+
+void VtermImpl::activeColumns(u16& begin, u16& end) const {
+    if (posX < nColsEff && posY >= marginTop && posY < marginBottom) {
+        begin = posX < hMargin ? 0 : hMargin;
+        end = nColsEff;
+    } else {
+        begin = 0;
+        end = composer.columns;
+    }
+}
+
+void VtermImpl::activeLine(u16& begin, u16& end) const {
+    activeColumns(begin, end);
+    if (cf->lineAttribute(posY)) {
+        end = begin + std::max<u16>(1, (end - begin) / 2);
+    }
 }
 
 void VtermImpl::eraseRow(u16 pY) {
@@ -3016,8 +3035,8 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
 void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
     u32 pt = utf8dec.getUnicode();
     u8 w = width;
-    const u8 lineAttribute = cf->lineAttribute(posY);
-    const u16 lineCols = lineAttribute ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2) : nColsEff;
+    u16 lineBegin, lineCols;
+    activeLine(lineBegin, lineCols);
 
     if (inputGraphemeScreen == cf && !graphemeBoundary) {
         const u32 previous = inputGrapheme.empty() ? inputGraphemeBase : inputGrapheme.data()[inputGrapheme.size() - 1];
@@ -3032,11 +3051,11 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
         bool wide = inputGraphemeWide;
         switch (graphemeWidthEffect(previous, pt)) {
             case GraphemeWidthEffect::Wide:
-                if (!wide && lineCols - hMargin >= 2) {
+                if (!wide && lineCols - lineBegin >= 2) {
                     if (targetX == lineCols - 1) {
                         if (autoWrapMode) {
                             cf->eraseCells(targetY, targetX, 1, eraseAttrs);
-                            const u16 wrapColumn = targetX > hMargin ? targetX - 1 : targetX;
+                            const u16 wrapColumn = targetX > lineBegin ? targetX - 1 : targetX;
                             cf->setWrapped(targetY, wrapColumn);
                             inp_CR();
                             inp_LF();
@@ -3083,16 +3102,18 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
         cf->setWrapped(posY, posX);
         inp_CR();
         inp_LF();
+        activeLine(lineBegin, lineCols);
     }
 
     if (w == 2 && posX == lineCols - 1 && autoWrapMode) {
         // The wide glyph belongs wholly to the next row.  Mark the last
         // occupied cell as the soft-wrap boundary, not the unused final
         // column: otherwise copying the logical line invents a space.
-        const u16 wrapColumn = posX > hMargin ? posX - 1 : posX;
+        const u16 wrapColumn = posX > lineBegin ? posX - 1 : posX;
         cf->setWrapped(posY, wrapColumn);
         inp_CR();
         inp_LF();
+        activeLine(lineBegin, lineCols);
     }
 
     if (w == 0) {
@@ -3138,7 +3159,6 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
 template <bool insert>
 void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
     bool checkBoundary = true;
-    const u16 doubleEnd = hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2);
     while (size > 0) {
         bool graphemeBoundary = true;
         if (checkBoundary) {
@@ -3155,7 +3175,7 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
             continue;
         }
         if constexpr (!insert) {
-            if (autoWrapMode && lastCol && horizMarginMode && posY == marginBottom - 1 && (hMargin != 0 || nColsEff != composer.columns)) {
+            if (autoWrapMode && lastCol && horizMarginMode && isCursorInsideMargins() && posY == marginBottom - 1 && (hMargin != 0 || nColsEff != composer.columns)) {
                 const u16 lineWidth = nColsEff - hMargin;
                 const u16 fullLines = min<size_t>(size / lineWidth, 0xffff);
                 if (fullLines >= 2) {
@@ -3176,6 +3196,7 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
                         const u16 survivors = min<u16>(fullLines, regionHeight);
                         const u16 firstLine = fullLines - survivors;
                         const u8* text = input + (size_t)(firstLine)*lineWidth;
+                        const u16 doubleEnd = hMargin + std::max<u16>(1, lineWidth / 2);
                         u16 row = marginBottom - survivors;
                         for (u16 line = firstLine; line < fullLines; ++line, ++row, text += lineWidth) {
                             const Screen::WriteResult written = cf->writeAsciiRun(row, hMargin, nColsEff, doubleEnd, text, lineWidth, attrs, activeHyperlink, currentSemantic, eraseAttrs);
@@ -3217,12 +3238,15 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
             inp_LF();
         }
 
+        u16 lineBegin, lineEnd;
+        activeColumns(lineBegin, lineEnd);
+        const u16 doubleEnd = lineBegin + std::max<u16>(1, (lineEnd - lineBegin) / 2);
         const u16 requested = std::min<size_t>(size, 0xffff);
         Screen::WriteResult written;
         if constexpr (insert) {
-            written = cf->writeAsciiRunInsert(posY, posX, nColsEff, doubleEnd, input, requested, attrs, activeHyperlink, currentSemantic, eraseAttrs);
+            written = cf->writeAsciiRunInsert(posY, posX, lineEnd, doubleEnd, input, requested, attrs, activeHyperlink, currentSemantic, eraseAttrs);
         } else {
-            written = cf->writeAsciiRun(posY, posX, nColsEff, doubleEnd, input, requested, attrs, activeHyperlink, currentSemantic, eraseAttrs);
+            written = cf->writeAsciiRun(posY, posX, lineEnd, doubleEnd, input, requested, attrs, activeHyperlink, currentSemantic, eraseAttrs);
         }
         if (written.count == 0) {
             inputGraphemeBreaker.setBoundaryAfter(*input);
@@ -3273,8 +3297,8 @@ void VtermImpl::placeRepeatedCodepoint(u32 codepoint, u32 count) {
             inp_LF();
         }
 
-        const u8 lineAttribute = cf->lineAttribute(posY);
-        const u16 lineCols = lineAttribute ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2) : nColsEff;
+        u16 lineBegin, lineCols;
+        activeLine(lineBegin, lineCols);
         if (posX >= lineCols) {
             utf8dec.setUnicode(codepoint);
             placeGraphicChar(true, 1);
@@ -3415,8 +3439,8 @@ void VtermImpl::placePreparedRun(const u32* input, const u8* widths, size_t size
             inp_LF();
         }
 
-        const u8 lineAttribute = cf->lineAttribute(posY);
-        const u16 lineCols = lineAttribute ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2) : nColsEff;
+        u16 lineBegin, lineCols;
+        activeLine(lineBegin, lineCols);
         if (posX >= lineCols) {
             utf8dec.setUnicode(*input++);
             placeGraphicChar(true, *widths++);
@@ -3773,8 +3797,13 @@ void VtermImpl::csi_SCORC() {
 }
 
 void VtermImpl::esc_DECSC() {
-    savedCursor->posX = posX;
-    savedCursor->posY = posY;
+    if (originMode == OriginMode::ScrollingRegion) {
+        savedCursor->posX = posX - hMargin;
+        savedCursor->posY = posY - marginTop;
+    } else {
+        savedCursor->posX = posX;
+        savedCursor->posY = posY;
+    }
     savedCursor->lastCol = lastCol;
     savedCursor->attrs = attrs;
     savedCursor->eraseAttrs = eraseAttrs;
@@ -3785,14 +3814,18 @@ void VtermImpl::esc_DECSC() {
 
 void VtermImpl::esc_DECRC() {
     if (savedCursor->isSet) {
-        posX = savedCursor->posX;
-        posY = savedCursor->posY;
-        normalizeCursorPos();
+        originMode = savedCursor->originMode;
+        if (originMode == OriginMode::ScrollingRegion) {
+            posX = hMargin + std::min<u16>(savedCursor->posX, nColsEff - hMargin - 1);
+            posY = marginTop + std::min<u16>(savedCursor->posY, marginBottom - marginTop - 1);
+        } else {
+            posX = std::min<u16>(savedCursor->posX, composer.columns - 1);
+            posY = std::min<u16>(savedCursor->posY, composer.rows - 1);
+        }
         lastCol = savedCursor->lastCol;
         attrs = savedCursor->attrs;
         eraseAttrs = savedCursor->eraseAttrs;
         reverseVideo = attrs.inverse;
-        originMode = savedCursor->originMode;
         charsetState = savedCursor->charsetState;
     }
 }

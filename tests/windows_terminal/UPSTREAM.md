@@ -221,8 +221,20 @@ bright-ANSI behavior. `RestoreDownAltBufferWithTerminalScrolling` and
 viewports, and console APIs with no terminal protocol equivalent. Their
 portable alternate-resize, scrollback-follow, and screen-lifetime invariants
 are already covered by the translated resize and alternate-screen tests. The
-remaining 35 methods stay
-explicitly listed in `PLAN.md`.
+next 11 methods cover vertical and horizontal cursor movement from inside,
+outside, and exactly on rectangular margins; CNL/CPL; HPR/VPR; DECSC/DECRC
+position, pending-wrap, rendition, charset, DECOM, changed-origin, and
+clamping state; DECALN; and cursor visibility/blink modes. The import found
+that printing to the right of horizontal margins was incorrectly clamped
+back into the rectangle. It also found that DECSC stored absolute coordinates
+in origin mode, so DECRC could not apply the saved relative position to
+changed margins. Windows moves CNL/CPL to column zero after leaving vertical
+margins; xterm's esctest, Ghostty, and WezTerm retain the configured left
+margin, while Foot and Kitty agree with Windows. Shitty retains its existing
+xterm-compatible carriage-return rule and tests both vertical outcomes.
+Windows also starts with cursor blinking enabled; Shitty retains its
+non-blinking product default while testing every DECSET/DECRST transition.
+The remaining 24 methods stay explicitly listed in `PLAN.md`.
 
 The 25 methods in `src/terminal/parser/ut_parser/InputEngineTest.cpp` test the
 opposite, Windows-only boundary: decoding a VT input byte stream into Win32

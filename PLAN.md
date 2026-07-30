@@ -214,7 +214,14 @@ keys.~~
   `SnapCursorWithTerminalScrolling` классифицированы как Win32-only
   `_virtualBottom`/movable-viewport/console-API policy; переносимые resize,
   scrollback-follow и alternate lifetime уже покрыты;~~
-- `ScreenBufferTests`, remaining — 35 методов; portable assertions переносить
+- ~~`ScreenBufferTests`, cursor block — ещё 11 методов: CUU/CUD/CUF/CUB
+  внутри, снаружи и точно на margins, CNL/CPL, HPR/VPR, полный
+  DECSC/DECRC state вместе с DECOM и сменой margins, DECALN и
+  DECTCEM/cursor-blink. Импорт исправил печать справа от horizontal margins
+  и сохранение относительных координат DECSC при DECOM. Windows CNL/CPL
+  снаружи vertical margins адаптирован к xterm/Ghostty/WezTerm: carriage
+  return сохраняет действующий left margin;~~
+- `ScreenBufferTests`, remaining — 24 метода; portable assertions переносить
   блоками, Win32-only console buffer/virtual-bottom ABI явно
   классифицировать, не выдавая его за terminal semantics.
 
