@@ -96,7 +96,7 @@ void CaptureHandler::flush() {
 STD_TEST_SUITE(InputRouter) {
     STD_TEST(StopsAtFirstConsumingHandler) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureHandler first;
         CaptureHandler second;
         first.consume = true;
@@ -110,7 +110,7 @@ STD_TEST_SUITE(InputRouter) {
 
     STD_TEST(ContinuesAfterHandlerRemovesItself) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureHandler removing;
         CaptureHandler trailing;
         removing.unlinkOnKey = true;
@@ -128,7 +128,7 @@ STD_TEST_SUITE(InputRouter) {
 
     STD_TEST(RoutesEveryInputShape) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureHandler sink;
         composer.inputHandlers.pushBack(&sink);
 
@@ -149,7 +149,7 @@ STD_TEST_SUITE(InputRouter) {
 
     STD_TEST(BroadcastsStateAndFlushEvents) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureHandler first;
         CaptureHandler second;
         composer.inputHandlers.pushBack(&first);

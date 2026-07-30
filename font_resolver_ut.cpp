@@ -59,7 +59,7 @@ Font* RecordingResolver::load(ObjPool& owner, const FontRequest& request, FontMe
 STD_TEST_SUITE(FontResolver) {
     STD_TEST(UsesFirstSuccessfulResolver) {
         ObjPool::Ref pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         removeDefaultResolvers(composer);
         RecordingResolver first(false);
         RecordingResolver second(true);
@@ -84,7 +84,7 @@ STD_TEST_SUITE(FontResolver) {
 
     STD_TEST(ReturnsNullAfterEveryResolverDeclines) {
         ObjPool::Ref pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         removeDefaultResolvers(composer);
         RecordingResolver first(false);
         RecordingResolver second(false);
@@ -101,7 +101,7 @@ STD_TEST_SUITE(FontResolver) {
 
     STD_TEST(FontpackLoadsEveryRoleThroughComposer) {
         ObjPool::Ref composerPool = ObjPool::fromMemory();
-        Composer composer(composerPool.mutPtr());
+        Composer& composer = *composerPool->make<Composer>(composerPool.mutPtr());
         removeDefaultResolvers(composer);
         RecordingResolver resolver(true);
         composer.fontResolvers.pushBack(&resolver);

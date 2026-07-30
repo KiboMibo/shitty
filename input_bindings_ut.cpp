@@ -30,7 +30,7 @@ void CountBinding::onListen(void*) {
 STD_TEST_SUITE(InputBindings) {
     STD_TEST(MatchesNormalizedModifiersAndPublishes) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         IntrusiveList listeners;
         CountBinding listener;
         listeners.pushBack(&listener);
@@ -51,7 +51,7 @@ STD_TEST_SUITE(InputBindings) {
 
     STD_TEST(DoesNotConsumeMismatchedBinding) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         IntrusiveList listeners;
         CountBinding listener;
         listeners.pushBack(&listener);
@@ -64,7 +64,7 @@ STD_TEST_SUITE(InputBindings) {
 
     STD_TEST(TracksRepeatedPendingText) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         IntrusiveList listeners;
         CountBinding listener;
         listeners.pushBack(&listener);
@@ -81,7 +81,7 @@ STD_TEST_SUITE(InputBindings) {
 
     STD_TEST(FlushDropsPendingTextButReleaseRemainsConsumed) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         IntrusiveList listeners;
         CountBinding listener;
         listeners.pushBack(&listener);
@@ -96,7 +96,7 @@ STD_TEST_SUITE(InputBindings) {
 
     STD_TEST(FocusLossClearsConsumedAndPendingState) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         IntrusiveList listeners;
         CountBinding listener;
         listeners.pushBack(&listener);

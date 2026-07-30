@@ -106,7 +106,7 @@ FontGlyph FakeFontpack::glyph(const u32* codepoints, size_t count, FontStyle sty
 STD_TEST_SUITE(ReferenceRenderer) {
     STD_TEST(RejectsMismatchedCellCount) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         FakeFontpack fonts;
         configure(composer, fonts, 1, 1, 1, 1);
         ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
@@ -122,7 +122,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
 
     STD_TEST(BlendsMonochromeCoverage) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         FakeFontpack fonts;
         fonts.bitmap[0] = 0;
         fonts.bitmap[1] = 128;
@@ -149,7 +149,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
 
     STD_TEST(InverseAndScreenReverseCancelEachOther) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         FakeFontpack fonts;
         fonts.bitmap[0] = 255;
         fonts.bitmapLength = 1;
@@ -174,7 +174,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
 
     STD_TEST(AppliesSparseUpdatesToRetainedCells) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         FakeFontpack fonts;
         configure(composer, fonts, 2, 1, 1, 1);
         ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
@@ -203,7 +203,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
 
     STD_TEST(AppliesSelectionColors) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         FakeFontpack fonts;
         fonts.bitmap[0] = 255;
         fonts.bitmap[1] = 0;
@@ -230,7 +230,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
 
     STD_TEST(SelectionOfWideContinuationHighlightsWholeGlyph) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         FakeFontpack fonts;
         fonts.bitmap[0] = 0;
         fonts.bitmap[1] = 0;
@@ -262,7 +262,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
 
     STD_TEST(CompositesPremultipliedColorGlyph) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         FakeFontpack fonts;
         fonts.bitmap[0] = 100;
         fonts.bitmap[1] = 50;
@@ -288,7 +288,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
 
     STD_TEST(PassesStoredGraphemeAndStyleToFontpack) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         FakeFontpack fonts;
         fonts.bitmap[0] = 0;
         fonts.bitmapLength = 1;

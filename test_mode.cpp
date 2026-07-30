@@ -1619,7 +1619,7 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
                     throw std::runtime_error("invalid render image request");
                 }
                 ObjPool::Ref renderPool = ObjPool::fromMemory();
-                Composer renderComposer(renderPool.mutPtr());
+                Composer& renderComposer = *renderPool->make<Composer>(renderPool.mutPtr());
                 const StringView fontname((const u8*)(request.data()), first);
                 const StringView dwfontname((const u8*)(request.data() + first + 1), request.size() - first - 1);
                 Fontpack* fonts = Fontpack::create(renderComposer, *renderPool, fontname, dwfontname, opts.fontsize);

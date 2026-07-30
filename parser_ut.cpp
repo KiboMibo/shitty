@@ -1219,7 +1219,9 @@ namespace {
             bytes[count++] = sequence.prefix;
         }
         const StringView parameters = vteKnownParameters(command);
-        memcpy(bytes + count, parameters.data(), parameters.length());
+        if (!parameters.empty()) {
+            memcpy(bytes + count, parameters.data(), parameters.length());
+        }
         count += parameters.length();
         if (sequence.intermediate != 0) {
             bytes[count++] = sequence.intermediate;
@@ -1227,7 +1229,9 @@ namespace {
         bytes[count++] = sequence.final;
         if (sequence.kind == VteKnownKind::DCS) {
             const StringView body = vteKnownBody(command);
-            memcpy(bytes + count, body.data(), body.length());
+            if (!body.empty()) {
+                memcpy(bytes + count, body.data(), body.length());
+            }
             count += body.length();
             bytes[count++] = 0x1b;
             bytes[count++] = '\\';

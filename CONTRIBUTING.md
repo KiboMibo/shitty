@@ -30,6 +30,35 @@ The project prefers community contributions in roughly this order:
    loop.
 3. Conventional human-written code.
 
+## Continuous integration
+
+Every pull request runs four Linux checks. `Tests` starts only after `Build`
+passes, and `Tests ASan` starts only after `Build ASan` passes:
+
+```text
+Build       -> Tests
+Build ASan  -> Tests ASan
+```
+
+The two sanitizer checks use AddressSanitizer and UndefinedBehaviorSanitizer.
+They instrument Shitty and its vendored C++ dependencies through the build
+runner's external `CXXFLAGS` and `LDFLAGS` interface.
+
+Run any check locally with the same Nix flake target used by GitHub:
+
+```sh
+nix build -L --no-link .#checks.x86_64-linux.build
+nix build -L --no-link .#checks.x86_64-linux.tests
+nix build -L --no-link .#checks.x86_64-linux.build-asan
+nix build -L --no-link .#checks.x86_64-linux.tests-asan
+```
+
+The test checks run the complete `./build test` graph with keep-going enabled,
+so independent failures are reported together. On GitHub, open `Details` next
+to a failed check. Its summary contains the detected compiler errors, failing
+test cases, sanitizer reports and the local reproduction command. The complete
+log is attached to the workflow run for seven days.
+
 ## License grant
 
 By committing code to this repository, you agree that your contribution

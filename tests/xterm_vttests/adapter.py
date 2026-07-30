@@ -5,6 +5,7 @@ import signal
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -130,6 +131,11 @@ def command_for(root, case):
             # already empty screen, so the scenario has no observable oracle.
             arguments.append(script)
         return arguments
+    if case.endswith(".sh"):
+        bash = shutil.which("bash")
+        if bash is None:
+            raise RuntimeError("xterm shell scenarios require bash")
+        return [bash, script]
     return [script]
 
 
@@ -190,22 +196,31 @@ def generate(root, case):
 def generate_prefix(root, case, limit=256 * 1024):
     environment = os.environ.copy()
     environment["PATH"] = str(root / "bin") + os.pathsep + environment["PATH"]
-    process = subprocess.Popen(
-        [str(root / "upstream" / case)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=environment,
-    )
-    try:
-        payload = process.stdout.read(limit)
-    finally:
-        process.kill()
-        process.communicate(timeout=5)
-    if len(payload) != limit:
-        raise RuntimeError(
-            f"{case} ended before producing a {limit}-byte stream prefix"
+    # The selected upstream scripts are unbounded generators. Keep stderr out
+    # of a pipe so a noisy failure cannot deadlock stdout collection before we
+    # have read the requested prefix.
+    with tempfile.TemporaryFile() as errors:
+        process = subprocess.Popen(
+            [str(root / "upstream" / case)],
+            stdout=subprocess.PIPE,
+            stderr=errors,
+            env=environment,
         )
-    return payload
+        try:
+            payload = process.stdout.read(limit)
+        finally:
+            process.kill()
+            process.wait(timeout=5)
+        if len(payload) != limit:
+            errors.seek(0)
+            detail = errors.read(16 * 1024).decode(errors="replace").strip()
+            message = (
+                f"{case} ended before producing a {limit}-byte stream prefix"
+            )
+            if detail:
+                message += ": " + detail
+            raise RuntimeError(message)
+        return payload
 
 
 def write_chunked(terminal, payload):
@@ -347,7 +362,10 @@ def main():
     root = Path(__file__).resolve().parent
     # Prefix cases feed 256 KiB through two independently driven terminals.
     # Leave enough headroom for slower debug/Nix builders.
-    signal.alarm(60 if case in PREFIX_CASES else 20)
+    timeout = 60 if case in PREFIX_CASES else 20
+    if os.environ.get("ASAN_OPTIONS"):
+        timeout *= 3
+    signal.alarm(timeout)
     if case in PREFIX_CASES:
         message = "chunking changed state"
         payload = generate_prefix(root, case)

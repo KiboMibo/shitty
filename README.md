@@ -183,6 +183,15 @@ Run only the native black-box suite:
 ./build test_suite
 ```
 
+Run the same normal and sanitizer chains as GitHub CI:
+
+```sh
+nix build -L --no-link .#checks.x86_64-linux.build &&
+  nix build -L --no-link .#checks.x86_64-linux.tests
+nix build -L --no-link .#checks.x86_64-linux.build-asan &&
+  nix build -L --no-link .#checks.x86_64-linux.tests-asan
+```
+
 The native suite drives a dedicated headless `st_test` binary through a real
 raw PTY and checks externally visible terminal snapshots and output. The
 production `st` binary does not expose the test control entry point.

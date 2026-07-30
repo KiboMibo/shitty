@@ -49,7 +49,7 @@ void ExtraChangeListener::onListen(void*) {
 STD_TEST_SUITE(CellExtraStore) {
     STD_TEST(FactoryDoesNotWireComposer) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CellExtraStore* const store = CellExtraStore::create(composer, 1);
 
         STD_INSIST(store != nullptr);
@@ -58,7 +58,7 @@ STD_TEST_SUITE(CellExtraStore) {
 
     STD_TEST(KeepsInlineUnderlineColorWithoutExtra) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CellExtraStore& store = *createStore(composer, 1);
         TerminalCell cell{};
         const CellColor color = CellColor::direct({17, 34, 51});
@@ -71,7 +71,7 @@ STD_TEST_SUITE(CellExtraStore) {
 
     STD_TEST(CombinesAndClearsIndependentExtraValues) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CellExtraStore& store = *createStore(composer, 1);
         TerminalCell cell{};
         const CellColor underline = CellColor::indexed(42);
@@ -106,7 +106,7 @@ STD_TEST_SUITE(CellExtraStore) {
 
     STD_TEST(ReusesHyperlinkIdentity) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CellExtraStore& store = *createStore(composer, 1);
         const u32 first = store.getOrCreateHyperlink(StringView(u8"same"), StringView(u8"first"), 1);
         const u32 second = store.getOrCreateHyperlink(StringView(u8"same"), StringView(u8"second"), 2);
@@ -122,7 +122,7 @@ STD_TEST_SUITE(CellExtraStore) {
 
     STD_TEST(CollectionRebuildsStoreAndPreservesLiveValues) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         ExtraChangeListener listener(composer);
         composer.cellExtrasChangedListeners.pushBack(&listener);
         CellExtraStore* store = createStore(composer, 2);
@@ -152,7 +152,7 @@ STD_TEST_SUITE(CellExtraStore) {
 
     STD_TEST(CollectionDropsUnreachableHyperlinks) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CellExtraStore* store = createStore(composer, 1);
         const u32 live = store->getOrCreateHyperlink(StringView(u8"live"), StringView(u8"https://live.test"), 1);
         store->getOrCreateHyperlink(StringView(u8"dead"), StringView(u8"https://dead.test"), 2);
@@ -171,7 +171,7 @@ STD_TEST_SUITE(CellExtraStore) {
 
     STD_TEST(CollectionPreservesDistinctRefs) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CellExtraStore* store = createStore(composer, 2);
         TerminalCell first{};
         TerminalCell second{};
@@ -191,7 +191,7 @@ STD_TEST_SUITE(CellExtraStore) {
 
     STD_TEST(CollectionRewritesNonCellRoots) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CellExtraStore* store = createStore(composer, 1);
         store->getOrCreateHyperlink(StringView(u8"dead"), StringView(u8"https://dead.test"), 1);
         u32 root = store->getOrCreateHyperlink(StringView(u8"live"), StringView(u8"https://live.test"), 2);
@@ -211,7 +211,7 @@ STD_TEST_SUITE(CellExtraStore) {
 
     STD_TEST(ReportsAllocationPressure) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CellExtraStore& store = *createStore(composer, 1);
         TerminalCell cell{};
 

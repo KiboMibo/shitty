@@ -8,6 +8,7 @@
 import argparse
 import os
 import shutil
+import time
 
 from harness import Shitty
 
@@ -25,6 +26,7 @@ def run(binary, rounds, log_path=None):
         answered_round = -25
         for round_number in range(rounds):
             status, screen = terminal.poll_child()
+            screen_lower = screen.lower()
             main_menu = "Choose test type:" in screen
             saw_completion |= "That's all, folks!" in screen
             answer = None
@@ -38,7 +40,10 @@ def run(binary, rounds, log_path=None):
                     answer = b"0\n"
                 elif "Enter choice number" in screen or "0. Exit" in screen:
                     answer = b"0\n"
-                elif "Push <RETURN>" in screen:
+                elif (
+                    "push <return>" in screen_lower
+                    or "press return to continue" in screen_lower
+                ):
                     answer = b"\n"
             if answer is not None and (
                 screen != answered_screen or
@@ -55,6 +60,10 @@ def run(binary, rounds, log_path=None):
                 if not saw_completion:
                     raise RuntimeError("vttest exited without completing its suite")
                 return
+            # poll_child() is non-blocking. Yield to the freshly spawned
+            # vttest process instead of exhausting the round budget before it
+            # has had a chance to produce its first menu.
+            time.sleep(0.005)
         raise RuntimeError(
             "vttest did not complete before the round limit:\n" +
             terminal.screen_text()

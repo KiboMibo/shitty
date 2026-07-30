@@ -16,7 +16,7 @@ using namespace stl;
 STD_TEST_SUITE(VtermTrace) {
     STD_TEST(MergesAdjacentTextAndKeepsControlsSeparate) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         VtermTrace* trace = VtermTrace::create(composer);
         const u8 first[] = {'a', 'b'};
         const u8 second[] = {'c'};
@@ -30,7 +30,7 @@ STD_TEST_SUITE(VtermTrace) {
 
     STD_TEST(WithholdsIncompleteEscapeUntilItEnds) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         VtermTrace* trace = VtermTrace::create(composer);
         trace->control(0x07);
         trace->escapeBegin();
@@ -46,7 +46,7 @@ STD_TEST_SUITE(VtermTrace) {
 
     STD_TEST(CancelDropsIncompleteEscape) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         VtermTrace* trace = VtermTrace::create(composer);
         trace->escapeBegin();
         trace->escapeByte('[');
@@ -57,7 +57,7 @@ STD_TEST_SUITE(VtermTrace) {
 
     STD_TEST(SerializesCsiParametersAndSeparators) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         VtermTrace* trace = VtermTrace::create(composer);
         const u32 parameters[] = {1, 2, 3};
         const unsigned char separators[] = {0, ';', ':'};
@@ -69,7 +69,7 @@ STD_TEST_SUITE(VtermTrace) {
 
     STD_TEST(RecordsCompletedControlStrings) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         VtermTrace* trace = VtermTrace::create(composer);
         const u8 data[] = {'t', 'i', 't', 'l', 'e'};
 
@@ -83,7 +83,7 @@ STD_TEST_SUITE(VtermTrace) {
 
     STD_TEST(CancelDropsControlString) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         VtermTrace* trace = VtermTrace::create(composer);
         const u8 data[] = {'x'};
         trace->stringBegin(VtermTraceString::Apc);
@@ -95,7 +95,7 @@ STD_TEST_SUITE(VtermTrace) {
 
     STD_TEST(ClearDropsCompleteAndPendingEvents) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         VtermTrace* trace = VtermTrace::create(composer);
         trace->control(0x07);
         trace->escapeBegin();

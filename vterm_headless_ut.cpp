@@ -32,7 +32,7 @@ size_t CaptureOutput::writeImpl(const void* data, size_t size) {
 STD_TEST_SUITE(VtermHeadless) {
     STD_TEST(PtyAndTerminalOutputsAreConsumedIndependently) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
         composer.ptyOutput = &pty;
         VtermHeadless::create(composer);
@@ -55,7 +55,7 @@ STD_TEST_SUITE(VtermHeadless) {
 
     STD_TEST(FeedConsumesTerminalAndPtyOutput) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
         composer.ptyOutput = &pty;
         VtermHeadless* const headless = VtermHeadless::create(composer);
@@ -75,7 +75,7 @@ STD_TEST_SUITE(VtermHeadless) {
 
     STD_TEST(RawDeviceAttributesDoesNotProducePtyOutputInUtf8Mode) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
         composer.ptyOutput = &pty;
         VtermHeadless::create(composer);
@@ -90,7 +90,7 @@ STD_TEST_SUITE(VtermHeadless) {
 
     STD_TEST(RawDeviceAttributesWorksInSingleByteMode) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
         composer.ptyOutput = &pty;
         VtermHeadless::create(composer);

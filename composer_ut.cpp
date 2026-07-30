@@ -64,7 +64,7 @@ void RemovingListener::onListen(void*) {
 STD_TEST_SUITE(Composer) {
     STD_TEST(ConstructsCoreComponents) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
 
         STD_INSIST(composer.pool == pool.mutPtr());
         STD_INSIST(composer.smallObjects != nullptr);
@@ -76,7 +76,7 @@ STD_TEST_SUITE(Composer) {
 
     STD_TEST(PublishesContentScaleOnlyAfterChange) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         StateListener listener(composer);
         composer.contentScaleChangedListeners.pushBack(&listener);
 
@@ -94,7 +94,7 @@ STD_TEST_SUITE(Composer) {
 
     STD_TEST(PublishesCommittedResizeState) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         StateListener listener(composer);
         composer.resizedListeners.pushBack(&listener);
         composer.setGlyphSize(8, 16);
@@ -122,7 +122,7 @@ STD_TEST_SUITE(Composer) {
 
     STD_TEST(PublishesCellExtraReplacement) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         StateListener listener(composer);
         composer.cellExtrasChangedListeners.pushBack(&listener);
         auto* first = reinterpret_cast<CellExtraStore*>(uintptr_t(1));
@@ -145,7 +145,7 @@ STD_TEST_SUITE(Composer) {
 
     STD_TEST(ListenerMayRemoveItselfDuringPublication) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         RemovingListener removing;
         StateListener trailing(composer);
         composer.contentScaleChangedListeners.pushBack(&removing);

@@ -40,3 +40,11 @@ LDFLAGS='-fsanitize=thread' \
 TSAN_OPTIONS='halt_on_error=1:second_deadlock_stack=1' \
 ./build -B .build-tsan
 ```
+
+The Nix flake exposes the CI sanitizer build and complete sanitizer test run as
+separate checks:
+
+```sh
+nix build -L --no-link .#checks.x86_64-linux.build-asan
+nix build -L --no-link .#checks.x86_64-linux.tests-asan
+```

@@ -4,6 +4,7 @@
 
 import configparser
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,6 +17,7 @@ class BuildMetadataTests(unittest.TestCase):
     def run_build(self, build_file, *arguments):
         return subprocess.run(
             [
+                sys.executable,
                 ROOT / "build",
                 "--build-file",
                 build_file,
@@ -62,11 +64,13 @@ class BuildMetadataTests(unittest.TestCase):
             build_file.write_text(
                 "one = command(\n"
                 "    outputs=['$(B)/one'],\n"
-                "    cmd=['/usr/bin/touch', '$(B)/one'],\n"
+                "    cmd=['python3', '-c', "
+                "\"from pathlib import Path; Path(r'$(B)/one').touch()\"],\n"
                 ")\n"
                 "two = command(\n"
                 "    outputs=['$(B)/two'],\n"
-                "    cmd=['/usr/bin/touch', '$(B)/two'],\n"
+                "    cmd=['python3', '-c', "
+                "\"from pathlib import Path; Path(r'$(B)/two').touch()\"],\n"
                 ")\n"
                 "group('batch', one)\n"
                 "group('batch', two)\n"
@@ -94,7 +98,8 @@ class BuildMetadataTests(unittest.TestCase):
             build_file.write_text(
                 "target = command(\n"
                 "    outputs=['$(B)/result'],\n"
-                "    cmd=['/usr/bin/touch', '$(B)/result'],\n"
+                "    cmd=['python3', '-c', "
+                "\"from pathlib import Path; Path(r'$(B)/result').touch()\"],\n"
                 ")\n"
                 "group('install', target)\n"
             )

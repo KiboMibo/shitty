@@ -93,7 +93,7 @@ void CountListener::onListen(void*) {
 STD_TEST_SUITE(TestInput) {
     STD_TEST(TranslatesPrintableAndTextInput) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         TestInput& input = *TestInput::create(composer);
         CaptureInput capture;
         composer.inputHandlers.pushBack(&capture);
@@ -114,7 +114,7 @@ STD_TEST_SUITE(TestInput) {
 
     STD_TEST(TranslatesSpecialKeysAndAltGraph) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         TestInput& input = *TestInput::create(composer);
         CaptureInput capture;
         composer.inputHandlers.pushBack(&capture);
@@ -135,7 +135,7 @@ STD_TEST_SUITE(TestInput) {
 
     STD_TEST(RejectsUnknownKeyEvents) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         TestInput& input = *TestInput::create(composer);
         CaptureInput capture;
         composer.inputHandlers.pushBack(&capture);
@@ -150,7 +150,7 @@ STD_TEST_SUITE(TestInput) {
 
     STD_TEST(PublishesContentScale) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         TestInput& input = *TestInput::create(composer);
         CountListener listener;
         composer.contentScaleChangedListeners.pushBack(&listener);
