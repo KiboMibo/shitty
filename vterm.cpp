@@ -627,6 +627,8 @@ namespace {
         void sgrUnderlineColor(CellColor color, int paletteIndex) override;
         void sgrDefaultUnderlineColor() override;
         void sgrFinish() override;
+        void csi_XTPUSHSGR(const u32* attributes, size_t count) override;
+        void csi_XTPOPSGR() override;
         void esch_DECALN() override;
         void setLineAttribute(u8 attribute) override;
         void osc_TITLE_0(StringView) override;
@@ -767,6 +769,19 @@ namespace {
 
         TerminalCell attrs{};
         TerminalCell eraseAttrs{};
+
+        struct SavedSgr {
+            TerminalCell attrs;
+            int fgPalIx;
+            int bgPalIx;
+            int underlinePalIx;
+            u32 valid;
+            bool underlineColorDefault;
+        };
+
+        SavedSgr sgrStack[10]{};
+        u8 sgrStackNext = 0;
+        u8 sgrStackCount = 0;
         Color cursorColor;
         Color selectionFgColor;
         Color selectionBgColor;
@@ -2580,6 +2595,8 @@ void VtermImpl::resetTerminal() {
     switchScreenBufferMode(false, true);
     resetScreen();
     resetAttrs();
+    sgrStackNext = 0;
+    sgrStackCount = 0;
     osc_RESET_PALETTE();
     if (assignedDefaultColors) {
         csi_DECAC_TEXT_RESET();
@@ -3678,6 +3695,113 @@ void VtermImpl::sgrUnderlineColor(CellColor color, int paletteIndex) {
 void VtermImpl::sgrDefaultUnderlineColor() {
     underlineColorDefault = true;
     setAttrUnderlineColor(attrForeground());
+}
+
+void VtermImpl::csi_XTPUSHSGR(const u32* attributes, size_t count) {
+    u32 valid = 1;
+    if (count != 0) {
+        valid = 0;
+        for (size_t index = 0; index < count; ++index) {
+            const u32 attribute = attributes[index];
+            if (attribute > 0 && attribute <= 31) {
+                valid |= (u32)(1) << attribute;
+            }
+        }
+    }
+
+    sgrStack[sgrStackNext] = {
+        attrs,
+        fgPalIx,
+        bgPalIx,
+        underlinePalIx,
+        valid,
+        underlineColorDefault,
+    };
+    sgrStackNext = (sgrStackNext + 1) % (sizeof(sgrStack) / sizeof(sgrStack[0]));
+    if (sgrStackCount < sizeof(sgrStack) / sizeof(sgrStack[0])) {
+        ++sgrStackCount;
+    }
+}
+
+void VtermImpl::csi_XTPOPSGR() {
+    if (sgrStackCount == 0) {
+        return;
+    }
+
+    constexpr size_t capacity = sizeof(sgrStack) / sizeof(sgrStack[0]);
+    sgrStackNext = (sgrStackNext + capacity - 1) % capacity;
+    --sgrStackCount;
+    const SavedSgr& saved = sgrStack[sgrStackNext];
+    const u32 valid = saved.valid;
+    if (valid & 1) {
+        attrs = saved.attrs;
+        fgPalIx = saved.fgPalIx;
+        bgPalIx = saved.bgPalIx;
+        underlinePalIx = saved.underlinePalIx;
+        underlineColorDefault = saved.underlineColorDefault;
+        reverseVideo = attrs.inverse;
+        setAttrForeground(saved.attrs.foreground());
+        setAttrBackground(saved.attrs.background());
+        setAttrUnderlineColor(saved.attrs.inlineUnderlineColor());
+        return;
+    }
+
+    if (valid & ((u32)(1) << 1)) {
+        sgrBold(saved.attrs.bold);
+    }
+    if (valid & ((u32)(1) << 2)) {
+        sgrFaint(saved.attrs.faint);
+    }
+    if (valid & ((u32)(1) << 3)) {
+        sgrItalic(saved.attrs.italic);
+    }
+
+    const bool underline = valid & ((u32)(1) << 4);
+    const bool doubleUnderline = valid & ((u32)(1) << 21);
+    if (underline && doubleUnderline) {
+        sgrUnderline(saved.attrs.underline_style);
+    } else if (underline) {
+        if (saved.attrs.underline_style != 0 && saved.attrs.underline_style != 2) {
+            sgrUnderline(saved.attrs.underline_style);
+        } else if (attrs.underline_style != 2) {
+            sgrUnderline(0);
+        }
+    } else if (doubleUnderline) {
+        if (saved.attrs.underline_style == 2) {
+            sgrUnderline(2);
+        } else if (attrs.underline_style == 2) {
+            sgrUnderline(0);
+        }
+    }
+
+    if (valid & ((u32)(1) << 5)) {
+        sgrBlink(saved.attrs.blink);
+    }
+    if (valid & ((u32)(1) << 7)) {
+        sgrInverse(saved.attrs.inverse);
+    }
+    if (valid & ((u32)(1) << 8)) {
+        sgrConceal(saved.attrs.conceal);
+    }
+    if (valid & ((u32)(1) << 9)) {
+        sgrStrike(saved.attrs.strike);
+    }
+    if (valid & ((u32)(1) << 30)) {
+        fgPalIx = saved.fgPalIx;
+        if (fgPalIx >= 0 && fgPalIx <= 255) {
+            const int index = opts.boldColors && attrs.bold && fgPalIx < 8 ? fgPalIx + 8 : fgPalIx;
+            setAttrForeground(CellColor::indexed(index));
+        } else {
+            setAttrForeground(saved.attrs.foreground());
+        }
+        if (underlineColorDefault) {
+            setAttrUnderlineColor(attrForeground());
+        }
+    }
+    if (valid & ((u32)(1) << 31)) {
+        bgPalIx = saved.bgPalIx;
+        setAttrBackground(saved.attrs.background());
+    }
 }
 
 void VtermImpl::sgrFinish() {

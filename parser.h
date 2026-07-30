@@ -276,6 +276,8 @@ struct ParserIface {
     virtual void sgrUnderlineColor(CellColor color, int paletteIndex) = 0;
     virtual void sgrDefaultUnderlineColor() = 0;
     virtual void sgrFinish() = 0;
+    virtual void csi_XTPUSHSGR(const u32* attributes, size_t count) = 0;
+    virtual void csi_XTPOPSGR() = 0;
     virtual void esch_DECALN() = 0;
     virtual void setLineAttribute(u8 attribute) = 0;
 

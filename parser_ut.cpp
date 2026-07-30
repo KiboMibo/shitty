@@ -595,6 +595,17 @@ namespace {
             record("sgrFinish");
         }
 
+        void csi_XTPUSHSGR(const u32* attributes, size_t count) override {
+            ParserCall& call = record("csi_XTPUSHSGR");
+            for (size_t index = 0; index < count; ++index) {
+                call.values[call.valueCount++] = attributes[index];
+            }
+        }
+
+        void csi_XTPOPSGR() override {
+            record("csi_XTPOPSGR");
+        }
+
         void esch_DECALN() override {
             record("esch_DECALN");
         }
@@ -1268,7 +1279,14 @@ namespace {
     size_t checkVteKnown(const VteKnownSequence (&sequences)[count]) {
         size_t checked = 0;
         for (const VteKnownSequence& sequence : sequences) {
-            const char* callback = vteKnownCallback(StringView(sequence.command));
+            const StringView command(sequence.command);
+            const char* callback = vteKnownCallback(command);
+            const bool countCallback = callback != nullptr;
+            if (command == StringView(u8"XTERM_PUSHSGR") && sequence.final == '{') {
+                callback = "csi_XTPUSHSGR";
+            } else if (command == StringView(u8"XTERM_POPSGR") && sequence.final == '}') {
+                callback = "csi_XTPOPSGR";
+            }
             ParserFixture fixture;
             feedVteKnown(fixture, sequence);
             if (callback == nullptr) {
@@ -1284,7 +1302,7 @@ namespace {
                 fprintf(stderr, "VTE known %s did not call %s\n", sequence.command, callback);
                 STD_INSIST(false);
             }
-            ++checked;
+            checked += countCallback;
         }
         return checked;
     }
@@ -1751,6 +1769,12 @@ STD_TEST_SUITE(ParserCallbacks) {
 
     SHITTY_PARSER_CALLBACK_TEST0(SgrDefaultUnderlineColor, sgrDefaultUnderlineColor, u8"\x1b[59m")
     SHITTY_PARSER_CALLBACK_TEST0(SgrFinish, sgrFinish, u8"\x1b[m")
+    SHITTY_PARSER_CALLBACK_TEST0(PopSgr, csi_XTPOPSGR, u8"\x1b[#}")
+    STD_TEST(PushSgr) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b[1;30;31#{"));
+        expectValues(fixture.expect("csi_XTPUSHSGR"), 1, 30, 31);
+    }
     SHITTY_PARSER_CALLBACK_TEST0(ScreenAlignmentPattern, esch_DECALN, u8"\x1b#8")
     SHITTY_PARSER_CALLBACK_TEST1(SetLineAttribute, setLineAttribute, u8"\x1b#3", 1)
 

@@ -927,6 +927,9 @@
         if (parser.csiIntermediates[0] == ',') {
             fgoto csiCommaDispatch;
         }
+        if (parser.csiIntermediates[0] == '#') {
+            fgoto csiHashDispatch;
+        }
         fgoto csiUnknownDispatch;
     }
 
@@ -3500,6 +3503,12 @@
         (0x40..0x7e - '|') @csiTrace
     ) @csiDone;
 
+    csiHashFinal = (
+        '{' @csiTrace @{ iface.csi_XTPUSHSGR(parser.parameters, parser.csiHadParameters ? parser.parameterCount : 0); } |
+        '}' @csiTrace @{ iface.csi_XTPOPSGR(); } |
+        (0x40..0x7e - [{}]) @csiTrace
+    ) @csiDone;
+
     csiQuestionDollarFinal = (
         'p' @csiTrace @{ dispatchModeReport(true); } |
         (0x40..0x7e - 'p') @csiTrace
@@ -3941,6 +3950,7 @@
     csiDollarDispatch := csiDollarFinal;
     csiStarDispatch := csiStarFinal;
     csiCommaDispatch := csiCommaFinal;
+    csiHashDispatch := csiHashFinal;
     csiQuestionDollarDispatch := csiQuestionDollarFinal;
     csiUnknownDispatch := csiUnknownFinal;
 

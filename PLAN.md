@@ -119,7 +119,9 @@ keys.~~
 
 Остались особенно полезные:
 
-- adapter — 53 теста;
+- adapter — 10 из 53 методов перенесены: cursor и SGR blocks, включая
+  partial XTPUSHSGR/XTPOPSGR и brightness; импорт добавил отсутствовавший
+  10-entry xterm SGR ring stack;
 - ~~InputEngine — все 25 методов проверяют отсутствующий у терминала слой
   VT input stream → Win32 `INPUT_RECORD`. Обратная, наблюдаемая сторона
   протокола покрыта keyboard/mouse matrices; Win32 ABI неприменим;~~

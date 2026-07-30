@@ -13,6 +13,19 @@ compared whole versus bytewise across parser events and the full observable
 terminal state. Variable-built streams and Windows Terminal's semantic screen
 assertions remain for a later adapter.
 
+`../test_windows_terminal_adapter.py` begins the assertion-based translation
+of all 53 methods in
+`src/terminal/adapter/ut_adapter/adapterTest.cpp`, copied as
+`upstream/AdapterTest.cpp` at the same revision. The first 10 methods preserve
+the complete cursor movement/position/save/visibility matrices and the SGR
+attribute, indexed-color, subparameter, brightness, and push/pop transactions.
+The import found that XTPUSHSGR and XTPOPSGR were parsed as unknown CSI.
+Shitty now implements xterm's 10-entry ring stack, including selective
+attribute restoration with the same underline-versus-double-underline
+semantics tested by Windows Terminal. Bold indexed colors are checked after
+Shitty's configured bold-color resolution rather than against Windows'
+separate legacy intensity bit.
+
 `../test_windows_terminal_mouse.py` translates all five methods and every
 data-source row from
 `src/terminal/adapter/ut_adapter/MouseInputTest.cpp` at the same revision:
