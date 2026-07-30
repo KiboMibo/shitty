@@ -221,6 +221,11 @@
               tests/xterm_vttests/upstream \
               tests/xterm_vttests/bin
             for script in $(grep -l "CMD='/bin/echo'" tests/xterm_vttests/upstream/*.sh); do
+              # The prefix adapter preserves and rewrites these two unbounded
+              # generators in memory; leave their upstream source intact.
+              case "$script" in
+                */8colors.sh|*/16colors.sh) continue ;;
+              esac
               substituteInPlace "$script" \
                 --replace-fail "CMD='/bin/echo'" "CMD='echo'"
             done
