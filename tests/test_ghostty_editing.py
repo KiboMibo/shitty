@@ -191,6 +191,72 @@ class GhosttyEditingTest(unittest.TestCase):
                             "https://example.com" if linked else "",
                         )
 
+    def test_erase_characters_repairs_every_wide_boundary(self):
+        cases = (
+            (
+                "😀a😀b😀",
+                b"\x1b[1;2H\x1b[3X",
+                "     b😀",
+            ),
+            (
+                "x食べて下さい",
+                b"\x1b[1;6H\x1b[4X",
+                "x食 べ     さ い",
+            ),
+        )
+        for initial, operation, expected in cases:
+            with self.subTest(initial=initial), Shitty(
+                columns=30,
+                rows=1,
+            ) as terminal:
+                terminal.write(initial.encode() + operation)
+                snapshot = terminal.model_snapshot()
+                self.assertEqual(snapshot.lines[0].rstrip(), expected)
+                for column in range(snapshot.columns):
+                    cell = snapshot.cell(column, 0)
+                    if cell.double_width:
+                        self.assertTrue(
+                            snapshot.cell(
+                                column + 1,
+                                0,
+                            ).double_width_continuation
+                        )
+                    if cell.double_width_continuation:
+                        self.assertTrue(
+                            snapshot.cell(column - 1, 0).double_width
+                        )
+
+    def test_erase_characters_at_soft_wrap_repairs_both_rows(self):
+        with Shitty(columns=8, rows=3) as terminal:
+            terminal.write(".......😀abcde😀......".encode())
+            terminal.write(b"\x1b[2;2H\x1b[3X")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(
+                snapshot.lines,
+                ["....... ", "    cde ", "😀 ......"],
+            )
+            self.assertTrue(snapshot.cell(6, 0).wrapped)
+            self.assertTrue(snapshot.cell(6, 1).wrapped)
+            self.assertTrue(snapshot.cell(0, 2).double_width)
+            self.assertTrue(
+                snapshot.cell(1, 2).double_width_continuation
+            )
+            self.assertEqual(terminal.last_update_rows(), (1,))
+
+    def test_erase_characters_resets_pending_wrap_and_row_wrap(self):
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(b"ABCDE123")
+            self.assertTrue(terminal.model_snapshot().cell(4, 0).wrapped)
+            terminal.write(b"\x1b[1;1HABCDE")
+            self.assertTrue(terminal.cursor_pending_wrap())
+
+            terminal.write(b"\x1b[X")
+            snapshot = terminal.model_snapshot()
+            self.assertFalse(terminal.cursor_pending_wrap())
+            self.assertFalse(snapshot.cell(4, 0).wrapped)
+            self.assertEqual(snapshot.lines[:2], ["ABCD ", "123  "])
+            self.assertEqual(terminal.last_update_rows(), (0,))
+
 
 if __name__ == "__main__":
     unittest.main()

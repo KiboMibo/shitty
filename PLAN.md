@@ -155,6 +155,20 @@ margins при сохранении клеток снаружи. Full-width SU �
 PageList viewport coordinates и `page_row.dirty` заменены наблюдаемыми
 history snapshots и полным incremental-render oracle Screen.~~
 
+~~Блок `Terminal.zig:8660-8979` учтён. ECH default/zero count, explicit и
+oversized count, cursor/damage, erase colors с очисткой character attributes,
+horizontal margins и reset pending-wrap уже покрыты esctest и editing matrix.
+Добавлены буквальные Ghostty regressions для нескольких пересечений lead/tail
+wide cells, wide spans с нечётным стартом, ECH на soft-wrap boundary и
+одновременного сброса pending-wrap/row-wrap. Полный combinatorial matrix
+дополнительно доказывает отсутствие разорванных wide pairs после каждого
+clipped range. ISO SPA/EPA protection для обычного ECH и игнорирование DEC
+DECSCA проверяются независимыми esctest cases согласно разделению ECMA
+guarded-area и DEC selective-erase semantics. Ghostty style refcount —
+внутренняя Page storage detail; у Shitty освобождение недостижимого CellExtra
+проверяется native GC tests, а продуктовый ECH проверяет отсутствие stale
+attributes и hyperlink.~~
+
 Не взяты также 94 initial fuzz seeds, но они имеют низкую ценность рядом с полным cmin.
 
 ### Kitty
