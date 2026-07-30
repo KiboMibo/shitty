@@ -28,12 +28,17 @@ out, instrument both Shitty and the complete production `libstd`. A
 system-installed fallback library is outside their instrumentation boundary:
 
 ```sh
-CXXFLAGS='-fsanitize=address,undefined -fno-sanitize-recover=all \
+CXXFLAGS='-fsanitize=address -fno-sanitize-recover=all \
   -fno-omit-frame-pointer -g' \
-LDFLAGS='-fsanitize=address,undefined' \
+LDFLAGS='-fsanitize=address' \
 ASAN_OPTIONS='detect_leaks=1:abort_on_error=1' \
+./build -B .build-asan
+
+CXXFLAGS='-fsanitize=undefined -fno-sanitize-recover=all \
+  -fno-omit-frame-pointer -g' \
+LDFLAGS='-fsanitize=undefined' \
 UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1' \
-./build -B .build-asan-ubsan
+./build -B .build-ubsan
 
 CXXFLAGS='-fsanitize=thread -fno-omit-frame-pointer -g' \
 LDFLAGS='-fsanitize=thread' \
@@ -41,10 +46,12 @@ TSAN_OPTIONS='halt_on_error=1:second_deadlock_stack=1' \
 ./build -B .build-tsan
 ```
 
-The Nix flake exposes the CI sanitizer build and complete sanitizer test run as
-separate checks:
+The Nix flake exposes each CI sanitizer build and complete sanitizer test run
+as separate checks:
 
 ```sh
 nix build -L --no-link .#checks.x86_64-linux.build-asan
 nix build -L --no-link .#checks.x86_64-linux.tests-asan
+nix build -L --no-link .#checks.x86_64-linux.build-ubsan
+nix build -L --no-link .#checks.x86_64-linux.tests-ubsan
 ```

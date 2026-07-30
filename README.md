@@ -190,6 +190,8 @@ nix build -L --no-link .#checks.x86_64-linux.build &&
   nix build -L --no-link .#checks.x86_64-linux.tests
 nix build -L --no-link .#checks.x86_64-linux.build-asan &&
   nix build -L --no-link .#checks.x86_64-linux.tests-asan
+nix build -L --no-link .#checks.x86_64-linux.build-ubsan &&
+  nix build -L --no-link .#checks.x86_64-linux.tests-ubsan
 ```
 
 The native suite drives a dedicated headless `st_test` binary through a real

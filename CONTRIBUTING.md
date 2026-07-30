@@ -32,17 +32,20 @@ The project prefers community contributions in roughly this order:
 
 ## Continuous integration
 
-Every pull request runs four Linux checks. `Tests` starts only after `Build`
-passes, and `Tests ASan` starts only after `Build ASan` passes:
+Every pull request runs six Linux checks. The regular, ASan and UBSan test
+jobs start only after their corresponding build jobs pass. Both sanitizer
+builds also wait for the regular build:
 
 ```text
-Build       -> Tests
-Build ASan  -> Tests ASan
+Build -> Tests
+      -> Build ASan  -> Tests ASan
+      -> Build UBSan -> Tests UBSan
 ```
 
-The two sanitizer checks use AddressSanitizer and UndefinedBehaviorSanitizer.
-They instrument Shitty and its vendored C++ dependencies through the build
-runner's external `CXXFLAGS` and `LDFLAGS` interface.
+The sanitizer chains are independent: ASan uses AddressSanitizer and UBSan
+uses UndefinedBehaviorSanitizer. They instrument Shitty and its vendored C++
+dependencies through the build runner's external `CXXFLAGS` and `LDFLAGS`
+interface.
 
 Run any check locally with the same Nix flake target used by GitHub:
 
@@ -51,6 +54,8 @@ nix build -L --no-link .#checks.x86_64-linux.build
 nix build -L --no-link .#checks.x86_64-linux.tests
 nix build -L --no-link .#checks.x86_64-linux.build-asan
 nix build -L --no-link .#checks.x86_64-linux.tests-asan
+nix build -L --no-link .#checks.x86_64-linux.build-ubsan
+nix build -L --no-link .#checks.x86_64-linux.tests-ubsan
 ```
 
 The test checks run the complete `./build test` graph with keep-going enabled,

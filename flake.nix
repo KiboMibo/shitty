@@ -39,39 +39,58 @@
         in
         "${builtins.substring 0 4 d}.${builtins.substring 4 2 d}.${builtins.substring 6 2 d}";
 
-      sanitizerCxxFlags = lib.concatStringsSep " " [
-        "-fsanitize=address,undefined"
-        "-fno-sanitize-recover=all"
-        "-fno-omit-frame-pointer"
-        "-g"
-      ];
+      sanitizerConfigs = {
+        asan = {
+          flag = "-fsanitize=address";
+          environment = "export ASAN_OPTIONS=detect_leaks=1:abort_on_error=1";
+        };
+        ubsan = {
+          flag = "-fsanitize=undefined";
+          environment = "export UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1";
+        };
+      };
 
-      sanitizerLdFlags = "-fsanitize=address,undefined";
-
-      configureBuildEnvironment = sanitize: ''
-        unset CPPFLAGS CFLAGS CXXFLAGS LDFLAGS
-        # build intentionally passes its canonical target triple. Nix's
-        # wrapper spells the equivalent native vendor field differently.
-        export NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING=1
-        ${lib.optionalString sanitize ''
-          export CXXFLAGS=${lib.escapeShellArg sanitizerCxxFlags}
-          export ASAN_OPTIONS=detect_leaks=1:abort_on_error=1
-          export UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
-        ''}
-        export LDFLAGS="${lib.optionalString sanitize "${sanitizerLdFlags} "}$(pkg-config --libs wayland-client xkbcommon) -lrt"
-      '';
+      configureBuildEnvironment =
+        sanitizer:
+        let
+          config = if sanitizer == null then null else sanitizerConfigs.${sanitizer};
+          cxxFlags =
+            if config == null then
+              ""
+            else
+              lib.concatStringsSep " " [
+                config.flag
+                "-fno-sanitize-recover=all"
+                "-fno-omit-frame-pointer"
+                "-g"
+              ];
+        in
+        ''
+          unset CPPFLAGS CFLAGS CXXFLAGS LDFLAGS ASAN_OPTIONS UBSAN_OPTIONS
+          # build intentionally passes its canonical target triple. Nix's
+          # wrapper spells the equivalent native vendor field differently.
+          export NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING=1
+          ${lib.optionalString (config != null) ''
+            export CXXFLAGS=${lib.escapeShellArg cxxFlags}
+            ${config.environment}
+          ''}
+          export LDFLAGS="${
+            lib.optionalString (config != null) "${config.flag} "
+          }$(pkg-config --libs wayland-client xkbcommon) -lrt"
+        '';
 
       mkShitty =
         pkgs:
         {
-          sanitize ? false,
+          sanitizer ? null,
         }:
         let
           stdenv = pkgs.llvmPackages.stdenv;
-          buildDirectory = if sanitize then ".build-asan-ubsan" else ".build";
+          sanitizerSuffix = lib.optionalString (sanitizer != null) "-${sanitizer}";
+          buildDirectory = ".build${sanitizerSuffix}";
         in
         stdenv.mkDerivation rec {
-          pname = if sanitize then "shitty-asan" else "shitty";
+          pname = "shitty${sanitizerSuffix}";
           version = versionFromFlake;
 
           src = self;
@@ -120,7 +139,7 @@
           # build out of $src (read-only store path) via -B.
           buildPhase = ''
             runHook preBuild
-            ${configureBuildEnvironment sanitize}
+            ${configureBuildEnvironment sanitizer}
             python3 ./build -B ${buildDirectory} -j "$NIX_BUILD_CORES"
             runHook postBuild
           '';
@@ -158,14 +177,15 @@
       mkTestCheck =
         pkgs:
         {
-          sanitize ? false,
+          sanitizer ? null,
         }:
         let
-          base = mkShitty pkgs { inherit sanitize; };
-          buildDirectory = if sanitize then ".build-tests-asan-ubsan" else ".build-tests";
+          base = mkShitty pkgs { inherit sanitizer; };
+          sanitizerSuffix = lib.optionalString (sanitizer != null) "-${sanitizer}";
+          buildDirectory = ".build-tests${sanitizerSuffix}";
         in
         base.overrideAttrs (old: {
-          pname = if sanitize then "shitty-tests-asan" else "shitty-tests";
+          pname = "shitty-tests${sanitizerSuffix}";
 
           nativeBuildInputs =
             old.nativeBuildInputs
@@ -174,7 +194,7 @@
               pkgs.perl
               pkgs.vttest
             ]
-            ++ lib.optionals sanitize [ pkgs.llvmPackages.llvm ];
+            ++ lib.optionals (sanitizer != null) [ pkgs.llvmPackages.llvm ];
 
           postPatch = old.postPatch + ''
             # Some vendored xterm scripts invoke other scripts by their
@@ -198,8 +218,8 @@
 
           buildPhase = ''
             runHook preBuild
-            ${configureBuildEnvironment sanitize}
-            ${lib.optionalString sanitize ''
+            ${configureBuildEnvironment sanitizer}
+            ${lib.optionalString (sanitizer == "asan") ''
               export ASAN_SYMBOLIZER_PATH=${lib.getExe' pkgs.llvmPackages.llvm "llvm-symbolizer"}
             ''}
             python3 ./build \
@@ -287,8 +307,10 @@
         {
           build = mkShitty pkgs { };
           tests = mkTestCheck pkgs { };
-          build-asan = mkShitty pkgs { sanitize = true; };
-          tests-asan = mkTestCheck pkgs { sanitize = true; };
+          build-asan = mkShitty pkgs { sanitizer = "asan"; };
+          tests-asan = mkTestCheck pkgs { sanitizer = "asan"; };
+          build-ubsan = mkShitty pkgs { sanitizer = "ubsan"; };
+          tests-ubsan = mkTestCheck pkgs { sanitizer = "ubsan"; };
         }
       );
 
