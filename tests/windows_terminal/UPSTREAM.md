@@ -234,7 +234,18 @@ margin, while Foot and Kitty agree with Windows. Shitty retains its existing
 xterm-compatible carriage-return rule and tests both vertical outcomes.
 Windows also starts with cursor blinking enabled; Shitty retains its
 non-blinking product default while testing every DECSET/DECRST transition.
-The remaining 24 methods stay explicitly listed in `PLAN.md`.
+The next three methods retain all OSC 8 state transitions and add observable
+cell assertions: an implicit link stays active across text and closes, an
+explicit identity reuses the same link, and the same explicit `id` with a
+different URI creates a distinct link without changing the earlier cell.
+Nine methods are explicitly classified as Win32 host policy. They manipulate
+the private `_virtualBottom`, pan a console viewport horizontally inside a
+larger screen buffer, or invoke `SetConsoleCursorPosition` and
+`MakeCurrentCursorVisible`. A terminal emulator has a live screen, scrollback,
+and a user-controlled view instead of this virtual Win32 viewport. The
+portable scrollback, resize/reflow, cursor, and alternate-screen invariants
+from those methods are already exercised independently.
+The remaining 12 methods stay explicitly listed in `PLAN.md`.
 
 The 25 methods in `src/terminal/parser/ut_parser/InputEngineTest.cpp` test the
 opposite, Windows-only boundary: decoding a VT input byte stream into Win32

@@ -221,9 +221,14 @@ keys.~~
   и сохранение относительных координат DECSC при DECOM. Windows CNL/CPL
   снаружи vertical margins адаптирован к xterm/Ghostty/WezTerm: carriage
   return сохраняет действующий left margin;~~
-- `ScreenBufferTests`, remaining — 24 метода; portable assertions переносить
-  блоками, Win32-only console buffer/virtual-bottom ABI явно
-  классифицировать, не выдавая его за terminal semantics.
+- ~~`ScreenBufferTests`, hyperlink/virtual-viewport block — ещё 12 методов:
+  три OSC 8 lifecycle/identity/URI transaction перенесены с поклеточной
+  проверкой. Девять методов `_virtualBottom`, movable viewport, horizontal
+  console-buffer panning и `SetConsoleCursorPosition` классифицированы как
+  Win32 host policy; terminal-side scrollback, reflow, resize и link lifetime
+  уже независимо покрыты.~~
+- `ScreenBufferTests`, remaining — 12 методов; portable assertions переносить
+  блоками.
 
 ### WezTerm
 

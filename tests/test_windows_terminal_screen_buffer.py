@@ -103,6 +103,9 @@ PORTED_METHODS = {
     "CursorSaveRestore",
     "ScreenAlignmentPattern",
     "TestCursorIsOn",
+    "TestAddHyperlink",
+    "TestAddHyperlinkCustomId",
+    "TestAddHyperlinkCustomIdDifferentUri",
 }
 
 CLASSIFIED_METHODS = {
@@ -110,6 +113,15 @@ CLASSIFIED_METHODS = {
     "GetWordBoundaryTrimZerosOff",
     "RestoreDownAltBufferWithTerminalScrolling",
     "SnapCursorWithTerminalScrolling",
+    "UpdateVirtualBottomWhenCursorMovesBelowIt",
+    "UpdateVirtualBottomWithSetConsoleCursorPosition",
+    "UpdateVirtualBottomAfterInternalSetViewportSize",
+    "UpdateVirtualBottomAfterResizeWithReflow",
+    "DontShrinkVirtualBottomDuringResizeWithReflowAtTop",
+    "DontChangeVirtualBottomWithOffscreenLinefeed",
+    "DontChangeVirtualBottomAfterResizeWindow",
+    "DontChangeVirtualBottomWithMakeCursorVisible",
+    "RetainHorizontalOffsetWhenMovingToBottom",
 }
 
 
@@ -2559,3 +2571,53 @@ class WindowsTerminalScreenBufferCursorTest(unittest.TestCase):
             self.assertEqual(terminal.cursor_state()[:2], (1, 1))
             terminal.write(b"\x1b[?12;25l")
             self.assertEqual(terminal.cursor_state()[:2], (0, 0))
+
+
+class WindowsTerminalScreenBufferHyperlinkTest(unittest.TestCase):
+    def test_add_hyperlink(self):
+        with Shitty(columns=20, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]8;;test.url\x1b\\"
+                b"Hello World"
+                b"\x1b]8;;\x1b\\!"
+            )
+            snapshot = terminal.snapshot()
+            links = [snapshot.cell(column, 0).hyperlink for column in range(12)]
+            self.assertNotEqual(links[0], 0)
+            self.assertEqual(links[:11], [links[0]] * 11)
+            self.assertEqual(links[11], 0)
+            self.assertEqual(terminal.hyperlink(0, 0), "test.url")
+
+    def test_add_hyperlink_custom_id(self):
+        with Shitty(columns=20, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]8;id=myId;test.url\x1b\\A"
+                b"\x1b]8;id=myId;test.url\x1b\\B"
+                b"\x1b]8;;\x1b\\C"
+            )
+            snapshot = terminal.snapshot()
+            self.assertNotEqual(snapshot.cell(0, 0).hyperlink, 0)
+            self.assertEqual(
+                snapshot.cell(0, 0).hyperlink,
+                snapshot.cell(1, 0).hyperlink,
+            )
+            self.assertEqual(snapshot.cell(2, 0).hyperlink, 0)
+            self.assertEqual(terminal.hyperlink(1, 0), "test.url")
+            self.assertEqual(terminal.hyperlink_count(), 1)
+
+    def test_add_hyperlink_custom_id_different_uri(self):
+        with Shitty(columns=20, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]8;id=myId;test.url\x1b\\A"
+                b"\x1b]8;id=myId;other.url\x1b\\B"
+                b"\x1b]8;;\x1b\\"
+            )
+            snapshot = terminal.snapshot()
+            self.assertNotEqual(snapshot.cell(0, 0).hyperlink, 0)
+            self.assertNotEqual(
+                snapshot.cell(0, 0).hyperlink,
+                snapshot.cell(1, 0).hyperlink,
+            )
+            self.assertEqual(terminal.hyperlink(0, 0), "test.url")
+            self.assertEqual(terminal.hyperlink(1, 0), "other.url")
+            self.assertEqual(terminal.hyperlink_count(), 2)
