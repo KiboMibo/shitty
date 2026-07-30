@@ -127,6 +127,22 @@ hyperlink и GC identity уже строже покрыты OSC matrix и protoc
 LF/CR/LNM, pending-wrap reset, origin/margins, BS, HT/CBT и tab stops покрыты
 cursor/mode matrices и импортированными esctest cases.~~
 
+~~Блок `Terminal.zig:6900-7845` учтён. Все cursorPos cases — clipping,
+pending-wrap reset, origin относительно vertical и horizontal margins и
+нулевые/default coordinates — уже покрыты cursor/DEC matrices через реальные
+CUP/HVP. DECSTBM/DECSLRM defaults, single parameter, home side effect и
+сохранение предыдущего region после invalid/equal bounds проверяются
+наблюдаемыми scroll/edit transactions; для equal bounds добавлены отдельные
+Ghostty regressions. Все protocol-observable IL cases покрывают full и partial
+regions, cursor home, count clamping, operation outside region, erase colors,
+точный damage каждой сдвинутой строки, сброс pending-wrap/wrap metadata,
+grapheme и hyperlink metadata и обе пары margins. Ghostty PageList
+page-boundary invalidation, style-map refcounts и capacity retry относятся к
+удалённой storage architecture; эквивалентный продуктовый инвариант проверяет
+перенос rich `CellExtra` через строку и native incremental-render oracle.
+Прямой `insertLines(0)` не является terminal protocol case: ECMA-48 default
+для `CSI 0 L` равен одной строке, а внутреннего zero-count API у Shitty нет.~~
+
 Не взяты также 94 initial fuzz seeds, но они имеют низкую ценность рядом с полным cmin.
 
 ### Kitty
