@@ -183,6 +183,19 @@ Page-local `hyperlink_set.count()` является деталью чужого 
 stale ссылок в cells проверено здесь, а освобождение недостижимого CellExtra —
 native GC tests.~~
 
+~~Блок `Terminal.zig:9810-10293` учтён. Прямой scrollUp top region без
+scrollback, CUU/CUD/CUF/CUB clipping по физическим границам и обеим сторонам
+margins, default/large counts и сброс pending-wrap перенесены product-level
+Python tests либо уже покрыты esctest cursor matrices. Все варианты reverse
+wrap проверены отдельно: mode 45 пересекает только soft wrap, mode 1045
+пересекает hard rows и циклически переходит с top на bottom, extended имеет
+приоритет при обоих modes, оба требуют DECAWM и сначала снимают pending-wrap.
+Импорт нашёл продуктовый дефект: публичный mode 1045 хранился и отвечал через
+DECRQM, но `moveCursorBackward()` ошибочно требовал одновременно mode 45 и не
+реализовывал циклический переход. Реализация исправлена по современному xterm
+и совпадающим Ghostty/Contour semantics; устаревшие esctest expectations для
+старого mode 45 остаются XFAIL.~~
+
 Не взяты также 94 initial fuzz seeds, но они имеют низкую ценность рядом с полным cmin.
 
 ### Kitty
