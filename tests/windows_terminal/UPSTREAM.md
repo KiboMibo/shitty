@@ -245,7 +245,35 @@ larger screen buffer, or invoke `SetConsoleCursorPosition` and
 and a user-controlled view instead of this virtual Win32 viewport. The
 portable scrollback, resize/reflow, cursor, and alternate-screen invariants
 from those methods are already exercised independently.
-The remaining 12 methods stay explicitly listed in `PLAN.md`.
+The final seven portable methods cover three color-preserving reflow
+transactions, all six rectangular operations and their complete target
+boundaries, rectangular copy from a double-width source line, all 36 controls
+listed by DEC STD 070 as resetting delayed wrap, and a four-line wrap that
+starts at the bottom of the screen. They exposed three product bugs.
+Line-rendition controls and DECAWM reset retained pending wrap. A redundant
+DECCOLM reset skipped the required home/clear side effects. DECCRA treated a
+double-width source row as if every physical column were addressable and
+copied ten cells beyond its right edge. All are now fixed.
+
+Windows fills a newly added column with the old row's trailing erase
+attribute. Shitty follows the behavior of a newly allocated terminal cell:
+the existing colored cells survive reflow, while a newly exposed column is a
+default blank. The test retains both assertions explicitly.
+
+Five methods are classified rather than emulated. `TestDeferredMainBufferResize`
+asserts a Win32 implementation optimization: the inactive main `TextBuffer`
+must keep its old allocation until alternate-screen exit. Its observable
+result is already covered by `test_resize_alt_buffer`, including primary
+contents and final geometry. VT525 DECECM would replace text erase colors with
+the screen background; xterm explicitly ignores mode 117, VTE declares it but
+does not implement the behavior, and Foot, Kitty, Ghostty, Alacritty, and
+WezTerm have no implementation. Shitty follows that current implementation
+consensus instead of Windows Terminal. `SimpleMarkCommand`,
+`SimpleWrappedCommand`, and `SimplePromptRegions` inspect Windows-only
+`ScrollbarData`, `CurrentCommand`, command history, and mark-extents UI state.
+Their portable OSC 133 prompt/command/output/finish state machine is covered
+by `test_shell_integration.py`, including wrapping and malformed ordering.
+All 113 methods are now either ported or explicitly classified.
 
 The 25 methods in `src/terminal/parser/ut_parser/InputEngineTest.cpp` test the
 opposite, Windows-only boundary: decoding a VT input byte stream into Win32

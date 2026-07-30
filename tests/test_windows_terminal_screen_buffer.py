@@ -106,6 +106,13 @@ PORTED_METHODS = {
     "TestAddHyperlink",
     "TestAddHyperlinkCustomId",
     "TestAddHyperlinkCustomIdDifferentUri",
+    "TestReflowEndOfLineColor",
+    "TestReflowSmallerLongLineWithColor",
+    "TestReflowBiggerLongLineWithColor",
+    "RectangularAreaOperations",
+    "CopyDoubleWidthRectangularArea",
+    "DelayedWrapReset",
+    "MultilineWrap",
 }
 
 CLASSIFIED_METHODS = {
@@ -122,6 +129,11 @@ CLASSIFIED_METHODS = {
     "DontChangeVirtualBottomAfterResizeWindow",
     "DontChangeVirtualBottomWithMakeCursorVisible",
     "RetainHorizontalOffsetWhenMovingToBottom",
+    "TestDeferredMainBufferResize",
+    "EraseColorMode",
+    "SimpleMarkCommand",
+    "SimpleWrappedCommand",
+    "SimplePromptRegions",
 }
 
 
@@ -2621,3 +2633,304 @@ class WindowsTerminalScreenBufferHyperlinkTest(unittest.TestCase):
             self.assertEqual(terminal.hyperlink(0, 0), "test.url")
             self.assertEqual(terminal.hyperlink(1, 0), "other.url")
             self.assertEqual(terminal.hyperlink_count(), 2)
+
+
+class WindowsTerminalScreenBufferFinalTest(unittest.TestCase):
+    def assert_background_run(
+        self,
+        snapshot,
+        row,
+        begin,
+        end,
+        background,
+        char=None,
+    ):
+        for column in range(begin, end):
+            cell = snapshot.cell(column, row)
+            if char is not None:
+                self.assertEqual(cell.char, char)
+            self.assertEqual(cell.background, background)
+
+    def test_reflow_end_of_line_color(self):
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                with self.subTest(dx=dx, dy=dy):
+                    with Shitty(
+                        columns=80,
+                        rows=25,
+                        save_lines=0,
+                    ) as terminal:
+                        terminal.write(
+                            b"\x1b[H\x1b[41mAAAAA"
+                            b"\x1b[42m\r\nBBBBB\r\n"
+                            b"\x1b[44m CCC \r\n"
+                            b"\x1b[43m\xf0\x9f\x99\x83\r\n"
+                            b"\x1b[K\x1b[2;6H"
+                        )
+                        terminal.resize(80 + dx, 25 + dy)
+                        snapshot = terminal.model_snapshot()
+                        width = snapshot.columns
+                        self.assert_background_run(
+                            snapshot, 0, 0, 5, (205, 0, 0), "A"
+                        )
+                        self.assert_background_run(
+                            snapshot, 0, 5, width, (0, 0, 0), " "
+                        )
+                        self.assert_background_run(
+                            snapshot, 1, 0, 5, (0, 205, 0), "B"
+                        )
+                        self.assert_background_run(
+                            snapshot, 1, 5, width, (0, 0, 0), " "
+                        )
+                        self.assert_background_run(
+                            snapshot, 2, 0, 5, (0, 0, 238)
+                        )
+                        self.assertEqual(snapshot.lines[2][:5], " CCC ")
+                        self.assert_background_run(
+                            snapshot, 2, 5, width, (0, 0, 0), " "
+                        )
+                        self.assert_background_run(
+                            snapshot, 3, 0, 2, (205, 205, 0)
+                        )
+                        self.assertTrue(snapshot.cell(0, 3).double_width)
+                        self.assertTrue(
+                            snapshot.cell(1, 3).double_width_continuation
+                        )
+                        self.assert_background_run(
+                            snapshot, 3, 2, width, (0, 0, 0), " "
+                        )
+                        retained = min(80, width)
+                        self.assert_background_run(
+                            snapshot, 4, 0, retained, (205, 205, 0), " "
+                        )
+                        self.assert_background_run(
+                            snapshot, 4, retained, width, (0, 0, 0), " "
+                        )
+
+    def test_reflow_smaller_long_line_with_color(self):
+        with Shitty(columns=80, rows=4, save_lines=0) as terminal:
+            terminal.write(
+                b"\x1b[H\x1b[41m"
+                + b"A" * 70
+                + b"\x1b[42m BBB \r\n"
+            )
+            terminal.resize(65, 4)
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[0], "A" * 65)
+            self.assertEqual(snapshot.lines[1][:10], "AAAAA BBB ")
+            self.assert_background_run(
+                snapshot, 0, 0, 65, (205, 0, 0)
+            )
+            self.assert_background_run(
+                snapshot, 1, 0, 5, (205, 0, 0)
+            )
+            self.assert_background_run(
+                snapshot, 1, 5, 10, (0, 205, 0)
+            )
+            self.assert_background_run(
+                snapshot, 1, 10, 65, (0, 0, 0), " "
+            )
+
+    def test_reflow_bigger_long_line_with_color(self):
+        with Shitty(columns=80, rows=4, save_lines=0) as terminal:
+            terminal.write(
+                b"\x1b[H\x1b[41m"
+                + b"A" * 85
+                + b"\x1b[42m BBB \r\n"
+            )
+            terminal.resize(95, 4)
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[0][:90], "A" * 85 + " BBB ")
+            self.assert_background_run(
+                snapshot, 0, 0, 85, (205, 0, 0)
+            )
+            self.assert_background_run(
+                snapshot, 0, 85, 90, (0, 205, 0)
+            )
+            self.assert_background_run(
+                snapshot, 0, 90, 95, (0, 0, 0), " "
+            )
+
+    def test_delayed_wrap_reset(self):
+        operations = (
+            ("DECSTBM", b"\x1b[1;10r", (0, 0)),
+            ("DECSLRM", b"\x1b[?69h\x1b[1;10s", (0, 0)),
+            ("DECSWL", b"\x1b#5", (79, 5)),
+            ("DECDWL", b"\x1b#6", (39, 5)),
+            ("DECDHL top", b"\x1b#3", (39, 5)),
+            ("DECDHL bottom", b"\x1b#4", (39, 5)),
+            ("DECCOLM set", b"\x1b[?40h\x1b[?3h", (0, 0)),
+            ("DECOM set", b"\x1b[?6h", (0, 0)),
+            ("DECCOLM reset", b"\x1b[?40h\x1b[?3l", (0, 0)),
+            ("DECOM reset", b"\x1b[?6l", (0, 0)),
+            ("DECAWM reset", b"\x1b[?7l", (79, 5)),
+            ("CUU", b"\x1b[A", (79, 4)),
+            ("CUD", b"\x1b[B", (79, 6)),
+            ("CUF", b"\x1b[C", (79, 5)),
+            ("CUB", b"\x1b[D", (78, 5)),
+            ("CUP", b"\x1b[3;7H", (6, 2)),
+            ("HVP", b"\x1b[3;7f", (6, 2)),
+            ("BS", b"\b", (78, 5)),
+            ("LF", b"\n", (79, 6)),
+            ("VT", b"\v", (79, 6)),
+            ("FF", b"\f", (79, 6)),
+            ("CR", b"\r", (0, 5)),
+            ("IND", b"\x1bD", (79, 6)),
+            ("RI", b"\x1bM", (79, 4)),
+            ("NEL", b"\x1bE", (0, 6)),
+            ("ECH", b"\x1b[X", (79, 5)),
+            ("DCH", b"\x1b[P", (79, 5)),
+            ("ICH", b"\x1b[@", (79, 5)),
+            ("EL", b"\x1b[K", (79, 5)),
+            ("DECSEL", b"\x1b[?K", (79, 5)),
+            ("DL", b"\x1b[M", (0, 5)),
+            ("IL", b"\x1b[L", (0, 5)),
+            ("ED", b"\x1b[J", (79, 5)),
+            ("ED all", b"\x1b[2J", (79, 5)),
+            ("ED scrollback", b"\x1b[3J", (79, 5)),
+            ("DECSED", b"\x1b[?J", (79, 5)),
+        )
+        for name, sequence, expected in operations:
+            with self.subTest(operation=name):
+                with Shitty(columns=80, rows=25) as terminal:
+                    terminal.write(b"\x1b[6;80HX")
+                    self.assertTrue(terminal.cursor_pending_wrap())
+                    terminal.write(sequence)
+                    self.assertFalse(terminal.cursor_pending_wrap())
+                    snapshot = terminal.snapshot()
+                    self.assertEqual(
+                        (snapshot.cursor_x, snapshot.cursor_y),
+                        expected,
+                    )
+
+    def test_multiline_wrap(self):
+        with Shitty(columns=12, rows=4, save_lines=8) as terminal:
+            terminal.write(
+                b"\x1b[4;1H"
+                + b"1" + b" " * 11
+                + b"2" + b" " * 11
+                + b"3" + b" " * 11
+                + b"4"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(
+                [line[0] for line in snapshot.lines],
+                ["1", "2", "3", "4"],
+            )
+
+    def test_rectangular_area_operations(self):
+        operations = {
+            "DECFRA": b"\x1b[42;3;27;6;54$x",
+            "DECERA": b"\x1b[3;27;6;54$z",
+            "DECSERA": b"\x1b[3;27;6;54${",
+            "DECCARA": (
+                b"\x1b[2*x"
+                b"\x1b[3;27;6;54;7;4:4;58:2::55:23:28$r"
+            ),
+            "DECRARA": b"\x1b[2*x\x1b[3;27;6;54;1$t",
+            "DECCRA": b"\x1b[11;27;14;54;1;3;27;1;4$v",
+        }
+        base = (
+            b"\x1b[0;1;4:3;"
+            b"38;2;0;0;255;48;2;0;255;0;58;2;255;0;0m"
+        )
+        active = b"\x1b[0;1;38;2;255;0;0;48;2;0;0;255m"
+        copied = b"\x1b[0;38;2;0;255;0;48;2;255;0;0m"
+        for name, sequence in operations.items():
+            with self.subTest(operation=name):
+                with Shitty(columns=60, rows=20, save_lines=0) as terminal:
+                    terminal.write(
+                        base
+                        + put_rows(*(b"Z" * 60 for _ in range(20)))
+                    )
+                    if name == "DECCRA":
+                        terminal.write(
+                            copied
+                            + b"".join(
+                                f"\x1b[{row + 1};1H".encode() + b"*" * 60
+                                for row in range(10, 14)
+                            )
+                        )
+                    terminal.write(active + sequence)
+                    if name == "DECCRA":
+                        terminal.write(
+                            base
+                            + b"".join(
+                                f"\x1b[{row + 1};1H".encode() + b"Z" * 60
+                                for row in range(10, 14)
+                            )
+                        )
+                    snapshot = terminal.model_snapshot()
+                    for row in range(20):
+                        for column in range(60):
+                            cell = snapshot.cell(column, row)
+                            targeted = 2 <= row < 6 and 26 <= column < 54
+                            if not targeted:
+                                self.assertEqual(cell.char, "Z")
+                                self.assertEqual(cell.foreground, (0, 0, 255))
+                                self.assertEqual(cell.background, (0, 255, 0))
+                                self.assertTrue(cell.bold)
+                                self.assertEqual(cell.underline_style, 3)
+                                self.assertEqual(
+                                    cell.underline_color,
+                                    (255, 0, 0),
+                                )
+                                continue
+                            if name == "DECFRA":
+                                self.assertEqual(cell.char, "*")
+                                self.assertEqual(
+                                    cell.foreground, (255, 0, 0)
+                                )
+                                self.assertEqual(
+                                    cell.background, (0, 0, 255)
+                                )
+                                self.assertTrue(cell.bold)
+                                self.assertEqual(cell.underline_style, 0)
+                            elif name in ("DECERA", "DECSERA"):
+                                self.assertEqual(cell.char, " ")
+                                self.assertEqual(
+                                    cell.foreground, (255, 0, 0)
+                                )
+                                self.assertEqual(
+                                    cell.background, (0, 0, 255)
+                                )
+                                self.assertFalse(cell.bold)
+                                self.assertEqual(cell.underline_style, 0)
+                            elif name == "DECCARA":
+                                self.assertEqual(cell.char, "Z")
+                                self.assertTrue(cell.inverse)
+                                self.assertEqual(cell.underline_style, 4)
+                                self.assertEqual(
+                                    cell.underline_color,
+                                    (55, 23, 28),
+                                )
+                            elif name == "DECRARA":
+                                self.assertEqual(cell.char, "Z")
+                                self.assertFalse(cell.bold)
+                                self.assertEqual(cell.underline_style, 3)
+                            else:
+                                self.assertEqual(cell.char, "*")
+                                self.assertEqual(
+                                    cell.foreground, (0, 255, 0)
+                                )
+                                self.assertEqual(
+                                    cell.background, (255, 0, 0)
+                                )
+
+    def test_copy_double_width_rectangular_area(self):
+        with Shitty(columns=80, rows=6, save_lines=0) as terminal:
+            terminal.write(
+                b"\x1b[0;4;34;42m"
+                + put_rows(*(b"Z" * 80 for _ in range(6)))
+                + b"\x1b[0;1;32;41m"
+                + put_rows(*(b"C" * 80 for _ in range(3)))
+                + b"\x1b[2;1H\x1b#6"
+                + b"\x1b[1;31;3;50;1;4;31;1$v"
+            )
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[3][30:50], "C" * 20)
+            self.assertEqual(snapshot.lines[4][30:40], "C" * 10)
+            self.assertEqual(snapshot.lines[5][30:50], "C" * 20)
+            self.assertEqual(snapshot.cell(50, 3).char, "Z")
+            self.assertEqual(snapshot.cell(40, 4).char, "Z")
+            self.assertEqual(snapshot.cell(50, 5).char, "Z")

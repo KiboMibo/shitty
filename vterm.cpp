@@ -912,7 +912,7 @@ namespace {
         };
         ColMode colMode = ColMode::C80;
 
-        void switchColMode(ColMode colMode);
+        void switchColMode(ColMode colMode, bool force = false);
         void switchScreenBufferMode(bool altScreenBufferMode, bool clearAlternate = false);
 
         struct CharsetState {
@@ -2708,13 +2708,14 @@ void VtermImpl::fillScreen(u16 ch) {
     cf->fillCells(ch, attrs);
 }
 
-void VtermImpl::switchColMode(ColMode colMode_) {
-    if (colMode == colMode_) {
+void VtermImpl::switchColMode(ColMode colMode_, bool force) {
+    const bool changed = colMode != colMode_;
+    if (!changed && !force) {
         return;
     }
 
     const u16 columns = colMode_ == ColMode::C80 ? 80 : 132;
-    if (composer.columns != columns) {
+    if (changed && composer.columns != columns) {
         host.windowOperation(8, composer.rows, columns);
     }
     marginTop = 0;
@@ -4401,7 +4402,7 @@ void VtermImpl::setApplicationCursorKeys(bool enabled) {
 
 void VtermImpl::setColumn132(bool enabled) {
     if (allowColumnMode) {
-        switchColMode(enabled ? ColMode::C132 : ColMode::C80);
+        switchColMode(enabled ? ColMode::C132 : ColMode::C80, true);
     }
 }
 
@@ -4426,6 +4427,7 @@ void VtermImpl::setOriginMode(bool enabled) {
 
 void VtermImpl::setAutoWrap(bool enabled) {
     autoWrapMode = enabled;
+    lastCol = false;
 }
 
 void VtermImpl::setAutoRepeat(bool enabled) {
@@ -4713,6 +4715,7 @@ void VtermImpl::setLineAttribute(u8 attribute) {
     if (attribute) {
         posX = std::min<u16>(posX, std::max(1, composer.columns / 2) - 1);
     }
+    lastCol = false;
 }
 
 void VtermImpl::esc_RIS() {

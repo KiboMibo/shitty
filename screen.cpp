@@ -2375,29 +2375,42 @@ void ScreenBase<Coord, Epoch>::fillRectangle(u16 top, u16 left, u16 bottom, u16 
 
 template <typename Coord, typename Epoch>
 void ScreenBase<Coord, Epoch>::copyRectangle(u16 sourceTop, u16 sourceLeft, u16 targetTop, u16 targetLeft, u16 height, u16 width, const TerminalCell& eraseAttrs) {
-    std::vector<TerminalCell> copied;
-    copied.reserve((size_t)(height)*width);
+    Vector<TerminalCell> copied((size_t)(height)*width);
+    Vector<u16> copiedWidths(height);
     for (u16 row = 0; row < height; ++row) {
-        const TerminalCell* source = getLogicalRowPtr(sourceTop + row) + sourceLeft;
-        copied.insert(copied.end(), source, source + width);
+        const Row* const sourceObject = getLogicalRowObject(sourceTop + row);
+        const Row* const targetObject = getLogicalRowObject(targetTop + row);
+        const u16 sourceColumns = sourceObject->metadata.lineAttribute == 0 ? nCols : max<Coord>((Coord)(1), nCols / 2);
+        const u16 targetColumns = targetObject->metadata.lineAttribute == 0 ? nCols : max<Coord>((Coord)(1), nCols / 2);
+        const u16 sourceAvailable = sourceLeft < sourceColumns ? sourceColumns - sourceLeft : 0;
+        const u16 targetAvailable = targetLeft < targetColumns ? targetColumns - targetLeft : 0;
+        const u16 rowWidth = min(width, min(sourceAvailable, targetAvailable));
+        copiedWidths.pushBack(rowWidth);
+        copied.append(sourceObject->cells + sourceLeft, rowWidth);
     }
+    const TerminalCell* source = copied.data();
     for (u16 row = 0; row < height; ++row) {
-        clearWideBoundary(targetTop + row, targetLeft, eraseAttrs);
-        clearWideBoundary(targetTop + row, targetLeft + width, eraseAttrs);
-        TerminalCell* destination = mutableLogicalRow(targetTop + row) + targetLeft;
-        for (u16 column = 0; column < width; ++column) {
-            destination[column] = copied[(size_t)(row)*width + column];
+        const u16 rowWidth = copiedWidths[row];
+        if (rowWidth == 0) {
+            continue;
         }
-        logicalRowSlot(targetTop + row)->metadata.protection |= rowProtection(copied.data() + (size_t)(row)*width, width);
-        if (rowContainsWide(copied.data() + (size_t)(row)*width, width)) {
+        clearWideBoundary(targetTop + row, targetLeft, eraseAttrs);
+        clearWideBoundary(targetTop + row, targetLeft + rowWidth, eraseAttrs);
+        TerminalCell* destination = mutableLogicalRow(targetTop + row) + targetLeft;
+        for (u16 column = 0; column < rowWidth; ++column) {
+            destination[column] = source[column];
+        }
+        logicalRowSlot(targetTop + row)->metadata.protection |= rowProtection(source, rowWidth);
+        if (rowContainsWide(source, rowWidth)) {
             markLogicalRowWide(targetTop + row);
         }
         repairWideBoundary(targetTop + row, targetLeft, eraseAttrs);
-        repairWideBoundary(targetTop + row, targetLeft + width, eraseAttrs);
-    }
-    damageRectangle(targetTop, targetLeft, targetTop + height, targetLeft + width);
-    if (!selection.empty()) {
-        invalidateSelection(Rect(targetLeft, targetTop, targetLeft + width, targetTop + height));
+        repairWideBoundary(targetTop + row, targetLeft + rowWidth, eraseAttrs);
+        damageRow(targetTop + row, targetLeft, targetLeft + rowWidth);
+        if (!selection.empty()) {
+            invalidateSelection(Rect(targetLeft, targetTop + row, targetLeft + rowWidth, targetTop + row));
+        }
+        source += rowWidth;
     }
 }
 

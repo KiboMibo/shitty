@@ -227,8 +227,17 @@ keys.~~
   console-buffer panning и `SetConsoleCursorPosition` классифицированы как
   Win32 host policy; terminal-side scrollback, reflow, resize и link lifetime
   уже независимо покрыты.~~
-- `ScreenBufferTests`, remaining — 12 методов; portable assertions переносить
-  блоками.
+- ~~`ScreenBufferTests`, final block — последние 12 методов разобраны:
+  три color-preserving reflow transaction, все шесть rectangular operations,
+  DECCRA из double-width source, 36 delayed-wrap reset controls и multiline
+  wrap перенесены. Импорт исправил pending-wrap у line-rendition/DECAWM и
+  redundant DECCOLM, а rectangular copy теперь ограничивается физической
+  шириной double-width строки. `TestDeferredMainBufferResize` проверяет
+  Win32-внутреннюю отложенную оптимизацию уже покрытого observable alt resize;
+  DECECM игнорируется consensus xterm/VTE/основных терминалов; три scrollbar
+  mark/command-history метода являются Windows host UI поверх уже покрытого
+  OSC 133 semantic protocol. Все 113 методов теперь ported или явно
+  classified.~~
 
 ### WezTerm
 
