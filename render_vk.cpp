@@ -14,6 +14,7 @@
 
 #include "options.h"
 #include "render_damage.h"
+#include "small_obj_allocator.h"
 #include "unicode_map.h"
 #include "utf8.h"
 #include "vterm.h"
@@ -248,8 +249,6 @@ namespace {
         };
 
         struct SwapchainResources {
-            void xchg(SwapchainResources& other) noexcept;
-
             VkSwapchainKHR swapchain = VK_NULL_HANDLE;
             VkFormat format = VK_FORMAT_UNDEFINED;
             VkFormat storageViewFormat = VK_FORMAT_UNDEFINED;
@@ -262,7 +261,8 @@ namespace {
             Vector<u8> initialized;
             Vector<u64> generations;
             ImageResource output;
-            const GeneratedRenderShader* shader = nullptr;
+            bool outputInitialized = false;
+            u64 outputGeneration = 0;
             bool direct = false;
             // Without swapchain maintenance there is no presentation fence:
             // destroy after this many further presented frames instead of
@@ -320,15 +320,12 @@ namespace {
         Buffer damageJournalStorage;
         RenderDamage damage;
         u64 clearDamageGeneration = 0;
-        u64 outputGeneration = 0;
         Vector<GpuCell> cells;
         RenderCache renderCache;
         Vector<VkBufferImageCopy> atlasCopies;
         Vector<VkBufferImageCopy> colorAtlasCopies;
         Vector<VkBufferImageCopy> doubleWidthAtlasCopies;
         Vector<VkBufferImageCopy> doubleWidthColorAtlasCopies;
-        ImageResource outputImage;
-        bool outputInitialized = false;
         TerminalCursor previousCursor;
         Rect previousSelection;
         Color clearBackground = opts.bg;
@@ -345,19 +342,10 @@ namespace {
         bool extSurfaceMaintenance = false;
         const char* swapchainMaintenanceExtension = nullptr;
 
-        VkSwapchainKHR swapchain = VK_NULL_HANDLE;
-        VkFormat swapchainFormat = VK_FORMAT_UNDEFINED;
-        VkFormat swapchainStorageViewFormat = VK_FORMAT_UNDEFINED;
-        VkExtent2D swapchainExtent{};
+        // The live presentation chain; never null. Replaced wholesale by
+        // createSwapchain, which retires the previous instance.
+        SwapchainResources* chain = nullptr;
         VkExtent2D renderExtent{};
-        bool directSwapchain = false;
-        Vector<VkImage> swapchainImages;
-        Vector<VkImageView> swapchainViews;
-        Vector<VkSemaphore> presentSemaphores;
-        Vector<VkFence> presentFences;
-        Vector<u8> presentFencePending;
-        Vector<u8> imageInitialized;
-        Vector<u64> imageGenerations;
         Vector<SwapchainResources*> retiredSwapchains;
         Vector<VkPipeline> retiredPipelines;
 
@@ -377,10 +365,10 @@ namespace {
         void createPipelineLayout();
         void selectPipeline(const GeneratedRenderShader& shader);
         void createSwapchain(u32 width, u32 height);
+        bool tryCreateSwapchain(u32 width, u32 height);
         void destroySwapchainResources(SwapchainResources& resources);
-        void retireSwapchain(SwapchainResources& resources);
+        void retireSwapchain(SwapchainResources* resources);
         void collectRetiredSwapchains(bool force = false);
-        void destroySwapchain();
         void ensureCellBuffer(FrameResources& frame, size_t bytes);
         void ensureFontUploadBuffer(FrameResources& frame, size_t bytes);
         void ensureColorAtlas(bool doubleWidth);
@@ -403,6 +391,7 @@ namespace {
         void recordImageUploads(VkCommandBuffer commandBuffer, VkBuffer stagingBuffer, const ImageResource& image, const Vector<VkBufferImageCopy>& copies, bool initialize);
         void recordCommands(FrameResources& frame, u32 imageIndex, const PresentationState& state, u32 updateCount, bool clearOutput);
         void recordRepaintCommands(FrameResources& frame, u32 imageIndex);
+        void recordFrame(FrameResources& frame, u32 imageIndex);
         bool acquirePresentFrame(u32 width, u32 height, FrameResources*& frame, u32& imageIndex, bool& recreateAfterPresent);
         bool submitPresentFrame(u32 width, u32 height, FrameResources& frame, u32 imageIndex, bool recreateAfterPresent);
         bool present(const TerminalUpdate& update);
@@ -572,6 +561,7 @@ RendererImpl::RendererImpl(Composer& composer_, const plt::RenderContext& contex
     , glyphs(*glyphPool)
     , doubleWidthGlyphs(*glyphPool)
 {
+    chain = composer.smallObjects->make<SwapchainResources>();
     createInstance();
     createSurface(context);
     selectPhysicalDevice();
@@ -587,7 +577,8 @@ RendererImpl::~RendererImpl() {
         vkDeviceWaitIdle(device);
     }
 
-    destroySwapchain();
+    destroySwapchainResources(*chain);
+    composer.smallObjects->release(chain);
     collectRetiredSwapchains(true);
     if (pipeline != VK_NULL_HANDLE) {
         vkDestroyPipeline(device, pipeline, nullptr);
@@ -608,7 +599,6 @@ RendererImpl::~RendererImpl() {
         vkDestroySampler(device, atlasSampler, nullptr);
     }
 
-    destroyImage(outputImage);
     destroyImage(doubleWidthColorAtlas);
     destroyImage(doubleWidthAtlas);
     destroyImage(colorAtlas);
@@ -1285,24 +1275,6 @@ void RendererImpl::selectPipeline(const GeneratedRenderShader& shader) {
     activeShader = &shader;
 }
 
-void RendererImpl::SwapchainResources::xchg(SwapchainResources& other) noexcept {
-    stl::xchg(swapchain, other.swapchain);
-    stl::xchg(format, other.format);
-    stl::xchg(storageViewFormat, other.storageViewFormat);
-    stl::xchg(extent, other.extent);
-    images.xchg(other.images);
-    views.xchg(other.views);
-    semaphores.xchg(other.semaphores);
-    presentFences.xchg(other.presentFences);
-    presentFencePending.xchg(other.presentFencePending);
-    initialized.xchg(other.initialized);
-    generations.xchg(other.generations);
-    stl::xchg(output, other.output);
-    stl::xchg(shader, other.shader);
-    stl::xchg(direct, other.direct);
-    stl::xchg(gracePresents, other.gracePresents);
-}
-
 void RendererImpl::destroySwapchainResources(SwapchainResources& resources) {
     for (const auto view : resources.views) {
         if (device != VK_NULL_HANDLE && view != VK_NULL_HANDLE) {
@@ -1334,21 +1306,21 @@ void RendererImpl::destroySwapchainResources(SwapchainResources& resources) {
     resources.storageViewFormat = VK_FORMAT_UNDEFINED;
     resources.extent = {};
     destroyImage(resources.output);
-    resources.shader = nullptr;
+    resources.outputInitialized = false;
+    resources.outputGeneration = 0;
     resources.direct = false;
 }
 
-void RendererImpl::retireSwapchain(SwapchainResources& resources) {
-    if (resources.swapchain == VK_NULL_HANDLE && resources.output.image == VK_NULL_HANDLE) {
-        destroySwapchainResources(resources);
+void RendererImpl::retireSwapchain(SwapchainResources* resources) {
+    if (resources->swapchain == VK_NULL_HANDLE && resources->output.image == VK_NULL_HANDLE) {
+        destroySwapchainResources(*resources);
+        composer.smallObjects->release(resources);
         return;
     }
-    SwapchainResources* const retired = new SwapchainResources;
-    retired->xchg(resources);
     if (swapchainMaintenanceExtension == nullptr) {
-        retired->gracePresents = framesInFlight + 1;
+        resources->gracePresents = framesInFlight + 1;
     }
-    retiredSwapchains.pushBack(retired);
+    retiredSwapchains.pushBack(resources);
     collectRetiredSwapchains();
     if (swapchainMaintenanceExtension == nullptr && retiredSwapchains.length() >= 8) {
         // No frame was presented since several retirements (a resize storm
@@ -1387,33 +1359,10 @@ void RendererImpl::collectRetiredSwapchains(bool force) {
             continue;
         }
         destroySwapchainResources(*resources);
-        delete resources;
+        composer.smallObjects->release(resources);
         retiredSwapchains.mut(index) = retiredSwapchains.back();
         retiredSwapchains.popBack();
     }
-}
-
-void RendererImpl::destroySwapchain() {
-    SwapchainResources resources;
-    resources.swapchain = swapchain;
-    resources.format = swapchainFormat;
-    resources.storageViewFormat = swapchainStorageViewFormat;
-    resources.extent = swapchainExtent;
-    resources.direct = directSwapchain;
-    resources.shader = activeShader;
-    resources.images.xchg(swapchainImages);
-    resources.views.xchg(swapchainViews);
-    resources.semaphores.xchg(presentSemaphores);
-    resources.presentFences.xchg(presentFences);
-    resources.presentFencePending.xchg(presentFencePending);
-    resources.initialized.xchg(imageInitialized);
-    resources.generations.xchg(imageGenerations);
-    swapchain = VK_NULL_HANDLE;
-    swapchainFormat = VK_FORMAT_UNDEFINED;
-    swapchainStorageViewFormat = VK_FORMAT_UNDEFINED;
-    swapchainExtent = {};
-    directSwapchain = false;
-    destroySwapchainResources(resources);
 }
 
 void RendererImpl::createSwapchain(u32 width, u32 height) {
@@ -1530,7 +1479,7 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     createInfo.compositeAlpha = selectCompositeAlpha(capabilities.supportedCompositeAlpha);
     createInfo.presentMode = presentMode;
     createInfo.clipped = VK_TRUE;
-    createInfo.oldSwapchain = swapchain;
+    createInfo.oldSwapchain = chain->swapchain;
 
     VkFormat viewFormats[2] = {
         surfaceFormat.format,
@@ -1546,12 +1495,11 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
         createInfo.pNext = &formatList;
     }
 
-    SwapchainResources replacement;
-    replacement.format = surfaceFormat.format;
-    replacement.storageViewFormat = renderShader->storageViewFormat;
-    replacement.extent = extent;
-    replacement.shader = renderShader;
-    replacement.direct = direct;
+    SwapchainResources* const replacement = composer.smallObjects->make<SwapchainResources>();
+    replacement->format = surfaceFormat.format;
+    replacement->storageViewFormat = renderShader->storageViewFormat;
+    replacement->extent = extent;
+    replacement->direct = direct;
     try {
         if (!direct) {
             // The shader stores already-sRGB-encoded bytes through a raw
@@ -1561,73 +1509,60 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
             // (and handles the channel order of BGRA targets).
             const bool srgbTarget = surfaceFormat.format == VK_FORMAT_R8G8B8A8_SRGB || surfaceFormat.format == VK_FORMAT_B8G8R8A8_SRGB;
             const VkFormat outputFormat = srgbTarget ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
-            replacement.output = createImage(width, height, 1, outputFormat, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, false, VK_FORMAT_R8G8B8A8_UNORM);
+            replacement->output = createImage(width, height, 1, outputFormat, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, false, VK_FORMAT_R8G8B8A8_UNORM);
         }
-        checkVk(vkCreateSwapchainKHR(device, &createInfo, nullptr, &replacement.swapchain), "vkCreateSwapchainKHR");
-        checkVk(vkGetSwapchainImagesKHR(device, replacement.swapchain, &imageCount, nullptr), "vkGetSwapchainImagesKHR");
-        replacement.images.zero(imageCount);
-        checkVk(vkGetSwapchainImagesKHR(device, replacement.swapchain, &imageCount, replacement.images.mutData()), "vkGetSwapchainImagesKHR");
+        checkVk(vkCreateSwapchainKHR(device, &createInfo, nullptr, &replacement->swapchain), "vkCreateSwapchainKHR");
+        checkVk(vkGetSwapchainImagesKHR(device, replacement->swapchain, &imageCount, nullptr), "vkGetSwapchainImagesKHR");
+        replacement->images.zero(imageCount);
+        checkVk(vkGetSwapchainImagesKHR(device, replacement->swapchain, &imageCount, replacement->images.mutData()), "vkGetSwapchainImagesKHR");
         if (direct) {
-            replacement.views.zero(imageCount);
+            replacement->views.zero(imageCount);
             for (u32 index = 0; index < imageCount; ++index) {
-                replacement.views.mut(index) = createImageView(replacement.images[index], replacement.storageViewFormat);
+                replacement->views.mut(index) = createImageView(replacement->images[index], replacement->storageViewFormat);
             }
         }
-        replacement.semaphores.zero(imageCount);
+        replacement->semaphores.zero(imageCount);
         VkSemaphoreCreateInfo semaphoreInfo{};
         semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-        for (VkSemaphore* semaphore = replacement.semaphores.mutBegin(); semaphore != replacement.semaphores.mutEnd(); ++semaphore) {
+        for (VkSemaphore* semaphore = replacement->semaphores.mutBegin(); semaphore != replacement->semaphores.mutEnd(); ++semaphore) {
             checkVk(vkCreateSemaphore(device, &semaphoreInfo, nullptr, semaphore), "vkCreateSemaphore");
         }
         if (swapchainMaintenanceExtension != nullptr) {
-            replacement.presentFences.zero(imageCount);
-            replacement.presentFencePending.zero(imageCount);
+            replacement->presentFences.zero(imageCount);
+            replacement->presentFencePending.zero(imageCount);
             VkFenceCreateInfo fenceInfo{};
             fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-            for (VkFence* fence = replacement.presentFences.mutBegin(); fence != replacement.presentFences.mutEnd(); ++fence) {
+            for (VkFence* fence = replacement->presentFences.mutBegin(); fence != replacement->presentFences.mutEnd(); ++fence) {
                 checkVk(vkCreateFence(device, &fenceInfo, nullptr, fence), "vkCreateFence");
             }
         }
-        replacement.initialized.zero(imageCount);
-        replacement.generations.zero(imageCount);
+        replacement->initialized.zero(imageCount);
+        replacement->generations.zero(imageCount);
         selectPipeline(*renderShader);
     } catch (...) {
-        destroySwapchainResources(replacement);
+        destroySwapchainResources(*replacement);
+        composer.smallObjects->release(replacement);
         throw;
     }
 
-    VkSwapchainKHR handle = swapchain;
-    swapchain = replacement.swapchain;
-    replacement.swapchain = handle;
-    VkFormat format = swapchainFormat;
-    swapchainFormat = replacement.format;
-    replacement.format = format;
-    format = swapchainStorageViewFormat;
-    swapchainStorageViewFormat = replacement.storageViewFormat;
-    replacement.storageViewFormat = format;
-    VkExtent2D previousExtent = swapchainExtent;
-    swapchainExtent = replacement.extent;
-    replacement.extent = previousExtent;
-    const bool previousDirect = directSwapchain;
-    directSwapchain = replacement.direct;
-    replacement.direct = previousDirect;
-    swapchainImages.xchg(replacement.images);
-    swapchainViews.xchg(replacement.views);
-    presentSemaphores.xchg(replacement.semaphores);
-    presentFences.xchg(replacement.presentFences);
-    presentFencePending.xchg(replacement.presentFencePending);
-    imageInitialized.xchg(replacement.initialized);
-    imageGenerations.xchg(replacement.generations);
-    ImageResource image = outputImage;
-    outputImage = replacement.output;
-    replacement.output = image;
+    SwapchainResources* const previous = chain;
+    chain = replacement;
     renderExtent = {width, height};
-    outputInitialized = false;
-    outputGeneration = 0;
     if (opts.vulkanInfo) {
         sysO << StringView(u8"Vulkan presentation: ") << StringView(direct ? u8"direct storage (" : u8"offscreen blit (") << StringView(renderShader->name) << StringView(u8")") << endL;
     }
-    retireSwapchain(replacement);
+    retireSwapchain(previous);
+}
+
+bool RendererImpl::tryCreateSwapchain(u32 width, u32 height) {
+    try {
+        createSwapchain(width, height);
+        return true;
+    } catch (const SurfaceLost&) {
+        throw;
+    } catch (...) {
+        return false;
+    }
 }
 
 void RendererImpl::ensureCellBuffer(FrameResources& frame, size_t bytes) {
@@ -2059,14 +1994,14 @@ void RendererImpl::appendDamage(u32 begin, u32 count) {
 
 void RendererImpl::collectDamage() {
     u64 applied = damage.generation;
-    if (directSwapchain) {
-        for (u32 index = 0; index < imageInitialized.length(); ++index) {
-            if (imageInitialized[index] && imageGenerations[index] < applied) {
-                applied = imageGenerations[index];
+    if (chain->direct) {
+        for (u32 index = 0; index < chain->initialized.length(); ++index) {
+            if (chain->initialized[index] && chain->generations[index] < applied) {
+                applied = chain->generations[index];
             }
         }
-    } else if (outputInitialized) {
-        applied = outputGeneration;
+    } else if (chain->outputInitialized) {
+        applied = chain->outputGeneration;
     }
     damage.collect(applied);
 }
@@ -2185,9 +2120,9 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
     checkVk(vkBeginCommandBuffer(frame.commandBuffer, &beginInfo), "vkBeginCommandBuffer");
     recordFontUploads(frame);
 
-    const VkImage output = directSwapchain ? swapchainImages[imageIndex] : outputImage.image;
-    const VkImageView outputView = directSwapchain ? swapchainViews[imageIndex] : outputImage.view;
-    const bool initialized = directSwapchain ? imageInitialized[imageIndex] : outputInitialized;
+    const VkImage output = chain->direct ? chain->images[imageIndex] : chain->output.image;
+    const VkImageView outputView = chain->direct ? chain->views[imageIndex] : chain->output.view;
+    const bool initialized = chain->direct ? chain->initialized[imageIndex] : chain->outputInitialized;
     updateOutputDescriptor(frame, outputView);
 
     VkImageSubresourceRange outputRange{};
@@ -2204,9 +2139,9 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
     outputForCompute.subresourceRange = outputRange;
     if (clearOutput) {
         VkImageMemoryBarrier outputForClear = outputForCompute;
-        outputForClear.srcAccessMask = initialized ? (directSwapchain ? VK_ACCESS_MEMORY_READ_BIT : VK_ACCESS_TRANSFER_READ_BIT) : 0;
+        outputForClear.srcAccessMask = initialized ? (chain->direct ? VK_ACCESS_MEMORY_READ_BIT : VK_ACCESS_TRANSFER_READ_BIT) : 0;
         outputForClear.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        outputForClear.oldLayout = initialized ? (directSwapchain ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_GENERAL) : VK_IMAGE_LAYOUT_UNDEFINED;
+        outputForClear.oldLayout = initialized ? (chain->direct ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_GENERAL) : VK_IMAGE_LAYOUT_UNDEFINED;
         vkCmdPipelineBarrier(frame.commandBuffer, initialized ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &outputForClear);
 
         VkClearColorValue clearColor{{
@@ -2221,8 +2156,8 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
         outputForCompute.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
         vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &outputForCompute);
     } else {
-        outputForCompute.srcAccessMask = directSwapchain ? VK_ACCESS_MEMORY_READ_BIT : VK_ACCESS_TRANSFER_READ_BIT;
-        outputForCompute.oldLayout = directSwapchain ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_GENERAL;
+        outputForCompute.srcAccessMask = chain->direct ? VK_ACCESS_MEMORY_READ_BIT : VK_ACCESS_TRANSFER_READ_BIT;
+        outputForCompute.oldLayout = chain->direct ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_GENERAL;
         vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &outputForCompute);
     }
 
@@ -2242,8 +2177,8 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
             composer.glyphHeight,
             composer.columns,
             composer.rows,
-            directSwapchain ? swapchainExtent.width : composer.pixelWidth,
-            directSwapchain ? swapchainExtent.height : composer.pixelHeight,
+            chain->direct ? chain->extent.width : composer.pixelWidth,
+            chain->direct ? chain->extent.height : composer.pixelHeight,
             opts.border,
             packColor(state.cursor.color),
             state.cursor.posX,
@@ -2273,7 +2208,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
         vkCmdDispatch(frame.commandBuffer, (updateCount + 63) / 64, 1, 1);
     }
 
-    if (directSwapchain) {
+    if (chain->direct) {
         VkImageMemoryBarrier outputForPresent = outputForCompute;
         outputForPresent.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
         outputForPresent.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
@@ -2291,17 +2226,17 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
 
     VkImageMemoryBarrier swapchainForBlit{};
     swapchainForBlit.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    swapchainForBlit.srcAccessMask = imageInitialized[imageIndex] ? VK_ACCESS_MEMORY_READ_BIT : 0;
+    swapchainForBlit.srcAccessMask = chain->initialized[imageIndex] ? VK_ACCESS_MEMORY_READ_BIT : 0;
     swapchainForBlit.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    swapchainForBlit.oldLayout = imageInitialized[imageIndex] ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_UNDEFINED;
+    swapchainForBlit.oldLayout = chain->initialized[imageIndex] ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_UNDEFINED;
     swapchainForBlit.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     swapchainForBlit.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     swapchainForBlit.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    swapchainForBlit.image = swapchainImages[imageIndex];
+    swapchainForBlit.image = chain->images[imageIndex];
     swapchainForBlit.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     swapchainForBlit.subresourceRange.levelCount = 1;
     swapchainForBlit.subresourceRange.layerCount = 1;
-    vkCmdPipelineBarrier(frame.commandBuffer, imageInitialized[imageIndex] ? VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &swapchainForBlit);
+    vkCmdPipelineBarrier(frame.commandBuffer, chain->initialized[imageIndex] ? VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &swapchainForBlit);
 
     VkImageBlit blit{};
     blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -2309,8 +2244,8 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
     blit.srcOffsets[1] = {(i32)(renderExtent.width), (i32)(renderExtent.height), 1};
     blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     blit.dstSubresource.layerCount = 1;
-    blit.dstOffsets[1] = {(i32)(swapchainExtent.width), (i32)(swapchainExtent.height), 1};
-    vkCmdBlitImage(frame.commandBuffer, output, VK_IMAGE_LAYOUT_GENERAL, swapchainImages[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
+    blit.dstOffsets[1] = {(i32)(chain->extent.width), (i32)(chain->extent.height), 1};
+    vkCmdBlitImage(frame.commandBuffer, output, VK_IMAGE_LAYOUT_GENERAL, chain->images[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
 
     VkImageMemoryBarrier swapchainForPresent = swapchainForBlit;
     swapchainForPresent.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -2335,7 +2270,7 @@ void RendererImpl::recordRepaintCommands(FrameResources& frame, u32 imageIndex) 
     outputForBlit.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     outputForBlit.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     outputForBlit.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    outputForBlit.image = outputImage.image;
+    outputForBlit.image = chain->output.image;
     outputForBlit.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     outputForBlit.subresourceRange.levelCount = 1;
     outputForBlit.subresourceRange.layerCount = 1;
@@ -2343,17 +2278,17 @@ void RendererImpl::recordRepaintCommands(FrameResources& frame, u32 imageIndex) 
 
     VkImageMemoryBarrier swapchainForBlit{};
     swapchainForBlit.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    swapchainForBlit.srcAccessMask = imageInitialized[imageIndex] ? VK_ACCESS_MEMORY_READ_BIT : 0;
+    swapchainForBlit.srcAccessMask = chain->initialized[imageIndex] ? VK_ACCESS_MEMORY_READ_BIT : 0;
     swapchainForBlit.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    swapchainForBlit.oldLayout = imageInitialized[imageIndex] ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_UNDEFINED;
+    swapchainForBlit.oldLayout = chain->initialized[imageIndex] ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_UNDEFINED;
     swapchainForBlit.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     swapchainForBlit.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     swapchainForBlit.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    swapchainForBlit.image = swapchainImages[imageIndex];
+    swapchainForBlit.image = chain->images[imageIndex];
     swapchainForBlit.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     swapchainForBlit.subresourceRange.levelCount = 1;
     swapchainForBlit.subresourceRange.layerCount = 1;
-    vkCmdPipelineBarrier(frame.commandBuffer, imageInitialized[imageIndex] ? VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &swapchainForBlit);
+    vkCmdPipelineBarrier(frame.commandBuffer, chain->initialized[imageIndex] ? VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &swapchainForBlit);
 
     VkImageBlit blit{};
     blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -2361,8 +2296,8 @@ void RendererImpl::recordRepaintCommands(FrameResources& frame, u32 imageIndex) 
     blit.srcOffsets[1] = {(i32)(renderExtent.width), (i32)(renderExtent.height), 1};
     blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     blit.dstSubresource.layerCount = 1;
-    blit.dstOffsets[1] = {(i32)(swapchainExtent.width), (i32)(swapchainExtent.height), 1};
-    vkCmdBlitImage(frame.commandBuffer, outputImage.image, VK_IMAGE_LAYOUT_GENERAL, swapchainImages[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
+    blit.dstOffsets[1] = {(i32)(chain->extent.width), (i32)(chain->extent.height), 1};
+    vkCmdBlitImage(frame.commandBuffer, chain->output.image, VK_IMAGE_LAYOUT_GENERAL, chain->images[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
 
     VkImageMemoryBarrier swapchainForPresent = swapchainForBlit;
     swapchainForPresent.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -2376,17 +2311,12 @@ void RendererImpl::recordRepaintCommands(FrameResources& frame, u32 imageIndex) 
 bool RendererImpl::acquirePresentFrame(u32 width, u32 height, FrameResources*& frame, u32& imageIndex, bool& recreateAfterPresent) {
     frame = &frames[currentFrame];
     checkVk(vkWaitForFences(device, 1, &frame->fence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
-    VkResult result = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, frame->imageAvailable, VK_NULL_HANDLE, &imageIndex);
+    VkResult result = vkAcquireNextImageKHR(device, chain->swapchain, UINT64_MAX, frame->imageAvailable, VK_NULL_HANDLE, &imageIndex);
     if (result == VK_ERROR_SURFACE_LOST_KHR) {
         throw SurfaceLost{};
     }
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-        try {
-            createSwapchain(width, height);
-        } catch (const SurfaceLost&) {
-            throw;
-        } catch (...) {
-        }
+        tryCreateSwapchain(width, height);
         return false;
     }
     recreateAfterPresent = result == VK_SUBOPTIMAL_KHR;
@@ -2407,19 +2337,19 @@ bool RendererImpl::submitPresentFrame(u32 width, u32 height, FrameResources& fra
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &frame.commandBuffer;
     submitInfo.signalSemaphoreCount = 1;
-    submitInfo.pSignalSemaphores = &presentSemaphores[imageIndex];
+    submitInfo.pSignalSemaphores = &chain->semaphores[imageIndex];
     // Reset only when committed to submitting: a throw between an early
     // reset and the submit would leave the fence unsignaled forever, and
     // the next wait on it would hang.
     checkVk(vkResetFences(device, 1, &frame.fence), "vkResetFences");
     checkVk(vkQueueSubmit(queue, 1, &submitInfo, frame.fence), "vkQueueSubmit");
-    imageInitialized.mut(imageIndex) = true;
+    chain->initialized.mut(imageIndex) = true;
 
     VkSwapchainPresentFenceInfoKHR presentFenceInfo{};
     VkFence presentFence = VK_NULL_HANDLE;
     if (swapchainMaintenanceExtension != nullptr) {
-        presentFence = presentFences[imageIndex];
-        if (presentFencePending[imageIndex]) {
+        presentFence = chain->presentFences[imageIndex];
+        if (chain->presentFencePending[imageIndex]) {
             checkVk(vkWaitForFences(device, 1, &presentFence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
             checkVk(vkResetFences(device, 1, &presentFence), "vkResetFences");
         }
@@ -2431,9 +2361,9 @@ bool RendererImpl::submitPresentFrame(u32 width, u32 height, FrameResources& fra
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     presentInfo.pNext = swapchainMaintenanceExtension == nullptr ? nullptr : &presentFenceInfo;
     presentInfo.waitSemaphoreCount = 1;
-    presentInfo.pWaitSemaphores = &presentSemaphores[imageIndex];
+    presentInfo.pWaitSemaphores = &chain->semaphores[imageIndex];
     presentInfo.swapchainCount = 1;
-    presentInfo.pSwapchains = &swapchain;
+    presentInfo.pSwapchains = &chain->swapchain;
     presentInfo.pImageIndices = &imageIndex;
     VkResult result = vkQueuePresentKHR(queue, &presentInfo);
     if (result == VK_ERROR_SURFACE_LOST_KHR) {
@@ -2443,7 +2373,7 @@ bool RendererImpl::submitPresentFrame(u32 width, u32 height, FrameResources& fra
         failVk("vkQueuePresentKHR", result);
     }
     if (swapchainMaintenanceExtension != nullptr) {
-        presentFencePending.mut(imageIndex) = true;
+        chain->presentFencePending.mut(imageIndex) = true;
     }
 
     const bool presented = result != VK_ERROR_OUT_OF_DATE_KHR;
@@ -2457,12 +2387,7 @@ bool RendererImpl::submitPresentFrame(u32 width, u32 height, FrameResources& fra
     }
     currentFrame = (currentFrame + 1) % framesInFlight;
     if (recreateAfterPresent || result == VK_SUBOPTIMAL_KHR || result == VK_ERROR_OUT_OF_DATE_KHR) {
-        try {
-            createSwapchain(width, height);
-        } catch (const SurfaceLost&) {
-            throw;
-        } catch (...) {
-        }
+        tryCreateSwapchain(width, height);
     }
     collectRetiredSwapchains();
     return presented;
@@ -2482,22 +2407,30 @@ bool RendererImpl::repaint() {
     }
 }
 
+void RendererImpl::recordFrame(FrameResources& frame, u32 imageIndex) {
+    const bool initialized = chain->direct ? chain->initialized[imageIndex] : chain->outputInitialized;
+    const u64 appliedGeneration = chain->direct ? chain->generations[imageIndex] : chain->outputGeneration;
+    const u32 updateCount = materializeUpdates(frame, appliedGeneration, initialized);
+    const bool clearOutput = !initialized || appliedGeneration < clearDamageGeneration;
+    recordCommands(frame, imageIndex, presentationState, updateCount, clearOutput);
+    if (chain->direct) {
+        chain->generations.mut(imageIndex) = damage.generation;
+    } else {
+        chain->outputGeneration = damage.generation;
+        chain->outputInitialized = true;
+    }
+}
+
 bool RendererImpl::repaintFrame() {
     const u32 width = renderExtent.width;
     const u32 height = renderExtent.height;
     if (!previousStateValid || cells.empty() || width == 0 || height == 0) {
         return false;
     }
-    if (swapchain == VK_NULL_HANDLE) {
-        try {
-            createSwapchain(width, height);
-        } catch (const SurfaceLost&) {
-            throw;
-        } catch (...) {
-            return false;
-        }
+    if (chain->swapchain == VK_NULL_HANDLE && !tryCreateSwapchain(width, height)) {
+        return false;
     }
-    if (swapchain == VK_NULL_HANDLE) {
+    if (chain->swapchain == VK_NULL_HANDLE) {
         return false;
     }
 
@@ -2508,22 +2441,12 @@ bool RendererImpl::repaintFrame() {
         return false;
     }
 
-    if (!directSwapchain && outputInitialized) {
+    if (!chain->direct && chain->outputInitialized) {
         recordRepaintCommands(*frame, imageIndex);
     } else {
         beginGlyphFrame();
         pinVisibleGlyphs();
-        const bool initialized = directSwapchain ? imageInitialized[imageIndex] : outputInitialized;
-        const u64 appliedGeneration = directSwapchain ? imageGenerations[imageIndex] : outputGeneration;
-        const u32 updateCount = materializeUpdates(*frame, appliedGeneration, initialized);
-        const bool clearOutput = !initialized || appliedGeneration < clearDamageGeneration;
-        recordCommands(*frame, imageIndex, presentationState, updateCount, clearOutput);
-        if (directSwapchain) {
-            imageGenerations.mut(imageIndex) = damage.generation;
-        } else {
-            outputGeneration = damage.generation;
-            outputInitialized = true;
-        }
+        recordFrame(*frame, imageIndex);
     }
     const bool presented = submitPresentFrame(width, height, *frame, imageIndex, recreateAfterPresent);
     collectDamage();
@@ -2538,16 +2461,11 @@ bool RendererImpl::present(const TerminalUpdate& update) {
         return false;
     }
 
-    if (swapchain == VK_NULL_HANDLE || renderExtent.width != width || renderExtent.height != height) {
-        try {
-            createSwapchain(width, height);
-        } catch (const SurfaceLost&) {
-            throw;
-        } catch (...) {
-            return false;
-        }
+    const bool wrongExtent = renderExtent.width != width || renderExtent.height != height;
+    if ((chain->swapchain == VK_NULL_HANDLE || wrongExtent) && !tryCreateSwapchain(width, height)) {
+        return false;
     }
-    if (swapchain == VK_NULL_HANDLE) {
+    if (chain->swapchain == VK_NULL_HANDLE) {
         return false;
     }
     if (update.colors == nullptr) {
@@ -2605,10 +2523,10 @@ bool RendererImpl::present(const TerminalUpdate& update) {
 
     if (damage.advance()) {
         clearDamageGeneration = damage.generation;
-        for (u32 index = 0; index < imageGenerations.length(); ++index) {
-            imageGenerations.mut(index) = 0;
+        for (u32 index = 0; index < chain->generations.length(); ++index) {
+            chain->generations.mut(index) = 0;
         }
-        outputGeneration = 0;
+        chain->outputGeneration = 0;
     }
     const bool selectionChanged = previousStateValid && (!sameSelection(update.snappedSelection, previousSelection) || previousHoveredLinkBegin != update.hoveredLinkBegin || previousHoveredLinkEnd != update.hoveredLinkEnd);
     const bool globalPresentationChanged = previousStateValid && (presentationState.screenReverse != update.screenReverse || !(presentationState.selectionForeground == update.selectionForeground) || !(presentationState.selectionBackground == update.selectionBackground) || presentationState.selectionColorMask != update.selectionColorMask);
@@ -2674,17 +2592,7 @@ bool RendererImpl::present(const TerminalUpdate& update) {
     }
     capturePresentationState(update);
 
-    const bool targetInitialized = directSwapchain ? imageInitialized[imageIndex] : outputInitialized;
-    const u64 appliedGeneration = directSwapchain ? imageGenerations[imageIndex] : outputGeneration;
-    const u32 gpuUpdateCount = materializeUpdates(*frame, appliedGeneration, targetInitialized);
-    const bool clearOutput = !targetInitialized || appliedGeneration < clearDamageGeneration;
-    recordCommands(*frame, imageIndex, presentationState, gpuUpdateCount, clearOutput);
-    if (directSwapchain) {
-        imageGenerations.mut(imageIndex) = damage.generation;
-    } else {
-        outputGeneration = damage.generation;
-        outputInitialized = true;
-    }
+    recordFrame(*frame, imageIndex);
     previousCursor = update.cursor;
     previousSelection = update.snappedSelection;
     previousHoveredHyperlink = update.hoveredHyperlink;
