@@ -113,6 +113,7 @@ namespace {
         u16 logicalBorder = 0;
 
         int takeTestFd(int& argc, char* argv[]);
+        void createRenderer();
         static void childSignalHandler(int signal, siginfo_t* info, void*);
         void setupSignals();
         bool presentTerminal();
@@ -288,6 +289,13 @@ void ApplicationImpl::contentScaleChanged() {
     }
 }
 
+void ApplicationImpl::createRenderer() {
+    // Assigning the fresh pool destroys the previous one — and with it
+    // the dead renderer and its listeners.
+    composer.rendererPool = ObjPool::fromMemory();
+    composer.renderer = Renderer::create(composer, *composer.rendererPool, composer.window->renderContext());
+}
+
 int ApplicationImpl::takeTestFd(int& argc, char* argv[]) {
     for (int k = 1; k < argc; ++k) {
         if (std::strcmp(argv[k], "--test-fd") != 0) {
@@ -382,6 +390,12 @@ bool ApplicationImpl::frame(const plt::WindowInfo& info) {
     if (composer.vterm == nullptr) {
         return false;
     }
+    if (composer.renderer == nullptr) {
+        // The previous renderer died with its surface and dropped its own
+        // pool; build a fresh one and repaint everything.
+        createRenderer();
+        composer.vterm->expose();
+    }
     return presentTerminal();
 }
 
@@ -461,7 +475,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     composer.ptyOutputs = PtyOutputQueue::create(composer.pool, composer.smallObjects, *composer.pty);
     composer.ptyOutput = composer.ptyOutputs->append();
 
-    composer.renderer = Renderer::create(composer, composer.window->renderContext());
+    createRenderer();
     composer.vterm = Vterm::create(composer, nullptr);
     composer.window->requestFrame();
 

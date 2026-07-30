@@ -7,6 +7,7 @@
 #pragma once
 
 #include <std/lib/list.h>
+#include <std/mem/obj_pool.h>
 #include <std/sys/types.h>
 
 namespace stl {
@@ -48,6 +49,9 @@ struct Composer {
     Font* loadFont(stl::ObjPool& owner, const FontRequest& request, FontMetrics& metrics);
 
     stl::ObjPool* pool = nullptr;
+    // Owns the renderer and its listeners; dropped and rebuilt wholesale
+    // when the renderer loses its surface.
+    stl::ObjPool::Ref rendererPool = stl::ObjPool::fromMemory();
     SmallObjAllocator* smallObjects = nullptr;
     Application* application = nullptr;
     CellExtraStore* cellExtras = nullptr;

@@ -13,4 +13,8 @@ namespace plt {
     struct RenderContext;
 }
 
-Renderer* createMetalRenderer(Composer& composer, const plt::RenderContext& context);
+namespace stl {
+    class ObjPool;
+}
+
+Renderer* createMetalRenderer(Composer& composer, stl::ObjPool& pool, const plt::RenderContext& context);

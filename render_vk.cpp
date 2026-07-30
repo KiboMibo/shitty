@@ -154,6 +154,7 @@ namespace {
 
         bool update(const TerminalUpdate& update) override;
         bool repaint() override;
+        bool repaintFrame();
 
         struct ImageResource {
             VkImage image = VK_NULL_HANDLE;
@@ -418,6 +419,10 @@ namespace {
         static u32 packColor(const Color& color);
         static bool sameSelection(const Rect& lhs, const Rect& rhs);
     };
+
+    // Thrown where VK_ERROR_SURFACE_LOST_KHR surfaces; caught only at the
+    // update()/repaint() boundary, where the renderer dies with its pool.
+    struct SurfaceLost {};
 
     [[noreturn]] void failVk(const char* operation, VkResult result) {
         throw std::runtime_error(std::string(operation) + " failed (VkResult " + std::to_string((int)(result)) + ")");
@@ -1417,7 +1422,11 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     }
 
     VkSurfaceCapabilitiesKHR capabilities{};
-    checkVk(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &capabilities), "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
+    const VkResult capabilitiesResult = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &capabilities);
+    if (capabilitiesResult == VK_ERROR_SURFACE_LOST_KHR) {
+        throw SurfaceLost{};
+    }
+    checkVk(capabilitiesResult, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
     u32 formatCount = 0;
     checkVk(vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, nullptr), "vkGetPhysicalDeviceSurfaceFormatsKHR");
     if (formatCount == 0) {
@@ -2368,9 +2377,14 @@ bool RendererImpl::acquirePresentFrame(u32 width, u32 height, FrameResources*& f
     frame = &frames[currentFrame];
     checkVk(vkWaitForFences(device, 1, &frame->fence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
     VkResult result = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, frame->imageAvailable, VK_NULL_HANDLE, &imageIndex);
+    if (result == VK_ERROR_SURFACE_LOST_KHR) {
+        throw SurfaceLost{};
+    }
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         try {
             createSwapchain(width, height);
+        } catch (const SurfaceLost&) {
+            throw;
         } catch (...) {
         }
         return false;
@@ -2422,6 +2436,9 @@ bool RendererImpl::submitPresentFrame(u32 width, u32 height, FrameResources& fra
     presentInfo.pSwapchains = &swapchain;
     presentInfo.pImageIndices = &imageIndex;
     VkResult result = vkQueuePresentKHR(queue, &presentInfo);
+    if (result == VK_ERROR_SURFACE_LOST_KHR) {
+        throw SurfaceLost{};
+    }
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR && result != VK_ERROR_OUT_OF_DATE_KHR) {
         failVk("vkQueuePresentKHR", result);
     }
@@ -2442,6 +2459,8 @@ bool RendererImpl::submitPresentFrame(u32 width, u32 height, FrameResources& fra
     if (recreateAfterPresent || result == VK_SUBOPTIMAL_KHR || result == VK_ERROR_OUT_OF_DATE_KHR) {
         try {
             createSwapchain(width, height);
+        } catch (const SurfaceLost&) {
+            throw;
         } catch (...) {
         }
     }
@@ -2450,6 +2469,20 @@ bool RendererImpl::submitPresentFrame(u32 width, u32 height, FrameResources& fra
 }
 
 bool RendererImpl::repaint() {
+    try {
+        return repaintFrame();
+    } catch (const SurfaceLost&) {
+        // The surface died and this renderer can never present again.
+        // Null the pointer so any stale caller crashes loudly; the object
+        // itself stays alive in composer.rendererPool until frame()
+        // replaces the pool — destruction happens there, safely off this
+        // stack.
+        composer.renderer = nullptr;
+        return false;
+    }
+}
+
+bool RendererImpl::repaintFrame() {
     const u32 width = renderExtent.width;
     const u32 height = renderExtent.height;
     if (!previousStateValid || cells.empty() || width == 0 || height == 0) {
@@ -2458,6 +2491,8 @@ bool RendererImpl::repaint() {
     if (swapchain == VK_NULL_HANDLE) {
         try {
             createSwapchain(width, height);
+        } catch (const SurfaceLost&) {
+            throw;
         } catch (...) {
             return false;
         }
@@ -2506,6 +2541,8 @@ bool RendererImpl::present(const TerminalUpdate& update) {
     if (swapchain == VK_NULL_HANDLE || renderExtent.width != width || renderExtent.height != height) {
         try {
             createSwapchain(width, height);
+        } catch (const SurfaceLost&) {
+            throw;
         } catch (...) {
             return false;
         }
@@ -2660,12 +2697,18 @@ bool RendererImpl::present(const TerminalUpdate& update) {
 }
 
 bool RendererImpl::update(const TerminalUpdate& update) {
-    return present(update);
+    try {
+        return present(update);
+    } catch (const SurfaceLost&) {
+        // See repaint(): mark dead, frame() rebuilds pool and renderer.
+        composer.renderer = nullptr;
+        return false;
+    }
 }
 
-Renderer* createVulkanRenderer(Composer& composer, const plt::RenderContext& context) {
-    RendererImpl* const renderer = composer.pool->make<RendererImpl>(composer, context);
-    composer.fontChangedListeners.pushBack(composer.pool->make<CallRendererFontChanged>(renderer));
-    composer.cellExtrasChangedListeners.pushBack(composer.pool->make<CallRendererCellExtrasChanged>(renderer));
+Renderer* createVulkanRenderer(Composer& composer, stl::ObjPool& pool, const plt::RenderContext& context) {
+    RendererImpl* const renderer = pool.make<RendererImpl>(composer, context);
+    composer.fontChangedListeners.pushBack(pool.make<CallRendererFontChanged>(renderer));
+    composer.cellExtrasChangedListeners.pushBack(pool.make<CallRendererCellExtrasChanged>(renderer));
     return renderer;
 }

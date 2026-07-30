@@ -1056,15 +1056,15 @@ bool MetalRendererImpl::update(const TerminalUpdate& update) {
     return draw();
 }
 
-Renderer* createMetalRenderer(Composer& composer, const plt::RenderContext& context) {
+Renderer* createMetalRenderer(Composer& composer, stl::ObjPool& pool, const plt::RenderContext& context) {
     if (context.backend != plt::RenderBackend::Cocoa || context.connection == nullptr) {
         return nullptr;
     }
-    auto* const renderer = composer.pool->make<MetalRendererImpl>(composer, (CALayer*)(context.connection));
+    auto* const renderer = pool.make<MetalRendererImpl>(composer, (CALayer*)(context.connection));
     if (!renderer->initialize()) {
         return nullptr;
     }
-    composer.fontChangedListeners.pushBack(composer.pool->make<CallMetalFontChanged>(renderer));
-    composer.cellExtrasChangedListeners.pushBack(composer.pool->make<CallMetalCellExtrasChanged>(renderer));
+    composer.fontChangedListeners.pushBack(pool.make<CallMetalFontChanged>(renderer));
+    composer.cellExtrasChangedListeners.pushBack(pool.make<CallMetalCellExtrasChanged>(renderer));
     return renderer;
 }

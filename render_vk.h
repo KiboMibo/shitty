@@ -9,8 +9,12 @@
 struct Composer;
 struct Renderer;
 
+namespace stl {
+    class ObjPool;
+}
+
 namespace plt {
     struct RenderContext;
 }
 
-Renderer* createVulkanRenderer(Composer& composer, const plt::RenderContext& context);
+Renderer* createVulkanRenderer(Composer& composer, stl::ObjPool& pool, const plt::RenderContext& context);

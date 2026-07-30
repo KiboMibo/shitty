@@ -12,6 +12,10 @@
 
 #include <string>
 
+namespace stl {
+    class ObjPool;
+}
+
 struct Composer;
 struct TestApi;
 struct TerminalUpdate;
@@ -50,5 +54,5 @@ struct ReferenceRenderer: Renderer {
     virtual u32 hoveredLinkBegin() const = 0;
     virtual u32 hoveredLinkEnd() const = 0;
 
-    static ReferenceRenderer* create(Composer& composer, const plt::RenderContext& context);
+    static ReferenceRenderer* create(Composer& composer, stl::ObjPool& pool, const plt::RenderContext& context);
 };

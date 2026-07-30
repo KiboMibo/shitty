@@ -78,6 +78,7 @@ namespace {
             target.stride = composer.pixelWidth * 3;
             renderer = ReferenceRenderer::create(
                 composer,
+                *rendererPool,
                 {
                     .backend = plt::RenderBackend::Headless,
                     .connection = nullptr,
@@ -96,6 +97,7 @@ namespace {
 
         std::vector<u8> pixels;
         plt::HeadlessRenderTarget target;
+        stl::ObjPool::Ref rendererPool = stl::ObjPool::fromMemory();
         ReferenceRenderer* renderer;
     };
 }

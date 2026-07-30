@@ -795,6 +795,6 @@ u32 ReferenceRendererImpl::hoveredLinkEnd() const {
     return hoveredLinkEnd_;
 }
 
-ReferenceRenderer* ReferenceRenderer::create(Composer& composer, const plt::RenderContext& context) {
-    return composer.pool->make<ReferenceRendererImpl>(composer, context);
+ReferenceRenderer* ReferenceRenderer::create(Composer& composer, stl::ObjPool& pool, const plt::RenderContext& context) {
+    return pool.make<ReferenceRendererImpl>(composer, context);
 }

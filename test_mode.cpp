@@ -1061,7 +1061,8 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     TestDesktopActions desktopActions;
     composer.clipboard = &clipboard;
     composer.desktopActions = &desktopActions;
-    composer.renderer = Renderer::create(composer, window.renderContext());
+    composer.rendererPool = ObjPool::fromMemory();
+    composer.renderer = Renderer::create(composer, *composer.rendererPool, window.renderContext());
     auto& renderer = static_cast<ReferenceRenderer&>(*composer.renderer);
     VtermTrace& vtermTrace = *VtermTrace::create(composer);
     Vterm& vterm = *Vterm::create(composer, &vtermTrace);
@@ -1259,7 +1260,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                     }
                 );
                 auto& imageWindow = static_cast<plt::WindowHeadless&>(*renderComposer.window);
-                imageFrame.renderer = Renderer::create(renderComposer, imageWindow.renderContext());
+                imageFrame.renderer = Renderer::create(renderComposer, *renderPool, imageWindow.renderContext());
                 imageFrame.update = &imageUpdate;
                 imageWindow.requestFrame();
                 if (!imageWindow.dispatchFrame()) {

@@ -19,14 +19,14 @@
     #error No renderer backend selected
 #endif
 
-Renderer* Renderer::create(Composer& composer, const plt::RenderContext& context) {
+Renderer* Renderer::create(Composer& composer, stl::ObjPool& pool, const plt::RenderContext& context) {
     if (context.backend == plt::RenderBackend::Headless) {
-        return ReferenceRenderer::create(composer, context);
+        return ReferenceRenderer::create(composer, pool, context);
     }
 #if defined(HAVE_METAL_RENDERER)
-    return createMetalRenderer(composer, context);
+    return createMetalRenderer(composer, pool, context);
 #else
-    return createVulkanRenderer(composer, context);
+    return createVulkanRenderer(composer, pool, context);
 #endif
 }
 
