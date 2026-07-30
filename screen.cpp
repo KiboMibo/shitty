@@ -2383,18 +2383,36 @@ void ScreenBase<Coord, Epoch>::copyRectangle(u16 sourceTop, u16 sourceLeft, u16 
 
 template <typename Coord, typename Epoch>
 void ScreenBase<Coord, Epoch>::changeRectangleAttributes(u16 top, u16 left, u16 bottom, u16 right, CellAttributeChange change) {
-    const auto apply = [change](u8 value, u8 bit) {
+    const auto apply = [change](u8 value, u16 bit) {
         return change.toggleMask & bit ? (u8)(!value) : change.setMask & bit ? (u8)(1) : change.clearMask & bit ? (u8)(0) : value;
     };
+    CellExtraStore& extras = cellExtras();
     for (u16 row = top; row < bottom; ++row) {
         TerminalCell* cells_ = mutableLogicalRow(row) + left;
         for (u16 column = left; column < right; ++column) {
             TerminalCell& cell = cells_[column - left];
             cell.bold = apply(cell.bold, CellAttributeChange::Bold);
-            cell.underline_style = apply(cell.underline_style, CellAttributeChange::Underline);
+            cell.faint = apply(cell.faint, CellAttributeChange::Faint);
+            cell.italic = apply(cell.italic, CellAttributeChange::Italic);
+            if (change.underlineStyleChanged) {
+                cell.underline_style = change.underlineStyle;
+            } else {
+                cell.underline_style = apply(cell.underline_style, CellAttributeChange::Underline);
+            }
             cell.blink = apply(cell.blink, CellAttributeChange::Blink);
             cell.inverse = apply(cell.inverse, CellAttributeChange::Inverse);
             cell.conceal = apply(cell.conceal, CellAttributeChange::Conceal);
+            cell.strike = apply(cell.strike, CellAttributeChange::Strike);
+            cell.overline = apply(cell.overline, CellAttributeChange::Overline);
+            if (change.colorMask & CellAttributeChange::Foreground) {
+                cell.setForeground(change.foreground);
+            }
+            if (change.colorMask & CellAttributeChange::Background) {
+                cell.setBackground(change.background);
+            }
+            if (change.colorMask & CellAttributeChange::UnderlineColor) {
+                extras.setUnderlineColor(cell, change.colorMask & CellAttributeChange::UnderlineFromForeground ? cell.foreground() : change.underlineColor);
+            }
         }
     }
     damageRectangle(top, left, bottom, right);

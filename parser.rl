@@ -3422,8 +3422,9 @@
     ) @csiDone;
 
     csiStarFinal = (
+        'x' @csiTrace @{ iface.setAttributeChangeExtent(parameter(0) == 2); } |
         'y' @csiTrace @{ dispatchDecrqcra(); } |
-        (0x40..0x7e - 'y') @csiTrace
+        (0x40..0x7e - [xy]) @csiTrace
     ) @csiDone;
 
     csiQuestionDollarFinal = (

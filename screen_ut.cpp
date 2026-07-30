@@ -1085,6 +1085,84 @@ STD_TEST_SUITE(Screen) {
         });
     }
 
+    STD_TEST(ChangeRectangleAttributesAppliesFullSgrState) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        composer.setCellExtras(CellExtraStore::create(composer, 12));
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::createPrimary(composer, *pool, 4, 3, &colors, 0);
+        TerminalCell initial = attributes();
+        initial.faint = true;
+        initial.setInlineUnderlineColor(CellColor::indexed(6));
+        const u8 text[] = {'a', 'b', 'c', 'd'};
+        for (u16 row = 0; row < 3; ++row) {
+            screen->writeAsciiRun(row, 0, text, sizeof(text), initial, 0, 0, TerminalCell{});
+        }
+
+        CellAttributeChange change;
+        change.set(CellAttributeChange::Bold | CellAttributeChange::Italic | CellAttributeChange::Strike | CellAttributeChange::Overline, true);
+        change.set(CellAttributeChange::Faint, false);
+        change.setUnderline(3);
+        change.setForeground(CellColor::indexed(10));
+        change.setBackground(CellColor::direct({1, 2, 3}));
+        change.setUnderlineColor(CellColor::direct({4, 5, 6}));
+        screen->changeRectangleAttributes(0, 0, 3, 4, change);
+
+        for (u16 row = 0; row < 3; ++row) {
+            for (u16 column = 0; column < 4; ++column) {
+                const TerminalCell& cell = screen->testCell(row, column);
+                STD_INSIST(cell.bold);
+                STD_INSIST(!cell.faint);
+                STD_INSIST(cell.italic);
+                STD_INSIST(cell.underline_style == 3);
+                STD_INSIST(cell.strike);
+                STD_INSIST(cell.overline);
+                STD_INSIST(cell.foreground() == CellColor::indexed(10));
+                STD_INSIST(cell.background() == CellColor::direct({1, 2, 3}));
+                STD_INSIST(composer.cellExtras->underlineColor(cell) == CellColor::direct({4, 5, 6}));
+            }
+        }
+    }
+
+    STD_TEST(ChangeRectangleAttributesCanResetEveryVisualAttribute) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        composer.setCellExtras(CellExtraStore::create(composer, 1));
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::createPrimary(composer, *pool, 1, 1, &colors, 0);
+        TerminalCell initial = attributes();
+        initial.bold = true;
+        initial.faint = true;
+        initial.italic = true;
+        initial.underline_style = 5;
+        initial.blink = true;
+        initial.inverse = true;
+        initial.conceal = true;
+        initial.strike = true;
+        initial.overline = true;
+        initial.setForeground(CellColor::indexed(3));
+        initial.setBackground(CellColor::indexed(4));
+        initial.setInlineUnderlineColor(CellColor::indexed(5));
+        screen->writeCodepoint(0, 0, 'x', false, initial, 0, 0, TerminalCell{});
+
+        CellAttributeChange change;
+        constexpr u16 allAttributes = CellAttributeChange::Bold | CellAttributeChange::Faint | CellAttributeChange::Italic | CellAttributeChange::Underline | CellAttributeChange::Blink | CellAttributeChange::Inverse | CellAttributeChange::Conceal | CellAttributeChange::Strike | CellAttributeChange::Overline;
+        change.set(allAttributes, false);
+        change.setUnderline(0);
+        change.setForeground(CellColor::defaultForeground());
+        change.setBackground(CellColor::defaultBackground());
+        change.setUnderlineFromForeground();
+        screen->changeRectangleAttributes(0, 0, 1, 1, change);
+
+        const TerminalCell& cell = screen->testCell(0, 0);
+        STD_INSIST(!(cell.bold || cell.faint || cell.italic || cell.underline_style || cell.blink || cell.inverse || cell.conceal || cell.strike || cell.overline));
+        STD_INSIST(cell.foreground() == CellColor::defaultForeground());
+        STD_INSIST(cell.background() == CellColor::defaultBackground());
+        STD_INSIST(composer.cellExtras->underlineColor(cell) == CellColor::defaultForeground());
+    }
+
     STD_TEST(CollectExtraCellsProducesValidIncrementalUpdate) {
         verifyDamage([](Screen& screen) {
             Vector<TerminalCell*> cells;

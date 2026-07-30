@@ -316,34 +316,76 @@ struct TerminalCursor {
 };
 
 struct CellAttributeChange {
-    enum : u8 {
+    enum : u16 {
         Bold = 1 << 0,
-        Underline = 1 << 1,
-        Blink = 1 << 2,
-        Inverse = 1 << 3,
-        Conceal = 1 << 4,
+        Faint = 1 << 1,
+        Italic = 1 << 2,
+        Underline = 1 << 3,
+        Blink = 1 << 4,
+        Inverse = 1 << 5,
+        Conceal = 1 << 6,
+        Strike = 1 << 7,
+        Overline = 1 << 8,
     };
 
-    void set(u8 mask, bool enabled) {
+    enum : u8 {
+        Foreground = 1 << 0,
+        Background = 1 << 1,
+        UnderlineColor = 1 << 2,
+        UnderlineFromForeground = 1 << 3,
+    };
+
+    void set(u16 mask, bool enabled) {
         setMask = (setMask & ~mask) | (enabled ? mask : 0);
         clearMask = (clearMask & ~mask) | (enabled ? 0 : mask);
         toggleMask &= ~mask;
     }
 
-    void toggle(u8 mask) {
-        const u8 identity = mask & ~(setMask | clearMask | toggleMask);
-        const u8 wasSet = setMask & mask;
-        const u8 wasClear = clearMask & mask;
+    void toggle(u16 mask) {
+        const u16 identity = mask & ~(setMask | clearMask | toggleMask);
+        const u16 wasSet = setMask & mask;
+        const u16 wasClear = clearMask & mask;
         setMask = (setMask & ~mask) | wasClear;
         clearMask = (clearMask & ~mask) | wasSet;
         toggleMask = (toggleMask & ~mask) | identity;
     }
 
-    bool empty() const {
-        return !(setMask | clearMask | toggleMask);
+    void setUnderline(u8 style) {
+        underlineStyle = style;
+        underlineStyleChanged = true;
+        set(Underline, style != 0);
     }
 
-    u8 setMask = 0;
-    u8 clearMask = 0;
-    u8 toggleMask = 0;
+    void setForeground(CellColor color) {
+        foreground = color;
+        colorMask |= Foreground;
+    }
+
+    void setBackground(CellColor color) {
+        background = color;
+        colorMask |= Background;
+    }
+
+    void setUnderlineColor(CellColor color) {
+        underlineColor = color;
+        colorMask = (colorMask | UnderlineColor) & ~UnderlineFromForeground;
+    }
+
+    void setUnderlineFromForeground() {
+        colorMask |= UnderlineColor | UnderlineFromForeground;
+    }
+
+    bool empty() const {
+        return !(setMask | clearMask | toggleMask | colorMask | underlineStyleChanged);
+    }
+
+    u16 setMask = 0;
+    u16 clearMask = 0;
+    u16 toggleMask = 0;
+    CellColor foreground = CellColor::defaultForeground();
+    CellColor background = CellColor::defaultBackground();
+    CellColor underlineColor = CellColor::defaultForeground();
+    u8 colorMask = 0;
+    u8 underlineStyle = 0;
+    bool underlineStyleChanged = false;
 };

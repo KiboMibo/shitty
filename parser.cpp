@@ -283,6 +283,8 @@ namespace {
         void dispatchKittyKeyboardSet();
         void designateCharset(u8 final);
         bool parseSgrColor(size_t& index, CellColor& color, int& paletteIndex);
+        template <typename Sink>
+        void dispatchSgrTo(Sink& sink, size_t first);
         void dispatchSgr();
         void traceCsi(u8 finalByte);
 
@@ -1268,26 +1270,104 @@ void ParserImpl<traced>::dispatchDecera(bool selective) {
 
 template <bool traced>
 void ParserImpl<traced>::dispatchDeccara(bool reverse) {
-    if (parser.parameterCount < 5) {
-        return;
-    }
     const CsiRectangle area = rectangle(0);
     CellAttributeChange change;
-    const auto enable = [&change, reverse](u8 bit) {
-        if (reverse) {
-            change.toggle(bit);
+    if (!reverse) {
+        struct Sink {
+            CellAttributeChange& change;
+
+            void sgrReset() {
+                change.set(CellAttributeChange::Bold | CellAttributeChange::Faint | CellAttributeChange::Italic | CellAttributeChange::Underline | CellAttributeChange::Blink | CellAttributeChange::Inverse | CellAttributeChange::Conceal | CellAttributeChange::Strike | CellAttributeChange::Overline, false);
+                change.setUnderline(0);
+                change.setForeground(CellColor::defaultForeground());
+                change.setBackground(CellColor::defaultBackground());
+                change.setUnderlineFromForeground();
+            }
+
+            void sgrBold(bool enabled) {
+                change.set(CellAttributeChange::Bold, enabled);
+            }
+
+            void sgrFaint(bool enabled) {
+                change.set(CellAttributeChange::Faint, enabled);
+            }
+
+            void sgrItalic(bool enabled) {
+                change.set(CellAttributeChange::Italic, enabled);
+            }
+
+            void sgrUnderline(u8 style) {
+                change.setUnderline(style);
+            }
+
+            void sgrBlink(bool enabled) {
+                change.set(CellAttributeChange::Blink, enabled);
+            }
+
+            void sgrInverse(bool enabled) {
+                change.set(CellAttributeChange::Inverse, enabled);
+            }
+
+            void sgrConceal(bool enabled) {
+                change.set(CellAttributeChange::Conceal, enabled);
+            }
+
+            void sgrStrike(bool enabled) {
+                change.set(CellAttributeChange::Strike, enabled);
+            }
+
+            void sgrOverline(bool enabled) {
+                change.set(CellAttributeChange::Overline, enabled);
+            }
+
+            void sgrForeground(CellColor color, int, bool) {
+                change.setForeground(color);
+            }
+
+            void sgrDefaultForeground() {
+                change.setForeground(CellColor::defaultForeground());
+            }
+
+            void sgrBackground(CellColor color, int) {
+                change.setBackground(color);
+            }
+
+            void sgrDefaultBackground() {
+                change.setBackground(CellColor::defaultBackground());
+            }
+
+            void sgrUnderlineColor(CellColor color, int) {
+                change.setUnderlineColor(color);
+            }
+
+            void sgrDefaultUnderlineColor() {
+                change.setUnderlineFromForeground();
+            }
+
+            void sgrFinish() {
+            }
+        } sink{change};
+
+        if (parser.parameterCount <= 4) {
+            sink.sgrReset();
+            sink.sgrFinish();
         } else {
-            change.set(bit, true);
+            dispatchSgrTo(sink, 4);
         }
+        if (!change.empty()) {
+            iface.changeRectangleAttributes(area, change);
+        }
+        return;
+    }
+
+    const auto enable = [&change](u16 bit) {
+        change.toggle(bit);
     };
-    for (size_t index = 4; index < parser.parameterCount; ++index) {
-        switch (parser.parameters[index]) {
+    const size_t end = parser.parameterCount > 4 ? parser.parameterCount : 5;
+    for (size_t index = 4; index < end; ++index) {
+        switch (parameter(index)) {
             case 0:
-                if (reverse) {
-                    change.toggle(CellAttributeChange::Bold | CellAttributeChange::Underline | CellAttributeChange::Blink | CellAttributeChange::Inverse);
-                } else {
-                    change.set(CellAttributeChange::Bold | CellAttributeChange::Underline | CellAttributeChange::Blink | CellAttributeChange::Inverse, false);
-                }
+                change.toggle(CellAttributeChange::Bold | CellAttributeChange::Underline | CellAttributeChange::Blink | CellAttributeChange::Inverse);
                 break;
             case 1:
                 enable(CellAttributeChange::Bold);
@@ -1303,31 +1383,6 @@ void ParserImpl<traced>::dispatchDeccara(bool reverse) {
                 break;
             case 8:
                 enable(CellAttributeChange::Conceal);
-                break;
-            case 22:
-                if (!reverse) {
-                    change.set(CellAttributeChange::Bold, false);
-                }
-                break;
-            case 24:
-                if (!reverse) {
-                    change.set(CellAttributeChange::Underline, false);
-                }
-                break;
-            case 25:
-                if (!reverse) {
-                    change.set(CellAttributeChange::Blink, false);
-                }
-                break;
-            case 27:
-                if (!reverse) {
-                    change.set(CellAttributeChange::Inverse, false);
-                }
-                break;
-            case 28:
-                if (!reverse) {
-                    change.set(CellAttributeChange::Conceal, false);
-                }
                 break;
             default:
                 break;
@@ -1759,44 +1814,45 @@ bool ParserImpl<traced>::parseSgrColor(size_t& index, CellColor& color, int& pal
 }
 
 template <bool traced>
-void ParserImpl<traced>::dispatchSgr() {
-    for (size_t index = 0; index < parser.parameterCount; ++index) {
+template <typename Sink>
+void ParserImpl<traced>::dispatchSgrTo(Sink& sink, size_t first) {
+    for (size_t index = first; index < parser.parameterCount; ++index) {
         const u32 attribute = parser.parameters[index];
         switch (attribute) {
             case 0:
-                iface.sgrReset();
+                sink.sgrReset();
                 break;
             case 1:
-                iface.sgrBold(true);
+                sink.sgrBold(true);
                 break;
             case 2:
-                iface.sgrFaint(true);
+                sink.sgrFaint(true);
                 break;
             case 3:
-                iface.sgrItalic(true);
+                sink.sgrItalic(true);
                 break;
             case 4:
                 if (index + 1 < parser.parameterCount && parser.separators[index + 1] == ':') {
                     const u32 style = parser.parameters[++index];
                     if (style <= 5) {
-                        iface.sgrUnderline(style);
+                        sink.sgrUnderline(style);
                     }
                 } else {
-                    iface.sgrUnderline(1);
+                    sink.sgrUnderline(1);
                 }
                 break;
             case 5:
             case 6:
-                iface.sgrBlink(true);
+                sink.sgrBlink(true);
                 break;
             case 7:
-                iface.sgrInverse(true);
+                sink.sgrInverse(true);
                 break;
             case 8:
-                iface.sgrConceal(true);
+                sink.sgrConceal(true);
                 break;
             case 9:
-                iface.sgrStrike(true);
+                sink.sgrStrike(true);
                 break;
             case 10:
             case 11:
@@ -1810,29 +1866,29 @@ void ParserImpl<traced>::dispatchSgr() {
             case 19:
                 break;
             case 21:
-                iface.sgrUnderline(2);
+                sink.sgrUnderline(2);
                 break;
             case 22:
-                iface.sgrBold(false);
-                iface.sgrFaint(false);
+                sink.sgrBold(false);
+                sink.sgrFaint(false);
                 break;
             case 23:
-                iface.sgrItalic(false);
+                sink.sgrItalic(false);
                 break;
             case 24:
-                iface.sgrUnderline(0);
+                sink.sgrUnderline(0);
                 break;
             case 25:
-                iface.sgrBlink(false);
+                sink.sgrBlink(false);
                 break;
             case 27:
-                iface.sgrInverse(false);
+                sink.sgrInverse(false);
                 break;
             case 28:
-                iface.sgrConceal(false);
+                sink.sgrConceal(false);
                 break;
             case 29:
-                iface.sgrStrike(false);
+                sink.sgrStrike(false);
                 break;
             case 30:
             case 31:
@@ -1842,17 +1898,17 @@ void ParserImpl<traced>::dispatchSgr() {
             case 35:
             case 36:
             case 37:
-                iface.sgrForeground(CellColor::indexed(attribute - 30), attribute - 30, true);
+                sink.sgrForeground(CellColor::indexed(attribute - 30), attribute - 30, true);
                 break;
             case 38: {
                 CellColor color{};
                 int paletteIndex;
                 if (parseSgrColor(index, color, paletteIndex)) {
-                    iface.sgrForeground(color, paletteIndex, false);
+                    sink.sgrForeground(color, paletteIndex, false);
                 }
             } break;
             case 39:
-                iface.sgrDefaultForeground();
+                sink.sgrDefaultForeground();
                 break;
             case 40:
             case 41:
@@ -1862,33 +1918,33 @@ void ParserImpl<traced>::dispatchSgr() {
             case 45:
             case 46:
             case 47:
-                iface.sgrBackground(CellColor::indexed(attribute - 40), attribute - 40);
+                sink.sgrBackground(CellColor::indexed(attribute - 40), attribute - 40);
                 break;
             case 48: {
                 CellColor color{};
                 int paletteIndex;
                 if (parseSgrColor(index, color, paletteIndex)) {
-                    iface.sgrBackground(color, paletteIndex);
+                    sink.sgrBackground(color, paletteIndex);
                 }
             } break;
             case 49:
-                iface.sgrDefaultBackground();
+                sink.sgrDefaultBackground();
                 break;
             case 53:
-                iface.sgrOverline(true);
+                sink.sgrOverline(true);
                 break;
             case 55:
-                iface.sgrOverline(false);
+                sink.sgrOverline(false);
                 break;
             case 58: {
                 CellColor color{};
                 int paletteIndex;
                 if (parseSgrColor(index, color, paletteIndex)) {
-                    iface.sgrUnderlineColor(color, paletteIndex);
+                    sink.sgrUnderlineColor(color, paletteIndex);
                 }
             } break;
             case 59:
-                iface.sgrDefaultUnderlineColor();
+                sink.sgrDefaultUnderlineColor();
                 break;
             case 90:
             case 91:
@@ -1898,7 +1954,7 @@ void ParserImpl<traced>::dispatchSgr() {
             case 95:
             case 96:
             case 97:
-                iface.sgrForeground(CellColor::indexed(attribute - 82), attribute - 82, false);
+                sink.sgrForeground(CellColor::indexed(attribute - 82), attribute - 82, false);
                 break;
             case 100:
             case 101:
@@ -1908,13 +1964,18 @@ void ParserImpl<traced>::dispatchSgr() {
             case 105:
             case 106:
             case 107:
-                iface.sgrBackground(CellColor::indexed(attribute - 92), attribute - 92);
+                sink.sgrBackground(CellColor::indexed(attribute - 92), attribute - 92);
                 break;
             default:
                 break;
         }
     }
-    iface.sgrFinish();
+    sink.sgrFinish();
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchSgr() {
+    dispatchSgrTo(iface, 0);
 }
 
 template <bool traced>

@@ -188,6 +188,7 @@ struct ParserIface {
     virtual void csi_DECFRA(u32 codepoint, CsiRectangle rectangle) = 0;
     virtual void csi_DECCRA(CsiRectangle source, u32 targetRow, u32 targetColumn) = 0;
     virtual void csi_DECERA(CsiRectangle rectangle, bool selective) = 0;
+    virtual void setAttributeChangeExtent(bool rectangular) = 0;
     virtual void changeRectangleAttributes(CsiRectangle rectangle, CellAttributeChange change) = 0;
     virtual void csi_DECRQCRA(u32 requestId, CsiRectangle rectangle) = 0;
     virtual void csi_IL(u32 count) = 0;

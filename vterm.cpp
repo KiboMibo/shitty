@@ -536,6 +536,7 @@ namespace {
         void csi_DECFRA(u32 codepoint, CsiRectangle rectangle) override;
         void csi_DECCRA(CsiRectangle source, u32 targetRow, u32 targetColumn) override;
         void csi_DECERA(CsiRectangle rectangle, bool selective) override;
+        void setAttributeChangeExtent(bool rectangular) override;
         void changeRectangleAttributes(CsiRectangle rectangle, CellAttributeChange change) override;
         void csi_DECRQCRA(u32 requestId, CsiRectangle rectangle) override;
         void csi_IL(u32 count) override;
@@ -836,6 +837,7 @@ namespace {
         bool keyboardLocked = false;
         bool insertMode = false;
         bool eraseModeAll = false;
+        bool rectangularAttributeExtent = false;
         bool bkspSendsDel = true;
         bool localEcho = false;
         bool bracketedPasteMode = false;
@@ -2769,6 +2771,7 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     keyboardLocked = false;
     insertMode = false;
     eraseModeAll = false;
+    rectangularAttributeExtent = false;
     attrs.protected_char = 0;
     bkspSendsDel = true;
     localEcho = false;
@@ -4295,8 +4298,22 @@ void VtermImpl::changeRectangleAttributes(CsiRectangle parameters, CellAttribute
     if (!rectangleFromParams(parameters, rectangle)) {
         return;
     }
-    cf->changeRectangleAttributes(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, change);
+    if (rectangularAttributeExtent || rectangle.bottom == rectangle.top + 1) {
+        cf->changeRectangleAttributes(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, change);
+    } else {
+        u16 rowBase, columnBase, rowLimit, columnLimit;
+        rectangleOrigin(rowBase, columnBase, rowLimit, columnLimit);
+        cf->changeRectangleAttributes(rectangle.top, rectangle.left, rectangle.top + 1, columnLimit, change);
+        for (u16 row = rectangle.top + 1; row + 1 < rectangle.bottom; ++row) {
+            cf->changeRectangleAttributes(row, columnBase, row + 1, columnLimit, change);
+        }
+        cf->changeRectangleAttributes(rectangle.bottom - 1, columnBase, rectangle.bottom, rectangle.right, change);
+    }
     refreshBlinkingText();
+}
+
+void VtermImpl::setAttributeChangeExtent(bool rectangular) {
+    rectangularAttributeExtent = rectangular;
 }
 
 void VtermImpl::csi_DECRQCRA(u32 requestId, CsiRectangle parameters) {

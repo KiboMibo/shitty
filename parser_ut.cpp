@@ -339,7 +339,12 @@ namespace {
             record("csi_DECERA", rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, selective);
         }
 
+        void setAttributeChangeExtent(bool rectangular) override {
+            record("setAttributeChangeExtent", rectangular);
+        }
+
         void changeRectangleAttributes(CsiRectangle rectangle, CellAttributeChange change) override {
+            lastAttributeChange = change;
             record("changeRectangleAttributes", rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, change.setMask, change.clearMask, change.toggleMask);
         }
 
@@ -932,6 +937,7 @@ namespace {
         ParserModeState modeState{};
         bool restoreModeFound = true;
         bool restoreModeValue = true;
+        CellAttributeChange lastAttributeChange{};
     };
 
     struct ParserFixture {
@@ -1107,6 +1113,7 @@ namespace {
         {"XTERM_VERSION", "csi_XTVERSION"},
         {"DECSTBM", "csi_STBM"},
         {"DECCARA", "changeRectangleAttributes"},
+        {"DECSACE", "setAttributeChangeExtent"},
         {"DECPCTERM_OR_XTERM_RPM", "restorePrivateMode"},
         {"DECSLRM_OR_SCOSC", "esc_DECSC"},
         {"XTERM_SPM", "savePrivateMode"},
@@ -1542,6 +1549,7 @@ STD_TEST_SUITE(ParserCallbacks) {
 
     SHITTY_PARSER_CALLBACK_TEST5(EraseRectangle, csi_DECERA, u8"\x1b[1;2;3;4$z", 1, 2, 3, 4, false)
     SHITTY_PARSER_CALLBACK_TEST5(SelectiveEraseRectangle, csi_DECERA, u8"\x1b[1;2;3;4${", 1, 2, 3, 4, true)
+    SHITTY_PARSER_CALLBACK_TEST1(SetAttributeChangeExtent, setAttributeChangeExtent, u8"\x1b[2*x", true)
 
     STD_TEST(ChangeRectangleAttributes) {
         ParserFixture fixture;
@@ -1549,6 +1557,49 @@ STD_TEST_SUITE(ParserCallbacks) {
         const ParserCall& call = fixture.expect("changeRectangleAttributes");
         STD_INSIST(call.valueCount == 7);
         expectValues(call, 1, 2, 3, 4, CellAttributeChange::Bold, 0, 0);
+    }
+
+    STD_TEST(ChangeRectangleAttributesAcceptsFullSgr) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b[;;;;4:3;38:5:10;48:2:1:2:3;1$r"));
+        fixture.expect("changeRectangleAttributes");
+        const CellAttributeChange& change = fixture.iface.lastAttributeChange;
+
+        STD_INSIST(change.setMask == (CellAttributeChange::Bold | CellAttributeChange::Underline));
+        STD_INSIST(change.clearMask == 0);
+        STD_INSIST(change.toggleMask == 0);
+        STD_INSIST(change.underlineStyleChanged);
+        STD_INSIST(change.underlineStyle == 3);
+        STD_INSIST(change.colorMask == (CellAttributeChange::Foreground | CellAttributeChange::Background));
+        STD_INSIST(change.foreground == CellColor::indexed(10));
+        STD_INSIST(change.background == CellColor::direct({1, 2, 3}));
+    }
+
+    STD_TEST(ChangeRectangleAttributesResetMatchesSgrReset) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b[1;2;3;4;0$r"));
+        fixture.expect("changeRectangleAttributes");
+        const CellAttributeChange& change = fixture.iface.lastAttributeChange;
+        constexpr u16 allAttributes = CellAttributeChange::Bold | CellAttributeChange::Faint | CellAttributeChange::Italic | CellAttributeChange::Underline | CellAttributeChange::Blink | CellAttributeChange::Inverse | CellAttributeChange::Conceal | CellAttributeChange::Strike | CellAttributeChange::Overline;
+
+        STD_INSIST(change.setMask == 0);
+        STD_INSIST(change.clearMask == allAttributes);
+        STD_INSIST(change.underlineStyleChanged);
+        STD_INSIST(change.underlineStyle == 0);
+        STD_INSIST(change.colorMask == (CellAttributeChange::Foreground | CellAttributeChange::Background | CellAttributeChange::UnderlineColor | CellAttributeChange::UnderlineFromForeground));
+        STD_INSIST(change.foreground == CellColor::defaultForeground());
+        STD_INSIST(change.background == CellColor::defaultBackground());
+    }
+
+    STD_TEST(ChangeRectangleAttributesDefaultsToSgrReset) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b[$r"));
+        fixture.expect("changeRectangleAttributes");
+        const CellAttributeChange& change = fixture.iface.lastAttributeChange;
+        constexpr u16 allAttributes = CellAttributeChange::Bold | CellAttributeChange::Faint | CellAttributeChange::Italic | CellAttributeChange::Underline | CellAttributeChange::Blink | CellAttributeChange::Inverse | CellAttributeChange::Conceal | CellAttributeChange::Strike | CellAttributeChange::Overline;
+
+        STD_INSIST(change.clearMask == allAttributes);
+        STD_INSIST(change.colorMask == (CellAttributeChange::Foreground | CellAttributeChange::Background | CellAttributeChange::UnderlineColor | CellAttributeChange::UnderlineFromForeground));
     }
 
     SHITTY_PARSER_CALLBACK_TEST5(RequestRectangleChecksum, csi_DECRQCRA, u8"\x1b[9;1;2;3;4;5*y", 9, 2, 3, 4, 5)
