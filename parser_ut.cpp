@@ -20,7 +20,7 @@ using namespace plt;
 namespace {
     struct ParserCall {
         const char* name;
-        i64 values[10];
+        i64 values[24];
         size_t valueCount;
         size_t textOffsets[3];
         size_t textLengths[3];
@@ -143,8 +143,8 @@ namespace {
             record("parserResetCharsets", isoLatin1);
         }
 
-        void parserDesignateCharset(u8 index, Charset charset) override {
-            record("parserDesignateCharset", index, charset);
+        void parserDesignateCharset(u8 index, Charset charset, u16 id, bool is96) override {
+            record("parserDesignateCharset", index, charset, id, is96);
         }
 
         bool parserHighlightMouseTracking() const override {
@@ -518,6 +518,14 @@ namespace {
 
         void csi_DECRQPSR_TABS() override {
             record("csi_DECRQPSR_TABS");
+        }
+
+        void csi_DECRQPSR_CURSOR() override {
+            record("csi_DECRQPSR_CURSOR");
+        }
+
+        void csi_DECRQUPSS() override {
+            record("csi_DECRQUPSS");
         }
 
         void dsrCursorPosition(bool privateMode) override {
@@ -981,6 +989,18 @@ namespace {
             record("dcs_DECRSTS_TAB", column);
         }
 
+        void dcs_DECRSTS_CURSOR(u32 row, u32 column, u8 rendition, u8 protection, u8 flags, u8 gl, u8 gr, u8 sizeFlags, const Charset* charsets, const u16* charsetIds) override {
+            ParserCall& call = record("dcs_DECRSTS_CURSOR", row, column, rendition, protection, flags, gl, gr, sizeFlags);
+            for (size_t index = 0; index < 4; ++index) {
+                call.values[call.valueCount++] = value(charsets[index]);
+                call.values[call.valueCount++] = charsetIds[index];
+            }
+        }
+
+        void dcs_DECAUPSS(Charset charset, u16 id, bool is96) override {
+            record("dcs_DECAUPSS", charset, id, is96);
+        }
+
         mutable ParserCall calls[64]{};
         mutable size_t callCount = 0;
         mutable Buffer strings;
@@ -1420,7 +1440,7 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST1(LockingShiftGl, parserLockingShiftGl, u8"\x0e", 1)
     SHITTY_PARSER_CALLBACK_TEST1(LockingShiftGr, parserLockingShiftGr, u8"\x1b~", 1)
     SHITTY_PARSER_CALLBACK_TEST1(ResetCharsets, parserResetCharsets, u8"\x1b%G", false)
-    SHITTY_PARSER_CALLBACK_TEST2(DesignateCharset, parserDesignateCharset, u8"\x1b(0", 0, Charset::DecSpec)
+    SHITTY_PARSER_CALLBACK_TEST4(DesignateCharset, parserDesignateCharset, u8"\x1b(0", 0, Charset::DecSpec, '0', false)
     SHITTY_PARSER_CALLBACK_TEST1(ReadHighlightMouseTracking, parserHighlightMouseTracking, u8"\x1b[1;2;3;4;5T", false)
     SHITTY_PARSER_CALLBACK_TEST1(ReadWindowOperationsAllowed, windowOperationsAllowed, u8"\x1b[1t", true)
 
@@ -1752,6 +1772,8 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST1(RequestColorTableHls, csi_DECRQTSR_COLOR, u8"\x1b[2;1$u", 1)
     SHITTY_PARSER_CALLBACK_TEST1(RequestColorTableRgb, csi_DECRQTSR_COLOR, u8"\x1b[2;2$u", 2)
     SHITTY_PARSER_CALLBACK_TEST0(RequestTabStops, csi_DECRQPSR_TABS, u8"\x1b[2$w")
+    SHITTY_PARSER_CALLBACK_TEST0(RequestCursorInformation, csi_DECRQPSR_CURSOR, u8"\x1b[1$w")
+    SHITTY_PARSER_CALLBACK_TEST0(RequestUserPreferenceCharset, csi_DECRQUPSS, u8"\x1b[&u")
     SHITTY_PARSER_CALLBACK_TEST0(OperatingStatus, dsrOperatingStatus, u8"\x1b[5n")
     SHITTY_PARSER_CALLBACK_TEST1(CursorPositionReport, dsrCursorPosition, u8"\x1b[6n", false)
     SHITTY_PARSER_CALLBACK_TEST0(PrinterStatus, dsrPrinter, u8"\x1b[?15n")
@@ -2026,6 +2048,35 @@ STD_TEST_SUITE(ParserCallbacks) {
             }
         }
         STD_INSIST(tabCalls == sizeof(expected) / sizeof(expected[0]));
+    }
+
+    STD_TEST(RestoreCursorInformation) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1bP1$t3;4;1;J;A;J;3;1;H;ABCF\x1b\\"));
+        expectValues(fixture.iface.find("dcs_DECRSTS_CURSOR"), 3, 4, 10, 1, 10, 3, 1, 8, Charset::IsoUK, 'A', Charset::UTF8, 'B', Charset::NrcFinnish, 'C', Charset::UTF8, 'F');
+    }
+
+    STD_TEST(AssignUserPreferenceCharset) {
+        struct Case {
+            StringView input;
+            Charset charset;
+            u16 id;
+            bool is96;
+        };
+
+        const Case cases[] = {
+            {StringView(u8"\x1bP0!u%5\x1b\\"), Charset::DecSuppl, (u16)('%' << 8 | '5'), false},
+            {StringView(u8"\x1bP0!u\"?\x1b\\"), Charset::NrcGreek, (u16)('"' << 8 | '?'), false},
+            {StringView(u8"\x1bP0!u\"4\x1b\\"), Charset::NrcHebrew, (u16)('"' << 8 | '4'), false},
+            {StringView(u8"\x1bP0!u%0\x1b\\"), Charset::NrcTurkish, (u16)('%' << 8 | '0'), false},
+            {StringView(u8"\x1bP0!u&4\x1b\\"), Charset::NrcRussian, (u16)('&' << 8 | '4'), false},
+            {StringView(u8"\x1bP1!uA\x1b\\"), Charset::IsoLatin1, 'A', true},
+        };
+        for (const Case& test : cases) {
+            ParserFixture fixture;
+            fixture.feed(test.input);
+            expectValues(fixture.iface.find("dcs_DECAUPSS"), test.charset, test.id, test.is96);
+        }
     }
 
     STD_TEST(RestoreColorTableOmittedAndClampedValues) {

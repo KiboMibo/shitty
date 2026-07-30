@@ -314,7 +314,7 @@ namespace {
         void parserLockingShiftGl(u8 index) override;
         void parserLockingShiftGr(u8 index) override;
         void parserResetCharsets(bool isoLatin1) override;
-        void parserDesignateCharset(u8 index, Charset charset) override;
+        void parserDesignateCharset(u8 index, Charset charset, u16 id, bool is96) override;
         bool parserHighlightMouseTracking() const override;
         bool windowOperationsAllowed() const override;
         void parserWritePty(StringView bytes) override;
@@ -603,6 +603,8 @@ namespace {
         void csi_DECREQTPARM(u32 permission) override;
         void csi_DECRQTSR_COLOR(u32 model) override;
         void csi_DECRQPSR_TABS() override;
+        void csi_DECRQPSR_CURSOR() override;
+        void csi_DECRQUPSS() override;
         void dsrOperatingStatus() override;
         void dsrCursorPosition(bool privateMode) override;
         void dsrPrinter() override;
@@ -734,6 +736,8 @@ namespace {
         void dcs_DECRSTS_RGB(u32 index, u32 red, u32 green, u32 blue) override;
         void dcs_DECRSTS_TABS_BEGIN() override;
         void dcs_DECRSTS_TAB(u32 column) override;
+        void dcs_DECRSTS_CURSOR(u32 row, u32 column, u8 rendition, u8 protection, u8 flags, u8 gl, u8 gr, u8 sizeFlags, const Charset* charsets, const u16* charsetIds) override;
+        void dcs_DECAUPSS(Charset charset, u16 id, bool is96) override;
 
         void reportInBandResize();
         void reportColorScheme();
@@ -940,14 +944,19 @@ namespace {
 
         struct CharsetState {
             Charset g[4] = {Charset::UTF8, Charset::UTF8, Charset::UTF8, Charset::UTF8};
+            u16 ids[4] = {'B', 'B', 'B', 'B'};
 
             u8 gl = 0;
             u8 gr = 2;
 
             u8 ss = 0;
+            u8 size96 = 0;
         };
 
         CharsetState charsetState;
+        Charset userPreferenceCharset = Charset::DecSuppl;
+        u16 userPreferenceCharsetId = ((u16)('%') << 8) | '5';
+        bool userPreferenceCharset96 = false;
 
         static const u16* charCodes[];
         u32 translateCharset(Charset charset, unsigned char ch) const;
@@ -4911,6 +4920,50 @@ void VtermImpl::csi_DECRQPSR_TABS() {
     writeDcsResponse(StringView(response));
 }
 
+void VtermImpl::csi_DECRQPSR_CURSOR() {
+    StringBuilder response;
+    const auto appendByte = [&response](u8 byte) {
+        response.append(&byte, 1);
+    };
+    u8 rendition = 0;
+    rendition |= attrs.bold ? 1 : 0;
+    rendition |= attrs.underlined() ? 2 : 0;
+    rendition |= attrs.blink ? 4 : 0;
+    rendition |= attrs.inverse ? 8 : 0;
+    rendition |= attrs.conceal ? 16 : 0;
+    u8 flags = 0;
+    flags |= originMode == OriginMode::ScrollingRegion ? 1 : 0;
+    flags |= charsetState.ss == 2 ? 2 : 0;
+    flags |= charsetState.ss == 3 ? 4 : 0;
+    flags |= lastCol ? 8 : 0;
+
+    response << StringView(u8"1$u") << (u32)(posY) + 1 << StringView(u8";") << (u32)(posX) + 1 << StringView(u8";1;");
+    appendByte('@' + rendition);
+    response << StringView(u8";");
+    appendByte('@' + ((attrs.protected_char & TerminalCell::decProtection) ? 1 : 0));
+    response << StringView(u8";");
+    appendByte('@' + flags);
+    response << StringView(u8";") << (u32)(charsetState.gl) << StringView(u8";") << (u32)(charsetState.gr) << StringView(u8";");
+    appendByte('@' + charsetState.size96);
+    response << StringView(u8";");
+    for (u16 id : charsetState.ids) {
+        const u8 bytes[] = {(u8)(id >> 8), (u8)(id)};
+        response.append(bytes + (bytes[0] == 0), bytes[0] == 0 ? 1 : 2);
+    }
+    writeDcsResponse(StringView(response));
+}
+
+void VtermImpl::csi_DECRQUPSS() {
+    StringBuilder response;
+    response << (userPreferenceCharset96 ? StringView(u8"1!u") : StringView(u8"0!u"));
+    const u8 bytes[] = {
+        (u8)(userPreferenceCharsetId >> 8),
+        (u8)(userPreferenceCharsetId),
+    };
+    response.append(bytes + (bytes[0] == 0), bytes[0] == 0 ? 1 : 2);
+    writeDcsResponse(StringView(response));
+}
+
 void VtermImpl::esch_DECALN() {
     originMode = OriginMode::Absolute;
     marginTop = 0;
@@ -5055,6 +5108,38 @@ void VtermImpl::dcs_DECRSTS_TAB(u32 column) {
     if (position == tabStops.end() || *position != zeroBased) {
         tabStops.insert(position, zeroBased);
     }
+}
+
+void VtermImpl::dcs_DECRSTS_CURSOR(u32 row, u32 column, u8 rendition, u8 protection, u8 flags, u8 gl, u8 gr, u8 sizeFlags, const Charset* charsets, const u16* charsetIds) {
+    resetAttrs();
+    attrs.bold = (rendition & 1) != 0;
+    attrs.underline_style = rendition & 2 ? 1 : 0;
+    attrs.blink = (rendition & 4) != 0;
+    attrs.inverse = (rendition & 8) != 0;
+    attrs.conceal = (rendition & 16) != 0;
+    attrs.protected_char = protection & 1 ? TerminalCell::decProtection : 0;
+    reverseVideo = attrs.inverse;
+
+    originMode = flags & 1 ? OriginMode::ScrollingRegion : OriginMode::Absolute;
+    charsetState.ss = flags & 4 ? 3 : (flags & 2 ? 2 : 0);
+    charsetState.gl = gl;
+    charsetState.gr = gr;
+    charsetState.size96 = sizeFlags & 0x0f;
+    for (size_t index = 0; index < 4; ++index) {
+        charsetState.g[index] = charsets[index];
+        charsetState.ids[index] = charsetIds[index];
+    }
+
+    posY = (u16)(min<u32>(row, composer.rows) - 1);
+    posX = (u16)(min<u32>(column, composer.columns) - 1);
+    lastCol = flags & 8;
+    changePresentation();
+}
+
+void VtermImpl::dcs_DECAUPSS(Charset charset, u16 id, bool is96) {
+    userPreferenceCharset = charset == Charset::DecUserPref ? Charset::DecSuppl : charset;
+    userPreferenceCharsetId = id;
+    userPreferenceCharset96 = is96;
 }
 
 void VtermImpl::dcs_DECRQSS_DECSCL() {
@@ -7075,10 +7160,14 @@ const u16* VtermImpl::charCodes[] = {
 };
 
 u32 VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
+    const bool userPreference = charset == Charset::DecUserPref;
+    if (userPreference) {
+        charset = userPreferenceCharset;
+    }
     if (charset <= Charset::IsoUK) {
         return charCodes[(u8)(charset)][ch - 32];
     }
-    if (!nationalReplacementMode) {
+    if (!nationalReplacementMode && !userPreference) {
         return ch;
     }
 
@@ -7764,12 +7853,18 @@ void VtermImpl::parserResetCharsets(bool isoLatin1) {
     if (isoLatin1) {
         charsetState.g[charsetState.gr] = Charset::IsoLatin1;
         charsetState.g[3] = Charset::IsoLatin1;
+        charsetState.ids[charsetState.gr] = 'A';
+        charsetState.ids[3] = 'A';
+        charsetState.size96 = (1u << charsetState.gr) | (1u << 3);
     }
 }
 
-void VtermImpl::parserDesignateCharset(u8 index, Charset charset) {
+void VtermImpl::parserDesignateCharset(u8 index, Charset charset, u16 id, bool is96) {
     if (index < 4) {
         charsetState.g[index] = charset;
+        charsetState.ids[index] = id;
+        const u8 bit = 1u << index;
+        charsetState.size96 = is96 ? charsetState.size96 | bit : charsetState.size96 & ~bit;
     }
 }
 

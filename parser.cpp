@@ -155,6 +155,18 @@ namespace {
         bool dcsUdkLockDefinitions = false;
         bool dcsColorValid = false;
         bool dcsTabValid = false;
+        u32 dcsCursorNumbers[5] = {};
+        u8 dcsCursorNumberCount = 0;
+        u8 dcsCursorBytes[4] = {};
+        u8 dcsCursorByteCount = 0;
+        u16 dcsCursorCharsetIds[4] = {};
+        Charset dcsCursorCharsets[4] = {};
+        u8 dcsCursorCharsetCount = 0;
+        u16 dcsUpssId = 0;
+        u8 dcsUpssBytes = 0;
+        bool dcsUpss96 = false;
+        bool dcsUpssValid = false;
+        bool dcsUpssComplete = false;
 
         u32 oscCommand = 0;
         size_t oscPayloadOffset = 0;
@@ -288,6 +300,7 @@ namespace {
         void dispatchXtqmodkeys();
         void dispatchKittyKeyboardSet();
         void designateCharset(u8 final);
+        Charset decodeCharset(u16 id, bool is96) const;
         bool parseSgrColor(size_t& index, CellColor& color, int& paletteIndex);
         template <typename Sink>
         void dispatchSgrTo(Sink& sink, size_t first);
@@ -1485,21 +1498,19 @@ void ParserImpl<traced>::dispatchKittyKeyboardSet() {
 }
 
 template <bool traced>
-void ParserImpl<traced>::designateCharset(u8 final) {
-    if (parser.scsMultibyte) {
-        return;
-    }
-
+Charset ParserImpl<traced>::decodeCharset(u16 id, bool is96) const {
+    const u8 mod = id >> 8;
+    const u8 final = id;
     Charset charset = Charset::UTF8;
-    if (parser.scs96) {
-        if (parser.scsMod == 0) {
+    if (is96) {
+        if (mod == 0) {
             if (final == 'A') {
                 charset = Charset::IsoLatin1;
             } else if (final == '<') {
                 charset = Charset::DecUserPref;
             }
         }
-    } else if (parser.scsMod == 0) {
+    } else if (mod == 0) {
         switch (final) {
             case 'A':
                 charset = Charset::IsoUK;
@@ -1550,8 +1561,9 @@ void ParserImpl<traced>::designateCharset(u8 final) {
                 charset = Charset::NrcSwiss;
                 break;
         }
-    } else if (parser.scsMod == '%') {
+    } else if (mod == '%') {
         switch (final) {
+            case '0':
             case '2':
                 charset = Charset::NrcTurkish;
                 break;
@@ -1568,13 +1580,25 @@ void ParserImpl<traced>::designateCharset(u8 final) {
                 charset = Charset::NrcHebrew;
                 break;
         }
-    } else if (parser.scsMod == '&' && final == '5') {
+    } else if (mod == '&' && (final == '4' || final == '5')) {
         charset = Charset::NrcRussian;
-    } else if (parser.scsMod == '"' && final == '>') {
-        charset = Charset::NrcGreek;
+    } else if (mod == '"') {
+        if (final == '?' || final == '>') {
+            charset = Charset::NrcGreek;
+        } else if (final == '4') {
+            charset = Charset::NrcHebrew;
+        }
     }
+    return charset;
+}
 
-    iface.parserDesignateCharset(parser.scsIndex, charset);
+template <bool traced>
+void ParserImpl<traced>::designateCharset(u8 final) {
+    if (parser.scsMultibyte) {
+        return;
+    }
+    const u16 id = parser.scsMod == 0 ? final : ((u16)(parser.scsMod) << 8) | final;
+    iface.parserDesignateCharset(parser.scsIndex, decodeCharset(id, parser.scs96), id, parser.scs96);
 }
 
 template <bool traced>

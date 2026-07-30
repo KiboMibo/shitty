@@ -83,6 +83,18 @@ visible after a later expansion. Manually edited VTE-style tables retain their
 existing resize policy; a restored DEC table is a complete saved table and is
 not extended with synthetic defaults.
 
+`CursorInformationReportTests` retains the complete DECCIR round trip:
+position, rendition and protection, origin and single-shift flags, pending
+wrap, GL/GR selection, 94/96 designation flags, and exact one- or two-byte
+charset identifiers. Designation identity is now stored alongside the runtime
+charset, so reporting does not guess an identifier from a lossy enum.
+
+`AssignUserPreferenceCharsets` and `RequestUserPreferenceCharsets` retain all
+five upstream 94-character sets and all six 96-character sets. DECAUPSS is
+parsed directly by Ragel, DECRQUPSS returns the exact assigned identity, and
+designating `DecUserPref` resolves through the live assignment rather than a
+hard-coded DEC Supplemental table.
+
 Five more methods are classified rather than simulated. Shitty has no DEC
 DRCS soft-font store, DEC macro store, or multi-page display memory; the macro
 status methods above already report that absence. `MenuCompletionsTests`

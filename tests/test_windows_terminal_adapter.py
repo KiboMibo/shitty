@@ -60,6 +60,9 @@ PORTED_METHODS = {
     "WindowManipulationTypeTests",
     "SendC1ControlTest",
     "TabulationStopReportTests",
+    "CursorInformationReportTests",
+    "AssignUserPreferenceCharsets",
+    "RequestUserPreferenceCharsets",
 }
 
 CLASSIFIED_METHODS = {
@@ -949,6 +952,113 @@ class WindowsTerminalAdapterPortableProtocolTest(unittest.TestCase):
 
             terminal.write(b"\x1b[3g")
             self.assertEqual(report(terminal), ())
+
+    def test_cursor_information_report_and_restore(self):
+        def report(terminal):
+            terminal.write(b"\x1b[1$w")
+            return terminal.read_input()
+
+        prefix = b"\x1bP1$u"
+        suffix = b"\x1b\\"
+        with Shitty(columns=100, rows=10) as terminal:
+            self.assertEqual(
+                report(terminal),
+                prefix + b"1;1;1;@;@;@;0;2;@;BBBB" + suffix,
+            )
+            terminal.write(b"\x1b[3;4H")
+            self.assertEqual(
+                report(terminal),
+                prefix + b"3;4;1;@;@;@;0;2;@;BBBB" + suffix,
+            )
+            terminal.write(b"\x1b[1;4;5;7;8m\x1b[1\"q")
+            self.assertEqual(
+                report(terminal),
+                prefix + b"3;4;1;_;A;@;0;2;@;BBBB" + suffix,
+            )
+            terminal.write(b"\x1b[?6h")
+            self.assertEqual(
+                report(terminal),
+                prefix + b"1;1;1;_;A;A;0;2;@;BBBB" + suffix,
+            )
+            terminal.write(b"\x1bN")
+            self.assertEqual(
+                report(terminal),
+                prefix + b"1;1;1;_;A;C;0;2;@;BBBB" + suffix,
+            )
+            terminal.write(b"\x1bO")
+            self.assertEqual(
+                report(terminal),
+                prefix + b"1;1;1;_;A;E;0;2;@;BBBB" + suffix,
+            )
+            terminal.write(b"\x1b[999C*")
+            self.assertEqual(
+                report(terminal),
+                prefix + b"1;100;1;_;A;I;0;2;@;BBBB" + suffix,
+            )
+            terminal.write(
+                b"\x0e\x1b|"
+                b"\x1b(%5\x1b)<\x1b*0\x1b+K"
+            )
+            self.assertEqual(
+                report(terminal),
+                prefix + b"1;100;1;_;A;I;1;3;@;%5<0K" + suffix,
+            )
+            terminal.write(b"\x1b-H\x1b.M\x1b/B")
+            self.assertEqual(
+                report(terminal),
+                prefix + b"1;100;1;_;A;I;1;3;N;%5HMB" + suffix,
+            )
+
+            for restored in (
+                b"3;4;1;@;@;@;0;2;@;BBBB",
+                b"1;1;1;U;@;@;0;2;@;BBBB",
+                b"1;1;1;J;A;@;0;2;@;BBBB",
+                b"1;1;1;@;@;E;0;2;@;BBBB",
+                b"1;1;1;@;@;J;0;2;@;BBBB",
+                b"1;1;1;@;@;@;3;1;H;ABCF",
+            ):
+                with self.subTest(restored=restored):
+                    terminal.write(
+                        b"\x1bP1$t" + restored + b"\x1b\\"
+                    )
+                    self.assertEqual(
+                        report(terminal),
+                        prefix + restored + suffix,
+                    )
+
+    def test_assign_and_request_user_preference_charsets(self):
+        charsets = (
+            (0, b"%5"),
+            (0, b'"?'),
+            (0, b'"4'),
+            (0, b"%0"),
+            (0, b"&4"),
+            (1, b"A"),
+            (1, b"B"),
+            (1, b"F"),
+            (1, b"H"),
+            (1, b"L"),
+            (1, b"M"),
+        )
+        with Shitty(columns=8, rows=2) as terminal:
+            for size, charset in charsets:
+                with self.subTest(size=size, charset=charset):
+                    terminal.write(
+                        b"\x1bP"
+                        + str(size).encode()
+                        + b"!u"
+                        + charset
+                        + b"\x1b\\"
+                    )
+                    terminal.write(b"\x1b[&u")
+                    self.assertEqual(
+                        terminal.read_input(),
+                        b"\x1bP"
+                        + str(size).encode()
+                        + b"!u"
+                        + charset
+                        + b"\x1b\\",
+                    )
 
     def test_request_checksum_report(self):
         for text in ("A", " ", "~", "ABC", "Á", "¡", "ÿ", "ÁÂÃ"):

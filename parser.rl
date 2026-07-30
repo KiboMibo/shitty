@@ -930,6 +930,9 @@
         if (parser.csiIntermediates[0] == '#') {
             fgoto csiHashDispatch;
         }
+        if (parser.csiIntermediates[0] == '&') {
+            fgoto csiAmpersandDispatch;
+        }
         fgoto csiUnknownDispatch;
     }
 
@@ -997,7 +1000,7 @@
     action vt52Graphics {
         traceVt52Byte(fc, true);
         iface.parserResetCharsets(false);
-        iface.parserDesignateCharset(0, Charset::DecSpec);
+        iface.parserDesignateCharset(0, Charset::DecSpec, '0', false);
         fnext main;
         fbreak;
     }
@@ -1168,6 +1171,25 @@
             parser.dcsTabValid = true;
             iface.dcs_DECRSTS_TABS_BEGIN();
             fgoto dcsTabs;
+        } else if (parser.dcsIntermediateCount == 1 &&
+                   parser.dcsIntermediates[0] == '$' && fc == 't' &&
+                   parser.parameterCount == 1 && parser.present[0] &&
+                   parser.parameters[0] == 1) {
+            parser.dcsCursorNumberCount = 0;
+            parser.dcsCursorByteCount = 0;
+            parser.dcsCursorCharsetCount = 0;
+            fgoto dcsCursor;
+        } else if (parser.dcsIntermediateCount == 1 &&
+                   parser.dcsIntermediates[0] == '!' && fc == 'u' &&
+                   parser.parameterCount == 1 &&
+                   (!parser.present[0] || parser.parameters[0] <= 1)) {
+            parser.dcsUpssId = 0;
+            parser.dcsUpssBytes = 0;
+            parser.dcsUpss96 =
+                parser.present[0] && parser.parameters[0] == 1;
+            parser.dcsUpssValid = true;
+            parser.dcsUpssComplete = false;
+            fgoto dcsUpss;
         } else {
             fgoto dcsPayload;
         }
@@ -1345,6 +1367,135 @@
         ragelAppendEscapedString(fc, parser.maxDcsBytes);
         parser.dcsTabValid = false;
         fgoto dcsTabs;
+    }
+
+    action dcsCursorNumberStart {
+        if (parser.dcsCursorNumberCount < 5) {
+            parser.dcsCursorNumbers[parser.dcsCursorNumberCount] = 0;
+        }
+    }
+
+    action dcsCursorDigit {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        if (parser.dcsCursorNumberCount < 5) {
+            u32& value =
+                parser.dcsCursorNumbers[parser.dcsCursorNumberCount];
+            if (value > (UINT32_MAX - (u32)(fc - '0')) / 10) {
+                value = UINT32_MAX;
+            } else {
+                value = value * 10 + fc - '0';
+            }
+        }
+    }
+
+    action dcsCursorNumberDone {
+        ++parser.dcsCursorNumberCount;
+    }
+
+    action dcsCursorByte {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        if (parser.dcsCursorByteCount < 4) {
+            parser.dcsCursorBytes[parser.dcsCursorByteCount++] = fc - '@';
+        }
+    }
+
+    action dcsCursorSeparator {
+        ragelAppendString(fc, parser.maxDcsBytes);
+    }
+
+    action dcsCursorCharsetStart {
+        if (parser.dcsCursorCharsetCount < 4) {
+            parser.dcsCursorCharsetIds[parser.dcsCursorCharsetCount] = 0;
+        }
+    }
+
+    action dcsCursorCharsetByte {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        if (parser.dcsCursorCharsetCount < 4) {
+            u16& id =
+                parser.dcsCursorCharsetIds[parser.dcsCursorCharsetCount];
+            id = (u16)((id << 8) | fc);
+        }
+    }
+
+    action dcsCursorCharsetDone {
+        if (parser.dcsCursorCharsetCount < 4) {
+            const u8 index = parser.dcsCursorCharsetCount;
+            parser.dcsCursorCharsets[index] = decodeCharset(
+                parser.dcsCursorCharsetIds[index],
+                parser.dcsCursorBytes[3] & (1u << index)
+            );
+        }
+        ++parser.dcsCursorCharsetCount;
+    }
+
+    action dcsCursorSt {
+        const bool valid =
+            parser.dcsCursorNumberCount == 5 &&
+            parser.dcsCursorByteCount == 4 &&
+            parser.dcsCursorCharsetCount == 4 &&
+            parser.dcsCursorNumbers[0] != 0 &&
+            parser.dcsCursorNumbers[1] != 0 &&
+            parser.dcsCursorNumbers[2] == 1 &&
+            parser.dcsCursorNumbers[3] < 4 &&
+            parser.dcsCursorNumbers[4] < 4;
+        if (valid) {
+            iface.dcs_DECRSTS_CURSOR(
+                parser.dcsCursorNumbers[0],
+                parser.dcsCursorNumbers[1],
+                parser.dcsCursorBytes[0],
+                parser.dcsCursorBytes[1],
+                parser.dcsCursorBytes[2],
+                parser.dcsCursorNumbers[3],
+                parser.dcsCursorNumbers[4],
+                parser.dcsCursorBytes[3],
+                parser.dcsCursorCharsets,
+                parser.dcsCursorCharsetIds
+            );
+        }
+        ragelFinishDcs();
+        fnext main;
+        fbreak;
+    }
+
+    action dcsCursorDoneEscape {
+        fgoto dcsCursorDoneEscape;
+    }
+
+    action dcsUpssStart {
+        if (parser.dcsUpssComplete) {
+            parser.dcsUpssValid = false;
+        }
+        parser.dcsUpssId = 0;
+        parser.dcsUpssBytes = 0;
+    }
+
+    action dcsUpssByte {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        parser.dcsUpssId = (u16)((parser.dcsUpssId << 8) | fc);
+        ++parser.dcsUpssBytes;
+    }
+
+    action dcsUpssComplete {
+        parser.dcsUpssComplete = true;
+    }
+
+    action dcsUpssSt {
+        if (parser.dcsUpssValid && parser.dcsUpssComplete &&
+            parser.dcsUpssBytes >= 1 && parser.dcsUpssBytes <= 2) {
+            iface.dcs_DECAUPSS(
+                decodeCharset(parser.dcsUpssId, parser.dcsUpss96),
+                parser.dcsUpssId,
+                parser.dcsUpss96
+            );
+        }
+        ragelFinishDcs();
+        fnext main;
+        fbreak;
+    }
+
+    action dcsUpssEscape {
+        fgoto dcsUpssEscape;
     }
 
     action dcsDecrqssInvalidStart {
@@ -3548,8 +3699,12 @@
         } |
         'v' @csiTrace @{ dispatchDeccra(); } |
         'w' @csiTrace @{
-            if (parser.parameterCount == 1 && parameter(0) == 2) {
-                iface.csi_DECRQPSR_TABS();
+            if (parser.parameterCount == 1) {
+                if (parameter(0) == 1) {
+                    iface.csi_DECRQPSR_CURSOR();
+                } else if (parameter(0) == 2) {
+                    iface.csi_DECRQPSR_TABS();
+                }
             }
         } |
         'x' @csiTrace @{ dispatchDecfra(); } |
@@ -3573,6 +3728,11 @@
         '{' @csiTrace @{ iface.csi_XTPUSHSGR(parser.parameters, parser.csiHadParameters ? parser.parameterCount : 0); } |
         '}' @csiTrace @{ iface.csi_XTPOPSGR(); } |
         (0x40..0x7e - [{}]) @csiTrace
+    ) @csiDone;
+
+    csiAmpersandFinal = (
+        'u' @csiTrace @{ iface.csi_DECRQUPSS(); } |
+        (0x40..0x7e - 'u') @csiTrace
     ) @csiDone;
 
     csiQuestionDollarFinal = (
@@ -4017,6 +4177,7 @@
     csiStarDispatch := csiStarFinal;
     csiCommaDispatch := csiCommaFinal;
     csiHashDispatch := csiHashFinal;
+    csiAmpersandDispatch := csiAmpersandFinal;
     csiQuestionDollarDispatch := csiQuestionDollarFinal;
     csiUnknownDispatch := csiUnknownFinal;
 
@@ -4302,6 +4463,64 @@
         0x1b @dcsTabEscapedEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
                 0x9a..0x9f)) @dcsTabEscapedData
+    )*;
+
+    dcsCursorNumber =
+        digit+ >dcsCursorNumberStart $dcsCursorDigit %dcsCursorNumberDone;
+
+    dcsCursorCharset = (
+        (['%"&'] $dcsCursorCharsetByte)
+        (0x30..0x7e $dcsCursorCharsetByte) |
+        ((0x30..0x7e - ['%"&']) $dcsCursorCharsetByte)
+    ) >dcsCursorCharsetStart %dcsCursorCharsetDone;
+
+    dcsCursorPayload = (
+        dcsCursorNumber (';' @dcsCursorSeparator)
+        dcsCursorNumber (';' @dcsCursorSeparator)
+        dcsCursorNumber (';' @dcsCursorSeparator)
+        (0x40..0x5f @dcsCursorByte) (';' @dcsCursorSeparator)
+        (0x40..0x5f @dcsCursorByte) (';' @dcsCursorSeparator)
+        (0x40..0x5f @dcsCursorByte) (';' @dcsCursorSeparator)
+        dcsCursorNumber (';' @dcsCursorSeparator)
+        dcsCursorNumber (';' @dcsCursorSeparator)
+        (0x40..0x4f @dcsCursorByte) (';' @dcsCursorSeparator)
+        dcsCursorCharset{4}
+    );
+
+    dcsCursor := (
+        cancel |
+        stringC1 |
+        0x9c @dcsCursorSt |
+        0x1b @dcsCursorDoneEscape |
+        dcsCursorPayload
+    )*;
+
+    dcsCursorDoneEscape := (
+        cancel |
+        stringC1 |
+        '\\' @dcsCursorSt |
+        any @{ fgoto dcsIgnore; }
+    )*;
+
+    dcsUpssId = (
+        (['%"&'] $dcsUpssByte)
+        (0x30..0x7e $dcsUpssByte) |
+        ((0x30..0x7e - ['%"&']) $dcsUpssByte)
+    ) >dcsUpssStart %dcsUpssComplete;
+
+    dcsUpss := (
+        cancel |
+        stringC1 |
+        0x9c @dcsUpssSt |
+        0x1b @dcsUpssEscape |
+        dcsUpssId
+    )*;
+
+    dcsUpssEscape := (
+        cancel |
+        stringC1 |
+        '\\' @dcsUpssSt |
+        any @{ fgoto dcsIgnore; }
     )*;
 
     dcsIgnore := (

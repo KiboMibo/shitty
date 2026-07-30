@@ -122,7 +122,7 @@ struct ParserIface {
     virtual void parserLockingShiftGl(u8 index) = 0;
     virtual void parserLockingShiftGr(u8 index) = 0;
     virtual void parserResetCharsets(bool isoLatin1) = 0;
-    virtual void parserDesignateCharset(u8 index, Charset charset) = 0;
+    virtual void parserDesignateCharset(u8 index, Charset charset, u16 id, bool is96) = 0;
     virtual bool parserHighlightMouseTracking() const = 0;
     virtual bool windowOperationsAllowed() const = 0;
     virtual void parserWritePty(stl::StringView bytes) = 0;
@@ -252,6 +252,8 @@ struct ParserIface {
     virtual void csi_DECREQTPARM(u32 permission) = 0;
     virtual void csi_DECRQTSR_COLOR(u32 model) = 0;
     virtual void csi_DECRQPSR_TABS() = 0;
+    virtual void csi_DECRQPSR_CURSOR() = 0;
+    virtual void csi_DECRQUPSS() = 0;
     virtual void dsrOperatingStatus() = 0;
     virtual void dsrCursorPosition(bool privateMode) = 0;
     virtual void dsrPrinter() = 0;
@@ -383,6 +385,8 @@ struct ParserIface {
     virtual void dcs_DECRSTS_RGB(u32 index, u32 red, u32 green, u32 blue) = 0;
     virtual void dcs_DECRSTS_TABS_BEGIN() = 0;
     virtual void dcs_DECRSTS_TAB(u32 column) = 0;
+    virtual void dcs_DECRSTS_CURSOR(u32 row, u32 column, u8 rendition, u8 protection, u8 flags, u8 gl, u8 gr, u8 sizeFlags, const Charset* charsets, const u16* charsetIds) = 0;
+    virtual void dcs_DECAUPSS(Charset charset, u16 id, bool is96) = 0;
 };
 
 struct Parser {

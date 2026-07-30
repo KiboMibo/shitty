@@ -119,7 +119,7 @@ keys.~~
 
 Остались особенно полезные:
 
-- adapter — 43 из 53 методов перенесены и ещё 7 классифицированы: cursor,
+- ~~adapter — 46 из 53 методов перенесены и ещё 7 классифицированы: cursor,
   SGR, device/status replies, DA1/DA2/DA3, DECRQDE, DECREQTPARM, DECRQSS,
   mode/report, palette, dynamic-color, keyboard/keypad, title и line-feed
   blocks, checksum, C1 output, window geometry, DECRQTSR color-table report и
@@ -128,7 +128,7 @@ keys.~~
   displayed-extent/terminal-parameter reports, permanent grapheme-mode report
   и корректный default пустых RGB subparameters. DEC macro/DRCS/page-memory
   subsystems и экспериментальный VS Code completions host UI классифицированы
-  как неприменимые;
+  как неприменимые; все 53 upstream methods учтены;~~
 - ~~InputEngine — все 25 методов проверяют отсутствующий у терминала слой
   VT input stream → Win32 `INPUT_RECORD`. Обратная, наблюдаемая сторона
   протокола покрыта keyboard/mouse matrices; Win32 ABI неприменим;~~
