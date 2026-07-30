@@ -286,7 +286,7 @@ namespace {
 STD_TEST_SUITE(Screen) {
     STD_TEST(WriteMulticellClaimsEveryBand) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         composer.setCellExtras(CellExtraStore::create(composer, 40));
         TerminalColors colors;
         configureColors(colors);
@@ -324,7 +324,7 @@ STD_TEST_SUITE(Screen) {
 
     STD_TEST(OrdinaryWriteErasesIntersectedMulticell) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         composer.setCellExtras(CellExtraStore::create(composer, 40));
         TerminalColors colors;
         configureColors(colors);
@@ -354,7 +354,7 @@ STD_TEST_SUITE(Screen) {
 
     STD_TEST(EraseExpandsToWholeMulticell) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         composer.setCellExtras(CellExtraStore::create(composer, 40));
         TerminalColors colors;
         configureColors(colors);
@@ -390,7 +390,7 @@ STD_TEST_SUITE(Screen) {
 
     STD_TEST(EmptyRectangleChecksumsToZero) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         composer.setCellExtras(CellExtraStore::create(composer, 4));
         TerminalColors colors;
         configureColors(colors);
@@ -686,7 +686,7 @@ STD_TEST_SUITE(Screen) {
 
     STD_TEST(BlankCaptureUsesSparseRows) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         composer.setCellExtras(CellExtraStore::create(composer, 30));
         TerminalColors colors;
         configureColors(colors);
@@ -711,9 +711,9 @@ STD_TEST_SUITE(Screen) {
 
     STD_TEST(LargeBlankHistoryStaysSparseAcrossResize) {
         auto composerPool = ObjPool::fromMemory();
+        Composer& composer = *composerPool->make<Composer>(composerPool.mutPtr());
         auto sourcePool = ObjPool::fromMemory();
         auto destinationPool = ObjPool::fromMemory();
-        Composer composer(composerPool.mutPtr());
         composer.setCellExtras(CellExtraStore::create(composer, 80 * 24));
         TerminalColors colors;
         configureColors(colors);
@@ -731,9 +731,9 @@ STD_TEST_SUITE(Screen) {
 
     STD_TEST(NonNormalLineIsClippedInsteadOfReflowed) {
         auto composerPool = ObjPool::fromMemory();
+        Composer& composer = *composerPool->make<Composer>(composerPool.mutPtr());
         auto sourcePool = ObjPool::fromMemory();
         auto destinationPool = ObjPool::fromMemory();
-        Composer composer(composerPool.mutPtr());
         composer.setCellExtras(CellExtraStore::create(composer, 6));
         TerminalColors colors;
         configureColors(colors);
@@ -805,7 +805,7 @@ STD_TEST_SUITE(Screen) {
 
     STD_TEST(PartialRectangleScrollPreservesBlankCellAttributes) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         composer.setCellExtras(CellExtraStore::create(composer, 20));
         TerminalColors colors;
         configureColors(colors);
@@ -830,7 +830,7 @@ STD_TEST_SUITE(Screen) {
 
     STD_TEST(PartialRectangleScrollDownPreservesBlankCellAttributes) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         composer.setCellExtras(CellExtraStore::create(composer, 20));
         TerminalColors colors;
         configureColors(colors);
@@ -855,7 +855,7 @@ STD_TEST_SUITE(Screen) {
 
     STD_TEST(PartialRectangleScrollKeepsMatchingBlankRowsSparse) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         composer.setCellExtras(CellExtraStore::create(composer, 20));
         TerminalColors colors;
         configureColors(colors);

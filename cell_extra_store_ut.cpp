@@ -106,7 +106,7 @@ STD_TEST_SUITE(CellExtraStore) {
 
     STD_TEST(MulticellSharesOnePayloadAcrossBands) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CellExtraStore& store = *createStore(composer, 6);
         const u32 text[] = {'A', 0x0301, 'B'};
         const MulticellSpec spec{
@@ -147,7 +147,7 @@ STD_TEST_SUITE(CellExtraStore) {
 
     STD_TEST(CollectionPreservesSharedMulticellPayload) {
         auto pool = ObjPool::fromMemory();
-        Composer composer(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CellExtraStore* store = createStore(composer, 2);
         const u32 text[] = {0x1f642};
         const MulticellSpec spec{
