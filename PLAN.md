@@ -178,15 +178,12 @@ keys.~~
 
 ### VTE
 
-В upstream `parser-test.cc` зарегистрировано 36 семейств. Мы покрываем
-восемнадцать семейств, развёрнутых в 43 targets.
+В upstream `parser-test.cc` зарегистрировано 36 семейств. Все
+terminal-observable семейства учтены: 21 перенесено в 46 targets, два SCI
+семейства намеренно отклонены, а 13 внутренних helper families явно
+классифицированы как неприменимые.
 
-Не взяты:
-
-- known ESC/CSI/DCS tables;
-- внутренние sequence-builder/glue tests.
-
-Последние не особо полезны, зато отдельно стоит взять:
+Перенесено и классифицировано:
 
 - ~~tab stops и resize — все 7 зарегистрированных семейств перенесены через
   реальные HTS/TBC/CHT/CBT/RIS/resize и read-only oracle полной таблицы;~~
@@ -223,6 +220,13 @@ keys.~~
   неподдерживаемые multibyte/control/DOCS не меняют G-slots. Импорт исправил
   ошибочную запись multibyte designation в G0 и ложное распознавание
   modified/96 finals как DEC/NRC;~~
+- ~~known ESC/CSI/DCS — все три сгенерированные upstream tables перенесены
+  byte-for-byte: 48 ESC, 204 CSI и 22 DCS signatures, включая все 174 VTE
+  NOP entries. Все 274 проверяются whole и bytewise через настоящий parser
+  trace; 103 поддерживаемых Shitty signatures дополнительно проверяются
+  напрямую на конкретный ParserIface callback, а остальные 171 — на
+  отсутствие product dispatch. Современные конфликты `CSI ? u` и `CSI ? m`
+  разрешены в пользу Kitty keyboard и xterm modify-key protocols;~~
 - ~~UTF-8 replacement/error behavior — оба теста перенесены полностью:
   1 112 064 допустимых scalar values и все 108 encoding_rs malformed
   vectors. Импорт исправил maximal-subpart replacement для E0/ED/F0/F4;~~
@@ -236,6 +240,11 @@ keys.~~
 - VTE C++ bitset copy/BDSM и CSS rgba/hsl/alpha serialization не имеют
   terminal-protocol observable; исходные assertions сохранены verbatim и
   помечены неприменимыми к Shitty.
+- ~~13 `arg`, `string` и `glue/*` families из `parser-test.cc` неприменимы:
+  они тестируют packed `vte_seq_arg_t`, VTE string container, numeric/string
+  conversion helpers, tokeniser и C++ sequence builder. У Shitty этих ABI и
+  типов нет; их terminal-observable границы уже исчерпывающе покрыты
+  parameter/max/recovery, OSC/DCS length и whole/bytewise matrices.~~
 
 ## Крупные полностью неиспользованные источники
 
@@ -355,7 +364,7 @@ Search и vi-mode нам пока не нужны.
 5. ~~Все WezTerm non-visible oracles: cursor, selection, damage,
    history/stable-row, semantic, hyperlink и line/cell metadata.~~
 6. Windows Terminal adapter/input/mouse/selection/reflow.
-7. VTE tabstops/paste/UTF-8 и known-sequence matrices.
+7. ~~VTE tabstops/paste/UTF-8 и known-sequence matrices.~~
 8. Kitty — сохранить исходные test transactions и callbacks.
 9. Contour Screen/Terminal/InputGenerator.
 10. Ghostty Terminal/Screen/PageList и OSC assertions.

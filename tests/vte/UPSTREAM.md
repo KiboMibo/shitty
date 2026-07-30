@@ -51,6 +51,22 @@ The import fixed Shitty accidentally interpreting multibyte slot selectors
 as G0 single-byte designations and accepting unrelated modified or 96-set
 final bytes as DEC/NRC sets.
 
+The three generated known-sequence tables, `parser-esc.hh`,
+`parser-csi.hh`, and `parser-dcs.hh`, are copied byte-for-byte from the same
+revision. Their 274 signatures comprise 48 ESC, 204 CSI, and 22 DCS
+commands, including all 174 VTE NOP entries. Python transactions verify every
+signature as one stream and one byte at a time. A native ParserIface matrix
+then checks semantic dispatch for all 103 signatures implemented by Shitty
+and verifies that the other 171 produce no product callback.
+
+Representative parameters and DCS payloads are supplied only to the semantic
+matrix, so parameter-dependent handlers are actually reached; the Python
+matrix retains VTE's exact parameterless bytes. Modern conflicts follow
+current terminal practice: `CSI ? u` is Kitty keyboard-state query rather
+than old DECRQUPSS, and `CSI ? m` is the xterm modify-key query rather than
+old DECSGR. Sixel/ReGIS and other graphics, printer, page-presentation, and
+obsolete session commands remain consumed no-ops.
+
 `upstream/unicode-width-test.cc` is copied verbatim from the same revision.
 The width adapter extracts its explicit Unicode ranges and points for ambiguous
 width 1, splits large ranges at 256-codepoint boundaries, and verifies 930

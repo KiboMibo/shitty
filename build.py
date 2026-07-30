@@ -898,6 +898,65 @@ vte_validation = command(
 )
 
 
+vte_known_cases = (vte_root / "known_file_names.txt").read_text().split()
+vte_known_sources = {
+    "escape": "esc",
+    "csi": "csi",
+    "dcs": "dcs",
+}
+vte_known_tests = []
+for case in vte_known_cases:
+    vte_known_tests.append(command(
+        name="vte_known_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/vte/known_adapter.py",
+            "$(S)/tests/vte/known_cases.py",
+            "$(S)/tests/vte/known_file_names.txt",
+            f"$(S)/tests/vte/upstream/parser-{vte_known_sources[case]}.hh",
+            "$(S)/tests/vte/upstream/parser-test.cc",
+        ],
+        outputs=[f"$(B)/tests/vte/known/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/vte/known_adapter.py",
+            case,
+            f"$(B)/tests/vte/known/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="VK",
+        color="cyan",
+    ))
+
+
+vte_known_validation = command(
+    name="vte_known_catalog",
+    inputs=[
+        "$(S)/tests/vte/known_cases.py",
+        "$(S)/tests/vte/known_file_names.txt",
+        "$(S)/tests/vte/known_validate.py",
+        "$(S)/tests/vte/upstream/parser-esc.hh",
+        "$(S)/tests/vte/upstream/parser-csi.hh",
+        "$(S)/tests/vte/upstream/parser-dcs.hh",
+        "$(S)/tests/vte/upstream/parser-test.cc",
+    ],
+    outputs=["$(B)/tests/vte/known/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/vte/known_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/vte/known/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="VK",
+    color="cyan",
+)
+
+
 vte_charset_cases = (vte_root / "charset_file_names.txt").read_text().split()
 vte_charset_tests = []
 for case in vte_charset_cases:
@@ -2710,6 +2769,8 @@ group(
     kitty_screen_validation,
     *vte_tests,
     vte_validation,
+    *vte_known_tests,
+    vte_known_validation,
     *vte_charset_tests,
     vte_charset_validation,
     *vte_tabstop_tests,

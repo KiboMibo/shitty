@@ -11,6 +11,9 @@
 #include <std/str/view.h>
 #include <std/tst/ut.h>
 
+#include <cstdio>
+#include <cstring>
+
 using namespace stl;
 
 namespace {
@@ -951,6 +954,304 @@ namespace {
         Parser* parser;
     };
 
+    enum class VteKnownKind : u8 {
+        ESCAPE,
+        CSI,
+        DCS,
+    };
+
+    struct VteKnownSequence {
+        const char* command;
+        VteKnownKind kind;
+        u8 final;
+        u8 prefix;
+        u8 intermediate;
+    };
+
+#define VTE_PREFIX_NONE 0
+#define VTE_PREFIX_EQUAL '='
+#define VTE_PREFIX_GT '>'
+#define VTE_PREFIX_WHAT '?'
+#define VTE_INTERMEDIATE_NONE 0
+#define VTE_INTERMEDIATE_SPACE ' '
+#define VTE_INTERMEDIATE_BANG '!'
+#define VTE_INTERMEDIATE_DQUOTE '"'
+#define VTE_INTERMEDIATE_HASH '#'
+#define VTE_INTERMEDIATE_CASH '$'
+#define VTE_INTERMEDIATE_PERCENT '%'
+#define VTE_INTERMEDIATE_AND '&'
+#define VTE_INTERMEDIATE_SQUOTE '\''
+#define VTE_INTERMEDIATE_PCLOSE ')'
+#define VTE_INTERMEDIATE_MULT '*'
+#define VTE_INTERMEDIATE_PLUS '+'
+#define VTE_INTERMEDIATE_COMMA ','
+#define VTE_INTERMEDIATE_MINUS '-'
+#define VTE_KNOWN_ROW(command, kind, final, prefix, count, intermediate, nop) {#command, VteKnownKind::kind, final, VTE_PREFIX_##prefix, VTE_INTERMEDIATE_##intermediate},
+#define _VTE_SEQ(command, kind, final, prefix, count, intermediate, flags) VTE_KNOWN_ROW(command, kind, final, prefix, count, intermediate, false)
+#define _VTE_NOQ(command, kind, final, prefix, count, intermediate, flags) VTE_KNOWN_ROW(command, kind, final, prefix, count, intermediate, true)
+
+    constexpr VteKnownSequence vteKnownEscape[] = {
+#include "tests/vte/upstream/parser-esc.hh"
+    };
+    constexpr VteKnownSequence vteKnownCsi[] = {
+#include "tests/vte/upstream/parser-csi.hh"
+    };
+    constexpr VteKnownSequence vteKnownDcs[] = {
+#include "tests/vte/upstream/parser-dcs.hh"
+    };
+
+#undef _VTE_NOQ
+#undef _VTE_SEQ
+#undef VTE_KNOWN_ROW
+#undef VTE_INTERMEDIATE_MINUS
+#undef VTE_INTERMEDIATE_COMMA
+#undef VTE_INTERMEDIATE_PLUS
+#undef VTE_INTERMEDIATE_MULT
+#undef VTE_INTERMEDIATE_PCLOSE
+#undef VTE_INTERMEDIATE_SQUOTE
+#undef VTE_INTERMEDIATE_AND
+#undef VTE_INTERMEDIATE_PERCENT
+#undef VTE_INTERMEDIATE_CASH
+#undef VTE_INTERMEDIATE_HASH
+#undef VTE_INTERMEDIATE_DQUOTE
+#undef VTE_INTERMEDIATE_BANG
+#undef VTE_INTERMEDIATE_SPACE
+#undef VTE_INTERMEDIATE_NONE
+#undef VTE_PREFIX_WHAT
+#undef VTE_PREFIX_GT
+#undef VTE_PREFIX_EQUAL
+#undef VTE_PREFIX_NONE
+
+    struct VteKnownDispatch {
+        const char* command;
+        const char* callback;
+    };
+
+    constexpr VteKnownDispatch vteKnownDispatches[] = {
+        {"DECDHL_TH", "setLineAttribute"},
+        {"DECDHL_BH", "setLineAttribute"},
+        {"DECSWL", "setLineAttribute"},
+        {"DECBI", "esc_BI"},
+        {"DECDWL", "setLineAttribute"},
+        {"DECSC", "esc_DECSC"},
+        {"DECRC", "esc_DECRC"},
+        {"DECALN", "esch_DECALN"},
+        {"DECFI", "esc_FI"},
+        {"DECANM", "parserSetCompatibilityLevel"},
+        {"DECKPAM", "parserSetApplicationKeypad"},
+        {"DECKPNM", "parserSetApplicationKeypad"},
+        {"IND", "esc_IND"},
+        {"NEL", "esc_NEL"},
+        {"HTS", "esc_HTS"},
+        {"RI", "esc_RI"},
+        {"SS2", "parserSingleShift"},
+        {"SS3", "parserSingleShift"},
+        {"SPA", "esc_SPA"},
+        {"EPA", "esc_EPA"},
+        {"RIS", "esc_RIS"},
+        {"LS2", "parserLockingShiftGl"},
+        {"LS3", "parserLockingShiftGl"},
+        {"LS3R", "parserLockingShiftGr"},
+        {"LS2R", "parserLockingShiftGr"},
+        {"LS1R", "parserLockingShiftGr"},
+        {"ICH", "csi_ICH"},
+        {"SL", "csi_ecma48_SL"},
+        {"CUU", "csi_CUU"},
+        {"SR", "csi_ecma48_SR"},
+        {"CUD", "csi_CUD"},
+        {"CUF", "csi_CUF"},
+        {"CUB", "csi_CUB"},
+        {"CNL", "csi_CNL"},
+        {"CPL", "csi_CPL"},
+        {"CHA", "csi_CHA"},
+        {"CUP", "csi_CUP"},
+        {"CHT", "csi_CHT"},
+        {"ED", "eraseDisplayAfter"},
+        {"DECSED", "selectiveEraseDisplayAfter"},
+        {"EL", "eraseLineAfter"},
+        {"DECSEL", "selectiveEraseLineAfter"},
+        {"IL", "csi_IL"},
+        {"DL", "csi_DL"},
+        {"DCH", "csi_DCH"},
+        {"SU", "csi_SU"},
+        {"SD_OR_XTERM_IHMT", "csi_SD"},
+        {"ECH", "csi_ECH"},
+        {"CBT", "csi_CBT"},
+        {"HPA", "csi_HPA"},
+        {"HPR", "csi_HPR"},
+        {"REP", "csi_REP"},
+        {"DA1", "csi_priDA"},
+        {"DA3", "csi_terDA"},
+        {"DA2", "csi_secDA"},
+        {"VPA", "csi_VPA"},
+        {"VPR", "csi_VPR"},
+        {"HVP", "csi_CUP"},
+        {"TBC", "clearTabStop"},
+        {"HPB", "csi_CUB"},
+        {"VPB", "csi_CUU"},
+        {"SM_ECMA", "setInsertMode"},
+        {"SM_DEC", "setAutoWrap"},
+        {"RM_ECMA", "setInsertMode"},
+        {"RM_DEC", "setAutoWrap"},
+        {"SGR", "sgrReset"},
+        {"DECSGR", "reportModifyKeyResource"},
+        {"DSR_ECMA", "dsrOperatingStatus"},
+        {"DSR_DEC", "dsrUserDefinedKeys"},
+        {"DECSTR", "csi_DECSTR"},
+        {"DECSCL", "csi_DECSCL"},
+        {"DECRQM_ECMA", "reportMode"},
+        {"DECRQM_DEC", "reportMode"},
+        {"DECLL", "resetLeds"},
+        {"DECSCUSR", "setCursorStyle"},
+        {"DECSCA", "setDecProtection"},
+        {"XTERM_VERSION", "csi_XTVERSION"},
+        {"DECSTBM", "csi_STBM"},
+        {"DECCARA", "changeRectangleAttributes"},
+        {"DECPCTERM_OR_XTERM_RPM", "restorePrivateMode"},
+        {"DECSLRM_OR_SCOSC", "esc_DECSC"},
+        {"XTERM_SPM", "savePrivateMode"},
+        {"DECRQUPSS", "csi_kittyKeyboardQuery"},
+        {"DECSLPP_OR_XTERM_WM", "xtReportWindowState"},
+        {"DECRARA", "changeRectangleAttributes"},
+        {"XTERM_RTM", "resetTitleModes"},
+        {"XTERM_STM", "setTitleMode"},
+        {"XTERM_MODKEYS", "resetModifyKeyResources"},
+        {"SCORC", "csi_SCORC"},
+        {"DECCRA", "csi_DECCRA"},
+        {"DECEFR", "csi_DECEFR"},
+        {"DECFRA", "csi_DECFRA"},
+        {"DECRQCRA", "csi_DECRQCRA"},
+        {"DECERA", "csi_DECERA"},
+        {"DECELR", "setLocatorReporting"},
+        {"DECSLE", "resetLocatorEvents"},
+        {"DECSERA", "csi_DECERA"},
+        {"DECRQLP", "csi_DECRQLP"},
+        {"DECIC", "csi_DECIC"},
+        {"DECDC", "csi_DECDC"},
+        {"DECRQSS", "dcs_DECRQSS_UNKNOWN"},
+        {"XTERM_RQTCAP", "dcs_XTGETTCAP"},
+        {"DECUDK", "dcs_DECUDK"},
+    };
+
+    const char* vteKnownCallback(StringView command) {
+        for (const VteKnownDispatch& dispatch : vteKnownDispatches) {
+            if (command == StringView(dispatch.command)) {
+                return dispatch.callback;
+            }
+        }
+        return nullptr;
+    }
+
+    bool vteKnownInfrastructureCall(const ParserCall& call) {
+        const StringView name(call.name);
+        return name == StringView(u8"parserResetGraphemeInput") || name == StringView(u8"parserCompatibilityLevel") || name == StringView(u8"unhandledInput");
+    }
+
+    StringView vteKnownParameters(StringView command) {
+        if (command == StringView(u8"SM_ECMA") || command == StringView(u8"RM_ECMA") || command == StringView(u8"DECRQM_ECMA")) {
+            return StringView(u8"4");
+        }
+        if (command == StringView(u8"SM_DEC") || command == StringView(u8"RM_DEC") || command == StringView(u8"DECRQM_DEC") || command == StringView(u8"DECPCTERM_OR_XTERM_RPM") || command == StringView(u8"XTERM_SPM")) {
+            return StringView(u8"7");
+        }
+        if (command == StringView(u8"DECSGR")) {
+            return StringView(u8"1");
+        }
+        if (command == StringView(u8"DSR_ECMA")) {
+            return StringView(u8"5");
+        }
+        if (command == StringView(u8"DSR_DEC")) {
+            return StringView(u8"25");
+        }
+        if (command == StringView(u8"DECSCL")) {
+            return StringView(u8"65;1");
+        }
+        if (command == StringView(u8"DECCARA") || command == StringView(u8"DECRARA")) {
+            return StringView(u8"1;1;1;1;1");
+        }
+        if (command == StringView(u8"DECRQCRA")) {
+            return StringView(u8"1;1;1;1;1;1");
+        }
+        if (command == StringView(u8"DECSLPP_OR_XTERM_WM")) {
+            return StringView(u8"11");
+        }
+        if (command == StringView(u8"XTERM_STM")) {
+            return StringView(u8"1");
+        }
+        if (command == StringView(u8"DECUDK")) {
+            return StringView(u8"0;0");
+        }
+        return {};
+    }
+
+    StringView vteKnownBody(StringView command) {
+        if (command == StringView(u8"DECRQSS")) {
+            return StringView(u8"z");
+        }
+        if (command == StringView(u8"XTERM_RQTCAP")) {
+            return StringView(u8"544e");
+        }
+        if (command == StringView(u8"DECUDK")) {
+            return StringView(u8"17/41");
+        }
+        return {};
+    }
+
+    void feedVteKnown(ParserFixture& fixture, const VteKnownSequence& sequence) {
+        u8 bytes[32];
+        size_t count = 0;
+        const StringView command(sequence.command);
+        bytes[count++] = 0x1b;
+        if (sequence.kind == VteKnownKind::CSI) {
+            bytes[count++] = '[';
+        } else if (sequence.kind == VteKnownKind::DCS) {
+            bytes[count++] = 'P';
+        }
+        if (sequence.prefix != 0) {
+            bytes[count++] = sequence.prefix;
+        }
+        const StringView parameters = vteKnownParameters(command);
+        memcpy(bytes + count, parameters.data(), parameters.length());
+        count += parameters.length();
+        if (sequence.intermediate != 0) {
+            bytes[count++] = sequence.intermediate;
+        }
+        bytes[count++] = sequence.final;
+        if (sequence.kind == VteKnownKind::DCS) {
+            const StringView body = vteKnownBody(command);
+            memcpy(bytes + count, body.data(), body.length());
+            count += body.length();
+            bytes[count++] = 0x1b;
+            bytes[count++] = '\\';
+        }
+        fixture.feed(StringView(bytes, count));
+    }
+
+    template <size_t count>
+    size_t checkVteKnown(const VteKnownSequence (&sequences)[count]) {
+        size_t checked = 0;
+        for (const VteKnownSequence& sequence : sequences) {
+            const char* callback = vteKnownCallback(StringView(sequence.command));
+            ParserFixture fixture;
+            feedVteKnown(fixture, sequence);
+            if (callback == nullptr) {
+                for (size_t index = 0; index < fixture.iface.callCount; ++index) {
+                    if (!vteKnownInfrastructureCall(fixture.iface.calls[index])) {
+                        fprintf(stderr, "VTE known %s unexpectedly called %s\n", sequence.command, fixture.iface.calls[index].name);
+                        STD_INSIST(false);
+                    }
+                }
+                continue;
+            }
+            if (!fixture.iface.called(callback)) {
+                fprintf(stderr, "VTE known %s did not call %s\n", sequence.command, callback);
+                STD_INSIST(false);
+            }
+            ++checked;
+        }
+        return checked;
+    }
+
     void expectValues(const ParserCall& call) {
         STD_INSIST(call.valueCount == 0);
     }
@@ -1558,6 +1859,16 @@ STD_TEST_SUITE(ParserCallbacks) {
         const ParserCall& call = fixture.expect("dcs_DECUDK");
         expectValues(call, true, true, 1, 0, 1, VtKey::F6);
         expectText(fixture.iface, call, 0, StringView(u8"A"));
+    }
+}
+
+STD_TEST_SUITE(VteKnownSequences) {
+    STD_TEST(SemanticDispatch) {
+        size_t checked = 0;
+        checked += checkVteKnown(vteKnownEscape);
+        checked += checkVteKnown(vteKnownCsi);
+        checked += checkVteKnown(vteKnownDcs);
+        STD_INSIST(checked == sizeof(vteKnownDispatches) / sizeof(vteKnownDispatches[0]));
     }
 }
 
