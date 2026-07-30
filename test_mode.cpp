@@ -380,6 +380,7 @@ namespace {
         int writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType event);
         int writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event);
         bool readPty(bool flushOutput = true);
+        void drainPty();
         bool servicePty(bool readable, bool writable);
         bool flushPtyOutput();
         MouseTrackingState getMouseTrackingState();
@@ -427,6 +428,7 @@ namespace {
         ReferenceRenderer& renderer;
         plt::WindowHeadless& window;
         u8 ptyInputBuffer[64 * 1024];
+        bool consumePty(bool drain, bool flushOutput);
         bool present();
     };
 
@@ -614,14 +616,31 @@ bool TestTerminal::flushPtyOutput() {
 }
 
 bool TestTerminal::readPty(bool flushOutput) {
+    return consumePty(false, flushOutput);
+}
+
+void TestTerminal::drainPty() {
+    consumePty(true, true);
+}
+
+bool TestTerminal::consumePty(bool drain, bool flushOutput) {
     bool finished = false;
-    const ssize_t count = pty.read(ptyInputBuffer, sizeof(ptyInputBuffer));
-    if (count > 0) {
-        terminal.feedPty(StringView(ptyInputBuffer, count));
-    } else if (count == 0 || (count < 0 && errno == EIO)) {
-        finished = true;
-    } else if (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) {
-        finished = true;
+    while (true) {
+        ssize_t count;
+        do {
+            count = pty.read(ptyInputBuffer, sizeof(ptyInputBuffer));
+        } while (count < 0 && errno == EINTR);
+        if (count > 0) {
+            terminal.feedPty(StringView(ptyInputBuffer, count));
+            if (drain) {
+                continue;
+            }
+        } else if (count == 0 || (count < 0 && errno == EIO)) {
+            finished = true;
+        } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            finished = true;
+        }
+        break;
     }
     if (flushOutput) {
         flushPtyOutput();
@@ -1096,12 +1115,10 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
             } else {
                 childExitStatus = 255;
             }
-            // The child's final output may have entered the PTY buffer after
-            // the poll above.  By reap time every write has completed, so one
-            // more drain keeps the reported exit status consistent with the
-            // final screen.
-            terminal.readPty();
-            terminal.flushPtyOutput();
+            // By reap time every child write has completed, but a PTY read is
+            // not required to consume every buffered write.  Drain through
+            // EAGAIN before publishing the exit status and final screen.
+            terminal.drainPty();
         }
     };
 

@@ -68,6 +68,18 @@ class PtyTest(unittest.TestCase):
                 self.assertEqual(status, 0)
                 self.assertIn("final-marker", screen)
 
+    def test_child_exit_drains_every_buffered_pty_chunk_before_status(self):
+        with Shitty(columns=16, rows=2) as terminal:
+            terminal.script_pty_reads(
+                b"\x1b[2J",
+                b"final-marker",
+                ("error", errno.EAGAIN),
+            )
+            terminal.spawn(sys.executable, "-c", "pass")
+            status, screen = terminal.wait_child()
+            self.assertEqual(status, 0)
+            self.assertIn("final-marker", screen)
+
     def test_child_signal_exit_uses_shell_status_convention(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.spawn(
