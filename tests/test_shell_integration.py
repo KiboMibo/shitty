@@ -39,7 +39,7 @@ class ShellIntegrationTest(unittest.TestCase):
                 [1, 2, 3, 0],
             )
 
-    def test_out_of_order_markers_are_ignored_from_idle(self):
+    def test_each_marker_resynchronizes_from_idle(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1b]133;B\x1b\\B"
@@ -50,10 +50,10 @@ class ShellIntegrationTest(unittest.TestCase):
 
             self.assertEqual(
                 [snapshot.cell(column, 0).semantic for column in range(3)],
-                [0, 0, 0],
+                [2, 3, 0],
             )
 
-    def test_out_of_order_markers_do_not_skip_semantic_regions(self):
+    def test_each_marker_resynchronizes_from_any_region(self):
         with Shitty(columns=12, rows=2) as terminal:
             terminal.write(
                 b"\x1b]133;A\x1b\\A"
@@ -68,7 +68,7 @@ class ShellIntegrationTest(unittest.TestCase):
 
             self.assertEqual(
                 [snapshot.cell(column, 0).semantic for column in range(7)],
-                [1, 1, 2, 2, 3, 3, 0],
+                [1, 3, 2, 0, 3, 2, 0],
             )
 
     def test_repeated_markers_are_idempotent(self):

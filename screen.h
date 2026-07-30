@@ -48,6 +48,12 @@ struct ScreenInfo {
     u16 rows = 0;
 };
 
+enum class ScreenSemanticPrompt : u8 {
+    None,
+    Prompt,
+    Continuation,
+};
+
 enum ScreenChecksumFlag : u8 {
     ChecksumPositive = 1 << 0,
     ChecksumNoAttributes = 1 << 1,
@@ -81,6 +87,8 @@ struct Screen {
     virtual void fillCells(u16 ch, const TerminalCell& attrs) = 0;
     virtual void setLineAttribute(u16 row, u8 attribute) = 0;
     virtual u8 lineAttribute(u16 row) const noexcept = 0;
+    virtual void setSemanticPrompt(u16 row, ScreenSemanticPrompt prompt) = 0;
+    virtual ScreenSemanticPrompt semanticPrompt(i32 row) const noexcept = 0;
     virtual bool hasProtection(u16 row, u8 mask) const noexcept = 0;
     virtual bool wrapped(u16 row, u16 column) const noexcept = 0;
     virtual void setWrapped(u16 row, u16 column) = 0;

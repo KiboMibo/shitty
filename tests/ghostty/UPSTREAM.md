@@ -20,5 +20,7 @@ stream is independently compared as one write, at those upstream boundaries,
 and bytewise. The five resize tests preceding those streams are accounted in
 `test_ghostty_resize.py`: four execute against the product and the recoverable
 allocator-failure case is inapplicable to libstd's fatal OOM contract. Dynamic
-inputs and Ghostty's remaining internal semantic assertions remain for a later
-adapter.
+semantic prompt inputs and assertions from `Terminal.zig:13845-14320` are
+ported in `test_ghostty_semantic_prompt.py`, including adjacent OSC 133 N/P
+stream cases. Other dynamic inputs and internal semantic assertions remain for
+a later adapter.

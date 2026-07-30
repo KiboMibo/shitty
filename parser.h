@@ -333,6 +333,8 @@ struct ParserIface {
     virtual void osc_SHELL_D(stl::StringView payload) = 0;
     virtual void osc_SHELL_I(stl::StringView payload) = 0;
     virtual void osc_SHELL_L(stl::StringView payload) = 0;
+    virtual void osc_SHELL_N(stl::StringView payload) = 0;
+    virtual void osc_SHELL_P(stl::StringView payload) = 0;
     virtual void osc_SHELL_UNKNOWN(stl::StringView payload) = 0;
     virtual void osc_UNKNOWN(u32 command, stl::StringView payload) = 0;
 

@@ -38,6 +38,7 @@ using namespace stl;
 struct RowMetadata {
     u8 lineAttribute = 0;
     u8 protection = 0;
+    ScreenSemanticPrompt semanticPrompt = ScreenSemanticPrompt::None;
     bool wide = false;
 };
 
@@ -184,6 +185,8 @@ namespace {
         void fillCells(u16 ch, const TerminalCell& attrs) override;
         void setLineAttribute(u16 row, u8 attribute) override;
         u8 lineAttribute(u16 row) const noexcept override;
+        void setSemanticPrompt(u16 row, ScreenSemanticPrompt prompt) override;
+        ScreenSemanticPrompt semanticPrompt(i32 row) const noexcept override;
         bool hasProtection(u16 row, u8 mask) const noexcept override;
         bool wrapped(u16 row, u16 column) const noexcept override;
         void setWrapped(u16 row, u16 column) override;
@@ -306,7 +309,7 @@ namespace {
         Row* allocateRow();
         void releaseRow(Row* row);
         void initializeRows(u16 columns, u16 rows, u32 history);
-        void installRow(int row, const TerminalCell* source, u16 sourceColumns, u8 lineAttribute, u8 protection);
+        void installRow(int row, const TerminalCell* source, u16 sourceColumns, u8 lineAttribute, u8 protection, ScreenSemanticPrompt semanticPrompt);
         bool emptyRow(const TerminalCell* row, u16 columns) const;
 
         void eraseRange(TerminalCell* start, TerminalCell* end, const TerminalCell& attrs);
@@ -1014,20 +1017,21 @@ bool ScreenBase<Coord, Epoch>::emptyRow(const TerminalCell* row, u16 columns) co
 }
 
 template <typename Coord, typename Epoch>
-void ScreenBase<Coord, Epoch>::installRow(int row, const TerminalCell* source, u16 sourceColumns, u8 lineAttribute_, u8 protection) {
+void ScreenBase<Coord, Epoch>::installRow(int row, const TerminalCell* source, u16 sourceColumns, u8 lineAttribute_, u8 protection, ScreenSemanticPrompt semanticPrompt_) {
     const u16 count = min<u16>(sourceColumns, nCols);
-    if (lineAttribute_ == 0 && emptyRow(source, count)) {
+    if (lineAttribute_ == 0 && semanticPrompt_ == ScreenSemanticPrompt::None && emptyRow(source, count)) {
         return;
     }
     Row* const destination = allocateRow();
     memcpy(destination->cells, source, (size_t)(count)*cellSize);
     normalizeWideRow(destination->cells, nCols);
-    if (lineAttribute_ == 0 && emptyRow(destination->cells, nCols)) {
+    if (lineAttribute_ == 0 && semanticPrompt_ == ScreenSemanticPrompt::None && emptyRow(destination->cells, nCols)) {
         releaseRow(destination);
         return;
     }
     destination->metadata.lineAttribute = lineAttribute_;
     destination->metadata.protection = rowProtection(destination->cells, nCols) | protection;
+    destination->metadata.semanticPrompt = semanticPrompt_;
     destination->metadata.wide = rowContainsWide(destination->cells, nCols);
     logicalRowSlot(row) = destination;
 }
@@ -1235,15 +1239,15 @@ void ScreenBase<Coord, Epoch>::layoutCopy(ResizeState& state, u16 nCols_, u16 nR
 
     u16 outRow = 0;
     for (const Row* row : restored) {
-        installRow(outRow++, row->cells, state.columns, row->metadata.lineAttribute, row->metadata.protection);
+        installRow(outRow++, row->cells, state.columns, row->metadata.lineAttribute, row->metadata.protection, row->metadata.semanticPrompt);
     }
     for (size_t k = visibleStart; k < sourceScreen.length() && outRow < nRows_; ++k) {
         const Row* const row = sourceScreen[k];
-        installRow(outRow++, row->cells, state.columns, row->metadata.lineAttribute, row->metadata.protection);
+        installRow(outRow++, row->cells, state.columns, row->metadata.lineAttribute, row->metadata.protection, row->metadata.semanticPrompt);
     }
     for (u32 k = 0; k < historyCount; ++k) {
         const Row* const row = sourceHistory[k];
-        installRow((int)(k) - (int)(historyCount), row->cells, state.columns, row->metadata.lineAttribute, row->metadata.protection);
+        installRow((int)(k) - (int)(historyCount), row->cells, state.columns, row->metadata.lineAttribute, row->metadata.protection, row->metadata.semanticPrompt);
     }
     if (!selectionValid()) {
         selection.clear();
@@ -1255,6 +1259,7 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
     struct LogicalLine {
         std::vector<TerminalCell> cells;
         u8 lineAttribute = 0;
+        ScreenSemanticPrompt semanticPrompt = ScreenSemanticPrompt::None;
         bool reflowable = true;
     };
 
@@ -1311,6 +1316,9 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
         if (!join) {
             lines.emplace_back();
             lines.back().lineAttribute = sourceRow->metadata.lineAttribute;
+            lines.back().semanticPrompt = sourceRow->metadata.semanticPrompt;
+        } else if (lines.back().semanticPrompt == ScreenSemanticPrompt::None) {
+            lines.back().semanticPrompt = sourceRow->metadata.semanticPrompt;
         }
         LogicalLine& line = lines.back();
         line.reflowable &= normalWidth;
@@ -1348,6 +1356,7 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
 
     std::vector<std::vector<TerminalCell>> output;
     Vector<u8> outputLineAttributes;
+    Vector<ScreenSemanticPrompt> outputSemanticPrompts;
     for (size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
         LogicalLine& line = lines[lineIndex];
         std::vector<Boundary> boundaries(line.cells.size() + 1);
@@ -1355,6 +1364,7 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
         size_t outputRow = output.size();
         output.emplace_back(nCols_);
         outputLineAttributes.pushBack(line.lineAttribute);
+        outputSemanticPrompts.pushBack(line.semanticPrompt);
         int column = 0;
         boundaries[0] = {outputRow, 0};
 
@@ -1378,6 +1388,7 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
                     outputRow = output.size();
                     output.emplace_back(nCols_);
                     outputLineAttributes.pushBack(line.lineAttribute);
+                    outputSemanticPrompts.pushBack(line.semanticPrompt == ScreenSemanticPrompt::None ? ScreenSemanticPrompt::None : ScreenSemanticPrompt::Continuation);
                     column = 0;
                 }
                 boundaries[offset] = {outputRow, column};
@@ -1393,6 +1404,7 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
                     outputRow = output.size();
                     output.emplace_back(nCols_);
                     outputLineAttributes.pushBack(line.lineAttribute);
+                    outputSemanticPrompts.pushBack(line.semanticPrompt == ScreenSemanticPrompt::None ? ScreenSemanticPrompt::None : ScreenSemanticPrompt::Continuation);
                     column = 0;
                     boundaries[offset] = {outputRow, 0};
                 }
@@ -1428,16 +1440,17 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
     while (output.size() < screenStart + nRows_) {
         output.emplace_back(nCols_);
         outputLineAttributes.pushBack(0);
+        outputSemanticPrompts.pushBack(ScreenSemanticPrompt::None);
     }
     const size_t retainedStart = screenStart > saveLines ? screenStart - saveLines : 0;
     const size_t historyCount = screenStart - retainedStart;
 
     initializeRows(nCols_, nRows_, historyCount);
     for (size_t row = 0; row < nRows_; ++row) {
-        installRow(row, output[screenStart + row].data(), nCols_, outputLineAttributes[screenStart + row], 0);
+        installRow(row, output[screenStart + row].data(), nCols_, outputLineAttributes[screenStart + row], 0, outputSemanticPrompts[screenStart + row]);
     }
     for (size_t row = 0; row < historyCount; ++row) {
-        installRow((int)(row) - (int)(historyCount), output[retainedStart + row].data(), nCols_, outputLineAttributes[retainedStart + row], 0);
+        installRow((int)(row) - (int)(historyCount), output[retainedStart + row].data(), nCols_, outputLineAttributes[retainedStart + row], 0, outputSemanticPrompts[retainedStart + row]);
     }
 
     if (!wasScrolled) {
@@ -1923,6 +1936,7 @@ void ScreenBase<Coord, Epoch>::fillCells(u16 ch, const TerminalCell& attrs) {
         }
         slot->metadata.lineAttribute = 0;
         slot->metadata.protection = fill.protected_char;
+        slot->metadata.semanticPrompt = ScreenSemanticPrompt::None;
         slot->metadata.wide = fill.dwidth || fill.dwidth_cont;
     }
     damageRectangle(0, 0, nRows, nCols);
@@ -1950,6 +1964,27 @@ void ScreenBase<Coord, Epoch>::setLineAttribute(u16 row, u8 attribute) {
 template <typename Coord, typename Epoch>
 u8 ScreenBase<Coord, Epoch>::lineAttribute(u16 row) const noexcept {
     return getLogicalRowObject(row)->metadata.lineAttribute;
+}
+
+template <typename Coord, typename Epoch>
+void ScreenBase<Coord, Epoch>::setSemanticPrompt(u16 row, ScreenSemanticPrompt prompt) {
+    RowSlot& slot = logicalRowSlot(row);
+    if (slot == nullptr) {
+        if (prompt == ScreenSemanticPrompt::None) {
+            return;
+        }
+        mutableRow(slot);
+    }
+    slot->metadata.semanticPrompt = prompt;
+    if (prompt == ScreenSemanticPrompt::None && slot->metadata.lineAttribute == 0 && emptyRow(slot->cells, nCols)) {
+        releaseRow(slot);
+        slot = nullptr;
+    }
+}
+
+template <typename Coord, typename Epoch>
+ScreenSemanticPrompt ScreenBase<Coord, Epoch>::semanticPrompt(i32 row) const noexcept {
+    return getLogicalRowObject(row)->metadata.semanticPrompt;
 }
 
 template <typename Coord, typename Epoch>
@@ -2143,6 +2178,9 @@ void ScreenBase<Coord, Epoch>::writeAsciiLinesImpl(u16 row, const u8* input, con
             } else {
                 scrollRows(0, nRows, -1, eraseAttrs);
             }
+            if (semantic == 1 || semantic == 2) {
+                setSemanticPrompt(row, ScreenSemanticPrompt::Continuation);
+            }
         }
         return;
     }
@@ -2159,6 +2197,7 @@ void ScreenBase<Coord, Epoch>::writeAsciiLinesImpl(u16 row, const u8* input, con
     memcpy(&style, &linkedAttrs.style, sizeof(style));
     memcpy(&content, &linkedAttrs.content, sizeof(content));
     const bool eraseZero = eraseAttrs == TerminalCell{};
+    const bool semanticContinuation = semantic == 1 || semantic == 2;
     u64 eraseStyle;
     u64 eraseContent;
     memcpy(&eraseStyle, &eraseAttrs.style, sizeof(eraseStyle));
@@ -2186,6 +2225,7 @@ void ScreenBase<Coord, Epoch>::writeAsciiLinesImpl(u16 row, const u8* input, con
         }
         slot->metadata.lineAttribute = 0;
         slot->metadata.protection = eraseAttrs.protected_char | (count != 0 ? linkedAttrs.protected_char : 0);
+        slot->metadata.semanticPrompt = semanticContinuation ? ScreenSemanticPrompt::Continuation : ScreenSemanticPrompt::None;
         slot->metadata.wide = eraseAttrs.dwidth || eraseAttrs.dwidth_cont;
     };
     const auto advanceRing = [&]() {
@@ -2243,6 +2283,9 @@ void ScreenBase<Coord, Epoch>::writeAsciiLinesImpl(u16 row, const u8* input, con
         } else {
             advanceRing();
             cleared = true;
+        }
+        if (semanticContinuation && !cleared) {
+            setSemanticPrompt(row, ScreenSemanticPrompt::Continuation);
         }
     }
     if (cleared) {
@@ -2832,7 +2875,8 @@ void ScreenBase<Coord, Epoch>::eraseInRow(RowSlot& slot, u16 pY, u16 startX, u16
     TerminalCell* row = rowData(object);
     if (startX == 0 && count == nCols) {
         const u8 lineAttribute_ = object == nullptr ? 0 : object->metadata.lineAttribute;
-        if (erased == TerminalCell{} && lineAttribute_ == 0) {
+        const ScreenSemanticPrompt semanticPrompt = object == nullptr ? ScreenSemanticPrompt::None : object->metadata.semanticPrompt;
+        if (erased == TerminalCell{} && lineAttribute_ == 0 && semanticPrompt == ScreenSemanticPrompt::None) {
             releaseRow(object);
             slot = nullptr;
         } else {
@@ -3194,7 +3238,7 @@ void ScreenBase<Coord, Epoch>::copyRow(u16 dstY, u16 srcY, u16 startX, u16 count
     } else if (sourceWide) {
         markLogicalRowWide(dstY);
     }
-    if (startX == 0 && count == nCols && destinationObject->metadata.lineAttribute == 0 && emptyRow(destinationRow, nCols)) {
+    if (startX == 0 && count == nCols && destinationObject->metadata.lineAttribute == 0 && destinationObject->metadata.semanticPrompt == ScreenSemanticPrompt::None && emptyRow(destinationRow, nCols)) {
         RowSlot& slot = logicalRowSlot(dstY);
         releaseRow(slot);
         slot = nullptr;
@@ -3380,7 +3424,7 @@ void ScreenBase<Coord, Epoch>::scrollRectangleImpl(u16 top, u16 left, u16 bottom
         if (left == 0 && right == nCols) {
             destinationObject->metadata.protection = rowProtection(destination, nCols);
             destinationObject->metadata.wide = sourceObject->metadata.wide;
-            if (destinationObject->metadata.lineAttribute == 0 && emptyRow(destination, nCols)) {
+            if (destinationObject->metadata.lineAttribute == 0 && destinationObject->metadata.semanticPrompt == ScreenSemanticPrompt::None && emptyRow(destination, nCols)) {
                 releaseRow(destinationObject);
                 destinationObject = nullptr;
                 return;
@@ -3417,6 +3461,7 @@ void ScreenBase<Coord, Epoch>::scrollRectangleImpl(u16 top, u16 left, u16 bottom
             object->metadata.protection |= attrs.protected_char;
             if (left == 0 && right == nCols) {
                 object->metadata.protection = attrs.protected_char;
+                object->metadata.semanticPrompt = ScreenSemanticPrompt::None;
                 object->metadata.wide = attrs.dwidth || attrs.dwidth_cont;
             }
         }
@@ -3465,6 +3510,7 @@ void ScreenBase<Coord, Epoch>::clearRows(u16 begin, u16 end, const TerminalCell&
         eraseRange(cells, cells + nCols, attrs);
         slot->metadata.lineAttribute = 0;
         slot->metadata.protection = attrs.protected_char;
+        slot->metadata.semanticPrompt = ScreenSemanticPrompt::None;
         slot->metadata.wide = attrs.dwidth || attrs.dwidth_cont;
     }
     if (!selection.empty()) {

@@ -39,6 +39,9 @@ struct TestApi {
     virtual void setWrapped(u16 row) = 0;
     virtual VtermTestCell cell(u16 row, u16 column) const = 0;
     virtual VtermTestCell logicalCell(i32 row, u16 column) const = 0;
+    virtual u8 rowSemantic(i32 row) const = 0;
+    virtual u8 semanticClick() const = 0;
+    virtual bool cursorIsAtPrompt() const = 0;
     virtual void key(plt::InputKey key, VtModifier modifiers) = 0;
     virtual void character(u8 byte, VtModifier modifiers) = 0;
     virtual void kittyKey(plt::InputKey key, u16 modifiers, VtermKeyEventType event) = 0;

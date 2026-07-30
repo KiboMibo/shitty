@@ -100,6 +100,29 @@ namespace {
         return StringView((const u8*)(value.data()), value.size());
     }
 
+    StringView semanticOption(StringView payload, StringView name) {
+        StringView command;
+        StringView options;
+        if (!payload.split(';', command, options)) {
+            return {};
+        }
+        while (!options.empty()) {
+            StringView option = options;
+            StringView rest;
+            if (options.split(';', option, rest)) {
+                options = rest;
+            } else {
+                options = {};
+            }
+            StringView key;
+            StringView value;
+            if (option.split('=', key, value) && key == name) {
+                return value;
+            }
+        }
+        return {};
+    }
+
     bool kittyClipboardMimeSupported(StringView mimeType) {
         return mimeType.empty() || mimeType == StringView(u8"text/plain") || mimeType == StringView(u8"text/plain;charset=utf-8") || mimeType == StringView(u8"UTF8_STRING") || mimeType == StringView(u8"STRING") || mimeType == StringView(u8"TEXT");
     }
@@ -795,6 +818,8 @@ namespace {
         void osc_SHELL_D(StringView) override;
         void osc_SHELL_I(StringView) override;
         void osc_SHELL_L(StringView) override;
+        void osc_SHELL_N(StringView) override;
+        void osc_SHELL_P(StringView) override;
         void osc_SHELL_UNKNOWN(StringView) override;
         void osc_UNKNOWN(u32, StringView) override;
         void csi_DECSCL(CompatibilityLevel level, bool send8BitControls) override;
@@ -926,6 +951,17 @@ namespace {
         bool semanticUntilEndOfLine = false;
         u32 inactiveSemantic = 0;
         bool inactiveSemanticUntilEndOfLine = false;
+        enum class SemanticClick : u8 {
+            None,
+            Absolute,
+            Relative,
+            Line,
+            Multiple,
+            ConservativeVertical,
+            SmartVertical,
+        };
+        SemanticClick semanticClick = SemanticClick::None;
+        SemanticClick inactiveSemanticClick = SemanticClick::None;
         bool assignedDefaultColors = false;
         std::string windowTitle;
         std::string iconTitle;
@@ -1076,6 +1112,8 @@ namespace {
 
         void switchColMode(ColMode colMode, bool force = false);
         void switchScreenBufferMode(bool altScreenBufferMode, bool clearAlternate = false);
+        bool cursorIsAtPrompt() const;
+        void startSemanticPrompt(StringView payload);
 
         struct CharsetState {
             Charset g[4] = {Charset::UTF8, Charset::UTF8, Charset::UTF8, Charset::UTF8};
@@ -1153,6 +1191,9 @@ namespace {
         void setWrapped(u16 row) override;
         VtermTestCell cell(u16 row, u16 column) const override;
         VtermTestCell logicalCell(i32 row, u16 column) const override;
+        u8 rowSemantic(i32 row) const override;
+        u8 semanticClick() const override;
+        bool cursorIsAtPrompt() const override;
         void key(InputKey key, VtModifier modifiers) override;
         void character(u8 byte, VtModifier modifiers) override;
         void kittyKey(InputKey key, u16 modifiers, VtermKeyEventType event) override;
@@ -2448,6 +2489,22 @@ VtermTestCell TestApiImpl::logicalCell(i32 row, u16 column) const {
     return result;
 }
 
+u8 TestApiImpl::rowSemantic(i32 row) const {
+    const ScreenInfo info = vterm->cf->info();
+    if (row < -(i32)(info.historyRows) || row >= info.rows) {
+        return 0;
+    }
+    return (u8)(vterm->cf->semanticPrompt(row));
+}
+
+u8 TestApiImpl::semanticClick() const {
+    return (u8)(vterm->semanticClick);
+}
+
+bool TestApiImpl::cursorIsAtPrompt() const {
+    return vterm->cursorIsAtPrompt();
+}
+
 void TestApiImpl::key(InputKey key_, VtModifier modifiers) {
     vterm->key(key_, modifiers);
 }
@@ -2877,6 +2934,8 @@ void VtermImpl::resetTerminal() {
     semanticUntilEndOfLine = false;
     inactiveSemantic = 0;
     inactiveSemanticUntilEndOfLine = false;
+    semanticClick = SemanticClick::None;
+    inactiveSemanticClick = SemanticClick::None;
     titleModes = 0;
     titleStack.clear();
     notifications.clear();
@@ -3017,6 +3076,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
                 createAlternateScreen();
                 currentSemantic = 0;
                 semanticUntilEndOfLine = false;
+                semanticClick = SemanticClick::None;
                 marginTop = 0;
                 marginBottom = composer.rows;
                 altScreenInitialized = true;
@@ -3027,6 +3087,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
                 createInactiveAlternateScreen();
                 inactiveSemantic = 0;
                 inactiveSemanticUntilEndOfLine = false;
+                inactiveSemanticClick = SemanticClick::None;
                 altScreenInitialized = false;
             }
             updateExtraCellCount();
@@ -3041,6 +3102,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
             createAlternateScreen();
             inactiveSemantic = 0;
             inactiveSemanticUntilEndOfLine = false;
+            inactiveSemanticClick = SemanticClick::None;
             marginTop = 0;
             marginBottom = composer.rows;
             altScreenInitialized = true;
@@ -3076,9 +3138,11 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
     }
     std::swap(currentSemantic, inactiveSemantic);
     std::swap(semanticUntilEndOfLine, inactiveSemanticUntilEndOfLine);
+    std::swap(semanticClick, inactiveSemanticClick);
     if (!altScreenBufferMode_ && clearAlternate) {
         inactiveSemantic = 0;
         inactiveSemanticUntilEndOfLine = false;
+        inactiveSemanticClick = SemanticClick::None;
     }
     updateExtraCellCount();
     refreshBlinkingText();
@@ -3892,6 +3956,8 @@ bool VtermImpl::performIndex() {
     if (semanticUntilEndOfLine) {
         currentSemantic = 0;
         semanticUntilEndOfLine = false;
+    } else if (currentSemantic == 1 || currentSemantic == 2) {
+        cf->setSemanticPrompt(posY, ScreenSemanticPrompt::Continuation);
     }
     return scrolled;
 }
@@ -6147,32 +6213,61 @@ void VtermImpl::osc_RESET_SELECTION_FOREGROUND() {
     changePresentation();
 }
 
-void VtermImpl::osc_SHELL_A(StringView payload) {
-    osc_SHELL_L(payload);
+void VtermImpl::startSemanticPrompt(StringView payload) {
     currentSemantic = 1;
     semanticUntilEndOfLine = false;
+    const StringView kind = semanticOption(payload, StringView(u8"k"));
+    const bool continuation = kind == StringView(u8"c") || kind == StringView(u8"s");
+    cf->setSemanticPrompt(posY, continuation ? ScreenSemanticPrompt::Continuation : ScreenSemanticPrompt::Prompt);
+}
+
+bool VtermImpl::cursorIsAtPrompt() const {
+    if (altScreenBufferMode) {
+        return false;
+    }
+    return cf->semanticPrompt(posY) != ScreenSemanticPrompt::None || currentSemantic == 1 || currentSemantic == 2;
+}
+
+void VtermImpl::osc_SHELL_A(StringView payload) {
+    osc_SHELL_L(payload);
+    startSemanticPrompt(payload);
+    semanticClick = SemanticClick::None;
+    const StringView clickEvents = semanticOption(payload, StringView(u8"click_events"));
+    if (clickEvents == StringView(u8"1")) {
+        semanticClick = SemanticClick::Absolute;
+    } else if (clickEvents == StringView(u8"2")) {
+        semanticClick = SemanticClick::Relative;
+    } else {
+        const StringView click = semanticOption(payload, StringView(u8"cl"));
+        if (click == StringView(u8"line")) {
+            semanticClick = SemanticClick::Line;
+        } else if (click == StringView(u8"m")) {
+            semanticClick = SemanticClick::Multiple;
+        } else if (click == StringView(u8"v")) {
+            semanticClick = SemanticClick::ConservativeVertical;
+        } else if (click == StringView(u8"w")) {
+            semanticClick = SemanticClick::SmartVertical;
+        }
+    }
 }
 
 void VtermImpl::osc_SHELL_B(StringView payload) {
-    if (currentSemantic == 1) {
-        currentSemantic = 2;
-    }
+    currentSemantic = 2;
     semanticUntilEndOfLine = false;
     recordOsc(133, payload);
 }
 
 void VtermImpl::osc_SHELL_C(StringView payload) {
-    if (currentSemantic == 2) {
-        currentSemantic = 3;
+    if (posX == 0 && cf->semanticPrompt(posY) != ScreenSemanticPrompt::None) {
+        cf->setSemanticPrompt(posY, ScreenSemanticPrompt::None);
     }
+    currentSemantic = 3;
     semanticUntilEndOfLine = false;
     recordOsc(133, payload);
 }
 
 void VtermImpl::osc_SHELL_D(StringView payload) {
-    if (currentSemantic == 3) {
-        currentSemantic = 0;
-    }
+    currentSemantic = 0;
     semanticUntilEndOfLine = false;
     recordOsc(133, payload);
 }
@@ -6189,6 +6284,15 @@ void VtermImpl::osc_SHELL_L(StringView payload) {
         inp_CR();
         esc_IND();
     }
+    recordOsc(133, payload);
+}
+
+void VtermImpl::osc_SHELL_N(StringView payload) {
+    osc_SHELL_A(payload);
+}
+
+void VtermImpl::osc_SHELL_P(StringView payload) {
+    startSemanticPrompt(payload);
     recordOsc(133, payload);
 }
 

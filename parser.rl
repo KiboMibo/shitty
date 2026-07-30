@@ -2256,6 +2256,16 @@
         fgoto oscShellLComplete;
     }
 
+    action oscShellN {
+        ragelAppendString(fc, parser.maxOscBytes);
+        fgoto oscShellNComplete;
+    }
+
+    action oscShellP {
+        ragelAppendString(fc, parser.maxOscBytes);
+        fgoto oscShellPComplete;
+    }
+
     action oscShellInvalid {
         consumeStringUtf8Byte(fc);
         if (!executeC0(fc)) {
@@ -2348,6 +2358,34 @@
         }
     }
 
+    action oscShellNSt {
+        if (consumeStringUtf8Byte(fc)) {
+            ragelAppendString(fc, parser.maxOscBytes);
+            fgoto oscShellUnknown;
+        } else {
+            ragelFinishOsc();
+            if (!parser.overflow) {
+                iface.osc_SHELL_N(ragelOscPayload());
+            }
+            fnext main;
+            fbreak;
+        }
+    }
+
+    action oscShellPSt {
+        if (consumeStringUtf8Byte(fc)) {
+            ragelAppendString(fc, parser.maxOscBytes);
+            fgoto oscShellUnknown;
+        } else {
+            ragelFinishOsc();
+            if (!parser.overflow) {
+                iface.osc_SHELL_P(ragelOscPayload());
+            }
+            fnext main;
+            fbreak;
+        }
+    }
+
     action oscShellUnknownSt {
         if (consumeStringUtf8Byte(fc)) {
             ragelAppendString(fc, parser.maxOscBytes);
@@ -2394,6 +2432,16 @@
     action oscShellEscapedL {
         ragelAppendEscapedString(fc, parser.maxOscBytes);
         fgoto oscShellLTail;
+    }
+
+    action oscShellEscapedN {
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
+        fgoto oscShellNTail;
+    }
+
+    action oscShellEscapedP {
+        ragelAppendEscapedString(fc, parser.maxOscBytes);
+        fgoto oscShellPTail;
     }
 
     action oscTitleData {
@@ -5220,7 +5268,9 @@
         'D' @oscShellD |
         'I' @oscShellI |
         'L' @oscShellL |
-        (0x20..0x7e - ('A' | 'B' | 'C' | 'D' | 'I' | 'L')) @oscShellInvalid |
+        'N' @oscShellN |
+        'P' @oscShellP |
+        (0x20..0x7e - ('A' | 'B' | 'C' | 'D' | 'I' | 'L' | 'N' | 'P')) @oscShellInvalid |
         (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscShellInvalid
     )*;
 
@@ -5302,6 +5352,32 @@
         (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscShellInvalid
     )*;
 
+    oscShellNComplete := (
+        cancel |
+        stringC1 |
+        0x9c @oscShellNSt |
+        0x07 @oscShellNSt |
+        0x1b @{ fgoto oscShellNCompleteEscape; } |
+        0x7f |
+        sequenceC0 |
+        ';' @{ ragelAppendString(fc, parser.maxOscBytes); fgoto oscShellNTail; } |
+        (0x20..0x7e - ';') @oscShellInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscShellInvalid
+    )*;
+
+    oscShellPComplete := (
+        cancel |
+        stringC1 |
+        0x9c @oscShellPSt |
+        0x07 @oscShellPSt |
+        0x1b @{ fgoto oscShellPCompleteEscape; } |
+        0x7f |
+        sequenceC0 |
+        ';' @{ ragelAppendString(fc, parser.maxOscBytes); fgoto oscShellPTail; } |
+        (0x20..0x7e - ';') @oscShellInvalid |
+        (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscShellInvalid
+    )*;
+
     oscShellATail := (
         cancel |
         stringC1 |
@@ -5368,6 +5444,28 @@
          0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
     )*;
 
+    oscShellNTail := (
+        cancel |
+        stringC1 |
+        0x9c @oscShellNSt |
+        0x07 @oscShellNSt |
+        0x1b @{ fgoto oscShellNTailEscape; } |
+        0x7f |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
+    oscShellPTail := (
+        cancel |
+        stringC1 |
+        0x9c @oscShellPSt |
+        0x07 @oscShellPSt |
+        0x1b @{ fgoto oscShellPTailEscape; } |
+        0x7f |
+        (0x00..0x06 | 0x08..0x17 | 0x19 | 0x1c..0x7e |
+         0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @oscData
+    )*;
+
     oscShellUnknown := (
         cancel |
         stringC1 |
@@ -5421,6 +5519,20 @@
         (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
     )*;
 
+    oscShellNCompleteEscape := (
+        cancel |
+        '\\' @oscShellNSt |
+        0x1b @oscEscapedEscape @{ fgoto oscShellUnknownEscape; } |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
+    )*;
+
+    oscShellPCompleteEscape := (
+        cancel |
+        '\\' @oscShellPSt |
+        0x1b @oscEscapedEscape @{ fgoto oscShellUnknownEscape; } |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
+    )*;
+
     oscShellATailEscape := (
         cancel |
         '\\' @oscShellASt |
@@ -5461,6 +5573,20 @@
         '\\' @oscShellLSt |
         0x1b @oscEscapedEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedL
+    )*;
+
+    oscShellNTailEscape := (
+        cancel |
+        '\\' @oscShellNSt |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedN
+    )*;
+
+    oscShellPTailEscape := (
+        cancel |
+        '\\' @oscShellPSt |
+        0x1b @oscEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedP
     )*;
 
     oscShellUnknownEscape := (

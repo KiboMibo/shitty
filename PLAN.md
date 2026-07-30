@@ -304,6 +304,16 @@ DECSCA не уничтожает ISO-protected cells. Проверки внут�
 заменены наблюдаемым oracle: rendition остаётся текущим после ED 2 и
 используется последующей печатью.~~
 
+~~Блок `Terminal.zig:13845-14320` учтён. Все 18 semantic-prompt cases
+перенесены в product-level Python tests: prompt/continuation metadata строк,
+Fish-эвристика для marker C в начале строки, `click_events` и `cl` с
+нормативным приоритетом, cursor-at-prompt, изоляция alternate screen и
+сохранение markers при reflow. Добавлены соседние stream assertions для OSC
+133 N/P. Маркер помещён в существующий row metadata без роста заголовка,
+продолжения prompt/input назначаются при wrap и IND. Старые локальные тесты,
+требовавшие строгого порядка A/B/C/D, исправлены по совпадающей семантике
+Ghostty и WezTerm: каждый marker независимо восстанавливает состояние.~~
+
 Не взяты также 94 initial fuzz seeds, но они имеют низкую ценность рядом с полным cmin.
 
 ### Kitty

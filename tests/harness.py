@@ -694,6 +694,27 @@ class Shitty:
             raise RuntimeError("invalid cursor pending-wrap response")
         return bool(int(response[1]))
 
+    def cursor_at_prompt(self):
+        self.stream.write(b"CURSOR_AT_PROMPT\n")
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid cursor-at-prompt response")
+        return bool(int(response[1]))
+
+    def row_semantic(self, row):
+        self.stream.write(f"ROW_SEMANTIC {row}\n".encode("ascii"))
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid row-semantic response")
+        return int(response[1])
+
+    def semantic_click(self):
+        self.stream.write(b"SEMANTIC_CLICK\n")
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid semantic-click response")
+        return int(response[1])
+
     def conformance_state(self):
         self.stream.write(b"CONFORMANCE_STATE\n")
         response = self._readline().split()

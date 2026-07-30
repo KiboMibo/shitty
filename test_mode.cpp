@@ -392,6 +392,9 @@ namespace {
         bool getPrivateMode(u32 mode);
         bool getTabStop(u16 column);
         void setWrapped(u16 row);
+        u8 getRowSemantic(i32 row);
+        u8 getSemanticClick();
+        bool cursorIsAtPrompt();
         bool getPendingWrap();
         TerminalCursor::Style getCursorStyle();
         TerminalPen getPenState();
@@ -677,6 +680,18 @@ bool TestTerminal::getTabStop(u16 column) {
 void TestTerminal::setWrapped(u16 row) {
     testApi.setWrapped(row);
     update();
+}
+
+u8 TestTerminal::getRowSemantic(i32 row) {
+    return testApi.rowSemantic(row);
+}
+
+u8 TestTerminal::getSemanticClick() {
+    return testApi.semanticClick();
+}
+
+bool TestTerminal::cursorIsAtPrompt() {
+    return testApi.cursorIsAtPrompt();
 }
 
 bool TestTerminal::getPendingWrap() {
@@ -1753,6 +1768,17 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 writeAll(controlFd, "OK " + std::to_string(terminal.getPrivateMode(25)) + " " + std::to_string(terminal.getPrivateMode(12)) + " " + std::to_string((unsigned)(terminal.getCursorStyle())) + "\n");
             } else if (line == "CURSOR_PENDING_WRAP") {
                 writeAll(controlFd, "OK " + std::to_string(terminal.getPendingWrap()) + "\n");
+            } else if (line == "CURSOR_AT_PROMPT") {
+                writeAll(controlFd, "OK " + std::to_string(terminal.cursorIsAtPrompt()) + "\n");
+            } else if (line == "SEMANTIC_CLICK") {
+                writeAll(controlFd, "OK " + std::to_string(terminal.getSemanticClick()) + "\n");
+            } else if (line.compare(0, 13, "ROW_SEMANTIC ") == 0) {
+                std::istringstream args(line.substr(13));
+                int row;
+                if (!(args >> row)) {
+                    throw std::runtime_error("invalid semantic row");
+                }
+                writeAll(controlFd, "OK " + std::to_string(terminal.getRowSemantic(row)) + "\n");
             } else if (line.compare(0, 9, "TAB_STOP ") == 0) {
                 std::istringstream args(line.substr(9));
                 unsigned column;
