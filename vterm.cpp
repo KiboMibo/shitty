@@ -4212,7 +4212,7 @@ void VtermImpl::csi_DL(u32 count) {
 }
 
 void VtermImpl::csi_ICH(u32 count) {
-    if (isCursorInsideMargins()) {
+    if (posX >= hMargin && posX < nColsEff) {
         count = min<u32>(count, nColsEff - posX);
         cf->insertCells(posY, posX, nColsEff, (u16)(count), eraseAttrs);
     }

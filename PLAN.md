@@ -184,7 +184,13 @@ keys.~~
   при записи в live screen и SU/SD/IL/DL/RI с тремя величинами, scrolling
   region, cursor и erase attributes. Win32 movable viewport заменён
   стандартным VT scrolling region;~~
-- `ScreenBufferTests`, remaining — 60 методов; portable assertions переносить
+- ~~`ScreenBufferTests`, horizontal editing block — ещё 5 методов:
+  insert/replace, полные ICH/DCH matrices, DECIC/DECDC/DECFI/DECBI и
+  wide-cell ICH/DCH/DECCRA. Импорт исправил различавшуюся проверку margins в
+  ICH и DCH. Windows разворачивает horizontal operation на всю строку вне
+  vertical margins; адаптировано к VT510 и consensus xterm/Ghostty, где
+  заданные horizontal margins продолжают действовать;~~
+- `ScreenBufferTests`, remaining — 55 методов; portable assertions переносить
   блоками, Win32-only console buffer/virtual-bottom ABI явно
   классифицировать, не выдавая его за terminal semantics.
 

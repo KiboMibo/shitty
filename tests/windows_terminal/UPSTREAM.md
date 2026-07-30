@@ -165,7 +165,19 @@ IL/DL move the cursor to the left margin, and newly revealed cells retain the
 current foreground/background while clearing rendition metadata. The
 `DontResetColorsAboveVirtualBottom` regression is observed at the terminal
 boundary by viewing a colored history row while a write changes the live
-screen. The remaining 60 methods stay explicitly listed in `PLAN.md`.
+screen.
+
+The following five methods cover insert/replace mode, the complete centered
+ICH/DCH matrices, DECIC/DECDC/DECFI/DECBI over a rectangular scrolling region,
+and one-cell movement of wide glyphs through ICH, DCH, and DECCRA. The import
+found that ICH checked both vertical and horizontal margins while DCH checked
+only the horizontal range. They now use the same horizontal boundary rule.
+Windows expands ICH/DCH to the full line when the cursor is outside separately
+configured vertical margins. That result is adapted: VT510 defines these as
+horizontal operations, and xterm and Ghostty continue using the configured
+left/right margins independently of the cursor row. Both original vertical
+margin branches remain exercised. The remaining 55 methods stay explicitly
+listed in `PLAN.md`.
 
 The 25 methods in `src/terminal/parser/ut_parser/InputEngineTest.cpp` test the
 opposite, Windows-only boundary: decoding a VT input byte stream into Win32

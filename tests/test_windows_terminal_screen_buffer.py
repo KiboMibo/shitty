@@ -68,6 +68,11 @@ PORTED_METHODS = {
     "DeleteCharsNearEndOfLineSimpleSecondCase",
     "DontResetColorsAboveVirtualBottom",
     "ScrollOperations",
+    "InsertReplaceMode",
+    "InsertChars",
+    "DeleteChars",
+    "HorizontalScrollOperations",
+    "ScrollingWideCharsHorizontally",
 }
 
 CLASSIFIED_METHODS = {
@@ -951,6 +956,41 @@ class WindowsTerminalScreenBufferDefaultColorTest(unittest.TestCase):
 
 
 class WindowsTerminalScreenBufferEditingTest(unittest.TestCase):
+    def assert_erase_cells(self, snapshot, row, begin, end):
+        for column in range(begin, end):
+            cell = snapshot.cell(column, row)
+            self.assertEqual(cell.char, " ")
+            self.assertEqual(
+                (cell.foreground, cell.background),
+                ((12, 34, 56), (78, 90, 12)),
+            )
+            self.assertFalse(cell.strike)
+            self.assertFalse(cell.inverse)
+            self.assertEqual(cell.underline_style, 0)
+
+    @staticmethod
+    def editing_row(terminal, row=10):
+        terminal.write(
+            b"\x1b[31;44m"
+            + f"\x1b[{row + 1};1H".encode()
+            + b"Q" * 40
+            + f"\x1b[{row + 1};11H".encode()
+            + b"ABCDEFGHIJKLMNOPQRST"
+        )
+
+    @staticmethod
+    def set_editing_margins(terminal, vertical):
+        terminal.write(
+            b"\x1b[?69h\x1b[11;30s"
+            + (b"\x1b[15;20r" if vertical else b"\x1b[r")
+        )
+
+    @staticmethod
+    def set_erase_attributes(terminal):
+        terminal.write(
+            b"\x1b[38;2;12;34;56;48;2;78;90;12;9;7;4:3m"
+        )
+
     def test_delete_chars_near_end_of_line(self):
         distances = (1, 2, 3, 5, 8, 13, 21, 34)
         counts = (1, 2, 3, 5, 8, 13, 21, 34)
@@ -1085,3 +1125,252 @@ class WindowsTerminalScreenBufferEditingTest(unittest.TestCase):
                             self.assertFalse(cell.strike)
                             self.assertFalse(cell.inverse)
                             self.assertEqual(cell.underline_style, 0)
+
+    def test_insert_replace_mode(self):
+        expected = {
+            True: "ABCDEFGHIJ12345KLMNOPQRST" + "*" * 15,
+            False: "ABCDEFGHIJ12345PQRST" + "*" * 20,
+        }
+        for insert in (True, False):
+            with self.subTest(insert=insert), Shitty(
+                columns=40,
+                rows=12,
+            ) as terminal:
+                terminal.write(
+                    b"\x1b[31;44m\x1b[6;1H"
+                    b"ABCDEFGHIJKLMNOPQRST" + b"*" * 20
+                    + b"\x1b[7;1H" + b"Z" * 40
+                )
+                self.set_erase_attributes(terminal)
+                terminal.write(
+                    b"\x1b[6;11H"
+                    + (b"\x1b[4h" if insert else b"\x1b[4l")
+                    + b"12345"
+                )
+                snapshot = terminal.snapshot()
+                self.assertEqual(snapshot.lines[5], expected[insert])
+                self.assertEqual(snapshot.lines[6], "Z" * 40)
+                for column in range(10, 15):
+                    cell = snapshot.cell(column, 5)
+                    self.assertEqual(
+                        (cell.foreground, cell.background),
+                        ((12, 34, 56), (78, 90, 12)),
+                    )
+                    self.assertTrue(cell.strike)
+                    self.assertTrue(cell.inverse)
+                    self.assertEqual(cell.underline_style, 3)
+
+    def test_insert_chars(self):
+        base = "Q" * 10 + "ABCDEFGHIJKLMNOPQRST" + "Q" * 10
+        cases = (
+            ("middle", 20, 5),
+            ("right", None, 5),
+            ("all", None, 100),
+        )
+        for vertical in (False, True):
+            for name, fixed_column, count in cases:
+                if name == "middle":
+                    column = fixed_column
+                elif name == "right":
+                    column = 29
+                else:
+                    column = 10
+
+                with self.subTest(
+                    vertical=vertical,
+                    case=name,
+                ), Shitty(columns=40, rows=25) as terminal:
+                    self.editing_row(terminal)
+                    self.set_editing_margins(terminal, vertical)
+                    self.set_erase_attributes(terminal)
+                    terminal.write(
+                        f"\x1b[11;{column + 1}H\x1b[{count}@".encode()
+                    )
+                    snapshot = terminal.snapshot()
+
+                    if name == "middle":
+                        expected = (
+                            "Q" * 10 + "ABCDEFGHIJ" + " " * 5
+                            + "KLMNO" + "Q" * 10
+                        )
+                        erased = (20, 25)
+                    elif name == "right":
+                        expected = base[:column] + " " + base[column + 1:]
+                        erased = (column, column + 1)
+                    else:
+                        expected = "Q" * 10 + " " * 20 + "Q" * 10
+                        erased = (10, 30)
+
+                    self.assertEqual(snapshot.lines[10], expected)
+                    self.assertEqual(
+                        (snapshot.cursor_x, snapshot.cursor_y),
+                        (column, 10),
+                    )
+                    self.assert_erase_cells(
+                        snapshot,
+                        10,
+                        erased[0],
+                        erased[1],
+                    )
+
+    def test_delete_chars(self):
+        base = "Q" * 10 + "ABCDEFGHIJKLMNOPQRST" + "Q" * 10
+        cases = (
+            ("middle", 20, 5),
+            ("right", None, 5),
+            ("all", None, 100),
+        )
+        for vertical in (False, True):
+            for name, fixed_column, count in cases:
+                if name == "middle":
+                    column = fixed_column
+                elif name == "right":
+                    column = 29
+                else:
+                    column = 10
+
+                with self.subTest(
+                    vertical=vertical,
+                    case=name,
+                ), Shitty(columns=40, rows=25) as terminal:
+                    self.editing_row(terminal)
+                    self.set_editing_margins(terminal, vertical)
+                    self.set_erase_attributes(terminal)
+                    terminal.write(
+                        f"\x1b[11;{column + 1}H\x1b[{count}P".encode()
+                    )
+                    snapshot = terminal.snapshot()
+
+                    if name == "middle":
+                        expected = (
+                            "Q" * 10 + "ABCDEFGHIJ" + "PQRST"
+                            + " " * 5 + "Q" * 10
+                        )
+                        erased = (25, 30)
+                    elif name == "right":
+                        expected = base[:column] + " " + base[column + 1:]
+                        erased = (column, column + 1)
+                    else:
+                        expected = "Q" * 10 + " " * 20 + "Q" * 10
+                        erased = (10, 30)
+
+                    self.assertEqual(snapshot.lines[10], expected)
+                    self.assertEqual(
+                        (snapshot.cursor_x, snapshot.cursor_y),
+                        (column, 10),
+                    )
+                    self.assert_erase_cells(
+                        snapshot,
+                        10,
+                        erased[0],
+                        erased[1],
+                    )
+
+    def test_horizontal_scroll_operations(self):
+        initial = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn"
+        cases = (
+            (
+                "DECIC",
+                20,
+                b"\x1b[4'}",
+                20,
+                "ABCDEFGHIJKLMNOPQRST    UVWXYZefghijklmn",
+                (20, 24),
+            ),
+            (
+                "DECDC",
+                20,
+                b"\x1b[4'~",
+                20,
+                "ABCDEFGHIJKLMNOPQRSTYZabcd    efghijklmn",
+                (26, 30),
+            ),
+            (
+                "DECFI",
+                27,
+                b"\x1b9" * 4,
+                29,
+                "ABCDEFGHIJMNOPQRSTUVWXYZabcd  efghijklmn",
+                (28, 30),
+            ),
+            (
+                "DECBI",
+                12,
+                b"\x1b6" * 4,
+                10,
+                "ABCDEFGHIJ  KLMNOPQRSTUVWXYZabefghijklmn",
+                (10, 12),
+            ),
+        )
+        rows = tuple(value.encode() for value in [initial] * 25)
+        for name, column, sequence, expected_column, expected, erased in cases:
+            with self.subTest(operation=name), Shitty(
+                columns=40,
+                rows=25,
+            ) as terminal:
+                terminal.write(b"\x1b[31;44m" + put_rows(*rows))
+                terminal.write(
+                    b"\x1b[?69h\x1b[11;30s\x1b[15;20r"
+                )
+                self.set_erase_attributes(terminal)
+                terminal.write(
+                    f"\x1b[18;{column + 1}H".encode() + sequence
+                )
+                snapshot = terminal.snapshot()
+                self.assertEqual(
+                    (snapshot.cursor_x, snapshot.cursor_y),
+                    (expected_column, 17),
+                )
+                self.assertEqual(snapshot.lines[:14], [initial] * 14)
+                self.assertEqual(snapshot.lines[20:], [initial] * 5)
+                self.assertEqual(snapshot.lines[14:20], [expected] * 6)
+                for row in range(14, 20):
+                    self.assert_erase_cells(
+                        snapshot,
+                        row,
+                        erased[0],
+                        erased[1],
+                    )
+
+    def test_scrolling_wide_chars_horizontally(self):
+        content = "こんにちは World"
+        encoded = content.encode()
+        with Shitty(columns=30, rows=2) as terminal:
+            terminal.write(b"\x1b[31;44m" + encoded + b"\x1b[H\x1b[@")
+            inserted = terminal.model_snapshot()
+            self.assertEqual(
+                inserted.lines[0],
+                " " + "".join(char + " " for char in "こんにちは")
+                + " World" + " " * 13,
+            )
+            for column in (1, 3, 5, 7, 9):
+                self.assertTrue(inserted.cell(column, 0).double_width)
+                self.assertTrue(
+                    inserted.cell(column + 1, 0).double_width_continuation
+                )
+
+            terminal.write(b"\x1b[P")
+            deleted = terminal.model_snapshot()
+            self.assertEqual(
+                deleted.lines[0],
+                "".join(char + " " for char in "こんにちは")
+                + " World" + " " * 14,
+            )
+            for column in (0, 2, 4, 6, 8):
+                self.assertTrue(deleted.cell(column, 0).double_width)
+                self.assertTrue(
+                    deleted.cell(column + 1, 0).double_width_continuation
+                )
+
+            terminal.write(b"\x1b[1;1;1;;;1;2$v")
+            copied = terminal.model_snapshot()
+            self.assertEqual(
+                copied.lines[0],
+                " " + "".join(char + " " for char in "こんにちは")
+                + " World" + " " * 13,
+            )
+            for column in (1, 3, 5, 7, 9):
+                self.assertTrue(copied.cell(column, 0).double_width)
+                self.assertTrue(
+                    copied.cell(column + 1, 0).double_width_continuation
+                )
