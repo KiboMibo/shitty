@@ -346,6 +346,7 @@ test_suite = command(
     env={
         "SHITTY_TEST_BINARY": "$(B)/st_test",
         "SHITTY_TEST_FONTCONFIG": "1" if fontconfig else "0",
+        "SHITTY_TEST_PLATFORM": "cocoa" if darwin else "wayland",
         "SHITTY_TEST_VERSION": shitty_version,
         "SHITTY_PRODUCTION_BINARY": "$(B)/st",
     },

@@ -208,9 +208,16 @@ void ApplicationImpl::wire() {
     composer.fontResetListeners.pushBack(composer.pool->make<CallFontReset>(this));
     composer.contentScaleChangedListeners.pushBack(composer.pool->make<CallContentScaleChanged>(this));
     composer.fontChangedListeners.pushBack(composer.pool->make<CallFontChanged>(this));
-    composer.inputBindings->add({InputKey::Printable, InputControl | InputShift, '=', '+'}, &composer.fontIncListeners);
-    composer.inputBindings->add({InputKey::Printable, InputControl, '-', '-'}, &composer.fontDecListeners);
-    composer.inputBindings->add({InputKey::Printable, InputControl, '0', '0'}, &composer.fontResetListeners);
+    if (composer.superShortcuts) {
+        composer.inputBindings->add({InputKey::Printable, InputSuper, '=', 0}, &composer.fontIncListeners);
+        composer.inputBindings->add({InputKey::Printable, InputSuper | InputShift, '=', 0}, &composer.fontIncListeners);
+        composer.inputBindings->add({InputKey::Printable, InputSuper, '-', 0}, &composer.fontDecListeners);
+        composer.inputBindings->add({InputKey::Printable, InputSuper, '0', 0}, &composer.fontResetListeners);
+    } else {
+        composer.inputBindings->add({InputKey::Printable, InputControl | InputShift, '=', '+'}, &composer.fontIncListeners);
+        composer.inputBindings->add({InputKey::Printable, InputControl, '-', '-'}, &composer.fontDecListeners);
+        composer.inputBindings->add({InputKey::Printable, InputControl, '0', '0'}, &composer.fontResetListeners);
+    }
 }
 
 ApplicationImpl::~ApplicationImpl() {
@@ -625,6 +632,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
 }
 
 Application* Application::create(Composer& composer) {
+    composer.superShortcuts = plt::cocoa;
     ApplicationImpl* const application = composer.pool->make<ApplicationImpl>(composer);
     application->wire();
     return application;

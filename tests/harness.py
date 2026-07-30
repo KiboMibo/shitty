@@ -5,6 +5,7 @@
 import socket
 import subprocess
 import os
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +13,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SHITTY = Path(os.environ.get("SHITTY_TEST_BINARY", ROOT / "st"))
+
+TEST_PLATFORM = os.environ.get("SHITTY_TEST_PLATFORM")
+if TEST_PLATFORM is None:
+    TEST_PLATFORM = "cocoa" if sys.platform == "darwin" else "wayland"
 
 
 def run_startup_failure(font_size_env=None, extra_arguments=()):
