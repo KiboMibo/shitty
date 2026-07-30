@@ -924,6 +924,14 @@ namespace {
             saveText(call, 0, values);
         }
 
+        void dcs_DECRSTS_HLS(u32 index, u32 hue, u32 luminosity, u32 saturation) override {
+            record("dcs_DECRSTS_HLS", index, hue, luminosity, saturation);
+        }
+
+        void dcs_DECRSTS_RGB(u32 index, u32 red, u32 green, u32 blue) override {
+            record("dcs_DECRSTS_RGB", index, red, green, blue);
+        }
+
         mutable ParserCall calls[64]{};
         mutable size_t callCount = 0;
         mutable Buffer strings;
@@ -1918,6 +1926,29 @@ STD_TEST_SUITE(ParserCallbacks) {
         const ParserCall& call = fixture.expect("dcs_DECUDK");
         expectValues(call, true, true, 1, 0, 1, InputKey::F6);
         expectText(fixture.iface, call, 0, StringView(u8"A"));
+    }
+
+    STD_TEST(RestoreColorTable) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1bP2$p1;1;120;46;71/2;2;79;13;13\x1b\\"));
+        expectValues(fixture.iface.find("dcs_DECRSTS_HLS"), 1, 120, 46, 71);
+        expectValues(fixture.iface.find("dcs_DECRSTS_RGB"), 2, 79, 13, 13);
+    }
+
+    STD_TEST(RestoreColorTableOmittedAndClampedValues) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1bP2$p6;1;;50;100/12;2;150;0\x1b\\"));
+        expectValues(fixture.iface.find("dcs_DECRSTS_HLS"), 6, 0, 50, 100);
+        expectValues(fixture.iface.find("dcs_DECRSTS_RGB"), 12, 150, 0, 0);
+    }
+
+    STD_TEST(RestoreColorTableRecoversAfterInvalidDefinition) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1bP2$p1;2;10;bad;30/"));
+        fixture.feed(StringView(u8"2;2;40;50;60\x9c"));
+        STD_INSIST(!fixture.iface.called("dcs_DECRSTS_HLS"));
+        const ParserCall& call = fixture.iface.find("dcs_DECRSTS_RGB");
+        expectValues(call, 2, 40, 50, 60);
     }
 }
 

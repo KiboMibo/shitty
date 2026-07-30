@@ -118,11 +118,22 @@ observable lifetime and screen contracts are retained instead. Windows'
 processed-output newline is expressed explicitly as CRLF, while raw terminal
 LF remains ECMA-48 line feed.
 
-This block found a product gap. DECST8C (`CSI ? 5 W` and its omitted default)
+The first block found a product gap. DECST8C (`CSI ? 5 W` and its omitted default)
 now restores the standard stops every eight columns. Windows enumerates stops
 by moving forward and therefore does not observe column zero; Shitty keeps
 VTE's equivalent internal bitmap convention in which zero is set. The
-remaining 100 methods stay explicitly listed in `PLAN.md`.
+next 12 methods cover cell resize and DECCOLM, pen preservation, DECSTR cursor
+state on both screens, newline behavior around margins and scrollback, erase
+colors, OSC 4 parsing, and the complete DECRSTS color-table transaction.
+
+The second block found that DCS `2 $ p` color-table restore was ignored.
+Ragel now parses every slash-separated definition directly into semantic HLS
+or RGB callbacks, including omitted and clamped components; there is no
+secondary string parser in Vterm. RIS restores the initial palette. Windows
+treats `CSI 8;0;0t` as a no-op, while Shitty retains xterm's current behavior
+of substituting the screen dimensions. Windows rejects `rgbi:`, but Shitty
+retains the XParseColor model already shared with current color parsers. The
+remaining 88 methods stay explicitly listed in `PLAN.md`.
 
 The 25 methods in `src/terminal/parser/ut_parser/InputEngineTest.cpp` test the
 opposite, Windows-only boundary: decoding a VT input byte stream into Win32

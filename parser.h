@@ -368,6 +368,8 @@ struct ParserIface {
     virtual void dcs_DECRQSS_UNKNOWN() = 0;
     virtual void dcs_XTGETTCAP(stl::StringView encoded, stl::StringView value) = 0;
     virtual void dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, const ParserUdkDefinition* definitions, size_t definitionCount, stl::StringView values) = 0;
+    virtual void dcs_DECRSTS_HLS(u32 index, u32 hue, u32 luminosity, u32 saturation) = 0;
+    virtual void dcs_DECRSTS_RGB(u32 index, u32 red, u32 green, u32 blue) = 0;
 };
 
 struct Parser {

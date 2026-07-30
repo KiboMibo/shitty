@@ -1143,6 +1143,15 @@
             parser.dcsUdkValid = true;
             parser.dcsUdkInValue = false;
             fgoto dcsUdkCode;
+        } else if (parser.dcsIntermediateCount == 1 &&
+                   parser.dcsIntermediates[0] == '$' && fc == 'p' &&
+                   parser.parameterCount == 1 && parser.present[0] &&
+                   parser.parameters[0] == 2) {
+            parser.parameters[0] = 0;
+            parser.present[0] = false;
+            parser.parameterCount = 1;
+            parser.dcsColorValid = true;
+            fgoto dcsColor;
         } else {
             fgoto dcsPayload;
         }
@@ -1222,6 +1231,61 @@
     action dcsEscapedData {
         ragelAppendEscapedString(fc, parser.maxDcsBytes);
         fgoto dcsPayload;
+    }
+
+    action dcsColorDigit {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        parser.present[parser.parameterCount - 1] = true;
+        if (parser.parameters[parser.parameterCount - 1] >
+            (UINT32_MAX - (u32)(fc - '0')) / 10) {
+            parser.parameters[parser.parameterCount - 1] = UINT32_MAX;
+        } else {
+            parser.parameters[parser.parameterCount - 1] =
+                parser.parameters[parser.parameterCount - 1] * 10 + fc - '0';
+        }
+    }
+
+    action dcsColorSeparator {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        if (parser.parameterCount == 5) {
+            parser.dcsColorValid = false;
+        } else {
+            parser.parameters[parser.parameterCount] = 0;
+            parser.present[parser.parameterCount] = false;
+            ++parser.parameterCount;
+        }
+    }
+
+    action dcsColorDefinition {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        finishDcsColor();
+    }
+
+    action dcsColorInvalid {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        parser.dcsColorValid = false;
+    }
+
+    action dcsColorSt {
+        finishDcsColor();
+        ragelFinishDcs();
+        fnext main;
+        fbreak;
+    }
+
+    action dcsColorEscape {
+        fgoto dcsColorEscape;
+    }
+
+    action dcsColorEscapedEscape {
+        ragelAppendSynthetic('\x1b', parser.maxDcsBytes);
+        parser.dcsColorValid = false;
+    }
+
+    action dcsColorEscapedData {
+        ragelAppendEscapedString(fc, parser.maxDcsBytes);
+        parser.dcsColorValid = false;
+        fgoto dcsColor;
     }
 
     action dcsDecrqssInvalidStart {
@@ -4108,6 +4172,29 @@
         0x1b @dcsEscapedEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
                 0x9a..0x9f)) @dcsEscapedData
+    )*;
+
+    dcsColor := (
+        cancel |
+        stringC1 |
+        0x9c @dcsColorSt |
+        0x1b @dcsColorEscape |
+        0x7f |
+        digit @dcsColorDigit |
+        ';' @dcsColorSeparator |
+        '/' @dcsColorDefinition |
+        (any - (0x18 | 0x1a | 0x1b | 0x3b | 0x2f | 0x30..0x39 |
+                0x7f | 0x90 | 0x96..0x98 | 0x9a..0x9f)) @dcsColorInvalid
+    )*;
+
+    dcsColorEscape := (
+        cancel |
+        stringC1 |
+        0x9c @dcsColorSt |
+        '\\' @dcsColorSt |
+        0x1b @dcsColorEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
+                0x9a..0x9f)) @dcsColorEscapedData
     )*;
 
     dcsIgnore := (

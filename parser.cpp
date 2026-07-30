@@ -153,6 +153,7 @@ namespace {
         bool dcsUdkHeaderValid = false;
         bool dcsUdkClearDefinitions = false;
         bool dcsUdkLockDefinitions = false;
+        bool dcsColorValid = false;
 
         u32 oscCommand = 0;
         size_t oscPayloadOffset = 0;
@@ -248,6 +249,7 @@ namespace {
         bool ragelStringContinuation(const u8& ch);
         void ragelFinishString();
         void ragelFinishDcs();
+        void finishDcsColor();
         void ragelFinishOsc();
         StringView ragelOscPayload();
         void beginCsi();
@@ -718,6 +720,25 @@ void ParserImpl<traced>::ragelFinishString() {
 template <bool traced>
 void ParserImpl<traced>::ragelFinishDcs() {
     ragelFinishString();
+}
+
+template <bool traced>
+void ParserImpl<traced>::finishDcsColor() {
+    if (parser.dcsColorValid && parser.parameterCount <= 5) {
+        const u32 index = parameter(0);
+        const u32 model = parameter(1);
+        if (index < 256) {
+            if (model == 1) {
+                iface.dcs_DECRSTS_HLS(index, parameter(2), parameter(3), parameter(4));
+            } else if (model == 2) {
+                iface.dcs_DECRSTS_RGB(index, parameter(2), parameter(3), parameter(4));
+            }
+        }
+    }
+    parser.parameters[0] = 0;
+    parser.present[0] = false;
+    parser.parameterCount = 1;
+    parser.dcsColorValid = true;
 }
 
 template <bool traced>

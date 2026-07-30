@@ -160,7 +160,13 @@ keys.~~
   исправил отсутствующий DECST8C.
   Приватные Win32 pointer/viewport assertions заменены соответствующим
   протокольным контрактом;~~
-- `ScreenBufferTests`, remaining — 100 методов; portable assertions переносить
+- ~~`ScreenBufferTests`, resize/reset/newline/color block — ещё 12 методов:
+  клеточный resize и DECCOLM, сохранение pen state, DECSTR на primary/alternate,
+  LF с margins/scrollback и erase colors, OSC 4 parser matrix, DECRSTS color
+  table report с HLS/RGB/omitted/clamped компонентами и RIS palette reset.
+  `CSI 8;0;0t` следует xterm и подставляет размер экрана вместо Windows no-op;
+  `rgbi:` сохраняется как поддерживаемая XParseColor-модель;~~
+- `ScreenBufferTests`, remaining — 88 методов; portable assertions переносить
   блоками, Win32-only console buffer/virtual-bottom ABI явно
   классифицировать, не выдавая его за terminal semantics.
 

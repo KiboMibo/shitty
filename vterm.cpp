@@ -717,6 +717,8 @@ namespace {
         void writeDecrqssResponse(StringView);
         void dcs_XTGETTCAP(StringView encoded, StringView value) override;
         void dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, const ParserUdkDefinition* definitions, size_t definitionCount, StringView values) override;
+        void dcs_DECRSTS_HLS(u32 index, u32 hue, u32 luminosity, u32 saturation) override;
+        void dcs_DECRSTS_RGB(u32 index, u32 red, u32 green, u32 blue) override;
 
         void reportInBandResize();
         void reportColorScheme();
@@ -2571,6 +2573,7 @@ void VtermImpl::resetTerminal() {
     switchScreenBufferMode(false, true);
     resetScreen();
     resetAttrs();
+    osc_RESET_PALETTE();
 
     noClearColumnMode = false;
     switchColMode(ColMode::C80);
@@ -4711,6 +4714,62 @@ void VtermImpl::writeDecrqssResponse(StringView value) {
     StringBuilder response;
     response << StringView(u8"1$r") << value;
     writeDcsResponse(StringView(response));
+}
+
+void VtermImpl::dcs_DECRSTS_HLS(u32 index, u32 hue, u32 luminosity, u32 saturation) {
+    hue %= 360;
+    if (luminosity > 100) {
+        luminosity = 100;
+    }
+    if (saturation > 100) {
+        saturation = 100;
+    }
+
+    const float light = (float)(luminosity);
+    const float sat = (float)(saturation);
+    const float chroma = (50.0f - __builtin_fabsf(light - 50.0f)) * sat / 50.0f;
+    const float second = chroma * (60.0f - __builtin_fabsf((float)(hue % 120) - 60.0f)) / 60.0f;
+    const float offset = light - chroma / 2.0f;
+    const float scale = 255.0f / 100.0f;
+    const u8 firstComponent = (u8)((chroma + offset) * scale + 0.5f);
+    const u8 secondComponent = (u8)((second + offset) * scale + 0.5f);
+    const u8 thirdComponent = (u8)(offset * scale + 0.5f);
+
+    Color color;
+    if (hue < 60) {
+        color = {secondComponent, thirdComponent, firstComponent};
+    } else if (hue < 120) {
+        color = {firstComponent, thirdComponent, secondComponent};
+    } else if (hue < 180) {
+        color = {firstComponent, secondComponent, thirdComponent};
+    } else if (hue < 240) {
+        color = {secondComponent, firstComponent, thirdComponent};
+    } else if (hue < 300) {
+        color = {thirdComponent, firstComponent, secondComponent};
+    } else {
+        color = {thirdComponent, secondComponent, firstComponent};
+    }
+    applyPaletteColor((u16)(index), color);
+}
+
+void VtermImpl::dcs_DECRSTS_RGB(u32 index, u32 red, u32 green, u32 blue) {
+    if (red > 100) {
+        red = 100;
+    }
+    if (green > 100) {
+        green = 100;
+    }
+    if (blue > 100) {
+        blue = 100;
+    }
+    applyPaletteColor(
+        (u16)(index),
+        {
+            (u8)((red * 255 + 50) / 100),
+            (u8)((green * 255 + 50) / 100),
+            (u8)((blue * 255 + 50) / 100),
+        }
+    );
 }
 
 void VtermImpl::dcs_DECRQSS_DECSCL() {
