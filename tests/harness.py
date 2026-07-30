@@ -865,6 +865,13 @@ class Shitty:
             if finished:
                 return bytes(output)
 
+    def presented_pixel(self, x, y):
+        self.stream.write(f"PRESENTED_PIXEL {x} {y}\n".encode("ascii"))
+        response = self._readline().split()
+        if len(response) != 4 or response[0] != "OK":
+            raise RuntimeError("invalid presented pixel response")
+        return tuple(int(value) for value in response[1:])
+
     def screen_text(self):
         return self._read_hex_response("SCREEN_TEXT").decode("ascii")
 

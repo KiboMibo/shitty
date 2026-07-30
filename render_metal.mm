@@ -293,6 +293,7 @@ namespace {
         id<MTLTexture> emptyMask = nil;
         id<MTLTexture> emptyColor = nil;
         MTLStorageMode textureStorageMode = MTLStorageModeShared;
+        Color clearBackground = opts.bg;
         PresentationFrame frames[framesInFlight];
         u32 currentFrame = 0;
         u32 outputWidth = 0;
@@ -923,7 +924,7 @@ bool MetalRendererImpl::draw() {
     clearPass.colorAttachments[0].texture = output;
     clearPass.colorAttachments[0].loadAction = MTLLoadActionClear;
     clearPass.colorAttachments[0].storeAction = MTLStoreActionStore;
-    clearPass.colorAttachments[0].clearColor = MTLClearColorMake(opts.bg.red / 255.0, opts.bg.green / 255.0, opts.bg.blue / 255.0, 1.0);
+    clearPass.colorAttachments[0].clearColor = MTLClearColorMake(clearBackground.red / 255.0, clearBackground.green / 255.0, clearBackground.blue / 255.0, 1.0);
     id<MTLRenderCommandEncoder> clear = [commandBuffer renderCommandEncoderWithDescriptor:clearPass];
     [clear endEncoding];
 
@@ -1049,6 +1050,8 @@ bool MetalRendererImpl::update(const TerminalUpdate& update) {
         }
         materializeCells(span.cells, cells.mutData() + span.index, (u16)(span.count), span.lineAttribute, *update.colors);
     }
+    // The padding follows the live default background (OSC 11).
+    clearBackground = update.colors->defaultBackground;
     capture(update);
     return draw();
 }

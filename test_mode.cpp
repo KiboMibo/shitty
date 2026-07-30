@@ -1967,6 +1967,19 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 appendHex(output, vtermTrace.currentCwd());
                 output << StringView(u8"\n");
                 writeAll(controlFd, StringView(output));
+            } else if (line.compare(0, 16, "PRESENTED_PIXEL ") == 0) {
+                std::istringstream args(line.substr(16));
+                u32 x = 0;
+                u32 y = 0;
+                if (!(args >> x >> y)) {
+                    throw std::runtime_error("invalid presented pixel request");
+                }
+                const plt::HeadlessFrame image = window.presentedFrame();
+                if (image.pixels == nullptr || image.format != plt::HeadlessPixelFormat::RGB8 || x >= image.width || y >= image.height) {
+                    throw std::runtime_error("presented pixel unavailable");
+                }
+                const u8* const pixel = image.pixels + (size_t)(y)*image.stride + 3u * x;
+                writeAll(controlFd, "OK " + std::to_string(pixel[0]) + " " + std::to_string(pixel[1]) + " " + std::to_string(pixel[2]) + "\n");
             } else if (line == "SNAPSHOT") {
                 writeAll(controlFd, renderer.snapshot());
             } else if (line == "MODEL_SNAPSHOT") {

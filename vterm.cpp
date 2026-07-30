@@ -6689,6 +6689,9 @@ void VtermImpl::csi_DECAC_TEXT_RESET() {
     frame_alt->expose();
 }
 
+// VT525 window-frame colors. xterm — the reference implementation for
+// DECAC outside Windows — ignores the frame item too ("window frames:
+// not implemented"): there is no DEC-style frame to paint.
 void VtermImpl::csi_DECAC_FRAME(u8, u8) {
 }
 

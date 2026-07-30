@@ -109,7 +109,7 @@ namespace {
         static Color blend(Color foreground, Color background, u8 coverage);
         static bool sameColor(Color left, Color right);
         bool targetReady() const;
-        void clearTarget();
+        void clearTarget(Color background);
         void putPixel(int x, int y, Color color);
         void addGlyph(const u32* codepoints, size_t count, FontStyle style, bool doubleWidth, int cellWidth, int cellHeight);
         void addFallback(int cellWidth, int cellHeight);
@@ -213,13 +213,13 @@ bool ReferenceRendererImpl::targetReady() const {
     return target_->length >= (size_t)(target_->stride) * target_->height;
 }
 
-void ReferenceRendererImpl::clearTarget() {
+void ReferenceRendererImpl::clearTarget(Color background) {
     for (u32 y = 0; y < target_->height; ++y) {
         u8* row = target_->pixels + (size_t)(y)*target_->stride;
         for (u32 x = 0; x < target_->width; ++x) {
-            row[3 * x] = opts.bg.red;
-            row[3 * x + 1] = opts.bg.green;
-            row[3 * x + 2] = opts.bg.blue;
+            row[3 * x] = background.red;
+            row[3 * x + 1] = background.green;
+            row[3 * x + 2] = background.blue;
         }
     }
 }
@@ -455,7 +455,9 @@ bool ReferenceRendererImpl::render(const TerminalUpdate& update, const std::vect
     if (!targetReady()) {
         return false;
     }
-    clearTarget();
+    // The padding follows the live default background (OSC 11), matching
+    // xterm, kitty, foot, and the rest.
+    clearTarget(update.colors != nullptr ? update.colors->defaultBackground : opts.bg);
     CellExtraStore& extras = *composer_.cellExtras;
     for (u16 row = 0; row < composer_.rows; ++row) {
         for (u16 column = 0; column < composer_.columns; ++column) {

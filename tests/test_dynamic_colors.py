@@ -334,6 +334,13 @@ class DynamicColorTest(unittest.TestCase):
                     terminal.write(b"\x1b]12;" + spec + b"\x1b\\")
                     self.assertEqual(dynamic_query(terminal, 12), before)
 
+    def test_border_follows_dynamic_background(self):
+        # Every mainstream terminal paints its padding with the current
+        # (OSC 11) default background, not the startup color.
+        with Shitty(columns=4, rows=2) as terminal:
+            terminal.write(b"\x1b]11;#ff0000\x07X")
+            self.assertEqual(terminal.presented_pixel(0, 0), (255, 0, 0))
+
 
 if __name__ == "__main__":
     unittest.main()

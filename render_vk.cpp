@@ -330,6 +330,7 @@ namespace {
         bool outputInitialized = false;
         TerminalCursor previousCursor;
         Rect previousSelection;
+        Color clearBackground = opts.bg;
         u32 previousHoveredHyperlink = 0;
         u32 previousHoveredLinkBegin = 0;
         u32 previousHoveredLinkEnd = 0;
@@ -2200,9 +2201,9 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
         vkCmdPipelineBarrier(frame.commandBuffer, initialized ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &outputForClear);
 
         VkClearColorValue clearColor{{
-            opts.bg.red / 255.0f,
-            opts.bg.green / 255.0f,
-            opts.bg.blue / 255.0f,
+            clearBackground.red / 255.0f,
+            clearBackground.green / 255.0f,
+            clearBackground.blue / 255.0f,
             1.0f,
         }};
         vkCmdClearColorImage(frame.commandBuffer, output, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &outputRange);
@@ -2574,9 +2575,13 @@ bool RendererImpl::present(const TerminalUpdate& update) {
     }
     const bool selectionChanged = previousStateValid && (!sameSelection(update.snappedSelection, previousSelection) || previousHoveredLinkBegin != update.hoveredLinkBegin || previousHoveredLinkEnd != update.hoveredLinkEnd);
     const bool globalPresentationChanged = previousStateValid && (presentationState.screenReverse != update.screenReverse || !(presentationState.selectionForeground == update.selectionForeground) || !(presentationState.selectionBackground == update.selectionBackground) || presentationState.selectionColorMask != update.selectionColorMask);
-    if (shapeChanged || !previousStateValid || globalPresentationChanged) {
+    // The padding follows the live default background (OSC 11); a change
+    // needs a full clear, not just cell repaints.
+    const bool backgroundChanged = !(clearBackground == update.colors->defaultBackground);
+    clearBackground = update.colors->defaultBackground;
+    if (shapeChanged || !previousStateValid || globalPresentationChanged || backgroundChanged) {
         fullDamage();
-        if (shapeChanged) {
+        if (shapeChanged || backgroundChanged) {
             clearDamageGeneration = damage.generation;
         }
     } else {
