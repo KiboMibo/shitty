@@ -8,6 +8,7 @@
 
 #include "composer.h"
 #include "input_handler.h"
+#include "vterm.h"
 
 #include <std/mem/obj_pool.h>
 
@@ -56,9 +57,10 @@ void InputRouter::text(const plt::TextInput& input) {
     }
 }
 
-void InputRouter::preedit(stl::StringView, i32, i32) {
-    // Composition preview is not rendered yet; committed IME text arrives
-    // through text().
+void InputRouter::preedit(stl::StringView text, i32 cursorBegin, i32 cursorEnd) {
+    if (composer.vterm != nullptr) {
+        composer.vterm->preedit(text, cursorBegin, cursorEnd);
+    }
 }
 
 void InputRouter::pointerMotion(const plt::PointerMotionInput& input) {

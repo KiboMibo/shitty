@@ -36,6 +36,8 @@
 #include "small_obj_allocator.h"
 #include "unicode_map.h"
 #include "grapheme.h"
+
+#include <utf8proc.h>
 #include "hex.h"
 #include "listener.h"
 #include "options.h"
@@ -416,6 +418,7 @@ namespace {
         StringView hyperlinkAt(int pixelX, int pixelY);
         bool expireSynchronizedOutput(bool force) override;
         bool advanceAnimation(bool force) override;
+        void preedit(StringView text, i32 cursorBegin, i32 cursorEnd) override;
         const TerminalUpdate* output() override;
         void consume() override;
         VtermState state() const override;
@@ -502,6 +505,7 @@ namespace {
         void changePresentation();
         u64 presentationRevision() const;
         TerminalCursor presentationCursor(u32 viewOffset) const;
+        void overlayPreedit(TerminalUpdate& update);
         void fillTerminalUpdate(TerminalUpdate& update, const ScreenFrame& frame, const TerminalCellSpan* spans);
 
         void writeCsiResponse(StringView payload);
@@ -902,6 +906,13 @@ namespace {
         UnicodeMap<u8>* const unicodeProperties;
         Buffer protocolResponseScratch;
         Vector<TerminalCellSpan> outputSpans;
+        // IME composition preview: overlay cells composed into the frame
+        // at output() time, foot-style. preeditWindow holds the visible
+        // slice the synthetic span points at.
+        Vector<TerminalCell> preeditCells;
+        Vector<TerminalCell> preeditWindow;
+        i32 preeditCursorBeginCell = -1;
+        i32 preeditCursorEndCell = -1;
         TerminalUpdate terminalUpdate;
 
         std::string inputResult;
@@ -2271,6 +2282,69 @@ void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, const ScreenFrame& fr
     update.cursorBlink = cursorBlinkMode;
 }
 
+void VtermImpl::preedit(StringView text, i32 cursorBegin, i32 cursorEnd) {
+    preeditCells.clear();
+    preeditCursorBeginCell = -1;
+    preeditCursorEndCell = -1;
+
+    const auto* bytes = (const utf8proc_uint8_t*)(text.data());
+    utf8proc_ssize_t remaining = (utf8proc_ssize_t)(text.length());
+    i32 offset = 0;
+    while (remaining > 0) {
+        utf8proc_int32_t codepoint = 0;
+        const utf8proc_ssize_t consumed = utf8proc_iterate(bytes, remaining, &codepoint);
+        if (consumed <= 0) {
+            break;
+        }
+        if (cursorBegin >= 0 && preeditCursorBeginCell < 0 && offset >= cursorBegin) {
+            preeditCursorBeginCell = (i32)(preeditCells.length());
+        }
+        const int width = codepointWidth((u32)(codepoint));
+        if (width > 0) {
+            TerminalCell cell{};
+            cell.uc_pt = (u32)(codepoint);
+            cell.drawn = 1;
+            if (width == 2) {
+                cell.dwidth = 1;
+                preeditCells.pushBack(cell);
+                TerminalCell continuation{};
+                continuation.dwidth_cont = 1;
+                continuation.drawn = 1;
+                preeditCells.pushBack(continuation);
+            } else {
+                preeditCells.pushBack(cell);
+            }
+        }
+        if (offset < cursorEnd) {
+            preeditCursorEndCell = (i32)(preeditCells.length());
+        }
+        bytes += consumed;
+        remaining -= consumed;
+        offset += (i32)(consumed);
+    }
+    if (cursorBegin >= 0 && preeditCursorBeginCell < 0) {
+        preeditCursorBeginCell = (i32)(preeditCells.length());
+    }
+    if (preeditCursorEndCell >= 0 && preeditCursorEndCell > (i32)(preeditCells.length())) {
+        preeditCursorEndCell = (i32)(preeditCells.length());
+    }
+    // Underline the preview; show the input method's cursor range in
+    // reverse video (a collapsed range marks the cell after it).
+    for (size_t index = 0; index != preeditCells.length(); ++index) {
+        TerminalCell& cell = preeditCells.mut(index);
+        const bool inCursor = preeditCursorBeginCell >= 0 && preeditCursorEndCell > preeditCursorBeginCell && (i32)(index) >= preeditCursorBeginCell && (i32)(index) < preeditCursorEndCell;
+        if (inCursor) {
+            cell.inverse = 1;
+        } else {
+            cell.underline_style = 1;
+        }
+    }
+
+    cf->expose();
+    changePresentation();
+    redraw();
+}
+
 const TerminalUpdate* VtermImpl::output() {
     if (!outputPending) {
         return nullptr;
@@ -2282,7 +2356,59 @@ const TerminalUpdate* VtermImpl::output() {
     updateScreen = frame;
     updatingRevision = presentationRevision();
     fillTerminalUpdate(terminalUpdate, output, outputSpans.data());
+    overlayPreedit(terminalUpdate);
     return &terminalUpdate;
+}
+
+void VtermImpl::overlayPreedit(TerminalUpdate& update) {
+    if (preeditCells.empty()) {
+        return;
+    }
+    const i32 row = (i32)(posY) + (i32)(update.viewOffset);
+    if (row < 0 || row >= (i32)(composer.rows) || cf->lineAttribute(posY) != 0) {
+        return;
+    }
+    const i32 columns = composer.columns;
+    i32 count = (i32)(preeditCells.length());
+    // foot's clipping policy: shift left when the preview does not fit
+    // to the end of the line; when it exceeds the whole row keep the
+    // tail (fresh input) visible.
+    i32 sliceBegin = 0;
+    if (count > columns) {
+        sliceBegin = count - columns;
+        count = columns;
+    }
+    i32 startColumn = posX;
+    if (startColumn + count > columns) {
+        startColumn = columns - count;
+    }
+    if (sliceBegin > 0 && preeditCells[sliceBegin].dwidth_cont) {
+        ++sliceBegin;
+        --count;
+    }
+    if (count <= 0) {
+        return;
+    }
+
+    preeditWindow.clear();
+    preeditWindow.append(preeditCells.data() + sliceBegin, (size_t)(count));
+
+    TerminalCellSpan& span = outputSpans.mut(update.spanCount);
+    span.cells = preeditWindow.data();
+    span.index = (u32)(row) * (u32)(columns) + (u32)(startColumn);
+    span.count = (u16)(count);
+    span.lineAttribute = 0;
+    update.spanCount = update.spanCount + 1;
+
+    // The regular cursor hides while composing; the anchor for the input
+    // method's candidate window tracks the preview cursor cell.
+    update.cursor.style = TerminalCursor::Style::hidden;
+    if (preeditCursorBeginCell >= 0) {
+        const i32 cursorCell = preeditCursorBeginCell - sliceBegin;
+        const i32 column = startColumn + (cursorCell < 0 ? 0 : cursorCell > count ? count : cursorCell);
+        update.cursor.posX = (u16)(column >= columns ? columns - 1 : column);
+        update.cursor.posY = (u16)(row);
+    }
 }
 
 void VtermImpl::consume() {
@@ -8034,7 +8160,7 @@ VtermImpl::VtermImpl(Composer& composer_, VtermTrace* trace_, Output* dump_)
         throw;
     }
     cf = frame_pri;
-    outputSpans.grow((size_t)(composer.rows) * ((composer.columns + 1u) / 2u));
+    outputSpans.grow((size_t)(composer.rows) * ((composer.columns + 1u) / 2u) + 1);
     makePalette256(colors.palette);
     std::copy(std::begin(colors.palette), std::end(colors.palette), std::begin(originalPalette256));
     colors.defaultForeground = opts.fg;
@@ -8135,7 +8261,7 @@ void VtermImpl::resizeGrid() {
     lastCol = pendingWrap;
     showCursor();
 
-    outputSpans.grow((size_t)(composer.rows) * ((composer.columns + 1u) / 2u));
+    outputSpans.grow((size_t)(composer.rows) * ((composer.columns + 1u) / 2u) + 1);
     updateExtraCellCount();
     refreshBlinkingText();
     if (inBandResizeMode) {

@@ -115,6 +115,12 @@ struct Vterm {
     virtual void feedPty(stl::StringView bytes) = 0;
     virtual void expose() = 0;
     virtual void sendBytes(stl::StringView bytes, bool userInput) = 0;
+    // Input-method composition preview, rendered as an overlay on the
+    // cursor row of the emitted frame; never enters the screen model,
+    // the scrollback, or the pty. Empty text clears the preview.
+    // cursorBegin/cursorEnd are byte offsets into text, or -1 when the
+    // input method hides its cursor.
+    virtual void preedit(stl::StringView text, i32 cursorBegin, i32 cursorEnd) = 0;
 
     virtual bool expireSynchronizedOutput(bool force) = 0;
     virtual bool advanceAnimation(bool force) = 0;

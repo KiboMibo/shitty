@@ -384,6 +384,7 @@ namespace {
         void feedPtyOutput(const std::vector<std::string>& chunks);
         void update();
         void redraw();
+        void preedit(StringView text, i32 cursorBegin, i32 cursorEnd);
         void resize(u16 width, u16 height);
         int writePty(InputKey key, VtModifier modifiers = VtModifier::none, bool userInput = false);
         int writePty(u8 byte, VtModifier modifiers = VtModifier::none, bool userInput = false);
@@ -548,6 +549,11 @@ void TestTerminal::update() {
 
 void TestTerminal::redraw() {
     terminal.expose();
+    update();
+}
+
+void TestTerminal::preedit(StringView text, i32 cursorBegin, i32 cursorEnd) {
+    terminal.preedit(text, cursorBegin, cursorEnd);
     update();
 }
 
@@ -1286,6 +1292,15 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                     throw std::runtime_error("empty grapheme sequence");
                 }
                 writeAll(controlFd, "OK " + boundaries + "\n");
+            } else if (line.compare(0, 8, "PREEDIT ") == 0) {
+                std::istringstream args(line.substr(8));
+                std::string encoded;
+                i32 begin = -1;
+                i32 end = -1;
+                args >> encoded >> begin >> end;
+                const std::string decoded = encoded == "-" ? std::string() : decodeHex(encoded);
+                terminal.preedit(StringView((const u8*)(decoded.data()), decoded.size()), begin, end);
+                writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 6, "INPUT ") == 0) {
                 const std::string input = decodeHex(line.substr(6));
                 const std::u8string bytes(input.begin(), input.end());

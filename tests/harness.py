@@ -865,6 +865,11 @@ class Shitty:
             if finished:
                 return bytes(output)
 
+    def preedit(self, text, cursor_begin=-1, cursor_end=-1):
+        encoded = text.encode() if isinstance(text, str) else text
+        payload = encoded.hex() if encoded else "-"
+        self.command(f"PREEDIT {payload} {cursor_begin} {cursor_end}")
+
     def presented_pixel(self, x, y):
         self.stream.write(f"PRESENTED_PIXEL {x} {y}\n".encode("ascii"))
         response = self._readline().split()
