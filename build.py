@@ -326,6 +326,7 @@ test_suite = command(
         *build.glob("$(S)/tests/*.py"),
         "$(S)/tests/windows_terminal/upstream/KittyKeyboardProtocol.cpp",
         "$(S)/tests/windows_terminal/upstream/ReflowTests.cpp",
+        "$(S)/tests/windows_terminal/upstream/ScreenBufferTests.cpp",
         "$(S)/tests/windows_terminal/upstream/SelectionTest.cpp",
         "$(S)/tests/windows_terminal/upstream/TerminalBufferTests.cpp",
         "$(S)/application.cpp",

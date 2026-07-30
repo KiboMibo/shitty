@@ -3363,10 +3363,11 @@
         (0x40..0x7e - csiEqualKnown) @csiTrace
     ) @csiDone;
 
-    csiQuestionKnown = [JKhilmnrsu];
+    csiQuestionKnown = [JKWhilmnrsu];
     csiQuestionFinal = (
         'J' @csiTrace @{ dispatchEraseDisplay(true); } |
         'K' @csiTrace @{ dispatchEraseLine(true); } |
+        'W' @csiTrace @{ if (parameter(0) == 0 || parameter(0) == 5) { iface.resetTabStops(); } } |
         'h' @csiTrace @{ dispatchPrivateModes(true); } |
         'i' @csiTrace |
         'l' @csiTrace @{ dispatchPrivateModes(false); } |

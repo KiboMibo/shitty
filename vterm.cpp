@@ -548,6 +548,7 @@ namespace {
         void csi_STBM(u32 top, u32 bottom, bool valid) override;
         void clearTabStop() override;
         void clearAllTabStops() override;
+        void resetTabStops() override;
         ParserModeState parserModeState() const override;
         void setKeyboardLocked(bool enabled) override;
         void setInsertMode(bool enabled) override;
@@ -4276,6 +4277,11 @@ void VtermImpl::clearTabStop() {
 void VtermImpl::clearAllTabStops() {
     tabStops.clear();
     tabStopsCustomized = true;
+}
+
+void VtermImpl::resetTabStops() {
+    tabStops.clear();
+    tabStopsCustomized = false;
 }
 
 void VtermImpl::setKeyboardLocked(bool enabled) {

@@ -106,6 +106,24 @@ it as pending wrap in the last cell, matching Alacritty and Ghostty, instead of
 creating a forced blank continuation row. The adapted states still compare the
 complete resulting grid and explicitly verify pending wrap.
 
+`../test_windows_terminal_screen_buffer.py` starts the translation of all 113
+methods in `src/host/ut_host/ScreenBufferTests.cpp`, copied as
+`upstream/ScreenBufferTests.cpp` at the same revision. The source inventory is
+checked statically so later upstream methods cannot disappear unnoticed. The
+first 13 methods cover alternate-screen lifetime and cursor state, reverse
+index, every tab-stop transition, ED2, and all 24 inactive C0 values. They run
+through the observable VT boundary. The original private Win32 buffer-pointer
+and moving-viewport assertions have no terminal protocol counterpart; their
+observable lifetime and screen contracts are retained instead. Windows'
+processed-output newline is expressed explicitly as CRLF, while raw terminal
+LF remains ECMA-48 line feed.
+
+This block found a product gap. DECST8C (`CSI ? 5 W` and its omitted default)
+now restores the standard stops every eight columns. Windows enumerates stops
+by moving forward and therefore does not observe column zero; Shitty keeps
+VTE's equivalent internal bitmap convention in which zero is set. The
+remaining 100 methods stay explicitly listed in `PLAN.md`.
+
 The 25 methods in `src/terminal/parser/ut_parser/InputEngineTest.cpp` test the
 opposite, Windows-only boundary: decoding a VT input byte stream into Win32
 `INPUT_RECORD`, cursor API calls, and `CSI _` Win32 input records. Shitty is a

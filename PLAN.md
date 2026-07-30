@@ -154,7 +154,15 @@ keys.~~
   после каждого resize. 34 состояния совпадают дословно; восемь
   Windows-specific fixed-buffer/cursor-wrap результатов адаптированы к
   cursor-anchored screen и pending-wrap политике Shitty/Alacritty/Ghostty;~~
-- `ScreenBufferTests` — 113, но часть из них привязана к Win32 console model.
+- ~~`ScreenBufferTests`, initial block — первые 13 методов перенесены через
+  observable terminal boundary: alternate-buffer lifetime/cursor, RI, полный
+  tab-stop transition matrix, ED2 и все 24 inactive C0. Импорт нашёл и
+  исправил отсутствующий DECST8C.
+  Приватные Win32 pointer/viewport assertions заменены соответствующим
+  протокольным контрактом;~~
+- `ScreenBufferTests`, remaining — 100 методов; portable assertions переносить
+  блоками, Win32-only console buffer/virtual-bottom ABI явно
+  классифицировать, не выдавая его за terminal semantics.
 
 ### WezTerm
 

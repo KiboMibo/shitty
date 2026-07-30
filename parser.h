@@ -200,6 +200,7 @@ struct ParserIface {
     virtual void csi_STBM(u32 top, u32 bottom, bool valid) = 0;
     virtual void clearTabStop() = 0;
     virtual void clearAllTabStops() = 0;
+    virtual void resetTabStops() = 0;
     virtual ParserModeState parserModeState() const = 0;
     virtual void setKeyboardLocked(bool enabled) = 0;
     virtual void setInsertMode(bool enabled) = 0;

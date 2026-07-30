@@ -379,6 +379,10 @@ namespace {
             record("clearAllTabStops");
         }
 
+        void resetTabStops() override {
+            record("resetTabStops");
+        }
+
         ParserModeState parserModeState() const override {
             record("parserModeState");
             return modeState;
@@ -1094,6 +1098,7 @@ namespace {
         {"VPR", "csi_VPR"},
         {"HVP", "csi_CUP"},
         {"TBC", "clearTabStop"},
+        {"DECST8C", "resetTabStops"},
         {"HPB", "csi_CUB"},
         {"VPB", "csi_CUU"},
         {"SM_ECMA", "setInsertMode"},
@@ -1613,6 +1618,8 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST3(SetTopBottomMargins, csi_STBM, u8"\x1b[2;9r", 2, 9, true)
     SHITTY_PARSER_CALLBACK_TEST0(ClearTabStop, clearTabStop, u8"\x1b[g")
     SHITTY_PARSER_CALLBACK_TEST0(ClearAllTabStops, clearAllTabStops, u8"\x1b[3g")
+    SHITTY_PARSER_CALLBACK_TEST0(ResetTabStops, resetTabStops, u8"\x1b[?5W")
+    SHITTY_PARSER_CALLBACK_TEST0(ResetTabStopsDefault, resetTabStops, u8"\x1b[?W")
     SHITTY_PARSER_CALLBACK_TEST0(ReadModeState, parserModeState, u8"\x1b[?7s")
 
     SHITTY_PARSER_CALLBACK_TEST1(SetKeyboardLocked, setKeyboardLocked, u8"\x1b[2h", true)
