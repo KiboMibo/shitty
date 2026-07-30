@@ -146,7 +146,7 @@ class ProtocolTest(unittest.TestCase):
             self.assertEqual(
                 terminal.read_input(),
                 b"\x1b[1t\x1b[3;10;20t\x1b[4;8;14t"
-                b"\x1b[5;1080;1920t\x1b[9;1080;1920t",
+                b"\x1b[5;1080;1920t\x1b[9;1076;1916t",
             )
 
     def test_xtwinops_resize_requests_reach_window_backend(self):
