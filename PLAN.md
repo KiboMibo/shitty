@@ -406,9 +406,13 @@ query/resize request, title query/update/restore и version query; оригин�
   fractional metadata and incremental-damage cases. The implementation uses
   one shared payload per block and per-cell band coordinates, preserved by
   CellExtra GC.~~
-- TextSizing editing/selection/history/render — 26 cases remain: ICH/DCH and
-  partial rectangle/copy boundary rules; selection expansion, drag clamping
-  and extraction; blocks crossing margins, wrapping runs and deferred wrap;
+- ~~TextSizing ICH/DCH — multiline blocks in the shifted tail are erased;
+  intact single-line blocks move, while blocks split at either movement
+  boundary are erased. This follows the current Kitty specification rather
+  than Contour's conservative erase-all behavior.~~
+- TextSizing editing/selection/history/render — 23 cases remain: partial
+  rectangle/copy boundary rules; selection expansion, drag clamping and
+  extraction; blocks crossing margins, wrapping runs and deferred wrap;
   scrollback lookup; and reference/GPU emission of every visible band with
   fractional alignment.
 - ~~Grid — all 32 cases accounted: 25 terminal-observable resize, reflow,

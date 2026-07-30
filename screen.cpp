@@ -325,6 +325,9 @@ namespace {
         void refreshRowMetadata(Row& row) const noexcept;
         void eraseMulticellAt(i32 row, u16 column, const TerminalCell& attrs);
         void eraseMulticellsInRect(i32 top, u16 left, i32 bottom, u16 right, const TerminalCell& attrs);
+        void eraseMultilineMulticellsInRow(u16 row, u16 left, u16 right, const TerminalCell& attrs);
+        void eraseMulticellSplitAt(u16 row, u16 boundary, const TerminalCell& attrs);
+        void eraseIncompleteSingleLineMulticells(u16 row, u16 left, u16 right, const TerminalCell& attrs);
 
         ResizeState* moveIntoState();
         void restoreLayoutState(ResizeState& state, u16 rows, const TerminalColors* colors);
@@ -2083,6 +2086,61 @@ void ScreenBase<Coord, Epoch>::eraseMulticellsInRect(i32 top, u16 left, i32 bott
 }
 
 template <typename Coord, typename Epoch>
+void ScreenBase<Coord, Epoch>::eraseMultilineMulticellsInRow(u16 row, u16 left, u16 right, const TerminalCell& attrs) {
+    const Row* object = rawLogicalRowObject(row);
+    if (object == nullptr || !object->metadata.multicell) {
+        return;
+    }
+    for (u16 column = left; column < right; ++column) {
+        const MulticellView block = cellExtras().multicell(getLogicalRowPtr(row)[column]);
+        if (block.valid() && block.spec.rows > 1) {
+            eraseMulticellAt(row, column, attrs);
+        }
+    }
+}
+
+template <typename Coord, typename Epoch>
+void ScreenBase<Coord, Epoch>::eraseMulticellSplitAt(u16 row, u16 boundary, const TerminalCell& attrs) {
+    const Row* object = rawLogicalRowObject(row);
+    if (object == nullptr || !object->metadata.multicell || boundary >= nCols) {
+        return;
+    }
+    const MulticellView block = cellExtras().multicell(object->cells[boundary]);
+    if (block.valid() && block.spec.rows == 1 && block.column != 0) {
+        eraseMulticellAt(row, boundary, attrs);
+    }
+}
+
+template <typename Coord, typename Epoch>
+void ScreenBase<Coord, Epoch>::eraseIncompleteSingleLineMulticells(u16 row, u16 left, u16 right, const TerminalCell& attrs) {
+    Row* object = rawLogicalRowObject(row);
+    if (object == nullptr || !object->metadata.multicell) {
+        return;
+    }
+
+    CellExtraStore& extras = cellExtras();
+    for (u16 column = left; column < right; ++column) {
+        const MulticellView block = extras.multicell(object->cells[column]);
+        if (!block.valid() || block.spec.rows != 1) {
+            continue;
+        }
+
+        const u16 origin = block.column <= column ? column - block.column : nCols;
+        bool complete = origin < nCols && block.spec.columns <= nCols - origin;
+        for (u16 band = 0; complete && band < block.spec.columns; ++band) {
+            const MulticellView member = extras.multicell(object->cells[origin + band]);
+            complete = member.identity == block.identity && member.row == 0 && member.column == band;
+        }
+        if (!complete) {
+            eraseMulticellAt(row, column, attrs);
+        } else {
+            column = origin + block.spec.columns - 1;
+        }
+    }
+    refreshRowMetadata(*object);
+}
+
+template <typename Coord, typename Epoch>
 TerminalCell* ScreenBase<Coord, Epoch>::prepareSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs) {
     RowSlot& slot = logicalRowSlot(row);
     return prepareSpan(slot, row, start, count, eraseAttrs);
@@ -3238,8 +3296,10 @@ void ScreenBase<Coord, Epoch>::insertCells(u16 row, u16 start, u16 end, u16 coun
     }
     const u16 moved = end - start - count;
     RowSlot& slot = logicalRowSlot(row);
-    if (slot != nullptr && slot->metadata.multicell) {
-        eraseMulticellsInRect(row, start, row + 1, end, attrs);
+    const bool hasMulticells = slot != nullptr && slot->metadata.multicell;
+    if (hasMulticells) {
+        eraseMultilineMulticellsInRow(row, start, end, attrs);
+        eraseMulticellSplitAt(row, start, attrs);
     }
     if (slot == nullptr || !slot->metadata.wide) {
         TerminalCell* cells = rowData(slot);
@@ -3252,6 +3312,9 @@ void ScreenBase<Coord, Epoch>::insertCells(u16 row, u16 start, u16 end, u16 coun
         }
         if (moved == 0) {
             eraseInRow(slot, row, start, count, attrs);
+            if (hasMulticells && slot != nullptr) {
+                refreshRowMetadata(*slot);
+            }
             return;
         }
         TerminalCell erased = attrs;
@@ -3264,6 +3327,9 @@ void ScreenBase<Coord, Epoch>::insertCells(u16 row, u16 start, u16 end, u16 coun
         if (!selection.empty()) {
             invalidateSelection(Rect(start, row, end, row));
         }
+        if (hasMulticells) {
+            eraseIncompleteSingleLineMulticells(row, start, end, attrs);
+        }
         return;
     }
     if (moved != 0) {
@@ -3275,6 +3341,9 @@ void ScreenBase<Coord, Epoch>::insertCells(u16 row, u16 start, u16 end, u16 coun
         repairWideBoundary(row, end, attrs);
     }
     eraseCells(row, start, count, attrs);
+    if (hasMulticells) {
+        eraseIncompleteSingleLineMulticells(row, start, end, attrs);
+    }
 }
 
 template <typename Coord, typename Epoch>
@@ -3285,8 +3354,10 @@ void ScreenBase<Coord, Epoch>::deleteCells(u16 row, u16 start, u16 end, u16 coun
     }
     const u16 moved = end - start - count;
     RowSlot& slot = logicalRowSlot(row);
-    if (slot != nullptr && slot->metadata.multicell) {
-        eraseMulticellsInRect(row, start, row + 1, end, attrs);
+    const bool hasMulticells = slot != nullptr && slot->metadata.multicell;
+    if (hasMulticells) {
+        eraseMultilineMulticellsInRow(row, start, end, attrs);
+        eraseMulticellSplitAt(row, start, attrs);
     }
     if (slot == nullptr || !slot->metadata.wide) {
         TerminalCell* cells = rowData(slot);
@@ -3295,6 +3366,9 @@ void ScreenBase<Coord, Epoch>::deleteCells(u16 row, u16 start, u16 end, u16 coun
         }
         if (moved == 0) {
             eraseInRow(slot, row, start, count, attrs);
+            if (hasMulticells && slot != nullptr) {
+                refreshRowMetadata(*slot);
+            }
             return;
         }
         TerminalCell erased = attrs;
@@ -3307,6 +3381,9 @@ void ScreenBase<Coord, Epoch>::deleteCells(u16 row, u16 start, u16 end, u16 coun
         if (!selection.empty()) {
             invalidateSelection(Rect(start, row, end, row));
         }
+        if (hasMulticells) {
+            eraseIncompleteSingleLineMulticells(row, start, end, attrs);
+        }
         return;
     }
     if (moved != 0) {
@@ -3317,6 +3394,9 @@ void ScreenBase<Coord, Epoch>::deleteCells(u16 row, u16 start, u16 end, u16 coun
         repairWideBoundary(row, start + moved, attrs);
     }
     eraseCells(row, start + moved, count, attrs);
+    if (hasMulticells) {
+        eraseIncompleteSingleLineMulticells(row, start, end, attrs);
+    }
 }
 
 template <typename Coord, typename Epoch>

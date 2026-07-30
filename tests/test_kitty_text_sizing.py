@@ -142,6 +142,46 @@ class KittyTextSizingTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(2, 0).char, "a")
             self.assertEqual(snapshot.cell(2, 1).char, "g")
 
+    def test_ich_moves_an_intact_single_line_block(self):
+        with Shitty(columns=12, rows=2) as terminal:
+            terminal.write(b"\x1b[1;5H" + osc66(b"w=3", b"A"))
+            terminal.write(b"\x1b[1;1H\x1b[2@")
+            self.assertFalse(terminal.multicell(0, 4).valid)
+            block = terminal.multicell(0, 6)
+            self.assertTrue(block.valid)
+            self.assertEqual((block.columns, block.column), (3, 0))
+
+    def test_dch_moves_an_intact_single_line_block(self):
+        with Shitty(columns=12, rows=2) as terminal:
+            terminal.write(b"\x1b[1;5H" + osc66(b"w=3", b"A"))
+            terminal.write(b"\x1b[1;1H\x1b[2P")
+            block = terminal.multicell(0, 2)
+            self.assertTrue(block.valid)
+            self.assertEqual((block.columns, block.column), (3, 0))
+            self.assertFalse(terminal.multicell(0, 6).valid)
+
+    def test_ich_erases_a_single_line_block_split_by_its_boundary(self):
+        with Shitty(columns=12, rows=2) as terminal:
+            terminal.write(b"\x1b[1;5H" + osc66(b"w=3", b"A"))
+            terminal.write(b"\x1b[1;6H\x1b[@")
+            for column in range(12):
+                self.assertFalse(terminal.multicell(0, column).valid)
+
+    def test_dch_erases_a_single_line_block_split_by_its_source_boundary(self):
+        with Shitty(columns=12, rows=2) as terminal:
+            terminal.write(b"\x1b[1;5H" + osc66(b"w=3", b"A"))
+            terminal.write(b"\x1b[1;4H\x1b[2P")
+            for column in range(12):
+                self.assertFalse(terminal.multicell(0, column).valid)
+
+    def test_ich_erases_a_multiline_block_anywhere_in_the_shifted_tail(self):
+        with Shitty(columns=12, rows=3) as terminal:
+            terminal.write(b"\x1b[1;5H" + osc66(b"s=2", b"A"))
+            terminal.write(b"\x1b[1;1H\x1b[2@")
+            for row in range(2):
+                for column in range(12):
+                    self.assertFalse(terminal.multicell(row, column).valid)
+
     def test_adjacent_blocks_keep_distinct_identity(self):
         with Shitty(columns=12, rows=2) as terminal:
             terminal.write(osc66(b"w=2", b"A") + osc66(b"w=2", b"B"))
