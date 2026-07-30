@@ -210,6 +210,27 @@ class KittyTextSizingTest(unittest.TestCase):
             terminal.select_update(1, 0)
             self.assertEqual(terminal.select_finish(), b"A")
 
+    def test_copying_lower_bands_adds_no_blank_trailing_line(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write(osc66(b"s=2:w=2", b"X"))
+            terminal.select_start(0, 0)
+            terminal.select_update(4, 1)
+            self.assertEqual(terminal.select_finish(), b"X")
+
+    def test_block_identity_and_band_survive_in_scrollback(self):
+        with Shitty(columns=10, rows=4, save_lines=20) as terminal:
+            terminal.write(osc66(b"s=3", b"X"))
+            terminal.write(b"\x1b[4;1H\x1b[5S")
+            history = terminal.scrollback_state()[0]
+            blocks = [
+                (row, terminal.multicell(row, 0))
+                for row in range(-history, 0)
+                if terminal.multicell(row, 0).valid
+            ]
+            self.assertEqual([row for row, _ in blocks], [-4, -3, -2])
+            self.assertEqual([block.row for _, block in blocks], [0, 1, 2])
+            self.assertTrue(all(block.rows == 3 for _, block in blocks))
+
     def test_adjacent_blocks_keep_distinct_identity(self):
         with Shitty(columns=12, rows=2) as terminal:
             terminal.write(osc66(b"w=2", b"A") + osc66(b"w=2", b"B"))
