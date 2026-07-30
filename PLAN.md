@@ -144,7 +144,11 @@ keys.~~
   soft-wrapped logical line. Windows-only смена expansion mode при каждом
   Shift+click адаптирована к консенсусу Foot/Kitty: drag сохраняет исходный
   word/line mode;~~
-- terminal buffer — 10;
+- ~~terminal buffer — все 10 methods перенесены: базовая запись, посимвольный
+  и bulk wrap, удержание viewport при выводе и полном scrollback ring, reset/
+  add/clear/forward/reverse tab stops, implicit URL detection через soft wrap,
+  scrollback и viewport-relative interval. Тест ёмкости использует фактический
+  power-of-two history budget Shitty вместо Windows-специфичных 100 строк;~~
 - большая параметрическая Reflow suite;
 - `ScreenBufferTests` — 113, но часть из них привязана к Win32 console model.
 

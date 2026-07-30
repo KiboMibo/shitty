@@ -71,6 +71,22 @@ transaction is adapted to that consensus while retaining separate char, word,
 line, and persistent-drag assertions. Selection coordinates are half-open, as
 in the rest of Shitty's selection API.
 
+`../test_windows_terminal_buffer.py` translates all 10 methods in
+`src/cascadia/UnitTests_TerminalCore/TerminalBufferTests.cpp`, copied as
+`upstream/TerminalBufferTests.cpp` at the same revision. It covers basic and
+wrapped writes, viewport anchoring while output advances and the history ring
+wraps, the complete tab-stop mutation and traversal surface, and implicit URL
+detection across soft wraps, scrollback, and viewport coordinates. The
+upstream helper discovers tab stops by moving forward from column zero, so its
+expected list intentionally excludes the otherwise valid stop at column zero.
+
+Windows Terminal allocates exactly the requested 100 history rows. Shitty
+rounds its shared screen ring to a power of two and consequently retains more
+rows. The anchoring test first discovers that effective capacity, then
+preserves every upstream transition: output does not snap a scrolled viewport,
+the viewport follows its rows until they are overwritten, and finally remains
+pinned to the oldest retained row.
+
 The 25 methods in `src/terminal/parser/ut_parser/InputEngineTest.cpp` test the
 opposite, Windows-only boundary: decoding a VT input byte stream into Win32
 `INPUT_RECORD`, cursor API calls, and `CSI _` Win32 input records. Shitty is a
