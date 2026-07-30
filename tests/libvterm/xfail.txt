@@ -128,3 +128,14 @@
 # all match.
 # https://invisible-island.net/archives/xterm/xterm-410.tgz
 68screen_termprops.test
+# During width growth, libvterm preserves the old top visible row and leaves
+# newly available rows blank at the bottom.  That loses synthetic reflow
+# history: shrinking a full screen and restoring its width no longer restores
+# the original rows.  Contour's Grid reflow corpus requires the round trip to
+# be reversible, while Foot explicitly anchors the last reflowed row at the
+# bottom and Alacritty grows columns by merging wrapped rows back from history.
+# Shitty follows that bottom-anchored consensus, so the five shell-prompt
+# viewport assertions in this fixture intentionally differ.
+# https://codeberg.org/dnkl/foot/src/branch/master/grid.c
+# https://github.com/alacritty/alacritty/blob/master/alacritty_terminal/src/grid/resize.rs
+69screen_reflow.test

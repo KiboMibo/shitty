@@ -394,7 +394,14 @@ query/resize request, title query/update/restore и version query; оригин�
   inapplicable; Shitty has no ConPTY frontend and continues to report 9001
   unsupported.~~
 - TextSizing — 59;
-- Grid — 32;
+- ~~Grid — all 32 cases accounted: 25 terminal-observable resize, reflow,
+  history, viewport, sparse-row and semantic-region cases are rewritten in
+  Python; seven private storage/rendering cases are mapped to native Screen
+  tests for lazy blank rows, sparse capture and partial-horizontal
+  fill-attribute preservation. Infinite history is adapted to Shitty's
+  explicit finite scrollback contract, and non-bottom height growth follows
+  the Foot/Alacritty bottom-anchored consensus instead of Contour's blank-row
+  behavior.~~
 - ShellIntegration — 31;
 - KittyClipboard — 19;
 - ~~RectangularAreaChecksum — все 12 test cases перенесены: базовая сумма,

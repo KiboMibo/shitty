@@ -46,3 +46,22 @@ that state.  The 50 `Win32InputMode` cases test private ConPTY DECSET 9001;
 Shitty has no ConPTY frontend and deliberately reports mode 9001 unsupported,
 which is pinned by `test_windows_terminal_adapter.py`.  They are therefore
 not silently approximated with the generic Wayland/Cocoa input contract.
+
+`test_contour_grid.py` and `screen_ut.cpp` account for all 32 cases in
+`src/vtbackend/Grid_test.cpp`.  The 25 terminal-observable cases are rewritten
+through the PTY harness: logical-line iteration in both directions,
+height/width resize, reversible reflow, hard-line boundaries, finite
+scrollback, sparse and blank rows, viewport history, long lines, and semantic
+OSC 133 regions.  Seven storage/rendering cases use native Screen tests:
+blank history remains unmaterialized across a large resize, blank capture
+uses the shared sparse row, and partial horizontal scrolling preserves
+distinct blank-cell attributes without materializing equal blank rows.
+
+Two implementation choices intentionally follow Shitty's public contract
+rather than Contour internals.  Shitty has bounded scrollback (including an
+explicit zero-history mode), so Contour's `Infinite` history case is exercised
+at the largest useful finite boundary rather than pretending to offer
+unbounded storage.  When height grows while the cursor is above the bottom,
+Shitty restores the newest history rows, matching Foot and Alacritty; Contour
+instead leaves history untouched and appends a blank row.  Non-normal DEC
+lines are tested natively to ensure they are clipped rather than reflowed.

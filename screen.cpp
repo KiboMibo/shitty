@@ -177,6 +177,7 @@ namespace {
         ScreenHyperlink hyperlinkAt(u16 row, u16 column) const override;
         TerminalCell testCell(u16 row, u16 column) const noexcept override;
         TerminalCell testLogicalCell(i32 row, u16 column) const noexcept override;
+        u32 testMaterializedRows() const noexcept override;
         ScreenFrame captureFrame(TerminalCellSpan* spans) const override;
         ScreenInfo info() const noexcept override;
 
@@ -1256,7 +1257,6 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
         cursorState.position.x + (cursorState.pendingWrap ? 1 : 0),
     };
     Anchor viewAnchor{oldHistoryCount - (int)(viewOffset), 0};
-    Anchor screenAnchor{oldHistoryCount, 0};
     Anchor selectionStart;
     Anchor selectionEnd;
     const bool keepSelection = !selection.null() && !selection.rectangular;
@@ -1266,7 +1266,7 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
         selectionEnd.oldRow = oldHistoryCount + selection.br.y;
         selectionEnd.oldColumn = selection.br.x;
     }
-    std::vector<Anchor*> anchors = {&cursorAnchor, &viewAnchor, &screenAnchor};
+    std::vector<Anchor*> anchors = {&cursorAnchor, &viewAnchor};
     if (keepSelection) {
         anchors.push_back(&selectionStart);
         anchors.push_back(&selectionEnd);
@@ -1401,11 +1401,7 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
     }
 
     const size_t cursorScreenStart = cursorAnchor.mapped.y >= nRows_ ? cursorAnchor.mapped.y - (nRows_ - 1) : 0;
-    size_t preferredScreenStart = screenAnchor.mapped.y;
-    if (nRows_ > state.rows) {
-        preferredScreenStart -= std::min<size_t>(preferredScreenStart, nRows_ - state.rows);
-    }
-    const size_t screenStart = std::max(preferredScreenStart, cursorScreenStart);
+    const size_t screenStart = cursorScreenStart;
     while (output.size() < screenStart + nRows_) {
         output.emplace_back(nCols_);
         outputLineAttributes.pushBack(0);
@@ -2791,6 +2787,15 @@ TerminalCell ScreenBase<Coord, Epoch>::testCell(u16 row, u16 column) const noexc
 template <typename Coord, typename Epoch>
 TerminalCell ScreenBase<Coord, Epoch>::testLogicalCell(i32 row, u16 column) const noexcept {
     return getLogicalRowPtr(row)[column];
+}
+
+template <typename Coord, typename Epoch>
+u32 ScreenBase<Coord, Epoch>::testMaterializedRows() const noexcept {
+    u32 result = 0;
+    for (u32 slot = 0; slot < rowCapacity; ++slot) {
+        result += rowRing[slot] != nullptr;
+    }
+    return result;
 }
 
 template <typename Coord, typename Epoch>
