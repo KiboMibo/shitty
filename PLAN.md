@@ -95,6 +95,22 @@ modifier как Extend, поэтому зафиксирован современ
 следуют неприменимость четырёх disabled-mode VS tests и отсутствие их dirty
 transition.~~
 
+~~Блок `Terminal.zig:5173-6072` учтён. В `test_ghostty_grapheme.py`
+перенесены damage каждого кодпоинта строящейся графемы; сужение VS15 со
+снятием pending-wrap; расширение VS16 в последних клетках, перенос на следующую
+строку, damage обеих строк и сохранение hyperlink; повторные VS16-кластеры;
+атомарный перенос Devanagari-кластера через нижнюю границу со scrollback; очистка
+grapheme payload при перезаписи lead и tail. Обычная ширина combining/Indic и
+right-edge варианты уже строже покрыты Unicode 17 matrix. Внутренняя граница
+Ghostty PageList заменена наблюдаемой продуктовой границей live
+screen/scrollback. Три Ghostty-теста отбрасывают «невалидный» VS15/VS16 из
+payload; актуальный UAX #29 относит variation selectors к Extend и требует
+GB9 без разрыва, поэтому наши тесты фиксируют сохранение селектора, включая
+последующий combining mark. Намеренно неверный Ghostty fast path
+Prepend+ASCII отвергнут в пользу UAX #29 GB9b, уже проверяемого whole/chunked.
+Запись при открытом scrollback уже покрыта более строгим
+`test_write_while_scrolled_changes_only_live_screen`.~~
+
 Не взяты также 94 initial fuzz seeds, но они имеют низкую ценность рядом с полным cmin.
 
 ### Kitty
