@@ -210,6 +210,22 @@ source row. Wide-glyph pre-wrap уже хранился на последней 
 Внутренний `deleteLines(0)` неприменим: у публичного ECMA-48 `CSI 0 M`
 default count равен единице и уже покрыт parser/editing matrices.~~
 
+~~Блок `Terminal.zig:11054-11257` учтён. Пять style/storage tests перенесены
+как наблюдаемые product transactions: default/bold cell, снятие style при
+перезаписи, сохранение style соседней живой клетки и отсутствие наследования
+style обычной клеткой той же строки. Ghostty `style_id`, refcount, style-map
+count и `row.styled` являются деталями Page storage; у Shitty visual
+attributes лежат непосредственно в POD `TerminalCell`, а недостижимые
+CellExtra отдельно проверяются native GC tests. Все четыре DECALN tests
+перенесены: полный экран и damage, home, сброс обеих пар margins, normal
+rendition, очистка grapheme extras и игнорирование ISO/DEC protection при
+заполнении. Импорт нашёл дефект: активный DECSCA/SPA делал сами `E`
+защищёнными. Fill теперь временно снимает protection, сохраняя режим для
+последующей печати, как xterm и Ghostty. Ghostty сохраняет текущие цвета в
+alignment cells; это противоречит DEC VT510 и большинству
+xterm/VTE/WezTerm/Windows Terminal, поэтому oracle нормализован к default
+rendition.~~
+
 Не взяты также 94 initial fuzz seeds, но они имеют низкую ценность рядом с полным cmin.
 
 ### Kitty

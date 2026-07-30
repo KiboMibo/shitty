@@ -5251,6 +5251,7 @@ void VtermImpl::esch_DECALN() {
     TerminalCell origEraseAttrs = eraseAttrs;
 
     resetAttrs();
+    attrs.protected_char = 0;
     fillScreen('E');
 
     attrs = origAttrs;
