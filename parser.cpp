@@ -11,6 +11,7 @@
 #include "vterm_trace.h"
 
 #include <std/alg/minmax.h>
+#include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
 
 #include <cstring>
@@ -120,7 +121,12 @@ namespace {
         bool present[maxParameters] = {};
         size_t parameterCount = 0;
         bool csiHadParameters = false;
-        u8 scratch[maxOscBytes];
+        // Grows on demand up to maxOscBytes: a resident megabyte per
+        // parser instance is paid only by sessions that actually stream
+        // large control strings (OSC 52 clipboard payloads).
+        stl::Buffer scratchStorage;
+        u8* scratch = nullptr;
+        size_t scratchCapacity = 0;
         size_t scratchSize = 0;
         size_t decodedOffset = 0;
         size_t decodedSize = 0;
@@ -246,7 +252,8 @@ namespace {
         const u8* ragelStringData() const noexcept;
         void resetDecoded(size_t offset = 0) noexcept;
         StringView decodedString() const noexcept;
-        void appendDecoded(u8 ch) noexcept;
+        void appendDecoded(u8 ch);
+        void ensureScratch(size_t needed);
         bool decodeBase64(size_t offset) noexcept;
         void decodeCwd() noexcept;
         void decodeTitle() noexcept;
@@ -531,11 +538,33 @@ StringView ParserImpl<traced>::decodedString() const noexcept {
 }
 
 template <bool traced>
-void ParserImpl<traced>::appendDecoded(u8 ch) noexcept {
-    if (parser.decodedOffset + parser.decodedSize == sizeof(parser.scratch)) {
+void ParserImpl<traced>::ensureScratch(size_t needed) {
+    if (needed <= parser.scratchCapacity) {
+        return;
+    }
+    size_t capacity = parser.scratchCapacity == 0 ? 4096 : parser.scratchCapacity;
+    while (capacity < needed) {
+        capacity *= 2;
+    }
+    if (capacity > ProtocolParser::maxOscBytes) {
+        capacity = ProtocolParser::maxOscBytes;
+    }
+    Buffer replacement(capacity);
+    if (parser.scratchSize != 0) {
+        replacement.append(parser.scratch, parser.scratchSize);
+    }
+    parser.scratchStorage.xchg(replacement);
+    parser.scratch = (u8*)(parser.scratchStorage.mutData());
+    parser.scratchCapacity = capacity;
+}
+
+template <bool traced>
+void ParserImpl<traced>::appendDecoded(u8 ch) {
+    if (parser.decodedOffset + parser.decodedSize == ProtocolParser::maxOscBytes) {
         parser.overflow = true;
         return;
     }
+    ensureScratch(parser.decodedOffset + parser.decodedSize + 1);
     parser.scratch[parser.decodedOffset + parser.decodedSize++] = ch;
 }
 
@@ -589,6 +618,7 @@ void ParserImpl<traced>::ragelAppendStringSpan(const u8* data, size_t size, size
     const size_t available = parser.scratchSize < limit ? limit - parser.scratchSize : 0;
     const size_t appendSize = min(size, available);
     if (appendSize != 0) {
+        ensureScratch(parser.scratchSize + appendSize);
         memcpy(parser.scratch + parser.scratchSize, data, appendSize);
         parser.scratchSize += appendSize;
     }
@@ -606,6 +636,7 @@ void ParserImpl<traced>::ragelAppendString(const u8& ch, size_t limit) {
         parser.overflow = true;
         return;
     }
+    ensureScratch(parser.scratchSize + 1);
     parser.scratch[parser.scratchSize++] = ch;
 }
 

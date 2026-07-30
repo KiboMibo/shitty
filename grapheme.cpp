@@ -11,9 +11,11 @@
 #include <algorithm>
 #include <iterator>
 
-// Bases registered by Unicode emoji-variation-sequences.txt.  The repertoire
-// has been stable since Unicode 9.0; keeping it here makes the streaming width
-// decision independent of font coverage.
+// Bases registered by Unicode emoji-variation-sequences.txt.  Emoji
+// variation sequences were introduced in Unicode 9.0 and the registry has
+// only grown since (16.0 still adds entries), so this table tracks the
+// pinned utf8proc Unicode version rather than being frozen; keeping it
+// here makes the streaming width decision independent of font coverage.
 static constexpr u32 vs15Bases[] = {
     0x231a,
     0x231b,

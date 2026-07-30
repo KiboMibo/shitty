@@ -81,6 +81,20 @@ namespace {
     int pixels(hb_position_t value) {
         return value >= 0 ? (value + 32) / 64 : -((-value + 32) / 64);
     }
+
+    // One process-wide library instead of one per font: FT_Library only
+    // holds allocator and module state, and the faces keep it alive for
+    // the process lifetime anyway.
+    FT_Library sharedFreeType() {
+        static FT_Library library = [] {
+            FT_Library value = nullptr;
+            if (FT_Init_FreeType(&value) != 0) {
+                value = nullptr;
+            }
+            return value;
+        }();
+        return library;
+    }
 }
 
 FontImpl::FontImpl(StringView filename, i32 faceIndex, u16 size, FontKind kind, FontMetrics& metrics)
@@ -88,7 +102,8 @@ FontImpl::FontImpl(StringView filename, i32 faceIndex, u16 size, FontKind kind, 
     , kind_(kind)
     , metrics_(metrics)
 {
-    if (FT_Init_FreeType(&library_)) {
+    library_ = sharedFreeType();
+    if (library_ == nullptr) {
         fail(StringView(u8"could not initialize FreeType"));
     }
 
@@ -131,10 +146,8 @@ void FontImpl::close() noexcept {
         FT_Done_Face(face_);
         face_ = nullptr;
     }
-    if (library_ != nullptr) {
-        FT_Done_FreeType(library_);
-        library_ = nullptr;
-    }
+    // The shared FT_Library lives for the process.
+    library_ = nullptr;
 }
 
 void FontImpl::fail(StringView message) {

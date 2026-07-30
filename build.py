@@ -84,7 +84,8 @@ if darwin:
 else:
     darwin_backend = dependency()
 
-utf8proc = pkg_config("libutf8proc")
+# >= 2.9: grapheme.cpp uses the Indic_Conjunct_Break property API.
+utf8proc = pkg_config("libutf8proc >= 2.9.0")
 threads = dependency(ldflags=["-pthread"])
 
 vulkan = dependency()
