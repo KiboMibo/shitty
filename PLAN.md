@@ -143,6 +143,18 @@ page-boundary invalidation, style-map refcounts и capacity retry относят
 Прямой `insertLines(0)` не является terminal protocol case: ECMA-48 default
 для `CSI 0 L` равен одной строке, а внутреннего zero-count API у Shitty нет.~~
 
+~~Блок `Terminal.zig:7846-8659` учтён. CSI SU/SD проверяются для full screen,
+vertical region и partial-width region: содержимое, неизменный cursor, erase
+attributes, точные damage rows, large-count clipping и отсутствие history у
+неполного region уже покрыты editing/scrollback/Windows Terminal matrices.
+Добавлены Ghostty-oracles для сохранения pending-wrap до следующей печати и
+для побитового перемещения/очистки hyperlink metadata внутри horizontal
+margins при сохранении клеток снаружи. Full-width SU на primary сохраняет
+вытесненную строку в scrollback, а `save_lines=0` и regions её не сохраняют —
+это уже проверяется отдельными scrollback tests. Внутренние Ghostty
+PageList viewport coordinates и `page_row.dirty` заменены наблюдаемыми
+history snapshots и полным incremental-render oracle Screen.~~
+
 Не взяты также 94 initial fuzz seeds, но они имеют низкую ценность рядом с полным cmin.
 
 ### Kitty
