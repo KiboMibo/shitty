@@ -179,7 +179,12 @@ keys.~~
   DECAC normal-text реализован с 256-color extension и RIS reset; window-frame
   item семантически разбирается, но остаётся no-op как в xterm, поскольку
   terminal window frame принадлежит host compositor;~~
-- `ScreenBufferTests`, remaining — 65 методов; portable assertions переносить
+- ~~`ScreenBufferTests`, DCH/scroll block — ещё 5 методов: полная матрица
+  near-EOL DCH, две исходные минимальные регрессии, сохранение цветов history
+  при записи в live screen и SU/SD/IL/DL/RI с тремя величинами, scrolling
+  region, cursor и erase attributes. Win32 movable viewport заменён
+  стандартным VT scrolling region;~~
+- `ScreenBufferTests`, remaining — 60 методов; portable assertions переносить
   блоками, Win32-only console buffer/virtual-bottom ABI явно
   классифицировать, не выдавая его за terminal semantics.
 

@@ -154,8 +154,18 @@ and chunked terminal byte streams. This block exposed missing VT525 DECAC
 semantic callbacks, assigns or resets the normal-text defaults, accepts the
 256-color extension shared by Windows Terminal and Contour, and resets the
 assignment on RIS. The frame item is deliberately a no-op, matching xterm:
-Shitty does not own compositor or Cocoa window furniture. The remaining 65
-methods stay explicitly listed in `PLAN.md`.
+Shitty does not own compositor or Cocoa window furniture.
+
+The next five methods retain the complete 64-case near-end-of-line DCH matrix,
+both original minimal regressions, the history-color lifetime invariant, and
+all 15 SU/SD/IL/DL/RI combinations. Windows moves a private Win32 viewport
+inside a larger console buffer; Shitty expresses the portable part through an
+ECMA-48/DEC scrolling region. Content outside that region remains unchanged,
+IL/DL move the cursor to the left margin, and newly revealed cells retain the
+current foreground/background while clearing rendition metadata. The
+`DontResetColorsAboveVirtualBottom` regression is observed at the terminal
+boundary by viewing a colored history row while a write changes the live
+screen. The remaining 60 methods stay explicitly listed in `PLAN.md`.
 
 The 25 methods in `src/terminal/parser/ut_parser/InputEngineTest.cpp` test the
 opposite, Windows-only boundary: decoding a VT input byte stream into Win32

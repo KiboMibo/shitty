@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 import unittest
 
-from harness import Shitty
+from harness import Shitty, put_rows
 
 
 UPSTREAM = (
@@ -63,6 +63,11 @@ PORTED_METHODS = {
     "SetDefaultForegroundColor",
     "SetDefaultBackgroundColor",
     "AssignColorAliases",
+    "DeleteCharsNearEndOfLine",
+    "DeleteCharsNearEndOfLineSimpleFirstCase",
+    "DeleteCharsNearEndOfLineSimpleSecondCase",
+    "DontResetColorsAboveVirtualBottom",
+    "ScrollOperations",
 }
 
 CLASSIFIED_METHODS = {
@@ -943,3 +948,140 @@ class WindowsTerminalScreenBufferDefaultColorTest(unittest.TestCase):
             reset = terminal.snapshot().cell(0, 0)
             self.assertEqual(reset.foreground, (255, 255, 255))
             self.assertEqual(reset.background, (0, 0, 0))
+
+
+class WindowsTerminalScreenBufferEditingTest(unittest.TestCase):
+    def test_delete_chars_near_end_of_line(self):
+        distances = (1, 2, 3, 5, 8, 13, 21, 34)
+        counts = (1, 2, 3, 5, 8, 13, 21, 34)
+        width = 80
+        for distance in distances:
+            for count in counts:
+                with self.subTest(distance=distance, count=count), Shitty(
+                    columns=width,
+                    rows=2,
+                ) as terminal:
+                    column = width - distance
+                    terminal.write(
+                        b"X" * width
+                        + f"\x1b[1;{column + 1}H\x1b[{count}P".encode()
+                    )
+                    snapshot = terminal.snapshot()
+                    erased = min(distance, count)
+                    self.assertEqual(
+                        (snapshot.cursor_x, snapshot.cursor_y),
+                        (column, 0),
+                    )
+                    self.assertEqual(
+                        snapshot.lines[0],
+                        "X" * (width - erased) + " " * erased,
+                    )
+
+    def test_delete_chars_near_end_of_line_simple_first_case(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"ABCDEFG\x1b[1;4H\x1b[3P")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (3, 0))
+            self.assertEqual(snapshot.lines[0], "ABCG    ")
+
+    def test_delete_chars_near_end_of_line_simple_second_case(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"ABCDEFG\x1b[1;3H\x1b[4P")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (2, 0))
+            self.assertEqual(snapshot.lines[0], "ABG     ")
+
+    def test_scrollback_write_does_not_reset_history_colors(self):
+        with Shitty(columns=8, rows=3, save_lines=8) as terminal:
+            terminal.write(
+                b"\x1b[31;44mX\x1b[mX"
+                b"\r\nL1\r\nL2\r\nL3"
+            )
+            terminal.wheel_up(1)
+            before = terminal.snapshot()
+            self.assertEqual(before.view_offset, 1)
+            self.assertEqual(before.lines[0], "XX      ")
+            self.assertEqual(
+                (before.cell(0, 0).foreground,
+                 before.cell(0, 0).background),
+                ((205, 0, 0), (0, 0, 238)),
+            )
+            self.assertEqual(
+                (before.cell(1, 0).foreground,
+                 before.cell(1, 0).background),
+                ((255, 255, 255), (0, 0, 0)),
+            )
+
+            terminal.write(b"X")
+            after = terminal.snapshot()
+            self.assertEqual(after.cells, before.cells)
+
+            terminal.wheel_down(1)
+            live = terminal.snapshot()
+            self.assertEqual(live.lines[-1], "L3X     ")
+
+    def test_scroll_operations(self):
+        operations = (
+            ("SU", b"S", "up", False),
+            ("SD", b"T", "down", False),
+            ("IL", b"L", "down", True),
+            ("DL", b"M", "up", True),
+            ("RI", b"", "down", False),
+        )
+        initial = [chr(ord("A") + row) for row in range(10)]
+        top = 1
+        bottom = 9
+        cursor_row = 4
+        for name, final, direction, from_cursor in operations:
+            for count in (1, 2, 5):
+                with self.subTest(operation=name, count=count), Shitty(
+                    columns=8,
+                    rows=10,
+                    save_lines=0,
+                ) as terminal:
+                    row = top if name == "RI" else cursor_row
+                    sequence = (
+                        b"\x1bM" * count
+                        if name == "RI"
+                        else b"\x1b[" + str(count).encode() + final
+                    )
+                    terminal.write(
+                        put_rows(*(value.encode() for value in initial))
+                        + b"\x1b[2;9r"
+                        + f"\x1b[{row + 1};5H".encode()
+                        + b"\x1b[38;2;12;34;56;48;2;78;90;12;9;7;4:3m"
+                        + sequence
+                    )
+
+                    scroll_top = cursor_row if from_cursor else top
+                    expected = initial.copy()
+                    region = expected[scroll_top:bottom]
+                    if direction == "up":
+                        region = region[count:] + [""] * count
+                        revealed = range(bottom - count, bottom)
+                    else:
+                        region = [""] * count + region[:-count]
+                        revealed = range(scroll_top, scroll_top + count)
+                    expected[scroll_top:bottom] = region
+
+                    snapshot = terminal.snapshot()
+                    self.assertEqual(
+                        snapshot.lines,
+                        [value.ljust(8) for value in expected],
+                    )
+                    expected_column = 0 if from_cursor else 4
+                    self.assertEqual(
+                        (snapshot.cursor_x, snapshot.cursor_y),
+                        (expected_column, row),
+                    )
+                    for revealed_row in revealed:
+                        for column in range(8):
+                            cell = snapshot.cell(column, revealed_row)
+                            self.assertEqual(cell.char, " ")
+                            self.assertEqual(
+                                (cell.foreground, cell.background),
+                                ((12, 34, 56), (78, 90, 12)),
+                            )
+                            self.assertFalse(cell.strike)
+                            self.assertFalse(cell.inverse)
+                            self.assertEqual(cell.underline_style, 0)
