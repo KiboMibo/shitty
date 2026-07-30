@@ -577,14 +577,30 @@ class Shitty:
     def selection_autoscroll_tick(self):
         self.command("SELECTION_AUTOSCROLL_TICK")
 
-    def select_start(self, column, row):
-        self.command(f"SELECT_START {column} {row}")
+    def select_start(self, column, row, cycle=False):
+        self.command(f"SELECT_START {column} {row} {int(cycle)}")
+
+    def select_extend(self, column, row, cycle=False):
+        self.command(f"SELECT_EXTEND {column} {row} {int(cycle)}")
 
     def select_update(self, column, row):
         self.command(f"SELECT_UPDATE {column} {row}")
 
     def select_rectangular(self):
         self.command("SELECT_RECTANGULAR")
+
+    def selection_state(self):
+        self.stream.write(b"SELECTION_STATE\n")
+        response = self._readline().split()
+        if len(response) != 11 or response[0] != "OK":
+            raise RuntimeError("invalid selection state response")
+        values = tuple(map(int, response[1:]))
+        return {
+            "raw": values[:4],
+            "raw_rectangular": bool(values[4]),
+            "snapped": values[5:9],
+            "snapped_rectangular": bool(values[9]),
+        }
 
     def _read_hex_response(self, command):
         self.stream.write(command.encode("ascii") + b"\n")

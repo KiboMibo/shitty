@@ -936,6 +936,7 @@ namespace {
 
         bool selectUpdatesTop = false;
         bool selectUpdatesLeft = false;
+        bool selectPivotFixed = false;
 
         MouseTrackingState mouseTrk;
 
@@ -7582,6 +7583,7 @@ void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
     cf->beginSelection(pt);
     selectUpdatesTop = false;
     selectUpdatesLeft = false;
+    selectPivotFixed = true;
 
     changePresentation();
     hideCursor();
@@ -7589,36 +7591,22 @@ void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
 }
 
 void VtermImpl::selectExtend(int pX, int pY, bool cycleSnapTo) {
-    Point pt = selectionPoint(pX, pY);
-
-    Rect selection = cf->currentSelection();
     if (cycleSnapTo) {
         cf->cycleSelectionSnap();
     }
-
-    if (selection.rectangular) {
-        selectUpdatesLeft = pt.x < selection.mid().x;
-        selectUpdatesTop = pt.y < selection.mid().y;
-    } else {
-        selectUpdatesLeft = selectUpdatesTop = pt < selection.mid();
+    if (!selectPivotFixed) {
+        const Point pt = selectionPoint(pX, pY);
+        const Rect selection = cf->currentSelection();
+        if (selection.rectangular) {
+            selectUpdatesLeft = pt.x < selection.mid().x;
+            selectUpdatesTop = pt.y < selection.mid().y;
+        } else {
+            selectUpdatesLeft = selectUpdatesTop = pt < selection.mid();
+        }
+        selectPivotFixed = true;
     }
-
-    if (selectUpdatesTop && selectUpdatesLeft) {
-        selection.tl = pt;
-    } else if (selectUpdatesTop) {
-        selection.br.x = pt.x;
-        selection.tl.y = pt.y;
-    } else if (selectUpdatesLeft) {
-        selection.tl.x = pt.x;
-        selection.br.y = pt.y;
-    } else {
-        selection.br = pt;
-    }
-
-    cf->updateSelection(selection);
-    changePresentation();
+    selectUpdate(pX, pY);
     hideCursor();
-    redraw();
 }
 
 void VtermImpl::selectUpdate(int pX, int pY) {
@@ -7677,6 +7665,7 @@ void VtermImpl::selectUpdate(int pX, int pY) {
 }
 
 bool VtermImpl::selectFinish(std::string& utf8_selection) {
+    selectPivotFixed = false;
     changePresentation();
     showCursor();
     redraw();

@@ -325,6 +325,7 @@ test_suite = command(
     inputs=[
         *build.glob("$(S)/tests/*.py"),
         "$(S)/tests/windows_terminal/upstream/KittyKeyboardProtocol.cpp",
+        "$(S)/tests/windows_terminal/upstream/SelectionTest.cpp",
         "$(S)/application.cpp",
         "$(S)/shitty.desktop",
     ],

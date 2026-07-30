@@ -50,6 +50,27 @@ is not synthesized for Control or Super key events, because platform text
 input suppresses those modifiers and the protocol forbids C0/C1 control codes
 in that field.
 
+`../test_windows_terminal_selection.py` translates all 21 methods in
+`src/cascadia/UnitTests_TerminalCore/SelectionTest.cpp`, copied as
+`upstream/SelectionTest.cpp` at the same revision. The test-mode display
+exposes both the raw drag rectangle and the snapped rectangle already supplied
+to renderers, so the coordinate assertions do not depend on copied text alone.
+The corpus covers clamping, history/view coordinates, block selection, wide
+glyph boundaries, word and logical-line expansion, direction changes, and the
+selection pivot. Windows' per-row expansion of a rectangular highlight around
+a partially covered wide glyph is implemented in both GPU and reference
+renderers and covered by the reference-renderer unit test. It intentionally
+does not alter rectangular clipboard extraction: like Konsole, Shitty omits a
+wide glyph when only half of it lies inside the copied column range.
+
+Windows Terminal allows callers to replace Char/Word/Line expansion explicitly
+on each Shift+click. Shitty's platform-neutral mouse input has no Windows
+`SelectionExpansion` argument and follows Foot and Kitty: extending an existing
+word- or line-wise selection preserves that mode. The corresponding upstream
+transaction is adapted to that consensus while retaining separate char, word,
+line, and persistent-drag assertions. Selection coordinates are half-open, as
+in the rest of Shitty's selection API.
+
 The 25 methods in `src/terminal/parser/ut_parser/InputEngineTest.cpp` test the
 opposite, Windows-only boundary: decoding a VT input byte stream into Win32
 `INPUT_RECORD`, cursor API calls, and `CSI _` Win32 input records. Shitty is a

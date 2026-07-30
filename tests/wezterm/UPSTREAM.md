@@ -28,10 +28,11 @@ FinalTerm OSC 133 `L` fresh-line behavior, independently corroborated by
 Ghostty and the semantic-prompts specification. All 73 currently agree without
 an expected failure.
 
-The selection catalog covers all 12 clipboard assertions. Three expectations
+The selection catalog covers all 12 clipboard assertions. Five expectations
 are deliberately adapted to the current terminal consensus: selection never
 manufactures a trailing newline beyond the screen, explicitly written trailing
-spaces are preserved, and soft-wrapped rows are copied as one logical line.
+spaces are preserved, and soft-wrapped rows are copied as one logical line,
+including triple-click line selection in both the live screen and scrollback.
 
 The cursor catalog covers all 64 `assert_cursor_pos` call sites, including the
 15 checkpoints that require explicit resize transactions. Position, visibility,

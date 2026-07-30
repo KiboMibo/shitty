@@ -228,6 +228,38 @@ STD_TEST_SUITE(ReferenceRenderer) {
         STD_INSIST((cellPixel(image, 1, 0) == Color{4, 5, 6}));
     }
 
+    STD_TEST(SelectionOfWideContinuationHighlightsWholeGlyph) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        FakeFontpack fonts;
+        fonts.bitmap[0] = 0;
+        fonts.bitmap[1] = 0;
+        fonts.bitmapLength = 2;
+        configure(composer, fonts, 2, 1, 1, 1);
+        ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
+        TerminalColors colors;
+        TerminalCell cells[2]{
+            coloredCell({255, 0, 0}, {0, 0, 255}),
+            coloredCell({255, 0, 0}, {0, 0, 255}),
+        };
+        cells[0].dwidth = true;
+        cells[1].dwidth_cont = true;
+        TerminalCellSpan span{0, 2, cells};
+        TerminalUpdate update;
+        update.spans = &span;
+        update.spanCount = 1;
+        update.colors = &colors;
+        update.snappedSelection = Rect(1, 0, 2, 0);
+        update.snappedSelection.rectangular = true;
+        update.selectionColorMask = 2;
+        update.selectionBackground = {4, 5, 6};
+
+        const ReferenceImage image = renderer->render(update);
+
+        STD_INSIST((cellPixel(image, 0, 0) == Color{4, 5, 6}));
+        STD_INSIST((cellPixel(image, 1, 0) == Color{4, 5, 6}));
+    }
+
     STD_TEST(CompositesPremultipliedColorGlyph) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());

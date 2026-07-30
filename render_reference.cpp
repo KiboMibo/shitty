@@ -53,7 +53,7 @@ namespace {
 
         static int minimum(int left, int right);
         static int maximum(int left, int right);
-        static bool selected(const TerminalUpdate& update, int column, int row);
+        static bool selected(const TerminalUpdate& update, const TerminalCell& cell, int column, int row);
         static u8 mix(u8 foreground, u8 background, u8 coverage);
         static Color blend(Color foreground, Color background, u8 coverage);
         void addGlyph(const u32* codepoints, size_t count, FontStyle style, bool doubleWidth, int cellWidth, int cellHeight);
@@ -77,15 +77,18 @@ int ReferenceRendererImpl::maximum(int left, int right) {
     return left > right ? left : right;
 }
 
-bool ReferenceRendererImpl::selected(const TerminalUpdate& update, int column, int row) {
+bool ReferenceRendererImpl::selected(const TerminalUpdate& update, const TerminalCell& cell, int column, int row) {
     const Rect& selection = update.snappedSelection;
     if (selection.empty()) {
         return false;
     }
-    if (selection.rectangular) {
-        return row >= selection.tl.y && row <= selection.br.y && column >= selection.tl.x && column < selection.br.x;
-    }
-    return (row > selection.tl.y && row < selection.br.y) || (row == selection.tl.y && column >= selection.tl.x && (row < selection.br.y || column < selection.br.x)) || (row == selection.br.y && column < selection.br.x && (row > selection.tl.y || column > selection.tl.x));
+    const auto contains = [&](int x) {
+        if (selection.rectangular) {
+            return row >= selection.tl.y && row <= selection.br.y && x >= selection.tl.x && x < selection.br.x;
+        }
+        return (row > selection.tl.y && row < selection.br.y) || (row == selection.tl.y && x >= selection.tl.x && (row < selection.br.y || x < selection.br.x)) || (row == selection.br.y && x < selection.br.x && (row > selection.tl.y || x > selection.tl.x));
+    };
+    return contains(column) || (cell.dwidth && contains(column + 1));
 }
 
 u8 ReferenceRendererImpl::mix(u8 foreground, u8 background, u8 coverage) {
@@ -213,7 +216,7 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
         foreground = background;
         background = temporary;
     }
-    if (selected(update, column, row)) {
+    if (selected(update, source, column, row)) {
         if (update.selectionColorMask == 0) {
             const Color temporary = foreground;
             foreground = background;

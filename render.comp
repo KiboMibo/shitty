@@ -89,7 +89,7 @@ void storePixel (ivec2 position, vec3 color)
 @OUTPUT_STORE@
 }
 
-bool selected (ivec2 cellPosition)
+bool selectedCoordinate (ivec2 cellPosition)
 {
    if (parameters.rectangularSelection != 0)
    {
@@ -110,6 +110,13 @@ bool selected (ivec2 cellPosition)
        cellPosition.x < parameters.selectionRight &&
        (cellPosition.y > parameters.selectionTop ||
         cellPosition.x > parameters.selectionLeft));
+}
+
+bool selected (ivec2 cellPosition, uint doubleWidth)
+{
+   return selectedCoordinate (cellPosition) ||
+          (doubleWidth != 0 &&
+           selectedCoordinate (cellPosition + ivec2 (1, 0)));
 }
 
 const uint boxDrawingData [128] = uint [128] (
@@ -396,7 +403,7 @@ void main ()
       foreground = background;
       background = temporary;
    }
-   if (selected (cellPosition))
+   if (selected (cellPosition, doubleWidth))
    {
       if (parameters.selectionColorMask == 0)
       {

@@ -398,6 +398,7 @@ namespace {
         std::string modelSnapshot() const;
         std::string modelDigest() const;
         std::string renderState() const;
+        std::string selectionState() const;
         TerminalUpdate renderUpdate() const;
         std::string scrollbackState() const;
         std::string screenText() const;
@@ -424,6 +425,7 @@ namespace {
         Vector<u16> lastUpdateRows;
         TerminalCursor cursor;
         Rect selection;
+        Rect snappedSelection;
         std::vector<DisplayCell> cells;
         mutable Vector<TerminalCellSpan> renderSpans;
         std::vector<TerminalCell> modelCells;
@@ -677,6 +679,7 @@ bool TestDisplay::update(const TerminalUpdate& update) {
     }
     cursor = update.cursor;
     selection = update.selection;
+    snappedSelection = update.snappedSelection;
     viewOffset = update.viewOffset;
     historyRows = update.historyRows;
     screenReverse = update.screenReverse;
@@ -899,6 +902,12 @@ std::string TestDisplay::scrollbackState() const {
 std::string TestDisplay::renderState() const {
     StringBuilder output;
     output << StringView(u8"OK ") << (unsigned)(screenReverse) << StringView(u8" ") << (unsigned)(blinkVisible) << StringView(u8" ") << (unsigned)(cursorBlink) << StringView(u8" ") << (unsigned)(selectionColorMask) << StringView(u8" ") << (unsigned)(selectionForeground.red) << StringView(u8" ") << (unsigned)(selectionForeground.green) << StringView(u8" ") << (unsigned)(selectionForeground.blue) << StringView(u8" ") << (unsigned)(selectionBackground.red) << StringView(u8" ") << (unsigned)(selectionBackground.green) << StringView(u8" ") << (unsigned)(selectionBackground.blue) << StringView(u8" ") << graphemeCells << StringView(u8" ") << graphemeCodepoints << StringView(u8"\n");
+    return toString(output);
+}
+
+std::string TestDisplay::selectionState() const {
+    StringBuilder output;
+    output << StringView(u8"OK ") << selection.tl.x << StringView(u8" ") << selection.tl.y << StringView(u8" ") << selection.br.x << StringView(u8" ") << selection.br.y << StringView(u8" ") << (unsigned)(selection.rectangular) << StringView(u8" ") << snappedSelection.tl.x << StringView(u8" ") << snappedSelection.tl.y << StringView(u8" ") << snappedSelection.br.x << StringView(u8" ") << snappedSelection.br.y << StringView(u8" ") << (unsigned)(snappedSelection.rectangular) << StringView(u8"\n");
     return toString(output);
 }
 
@@ -2087,16 +2096,23 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
             } else if (line == "SELECTION_AUTOSCROLL_TICK") {
                 terminal.advanceSelectionAutoscroll();
                 writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 13, "SELECT_START ") == 0 || line.compare(0, 14, "SELECT_UPDATE ") == 0) {
+            } else if (line.compare(0, 13, "SELECT_START ") == 0 || line.compare(0, 14, "SELECT_EXTEND ") == 0 || line.compare(0, 14, "SELECT_UPDATE ") == 0) {
                 const bool start = line.compare(0, 13, "SELECT_START ") == 0;
+                const bool extend = line.compare(0, 14, "SELECT_EXTEND ") == 0;
                 std::istringstream args(line.substr(start ? 13 : 14));
                 int column;
                 int row;
                 if (!(args >> column >> row)) {
                     throw std::runtime_error("invalid selection point");
                 }
+                unsigned cycle = 0;
+                if ((start || extend) && args >> cycle && cycle > 1) {
+                    throw std::runtime_error("invalid selection cycle");
+                }
                 if (start) {
-                    terminal.selectStart(opts.border + column * composer.glyphWidth, opts.border + row * composer.glyphHeight, false);
+                    terminal.selectStart(opts.border + column * composer.glyphWidth, opts.border + row * composer.glyphHeight, cycle != 0);
+                } else if (extend) {
+                    terminal.selectExtend(opts.border + column * composer.glyphWidth, opts.border + row * composer.glyphHeight, cycle != 0);
                 } else {
                     terminal.selectUpdate(opts.border + column * composer.glyphWidth, opts.border + row * composer.glyphHeight);
                 }
@@ -2224,6 +2240,8 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
                 writeAll(controlFd, StringView(output));
             } else if (line == "RENDER_STATE") {
                 writeAll(controlFd, display.renderState());
+            } else if (line == "SELECTION_STATE") {
+                writeAll(controlFd, display.selectionState());
             } else if (line == "CHARSET_STATE") {
                 const VtermTestState state = testApi.inspect();
                 writeAll(controlFd, "OK " + std::to_string(state.charsets[0]) + " " + std::to_string(state.charsets[1]) + " " + std::to_string(state.charsets[2]) + " " + std::to_string(state.charsets[3]) + "\n");

@@ -1534,21 +1534,21 @@ Rect ScreenBase<Coord, Epoch>::snappedSelection() const {
         return ret;
     }
 
+    const auto wrapLength = [this](int logicalRow) {
+        const TerminalCell* cells = getLogicalRowPtr(logicalRow);
+        for (int x = 0; x < nCols; ++x) {
+            if (cells[x].wrap) {
+                return x + 1;
+            }
+        }
+        return 0;
+    };
+
     switch (snapTo) {
         case SelectSnapTo::Char:
             break;
         case SelectSnapTo::Word: {
-            const auto expand = [this](int rowIndex, int column) {
-                const auto wrapLength = [this](int logicalRow) {
-                    const TerminalCell* cells = getLogicalRowPtr(logicalRow);
-                    for (int x = 0; x < nCols; ++x) {
-                        if (cells[x].wrap) {
-                            return x + 1;
-                        }
-                    }
-                    return 0;
-                };
-
+            const auto expand = [this, &wrapLength](int rowIndex, int column) {
                 const int currentWrapLength = wrapLength(rowIndex);
                 if (currentWrapLength != 0 && column >= currentWrapLength) {
                     const SelectionRow row{getLogicalRowPtr(rowIndex), (int)(nCols)};
@@ -1611,11 +1611,26 @@ Rect ScreenBase<Coord, Epoch>::snappedSelection() const {
             ret.br = end.br;
         } break;
         case SelectSnapTo::Line:
+            while (ret.tl.y > -(int)(historyRows) && wrapLength(ret.tl.y - 1) != 0) {
+                --ret.tl.y;
+            }
+            while (ret.br.y + 1 < nRows && wrapLength(ret.br.y) != 0) {
+                ++ret.br.y;
+            }
             ret.tl.x = 0;
             ret.br.x = nCols;
             break;
         default:
             break;
+    }
+
+    if (!ret.rectangular) {
+        if (ret.tl.x < nCols && getLogicalRowPtr(ret.tl.y)[ret.tl.x].dwidth_cont) {
+            --ret.tl.x;
+        }
+        if (ret.br.x < nCols && getLogicalRowPtr(ret.br.y)[ret.br.x].dwidth_cont) {
+            ++ret.br.x;
+        }
     }
 
     ret.tl.y += viewOffset;
@@ -1626,6 +1641,11 @@ Rect ScreenBase<Coord, Epoch>::snappedSelection() const {
 template <typename Coord, typename Epoch>
 bool ScreenBase<Coord, Epoch>::selectedText(std::string& utf8_selection) const {
     Rect sel = snappedSelection();
+    if (snapTo == SelectSnapTo::Char) {
+        // Rendering expands a partially covered wide glyph so it is never
+        // painted in halves. Clipboard extraction remains column-exact.
+        sel = selectionForView();
+    }
 
     if (sel.empty()) {
         return false;

@@ -82,10 +82,10 @@ CASES = (
     drag_case("selection_0036", (0, 0), (15, 3), "hello world\n💀skull".encode()),
     drag_case("selection_0042", (6, 0), (3, 1), "world\n💀sk".encode()),
     click_case("selection_0053", "double_click_selection", 1, 2, b"hello"),
-    click_case("selection_0064", "triple_click_selection", 1, 3, b"hello worl"),
+    click_case("selection_0064", "triple_click_selection", 1, 3, b"hello world"),
     click_case("selection_0075", "double_click_wrapped_selection", 7, 2, b"world"),
     scrollback_case("selection_0090", scrollback_word, b"2"),
-    scrollback_case("selection_0096", scrollback_line, b"3 "),
+    scrollback_case("selection_0096", scrollback_line, b"1 2 3 4"),
     scrollback_case("selection_0099", scrollback_drag, b"2 3"),
 )
 

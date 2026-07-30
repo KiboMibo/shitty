@@ -138,7 +138,12 @@ keys.~~
   media/volume и полную keypad семантику, исправил F3 по актуальному Kitty
   protocol, canonical omission default modifiers/press event и фильтрацию
   control-code associated text;~~
-- selection — 21;
+- ~~selection — все 21 methods перенесены с координатными assertions raw и
+  snapped selection. Импорт исправил pivot при extension, selection wide-cell
+  boundaries, rectangular highlight через wide glyph и triple-click по целой
+  soft-wrapped logical line. Windows-only смена expansion mode при каждом
+  Shift+click адаптирована к консенсусу Foot/Kitty: drag сохраняет исходный
+  word/line mode;~~
 - terminal buffer — 10;
 - большая параметрическая Reflow suite;
 - `ScreenBufferTests` — 113, но часть из них привязана к Win32 console model.
