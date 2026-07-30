@@ -106,6 +106,7 @@ struct ParserModeState {
     bool synchronizedOutput;
     bool colorSchemeUpdates;
     bool inBandResize;
+    bool pasteMimeNotifications;
 };
 
 struct ParserIface {
@@ -238,6 +239,7 @@ struct ParserIface {
     virtual void setSynchronizedOutput(bool enabled) = 0;
     virtual void setColorSchemeUpdates(bool enabled) = 0;
     virtual void setInBandResize(bool enabled) = 0;
+    virtual void setPasteMimeNotifications(bool enabled) = 0;
     virtual void savePrivateMode(u32 mode, bool enabled) = 0;
     virtual bool restorePrivateMode(u32 mode, bool& enabled) const = 0;
     virtual void reportMode(u32 mode, bool privateMode, u8 state) = 0;
@@ -307,6 +309,11 @@ struct ParserIface {
     virtual void osc_SELECTION_FOREGROUND(Color color, bool query) = 0;
     virtual void osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) = 0;
     virtual void osc_CLIPBOARD_WRITE(stl::StringView content, bool valid, bool primary, bool clipboard) = 0;
+    virtual void osc_KITTY_CLIPBOARD_READ(stl::StringView id, stl::StringView mimeTypes, bool primary, bool valid) = 0;
+    virtual void osc_KITTY_CLIPBOARD_WRITE(stl::StringView id, bool primary) = 0;
+    virtual void osc_KITTY_CLIPBOARD_WRITE_DATA(stl::StringView id, stl::StringView mimeType, stl::StringView content, bool valid) = 0;
+    virtual void osc_KITTY_CLIPBOARD_WRITE_ALIAS(stl::StringView id, stl::StringView mimeType, stl::StringView aliases, bool valid) = 0;
+    virtual void osc_KITTY_CLIPBOARD_INVALID(stl::StringView id, bool write) = 0;
     virtual void osc_NOTIFICATION_CAPABILITIES(stl::StringView payload) = 0;
     virtual void osc_NOTIFICATION_CLOSE(stl::StringView id) = 0;
     virtual void osc_NOTIFICATION_TITLE(stl::StringView id, stl::StringView content, bool encoded, bool final) = 0;

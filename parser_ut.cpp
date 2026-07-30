@@ -465,6 +465,7 @@ namespace {
         RECORD_BOOL_METHOD(setSynchronizedOutput)
         RECORD_BOOL_METHOD(setColorSchemeUpdates)
         RECORD_BOOL_METHOD(setInBandResize)
+        RECORD_BOOL_METHOD(setPasteMimeNotifications)
 
 #undef RECORD_BOOL_METHOD
 
@@ -709,6 +710,36 @@ namespace {
         void osc_CLIPBOARD_WRITE(StringView content, bool valid, bool primary, bool clipboard) override {
             ParserCall& call = record("osc_CLIPBOARD_WRITE", valid, primary, clipboard);
             saveText(call, 0, content);
+        }
+
+        void osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bool primary, bool valid) override {
+            ParserCall& call = record("osc_KITTY_CLIPBOARD_READ", primary, valid);
+            saveText(call, 0, id);
+            saveText(call, 1, mimeTypes);
+        }
+
+        void osc_KITTY_CLIPBOARD_WRITE(StringView id, bool primary) override {
+            ParserCall& call = record("osc_KITTY_CLIPBOARD_WRITE", primary);
+            saveText(call, 0, id);
+        }
+
+        void osc_KITTY_CLIPBOARD_WRITE_DATA(StringView id, StringView mimeType, StringView content, bool valid) override {
+            ParserCall& call = record("osc_KITTY_CLIPBOARD_WRITE_DATA", valid);
+            saveText(call, 0, id);
+            saveText(call, 1, mimeType);
+            saveText(call, 2, content);
+        }
+
+        void osc_KITTY_CLIPBOARD_WRITE_ALIAS(StringView id, StringView mimeType, StringView aliases, bool valid) override {
+            ParserCall& call = record("osc_KITTY_CLIPBOARD_WRITE_ALIAS", valid);
+            saveText(call, 0, id);
+            saveText(call, 1, mimeType);
+            saveText(call, 2, aliases);
+        }
+
+        void osc_KITTY_CLIPBOARD_INVALID(StringView id, bool write) override {
+            ParserCall& call = record("osc_KITTY_CLIPBOARD_INVALID", write);
+            saveText(call, 0, id);
         }
 
 #define RECORD_TEXT_METHOD(method, parameter)    \
@@ -1750,6 +1781,7 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST1(SetSynchronizedOutput, setSynchronizedOutput, u8"\x1b[?2026h", true)
     SHITTY_PARSER_CALLBACK_TEST1(SetColorSchemeUpdates, setColorSchemeUpdates, u8"\x1b[?2031h", true)
     SHITTY_PARSER_CALLBACK_TEST1(SetInBandResize, setInBandResize, u8"\x1b[?2048h", true)
+    SHITTY_PARSER_CALLBACK_TEST1(SetPasteMimeNotifications, setPasteMimeNotifications, u8"\x1b[?5522h", true)
     SHITTY_PARSER_CALLBACK_TEST2(SavePrivateMode, savePrivateMode, u8"\x1b[?7s", 7, false)
 
     STD_TEST(UnknownPrivateModeIsNotSaved) {
@@ -1897,6 +1929,56 @@ STD_TEST_SUITE(ParserCallbacks) {
         const ParserCall& call = fixture.expect("osc_CLIPBOARD_WRITE");
         expectValues(call, true, false, true);
         expectText(fixture.iface, call, 0, StringView(u8"a"));
+    }
+
+    STD_TEST(KittyClipboardRead) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b]5522;type=read:id=abc:loc=primary;dGV4dC9wbGFpbg==\x1b\\"));
+        const ParserCall& call = fixture.expect("osc_KITTY_CLIPBOARD_READ");
+        expectValues(call, true, true);
+        expectText(fixture.iface, call, 0, StringView(u8"abc"));
+        expectText(fixture.iface, call, 1, StringView(u8"text/plain"));
+    }
+
+    STD_TEST(KittyClipboardWrite) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b]5522;type=write:name=Zm9v:pw=cHc=:id=7;\x1b\\"));
+        const ParserCall& call = fixture.expect("osc_KITTY_CLIPBOARD_WRITE");
+        expectValues(call, false);
+        expectText(fixture.iface, call, 0, StringView(u8"7"));
+    }
+
+    STD_TEST(KittyClipboardWriteData) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b]5522;type=wdata:mime=dGV4dC9wbGFpbg==:id=7;QUI=\x1b\\"));
+        const ParserCall& call = fixture.expect("osc_KITTY_CLIPBOARD_WRITE_DATA");
+        expectValues(call, true);
+        expectText(fixture.iface, call, 0, StringView(u8"7"));
+        expectText(fixture.iface, call, 1, StringView(u8"text/plain"));
+        expectText(fixture.iface, call, 2, StringView(u8"AB"));
+    }
+
+    STD_TEST(KittyClipboardWriteAlias) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b]5522;type=walias:mime=dGV4dC9wbGFpbg==;VEVYVCBTVFJJTkc=\x1b\\"));
+        const ParserCall& call = fixture.expect("osc_KITTY_CLIPBOARD_WRITE_ALIAS");
+        expectValues(call, true);
+        expectText(fixture.iface, call, 1, StringView(u8"text/plain"));
+        expectText(fixture.iface, call, 2, StringView(u8"TEXT STRING"));
+    }
+
+    STD_TEST(KittyClipboardMalformedMetadata) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b]5522;type=write:novalue;\x1b\\"));
+        const ParserCall& call = fixture.expect("osc_KITTY_CLIPBOARD_INVALID");
+        expectValues(call, true);
+    }
+
+    STD_TEST(KittyClipboardUnknownType) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b]5522;type=nonsense;\x1b\\"));
+        const ParserCall& call = fixture.expect("osc_KITTY_CLIPBOARD_INVALID");
+        expectValues(call, false);
     }
 
     STD_TEST(MalformedClipboard) {

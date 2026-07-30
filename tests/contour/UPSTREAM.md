@@ -85,3 +85,19 @@ local Foot, Alacritty, Kitty, Ghostty, VTE, xterm, or WezTerm sources
 implements that protocol, so it is recorded as an intentional capability
 boundary rather than silently approximated.  The `LineFlags` formatter case
 is likewise a private Contour value-object assertion with no wire behavior.
+
+`test_contour_kitty_clipboard.py` inventories all 19 cases from
+`src/vtbackend/KittyClipboard_test.cpp`. The packet parser cases are also
+covered at the native `ParserIface` boundary, while the Python suite exercises
+the complete OSC 5522 exchange through the real asynchronous clipboard and PTY
+output paths: bounded/chunked writes and reads, errors, permissions, MIME
+aliases, sanitized `id` echoing, TARGETS and paste-event mode 5522.
+
+Two adaptations intentionally follow the protocol and Shitty's capabilities
+instead of Contour internals. Shitty implements primary selection on both
+supported platforms, so `loc=primary` is tested as a distinct successful
+target rather than forced to `ENOSYS`. Shitty has no DEC status-line screen;
+the transmission-lifetime invariant is tested across a primary/alternate
+screen switch instead. TARGETS replies use Kitty's current wire shape:
+`mime=.` with the available MIME names in the payload, rather than Contour's
+`mime=text/plain` packet with an empty payload.

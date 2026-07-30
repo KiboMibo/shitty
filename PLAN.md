@@ -416,7 +416,14 @@ query/resize request, title query/update/restore и version query; оригин�
   implementation exists in the checked Foot, Alacritty, Kitty, Ghostty, VTE,
   xterm or WezTerm sources; treat as intentionally inapplicable unless Shitty
   deliberately adopts this Contour protocol.
-- KittyClipboard — 19;
+- ~~KittyClipboard — all 19 cases accounted. OSC 5522 parsing, bounded
+  multi-packet writes, MIME validation, asynchronous reads, 4096-byte read
+  chunks, permission errors, sanitized multiplexing ids, TARGETS probes and
+  private mode 5522 paste notifications are covered by native parser tests and
+  Python protocol tests. The Contour-only refusal of `loc=primary` is replaced
+  by real primary-selection reads/writes because Shitty supports that
+  platform capability. Its status-line lifetime test is exercised across the
+  primary/alternate screen boundary; Shitty has no DEC status-line surface.~~
 - ~~RectangularAreaChecksum — все 12 test cases перенесены: базовая сумма,
   written/undrawn blanks, DEC video-attribute weights, DEC charset mapping,
   combining marks и все пять composable XTCHECKSUM flags. Импорт добавил

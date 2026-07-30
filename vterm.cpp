@@ -99,6 +99,69 @@ namespace {
         return StringView((const u8*)(value.data()), value.size());
     }
 
+    bool kittyClipboardMimeSupported(StringView mimeType) {
+        return mimeType.empty() || mimeType == StringView(u8"text/plain") || mimeType == StringView(u8"text/plain;charset=utf-8") || mimeType == StringView(u8"UTF8_STRING") || mimeType == StringView(u8"STRING") || mimeType == StringView(u8"TEXT");
+    }
+
+    StringView selectKittyClipboardMime(StringView mimeTypes) {
+        if (mimeTypes.empty()) {
+            return StringView(u8"text/plain");
+        }
+        while (!mimeTypes.empty()) {
+            StringView mimeType = mimeTypes;
+            StringView rest;
+            if (mimeTypes.split(' ', mimeType, rest)) {
+                mimeTypes = rest;
+            } else {
+                mimeTypes = {};
+            }
+            if (kittyClipboardMimeSupported(mimeType)) {
+                return mimeType.empty() ? StringView(u8"text/plain") : mimeType;
+            }
+        }
+        return {};
+    }
+
+    void copyKittyClipboardId(Buffer& output, StringView input) {
+        output.reset();
+        for (const u8 byte : input) {
+            if ((byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') || (byte >= '0' && byte <= '9') || byte == '-' || byte == '_' || byte == '+' || byte == '.') {
+                output.append(&byte, 1);
+            }
+        }
+    }
+
+    void writeKittyClipboardPacket(Output& output, bool send8BitControls, StringView type, StringView status, StringView id = {}, StringView mimeType = {}, StringView payload = {}, bool primary = false) {
+        StringBuilder header;
+        header << (send8BitControls ? StringView(u8"\x9d") : StringView(u8"\x1b]")) << StringView(u8"5522;type=") << type << StringView(u8":status=") << status;
+        if (primary && status == StringView(u8"OK")) {
+            header << StringView(u8":loc=primary");
+        }
+        if (!id.empty()) {
+            header << StringView(u8":id=") << id;
+        }
+        if (!mimeType.empty()) {
+            header << StringView(u8":mime=");
+        }
+        StringView bytes(header);
+        output.write(bytes.data(), bytes.length());
+        if (!mimeType.empty()) {
+            Base64Encoder encoder;
+            encoder.write(output, mimeType);
+            encoder.finish(output);
+        }
+        if (!payload.empty()) {
+            const u8 separator = ';';
+            output.write(&separator, 1);
+            Base64Encoder encoder;
+            encoder.write(output, payload);
+            encoder.finish(output);
+        }
+        const StringView suffix = send8BitControls ? StringView(u8"\x9c") : StringView(u8"\x1b\\");
+        output.write(suffix.data(), suffix.length());
+        output.flush();
+    }
+
     struct PasteOutput final: public Output {
         PasteOutput(SmallObjAllocator* allocator, Output* output, bool bracketed);
         ~PasteOutput() noexcept override;
@@ -147,6 +210,28 @@ namespace {
         bool tryClipboard;
         u8 replySelector;
         bool selectorsEmpty;
+        bool send8BitControls;
+        bool started = false;
+    };
+
+    struct KittyClipboardQueryOutput final: public Output {
+        KittyClipboardQueryOutput(SmallObjAllocator* allocator, Output* output, StringView id, StringView mimeType, bool primary, bool targets, bool send8BitControls);
+        ~KittyClipboardQueryOutput() noexcept override;
+
+        void operator delete(KittyClipboardQueryOutput* output, std::destroying_delete_t) noexcept;
+
+        size_t writeImpl(const void* data, size_t size) override;
+        void finishImpl() override;
+        void beginReply();
+        void finishReply(bool success);
+        void writePacket(StringView status, StringView mimeType = {}, StringView payload = {});
+
+        SmallObjAllocator* allocator;
+        Output* output;
+        Buffer id;
+        Buffer mimeType;
+        bool primary;
+        bool targets;
         bool send8BitControls;
         bool started = false;
     };
@@ -292,6 +377,7 @@ namespace {
         void selectionClear();
         void selectionRectangular();
         void paste(StringView text);
+        bool pasteMimeNotification(bool primary);
         ScreenHyperlink resolveHyperlink(int pixelX, int pixelY) const;
         StringView hyperlinkAt(int pixelX, int pixelY);
         bool expireSynchronizedOutput(bool force) override;
@@ -589,6 +675,7 @@ namespace {
         void setSynchronizedOutput(bool enabled) override;
         void setColorSchemeUpdates(bool enabled) override;
         void setInBandResize(bool enabled) override;
+        void setPasteMimeNotifications(bool enabled) override;
         void savePrivateMode(u32 mode, bool enabled) override;
         bool restorePrivateMode(u32 mode, bool& enabled) const override;
         void reportMode(u32 mode, bool privateMode, u8 state) override;
@@ -657,8 +744,14 @@ namespace {
         void osc_SELECTION_BACKGROUND(Color, bool) override;
         void osc_SELECTION_FOREGROUND(Color, bool) override;
         void writeDynamicColorResponse(u32, Color);
+        void writeKittyClipboardStatus(StringView, StringView, StringView);
         void osc_CLIPBOARD_QUERY(bool, bool, u8, bool) override;
         void osc_CLIPBOARD_WRITE(StringView, bool, bool, bool) override;
+        void osc_KITTY_CLIPBOARD_READ(StringView, StringView, bool, bool) override;
+        void osc_KITTY_CLIPBOARD_WRITE(StringView, bool) override;
+        void osc_KITTY_CLIPBOARD_WRITE_DATA(StringView, StringView, StringView, bool) override;
+        void osc_KITTY_CLIPBOARD_WRITE_ALIAS(StringView, StringView, StringView, bool) override;
+        void osc_KITTY_CLIPBOARD_INVALID(StringView, bool) override;
         void osc_NOTIFICATION_CAPABILITIES(StringView) override;
         void osc_NOTIFICATION_CLOSE(StringView) override;
         void osc_NOTIFICATION_TITLE(StringView, StringView, bool, bool) override;
@@ -884,6 +977,7 @@ namespace {
         bool synchronizedOutputMode = false;
         bool colorSchemeUpdateMode = false;
         bool inBandResizeMode = false;
+        bool pasteMimeNotificationsMode = false;
         u64 synchronizedOutputDeadline = 0;
         bool send8BitControls = false;
         bool altScrollMode = false;
@@ -899,6 +993,10 @@ namespace {
         std::map<u32, bool> savedPrivModes;
         std::map<InputKey, std::string> userDefinedKeys;
         bool userDefinedKeysLocked = false;
+        Buffer kittyClipboardWriteContent;
+        Buffer kittyClipboardWriteId;
+        bool kittyClipboardWriteOpen = false;
+        bool kittyClipboardWritePrimary = false;
 
         struct KittyKeyboardState {
             u8 flags = 0;
@@ -1042,6 +1140,7 @@ namespace {
         void selectionRectangular() override;
         bool advanceSelectionAutoscroll() override;
         void paste(StringView text) override;
+        bool pasteClipboard(bool primary) override;
         StringView hyperlinkAt(int pixelX, int pixelY) override;
 
         VtermImpl* vterm;
@@ -1118,6 +1217,9 @@ u16 VtermInput::kittyModifiers(u16 modifiers) const {
 }
 
 bool VtermInput::paste(bool primary) {
+    if (terminal->pasteMimeNotificationsMode) {
+        return terminal->pasteMimeNotification(primary);
+    }
     Clipboard* const clipboard = terminal->host.clipboard();
     if (clipboard == nullptr || terminal->composer.ptyOutputs == nullptr || terminal->composer.ptyOutput == nullptr) {
         return false;
@@ -1452,6 +1554,76 @@ void ClipboardQueryOutput::finishReply() {
     Output* const completed = output;
     output = nullptr;
     delete completed;
+}
+
+KittyClipboardQueryOutput::KittyClipboardQueryOutput(SmallObjAllocator* allocator_, Output* output_, StringView id_, StringView mimeType_, bool primary_, bool targets_, bool send8BitControls_)
+    : allocator(allocator_)
+    , output(output_)
+    , primary(primary_)
+    , targets(targets_)
+    , send8BitControls(send8BitControls_)
+{
+    copyKittyClipboardId(id, id_);
+    mimeType.append(mimeType_.data(), mimeType_.length());
+}
+
+KittyClipboardQueryOutput::~KittyClipboardQueryOutput() noexcept {
+    finishReply(false);
+}
+
+void KittyClipboardQueryOutput::operator delete(KittyClipboardQueryOutput* output, std::destroying_delete_t) noexcept {
+    SmallObjAllocator* const allocator = output->allocator;
+    allocator->release(output);
+}
+
+size_t KittyClipboardQueryOutput::writeImpl(const void* data, size_t size) {
+    if (targets || size == 0) {
+        return size;
+    }
+    beginReply();
+    const u8* current = (const u8*)(data);
+    while (size != 0) {
+        constexpr size_t maximumChunk = 4096;
+        const size_t chunk = size < maximumChunk ? size : maximumChunk;
+        writePacket(StringView(u8"DATA"), StringView(mimeType), StringView(current, chunk));
+        current += chunk;
+        size -= chunk;
+    }
+    return current - (const u8*)(data);
+}
+
+void KittyClipboardQueryOutput::finishImpl() {
+    finishReply(true);
+}
+
+void KittyClipboardQueryOutput::beginReply() {
+    if (started) {
+        return;
+    }
+    started = true;
+    writePacket(StringView(u8"OK"));
+}
+
+void KittyClipboardQueryOutput::finishReply(bool success) {
+    if (output == nullptr) {
+        return;
+    }
+    if (!success) {
+        writePacket(started ? StringView(u8"EIO") : StringView(u8"ENOSYS"));
+    } else {
+        beginReply();
+        if (targets) {
+            writePacket(StringView(u8"DATA"), StringView(u8"."), StringView(u8"text/plain\n"));
+        }
+        writePacket(StringView(u8"DONE"));
+    }
+    Output* const completed = output;
+    output = nullptr;
+    delete completed;
+}
+
+void KittyClipboardQueryOutput::writePacket(StringView status, StringView mimeType_, StringView payload) {
+    writeKittyClipboardPacket(*output, send8BitControls, StringView(u8"read"), status, StringView(id), mimeType_, payload, primary);
 }
 
 bool VtermInput::key(const KeyInput& input) {
@@ -2227,6 +2399,8 @@ bool TestApiImpl::privateMode(u32 mode) const {
             return vterm->colorSchemeUpdateMode;
         case 2048:
             return vterm->inBandResizeMode;
+        case 5522:
+            return vterm->pasteMimeNotificationsMode;
         default:
             return false;
     }
@@ -2350,6 +2524,10 @@ bool TestApiImpl::advanceSelectionAutoscroll() {
 
 void TestApiImpl::paste(StringView text) {
     vterm->paste(text);
+}
+
+bool TestApiImpl::pasteClipboard(bool primary) {
+    return vterm->input.paste(primary);
 }
 
 StringView TestApiImpl::hyperlinkAt(int pixelX, int pixelY) {
@@ -2680,6 +2858,9 @@ void VtermImpl::resetTerminal() {
     savedPrivModes.clear();
     userDefinedKeys.clear();
     userDefinedKeysLocked = false;
+    kittyClipboardWriteContent.reset();
+    kittyClipboardWriteId.reset();
+    kittyClipboardWriteOpen = false;
     kittyKeyboardPri = {};
     kittyKeyboardAlt = {};
     savedCursorPri.isSet = false;
@@ -2728,6 +2909,7 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     synchronizedOutputMode = false;
     colorSchemeUpdateMode = false;
     inBandResizeMode = false;
+    pasteMimeNotificationsMode = false;
     screenReverseVideo = false;
     eightBitInput = false;
     reverseWrapMode = false;
@@ -4596,6 +4778,7 @@ ParserModeState VtermImpl::parserModeState() const {
     result.synchronizedOutput = synchronizedOutputMode;
     result.colorSchemeUpdates = colorSchemeUpdateMode;
     result.inBandResize = inBandResizeMode;
+    result.pasteMimeNotifications = pasteMimeNotificationsMode;
     return result;
 }
 
@@ -4763,6 +4946,10 @@ void VtermImpl::setInBandResize(bool enabled) {
     if (enabled) {
         reportInBandResize();
     }
+}
+
+void VtermImpl::setPasteMimeNotifications(bool enabled) {
+    pasteMimeNotificationsMode = enabled;
 }
 
 void VtermImpl::savePrivateMode(u32 mode, bool enabled) {
@@ -5545,6 +5732,129 @@ void VtermImpl::osc_CLIPBOARD_WRITE(StringView decoded, bool valid, bool primary
     if (clipboard) {
         target->writeClipboard(decoded);
     }
+}
+
+void VtermImpl::writeKittyClipboardStatus(StringView type, StringView id, StringView status) {
+    if (composer.ptyOutput == nullptr) {
+        return;
+    }
+    Buffer cleanId;
+    copyKittyClipboardId(cleanId, id);
+    writeKittyClipboardPacket(*composer.ptyOutput, send8BitControls, type, status, StringView(cleanId));
+}
+
+void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bool primary, bool valid) {
+    const bool targets = valid && mimeTypes == StringView(u8".");
+    if (!valid) {
+        writeKittyClipboardStatus(StringView(u8"read"), id, StringView(u8"ENOSYS"));
+        return;
+    }
+    if (!targets && !opts.allowOsc52Read) {
+        writeKittyClipboardStatus(StringView(u8"read"), id, StringView(u8"EPERM"));
+        return;
+    }
+    Clipboard* const clipboard = host.clipboard();
+    if (clipboard == nullptr || composer.ptyOutputs == nullptr || composer.ptyOutput == nullptr) {
+        writeKittyClipboardStatus(StringView(u8"read"), id, StringView(u8"ENOSYS"));
+        return;
+    }
+    const StringView mimeType = targets ? StringView(u8".") : selectKittyClipboardMime(mimeTypes);
+    if (mimeType.empty()) {
+        writeKittyClipboardStatus(StringView(u8"read"), id, StringView(u8"ENOSYS"));
+        return;
+    }
+
+    Output* const insertion = composer.ptyOutput;
+    composer.ptyOutput = composer.ptyOutputs->append();
+    KittyClipboardQueryOutput* const output = composer.smallObjects->make<KittyClipboardQueryOutput>(composer.smallObjects, insertion, id, mimeType, primary, targets, send8BitControls);
+    if (primary) {
+        clipboard->readPrimary(output);
+    } else {
+        clipboard->readClipboard(output);
+    }
+}
+
+void VtermImpl::osc_KITTY_CLIPBOARD_WRITE(StringView id, bool primary) {
+    kittyClipboardWriteContent.reset();
+    copyKittyClipboardId(kittyClipboardWriteId, id);
+    kittyClipboardWritePrimary = primary;
+    kittyClipboardWriteOpen = host.clipboard() != nullptr;
+    if (!kittyClipboardWriteOpen) {
+        writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"ENOSYS"));
+    }
+}
+
+void VtermImpl::osc_KITTY_CLIPBOARD_WRITE_DATA(StringView id, StringView mimeType, StringView content, bool valid) {
+    (void)id;
+    if (!kittyClipboardWriteOpen) {
+        return;
+    }
+    if (!valid) {
+        kittyClipboardWriteOpen = false;
+        kittyClipboardWriteContent.reset();
+        writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"EINVAL"));
+        return;
+    }
+    if (content.empty()) {
+        Clipboard* const clipboard = host.clipboard();
+        if (clipboard == nullptr) {
+            kittyClipboardWriteOpen = false;
+            kittyClipboardWriteContent.reset();
+            writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"ENOSYS"));
+            return;
+        }
+        if (kittyClipboardWritePrimary) {
+            clipboard->writePrimary(StringView(kittyClipboardWriteContent));
+        } else {
+            clipboard->writeClipboard(StringView(kittyClipboardWriteContent));
+        }
+        kittyClipboardWriteOpen = false;
+        kittyClipboardWriteContent.reset();
+        writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"DONE"));
+        return;
+    }
+    if (!kittyClipboardMimeSupported(mimeType)) {
+        kittyClipboardWriteOpen = false;
+        kittyClipboardWriteContent.reset();
+        writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"ENOSYS"));
+        return;
+    }
+    constexpr size_t maximumWrite = 8 * 1024 * 1024;
+    if (content.length() > maximumWrite - kittyClipboardWriteContent.used()) {
+        kittyClipboardWriteOpen = false;
+        kittyClipboardWriteContent.reset();
+        writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"EIO"));
+        return;
+    }
+    kittyClipboardWriteContent.append(content.data(), content.length());
+}
+
+void VtermImpl::osc_KITTY_CLIPBOARD_WRITE_ALIAS(StringView id, StringView mimeType, StringView aliases, bool valid) {
+    (void)id;
+    (void)mimeType;
+    (void)aliases;
+    if (!kittyClipboardWriteOpen || valid) {
+        return;
+    }
+    kittyClipboardWriteOpen = false;
+    kittyClipboardWriteContent.reset();
+    writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"EINVAL"));
+}
+
+void VtermImpl::osc_KITTY_CLIPBOARD_INVALID(StringView id, bool write) {
+    if (write || kittyClipboardWriteOpen) {
+        kittyClipboardWriteOpen = false;
+        kittyClipboardWriteContent.reset();
+        writeKittyClipboardStatus(StringView(u8"write"), kittyClipboardWriteId.empty() ? id : StringView(kittyClipboardWriteId), StringView(u8"EINVAL"));
+    }
+}
+
+bool VtermImpl::pasteMimeNotification(bool primary) {
+    if (host.clipboard() == nullptr || composer.ptyOutputs == nullptr || composer.ptyOutput == nullptr) {
+        return false;
+    }
+    osc_KITTY_CLIPBOARD_READ({}, StringView(u8"."), primary, true);
+    return true;
 }
 
 void VtermImpl::osc_RESET_PALETTE() {

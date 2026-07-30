@@ -31,7 +31,7 @@ DEC_MODE_STATES = {
     "in_band_window_resize": 2,
     "focus_in_out_events": 2,
     "mouse_extended_sgr": 2,
-    "bracketed_paste_mime": 0,
+    "bracketed_paste_mime": 2,
     "color_palette_updates": 2,
 }
 

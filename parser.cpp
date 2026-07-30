@@ -299,6 +299,7 @@ namespace {
         void dispatchXtmodkeys();
         void dispatchXtqmodkeys();
         void dispatchKittyKeyboardSet();
+        void dispatchKittyClipboard(StringView payload);
         void designateCharset(u8 final);
         Charset decodeCharset(u16 id, bool is96) const;
         bool parseSgrColor(size_t& index, CellColor& color, int& paletteIndex);
@@ -1082,6 +1083,9 @@ void ParserImpl<traced>::dispatchPrivateMode(u32 mode, bool enabled) {
         case 2048:
             iface.setInBandResize(enabled);
             break;
+        case 5522:
+            iface.setPasteMimeNotifications(enabled);
+            break;
         default:
             break;
     }
@@ -1211,8 +1215,83 @@ bool ParserImpl<traced>::privateModeValue(u32 mode, const ParserModeState& state
         case 2048:
             value = state.inBandResize;
             return true;
+        case 5522:
+            value = state.pasteMimeNotifications;
+            return true;
         default:
             return false;
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchKittyClipboard(StringView payload) {
+    StringView metadata = payload;
+    StringView encodedPayload;
+    (void)payload.split(';', metadata, encodedPayload);
+
+    StringView type;
+    StringView id;
+    StringView encodedMime;
+    bool primary = false;
+    bool valid = true;
+
+    while (!metadata.empty()) {
+        StringView record = metadata;
+        StringView rest;
+        if (metadata.split(':', record, rest)) {
+            metadata = rest;
+        } else {
+            metadata = {};
+        }
+        if (record.empty()) {
+            continue;
+        }
+        StringView key;
+        StringView value;
+        if (!record.split('=', key, value)) {
+            valid = false;
+            continue;
+        }
+        if (key == StringView(u8"type")) {
+            type = value;
+        } else if (key == StringView(u8"id")) {
+            id = value;
+        } else if (key == StringView(u8"loc")) {
+            primary = value == StringView(u8"primary");
+        } else if (key == StringView(u8"mime")) {
+            encodedMime = value;
+        }
+    }
+
+    if (type == StringView(u8"read")) {
+        size_t decodedSize = encodedPayload.length();
+        valid = valid && base64DecodeInPlace((u8*)(encodedPayload.data()), decodedSize);
+        iface.osc_KITTY_CLIPBOARD_READ(id, StringView(encodedPayload.data(), decodedSize), primary, valid);
+        return;
+    }
+    if (type == StringView(u8"write")) {
+        if (valid) {
+            iface.osc_KITTY_CLIPBOARD_WRITE(id, primary);
+        } else {
+            iface.osc_KITTY_CLIPBOARD_INVALID(id, true);
+        }
+        return;
+    }
+
+    StringView mime;
+    size_t mimeSize = encodedMime.length();
+    valid = valid && base64DecodeInPlace((u8*)(encodedMime.data()), mimeSize);
+    mime = StringView(encodedMime.data(), mimeSize);
+
+    size_t decodedSize = encodedPayload.length();
+    valid = valid && base64DecodeInPlace((u8*)(encodedPayload.data()), decodedSize);
+    const StringView decoded(encodedPayload.data(), decodedSize);
+    if (type == StringView(u8"wdata")) {
+        iface.osc_KITTY_CLIPBOARD_WRITE_DATA(id, mime, decoded, valid);
+    } else if (type == StringView(u8"walias")) {
+        iface.osc_KITTY_CLIPBOARD_WRITE_ALIAS(id, mime, decoded, valid);
+    } else {
+        iface.osc_KITTY_CLIPBOARD_INVALID(id, false);
     }
 }
 

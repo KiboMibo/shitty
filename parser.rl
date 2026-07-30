@@ -2070,6 +2070,8 @@
                 iface.osc_RESET_SELECTION_FOREGROUND();
             } else if (parser.oscCommand == 133) {
                 iface.osc_SHELL_UNKNOWN(payload);
+            } else if (parser.oscCommand == 5522) {
+                dispatchKittyClipboard(payload);
             } else {
                 iface.osc_UNKNOWN(parser.oscCommand, payload);
             }
