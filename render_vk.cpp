@@ -233,8 +233,6 @@ namespace {
             u32 next = 1;
             u32 eviction = 1;
             u32 generation = 0;
-
-            void xchg(GlyphCache& other) noexcept;
         };
 
         struct FontResources {
@@ -242,10 +240,11 @@ namespace {
 
             ObjPool::Ref pool;
             ImageResource atlas;
+            ImageResource colorAtlas;
             ImageResource doubleWidthAtlas;
+            ImageResource doubleWidthColorAtlas;
             GlyphCache glyphs;
             GlyphCache doubleWidthGlyphs;
-            VkSampler sampler = VK_NULL_HANDLE;
         };
 
         struct SwapchainResources {
@@ -303,17 +302,13 @@ namespace {
         const GeneratedRenderShader* activeShader = nullptr;
         VkSampler atlasSampler = VK_NULL_HANDLE;
 
-        ImageResource atlas;
-        ImageResource colorAtlas;
-        ImageResource doubleWidthAtlas;
-        ImageResource doubleWidthColorAtlas;
+        // The live font/glyph state; never null after construction.
+        // resetFontResources installs a replacement by pointer swap.
+        FontResources* fontResources = nullptr;
         bool atlasInitialized = false;
         bool colorAtlasInitialized = false;
         bool doubleWidthAtlasInitialized = false;
         bool doubleWidthColorAtlasInitialized = false;
-        ObjPool::Ref glyphPool;
-        GlyphCache glyphs;
-        GlyphCache doubleWidthGlyphs;
         Buffer fontUploadData;
         Buffer updateEpochs;
         u32 updateEpoch = 0;
@@ -357,7 +352,7 @@ namespace {
         void createDevice();
         void createCommandResources();
         void createFontResources();
-        void buildFontResources(FontResources& resources, bool doubleWidth);
+        FontResources* buildFontResources();
         void destroyFontResources(FontResources& resources);
         void resetFontResources();
         void cellExtrasChanged();
@@ -557,9 +552,6 @@ void CallRendererCellExtrasChanged::onListen(void*) {
 
 RendererImpl::RendererImpl(Composer& composer_, const plt::RenderContext& context)
     : composer(composer_)
-    , glyphPool(ObjPool::fromMemory())
-    , glyphs(*glyphPool)
-    , doubleWidthGlyphs(*glyphPool)
 {
     chain = composer.smallObjects->make<SwapchainResources>();
     createInstance();
@@ -599,10 +591,8 @@ RendererImpl::~RendererImpl() {
         vkDestroySampler(device, atlasSampler, nullptr);
     }
 
-    destroyImage(doubleWidthColorAtlas);
-    destroyImage(doubleWidthAtlas);
-    destroyImage(colorAtlas);
-    destroyImage(atlas);
+    destroyFontResources(*fontResources);
+    composer.smallObjects->release(fontResources);
 
     for (auto& frame : frames) {
         if (frame.cells != nullptr) {
@@ -936,29 +926,6 @@ void RendererImpl::destroyImage(ImageResource& image) {
     image = {};
 }
 
-void RendererImpl::GlyphCache::xchg(GlyphCache& other) noexcept {
-    auto* refsValue = refs;
-    refs = other.refs;
-    other.refs = refsValue;
-    graphemeRefs.xchg(other.graphemeRefs);
-    slots.xchg(other.slots);
-    u32 value = columns;
-    columns = other.columns;
-    other.columns = value;
-    value = rows;
-    rows = other.rows;
-    other.rows = value;
-    value = next;
-    next = other.next;
-    other.next = value;
-    value = eviction;
-    eviction = other.eviction;
-    other.eviction = value;
-    value = generation;
-    generation = other.generation;
-    other.generation = value;
-}
-
 RendererImpl::GlyphCache::GlyphCache(ObjPool& pool)
     : refs(UnicodeMap<u16>::create(pool))
 {
@@ -1023,19 +990,20 @@ void RendererImpl::configureGlyphCache(GlyphCache& cache, u32 width, u32 layers,
     cache.slots.zero((size_t)(bestColumns)*bestRows);
 }
 
-void RendererImpl::buildFontResources(FontResources& resources, bool doubleWidth) {
+RendererImpl::FontResources* RendererImpl::buildFontResources() {
     constexpr size_t atlasByteBudget = 16 * 1024 * 1024;
     constexpr size_t doubleWidthAtlasByteBudget = 8 * 1024 * 1024;
     VkPhysicalDeviceProperties properties{};
     vkGetPhysicalDeviceProperties(physicalDevice, &properties);
 
+    FontResources* const resources = composer.smallObjects->make<FontResources>();
     try {
-        configureGlyphCache(resources.glyphs, composer.glyphWidth, 4, atlasByteBudget, properties.limits.maxImageDimension2D);
-        resources.atlas = createImage(composer.glyphWidth * resources.glyphs.columns, composer.glyphHeight * resources.glyphs.rows, 4, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
+        configureGlyphCache(resources->glyphs, composer.glyphWidth, 4, atlasByteBudget, properties.limits.maxImageDimension2D);
+        resources->atlas = createImage(composer.glyphWidth * resources->glyphs.columns, composer.glyphHeight * resources->glyphs.rows, 4, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
 
-        if (doubleWidth) {
-            configureGlyphCache(resources.doubleWidthGlyphs, 2 * composer.glyphWidth, 1, doubleWidthAtlasByteBudget, properties.limits.maxImageDimension2D);
-            resources.doubleWidthAtlas = createImage(2 * composer.glyphWidth * resources.doubleWidthGlyphs.columns, composer.glyphHeight * resources.doubleWidthGlyphs.rows, 1, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
+        if (composer.fonts->hasDoubleWidth()) {
+            configureGlyphCache(resources->doubleWidthGlyphs, 2 * composer.glyphWidth, 1, doubleWidthAtlasByteBudget, properties.limits.maxImageDimension2D);
+            resources->doubleWidthAtlas = createImage(2 * composer.glyphWidth * resources->doubleWidthGlyphs.columns, composer.glyphHeight * resources->doubleWidthGlyphs.rows, 1, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
         }
 
         if (atlasSampler == VK_NULL_HANDLE) {
@@ -1048,72 +1016,42 @@ void RendererImpl::buildFontResources(FontResources& resources, bool doubleWidth
             samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
             samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
             samplerInfo.maxLod = 0.0f;
-            checkVk(vkCreateSampler(device, &samplerInfo, nullptr, &resources.sampler), "vkCreateSampler");
+            checkVk(vkCreateSampler(device, &samplerInfo, nullptr, &atlasSampler), "vkCreateSampler");
         }
     } catch (...) {
-        destroyFontResources(resources);
+        destroyFontResources(*resources);
+        composer.smallObjects->release(resources);
         throw;
     }
+    return resources;
 }
 
 void RendererImpl::destroyFontResources(FontResources& resources) {
+    destroyImage(resources.doubleWidthColorAtlas);
     destroyImage(resources.doubleWidthAtlas);
+    destroyImage(resources.colorAtlas);
     destroyImage(resources.atlas);
-    if (device != VK_NULL_HANDLE && resources.sampler != VK_NULL_HANDLE) {
-        vkDestroySampler(device, resources.sampler, nullptr);
-    }
-    resources.sampler = VK_NULL_HANDLE;
 }
 
 void RendererImpl::createFontResources() {
-    FontResources replacement;
-    buildFontResources(replacement, composer.fonts->hasDoubleWidth());
-    glyphs.xchg(replacement.glyphs);
-    doubleWidthGlyphs.xchg(replacement.doubleWidthGlyphs);
-    glyphPool.xchg(replacement.pool);
-    atlas = replacement.atlas;
-    replacement.atlas = {};
-    doubleWidthAtlas = replacement.doubleWidthAtlas;
-    replacement.doubleWidthAtlas = {};
-    if (atlasSampler == VK_NULL_HANDLE) {
-        atlasSampler = replacement.sampler;
-        replacement.sampler = VK_NULL_HANDLE;
-    }
-    destroyFontResources(replacement);
+    fontResources = buildFontResources();
 }
 
 void RendererImpl::resetFontResources() {
-    FontResources replacement;
-    buildFontResources(replacement, composer.fonts->hasDoubleWidth());
+    FontResources* const replacement = buildFontResources();
     try {
         checkVk(vkDeviceWaitIdle(device), "vkDeviceWaitIdle");
     } catch (...) {
-        destroyFontResources(replacement);
+        destroyFontResources(*replacement);
+        composer.smallObjects->release(replacement);
         throw;
     }
 
-    glyphs.xchg(replacement.glyphs);
-    doubleWidthGlyphs.xchg(replacement.doubleWidthGlyphs);
-    glyphPool.xchg(replacement.pool);
-    ImageResource image = atlas;
-    atlas = replacement.atlas;
-    replacement.atlas = image;
-    image = doubleWidthAtlas;
-    doubleWidthAtlas = replacement.doubleWidthAtlas;
-    replacement.doubleWidthAtlas = image;
-    if (atlasSampler == VK_NULL_HANDLE) {
-        atlasSampler = replacement.sampler;
-        replacement.sampler = VK_NULL_HANDLE;
-    }
-    ImageResource previousColorAtlas = colorAtlas;
-    colorAtlas = {};
-    ImageResource previousDoubleWidthColorAtlas = doubleWidthColorAtlas;
-    doubleWidthColorAtlas = {};
+    FontResources* const previous = fontResources;
+    fontResources = replacement;
     updateStaticDescriptors();
-
-    destroyImage(previousDoubleWidthColorAtlas);
-    destroyImage(previousColorAtlas);
-    destroyFontResources(replacement);
+    destroyFontResources(*previous);
+    composer.smallObjects->release(previous);
     fontUploadData.reset();
     atlasCopies.clear();
     colorAtlasCopies.clear();
@@ -1127,8 +1065,8 @@ void RendererImpl::resetFontResources() {
 }
 
 void RendererImpl::cellExtrasChanged() {
-    glyphs.graphemeRefs.zero(glyphs.graphemeRefs.used());
-    doubleWidthGlyphs.graphemeRefs.zero(doubleWidthGlyphs.graphemeRefs.used());
+    fontResources->glyphs.graphemeRefs.zero(fontResources->glyphs.graphemeRefs.used());
+    fontResources->doubleWidthGlyphs.graphemeRefs.zero(fontResources->doubleWidthGlyphs.graphemeRefs.used());
 }
 
 void RendererImpl::createDescriptors() {
@@ -1181,13 +1119,13 @@ void RendererImpl::createDescriptors() {
 }
 
 void RendererImpl::updateStaticDescriptors() {
-    const ImageResource& wideAtlas = doubleWidthAtlas.image != VK_NULL_HANDLE ? doubleWidthAtlas : atlas;
-    const ImageResource& primaryColor = colorAtlas.image != VK_NULL_HANDLE ? colorAtlas : atlas;
-    const ImageResource& wideColor = doubleWidthColorAtlas.image != VK_NULL_HANDLE ? doubleWidthColorAtlas : wideAtlas;
+    const ImageResource& wideAtlas = fontResources->doubleWidthAtlas.image != VK_NULL_HANDLE ? fontResources->doubleWidthAtlas : fontResources->atlas;
+    const ImageResource& primaryColor = fontResources->colorAtlas.image != VK_NULL_HANDLE ? fontResources->colorAtlas : fontResources->atlas;
+    const ImageResource& wideColor = fontResources->doubleWidthColorAtlas.image != VK_NULL_HANDLE ? fontResources->doubleWidthColorAtlas : wideAtlas;
 
     for (auto& frame : frames) {
         const VkDescriptorImageInfo imageInfos[] = {
-            {atlasSampler, atlas.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+            {atlasSampler, fontResources->atlas.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
             {atlasSampler, primaryColor.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
             {atlasSampler, wideAtlas.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
             {atlasSampler, wideColor.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
@@ -1608,13 +1546,13 @@ void RendererImpl::ensureFontUploadBuffer(FrameResources& frame, size_t bytes) {
 }
 
 void RendererImpl::ensureColorAtlas(bool doubleWidth) {
-    ImageResource& image = doubleWidth ? doubleWidthColorAtlas : colorAtlas;
+    ImageResource& image = doubleWidth ? fontResources->doubleWidthColorAtlas : fontResources->colorAtlas;
     if (image.image != VK_NULL_HANDLE) {
         return;
     }
 
     checkVk(vkDeviceWaitIdle(device), "vkDeviceWaitIdle");
-    const GlyphCache& cache = doubleWidth ? doubleWidthGlyphs : glyphs;
+    const GlyphCache& cache = doubleWidth ? fontResources->doubleWidthGlyphs : fontResources->glyphs;
     const u32 width = composer.glyphWidth * (doubleWidth ? 2 : 1);
     const u32 layers = doubleWidth ? 1 : 4;
     image = createImage(width * cache.columns, composer.glyphHeight * cache.rows, layers, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
@@ -1641,9 +1579,9 @@ void RendererImpl::beginGlyphFrame() {
             cache.generation = 1;
         }
     };
-    advance(glyphs);
-    if (doubleWidthAtlas.image != VK_NULL_HANDLE) {
-        advance(doubleWidthGlyphs);
+    advance(fontResources->glyphs);
+    if (fontResources->doubleWidthAtlas.image != VK_NULL_HANDLE) {
+        advance(fontResources->doubleWidthGlyphs);
     }
 }
 
@@ -1652,7 +1590,7 @@ void RendererImpl::pinVisibleGlyphs() {
         if (cell->glyph == 0) {
             continue;
         }
-        GlyphCache& cache = cell->lineAttribute != 0 || (cell->attributes & gpuDoubleWidth) != 0 ? doubleWidthGlyphs : glyphs;
+        GlyphCache& cache = cell->lineAttribute != 0 || (cell->attributes & gpuDoubleWidth) != 0 ? fontResources->doubleWidthGlyphs : fontResources->glyphs;
         const u32 slot = (cell->glyph & 0xff) + (((cell->glyph >> 8) & 0xff) * cache.columns);
         if (slot < cache.slots.length()) {
             cache.slots.mut(slot).generation = cache.generation;
@@ -1725,7 +1663,7 @@ u32 RendererImpl::ensureGlyph(Fontpack& fonts, bool hasDoubleWidth, const u32* c
         return 0;
     }
 
-    GlyphCache& cache = doubleWidth ? doubleWidthGlyphs : glyphs;
+    GlyphCache& cache = doubleWidth ? fontResources->doubleWidthGlyphs : fontResources->glyphs;
     u16* ref = nullptr;
     if (grapheme) {
         const size_t required = ((size_t)(id) + 1) * sizeof(u16);
@@ -1875,7 +1813,7 @@ bool RendererImpl::validateCachedCells(const TerminalCell* input, const GpuCell*
         if (rendered.glyph == 0) {
             return false;
         }
-        GlyphCache& cache = doubleWidth ? doubleWidthGlyphs : glyphs;
+        GlyphCache& cache = doubleWidth ? fontResources->doubleWidthGlyphs : fontResources->glyphs;
         const u32 slot = (rendered.glyph & 0xff) + (((rendered.glyph >> 8) & 0xff) * cache.columns);
         if (slot >= cache.slots.length()) {
             return false;
@@ -1933,7 +1871,7 @@ void RendererImpl::recordImageUploads(VkCommandBuffer commandBuffer, VkBuffer st
 }
 
 void RendererImpl::recordFontUploads(FrameResources& frame) {
-    const bool initialize = !atlasInitialized || (doubleWidthAtlas.image != VK_NULL_HANDLE && !doubleWidthAtlasInitialized) || (colorAtlas.image != VK_NULL_HANDLE && !colorAtlasInitialized) || (doubleWidthColorAtlas.image != VK_NULL_HANDLE && !doubleWidthColorAtlasInitialized);
+    const bool initialize = !atlasInitialized || (fontResources->doubleWidthAtlas.image != VK_NULL_HANDLE && !doubleWidthAtlasInitialized) || (fontResources->colorAtlas.image != VK_NULL_HANDLE && !colorAtlasInitialized) || (fontResources->doubleWidthColorAtlas.image != VK_NULL_HANDLE && !doubleWidthColorAtlasInitialized);
     if (!initialize && fontUploadData.empty()) {
         return;
     }
@@ -1950,18 +1888,18 @@ void RendererImpl::recordFontUploads(FrameResources& frame) {
         vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &stagingForTransfer, 0, nullptr);
     }
 
-    recordImageUploads(frame.commandBuffer, frame.fontUploadBuffer, atlas, atlasCopies, !atlasInitialized);
+    recordImageUploads(frame.commandBuffer, frame.fontUploadBuffer, fontResources->atlas, atlasCopies, !atlasInitialized);
     atlasInitialized = true;
-    if (colorAtlas.image != VK_NULL_HANDLE) {
-        recordImageUploads(frame.commandBuffer, frame.fontUploadBuffer, colorAtlas, colorAtlasCopies, !colorAtlasInitialized);
+    if (fontResources->colorAtlas.image != VK_NULL_HANDLE) {
+        recordImageUploads(frame.commandBuffer, frame.fontUploadBuffer, fontResources->colorAtlas, colorAtlasCopies, !colorAtlasInitialized);
         colorAtlasInitialized = true;
     }
-    if (doubleWidthAtlas.image != VK_NULL_HANDLE) {
-        recordImageUploads(frame.commandBuffer, frame.fontUploadBuffer, doubleWidthAtlas, doubleWidthAtlasCopies, !doubleWidthAtlasInitialized);
+    if (fontResources->doubleWidthAtlas.image != VK_NULL_HANDLE) {
+        recordImageUploads(frame.commandBuffer, frame.fontUploadBuffer, fontResources->doubleWidthAtlas, doubleWidthAtlasCopies, !doubleWidthAtlasInitialized);
         doubleWidthAtlasInitialized = true;
     }
-    if (doubleWidthColorAtlas.image != VK_NULL_HANDLE) {
-        recordImageUploads(frame.commandBuffer, frame.fontUploadBuffer, doubleWidthColorAtlas, doubleWidthColorAtlasCopies, !doubleWidthColorAtlasInitialized);
+    if (fontResources->doubleWidthColorAtlas.image != VK_NULL_HANDLE) {
+        recordImageUploads(frame.commandBuffer, frame.fontUploadBuffer, fontResources->doubleWidthColorAtlas, doubleWidthColorAtlasCopies, !doubleWidthColorAtlasInitialized);
         doubleWidthColorAtlasInitialized = true;
     }
 }
@@ -2191,7 +2129,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
             state.selection.br.y,
             state.selection.rectangular ? 1u : 0u,
             opts.showWraps ? 1u : 0u,
-            doubleWidthAtlas.image != VK_NULL_HANDLE ? 1u : 0u,
+            fontResources->doubleWidthAtlas.image != VK_NULL_HANDLE ? 1u : 0u,
             packColor(state.selectionForeground),
             packColor(state.selectionBackground),
             state.selectionColorMask,
