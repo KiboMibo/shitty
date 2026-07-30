@@ -4,37 +4,18 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-/* part of this file is part of Zutty.
- * Copyright (C) 2020 Tom Szilagyi
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * See the file LICENSE.GPL3 for the full license.
- */
-
 #pragma once
+
 #include <std/sys/types.h>
 
-#include <cstddef>
-#include <cstdint>
-#include <sys/types.h>
-#include <unistd.h>
-
 struct Composer;
+struct LaunchCommand;
 
 struct Pty {
-    virtual int fd() const = 0;
-    virtual ssize_t read(u8* buffer, size_t size) = 0;
     virtual ssize_t write(const u8* buffer, size_t size) = 0;
     virtual void outputReady() = 0;
 
-    // Takes ownership of an already-open PTY master.
-    static Pty* adopt(Composer& composer, int fd);
+    // Opens the PTY, starts the child, owns the master, wires resize events,
+    // and registers itself with the platform poller.
+    static Pty* create(Composer& composer, const LaunchCommand& command);
 };
-
-pid_t pty_fork(int& o_ptyFd, int cols, int rows, int pixelWidth, int pixelHeight);
-
-void pty_resize(int ptyFd, int cols, int rows, int pixelWidth, int pixelHeight);

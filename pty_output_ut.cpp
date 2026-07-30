@@ -21,8 +21,6 @@ using namespace stl;
 
 namespace {
     struct TestPty final: public Pty {
-        int fd() const override;
-        ssize_t read(u8* buffer, size_t size) override;
         ssize_t write(const u8* buffer, size_t size) override;
         void outputReady() override;
 
@@ -31,14 +29,6 @@ namespace {
         int writeError = 0;
         size_t readyCount = 0;
     };
-}
-
-int TestPty::fd() const {
-    return -1;
-}
-
-ssize_t TestPty::read(u8*, size_t) {
-    return -1;
 }
 
 ssize_t TestPty::write(const u8* buffer, size_t size) {

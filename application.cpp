@@ -50,7 +50,6 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#include <vector>
 
 #include <std/mem/obj_pool.h>
 
@@ -116,7 +115,6 @@ namespace {
         int takeTestFd(int& argc, char* argv[]);
         static void childSignalHandler(int signal, siginfo_t* info, void*);
         void setupSignals();
-        int startShell(const char* execPath, const char* const argv[]);
         bool presentTerminal();
         bool eventLoop();
         void updateWindowInfo(const plt::WindowInfo& info);
@@ -339,21 +337,6 @@ void ApplicationImpl::setupSignals() {
     }
 }
 
-int ApplicationImpl::startShell(const char* execPath, const char* const argv[]) {
-    int ptyFd = -1;
-    const pid_t pid = pty_fork(ptyFd, composer.columns, composer.rows, composer.columns * composer.glyphWidth, composer.rows * composer.glyphHeight);
-    if (pid < 0) {
-        sysError("fork");
-    }
-    if (pid == 0) {
-        configureTerminalChildEnvironment();
-        if (execvp(execPath, (char* const*)(argv)) < 0) {
-            sysError("execvp of ", execPath);
-        }
-    }
-    return ptyFd;
-}
-
 bool ApplicationImpl::presentTerminal() {
     Vterm* const vterm = composer.vterm;
     if (vterm == nullptr || composer.renderer == nullptr) {
@@ -446,12 +429,6 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             opts.title = argv[2];
         }
     }
-    std::vector<char*> shellArgv;
-    for (auto& argument : launch.arguments) {
-        shellArgv.push_back(argument.data());
-    }
-    shellArgv.push_back(nullptr);
-
     composer.platform = plt::Platform::create(*composer.pool);
     composer.window = composer.platform->createWindow(
         *composer.pool,
@@ -473,8 +450,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     showWindow();
 
     setupSignals();
-    const int ptyFd = startShell(launch.executable.c_str(), shellArgv.data());
-    composer.pty = Pty::adopt(composer, ptyFd);
+    composer.pty = Pty::create(composer, launch);
     composer.ptyOutputs = PtyOutputQueue::create(composer.pool, composer.smallObjects, *composer.pty);
     composer.ptyOutput = composer.ptyOutputs->append();
 

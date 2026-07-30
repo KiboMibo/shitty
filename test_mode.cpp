@@ -72,8 +72,7 @@ namespace {
     struct TestPty final: public Pty, public Listener {
         TestPty(Composer& composer, int fd);
 
-        int fd() const override;
-        ssize_t read(u8* buffer, size_t size) override;
+        ssize_t read(u8* buffer, size_t size);
         ssize_t write(const u8* buffer, size_t size) override;
         void outputReady() override;
         void onListen(void*) override;
@@ -126,10 +125,6 @@ TestPty::TestPty(Composer& composer, int fd)
     }
 }
 
-int TestPty::fd() const {
-    return fd_;
-}
-
 ssize_t TestPty::read(u8* buffer, size_t size) {
     const ssize_t count = onRead(buffer, size);
     if (count > 0) {
@@ -154,7 +149,14 @@ bool TestPty::flushOutput() {
 }
 
 void TestPty::applySize() {
-    pty_resize(fd_, composer_.columns, composer_.rows, composer_.columns * composer_.glyphWidth, composer_.rows * composer_.glyphHeight);
+    winsize size{};
+    size.ws_col = composer_.columns;
+    size.ws_row = composer_.rows;
+    size.ws_xpixel = composer_.columns * composer_.glyphWidth;
+    size.ws_ypixel = composer_.rows * composer_.glyphHeight;
+    if (ioctl(fd_, TIOCSWINSZ, &size) < 0) {
+        throw std::runtime_error("test PTY resize failed");
+    }
 }
 
 void TestPty::setReadHandler(std::function<ssize_t(u8*, size_t)> handler) {

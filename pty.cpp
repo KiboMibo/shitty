@@ -31,11 +31,11 @@
 
 #include "pty.h"
 
-#include "application.h"
 #include "composer.h"
 #include "fd_redirect.h"
 #include "listener.h"
 #include "pty_output.h"
+#include "startup.h"
 #include "vterm.h"
 
 #include <plt/platform.h>
@@ -53,35 +53,30 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <termios.h>
+#include <unistd.h>
 
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 using namespace stl;
 
 namespace {
-    struct PtyImpl;
+    void resizePty(int fd, u32 columns, u32 rows, u32 pixelWidth, u32 pixelHeight);
+    int openPtyMaster(char* slaveName, size_t capacity);
+    int openPtySlave(const char* name);
 
-    struct CallPtyResize final: public Listener {
-        explicit CallPtyResize(PtyImpl* pty);
-
-        void onListen(void*) override;
-
-        PtyImpl* pty;
-    };
-
-    struct PtyImpl final: public Pty, public plt::PollCallback {
+    struct PtyImpl final: public Pty, public plt::PollCallback, public Listener {
         PtyImpl(Composer& composer, int fd);
         ~PtyImpl();
 
-        int fd() const override;
-        ssize_t read(u8* buffer, size_t size) override;
         ssize_t write(const u8* buffer, size_t size) override;
         void outputReady() override;
         void ready(PollFD event) override;
+        void onListen(void*) override;
 
-        void applySize();
-        void wire();
+        void resize();
+        void start();
         void updateInterest(bool outputPending);
         bool readInput();
 
@@ -91,14 +86,6 @@ namespace {
         bool finished = false;
         u8 inputBuffer[64 * 1024];
     };
-}
-
-CallPtyResize::CallPtyResize(PtyImpl* pty_)
-    : pty(pty_) {
-}
-
-void CallPtyResize::onListen(void*) {
-    pty->applySize();
 }
 
 PtyImpl::PtyImpl(Composer& composer, int fd)
@@ -120,14 +107,6 @@ PtyImpl::~PtyImpl() {
     }
 }
 
-int PtyImpl::fd() const {
-    return fd_;
-}
-
-ssize_t PtyImpl::read(u8* buffer, size_t size) {
-    return ::read(fd_, buffer, size);
-}
-
 ssize_t PtyImpl::write(const u8* buffer, size_t size) {
     return ::write(fd_, buffer, size);
 }
@@ -138,12 +117,16 @@ void PtyImpl::outputReady() {
     }
 }
 
-void PtyImpl::applySize() {
-    pty_resize(fd_, composer_.columns, composer_.rows, composer_.columns * composer_.glyphWidth, composer_.rows * composer_.glyphHeight);
+void PtyImpl::onListen(void*) {
+    resize();
 }
 
-void PtyImpl::wire() {
-    composer_.resizedListeners.pushBack(composer_.pool->make<CallPtyResize>(this));
+void PtyImpl::resize() {
+    resizePty(fd_, composer_.columns, composer_.rows, composer_.columns * composer_.glyphWidth, composer_.rows * composer_.glyphHeight);
+}
+
+void PtyImpl::start() {
+    composer_.resizedListeners.pushBack(this);
     composer_.platform->poller()->arm({fd_, PollFlag::In}, *this);
 }
 
@@ -178,7 +161,7 @@ void PtyImpl::updateInterest(bool outputPending) {
 
 bool PtyImpl::readInput() {
     Vterm* const vterm = composer_.vterm;
-    const ssize_t count = read(inputBuffer, sizeof(inputBuffer));
+    const ssize_t count = ::read(fd_, inputBuffer, sizeof(inputBuffer));
     if (count > 0) {
         vterm->feedPty(StringView(inputBuffer, count));
         return false;
@@ -193,63 +176,72 @@ bool PtyImpl::readInput() {
     return true;
 }
 
-Pty* Pty::adopt(Composer& composer, int fd) {
-    PtyImpl* const pty = composer.pool->make<PtyImpl>(composer, fd);
-    pty->wire();
-    return pty;
+namespace {
+    int openPtyMaster(char* slaveName, size_t capacity) {
+        const int master = posix_openpt(O_RDWR);
+        if (master < 0) {
+            sysError("can't open master pty: posix_openpt()");
+        }
+        if (grantpt(master) < 0) {
+            sysError("can't open master pty: grantpt()");
+        }
+        if (unlockpt(master) < 0) {
+            sysError("can't open master pty: unlockpt()");
+        }
+        const char* const name = ptsname(master);
+        if (name == nullptr) {
+            sysError("can't open master pty: ptsname()");
+        }
+        strncpy(slaveName, name, capacity);
+        slaveName[capacity - 1] = '\0';
+        return master;
+    }
+
+    int openPtySlave(const char* name) {
+        const int slave = open(name, O_RDWR);
+        if (slave < 0) {
+            sysError("can't open slave pty: open()");
+        }
+        return slave;
+    }
+
+    void resizePty(int fd, u32 columns, u32 rows, u32 pixelWidth, u32 pixelHeight) {
+        struct winsize size{};
+        size.ws_col = columns;
+        size.ws_row = rows;
+        size.ws_xpixel = pixelWidth;
+        size.ws_ypixel = pixelHeight;
+        if (ioctl(fd, TIOCSWINSZ, &size) < 0) {
+            sysError("TIOCSWINSZ on pty");
+        }
+    }
 }
 
-int ptym_open(char* pts_name, int pts_namesz) {
-    char* ptr;
-    int fdm;
-
-    if ((fdm = posix_openpt(O_RDWR)) < 0) {
-        sysError("can't open master pty: posix_openpt()");
+Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
+    std::vector<char*> arguments;
+    arguments.reserve(command.arguments.size() + 1);
+    for (const std::string& argument : command.arguments) {
+        arguments.push_back(const_cast<char*>(argument.c_str()));
     }
-    if (grantpt(fdm) < 0) {
-        sysError("can't open master pty: grantpt()");
-    }
-    if (unlockpt(fdm) < 0) {
-        sysError("can't open master pty: unlockpt()");
-    }
-    if ((ptr = ptsname(fdm)) == nullptr) {
-        sysError("can't open master pty: ptsname()");
-    }
+    arguments.push_back(nullptr);
 
-    strncpy(pts_name, ptr, pts_namesz);
-    pts_name[pts_namesz - 1] = '\0';
-    return fdm;
-}
-
-int ptys_open(char* pts_name) {
-    int fds = open(pts_name, O_RDWR);
-    if (fds < 0) {
-        sysError("can't open slave pty: open()");
-    }
-    return fds;
-}
-
-pid_t pty_fork(int& o_ptyFd, int cols, int rows, int pixelWidth, int pixelHeight) {
-    pid_t pid;
-    char pts_name[PATH_MAX];
-    int fdm = ptym_open(pts_name, sizeof(pts_name));
-
-    pid = fork();
-
+    char slaveName[PATH_MAX];
+    const int master = openPtyMaster(slaveName, sizeof(slaveName));
+    const pid_t pid = fork();
     if (pid < 0) {
-        return pid;
-    } else if (pid == 0) {
+        const int error = errno;
+        close(master);
+        errno = error;
+        sysError("fork");
+    }
+    if (pid == 0) {
         if (setsid() < 0) {
             sysError("setsid");
         }
-
-        int fds = ptys_open(pts_name);
-
-        close(fdm);
-
-        pty_resize(fds, cols, rows, pixelWidth, pixelHeight);
-
-        redirectFds(fds);
+        const int slave = openPtySlave(slaveName);
+        close(master);
+        resizePty(slave, composer.columns, composer.rows, composer.columns * composer.glyphWidth, composer.rows * composer.glyphHeight);
+        redirectFds(slave);
 
         struct termios term;
         if (tcgetattr(STDIN_FILENO, &term) < 0) {
@@ -259,19 +251,11 @@ pid_t pty_fork(int& o_ptyFd, int cols, int rows, int pixelWidth, int pixelHeight
         if (tcsetattr(STDIN_FILENO, TCSANOW, &term) < 0) {
             sysError("tcsetattr");
         }
-    } else {
-        o_ptyFd = fdm;
+        configureTerminalChildEnvironment();
+        execvp(command.executable.c_str(), arguments.data());
+        sysError("execvp of ", command.executable.c_str());
     }
-    return pid;
-}
-
-void pty_resize(int ptyFd, int cols, int rows, int pixelWidth, int pixelHeight) {
-    struct winsize wsize{};
-    wsize.ws_col = cols;
-    wsize.ws_row = rows;
-    wsize.ws_xpixel = pixelWidth;
-    wsize.ws_ypixel = pixelHeight;
-    if (ioctl(ptyFd, TIOCSWINSZ, &wsize) < 0) {
-        sysError("TIOCSWINSZ on pty");
-    }
+    PtyImpl* const pty = composer.pool->make<PtyImpl>(composer, master);
+    pty->start();
+    return pty;
 }
