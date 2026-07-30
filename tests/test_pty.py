@@ -90,6 +90,17 @@ class PtyTest(unittest.TestCase):
             status, _ = terminal.wait_child()
             self.assertEqual(status, 128 + signal.SIGTERM)
 
+    def test_read_input_returns_every_response_flushed_before_it(self):
+        # Master→slave delivery goes through an asynchronous kernel worker;
+        # READ_INPUT must wait for the bytes the terminal already flushed
+        # instead of returning whatever happens to have arrived.
+        # 16 KiB of responses also overflow the pty buffer, so a single
+        # opportunistic drain cannot see the tail.
+        with Shitty(columns=8, rows=2) as terminal:
+            for _ in range(4):
+                terminal.write(b"\x1b[5n" * 4096)
+                self.assertEqual(terminal.read_input(), b"\x1b[0n" * 4096)
+
     @unittest.skipUnless(sys.platform == "linux", "needs /proc/self/fd")
     def test_child_inherits_no_stray_descriptors(self):
         # Terminal-side descriptors (control socket, pty master) must be

@@ -81,6 +81,7 @@ namespace {
         void setReadHandler(std::function<ssize_t(u8*, size_t)> handler);
         void setWriteHandler(std::function<ssize_t(const u8*, size_t)> handler);
         std::string takeReadData();
+        std::string takeWriteData();
 
         void applySize();
 
@@ -89,6 +90,7 @@ namespace {
         std::function<ssize_t(u8*, size_t)> onRead;
         std::function<ssize_t(const u8*, size_t)> onWrite;
         std::string readData;
+        std::string writeData;
     };
 
     struct TestUtf8Decoder {
@@ -134,7 +136,11 @@ ssize_t TestPty::read(u8* buffer, size_t size) {
 }
 
 ssize_t TestPty::write(const u8* buffer, size_t size) {
-    return onWrite(buffer, size);
+    const ssize_t count = onWrite(buffer, size);
+    if (count > 0) {
+        writeData.append((const char*)(buffer), (size_t)(count));
+    }
+    return count;
 }
 
 void TestPty::outputReady() {
@@ -170,6 +176,12 @@ void TestPty::setWriteHandler(std::function<ssize_t(const u8*, size_t)> handler)
 std::string TestPty::takeReadData() {
     std::string result;
     result.swap(readData);
+    return result;
+}
+
+std::string TestPty::takeWriteData() {
+    std::string result;
+    result.swap(writeData);
     return result;
 }
 
@@ -1165,23 +1177,17 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 if (!count) {
                     throw std::runtime_error("empty width measurement");
                 }
+                // Reports are taken from the in-process write capture (see
+                // READ_INPUT): the kernel pty path is asynchronous and the
+                // reports would double-report through a later READ_INPUT.
                 drainInput(io[1]);
+                terminalPty.takeWriteData();
                 terminal.feedPtyOutput((const u8*)input.data(), input.size());
-                // The kernel delivers PTY master writes to the slave through
-                // an asynchronous worker, so under load the reports may not
-                // be readable immediately.  Every measurement produces
-                // exactly one R-terminated cursor position report; wait
-                // until all of them have arrived.
-                std::string replies = drainInput(io[1]);
-                const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-                while ((size_t)(std::count(replies.begin(), replies.end(), 'R')) < count && std::chrono::steady_clock::now() < deadline) {
-                    terminal.flushPtyOutput();
-                    pollfd pending{io[1], POLLIN, 0};
-                    if (poll(&pending, 1, 100) > 0 && (pending.revents & POLLIN)) {
-                        replies += drainInput(io[1]);
-                    }
+                for (int attempt = 0; attempt < 1000 && !terminal.flushPtyOutput(); ++attempt) {
+                    drainInput(io[1]);
                 }
-                writeAll(controlFd, "OK " + encodeHex(replies) + "\n");
+                drainInput(io[1]);
+                writeAll(controlFd, "OK " + encodeHex(terminalPty.takeWriteData()) + "\n");
             } else if (line == "OPTIONS") {
                 const auto packedColor = [](Color color) {
                     return ((u32)(color.red) << 16) | ((u32)(color.green) << 8) | color.blue;
@@ -1979,7 +1985,26 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 output << StringView(u8"\n");
                 writeAll(controlFd, StringView(output));
             } else if (line == "READ_INPUT") {
-                writeAll(controlFd, "OK " + encodeHex(drainInput(io[1])) + "\n");
+                // Responses are written from this very process, so the
+                // authoritative "what was sent to the application" stream
+                // is the capture taken at the write call itself.  Reading
+                // it back through the kernel pty would race the
+                // asynchronous master→slave delivery, and responses larger
+                // than the pty buffer would never be visible to a single
+                // opportunistic drain.  The slave queue is drained only to
+                // unstick a stalled flush and to keep already-reported
+                // bytes from reaching a later spawned child; a running
+                // child owns the slave side.
+                for (int attempt = 0; attempt < 1000 && !terminal.flushPtyOutput(); ++attempt) {
+                    if (childPid > 0) {
+                        break;
+                    }
+                    drainInput(io[1]);
+                }
+                if (childPid <= 0) {
+                    drainInput(io[1]);
+                }
+                writeAll(controlFd, "OK " + encodeHex(terminalPty.takeWriteData()) + "\n");
             } else if (line == "FLUSH_OUTPUT") {
                 terminal.flushPtyOutput();
                 writeAll(controlFd, "OK\n");
