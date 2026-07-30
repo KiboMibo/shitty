@@ -11,3 +11,4 @@
 __pycache__/
 .codegraph/
 /plt_tests
+/test_suite_prod_parser
