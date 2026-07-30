@@ -2195,6 +2195,9 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
                 writeAll(controlFd, StringView(output));
             } else if (line == "RENDER_STATE") {
                 writeAll(controlFd, display.renderState());
+            } else if (line == "CHARSET_STATE") {
+                const VtermTestState state = testApi.inspect();
+                writeAll(controlFd, "OK " + std::to_string(state.charsets[0]) + " " + std::to_string(state.charsets[1]) + " " + std::to_string(state.charsets[2]) + " " + std::to_string(state.charsets[3]) + "\n");
             } else if (line.compare(0, 13, "MOUSE_ENCODE ") == 0) {
                 std::istringstream args(line.substr(13));
                 unsigned encoding;

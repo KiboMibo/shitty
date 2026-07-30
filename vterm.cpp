@@ -2207,6 +2207,9 @@ VtermTestState TestApiImpl::inspect() const {
         result.rectangleOrigin = {0, 0, vterm->composer.rows, vterm->composer.columns};
     }
     result.hyperlinkCount = vterm->composer.cellExtras->hyperlinkCount();
+    for (size_t index = 0; index < 4; ++index) {
+        result.charsets[index] = (u8)(vterm->charsetState.g[index]);
+    }
     return result;
 }
 

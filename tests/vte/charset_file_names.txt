@@ -1,0 +1,6 @@
+94
+96
+94_n
+96_n
+control
+other

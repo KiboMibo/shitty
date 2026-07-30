@@ -898,6 +898,58 @@ vte_validation = command(
 )
 
 
+vte_charset_cases = (vte_root / "charset_file_names.txt").read_text().split()
+vte_charset_tests = []
+for case in vte_charset_cases:
+    vte_charset_tests.append(command(
+        name="vte_charset_" + case,
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/vte/charset_adapter.py",
+            "$(S)/tests/vte/charset_cases.py",
+            "$(S)/tests/vte/charset_file_names.txt",
+            "$(S)/tests/vte/upstream/parser-charset-tables.hh",
+            "$(S)/tests/vte/upstream/parser-test.cc",
+        ],
+        outputs=[f"$(B)/tests/vte/charset/{case}.stamp"],
+        deps=[st_test],
+        cmd=[
+            "python3",
+            "tests/vte/charset_adapter.py",
+            case,
+            f"$(B)/tests/vte/charset/{case}.stamp",
+        ],
+        cwd="$(S)",
+        env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        descr="VC",
+        color="cyan",
+    ))
+
+
+vte_charset_validation = command(
+    name="vte_charset_catalog",
+    inputs=[
+        "$(S)/tests/vte/charset_cases.py",
+        "$(S)/tests/vte/charset_file_names.txt",
+        "$(S)/tests/vte/charset_validate.py",
+        "$(S)/tests/vte/upstream/parser-charset-tables.hh",
+        "$(S)/tests/vte/upstream/parser-test.cc",
+    ],
+    outputs=["$(B)/tests/vte/charset/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/vte/charset_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/vte/charset/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="VC",
+    color="cyan",
+)
+
+
 vte_tabstop_cases = (vte_root / "tabstop_file_names.txt").read_text().split()
 vte_tabstop_tests = []
 for case in vte_tabstop_cases:
@@ -2658,6 +2710,8 @@ group(
     kitty_screen_validation,
     *vte_tests,
     vte_validation,
+    *vte_charset_tests,
+    vte_charset_validation,
     *vte_tabstop_tests,
     vte_tabstop_validation,
     *vte_mode_tests,

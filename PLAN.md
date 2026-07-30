@@ -179,12 +179,11 @@ keys.~~
 ### VTE
 
 В upstream `parser-test.cc` зарегистрировано 36 семейств. Мы покрываем
-двенадцать семейств, развёрнутых в 37 targets.
+восемнадцать семейств, развёрнутых в 43 targets.
 
 Не взяты:
 
-- все charset 94/96 варианты;
-- known ESC/CSI/SCI/DCS tables;
+- known ESC/CSI/DCS tables;
 - внутренние sequence-builder/glue tests.
 
 Последние не особо полезны, зато отдельно стоит взять:
@@ -216,6 +215,14 @@ keys.~~
   и Konsole используют его как DECID. По правилу majority-over-obsolete-spec
   Shitty сохраняет DECID; его 7/8-bit варианты уже покрыты esctest. Исходный
   VTE corpus сохранён verbatim;~~
+- ~~charset designation — все шесть upstream families и все 9 246
+  designators перенесены с семантическим oracle по четырём G-slots: 2 528
+  single-byte 94, 1 659 single-byte 96, 2 531 multibyte 94, 2 133 multibyte
+  96, 158 control и 237 DOCS. Поддерживаемые DEC/ISO/NRC sets проверяются
+  точно; неизвестные single-byte sets выбирают default mapping, а
+  неподдерживаемые multibyte/control/DOCS не меняют G-slots. Импорт исправил
+  ошибочную запись multibyte designation в G0 и ложное распознавание
+  modified/96 finals как DEC/NRC;~~
 - ~~UTF-8 replacement/error behavior — оба теста перенесены полностью:
   1 112 064 допустимых scalar values и все 108 encoding_rs malformed
   vectors. Импорт исправил maximal-subpart replacement для E0/ED/F0/F4;~~

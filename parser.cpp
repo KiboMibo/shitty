@@ -212,6 +212,7 @@ namespace {
         u8 scsIndex = 0;
         u8 scsMod = 0;
         bool scs96 = false;
+        bool scsMultibyte = false;
     };
 
     template <bool traced>
@@ -280,6 +281,7 @@ namespace {
         void dispatchXtmodkeys();
         void dispatchXtqmodkeys();
         void dispatchKittyKeyboardSet();
+        void designateCharset(u8 final);
         bool parseSgrColor(size_t& index, CellColor& color, int& paletteIndex);
         void dispatchSgr();
         void traceCsi(u8 finalByte);
@@ -1388,6 +1390,99 @@ void ParserImpl<traced>::dispatchKittyKeyboardSet() {
         default:
             break;
     }
+}
+
+template <bool traced>
+void ParserImpl<traced>::designateCharset(u8 final) {
+    if (parser.scsMultibyte) {
+        return;
+    }
+
+    Charset charset = Charset::UTF8;
+    if (parser.scs96) {
+        if (parser.scsMod == 0) {
+            if (final == 'A') {
+                charset = Charset::IsoLatin1;
+            } else if (final == '<') {
+                charset = Charset::DecUserPref;
+            }
+        }
+    } else if (parser.scsMod == 0) {
+        switch (final) {
+            case 'A':
+                charset = Charset::IsoUK;
+                break;
+            case '0':
+                charset = Charset::DecSpec;
+                break;
+            case '5':
+            case 'C':
+                charset = Charset::NrcFinnish;
+                break;
+            case '<':
+                charset = Charset::DecUserPref;
+                break;
+            case '>':
+                charset = Charset::DecTechn;
+                break;
+            case '4':
+                charset = Charset::NrcDutch;
+                break;
+            case 'R':
+            case 'f':
+                charset = Charset::NrcFrench;
+                break;
+            case '9':
+            case 'Q':
+                charset = Charset::NrcFrenchCanadian;
+                break;
+            case 'K':
+                charset = Charset::NrcGerman;
+                break;
+            case 'Y':
+                charset = Charset::NrcItalian;
+                break;
+            case '`':
+            case 'E':
+            case '6':
+                charset = Charset::NrcNorwegianDanish;
+                break;
+            case 'Z':
+                charset = Charset::NrcSpanish;
+                break;
+            case '7':
+            case 'H':
+                charset = Charset::NrcSwedish;
+                break;
+            case '=':
+                charset = Charset::NrcSwiss;
+                break;
+        }
+    } else if (parser.scsMod == '%') {
+        switch (final) {
+            case '2':
+                charset = Charset::NrcTurkish;
+                break;
+            case '3':
+                charset = Charset::NrcSerboCroatian;
+                break;
+            case '5':
+                charset = Charset::DecSuppl;
+                break;
+            case '6':
+                charset = Charset::NrcPortuguese;
+                break;
+            case '=':
+                charset = Charset::NrcHebrew;
+                break;
+        }
+    } else if (parser.scsMod == '&' && final == '5') {
+        charset = Charset::NrcRussian;
+    } else if (parser.scsMod == '"' && final == '>') {
+        charset = Charset::NrcGreek;
+    }
+
+    iface.parserDesignateCharset(parser.scsIndex, charset);
 }
 
 template <bool traced>

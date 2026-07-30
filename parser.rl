@@ -475,6 +475,18 @@
         parser.scsIndex = 0;
         parser.scsMod = 0;
         parser.scs96 = false;
+        parser.scsMultibyte = false;
+        fgoto selectCharset;
+    }
+
+    action charsetG0Multibyte {
+        if constexpr (traced) {
+            parserTrace->escapeByte(fc);
+        }
+        parser.scsIndex = 0;
+        parser.scsMod = 0;
+        parser.scs96 = false;
+        parser.scsMultibyte = true;
         fgoto selectCharset;
     }
 
@@ -485,6 +497,7 @@
         parser.scsIndex = 1;
         parser.scsMod = 0;
         parser.scs96 = false;
+        parser.scsMultibyte = false;
         fgoto selectCharset;
     }
 
@@ -495,6 +508,7 @@
         parser.scsIndex = 2;
         parser.scsMod = 0;
         parser.scs96 = false;
+        parser.scsMultibyte = false;
         fgoto selectCharset;
     }
 
@@ -505,6 +519,7 @@
         parser.scsIndex = 3;
         parser.scsMod = 0;
         parser.scs96 = false;
+        parser.scsMultibyte = false;
         fgoto selectCharset;
     }
 
@@ -515,6 +530,7 @@
         parser.scsIndex = 1;
         parser.scsMod = 0;
         parser.scs96 = true;
+        parser.scsMultibyte = false;
         fgoto selectCharset;
     }
 
@@ -525,6 +541,7 @@
         parser.scsIndex = 2;
         parser.scsMod = 0;
         parser.scs96 = true;
+        parser.scsMultibyte = false;
         fgoto selectCharset;
     }
 
@@ -535,6 +552,7 @@
         parser.scsIndex = 3;
         parser.scsMod = 0;
         parser.scs96 = true;
+        parser.scsMultibyte = false;
         fgoto selectCharset;
     }
 
@@ -3678,7 +3696,8 @@
         ' ' @escapeSpace |
         '#' @escapeHash |
         '%' @escapePercent |
-        ('(' | ',' | '$') @charsetG0 |
+        ('(' | ',') @charsetG0 |
+        '$' @charsetG0Multibyte |
         ')' @charsetG1 |
         '*' @charsetG2 |
         '+' @charsetG3 |
@@ -3771,8 +3790,6 @@
         any @specialFinal @vt52Unhandled
     )*;
 
-    charsetKnown = [AB05<>4CRf9QKY`E6Z7H=32];
-
     selectCharset := (
         cancel |
         restartEscape |
@@ -3780,58 +3797,7 @@
         0x7f |
         highToGround |
         0x00..0x2f @charsetModifier |
-        'A' @{ iface.parserDesignateCharset(parser.scsIndex, parser.scs96 ? Charset::IsoLatin1 : Charset::IsoUK); } @charsetFinal |
-        'B' @{ iface.parserDesignateCharset(parser.scsIndex, Charset::UTF8); } @charsetFinal |
-        '0' @{ iface.parserDesignateCharset(parser.scsIndex, Charset::DecSpec); } @charsetFinal |
-        '5' @{
-            iface.parserDesignateCharset(
-                parser.scsIndex,
-                parser.scsMod == '%' ? Charset::DecSuppl :
-                parser.scsMod == '&' ? Charset::NrcRussian : Charset::NrcFinnish
-            );
-        } @charsetFinal |
-        '<' @{ iface.parserDesignateCharset(parser.scsIndex, Charset::DecUserPref); } @charsetFinal |
-        '>' @{
-            iface.parserDesignateCharset(
-                parser.scsIndex,
-                parser.scsMod == '"' ? Charset::NrcGreek : Charset::DecTechn
-            );
-        } @charsetFinal |
-        '4' @{ iface.parserDesignateCharset(parser.scsIndex, Charset::NrcDutch); } @charsetFinal |
-        'C' @{ iface.parserDesignateCharset(parser.scsIndex, Charset::NrcFinnish); } @charsetFinal |
-        ('R' | 'f') @{ iface.parserDesignateCharset(parser.scsIndex, Charset::NrcFrench); } @charsetFinal |
-        ('9' | 'Q') @{ iface.parserDesignateCharset(parser.scsIndex, Charset::NrcFrenchCanadian); } @charsetFinal |
-        'K' @{ iface.parserDesignateCharset(parser.scsIndex, Charset::NrcGerman); } @charsetFinal |
-        'Y' @{ iface.parserDesignateCharset(parser.scsIndex, Charset::NrcItalian); } @charsetFinal |
-        ('`' | 'E' | '6') @{
-            iface.parserDesignateCharset(
-                parser.scsIndex,
-                parser.scsMod == '%' ? Charset::NrcPortuguese : Charset::NrcNorwegianDanish
-            );
-        } @charsetFinal |
-        'Z' @{ iface.parserDesignateCharset(parser.scsIndex, Charset::NrcSpanish); } @charsetFinal |
-        ('7' | 'H') @{ iface.parserDesignateCharset(parser.scsIndex, Charset::NrcSwedish); } @charsetFinal |
-        '=' @{
-            iface.parserDesignateCharset(
-                parser.scsIndex,
-                parser.scsMod == '%' ? Charset::NrcHebrew : Charset::NrcSwiss
-            );
-        } @charsetFinal |
-        '3' @{
-            iface.parserDesignateCharset(
-                parser.scsIndex,
-                parser.scsMod == '%' ? Charset::NrcSerboCroatian : Charset::UTF8
-            );
-        } @charsetFinal |
-        '2' @{
-            iface.parserDesignateCharset(
-                parser.scsIndex,
-                parser.scsMod == '%' ? Charset::NrcTurkish : Charset::UTF8
-            );
-        } @charsetFinal |
-        (0x30..0x7e - charsetKnown) @{
-            iface.parserDesignateCharset(parser.scsIndex, Charset::UTF8);
-        } @charsetFinal |
+        0x30..0x7e @{ designateCharset(fc); } @charsetFinal |
         0x80..0x9f @escapeFinal
     )*;
 

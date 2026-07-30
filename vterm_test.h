@@ -28,6 +28,7 @@ struct VtermTestState {
     TerminalPen pen;
     RectangleOrigin rectangleOrigin{};
     size_t hyperlinkCount = 0;
+    u8 charsets[4]{};
 };
 
 struct TestApi {

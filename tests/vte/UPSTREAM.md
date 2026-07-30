@@ -33,6 +33,24 @@ terminals and current Foot, Ghostty, WezTerm, Konsole, and xterm-compatible
 applications use `ESC Z` as DECID, the obsolete form of primary DA. Shitty
 keeps DECID; its 7-bit and 8-bit behaviour is already covered by esctest.
 
+`upstream/parser-charset-tables.hh` is also copied verbatim. All six charset
+families from `parser-test.cc` are translated, preserving all 9,246
+designators: 2,528 single-byte 94-set cases, 1,659 single-byte 96-set cases,
+2,531 multibyte 94-set cases, 2,133 multibyte 96-set cases, 158 control-set
+cases, and 237 other-coding-system cases. A read-only test API exposes the
+four designated graphic slots, so the tests check semantic state rather than
+only accepting the escape bytes.
+
+The observable oracle follows the terminal implementation layer, not VTE's
+larger internal ECMA-35 token enum. Supported DEC, ISO Latin-1, UK and NRC
+sets are designated exactly. Unknown single-byte sets select the default
+graphic mapping. Unsupported multibyte, C0/C1 designation and non-UTF
+coding-system sequences are consumed without changing graphic slots; the
+widely implemented `ESC %@` and `ESC %G` encoding selectors remain active.
+The import fixed Shitty accidentally interpreting multibyte slot selectors
+as G0 single-byte designations and accepting unrelated modified or 96-set
+final bytes as DEC/NRC sets.
+
 `upstream/unicode-width-test.cc` is copied verbatim from the same revision.
 The width adapter extracts its explicit Unicode ranges and points for ambiguous
 width 1, splits large ranges at 256-codepoint boundaries, and verifies 930
