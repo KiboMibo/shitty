@@ -3137,10 +3137,6 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
         inp_LF();
     }
 
-    if (insertMode) {
-        csi_ICH(1);
-    }
-
     if (w == 0) {
         w = 1;
     }
@@ -3148,6 +3144,13 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
     const u16 clusterX = posX;
     const u16 clusterY = posY;
     const bool wide = w == 2 && posX < lineCols - 1;
+    if (insertMode) {
+        // A wide glyph occupies two cells; inserting a single cell would let
+        // it overwrite one cell of existing content instead of shifting it.
+        // Mirror placePreparedRun and insert directly: insert mode is not
+        // bounded by the scrolling margins the way the ICH control is.
+        cf->insertCells(posY, posX, lineCols, wide ? 2 : 1, eraseAttrs);
+    }
     cf->writeCodepoint(posY, posX, pt, wide, attrs, activeHyperlink, currentSemantic, eraseAttrs);
     if (attrs.blink) {
         enableBlinkingText();
