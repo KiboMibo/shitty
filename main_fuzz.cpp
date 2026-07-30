@@ -38,6 +38,7 @@
 #include <vector>
 
 using namespace stl;
+using namespace plt;
 
 namespace {
     u64 sequence = 0;
@@ -265,7 +266,7 @@ namespace {
         const u16 columns = rig.composer->columns;
         const u16 rows = rig.composer->rows;
         std::vector<CellSnap> result;
-        result.reserve((size_t)(columns) * rows);
+        result.reserve((size_t)(columns)*rows);
         for (u16 row = 0; row < rows; ++row) {
             for (u16 column = 0; column < columns; ++column) {
                 const VtermTestCell cell = rig.api->cell(row, column);
@@ -283,7 +284,7 @@ namespace {
     void compareSnapshot(const Rig& rig, const std::vector<CellSnap>& snapshot) {
         const u16 columns = rig.composer->columns;
         const u16 rows = rig.composer->rows;
-        check(snapshot.size() == (size_t)(columns) * rows, "geometry changed during probe", snapshot.size(), 0);
+        check(snapshot.size() == (size_t)(columns)*rows, "geometry changed during probe", snapshot.size(), 0);
         for (u16 row = 0; row < rows; ++row) {
             for (u16 column = 0; column < columns; ++column) {
                 const CellSnap& snap = snapshot[(size_t)(row)*columns + column];
@@ -338,7 +339,7 @@ namespace {
         switch (op) {
             case 200:
                 if (len >= 2) {
-                    api->key((VtKey)(payload[0] % ((u8)(VtKey::RightSuper) + 1)), (VtModifier)(payload[1] & 7));
+                    api->key((InputKey)(payload[0] % (u8)(InputKey::Count)), (VtModifier)(payload[1] & 7));
                 }
                 break;
             case 201:

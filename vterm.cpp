@@ -167,7 +167,7 @@ namespace {
     };
 
     struct VtermInputSpec {
-        VtKey key;
+        InputKey key;
         const char* input;
         size_t length = 0;
 
@@ -190,8 +190,6 @@ namespace {
 
         VtModifier legacyModifiers(u16 modifiers) const;
         u16 kittyModifiers(u16 modifiers) const;
-        VtKey keypadKey(InputKey key, bool numLock) const;
-        VtKey specialKey(InputKey key, u16 modifiers) const;
         void mouseProtocolCoordinates(MouseTrackingEnc encoding, int pixelX, int pixelY, u16& column, u16& row) const;
         void sendMouseProtocol(MouseTrackingEnc encoding, MouseEventType type, u16 modifiers, int button, int column, int row);
         void sendMouseButtonProtocol(MouseEventType type, int button, int pixelX, int pixelY, u16 modifiers, const MouseTrackingState& tracking);
@@ -274,10 +272,10 @@ namespace {
         bool scroll(const ScrollInput& input) override;
         void pointerPresence(bool present) override;
         void flush() override;
-        void key(VtKey key, VtModifier modifiers);
+        void key(InputKey key, VtModifier modifiers);
         void character(u8 byte, VtModifier modifiers);
         void sendBytes(StringView bytes, bool userInput) override;
-        void kittyKey(VtKey key, u16 modifiers, VtermKeyEventType event);
+        void kittyKey(InputKey key, u16 modifiers, VtermKeyEventType event);
         void kittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event);
         bool mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY);
         void locatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons);
@@ -343,13 +341,13 @@ namespace {
 
         using InputSpec = VtermInputSpec;
 
-        int writePty(VtKey key, VtModifier modifiers = VtModifier::none, bool userInput = true);
+        int writePty(InputKey key, VtModifier modifiers = VtModifier::none, bool userInput = true);
         int writePty(u8 ch, VtModifier modifiers = VtModifier::none, bool userInput = true);
         int writePty(const char* cstr, bool userInput = false);
         int writePty(const char* data, size_t size, bool userInput);
         int writePty(const u8* ucstr, size_t len, bool userInput = false);
         void writeProtocolResponse(StringView prefix, StringView payload, StringView suffix = {});
-        int writeKittyKey(VtKey key, u16 modifiers, VtermKeyEventType event);
+        int writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType event);
         int writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event);
         u8 getKittyKeyboardFlags() const;
 
@@ -394,7 +392,7 @@ namespace {
 
         const InputSpecTable* getInputSpecTable();
         const InputSpec* selectInputSpecs(size_t& cursor);
-        const InputSpec& getInputSpec(VtKey key);
+        const InputSpec& getInputSpec(InputKey key);
 
         void unhandledInput(unsigned char ch) override;
         void resetTerminal();
@@ -857,7 +855,7 @@ namespace {
         u8 modifyKeyResources[8] = {};
         u8 initialModifyKeyResources[8] = {};
         std::map<u32, bool> savedPrivModes;
-        std::map<VtKey, std::string> userDefinedKeys;
+        std::map<InputKey, std::string> userDefinedKeys;
         bool userDefinedKeysLocked = false;
 
         struct KittyKeyboardState {
@@ -976,9 +974,9 @@ namespace {
         bool tabStop(u16 column) const override;
         VtermTestCell cell(u16 row, u16 column) const override;
         VtermTestCell logicalCell(i32 row, u16 column) const override;
-        void key(VtKey key, VtModifier modifiers) override;
+        void key(InputKey key, VtModifier modifiers) override;
         void character(u8 byte, VtModifier modifiers) override;
-        void kittyKey(VtKey key, u16 modifiers, VtermKeyEventType event) override;
+        void kittyKey(InputKey key, u16 modifiers, VtermKeyEventType event) override;
         void kittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event) override;
         bool mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY) override;
         void locatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons) override;
@@ -1067,182 +1065,6 @@ u16 VtermInput::kittyModifiers(u16 modifiers) const {
         result |= 128;
     }
     return result;
-}
-
-VtKey VtermInput::keypadKey(InputKey key, bool numLock) const {
-    using Key = VtKey;
-    if (!numLock) {
-        switch (key) {
-            case InputKey::Keypad0:
-                return Key::KP_Insert;
-            case InputKey::Keypad1:
-                return Key::KP_End;
-            case InputKey::Keypad2:
-                return Key::KP_Down;
-            case InputKey::Keypad3:
-                return Key::KP_PageDown;
-            case InputKey::Keypad4:
-                return Key::KP_Left;
-            case InputKey::Keypad5:
-                return Key::KP_Begin;
-            case InputKey::Keypad6:
-                return Key::KP_Right;
-            case InputKey::Keypad7:
-                return Key::KP_Home;
-            case InputKey::Keypad8:
-                return Key::KP_Up;
-            case InputKey::Keypad9:
-                return Key::KP_PageUp;
-            case InputKey::KeypadDecimal:
-                return Key::KP_Delete;
-            default:
-                break;
-        }
-    }
-    switch (key) {
-        case InputKey::Keypad0:
-            return Key::KP_0;
-        case InputKey::Keypad1:
-            return Key::KP_1;
-        case InputKey::Keypad2:
-            return Key::KP_2;
-        case InputKey::Keypad3:
-            return Key::KP_3;
-        case InputKey::Keypad4:
-            return Key::KP_4;
-        case InputKey::Keypad5:
-            return Key::KP_5;
-        case InputKey::Keypad6:
-            return Key::KP_6;
-        case InputKey::Keypad7:
-            return Key::KP_7;
-        case InputKey::Keypad8:
-            return Key::KP_8;
-        case InputKey::Keypad9:
-            return Key::KP_9;
-        case InputKey::KeypadDecimal:
-            return Key::KP_Dot;
-        case InputKey::KeypadDivide:
-            return Key::KP_Slash;
-        case InputKey::KeypadMultiply:
-            return Key::KP_Star;
-        case InputKey::KeypadSubtract:
-            return Key::KP_Minus;
-        case InputKey::KeypadAdd:
-            return Key::KP_Plus;
-        case InputKey::KeypadEnter:
-            return Key::KP_Enter;
-        case InputKey::KeypadEqual:
-            return Key::KP_Equal;
-        default:
-            return Key::NONE;
-    }
-}
-
-VtKey VtermInput::specialKey(InputKey key, u16 modifiers) const {
-    using Key = VtKey;
-    const Key keypad = keypadKey(key, (modifiers & InputNumLock) != 0);
-    if (keypad != Key::NONE) {
-        return keypad;
-    }
-    switch (key) {
-        case InputKey::Enter:
-            return Key::Return;
-        case InputKey::Backspace:
-            return Key::Backspace;
-        case InputKey::Tab:
-            return Key::Tab;
-        case InputKey::Insert:
-            return Key::Insert;
-        case InputKey::Delete:
-            return Key::Delete;
-        case InputKey::Home:
-            return Key::Home;
-        case InputKey::End:
-            return Key::End;
-        case InputKey::Up:
-            return Key::Up;
-        case InputKey::Down:
-            return Key::Down;
-        case InputKey::Left:
-            return Key::Left;
-        case InputKey::Right:
-            return Key::Right;
-        case InputKey::PageUp:
-            return Key::PageUp;
-        case InputKey::PageDown:
-            return Key::PageDown;
-        case InputKey::F1:
-            return Key::F1;
-        case InputKey::F2:
-            return Key::F2;
-        case InputKey::F3:
-            return Key::F3;
-        case InputKey::F4:
-            return Key::F4;
-        case InputKey::F5:
-            return Key::F5;
-        case InputKey::F6:
-            return Key::F6;
-        case InputKey::F7:
-            return Key::F7;
-        case InputKey::F8:
-            return Key::F8;
-        case InputKey::F9:
-            return Key::F9;
-        case InputKey::F10:
-            return Key::F10;
-        case InputKey::F11:
-            return Key::F11;
-        case InputKey::F12:
-            return Key::F12;
-        case InputKey::F13:
-            return Key::F13;
-        case InputKey::F14:
-            return Key::F14;
-        case InputKey::F15:
-            return Key::F15;
-        case InputKey::F16:
-            return Key::F16;
-        case InputKey::F17:
-            return Key::F17;
-        case InputKey::F18:
-            return Key::F18;
-        case InputKey::F19:
-            return Key::F19;
-        case InputKey::F20:
-            return Key::F20;
-        case InputKey::CapsLock:
-            return Key::CapsLock;
-        case InputKey::ScrollLock:
-            return Key::ScrollLock;
-        case InputKey::NumLock:
-            return Key::NumLock;
-        case InputKey::PrintScreen:
-            return Key::Print;
-        case InputKey::Pause:
-            return Key::Pause;
-        case InputKey::Menu:
-            return Key::Menu;
-        case InputKey::LeftShift:
-            return Key::LeftShift;
-        case InputKey::LeftControl:
-            return Key::LeftControl;
-        case InputKey::LeftAlt:
-            return Key::LeftAlt;
-        case InputKey::LeftSuper:
-            return Key::LeftSuper;
-        case InputKey::RightShift:
-            return Key::RightShift;
-        case InputKey::RightControl:
-            return Key::RightControl;
-        case InputKey::RightAlt:
-            return Key::RightAlt;
-        case InputKey::RightSuper:
-            return Key::RightSuper;
-        default:
-            return Key::NONE;
-    }
 }
 
 bool VtermInput::paste(bool primary) {
@@ -1654,9 +1476,8 @@ bool VtermInput::key(const KeyInput& input) {
             terminal->writeKittyKey(27, 0, 0, kittyMods, event);
             return true;
         }
-        const VtKey special = specialKey(input.key, input.modifiers);
-        if (special != VtKey::NONE) {
-            terminal->writeKittyKey(special, kittyMods, event);
+        if (input.key != InputKey::Unknown && input.key != InputKey::Printable && input.key != InputKey::Space) {
+            terminal->writeKittyKey(input.key, kittyMods, event);
             return true;
         }
         const u32 primaryKey = input.layoutCodepoint != 0 ? input.layoutCodepoint : input.baseCodepoint;
@@ -1680,9 +1501,8 @@ bool VtermInput::key(const KeyInput& input) {
         terminal->writePty((u8)('\x1b'), modifiers, true);
         return true;
     }
-    const VtKey special = specialKey(input.key, input.modifiers);
-    if (special != VtKey::NONE) {
-        terminal->writePty(special, modifiers, true);
+    if (input.key != InputKey::Unknown && input.key != InputKey::Printable && input.key != InputKey::Space) {
+        terminal->writePty(input.key, modifiers, true);
         return true;
     }
     if (input.modifiers & InputControl) {
@@ -2031,7 +1851,7 @@ void VtermImpl::flush() {
     composer.application->defer();
 }
 
-void VtermImpl::key(VtKey key_, VtModifier modifiers_) {
+void VtermImpl::key(InputKey key_, VtModifier modifiers_) {
     writePty(key_, modifiers_, true);
 }
 
@@ -2043,7 +1863,7 @@ void VtermImpl::sendBytes(StringView bytes, bool userInput) {
     writePty(bytes.data(), bytes.length(), userInput);
 }
 
-void VtermImpl::kittyKey(VtKey key_, u16 modifiers_, VtermKeyEventType event) {
+void VtermImpl::kittyKey(InputKey key_, u16 modifiers_, VtermKeyEventType event) {
     writeKittyKey(key_, modifiers_, event);
 }
 
@@ -2364,7 +2184,7 @@ VtermTestCell TestApiImpl::logicalCell(i32 row, u16 column) const {
     return result;
 }
 
-void TestApiImpl::key(VtKey key_, VtModifier modifiers) {
+void TestApiImpl::key(InputKey key_, VtModifier modifiers) {
     vterm->key(key_, modifiers);
 }
 
@@ -2372,7 +2192,7 @@ void TestApiImpl::character(u8 byte, VtModifier modifiers) {
     vterm->character(byte, modifiers);
 }
 
-void TestApiImpl::kittyKey(VtKey key_, u16 modifiers, VtermKeyEventType event) {
+void TestApiImpl::kittyKey(InputKey key_, u16 modifiers, VtermKeyEventType event) {
     vterm->kittyKey(key_, modifiers, event);
 }
 
@@ -2676,7 +2496,7 @@ void VtermImpl::setHasFocus(bool hasFocus_) {
 void VtermImpl::pageUp() {
     if (altScrollMode && altScreenBufferMode) {
         for (int k = 0; k < (marginBottom - marginTop) / 2; ++k) {
-            writePty(VtKey::Up);
+            writePty(InputKey::Up);
         }
     } else {
         cf->scrollView(composer.rows / 2);
@@ -2688,7 +2508,7 @@ void VtermImpl::pageUp() {
 void VtermImpl::pageDown() {
     if (altScrollMode && altScreenBufferMode) {
         for (int k = 0; k < (marginBottom - marginTop) / 2; ++k) {
-            writePty(VtKey::Down);
+            writePty(InputKey::Down);
         }
     } else {
         cf->scrollView(-(i32)(composer.rows / 2));
@@ -2700,7 +2520,7 @@ void VtermImpl::pageDown() {
 void VtermImpl::mouseWheelUp(u16 count) {
     if (altScrollMode && altScreenBufferMode) {
         for (u16 k = 0; k < count; ++k) {
-            writePty(VtKey::Up);
+            writePty(InputKey::Up);
         }
     } else {
         cf->scrollView(count);
@@ -2712,7 +2532,7 @@ void VtermImpl::mouseWheelUp(u16 count) {
 void VtermImpl::mouseWheelDown(u16 count) {
     if (altScrollMode && altScreenBufferMode) {
         for (u16 k = 0; k < count; ++k) {
-            writePty(VtKey::Down);
+            writePty(InputKey::Down);
         }
     } else {
         cf->scrollView(-(i32)(count));
@@ -2724,7 +2544,7 @@ void VtermImpl::mouseWheelDown(u16 count) {
 void VtermImpl::mouseWheelRight(u16 count) {
     if (altScrollMode && altScreenBufferMode) {
         for (u16 k = 0; k < count; ++k) {
-            writePty(VtKey::Right);
+            writePty(InputKey::Right);
         }
     }
 }
@@ -2732,7 +2552,7 @@ void VtermImpl::mouseWheelRight(u16 count) {
 void VtermImpl::mouseWheelLeft(u16 count) {
     if (altScrollMode && altScreenBufferMode) {
         for (u16 k = 0; k < count; ++k) {
-            writePty(VtKey::Left);
+            writePty(InputKey::Left);
         }
     }
 }
@@ -5754,7 +5574,7 @@ void VtermImpl::csi_kittyKeyboardQuery() {
 }
 
 namespace {
-    using Key = VtKey;
+    using Key = InputKey;
     using InputSpec = VtermInputSpec;
 
 #define ESC "\x1b"
@@ -5764,128 +5584,61 @@ namespace {
 #define MC "\xff"
 
     const InputSpec is_modOtherKeys2[] = {
-        {Key::K2, CSI "27;" MC ";50~"},
-        {Key::K3, CSI "27;" MC ";51~"},
-        {Key::K4, CSI "27;" MC ";52~"},
-        {Key::K5, CSI "27;" MC ";53~"},
-        {Key::K6, CSI "27;" MC ";54~"},
-        {Key::K7, CSI "27;" MC ";55~"},
-        {Key::K8, CSI "27;" MC ";56~"},
-        {Key::Backtick, CSI "27;" MC ";96~"},
-        {Key::Tilde, CSI "27;" MC ";126~"},
         {Key::Tab, CSI "27;" MC ";9~"},
-        {Key::Return, CSI "27;" MC ";13~"},
+        {Key::Enter, CSI "27;" MC ";13~"},
         {Key::Space, CSI "27;" MC ";32~"},
         {Key::Backspace, CSI "27;" MC ";127~"},
-        {Key::NONE, nullptr},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_Alt[] = {
-
-        {Key::K0, "\xc2\xb0"},
-        {Key::K1, "\xc2\xb1"},
-        {Key::K2, "\xc2\xb2"},
-        {Key::K3, "\xc2\xb3"},
-        {Key::K4, "\xc2\xb4"},
-        {Key::K5, "\xc2\xb5"},
-        {Key::K6, "\xc2\xb6"},
-        {Key::K7, "\xc2\xb7"},
-        {Key::K8, "\xc2\xb8"},
-        {Key::K9, "\xc2\xb9"},
-        {Key::Backtick, "\xc3\xa0"},
-        {Key::Tilde, "\xc3\xbe"},
         {Key::Backspace, "\xc3\xbf"},
-        {Key::NONE, nullptr},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_Alt_altSendsEscape[] = {
-        {Key::K0, ESC "0"},
-        {Key::K1, ESC "1"},
-        {Key::K2, ESC "2"},
-        {Key::K3, ESC "3"},
-        {Key::K4, ESC "4"},
-        {Key::K5, ESC "5"},
-        {Key::K6, ESC "6"},
-        {Key::K7, ESC "7"},
-        {Key::K8, ESC "8"},
-        {Key::K9, ESC "9"},
-        {Key::Backtick, ESC "`"},
-        {Key::Tilde, ESC "~"},
         {Key::Backspace, ESC "\x7f"},
         {Key::Space, ESC " "},
         {Key::Tab, ESC "\t"},
-        {Key::Return, ESC "\n"},
-        {Key::NONE, nullptr},
+        {Key::Enter, ESC "\n"},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_Control_modOtherKeys[] = {
-        {Key::K0, CSI "27;" MC ";48~"},
-        {Key::K1, CSI "27;" MC ";49~"},
-        {Key::K9, CSI "27;" MC ";57~"},
         {Key::Tab, CSI "27;" MC ";9~"},
-        {Key::NONE, nullptr},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_ControlAlt_altSendsEscape[] = {
-        {Key::K2, ESC "\x00", 2},
-        {Key::K3, ESC "\x1b", 2},
-        {Key::K4, ESC "\x1c", 2},
-        {Key::K5, ESC "\x1d", 2},
-        {Key::K6, ESC "\x1e", 2},
-        {Key::K7, ESC "\x1f", 2},
-        {Key::K8, ESC "\x7f", 2},
-        {Key::Backtick, ESC "\x00", 2},
-        {Key::Tilde, ESC "\x1e", 2},
         {Key::Space, ESC "\x00", 2},
-        {Key::NONE, nullptr},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_Control[] = {
-        {Key::K2, "\x00", 1},
-        {Key::K3, "\x1b", 1},
-        {Key::K4, "\x1c", 1},
-        {Key::K5, "\x1d", 1},
-        {Key::K6, "\x1e", 1},
-        {Key::K7, "\x1f", 1},
-        {Key::K8, "\x7f", 1},
-        {Key::Backtick, "\x00", 1},
-        {Key::Tilde, "\x1e", 1},
         {Key::Space, "\x00", 1},
-        {Key::NONE, nullptr},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_Shift[] = {
         {Key::Tab, CSI "Z"},
-        {Key::NONE, nullptr},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_modOtherKeys[] = {
-        {Key::Return, CSI "27;" MC ";13~"},
-        {Key::NONE, nullptr},
+        {Key::Enter, CSI "27;" MC ";13~"},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_Ansi[] = {
-        {Key::K0, "0"},
-        {Key::K1, "1"},
-        {Key::K2, "2"},
-        {Key::K3, "3"},
-        {Key::K4, "4"},
-        {Key::K5, "5"},
-        {Key::K6, "6"},
-        {Key::K7, "7"},
-        {Key::K8, "8"},
-        {Key::K9, "9"},
-        {Key::Backtick, "`"},
-        {Key::Tilde, "~"},
         {Key::Space, " "},
         {Key::Backspace, "\x7f"},
         {Key::Tab, "\t"},
-        {Key::Return, "\r"},
+        {Key::Enter, "\r"},
         {Key::Insert, CSI "2~"},
         {Key::Delete, CSI "3~"},
         {Key::PageUp, CSI "5~"},
         {Key::PageDown, CSI "6~"},
-        {Key::NONE, nullptr},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_Mod_Ansi[] = {
@@ -5893,18 +5646,18 @@ namespace {
         {Key::Delete, CSI "3;" MC "~"},
         {Key::PageUp, CSI "5;" MC "~"},
         {Key::PageDown, CSI "6;" MC "~"},
-        {Key::NONE, nullptr},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_Ansi_FunctionKeys[] = {
         {Key::F1, SS3 "P"},
-        {Key::KP_F1, SS3 "P"},
+        {Key::KeypadF1, SS3 "P"},
         {Key::F2, SS3 "Q"},
-        {Key::KP_F2, SS3 "Q"},
+        {Key::KeypadF2, SS3 "Q"},
         {Key::F3, SS3 "R"},
-        {Key::KP_F3, SS3 "R"},
+        {Key::KeypadF3, SS3 "R"},
         {Key::F4, SS3 "S"},
-        {Key::KP_F4, SS3 "S"},
+        {Key::KeypadF4, SS3 "S"},
         {Key::F5, CSI "15~"},
         {Key::F6, CSI "17~"},
         {Key::F7, CSI "18~"},
@@ -5921,18 +5674,18 @@ namespace {
         {Key::F18, CSI "32~"},
         {Key::F19, CSI "33~"},
         {Key::F20, CSI "34~"},
-        {Key::NONE, nullptr},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_Mod_Ansi_FunctionKeys[] = {
         {Key::F1, CSI "1;" MC "P"},
-        {Key::KP_F1, CSI "1;" MC "P"},
+        {Key::KeypadF1, CSI "1;" MC "P"},
         {Key::F2, CSI "1;" MC "Q"},
-        {Key::KP_F2, CSI "1;" MC "Q"},
+        {Key::KeypadF2, CSI "1;" MC "Q"},
         {Key::F3, CSI "1;" MC "R"},
-        {Key::KP_F3, CSI "1;" MC "R"},
+        {Key::KeypadF3, CSI "1;" MC "R"},
         {Key::F4, CSI "1;" MC "S"},
-        {Key::KP_F4, CSI "1;" MC "S"},
+        {Key::KeypadF4, CSI "1;" MC "S"},
         {Key::F5, CSI "15;" MC "~"},
         {Key::F6, CSI "17;" MC "~"},
         {Key::F7, CSI "18;" MC "~"},
@@ -5949,159 +5702,159 @@ namespace {
         {Key::F18, CSI "32;" MC "~"},
         {Key::F19, CSI "33;" MC "~"},
         {Key::F20, CSI "34;" MC "~"},
-        {Key::NONE, nullptr},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_Ansi_KeypadKeys[] = {
-        {Key::KP_Space, " "},
-        {Key::KP_Tab, "\t"},
-        {Key::KP_Enter, "\r"},
-        {Key::KP_Star, "*"},
-        {Key::KP_Plus, "+"},
-        {Key::KP_Comma, ","},
-        {Key::KP_Minus, "-"},
-        {Key::KP_Slash, "/"},
-        {Key::KP_Delete, "."},
-        {Key::KP_Dot, "."},
-        {Key::KP_Insert, "0"},
-        {Key::KP_0, "0"},
-        {Key::KP_End, "1"},
-        {Key::KP_1, "1"},
-        {Key::KP_Down, "2"},
-        {Key::KP_2, "2"},
-        {Key::KP_PageDown, "3"},
-        {Key::KP_3, "3"},
-        {Key::KP_Left, "4"},
-        {Key::KP_4, "4"},
-        {Key::KP_Begin, "5"},
-        {Key::KP_5, "5"},
-        {Key::KP_Right, "6"},
-        {Key::KP_6, "6"},
-        {Key::KP_Home, "7"},
-        {Key::KP_7, "7"},
-        {Key::KP_Up, "8"},
-        {Key::KP_8, "8"},
-        {Key::KP_PageUp, "9"},
-        {Key::KP_9, "9"},
-        {Key::KP_Equal, "="},
-        {Key::NONE, nullptr},
+        {Key::KeypadSpace, " "},
+        {Key::KeypadTab, "\t"},
+        {Key::KeypadEnter, "\r"},
+        {Key::KeypadMultiply, "*"},
+        {Key::KeypadAdd, "+"},
+        {Key::KeypadSeparator, ","},
+        {Key::KeypadSubtract, "-"},
+        {Key::KeypadDivide, "/"},
+        {Key::KeypadDelete, "."},
+        {Key::KeypadDecimal, "."},
+        {Key::KeypadInsert, "0"},
+        {Key::Keypad0, "0"},
+        {Key::KeypadEnd, "1"},
+        {Key::Keypad1, "1"},
+        {Key::KeypadDown, "2"},
+        {Key::Keypad2, "2"},
+        {Key::KeypadPageDown, "3"},
+        {Key::Keypad3, "3"},
+        {Key::KeypadLeft, "4"},
+        {Key::Keypad4, "4"},
+        {Key::KeypadBegin, "5"},
+        {Key::Keypad5, "5"},
+        {Key::KeypadRight, "6"},
+        {Key::Keypad6, "6"},
+        {Key::KeypadHome, "7"},
+        {Key::Keypad7, "7"},
+        {Key::KeypadUp, "8"},
+        {Key::Keypad8, "8"},
+        {Key::KeypadPageUp, "9"},
+        {Key::Keypad9, "9"},
+        {Key::KeypadEqual, "="},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_Appl_KeypadKeys[] = {
-        {Key::KP_Space, SS3 " "},
-        {Key::KP_Tab, SS3 "I"},
-        {Key::KP_Enter, SS3 "M"},
-        {Key::KP_Star, SS3 "j"},
-        {Key::KP_Plus, SS3 "k"},
-        {Key::KP_Comma, SS3 "l"},
-        {Key::KP_Minus, SS3 "m"},
-        {Key::KP_Delete, SS3 "n"},
-        {Key::KP_Dot, SS3 "n"},
-        {Key::KP_Slash, SS3 "o"},
-        {Key::KP_Insert, SS3 "p"},
-        {Key::KP_0, SS3 "p"},
-        {Key::KP_End, SS3 "q"},
-        {Key::KP_1, SS3 "q"},
-        {Key::KP_Down, SS3 "r"},
-        {Key::KP_2, SS3 "r"},
-        {Key::KP_PageDown, SS3 "s"},
-        {Key::KP_3, SS3 "s"},
-        {Key::KP_Left, SS3 "t"},
-        {Key::KP_4, SS3 "t"},
-        {Key::KP_Begin, SS3 "u"},
-        {Key::KP_5, SS3 "u"},
-        {Key::KP_Right, SS3 "v"},
-        {Key::KP_6, SS3 "v"},
-        {Key::KP_Home, SS3 "w"},
-        {Key::KP_7, SS3 "w"},
-        {Key::KP_Up, SS3 "x"},
-        {Key::KP_8, SS3 "x"},
-        {Key::KP_PageUp, SS3 "y"},
-        {Key::KP_9, SS3 "y"},
-        {Key::KP_Equal, SS3 "X"},
-        {Key::NONE, nullptr},
+        {Key::KeypadSpace, SS3 " "},
+        {Key::KeypadTab, SS3 "I"},
+        {Key::KeypadEnter, SS3 "M"},
+        {Key::KeypadMultiply, SS3 "j"},
+        {Key::KeypadAdd, SS3 "k"},
+        {Key::KeypadSeparator, SS3 "l"},
+        {Key::KeypadSubtract, SS3 "m"},
+        {Key::KeypadDelete, SS3 "n"},
+        {Key::KeypadDecimal, SS3 "n"},
+        {Key::KeypadDivide, SS3 "o"},
+        {Key::KeypadInsert, SS3 "p"},
+        {Key::Keypad0, SS3 "p"},
+        {Key::KeypadEnd, SS3 "q"},
+        {Key::Keypad1, SS3 "q"},
+        {Key::KeypadDown, SS3 "r"},
+        {Key::Keypad2, SS3 "r"},
+        {Key::KeypadPageDown, SS3 "s"},
+        {Key::Keypad3, SS3 "s"},
+        {Key::KeypadLeft, SS3 "t"},
+        {Key::Keypad4, SS3 "t"},
+        {Key::KeypadBegin, SS3 "u"},
+        {Key::Keypad5, SS3 "u"},
+        {Key::KeypadRight, SS3 "v"},
+        {Key::Keypad6, SS3 "v"},
+        {Key::KeypadHome, SS3 "w"},
+        {Key::Keypad7, SS3 "w"},
+        {Key::KeypadUp, SS3 "x"},
+        {Key::Keypad8, SS3 "x"},
+        {Key::KeypadPageUp, SS3 "y"},
+        {Key::Keypad9, SS3 "y"},
+        {Key::KeypadEqual, SS3 "X"},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_Mod_Appl_KeypadKeys[] = {
-        {Key::KP_Space, SS3 MC " "},
-        {Key::KP_Tab, SS3 MC "I"},
-        {Key::KP_Enter, SS3 MC "M"},
-        {Key::KP_Star, SS3 MC "j"},
-        {Key::KP_Plus, SS3 MC "k"},
-        {Key::KP_Comma, SS3 MC "l"},
-        {Key::KP_Minus, SS3 MC "m"},
-        {Key::KP_Delete, SS3 MC "n"},
-        {Key::KP_Dot, SS3 MC "n"},
-        {Key::KP_Slash, SS3 MC "o"},
-        {Key::KP_Insert, SS3 MC "p"},
-        {Key::KP_0, SS3 MC "p"},
-        {Key::KP_End, SS3 MC "q"},
-        {Key::KP_1, SS3 MC "q"},
-        {Key::KP_Down, SS3 MC "r"},
-        {Key::KP_2, SS3 MC "r"},
-        {Key::KP_PageDown, SS3 MC "s"},
-        {Key::KP_3, SS3 MC "s"},
-        {Key::KP_Left, SS3 MC "t"},
-        {Key::KP_4, SS3 MC "t"},
-        {Key::KP_Begin, SS3 MC "u"},
-        {Key::KP_5, SS3 MC "u"},
-        {Key::KP_Right, SS3 MC "v"},
-        {Key::KP_6, SS3 MC "v"},
-        {Key::KP_Home, SS3 MC "w"},
-        {Key::KP_7, SS3 MC "w"},
-        {Key::KP_Up, SS3 MC "x"},
-        {Key::KP_8, SS3 MC "x"},
-        {Key::KP_PageUp, SS3 MC "y"},
-        {Key::KP_9, SS3 MC "y"},
-        {Key::KP_Equal, SS3 MC "X"},
-        {Key::NONE, nullptr},
+        {Key::KeypadSpace, SS3 MC " "},
+        {Key::KeypadTab, SS3 MC "I"},
+        {Key::KeypadEnter, SS3 MC "M"},
+        {Key::KeypadMultiply, SS3 MC "j"},
+        {Key::KeypadAdd, SS3 MC "k"},
+        {Key::KeypadSeparator, SS3 MC "l"},
+        {Key::KeypadSubtract, SS3 MC "m"},
+        {Key::KeypadDelete, SS3 MC "n"},
+        {Key::KeypadDecimal, SS3 MC "n"},
+        {Key::KeypadDivide, SS3 MC "o"},
+        {Key::KeypadInsert, SS3 MC "p"},
+        {Key::Keypad0, SS3 MC "p"},
+        {Key::KeypadEnd, SS3 MC "q"},
+        {Key::Keypad1, SS3 MC "q"},
+        {Key::KeypadDown, SS3 MC "r"},
+        {Key::Keypad2, SS3 MC "r"},
+        {Key::KeypadPageDown, SS3 MC "s"},
+        {Key::Keypad3, SS3 MC "s"},
+        {Key::KeypadLeft, SS3 MC "t"},
+        {Key::Keypad4, SS3 MC "t"},
+        {Key::KeypadBegin, SS3 MC "u"},
+        {Key::Keypad5, SS3 MC "u"},
+        {Key::KeypadRight, SS3 MC "v"},
+        {Key::Keypad6, SS3 MC "v"},
+        {Key::KeypadHome, SS3 MC "w"},
+        {Key::Keypad7, SS3 MC "w"},
+        {Key::KeypadUp, SS3 MC "x"},
+        {Key::Keypad8, SS3 MC "x"},
+        {Key::KeypadPageUp, SS3 MC "y"},
+        {Key::Keypad9, SS3 MC "y"},
+        {Key::KeypadEqual, SS3 MC "X"},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_VT52_KeypadKeys[] = {
-        {Key::KP_Space, ESC "? "},
-        {Key::KP_Tab, ESC "?I"},
-        {Key::KP_Enter, ESC "?M"},
-        {Key::KP_Star, ESC "?j"},
-        {Key::KP_Plus, ESC "?k"},
-        {Key::KP_Comma, ESC "?l"},
-        {Key::KP_Minus, ESC "?m"},
-        {Key::KP_Delete, ESC "?n"},
-        {Key::KP_Dot, ESC "?n"},
-        {Key::KP_Slash, ESC "?o"},
-        {Key::KP_Insert, ESC "?p"},
-        {Key::KP_0, ESC "?p"},
-        {Key::KP_End, ESC "?q"},
-        {Key::KP_1, ESC "?q"},
-        {Key::KP_Down, ESC "?r"},
-        {Key::KP_2, ESC "?r"},
-        {Key::KP_PageDown, ESC "?s"},
-        {Key::KP_3, ESC "?s"},
-        {Key::KP_Left, ESC "?t"},
-        {Key::KP_4, ESC "?t"},
-        {Key::KP_Begin, ESC "?u"},
-        {Key::KP_5, ESC "?u"},
-        {Key::KP_Right, ESC "?v"},
-        {Key::KP_6, ESC "?v"},
-        {Key::KP_Home, ESC "?w"},
-        {Key::KP_7, ESC "?w"},
-        {Key::KP_Up, ESC "?x"},
-        {Key::KP_8, ESC "?x"},
-        {Key::KP_PageUp, ESC "?y"},
-        {Key::KP_9, ESC "?y"},
-        {Key::KP_Equal, ESC "?X"},
-        {Key::NONE, nullptr},
+        {Key::KeypadSpace, ESC "? "},
+        {Key::KeypadTab, ESC "?I"},
+        {Key::KeypadEnter, ESC "?M"},
+        {Key::KeypadMultiply, ESC "?j"},
+        {Key::KeypadAdd, ESC "?k"},
+        {Key::KeypadSeparator, ESC "?l"},
+        {Key::KeypadSubtract, ESC "?m"},
+        {Key::KeypadDelete, ESC "?n"},
+        {Key::KeypadDecimal, ESC "?n"},
+        {Key::KeypadDivide, ESC "?o"},
+        {Key::KeypadInsert, ESC "?p"},
+        {Key::Keypad0, ESC "?p"},
+        {Key::KeypadEnd, ESC "?q"},
+        {Key::Keypad1, ESC "?q"},
+        {Key::KeypadDown, ESC "?r"},
+        {Key::Keypad2, ESC "?r"},
+        {Key::KeypadPageDown, ESC "?s"},
+        {Key::Keypad3, ESC "?s"},
+        {Key::KeypadLeft, ESC "?t"},
+        {Key::Keypad4, ESC "?t"},
+        {Key::KeypadBegin, ESC "?u"},
+        {Key::Keypad5, ESC "?u"},
+        {Key::KeypadRight, ESC "?v"},
+        {Key::Keypad6, ESC "?v"},
+        {Key::KeypadHome, ESC "?w"},
+        {Key::Keypad7, ESC "?w"},
+        {Key::KeypadUp, ESC "?x"},
+        {Key::Keypad8, ESC "?x"},
+        {Key::KeypadPageUp, ESC "?y"},
+        {Key::Keypad9, ESC "?y"},
+        {Key::KeypadEqual, ESC "?X"},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_VT52_FunctionKeys[] = {
         {Key::F1, ESC "P"},
-        {Key::KP_F1, ESC "P"},
+        {Key::KeypadF1, ESC "P"},
         {Key::F2, ESC "Q"},
-        {Key::KP_F2, ESC "Q"},
+        {Key::KeypadF2, ESC "Q"},
         {Key::F3, ESC "R"},
-        {Key::KP_F3, ESC "R"},
+        {Key::KeypadF3, ESC "R"},
         {Key::F4, ESC "S"},
-        {Key::KP_F4, ESC "S"},
-        {Key::NONE, nullptr},
+        {Key::KeypadF4, ESC "S"},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_Ansi_CursorKeys[] = {
@@ -6111,7 +5864,7 @@ namespace {
         {Key::Left, CSI "D"},
         {Key::Home, CSI "H"},
         {Key::End, CSI "F"},
-        {Key::NONE, nullptr},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_Appl_CursorKeys[] = {
@@ -6121,7 +5874,7 @@ namespace {
         {Key::Left, SS3 "D"},
         {Key::Home, SS3 "H"},
         {Key::End, SS3 "F"},
-        {Key::NONE, nullptr},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_Mod_CursorKeys[] = {
@@ -6131,7 +5884,7 @@ namespace {
         {Key::Left, CSI "1;" MC "D"},
         {Key::Home, CSI "1;" MC "H"},
         {Key::End, CSI "1;" MC "F"},
-        {Key::NONE, nullptr},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_VT52_CursorKeys[] = {
@@ -6141,23 +5894,23 @@ namespace {
         {Key::Left, ESC "D"},
         {Key::Home, ESC "H"},
         {Key::End, ESC "F"},
-        {Key::NONE, nullptr},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_ReturnKey_ANL[] = {
-        {Key::Return, "\r\n"},
-        {Key::KP_Enter, "\r\n"},
-        {Key::NONE, nullptr},
+        {Key::Enter, "\r\n"},
+        {Key::KeypadEnter, "\r\n"},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_BackspaceKey_BkSp[] = {
         {Key::Backspace, "\b"},
-        {Key::NONE, nullptr},
+        {Key::Unknown, nullptr},
     };
 
     const InputSpec is_Alt_BackspaceKey_BkSp[] = {
         {Key::Backspace, ESC "\b"},
-        {Key::NONE, nullptr},
+        {Key::Unknown, nullptr},
     };
 
 #undef ESC
@@ -6191,12 +5944,12 @@ namespace {
         char final = 'u';
     };
 
-    bool isKittyModifierKey(VtKey key) {
-        return key >= VtKey::LeftShift && key <= VtKey::RightSuper;
+    bool isKittyModifierKey(InputKey key) {
+        return key >= InputKey::LeftShift && key <= InputKey::RightSuper;
     }
 
-    bool isKittyRecoveryKey(VtKey key) {
-        return key == VtKey::Return || key == VtKey::Tab || key == VtKey::Backspace;
+    bool isKittyRecoveryKey(InputKey key) {
+        return key == InputKey::Enter || key == InputKey::Tab || key == InputKey::Backspace;
     }
 
     VtModifier kittyToLegacyModifiers(u16 modifiers) {
@@ -6217,10 +5970,16 @@ namespace {
         return codepoint >= 0x20 && !(codepoint >= 0x7f && codepoint <= 0x9f);
     }
 
-    KittyKeySpec kittyKeySpec(VtKey key) {
-        using Key = VtKey;
+    KittyKeySpec kittyKeySpec(InputKey key) {
+        using Key = InputKey;
+        if (key >= Key::F13 && key <= Key::F35) {
+            return {57376 + (u32)(key) - (u32)(Key::F13), 'u'};
+        }
+        if (key >= Key::MediaPlay && key <= Key::VolumeMute) {
+            return {57428 + (u32)(key) - (u32)(Key::MediaPlay), 'u'};
+        }
         switch (key) {
-            case Key::Return:
+            case Key::Enter:
                 return {13, 'u'};
             case Key::Backspace:
                 return {127, 'u'};
@@ -6246,17 +6005,20 @@ namespace {
                 return {5, '~'};
             case Key::PageDown:
                 return {6, '~'};
+            case Key::Clear:
+                return {1, 'E'};
             case Key::F1:
-            case Key::KP_F1:
+            case Key::KeypadF1:
                 return {1, 'P'};
             case Key::F2:
-            case Key::KP_F2:
+            case Key::KeypadF2:
                 return {1, 'Q'};
             case Key::F3:
-            case Key::KP_F3:
+                return {13, '~'};
+            case Key::KeypadF3:
                 return {1, 'R'};
             case Key::F4:
-            case Key::KP_F4:
+            case Key::KeypadF4:
                 return {1, 'S'};
             case Key::F5:
                 return {15, '~'};
@@ -6274,79 +6036,63 @@ namespace {
                 return {23, '~'};
             case Key::F12:
                 return {24, '~'};
-            case Key::F13:
-                return {57376, 'u'};
-            case Key::F14:
-                return {57377, 'u'};
-            case Key::F15:
-                return {57378, 'u'};
-            case Key::F16:
-                return {57379, 'u'};
-            case Key::F17:
-                return {57380, 'u'};
-            case Key::F18:
-                return {57381, 'u'};
-            case Key::F19:
-                return {57382, 'u'};
-            case Key::F20:
-                return {57383, 'u'};
-            case Key::KP_0:
+            case Key::Keypad0:
                 return {57399, 'u'};
-            case Key::KP_1:
+            case Key::Keypad1:
                 return {57400, 'u'};
-            case Key::KP_2:
+            case Key::Keypad2:
                 return {57401, 'u'};
-            case Key::KP_3:
+            case Key::Keypad3:
                 return {57402, 'u'};
-            case Key::KP_4:
+            case Key::Keypad4:
                 return {57403, 'u'};
-            case Key::KP_5:
+            case Key::Keypad5:
                 return {57404, 'u'};
-            case Key::KP_6:
+            case Key::Keypad6:
                 return {57405, 'u'};
-            case Key::KP_7:
+            case Key::Keypad7:
                 return {57406, 'u'};
-            case Key::KP_8:
+            case Key::Keypad8:
                 return {57407, 'u'};
-            case Key::KP_9:
+            case Key::Keypad9:
                 return {57408, 'u'};
-            case Key::KP_Dot:
+            case Key::KeypadDecimal:
                 return {57409, 'u'};
-            case Key::KP_Slash:
+            case Key::KeypadDivide:
                 return {57410, 'u'};
-            case Key::KP_Star:
+            case Key::KeypadMultiply:
                 return {57411, 'u'};
-            case Key::KP_Minus:
+            case Key::KeypadSubtract:
                 return {57412, 'u'};
-            case Key::KP_Plus:
+            case Key::KeypadAdd:
                 return {57413, 'u'};
-            case Key::KP_Enter:
+            case Key::KeypadEnter:
                 return {57414, 'u'};
-            case Key::KP_Equal:
+            case Key::KeypadEqual:
                 return {57415, 'u'};
-            case Key::KP_Comma:
+            case Key::KeypadSeparator:
                 return {57416, 'u'};
-            case Key::KP_Left:
+            case Key::KeypadLeft:
                 return {57417, 'u'};
-            case Key::KP_Right:
+            case Key::KeypadRight:
                 return {57418, 'u'};
-            case Key::KP_Up:
+            case Key::KeypadUp:
                 return {57419, 'u'};
-            case Key::KP_Down:
+            case Key::KeypadDown:
                 return {57420, 'u'};
-            case Key::KP_PageUp:
+            case Key::KeypadPageUp:
                 return {57421, 'u'};
-            case Key::KP_PageDown:
+            case Key::KeypadPageDown:
                 return {57422, 'u'};
-            case Key::KP_Home:
+            case Key::KeypadHome:
                 return {57423, 'u'};
-            case Key::KP_End:
+            case Key::KeypadEnd:
                 return {57424, 'u'};
-            case Key::KP_Insert:
+            case Key::KeypadInsert:
                 return {57425, 'u'};
-            case Key::KP_Delete:
+            case Key::KeypadDelete:
                 return {57426, 'u'};
-            case Key::KP_Begin:
+            case Key::KeypadBegin:
                 return {57427, 'u'};
             case Key::CapsLock:
                 return {57358, 'u'};
@@ -6354,7 +6100,7 @@ namespace {
                 return {57359, 'u'};
             case Key::NumLock:
                 return {57360, 'u'};
-            case Key::Print:
+            case Key::PrintScreen:
                 return {57361, 'u'};
             case Key::Pause:
                 return {57362, 'u'};
@@ -7169,7 +6915,7 @@ std::string VtermImpl::getLocalEcho(const u8* const begin, const u8* const end) 
     return std::string((const char*)(output.data()), output.used());
 }
 
-int VtermImpl::writePty(VtKey key, VtModifier modifiers_, bool userInput) {
+int VtermImpl::writePty(InputKey key, VtModifier modifiers_, bool userInput) {
     const auto userDefined = userDefinedKeys.find(key);
     if (userDefined != userDefinedKeys.end()) {
         return writePty(userDefined->second.data(), userDefined->second.size(), userInput);
@@ -7281,7 +7027,7 @@ int VtermImpl::writePty(u8 ch, VtModifier modifiers, bool userInput) {
     }
 }
 
-int VtermImpl::writeKittyKey(VtKey key, u16 modifiers, VtermKeyEventType event) {
+int VtermImpl::writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType event) {
     const KittyKeySpec spec = kittyKeySpec(key);
     if (!spec.code) {
         return 0;
@@ -7302,13 +7048,25 @@ int VtermImpl::writeKittyKey(VtKey key, u16 modifiers, VtermKeyEventType event) 
         return 0;
     }
 
+    const u8 flags = getKittyKeyboardFlags();
+    const bool reportEvent = (flags & 0x02) && event != VtermKeyEventType::Press;
+    const bool reportText = (flags & 0x10) && event != VtermKeyEventType::Release && !(modifiers & (4 | 8)) && isKittyRecoveryKey(key) && validKittyAssociatedText(spec.code);
     StringBuilder sequence;
-    sequence << StringView(u8"\x1b[") << spec.code << StringView(u8";") << modifiers + 1;
-    if (getKittyKeyboardFlags() & 0x02) {
-        sequence << StringView(u8":") << (unsigned)(event);
+    sequence << StringView(u8"\x1b[");
+    if (spec.code != 1 || spec.final == 'u' || modifiers || reportEvent || reportText) {
+        sequence << spec.code;
     }
-    if ((getKittyKeyboardFlags() & 0x10) && event != VtermKeyEventType::Release && isKittyRecoveryKey(key) && validKittyAssociatedText(spec.code)) {
-        sequence << StringView(u8";") << spec.code;
+    if (modifiers || reportEvent || reportText) {
+        sequence << StringView(u8";");
+        if (modifiers || reportEvent) {
+            sequence << modifiers + 1;
+        }
+        if (reportEvent) {
+            sequence << StringView(u8":") << (unsigned)(event);
+        }
+        if (reportText) {
+            sequence << StringView(u8";") << spec.code;
+        }
     }
     sequence.append(&spec.final, 1);
     return writePty((const u8*)(sequence.data()), sequence.used(), true);
@@ -7333,13 +7091,19 @@ int VtermImpl::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 mod
             sequence << StringView(u8"::") << alternateBase;
         }
     }
-    sequence << StringView(u8";") << modifiers + 1;
-    if (getKittyKeyboardFlags() & 0x02) {
-        sequence << StringView(u8":") << (unsigned)(event);
-    }
-    if ((getKittyKeyboardFlags() & 0x10) && event != VtermKeyEventType::Release) {
-        const u32 text = (modifiers & 1) && shiftedKey ? shiftedKey : key;
-        if (validKittyAssociatedText(text)) {
+    const u8 flags = getKittyKeyboardFlags();
+    const bool reportEvent = (flags & 0x02) && event != VtermKeyEventType::Press;
+    const u32 text = (modifiers & 1) && shiftedKey ? shiftedKey : key;
+    const bool reportText = (flags & 0x10) && event != VtermKeyEventType::Release && !(modifiers & (4 | 8)) && validKittyAssociatedText(text);
+    if (modifiers || reportEvent || reportText) {
+        sequence << StringView(u8";");
+        if (modifiers || reportEvent) {
+            sequence << modifiers + 1;
+        }
+        if (reportEvent) {
+            sequence << StringView(u8":") << (unsigned)(event);
+        }
+        if (reportText) {
             sequence << StringView(u8";") << text;
         }
     }
@@ -7407,7 +7171,7 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
     return len;
 }
 
-using Key = VtKey;
+using Key = InputKey;
 using Mod = VtModifier;
 
 const VtermImpl::InputSpecTable* VtermImpl::getInputSpecTable() {
@@ -7520,12 +7284,12 @@ const VtermImpl::InputSpec* VtermImpl::selectInputSpecs(size_t& cursor) {
 }
 
 const VtermImpl::InputSpec& VtermImpl::getInputSpec(Key key) {
-    static InputSpec nullSpec = {Key::NONE, ""};
+    static InputSpec nullSpec = {Key::Unknown, ""};
 
     size_t cursor = 0;
     const InputSpec* specs;
     while ((specs = selectInputSpecs(cursor)) != nullptr) {
-        for (int k = 0; specs[k].key != Key::NONE; ++k) {
+        for (int k = 0; specs[k].key != Key::Unknown; ++k) {
             if (specs[k].key == key) {
                 return specs[k];
             }

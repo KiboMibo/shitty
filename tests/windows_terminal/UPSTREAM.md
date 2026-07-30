@@ -33,6 +33,23 @@ keyboard matrices. Those rows therefore use the existing xterm-compatible
 policy. The import found that S8C1T was not applied to keyboard-generated
 CSI/SS3 and added the required `ESC Fe` to C1 folding.
 
+`../test_windows_terminal_kitty_keyboard.py` translates all four methods in
+`src/terminal/adapter/ut_adapter/kittyKeyboardProtocol.cpp`: every one of the
+129 table rows and the three repeat transactions. The adapter statically reads
+the copied C++ table and drives Shitty through its generic `plt::InputKey`
+boundary and direct protocol test hooks. The import removed the duplicate
+terminal-specific key enum and extended the platform key set through F35,
+media/volume keys, and semantic keypad keys.
+
+Expected sequences follow the current Kitty protocol rather than preserving
+obsolete encodings in older tests: F3 is `CSI 13 ~`, default modifier value 1
+and default press event type 1 are omitted, and an omitted modifier parameter
+remains an empty field before associated text. These forms agree with current
+Kitty, Foot, Ghostty, Alacritty, WezTerm, and Windows Terminal. Associated text
+is not synthesized for Control or Super key events, because platform text
+input suppresses those modifiers and the protocol forbids C0/C1 control codes
+in that field.
+
 The 25 methods in `src/terminal/parser/ut_parser/InputEngineTest.cpp` test the
 opposite, Windows-only boundary: decoding a VT input byte stream into Win32
 `INPUT_RECORD`, cursor API calls, and `CSI _` Win32 input records. Shitty is a

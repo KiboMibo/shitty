@@ -109,7 +109,7 @@ class KeyboardTest(unittest.TestCase):
             terminal.write(b"\x1b[>7u")
             self.assertEqual(terminal.state()[3], 7)
             terminal.kitty_key(ord("a"), shifted=ord("A"), modifiers=1)
-            self.assertEqual(terminal.read_input(), b"\x1b[97:65;2:1u")
+            self.assertEqual(terminal.read_input(), b"\x1b[97:65;2u")
 
     def test_kitty_supports_all_defined_enhancement_flags(self):
         with Shitty(columns=8, rows=2) as terminal:
@@ -124,17 +124,17 @@ class KeyboardTest(unittest.TestCase):
             terminal.kitty_key(ord("a"), shifted=ord("A"), modifiers=1)
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[97;1;97u\x1b[97:65;2;65u",
+                b"\x1b[97;;97u\x1b[97:65;2;65u",
             )
 
     def test_kitty_reports_modifier_keys_with_all_keys_flag(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[>10u")
-            terminal.kitty_special("LEFT_SHIFT", event=1)
+            terminal.kitty_special("LEFT_SHIFT", modifiers=1, event=1)
             terminal.kitty_special("LEFT_SHIFT", event=3)
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[57441;1:1u\x1b[57441;1:3u",
+                b"\x1b[57441;2u\x1b[57441;1:3u",
             )
 
     def test_kitty_keyboard_stack_is_screen_local(self):
@@ -166,16 +166,16 @@ class KeyboardTest(unittest.TestCase):
 
     def test_kitty_functional_key_encodings(self):
         expected = {
-            "F1": b"\x1b[1;1P",
-            "F2": b"\x1b[1;1Q",
-            "F3": b"\x1b[1;1R",
-            "F4": b"\x1b[1;1S",
-            "F5": b"\x1b[15;1~",
-            "F13": b"\x1b[57376;1u",
-            "KP_0": b"\x1b[57399;1u",
-            "KP_ENTER": b"\x1b[57414;1u",
-            "CAPS_LOCK": b"\x1b[57358;1u",
-            "MENU": b"\x1b[57363;1u",
+            "F1": b"\x1b[P",
+            "F2": b"\x1b[Q",
+            "F3": b"\x1b[13~",
+            "F4": b"\x1b[S",
+            "F5": b"\x1b[15~",
+            "F13": b"\x1b[57376u",
+            "KP_0": b"\x1b[57399u",
+            "KP_ENTER": b"\x1b[57414u",
+            "CAPS_LOCK": b"\x1b[57358u",
+            "MENU": b"\x1b[57363u",
         }
         with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[>1u")
@@ -203,7 +203,7 @@ class KeyboardTest(unittest.TestCase):
             terminal.kitty_special("UP", modifiers=5, event=3)
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[1;6:1A\x1b[1;6:2A\x1b[1;6:3A",
+                b"\x1b[1;6A\x1b[1;6:2A\x1b[1;6:3A",
             )
 
     def test_modify_other_keys_levels(self):

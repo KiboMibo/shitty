@@ -10,7 +10,7 @@ from harness import Shitty
 FUNCTIONAL_KEYS = {
     "F1": (1, b"P"),
     "F2": (1, b"Q"),
-    "F3": (1, b"R"),
+    "F3": (13, b"~"),
     "F4": (1, b"S"),
     "F5": (15, b"~"),
     "F6": (17, b"~"),
@@ -21,7 +21,7 @@ FUNCTIONAL_KEYS = {
     "F11": (23, b"~"),
     "F12": (24, b"~"),
     **{f"F{number}": (57363 + number, b"u")
-       for number in range(13, 21)},
+       for number in range(13, 36)},
     "KP_0": (57399, b"u"),
     "KP_1": (57400, b"u"),
     "KP_2": (57401, b"u"),
@@ -57,6 +57,19 @@ FUNCTIONAL_KEYS = {
     "PRINT": (57361, b"u"),
     "PAUSE": (57362, b"u"),
     "MENU": (57363, b"u"),
+    "MEDIA_PLAY": (57428, b"u"),
+    "MEDIA_PAUSE": (57429, b"u"),
+    "MEDIA_PLAY_PAUSE": (57430, b"u"),
+    "MEDIA_REVERSE": (57431, b"u"),
+    "MEDIA_STOP": (57432, b"u"),
+    "MEDIA_FAST_FORWARD": (57433, b"u"),
+    "MEDIA_REWIND": (57434, b"u"),
+    "MEDIA_TRACK_NEXT": (57435, b"u"),
+    "MEDIA_TRACK_PREVIOUS": (57436, b"u"),
+    "MEDIA_RECORD": (57437, b"u"),
+    "VOLUME_DOWN": (57438, b"u"),
+    "VOLUME_UP": (57439, b"u"),
+    "VOLUME_MUTE": (57440, b"u"),
 }
 
 
@@ -105,7 +118,7 @@ class KittyKeyboardMatrixTest(unittest.TestCase):
                 terminal.kitty_special("UP", modifiers=4, event=event)
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[97;5:1u\x1b[1;5:1A"
+                b"\x1b[97;5u\x1b[1;5A"
                 b"\x1b[97;5:2u\x1b[1;5:2A"
                 b"\x1b[97;5:3u\x1b[1;5:3A",
             )
@@ -139,7 +152,7 @@ class KittyKeyboardMatrixTest(unittest.TestCase):
                 terminal.kitty_special("BACKSPACE", event=event)
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[13;1:1u\x1b[9;1:1u\x1b[127;1:1u"
+                b"\x1b[13u\x1b[9u\x1b[127u"
                 b"\x1b[13;1:2u\x1b[9;1:2u\x1b[127;1:2u"
                 b"\x1b[13;1:3u\x1b[9;1:3u\x1b[127;1:3u",
             )
@@ -152,7 +165,7 @@ class KittyKeyboardMatrixTest(unittest.TestCase):
             terminal.kitty_key(97, shifted=97, base=97)
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[97:65:113;2u\x1b[97::113;1u\x1b[97;1u",
+                b"\x1b[97:65:113;2u\x1b[97::113u\x1b[97u",
             )
 
     def test_associated_text_follows_shift_and_excludes_control_codes(self):
@@ -165,8 +178,8 @@ class KittyKeyboardMatrixTest(unittest.TestCase):
             terminal.kitty_key(160)
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[97;1;97u\x1b[97;2;65u"
-                b"\x1b[1;1u\x1b[127;1u\x1b[160;1;160u",
+                b"\x1b[97;;97u\x1b[97;2;65u"
+                b"\x1b[1u\x1b[127u\x1b[160;;160u",
             )
 
     def test_stack_is_lifo_and_pop_count_is_honored(self):

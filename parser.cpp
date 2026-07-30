@@ -26,6 +26,7 @@
 #endif
 
 using namespace stl;
+using namespace plt;
 
 namespace {
     struct ParserTermcapQuery {
@@ -143,7 +144,7 @@ namespace {
         size_t dcsUdkDefinitionCount = 0;
         size_t dcsUdkValueOffset = 0;
         u32 dcsUdkCode = 0;
-        VtKey dcsUdkKey = VtKey::NONE;
+        InputKey dcsUdkKey = InputKey::Unknown;
         u8 dcsUdkHighNibble = 0;
         bool dcsUdkHasCode = false;
         bool dcsUdkHasHighNibble = false;
@@ -639,7 +640,7 @@ void ParserImpl<traced>::ragelBeginDcs() {
     resetDecoded();
     parser.dcsUdkValueOffset = 0;
     parser.dcsUdkCode = 0;
-    parser.dcsUdkKey = VtKey::NONE;
+    parser.dcsUdkKey = InputKey::Unknown;
     parser.dcsUdkHasCode = false;
     parser.dcsUdkHasHighNibble = false;
     parser.dcsUdkValid = false;

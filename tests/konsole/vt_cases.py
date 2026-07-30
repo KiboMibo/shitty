@@ -157,7 +157,7 @@ def testKittyKeyboardReportAllKeys(terminal):
     terminal.frontend_key_event(256, 1)
     expect(
         terminal.read_input(),
-        b"\x1b[97;1u\x1b[27;1u",
+        b"\x1b[97u\x1b[27u",
         "all keys reported",
     )
 
@@ -165,12 +165,12 @@ def testKittyKeyboardReportAllKeys(terminal):
 def testKittyKeyboardLegacyKeys(terminal):
     terminal.write(b"\x1b[>1u")
     checks = (
-        ("UP", 0, b"\x1b[1;1A"),
+        ("UP", 0, b"\x1b[A"),
         ("UP", 4, b"\x1b[1;5A"),
-        ("F5", 0, b"\x1b[15;1~"),
-        ("F1", 0, b"\x1b[1;1P"),
+        ("F5", 0, b"\x1b[15~"),
+        ("F1", 0, b"\x1b[P"),
         ("F1", 1, b"\x1b[1;2P"),
-        ("DELETE", 0, b"\x1b[3;1~"),
+        ("DELETE", 0, b"\x1b[3~"),
     )
     for name, modifiers, expected in checks:
         terminal.kitty_special(name, modifiers=modifiers)
@@ -206,9 +206,9 @@ def testKittyKeyboardTextKeys(terminal):
 
     terminal.write(b"\x1b[=8;1u")
     checks = (
-        (ord("A"), ord("a"), 0, b"\x1b[97;1u"),
+        (ord("A"), ord("a"), 0, b"\x1b[97u"),
         (ord("A"), ord("A"), 1, b"\x1b[97;2u"),
-        (ord(" "), ord(" "), 0, b"\x1b[32;1u"),
+        (ord(" "), ord(" "), 0, b"\x1b[32u"),
     )
     for key, text, modifiers, expected in checks:
         terminal.frontend_key_event(key, 1, modifiers=modifiers)

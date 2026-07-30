@@ -1137,7 +1137,7 @@
                 parser.parameterCount < 2 || !parser.present[1] || parser.parameters[1] == 0;
             parser.dcsUdkValueOffset = parser.decodedSize;
             parser.dcsUdkCode = 0;
-            parser.dcsUdkKey = VtKey::NONE;
+            parser.dcsUdkKey = InputKey::Unknown;
             parser.dcsUdkHasCode = false;
             parser.dcsUdkHasHighNibble = false;
             parser.dcsUdkValid = true;
@@ -1466,23 +1466,23 @@
         parser.dcsUdkInValue = true;
         parser.dcsUdkValid = parser.dcsUdkValid && parser.dcsUdkHasCode;
         if (parser.dcsUdkCode >= 17 && parser.dcsUdkCode <= 21) {
-            parser.dcsUdkKey = (VtKey)(
-                (int)(VtKey::F6) + parser.dcsUdkCode - 17
+            parser.dcsUdkKey = (InputKey)(
+                (int)(InputKey::F6) + parser.dcsUdkCode - 17
             );
         } else if (parser.dcsUdkCode >= 23 && parser.dcsUdkCode <= 26) {
-            parser.dcsUdkKey = (VtKey)(
-                (int)(VtKey::F11) + parser.dcsUdkCode - 23
+            parser.dcsUdkKey = (InputKey)(
+                (int)(InputKey::F11) + parser.dcsUdkCode - 23
             );
         } else if (parser.dcsUdkCode >= 28 && parser.dcsUdkCode <= 29) {
-            parser.dcsUdkKey = (VtKey)(
-                (int)(VtKey::F15) + parser.dcsUdkCode - 28
+            parser.dcsUdkKey = (InputKey)(
+                (int)(InputKey::F15) + parser.dcsUdkCode - 28
             );
         } else if (parser.dcsUdkCode >= 31 && parser.dcsUdkCode <= 34) {
-            parser.dcsUdkKey = (VtKey)(
-                (int)(VtKey::F17) + parser.dcsUdkCode - 31
+            parser.dcsUdkKey = (InputKey)(
+                (int)(InputKey::F17) + parser.dcsUdkCode - 31
             );
         } else {
-            parser.dcsUdkKey = VtKey::NONE;
+            parser.dcsUdkKey = InputKey::Unknown;
             parser.dcsUdkValid = false;
         }
         parser.dcsUdkValueOffset = parser.decodedSize;
@@ -1511,7 +1511,7 @@
     action dcsUdkCodeSeparator {
         ragelAppendString(fc, parser.maxDcsBytes);
         parser.dcsUdkCode = 0;
-        parser.dcsUdkKey = VtKey::NONE;
+        parser.dcsUdkKey = InputKey::Unknown;
         parser.dcsUdkHasCode = false;
         parser.dcsUdkHasHighNibble = false;
         parser.dcsUdkValid = true;
@@ -1532,7 +1532,7 @@
         }
         ragelAppendString(fc, parser.maxDcsBytes);
         parser.dcsUdkCode = 0;
-        parser.dcsUdkKey = VtKey::NONE;
+        parser.dcsUdkKey = InputKey::Unknown;
         parser.dcsUdkHasCode = false;
         parser.dcsUdkHasHighNibble = false;
         parser.dcsUdkValid = true;
@@ -1543,7 +1543,7 @@
     action dcsUdkInvalidSeparator {
         ragelAppendString(fc, parser.maxDcsBytes);
         parser.dcsUdkCode = 0;
-        parser.dcsUdkKey = VtKey::NONE;
+        parser.dcsUdkKey = InputKey::Unknown;
         parser.dcsUdkHasCode = false;
         parser.dcsUdkHasHighNibble = false;
         parser.dcsUdkValid = true;

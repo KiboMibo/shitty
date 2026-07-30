@@ -38,9 +38,9 @@ struct TestApi {
     virtual bool tabStop(u16 column) const = 0;
     virtual VtermTestCell cell(u16 row, u16 column) const = 0;
     virtual VtermTestCell logicalCell(i32 row, u16 column) const = 0;
-    virtual void key(VtKey key, VtModifier modifiers) = 0;
+    virtual void key(plt::InputKey key, VtModifier modifiers) = 0;
     virtual void character(u8 byte, VtModifier modifiers) = 0;
-    virtual void kittyKey(VtKey key, u16 modifiers, VtermKeyEventType event) = 0;
+    virtual void kittyKey(plt::InputKey key, u16 modifiers, VtermKeyEventType event) = 0;
     virtual void kittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event) = 0;
     virtual bool mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY) = 0;
     virtual void locatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons) = 0;

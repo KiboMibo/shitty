@@ -98,7 +98,7 @@ class ScrollbackTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().view_offset, 0)
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[57441;2:1u",
+                b"\x1b[57441;2u",
             )
 
     def test_alternate_screen_does_not_keep_scrollback(self):

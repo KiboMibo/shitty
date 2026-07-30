@@ -132,7 +132,12 @@ keys.~~
   Windows Terminal (95 и `SHORT_MAX - 32`). Импорт добавил отсутствовавший
   horizontal alternate-scroll: wheel теперь порождает Left/Right, включая
   application cursor mode;~~
-- Kitty keyboard — 4;
+- ~~Kitty keyboard — все 4 methods перенесены: полная таблица из 129
+  `INPUT_RECORD` rows и три repeat transactions. Тесты идут через generic
+  `plt::InputKey` boundary; отдельный `VtKey` удалён. Импорт добавил F21–F35,
+  media/volume и полную keypad семантику, исправил F3 по актуальному Kitty
+  protocol, canonical omission default modifiers/press event и фильтрацию
+  control-code associated text;~~
 - selection — 21;
 - terminal buffer — 10;
 - большая параметрическая Reflow suite;

@@ -15,6 +15,7 @@
 #include <cstring>
 
 using namespace stl;
+using namespace plt;
 
 namespace {
     struct ParserCall {
@@ -915,7 +916,7 @@ namespace {
         }
 
         void dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, const ParserUdkDefinition* definitions, size_t definitionCount, StringView values) override {
-            ParserCall& call = record("dcs_DECUDK", clearDefinitions, lockDefinitions, definitionCount, definitionCount == 0 ? 0 : definitions[0].valueOffset, definitionCount == 0 ? 0 : definitions[0].valueLength, definitionCount == 0 ? VtKey::NONE : definitions[0].key);
+            ParserCall& call = record("dcs_DECUDK", clearDefinitions, lockDefinitions, definitionCount, definitionCount == 0 ? 0 : definitions[0].valueOffset, definitionCount == 0 ? 0 : definitions[0].valueLength, definitionCount == 0 ? InputKey::Unknown : definitions[0].key);
             saveText(call, 0, values);
         }
 
@@ -1908,7 +1909,7 @@ STD_TEST_SUITE(ParserCallbacks) {
         ParserFixture fixture;
         fixture.feed(StringView(u8"\x1bP0;0|17/41\x1b\\"));
         const ParserCall& call = fixture.expect("dcs_DECUDK");
-        expectValues(call, true, true, 1, 0, 1, VtKey::F6);
+        expectValues(call, true, true, 1, 0, 1, InputKey::F6);
         expectText(fixture.iface, call, 0, StringView(u8"A"));
     }
 }

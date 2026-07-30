@@ -60,7 +60,7 @@ enum class Charset : u8 {
 struct ParserUdkDefinition {
     size_t valueOffset;
     size_t valueLength;
-    VtKey key;
+    plt::InputKey key;
 };
 
 struct CsiRectangle {
