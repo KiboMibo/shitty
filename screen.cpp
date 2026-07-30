@@ -244,6 +244,7 @@ namespace {
         mutable Vector<LinkPart> linkParts;
         mutable Buffer linkScratch;
         mutable Vector<TerminalCell> selectionScratch;
+        mutable Vector<const void*> selectionMulticells;
 
         struct DamageRow {
             Epoch* epochs = nullptr;
@@ -1665,6 +1666,7 @@ bool ScreenBase<Coord, Epoch>::selectedText(std::string& utf8_selection) const {
     using unicodeString = std::vector<u32>;
     std::vector<unicodeString> lines;
     CellExtraStore& extras = cellExtras();
+    selectionMulticells.clear();
     bool wrap = false;
 
     auto addLine = [&](int y, u16 x1, u16 x2) {
@@ -1676,7 +1678,19 @@ bool ScreenBase<Coord, Epoch>::selectedText(std::string& utf8_selection) const {
         for (u16 x = x1; x < x2; ++x) {
             const auto& cell = cp[x];
             const MulticellView multicell = extras.multicell(cell);
-            if (multicell.valid() && !multicell.head()) {
+            if (multicell.valid()) {
+                bool emitted = false;
+                for (const void* identity : selectionMulticells) {
+                    if (identity == multicell.identity) {
+                        emitted = true;
+                        break;
+                    }
+                }
+                if (!emitted) {
+                    selectionMulticells.pushBack(multicell.identity);
+                    line.insert(line.end(), multicell.text.begin(), multicell.text.end());
+                    contentEnd = line.size();
+                }
                 continue;
             }
             if (!cell.dwidth_cont) {

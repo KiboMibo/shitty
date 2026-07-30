@@ -182,6 +182,34 @@ class KittyTextSizingTest(unittest.TestCase):
                 for column in range(12):
                     self.assertFalse(terminal.multicell(row, column).valid)
 
+    def test_selection_extracts_a_block_payload_once(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write(osc66(b"s=2:w=3", b"X") + b"z")
+            terminal.select_start(0, 0)
+            terminal.select_update(7, 0)
+            self.assertEqual(terminal.select_finish(), b"Xz")
+
+    def test_selection_from_a_top_continuation_extracts_the_block(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write(osc66(b"s=2:w=3", b"X"))
+            terminal.select_start(5, 0)
+            terminal.select_update(6, 0)
+            self.assertEqual(terminal.select_finish(), b"X")
+
+    def test_selection_from_a_lower_band_extracts_the_block(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write(osc66(b"s=2:w=3", b"X"))
+            terminal.select_start(4, 1)
+            terminal.select_update(5, 1)
+            self.assertEqual(terminal.select_finish(), b"X")
+
+    def test_selection_does_not_merge_adjacent_blocks(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write(osc66(b"w=2", b"A") + osc66(b"w=2", b"B"))
+            terminal.select_start(0, 0)
+            terminal.select_update(1, 0)
+            self.assertEqual(terminal.select_finish(), b"A")
+
     def test_adjacent_blocks_keep_distinct_identity(self):
         with Shitty(columns=12, rows=2) as terminal:
             terminal.write(osc66(b"w=2", b"A") + osc66(b"w=2", b"B"))
