@@ -226,6 +226,19 @@ alignment cells; это противоречит DEC VT510 и большинст
 xterm/VTE/WezTerm/Windows Terminal, поэтому oracle нормализован к default
 rendition.~~
 
+~~Блок `Terminal.zig:11258-11839` учтён. Все 23 сценария ICH/insert mode
+перенесены в девять product tests: default и clipping count, точный damage,
+erase colors без visual attributes, horizontal margins и cursor outside,
+полная очистка region большим count, все wide-boundary комбинации,
+атомарный перенос и удаление grapheme/hyperlink extras, narrow/wide insert
+mode, EOL и отсутствие переноса вытесненного хвоста. Внутренний
+`insertBlanks(0)` Ghostty недоступен через протокол; публичный `CSI 0 @`
+нормализует параметр к единице по ECMA-48 и проверен отдельно. Счётчики
+grapheme/hyperlink storage Ghostty являются деталями реализации; тесты
+проверяют наблюдаемый эквивалент — payload переезжает вместе с клеткой,
+вставленные blanks его не получают, а вытесненный payload становится
+недостижим.~~
+
 Не взяты также 94 initial fuzz seeds, но они имеют низкую ценность рядом с полным cmin.
 
 ### Kitty
