@@ -3367,7 +3367,7 @@
         }
     }
 
-    csiPlainKnown = [@ABCDEFGHIJKLMPSTXZ`abcdefghijklmnqrstu];
+    csiPlainKnown = [@ABCDEFGHIJKLMPSTXZ`abcdefghijklmnqrstux];
     csiPlainFinal = (
         'T' @csiTrace @{ if (parser.parameterCount == 5 && iface.parserHighlightMouseTracking()) { iface.csi_XTHIMOUSE(parameter(0), parameter(1), parameter(2), parameter(3), parameter(4)); } else { iface.csi_SD(countParameter(0)); } } |
         'A' @csiTrace @{ iface.csi_CUU(countParameter(0)); } |
@@ -3407,6 +3407,7 @@
         's' @csiTrace @{ dispatchScoscSlrm(); } |
         't' @csiTrace @{ dispatchWindowOps(); } |
         'u' @csiTrace @{ iface.csi_SCORC(); } |
+        'x' @csiTrace @{ if (parameter(0) <= 1) { iface.csi_DECREQTPARM(parameter(0)); } } |
         (0x40..0x7e - csiPlainKnown) @csiTrace
     ) @csiDone;
 
@@ -3454,10 +3455,11 @@
         (0x40..0x7e - 'p') @csiTrace
     ) @csiDone;
 
-    csiQuoteKnown = [pq];
+    csiQuoteKnown = [pqv];
     csiQuoteFinal = (
         'p' @csiTrace @{ dispatchDecscl(); } |
         'q' @csiTrace @{ iface.setDecProtection(parameter(0) == 1); } |
+        'v' @csiTrace @{ if (!parser.csiHadParameters && iface.parserCompatibilityLevel() >= CompatibilityLevel::VT300) { iface.csi_DECRQDE(); } } |
         (0x40..0x7e - csiQuoteKnown) @csiTrace
     ) @csiDone;
 

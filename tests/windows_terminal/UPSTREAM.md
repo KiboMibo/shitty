@@ -26,6 +26,26 @@ semantics tested by Windows Terminal. Bold indexed colors are checked after
 Shitty's configured bold-color resolution rather than against Windows'
 separate legacy intensity bit.
 
+The next 13 methods cover status reports, all three device-attribute forms,
+DECRQDE, DECREQTPARM, DECRQSS, and standard/private/permanent mode reports.
+This block added the missing printer-status DSR, the VT340 displayed-extent
+reply, VT100 terminal-parameter replies, and the permanently-enabled DECRQM
+result for grapheme clustering mode 2027. Shitty has a single page, like xterm
+and VTE, so extended CPR and DECRQDE always report page 1 and no horizontal
+panning. Its DA strings and private status details describe Shitty's actual
+UDK, locator, and keyboard support rather than copying Windows Terminal's
+identity. Private modes 117 and 9001 remain unsupported and report state 0.
+DECRQSS retains every portable upstream margin, rendition, cursor-style, and
+protection assertion; querying DECAC aliases remains unsupported because
+Shitty does not own window-frame colors.
+
+`DeviceStatus_MacroSpaceReportTest` and
+`DeviceStatus_MemoryChecksumReportTest` are explicitly classified: they test
+the capacity and checksum of Windows Terminal's DEC macro subsystem, which
+Shitty does not implement. The existing protocol tests still verify that its
+declared zero macro-space/checksum replies are stable; they do not pretend
+that defining a macro changes storage that does not exist.
+
 `../test_windows_terminal_mouse.py` translates all five methods and every
 data-source row from
 `src/terminal/adapter/ut_adapter/MouseInputTest.cpp` at the same revision:

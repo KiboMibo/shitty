@@ -119,9 +119,12 @@ keys.~~
 
 Остались особенно полезные:
 
-- adapter — 10 из 53 методов перенесены: cursor и SGR blocks, включая
-  partial XTPUSHSGR/XTPOPSGR и brightness; импорт добавил отсутствовавший
-  10-entry xterm SGR ring stack;
+- adapter — 23 из 53 методов перенесены и ещё 2 классифицированы: cursor,
+  SGR, device/status replies, DA1/DA2/DA3, DECRQDE, DECREQTPARM, DECRQSS и
+  mode-report blocks; импорт добавил отсутствовавшие 10-entry xterm SGR ring
+  stack, printer DSR, displayed-extent/terminal-parameter reports и permanent
+  grapheme-mode report. Два теста DEC macro storage неприменимы, поскольку
+  этот subsystem не реализован;
 - ~~InputEngine — все 25 методов проверяют отсутствующий у терминала слой
   VT input stream → Win32 `INPUT_RECORD`. Обратная, наблюдаемая сторона
   протокола покрыта keyboard/mouse matrices; Win32 ABI неприменим;~~

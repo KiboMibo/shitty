@@ -27,6 +27,24 @@ PORTED_METHODS = {
     "GraphicsSingleWithSubParamTests",
     "GraphicsPushPopTests",
     "GraphicsPersistBrightnessTests",
+    "DeviceStatus_OperatingStatusTests",
+    "DeviceStatus_CursorPositionReportTests",
+    "DeviceStatus_ExtendedCursorPositionReportTests",
+    "DeviceStatus_PrivateStatusTests",
+    "DeviceAttributesTests",
+    "SecondaryDeviceAttributesTests",
+    "TertiaryDeviceAttributesTests",
+    "RequestDisplayedExtentTests",
+    "RequestTerminalParametersTests",
+    "RequestStandardModeTests",
+    "RequestPrivateModeTests",
+    "RequestPermanentModeTests",
+    "RequestSettingsTests",
+}
+
+CLASSIFIED_METHODS = {
+    "DeviceStatus_MacroSpaceReportTest": "DEC macro storage is not implemented",
+    "DeviceStatus_MemoryChecksumReportTest": "DEC macro storage is not implemented",
 }
 
 
@@ -39,6 +57,8 @@ class WindowsTerminalAdapterCursorTest(unittest.TestCase):
         methods = upstream_methods()
         self.assertEqual(len(methods), 53)
         self.assertLessEqual(PORTED_METHODS, methods)
+        self.assertLessEqual(CLASSIFIED_METHODS.keys(), methods)
+        self.assertFalse(PORTED_METHODS & CLASSIFIED_METHODS.keys())
 
     def test_cursor_movement(self):
         movements = {
@@ -303,6 +323,252 @@ class WindowsTerminalAdapterGraphicsTest(unittest.TestCase):
                 cell = snapshot.cell(column, 0)
                 self.assertEqual(cell.foreground_index, foreground)
                 self.assertEqual(cell.bold, bold)
+
+
+class WindowsTerminalAdapterStatusTest(unittest.TestCase):
+    def request_setting(self, terminal, setting):
+        terminal.write(b"\x1bP$q" + setting + b"\x1b\\")
+        return terminal.read_input()
+
+    def test_operating_status(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(b"\x1b[5n")
+            self.assertEqual(terminal.read_input(), b"\x1b[0n")
+
+    def test_cursor_position_report(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(b"\x1b[3;5H\x1b[6n\x1b[B\x1b[C\x1b[6n")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[3;5R\x1b[4;6R",
+            )
+
+    def test_extended_cursor_position_report(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(b"\x1b[3;5H\x1b[?6n")
+            self.assertEqual(terminal.read_input(), b"\x1b[?3;5;1R")
+
+            # Shitty, like xterm and VTE, exposes one terminal page.
+            terminal.write(b"\x1b[3 P\x1b[?6n")
+            self.assertEqual(terminal.read_input(), b"\x1b[?3;5;1R")
+
+    def test_private_status_reports(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(
+                b"\x1b[?15n"
+                b"\x1b[?25n"
+                b"\x1b[?26n"
+                b"\x1b[?55n"
+                b"\x1b[?56n"
+                b"\x1b[?75n"
+                b"\x1b[?85n"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[?13n"
+                b"\x1b[?20n"
+                b"\x1b[?27;1;0;0n"
+                b"\x1b[?50n"
+                b"\x1b[?57;1n"
+                b"\x1b[?70n"
+                b"\x1b[?83n",
+            )
+
+    def test_primary_device_attributes(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(b"\x1b[c")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[?64;1;2;6;8;9;15;21;22;28;29c",
+            )
+
+    def test_secondary_device_attributes(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(b"\x1b[>c")
+            self.assertEqual(terminal.read_input(), b"\x1b[>41;14;0c")
+
+    def test_tertiary_device_attributes(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(b"\x1b[=c")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1bP!|00000000\x1b\\",
+            )
+
+    def test_request_displayed_extent(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(b"\x1b[\"v")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[6;10;1;1;1\"w",
+            )
+
+    def test_request_terminal_parameters(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(b"\x1b[0x\x1b[1x\x1b[2x")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[2;1;1;128;128;1;0x"
+                b"\x1b[3;1;1;128;128;1;0x",
+            )
+
+    def test_request_standard_modes(self):
+        for mode in (4, 20):
+            with self.subTest(mode=mode):
+                with Shitty(columns=10, rows=6) as terminal:
+                    terminal.write(
+                        f"\x1b[{mode}h\x1b[{mode}$p"
+                        f"\x1b[{mode}l\x1b[{mode}$p".encode()
+                    )
+                    self.assertEqual(
+                        terminal.read_input(),
+                        f"\x1b[{mode};1$y\x1b[{mode};2$y".encode(),
+                    )
+
+    def test_request_private_modes(self):
+        supported = (
+            1,
+            3,
+            5,
+            6,
+            7,
+            8,
+            12,
+            25,
+            40,
+            66,
+            67,
+            69,
+            1000,
+            1002,
+            1003,
+            1004,
+            1005,
+            1006,
+            1007,
+            1049,
+            2004,
+        )
+        for mode in supported:
+            with self.subTest(mode=mode):
+                with Shitty(columns=10, rows=6) as terminal:
+                    allow = b"\x1b[?40h" if mode == 3 else b""
+                    terminal.write(
+                        allow
+                        + f"\x1b[?{mode}h\x1b[?{mode}$p"
+                        f"\x1b[?{mode}l\x1b[?{mode}$p".encode()
+                    )
+                    self.assertEqual(
+                        terminal.read_input(),
+                        f"\x1b[?{mode};1$y\x1b[?{mode};2$y".encode(),
+                    )
+
+        for mode in (117, 9001):
+            with self.subTest(unsupported=mode):
+                with Shitty(columns=10, rows=6) as terminal:
+                    terminal.write(
+                        f"\x1b[?{mode}h\x1b[?{mode}$p"
+                        f"\x1b[?{mode}l\x1b[?{mode}$p".encode()
+                    )
+                    self.assertEqual(
+                        terminal.read_input(),
+                        f"\x1b[?{mode};0$y\x1b[?{mode};0$y".encode(),
+                    )
+
+    def test_request_permanent_grapheme_mode(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(b"\x1b[?2027l\x1b[?2027$p")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[?2027;3$y",
+            )
+
+    def test_request_scrolling_margins(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(b"\x1b[2;5r")
+            self.assertEqual(
+                self.request_setting(terminal, b"r"),
+                b"\x1bP1$r2;5r\x1b\\",
+            )
+            terminal.write(b"\x1b[r")
+            self.assertEqual(
+                self.request_setting(terminal, b"r"),
+                b"\x1bP1$r1;6r\x1b\\",
+            )
+
+            terminal.write(b"\x1b[?69h\x1b[3;8s")
+            self.assertEqual(
+                self.request_setting(terminal, b"s"),
+                b"\x1bP1$r3;8s\x1b\\",
+            )
+            terminal.write(b"\x1b[s")
+            self.assertEqual(
+                self.request_setting(terminal, b"s"),
+                b"\x1bP1$r1;10s\x1b\\",
+            )
+
+    def test_request_sgr_settings(self):
+        cases = (
+            (b"\x1b[0m", b"0m"),
+            (b"\x1b[0;1;4;7m", b"0;1;4;7m"),
+            (b"\x1b[0;4:3m", b"0;4:3m"),
+            (b"\x1b[0;2;5;8m", b"0;2;5;8m"),
+            (b"\x1b[0;3;9m", b"0;3;9m"),
+            (b"\x1b[0;21;53m", b"0;4:2;53m"),
+            (b"\x1b[0;33;46m", b"0;33;46m"),
+            (b"\x1b[0;96;103m", b"0;96;103m"),
+            (
+                b"\x1b[0;38:5:123;48:5:45;58:5:128m",
+                b"0;38:5:123;48:5:45;58:5:128m",
+            ),
+            (
+                b"\x1b[0;38:2::12:34:56;48:2::65:43:21;"
+                b"58:2::128:222:45m",
+                b"0;38:2::12:34:56;48:2::65:43:21;"
+                b"58:2::128:222:45m",
+            ),
+        )
+        for setup, expected in cases:
+            with self.subTest(setup=setup):
+                with Shitty(columns=10, rows=6) as terminal:
+                    terminal.write(setup)
+                    self.assertEqual(
+                        self.request_setting(terminal, b"m"),
+                        b"\x1bP1$r" + expected + b"\x1b\\",
+                    )
+
+    def test_request_cursor_and_protection_settings(self):
+        for style in range(7):
+            with self.subTest(style=style):
+                with Shitty(columns=10, rows=6) as terminal:
+                    terminal.write(f"\x1b[{style} q".encode())
+                    reported = style if style else 1
+                    self.assertEqual(
+                        self.request_setting(terminal, b" q"),
+                        b"\x1bP1$r"
+                        + f"{reported} q".encode()
+                        + b"\x1b\\",
+                    )
+
+        for protection in (0, 1):
+            with self.subTest(protection=protection):
+                with Shitty(columns=10, rows=6) as terminal:
+                    terminal.write(f"\x1b[{protection}\"q".encode())
+                    self.assertEqual(
+                        self.request_setting(terminal, b"\"q"),
+                        b"\x1bP1$r"
+                        + f"{protection}\"q".encode()
+                        + b"\x1b\\",
+                    )
+
+    def test_request_unsupported_settings(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            for setting in (b",|", b"1,|", b"2,|", b"3,|", b"x"):
+                with self.subTest(setting=setting):
+                    self.assertEqual(
+                        self.request_setting(terminal, setting),
+                        b"\x1bP0$r\x1b\\",
+                    )
 
 
 if __name__ == "__main__":

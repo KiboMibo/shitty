@@ -156,12 +156,12 @@ terminal_results:
       value_description: RESET
     2027:
       changeable: false
-      enabled: false
+      enabled: true
       mode_description: Grapheme clustering
       mode_name: GRAPHEME_CLUSTERING
-      supported: false
-      value: 0
-      value_description: NOT_RECOGNIZED
+      supported: true
+      value: 3
+      value_description: PERMANENTLY_SET
     2031:
       changeable: true
       enabled: false

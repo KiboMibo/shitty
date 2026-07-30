@@ -1228,7 +1228,9 @@ void ParserImpl<traced>::dispatchModeReport(bool privateMode) {
     u8 result = 0;
     bool enabled;
     if (privateMode) {
-        if (privateModeValue(mode, state, enabled)) {
+        if (mode == 2027) {
+            result = 3;
+        } else if (privateModeValue(mode, state, enabled)) {
             if ((mode == 69 && compatibility < CompatibilityLevel::VT400) || (mode == 95 && compatibility < CompatibilityLevel::VT500)) {
                 result = 0;
             } else {
@@ -1577,6 +1579,9 @@ void ParserImpl<traced>::dispatchDsr(bool privateMode) {
     switch (operation) {
         case 6:
             iface.dsrCursorPosition(true);
+            break;
+        case 15:
+            iface.dsrPrinter();
             break;
         case 25:
             iface.dsrUserDefinedKeys();

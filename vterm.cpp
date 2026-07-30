@@ -599,8 +599,11 @@ namespace {
         void csi_priDA() override;
         void csi_secDA() override;
         void csi_terDA() override;
+        void csi_DECRQDE() override;
+        void csi_DECREQTPARM(u32 permission) override;
         void dsrOperatingStatus() override;
         void dsrCursorPosition(bool privateMode) override;
+        void dsrPrinter() override;
         void dsrUserDefinedKeys() override;
         void dsrKeyboard() override;
         void dsrLocator() override;
@@ -4740,6 +4743,18 @@ void VtermImpl::csi_terDA() {
     writeDcsResponse("!|00000000");
 }
 
+void VtermImpl::csi_DECRQDE() {
+    StringBuilder response;
+    response << composer.rows << StringView(u8";") << composer.columns << StringView(u8";1;1;1\"w");
+    writeCsiResponse(StringView(response));
+}
+
+void VtermImpl::csi_DECREQTPARM(u32 permission) {
+    StringBuilder response;
+    response << permission + 2 << StringView(u8";1;1;128;128;1;0x");
+    writeCsiResponse(StringView(response));
+}
+
 void VtermImpl::csi_XTVERSION() {
     writeDcsResponse(">|Shitty " SHITTY_VERSION);
 }
@@ -4773,6 +4788,10 @@ void VtermImpl::dsrCursorPosition(bool privateMode) {
         response << StringView(u8"R");
     }
     writeCsiResponse(StringView(response));
+}
+
+void VtermImpl::dsrPrinter() {
+    writeCsiResponse("?13n");
 }
 
 void VtermImpl::dsrUserDefinedKeys() {

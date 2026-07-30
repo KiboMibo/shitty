@@ -502,9 +502,15 @@ namespace {
         RECORD_VOID_METHOD(csi_priDA)
         RECORD_VOID_METHOD(csi_secDA)
         RECORD_VOID_METHOD(csi_terDA)
+        RECORD_VOID_METHOD(csi_DECRQDE)
         RECORD_VOID_METHOD(dsrOperatingStatus)
+        RECORD_VOID_METHOD(dsrPrinter)
 
 #undef RECORD_VOID_METHOD
+
+        void csi_DECREQTPARM(u32 permission) override {
+            record("csi_DECREQTPARM", permission);
+        }
 
         void dsrCursorPosition(bool privateMode) override {
             record("dsrCursorPosition", privateMode);
@@ -1129,6 +1135,8 @@ namespace {
         {"DA1", "csi_priDA"},
         {"DA3", "csi_terDA"},
         {"DA2", "csi_secDA"},
+        {"DECRQDE", "csi_DECRQDE"},
+        {"DECREQTPARM_OR_WYCDIR", "csi_DECREQTPARM"},
         {"VPA", "csi_VPA"},
         {"VPR", "csi_VPR"},
         {"HVP", "csi_CUP"},
@@ -1714,6 +1722,7 @@ STD_TEST_SUITE(ParserCallbacks) {
     }
 
     SHITTY_PARSER_CALLBACK_TEST3(ReportMode, reportMode, u8"\x1b[4$p", 4, false, 2)
+    SHITTY_PARSER_CALLBACK_TEST3(ReportPermanentGraphemeMode, reportMode, u8"\x1b[?2027$p", 2027, true, 3)
     SHITTY_PARSER_CALLBACK_TEST1(ScrollLeft, csi_ecma48_SL, u8"\x1b[7 @", 7)
     SHITTY_PARSER_CALLBACK_TEST1(ScrollRight, csi_ecma48_SR, u8"\x1b[7 A", 7)
     SHITTY_PARSER_CALLBACK_TEST3(SetCursorStyle, setCursorStyle, u8"\x1b[5 q", 5, TerminalCursor::Style::bar, true)
@@ -1722,8 +1731,11 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST0(PrimaryDeviceAttributes, csi_priDA, u8"\x1b[c")
     SHITTY_PARSER_CALLBACK_TEST0(SecondaryDeviceAttributes, csi_secDA, u8"\x1b[>c")
     SHITTY_PARSER_CALLBACK_TEST0(TertiaryDeviceAttributes, csi_terDA, u8"\x1b[=c")
+    SHITTY_PARSER_CALLBACK_TEST0(RequestDisplayedExtent, csi_DECRQDE, u8"\x1b[\"v")
+    SHITTY_PARSER_CALLBACK_TEST1(RequestTerminalParameters, csi_DECREQTPARM, u8"\x1b[1x", 1)
     SHITTY_PARSER_CALLBACK_TEST0(OperatingStatus, dsrOperatingStatus, u8"\x1b[5n")
     SHITTY_PARSER_CALLBACK_TEST1(CursorPositionReport, dsrCursorPosition, u8"\x1b[6n", false)
+    SHITTY_PARSER_CALLBACK_TEST0(PrinterStatus, dsrPrinter, u8"\x1b[?15n")
     SHITTY_PARSER_CALLBACK_TEST0(UserDefinedKeysStatus, dsrUserDefinedKeys, u8"\x1b[?25n")
     SHITTY_PARSER_CALLBACK_TEST0(KeyboardStatus, dsrKeyboard, u8"\x1b[?26n")
     SHITTY_PARSER_CALLBACK_TEST0(LocatorStatus, dsrLocator, u8"\x1b[?55n")

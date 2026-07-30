@@ -248,8 +248,11 @@ struct ParserIface {
     virtual void csi_priDA() = 0;
     virtual void csi_secDA() = 0;
     virtual void csi_terDA() = 0;
+    virtual void csi_DECRQDE() = 0;
+    virtual void csi_DECREQTPARM(u32 permission) = 0;
     virtual void dsrOperatingStatus() = 0;
     virtual void dsrCursorPosition(bool privateMode) = 0;
+    virtual void dsrPrinter() = 0;
     virtual void dsrUserDefinedKeys() = 0;
     virtual void dsrKeyboard() = 0;
     virtual void dsrLocator() = 0;
