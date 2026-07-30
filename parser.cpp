@@ -376,6 +376,11 @@ template <bool traced>
         case '\n':
         case '\v':
         case '\f':
+            // Same LNM handling as the ground state: an embedded LF is
+            // still a line feed.
+            if (iface.parserAutoNewlineMode()) {
+                iface.inp_CR();
+            }
             iface.esc_IND();
             break;
         case '\r':

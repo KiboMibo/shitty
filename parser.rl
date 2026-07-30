@@ -47,6 +47,25 @@
         fgoto escape;
     }
 
+    action abortStringEscaped {
+        iface.parserResetGraphemeInput();
+        parser.stringUtf8Remaining = 0;
+        parser.stringLimit = 0;
+        if constexpr (traced) {
+            parserTrace->stringCancel();
+            parserTrace->escapeCancel();
+            parserTrace->escapeBegin();
+        }
+        parser.parameters[0] = 0;
+        parser.separators[0] = 0;
+        parser.parameterCount = 1;
+        fhold;
+        if (iface.parserCompatibilityLevel() == CompatibilityLevel::VT52) {
+            fgoto escapeVt52;
+        }
+        fgoto escape;
+    }
+
     action repeatEscape {
         if constexpr (traced) {
             parserTrace->escapeCancel();
@@ -4311,9 +4330,9 @@
         stringC1 |
         0x9c @dcsHeaderTerminated |
         '\\' @dcsHeaderTerminated |
-        0x1b |
+        restartEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
-                0x9a..0x9f)) @dcsHeaderInvalid
+                0x9a..0x9f)) @abortStringEscaped
     )*;
 
     dcsDecrqssGap = (
@@ -4328,9 +4347,9 @@
         0x1b (
             '\\' |
             0x9c |
-            0x1b @dcsDecrqssEscapedEscape |
+            restartEscape |
             (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
-                    0x9a..0x9f)) @dcsDecrqssEscapedData |
+                    0x9a..0x9f)) @abortStringEscaped |
             cancel |
             stringC1
         )
@@ -4375,9 +4394,9 @@
         stringC1 |
         0x9c @dcsDecrqssUnknownSt |
         '\\' @dcsDecrqssUnknownSt |
-        0x1b @dcsDecrqssEscapedEscape |
+        restartEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
-                0x9a..0x9f)) @dcsDecrqssEscapedData
+                0x9a..0x9f)) @abortStringEscaped
     )*;
 
     dcsXtgettcap := (
@@ -4398,9 +4417,9 @@
         stringC1 |
         0x9c @dcsXtSt @dcsXtField @dcsXtDone |
         '\\' @dcsXtSt @dcsXtField @dcsXtDone |
-        0x1b @dcsXtEscapedEscape |
+        restartEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
-                0x9a..0x9f)) @dcsXtEscapedData
+                0x9a..0x9f)) @abortStringEscaped
     )*;
 
     dcsUdkCode := (
@@ -4447,9 +4466,9 @@
         stringC1 |
         0x9c @dcsUdkSt |
         '\\' @dcsUdkSt |
-        0x1b @dcsUdkEscapedEscape |
+        restartEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
-                0x9a..0x9f)) @dcsUdkEscapedData
+                0x9a..0x9f)) @abortStringEscaped
     )*;
 
     dcsPayload := (
@@ -4467,9 +4486,9 @@
         stringC1 |
         0x9c @{ ragelFinishDcs(); fnext main; fbreak; } |
         '\\' @{ ragelFinishDcs(); fnext main; fbreak; } |
-        0x1b @dcsEscapedEscape |
+        restartEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
-                0x9a..0x9f)) @dcsEscapedData
+                0x9a..0x9f)) @abortStringEscaped
     )*;
 
     dcsColor := (
@@ -4490,9 +4509,9 @@
         stringC1 |
         0x9c @dcsColorSt |
         '\\' @dcsColorSt |
-        0x1b @dcsColorEscapedEscape |
+        restartEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
-                0x9a..0x9f)) @dcsColorEscapedData
+                0x9a..0x9f)) @abortStringEscaped
     )*;
 
     dcsTabs := (
@@ -4512,9 +4531,9 @@
         stringC1 |
         0x9c @dcsTabSt |
         '\\' @dcsTabSt |
-        0x1b @dcsTabEscapedEscape |
+        restartEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
-                0x9a..0x9f)) @dcsTabEscapedData
+                0x9a..0x9f)) @abortStringEscaped
     )*;
 
     dcsCursorNumber =
@@ -4551,7 +4570,9 @@
         cancel |
         stringC1 |
         '\\' @dcsCursorSt |
-        any @{ fgoto dcsIgnore; }
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
+                0x9a..0x9b | 0x9d..0x9f)) @abortStringEscaped
     )*;
 
     dcsUpssId = (
@@ -4572,7 +4593,9 @@
         cancel |
         stringC1 |
         '\\' @dcsUpssSt |
-        any @{ fgoto dcsIgnore; }
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
+                0x9a..0x9b | 0x9d..0x9f)) @abortStringEscaped
     )*;
 
     dcsIgnore := (
@@ -4589,7 +4612,7 @@
         stringC1 |
         0x9c @dcsIgnoreSt |
         '\\' @dcsIgnoreSt |
-        0x1b |
+        restartEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
                 0x9a..0x9f)) @{ fgoto dcsIgnore; }
     )*;
@@ -4611,8 +4634,8 @@
     oscCommandEscape := (
         cancel |
         '\\' @oscCommandSt @oscDispatch @oscDone |
-        0x1b @oscEscapedEscape @{ fgoto oscInvalidEscape; } |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscInvalidEscapedData
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscCwdEntry := (
@@ -4726,23 +4749,22 @@
     oscCwdInvalidEscape := (
         cancel |
         '\\' @oscCwdSt @oscCwdDispatch @oscDone |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscCwdInvalidEscaped
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscCwdAuthorityEscape := (
         cancel |
         '\\' @oscCwdSt @oscCwdDispatch @oscDone |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\'))
-            @oscCwdAuthorityEscaped
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscCwdPathEscape := (
         cancel |
         '\\' @oscCwdSt @oscCwdDispatch @oscDone |
-        0x1b @oscEscapedEscape @oscCwdPathEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscCwdPathEscaped
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscTitle0 := (
@@ -4781,22 +4803,22 @@
     oscTitle0Escape := (
         cancel |
         '\\' @oscTitle0St |
-        0x1b @oscTitleEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscTitleEscaped0
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscTitle1Escape := (
         cancel |
         '\\' @oscTitle1St |
-        0x1b @oscTitleEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscTitleEscaped1
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscTitle2Escape := (
         cancel |
         '\\' @oscTitle2St |
-        0x1b @oscTitleEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscTitleEscaped2
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscHyperlinkParamStart := (
@@ -4884,22 +4906,22 @@
     oscHyperlinkParamEscape := (
         cancel |
         '\\' @oscHyperlinkMalformedSt |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscHyperlinkParamEscaped
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscHyperlinkIdEscape := (
         cancel |
         '\\' @oscHyperlinkMalformedSt |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscHyperlinkIdEscaped
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscHyperlinkUriEscape := (
         cancel |
         '\\' @oscHyperlinkSt |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscHyperlinkUriEscaped
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscProgressEntry := (
@@ -4980,36 +5002,36 @@
     oscProgressEntryEscape := (
         cancel |
         '\\' @oscProgressNotifySt |
-        0x1b @oscEscapedEscape @{ fgoto oscProgressNotifyEscape; } |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscProgressNotifyEscaped
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscProgressFourEscape := (
         cancel |
         '\\' @oscProgressNotifySt |
-        0x1b @oscEscapedEscape @{ fgoto oscProgressNotifyEscape; } |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscProgressNotifyEscaped
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscProgressNotifyEscape := (
         cancel |
         '\\' @oscProgressNotifySt |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscProgressNotifyEscaped
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscProgressDiscardEscape := (
         cancel |
         '\\' @oscProgressDiscardSt |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscProgressDiscardEscaped
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscProgressPercentEscape := (
         cancel |
         '\\' @oscProgressSt |
-        0x1b @oscEscapedEscape @{ fgoto oscProgressDiscardEscape; } |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscProgressDiscardEscaped
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     osc52Selectors := (
@@ -5039,15 +5061,15 @@
     osc52SelectorsEscape := (
         cancel |
         '\\' @osc52MalformedSt |
-        0x1b @oscEscapedEscape @{ fgoto oscInvalidEscape; } |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @osc52SelectorEscaped
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     osc52PayloadEscape := (
         cancel |
         '\\' @osc52St @osc52Dispatch @oscDone |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @osc52PayloadEscaped
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscNotificationField := (
@@ -5117,15 +5139,15 @@
     oscNotificationPayloadEscape := (
         cancel |
         '\\' @oscNotificationSt @oscNotificationDispatch @oscDone |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscNotificationPayloadEscaped
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscNotificationInvalidEscape := (
         cancel |
         '\\' @oscNotificationInvalidSt |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscNotificationInvalidEscaped
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscIndexedColorIndex := (
@@ -5146,10 +5168,8 @@
     oscIndexedColorIndexEscape := (
         cancel |
         '\\' @oscInvalidSt |
-        0x1b @oscEscapedEscape
-            @{ parser.oscFieldNumeric = false; fgoto oscIndexedColorIndexEscape; } |
-        (any - (0x18 | 0x1a | 0x1b | '\\'))
-            @oscIndexedColorIndexEscapedInvalid
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscIndexedColor := (
@@ -5164,10 +5184,8 @@
     oscIndexedColorEscape := (
         cancel |
         '\\' @oscIndexedColorSt @oscIndexedColorCommit @oscDone |
-        0x1b @oscEscapedEscape
-            @{ fgoto oscIndexedColorDiscardEscape; } |
-        (any - (0x18 | 0x1a | 0x1b | '\\'))
-            @oscIndexedColorEscapedInvalid
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscIndexedColorDiscard := (
@@ -5186,9 +5204,8 @@
     oscIndexedColorDiscardEscape := (
         cancel |
         '\\' @oscInvalidSt |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\'))
-            @oscIndexedColorEscapedInvalid
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscDynamicColor := (
@@ -5203,10 +5220,8 @@
     oscDynamicColorEscape := (
         cancel |
         '\\' @oscDynamicColorSt @oscDynamicColorCommit @oscDone |
-        0x1b @oscEscapedEscape
-            @{ fgoto oscDynamicColorDiscardEscape; } |
-        (any - (0x18 | 0x1a | 0x1b | '\\'))
-            @oscDynamicColorEscapedInvalid
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscDynamicColorDiscard := (
@@ -5225,9 +5240,8 @@
     oscDynamicColorDiscardEscape := (
         cancel |
         '\\' @oscInvalidSt |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\'))
-            @oscDynamicColorEscapedInvalid
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscNumericFields := (
@@ -5248,10 +5262,8 @@
     oscNumericEscape := (
         cancel |
         '\\' @oscNumericFinalField @oscNumericSt @oscDone |
-        0x1b @oscEscapedEscape
-            @{ parser.oscFieldPresent = true; parser.oscFieldNumeric = false; } |
-        (any - (0x18 | 0x1a | 0x1b | '\\'))
-            @oscNumericEscapedInvalid
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscShellEntry := (
@@ -5480,120 +5492,120 @@
     oscShellACompleteEscape := (
         cancel |
         '\\' @oscShellASt |
-        0x1b @oscEscapedEscape @{ fgoto oscShellUnknownEscape; } |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscShellBCompleteEscape := (
         cancel |
         '\\' @oscShellBSt |
-        0x1b @oscEscapedEscape @{ fgoto oscShellUnknownEscape; } |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscShellCCompleteEscape := (
         cancel |
         '\\' @oscShellCSt |
-        0x1b @oscEscapedEscape @{ fgoto oscShellUnknownEscape; } |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscShellDCompleteEscape := (
         cancel |
         '\\' @oscShellDSt |
-        0x1b @oscEscapedEscape @{ fgoto oscShellUnknownEscape; } |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscShellICompleteEscape := (
         cancel |
         '\\' @oscShellISt |
-        0x1b @oscEscapedEscape @{ fgoto oscShellUnknownEscape; } |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscShellLCompleteEscape := (
         cancel |
         '\\' @oscShellLSt |
-        0x1b @oscEscapedEscape @{ fgoto oscShellUnknownEscape; } |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscShellNCompleteEscape := (
         cancel |
         '\\' @oscShellNSt |
-        0x1b @oscEscapedEscape @{ fgoto oscShellUnknownEscape; } |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscShellPCompleteEscape := (
         cancel |
         '\\' @oscShellPSt |
-        0x1b @oscEscapedEscape @{ fgoto oscShellUnknownEscape; } |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscShellATailEscape := (
         cancel |
         '\\' @oscShellASt |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedA
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscShellBTailEscape := (
         cancel |
         '\\' @oscShellBSt |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedB
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscShellCTailEscape := (
         cancel |
         '\\' @oscShellCSt |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedC
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscShellDTailEscape := (
         cancel |
         '\\' @oscShellDSt |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedD
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscShellITailEscape := (
         cancel |
         '\\' @oscShellISt |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedI
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscShellLTailEscape := (
         cancel |
         '\\' @oscShellLSt |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedL
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscShellNTailEscape := (
         cancel |
         '\\' @oscShellNSt |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedN
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscShellPTailEscape := (
         cancel |
         '\\' @oscShellPSt |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedP
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscShellUnknownEscape := (
         cancel |
         '\\' @oscShellUnknownSt |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscShellEscapedUnknown
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscPayload := (
@@ -5610,8 +5622,8 @@
     oscEscape := (
         cancel |
         '\\' @oscSt @oscDispatch @oscDone |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscEscapedData
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     oscInvalid := (
@@ -5628,8 +5640,8 @@
     oscInvalidEscape := (
         cancel |
         '\\' @oscInvalidSt |
-        0x1b @oscEscapedEscape |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @oscInvalidEscapedData
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
     string := (
@@ -5645,8 +5657,8 @@
     stringEscape := (
         cancel |
         '\\' @{ parser.stringUtf8Remaining = 0; parser.stringLimit = 0; if constexpr (traced) { parserTrace->stringEnd(); } fnext main; fbreak; } |
-        0x1b |
-        (any - (0x18 | 0x1a | 0x1b | '\\')) @ignoredEscapedData
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\')) @abortStringEscaped
     )*;
 
 }%%

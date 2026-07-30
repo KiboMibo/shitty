@@ -167,16 +167,19 @@ class ParserStateMachineTest(unittest.TestCase):
                         self.assertEqual(terminal.read_actions(), [])
                         self.assertEqual(terminal.read_input(), b"")
 
-    def test_repeated_escape_still_allows_dcs_st_terminator(self):
+    def test_repeated_escape_aborts_dcs_without_dispatch(self):
+        # xterm/vte: the first ESC aborts the string, the second starts a
+        # fresh escape sequence which the following backslash completes as
+        # a bare (no-op) ST.
         with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1bP$qz\x1b\x1b\\X")
-            self.assertEqual(terminal.read_input(), b"\x1bP0$r\x1b\\")
+            self.assertEqual(terminal.read_input(), b"")
             self.assertEqual(terminal.snapshot().cell(0, 0).char, "X")
 
-    def test_repeated_escape_still_allows_osc_st_terminator(self):
+    def test_repeated_escape_aborts_osc_without_dispatch(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b]2;a\x1b\x1b\\X")
-            self.assertEqual(terminal.read_actions(), ["OSC 2 611b"])
+            self.assertEqual(terminal.read_actions(), [])
             self.assertEqual(terminal.snapshot().cell(0, 0).char, "X")
 
     def test_repeated_escape_still_allows_ignored_string_terminator(self):

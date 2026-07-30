@@ -282,7 +282,6 @@ namespace {
             u16 fullRows = 0;
             ExactDamageCache exactCache;
 
-            Damage& operator=(Damage&& other) noexcept;
             void configure(void* storage, u16 columns, u16 rows);
             void reset();
             void expose();
@@ -335,7 +334,6 @@ namespace {
         void damageRow(u16 row, u16 begin, u16 end);
         void damageRectangle(u16 top, u16 left, u16 bottom, u16 right);
         void resizeDamage(u16 columns, u16 rows);
-        TerminalCell* dirtySpan(u16 row, u16 start, u16 count);
         TerminalCell* overwriteWideSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs);
         TerminalCell* prepareSpan(RowSlot& slot, u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs);
         TerminalCell* prepareSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs);
@@ -1907,15 +1905,6 @@ void AlternateScreenImpl<Coord, Epoch>::scrollRows(u16 top, u16 bottom, i32 rows
     } else if (rows > 0) {
         this->scrollDownVisible(top, bottom, min<u32>(rows, 0xffff), attrs);
     }
-}
-
-template <typename Coord, typename Epoch>
-TerminalCell* ScreenBase<Coord, Epoch>::dirtySpan(u16 pY, u16 startX, u16 count) {
-    damageRow(pY, startX, startX + count);
-    if (!selection.empty()) {
-        invalidateSelection(Rect(startX, pY, startX + count, pY));
-    }
-    return mutableLogicalRow(pY) + startX;
 }
 
 template <typename Coord, typename Epoch>
@@ -3749,22 +3738,6 @@ template <typename Coord, typename Epoch>
 void ScreenBase<Coord, Epoch>::resizeDamage(u16 columns, u16 rows) {
     damageStorage.grow((size_t)(rows) * sizeof(DamageRow) + (size_t)(columns)*rows * sizeof(Epoch));
     damage.configure(damageStorage.mutData(), columns, rows);
-}
-
-template <typename Coord, typename Epoch>
-auto ScreenBase<Coord, Epoch>::Damage::operator=(Damage&& other) noexcept -> Damage& {
-    rows = other.rows;
-    epoch = other.epoch;
-    width = other.width;
-    height = other.height;
-    fullRows = other.fullRows;
-    other.rows = nullptr;
-    other.epoch = 0;
-    other.width = 0;
-    other.height = 0;
-    other.fullRows = 0;
-    exactCache.reset();
-    return *this;
 }
 
 template <typename Coord, typename Epoch>

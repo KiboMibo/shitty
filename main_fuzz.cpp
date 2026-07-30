@@ -435,8 +435,10 @@ namespace {
                 break;
             case 219:
                 if (len >= 1) {
+                    // force=0 compares against a wall-clock deadline and can
+                    // legitimately diverge between the two rigs.
                     result.present = true;
-                    result.value = term->advanceAnimation((payload[0] & 1) != 0);
+                    result.value = term->advanceAnimation(true);
                 }
                 break;
             case 220:

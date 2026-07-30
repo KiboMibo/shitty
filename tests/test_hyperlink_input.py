@@ -229,8 +229,8 @@ class HyperlinkInputTest(unittest.TestCase):
             terminal.button(0, False, x=4, y=2, modifiers=CONTROL)
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[<0;1;1M\x1b[<0;1;1m"
-                b"\x1b[<16;2;1M\x1b[<16;2;1m",
+                b"\x1b[<0;2;1M\x1b[<0;2;1m"
+                b"\x1b[<16;3;1M\x1b[<16;3;1m",
             )
             self.assertEqual(terminal.desktop_state()["open_count"], 1)
 

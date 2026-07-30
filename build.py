@@ -376,6 +376,27 @@ main_fuzz = program(
 )
 
 
+# Same test build against the production ragel backend (-G1): the two
+# backends share the C++ semantics but not the generated code, and only
+# this variant executes what ships in st.
+libshitty_test_prod_parser = library(
+    name="libshitty_test_prod_parser",
+    srcs=libshitty_sources,
+    cppflags=["-DSHITTY_FOR_TESTS=1"],
+    deps=libshitty_test_deps,
+    output="$(B)/libshitty_test_prod_parser.a",
+)
+
+
+st_test_prod_parser = program(
+    name="st_test_prod_parser",
+    output="$(B)/st_test_prod_parser",
+    srcs=[main_source],
+    cppflags=["-DSHITTY_FOR_TESTS=1"],
+    deps=[libshitty_test_prod_parser],
+)
+
+
 unit_tests = program(
     name="unit_tests",
     output="$(B)/unit_tests",
@@ -414,6 +435,40 @@ test_suite = command(
         "SHITTY_PRODUCTION_BINARY": "$(B)/st",
     },
     descr="TS",
+    color="cyan",
+)
+
+
+test_suite_prod_parser = command(
+    name="test_suite_prod_parser",
+    inputs=[
+        *build.glob("$(S)/tests/*.py"),
+        "$(S)/tests/windows_terminal/upstream/KittyKeyboardProtocol.cpp",
+        "$(S)/tests/windows_terminal/upstream/ReflowTests.cpp",
+        "$(S)/tests/windows_terminal/upstream/ScreenBufferTests.cpp",
+        "$(S)/tests/windows_terminal/upstream/SelectionTest.cpp",
+        "$(S)/tests/windows_terminal/upstream/TerminalBufferTests.cpp",
+        "$(S)/application.cpp",
+        "$(S)/shitty.desktop",
+    ],
+    outputs=["$(B)/tests-prod-parser.stamp"],
+    deps=[st_test_prod_parser, st],
+    cmd=[
+        ["python3", "-m", "unittest", "discover", "-s", "tests"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; Path(r'$(B)/tests-prod-parser.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    env={
+        "SHITTY_TEST_BINARY": "$(B)/st_test_prod_parser",
+        "SHITTY_TEST_FONTCONFIG": "1" if fontconfig else "0",
+        "SHITTY_TEST_PLATFORM": "cocoa" if darwin else "wayland",
+        "SHITTY_TEST_VERSION": shitty_version,
+        "SHITTY_PRODUCTION_BINARY": "$(B)/st",
+    },
+    descr="TP",
     color="cyan",
 )
 
@@ -2893,6 +2948,7 @@ group(
     "test",
     *([plt_tests] if plt_tests is not None else []),
     test_suite,
+    test_suite_prod_parser,
     parser_fuzz,
     vttest_profile,
     *xtermjs_tests,

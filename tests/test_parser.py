@@ -63,6 +63,37 @@ class ParserStreamingTest(unittest.TestCase):
                 ],
             )
 
+    def test_escape_inside_osc_aborts_the_string(self):
+        # DEC STD 070, xterm, vte, ghostty: an ESC that does not form ST
+        # aborts the control string and starts a fresh escape sequence.
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write(b"\x1b]0;A\x1b[31mX\x07")
+            terminal.write(b"\x1b[2;1H\x1b[0;31mR")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).char, "X")
+            self.assertEqual(
+                snapshot.cell(0, 0).foreground,
+                snapshot.cell(0, 1).foreground,
+            )
+
+    def test_escape_inside_dcs_aborts_the_string(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write(b"\x1bP1;2z\x1b[32mY")
+            terminal.write(b"\x1b[2;1H\x1b[0;32mG")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).char, "Y")
+            self.assertEqual(
+                snapshot.cell(0, 0).foreground,
+                snapshot.cell(0, 1).foreground,
+            )
+
+    def test_embedded_line_feed_honours_new_line_mode(self):
+        # A C0 LF executed in the middle of a CSI sequence follows the
+        # same LNM rules as one in the ground state.
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1b[20habc\x1b[\n1C\x1b[6n")
+            self.assertEqual(terminal.read_input(), b"\x1b[2;2R")
+
     def test_parameter_intermediate_and_final_bytes_are_independent(self):
         with Shitty(columns=6, rows=2) as terminal:
             terminal.write_chunks(b"\x1b[1;", b"2", b"\"", b"q", b"X")

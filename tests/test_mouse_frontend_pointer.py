@@ -16,7 +16,7 @@ class MouseFrontendPointerTest(unittest.TestCase):
                 terminal.button(button, False, x=5, y=4)
                 self.assertEqual(
                     terminal.read_input(),
-                    f"\x1b[<{code};3;2M\x1b[<{code};3;2m".encode(),
+                    f"\x1b[<{code};4;3M\x1b[<{code};4;3m".encode(),
                 )
 
     def test_x10_reports_only_press_and_strips_modifiers(self):
@@ -24,7 +24,7 @@ class MouseFrontendPointerTest(unittest.TestCase):
             terminal.write(b"\x1b[?9h\x1b[?1006h")
             terminal.button(0, True, modifiers=6, x=5, y=4)
             terminal.button(0, False, modifiers=6, x=5, y=4)
-            self.assertEqual(terminal.read_input(), b"\x1b[<0;3;2M")
+            self.assertEqual(terminal.read_input(), b"\x1b[<0;4;3M")
 
     def test_extended_buttons_have_bounded_press_only_protocol(self):
         with Shitty(columns=8, rows=4) as terminal:
@@ -42,7 +42,7 @@ class MouseFrontendPointerTest(unittest.TestCase):
         with Shitty(columns=8, rows=4) as terminal:
             terminal.write(b"\x1b[?1000h\x1b[?1006h")
             terminal.button(0, True, modifiers=6, x=5, y=4)
-            self.assertEqual(terminal.read_input(), b"\x1b[<24;3;2M")
+            self.assertEqual(terminal.read_input(), b"\x1b[<24;4;3M")
 
     def test_button_event_motion_requires_a_primary_button_and_deduplicates(self):
         with Shitty(columns=8, rows=4) as terminal:
@@ -56,8 +56,8 @@ class MouseFrontendPointerTest(unittest.TestCase):
             terminal.button(0, False, x=6, y=4)
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[<0;3;2M\x1b[<32;3;2M"
-                b"\x1b[<32;4;2M\x1b[<0;4;2m",
+                b"\x1b[<0;4;3M\x1b[<32;4;3M"
+                b"\x1b[<32;5;3M\x1b[<0;5;3m",
             )
 
     def test_any_event_motion_reports_without_buttons_and_with_modifiers(self):
@@ -65,7 +65,7 @@ class MouseFrontendPointerTest(unittest.TestCase):
             terminal.write(b"\x1b[?1003h\x1b[?1006h")
             terminal.pointer(5, 4, modifiers=6)
             terminal.pointer(5, 4, modifiers=6)
-            self.assertEqual(terminal.read_input(), b"\x1b[<59;3;2M")
+            self.assertEqual(terminal.read_input(), b"\x1b[<59;4;3M")
 
     def test_tracking_mode_transition_resets_motion_deduplication(self):
         with Shitty(columns=8, rows=4) as terminal:
@@ -75,7 +75,7 @@ class MouseFrontendPointerTest(unittest.TestCase):
             terminal.pointer(5.4, 4.4)
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[<35;3;2M\x1b[<35;3;2M",
+                b"\x1b[<35;4;3M\x1b[<35;4;3M",
             )
 
     def test_sgr_pixel_motion_deduplicates_pixels_not_cells(self):
@@ -265,7 +265,7 @@ class MouseFrontendPointerTest(unittest.TestCase):
             terminal.write(b"\x1b[1;2'z")
             terminal.pointer(5, 4)
             terminal.write(b"\x1b['|")
-            self.assertEqual(terminal.read_input(), b"\x1b[1;0;2;3;0&w")
+            self.assertEqual(terminal.read_input(), b"\x1b[1;0;3;4;0&w")
 
     def test_highlight_release_uses_frontend_button_coordinates(self):
         with Shitty(columns=8, rows=4) as terminal:
@@ -276,7 +276,7 @@ class MouseFrontendPointerTest(unittest.TestCase):
             terminal.button(0, False, x=5, y=4)
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[<0;3;2M\x1b[<2;1;3;2;3;2T",
+                b"\x1b[<0;4;3M\x1b[<2;1;4;3;4;3T",
             )
 
     def test_right_button_extends_selection_and_middle_button_pastes_it(self):

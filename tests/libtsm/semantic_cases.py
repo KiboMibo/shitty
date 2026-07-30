@@ -476,9 +476,9 @@ def test_mouse_sgr_cell_change(factory):
         expect(terminal.read_input(), b"\x1b[<35;1;1M", "first motion")
         terminal.pointer(2, 2)
         expect(terminal.read_input(), b"", "duplicate cell motion")
-        terminal.pointer(4, 4)
+        terminal.pointer(3, 3)
         expect(terminal.read_input(), b"\x1b[<35;2;2M", "new cell motion")
-        terminal.button(0, True, x=4, y=4)
+        terminal.button(0, True, x=3, y=3)
         expect(terminal.read_input(), b"\x1b[<0;2;2M", "same-cell click")
 
 

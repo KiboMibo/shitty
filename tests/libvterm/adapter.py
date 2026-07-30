@@ -568,7 +568,7 @@ def apply_command(terminal, line, state):
                 max(snapshot.columns, column + 1),
                 max(snapshot.rows, row + 1),
             )
-        terminal.pointer(column + 3, row + 3, modifiers(modifier or "0"))
+        terminal.pointer(column + 2, row + 2, modifiers(modifier or "0"))
         return
     match = re.fullmatch(r"MOUSEBTN\s+([du])\s+(\d+)\s+(\w+)", line)
     if match:
@@ -580,8 +580,8 @@ def apply_command(terminal, line, state):
             terminal.button(
                 button_code,
                 direction == "d",
-                x=column + 3,
-                y=row + 3,
+                x=column + 2,
+                y=row + 2,
                 modifiers=modifiers(modifier),
             )
         elif direction == "d":
@@ -591,8 +591,8 @@ def apply_command(terminal, line, state):
                 x,
                 y,
                 modifiers=modifiers(modifier),
-                pixel_x=column + 3,
-                pixel_y=row + 3,
+                pixel_x=column + 2,
+                pixel_y=row + 2,
             )
         return
     match = re.fullmatch(r"SELECTION\s+1\s+(.*)", line)

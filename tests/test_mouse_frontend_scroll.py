@@ -27,7 +27,7 @@ class MouseFrontendScrollTest(unittest.TestCase):
             terminal.scroll(0, -0.5, pixel_x=5, pixel_y=4)
             terminal.scroll(0, 0.75, pixel_x=5, pixel_y=4)
             self.assertEqual(
-                terminal.read_input(), b"\x1b[<64;3;2M"
+                terminal.read_input(), b"\x1b[<64;4;2M"
             )
 
     def test_vertical_and_horizontal_wheel_buttons_are_distinct(self):
@@ -37,8 +37,8 @@ class MouseFrontendScrollTest(unittest.TestCase):
             terminal.scroll(-1, -1, pixel_x=5, pixel_y=4)
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[<64;3;2M\x1b[<67;3;2M"
-                b"\x1b[<65;3;2M\x1b[<66;3;2M",
+                b"\x1b[<64;4;2M\x1b[<67;4;2M"
+                b"\x1b[<65;4;2M\x1b[<66;4;2M",
             )
 
     def test_reporting_wheel_encodes_alt_and_control_modifiers(self):
@@ -46,7 +46,7 @@ class MouseFrontendScrollTest(unittest.TestCase):
             terminal.write(b"\x1b[?1000h\x1b[?1006h")
             terminal.scroll(0, 1, modifiers=6, pixel_x=5, pixel_y=4)
             self.assertEqual(
-                terminal.read_input(), b"\x1b[<88;3;2M"
+                terminal.read_input(), b"\x1b[<88;4;2M"
             )
 
     def test_shift_override_switches_to_local_scroll_and_resets_remainders(self):
