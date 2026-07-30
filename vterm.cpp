@@ -384,14 +384,12 @@ namespace {
         void writeOscResponse(StringView payload);
 
         struct InputSpecTable {
-            std::function<bool()> predicate;
+            bool (*predicate)(const VtermImpl&) = nullptr;
             const InputSpec* specs = nullptr;
-            bool visited = false;
         };
 
-        InputSpecTable* getInputSpecTable();
-        void resetInputSpecTable();
-        const InputSpec* selectInputSpecs();
+        const InputSpecTable* getInputSpecTable();
+        const InputSpec* selectInputSpecs(size_t& cursor);
         const InputSpec& getInputSpec(VtKey key);
 
         void unhandledInput(unsigned char ch) override;
@@ -7222,116 +7220,110 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
 using Key = VtKey;
 using Mod = VtModifier;
 
-VtermImpl::InputSpecTable* VtermImpl::getInputSpecTable() {
-    static InputSpecTable ist[] = {
-        {[this]() {
-        return (autoNewlineMode == true);
+const VtermImpl::InputSpecTable* VtermImpl::getInputSpecTable() {
+    // The table is shared by all instances and must stay instance-agnostic:
+    // predicates take the VtermImpl as an argument. Capturing `this` here
+    // bound every later instance to the first one's lifetime and state.
+    static const InputSpecTable ist[] = {
+        {[](const VtermImpl& self) {
+        return (self.autoNewlineMode == true);
     }, is_ReturnKey_ANL},
 
-        {[this]() {
-        return ((modifiers & Mod::alt) != Mod::none && bkspSendsDel == false);
+        {[](const VtermImpl& self) {
+        return ((self.modifiers & Mod::alt) != Mod::none && self.bkspSendsDel == false);
     }, is_Alt_BackspaceKey_BkSp},
 
-        {[this]() {
-        return (modifyOtherKeys == 2 && modifiers != Mod::none);
+        {[](const VtermImpl& self) {
+        return (self.modifyOtherKeys == 2 && self.modifiers != Mod::none);
     }, is_modOtherKeys2},
 
-        {[this]() {
-        return (modifyOtherKeys > 0 && modifiers != Mod::none);
+        {[](const VtermImpl& self) {
+        return (self.modifyOtherKeys > 0 && self.modifiers != Mod::none);
     }, is_modOtherKeys},
 
-        {[this]() {
-        return (modifyOtherKeys > 0 && (modifiers & Mod::control) != Mod::none);
+        {[](const VtermImpl& self) {
+        return (self.modifyOtherKeys > 0 && (self.modifiers & Mod::control) != Mod::none);
     }, is_Control_modOtherKeys},
 
-        {[this]() {
-        return (altSendsEscape && (modifiers & Mod::control_alt) == Mod::control_alt);
+        {[](const VtermImpl& self) {
+        return (self.altSendsEscape && (self.modifiers & Mod::control_alt) == Mod::control_alt);
     }, is_ControlAlt_altSendsEscape},
 
-        {[this]() {
-        return (altSendsEscape && (modifiers & Mod::alt) != Mod::none);
+        {[](const VtermImpl& self) {
+        return (self.altSendsEscape && (self.modifiers & Mod::alt) != Mod::none);
     }, is_Alt_altSendsEscape},
 
-        {[this]() {
-        return ((modifiers & Mod::alt) != Mod::none);
+        {[](const VtermImpl& self) {
+        return ((self.modifiers & Mod::alt) != Mod::none);
     }, is_Alt},
 
-        {[this]() {
-        return ((modifiers & Mod::control) != Mod::none);
+        {[](const VtermImpl& self) {
+        return ((self.modifiers & Mod::control) != Mod::none);
     }, is_Control},
 
-        {[this]() {
-        return ((modifiers & Mod::shift) != Mod::none);
+        {[](const VtermImpl& self) {
+        return ((self.modifiers & Mod::shift) != Mod::none);
     }, is_Shift},
 
-        {[this]() {
-        return (bkspSendsDel == false);
+        {[](const VtermImpl& self) {
+        return (self.bkspSendsDel == false);
     }, is_BackspaceKey_BkSp},
 
-        {[this]() {
-        return (compatLevel == CompatibilityLevel::VT52 && keypadMode == KeypadMode::Application);
+        {[](const VtermImpl& self) {
+        return (self.compatLevel == CompatibilityLevel::VT52 && self.keypadMode == KeypadMode::Application);
     }, is_VT52_KeypadKeys},
-        {[this]() {
-        return (compatLevel == CompatibilityLevel::VT52);
+        {[](const VtermImpl& self) {
+        return (self.compatLevel == CompatibilityLevel::VT52);
     }, is_VT52_CursorKeys},
-        {[this]() {
-        return (compatLevel == CompatibilityLevel::VT52);
+        {[](const VtermImpl& self) {
+        return (self.compatLevel == CompatibilityLevel::VT52);
     }, is_VT52_FunctionKeys},
 
-        {[this]() {
-        return (modifiers != Mod::none && modifyKeyResources[3] != 0 && keypadMode == KeypadMode::Application);
+        {[](const VtermImpl& self) {
+        return (self.modifiers != Mod::none && self.modifyKeyResources[3] != 0 && self.keypadMode == KeypadMode::Application);
     }, is_Mod_Appl_KeypadKeys},
-        {[this]() {
-        return (keypadMode == KeypadMode::Application);
+        {[](const VtermImpl& self) {
+        return (self.keypadMode == KeypadMode::Application);
     }, is_Appl_KeypadKeys},
-        {[this]() {
-        return (modifiers != Mod::none && modifyKeyResources[1] != 0);
+        {[](const VtermImpl& self) {
+        return (self.modifiers != Mod::none && self.modifyKeyResources[1] != 0);
     }, is_Mod_CursorKeys},
-        {[this]() {
-        return (cursorKeyMode == CursorKeyMode::Application);
+        {[](const VtermImpl& self) {
+        return (self.cursorKeyMode == CursorKeyMode::Application);
     }, is_Appl_CursorKeys},
 
-        {[this]() {
-        return (modifiers != Mod::none && modifyKeyResources[0] != 0);
+        {[](const VtermImpl& self) {
+        return (self.modifiers != Mod::none && self.modifyKeyResources[0] != 0);
     }, is_Mod_Ansi},
-        {[this]() {
-        return (modifiers != Mod::none && modifyKeyResources[2] != 0);
+        {[](const VtermImpl& self) {
+        return (self.modifiers != Mod::none && self.modifyKeyResources[2] != 0);
     }, is_Mod_Ansi_FunctionKeys},
 
-        {[]() {
+        {[](const VtermImpl&) {
         return true;
     }, is_Ansi},
-        {[]() {
+        {[](const VtermImpl&) {
         return true;
     }, is_Ansi_CursorKeys},
-        {[]() {
+        {[](const VtermImpl&) {
         return true;
     }, is_Ansi_FunctionKeys},
-        {[]() {
+        {[](const VtermImpl&) {
         return true;
     }, is_Ansi_KeypadKeys},
 
-        {[]() {
+        {[](const VtermImpl&) {
         return true;
     }, nullptr}
     };
     return ist;
 }
 
-void VtermImpl::resetInputSpecTable() {
-    for (InputSpecTable* e = getInputSpecTable(); e->specs != nullptr; ++e) {
-        e->visited = false;
-    }
-}
-
-const VtermImpl::InputSpec* VtermImpl::selectInputSpecs() {
-    InputSpecTable* ist = getInputSpecTable();
-    for (auto e = ist; e->specs != nullptr; ++e) {
-        if (!e->visited) {
-            e->visited = true;
-            if (e->predicate()) {
-                return e->specs;
-            }
+const VtermImpl::InputSpec* VtermImpl::selectInputSpecs(size_t& cursor) {
+    const InputSpecTable* ist = getInputSpecTable();
+    for (; ist[cursor].specs != nullptr; ++cursor) {
+        if (ist[cursor].predicate(*this)) {
+            return ist[cursor++].specs;
         }
     }
     return nullptr;
@@ -7340,9 +7332,9 @@ const VtermImpl::InputSpec* VtermImpl::selectInputSpecs() {
 const VtermImpl::InputSpec& VtermImpl::getInputSpec(Key key) {
     static InputSpec nullSpec = {Key::NONE, ""};
 
-    resetInputSpecTable();
+    size_t cursor = 0;
     const InputSpec* specs;
-    while ((specs = selectInputSpecs()) != nullptr) {
+    while ((specs = selectInputSpecs(cursor)) != nullptr) {
         for (int k = 0; specs[k].key != Key::NONE; ++k) {
             if (specs[k].key == key) {
                 return specs[k];
