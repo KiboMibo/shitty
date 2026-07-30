@@ -51,6 +51,31 @@ class KittyTextSizingTest(unittest.TestCase):
             self.assertEqual(snapshot.lines[0][:3], "abc")
             self.assertEqual(terminal.multicell(0, 0).scale, 1)
 
+    def test_explicit_width_refuses_runs_above_storage_limit(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(osc66(b"w=7", b"The quick brown fox"))
+            self.assertEqual((terminal.snapshot().cursor_x, terminal.snapshot().cursor_y), (0, 0))
+            self.assertFalse(terminal.multicell(0, 0).valid)
+
+            terminal.write(osc66(b"w=7", b"0123456789abcdef"))
+            self.assertEqual(terminal.snapshot().cursor_x, 7)
+            self.assertTrue(terminal.multicell(0, 0).valid)
+
+    def test_long_variable_width_run_is_split_instead_of_refused(self):
+        with Shitty(columns=20, rows=4) as terminal:
+            terminal.write(osc66(b"s=2", b"The quick brown fox"))
+            self.assertNotEqual(
+                (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                (0, 0),
+            )
+            self.assertTrue(
+                any(
+                    terminal.multicell(row, column).valid
+                    for row in range(4)
+                    for column in range(20)
+                )
+            )
+
     def test_block_moves_whole_to_the_next_line(self):
         with Shitty(columns=5, rows=3) as terminal:
             terminal.write(b"abcd" + osc66(b"w=3", b"X"))

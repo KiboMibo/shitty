@@ -426,7 +426,10 @@ query/resize request, title query/update/restore и version query; оригин�
 - ~~TextSizing replacement invariants — a short block erases an intersected
   tall block whole, a block replacing a wide continuation clears its head,
   and insert mode never orphans a neighbouring tall block.~~
-- TextSizing editing/selection/render — 12 cases remain: partial rectangle
+- ~~TextSizing payload storage bound — explicit-width runs above Kitty's
+  16-codepoint cell limit are rejected whole; variable-width input remains
+  unbounded because it is segmented into independent grapheme blocks.~~
+- TextSizing editing/selection/render — 11 cases remain: partial rectangle
   boundary rules; visual selection expansion and drag clamping; and
   reference/GPU emission of every visible band with fractional alignment.
 - ~~Grid — all 32 cases accounted: 25 terminal-observable resize, reflow,
