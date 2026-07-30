@@ -2210,7 +2210,9 @@ void ScreenBase<Coord, Epoch>::writeAsciiLinesImpl(u16 row, const u8* input, con
         storeAsciiCells(reinterpret_cast<u64*>(cells), text, count, style, content);
     };
     const auto overwriteClearedRow = [&](RowSlot& slot, const u8* text, u16 count) {
-        if (count == 0 && eraseZero) {
+        // An empty row inside a prompt continuation still carries the
+        // semantic mark, so it cannot take the released-row shortcut.
+        if (count == 0 && eraseZero && !semanticContinuation) {
             releaseRow(slot);
             slot = nullptr;
             return;
@@ -2568,9 +2570,12 @@ u16 ScreenBase<Coord, Epoch>::checksum(u16 top, u16 left, u16 bottom, u16 right,
             total += value;
 
             if (written && !(flags & ChecksumRawCodepoint)) {
+                // A written cell always lands in trimmed too, so the
+                // cluster continuation codepoints count in both sums.
                 const GraphemeView grapheme = extras.grapheme(cell);
                 for (size_t index = 1; index < grapheme.size(); ++index) {
                     total += grapheme[index];
+                    trimmed += grapheme[index];
                 }
             }
             first = flags & ChecksumKeepBlanks;

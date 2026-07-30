@@ -8,23 +8,13 @@
 
 🟠 Средняя серьёзность
 
-8. rotateRows не инвалидирует прямоугольное выделение (Rect нулевой ширины → ранний return) — IL/DL проворачивает текст под живым выделением (screen.cpp:3486).
-9. fillCells — единственная мутация без инвалидации выделения: DECALN (ESC#8) и переключение 80/132 оставляют выделение висеть (screen.cpp:1922).
-10. copyRectangle (DECCRA) переносит биты wrap — ложные склейки логических строк → неверные word-select/reflow (screen.cpp:2461).
-11. DECSTBM/DECSLRM с невалидной областью всё равно двигают курсор в home (xterm/ghostty — полный no-op) (vterm.cpp:4759,4778).
-12. Горизонтальные поля DECLRMM протекают через переключение alt-экрана (vterm.cpp:3051-3133).
-13. DECSC/DECRC не сохраняют палитровые индексы (fgPalIx и др.) — stale цвет после sgrBold и в ответе DECRQSS (vterm.cpp:1135).
 14. ESC внутри OSC/DCS поглощается как данные вместо прерывания строки (DEC STD 070, vte, ghostty прерывают) — \x1b]0;A\x1b[31m\x07 теряет SGR (parser.rl:5610 и др.).
 15. Встроенные C0 LF внутри последовательностей игнорируют LNM (parser.cpp:376).
 16. PtyOutputQueue без верхней границы — решено не чинить (по указанию).
-17. Busy-spin requestFrame→timeout(0)→frame() при устойчивом false от рендера (свёрнутое окно, неудачный swapchain) — 100% CPU (application.cpp:340-364).
-18. Бюджеты GC CellExtraStore не клампятся к maxExtraRef (16.7M): при 200 cols × 65k saveLines bad_alloc вылетает наружу раньше GC — падение на графемоёмком контенте (cell_extra_store.cpp:447).
-19. DECFRA не ставит drawn → DECRQCRA возвращает 0 по залитой области, расходится с xterm; тесты подменяют checksum чтением снапшота и не ловят (screen.cpp:2425).
 20. Vulkan: исключение между vkResetFences и vkQueueSubmit → несигналенный fence навсегда (сейчас спасает только то, что исключение убивает процесс; любой будущий retry превратит в дедлок) (render_vk.cpp:2350).
 21. Без maintenance1 retired-свопчейны копятся до 8 (сотни МБ + WaitIdle-хитч посреди ресайза) (render_vk.cpp:1339).
 22. В кодовой базе пять UTF-8-декодеров; decodeUtf8One в plt (вчерашний коммит) пропускает overlong/суррогаты/F5-F7 — путь IME-commit может доставить не-скаляры в pty (platform_wayland.cpp:387).
 23. Индийские кластеры с матрами (Mc→Wide) уводятся в CJK-шрифт → тофу (grapheme.cpp:482).
-24. Мышь: off-by-one pixel→cell — первый пиксель каждой ячейки (кроме первой) относится к предыдущему столбцу; юнит-тесты подобраны мимо границ (mouse_frontend.cpp:33).
 27. Фаззер op 219 (advanceAnimation(force=false)) сравнивает wall-clock между ригами — ложный «determinism bug» на 500-мс границе.
 28. plt-тесты не подключены к CI вообще (import_build берёт только libplt.a, flake-checks гоняют только группу shitty).
 29. Headless-поллер no-op — решено не делать (исключено ранее вместе с plt-переделкой headless).
@@ -39,9 +29,6 @@
 37. latestSerial откатывается назад при автоповторе (repeat() реиграет старый serial).
 38. Seat removal не чистит preedit-состояние (в отличие от textInputLeft).
 39. textInputDone кэширует textInputWindow через sink-колбэки — латентный UAF, если sink когда-нибудь начнёт удалять окна.
-40. Checksum (DECRQCRA): кодепоинты графемных кластеров учитываются в total, но не в trimmed — несимметрично.
-41. Fast-path writeAsciiLines теряет Continuation semantic-маркер на очищаемых строках (расходится со slow-path).
-42. DECRC без сохранённого курсора — no-op (xterm делает home+reset).
 43. Отрицательный pitch FreeType адресуется неверно (недостижимо с FT_LOAD_RENDER).
 
 Недоделки

@@ -44,6 +44,7 @@ def command(**kwargs):
                 if is_test(argv) else argv
                 for argv in nested
             ]
+            kwargs["inputs"] = [*kwargs.get("inputs", []), "$(S)/tests/run_timed.py"]
     return untimed_command(**kwargs)
 
 freetype = pkg_config("freetype2", required=False)

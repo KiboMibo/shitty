@@ -209,6 +209,15 @@ STD_TEST_SUITE(CellExtraStore) {
         STD_INSIST(store->hyperlink(cell) == StringView(u8"https://live.test"));
     }
 
+    STD_TEST(SlotBudgetStaysInsideRefSpace) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        // 200 columns x 64k saveLines: the linear x10 budget would pass the
+        // 24-bit extraRef space and append() would throw before collection.
+        CellExtraStore& store = *createStore(composer, (size_t)(200) * 65'536);
+        STD_INSIST(store.slotBudget() * 2 <= (size_t)(TerminalCell::maxExtraRef) + 1);
+    }
+
     STD_TEST(ReportsAllocationPressure) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());

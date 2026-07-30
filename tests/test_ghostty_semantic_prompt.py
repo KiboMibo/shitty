@@ -128,6 +128,18 @@ class GhosttySemanticPromptTest(unittest.TestCase):
                 PROMPT_CONTINUATION,
             )
 
+    def test_empty_prompt_row_keeps_continuation_when_scrolling(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(osc133(b"P") + b"l1\r\nl2\r\nl3\r\n\r\nl5")
+            self.assertEqual(
+                terminal.row_semantic(1),
+                PROMPT_CONTINUATION,
+            )
+            self.assertEqual(
+                terminal.row_semantic(2),
+                PROMPT_CONTINUATION,
+            )
+
     def test_click_events_absolute(self):
         with Shitty(columns=10, rows=5) as terminal:
             self.assertEqual(terminal.semantic_click(), CLICK_NONE)

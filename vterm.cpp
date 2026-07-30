@@ -4302,6 +4302,20 @@ void VtermImpl::esc_DECSC() {
 }
 
 void VtermImpl::esc_DECRC() {
+    if (!savedCursor->isSet) {
+        // xterm: DECRC without a preceding save restores the initial
+        // state — home, default rendition, default charsets, absolute
+        // origin — matching the post-DECSTR saved cursor.
+        posX = 0;
+        posY = 0;
+        lastCol = false;
+        originMode = OriginMode::Absolute;
+        charsetState = CharsetState{};
+        resetAttrs();
+        attrs.protected_char = 0;
+        eraseAttrs.protected_char = 0;
+        return;
+    }
     if (savedCursor->isSet) {
         originMode = savedCursor->originMode;
         if (originMode == OriginMode::ScrollingRegion) {
@@ -5393,6 +5407,10 @@ void VtermImpl::csi_DECSTR() {
     savedCursor->eraseAttrs = eraseAttrs;
     savedCursor->originMode = OriginMode::Absolute;
     savedCursor->charsetState = CharsetState{};
+    savedCursor->fgPalIx = fgPalIx;
+    savedCursor->bgPalIx = bgPalIx;
+    savedCursor->underlinePalIx = underlinePalIx;
+    savedCursor->underlineColorDefault = underlineColorDefault;
     savedCursor->isSet = true;
 }
 

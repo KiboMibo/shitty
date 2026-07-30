@@ -68,6 +68,7 @@ struct CellExtraStore {
     virtual void clearExtra(TerminalCell& cell, CellColor underlineColor) = 0;
 
     virtual void setCellCount(size_t cellCount) noexcept = 0;
+    virtual size_t slotBudget() const noexcept = 0;
     virtual bool shouldCollect() const noexcept = 0;
     virtual bool hardLimitExceeded() const noexcept = 0;
     virtual void collect(stl::Vector<TerminalCell*>& cells, u32* const* roots, size_t rootCount) = 0;

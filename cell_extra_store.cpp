@@ -67,6 +67,7 @@ namespace {
         void clearExtra(TerminalCell& cell, CellColor underlineColor) override;
 
         void setCellCount(size_t cellCount) noexcept override;
+        size_t slotBudget() const noexcept override;
         bool shouldCollect() const noexcept override;
         bool hardLimitExceeded() const noexcept override;
         void collect(Vector<TerminalCell*>& cells, u32* const* roots, size_t rootCount) override;
@@ -444,16 +445,29 @@ void CellExtraStoreImpl::clearExtra(TerminalCell& cell, CellColor underlineColor
     cell.setInlineUnderlineColor(underlineColor_);
 }
 
+namespace {
+    // The 24-bit extraRef space caps the slot table: collection has to fire
+    // long before append() runs out of refs, and hardLimitExceeded() doubles
+    // the budget, so keep the doubled value inside the ref space.
+    constexpr size_t slotBudgetCeiling = (TerminalCell::maxExtraRef + 1) / 2;
+}
+
 void CellExtraStoreImpl::setCellCount(size_t cellCount) noexcept {
     cellCount_ = std::max<size_t>(cellCount, 1);
-    slotBudget_ = std::max<size_t>(16, cellCount_ * 10);
+    slotBudget_ = std::min(std::max<size_t>(16, cellCount_ * 10), slotBudgetCeiling);
     allocationBudget_ = std::max<size_t>(16, cellCount_ * 2);
     byteBudget_ = std::max<size_t>(4096, cellCount_ * 64);
 }
 
+size_t CellExtraStoreImpl::slotBudget() const noexcept {
+    return slotBudget_;
+}
+
 void CellExtraStoreImpl::finishCollection() noexcept {
     allocationsSinceGc_ = 0;
-    slotBudget_ = std::max(slotBudget_, slots_.length() + cellCount_ * 2);
+    slotBudget_ = std::min(std::max(slotBudget_, slots_.length() + cellCount_ * 2), slotBudgetCeiling);
+    // Guarantee progress even when live extras crowd the ceiling.
+    slotBudget_ = std::max(slotBudget_, slots_.length() + 1024);
     byteBudget_ = std::max(byteBudget_, allocatedExtraBytes_ + std::max<size_t>(1024 * 1024, cellCount_ * 16));
 }
 

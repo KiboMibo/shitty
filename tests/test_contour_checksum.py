@@ -153,12 +153,13 @@ class ContourRectangularAreaChecksumTest(unittest.TestCase):
         )
 
     def test_combining_marks(self):
+        # Cluster continuation codepoints count in the trimmed and the
+        # keep-blanks sums alike: for a fully written region the two
+        # views must agree.
         combining = "e\u0301".encode()
-        self.assertEqual(self.checksum(1, 1, combining), 0xFF9B)
-        self.assertEqual(
-            self.checksum(1, 1, combining, 4),
-            (-(0x65 + 0x0301)) & 0xFFFF,
-        )
+        expected = (-(0x65 + 0x0301)) & 0xFFFF
+        self.assertEqual(self.checksum(1, 1, combining), expected)
+        self.assertEqual(self.checksum(1, 1, combining, 4), expected)
         self.assertEqual(
             self.checksum(1, 1, combining, 20),
             (-0x65) & 0xFFFF,

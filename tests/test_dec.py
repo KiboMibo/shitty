@@ -269,6 +269,20 @@ class DecProtocolTest(unittest.TestCase):
                 snapshot.cell(0, 1).foreground,
             )
 
+    def test_restore_without_save_resets_to_initial_state(self):
+        # xterm: DECRC with nothing saved homes the cursor and resets the
+        # rendition instead of silently doing nothing.
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[2;3H\x1b[31m\x1b8\x1b[6n")
+            self.assertEqual(terminal.read_input(), b"\x1b[1;1R")
+            terminal.write(b"Y\x1b[2;1H\x1b[mZ")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).char, "Y")
+            self.assertEqual(
+                snapshot.cell(0, 0).foreground,
+                snapshot.cell(0, 1).foreground,
+            )
+
     def test_rejected_margins_are_a_complete_noop(self):
         # xterm: DECSTBM/DECSLRM with an invalid region neither changes
         # margins nor homes the cursor.
