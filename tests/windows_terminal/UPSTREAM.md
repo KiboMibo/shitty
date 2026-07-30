@@ -132,8 +132,19 @@ or RGB callbacks, including omitted and clamped components; there is no
 secondary string parser in Vterm. RIS restores the initial palette. Windows
 treats `CSI 8;0;0t` as a no-op, while Shitty retains xterm's current behavior
 of substituting the screen dimensions. Windows rejects `rgbi:`, but Shitty
-retains the XParseColor model already shared with current color parsers. The
-remaining 88 methods stay explicitly listed in `PLAN.md`.
+retains the XParseColor model already shared with current color parsers.
+
+The next 12 methods cover shrinking without lifetime corruption, cursor style
+preservation through primary and alternate resize, active alternate geometry,
+ED 2 cursor and erase-color behavior, word selection, active-screen VT
+dispatch, and RIS from the alternate screen. Win32 buffer pointer identity and
+`GetConsoleScreenBufferInfoEx` are translated to the observable active-screen
+contract. `GetWordBoundaryTrimZerosOn` and `GetWordBoundaryTrimZerosOff` are
+classified rather than emulated: they test the private host setting
+`SetTrimLeadingZeros`, not a terminal protocol, and conflict with the project's
+selection policy in which punctuation and whitespace remain independently
+selectable classes. The remaining 76 methods stay explicitly listed in
+`PLAN.md`.
 
 The 25 methods in `src/terminal/parser/ut_parser/InputEngineTest.cpp` test the
 opposite, Windows-only boundary: decoding a VT input byte stream into Win32

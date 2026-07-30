@@ -166,7 +166,13 @@ keys.~~
   table report с HLS/RGB/omitted/clamped компонентами и RIS palette reset.
   `CSI 8;0;0t` следует xterm и подставляет размер экрана вместо Windows no-op;
   `rgbi:` сохраняется как поддерживаемая XParseColor-модель;~~
-- `ScreenBufferTests`, remaining — 88 методов; portable assertions переносить
+- ~~`ScreenBufferTests`, resize/erase/alternate/word block — ещё 12 методов:
+  shrink lifetime, cursor style через resize, resize активного alternate,
+  ED 2 cursor/erase colors, word selection и active-screen dispatch/RIS.
+  Две проверки `GetWordBoundaryTrimZeros*` классифицированы как неприменимая
+  Win32 host policy (`SetTrimLeadingZeros`), а не terminal protocol/selection
+  consensus; punctuation и whitespace остаются отдельными selection-классами;~~
+- `ScreenBufferTests`, remaining — 76 методов; portable assertions переносить
   блоками, Win32-only console buffer/virtual-bottom ABI явно
   классифицировать, не выдавая его за terminal semantics.
 

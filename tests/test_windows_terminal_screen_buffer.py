@@ -42,6 +42,21 @@ PORTED_METHODS = {
     "VtNewlineOutsideMargins",
     "VtSetColorTable",
     "VtRestoreColorTableReport",
+    "ResizeTraditionalDoesNotDoubleFreeAttrRows",
+    "ResizeCursorUnchanged",
+    "ResizeAltBuffer",
+    "ResizeAltBufferGetScreenBufferInfo",
+    "VtEraseAllPersistCursor",
+    "VtEraseAllPersistCursorFillColor",
+    "GetWordBoundary",
+    "TestAltBufferCursorState",
+    "TestAltBufferVtDispatching",
+    "TestAltBufferRIS",
+}
+
+CLASSIFIED_METHODS = {
+    "GetWordBoundaryTrimZerosOn",
+    "GetWordBoundaryTrimZerosOff",
 }
 
 
@@ -85,11 +100,22 @@ def palette_color(terminal, index):
     return tuple(int(component[:2], 16) for component in match.groups())
 
 
+def select_word(terminal, column, row=0):
+    x = column + 2
+    y = row + 2
+    terminal.button(0, True, x=x, y=y, time=1.0)
+    terminal.button(0, False, x=x, y=y, time=1.01)
+    terminal.button(0, True, x=x, y=y, time=1.1)
+    return terminal.button(0, False, x=x, y=y, time=1.11)
+
+
 class WindowsTerminalScreenBufferInitialTest(unittest.TestCase):
     def test_upstream_inventory_has_all_113_methods(self):
         methods = upstream_methods()
         self.assertEqual(len(methods), 113)
         self.assertLessEqual(PORTED_METHODS, methods)
+        self.assertLessEqual(CLASSIFIED_METHODS, methods)
+        self.assertFalse(PORTED_METHODS & CLASSIFIED_METHODS)
 
     def test_single_alternate_buffer_creation(self):
         with Shitty(columns=10, rows=4) as terminal:
@@ -574,3 +600,138 @@ class WindowsTerminalScreenBufferResizeAndColorTest(unittest.TestCase):
                 ),
                 original,
             )
+
+
+class WindowsTerminalScreenBufferResizeEraseAndAltTest(unittest.TestCase):
+    def test_resize_traditional_does_not_double_free_attr_rows(self):
+        with Shitty(columns=12, rows=6, save_lines=0) as terminal:
+            terminal.write(b"\x1b[31;44mone\r\ntwo\r\nthree")
+            terminal.resize(12, 5)
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.columns, snapshot.rows), (12, 5))
+            self.assertIn("three", "".join(snapshot.lines))
+
+    def test_resize_cursor_unchanged(self):
+        for alternate in (False, True):
+            with self.subTest(alternate=alternate), Shitty(
+                columns=80,
+                rows=24,
+            ) as terminal:
+                terminal.write(b"\x1b[5 q")
+                if alternate:
+                    terminal.write(b"\x1b[?1049h")
+                expected_style = terminal.snapshot().cursor_style
+                self.assertNotEqual(expected_style, 0)
+                for delta_columns in (-10, -1, 0, 1, 10):
+                    for delta_rows in (-10, -1, 0, 1, 10):
+                        terminal.resize(
+                            80 + delta_columns,
+                            24 + delta_rows,
+                        )
+                        self.assertEqual(
+                            terminal.snapshot().cursor_style,
+                            expected_style,
+                        )
+                if alternate:
+                    terminal.write(b"\x1b[?1049l")
+                    self.assertEqual(
+                        terminal.snapshot().cursor_style,
+                        expected_style,
+                    )
+
+    def test_resize_alt_buffer(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"primary\x1b[?1049h\x1b[Halt")
+            terminal.resize(12, 6)
+            alternate = terminal.snapshot()
+            self.assertEqual(
+                (alternate.columns, alternate.rows),
+                (12, 6),
+            )
+            self.assertEqual(alternate.lines[0], "alt" + " " * 9)
+
+            terminal.write(b"\x1b[?1049l")
+            primary = terminal.snapshot()
+            self.assertEqual((primary.columns, primary.rows), (12, 6))
+            self.assertEqual(primary.lines[0], "primary" + " " * 5)
+
+    def test_resize_alt_buffer_get_screen_buffer_info(self):
+        with Shitty(columns=80, rows=24) as terminal:
+            terminal.write(b"\x1b[?1049h")
+            for delta_columns in (-10, -1, 1, 10):
+                for delta_rows in (-10, -1, 1, 10):
+                    columns = 80 + delta_columns
+                    rows = 24 + delta_rows
+                    terminal.resize(columns, rows)
+                    snapshot = terminal.snapshot()
+                    self.assertEqual(
+                        (snapshot.columns, snapshot.rows),
+                        (columns, rows),
+                    )
+                    self.assertEqual(terminal.winsize(), (columns, rows))
+
+    def test_vt_erase_all_persist_cursor(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[2;2H\x1b[2J")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
+            self.assertEqual(snapshot.lines, [" " * 10] * 4)
+
+    def test_vt_erase_all_persist_cursor_fill_color(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[31;104mtext\x1b[2J")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (4, 0))
+            for cell in snapshot.cells:
+                self.assertEqual(cell.char, " ")
+                self.assertEqual(cell.foreground, (205, 0, 0))
+                self.assertEqual(cell.background, (92, 92, 255))
+
+    def test_get_word_boundary(self):
+        text = b"This is some test text for word boundaries."
+        cases = (
+            (0, b"This"),
+            (1, b"This"),
+            (3, b"This"),
+            (13, b"test"),
+            (15, b"test"),
+            (16, b"test"),
+            (32, b"boundaries"),
+            (39, b"boundaries"),
+            (41, b"boundaries"),
+            (12, b" "),
+        )
+        for column, expected in cases:
+            with self.subTest(column=column), Shitty(
+                columns=len(text),
+                rows=2,
+            ) as terminal:
+                terminal.write(text)
+                self.assertEqual(select_word(terminal, column), expected)
+
+    def test_alt_buffer_vt_dispatching(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(
+                b"P"
+                b"\x1b[?1049h"
+                b"\x1b[5;6H\x1b[48;2;255;0;255mX"
+            )
+            alternate = terminal.snapshot()
+            self.assertEqual((alternate.cursor_x, alternate.cursor_y), (6, 4))
+            self.assertEqual(alternate.cell(5, 4).char, "X")
+            self.assertEqual(alternate.cell(5, 4).background, (255, 0, 255))
+
+            terminal.write(b"\x1b[?1049l")
+            primary = terminal.snapshot()
+            self.assertEqual((primary.cursor_x, primary.cursor_y), (1, 0))
+            self.assertEqual(primary.lines[0], "P" + " " * 9)
+
+    def test_alt_buffer_ris(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"primary\x1b[?1049halt\x1bc")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
+            self.assertEqual(snapshot.lines, [" " * 10] * 4)
+
+            terminal.write(b"\x1b[?47h")
+            self.assertEqual(terminal.snapshot().lines, [" " * 10] * 4)
