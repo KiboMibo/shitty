@@ -76,6 +76,11 @@ PORTED_METHODS = {
     "EraseScrollbackTests",
     "EraseTests",
     "ProtectedAttributeTests",
+    "ScrollUpInMargins",
+    "ScrollDownInMargins",
+    "InsertLinesInMargins",
+    "DeleteLinesInMargins",
+    "ReverseLineFeedInMargins",
 }
 
 CLASSIFIED_METHODS = {
@@ -1377,6 +1382,242 @@ class WindowsTerminalScreenBufferEditingTest(unittest.TestCase):
                 self.assertTrue(
                     copied.cell(column + 1, 0).double_width_continuation
                 )
+
+
+class WindowsTerminalScreenBufferMarginScrollingTest(unittest.TestCase):
+    INITIAL = (
+        "AAAAAAAA",
+        "55555555",
+        "66666666",
+        "77777777",
+        "        ",
+        "BBBBBBBB",
+    )
+
+    def setup_scrolling_region(self, terminal):
+        terminal.write(
+            put_rows(*(row.encode() for row in self.INITIAL))
+            + b"\x1b[2;5r\x1b[5;1H"
+        )
+        snapshot = terminal.snapshot()
+        self.assertEqual(snapshot.lines, list(self.INITIAL))
+        self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 4))
+
+    def run_scrolling_case(
+        self,
+        sequence,
+        expected,
+        cursor,
+        horizontal=False,
+        clear_vertical=False,
+        vertical=None,
+        position=None,
+    ):
+        with Shitty(columns=8, rows=6, save_lines=0) as terminal:
+            self.setup_scrolling_region(terminal)
+            if clear_vertical:
+                terminal.write(b"\x1b[r")
+            if vertical is not None:
+                terminal.write(
+                    f"\x1b[{vertical[0]};{vertical[1]}r".encode()
+                )
+            if horizontal:
+                terminal.write(b"\x1b[?69h\x1b[3;6s")
+            if position is not None:
+                terminal.write(
+                    f"\x1b[{position[1] + 1};{position[0] + 1}H".encode()
+                )
+            terminal.write(sequence)
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, list(expected))
+            if cursor is not None:
+                self.assertEqual(
+                    (snapshot.cursor_x, snapshot.cursor_y),
+                    cursor,
+                )
+
+    def test_scroll_up_in_margins(self):
+        self.run_scrolling_case(
+            b"\x1b[S",
+            (
+                "AAAAAAAA",
+                "66666666",
+                "77777777",
+                "        ",
+                "        ",
+                "BBBBBBBB",
+            ),
+            (0, 4),
+        )
+        self.run_scrolling_case(
+            b"\x1b[S",
+            (
+                "AAAAAAAA",
+                "55666655",
+                "66777766",
+                "77    77",
+                "        ",
+                "BBBBBBBB",
+            ),
+            None,
+            horizontal=True,
+        )
+
+    def test_scroll_down_in_margins(self):
+        self.run_scrolling_case(
+            b"\x1b[T",
+            (
+                "AAAAAAAA",
+                "        ",
+                "55555555",
+                "66666666",
+                "77777777",
+                "BBBBBBBB",
+            ),
+            (0, 4),
+        )
+        self.run_scrolling_case(
+            b"\x1b[T",
+            (
+                "AAAAAAAA",
+                "55    55",
+                "66555566",
+                "77666677",
+                "  7777  ",
+                "BBBBBBBB",
+            ),
+            None,
+            horizontal=True,
+        )
+
+    def test_insert_lines_in_margins(self):
+        self.run_scrolling_case(
+            b"\x1b[2L",
+            (
+                "AAAAAAAA",
+                "55555555",
+                "        ",
+                "        ",
+                "66666666",
+                "BBBBBBBB",
+            ),
+            (0, 2),
+            position=(4, 2),
+        )
+        self.run_scrolling_case(
+            b"\x1b[L",
+            (
+                "AAAAAAAA",
+                "        ",
+                "55555555",
+                "66666666",
+                "77777777",
+                "        ",
+            ),
+            (0, 1),
+            clear_vertical=True,
+            position=(4, 1),
+        )
+        self.run_scrolling_case(
+            b"\x1b[2L",
+            (
+                "AAAAAAAA",
+                "55555555",
+                "66    66",
+                "77    77",
+                "  6666  ",
+                "BBBBBBBB",
+            ),
+            (2, 2),
+            horizontal=True,
+            position=(4, 2),
+        )
+
+    def test_delete_lines_in_margins(self):
+        self.run_scrolling_case(
+            b"\x1b[2M",
+            (
+                "AAAAAAAA",
+                "55555555",
+                "        ",
+                "        ",
+                "        ",
+                "BBBBBBBB",
+            ),
+            (0, 2),
+            position=(4, 2),
+        )
+        self.run_scrolling_case(
+            b"\x1b[M",
+            (
+                "AAAAAAAA",
+                "66666666",
+                "77777777",
+                "        ",
+                "BBBBBBBB",
+                "        ",
+            ),
+            (0, 1),
+            clear_vertical=True,
+            position=(4, 1),
+        )
+        self.run_scrolling_case(
+            b"\x1b[2M",
+            (
+                "AAAAAAAA",
+                "55555555",
+                "66    66",
+                "77    77",
+                "        ",
+                "BBBBBBBB",
+            ),
+            (2, 2),
+            horizontal=True,
+            position=(4, 2),
+        )
+
+    def test_reverse_line_feed_in_margins(self):
+        self.run_scrolling_case(
+            b"\x1bM",
+            (
+                "AAAAAAAA",
+                "        ",
+                "55555555",
+                "66666666",
+                "77777777",
+                "BBBBBBBB",
+            ),
+            (4, 1),
+            position=(4, 1),
+        )
+        self.run_scrolling_case(
+            b"\x1bM",
+            (
+                "        ",
+                "AAAAAAAA",
+                "55555555",
+                "66666666",
+                "77777777",
+                "BBBBBBBB",
+            ),
+            (4, 0),
+            vertical=(1, 5),
+            position=(4, 0),
+        )
+        self.run_scrolling_case(
+            b"\x1bM",
+            (
+                "AAAAAAAA",
+                "55    55",
+                "66555566",
+                "77666677",
+                "  7777  ",
+                "BBBBBBBB",
+            ),
+            (4, 1),
+            horizontal=True,
+            position=(4, 1),
+        )
 
 
 class WindowsTerminalScreenBufferEraseTest(unittest.TestCase):

@@ -196,7 +196,11 @@ keys.~~
   сохраняет старые colors, а malformed multi-parameter DECSCA применяет
   последний параметр; адаптировано к xterm/Ghostty erase colors и
   xterm-compatible first parameter;~~
-- `ScreenBufferTests`, remaining — 52 метода; portable assertions переносить
+- ~~`ScreenBufferTests`, margin scrolling block — ещё 5 методов:
+  SU/SD/IL/DL/RI внутри vertical margins, без margins и внутри совместного
+  vertical/horizontal rectangular region. Перенесены все 12 upstream-ветвей
+  с полным grid и cursor assertions;~~
+- `ScreenBufferTests`, remaining — 47 методов; portable assertions переносить
   блоками, Win32-only console buffer/virtual-bottom ABI явно
   классифицировать, не выдавая его за terminal semantics.
 

@@ -189,7 +189,14 @@ old colors of erased cells, while xterm, Ghostty, and Shitty create blanks
 using current erase colors. DECSCA has one parameter in the DEC grammar;
 Windows applies the last parameter of a malformed list, xterm applies the
 first, and Ghostty rejects the list. Both malformed cases remain covered with
-xterm-compatible first-parameter behavior. The remaining 52 methods stay
+xterm-compatible first-parameter behavior.
+
+The next five methods retain all 12 margin-scrolling branches. SU and SD move
+the vertical region with and without horizontal margins; IL and DL cover
+vertical margins, the full screen, and the rectangular region; RI covers a
+nonzero top margin, a top margin at the first row, and the rectangular region.
+Every branch compares the complete six-row grid, and every cursor assertion
+made by the upstream test is retained. The remaining 47 methods stay
 explicitly listed in `PLAN.md`.
 
 The 25 methods in `src/terminal/parser/ut_parser/InputEngineTest.cpp` test the
