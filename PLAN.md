@@ -206,7 +206,15 @@ keys.~~
   после заполнения history. Win32 movable viewport адаптирован к terminal
   screen+history, а private render-settings lookup проверяется через
   опубликованный renderer state и сохранённые cell colors;~~
-- `ScreenBufferTests`, remaining — 40 методов; portable assertions переносить
+- ~~`ScreenBufferTests`, alternate/extended-attributes block — ещё 5 методов:
+  alternate clear с сохранением primary, все 256 комбинаций восьми extended
+  attributes и все 4096 attribute×foreground×background комбинаций вместе с
+  последовательными resets. Импорт исправил потерю direct RGB foreground при
+  `SGR 22`. `RestoreDownAltBufferWithTerminalScrolling` и
+  `SnapCursorWithTerminalScrolling` классифицированы как Win32-only
+  `_virtualBottom`/movable-viewport/console-API policy; переносимые resize,
+  scrollback-follow и alternate lifetime уже покрыты;~~
+- `ScreenBufferTests`, remaining — 35 методов; portable assertions переносить
   блоками, Win32-only console buffer/virtual-bottom ABI явно
   классифицировать, не выдавая его за terminal semantics.
 

@@ -206,7 +206,22 @@ history. The Win32 movable viewport is translated to the terminal's
 screen-plus-history behavior. Its private render-settings color lookup is
 represented by the published renderer reverse-screen state while the
 underlying cell colors are verified to remain unchanged. RIS additionally
-checks that observable history is removed. The remaining 40 methods stay
+checks that observable history is removed.
+
+The next five methods contribute three portable tests and two explicit host
+classifications. Alternate-screen clearing is performed through ED2 and CUP
+and verifies that primary contents and cursor survive. The complete 256
+extended-attribute matrix and all 4096 attribute/foreground/background
+combinations are retained, including every applicable individual reset after
+each combination. This exposed a Shitty bug where changing bold/faint state
+after a direct RGB foreground reconstructed it as the default color; bold
+changes now leave direct colors intact while retaining the configured
+bright-ANSI behavior. `RestoreDownAltBufferWithTerminalScrolling` and
+`SnapCursorWithTerminalScrolling` manipulate `_virtualBottom`, movable Win32
+viewports, and console APIs with no terminal protocol equivalent. Their
+portable alternate-resize, scrollback-follow, and screen-lifetime invariants
+are already covered by the translated resize and alternate-screen tests. The
+remaining 35 methods stay
 explicitly listed in `PLAN.md`.
 
 The 25 methods in `src/terminal/parser/ut_parser/InputEngineTest.cpp` test the

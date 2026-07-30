@@ -2,6 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
+import itertools
 import re
 from pathlib import Path
 import unittest
@@ -88,11 +89,16 @@ PORTED_METHODS = {
     "SetOriginMode",
     "SetAutoWrapMode",
     "HardResetBuffer",
+    "ClearAlternateBuffer",
+    "TestExtendedTextAttributes",
+    "TestExtendedTextAttributesWithColors",
 }
 
 CLASSIFIED_METHODS = {
     "GetWordBoundaryTrimZerosOn",
     "GetWordBoundaryTrimZerosOff",
+    "RestoreDownAltBufferWithTerminalScrolling",
+    "SnapCursorWithTerminalScrolling",
 }
 
 
@@ -1943,6 +1949,214 @@ class WindowsTerminalScreenBufferModesTest(unittest.TestCase):
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
             self.assertEqual(terminal.scrollback_state()[0], 0)
             self.assertEqual(terminal.pen_state(), default_pen)
+
+
+class WindowsTerminalScreenBufferExtendedAttributesTest(unittest.TestCase):
+    ATTRIBUTE_NAMES = (
+        "bold",
+        "faint",
+        "italic",
+        "underline",
+        "double_underline",
+        "blink",
+        "conceal",
+        "strike",
+    )
+
+    def attribute_setup(self, values):
+        (
+            bold,
+            faint,
+            italic,
+            underline,
+            double_underline,
+            blink,
+            conceal,
+            strike,
+        ) = values
+        sequence = bytearray()
+        expected = {
+            "bold": bold,
+            "faint": faint,
+            "italic": italic,
+            "underline_style": 1 if underline else (
+                2 if double_underline else 0
+            ),
+            "blink": blink,
+            "conceal": conceal,
+            "strike": strike,
+        }
+        for enabled, sgr in (
+            (bold, 1),
+            (faint, 2),
+            (italic, 3),
+            (underline, 4),
+            (double_underline and not underline, 21),
+            (blink, 5),
+            (conceal, 8),
+            (strike, 9),
+        ):
+            if enabled:
+                sequence.extend(f"\x1b[{sgr}m".encode())
+        return bytes(sequence), expected
+
+    def attribute_resets(self, values, expected):
+        (
+            bold,
+            faint,
+            italic,
+            underline,
+            double_underline,
+            blink,
+            conceal,
+            strike,
+        ) = values
+        if bold or faint:
+            expected["bold"] = False
+            expected["faint"] = False
+            yield b"\x1b[22m"
+        if italic:
+            expected["italic"] = False
+            yield b"\x1b[23m"
+        if underline or double_underline:
+            expected["underline_style"] = 0
+            yield b"\x1b[24m"
+        if blink:
+            expected["blink"] = False
+            yield b"\x1b[25m"
+        if conceal:
+            expected["conceal"] = False
+            yield b"\x1b[28m"
+        if strike:
+            expected["strike"] = False
+            yield b"\x1b[29m"
+
+    def assert_attributes(self, cell, expected):
+        self.assertEqual(cell.char, "X")
+        self.assertEqual(cell.bold, expected["bold"])
+        self.assertEqual(cell.faint, expected["faint"])
+        self.assertEqual(cell.italic, expected["italic"])
+        self.assertEqual(
+            cell.underline_style,
+            expected["underline_style"],
+        )
+        self.assertEqual(cell.blink, expected["blink"])
+        self.assertEqual(cell.conceal, expected["conceal"])
+        self.assertEqual(cell.strike, expected["strike"])
+
+    def assert_colors(self, cell, foreground, background, expected):
+        if foreground[0] == "ansi" and expected["bold"]:
+            expected_foreground = (10, (0, 255, 0))
+        else:
+            expected_foreground = (foreground[2], foreground[3])
+        self.assertEqual(
+            (cell.foreground_index, cell.foreground),
+            expected_foreground,
+        )
+        self.assertEqual(
+            (cell.background_index, cell.background),
+            (background[2], background[3]),
+        )
+
+    def write_and_read_cell(self, terminal, sequence):
+        terminal.write(b"\x1b[H" + sequence + b"X")
+        return terminal.model_snapshot().cell(0, 0)
+
+    def test_clear_alternate_buffer(self):
+        with Shitty(columns=8, rows=4) as terminal:
+            terminal.write(b"foo\r\nfoo")
+            primary = terminal.snapshot()
+            self.assertEqual(primary.lines[:2], ["foo     ", "foo     "])
+            self.assertEqual((primary.cursor_x, primary.cursor_y), (3, 1))
+
+            terminal.write(b"\x1b[?1049h\x1b[Hfoo\r\nfoo")
+            alternate = terminal.snapshot()
+            self.assertEqual(
+                alternate.lines[:2],
+                ["foo     ", "foo     "],
+            )
+            terminal.write(b"\x1b[2J\x1b[H")
+            alternate = terminal.snapshot()
+            self.assertEqual(alternate.lines, [" " * 8] * 4)
+            self.assertEqual(
+                (alternate.cursor_x, alternate.cursor_y),
+                (0, 0),
+            )
+
+            terminal.write(b"\x1b[?1049l")
+            restored = terminal.snapshot()
+            self.assertEqual(restored.lines, primary.lines)
+            self.assertEqual(
+                (restored.cursor_x, restored.cursor_y),
+                (3, 1),
+            )
+
+    def test_extended_text_attributes(self):
+        with Shitty(columns=2, rows=1, save_lines=0) as terminal:
+            for values in itertools.product((False, True), repeat=8):
+                with self.subTest(**dict(zip(self.ATTRIBUTE_NAMES, values))):
+                    setup, expected = self.attribute_setup(values)
+                    cell = self.write_and_read_cell(
+                        terminal,
+                        b"\x1b[0m" + setup,
+                    )
+                    self.assert_attributes(cell, expected)
+                    for reset in self.attribute_resets(values, expected):
+                        cell = self.write_and_read_cell(terminal, reset)
+                        self.assert_attributes(cell, expected)
+
+    def test_extended_text_attributes_with_colors(self):
+        with Shitty(columns=2, rows=1, save_lines=0) as terminal:
+            default = terminal.model_snapshot().cell(0, 0)
+            foregrounds = (
+                ("default", b"\x1b[39m", -2, default.foreground),
+                ("ansi", b"\x1b[32m", 2, (0, 205, 0)),
+                ("indexed", b"\x1b[38;5;20m", 20, (0, 0, 215)),
+                ("rgb", b"\x1b[38;2;1;2;3m", -1, (1, 2, 3)),
+            )
+            backgrounds = (
+                ("default", b"\x1b[49m", -2, default.background),
+                ("ansi", b"\x1b[42m", 2, (0, 205, 0)),
+                ("indexed", b"\x1b[48;5;20m", 20, (0, 0, 215)),
+                ("rgb", b"\x1b[48;2;1;2;3m", -1, (1, 2, 3)),
+            )
+            for values in itertools.product((False, True), repeat=8):
+                setup, initial_expected = self.attribute_setup(values)
+                for foreground in foregrounds:
+                    for background in backgrounds:
+                        with self.subTest(
+                            attributes=values,
+                            foreground=foreground[0],
+                            background=background[0],
+                        ):
+                            expected = initial_expected.copy()
+                            cell = self.write_and_read_cell(
+                                terminal,
+                                b"\x1b[0m" + setup
+                                + foreground[1] + background[1],
+                            )
+                            self.assert_attributes(cell, expected)
+                            self.assert_colors(
+                                cell,
+                                foreground,
+                                background,
+                                expected,
+                            )
+                            for reset in self.attribute_resets(
+                                values,
+                                expected,
+                            ):
+                                cell = self.write_and_read_cell(
+                                    terminal,
+                                    reset,
+                                )
+                                self.assert_attributes(cell, expected)
+                                self.assert_colors(
+                                    cell,
+                                    foreground,
+                                    background,
+                                    expected,
+                                )
 
 
 class WindowsTerminalScreenBufferEraseTest(unittest.TestCase):

@@ -3580,7 +3580,9 @@ void VtermImpl::sgrReset() {
 
 void VtermImpl::sgrBold(bool enabled) {
     attrs.bold = enabled;
-    setFgFromPalIx();
+    if (attrForeground().source() != CellColor::Source::Direct) {
+        setFgFromPalIx();
+    }
 }
 
 void VtermImpl::sgrFaint(bool enabled) {
