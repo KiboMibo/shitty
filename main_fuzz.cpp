@@ -22,6 +22,7 @@
 #include "vterm.h"
 #include "vterm_headless.h"
 #include "vterm_test.h"
+#include "vterm_trace.h"
 
 #include <std/ios/output.h>
 #include <std/lib/buffer.h>
@@ -67,6 +68,15 @@ namespace {
         Buffer bytes;
     };
 
+    struct CaptureTestApi final: public VtermTraceFactory {
+        VtermTrace* construct(TestApi* testApi) override {
+            api = testApi;
+            return nullptr;
+        }
+
+        TestApi* api = nullptr;
+    };
+
     struct Rig {
         ObjPool::Ref pool;
         Composer* composer;
@@ -81,9 +91,10 @@ namespace {
             composer = pool->make<Composer>(pool.mutPtr());
             pty = pool->make<CaptureOutput>();
             composer->ptyOutput = pty;
-            VtermHeadless::create(*composer);
+            CaptureTestApi capture;
+            VtermHeadless::create(*composer, &capture);
             term = composer->vterm;
-            api = term->testApi();
+            api = capture.api;
         }
     };
 

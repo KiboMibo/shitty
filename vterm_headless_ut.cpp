@@ -35,7 +35,7 @@ STD_TEST_SUITE(VtermHeadless) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
         composer.ptyOutput = &pty;
-        VtermHeadless::create(composer);
+        VtermHeadless::create(composer, nullptr);
         Vterm& terminal = *composer.vterm;
         if (terminal.output() != nullptr) {
             terminal.consume();
@@ -58,7 +58,7 @@ STD_TEST_SUITE(VtermHeadless) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
         composer.ptyOutput = &pty;
-        VtermHeadless* const headless = VtermHeadless::create(composer);
+        VtermHeadless* const headless = VtermHeadless::create(composer, nullptr);
         const u8 input[] = {'a', 0x1b, '[', 'c'};
 
         headless->feed(input, sizeof(input));
@@ -78,7 +78,7 @@ STD_TEST_SUITE(VtermHeadless) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
         composer.ptyOutput = &pty;
-        VtermHeadless::create(composer);
+        VtermHeadless::create(composer, nullptr);
         const u8 rawDeviceAttributes = 0x9a;
 
         composer.vterm->feedPty(StringView(&rawDeviceAttributes, 1));
@@ -93,7 +93,7 @@ STD_TEST_SUITE(VtermHeadless) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
         composer.ptyOutput = &pty;
-        VtermHeadless::create(composer);
+        VtermHeadless::create(composer, nullptr);
         const u8 input[] = {'\x1b', '%', '@', 0x9a};
 
         composer.vterm->feedPty(StringView(input, sizeof(input)));

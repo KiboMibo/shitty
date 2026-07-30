@@ -379,7 +379,7 @@ namespace {
     };
 
     struct VtermImpl final: public Vterm, public InputHandler, public ParserIface {
-        VtermImpl(Composer& composer, VtermTrace* trace, Output* dump);
+        VtermImpl(Composer& composer, VtermTraceFactory* traceFactory, Output* dump);
 
         ~VtermImpl();
 
@@ -422,7 +422,7 @@ namespace {
         const TerminalUpdate* output() override;
         void consume() override;
         VtermState state() const override;
-        TestApi* testApi() override;
+        TestApi* createTestApi();
 
         void parserResetGraphemeInput() override;
         void parserBell() override;
@@ -1262,7 +1262,8 @@ namespace {
 }
 
 VtermInput::VtermInput(VtermImpl* terminal_)
-    : terminal(terminal_) {
+    : terminal(terminal_)
+{
 }
 
 VtModifier VtermInput::legacyModifiers(u16 modifiers) const {
@@ -1460,7 +1461,8 @@ void VtermInput::flush() {
 PasteOutput::PasteOutput(SmallObjAllocator* allocator_, Output* output_, bool bracketed_)
     : allocator(allocator_)
     , output(output_)
-    , bracketed(bracketed_) {
+    , bracketed(bracketed_)
+{
 }
 
 PasteOutput::~PasteOutput() noexcept {
@@ -1562,7 +1564,8 @@ void PasteOutput::begin() {
 
 ClipboardCopyOutput::ClipboardCopyOutput(SmallObjAllocator* allocator_, Clipboard* clipboard_)
     : allocator(allocator_)
-    , clipboard(clipboard_) {
+    , clipboard(clipboard_)
+{
 }
 
 void ClipboardCopyOutput::operator delete(ClipboardCopyOutput* output, std::destroying_delete_t) noexcept {
@@ -1588,7 +1591,8 @@ ClipboardQueryOutput::ClipboardQueryOutput(SmallObjAllocator* allocator_, Clipbo
     , tryClipboard(tryClipboard_)
     , replySelector(replySelector_)
     , selectorsEmpty(selectorsEmpty_)
-    , send8BitControls(send8BitControls_) {
+    , send8BitControls(send8BitControls_)
+{
 }
 
 ClipboardQueryOutput::~ClipboardQueryOutput() noexcept {
@@ -1656,7 +1660,8 @@ KittyClipboardQueryOutput::KittyClipboardQueryOutput(SmallObjAllocator* allocato
     , output(output_)
     , primary(primary_)
     , targets(targets_)
-    , send8BitControls(send8BitControls_) {
+    , send8BitControls(send8BitControls_)
+{
     copyKittyClipboardId(id, id_);
     mimeType.append(mimeType_.data(), mimeType_.length());
 }
@@ -2432,7 +2437,7 @@ VtermState VtermImpl::state() const {
     return result;
 }
 
-TestApi* VtermImpl::testApi() {
+TestApi* VtermImpl::createTestApi() {
 #ifdef SHITTY_FOR_TESTS
     return composer.pool->make<TestApiImpl>(this);
 #else
@@ -2441,7 +2446,8 @@ TestApi* VtermImpl::testApi() {
 }
 
 TestApiImpl::TestApiImpl(VtermImpl* vterm_)
-    : vterm(vterm_) {
+    : vterm(vterm_)
+{
 }
 
 VtermTestState TestApiImpl::inspect() const {
@@ -8106,7 +8112,8 @@ u32 VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
 }
 
 CallVtermResize::CallVtermResize(VtermImpl* parent_)
-    : parent(parent_) {
+    : parent(parent_)
+{
 }
 
 void CallVtermResize::onListen(void*) {
@@ -8115,7 +8122,8 @@ void CallVtermResize::onListen(void*) {
 }
 
 CallVtermFontChanged::CallVtermFontChanged(VtermImpl* parent_)
-    : parent(parent_) {
+    : parent(parent_)
+{
 }
 
 void CallVtermFontChanged::onListen(void*) {
@@ -8124,7 +8132,8 @@ void CallVtermFontChanged::onListen(void*) {
 
 CallVtermInputAction::CallVtermInputAction(VtermImpl* parent_, InputActions action_)
     : parent(parent_)
-    , action(action_) {
+    , action(action_)
+{
 }
 
 void CallVtermInputAction::onListen(void*) {
@@ -8150,23 +8159,25 @@ void CallVtermInputAction::onListen(void*) {
 }
 
 CallVtermTimeout::CallVtermTimeout(VtermImpl* parent_)
-    : parent(parent_) {
+    : parent(parent_)
+{
 }
 
 void CallVtermTimeout::ready() {
     parent->timeout();
 }
 
-VtermImpl::VtermImpl(Composer& composer_, VtermTrace* trace_, Output* dump_)
+VtermImpl::VtermImpl(Composer& composer_, VtermTraceFactory* traceFactory_, Output* dump_)
     : input(this)
     , callTimeout(this)
     , composer(composer_)
-    , trace(trace_)
+    , trace(traceFactory_ == nullptr ? nullptr : traceFactory_->construct(createTestApi()))
     , dump(dump_)
     , unicodeProperties(UnicodeMap<u8>::create(*composer.pool))
-    , parser(Parser::create(composer.pool, *this, trace_))
+    , parser(Parser::create(composer.pool, *this, trace))
     , nColsEff(composer.columns)
-    , hMargin(0) {
+    , hMargin(0)
+{
     try {
         createPrimaryScreen();
         createInactiveAlternateScreen();
@@ -9113,7 +9124,7 @@ void VtermImpl::pasteSelection(const std::string& utf8_selection) {
     }
 }
 
-Vterm* Vterm::create(Composer& composer, VtermTrace* trace) {
+Vterm* Vterm::create(Composer& composer, VtermTraceFactory* traceFactory) {
     Output* dump = nullptr;
     if (opts.dump != nullptr) {
         const int rawFd = ::open(opts.dump, O_WRONLY | O_CREAT | O_TRUNC, 0666);
@@ -9126,7 +9137,7 @@ Vterm* Vterm::create(Composer& composer, VtermTrace* trace) {
 
     composer.setCellExtras(CellExtraStore::create(composer, (size_t)(composer.columns) * (composer.rows + opts.saveLines)));
     try {
-        VtermImpl* const vterm = composer.pool->make<VtermImpl>(composer, trace, dump);
+        VtermImpl* const vterm = composer.pool->make<VtermImpl>(composer, traceFactory, dump);
         composer.resizedListeners.pushBack(composer.pool->make<CallVtermResize>(vterm));
         composer.fontChangedListeners.pushBack(composer.pool->make<CallVtermFontChanged>(vterm));
         vterm->wireInputBindings();

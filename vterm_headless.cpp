@@ -37,7 +37,8 @@ namespace {
 }
 
 VtermHeadlessImpl::VtermHeadlessImpl(Composer& composer_)
-    : composer(composer_) {
+    : composer(composer_)
+{
 }
 
 void VtermHeadlessImpl::feed(const u8* data, size_t len) {
@@ -70,7 +71,7 @@ void VtermHeadlessImpl::writePrimary(StringView) {
 void VtermHeadlessImpl::writeClipboard(StringView) {
 }
 
-VtermHeadless* VtermHeadless::create(Composer& composer) {
+VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* traceFactory) {
     constexpr u16 columns = 80;
     constexpr u16 rows = 24;
     constexpr u16 glyphWidth = 1;
@@ -98,7 +99,7 @@ VtermHeadless* VtermHeadless::create(Composer& composer) {
     if (composer.ptyOutput == nullptr) {
         composer.ptyOutput = createNullOutput(composer.pool);
     }
-    composer.vterm = Vterm::create(composer, nullptr);
+    composer.vterm = Vterm::create(composer, traceFactory);
     opts.title = title;
     return result;
 }

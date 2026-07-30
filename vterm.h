@@ -19,7 +19,7 @@
 
 struct Composer;
 struct CellExtraStore;
-struct VtermTrace;
+struct VtermTraceFactory;
 
 enum class VtModifier : u8 {
     none = 0,
@@ -109,8 +109,6 @@ struct TerminalUpdate {
     bool cursorBlink = false;
 };
 
-struct TestApi;
-
 struct Vterm {
     virtual void feedPty(stl::StringView bytes) = 0;
     virtual void expose() = 0;
@@ -127,7 +125,6 @@ struct Vterm {
     virtual const TerminalUpdate* output() = 0;
     virtual void consume() = 0;
     virtual VtermState state() const = 0;
-    virtual TestApi* testApi() = 0;
 
-    static Vterm* create(Composer& composer, VtermTrace* trace);
+    static Vterm* create(Composer& composer, VtermTraceFactory* traceFactory);
 };

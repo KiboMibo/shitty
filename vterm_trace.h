@@ -12,7 +12,16 @@
 #include <cstddef>
 #include <string>
 
-struct Composer;
+struct TestApi;
+struct VtermTrace;
+
+// Handed to Vterm::create; construct() is invoked once during terminal
+// construction with the terminal's test api (null outside test builds)
+// and returns the trace to install, or null to disable tracing. Neither
+// pointer may be used until Vterm::create returns.
+struct VtermTraceFactory {
+    virtual VtermTrace* construct(TestApi* testApi) = 0;
+};
 
 enum class VtermTraceString : u8 {
     Osc,
@@ -46,6 +55,4 @@ struct VtermTrace {
     virtual void windowOperation(u32 operation, u32 first, u32 second) = 0;
     virtual std::string drainActions() = 0;
     virtual stl::StringView currentCwd() const = 0;
-
-    static VtermTrace* create(Composer& composer);
 };

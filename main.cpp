@@ -98,7 +98,7 @@ namespace {
 
         ObjPool::Ref pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        VtermHeadless* vterm = VtermHeadless::create(composer);
+        VtermHeadless* vterm = VtermHeadless::create(composer, nullptr);
         Buffer data;
         size_t bytes = 0;
         const auto started = std::chrono::steady_clock::now();

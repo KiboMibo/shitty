@@ -11,9 +11,10 @@
 #include <cstddef>
 
 struct Composer;
+struct VtermTraceFactory;
 
 struct VtermHeadless {
     virtual void feed(const u8* data, size_t len) = 0;
 
-    static VtermHeadless* create(Composer& composer);
+    static VtermHeadless* create(Composer& composer, VtermTraceFactory* traceFactory);
 };
