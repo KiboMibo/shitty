@@ -1,5 +1,7 @@
 # Shitty
 
+[![codecov](https://codecov.io/gh/pg83/shitty/branch/master/graph/badge.svg)](https://app.codecov.io/gh/pg83/shitty)
+
 **A small, fast terminal emulator for Linux and macOS.**
 
 Shitty is a hard fork and complete rewrite of **Zutty**. The original Zutty
@@ -193,6 +195,17 @@ nix build -L --no-link .#checks.x86_64-linux.build-asan &&
 nix build -L --no-link .#checks.x86_64-linux.build-ubsan &&
   nix build -L --no-link .#checks.x86_64-linux.tests-ubsan
 ```
+
+Build an instrumented copy of the complete suite and generate LCOV, text, and
+browsable HTML reports:
+
+```sh
+nix build -L -o result-coverage .#checks.x86_64-linux.coverage
+xdg-open result-coverage/html/index.html
+```
+
+The same report is attached to every GitHub coverage run and uploaded to
+Codecov for per-file and pull-request coverage.
 
 The native suite drives a dedicated headless `st_test` binary through a real
 raw PTY and checks externally visible terminal snapshots and output. The

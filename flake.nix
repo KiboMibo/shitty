@@ -51,7 +51,11 @@
       };
 
       configureBuildEnvironment =
-        sanitizer:
+        {
+          sanitizer ? null,
+          coverage ? false,
+        }:
+        assert !(coverage && sanitizer != null);
         let
           config = if sanitizer == null then null else sanitizerConfigs.${sanitizer};
           cxxFlags =
@@ -64,9 +68,16 @@
                 "-fno-omit-frame-pointer"
                 "-g"
               ];
+          linkInstrumentation =
+            if config != null then
+              config.flag
+            else if coverage then
+              "-fprofile-instr-generate -Wl,--build-id=sha1"
+            else
+              "";
         in
         ''
-          unset CPPFLAGS CFLAGS CXXFLAGS LDFLAGS ASAN_OPTIONS UBSAN_OPTIONS
+          unset CPPFLAGS CFLAGS CXXFLAGS LDFLAGS ASAN_OPTIONS UBSAN_OPTIONS LLVM_PROFILE_FILE
           # build intentionally passes its canonical target triple. Nix's
           # wrapper spells the equivalent native vendor field differently.
           export NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING=1
@@ -74,8 +85,11 @@
             export CXXFLAGS=${lib.escapeShellArg cxxFlags}
             ${config.environment}
           ''}
+          ${lib.optionalString coverage ''
+            export CXXFLAGS="-fprofile-instr-generate -fcoverage-mapping -fcoverage-compilation-dir=. -fcoverage-prefix-map=$PWD=."
+          ''}
           export LDFLAGS="${
-            lib.optionalString (config != null) "${config.flag} "
+            lib.optionalString (linkInstrumentation != "") "${linkInstrumentation} "
           }$(pkg-config --libs wayland-client xkbcommon) -lrt"
         '';
 
@@ -139,7 +153,7 @@
           # build out of $src (read-only store path) via -B.
           buildPhase = ''
             runHook preBuild
-            ${configureBuildEnvironment sanitizer}
+            ${configureBuildEnvironment { inherit sanitizer; }}
             python3 ./build -B ${buildDirectory} -j "$NIX_BUILD_CORES"
             runHook postBuild
           '';
@@ -178,14 +192,17 @@
         pkgs:
         {
           sanitizer ? null,
+          coverage ? false,
         }:
+        assert !(coverage && sanitizer != null);
         let
           base = mkShitty pkgs { inherit sanitizer; };
           sanitizerSuffix = lib.optionalString (sanitizer != null) "-${sanitizer}";
-          buildDirectory = ".build-tests${sanitizerSuffix}";
+          checkSuffix = if coverage then "-coverage" else sanitizerSuffix;
+          buildDirectory = ".build-tests${checkSuffix}";
         in
         base.overrideAttrs (old: {
-          pname = "shitty-tests${sanitizerSuffix}";
+          pname = "shitty-tests${checkSuffix}";
 
           nativeBuildInputs =
             old.nativeBuildInputs
@@ -194,7 +211,7 @@
               pkgs.perl
               pkgs.vttest
             ]
-            ++ lib.optionals (sanitizer != null) [ pkgs.llvmPackages.llvm ];
+            ++ lib.optionals (sanitizer != null || coverage) [ pkgs.llvmPackages.llvm ];
 
           postPatch = old.postPatch + ''
             # Some vendored xterm scripts invoke other scripts by their
@@ -218,22 +235,104 @@
 
           buildPhase = ''
             runHook preBuild
-            ${configureBuildEnvironment sanitizer}
+            ${configureBuildEnvironment { inherit sanitizer coverage; }}
             ${lib.optionalString (sanitizer == "asan") ''
               export ASAN_SYMBOLIZER_PATH=${lib.getExe' pkgs.llvmPackages.llvm "llvm-symbolizer"}
+            ''}
+            ${lib.optionalString coverage ''
+              profileDirectory="$TMPDIR/shitty-coverage-profiles"
+              mkdir -p "$profileDirectory"
+              export LLVM_PROFILE_FILE="$profileDirectory/%b-%16m.profraw"
             ''}
             python3 ./build \
               -B ${buildDirectory} \
               -j "$NIX_BUILD_CORES" \
               -k \
               test
+            ${lib.optionalString coverage ''
+              # Groups deliberately do not publish their outputs. Ask the
+              # runner for the two coverage binaries explicitly so its
+              # stable source-root symlinks can be passed to llvm-cov.
+              python3 ./build \
+                -B ${buildDirectory} \
+                -j "$NIX_BUILD_CORES" \
+                st_test unit_tests
+              coverageDirectory="$PWD/.coverage"
+              coverageIgnore='(^|/)(tests|third_party/libstd|\.build[^/]*)/|(^|/)[^/]*_ut\.cpp$|(^|/)(test_mode|test_input)\.(cpp|h)$|^/nix/store/'
+              mkdir -p "$coverageDirectory/html"
+              coverageProfiles=()
+              for binary in ./st_test ./unit_tests; do
+                buildId="$(llvm-readelf -n "$binary" |
+                  sed -n 's/.*Build ID: //p' |
+                  head -1)"
+                if [[ -z "$buildId" ]]; then
+                  echo "coverage binary has no build ID: $binary" >&2
+                  exit 1
+                fi
+                binaryProfiles=("$profileDirectory/$buildId"-*.profraw)
+                if [[ ! -e "''${binaryProfiles[0]}" ]]; then
+                  echo "coverage binary produced no profiles: $binary" >&2
+                  exit 1
+                fi
+                coverageProfiles+=("''${binaryProfiles[@]}")
+              done
+              llvm-profdata merge \
+                -sparse \
+                "''${coverageProfiles[@]}" \
+                -o "$coverageDirectory/coverage.profdata"
+              llvm-cov export \
+                ./st_test \
+                -object=./unit_tests \
+                -instr-profile="$coverageDirectory/coverage.profdata" \
+                -format=lcov \
+                -ignore-filename-regex="$coverageIgnore" \
+                > "$coverageDirectory/coverage.info"
+              llvm-cov report \
+                ./st_test \
+                -object=./unit_tests \
+                -instr-profile="$coverageDirectory/coverage.profdata" \
+                -ignore-filename-regex="$coverageIgnore" \
+                > "$coverageDirectory/summary.txt"
+              llvm-cov show \
+                ./st_test \
+                -object=./unit_tests \
+                -instr-profile="$coverageDirectory/coverage.profdata" \
+                -format=html \
+                -output-dir="$coverageDirectory/html" \
+                -show-branches=percent \
+                -coverage-watermark=80,50 \
+                -ignore-filename-regex="$coverageIgnore"
+              substituteInPlace "$coverageDirectory/coverage.info" \
+                --replace-quiet "SF:$PWD/" "SF:"
+              if grep -q '^SF:/' "$coverageDirectory/coverage.info"; then
+                echo "coverage report contains absolute source paths" >&2
+                grep '^SF:/' "$coverageDirectory/coverage.info" | head -10 >&2
+                exit 1
+              fi
+              if ! grep -q '^SF:' "$coverageDirectory/coverage.info"; then
+                echo "coverage report does not contain source files" >&2
+                exit 1
+              fi
+              cat "$coverageDirectory/summary.txt"
+            ''}
             runHook postBuild
           '';
 
           installPhase = ''
             runHook preInstall
             mkdir -p "$out"
-            touch "$out/passed"
+            ${
+              if coverage then
+                ''
+                  install -Dm644 .coverage/coverage.info "$out/coverage.info"
+                  install -Dm644 .coverage/summary.txt "$out/summary.txt"
+                  cp -R .coverage/html "$out/html"
+                ''
+              else
+                ''
+                  touch "$out/passed"
+                ''
+            }
             runHook postInstall
           '';
 
@@ -307,6 +406,7 @@
         {
           build = mkShitty pkgs { };
           tests = mkTestCheck pkgs { };
+          coverage = mkTestCheck pkgs { coverage = true; };
           build-asan = mkShitty pkgs { sanitizer = "asan"; };
           tests-asan = mkTestCheck pkgs { sanitizer = "asan"; };
           build-ubsan = mkShitty pkgs { sanitizer = "ubsan"; };

@@ -88,6 +88,81 @@ jobs:
           retention-days: 7
           compression-level: 9
 
+  coverage:
+    name: Coverage
+    needs: tests
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+        with:
+          enable_kvm: false
+
+      - name: Run full test suite with coverage
+        run: |
+          set -o pipefail
+          nix build -L \
+            --out-link "$RUNNER_TEMP/coverage-result" \
+            .#checks.x86_64-linux.coverage \
+            2>&1 | tee "$RUNNER_TEMP/coverage.log"
+
+      - name: Prepare coverage report
+        run: |
+          mkdir -p "$RUNNER_TEMP/coverage-report"
+          cp -a "$RUNNER_TEMP/coverage-result/." \
+            "$RUNNER_TEMP/coverage-report/"
+          {
+            echo "## LLVM coverage"
+            echo
+            echo '```text'
+            cat "$RUNNER_TEMP/coverage-report/summary.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload browsable coverage report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-report
+          path: ${{ runner.temp }}/coverage-report
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 9
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          use_oidc: true
+          files: ${{ runner.temp }}/coverage-report/coverage.info
+          disable_search: true
+          fail_ci_if_error: true
+          name: linux-clang
+          verbose: true
+
+      - name: Summarize failure
+        if: failure()
+        run: |
+          python3 dev/ci_report.py \
+            --log "$RUNNER_TEMP/coverage.log" \
+            --title "Coverage" \
+            --reproduce "nix build -L -o result-coverage .#checks.x86_64-linux.coverage"
+
+      - name: Upload failure log
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-log
+          path: ${{ runner.temp }}/coverage.log
+          if-no-files-found: ignore
+          retention-days: 7
+          compression-level: 9
+
   build-asan:
     name: Build ASan
     needs: build
