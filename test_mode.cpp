@@ -1757,8 +1757,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 output << StringView(u8"\n");
                 writeAll(controlFd, StringView(output));
             } else if (line == "READ_ACTIONS") {
-                writeAll(controlFd, "OK " + encodeHex(testApi.actions()) + "\n");
-                testApi.clearActions();
+                writeAll(controlFd, "OK " + encodeHex(vtermTrace.drainActions()) + "\n");
             } else if (line == "STATE") {
                 const auto& mouse = terminal.getMouseTrackingState();
                 writeAll(controlFd, "OK " + std::to_string((unsigned)(mouse.mode)) + " " + std::to_string((unsigned)(mouse.enc)) + " " + std::to_string(mouse.focusEventMode) + " " + std::to_string(terminal.getKittyKeyboardFlags()) + "\n");
@@ -1926,7 +1925,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
             } else if (line == "GET_CWD") {
                 StringBuilder output;
                 output << StringView(u8"OK ");
-                appendHex(output, testApi.cwd());
+                appendHex(output, vtermTrace.currentCwd());
                 output << StringView(u8"\n");
                 writeAll(controlFd, StringView(output));
             } else if (line.compare(0, 9, "OSC7_CWD ") == 0) {
@@ -1934,7 +1933,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 terminal.feedPtyOutput((const u8*)(input.data()), input.size());
                 StringBuilder output;
                 output << StringView(u8"OK ");
-                appendHex(output, testApi.cwd());
+                appendHex(output, vtermTrace.currentCwd());
                 output << StringView(u8"\n");
                 writeAll(controlFd, StringView(output));
             } else if (line == "SNAPSHOT") {

@@ -37,17 +37,29 @@ namespace {
         void stringCancel() override;
         std::string drain() override;
         void clear() override;
+        void osc(u32 command, StringView payload) override;
+        void bell() override;
+        void leds(u8 state) override;
+        void cwd(StringView path) override;
+        void notify(StringView id, StringView title, StringView body, bool close) override;
+        void progress(u32 state, u32 percent) override;
+        void windowOperation(u32 operation, u32 first, u32 second) override;
+        std::string drainActions() override;
+        StringView currentCwd() const override;
 
         constexpr static size_t noEvent = std::numeric_limits<size_t>::max();
 
         size_t add(const char* type);
         void erase(size_t& index);
+        void appendHex(StringView input);
         static const char* stringName(VtermTraceString type);
         static std::string encodeHex(const std::string& input);
 
         std::vector<TraceEvent> events;
         size_t escapeEvent = noEvent;
         size_t stringEvent = noEvent;
+        std::string actions;
+        std::string cwdPath;
     };
 
 }
@@ -195,6 +207,63 @@ void VtermTraceImpl::clear() {
     events.clear();
     escapeEvent = noEvent;
     stringEvent = noEvent;
+}
+
+void VtermTraceImpl::appendHex(StringView input) {
+    static constexpr char digits[] = "0123456789abcdef";
+    actions.reserve(actions.size() + input.length() * 2);
+    for (const u8 ch : input) {
+        actions.push_back(digits[ch >> 4]);
+        actions.push_back(digits[ch & 15]);
+    }
+}
+
+void VtermTraceImpl::osc(u32 command, StringView payload) {
+    actions += "OSC " + std::to_string(command) + " ";
+    appendHex(payload);
+    actions += "\n";
+}
+
+void VtermTraceImpl::bell() {
+    actions += "BELL\n";
+}
+
+void VtermTraceImpl::leds(u8 state) {
+    actions += "LEDS " + std::to_string(state) + "\n";
+}
+
+void VtermTraceImpl::cwd(StringView path) {
+    cwdPath.assign((const char*)(path.data()), path.length());
+}
+
+void VtermTraceImpl::notify(StringView id, StringView title, StringView body, bool close) {
+    actions += close ? "NOTIFY_CLOSE " : "NOTIFY ";
+    appendHex(id);
+    if (!close) {
+        actions += " ";
+        appendHex(title);
+        actions += " ";
+        appendHex(body);
+    }
+    actions += "\n";
+}
+
+void VtermTraceImpl::progress(u32 state, u32 percent) {
+    actions += "PROGRESS " + std::to_string(state) + " " + std::to_string(percent) + "\n";
+}
+
+void VtermTraceImpl::windowOperation(u32 operation, u32 first, u32 second) {
+    actions += "WINDOW " + std::to_string(operation) + " " + std::to_string(first) + " " + std::to_string(second) + "\n";
+}
+
+std::string VtermTraceImpl::drainActions() {
+    std::string result;
+    result.swap(actions);
+    return result;
+}
+
+StringView VtermTraceImpl::currentCwd() const {
+    return StringView((const u8*)(cwdPath.data()), cwdPath.size());
 }
 
 VtermTrace* VtermTrace::create(Composer& composer) {

@@ -107,4 +107,43 @@ STD_TEST_SUITE(VtermTrace) {
         trace->escapeEnd();
         STD_INSIST(trace->drain().empty());
     }
+
+    STD_TEST(RecordsAndDrainsTerminalActions) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtermTrace* trace = VtermTrace::create(composer);
+
+        trace->osc(2, "title");
+        trace->bell();
+        trace->leds(3);
+        trace->notify("id", "title", "body", false);
+        trace->notify("id", {}, {}, true);
+        trace->progress(2, 57);
+        trace->windowOperation(8, 24, 80);
+
+        STD_INSIST(
+            trace->drainActions() ==
+            "OSC 2 7469746c65\n"
+            "BELL\n"
+            "LEDS 3\n"
+            "NOTIFY 6964 7469746c65 626f6479\n"
+            "NOTIFY_CLOSE 6964\n"
+            "PROGRESS 2 57\n"
+            "WINDOW 8 24 80\n"
+        );
+        STD_INSIST(trace->drainActions().empty());
+    }
+
+    STD_TEST(TracksCurrentWorkingDirectorySeparately) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtermTrace* trace = VtermTrace::create(composer);
+
+        trace->cwd("/tmp/first");
+        trace->osc(7, "file://host/tmp/first");
+        trace->clear();
+
+        STD_INSIST(trace->currentCwd() == "/tmp/first");
+        STD_INSIST(trace->drainActions() == "OSC 7 66696c653a2f2f686f73742f746d702f6669727374\n");
+    }
 }

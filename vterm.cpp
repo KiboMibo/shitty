@@ -896,6 +896,7 @@ namespace {
         IntrusiveList pageUpListeners;
         IntrusiveList pageDownListeners;
         Composer& composer;
+        VtermTrace* const trace;
         Output* dump;
         UnicodeMap<u8>* const unicodeProperties;
         Buffer protocolResponseScratch;
@@ -965,9 +966,6 @@ namespace {
         bool assignedDefaultColors = false;
         std::string windowTitle;
         std::string iconTitle;
-        std::string currentCwd;
-        std::string actions;
-        bool journalEnabled = false;
         bool titleSet = false;
         u8 titleModes = 0;
 
@@ -1214,9 +1212,6 @@ namespace {
         void paste(StringView text) override;
         bool pasteClipboard(bool primary) override;
         StringView hyperlinkAt(int pixelX, int pixelY) override;
-        StringView actions() const override;
-        void clearActions() override;
-        StringView cwd() const override;
 
         VtermImpl* vterm;
     };
@@ -2583,18 +2578,6 @@ bool TestApiImpl::pasteClipboard(bool primary) {
 
 StringView TestApiImpl::hyperlinkAt(int pixelX, int pixelY) {
     return vterm->hyperlinkAt(pixelX, pixelY);
-}
-
-StringView TestApiImpl::actions() const {
-    return StringView((const u8*)(vterm->actions.data()), vterm->actions.size());
-}
-
-void TestApiImpl::clearActions() {
-    vterm->actions.clear();
-}
-
-StringView TestApiImpl::cwd() const {
-    return StringView((const u8*)(vterm->currentCwd.data()), vterm->currentCwd.size());
 }
 
 bool VtermImpl::animationActive() const {
@@ -5638,21 +5621,14 @@ void VtermImpl::dcs_XTGETTCAP(StringView encoded, StringView value) {
 }
 
 void VtermImpl::recordOsc(u32 command, StringView payload) {
-    if (!journalEnabled) {
-        return;
+    if (trace != nullptr) {
+        trace->osc(command, payload);
     }
-    StringBuilder line;
-    line << StringView(u8"OSC ") << command << StringView(u8" ");
-    for (const u8 byte : payload) {
-        line << Hex{byte, 2};
-    }
-    line << StringView(u8"\n");
-    actions.append((const char*)(line.data()), line.used());
 }
 
 void VtermImpl::recordBell() {
-    if (journalEnabled) {
-        actions += "BELL\n";
+    if (trace != nullptr) {
+        trace->bell();
     }
     if (composer.window != nullptr) {
         composer.window->requestAttention();
@@ -5660,12 +5636,9 @@ void VtermImpl::recordBell() {
 }
 
 void VtermImpl::recordLeds(u8 state) {
-    if (!journalEnabled) {
-        return;
+    if (trace != nullptr) {
+        trace->leds(state);
     }
-    StringBuilder line;
-    line << StringView(u8"LEDS ") << (unsigned)(state) << StringView(u8"\n");
-    actions.append((const char*)(line.data()), line.used());
 }
 
 void VtermImpl::publishTitle(u32 command, StringView title) {
@@ -5677,8 +5650,8 @@ void VtermImpl::publishTitle(u32 command, StringView title) {
 }
 
 void VtermImpl::publishCwd(StringView path) {
-    if (journalEnabled) {
-        currentCwd.assign((const char*)(path.data()), path.length());
+    if (trace != nullptr) {
+        trace->cwd(path);
     }
     if (!titleSet && composer.window != nullptr) {
         composer.window->requestTitle(path);
@@ -5686,24 +5659,8 @@ void VtermImpl::publishCwd(StringView path) {
 }
 
 void VtermImpl::publishNotify(StringView id, StringView title, StringView body, bool close) {
-    if (journalEnabled) {
-        StringBuilder line;
-        line << (close ? StringView(u8"NOTIFY_CLOSE ") : StringView(u8"NOTIFY "));
-        for (const u8 byte : id) {
-            line << Hex{byte, 2};
-        }
-        if (!close) {
-            line << StringView(u8" ");
-            for (const u8 byte : title) {
-                line << Hex{byte, 2};
-            }
-            line << StringView(u8" ");
-            for (const u8 byte : body) {
-                line << Hex{byte, 2};
-            }
-        }
-        line << StringView(u8"\n");
-        actions.append((const char*)(line.data()), line.used());
+    if (trace != nullptr) {
+        trace->notify(id, title, body, close);
     }
     if (!close && composer.window != nullptr) {
         composer.window->requestAttention();
@@ -5711,10 +5668,8 @@ void VtermImpl::publishNotify(StringView id, StringView title, StringView body, 
 }
 
 void VtermImpl::publishProgress(u32 state, u32 percent) {
-    if (journalEnabled) {
-        StringBuilder line;
-        line << StringView(u8"PROGRESS ") << state << StringView(u8" ") << percent << StringView(u8"\n");
-        actions.append((const char*)(line.data()), line.used());
+    if (trace != nullptr) {
+        trace->progress(state, percent);
     }
     if ((state == 2 || state == 4) && composer.window != nullptr) {
         composer.window->requestAttention();
@@ -5752,10 +5707,8 @@ u32 VtermImpl::windowRows() const {
 }
 
 void VtermImpl::windowOperation(u32 operation, u32 first, u32 second) {
-    if (journalEnabled) {
-        StringBuilder line;
-        line << StringView(u8"WINDOW ") << operation << StringView(u8" ") << first << StringView(u8" ") << second << StringView(u8"\n");
-        actions.append((const char*)(line.data()), line.used());
+    if (trace != nullptr) {
+        trace->windowOperation(operation, first, second);
     }
     plt::Window* const window = composer.window;
     if (window == nullptr) {
@@ -8022,16 +7975,16 @@ void CallVtermTimeout::ready() {
     parent->timeout();
 }
 
-VtermImpl::VtermImpl(Composer& composer_, VtermTrace* trace, Output* dump_)
+VtermImpl::VtermImpl(Composer& composer_, VtermTrace* trace_, Output* dump_)
     : input(this)
     , callTimeout(this)
     , composer(composer_)
+    , trace(trace_)
     , dump(dump_)
     , unicodeProperties(UnicodeMap<u8>::create(*composer.pool))
-    , parser(Parser::create(composer.pool, *this, trace))
+    , parser(Parser::create(composer.pool, *this, trace_))
     , nColsEff(composer.columns)
     , hMargin(0) {
-    journalEnabled = trace != nullptr;
     try {
         createPrimaryScreen();
         createInactiveAlternateScreen();
