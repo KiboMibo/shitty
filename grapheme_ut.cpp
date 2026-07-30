@@ -42,6 +42,16 @@ STD_TEST_SUITE(Grapheme) {
         STD_INSIST(graphemeWidthEffect(0x00a9, 0xfe0f) == GraphemeWidthEffect::Wide);
         STD_INSIST(graphemeWidthEffect(0x231a, 0xfe0e) == GraphemeWidthEffect::Narrow);
         STD_INSIST(graphemeWidthEffect('A', 0xfe0f) == GraphemeWidthEffect::Unchanged);
+
+        // Text-default CJK symbols and the Enclosed Ideographic Supplement
+        // keep their full width under VS15: their text glyph is a
+        // full-width form, so narrowing can only crop it (the
+        // unicode-width rule; the contour mode-2027 spec says VS15 must
+        // not change width at all).
+        static constexpr u32 fullWidthTextBases[] = {0x3030, 0x303d, 0x3297, 0x3299, 0x1f202, 0x1f21a, 0x1f22f, 0x1f237};
+        for (const u32 base : fullWidthTextBases) {
+            STD_INSIST(graphemeWidthEffect(base, 0xfe0e) == GraphemeWidthEffect::Unchanged);
+        }
     }
 
     STD_TEST(DistinguishesSpacingMarksAndViramas) {

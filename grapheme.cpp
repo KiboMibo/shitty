@@ -75,15 +75,12 @@ static constexpr u32 vs15Bases[] = {
     0x2b1c,
     0x2b50,
     0x2b55,
-    0x3030,
-    0x303d,
-    0x3297,
-    0x3299,
+    // Text-default CJK symbols (U+3030, U+303D, U+3297, U+3299) and the
+    // Enclosed Ideographic Supplement stay wide under VS15: their text
+    // presentation is a full-width form, so narrowing only crops it
+    // (matches the unicode-width crate rule; the contour mode-2027 spec
+    // keeps VS15 width-neutral entirely).
     0x1f004,
-    0x1f202,
-    0x1f21a,
-    0x1f22f,
-    0x1f237,
     0x1f30d,
     0x1f30e,
     0x1f30f,

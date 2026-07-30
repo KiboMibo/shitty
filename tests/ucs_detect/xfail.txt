@@ -1,1 +1,14 @@
 # One stable catalog identifier per known Shitty mismatch. XPASS is an error.
+# VS15 keeps full width on text-default CJK symbols and the Enclosed
+# Ideographic Supplement: their text glyph is a full-width form, so
+# narrowing only crops it (unicode-width rule; contour's mode-2027 spec
+# keeps VS15 width-neutral). ucs-detect encodes jquast/wcwidth's
+# contested narrow-on-VS15 rule instead.
+vs15/9.0.0/00003c
+vs15/9.0.0/00003d
+vs15/9.0.0/00003e
+vs15/9.0.0/00003f
+vs15/9.0.0/000041
+vs15/9.0.0/000042
+vs15/9.0.0/000043
+vs15/9.0.0/000044

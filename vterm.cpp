@@ -457,6 +457,7 @@ namespace {
         bool animationActive() const;
         void enableBlinkingText();
         void refreshBlinkingText();
+        void exposeFrames();
         void armTimeout();
         void timeout();
 
@@ -2594,6 +2595,11 @@ void VtermImpl::enableBlinkingText() {
     }
     haveBlinkingText = true;
     armTimeout();
+}
+
+void VtermImpl::exposeFrames() {
+    frame_pri->expose();
+    frame_alt->expose();
 }
 
 void VtermImpl::refreshBlinkingText() {
@@ -5844,8 +5850,7 @@ void VtermImpl::osc_PALETTE(u32 index, Color color, bool query) {
     if (special) {
         colors.special[colorIndex] = color;
         colors.changed();
-        frame_pri->expose();
-        frame_alt->expose();
+        exposeFrames();
     } else {
         applyPaletteColor(colorIndex, color);
     }
@@ -5863,8 +5868,7 @@ void VtermImpl::osc_SPECIAL_COLOR(u32 index, Color color, bool query) {
     }
     colors.special[index] = color;
     colors.changed();
-    frame_pri->expose();
-    frame_alt->expose();
+    exposeFrames();
 }
 
 void VtermImpl::osc_SPECIAL_COLOR_MODE(u32 index, u32 value) {
@@ -5878,8 +5882,7 @@ void VtermImpl::osc_SPECIAL_COLOR_MODE(u32 index, u32 value) {
     }
     colors.specialModes = modes;
     colors.changed();
-    frame_pri->expose();
-    frame_alt->expose();
+    exposeFrames();
 }
 
 void VtermImpl::osc_RAW(u32 command, StringView payload) {
@@ -5939,8 +5942,7 @@ void VtermImpl::osc_DEFAULT_FOREGROUND(Color color, bool query) {
     colors.defaultForeground = color;
     colors.changed();
     defaultFgPalIx = -1;
-    frame_pri->expose();
-    frame_alt->expose();
+    exposeFrames();
 }
 
 void VtermImpl::osc_DEFAULT_BACKGROUND(Color color, bool query) {
@@ -5950,8 +5952,7 @@ void VtermImpl::osc_DEFAULT_BACKGROUND(Color color, bool query) {
     colors.defaultBackground = color;
     colors.changed();
     defaultBgPalIx = -1;
-    frame_pri->expose();
-    frame_alt->expose();
+    exposeFrames();
 }
 
 void VtermImpl::osc_CURSOR_COLOR(Color color, bool query) {
@@ -6149,8 +6150,7 @@ bool VtermImpl::pasteMimeNotification(bool primary) {
 void VtermImpl::osc_RESET_PALETTE() {
     std::copy(std::begin(originalPalette256), std::end(originalPalette256), std::begin(colors.palette));
     colors.changed();
-    frame_pri->expose();
-    frame_alt->expose();
+    exposeFrames();
 }
 
 void VtermImpl::osc_RESET_PALETTE(u32 index) {
@@ -6163,8 +6163,7 @@ void VtermImpl::osc_RESET_PALETTE(u32 index) {
 void VtermImpl::osc_RESET_SPECIAL_COLOR() {
     std::copy(std::begin(colors.originalSpecial), std::end(colors.originalSpecial), std::begin(colors.special));
     colors.changed();
-    frame_pri->expose();
-    frame_alt->expose();
+    exposeFrames();
 }
 
 void VtermImpl::osc_RESET_SPECIAL_COLOR(u32 index) {
@@ -6173,24 +6172,21 @@ void VtermImpl::osc_RESET_SPECIAL_COLOR(u32 index) {
     }
     colors.special[index] = colors.originalSpecial[index];
     colors.changed();
-    frame_pri->expose();
-    frame_alt->expose();
+    exposeFrames();
 }
 
 void VtermImpl::osc_RESET_DEFAULT_FOREGROUND() {
     colors.defaultForeground = opts.fg;
     colors.changed();
     defaultFgPalIx = -1;
-    frame_pri->expose();
-    frame_alt->expose();
+    exposeFrames();
 }
 
 void VtermImpl::osc_RESET_DEFAULT_BACKGROUND() {
     colors.defaultBackground = opts.bg;
     colors.changed();
     defaultBgPalIx = -1;
-    frame_pri->expose();
-    frame_alt->expose();
+    exposeFrames();
 }
 
 void VtermImpl::osc_RESET_CURSOR_COLOR() {
@@ -6481,8 +6477,7 @@ void VtermImpl::setTitleMode(u8 bit, bool enabled) {
 void VtermImpl::applyPaletteColor(u16 index, Color color) {
     colors.palette[index] = color;
     colors.changed();
-    frame_pri->expose();
-    frame_alt->expose();
+    exposeFrames();
 }
 
 void VtermImpl::csi_DECSCL(CompatibilityLevel level, bool enable8BitControls) {
@@ -6674,8 +6669,7 @@ void VtermImpl::csi_DECAC_TEXT(u8 foreground, u8 background) {
     defaultFgPalIx = -1;
     defaultBgPalIx = -1;
     assignedDefaultColors = true;
-    frame_pri->expose();
-    frame_alt->expose();
+    exposeFrames();
 }
 
 void VtermImpl::csi_DECAC_TEXT_RESET() {
@@ -6685,8 +6679,7 @@ void VtermImpl::csi_DECAC_TEXT_RESET() {
     defaultFgPalIx = -1;
     defaultBgPalIx = -1;
     assignedDefaultColors = false;
-    frame_pri->expose();
-    frame_alt->expose();
+    exposeFrames();
 }
 
 // VT525 window-frame colors. xterm — the reference implementation for

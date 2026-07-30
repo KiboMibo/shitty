@@ -368,6 +368,17 @@ namespace {
         bool selectionValid() const;
         Rect selectionForView() const;
         Rect snappedSelection() const;
+        Rect computeSnappedSelection() const;
+
+        // Word snapping walks whole wrapped-line chains; captureFrame asks
+        // for the snapped rectangle every frame of a drag, so memoize it
+        // against the selection, the snap mode, the view and the content.
+        mutable Rect snappedCache;
+        mutable Rect snappedCacheSelection;
+        mutable SelectSnapTo snappedCacheSnapTo = SelectSnapTo::Char;
+        mutable u32 snappedCacheRevision = 0;
+        mutable i32 snappedCacheViewOffset = 0;
+        mutable bool snappedCacheValid = false;
 
         CellExtraStore& cellExtras() const noexcept;
         TerminalCellBatch copyDamage(TerminalCellSpan* spans) const;
@@ -1549,6 +1560,21 @@ Rect ScreenBase<Coord, Epoch>::selectionForView() const {
 
 template <typename Coord, typename Epoch>
 Rect ScreenBase<Coord, Epoch>::snappedSelection() const {
+    const bool sameKey = snappedCacheValid && snappedCacheRevision == contentRevision && snappedCacheViewOffset == (i32)(viewOffset) && snappedCacheSnapTo == snapTo && snappedCacheSelection.tl == selection.tl && snappedCacheSelection.br == selection.br && snappedCacheSelection.rectangular == selection.rectangular;
+    if (sameKey) {
+        return snappedCache;
+    }
+    snappedCache = computeSnappedSelection();
+    snappedCacheSelection = selection;
+    snappedCacheSnapTo = snapTo;
+    snappedCacheRevision = contentRevision;
+    snappedCacheViewOffset = (i32)(viewOffset);
+    snappedCacheValid = true;
+    return snappedCache;
+}
+
+template <typename Coord, typename Epoch>
+Rect ScreenBase<Coord, Epoch>::computeSnappedSelection() const {
     Rect ret = selection;
 
     if (ret.null()) {
