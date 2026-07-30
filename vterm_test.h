@@ -59,4 +59,7 @@ struct TestApi {
     virtual void paste(stl::StringView text) = 0;
     virtual bool pasteClipboard(bool primary) = 0;
     virtual stl::StringView hyperlinkAt(int pixelX, int pixelY) = 0;
+    virtual stl::StringView actions() const = 0;
+    virtual void clearActions() = 0;
+    virtual stl::StringView cwd() const = 0;
 };

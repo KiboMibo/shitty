@@ -27,9 +27,10 @@
 #include "utf8.h"
 #include "render.h"
 #include "vterm.h"
-#include "vterm_host.h"
 #include "vterm_test.h"
 #include "vterm_trace.h"
+
+#include <plt/platform_headless.h>
 
 #include <std/dbg/assert.h>
 #include <std/ios/output.h>
@@ -118,8 +119,7 @@ TestPty::TestPty(Composer& composer, int fd)
     })
     , onWrite([this](const u8* buffer, size_t size) {
         return ::write(fd_, buffer, size);
-    })
-{
+    }) {
     const int flags = fcntl(fd_, F_GETFL, 0);
     if (flags < 0 || fcntl(fd_, F_SETFL, flags | O_NONBLOCK) < 0) {
         throw std::runtime_error("test PTY nonblocking setup failed");
@@ -356,97 +356,15 @@ namespace {
 
     struct TestDesktopActions final: public DesktopActions {
         void openUri(StringView uri) override;
-        void pointerIcon(PointerIcon icon) override;
+        void pointerIcon(::PointerIcon icon) override;
 
         Buffer openedUri;
-        PointerIcon icon = PointerIcon::Text;
+        ::PointerIcon icon = ::PointerIcon::Text;
         u64 openCount = 0;
     };
 
-    struct DisplayCell {
-        TerminalCell source{};
-        Color foreground;
-        Color background;
-        Color underlineColor;
-        u32 hyperlink = 0;
-        u32 grapheme = 0;
-        u8 lineAttribute = 0;
-    };
-
-    struct TestDisplay final: public VtermHost {
-        TestDisplay(Composer& composer, std::string& actions, Clipboard* clipboard, DesktopActions* desktopActions);
-
-        void attach(TestApi& testApi);
-        bool update(const TerminalUpdate& update);
-        void osc(int command, StringView argument) override;
-        bool handlesOsc() const override;
-        void title(StringView) override;
-        void cwd(StringView) override;
-        void bell() override;
-        void leds(u8 state) override;
-        void notify(StringView id, StringView title, StringView body, bool close) override;
-        void progress(u32 state, u32 percent) override;
-        void windowOperation(u32 operation, u32 first, u32 second) override;
-        VtermWindowInfo windowInfo() override;
-        Clipboard* clipboard() override;
-        DesktopActions* desktopActions() override;
-
-        void applyWindowSize(u32 pixelWidth, u32 pixelHeight);
-        DisplayCell materialize(const TerminalCell& cell, u8 lineAttribute, const TerminalColors& colors) const;
-        void failNextPresent();
-        std::string snapshot() const;
-        std::string modelSnapshot() const;
-        std::string modelDigest() const;
-        std::string renderState() const;
-        std::string selectionState() const;
-        TerminalUpdate renderUpdate() const;
-        std::string scrollbackState() const;
-        std::string screenText() const;
-
-        bool failNextUpdate = false;
-        u16 columns = 0;
-        u16 rows = 0;
-        u32 viewOffset = 0;
-        u32 historyRows = 0;
-        u64 refreshCount = 0;
-        bool screenReverse = false;
-        bool blinkVisible = true;
-        bool cursorBlink = false;
-        Color selectionForeground;
-        Color selectionBackground;
-        u8 selectionColorMask = 0;
-        u32 hoveredHyperlink = 0;
-        u32 hoveredLinkBegin = 0;
-        u32 hoveredLinkEnd = 0;
-        size_t graphemeCells = 0;
-        size_t graphemeCodepoints = 0;
-        size_t lastUpdateCells = 0;
-        size_t lastUpdateSpans = 0;
-        Vector<u16> lastUpdateRows;
-        TerminalCursor cursor;
-        Rect selection;
-        Rect snappedSelection;
-        std::vector<DisplayCell> cells;
-        mutable Vector<TerminalCellSpan> renderSpans;
-        std::vector<TerminalCell> modelCells;
-        Vector<u8> modelLineAttributes;
-        std::vector<std::vector<u32>> cellGraphemes;
-        std::vector<CellColor> modelUnderlineColors;
-        Composer& composer;
-        std::string& actions;
-        Clipboard* clipboard_;
-        DesktopActions* desktopActions_;
-        Buffer currentCwd;
-        TestApi* testApi = nullptr;
-        const TerminalColors* colors = nullptr;
-        VtermWindowInfo currentWindow;
-        u16 restoredPixelWidth = 0;
-        u16 restoredPixelHeight = 0;
-        bool haveRestoredWindow = false;
-    };
-
     struct TestTerminal {
-        TestTerminal(Vterm& terminal, TestApi& testApi, TestPty& pty, TestDisplay& display);
+        TestTerminal(Composer& composer, Vterm& terminal, TestApi& testApi, TestPty& pty, ReferenceRenderer& renderer, plt::WindowHeadless& window);
 
         void feedPtyOutput(const u8* data, size_t size);
         void feedPtyOutput(const std::vector<std::string>& chunks);
@@ -497,13 +415,14 @@ namespace {
         bool advanceSelectionAutoscroll();
         Buffer allText() const;
 
+        Composer& composer;
         Vterm& terminal;
         TestApi& testApi;
         TestPty& pty;
-        TestDisplay& display;
+        ReferenceRenderer& renderer;
+        plt::WindowHeadless& window;
         u8 ptyInputBuffer[64 * 1024];
         bool present();
-        void refreshState();
     };
 
     template <typename Cell>
@@ -521,26 +440,9 @@ namespace {
         return (cell.dwidth << 0) | (cell.dwidth_cont << 1) | (cell.bold << 2) | (cell.italic << 3) | (cellUnderline(cell) << 4) | (cell.inverse << 5) | (cell.wrap << 6) | (cell.faint << 7) | (cell.blink << 8) | (cell.conceal << 9) | (cell.strike << 10) | (cell.overline << 11) | (cell.underline_style << 12) | ((cell.protected_char != 0) << 15) | (lineAttribute << 16) | (cell.drawn << 18);
     }
 
-    unsigned cellFlags(const DisplayCell& cell) {
-        return cellFlags(cell.source, cell.lineAttribute);
-    }
-
     unsigned cellFlags(const TerminalCell& cell) {
         return cellFlags(cell, 0);
     }
-
-    struct ModelDigest {
-        u64 first = 14695981039346656037ull;
-        u64 second = 1099511628211ull;
-
-        void add(u64 value) {
-            for (unsigned shift = 0; shift < 64; shift += 8) {
-                const u8 byte = (u8)(value >> shift);
-                first = (first ^ byte) * 1099511628211ull;
-                second = (second ^ (byte + 0x9d)) * 14029467366897019727ull;
-            }
-        }
-    };
 
 }
 
@@ -582,420 +484,36 @@ void TestDesktopActions::openUri(StringView uri) {
     ++openCount;
 }
 
-void TestDesktopActions::pointerIcon(PointerIcon icon_) {
+void TestDesktopActions::pointerIcon(::PointerIcon icon_) {
     icon = icon_;
 }
 
-TestDisplay::TestDisplay(Composer& composer_, std::string& actions, Clipboard* clipboard, DesktopActions* desktopActions)
+TestTerminal::TestTerminal(Composer& composer_, Vterm& terminal, TestApi& testApi, TestPty& pty, ReferenceRenderer& renderer_, plt::WindowHeadless& window_)
     : composer(composer_)
-    , actions(actions)
-    , clipboard_(clipboard)
-    , desktopActions_(desktopActions)
-{
-    currentWindow.x = 10;
-    currentWindow.y = 20;
-    currentWindow.screenPixelWidth = 1920;
-    currentWindow.screenPixelHeight = 1080;
-}
-
-void TestDisplay::attach(TestApi& testApiValue) {
-    testApi = &testApiValue;
-}
-
-DisplayCell TestDisplay::materialize(const TerminalCell& cell, u8 lineAttribute, const TerminalColors& colors_) const {
-    DisplayCell result;
-    result.source = cell;
-    result.foreground = colors_.resolveForeground(cell);
-    result.background = colors_.resolveBackground(cell);
-    result.underlineColor = result.foreground;
-    result.lineAttribute = lineAttribute;
-    if (cell.hasExtra()) {
-        const CellExtraView extra = composer.cellExtras->view(cell);
-        result.hyperlink = extra.hyperlinkDisplayId;
-        result.grapheme = extra.grapheme.empty() ? 0 : cell.extraRef();
-        if (extra.underlineColor != cell.foreground()) {
-            result.underlineColor = colors_.resolve(extra.underlineColor);
-        }
-    } else if (cell.inlineUnderlineColor() != cell.foreground()) {
-        result.underlineColor = colors_.resolve(cell.inlineUnderlineColor());
-    }
-    return result;
-}
-
-bool TestDisplay::update(const TerminalUpdate& update) {
-    if (failNextUpdate) {
-        failNextUpdate = false;
-        return false;
-    }
-    const size_t count = (size_t)(composer.columns) * composer.rows;
-    if (columns != composer.columns || rows != composer.rows) {
-        columns = composer.columns;
-        rows = composer.rows;
-        cells.resize(count);
-        modelCells.resize(count);
-        modelLineAttributes.grow(count);
-    }
-    STD_ASSERT(update.colors != nullptr);
-    colors = update.colors;
-    lastUpdateCells = 0;
-    lastUpdateSpans = update.spanCount;
-    lastUpdateRows.clear();
-    for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
-        const TerminalCellSpan& span = update.spans[spanIndex];
-        lastUpdateCells += span.count;
-        STD_ASSERT((size_t)(span.index) + span.count <= count);
-        STD_ASSERT(span.cells != nullptr);
-        const u16 firstRow = span.index / columns;
-        const u16 lastRow = (span.index + span.count - 1) / columns;
-        for (u16 row = firstRow; row <= lastRow; ++row) {
-            bool found = false;
-            for (const u16* existing = lastUpdateRows.begin(); existing != lastUpdateRows.end(); ++existing) {
-                if (*existing == row) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                lastUpdateRows.pushBack(row);
-            }
-        }
-        for (u32 index = 0; index < span.count; ++index) {
-            cells[span.index + index] = materialize(span.cells[index], span.lineAttribute, *update.colors);
-        }
-    }
-    cellGraphemes.resize(count);
-    modelUnderlineColors.resize(count);
-    for (u16 row = 0; row < rows; ++row) {
-        for (u16 column = 0; column < columns; ++column) {
-            const size_t index = (size_t)(row)*columns + column;
-            const VtermTestCell inspected = testApi->cell(row, column);
-            modelCells[index] = inspected.cell;
-            modelLineAttributes.mut(index) = inspected.lineAttribute;
-            if (inspected.graphemeSize == 0) {
-                cellGraphemes[index].clear();
-            } else {
-                cellGraphemes[index].assign(inspected.grapheme, inspected.grapheme + inspected.graphemeSize);
-            }
-            modelUnderlineColors[index] = inspected.underlineColor;
-        }
-    }
-    cursor = update.cursor;
-    selection = update.selection;
-    snappedSelection = update.snappedSelection;
-    viewOffset = update.viewOffset;
-    historyRows = update.historyRows;
-    screenReverse = update.screenReverse;
-    blinkVisible = update.blinkVisible;
-    cursorBlink = update.cursorBlink;
-    selectionForeground = update.selectionForeground;
-    selectionBackground = update.selectionBackground;
-    selectionColorMask = update.selectionColorMask;
-    hoveredHyperlink = update.hoveredHyperlink;
-    hoveredLinkBegin = update.hoveredLinkBegin;
-    hoveredLinkEnd = update.hoveredLinkEnd;
-    graphemeCells = 0;
-    graphemeCodepoints = 0;
-    for (const auto& cell : cells) {
-        if (!cell.grapheme) {
-            continue;
-        }
-        const auto grapheme = composer.cellExtras->grapheme(cell.grapheme);
-        if (grapheme.empty()) {
-            continue;
-        }
-        ++graphemeCells;
-        graphemeCodepoints += grapheme.size();
-    }
-    ++refreshCount;
-    return true;
-}
-
-void TestDisplay::osc(int command, StringView argument) {
-    actions += "OSC " + std::to_string(command) + " " + encodeHex(argument) + "\n";
-}
-
-bool TestDisplay::handlesOsc() const {
-    return composer.vterm != nullptr;
-}
-
-void TestDisplay::title(StringView) {
-}
-
-void TestDisplay::cwd(StringView path) {
-    currentCwd.reset();
-    currentCwd.append(path.data(), path.length());
-}
-
-void TestDisplay::bell() {
-    actions += "BELL\n";
-}
-
-void TestDisplay::leds(u8 state) {
-    if (composer.vterm == nullptr) {
-        return;
-    }
-    actions += "LEDS " + std::to_string(state) + "\n";
-}
-
-void TestDisplay::notify(StringView id, StringView title, StringView body, bool close) {
-    if (close) {
-        actions += "NOTIFY_CLOSE " + encodeHex(id) + "\n";
-    } else {
-        actions += "NOTIFY " + encodeHex(id) + " " + encodeHex(title) + " " + encodeHex(body) + "\n";
-    }
-}
-
-void TestDisplay::progress(u32 state, u32 percent) {
-    actions += "PROGRESS " + std::to_string(state) + " " + std::to_string(percent) + "\n";
-}
-
-void TestDisplay::applyWindowSize(u32 pixelWidth, u32 pixelHeight) {
-    composer.resize((u16)(pixelWidth), (u16)(pixelHeight));
-}
-
-void TestDisplay::windowOperation(u32 operation, u32 first, u32 second) {
-    actions += "WINDOW " + std::to_string(operation) + " " + std::to_string(first) + " " + std::to_string(second) + "\n";
-    if (operation == 1) {
-        currentWindow.iconified = false;
-    } else if (operation == 2) {
-        currentWindow.iconified = true;
-    } else if (operation == 3) {
-        currentWindow.x = (i32)(first);
-        currentWindow.y = (i32)(second);
-    } else if (operation == 4 && first && second) {
-        applyWindowSize(second, first);
-    } else if (operation == 8 && first && second) {
-        const u32 pixelWidth = 2 * opts.border + second * composer.glyphWidth;
-        const u32 pixelHeight = 2 * opts.border + first * composer.glyphHeight;
-        applyWindowSize(pixelWidth, pixelHeight);
-    } else if (operation == 9) {
-        if (first == 0) {
-            if (haveRestoredWindow) {
-                applyWindowSize(restoredPixelWidth, restoredPixelHeight);
-                currentWindow.maximized = false;
-                haveRestoredWindow = false;
-            }
-        } else if (first <= 3) {
-            if (!haveRestoredWindow) {
-                restoredPixelWidth = composer.pixelWidth;
-                restoredPixelHeight = composer.pixelHeight;
-                haveRestoredWindow = true;
-            }
-            const u32 pixelWidth = first == 2 ? composer.pixelWidth : currentWindow.screenPixelWidth;
-            const u32 pixelHeight = first == 3 ? composer.pixelHeight : currentWindow.screenPixelHeight;
-            applyWindowSize(pixelWidth, pixelHeight);
-            currentWindow.maximized = true;
-        }
-    } else if (operation == 10) {
-        const bool enable = first == 1 || (first == 2 && !currentWindow.fullscreen);
-        if (enable && !currentWindow.fullscreen) {
-            if (!haveRestoredWindow) {
-                restoredPixelWidth = composer.pixelWidth;
-                restoredPixelHeight = composer.pixelHeight;
-                haveRestoredWindow = true;
-            }
-            applyWindowSize(currentWindow.screenPixelWidth, currentWindow.screenPixelHeight);
-            currentWindow.fullscreen = true;
-        } else if (!enable && currentWindow.fullscreen) {
-            if (haveRestoredWindow) {
-                applyWindowSize(restoredPixelWidth, restoredPixelHeight);
-                haveRestoredWindow = false;
-            }
-            currentWindow.fullscreen = false;
-        }
-    }
-}
-
-VtermWindowInfo TestDisplay::windowInfo() {
-    return currentWindow;
-}
-
-Clipboard* TestDisplay::clipboard() {
-    return clipboard_;
-}
-
-DesktopActions* TestDisplay::desktopActions() {
-    return desktopActions_;
-}
-
-void TestDisplay::failNextPresent() {
-    failNextUpdate = true;
-}
-
-std::string TestDisplay::snapshot() const {
-    StringBuilder output;
-    output << StringView(u8"OK ") << columns << StringView(u8" ") << rows << StringView(u8" ") << cursor.posX << StringView(u8" ") << cursor.posY << StringView(u8" ") << (unsigned)(cursor.style) << StringView(u8" ") << viewOffset << StringView(u8" ") << refreshCount << StringView(u8" ") << selection.tl.x << StringView(u8" ") << selection.tl.y << StringView(u8" ") << selection.br.x << StringView(u8" ") << selection.br.y << StringView(u8" ") << (unsigned)(selection.rectangular) << StringView(u8" ");
-    for (const auto& cell : cells) {
-        const unsigned flags = cellFlags(cell);
-        const u32 codepoint = cell.source.uc_pt ? cell.source.uc_pt : ' ';
-        output << Hex{codepoint, 8} << Hex{flags, 8} << Hex{cell.foreground.red, 2} << Hex{cell.foreground.green, 2} << Hex{cell.foreground.blue, 2} << Hex{cell.background.red, 2} << Hex{cell.background.green, 2} << Hex{cell.background.blue, 2} << Hex{cell.underlineColor.red, 2} << Hex{cell.underlineColor.green, 2} << Hex{cell.underlineColor.blue, 2} << Hex{cell.hyperlink, 8} << Hex{cell.source.semantic, 8};
-    }
-    output << StringView(u8"\n");
-    return toString(output);
-}
-
-std::string TestDisplay::modelSnapshot() const {
-    StringBuilder output;
-    output << StringView(u8"OK ") << columns << StringView(u8" ") << rows << StringView(u8" ") << cursor.posX << StringView(u8" ") << cursor.posY << StringView(u8" ") << (unsigned)(cursor.style) << StringView(u8" ") << viewOffset << StringView(u8" ") << refreshCount << StringView(u8" ") << selection.tl.x << StringView(u8" ") << selection.tl.y << StringView(u8" ") << selection.br.x << StringView(u8" ") << selection.br.y << StringView(u8" ") << (unsigned)(selection.rectangular) << StringView(u8" ");
-    for (size_t index = 0; index < cells.size(); ++index) {
-        const auto& cell = cells[index];
-        const auto& modelCell = modelCells[index];
-        const unsigned flags = cellFlags(modelCell, modelLineAttributes[index]);
-        const u32 codepoint = cell.source.uc_pt ? cell.source.uc_pt : ' ';
-        output << Hex{codepoint, 8} << Hex{flags, 8} << Hex{cell.foreground.red, 2} << Hex{cell.foreground.green, 2} << Hex{cell.foreground.blue, 2} << Hex{cell.background.red, 2} << Hex{cell.background.green, 2} << Hex{cell.background.blue, 2} << Hex{cell.underlineColor.red, 2} << Hex{cell.underlineColor.green, 2} << Hex{cell.underlineColor.blue, 2} << Hex{cell.hyperlink, 8} << Hex{cell.source.semantic, 8} << Hex{(u32)(modelCell.foreground().legacyIndex()), 8} << Hex{(u32)(modelCell.background().legacyIndex()), 8} << Hex{(u32)(modelUnderlineColors[index].legacyIndex()), 8} << Hex{cellGraphemes[index].size(), 8};
-        for (const u32 codepoint : cellGraphemes[index]) {
-            output << Hex{codepoint, 8};
-        }
-    }
-    output << StringView(u8"\n");
-    return toString(output);
-}
-
-std::string TestDisplay::modelDigest() const {
-    ModelDigest digest;
-    digest.add(columns);
-    digest.add(rows);
-    digest.add(cursor.style == TerminalCursor::Style::hidden ? (u64)-1 : cursor.posX);
-    digest.add(cursor.style == TerminalCursor::Style::hidden ? (u64)-1 : cursor.posY);
-    digest.add((u8)(cursor.style));
-    digest.add(viewOffset);
-    digest.add(selection.tl.x);
-    digest.add(selection.tl.y);
-    digest.add(selection.br.x);
-    digest.add(selection.br.y);
-    digest.add(selection.rectangular);
-    digest.add(cells.size());
-    for (size_t index = 0; index < cells.size(); ++index) {
-        const auto& cell = cells[index];
-        const auto& modelCell = modelCells[index];
-        digest.add(cell.source.uc_pt ? cell.source.uc_pt : ' ');
-        digest.add(cellFlags(modelCell, modelLineAttributes[index]));
-        digest.add(cell.foreground.red);
-        digest.add(cell.foreground.green);
-        digest.add(cell.foreground.blue);
-        digest.add(cell.background.red);
-        digest.add(cell.background.green);
-        digest.add(cell.background.blue);
-        digest.add(cell.underlineColor.red);
-        digest.add(cell.underlineColor.green);
-        digest.add(cell.underlineColor.blue);
-        digest.add(cell.hyperlink);
-        digest.add(cell.source.semantic);
-        digest.add((u32)(modelCell.foreground().legacyIndex()));
-        digest.add((u32)(modelCell.background().legacyIndex()));
-        digest.add((u32)(modelUnderlineColors[index].legacyIndex()));
-        digest.add(cellGraphemes[index].size());
-        for (const u32 codepoint : cellGraphemes[index]) {
-            digest.add(codepoint);
-        }
-    }
-
-    StringBuilder output;
-    output << StringView(u8"OK ") << Hex{digest.first, 16} << StringView(u8" ") << Hex{digest.second, 16} << StringView(u8"\n");
-    return toString(output);
-}
-
-std::string TestDisplay::scrollbackState() const {
-    StringBuilder output;
-    output << StringView(u8"OK ") << historyRows << StringView(u8" ") << historyRows + rows << StringView(u8" ") << rows << StringView(u8" ") << historyRows - viewOffset << StringView(u8"\n");
-    return toString(output);
-}
-
-std::string TestDisplay::renderState() const {
-    StringBuilder output;
-    output << StringView(u8"OK ") << (unsigned)(screenReverse) << StringView(u8" ") << (unsigned)(blinkVisible) << StringView(u8" ") << (unsigned)(cursorBlink) << StringView(u8" ") << (unsigned)(selectionColorMask) << StringView(u8" ") << (unsigned)(selectionForeground.red) << StringView(u8" ") << (unsigned)(selectionForeground.green) << StringView(u8" ") << (unsigned)(selectionForeground.blue) << StringView(u8" ") << (unsigned)(selectionBackground.red) << StringView(u8" ") << (unsigned)(selectionBackground.green) << StringView(u8" ") << (unsigned)(selectionBackground.blue) << StringView(u8" ") << graphemeCells << StringView(u8" ") << graphemeCodepoints << StringView(u8"\n");
-    return toString(output);
-}
-
-std::string TestDisplay::selectionState() const {
-    StringBuilder output;
-    output << StringView(u8"OK ") << selection.tl.x << StringView(u8" ") << selection.tl.y << StringView(u8" ") << selection.br.x << StringView(u8" ") << selection.br.y << StringView(u8" ") << (unsigned)(selection.rectangular) << StringView(u8" ") << snappedSelection.tl.x << StringView(u8" ") << snappedSelection.tl.y << StringView(u8" ") << snappedSelection.br.x << StringView(u8" ") << snappedSelection.br.y << StringView(u8" ") << (unsigned)(snappedSelection.rectangular) << StringView(u8"\n");
-    return toString(output);
-}
-
-TerminalUpdate TestDisplay::renderUpdate() const {
-    renderSpans.clear();
-    renderSpans.grow(rows);
-    for (u16 row = 0; row < rows; ++row) {
-        renderSpans.pushBack({
-            (u32)(row)*columns,
-            columns,
-            modelCells.data() + (size_t)(row)*columns,
-            modelLineAttributes[(size_t)(row)*columns],
-        });
-    }
-    return {
-        .spans = renderSpans.data(),
-        .spanCount = renderSpans.length(),
-        .colors = colors,
-        .viewOffset = viewOffset,
-        .historyRows = historyRows,
-        .cursor = cursor,
-        .selection = selection,
-        .snappedSelection = selection,
-        .selectionForeground = selectionForeground,
-        .selectionBackground = selectionBackground,
-        .selectionColorMask = selectionColorMask,
-        .hoveredHyperlink = hoveredHyperlink,
-        .hoveredLinkBegin = hoveredLinkBegin,
-        .hoveredLinkEnd = hoveredLinkEnd,
-        .screenReverse = screenReverse,
-        .blinkVisible = blinkVisible,
-        .cursorBlink = cursorBlink,
-    };
-}
-
-std::string TestDisplay::screenText() const {
-    std::string output;
-    output.reserve(cells.size() + rows);
-    for (size_t index = 0; index < cells.size(); ++index) {
-        const u32 codepoint = cells[index].source.uc_pt;
-        output.push_back(codepoint >= 0x20 && codepoint <= 0x7e ? (char)(codepoint) : ' ');
-        if ((index + 1) % columns == 0) {
-            output.push_back('\n');
-        }
-    }
-    return output;
-}
-
-TestTerminal::TestTerminal(Vterm& terminal, TestApi& testApi, TestPty& pty, TestDisplay& display)
-    : terminal(terminal)
+    , terminal(terminal)
     , testApi(testApi)
     , pty(pty)
-    , display(display)
-{
-    refreshState();
+    , renderer(renderer_)
+    , window(window_) {
 }
 
 bool TestTerminal::present() {
-    while (true) {
-        const TerminalUpdate* const output = terminal.output();
-        if (output == nullptr) {
-            return true;
-        }
-        if (!display.update(*output)) {
+    while (window.framePending()) {
+        if (!window.dispatchFrame()) {
             return false;
         }
-        terminal.consume();
-        refreshState();
     }
-}
-
-void TestTerminal::refreshState() {
+    return true;
 }
 
 void TestTerminal::feedPtyOutput(const u8* data, size_t size) {
-    display.lastUpdateCells = 0;
-    display.lastUpdateSpans = 0;
-    display.lastUpdateRows.clear();
+    renderer.resetUpdateStats();
     terminal.feedPty(StringView(data, size));
     update();
 }
 
 void TestTerminal::feedPtyOutput(const std::vector<std::string>& chunks) {
-    display.lastUpdateCells = 0;
-    display.lastUpdateSpans = 0;
-    display.lastUpdateRows.clear();
+    renderer.resetUpdateStats();
     for (const std::string& chunk : chunks) {
         terminal.feedPty(StringView((const u8*)(chunk.data()), chunk.size()));
     }
@@ -1004,8 +522,9 @@ void TestTerminal::feedPtyOutput(const std::vector<std::string>& chunks) {
 
 void TestTerminal::update() {
     flushPtyOutput();
+    window.requestFrame();
     present();
-    refreshState();
+    flushPtyOutput();
 }
 
 void TestTerminal::redraw() {
@@ -1014,20 +533,20 @@ void TestTerminal::redraw() {
 }
 
 void TestTerminal::resize(u16 width, u16 height) {
-    display.applyWindowSize(width, height);
+    window.requestResize(width, height);
     update();
 }
 
 Buffer TestTerminal::allText() const {
-    Buffer output((display.historyRows + display.rows) * ((size_t)(display.columns) * 4 + 1));
+    Buffer output((renderer.historyRows() + renderer.rows()) * ((size_t)(renderer.columns()) * 4 + 1));
     const auto appendCodepoint = [&](u32 codepoint) {
         Utf8Encoder::pushUnicode(codepoint, [&](u8 byte) {
             output.append(&byte, 1);
         });
     };
-    for (i32 row = -(i32)(display.historyRows); row < display.rows; ++row) {
+    for (i32 row = -(i32)(renderer.historyRows()); row < renderer.rows(); ++row) {
         size_t contentEnd = output.used();
-        for (u16 column = 0; column < display.columns; ++column) {
+        for (u16 column = 0; column < renderer.columns(); ++column) {
             const VtermTestCell value = testApi.logicalCell(row, column);
             const TerminalCell& cell = value.cell;
             if (cell.dwidth_cont) {
@@ -1102,8 +621,11 @@ bool TestTerminal::readPty(bool flushOutput) {
     if (flushOutput) {
         flushPtyOutput();
     }
+    window.requestFrame();
     present();
-    refreshState();
+    if (flushOutput) {
+        flushPtyOutput();
+    }
     return finished;
 }
 
@@ -1249,7 +771,7 @@ void TestTerminal::pasteSelection(const std::string& selection) {
 }
 
 void TestTerminal::setHasFocus(bool focused) {
-    display.composer.input->focus(focused);
+    composer.input->focus(focused);
     update();
 }
 
@@ -1419,7 +941,7 @@ namespace {
     }
 }
 
-int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, char* argv[]) {
+int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events, plt::FrameCallback& frame, int controlFd, int argc, char* argv[]) {
     int io[2];
     if (openpty(&io[0], &io[1], nullptr, nullptr, nullptr) < 0) {
         throw std::runtime_error("test openpty failed");
@@ -1458,23 +980,39 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
     }
     const u16 width = 2 * opts.border + opts.nCols * composer.glyphWidth;
     const u16 height = 2 * opts.border + opts.nRows * composer.glyphHeight;
-    composer.resize(width, height);
+    composer.platform = plt::createHeadlessPlatform(*composer.pool);
+    composer.window = composer.platform->createWindow(
+        *composer.pool,
+        {
+            .title = StringView(opts.title),
+            .width = width,
+            .height = height,
+            .input = composer.input,
+            .events = &events,
+            .frame = &frame,
+        }
+    );
+    auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
+    window.requestFrame();
+    window.dispatchFrame();
     TestPty terminalPty(composer, io[0]);
     composer.pty = &terminalPty;
     terminalPty.applySize();
     composer.resizedListeners.pushBack(&terminalPty);
     composer.ptyOutputs = PtyOutputQueue::create(composer.pool, composer.smallObjects, terminalPty);
     composer.ptyOutput = composer.ptyOutputs->append();
-    std::string actions;
     TestClipboard clipboard;
     TestDesktopActions desktopActions;
-    TestDisplay display(composer, actions, &clipboard, &desktopActions);
+    composer.clipboard = &clipboard;
+    composer.desktopActions = &desktopActions;
+    composer.renderer = Renderer::create(composer, window.renderContext());
+    auto& renderer = static_cast<ReferenceRenderer&>(*composer.renderer);
     VtermTrace& vtermTrace = *VtermTrace::create(composer);
-    Vterm& vterm = *Vterm::create(composer, display, &vtermTrace);
+    Vterm& vterm = *Vterm::create(composer, &vtermTrace);
     composer.vterm = &vterm;
     TestApi& testApi = *vterm.testApi();
-    display.attach(testApi);
-    TestTerminal terminal(vterm, testApi, terminalPty, display);
+    renderer.attach(testApi);
+    TestTerminal terminal(composer, vterm, testApi, terminalPty, renderer, window);
     FailFontChange failFontChange;
     composer.fontChangedListeners.pushFront(&failFontChange);
     pid_t childPid = -1;
@@ -1649,9 +1187,37 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
                 renderComposer.fonts = fonts;
                 renderComposer.setCellExtras(composer.cellExtras);
                 renderComposer.setGlyphSize(fonts->getPx(), fonts->getPy());
-                renderComposer.resize(2 * opts.border + display.columns * fonts->getPx(), 2 * opts.border + display.rows * fonts->getPy());
-                ReferenceRenderer* renderer = ReferenceRenderer::create(renderComposer);
-                const ReferenceImage image = renderer->render(display.renderUpdate());
+                const u16 imageWidth = 2 * opts.border + renderer.columns() * fonts->getPx();
+                const u16 imageHeight = 2 * opts.border + renderer.rows() * fonts->getPy();
+                renderComposer.resize(imageWidth, imageHeight);
+                renderComposer.platform = plt::createHeadlessPlatform(*renderPool);
+                const TerminalUpdate imageUpdate = renderer.renderUpdate();
+
+                struct ImageFrame final: plt::FrameCallback {
+                    bool frame(const plt::WindowInfo&) override {
+                        return renderer->update(*update);
+                    }
+
+                    Renderer* renderer = nullptr;
+                    const TerminalUpdate* update = nullptr;
+                } imageFrame;
+
+                renderComposer.window = renderComposer.platform->createWindow(
+                    *renderPool,
+                    {
+                        .width = imageWidth,
+                        .height = imageHeight,
+                        .frame = &imageFrame,
+                    }
+                );
+                auto& imageWindow = static_cast<plt::WindowHeadless&>(*renderComposer.window);
+                imageFrame.renderer = Renderer::create(renderComposer, imageWindow.renderContext());
+                imageFrame.update = &imageUpdate;
+                imageWindow.requestFrame();
+                if (!imageWindow.dispatchFrame()) {
+                    throw std::runtime_error("reference image presentation failed");
+                }
+                const plt::HeadlessFrame image = imageWindow.presentedFrame();
                 const std::string pixels((const char*)(image.pixels), image.length);
                 writeAll(controlFd, "OK " + std::to_string(image.width) + " " + std::to_string(image.height) + " " + encodeHex(pixels) + "\n");
             } else if (line.compare(0, 16, "GRAPHEME_BREAKS ") == 0) {
@@ -1833,7 +1399,7 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
                 terminal.readPty();
                 writeAll(controlFd, "OK\n");
             } else if (line == "FAIL_NEXT_PRESENT") {
-                display.failNextPresent();
+                window.failNextPresentation();
                 writeAll(controlFd, "OK\n");
             } else if (line == "FAIL_NEXT_FONT_CHANGE") {
                 failFontChange.arm();
@@ -1851,7 +1417,7 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
                 writeAll(controlFd, "OK " + std::to_string(doubleWidth) + " " + std::to_string(continuation) + "\n");
             } else if (line == "POLL_CHILD") {
                 pumpChild();
-                writeAll(controlFd, "OK " + std::to_string(childPid > 0) + " " + std::to_string(childExitStatus) + " " + encodeHex(display.screenText()) + "\n");
+                writeAll(controlFd, "OK " + std::to_string(childPid > 0) + " " + std::to_string(childExitStatus) + " " + encodeHex(renderer.screenText()) + "\n");
             } else if (line == "CHILD_STATUS") {
                 writeAll(controlFd, "OK " + std::to_string(childPid > 0) + " " + std::to_string(childExitStatus) + "\n");
             } else if (line == "PAGE_UP") {
@@ -1942,14 +1508,18 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
                 if (!(args >> x >> y >> pixelWidth >> pixelHeight >> screenWidth >> screenHeight >> iconified >> maximized >> fullscreen) || x < INT32_MIN || x > INT32_MAX || y < INT32_MIN || y > INT32_MAX || pixelWidth > UINT16_MAX || pixelHeight > UINT16_MAX || screenWidth > UINT32_MAX || screenHeight > UINT32_MAX || iconified > 1 || maximized > 1 || fullscreen > 1) {
                     throw std::runtime_error("invalid window info");
                 }
-                display.currentWindow.x = x;
-                display.currentWindow.y = y;
-                display.currentWindow.screenPixelWidth = screenWidth;
-                display.currentWindow.screenPixelHeight = screenHeight;
-                display.currentWindow.iconified = iconified;
-                display.currentWindow.maximized = maximized;
-                display.currentWindow.fullscreen = fullscreen;
-                display.applyWindowSize(pixelWidth, pixelHeight);
+                plt::WindowInfo info = window.info();
+                info.x = x;
+                info.y = y;
+                info.width = pixelWidth;
+                info.height = pixelHeight;
+                info.screenPixelWidth = screenWidth;
+                info.screenPixelHeight = screenHeight;
+                info.iconified = iconified;
+                info.maximized = maximized;
+                info.fullscreen = fullscreen;
+                window.configure(info);
+                terminal.update();
                 writeAll(controlFd, "OK\n");
             } else if (line == "WINSIZE") {
                 winsize size{};
@@ -1968,17 +1538,9 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
                 output << StringView(u8"OK ") << composer.fontSize << StringView(u8" ") << composer.glyphWidth << StringView(u8" ") << composer.glyphHeight << StringView(u8" ") << composer.pixelWidth << StringView(u8" ") << composer.pixelHeight << StringView(u8" ") << composer.columns << StringView(u8" ") << composer.rows << StringView(u8" ") << (unsigned)(composer.contentScale * 1000.0f + 0.5f) << StringView(u8" ") << opts.border << StringView(u8"\n");
                 writeAll(controlFd, StringView(output));
             } else if (line == "LAST_UPDATE") {
-                StringBuilder output;
-                output << StringView(u8"OK ") << display.lastUpdateCells << StringView(u8" ") << display.lastUpdateSpans << StringView(u8"\n");
-                writeAll(controlFd, StringView(output));
+                writeAll(controlFd, renderer.lastUpdate());
             } else if (line == "LAST_UPDATE_ROWS") {
-                StringBuilder output;
-                output << StringView(u8"OK");
-                for (const u16* row = display.lastUpdateRows.begin(); row != display.lastUpdateRows.end(); ++row) {
-                    output << StringView(u8" ") << *row;
-                }
-                output << StringView(u8"\n");
-                writeAll(controlFd, StringView(output));
+                writeAll(controlFd, renderer.lastUpdateRows());
             } else if (line.compare(0, 15, "FRONTEND_SCALE ") == 0) {
                 unsigned xNumerator = 0;
                 unsigned xDenominator = 0;
@@ -1988,7 +1550,9 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
                 if (sscanf(line.c_str() + 15, "%u %u %u %u %c", &xNumerator, &xDenominator, &yNumerator, &yDenominator, &trailing) != 4 || xNumerator == 0 || xDenominator == 0 || yNumerator == 0 || yDenominator == 0 || xNumerator > 10000 || xDenominator > 10000 || yNumerator > 10000 || yDenominator > 10000) {
                     Errno(EINVAL).raise(StringView(u8"invalid frontend scale"));
                 }
-                input.contentScale((float)(xNumerator) / xDenominator, (float)(yNumerator) / yDenominator);
+                plt::WindowInfo info = window.info();
+                info.contentScale = std::max((float)(xNumerator) / xDenominator, (float)(yNumerator) / yDenominator);
+                window.configure(info);
                 terminal.update();
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 4, "KEY ") == 0) {
@@ -2167,7 +1731,7 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
                 writeAll(controlFd, "OK " + std::to_string(terminal.getHyperlinkCount()) + "\n");
             } else if (line == "DESKTOP_STATE") {
                 StringBuilder output;
-                output << StringView(u8"OK ") << (unsigned)(desktopActions.icon) << StringView(u8" ") << desktopActions.openCount << StringView(u8" ") << display.hoveredHyperlink << StringView(u8" ") << display.hoveredLinkBegin << StringView(u8" ") << display.hoveredLinkEnd << StringView(u8" ");
+                output << StringView(u8"OK ") << (unsigned)(desktopActions.icon) << StringView(u8" ") << desktopActions.openCount << StringView(u8" ") << renderer.hoveredHyperlink() << StringView(u8" ") << renderer.hoveredLinkBegin() << StringView(u8" ") << renderer.hoveredLinkEnd() << StringView(u8" ");
                 if (desktopActions.openedUri.empty()) {
                     output << StringView(u8"-");
                 } else {
@@ -2176,8 +1740,8 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
                 output << StringView(u8"\n");
                 writeAll(controlFd, StringView(output));
             } else if (line == "READ_ACTIONS") {
-                writeAll(controlFd, "OK " + encodeHex(actions) + "\n");
-                actions.clear();
+                writeAll(controlFd, "OK " + encodeHex(testApi.actions()) + "\n");
+                testApi.clearActions();
             } else if (line == "STATE") {
                 const auto& mouse = terminal.getMouseTrackingState();
                 writeAll(controlFd, "OK " + std::to_string((unsigned)(mouse.mode)) + " " + std::to_string((unsigned)(mouse.enc)) + " " + std::to_string(mouse.focusEventMode) + " " + std::to_string(terminal.getKittyKeyboardFlags()) + "\n");
@@ -2278,9 +1842,9 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
                 output << StringView(u8"\n");
                 writeAll(controlFd, StringView(output));
             } else if (line == "RENDER_STATE") {
-                writeAll(controlFd, display.renderState());
+                writeAll(controlFd, renderer.renderState());
             } else if (line == "SELECTION_STATE") {
-                writeAll(controlFd, display.selectionState());
+                writeAll(controlFd, renderer.selectionState());
             } else if (line == "CHARSET_STATE") {
                 const VtermTestState state = testApi.inspect();
                 writeAll(controlFd, "OK " + std::to_string(state.charsets[0]) + " " + std::to_string(state.charsets[1]) + " " + std::to_string(state.charsets[2]) + " " + std::to_string(state.charsets[3]) + "\n");
@@ -2334,28 +1898,27 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
             } else if (line == "GET_CWD") {
                 StringBuilder output;
                 output << StringView(u8"OK ");
-                appendHex(output, StringView(display.currentCwd));
+                appendHex(output, testApi.cwd());
                 output << StringView(u8"\n");
                 writeAll(controlFd, StringView(output));
             } else if (line.compare(0, 9, "OSC7_CWD ") == 0) {
-                display.currentCwd.reset();
                 const std::string input = "\x1b]7;" + decodeHex(line.substr(9)) + "\x1b\\";
                 terminal.feedPtyOutput((const u8*)(input.data()), input.size());
                 StringBuilder output;
                 output << StringView(u8"OK ");
-                appendHex(output, StringView(display.currentCwd));
+                appendHex(output, testApi.cwd());
                 output << StringView(u8"\n");
                 writeAll(controlFd, StringView(output));
             } else if (line == "SNAPSHOT") {
-                writeAll(controlFd, display.snapshot());
+                writeAll(controlFd, renderer.snapshot());
             } else if (line == "MODEL_SNAPSHOT") {
-                writeAll(controlFd, display.modelSnapshot());
+                writeAll(controlFd, renderer.modelSnapshot());
             } else if (line == "MODEL_DIGEST") {
-                writeAll(controlFd, display.modelDigest());
+                writeAll(controlFd, renderer.modelDigest());
             } else if (line == "SCROLLBACK_STATE") {
-                writeAll(controlFd, display.scrollbackState());
+                writeAll(controlFd, renderer.scrollbackState());
             } else if (line == "SCREEN_TEXT") {
-                writeAll(controlFd, "OK " + encodeHex(display.screenText()) + "\n");
+                writeAll(controlFd, "OK " + encodeHex(renderer.screenText()) + "\n");
             } else if (line == "ALL_TEXT") {
                 const Buffer contents = terminal.allText();
                 StringBuilder output;

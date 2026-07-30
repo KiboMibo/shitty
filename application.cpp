@@ -29,7 +29,6 @@
 #include "test_input.h"
 #include "test_mode.h"
 #include "vterm.h"
-#include "vterm_host.h"
 
 #include <plt/platform.h>
 #include <plt/window.h>
@@ -101,33 +100,16 @@ namespace {
         ApplicationImpl* application;
     };
 
-    struct ApplicationImpl final: public Application, public VtermHost, public plt::WindowEvents, public plt::FrameCallback {
+    struct ApplicationImpl final: public Application, public plt::WindowEvents, public plt::FrameCallback {
         explicit ApplicationImpl(Composer& composer);
         ~ApplicationImpl();
 
         int run(int argc, char* argv[]) override;
-        void defer() override;
-        void osc(int command, StringView argument) override;
-        bool handlesOsc() const override;
-        void title(StringView value) override;
-        void cwd(StringView path) override;
-        void bell() override;
-        void leds(u8) override;
-        void notify(StringView id, StringView title, StringView body, bool close) override;
-        void progress(u32 state, u32) override;
-        void windowOperation(u32 operation, u32 first, u32 second) override;
-        VtermWindowInfo windowInfo() override;
-        Clipboard* clipboard() override;
-        DesktopActions* desktopActions() override;
         void close() override;
         bool frame(const plt::WindowInfo& info) override;
 
         Composer& composer;
         ObjPool* fontpackPool = nullptr;
-        Clipboard* clipboard_ = nullptr;
-        DesktopActions* desktopActions_ = nullptr;
-        plt::WindowInfo windowInfo_;
-        bool titleSet = false;
         u16 initialFontSize = 0;
         u16 logicalBorder = 0;
 
@@ -153,8 +135,7 @@ namespace {
 }
 
 CallFontInc::CallFontInc(ApplicationImpl* application_)
-    : application(application_)
-{
+    : application(application_) {
 }
 
 void CallFontInc::onListen(void*) {
@@ -162,8 +143,7 @@ void CallFontInc::onListen(void*) {
 }
 
 CallFontDec::CallFontDec(ApplicationImpl* application_)
-    : application(application_)
-{
+    : application(application_) {
 }
 
 void CallFontDec::onListen(void*) {
@@ -171,8 +151,7 @@ void CallFontDec::onListen(void*) {
 }
 
 CallFontReset::CallFontReset(ApplicationImpl* application_)
-    : application(application_)
-{
+    : application(application_) {
 }
 
 void CallFontReset::onListen(void*) {
@@ -180,8 +159,7 @@ void CallFontReset::onListen(void*) {
 }
 
 CallContentScaleChanged::CallContentScaleChanged(ApplicationImpl* application_)
-    : application(application_)
-{
+    : application(application_) {
 }
 
 void CallContentScaleChanged::onListen(void*) {
@@ -189,8 +167,7 @@ void CallContentScaleChanged::onListen(void*) {
 }
 
 CallFontChanged::CallFontChanged(ApplicationImpl* application_)
-    : application(application_)
-{
+    : application(application_) {
 }
 
 void CallFontChanged::onListen(void*) {
@@ -198,8 +175,7 @@ void CallFontChanged::onListen(void*) {
 }
 
 ApplicationImpl::ApplicationImpl(Composer& composer_)
-    : composer(composer_)
-{
+    : composer(composer_) {
 }
 
 void ApplicationImpl::wire() {
@@ -215,12 +191,6 @@ void ApplicationImpl::wire() {
 
 ApplicationImpl::~ApplicationImpl() {
     delete fontpackPool;
-}
-
-void ApplicationImpl::defer() {
-    if (composer.window != nullptr) {
-        composer.window->requestFrame();
-    }
 }
 
 void ApplicationImpl::publishFontChanged() {
@@ -411,7 +381,6 @@ void ApplicationImpl::close() {
 }
 
 void ApplicationImpl::updateWindowInfo(const plt::WindowInfo& info) {
-    windowInfo_ = info;
     if (isfinite(info.contentScale) && info.contentScale > 0.0f) {
         composer.setContentScale(info.contentScale);
     }
@@ -424,113 +393,6 @@ bool ApplicationImpl::frame(const plt::WindowInfo& info) {
         return false;
     }
     return presentTerminal();
-}
-
-void ApplicationImpl::osc(int, StringView) {
-}
-
-bool ApplicationImpl::handlesOsc() const {
-    return composer.vterm != nullptr;
-}
-
-void ApplicationImpl::title(StringView value) {
-    titleSet = value != StringView(opts.title);
-    composer.window->requestTitle(value);
-}
-
-void ApplicationImpl::cwd(StringView path) {
-    if (!titleSet) {
-        composer.window->requestTitle(path);
-    }
-}
-
-void ApplicationImpl::bell() {
-    composer.window->requestAttention();
-}
-
-void ApplicationImpl::leds(u8) {
-}
-
-void ApplicationImpl::notify(StringView, StringView, StringView, bool close) {
-    if (close) {
-        return;
-    }
-    composer.window->requestAttention();
-}
-
-void ApplicationImpl::progress(u32 state, u32) {
-    if (state == 2 || state == 4) {
-        composer.window->requestAttention();
-    }
-}
-
-void ApplicationImpl::windowOperation(u32 operation, u32 first, u32 second) {
-    switch (operation) {
-        case 1:
-            composer.window->requestRestore();
-            return;
-        case 2:
-            composer.window->requestIconify();
-            return;
-        case 3:
-            composer.window->requestMove((i32)(first), (i32)(second));
-            return;
-        case 5:
-            composer.window->requestFocus();
-            return;
-        case 7:
-            composer.window->requestFrame();
-            return;
-        case 9: {
-            if (first == 0) {
-                composer.window->requestMaximized(false);
-            } else if (first == 1) {
-                composer.window->requestMaximized(true);
-            } else if (first == 2) {
-                composer.window->requestMaximized(!windowInfo_.maximized);
-            }
-            return;
-        }
-        case 10: {
-            composer.window->requestFullscreen(first == 1 || (first == 2 && !windowInfo_.fullscreen));
-            return;
-        }
-        default:
-            break;
-    }
-
-    int pixelWidth = 0;
-    int pixelHeight = 0;
-    if (operation == 4 && first && second) {
-        pixelHeight = (int)(first);
-        pixelWidth = (int)(second);
-    } else if (operation == 8 && first && second) {
-        pixelHeight = 2 * opts.border + (int)(first)*composer.glyphHeight;
-        pixelWidth = 2 * opts.border + (int)(second)*composer.glyphWidth;
-    } else {
-        return;
-    }
-    composer.window->requestResize(pixelWidth, pixelHeight);
-}
-
-VtermWindowInfo ApplicationImpl::windowInfo() {
-    return {
-        .x = windowInfo_.x,
-        .y = windowInfo_.y,
-        .screenPixelWidth = windowInfo_.screenPixelWidth,
-        .screenPixelHeight = windowInfo_.screenPixelHeight,
-        .iconified = windowInfo_.iconified,
-        .maximized = windowInfo_.maximized,
-        .fullscreen = windowInfo_.fullscreen,
-    };
-}
-
-Clipboard* ApplicationImpl::clipboard() {
-    return clipboard_;
-}
-
-DesktopActions* ApplicationImpl::desktopActions() {
-    return desktopActions_;
 }
 
 bool ApplicationImpl::eventLoop() {
@@ -575,7 +437,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         sysError("setenv SHITTY_VERSION");
     }
     if (testFd >= 0) {
-        return runTestMode(composer, *TestInput::create(composer), testFd, argc, argv);
+        return runTestMode(composer, *TestInput::create(composer), *this, *this, testFd, argc, argv);
     }
 
     LaunchCommand launch = buildLaunchCommand(argc, argv, opts.shell, opts.login);
@@ -603,8 +465,8 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .frame = this,
         }
     );
-    clipboard_ = Clipboard::create(composer, *composer.window);
-    desktopActions_ = DesktopActions::create(composer, *composer.window);
+    composer.clipboard = Clipboard::create(composer, *composer.window);
+    composer.desktopActions = DesktopActions::create(composer, *composer.window);
     contentScaleChanged();
 
     replaceFontpack(initialFontSize);
@@ -617,8 +479,8 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     composer.ptyOutput = composer.ptyOutputs->append();
 
     composer.renderer = Renderer::create(composer, composer.window->renderContext());
-    composer.vterm = Vterm::create(composer, *this, nullptr);
-    defer();
+    composer.vterm = Vterm::create(composer, nullptr);
+    composer.window->requestFrame();
 
     eventLoop();
     return 0;

@@ -10,7 +10,6 @@ struct Composer;
 
 struct Application {
     virtual int run(int argc, char* argv[]) = 0;
-    virtual void defer() = 0;
 
     static Application* create(Composer& composer);
 };

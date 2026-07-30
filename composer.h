@@ -23,6 +23,8 @@ namespace plt {
 struct Fontpack;
 struct Application;
 struct CellExtraStore;
+struct Clipboard;
+struct DesktopActions;
 struct Font;
 struct FontMetrics;
 struct InputBindings;
@@ -49,6 +51,8 @@ struct Composer {
     SmallObjAllocator* smallObjects = nullptr;
     Application* application = nullptr;
     CellExtraStore* cellExtras = nullptr;
+    Clipboard* clipboard = nullptr;
+    DesktopActions* desktopActions = nullptr;
     Fontpack* fonts = nullptr;
     InputBindings* inputBindings = nullptr;
     plt::InputSink* input = nullptr;

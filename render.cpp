@@ -6,7 +6,10 @@
 
 #include "render.h"
 
+#include "render_reference.h"
 #include "terminal_types.h"
+
+#include <plt/window.h>
 
 #if defined(HAVE_METAL_RENDERER)
     #include "render_metal.h"
@@ -17,6 +20,9 @@
 #endif
 
 Renderer* Renderer::create(Composer& composer, const plt::RenderContext& context) {
+    if (context.backend == plt::RenderBackend::Headless) {
+        return ReferenceRenderer::create(composer, context);
+    }
 #if defined(HAVE_METAL_RENDERER)
     return createMetalRenderer(composer, context);
 #else

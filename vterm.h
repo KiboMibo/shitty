@@ -19,7 +19,6 @@
 
 struct Composer;
 struct CellExtraStore;
-struct VtermHost;
 struct VtermTrace;
 
 enum class VtModifier : u8 {
@@ -124,5 +123,5 @@ struct Vterm {
     virtual VtermState state() const = 0;
     virtual TestApi* testApi() = 0;
 
-    static Vterm* create(Composer& composer, VtermHost& host, VtermTrace* trace);
+    static Vterm* create(Composer& composer, VtermTrace* trace);
 };

@@ -12,8 +12,12 @@
 #include "options.h"
 #include "vterm.h"
 
+#include <plt/platform_headless.h>
+
 #include <std/mem/obj_pool.h>
 #include <std/tst/ut.h>
+
+#include <vector>
 
 using namespace stl;
 
@@ -63,6 +67,37 @@ namespace {
         cell.setBackground(CellColor::direct(background));
         return cell;
     }
+
+    struct ReferenceFixture {
+        explicit ReferenceFixture(Composer& composer)
+            : pixels((size_t)(composer.pixelWidth) * composer.pixelHeight * 3) {
+            target.pixels = pixels.data();
+            target.length = pixels.size();
+            target.width = composer.pixelWidth;
+            target.height = composer.pixelHeight;
+            target.stride = composer.pixelWidth * 3;
+            renderer = ReferenceRenderer::create(
+                composer,
+                {
+                    .backend = plt::RenderBackend::Headless,
+                    .connection = nullptr,
+                    .window = &target,
+                }
+            );
+        }
+
+        ReferenceFixture* operator->() {
+            return this;
+        }
+
+        ReferenceImage render(const TerminalUpdate& update) {
+            return renderer->update(update) ? renderer->image() : ReferenceImage{};
+        }
+
+        std::vector<u8> pixels;
+        plt::HeadlessRenderTarget target;
+        ReferenceRenderer* renderer;
+    };
 }
 
 u16 FakeFontpack::getPx() const {
@@ -109,7 +144,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         FakeFontpack fonts;
         configure(composer, fonts, 1, 1, 1, 1);
-        ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
+        ReferenceFixture renderer(composer);
         TerminalColors colors;
         TerminalUpdate update;
         update.colors = &colors;
@@ -130,7 +165,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
         fonts.bitmap[3] = 64;
         fonts.bitmapLength = 4;
         configure(composer, fonts, 1, 1, 2, 2);
-        ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
+        ReferenceFixture renderer(composer);
         TerminalColors colors;
         TerminalCell cell = coloredCell({255, 0, 0}, {0, 0, 255});
         TerminalCellSpan span{0, 1, &cell};
@@ -154,7 +189,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
         fonts.bitmap[0] = 255;
         fonts.bitmapLength = 1;
         configure(composer, fonts, 1, 1, 1, 1);
-        ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
+        ReferenceFixture renderer(composer);
         TerminalColors colors;
         TerminalCell cell = coloredCell({255, 0, 0}, {0, 0, 255});
         cell.inverse = true;
@@ -177,7 +212,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         FakeFontpack fonts;
         configure(composer, fonts, 2, 1, 1, 1);
-        ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
+        ReferenceFixture renderer(composer);
         TerminalColors colors;
         TerminalCell initial[2]{};
         initial[0].setBackground(CellColor::direct({10, 20, 30}));
@@ -209,7 +244,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
         fonts.bitmap[1] = 0;
         fonts.bitmapLength = 2;
         configure(composer, fonts, 1, 1, 2, 1);
-        ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
+        ReferenceFixture renderer(composer);
         TerminalColors colors;
         TerminalCell cell = coloredCell({255, 0, 0}, {0, 0, 255});
         TerminalCellSpan span{0, 1, &cell};
@@ -236,7 +271,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
         fonts.bitmap[1] = 0;
         fonts.bitmapLength = 2;
         configure(composer, fonts, 2, 1, 1, 1);
-        ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
+        ReferenceFixture renderer(composer);
         TerminalColors colors;
         TerminalCell cells[2]{
             coloredCell({255, 0, 0}, {0, 0, 255}),
@@ -271,7 +306,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
         fonts.bitmapLength = 4;
         fonts.colorGlyph = true;
         configure(composer, fonts, 1, 1, 1, 1);
-        ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
+        ReferenceFixture renderer(composer);
         TerminalColors colors;
         TerminalCell cell{};
         cell.setBackground(CellColor::direct({0, 0, 100}));
@@ -293,7 +328,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
         fonts.bitmap[0] = 0;
         fonts.bitmapLength = 1;
         configure(composer, fonts, 1, 1, 1, 1);
-        ReferenceRenderer* renderer = ReferenceRenderer::create(composer);
+        ReferenceFixture renderer(composer);
         TerminalColors colors;
         const u32 codepoints[] = {'a', 0x0301};
         TerminalCell stored{};

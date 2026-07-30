@@ -8,10 +8,10 @@
 
 #include "clipboard.h"
 #include "composer.h"
-#include "desktop_actions.h"
 #include "options.h"
 #include "vterm.h"
-#include "vterm_host.h"
+
+#include <plt/platform_headless.h>
 
 #include <std/ios/out.h>
 #include <std/ios/output.h>
@@ -23,26 +23,6 @@
 using namespace stl;
 
 namespace {
-    struct HeadlessHost final: public VtermHost {
-        HeadlessHost(Composer& composer, Clipboard* clipboard);
-
-        void osc(int command, StringView argument) override;
-        bool handlesOsc() const override;
-        void title(StringView) override;
-        void cwd(StringView) override;
-        void bell() override;
-        void leds(u8 state) override;
-        void notify(StringView id, StringView title, StringView body, bool close) override;
-        void progress(u32 state, u32 percent) override;
-        void windowOperation(u32 operation, u32 first, u32 second) override;
-        VtermWindowInfo windowInfo() override;
-        Clipboard* clipboard() override;
-        DesktopActions* desktopActions() override;
-
-        Composer& composer;
-        Clipboard* clipboard_;
-    };
-
     struct VtermHeadlessImpl final: public VtermHeadless, public Clipboard {
         explicit VtermHeadlessImpl(Composer& composer);
 
@@ -53,68 +33,11 @@ namespace {
         void writeClipboard(StringView) override;
 
         Composer& composer;
-        HeadlessHost host;
     };
 }
 
-HeadlessHost::HeadlessHost(Composer& composer_, Clipboard* clipboard)
-    : composer(composer_)
-    , clipboard_(clipboard)
-{
-}
-
-void HeadlessHost::osc(int, StringView) {
-}
-
-bool HeadlessHost::handlesOsc() const {
-    return false;
-}
-
-void HeadlessHost::title(StringView) {
-}
-
-void HeadlessHost::cwd(StringView) {
-}
-
-void HeadlessHost::bell() {
-}
-
-void HeadlessHost::leds(u8) {
-}
-
-void HeadlessHost::notify(StringView, StringView, StringView, bool) {
-}
-
-void HeadlessHost::progress(u32, u32) {
-}
-
-void HeadlessHost::windowOperation(u32 operation, u32 first, u32 second) {
-    if (operation == 4 && first && second) {
-        composer.resize((u16)(second), (u16)(first));
-    } else if (operation == 8 && first && second) {
-        composer.resize(2 * opts.border + second * composer.glyphWidth, 2 * opts.border + first * composer.glyphHeight);
-    }
-}
-
-VtermWindowInfo HeadlessHost::windowInfo() {
-    VtermWindowInfo info;
-    info.screenPixelWidth = composer.pixelWidth;
-    info.screenPixelHeight = composer.pixelHeight;
-    return info;
-}
-
-Clipboard* HeadlessHost::clipboard() {
-    return clipboard_;
-}
-
-DesktopActions* HeadlessHost::desktopActions() {
-    return nullptr;
-}
-
 VtermHeadlessImpl::VtermHeadlessImpl(Composer& composer_)
-    : composer(composer_)
-    , host(composer, this)
-{
+    : composer(composer_) {
 }
 
 void VtermHeadlessImpl::feed(const u8* data, size_t len) {
@@ -160,13 +83,22 @@ VtermHeadless* VtermHeadless::create(Composer& composer) {
         opts.title = "";
     }
 
+    composer.platform = plt::createHeadlessPlatform(*composer.pool);
+    composer.window = composer.platform->createWindow(
+        *composer.pool,
+        {
+            .width = pixelWidth,
+            .height = pixelHeight,
+        }
+    );
     composer.setGlyphSize(glyphWidth, glyphHeight);
     composer.resize(pixelWidth, pixelHeight);
     VtermHeadlessImpl* result = composer.pool->make<VtermHeadlessImpl>(composer);
+    composer.clipboard = result;
     if (composer.ptyOutput == nullptr) {
         composer.ptyOutput = createNullOutput(composer.pool);
     }
-    composer.vterm = Vterm::create(composer, result->host, nullptr);
+    composer.vterm = Vterm::create(composer, nullptr);
     opts.title = title;
     return result;
 }

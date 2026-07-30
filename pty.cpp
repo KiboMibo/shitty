@@ -94,8 +94,7 @@ namespace {
 }
 
 CallPtyResize::CallPtyResize(PtyImpl* pty_)
-    : pty(pty_)
-{
+    : pty(pty_) {
 }
 
 void CallPtyResize::onListen(void*) {
@@ -104,8 +103,7 @@ void CallPtyResize::onListen(void*) {
 
 PtyImpl::PtyImpl(Composer& composer, int fd)
     : composer_(composer)
-    , fd_(fd)
-{
+    , fd_(fd) {
     const int flags = fcntl(fd_, F_GETFL, 0);
     if (flags < 0 || fcntl(fd_, F_SETFL, flags | O_NONBLOCK) < 0) {
         const int error = errno;
@@ -167,7 +165,7 @@ void PtyImpl::ready(PollFD event) {
     } else {
         updateInterest(outputPending);
     }
-    composer_.application->defer();
+    composer_.window->requestFrame();
 }
 
 void PtyImpl::updateInterest(bool outputPending) {

@@ -9,4 +9,9 @@
 struct Composer;
 struct TestInput;
 
-int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, char* argv[]);
+namespace plt {
+    struct FrameCallback;
+    struct WindowEvents;
+}
+
+int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events, plt::FrameCallback& frame, int controlFd, int argc, char* argv[]);
