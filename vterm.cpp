@@ -3316,6 +3316,12 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
     u16 lineBegin, lineCols;
     activeLine(lineBegin, lineCols);
 
+    // A leading joiner has nothing to join.  Ghostty, Kitty and Foot discard
+    // it; keeping it as a width-one cell also advances the cursor incorrectly.
+    if (graphemeBoundary && w == 0 && pt == 0x200d) {
+        return;
+    }
+
     if (inputGraphemeScreen == cf && !graphemeBoundary) {
         const u32 previous = inputGrapheme.empty() ? inputGraphemeBase : inputGrapheme.data()[inputGrapheme.size() - 1];
         if (inputGrapheme.empty()) {

@@ -31,6 +31,26 @@ class GhosttyResizeTest(unittest.TestCase):
             self.assertEqual(terminal.winsize_full(), (80, 24, 720, 432))
             self.assert_private_mode(terminal, 2026, False)
 
+    def test_resize_rejects_zero_dimensions_before_mutation(self):
+        with Shitty(
+            columns=10,
+            rows=5,
+            glyph_px=9,
+            glyph_py=18,
+        ) as terminal:
+            before_size = terminal.winsize_full()
+            before_model = terminal.model_digest()
+            before_frame = terminal.snapshot()
+
+            with self.assertRaises(RuntimeError):
+                terminal.resize(0, 5)
+            with self.assertRaises(RuntimeError):
+                terminal.resize(10, 0)
+
+            self.assertEqual(terminal.winsize_full(), before_size)
+            self.assertEqual(terminal.model_digest(), before_model)
+            self.assertEqual(terminal.snapshot(), before_frame)
+
     def test_resize_reports_mode_2048_geometry(self):
         with Shitty(
             columns=80,

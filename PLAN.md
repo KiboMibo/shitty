@@ -61,6 +61,26 @@ resize при обычном исключении уже строит замен
 
 То есть fuzz-corpus взят полностью, а semantic model Ghostty — почти не взят. Основные источники: [Terminal.zig](/home/pg/monorepo/tmp/terminal-repos/ghostty/src/terminal/Terminal.zig), [Screen.zig](/home/pg/monorepo/tmp/terminal-repos/ghostty/src/terminal/Screen.zig).
 
+~~Первые девять resize-тестов `Terminal.zig` учтены. Reject-zero до
+мутации перенесён буквально; reset synchronized output, pixel-only resize и
+геометрия уже проверяются `test_ghostty_resize.py`. Optional pixel dimensions
+не соответствуют нашему контракту: `Composer` получает cell и pixel geometry
+одной транзакцией. Saturating `u32` multiplication неприменим, поскольку
+публичная геометрия Composer и POSIX `winsize.ws_xpixel/ws_ypixel` намеренно
+`u16`. Пять allocator/failpoint ветвей, включая замену alternate, относятся к
+recoverable Zig allocator; libstd OOM является fatal и эти состояния в
+продукте недостижимы.~~
+
+~~Блок `Terminal.zig:4358-4596` перенесён в
+`test_ghostty_terminal_input.py`: saturation cursor position, plain/chunked
+input, wrap и forced scroll, unique style, pathological grapheme growth,
+zero-width start/pending-wrap, long line и все right-edge/one-column wide-char
+варианты. Отдельный upstream `dirty` вариант покрывается более строгими
+инкрементальными Screen-тестами, которые сверяют каждый damage update с полным
+рендером. Для leading ZWJ принят общий результат Ghostty/Kitty/Foot — joiner
+без базы игнорируется; standalone combining marks сохранены ради Mosh и
+существующего терминального fallback.~~
+
 Не взяты также 94 initial fuzz seeds, но они имеют низкую ценность рядом с полным cmin.
 
 ### Kitty

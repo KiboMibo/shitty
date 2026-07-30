@@ -84,7 +84,7 @@ class UnicodeGraphemeMatrixTest(unittest.TestCase):
             self.assertEqual(terminal.select_finish(), "🇦🇧".encode())
 
     def test_keycap_and_orphan_extenders_remain_atomic(self):
-        samples = (("#️⃣", 2), ("\u0308\u0300", 1), ("\u200d\u0308", 1))
+        samples = (("#️⃣", 2), ("\u0308\u0300", 1))
         for sample, width in samples:
             with self.subTest(sample=sample, width=width):
                 with Shitty(columns=6, rows=2) as terminal:
