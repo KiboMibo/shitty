@@ -54,11 +54,20 @@ PORTED_METHODS = {
     "SetColorTableValue",
     "Osc4ColorPaletteReportTests",
     "XtermColorResourceReportTests",
+    "RequestChecksumReportTests",
+    "TogglingC1ParserMode",
+    "WindowManipulationTypeTests",
+    "SendC1ControlTest",
 }
 
 CLASSIFIED_METHODS = {
     "DeviceStatus_MacroSpaceReportTest": "DEC macro storage is not implemented",
     "DeviceStatus_MemoryChecksumReportTest": "DEC macro storage is not implemented",
+    "SoftFontSizeDetection": "DEC DRCS soft fonts are not implemented",
+    "MacroDefinitions": "DEC macro storage is not implemented",
+    "MacroInvokes": "DEC macro storage is not implemented",
+    "MenuCompletionsTests": "experimental VS Code host UI protocol is not a terminal function",
+    "PageMovementTests": "single-page terminals have no DEC page memory",
 }
 
 
@@ -813,6 +822,90 @@ class WindowsTerminalAdapterModesAndColorsTest(unittest.TestCase):
                 b"\x1b]10;rgb:bebe/bebe/bebe\x1b\\"
                 b"\x1b]11;rgb:0c0c/0c0c/0c0c\x1b\\"
                 b"\x1b]12;rgb:ffff/0000/0000\x1b\\",
+            )
+
+
+class WindowsTerminalAdapterPortableProtocolTest(unittest.TestCase):
+    @staticmethod
+    def checksum(text):
+        return (-sum(ord(character) & 0xff for character in text if character != " ")) & 0xffff
+
+    def assert_checksum(self, text, setup=b""):
+        encoded = text.encode("utf-8")
+        with Shitty(columns=max(len(text), 1), rows=1) as terminal:
+            terminal.write(
+                setup
+                + encoded
+                + f"\x1b[99;1;1;1;1;{len(text)}*y".encode()
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                f"\x1bP99!~{self.checksum(text):04X}\x1b\\".encode(),
+            )
+
+    def test_request_checksum_report(self):
+        for text in ("A", " ", "~", "ABC", "Á", "¡", "ÿ", "ÁÂÃ"):
+            with self.subTest(text=text):
+                self.assert_checksum(text)
+
+        for setup in (
+            b"\x1b[1m",
+            b"\x1b[4m",
+            b"\x1b[5m",
+            b"\x1b[7m",
+            b"\x1b[8m",
+            b"\x1b[1;4;7m",
+            b"\x1b[1\"q",
+            b"\x1b[31m",
+            b"\x1b[42m",
+            b"\x1b[33;44m",
+        ):
+            with self.subTest(setup=setup):
+                self.assert_checksum("A", setup)
+
+    def test_toggling_c1_output_and_send_c1_control(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]4;0;#0c0c0c\x1b\\"
+                b"\x1b G"
+                b"\x1b[>c"
+                b"\x1b[=c"
+                b"\x1b]4;0;?\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x9b>41;14;0c"
+                b"\x90!|00000000\x9c"
+                b"\x9d4;0;rgb:0c0c/0c0c/0c0c\x9c",
+            )
+
+            terminal.write(
+                b"\x1b F"
+                b"\x1b[>c"
+                b"\x1b[=c"
+                b"\x1b]4;0;?\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[>41;14;0c"
+                b"\x1bP!|00000000\x1b\\"
+                b"\x1b]4;0;rgb:0c0c/0c0c/0c0c\x1b\\",
+            )
+
+    def test_window_manipulation_types(self):
+        with Shitty(
+            columns=10,
+            rows=4,
+            glyph_px=10,
+            glyph_py=20,
+            extra_arguments=("-allowWindowOps", "true"),
+        ) as terminal:
+            terminal.write(b"\x1b[18t\x1b[14t\x1b[16t")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[8;4;10t"
+                b"\x1b[4;80;100t"
+                b"\x1b[6;20;10t",
             )
 
 

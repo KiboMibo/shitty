@@ -119,13 +119,15 @@ keys.~~
 
 Остались особенно полезные:
 
-- adapter — 37 из 53 методов перенесены и ещё 2 классифицированы: cursor,
+- adapter — 41 из 53 методов перенесены и ещё 7 классифицированы: cursor,
   SGR, device/status replies, DA1/DA2/DA3, DECRQDE, DECREQTPARM, DECRQSS,
   mode/report, palette, dynamic-color, keyboard/keypad, title и line-feed
-  blocks; импорт добавил отсутствовавшие 10-entry xterm SGR ring stack,
-  printer DSR, displayed-extent/terminal-parameter reports, permanent
-  grapheme-mode report и корректный default пустых RGB subparameters. Два
-  теста DEC macro storage неприменимы, поскольку этот subsystem не реализован;
+  blocks, checksum, C1 output и window geometry; импорт добавил
+  отсутствовавшие 10-entry xterm SGR ring stack, printer DSR,
+  displayed-extent/terminal-parameter reports, permanent grapheme-mode report
+  и корректный default пустых RGB subparameters. DEC macro/DRCS/page-memory
+  subsystems и экспериментальный VS Code completions host UI классифицированы
+  как неприменимые;
 - ~~InputEngine — все 25 методов проверяют отсутствующий у терминала слой
   VT input stream → Win32 `INPUT_RECORD`. Обратная, наблюдаемая сторона
   протокола покрыта keyboard/mouse matrices; Win32 ABI неприменим;~~

@@ -63,6 +63,20 @@ does not change the color. Windows' direct-dispatch fixture supplies implicit
 zero parameters even when no bytes existed in the input, so copying that
 internal behavior would make malformed wire sequences look complete.
 
+Four portable protocol methods add the complete character/checksum matrix,
+S7C1T/S8C1T reply forms, and all three window-geometry reports. Shitty follows
+its existing xterm-style checksum policy: character low bytes participate,
+while unwritten/space cells and rendition/color bits do not. The attributes
+and colors from every upstream row are retained to prove they cannot change
+that result. Geometry reports use the actual font cell size instead of Windows
+Terminal's synthetic 10×20 compatibility cell.
+
+Five more methods are classified rather than simulated. Shitty has no DEC
+DRCS soft-font store, DEC macro store, or multi-page display memory; the macro
+status methods above already report that absence. `MenuCompletionsTests`
+targets Windows Terminal's experimental OSC 633 integration with a host
+completion UI, not terminal state or portable shell integration.
+
 `../test_windows_terminal_mouse.py` translates all five methods and every
 data-source row from
 `src/terminal/adapter/ut_adapter/MouseInputTest.cpp` at the same revision:
