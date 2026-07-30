@@ -52,12 +52,14 @@ PORTED_METHODS = {
     "XtermExtendedColorDefaultParameterTest",
     "XtermExtendedSubParameterColorTest",
     "SetColorTableValue",
+    "ColorTableReportTests",
     "Osc4ColorPaletteReportTests",
     "XtermColorResourceReportTests",
     "RequestChecksumReportTests",
     "TogglingC1ParserMode",
     "WindowManipulationTypeTests",
     "SendC1ControlTest",
+    "TabulationStopReportTests",
 }
 
 CLASSIFIED_METHODS = {
@@ -773,6 +775,74 @@ class WindowsTerminalAdapterModesAndColorsTest(unittest.TestCase):
             terminal.write(b"\x1b]4;" + queries + b"\x1b\\")
             self.assertEqual(terminal.read_input(), expected)
 
+    def test_color_table_report(self):
+        colors = (
+            (0, 0, 0),
+            (204, 36, 36),
+            (51, 204, 51),
+            (204, 204, 51),
+            (51, 51, 204),
+            (204, 51, 204),
+            (51, 204, 204),
+            (120, 120, 120),
+            (69, 69, 69),
+            (255, 0, 0),
+            (0, 255, 0),
+            (255, 255, 0),
+            (0, 0, 255),
+            (255, 0, 255),
+            (0, 255, 255),
+            (255, 255, 255),
+        ) + ((0, 0, 0),) * 240
+        setters = b";".join(
+            f"{index};#{red:02x}{green:02x}{blue:02x}".encode()
+            for index, (red, green, blue) in enumerate(colors)
+        )
+        expected_hls = (
+            (0, 0, 0),
+            (120, 47, 70),
+            (240, 50, 60),
+            (180, 50, 60),
+            (0, 50, 60),
+            (60, 50, 60),
+            (300, 50, 60),
+            (0, 47, 0),
+            (0, 27, 0),
+            (120, 50, 100),
+            (240, 50, 100),
+            (180, 50, 100),
+            (0, 50, 100),
+            (60, 50, 100),
+            (300, 50, 100),
+            (0, 100, 0),
+        ) + ((0, 0, 0),) * 240
+        expected_rgb = tuple(
+            tuple((component * 100 + 127) // 255 for component in color)
+            for color in colors
+        )
+
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]4;" + setters + b"\x1b\\")
+            for model, expected in ((1, expected_hls), (2, expected_rgb)):
+                with self.subTest(model=model):
+                    terminal.write(f"\x1b[2;{model}$u".encode())
+                    response = terminal.read_input()
+                    self.assertTrue(response.startswith(b"\x1bP2$s"))
+                    self.assertTrue(response.endswith(b"\x1b\\"))
+                    entries = response[5:-2].split(b"/")
+                    self.assertEqual(len(entries), 256)
+                    self.assertEqual(
+                        entries,
+                        [
+                            (
+                                f"{index};{model};"
+                                f"{components[0]};{components[1]};"
+                                f"{components[2]}"
+                            ).encode()
+                            for index, components in enumerate(expected)
+                        ],
+                    )
+
     def test_osc4_color_palette_reports(self):
         colors = (
             (0, b"0000/0000/0000"),
@@ -842,6 +912,43 @@ class WindowsTerminalAdapterPortableProtocolTest(unittest.TestCase):
                 terminal.read_input(),
                 f"\x1bP99!~{self.checksum(text):04X}\x1b\\".encode(),
             )
+
+    def test_tabulation_stop_report(self):
+        def report(terminal):
+            terminal.write(b"\x1b[2$w")
+            response = terminal.read_input()
+            self.assertTrue(response.startswith(b"\x1bP2$u"))
+            self.assertTrue(response.endswith(b"\x1b\\"))
+            return tuple(
+                int(value)
+                for value in response[5:-2].split(b"/")
+                if value
+            )
+
+        with Shitty(columns=80, rows=2) as terminal:
+            self.assertEqual(report(terminal), tuple(range(9, 80, 8)))
+            terminal.resize(132, 2)
+            self.assertEqual(report(terminal), tuple(range(9, 132, 8)))
+
+            terminal.resize(80, 2)
+            terminal.write(b"\x1bP2$t30/60/120/240\x1b\\")
+            self.assertEqual(report(terminal), (30, 60))
+            terminal.resize(132, 2)
+            self.assertEqual(report(terminal), (30, 60, 120))
+
+            terminal.resize(80, 2)
+            for restored, expected in (
+                (b"44/22/66", (22, 44, 66)),
+                (b"3//7", (3, 7)),
+                (b"0/5/10", (5, 10)),
+                (b"1/8/18", (8, 18)),
+            ):
+                with self.subTest(restored=restored):
+                    terminal.write(b"\x1bP2$t" + restored + b"\x1b\\")
+                    self.assertEqual(report(terminal), expected)
+
+            terminal.write(b"\x1b[3g")
+            self.assertEqual(report(terminal), ())
 
     def test_request_checksum_report(self):
         for text in ("A", " ", "~", "ABC", "Á", "¡", "ÿ", "ÁÂÃ"):

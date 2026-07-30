@@ -71,6 +71,18 @@ and colors from every upstream row are retained to prove they cannot change
 that result. Geometry reports use the actual font cell size instead of Windows
 Terminal's synthetic 10×20 compatibility cell.
 
+`ColorTableReportTests` retains both DEC HLS and RGB report models and all 256
+palette entries. The request is parsed as a direct semantic callback, and the
+single DCS reply is generated from the live Shitty palette rather than a
+separate report-side copy.
+
+`TabulationStopReportTests` retains default reports at both widths, complete
+DCS restoration, ordering, empty and invalid stop handling, clearing, and the
+upstream requirement that restored stops outside the current page become
+visible after a later expansion. Manually edited VTE-style tables retain their
+existing resize policy; a restored DEC table is a complete saved table and is
+not extended with synthetic defaults.
+
 Five more methods are classified rather than simulated. Shitty has no DEC
 DRCS soft-font store, DEC macro store, or multi-page display memory; the macro
 status methods above already report that absence. `MenuCompletionsTests`

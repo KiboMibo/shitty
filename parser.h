@@ -250,6 +250,8 @@ struct ParserIface {
     virtual void csi_terDA() = 0;
     virtual void csi_DECRQDE() = 0;
     virtual void csi_DECREQTPARM(u32 permission) = 0;
+    virtual void csi_DECRQTSR_COLOR(u32 model) = 0;
+    virtual void csi_DECRQPSR_TABS() = 0;
     virtual void dsrOperatingStatus() = 0;
     virtual void dsrCursorPosition(bool privateMode) = 0;
     virtual void dsrPrinter() = 0;
@@ -379,6 +381,8 @@ struct ParserIface {
     virtual void dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, const ParserUdkDefinition* definitions, size_t definitionCount, stl::StringView values) = 0;
     virtual void dcs_DECRSTS_HLS(u32 index, u32 hue, u32 luminosity, u32 saturation) = 0;
     virtual void dcs_DECRSTS_RGB(u32 index, u32 red, u32 green, u32 blue) = 0;
+    virtual void dcs_DECRSTS_TABS_BEGIN() = 0;
+    virtual void dcs_DECRSTS_TAB(u32 column) = 0;
 };
 
 struct Parser {

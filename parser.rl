@@ -1158,6 +1158,16 @@
             parser.parameterCount = 1;
             parser.dcsColorValid = true;
             fgoto dcsColor;
+        } else if (parser.dcsIntermediateCount == 1 &&
+                   parser.dcsIntermediates[0] == '$' && fc == 't' &&
+                   parser.parameterCount == 1 && parser.present[0] &&
+                   parser.parameters[0] == 2) {
+            parser.parameters[0] = 0;
+            parser.present[0] = false;
+            parser.parameterCount = 1;
+            parser.dcsTabValid = true;
+            iface.dcs_DECRSTS_TABS_BEGIN();
+            fgoto dcsTabs;
         } else {
             fgoto dcsPayload;
         }
@@ -1292,6 +1302,49 @@
         ragelAppendEscapedString(fc, parser.maxDcsBytes);
         parser.dcsColorValid = false;
         fgoto dcsColor;
+    }
+
+    action dcsTabDigit {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        parser.present[0] = true;
+        if (parser.parameters[0] > (UINT32_MAX - (u32)(fc - '0')) / 10) {
+            parser.parameters[0] = UINT32_MAX;
+        } else {
+            parser.parameters[0] =
+                parser.parameters[0] * 10 + fc - '0';
+        }
+    }
+
+    action dcsTabSeparator {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        finishDcsTab();
+    }
+
+    action dcsTabInvalid {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        parser.dcsTabValid = false;
+    }
+
+    action dcsTabSt {
+        finishDcsTab();
+        ragelFinishDcs();
+        fnext main;
+        fbreak;
+    }
+
+    action dcsTabEscape {
+        fgoto dcsTabEscape;
+    }
+
+    action dcsTabEscapedEscape {
+        ragelAppendSynthetic('\x1b', parser.maxDcsBytes);
+        parser.dcsTabValid = false;
+    }
+
+    action dcsTabEscapedData {
+        ragelAppendEscapedString(fc, parser.maxDcsBytes);
+        parser.dcsTabValid = false;
+        fgoto dcsTabs;
     }
 
     action dcsDecrqssInvalidStart {
@@ -3482,12 +3535,23 @@
         (0x40..0x7e - csiApostropheKnown) @csiTrace
     ) @csiDone;
 
-    csiDollarKnown = [prtvxz{];
+    csiDollarKnown = [prtuvwxz{];
     csiDollarFinal = (
         'p' @csiTrace @{ dispatchModeReport(false); } |
         'r' @csiTrace @{ dispatchDeccara(false); } |
         't' @csiTrace @{ dispatchDeccara(true); } |
+        'u' @csiTrace @{
+            if (parser.parameterCount == 2 && parameter(0) == 2 &&
+                (parameter(1) == 1 || parameter(1) == 2)) {
+                iface.csi_DECRQTSR_COLOR(parameter(1));
+            }
+        } |
         'v' @csiTrace @{ dispatchDeccra(); } |
+        'w' @csiTrace @{
+            if (parser.parameterCount == 1 && parameter(0) == 2) {
+                iface.csi_DECRQPSR_TABS();
+            }
+        } |
         'x' @csiTrace @{ dispatchDecfra(); } |
         'z' @csiTrace @{ dispatchDecera(false); } |
         '{' @csiTrace @{ dispatchDecera(true); } |
@@ -4216,6 +4280,28 @@
         0x1b @dcsColorEscapedEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
                 0x9a..0x9f)) @dcsColorEscapedData
+    )*;
+
+    dcsTabs := (
+        cancel |
+        stringC1 |
+        0x9c @dcsTabSt |
+        0x1b @dcsTabEscape |
+        0x7f |
+        digit @dcsTabDigit |
+        '/' @dcsTabSeparator |
+        (any - (0x18 | 0x1a | 0x1b | 0x2f | 0x30..0x39 |
+                0x7f | 0x90 | 0x96..0x98 | 0x9a..0x9f)) @dcsTabInvalid
+    )*;
+
+    dcsTabEscape := (
+        cancel |
+        stringC1 |
+        0x9c @dcsTabSt |
+        '\\' @dcsTabSt |
+        0x1b @dcsTabEscapedEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
+                0x9a..0x9f)) @dcsTabEscapedData
     )*;
 
     dcsIgnore := (

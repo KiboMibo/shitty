@@ -119,10 +119,11 @@ keys.~~
 
 Остались особенно полезные:
 
-- adapter — 41 из 53 методов перенесены и ещё 7 классифицированы: cursor,
+- adapter — 43 из 53 методов перенесены и ещё 7 классифицированы: cursor,
   SGR, device/status replies, DA1/DA2/DA3, DECRQDE, DECREQTPARM, DECRQSS,
   mode/report, palette, dynamic-color, keyboard/keypad, title и line-feed
-  blocks, checksum, C1 output и window geometry; импорт добавил
+  blocks, checksum, C1 output, window geometry, DECRQTSR color-table report и
+  DECTABSR tab-stop save/restore; импорт добавил
   отсутствовавшие 10-entry xterm SGR ring stack, printer DSR,
   displayed-extent/terminal-parameter reports, permanent grapheme-mode report
   и корректный default пустых RGB subparameters. DEC macro/DRCS/page-memory

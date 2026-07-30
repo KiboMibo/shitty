@@ -512,6 +512,14 @@ namespace {
             record("csi_DECREQTPARM", permission);
         }
 
+        void csi_DECRQTSR_COLOR(u32 model) override {
+            record("csi_DECRQTSR_COLOR", model);
+        }
+
+        void csi_DECRQPSR_TABS() override {
+            record("csi_DECRQPSR_TABS");
+        }
+
         void dsrCursorPosition(bool privateMode) override {
             record("dsrCursorPosition", privateMode);
         }
@@ -963,6 +971,14 @@ namespace {
 
         void dcs_DECRSTS_RGB(u32 index, u32 red, u32 green, u32 blue) override {
             record("dcs_DECRSTS_RGB", index, red, green, blue);
+        }
+
+        void dcs_DECRSTS_TABS_BEGIN() override {
+            record("dcs_DECRSTS_TABS_BEGIN");
+        }
+
+        void dcs_DECRSTS_TAB(u32 column) override {
+            record("dcs_DECRSTS_TAB", column);
         }
 
         mutable ParserCall calls[64]{};
@@ -1733,6 +1749,9 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST0(TertiaryDeviceAttributes, csi_terDA, u8"\x1b[=c")
     SHITTY_PARSER_CALLBACK_TEST0(RequestDisplayedExtent, csi_DECRQDE, u8"\x1b[\"v")
     SHITTY_PARSER_CALLBACK_TEST1(RequestTerminalParameters, csi_DECREQTPARM, u8"\x1b[1x", 1)
+    SHITTY_PARSER_CALLBACK_TEST1(RequestColorTableHls, csi_DECRQTSR_COLOR, u8"\x1b[2;1$u", 1)
+    SHITTY_PARSER_CALLBACK_TEST1(RequestColorTableRgb, csi_DECRQTSR_COLOR, u8"\x1b[2;2$u", 2)
+    SHITTY_PARSER_CALLBACK_TEST0(RequestTabStops, csi_DECRQPSR_TABS, u8"\x1b[2$w")
     SHITTY_PARSER_CALLBACK_TEST0(OperatingStatus, dsrOperatingStatus, u8"\x1b[5n")
     SHITTY_PARSER_CALLBACK_TEST1(CursorPositionReport, dsrCursorPosition, u8"\x1b[6n", false)
     SHITTY_PARSER_CALLBACK_TEST0(PrinterStatus, dsrPrinter, u8"\x1b[?15n")
@@ -1991,6 +2010,22 @@ STD_TEST_SUITE(ParserCallbacks) {
         fixture.feed(StringView(u8"\x1bP2$p1;1;120;46;71/2;2;79;13;13\x1b\\"));
         expectValues(fixture.iface.find("dcs_DECRSTS_HLS"), 1, 120, 46, 71);
         expectValues(fixture.iface.find("dcs_DECRSTS_RGB"), 2, 79, 13, 13);
+    }
+
+    STD_TEST(RestoreTabStops) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1bP2$t30/60//0/1/120\x1b\\"));
+        fixture.iface.find("dcs_DECRSTS_TABS_BEGIN");
+        const i64 expected[] = {30, 60, 120};
+        size_t tabCalls = 0;
+        for (size_t index = 0; index < fixture.iface.callCount; ++index) {
+            if (StringView(fixture.iface.calls[index].name) == StringView(u8"dcs_DECRSTS_TAB")) {
+                STD_INSIST(tabCalls < sizeof(expected) / sizeof(expected[0]));
+                STD_INSIST(fixture.iface.calls[index].values[0] == expected[tabCalls]);
+                ++tabCalls;
+            }
+        }
+        STD_INSIST(tabCalls == sizeof(expected) / sizeof(expected[0]));
     }
 
     STD_TEST(RestoreColorTableOmittedAndClampedValues) {

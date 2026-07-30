@@ -154,6 +154,7 @@ namespace {
         bool dcsUdkClearDefinitions = false;
         bool dcsUdkLockDefinitions = false;
         bool dcsColorValid = false;
+        bool dcsTabValid = false;
 
         u32 oscCommand = 0;
         size_t oscPayloadOffset = 0;
@@ -250,6 +251,7 @@ namespace {
         void ragelFinishString();
         void ragelFinishDcs();
         void finishDcsColor();
+        void finishDcsTab();
         void ragelFinishOsc();
         StringView ragelOscPayload();
         void beginCsi();
@@ -740,6 +742,16 @@ void ParserImpl<traced>::finishDcsColor() {
     parser.present[0] = false;
     parser.parameterCount = 1;
     parser.dcsColorValid = true;
+}
+
+template <bool traced>
+void ParserImpl<traced>::finishDcsTab() {
+    if (parser.dcsTabValid && parser.present[0] && parser.parameters[0] > 1) {
+        iface.dcs_DECRSTS_TAB(parser.parameters[0]);
+    }
+    parser.parameters[0] = 0;
+    parser.present[0] = false;
+    parser.dcsTabValid = true;
 }
 
 template <bool traced>

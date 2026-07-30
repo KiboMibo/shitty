@@ -601,6 +601,8 @@ namespace {
         void csi_terDA() override;
         void csi_DECRQDE() override;
         void csi_DECREQTPARM(u32 permission) override;
+        void csi_DECRQTSR_COLOR(u32 model) override;
+        void csi_DECRQPSR_TABS() override;
         void dsrOperatingStatus() override;
         void dsrCursorPosition(bool privateMode) override;
         void dsrPrinter() override;
@@ -730,6 +732,8 @@ namespace {
         void dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, const ParserUdkDefinition* definitions, size_t definitionCount, StringView values) override;
         void dcs_DECRSTS_HLS(u32 index, u32 hue, u32 luminosity, u32 saturation) override;
         void dcs_DECRSTS_RGB(u32 index, u32 red, u32 green, u32 blue) override;
+        void dcs_DECRSTS_TABS_BEGIN() override;
+        void dcs_DECRSTS_TAB(u32 column) override;
 
         void reportInBandResize();
         void reportColorScheme();
@@ -903,6 +907,7 @@ namespace {
 
         std::vector<u16> tabStops;
         bool tabStopsCustomized = false;
+        bool tabStopsRestored = false;
 
         CompatibilityLevel compatLevel = CompatibilityLevel::VT400;
 
@@ -2693,6 +2698,7 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     if (resetTabStops) {
         tabStops.clear();
         tabStopsCustomized = false;
+        tabStopsRestored = false;
     }
     cf->clearSelection();
 }
@@ -4451,11 +4457,13 @@ void VtermImpl::clearTabStop() {
 void VtermImpl::clearAllTabStops() {
     tabStops.clear();
     tabStopsCustomized = true;
+    tabStopsRestored = false;
 }
 
 void VtermImpl::resetTabStops() {
     tabStops.clear();
     tabStopsCustomized = false;
+    tabStopsRestored = false;
 }
 
 void VtermImpl::setKeyboardLocked(bool enabled) {
@@ -4832,6 +4840,77 @@ void VtermImpl::dsrColorScheme() {
     reportColorScheme();
 }
 
+void VtermImpl::csi_DECRQTSR_COLOR(u32 model) {
+    StringBuilder response(8192);
+    response << StringView(u8"2$s");
+    for (u32 index = 0; index < 256; ++index) {
+        if (index != 0) {
+            response << StringView(u8"/");
+        }
+        const Color color = colors.palette[index];
+        response << index << StringView(u8";") << model << StringView(u8";");
+        if (model == 2) {
+            response << (color.red * 100u + 127u) / 255u << StringView(u8";") << (color.green * 100u + 127u) / 255u << StringView(u8";") << (color.blue * 100u + 127u) / 255u;
+            continue;
+        }
+
+        const u32 red = color.red;
+        const u32 green = color.green;
+        const u32 blue = color.blue;
+        const u32 maximum = red > green ? (red > blue ? red : blue) : (green > blue ? green : blue);
+        const u32 minimum = red < green ? (red < blue ? red : blue) : (green < blue ? green : blue);
+        const u32 chroma = maximum - minimum;
+        const u32 sum = maximum + minimum;
+        u32 hue = 0;
+        if (chroma != 0) {
+            float standardHue;
+            if (maximum == color.red) {
+                standardHue = 60.0f * ((float)(color.green) - color.blue) / chroma;
+            } else if (maximum == color.green) {
+                standardHue = 120.0f + 60.0f * ((float)(color.blue) - color.red) / chroma;
+            } else {
+                standardHue = 240.0f + 60.0f * ((float)(color.red) - color.green) / chroma;
+            }
+            if (standardHue < 0.0f) {
+                standardHue += 360.0f;
+            }
+            hue = ((u32)(standardHue + 120.5f)) % 360;
+        }
+        const u32 luminosity = (sum * 100u + 255u) / 510u;
+        const u32 saturationDenominator = 255u - (u32)(__builtin_abs((int)(sum)-255));
+        const u32 saturation = saturationDenominator == 0 ? 0 : (chroma * 100u + saturationDenominator / 2u) / saturationDenominator;
+        response << hue << StringView(u8";") << luminosity << StringView(u8";") << saturation;
+    }
+    writeDcsResponse(StringView(response));
+}
+
+void VtermImpl::csi_DECRQPSR_TABS() {
+    StringBuilder response;
+    response << StringView(u8"2$u");
+    bool first = true;
+    if (tabStopsCustomized) {
+        for (u16 column : tabStops) {
+            if (column >= composer.columns) {
+                break;
+            }
+            if (!first) {
+                response << StringView(u8"/");
+            }
+            response << (u32)(column) + 1;
+            first = false;
+        }
+    } else {
+        for (u32 column = 8; column < composer.columns; column += 8) {
+            if (!first) {
+                response << StringView(u8"/");
+            }
+            response << column + 1;
+            first = false;
+        }
+    }
+    writeDcsResponse(StringView(response));
+}
+
 void VtermImpl::esch_DECALN() {
     originMode = OriginMode::Absolute;
     marginTop = 0;
@@ -4959,6 +5038,23 @@ void VtermImpl::dcs_DECRSTS_RGB(u32 index, u32 red, u32 green, u32 blue) {
             (u8)((blue * 255 + 50) / 100),
         }
     );
+}
+
+void VtermImpl::dcs_DECRSTS_TABS_BEGIN() {
+    tabStops.clear();
+    tabStopsCustomized = true;
+    tabStopsRestored = true;
+}
+
+void VtermImpl::dcs_DECRSTS_TAB(u32 column) {
+    if (column > (u32)(UINT16_MAX) + 1) {
+        return;
+    }
+    const u16 zeroBased = (u16)(column - 1);
+    const auto position = std::lower_bound(tabStops.begin(), tabStops.end(), zeroBased);
+    if (position == tabStops.end() || *position != zeroBased) {
+        tabStops.insert(position, zeroBased);
+    }
 }
 
 void VtermImpl::dcs_DECRQSS_DECSCL() {
@@ -7169,7 +7265,7 @@ void VtermImpl::resizeGrid() {
     marginBottom = composer.rows;
     nColsEff = composer.columns;
     hMargin = 0;
-    if (tabStopsCustomized) {
+    if (tabStopsCustomized && !tabStopsRestored) {
         while (!tabStops.empty() && tabStops.back() >= composer.columns) {
             tabStops.pop_back();
         }
