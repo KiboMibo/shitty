@@ -355,6 +355,10 @@ bool ApplicationImpl::presentTerminal() {
         composer.window->requestFrame();
         return false;
     }
+    // Keep the input-method candidate window anchored to the cursor cell.
+    if (composer.window != nullptr && composer.glyphWidth != 0 && composer.glyphHeight != 0) {
+        composer.window->requestTextInputRect((i32)(opts.border + (u32)(output->cursor.posX) * composer.glyphWidth), (i32)(opts.border + (u32)(output->cursor.posY) * composer.glyphHeight), composer.glyphWidth, composer.glyphHeight);
+    }
     vterm->consume();
     return true;
 }

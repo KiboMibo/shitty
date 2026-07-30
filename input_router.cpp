@@ -19,6 +19,7 @@ namespace {
 
         void key(const plt::KeyInput& input) override;
         void text(const plt::TextInput& input) override;
+        void preedit(stl::StringView text, i32 cursorBegin, i32 cursorEnd) override;
         void pointerMotion(const plt::PointerMotionInput& input) override;
         void pointerButton(const plt::PointerButtonInput& input) override;
         void scroll(const plt::ScrollInput& input) override;
@@ -53,6 +54,11 @@ void InputRouter::text(const plt::TextInput& input) {
             return;
         }
     }
+}
+
+void InputRouter::preedit(stl::StringView, i32, i32) {
+    // Composition preview is not rendered yet; committed IME text arrives
+    // through text().
 }
 
 void InputRouter::pointerMotion(const plt::PointerMotionInput& input) {
