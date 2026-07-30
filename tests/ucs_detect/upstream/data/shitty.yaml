@@ -156,12 +156,12 @@ terminal_results:
       value_description: RESET
     2027:
       changeable: false
-      enabled: false
+      enabled: true
       mode_description: Grapheme clustering
       mode_name: GRAPHEME_CLUSTERING
-      supported: false
-      value: 0
-      value_description: NOT_RECOGNIZED
+      supported: true
+      value: 3
+      value_description: PERMANENTLY_SET
     2031:
       changeable: true
       enabled: false
@@ -179,13 +179,13 @@ terminal_results:
       value: 2
       value_description: RESET
     5522:
-      changeable: false
+      changeable: true
       enabled: false
       mode_description: Bracketed paste MIME type
       mode_name: BRACKETED_PASTE_MIME
-      supported: false
-      value: 0
-      value_description: NOT_RECOGNIZED
+      supported: true
+      value: 2
+      value_description: RESET
   number_of_colors: 16777216
   osc52_clipboard: false
   osc52_detection:

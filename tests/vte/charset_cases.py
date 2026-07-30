@@ -70,16 +70,21 @@ def charset_94(final, modifier):
         }.get(final, UTF8)
     if modifier == b"%":
         return {
+            ord("0"): NRC_TURKISH,
             ord("2"): NRC_TURKISH,
             ord("3"): NRC_SERBO_CROATIAN,
             ord("5"): DEC_SUPPLEMENTAL,
             ord("6"): NRC_PORTUGUESE,
             ord("="): NRC_HEBREW,
         }.get(final, UTF8)
-    if modifier == b"&" and final == ord("5"):
+    if modifier == b"&" and final in (ord("4"), ord("5")):
         return NRC_RUSSIAN
-    if modifier == b'"' and final == ord(">"):
-        return NRC_GREEK
+    if modifier == b'"':
+        return {
+            ord("4"): NRC_HEBREW,
+            ord(">"): NRC_GREEK,
+            ord("?"): NRC_GREEK,
+        }.get(final, UTF8)
     return UTF8
 
 

@@ -48,6 +48,14 @@ struct ScreenInfo {
     u16 rows = 0;
 };
 
+enum ScreenChecksumFlag : u8 {
+    ChecksumPositive = 1 << 0,
+    ChecksumNoAttributes = 1 << 1,
+    ChecksumKeepBlanks = 1 << 2,
+    ChecksumIncludeUndrawn = 1 << 3,
+    ChecksumRawCodepoint = 1 << 4,
+};
+
 struct Screen {
     struct Cursor {
         Point position;
@@ -86,10 +94,11 @@ struct Screen {
     virtual void fillRectangle(u16 top, u16 left, u16 bottom, u16 right, u32 codepoint, const TerminalCell& attrs, const TerminalCell& eraseAttrs) = 0;
     virtual void copyRectangle(u16 sourceTop, u16 sourceLeft, u16 targetTop, u16 targetLeft, u16 height, u16 width, const TerminalCell& eraseAttrs) = 0;
     virtual void changeRectangleAttributes(u16 top, u16 left, u16 bottom, u16 right, CellAttributeChange change) = 0;
-    virtual u16 checksum(u16 top, u16 left, u16 bottom, u16 right) const noexcept = 0;
+    virtual u16 checksum(u16 top, u16 left, u16 bottom, u16 right, u8 flags) const noexcept = 0;
     virtual ScreenHyperlink hyperlinkAt(u16 row, u16 column) const = 0;
     virtual TerminalCell testCell(u16 row, u16 column) const noexcept = 0;
     virtual TerminalCell testLogicalCell(i32 row, u16 column) const noexcept = 0;
+    virtual u32 testMaterializedRows() const noexcept = 0;
     virtual ScreenFrame captureFrame(TerminalCellSpan* spans) const = 0;
     virtual ScreenInfo info() const noexcept = 0;
 

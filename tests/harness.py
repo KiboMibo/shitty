@@ -549,6 +549,16 @@ class Shitty:
     def paste(self, data):
         self.command("PASTE " + data.hex())
 
+    def paste_clipboard(self, primary=False):
+        self.stream.write(
+            f"PASTE_CLIPBOARD {int(primary)}\n".encode("ascii")
+        )
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid clipboard paste response")
+        self.command("FLUSH_OUTPUT")
+        return response[1] == "1"
+
     def focus(self, focused):
         self.command(f"FOCUS {int(focused)}")
 
@@ -813,6 +823,14 @@ class Shitty:
 
     def read_input(self):
         return self._read_hex_response("READ_INPUT")
+
+    def read_all_input(self):
+        output = bytearray(self.read_input())
+        while True:
+            finished = self.flush_output_result()
+            output.extend(self.read_input())
+            if finished:
+                return bytes(output)
 
     def screen_text(self):
         return self._read_hex_response("SCREEN_TEXT").decode("ascii")

@@ -70,6 +70,16 @@ struct CsiRectangle {
     u32 right;
 };
 
+struct KittyTextSizing {
+    stl::StringView text;
+    u8 scale = 1;
+    u8 width = 0;
+    u8 numerator = 0;
+    u8 denominator = 0;
+    u8 verticalAlignment = 0;
+    u8 horizontalAlignment = 0;
+};
+
 struct ParserModeState {
     MouseTrackingMode mouseTracking;
     MouseTrackingEnc mouseEncoding;
@@ -106,6 +116,7 @@ struct ParserModeState {
     bool synchronizedOutput;
     bool colorSchemeUpdates;
     bool inBandResize;
+    bool pasteMimeNotifications;
 };
 
 struct ParserIface {
@@ -122,7 +133,7 @@ struct ParserIface {
     virtual void parserLockingShiftGl(u8 index) = 0;
     virtual void parserLockingShiftGr(u8 index) = 0;
     virtual void parserResetCharsets(bool isoLatin1) = 0;
-    virtual void parserDesignateCharset(u8 index, Charset charset) = 0;
+    virtual void parserDesignateCharset(u8 index, Charset charset, u16 id, bool is96) = 0;
     virtual bool parserHighlightMouseTracking() const = 0;
     virtual bool windowOperationsAllowed() const = 0;
     virtual void parserWritePty(stl::StringView bytes) = 0;
@@ -190,6 +201,7 @@ struct ParserIface {
     virtual void csi_DECERA(CsiRectangle rectangle, bool selective) = 0;
     virtual void setAttributeChangeExtent(bool rectangular) = 0;
     virtual void changeRectangleAttributes(CsiRectangle rectangle, CellAttributeChange change) = 0;
+    virtual void csi_XTCHECKSUM(u32 flags) = 0;
     virtual void csi_DECRQCRA(u32 requestId, CsiRectangle rectangle) = 0;
     virtual void csi_IL(u32 count) = 0;
     virtual void csi_DL(u32 count) = 0;
@@ -200,6 +212,7 @@ struct ParserIface {
     virtual void csi_STBM(u32 top, u32 bottom, bool valid) = 0;
     virtual void clearTabStop() = 0;
     virtual void clearAllTabStops() = 0;
+    virtual void resetTabStops() = 0;
     virtual ParserModeState parserModeState() const = 0;
     virtual void setKeyboardLocked(bool enabled) = 0;
     virtual void setInsertMode(bool enabled) = 0;
@@ -236,6 +249,7 @@ struct ParserIface {
     virtual void setSynchronizedOutput(bool enabled) = 0;
     virtual void setColorSchemeUpdates(bool enabled) = 0;
     virtual void setInBandResize(bool enabled) = 0;
+    virtual void setPasteMimeNotifications(bool enabled) = 0;
     virtual void savePrivateMode(u32 mode, bool enabled) = 0;
     virtual bool restorePrivateMode(u32 mode, bool& enabled) const = 0;
     virtual void reportMode(u32 mode, bool privateMode, u8 state) = 0;
@@ -247,8 +261,15 @@ struct ParserIface {
     virtual void csi_priDA() = 0;
     virtual void csi_secDA() = 0;
     virtual void csi_terDA() = 0;
+    virtual void csi_DECRQDE() = 0;
+    virtual void csi_DECREQTPARM(u32 permission) = 0;
+    virtual void csi_DECRQTSR_COLOR(u32 model) = 0;
+    virtual void csi_DECRQPSR_TABS() = 0;
+    virtual void csi_DECRQPSR_CURSOR() = 0;
+    virtual void csi_DECRQUPSS() = 0;
     virtual void dsrOperatingStatus() = 0;
     virtual void dsrCursorPosition(bool privateMode) = 0;
+    virtual void dsrPrinter() = 0;
     virtual void dsrUserDefinedKeys() = 0;
     virtual void dsrKeyboard() = 0;
     virtual void dsrLocator() = 0;
@@ -275,6 +296,8 @@ struct ParserIface {
     virtual void sgrUnderlineColor(CellColor color, int paletteIndex) = 0;
     virtual void sgrDefaultUnderlineColor() = 0;
     virtual void sgrFinish() = 0;
+    virtual void csi_XTPUSHSGR(const u32* attributes, size_t count) = 0;
+    virtual void csi_XTPOPSGR() = 0;
     virtual void esch_DECALN() = 0;
     virtual void setLineAttribute(u8 attribute) = 0;
 
@@ -296,6 +319,12 @@ struct ParserIface {
     virtual void osc_SELECTION_FOREGROUND(Color color, bool query) = 0;
     virtual void osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) = 0;
     virtual void osc_CLIPBOARD_WRITE(stl::StringView content, bool valid, bool primary, bool clipboard) = 0;
+    virtual void osc_KITTY_TEXT_SIZING(const KittyTextSizing& sizing) = 0;
+    virtual void osc_KITTY_CLIPBOARD_READ(stl::StringView id, stl::StringView mimeTypes, bool primary, bool valid) = 0;
+    virtual void osc_KITTY_CLIPBOARD_WRITE(stl::StringView id, bool primary) = 0;
+    virtual void osc_KITTY_CLIPBOARD_WRITE_DATA(stl::StringView id, stl::StringView mimeType, stl::StringView content, bool valid) = 0;
+    virtual void osc_KITTY_CLIPBOARD_WRITE_ALIAS(stl::StringView id, stl::StringView mimeType, stl::StringView aliases, bool valid) = 0;
+    virtual void osc_KITTY_CLIPBOARD_INVALID(stl::StringView id, bool write) = 0;
     virtual void osc_NOTIFICATION_CAPABILITIES(stl::StringView payload) = 0;
     virtual void osc_NOTIFICATION_CLOSE(stl::StringView id) = 0;
     virtual void osc_NOTIFICATION_TITLE(stl::StringView id, stl::StringView content, bool encoded, bool final) = 0;
@@ -343,6 +372,10 @@ struct ParserIface {
     virtual void setLocatorButtonUp(bool enabled) = 0;
     virtual void csi_DECRQLP() = 0;
     virtual void csi_DECEFR(u32 top, u32 left, u32 bottom, u32 right) = 0;
+    virtual void csi_DECAC_TEXT(u8 foreground, u8 background) = 0;
+    virtual void csi_DECAC_TEXT_RESET() = 0;
+    virtual void csi_DECAC_FRAME(u8 foreground, u8 background) = 0;
+    virtual void csi_DECAC_FRAME_RESET() = 0;
     virtual void resetModifyKeyResources() = 0;
     virtual void setModifyKeyResource(u8 resource, u8 value, bool useDefault) = 0;
     virtual void reportModifyKeyResource(u8 resource) = 0;
@@ -353,6 +386,7 @@ struct ParserIface {
     virtual void removeKittyKeyboardFlags(u8 flags) = 0;
     virtual void csi_kittyKeyboardQuery() = 0;
     virtual void csi_XTVERSION() = 0;
+    virtual void csi_SETMARK() = 0;
     virtual void resetLeds() = 0;
     virtual void setLed(u8 index, bool enabled) = 0;
     virtual void commitLeds() = 0;
@@ -367,6 +401,12 @@ struct ParserIface {
     virtual void dcs_DECRQSS_UNKNOWN() = 0;
     virtual void dcs_XTGETTCAP(stl::StringView encoded, stl::StringView value) = 0;
     virtual void dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, const ParserUdkDefinition* definitions, size_t definitionCount, stl::StringView values) = 0;
+    virtual void dcs_DECRSTS_HLS(u32 index, u32 hue, u32 luminosity, u32 saturation) = 0;
+    virtual void dcs_DECRSTS_RGB(u32 index, u32 red, u32 green, u32 blue) = 0;
+    virtual void dcs_DECRSTS_TABS_BEGIN() = 0;
+    virtual void dcs_DECRSTS_TAB(u32 column) = 0;
+    virtual void dcs_DECRSTS_CURSOR(u32 row, u32 column, u8 rendition, u8 protection, u8 flags, u8 gl, u8 gr, u8 sizeFlags, const Charset* charsets, const u16* charsetIds) = 0;
+    virtual void dcs_DECAUPSS(Charset charset, u16 id, bool is96) = 0;
 };
 
 struct Parser {

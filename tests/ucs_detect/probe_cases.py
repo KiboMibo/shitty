@@ -27,11 +27,11 @@ DEC_MODES = {
 DEC_MODE_STATES = {
     "bracketed_paste": 2,
     "synchronized_output": 2,
-    "grapheme_clustering": 0,
+    "grapheme_clustering": 3,
     "in_band_window_resize": 2,
     "focus_in_out_events": 2,
     "mouse_extended_sgr": 2,
-    "bracketed_paste_mime": 0,
+    "bracketed_paste_mime": 2,
     "color_palette_updates": 2,
 }
 

@@ -21,7 +21,7 @@ MODIFIER_CODES = {
 FUNCTION_KEYS = {
     "F1": (b"\x1bOP", b"\x1b[1;{}P"),
     "F2": (b"\x1bOQ", b"\x1b[1;{}Q"),
-    "F3": (b"\x1bOR", b"\x1b[1;{}R"),
+    "F3": (b"\x1bOR", b"\x1b[13;{}~"),
     "F4": (b"\x1bOS", b"\x1b[1;{}S"),
     "F5": (b"\x1b[15~", b"\x1b[15;{}~"),
     "F6": (b"\x1b[17~", b"\x1b[17;{}~"),

@@ -173,10 +173,11 @@ namespace {
         void fillRectangle(u16 top, u16 left, u16 bottom, u16 right, u32 codepoint, const TerminalCell& attrs, const TerminalCell& eraseAttrs) override;
         void copyRectangle(u16 sourceTop, u16 sourceLeft, u16 targetTop, u16 targetLeft, u16 height, u16 width, const TerminalCell& eraseAttrs) override;
         void changeRectangleAttributes(u16 top, u16 left, u16 bottom, u16 right, CellAttributeChange change) override;
-        u16 checksum(u16 top, u16 left, u16 bottom, u16 right) const noexcept override;
+        u16 checksum(u16 top, u16 left, u16 bottom, u16 right, u8 flags) const noexcept override;
         ScreenHyperlink hyperlinkAt(u16 row, u16 column) const override;
         TerminalCell testCell(u16 row, u16 column) const noexcept override;
         TerminalCell testLogicalCell(i32 row, u16 column) const noexcept override;
+        u32 testMaterializedRows() const noexcept override;
         ScreenFrame captureFrame(TerminalCellSpan* spans) const override;
         ScreenInfo info() const noexcept override;
 
@@ -1256,7 +1257,6 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
         cursorState.position.x + (cursorState.pendingWrap ? 1 : 0),
     };
     Anchor viewAnchor{oldHistoryCount - (int)(viewOffset), 0};
-    Anchor screenAnchor{oldHistoryCount, 0};
     Anchor selectionStart;
     Anchor selectionEnd;
     const bool keepSelection = !selection.null() && !selection.rectangular;
@@ -1266,7 +1266,7 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
         selectionEnd.oldRow = oldHistoryCount + selection.br.y;
         selectionEnd.oldColumn = selection.br.x;
     }
-    std::vector<Anchor*> anchors = {&cursorAnchor, &viewAnchor, &screenAnchor};
+    std::vector<Anchor*> anchors = {&cursorAnchor, &viewAnchor};
     if (keepSelection) {
         anchors.push_back(&selectionStart);
         anchors.push_back(&selectionEnd);
@@ -1401,11 +1401,7 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
     }
 
     const size_t cursorScreenStart = cursorAnchor.mapped.y >= nRows_ ? cursorAnchor.mapped.y - (nRows_ - 1) : 0;
-    size_t preferredScreenStart = screenAnchor.mapped.y;
-    if (nRows_ > state.rows) {
-        preferredScreenStart -= std::min<size_t>(preferredScreenStart, nRows_ - state.rows);
-    }
-    const size_t screenStart = std::max(preferredScreenStart, cursorScreenStart);
+    const size_t screenStart = cursorScreenStart;
     while (output.size() < screenStart + nRows_) {
         output.emplace_back(nCols_);
         outputLineAttributes.pushBack(0);
@@ -2375,29 +2371,42 @@ void ScreenBase<Coord, Epoch>::fillRectangle(u16 top, u16 left, u16 bottom, u16 
 
 template <typename Coord, typename Epoch>
 void ScreenBase<Coord, Epoch>::copyRectangle(u16 sourceTop, u16 sourceLeft, u16 targetTop, u16 targetLeft, u16 height, u16 width, const TerminalCell& eraseAttrs) {
-    std::vector<TerminalCell> copied;
-    copied.reserve((size_t)(height)*width);
+    Vector<TerminalCell> copied((size_t)(height)*width);
+    Vector<u16> copiedWidths(height);
     for (u16 row = 0; row < height; ++row) {
-        const TerminalCell* source = getLogicalRowPtr(sourceTop + row) + sourceLeft;
-        copied.insert(copied.end(), source, source + width);
+        const Row* const sourceObject = getLogicalRowObject(sourceTop + row);
+        const Row* const targetObject = getLogicalRowObject(targetTop + row);
+        const u16 sourceColumns = sourceObject->metadata.lineAttribute == 0 ? nCols : max<Coord>((Coord)(1), nCols / 2);
+        const u16 targetColumns = targetObject->metadata.lineAttribute == 0 ? nCols : max<Coord>((Coord)(1), nCols / 2);
+        const u16 sourceAvailable = sourceLeft < sourceColumns ? sourceColumns - sourceLeft : 0;
+        const u16 targetAvailable = targetLeft < targetColumns ? targetColumns - targetLeft : 0;
+        const u16 rowWidth = min(width, min(sourceAvailable, targetAvailable));
+        copiedWidths.pushBack(rowWidth);
+        copied.append(sourceObject->cells + sourceLeft, rowWidth);
     }
+    const TerminalCell* source = copied.data();
     for (u16 row = 0; row < height; ++row) {
-        clearWideBoundary(targetTop + row, targetLeft, eraseAttrs);
-        clearWideBoundary(targetTop + row, targetLeft + width, eraseAttrs);
-        TerminalCell* destination = mutableLogicalRow(targetTop + row) + targetLeft;
-        for (u16 column = 0; column < width; ++column) {
-            destination[column] = copied[(size_t)(row)*width + column];
+        const u16 rowWidth = copiedWidths[row];
+        if (rowWidth == 0) {
+            continue;
         }
-        logicalRowSlot(targetTop + row)->metadata.protection |= rowProtection(copied.data() + (size_t)(row)*width, width);
-        if (rowContainsWide(copied.data() + (size_t)(row)*width, width)) {
+        clearWideBoundary(targetTop + row, targetLeft, eraseAttrs);
+        clearWideBoundary(targetTop + row, targetLeft + rowWidth, eraseAttrs);
+        TerminalCell* destination = mutableLogicalRow(targetTop + row) + targetLeft;
+        for (u16 column = 0; column < rowWidth; ++column) {
+            destination[column] = source[column];
+        }
+        logicalRowSlot(targetTop + row)->metadata.protection |= rowProtection(source, rowWidth);
+        if (rowContainsWide(source, rowWidth)) {
             markLogicalRowWide(targetTop + row);
         }
         repairWideBoundary(targetTop + row, targetLeft, eraseAttrs);
-        repairWideBoundary(targetTop + row, targetLeft + width, eraseAttrs);
-    }
-    damageRectangle(targetTop, targetLeft, targetTop + height, targetLeft + width);
-    if (!selection.empty()) {
-        invalidateSelection(Rect(targetLeft, targetTop, targetLeft + width, targetTop + height));
+        repairWideBoundary(targetTop + row, targetLeft + rowWidth, eraseAttrs);
+        damageRow(targetTop + row, targetLeft, targetLeft + rowWidth);
+        if (!selection.empty()) {
+            invalidateSelection(Rect(targetLeft, targetTop + row, targetLeft + rowWidth, targetTop + row));
+        }
+        source += rowWidth;
     }
 }
 
@@ -2442,17 +2451,64 @@ void ScreenBase<Coord, Epoch>::changeRectangleAttributes(u16 top, u16 left, u16 
 }
 
 template <typename Coord, typename Epoch>
-u16 ScreenBase<Coord, Epoch>::checksum(u16 top, u16 left, u16 bottom, u16 right) const noexcept {
-    u16 result = 0;
+u16 ScreenBase<Coord, Epoch>::checksum(u16 top, u16 left, u16 bottom, u16 right, u8 flags) const noexcept {
+    u32 total = 0;
+    u32 trimmed = 0;
+    bool first = true;
+    CellExtraStore& extras = cellExtras();
     for (u16 row = top; row < bottom; ++row) {
         const TerminalCell* cells_ = getLogicalRowPtr(row);
         for (u16 column = left; column < right; ++column) {
-            if (cells_[column].uc_pt != ' ') {
-                result += cells_[column].uc_pt & 0xff;
+            const TerminalCell& cell = cells_[column];
+            const bool written = cell.drawn;
+            if (!written && !(flags & (ChecksumKeepBlanks | ChecksumIncludeUndrawn))) {
+                continue;
             }
+
+            u32 value;
+            if (!written) {
+                value = ' ';
+            } else if (flags & ChecksumRawCodepoint) {
+                value = cell.uc_pt;
+            } else if (cell.uc_pt >= 0x20 && cell.uc_pt <= 0xff) {
+                value = cell.uc_pt & 0x7f;
+            } else {
+                value = 0x1b;
+            }
+
+            u32 attributes = 0;
+            if (!(flags & ChecksumNoAttributes)) {
+                attributes += (cell.protected_char & TerminalCell::decProtection) ? 0x04 : 0;
+                attributes += cell.conceal ? 0x08 : 0;
+                attributes += cell.underlined() ? 0x10 : 0;
+                attributes += cell.inverse ? 0x20 : 0;
+                attributes += cell.blink ? 0x40 : 0;
+                attributes += cell.bold ? 0x80 : 0;
+                value += attributes;
+            }
+
+            if (first || value != ' ' || written || attributes != 0) {
+                trimmed += value;
+            }
+            total += value;
+
+            if (written && !(flags & ChecksumRawCodepoint)) {
+                const GraphemeView grapheme = extras.grapheme(cell);
+                for (size_t index = 1; index < grapheme.size(); ++index) {
+                    total += grapheme[index];
+                }
+            }
+            first = flags & ChecksumKeepBlanks;
+        }
+        if (!(flags & ChecksumKeepBlanks)) {
+            first = false;
         }
     }
-    return -result;
+    u32 result = flags & ChecksumKeepBlanks ? total : trimmed;
+    if (!(flags & ChecksumPositive)) {
+        result = 0u - result;
+    }
+    return result & 0xffff;
 }
 
 template <typename Coord, typename Epoch>
@@ -2731,6 +2787,15 @@ TerminalCell ScreenBase<Coord, Epoch>::testCell(u16 row, u16 column) const noexc
 template <typename Coord, typename Epoch>
 TerminalCell ScreenBase<Coord, Epoch>::testLogicalCell(i32 row, u16 column) const noexcept {
     return getLogicalRowPtr(row)[column];
+}
+
+template <typename Coord, typename Epoch>
+u32 ScreenBase<Coord, Epoch>::testMaterializedRows() const noexcept {
+    u32 result = 0;
+    for (u32 slot = 0; slot < rowCapacity; ++slot) {
+        result += rowRing[slot] != nullptr;
+    }
+    return result;
 }
 
 template <typename Coord, typename Epoch>

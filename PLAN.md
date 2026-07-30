@@ -119,7 +119,16 @@ keys.~~
 
 Остались особенно полезные:
 
-- adapter — 53 теста;
+- ~~adapter — 46 из 53 методов перенесены и ещё 7 классифицированы: cursor,
+  SGR, device/status replies, DA1/DA2/DA3, DECRQDE, DECREQTPARM, DECRQSS,
+  mode/report, palette, dynamic-color, keyboard/keypad, title и line-feed
+  blocks, checksum, C1 output, window geometry, DECRQTSR color-table report и
+  DECTABSR tab-stop save/restore; импорт добавил
+  отсутствовавшие 10-entry xterm SGR ring stack, printer DSR,
+  displayed-extent/terminal-parameter reports, permanent grapheme-mode report
+  и корректный default пустых RGB subparameters. DEC macro/DRCS/page-memory
+  subsystems и экспериментальный VS Code completions host UI классифицированы
+  как неприменимые; все 53 upstream methods учтены;~~
 - ~~InputEngine — все 25 методов проверяют отсутствующий у терминала слой
   VT input stream → Win32 `INPUT_RECORD`. Обратная, наблюдаемая сторона
   протокола покрыта keyboard/mouse matrices; Win32 ABI неприменим;~~
@@ -154,7 +163,90 @@ keys.~~
   после каждого resize. 34 состояния совпадают дословно; восемь
   Windows-specific fixed-buffer/cursor-wrap результатов адаптированы к
   cursor-anchored screen и pending-wrap политике Shitty/Alacritty/Ghostty;~~
-- `ScreenBufferTests` — 113, но часть из них привязана к Win32 console model.
+- ~~`ScreenBufferTests`, initial block — первые 13 методов перенесены через
+  observable terminal boundary: alternate-buffer lifetime/cursor, RI, полный
+  tab-stop transition matrix, ED2 и все 24 inactive C0. Импорт нашёл и
+  исправил отсутствующий DECST8C.
+  Приватные Win32 pointer/viewport assertions заменены соответствующим
+  протокольным контрактом;~~
+- ~~`ScreenBufferTests`, resize/reset/newline/color block — ещё 12 методов:
+  клеточный resize и DECCOLM, сохранение pen state, DECSTR на primary/alternate,
+  LF с margins/scrollback и erase colors, OSC 4 parser matrix, DECRSTS color
+  table report с HLS/RGB/omitted/clamped компонентами и RIS palette reset.
+  `CSI 8;0;0t` следует xterm и подставляет размер экрана вместо Windows no-op;
+  `rgbi:` сохраняется как поддерживаемая XParseColor-модель;~~
+- ~~`ScreenBufferTests`, resize/erase/alternate/word block — ещё 12 методов:
+  shrink lifetime, cursor style через resize, resize активного alternate,
+  ED 2 cursor/erase colors, word selection и active-screen dispatch/RIS.
+  Две проверки `GetWordBoundaryTrimZeros*` классифицированы как неприменимая
+  Win32 host policy (`SetTrimLeadingZeros`), а не terminal protocol/selection
+  consensus; punctuation и whitespace остаются отдельными selection-классами;~~
+- ~~`ScreenBufferTests`, default/palette/backspace block — ещё 11 методов:
+  default color sources и reset SGR, reverse, BS/DCH с default attributes,
+  global и трёхзначный OSC 4 palette index, OSC 10/11 validation, VT525 DECAC.
+  Win32 `WriteCharsLegacy` сохранён как whole/chunked byte-stream invariant.
+  DECAC normal-text реализован с 256-color extension и RIS reset; window-frame
+  item семантически разбирается, но остаётся no-op как в xterm, поскольку
+  terminal window frame принадлежит host compositor;~~
+- ~~`ScreenBufferTests`, DCH/scroll block — ещё 5 методов: полная матрица
+  near-EOL DCH, две исходные минимальные регрессии, сохранение цветов history
+  при записи в live screen и SU/SD/IL/DL/RI с тремя величинами, scrolling
+  region, cursor и erase attributes. Win32 movable viewport заменён
+  стандартным VT scrolling region;~~
+- ~~`ScreenBufferTests`, horizontal editing block — ещё 5 методов:
+  insert/replace, полные ICH/DCH matrices, DECIC/DECDC/DECFI/DECBI и
+  wide-cell ICH/DCH/DECCRA. Импорт исправил различавшуюся проверку margins в
+  ICH и DCH. Windows разворачивает horizontal operation на всю строку вне
+  vertical margins; адаптировано к VT510 и consensus xterm/Ghostty, где
+  заданные horizontal margins продолжают действовать;~~
+- ~~`ScreenBufferTests`, erase/protection block — ещё 3 метода: ED3,
+  полная 3×line/display×regular/selective erase matrix и DECSCA. Win32
+  storage tail заменён observable history contract. Windows selective erase
+  сохраняет старые colors, а malformed multi-parameter DECSCA применяет
+  последний параметр; адаптировано к xterm/Ghostty erase colors и
+  xterm-compatible first parameter;~~
+- ~~`ScreenBufferTests`, margin scrolling block — ещё 5 методов:
+  SU/SD/IL/DL/RI внутри vertical margins, без margins и внутри совместного
+  vertical/horizontal rectangular region. Перенесены все 12 upstream-ветвей
+  с полным grid и cursor assertions;~~
+- ~~`ScreenBufferTests`, line-feed/mode/reset block — ещё 7 методов:
+  IND/NEL на page edges и в rectangular margins, 3×3 IL/DL/RI erase-color
+  matrix, LNM, DECSCNM, DECOM вместе с DECLRMM, DECAWM с wide glyph и RIS
+  после заполнения history. Win32 movable viewport адаптирован к terminal
+  screen+history, а private render-settings lookup проверяется через
+  опубликованный renderer state и сохранённые cell colors;~~
+- ~~`ScreenBufferTests`, alternate/extended-attributes block — ещё 5 методов:
+  alternate clear с сохранением primary, все 256 комбинаций восьми extended
+  attributes и все 4096 attribute×foreground×background комбинаций вместе с
+  последовательными resets. Импорт исправил потерю direct RGB foreground при
+  `SGR 22`. `RestoreDownAltBufferWithTerminalScrolling` и
+  `SnapCursorWithTerminalScrolling` классифицированы как Win32-only
+  `_virtualBottom`/movable-viewport/console-API policy; переносимые resize,
+  scrollback-follow и alternate lifetime уже покрыты;~~
+- ~~`ScreenBufferTests`, cursor block — ещё 11 методов: CUU/CUD/CUF/CUB
+  внутри, снаружи и точно на margins, CNL/CPL, HPR/VPR, полный
+  DECSC/DECRC state вместе с DECOM и сменой margins, DECALN и
+  DECTCEM/cursor-blink. Импорт исправил печать справа от horizontal margins
+  и сохранение относительных координат DECSC при DECOM. Windows CNL/CPL
+  снаружи vertical margins адаптирован к xterm/Ghostty/WezTerm: carriage
+  return сохраняет действующий left margin;~~
+- ~~`ScreenBufferTests`, hyperlink/virtual-viewport block — ещё 12 методов:
+  три OSC 8 lifecycle/identity/URI transaction перенесены с поклеточной
+  проверкой. Девять методов `_virtualBottom`, movable viewport, horizontal
+  console-buffer panning и `SetConsoleCursorPosition` классифицированы как
+  Win32 host policy; terminal-side scrollback, reflow, resize и link lifetime
+  уже независимо покрыты.~~
+- ~~`ScreenBufferTests`, final block — последние 12 методов разобраны:
+  три color-preserving reflow transaction, все шесть rectangular operations,
+  DECCRA из double-width source, 36 delayed-wrap reset controls и multiline
+  wrap перенесены. Импорт исправил pending-wrap у line-rendition/DECAWM и
+  redundant DECCOLM, а rectangular copy теперь ограничивается физической
+  шириной double-width строки. `TestDeferredMainBufferResize` проверяет
+  Win32-внутреннюю отложенную оптимизацию уже покрытого observable alt resize;
+  DECECM игнорируется consensus xterm/VTE/основных терминалов; три scrollbar
+  mark/command-history метода являются Windows host UI поверх уже покрытого
+  OSC 133 semantic protocol. Все 113 методов теперь ported или явно
+  classified.~~
 
 ### WezTerm
 
@@ -294,12 +386,57 @@ query/resize request, title query/update/restore и version query; оригин�
 
 - Screen — 343;
 - Terminal — 119;
-- InputGenerator — 122;
-- TextSizing — 59;
-- Grid — 32;
-- ShellIntegration — 31;
-- KittyClipboard — 19;
-- RectangularAreaChecksum — 12.
+- ~~InputGenerator — all 122 cases accounted: the 59 terminal-observable
+  keyboard cases are rewritten against the real `plt::InputSink` path;
+  `InputBinding`, focus, wheel, and reset assertions are mapped to native and
+  Python tests. The two Contour container/table ABI cases, three internal-only
+  wheel policies, and 50 private ConPTY DECSET 9001 cases are explicitly
+  inapplicable; Shitty has no ConPTY frontend and continues to report 9001
+  unsupported.~~
+- ~~TextSizing parser — all seven Contour metadata-parser cases are imported
+  into the native Ragel parser suite. The implementation also covers Kitty's
+  current 4096-byte and safe-UTF-8 requirements. Unknown metadata is ignored
+  for forward compatibility, following the Contour/Ghostty consensus rather
+  than Kitty's stricter generated parser; malformed known fields remain
+  invalid.~~
+- TextSizing grid/render — 52 cases remain: column calculation, multicell
+  storage and overwrite/edit/selection/history invariants, fractional
+  alignment, deferred wrap and per-row rendering bands.
+- ~~Grid — all 32 cases accounted: 25 terminal-observable resize, reflow,
+  history, viewport, sparse-row and semantic-region cases are rewritten in
+  Python; seven private storage/rendering cases are mapped to native Screen
+  tests for lazy blank rows, sparse capture and partial-horizontal
+  fill-attribute preservation. Infinite history is adapted to Shitty's
+  explicit finite scrollback contract, and non-bottom height growth follows
+  the Foot/Alacritty bottom-anchored consensus instead of Contour's blank-row
+  behavior.~~
+- ~~ShellIntegration protocol core — all 31 cases inventoried; OSC 133 and
+  `CSI > M` SETMARK semantics are imported, including prompt/input/output
+  boundaries, multi-line prompts, reversible reflow, and primary/alternate
+  semantic-state isolation. Contour's private `LineFlags` formatter has no
+  terminal-protocol observable.~~
+- Contour ShellIntegration GUI extraction — 12 remaining cases for
+  `lastCommandBlock()` and `livePromptSpan()` need an explicit Shitty
+  product/test API. Their underlying semantic-cell and reflow invariants are
+  already covered, but string/span extraction is not.
+- Contour private semantic-block protocol — 12 mode-2034 cases cover
+  authenticated DCS queries, random tokens and JSON replies. No independent
+  implementation exists in the checked Foot, Alacritty, Kitty, Ghostty, VTE,
+  xterm or WezTerm sources; treat as intentionally inapplicable unless Shitty
+  deliberately adopts this Contour protocol.
+- ~~KittyClipboard — all 19 cases accounted. OSC 5522 parsing, bounded
+  multi-packet writes, MIME validation, asynchronous reads, 4096-byte read
+  chunks, permission errors, sanitized multiplexing ids, TARGETS probes and
+  private mode 5522 paste notifications are covered by native parser tests and
+  Python protocol tests. The Contour-only refusal of `loc=primary` is replaced
+  by real primary-selection reads/writes because Shitty supports that
+  platform capability. Its status-line lifetime test is exercised across the
+  primary/alternate screen boundary; Shitty has no DEC status-line surface.~~
+- ~~RectangularAreaChecksum — все 12 test cases перенесены: базовая сумма,
+  written/undrawn blanks, DEC video-attribute weights, DEC charset mapping,
+  combining marks и все пять composable XTCHECKSUM flags. Импорт добавил
+  XTCHECKSUM и заменил Windows-specific checksum oracle на измеренное
+  xterm-406 поведение, которое также реализует Contour.~~
 
 Это, вероятно, самый большой готовый источник terminal semantics после Ghostty. [Screen_test.cpp](/home/pg/monorepo/tmp/terminal-repos/contour/src/vtbackend/Screen_test.cpp)
 

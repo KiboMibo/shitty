@@ -20,7 +20,7 @@ using namespace plt;
 namespace {
     struct ParserCall {
         const char* name;
-        i64 values[10];
+        i64 values[24];
         size_t valueCount;
         size_t textOffsets[3];
         size_t textLengths[3];
@@ -143,8 +143,8 @@ namespace {
             record("parserResetCharsets", isoLatin1);
         }
 
-        void parserDesignateCharset(u8 index, Charset charset) override {
-            record("parserDesignateCharset", index, charset);
+        void parserDesignateCharset(u8 index, Charset charset, u16 id, bool is96) override {
+            record("parserDesignateCharset", index, charset, id, is96);
         }
 
         bool parserHighlightMouseTracking() const override {
@@ -349,6 +349,10 @@ namespace {
             record("changeRectangleAttributes", rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, change.setMask, change.clearMask, change.toggleMask);
         }
 
+        void csi_XTCHECKSUM(u32 flags) override {
+            record("csi_XTCHECKSUM", flags);
+        }
+
         void csi_DECRQCRA(u32 requestId, CsiRectangle rectangle) override {
             record("csi_DECRQCRA", requestId, rectangle.top, rectangle.left, rectangle.bottom, rectangle.right);
         }
@@ -377,6 +381,10 @@ namespace {
 
         void clearAllTabStops() override {
             record("clearAllTabStops");
+        }
+
+        void resetTabStops() override {
+            record("resetTabStops");
         }
 
         ParserModeState parserModeState() const override {
@@ -457,6 +465,7 @@ namespace {
         RECORD_BOOL_METHOD(setSynchronizedOutput)
         RECORD_BOOL_METHOD(setColorSchemeUpdates)
         RECORD_BOOL_METHOD(setInBandResize)
+        RECORD_BOOL_METHOD(setPasteMimeNotifications)
 
 #undef RECORD_BOOL_METHOD
 
@@ -498,9 +507,31 @@ namespace {
         RECORD_VOID_METHOD(csi_priDA)
         RECORD_VOID_METHOD(csi_secDA)
         RECORD_VOID_METHOD(csi_terDA)
+        RECORD_VOID_METHOD(csi_DECRQDE)
         RECORD_VOID_METHOD(dsrOperatingStatus)
+        RECORD_VOID_METHOD(dsrPrinter)
 
 #undef RECORD_VOID_METHOD
+
+        void csi_DECREQTPARM(u32 permission) override {
+            record("csi_DECREQTPARM", permission);
+        }
+
+        void csi_DECRQTSR_COLOR(u32 model) override {
+            record("csi_DECRQTSR_COLOR", model);
+        }
+
+        void csi_DECRQPSR_TABS() override {
+            record("csi_DECRQPSR_TABS");
+        }
+
+        void csi_DECRQPSR_CURSOR() override {
+            record("csi_DECRQPSR_CURSOR");
+        }
+
+        void csi_DECRQUPSS() override {
+            record("csi_DECRQUPSS");
+        }
 
         void dsrCursorPosition(bool privateMode) override {
             record("dsrCursorPosition", privateMode);
@@ -591,6 +622,17 @@ namespace {
             record("sgrFinish");
         }
 
+        void csi_XTPUSHSGR(const u32* attributes, size_t count) override {
+            ParserCall& call = record("csi_XTPUSHSGR");
+            for (size_t index = 0; index < count; ++index) {
+                call.values[call.valueCount++] = attributes[index];
+            }
+        }
+
+        void csi_XTPOPSGR() override {
+            record("csi_XTPOPSGR");
+        }
+
         void esch_DECALN() override {
             record("esch_DECALN");
         }
@@ -668,6 +710,41 @@ namespace {
         void osc_CLIPBOARD_WRITE(StringView content, bool valid, bool primary, bool clipboard) override {
             ParserCall& call = record("osc_CLIPBOARD_WRITE", valid, primary, clipboard);
             saveText(call, 0, content);
+        }
+
+        void osc_KITTY_TEXT_SIZING(const KittyTextSizing& sizing) override {
+            ParserCall& call = record("osc_KITTY_TEXT_SIZING", sizing.scale, sizing.width, sizing.numerator, sizing.denominator, sizing.verticalAlignment, sizing.horizontalAlignment);
+            saveText(call, 0, sizing.text);
+        }
+
+        void osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bool primary, bool valid) override {
+            ParserCall& call = record("osc_KITTY_CLIPBOARD_READ", primary, valid);
+            saveText(call, 0, id);
+            saveText(call, 1, mimeTypes);
+        }
+
+        void osc_KITTY_CLIPBOARD_WRITE(StringView id, bool primary) override {
+            ParserCall& call = record("osc_KITTY_CLIPBOARD_WRITE", primary);
+            saveText(call, 0, id);
+        }
+
+        void osc_KITTY_CLIPBOARD_WRITE_DATA(StringView id, StringView mimeType, StringView content, bool valid) override {
+            ParserCall& call = record("osc_KITTY_CLIPBOARD_WRITE_DATA", valid);
+            saveText(call, 0, id);
+            saveText(call, 1, mimeType);
+            saveText(call, 2, content);
+        }
+
+        void osc_KITTY_CLIPBOARD_WRITE_ALIAS(StringView id, StringView mimeType, StringView aliases, bool valid) override {
+            ParserCall& call = record("osc_KITTY_CLIPBOARD_WRITE_ALIAS", valid);
+            saveText(call, 0, id);
+            saveText(call, 1, mimeType);
+            saveText(call, 2, aliases);
+        }
+
+        void osc_KITTY_CLIPBOARD_INVALID(StringView id, bool write) override {
+            ParserCall& call = record("osc_KITTY_CLIPBOARD_INVALID", write);
+            saveText(call, 0, id);
         }
 
 #define RECORD_TEXT_METHOD(method, parameter)    \
@@ -836,6 +913,22 @@ namespace {
             record("csi_DECRQLP");
         }
 
+        void csi_DECAC_TEXT(u8 foreground, u8 background) override {
+            record("csi_DECAC_TEXT", foreground, background);
+        }
+
+        void csi_DECAC_TEXT_RESET() override {
+            record("csi_DECAC_TEXT_RESET");
+        }
+
+        void csi_DECAC_FRAME(u8 foreground, u8 background) override {
+            record("csi_DECAC_FRAME", foreground, background);
+        }
+
+        void csi_DECAC_FRAME_RESET() override {
+            record("csi_DECAC_FRAME_RESET");
+        }
+
         void csi_DECEFR(u32 top, u32 left, u32 bottom, u32 right) override {
             record("csi_DECEFR", top, left, bottom, right);
         }
@@ -879,6 +972,7 @@ namespace {
 
         RECORD_VOID_METHOD(csi_kittyKeyboardQuery)
         RECORD_VOID_METHOD(csi_XTVERSION)
+        RECORD_VOID_METHOD(csi_SETMARK)
 #undef RECORD_VOID_METHOD
 
         void resetLeds() override {
@@ -918,6 +1012,34 @@ namespace {
         void dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, const ParserUdkDefinition* definitions, size_t definitionCount, StringView values) override {
             ParserCall& call = record("dcs_DECUDK", clearDefinitions, lockDefinitions, definitionCount, definitionCount == 0 ? 0 : definitions[0].valueOffset, definitionCount == 0 ? 0 : definitions[0].valueLength, definitionCount == 0 ? InputKey::Unknown : definitions[0].key);
             saveText(call, 0, values);
+        }
+
+        void dcs_DECRSTS_HLS(u32 index, u32 hue, u32 luminosity, u32 saturation) override {
+            record("dcs_DECRSTS_HLS", index, hue, luminosity, saturation);
+        }
+
+        void dcs_DECRSTS_RGB(u32 index, u32 red, u32 green, u32 blue) override {
+            record("dcs_DECRSTS_RGB", index, red, green, blue);
+        }
+
+        void dcs_DECRSTS_TABS_BEGIN() override {
+            record("dcs_DECRSTS_TABS_BEGIN");
+        }
+
+        void dcs_DECRSTS_TAB(u32 column) override {
+            record("dcs_DECRSTS_TAB", column);
+        }
+
+        void dcs_DECRSTS_CURSOR(u32 row, u32 column, u8 rendition, u8 protection, u8 flags, u8 gl, u8 gr, u8 sizeFlags, const Charset* charsets, const u16* charsetIds) override {
+            ParserCall& call = record("dcs_DECRSTS_CURSOR", row, column, rendition, protection, flags, gl, gr, sizeFlags);
+            for (size_t index = 0; index < 4; ++index) {
+                call.values[call.valueCount++] = value(charsets[index]);
+                call.values[call.valueCount++] = charsetIds[index];
+            }
+        }
+
+        void dcs_DECAUPSS(Charset charset, u16 id, bool is96) override {
+            record("dcs_DECAUPSS", charset, id, is96);
         }
 
         mutable ParserCall calls[64]{};
@@ -1090,10 +1212,13 @@ namespace {
         {"DA1", "csi_priDA"},
         {"DA3", "csi_terDA"},
         {"DA2", "csi_secDA"},
+        {"DECRQDE", "csi_DECRQDE"},
+        {"DECREQTPARM_OR_WYCDIR", "csi_DECREQTPARM"},
         {"VPA", "csi_VPA"},
         {"VPR", "csi_VPR"},
         {"HVP", "csi_CUP"},
         {"TBC", "clearTabStop"},
+        {"DECST8C", "resetTabStops"},
         {"HPB", "csi_CUB"},
         {"VPB", "csi_CUU"},
         {"SM_ECMA", "setInsertMode"},
@@ -1124,6 +1249,7 @@ namespace {
         {"XTERM_RTM", "resetTitleModes"},
         {"XTERM_STM", "setTitleMode"},
         {"XTERM_MODKEYS", "resetModifyKeyResources"},
+        {"XTERM_CHECKSUM_MODE", "csi_XTCHECKSUM"},
         {"SCORC", "csi_SCORC"},
         {"DECCRA", "csi_DECCRA"},
         {"DECEFR", "csi_DECEFR"},
@@ -1243,7 +1369,14 @@ namespace {
     size_t checkVteKnown(const VteKnownSequence (&sequences)[count]) {
         size_t checked = 0;
         for (const VteKnownSequence& sequence : sequences) {
-            const char* callback = vteKnownCallback(StringView(sequence.command));
+            const StringView command(sequence.command);
+            const char* callback = vteKnownCallback(command);
+            const bool countCallback = callback != nullptr;
+            if (command == StringView(u8"XTERM_PUSHSGR") && sequence.final == '{') {
+                callback = "csi_XTPUSHSGR";
+            } else if (command == StringView(u8"XTERM_POPSGR") && sequence.final == '}') {
+                callback = "csi_XTPOPSGR";
+            }
             ParserFixture fixture;
             feedVteKnown(fixture, sequence);
             if (callback == nullptr) {
@@ -1259,7 +1392,7 @@ namespace {
                 fprintf(stderr, "VTE known %s did not call %s\n", sequence.command, callback);
                 STD_INSIST(false);
             }
-            ++checked;
+            checked += countCallback;
         }
         return checked;
     }
@@ -1353,7 +1486,7 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST1(LockingShiftGl, parserLockingShiftGl, u8"\x0e", 1)
     SHITTY_PARSER_CALLBACK_TEST1(LockingShiftGr, parserLockingShiftGr, u8"\x1b~", 1)
     SHITTY_PARSER_CALLBACK_TEST1(ResetCharsets, parserResetCharsets, u8"\x1b%G", false)
-    SHITTY_PARSER_CALLBACK_TEST2(DesignateCharset, parserDesignateCharset, u8"\x1b(0", 0, Charset::DecSpec)
+    SHITTY_PARSER_CALLBACK_TEST4(DesignateCharset, parserDesignateCharset, u8"\x1b(0", 0, Charset::DecSpec, '0', false)
     SHITTY_PARSER_CALLBACK_TEST1(ReadHighlightMouseTracking, parserHighlightMouseTracking, u8"\x1b[1;2;3;4;5T", false)
     SHITTY_PARSER_CALLBACK_TEST1(ReadWindowOperationsAllowed, windowOperationsAllowed, u8"\x1b[1t", true)
 
@@ -1608,6 +1741,7 @@ STD_TEST_SUITE(ParserCallbacks) {
     }
 
     SHITTY_PARSER_CALLBACK_TEST5(RequestRectangleChecksum, csi_DECRQCRA, u8"\x1b[9;1;2;3;4;5*y", 9, 2, 3, 4, 5)
+    SHITTY_PARSER_CALLBACK_TEST1(SetChecksumFlags, csi_XTCHECKSUM, u8"\x1b[31#y", 31)
     SHITTY_PARSER_CALLBACK_TEST1(InsertLines, csi_IL, u8"\x1b[7L", 7)
     SHITTY_PARSER_CALLBACK_TEST1(DeleteLines, csi_DL, u8"\x1b[7M", 7)
     SHITTY_PARSER_CALLBACK_TEST1(DeleteCharacters, csi_DCH, u8"\x1b[7P", 7)
@@ -1617,6 +1751,8 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST3(SetTopBottomMargins, csi_STBM, u8"\x1b[2;9r", 2, 9, true)
     SHITTY_PARSER_CALLBACK_TEST0(ClearTabStop, clearTabStop, u8"\x1b[g")
     SHITTY_PARSER_CALLBACK_TEST0(ClearAllTabStops, clearAllTabStops, u8"\x1b[3g")
+    SHITTY_PARSER_CALLBACK_TEST0(ResetTabStops, resetTabStops, u8"\x1b[?5W")
+    SHITTY_PARSER_CALLBACK_TEST0(ResetTabStopsDefault, resetTabStops, u8"\x1b[?W")
     SHITTY_PARSER_CALLBACK_TEST0(ReadModeState, parserModeState, u8"\x1b[?7s")
 
     SHITTY_PARSER_CALLBACK_TEST1(SetKeyboardLocked, setKeyboardLocked, u8"\x1b[2h", true)
@@ -1654,6 +1790,7 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST1(SetSynchronizedOutput, setSynchronizedOutput, u8"\x1b[?2026h", true)
     SHITTY_PARSER_CALLBACK_TEST1(SetColorSchemeUpdates, setColorSchemeUpdates, u8"\x1b[?2031h", true)
     SHITTY_PARSER_CALLBACK_TEST1(SetInBandResize, setInBandResize, u8"\x1b[?2048h", true)
+    SHITTY_PARSER_CALLBACK_TEST1(SetPasteMimeNotifications, setPasteMimeNotifications, u8"\x1b[?5522h", true)
     SHITTY_PARSER_CALLBACK_TEST2(SavePrivateMode, savePrivateMode, u8"\x1b[?7s", 7, false)
 
     STD_TEST(UnknownPrivateModeIsNotSaved) {
@@ -1669,6 +1806,7 @@ STD_TEST_SUITE(ParserCallbacks) {
     }
 
     SHITTY_PARSER_CALLBACK_TEST3(ReportMode, reportMode, u8"\x1b[4$p", 4, false, 2)
+    SHITTY_PARSER_CALLBACK_TEST3(ReportPermanentGraphemeMode, reportMode, u8"\x1b[?2027$p", 2027, true, 3)
     SHITTY_PARSER_CALLBACK_TEST1(ScrollLeft, csi_ecma48_SL, u8"\x1b[7 @", 7)
     SHITTY_PARSER_CALLBACK_TEST1(ScrollRight, csi_ecma48_SR, u8"\x1b[7 A", 7)
     SHITTY_PARSER_CALLBACK_TEST3(SetCursorStyle, setCursorStyle, u8"\x1b[5 q", 5, TerminalCursor::Style::bar, true)
@@ -1677,8 +1815,16 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST0(PrimaryDeviceAttributes, csi_priDA, u8"\x1b[c")
     SHITTY_PARSER_CALLBACK_TEST0(SecondaryDeviceAttributes, csi_secDA, u8"\x1b[>c")
     SHITTY_PARSER_CALLBACK_TEST0(TertiaryDeviceAttributes, csi_terDA, u8"\x1b[=c")
+    SHITTY_PARSER_CALLBACK_TEST0(RequestDisplayedExtent, csi_DECRQDE, u8"\x1b[\"v")
+    SHITTY_PARSER_CALLBACK_TEST1(RequestTerminalParameters, csi_DECREQTPARM, u8"\x1b[1x", 1)
+    SHITTY_PARSER_CALLBACK_TEST1(RequestColorTableHls, csi_DECRQTSR_COLOR, u8"\x1b[2;1$u", 1)
+    SHITTY_PARSER_CALLBACK_TEST1(RequestColorTableRgb, csi_DECRQTSR_COLOR, u8"\x1b[2;2$u", 2)
+    SHITTY_PARSER_CALLBACK_TEST0(RequestTabStops, csi_DECRQPSR_TABS, u8"\x1b[2$w")
+    SHITTY_PARSER_CALLBACK_TEST0(RequestCursorInformation, csi_DECRQPSR_CURSOR, u8"\x1b[1$w")
+    SHITTY_PARSER_CALLBACK_TEST0(RequestUserPreferenceCharset, csi_DECRQUPSS, u8"\x1b[&u")
     SHITTY_PARSER_CALLBACK_TEST0(OperatingStatus, dsrOperatingStatus, u8"\x1b[5n")
     SHITTY_PARSER_CALLBACK_TEST1(CursorPositionReport, dsrCursorPosition, u8"\x1b[6n", false)
+    SHITTY_PARSER_CALLBACK_TEST0(PrinterStatus, dsrPrinter, u8"\x1b[?15n")
     SHITTY_PARSER_CALLBACK_TEST0(UserDefinedKeysStatus, dsrUserDefinedKeys, u8"\x1b[?25n")
     SHITTY_PARSER_CALLBACK_TEST0(KeyboardStatus, dsrKeyboard, u8"\x1b[?26n")
     SHITTY_PARSER_CALLBACK_TEST0(LocatorStatus, dsrLocator, u8"\x1b[?55n")
@@ -1706,6 +1852,12 @@ STD_TEST_SUITE(ParserCallbacks) {
         expectValues(fixture.expect("sgrForeground"), CellColor::indexed(1).encoded(), 1, true);
     }
 
+    STD_TEST(SgrForegroundDefaultsEmptyColonComponentsToZero) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b[38:2::1:2m"));
+        expectValues(fixture.expect("sgrForeground"), CellColor::direct({0, 1, 2}).encoded(), -1, false);
+    }
+
     SHITTY_PARSER_CALLBACK_TEST0(SgrDefaultForeground, sgrDefaultForeground, u8"\x1b[39m")
 
     STD_TEST(SgrBackground) {
@@ -1724,6 +1876,12 @@ STD_TEST_SUITE(ParserCallbacks) {
 
     SHITTY_PARSER_CALLBACK_TEST0(SgrDefaultUnderlineColor, sgrDefaultUnderlineColor, u8"\x1b[59m")
     SHITTY_PARSER_CALLBACK_TEST0(SgrFinish, sgrFinish, u8"\x1b[m")
+    SHITTY_PARSER_CALLBACK_TEST0(PopSgr, csi_XTPOPSGR, u8"\x1b[#}")
+    STD_TEST(PushSgr) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b[1;30;31#{"));
+        expectValues(fixture.expect("csi_XTPUSHSGR"), 1, 30, 31);
+    }
     SHITTY_PARSER_CALLBACK_TEST0(ScreenAlignmentPattern, esch_DECALN, u8"\x1b#8")
     SHITTY_PARSER_CALLBACK_TEST1(SetLineAttribute, setLineAttribute, u8"\x1b#3", 1)
 
@@ -1780,6 +1938,167 @@ STD_TEST_SUITE(ParserCallbacks) {
         const ParserCall& call = fixture.expect("osc_CLIPBOARD_WRITE");
         expectValues(call, true, false, true);
         expectText(fixture.iface, call, 0, StringView(u8"a"));
+    }
+
+    STD_TEST(KittyTextSizingDefaults) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b]66;;hello\a"));
+        const ParserCall& call = fixture.expect("osc_KITTY_TEXT_SIZING");
+        expectValues(call, 1, 0, 0, 0, 0, 0);
+        expectText(fixture.iface, call, 0, StringView(u8"hello"));
+    }
+
+    STD_TEST(KittyTextSizingMetadataIsColonSeparated) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b]66;s=2:w=3:n=1:d=2:v=1:h=2;x\x1b\\"));
+        const ParserCall& call = fixture.expect("osc_KITTY_TEXT_SIZING");
+        expectValues(call, 2, 3, 1, 2, 1, 2);
+        expectText(fixture.iface, call, 0, StringView(u8"x"));
+    }
+
+    STD_TEST(KittyTextSizingTextMayContainSemicolons) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b]66;s=2;a;b\a"));
+        const ParserCall& call = fixture.expect("osc_KITTY_TEXT_SIZING");
+        expectText(fixture.iface, call, 0, StringView(u8"a;b"));
+    }
+
+    STD_TEST(KittyTextSizingRejectsInvalidMetadata) {
+        static const StringView invalid[] = {
+            StringView(u8"\x1b]66;s=0;x\a"),
+            StringView(u8"\x1b]66;s=8;x\a"),
+            StringView(u8"\x1b]66;w=8;x\a"),
+            StringView(u8"\x1b]66;n=16;x\a"),
+            StringView(u8"\x1b]66;v=3;x\a"),
+            StringView(u8"\x1b]66;s=x;x\a"),
+            StringView(u8"\x1b]66;s;x\a"),
+        };
+        for (const StringView input : invalid) {
+            ParserFixture fixture;
+            fixture.feed(input);
+            STD_INSIST(!fixture.iface.called("osc_KITTY_TEXT_SIZING"));
+        }
+    }
+
+    STD_TEST(KittyTextSizingIgnoresUnknownMetadata) {
+        {
+            ParserFixture fixture;
+            fixture.feed(StringView(u8"\x1b]66;s=2:Q=9;x\a"));
+            expectValues(fixture.expect("osc_KITTY_TEXT_SIZING"), 2, 0, 0, 0, 0, 0);
+        }
+        for (const StringView input : {
+                 StringView(u8"\x1b]66;s=2:name=title;Hello\a"),
+                 StringView(u8"\x1b]66;name=title;Hello\a"),
+                 StringView(u8"\x1b]66;qq=;Hello\a"),
+             }) {
+            ParserFixture fixture;
+            fixture.feed(input);
+            const ParserCall& call = fixture.expect("osc_KITTY_TEXT_SIZING");
+            expectText(fixture.iface, call, 0, StringView(u8"Hello"));
+        }
+    }
+
+    STD_TEST(KittyTextSizingFractionMustBeProper) {
+        {
+            ParserFixture fixture;
+            fixture.feed(StringView(u8"\x1b]66;n=3:d=2;x\a"));
+            STD_INSIST(!fixture.iface.called("osc_KITTY_TEXT_SIZING"));
+        }
+        {
+            ParserFixture fixture;
+            fixture.feed(StringView(u8"\x1b]66;n=1:d=2;x\a"));
+            expectValues(fixture.expect("osc_KITTY_TEXT_SIZING"), 1, 0, 1, 2, 0, 0);
+        }
+        {
+            ParserFixture fixture;
+            fixture.feed(StringView(u8"\x1b]66;n=5;x\a"));
+            expectValues(fixture.expect("osc_KITTY_TEXT_SIZING"), 1, 0, 5, 0, 0, 0);
+        }
+    }
+
+    STD_TEST(KittyTextSizingRequiresSafeUtf8) {
+        {
+            ParserFixture fixture;
+            fixture.feed(StringView(u8"\x1b]66;;👻魑魅魍魉ゴースッティ\a"));
+            const ParserCall& call = fixture.expect("osc_KITTY_TEXT_SIZING");
+            expectText(fixture.iface, call, 0, StringView(u8"👻魑魅魍魉ゴースッティ"));
+        }
+        static const StringView invalid[] = {
+            StringView(u8"\x1b]66;;line\nbreak\a"),
+            StringView(u8"\x1b]66;;delete\x7f\a"),
+            StringView(u8"\x1b]66;;c1\xc2\x80\a"),
+            StringView(u8"\x1b]66;;overlong\xc0\x80\a"),
+        };
+        for (const StringView input : invalid) {
+            ParserFixture fixture;
+            fixture.feed(input);
+            STD_INSIST(!fixture.iface.called("osc_KITTY_TEXT_SIZING"));
+        }
+    }
+
+    STD_TEST(KittyTextSizingPayloadIsBounded) {
+        for (const size_t length : {4096UL, 4097UL}) {
+            Buffer input(StringView(u8"\x1b]66;;"));
+            for (size_t index = 0; index < length; ++index) {
+                const u8 byte = 'x';
+                input.append(&byte, 1);
+            }
+            const u8 terminator = '\a';
+            input.append(&terminator, 1);
+            ParserFixture fixture;
+            fixture.feed(StringView(input));
+            STD_INSIST(fixture.iface.called("osc_KITTY_TEXT_SIZING") == (length == 4096));
+        }
+    }
+
+    STD_TEST(KittyClipboardRead) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b]5522;type=read:id=abc:loc=primary;dGV4dC9wbGFpbg==\x1b\\"));
+        const ParserCall& call = fixture.expect("osc_KITTY_CLIPBOARD_READ");
+        expectValues(call, true, true);
+        expectText(fixture.iface, call, 0, StringView(u8"abc"));
+        expectText(fixture.iface, call, 1, StringView(u8"text/plain"));
+    }
+
+    STD_TEST(KittyClipboardWrite) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b]5522;type=write:name=Zm9v:pw=cHc=:id=7;\x1b\\"));
+        const ParserCall& call = fixture.expect("osc_KITTY_CLIPBOARD_WRITE");
+        expectValues(call, false);
+        expectText(fixture.iface, call, 0, StringView(u8"7"));
+    }
+
+    STD_TEST(KittyClipboardWriteData) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b]5522;type=wdata:mime=dGV4dC9wbGFpbg==:id=7;QUI=\x1b\\"));
+        const ParserCall& call = fixture.expect("osc_KITTY_CLIPBOARD_WRITE_DATA");
+        expectValues(call, true);
+        expectText(fixture.iface, call, 0, StringView(u8"7"));
+        expectText(fixture.iface, call, 1, StringView(u8"text/plain"));
+        expectText(fixture.iface, call, 2, StringView(u8"AB"));
+    }
+
+    STD_TEST(KittyClipboardWriteAlias) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b]5522;type=walias:mime=dGV4dC9wbGFpbg==;VEVYVCBTVFJJTkc=\x1b\\"));
+        const ParserCall& call = fixture.expect("osc_KITTY_CLIPBOARD_WRITE_ALIAS");
+        expectValues(call, true);
+        expectText(fixture.iface, call, 1, StringView(u8"text/plain"));
+        expectText(fixture.iface, call, 2, StringView(u8"TEXT STRING"));
+    }
+
+    STD_TEST(KittyClipboardMalformedMetadata) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b]5522;type=write:novalue;\x1b\\"));
+        const ParserCall& call = fixture.expect("osc_KITTY_CLIPBOARD_INVALID");
+        expectValues(call, true);
+    }
+
+    STD_TEST(KittyClipboardUnknownType) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b]5522;type=nonsense;\x1b\\"));
+        const ParserCall& call = fixture.expect("osc_KITTY_CLIPBOARD_INVALID");
+        expectValues(call, false);
     }
 
     STD_TEST(MalformedClipboard) {
@@ -1887,6 +2206,7 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST1(RemoveKittyKeyboardFlags, removeKittyKeyboardFlags, u8"\x1b[=3;3u", 3)
     SHITTY_PARSER_CALLBACK_TEST0(QueryKittyKeyboard, csi_kittyKeyboardQuery, u8"\x1b[?u")
     SHITTY_PARSER_CALLBACK_TEST0(XtermVersion, csi_XTVERSION, u8"\x1b[>q")
+    SHITTY_PARSER_CALLBACK_TEST0(SetMark, csi_SETMARK, u8"\x1b[>M")
     SHITTY_PARSER_CALLBACK_TEST0(ResetLeds, resetLeds, u8"\x1b[0q")
     SHITTY_PARSER_CALLBACK_TEST2(SetLed, setLed, u8"\x1b[2q", 1, true)
     SHITTY_PARSER_CALLBACK_TEST0(CommitLeds, commitLeds, u8"\x1b[q")
@@ -1915,6 +2235,115 @@ STD_TEST_SUITE(ParserCallbacks) {
         const ParserCall& call = fixture.expect("dcs_DECUDK");
         expectValues(call, true, true, 1, 0, 1, InputKey::F6);
         expectText(fixture.iface, call, 0, StringView(u8"A"));
+    }
+
+    STD_TEST(RestoreColorTable) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1bP2$p1;1;120;46;71/2;2;79;13;13\x1b\\"));
+        expectValues(fixture.iface.find("dcs_DECRSTS_HLS"), 1, 120, 46, 71);
+        expectValues(fixture.iface.find("dcs_DECRSTS_RGB"), 2, 79, 13, 13);
+    }
+
+    STD_TEST(RestoreTabStops) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1bP2$t30/60//0/1/120\x1b\\"));
+        fixture.iface.find("dcs_DECRSTS_TABS_BEGIN");
+        const i64 expected[] = {30, 60, 120};
+        size_t tabCalls = 0;
+        for (size_t index = 0; index < fixture.iface.callCount; ++index) {
+            if (StringView(fixture.iface.calls[index].name) == StringView(u8"dcs_DECRSTS_TAB")) {
+                STD_INSIST(tabCalls < sizeof(expected) / sizeof(expected[0]));
+                STD_INSIST(fixture.iface.calls[index].values[0] == expected[tabCalls]);
+                ++tabCalls;
+            }
+        }
+        STD_INSIST(tabCalls == sizeof(expected) / sizeof(expected[0]));
+    }
+
+    STD_TEST(RestoreCursorInformation) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1bP1$t3;4;1;J;A;J;3;1;H;ABCF\x1b\\"));
+        expectValues(fixture.iface.find("dcs_DECRSTS_CURSOR"), 3, 4, 10, 1, 10, 3, 1, 8, Charset::IsoUK, 'A', Charset::UTF8, 'B', Charset::NrcFinnish, 'C', Charset::UTF8, 'F');
+    }
+
+    STD_TEST(AssignUserPreferenceCharset) {
+        struct Case {
+            StringView input;
+            Charset charset;
+            u16 id;
+            bool is96;
+        };
+
+        const Case cases[] = {
+            {StringView(u8"\x1bP0!u%5\x1b\\"), Charset::DecSuppl, (u16)('%' << 8 | '5'), false},
+            {StringView(u8"\x1bP0!u\"?\x1b\\"), Charset::NrcGreek, (u16)('"' << 8 | '?'), false},
+            {StringView(u8"\x1bP0!u\"4\x1b\\"), Charset::NrcHebrew, (u16)('"' << 8 | '4'), false},
+            {StringView(u8"\x1bP0!u%0\x1b\\"), Charset::NrcTurkish, (u16)('%' << 8 | '0'), false},
+            {StringView(u8"\x1bP0!u&4\x1b\\"), Charset::NrcRussian, (u16)('&' << 8 | '4'), false},
+            {StringView(u8"\x1bP1!uA\x1b\\"), Charset::IsoLatin1, 'A', true},
+        };
+        for (const Case& test : cases) {
+            ParserFixture fixture;
+            fixture.feed(test.input);
+            expectValues(fixture.iface.find("dcs_DECAUPSS"), test.charset, test.id, test.is96);
+        }
+    }
+
+    STD_TEST(RestoreColorTableOmittedAndClampedValues) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1bP2$p6;1;;50;100/12;2;150;0\x1b\\"));
+        expectValues(fixture.iface.find("dcs_DECRSTS_HLS"), 6, 0, 50, 100);
+        expectValues(fixture.iface.find("dcs_DECRSTS_RGB"), 12, 150, 0, 0);
+    }
+
+    STD_TEST(RestoreColorTableRecoversAfterInvalidDefinition) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1bP2$p1;2;10;bad;30/"));
+        fixture.feed(StringView(u8"2;2;40;50;60\x9c"));
+        STD_INSIST(!fixture.iface.called("dcs_DECRSTS_HLS"));
+        const ParserCall& call = fixture.iface.find("dcs_DECRSTS_RGB");
+        expectValues(call, 2, 40, 50, 60);
+    }
+
+    STD_TEST(AssignColor) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b[1;23;45,|\x1b[2;34;56,|"));
+        expectValues(fixture.iface.find("csi_DECAC_TEXT"), 23, 45);
+        expectValues(fixture.iface.find("csi_DECAC_FRAME"), 34, 56);
+    }
+
+    STD_TEST(ResetAssignedColor) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b[1,|\x1b[2,|"));
+        fixture.iface.find("csi_DECAC_TEXT_RESET");
+        fixture.iface.find("csi_DECAC_FRAME_RESET");
+    }
+
+    STD_TEST(RejectMalformedAssignedColor) {
+        {
+            ParserFixture fixture;
+            fixture.feed(StringView(u8"\x1b[0;12;34,|"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_TEXT"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_TEXT_RESET"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_FRAME"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_FRAME_RESET"));
+        }
+        {
+            ParserFixture fixture;
+            fixture.feed(StringView(u8"\x1b[1;12,|"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_TEXT"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_TEXT_RESET"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_FRAME"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_FRAME_RESET"));
+        }
+        {
+            ParserFixture fixture;
+            fixture.feed(StringView(u8"\x1b[1;256;0,|"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_TEXT"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_TEXT_RESET"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_FRAME"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_FRAME_RESET"));
+        }
     }
 }
 

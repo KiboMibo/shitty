@@ -99,6 +99,69 @@ namespace {
         return StringView((const u8*)(value.data()), value.size());
     }
 
+    bool kittyClipboardMimeSupported(StringView mimeType) {
+        return mimeType.empty() || mimeType == StringView(u8"text/plain") || mimeType == StringView(u8"text/plain;charset=utf-8") || mimeType == StringView(u8"UTF8_STRING") || mimeType == StringView(u8"STRING") || mimeType == StringView(u8"TEXT");
+    }
+
+    StringView selectKittyClipboardMime(StringView mimeTypes) {
+        if (mimeTypes.empty()) {
+            return StringView(u8"text/plain");
+        }
+        while (!mimeTypes.empty()) {
+            StringView mimeType = mimeTypes;
+            StringView rest;
+            if (mimeTypes.split(' ', mimeType, rest)) {
+                mimeTypes = rest;
+            } else {
+                mimeTypes = {};
+            }
+            if (kittyClipboardMimeSupported(mimeType)) {
+                return mimeType.empty() ? StringView(u8"text/plain") : mimeType;
+            }
+        }
+        return {};
+    }
+
+    void copyKittyClipboardId(Buffer& output, StringView input) {
+        output.reset();
+        for (const u8 byte : input) {
+            if ((byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') || (byte >= '0' && byte <= '9') || byte == '-' || byte == '_' || byte == '+' || byte == '.') {
+                output.append(&byte, 1);
+            }
+        }
+    }
+
+    void writeKittyClipboardPacket(Output& output, bool send8BitControls, StringView type, StringView status, StringView id = {}, StringView mimeType = {}, StringView payload = {}, bool primary = false) {
+        StringBuilder header;
+        header << (send8BitControls ? StringView(u8"\x9d") : StringView(u8"\x1b]")) << StringView(u8"5522;type=") << type << StringView(u8":status=") << status;
+        if (primary && status == StringView(u8"OK")) {
+            header << StringView(u8":loc=primary");
+        }
+        if (!id.empty()) {
+            header << StringView(u8":id=") << id;
+        }
+        if (!mimeType.empty()) {
+            header << StringView(u8":mime=");
+        }
+        StringView bytes(header);
+        output.write(bytes.data(), bytes.length());
+        if (!mimeType.empty()) {
+            Base64Encoder encoder;
+            encoder.write(output, mimeType);
+            encoder.finish(output);
+        }
+        if (!payload.empty()) {
+            const u8 separator = ';';
+            output.write(&separator, 1);
+            Base64Encoder encoder;
+            encoder.write(output, payload);
+            encoder.finish(output);
+        }
+        const StringView suffix = send8BitControls ? StringView(u8"\x9c") : StringView(u8"\x1b\\");
+        output.write(suffix.data(), suffix.length());
+        output.flush();
+    }
+
     struct PasteOutput final: public Output {
         PasteOutput(SmallObjAllocator* allocator, Output* output, bool bracketed);
         ~PasteOutput() noexcept override;
@@ -147,6 +210,28 @@ namespace {
         bool tryClipboard;
         u8 replySelector;
         bool selectorsEmpty;
+        bool send8BitControls;
+        bool started = false;
+    };
+
+    struct KittyClipboardQueryOutput final: public Output {
+        KittyClipboardQueryOutput(SmallObjAllocator* allocator, Output* output, StringView id, StringView mimeType, bool primary, bool targets, bool send8BitControls);
+        ~KittyClipboardQueryOutput() noexcept override;
+
+        void operator delete(KittyClipboardQueryOutput* output, std::destroying_delete_t) noexcept;
+
+        size_t writeImpl(const void* data, size_t size) override;
+        void finishImpl() override;
+        void beginReply();
+        void finishReply(bool success);
+        void writePacket(StringView status, StringView mimeType = {}, StringView payload = {});
+
+        SmallObjAllocator* allocator;
+        Output* output;
+        Buffer id;
+        Buffer mimeType;
+        bool primary;
+        bool targets;
         bool send8BitControls;
         bool started = false;
     };
@@ -292,6 +377,7 @@ namespace {
         void selectionClear();
         void selectionRectangular();
         void paste(StringView text);
+        bool pasteMimeNotification(bool primary);
         ScreenHyperlink resolveHyperlink(int pixelX, int pixelY) const;
         StringView hyperlinkAt(int pixelX, int pixelY);
         bool expireSynchronizedOutput(bool force) override;
@@ -314,7 +400,7 @@ namespace {
         void parserLockingShiftGl(u8 index) override;
         void parserLockingShiftGr(u8 index) override;
         void parserResetCharsets(bool isoLatin1) override;
-        void parserDesignateCharset(u8 index, Charset charset) override;
+        void parserDesignateCharset(u8 index, Charset charset, u16 id, bool is96) override;
         bool parserHighlightMouseTracking() const override;
         bool windowOperationsAllowed() const override;
         void parserWritePty(StringView bytes) override;
@@ -346,6 +432,7 @@ namespace {
         int writePty(const char* cstr, bool userInput = false);
         int writePty(const char* data, size_t size, bool userInput);
         int writePty(const u8* ucstr, size_t len, bool userInput = false);
+        bool modifyOtherKeyEncoded(u8 ch, VtModifier modifiers) const;
         void writeProtocolResponse(StringView prefix, StringView payload, StringView suffix = {});
         int writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType event);
         int writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event);
@@ -405,7 +492,9 @@ namespace {
         void updateExtraCellCount();
 
         void normalizeCursorPos();
-        bool isCursorInsideMargins();
+        bool isCursorInsideMargins() const;
+        void activeColumns(u16& begin, u16& end) const;
+        void activeLine(u16& begin, u16& end) const;
         void eraseRow(u16 pY);
         void eraseRows(u16 startY, u16 count);
         void copyRow(u16 dstY, u16 srcY);
@@ -536,6 +625,7 @@ namespace {
         void csi_DECERA(CsiRectangle rectangle, bool selective) override;
         void setAttributeChangeExtent(bool rectangular) override;
         void changeRectangleAttributes(CsiRectangle rectangle, CellAttributeChange change) override;
+        void csi_XTCHECKSUM(u32 flags) override;
         void csi_DECRQCRA(u32 requestId, CsiRectangle rectangle) override;
         void csi_IL(u32 count) override;
         void csi_DL(u32 count) override;
@@ -548,6 +638,7 @@ namespace {
         void csi_STBM(u32 top, u32 bottom, bool valid) override;
         void clearTabStop() override;
         void clearAllTabStops() override;
+        void resetTabStops() override;
         ParserModeState parserModeState() const override;
         void setKeyboardLocked(bool enabled) override;
         void setInsertMode(bool enabled) override;
@@ -584,6 +675,7 @@ namespace {
         void setSynchronizedOutput(bool enabled) override;
         void setColorSchemeUpdates(bool enabled) override;
         void setInBandResize(bool enabled) override;
+        void setPasteMimeNotifications(bool enabled) override;
         void savePrivateMode(u32 mode, bool enabled) override;
         bool restorePrivateMode(u32 mode, bool& enabled) const override;
         void reportMode(u32 mode, bool privateMode, u8 state) override;
@@ -596,8 +688,15 @@ namespace {
         void csi_priDA() override;
         void csi_secDA() override;
         void csi_terDA() override;
+        void csi_DECRQDE() override;
+        void csi_DECREQTPARM(u32 permission) override;
+        void csi_DECRQTSR_COLOR(u32 model) override;
+        void csi_DECRQPSR_TABS() override;
+        void csi_DECRQPSR_CURSOR() override;
+        void csi_DECRQUPSS() override;
         void dsrOperatingStatus() override;
         void dsrCursorPosition(bool privateMode) override;
+        void dsrPrinter() override;
         void dsrUserDefinedKeys() override;
         void dsrKeyboard() override;
         void dsrLocator() override;
@@ -624,6 +723,8 @@ namespace {
         void sgrUnderlineColor(CellColor color, int paletteIndex) override;
         void sgrDefaultUnderlineColor() override;
         void sgrFinish() override;
+        void csi_XTPUSHSGR(const u32* attributes, size_t count) override;
+        void csi_XTPOPSGR() override;
         void esch_DECALN() override;
         void setLineAttribute(u8 attribute) override;
         void osc_TITLE_0(StringView) override;
@@ -643,8 +744,15 @@ namespace {
         void osc_SELECTION_BACKGROUND(Color, bool) override;
         void osc_SELECTION_FOREGROUND(Color, bool) override;
         void writeDynamicColorResponse(u32, Color);
+        void writeKittyClipboardStatus(StringView, StringView, StringView);
         void osc_CLIPBOARD_QUERY(bool, bool, u8, bool) override;
         void osc_CLIPBOARD_WRITE(StringView, bool, bool, bool) override;
+        void osc_KITTY_TEXT_SIZING(const KittyTextSizing&) override;
+        void osc_KITTY_CLIPBOARD_READ(StringView, StringView, bool, bool) override;
+        void osc_KITTY_CLIPBOARD_WRITE(StringView, bool) override;
+        void osc_KITTY_CLIPBOARD_WRITE_DATA(StringView, StringView, StringView, bool) override;
+        void osc_KITTY_CLIPBOARD_WRITE_ALIAS(StringView, StringView, StringView, bool) override;
+        void osc_KITTY_CLIPBOARD_INVALID(StringView, bool) override;
         void osc_NOTIFICATION_CAPABILITIES(StringView) override;
         void osc_NOTIFICATION_CLOSE(StringView) override;
         void osc_NOTIFICATION_TITLE(StringView, StringView, bool, bool) override;
@@ -692,6 +800,10 @@ namespace {
         void setLocatorButtonUp(bool enabled) override;
         void csi_DECRQLP() override;
         void csi_DECEFR(u32 top, u32 left, u32 bottom, u32 right) override;
+        void csi_DECAC_TEXT(u8 foreground, u8 background) override;
+        void csi_DECAC_TEXT_RESET() override;
+        void csi_DECAC_FRAME(u8 foreground, u8 background) override;
+        void csi_DECAC_FRAME_RESET() override;
         void resetModifyKeyResources() override;
         void setModifyKeyResource(u8 resource, u8 value, bool useDefault) override;
         void reportModifyKeyResource(u8 resource) override;
@@ -702,6 +814,7 @@ namespace {
         void removeKittyKeyboardFlags(u8 flags) override;
         void csi_kittyKeyboardQuery() override;
         void csi_XTVERSION() override;
+        void csi_SETMARK() override;
         void resetLeds() override;
         void setLed(u8 index, bool enabled) override;
         void commitLeds() override;
@@ -716,6 +829,12 @@ namespace {
         void writeDecrqssResponse(StringView);
         void dcs_XTGETTCAP(StringView encoded, StringView value) override;
         void dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, const ParserUdkDefinition* definitions, size_t definitionCount, StringView values) override;
+        void dcs_DECRSTS_HLS(u32 index, u32 hue, u32 luminosity, u32 saturation) override;
+        void dcs_DECRSTS_RGB(u32 index, u32 red, u32 green, u32 blue) override;
+        void dcs_DECRSTS_TABS_BEGIN() override;
+        void dcs_DECRSTS_TAB(u32 column) override;
+        void dcs_DECRSTS_CURSOR(u32 row, u32 column, u8 rendition, u8 protection, u8 flags, u8 gl, u8 gr, u8 sizeFlags, const Charset* charsets, const u16* charsetIds) override;
+        void dcs_DECAUPSS(Charset charset, u16 id, bool is96) override;
 
         void reportInBandResize();
         void reportColorScheme();
@@ -758,6 +877,19 @@ namespace {
 
         TerminalCell attrs{};
         TerminalCell eraseAttrs{};
+
+        struct SavedSgr {
+            TerminalCell attrs;
+            int fgPalIx;
+            int bgPalIx;
+            int underlinePalIx;
+            u32 valid;
+            bool underlineColorDefault;
+        };
+
+        SavedSgr sgrStack[10]{};
+        u8 sgrStackNext = 0;
+        u8 sgrStackCount = 0;
         Color cursorColor;
         Color selectionFgColor;
         Color selectionBgColor;
@@ -766,6 +898,9 @@ namespace {
         u32 nextHyperlink = 1;
         u32 currentSemantic = 0;
         bool semanticUntilEndOfLine = false;
+        u32 inactiveSemantic = 0;
+        bool inactiveSemanticUntilEndOfLine = false;
+        bool assignedDefaultColors = false;
         std::string windowTitle;
         std::string iconTitle;
         u8 titleModes = 0;
@@ -836,12 +971,14 @@ namespace {
         bool insertMode = false;
         bool eraseModeAll = false;
         bool rectangularAttributeExtent = false;
+        u8 checksumFlags = 0;
         bool bkspSendsDel = true;
         bool localEcho = false;
         bool bracketedPasteMode = false;
         bool synchronizedOutputMode = false;
         bool colorSchemeUpdateMode = false;
         bool inBandResizeMode = false;
+        bool pasteMimeNotificationsMode = false;
         u64 synchronizedOutputDeadline = 0;
         bool send8BitControls = false;
         bool altScrollMode = false;
@@ -857,6 +994,10 @@ namespace {
         std::map<u32, bool> savedPrivModes;
         std::map<InputKey, std::string> userDefinedKeys;
         bool userDefinedKeysLocked = false;
+        Buffer kittyClipboardWriteContent;
+        Buffer kittyClipboardWriteId;
+        bool kittyClipboardWriteOpen = false;
+        bool kittyClipboardWritePrimary = false;
 
         struct KittyKeyboardState {
             u8 flags = 0;
@@ -875,6 +1016,7 @@ namespace {
 
         std::vector<u16> tabStops;
         bool tabStopsCustomized = false;
+        bool tabStopsRestored = false;
 
         CompatibilityLevel compatLevel = CompatibilityLevel::VT400;
 
@@ -902,19 +1044,24 @@ namespace {
         };
         ColMode colMode = ColMode::C80;
 
-        void switchColMode(ColMode colMode);
+        void switchColMode(ColMode colMode, bool force = false);
         void switchScreenBufferMode(bool altScreenBufferMode, bool clearAlternate = false);
 
         struct CharsetState {
             Charset g[4] = {Charset::UTF8, Charset::UTF8, Charset::UTF8, Charset::UTF8};
+            u16 ids[4] = {'B', 'B', 'B', 'B'};
 
             u8 gl = 0;
             u8 gr = 2;
 
             u8 ss = 0;
+            u8 size96 = 0;
         };
 
         CharsetState charsetState;
+        Charset userPreferenceCharset = Charset::DecSuppl;
+        u16 userPreferenceCharsetId = ((u16)('%') << 8) | '5';
+        bool userPreferenceCharset96 = false;
 
         static const u16* charCodes[];
         u32 translateCharset(Charset charset, unsigned char ch) const;
@@ -994,6 +1141,7 @@ namespace {
         void selectionRectangular() override;
         bool advanceSelectionAutoscroll() override;
         void paste(StringView text) override;
+        bool pasteClipboard(bool primary) override;
         StringView hyperlinkAt(int pixelX, int pixelY) override;
 
         VtermImpl* vterm;
@@ -1040,8 +1188,8 @@ VtModifier VtermInput::legacyModifiers(u16 modifiers) const {
     if (modifiers & InputAlt) {
         result = result | VtModifier::alt;
     }
-    if ((modifiers & InputSuper) && terminal->eightBitInput) {
-        result = result | VtModifier::alt;
+    if (modifiers & InputSuper) {
+        result = result | VtModifier::super;
     }
     return result;
 }
@@ -1070,6 +1218,9 @@ u16 VtermInput::kittyModifiers(u16 modifiers) const {
 }
 
 bool VtermInput::paste(bool primary) {
+    if (terminal->pasteMimeNotificationsMode) {
+        return terminal->pasteMimeNotification(primary);
+    }
     Clipboard* const clipboard = terminal->host.clipboard();
     if (clipboard == nullptr || terminal->composer.ptyOutputs == nullptr || terminal->composer.ptyOutput == nullptr) {
         return false;
@@ -1406,6 +1557,76 @@ void ClipboardQueryOutput::finishReply() {
     delete completed;
 }
 
+KittyClipboardQueryOutput::KittyClipboardQueryOutput(SmallObjAllocator* allocator_, Output* output_, StringView id_, StringView mimeType_, bool primary_, bool targets_, bool send8BitControls_)
+    : allocator(allocator_)
+    , output(output_)
+    , primary(primary_)
+    , targets(targets_)
+    , send8BitControls(send8BitControls_)
+{
+    copyKittyClipboardId(id, id_);
+    mimeType.append(mimeType_.data(), mimeType_.length());
+}
+
+KittyClipboardQueryOutput::~KittyClipboardQueryOutput() noexcept {
+    finishReply(false);
+}
+
+void KittyClipboardQueryOutput::operator delete(KittyClipboardQueryOutput* output, std::destroying_delete_t) noexcept {
+    SmallObjAllocator* const allocator = output->allocator;
+    allocator->release(output);
+}
+
+size_t KittyClipboardQueryOutput::writeImpl(const void* data, size_t size) {
+    if (targets || size == 0) {
+        return size;
+    }
+    beginReply();
+    const u8* current = (const u8*)(data);
+    while (size != 0) {
+        constexpr size_t maximumChunk = 4096;
+        const size_t chunk = size < maximumChunk ? size : maximumChunk;
+        writePacket(StringView(u8"DATA"), StringView(mimeType), StringView(current, chunk));
+        current += chunk;
+        size -= chunk;
+    }
+    return current - (const u8*)(data);
+}
+
+void KittyClipboardQueryOutput::finishImpl() {
+    finishReply(true);
+}
+
+void KittyClipboardQueryOutput::beginReply() {
+    if (started) {
+        return;
+    }
+    started = true;
+    writePacket(StringView(u8"OK"));
+}
+
+void KittyClipboardQueryOutput::finishReply(bool success) {
+    if (output == nullptr) {
+        return;
+    }
+    if (!success) {
+        writePacket(started ? StringView(u8"EIO") : StringView(u8"ENOSYS"));
+    } else {
+        beginReply();
+        if (targets) {
+            writePacket(StringView(u8"DATA"), StringView(u8"."), StringView(u8"text/plain\n"));
+        }
+        writePacket(StringView(u8"DONE"));
+    }
+    Output* const completed = output;
+    output = nullptr;
+    delete completed;
+}
+
+void KittyClipboardQueryOutput::writePacket(StringView status, StringView mimeType_, StringView payload) {
+    writeKittyClipboardPacket(*output, send8BitControls, StringView(u8"read"), status, StringView(id), mimeType_, payload, primary);
+}
+
 bool VtermInput::key(const KeyInput& input) {
     flush();
     updatePointerModifiers(input);
@@ -1484,12 +1705,13 @@ bool VtermInput::key(const KeyInput& input) {
         }
         const u32 primaryKey = input.layoutCodepoint != 0 ? input.layoutCodepoint : input.baseCodepoint;
         const u16 textMods = kittyMods & ~(64 | 128);
-        if (primaryKey && ((textMods & (2 | 4 | 8)) || (kittyFlags & 0x08))) {
+        const bool reportEvent = (kittyFlags & 0x02) && event != VtermKeyEventType::Press;
+        if (primaryKey && ((textMods & (2 | 4 | 8)) || (kittyFlags & 0x08) || reportEvent)) {
             if (pressed && !(textMods & (2 | 4 | 8))) {
-                pendingTextKey = {true, primaryKey, input.baseCodepoint, textMods, event};
+                pendingTextKey = {true, primaryKey, input.baseCodepoint, kittyMods, event};
                 return true;
             }
-            terminal->writeKittyKey(primaryKey, 0, input.baseCodepoint, textMods, event);
+            terminal->writeKittyKey(primaryKey, 0, input.baseCodepoint, kittyMods, event);
             if (pressed && (((textMods & (2 | 8)) && !(textMods & 4)) || (kittyFlags & 0x08))) {
                 ++suppressedTextInputs;
             }
@@ -1499,11 +1721,45 @@ bool VtermInput::key(const KeyInput& input) {
     if (!pressed) {
         return true;
     }
+    if ((input.modifiers & InputNumLock) && input.key >= InputKey::Keypad0 && input.key <= InputKey::KeypadEqual) {
+        static const u8 keypad[] = {
+            '0',
+            '1',
+            '2',
+            '3',
+            '4',
+            '5',
+            '6',
+            '7',
+            '8',
+            '9',
+            '.',
+            '/',
+            '*',
+            '-',
+            '+',
+            '\r',
+            '=',
+        };
+        terminal->writePty(keypad[(u8)(input.key) - (u8)(InputKey::Keypad0)], modifiers, true);
+        return true;
+    }
     if (input.key == InputKey::Escape) {
         terminal->writePty((u8)('\x1b'), modifiers, true);
         return true;
     }
     if (input.key != InputKey::Unknown && input.key != InputKey::Printable && input.key != InputKey::Space) {
+        if (input.key == InputKey::Tab && (modifiers & VtModifier::shift) != VtModifier::none) {
+            if ((modifiers & VtModifier::alt) != VtModifier::none) {
+                terminal->writePty((u8)('\x1b'), VtModifier::none, true);
+            }
+            terminal->writePty(InputKey::Tab, VtModifier::shift, true);
+            return true;
+        }
+        if (input.key == InputKey::Backspace && (modifiers & VtModifier::control) != VtModifier::none) {
+            terminal->writePty((u8)(terminal->bkspSendsDel ? '\b' : '\x7f'), VtModifier::none, true);
+            return true;
+        }
         terminal->writePty(input.key, modifiers, true);
         return true;
     }
@@ -1511,6 +1767,10 @@ bool VtermInput::key(const KeyInput& input) {
         int controlKey = (int)(input.baseCodepoint);
         if (controlKey >= 'a' && controlKey <= 'z') {
             controlKey -= 'a' - 'A';
+        }
+        if (terminal->modifyOtherKeys == 2 && input.baseCodepoint < 0x80 && terminal->modifyOtherKeyEncoded((u8)(input.baseCodepoint), modifiers)) {
+            terminal->writePty((u8)(input.baseCodepoint), modifiers, true);
+            return true;
         }
         u8 character = 0;
         if (controlCharacter(controlKey, input.modifiers & InputShift, character)) {
@@ -2140,6 +2400,8 @@ bool TestApiImpl::privateMode(u32 mode) const {
             return vterm->colorSchemeUpdateMode;
         case 2048:
             return vterm->inBandResizeMode;
+        case 5522:
+            return vterm->pasteMimeNotificationsMode;
         default:
             return false;
     }
@@ -2263,6 +2525,10 @@ bool TestApiImpl::advanceSelectionAutoscroll() {
 
 void TestApiImpl::paste(StringView text) {
     vterm->paste(text);
+}
+
+bool TestApiImpl::pasteClipboard(bool primary) {
+    return vterm->input.paste(primary);
 }
 
 StringView TestApiImpl::hyperlinkAt(int pixelX, int pixelY) {
@@ -2570,6 +2836,12 @@ void VtermImpl::resetTerminal() {
     switchScreenBufferMode(false, true);
     resetScreen();
     resetAttrs();
+    sgrStackNext = 0;
+    sgrStackCount = 0;
+    osc_RESET_PALETTE();
+    if (assignedDefaultColors) {
+        csi_DECAC_TEXT_RESET();
+    }
 
     noClearColumnMode = false;
     switchColMode(ColMode::C80);
@@ -2587,6 +2859,9 @@ void VtermImpl::resetTerminal() {
     savedPrivModes.clear();
     userDefinedKeys.clear();
     userDefinedKeysLocked = false;
+    kittyClipboardWriteContent.reset();
+    kittyClipboardWriteId.reset();
+    kittyClipboardWriteOpen = false;
     kittyKeyboardPri = {};
     kittyKeyboardAlt = {};
     savedCursorPri.isSet = false;
@@ -2595,6 +2870,8 @@ void VtermImpl::resetTerminal() {
     nextHyperlink = 1;
     currentSemantic = 0;
     semanticUntilEndOfLine = false;
+    inactiveSemantic = 0;
+    inactiveSemanticUntilEndOfLine = false;
     titleModes = 0;
     titleStack.clear();
     notifications.clear();
@@ -2625,6 +2902,7 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     insertMode = false;
     eraseModeAll = false;
     rectangularAttributeExtent = false;
+    checksumFlags = 0;
     attrs.protected_char = 0;
     bkspSendsDel = true;
     localEcho = false;
@@ -2632,6 +2910,7 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     synchronizedOutputMode = false;
     colorSchemeUpdateMode = false;
     inBandResizeMode = false;
+    pasteMimeNotificationsMode = false;
     screenReverseVideo = false;
     eightBitInput = false;
     reverseWrapMode = false;
@@ -2659,6 +2938,7 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     if (resetTabStops) {
         tabStops.clear();
         tabStopsCustomized = false;
+        tabStopsRestored = false;
     }
     cf->clearSelection();
 }
@@ -2694,13 +2974,14 @@ void VtermImpl::fillScreen(u16 ch) {
     cf->fillCells(ch, attrs);
 }
 
-void VtermImpl::switchColMode(ColMode colMode_) {
-    if (colMode == colMode_) {
+void VtermImpl::switchColMode(ColMode colMode_, bool force) {
+    const bool changed = colMode != colMode_;
+    if (!changed && !force) {
         return;
     }
 
     const u16 columns = colMode_ == ColMode::C80 ? 80 : 132;
-    if (composer.columns != columns) {
+    if (changed && composer.columns != columns) {
         host.windowOperation(8, composer.rows, columns);
     }
     marginTop = 0;
@@ -2727,6 +3008,8 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
             if (altScreenBufferMode_) {
                 kittyKeyboardAlt = {};
                 createAlternateScreen();
+                currentSemantic = 0;
+                semanticUntilEndOfLine = false;
                 marginTop = 0;
                 marginBottom = composer.rows;
                 altScreenInitialized = true;
@@ -2735,6 +3018,8 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
                 changePresentation();
             } else if (altScreenInitialized) {
                 createInactiveAlternateScreen();
+                inactiveSemantic = 0;
+                inactiveSemanticUntilEndOfLine = false;
                 altScreenInitialized = false;
             }
             updateExtraCellCount();
@@ -2747,6 +3032,8 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         if (clearAlternate || !altScreenInitialized) {
             kittyKeyboardAlt = {};
             createAlternateScreen();
+            inactiveSemantic = 0;
+            inactiveSemanticUntilEndOfLine = false;
             marginTop = 0;
             marginBottom = composer.rows;
             altScreenInitialized = true;
@@ -2780,6 +3067,12 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         savedCursor = &savedCursorPri;
         altScreenBufferMode = false;
     }
+    std::swap(currentSemantic, inactiveSemantic);
+    std::swap(semanticUntilEndOfLine, inactiveSemanticUntilEndOfLine);
+    if (!altScreenBufferMode_ && clearAlternate) {
+        inactiveSemantic = 0;
+        inactiveSemanticUntilEndOfLine = false;
+    }
     updateExtraCellCount();
     refreshBlinkingText();
     changePresentation();
@@ -2797,8 +3090,25 @@ void VtermImpl::normalizeCursorPos() {
     lastCol = false;
 }
 
-bool VtermImpl::isCursorInsideMargins() {
+bool VtermImpl::isCursorInsideMargins() const {
     return posX >= hMargin && posX < nColsEff && posY >= marginTop && posY < marginBottom;
+}
+
+void VtermImpl::activeColumns(u16& begin, u16& end) const {
+    if (posX < nColsEff && posY >= marginTop && posY < marginBottom) {
+        begin = posX < hMargin ? 0 : hMargin;
+        end = nColsEff;
+    } else {
+        begin = 0;
+        end = composer.columns;
+    }
+}
+
+void VtermImpl::activeLine(u16& begin, u16& end) const {
+    activeColumns(begin, end);
+    if (cf->lineAttribute(posY)) {
+        end = begin + std::max<u16>(1, (end - begin) / 2);
+    }
 }
 
 void VtermImpl::eraseRow(u16 pY) {
@@ -3004,8 +3314,8 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
 void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
     u32 pt = utf8dec.getUnicode();
     u8 w = width;
-    const u8 lineAttribute = cf->lineAttribute(posY);
-    const u16 lineCols = lineAttribute ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2) : nColsEff;
+    u16 lineBegin, lineCols;
+    activeLine(lineBegin, lineCols);
 
     if (inputGraphemeScreen == cf && !graphemeBoundary) {
         const u32 previous = inputGrapheme.empty() ? inputGraphemeBase : inputGrapheme.data()[inputGrapheme.size() - 1];
@@ -3020,11 +3330,11 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
         bool wide = inputGraphemeWide;
         switch (graphemeWidthEffect(previous, pt)) {
             case GraphemeWidthEffect::Wide:
-                if (!wide && lineCols - hMargin >= 2) {
+                if (!wide && lineCols - lineBegin >= 2) {
                     if (targetX == lineCols - 1) {
                         if (autoWrapMode) {
                             cf->eraseCells(targetY, targetX, 1, eraseAttrs);
-                            const u16 wrapColumn = targetX > hMargin ? targetX - 1 : targetX;
+                            const u16 wrapColumn = targetX > lineBegin ? targetX - 1 : targetX;
                             cf->setWrapped(targetY, wrapColumn);
                             inp_CR();
                             inp_LF();
@@ -3071,16 +3381,18 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
         cf->setWrapped(posY, posX);
         inp_CR();
         inp_LF();
+        activeLine(lineBegin, lineCols);
     }
 
     if (w == 2 && posX == lineCols - 1 && autoWrapMode) {
         // The wide glyph belongs wholly to the next row.  Mark the last
         // occupied cell as the soft-wrap boundary, not the unused final
         // column: otherwise copying the logical line invents a space.
-        const u16 wrapColumn = posX > hMargin ? posX - 1 : posX;
+        const u16 wrapColumn = posX > lineBegin ? posX - 1 : posX;
         cf->setWrapped(posY, wrapColumn);
         inp_CR();
         inp_LF();
+        activeLine(lineBegin, lineCols);
     }
 
     if (w == 0) {
@@ -3126,7 +3438,6 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
 template <bool insert>
 void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
     bool checkBoundary = true;
-    const u16 doubleEnd = hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2);
     while (size > 0) {
         bool graphemeBoundary = true;
         if (checkBoundary) {
@@ -3143,7 +3454,7 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
             continue;
         }
         if constexpr (!insert) {
-            if (autoWrapMode && lastCol && horizMarginMode && posY == marginBottom - 1 && (hMargin != 0 || nColsEff != composer.columns)) {
+            if (autoWrapMode && lastCol && horizMarginMode && isCursorInsideMargins() && posY == marginBottom - 1 && (hMargin != 0 || nColsEff != composer.columns)) {
                 const u16 lineWidth = nColsEff - hMargin;
                 const u16 fullLines = min<size_t>(size / lineWidth, 0xffff);
                 if (fullLines >= 2) {
@@ -3164,6 +3475,7 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
                         const u16 survivors = min<u16>(fullLines, regionHeight);
                         const u16 firstLine = fullLines - survivors;
                         const u8* text = input + (size_t)(firstLine)*lineWidth;
+                        const u16 doubleEnd = hMargin + std::max<u16>(1, lineWidth / 2);
                         u16 row = marginBottom - survivors;
                         for (u16 line = firstLine; line < fullLines; ++line, ++row, text += lineWidth) {
                             const Screen::WriteResult written = cf->writeAsciiRun(row, hMargin, nColsEff, doubleEnd, text, lineWidth, attrs, activeHyperlink, currentSemantic, eraseAttrs);
@@ -3205,12 +3517,15 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
             inp_LF();
         }
 
+        u16 lineBegin, lineEnd;
+        activeColumns(lineBegin, lineEnd);
+        const u16 doubleEnd = lineBegin + std::max<u16>(1, (lineEnd - lineBegin) / 2);
         const u16 requested = std::min<size_t>(size, 0xffff);
         Screen::WriteResult written;
         if constexpr (insert) {
-            written = cf->writeAsciiRunInsert(posY, posX, nColsEff, doubleEnd, input, requested, attrs, activeHyperlink, currentSemantic, eraseAttrs);
+            written = cf->writeAsciiRunInsert(posY, posX, lineEnd, doubleEnd, input, requested, attrs, activeHyperlink, currentSemantic, eraseAttrs);
         } else {
-            written = cf->writeAsciiRun(posY, posX, nColsEff, doubleEnd, input, requested, attrs, activeHyperlink, currentSemantic, eraseAttrs);
+            written = cf->writeAsciiRun(posY, posX, lineEnd, doubleEnd, input, requested, attrs, activeHyperlink, currentSemantic, eraseAttrs);
         }
         if (written.count == 0) {
             inputGraphemeBreaker.setBoundaryAfter(*input);
@@ -3261,8 +3576,8 @@ void VtermImpl::placeRepeatedCodepoint(u32 codepoint, u32 count) {
             inp_LF();
         }
 
-        const u8 lineAttribute = cf->lineAttribute(posY);
-        const u16 lineCols = lineAttribute ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2) : nColsEff;
+        u16 lineBegin, lineCols;
+        activeLine(lineBegin, lineCols);
         if (posX >= lineCols) {
             utf8dec.setUnicode(codepoint);
             placeGraphicChar(true, 1);
@@ -3403,8 +3718,8 @@ void VtermImpl::placePreparedRun(const u32* input, const u8* widths, size_t size
             inp_LF();
         }
 
-        const u8 lineAttribute = cf->lineAttribute(posY);
-        const u16 lineCols = lineAttribute ? hMargin + std::max<u16>(1, (nColsEff - hMargin) / 2) : nColsEff;
+        u16 lineBegin, lineCols;
+        activeLine(lineBegin, lineCols);
         if (posX >= lineCols) {
             utf8dec.setUnicode(*input++);
             placeGraphicChar(true, *widths++);
@@ -3568,7 +3883,9 @@ void VtermImpl::sgrReset() {
 
 void VtermImpl::sgrBold(bool enabled) {
     attrs.bold = enabled;
-    setFgFromPalIx();
+    if (attrForeground().source() != CellColor::Source::Direct) {
+        setFgFromPalIx();
+    }
 }
 
 void VtermImpl::sgrFaint(bool enabled) {
@@ -3639,6 +3956,113 @@ void VtermImpl::sgrUnderlineColor(CellColor color, int paletteIndex) {
 void VtermImpl::sgrDefaultUnderlineColor() {
     underlineColorDefault = true;
     setAttrUnderlineColor(attrForeground());
+}
+
+void VtermImpl::csi_XTPUSHSGR(const u32* attributes, size_t count) {
+    u32 valid = 1;
+    if (count != 0) {
+        valid = 0;
+        for (size_t index = 0; index < count; ++index) {
+            const u32 attribute = attributes[index];
+            if (attribute > 0 && attribute <= 31) {
+                valid |= (u32)(1) << attribute;
+            }
+        }
+    }
+
+    sgrStack[sgrStackNext] = {
+        attrs,
+        fgPalIx,
+        bgPalIx,
+        underlinePalIx,
+        valid,
+        underlineColorDefault,
+    };
+    sgrStackNext = (sgrStackNext + 1) % (sizeof(sgrStack) / sizeof(sgrStack[0]));
+    if (sgrStackCount < sizeof(sgrStack) / sizeof(sgrStack[0])) {
+        ++sgrStackCount;
+    }
+}
+
+void VtermImpl::csi_XTPOPSGR() {
+    if (sgrStackCount == 0) {
+        return;
+    }
+
+    constexpr size_t capacity = sizeof(sgrStack) / sizeof(sgrStack[0]);
+    sgrStackNext = (sgrStackNext + capacity - 1) % capacity;
+    --sgrStackCount;
+    const SavedSgr& saved = sgrStack[sgrStackNext];
+    const u32 valid = saved.valid;
+    if (valid & 1) {
+        attrs = saved.attrs;
+        fgPalIx = saved.fgPalIx;
+        bgPalIx = saved.bgPalIx;
+        underlinePalIx = saved.underlinePalIx;
+        underlineColorDefault = saved.underlineColorDefault;
+        reverseVideo = attrs.inverse;
+        setAttrForeground(saved.attrs.foreground());
+        setAttrBackground(saved.attrs.background());
+        setAttrUnderlineColor(saved.attrs.inlineUnderlineColor());
+        return;
+    }
+
+    if (valid & ((u32)(1) << 1)) {
+        sgrBold(saved.attrs.bold);
+    }
+    if (valid & ((u32)(1) << 2)) {
+        sgrFaint(saved.attrs.faint);
+    }
+    if (valid & ((u32)(1) << 3)) {
+        sgrItalic(saved.attrs.italic);
+    }
+
+    const bool underline = valid & ((u32)(1) << 4);
+    const bool doubleUnderline = valid & ((u32)(1) << 21);
+    if (underline && doubleUnderline) {
+        sgrUnderline(saved.attrs.underline_style);
+    } else if (underline) {
+        if (saved.attrs.underline_style != 0 && saved.attrs.underline_style != 2) {
+            sgrUnderline(saved.attrs.underline_style);
+        } else if (attrs.underline_style != 2) {
+            sgrUnderline(0);
+        }
+    } else if (doubleUnderline) {
+        if (saved.attrs.underline_style == 2) {
+            sgrUnderline(2);
+        } else if (attrs.underline_style == 2) {
+            sgrUnderline(0);
+        }
+    }
+
+    if (valid & ((u32)(1) << 5)) {
+        sgrBlink(saved.attrs.blink);
+    }
+    if (valid & ((u32)(1) << 7)) {
+        sgrInverse(saved.attrs.inverse);
+    }
+    if (valid & ((u32)(1) << 8)) {
+        sgrConceal(saved.attrs.conceal);
+    }
+    if (valid & ((u32)(1) << 9)) {
+        sgrStrike(saved.attrs.strike);
+    }
+    if (valid & ((u32)(1) << 30)) {
+        fgPalIx = saved.fgPalIx;
+        if (fgPalIx >= 0 && fgPalIx <= 255) {
+            const int index = opts.boldColors && attrs.bold && fgPalIx < 8 ? fgPalIx + 8 : fgPalIx;
+            setAttrForeground(CellColor::indexed(index));
+        } else {
+            setAttrForeground(saved.attrs.foreground());
+        }
+        if (underlineColorDefault) {
+            setAttrUnderlineColor(attrForeground());
+        }
+    }
+    if (valid & ((u32)(1) << 31)) {
+        bgPalIx = saved.bgPalIx;
+        setAttrBackground(saved.attrs.background());
+    }
 }
 
 void VtermImpl::sgrFinish() {
@@ -3759,8 +4183,13 @@ void VtermImpl::csi_SCORC() {
 }
 
 void VtermImpl::esc_DECSC() {
-    savedCursor->posX = posX;
-    savedCursor->posY = posY;
+    if (originMode == OriginMode::ScrollingRegion) {
+        savedCursor->posX = posX - hMargin;
+        savedCursor->posY = posY - marginTop;
+    } else {
+        savedCursor->posX = posX;
+        savedCursor->posY = posY;
+    }
     savedCursor->lastCol = lastCol;
     savedCursor->attrs = attrs;
     savedCursor->eraseAttrs = eraseAttrs;
@@ -3771,14 +4200,18 @@ void VtermImpl::esc_DECSC() {
 
 void VtermImpl::esc_DECRC() {
     if (savedCursor->isSet) {
-        posX = savedCursor->posX;
-        posY = savedCursor->posY;
-        normalizeCursorPos();
+        originMode = savedCursor->originMode;
+        if (originMode == OriginMode::ScrollingRegion) {
+            posX = hMargin + std::min<u16>(savedCursor->posX, nColsEff - hMargin - 1);
+            posY = marginTop + std::min<u16>(savedCursor->posY, marginBottom - marginTop - 1);
+        } else {
+            posX = std::min<u16>(savedCursor->posX, composer.columns - 1);
+            posY = std::min<u16>(savedCursor->posY, composer.rows - 1);
+        }
         lastCol = savedCursor->lastCol;
         attrs = savedCursor->attrs;
         eraseAttrs = savedCursor->eraseAttrs;
         reverseVideo = attrs.inverse;
-        originMode = savedCursor->originMode;
         charsetState = savedCursor->charsetState;
     }
 }
@@ -4172,12 +4605,16 @@ void VtermImpl::setAttributeChangeExtent(bool rectangular) {
     rectangularAttributeExtent = rectangular;
 }
 
+void VtermImpl::csi_XTCHECKSUM(u32 flags) {
+    checksumFlags = flags & 0x1f;
+}
+
 void VtermImpl::csi_DECRQCRA(u32 requestId, CsiRectangle parameters) {
     Rectangle rectangle;
     if (!rectangleFromParams(parameters, rectangle)) {
         return;
     }
-    const u16 checksum = cf->checksum(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right);
+    const u16 checksum = cf->checksum(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, checksumFlags);
     StringBuilder response;
     response << requestId << StringView(u8"!~") << Hex{checksum, 4, true};
     writeDcsResponse(StringView(response));
@@ -4200,7 +4637,7 @@ void VtermImpl::csi_DL(u32 count) {
 }
 
 void VtermImpl::csi_ICH(u32 count) {
-    if (isCursorInsideMargins()) {
+    if (posX >= hMargin && posX < nColsEff) {
         count = min<u32>(count, nColsEff - posX);
         cf->insertCells(posY, posX, nColsEff, (u16)(count), eraseAttrs);
     }
@@ -4276,6 +4713,13 @@ void VtermImpl::clearTabStop() {
 void VtermImpl::clearAllTabStops() {
     tabStops.clear();
     tabStopsCustomized = true;
+    tabStopsRestored = false;
+}
+
+void VtermImpl::resetTabStops() {
+    tabStops.clear();
+    tabStopsCustomized = false;
+    tabStopsRestored = false;
 }
 
 void VtermImpl::setKeyboardLocked(bool enabled) {
@@ -4335,6 +4779,7 @@ ParserModeState VtermImpl::parserModeState() const {
     result.synchronizedOutput = synchronizedOutputMode;
     result.colorSchemeUpdates = colorSchemeUpdateMode;
     result.inBandResize = inBandResizeMode;
+    result.pasteMimeNotifications = pasteMimeNotificationsMode;
     return result;
 }
 
@@ -4349,7 +4794,7 @@ void VtermImpl::setApplicationCursorKeys(bool enabled) {
 
 void VtermImpl::setColumn132(bool enabled) {
     if (allowColumnMode) {
-        switchColMode(enabled ? ColMode::C132 : ColMode::C80);
+        switchColMode(enabled ? ColMode::C132 : ColMode::C80, true);
     }
 }
 
@@ -4374,6 +4819,7 @@ void VtermImpl::setOriginMode(bool enabled) {
 
 void VtermImpl::setAutoWrap(bool enabled) {
     autoWrapMode = enabled;
+    lastCol = false;
 }
 
 void VtermImpl::setAutoRepeat(bool enabled) {
@@ -4503,6 +4949,10 @@ void VtermImpl::setInBandResize(bool enabled) {
     }
 }
 
+void VtermImpl::setPasteMimeNotifications(bool enabled) {
+    pasteMimeNotificationsMode = enabled;
+}
+
 void VtermImpl::savePrivateMode(u32 mode, bool enabled) {
     savedPrivModes[mode] = enabled;
 }
@@ -4562,8 +5012,25 @@ void VtermImpl::csi_terDA() {
     writeDcsResponse("!|00000000");
 }
 
+void VtermImpl::csi_DECRQDE() {
+    StringBuilder response;
+    response << composer.rows << StringView(u8";") << composer.columns << StringView(u8";1;1;1\"w");
+    writeCsiResponse(StringView(response));
+}
+
+void VtermImpl::csi_DECREQTPARM(u32 permission) {
+    StringBuilder response;
+    response << permission + 2 << StringView(u8";1;1;128;128;1;0x");
+    writeCsiResponse(StringView(response));
+}
+
 void VtermImpl::csi_XTVERSION() {
     writeDcsResponse(">|Shitty " SHITTY_VERSION);
+}
+
+void VtermImpl::csi_SETMARK() {
+    currentSemantic = 1;
+    semanticUntilEndOfLine = false;
 }
 
 void VtermImpl::reportMode(u32 mode, bool privateMode, u8 state) {
@@ -4595,6 +5062,10 @@ void VtermImpl::dsrCursorPosition(bool privateMode) {
         response << StringView(u8"R");
     }
     writeCsiResponse(StringView(response));
+}
+
+void VtermImpl::dsrPrinter() {
+    writeCsiResponse("?13n");
 }
 
 void VtermImpl::dsrUserDefinedKeys() {
@@ -4635,6 +5106,121 @@ void VtermImpl::dsrColorScheme() {
     reportColorScheme();
 }
 
+void VtermImpl::csi_DECRQTSR_COLOR(u32 model) {
+    StringBuilder response(8192);
+    response << StringView(u8"2$s");
+    for (u32 index = 0; index < 256; ++index) {
+        if (index != 0) {
+            response << StringView(u8"/");
+        }
+        const Color color = colors.palette[index];
+        response << index << StringView(u8";") << model << StringView(u8";");
+        if (model == 2) {
+            response << (color.red * 100u + 127u) / 255u << StringView(u8";") << (color.green * 100u + 127u) / 255u << StringView(u8";") << (color.blue * 100u + 127u) / 255u;
+            continue;
+        }
+
+        const u32 red = color.red;
+        const u32 green = color.green;
+        const u32 blue = color.blue;
+        const u32 maximum = red > green ? (red > blue ? red : blue) : (green > blue ? green : blue);
+        const u32 minimum = red < green ? (red < blue ? red : blue) : (green < blue ? green : blue);
+        const u32 chroma = maximum - minimum;
+        const u32 sum = maximum + minimum;
+        u32 hue = 0;
+        if (chroma != 0) {
+            float standardHue;
+            if (maximum == color.red) {
+                standardHue = 60.0f * ((float)(color.green) - color.blue) / chroma;
+            } else if (maximum == color.green) {
+                standardHue = 120.0f + 60.0f * ((float)(color.blue) - color.red) / chroma;
+            } else {
+                standardHue = 240.0f + 60.0f * ((float)(color.red) - color.green) / chroma;
+            }
+            if (standardHue < 0.0f) {
+                standardHue += 360.0f;
+            }
+            hue = ((u32)(standardHue + 120.5f)) % 360;
+        }
+        const u32 luminosity = (sum * 100u + 255u) / 510u;
+        const u32 saturationDenominator = 255u - (u32)(__builtin_abs((int)(sum)-255));
+        const u32 saturation = saturationDenominator == 0 ? 0 : (chroma * 100u + saturationDenominator / 2u) / saturationDenominator;
+        response << hue << StringView(u8";") << luminosity << StringView(u8";") << saturation;
+    }
+    writeDcsResponse(StringView(response));
+}
+
+void VtermImpl::csi_DECRQPSR_TABS() {
+    StringBuilder response;
+    response << StringView(u8"2$u");
+    bool first = true;
+    if (tabStopsCustomized) {
+        for (u16 column : tabStops) {
+            if (column >= composer.columns) {
+                break;
+            }
+            if (!first) {
+                response << StringView(u8"/");
+            }
+            response << (u32)(column) + 1;
+            first = false;
+        }
+    } else {
+        for (u32 column = 8; column < composer.columns; column += 8) {
+            if (!first) {
+                response << StringView(u8"/");
+            }
+            response << column + 1;
+            first = false;
+        }
+    }
+    writeDcsResponse(StringView(response));
+}
+
+void VtermImpl::csi_DECRQPSR_CURSOR() {
+    StringBuilder response;
+    const auto appendByte = [&response](u8 byte) {
+        response.append(&byte, 1);
+    };
+    u8 rendition = 0;
+    rendition |= attrs.bold ? 1 : 0;
+    rendition |= attrs.underlined() ? 2 : 0;
+    rendition |= attrs.blink ? 4 : 0;
+    rendition |= attrs.inverse ? 8 : 0;
+    rendition |= attrs.conceal ? 16 : 0;
+    u8 flags = 0;
+    flags |= originMode == OriginMode::ScrollingRegion ? 1 : 0;
+    flags |= charsetState.ss == 2 ? 2 : 0;
+    flags |= charsetState.ss == 3 ? 4 : 0;
+    flags |= lastCol ? 8 : 0;
+
+    response << StringView(u8"1$u") << (u32)(posY) + 1 << StringView(u8";") << (u32)(posX) + 1 << StringView(u8";1;");
+    appendByte('@' + rendition);
+    response << StringView(u8";");
+    appendByte('@' + ((attrs.protected_char & TerminalCell::decProtection) ? 1 : 0));
+    response << StringView(u8";");
+    appendByte('@' + flags);
+    response << StringView(u8";") << (u32)(charsetState.gl) << StringView(u8";") << (u32)(charsetState.gr) << StringView(u8";");
+    appendByte('@' + charsetState.size96);
+    response << StringView(u8";");
+    for (u16 id : charsetState.ids) {
+        const u8 bytes[] = {(u8)(id >> 8), (u8)(id)};
+        response.append(bytes + (bytes[0] == 0), bytes[0] == 0 ? 1 : 2);
+    }
+    writeDcsResponse(StringView(response));
+}
+
+void VtermImpl::csi_DECRQUPSS() {
+    StringBuilder response;
+    response << (userPreferenceCharset96 ? StringView(u8"1!u") : StringView(u8"0!u"));
+    const u8 bytes[] = {
+        (u8)(userPreferenceCharsetId >> 8),
+        (u8)(userPreferenceCharsetId),
+    };
+    response.append(bytes + (bytes[0] == 0), bytes[0] == 0 ? 1 : 2);
+    writeDcsResponse(StringView(response));
+}
+
 void VtermImpl::esch_DECALN() {
     originMode = OriginMode::Absolute;
     marginTop = 0;
@@ -4661,6 +5247,7 @@ void VtermImpl::setLineAttribute(u8 attribute) {
     if (attribute) {
         posX = std::min<u16>(posX, std::max(1, composer.columns / 2) - 1);
     }
+    lastCol = false;
 }
 
 void VtermImpl::esc_RIS() {
@@ -4705,6 +5292,111 @@ void VtermImpl::writeDecrqssResponse(StringView value) {
     StringBuilder response;
     response << StringView(u8"1$r") << value;
     writeDcsResponse(StringView(response));
+}
+
+void VtermImpl::dcs_DECRSTS_HLS(u32 index, u32 hue, u32 luminosity, u32 saturation) {
+    hue %= 360;
+    if (luminosity > 100) {
+        luminosity = 100;
+    }
+    if (saturation > 100) {
+        saturation = 100;
+    }
+
+    const float light = (float)(luminosity);
+    const float sat = (float)(saturation);
+    const float chroma = (50.0f - __builtin_fabsf(light - 50.0f)) * sat / 50.0f;
+    const float second = chroma * (60.0f - __builtin_fabsf((float)(hue % 120) - 60.0f)) / 60.0f;
+    const float offset = light - chroma / 2.0f;
+    const float scale = 255.0f / 100.0f;
+    const u8 firstComponent = (u8)((chroma + offset) * scale + 0.5f);
+    const u8 secondComponent = (u8)((second + offset) * scale + 0.5f);
+    const u8 thirdComponent = (u8)(offset * scale + 0.5f);
+
+    Color color;
+    if (hue < 60) {
+        color = {secondComponent, thirdComponent, firstComponent};
+    } else if (hue < 120) {
+        color = {firstComponent, thirdComponent, secondComponent};
+    } else if (hue < 180) {
+        color = {firstComponent, secondComponent, thirdComponent};
+    } else if (hue < 240) {
+        color = {secondComponent, firstComponent, thirdComponent};
+    } else if (hue < 300) {
+        color = {thirdComponent, firstComponent, secondComponent};
+    } else {
+        color = {thirdComponent, secondComponent, firstComponent};
+    }
+    applyPaletteColor((u16)(index), color);
+}
+
+void VtermImpl::dcs_DECRSTS_RGB(u32 index, u32 red, u32 green, u32 blue) {
+    if (red > 100) {
+        red = 100;
+    }
+    if (green > 100) {
+        green = 100;
+    }
+    if (blue > 100) {
+        blue = 100;
+    }
+    applyPaletteColor(
+        (u16)(index),
+        {
+            (u8)((red * 255 + 50) / 100),
+            (u8)((green * 255 + 50) / 100),
+            (u8)((blue * 255 + 50) / 100),
+        }
+    );
+}
+
+void VtermImpl::dcs_DECRSTS_TABS_BEGIN() {
+    tabStops.clear();
+    tabStopsCustomized = true;
+    tabStopsRestored = true;
+}
+
+void VtermImpl::dcs_DECRSTS_TAB(u32 column) {
+    if (column > (u32)(UINT16_MAX) + 1) {
+        return;
+    }
+    const u16 zeroBased = (u16)(column - 1);
+    const auto position = std::lower_bound(tabStops.begin(), tabStops.end(), zeroBased);
+    if (position == tabStops.end() || *position != zeroBased) {
+        tabStops.insert(position, zeroBased);
+    }
+}
+
+void VtermImpl::dcs_DECRSTS_CURSOR(u32 row, u32 column, u8 rendition, u8 protection, u8 flags, u8 gl, u8 gr, u8 sizeFlags, const Charset* charsets, const u16* charsetIds) {
+    resetAttrs();
+    attrs.bold = (rendition & 1) != 0;
+    attrs.underline_style = rendition & 2 ? 1 : 0;
+    attrs.blink = (rendition & 4) != 0;
+    attrs.inverse = (rendition & 8) != 0;
+    attrs.conceal = (rendition & 16) != 0;
+    attrs.protected_char = protection & 1 ? TerminalCell::decProtection : 0;
+    reverseVideo = attrs.inverse;
+
+    originMode = flags & 1 ? OriginMode::ScrollingRegion : OriginMode::Absolute;
+    charsetState.ss = flags & 4 ? 3 : (flags & 2 ? 2 : 0);
+    charsetState.gl = gl;
+    charsetState.gr = gr;
+    charsetState.size96 = sizeFlags & 0x0f;
+    for (size_t index = 0; index < 4; ++index) {
+        charsetState.g[index] = charsets[index];
+        charsetState.ids[index] = charsetIds[index];
+    }
+
+    posY = (u16)(min<u32>(row, composer.rows) - 1);
+    posX = (u16)(min<u32>(column, composer.columns) - 1);
+    lastCol = flags & 8;
+    changePresentation();
+}
+
+void VtermImpl::dcs_DECAUPSS(Charset charset, u16 id, bool is96) {
+    userPreferenceCharset = charset == Charset::DecUserPref ? Charset::DecSuppl : charset;
+    userPreferenceCharsetId = id;
+    userPreferenceCharset96 = is96;
 }
 
 void VtermImpl::dcs_DECRQSS_DECSCL() {
@@ -5041,6 +5733,132 @@ void VtermImpl::osc_CLIPBOARD_WRITE(StringView decoded, bool valid, bool primary
     if (clipboard) {
         target->writeClipboard(decoded);
     }
+}
+
+void VtermImpl::osc_KITTY_TEXT_SIZING(const KittyTextSizing&) {
+}
+
+void VtermImpl::writeKittyClipboardStatus(StringView type, StringView id, StringView status) {
+    if (composer.ptyOutput == nullptr) {
+        return;
+    }
+    Buffer cleanId;
+    copyKittyClipboardId(cleanId, id);
+    writeKittyClipboardPacket(*composer.ptyOutput, send8BitControls, type, status, StringView(cleanId));
+}
+
+void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bool primary, bool valid) {
+    const bool targets = valid && mimeTypes == StringView(u8".");
+    if (!valid) {
+        writeKittyClipboardStatus(StringView(u8"read"), id, StringView(u8"ENOSYS"));
+        return;
+    }
+    if (!targets && !opts.allowOsc52Read) {
+        writeKittyClipboardStatus(StringView(u8"read"), id, StringView(u8"EPERM"));
+        return;
+    }
+    Clipboard* const clipboard = host.clipboard();
+    if (clipboard == nullptr || composer.ptyOutputs == nullptr || composer.ptyOutput == nullptr) {
+        writeKittyClipboardStatus(StringView(u8"read"), id, StringView(u8"ENOSYS"));
+        return;
+    }
+    const StringView mimeType = targets ? StringView(u8".") : selectKittyClipboardMime(mimeTypes);
+    if (mimeType.empty()) {
+        writeKittyClipboardStatus(StringView(u8"read"), id, StringView(u8"ENOSYS"));
+        return;
+    }
+
+    Output* const insertion = composer.ptyOutput;
+    composer.ptyOutput = composer.ptyOutputs->append();
+    KittyClipboardQueryOutput* const output = composer.smallObjects->make<KittyClipboardQueryOutput>(composer.smallObjects, insertion, id, mimeType, primary, targets, send8BitControls);
+    if (primary) {
+        clipboard->readPrimary(output);
+    } else {
+        clipboard->readClipboard(output);
+    }
+}
+
+void VtermImpl::osc_KITTY_CLIPBOARD_WRITE(StringView id, bool primary) {
+    kittyClipboardWriteContent.reset();
+    copyKittyClipboardId(kittyClipboardWriteId, id);
+    kittyClipboardWritePrimary = primary;
+    kittyClipboardWriteOpen = host.clipboard() != nullptr;
+    if (!kittyClipboardWriteOpen) {
+        writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"ENOSYS"));
+    }
+}
+
+void VtermImpl::osc_KITTY_CLIPBOARD_WRITE_DATA(StringView id, StringView mimeType, StringView content, bool valid) {
+    (void)id;
+    if (!kittyClipboardWriteOpen) {
+        return;
+    }
+    if (!valid) {
+        kittyClipboardWriteOpen = false;
+        kittyClipboardWriteContent.reset();
+        writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"EINVAL"));
+        return;
+    }
+    if (content.empty()) {
+        Clipboard* const clipboard = host.clipboard();
+        if (clipboard == nullptr) {
+            kittyClipboardWriteOpen = false;
+            kittyClipboardWriteContent.reset();
+            writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"ENOSYS"));
+            return;
+        }
+        if (kittyClipboardWritePrimary) {
+            clipboard->writePrimary(StringView(kittyClipboardWriteContent));
+        } else {
+            clipboard->writeClipboard(StringView(kittyClipboardWriteContent));
+        }
+        kittyClipboardWriteOpen = false;
+        kittyClipboardWriteContent.reset();
+        writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"DONE"));
+        return;
+    }
+    if (!kittyClipboardMimeSupported(mimeType)) {
+        kittyClipboardWriteOpen = false;
+        kittyClipboardWriteContent.reset();
+        writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"ENOSYS"));
+        return;
+    }
+    constexpr size_t maximumWrite = 8 * 1024 * 1024;
+    if (content.length() > maximumWrite - kittyClipboardWriteContent.used()) {
+        kittyClipboardWriteOpen = false;
+        kittyClipboardWriteContent.reset();
+        writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"EIO"));
+        return;
+    }
+    kittyClipboardWriteContent.append(content.data(), content.length());
+}
+
+void VtermImpl::osc_KITTY_CLIPBOARD_WRITE_ALIAS(StringView id, StringView mimeType, StringView aliases, bool valid) {
+    (void)id;
+    (void)mimeType;
+    (void)aliases;
+    if (!kittyClipboardWriteOpen || valid) {
+        return;
+    }
+    kittyClipboardWriteOpen = false;
+    kittyClipboardWriteContent.reset();
+    writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"EINVAL"));
+}
+
+void VtermImpl::osc_KITTY_CLIPBOARD_INVALID(StringView id, bool write) {
+    if (write || kittyClipboardWriteOpen) {
+        kittyClipboardWriteOpen = false;
+        kittyClipboardWriteContent.reset();
+        writeKittyClipboardStatus(StringView(u8"write"), kittyClipboardWriteId.empty() ? id : StringView(kittyClipboardWriteId), StringView(u8"EINVAL"));
+    }
+}
+
+bool VtermImpl::pasteMimeNotification(bool primary) {
+    if (host.clipboard() == nullptr || composer.ptyOutputs == nullptr || composer.ptyOutput == nullptr) {
+        return false;
+    }
+    osc_KITTY_CLIPBOARD_READ({}, StringView(u8"."), primary, true);
+    return true;
 }
 
 void VtermImpl::osc_RESET_PALETTE() {
@@ -5526,6 +6344,34 @@ void VtermImpl::csi_DECEFR(u32 top, u32 left, u32 bottom, u32 right) {
     locator.filter = locator.enabled != 0;
 }
 
+void VtermImpl::csi_DECAC_TEXT(u8 foreground, u8 background) {
+    colors.defaultForeground = colors.palette[foreground];
+    colors.defaultBackground = colors.palette[background];
+    colors.changed();
+    defaultFgPalIx = -1;
+    defaultBgPalIx = -1;
+    assignedDefaultColors = true;
+    frame_pri->expose();
+    frame_alt->expose();
+}
+
+void VtermImpl::csi_DECAC_TEXT_RESET() {
+    colors.defaultForeground = opts.fg;
+    colors.defaultBackground = opts.bg;
+    colors.changed();
+    defaultFgPalIx = -1;
+    defaultBgPalIx = -1;
+    assignedDefaultColors = false;
+    frame_pri->expose();
+    frame_alt->expose();
+}
+
+void VtermImpl::csi_DECAC_FRAME(u8, u8) {
+}
+
+void VtermImpl::csi_DECAC_FRAME_RESET() {
+}
+
 void VtermImpl::resetModifyKeyResources() {
     std::copy(std::begin(initialModifyKeyResources), std::end(initialModifyKeyResources), std::begin(modifyKeyResources));
     modifyOtherKeys = modifyKeyResources[4];
@@ -5691,8 +6537,8 @@ namespace {
         {Key::KeypadF1, CSI "1;" MC "P"},
         {Key::F2, CSI "1;" MC "Q"},
         {Key::KeypadF2, CSI "1;" MC "Q"},
-        {Key::F3, CSI "1;" MC "R"},
-        {Key::KeypadF3, CSI "1;" MC "R"},
+        {Key::F3, CSI "13;" MC "~"},
+        {Key::KeypadF3, CSI "13;" MC "~"},
         {Key::F4, CSI "1;" MC "S"},
         {Key::KeypadF4, CSI "1;" MC "S"},
         {Key::F5, CSI "15;" MC "~"},
@@ -5927,25 +6773,10 @@ namespace {
 #undef SS3
 
     inline u8 getModifierCode(VtModifier modifiers) {
-        switch (modifiers) {
-            case VtModifier::none:
-                return 0;
-            case VtModifier::shift:
-                return 2;
-            case VtModifier::alt:
-                return 3;
-            case VtModifier::shift_alt:
-                return 4;
-            case VtModifier::control:
-                return 5;
-            case VtModifier::shift_control:
-                return 6;
-            case VtModifier::control_alt:
-                return 7;
-            case VtModifier::shift_control_alt:
-                return 8;
+        if (modifiers == VtModifier::none) {
+            return 0;
         }
-        return 0;
+        return 1 + (((modifiers & VtModifier::shift) != VtModifier::none) ? 1 : 0) + (((modifiers & VtModifier::alt) != VtModifier::none) ? 2 : 0) + (((modifiers & VtModifier::control) != VtModifier::none) ? 4 : 0) + (((modifiers & VtModifier::super) != VtModifier::none) ? 8 : 0);
     }
 
     struct KittyKeySpec {
@@ -5972,11 +6803,48 @@ namespace {
         if (modifiers & 4) {
             result = result | VtModifier::control;
         }
+        if (modifiers & 8) {
+            result = result | VtModifier::super;
+        }
         return result;
     }
 
     bool validKittyAssociatedText(u32 codepoint) {
         return codepoint >= 0x20 && !(codepoint >= 0x7f && codepoint <= 0x9f);
+    }
+
+    u32 kittyAssociatedText(InputKey key) {
+        if (key >= InputKey::Keypad0 && key <= InputKey::Keypad9) {
+            return '0' + (u32)(key) - (u32)(InputKey::Keypad0);
+        }
+        switch (key) {
+            case InputKey::Enter:
+            case InputKey::KeypadEnter:
+                return '\r';
+            case InputKey::Tab:
+            case InputKey::KeypadTab:
+                return '\t';
+            case InputKey::Backspace:
+                return '\x7f';
+            case InputKey::KeypadDecimal:
+                return '.';
+            case InputKey::KeypadDivide:
+                return '/';
+            case InputKey::KeypadMultiply:
+                return '*';
+            case InputKey::KeypadSubtract:
+                return '-';
+            case InputKey::KeypadAdd:
+                return '+';
+            case InputKey::KeypadEqual:
+                return '=';
+            case InputKey::KeypadSeparator:
+                return ',';
+            case InputKey::KeypadSpace:
+                return ' ';
+            default:
+                return 0;
+        }
     }
 
     KittyKeySpec kittyKeySpec(InputKey key) {
@@ -6697,10 +7565,14 @@ const u16* VtermImpl::charCodes[] = {
 };
 
 u32 VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
+    const bool userPreference = charset == Charset::DecUserPref;
+    if (userPreference) {
+        charset = userPreferenceCharset;
+    }
     if (charset <= Charset::IsoUK) {
         return charCodes[(u8)(charset)][ch - 32];
     }
-    if (!nationalReplacementMode) {
+    if (!nationalReplacementMode && !userPreference) {
         return ch;
     }
 
@@ -6887,7 +7759,7 @@ void VtermImpl::resizeGrid() {
     marginBottom = composer.rows;
     nColsEff = composer.columns;
     hMargin = 0;
-    if (tabStopsCustomized) {
+    if (tabStopsCustomized && !tabStopsRestored) {
         while (!tabStops.empty() && tabStops.back() >= composer.columns) {
             tabStops.pop_back();
         }
@@ -6957,10 +7829,14 @@ int VtermImpl::writePty(InputKey key, VtModifier modifiers_, bool userInput) {
     } else {
         char buf[32];
         int k = 0;
+        const u8 modifierCode = getModifierCode(modifiers);
         const char* end = spec.input + spec.getLength();
         for (const char* p = spec.input; p != end; ++p) {
             if (*p == *MC) {
-                buf[k++] = '0' + getModifierCode(modifiers);
+                if (modifierCode >= 10) {
+                    buf[k++] = '0' + modifierCode / 10;
+                }
+                buf[k++] = '0' + modifierCode % 10;
             } else {
                 buf[k++] = *p;
             }
@@ -6970,28 +7846,32 @@ int VtermImpl::writePty(InputKey key, VtModifier modifiers_, bool userInput) {
     }
 }
 
+bool VtermImpl::modifyOtherKeyEncoded(u8 ch, VtModifier modifiers_) const {
+    if (modifyOtherKeys == 1) {
+        return (modifiers_ & VtModifier::control) != VtModifier::none && ch > ' ';
+    }
+    if (modifyOtherKeys != 2) {
+        return false;
+    }
+
+    const char* const controlAltOnly = "!#$%&*()-+=?.,:;<>'\"";
+    for (const char* current = controlAltOnly; *current != '\0'; ++current) {
+        if (ch == (u8)(*current)) {
+            return (modifiers_ & (VtModifier::control | VtModifier::alt)) != VtModifier::none;
+        }
+    }
+    return modifiers_ != VtModifier::none;
+}
+
 int VtermImpl::writePty(u8 ch, VtModifier modifiers, bool userInput) {
     using VM = VtModifier;
 
     auto uch = &ch;
 
-    const auto& mod2_encode = [&](u8 ch) {
-        const char* exempt = "!#$%&*()-+=?.,:;<>'\"";
-        auto x = (char*)(exempt);
-
-        while (*x) {
-            if (ch == *x++) {
-                return (modifiers & VM::control_alt) != VM::none;
-            }
-        }
-
-        return modifiers != VM::none;
-    };
-
     if (eightBitInput && (modifiers & VM::alt) != VM::none) {
         ch |= 0x80;
         return writePty(&ch, 1, userInput);
-    } else if ((modifyOtherKeys == 2 && mod2_encode(ch)) || (modifyOtherKeys == 1 && (modifiers & VM::control) != VM::none && ch > ' ')) {
+    } else if (modifyOtherKeyEncoded(ch, modifiers)) {
         if (ch < ' ' && (modifiers & VM::control) != VM::none) {
             const char* ctrlmap = ((modifiers & VM::shift) != VM::none) ? "@ABCDEFGHIJKLMNOPQRSTUVWXYZ{|}^/" : " abcdefghijklmnopqrstuvwxyz[\\]^/";
             ch = ctrlmap[ch];
@@ -7042,7 +7922,9 @@ int VtermImpl::writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType even
         return 0;
     }
 
-    if (isKittyRecoveryKey(key) && !(getKittyKeyboardFlags() & 0x08)) {
+    const u8 flags = getKittyKeyboardFlags();
+    const bool reportEvent = (flags & 0x02) && event != VtermKeyEventType::Press;
+    if (isKittyRecoveryKey(key) && !(flags & 0x08) && !(modifiers & 15)) {
         if (event == VtermKeyEventType::Release) {
             return 0;
         }
@@ -7057,9 +7939,8 @@ int VtermImpl::writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType even
         return 0;
     }
 
-    const u8 flags = getKittyKeyboardFlags();
-    const bool reportEvent = (flags & 0x02) && event != VtermKeyEventType::Press;
-    const bool reportText = (flags & 0x10) && event != VtermKeyEventType::Release && !(modifiers & (4 | 8)) && isKittyRecoveryKey(key) && validKittyAssociatedText(spec.code);
+    const u32 text = kittyAssociatedText(key);
+    const bool reportText = (flags & 0x10) && event != VtermKeyEventType::Release && !(modifiers & (4 | 8)) && validKittyAssociatedText(text);
     StringBuilder sequence;
     sequence << StringView(u8"\x1b[");
     if (spec.code != 1 || spec.final == 'u' || modifiers || reportEvent || reportText) {
@@ -7074,7 +7955,7 @@ int VtermImpl::writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType even
             sequence << StringView(u8":") << (unsigned)(event);
         }
         if (reportText) {
-            sequence << StringView(u8";") << spec.code;
+            sequence << StringView(u8";") << text;
         }
     }
     sequence.append(&spec.final, 1);
@@ -7386,12 +8267,18 @@ void VtermImpl::parserResetCharsets(bool isoLatin1) {
     if (isoLatin1) {
         charsetState.g[charsetState.gr] = Charset::IsoLatin1;
         charsetState.g[3] = Charset::IsoLatin1;
+        charsetState.ids[charsetState.gr] = 'A';
+        charsetState.ids[3] = 'A';
+        charsetState.size96 = (1u << charsetState.gr) | (1u << 3);
     }
 }
 
-void VtermImpl::parserDesignateCharset(u8 index, Charset charset) {
+void VtermImpl::parserDesignateCharset(u8 index, Charset charset, u16 id, bool is96) {
     if (index < 4) {
         charsetState.g[index] = charset;
+        charsetState.ids[index] = id;
+        const u8 bit = 1u << index;
+        charsetState.size96 = is96 ? charsetState.size96 | bit : charsetState.size96 & ~bit;
     }
 }
 

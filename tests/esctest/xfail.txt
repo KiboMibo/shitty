@@ -15,7 +15,6 @@ S8C1TTests.test_S8C1T_DCS
 S8C1TTests.test_S8C1T_SPA_EPA
 SOSTests.test_SOS_8bit
 # Printer control is intentionally unsupported.
-DECDSRTests.test_DECDSR_DSRPrinterPort
 DECRQMTests.test_DECRQM_DEC_DECPFF
 DECRQMTests.test_DECRQM_DEC_DECPEX
 # xterm patch #380 restricted mode 45 to soft-wrapped lines; patch #383

@@ -13,6 +13,96 @@ compared whole versus bytewise across parser events and the full observable
 terminal state. Variable-built streams and Windows Terminal's semantic screen
 assertions remain for a later adapter.
 
+`../test_windows_terminal_adapter.py` begins the assertion-based translation
+of all 53 methods in
+`src/terminal/adapter/ut_adapter/adapterTest.cpp`, copied as
+`upstream/AdapterTest.cpp` at the same revision. The first 10 methods preserve
+the complete cursor movement/position/save/visibility matrices and the SGR
+attribute, indexed-color, subparameter, brightness, and push/pop transactions.
+The import found that XTPUSHSGR and XTPOPSGR were parsed as unknown CSI.
+Shitty now implements xterm's 10-entry ring stack, including selective
+attribute restoration with the same underline-versus-double-underline
+semantics tested by Windows Terminal. Bold indexed colors are checked after
+Shitty's configured bold-color resolution rather than against Windows'
+separate legacy intensity bit.
+
+The next 13 methods cover status reports, all three device-attribute forms,
+DECRQDE, DECREQTPARM, DECRQSS, and standard/private/permanent mode reports.
+This block added the missing printer-status DSR, the VT340 displayed-extent
+reply, VT100 terminal-parameter replies, and the permanently-enabled DECRQM
+result for grapheme clustering mode 2027. Shitty has a single page, like xterm
+and VTE, so extended CPR and DECRQDE always report page 1 and no horizontal
+panning. Its DA strings and private status details describe Shitty's actual
+UDK, locator, and keyboard support rather than copying Windows Terminal's
+identity. Private modes 117 and 9001 remain unsupported and report state 0.
+DECRQSS retains every portable upstream margin, rendition, cursor-style, and
+protection assertion; querying DECAC aliases remains unsupported because
+Shitty does not own window-frame colors.
+
+`DeviceStatus_MacroSpaceReportTest` and
+`DeviceStatus_MemoryChecksumReportTest` are explicitly classified: they test
+the capacity and checksum of Windows Terminal's DEC macro subsystem, which
+Shitty does not implement. The existing protocol tests still verify that its
+declared zero macro-space/checksum replies are stable; they do not pretend
+that defining a macro changes storage that does not exist.
+
+Fourteen more methods cover cursor/keypad/ANSI modes, cursor blinking, margin
+validation, line-feed behavior, title actions, mouse modes, 256-color SGR,
+palette mutation and OSC color reports. Direct adapter calls are translated
+to the corresponding VT streams and generic input events, so the tests cover
+the observable terminal contract rather than Windows internal mode bits. The
+palette test retains all 256 upstream indices and verifies them through OSC 4
+queries.
+
+The two extended-color methods retain every valid, empty, incomplete, and
+out-of-range row but use parser-level consensus semantics. A complete colon
+form may contain empty RGB subparameters, which default to zero; its optional
+color-space identifier is skipped regardless of value, matching xterm, Foot,
+Kitty, and Ghostty. An actually truncated semicolon form remains atomic and
+does not change the color. Windows' direct-dispatch fixture supplies implicit
+zero parameters even when no bytes existed in the input, so copying that
+internal behavior would make malformed wire sequences look complete.
+
+Four portable protocol methods add the complete character/checksum matrix,
+S7C1T/S8C1T reply forms, and all three window-geometry reports. Shitty follows
+the DEC-compatible policy measured against xterm-406 and independently
+implemented by Contour: written spaces count, Latin-1 is mapped into the DEC
+7-bit charset, and the six DEC rendition/protection attributes contribute
+their specified weights while colors do not. Windows Terminal's incompatible
+raw low-byte, color-weighted results are adapted to this reference behavior.
+Geometry reports use the actual font cell size instead of Windows Terminal's
+synthetic 10×20 compatibility cell.
+
+`ColorTableReportTests` retains both DEC HLS and RGB report models and all 256
+palette entries. The request is parsed as a direct semantic callback, and the
+single DCS reply is generated from the live Shitty palette rather than a
+separate report-side copy.
+
+`TabulationStopReportTests` retains default reports at both widths, complete
+DCS restoration, ordering, empty and invalid stop handling, clearing, and the
+upstream requirement that restored stops outside the current page become
+visible after a later expansion. Manually edited VTE-style tables retain their
+existing resize policy; a restored DEC table is a complete saved table and is
+not extended with synthetic defaults.
+
+`CursorInformationReportTests` retains the complete DECCIR round trip:
+position, rendition and protection, origin and single-shift flags, pending
+wrap, GL/GR selection, 94/96 designation flags, and exact one- or two-byte
+charset identifiers. Designation identity is now stored alongside the runtime
+charset, so reporting does not guess an identifier from a lossy enum.
+
+`AssignUserPreferenceCharsets` and `RequestUserPreferenceCharsets` retain all
+five upstream 94-character sets and all six 96-character sets. DECAUPSS is
+parsed directly by Ragel, DECRQUPSS returns the exact assigned identity, and
+designating `DecUserPref` resolves through the live assignment rather than a
+hard-coded DEC Supplemental table.
+
+Five more methods are classified rather than simulated. Shitty has no DEC
+DRCS soft-font store, DEC macro store, or multi-page display memory; the macro
+status methods above already report that absence. `MenuCompletionsTests`
+targets Windows Terminal's experimental OSC 633 integration with a host
+completion UI, not terminal state or portable shell integration.
+
 `../test_windows_terminal_mouse.py` translates all five methods and every
 data-source row from
 `src/terminal/adapter/ut_adapter/MouseInputTest.cpp` at the same revision:
@@ -105,6 +195,175 @@ When a cursor maps exactly one cell beyond the new right edge, Shitty retains
 it as pending wrap in the last cell, matching Alacritty and Ghostty, instead of
 creating a forced blank continuation row. The adapted states still compare the
 complete resulting grid and explicitly verify pending wrap.
+
+`../test_windows_terminal_screen_buffer.py` starts the translation of all 113
+methods in `src/host/ut_host/ScreenBufferTests.cpp`, copied as
+`upstream/ScreenBufferTests.cpp` at the same revision. The source inventory is
+checked statically so later upstream methods cannot disappear unnoticed. The
+first 13 methods cover alternate-screen lifetime and cursor state, reverse
+index, every tab-stop transition, ED2, and all 24 inactive C0 values. They run
+through the observable VT boundary. The original private Win32 buffer-pointer
+and moving-viewport assertions have no terminal protocol counterpart; their
+observable lifetime and screen contracts are retained instead. Windows'
+processed-output newline is expressed explicitly as CRLF, while raw terminal
+LF remains ECMA-48 line feed.
+
+The first block found a product gap. DECST8C (`CSI ? 5 W` and its omitted default)
+now restores the standard stops every eight columns. Windows enumerates stops
+by moving forward and therefore does not observe column zero; Shitty keeps
+VTE's equivalent internal bitmap convention in which zero is set. The
+next 12 methods cover cell resize and DECCOLM, pen preservation, DECSTR cursor
+state on both screens, newline behavior around margins and scrollback, erase
+colors, OSC 4 parsing, and the complete DECRSTS color-table transaction.
+
+The second block found that DCS `2 $ p` color-table restore was ignored.
+Ragel now parses every slash-separated definition directly into semantic HLS
+or RGB callbacks, including omitted and clamped components; there is no
+secondary string parser in Vterm. RIS restores the initial palette. Windows
+treats `CSI 8;0;0t` as a no-op, while Shitty retains xterm's current behavior
+of substituting the screen dimensions. Windows rejects `rgbi:`, but Shitty
+retains the XParseColor model already shared with current color parsers.
+
+The next 12 methods cover shrinking without lifetime corruption, cursor style
+preservation through primary and alternate resize, active alternate geometry,
+ED 2 cursor and erase-color behavior, word selection, active-screen VT
+dispatch, and RIS from the alternate screen. Win32 buffer pointer identity and
+`GetConsoleScreenBufferInfoEx` are translated to the observable active-screen
+contract. `GetWordBoundaryTrimZerosOn` and `GetWordBoundaryTrimZerosOff` are
+classified rather than emulated: they test the private host setting
+`SetTrimLeadingZeros`, not a terminal protocol, and conflict with the project's
+selection policy in which punctuation and whitespace remain independently
+selectable classes.
+
+The following 11 methods cover default-color sources, SGR reset and reverse,
+backspace and delete-character attribute preservation, palette changes shared
+by both screens, three-digit OSC 4 indices, and OSC 10/11 validation. The
+Win32-only `WriteCharsLegacy` entry point is represented by equivalent whole
+and chunked terminal byte streams. This block exposed missing VT525 DECAC
+(`CSI Ps;Pf;Pb , |`). Shitty now parses its text and frame items into separate
+semantic callbacks, assigns or resets the normal-text defaults, accepts the
+256-color extension shared by Windows Terminal and Contour, and resets the
+assignment on RIS. The frame item is deliberately a no-op, matching xterm:
+Shitty does not own compositor or Cocoa window furniture.
+
+The next five methods retain the complete 64-case near-end-of-line DCH matrix,
+both original minimal regressions, the history-color lifetime invariant, and
+all 15 SU/SD/IL/DL/RI combinations. Windows moves a private Win32 viewport
+inside a larger console buffer; Shitty expresses the portable part through an
+ECMA-48/DEC scrolling region. Content outside that region remains unchanged,
+IL/DL move the cursor to the left margin, and newly revealed cells retain the
+current foreground/background while clearing rendition metadata. The
+`DontResetColorsAboveVirtualBottom` regression is observed at the terminal
+boundary by viewing a colored history row while a write changes the live
+screen.
+
+The following five methods cover insert/replace mode, the complete centered
+ICH/DCH matrices, DECIC/DECDC/DECFI/DECBI over a rectangular scrolling region,
+and one-cell movement of wide glyphs through ICH, DCH, and DECCRA. The import
+found that ICH checked both vertical and horizontal margins while DCH checked
+only the horizontal range. They now use the same horizontal boundary rule.
+Windows expands ICH/DCH to the full line when the cursor is outside separately
+configured vertical margins. That result is adapted: VT510 defines these as
+horizontal operations, and xterm and Ghostty continue using the configured
+left/right margins independently of the cursor row. Both original vertical
+margin branches remain exercised.
+
+The next three methods cover ED3, all 12 combinations of EL/ED,
+to-end/from-beginning/all, and regular/selective erasure, plus every upstream
+DECSCA parameter case. The Win32 console-storage tail after its movable
+viewport has no terminal equivalent; ED3 is checked through its observable
+contract: history is removed, a scrolled view returns to the live screen, and
+live cells, colors, and cursor remain unchanged. Two upstream policies are
+adapted to current terminal behavior. Windows selective erase preserves the
+old colors of erased cells, while xterm, Ghostty, and Shitty create blanks
+using current erase colors. DECSCA has one parameter in the DEC grammar;
+Windows applies the last parameter of a malformed list, xterm applies the
+first, and Ghostty rejects the list. Both malformed cases remain covered with
+xterm-compatible first-parameter behavior.
+
+The next five methods retain all 12 margin-scrolling branches. SU and SD move
+the vertical region with and without horizontal margins; IL and DL cover
+vertical margins, the full screen, and the rectangular region; RI covers a
+nonzero top margin, a top margin at the first row, and the rectangular region.
+Every branch compares the complete six-row grid, and every cursor assertion
+made by the upstream test is retained.
+
+The following seven methods cover IND and NEL at the top and bottom of the
+screen and both kinds of scrolling region; the nine IL/DL/RI and
+16/256/direct-color combinations; LNM, DECSCNM, DECOM with DECLRMM, DECAWM
+including both wide-glyph edge cases, and RIS before and after filling
+history. The Win32 movable viewport is translated to the terminal's
+screen-plus-history behavior. Its private render-settings color lookup is
+represented by the published renderer reverse-screen state while the
+underlying cell colors are verified to remain unchanged. RIS additionally
+checks that observable history is removed.
+
+The next five methods contribute three portable tests and two explicit host
+classifications. Alternate-screen clearing is performed through ED2 and CUP
+and verifies that primary contents and cursor survive. The complete 256
+extended-attribute matrix and all 4096 attribute/foreground/background
+combinations are retained, including every applicable individual reset after
+each combination. This exposed a Shitty bug where changing bold/faint state
+after a direct RGB foreground reconstructed it as the default color; bold
+changes now leave direct colors intact while retaining the configured
+bright-ANSI behavior. `RestoreDownAltBufferWithTerminalScrolling` and
+`SnapCursorWithTerminalScrolling` manipulate `_virtualBottom`, movable Win32
+viewports, and console APIs with no terminal protocol equivalent. Their
+portable alternate-resize, scrollback-follow, and screen-lifetime invariants
+are already covered by the translated resize and alternate-screen tests. The
+next 11 methods cover vertical and horizontal cursor movement from inside,
+outside, and exactly on rectangular margins; CNL/CPL; HPR/VPR; DECSC/DECRC
+position, pending-wrap, rendition, charset, DECOM, changed-origin, and
+clamping state; DECALN; and cursor visibility/blink modes. The import found
+that printing to the right of horizontal margins was incorrectly clamped
+back into the rectangle. It also found that DECSC stored absolute coordinates
+in origin mode, so DECRC could not apply the saved relative position to
+changed margins. Windows moves CNL/CPL to column zero after leaving vertical
+margins; xterm's esctest, Ghostty, and WezTerm retain the configured left
+margin, while Foot and Kitty agree with Windows. Shitty retains its existing
+xterm-compatible carriage-return rule and tests both vertical outcomes.
+Windows also starts with cursor blinking enabled; Shitty retains its
+non-blinking product default while testing every DECSET/DECRST transition.
+The next three methods retain all OSC 8 state transitions and add observable
+cell assertions: an implicit link stays active across text and closes, an
+explicit identity reuses the same link, and the same explicit `id` with a
+different URI creates a distinct link without changing the earlier cell.
+Nine methods are explicitly classified as Win32 host policy. They manipulate
+the private `_virtualBottom`, pan a console viewport horizontally inside a
+larger screen buffer, or invoke `SetConsoleCursorPosition` and
+`MakeCurrentCursorVisible`. A terminal emulator has a live screen, scrollback,
+and a user-controlled view instead of this virtual Win32 viewport. The
+portable scrollback, resize/reflow, cursor, and alternate-screen invariants
+from those methods are already exercised independently.
+The final seven portable methods cover three color-preserving reflow
+transactions, all six rectangular operations and their complete target
+boundaries, rectangular copy from a double-width source line, all 36 controls
+listed by DEC STD 070 as resetting delayed wrap, and a four-line wrap that
+starts at the bottom of the screen. They exposed three product bugs.
+Line-rendition controls and DECAWM reset retained pending wrap. A redundant
+DECCOLM reset skipped the required home/clear side effects. DECCRA treated a
+double-width source row as if every physical column were addressable and
+copied ten cells beyond its right edge. All are now fixed.
+
+Windows fills a newly added column with the old row's trailing erase
+attribute. Shitty follows the behavior of a newly allocated terminal cell:
+the existing colored cells survive reflow, while a newly exposed column is a
+default blank. The test retains both assertions explicitly.
+
+Five methods are classified rather than emulated. `TestDeferredMainBufferResize`
+asserts a Win32 implementation optimization: the inactive main `TextBuffer`
+must keep its old allocation until alternate-screen exit. Its observable
+result is already covered by `test_resize_alt_buffer`, including primary
+contents and final geometry. VT525 DECECM would replace text erase colors with
+the screen background; xterm explicitly ignores mode 117, VTE declares it but
+does not implement the behavior, and Foot, Kitty, Ghostty, Alacritty, and
+WezTerm have no implementation. Shitty follows that current implementation
+consensus instead of Windows Terminal. `SimpleMarkCommand`,
+`SimpleWrappedCommand`, and `SimplePromptRegions` inspect Windows-only
+`ScrollbarData`, `CurrentCommand`, command history, and mark-extents UI state.
+Their portable OSC 133 prompt/command/output/finish state machine is covered
+by `test_shell_integration.py`, including wrapping and malformed ordering.
+All 113 methods are now either ported or explicitly classified.
 
 The 25 methods in `src/terminal/parser/ut_parser/InputEngineTest.cpp` test the
 opposite, Windows-only boundary: decoding a VT input byte stream into Win32

@@ -104,6 +104,64 @@ namespace {
         return offset;
     }
 
+    bool safeUtf8(StringView text) {
+        const u8* current = text.data();
+        const u8* const end = current + text.length();
+        while (current != end) {
+            const u8 first = *current++;
+            u32 codepoint = first;
+            u32 minimum = 0;
+            unsigned remaining = 0;
+            if (first >= 0xc2 && first <= 0xdf) {
+                codepoint = first & 0x1f;
+                minimum = 0x80;
+                remaining = 1;
+            } else if (first >= 0xe0 && first <= 0xef) {
+                codepoint = first & 0x0f;
+                minimum = 0x800;
+                remaining = 2;
+            } else if (first >= 0xf0 && first <= 0xf4) {
+                codepoint = first & 0x07;
+                minimum = 0x10000;
+                remaining = 3;
+            } else if (first >= 0x80) {
+                return false;
+            }
+            if ((size_t)(end - current) < remaining) {
+                return false;
+            }
+            while (remaining-- != 0) {
+                const u8 continuation = *current++;
+                if ((continuation & 0xc0) != 0x80) {
+                    return false;
+                }
+                codepoint = (codepoint << 6) | (continuation & 0x3f);
+            }
+            if (codepoint < minimum || codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff) || codepoint <= 0x1f || (codepoint >= 0x7f && codepoint <= 0x9f)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool parseUnsigned(StringView text, u8& value) {
+        if (text.empty()) {
+            return false;
+        }
+        unsigned parsed = 0;
+        for (const u8 byte : text) {
+            if (byte < '0' || byte > '9') {
+                return false;
+            }
+            parsed = parsed * 10 + byte - '0';
+            if (parsed > 255) {
+                return false;
+            }
+        }
+        value = (u8)(parsed);
+        return true;
+    }
+
     struct ProtocolParser {
         constexpr const static size_t maxParameters = 32;
         constexpr const static size_t maxDcsBytes = 4095;
@@ -153,11 +211,26 @@ namespace {
         bool dcsUdkHeaderValid = false;
         bool dcsUdkClearDefinitions = false;
         bool dcsUdkLockDefinitions = false;
+        bool dcsColorValid = false;
+        bool dcsTabValid = false;
+        u32 dcsCursorNumbers[5] = {};
+        u8 dcsCursorNumberCount = 0;
+        u8 dcsCursorBytes[4] = {};
+        u8 dcsCursorByteCount = 0;
+        u16 dcsCursorCharsetIds[4] = {};
+        Charset dcsCursorCharsets[4] = {};
+        u8 dcsCursorCharsetCount = 0;
+        u16 dcsUpssId = 0;
+        u8 dcsUpssBytes = 0;
+        bool dcsUpss96 = false;
+        bool dcsUpssValid = false;
+        bool dcsUpssComplete = false;
 
         u32 oscCommand = 0;
         size_t oscPayloadOffset = 0;
         bool oscCommandValid = false;
         bool oscTerminated = false;
+        bool oscTextSizingValid = false;
         bool oscTitleHex = false;
         bool oscTitleHasHighNibble = false;
         bool oscTitleValid = false;
@@ -248,6 +321,8 @@ namespace {
         bool ragelStringContinuation(const u8& ch);
         void ragelFinishString();
         void ragelFinishDcs();
+        void finishDcsColor();
+        void finishDcsTab();
         void ragelFinishOsc();
         StringView ragelOscPayload();
         void beginCsi();
@@ -279,10 +354,14 @@ namespace {
         void dispatchWindowOps();
         void dispatchLocatorReporting();
         void dispatchDecsle();
+        void dispatchDecac();
         void dispatchXtmodkeys();
         void dispatchXtqmodkeys();
         void dispatchKittyKeyboardSet();
+        void dispatchKittyTextSizing(StringView payload);
+        void dispatchKittyClipboard(StringView payload);
         void designateCharset(u8 final);
+        Charset decodeCharset(u16 id, bool is96) const;
         bool parseSgrColor(size_t& index, CellColor& color, int& paletteIndex);
         template <typename Sink>
         void dispatchSgrTo(Sink& sink, size_t first);
@@ -657,6 +736,7 @@ void ParserImpl<traced>::ragelBeginOsc() {
     parser.oscPayloadOffset = 0;
     parser.oscCommandValid = false;
     parser.oscTerminated = false;
+    parser.oscTextSizingValid = false;
     resetDecoded();
     parser.oscTitleHex = false;
     parser.oscTitleHasHighNibble = false;
@@ -718,6 +798,35 @@ void ParserImpl<traced>::ragelFinishString() {
 template <bool traced>
 void ParserImpl<traced>::ragelFinishDcs() {
     ragelFinishString();
+}
+
+template <bool traced>
+void ParserImpl<traced>::finishDcsColor() {
+    if (parser.dcsColorValid && parser.parameterCount <= 5) {
+        const u32 index = parameter(0);
+        const u32 model = parameter(1);
+        if (index < 256) {
+            if (model == 1) {
+                iface.dcs_DECRSTS_HLS(index, parameter(2), parameter(3), parameter(4));
+            } else if (model == 2) {
+                iface.dcs_DECRSTS_RGB(index, parameter(2), parameter(3), parameter(4));
+            }
+        }
+    }
+    parser.parameters[0] = 0;
+    parser.present[0] = false;
+    parser.parameterCount = 1;
+    parser.dcsColorValid = true;
+}
+
+template <bool traced>
+void ParserImpl<traced>::finishDcsTab() {
+    if (parser.dcsTabValid && parser.present[0] && parser.parameters[0] > 1) {
+        iface.dcs_DECRSTS_TAB(parser.parameters[0]);
+    }
+    parser.parameters[0] = 0;
+    parser.present[0] = false;
+    parser.dcsTabValid = true;
 }
 
 template <bool traced>
@@ -1035,6 +1144,9 @@ void ParserImpl<traced>::dispatchPrivateMode(u32 mode, bool enabled) {
         case 2048:
             iface.setInBandResize(enabled);
             break;
+        case 5522:
+            iface.setPasteMimeNotifications(enabled);
+            break;
         default:
             break;
     }
@@ -1164,8 +1276,177 @@ bool ParserImpl<traced>::privateModeValue(u32 mode, const ParserModeState& state
         case 2048:
             value = state.inBandResize;
             return true;
+        case 5522:
+            value = state.pasteMimeNotifications;
+            return true;
         default:
             return false;
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchKittyTextSizing(StringView payload) {
+    StringView metadata;
+    StringView text;
+    if (!payload.split(';', metadata, text) || text.length() > 4096 || !parser.oscTextSizingValid || !safeUtf8(text)) {
+        return;
+    }
+
+    KittyTextSizing sizing{
+        .text = text,
+    };
+    while (!metadata.empty()) {
+        StringView field = metadata;
+        StringView rest;
+        if (metadata.split(':', field, rest)) {
+            metadata = rest;
+        } else {
+            metadata = {};
+        }
+        if (field.empty()) {
+            continue;
+        }
+
+        StringView key;
+        StringView encodedValue;
+        if (!field.split('=', key, encodedValue) || key.empty()) {
+            return;
+        }
+        if (key.length() != 1) {
+            continue;
+        }
+        switch (key[0]) {
+            case 's':
+            case 'w':
+            case 'n':
+            case 'd':
+            case 'v':
+            case 'h':
+                break;
+            default:
+                continue;
+        }
+
+        u8 value = 0;
+        if (!parseUnsigned(encodedValue, value)) {
+            return;
+        }
+        switch (key[0]) {
+            case 's':
+                if (value < 1 || value > 7) {
+                    return;
+                }
+                sizing.scale = value;
+                break;
+            case 'w':
+                if (value > 7) {
+                    return;
+                }
+                sizing.width = value;
+                break;
+            case 'n':
+                if (value > 15) {
+                    return;
+                }
+                sizing.numerator = value;
+                break;
+            case 'd':
+                if (value > 15) {
+                    return;
+                }
+                sizing.denominator = value;
+                break;
+            case 'v':
+                if (value > 2) {
+                    return;
+                }
+                sizing.verticalAlignment = value;
+                break;
+            case 'h':
+                if (value > 2) {
+                    return;
+                }
+                sizing.horizontalAlignment = value;
+                break;
+            default:
+                __builtin_unreachable();
+        }
+    }
+    if (sizing.denominator != 0 && sizing.denominator <= sizing.numerator) {
+        return;
+    }
+    iface.osc_KITTY_TEXT_SIZING(sizing);
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchKittyClipboard(StringView payload) {
+    StringView metadata = payload;
+    StringView encodedPayload;
+    (void)payload.split(';', metadata, encodedPayload);
+
+    StringView type;
+    StringView id;
+    StringView encodedMime;
+    bool primary = false;
+    bool valid = true;
+
+    while (!metadata.empty()) {
+        StringView record = metadata;
+        StringView rest;
+        if (metadata.split(':', record, rest)) {
+            metadata = rest;
+        } else {
+            metadata = {};
+        }
+        if (record.empty()) {
+            continue;
+        }
+        StringView key;
+        StringView value;
+        if (!record.split('=', key, value)) {
+            valid = false;
+            continue;
+        }
+        if (key == StringView(u8"type")) {
+            type = value;
+        } else if (key == StringView(u8"id")) {
+            id = value;
+        } else if (key == StringView(u8"loc")) {
+            primary = value == StringView(u8"primary");
+        } else if (key == StringView(u8"mime")) {
+            encodedMime = value;
+        }
+    }
+
+    if (type == StringView(u8"read")) {
+        size_t decodedSize = encodedPayload.length();
+        valid = valid && base64DecodeInPlace((u8*)(encodedPayload.data()), decodedSize);
+        iface.osc_KITTY_CLIPBOARD_READ(id, StringView(encodedPayload.data(), decodedSize), primary, valid);
+        return;
+    }
+    if (type == StringView(u8"write")) {
+        if (valid) {
+            iface.osc_KITTY_CLIPBOARD_WRITE(id, primary);
+        } else {
+            iface.osc_KITTY_CLIPBOARD_INVALID(id, true);
+        }
+        return;
+    }
+
+    StringView mime;
+    size_t mimeSize = encodedMime.length();
+    valid = valid && base64DecodeInPlace((u8*)(encodedMime.data()), mimeSize);
+    mime = StringView(encodedMime.data(), mimeSize);
+
+    size_t decodedSize = encodedPayload.length();
+    valid = valid && base64DecodeInPlace((u8*)(encodedPayload.data()), decodedSize);
+    const StringView decoded(encodedPayload.data(), decodedSize);
+    if (type == StringView(u8"wdata")) {
+        iface.osc_KITTY_CLIPBOARD_WRITE_DATA(id, mime, decoded, valid);
+    } else if (type == StringView(u8"walias")) {
+        iface.osc_KITTY_CLIPBOARD_WRITE_ALIAS(id, mime, decoded, valid);
+    } else {
+        iface.osc_KITTY_CLIPBOARD_INVALID(id, false);
     }
 }
 
@@ -1206,7 +1487,9 @@ void ParserImpl<traced>::dispatchModeReport(bool privateMode) {
     u8 result = 0;
     bool enabled;
     if (privateMode) {
-        if (privateModeValue(mode, state, enabled)) {
+        if (mode == 2027) {
+            result = 3;
+        } else if (privateModeValue(mode, state, enabled)) {
             if ((mode == 69 && compatibility < CompatibilityLevel::VT400) || (mode == 95 && compatibility < CompatibilityLevel::VT500)) {
                 result = 0;
             } else {
@@ -1449,21 +1732,19 @@ void ParserImpl<traced>::dispatchKittyKeyboardSet() {
 }
 
 template <bool traced>
-void ParserImpl<traced>::designateCharset(u8 final) {
-    if (parser.scsMultibyte) {
-        return;
-    }
-
+Charset ParserImpl<traced>::decodeCharset(u16 id, bool is96) const {
+    const u8 mod = id >> 8;
+    const u8 final = id;
     Charset charset = Charset::UTF8;
-    if (parser.scs96) {
-        if (parser.scsMod == 0) {
+    if (is96) {
+        if (mod == 0) {
             if (final == 'A') {
                 charset = Charset::IsoLatin1;
             } else if (final == '<') {
                 charset = Charset::DecUserPref;
             }
         }
-    } else if (parser.scsMod == 0) {
+    } else if (mod == 0) {
         switch (final) {
             case 'A':
                 charset = Charset::IsoUK;
@@ -1514,8 +1795,9 @@ void ParserImpl<traced>::designateCharset(u8 final) {
                 charset = Charset::NrcSwiss;
                 break;
         }
-    } else if (parser.scsMod == '%') {
+    } else if (mod == '%') {
         switch (final) {
+            case '0':
             case '2':
                 charset = Charset::NrcTurkish;
                 break;
@@ -1532,13 +1814,25 @@ void ParserImpl<traced>::designateCharset(u8 final) {
                 charset = Charset::NrcHebrew;
                 break;
         }
-    } else if (parser.scsMod == '&' && final == '5') {
+    } else if (mod == '&' && (final == '4' || final == '5')) {
         charset = Charset::NrcRussian;
-    } else if (parser.scsMod == '"' && final == '>') {
-        charset = Charset::NrcGreek;
+    } else if (mod == '"') {
+        if (final == '?' || final == '>') {
+            charset = Charset::NrcGreek;
+        } else if (final == '4') {
+            charset = Charset::NrcHebrew;
+        }
     }
+    return charset;
+}
 
-    iface.parserDesignateCharset(parser.scsIndex, charset);
+template <bool traced>
+void ParserImpl<traced>::designateCharset(u8 final) {
+    if (parser.scsMultibyte) {
+        return;
+    }
+    const u16 id = parser.scsMod == 0 ? final : ((u16)(parser.scsMod) << 8) | final;
+    iface.parserDesignateCharset(parser.scsIndex, decodeCharset(id, parser.scs96), id, parser.scs96);
 }
 
 template <bool traced>
@@ -1555,6 +1849,9 @@ void ParserImpl<traced>::dispatchDsr(bool privateMode) {
     switch (operation) {
         case 6:
             iface.dsrCursorPosition(true);
+            break;
+        case 15:
+            iface.dsrPrinter();
             break;
         case 25:
             iface.dsrUserDefinedKeys();
@@ -1728,6 +2025,35 @@ void ParserImpl<traced>::dispatchDecsle() {
 }
 
 template <bool traced>
+void ParserImpl<traced>::dispatchDecac() {
+    if (parser.parameterCount != 1 && parser.parameterCount != 3) {
+        return;
+    }
+    if (!parser.present[0]) {
+        return;
+    }
+    const u32 item = parser.parameters[0];
+    if (parser.parameterCount == 1) {
+        if (item == 1) {
+            iface.csi_DECAC_TEXT_RESET();
+        } else if (item == 2) {
+            iface.csi_DECAC_FRAME_RESET();
+        }
+        return;
+    }
+    if (!parser.present[1] || !parser.present[2] || parser.separators[1] != ';' || parser.separators[2] != ';' || parser.parameters[1] > 255 || parser.parameters[2] > 255) {
+        return;
+    }
+    const u8 foreground = (u8)(parser.parameters[1]);
+    const u8 background = (u8)(parser.parameters[2]);
+    if (item == 1) {
+        iface.csi_DECAC_TEXT(foreground, background);
+    } else if (item == 2) {
+        iface.csi_DECAC_FRAME(foreground, background);
+    }
+}
+
+template <bool traced>
 void ParserImpl<traced>::dispatchXtmodkeys() {
     if (!parser.csiHadParameters) {
         iface.resetModifyKeyResources();
@@ -1770,7 +2096,7 @@ bool ParserImpl<traced>::parseSgrColor(size_t& index, CellColor& color, int& pal
         }
         const size_t count = end - first + 1;
         const size_t rgbFirst = first + (count >= 4);
-        if (mode != 2 || count < 3 || (count == 3 && !parser.present[first]) || !parser.present[rgbFirst] || !parser.present[rgbFirst + 1] || !parser.present[rgbFirst + 2] || parser.parameters[rgbFirst] > 255 || parser.parameters[rgbFirst + 1] > 255 || parser.parameters[rgbFirst + 2] > 255) {
+        if (mode != 2 || count < 3 || parser.parameters[rgbFirst] > 255 || parser.parameters[rgbFirst + 1] > 255 || parser.parameters[rgbFirst + 2] > 255) {
             return false;
         }
         paletteIndex = -1;

@@ -284,6 +284,19 @@ namespace {
 }
 
 STD_TEST_SUITE(Screen) {
+    STD_TEST(EmptyRectangleChecksumsToZero) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        composer.setCellExtras(CellExtraStore::create(composer, 4));
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 2, 2, &colors);
+
+        STD_INSIST(screen->checksum(0, 0, 0, 0, 0) == 0);
+        STD_INSIST(screen->checksum(0, 0, 0, 0, ChecksumKeepBlanks) == 0);
+        STD_INSIST(screen->checksum(0, 0, 0, 0, ChecksumPositive) == 0);
+    }
+
     STD_TEST(InitializesGeometryCapacityAndDamage) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
@@ -567,6 +580,77 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(screen->lineAttribute(0) == 0);
     }
 
+    STD_TEST(BlankCaptureUsesSparseRows) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        composer.setCellExtras(CellExtraStore::create(composer, 30));
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 10, 3, &colors);
+        TerminalCellSpan spans[3];
+        STD_INSIST(screen->testMaterializedRows() == 0);
+
+        screen->expose();
+        const TerminalCellBatch batch = screen->captureFrame(spans).damage;
+
+        STD_INSIST(batch.cellCount == 30);
+        STD_INSIST(batch.spanCount == 3);
+        STD_INSIST(screen->testMaterializedRows() == 0);
+        for (u16 row = 0; row < 3; ++row) {
+            STD_INSIST(spans[row].index == (u32)(row) * 10);
+            STD_INSIST(spans[row].count == 10);
+            for (u16 column = 0; column < 10; ++column) {
+                STD_INSIST(spans[row].cells[column] == TerminalCell{});
+            }
+        }
+    }
+
+    STD_TEST(LargeBlankHistoryStaysSparseAcrossResize) {
+        auto composerPool = ObjPool::fromMemory();
+        auto sourcePool = ObjPool::fromMemory();
+        auto destinationPool = ObjPool::fromMemory();
+        Composer composer(composerPool.mutPtr());
+        composer.setCellExtras(CellExtraStore::create(composer, 80 * 24));
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::createPrimary(composer, *sourcePool, 80, 24, &colors, 50000);
+        Screen::Cursor cursor{};
+        STD_INSIST(screen->testMaterializedRows() == 0);
+
+        screen = screen->resized(*destinationPool, 132, 43, cursor);
+
+        STD_INSIST(screen->testMaterializedRows() == 0);
+        STD_INSIST(screen->info().historyRows == 0);
+        STD_INSIST(screen->info().columns == 132);
+        STD_INSIST(screen->info().rows == 43);
+    }
+
+    STD_TEST(NonNormalLineIsClippedInsteadOfReflowed) {
+        auto composerPool = ObjPool::fromMemory();
+        auto sourcePool = ObjPool::fromMemory();
+        auto destinationPool = ObjPool::fromMemory();
+        Composer composer(composerPool.mutPtr());
+        composer.setCellExtras(CellExtraStore::create(composer, 6));
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::createPrimary(composer, *sourcePool, 3, 2, &colors, 4);
+        const u8 first[] = {'A', 'B', 'C'};
+        const u8 second[] = {'D', 'E', 'F'};
+        screen->writeAsciiRun(0, 0, first, 3, attributes(), 0, 0, TerminalCell{});
+        screen->writeAsciiRun(1, 0, second, 3, attributes(), 0, 0, TerminalCell{});
+        screen->setLineAttribute(0, 1);
+        Screen::Cursor cursor{Point(2, 1), false};
+
+        screen = screen->resized(*destinationPool, 2, 2, cursor);
+
+        STD_INSIST(screen->info().historyRows == 1);
+        STD_INSIST(screen->testLogicalCell(-1, 0).uc_pt == 'A');
+        STD_INSIST(screen->testLogicalCell(-1, 1).uc_pt == 'B');
+        STD_INSIST(screen->testCell(0, 0).uc_pt == 'D');
+        STD_INSIST(screen->testCell(0, 1).uc_pt == 'E');
+        STD_INSIST(screen->testCell(1, 0).uc_pt == 'F');
+    }
+
     STD_TEST(TracksProtectedCellsInRowMetadata) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
@@ -613,6 +697,70 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(screen->testCell(2, 1).uc_pt == 0);
         STD_INSIST(screen->testCell(2, 3).uc_pt == 0);
         STD_INSIST(screen->testCell(2, 4).uc_pt == 'O');
+    }
+
+    STD_TEST(PartialRectangleScrollPreservesBlankCellAttributes) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        composer.setCellExtras(CellExtraStore::create(composer, 20));
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 10, 4, &colors);
+        TerminalCell red{};
+        red.setBackground(CellColor::indexed(1));
+        TerminalCell blue{};
+        blue.setBackground(CellColor::indexed(4));
+        screen->eraseCells(1, 0, 10, red);
+        screen->eraseCells(2, 0, 10, blue);
+
+        screen->scrollRectangle(1, 2, 3, 8, -1, TerminalCell{});
+
+        for (u16 column = 0; column < 10; ++column) {
+            const TerminalCell expected = column >= 2 && column < 8 ? blue : red;
+            STD_INSIST(screen->testCell(1, column) == expected);
+        }
+        for (u16 column = 2; column < 8; ++column) {
+            STD_INSIST(screen->testCell(2, column) == TerminalCell{});
+        }
+    }
+
+    STD_TEST(PartialRectangleScrollDownPreservesBlankCellAttributes) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        composer.setCellExtras(CellExtraStore::create(composer, 20));
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 10, 4, &colors);
+        TerminalCell red{};
+        red.setBackground(CellColor::indexed(1));
+        TerminalCell blue{};
+        blue.setBackground(CellColor::indexed(4));
+        screen->eraseCells(1, 0, 10, red);
+        screen->eraseCells(2, 0, 10, blue);
+
+        screen->scrollRectangle(1, 2, 3, 8, 1, TerminalCell{});
+
+        for (u16 column = 0; column < 10; ++column) {
+            const TerminalCell expected = column >= 2 && column < 8 ? red : blue;
+            STD_INSIST(screen->testCell(2, column) == expected);
+        }
+        for (u16 column = 2; column < 8; ++column) {
+            STD_INSIST(screen->testCell(1, column) == TerminalCell{});
+        }
+    }
+
+    STD_TEST(PartialRectangleScrollKeepsMatchingBlankRowsSparse) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        composer.setCellExtras(CellExtraStore::create(composer, 20));
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 10, 4, &colors);
+        STD_INSIST(screen->testMaterializedRows() == 0);
+
+        screen->scrollRectangle(1, 2, 3, 8, -1, TerminalCell{});
+
+        STD_INSIST(screen->testMaterializedRows() == 0);
     }
 
     STD_TEST(PartialScrollUpClearsWideGlyphsAtBothBoundaries) {

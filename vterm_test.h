@@ -57,5 +57,6 @@ struct TestApi {
     virtual void selectionRectangular() = 0;
     virtual bool advanceSelectionAutoscroll() = 0;
     virtual void paste(stl::StringView text) = 0;
+    virtual bool pasteClipboard(bool primary) = 0;
     virtual stl::StringView hyperlinkAt(int pixelX, int pixelY) = 0;
 };

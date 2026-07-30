@@ -20,6 +20,8 @@
 using namespace stl;
 
 namespace {
+    struct MulticellHandleImpl;
+
     struct HyperlinkHandle final: IntrusiveNode {
         StringView identity;
         StringView payload;
@@ -32,7 +34,16 @@ namespace {
     struct CellExtra {
         IntrusiveList* hyperlinks = nullptr;
         StringView graphemeBytes;
+        MulticellHandleImpl* multicell = nullptr;
         CellColor underlineColor = CellColor::defaultForeground();
+        u16 multicellColumn = 0;
+        u16 multicellRow = 0;
+    };
+
+    struct MulticellHandleImpl {
+        StringView text;
+        MulticellSpec spec;
+        mutable MulticellHandleImpl* migrated = nullptr;
     };
 
     struct CellExtraStoreOwner {
@@ -49,6 +60,7 @@ namespace {
         static CellExtraStoreImpl* create(Composer& composer, size_t cellCount, CellExtraStoreOwner& owner);
 
         CellExtraView view(const TerminalCell& cell) const noexcept override;
+        MulticellView multicell(const TerminalCell& cell) const noexcept override;
         CellColor underlineColor(const TerminalCell& cell) const noexcept override;
         GraphemeView grapheme(const TerminalCell& cell) const noexcept override;
         GraphemeView grapheme(u32 ref) const noexcept override;
@@ -62,6 +74,8 @@ namespace {
         void setUnderlineColor(TerminalCell& cell, CellColor color) override;
         void setGrapheme(TerminalCell& cell, const u32* codepoints, size_t count) override;
         void clearGrapheme(TerminalCell& cell) override;
+        MulticellHandle* createMulticell(const u32* codepoints, size_t count, const MulticellSpec& spec) override;
+        void setMulticell(TerminalCell& cell, MulticellHandle* handle, u16 column, u16 row) override;
         void setHyperlink(TerminalCell& cell, u32 hyperlinkRef) override;
         void clearHyperlink(TerminalCell& cell) override;
         void clearExtra(TerminalCell& cell, CellColor underlineColor) override;
@@ -91,6 +105,7 @@ namespace {
         void finishCollection() noexcept;
 
         static GraphemeView graphemeOf(const CellExtra& extra) noexcept;
+        static GraphemeView textOf(const MulticellHandleImpl& handle) noexcept;
         static HyperlinkHandle* hyperlinkOf(CellExtra& extra) noexcept;
         static const HyperlinkHandle* hyperlinkOf(const CellExtra& extra) noexcept;
 
@@ -150,9 +165,19 @@ const CellExtra* CellExtraStoreImpl::get(u32 ref) const noexcept {
 }
 
 GraphemeView CellExtraStoreImpl::graphemeOf(const CellExtra& extra) noexcept {
+    if (extra.graphemeBytes.empty() && extra.multicell != nullptr) {
+        return textOf(*extra.multicell);
+    }
     return {
         reinterpret_cast<const u32*>(extra.graphemeBytes.data()),
         static_cast<u32>(extra.graphemeBytes.length() / sizeof(u32)),
+    };
+}
+
+GraphemeView CellExtraStoreImpl::textOf(const MulticellHandleImpl& handle) noexcept {
+    return {
+        reinterpret_cast<const u32*>(handle.text.data()),
+        static_cast<u32>(handle.text.length() / sizeof(u32)),
     };
 }
 
@@ -196,7 +221,7 @@ void CellExtraStoreImpl::rehashHyperlinks(size_t capacity) {
 }
 
 u32 CellExtraStoreImpl::append(const CellExtra& value) {
-    STD_ASSERT(!value.graphemeBytes.empty() || hyperlinkOf(value) != nullptr);
+    STD_ASSERT(!value.graphemeBytes.empty() || value.multicell != nullptr || hyperlinkOf(value) != nullptr);
     if (slots_.length() > TerminalCell::maxExtraRef) {
         throw std::bad_alloc();
     }
@@ -216,6 +241,16 @@ u32 CellExtraStoreImpl::migrate(const CellExtraStoreImpl& source, u32 sourceRef)
     CellExtra copy = sourceExtra;
     if (!sourceExtra.graphemeBytes.empty()) {
         copy.graphemeBytes = copyBytes(sourceExtra.graphemeBytes);
+    }
+    if (sourceExtra.multicell != nullptr) {
+        if (sourceExtra.multicell->migrated == nullptr) {
+            auto* handle = pool_->make<MulticellHandleImpl>(*sourceExtra.multicell);
+            handle->text = copyBytes(sourceExtra.multicell->text);
+            handle->migrated = nullptr;
+            sourceExtra.multicell->migrated = handle;
+            allocatedExtraBytes_ += sizeof(MulticellHandleImpl);
+        }
+        copy.multicell = sourceExtra.multicell->migrated;
     }
 
     bool indexHyperlink = false;
@@ -281,8 +316,32 @@ CellExtraView CellExtraStoreImpl::view(const TerminalCell& cell) const noexcept 
     };
 }
 
+MulticellView CellExtraStoreImpl::multicell(const TerminalCell& cell) const noexcept {
+    if (!cell.hasExtra()) {
+        return {};
+    }
+    const CellExtra* const extra = get(cell.extraRef());
+    if (extra == nullptr || extra->multicell == nullptr) {
+        return {};
+    }
+    return {
+        .identity = extra->multicell,
+        .text = textOf(*extra->multicell),
+        .spec = extra->multicell->spec,
+        .column = extra->multicellColumn,
+        .row = extra->multicellRow,
+    };
+}
+
 GraphemeView CellExtraStoreImpl::grapheme(const TerminalCell& cell) const noexcept {
-    return cell.hasExtra() ? grapheme(cell.extraRef()) : GraphemeView{};
+    if (!cell.hasExtra()) {
+        return {};
+    }
+    const CellExtra* const extra = get(cell.extraRef());
+    if (extra->multicell != nullptr && (extra->multicellColumn != 0 || extra->multicellRow != 0)) {
+        return {};
+    }
+    return graphemeOf(*extra);
 }
 
 GraphemeView CellExtraStoreImpl::grapheme(u32 ref) const noexcept {
@@ -370,6 +429,9 @@ void CellExtraStoreImpl::setGrapheme(TerminalCell& cell, const u32* codepoints, 
         copy.underlineColor = cell.inlineUnderlineColor();
     }
     copy.graphemeBytes = copyBytes(StringView(reinterpret_cast<const u8*>(codepoints), count * sizeof(u32)));
+    copy.multicell = nullptr;
+    copy.multicellColumn = 0;
+    copy.multicellRow = 0;
     cell.setExtraRef(append(copy));
 }
 
@@ -379,7 +441,7 @@ void CellExtraStoreImpl::clearGrapheme(TerminalCell& cell) {
     }
 
     const CellExtra& current = *get(cell.extraRef());
-    if (current.graphemeBytes.empty()) {
+    if (current.graphemeBytes.empty() && current.multicell == nullptr) {
         return;
     }
     if (hyperlinkOf(current) == nullptr) {
@@ -389,6 +451,41 @@ void CellExtraStoreImpl::clearGrapheme(TerminalCell& cell) {
 
     CellExtra copy = current;
     copy.graphemeBytes = {};
+    copy.multicell = nullptr;
+    copy.multicellColumn = 0;
+    copy.multicellRow = 0;
+    cell.setExtraRef(append(copy));
+}
+
+MulticellHandle* CellExtraStoreImpl::createMulticell(const u32* codepoints, size_t count, const MulticellSpec& spec) {
+    STD_ASSERT(codepoints != nullptr);
+    STD_ASSERT(count != 0);
+    STD_ASSERT(spec.columns != 0);
+    STD_ASSERT(spec.rows != 0);
+
+    auto* handle = pool_->make<MulticellHandleImpl>();
+    handle->text = copyBytes(StringView(reinterpret_cast<const u8*>(codepoints), count * sizeof(u32)));
+    handle->spec = spec;
+    allocatedExtraBytes_ += sizeof(MulticellHandleImpl);
+    return reinterpret_cast<MulticellHandle*>(handle);
+}
+
+void CellExtraStoreImpl::setMulticell(TerminalCell& cell, MulticellHandle* opaque, u16 column, u16 row) {
+    auto* handle = reinterpret_cast<MulticellHandleImpl*>(opaque);
+    STD_ASSERT(handle != nullptr);
+    STD_ASSERT(column < handle->spec.columns);
+    STD_ASSERT(row < handle->spec.rows);
+
+    CellExtra copy;
+    if (cell.hasExtra()) {
+        copy = *get(cell.extraRef());
+    } else {
+        copy.underlineColor = cell.inlineUnderlineColor();
+    }
+    copy.graphemeBytes = {};
+    copy.multicell = handle;
+    copy.multicellColumn = column;
+    copy.multicellRow = row;
     cell.setExtraRef(append(copy));
 }
 
@@ -412,7 +509,7 @@ void CellExtraStoreImpl::setHyperlink(TerminalCell& cell, u32 hyperlinkRef) {
         copy = current;
     } else {
         copy.underlineColor = cell.inlineUnderlineColor();
-        if (hyperlinkExtra.graphemeBytes.empty() && hyperlinkExtra.underlineColor == copy.underlineColor) {
+        if (hyperlinkExtra.graphemeBytes.empty() && hyperlinkExtra.multicell == nullptr && hyperlinkExtra.underlineColor == copy.underlineColor) {
             cell.setExtraRef(hyperlinkRef);
             return;
         }
@@ -430,7 +527,7 @@ void CellExtraStoreImpl::clearHyperlink(TerminalCell& cell) {
     if (hyperlinkOf(current) == nullptr) {
         return;
     }
-    if (current.graphemeBytes.empty()) {
+    if (current.graphemeBytes.empty() && current.multicell == nullptr) {
         cell.setInlineUnderlineColor(current.underlineColor);
         return;
     }

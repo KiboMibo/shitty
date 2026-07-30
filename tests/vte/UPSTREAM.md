@@ -51,6 +51,13 @@ The import fixed Shitty accidentally interpreting multibyte slot selectors
 as G0 single-byte designations and accepting unrelated modified or 96-set
 final bytes as DEC/NRC sets.
 
+The semantic oracle additionally recognizes the VT5xx DEC designators omitted
+from VTE's parser table: DEC Turkish `%0`, DEC Cyrillic `&4`, DEC Hebrew `"4`,
+and DEC Greek `"?`. They are present in xterm's VT charset catalog and Windows
+Terminal's charset implementation; Shitty maps each to its existing
+language-equivalent runtime table while preserving the exact designation ID
+for DECCIR and DECRQUPSS.
+
 The three generated known-sequence tables, `parser-esc.hh`,
 `parser-csi.hh`, and `parser-dcs.hh`, are copied byte-for-byte from the same
 revision. Their 274 signatures comprise 48 ESC, 204 CSI, and 22 DCS

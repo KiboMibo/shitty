@@ -211,12 +211,12 @@ class SgrMatrixTest(unittest.TestCase):
             self.assertFalse(first.italic)
             self.assertTrue(snapshot.cell(1, 0).italic)
 
-    def test_truncated_colon_truecolor_is_consumed_atomically(self):
+    def test_empty_colon_truecolor_component_defaults_to_zero(self):
         with Shitty(columns=4, rows=2) as terminal:
             terminal.write(b"\x1b[31m\x1b[38:2::1:2mA\x1b[32mB")
             snapshot = terminal.snapshot()
 
-            self.assertEqual(snapshot.cell(0, 0).foreground, BASE_PALETTE[1])
+            self.assertEqual(snapshot.cell(0, 0).foreground, (0, 1, 2))
             self.assertEqual(snapshot.cell(1, 0).foreground, BASE_PALETTE[2])
 
     def test_invalid_extended_color_does_not_change_other_channels(self):
