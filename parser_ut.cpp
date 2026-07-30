@@ -1763,6 +1763,12 @@ STD_TEST_SUITE(ParserCallbacks) {
         expectValues(fixture.expect("sgrForeground"), CellColor::indexed(1).encoded(), 1, true);
     }
 
+    STD_TEST(SgrForegroundDefaultsEmptyColonComponentsToZero) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b[38:2::1:2m"));
+        expectValues(fixture.expect("sgrForeground"), CellColor::direct({0, 1, 2}).encoded(), -1, false);
+    }
+
     SHITTY_PARSER_CALLBACK_TEST0(SgrDefaultForeground, sgrDefaultForeground, u8"\x1b[39m")
 
     STD_TEST(SgrBackground) {

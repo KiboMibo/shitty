@@ -46,6 +46,23 @@ Shitty does not implement. The existing protocol tests still verify that its
 declared zero macro-space/checksum replies are stable; they do not pretend
 that defining a macro changes storage that does not exist.
 
+Fourteen more methods cover cursor/keypad/ANSI modes, cursor blinking, margin
+validation, line-feed behavior, title actions, mouse modes, 256-color SGR,
+palette mutation and OSC color reports. Direct adapter calls are translated
+to the corresponding VT streams and generic input events, so the tests cover
+the observable terminal contract rather than Windows internal mode bits. The
+palette test retains all 256 upstream indices and verifies them through OSC 4
+queries.
+
+The two extended-color methods retain every valid, empty, incomplete, and
+out-of-range row but use parser-level consensus semantics. A complete colon
+form may contain empty RGB subparameters, which default to zero; its optional
+color-space identifier is skipped regardless of value, matching xterm, Foot,
+Kitty, and Ghostty. An actually truncated semicolon form remains atomic and
+does not change the color. Windows' direct-dispatch fixture supplies implicit
+zero parameters even when no bytes existed in the input, so copying that
+internal behavior would make malformed wire sequences look complete.
+
 `../test_windows_terminal_mouse.py` translates all five methods and every
 data-source row from
 `src/terminal/adapter/ut_adapter/MouseInputTest.cpp` at the same revision:

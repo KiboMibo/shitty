@@ -1826,7 +1826,7 @@ bool ParserImpl<traced>::parseSgrColor(size_t& index, CellColor& color, int& pal
         }
         const size_t count = end - first + 1;
         const size_t rgbFirst = first + (count >= 4);
-        if (mode != 2 || count < 3 || (count == 3 && !parser.present[first]) || !parser.present[rgbFirst] || !parser.present[rgbFirst + 1] || !parser.present[rgbFirst + 2] || parser.parameters[rgbFirst] > 255 || parser.parameters[rgbFirst + 1] > 255 || parser.parameters[rgbFirst + 2] > 255) {
+        if (mode != 2 || count < 3 || parser.parameters[rgbFirst] > 255 || parser.parameters[rgbFirst + 1] > 255 || parser.parameters[rgbFirst + 2] > 255) {
             return false;
         }
         paletteIndex = -1;

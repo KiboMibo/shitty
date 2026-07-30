@@ -40,6 +40,20 @@ PORTED_METHODS = {
     "RequestPrivateModeTests",
     "RequestPermanentModeTests",
     "RequestSettingsTests",
+    "CursorKeysModeTest",
+    "KeypadModeTest",
+    "AnsiModeTest",
+    "AllowBlinkingTest",
+    "ScrollMarginsTest",
+    "LineFeedTest",
+    "SetConsoleTitleTest",
+    "TestMouseModes",
+    "Xterm256ColorTest",
+    "XtermExtendedColorDefaultParameterTest",
+    "XtermExtendedSubParameterColorTest",
+    "SetColorTableValue",
+    "Osc4ColorPaletteReportTests",
+    "XtermColorResourceReportTests",
 }
 
 CLASSIFIED_METHODS = {
@@ -569,6 +583,237 @@ class WindowsTerminalAdapterStatusTest(unittest.TestCase):
                         self.request_setting(terminal, setting),
                         b"\x1bP0$r\x1b\\",
                     )
+
+
+class WindowsTerminalAdapterModesAndColorsTest(unittest.TestCase):
+    @staticmethod
+    def request_margins(terminal):
+        terminal.write(b"\x1bP$qr\x1b\\")
+        return terminal.read_input()
+
+    @staticmethod
+    def mode_reply(mode, state):
+        return f"\x1b[?{mode};{state}$y".encode()
+
+    def test_cursor_keys_mode(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[?1l")
+            terminal.key("UP")
+            terminal.write(b"\x1b[?1h")
+            terminal.key("UP")
+            self.assertEqual(terminal.read_input(), b"\x1b[A\x1bOA")
+
+    def test_keypad_mode(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b>")
+            terminal.key("KP_1")
+            terminal.write(b"\x1b=")
+            terminal.key("KP_1")
+            self.assertEqual(terminal.read_input(), b"1\x1bOq")
+
+    def test_ansi_mode(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[?2l")
+            terminal.key("UP")
+            terminal.write(b"\x1b<")
+            terminal.key("UP")
+            self.assertEqual(terminal.read_input(), b"\x1bA\x1b[A")
+
+    def test_allow_cursor_blinking(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[?12h")
+            self.assertTrue(terminal.render_state().cursor_blink)
+            terminal.write(b"\x1b[?12l")
+            self.assertFalse(terminal.render_state().cursor_blink)
+
+    def test_scroll_margins(self):
+        cases = (
+            (b"\x1b[2;6r", b"2;6r"),
+            (b"\x1b[7r", b"7;8r"),
+            (b"\x1b[;7r", b"1;7r"),
+            (b"\x1b[r", b"1;8r"),
+            (b"\x1b[2;6r\x1b[7;3r", b"2;6r"),
+            (b"\x1b[2;6r\x1b[;8r", b"1;8r"),
+            (b"\x1b[2;6r\x1b[1;8r", b"1;8r"),
+            (b"\x1b[2;6r\x1b[1r", b"1;8r"),
+            (b"\x1b[2;6r\x1b[4;4r", b"2;6r"),
+            (b"\x1b[2;6r\x1b[9;18r", b"2;6r"),
+            (b"\x1b[2;6r\x1b[1;9r", b"2;6r"),
+        )
+        for sequence, expected in cases:
+            with self.subTest(sequence=sequence):
+                with Shitty(columns=10, rows=8) as terminal:
+                    terminal.write(sequence)
+                    self.assertEqual(
+                        self.request_margins(terminal),
+                        b"\x1bP1$r" + expected + b"\x1b\\",
+                    )
+
+    def test_line_feed_modes(self):
+        cases = (
+            (b"\x1b[1;11H\nX", (11, 1)),
+            (b"\x1b[1;11H\x1bEX", (1, 1)),
+            (b"\x1b[20l\x1b[1;11H\nX", (11, 1)),
+            (b"\x1b[20h\x1b[1;11H\nX", (1, 1)),
+        )
+        for sequence, expected in cases:
+            with self.subTest(sequence=sequence):
+                with Shitty(columns=16, rows=3) as terminal:
+                    terminal.write(sequence)
+                    snapshot = terminal.snapshot()
+                    self.assertEqual(
+                        (snapshot.cursor_x, snapshot.cursor_y), expected
+                    )
+
+    def test_set_console_title(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]2;Foo bar\x1b\\\x1b]2;\x1b\\")
+            self.assertEqual(
+                terminal.read_actions(),
+                ["OSC 2 466f6f20626172", "OSC 2 "],
+            )
+
+    def test_mouse_modes(self):
+        for mode in (1000, 1005, 1006, 1002, 1003, 1007):
+            with self.subTest(mode=mode):
+                with Shitty(columns=8, rows=2) as terminal:
+                    terminal.write(
+                        f"\x1b[?{mode}h\x1b[?{mode}$p".encode()
+                    )
+                    self.assertEqual(
+                        terminal.read_input(), self.mode_reply(mode, 1)
+                    )
+                    terminal.write(
+                        f"\x1b[?{mode}l\x1b[?{mode}$p".encode()
+                    )
+                    self.assertEqual(
+                        terminal.read_input(), self.mode_reply(mode, 2)
+                    )
+
+    def test_xterm_256_colors(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(
+                b"\x1b[38;5;2mA"
+                b"\x1b[48;5;9mB"
+                b"\x1b[38;5;42mC"
+                b"\x1b[48;5;142mD"
+                b"\x1b[38;5;9mE"
+            )
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.cell(0, 0).foreground_index, 2)
+            self.assertEqual(snapshot.cell(1, 0).background_index, 9)
+            self.assertEqual(snapshot.cell(2, 0).foreground_index, 42)
+            self.assertEqual(snapshot.cell(3, 0).background_index, 142)
+            self.assertEqual(snapshot.cell(4, 0).foreground_index, 9)
+
+    def test_extended_color_default_parameters(self):
+        with Shitty(columns=6, rows=2) as terminal:
+            terminal.write(
+                b"\x1b[31;44m"
+                b"\x1b[38;5mA"
+                b"\x1b[48;5;mB"
+                b"\x1b[38;2mC"
+                b"\x1b[48;2;123mD"
+                b"\x1b[38;2;;;123mE"
+                b"\x1b[38;5;283mF"
+            )
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.cell(0, 0).foreground_index, 1)
+            self.assertEqual(snapshot.cell(1, 0).background_index, 0)
+            self.assertEqual(snapshot.cell(2, 0).foreground_index, 1)
+            self.assertEqual(snapshot.cell(3, 0).background_index, 0)
+            self.assertEqual(snapshot.cell(4, 0).foreground, (0, 0, 123))
+            self.assertEqual(snapshot.cell(5, 0).foreground, (0, 0, 123))
+
+    def test_extended_subparameter_colors(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1b[31;44m"
+                b"\x1b[38:5mA"
+                b"\x1b[48:5:mB"
+                b"\x1b[38:2mC"
+                b"\x1b[48:2::123mD"
+                b"\x1b[38:2::::123mE"
+                b"\x1b[38:2:7:182:182:123mF"
+                b"\x1b[48:2::128:283:155mG"
+                b"\x1b[38:5:283mH"
+            )
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.cell(0, 0).foreground_index, 1)
+            self.assertEqual(snapshot.cell(1, 0).background_index, 0)
+            self.assertEqual(snapshot.cell(2, 0).foreground_index, 1)
+            self.assertEqual(snapshot.cell(3, 0).background_index, 0)
+            self.assertEqual(snapshot.cell(4, 0).foreground, (0, 0, 123))
+            self.assertEqual(snapshot.cell(5, 0).foreground, (182, 182, 123))
+            self.assertEqual(snapshot.cell(6, 0).background_index, 0)
+            self.assertEqual(snapshot.cell(7, 0).foreground, (182, 182, 123))
+
+    def test_set_and_report_every_palette_entry(self):
+        entries = b";".join(
+            f"{index};#010203".encode() for index in range(256)
+        )
+        queries = b";".join(
+            f"{index};?".encode() for index in range(256)
+        )
+        expected = b"".join(
+            f"\x1b]4;{index};rgb:0101/0202/0303\x1b\\".encode()
+            for index in range(256)
+        )
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]4;" + entries + b"\x1b\\")
+            terminal.write(b"\x1b]4;" + queries + b"\x1b\\")
+            self.assertEqual(terminal.read_input(), expected)
+
+    def test_osc4_color_palette_reports(self):
+        colors = (
+            (0, b"0000/0000/0000"),
+            (1, b"cccc/2424/2424"),
+            (2, b"3333/cccc/3333"),
+            (3, b"cccc/cccc/3333"),
+            (4, b"3333/3333/cccc"),
+            (5, b"cccc/3333/cccc"),
+            (6, b"3333/cccc/cccc"),
+            (7, b"7878/7878/7878"),
+            (8, b"4545/4545/4545"),
+            (9, b"ffff/0000/0000"),
+            (10, b"0000/ffff/0000"),
+            (11, b"ffff/ffff/0000"),
+            (12, b"0000/0000/ffff"),
+            (13, b"ffff/0000/ffff"),
+            (14, b"0000/ffff/ffff"),
+            (15, b"ffff/ffff/ffff"),
+        )
+        setters = b";".join(
+            f"{index};rgb:{rgb.decode()}".encode()
+            for index, rgb in colors
+        )
+        queries = b";".join(f"{index};?".encode() for index, _ in colors)
+        expected = b"".join(
+            f"\x1b]4;{index};rgb:".encode() + rgb + b"\x1b\\"
+            for index, rgb in colors
+        )
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]4;" + setters + b"\x1b\\")
+            terminal.write(b"\x1b]4;" + queries + b"\x1b\\")
+            self.assertEqual(terminal.read_input(), expected)
+
+    def test_xterm_color_resource_reports(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]10;#bebebe\x1b\\"
+                b"\x1b]11;#0c0c0c\x1b\\"
+                b"\x1b]12;#ff0000\x1b\\"
+                b"\x1b]10;?\x1b\\"
+                b"\x1b]11;?\x1b\\"
+                b"\x1b]12;?\x1b\\"
+                b"\x1b]13;?\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b]10;rgb:bebe/bebe/bebe\x1b\\"
+                b"\x1b]11;rgb:0c0c/0c0c/0c0c\x1b\\"
+                b"\x1b]12;rgb:ffff/0000/0000\x1b\\",
+            )
 
 
 if __name__ == "__main__":
