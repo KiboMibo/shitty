@@ -1265,25 +1265,18 @@ void ScreenBase<Coord, Epoch>::layoutCopy(ResizeState& state, u16 nCols_, u16 nR
 
 template <typename Coord, typename Epoch>
 void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 nRows_, Cursor& cursorState) {
-    struct LogicalLine {
-        std::vector<TerminalCell> cells;
-        u8 lineAttribute = 0;
-        ScreenSemanticPrompt semanticPrompt = ScreenSemanticPrompt::None;
-        bool reflowable = true;
-    };
-
     struct Anchor {
         int oldRow = 0;
         int oldColumn = 0;
-        size_t line = 0;
         size_t offset = 0;
         Point mapped;
-        bool found = false;
+        bool inLine = false;
+        bool done = false;
     };
 
-    struct Boundary {
-        size_t row = 0;
-        int column = 0;
+    struct Segment {
+        const TerminalCell* cells;
+        int count;
     };
 
     const int oldHistoryCount = state.historyRows;
@@ -1303,11 +1296,8 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
         selectionEnd.oldRow = oldHistoryCount + selection.br.y;
         selectionEnd.oldColumn = selection.br.x;
     }
-    std::vector<Anchor*> anchors = {&cursorAnchor, &viewAnchor};
-    if (keepSelection) {
-        anchors.push_back(&selectionStart);
-        anchors.push_back(&selectionEnd);
-    }
+    Anchor* const anchors[] = {&cursorAnchor, &viewAnchor, &selectionStart, &selectionEnd};
+    const size_t anchorCount = keepSelection ? 4 : 2;
 
     const auto cellHasContent = [](const TerminalCell& source) {
         TerminalCell cell = source;
@@ -1315,152 +1305,180 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
         return cell != TerminalCell{};
     };
 
-    std::vector<LogicalLine> lines;
-    bool continueLine = false;
-    for (int oldRow = 0; oldRow < oldTotalRows; ++oldRow) {
-        const Row* const sourceRow = stateRowObject(state, oldRow - oldHistoryCount);
-        const TerminalCell* row = sourceRow->cells;
-        const bool normalWidth = sourceRow->metadata.lineAttribute == 0;
-        const bool join = continueLine && normalWidth;
-        if (!join) {
-            lines.emplace_back();
-            lines.back().lineAttribute = sourceRow->metadata.lineAttribute;
-            lines.back().semanticPrompt = sourceRow->metadata.semanticPrompt;
-        } else if (lines.back().semanticPrompt == ScreenSemanticPrompt::None) {
-            lines.back().semanticPrompt = sourceRow->metadata.semanticPrompt;
-        }
-        LogicalLine& line = lines.back();
-        line.reflowable &= normalWidth;
-        const size_t rowOffset = line.cells.size();
+    // The old content is walked twice with identical arithmetic and one
+    // reused row buffer: the first pass measures the re-wrapped height and
+    // maps the anchors, the second streams the surviving rows straight
+    // into the fresh storage. Nothing materializes the whole scrollback.
+    std::vector<TerminalCell> rowBuffer(nCols_);
+    std::vector<Segment> segments;
 
-        int contentEnd = 0;
-        int wrapEnd = 0;
-        for (int column = 0; column < state.columns; ++column) {
-            if (cellHasContent(row[column])) {
-                contentEnd = column + 1;
+    const auto walk = [&](bool mapAnchors, auto&& emitRow) -> size_t {
+        size_t globalRow = 0;
+        int oldRow = 0;
+        while (oldRow < oldTotalRows) {
+            // Gather one logical line: the chain of soft-wrapped rows.
+            segments.clear();
+            const Row* const firstRow = stateRowObject(state, oldRow - oldHistoryCount);
+            const bool reflowable = firstRow->metadata.lineAttribute == 0;
+            const u8 lineAttribute = firstRow->metadata.lineAttribute;
+            ScreenSemanticPrompt prompt = firstRow->metadata.semanticPrompt;
+            size_t lineLength = 0;
+            for (size_t index = 0; index != anchorCount; ++index) {
+                anchors[index]->inLine = false;
             }
-            if (row[column].wrap) {
-                wrapEnd = column + 1;
-            }
-        }
-        int copyEnd = wrapEnd ? wrapEnd : contentEnd;
-        if (!normalWidth) {
-            copyEnd = state.columns;
-        }
-        for (Anchor* anchor : anchors) {
-            if (anchor->oldRow == oldRow) {
-                anchor->line = lines.size() - 1;
-                anchor->offset = rowOffset + std::min(anchor->oldColumn, (int)(state.columns));
-                anchor->found = true;
-                copyEnd = std::max(copyEnd, std::min(anchor->oldColumn, (int)(state.columns)));
-            }
-        }
-        for (int column = 0; column < copyEnd; ++column) {
-            TerminalCell cell = row[column];
-            cell.wrap = 0;
-            line.cells.push_back(cell);
-        }
-        continueLine = wrapEnd && normalWidth;
-    }
-
-    std::vector<std::vector<TerminalCell>> output;
-    Vector<u8> outputLineAttributes;
-    Vector<ScreenSemanticPrompt> outputSemanticPrompts;
-    for (size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
-        LogicalLine& line = lines[lineIndex];
-        std::vector<Boundary> boundaries(line.cells.size() + 1);
-        const size_t lineOutputStart = output.size();
-        size_t outputRow = output.size();
-        output.emplace_back(nCols_);
-        outputLineAttributes.pushBack(line.lineAttribute);
-        outputSemanticPrompts.pushBack(line.semanticPrompt);
-        int column = 0;
-        boundaries[0] = {outputRow, 0};
-
-        if (line.reflowable) {
-            size_t offset = 0;
-            while (offset < line.cells.size()) {
-                const bool wide = line.cells[offset].dwidth && offset + 1 < line.cells.size() && line.cells[offset + 1].dwidth_cont;
-                const size_t width = wide ? 2 : 1;
-                if (width > nCols_) {
-                    boundaries[offset] = {outputRow, column};
-                    ++offset;
-                    boundaries[offset] = {outputRow, column};
-                    if (wide) {
-                        ++offset;
-                        boundaries[offset] = {outputRow, column};
+            while (oldRow < oldTotalRows) {
+                const Row* const sourceRow = stateRowObject(state, oldRow - oldHistoryCount);
+                const bool normalWidth = sourceRow->metadata.lineAttribute == 0;
+                if (!segments.empty() && !normalWidth) {
+                    break;
+                }
+                if (prompt == ScreenSemanticPrompt::None) {
+                    prompt = sourceRow->metadata.semanticPrompt;
+                }
+                const TerminalCell* const row = sourceRow->cells;
+                int contentEnd = 0;
+                int wrapEnd = 0;
+                for (int column = 0; column < state.columns; ++column) {
+                    if (cellHasContent(row[column])) {
+                        contentEnd = column + 1;
                     }
-                    continue;
+                    if (row[column].wrap) {
+                        wrapEnd = column + 1;
+                    }
                 }
-                if (column + (int)(width) > nCols_) {
-                    output[outputRow][column ? column - 1 : nCols_ - 1].wrap = 1;
-                    outputRow = output.size();
-                    output.emplace_back(nCols_);
-                    outputLineAttributes.pushBack(line.lineAttribute);
-                    outputSemanticPrompts.pushBack(line.semanticPrompt == ScreenSemanticPrompt::None ? ScreenSemanticPrompt::None : ScreenSemanticPrompt::Continuation);
-                    column = 0;
+                int copyEnd = wrapEnd ? wrapEnd : contentEnd;
+                if (!normalWidth) {
+                    copyEnd = state.columns;
                 }
-                boundaries[offset] = {outputRow, column};
-                for (size_t cellIndex = 0; cellIndex < width; ++cellIndex) {
-                    TerminalCell cell = line.cells[offset + cellIndex];
+                for (size_t index = 0; index != anchorCount; ++index) {
+                    Anchor& anchor = *anchors[index];
+                    if (anchor.oldRow == oldRow) {
+                        anchor.offset = lineLength + std::min(anchor.oldColumn, (int)(state.columns));
+                        anchor.inLine = true;
+                        copyEnd = std::max(copyEnd, std::min(anchor.oldColumn, (int)(state.columns)));
+                    }
+                }
+                segments.push_back({row, copyEnd});
+                lineLength += copyEnd;
+                ++oldRow;
+                if (!(wrapEnd && normalWidth)) {
+                    break;
+                }
+            }
+
+            // Re-wrap the line into output rows through the shared buffer.
+            const auto cellAt = [&](size_t offset) -> const TerminalCell& {
+                for (const Segment& segment : segments) {
+                    if (offset < (size_t)(segment.count)) {
+                        return segment.cells[offset];
+                    }
+                    offset -= segment.count;
+                }
+                static const TerminalCell blank{};
+                return blank;
+            };
+            std::fill(rowBuffer.begin(), rowBuffer.end(), TerminalCell{});
+            int column = 0;
+            size_t lineRows = 0;
+            const auto flushRow = [&]() {
+                const bool continuation = lineRows != 0 && prompt != ScreenSemanticPrompt::None;
+                emitRow(globalRow, rowBuffer.data(), lineAttribute, continuation ? ScreenSemanticPrompt::Continuation : prompt);
+                ++globalRow;
+                ++lineRows;
+                std::fill(rowBuffer.begin(), rowBuffer.end(), TerminalCell{});
+                column = 0;
+            };
+            const auto mapAnchor = [&](size_t offset) {
+                if (!mapAnchors) {
+                    return;
+                }
+                for (size_t index = 0; index != anchorCount; ++index) {
+                    Anchor& anchor = *anchors[index];
+                    if (anchor.inLine && !anchor.done && anchor.offset == offset) {
+                        anchor.mapped = Point(column, (int)(globalRow));
+                        anchor.done = true;
+                    }
+                }
+            };
+
+            if (reflowable) {
+                size_t offset = 0;
+                while (offset < lineLength) {
+                    const TerminalCell& lead = cellAt(offset);
+                    const bool wide = lead.dwidth && offset + 1 < lineLength && cellAt(offset + 1).dwidth_cont;
+                    const size_t width = wide ? 2 : 1;
+                    if (width > nCols_) {
+                        mapAnchor(offset);
+                        offset += width;
+                        mapAnchor(offset);
+                        continue;
+                    }
+                    if (column + (int)(width) > nCols_) {
+                        rowBuffer[column ? column - 1 : nCols_ - 1].wrap = 1;
+                        flushRow();
+                    }
+                    for (size_t cellIndex = 0; cellIndex < width; ++cellIndex) {
+                        mapAnchor(offset + cellIndex);
+                        TerminalCell cell = cellAt(offset + cellIndex);
+                        cell.wrap = 0;
+                        rowBuffer[column++] = cell;
+                    }
+                    offset += width;
+                    if (column == nCols_ && offset < lineLength) {
+                        rowBuffer[nCols_ - 1].wrap = 1;
+                        flushRow();
+                    }
+                }
+            } else {
+                const size_t count = std::min<size_t>(lineLength, nCols_);
+                for (size_t offset = 0; offset < count; ++offset) {
+                    mapAnchor(offset);
+                    TerminalCell cell = cellAt(offset);
                     cell.wrap = 0;
-                    output[outputRow][column++] = cell;
-                    boundaries[offset + cellIndex + 1] = {outputRow, column};
+                    rowBuffer[column++] = cell;
                 }
-                offset += width;
-                if (column == nCols_ && offset < line.cells.size()) {
-                    output[outputRow][nCols_ - 1].wrap = 1;
-                    outputRow = output.size();
-                    output.emplace_back(nCols_);
-                    outputLineAttributes.pushBack(line.lineAttribute);
-                    outputSemanticPrompts.pushBack(line.semanticPrompt == ScreenSemanticPrompt::None ? ScreenSemanticPrompt::None : ScreenSemanticPrompt::Continuation);
-                    column = 0;
-                    boundaries[offset] = {outputRow, 0};
+                if (mapAnchors) {
+                    for (size_t index = 0; index != anchorCount; ++index) {
+                        Anchor& anchor = *anchors[index];
+                        if (anchor.inLine && !anchor.done && anchor.offset > count) {
+                            anchor.mapped = Point((int)(count), (int)(globalRow));
+                            anchor.done = true;
+                        }
+                    }
                 }
             }
-        } else {
-            const size_t count = std::min<size_t>(line.cells.size(), nCols_);
-            for (size_t offset = 0; offset < count; ++offset) {
-                output[outputRow][offset] = line.cells[offset];
-                output[outputRow][offset].wrap = 0;
-                boundaries[offset] = {outputRow, (int)(offset)};
-                boundaries[offset + 1] = {outputRow, (int)(offset + 1)};
+            mapAnchor(lineLength);
+            if (mapAnchors) {
+                // Anchors that never matched a boundary land at line end.
+                for (size_t index = 0; index != anchorCount; ++index) {
+                    Anchor& anchor = *anchors[index];
+                    if (anchor.inLine && !anchor.done) {
+                        anchor.mapped = Point(column, (int)(globalRow));
+                        anchor.done = true;
+                    }
+                }
             }
-            for (size_t offset = count + 1; offset < boundaries.size(); ++offset) {
-                boundaries[offset] = {outputRow, (int)(count)};
-            }
+            flushRow();
         }
+        return globalRow;
+    };
 
-        for (size_t row = lineOutputStart; row < output.size(); ++row) {
-            normalizeWideRow(output[row].data(), nCols_);
-        }
-
-        for (Anchor* anchor : anchors) {
-            if (!anchor->found || anchor->line != lineIndex) {
-                continue;
-            }
-            const Boundary boundary = boundaries[std::min(anchor->offset, boundaries.size() - 1)];
-            anchor->mapped = Point(boundary.column, (int)(boundary.row));
-        }
-    }
+    const size_t producedRows = walk(true, [](size_t, const TerminalCell*, u8, ScreenSemanticPrompt) {});
 
     const size_t cursorScreenStart = cursorAnchor.mapped.y >= nRows_ ? cursorAnchor.mapped.y - (nRows_ - 1) : 0;
     const size_t screenStart = cursorScreenStart;
-    while (output.size() < screenStart + nRows_) {
-        output.emplace_back(nCols_);
-        outputLineAttributes.pushBack(0);
-        outputSemanticPrompts.pushBack(ScreenSemanticPrompt::None);
-    }
+    (void)(producedRows);
     const size_t retainedStart = screenStart > saveLines ? screenStart - saveLines : 0;
     const size_t historyCount = screenStart - retainedStart;
 
     initializeRows(nCols_, nRows_, historyCount);
-    for (size_t row = 0; row < nRows_; ++row) {
-        installRow(row, output[screenStart + row].data(), nCols_, outputLineAttributes[screenStart + row], 0, outputSemanticPrompts[screenStart + row]);
-    }
-    for (size_t row = 0; row < historyCount; ++row) {
-        installRow((int)(row) - (int)(historyCount), output[retainedStart + row].data(), nCols_, outputLineAttributes[retainedStart + row], 0, outputSemanticPrompts[retainedStart + row]);
-    }
+    walk(false, [&](size_t globalRow, const TerminalCell* cells, u8 lineAttribute, ScreenSemanticPrompt prompt) {
+        if (globalRow < retainedStart || globalRow >= screenStart + nRows_) {
+            return;
+        }
+        const int destination = globalRow < screenStart ? (int)(globalRow) - (int)(screenStart) : (int)(globalRow - screenStart);
+        installRow(destination, cells, nCols_, lineAttribute, 0, prompt);
+    });
 
     if (!wasScrolled) {
         viewOffset = 0;

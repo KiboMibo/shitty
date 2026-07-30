@@ -50,7 +50,15 @@ def external_trace(name, directory):
     command = terminal_command(name, output)
     if command is None:
         return None
-    subprocess.run(command, check=True, timeout=15)
+    try:
+        subprocess.run(command, check=True, timeout=15)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        # An installed terminal that cannot start (no compositor/display)
+        # counts as unavailable.
+        print(f"differential: {name} failed to run: {error}", file=sys.stderr)
+        return None
+    if not output.exists():
+        return None
     return json.loads(output.read_text(encoding="utf-8"))
 
 
@@ -69,6 +77,43 @@ def validate(name, trace):
             raise RuntimeError(f"{name}: malformed {key}: {decoded[key]!r}")
 
 
+def normalized(name, payload):
+    # 8-bit C1 responses compare equal to their 7-bit forms.
+    payload = payload.replace(b"\x9b", b"\x1b[")
+    payload = payload.replace(b"\x9d", b"\x1b]")
+    payload = payload.replace(b"\x9c", b"\x1b\\\\")
+    if name in ("primary_da", "secondary_da"):
+        # Device attributes legitimately differ per terminal; only the
+        # response shape has to match.
+        return re.sub(rb"[0-9;]+", b"#", payload)
+    if name == "cursor_mode":
+        # DECTCEM state may default differently; the report format may not.
+        return re.sub(rb";[0-9]+\$y", b";#$y", payload)
+    if name in ("default_foreground", "palette_red"):
+        # Configured colors differ; the reply grammar and terminator style
+        # have to agree.
+        payload = re.sub(rb"rgb:[0-9a-fA-F/]+", b"rgb:#", payload)
+        payload = re.sub(rb"(\x1b\\\\|\x07)$", b"<st>", payload)
+        return payload
+    # cursor_position and everything else must match byte for byte.
+    return payload
+
+
+def compare(traces):
+    failures = []
+    for reference in traces:
+        if reference == "shitty":
+            continue
+        for key in traces["shitty"]:
+            ours = normalized(key, bytes.fromhex(traces["shitty"][key]))
+            theirs = normalized(key, bytes.fromhex(traces[reference][key]))
+            if ours != theirs:
+                failures.append(
+                    f"{key}: shitty {ours!r} != {reference} {theirs!r}"
+                )
+    return failures
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--require", action="append", choices=("xterm", "foot", "kitty"))
@@ -85,11 +130,22 @@ def main():
                 raise RuntimeError(f"required terminal is unavailable: {name}")
     for name, trace in traces.items():
         validate(name, trace)
+    failures = compare(traces)
     encoded = json.dumps(traces, sort_keys=True, indent=2)
     if arguments.output:
         Path(arguments.output).write_text(encoded + "\n", encoding="utf-8")
     else:
         print(encoded)
+    if len(traces) == 1:
+        print(
+            "differential: no reference terminal available; "
+            "self-validation only, nothing was compared",
+            file=sys.stderr,
+        )
+    for failure in failures:
+        print(f"differential: {failure}", file=sys.stderr)
+    if failures:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
