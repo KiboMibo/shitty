@@ -254,6 +254,17 @@ horizontal margins не перенесено: CSI format effector снимает
 обычной правой boundary и с позиции wide pre-wrap; отредактированная строка
 больше не остаётся логически связанной со следующей.~~
 
+~~Блок `Terminal.zig:12344-12524` учтён. Все восемь save/restore cursor
+tests покрыты новыми и существующими Python transactions: position,
+pending-wrap, rendition, charset GL/GR state, origin mode относительно
+актуальных margins, DEC/ISO protection, clamp после уменьшения grid и
+независимость OSC 8 hyperlink state. Hyperlink test усилен: save не закрывает
+активную ссылку, а restore не воскрешает уже закрытую. Ghostty-specific
+`StyleSet.OutOfSpace` неприменим: у Shitty сохранённые `TerminalCell attrs`
+являются POD, не интернируются и restore не делает allocation; поэтому
+нормативное восстановление rendition не имеет аварийного fallback и
+проверяется напрямую.~~
+
 Не взяты также 94 initial fuzz seeds, но они имеют низкую ценность рядом с полным cmin.
 
 ### Kitty
