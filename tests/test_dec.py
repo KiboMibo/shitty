@@ -250,5 +250,39 @@ class DecProtocolTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"\x1b[1;1R")
 
 
+    def test_alternate_screen_resets_horizontal_margins_with_vertical(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[?69h\x1b[3;6s")
+            terminal.write(b"\x1b[?1049h\x1b[1;1Habcdefgh")
+            self.assertIn("abcdefgh", terminal.screen_text())
+
+    def test_restored_cursor_keeps_palette_indices_for_bold_mapping(self):
+        # DECSC/DECRC must save the palette indices along with the
+        # resolved colors: bold-color remapping re-resolves from the
+        # index, and a stale one paints the wrong bright color.
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[31m\x1b7\x1b[32m\x1b8\x1b[1mX")
+            terminal.write(b"\x1b[2;1H\x1b[0m\x1b[31m\x1b[1mY")
+            snapshot = terminal.snapshot()
+            self.assertEqual(
+                snapshot.cell(0, 0).foreground,
+                snapshot.cell(0, 1).foreground,
+            )
+
+    def test_rejected_margins_are_a_complete_noop(self):
+        # xterm: DECSTBM/DECSLRM with an invalid region neither changes
+        # margins nor homes the cursor.
+        for sequence in (b"\x1b[5;2r", b"\x1b[4;4r", b"\x1b[99;100r"):
+            with self.subTest(sequence=sequence):
+                with Shitty(columns=10, rows=5) as terminal:
+                    terminal.write(b"\x1b[3;4H" + sequence + b"\x1b[6n")
+                    self.assertEqual(terminal.read_input(), b"\x1b[3;4R")
+        for sequence in (b"\x1b[5;2s", b"\x1b[4;4s", b"\x1b[99;100s"):
+            with self.subTest(sequence=sequence):
+                with Shitty(columns=10, rows=5) as terminal:
+                    terminal.write(b"\x1b[?69h\x1b[3;4H" + sequence + b"\x1b[6n")
+                    self.assertEqual(terminal.read_input(), b"\x1b[3;4R")
+
+
 if __name__ == "__main__":
     unittest.main()

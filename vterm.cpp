@@ -1141,6 +1141,10 @@ namespace {
             TerminalCell eraseAttrs{};
             OriginMode originMode = OriginMode::Absolute;
             CharsetState charsetState = CharsetState{};
+            int fgPalIx = -2;
+            int bgPalIx = -2;
+            int underlinePalIx = -2;
+            bool underlineColorDefault = true;
         };
 
         SavedCursor savedCursorPri;
@@ -3062,6 +3066,8 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
                 semanticClick = SemanticClick::None;
                 marginTop = 0;
                 marginBottom = composer.rows;
+                hMargin = 0;
+                nColsEff = composer.columns;
                 altScreenInitialized = true;
                 cf = frame_alt;
                 cf->expose();
@@ -3088,12 +3094,16 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
             inactiveSemanticClick = SemanticClick::None;
             marginTop = 0;
             marginBottom = composer.rows;
+            hMargin = 0;
+            nColsEff = composer.columns;
             altScreenInitialized = true;
         } else if (const ScreenInfo info = frame_alt->info(); info.columns != composer.columns || info.rows != composer.rows) {
             Screen::Cursor cursorState;
             resizeScreen(frame_alt, frameAltPool, cursorState);
             marginTop = 0;
             marginBottom = composer.rows;
+            hMargin = 0;
+            nColsEff = composer.columns;
         }
         cf = frame_alt;
         cf->expose();
@@ -3109,6 +3119,8 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
             lastCol = cursorState.pendingWrap;
             marginTop = 0;
             marginBottom = composer.rows;
+            hMargin = 0;
+            nColsEff = composer.columns;
         }
         cf = frame_pri;
         cf->expose();
@@ -4280,6 +4292,12 @@ void VtermImpl::esc_DECSC() {
     savedCursor->eraseAttrs = eraseAttrs;
     savedCursor->originMode = originMode;
     savedCursor->charsetState = charsetState;
+    // Palette indices travel with the resolved colors: bold-color
+    // remapping and DECRQSS re-resolve from them.
+    savedCursor->fgPalIx = fgPalIx;
+    savedCursor->bgPalIx = bgPalIx;
+    savedCursor->underlinePalIx = underlinePalIx;
+    savedCursor->underlineColorDefault = underlineColorDefault;
     savedCursor->isSet = true;
 }
 
@@ -4298,6 +4316,10 @@ void VtermImpl::esc_DECRC() {
         eraseAttrs = savedCursor->eraseAttrs;
         reverseVideo = attrs.inverse;
         charsetState = savedCursor->charsetState;
+        fgPalIx = savedCursor->fgPalIx;
+        bgPalIx = savedCursor->bgPalIx;
+        underlinePalIx = savedCursor->underlinePalIx;
+        underlineColorDefault = savedCursor->underlineColorDefault;
     }
 }
 
@@ -4760,10 +4782,12 @@ void VtermImpl::csi_STBM(u32 top, u32 bottom, bool valid) {
     const u32 newMarginTop = top > 0 ? top - 1 : 0;
     const u32 newMarginBottom = bottom == 0 ? composer.rows : bottom;
     const bool illegal = newMarginTop >= composer.rows || newMarginBottom > composer.rows || newMarginBottom <= newMarginTop + 1;
-    if (valid && !illegal && (newMarginTop != marginTop || newMarginBottom != marginBottom)) {
-        marginTop = (u16)(newMarginTop);
-        marginBottom = (u16)(newMarginBottom);
+    if (!valid || illegal) {
+        // xterm: a rejected region is a complete no-op, the cursor stays.
+        return;
     }
+    marginTop = (u16)(newMarginTop);
+    marginBottom = (u16)(newMarginBottom);
 
     if (originMode == OriginMode::Absolute) {
         posX = 0;
@@ -4779,10 +4803,12 @@ void VtermImpl::csi_SLRM(u32 left, u32 right, bool valid) {
     const u32 newMarginLeft = left > 0 ? left - 1 : 0;
     const u32 newMarginRight = right == 0 ? composer.columns : right;
     const bool illegal = newMarginLeft >= composer.columns || newMarginRight > composer.columns || newMarginRight <= newMarginLeft + 1;
-    if (valid && !illegal && (newMarginLeft != hMargin || newMarginRight != nColsEff)) {
-        hMargin = (u16)(newMarginLeft);
-        nColsEff = (u16)(newMarginRight);
+    if (!valid || illegal) {
+        // xterm: a rejected region is a complete no-op, the cursor stays.
+        return;
     }
+    hMargin = (u16)(newMarginLeft);
+    nColsEff = (u16)(newMarginRight);
 
     if (originMode == OriginMode::Absolute) {
         posX = 0;

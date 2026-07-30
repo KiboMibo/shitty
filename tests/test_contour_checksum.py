@@ -38,6 +38,19 @@ class ContourRectangularAreaChecksumTest(unittest.TestCase):
         self.assertEqual(self.checksum(3, 1), 0)
         self.assertEqual(self.checksum(3, 1, b"ab"), 0xFF3D)
 
+    def test_fill_rectangle_counts_like_written_text(self):
+        # DECFRA fills must checksum like the same characters written
+        # normally: xterm counts them, and a space put down by a fill is
+        # still a written space.
+        self.assertEqual(
+            self.checksum(2, 1, b"\x1b[97;1;1;1;2$x"),
+            self.checksum(2, 1, b"aa"),
+        )
+        self.assertEqual(
+            self.checksum(1, 1, b"\x1b[32;1;1;1;1$x"),
+            self.checksum(1, 1, b" "),
+        )
+
     def test_video_attributes_fold_into_the_cell_value(self):
         self.assertEqual(
             self.checksum(1, 1, b"\x1b[1\"qa"),

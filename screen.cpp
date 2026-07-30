@@ -1939,6 +1939,9 @@ void ScreenBase<Coord, Epoch>::fillCells(u16 ch, const TerminalCell& attrs) {
         slot->metadata.semanticPrompt = ScreenSemanticPrompt::None;
         slot->metadata.wide = fill.dwidth || fill.dwidth_cont;
     }
+    if (!selection.empty()) {
+        invalidateSelection(Rect(0, 0, nCols, nRows));
+    }
     damageRectangle(0, 0, nRows, nCols);
 }
 
@@ -2426,6 +2429,8 @@ void ScreenBase<Coord, Epoch>::fillRectangle(u16 top, u16 left, u16 bottom, u16 
             TerminalCell& cell = cells_[column - left];
             cell = attrs;
             cell.uc_pt = codepoint;
+            // A fill writes the character: DECRQCRA counts it like text.
+            cell.drawn = 1;
         }
         logicalRowSlot(row)->metadata.protection |= attrs.protected_char;
     }
@@ -2459,9 +2464,13 @@ void ScreenBase<Coord, Epoch>::copyRectangle(u16 sourceTop, u16 sourceLeft, u16 
         clearWideBoundary(targetTop + row, targetLeft, eraseAttrs);
         clearWideBoundary(targetTop + row, targetLeft + rowWidth, eraseAttrs);
         TerminalCell* destination = mutableLogicalRow(targetTop + row) + targetLeft;
+        // The copied cells carry the source rows' wrap bits; the target
+        // row keeps its own soft-wrap state.
+        const u16 wrapColumn = rowWrapColumn(logicalRowSlot(targetTop + row), nCols);
         for (u16 column = 0; column < rowWidth; ++column) {
             destination[column] = source[column];
         }
+        restoreRowWrap(logicalRowSlot(targetTop + row), nCols, wrapColumn);
         logicalRowSlot(targetTop + row)->metadata.protection |= rowProtection(source, rowWidth);
         if (rowContainsWide(source, rowWidth)) {
             markLogicalRowWide(targetTop + row);
@@ -3484,7 +3493,7 @@ void ScreenBase<Coord, Epoch>::rotateRows(u16 top, u16 bottom, i32 rows) {
         return;
     }
     if (!selection.empty()) {
-        invalidateSelection(Rect(0, top, 0, bottom));
+        invalidateSelection(Rect(0, top, nCols, bottom));
     }
     if (down) {
         rotateRowPointersDown(top, bottom, count);
