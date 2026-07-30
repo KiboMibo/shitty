@@ -21,6 +21,20 @@ namespace {
 
         size_t calls = 0;
     };
+
+#if defined(__APPLE__)
+    constexpr u16 copyModifiers = InputSuper;
+    constexpr u16 inactiveCopyModifiers = InputControl | InputShift;
+    constexpr u16 incFontModifiers = InputSuper;
+    constexpr u32 incFontText = 0;
+#elif defined(__linux__)
+    constexpr u16 copyModifiers = InputControl | InputShift;
+    constexpr u16 inactiveCopyModifiers = InputSuper;
+    constexpr u16 incFontModifiers = InputControl | InputShift;
+    constexpr u32 incFontText = '+';
+#else
+    #error Unsupported platform
+#endif
 }
 
 void CountBinding::onListen(void*) {
@@ -34,19 +48,19 @@ STD_TEST_SUITE(InputBindings) {
         IntrusiveList listeners;
         CountBinding listener;
         listeners.pushBack(&listener);
-        composer.inputBindings->add({InputKey::Printable, InputControl, 'a', 'a'}, &listeners);
+        composer.inputBindings->add(InputActions::Copy, &listeners);
 
         const bool consumed = composer.inputBindings->key({
             .key = InputKey::Printable,
             .action = InputAction::Press,
-            .modifiers = InputControl | InputCapsLock | InputNumLock,
-            .baseCodepoint = 'a',
+            .modifiers = copyModifiers | InputCapsLock | InputNumLock,
+            .baseCodepoint = 'c',
         });
 
         STD_INSIST(consumed);
         STD_INSIST(listener.calls == 1);
-        STD_INSIST(composer.inputBindings->text({'a', InputControl}));
-        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Release, InputControl, 0, 'a'}));
+        STD_INSIST(!composer.inputBindings->text({'c', copyModifiers}));
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Release, copyModifiers, 0, 'c'}));
     }
 
     STD_TEST(DoesNotConsumeMismatchedBinding) {
@@ -55,28 +69,30 @@ STD_TEST_SUITE(InputBindings) {
         IntrusiveList listeners;
         CountBinding listener;
         listeners.pushBack(&listener);
-        composer.inputBindings->add({InputKey::Printable, InputControl, 'a', 0}, &listeners);
+        composer.inputBindings->add(InputActions::Copy, &listeners);
 
-        STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputShift, 0, 'a'}));
-        STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputControl, 0, 'b'}));
+        STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Press, inactiveCopyModifiers, 0, 'c'}));
+        STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Press, copyModifiers, 0, 'b'}));
         STD_INSIST(listener.calls == 0);
     }
 
-    STD_TEST(TracksRepeatedPendingText) {
+    STD_TEST(TracksRepeatedPlatformBinding) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         IntrusiveList listeners;
         CountBinding listener;
         listeners.pushBack(&listener);
-        composer.inputBindings->add({InputKey::Printable, InputControl, '=', '+'}, &listeners);
-        const KeyInput input{InputKey::Printable, InputAction::Press, InputControl, '=', '='};
+        composer.inputBindings->add(InputActions::IncFontSize, &listeners);
+        const KeyInput input{InputKey::Printable, InputAction::Press, incFontModifiers, '=', '='};
 
         STD_INSIST(composer.inputBindings->key(input));
         STD_INSIST(composer.inputBindings->key(input));
         STD_INSIST(listener.calls == 2);
-        STD_INSIST(composer.inputBindings->text({'+', InputControl}));
-        STD_INSIST(composer.inputBindings->text({'+', InputControl}));
-        STD_INSIST(!composer.inputBindings->text({'+', InputControl}));
+        if (incFontText != 0) {
+            STD_INSIST(composer.inputBindings->text({incFontText, incFontModifiers}));
+            STD_INSIST(composer.inputBindings->text({incFontText, incFontModifiers}));
+        }
+        STD_INSIST(!composer.inputBindings->text({'+', incFontModifiers}));
     }
 
     STD_TEST(FlushDropsPendingTextButReleaseRemainsConsumed) {
@@ -85,13 +101,13 @@ STD_TEST_SUITE(InputBindings) {
         IntrusiveList listeners;
         CountBinding listener;
         listeners.pushBack(&listener);
-        composer.inputBindings->add({InputKey::Printable, InputControl, '=', '+'}, &listeners);
-        composer.input->key({InputKey::Printable, InputAction::Press, InputControl, '=', '='});
+        composer.inputBindings->add(InputActions::IncFontSize, &listeners);
+        composer.input->key({InputKey::Printable, InputAction::Press, incFontModifiers, '=', '='});
 
         composer.input->flush();
 
-        STD_INSIST(!composer.inputBindings->text({'+', InputControl}));
-        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Release, InputControl, '=', '='}));
+        STD_INSIST(!composer.inputBindings->text({'+', incFontModifiers}));
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Release, incFontModifiers, '=', '='}));
     }
 
     STD_TEST(FocusLossClearsConsumedAndPendingState) {
@@ -100,12 +116,27 @@ STD_TEST_SUITE(InputBindings) {
         IntrusiveList listeners;
         CountBinding listener;
         listeners.pushBack(&listener);
-        composer.inputBindings->add({InputKey::Printable, InputControl, '=', '+'}, &listeners);
-        composer.input->key({InputKey::Printable, InputAction::Press, InputControl, '=', '='});
+        composer.inputBindings->add(InputActions::IncFontSize, &listeners);
+        composer.input->key({InputKey::Printable, InputAction::Press, incFontModifiers, '=', '='});
 
         composer.input->focus(false);
 
-        STD_INSIST(!composer.inputBindings->text({'+', InputControl}));
-        STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Release, InputControl, '=', '='}));
+        STD_INSIST(!composer.inputBindings->text({'+', incFontModifiers}));
+        STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Release, incFontModifiers, '=', '='}));
+    }
+
+    STD_TEST(ActionCanHaveMultiplePlatformBindings) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        IntrusiveList listeners;
+        CountBinding listener;
+        listeners.pushBack(&listener);
+        composer.inputBindings->add(InputActions::PastePrimary, &listeners);
+
+        STD_INSIST(composer.inputBindings->key({InputKey::Insert, InputAction::Press, InputShift}));
+        STD_INSIST(composer.inputBindings->key({InputKey::Insert, InputAction::Release, InputShift}));
+        STD_INSIST(composer.inputBindings->key({InputKey::Keypad0, InputAction::Press, InputShift | InputCapsLock}));
+        STD_INSIST(composer.inputBindings->key({InputKey::Keypad0, InputAction::Release, InputShift}));
+        STD_INSIST(listener.calls == 2);
     }
 }

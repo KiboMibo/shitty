@@ -17,6 +17,41 @@ using namespace stl;
 using namespace plt;
 
 namespace {
+    struct InputBinding {
+        InputKey key = InputKey::Unknown;
+        u16 modifiers = 0;
+        u32 baseCodepoint = 0;
+        u32 textCodepoint = 0;
+    };
+
+    struct ActionBinding {
+        InputActions action;
+        InputBinding input;
+    };
+
+    constexpr ActionBinding defaultBindings[] = {
+        {InputActions::PastePrimary, {InputKey::Insert, InputShift}},
+        {InputActions::PastePrimary, {InputKey::Keypad0, InputShift}},
+        {InputActions::PageUp, {InputKey::PageUp, InputShift}},
+        {InputActions::PageDown, {InputKey::PageDown, InputShift}},
+#if defined(__APPLE__)
+        {InputActions::Copy, {InputKey::Printable, InputSuper, 'c'}},
+        {InputActions::Paste, {InputKey::Printable, InputSuper, 'v'}},
+        {InputActions::IncFontSize, {InputKey::Printable, InputSuper, '='}},
+        {InputActions::IncFontSize, {InputKey::Printable, InputSuper | InputShift, '='}},
+        {InputActions::DecFontSize, {InputKey::Printable, InputSuper, '-'}},
+        {InputActions::ResetFontSize, {InputKey::Printable, InputSuper, '0'}},
+#elif defined(__linux__)
+        {InputActions::Copy, {InputKey::Printable, InputControl | InputShift, 'c'}},
+        {InputActions::Paste, {InputKey::Printable, InputControl | InputShift, 'v'}},
+        {InputActions::IncFontSize, {InputKey::Printable, InputControl | InputShift, '=', '+'}},
+        {InputActions::DecFontSize, {InputKey::Printable, InputControl, '-', '-'}},
+        {InputActions::ResetFontSize, {InputKey::Printable, InputControl, '0', '0'}},
+#else
+    #error Unsupported platform
+#endif
+    };
+
     struct RegisteredBinding {
         InputBinding input;
         IntrusiveList* listeners = nullptr;
@@ -27,7 +62,7 @@ namespace {
     struct InputBindingsImpl final: public InputBindings {
         InputBindingsImpl();
 
-        void add(const InputBinding& binding, IntrusiveList* listeners) override;
+        void add(InputActions action, IntrusiveList* listeners) override;
         bool key(const KeyInput& input) override;
         bool text(const TextInput& input) override;
         bool pointerMotion(const PointerMotionInput& input) override;
@@ -42,15 +77,27 @@ namespace {
         RegisteredBinding* find(const KeyInput& input);
 
         Vector<RegisteredBinding> bindings_;
+        bool registered_[(unsigned)(InputActions::Count)]{};
     };
 }
 
 InputBindingsImpl::InputBindingsImpl() {
 }
 
-void InputBindingsImpl::add(const InputBinding& binding, IntrusiveList* listeners) {
+void InputBindingsImpl::add(InputActions action, IntrusiveList* listeners) {
     STD_ASSERT(listeners != nullptr);
-    bindings_.pushBack({binding, listeners});
+    const unsigned index = (unsigned)(action);
+    STD_ASSERT(index < (unsigned)(InputActions::Count));
+    STD_ASSERT(!registered_[index]);
+    bool found = false;
+    for (const ActionBinding& binding : defaultBindings) {
+        if (binding.action == action) {
+            bindings_.pushBack({binding.input, listeners});
+            found = true;
+        }
+    }
+    STD_ASSERT(found);
+    registered_[index] = true;
 }
 
 void InputBindingsImpl::publish(IntrusiveList& listeners) {
@@ -77,14 +124,15 @@ RegisteredBinding* InputBindingsImpl::find(const KeyInput& input) {
 
 bool InputBindingsImpl::key(const KeyInput& input) {
     if (input.action == InputAction::Release) {
+        bool consumed = false;
         for (RegisteredBinding* binding = bindings_.mutBegin(); binding != bindings_.mutEnd(); ++binding) {
             if (binding->consumed && binding->input.key == input.key && binding->input.baseCodepoint == input.baseCodepoint) {
                 binding->consumed = false;
                 binding->pendingText = 0;
-                return true;
+                consumed = true;
             }
         }
-        return false;
+        return consumed;
     }
     RegisteredBinding* const binding = find(input);
     if (binding == nullptr) {

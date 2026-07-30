@@ -16,15 +16,20 @@ namespace stl {
 
 struct Composer;
 
-struct InputBinding {
-    plt::InputKey key = plt::InputKey::Unknown;
-    u16 modifiers = 0;
-    u32 baseCodepoint = 0;
-    u32 textCodepoint = 0;
+enum class InputActions : u8 {
+    Copy,
+    Paste,
+    PastePrimary,
+    PageUp,
+    PageDown,
+    IncFontSize,
+    DecFontSize,
+    ResetFontSize,
+    Count,
 };
 
 struct InputBindings: public InputHandler {
-    virtual void add(const InputBinding& binding, stl::IntrusiveList* listeners) = 0;
+    virtual void add(InputActions action, stl::IntrusiveList* listeners) = 0;
 
     static InputBindings* create(Composer& composer);
 };

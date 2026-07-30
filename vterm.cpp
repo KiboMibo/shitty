@@ -25,6 +25,7 @@
 #include "color_spec.h"
 #include "composer.h"
 #include "desktop_actions.h"
+#include "input_bindings.h"
 #include "input_handler.h"
 #include "keyboard.h"
 #include "mouse_frontend.h"
@@ -288,6 +289,7 @@ namespace {
         void armTimeout();
         bool advanceSelectionAutoscroll(bool force);
         ScreenHyperlink resolveLink(int pixelX, int pixelY);
+        bool copy();
         bool paste(bool primary);
 
         struct PendingTextKey {
@@ -315,7 +317,7 @@ namespace {
         bool pointerFocused = true;
         int selectionAutoscrollDirection = 0;
         u64 selectionAutoscrollDeadline = 0;
-        bool locallyConsumedKeys[(unsigned)(InputKey::Count) + 128]{};
+        bool rectangularSelectionKeyConsumed = false;
     };
 
     struct CallVtermResize: Listener {
@@ -332,6 +334,15 @@ namespace {
         void onListen(void*) override;
 
         VtermImpl* parent;
+    };
+
+    struct CallVtermInputAction: Listener {
+        CallVtermInputAction(VtermImpl* parent, InputActions action);
+
+        void onListen(void*) override;
+
+        VtermImpl* parent;
+        InputActions action;
     };
 
     struct CallVtermTimeout: plt::TimerCallback {
@@ -413,6 +424,7 @@ namespace {
 
         void resizeGrid();
         void fontChanged();
+        void wireInputBindings();
         void createPrimaryScreen();
         void createAlternateScreen();
         void createInactiveAlternateScreen();
@@ -842,6 +854,11 @@ namespace {
 
         VtermInput input;
         CallVtermTimeout callTimeout;
+        IntrusiveList copyListeners;
+        IntrusiveList pasteListeners;
+        IntrusiveList pastePrimaryListeners;
+        IntrusiveList pageUpListeners;
+        IntrusiveList pageDownListeners;
         Composer& composer;
         VtermHost& host;
         Output* dump;
@@ -1232,6 +1249,15 @@ bool VtermInput::paste(bool primary) {
     } else {
         clipboard->readClipboard(output);
     }
+    return true;
+}
+
+bool VtermInput::copy() {
+    Clipboard* const clipboard = terminal->host.clipboard();
+    if (clipboard == nullptr) {
+        return false;
+    }
+    clipboard->readPrimary(terminal->composer.smallObjects->make<ClipboardCopyOutput>(terminal->composer.smallObjects, clipboard));
     return true;
 }
 
@@ -1632,60 +1658,15 @@ bool VtermInput::key(const KeyInput& input) {
     suppressRepeatedTextInput = input.action == InputAction::Repeat && !terminal->autoRepeatMode;
     const VtModifier modifiers = legacyModifiers(input.modifiers);
     const bool pressed = input.action != InputAction::Release;
-    const unsigned keyIndex = input.key == InputKey::Printable && input.baseCodepoint < 128 ? (unsigned)(InputKey::Count) + input.baseCodepoint : (unsigned)(input.key);
-    if (!pressed && keyIndex < sizeof(locallyConsumedKeys) && locallyConsumedKeys[keyIndex]) {
-        locallyConsumedKeys[keyIndex] = false;
-        return true;
-    }
-    const auto runLocal = [&](const auto& operation) {
-        if (!pressed) {
-            return;
-        }
-        if (keyIndex < sizeof(locallyConsumedKeys)) {
-            locallyConsumedKeys[keyIndex] = true;
-        }
-        operation();
-    };
-
-    if (input.key == InputKey::PageUp && modifiers == VtModifier::shift) {
-        runLocal([&]() {
-            terminal->pageUp();
-        });
-        return true;
-    }
-    if (input.key == InputKey::PageDown && modifiers == VtModifier::shift) {
-        runLocal([&]() {
-            terminal->pageDown();
-        });
-        return true;
-    }
-    const bool superOnly = (input.modifiers & (InputShift | InputControl | InputAlt | InputSuper)) == InputSuper;
-    const bool copyPasteModifiers = terminal->composer.superShortcuts ? superOnly : modifiers == VtModifier::shift_control;
-    if (input.baseCodepoint == 'c' && copyPasteModifiers) {
-        runLocal([&]() {
-            Clipboard* const clipboard = terminal->host.clipboard();
-            if (clipboard != nullptr) {
-                clipboard->readPrimary(terminal->composer.smallObjects->make<ClipboardCopyOutput>(terminal->composer.smallObjects, clipboard));
-            }
-        });
-        return true;
-    }
-    if (input.baseCodepoint == 'v' && copyPasteModifiers) {
-        runLocal([&]() {
-            paste(false);
-        });
-        return true;
-    }
-    if ((input.key == InputKey::Insert || input.key == InputKey::Keypad0) && modifiers == VtModifier::shift) {
-        runLocal([&]() {
-            paste(true);
-        });
+    if (!pressed && input.baseCodepoint == ' ' && rectangularSelectionKeyConsumed) {
+        rectangularSelectionKeyConsumed = false;
         return true;
     }
     if (input.baseCodepoint == ' ' && mouse.selectionOngoing()) {
-        runLocal([&]() {
+        if (pressed) {
+            rectangularSelectionKeyConsumed = true;
             terminal->selectionRectangular();
-        });
+        }
         return true;
     }
     if (suppressRepeatedTextInput) {
@@ -1987,7 +1968,7 @@ void VtermInput::focus(bool focused) {
         suppressedTextInputs = 0;
         suppressRepeatedTextInput = false;
         pendingTextKey.active = false;
-        std::fill(std::begin(locallyConsumedKeys), std::end(locallyConsumedKeys), false);
+        rectangularSelectionKeyConsumed = false;
     }
     refreshHyperlinkAndRedraw();
     terminal->setHasFocus(focused);
@@ -7667,6 +7648,34 @@ void CallVtermFontChanged::onListen(void*) {
     parent->fontChanged();
 }
 
+CallVtermInputAction::CallVtermInputAction(VtermImpl* parent_, InputActions action_)
+    : parent(parent_)
+    , action(action_)
+{
+}
+
+void CallVtermInputAction::onListen(void*) {
+    switch (action) {
+        case InputActions::Copy:
+            parent->input.copy();
+            break;
+        case InputActions::Paste:
+            parent->input.paste(false);
+            break;
+        case InputActions::PastePrimary:
+            parent->input.paste(true);
+            break;
+        case InputActions::PageUp:
+            parent->pageUp();
+            break;
+        case InputActions::PageDown:
+            parent->pageDown();
+            break;
+        default:
+            STD_ASSERT(false);
+    }
+}
+
 CallVtermTimeout::CallVtermTimeout(VtermImpl* parent_)
     : parent(parent_)
 {
@@ -7722,6 +7731,18 @@ VtermImpl::VtermImpl(Composer& composer_, VtermHost& host_, VtermTrace* trace, O
     bgPalIx = defaultBgPalIx;
 
     resetTerminal();
+}
+
+void VtermImpl::wireInputBindings() {
+    const auto add = [&](InputActions action, IntrusiveList& listeners) {
+        listeners.pushBack(composer.pool->make<CallVtermInputAction>(this, action));
+        composer.inputBindings->add(action, &listeners);
+    };
+    add(InputActions::Copy, copyListeners);
+    add(InputActions::Paste, pasteListeners);
+    add(InputActions::PastePrimary, pastePrimaryListeners);
+    add(InputActions::PageUp, pageUpListeners);
+    add(InputActions::PageDown, pageDownListeners);
 }
 
 void VtermImpl::fontChanged() {
@@ -8637,6 +8658,7 @@ Vterm* Vterm::create(Composer& composer, VtermHost& host, VtermTrace* trace) {
         VtermImpl* const vterm = composer.pool->make<VtermImpl>(composer, host, trace, dump);
         composer.resizedListeners.pushBack(composer.pool->make<CallVtermResize>(vterm));
         composer.fontChangedListeners.pushBack(composer.pool->make<CallVtermFontChanged>(vterm));
+        vterm->wireInputBindings();
         composer.inputHandlers.pushBack(vterm);
         vterm->armTimeout();
         return vterm;

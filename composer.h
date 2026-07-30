@@ -69,9 +69,6 @@ struct Composer {
     u16 fontSize = 0;
     float contentScale = 1.0f;
 
-    // Use Super for the copy/paste and font size shortcuts (Cocoa).
-    bool superShortcuts = false;
-
     // resize() commits all geometry fields before walking this list.
     stl::IntrusiveList resizedListeners;
     stl::IntrusiveList contentScaleChangedListeners;
