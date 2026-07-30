@@ -112,6 +112,43 @@ else:
     plt = dependency(ldflags=["-lplt"])
 
 
+# plt ships its own test suite (unit tests plus fake-compositor
+# integration scenarios); nothing else runs it, so drive the nested build
+# from here and stamp it into the test group. The nested build compiles
+# against the vendored libstd and links the one built by this graph.
+if linux and build.target == build.host and os.path.isfile(os.path.join(os.path.dirname(__file__), plt_build)):
+    plt_tests = untimed_command(
+        name="plt_tests",
+        inputs=[
+            *build.glob("$(S)/third_party/plt/*.cpp"),
+            *build.glob("$(S)/third_party/plt/*.h"),
+            "$(S)/third_party/plt/build.py",
+            *build.glob("$(S)/third_party/plt/tests/*"),
+        ],
+        outputs=["$(B)/plt-tests.stamp"],
+        deps=[libstd],
+        cmd=[
+            [
+                "sh", "-c",
+                'CPPFLAGS="$CPPFLAGS -Dno_vendored_std -I$PWD/../libstd" '
+                'LDFLAGS="$LDFLAGS -L$0 -lstd" '
+                'exec python3 ./build -B "$1" test',
+                "$(B)/third_party/libstd",
+                "$(B)/plt-tests",
+            ],
+            [
+                "python3", "-c",
+                "from pathlib import Path; Path(r'$(B)/plt-tests.stamp').touch()",
+            ],
+        ],
+        cwd="$(S)/third_party/plt",
+        descr="PT",
+        color="green",
+    )
+else:
+    plt_tests = None
+
+
 render_shader_names = [
     "rgba8_unorm",
     "bgra8_unorm",
@@ -2854,6 +2891,7 @@ group("install", st)
 
 group(
     "test",
+    *([plt_tests] if plt_tests is not None else []),
     test_suite,
     parser_fuzz,
     vttest_profile,

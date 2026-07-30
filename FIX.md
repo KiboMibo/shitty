@@ -13,10 +13,9 @@
 16. PtyOutputQueue без верхней границы — решено не чинить (по указанию).
 20. Vulkan: исключение между vkResetFences и vkQueueSubmit → несигналенный fence навсегда (сейчас спасает только то, что исключение убивает процесс; любой будущий retry превратит в дедлок) (render_vk.cpp:2350).
 21. Без maintenance1 retired-свопчейны копятся до 8 (сотни МБ + WaitIdle-хитч посреди ресайза) (render_vk.cpp:1339).
-22. В кодовой базе пять UTF-8-декодеров; decodeUtf8One в plt (вчерашний коммит) пропускает overlong/суррогаты/F5-F7 — путь IME-commit может доставить не-скаляры в pty (platform_wayland.cpp:387).
+22. В кодовой базе пять UTF-8-декодеров — сведение к одному не сделано (строгость plt-декодера починена отдельно).
 23. Индийские кластеры с матрами (Mc→Wide) уводятся в CJK-шрифт → тофу (grapheme.cpp:482).
 27. Фаззер op 219 (advanceAnimation(force=false)) сравнивает wall-clock между ригами — ложный «determinism bug» на 500-мс границе.
-28. plt-тесты не подключены к CI вообще (import_build берёт только libplt.a, flake-checks гоняют только группу shitty).
 29. Headless-поллер no-op — решено не делать (исключено ранее вместе с plt-переделкой headless).
 
 🟡 Низкая серьёзность
@@ -26,9 +25,6 @@
 34. «Двойное sRGB» при fallback-форматах поверхности, colorspace игнорируется (render_vk.cpp:1438).
 35. VS15 ужимает шесть EAW-Wide баз (〰〽㊗㊙🈂🈷) до 1 клетки с обрезкой.
 36. CoreText/FreeType паритет: разная обработка missing glyph, на macOS dwfont вообще не валидируется, метрики округляются по-разному.
-37. latestSerial откатывается назад при автоповторе (repeat() реиграет старый serial).
-38. Seat removal не чистит preedit-состояние (в отличие от textInputLeft).
-39. textInputDone кэширует textInputWindow через sink-колбэки — латентный UAF, если sink когда-нибудь начнёт удалять окна.
 43. Отрицательный pitch FreeType адресуется неверно (недостижимо с FT_LOAD_RENDER).
 
 Недоделки
