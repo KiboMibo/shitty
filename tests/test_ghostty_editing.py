@@ -1,0 +1,112 @@
+# Copyright (C) 2026 Shitty team
+# MIT licensed
+# See the file LICENSE.MIT for the full license.
+
+import unittest
+
+from harness import Shitty, put_rows
+
+
+class GhosttyEditingTest(unittest.TestCase):
+    def test_invalid_equal_vertical_margins_keep_the_previous_region(self):
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(put_rows(b"A", b"B", b"C", b"D", b"E"))
+            terminal.write(
+                b"\x1b[2;4r"
+                b"\x1b[3;3r"
+                b"\x1b[2;1H\x1b[S"
+            )
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["A    ", "C    ", "D    ", "     ", "E    "],
+            )
+            self.assertEqual(terminal.last_update_rows(), (1, 2, 3))
+
+    def test_invalid_equal_horizontal_margins_keep_the_previous_region(self):
+        with Shitty(columns=5, rows=4) as terminal:
+            terminal.write(put_rows(b"ABC", b"DEF", b"GHI"))
+            terminal.write(
+                b"\x1b[?69h"
+                b"\x1b[2;4s"
+                b"\x1b[3;3s"
+                b"\x1b[2;2H\x1b[L"
+            )
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["ABC  ", "D    ", "GEF  ", " HI  "],
+            )
+            self.assertEqual(terminal.last_update_rows(), (1, 2, 3))
+
+    def test_insert_line_resets_pending_wrap_and_wrap_metadata(self):
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(b"ABCDE")
+            self.assertTrue(terminal.cursor_pending_wrap())
+
+            terminal.write(b"\x1b[L")
+            snapshot = terminal.model_snapshot()
+            self.assertFalse(terminal.cursor_pending_wrap())
+            self.assertEqual(
+                snapshot.lines,
+                ["     ", "ABCDE", "     ", "     ", "     "],
+            )
+            self.assertFalse(snapshot.cell(4, 1).wrapped)
+            self.assertEqual(terminal.last_update_rows(), (0, 1, 2, 3, 4))
+
+            terminal.write(b"B")
+            self.assertEqual(terminal.snapshot().lines[0], "B    ")
+
+    def test_insert_line_moves_grapheme_and_hyperlink_metadata(self):
+        family = "👨‍👩‍👧"
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(
+                b"ABC"
+                b"\x1b[2;1H"
+                b"\x1b]8;;https://example.test\x1b\\"
+                + family.encode()
+                + b"\x1b]8;;\x1b\\"
+                b"\x1b[3;1HGHI"
+                b"\x1b[4;1HJKL"
+            )
+            terminal.write(b"\x1b[2;5H\x1b[L")
+            snapshot = terminal.model_snapshot()
+
+            self.assertEqual(
+                snapshot.lines,
+                ["ABC       ", "          ", "👨         ", "GHI       "],
+            )
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 1))
+            self.assertEqual(
+                snapshot.cell(0, 2).grapheme,
+                tuple(map(ord, family)),
+            )
+            self.assertTrue(snapshot.cell(0, 2).double_width)
+            self.assertNotEqual(snapshot.cell(0, 2).hyperlink, 0)
+            self.assertEqual(
+                terminal.hyperlink(0, 2),
+                "https://example.test",
+            )
+            self.assertEqual(terminal.last_update_rows(), (1, 2, 3))
+
+    def test_insert_line_obeys_both_margin_pairs(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(put_rows(b"ABC123", b"DEF456", b"GHI789"))
+            terminal.write(
+                b"\x1b[?69h"
+                b"\x1b[2;4s"
+                b"\x1b[2;2H\x1b[L"
+            )
+            self.assertEqual(
+                terminal.snapshot().lines,
+                [
+                    "ABC123    ",
+                    "D   56    ",
+                    "GEF489    ",
+                    " HI7      ",
+                    "          ",
+                ],
+            )
+            self.assertEqual(terminal.last_update_rows(), (1, 2, 3, 4))
+
+
+if __name__ == "__main__":
+    unittest.main()
