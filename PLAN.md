@@ -420,9 +420,12 @@ query/resize request, title query/update/restore и version query; оригин�
 - ~~TextSizing DECCRA — a complete copied block preserves every band's
   sizing coordinates; partial source copies are blanked, and intersecting
   destination blocks are erased whole before the copy.~~
-- TextSizing editing/selection/render — 19 cases remain: partial rectangle
-  boundary rules; visual selection expansion and drag clamping; blocks
-  crossing margins, wrapping runs and deferred wrap; reference/GPU emission
+- ~~TextSizing placement boundaries — imported the deferred-wrap, block
+  extending beyond horizontal margins, cursor below the scrolling region and
+  multi-block wrapping-run cases; every surviving block is complete.~~
+- TextSizing editing/selection/render — 15 cases remain: partial rectangle
+  boundary rules; visual selection expansion and drag clamping; replacement
+  interactions between differently sized blocks; and reference/GPU emission
   of every visible band with fractional alignment.
 - ~~Grid — all 32 cases accounted: 25 terminal-observable resize, reflow,
   history, viewport, sparse-row and semantic-region cases are rewritten in
