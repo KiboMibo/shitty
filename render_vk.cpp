@@ -269,6 +269,12 @@ namespace {
             u32 gracePresents = 0;
         };
 
+        struct PresentTarget {
+            VkSurfaceFormatKHR format{};
+            const GeneratedRenderShader* shader = nullptr;
+            bool direct = false;
+        };
+
         struct PresentationState {
             TerminalCursor cursor;
             Rect selection;
@@ -359,6 +365,7 @@ namespace {
         void createDescriptors();
         void createPipelineLayout();
         void selectPipeline(const GeneratedRenderShader& shader);
+        PresentTarget selectPresentTarget(const VkSurfaceCapabilitiesKHR& capabilities, const std::vector<VkSurfaceFormatKHR>& formats) const;
         void createSwapchain(u32 width, u32 height);
         bool tryCreateSwapchain(u32 width, u32 height);
         void destroySwapchainResources(SwapchainResources& resources);
@@ -366,6 +373,7 @@ namespace {
         void collectRetiredSwapchains(bool force = false);
         void ensureCellBuffer(FrameResources& frame, size_t bytes);
         void ensureFontUploadBuffer(FrameResources& frame, size_t bytes);
+        void releaseBuffer(VkBuffer& buffer, VkDeviceMemory& memory, void*& mapped);
         void ensureColorAtlas(bool doubleWidth);
 
         ImageResource createImage(u32 width, u32 height, u32 layers, VkFormat format, VkImageUsageFlags usage, bool arrayView = false, VkFormat viewFormat = VK_FORMAT_UNDEFINED);
@@ -386,6 +394,7 @@ namespace {
         void recordImageUploads(VkCommandBuffer commandBuffer, VkBuffer stagingBuffer, const ImageResource& image, const Vector<VkBufferImageCopy>& copies, bool initialize);
         void recordCommands(FrameResources& frame, u32 imageIndex, const PresentationState& state, u32 updateCount, bool clearOutput);
         void recordRepaintCommands(FrameResources& frame, u32 imageIndex);
+        void recordBlit(FrameResources& frame, u32 imageIndex, VkAccessFlags outputSrcAccess, VkPipelineStageFlags outputSrcStage);
         void recordFrame(FrameResources& frame, u32 imageIndex);
         bool acquirePresentFrame(u32 width, u32 height, FrameResources*& frame, u32& imageIndex, bool& recreateAfterPresent);
         bool submitPresentFrame(u32 width, u32 height, FrameResources& frame, u32 imageIndex, bool recreateAfterPresent);
@@ -416,6 +425,40 @@ namespace {
         if (result != VK_SUCCESS) {
             failVk(operation, result);
         }
+    }
+
+    VkImageSubresourceRange imageRange(u32 layers) {
+        VkImageSubresourceRange range{};
+        range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        range.levelCount = 1;
+        range.layerCount = layers;
+        return range;
+    }
+
+    void imageBarrier(VkCommandBuffer commandBuffer, VkImage image, u32 layers, VkAccessFlags srcAccess, VkAccessFlags dstAccess, VkImageLayout oldLayout, VkImageLayout newLayout, VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.srcAccessMask = srcAccess;
+        barrier.dstAccessMask = dstAccess;
+        barrier.oldLayout = oldLayout;
+        barrier.newLayout = newLayout;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = image;
+        barrier.subresourceRange = imageRange(layers);
+        vkCmdPipelineBarrier(commandBuffer, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    }
+
+    void bufferBarrier(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize size, VkAccessFlags srcAccess, VkAccessFlags dstAccess, VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
+        VkBufferMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        barrier.srcAccessMask = srcAccess;
+        barrier.dstAccessMask = dstAccess;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.buffer = buffer;
+        barrier.size = size;
+        vkCmdPipelineBarrier(commandBuffer, srcStage, dstStage, 0, 0, nullptr, 1, &barrier, 0, nullptr);
     }
 
     bool instanceHasExtension(const char* name) {
@@ -595,24 +638,8 @@ RendererImpl::~RendererImpl() {
     composer.smallObjects->release(fontResources);
 
     for (auto& frame : frames) {
-        if (frame.cells != nullptr) {
-            vkUnmapMemory(device, frame.cellMemory);
-        }
-        if (frame.cellBuffer != VK_NULL_HANDLE) {
-            vkDestroyBuffer(device, frame.cellBuffer, nullptr);
-        }
-        if (frame.cellMemory != VK_NULL_HANDLE) {
-            vkFreeMemory(device, frame.cellMemory, nullptr);
-        }
-        if (frame.fontUploads != nullptr) {
-            vkUnmapMemory(device, frame.fontUploadMemory);
-        }
-        if (frame.fontUploadBuffer != VK_NULL_HANDLE) {
-            vkDestroyBuffer(device, frame.fontUploadBuffer, nullptr);
-        }
-        if (frame.fontUploadMemory != VK_NULL_HANDLE) {
-            vkFreeMemory(device, frame.fontUploadMemory, nullptr);
-        }
+        releaseBuffer(frame.cellBuffer, frame.cellMemory, frame.cells);
+        releaseBuffer(frame.fontUploadBuffer, frame.fontUploadMemory, frame.fontUploads);
         if (frame.imageAvailable != VK_NULL_HANDLE) {
             vkDestroySemaphore(device, frame.imageAvailable, nullptr);
         }
@@ -1303,6 +1330,67 @@ void RendererImpl::collectRetiredSwapchains(bool force) {
     }
 }
 
+RendererImpl::PresentTarget RendererImpl::selectPresentTarget(const VkSurfaceCapabilitiesKHR& capabilities, const std::vector<VkSurfaceFormatKHR>& formats) const {
+    PresentTarget target;
+    const VkImageUsageFlags directUsage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    if ((capabilities.supportedUsageFlags & directUsage) == directUsage) {
+        for (const GeneratedRenderShader& candidate : generatedRenderShaders) {
+            if ((candidate.flags & renderShaderMutableFormat) && !mutableSwapchainFormats) {
+                continue;
+            }
+            if ((candidate.flags & renderShaderExtendedStorage) && !extendedStorageFormats) {
+                continue;
+            }
+            if (!formatSupports(physicalDevice, candidate.storageViewFormat, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT)) {
+                continue;
+            }
+            for (const VkSurfaceFormatKHR& format : formats) {
+                if (format.format == candidate.presentFormat && format.colorSpace == candidate.colorSpace) {
+                    target.format = format;
+                    target.shader = &candidate;
+                    break;
+                }
+            }
+            if (target.shader != nullptr) {
+                break;
+            }
+        }
+    }
+
+    target.direct = target.shader != nullptr;
+    if (!target.direct) {
+        if (!(capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT)) {
+            throw std::runtime_error("Vulkan surface supports neither storage output nor transfer destination");
+        }
+        const VkFormat preferredFormats[] = {
+            VK_FORMAT_B8G8R8A8_UNORM,
+            VK_FORMAT_R8G8B8A8_UNORM,
+            VK_FORMAT_B8G8R8A8_SRGB,
+            VK_FORMAT_R8G8B8A8_SRGB,
+        };
+        for (const auto preferred : preferredFormats) {
+            const auto found = std::find_if(formats.begin(), formats.end(), [this, preferred](const VkSurfaceFormatKHR& format) {
+                // The shader produces sRGB-encoded bytes; other color
+                // spaces would need a conversion the blit path lacks.
+                return format.format == preferred && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR && formatSupports(physicalDevice, format.format, VK_FORMAT_FEATURE_BLIT_DST_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT);
+            });
+            if (found != formats.end()) {
+                target.format = *found;
+                break;
+            }
+        }
+        if (target.format.format == VK_FORMAT_UNDEFINED) {
+            throw std::runtime_error("Vulkan surface has no usable direct or blit format");
+        }
+        target.shader = &fallbackRenderShader;
+    }
+
+    if (target.direct && target.format.format != target.shader->storageViewFormat && !(target.shader->flags & renderShaderMutableFormat)) {
+        throw std::runtime_error("Generated render shader requires an undeclared mutable format");
+    }
+    return target;
+}
+
 void RendererImpl::createSwapchain(u32 width, u32 height) {
     if (width == 0 || height == 0) {
         return;
@@ -1322,64 +1410,10 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     std::vector<VkSurfaceFormatKHR> formats(formatCount);
     checkVk(vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, formats.data()), "vkGetPhysicalDeviceSurfaceFormatsKHR");
 
-    VkSurfaceFormatKHR surfaceFormat{};
-    const GeneratedRenderShader* renderShader = nullptr;
-    const VkImageUsageFlags directUsage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    if ((capabilities.supportedUsageFlags & directUsage) == directUsage) {
-        for (const GeneratedRenderShader& candidate : generatedRenderShaders) {
-            if ((candidate.flags & renderShaderMutableFormat) && !mutableSwapchainFormats) {
-                continue;
-            }
-            if ((candidate.flags & renderShaderExtendedStorage) && !extendedStorageFormats) {
-                continue;
-            }
-            if (!formatSupports(physicalDevice, candidate.storageViewFormat, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT)) {
-                continue;
-            }
-            for (const VkSurfaceFormatKHR& format : formats) {
-                if (format.format == candidate.presentFormat && format.colorSpace == candidate.colorSpace) {
-                    surfaceFormat = format;
-                    renderShader = &candidate;
-                    break;
-                }
-            }
-            if (renderShader != nullptr) {
-                break;
-            }
-        }
-    }
-
-    const bool direct = renderShader != nullptr;
-    if (!direct) {
-        if (!(capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT)) {
-            throw std::runtime_error("Vulkan surface supports neither storage output nor transfer destination");
-        }
-        const VkFormat preferredFormats[] = {
-            VK_FORMAT_B8G8R8A8_UNORM,
-            VK_FORMAT_R8G8B8A8_UNORM,
-            VK_FORMAT_B8G8R8A8_SRGB,
-            VK_FORMAT_R8G8B8A8_SRGB,
-        };
-        for (const auto preferred : preferredFormats) {
-            const auto found = std::find_if(formats.begin(), formats.end(), [this, preferred](const VkSurfaceFormatKHR& format) {
-                // The shader produces sRGB-encoded bytes; other color
-                // spaces would need a conversion the blit path lacks.
-                return format.format == preferred && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR && formatSupports(physicalDevice, format.format, VK_FORMAT_FEATURE_BLIT_DST_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT);
-            });
-            if (found != formats.end()) {
-                surfaceFormat = *found;
-                break;
-            }
-        }
-        if (surfaceFormat.format == VK_FORMAT_UNDEFINED) {
-            throw std::runtime_error("Vulkan surface has no usable direct or blit format");
-        }
-        renderShader = &fallbackRenderShader;
-    }
-
-    if (direct && surfaceFormat.format != renderShader->storageViewFormat && !(renderShader->flags & renderShaderMutableFormat)) {
-        throw std::runtime_error("Generated render shader requires an undeclared mutable format");
-    }
+    const PresentTarget target = selectPresentTarget(capabilities, formats);
+    const VkSurfaceFormatKHR surfaceFormat = target.format;
+    const GeneratedRenderShader* const renderShader = target.shader;
+    const bool direct = target.direct;
 
     u32 presentModeCount = 0;
     checkVk(vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, nullptr), "vkGetPhysicalDeviceSurfacePresentModesKHR");
@@ -1411,7 +1445,7 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     createInfo.imageColorSpace = surfaceFormat.colorSpace;
     createInfo.imageExtent = extent;
     createInfo.imageArrayLayers = 1;
-    createInfo.imageUsage = direct ? directUsage : VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    createInfo.imageUsage = direct ? (VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT) : VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     createInfo.preTransform = capabilities.currentTransform;
     createInfo.compositeAlpha = selectCompositeAlpha(capabilities.supportedCompositeAlpha);
@@ -1503,22 +1537,27 @@ bool RendererImpl::tryCreateSwapchain(u32 width, u32 height) {
     }
 }
 
+void RendererImpl::releaseBuffer(VkBuffer& buffer, VkDeviceMemory& memory, void*& mapped) {
+    if (mapped != nullptr) {
+        vkUnmapMemory(device, memory);
+        mapped = nullptr;
+    }
+    if (buffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device, buffer, nullptr);
+        buffer = VK_NULL_HANDLE;
+    }
+    if (memory != VK_NULL_HANDLE) {
+        vkFreeMemory(device, memory, nullptr);
+        memory = VK_NULL_HANDLE;
+    }
+}
+
 void RendererImpl::ensureCellBuffer(FrameResources& frame, size_t bytes) {
     if (frame.cellCapacity >= bytes) {
         return;
     }
 
-    if (frame.cells != nullptr) {
-        vkUnmapMemory(device, frame.cellMemory);
-        frame.cells = nullptr;
-    }
-    if (frame.cellBuffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(device, frame.cellBuffer, nullptr);
-    }
-    if (frame.cellMemory != VK_NULL_HANDLE) {
-        vkFreeMemory(device, frame.cellMemory, nullptr);
-    }
-
+    releaseBuffer(frame.cellBuffer, frame.cellMemory, frame.cells);
     createBuffer(bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, frame.cellBuffer, frame.cellMemory);
     checkVk(vkMapMemory(device, frame.cellMemory, 0, bytes, 0, &frame.cells), "vkMapMemory");
     frame.cellCapacity = bytes;
@@ -1529,17 +1568,8 @@ void RendererImpl::ensureFontUploadBuffer(FrameResources& frame, size_t bytes) {
     if (frame.fontUploadCapacity >= bytes) {
         return;
     }
-    if (frame.fontUploads != nullptr) {
-        vkUnmapMemory(device, frame.fontUploadMemory);
-        frame.fontUploads = nullptr;
-    }
-    if (frame.fontUploadBuffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(device, frame.fontUploadBuffer, nullptr);
-    }
-    if (frame.fontUploadMemory != VK_NULL_HANDLE) {
-        vkFreeMemory(device, frame.fontUploadMemory, nullptr);
-    }
 
+    releaseBuffer(frame.fontUploadBuffer, frame.fontUploadMemory, frame.fontUploads);
     createBuffer(bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, frame.fontUploadBuffer, frame.fontUploadMemory);
     checkVk(vkMapMemory(device, frame.fontUploadMemory, 0, bytes, 0, &frame.fontUploads), "vkMapMemory");
     frame.fontUploadCapacity = bytes;
@@ -1834,40 +1864,20 @@ void RendererImpl::recordImageUploads(VkCommandBuffer commandBuffer, VkBuffer st
         return;
     }
 
-    VkImageMemoryBarrier toTransfer{};
-    toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    toTransfer.srcAccessMask = initialize ? 0 : VK_ACCESS_SHADER_READ_BIT;
-    toTransfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    toTransfer.oldLayout = initialize ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    toTransfer.image = image.image;
-    toTransfer.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    toTransfer.subresourceRange.levelCount = 1;
-    toTransfer.subresourceRange.layerCount = image.layers;
-    vkCmdPipelineBarrier(commandBuffer, initialize ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT : VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &toTransfer);
+    imageBarrier(commandBuffer, image.image, image.layers, initialize ? 0 : VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, initialize ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, initialize ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT : VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
     if (initialize) {
         const VkClearColorValue clear{};
-        vkCmdClearColorImage(commandBuffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &toTransfer.subresourceRange);
+        const VkImageSubresourceRange range = imageRange(image.layers);
+        vkCmdClearColorImage(commandBuffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
     }
     if (!copies.empty()) {
         if (initialize) {
-            VkImageMemoryBarrier clearForCopies = toTransfer;
-            clearForCopies.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            clearForCopies.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            clearForCopies.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-            vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &clearForCopies);
+            imageBarrier(commandBuffer, image.image, image.layers, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
         }
         vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, copies.length(), copies.data());
     }
 
-    VkImageMemoryBarrier toShader = toTransfer;
-    toShader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    toShader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    toShader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    toShader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &toShader);
+    imageBarrier(commandBuffer, image.image, image.layers, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 }
 
 void RendererImpl::recordFontUploads(FrameResources& frame) {
@@ -1877,15 +1887,7 @@ void RendererImpl::recordFontUploads(FrameResources& frame) {
     }
 
     if (!fontUploadData.empty()) {
-        VkBufferMemoryBarrier stagingForTransfer{};
-        stagingForTransfer.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-        stagingForTransfer.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
-        stagingForTransfer.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        stagingForTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        stagingForTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        stagingForTransfer.buffer = frame.fontUploadBuffer;
-        stagingForTransfer.size = fontUploadData.used();
-        vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &stagingForTransfer, 0, nullptr);
+        bufferBarrier(frame.commandBuffer, frame.fontUploadBuffer, fontUploadData.used(), VK_ACCESS_HOST_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
     }
 
     recordImageUploads(frame.commandBuffer, frame.fontUploadBuffer, fontResources->atlas, atlasCopies, !atlasInitialized);
@@ -2063,24 +2065,12 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
     const bool initialized = chain->direct ? chain->initialized[imageIndex] : chain->outputInitialized;
     updateOutputDescriptor(frame, outputView);
 
-    VkImageSubresourceRange outputRange{};
-    outputRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    outputRange.levelCount = 1;
-    outputRange.layerCount = 1;
-    VkImageMemoryBarrier outputForCompute{};
-    outputForCompute.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    outputForCompute.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    outputForCompute.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    outputForCompute.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    outputForCompute.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    outputForCompute.image = output;
-    outputForCompute.subresourceRange = outputRange;
+    // Between frames the blit-path output image rests in GENERAL, a
+    // direct-path swapchain image in PRESENT_SRC.
+    const VkImageLayout restingLayout = chain->direct ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_GENERAL;
+    const VkAccessFlags restingAccess = chain->direct ? VK_ACCESS_MEMORY_READ_BIT : VK_ACCESS_TRANSFER_READ_BIT;
     if (clearOutput) {
-        VkImageMemoryBarrier outputForClear = outputForCompute;
-        outputForClear.srcAccessMask = initialized ? (chain->direct ? VK_ACCESS_MEMORY_READ_BIT : VK_ACCESS_TRANSFER_READ_BIT) : 0;
-        outputForClear.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        outputForClear.oldLayout = initialized ? (chain->direct ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_GENERAL) : VK_IMAGE_LAYOUT_UNDEFINED;
-        vkCmdPipelineBarrier(frame.commandBuffer, initialized ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &outputForClear);
+        imageBarrier(frame.commandBuffer, output, 1, initialized ? restingAccess : 0, VK_ACCESS_TRANSFER_WRITE_BIT, initialized ? restingLayout : VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, initialized ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
         VkClearColorValue clearColor{{
             clearBackground.red / 255.0f,
@@ -2088,27 +2078,16 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
             clearBackground.blue / 255.0f,
             1.0f,
         }};
+        const VkImageSubresourceRange outputRange = imageRange(1);
         vkCmdClearColorImage(frame.commandBuffer, output, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &outputRange);
 
-        outputForCompute.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        outputForCompute.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &outputForCompute);
+        imageBarrier(frame.commandBuffer, output, 1, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
     } else {
-        outputForCompute.srcAccessMask = chain->direct ? VK_ACCESS_MEMORY_READ_BIT : VK_ACCESS_TRANSFER_READ_BIT;
-        outputForCompute.oldLayout = chain->direct ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_GENERAL;
-        vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &outputForCompute);
+        imageBarrier(frame.commandBuffer, output, 1, restingAccess, VK_ACCESS_SHADER_WRITE_BIT, restingLayout, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
     }
 
     if (updateCount != 0) {
-        VkBufferMemoryBarrier cellsForCompute{};
-        cellsForCompute.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-        cellsForCompute.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
-        cellsForCompute.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        cellsForCompute.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        cellsForCompute.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        cellsForCompute.buffer = frame.cellBuffer;
-        cellsForCompute.size = (size_t)(updateCount) * sizeof(GpuCellUpdate);
-        vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &cellsForCompute, 0, nullptr);
+        bufferBarrier(frame.commandBuffer, frame.cellBuffer, (size_t)(updateCount) * sizeof(GpuCellUpdate), VK_ACCESS_HOST_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
         const PushConstants pushConstants{
             composer.glyphWidth,
@@ -2147,86 +2126,20 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
     }
 
     if (chain->direct) {
-        VkImageMemoryBarrier outputForPresent = outputForCompute;
-        outputForPresent.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
-        outputForPresent.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-        outputForPresent.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        outputForPresent.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-        vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &outputForPresent);
+        imageBarrier(frame.commandBuffer, output, 1, VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
         checkVk(vkEndCommandBuffer(frame.commandBuffer), "vkEndCommandBuffer");
         return;
     }
 
-    VkImageMemoryBarrier outputForBlit = outputForCompute;
-    outputForBlit.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    outputForBlit.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &outputForBlit);
-
-    VkImageMemoryBarrier swapchainForBlit{};
-    swapchainForBlit.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    swapchainForBlit.srcAccessMask = chain->initialized[imageIndex] ? VK_ACCESS_MEMORY_READ_BIT : 0;
-    swapchainForBlit.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    swapchainForBlit.oldLayout = chain->initialized[imageIndex] ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_UNDEFINED;
-    swapchainForBlit.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    swapchainForBlit.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    swapchainForBlit.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    swapchainForBlit.image = chain->images[imageIndex];
-    swapchainForBlit.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    swapchainForBlit.subresourceRange.levelCount = 1;
-    swapchainForBlit.subresourceRange.layerCount = 1;
-    vkCmdPipelineBarrier(frame.commandBuffer, chain->initialized[imageIndex] ? VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &swapchainForBlit);
-
-    VkImageBlit blit{};
-    blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    blit.srcSubresource.layerCount = 1;
-    blit.srcOffsets[1] = {(i32)(renderExtent.width), (i32)(renderExtent.height), 1};
-    blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    blit.dstSubresource.layerCount = 1;
-    blit.dstOffsets[1] = {(i32)(chain->extent.width), (i32)(chain->extent.height), 1};
-    vkCmdBlitImage(frame.commandBuffer, output, VK_IMAGE_LAYOUT_GENERAL, chain->images[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
-
-    VkImageMemoryBarrier swapchainForPresent = swapchainForBlit;
-    swapchainForPresent.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    swapchainForPresent.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-    swapchainForPresent.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    swapchainForPresent.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &swapchainForPresent);
+    recordBlit(frame, imageIndex, VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
     checkVk(vkEndCommandBuffer(frame.commandBuffer), "vkEndCommandBuffer");
 }
 
-void RendererImpl::recordRepaintCommands(FrameResources& frame, u32 imageIndex) {
-    VkCommandBufferBeginInfo beginInfo{};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    checkVk(vkBeginCommandBuffer(frame.commandBuffer, &beginInfo), "vkBeginCommandBuffer");
+void RendererImpl::recordBlit(FrameResources& frame, u32 imageIndex, VkAccessFlags outputSrcAccess, VkPipelineStageFlags outputSrcStage) {
+    imageBarrier(frame.commandBuffer, chain->output.image, 1, outputSrcAccess, VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, outputSrcStage, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
-    VkImageMemoryBarrier outputForBlit{};
-    outputForBlit.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    outputForBlit.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT;
-    outputForBlit.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    outputForBlit.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-    outputForBlit.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    outputForBlit.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    outputForBlit.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    outputForBlit.image = chain->output.image;
-    outputForBlit.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    outputForBlit.subresourceRange.levelCount = 1;
-    outputForBlit.subresourceRange.layerCount = 1;
-    vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &outputForBlit);
-
-    VkImageMemoryBarrier swapchainForBlit{};
-    swapchainForBlit.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    swapchainForBlit.srcAccessMask = chain->initialized[imageIndex] ? VK_ACCESS_MEMORY_READ_BIT : 0;
-    swapchainForBlit.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    swapchainForBlit.oldLayout = chain->initialized[imageIndex] ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_UNDEFINED;
-    swapchainForBlit.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    swapchainForBlit.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    swapchainForBlit.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    swapchainForBlit.image = chain->images[imageIndex];
-    swapchainForBlit.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    swapchainForBlit.subresourceRange.levelCount = 1;
-    swapchainForBlit.subresourceRange.layerCount = 1;
-    vkCmdPipelineBarrier(frame.commandBuffer, chain->initialized[imageIndex] ? VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &swapchainForBlit);
+    const bool initialized = chain->initialized[imageIndex];
+    imageBarrier(frame.commandBuffer, chain->images[imageIndex], 1, initialized ? VK_ACCESS_MEMORY_READ_BIT : 0, VK_ACCESS_TRANSFER_WRITE_BIT, initialized ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, initialized ? VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
     VkImageBlit blit{};
     blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -2237,12 +2150,15 @@ void RendererImpl::recordRepaintCommands(FrameResources& frame, u32 imageIndex) 
     blit.dstOffsets[1] = {(i32)(chain->extent.width), (i32)(chain->extent.height), 1};
     vkCmdBlitImage(frame.commandBuffer, chain->output.image, VK_IMAGE_LAYOUT_GENERAL, chain->images[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
 
-    VkImageMemoryBarrier swapchainForPresent = swapchainForBlit;
-    swapchainForPresent.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    swapchainForPresent.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-    swapchainForPresent.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    swapchainForPresent.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &swapchainForPresent);
+    imageBarrier(frame.commandBuffer, chain->images[imageIndex], 1, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+}
+
+void RendererImpl::recordRepaintCommands(FrameResources& frame, u32 imageIndex) {
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    checkVk(vkBeginCommandBuffer(frame.commandBuffer, &beginInfo), "vkBeginCommandBuffer");
+    recordBlit(frame, imageIndex, VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
     checkVk(vkEndCommandBuffer(frame.commandBuffer), "vkEndCommandBuffer");
 }
 
@@ -2483,11 +2399,11 @@ bool RendererImpl::present(const TerminalUpdate& update) {
             // drag must not repaint the whole grid every frame.
             const auto damageSelectionRows = [&](const Rect& selection) {
                 const i32 firstRow = std::max(selection.tl.y, 0);
-                const i32 lastRow = std::min<i32>(selection.br.y, (i32)(cellRows) - 1);
+                const i32 lastRow = std::min<i32>(selection.br.y, (i32)(cellRows)-1);
                 if (firstRow > lastRow) {
                     return;
                 }
-                appendDamage((u32)(firstRow) * cellColumns, (u32)(lastRow - firstRow + 1) * cellColumns);
+                appendDamage((u32)(firstRow)*cellColumns, (u32)(lastRow - firstRow + 1) * cellColumns);
             };
             damageSelectionRows(previousSelection);
             damageSelectionRows(update.snappedSelection);
