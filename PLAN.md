@@ -149,7 +149,11 @@ keys.~~
   add/clear/forward/reverse tab stops, implicit URL detection через soft wrap,
   scrollback и viewport-relative interval. Тест ёмкости использует фактический
   power-of-two history budget Shitty вместо Windows-специфичных 100 строк;~~
-- большая параметрическая Reflow suite;
+- ~~большая параметрическая Reflow suite — все 15 cases / 42 buffer states
+  перенесены с поклеточной проверкой text, wide continuations, wrap и cursor
+  после каждого resize. 34 состояния совпадают дословно; восемь
+  Windows-specific fixed-buffer/cursor-wrap результатов адаптированы к
+  cursor-anchored screen и pending-wrap политике Shitty/Alacritty/Ghostty;~~
 - `ScreenBufferTests` — 113, но часть из них привязана к Win32 console model.
 
 ### WezTerm

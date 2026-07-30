@@ -87,6 +87,25 @@ preserves every upstream transition: output does not snap a scrolled viewport,
 the viewport follows its rows until they are overwritten, and finally remains
 pinned to the oldest retained row.
 
+`../test_windows_terminal_reflow.py` translates the complete parameterized
+`src/buffer/out/ut_textbuffer/ReflowTests.cpp`, copied as
+`upstream/ReflowTests.cpp` at the same revision: 15 cases and 42 buffer states.
+The Python adapter parses the authoritative table, constructs each initial
+screen, performs every resize in sequence, and compares every cell, wide-cell
+continuation, forced-wrap marker, and cursor coordinate. A test-only
+`SET_WRAPPED` hook is necessary because the upstream fixture directly creates
+synthetic padded rows whose wrap metadata cannot always be produced by a VT
+stream. Resize itself uses the normal product path.
+
+Thirty-four states use the upstream result verbatim. Eight expected states are
+adapted where Windows' fixed-height `TextBuffer::Reflow` deliberately circles
+the completed buffer or applies its documented `REFLOW_JANK_CURSOR_WRAP`.
+Shitty keeps the cursor-anchored viewport rather than discarding its beginning.
+When a cursor maps exactly one cell beyond the new right edge, Shitty retains
+it as pending wrap in the last cell, matching Alacritty and Ghostty, instead of
+creating a forced blank continuation row. The adapted states still compare the
+complete resulting grid and explicitly verify pending wrap.
+
 The 25 methods in `src/terminal/parser/ut_parser/InputEngineTest.cpp` test the
 opposite, Windows-only boundary: decoding a VT input byte stream into Win32
 `INPUT_RECORD`, cursor API calls, and `CSI _` Win32 input records. Shitty is a

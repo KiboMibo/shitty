@@ -973,6 +973,7 @@ namespace {
         bool ansiMode(u32 mode) const override;
         bool privateMode(u32 mode) const override;
         bool tabStop(u16 column) const override;
+        void setWrapped(u16 row) override;
         VtermTestCell cell(u16 row, u16 column) const override;
         VtermTestCell logicalCell(i32 row, u16 column) const override;
         void key(InputKey key, VtModifier modifiers) override;
@@ -2152,6 +2153,13 @@ bool TestApiImpl::tabStop(u16 column) const {
         return column % 8 == 0;
     }
     return std::find(vterm->tabStops.begin(), vterm->tabStops.end(), column) != vterm->tabStops.end();
+}
+
+void TestApiImpl::setWrapped(u16 row) {
+    const ScreenInfo info = vterm->cf->info();
+    if (row < info.rows && info.columns != 0) {
+        vterm->cf->setWrapped(row, info.columns - 1);
+    }
 }
 
 VtermTestCell TestApiImpl::cell(u16 row, u16 column) const {

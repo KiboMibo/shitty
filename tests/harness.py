@@ -894,6 +894,9 @@ class Shitty:
             raise RuntimeError("invalid tab stops response")
         return tuple(value == "1" for value in response[1])
 
+    def set_wrapped(self, row):
+        self.command(f"SET_WRAPPED {row}")
+
     def scrollback_state(self):
         self.stream.write(b"SCROLLBACK_STATE\n")
         response = self._readline().split()

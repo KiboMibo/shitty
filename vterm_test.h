@@ -36,6 +36,7 @@ struct TestApi {
     virtual bool ansiMode(u32 mode) const = 0;
     virtual bool privateMode(u32 mode) const = 0;
     virtual bool tabStop(u16 column) const = 0;
+    virtual void setWrapped(u16 row) = 0;
     virtual VtermTestCell cell(u16 row, u16 column) const = 0;
     virtual VtermTestCell logicalCell(i32 row, u16 column) const = 0;
     virtual void key(plt::InputKey key, VtModifier modifiers) = 0;
