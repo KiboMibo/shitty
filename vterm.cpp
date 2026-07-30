@@ -3302,6 +3302,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
     // A leading joiner has nothing to join.  Ghostty, Kitty and Foot discard
     // it; keeping it as a width-one cell also advances the cursor incorrectly.
     if (graphemeBoundary && w == 0 && pt == 0x200d) {
+        inputGraphemeBreaker.reset();
         return;
     }
 
@@ -3708,6 +3709,12 @@ int VtermImpl::placeUtf8Run(const u8* input, int size) {
         widths[batchCount++] = width;
         batchWide |= width == 2;
         consumed += length;
+        // With DECAWM disabled a wide glyph at the right edge is discarded
+        // and resets grapheme state.  Apply that transition before looking
+        // at the following codepoint instead of speculating across it.
+        if (width == 2 && !autoWrapMode) {
+            flush();
+        }
     }
     flush();
     return consumed;

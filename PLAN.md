@@ -278,6 +278,21 @@ artifact не перенесён: ECMA EL независимо уважает IS
 историческое xterm-исключение, где DECSEL также уважает ISO protection,
 остаётся backward-compatibility divergence, а не oracle.~~
 
+~~Блок `Terminal.zig:13021-13371` учтён. Оба TBC cases, три REP cases и
+bulk-print cursor/wrap/scroll/pending-wrap behavior перенесены в Python.
+Differential printSlice oracle сохранён полностью: 1700 операций на четырёх
+геометриях сравнивают scalar codepoint feeds со случайно сгруппированными
+chunks после каждой операции; для этого test API получил общий
+`WRITE_CHUNKS`, который подаёт несколько PTY buffers до единственной
+presentation point. Тест нашёл и исправил две зависимости результата от
+границы input buffer: при выключенном DECAWM bulk UTF-8 спекулятивно проходил
+через discarded wide glyph до reset grapheme state, а последовательность
+ведущих ZWJ отбрасывалась только при раздельной подаче. Прямые C0/DEL внутри
+внутреннего Ghostty `printSlice` не являются операцией terminal protocol и
+проверяются parser/control suites; graphical alphabet сохраняет все доступные
+width/grapheme classes. `printAttributes` уже покрыт более сильными DECRQSS
+SGR tests с replay результата.~~
+
 Не взяты также 94 initial fuzz seeds, но они имеют низкую ценность рядом с полным cmin.
 
 ### Kitty

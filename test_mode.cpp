@@ -449,6 +449,7 @@ namespace {
         TestTerminal(Vterm& terminal, TestApi& testApi, TestPty& pty, TestDisplay& display);
 
         void feedPtyOutput(const u8* data, size_t size);
+        void feedPtyOutput(const std::vector<std::string>& chunks);
         void update();
         void redraw();
         void resize(u16 width, u16 height);
@@ -988,6 +989,16 @@ void TestTerminal::feedPtyOutput(const u8* data, size_t size) {
     display.lastUpdateSpans = 0;
     display.lastUpdateRows.clear();
     terminal.feedPty(StringView(data, size));
+    update();
+}
+
+void TestTerminal::feedPtyOutput(const std::vector<std::string>& chunks) {
+    display.lastUpdateCells = 0;
+    display.lastUpdateSpans = 0;
+    display.lastUpdateRows.clear();
+    for (const std::string& chunk : chunks) {
+        terminal.feedPty(StringView((const u8*)(chunk.data()), chunk.size()));
+    }
     update();
 }
 
@@ -1546,6 +1557,18 @@ int runTestMode(Composer& composer, TestInput& input, int controlFd, int argc, c
             if (line.compare(0, 6, "WRITE ") == 0) {
                 const std::string input = decodeHex(line.substr(6));
                 terminal.feedPtyOutput((const u8*)input.data(), input.size());
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 13, "WRITE_CHUNKS ") == 0) {
+                std::istringstream args(line.substr(13));
+                std::vector<std::string> chunks;
+                std::string encoded;
+                while (args >> encoded) {
+                    chunks.push_back(decodeHex(encoded));
+                }
+                if (chunks.empty()) {
+                    throw std::runtime_error("empty PTY chunk list");
+                }
+                terminal.feedPtyOutput(chunks);
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 15, "MEASURE_WIDTHS ") == 0) {
                 std::istringstream args(line.substr(15));

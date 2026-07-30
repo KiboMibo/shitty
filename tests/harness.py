@@ -383,6 +383,13 @@ class Shitty:
         for chunk in chunks:
             self.write(chunk)
 
+    def feed_chunks(self, *chunks):
+        if not chunks or any(not chunk for chunk in chunks):
+            raise ValueError("PTY chunks must be non-empty")
+        self.command(
+            "WRITE_CHUNKS " + " ".join(chunk.hex() for chunk in chunks)
+        )
+
     def page_up(self):
         self.command("PAGE_UP")
 
