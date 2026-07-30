@@ -386,7 +386,13 @@ query/resize request, title query/update/restore и version query; оригин�
 
 - Screen — 343;
 - Terminal — 119;
-- InputGenerator — 122;
+- ~~InputGenerator — all 122 cases accounted: the 59 terminal-observable
+  keyboard cases are rewritten against the real `plt::InputSink` path;
+  `InputBinding`, focus, wheel, and reset assertions are mapped to native and
+  Python tests. The two Contour container/table ABI cases, three internal-only
+  wheel policies, and 50 private ConPTY DECSET 9001 cases are explicitly
+  inapplicable; Shitty has no ConPTY frontend and continues to report 9001
+  unsupported.~~
 - TextSizing — 59;
 - Grid — 32;
 - ShellIntegration — 31;

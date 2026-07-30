@@ -30,7 +30,8 @@ enum class VtModifier : u8 {
     alt = 4,
     shift_alt = 5,
     control_alt = 6,
-    shift_control_alt = 7
+    shift_control_alt = 7,
+    super = 8
 };
 
 constexpr VtModifier operator|(VtModifier lhs, VtModifier rhs) {

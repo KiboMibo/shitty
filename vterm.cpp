@@ -346,6 +346,7 @@ namespace {
         int writePty(const char* cstr, bool userInput = false);
         int writePty(const char* data, size_t size, bool userInput);
         int writePty(const u8* ucstr, size_t len, bool userInput = false);
+        bool modifyOtherKeyEncoded(u8 ch, VtModifier modifiers) const;
         void writeProtocolResponse(StringView prefix, StringView payload, StringView suffix = {});
         int writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType event);
         int writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event);
@@ -1084,8 +1085,8 @@ VtModifier VtermInput::legacyModifiers(u16 modifiers) const {
     if (modifiers & InputAlt) {
         result = result | VtModifier::alt;
     }
-    if ((modifiers & InputSuper) && terminal->eightBitInput) {
-        result = result | VtModifier::alt;
+    if (modifiers & InputSuper) {
+        result = result | VtModifier::super;
     }
     return result;
 }
@@ -1528,12 +1529,13 @@ bool VtermInput::key(const KeyInput& input) {
         }
         const u32 primaryKey = input.layoutCodepoint != 0 ? input.layoutCodepoint : input.baseCodepoint;
         const u16 textMods = kittyMods & ~(64 | 128);
-        if (primaryKey && ((textMods & (2 | 4 | 8)) || (kittyFlags & 0x08))) {
+        const bool reportEvent = (kittyFlags & 0x02) && event != VtermKeyEventType::Press;
+        if (primaryKey && ((textMods & (2 | 4 | 8)) || (kittyFlags & 0x08) || reportEvent)) {
             if (pressed && !(textMods & (2 | 4 | 8))) {
-                pendingTextKey = {true, primaryKey, input.baseCodepoint, textMods, event};
+                pendingTextKey = {true, primaryKey, input.baseCodepoint, kittyMods, event};
                 return true;
             }
-            terminal->writeKittyKey(primaryKey, 0, input.baseCodepoint, textMods, event);
+            terminal->writeKittyKey(primaryKey, 0, input.baseCodepoint, kittyMods, event);
             if (pressed && (((textMods & (2 | 8)) && !(textMods & 4)) || (kittyFlags & 0x08))) {
                 ++suppressedTextInputs;
             }
@@ -1543,11 +1545,45 @@ bool VtermInput::key(const KeyInput& input) {
     if (!pressed) {
         return true;
     }
+    if ((input.modifiers & InputNumLock) && input.key >= InputKey::Keypad0 && input.key <= InputKey::KeypadEqual) {
+        static const u8 keypad[] = {
+            '0',
+            '1',
+            '2',
+            '3',
+            '4',
+            '5',
+            '6',
+            '7',
+            '8',
+            '9',
+            '.',
+            '/',
+            '*',
+            '-',
+            '+',
+            '\r',
+            '=',
+        };
+        terminal->writePty(keypad[(u8)(input.key) - (u8)(InputKey::Keypad0)], modifiers, true);
+        return true;
+    }
     if (input.key == InputKey::Escape) {
         terminal->writePty((u8)('\x1b'), modifiers, true);
         return true;
     }
     if (input.key != InputKey::Unknown && input.key != InputKey::Printable && input.key != InputKey::Space) {
+        if (input.key == InputKey::Tab && (modifiers & VtModifier::shift) != VtModifier::none) {
+            if ((modifiers & VtModifier::alt) != VtModifier::none) {
+                terminal->writePty((u8)('\x1b'), VtModifier::none, true);
+            }
+            terminal->writePty(InputKey::Tab, VtModifier::shift, true);
+            return true;
+        }
+        if (input.key == InputKey::Backspace && (modifiers & VtModifier::control) != VtModifier::none) {
+            terminal->writePty((u8)(terminal->bkspSendsDel ? '\b' : '\x7f'), VtModifier::none, true);
+            return true;
+        }
         terminal->writePty(input.key, modifiers, true);
         return true;
     }
@@ -1555,6 +1591,10 @@ bool VtermInput::key(const KeyInput& input) {
         int controlKey = (int)(input.baseCodepoint);
         if (controlKey >= 'a' && controlKey <= 'z') {
             controlKey -= 'a' - 'A';
+        }
+        if (terminal->modifyOtherKeys == 2 && input.baseCodepoint < 0x80 && terminal->modifyOtherKeyEncoded((u8)(input.baseCodepoint), modifiers)) {
+            terminal->writePty((u8)(input.baseCodepoint), modifiers, true);
+            return true;
         }
         u8 character = 0;
         if (controlCharacter(controlKey, input.modifiers & InputShift, character)) {
@@ -6161,8 +6201,8 @@ namespace {
         {Key::KeypadF1, CSI "1;" MC "P"},
         {Key::F2, CSI "1;" MC "Q"},
         {Key::KeypadF2, CSI "1;" MC "Q"},
-        {Key::F3, CSI "1;" MC "R"},
-        {Key::KeypadF3, CSI "1;" MC "R"},
+        {Key::F3, CSI "13;" MC "~"},
+        {Key::KeypadF3, CSI "13;" MC "~"},
         {Key::F4, CSI "1;" MC "S"},
         {Key::KeypadF4, CSI "1;" MC "S"},
         {Key::F5, CSI "15;" MC "~"},
@@ -6397,25 +6437,10 @@ namespace {
 #undef SS3
 
     inline u8 getModifierCode(VtModifier modifiers) {
-        switch (modifiers) {
-            case VtModifier::none:
-                return 0;
-            case VtModifier::shift:
-                return 2;
-            case VtModifier::alt:
-                return 3;
-            case VtModifier::shift_alt:
-                return 4;
-            case VtModifier::control:
-                return 5;
-            case VtModifier::shift_control:
-                return 6;
-            case VtModifier::control_alt:
-                return 7;
-            case VtModifier::shift_control_alt:
-                return 8;
+        if (modifiers == VtModifier::none) {
+            return 0;
         }
-        return 0;
+        return 1 + (((modifiers & VtModifier::shift) != VtModifier::none) ? 1 : 0) + (((modifiers & VtModifier::alt) != VtModifier::none) ? 2 : 0) + (((modifiers & VtModifier::control) != VtModifier::none) ? 4 : 0) + (((modifiers & VtModifier::super) != VtModifier::none) ? 8 : 0);
     }
 
     struct KittyKeySpec {
@@ -6442,11 +6467,48 @@ namespace {
         if (modifiers & 4) {
             result = result | VtModifier::control;
         }
+        if (modifiers & 8) {
+            result = result | VtModifier::super;
+        }
         return result;
     }
 
     bool validKittyAssociatedText(u32 codepoint) {
         return codepoint >= 0x20 && !(codepoint >= 0x7f && codepoint <= 0x9f);
+    }
+
+    u32 kittyAssociatedText(InputKey key) {
+        if (key >= InputKey::Keypad0 && key <= InputKey::Keypad9) {
+            return '0' + (u32)(key) - (u32)(InputKey::Keypad0);
+        }
+        switch (key) {
+            case InputKey::Enter:
+            case InputKey::KeypadEnter:
+                return '\r';
+            case InputKey::Tab:
+            case InputKey::KeypadTab:
+                return '\t';
+            case InputKey::Backspace:
+                return '\x7f';
+            case InputKey::KeypadDecimal:
+                return '.';
+            case InputKey::KeypadDivide:
+                return '/';
+            case InputKey::KeypadMultiply:
+                return '*';
+            case InputKey::KeypadSubtract:
+                return '-';
+            case InputKey::KeypadAdd:
+                return '+';
+            case InputKey::KeypadEqual:
+                return '=';
+            case InputKey::KeypadSeparator:
+                return ',';
+            case InputKey::KeypadSpace:
+                return ' ';
+            default:
+                return 0;
+        }
     }
 
     KittyKeySpec kittyKeySpec(InputKey key) {
@@ -7431,10 +7493,14 @@ int VtermImpl::writePty(InputKey key, VtModifier modifiers_, bool userInput) {
     } else {
         char buf[32];
         int k = 0;
+        const u8 modifierCode = getModifierCode(modifiers);
         const char* end = spec.input + spec.getLength();
         for (const char* p = spec.input; p != end; ++p) {
             if (*p == *MC) {
-                buf[k++] = '0' + getModifierCode(modifiers);
+                if (modifierCode >= 10) {
+                    buf[k++] = '0' + modifierCode / 10;
+                }
+                buf[k++] = '0' + modifierCode % 10;
             } else {
                 buf[k++] = *p;
             }
@@ -7444,28 +7510,32 @@ int VtermImpl::writePty(InputKey key, VtModifier modifiers_, bool userInput) {
     }
 }
 
+bool VtermImpl::modifyOtherKeyEncoded(u8 ch, VtModifier modifiers_) const {
+    if (modifyOtherKeys == 1) {
+        return (modifiers_ & VtModifier::control) != VtModifier::none && ch > ' ';
+    }
+    if (modifyOtherKeys != 2) {
+        return false;
+    }
+
+    const char* const controlAltOnly = "!#$%&*()-+=?.,:;<>'\"";
+    for (const char* current = controlAltOnly; *current != '\0'; ++current) {
+        if (ch == (u8)(*current)) {
+            return (modifiers_ & (VtModifier::control | VtModifier::alt)) != VtModifier::none;
+        }
+    }
+    return modifiers_ != VtModifier::none;
+}
+
 int VtermImpl::writePty(u8 ch, VtModifier modifiers, bool userInput) {
     using VM = VtModifier;
 
     auto uch = &ch;
 
-    const auto& mod2_encode = [&](u8 ch) {
-        const char* exempt = "!#$%&*()-+=?.,:;<>'\"";
-        auto x = (char*)(exempt);
-
-        while (*x) {
-            if (ch == *x++) {
-                return (modifiers & VM::control_alt) != VM::none;
-            }
-        }
-
-        return modifiers != VM::none;
-    };
-
     if (eightBitInput && (modifiers & VM::alt) != VM::none) {
         ch |= 0x80;
         return writePty(&ch, 1, userInput);
-    } else if ((modifyOtherKeys == 2 && mod2_encode(ch)) || (modifyOtherKeys == 1 && (modifiers & VM::control) != VM::none && ch > ' ')) {
+    } else if (modifyOtherKeyEncoded(ch, modifiers)) {
         if (ch < ' ' && (modifiers & VM::control) != VM::none) {
             const char* ctrlmap = ((modifiers & VM::shift) != VM::none) ? "@ABCDEFGHIJKLMNOPQRSTUVWXYZ{|}^/" : " abcdefghijklmnopqrstuvwxyz[\\]^/";
             ch = ctrlmap[ch];
@@ -7516,7 +7586,9 @@ int VtermImpl::writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType even
         return 0;
     }
 
-    if (isKittyRecoveryKey(key) && !(getKittyKeyboardFlags() & 0x08)) {
+    const u8 flags = getKittyKeyboardFlags();
+    const bool reportEvent = (flags & 0x02) && event != VtermKeyEventType::Press;
+    if (isKittyRecoveryKey(key) && !(flags & 0x08) && !(modifiers & 15)) {
         if (event == VtermKeyEventType::Release) {
             return 0;
         }
@@ -7531,9 +7603,8 @@ int VtermImpl::writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType even
         return 0;
     }
 
-    const u8 flags = getKittyKeyboardFlags();
-    const bool reportEvent = (flags & 0x02) && event != VtermKeyEventType::Press;
-    const bool reportText = (flags & 0x10) && event != VtermKeyEventType::Release && !(modifiers & (4 | 8)) && isKittyRecoveryKey(key) && validKittyAssociatedText(spec.code);
+    const u32 text = kittyAssociatedText(key);
+    const bool reportText = (flags & 0x10) && event != VtermKeyEventType::Release && !(modifiers & (4 | 8)) && validKittyAssociatedText(text);
     StringBuilder sequence;
     sequence << StringView(u8"\x1b[");
     if (spec.code != 1 || spec.final == 'u' || modifiers || reportEvent || reportText) {
@@ -7548,7 +7619,7 @@ int VtermImpl::writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType even
             sequence << StringView(u8":") << (unsigned)(event);
         }
         if (reportText) {
-            sequence << StringView(u8";") << spec.code;
+            sequence << StringView(u8";") << text;
         }
     }
     sequence.append(&spec.final, 1);
