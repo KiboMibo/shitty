@@ -3307,6 +3307,14 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
 
     if (inputGraphemeScreen == cf && !graphemeBoundary) {
         const u32 previous = inputGrapheme.empty() ? inputGraphemeBase : inputGrapheme.data()[inputGrapheme.size() - 1];
+        const GraphemeWidthEffect widthEffect = graphemeWidthEffect(previous, pt);
+        if (widthEffect == GraphemeWidthEffect::Wide && !inputGraphemeWide && inputGraphemeX == lineCols - 1 && !autoWrapMode) {
+            // A cluster cannot grow into half of a wide cell.  Keep the
+            // already displayed narrow cluster and discard this width
+            // transition, as xterm.js, Alacritty and Ghostty do.
+            inputGraphemeBreaker.setBoundaryAfter(previous);
+            return;
+        }
         if (inputGrapheme.empty()) {
             inputGrapheme.pushBack(inputGraphemeBase);
         }
@@ -3316,7 +3324,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
         u16 targetX = inputGraphemeX;
         u16 targetY = inputGraphemeY;
         bool wide = inputGraphemeWide;
-        switch (graphemeWidthEffect(previous, pt)) {
+        switch (widthEffect) {
             case GraphemeWidthEffect::Wide:
                 if (!wide && lineCols - lineBegin >= 2) {
                     if (targetX == lineCols - 1) {
@@ -3381,6 +3389,14 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
         inp_CR();
         inp_LF();
         activeLine(lineBegin, lineCols);
+    }
+
+    if (w == 2 && lineCols - lineBegin >= 2 && posX == lineCols - 1) {
+        // DECAWM is disabled: there is no second cell and truncating the
+        // glyph would violate the grid's wide-cell invariant.
+        resetGraphemeInput();
+        inputGraphemeBreaker.reset();
+        return;
     }
 
     if (w == 0) {

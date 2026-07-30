@@ -34,6 +34,15 @@ def line_after(output, columns=128):
 
 
 class UnicodeCharsetMatrixTest(unittest.TestCase):
+    def test_designation_and_invocation_do_not_damage_the_screen(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b)0\x1b*0\x1b+0")
+            self.assertEqual(terminal.last_update(), (0, 0))
+            terminal.write(b"\x0e")
+            self.assertEqual(terminal.last_update(), (0, 0))
+            terminal.write(b"`")
+            self.assertEqual(terminal.snapshot().cell(0, 0).char, "◆")
+
     def test_all_g_slots_can_be_designated_and_locked_into_gl(self):
         cases = (
             (b"\x1b(0", b""),
