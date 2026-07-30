@@ -172,7 +172,14 @@ keys.~~
   Две проверки `GetWordBoundaryTrimZeros*` классифицированы как неприменимая
   Win32 host policy (`SetTrimLeadingZeros`), а не terminal protocol/selection
   consensus; punctuation и whitespace остаются отдельными selection-классами;~~
-- `ScreenBufferTests`, remaining — 76 методов; portable assertions переносить
+- ~~`ScreenBufferTests`, default/palette/backspace block — ещё 11 методов:
+  default color sources и reset SGR, reverse, BS/DCH с default attributes,
+  global и трёхзначный OSC 4 palette index, OSC 10/11 validation, VT525 DECAC.
+  Win32 `WriteCharsLegacy` сохранён как whole/chunked byte-stream invariant.
+  DECAC normal-text реализован с 256-color extension и RIS reset; window-frame
+  item семантически разбирается, но остаётся no-op как в xterm, поскольку
+  terminal window frame принадлежит host compositor;~~
+- `ScreenBufferTests`, remaining — 65 методов; portable assertions переносить
   блоками, Win32-only console buffer/virtual-bottom ABI явно
   классифицировать, не выдавая его за terminal semantics.
 

@@ -344,6 +344,10 @@ struct ParserIface {
     virtual void setLocatorButtonUp(bool enabled) = 0;
     virtual void csi_DECRQLP() = 0;
     virtual void csi_DECEFR(u32 top, u32 left, u32 bottom, u32 right) = 0;
+    virtual void csi_DECAC_TEXT(u8 foreground, u8 background) = 0;
+    virtual void csi_DECAC_TEXT_RESET() = 0;
+    virtual void csi_DECAC_FRAME(u8 foreground, u8 background) = 0;
+    virtual void csi_DECAC_FRAME_RESET() = 0;
     virtual void resetModifyKeyResources() = 0;
     virtual void setModifyKeyResource(u8 resource, u8 value, bool useDefault) = 0;
     virtual void reportModifyKeyResource(u8 resource) = 0;

@@ -143,8 +143,19 @@ contract. `GetWordBoundaryTrimZerosOn` and `GetWordBoundaryTrimZerosOff` are
 classified rather than emulated: they test the private host setting
 `SetTrimLeadingZeros`, not a terminal protocol, and conflict with the project's
 selection policy in which punctuation and whitespace remain independently
-selectable classes. The remaining 76 methods stay explicitly listed in
-`PLAN.md`.
+selectable classes.
+
+The following 11 methods cover default-color sources, SGR reset and reverse,
+backspace and delete-character attribute preservation, palette changes shared
+by both screens, three-digit OSC 4 indices, and OSC 10/11 validation. The
+Win32-only `WriteCharsLegacy` entry point is represented by equivalent whole
+and chunked terminal byte streams. This block exposed missing VT525 DECAC
+(`CSI Ps;Pf;Pb , |`). Shitty now parses its text and frame items into separate
+semantic callbacks, assigns or resets the normal-text defaults, accepts the
+256-color extension shared by Windows Terminal and Contour, and resets the
+assignment on RIS. The frame item is deliberately a no-op, matching xterm:
+Shitty does not own compositor or Cocoa window furniture. The remaining 65
+methods stay explicitly listed in `PLAN.md`.
 
 The 25 methods in `src/terminal/parser/ut_parser/InputEngineTest.cpp` test the
 opposite, Windows-only boundary: decoding a VT input byte stream into Win32

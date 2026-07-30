@@ -281,6 +281,7 @@ namespace {
         void dispatchWindowOps();
         void dispatchLocatorReporting();
         void dispatchDecsle();
+        void dispatchDecac();
         void dispatchXtmodkeys();
         void dispatchXtqmodkeys();
         void dispatchKittyKeyboardSet();
@@ -1745,6 +1746,35 @@ void ParserImpl<traced>::dispatchDecsle() {
             default:
                 break;
         }
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::dispatchDecac() {
+    if (parser.parameterCount != 1 && parser.parameterCount != 3) {
+        return;
+    }
+    if (!parser.present[0]) {
+        return;
+    }
+    const u32 item = parser.parameters[0];
+    if (parser.parameterCount == 1) {
+        if (item == 1) {
+            iface.csi_DECAC_TEXT_RESET();
+        } else if (item == 2) {
+            iface.csi_DECAC_FRAME_RESET();
+        }
+        return;
+    }
+    if (!parser.present[1] || !parser.present[2] || parser.separators[1] != ';' || parser.separators[2] != ';' || parser.parameters[1] > 255 || parser.parameters[2] > 255) {
+        return;
+    }
+    const u8 foreground = (u8)(parser.parameters[1]);
+    const u8 background = (u8)(parser.parameters[2]);
+    if (item == 1) {
+        iface.csi_DECAC_TEXT(foreground, background);
+    } else if (item == 2) {
+        iface.csi_DECAC_FRAME(foreground, background);
     }
 }
 

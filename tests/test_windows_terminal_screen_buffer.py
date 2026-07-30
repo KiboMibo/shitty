@@ -52,6 +52,17 @@ PORTED_METHODS = {
     "TestAltBufferCursorState",
     "TestAltBufferVtDispatching",
     "TestAltBufferRIS",
+    "SetDefaultsIndividuallyBothDefault",
+    "SetDefaultsTogether",
+    "ReverseResetWithDefaultBackground",
+    "BackspaceDefaultAttrs",
+    "BackspaceDefaultAttrsWriteCharsLegacy",
+    "BackspaceDefaultAttrsInPrompt",
+    "SetGlobalColorTable",
+    "SetColorTableThreeDigits",
+    "SetDefaultForegroundColor",
+    "SetDefaultBackgroundColor",
+    "AssignColorAliases",
 }
 
 CLASSIFIED_METHODS = {
@@ -735,3 +746,200 @@ class WindowsTerminalScreenBufferResizeEraseAndAltTest(unittest.TestCase):
 
             terminal.write(b"\x1b[?47h")
             self.assertEqual(terminal.snapshot().lines, [" " * 10] * 4)
+
+
+class WindowsTerminalScreenBufferDefaultColorTest(unittest.TestCase):
+    def test_set_defaults_individually_both_default(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]10;#ffff00\x1b\\"
+                b"\x1b]11;#ff00ff\x1b\\"
+                b"\x1b[mX"
+                b"\x1b[92;44mX"
+                b"\x1b[39mX"
+                b"\x1b[49mX"
+                b"\x1b[92;44mX"
+                b"\x1b[49mX"
+            )
+            cells = terminal.snapshot().cells[:6]
+            self.assertEqual(
+                [(cell.foreground, cell.background) for cell in cells],
+                [
+                    ((255, 255, 0), (255, 0, 255)),
+                    ((0, 255, 0), (0, 0, 238)),
+                    ((255, 255, 0), (0, 0, 238)),
+                    ((255, 255, 0), (255, 0, 255)),
+                    ((0, 255, 0), (0, 0, 238)),
+                    ((0, 255, 0), (255, 0, 255)),
+                ],
+            )
+            self.assertEqual(
+                [
+                    (cell.foreground_index, cell.background_index)
+                    for cell in terminal.model_snapshot().cells[:6]
+                ],
+                [(-2, -2), (10, 4), (-2, 4), (-2, -2), (10, 4), (10, -2)],
+            )
+
+    def test_set_defaults_together(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]10;#ffff00\x1b\\"
+                b"\x1b]11;#ff00ff\x1b\\"
+                b"\x1b[mX\x1b[48;5;250mX\x1b[39;49mX"
+            )
+            cells = terminal.snapshot().cells[:3]
+            self.assertEqual(
+                [(cell.foreground, cell.background) for cell in cells],
+                [
+                    ((255, 255, 0), (255, 0, 255)),
+                    ((255, 255, 0), (188, 188, 188)),
+                    ((255, 255, 0), (255, 0, 255)),
+                ],
+            )
+            self.assertEqual(
+                terminal.model_snapshot().cell(1, 0).background_index,
+                250,
+            )
+
+    def test_reverse_reset_with_default_background(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]11;#ff00ff\x1b\\"
+                b"X\x1b[7mX\x1b[27mX"
+            )
+            cells = terminal.snapshot().cells[:3]
+            self.assertEqual(
+                [cell.inverse for cell in cells],
+                [False, True, False],
+            )
+            for cell in cells:
+                self.assertEqual(cell.background, (255, 0, 255))
+
+    def test_backspace_default_attrs(self):
+        for chunked in (False, True):
+            with self.subTest(chunked=chunked), Shitty(
+                columns=5,
+                rows=2,
+            ) as terminal:
+                terminal.write(b"\x1b]11;#ff00ff\x1b\\\x1b[m")
+                if chunked:
+                    terminal.write_chunks(b"X", b"X", b"\x08")
+                else:
+                    terminal.write(b"XX\x08")
+                snapshot = terminal.snapshot()
+                self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 0))
+                for cell in snapshot.cells[:2]:
+                    self.assertEqual(cell.char, "X")
+                    self.assertEqual(cell.background, (255, 0, 255))
+                    self.assertEqual(cell.background_index, -2)
+
+    def test_backspace_default_attrs_in_prompt(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]11;#ff00ff\x1b\\"
+                b"\x1b[m\x1b[2J"
+                b"XXX\x1b[2D\x1b[P"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 0))
+            self.assertEqual(snapshot.lines[0], "XX" + " " * 8)
+            for cell in snapshot.cells:
+                self.assertEqual(cell.background, (255, 0, 255))
+                self.assertEqual(cell.background_index, -2)
+
+    def test_set_global_color_table(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b[41mX\x1b[?1049h\x1b[H\x1b[41mX")
+            self.assertEqual(
+                terminal.snapshot().cell(0, 0).background,
+                (205, 0, 0),
+            )
+            terminal.write(b"\x1b]4;1;rgb:11/22/33\x07X")
+            alternate = terminal.snapshot()
+            self.assertEqual(
+                [alternate.cell(column, 0).background for column in (0, 1)],
+                [(0x11, 0x22, 0x33)] * 2,
+            )
+
+            terminal.write(b"\x1b[?1049lX")
+            primary = terminal.snapshot()
+            self.assertEqual(
+                [primary.cell(column, 0).background for column in (0, 1)],
+                [(0x11, 0x22, 0x33)] * 2,
+            )
+
+    def test_set_color_table_three_digits(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            original = palette_color(terminal, 123)
+            terminal.write(
+                b"\x1b[48;5;123mX"
+                b"\x1b]4;123;rgb:11/22/33\x07X"
+            )
+            snapshot = terminal.snapshot()
+            self.assertNotEqual(original, (0x11, 0x22, 0x33))
+            self.assertEqual(
+                [snapshot.cell(column, 0).background for column in (0, 1)],
+                [(0x11, 0x22, 0x33)] * 2,
+            )
+
+    def test_set_default_foreground_color(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b]10;rgb:33/66/99\x1b\\X")
+            self.assertEqual(
+                terminal.snapshot().cell(0, 0).foreground,
+                (0x33, 0x66, 0x99),
+            )
+            terminal.write(b"\x1b]10;rgb:ff/ff/ff\x1b\\X")
+            self.assertEqual(
+                terminal.snapshot().cell(1, 0).foreground,
+                (255, 255, 255),
+            )
+            terminal.write(b"\x1b]10;99/66/33\x1b\\X")
+            self.assertEqual(
+                terminal.snapshot().cell(2, 0).foreground,
+                (255, 255, 255),
+            )
+
+    def test_set_default_background_color(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b]11;rgb:33/66/99\x1b\\X")
+            self.assertEqual(
+                terminal.snapshot().cell(0, 0).background,
+                (0x33, 0x66, 0x99),
+            )
+            terminal.write(b"\x1b]11;rgb:ff/ff/ff\x1b\\X")
+            self.assertEqual(
+                terminal.snapshot().cell(1, 0).background,
+                (255, 255, 255),
+            )
+            terminal.write(b"\x1b]11;99/66/33\x1b\\X")
+            self.assertEqual(
+                terminal.snapshot().cell(2, 0).background,
+                (255, 255, 255),
+            )
+
+    def test_assign_color_aliases(self):
+        with Shitty(columns=6, rows=2) as terminal:
+            foreground = palette_color(terminal, 23)
+            background = palette_color(terminal, 45)
+            terminal.write(b"A\x1b[0;12;34,|B")
+            unchanged = terminal.snapshot()
+            self.assertEqual(
+                unchanged.cell(0, 0).foreground,
+                unchanged.cell(1, 0).foreground,
+            )
+            self.assertEqual(
+                unchanged.cell(0, 0).background,
+                unchanged.cell(1, 0).background,
+            )
+
+            terminal.write(b"\x1b[1;23;45,|C")
+            assigned = terminal.snapshot().cell(2, 0)
+            self.assertEqual(assigned.foreground, foreground)
+            self.assertEqual(assigned.background, background)
+
+            terminal.write(b"\x1bcD")
+            reset = terminal.snapshot().cell(0, 0)
+            self.assertEqual(reset.foreground, (255, 255, 255))
+            self.assertEqual(reset.background, (0, 0, 0))

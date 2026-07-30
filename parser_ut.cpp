@@ -840,6 +840,22 @@ namespace {
             record("csi_DECRQLP");
         }
 
+        void csi_DECAC_TEXT(u8 foreground, u8 background) override {
+            record("csi_DECAC_TEXT", foreground, background);
+        }
+
+        void csi_DECAC_TEXT_RESET() override {
+            record("csi_DECAC_TEXT_RESET");
+        }
+
+        void csi_DECAC_FRAME(u8 foreground, u8 background) override {
+            record("csi_DECAC_FRAME", foreground, background);
+        }
+
+        void csi_DECAC_FRAME_RESET() override {
+            record("csi_DECAC_FRAME_RESET");
+        }
+
         void csi_DECEFR(u32 top, u32 left, u32 bottom, u32 right) override {
             record("csi_DECEFR", top, left, bottom, right);
         }
@@ -1949,6 +1965,47 @@ STD_TEST_SUITE(ParserCallbacks) {
         STD_INSIST(!fixture.iface.called("dcs_DECRSTS_HLS"));
         const ParserCall& call = fixture.iface.find("dcs_DECRSTS_RGB");
         expectValues(call, 2, 40, 50, 60);
+    }
+
+    STD_TEST(AssignColor) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b[1;23;45,|\x1b[2;34;56,|"));
+        expectValues(fixture.iface.find("csi_DECAC_TEXT"), 23, 45);
+        expectValues(fixture.iface.find("csi_DECAC_FRAME"), 34, 56);
+    }
+
+    STD_TEST(ResetAssignedColor) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b[1,|\x1b[2,|"));
+        fixture.iface.find("csi_DECAC_TEXT_RESET");
+        fixture.iface.find("csi_DECAC_FRAME_RESET");
+    }
+
+    STD_TEST(RejectMalformedAssignedColor) {
+        {
+            ParserFixture fixture;
+            fixture.feed(StringView(u8"\x1b[0;12;34,|"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_TEXT"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_TEXT_RESET"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_FRAME"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_FRAME_RESET"));
+        }
+        {
+            ParserFixture fixture;
+            fixture.feed(StringView(u8"\x1b[1;12,|"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_TEXT"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_TEXT_RESET"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_FRAME"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_FRAME_RESET"));
+        }
+        {
+            ParserFixture fixture;
+            fixture.feed(StringView(u8"\x1b[1;256;0,|"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_TEXT"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_TEXT_RESET"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_FRAME"));
+            STD_INSIST(!fixture.iface.called("csi_DECAC_FRAME_RESET"));
+        }
     }
 }
 

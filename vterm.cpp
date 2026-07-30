@@ -693,6 +693,10 @@ namespace {
         void setLocatorButtonUp(bool enabled) override;
         void csi_DECRQLP() override;
         void csi_DECEFR(u32 top, u32 left, u32 bottom, u32 right) override;
+        void csi_DECAC_TEXT(u8 foreground, u8 background) override;
+        void csi_DECAC_TEXT_RESET() override;
+        void csi_DECAC_FRAME(u8 foreground, u8 background) override;
+        void csi_DECAC_FRAME_RESET() override;
         void resetModifyKeyResources() override;
         void setModifyKeyResource(u8 resource, u8 value, bool useDefault) override;
         void reportModifyKeyResource(u8 resource) override;
@@ -769,6 +773,7 @@ namespace {
         u32 nextHyperlink = 1;
         u32 currentSemantic = 0;
         bool semanticUntilEndOfLine = false;
+        bool assignedDefaultColors = false;
         std::string windowTitle;
         std::string iconTitle;
         u8 titleModes = 0;
@@ -2574,6 +2579,9 @@ void VtermImpl::resetTerminal() {
     resetScreen();
     resetAttrs();
     osc_RESET_PALETTE();
+    if (assignedDefaultColors) {
+        csi_DECAC_TEXT_RESET();
+    }
 
     noClearColumnMode = false;
     switchColMode(ColMode::C80);
@@ -5589,6 +5597,34 @@ void VtermImpl::csi_DECEFR(u32 top, u32 left, u32 bottom, u32 right) {
     locator.filterBottom = bottom ? (u16)(bottom) : locator.filterTop;
     locator.filterRight = right ? (u16)(right) : locator.filterLeft;
     locator.filter = locator.enabled != 0;
+}
+
+void VtermImpl::csi_DECAC_TEXT(u8 foreground, u8 background) {
+    colors.defaultForeground = colors.palette[foreground];
+    colors.defaultBackground = colors.palette[background];
+    colors.changed();
+    defaultFgPalIx = -1;
+    defaultBgPalIx = -1;
+    assignedDefaultColors = true;
+    frame_pri->expose();
+    frame_alt->expose();
+}
+
+void VtermImpl::csi_DECAC_TEXT_RESET() {
+    colors.defaultForeground = opts.fg;
+    colors.defaultBackground = opts.bg;
+    colors.changed();
+    defaultFgPalIx = -1;
+    defaultBgPalIx = -1;
+    assignedDefaultColors = false;
+    frame_pri->expose();
+    frame_alt->expose();
+}
+
+void VtermImpl::csi_DECAC_FRAME(u8, u8) {
+}
+
+void VtermImpl::csi_DECAC_FRAME_RESET() {
 }
 
 void VtermImpl::resetModifyKeyResources() {
