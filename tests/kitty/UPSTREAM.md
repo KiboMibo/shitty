@@ -25,3 +25,13 @@ STD 070 limits DECCARA to bold, underline, blink, and inverse. Kitty, VTE,
 Contour, and Windows Terminal implement the modern full-SGR extension, while
 foot and xterm retain the DEC subset. Shitty follows the four-to-two
 implementation consensus and tests full SGR, colors, and underline styles.
+
+Kitty-specific callbacks are accounted for rather than silently copied. Its
+legacy bare OSC title fallback is not dispatched because ECMA/xterm OSC syntax
+requires a numeric selector. Arbitrary old OSC 99 metadata is rejected in
+favour of the current structured notification protocol. `@kitty-cmd`,
+`@kitty-print`, and Kitty's private DCS `=1s`/`=2s` pending-mode controls are
+parsed and ignored: remote control and remote printing are deliberately outside
+the terminal contract, and synchronized output uses DEC private mode 2026.
+Kitty's test-only XTGETTCAP value for the synthetic name `kind` is replaced by
+the normal unknown-capability reply; real declared capabilities are tested too.

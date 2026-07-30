@@ -433,6 +433,184 @@ def csi_code_rep():
                 "REP repeated HT as a graphic cell")
 
 
+def osc_codes():
+    with Shitty(columns=20, rows=5, save_lines=0) as terminal:
+        terminal.parser_trace_on()
+        payload = b"a\x1b]2;x\\ryz\x1b\\bcde"
+        require(
+            traced(terminal, payload)
+            == [
+                ("text", b"a"),
+                ("osc", b"2;x\\ryz"),
+                ("text", b"bcde"),
+            ],
+            "OSC title transaction trace differs",
+        )
+        require(logical_line(terminal.model_snapshot(), 0) == "abcde",
+                "OSC title transaction changed visible text")
+        require(
+            terminal.read_actions() == ["OSC 2 785c72797a"],
+            "OSC title action differs",
+        )
+
+        # A bare OSC has no numeric selector in ECMA/xterm syntax. Kitty
+        # treats it as the obsolete title-and-icon form; current terminals
+        # generally ignore it.
+        require(
+            traced(terminal, b"\x1b]\x07") == [("osc", b"")],
+            "empty OSC trace differs",
+        )
+        require(not terminal.read_actions(), "empty OSC was dispatched")
+        require(
+            traced(terminal, b"1\x1b]ab\x072")
+            == [
+                ("text", b"1"),
+                ("osc", b"ab"),
+                ("text", b"2"),
+            ],
+            "bare OSC transaction trace differs",
+        )
+        require(not terminal.read_actions(), "bare OSC was dispatched")
+
+        terminal.write(b"\x1b]2;;;;\x07\x1b]2;\x07")
+        require(
+            terminal.read_actions() == [
+                "OSC 2 3b3b3b",
+                "OSC 2 ",
+            ],
+            "OSC title separator handling differs",
+        )
+
+        terminal.write(
+            b"\x1b]9;\x07"
+            b"\x1b]9;test it with a nice long string\x07"
+        )
+        require(
+            terminal.read_actions() == [
+                "NOTIFY   ",
+                "NOTIFY   "
+                "7465737420697420776974682061206e696365206c6f6e6720737472696e67",
+            ],
+            "OSC 9 notification transaction differs",
+        )
+
+        # Kitty's old OSC 99 callback accepted arbitrary metadata. The
+        # standardized notification protocol rejects malformed known fields.
+        terminal.write(b"\x1b]99;moo=foo;test it\x07")
+        require(not terminal.read_actions(),
+                "malformed OSC 99 notification was accepted")
+
+        terminal.write(b"\x1b]8;;\x07")
+        terminal.write(b"\x1b]8moo\x07\x1b]8;moo\x07")
+        require(terminal.hyperlink_count() == 0,
+                "malformed OSC 8 allocated metadata")
+
+        terminal.write(b"\x1b]8;id=xyz;\x07")
+        terminal.write(
+            b"\x1b]8;moo:x=z:id=xyz:id=abc;http://yay;.com\x07"
+            b"Z\x1b]8;;\x07"
+        )
+        require(
+            terminal.hyperlink(7, 0) == "http://yay;.com",
+            "OSC 8 URI or parameter parsing differs",
+        )
+
+        large = b"1" * 1024
+        terminal.write(b"\x1b]52;p;" + large + b"\x07")
+        terminal.write(b"\x1b]52;p;xyz\x07")
+        terminal.write(b"\x1b]22;?__current__\x07")
+        require(
+            terminal.read_actions() == [
+                "OSC 52 " + (b"p;" + large).hex(),
+                "OSC 52 703b78797a",
+                "OSC 22 3f5f5f63757272656e745f5f",
+            ],
+            "OSC clipboard/dynamic-color forwarding differs",
+        )
+
+
+def dcs_codes():
+    with Shitty(columns=5, rows=5, save_lines=0) as terminal:
+        terminal.parser_trace_on()
+        require(
+            traced(terminal, b"a\x1bP+q6b696e64\x1b\\bcde")
+            == [
+                ("text", b"a"),
+                ("dcs", b"+q6b696e64"),
+                ("text", b"bcde"),
+            ],
+            "XTGETTCAP transaction trace differs",
+        )
+        require(logical_line(terminal.model_snapshot(), 0) == "abcde",
+                "DCS transaction changed visible text")
+        # Kitty's test callback injects a fake value for the name "kind".
+        # The product correctly reports the unknown capability as absent.
+        require(
+            terminal.read_input() == b"\x1bP0+r6b696e64\x1b\\",
+            "unknown XTGETTCAP reply differs",
+        )
+
+        terminal.write(b"\x1bP+q544e;436f;524742\x1b\\")
+        require(
+            terminal.read_input()
+            == b"\x1bP1+r544e=787465726d2d323536636f6c6f72\x1b\\"
+               b"\x1bP1+r436f=323536\x1b\\"
+               b"\x1bP1+r524742=38\x1b\\",
+            "known XTGETTCAP replies differ",
+        )
+
+        terminal.write(b"\x1bP$q q\x1b\\")
+        require(
+            terminal.read_input() == b"\x1bP1$r2 q\x1b\\",
+            "DECRQSS cursor-style reply differs",
+        )
+        terminal.write(b"\x1bP$qm\x1b\\")
+        require(
+            terminal.read_input() == b"\x1bP1$r0m\x1b\\",
+            "DECRQSS default SGR reply differs",
+        )
+
+        terminal.write(
+            b"\x1b[0;34;102;1;2;3;4m"
+            b"\x1bP$qm\x1b\\"
+        )
+        sgr = terminal.read_input()
+        require(
+            sgr == b"\x1bP1$r0;1;2;3;4;34;102m\x1b\\",
+            "DECRQSS indexed SGR reply differs",
+        )
+
+        terminal.write(
+            b"\x1b[0;38:5:200;58:2:10:11:12m"
+            b"\x1bP$qm\x1b\\"
+        )
+        sgr = terminal.read_input()
+        require(
+            sgr == b"\x1bP1$r0;38:5:200;58:2::10:11:12m\x1b\\",
+            "DECRQSS extended SGR reply differs",
+        )
+
+        terminal.write(b"\x1b[2;4r\x1bP$qr\x1b\\")
+        require(
+            terminal.read_input() == b"\x1bP1$r2;4r\x1b\\",
+            "DECRQSS margin reply differs",
+        )
+
+        for payload in (
+            b"\x1bP@kitty-cmd{abc\x1b\\",
+            b"\x1bP@kitty-print|YWJjZA==\x1b\\",
+            b"\x1bP=1s\x1b\\",
+            b"\x1bP=2s\x1b\\",
+        ):
+            trace = traced(terminal, payload)
+            require(trace == [("dcs", payload[2:-2])],
+                    f"proprietary DCS trace differs for {payload!r}")
+            require(not terminal.read_actions(),
+                    f"proprietary DCS was dispatched for {payload!r}")
+            require(not terminal.read_input(),
+                    f"proprietary DCS replied for {payload!r}")
+
+
 def oth_codes():
     for kind, introducer in (
         ("apc", b"_"),
@@ -462,5 +640,7 @@ CASES = {
     "esc_codes": esc_codes,
     "csi_codes": csi_codes,
     "csi_code_rep": csi_code_rep,
+    "osc_codes": osc_codes,
+    "dcs_codes": dcs_codes,
     "oth_codes": oth_codes,
 }

@@ -4,4 +4,6 @@ simple_parsing
 esc_codes
 csi_codes
 csi_code_rep
+osc_codes
+dcs_codes
 oth_codes
