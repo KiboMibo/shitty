@@ -3119,6 +3119,15 @@ void ScreenBase<Coord, Epoch>::deleteCells(u16 row, u16 start, u16 end, u16 coun
     }
     const u16 moved = end - start - count;
     RowSlot& slot = logicalRowSlot(row);
+    TerminalCell* const wrapCells = rowData(slot);
+    if (wrapCells != nullptr) {
+        // A normal wrap marks the right boundary.  Pre-wrapping a wide
+        // glyph marks the preceding cell because the last cell stays empty.
+        wrapCells[end - 1].wrap = 0;
+        if (end > 1) {
+            wrapCells[end - 2].wrap = 0;
+        }
+    }
     if (slot == nullptr || !slot->metadata.wide) {
         TerminalCell* cells = rowData(slot);
         if (moved != 0 && cells != nullptr) {

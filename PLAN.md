@@ -239,6 +239,21 @@ grapheme/hyperlink storage Ghostty являются деталями реали�
 вставленные blanks его не получают, а вытесненный payload становится
 недостижим.~~
 
+~~Блок `Terminal.zig:11840-12343` учтён. Все 17 DCH tests перенесены как
+девять product transactions: default/explicit/large count и damage,
+нормативный `CSI 0 P == CSI 1 P`, pending-wrap и soft-wrap state, BCE,
+horizontal margins, независимость от vertical margins, все локальные
+wide-boundaries, pre-wrap marker, несколько wide glyphs на границах
+удаляемого и сдвигаемого диапазонов, soft-wrapped соседние строки и glyph,
+пересекающий правую margin. Внутренний `deleteChars(0)` Ghostty через DCH
+недоступен. Старое ожидание Ghostty о сохранении pending-wrap при no-op вне
+horizontal margins не перенесено: CSI format effector снимает pending-wrap
+в xterm/Windows Terminal discipline и согласован с остальными line edits.
+Импорт нашёл product defect: DCH переносил compact soft-wrap bit вместе с
+клеткой. `Screen::deleteCells` теперь до сдвига за O(1) снимает marker с
+обычной правой boundary и с позиции wide pre-wrap; отредактированная строка
+больше не остаётся логически связанной со следующей.~~
+
 Не взяты также 94 initial fuzz seeds, но они имеют низкую ценность рядом с полным cmin.
 
 ### Kitty
