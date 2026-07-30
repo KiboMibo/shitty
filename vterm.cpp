@@ -5874,7 +5874,6 @@ void VtermImpl::osc_CLIPBOARD_WRITE(StringView decoded, bool valid, bool primary
 }
 
 void VtermImpl::osc_KITTY_TEXT_SIZING(const KittyTextSizing& sizing) {
-    constexpr size_t maximumStoredCodepoints = 16;
     textSizingScratch.reset();
     textSizingScratch.grow(sizing.text.length() * sizeof(u32));
     auto* codepoints = static_cast<u32*>(textSizingScratch.mutData());
@@ -5895,9 +5894,6 @@ void VtermImpl::osc_KITTY_TEXT_SIZING(const KittyTextSizing& sizing) {
     }
 
     if (sizing.width != 0) {
-        if (count > maximumStoredCodepoints) {
-            return;
-        }
         placeSizedText(codepoints, count, sizing, 1);
         return;
     }

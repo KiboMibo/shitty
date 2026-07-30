@@ -426,9 +426,10 @@ query/resize request, title query/update/restore и version query; оригин�
 - ~~TextSizing replacement invariants — a short block erases an intersected
   tall block whole, a block replacing a wide continuation clears its head,
   and insert mode never orphans a neighbouring tall block.~~
-- ~~TextSizing payload storage bound — explicit-width runs above Kitty's
-  16-codepoint cell limit are rejected whole; variable-width input remains
-  unbounded because it is segmented into independent grapheme blocks.~~
+- ~~TextSizing payload storage — unlike Contour's fixed 16-codepoint cell,
+  the pooled block payload preserves the protocol's complete explicit-width
+  text (up to the parser's specified 4096-byte limit); variable-width input
+  is segmented into independent grapheme blocks.~~
 - TextSizing editing/selection/render — 11 cases remain: partial rectangle
   boundary rules; visual selection expansion and drag clamping; and
   reference/GPU emission of every visible band with fractional alignment.
