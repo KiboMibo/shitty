@@ -899,11 +899,7 @@ class WindowsTerminalAdapterModesAndColorsTest(unittest.TestCase):
 
 
 class WindowsTerminalAdapterPortableProtocolTest(unittest.TestCase):
-    @staticmethod
-    def checksum(text):
-        return (-sum(ord(character) & 0xff for character in text if character != " ")) & 0xffff
-
-    def assert_checksum(self, text, setup=b""):
+    def assert_checksum(self, text, expected, setup=b""):
         encoded = text.encode("utf-8")
         with Shitty(columns=max(len(text), 1), rows=1) as terminal:
             terminal.write(
@@ -913,7 +909,7 @@ class WindowsTerminalAdapterPortableProtocolTest(unittest.TestCase):
             )
             self.assertEqual(
                 terminal.read_input(),
-                f"\x1bP99!~{self.checksum(text):04X}\x1b\\".encode(),
+                f"\x1bP99!~{expected:04X}\x1b\\".encode(),
             )
 
     def test_tabulation_stop_report(self):
@@ -1061,24 +1057,33 @@ class WindowsTerminalAdapterPortableProtocolTest(unittest.TestCase):
                     )
 
     def test_request_checksum_report(self):
-        for text in ("A", " ", "~", "ABC", "Á", "¡", "ÿ", "ÁÂÃ"):
+        for text, expected in (
+            ("A", 0xFFBF),
+            (" ", 0xFFE0),
+            ("~", 0xFF82),
+            ("ABC", 0xFF3A),
+            ("Á", 0xFFBF),
+            ("¡", 0xFFDF),
+            ("ÿ", 0xFF81),
+            ("ÁÂÃ", 0xFF3A),
+        ):
             with self.subTest(text=text):
-                self.assert_checksum(text)
+                self.assert_checksum(text, expected)
 
-        for setup in (
-            b"\x1b[1m",
-            b"\x1b[4m",
-            b"\x1b[5m",
-            b"\x1b[7m",
-            b"\x1b[8m",
-            b"\x1b[1;4;7m",
-            b"\x1b[1\"q",
-            b"\x1b[31m",
-            b"\x1b[42m",
-            b"\x1b[33;44m",
+        for setup, expected in (
+            (b"\x1b[1m", 0xFF3F),
+            (b"\x1b[4m", 0xFFAF),
+            (b"\x1b[5m", 0xFF7F),
+            (b"\x1b[7m", 0xFF9F),
+            (b"\x1b[8m", 0xFFB7),
+            (b"\x1b[1;4;7m", 0xFF0F),
+            (b"\x1b[1\"q", 0xFFBB),
+            (b"\x1b[31m", 0xFFBF),
+            (b"\x1b[42m", 0xFFBF),
+            (b"\x1b[33;44m", 0xFFBF),
         ):
             with self.subTest(setup=setup):
-                self.assert_checksum("A", setup)
+                self.assert_checksum("A", expected, setup)
 
     def test_toggling_c1_output_and_send_c1_control(self):
         with Shitty(columns=8, rows=2) as terminal:

@@ -284,6 +284,19 @@ namespace {
 }
 
 STD_TEST_SUITE(Screen) {
+    STD_TEST(EmptyRectangleChecksumsToZero) {
+        auto pool = ObjPool::fromMemory();
+        Composer composer(pool.mutPtr());
+        composer.setCellExtras(CellExtraStore::create(composer, 4));
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 2, 2, &colors);
+
+        STD_INSIST(screen->checksum(0, 0, 0, 0, 0) == 0);
+        STD_INSIST(screen->checksum(0, 0, 0, 0, ChecksumKeepBlanks) == 0);
+        STD_INSIST(screen->checksum(0, 0, 0, 0, ChecksumPositive) == 0);
+    }
+
     STD_TEST(InitializesGeometryCapacityAndDamage) {
         auto pool = ObjPool::fromMemory();
         Composer composer(pool.mutPtr());

@@ -349,6 +349,10 @@ namespace {
             record("changeRectangleAttributes", rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, change.setMask, change.clearMask, change.toggleMask);
         }
 
+        void csi_XTCHECKSUM(u32 flags) override {
+            record("csi_XTCHECKSUM", flags);
+        }
+
         void csi_DECRQCRA(u32 requestId, CsiRectangle rectangle) override {
             record("csi_DECRQCRA", requestId, rectangle.top, rectangle.left, rectangle.bottom, rectangle.right);
         }
@@ -1208,6 +1212,7 @@ namespace {
         {"XTERM_RTM", "resetTitleModes"},
         {"XTERM_STM", "setTitleMode"},
         {"XTERM_MODKEYS", "resetModifyKeyResources"},
+        {"XTERM_CHECKSUM_MODE", "csi_XTCHECKSUM"},
         {"SCORC", "csi_SCORC"},
         {"DECCRA", "csi_DECCRA"},
         {"DECEFR", "csi_DECEFR"},
@@ -1695,6 +1700,7 @@ STD_TEST_SUITE(ParserCallbacks) {
     }
 
     SHITTY_PARSER_CALLBACK_TEST5(RequestRectangleChecksum, csi_DECRQCRA, u8"\x1b[9;1;2;3;4;5*y", 9, 2, 3, 4, 5)
+    SHITTY_PARSER_CALLBACK_TEST1(SetChecksumFlags, csi_XTCHECKSUM, u8"\x1b[31#y", 31)
     SHITTY_PARSER_CALLBACK_TEST1(InsertLines, csi_IL, u8"\x1b[7L", 7)
     SHITTY_PARSER_CALLBACK_TEST1(DeleteLines, csi_DL, u8"\x1b[7M", 7)
     SHITTY_PARSER_CALLBACK_TEST1(DeleteCharacters, csi_DCH, u8"\x1b[7P", 7)

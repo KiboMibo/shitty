@@ -538,6 +538,7 @@ namespace {
         void csi_DECERA(CsiRectangle rectangle, bool selective) override;
         void setAttributeChangeExtent(bool rectangular) override;
         void changeRectangleAttributes(CsiRectangle rectangle, CellAttributeChange change) override;
+        void csi_XTCHECKSUM(u32 flags) override;
         void csi_DECRQCRA(u32 requestId, CsiRectangle rectangle) override;
         void csi_IL(u32 count) override;
         void csi_DL(u32 count) override;
@@ -872,6 +873,7 @@ namespace {
         bool insertMode = false;
         bool eraseModeAll = false;
         bool rectangularAttributeExtent = false;
+        u8 checksumFlags = 0;
         bool bkspSendsDel = true;
         bool localEcho = false;
         bool bracketedPasteMode = false;
@@ -2673,6 +2675,7 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     insertMode = false;
     eraseModeAll = false;
     rectangularAttributeExtent = false;
+    checksumFlags = 0;
     attrs.protected_char = 0;
     bkspSendsDel = true;
     localEcho = false;
@@ -4362,12 +4365,16 @@ void VtermImpl::setAttributeChangeExtent(bool rectangular) {
     rectangularAttributeExtent = rectangular;
 }
 
+void VtermImpl::csi_XTCHECKSUM(u32 flags) {
+    checksumFlags = flags & 0x1f;
+}
+
 void VtermImpl::csi_DECRQCRA(u32 requestId, CsiRectangle parameters) {
     Rectangle rectangle;
     if (!rectangleFromParams(parameters, rectangle)) {
         return;
     }
-    const u16 checksum = cf->checksum(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right);
+    const u16 checksum = cf->checksum(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right, checksumFlags);
     StringBuilder response;
     response << requestId << StringView(u8"!~") << Hex{checksum, 4, true};
     writeDcsResponse(StringView(response));

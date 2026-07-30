@@ -65,11 +65,13 @@ internal behavior would make malformed wire sequences look complete.
 
 Four portable protocol methods add the complete character/checksum matrix,
 S7C1T/S8C1T reply forms, and all three window-geometry reports. Shitty follows
-its existing xterm-style checksum policy: character low bytes participate,
-while unwritten/space cells and rendition/color bits do not. The attributes
-and colors from every upstream row are retained to prove they cannot change
-that result. Geometry reports use the actual font cell size instead of Windows
-Terminal's synthetic 10×20 compatibility cell.
+the DEC-compatible policy measured against xterm-406 and independently
+implemented by Contour: written spaces count, Latin-1 is mapped into the DEC
+7-bit charset, and the six DEC rendition/protection attributes contribute
+their specified weights while colors do not. Windows Terminal's incompatible
+raw low-byte, color-weighted results are adapted to this reference behavior.
+Geometry reports use the actual font cell size instead of Windows Terminal's
+synthetic 10×20 compatibility cell.
 
 `ColorTableReportTests` retains both DEC HLS and RGB report models and all 256
 palette entries. The request is parsed as a direct semantic callback, and the

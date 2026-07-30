@@ -13,3 +13,12 @@ for the Linux/musl build environment used by Shitty.
 The Python adapter replaces Contour's terminal-engine harness with Shitty's
 PTY/control harness while retaining the upstream dump format and one build
 target per scenario.
+
+`test_contour_checksum.py` rewrites all 12 test cases from
+`src/vtbackend/RectangularAreaChecksum_test.cpp` at the same Contour revision.
+It retains every xterm-406-derived checksum oracle: negation and overflow,
+written versus undrawn blanks, the six DEC video-attribute weights, DEC
+charset mapping, combining marks, and all five composable XTCHECKSUM flags.
+The one upstream pure-algorithm case with an empty rectangle is retained as a
+native Screen unit test because no valid DECRQCRA wire request denotes an
+empty rectangle.

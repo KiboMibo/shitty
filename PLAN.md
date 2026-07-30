@@ -391,7 +391,11 @@ query/resize request, title query/update/restore и version query; оригин�
 - Grid — 32;
 - ShellIntegration — 31;
 - KittyClipboard — 19;
-- RectangularAreaChecksum — 12.
+- ~~RectangularAreaChecksum — все 12 test cases перенесены: базовая сумма,
+  written/undrawn blanks, DEC video-attribute weights, DEC charset mapping,
+  combining marks и все пять composable XTCHECKSUM flags. Импорт добавил
+  XTCHECKSUM и заменил Windows-specific checksum oracle на измеренное
+  xterm-406 поведение, которое также реализует Contour.~~
 
 Это, вероятно, самый большой готовый источник terminal semantics после Ghostty. [Screen_test.cpp](/home/pg/monorepo/tmp/terminal-repos/contour/src/vtbackend/Screen_test.cpp)
 

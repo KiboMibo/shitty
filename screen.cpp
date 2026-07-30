@@ -173,7 +173,7 @@ namespace {
         void fillRectangle(u16 top, u16 left, u16 bottom, u16 right, u32 codepoint, const TerminalCell& attrs, const TerminalCell& eraseAttrs) override;
         void copyRectangle(u16 sourceTop, u16 sourceLeft, u16 targetTop, u16 targetLeft, u16 height, u16 width, const TerminalCell& eraseAttrs) override;
         void changeRectangleAttributes(u16 top, u16 left, u16 bottom, u16 right, CellAttributeChange change) override;
-        u16 checksum(u16 top, u16 left, u16 bottom, u16 right) const noexcept override;
+        u16 checksum(u16 top, u16 left, u16 bottom, u16 right, u8 flags) const noexcept override;
         ScreenHyperlink hyperlinkAt(u16 row, u16 column) const override;
         TerminalCell testCell(u16 row, u16 column) const noexcept override;
         TerminalCell testLogicalCell(i32 row, u16 column) const noexcept override;
@@ -2455,17 +2455,64 @@ void ScreenBase<Coord, Epoch>::changeRectangleAttributes(u16 top, u16 left, u16 
 }
 
 template <typename Coord, typename Epoch>
-u16 ScreenBase<Coord, Epoch>::checksum(u16 top, u16 left, u16 bottom, u16 right) const noexcept {
-    u16 result = 0;
+u16 ScreenBase<Coord, Epoch>::checksum(u16 top, u16 left, u16 bottom, u16 right, u8 flags) const noexcept {
+    u32 total = 0;
+    u32 trimmed = 0;
+    bool first = true;
+    CellExtraStore& extras = cellExtras();
     for (u16 row = top; row < bottom; ++row) {
         const TerminalCell* cells_ = getLogicalRowPtr(row);
         for (u16 column = left; column < right; ++column) {
-            if (cells_[column].uc_pt != ' ') {
-                result += cells_[column].uc_pt & 0xff;
+            const TerminalCell& cell = cells_[column];
+            const bool written = cell.drawn;
+            if (!written && !(flags & (ChecksumKeepBlanks | ChecksumIncludeUndrawn))) {
+                continue;
             }
+
+            u32 value;
+            if (!written) {
+                value = ' ';
+            } else if (flags & ChecksumRawCodepoint) {
+                value = cell.uc_pt;
+            } else if (cell.uc_pt >= 0x20 && cell.uc_pt <= 0xff) {
+                value = cell.uc_pt & 0x7f;
+            } else {
+                value = 0x1b;
+            }
+
+            u32 attributes = 0;
+            if (!(flags & ChecksumNoAttributes)) {
+                attributes += (cell.protected_char & TerminalCell::decProtection) ? 0x04 : 0;
+                attributes += cell.conceal ? 0x08 : 0;
+                attributes += cell.underlined() ? 0x10 : 0;
+                attributes += cell.inverse ? 0x20 : 0;
+                attributes += cell.blink ? 0x40 : 0;
+                attributes += cell.bold ? 0x80 : 0;
+                value += attributes;
+            }
+
+            if (first || value != ' ' || written || attributes != 0) {
+                trimmed += value;
+            }
+            total += value;
+
+            if (written && !(flags & ChecksumRawCodepoint)) {
+                const GraphemeView grapheme = extras.grapheme(cell);
+                for (size_t index = 1; index < grapheme.size(); ++index) {
+                    total += grapheme[index];
+                }
+            }
+            first = flags & ChecksumKeepBlanks;
+        }
+        if (!(flags & ChecksumKeepBlanks)) {
+            first = false;
         }
     }
-    return -result;
+    u32 result = flags & ChecksumKeepBlanks ? total : trimmed;
+    if (!(flags & ChecksumPositive)) {
+        result = 0u - result;
+    }
+    return result & 0xffff;
 }
 
 template <typename Coord, typename Epoch>

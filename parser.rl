@@ -3725,9 +3725,10 @@
     ) @csiDone;
 
     csiHashFinal = (
+        'y' @csiTrace @{ iface.csi_XTCHECKSUM(parameter(0)); } |
         '{' @csiTrace @{ iface.csi_XTPUSHSGR(parser.parameters, parser.csiHadParameters ? parser.parameterCount : 0); } |
         '}' @csiTrace @{ iface.csi_XTPOPSGR(); } |
-        (0x40..0x7e - [{}]) @csiTrace
+        (0x40..0x7e - [y{}]) @csiTrace
     ) @csiDone;
 
     csiAmpersandFinal = (
