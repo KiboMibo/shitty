@@ -293,6 +293,17 @@ presentation point. Тест нашёл и исправил две зависи�
 width/grapheme classes. `printAttributes` уже покрыт более сильными DECRQSS
 SGR tests с replay результата.~~
 
+~~Блок `Terminal.zig:13372-13844` учтён. Все 20 eraseDisplay cases
+перенесены в девять Python transactions: ED below/above/complete с точным
+damage и сохранением cursor position, BCE без переноса visual attributes,
+обе границы wide glyph, независимые ISO SPA/EPA и DEC DECSCA protection,
+DECSED во всех трёх направлениях, ED 3 со scrollback и сохранение active pen
+после полной очистки. Ghostty-specific «последний protection kind» снова
+заменён нормативной независимостью двух protection механизмов; переключение
+DECSCA не уничтожает ISO-protected cells. Проверки внутренних style ids
+заменены наблюдаемым oracle: rendition остаётся текущим после ED 2 и
+используется последующей печатью.~~
+
 Не взяты также 94 initial fuzz seeds, но они имеют низкую ценность рядом с полным cmin.
 
 ### Kitty
