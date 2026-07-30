@@ -936,6 +936,7 @@ namespace {
 
         RECORD_VOID_METHOD(csi_kittyKeyboardQuery)
         RECORD_VOID_METHOD(csi_XTVERSION)
+        RECORD_VOID_METHOD(csi_SETMARK)
 #undef RECORD_VOID_METHOD
 
         void resetLeds() override {
@@ -2003,6 +2004,7 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST1(RemoveKittyKeyboardFlags, removeKittyKeyboardFlags, u8"\x1b[=3;3u", 3)
     SHITTY_PARSER_CALLBACK_TEST0(QueryKittyKeyboard, csi_kittyKeyboardQuery, u8"\x1b[?u")
     SHITTY_PARSER_CALLBACK_TEST0(XtermVersion, csi_XTVERSION, u8"\x1b[>q")
+    SHITTY_PARSER_CALLBACK_TEST0(SetMark, csi_SETMARK, u8"\x1b[>M")
     SHITTY_PARSER_CALLBACK_TEST0(ResetLeds, resetLeds, u8"\x1b[0q")
     SHITTY_PARSER_CALLBACK_TEST2(SetLed, setLed, u8"\x1b[2q", 1, true)
     SHITTY_PARSER_CALLBACK_TEST0(CommitLeds, commitLeds, u8"\x1b[q")

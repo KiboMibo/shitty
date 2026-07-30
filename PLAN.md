@@ -402,7 +402,20 @@ query/resize request, title query/update/restore и version query; оригин�
   explicit finite scrollback contract, and non-bottom height growth follows
   the Foot/Alacritty bottom-anchored consensus instead of Contour's blank-row
   behavior.~~
-- ShellIntegration — 31;
+- ~~ShellIntegration protocol core — all 31 cases inventoried; OSC 133 and
+  `CSI > M` SETMARK semantics are imported, including prompt/input/output
+  boundaries, multi-line prompts, reversible reflow, and primary/alternate
+  semantic-state isolation. Contour's private `LineFlags` formatter has no
+  terminal-protocol observable.~~
+- Contour ShellIntegration GUI extraction — 12 remaining cases for
+  `lastCommandBlock()` and `livePromptSpan()` need an explicit Shitty
+  product/test API. Their underlying semantic-cell and reflow invariants are
+  already covered, but string/span extraction is not.
+- Contour private semantic-block protocol — 12 mode-2034 cases cover
+  authenticated DCS queries, random tokens and JSON replies. No independent
+  implementation exists in the checked Foot, Alacritty, Kitty, Ghostty, VTE,
+  xterm or WezTerm sources; treat as intentionally inapplicable unless Shitty
+  deliberately adopts this Contour protocol.
 - KittyClipboard — 19;
 - ~~RectangularAreaChecksum — все 12 test cases перенесены: базовая сумма,
   written/undrawn blanks, DEC video-attribute weights, DEC charset mapping,

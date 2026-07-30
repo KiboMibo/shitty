@@ -65,3 +65,23 @@ unbounded storage.  When height grows while the cursor is above the bottom,
 Shitty restores the newest history rows, matching Foot and Alacritty; Contour
 instead leaves history untouched and appends a blank row.  Non-normal DEC
 lines are tested natively to ensure they are clipped rather than reflowed.
+
+`test_contour_shell_integration.py` inventories all 31 cases in
+`src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
+protocol core.  OSC 133 prompt/input/output boundaries are checked across
+multi-line prompts and reversible reflow, and Contour's `CSI > M` SETMARK is
+parsed directly.  Primary and alternate screens now retain independent
+semantic state, so an alternate-screen application cannot inherit a live
+primary prompt and returning to the primary screen restores its input region.
+
+The inventory also makes two remaining boundaries explicit.  Twelve cases
+exercise Contour GUI extraction APIs (`lastCommandBlock()` and
+`livePromptSpan()`), for which Shitty does not yet expose an equivalent
+product or test API; their underlying semantic cells and reflow invariants are
+covered, but the extraction API remains a separate task.  Another twelve
+cases exercise Contour-private DEC mode 2034, authenticated DCS queries,
+random session tokens, and JSON replies.  No independent terminal in the
+local Foot, Alacritty, Kitty, Ghostty, VTE, xterm, or WezTerm sources
+implements that protocol, so it is recorded as an intentional capability
+boundary rather than silently approximated.  The `LineFlags` formatter case
+is likewise a private Contour value-object assertion with no wire behavior.

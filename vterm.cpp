@@ -720,6 +720,7 @@ namespace {
         void removeKittyKeyboardFlags(u8 flags) override;
         void csi_kittyKeyboardQuery() override;
         void csi_XTVERSION() override;
+        void csi_SETMARK() override;
         void resetLeds() override;
         void setLed(u8 index, bool enabled) override;
         void commitLeds() override;
@@ -803,6 +804,8 @@ namespace {
         u32 nextHyperlink = 1;
         u32 currentSemantic = 0;
         bool semanticUntilEndOfLine = false;
+        u32 inactiveSemantic = 0;
+        bool inactiveSemanticUntilEndOfLine = false;
         bool assignedDefaultColors = false;
         std::string windowTitle;
         std::string iconTitle;
@@ -2685,6 +2688,8 @@ void VtermImpl::resetTerminal() {
     nextHyperlink = 1;
     currentSemantic = 0;
     semanticUntilEndOfLine = false;
+    inactiveSemantic = 0;
+    inactiveSemanticUntilEndOfLine = false;
     titleModes = 0;
     titleStack.clear();
     notifications.clear();
@@ -2820,6 +2825,8 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
             if (altScreenBufferMode_) {
                 kittyKeyboardAlt = {};
                 createAlternateScreen();
+                currentSemantic = 0;
+                semanticUntilEndOfLine = false;
                 marginTop = 0;
                 marginBottom = composer.rows;
                 altScreenInitialized = true;
@@ -2828,6 +2835,8 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
                 changePresentation();
             } else if (altScreenInitialized) {
                 createInactiveAlternateScreen();
+                inactiveSemantic = 0;
+                inactiveSemanticUntilEndOfLine = false;
                 altScreenInitialized = false;
             }
             updateExtraCellCount();
@@ -2840,6 +2849,8 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         if (clearAlternate || !altScreenInitialized) {
             kittyKeyboardAlt = {};
             createAlternateScreen();
+            inactiveSemantic = 0;
+            inactiveSemanticUntilEndOfLine = false;
             marginTop = 0;
             marginBottom = composer.rows;
             altScreenInitialized = true;
@@ -2872,6 +2883,12 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         }
         savedCursor = &savedCursorPri;
         altScreenBufferMode = false;
+    }
+    std::swap(currentSemantic, inactiveSemantic);
+    std::swap(semanticUntilEndOfLine, inactiveSemanticUntilEndOfLine);
+    if (!altScreenBufferMode_ && clearAlternate) {
+        inactiveSemantic = 0;
+        inactiveSemanticUntilEndOfLine = false;
     }
     updateExtraCellCount();
     refreshBlinkingText();
@@ -4821,6 +4838,11 @@ void VtermImpl::csi_DECREQTPARM(u32 permission) {
 
 void VtermImpl::csi_XTVERSION() {
     writeDcsResponse(">|Shitty " SHITTY_VERSION);
+}
+
+void VtermImpl::csi_SETMARK() {
+    currentSemantic = 1;
+    semanticUntilEndOfLine = false;
 }
 
 void VtermImpl::reportMode(u32 mode, bool privateMode, u8 state) {

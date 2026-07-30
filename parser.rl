@@ -3615,8 +3615,9 @@
         (0x40..0x7e - csiPlainKnown) @csiTrace
     ) @csiDone;
 
-    csiGreaterKnown = [Tcmqtu];
+    csiGreaterKnown = [MTcmqtu];
     csiGreaterFinal = (
+        'M' @csiTrace @{ iface.csi_SETMARK(); } |
         'T' @csiTrace @{ dispatchTitleMode(false); } |
         'c' @csiTrace @{ iface.csi_secDA(); } |
         'm' @csiTrace @{ dispatchXtmodkeys(); } |
