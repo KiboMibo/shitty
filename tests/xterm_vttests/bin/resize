@@ -1,0 +1,12 @@
+#!/bin/sh
+
+case "$1" in
+    -u)
+        printf 'COLUMNS=80;\n'
+        printf 'LINES=25;\n'
+        printf 'export COLUMNS LINES;\n'
+        ;;
+    *)
+        exit 1
+        ;;
+esac

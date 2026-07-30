@@ -1,22 +1,5 @@
 {
   "nodes": {
-    "plt": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1785257713,
-        "narHash": "sha256-YuOA2j0a6expAgYeWOyniQz69HxVxdhNbyPqqfr8cbg=",
-        "owner": "pg83",
-        "repo": "plt",
-        "rev": "ef74e553bc2d5f72d74dbf8f0cee26d6b73e5896",
-        "type": "github"
-      },
-      "original": {
-        "owner": "pg83",
-        "repo": "plt",
-        "rev": "ef74e553bc2d5f72d74dbf8f0cee26d6b73e5896",
-        "type": "github"
-      }
-    },
     "libstd": {
       "flake": false,
       "locked": {
@@ -53,8 +36,7 @@
     "root": {
       "inputs": {
         "libstd": "libstd",
-        "nixpkgs": "nixpkgs",
-        "plt": "plt"
+        "nixpkgs": "nixpkgs"
       }
     }
   },

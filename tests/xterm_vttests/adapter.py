@@ -345,7 +345,9 @@ def main():
     }
     stamp = Path(sys.argv[3])
     root = Path(__file__).resolve().parent
-    signal.alarm(20)
+    # Prefix cases feed 256 KiB through two independently driven terminals.
+    # Leave enough headroom for slower debug/Nix builders.
+    signal.alarm(60 if case in PREFIX_CASES else 20)
     if case in PREFIX_CASES:
         message = "chunking changed state"
         payload = generate_prefix(root, case)

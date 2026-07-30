@@ -25,6 +25,8 @@
     glslang
     harfbuzz
     libxkbcommon
+    ncurses
+    perl
     pkg-config
     python3
     ragel
@@ -33,6 +35,13 @@
     vulkan-headers
     vulkan-loader
     wayland
+    wayland-protocols
     wayland-scanner
   ];
+
+  shellHook = ''
+    # Keep ambient toolchain flags from contaminating this shell.
+    unset CPPFLAGS CFLAGS CXXFLAGS LDFLAGS
+    export LDFLAGS="$(pkg-config --libs wayland-client xkbcommon) -lrt"
+  '';
 }

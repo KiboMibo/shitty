@@ -7,14 +7,9 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-    # Pinned to the commits recorded in .gitmodules. Bump together with the
-    # submodules when either dependency moves.
+    # Pinned to the commit recorded in .gitmodules.
     libstd = {
       url = "github:pg83/std/6ab662255eb2c459e5e69e13248c964eef5eedc1";
-      flake = false;
-    };
-    plt = {
-      url = "github:pg83/plt/ef74e553bc2d5f72d74dbf8f0cee26d6b73e5896";
       flake = false;
     };
   };
@@ -24,7 +19,6 @@
       self,
       nixpkgs,
       libstd,
-      plt,
     }:
     let
       inherit (nixpkgs) lib;
@@ -56,14 +50,12 @@
 
           src = self;
 
-          # Flake source checkouts do not include git submodules. Populate the
-          # vendored trees from the pinned flake inputs so `nix build` works
-          # without `?submodules=1`.
+          # Flake source checkouts do not include git submodules. Populate
+          # libstd from its pinned input; plt is vendored in this repository.
           postUnpack = ''
             mkdir -p "$sourceRoot/third_party"
-            rm -rf "$sourceRoot/third_party/libstd" "$sourceRoot/third_party/plt"
+            rm -rf "$sourceRoot/third_party/libstd"
             cp -a ${libstd} "$sourceRoot/third_party/libstd"
-            cp -a ${plt} "$sourceRoot/third_party/plt"
             chmod -R u+w "$sourceRoot/third_party"
           '';
 
@@ -81,6 +73,7 @@
             pkg-config
             python3
             ragel
+            wayland-protocols
             wayland-scanner
           ];
 
@@ -101,7 +94,8 @@
           # build out of $src (read-only store path) via -B.
           buildPhase = ''
             runHook preBuild
-            python3 ./build -B .build -j "$NIX_BUILD_CORES"
+            LDFLAGS="$(pkg-config --libs wayland-client xkbcommon) -lrt" \
+              python3 ./build -B .build -j "$NIX_BUILD_CORES"
             runHook postBuild
           '';
 
@@ -147,6 +141,8 @@
           packages = with pkgs; [
             clang-tools
             gdb
+            ncurses
+            perl
             # Fonts for manual runs inside the shell.
             dejavu_fonts
             ibm-plex
@@ -160,6 +156,9 @@
           };
 
           shellHook = ''
+            # Keep ambient toolchain flags from contaminating this shell.
+            unset CPPFLAGS CFLAGS CXXFLAGS LDFLAGS
+            export LDFLAGS="$(pkg-config --libs wayland-client xkbcommon) -lrt"
             echo "shitty dev shell — run: ./build && ./st"
           '';
         };
