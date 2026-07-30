@@ -7726,6 +7726,9 @@ void VtermImpl::resizeGrid() {
     const u16 previousColumns = info.columns;
     const u16 previousRows = info.rows;
     if (previousColumns == composer.columns && previousRows == composer.rows) {
+        if (synchronizedOutputMode) {
+            setSynchronizedOutput(false);
+        }
         if (inBandResizeMode) {
             reportInBandResize();
         }
@@ -7742,6 +7745,9 @@ void VtermImpl::resizeGrid() {
     } else {
         resizeScreen(frame_alt, frameAltPool, cursorState);
         cf = frame_alt;
+    }
+    if (synchronizedOutputMode) {
+        setSynchronizedOutput(false);
     }
     changePresentation();
     posX = cursorState.position.x;

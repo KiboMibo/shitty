@@ -34,13 +34,18 @@
 
 Assertions Ghostty не исполняются. Это прямо отражено в [Ghostty UPSTREAM.md](/home/pg/monorepo/shitty/tests/ghostty/UPSTREAM.md).
 
-Из 75 тестов `stream_terminal.zig` вообще пропущены пять resize-тестов:
-
-- synchronized output при resize;
-- mode 2048 geometry reports;
-- suppress reports;
-- atomicity при неудачном resize;
-- canonical state после resize effects.
+~~Все пять resize-тестов `stream_terminal.zig` учтены. Четыре перенесены
+product-level тестами: resize с неизменной сеткой сбрасывает synchronized
+output по консенсусу Ghostty/Foot/Kitty; mode 2048 сообщает точную геометрию
+клеточной области и молчит в выключенном состоянии; чтение resize reply не
+меняет canonical state. Ghostty-ветви без pixel geometry и без write callback
+не существуют в Shitty: `Composer` всегда хранит полную pixel geometry, а
+`ptyOutput` является обязательной зависимостью Vterm. Upstream OOM-тест
+классифицирован как неприменимый: `libstd::allocateMemory()` имеет намеренно
+fatal OOM contract (`STD_INSIST`), поэтому recoverable allocator failure,
+которую моделирует Zig `FailingAllocator`, в продукте отсутствует. Screen
+resize при обычном исключении уже строит замену в новом `ObjPool` и меняет
+указатели только после успешного построения.~~
 
 Но основной хвост значительно больше:
 

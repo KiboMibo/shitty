@@ -17,5 +17,8 @@ line 907 of Ghostty's `src/terminal/stream_terminal.zig` at the same revision.
 `semantic_catalog.py` extracts each test's literal `s.nextSlice()` calls as a
 single logical stream while preserving the original call boundaries. Every
 stream is independently compared as one write, at those upstream boundaries,
-and bytewise. Dynamic inputs and Ghostty's internal semantic assertions remain
-for a later adapter.
+and bytewise. The five resize tests preceding those streams are accounted in
+`test_ghostty_resize.py`: four execute against the product and the recoverable
+allocator-failure case is inapplicable to libstd's fatal OOM contract. Dynamic
+inputs and Ghostty's remaining internal semantic assertions remain for a later
+adapter.
