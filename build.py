@@ -406,69 +406,115 @@ unit_tests = program(
 )
 
 
-test_suite = command(
-    inputs=[
-        *build.glob("$(S)/tests/*.py"),
-        "$(S)/tests/windows_terminal/upstream/KittyKeyboardProtocol.cpp",
-        "$(S)/tests/windows_terminal/upstream/ReflowTests.cpp",
-        "$(S)/tests/windows_terminal/upstream/ScreenBufferTests.cpp",
-        "$(S)/tests/windows_terminal/upstream/SelectionTest.cpp",
-        "$(S)/tests/windows_terminal/upstream/TerminalBufferTests.cpp",
-        "$(S)/application.cpp",
-        "$(S)/shitty.desktop",
-    ],
-    outputs=["$(B)/tests.stamp"],
-    deps=[unit_tests, st_test, st],
-    cmd=[
-        ["$(B)/unit_tests"],
-        ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
-        [
-            "python3", "-c",
-            "from pathlib import Path; Path(r'$(B)/tests.stamp').touch()",
+# Each shard is an independent graph node with its own hard timeout.
+test_group_count = 20
+python_test_inputs = [
+    *build.glob("$(S)/tests/*.py"),
+    "$(S)/tests/windows_terminal/upstream/KittyKeyboardProtocol.cpp",
+    "$(S)/tests/windows_terminal/upstream/ReflowTests.cpp",
+    "$(S)/tests/windows_terminal/upstream/ScreenBufferTests.cpp",
+    "$(S)/tests/windows_terminal/upstream/SelectionTest.cpp",
+    "$(S)/tests/windows_terminal/upstream/TerminalBufferTests.cpp",
+    "$(S)/application.cpp",
+    "$(S)/shitty.desktop",
+]
+
+
+def touch_stamp(path):
+    return [
+        "python3",
+        "-c",
+        f"from pathlib import Path; Path(r'{path}').touch()",
+    ]
+
+
+unit_test_groups = []
+for group_index in range(test_group_count):
+    output = f"$(B)/unit-tests/group-{group_index:02}.stamp"
+    unit_test_groups.append(command(
+        name=f"unit_tests_group_{group_index:02}",
+        outputs=[output],
+        deps=[unit_tests],
+        cmd=[
+            [
+                "$(B)/unit_tests",
+                f"--group={group_index}",
+                f"--group-count={test_group_count}",
+                "--threads=1",
+            ],
+            touch_stamp(output),
         ],
-    ],
-    cwd="$(S)",
-    env={
-        "SHITTY_TEST_BINARY": "$(B)/st_test",
-        "SHITTY_TEST_FONTCONFIG": "1" if fontconfig else "0",
-        "SHITTY_TEST_PLATFORM": "cocoa" if darwin else "wayland",
-        "SHITTY_TEST_VERSION": shitty_version,
-        "SHITTY_PRODUCTION_BINARY": "$(B)/st",
-    },
+        descr="UT",
+        color="green",
+    ))
+
+
+def make_python_test_groups(name, output_directory, test_binary, test_target, descr):
+    result = []
+
+    for group_index in range(test_group_count):
+        output = f"$(B)/{output_directory}/group-{group_index:02}.stamp"
+        result.append(command(
+            name=f"{name}_group_{group_index:02}",
+            inputs=python_test_inputs,
+            outputs=[output],
+            deps=[test_target, st],
+            cmd=[
+                [
+                    "python3",
+                    "tests/run_unittest_group.py",
+                    f"--group={group_index}",
+                    f"--group-count={test_group_count}",
+                ],
+                touch_stamp(output),
+            ],
+            cwd="$(S)",
+            env={
+                "SHITTY_TEST_BINARY": test_binary,
+                "SHITTY_TEST_FONTCONFIG": "1" if fontconfig else "0",
+                "SHITTY_TEST_PLATFORM": "cocoa" if darwin else "wayland",
+                "SHITTY_TEST_VERSION": shitty_version,
+                "SHITTY_PRODUCTION_BINARY": "$(B)/st",
+            },
+            descr=descr,
+            color="cyan",
+        ))
+
+    return result
+
+
+python_test_groups = make_python_test_groups(
+    "test_suite",
+    "python-tests",
+    "$(B)/st_test",
+    st_test,
+    "TS",
+)
+python_test_prod_parser_groups = make_python_test_groups(
+    "test_suite_prod_parser",
+    "python-tests-prod-parser",
+    "$(B)/st_test_prod_parser",
+    st_test_prod_parser,
+    "TP",
+)
+
+
+test_suite = untimed_command(
+    inputs=["$(S)/build.py"],
+    outputs=["$(B)/tests.stamp"],
+    deps=[*unit_test_groups, *python_test_groups],
+    cmd=touch_stamp("$(B)/tests.stamp"),
     descr="TS",
     color="cyan",
 )
 
 
-test_suite_prod_parser = command(
+test_suite_prod_parser = untimed_command(
     name="test_suite_prod_parser",
-    inputs=[
-        *build.glob("$(S)/tests/*.py"),
-        "$(S)/tests/windows_terminal/upstream/KittyKeyboardProtocol.cpp",
-        "$(S)/tests/windows_terminal/upstream/ReflowTests.cpp",
-        "$(S)/tests/windows_terminal/upstream/ScreenBufferTests.cpp",
-        "$(S)/tests/windows_terminal/upstream/SelectionTest.cpp",
-        "$(S)/tests/windows_terminal/upstream/TerminalBufferTests.cpp",
-        "$(S)/application.cpp",
-        "$(S)/shitty.desktop",
-    ],
+    inputs=["$(S)/build.py"],
     outputs=["$(B)/tests-prod-parser.stamp"],
-    deps=[st_test_prod_parser, st],
-    cmd=[
-        ["python3", "-m", "unittest", "discover", "-s", "tests"],
-        [
-            "python3", "-c",
-            "from pathlib import Path; Path(r'$(B)/tests-prod-parser.stamp').touch()",
-        ],
-    ],
-    cwd="$(S)",
-    env={
-        "SHITTY_TEST_BINARY": "$(B)/st_test_prod_parser",
-        "SHITTY_TEST_FONTCONFIG": "1" if fontconfig else "0",
-        "SHITTY_TEST_PLATFORM": "cocoa" if darwin else "wayland",
-        "SHITTY_TEST_VERSION": shitty_version,
-        "SHITTY_PRODUCTION_BINARY": "$(B)/st",
-    },
+    deps=python_test_prod_parser_groups,
+    cmd=touch_stamp("$(B)/tests-prod-parser.stamp"),
     descr="TP",
     color="cyan",
 )

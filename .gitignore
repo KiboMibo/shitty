@@ -4,7 +4,10 @@
 /st_memprofile
 /st_test
 /unit_tests
+/unit_tests_group_*
 /test_suite
+/test_suite_group_*
+/test_suite_prod_parser_group_*
 /main_fuzz
 /result
 /result-*

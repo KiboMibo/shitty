@@ -140,6 +140,22 @@ class BuildMetadataTests(unittest.TestCase):
             readme,
         )
 
+    def test_unit_test_suites_have_twenty_shard_nodes(self):
+        result = self.run_build(ROOT / "build.py", "--list")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        targets = result.stdout.splitlines()
+        for prefix in (
+            "unit_tests_group_",
+            "test_suite_group_",
+            "test_suite_prod_parser_group_",
+        ):
+            with self.subTest(prefix=prefix):
+                self.assertEqual(
+                    [target for target in targets if target.startswith(prefix)],
+                    [f"{prefix}{group:02}" for group in range(20)],
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
