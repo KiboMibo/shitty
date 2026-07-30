@@ -51,6 +51,31 @@ class KittyTextSizingTest(unittest.TestCase):
             self.assertEqual(snapshot.lines[0][:3], "abc")
             self.assertEqual(terminal.multicell(0, 0).scale, 1)
 
+    def test_explicit_width_preserves_the_entire_protocol_payload(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(osc66(b"w=7", b"The quick brown fox"))
+            self.assertEqual(terminal.snapshot().cursor_x, 7)
+            self.assertTrue(terminal.multicell(0, 0).valid)
+            self.assertEqual(
+                terminal.model_snapshot().cell(0, 0).grapheme,
+                tuple(b"The quick brown fox"),
+            )
+
+    def test_long_variable_width_run_is_split_instead_of_refused(self):
+        with Shitty(columns=20, rows=4) as terminal:
+            terminal.write(osc66(b"s=2", b"The quick brown fox"))
+            self.assertNotEqual(
+                (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                (0, 0),
+            )
+            self.assertTrue(
+                any(
+                    terminal.multicell(row, column).valid
+                    for row in range(4)
+                    for column in range(20)
+                )
+            )
+
     def test_block_moves_whole_to_the_next_line(self):
         with Shitty(columns=5, rows=3) as terminal:
             terminal.write(b"abcd" + osc66(b"w=3", b"X"))
@@ -259,6 +284,90 @@ class KittyTextSizingTest(unittest.TestCase):
                 for column in range(2):
                     self.assertFalse(terminal.multicell(row, column).valid)
             self.assertEqual(terminal.snapshot().cell(0, 4).char, "A")
+
+    def test_deferred_wrap_happens_before_sized_text(self):
+        with Shitty(columns=5, rows=4) as terminal:
+            terminal.write(b"abcde" + osc66(b"s=1", b"X"))
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "abcde")
+            self.assertEqual(snapshot.cell(0, 1).char, "X")
+            self.assertTrue(terminal.multicell(1, 0).valid)
+
+    def test_block_below_scroll_region_does_not_scroll_it(self):
+        with Shitty(columns=20, rows=25) as terminal:
+            terminal.write(b"\x1b[1;1Hline0\x1b[10;1Hline9")
+            terminal.write(b"\x1b[1;10r\x1b[20;1H" + osc66(b"s=3", b"A"))
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).char, "l")
+            self.assertEqual(snapshot.cell(0, 9).char, "l")
+            self.assertEqual(snapshot.cell(0, 19).char, "A")
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (3, 19))
+
+    def test_erasing_inside_margins_clears_a_block_past_the_margin(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b[1;11H" + osc66(b"s=2:w=3", b"A"))
+            terminal.write(b"\x1b[?69h\x1b[6;13s\x1b[1;12HX")
+            for row in range(2):
+                for column in range(10, 16):
+                    self.assertFalse(terminal.multicell(row, column).valid)
+            self.assertEqual(terminal.snapshot().cell(11, 0).char, "X")
+
+    def test_wrapping_sized_run_leaves_only_complete_blocks(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(osc66(b"s=2", b"abcdefg"))
+            for row in range(3):
+                for column in range(10):
+                    block = terminal.multicell(row, column)
+                    if not block.valid:
+                        continue
+                    origin_row = row - block.row
+                    origin_column = column - block.column
+                    for band_row in range(block.rows):
+                        for band_column in range(block.columns):
+                            member = terminal.multicell(
+                                origin_row + band_row,
+                                origin_column + band_column,
+                            )
+                            self.assertTrue(member.valid)
+                            self.assertEqual(
+                                (member.row, member.column),
+                                (band_row, band_column),
+                            )
+
+    def test_short_block_over_tall_block_erases_the_tall_block_whole(self):
+        with Shitty(columns=20, rows=6) as terminal:
+            terminal.write(osc66(b"s=3:w=2", b"X"))
+            terminal.write(b"\x1b[2;3H" + osc66(b"w=2", b"Y"))
+            for row in range(3):
+                for column in range(6):
+                    if row == 1 and 2 <= column < 4:
+                        continue
+                    self.assertFalse(terminal.multicell(row, column).valid)
+            replacement = terminal.multicell(1, 2)
+            self.assertTrue(replacement.valid)
+            self.assertEqual((replacement.rows, replacement.columns), (1, 2))
+
+    def test_sized_block_over_wide_continuation_clears_the_wide_head(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write("中".encode())
+            terminal.write(b"\x1b[1;2H" + osc66(b"w=2", b"Z"))
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).char, " ")
+            self.assertEqual(snapshot.cell(1, 0).char, "Z")
+            self.assertTrue(terminal.multicell(0, 1).valid)
+
+    def test_insert_mode_does_not_orphan_a_neighbouring_block(self):
+        with Shitty(columns=12, rows=3) as terminal:
+            terminal.write(b"\x1b[1;5H" + osc66(b"s=2", b"B"))
+            terminal.write(b"\x1b[H\x1b[4h" + osc66(b"s=2", b"X"))
+            for row in range(2):
+                for column in range(12):
+                    block = terminal.multicell(row, column)
+                    if column < 2:
+                        self.assertTrue(block.valid)
+                        self.assertEqual((block.row, block.column), (row, column))
+                    else:
+                        self.assertFalse(block.valid)
 
     def test_adjacent_blocks_keep_distinct_identity(self):
         with Shitty(columns=12, rows=2) as terminal:
