@@ -938,7 +938,7 @@ template <typename Coord, typename Epoch>
 Row* ScreenBase<Coord, Epoch>::allocateRow() {
     Row* result;
     if (freeRows == nullptr) {
-        result = static_cast<Row*>(pool.allocate(sizeof(Row) + (size_t)(nCols)*cellSize));
+        result = static_cast<Row*>(pool.allocateOverAligned(sizeof(Row) + (size_t)(nCols)*cellSize, alignof(Row)));
     } else {
         result = freeRows;
         freeRows = freeRows->freeNext;
@@ -978,7 +978,7 @@ void ScreenBase<Coord, Epoch>::initializeRows(u16 columns, u16 rows, u32 history
     }
     rowRing = static_cast<RowSlot*>(pool.allocate((size_t)(rowCapacity) * sizeof(RowSlot)));
     memset(rowRing, 0, (size_t)(rowCapacity) * sizeof(RowSlot));
-    zeroRow = static_cast<Row*>(pool.allocate(sizeof(Row) + (size_t)(columns)*cellSize));
+    zeroRow = static_cast<Row*>(pool.allocateOverAligned(sizeof(Row) + (size_t)(columns)*cellSize, alignof(Row)));
     memset(zeroRow, 0, sizeof(Row) + (size_t)(columns)*cellSize);
     historyRows = history;
     rowEnd = ((u32)(history) + rows) & (rowCapacity - 1);
