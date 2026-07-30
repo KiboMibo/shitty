@@ -747,6 +747,7 @@ namespace {
         void writeKittyClipboardStatus(StringView, StringView, StringView);
         void osc_CLIPBOARD_QUERY(bool, bool, u8, bool) override;
         void osc_CLIPBOARD_WRITE(StringView, bool, bool, bool) override;
+        void osc_KITTY_TEXT_SIZING(const KittyTextSizing&) override;
         void osc_KITTY_CLIPBOARD_READ(StringView, StringView, bool, bool) override;
         void osc_KITTY_CLIPBOARD_WRITE(StringView, bool) override;
         void osc_KITTY_CLIPBOARD_WRITE_DATA(StringView, StringView, StringView, bool) override;
@@ -5732,6 +5733,9 @@ void VtermImpl::osc_CLIPBOARD_WRITE(StringView decoded, bool valid, bool primary
     if (clipboard) {
         target->writeClipboard(decoded);
     }
+}
+
+void VtermImpl::osc_KITTY_TEXT_SIZING(const KittyTextSizing&) {
 }
 
 void VtermImpl::writeKittyClipboardStatus(StringView type, StringView id, StringView status) {

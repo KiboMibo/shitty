@@ -393,7 +393,15 @@ query/resize request, title query/update/restore и version query; оригин�
   wheel policies, and 50 private ConPTY DECSET 9001 cases are explicitly
   inapplicable; Shitty has no ConPTY frontend and continues to report 9001
   unsupported.~~
-- TextSizing — 59;
+- ~~TextSizing parser — all seven Contour metadata-parser cases are imported
+  into the native Ragel parser suite. The implementation also covers Kitty's
+  current 4096-byte and safe-UTF-8 requirements. Unknown metadata is ignored
+  for forward compatibility, following the Contour/Ghostty consensus rather
+  than Kitty's stricter generated parser; malformed known fields remain
+  invalid.~~
+- TextSizing grid/render — 52 cases remain: column calculation, multicell
+  storage and overwrite/edit/selection/history invariants, fractional
+  alignment, deferred wrap and per-row rendering bands.
 - ~~Grid — all 32 cases accounted: 25 terminal-observable resize, reflow,
   history, viewport, sparse-row and semantic-region cases are rewritten in
   Python; seven private storage/rendering cases are mapped to native Screen
