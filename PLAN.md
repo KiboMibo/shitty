@@ -60,15 +60,20 @@ Assertions Ghostty не исполняются. Это прямо отражен
 
 ### Kitty
 
-Взяты 426 из 434 вызовов `pb()`, но каждый вызов превращён в отдельный тест. Из-за этого теряются:
+~~Все 14 полноценных test methods учтены build-time validator. Девять
+семантических методов перенесены как цельные product transactions с состоянием,
+parser callbacks, replies, host actions, setup/reset и assertions после
+OSC/DCS/CSI. Base64 покрыт native unit tests; все 313 UTF-8 oracle rows и 24
+split sequences проходят через product decoder; DECCARA имеет отдельную
+product transaction. Внутренние Kitty SIMD/backend, fixed producer-buffer и
+`find_either_of_two_bytes` не соответствуют нашему API. Kitty Graphics
+исключён из плана.~~
 
-- состояние между вызовами;
-- структура исходного test method;
-- upstream callback expectations;
-- последовательности reset/setup;
-- assertions после OSC/DCS/CSI.
-
-Из 28 проверок строк перенесено 19. Всего в файле 15 полноценных тестовых методов. Следующий шаг здесь — импортировать тест как транзакцию, а не ещё больше отдельных `pb()`.
+~~Все 28 screen observations учтены: 19 статически извлечённых checkpoints
+остаются независимыми tests, оставшиеся девять проверяются в stateful
+transactions (шесть empty-row, CSI, REP и DCS). Все 426 статических `pb()`
+по-прежнему независимо проверяются whole/bytewise; восемь динамических путей
+покрыты транзакциями методов.~~
 
 ### Konsole
 
@@ -365,7 +370,7 @@ Search и vi-mode нам пока не нужны.
    history/stable-row, semantic, hyperlink и line/cell metadata.~~
 6. Windows Terminal adapter/input/mouse/selection/reflow.
 7. ~~VTE tabstops/paste/UTF-8 и known-sequence matrices.~~
-8. Kitty — сохранить исходные test transactions и callbacks.
+8. ~~Kitty — сохранить исходные test transactions и callbacks.~~
 9. Contour Screen/Terminal/InputGenerator.
 10. Ghostty Terminal/Screen/PageList и OSC assertions.
 11. xterm.js InputHandler/reflow/keyboard/selection.

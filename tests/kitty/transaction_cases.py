@@ -142,6 +142,11 @@ def simple_parsing():
         terminal.write("ニチ ".encode())
         require(logical_line(terminal.model_snapshot(), 4) == "ニチ",
                 "wide text differs")
+        terminal.write(b"\x1bc")
+        snapshot = terminal.model_snapshot()
+        require(all(
+            logical_line(snapshot, row) == "" for row in (1, 2, 3)
+        ), "RIS did not clear the intermediate rows")
 
     controls = (
         "\x84\x85\x88\x8d\x8e\x8f\x90\x96"
@@ -149,8 +154,12 @@ def simple_parsing():
     )
     with Shitty(columns=20, rows=5, save_lines=0) as terminal:
         terminal.write(controls.encode())
-        require(logical_line(terminal.model_snapshot(), 0) == controls,
+        snapshot = terminal.model_snapshot()
+        require(logical_line(snapshot, 0) == controls,
                 "UTF-8 encoded C1 codepoints differ")
+        require(all(
+            logical_line(snapshot, row) == "" for row in (1, 2, 3)
+        ), "UTF-8 encoded C1 codepoints changed lower rows")
 
     with Shitty(columns=8, rows=5, save_lines=0) as terminal:
         terminal.write(b"\xf0\x9f\x98")

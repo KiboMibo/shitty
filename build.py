@@ -894,6 +894,29 @@ for case in kitty_transaction_cases:
         color="cyan",
     ))
 
+kitty_transaction_validation = command(
+    name="kitty_transaction_catalog",
+    inputs=[
+        "$(S)/tests/harness.py",
+        "$(S)/tests/kitty/transaction_cases.py",
+        "$(S)/tests/kitty/transaction_file_names.txt",
+        "$(S)/tests/kitty/transaction_validate.py",
+        "$(S)/tests/kitty/upstream/parser.py",
+    ],
+    outputs=["$(B)/tests/kitty/transaction/catalog.stamp"],
+    cmd=[
+        ["python3", "tests/kitty/transaction_validate.py"],
+        [
+            "python3", "-c",
+            "from pathlib import Path; "
+            "Path(r'$(B)/tests/kitty/transaction/catalog.stamp').touch()",
+        ],
+    ],
+    cwd="$(S)",
+    descr="KT",
+    color="cyan",
+)
+
 
 vte_root = Path(__file__).parent / "tests" / "vte"
 vte_cases = (vte_root / "file_names.txt").read_text().split()
@@ -2820,6 +2843,7 @@ group(
     kitty_screen_validation,
     kitty_utf8,
     *kitty_transaction_tests,
+    kitty_transaction_validation,
     *vte_tests,
     vte_validation,
     *vte_known_tests,

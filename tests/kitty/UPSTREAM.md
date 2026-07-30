@@ -35,3 +35,20 @@ parsed and ignored: remote control and remote printing are deliberately outside
 the terminal contract, and synchronized output uses DEC private mode 2026.
 Kitty's test-only XTGETTCAP value for the synthetic name `kind` is replaced by
 the normal unknown-capability reply; real declared capabilities are tested too.
+
+All 14 top-level upstream test methods are accounted for by a build-time
+validator. Nine run as stateful product transactions. The Base64 vectors are in
+`base64_ut.cpp`; standard padded output is retained while both padded and
+unpadded input are accepted. The 313 UTF-8 oracle rows and 24 split sequences
+run through the product decoder; Kitty's SIMD backend selector and
+`find_either_of_two_bytes` implementation test do not correspond to a Shitty
+API. DECCARA has its own product transaction. Kitty Graphics is excluded by the
+project plan. The fixed-capacity producer-buffer assertion inside
+`test_parser_threading` is likewise Kitty-internal; every semantic split around
+ESC, CSI and OSC is retained.
+
+The original 19 statically extractable screen checkpoints remain independent
+tests. The other nine observations are now covered by the stateful
+transactions: six empty-row checks in `simple_parsing`, and one screen
+assertion each in CSI, REP, and DCS. REP's internal tab placeholder is tested
+as the product invariant that no graphic cell was written.
