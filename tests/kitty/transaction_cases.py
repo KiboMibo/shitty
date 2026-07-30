@@ -195,6 +195,217 @@ def esc_codes():
         )
 
 
+def csi_codes():
+    with Shitty(columns=5, rows=5, save_lines=0) as terminal:
+        terminal.parser_trace_on()
+        terminal.write(b"abcde\x1b[1;1H")
+        require(
+            traced(terminal, b"x\x1b[2@y")
+            == [("text", b"x"), ("csi", b"2@"), ("text", b"y")],
+            "ICH trace differs",
+        )
+        require(logical_line(terminal.model_snapshot(), 0) == "xy bc",
+                "ICH screen mutation differs")
+
+        for payload in (
+            b"x\x1b[2;-7@y",
+            b"x\x1b[-0001234567890@y",
+            b"x\x1b[2-3@y",
+        ):
+            require(
+                traced(terminal, payload) == [("text", b"xy")],
+                f"invalid CSI was not discarded for {payload!r}",
+            )
+
+        for payload, expected in (
+            (b"x\x1b[2;7@y", b"2;7@"),
+            (b"x\x1b[@y", b"@"),
+            (b"x\x1b[345@y", b"345@"),
+            (b"x\x1b[345;@y", b"345;0@"),
+        ):
+            trace = traced(terminal, payload)
+            require(trace == [
+                ("text", b"x"),
+                ("csi", expected),
+                ("text", b"y"),
+            ], f"ICH parameter trace differs for {payload!r}")
+
+    with Shitty(columns=5, rows=5, save_lines=0) as terminal:
+        for payload, expected in (
+            (b"\x1b[H", (0, 0)),
+            (b"\x1b[4H", (0, 3)),
+            (b"\x1b[4;0H", (0, 3)),
+            (b"\x1b[3;2H", (1, 2)),
+            (b"\x1b[3;2;H", (1, 2)),
+            (b"\x1b[00000000003;0000000000000002H", (1, 2)),
+            (b"\x1b[0001234567890H", (0, 4)),
+        ):
+            terminal.write(payload)
+            snapshot = terminal.model_snapshot()
+            require((snapshot.cursor_x, snapshot.cursor_y) == expected,
+                    f"CUP differs for {payload!r}")
+
+        terminal.write(b"abcde\x1b[?2J")
+        require(not any(
+            cell.drawn for cell in terminal.model_snapshot().cells
+        ), "DECSED did not erase the display")
+
+        terminal.write(b"\x1b[20;4h")
+        state = terminal.conformance_state()
+        require(state["LNM"] and state["IRM"], "SM did not set LNM/IRM")
+        terminal.write(b"\x1b[20;4;20l")
+        state = terminal.conformance_state()
+        require(not state["LNM"] and not state["IRM"],
+                "RM did not reset LNM/IRM")
+
+        terminal.write(b"\x1b[?1000;1004h")
+        mouse_mode, _, focus_events, _ = terminal.state()
+        require(mouse_mode != 0 and focus_events,
+                "private SM did not set mouse/focus modes")
+
+        terminal.write(b"\x1b[=c")
+        require(
+            terminal.read_input() == b"\x1bP!|00000000\x1b\\",
+            "tertiary DA reply differs",
+        )
+
+    with Shitty(columns=5, rows=5, save_lines=0) as terminal:
+        terminal.write(b"\x1b[1;2;3;4;7;9;34;44m")
+        pen = terminal.pen_state()
+        require(
+            pen.bold and pen.faint and pen.italic and pen.underline
+            and pen.inverse and pen.strike,
+            "compound SGR attributes differ",
+        )
+        require(pen.underline_style == 1, "single underline differs")
+        require(
+            pen.foreground_index == 12 and pen.background_index == 4,
+            "indexed SGR colors differ",
+        )
+
+        terminal.write(b"\x1b[38;5;1;48;5;7m")
+        pen = terminal.pen_state()
+        require(
+            pen.foreground_index == 1 and pen.background_index == 7,
+            "256-color SGR differs",
+        )
+
+        terminal.write(b"\x1b[38;2;1;2;3;48;2;7;8;9m")
+        pen = terminal.pen_state()
+        require(
+            pen.foreground == (1, 2, 3)
+            and pen.background == (7, 8, 9),
+            "direct-color SGR differs",
+        )
+
+        terminal.write(b"\x1b[0;2m")
+        pen = terminal.pen_state()
+        require(pen.faint and not pen.bold, "SGR reset-plus-faint differs")
+        terminal.write(b"\x1b[;2m")
+        pen = terminal.pen_state()
+        require(pen.faint and not pen.bold, "empty SGR parameter differs")
+        terminal.write(b"\x1b[m")
+        pen = terminal.pen_state()
+        require(not pen.faint and not pen.bold, "empty SGR did not reset")
+        terminal.write(b"\x1b[1;;2m")
+        pen = terminal.pen_state()
+        require(pen.faint and not pen.bold, "middle empty SGR differs")
+
+        terminal.write(b"\x1b[38:2:1:2:3;48:5:9;58;5;7;4:5mX")
+        pen = terminal.pen_state()
+        cell = terminal.model_snapshot().cell(0, 0)
+        require(
+            pen.foreground == (1, 2, 3)
+            and pen.background_index == 9
+            and pen.underline_style == 5,
+            "colon-form SGR differs",
+        )
+        require(cell.underline_index == 7,
+                "underline color was not applied to the cell")
+
+    with Shitty(columns=5, rows=5, save_lines=0) as terminal:
+        terminal.write(b"\x1b[5n\x1b[6n")
+        require(
+            terminal.read_input() == b"\x1b[0n\x1b[1;1R",
+            "DSR reply differs",
+        )
+
+        terminal.write(b"12345\x1b[6n")
+        # DEC autowrap remains pending at the last column until another
+        # printable character arrives. Kitty advances immediately instead.
+        require(
+            terminal.read_input() == b"\x1b[1;5R",
+            "CPR pending-wrap position differs",
+        )
+
+        terminal.write(b"\x1b[?1h\x1b[?1$p")
+        require(
+            terminal.read_input() == b"\x1b[?1;1$y",
+            "DECRQM set-state report differs",
+        )
+        terminal.write(b"\x1b[?1l\x1b[?1$p")
+        require(
+            terminal.read_input() == b"\x1b[?1;2$y",
+            "DECRQM reset-state report differs",
+        )
+
+        terminal.write(b"\x1b[2;4r\x1bP$qr\x1b\\")
+        require(
+            terminal.read_input() == b"\x1bP1$r2;4r\x1b\\",
+            "DECSTBM or its DECRQSS report differs",
+        )
+        terminal.write(b"\x1b[r\x1bP$qr\x1b\\")
+        require(
+            terminal.read_input() == b"\x1bP1$r1;5r\x1b\\",
+            "default DECSTBM margins differ",
+        )
+
+        terminal.write(b"\x1b[1 q")
+        visible, blink, style = terminal.cursor_state()
+        require(visible and blink and style == 1,
+                "DECSCUSR blinking block differs")
+
+        terminal.parser_trace_on()
+        for payload, expected in (
+            (b"\x1b[3 @", b"3 @"),
+            (b"\x1b[3 A", b"3 A"),
+            (b"\x1b[3;4 S", b"3;4 S"),
+            (b"\x1b[1T", b"1T"),
+            (b"\x1b[T", b"T"),
+            (b"\x1b[+T", b"+T"),
+        ):
+            require(traced(terminal, payload) == [("csi", expected)],
+                    f"ECMA CSI trace differs for {payload!r}")
+
+        terminal.write(b"\x1b[?2026$p")
+        require(
+            terminal.read_input() == b"\x1b[?2026;2$y",
+            "initial synchronized-output report differs",
+        )
+        terminal.write(b"\x1b[?2026h\x1b[?2026$p")
+        require(
+            terminal.read_input() == b"\x1b[?2026;1$y",
+            "set synchronized-output report differs",
+        )
+        terminal.write(b"\x1b[?2026l\x1b[?2026$p")
+        require(
+            terminal.read_input() == b"\x1b[?2026;2$y",
+            "reset synchronized-output report differs",
+        )
+
+    with Shitty(
+        columns=5,
+        rows=5,
+        save_lines=0,
+        extra_arguments=("-allowWindowOps", "true"),
+    ) as terminal:
+        terminal.write(b"\x1b[14t\x1b[14;2t")
+        require(
+            terminal.read_input() == b"\x1b[4;5;5t\x1b[4;9;9t",
+            "window pixel-size reports differ",
+        )
+
+
 def csi_code_rep():
     with Shitty(columns=8, rows=5, save_lines=0) as terminal:
         terminal.write(b"\x1b[1b")
@@ -249,6 +460,7 @@ CASES = {
     "parser_threading": parser_threading,
     "simple_parsing": simple_parsing,
     "esc_codes": esc_codes,
+    "csi_codes": csi_codes,
     "csi_code_rep": csi_code_rep,
     "oth_codes": oth_codes,
 }

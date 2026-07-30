@@ -18,3 +18,10 @@ specified visible line at Kitty's declared test geometry. Dynamic expressions an
 direct screen mutations are skipped rather than approximated. Internal line
 strings containing control bytes are excluded because they are not visible
 screen text.
+
+The semantic transactions follow terminal standards and current implementation
+consensus rather than treating Kitty as a specification. In particular, DEC
+STD 070 limits DECCARA to bold, underline, blink, and inverse. Kitty, VTE,
+Contour, and Windows Terminal implement the modern full-SGR extension, while
+foot and xterm retain the DEC subset. Shitty follows the four-to-two
+implementation consensus and tests full SGR, colors, and underline styles.

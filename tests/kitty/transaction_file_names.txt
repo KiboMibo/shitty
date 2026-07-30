@@ -2,5 +2,6 @@ charsets
 parser_threading
 simple_parsing
 esc_codes
+csi_codes
 csi_code_rep
 oth_codes
