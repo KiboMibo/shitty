@@ -10,3 +10,4 @@
 /result-*
 __pycache__/
 .codegraph/
+/plt_tests
