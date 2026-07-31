@@ -22,7 +22,6 @@
 #include "listener.h"
 #include "options.h"
 #include "pty.h"
-#include "pty_output.h"
 #include "render.h"
 #include "startup.h"
 #include "test_input.h"
@@ -30,6 +29,7 @@
 #include "vterm.h"
 
 #include <plt/drop.h>
+#include <plt/mutex.h>
 #include <plt/platform.h>
 #include <plt/window.h>
 
@@ -482,9 +482,9 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     showWindow();
 
     setupSignals();
+    composer.ptyMutex = composer.pool->make<plt::FiberMutex>();
     composer.pty = Pty::create(composer, launch);
-    composer.ptyOutputs = PtyOutputQueue::create(composer.pool, composer.smallObjects, *composer.pty);
-    composer.ptyOutput = composer.ptyOutputs->append();
+    composer.ptyOutput = composer.pty->output();
 
     createRenderer();
     composer.vterm = Vterm::create(composer, nullptr);

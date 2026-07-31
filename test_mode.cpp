@@ -19,7 +19,6 @@
 #include "mouse_protocol.h"
 #include "mouse_frontend.h"
 #include "pty.h"
-#include "pty_output.h"
 #include "render_reference.h"
 #include "startup.h"
 #include "test_input.h"
@@ -29,13 +28,17 @@
 #include "vterm_test.h"
 #include "vterm_trace.h"
 
+#include <plt/fiber.h>
+#include <plt/mutex.h>
 #include <plt/platform_headless.h>
 
 #include <std/dbg/assert.h>
 #include <std/ios/output.h>
 #include <std/str/builder.h>
 #include <std/str/view.h>
+#include <std/alg/xchg.h>
 #include <std/lib/buffer.h>
+#include <std/thr/runable.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 #include <std/sys/throw.h>
@@ -69,14 +72,36 @@ using namespace plt;
 namespace {
     extern "C" int openpty(int*, int*, char*, const termios*, const winsize*);
 
+    struct TestPty;
+
+    struct TestPtyOutput final: public Output {
+        explicit TestPtyOutput(TestPty* pty);
+
+        size_t writeImpl(const void* data, size_t size) override;
+        void flushImpl() override;
+
+        TestPty* pty;
+    };
+
+    struct TestPtyStager final: public Runable {
+        explicit TestPtyStager(TestPty* pty);
+
+        void run() override;
+
+        TestPty* pty;
+    };
+
     struct TestPty final: public Pty, public Listener {
         TestPty(Composer& composer, int fd);
 
-        ssize_t read(u8* buffer, size_t size);
-        ssize_t write(const u8* buffer, size_t size) override;
-        void outputReady() override;
+        Input* input() override;
+        Output* output() override;
         void onListen(void*) override;
 
+        ssize_t read(u8* buffer, size_t size);
+        ssize_t write(const u8* buffer, size_t size);
+        size_t rawWrite(const void* data, size_t size);
+        void start();
         bool flushOutput();
         void setReadHandler(std::function<ssize_t(u8*, size_t)> handler);
         void setWriteHandler(std::function<ssize_t(const u8*, size_t)> handler);
@@ -91,6 +116,11 @@ namespace {
         std::function<ssize_t(const u8*, size_t)> onWrite;
         std::string readData;
         std::string writeData;
+        TestPtyOutput output_;
+        TestPtyStager stager_;
+        Buffer staged_;
+        plt::Fiber* stagerFiber_ = nullptr;
+        plt::Fiber* blockedWriter_ = nullptr;
     };
 
     struct TestUtf8Decoder {
@@ -112,6 +142,50 @@ namespace {
     };
 }
 
+TestPtyOutput::TestPtyOutput(TestPty* pty_)
+    : pty(pty_)
+{
+}
+
+size_t TestPtyOutput::writeImpl(const void* data, size_t size) {
+    plt::Scheduler* const scheduler = pty->composer_.platform->scheduler();
+    if (scheduler != nullptr && scheduler->inFiber()) {
+        return pty->rawWrite(data, size);
+    }
+    pty->staged_.append(data, size);
+    return size;
+}
+
+void TestPtyOutput::flushImpl() {
+    if (!pty->staged_.empty() && pty->stagerFiber_ != nullptr) {
+        pty->stagerFiber_->wake();
+    }
+}
+
+TestPtyStager::TestPtyStager(TestPty* pty_)
+    : pty(pty_)
+{
+}
+
+void TestPtyStager::run() {
+    TestPty& impl = *pty;
+    plt::Scheduler* const scheduler = impl.composer_.platform->scheduler();
+    impl.stagerFiber_ = scheduler->current();
+    Buffer local;
+    for (;;) {
+        while (impl.staged_.empty()) {
+            impl.stagerFiber_->park();
+        }
+        impl.composer_.ptyMutex->lock(*scheduler);
+        while (!impl.staged_.empty()) {
+            xchg(local, impl.staged_);
+            impl.rawWrite(local.data(), local.used());
+            local.reset();
+        }
+        impl.composer_.ptyMutex->unlock();
+    }
+}
+
 TestPty::TestPty(Composer& composer, int fd)
     : composer_(composer)
     , fd_(fd)
@@ -121,11 +195,25 @@ TestPty::TestPty(Composer& composer, int fd)
     , onWrite([this](const u8* buffer, size_t size) {
         return ::write(fd_, buffer, size);
     })
+    , output_(this)
+    , stager_(this)
 {
     const int flags = fcntl(fd_, F_GETFL, 0);
     if (flags < 0 || fcntl(fd_, F_SETFL, flags | O_NONBLOCK) < 0) {
         throw std::runtime_error("test PTY nonblocking setup failed");
     }
+}
+
+Input* TestPty::input() {
+    return nullptr;
+}
+
+Output* TestPty::output() {
+    return &output_;
+}
+
+void TestPty::start() {
+    composer_.platform->scheduler()->spawn(stager_);
 }
 
 ssize_t TestPty::read(u8* buffer, size_t size) {
@@ -144,7 +232,30 @@ ssize_t TestPty::write(const u8* buffer, size_t size) {
     return count;
 }
 
-void TestPty::outputReady() {
+size_t TestPty::rawWrite(const void* data, size_t size) {
+    plt::Scheduler* const scheduler = composer_.platform->scheduler();
+    const u8* current = (const u8*)(data);
+    size_t remaining = size;
+    while (remaining != 0) {
+        constexpr size_t maximumWrite = 64 * 1024;
+        const size_t chunk = remaining < maximumWrite ? remaining : maximumWrite;
+        const ssize_t count = write(current, chunk);
+        if (count > 0) {
+            current += count;
+            remaining -= (size_t)(count);
+            continue;
+        }
+        if (count < 0 && errno == EINTR) {
+            continue;
+        }
+        // Every stall — temporary or scripted-fatal — keeps the unsent bytes
+        // and waits for the next FLUSH_OUTPUT kick, like the poll-driven
+        // queue this replaces.
+        blockedWriter_ = scheduler->current();
+        blockedWriter_->park();
+        blockedWriter_ = nullptr;
+    }
+    return size;
 }
 
 void TestPty::onListen(void*) {
@@ -152,7 +263,13 @@ void TestPty::onListen(void*) {
 }
 
 bool TestPty::flushOutput() {
-    return !composer_.ptyOutputs->flush();
+    if (blockedWriter_ != nullptr) {
+        blockedWriter_->wake();
+    }
+    if (!staged_.empty() && stagerFiber_ != nullptr) {
+        stagerFiber_->wake();
+    }
+    return staged_.empty() && blockedWriter_ == nullptr;
 }
 
 void TestPty::applySize() {
@@ -429,16 +546,13 @@ namespace {
     };
 
     struct TestClipboard final: public ::Clipboard {
-        void readPrimary(Output* output) override;
-        void readClipboard(Output* output) override;
+        bool readAll(bool primarySelection, Buffer& content) override;
         void writePrimary(StringView content) override;
         void writeClipboard(StringView content) override;
-        void read(Output* output, const Buffer& content);
 
         Buffer primary;
         Buffer system;
         u64 generation = 0;
-        size_t readChunk = 0;
     };
 
     struct TestTerminal {
@@ -741,25 +855,10 @@ StringView VtermTraceImpl::currentCwd() const {
     return StringView((const u8*)(cwdPath.data()), cwdPath.size());
 }
 
-void TestClipboard::readPrimary(Output* output) {
-    read(output, primary);
-}
-
-void TestClipboard::readClipboard(Output* output) {
-    read(output, system);
-}
-
-void TestClipboard::read(Output* output, const Buffer& content) {
-    const size_t chunk = readChunk == 0 ? content.used() : readChunk;
-    size_t offset = 0;
-    while (offset != content.used()) {
-        const size_t remaining = content.used() - offset;
-        const size_t size = remaining < chunk ? remaining : chunk;
-        output->write((const u8*)(content.data()) + offset, size);
-        offset += size;
-    }
-    output->finish();
-    delete output;
+bool TestClipboard::readAll(bool primarySelection, Buffer& content) {
+    const Buffer& source = primarySelection ? primary : system;
+    content.append(source.data(), source.used());
+    return true;
 }
 
 void TestClipboard::writePrimary(StringView content) {
@@ -1325,8 +1424,9 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     composer.pty = &terminalPty;
     terminalPty.applySize();
     composer.resizedListeners.pushBack(&terminalPty);
-    composer.ptyOutputs = PtyOutputQueue::create(composer.pool, composer.smallObjects, terminalPty);
-    composer.ptyOutput = composer.ptyOutputs->append();
+    composer.ptyMutex = composer.pool->make<plt::FiberMutex>();
+    terminalPty.start();
+    composer.ptyOutput = terminalPty.output();
     TestClipboard clipboard;
     composer.clipboard = &clipboard;
     composer.rendererPool = ObjPool::fromMemory();
@@ -2218,13 +2318,6 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 const std::string content = decodeHex(line.substr(11));
                 clipboard.writeClipboard(StringView((const u8*)(content.data()), content.size()));
                 writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 20, "SET_CLIPBOARD_CHUNK ") == 0) {
-                const unsigned long long size = std::stoull(line.substr(20));
-                if (size > SIZE_MAX) {
-                    throw std::runtime_error("invalid clipboard chunk size");
-                }
-                clipboard.readChunk = (size_t)(size);
-                writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 14, "GET_SELECTION ") == 0) {
                 const int primary = std::stoi(line.substr(14));
                 if (primary < 0 || primary > 1) {
@@ -2339,9 +2432,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     }
 
     terminalPty.unlink();
-    delete composer.ptyOutput;
     composer.ptyOutput = nullptr;
-    composer.ptyOutputs = nullptr;
     composer.vterm = nullptr;
     composer.pty = nullptr;
     close(io[0]);

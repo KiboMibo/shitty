@@ -848,9 +848,6 @@ class Shitty:
     def set_system_clipboard(self, content):
         self.command("SET_SYSTEM " + content.hex())
 
-    def set_clipboard_chunk(self, size):
-        self.command(f"SET_CLIPBOARD_CHUNK {size}")
-
     def get_selection(self, primary):
         return self._read_hex_response(f"GET_SELECTION {int(primary)}")
 

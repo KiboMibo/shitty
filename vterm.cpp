@@ -30,7 +30,7 @@
 #include "mouse_frontend.h"
 #include "mouse_protocol.h"
 #include "parser.h"
-#include "pty_output.h"
+#include "pty.h"
 #include "screen.h"
 #include "unicode_map.h"
 #include "grapheme.h"
@@ -41,6 +41,8 @@
 #include "options.h"
 #include "utf8.h"
 
+#include <plt/fiber.h>
+#include <plt/mutex.h>
 #include <plt/platform.h>
 #include <plt/poller.h>
 #include <plt/window.h>
@@ -49,6 +51,7 @@
 #include <std/dbg/assert.h>
 #include <std/mem/obj_pool.h>
 #include <std/mem/small_obj_allocator.h>
+#include <std/thr/runable.h>
 #include <std/rng/split_mix_64.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
@@ -189,15 +192,12 @@ namespace {
     }
 
     struct PasteOutput final: public Output {
-        PasteOutput(SmallObjAllocator* allocator, Output* output, bool bracketed);
+        PasteOutput(Output* output, bool bracketed);
         ~PasteOutput() noexcept override;
-
-        void operator delete(PasteOutput* output, std::destroying_delete_t) noexcept;
 
         size_t writeImpl(const void* data, size_t size) override;
         void begin();
 
-        SmallObjAllocator* allocator;
         Output* output;
         bool bracketed;
         bool started = false;
@@ -205,62 +205,31 @@ namespace {
         bool pendingC1Lead = false;
     };
 
-    struct ClipboardCopyOutput final: public Output {
-        ClipboardCopyOutput(SmallObjAllocator* allocator, ::Clipboard* clipboard);
+    // A one-shot fiber body carved out of the small-object allocator;
+    // releases itself when the fiber finishes.
+    template <typename F>
+    struct FiberTask final: public Runable {
+        FiberTask(SmallObjAllocator* allocator_, F&& body_)
+            : allocator(allocator_)
+            , body(static_cast<F&&>(body_))
+        {
+        }
 
-        void operator delete(ClipboardCopyOutput* output, std::destroying_delete_t) noexcept;
-
-        size_t writeImpl(const void* data, size_t size) override;
-        void finishImpl() override;
-
-        SmallObjAllocator* allocator;
-        ::Clipboard* clipboard;
-        Buffer content;
-    };
-
-    struct ClipboardQueryOutput final: public Output {
-        ClipboardQueryOutput(SmallObjAllocator* allocator, ::Clipboard* clipboard, Output* output, bool tryClipboard, u8 replySelector, bool selectorsEmpty, bool send8BitControls);
-        ~ClipboardQueryOutput() noexcept override;
-
-        void operator delete(ClipboardQueryOutput* output, std::destroying_delete_t) noexcept;
-
-        size_t writeImpl(const void* data, size_t size) override;
-        void finishImpl() override;
-        void beginReply();
-        void finishReply();
+        void run() override {
+            body();
+            SmallObjAllocator* const owner = allocator;
+            owner->release(this);
+        }
 
         SmallObjAllocator* allocator;
-        ::Clipboard* clipboard;
-        Output* output;
-        Base64Encoder encoder;
-        bool tryClipboard;
-        u8 replySelector;
-        bool selectorsEmpty;
-        bool send8BitControls;
-        bool started = false;
+        F body;
     };
 
-    struct KittyClipboardQueryOutput final: public Output {
-        KittyClipboardQueryOutput(SmallObjAllocator* allocator, Output* output, StringView id, StringView mimeType, bool primary, bool targets, bool send8BitControls);
-        ~KittyClipboardQueryOutput() noexcept override;
-
-        void operator delete(KittyClipboardQueryOutput* output, std::destroying_delete_t) noexcept;
-
-        size_t writeImpl(const void* data, size_t size) override;
-        void finishImpl() override;
-        void beginReply();
-        void finishReply(bool success);
-        void writePacket(StringView status, StringView mimeType = {}, StringView payload = {});
-
-        SmallObjAllocator* allocator;
-        Output* output;
-        Buffer id;
-        Buffer mimeType;
-        bool primary;
-        bool targets;
-        bool send8BitControls;
-        bool started = false;
-    };
+    template <typename F>
+    void spawnFiber(Composer& composer, F&& body) {
+        FiberTask<F>* const task = composer.smallObjects->make<FiberTask<F>>(composer.smallObjects, static_cast<F&&>(body));
+        composer.platform->scheduler()->spawn(*task);
+    }
 
     struct GraphemeBuffer {
         void clear();
@@ -1313,27 +1282,34 @@ bool VtermInput::paste(bool primary) {
     if (terminal->pasteMimeNotificationsMode) {
         return terminal->pasteMimeNotification(primary);
     }
-    ::Clipboard* const clipboard = terminal->composer.clipboard;
-    if (clipboard == nullptr || terminal->composer.ptyOutputs == nullptr || terminal->composer.ptyOutput == nullptr) {
+    Composer& composer = terminal->composer;
+    if (composer.clipboard == nullptr || composer.pty == nullptr || composer.ptyMutex == nullptr || composer.platform == nullptr) {
         return false;
     }
-    Output* const insertion = terminal->composer.ptyOutput;
-    terminal->composer.ptyOutput = terminal->composer.ptyOutputs->append();
-    PasteOutput* const output = terminal->composer.smallObjects->make<PasteOutput>(terminal->composer.smallObjects, insertion, terminal->bracketedPasteMode);
-    if (primary) {
-        clipboard->readPrimary(output);
-    } else {
-        clipboard->readClipboard(output);
-    }
+    const bool bracketed = terminal->bracketedPasteMode;
+    spawnFiber(composer, [&composer, primary, bracketed] {
+        composer.ptyMutex->lock(*composer.platform->scheduler());
+        Buffer content;
+        if (composer.clipboard->readAll(primary, content) && !content.empty()) {
+            PasteOutput paste(composer.pty->output(), bracketed);
+            paste.write(content.data(), content.used());
+        }
+        composer.ptyMutex->unlock();
+    });
     return true;
 }
 
 bool VtermInput::copy() {
-    ::Clipboard* const clipboard = terminal->composer.clipboard;
-    if (clipboard == nullptr) {
+    Composer& composer = terminal->composer;
+    if (composer.clipboard == nullptr || composer.platform == nullptr) {
         return false;
     }
-    clipboard->readPrimary(terminal->composer.smallObjects->make<ClipboardCopyOutput>(terminal->composer.smallObjects, clipboard));
+    spawnFiber(composer, [&composer] {
+        Buffer content;
+        if (composer.clipboard->readAll(true, content)) {
+            composer.clipboard->writeClipboard(StringView(content));
+        }
+    });
     return true;
 }
 
@@ -1461,9 +1437,8 @@ void VtermInput::flush() {
     terminal->writeKittyKey(pending.primary, 0, pending.base, pending.modifiers, pending.event);
 }
 
-PasteOutput::PasteOutput(SmallObjAllocator* allocator_, Output* output_, bool bracketed_)
-    : allocator(allocator_)
-    , output(output_)
+PasteOutput::PasteOutput(Output* output_, bool bracketed_)
+    : output(output_)
     , bracketed(bracketed_)
 {
 }
@@ -1476,12 +1451,7 @@ PasteOutput::~PasteOutput() noexcept {
     if (started && bracketed) {
         output->write(StringView(u8"\x1b[201~").data(), 6);
     }
-    delete output;
-}
-
-void PasteOutput::operator delete(PasteOutput* output, std::destroying_delete_t) noexcept {
-    SmallObjAllocator* const allocator = output->allocator;
-    allocator->release(output);
+    output->flush();
 }
 
 size_t PasteOutput::writeImpl(const void* data, size_t size) {
@@ -1563,169 +1533,6 @@ void PasteOutput::begin() {
     if (bracketed) {
         output->write(StringView(u8"\x1b[200~").data(), 6);
     }
-}
-
-ClipboardCopyOutput::ClipboardCopyOutput(SmallObjAllocator* allocator_, ::Clipboard* clipboard_)
-    : allocator(allocator_)
-    , clipboard(clipboard_)
-{
-}
-
-void ClipboardCopyOutput::operator delete(ClipboardCopyOutput* output, std::destroying_delete_t) noexcept {
-    SmallObjAllocator* const allocator = output->allocator;
-    allocator->release(output);
-}
-
-size_t ClipboardCopyOutput::writeImpl(const void* data, size_t size) {
-    content.append(data, size);
-    return size;
-}
-
-void ClipboardCopyOutput::finishImpl() {
-    if (!content.empty()) {
-        clipboard->writeClipboard(StringView(content));
-    }
-}
-
-ClipboardQueryOutput::ClipboardQueryOutput(SmallObjAllocator* allocator_, ::Clipboard* clipboard_, Output* output_, bool tryClipboard_, u8 replySelector_, bool selectorsEmpty_, bool send8BitControls_)
-    : allocator(allocator_)
-    , clipboard(clipboard_)
-    , output(output_)
-    , tryClipboard(tryClipboard_)
-    , replySelector(replySelector_)
-    , selectorsEmpty(selectorsEmpty_)
-    , send8BitControls(send8BitControls_)
-{
-}
-
-ClipboardQueryOutput::~ClipboardQueryOutput() noexcept {
-    finishReply();
-}
-
-void ClipboardQueryOutput::operator delete(ClipboardQueryOutput* output, std::destroying_delete_t) noexcept {
-    SmallObjAllocator* const allocator = output->allocator;
-    allocator->release(output);
-}
-
-size_t ClipboardQueryOutput::writeImpl(const void* data, size_t size) {
-    if (size == 0) {
-        return 0;
-    }
-    beginReply();
-    encoder.write(*output, StringView((const u8*)(data), size));
-    output->flush();
-    return size;
-}
-
-void ClipboardQueryOutput::finishImpl() {
-    if (!started && tryClipboard) {
-        ClipboardQueryOutput* const fallback = allocator->make<ClipboardQueryOutput>(allocator, clipboard, output, false, replySelector, selectorsEmpty, send8BitControls);
-        output = nullptr;
-        clipboard->readClipboard(fallback);
-        return;
-    }
-    finishReply();
-}
-
-void ClipboardQueryOutput::beginReply() {
-    if (started) {
-        return;
-    }
-    started = true;
-    StringBuilder reply;
-    reply << (send8BitControls ? StringView(u8"\x9d") : StringView(u8"\x1b]")) << StringView(u8"52;");
-    if (selectorsEmpty) {
-        reply << StringView(u8"s0");
-    } else if (replySelector != 0) {
-        reply.append(&replySelector, 1);
-    }
-    reply << StringView(u8";");
-    const StringView bytes(reply);
-    output->write(bytes.data(), bytes.length());
-}
-
-void ClipboardQueryOutput::finishReply() {
-    if (output == nullptr) {
-        return;
-    }
-    beginReply();
-    encoder.finish(*output);
-    const StringView suffix = send8BitControls ? StringView(u8"\x9c") : StringView(u8"\x1b\\");
-    output->write(suffix.data(), suffix.length());
-    output->flush();
-    Output* const completed = output;
-    output = nullptr;
-    delete completed;
-}
-
-KittyClipboardQueryOutput::KittyClipboardQueryOutput(SmallObjAllocator* allocator_, Output* output_, StringView id_, StringView mimeType_, bool primary_, bool targets_, bool send8BitControls_)
-    : allocator(allocator_)
-    , output(output_)
-    , primary(primary_)
-    , targets(targets_)
-    , send8BitControls(send8BitControls_)
-{
-    copyKittyClipboardId(id, id_);
-    mimeType.append(mimeType_.data(), mimeType_.length());
-}
-
-KittyClipboardQueryOutput::~KittyClipboardQueryOutput() noexcept {
-    finishReply(false);
-}
-
-void KittyClipboardQueryOutput::operator delete(KittyClipboardQueryOutput* output, std::destroying_delete_t) noexcept {
-    SmallObjAllocator* const allocator = output->allocator;
-    allocator->release(output);
-}
-
-size_t KittyClipboardQueryOutput::writeImpl(const void* data, size_t size) {
-    if (targets || size == 0) {
-        return size;
-    }
-    beginReply();
-    const u8* current = (const u8*)(data);
-    while (size != 0) {
-        constexpr size_t maximumChunk = 4096;
-        const size_t chunk = size < maximumChunk ? size : maximumChunk;
-        writePacket(StringView(u8"DATA"), StringView(mimeType), StringView(current, chunk));
-        current += chunk;
-        size -= chunk;
-    }
-    return current - (const u8*)(data);
-}
-
-void KittyClipboardQueryOutput::finishImpl() {
-    finishReply(true);
-}
-
-void KittyClipboardQueryOutput::beginReply() {
-    if (started) {
-        return;
-    }
-    started = true;
-    writePacket(StringView(u8"OK"));
-}
-
-void KittyClipboardQueryOutput::finishReply(bool success) {
-    if (output == nullptr) {
-        return;
-    }
-    if (!success) {
-        writePacket(started ? StringView(u8"EIO") : StringView(u8"ENOSYS"));
-    } else {
-        beginReply();
-        if (targets) {
-            writePacket(StringView(u8"DATA"), StringView(u8"."), StringView(u8"text/plain\n"));
-        }
-        writePacket(StringView(u8"DONE"));
-    }
-    Output* const completed = output;
-    output = nullptr;
-    delete completed;
-}
-
-void KittyClipboardQueryOutput::writePacket(StringView status, StringView mimeType_, StringView payload) {
-    writeKittyClipboardPacket(*output, send8BitControls, StringView(u8"read"), status, StringView(id), mimeType_, payload, primary);
 }
 
 bool VtermInput::key(const KeyInput& input) {
@@ -2295,14 +2102,11 @@ void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, const ScreenFrame& fr
 }
 
 void VtermImpl::drop(StringView text) {
-    if (text.empty() || composer.ptyOutputs == nullptr || composer.ptyOutput == nullptr) {
+    if (text.empty() || composer.ptyOutput == nullptr) {
         return;
     }
-    Output* const insertion = composer.ptyOutput;
-    composer.ptyOutput = composer.ptyOutputs->append();
-    PasteOutput* const output = composer.smallObjects->make<PasteOutput>(composer.smallObjects, insertion, bracketedPasteMode);
-    output->write(text.data(), text.length());
-    delete output;
+    PasteOutput paste(composer.ptyOutput, bracketedPasteMode);
+    paste.write(text.data(), text.length());
 }
 
 void VtermImpl::dropPath(StringView path) {
@@ -6201,8 +6005,8 @@ void VtermImpl::osc_SELECTION_FOREGROUND(Color color, bool query) {
 }
 
 void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) {
-    ::Clipboard* const target = composer.clipboard;
-    if (!opts.allowOsc52Read || target == nullptr || composer.ptyOutputs == nullptr || composer.ptyOutput == nullptr) {
+    const bool usable = opts.allowOsc52Read && composer.clipboard != nullptr && composer.pty != nullptr && composer.ptyMutex != nullptr && composer.platform != nullptr;
+    if (!usable || (!primary && !clipboard)) {
         StringBuilder reply;
         reply << StringView(u8"52;");
         if (selectorsEmpty) {
@@ -6214,17 +6018,39 @@ void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelect
         writeOscResponse(StringView(reply));
         return;
     }
-    Output* const insertion = composer.ptyOutput;
-    composer.ptyOutput = composer.ptyOutputs->append();
-    ClipboardQueryOutput* const output = composer.smallObjects->make<ClipboardQueryOutput>(composer.smallObjects, target, insertion, primary && clipboard, replySelector, selectorsEmpty, send8BitControls);
-    if (primary) {
-        target->readPrimary(output);
-    } else if (clipboard) {
-        target->readClipboard(output);
-    } else {
-        output->finish();
-        delete output;
-    }
+    const bool tryClipboard = primary && clipboard;
+    const bool eightBit = send8BitControls;
+    spawnFiber(composer, [this, primary, tryClipboard, replySelector, selectorsEmpty, eightBit] {
+        composer.ptyMutex->lock(*composer.platform->scheduler());
+        Buffer content;
+        if (!composer.clipboard->readAll(primary, content)) {
+            content.reset();
+        }
+        if (content.empty() && tryClipboard) {
+            content.reset();
+            if (!composer.clipboard->readAll(false, content)) {
+                content.reset();
+            }
+        }
+        Output& output = *composer.pty->output();
+        StringBuilder header;
+        header << (eightBit ? StringView(u8"\x9d") : StringView(u8"\x1b]")) << StringView(u8"52;");
+        if (selectorsEmpty) {
+            header << StringView(u8"s0");
+        } else if (replySelector != 0) {
+            header.append(&replySelector, 1);
+        }
+        header << StringView(u8";");
+        const StringView prefix(header);
+        output.write(prefix.data(), prefix.length());
+        Base64Encoder encoder;
+        encoder.write(output, StringView(content));
+        encoder.finish(output);
+        const StringView suffix = eightBit ? StringView(u8"\x9c") : StringView(u8"\x1b\\");
+        output.write(suffix.data(), suffix.length());
+        output.flush();
+        composer.ptyMutex->unlock();
+    });
 }
 
 void VtermImpl::osc_CLIPBOARD_WRITE(StringView decoded, bool valid, bool primary, bool clipboard) {
@@ -6262,8 +6088,7 @@ void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bo
         writeKittyClipboardStatus(StringView(u8"read"), id, StringView(u8"EPERM"));
         return;
     }
-    ::Clipboard* const clipboard = composer.clipboard;
-    if (clipboard == nullptr || composer.ptyOutputs == nullptr || composer.ptyOutput == nullptr) {
+    if (composer.clipboard == nullptr || composer.pty == nullptr || composer.ptyMutex == nullptr || composer.platform == nullptr) {
         writeKittyClipboardStatus(StringView(u8"read"), id, StringView(u8"ENOSYS"));
         return;
     }
@@ -6273,14 +6098,40 @@ void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bo
         return;
     }
 
-    Output* const insertion = composer.ptyOutput;
-    composer.ptyOutput = composer.ptyOutputs->append();
-    KittyClipboardQueryOutput* const output = composer.smallObjects->make<KittyClipboardQueryOutput>(composer.smallObjects, insertion, id, mimeType, primary, targets, send8BitControls);
-    if (primary) {
-        clipboard->readPrimary(output);
-    } else {
-        clipboard->readClipboard(output);
-    }
+    Buffer cleanId;
+    copyKittyClipboardId(cleanId, id);
+    std::string idCopy((const char*)(cleanId.data()), cleanId.used());
+    std::string mimeCopy((const char*)(mimeType.data()), mimeType.length());
+    const bool eightBit = send8BitControls;
+    spawnFiber(composer, [this, idCopy, mimeCopy, primary, targets, eightBit] {
+        composer.ptyMutex->lock(*composer.platform->scheduler());
+        Buffer content;
+        const bool delivered = composer.clipboard->readAll(primary, content);
+        Output& output = *composer.pty->output();
+        const StringView idView((const u8*)(idCopy.data()), idCopy.size());
+        const StringView mimeView((const u8*)(mimeCopy.data()), mimeCopy.size());
+        if (!delivered) {
+            writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"ENOSYS"), idView, {}, {}, primary);
+        } else {
+            writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"OK"), idView, {}, {}, primary);
+            if (targets) {
+                writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"DATA"), idView, StringView(u8"."), StringView(u8"text/plain\n"), primary);
+            } else {
+                constexpr size_t maximumChunk = 4096;
+                const u8* current = (const u8*)(content.data());
+                size_t remaining = content.used();
+                while (remaining != 0) {
+                    const size_t chunk = remaining < maximumChunk ? remaining : maximumChunk;
+                    writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"DATA"), idView, mimeView, StringView(current, chunk), primary);
+                    current += chunk;
+                    remaining -= chunk;
+                }
+            }
+            writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"DONE"), idView, {}, {}, primary);
+        }
+        output.flush();
+        composer.ptyMutex->unlock();
+    });
 }
 
 void VtermImpl::osc_KITTY_CLIPBOARD_WRITE(StringView id, bool primary) {
@@ -6359,7 +6210,7 @@ void VtermImpl::osc_KITTY_CLIPBOARD_INVALID(StringView id, bool write) {
 }
 
 bool VtermImpl::pasteMimeNotification(bool primary) {
-    if (composer.clipboard == nullptr || composer.ptyOutputs == nullptr || composer.ptyOutput == nullptr) {
+    if (composer.clipboard == nullptr || composer.pty == nullptr || composer.ptyMutex == nullptr || composer.platform == nullptr) {
         return false;
     }
     osc_KITTY_CLIPBOARD_READ({}, StringView(u8"."), primary, true);

@@ -6,16 +6,23 @@
 
 #pragma once
 
-#include <std/sys/types.h>
+namespace stl {
+    class Input;
+    class Output;
+}
 
 struct Composer;
 struct LaunchCommand;
 
+// The terminal's PTY as a pair of blocking stream facades. Both sides run
+// on fibers: a read that would block parks the calling fiber until the
+// descriptor is readable, a write parks it until the kernel accepts the
+// remaining bytes. Writers serialize through composer.ptyMutex.
 struct Pty {
-    virtual ssize_t write(const u8* buffer, size_t size) = 0;
-    virtual void outputReady() = 0;
+    virtual stl::Input* input() = 0;
+    virtual stl::Output* output() = 0;
 
     // Opens the PTY, starts the child, owns the master, wires resize events,
-    // and registers itself with the platform poller.
+    // and spawns the fiber that feeds terminal output into the vterm.
     static Pty* create(Composer& composer, const LaunchCommand& command);
 };

@@ -15,6 +15,7 @@
 
 #include <std/ios/out.h>
 #include <std/ios/output.h>
+#include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
 
 #include <stdexcept>
@@ -27,8 +28,7 @@ namespace {
         explicit VtermHeadlessImpl(Composer& composer);
 
         void feed(const u8* data, size_t len) override;
-        void readPrimary(Output* output) override;
-        void readClipboard(Output* output) override;
+        bool readAll(bool primary, Buffer& content) override;
         void writePrimary(StringView) override;
         void writeClipboard(StringView) override;
 
@@ -55,14 +55,8 @@ void VtermHeadlessImpl::feed(const u8* data, size_t len) {
     }
 }
 
-void VtermHeadlessImpl::readPrimary(Output* output) {
-    output->finish();
-    delete output;
-}
-
-void VtermHeadlessImpl::readClipboard(Output* output) {
-    output->finish();
-    delete output;
+bool VtermHeadlessImpl::readAll(bool, Buffer&) {
+    return true;
 }
 
 void VtermHeadlessImpl::writePrimary(StringView) {

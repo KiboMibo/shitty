@@ -17,6 +17,7 @@ namespace stl {
 }
 
 namespace plt {
+    struct FiberMutex;
     struct InputSink;
     struct Platform;
     struct Window;
@@ -31,7 +32,6 @@ struct FontMetrics;
 struct InputBindings;
 struct Renderer;
 struct Pty;
-struct PtyOutputQueue;
 struct Vterm;
 struct FontRequest;
 
@@ -59,7 +59,9 @@ struct Composer {
     InputBindings* inputBindings = nullptr;
     plt::InputSink* input = nullptr;
     stl::Output* ptyOutput = nullptr;
-    PtyOutputQueue* ptyOutputs = nullptr;
+    // Serializes writers of the PTY stream: the pty's own staging fiber and
+    // every transaction fiber take it before writing to pty->output().
+    plt::FiberMutex* ptyMutex = nullptr;
     Renderer* renderer = nullptr;
     Pty* pty = nullptr;
     plt::Platform* platform = nullptr;
