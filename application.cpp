@@ -29,6 +29,7 @@
 #include "test_mode.h"
 #include "vterm.h"
 
+#include <plt/drop.h>
 #include <plt/platform.h>
 #include <plt/window.h>
 
@@ -471,6 +472,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .input = composer.input,
             .events = this,
             .frame = this,
+            .drop = plt::DropTarget::create(*composer.pool, *composer.input),
         }
     );
     composer.clipboard = ::Clipboard::create(composer, *composer.window);

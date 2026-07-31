@@ -77,6 +77,9 @@ namespace {
         ClipboardHeadless clipboard_;
         WindowInfo info_;
         WindowInfo restored_;
+        PointerIcon icon_ = PointerIcon::Default;
+        std::vector<u8> uri_;
+        u64 openCount_ = 0;
         mutable HeadlessRenderTarget target_;
         std::vector<u8> front_;
         std::vector<u8> back_;
@@ -87,9 +90,6 @@ namespace {
         bool failNext_ = false;
         bool haveRestored_ = false;
         bool closed_ = false;
-        PointerIcon icon_ = PointerIcon::Default;
-        std::vector<u8> uri_;
-        u64 openCount_ = 0;
     };
 
     struct PlatformHeadless final: Platform {

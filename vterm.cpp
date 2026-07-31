@@ -420,6 +420,7 @@ namespace {
         bool advanceAnimation(bool force) override;
         void preedit(StringView text, i32 cursorBegin, i32 cursorEnd) override;
         void drop(StringView text) override;
+        void dropPath(StringView path) override;
         const TerminalUpdate* output() override;
         void consume() override;
         VtermState state() const override;
@@ -2302,6 +2303,38 @@ void VtermImpl::drop(StringView text) {
     PasteOutput* const output = composer.smallObjects->make<PasteOutput>(composer.smallObjects, insertion, bracketedPasteMode);
     output->write(text.data(), text.length());
     delete output;
+}
+
+void VtermImpl::dropPath(StringView path) {
+    if (path.empty()) {
+        return;
+    }
+    bool plain = true;
+    for (size_t index = 0; index < path.length(); ++index) {
+        const u8 byte = path.data()[index];
+        const bool alnum = (byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') || (byte >= '0' && byte <= '9');
+        if (!alnum && byte != '/' && byte != '.' && byte != '_' && byte != '-' && byte != '+' && byte != ':' && byte != '@' && byte != '%' && byte != ',' && byte != '=') {
+            plain = false;
+            break;
+        }
+    }
+    StringBuilder quoted(path.length() + 4);
+    if (plain) {
+        quoted << path;
+    } else {
+        quoted << StringView(u8"'");
+        for (size_t index = 0; index < path.length(); ++index) {
+            const u8 byte = path.data()[index];
+            if (byte == '\'') {
+                quoted << StringView(u8"'\\''");
+            } else {
+                quoted.append(&byte, 1);
+            }
+        }
+        quoted << StringView(u8"'");
+    }
+    quoted << StringView(u8" ");
+    drop(StringView(quoted));
 }
 
 void VtermImpl::preedit(StringView text, i32 cursorBegin, i32 cursorEnd) {

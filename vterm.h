@@ -122,6 +122,9 @@ struct Vterm {
     // Text dropped onto the window by a drag-and-drop session; applies the
     // same sanitizing and bracketed-paste treatment as a clipboard paste.
     virtual void drop(stl::StringView text) = 0;
+    // One entry of a dropped file list; inserted shell-quoted with a
+    // trailing separator through the same paste path as drop().
+    virtual void dropPath(stl::StringView path) = 0;
 
     virtual bool expireSynchronizedOutput(bool force) = 0;
     virtual bool advanceAnimation(bool force) = 0;

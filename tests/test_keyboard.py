@@ -103,6 +103,36 @@ class KeyboardTest(unittest.TestCase):
             terminal.char("x")
             self.assertEqual(terminal.read_input(), b"x")
 
+    def test_dropped_plain_path_is_inserted_with_separator(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.drop_path(b"/home/user/file.txt")
+            self.assertEqual(terminal.read_input(), b"/home/user/file.txt ")
+
+    def test_dropped_path_with_spaces_is_shell_quoted(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.drop_path(b"/home/user/my file.txt")
+            self.assertEqual(
+                terminal.read_input(),
+                b"'/home/user/my file.txt' ",
+            )
+
+    def test_dropped_path_escapes_single_quotes(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.drop_path(b"/tmp/it's here")
+            self.assertEqual(
+                terminal.read_input(),
+                b"'/tmp/it'\\''s here' ",
+            )
+
+    def test_dropped_path_respects_bracketed_paste_mode(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[?2004h")
+            terminal.drop_path(b"/home/user/file.txt")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[200~/home/user/file.txt \x1b[201~",
+            )
+
     def test_keyboard_lock_discards_user_input(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[2h")

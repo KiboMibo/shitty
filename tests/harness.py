@@ -564,6 +564,9 @@ class Shitty:
     def drop(self, data):
         self.command("DROP " + data.hex())
 
+    def drop_path(self, data):
+        self.command("DROP_PATH " + data.hex())
+
     def paste_clipboard(self, primary=False):
         self.stream.write(
             f"PASTE_CLIPBOARD {int(primary)}\n".encode("ascii")

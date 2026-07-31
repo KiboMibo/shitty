@@ -1969,6 +1969,10 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 const std::string text = decodeHex(line.substr(5));
                 composer.input->drop(StringView((const u8*)(text.data()), text.size()));
                 writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 10, "DROP_PATH ") == 0) {
+                const std::string path = decodeHex(line.substr(10));
+                composer.input->dropPath(StringView((const u8*)(path.data()), path.size()));
+                writeAll(controlFd, "OK\n");
             } else if (line == "PASTE_CLIPBOARD 0" || line == "PASTE_CLIPBOARD 1") {
                 writeAll(controlFd, testApi.pasteClipboard(line.back() == '1') ? "OK 1\n" : "OK 0\n");
             } else if (line.compare(0, 6, "FOCUS ") == 0) {
