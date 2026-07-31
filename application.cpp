@@ -28,6 +28,8 @@
 #include "vterm.h"
 
 #include <plt/drop.h>
+#include <plt/fiber.h>
+#include <plt/input.h>
 #include <plt/mutex.h>
 #include <plt/platform.h>
 #include <plt/window.h>
@@ -461,6 +463,10 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         }
     }
     composer.platform = plt::Platform::create(*composer.pool);
+    // Input deliveries run on one fiber, so handlers may block on the PTY
+    // mutex or descriptor without stopping the event loop; later input
+    // waits in the sink's queue.
+    composer.input = plt::createFiberInputSink(*composer.pool, *composer.platform->scheduler(), *composer.input);
     composer.window = composer.platform->createWindow(
         *composer.pool,
         {

@@ -118,6 +118,16 @@ namespace {
     template <typename F>
     struct FiberTask;
 
+    // The permanent key-repeat fiber: the initial delay and the cadence are
+    // parkFor() waits, and any state change wakes it to re-evaluate.
+    struct RepeatBody final: public Runable {
+        explicit RepeatBody(PlatformImpl* platform);
+
+        void run() override;
+
+        PlatformImpl* platform;
+    };
+
     constexpr u32 scaleDenominator = 120;
     // Abort a selection transfer when the peer makes no progress for this
     // long; otherwise a stalled clipboard source or consumer pins the pipe
@@ -340,8 +350,6 @@ namespace {
         void armDisplay(bool write);
         bool flushDisplay();
         void dispatch();
-        void dispatchTimeouts();
-        u64 nextDeadline() const;
         void serial(u32 value);
         void keyboardKey(u32 serial, u32 time, u32 key, u32 state, bool repeated = false);
         bool consumeEnterPressedKey(u32 key, u32 state);
@@ -430,7 +438,9 @@ namespace {
         u32 repeatTime = 0;
         u32 repeatRate = 0;
         u32 repeatDelay = 0;
-        u64 repeatDeadline = 0;
+        RepeatBody repeatBody_{this};
+        Fiber* repeatFiber_ = nullptr;
+        alignas(16) u8 repeatStack_[lightFiberStack];
         u32 latestSerial = 0;
         u32 pointerEnterSerial = 0;
         u32 seatName = 0;
@@ -1348,6 +1358,7 @@ PlatformImpl::PlatformImpl(ObjPool& owner)
     owner_ = &owner;
     allocator_ = SmallObjAllocator::create(&owner);
     scheduler_ = Scheduler::create(owner, *poller_);
+    scheduler_->spawn(repeatBody_, repeatStack_, sizeof(repeatStack_));
     display = wl_display_connect(nullptr);
     if (display == nullptr) {
         fail(u8"wl_display_connect failed");
@@ -1753,24 +1764,12 @@ void PollerImpl::wait(u64 monotonicDeadline) {
     readyFDs.clear();
 }
 
-void PlatformImpl::dispatchTimeouts() {
-    const u64 now = monotonicNowUs();
-    if (repeatDeadline != 0 && now >= repeatDeadline) {
-        repeat();
-    }
-    poller_->dispatchTimers();
-}
-
-u64 PlatformImpl::nextDeadline() const {
-    return repeatDeadline == 0 ? poller_->nextDeadline() : min(repeatDeadline, poller_->nextDeadline());
-}
-
 void PlatformImpl::dispatch() {
     if (wl_display_dispatch_pending(display) < 0) {
         stop();
         return;
     }
-    dispatchTimeouts();
+    poller_->dispatchTimers();
 }
 
 void PlatformImpl::run() {
@@ -1783,7 +1782,7 @@ void PlatformImpl::run() {
         if (!flushDisplay()) {
             break;
         }
-        poller_->wait(nextDeadline());
+        poller_->wait(poller_->nextDeadline());
     }
 }
 
@@ -2097,7 +2096,7 @@ void PlatformImpl::keyboardKey(u32 serial, u32 time, u32 key, u32 state, bool re
         repeatKeycode = key;
         repeatSerial = serial;
         repeatTime = time;
-        repeatDeadline = monotonicNowUs() + (u64)(repeatDelay) * 1000;
+        repeatFiber_->wake();
     } else if (!repeated && state == WL_KEYBOARD_KEY_STATE_RELEASED && repeatWindow == keyboardFocus && repeatKeycode == key) {
         stopRepeat();
     }
@@ -2109,23 +2108,44 @@ void PlatformImpl::repeat() {
         return;
     }
     keyboardKey(repeatSerial, repeatTime, repeatKeycode, WL_KEYBOARD_KEY_STATE_PRESSED, true);
-    if (repeatDeadline == 0) {
-        return;
-    }
-    // Advance from the previous deadline so the repeat rate does not drift,
-    // but never schedule into the past after a stall.
-    const u64 interval = 1'000'000 / repeatRate;
-    repeatDeadline += interval;
-    const u64 now = monotonicNowUs();
-    if (repeatDeadline <= now) {
-        repeatDeadline = now + interval;
-    }
 }
 
 void PlatformImpl::stopRepeat() {
     repeatWindow = nullptr;
     repeatKeycode = 0;
-    repeatDeadline = 0;
+    if (repeatFiber_ != nullptr) {
+        repeatFiber_->wake();
+    }
+}
+
+RepeatBody::RepeatBody(PlatformImpl* platform_)
+    : platform(platform_)
+{
+}
+
+void RepeatBody::run() {
+    PlatformImpl& impl = *platform;
+    Fiber* const self = impl.scheduler_->current();
+    impl.repeatFiber_ = self;
+    for (;;) {
+        while (impl.repeatKeycode == 0) {
+            self->park();
+        }
+        // The initial delay; a wake means the state changed and the outer
+        // loop re-evaluates from scratch.
+        if (self->parkFor((u64)(impl.repeatDelay) * 1000)) {
+            continue;
+        }
+        while (impl.repeatKeycode != 0 && impl.repeatRate != 0) {
+            impl.repeat();
+            if (impl.repeatKeycode == 0 || impl.repeatRate == 0) {
+                break;
+            }
+            if (self->parkFor(1'000'000 / impl.repeatRate)) {
+                break;
+            }
+        }
+    }
 }
 
 void PlatformImpl::writeSelection(int fd, StringView content) {

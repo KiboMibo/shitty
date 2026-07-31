@@ -23,7 +23,6 @@
 #include <plt/platform.h>
 #include <plt/window.h>
 
-#include <std/alg/xchg.h>
 #include <std/ios/input.h>
 #include <std/ios/output.h>
 #include <std/lib/buffer.h>
@@ -67,21 +66,12 @@ namespace {
         explicit PtyStreamOutput(PtyImpl* pty);
 
         size_t writeImpl(const void* data, size_t len) override;
-        void flushImpl() override;
 
         PtyImpl* pty;
     };
 
     struct PtyFeed final: public Runable {
         explicit PtyFeed(PtyImpl* pty);
-
-        void run() override;
-
-        PtyImpl* pty;
-    };
-
-    struct PtyStager final: public Runable {
-        explicit PtyStager(PtyImpl* pty);
 
         void run() override;
 
@@ -107,13 +97,9 @@ namespace {
         PtyStreamInput input_;
         PtyStreamOutput output_;
         PtyFeed feed_;
-        PtyStager stager_;
-        Buffer staged_;
-        plt::Fiber* stagerFiber_ = nullptr;
         // The feed fiber keeps its 64K read buffer and the whole parser
         // depth on this stack.
         alignas(16) u8 feedStack_[256 * 1024];
-        alignas(16) u8 stagerStack_[plt::lightFiberStack];
     };
 }
 
@@ -156,21 +142,17 @@ PtyStreamOutput::PtyStreamOutput(PtyImpl* pty_)
 
 size_t PtyStreamOutput::writeImpl(const void* data, size_t len) {
     plt::Scheduler* const scheduler = pty->scheduler();
-    if (scheduler != nullptr && scheduler->inFiber()) {
-        // A fiber holds composer.ptyMutex by convention and may block on
-        // the descriptor directly.
+    plt::FiberMutex* const mutex = pty->composer_.ptyMutex;
+    if (scheduler == nullptr || !scheduler->inFiber() || mutex == nullptr) {
+        // Teardown paths outside any fiber degrade to a best-effort write.
         return pty->rawWrite(data, len);
     }
-    // An event callback must not block; the bytes wait for the staging
-    // fiber, which replays them under the mutex in arrival order.
-    pty->staged_.append(data, len);
-    return len;
-}
-
-void PtyStreamOutput::flushImpl() {
-    if (!pty->staged_.empty() && pty->stagerFiber_ != nullptr) {
-        pty->stagerFiber_->wake();
+    if (mutex->heldByCurrent(*scheduler)) {
+        // A transaction owns the stream and writes through.
+        return pty->rawWrite(data, len);
     }
+    const plt::LockGuard guard(*mutex, *scheduler);
+    return pty->rawWrite(data, len);
 }
 
 size_t PtyImpl::rawWrite(const void* data, size_t len) {
@@ -201,31 +183,6 @@ size_t PtyImpl::rawWrite(const void* data, size_t len) {
         break;
     }
     return len;
-}
-
-PtyStager::PtyStager(PtyImpl* pty_)
-    : pty(pty_)
-{
-}
-
-void PtyStager::run() {
-    PtyImpl& impl = *pty;
-    plt::Scheduler* const scheduler = impl.scheduler();
-    impl.stagerFiber_ = scheduler->current();
-    Buffer local;
-    for (;;) {
-        while (impl.staged_.empty()) {
-            impl.stagerFiber_->park();
-        }
-        const plt::LockGuard guard(*impl.composer_.ptyMutex, *scheduler);
-        // Bytes staged while a replay blocks in the descriptor drain in the
-        // same round, still ahead of any writer queued on the mutex.
-        while (!impl.staged_.empty()) {
-            xchg(local, impl.staged_);
-            impl.rawWrite(local.data(), local.used());
-            local.reset();
-        }
-    }
 }
 
 PtyFeed::PtyFeed(PtyImpl* pty_)
@@ -262,8 +219,7 @@ PtyImpl::PtyImpl(Composer& composer, int fd)
     , readFd_(fd)
     , input_(this)
     , output_(this)
-    , feed_(this)
-    , stager_(this) {
+    , feed_(this) {
     const int flags = fcntl(readFd_, F_GETFL, 0);
     if (flags < 0 || fcntl(readFd_, F_SETFL, flags | O_NONBLOCK) < 0) {
         const int error = errno;
@@ -314,7 +270,6 @@ void PtyImpl::resize() {
 
 void PtyImpl::start() {
     composer_.resizedListeners.pushBack(this);
-    scheduler()->spawn(stager_, stagerStack_, sizeof(stagerStack_));
     scheduler()->spawn(feed_, feedStack_, sizeof(feedStack_));
 }
 

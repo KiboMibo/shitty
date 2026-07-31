@@ -8527,6 +8527,17 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
         return 0;
     }
     const StringView bytes(ucstr, len);
+    plt::Scheduler* const scheduler = composer.platform == nullptr ? nullptr : composer.platform->scheduler();
+    if (scheduler != nullptr && !scheduler->inFiber()) {
+        // A writer outside any fiber — the in-band resize report runs on a
+        // frame callback — must not interleave into a transaction that owns
+        // the stream; its bytes replay from a transaction of their own.
+        spawnTransaction([this, owned = Buffer(bytes)] {
+            composer.ptyOutput->write(owned.data(), owned.length());
+            composer.ptyOutput->flush();
+        });
+        return len;
+    }
     output->write(bytes.data(), bytes.length());
     output->flush();
     return len;

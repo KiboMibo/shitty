@@ -3,6 +3,10 @@
 #include <std/str/view.h>
 #include <std/sys/types.h>
 
+namespace stl {
+    class ObjPool;
+}
+
 namespace plt {
     enum class InputKey : u8 {
         Unknown,
@@ -211,4 +215,12 @@ namespace plt {
         virtual void pointerPresence(bool present) = 0;
         virtual void flush() = 0;
     };
+
+    struct Scheduler;
+
+    // Rehosts every delivery of target onto one long-lived fiber, in
+    // arrival order. Producers enqueue from the event loop and return
+    // immediately; a delivery that blocks holds back later input, not the
+    // loop. Transient payloads are copied at the boundary.
+    InputSink* createFiberInputSink(stl::ObjPool& owner, Scheduler& scheduler, InputSink& target);
 }

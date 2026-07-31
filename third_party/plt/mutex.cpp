@@ -16,6 +16,7 @@ namespace {
 
 void FiberMutex::lock(Scheduler& scheduler) {
     if (tryLock()) {
+        owner = scheduler.current();
         return;
     }
     MutexWaiter waiter;
@@ -39,6 +40,7 @@ bool FiberMutex::tryLock() {
 void FiberMutex::unlock() {
     if (waiters.empty()) {
         held = false;
+        owner = nullptr;
         return;
     }
     // Ownership passes directly to the oldest waiter: held stays true, so
@@ -46,7 +48,12 @@ void FiberMutex::unlock() {
     // queue behind it.
     MutexWaiter* const waiter = static_cast<MutexWaiter*>(waiters.popFront());
     waiter->granted = true;
+    owner = waiter->fiber;
     waiter->fiber->wake();
+}
+
+bool FiberMutex::heldByCurrent(Scheduler& scheduler) const {
+    return held && owner != nullptr && owner == scheduler.current();
 }
 
 LockGuard::LockGuard(FiberMutex& mutex_, Scheduler& scheduler)

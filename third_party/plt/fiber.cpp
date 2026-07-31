@@ -29,6 +29,7 @@ namespace {
         void ready() override;
         void run() override;
         void park() override;
+        bool parkFor(u64 timeoutUs) override;
         void wake() override;
 
         void block();
@@ -94,6 +95,25 @@ void FiberImpl::park() {
     }
     parked = true;
     block();
+}
+
+bool FiberImpl::parkFor(u64 timeoutUs) {
+    if (wakePending) {
+        wakePending = false;
+        return true;
+    }
+    parked = true;
+    timerFired = false;
+    scheduler.poller.timeout(timeoutUs, *this);
+    block();
+    if (parked) {
+        // The timer resumed us while still parked.
+        parked = false;
+        return false;
+    }
+    // A wake resumed us; the pending timer must not fire later.
+    scheduler.poller.cancel(*this);
+    return true;
 }
 
 void FiberImpl::wake() {

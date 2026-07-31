@@ -3,6 +3,7 @@
 #include <std/lib/list.h>
 
 namespace plt {
+    struct Fiber;
     struct Scheduler;
 
     // A cooperative FIFO mutex for fibers. The mutex itself is only the
@@ -16,8 +17,12 @@ namespace plt {
         // Takes the mutex when it is free; never blocks.
         bool tryLock();
         void unlock();
+        // True when the calling fiber holds the mutex; lets a writer called
+        // from an owning transaction pass through instead of deadlocking.
+        bool heldByCurrent(Scheduler& scheduler) const;
 
         stl::IntrusiveList waiters;
+        Fiber* owner = nullptr;
         bool held = false;
     };
 

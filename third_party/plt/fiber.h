@@ -17,6 +17,9 @@ namespace plt {
     // parked is remembered and the next park returns immediately.
     struct Fiber {
         virtual void park() = 0;
+        // Parks until wake() or the deadline; false when the wait timed
+        // out. May be called only from the fiber itself.
+        virtual bool parkFor(u64 timeoutUs) = 0;
         virtual void wake() = 0;
     };
 
