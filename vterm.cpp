@@ -352,12 +352,14 @@ namespace {
         InputActions action;
     };
 
-    struct CallVtermTimeout: plt::TimerCallback {
-        explicit CallVtermTimeout(VtermImpl* parent);
+    // A permanent timer fiber body dispatching to one VtermImpl method.
+    struct VtermTimerBody final: public Runable {
+        VtermTimerBody(VtermImpl* parent, void (VtermImpl::*method)());
 
-        void ready() override;
+        void run() override;
 
         VtermImpl* parent;
+        void (VtermImpl::*method)();
     };
 
     struct VtermImpl final: public Vterm, public InputHandler, public ParserIface {
@@ -443,11 +445,14 @@ namespace {
 
         void redraw();
         bool animationActive() const;
+        void wakeTimers();
+        void startTimers();
+        void runSyncWatchdog();
+        void runBlink();
+        void runAutoscroll();
         void enableBlinkingText();
         void refreshBlinkingText();
         void exposeFrames();
-        void armTimeout();
-        void timeout();
 
         using InputSpec = VtermInputSpec;
 
@@ -792,6 +797,7 @@ namespace {
         void osc_CLIPBOARD_WRITE(StringView, bool, bool, bool) override;
         void osc_KITTY_CLIPBOARD_READ(StringView, StringView, bool, bool) override;
         void osc_KITTY_CLIPBOARD_WRITE(StringView, bool) override;
+        void abortKittyClipboardWrite(StringView status);
         void osc_KITTY_CLIPBOARD_WRITE_DATA(StringView, StringView, StringView, bool) override;
         void osc_KITTY_CLIPBOARD_WRITE_ALIAS(StringView, StringView, StringView, bool) override;
         void osc_KITTY_CLIPBOARD_INVALID(StringView, bool) override;
@@ -886,7 +892,15 @@ namespace {
         void applyPaletteColor(u16 index, Color color);
 
         VtermInput input;
-        CallVtermTimeout callTimeout;
+        VtermTimerBody syncBody_{this, &VtermImpl::runSyncWatchdog};
+        VtermTimerBody blinkBody_{this, &VtermImpl::runBlink};
+        VtermTimerBody autoscrollBody_{this, &VtermImpl::runAutoscroll};
+        plt::Fiber* syncFiber_ = nullptr;
+        plt::Fiber* blinkFiber_ = nullptr;
+        plt::Fiber* autoscrollFiber_ = nullptr;
+        alignas(16) u8 syncStack_[plt::lightFiberStack];
+        alignas(16) u8 blinkStack_[plt::lightFiberStack];
+        alignas(16) u8 autoscrollStack_[plt::lightFiberStack];
         IntrusiveList copyListeners;
         IntrusiveList pasteListeners;
         IntrusiveList pastePrimaryListeners;
@@ -1063,10 +1077,10 @@ namespace {
         std::map<u32, bool> savedPrivModes;
         std::map<InputKey, std::string> userDefinedKeys;
         bool userDefinedKeysLocked = false;
-        Buffer kittyClipboardWriteContent;
         Buffer kittyClipboardWriteId;
-        bool kittyClipboardWriteOpen = false;
-        bool kittyClipboardWritePrimary = false;
+        // The open write transaction; deleting it without finish() aborts.
+        stl::Output* kittyClipboardWriteStream = nullptr;
+        size_t kittyClipboardWriteLength = 0;
 
         struct KittyKeyboardState {
             u8 flags = 0;
@@ -1262,6 +1276,16 @@ void FiberTask<F>::run() {
     owner->fiberBlocks_ = spent;
 }
 
+VtermTimerBody::VtermTimerBody(VtermImpl* parent_, void (VtermImpl::*method_)())
+    : parent(parent_)
+    , method(method_)
+{
+}
+
+void VtermTimerBody::run() {
+    (parent->*method)();
+}
+
 template <typename F>
 void VtermImpl::spawnTransaction(F&& body) {
     FiberBlock* block = fiberBlocks_;
@@ -1454,7 +1478,7 @@ void VtermInput::stopSelectionAutoscroll() {
 }
 
 void VtermInput::armTimeout() {
-    terminal->armTimeout();
+    terminal->wakeTimers();
 }
 
 bool VtermInput::advanceSelectionAutoscroll(bool force) {
@@ -1921,9 +1945,6 @@ void VtermInput::pointerPresence(bool present) {
 }
 
 VtermImpl::~VtermImpl() {
-    if (composer.platform != nullptr) {
-        composer.platform->poller()->cancel(callTimeout);
-    }
     delete framePriPool;
     delete frameAltPool;
 }
@@ -2656,7 +2677,7 @@ void VtermImpl::enableBlinkingText() {
         nextBlink = monotonicNowUs() + 500'000;
     }
     haveBlinkingText = true;
-    armTimeout();
+    wakeTimers();
 }
 
 void VtermImpl::exposeFrames() {
@@ -2670,39 +2691,88 @@ void VtermImpl::refreshBlinkingText() {
         nextBlink = monotonicNowUs() + 500'000;
     }
     haveBlinkingText = blinking;
-    armTimeout();
+    wakeTimers();
 }
 
-void VtermImpl::armTimeout() {
+void VtermImpl::wakeTimers() {
+    if (syncFiber_ != nullptr) {
+        syncFiber_->wake();
+    }
+    if (blinkFiber_ != nullptr) {
+        blinkFiber_->wake();
+    }
+    if (autoscrollFiber_ != nullptr) {
+        autoscrollFiber_->wake();
+    }
+}
+
+void VtermImpl::startTimers() {
     if (composer.platform == nullptr) {
         return;
     }
-    u64 deadline = 0;
-    if (synchronizedOutputMode) {
-        deadline = synchronizedOutputDeadline;
-    }
-    if (animationActive() && (deadline == 0 || nextBlink < deadline)) {
-        deadline = nextBlink;
-    }
-    if (input.selectionAutoscrollDeadline != 0 && (deadline == 0 || input.selectionAutoscrollDeadline < deadline)) {
-        deadline = input.selectionAutoscrollDeadline;
-    }
-    plt::Poller* const poller = composer.platform->poller();
-    if (deadline == 0) {
-        poller->cancel(callTimeout);
-    } else {
-        poller->deadline(deadline, callTimeout);
+    plt::Scheduler* const scheduler = composer.platform->scheduler();
+    scheduler->spawn(syncBody_, syncStack_, sizeof(syncStack_));
+    scheduler->spawn(blinkBody_, blinkStack_, sizeof(blinkStack_));
+    scheduler->spawn(autoscrollBody_, autoscrollStack_, sizeof(autoscrollStack_));
+}
+
+void VtermImpl::runSyncWatchdog() {
+    plt::Fiber* const self = composer.platform->scheduler()->current();
+    syncFiber_ = self;
+    for (;;) {
+        if (!synchronizedOutputMode) {
+            self->park();
+            continue;
+        }
+        const u64 now = monotonicNowUs();
+        if (synchronizedOutputDeadline > now && self->parkFor(synchronizedOutputDeadline - now)) {
+            // A wake re-evaluates the mode and the deadline from scratch.
+            continue;
+        }
+        if (expireSynchronizedOutput(false) && composer.window != nullptr) {
+            composer.window->requestFrame();
+        }
     }
 }
 
-void VtermImpl::timeout() {
-    expireSynchronizedOutput(false);
-    input.advanceSelectionAutoscroll(false);
-    if (advanceAnimation(false)) {
-        expose();
+void VtermImpl::runBlink() {
+    plt::Fiber* const self = composer.platform->scheduler()->current();
+    blinkFiber_ = self;
+    for (;;) {
+        if (!animationActive()) {
+            self->park();
+            continue;
+        }
+        const u64 now = monotonicNowUs();
+        if (nextBlink > now && self->parkFor(nextBlink - now)) {
+            continue;
+        }
+        if (advanceAnimation(false)) {
+            expose();
+            if (composer.window != nullptr) {
+                composer.window->requestFrame();
+            }
+        }
     }
-    armTimeout();
-    composer.window->requestFrame();
+}
+
+void VtermImpl::runAutoscroll() {
+    plt::Fiber* const self = composer.platform->scheduler()->current();
+    autoscrollFiber_ = self;
+    for (;;) {
+        if (input.selectionAutoscrollDeadline == 0) {
+            self->park();
+            continue;
+        }
+        const u64 now = monotonicNowUs();
+        if (input.selectionAutoscrollDeadline > now && self->parkFor(input.selectionAutoscrollDeadline - now)) {
+            continue;
+        }
+        input.advanceSelectionAutoscroll(false);
+        if (composer.window != nullptr) {
+            composer.window->requestFrame();
+        }
+    }
 }
 
 size_t VtermInputSpec::getLength() const {
@@ -2778,7 +2848,7 @@ bool VtermImpl::advanceAnimation(bool force) {
     blinkVisible = !blinkVisible;
     changePresentation();
     nextBlink = now + 500'000;
-    armTimeout();
+    wakeTimers();
     return true;
 }
 
@@ -2976,9 +3046,10 @@ void VtermImpl::resetTerminal() {
     savedPrivModes.clear();
     userDefinedKeys.clear();
     userDefinedKeysLocked = false;
-    kittyClipboardWriteContent.reset();
+    delete kittyClipboardWriteStream;
+    kittyClipboardWriteStream = nullptr;
+    kittyClipboardWriteLength = 0;
     kittyClipboardWriteId.reset();
-    kittyClipboardWriteOpen = false;
     kittyKeyboardPri = {};
     kittyKeyboardAlt = {};
     savedCursorPri.isSet = false;
@@ -4272,7 +4343,7 @@ void VtermImpl::setCursorStyle(u8 reportStyle, TerminalCursor::Style shape, bool
 void VtermImpl::refreshCursorStyle() {
     blinkVisible = true;
     nextBlink = monotonicNowUs() + 500'000;
-    armTimeout();
+    wakeTimers();
 }
 
 void VtermImpl::csi_DECIC(u32 count) {
@@ -5063,7 +5134,7 @@ void VtermImpl::setCursorBlink(bool enabled) {
         blinkVisible = true;
     }
     nextBlink = monotonicNowUs() + 500'000;
-    armTimeout();
+    wakeTimers();
 }
 
 void VtermImpl::setCursorVisible(bool enabled) {
@@ -5140,7 +5211,7 @@ void VtermImpl::setSynchronizedOutput(bool enabled) {
     if (enabled) {
         synchronizedOutputDeadline = monotonicNowUs() + 150'000;
     }
-    armTimeout();
+    wakeTimers();
 }
 
 void VtermImpl::setColorSchemeUpdates(bool enabled) {
@@ -6177,72 +6248,70 @@ void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bo
 }
 
 void VtermImpl::osc_KITTY_CLIPBOARD_WRITE(StringView id, bool primary) {
-    kittyClipboardWriteContent.reset();
+    delete kittyClipboardWriteStream;
+    kittyClipboardWriteStream = nullptr;
+    kittyClipboardWriteLength = 0;
     copyKittyClipboardId(kittyClipboardWriteId, id);
-    kittyClipboardWritePrimary = primary;
-    kittyClipboardWriteOpen = composer.clipboard != nullptr;
-    if (!kittyClipboardWriteOpen) {
+    plt::Clipboard* const target = selectionTarget(composer, primary);
+    if (target == nullptr) {
         writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"ENOSYS"));
+        return;
     }
+    kittyClipboardWriteStream = target->write();
 }
 
 void VtermImpl::osc_KITTY_CLIPBOARD_WRITE_DATA(StringView id, StringView mimeType, StringView content, bool valid) {
     (void)id;
-    if (!kittyClipboardWriteOpen) {
+    if (kittyClipboardWriteStream == nullptr) {
         return;
     }
     if (!valid) {
-        kittyClipboardWriteOpen = false;
-        kittyClipboardWriteContent.reset();
-        writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"EINVAL"));
+        abortKittyClipboardWrite(StringView(u8"EINVAL"));
         return;
     }
     if (content.empty()) {
-        plt::Clipboard* const target = selectionTarget(composer, kittyClipboardWritePrimary);
-        if (target == nullptr) {
-            kittyClipboardWriteOpen = false;
-            kittyClipboardWriteContent.reset();
-            writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"ENOSYS"));
-            return;
-        }
-        writeSelection(*target, StringView(kittyClipboardWriteContent));
-        kittyClipboardWriteOpen = false;
-        kittyClipboardWriteContent.reset();
+        kittyClipboardWriteStream->finish();
+        delete kittyClipboardWriteStream;
+        kittyClipboardWriteStream = nullptr;
+        kittyClipboardWriteLength = 0;
         writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"DONE"));
         return;
     }
     if (!kittyClipboardMimeSupported(mimeType)) {
-        kittyClipboardWriteOpen = false;
-        kittyClipboardWriteContent.reset();
-        writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"ENOSYS"));
+        abortKittyClipboardWrite(StringView(u8"ENOSYS"));
         return;
     }
     constexpr size_t maximumWrite = 8 * 1024 * 1024;
-    if (content.length() > maximumWrite - kittyClipboardWriteContent.used()) {
-        kittyClipboardWriteOpen = false;
-        kittyClipboardWriteContent.reset();
-        writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"EIO"));
+    if (content.length() > maximumWrite - kittyClipboardWriteLength) {
+        abortKittyClipboardWrite(StringView(u8"EIO"));
         return;
     }
-    kittyClipboardWriteContent.append(content.data(), content.length());
+    kittyClipboardWriteLength += content.length();
+    kittyClipboardWriteStream->write(content.data(), content.length());
+}
+
+void VtermImpl::abortKittyClipboardWrite(StringView status) {
+    delete kittyClipboardWriteStream;
+    kittyClipboardWriteStream = nullptr;
+    kittyClipboardWriteLength = 0;
+    writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), status);
 }
 
 void VtermImpl::osc_KITTY_CLIPBOARD_WRITE_ALIAS(StringView id, StringView mimeType, StringView aliases, bool valid) {
     (void)id;
     (void)mimeType;
     (void)aliases;
-    if (!kittyClipboardWriteOpen || valid) {
+    if (kittyClipboardWriteStream == nullptr || valid) {
         return;
     }
-    kittyClipboardWriteOpen = false;
-    kittyClipboardWriteContent.reset();
-    writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"EINVAL"));
+    abortKittyClipboardWrite(StringView(u8"EINVAL"));
 }
 
 void VtermImpl::osc_KITTY_CLIPBOARD_INVALID(StringView id, bool write) {
-    if (write || kittyClipboardWriteOpen) {
-        kittyClipboardWriteOpen = false;
-        kittyClipboardWriteContent.reset();
+    if (write || kittyClipboardWriteStream != nullptr) {
+        delete kittyClipboardWriteStream;
+        kittyClipboardWriteStream = nullptr;
+        kittyClipboardWriteLength = 0;
         writeKittyClipboardStatus(StringView(u8"write"), kittyClipboardWriteId.empty() ? id : StringView(kittyClipboardWriteId), StringView(u8"EINVAL"));
     }
 }
@@ -8116,18 +8185,8 @@ void CallVtermInputAction::onListen(void*) {
     }
 }
 
-CallVtermTimeout::CallVtermTimeout(VtermImpl* parent_)
-    : parent(parent_)
-{
-}
-
-void CallVtermTimeout::ready() {
-    parent->timeout();
-}
-
 VtermImpl::VtermImpl(Composer& composer_, VtermTraceFactory* traceFactory_, Output* dump_)
     : input(this)
-    , callTimeout(this)
     , composer(composer_)
     , trace(traceFactory_ == nullptr ? nullptr : traceFactory_->construct(createTestApi()))
     , dump(dump_)
@@ -9094,6 +9153,7 @@ void VtermImpl::pasteSelection(const std::string& utf8_selection) {
 }
 
 Vterm* Vterm::create(Composer& composer, VtermTraceFactory* traceFactory) {
+
     Output* dump = nullptr;
     if (opts.dump != nullptr) {
         const int rawFd = ::open(opts.dump, O_WRONLY | O_CREAT | O_TRUNC, 0666);
@@ -9111,7 +9171,7 @@ Vterm* Vterm::create(Composer& composer, VtermTraceFactory* traceFactory) {
         composer.fontChangedListeners.pushBack(composer.pool->make<CallVtermFontChanged>(vterm));
         vterm->wireInputBindings();
         composer.inputHandlers.pushBack(vterm);
-        vterm->armTimeout();
+        vterm->startTimers();
         return vterm;
     } catch (...) {
         composer.setCellExtras(nullptr);
