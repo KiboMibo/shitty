@@ -3,6 +3,7 @@
 #include <std/sys/types.h>
 
 namespace stl {
+    class ObjPool;
     struct PollFD;
 }
 
@@ -27,5 +28,15 @@ namespace plt {
         virtual void timeout(u64 microseconds, TimerCallback& callback) = 0;
         virtual void deadline(u64 monotonicMicroseconds, TimerCallback& callback) = 0;
         virtual void cancel(TimerCallback& callback) = 0;
+    };
+
+    // The portable poll(2) loop shared by the Wayland and headless
+    // platforms; a run loop drives it with dispatchTimers/wait rounds.
+    struct PollerLoop: public Poller {
+        virtual void wait(u64 monotonicDeadline) = 0;
+        virtual void dispatchTimers() = 0;
+        virtual u64 nextDeadline() const = 0;
+
+        static PollerLoop* create(stl::ObjPool& owner);
     };
 }

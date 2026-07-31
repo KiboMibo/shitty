@@ -2179,6 +2179,15 @@ void VtermImpl::drop(StringView text) {
     if (text.empty() || composer.ptyOutput == nullptr) {
         return;
     }
+    plt::Scheduler* const scheduler = composer.platform == nullptr ? nullptr : composer.platform->scheduler();
+    if (scheduler != nullptr && composer.ptyMutex != nullptr) {
+        const bool bracketed = bracketedPasteMode;
+        spawnTransaction([this, bracketed, owned = Buffer(text)] {
+            PasteOutput paste(composer.ptyOutput, bracketed);
+            paste.write(owned.data(), owned.length());
+        });
+        return;
+    }
     PasteOutput paste(composer.ptyOutput, bracketedPasteMode);
     paste.write(text.data(), text.length());
 }
@@ -2707,6 +2716,12 @@ void VtermImpl::wakeTimers() {
 }
 
 void VtermImpl::startTimers() {
+#ifdef SHITTY_FOR_TESTS
+    // The harness drives blink, synchronized-output expiry and autoscroll
+    // through the forced test entry points; live timers would race the
+    // deterministic snapshots.
+    return;
+#endif
     if (composer.platform == nullptr) {
         return;
     }
@@ -8587,10 +8602,11 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
     }
     const StringView bytes(ucstr, len);
     plt::Scheduler* const scheduler = composer.platform == nullptr ? nullptr : composer.platform->scheduler();
-    if (scheduler != nullptr && !scheduler->inFiber()) {
-        // A writer outside any fiber — the in-band resize report runs on a
-        // frame callback — must not interleave into a transaction that owns
-        // the stream; its bytes replay from a transaction of their own.
+    if (scheduler != nullptr && composer.ptyMutex != nullptr && (!scheduler->inFiber() || !composer.ptyMutex->heldByCurrent(*scheduler))) {
+        // Never park the calling fiber on PTY backpressure: input delivery
+        // must stay live while the stream is clogged, and a frame-callback
+        // writer must not interleave into a transaction. The bytes replay
+        // from an ordered transaction of their own.
         spawnTransaction([this, owned = Buffer(bytes)] {
             composer.ptyOutput->write(owned.data(), owned.length());
             composer.ptyOutput->flush();

@@ -40,7 +40,7 @@ def command(**kwargs):
         nested = cmd if isinstance(cmd[0], list) else [cmd]
         if any(is_test(argv) for argv in nested):
             kwargs["cmd"] = [
-                ["python3", "$(S)/tests/run_timed.py", "120", *argv]
+                ["python3", "$(S)/tests/run_timed.py", "60", *argv]
                 if is_test(argv) else argv
                 for argv in nested
             ]

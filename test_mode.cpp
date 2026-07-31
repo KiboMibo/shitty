@@ -123,6 +123,7 @@ namespace {
         Buffer staged_;
         plt::Fiber* stagerFiber_ = nullptr;
         plt::Fiber* blockedWriter_ = nullptr;
+        bool scriptedWrites_ = false;
         alignas(16) u8 stagerStack_[plt::lightFiberStack];
     };
 
@@ -152,11 +153,16 @@ TestPtyOutput::TestPtyOutput(TestPty* pty_)
 
 size_t TestPtyOutput::writeImpl(const void* data, size_t size) {
     plt::Scheduler* const scheduler = pty->composer_.platform->scheduler();
-    if (scheduler != nullptr && scheduler->inFiber()) {
+    plt::FiberMutex* const mutex = pty->composer_.ptyMutex;
+    if (scheduler == nullptr || !scheduler->inFiber() || mutex == nullptr) {
+        pty->staged_.append(data, size);
+        return size;
+    }
+    if (mutex->heldByCurrent(*scheduler)) {
         return pty->rawWrite(data, size);
     }
-    pty->staged_.append(data, size);
-    return size;
+    const plt::LockGuard guard(*mutex, *scheduler);
+    return pty->rawWrite(data, size);
 }
 
 void TestPtyOutput::flushImpl() {
@@ -250,12 +256,20 @@ size_t TestPty::rawWrite(const void* data, size_t size) {
         if (count < 0 && errno == EINTR) {
             continue;
         }
-        // Every stall — temporary or scripted-fatal — keeps the unsent bytes
-        // and waits for the next FLUSH_OUTPUT kick, like the poll-driven
-        // queue this replaces.
-        blockedWriter_ = scheduler->current();
-        blockedWriter_->park();
-        blockedWriter_ = nullptr;
+        if (scriptedWrites_) {
+            // A scripted stall keeps the unsent bytes and waits for the
+            // next FLUSH_OUTPUT kick; the test controls every retry.
+            blockedWriter_ = scheduler->current();
+            blockedWriter_->park();
+            blockedWriter_ = nullptr;
+            continue;
+        }
+        if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            // Real backpressure drains as the harness reads the slave side.
+            scheduler->awaitWritable(fd_, 0);
+            continue;
+        }
+        break;
     }
     return size;
 }
@@ -271,7 +285,9 @@ bool TestPty::flushOutput() {
     if (!staged_.empty() && stagerFiber_ != nullptr) {
         stagerFiber_->wake();
     }
-    return staged_.empty() && blockedWriter_ == nullptr;
+    // A held stream mutex means a transaction is still replaying, even when
+    // it waits on real backpressure rather than a scripted kick.
+    return staged_.empty() && blockedWriter_ == nullptr && !composer_.ptyMutex->held;
 }
 
 void TestPty::applySize() {
@@ -291,6 +307,10 @@ void TestPty::setReadHandler(std::function<ssize_t(u8*, size_t)> handler) {
 
 void TestPty::setWriteHandler(std::function<ssize_t(const u8*, size_t)> handler) {
     onWrite = std::move(handler);
+    scriptedWrites_ = true;
+    if (blockedWriter_ != nullptr) {
+        blockedWriter_->wake();
+    }
 }
 
 std::string TestPty::takeReadData() {
@@ -354,12 +374,22 @@ void FailFontChange::onListen(void*) {
 
 namespace {
 
+    // The scheduler serving the control fiber; writeAll parks on it when
+    // the nonblocking control socket fills.
+    plt::Scheduler* controlScheduler = nullptr;
+
     void writeAll(int fd, StringView data) {
         size_t offset = 0;
         while (offset < data.length()) {
             const ssize_t count = write(fd, data.data() + offset, data.length() - offset);
             if (count < 0) {
                 if (errno == EINTR) {
+                    continue;
+                }
+                if ((errno == EAGAIN || errno == EWOULDBLOCK) && controlScheduler != nullptr && controlScheduler->inFiber()) {
+                    if (!controlScheduler->awaitWritable(fd, 0)) {
+                        throw std::runtime_error("test control write failed");
+                    }
                     continue;
                 }
                 throw std::runtime_error("test control write failed");
@@ -380,7 +410,7 @@ namespace {
         return std::string((const char*)(builder.data()), builder.used());
     }
 
-    bool readLine(int fd, std::string& buffered, std::string& line) {
+    bool readLine(plt::Scheduler* scheduler, int fd, std::string& buffered, std::string& line) {
         while (true) {
             const size_t newline = buffered.find('\n');
             if (newline != std::string::npos) {
@@ -396,6 +426,12 @@ namespace {
             }
             if (count < 0) {
                 if (errno == EINTR) {
+                    continue;
+                }
+                if ((errno == EAGAIN || errno == EWOULDBLOCK) && scheduler != nullptr && scheduler->inFiber()) {
+                    if (!scheduler->awaitReadable(fd, 0)) {
+                        return false;
+                    }
                     continue;
                 }
                 throw std::runtime_error("test control read failed");
@@ -1615,7 +1651,17 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
 
     std::string buffered;
     std::string line;
-    while (readLine(controlFd, buffered, line)) {
+    // The whole control protocol runs on one fiber inside the platform
+    // loop, so a handler may block on the PTY stream or a timer while the
+    // loop keeps serving fibers and frames.
+    const int controlFlags = fcntl(controlFd, F_GETFL, 0);
+    if (controlFlags >= 0) {
+        fcntl(controlFd, F_SETFL, controlFlags | O_NONBLOCK);
+    }
+    controlScheduler = composer.platform->scheduler();
+    auto controlLoop = [&] {
+        try {
+            while (readLine(controlScheduler, controlFd, buffered, line)) {
         try {
             if (line.compare(0, 6, "WRITE ") == 0) {
                 const std::string input = decodeHex(line.substr(6));
@@ -1906,12 +1952,8 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 });
                 writeAll(controlFd, "OK\n");
             } else if (line == "WAIT_READ_PTY") {
-                pollfd source{io[0], POLLIN, 0};
-                int ready = 0;
-                do {
-                    ready = poll(&source, 1, 1000);
-                } while (ready < 0 && errno == EINTR);
-                if (ready <= 0 || !(source.revents & POLLIN)) {
+                const bool ready = composer.platform->scheduler()->awaitReadable(io[0], 1'000'000);
+                if (!ready) {
                     throw std::runtime_error("PTY input timeout");
                 }
                 terminal.readPty();
@@ -2532,6 +2574,17 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
             writeAll(controlFd, std::string("ERR ") + error.what() + "\n");
         }
     }
+
+        } catch (const std::exception& error) {
+            writeAll(controlFd, std::string("ERR ") + error.what() + "\n");
+        }
+        composer.platform->stop();
+    };
+    auto controlBody = makeRunable(controlLoop);
+    // WRITE commands run the parser at full depth on this stack.
+    Buffer controlStack(256 * 1024);
+    composer.platform->scheduler()->spawn(controlBody, controlStack.mutData(), 256 * 1024);
+    composer.platform->run();
 
     terminalPty.unlink();
     composer.ptyOutput = nullptr;

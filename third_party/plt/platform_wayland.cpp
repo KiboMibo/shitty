@@ -65,7 +65,6 @@ extern char** environ;
 
 namespace {
     struct PlatformImpl;
-    struct PollerImpl;
     struct WindowImpl;
 
     // One selection or drop payload as a pulling stream. The reader owns
@@ -136,40 +135,6 @@ namespace {
     const StringView utf8Mime(u8"text/plain;charset=utf-8");
     const StringView plainMime(u8"text/plain");
     const StringView utf8StringMime(u8"UTF8_STRING");
-
-    struct ArmedFD {
-        PollFD fd;
-        PollCallback* callback = nullptr;
-        u64 generation = 0;
-    };
-
-    struct ReadyFD {
-        PollFD fd;
-        PollCallback* callback = nullptr;
-        u64 generation = 0;
-    };
-
-    struct PollerImpl final: public Poller {
-        explicit PollerImpl(ObjPool& owner);
-
-        void arm(PollFD fd, PollCallback& callback) override;
-        void disarm(int fd) override;
-        void timeout(u64 microseconds, TimerCallback& callback) override;
-        void deadline(u64 monotonicMicroseconds, TimerCallback& callback) override;
-        void cancel(TimerCallback& callback) override;
-
-        void wait(u64 monotonicDeadline);
-        void dispatchTimers();
-        u64 nextDeadline() const;
-
-        IntMap<ArmedFD> armed;
-        Vector<struct pollfd> pollFDs;
-        Vector<ReadyFD> readyFDs;
-        TimerQueue timers;
-        u64 nextGeneration = 1;
-
-        u64 allocateGeneration();
-    };
 
     struct Offer {
         struct wl_data_offer* data = nullptr;
@@ -388,7 +353,7 @@ namespace {
         void textInputDone();
         void textInputRectChanged(WindowImpl& window, bool commit);
 
-        PollerImpl* poller_ = nullptr;
+        PollerLoop* poller_ = nullptr;
         ObjPool* owner_ = nullptr;
         SmallObjAllocator* allocator_ = nullptr;
         Scheduler* scheduler_ = nullptr;
@@ -1353,7 +1318,7 @@ Input* DndDrop::read(StringView mime) {
 }
 
 PlatformImpl::PlatformImpl(ObjPool& owner)
-    : poller_(owner.make<PollerImpl>(owner))
+    : poller_(PollerLoop::create(owner))
 {
     owner_ = &owner;
     allocator_ = SmallObjAllocator::create(&owner);
@@ -1661,107 +1626,6 @@ void PlatformImpl::createSelectionDevices() {
         textInput = zwp_text_input_manager_v3_get_text_input(textInputManager, seat);
         zwp_text_input_v3_add_listener(textInput, &textInputListener, this);
     }
-}
-
-PollerImpl::PollerImpl(ObjPool& owner)
-    : armed(ObjPool::create(&owner))
-    , timers(owner)
-{
-}
-
-u64 PollerImpl::allocateGeneration() {
-    const u64 result = nextGeneration++;
-    if (nextGeneration == 0) {
-        nextGeneration = 1;
-    }
-    return result;
-}
-
-void PollerImpl::arm(PollFD fd, PollCallback& callback) {
-    armed[fd.fd] = {
-        .fd = fd,
-        .callback = &callback,
-        .generation = allocateGeneration(),
-    };
-}
-
-void PollerImpl::disarm(int fd) {
-    armed.erase(fd);
-}
-
-void PollerImpl::timeout(u64 microseconds, TimerCallback& callback) {
-    timers.schedule(monotonicNowUs() + microseconds, callback);
-}
-
-void PollerImpl::deadline(u64 monotonicMicroseconds, TimerCallback& callback) {
-    if (monotonicMicroseconds == 0) {
-        monotonicMicroseconds = monotonicNowUs();
-    }
-    timers.schedule(monotonicMicroseconds, callback);
-}
-
-void PollerImpl::cancel(TimerCallback& callback) {
-    timers.cancel(callback);
-}
-
-u64 PollerImpl::nextDeadline() const {
-    return timers.nextDeadline();
-}
-
-void PollerImpl::dispatchTimers() {
-    timers.dispatch(monotonicNowUs());
-}
-
-void PollerImpl::wait(u64 monotonicDeadline) {
-    pollFDs.clear();
-    armed.visit([this](const ArmedFD& source) {
-        pollFDs.pushBack({
-            .fd = source.fd.fd,
-            .events = source.fd.toPollEvents(),
-            .revents = 0,
-        });
-    });
-
-    int timeoutMilliseconds = -1;
-    if (monotonicDeadline != UINT64_MAX) {
-        const u64 now = monotonicNowUs();
-        const u64 timeoutUs = monotonicDeadline > now ? monotonicDeadline - now : 0;
-        timeoutMilliseconds = (int)(min<u64>((timeoutUs + 999) / 1000, INT_MAX));
-    }
-    int result;
-    do {
-        result = ::poll(pollFDs.mutData(), pollFDs.length(), timeoutMilliseconds);
-    } while (result < 0 && errno == EINTR);
-    if (result < 0) {
-        fail(u8"poll failed");
-    }
-
-    readyFDs.clear();
-    for (size_t index = 0; index != pollFDs.length(); ++index) {
-        const struct pollfd& source = pollFDs[index];
-        ArmedFD* registration = armed.find(source.fd);
-        if (source.revents == 0 || registration == nullptr) {
-            continue;
-        }
-        readyFDs.pushBack({
-            .fd =
-                {
-                    .fd = source.fd,
-                    .flags = PollFD::fromPollEvents(source.revents),
-                },
-            .callback = registration->callback,
-            .generation = registration->generation,
-        });
-    }
-    for (const ReadyFD& ready : readyFDs) {
-        ArmedFD* const registration = armed.find(ready.fd.fd);
-        if (registration == nullptr || registration->callback != ready.callback || registration->generation != ready.generation) {
-            continue;
-        }
-        armed.erase(ready.fd.fd);
-        ready.callback->ready(ready.fd);
-    }
-    readyFDs.clear();
 }
 
 void PlatformImpl::dispatch() {

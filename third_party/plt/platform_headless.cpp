@@ -19,23 +19,6 @@ using namespace stl;
 namespace {
     struct PlatformHeadless;
 
-    struct PollerHeadless final: Poller {
-        void arm(PollFD, PollCallback&) override {
-        }
-
-        void disarm(int) override {
-        }
-
-        void timeout(u64, TimerCallback&) override {
-        }
-
-        void deadline(u64, TimerCallback&) override {
-        }
-
-        void cancel(TimerCallback&) override {
-        }
-    };
-
     struct ClipboardHeadless final: Clipboard {
         Input* read() override;
         Output* write() override;
@@ -123,19 +106,17 @@ namespace {
     };
 
     struct PlatformHeadless final: Platform {
+        // Frames stay with the harness: it dispatches them deterministically
+        // through WindowHeadless::dispatchFrame. The loop serves timers and
+        // descriptors only.
         void run() override {
             running = true;
             while (running) {
-                bool dispatched = false;
-                for (WindowHeadlessImpl* window : windows) {
-                    if (window->framePending()) {
-                        window->dispatchFrame();
-                        dispatched = true;
-                    }
-                }
-                if (!dispatched) {
+                poller_->dispatchTimers();
+                if (!running) {
                     break;
                 }
+                poller_->wait(poller_->nextDeadline());
             }
         }
 
@@ -144,7 +125,7 @@ namespace {
         }
 
         Poller* poller() override {
-            return &poller_;
+            return poller_;
         }
 
         Scheduler* scheduler() override {
@@ -158,7 +139,7 @@ namespace {
             return window;
         }
 
-        PollerHeadless poller_;
+        PollerLoop* poller_ = nullptr;
         SmallObjAllocator* allocator_ = nullptr;
         Scheduler* scheduler_ = nullptr;
         std::vector<WindowHeadlessImpl*> windows;
@@ -433,7 +414,8 @@ HeadlessFrame WindowHeadlessImpl::presentedFrame() const {
 
 Platform* plt::createHeadlessPlatform(ObjPool& owner) {
     PlatformHeadless* const platform = owner.make<PlatformHeadless>();
+    platform->poller_ = PollerLoop::create(owner);
     platform->allocator_ = SmallObjAllocator::create(&owner);
-    platform->scheduler_ = Scheduler::create(owner, platform->poller_);
+    platform->scheduler_ = Scheduler::create(owner, *platform->poller_);
     return platform;
 }
