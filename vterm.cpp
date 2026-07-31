@@ -51,6 +51,7 @@
 #include <std/dbg/assert.h>
 #include <std/mem/obj_pool.h>
 #include <std/ios/input.h>
+#include <std/ptr/scoped.h>
 #include <std/mem/small_obj_allocator.h>
 #include <std/thr/runable.h>
 #include <std/rng/split_mix_64.h>
@@ -237,10 +238,9 @@ namespace {
     }
 
     void writeSelection(plt::Clipboard& clipboard, StringView content) {
-        Output* const output = clipboard.write();
+        const ScopedPtr<Output> output{clipboard.write()};
         output->write(content.data(), content.length());
         output->finish();
-        delete output;
     }
 
     struct GraphemeBuffer {
@@ -1301,7 +1301,7 @@ bool VtermInput::paste(bool primary) {
     const bool bracketed = terminal->bracketedPasteMode;
     spawnFiber(composer, [&composer, primary, bracketed] {
         const plt::LockGuard guard(*composer.ptyMutex, *composer.platform->scheduler());
-        Input* const source = selectionTarget(composer, primary)->read();
+        const ScopedPtr<Input> source{selectionTarget(composer, primary)->read()};
         PasteOutput paste(composer.pty->output(), bracketed);
         for (;;) {
             u8 chunk[8 * 1024];
@@ -1311,7 +1311,6 @@ bool VtermInput::paste(bool primary) {
             }
             paste.write(chunk, count);
         }
-        delete source;
     });
     return true;
 }
@@ -1322,8 +1321,8 @@ bool VtermInput::copy() {
         return false;
     }
     spawnFiber(composer, [&composer] {
-        Input* const source = composer.primarySelection->read();
-        Output* const target = composer.clipboard->write();
+        const ScopedPtr<Input> source{composer.primarySelection->read()};
+        const ScopedPtr<Output> target{composer.clipboard->write()};
         for (;;) {
             u8 chunk[8 * 1024];
             const size_t count = source->read(chunk, sizeof(chunk));
@@ -1333,8 +1332,6 @@ bool VtermInput::copy() {
             target->write(chunk, count);
         }
         target->finish();
-        delete target;
-        delete source;
     });
     return true;
 }
@@ -6049,11 +6046,11 @@ void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelect
     spawnFiber(composer, [this, primary, tryClipboard, replySelector, selectorsEmpty, eightBit] {
         const plt::LockGuard guard(*composer.ptyMutex, *composer.platform->scheduler());
         u8 chunk[8 * 1024];
-        Input* source = selectionTarget(composer, primary)->read();
+        ScopedPtr<Input> source{selectionTarget(composer, primary)->read()};
         size_t count = source->read(chunk, sizeof(chunk));
         if (count == 0 && tryClipboard) {
-            delete source;
-            source = composer.clipboard->read();
+            delete source.ptr;
+            source.ptr = composer.clipboard->read();
             count = source->read(chunk, sizeof(chunk));
         }
         Output& output = *composer.pty->output();
@@ -6072,7 +6069,6 @@ void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelect
             encoder.write(output, StringView(chunk, count));
             count = source->read(chunk, sizeof(chunk));
         }
-        delete source;
         encoder.finish(output);
         const StringView suffix = eightBit ? StringView(u8"\x9c") : StringView(u8"\x1b\\");
         output.write(suffix.data(), suffix.length());
@@ -6135,7 +6131,7 @@ void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bo
         if (targets) {
             writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"DATA"), idView, StringView(u8"."), StringView(u8"text/plain\n"), primary);
         } else {
-            Input* const source = selectionTarget(composer, primary)->read();
+            const ScopedPtr<Input> source{selectionTarget(composer, primary)->read()};
             for (;;) {
                 u8 chunk[4096];
                 const size_t count = source->read(chunk, sizeof(chunk));
@@ -6144,7 +6140,6 @@ void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bo
                 }
                 writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"DATA"), idView, mimeView, StringView(chunk, count), primary);
             }
-            delete source;
         }
         writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"DONE"), idView, {}, {}, primary);
         output.flush();

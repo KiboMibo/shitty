@@ -1,6 +1,7 @@
 #include "test.h"
 
 #include <std/ios/input.h>
+#include <std/ptr/scoped.h>
 
 #include <stdio.h>
 
@@ -27,7 +28,7 @@ namespace plt::test {
 
             void dropped(Drop& drop) override {
                 ++droppedCount;
-                stl::Input* const stream = drop.read(stl::StringView(u8"text/plain;charset=utf-8"));
+                const stl::ScopedPtr<stl::Input> stream{drop.read(stl::StringView(u8"text/plain;charset=utf-8"))};
                 for (;;) {
                     u8 chunk[4096];
                     const size_t count = stream->read(chunk, sizeof(chunk));
@@ -35,12 +36,11 @@ namespace plt::test {
                         break;
                     }
                     if (abortNext) {
-                        // Deleting before end of stream abandons the offer.
+                        // Destruction before end of stream abandons the offer.
                         break;
                     }
                     content.append(chunk, count);
                 }
-                delete stream;
                 abortNext = false;
             }
 

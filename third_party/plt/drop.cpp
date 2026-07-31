@@ -5,6 +5,7 @@
 #include <std/ios/input.h>
 
 #include <std/lib/buffer.h>
+#include <std/ptr/scoped.h>
 #include <std/mem/obj_pool.h>
 
 using namespace plt;
@@ -86,7 +87,7 @@ void SinkDropTarget::dropped(Drop& drop) {
         return;
     }
     const bool uris = mime == uriListMime;
-    Input* const source = drop.read(mime);
+    const ScopedPtr<Input> source{drop.read(mime)};
     Buffer content;
     bool overflow = false;
     for (;;) {
@@ -96,13 +97,13 @@ void SinkDropTarget::dropped(Drop& drop) {
             break;
         }
         if (count > payloadLimit - content.length()) {
+            // Destruction after an overflow abandons the transfer
+            // mid-stream.
             overflow = true;
             break;
         }
         content.append(chunk, count);
     }
-    // Deleting after an overflow abandons the transfer mid-stream.
-    delete source;
     if (overflow || content.empty()) {
         return;
     }

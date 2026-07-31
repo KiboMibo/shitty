@@ -4,6 +4,7 @@
 
 #include <std/ios/input.h>
 #include <std/ios/output.h>
+#include <std/ptr/scoped.h>
 #include <std/thr/runable.h>
 
 #include "cursor-shape-v1-server-protocol.h"
@@ -62,7 +63,7 @@ namespace plt::test {
 
     void readOnFiber(Platform& platform, Clipboard& clipboard, StreamRead& read) {
         platform.scheduler()->spawn(*stl::makeRunablePtr([&clipboard, &read] {
-            stl::Input* const stream = clipboard.read();
+            const stl::ScopedPtr<stl::Input> stream{clipboard.read()};
             for (;;) {
                 u8 chunk[64 * 1024];
                 const size_t count = stream->read(chunk, sizeof(chunk));
@@ -72,30 +73,27 @@ namespace plt::test {
                 read.content.append(chunk, count);
                 ++read.chunks;
             }
-            delete stream;
             read.complete = true;
         }));
     }
 
     void abortOnFiber(Platform& platform, Clipboard& clipboard, StreamRead& read) {
         platform.scheduler()->spawn(*stl::makeRunablePtr([&clipboard, &read] {
-            stl::Input* const stream = clipboard.read();
+            const stl::ScopedPtr<stl::Input> stream{clipboard.read()};
             u8 chunk[64 * 1024];
             const size_t count = stream->read(chunk, sizeof(chunk));
             if (count != 0) {
                 read.content.append(chunk, count);
                 ++read.chunks;
             }
-            delete stream;
             read.complete = true;
         }));
     }
 
     void writeClipboard(Clipboard& clipboard, stl::StringView content) {
-        stl::Output* const output = clipboard.write();
+        const stl::ScopedPtr<stl::Output> output{clipboard.write()};
         output->write(content.data(), content.length());
         output->finish();
-        delete output;
     }
 
     Buffer repeated(size_t size, u8 value) {

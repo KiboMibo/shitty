@@ -3,6 +3,7 @@
 #include "fiber.h"
 
 #include <std/ios/input.h>
+#include <std/ptr/scoped.h>
 #include <std/thr/runable.h>
 
 #include <stdio.h>
@@ -21,7 +22,7 @@ namespace plt::test {
         stl::Buffer remote;
         bool remoteComplete = false;
         auto remoteBody = stl::makeRunable([&] {
-            stl::Input* const stream = client.window->secondary()->read();
+            const stl::ScopedPtr<stl::Input> stream{client.window->secondary()->read()};
             for (;;) {
                 u8 chunk[4096];
                 const size_t count = stream->read(chunk, sizeof(chunk));
@@ -30,7 +31,6 @@ namespace plt::test {
                 }
                 remote.append(chunk, count);
             }
-            delete stream;
             remoteComplete = true;
         });
         scheduler->spawn(remoteBody);
