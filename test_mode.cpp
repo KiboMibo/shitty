@@ -7,7 +7,6 @@
 #include "test_mode.h"
 
 #include "cell_extra_store.h"
-#include "clipboard.h"
 #include "composer.h"
 #include "grapheme.h"
 #include "font_pack.h"
@@ -28,6 +27,7 @@
 #include "vterm_test.h"
 #include "vterm_trace.h"
 
+#include <plt/clipboard.h>
 #include <plt/fiber.h>
 #include <plt/mutex.h>
 #include <plt/platform_headless.h>
@@ -39,6 +39,8 @@
 #include <std/alg/xchg.h>
 #include <std/lib/buffer.h>
 #include <std/thr/runable.h>
+#include <std/ios/input.h>
+#include <std/mem/small_obj_allocator.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 #include <std/sys/throw.h>
@@ -544,11 +546,53 @@ namespace {
         std::string cwdPath;
     };
 
-    struct TestClipboard final: public ::Clipboard {
-        bool readAll(bool primarySelection, Buffer& content) override;
-        void writePrimary(StringView content) override;
-        void writeClipboard(StringView content) override;
+    struct TestClipboard;
 
+    struct TestClipboardFacet final: public plt::Clipboard {
+        Input* read() override;
+        Output* write() override;
+
+        TestClipboard* owner = nullptr;
+        bool primary = false;
+    };
+
+    // Snapshot stream over one selection buffer; plain delete releases it.
+    struct TestClipboardInput final: public Input {
+        TestClipboardInput(SmallObjAllocator* allocator, const Buffer& content);
+
+        void operator delete(TestClipboardInput* input, std::destroying_delete_t) noexcept;
+
+        size_t readImpl(void* data, size_t len) override;
+
+        SmallObjAllocator* allocator;
+        Buffer content;
+        size_t offset = 0;
+    };
+
+    struct TestClipboardOutput final: public Output {
+        TestClipboardOutput(SmallObjAllocator* allocator, TestClipboard* owner, bool primary);
+
+        void operator delete(TestClipboardOutput* output, std::destroying_delete_t) noexcept;
+
+        size_t writeImpl(const void* data, size_t size) override;
+        void finishImpl() override;
+
+        SmallObjAllocator* allocator;
+        TestClipboard* owner;
+        Buffer accumulated;
+        bool primary;
+        bool finished = false;
+    };
+
+    struct TestClipboard {
+        explicit TestClipboard(Composer& composer);
+
+        void writePrimary(StringView content);
+        void writeClipboard(StringView content);
+
+        Composer& composer;
+        TestClipboardFacet primaryFacet;
+        TestClipboardFacet systemFacet;
         Buffer primary;
         Buffer system;
         u64 generation = 0;
@@ -854,10 +898,67 @@ StringView VtermTraceImpl::currentCwd() const {
     return StringView((const u8*)(cwdPath.data()), cwdPath.size());
 }
 
-bool TestClipboard::readAll(bool primarySelection, Buffer& content) {
-    const Buffer& source = primarySelection ? primary : system;
-    content.append(source.data(), source.used());
-    return true;
+TestClipboardInput::TestClipboardInput(SmallObjAllocator* allocator_, const Buffer& content_)
+    : allocator(allocator_)
+{
+    content.append(content_.data(), content_.length());
+}
+
+void TestClipboardInput::operator delete(TestClipboardInput* input, std::destroying_delete_t) noexcept {
+    SmallObjAllocator* const owner = input->allocator;
+    owner->release(input);
+}
+
+size_t TestClipboardInput::readImpl(void* data, size_t len) {
+    const size_t count = len < content.length() - offset ? len : content.length() - offset;
+    memcpy(data, (const u8*)(content.data()) + offset, count);
+    offset += count;
+    return count;
+}
+
+TestClipboardOutput::TestClipboardOutput(SmallObjAllocator* allocator_, TestClipboard* owner_, bool primary_)
+    : allocator(allocator_)
+    , owner(owner_)
+    , primary(primary_)
+{
+}
+
+void TestClipboardOutput::operator delete(TestClipboardOutput* output, std::destroying_delete_t) noexcept {
+    SmallObjAllocator* const owner = output->allocator;
+    owner->release(output);
+}
+
+size_t TestClipboardOutput::writeImpl(const void* data, size_t size) {
+    accumulated.append(data, size);
+    return size;
+}
+
+void TestClipboardOutput::finishImpl() {
+    if (finished) {
+        return;
+    }
+    finished = true;
+    if (primary) {
+        owner->writePrimary(StringView(accumulated));
+    } else {
+        owner->writeClipboard(StringView(accumulated));
+    }
+}
+
+Input* TestClipboardFacet::read() {
+    return owner->composer.smallObjects->make<TestClipboardInput>(owner->composer.smallObjects, primary ? owner->primary : owner->system);
+}
+
+Output* TestClipboardFacet::write() {
+    return owner->composer.smallObjects->make<TestClipboardOutput>(owner->composer.smallObjects, owner, primary);
+}
+
+TestClipboard::TestClipboard(Composer& composer_)
+    : composer(composer_)
+{
+    primaryFacet.owner = this;
+    primaryFacet.primary = true;
+    systemFacet.owner = this;
 }
 
 void TestClipboard::writePrimary(StringView content) {
@@ -1426,8 +1527,9 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     composer.ptyMutex = composer.pool->make<plt::FiberMutex>();
     terminalPty.start();
     composer.ptyOutput = terminalPty.output();
-    TestClipboard clipboard;
-    composer.clipboard = &clipboard;
+    TestClipboard clipboard(composer);
+    composer.primarySelection = &clipboard.primaryFacet;
+    composer.clipboard = &clipboard.systemFacet;
     composer.rendererPool = ObjPool::fromMemory();
     composer.renderer = Renderer::create(composer, *composer.rendererPool, window.renderContext());
     auto& renderer = static_cast<ReferenceRenderer&>(*composer.renderer);

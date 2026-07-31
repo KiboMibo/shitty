@@ -17,6 +17,7 @@ namespace stl {
 }
 
 namespace plt {
+    struct Clipboard;
     struct FiberMutex;
     struct InputSink;
     struct Platform;
@@ -26,7 +27,6 @@ namespace plt {
 struct Fontpack;
 struct Application;
 struct CellExtraStore;
-struct Clipboard;
 struct Font;
 struct FontMetrics;
 struct InputBindings;
@@ -54,7 +54,9 @@ struct Composer {
     stl::SmallObjAllocator* smallObjects = nullptr;
     Application* application = nullptr;
     CellExtraStore* cellExtras = nullptr;
-    Clipboard* clipboard = nullptr;
+    // The two selection slots of the window, or test doubles.
+    plt::Clipboard* primarySelection = nullptr;
+    plt::Clipboard* clipboard = nullptr;
     Fontpack* fonts = nullptr;
     InputBindings* inputBindings = nullptr;
     plt::InputSink* input = nullptr;

@@ -14,7 +14,6 @@
  */
 
 #include "application.h"
-#include "clipboard.h"
 #include "composer.h"
 #include "fd_redirect.h"
 #include "font_pack.h"
@@ -475,7 +474,8 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .drop = plt::DropTarget::create(*composer.pool, *composer.input),
         }
     );
-    composer.clipboard = ::Clipboard::create(composer, *composer.window);
+    composer.primarySelection = composer.window->primary();
+    composer.clipboard = composer.window->secondary();
     contentScaleChanged();
 
     replaceFontpack(initialFontSize);

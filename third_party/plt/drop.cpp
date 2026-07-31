@@ -2,6 +2,8 @@
 
 #include "input.h"
 
+#include <std/ios/input.h>
+
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
 
@@ -59,17 +61,12 @@ namespace {
         return {};
     }
 
-    struct SinkDropTarget final: public DropTarget, public ClipboardRead {
+    struct SinkDropTarget final: public DropTarget {
         DropReply dragOver(const DropOffer& offer, i32 x, i32 y) override;
         void dragLeft() override;
         void dropped(Drop& drop) override;
 
-        bool data(StringView chunk) override;
-        void done(bool success) override;
-
         InputSink* sink = nullptr;
-        Buffer content;
-        bool uris = false;
     };
 }
 
@@ -88,22 +85,25 @@ void SinkDropTarget::dropped(Drop& drop) {
     if (mime.empty()) {
         return;
     }
-    uris = mime == uriListMime;
-    content.reset();
-    drop.read(mime, *this);
-}
-
-bool SinkDropTarget::data(StringView chunk) {
-    if (chunk.length() > payloadLimit - content.length()) {
-        return false;
+    const bool uris = mime == uriListMime;
+    Input* const source = drop.read(mime);
+    Buffer content;
+    bool overflow = false;
+    for (;;) {
+        u8 chunk[16 * 1024];
+        const size_t count = source->read(chunk, sizeof(chunk));
+        if (count == 0) {
+            break;
+        }
+        if (count > payloadLimit - content.length()) {
+            overflow = true;
+            break;
+        }
+        content.append(chunk, count);
     }
-    content.append(chunk.data(), chunk.length());
-    return true;
-}
-
-void SinkDropTarget::done(bool success) {
-    if (!success || content.empty()) {
-        content.reset();
+    // Deleting after an overflow abandons the transfer mid-stream.
+    delete source;
+    if (overflow || content.empty()) {
         return;
     }
     if (uris) {
@@ -127,7 +127,6 @@ void SinkDropTarget::done(bool success) {
         sink->drop(StringView(content));
         sink->flush();
     }
-    content.reset();
 }
 
 DropTarget* DropTarget::create(ObjPool& owner, InputSink& sink) {

@@ -5,19 +5,15 @@
 namespace plt::test {
     bool missingSelections(int fd) {
         Client client(fd);
-        ReadSink primary;
-        ReadSink clipboard;
-        client.window->primary()->read(primary);
-        client.window->secondary()->read(clipboard);
-        if (primary.complete || clipboard.complete) {
-            fprintf(stderr, "missing selections: callback was synchronous\n");
-            return false;
-        }
-        pump(*client.platform);
-        if (!primary.complete || primary.success || !primary.content.empty()
-            || !clipboard.complete || clipboard.success
-            || !clipboard.content.empty()) {
-            fprintf(stderr, "missing selections: failure was not reported\n");
+        StreamRead primary;
+        StreamRead clipboard;
+        readOnFiber(*client.platform, *client.window->primary(), primary);
+        readOnFiber(*client.platform, *client.window->secondary(), clipboard);
+        // An absent selection is an immediately empty stream: the fibers
+        // finish without ever blocking.
+        if (!primary.complete || !primary.content.empty()
+            || !clipboard.complete || !clipboard.content.empty()) {
+            fprintf(stderr, "missing selections: streams were not empty\n");
             return false;
         }
         return true;

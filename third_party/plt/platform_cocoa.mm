@@ -13,6 +13,8 @@
 #include <std/sym/i_map.h>
 #include <std/alg/minmax.h>
 #include <std/lib/buffer.h>
+#include <std/ios/input.h>
+#include <std/ios/output.h>
 #include <std/thr/poll_fd.h>
 #include <std/mem/obj_pool.h>
 #include <std/mem/small_obj_allocator.h>
@@ -397,8 +399,6 @@ namespace {
     struct PlatformImpl;
     struct PollerImpl;
     struct WindowImpl;
-    struct ClipboardOperation;
-
     const StringView uriListMime(u8"text/uri-list");
     const StringView utf8Mime(u8"text/plain;charset=utf-8");
 
@@ -415,12 +415,46 @@ namespace {
 
     struct CocoaDrop final: public Drop {
         DropOffer* what() override;
-        void read(StringView mime, ClipboardRead& read) override;
+        Input* read(StringView mime) override;
 
+        WindowImpl* window = nullptr;
         CocoaDropOffer* view = nullptr;
         NSPasteboard* pasteboard = nil;
         bool taken = false;
-        bool success = false;
+        bool drained = false;
+    };
+
+    // A synchronously materialized payload as a pulling stream; plain
+    // delete releases it, and drained reports whether the consumer reached
+    // end of payload before deleting.
+    struct CocoaStreamInput final: public Input {
+        CocoaStreamInput(SmallObjAllocator* allocator, Buffer&& content, bool* drained);
+        ~CocoaStreamInput() noexcept override;
+
+        void operator delete(CocoaStreamInput* input, std::destroying_delete_t) noexcept;
+
+        size_t readImpl(void* data, size_t len) override;
+
+        SmallObjAllocator* allocator;
+        Buffer content;
+        size_t offset = 0;
+        bool* drained;
+    };
+
+    // A replacement pasteboard payload accumulating until finish()
+    // publishes it; deleting without finish() abandons the write.
+    struct CocoaStreamOutput final: public Output {
+        CocoaStreamOutput(WindowImpl* window, bool primary);
+
+        void operator delete(CocoaStreamOutput* output, std::destroying_delete_t) noexcept;
+
+        size_t writeImpl(const void* data, size_t size) override;
+        void finishImpl() override;
+
+        WindowImpl* window;
+        Buffer accumulated;
+        bool primary;
+        bool finished = false;
     };
 
     struct ArmedFD {
@@ -453,35 +487,9 @@ namespace {
         CFRunLoopTimerRef runLoopTimer = nullptr;
     };
 
-    enum class ClipboardOperationKind : u8 {
-        ReadPrimary,
-        ReadClipboard,
-        WritePrimary,
-        WriteClipboard,
-    };
-
-    struct ClipboardOperation final: public TimerCallback {
-        ClipboardOperation(WindowImpl& window, ClipboardOperationKind kind, ClipboardRead* read, StringView content);
-
-        void ready() override;
-        void cancel();
-        void dispose();
-
-        WindowImpl& window;
-        ClipboardOperationKind kind;
-        ClipboardRead* read = nullptr;
-        Buffer content;
-        ClipboardOperation* next = nullptr;
-        bool timerArmed = true;
-        bool dispatching = false;
-        bool cancelled = false;
-    };
-
     struct ClipboardImpl final: public Clipboard {
-        void read(ClipboardRead& sink) override;
-        void write(StringView content) override;
-        void cancel(ClipboardRead& sink) override;
-        bool readAll(Buffer& content) override;
+        Input* read() override;
+        Output* write() override;
 
         WindowImpl* window = nullptr;
         bool primary = false;
@@ -539,7 +547,6 @@ namespace {
         NSDragOperation dragOver(id<NSDraggingInfo> sender);
         void dragExited();
         BOOL performDrop(id<NSDraggingInfo> sender);
-        void removeClipboardOperation(ClipboardOperation& operation);
         void applySizeConstraints();
 
         PlatformImpl& platform;
@@ -566,7 +573,6 @@ namespace {
         u32 resizeBaseHeight = 0;
         ClipboardImpl primaryPasteboard;
         ClipboardImpl generalPasteboard;
-        ClipboardOperation* clipboardOperations = nullptr;
         bool frameRequested = false;
         bool layerFrameRequested = false;
         bool preeditShown = false;
@@ -877,71 +883,6 @@ void PlatformImpl::stop() {
     [NSApp postEvent:event atStart:NO];
 }
 
-ClipboardOperation::ClipboardOperation(WindowImpl& window_, ClipboardOperationKind kind_, ClipboardRead* read_, StringView content_)
-    : window(window_)
-    , kind(kind_)
-    , read(read_)
-    , content(content_)
-{
-    next = window.clipboardOperations;
-    window.clipboardOperations = this;
-    window.platform.poller_->timeout(0, *this);
-}
-
-void ClipboardOperation::ready() {
-    timerArmed = false;
-    if (cancelled) {
-        dispose();
-        return;
-    }
-
-    const bool primary = kind == ClipboardOperationKind::ReadPrimary || kind == ClipboardOperationKind::WritePrimary;
-    NSPasteboard* const pasteboard = primary ? [NSPasteboard pasteboardWithName:NSPasteboardNameFind] : [NSPasteboard generalPasteboard];
-    if (kind == ClipboardOperationKind::WritePrimary || kind == ClipboardOperationKind::WriteClipboard) {
-        window.writePasteboard(pasteboard, StringView(content));
-        dispose();
-        return;
-    }
-
-    NSString* value = [pasteboard stringForType:NSPasteboardTypeString];
-    NSData* data = value == nil ? nil : [value dataUsingEncoding:NSUTF8StringEncoding];
-    bool success = data != nil;
-    ClipboardRead* const target = read;
-    if (success && data.length != 0) {
-        dispatching = true;
-        success = target != nullptr && target->data(StringView((const u8*)(data.bytes), data.length));
-        dispatching = false;
-    }
-    if (cancelled) {
-        dispose();
-        return;
-    }
-
-    read = nullptr;
-    dispose();
-    if (target != nullptr) {
-        target->done(success);
-    }
-}
-
-void ClipboardOperation::cancel() {
-    read = nullptr;
-    if (dispatching) {
-        cancelled = true;
-        return;
-    }
-    dispose();
-}
-
-void ClipboardOperation::dispose() {
-    if (timerArmed) {
-        window.platform.poller_->cancel(*this);
-        timerArmed = false;
-    }
-    window.removeClipboardOperation(*this);
-    window.platform.allocator_->release(this);
-}
-
 WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
     : platform(platform_)
     , input(options.input)
@@ -997,9 +938,6 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
 }
 
 WindowImpl::~WindowImpl() {
-    while (clipboardOperations != nullptr) {
-        clipboardOperations->cancel();
-    }
     if (displayLinkTarget != nil) {
         displayLinkTarget->gate.detach();
     }
@@ -1186,46 +1124,30 @@ DropOffer* CocoaDrop::what() {
     return view;
 }
 
-void CocoaDrop::read(StringView mime, ClipboardRead& read) {
-    if (taken) {
-        read.done(false);
-        return;
-    }
+Input* CocoaDrop::read(StringView mime) {
+    Buffer content;
+    bool* flag = nullptr;
+    const bool first = !taken;
     taken = true;
-    if (view->files && mime == uriListMime) {
+    if (first && view->files && mime == uriListMime) {
         NSArray<NSURL*>* const urls = [pasteboard readObjectsForClasses:@[ [NSURL class] ] options:@{NSPasteboardURLReadingFileURLsOnlyKey : @YES}];
-        Buffer list;
         for (NSURL* url in urls) {
             NSData* const encoded = [url.absoluteString dataUsingEncoding:NSUTF8StringEncoding];
             if (encoded != nil && encoded.length != 0) {
-                list.append(encoded.bytes, encoded.length);
-                list.append("\r\n", 2);
+                content.append(encoded.bytes, encoded.length);
+                content.append("\r\n", 2);
             }
         }
-        if (list.empty()) {
-            read.done(false);
-            return;
-        }
-        success = read.data(StringView(list));
-        read.done(success);
-        return;
-    }
-    if (view->text && mime == utf8Mime) {
+        flag = content.empty() ? nullptr : &drained;
+    } else if (first && view->text && mime == utf8Mime) {
         NSString* const value = [pasteboard stringForType:NSPasteboardTypeString];
         NSData* const data = value == nil ? nil : [value dataUsingEncoding:NSUTF8StringEncoding];
-        if (data == nil) {
-            read.done(false);
-            return;
+        if (data != nil) {
+            content.append(data.bytes, data.length);
+            flag = &drained;
         }
-        bool accepted = true;
-        if (data.length != 0) {
-            accepted = read.data(StringView((const u8*)(data.bytes), data.length));
-        }
-        success = accepted;
-        read.done(accepted);
-        return;
     }
-    read.done(false);
+    return window->platform.allocator_->make<CocoaStreamInput>(window->platform.allocator_, static_cast<Buffer&&>(content), flag);
 }
 
 NSDragOperation WindowImpl::dragOver(id<NSDraggingInfo> sender) {
@@ -1267,10 +1189,11 @@ BOOL WindowImpl::performDrop(id<NSDraggingInfo> sender) {
     offer.text = [pasteboard availableTypeFromArray:@[ NSPasteboardTypeString ]] != nil;
     offer.files = [pasteboard canReadObjectForClasses:@[ [NSURL class] ] options:@{NSPasteboardURLReadingFileURLsOnlyKey : @YES}];
     CocoaDrop drop;
+    drop.window = this;
     drop.view = &offer;
     drop.pasteboard = pasteboard;
     dropTarget->dropped(drop);
-    return drop.success ? YES : NO;
+    return drop.drained ? YES : NO;
 }
 
 void WindowImpl::writePasteboard(NSPasteboard* pasteboard, StringView content) {
@@ -1287,48 +1210,71 @@ Clipboard* WindowImpl::secondary() {
     return &generalPasteboard;
 }
 
-void ClipboardImpl::read(ClipboardRead& sink) {
-    const ClipboardOperationKind kind = primary ? ClipboardOperationKind::ReadPrimary : ClipboardOperationKind::ReadClipboard;
-    window->platform.allocator_->make<ClipboardOperation>(*window, kind, &sink, StringView());
+CocoaStreamInput::CocoaStreamInput(SmallObjAllocator* allocator_, Buffer&& content_, bool* drained_)
+    : allocator(allocator_)
+    , content(static_cast<Buffer&&>(content_))
+    , drained(drained_)
+{
 }
 
-void ClipboardImpl::write(StringView content) {
-    const ClipboardOperationKind kind = primary ? ClipboardOperationKind::WritePrimary : ClipboardOperationKind::WriteClipboard;
-    window->platform.allocator_->make<ClipboardOperation>(*window, kind, nullptr, content);
+CocoaStreamInput::~CocoaStreamInput() noexcept {
+    if (drained != nullptr) {
+        *drained = offset == content.length();
+    }
 }
 
-bool ClipboardImpl::readAll(Buffer& content) {
+void CocoaStreamInput::operator delete(CocoaStreamInput* input, std::destroying_delete_t) noexcept {
+    SmallObjAllocator* const owner = input->allocator;
+    owner->release(input);
+}
+
+size_t CocoaStreamInput::readImpl(void* data, size_t len) {
+    const size_t count = min(len, content.length() - offset);
+    memcpy(data, (const u8*)(content.data()) + offset, count);
+    offset += count;
+    return count;
+}
+
+CocoaStreamOutput::CocoaStreamOutput(WindowImpl* window_, bool primary_)
+    : window(window_)
+    , primary(primary_)
+{
+}
+
+void CocoaStreamOutput::operator delete(CocoaStreamOutput* output, std::destroying_delete_t) noexcept {
+    SmallObjAllocator* const owner = output->window->platform.allocator_;
+    owner->release(output);
+}
+
+size_t CocoaStreamOutput::writeImpl(const void* data, size_t size) {
+    accumulated.append(data, size);
+    return size;
+}
+
+void CocoaStreamOutput::finishImpl() {
+    if (finished) {
+        return;
+    }
+    finished = true;
+    NSPasteboard* const pasteboard = primary ? [NSPasteboard pasteboardWithName:NSPasteboardNameFind] : [NSPasteboard generalPasteboard];
+    window->writePasteboard(pasteboard, StringView(accumulated));
+}
+
+Input* ClipboardImpl::read() {
     // The pasteboard is synchronous: the payload is already materialized by
     // the system, so no fiber blocking is involved.
     NSPasteboard* const pasteboard = primary ? [NSPasteboard pasteboardWithName:NSPasteboardNameFind] : [NSPasteboard generalPasteboard];
     NSString* const value = [pasteboard stringForType:NSPasteboardTypeString];
     NSData* const data = value == nil ? nil : [value dataUsingEncoding:NSUTF8StringEncoding];
-    if (data == nil) {
-        return false;
+    Buffer content;
+    if (data != nil) {
+        content.append(data.bytes, data.length);
     }
-    content.append(data.bytes, data.length);
-    return true;
+    return window->platform.allocator_->make<CocoaStreamInput>(window->platform.allocator_, static_cast<Buffer&&>(content), nullptr);
 }
 
-void ClipboardImpl::cancel(ClipboardRead& sink) {
-    for (ClipboardOperation* operation = window->clipboardOperations; operation != nullptr;) {
-        ClipboardOperation* const next = operation->next;
-        if (operation->read == &sink) {
-            operation->cancel();
-        }
-        operation = next;
-    }
-}
-
-void WindowImpl::removeClipboardOperation(ClipboardOperation& operation) {
-    ClipboardOperation** current = &clipboardOperations;
-    while (*current != nullptr) {
-        if (*current == &operation) {
-            *current = operation.next;
-            return;
-        }
-        current = &(*current)->next;
-    }
+Output* ClipboardImpl::write() {
+    return window->platform.allocator_->make<CocoaStreamOutput>(window, primary);
 }
 
 void WindowImpl::requestPointerIcon(PointerIcon icon) {

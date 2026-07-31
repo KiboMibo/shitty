@@ -11,14 +11,14 @@ namespace plt::test {
         }
         pump(*client.platform);
 
-        ReadSink read;
-        client.window->secondary()->read(read);
+        StreamRead read;
+        readOnFiber(*client.platform, *client.window->secondary(), read);
         if (command(fd, Command::ReleaseRead).count != 1) {
             fprintf(stderr, "plain MIME: fallback was not requested\n");
             return false;
         }
         pump(*client.platform);
-        if (!read.complete || !read.success
+        if (!read.complete
             || stl::StringView(read.content)
                 != stl::StringView(u8"hermetic Wayland clipboard")) {
             fprintf(stderr, "plain MIME: fallback read failed\n");

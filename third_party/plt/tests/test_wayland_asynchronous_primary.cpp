@@ -11,8 +11,8 @@ namespace plt::test {
         }
         pump(*client.platform);
 
-        ReadSink read;
-        client.window->primary()->read(read);
+        StreamRead read;
+        readOnFiber(*client.platform, *client.window->primary(), read);
         if (command(fd, Command::ReleaseRead).count != 1) {
             fprintf(stderr, "async primary: no read transfer fd\n");
             return false;
@@ -20,7 +20,7 @@ namespace plt::test {
         for (u32 attempt = 0; attempt != 10 && !read.complete; ++attempt) {
             pump(*client.platform);
         }
-        if (!read.complete || !read.success
+        if (!read.complete
             || stl::StringView(read.content)
                 != stl::StringView(u8"hermetic Wayland clipboard")) {
             fprintf(stderr, "async primary: read failed\n");
@@ -29,7 +29,7 @@ namespace plt::test {
 
         command(fd, Command::PointerEnter);
         pump(*client.platform);
-        client.window->primary()->write(stl::StringView(u8"primary source"));
+        writeClipboard(*client.window->primary(), stl::StringView(u8"primary source"));
         pump(*client.platform);
         if (command(fd, Command::RequestPrimarySourceData).count != 1) {
             fprintf(stderr, "async primary: source was not published\n");

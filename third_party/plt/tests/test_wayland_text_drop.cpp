@@ -1,13 +1,15 @@
 #include "test.h"
 
+#include <std/ios/input.h>
+
 #include <stdio.h>
 
 namespace plt::test {
     namespace {
         // Exercises the raw session API: records hover positions, picks an
-        // explicit mime over the canonical preference and can abort the
-        // payload stream from data().
-        struct RawTarget final: DropTarget, ClipboardRead {
+        // explicit mime over the canonical preference and can abandon the
+        // payload stream after the first chunk.
+        struct RawTarget final: DropTarget {
             DropReply dragOver(const DropOffer& offer, i32 x, i32 y) override {
                 ++overCount;
                 lastFormats = offer.formats();
@@ -25,20 +27,20 @@ namespace plt::test {
 
             void dropped(Drop& drop) override {
                 ++droppedCount;
-                drop.read(stl::StringView(u8"text/plain;charset=utf-8"), *this);
-            }
-
-            bool data(stl::StringView chunk) override {
-                if (abortNext) {
-                    return false;
+                stl::Input* const stream = drop.read(stl::StringView(u8"text/plain;charset=utf-8"));
+                for (;;) {
+                    u8 chunk[4096];
+                    const size_t count = stream->read(chunk, sizeof(chunk));
+                    if (count == 0) {
+                        break;
+                    }
+                    if (abortNext) {
+                        // Deleting before end of stream abandons the offer.
+                        break;
+                    }
+                    content.append(chunk, count);
                 }
-                content.append(chunk.data(), chunk.length());
-                return true;
-            }
-
-            void done(bool success_) override {
-                ++doneCount;
-                success = success_;
+                delete stream;
                 abortNext = false;
             }
 
@@ -49,8 +51,6 @@ namespace plt::test {
             u32 overCount = 0;
             u32 leftCount = 0;
             u32 droppedCount = 0;
-            u32 doneCount = 0;
-            bool success = false;
             bool abortNext = false;
         };
 
@@ -222,8 +222,8 @@ namespace plt::test {
         pump(*client.platform);
         command(fd, Command::DragData);
         pump(*client.platform);
-        if (target.droppedCount != 1 || target.doneCount != 1 || target.success) {
-            fprintf(stderr, "raw drop API: aborted transfer did not complete with failure\n");
+        if (target.droppedCount != 1 || !target.content.empty()) {
+            fprintf(stderr, "raw drop API: aborted transfer delivered a payload\n");
             return false;
         }
         Reply finish = command(fd, Command::QueryDragFinish);
@@ -240,7 +240,7 @@ namespace plt::test {
         command(fd, Command::DragData);
         pump(*client.platform);
         finish = command(fd, Command::QueryDragFinish);
-        if (target.doneCount != 2 || !target.success || finish.count != 1 || stl::StringView(target.content) != stl::StringView(u8"hermetic Wayland drop")) {
+        if (target.droppedCount != 2 || finish.count != 1 || stl::StringView(target.content) != stl::StringView(u8"hermetic Wayland drop")) {
             fprintf(stderr, "raw drop API: second transfer did not complete\n");
             return false;
         }

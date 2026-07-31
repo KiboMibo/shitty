@@ -3,17 +3,22 @@
 #include "fiber.h"
 #include "poller.h"
 
+#include <std/ios/input.h>
+#include <std/ios/output.h>
 #include <std/mem/obj_pool.h>
 #include <std/thr/poll_fd.h>
 #include <std/mem/small_obj_allocator.h>
 
 #include <algorithm>
+#include <new>
 #include <vector>
 
 using namespace plt;
 using namespace stl;
 
 namespace {
+    struct PlatformHeadless;
+
     struct PollerHeadless final: Poller {
         void arm(PollFD, PollCallback&) override {
         }
@@ -32,10 +37,32 @@ namespace {
     };
 
     struct ClipboardHeadless final: Clipboard {
-        void read(ClipboardRead& read) override;
-        void write(StringView content) override;
-        void cancel(ClipboardRead& read) override;
-        bool readAll(stl::Buffer& content) override;
+        Input* read() override;
+        Output* write() override;
+
+        PlatformHeadless* platform = nullptr;
+    };
+
+    // Headless streams: reads are immediately empty, writes are discarded;
+    // plain delete releases the object.
+    struct HeadlessClipboardInput final: public Input {
+        explicit HeadlessClipboardInput(SmallObjAllocator* allocator);
+
+        void operator delete(HeadlessClipboardInput* input, std::destroying_delete_t) noexcept;
+
+        size_t readImpl(void* data, size_t len) override;
+
+        SmallObjAllocator* allocator;
+    };
+
+    struct HeadlessClipboardOutput final: public Output {
+        explicit HeadlessClipboardOutput(SmallObjAllocator* allocator);
+
+        void operator delete(HeadlessClipboardOutput* output, std::destroying_delete_t) noexcept;
+
+        size_t writeImpl(const void* data, size_t size) override;
+
+        SmallObjAllocator* allocator;
     };
 
     struct WindowHeadlessImpl final: WindowHeadless {
@@ -126,11 +153,13 @@ namespace {
 
         Window* createWindow(ObjPool& windowOwner, const WindowOptions& options) override {
             WindowHeadlessImpl* const window = windowOwner.make<WindowHeadlessImpl>(options);
+            window->clipboard_.platform = this;
             windows.push_back(window);
             return window;
         }
 
         PollerHeadless poller_;
+        SmallObjAllocator* allocator_ = nullptr;
         Scheduler* scheduler_ = nullptr;
         std::vector<WindowHeadlessImpl*> windows;
         bool running = false;
@@ -259,19 +288,42 @@ Clipboard* WindowHeadlessImpl::secondary() {
     return &clipboard_;
 }
 
-void ClipboardHeadless::read(ClipboardRead& read) {
-    read.done(false);
+HeadlessClipboardInput::HeadlessClipboardInput(SmallObjAllocator* allocator_)
+    : allocator(allocator_)
+{
 }
 
-void ClipboardHeadless::write(StringView) {
+void HeadlessClipboardInput::operator delete(HeadlessClipboardInput* input, std::destroying_delete_t) noexcept {
+    SmallObjAllocator* const owner = input->allocator;
+    owner->release(input);
 }
 
-void ClipboardHeadless::cancel(ClipboardRead&) {
+size_t HeadlessClipboardInput::readImpl(void*, size_t) {
+    return 0;
 }
 
-bool ClipboardHeadless::readAll(stl::Buffer&) {
-    return false;
+HeadlessClipboardOutput::HeadlessClipboardOutput(SmallObjAllocator* allocator_)
+    : allocator(allocator_)
+{
 }
+
+void HeadlessClipboardOutput::operator delete(HeadlessClipboardOutput* output, std::destroying_delete_t) noexcept {
+    SmallObjAllocator* const owner = output->allocator;
+    owner->release(output);
+}
+
+size_t HeadlessClipboardOutput::writeImpl(const void*, size_t size) {
+    return size;
+}
+
+Input* ClipboardHeadless::read() {
+    return platform->allocator_->make<HeadlessClipboardInput>(platform->allocator_);
+}
+
+Output* ClipboardHeadless::write() {
+    return platform->allocator_->make<HeadlessClipboardOutput>(platform->allocator_);
+}
+
 
 void WindowHeadlessImpl::requestPointerIcon(PointerIcon icon) {
     icon_ = icon;
@@ -381,6 +433,7 @@ HeadlessFrame WindowHeadlessImpl::presentedFrame() const {
 
 Platform* plt::createHeadlessPlatform(ObjPool& owner) {
     PlatformHeadless* const platform = owner.make<PlatformHeadless>();
-    platform->scheduler_ = Scheduler::create(owner, *SmallObjAllocator::create(&owner), platform->poller_);
+    platform->allocator_ = SmallObjAllocator::create(&owner);
+    platform->scheduler_ = Scheduler::create(owner, *platform->allocator_, platform->poller_);
     return platform;
 }

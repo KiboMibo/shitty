@@ -8,8 +8,8 @@ namespace plt::test {
         command(fd, Command::PointerEnter);
         pump(*client.platform);
 
-        client.window->primary()->write(stl::StringView(u8"primary content"));
-        client.window->secondary()->write(stl::StringView(u8"clipboard content"));
+        writeClipboard(*client.window->primary(), stl::StringView(u8"primary content"));
+        writeClipboard(*client.window->secondary(), stl::StringView(u8"clipboard content"));
         pump(*client.platform);
         if (command(fd, Command::QueryPrimarySelection).count != 1
             || command(fd, Command::QuerySelection).count != 1) {
@@ -17,30 +17,29 @@ namespace plt::test {
             return false;
         }
 
-        ReadSink primary;
-        ReadSink clipboard;
-        client.window->primary()->read(primary);
-        client.window->secondary()->read(clipboard);
-        if (primary.complete || clipboard.complete) {
-            fprintf(stderr, "local selections: callback was synchronous\n");
-            return false;
-        }
-        pump(*client.platform);
-        if (!primary.complete || !primary.success
+        // Reading a selection this client owns serves a snapshot and
+        // completes without blocking the fiber.
+        StreamRead primary;
+        StreamRead clipboard;
+        readOnFiber(*client.platform, *client.window->primary(), primary);
+        readOnFiber(*client.platform, *client.window->secondary(), clipboard);
+        if (!primary.complete
             || stl::StringView(primary.content) != stl::StringView(u8"primary content")
-            || !clipboard.complete || !clipboard.success
+            || !clipboard.complete
             || stl::StringView(clipboard.content)
                 != stl::StringView(u8"clipboard content")) {
             fprintf(stderr, "local selections: contents mismatch\n");
             return false;
         }
 
-        ReadSink cancelled;
-        client.window->primary()->read(cancelled);
-        client.window->primary()->cancel(cancelled);
-        pump(*client.platform);
-        if (cancelled.complete || !cancelled.content.empty()) {
-            fprintf(stderr, "local selections: cancelled callback was delivered\n");
+        // An abandoned local stream leaves the selection intact.
+        StreamRead aborted;
+        abortOnFiber(*client.platform, *client.window->primary(), aborted);
+        StreamRead again;
+        readOnFiber(*client.platform, *client.window->primary(), again);
+        if (!aborted.complete || !again.complete
+            || stl::StringView(again.content) != stl::StringView(u8"primary content")) {
+            fprintf(stderr, "local selections: abandoned stream disturbed the selection\n");
             return false;
         }
         return true;

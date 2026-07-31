@@ -8,24 +8,24 @@ namespace plt::test {
         command(fd, Command::OfferSelection);
         pump(*client.platform);
 
-        ReadSink read;
-        client.window->secondary()->read(read);
-        client.window->secondary()->cancel(read);
-        const bool completeAfterCancel = read.complete;
-        const bool successAfterCancel = read.success;
-        const size_t bytesAfterCancel = read.content.length();
+        // The consumer abandons the transfer after the first chunk by
+        // deleting the stream; the source sees its pipe close.
+        StreamRead read;
+        abortOnFiber(*client.platform, *client.window->secondary(), read);
         if (command(fd, Command::ReleaseRead).count != 1) {
             fprintf(stderr, "cancel read: no transfer fd was available\n");
             return false;
         }
-        pump(*client.platform);
-        if (read.complete != completeAfterCancel
-            || read.success != successAfterCancel
-            || read.content.length() != bytesAfterCancel) {
-            fprintf(
-                stderr,
-                "cancel read: callback arrived after cancel returned\n"
-            );
+        for (unsigned attempt = 0; attempt != 10 && !read.complete; ++attempt) {
+            pump(*client.platform);
+        }
+        if (!read.complete || read.chunks != 1) {
+            fprintf(stderr, "cancel read: the aborting fiber did not finish\n");
+            return false;
+        }
+        // The clipboard stays usable after an abandoned transfer.
+        if (command(fd, Command::OfferSelection).count != 1) {
+            fprintf(stderr, "cancel read: replacement offer was refused\n");
             return false;
         }
         return true;

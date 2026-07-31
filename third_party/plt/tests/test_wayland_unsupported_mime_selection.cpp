@@ -11,15 +11,12 @@ namespace plt::test {
         }
         pump(*client.platform);
 
-        ReadSink read;
-        client.window->secondary()->read(read);
-        if (read.complete) {
-            fprintf(stderr, "unsupported MIME: callback was synchronous\n");
-            return false;
-        }
-        pump(*client.platform);
-        if (!read.complete || read.success || !read.content.empty()) {
-            fprintf(stderr, "unsupported MIME: failure was not reported\n");
+        // No offered mime is usable, so the stream is immediately empty and
+        // no transfer ever starts.
+        StreamRead read;
+        readOnFiber(*client.platform, *client.window->secondary(), read);
+        if (!read.complete || !read.content.empty()) {
+            fprintf(stderr, "unsupported MIME: stream was not empty\n");
             return false;
         }
         return true;

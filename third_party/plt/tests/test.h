@@ -103,37 +103,19 @@ namespace plt::test {
         Window* window = nullptr;
     };
 
-    struct ReadSink final: ClipboardRead {
-        bool data(stl::StringView chunk) override {
-            content.append(chunk.data(), chunk.length());
-            return true;
-        }
-
-        void done(bool success_) override {
-            success = success_;
-            complete = true;
-        }
-
+    struct StreamRead {
         stl::Buffer content;
+        u32 chunks = 0;
         bool complete = false;
-        bool success = false;
     };
 
-    struct RejectSink final: ClipboardRead {
-        bool data(stl::StringView) override {
-            ++dataCount;
-            return false;
-        }
-
-        void done(bool success_) override {
-            ++doneCount;
-            success = success_;
-        }
-
-        u32 dataCount = 0;
-        u32 doneCount = 0;
-        bool success = true;
-    };
+    // Reads clipboard.read() to end of payload on a fresh fiber; the fiber
+    // owns the stream, so complete flips only after the delete.
+    void readOnFiber(Platform& platform, Clipboard& clipboard, StreamRead& read);
+    // Reads at most one chunk on a fiber, then deletes the stream: the
+    // consumer-side abort of a transfer.
+    void abortOnFiber(Platform& platform, Clipboard& clipboard, StreamRead& read);
+    void writeClipboard(Clipboard& clipboard, stl::StringView content);
 
     struct EventSink final: WindowEvents, FrameCallback {
         void close() override {

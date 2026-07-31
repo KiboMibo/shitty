@@ -6,7 +6,6 @@
 
 #include "vterm_headless.h"
 
-#include "clipboard.h"
 #include "composer.h"
 #include "options.h"
 #include "vterm.h"
@@ -24,13 +23,10 @@
 using namespace stl;
 
 namespace {
-    struct VtermHeadlessImpl final: public VtermHeadless, public Clipboard {
+    struct VtermHeadlessImpl final: public VtermHeadless {
         explicit VtermHeadlessImpl(Composer& composer);
 
         void feed(const u8* data, size_t len) override;
-        bool readAll(bool primary, Buffer& content) override;
-        void writePrimary(StringView) override;
-        void writeClipboard(StringView) override;
 
         Composer& composer;
     };
@@ -53,16 +49,6 @@ void VtermHeadlessImpl::feed(const u8* data, size_t len) {
     if (vterm->output() != nullptr) {
         vterm->consume();
     }
-}
-
-bool VtermHeadlessImpl::readAll(bool, Buffer&) {
-    return true;
-}
-
-void VtermHeadlessImpl::writePrimary(StringView) {
-}
-
-void VtermHeadlessImpl::writeClipboard(StringView) {
 }
 
 VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* traceFactory) {
@@ -89,7 +75,6 @@ VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* trac
     composer.setGlyphSize(glyphWidth, glyphHeight);
     composer.resize(pixelWidth, pixelHeight);
     VtermHeadlessImpl* result = composer.pool->make<VtermHeadlessImpl>(composer);
-    composer.clipboard = result;
     if (composer.ptyOutput == nullptr) {
         composer.ptyOutput = createNullOutput(composer.pool);
     }

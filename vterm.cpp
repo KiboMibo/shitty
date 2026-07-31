@@ -21,7 +21,6 @@
 #include "application.h"
 #include "base64.h"
 #include "cell_extra_store.h"
-#include "clipboard.h"
 #include "color_spec.h"
 #include "composer.h"
 #include "input_bindings.h"
@@ -41,6 +40,7 @@
 #include "options.h"
 #include "utf8.h"
 
+#include <plt/clipboard.h>
 #include <plt/fiber.h>
 #include <plt/mutex.h>
 #include <plt/platform.h>
@@ -50,6 +50,7 @@
 #include <std/alg/minmax.h>
 #include <std/dbg/assert.h>
 #include <std/mem/obj_pool.h>
+#include <std/ios/input.h>
 #include <std/mem/small_obj_allocator.h>
 #include <std/thr/runable.h>
 #include <std/rng/split_mix_64.h>
@@ -229,6 +230,17 @@ namespace {
     void spawnFiber(Composer& composer, F&& body) {
         FiberTask<F>* const task = composer.smallObjects->make<FiberTask<F>>(composer.smallObjects, static_cast<F&&>(body));
         composer.platform->scheduler()->spawn(*task);
+    }
+
+    plt::Clipboard* selectionTarget(Composer& composer, bool primary) {
+        return primary ? composer.primarySelection : composer.clipboard;
+    }
+
+    void writeSelection(plt::Clipboard& clipboard, StringView content) {
+        Output* const output = clipboard.write();
+        output->write(content.data(), content.length());
+        output->finish();
+        delete output;
     }
 
     struct GraphemeBuffer {
@@ -1283,31 +1295,46 @@ bool VtermInput::paste(bool primary) {
         return terminal->pasteMimeNotification(primary);
     }
     Composer& composer = terminal->composer;
-    if (composer.clipboard == nullptr || composer.pty == nullptr || composer.ptyMutex == nullptr || composer.platform == nullptr) {
+    if (composer.clipboard == nullptr || composer.primarySelection == nullptr || composer.pty == nullptr || composer.ptyMutex == nullptr || composer.platform == nullptr) {
         return false;
     }
     const bool bracketed = terminal->bracketedPasteMode;
     spawnFiber(composer, [&composer, primary, bracketed] {
         const plt::LockGuard guard(*composer.ptyMutex, *composer.platform->scheduler());
-        Buffer content;
-        if (composer.clipboard->readAll(primary, content) && !content.empty()) {
-            PasteOutput paste(composer.pty->output(), bracketed);
-            paste.write(content.data(), content.used());
+        Input* const source = selectionTarget(composer, primary)->read();
+        PasteOutput paste(composer.pty->output(), bracketed);
+        for (;;) {
+            u8 chunk[8 * 1024];
+            const size_t count = source->read(chunk, sizeof(chunk));
+            if (count == 0) {
+                break;
+            }
+            paste.write(chunk, count);
         }
+        delete source;
     });
     return true;
 }
 
 bool VtermInput::copy() {
     Composer& composer = terminal->composer;
-    if (composer.clipboard == nullptr || composer.platform == nullptr) {
+    if (composer.clipboard == nullptr || composer.primarySelection == nullptr || composer.platform == nullptr) {
         return false;
     }
     spawnFiber(composer, [&composer] {
-        Buffer content;
-        if (composer.clipboard->readAll(true, content)) {
-            composer.clipboard->writeClipboard(StringView(content));
+        Input* const source = composer.primarySelection->read();
+        Output* const target = composer.clipboard->write();
+        for (;;) {
+            u8 chunk[8 * 1024];
+            const size_t count = source->read(chunk, sizeof(chunk));
+            if (count == 0) {
+                break;
+            }
+            target->write(chunk, count);
         }
+        target->finish();
+        delete target;
+        delete source;
     });
     return true;
 }
@@ -1762,11 +1789,11 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
     if (input.button == PointerButton::Primary || input.button == PointerButton::Secondary) {
         mouse.endSelection();
         const VtermTextResult selected = terminal->selectionFinish();
-        ::Clipboard* const clipboard = terminal->composer.clipboard;
-        if (selected.status && clipboard != nullptr) {
-            clipboard->writePrimary(selected.text);
-            if (opts.autoCopyMode) {
-                clipboard->writeClipboard(selected.text);
+        Composer& composer = terminal->composer;
+        if (selected.status && composer.primarySelection != nullptr) {
+            writeSelection(*composer.primarySelection, selected.text);
+            if (opts.autoCopyMode && composer.clipboard != nullptr) {
+                writeSelection(*composer.clipboard, selected.text);
             }
         }
     } else if (input.button == PointerButton::Middle) {
@@ -6004,7 +6031,7 @@ void VtermImpl::osc_SELECTION_FOREGROUND(Color color, bool query) {
 }
 
 void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) {
-    const bool usable = opts.allowOsc52Read && composer.clipboard != nullptr && composer.pty != nullptr && composer.ptyMutex != nullptr && composer.platform != nullptr;
+    const bool usable = opts.allowOsc52Read && composer.clipboard != nullptr && composer.primarySelection != nullptr && composer.pty != nullptr && composer.ptyMutex != nullptr && composer.platform != nullptr;
     if (!usable || (!primary && !clipboard)) {
         StringBuilder reply;
         reply << StringView(u8"52;");
@@ -6021,15 +6048,13 @@ void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelect
     const bool eightBit = send8BitControls;
     spawnFiber(composer, [this, primary, tryClipboard, replySelector, selectorsEmpty, eightBit] {
         const plt::LockGuard guard(*composer.ptyMutex, *composer.platform->scheduler());
-        Buffer content;
-        if (!composer.clipboard->readAll(primary, content)) {
-            content.reset();
-        }
-        if (content.empty() && tryClipboard) {
-            content.reset();
-            if (!composer.clipboard->readAll(false, content)) {
-                content.reset();
-            }
+        u8 chunk[8 * 1024];
+        Input* source = selectionTarget(composer, primary)->read();
+        size_t count = source->read(chunk, sizeof(chunk));
+        if (count == 0 && tryClipboard) {
+            delete source;
+            source = composer.clipboard->read();
+            count = source->read(chunk, sizeof(chunk));
         }
         Output& output = *composer.pty->output();
         StringBuilder header;
@@ -6043,7 +6068,11 @@ void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelect
         const StringView prefix(header);
         output.write(prefix.data(), prefix.length());
         Base64Encoder encoder;
-        encoder.write(output, StringView(content));
+        while (count != 0) {
+            encoder.write(output, StringView(chunk, count));
+            count = source->read(chunk, sizeof(chunk));
+        }
+        delete source;
         encoder.finish(output);
         const StringView suffix = eightBit ? StringView(u8"\x9c") : StringView(u8"\x1b\\");
         output.write(suffix.data(), suffix.length());
@@ -6055,15 +6084,11 @@ void VtermImpl::osc_CLIPBOARD_WRITE(StringView decoded, bool valid, bool primary
     if (!valid) {
         return;
     }
-    ::Clipboard* const target = composer.clipboard;
-    if (target == nullptr) {
-        return;
+    if (primary && composer.primarySelection != nullptr) {
+        writeSelection(*composer.primarySelection, decoded);
     }
-    if (primary) {
-        target->writePrimary(decoded);
-    }
-    if (clipboard) {
-        target->writeClipboard(decoded);
+    if (clipboard && composer.clipboard != nullptr) {
+        writeSelection(*composer.clipboard, decoded);
     }
 }
 
@@ -6086,7 +6111,7 @@ void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bo
         writeKittyClipboardStatus(StringView(u8"read"), id, StringView(u8"EPERM"));
         return;
     }
-    if (composer.clipboard == nullptr || composer.pty == nullptr || composer.ptyMutex == nullptr || composer.platform == nullptr) {
+    if (composer.clipboard == nullptr || composer.primarySelection == nullptr || composer.pty == nullptr || composer.ptyMutex == nullptr || composer.platform == nullptr) {
         writeKittyClipboardStatus(StringView(u8"read"), id, StringView(u8"ENOSYS"));
         return;
     }
@@ -6103,30 +6128,25 @@ void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bo
     const bool eightBit = send8BitControls;
     spawnFiber(composer, [this, idCopy, mimeCopy, primary, targets, eightBit] {
         const plt::LockGuard guard(*composer.ptyMutex, *composer.platform->scheduler());
-        Buffer content;
-        const bool delivered = composer.clipboard->readAll(primary, content);
         Output& output = *composer.pty->output();
         const StringView idView((const u8*)(idCopy.data()), idCopy.size());
         const StringView mimeView((const u8*)(mimeCopy.data()), mimeCopy.size());
-        if (!delivered) {
-            writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"ENOSYS"), idView, {}, {}, primary);
+        writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"OK"), idView, {}, {}, primary);
+        if (targets) {
+            writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"DATA"), idView, StringView(u8"."), StringView(u8"text/plain\n"), primary);
         } else {
-            writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"OK"), idView, {}, {}, primary);
-            if (targets) {
-                writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"DATA"), idView, StringView(u8"."), StringView(u8"text/plain\n"), primary);
-            } else {
-                constexpr size_t maximumChunk = 4096;
-                const u8* current = (const u8*)(content.data());
-                size_t remaining = content.used();
-                while (remaining != 0) {
-                    const size_t chunk = remaining < maximumChunk ? remaining : maximumChunk;
-                    writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"DATA"), idView, mimeView, StringView(current, chunk), primary);
-                    current += chunk;
-                    remaining -= chunk;
+            Input* const source = selectionTarget(composer, primary)->read();
+            for (;;) {
+                u8 chunk[4096];
+                const size_t count = source->read(chunk, sizeof(chunk));
+                if (count == 0) {
+                    break;
                 }
+                writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"DATA"), idView, mimeView, StringView(chunk, count), primary);
             }
-            writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"DONE"), idView, {}, {}, primary);
+            delete source;
         }
+        writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"DONE"), idView, {}, {}, primary);
         output.flush();
     });
 }
@@ -6153,18 +6173,14 @@ void VtermImpl::osc_KITTY_CLIPBOARD_WRITE_DATA(StringView id, StringView mimeTyp
         return;
     }
     if (content.empty()) {
-        ::Clipboard* const clipboard = composer.clipboard;
-        if (clipboard == nullptr) {
+        plt::Clipboard* const target = selectionTarget(composer, kittyClipboardWritePrimary);
+        if (target == nullptr) {
             kittyClipboardWriteOpen = false;
             kittyClipboardWriteContent.reset();
             writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"ENOSYS"));
             return;
         }
-        if (kittyClipboardWritePrimary) {
-            clipboard->writePrimary(StringView(kittyClipboardWriteContent));
-        } else {
-            clipboard->writeClipboard(StringView(kittyClipboardWriteContent));
-        }
+        writeSelection(*target, StringView(kittyClipboardWriteContent));
         kittyClipboardWriteOpen = false;
         kittyClipboardWriteContent.reset();
         writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"DONE"));
