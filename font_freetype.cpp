@@ -22,6 +22,7 @@
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#include FT_SYNTHESIS_H
 #include <hb-ft.h>
 #include <hb.h>
 
@@ -32,11 +33,12 @@ using namespace stl;
 
 namespace {
     struct FontImpl final: public Font {
-        FontImpl(StringView filename, const void* data, size_t dataSize, i32 faceIndex, u16 size, FontKind kind, FontMetrics& metrics);
+        FontImpl(StringView filename, const void* data, size_t dataSize, i32 faceIndex, u16 size, FontKind kind, FontMetrics& metrics, FontStyle synthetic);
         ~FontImpl() noexcept;
 
         FontGlyph glyph(const u32* codepoints, size_t count, u16 cells) override;
         bool covers(u32 codepoint) override;
+        Font* synthesize(ObjPool& owner, FontStyle style) override;
 
         struct FitMeasure {
             int advance = 0;
@@ -52,6 +54,7 @@ namespace {
         FitMeasure measureAt(u16 pixelSize, u32 representative);
         u16 fitCells(u16 cells);
         bool applyCells(u16 cells);
+        bool loadGlyph(FT_UInt glyph, bool color, bool render);
         bool rasterize(const u32* codepoints, size_t count);
         bool rasterizeMask(const hb_glyph_info_t* glyphs, const hb_glyph_position_t* positions, unsigned count);
         bool rasterizeColor(const hb_glyph_info_t* glyphs, const hb_glyph_position_t* positions, unsigned count);
@@ -71,9 +74,15 @@ namespace {
         FontMetrics metrics_;
         u16 canvasWidth_ = 0;
         u16 fittedSize_[3] = {0, 0, 0};
+        i32 faceIndex_ = 0;
+        const void* data_ = nullptr;
+        size_t dataSize_ = 0;
+        bool syntheticBold_ = false;
+        bool syntheticItalic_ = false;
         bool fitLogged_ = false;
         bool hasColor_ = false;
         bool glyphColor_ = false;
+        Buffer filename_;
         Buffer bitmap_;
         Buffer source_;
     };
@@ -113,10 +122,16 @@ namespace {
     }
 }
 
-FontImpl::FontImpl(StringView filename, const void* data, size_t dataSize, i32 faceIndex, u16 size, FontKind kind, FontMetrics& metrics)
+FontImpl::FontImpl(StringView filename, const void* data, size_t dataSize, i32 faceIndex, u16 size, FontKind kind, FontMetrics& metrics, FontStyle synthetic)
     : size_(size)
     , kind_(kind)
     , metrics_(metrics)
+    , faceIndex_(faceIndex)
+    , data_(data)
+    , dataSize_(dataSize)
+    , syntheticBold_(synthetic == FontStyle::Bold || synthetic == FontStyle::BoldItalic)
+    , syntheticItalic_(synthetic == FontStyle::Italic || synthetic == FontStyle::BoldItalic)
+    , filename_(filename)
 {
     library_ = sharedFreeType();
     if (library_ == nullptr) {
@@ -298,6 +313,37 @@ bool FontImpl::covers(u32 codepoint) {
     return FT_Get_Char_Index(face_, codepoint) != 0;
 }
 
+Font* FontImpl::synthesize(ObjPool& owner, FontStyle style) {
+    FontMetrics metrics = metrics_;
+    try {
+        return owner.make<FontImpl>(StringView((const u8*)(filename_.data()), filename_.used()), data_, dataSize_, faceIndex_, size_, FontKind::Overlay, metrics, style);
+    } catch (Exception&) {
+        return nullptr;
+    }
+}
+
+// Loads without rendering first so a synthetic style can embolden or
+// shear the outline, then renders.
+bool FontImpl::loadGlyph(FT_UInt glyph, bool color, bool render) {
+    FT_Int32 flags = FT_LOAD_DEFAULT;
+    if (color) {
+        flags |= FT_LOAD_COLOR;
+    }
+    if (FT_Load_Glyph(face_, glyph, flags)) {
+        return false;
+    }
+    if (syntheticBold_) {
+        FT_GlyphSlot_Embolden(face_->glyph);
+    }
+    if (syntheticItalic_) {
+        FT_GlyphSlot_Oblique(face_->glyph);
+    }
+    if (render && face_->glyph->format != FT_GLYPH_FORMAT_BITMAP && FT_Render_Glyph(face_->glyph, FT_RENDER_MODE_NORMAL)) {
+        return false;
+    }
+    return true;
+}
+
 u32 FontImpl::fitRepresentative(u16 cells) const {
     const u32 wide[] = {0x3000, 0x4e00};
     const u32 narrow[] = {'M', '0'};
@@ -423,7 +469,7 @@ bool FontImpl::rasterizeMask(const hb_glyph_info_t* glyphs, const hb_glyph_posit
         }
     }
     for (unsigned index = 0; index < count; ++index) {
-        if (FT_Load_Glyph(face_, glyphs[index].codepoint, FT_LOAD_RENDER)) {
+        if (!loadGlyph(glyphs[index].codepoint, false, true)) {
             return false;
         }
         const int destinationX = pixels(penX + positions[index].x_offset) + face_->glyph->bitmap_left;
@@ -531,7 +577,7 @@ bool FontImpl::rasterizeColor(const hb_glyph_info_t* glyphs, const hb_glyph_posi
     int bottom = 0;
     bool haveBounds = false;
     for (unsigned index = 0; index < count; ++index) {
-        if (FT_Load_Glyph(face_, glyphs[index].codepoint, FT_LOAD_RENDER | FT_LOAD_COLOR)) {
+        if (!loadGlyph(glyphs[index].codepoint, true, true)) {
             return false;
         }
         const int glyphLeft = pixels(penX + positions[index].x_offset) + face_->glyph->bitmap_left;
@@ -563,7 +609,7 @@ bool FontImpl::rasterizeColor(const hb_glyph_info_t* glyphs, const hb_glyph_posi
     penX = 0;
     penY = 0;
     for (unsigned index = 0; index < count; ++index) {
-        if (FT_Load_Glyph(face_, glyphs[index].codepoint, FT_LOAD_RENDER | FT_LOAD_COLOR)) {
+        if (!loadGlyph(glyphs[index].codepoint, true, true)) {
             return false;
         }
         const int glyphLeft = pixels(penX + positions[index].x_offset) + face_->glyph->bitmap_left - left;
@@ -580,7 +626,7 @@ bool FontImpl::rasterize(const u32* codepoints, size_t count) {
     hb_glyph_info_t missing{};
     hb_glyph_position_t missingPosition{};
     if (count == 1 && codepoints[0] == Missing_Glyph_Marker) {
-        if (FT_Load_Glyph(face_, 0, FT_LOAD_RENDER | FT_LOAD_COLOR)) {
+        if (!loadGlyph(0, true, true)) {
             return false;
         }
         glyphColor_ = face_->glyph->bitmap.pixel_mode == FT_PIXEL_MODE_BGRA;
@@ -601,7 +647,7 @@ bool FontImpl::rasterize(const u32* codepoints, size_t count) {
         if (glyphs[index].codepoint == 0) {
             return false;
         }
-        if (FT_Load_Glyph(face_, glyphs[index].codepoint, FT_LOAD_RENDER | FT_LOAD_COLOR)) {
+        if (!loadGlyph(glyphs[index].codepoint, true, true)) {
             return false;
         }
         if (face_->glyph->bitmap.pixel_mode == FT_PIXEL_MODE_BGRA) {
@@ -629,9 +675,9 @@ FontGlyph FontImpl::glyph(const u32* codepoints, size_t count, u16 cells) {
 }
 
 Font* createFreeTypeFont(ObjPool& owner, StringView filename, i32 faceIndex, u16 pixels, FontKind kind, FontMetrics& metrics) {
-    return owner.make<FontImpl>(filename, nullptr, 0, faceIndex, pixels, kind, metrics);
+    return owner.make<FontImpl>(filename, nullptr, 0, faceIndex, pixels, kind, metrics, FontStyle::Regular);
 }
 
 Font* createFreeTypeMemoryFont(ObjPool& owner, const void* data, size_t size, i32 faceIndex, u16 pixels, FontKind kind, FontMetrics& metrics) {
-    return owner.make<FontImpl>(StringView(), data, size, faceIndex, pixels, kind, metrics);
+    return owner.make<FontImpl>(StringView(), data, size, faceIndex, pixels, kind, metrics, FontStyle::Regular);
 }

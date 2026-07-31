@@ -83,9 +83,12 @@ class FontResolverTest(unittest.TestCase):
             ) as terminal:
                 loaded = terminal.load_font(family)
 
-        self.assertEqual(loaded["bold"], 1)
-        self.assertEqual(loaded["italic"], 0)
-        self.assertEqual(loaded["bold_italic"], 0)
+        # The italic faces mismatch the vertical metrics and are rejected;
+        # synthetic styles take their place.
+        self.assertEqual(
+            (loaded["bold"], loaded["italic"], loaded["bold_italic"]),
+            (1, 1, 1),
+        )
 
     @unittest.skipUnless(FONTCONFIG_AVAILABLE, "Fontconfig is not available")
     def test_extra_fallback_fonts_keep_primary_metrics(self):

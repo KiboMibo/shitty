@@ -66,5 +66,44 @@ class FontFallbackTest(unittest.TestCase):
         self.assertTrue(has_ink(pixels))
 
 
+def ink_weight(pixels):
+    return sum(
+        max(pixels[offset:offset + 3])
+        for offset in range(0, len(pixels), 3)
+    )
+
+
+class SyntheticStyleTest(unittest.TestCase):
+    MONO_FONT = ROOT / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf"
+
+    def test_single_face_family_synthesizes_every_style(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / ".build") as directory:
+            root = Path(directory)
+            font = root / "single.ttf"
+            font.write_bytes(make_font("Shitty Single Face", 500, 1000, 1000))
+            config = FontResolverTest.write_fontconfig(root)
+            with Shitty(
+                extra_environment={"FONTCONFIG_FILE": str(config)}
+            ) as terminal:
+                loaded = terminal.load_font("Shitty Single Face")
+        self.assertEqual(
+            (loaded["bold"], loaded["italic"], loaded["bold_italic"]),
+            (1, 1, 1),
+        )
+
+    def test_synthetic_bold_adds_ink(self):
+        # A path-loaded font has only its regular face, so bold must be
+        # synthesized by emboldening.
+        renders = {}
+        for name, escape in (("regular", b""), ("bold", b"\x1b[1m")):
+            with Shitty(columns=4, rows=1) as terminal:
+                terminal.write(b"\x1b[?25l" + escape + b"WWWW")
+                renders[name] = terminal.render_image(self.MONO_FONT)[2]
+        self.assertGreater(
+            ink_weight(renders["bold"]),
+            ink_weight(renders["regular"]) * 1.05,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -81,6 +81,15 @@ FontpackImpl::FontpackImpl(Composer& composer, ObjPool& pool, const StringView* 
     bold_ = createOptional(composer, pool, primary, size, FontStyle::Bold, FontKind::Overlay, metrics_);
     italic_ = createOptional(composer, pool, primary, size, FontStyle::Italic, FontKind::Overlay, metrics_);
     boldItalic_ = createOptional(composer, pool, primary, size, FontStyle::BoldItalic, FontKind::Overlay, metrics_);
+    if (bold_ == nullptr) {
+        bold_ = regular_->synthesize(pool, FontStyle::Bold);
+    }
+    if (italic_ == nullptr) {
+        italic_ = regular_->synthesize(pool, FontStyle::Italic);
+    }
+    if (boldItalic_ == nullptr) {
+        boldItalic_ = regular_->synthesize(pool, FontStyle::BoldItalic);
+    }
 
     for (size_t index = 1; index < nameCount; ++index) {
         Font* const fallback = createOptional(composer, pool, names[index], size, FontStyle::Regular, FontKind::Fallback, metrics_);

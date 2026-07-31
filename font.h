@@ -8,6 +8,10 @@
 
 #include <std/sys/types.h>
 
+namespace stl {
+    class ObjPool;
+}
+
 struct FontGlyph {
     const void* data = nullptr;
     size_t len = 0;
@@ -41,4 +45,7 @@ struct Font {
     virtual FontGlyph glyph(const u32* codepoints, size_t count, u16 cells) = 0;
     // A cmap lookup: whether this face has a glyph for the codepoint.
     virtual bool covers(u32 codepoint) = 0;
+    // A new font over the same face that fakes the style (embolden/shear)
+    // at render time; null when the backend cannot synthesize.
+    virtual Font* synthesize(stl::ObjPool& owner, FontStyle style) = 0;
 };

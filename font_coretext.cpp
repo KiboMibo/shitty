@@ -24,11 +24,12 @@ using namespace stl;
 
 namespace {
     struct CoreTextFont final: public Font {
-        CoreTextFont(CTFontRef font, FontKind kind, FontMetrics metrics);
+        CoreTextFont(CTFontRef font, FontKind kind, FontMetrics metrics, FontStyle synthetic);
         ~CoreTextFont() noexcept;
 
         FontGlyph glyph(const u32* codepoints, size_t count, u16 cells) override;
         bool covers(u32 codepoint) override;
+        Font* synthesize(ObjPool& owner, FontStyle style) override;
 
         CFStringRef makeString(const u32* codepoints, size_t count);
         CTLineRef makeLine(CFStringRef string);
@@ -38,6 +39,8 @@ namespace {
         CTFontRef font_;
         FontKind kind_;
         FontMetrics metrics_;
+        bool syntheticBold_ = false;
+        bool syntheticItalic_ = false;
         u16 canvasWidth_ = 0;
         Buffer characters_;
         Buffer bitmap_;
@@ -88,11 +91,18 @@ namespace {
     }
 }
 
-CoreTextFont::CoreTextFont(CTFontRef font, FontKind kind, FontMetrics metrics)
+CoreTextFont::CoreTextFont(CTFontRef font, FontKind kind, FontMetrics metrics, FontStyle synthetic)
     : font_(font)
     , kind_(kind)
     , metrics_(metrics)
+    , syntheticBold_(synthetic == FontStyle::Bold || synthetic == FontStyle::BoldItalic)
+    , syntheticItalic_(synthetic == FontStyle::Italic || synthetic == FontStyle::BoldItalic)
 {
+}
+
+Font* CoreTextFont::synthesize(ObjPool& owner, FontStyle style) {
+    CFRetain(font_);
+    return owner.make<CoreTextFont>(font_, FontKind::Overlay, metrics_, style);
 }
 
 CoreTextFont::~CoreTextFont() noexcept {
@@ -221,7 +231,22 @@ bool CoreTextFont::drawLine(CTLineRef line, bool color) {
     } else {
         CGContextSetGrayFillColor(context, 1, 1);
     }
-    CGContextSetTextMatrix(context, CGAffineTransformIdentity);
+    if (syntheticBold_) {
+        // Fake bold: fill and stroke, the stroke width scaled to the size.
+        CGContextSetTextDrawingMode(context, kCGTextFillStroke);
+        CGContextSetLineWidth(context, metrics_.height * 0.03);
+        if (color) {
+            CGContextSetRGBStrokeColor(context, 1, 1, 1, 1);
+        } else {
+            CGContextSetGrayStrokeColor(context, 1, 1);
+        }
+    }
+    CGAffineTransform matrix = CGAffineTransformIdentity;
+    if (syntheticItalic_) {
+        // Fake italic: a horizontal shear of about 14 degrees.
+        matrix.c = 0.25;
+    }
+    CGContextSetTextMatrix(context, matrix);
     CGContextSetTextPosition(context, 0, metrics_.height - metrics_.baseline);
     CTLineDraw(line, context);
     CGContextRelease(context);
@@ -369,7 +394,7 @@ Font* CoreTextFontResolver::load(ObjPool& owner, const FontRequest& request, Fon
         CFRelease(font);
         return nullptr;
     }
-    return owner.make<CoreTextFont>(font, request.kind, metrics);
+    return owner.make<CoreTextFont>(font, request.kind, metrics, FontStyle::Regular);
 }
 
 FontResolver* createCoreTextFontResolver(Composer& composer) {
