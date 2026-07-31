@@ -311,6 +311,10 @@ namespace {
         // The live font/glyph state; never null after construction.
         // resetFontResources installs a replacement by pointer swap.
         FontResources* fontResources = nullptr;
+        // Nonzero once an overflow resized the caches to the working set;
+        // overrides the byte-budget slot count from then on.
+        u32 glyphSlotTarget = 0;
+        bool atlasExhausted = false;
         bool atlasInitialized = false;
         bool colorAtlasInitialized = false;
         bool doubleWidthAtlasInitialized = false;
@@ -387,6 +391,7 @@ namespace {
         void beginGlyphFrame();
         void pinVisibleGlyphs();
         void configureGlyphCache(GlyphCache& cache, u32 width, u32 layers, size_t byteBudget, u32 maxImageDimension);
+        void growGlyphAtlas();
         u16 allocateGlyphSlot(GlyphCache& cache, u32 id, bool grapheme);
         u32 ensureGlyph(Fontpack& fonts, const u32* codepoints, size_t count, u32 id, bool grapheme, FontStyle style, bool doubleWidth);
         VkDeviceSize stageFontData(const void* data, size_t len, size_t expected);
@@ -974,6 +979,12 @@ void RendererImpl::configureGlyphCache(GlyphCache& cache, u32 width, u32 layers,
     }
     if (requested > maximumSlots) {
         requested = maximumSlots;
+    }
+    if (glyphSlotTarget != 0) {
+        // Resized after an overflow: the working set of the screen and its
+        // scrollback dictates the capacity, not the byte budget. The slot
+        // coordinate packing caps the grid at 256x256 below.
+        requested = glyphSlotTarget;
     }
 
     u32 maximumColumns = maxImageDimension / width;
@@ -1667,7 +1678,22 @@ u16 RendererImpl::allocateGlyphSlot(GlyphCache& cache, u32 id, bool grapheme) {
         state.grapheme = grapheme;
         return slot;
     }
+    // Every slot is pinned by the current frame: remember to resize the
+    // caches to the working set before the next frame.
+    atlasExhausted = true;
     return 0;
+}
+
+void RendererImpl::growGlyphAtlas() {
+    // Twice the distinct glyphs reachable on screen and in scrollback:
+    // bounded by live content rather than by a doubling history, and free
+    // to shrink back once the content simplifies.
+    u64 target = composer.vterm != nullptr ? 2 * (u64)(composer.vterm->distinctGlyphs()) : 2 * (u64)(fontResources->glyphs.slots.length());
+    if (target > 65536) {
+        target = 65536;
+    }
+    glyphSlotTarget = (u32)(target);
+    resetFontResources();
 }
 
 VkDeviceSize RendererImpl::stageFontData(const void* data, size_t len, size_t expected) {
@@ -2272,6 +2298,10 @@ void RendererImpl::recordFrame(FrameResources& frame, u32 imageIndex) {
 }
 
 bool RendererImpl::repaintFrame() {
+    if (atlasExhausted) {
+        atlasExhausted = false;
+        growGlyphAtlas();
+    }
     const u32 width = renderExtent.width;
     const u32 height = renderExtent.height;
     if (!previousStateValid || cells.empty() || width == 0 || height == 0) {
@@ -2304,6 +2334,10 @@ bool RendererImpl::repaintFrame() {
 }
 
 bool RendererImpl::present(const TerminalUpdate& update) {
+    if (atlasExhausted) {
+        atlasExhausted = false;
+        growGlyphAtlas();
+    }
     const u32 width = composer.pixelWidth;
     const u32 height = composer.pixelHeight;
     const size_t cellCount = (size_t)(composer.columns) * composer.rows;
@@ -2456,7 +2490,13 @@ bool RendererImpl::present(const TerminalUpdate& update) {
 
 bool RendererImpl::update(const TerminalUpdate& update) {
     try {
-        return present(update);
+        const bool presented = present(update);
+        if (atlasExhausted && composer.vterm != nullptr) {
+            // The frame just presented is missing the glyphs that did not
+            // fit; ask for a full redraw, which lands after growGlyphAtlas.
+            composer.vterm->expose();
+        }
+        return presented;
     } catch (const SurfaceLost&) {
         // See repaint(): mark dead, frame() rebuilds pool and renderer.
         composer.renderer = nullptr;

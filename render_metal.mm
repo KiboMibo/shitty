@@ -259,6 +259,7 @@ namespace {
 
         void resetFontResources();
         bool buildFontResources();
+        void growGlyphAtlas();
         bool configureGlyphCache(GlyphCache& cache, u32 width, u32 layers, size_t byteBudget);
         id<MTLTexture> createAtlas(MTLPixelFormat format, u32 width, u32 height, u32 layers);
         bool ensureColorAtlas(bool doubleWidth);
@@ -303,6 +304,10 @@ namespace {
         GlyphCache* doubleWidthGlyphs = nullptr;
         Vector<GpuCell> cells;
         Buffer emptyGlyph;
+        // Nonzero once an overflow resized the caches to the working set;
+        // overrides the byte-budget slot count from then on.
+        u32 glyphSlotTarget = 0;
+        bool atlasExhausted = false;
         u16 cellColumns = 0;
         u16 cellRows = 0;
         PresentationState state;
@@ -431,6 +436,11 @@ bool MetalRendererImpl::configureGlyphCache(GlyphCache& cache, u32 width, u32 la
     const size_t glyphBytes = (size_t)(width)*composer.glyphHeight * layers;
     u32 requested = glyphBytes == 0 ? 2 : (u32)(byteBudget / glyphBytes);
     requested = min(max(requested, 2u), maximumSlots);
+    if (glyphSlotTarget != 0) {
+        // Resized after an overflow: the working set of the screen and its
+        // scrollback dictates the capacity, not the byte budget.
+        requested = glyphSlotTarget;
+    }
 
     constexpr u32 maximumTextureDimension = 8192;
     u32 maximumColumns = min(maximumTextureDimension / width, 256u);
@@ -624,7 +634,22 @@ u16 MetalRendererImpl::allocateGlyphSlot(GlyphCache& cache, u32 id, bool graphem
         state.grapheme = grapheme;
         return slot;
     }
+    // Every slot is pinned by the current frame: remember to resize the
+    // caches to the working set before the next frame.
+    atlasExhausted = true;
     return 0;
+}
+
+void MetalRendererImpl::growGlyphAtlas() {
+    // Twice the distinct glyphs reachable on screen and in scrollback:
+    // bounded by live content rather than by a doubling history, and free
+    // to shrink back once the content simplifies.
+    u64 target = composer.vterm != nullptr ? 2 * (u64)(composer.vterm->distinctGlyphs()) : 2 * (u64)(glyphs->slots.length());
+    if (target > 65536) {
+        target = 65536;
+    }
+    glyphSlotTarget = (u32)(target);
+    resetFontResources();
 }
 
 bool MetalRendererImpl::needsFontGlyph(u32 id) {
@@ -1011,6 +1036,10 @@ bool MetalRendererImpl::update(const TerminalUpdate& update) {
     if (!ready || update.colors == nullptr) {
         return false;
     }
+    if (atlasExhausted) {
+        atlasExhausted = false;
+        growGlyphAtlas();
+    }
     const u32 width = composer.pixelWidth;
     const u32 height = composer.pixelHeight;
     const size_t cellCount = (size_t)(composer.columns) * composer.rows;
@@ -1050,7 +1079,13 @@ bool MetalRendererImpl::update(const TerminalUpdate& update) {
     // The padding follows the live default background (OSC 11).
     clearBackground = update.colors->defaultBackground;
     capture(update);
-    return draw();
+    const bool drawn = draw();
+    if (atlasExhausted && composer.vterm != nullptr) {
+        // The frame just presented is missing the glyphs that did not
+        // fit; ask for a full redraw, which lands after growGlyphAtlas.
+        composer.vterm->expose();
+    }
+    return drawn;
 }
 
 Renderer* createMetalRenderer(Composer& composer, stl::ObjPool& pool, const plt::RenderContext& context) {
