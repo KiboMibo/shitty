@@ -1,9 +1,11 @@
 #include "platform_headless.h"
 
+#include "fiber.h"
 #include "poller.h"
 
 #include <std/mem/obj_pool.h>
 #include <std/thr/poll_fd.h>
+#include <std/mem/small_obj_allocator.h>
 
 #include <algorithm>
 #include <vector>
@@ -33,6 +35,7 @@ namespace {
         void read(ClipboardRead& read) override;
         void write(StringView content) override;
         void cancel(ClipboardRead& read) override;
+        bool readAll(stl::Buffer& content) override;
     };
 
     struct WindowHeadlessImpl final: WindowHeadless {
@@ -117,6 +120,10 @@ namespace {
             return &poller_;
         }
 
+        Scheduler* scheduler() override {
+            return scheduler_;
+        }
+
         Window* createWindow(ObjPool& windowOwner, const WindowOptions& options) override {
             WindowHeadlessImpl* const window = windowOwner.make<WindowHeadlessImpl>(options);
             windows.push_back(window);
@@ -124,6 +131,7 @@ namespace {
         }
 
         PollerHeadless poller_;
+        Scheduler* scheduler_ = nullptr;
         std::vector<WindowHeadlessImpl*> windows;
         bool running = false;
     };
@@ -261,6 +269,10 @@ void ClipboardHeadless::write(StringView) {
 void ClipboardHeadless::cancel(ClipboardRead&) {
 }
 
+bool ClipboardHeadless::readAll(stl::Buffer&) {
+    return false;
+}
+
 void WindowHeadlessImpl::requestPointerIcon(PointerIcon icon) {
     icon_ = icon;
 }
@@ -368,5 +380,7 @@ HeadlessFrame WindowHeadlessImpl::presentedFrame() const {
 }
 
 Platform* plt::createHeadlessPlatform(ObjPool& owner) {
-    return owner.make<PlatformHeadless>();
+    PlatformHeadless* const platform = owner.make<PlatformHeadless>();
+    platform->scheduler_ = Scheduler::create(owner, *SmallObjAllocator::create(&owner), platform->poller_);
+    return platform;
 }

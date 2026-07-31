@@ -1,6 +1,7 @@
 #include "platform_wayland.h"
 
 #include "drop.h"
+#include "fiber.h"
 #include "input.h"
 #include "poller.h"
 #include "window.h"
@@ -33,7 +34,9 @@
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
 #include <std/thr/poll_fd.h>
+#include <std/thr/runable.h>
 #include <std/mem/obj_pool.h>
+#include <std/mem/small_obj_allocator.h>
 
 #include <cerrno>
 #include <poll.h>
@@ -60,7 +63,20 @@ namespace {
     struct PlatformImpl;
     struct PollerImpl;
     struct WindowImpl;
-    struct SelectionTransfer;
+
+    // One live selection transfer, linked from the platform and owned by the
+    // stack of the fiber that runs it. Cancellation nulls read; the fiber
+    // checks it around every blocking point and delivery.
+    struct TransferRecord {
+        WindowImpl* window = nullptr;
+        ClipboardRead* read = nullptr;
+        TransferRecord* next = nullptr;
+    };
+
+    // A fiber body carved out of the platform allocator; releases itself
+    // when the fiber finishes.
+    template <typename F>
+    struct FiberTask;
 
     constexpr u32 scaleDenominator = 120;
     // Abort a selection transfer when the peer makes no progress for this
@@ -136,29 +152,31 @@ namespace {
         DropOffer* what() override;
         void read(StringView mime, ClipboardRead& read) override;
 
-        PlatformImpl* platform = nullptr;
-        WindowImpl* window = nullptr;
         DndOfferView* view = nullptr;
-        bool taken = false;
+        const char* chosen = nullptr;
+        ClipboardRead* consumer = nullptr;
     };
 
-    // Forwards one dropped payload to the consumer's read and settles the
-    // protocol side: finish on success, destroy either way. Owns the
-    // wl_data_offer between drop and done().
-    struct DndTransfer final: public ClipboardRead {
-        bool data(StringView chunk) override;
-        void done(bool success) override;
-
-        PlatformImpl* platform = nullptr;
+    // One drag session, owned by the stack of its fiber. The platform points
+    // at it only during the hover phase and feeds it events; the fiber
+    // consumes them between parks and runs the drop transfer inline.
+    struct DndSession {
         WindowImpl* window = nullptr;
-        ClipboardRead* target = nullptr;
-        struct wl_data_offer* offer = nullptr;
+        Offer offer;
+        Fiber* fiber = nullptr;
+        u32 serial = 0;
+        wl_fixed_t motionX = 0;
+        wl_fixed_t motionY = 0;
+        bool motionPending = false;
+        bool dropPending = false;
+        bool leavePending = false;
     };
 
     struct ClipboardImpl final: public Clipboard {
         void read(ClipboardRead& read) override;
         void write(StringView content) override;
         void cancel(ClipboardRead& read) override;
+        bool readAll(Buffer& content) override;
 
         WindowImpl* window = nullptr;
         bool primary = false;
@@ -271,6 +289,7 @@ namespace {
 
         Window* createWindow(ObjPool& owner, const WindowOptions& options) override;
         Poller* poller() override;
+        Scheduler* scheduler() override;
         void run() override;
         void stop() override;
         void ready(PollFD event) override;
@@ -300,7 +319,8 @@ namespace {
         void dragMoved(wl_fixed_t x, wl_fixed_t y);
         void dragLeft();
         void dragDropped();
-        void receiveDrop(WindowImpl& window, const char* mime, ClipboardRead& read);
+        void runDragSession(DndSession& session);
+        void runDropTransfer(DndSession& session);
         void setClipboard(StringView content);
         void setPrimary(StringView content);
         void setCursor(WindowImpl& window);
@@ -309,7 +329,12 @@ namespace {
         void readSelection(int fd, WindowImpl& window, ClipboardRead& read);
         void completeSelection(WindowImpl& window, ClipboardRead& read, StringView content, bool success);
         void cancelSelection(WindowImpl& window, ClipboardRead* read);
-        void removeTransfer(SelectionTransfer& transfer);
+        void removeRecord(TransferRecord& record);
+
+        template <typename F>
+        void spawnTask(F body) {
+            scheduler_->spawn(*allocator_->make<FiberTask<F>>(*this, body));
+        }
         void enableTextInput(WindowImpl& window);
         void disableTextInput();
         void textInputEntered(struct wl_surface* surface);
@@ -318,6 +343,8 @@ namespace {
         void textInputRectChanged(WindowImpl& window, bool commit);
 
         PollerImpl* poller_ = nullptr;
+        SmallObjAllocator* allocator_ = nullptr;
+        Scheduler* scheduler_ = nullptr;
         struct wl_display* display = nullptr;
         struct wl_registry* registry = nullptr;
         struct wl_compositor* compositor = nullptr;
@@ -375,45 +402,30 @@ namespace {
         Offer clipboardOffer;
         Offer pendingPrimaryOffer;
         Offer primaryOffer;
-        Offer dndOffer;
-        WindowImpl* dndWindow = nullptr;
-        u32 dndEnterSerial = 0;
-        Buffer dndAcceptedMime;
-        DropAction dndAction = DropAction::None;
-        bool dndReplySent = false;
-        DndTransfer dndTransfer;
+        DndSession* dndSession = nullptr;
         Buffer clipboardContent;
         Buffer primaryContent;
-        SelectionTransfer* transfers = nullptr;
+        TransferRecord* transferRecords = nullptr;
         bool clipboardPending = false;
         bool primaryPending = false;
         bool running = false;
     };
 
-    struct SelectionTransfer final: public PollCallback, public TimerCallback {
-        SelectionTransfer(PlatformImpl& platform, int fd, WindowImpl* window, ClipboardRead* read, StringView content, bool writing, bool success);
+    template <typename F>
+    struct FiberTask final: public Runable {
+        FiberTask(PlatformImpl& platform_, F body_)
+            : platform(platform_)
+            , body(body_)
+        {
+        }
 
-        void start();
-        void armFd(u32 flags);
-        void ready(PollFD event) override;
-        void ready() override;
-        void cancel();
-        void finish(bool success);
-        void dispose();
+        void run() override {
+            body();
+            platform.allocator_->release(this);
+        }
 
         PlatformImpl& platform;
-        SelectionTransfer* next = nullptr;
-        WindowImpl* window = nullptr;
-        ClipboardRead* read = nullptr;
-        Buffer content;
-        size_t offset = 0;
-        int fd = -1;
-        bool writing = false;
-        bool success = false;
-        bool fdArmed = false;
-        bool timerArmed = false;
-        bool dispatching = false;
-        bool cancelled = false;
+        F body;
     };
 
     bool textMime(const char* mime) {
@@ -1247,203 +1259,21 @@ DropOffer* DndDrop::what() {
 }
 
 void DndDrop::read(StringView mime, ClipboardRead& read) {
-    const char* const chosen = taken ? nullptr : platform->dndOffer.offered(mime);
-    if (chosen == nullptr) {
-        platform->completeSelection(*window, read, {}, false);
+    if (consumer != nullptr) {
+        // The contract allows one read per drop; a second consumer is a
+        // caller bug and is refused in place.
+        read.done(false);
         return;
     }
-    taken = true;
-    platform->receiveDrop(*window, chosen, read);
-}
-
-bool DndTransfer::data(StringView chunk) {
-    return target->data(chunk);
-}
-
-void DndTransfer::done(bool success) {
-    struct wl_data_offer* const finished = offer;
-    ClipboardRead* const consumer = target;
-    offer = nullptr;
-    target = nullptr;
-    window = nullptr;
-    if (finished != nullptr) {
-        if (success && wl_data_offer_get_version(finished) >= WL_DATA_OFFER_FINISH_SINCE_VERSION) {
-            wl_data_offer_finish(finished);
-        }
-        wl_data_offer_destroy(finished);
-        platform->flushDisplay();
-    }
-    consumer->done(success);
-}
-
-SelectionTransfer::SelectionTransfer(PlatformImpl& platform_, int fd_, WindowImpl* window_, ClipboardRead* read_, StringView content_, bool writing_, bool success_)
-    : platform(platform_)
-    , window(window_)
-    , read(read_)
-    , content(content_)
-    , fd(fd_)
-    , writing(writing_)
-    , success(success_)
-{
-    next = platform.transfers;
-    platform.transfers = this;
-}
-
-void SelectionTransfer::start() {
-    if (fd < 0) {
-        timerArmed = true;
-        platform.poller_->timeout(0, *this);
-        return;
-    }
-    const int flags = fcntl(fd, F_GETFL, 0);
-    if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-        if (writing) {
-            dispose();
-        } else {
-            close(fd);
-            fd = -1;
-            success = false;
-            timerArmed = true;
-            platform.poller_->timeout(0, *this);
-        }
-        return;
-    }
-    armFd(writing ? PollFlag::Out : PollFlag::In);
-}
-
-void SelectionTransfer::armFd(u32 flags) {
-    fdArmed = true;
-    platform.poller_->arm(
-        {
-            .fd = fd,
-            .flags = flags,
-        },
-        *this
-    );
-    // Watchdog: every fd wait re-arms the deadline, so it fires only when the
-    // peer stops making the descriptor ready at all.
-    timerArmed = true;
-    platform.poller_->timeout(selectionTransferTimeoutUs, *this);
-}
-
-void SelectionTransfer::ready(PollFD) {
-    fdArmed = false;
-    if (cancelled) {
-        dispose();
-        return;
-    }
-    if (writing) {
-        const size_t remaining = content.length() - offset;
-        if (remaining == 0) {
-            dispose();
-            return;
-        }
-        const size_t chunk = min<size_t>(remaining, 64 * 1024);
-        const ssize_t count = writeNoSignal(fd, (const u8*)(content.data()) + offset, chunk);
-        if (count > 0) {
-            offset += (size_t)(count);
-            if (offset == content.length()) {
-                dispose();
-                return;
-            }
-        } else if (count < 0 && errno == EINTR) {
-        } else if (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-            dispose();
-            return;
-        }
-        armFd(PollFlag::Out);
-        return;
-    }
-
-    u8 bytes[64 * 1024];
-    const ssize_t count = ::read(fd, bytes, sizeof(bytes));
-    if (count > 0) {
-        dispatching = true;
-        ClipboardRead* const target = read;
-        const bool accepted = target != nullptr && target->data(StringView(bytes, (size_t)(count)));
-        dispatching = false;
-        if (cancelled) {
-            dispose();
-            return;
-        }
-        if (!accepted) {
-            finish(false);
-            return;
-        }
-        armFd(PollFlag::In);
-    } else if (count == 0) {
-        finish(true);
-    } else if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
-        armFd(PollFlag::In);
-    } else {
-        finish(false);
-    }
-}
-
-void SelectionTransfer::ready() {
-    timerArmed = false;
-    if (cancelled) {
-        dispose();
-        return;
-    }
-    if (fd >= 0) {
-        // The watchdog fired: the peer stalled, abort the transfer.
-        finish(false);
-        return;
-    }
-    bool accepted = success;
-    if (accepted && !content.empty()) {
-        dispatching = true;
-        ClipboardRead* const target = read;
-        accepted = target != nullptr && target->data(StringView(content));
-        dispatching = false;
-    }
-    if (cancelled) {
-        dispose();
-        return;
-    }
-    finish(accepted);
-}
-
-void SelectionTransfer::cancel() {
-    read = nullptr;
-    if (dispatching) {
-        cancelled = true;
-        return;
-    }
-    dispose();
-}
-
-void SelectionTransfer::finish(bool completed) {
-    ClipboardRead* const target = read;
-    read = nullptr;
-    dispose();
-    if (target != nullptr) {
-        target->done(completed);
-    }
-}
-
-void SelectionTransfer::dispose() {
-    if (fdArmed) {
-        platform.poller_->disarm(fd);
-        fdArmed = false;
-    }
-    if (timerArmed) {
-        platform.poller_->cancel(*this);
-        timerArmed = false;
-    }
-    if (fd >= 0) {
-        close(fd);
-        fd = -1;
-    }
-    platform.removeTransfer(*this);
-    delete this;
+    consumer = &read;
+    chosen = view->offer->offered(mime);
 }
 
 PlatformImpl::PlatformImpl(ObjPool& owner)
     : poller_(owner.make<PollerImpl>(owner))
 {
-    dndTransfer.platform = this;
+    allocator_ = SmallObjAllocator::create(&owner);
+    scheduler_ = Scheduler::create(owner, *allocator_, *poller_);
     display = wl_display_connect(nullptr);
     if (display == nullptr) {
         fail(u8"wl_display_connect failed");
@@ -1482,18 +1312,19 @@ PlatformImpl::PlatformImpl(ObjPool& owner)
 
 PlatformImpl::~PlatformImpl() {
     poller_->disarm(wl_display_get_fd(display));
-    while (transfers != nullptr) {
-        transfers->cancel();
+    for (TransferRecord* record = transferRecords; record != nullptr; record = record->next) {
+        record->read = nullptr;
     }
     stopRepeat();
     pendingClipboardOffer.reset();
     clipboardOffer.reset();
     pendingPrimaryOffer.reset();
     primaryOffer.reset();
-    dndOffer.reset();
-    if (dndTransfer.offer != nullptr) {
-        wl_data_offer_destroy(dndTransfer.offer);
-        dndTransfer.offer = nullptr;
+    if (dndSession != nullptr) {
+        // The session fiber owns the offer; ending the session synchronously
+        // makes it release the proxy before the display goes away.
+        dndSession->window = nullptr;
+        dndSession->fiber->wake();
     }
     if (clipboardSource != nullptr) {
         wl_data_source_destroy(clipboardSource);
@@ -1584,6 +1415,10 @@ Window* PlatformImpl::createWindow(ObjPool& windowOwner, const WindowOptions& op
 
 Poller* PlatformImpl::poller() {
     return poller_;
+}
+
+Scheduler* PlatformImpl::scheduler() {
+    return scheduler_;
 }
 
 void PlatformImpl::armDisplay(bool write) {
@@ -2223,157 +2058,311 @@ void PlatformImpl::stopRepeat() {
 }
 
 void PlatformImpl::writeSelection(int fd, StringView content) {
-    (new SelectionTransfer(*this, fd, nullptr, nullptr, content, true, true))->start();
+    spawnTask([this, fd, owned = Buffer(content)] {
+        const int flags = fcntl(fd, F_GETFL, 0);
+        if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+            close(fd);
+            return;
+        }
+        size_t offset = 0;
+        while (offset != owned.length()) {
+            if (!scheduler_->awaitWritable(fd, selectionTransferTimeoutUs)) {
+                break;
+            }
+            const size_t chunk = min<size_t>(owned.length() - offset, 64 * 1024);
+            const ssize_t count = writeNoSignal(fd, (const u8*)(owned.data()) + offset, chunk);
+            if (count > 0) {
+                offset += (size_t)(count);
+            } else if (count < 0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) {
+                break;
+            }
+        }
+        close(fd);
+    });
 }
 
 void PlatformImpl::readSelection(int fd, WindowImpl& window, ClipboardRead& read) {
-    (new SelectionTransfer(*this, fd, &window, &read, {}, false, true))->start();
+    spawnTask([this, fd, window = &window, target = &read] {
+        TransferRecord record;
+        record.window = window;
+        record.read = target;
+        record.next = transferRecords;
+        transferRecords = &record;
+        const int flags = fcntl(fd, F_GETFL, 0);
+        const bool broken = flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0;
+        bool success = false;
+        if (broken) {
+            // The consumer saw readSelection return; completion must stay
+            // asynchronous even when the descriptor is unusable.
+            scheduler_->yield();
+        } else {
+            while (record.read != nullptr) {
+                // The watchdog: a peer that stops making progress for this
+                // long aborts the transfer instead of pinning the pipe.
+                if (!scheduler_->awaitReadable(fd, selectionTransferTimeoutUs)) {
+                    break;
+                }
+                if (record.read == nullptr) {
+                    break;
+                }
+                u8 bytes[64 * 1024];
+                const ssize_t count = ::read(fd, bytes, sizeof(bytes));
+                if (count > 0) {
+                    if (!record.read->data(StringView(bytes, (size_t)(count)))) {
+                        break;
+                    }
+                } else if (count == 0) {
+                    success = true;
+                    break;
+                } else if (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) {
+                    break;
+                }
+            }
+        }
+        close(fd);
+        removeRecord(record);
+        if (record.read != nullptr) {
+            ClipboardRead* const consumer = record.read;
+            record.read = nullptr;
+            consumer->done(success);
+        }
+    });
 }
 
 void PlatformImpl::completeSelection(WindowImpl& window, ClipboardRead& read, StringView content, bool success) {
-    (new SelectionTransfer(*this, -1, &window, &read, content, false, success))->start();
+    spawnTask([this, window = &window, target = &read, owned = Buffer(content), success] {
+        TransferRecord record;
+        record.window = window;
+        record.read = target;
+        record.next = transferRecords;
+        transferRecords = &record;
+        scheduler_->yield();
+        bool accepted = success;
+        if (record.read != nullptr && accepted && !owned.empty()) {
+            accepted = record.read->data(StringView(owned));
+        }
+        removeRecord(record);
+        if (record.read != nullptr) {
+            ClipboardRead* const consumer = record.read;
+            record.read = nullptr;
+            consumer->done(accepted);
+        }
+    });
 }
 
 void PlatformImpl::cancelSelection(WindowImpl& window, ClipboardRead* read) {
-    for (SelectionTransfer* transfer = transfers; transfer != nullptr;) {
-        SelectionTransfer* const next = transfer->next;
-        if (transfer->window == &window && (read == nullptr || transfer->read == read)) {
-            transfer->cancel();
+    for (TransferRecord* record = transferRecords; record != nullptr; record = record->next) {
+        if (record->window == &window && (read == nullptr || record->read == read)) {
+            record->read = nullptr;
         }
-        transfer = next;
     }
 }
 
-void PlatformImpl::removeTransfer(SelectionTransfer& transfer) {
-    SelectionTransfer** current = &transfers;
-    while (*current != nullptr && *current != &transfer) {
+void PlatformImpl::removeRecord(TransferRecord& record) {
+    TransferRecord** current = &transferRecords;
+    while (*current != nullptr && *current != &record) {
         current = &(*current)->next;
     }
-    if (*current == &transfer) {
-        *current = transfer.next;
+    if (*current == &record) {
+        *current = record.next;
     }
 }
 
 void PlatformImpl::dragEntered(u32 serial, struct wl_surface* surface, wl_fixed_t x, wl_fixed_t y, struct wl_data_offer* offer) {
-    dndOffer.reset();
-    dndWindow = surface == nullptr ? nullptr : (WindowImpl*)(wl_proxy_get_user_data((struct wl_proxy*)(surface)));
-    dndEnterSerial = serial;
-    dndReplySent = false;
-    if (offer == nullptr) {
+    if (dndSession != nullptr) {
+        // A new session begins before the old one saw leave; end it. The
+        // fiber tears down synchronously and detaches itself.
+        dndSession->leavePending = true;
+        dndSession->fiber->wake();
+    }
+    WindowImpl* const window = surface == nullptr ? nullptr : (WindowImpl*)(wl_proxy_get_user_data((struct wl_proxy*)(surface)));
+    Offer adopted;
+    if (offer != nullptr) {
+        if (pendingClipboardOffer.data != offer) {
+            pendingClipboardOffer.reset();
+            pendingClipboardOffer.data = offer;
+            wl_data_offer_add_listener(offer, &dataOfferListener, &pendingClipboardOffer);
+        }
+        adopted = pendingClipboardOffer;
+        pendingClipboardOffer = {};
+    }
+    spawnTask([this, window, serial, x, y, adopted] {
+        DndSession session;
+        session.window = window;
+        session.offer = adopted;
+        session.fiber = scheduler_->current();
+        session.serial = serial;
+        session.motionX = x;
+        session.motionY = y;
+        session.motionPending = true;
+        dndSession = &session;
+        runDragSession(session);
+        if (dndSession == &session) {
+            dndSession = nullptr;
+        }
+        session.offer.reset();
+        flushDisplay();
+    });
+}
+
+void PlatformImpl::runDragSession(DndSession& session) {
+    Buffer acceptedMime;
+    DropAction lastAction = DropAction::None;
+    bool replySent = false;
+    while (true) {
+        if (session.leavePending || session.window == nullptr) {
+            if (session.window != nullptr && session.window->dropTarget != nullptr) {
+                session.window->dropTarget->dragLeft();
+            }
+            return;
+        }
+        if (session.dropPending) {
+            runDropTransfer(session);
+            return;
+        }
+        if (session.motionPending && session.offer.data != nullptr) {
+            session.motionPending = false;
+            DropReply reply;
+            if (session.window->dropTarget != nullptr) {
+                DndOfferView view;
+                view.offer = &session.offer;
+                const i32 pixelX = (i32)(((i64)(wl_fixed_to_double(session.motionX) * session.window->scaleNumerator)) / scaleDenominator);
+                const i32 pixelY = (i32)(((i64)(wl_fixed_to_double(session.motionY) * session.window->scaleNumerator)) / scaleDenominator);
+                reply = session.window->dropTarget->dragOver(view, pixelX, pixelY);
+            }
+            const char* const accepted = reply.mime.empty() ? nullptr : session.offer.offered(reply.mime);
+            const DropAction action = accepted == nullptr ? DropAction::None : reply.action;
+            const StringView acceptedView = accepted == nullptr ? StringView() : StringView(accepted);
+            if (!replySent || action != lastAction || StringView(acceptedMime) != acceptedView) {
+                replySent = true;
+                lastAction = action;
+                acceptedMime = Buffer(acceptedView);
+                // A null accept mime tells the source nothing here can
+                // consume the drag.
+                wl_data_offer_accept(session.offer.data, session.serial, accepted);
+                if (wl_data_offer_get_version(session.offer.data) >= WL_DATA_OFFER_SET_ACTIONS_SINCE_VERSION) {
+                    u32 mask = WL_DATA_DEVICE_MANAGER_DND_ACTION_NONE;
+                    if (action == DropAction::Copy) {
+                        mask = WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY;
+                    } else if (action == DropAction::Move) {
+                        mask = WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE;
+                    }
+                    wl_data_offer_set_actions(session.offer.data, mask, mask);
+                }
+                flushDisplay();
+            }
+            continue;
+        }
+        session.fiber->park();
+    }
+}
+
+void PlatformImpl::runDropTransfer(DndSession& session) {
+    // The hover phase is over; a new session may begin while this transfer
+    // drains.
+    if (dndSession == &session) {
+        dndSession = nullptr;
+    }
+    WindowImpl* const window = session.window;
+    if (window == nullptr || window->dropTarget == nullptr || session.offer.data == nullptr) {
         return;
     }
-    if (pendingClipboardOffer.data == offer) {
-        dndOffer = pendingClipboardOffer;
-        pendingClipboardOffer = {};
-    } else {
-        dndOffer.data = offer;
-        wl_data_offer_add_listener(offer, &dataOfferListener, &dndOffer);
+    DndOfferView view;
+    view.offer = &session.offer;
+    DndDrop drop;
+    drop.view = &view;
+    window->dropTarget->dropped(drop);
+    if (drop.consumer == nullptr) {
+        return;
     }
-    dragMoved(x, y);
+    TransferRecord record;
+    record.window = window;
+    record.read = drop.consumer;
+    record.next = transferRecords;
+    transferRecords = &record;
+    struct wl_data_offer* const taken = session.offer.data;
+    session.offer.data = nullptr;
+    bool success = false;
+    int fd = -1;
+    if (drop.chosen != nullptr) {
+        int pipes[2];
+        if (pipe2(pipes, O_CLOEXEC) == 0) {
+            wl_data_offer_receive(taken, drop.chosen, pipes[1]);
+            close(pipes[1]);
+            if (flushDisplay()) {
+                fd = pipes[0];
+            } else {
+                close(pipes[0]);
+            }
+        }
+    }
+    if (fd < 0) {
+        // The consumer saw read() return; completion stays asynchronous
+        // even when the transfer could not start.
+        scheduler_->yield();
+    } else {
+        const int flags = fcntl(fd, F_GETFL, 0);
+        if (flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) >= 0) {
+            while (record.read != nullptr) {
+                if (!scheduler_->awaitReadable(fd, selectionTransferTimeoutUs)) {
+                    break;
+                }
+                if (record.read == nullptr) {
+                    break;
+                }
+                u8 bytes[64 * 1024];
+                const ssize_t count = ::read(fd, bytes, sizeof(bytes));
+                if (count > 0) {
+                    if (!record.read->data(StringView(bytes, (size_t)(count)))) {
+                        break;
+                    }
+                } else if (count == 0) {
+                    success = true;
+                    break;
+                } else if (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) {
+                    break;
+                }
+            }
+        }
+        close(fd);
+    }
+    if (success && wl_data_offer_get_version(taken) >= WL_DATA_OFFER_FINISH_SINCE_VERSION) {
+        wl_data_offer_finish(taken);
+    }
+    wl_data_offer_destroy(taken);
+    flushDisplay();
+    removeRecord(record);
+    if (record.read != nullptr) {
+        ClipboardRead* const consumer = record.read;
+        record.read = nullptr;
+        consumer->done(success);
+    }
 }
 
 void PlatformImpl::dragMoved(wl_fixed_t x, wl_fixed_t y) {
-    if (dndOffer.data == nullptr) {
+    if (dndSession == nullptr) {
         return;
     }
-    DropReply reply;
-    if (dndWindow != nullptr && dndWindow->dropTarget != nullptr) {
-        DndOfferView view;
-        view.offer = &dndOffer;
-        const i32 pixelX = (i32)(((i64)(wl_fixed_to_double(x) * dndWindow->scaleNumerator)) / scaleDenominator);
-        const i32 pixelY = (i32)(((i64)(wl_fixed_to_double(y) * dndWindow->scaleNumerator)) / scaleDenominator);
-        reply = dndWindow->dropTarget->dragOver(view, pixelX, pixelY);
-    } else {
-        reply.mime = {};
-    }
-    const char* const accepted = reply.mime.empty() ? nullptr : dndOffer.offered(reply.mime);
-    const DropAction action = accepted == nullptr ? DropAction::None : reply.action;
-    const StringView acceptedView = accepted == nullptr ? StringView() : StringView(accepted);
-    if (dndReplySent && action == dndAction && StringView(dndAcceptedMime) == acceptedView) {
-        return;
-    }
-    dndReplySent = true;
-    dndAction = action;
-    dndAcceptedMime = Buffer(acceptedView);
-    // A null accept mime tells the source nothing here can consume the drag.
-    wl_data_offer_accept(dndOffer.data, dndEnterSerial, accepted);
-    if (wl_data_offer_get_version(dndOffer.data) >= WL_DATA_OFFER_SET_ACTIONS_SINCE_VERSION) {
-        u32 mask = WL_DATA_DEVICE_MANAGER_DND_ACTION_NONE;
-        if (action == DropAction::Copy) {
-            mask = WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY;
-        } else if (action == DropAction::Move) {
-            mask = WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE;
-        }
-        wl_data_offer_set_actions(dndOffer.data, mask, mask);
-    }
-    flushDisplay();
+    dndSession->motionX = x;
+    dndSession->motionY = y;
+    dndSession->motionPending = true;
+    dndSession->fiber->wake();
 }
 
 void PlatformImpl::dragLeft() {
-    if (dndWindow != nullptr && dndWindow->dropTarget != nullptr) {
-        dndWindow->dropTarget->dragLeft();
+    if (dndSession == nullptr) {
+        return;
     }
-    dndOffer.reset();
-    dndWindow = nullptr;
-    dndEnterSerial = 0;
-    dndReplySent = false;
-    flushDisplay();
+    dndSession->leavePending = true;
+    dndSession->fiber->wake();
 }
 
 void PlatformImpl::dragDropped() {
-    WindowImpl* const window = dndWindow;
-    dndWindow = nullptr;
-    dndEnterSerial = 0;
-    dndReplySent = false;
-    if (window == nullptr || window->dropTarget == nullptr || dndOffer.data == nullptr) {
-        dndOffer.reset();
-        flushDisplay();
+    if (dndSession == nullptr) {
         return;
     }
-    if (dndTransfer.offer != nullptr) {
-        // A previous drop is still draining; the new session supersedes it.
-        cancelSelection(*dndTransfer.window, &dndTransfer);
-        wl_data_offer_destroy(dndTransfer.offer);
-        dndTransfer.offer = nullptr;
-        dndTransfer.target = nullptr;
-        dndTransfer.window = nullptr;
-    }
-    DndOfferView view;
-    view.offer = &dndOffer;
-    DndDrop drop;
-    drop.platform = this;
-    drop.window = window;
-    drop.view = &view;
-    window->dropTarget->dropped(drop);
-    if (!drop.taken) {
-        dndOffer.reset();
-        flushDisplay();
-    }
-}
-
-void PlatformImpl::receiveDrop(WindowImpl& window, const char* mime, ClipboardRead& read) {
-    struct wl_data_offer* const offer = dndOffer.data;
-    dndOffer.data = nullptr;
-    int pipes[2];
-    if (pipe2(pipes, O_CLOEXEC) != 0) {
-        dndOffer.reset();
-        wl_data_offer_destroy(offer);
-        completeSelection(window, read, {}, false);
-        return;
-    }
-    wl_data_offer_receive(offer, mime, pipes[1]);
-    close(pipes[1]);
-    dndOffer.reset();
-    if (!flushDisplay()) {
-        close(pipes[0]);
-        wl_data_offer_destroy(offer);
-        completeSelection(window, read, {}, false);
-        return;
-    }
-    dndTransfer.window = &window;
-    dndTransfer.target = &read;
-    dndTransfer.offer = offer;
-    readSelection(pipes[0], window, dndTransfer);
+    dndSession->dropPending = true;
+    dndSession->fiber->wake();
 }
 
 void PlatformImpl::applyClipboardSelection() {
@@ -2615,18 +2604,9 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
 WindowImpl::~WindowImpl() {
     platform.poller_->cancel(*this);
     platform.cancelSelection(*this, nullptr);
-    if (platform.dndTransfer.window == this) {
-        // cancelSelection already muted the transfer; the offer would leak
-        // without an explicit destroy.
-        if (platform.dndTransfer.offer != nullptr) {
-            wl_data_offer_destroy(platform.dndTransfer.offer);
-        }
-        platform.dndTransfer.offer = nullptr;
-        platform.dndTransfer.target = nullptr;
-        platform.dndTransfer.window = nullptr;
-    }
-    if (platform.dndWindow == this) {
-        platform.dndWindow = nullptr;
+    if (platform.dndSession != nullptr && platform.dndSession->window == this) {
+        platform.dndSession->window = nullptr;
+        platform.dndSession->fiber->wake();
     }
     if (platform.keyboardFocus == this) {
         platform.keyboardFocus = nullptr;
@@ -2952,6 +2932,62 @@ void ClipboardImpl::write(StringView content) {
 
 void ClipboardImpl::cancel(ClipboardRead& read) {
     window->platform.cancelSelection(*window, &read);
+}
+
+bool ClipboardImpl::readAll(Buffer& content) {
+    PlatformImpl& platform = window->platform;
+    if (!platform.scheduler_->inFiber()) {
+        return false;
+    }
+    if (primary && platform.primarySource != nullptr) {
+        const StringView local(platform.primaryContent);
+        content.append(local.data(), local.length());
+        return true;
+    }
+    if (!primary && platform.clipboardSource != nullptr) {
+        const StringView local(platform.clipboardContent);
+        content.append(local.data(), local.length());
+        return true;
+    }
+    Offer& offer = primary ? platform.primaryOffer : platform.clipboardOffer;
+    const char* const mime = offer.mime();
+    if (mime == nullptr) {
+        return false;
+    }
+    int pipes[2];
+    if (pipe2(pipes, O_CLOEXEC) != 0) {
+        return false;
+    }
+    if (primary) {
+        zwp_primary_selection_offer_v1_receive(offer.primary, mime, pipes[1]);
+    } else {
+        wl_data_offer_receive(offer.data, mime, pipes[1]);
+    }
+    close(pipes[1]);
+    if (!platform.flushDisplay()) {
+        close(pipes[0]);
+        return false;
+    }
+    // The consuming fiber reads the pipe itself: while it is busy elsewhere
+    // the pipe fills up and the source blocks, so backpressure reaches the
+    // other client without any buffering on this side.
+    while (true) {
+        if (!platform.scheduler_->awaitReadable(pipes[0], selectionTransferTimeoutUs)) {
+            close(pipes[0]);
+            return false;
+        }
+        u8 bytes[64 * 1024];
+        const ssize_t count = ::read(pipes[0], bytes, sizeof(bytes));
+        if (count > 0) {
+            content.append(bytes, (size_t)(count));
+        } else if (count == 0) {
+            close(pipes[0]);
+            return true;
+        } else if (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) {
+            close(pipes[0]);
+            return false;
+        }
+    }
 }
 
 void WindowImpl::requestPointerIcon(PointerIcon icon) {
