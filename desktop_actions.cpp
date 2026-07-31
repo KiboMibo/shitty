@@ -49,7 +49,7 @@ void DesktopActionsImpl::openUri(StringView uri) {
 }
 
 void DesktopActionsImpl::pointerIcon(PointerIcon icon) {
-    window.requestPointerIcon(icon == PointerIcon::Link ? plt::PointerIcon::Link : plt::PointerIcon::Text);
+    window.requestPointerIcon(icon == PointerIcon::Link ? plt::PointerIcon::Pointer : plt::PointerIcon::Text);
 }
 
 DesktopActions* DesktopActions::create(Composer& composer, plt::Window& window) {

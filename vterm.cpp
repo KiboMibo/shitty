@@ -207,7 +207,7 @@ namespace {
     };
 
     struct ClipboardCopyOutput final: public Output {
-        ClipboardCopyOutput(SmallObjAllocator* allocator, Clipboard* clipboard);
+        ClipboardCopyOutput(SmallObjAllocator* allocator, ::Clipboard* clipboard);
 
         void operator delete(ClipboardCopyOutput* output, std::destroying_delete_t) noexcept;
 
@@ -215,12 +215,12 @@ namespace {
         void finishImpl() override;
 
         SmallObjAllocator* allocator;
-        Clipboard* clipboard;
+        ::Clipboard* clipboard;
         Buffer content;
     };
 
     struct ClipboardQueryOutput final: public Output {
-        ClipboardQueryOutput(SmallObjAllocator* allocator, Clipboard* clipboard, Output* output, bool tryClipboard, u8 replySelector, bool selectorsEmpty, bool send8BitControls);
+        ClipboardQueryOutput(SmallObjAllocator* allocator, ::Clipboard* clipboard, Output* output, bool tryClipboard, u8 replySelector, bool selectorsEmpty, bool send8BitControls);
         ~ClipboardQueryOutput() noexcept override;
 
         void operator delete(ClipboardQueryOutput* output, std::destroying_delete_t) noexcept;
@@ -231,7 +231,7 @@ namespace {
         void finishReply();
 
         SmallObjAllocator* allocator;
-        Clipboard* clipboard;
+        ::Clipboard* clipboard;
         Output* output;
         Base64Encoder encoder;
         bool tryClipboard;
@@ -420,6 +420,7 @@ namespace {
         bool expireSynchronizedOutput(bool force) override;
         bool advanceAnimation(bool force) override;
         void preedit(StringView text, i32 cursorBegin, i32 cursorEnd) override;
+        void drop(StringView text) override;
         const TerminalUpdate* output() override;
         void consume() override;
         VtermState state() const override;
@@ -1312,7 +1313,7 @@ bool VtermInput::paste(bool primary) {
     if (terminal->pasteMimeNotificationsMode) {
         return terminal->pasteMimeNotification(primary);
     }
-    Clipboard* const clipboard = terminal->composer.clipboard;
+    ::Clipboard* const clipboard = terminal->composer.clipboard;
     if (clipboard == nullptr || terminal->composer.ptyOutputs == nullptr || terminal->composer.ptyOutput == nullptr) {
         return false;
     }
@@ -1328,7 +1329,7 @@ bool VtermInput::paste(bool primary) {
 }
 
 bool VtermInput::copy() {
-    Clipboard* const clipboard = terminal->composer.clipboard;
+    ::Clipboard* const clipboard = terminal->composer.clipboard;
     if (clipboard == nullptr) {
         return false;
     }
@@ -1564,7 +1565,7 @@ void PasteOutput::begin() {
     }
 }
 
-ClipboardCopyOutput::ClipboardCopyOutput(SmallObjAllocator* allocator_, Clipboard* clipboard_)
+ClipboardCopyOutput::ClipboardCopyOutput(SmallObjAllocator* allocator_, ::Clipboard* clipboard_)
     : allocator(allocator_)
     , clipboard(clipboard_)
 {
@@ -1586,7 +1587,7 @@ void ClipboardCopyOutput::finishImpl() {
     }
 }
 
-ClipboardQueryOutput::ClipboardQueryOutput(SmallObjAllocator* allocator_, Clipboard* clipboard_, Output* output_, bool tryClipboard_, u8 replySelector_, bool selectorsEmpty_, bool send8BitControls_)
+ClipboardQueryOutput::ClipboardQueryOutput(SmallObjAllocator* allocator_, ::Clipboard* clipboard_, Output* output_, bool tryClipboard_, u8 replySelector_, bool selectorsEmpty_, bool send8BitControls_)
     : allocator(allocator_)
     , clipboard(clipboard_)
     , output(output_)
@@ -1955,7 +1956,7 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
     if (input.button == PointerButton::Primary || input.button == PointerButton::Secondary) {
         mouse.endSelection();
         const VtermTextResult selected = terminal->selectionFinish();
-        Clipboard* const clipboard = terminal->composer.clipboard;
+        ::Clipboard* const clipboard = terminal->composer.clipboard;
         if (selected.status && clipboard != nullptr) {
             clipboard->writePrimary(selected.text);
             if (opts.autoCopyMode) {
@@ -2291,6 +2292,17 @@ void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, const ScreenFrame& fr
     update.screenReverse = screenReverseVideo;
     update.blinkVisible = blinkVisible;
     update.cursorBlink = cursorBlinkMode;
+}
+
+void VtermImpl::drop(StringView text) {
+    if (text.empty() || composer.ptyOutputs == nullptr || composer.ptyOutput == nullptr) {
+        return;
+    }
+    Output* const insertion = composer.ptyOutput;
+    composer.ptyOutput = composer.ptyOutputs->append();
+    PasteOutput* const output = composer.smallObjects->make<PasteOutput>(composer.smallObjects, insertion, bracketedPasteMode);
+    output->write(text.data(), text.length());
+    delete output;
 }
 
 void VtermImpl::preedit(StringView text, i32 cursorBegin, i32 cursorEnd) {
@@ -6157,7 +6169,7 @@ void VtermImpl::osc_SELECTION_FOREGROUND(Color color, bool query) {
 }
 
 void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) {
-    Clipboard* const target = composer.clipboard;
+    ::Clipboard* const target = composer.clipboard;
     if (!opts.allowOsc52Read || target == nullptr || composer.ptyOutputs == nullptr || composer.ptyOutput == nullptr) {
         StringBuilder reply;
         reply << StringView(u8"52;");
@@ -6187,7 +6199,7 @@ void VtermImpl::osc_CLIPBOARD_WRITE(StringView decoded, bool valid, bool primary
     if (!valid) {
         return;
     }
-    Clipboard* const target = composer.clipboard;
+    ::Clipboard* const target = composer.clipboard;
     if (target == nullptr) {
         return;
     }
@@ -6218,7 +6230,7 @@ void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bo
         writeKittyClipboardStatus(StringView(u8"read"), id, StringView(u8"EPERM"));
         return;
     }
-    Clipboard* const clipboard = composer.clipboard;
+    ::Clipboard* const clipboard = composer.clipboard;
     if (clipboard == nullptr || composer.ptyOutputs == nullptr || composer.ptyOutput == nullptr) {
         writeKittyClipboardStatus(StringView(u8"read"), id, StringView(u8"ENOSYS"));
         return;
@@ -6261,7 +6273,7 @@ void VtermImpl::osc_KITTY_CLIPBOARD_WRITE_DATA(StringView id, StringView mimeTyp
         return;
     }
     if (content.empty()) {
-        Clipboard* const clipboard = composer.clipboard;
+        ::Clipboard* const clipboard = composer.clipboard;
         if (clipboard == nullptr) {
             kittyClipboardWriteOpen = false;
             kittyClipboardWriteContent.reset();

@@ -119,6 +119,9 @@ struct Vterm {
     // cursorBegin/cursorEnd are byte offsets into text, or -1 when the
     // input method hides its cursor.
     virtual void preedit(stl::StringView text, i32 cursorBegin, i32 cursorEnd) = 0;
+    // Text dropped onto the window by a drag-and-drop session; applies the
+    // same sanitizing and bracketed-paste treatment as a clipboard paste.
+    virtual void drop(stl::StringView text) = 0;
 
     virtual bool expireSynchronizedOutput(bool force) = 0;
     virtual bool advanceAnimation(bool force) = 0;

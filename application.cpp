@@ -474,7 +474,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .frame = this,
         }
     );
-    composer.clipboard = Clipboard::create(composer, *composer.window);
+    composer.clipboard = ::Clipboard::create(composer, *composer.window);
     composer.desktopActions = DesktopActions::create(composer, *composer.window);
     contentScaleChanged();
 

@@ -429,7 +429,7 @@ namespace {
         std::string cwdPath;
     };
 
-    struct TestClipboard final: public Clipboard {
+    struct TestClipboard final: public ::Clipboard {
         void readPrimary(Output* output) override;
         void readClipboard(Output* output) override;
         void writePrimary(StringView content) override;

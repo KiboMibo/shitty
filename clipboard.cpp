@@ -23,7 +23,7 @@ namespace {
     struct ClipboardImpl;
 
     struct ClipboardOutput final: public plt::ClipboardRead, public IntrusiveNode {
-        ClipboardOutput(ClipboardImpl* clipboard, Output* output);
+        ClipboardOutput(ClipboardImpl* clipboard, plt::Clipboard* source, Output* output);
 
         void operator delete(ClipboardOutput* read, std::destroying_delete_t) noexcept;
 
@@ -33,6 +33,7 @@ namespace {
         void complete(bool success);
 
         ClipboardImpl* clipboard;
+        plt::Clipboard* source;
         Output* output;
     };
 
@@ -53,8 +54,9 @@ namespace {
     };
 }
 
-ClipboardOutput::ClipboardOutput(ClipboardImpl* clipboard_, Output* output_)
+ClipboardOutput::ClipboardOutput(ClipboardImpl* clipboard_, plt::Clipboard* source_, Output* output_)
     : clipboard(clipboard_)
+    , source(source_)
     , output(output_)
 {
 }
@@ -73,7 +75,7 @@ void ClipboardOutput::done(bool success) {
 }
 
 void ClipboardOutput::cancel() {
-    clipboard->window.cancelClipboardRead(*this);
+    source->cancel(*this);
     complete(false);
 }
 
@@ -99,23 +101,25 @@ ClipboardImpl::~ClipboardImpl() {
 }
 
 void ClipboardImpl::readPrimary(Output* output) {
-    ClipboardOutput* const read = composer.smallObjects->make<ClipboardOutput>(this, output);
+    plt::Clipboard* const source = window.primary();
+    ClipboardOutput* const read = composer.smallObjects->make<ClipboardOutput>(this, source, output);
     reads.pushBack(read);
-    window.requestReadPrimary(*read);
+    source->read(*read);
 }
 
 void ClipboardImpl::readClipboard(Output* output) {
-    ClipboardOutput* const read = composer.smallObjects->make<ClipboardOutput>(this, output);
+    plt::Clipboard* const source = window.secondary();
+    ClipboardOutput* const read = composer.smallObjects->make<ClipboardOutput>(this, source, output);
     reads.pushBack(read);
-    window.requestReadClipboard(*read);
+    source->read(*read);
 }
 
 void ClipboardImpl::writePrimary(StringView content) {
-    window.requestWritePrimary(content);
+    window.primary()->write(content);
 }
 
 void ClipboardImpl::writeClipboard(StringView content) {
-    window.requestWriteClipboard(content);
+    window.secondary()->write(content);
 }
 
 void ClipboardImpl::cancelReads() {

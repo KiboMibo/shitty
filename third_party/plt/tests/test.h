@@ -1,13 +1,13 @@
 #pragma once
 
 #include "input.h"
+#include "platform.h"
 #include "poller.h"
 #include "window.h"
-#include "platform.h"
 
-#include <std/str/view.h>
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
+#include <std/str/view.h>
 
 namespace plt::test {
     enum class Command : u32 {
@@ -17,15 +17,12 @@ namespace plt::test {
         PointerEnter,
         PreferredScale,
         QuerySelection,
-        QuerySourceFormats,
         QueryMinimum,
         OfferSelection,
         OfferPlainSelection,
         OfferUnsupportedSelection,
         ReleaseRead,
         RequestSourceData,
-        RequestPngSourceData,
-        RequestJxlSourceData,
         RequestBrokenSourceData,
         CancelSources,
         ReleaseWrite,
@@ -58,6 +55,14 @@ namespace plt::test {
         TextInputCommitString,
         TextInputCommitInvalid,
         RemoveSeat,
+        DragEnter,
+        DragEnterUtf8String,
+        DragDrop,
+        DragLeave,
+        DragData,
+        QueryDragAccept,
+        QueryDragFinish,
+        CursorShapeV1,
         QuerySelectionSerial,
         QueryTextInput,
         QueryTextInputRect,
@@ -79,11 +84,6 @@ namespace plt::test {
         Fullscreen = 1 << 5,
         Unfullscreen = 1 << 6,
         Minimize = 1 << 7,
-    };
-
-    enum SourceFormat : u32 {
-        SourcePng = 1 << 0,
-        SourceJxl = 1 << 1,
     };
 
     Reply command(int fd, Command value);
@@ -174,6 +174,12 @@ namespace plt::test {
             ++preeditCount;
         }
 
+        void drop(stl::StringView text) override {
+            lastDrop.reset();
+            lastDrop.append(text.data(), text.length());
+            ++dropCount;
+        }
+
         void pointerMotion(const PointerMotionInput& input) override {
             lastMotion = input;
             ++motionCount;
@@ -220,6 +226,8 @@ namespace plt::test {
         i32 lastPreeditCursorBegin = -1;
         i32 lastPreeditCursorEnd = -1;
         u32 preeditCount = 0;
+        stl::Buffer lastDrop;
+        u32 dropCount = 0;
         PointerMotionInput lastMotion;
         PointerButtonInput lastButton;
         ScrollInput lastScroll;
@@ -271,7 +279,6 @@ namespace plt::test {
     bool cancelAsynchronousRead(int fd);
     bool cancelReadyClipboardRead(int fd);
     bool asynchronousWrite(int fd);
-    bool mimeClipboard(int fd);
     bool brokenClipboardConsumer(int fd);
     bool flushBackpressure(int fd);
     bool queuedWaylandEvent(int fd);
@@ -284,4 +291,9 @@ namespace plt::test {
     bool keyboardEnterKeys(int fd);
     bool outputRemoval(int fd);
     bool textInput(int fd);
+    bool cursorShapes(int fd);
+    bool cursorShapesV1(int fd);
+    bool textDrop(int fd);
+    bool utf8StringDrop(int fd);
+    bool cancelledDrag(int fd);
 }
