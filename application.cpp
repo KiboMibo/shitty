@@ -491,6 +491,12 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     composer.window->requestFrame();
 
     eventLoop();
+    // The swapchain holds proxies of the platform display. The composer and
+    // its rendererPool outlive the platform in the main pool, so destroying
+    // the renderer there would touch Wayland objects after the display is
+    // disconnected; drop it while the connection is still alive.
+    composer.renderer = nullptr;
+    composer.rendererPool = ObjPool::fromMemory();
     return 0;
 }
 
