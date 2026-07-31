@@ -129,7 +129,6 @@ namespace {
         PtyStager stager_;
         Buffer staged_;
         plt::Fiber* stagerFiber_ = nullptr;
-        u8 inputBuffer[64 * 1024];
     };
 }
 
@@ -252,25 +251,22 @@ PtyFeed::PtyFeed(PtyImpl* pty_)
 
 void PtyFeed::run() {
     PtyImpl& impl = *pty;
-    plt::Scheduler* const scheduler = impl.scheduler();
+    u8 buffer[64 * 1024];
     for (;;) {
-        // One chunk per readiness round keeps frame callbacks and other
-        // events interleaved with a flooding child, like the poll-driven
-        // reader this fiber replaces.
-        if (!scheduler->awaitReadable(impl.readFd_, 0)) {
-            break;
-        }
-        const size_t count = impl.input_.read(impl.inputBuffer, sizeof(impl.inputBuffer));
+        const size_t count = impl.input_.read(buffer, sizeof(buffer));
         if (count == 0) {
             break;
         }
         Vterm* const vterm = impl.composer_.vterm;
         if (vterm != nullptr) {
-            vterm->feedPty(StringView(impl.inputBuffer, count));
+            vterm->feedPty(StringView(buffer, count));
         }
         if (impl.composer_.window != nullptr) {
             impl.composer_.window->requestFrame();
         }
+        // One chunk per loop round keeps frames and input interleaved with
+        // a flooding child.
+        impl.scheduler()->yield();
     }
     if (impl.composer_.window != nullptr) {
         impl.composer_.window->requestClose();
