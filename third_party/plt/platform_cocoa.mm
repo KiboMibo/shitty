@@ -727,7 +727,7 @@ namespace {
 PlatformImpl::PlatformImpl(ObjPool& owner)
     : poller_(owner.make<PollerImpl>(owner))
     , allocator_(SmallObjAllocator::create(&owner))
-    , scheduler_(Scheduler::create(owner, *allocator_, *poller_))
+    , scheduler_(Scheduler::create(owner, *poller_))
 {
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];

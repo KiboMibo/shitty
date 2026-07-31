@@ -33,7 +33,8 @@ namespace plt::test {
             }
             remoteComplete = true;
         });
-        scheduler->spawn(remoteBody);
+        alignas(16) static u8 remoteStack[lightFiberStack];
+        scheduler->spawn(remoteBody, remoteStack, sizeof(remoteStack));
         if (remoteComplete) {
             fprintf(stderr, "fiber clipboard: remote read completed before any data arrived\n");
             return false;

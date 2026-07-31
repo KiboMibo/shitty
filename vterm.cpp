@@ -207,31 +207,32 @@ namespace {
         bool pendingC1Lead = false;
     };
 
+    // One spawnable unit for a clipboard transaction; recycled through the
+    // terminal free list because transactions come and go with every paste.
+    struct FiberBlock {
+        FiberBlock* next = nullptr;
+        alignas(16) u8 stack[plt::lightFiberStack];
+    };
+
+    struct VtermImpl;
+
     // A one-shot fiber body carved out of the small-object allocator;
-    // releases itself when the fiber finishes.
+    // releases itself and recycles its stack when the fiber finishes.
     template <typename F>
     struct FiberTask final: public Runable {
-        FiberTask(SmallObjAllocator* allocator_, F&& body_)
-            : allocator(allocator_)
+        FiberTask(VtermImpl* terminal_, FiberBlock* block_, F&& body_)
+            : terminal(terminal_)
+            , block(block_)
             , body(static_cast<F&&>(body_))
         {
         }
 
-        void run() override {
-            body();
-            SmallObjAllocator* const owner = allocator;
-            owner->release(this);
-        }
+        void run() override;
 
-        SmallObjAllocator* allocator;
+        VtermImpl* terminal;
+        FiberBlock* block;
         F body;
     };
-
-    template <typename F>
-    void spawnFiber(Composer& composer, F&& body) {
-        FiberTask<F>* const task = composer.smallObjects->make<FiberTask<F>>(composer.smallObjects, static_cast<F&&>(body));
-        composer.platform->scheduler()->spawn(*task);
-    }
 
     plt::Clipboard* selectionTarget(Composer& composer, bool primary) {
         return primary ? composer.primarySelection : composer.clipboard;
@@ -481,6 +482,9 @@ namespace {
 
         Point selectionPoint(int pX, int pY) const;
         std::string getLocalEcho(const u8* const begin, const u8* const end);
+        template <typename F>
+        void spawnTransaction(F&& body);
+
         bool processInput(const u8* input, int size, bool refresh = true);
         [[gnu::noinline]] bool processInputImpl(const u8* input, int size, bool refresh);
 
@@ -912,6 +916,7 @@ namespace {
 
         Vector<TerminalCell*> extraCells;
         u32 processInputDepth = 0;
+        FiberBlock* fiberBlocks_ = nullptr;
         bool presentedSinceGcSafePoint = false;
 
         TerminalColors colors;
@@ -1245,6 +1250,31 @@ namespace {
     }
 }
 
+template <typename F>
+void FiberTask<F>::run() {
+    body();
+    VtermImpl* const owner = terminal;
+    FiberBlock* const spent = block;
+    owner->composer.smallObjects->release(this);
+    // Still running on spent's stack: safe, nothing can reuse it before
+    // the final cooperative switch out.
+    spent->next = owner->fiberBlocks_;
+    owner->fiberBlocks_ = spent;
+}
+
+template <typename F>
+void VtermImpl::spawnTransaction(F&& body) {
+    FiberBlock* block = fiberBlocks_;
+    if (block != nullptr) {
+        fiberBlocks_ = block->next;
+        block->next = nullptr;
+    } else {
+        block = composer.pool->make<FiberBlock>();
+    }
+    FiberTask<F>* const task = composer.smallObjects->make<FiberTask<F>>(this, block, static_cast<F&&>(body));
+    composer.platform->scheduler()->spawn(*task, block->stack, sizeof(block->stack));
+}
+
 VtermInput::VtermInput(VtermImpl* terminal_)
     : terminal(terminal_)
 {
@@ -1299,7 +1329,7 @@ bool VtermInput::paste(bool primary) {
         return false;
     }
     const bool bracketed = terminal->bracketedPasteMode;
-    spawnFiber(composer, [&composer, primary, bracketed] {
+    terminal->spawnTransaction([&composer, primary, bracketed] {
         const plt::LockGuard guard(*composer.ptyMutex, *composer.platform->scheduler());
         const ScopedPtr<Input> source{selectionTarget(composer, primary)->read()};
         PasteOutput paste(composer.pty->output(), bracketed);
@@ -1320,7 +1350,7 @@ bool VtermInput::copy() {
     if (composer.clipboard == nullptr || composer.primarySelection == nullptr || composer.platform == nullptr) {
         return false;
     }
-    spawnFiber(composer, [&composer] {
+    terminal->spawnTransaction([&composer] {
         const ScopedPtr<Input> source{composer.primarySelection->read()};
         const ScopedPtr<Output> target{composer.clipboard->write()};
         for (;;) {
@@ -6043,7 +6073,7 @@ void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelect
     }
     const bool tryClipboard = primary && clipboard;
     const bool eightBit = send8BitControls;
-    spawnFiber(composer, [this, primary, tryClipboard, replySelector, selectorsEmpty, eightBit] {
+    spawnTransaction([this, primary, tryClipboard, replySelector, selectorsEmpty, eightBit] {
         const plt::LockGuard guard(*composer.ptyMutex, *composer.platform->scheduler());
         u8 chunk[8 * 1024];
         ScopedPtr<Input> source{selectionTarget(composer, primary)->read()};
@@ -6122,7 +6152,7 @@ void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bo
     std::string idCopy((const char*)(cleanId.data()), cleanId.used());
     std::string mimeCopy((const char*)(mimeType.data()), mimeType.length());
     const bool eightBit = send8BitControls;
-    spawnFiber(composer, [this, idCopy, mimeCopy, primary, targets, eightBit] {
+    spawnTransaction([this, idCopy, mimeCopy, primary, targets, eightBit] {
         const plt::LockGuard guard(*composer.ptyMutex, *composer.platform->scheduler());
         Output& output = *composer.pty->output();
         const StringView idView((const u8*)(idCopy.data()), idCopy.size());

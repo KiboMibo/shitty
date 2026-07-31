@@ -104,8 +104,17 @@ namespace {
         bool finished = false;
     };
 
+    // One spawnable unit: the stack for a platform task fiber, recycled
+    // through the platform free list because tasks come and go with every
+    // transfer. 64K covers the deepest task, the drag session delivering a
+    // drop into the client.
+    struct TaskBlock {
+        TaskBlock* next = nullptr;
+        alignas(16) u8 stack[64 * 1024];
+    };
+
     // A fiber body carved out of the platform allocator; releases itself
-    // when the fiber finishes.
+    // and recycles its stack when the fiber finishes.
     template <typename F>
     struct FiberTask;
 
@@ -359,8 +368,11 @@ namespace {
 
         template <typename F>
         void spawnTask(F body) {
-            scheduler_->spawn(*allocator_->make<FiberTask<F>>(*this, body));
+            TaskBlock* const block = takeTaskBlock();
+            scheduler_->spawn(*allocator_->make<FiberTask<F>>(*this, block, body), block->stack, sizeof(block->stack));
         }
+        TaskBlock* takeTaskBlock();
+        void recycleTaskBlock(TaskBlock* block);
         void enableTextInput(WindowImpl& window);
         void disableTextInput();
         void textInputEntered(struct wl_surface* surface);
@@ -369,8 +381,10 @@ namespace {
         void textInputRectChanged(WindowImpl& window, bool commit);
 
         PollerImpl* poller_ = nullptr;
+        ObjPool* owner_ = nullptr;
         SmallObjAllocator* allocator_ = nullptr;
         Scheduler* scheduler_ = nullptr;
+        TaskBlock* taskBlocks_ = nullptr;
         struct wl_display* display = nullptr;
         struct wl_registry* registry = nullptr;
         struct wl_compositor* compositor = nullptr;
@@ -438,20 +452,42 @@ namespace {
 
     template <typename F>
     struct FiberTask final: public Runable {
-        FiberTask(PlatformImpl& platform_, F body_)
+        FiberTask(PlatformImpl& platform_, TaskBlock* block_, F body_)
             : platform(platform_)
+            , block(block_)
             , body(body_)
         {
         }
 
         void run() override {
             body();
-            platform.allocator_->release(this);
+            PlatformImpl& owner = platform;
+            TaskBlock* const spent = block;
+            owner.allocator_->release(this);
+            // Still running on spent's stack: safe, nothing can reuse it
+            // before the final cooperative switch out.
+            owner.recycleTaskBlock(spent);
         }
 
         PlatformImpl& platform;
+        TaskBlock* block;
         F body;
     };
+
+    TaskBlock* PlatformImpl::takeTaskBlock() {
+        TaskBlock* block = taskBlocks_;
+        if (block != nullptr) {
+            taskBlocks_ = block->next;
+            block->next = nullptr;
+            return block;
+        }
+        return owner_->make<TaskBlock>();
+    }
+
+    void PlatformImpl::recycleTaskBlock(TaskBlock* block) {
+        block->next = taskBlocks_;
+        taskBlocks_ = block;
+    }
 
     bool textMime(const char* mime) {
         const StringView value(mime);
@@ -1309,8 +1345,9 @@ Input* DndDrop::read(StringView mime) {
 PlatformImpl::PlatformImpl(ObjPool& owner)
     : poller_(owner.make<PollerImpl>(owner))
 {
+    owner_ = &owner;
     allocator_ = SmallObjAllocator::create(&owner);
-    scheduler_ = Scheduler::create(owner, *allocator_, *poller_);
+    scheduler_ = Scheduler::create(owner, *poller_);
     display = wl_display_connect(nullptr);
     if (display == nullptr) {
         fail(u8"wl_display_connect failed");

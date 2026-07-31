@@ -4,7 +4,6 @@
 
 namespace stl {
     class ObjPool;
-    class SmallObjAllocator;
     struct Runable;
 }
 
@@ -28,9 +27,13 @@ namespace plt {
     // freely. Everything a fiber touches lives on its own stack, which lets
     // deeply nested code block on I/O without stopping the loop.
     struct Scheduler {
-        // Runs entry immediately on a fresh stack until it first blocks or
-        // returns. entry must stay alive until the fiber finishes.
-        virtual void spawn(stl::Runable& entry) = 0;
+        // Runs entry immediately on the caller-provided stack until it
+        // first blocks or returns. The control block lives at the base of
+        // that stack: both entry and the memory stay the caller's, must
+        // outlive the fiber, and the engine never frees or recycles them.
+        // Once the fiber finishes the memory may be reused for the next
+        // spawn; a caller with churn keeps its own free list.
+        virtual void spawn(stl::Runable& entry, void* stack, size_t size) = 0;
 
         // The calls below block the calling fiber only and must not be used
         // outside one. false means the wait timed out; a timeout of 0 waits
@@ -42,8 +45,10 @@ namespace plt {
         virtual bool inFiber() const = 0;
         virtual Fiber* current() = 0;
 
-        // Fiber control blocks come and go with every spawn, so they live in
-        // the platform's small-object allocator rather than its object pool.
-        static Scheduler* create(stl::ObjPool& owner, stl::SmallObjAllocator& allocator, Poller& poller);
+        static Scheduler* create(stl::ObjPool& owner, Poller& poller);
     };
+
+    // Enough for a leaf fiber that keeps only chunk buffers of a few
+    // kilobytes on its stack; give parser- or renderer-deep fibers more.
+    inline constexpr size_t lightFiberStack = 32 * 1024;
 }

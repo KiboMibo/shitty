@@ -434,6 +434,6 @@ HeadlessFrame WindowHeadlessImpl::presentedFrame() const {
 Platform* plt::createHeadlessPlatform(ObjPool& owner) {
     PlatformHeadless* const platform = owner.make<PlatformHeadless>();
     platform->allocator_ = SmallObjAllocator::create(&owner);
-    platform->scheduler_ = Scheduler::create(owner, *platform->allocator_, platform->poller_);
+    platform->scheduler_ = Scheduler::create(owner, platform->poller_);
     return platform;
 }

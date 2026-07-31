@@ -2,20 +2,23 @@
 
 #include "poller.h"
 
-#include <std/lib/buffer.h>
 #include <std/thr/context.h>
 #include <std/thr/poll_fd.h>
 #include <std/thr/runable.h>
 #include <std/mem/obj_pool.h>
-#include <std/mem/small_obj_allocator.h>
 
 #include <alloca.h>
+#include <new>
 
 using namespace plt;
 using namespace stl;
 
 namespace {
-    constexpr size_t fiberStackSize = 256 * 1024;
+    constexpr size_t stackAlign = 16;
+
+    size_t aligned(size_t size) {
+        return (size + stackAlign - 1) & ~(stackAlign - 1);
+    }
 
     struct SchedulerImpl;
 
@@ -32,8 +35,6 @@ namespace {
 
         SchedulerImpl& scheduler;
         Runable& entry;
-        Buffer stackStorage;
-        Buffer contextStorage;
         Context* context = nullptr;
         Context* resumeTo = nullptr;
         bool fdReady = false;
@@ -44,9 +45,9 @@ namespace {
     };
 
     struct SchedulerImpl final: public Scheduler {
-        SchedulerImpl(SmallObjAllocator& allocator, Poller& poller);
+        explicit SchedulerImpl(Poller& poller);
 
-        void spawn(Runable& entry) override;
+        void spawn(Runable& entry, void* stack, size_t size) override;
         bool awaitReadable(int fd, u64 timeoutUs) override;
         bool awaitWritable(int fd, u64 timeoutUs) override;
         void sleep(u64 timeoutUs) override;
@@ -57,7 +58,6 @@ namespace {
         bool awaitFd(int fd, u32 flags, u64 timeoutUs);
         void resume(FiberImpl& fiber);
 
-        SmallObjAllocator& allocator;
         Poller& poller;
         FiberImpl* active = nullptr;
     };
@@ -66,17 +66,14 @@ namespace {
 FiberImpl::FiberImpl(SchedulerImpl& scheduler_, Runable& entry_)
     : scheduler(scheduler_)
     , entry(entry_)
-    , stackStorage(fiberStackSize)
-    , contextStorage(Context::implSize())
 {
-    context = Context::create(contextStorage.mutData(), stackStorage.mutData(), fiberStackSize, *this);
 }
 
 void FiberImpl::run() {
     entry.run();
     finished = true;
-    // The final switch out; the resumer destroys the fiber afterwards, so
-    // nothing may run on this stack again.
+    // The final switch out; the caller owns the stack and may reuse it
+    // afterwards, so nothing may run on this stack again.
     context->switchTo(*resumeTo);
 }
 
@@ -112,9 +109,8 @@ void FiberImpl::block() {
     context->switchTo(*resumeTo);
 }
 
-SchedulerImpl::SchedulerImpl(SmallObjAllocator& allocator_, Poller& poller_)
-    : allocator(allocator_)
-    , poller(poller_)
+SchedulerImpl::SchedulerImpl(Poller& poller_)
+    : poller(poller_)
 {
 }
 
@@ -127,13 +123,16 @@ void SchedulerImpl::resume(FiberImpl& fiber) {
     fiber.resumeTo = host;
     host->switchTo(*fiber.context);
     active = previous;
-    if (fiber.finished) {
-        allocator.release(&fiber);
-    }
 }
 
-void SchedulerImpl::spawn(Runable& entry) {
-    resume(*allocator.make<FiberImpl>(*this, entry));
+void SchedulerImpl::spawn(Runable& entry, void* stack, size_t size) {
+    // The control block and its context implementation are carved from the
+    // base of the provided stack; the rest is the running stack.
+    u8* const base = static_cast<u8*>(stack);
+    const size_t reserved = aligned(sizeof(FiberImpl)) + aligned(Context::implSize());
+    FiberImpl* const fiber = new (base) FiberImpl(*this, entry);
+    fiber->context = Context::create(base + aligned(sizeof(FiberImpl)), base + reserved, size - reserved, *fiber);
+    resume(*fiber);
 }
 
 bool SchedulerImpl::awaitFd(int fd, u32 flags, u64 timeoutUs) {
@@ -188,6 +187,6 @@ Fiber* SchedulerImpl::current() {
     return active;
 }
 
-Scheduler* Scheduler::create(ObjPool& owner, SmallObjAllocator& allocator, Poller& poller) {
-    return owner.make<SchedulerImpl>(allocator, poller);
+Scheduler* Scheduler::create(ObjPool& owner, Poller& poller) {
+    return owner.make<SchedulerImpl>(poller);
 }

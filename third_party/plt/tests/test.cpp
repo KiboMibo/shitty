@@ -62,10 +62,12 @@ namespace plt::test {
     }
 
     void readOnFiber(Platform& platform, Clipboard& clipboard, StreamRead& read) {
+        // Leaked per call: the harness spawns a handful per scenario.
+        u8* const stack = new u8[lightFiberStack];
         platform.scheduler()->spawn(*stl::makeRunablePtr([&clipboard, &read] {
             const stl::ScopedPtr<stl::Input> stream{clipboard.read()};
             for (;;) {
-                u8 chunk[64 * 1024];
+                u8 chunk[8 * 1024];
                 const size_t count = stream->read(chunk, sizeof(chunk));
                 if (count == 0) {
                     break;
@@ -74,20 +76,21 @@ namespace plt::test {
                 ++read.chunks;
             }
             read.complete = true;
-        }));
+        }), stack, lightFiberStack);
     }
 
     void abortOnFiber(Platform& platform, Clipboard& clipboard, StreamRead& read) {
+        u8* const stack = new u8[lightFiberStack];
         platform.scheduler()->spawn(*stl::makeRunablePtr([&clipboard, &read] {
             const stl::ScopedPtr<stl::Input> stream{clipboard.read()};
-            u8 chunk[64 * 1024];
+            u8 chunk[8 * 1024];
             const size_t count = stream->read(chunk, sizeof(chunk));
             if (count != 0) {
                 read.content.append(chunk, count);
                 ++read.chunks;
             }
             read.complete = true;
-        }));
+        }), stack, lightFiberStack);
     }
 
     void writeClipboard(Clipboard& clipboard, stl::StringView content) {

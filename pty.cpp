@@ -110,6 +110,10 @@ namespace {
         PtyStager stager_;
         Buffer staged_;
         plt::Fiber* stagerFiber_ = nullptr;
+        // The feed fiber keeps its 64K read buffer and the whole parser
+        // depth on this stack.
+        alignas(16) u8 feedStack_[256 * 1024];
+        alignas(16) u8 stagerStack_[plt::lightFiberStack];
     };
 }
 
@@ -310,8 +314,8 @@ void PtyImpl::resize() {
 
 void PtyImpl::start() {
     composer_.resizedListeners.pushBack(this);
-    scheduler()->spawn(stager_);
-    scheduler()->spawn(feed_);
+    scheduler()->spawn(stager_, stagerStack_, sizeof(stagerStack_));
+    scheduler()->spawn(feed_, feedStack_, sizeof(feedStack_));
 }
 
 namespace {

@@ -5,7 +5,6 @@
 #include <std/thr/poll_fd.h>
 #include <std/thr/runable.h>
 #include <std/mem/obj_pool.h>
-#include <std/mem/small_obj_allocator.h>
 
 using namespace plt;
 using namespace stl;
@@ -57,12 +56,13 @@ STD_TEST_SUITE(FiberScheduler) {
     STD_TEST(SpawnRunsImmediately) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         ManualPoller poller;
-        Scheduler* const scheduler = Scheduler::create(*pool, *SmallObjAllocator::create(pool.mutPtr()), poller);
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
         int steps = 0;
         auto body = makeRunable([&] {
             ++steps;
         });
-        scheduler->spawn(body);
+        alignas(16) static u8 bodyStack[lightFiberStack];
+        scheduler->spawn(body, bodyStack, sizeof(bodyStack));
         STD_INSIST(steps == 1);
         STD_INSIST(!scheduler->inFiber());
     }
@@ -70,7 +70,7 @@ STD_TEST_SUITE(FiberScheduler) {
     STD_TEST(AwaitResumesOnFd) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         ManualPoller poller;
-        Scheduler* const scheduler = Scheduler::create(*pool, *SmallObjAllocator::create(pool.mutPtr()), poller);
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
         int phase = 0;
         bool ready = false;
         auto body = makeRunable([&] {
@@ -78,7 +78,8 @@ STD_TEST_SUITE(FiberScheduler) {
             ready = scheduler->awaitReadable(7, 1000);
             phase = 2;
         });
-        scheduler->spawn(body);
+        alignas(16) static u8 bodyStack[lightFiberStack];
+        scheduler->spawn(body, bodyStack, sizeof(bodyStack));
         STD_INSIST(phase == 1);
         STD_INSIST(poller.armedFd == 7);
         poller.fireFd();
@@ -90,14 +91,15 @@ STD_TEST_SUITE(FiberScheduler) {
     STD_TEST(AwaitTimesOut) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         ManualPoller poller;
-        Scheduler* const scheduler = Scheduler::create(*pool, *SmallObjAllocator::create(pool.mutPtr()), poller);
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
         bool ready = true;
         bool complete = false;
         auto body = makeRunable([&] {
             ready = scheduler->awaitReadable(7, 1000);
             complete = true;
         });
-        scheduler->spawn(body);
+        alignas(16) static u8 bodyStack[lightFiberStack];
+        scheduler->spawn(body, bodyStack, sizeof(bodyStack));
         poller.fireTimer();
         STD_INSIST(complete);
         STD_INSIST(!ready);
@@ -107,7 +109,7 @@ STD_TEST_SUITE(FiberScheduler) {
     STD_TEST(SleepAndInterleave) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         ManualPoller poller;
-        Scheduler* const scheduler = Scheduler::create(*pool, *SmallObjAllocator::create(pool.mutPtr()), poller);
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
         int order = 0;
         int firstAt = 0;
         int loopAt = 0;
@@ -116,7 +118,8 @@ STD_TEST_SUITE(FiberScheduler) {
             scheduler->sleep(1000);
             firstAt = ++order;
         });
-        scheduler->spawn(body);
+        alignas(16) static u8 bodyStack[lightFiberStack];
+        scheduler->spawn(body, bodyStack, sizeof(bodyStack));
         // The loop runs while the fiber sleeps.
         loopAt = ++order;
         poller.fireTimer();
@@ -127,7 +130,7 @@ STD_TEST_SUITE(FiberScheduler) {
     STD_TEST(ParkAndWake) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         ManualPoller poller;
-        Scheduler* const scheduler = Scheduler::create(*pool, *SmallObjAllocator::create(pool.mutPtr()), poller);
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
         Fiber* handle = nullptr;
         int phase = 0;
         auto body = makeRunable([&] {
@@ -138,7 +141,8 @@ STD_TEST_SUITE(FiberScheduler) {
             scheduler->current()->park();
             phase = 3;
         });
-        scheduler->spawn(body);
+        alignas(16) static u8 bodyStack[lightFiberStack];
+        scheduler->spawn(body, bodyStack, sizeof(bodyStack));
         STD_INSIST(phase == 1);
         handle->wake();
         STD_INSIST(phase == 2);
@@ -149,7 +153,7 @@ STD_TEST_SUITE(FiberScheduler) {
     STD_TEST(WakeBeforeParkIsRemembered) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         ManualPoller poller;
-        Scheduler* const scheduler = Scheduler::create(*pool, *SmallObjAllocator::create(pool.mutPtr()), poller);
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
         Fiber* handle = nullptr;
         bool woken = false;
         auto body = makeRunable([&] {
@@ -158,7 +162,8 @@ STD_TEST_SUITE(FiberScheduler) {
             scheduler->current()->park();
             woken = true;
         });
-        scheduler->spawn(body);
+        alignas(16) static u8 bodyStack[lightFiberStack];
+        scheduler->spawn(body, bodyStack, sizeof(bodyStack));
         handle->wake();
         STD_INSIST(!woken);
         poller.fireTimer();
@@ -168,7 +173,7 @@ STD_TEST_SUITE(FiberScheduler) {
     STD_TEST(NestedSpawn) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         ManualPoller poller;
-        Scheduler* const scheduler = Scheduler::create(*pool, *SmallObjAllocator::create(pool.mutPtr()), poller);
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
         bool innerBlocked = false;
         bool innerDone = false;
         bool outerDone = false;
@@ -178,11 +183,13 @@ STD_TEST_SUITE(FiberScheduler) {
             innerDone = true;
         });
         auto outer = makeRunable([&] {
-            scheduler->spawn(inner);
+            alignas(16) static u8 innerStack[lightFiberStack];
+        scheduler->spawn(inner, innerStack, sizeof(innerStack));
             STD_INSIST(scheduler->inFiber());
             outerDone = true;
         });
-        scheduler->spawn(outer);
+        alignas(16) static u8 outerStack[lightFiberStack];
+        scheduler->spawn(outer, outerStack, sizeof(outerStack));
         STD_INSIST(innerBlocked);
         STD_INSIST(outerDone);
         STD_INSIST(!innerDone);

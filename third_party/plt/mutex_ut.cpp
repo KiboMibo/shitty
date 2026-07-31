@@ -7,7 +7,6 @@
 #include <std/thr/poll_fd.h>
 #include <std/thr/runable.h>
 #include <std/mem/obj_pool.h>
-#include <std/mem/small_obj_allocator.h>
 
 using namespace plt;
 using namespace stl;
@@ -44,7 +43,7 @@ STD_TEST_SUITE(FiberMutexSuite) {
     STD_TEST(UncontendedLockDoesNotBlock) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         InertPoller poller;
-        Scheduler* const scheduler = Scheduler::create(*pool, *SmallObjAllocator::create(pool.mutPtr()), poller);
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
         FiberMutex mutex;
         bool done = false;
         auto body = makeRunable([&] {
@@ -52,7 +51,8 @@ STD_TEST_SUITE(FiberMutexSuite) {
             mutex.unlock();
             done = true;
         });
-        scheduler->spawn(body);
+        alignas(16) static u8 bodyStack[lightFiberStack];
+        scheduler->spawn(body, bodyStack, sizeof(bodyStack));
         STD_INSIST(done);
         STD_INSIST(!mutex.held);
     }
@@ -60,7 +60,7 @@ STD_TEST_SUITE(FiberMutexSuite) {
     STD_TEST(WaitersResumeInFifoOrder) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         InertPoller poller;
-        Scheduler* const scheduler = Scheduler::create(*pool, *SmallObjAllocator::create(pool.mutPtr()), poller);
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
         FiberMutex mutex;
         Fiber* owner = nullptr;
         int order = 0;
@@ -84,9 +84,12 @@ STD_TEST_SUITE(FiberMutexSuite) {
             secondAt = ++order;
             mutex.unlock();
         });
-        scheduler->spawn(ownerBody);
-        scheduler->spawn(firstBody);
-        scheduler->spawn(secondBody);
+        alignas(16) static u8 ownerBodyStack[lightFiberStack];
+        scheduler->spawn(ownerBody, ownerBodyStack, sizeof(ownerBodyStack));
+        alignas(16) static u8 firstBodyStack[lightFiberStack];
+        scheduler->spawn(firstBody, firstBodyStack, sizeof(firstBodyStack));
+        alignas(16) static u8 secondBodyStack[lightFiberStack];
+        scheduler->spawn(secondBody, secondBodyStack, sizeof(secondBodyStack));
         STD_INSIST(order == 0);
         owner->wake();
         STD_INSIST(ownerAt == 1);
@@ -98,7 +101,7 @@ STD_TEST_SUITE(FiberMutexSuite) {
     STD_TEST(HandoffKeepsMutexHeld) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         InertPoller poller;
-        Scheduler* const scheduler = Scheduler::create(*pool, *SmallObjAllocator::create(pool.mutPtr()), poller);
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
         FiberMutex mutex;
         Fiber* waiter = nullptr;
         bool waiterDone = false;
@@ -110,7 +113,8 @@ STD_TEST_SUITE(FiberMutexSuite) {
             mutex.unlock();
             waiterDone = true;
         });
-        scheduler->spawn(waiterBody);
+        alignas(16) static u8 waiterBodyStack[lightFiberStack];
+        scheduler->spawn(waiterBody, waiterBodyStack, sizeof(waiterBodyStack));
         // The waiter resumes inside unlock(), takes the mutex over and
         // blocks while still holding it.
         mutex.unlock();
@@ -125,14 +129,15 @@ STD_TEST_SUITE(FiberMutexSuite) {
     STD_TEST(LockGuardReleasesOnScopeExit) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         InertPoller poller;
-        Scheduler* const scheduler = Scheduler::create(*pool, *SmallObjAllocator::create(pool.mutPtr()), poller);
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
         FiberMutex mutex;
         bool inner = false;
         auto body = makeRunable([&] {
             const LockGuard guard(mutex, *scheduler);
             inner = mutex.held;
         });
-        scheduler->spawn(body);
+        alignas(16) static u8 bodyStack[lightFiberStack];
+        scheduler->spawn(body, bodyStack, sizeof(bodyStack));
         STD_INSIST(inner);
         STD_INSIST(!mutex.held);
     }
@@ -140,7 +145,7 @@ STD_TEST_SUITE(FiberMutexSuite) {
     STD_TEST(UnrelatedWakeDoesNotGrant) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         InertPoller poller;
-        Scheduler* const scheduler = Scheduler::create(*pool, *SmallObjAllocator::create(pool.mutPtr()), poller);
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
         FiberMutex mutex;
         Fiber* waiter = nullptr;
         bool entered = false;
@@ -151,7 +156,8 @@ STD_TEST_SUITE(FiberMutexSuite) {
             entered = true;
             mutex.unlock();
         });
-        scheduler->spawn(waiterBody);
+        alignas(16) static u8 waiterBodyStack[lightFiberStack];
+        scheduler->spawn(waiterBody, waiterBodyStack, sizeof(waiterBodyStack));
         waiter->wake();
         STD_INSIST(!entered);
         mutex.unlock();

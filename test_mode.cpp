@@ -123,6 +123,7 @@ namespace {
         Buffer staged_;
         plt::Fiber* stagerFiber_ = nullptr;
         plt::Fiber* blockedWriter_ = nullptr;
+        alignas(16) u8 stagerStack_[plt::lightFiberStack];
     };
 
     struct TestUtf8Decoder {
@@ -214,7 +215,7 @@ Output* TestPty::output() {
 }
 
 void TestPty::start() {
-    composer_.platform->scheduler()->spawn(stager_);
+    composer_.platform->scheduler()->spawn(stager_, stagerStack_, sizeof(stagerStack_));
 }
 
 ssize_t TestPty::read(u8* buffer, size_t size) {
