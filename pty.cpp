@@ -4,29 +4,10 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-/* part of this file is part of Zutty.
- * Copyright (C) 2020 Tom Szilagyi
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * See the file LICENSE.GPL3 for the full license.
- */
-
-/* The source code in this file is inspired by code samples in the book
- *   Advanced Programming in the UNIX Environment, 3rd Edition
- *   by W. Richard Stevens & Stephen A. Rago
- *   Addison-Wesley, 2013
- *
- * The original example code of the book is available from
- *   http://www.apuebook.com/code3e.html
- */
-
 #if defined(__APPLE__)
     #define _DARWIN_C_SOURCE
 #endif
+
 #define _XOPEN_SOURCE 700
 
 #include "pty.h"
