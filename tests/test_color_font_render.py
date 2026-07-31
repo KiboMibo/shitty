@@ -21,10 +21,7 @@ class ColorFontRenderTest(unittest.TestCase):
             extra_arguments=("-fontsize", "32"),
         ) as terminal:
             terminal.write(b"\x1b[?25l" + "👩‍💻".encode())
-            width, height, pixels = terminal.render_image(
-                COLOR_FONT,
-                COLOR_FONT,
-            )
+            width, height, pixels = terminal.render_image(COLOR_FONT)
 
         self.assertEqual((width, height), (84, 42))
         self.assertEqual(

@@ -357,6 +357,27 @@ namespace {
         }
     }
 
+    // FONT_LOAD/RENDER_IMAGE requests carry a NUL-separated font list; the
+    // views alias the request string.
+    std::vector<StringView> splitFontNames(const std::string& request) {
+        std::vector<StringView> names;
+        size_t begin = 0;
+        while (begin <= request.size()) {
+            size_t end = request.find('\0', begin);
+            if (end == std::string::npos) {
+                end = request.size();
+            }
+            if (end != begin) {
+                names.push_back(StringView((const u8*)(request.data() + begin), end - begin));
+            }
+            begin = end + 1;
+        }
+        if (names.empty()) {
+            throw std::runtime_error("empty font list");
+        }
+        return names;
+    }
+
     struct TraceEvent {
         std::string type;
         std::string data;
@@ -1482,26 +1503,16 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 writeAll(controlFd, "OK " + encodeHex(encoded) + "\n");
             } else if (line.compare(0, 10, "FONT_LOAD ") == 0) {
                 const std::string request = decodeHex(line.substr(10));
-                const size_t first = request.find('\0');
-                if (first == std::string::npos) {
-                    throw std::runtime_error("invalid font load request");
-                }
+                const std::vector<StringView> names = splitFontNames(request);
                 ObjPool::Ref fontPool = ObjPool::fromMemory();
-                const StringView fontname((const u8*)(request.data()), first);
-                const StringView dwfontname((const u8*)(request.data() + first + 1), request.size() - first - 1);
-                Fontpack* fonts = Fontpack::create(composer, *fontPool, fontname, dwfontname, opts.fontsize);
-                writeAll(controlFd, "OK " + std::to_string(fonts->getPx()) + " " + std::to_string(fonts->getPy()) + " " + std::to_string(fonts->hasBold()) + " " + std::to_string(fonts->hasItalic()) + " " + std::to_string(fonts->hasBoldItalic()) + " " + std::to_string(fonts->hasDoubleWidth()) + "\n");
+                Fontpack* fonts = Fontpack::create(composer, *fontPool, names.data(), names.size(), opts.fontsize);
+                writeAll(controlFd, "OK " + std::to_string(fonts->getPx()) + " " + std::to_string(fonts->getPy()) + " " + std::to_string(fonts->hasBold()) + " " + std::to_string(fonts->hasItalic()) + " " + std::to_string(fonts->hasBoldItalic()) + "\n");
             } else if (line.compare(0, 13, "RENDER_IMAGE ") == 0) {
                 const std::string request = decodeHex(line.substr(13));
-                const size_t first = request.find('\0');
-                if (first == std::string::npos) {
-                    throw std::runtime_error("invalid render image request");
-                }
+                const std::vector<StringView> names = splitFontNames(request);
                 ObjPool::Ref renderPool = ObjPool::fromMemory();
                 Composer& renderComposer = *renderPool->make<Composer>(renderPool.mutPtr());
-                const StringView fontname((const u8*)(request.data()), first);
-                const StringView dwfontname((const u8*)(request.data() + first + 1), request.size() - first - 1);
-                Fontpack* fonts = Fontpack::create(renderComposer, *renderPool, fontname, dwfontname, opts.fontsize);
+                Fontpack* fonts = Fontpack::create(renderComposer, *renderPool, names.data(), names.size(), opts.fontsize);
                 renderComposer.fonts = fonts;
                 renderComposer.setCellExtras(composer.cellExtras);
                 renderComposer.setGlyphSize(fonts->getPx(), fonts->getPy());

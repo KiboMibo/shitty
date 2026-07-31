@@ -28,13 +28,11 @@ namespace {
         bool hasBold() const override;
         bool hasItalic() const override;
         bool hasBoldItalic() const override;
-        bool hasDoubleWidth() const override;
         FontGlyph glyph(const u32* codepoints, size_t count, FontStyle style, bool doubleWidth) override;
 
         u8 bitmap[128]{};
         size_t bitmapLength = 0;
         bool colorGlyph = false;
-        bool doubleWidthAvailable = true;
         u32 received[8]{};
         size_t receivedCount = 0;
         FontStyle receivedStyle = FontStyle::Regular;
@@ -70,7 +68,8 @@ namespace {
 
     struct ReferenceFixture {
         explicit ReferenceFixture(Composer& composer)
-            : pixels((size_t)(composer.pixelWidth) * composer.pixelHeight * 3) {
+            : pixels((size_t)(composer.pixelWidth) * composer.pixelHeight * 3)
+        {
             target.pixels = pixels.data();
             target.length = pixels.size();
             target.width = composer.pixelWidth;
@@ -120,10 +119,6 @@ bool FakeFontpack::hasItalic() const {
 
 bool FakeFontpack::hasBoldItalic() const {
     return true;
-}
-
-bool FakeFontpack::hasDoubleWidth() const {
-    return doubleWidthAvailable;
 }
 
 FontGlyph FakeFontpack::glyph(const u32* codepoints, size_t count, FontStyle style, bool doubleWidth) {

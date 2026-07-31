@@ -45,13 +45,9 @@ class FontResolverTest(unittest.TestCase):
             with Shitty(
                 extra_environment={"FONTCONFIG_FILE": str(config)}
             ) as terminal:
-                loaded = terminal.load_font(
-                    "Shitty Test Mono",
-                    "Shitty Test Mono",
-                )
+                loaded = terminal.load_font("Shitty Test Mono")
 
         self.assertEqual(loaded["px"], 8)
-        self.assertEqual(loaded["double_width"], 1)
 
     @unittest.skipUnless(FONTCONFIG_AVAILABLE, "Fontconfig is not available")
     def test_overlay_width_is_independent_but_vertical_metrics_must_match(self):
@@ -85,20 +81,19 @@ class FontResolverTest(unittest.TestCase):
             with Shitty(
                 extra_environment={"FONTCONFIG_FILE": str(config)}
             ) as terminal:
-                loaded = terminal.load_font(family, "")
+                loaded = terminal.load_font(family)
 
         self.assertEqual(loaded["bold"], 1)
         self.assertEqual(loaded["italic"], 0)
         self.assertEqual(loaded["bold_italic"], 0)
 
     @unittest.skipUnless(FONTCONFIG_AVAILABLE, "Fontconfig is not available")
-    def test_missing_or_incompatible_double_width_font_keeps_primary_fallback(self):
+    def test_extra_fallback_fonts_keep_primary_metrics(self):
         with Shitty() as terminal:
-            primary = terminal.load_font("monospace", "")
-            fallback = terminal.load_font("monospace", "Arial")
-        self.assertEqual(fallback["double_width"], 0)
+            primary = terminal.load_font("monospace")
+            extended = terminal.load_font("monospace", "Arial")
         self.assertEqual(
-            (fallback["px"], fallback["py"]),
+            (extended["px"], extended["py"]),
             (primary["px"], primary["py"]),
         )
 
@@ -107,14 +102,14 @@ class FontResolverTest(unittest.TestCase):
         with Shitty() as terminal:
             for family in ("monospace", "IBM Plex Mono"):
                 with self.subTest(family=family):
-                    loaded = terminal.load_font(family, "")
+                    loaded = terminal.load_font(family)
                     self.assertGreater(loaded["px"], 0)
                     self.assertGreater(loaded["py"], 0)
 
     @unittest.skipUnless(FONTCONFIG_AVAILABLE, "Fontconfig is not available")
     def test_fontconfig_loads_all_four_style_faces_when_available(self):
         with Shitty() as terminal:
-            loaded = terminal.load_font("IBM Plex Mono", "")
+            loaded = terminal.load_font("IBM Plex Mono")
         self.assertEqual(
             (loaded["bold"], loaded["italic"], loaded["bold_italic"]),
             (1, 1, 1),
@@ -123,36 +118,36 @@ class FontResolverTest(unittest.TestCase):
     @unittest.skipUnless(FONTCONFIG_AVAILABLE, "Fontconfig is not available")
     def test_fontconfig_family_loads_without_a_search_path(self):
         with Shitty() as terminal:
-            loaded = terminal.load_font("monospace", "")
+            loaded = terminal.load_font("monospace")
         self.assertGreater(loaded["px"], 0)
         self.assertGreater(loaded["py"], 0)
 
     def test_unresolvable_family_falls_back_to_the_embedded_font(self):
         with Shitty() as terminal:
-            loaded = terminal.load_font("Shitty No Such Family 8b3f", "")
+            loaded = terminal.load_font("Shitty No Such Family 8b3f")
         self.assertGreater(loaded["px"], 0)
         self.assertGreater(loaded["py"], 0)
 
     def test_font_file_path_is_not_treated_as_a_family(self):
         with Shitty(extra_arguments=("-fontsize", "32")) as terminal:
-            primary = terminal.load_font(COLOR_FONT, "")
+            primary = terminal.load_font(COLOR_FONT)
         self.assertLessEqual(primary["py"], 64)
 
-    def test_font_file_paths_load_primary_and_double_width_fonts(self):
+    def test_font_file_paths_load_primary_and_fallback_fonts(self):
         with tempfile.TemporaryDirectory(dir=ROOT / ".build") as directory:
             root = Path(directory)
             primary_font = root / "primary.ttf"
-            double_width_font = root / "double-width.ttf"
+            fallback_font = root / "fallback.ttf"
             primary_font.write_bytes(
                 make_font("Shitty Path Primary", 500, 1000, 1000)
             )
-            double_width_font.write_bytes(
-                make_font("Shitty Path Double Width", 1000, 1000, 1000)
+            fallback_font.write_bytes(
+                make_font("Shitty Path Fallback", 1000, 1000, 1000)
             )
             with Shitty() as terminal:
-                loaded = terminal.load_font(primary_font, double_width_font)
+                loaded = terminal.load_font(primary_font, fallback_font)
 
-        self.assertEqual(loaded["double_width"], 1)
+        self.assertEqual(loaded["px"], 8)
 
 
 if __name__ == "__main__":

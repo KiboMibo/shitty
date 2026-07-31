@@ -27,9 +27,9 @@ namespace {
         CoreTextFont(CTFontRef font, FontKind kind, FontMetrics metrics);
         ~CoreTextFont() noexcept;
 
-        FontGlyph glyph(const u32* codepoints, size_t count) override;
+        FontGlyph glyph(const u32* codepoints, size_t count, u16 cells) override;
+        bool covers(u32 codepoint) override;
 
-        bool accepts(const u32* codepoints, size_t count) const;
         CFStringRef makeString(const u32* codepoints, size_t count);
         CTLineRef makeLine(CFStringRef string);
         bool inspectLine(CTLineRef line, bool& color);
@@ -38,6 +38,7 @@ namespace {
         CTFontRef font_;
         FontKind kind_;
         FontMetrics metrics_;
+        u16 canvasWidth_ = 0;
         Buffer characters_;
         Buffer bitmap_;
     };
@@ -98,15 +99,20 @@ CoreTextFont::~CoreTextFont() noexcept {
     CFRelease(font_);
 }
 
-bool CoreTextFont::accepts(const u32* codepoints, size_t count) const {
-    if (count == 0 || codepoints[0] == Missing_Glyph_Marker) {
+bool CoreTextFont::covers(u32 codepoint) {
+    UniChar characters[2];
+    CFIndex length = 0;
+    if (codepoint <= 0xffff && (codepoint < 0xd800 || codepoint > 0xdfff)) {
+        characters[length++] = (UniChar)(codepoint);
+    } else if (codepoint <= 0x10ffff) {
+        const u32 scalar = codepoint - 0x10000;
+        characters[length++] = (UniChar)(0xd800 + (scalar >> 10));
+        characters[length++] = (UniChar)(0xdc00 + (scalar & 0x3ff));
+    } else {
         return false;
     }
-    if (codepoints[0] == Unicode_Replacement_Character || count > 1) {
-        return true;
-    }
-    const int width = codepointWidth(codepoints[0]);
-    return kind_ == FontKind::DoubleWidth ? width == 2 : width < 2;
+    CGGlyph glyphs[2] = {};
+    return CTFontGetGlyphsForCharacters(font_, characters, glyphs, length);
 }
 
 CFStringRef CoreTextFont::makeString(const u32* codepoints, size_t count) {
@@ -192,7 +198,7 @@ bool CoreTextFont::inspectLine(CTLineRef line, bool& color) {
 
 bool CoreTextFont::drawLine(CTLineRef line, bool color) {
     const size_t bytesPerPixel = color ? 4 : 1;
-    const size_t stride = (size_t)(metrics_.width) * bytesPerPixel;
+    const size_t stride = (size_t)(canvasWidth_)*bytesPerPixel;
     bitmap_.zero(stride * metrics_.height);
 
     CGColorSpaceRef colorSpace = color ? CGColorSpaceCreateDeviceRGB() : CGColorSpaceCreateDeviceGray();
@@ -200,7 +206,7 @@ bool CoreTextFont::drawLine(CTLineRef line, bool color) {
         return false;
     }
     const CGBitmapInfo bitmapInfo = color ? (CGBitmapInfo)(kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big) : (CGBitmapInfo)(kCGImageAlphaNone);
-    CGContextRef context = CGBitmapContextCreate(bitmap_.mutData(), metrics_.width, metrics_.height, 8, stride, colorSpace, bitmapInfo);
+    CGContextRef context = CGBitmapContextCreate(bitmap_.mutData(), canvasWidth_, metrics_.height, 8, stride, colorSpace, bitmapInfo);
     CGColorSpaceRelease(colorSpace);
     if (context == nullptr) {
         return false;
@@ -222,10 +228,11 @@ bool CoreTextFont::drawLine(CTLineRef line, bool color) {
     return true;
 }
 
-FontGlyph CoreTextFont::glyph(const u32* codepoints, size_t count) {
-    if (!accepts(codepoints, count)) {
+FontGlyph CoreTextFont::glyph(const u32* codepoints, size_t count, u16 cells) {
+    if (count == 0 || cells == 0 || codepoints[0] == Missing_Glyph_Marker) {
         return {};
     }
+    canvasWidth_ = (u16)((cells < 2 ? cells : 2) * metrics_.width);
     CFStringRef string = makeString(codepoints, count);
     if (string == nullptr) {
         return {};

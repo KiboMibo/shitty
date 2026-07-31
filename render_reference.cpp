@@ -112,7 +112,6 @@ namespace {
         void clearTarget(Color background);
         void putPixel(int x, int y, Color color);
         void addGlyph(const u32* codepoints, size_t count, FontStyle style, bool doubleWidth, int cellWidth, int cellHeight);
-        void addFallback(int cellWidth, int cellHeight);
         ReferenceCell materialize(const TerminalCell& cell, u8 lineAttribute, const TerminalColors& colors) const;
         void renderCell(const TerminalUpdate& update, const ReferenceCell& cell, const GraphemeView& grapheme, u16 column, u16 row);
         bool render(const TerminalUpdate& update, const std::vector<ReferenceCell>& cells);
@@ -161,7 +160,8 @@ namespace {
 
 ReferenceRendererImpl::ReferenceRendererImpl(Composer& composer, const plt::RenderContext& context)
     : composer_(composer)
-    , target_(static_cast<plt::HeadlessRenderTarget*>(context.window)) {
+    , target_(static_cast<plt::HeadlessRenderTarget*>(context.window))
+{
     STD_ASSERT(context.backend == plt::RenderBackend::Headless);
 }
 
@@ -234,23 +234,8 @@ void ReferenceRendererImpl::putPixel(int x, int y, Color color) {
     pixel[2] = color.blue;
 }
 
-void ReferenceRendererImpl::addFallback(int cellWidth, int cellHeight) {
-    auto* coverage = (u8*)(coverage_.mutData());
-    for (int y = 0; y < cellHeight; ++y) {
-        for (int x = 0; x < cellWidth; ++x) {
-            if (x == 1 || x + 2 == cellWidth || y == 1 || y + 2 == cellHeight) {
-                coverage[(size_t)(y)*cellWidth + x] = maximum(coverage[(size_t)(y)*cellWidth + x], 179);
-            }
-        }
-    }
-}
-
 void ReferenceRendererImpl::addGlyph(const u32* codepoints, size_t count, FontStyle style, bool doubleWidth, int cellWidth, int cellHeight) {
     if (composer_.fonts == nullptr) {
-        return;
-    }
-    if (doubleWidth && !composer_.fonts->hasDoubleWidth()) {
-        addFallback(cellWidth, cellHeight);
         return;
     }
 

@@ -35,6 +35,7 @@
 
 #include <std/alg/minmax.h>
 #include <std/ios/sys.h>
+#include <std/lib/vector.h>
 #include <std/str/view.h>
 #include <std/sys/crt.h>
 
@@ -134,7 +135,8 @@ namespace {
 }
 
 CallFontInc::CallFontInc(ApplicationImpl* application_)
-    : application(application_) {
+    : application(application_)
+{
 }
 
 void CallFontInc::onListen(void*) {
@@ -142,7 +144,8 @@ void CallFontInc::onListen(void*) {
 }
 
 CallFontDec::CallFontDec(ApplicationImpl* application_)
-    : application(application_) {
+    : application(application_)
+{
 }
 
 void CallFontDec::onListen(void*) {
@@ -150,7 +153,8 @@ void CallFontDec::onListen(void*) {
 }
 
 CallFontReset::CallFontReset(ApplicationImpl* application_)
-    : application(application_) {
+    : application(application_)
+{
 }
 
 void CallFontReset::onListen(void*) {
@@ -158,7 +162,8 @@ void CallFontReset::onListen(void*) {
 }
 
 CallContentScaleChanged::CallContentScaleChanged(ApplicationImpl* application_)
-    : application(application_) {
+    : application(application_)
+{
 }
 
 void CallContentScaleChanged::onListen(void*) {
@@ -166,7 +171,8 @@ void CallContentScaleChanged::onListen(void*) {
 }
 
 CallFontChanged::CallFontChanged(ApplicationImpl* application_)
-    : application(application_) {
+    : application(application_)
+{
 }
 
 void CallFontChanged::onListen(void*) {
@@ -174,7 +180,8 @@ void CallFontChanged::onListen(void*) {
 }
 
 ApplicationImpl::ApplicationImpl(Composer& composer_)
-    : composer(composer_) {
+    : composer(composer_)
+{
 }
 
 void ApplicationImpl::wire() {
@@ -212,7 +219,11 @@ void ApplicationImpl::replaceFontpack(u16 size) {
         int scaled = (int)(size * composer.contentScale + 0.5f);
         scaled = scaled < 1 ? 1 : scaled > 255 ? 255 : scaled;
         const u16 pixels = (u16)(scaled);
-        next = Fontpack::create(composer, *nextPool, opts.fontname, opts.dwfontname, pixels);
+        Vector<StringView> names;
+        for (size_t index = 0; index < opts.fontnameCount; ++index) {
+            names.pushBack(StringView(opts.fontnames[index]));
+        }
+        next = Fontpack::create(composer, *nextPool, names.data(), names.length(), pixels);
     } catch (...) {
         delete nextPool;
         throw;

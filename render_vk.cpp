@@ -388,7 +388,7 @@ namespace {
         void pinVisibleGlyphs();
         void configureGlyphCache(GlyphCache& cache, u32 width, u32 layers, size_t byteBudget, u32 maxImageDimension);
         u16 allocateGlyphSlot(GlyphCache& cache, u32 id, bool grapheme);
-        u32 ensureGlyph(Fontpack& fonts, bool hasDoubleWidth, const u32* codepoints, size_t count, u32 id, bool grapheme, FontStyle style, bool doubleWidth);
+        u32 ensureGlyph(Fontpack& fonts, const u32* codepoints, size_t count, u32 id, bool grapheme, FontStyle style, bool doubleWidth);
         VkDeviceSize stageFontData(const void* data, size_t len, size_t expected);
         void recordFontUploads(FrameResources& frame);
         void recordImageUploads(VkCommandBuffer commandBuffer, VkBuffer stagingBuffer, const ImageResource& image, const Vector<VkBufferImageCopy>& copies, bool initialize);
@@ -1028,10 +1028,8 @@ RendererImpl::FontResources* RendererImpl::buildFontResources() {
         configureGlyphCache(resources->glyphs, composer.glyphWidth, 4, atlasByteBudget, properties.limits.maxImageDimension2D);
         resources->atlas = createImage(composer.glyphWidth * resources->glyphs.columns, composer.glyphHeight * resources->glyphs.rows, 4, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
 
-        if (composer.fonts->hasDoubleWidth()) {
-            configureGlyphCache(resources->doubleWidthGlyphs, 2 * composer.glyphWidth, 1, doubleWidthAtlasByteBudget, properties.limits.maxImageDimension2D);
-            resources->doubleWidthAtlas = createImage(2 * composer.glyphWidth * resources->doubleWidthGlyphs.columns, composer.glyphHeight * resources->doubleWidthGlyphs.rows, 1, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
-        }
+        configureGlyphCache(resources->doubleWidthGlyphs, 2 * composer.glyphWidth, 1, doubleWidthAtlasByteBudget, properties.limits.maxImageDimension2D);
+        resources->doubleWidthAtlas = createImage(2 * composer.glyphWidth * resources->doubleWidthGlyphs.columns, composer.glyphHeight * resources->doubleWidthGlyphs.rows, 1, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
 
         if (atlasSampler == VK_NULL_HANDLE) {
             VkSamplerCreateInfo samplerInfo{};
@@ -1688,8 +1686,8 @@ VkDeviceSize RendererImpl::stageFontData(const void* data, size_t len, size_t ex
     return offset;
 }
 
-u32 RendererImpl::ensureGlyph(Fontpack& fonts, bool hasDoubleWidth, const u32* codepoints, size_t count, u32 id, bool grapheme, FontStyle style, bool doubleWidth) {
-    if (count == 0 || (!grapheme && (id >= 0x110000 || !needsFontGlyph(id))) || (doubleWidth && !hasDoubleWidth)) {
+u32 RendererImpl::ensureGlyph(Fontpack& fonts, const u32* codepoints, size_t count, u32 id, bool grapheme, FontStyle style, bool doubleWidth) {
+    if (count == 0 || (!grapheme && (id >= 0x110000 || !needsFontGlyph(id)))) {
         return 0;
     }
 
@@ -1764,7 +1762,6 @@ u32 RendererImpl::ensureGlyph(Fontpack& fonts, bool hasDoubleWidth, const u32* c
 void RendererImpl::materializeCells(const TerminalCell* input, GpuCell* output, u16 count, u8 lineAttribute, const TerminalColors& colors) {
     CellExtraStore& extras = *composer.cellExtras;
     Fontpack& fonts = *composer.fonts;
-    const bool hasDoubleWidth = fonts.hasDoubleWidth();
     const bool specialColors = colors.specialModes != 0;
     for (u16 index = 0; index < count; ++index) {
         const TerminalCell& cell = input[index];
@@ -1793,9 +1790,9 @@ void RendererImpl::materializeCells(const TerminalCell* input, GpuCell* output, 
         if (!cell.dwidth_cont || lineAttribute != 0) {
             const FontStyle style = (FontStyle)((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0));
             if (graphemeId != 0) {
-                glyph = ensureGlyph(fonts, hasDoubleWidth, grapheme.data(), grapheme.size(), graphemeId, true, style, doubleWidth);
+                glyph = ensureGlyph(fonts, grapheme.data(), grapheme.size(), graphemeId, true, style, doubleWidth);
             } else {
-                glyph = ensureGlyph(fonts, hasDoubleWidth, &codepoint, 1, codepoint, false, style, doubleWidth);
+                glyph = ensureGlyph(fonts, &codepoint, 1, codepoint, false, style, doubleWidth);
             }
         }
         output[index] = {
@@ -1814,7 +1811,6 @@ void RendererImpl::materializeCells(const TerminalCell* input, GpuCell* output, 
 
 bool RendererImpl::validateCachedCells(const TerminalCell* input, const GpuCell* output, u16 count, u8 lineAttribute) {
     CellExtraStore& extras = *composer.cellExtras;
-    const bool hasDoubleWidth = composer.fonts->hasDoubleWidth();
     for (u16 index = 0; index < count; ++index) {
         const TerminalCell& cell = input[index];
         const GpuCell& rendered = output[index];
@@ -1834,7 +1830,7 @@ bool RendererImpl::validateCachedCells(const TerminalCell* input, const GpuCell*
                 grapheme = true;
             }
         }
-        if ((!grapheme && !needsFontGlyph(id)) || (doubleWidth && !hasDoubleWidth)) {
+        if (!grapheme && !needsFontGlyph(id)) {
             if (rendered.glyph != 0) {
                 return false;
             }

@@ -16,7 +16,8 @@ using namespace stl;
 
 namespace {
     struct FakeFont final: public Font {
-        FontGlyph glyph(const u32* codepoints, size_t count) override;
+        FontGlyph glyph(const u32* codepoints, size_t count, u16 cells) override;
+        bool covers(u32 codepoint) override;
     };
 
     struct RecordingResolver final: public FontResolver {
@@ -36,8 +37,12 @@ namespace {
     }
 }
 
-FontGlyph FakeFont::glyph(const u32*, size_t) {
+FontGlyph FakeFont::glyph(const u32*, size_t, u16) {
     return {};
+}
+
+bool FakeFont::covers(u32) {
+    return false;
 }
 
 RecordingResolver::RecordingResolver(bool accepts)
@@ -107,14 +112,14 @@ STD_TEST_SUITE(FontResolver) {
         composer.fontResolvers.pushBack(&resolver);
         ObjPool::Ref fontPool = ObjPool::fromMemory();
 
-        Fontpack* const fonts = Fontpack::create(composer, *fontPool, StringView(u8"primary"), StringView(u8"wide"), 21);
+        const StringView names[] = {StringView(u8"primary"), StringView(u8"extra")};
+        Fontpack* const fonts = Fontpack::create(composer, *fontPool, names, 2, 21);
 
         STD_INSIST(fonts->getPx() == 8);
         STD_INSIST(fonts->getPy() == 16);
         STD_INSIST(fonts->hasBold());
         STD_INSIST(fonts->hasItalic());
         STD_INSIST(fonts->hasBoldItalic());
-        STD_INSIST(fonts->hasDoubleWidth());
         STD_INSIST(resolver.calls == 5);
         STD_INSIST(resolver.requests[0].name == StringView(u8"primary"));
         STD_INSIST(resolver.requests[0].style == FontStyle::Regular);
@@ -123,8 +128,8 @@ STD_TEST_SUITE(FontResolver) {
         STD_INSIST(resolver.requests[1].kind == FontKind::Overlay);
         STD_INSIST(resolver.requests[2].style == FontStyle::Italic);
         STD_INSIST(resolver.requests[3].style == FontStyle::BoldItalic);
-        STD_INSIST(resolver.requests[4].name == StringView(u8"wide"));
+        STD_INSIST(resolver.requests[4].name == StringView(u8"extra"));
         STD_INSIST(resolver.requests[4].style == FontStyle::Regular);
-        STD_INSIST(resolver.requests[4].kind == FontKind::DoubleWidth);
+        STD_INSIST(resolver.requests[4].kind == FontKind::Fallback);
     }
 }

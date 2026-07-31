@@ -265,7 +265,7 @@ namespace {
         void beginGlyphFrame();
         void pinVisibleGlyphs();
         u16 allocateGlyphSlot(GlyphCache& cache, u32 id, bool grapheme);
-        u32 ensureGlyph(Fontpack& fonts, bool hasDoubleWidth, const u32* codepoints, size_t count, u32 glyphId, bool grapheme, FontStyle style, bool doubleWidth);
+        u32 ensureGlyph(Fontpack& fonts, const u32* codepoints, size_t count, u32 glyphId, bool grapheme, FontStyle style, bool doubleWidth);
         void materializeCells(const TerminalCell* input, GpuCell* output, u16 count, u8 lineAttribute, const TerminalColors& colors);
         bool ensureTargets(u32 width, u32 height);
         bool ensureCellBuffer(PresentationFrame& frame, size_t count);
@@ -497,16 +497,14 @@ bool MetalRendererImpl::buildFontResources() {
     }
 
     id<MTLTexture> replacementDoubleWidthAtlas = nil;
-    if (composer.fonts->hasDoubleWidth()) {
-        if (!configureGlyphCache(*replacementDoubleWidthGlyphs, 2 * composer.glyphWidth, 1, doubleWidthAtlasByteBudget)) {
-            [replacementAtlas release];
-            return false;
-        }
-        replacementDoubleWidthAtlas = createAtlas(MTLPixelFormatR8Unorm, 2 * composer.glyphWidth * replacementDoubleWidthGlyphs->columns, composer.glyphHeight * replacementDoubleWidthGlyphs->rows, 1);
-        if (replacementDoubleWidthAtlas == nil) {
-            [replacementAtlas release];
-            return false;
-        }
+    if (!configureGlyphCache(*replacementDoubleWidthGlyphs, 2 * composer.glyphWidth, 1, doubleWidthAtlasByteBudget)) {
+        [replacementAtlas release];
+        return false;
+    }
+    replacementDoubleWidthAtlas = createAtlas(MTLPixelFormatR8Unorm, 2 * composer.glyphWidth * replacementDoubleWidthGlyphs->columns, composer.glyphHeight * replacementDoubleWidthGlyphs->rows, 1);
+    if (replacementDoubleWidthAtlas == nil) {
+        [replacementAtlas release];
+        return false;
     }
 
     [atlas release];
@@ -633,8 +631,8 @@ bool MetalRendererImpl::needsFontGlyph(u32 id) {
     return id != 0x200d && !(id >= 0xfe00 && id <= 0xfe0f) && !(id >= 0xe0100 && id <= 0xe01ef) && !(id >= 0x2500 && id <= 0x257f) && !(id >= 0x23ba && id <= 0x23bd);
 }
 
-u32 MetalRendererImpl::ensureGlyph(Fontpack& fonts, bool hasDoubleWidth, const u32* codepoints, size_t count, u32 glyphId, bool grapheme, FontStyle style, bool doubleWidth) {
-    if (count == 0 || (!grapheme && (glyphId >= 0x110000 || !needsFontGlyph(glyphId))) || (doubleWidth && !hasDoubleWidth)) {
+u32 MetalRendererImpl::ensureGlyph(Fontpack& fonts, const u32* codepoints, size_t count, u32 glyphId, bool grapheme, FontStyle style, bool doubleWidth) {
+    if (count == 0 || (!grapheme && (glyphId >= 0x110000 || !needsFontGlyph(glyphId)))) {
         return 0;
     }
 
@@ -701,7 +699,6 @@ u32 MetalRendererImpl::ensureGlyph(Fontpack& fonts, bool hasDoubleWidth, const u
 void MetalRendererImpl::materializeCells(const TerminalCell* input, GpuCell* outputCells, u16 count, u8 lineAttribute, const TerminalColors& colors) {
     CellExtraStore& extras = *composer.cellExtras;
     Fontpack& fonts = *composer.fonts;
-    const bool hasDoubleWidth = fonts.hasDoubleWidth();
     const bool specialColors = colors.specialModes != 0;
     for (u16 index = 0; index < count; ++index) {
         const TerminalCell& cell = input[index];
@@ -729,7 +726,7 @@ void MetalRendererImpl::materializeCells(const TerminalCell* input, GpuCell* out
         const bool doubleWidth = lineAttribute != 0 || cell.dwidth;
         if (!cell.dwidth_cont || lineAttribute != 0) {
             const FontStyle style = (FontStyle)((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0));
-            glyph = graphemeId != 0 ? ensureGlyph(fonts, hasDoubleWidth, grapheme.data(), grapheme.size(), graphemeId, true, style, doubleWidth) : ensureGlyph(fonts, hasDoubleWidth, &codepoint, 1, codepoint, false, style, doubleWidth);
+            glyph = graphemeId != 0 ? ensureGlyph(fonts, grapheme.data(), grapheme.size(), graphemeId, true, style, doubleWidth) : ensureGlyph(fonts, &codepoint, 1, codepoint, false, style, doubleWidth);
         }
         outputCells[index] = {
             codepoint,

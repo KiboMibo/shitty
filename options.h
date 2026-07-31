@@ -36,8 +36,8 @@ struct Options {
     u16 nCols;
     u16 nRows;
     u16 saveLines;
-    const char* dwfontname;
-    const char* fontname;
+    const char* const* fontnames;
+    size_t fontnameCount;
     const char* shell;
     const char* title;
     const char* dump;

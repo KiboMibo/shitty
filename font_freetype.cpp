@@ -7,7 +7,10 @@
 #include "font_freetype.h"
 
 #include "grapheme.h"
+#include "options.h"
 #include "utf8.h"
+
+#include <std/ios/sys.h>
 
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
@@ -32,13 +35,23 @@ namespace {
         FontImpl(StringView filename, const void* data, size_t dataSize, i32 faceIndex, u16 size, FontKind kind, FontMetrics& metrics);
         ~FontImpl() noexcept;
 
-        FontGlyph glyph(const u32* codepoints, size_t count) override;
+        FontGlyph glyph(const u32* codepoints, size_t count, u16 cells) override;
+        bool covers(u32 codepoint) override;
+
+        struct FitMeasure {
+            int advance = 0;
+            int ascent = 0;
+            int descent = 0;
+        };
 
         void configure();
         void configureFixed();
         void configureScaled();
         u16 representativeAdvance();
-        bool accepts(const u32* codepoints, size_t count) const;
+        u32 fitRepresentative(u16 cells) const;
+        FitMeasure measureAt(u16 pixelSize, u32 representative);
+        u16 fitCells(u16 cells);
+        bool applyCells(u16 cells);
         bool rasterize(const u32* codepoints, size_t count);
         bool rasterizeMask(const hb_glyph_info_t* glyphs, const hb_glyph_position_t* positions, unsigned count);
         bool rasterizeColor(const hb_glyph_info_t* glyphs, const hb_glyph_position_t* positions, unsigned count);
@@ -56,6 +69,9 @@ namespace {
         u16 size_;
         FontKind kind_;
         FontMetrics metrics_;
+        u16 canvasWidth_ = 0;
+        u16 fittedSize_[3] = {0, 0, 0};
+        bool fitLogged_ = false;
         bool hasColor_ = false;
         bool glyphColor_ = false;
         Buffer bitmap_;
@@ -232,14 +248,12 @@ void FontImpl::configureFixed() {
         }
         return;
     }
-    if (!hasColor_ && (metrics_.width != actual.width || metrics_.height != actual.height || metrics_.baseline != actual.baseline)) {
-        fail(StringBuilder() << StringView(u8"font cell mismatch: expected ") << metrics_.width << StringView(u8"x") << metrics_.height << StringView(u8"@") << metrics_.baseline << StringView(u8", got ") << actual.width << StringView(u8"x") << actual.height << StringView(u8"@") << actual.baseline);
-    }
+    // A fallback mask strike is drawn at its own size and clipped into the
+    // imposed cell box; there is nothing to validate.
 }
 
 u16 FontImpl::representativeAdvance() {
-    const u32 codepoint = kind_ == FontKind::DoubleWidth ? 0x3000 : 'M';
-    const FT_UInt glyph = FT_Get_Char_Index(face_, codepoint);
+    const FT_UInt glyph = FT_Get_Char_Index(face_, 'M');
     if (glyph != 0 && !FT_Load_Glyph(face_, glyph, FT_LOAD_DEFAULT)) {
         const int advance = pixels(face_->glyph->advance.x);
         if (advance > 0 && advance <= UINT16_MAX) {
@@ -276,20 +290,86 @@ void FontImpl::configureScaled() {
         }
         return;
     }
-    if (!hasColor_ && (metrics_.width != actual.width || metrics_.height != actual.height || metrics_.baseline != actual.baseline)) {
-        fail(StringBuilder() << StringView(u8"font cell mismatch: expected ") << metrics_.width << StringView(u8"x") << metrics_.height << StringView(u8"@") << metrics_.baseline << StringView(u8", got ") << actual.width << StringView(u8"x") << actual.height << StringView(u8"@") << actual.baseline);
-    }
+    // Fallback faces impose no cell of their own: the effective pixel size
+    // is chosen per cell span by fitCells.
 }
 
-bool FontImpl::accepts(const u32* codepoints, size_t count) const {
-    if (count == 0) {
-        return false;
+bool FontImpl::covers(u32 codepoint) {
+    return FT_Get_Char_Index(face_, codepoint) != 0;
+}
+
+u32 FontImpl::fitRepresentative(u16 cells) const {
+    const u32 wide[] = {0x3000, 0x4e00};
+    const u32 narrow[] = {'M', '0'};
+    for (const u32 codepoint : cells > 1 ? wide : narrow) {
+        if (FT_Get_Char_Index(face_, codepoint) != 0) {
+            return codepoint;
+        }
     }
-    if (codepoints[0] == Missing_Glyph_Marker || codepoints[0] == Unicode_Replacement_Character || count > 1) {
+    return 0;
+}
+
+FontImpl::FitMeasure FontImpl::measureAt(u16 pixelSize, u32 representative) {
+    FitMeasure result;
+    if (FT_Set_Pixel_Sizes(face_, 0, pixelSize)) {
+        return result;
+    }
+    result.ascent = (int)(face_->size->metrics.ascender + 63) / 64;
+    result.descent = (int)(-face_->size->metrics.descender + 63) / 64;
+    result.advance = (int)(face_->size->metrics.max_advance + 63) / 64;
+    if (representative != 0) {
+        const FT_UInt glyph = FT_Get_Char_Index(face_, representative);
+        if (glyph != 0 && !FT_Load_Glyph(face_, glyph, FT_LOAD_DEFAULT)) {
+            const int advance = pixels(face_->glyph->advance.x);
+            if (advance > 0) {
+                result.advance = advance;
+            }
+        }
+    }
+    return result;
+}
+
+// Width-anchored fit: start where the representative advance matches the
+// target span and let the engine re-render smaller until the vertical
+// metrics stay inside the primary cell. The result depends only on the
+// face and the span, so it is computed once per span.
+u16 FontImpl::fitCells(u16 cells) {
+    u16& cached = fittedSize_[cells];
+    if (cached != 0) {
+        return cached;
+    }
+
+    const int targetWidth = cells * metrics_.width;
+    const int targetAscent = metrics_.baseline;
+    const int targetDescent = metrics_.height - metrics_.baseline;
+    const u32 representative = fitRepresentative(cells);
+    u16 size = (u16)(maximum(1, metrics_.height));
+    FitMeasure fit = measureAt(size, representative);
+    if (fit.advance > 0 && fit.advance != targetWidth) {
+        size = (u16)(maximum(1, size * targetWidth / fit.advance));
+        fit = measureAt(size, representative);
+    }
+    while (size > 1 && (fit.advance > targetWidth || fit.ascent > targetAscent || fit.descent > targetDescent)) {
+        --size;
+        fit = measureAt(size, representative);
+    }
+    if (opts.verbose && !fitLogged_) {
+        sysO << StringView(u8"fitted fallback font to ") << size << StringView(u8"px for ") << (u64)(cells) << StringView(u8"-cell glyphs\n");
+        fitLogged_ = true;
+    }
+    cached = size;
+    return size;
+}
+
+bool FontImpl::applyCells(u16 cells) {
+    if (kind_ != FontKind::Fallback || face_->num_fixed_sizes > 0) {
         return true;
     }
-    const int width = codepointWidth(codepoints[0]);
-    return kind_ == FontKind::DoubleWidth ? width == 2 : width < 2;
+    if (FT_Set_Pixel_Sizes(face_, 0, fitCells(cells))) {
+        return false;
+    }
+    hb_ft_font_changed(harfbuzz_);
+    return true;
 }
 
 void FontImpl::drawMask(const FT_Bitmap& source, int destinationX, int destinationY) {
@@ -299,7 +379,7 @@ void FontImpl::drawMask(const FT_Bitmap& source, int destinationX, int destinati
     const int sourceY = maximum(0, -destinationY);
     destinationX = maximum(0, destinationX);
     destinationY = maximum(0, destinationY);
-    const int copyWidth = minimum(sourceWidth - sourceX, (int)(metrics_.width) - destinationX);
+    const int copyWidth = minimum(sourceWidth - sourceX, (int)(canvasWidth_)-destinationX);
     const int copyHeight = minimum(sourceHeight - sourceY, (int)(metrics_.height) - destinationY);
     if (copyWidth <= 0 || copyHeight <= 0) {
         return;
@@ -312,7 +392,7 @@ void FontImpl::drawMask(const FT_Bitmap& source, int destinationX, int destinati
         const int sourceRow = sourceY + row;
         const int storedRow = pitch < 0 ? sourceHeight - sourceRow - 1 : sourceRow;
         const u8* sourcePixels = (const u8*)(source.buffer + storedRow * rowStride);
-        u8* destinationPixels = destination + (destinationY + row) * metrics_.width + destinationX;
+        u8* destinationPixels = destination + (destinationY + row) * canvasWidth_ + destinationX;
         if (source.pixel_mode == FT_PIXEL_MODE_GRAY) {
             for (int column = 0; column < copyWidth; ++column) {
                 destinationPixels[column] = maximum(destinationPixels[column], sourcePixels[sourceX + column]);
@@ -328,9 +408,20 @@ void FontImpl::drawMask(const FT_Bitmap& source, int destinationX, int destinati
 }
 
 bool FontImpl::rasterizeMask(const hb_glyph_info_t* glyphs, const hb_glyph_position_t* positions, unsigned count) {
-    bitmap_.zero((size_t)(metrics_.width) * metrics_.height);
+    bitmap_.zero((size_t)(canvasWidth_)*metrics_.height);
     hb_position_t penX = 0;
     hb_position_t penY = 0;
+    if (kind_ == FontKind::Fallback) {
+        // A fitted glyph can come out narrower than its span; center it.
+        hb_position_t total = 0;
+        for (unsigned index = 0; index < count; ++index) {
+            total += positions[index].x_advance;
+        }
+        const hb_position_t canvas = (hb_position_t)(canvasWidth_) << 6;
+        if (total > 0 && total < canvas) {
+            penX = (canvas - total) / 2;
+        }
+    }
     for (unsigned index = 0; index < count; ++index) {
         if (FT_Load_Glyph(face_, glyphs[index].codepoint, FT_LOAD_RENDER)) {
             return false;
@@ -396,14 +487,14 @@ void FontImpl::drawColor(const FT_Bitmap& source, int destinationX, int destinat
 }
 
 void FontImpl::scaleColor(int sourceWidth, int sourceHeight) {
-    bitmap_.zero((size_t)(metrics_.width) * metrics_.height * 4);
-    double scale = minimum(metrics_.width, metrics_.height) / (double)(maximum(sourceWidth, sourceHeight));
+    bitmap_.zero((size_t)(canvasWidth_)*metrics_.height * 4);
+    double scale = minimum(canvasWidth_, metrics_.height) / (double)(maximum(sourceWidth, sourceHeight));
     if (scale > 1) {
         scale = 1;
     }
     const int targetWidth = maximum(1, rounded(sourceWidth * scale));
     const int targetHeight = maximum(1, rounded(sourceHeight * scale));
-    const int originX = ((int)(metrics_.width) - targetWidth) / 2;
+    const int originX = ((int)(canvasWidth_)-targetWidth) / 2;
     const int originY = ((int)(metrics_.height) - targetHeight) / 2;
     const auto* source = (const u8*)(source_.data());
     auto* destination = (u8*)(bitmap_.mutData());
@@ -421,7 +512,7 @@ void FontImpl::scaleColor(int sourceWidth, int sourceHeight) {
             const u8* topRight = source + 4 * ((size_t)(firstY)*sourceWidth + secondX);
             const u8* bottomLeft = source + 4 * ((size_t)(secondY)*sourceWidth + firstX);
             const u8* bottomRight = source + 4 * ((size_t)(secondY)*sourceWidth + secondX);
-            u8* target = destination + 4 * ((size_t)(originY + y) * metrics_.width + originX + x);
+            u8* target = destination + 4 * ((size_t)(originY + y) * canvasWidth_ + originX + x);
             for (int channel = 0; channel < 4; ++channel) {
                 const double top = topLeft[channel] * (1 - fractionX) + topRight[channel] * fractionX;
                 const double bottom = bottomLeft[channel] * (1 - fractionX) + bottomRight[channel] * fractionX;
@@ -520,9 +611,14 @@ bool FontImpl::rasterize(const u32* codepoints, size_t count) {
     return glyphColor_ ? rasterizeColor(glyphs, positions, glyphCount) : rasterizeMask(glyphs, positions, glyphCount);
 }
 
-FontGlyph FontImpl::glyph(const u32* codepoints, size_t count) {
+FontGlyph FontImpl::glyph(const u32* codepoints, size_t count, u16 cells) {
     glyphColor_ = false;
-    if (!accepts(codepoints, count) || !rasterize(codepoints, count)) {
+    if (count == 0 || cells == 0) {
+        return {};
+    }
+    cells = (u16)(minimum(cells, 2));
+    canvasWidth_ = (u16)(cells * metrics_.width);
+    if (!applyCells(cells) || !rasterize(codepoints, count)) {
         return {};
     }
     return {

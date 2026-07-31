@@ -24,7 +24,7 @@ enum class FontStyle : u8 {
 enum class FontKind : u8 {
     Primary,
     Overlay,
-    DoubleWidth,
+    Fallback,
 };
 
 struct FontMetrics {
@@ -33,9 +33,12 @@ struct FontMetrics {
     u16 baseline = 0;
 };
 
-// A mask occupies metrics.width * metrics.height bytes. A color glyph occupies
-// four times as much and contains premultiplied RGBA pixels. The returned
-// bitmap remains valid until the next glyph() call on the same Font.
+// A mask occupies cells * metrics.width * metrics.height bytes. A color
+// glyph occupies four times as much and contains premultiplied RGBA pixels.
+// The returned bitmap remains valid until the next glyph() call on the same
+// Font.
 struct Font {
-    virtual FontGlyph glyph(const u32* codepoints, size_t count) = 0;
+    virtual FontGlyph glyph(const u32* codepoints, size_t count, u16 cells) = 0;
+    // A cmap lookup: whether this face has a glyph for the codepoint.
+    virtual bool covers(u32 codepoint) = 0;
 };

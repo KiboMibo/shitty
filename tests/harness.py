@@ -233,20 +233,20 @@ class Shitty:
         fields = self._read_hex_response("LAUNCH_COMMAND").split(b"\0")
         return os.fsdecode(fields[0]), [os.fsdecode(value) for value in fields[1:]]
 
-    def load_font(self, family, double_width):
-        request = b"\0".join(map(os.fsencode, (family, double_width)))
+    def load_font(self, *families):
+        request = b"\0".join(os.fsencode(family) for family in families)
         self.stream.write(b"FONT_LOAD " + request.hex().encode() + b"\n")
         response = self._readline().split()
-        if len(response) != 7 or response[0] != "OK":
+        if len(response) != 6 or response[0] != "OK":
             raise RuntimeError("invalid font load response")
         values = tuple(map(int, response[1:]))
         return dict(zip(
-            ("px", "py", "bold", "italic", "bold_italic", "double_width"),
+            ("px", "py", "bold", "italic", "bold_italic"),
             values,
         ))
 
-    def render_image(self, family, double_width):
-        request = b"\0".join(map(os.fsencode, (family, double_width)))
+    def render_image(self, *families):
+        request = b"\0".join(os.fsencode(family) for family in families)
         self.stream.write(b"RENDER_IMAGE " + request.hex().encode() + b"\n")
         response = self._readline().split()
         if len(response) != 4 or response[0] != "OK":

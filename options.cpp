@@ -33,12 +33,6 @@ using namespace stl;
 
 namespace {
 
-#if defined(HAVE_CORETEXT)
-    constexpr const char* defaultDoubleWidthFont = "monospace";
-#else
-    constexpr const char* defaultDoubleWidthFont = "18x18ja";
-#endif
-
     enum class OptionKind {
         NoArg,
         SepArg,
@@ -68,9 +62,8 @@ namespace {
         {"border", OptionKind::SepArg, nullptr, "2", "Border width in pixels"},
         {"cr", OptionKind::SepArg, nullptr, nullptr, "Cursor color"},
         {"dump", OptionKind::SepArg, nullptr, nullptr, "Dump raw PTY input to file"},
-        {"dwfont", OptionKind::SepArg, nullptr, defaultDoubleWidthFont, "Double-width font to use"},
         {"fg", OptionKind::SepArg, nullptr, "#fff", "Foreground color"},
-        {"font", OptionKind::SepArg, nullptr, "monospace", "Font to use"},
+        {"font", OptionKind::SepArg, nullptr, "monospace", "Font to use; repeat for fallbacks"},
         {"fontsize", OptionKind::SepArg, nullptr, "16", "Font size"},
         {"geometry", OptionKind::SepArg, nullptr, "80x24", "Terminal size in chars"},
         {"vulkanInfo", OptionKind::NoArg, "true", "false", "Print Vulkan information"},
@@ -113,6 +106,8 @@ namespace {
     };
 
     std::map<std::string, std::string> commandLine;
+    std::vector<std::string> fontArguments;
+    std::vector<const char*> fontPointers;
 
     void writeSpaces(ZeroCopyOutput& output, size_t count) {
         static constexpr u8 spaces[] = u8"                                ";
@@ -326,6 +321,9 @@ void Options::initialize(int* argc, char** argv) {
                     throw std::runtime_error(std::string(argument) + ": missing value");
                 }
                 commandLine[option->option] = argv[++input];
+                if (strcmp(option->option, "font") == 0) {
+                    fontArguments.push_back(argv[input]);
+                }
                 break;
             case OptionKind::SkipLine:
                 break;
@@ -395,8 +393,15 @@ void Options::parse() {
     try {
         getBorder(border);
         getSaveLines(saveLines);
-        dwfontname = get("dwfont");
-        fontname = get("font");
+        if (fontArguments.empty()) {
+            fontArguments.push_back(get("font"));
+        }
+        fontPointers.clear();
+        for (const std::string& name : fontArguments) {
+            fontPointers.push_back(name.c_str());
+        }
+        fontnames = fontPointers.data();
+        fontnameCount = fontPointers.size();
         getFontsize(fontsize);
         getGeometry(nCols, nRows);
         vulkanInfo = getBool("vulkanInfo");
