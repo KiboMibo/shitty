@@ -1688,7 +1688,7 @@ void RendererImpl::growGlyphAtlas() {
     // Twice the distinct glyphs reachable on screen and in scrollback:
     // bounded by live content rather than by a doubling history, and free
     // to shrink back once the content simplifies.
-    u64 target = composer.vterm != nullptr ? 2 * (u64)(composer.vterm->distinctGlyphs()) : 2 * (u64)(fontResources->glyphs.slots.length());
+    u64 target = 2 * (u64)(composer.vterm->distinctGlyphs());
     if (target > 65536) {
         target = 65536;
     }
@@ -2491,7 +2491,7 @@ bool RendererImpl::present(const TerminalUpdate& update) {
 bool RendererImpl::update(const TerminalUpdate& update) {
     try {
         const bool presented = present(update);
-        if (atlasExhausted && composer.vterm != nullptr) {
+        if (atlasExhausted) {
             // The frame just presented is missing the glyphs that did not
             // fit; ask for a full redraw, which lands after growGlyphAtlas.
             composer.vterm->expose();

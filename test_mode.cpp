@@ -74,6 +74,44 @@ using namespace plt;
 namespace {
     extern "C" int openpty(int*, int*, char*, const termios*, const winsize*);
 
+    struct TestFontpack final: Fontpack {
+        explicit TestFontpack(Composer& composer_)
+            : composer(composer_)
+        {
+        }
+
+        u16 getPx() const override {
+            return composer.glyphWidth;
+        }
+
+        u16 getPy() const override {
+            return composer.glyphHeight;
+        }
+
+        bool hasBold() const override {
+            return false;
+        }
+
+        bool hasItalic() const override {
+            return false;
+        }
+
+        bool hasBoldItalic() const override {
+            return false;
+        }
+
+        FontGlyph glyph(const u32*, size_t, FontStyle, bool doubleWidth) override {
+            bitmap.zero((size_t)(doubleWidth ? 2 : 1) * composer.glyphWidth * composer.glyphHeight);
+            return {
+                .data = bitmap.data(),
+                .len = bitmap.length(),
+            };
+        }
+
+        Composer& composer;
+        Buffer bitmap;
+    };
+
     struct TestPty;
 
     struct TestPtyOutput final: public Output {
@@ -154,7 +192,7 @@ TestPtyOutput::TestPtyOutput(TestPty* pty_)
 size_t TestPtyOutput::writeImpl(const void* data, size_t size) {
     plt::Scheduler* const scheduler = pty->composer_.platform->scheduler();
     plt::FiberMutex* const mutex = pty->composer_.ptyMutex;
-    if (scheduler == nullptr || !scheduler->inFiber() || mutex == nullptr) {
+    if (!scheduler->inFiber()) {
         pty->staged_.append(data, size);
         return size;
     }
@@ -1548,6 +1586,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
         }
         composer.setGlyphSize(glyphWidth, glyphHeight);
     }
+    composer.fonts = composer.pool->make<TestFontpack>(composer);
     const u16 width = 2 * opts.border + opts.nCols * composer.glyphWidth;
     const u16 height = 2 * opts.border + opts.nRows * composer.glyphHeight;
     composer.platform = plt::createHeadlessPlatform(*composer.pool);
@@ -1563,8 +1602,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
         }
     );
     auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
-    window.requestFrame();
-    window.dispatchFrame();
+    composer.resize(width, height);
     TestPty terminalPty(composer, io[0]);
     composer.pty = &terminalPty;
     terminalPty.applySize();
@@ -1573,16 +1611,17 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     terminalPty.start();
     composer.ptyOutput = terminalPty.output();
     TestClipboard clipboard(composer);
-    composer.primarySelection = &clipboard.primaryFacet;
-    composer.clipboard = &clipboard.systemFacet;
+    window.setClipboards(clipboard.primaryFacet, clipboard.systemFacet);
     composer.rendererPool = ObjPool::fromMemory();
     composer.renderer = Renderer::create(composer, *composer.rendererPool, window.renderContext());
     auto& renderer = static_cast<ReferenceRenderer&>(*composer.renderer);
     VtermTraceImpl& vtermTrace = *VtermTraceImpl::create(composer);
     Vterm& vterm = *Vterm::create(composer, &vtermTrace);
-    composer.vterm = &vterm;
+    vtermTrace.drainActions();
     TestApi& testApi = *vtermTrace.testApi;
     renderer.attach(testApi);
+    window.requestFrame();
+    window.dispatchFrame();
     TestTerminal terminal(composer, vterm, testApi, terminalPty, renderer, window);
     FailFontChange failFontChange;
     composer.fontChangedListeners.pushFront(&failFontChange);

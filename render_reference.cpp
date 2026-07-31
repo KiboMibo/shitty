@@ -235,10 +235,6 @@ void ReferenceRendererImpl::putPixel(int x, int y, Color color) {
 }
 
 void ReferenceRendererImpl::addGlyph(const u32* codepoints, size_t count, FontStyle style, bool doubleWidth, int cellWidth, int cellHeight) {
-    if (composer_.fonts == nullptr) {
-        return;
-    }
-
     const FontGlyph glyph = composer_.fonts->glyph(codepoints, count, style, doubleWidth);
     const int glyphWidth = doubleWidth ? 2 * composer_.glyphWidth : composer_.glyphWidth;
     const size_t bytesPerPixel = glyph.color ? 4 : 1;

@@ -7,7 +7,10 @@
 #include "vterm_headless.h"
 
 #include "composer.h"
+#include "pty.h"
 #include "vterm.h"
+
+#include <plt/window.h>
 
 #include <std/ios/output.h>
 #include <std/lib/buffer.h>
@@ -30,6 +33,23 @@ size_t CaptureOutput::writeImpl(const void* data, size_t size) {
 }
 
 STD_TEST_SUITE(VtermHeadless) {
+    STD_TEST(InstallsMissingComposerDependencies) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+
+        VtermHeadless::create(composer, nullptr);
+
+        STD_INSIST(composer.platform != nullptr);
+        STD_INSIST(composer.window != nullptr);
+        STD_INSIST(composer.window->primary() != nullptr);
+        STD_INSIST(composer.window->secondary() != nullptr);
+        STD_INSIST(composer.ptyOutput != nullptr);
+        STD_INSIST(composer.ptyMutex != nullptr);
+        STD_INSIST(composer.pty != nullptr);
+        STD_INSIST(composer.pty->output() == composer.ptyOutput);
+        STD_INSIST(composer.vterm != nullptr);
+    }
+
     STD_TEST(PtyAndTerminalOutputsAreConsumedIndependently) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());

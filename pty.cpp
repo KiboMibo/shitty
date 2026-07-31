@@ -122,7 +122,7 @@ size_t PtyStreamInput::readImpl(void* data, size_t len) {
         }
         if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             plt::Scheduler* const scheduler = pty->scheduler();
-            if (scheduler == nullptr || !scheduler->inFiber()) {
+            if (!scheduler->inFiber()) {
                 return 0;
             }
             if (!scheduler->awaitReadable(pty->readFd_, 0)) {
@@ -143,7 +143,7 @@ PtyStreamOutput::PtyStreamOutput(PtyImpl* pty_)
 size_t PtyStreamOutput::writeImpl(const void* data, size_t len) {
     plt::Scheduler* const scheduler = pty->scheduler();
     plt::FiberMutex* const mutex = pty->composer_.ptyMutex;
-    if (scheduler == nullptr || !scheduler->inFiber() || mutex == nullptr) {
+    if (!scheduler->inFiber()) {
         // Teardown paths outside any fiber degrade to a best-effort write.
         return pty->rawWrite(data, len);
     }
@@ -171,7 +171,7 @@ size_t PtyImpl::rawWrite(const void* data, size_t len) {
         }
         if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             plt::Scheduler* const awaiting = scheduler();
-            if (awaiting == nullptr || !awaiting->inFiber()) {
+            if (!awaiting->inFiber()) {
                 break;
             }
             if (!awaiting->awaitWritable(writeFd_, 0)) {
@@ -198,20 +198,13 @@ void PtyFeed::run() {
         if (count == 0) {
             break;
         }
-        Vterm* const vterm = impl.composer_.vterm;
-        if (vterm != nullptr) {
-            vterm->feedPty(StringView(buffer, count));
-        }
-        if (impl.composer_.window != nullptr) {
-            impl.composer_.window->requestFrame();
-        }
+        impl.composer_.vterm->feedPty(StringView(buffer, count));
+        impl.composer_.window->requestFrame();
         // One chunk per loop round keeps frames and input interleaved with
         // a flooding child.
         impl.scheduler()->yield();
     }
-    if (impl.composer_.window != nullptr) {
-        impl.composer_.window->requestClose();
-    }
+    impl.composer_.window->requestClose();
 }
 
 PtyImpl::PtyImpl(Composer& composer, int fd)
@@ -257,7 +250,7 @@ Output* PtyImpl::output() {
 }
 
 plt::Scheduler* PtyImpl::scheduler() const {
-    return composer_.platform == nullptr ? nullptr : composer_.platform->scheduler();
+    return composer_.platform->scheduler();
 }
 
 void PtyImpl::onListen(void*) {

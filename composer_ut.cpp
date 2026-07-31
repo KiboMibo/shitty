@@ -67,6 +67,7 @@ STD_TEST_SUITE(Composer) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
 
         STD_INSIST(composer.pool == pool.mutPtr());
+        STD_INSIST(composer.cellExtras != nullptr);
         STD_INSIST(composer.smallObjects != nullptr);
         STD_INSIST(composer.input != nullptr);
         STD_INSIST(composer.inputBindings != nullptr);

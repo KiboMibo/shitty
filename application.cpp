@@ -252,13 +252,9 @@ void ApplicationImpl::fontChanged() {
     const u16 columns = composer.columns == 0 ? opts.nCols : composer.columns;
     const u16 rows = composer.rows == 0 ? opts.nRows : composer.rows;
     const u32 border = 2u * opts.border;
-    if (composer.window != nullptr) {
-        composer.window->requestMinimumSize(border + composer.glyphWidth, border + composer.glyphHeight);
-        composer.window->requestResizeUnit(composer.glyphWidth, composer.glyphHeight, border, border);
-        composer.window->requestResize(border + (u32)(columns)*composer.glyphWidth, border + (u32)(rows)*composer.glyphHeight);
-        return;
-    }
-    composer.resize((u16)(min(border + (u32)(columns)*composer.glyphWidth, (u32)(UINT16_MAX))), (u16)(min(border + (u32)(rows)*composer.glyphHeight, (u32)(UINT16_MAX))));
+    composer.window->requestMinimumSize(border + composer.glyphWidth, border + composer.glyphHeight);
+    composer.window->requestResizeUnit(composer.glyphWidth, composer.glyphHeight, border, border);
+    composer.window->requestResize(border + (u32)(columns)*composer.glyphWidth, border + (u32)(rows)*composer.glyphHeight);
 }
 
 void ApplicationImpl::setFontSize(u16 size) {
@@ -362,7 +358,7 @@ void ApplicationImpl::setupSignals() {
 
 bool ApplicationImpl::presentTerminal() {
     Vterm* const vterm = composer.vterm;
-    if (vterm == nullptr || composer.renderer == nullptr) {
+    if (composer.renderer == nullptr) {
         return false;
     }
     const TerminalUpdate* const output = vterm->output();
@@ -379,9 +375,7 @@ bool ApplicationImpl::presentTerminal() {
         return false;
     }
     // Keep the input-method candidate window anchored to the cursor cell.
-    if (composer.window != nullptr && composer.glyphWidth != 0 && composer.glyphHeight != 0) {
-        composer.window->requestTextInputRect((i32)(opts.border + (u32)(output->cursor.posX) * composer.glyphWidth), (i32)(opts.border + (u32)(output->cursor.posY) * composer.glyphHeight), composer.glyphWidth, composer.glyphHeight);
-    }
+    composer.window->requestTextInputRect((i32)(opts.border + (u32)(output->cursor.posX) * composer.glyphWidth), (i32)(opts.border + (u32)(output->cursor.posY) * composer.glyphHeight), composer.glyphWidth, composer.glyphHeight);
     vterm->consume();
     return true;
 }
@@ -399,9 +393,6 @@ void ApplicationImpl::updateWindowInfo(const plt::WindowInfo& info) {
 
 bool ApplicationImpl::frame(const plt::WindowInfo& info) {
     updateWindowInfo(info);
-    if (composer.vterm == nullptr) {
-        return false;
-    }
     if (composer.renderer == nullptr) {
         // The previous renderer died with its surface and dropped its own
         // pool; build a fresh one and repaint everything.
@@ -480,8 +471,6 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .drop = plt::DropTarget::create(*composer.pool, *composer.input),
         }
     );
-    composer.primarySelection = composer.window->primary();
-    composer.clipboard = composer.window->secondary();
     contentScaleChanged();
 
     replaceFontpack(initialFontSize);
@@ -493,7 +482,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     composer.ptyOutput = composer.pty->output();
 
     createRenderer();
-    composer.vterm = Vterm::create(composer, nullptr);
+    Vterm::create(composer, nullptr);
     composer.window->requestFrame();
 
     eventLoop();

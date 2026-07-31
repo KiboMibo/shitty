@@ -235,7 +235,7 @@ namespace {
     };
 
     plt::Clipboard* selectionTarget(Composer& composer, bool primary) {
-        return primary ? composer.primarySelection : composer.clipboard;
+        return primary ? composer.window->primary() : composer.window->secondary();
     }
 
     void writeSelection(plt::Clipboard& clipboard, StringView content) {
@@ -1349,9 +1349,6 @@ bool VtermInput::paste(bool primary) {
         return terminal->pasteMimeNotification(primary);
     }
     Composer& composer = terminal->composer;
-    if (composer.clipboard == nullptr || composer.primarySelection == nullptr || composer.pty == nullptr || composer.ptyMutex == nullptr || composer.platform == nullptr) {
-        return false;
-    }
     const bool bracketed = terminal->bracketedPasteMode;
     terminal->spawnTransaction([&composer, primary, bracketed] {
         const plt::LockGuard guard(*composer.ptyMutex, *composer.platform->scheduler());
@@ -1371,12 +1368,9 @@ bool VtermInput::paste(bool primary) {
 
 bool VtermInput::copy() {
     Composer& composer = terminal->composer;
-    if (composer.clipboard == nullptr || composer.primarySelection == nullptr || composer.platform == nullptr) {
-        return false;
-    }
     terminal->spawnTransaction([&composer] {
-        const ScopedPtr<Input> source{composer.primarySelection->read()};
-        const ScopedPtr<Output> target{composer.clipboard->write()};
+        const ScopedPtr<Input> source{composer.window->primary()->read()};
+        const ScopedPtr<Output> target{composer.window->secondary()->write()};
         for (;;) {
             u8 chunk[8 * 1024];
             const size_t count = source->read(chunk, sizeof(chunk));
@@ -1391,8 +1385,7 @@ bool VtermInput::copy() {
 }
 
 ScreenHyperlink VtermInput::resolveLink(int pixelX, int pixelY) {
-    const ScreenHyperlink link = terminal->resolveHyperlink(pixelX, pixelY);
-    return terminal->composer.window == nullptr ? ScreenHyperlink{} : link;
+    return terminal->resolveHyperlink(pixelX, pixelY);
 }
 
 bool VtermInput::refreshHyperlink() {
@@ -1408,9 +1401,8 @@ bool VtermInput::refreshHyperlink() {
     hoveredLinkBegin = next.begin;
     hoveredLinkEnd = next.end;
     const bool active = hoveredHyperlink != 0 || hoveredLinkBegin < hoveredLinkEnd;
-    plt::Window* const window = terminal->composer.window;
-    if (active != wasActive && window != nullptr) {
-        window->requestPointerIcon(active ? plt::PointerIcon::Pointer : plt::PointerIcon::Text);
+    if (active != wasActive) {
+        terminal->composer.window->requestPointerIcon(active ? plt::PointerIcon::Pointer : plt::PointerIcon::Text);
     }
     return true;
 }
@@ -1810,10 +1802,9 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
         hyperlinkClick = false;
         if (input.modifiers & InputControl) {
             const ScreenHyperlink link = resolveLink(input.pixelX, input.pixelY);
-            plt::Window* const window = terminal->composer.window;
-            if (!link.payload.empty() && window != nullptr) {
+            if (!link.payload.empty()) {
                 hyperlinkClick = true;
-                window->requestOpenUri(link.payload);
+                terminal->composer.window->requestOpenUri(link.payload);
                 return true;
             }
         }
@@ -1841,10 +1832,10 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
         mouse.endSelection();
         const VtermTextResult selected = terminal->selectionFinish();
         Composer& composer = terminal->composer;
-        if (selected.status && composer.primarySelection != nullptr) {
-            writeSelection(*composer.primarySelection, selected.text);
-            if (opts.autoCopyMode && composer.clipboard != nullptr) {
-                writeSelection(*composer.clipboard, selected.text);
+        if (selected.status) {
+            writeSelection(*composer.window->primary(), selected.text);
+            if (opts.autoCopyMode) {
+                writeSelection(*composer.window->secondary(), selected.text);
             }
         }
     } else if (input.button == PointerButton::Middle) {
@@ -2176,20 +2167,14 @@ void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, const ScreenFrame& fr
 }
 
 void VtermImpl::drop(StringView text) {
-    if (text.empty() || composer.ptyOutput == nullptr) {
+    if (text.empty()) {
         return;
     }
-    plt::Scheduler* const scheduler = composer.platform == nullptr ? nullptr : composer.platform->scheduler();
-    if (scheduler != nullptr && composer.ptyMutex != nullptr) {
-        const bool bracketed = bracketedPasteMode;
-        spawnTransaction([this, bracketed, owned = Buffer(text)] {
-            PasteOutput paste(composer.ptyOutput, bracketed);
-            paste.write(owned.data(), owned.length());
-        });
-        return;
-    }
-    PasteOutput paste(composer.ptyOutput, bracketedPasteMode);
-    paste.write(text.data(), text.length());
+    const bool bracketed = bracketedPasteMode;
+    spawnTransaction([this, bracketed, owned = Buffer(text)] {
+        PasteOutput paste(composer.ptyOutput, bracketed);
+        paste.write(owned.data(), owned.length());
+    });
 }
 
 void VtermImpl::dropPath(StringView path) {
@@ -2722,9 +2707,6 @@ void VtermImpl::startTimers() {
     // deterministic snapshots.
     return;
 #endif
-    if (composer.platform == nullptr) {
-        return;
-    }
     plt::Scheduler* const scheduler = composer.platform->scheduler();
     scheduler->spawn(syncBody_, syncStack_, sizeof(syncStack_));
     scheduler->spawn(blinkBody_, blinkStack_, sizeof(blinkStack_));
@@ -2744,7 +2726,7 @@ void VtermImpl::runSyncWatchdog() {
             // A wake re-evaluates the mode and the deadline from scratch.
             continue;
         }
-        if (expireSynchronizedOutput(false) && composer.window != nullptr) {
+        if (expireSynchronizedOutput(false)) {
             composer.window->requestFrame();
         }
     }
@@ -2764,9 +2746,7 @@ void VtermImpl::runBlink() {
         }
         if (advanceAnimation(false)) {
             expose();
-            if (composer.window != nullptr) {
-                composer.window->requestFrame();
-            }
+            composer.window->requestFrame();
         }
     }
 }
@@ -2784,9 +2764,7 @@ void VtermImpl::runAutoscroll() {
             continue;
         }
         input.advanceSelectionAutoscroll(false);
-        if (composer.window != nullptr) {
-            composer.window->requestFrame();
-        }
+        composer.window->requestFrame();
     }
 }
 
@@ -3085,9 +3063,7 @@ void VtermImpl::resetTerminal() {
     hMargin = 0;
     nColsEff = composer.columns;
 
-    if (composer.vterm != nullptr) {
-        osc_TITLE_0(StringView((const u8*)(opts.title), std::strlen(opts.title)));
-    }
+    osc_TITLE_0(StringView((const u8*)(opts.title), std::strlen(opts.title)));
 }
 
 void VtermImpl::resetScreen(bool resetTabStops) {
@@ -3122,9 +3098,7 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     extendedReverseWrapMode = false;
     nationalReplacementMode = false;
     ledState = 0;
-    if (composer.vterm != nullptr) {
-        recordLeds(ledState);
-    }
+    recordLeds(ledState);
     send8BitControls = false;
     altScrollMode = opts.altScrollMode;
     altSendsEscape = opts.altSendsEscape;
@@ -5828,9 +5802,7 @@ void VtermImpl::recordBell() {
     if (trace != nullptr) {
         trace->bell();
     }
-    if (composer.window != nullptr) {
-        composer.window->requestAttention();
-    }
+    composer.window->requestAttention();
 }
 
 void VtermImpl::recordLeds(u8 state) {
@@ -5841,9 +5813,7 @@ void VtermImpl::recordLeds(u8 state) {
 
 void VtermImpl::publishTitle(u32 command, StringView title) {
     titleSet = title != StringView(opts.title);
-    if (composer.window != nullptr) {
-        composer.window->requestTitle(title);
-    }
+    composer.window->requestTitle(title);
     recordOsc(command, title);
 }
 
@@ -5851,7 +5821,7 @@ void VtermImpl::publishCwd(StringView path) {
     if (trace != nullptr) {
         trace->cwd(path);
     }
-    if (!titleSet && composer.window != nullptr) {
+    if (!titleSet) {
         composer.window->requestTitle(path);
     }
 }
@@ -5860,7 +5830,7 @@ void VtermImpl::publishNotify(StringView id, StringView title, StringView body, 
     if (trace != nullptr) {
         trace->notify(id, title, body, close);
     }
-    if (!close && composer.window != nullptr) {
+    if (!close) {
         composer.window->requestAttention();
     }
 }
@@ -5869,21 +5839,13 @@ void VtermImpl::publishProgress(u32 state, u32 percent) {
     if (trace != nullptr) {
         trace->progress(state, percent);
     }
-    if ((state == 2 || state == 4) && composer.window != nullptr) {
+    if (state == 2 || state == 4) {
         composer.window->requestAttention();
     }
 }
 
 plt::WindowInfo VtermImpl::windowInfo() const {
-    if (composer.window != nullptr) {
-        return composer.window->info();
-    }
-    return {
-        .width = composer.pixelWidth,
-        .height = composer.pixelHeight,
-        .screenPixelWidth = composer.pixelWidth,
-        .screenPixelHeight = composer.pixelHeight,
-    };
+    return composer.window->info();
 }
 
 u32 VtermImpl::columnsForPixelWidth(u32 width) const {
@@ -5923,9 +5885,6 @@ void VtermImpl::windowOperation(u32 operation, u32 first, u32 second) {
         trace->windowOperation(operation, first, second);
     }
     plt::Window* const window = composer.window;
-    if (window == nullptr) {
-        return;
-    }
     const auto resize = [&](u32 pixelWidth, u32 pixelHeight) {
         if (pixelWidth == 0 || pixelHeight == 0) {
             return;
@@ -6144,8 +6103,7 @@ void VtermImpl::osc_SELECTION_FOREGROUND(Color color, bool query) {
 }
 
 void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) {
-    const bool usable = opts.allowOsc52Read && composer.clipboard != nullptr && composer.primarySelection != nullptr && composer.pty != nullptr && composer.ptyMutex != nullptr && composer.platform != nullptr;
-    if (!usable || (!primary && !clipboard)) {
+    if (!opts.allowOsc52Read || (!primary && !clipboard)) {
         StringBuilder reply;
         reply << StringView(u8"52;");
         if (selectorsEmpty) {
@@ -6166,7 +6124,7 @@ void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelect
         size_t count = source->read(chunk, sizeof(chunk));
         if (count == 0 && tryClipboard) {
             delete source.ptr;
-            source.ptr = composer.clipboard->read();
+            source.ptr = composer.window->secondary()->read();
             count = source->read(chunk, sizeof(chunk));
         }
         Output& output = *composer.pty->output();
@@ -6196,18 +6154,15 @@ void VtermImpl::osc_CLIPBOARD_WRITE(StringView decoded, bool valid, bool primary
     if (!valid) {
         return;
     }
-    if (primary && composer.primarySelection != nullptr) {
-        writeSelection(*composer.primarySelection, decoded);
+    if (primary) {
+        writeSelection(*composer.window->primary(), decoded);
     }
-    if (clipboard && composer.clipboard != nullptr) {
-        writeSelection(*composer.clipboard, decoded);
+    if (clipboard) {
+        writeSelection(*composer.window->secondary(), decoded);
     }
 }
 
 void VtermImpl::writeKittyClipboardStatus(StringView type, StringView id, StringView status) {
-    if (composer.ptyOutput == nullptr) {
-        return;
-    }
     Buffer cleanId;
     copyKittyClipboardId(cleanId, id);
     writeKittyClipboardPacket(*composer.ptyOutput, send8BitControls, type, status, StringView(cleanId));
@@ -6221,10 +6176,6 @@ void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bo
     }
     if (!targets && !opts.allowOsc52Read) {
         writeKittyClipboardStatus(StringView(u8"read"), id, StringView(u8"EPERM"));
-        return;
-    }
-    if (composer.clipboard == nullptr || composer.primarySelection == nullptr || composer.pty == nullptr || composer.ptyMutex == nullptr || composer.platform == nullptr) {
-        writeKittyClipboardStatus(StringView(u8"read"), id, StringView(u8"ENOSYS"));
         return;
     }
     const StringView mimeType = targets ? StringView(u8".") : selectKittyClipboardMime(mimeTypes);
@@ -6268,10 +6219,6 @@ void VtermImpl::osc_KITTY_CLIPBOARD_WRITE(StringView id, bool primary) {
     kittyClipboardWriteLength = 0;
     copyKittyClipboardId(kittyClipboardWriteId, id);
     plt::Clipboard* const target = selectionTarget(composer, primary);
-    if (target == nullptr) {
-        writeKittyClipboardStatus(StringView(u8"write"), StringView(kittyClipboardWriteId), StringView(u8"ENOSYS"));
-        return;
-    }
     kittyClipboardWriteStream = target->write();
 }
 
@@ -6332,9 +6279,6 @@ void VtermImpl::osc_KITTY_CLIPBOARD_INVALID(StringView id, bool write) {
 }
 
 bool VtermImpl::pasteMimeNotification(bool primary) {
-    if (composer.clipboard == nullptr || composer.pty == nullptr || composer.ptyMutex == nullptr || composer.platform == nullptr) {
-        return false;
-    }
     osc_KITTY_CLIPBOARD_READ({}, StringView(u8"."), primary, true);
     return true;
 }
@@ -8243,8 +8187,6 @@ VtermImpl::VtermImpl(Composer& composer_, VtermTraceFactory* traceFactory_, Outp
     defaultBgPalIx = -1;
     fgPalIx = defaultFgPalIx;
     bgPalIx = defaultBgPalIx;
-
-    resetTerminal();
 }
 
 void VtermImpl::wireInputBindings() {
@@ -8597,12 +8539,9 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
         processInput((const u8*)localEcho.data(), (int)localEcho.size());
     }
     Output* const output = composer.ptyOutput;
-    if (output == nullptr) {
-        return 0;
-    }
     const StringView bytes(ucstr, len);
-    plt::Scheduler* const scheduler = composer.platform == nullptr ? nullptr : composer.platform->scheduler();
-    if (scheduler != nullptr && composer.ptyMutex != nullptr && (!scheduler->inFiber() || !composer.ptyMutex->heldByCurrent(*scheduler))) {
+    plt::Scheduler* const scheduler = composer.platform->scheduler();
+    if (!scheduler->inFiber() || !composer.ptyMutex->heldByCurrent(*scheduler)) {
         // Never park the calling fiber on PTY backpressure: input delivery
         // must stay live while the stream is clogged, and a frame-callback
         // writer must not interleave into a transaction. The bytes replay
@@ -9180,9 +9119,11 @@ Vterm* Vterm::create(Composer& composer, VtermTraceFactory* traceFactory) {
         dump = createOutBuf(composer.pool, *createFDRegular(composer.pool, *fd));
     }
 
-    composer.setCellExtras(CellExtraStore::create(composer, (size_t)(composer.columns) * (composer.rows + opts.saveLines)));
+    composer.cellExtras->setCellCount((size_t)(composer.columns) * (composer.rows + opts.saveLines));
     try {
         VtermImpl* const vterm = composer.pool->make<VtermImpl>(composer, traceFactory, dump);
+        composer.vterm = vterm;
+        vterm->resetTerminal();
         composer.resizedListeners.pushBack(composer.pool->make<CallVtermResize>(vterm));
         composer.fontChangedListeners.pushBack(composer.pool->make<CallVtermFontChanged>(vterm));
         vterm->wireInputBindings();
@@ -9190,7 +9131,7 @@ Vterm* Vterm::create(Composer& composer, VtermTraceFactory* traceFactory) {
         vterm->startTimers();
         return vterm;
     } catch (...) {
-        composer.setCellExtras(nullptr);
+        composer.vterm = nullptr;
         throw;
     }
 }

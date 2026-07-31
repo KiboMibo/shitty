@@ -78,6 +78,7 @@ namespace {
         void configure(const WindowInfo& info) override;
         void failNextPresentation() override;
         HeadlessFrame presentedFrame() const override;
+        void setClipboards(Clipboard& primary, Clipboard& secondary) override;
         PointerIcon pointerIcon() const override;
         stl::StringView openedUri() const override;
         u64 openUriCount() const override;
@@ -88,6 +89,8 @@ namespace {
         WindowEvents* events = nullptr;
         FrameCallback* frame = nullptr;
         ClipboardHeadless clipboard_;
+        Clipboard* primary_ = &clipboard_;
+        Clipboard* secondary_ = &clipboard_;
         WindowInfo info_;
         WindowInfo restored_;
         PointerIcon icon_ = PointerIcon::Default;
@@ -262,11 +265,16 @@ void WindowHeadlessImpl::requestResizeUnit(u32, u32, u32, u32) {
 }
 
 Clipboard* WindowHeadlessImpl::primary() {
-    return &clipboard_;
+    return primary_;
 }
 
 Clipboard* WindowHeadlessImpl::secondary() {
-    return &clipboard_;
+    return secondary_;
+}
+
+void WindowHeadlessImpl::setClipboards(Clipboard& primary, Clipboard& secondary) {
+    primary_ = &primary;
+    secondary_ = &secondary;
 }
 
 HeadlessClipboardInput::HeadlessClipboardInput(SmallObjAllocator* allocator_)

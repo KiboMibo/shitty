@@ -47,13 +47,14 @@ void ExtraChangeListener::onListen(void*) {
 }
 
 STD_TEST_SUITE(CellExtraStore) {
-    STD_TEST(FactoryDoesNotWireComposer) {
+    STD_TEST(FactoryDoesNotReplaceComposerStore) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CellExtraStore* const original = composer.cellExtras;
         CellExtraStore* const store = CellExtraStore::create(composer, 1);
 
         STD_INSIST(store != nullptr);
-        STD_INSIST(composer.cellExtras == nullptr);
+        STD_INSIST(composer.cellExtras == original);
     }
 
     STD_TEST(KeepsInlineUnderlineColorWithoutExtra) {

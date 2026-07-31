@@ -60,21 +60,15 @@ void InputRouter::text(const plt::TextInput& input) {
 }
 
 void InputRouter::preedit(stl::StringView text, i32 cursorBegin, i32 cursorEnd) {
-    if (composer.vterm != nullptr) {
-        composer.vterm->preedit(text, cursorBegin, cursorEnd);
-    }
+    composer.vterm->preedit(text, cursorBegin, cursorEnd);
 }
 
 void InputRouter::drop(stl::StringView text) {
-    if (composer.vterm != nullptr) {
-        composer.vterm->drop(text);
-    }
+    composer.vterm->drop(text);
 }
 
 void InputRouter::dropPath(stl::StringView path) {
-    if (composer.vterm != nullptr) {
-        composer.vterm->dropPath(path);
-    }
+    composer.vterm->dropPath(path);
 }
 
 void InputRouter::pointerMotion(const plt::PointerMotionInput& input) {

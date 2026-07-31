@@ -6,6 +6,7 @@
 
 #include "composer.h"
 
+#include "cell_extra_store.h"
 #include "font_coretext.h"
 #include "font_embedded.h"
 #include "font_fontconfig.h"
@@ -25,6 +26,7 @@ using namespace stl;
 Composer::Composer(ObjPool* pool_)
     : pool(pool_)
 {
+    cellExtras = CellExtraStore::create(*this, 0);
     smallObjects = SmallObjAllocator::create(pool);
     input = createInputRouter(*this);
     inputBindings = InputBindings::create(*this);
