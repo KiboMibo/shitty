@@ -6,19 +6,12 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-
-    # Pinned to the commit recorded in .gitmodules.
-    libstd = {
-      url = "github:pg83/std/1823073b33e072568b28261b43970e9c81074d37";
-      flake = false;
-    };
   };
 
   outputs =
     {
       self,
       nixpkgs,
-      libstd,
     }:
     let
       inherit (nixpkgs) lib;
@@ -108,15 +101,6 @@
           version = versionFromFlake;
 
           src = self;
-
-          # Flake source checkouts do not include git submodules. Populate
-          # libstd from its pinned input; plt is vendored in this repository.
-          postUnpack = ''
-            mkdir -p "$sourceRoot/third_party"
-            rm -rf "$sourceRoot/third_party/libstd"
-            cp -a ${libstd} "$sourceRoot/third_party/libstd"
-            chmod -R u+w "$sourceRoot/third_party"
-          '';
 
           # build.py stamps SHITTY_VERSION from date.today(), which is impure
           # under the Nix sandbox. Pin it to the flake revision date instead.

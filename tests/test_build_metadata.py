@@ -2,7 +2,6 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-import configparser
 import subprocess
 import sys
 import tempfile
@@ -126,19 +125,15 @@ class BuildMetadataTests(unittest.TestCase):
                 result.stderr,
             )
 
-    def test_libstd_submodule_uses_public_transport(self):
-        modules = configparser.ConfigParser()
-        modules.read(ROOT / ".gitmodules")
-        libstd = modules["submodule \"third_party/libstd\""]
-        self.assertEqual(libstd["path"], "third_party/libstd")
-        self.assertEqual(libstd["url"], "https://github.com/pg83/std.git")
+    def test_libstd_is_bundled_as_source(self):
+        self.assertFalse((ROOT / ".gitmodules").exists())
+        self.assertTrue((ROOT / "third_party/libstd/build.py").is_file())
+        self.assertTrue((ROOT / "third_party/libstd/std/lib/buffer.cpp").is_file())
 
-    def test_readme_initializes_bundled_dependencies(self):
+    def test_readme_builds_without_submodule_setup(self):
         readme = (ROOT / "README.md").read_text()
-        self.assertIn(
-            "git submodule update --init --recursive",
-            readme,
-        )
+        self.assertNotIn("git submodule", readme)
+        self.assertIn("third_party/libstd", readme)
 
     def test_unit_test_suites_have_twenty_shard_nodes(self):
         result = self.run_build(ROOT / "build.py", "--list")

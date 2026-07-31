@@ -43,8 +43,10 @@ Shitty is written in C++23 and built with Clang. Every build requires:
 - Python 3 and `glslangValidator`;
 - pkg-config;
 - Brotli and utf8proc;
-- POSIX threads and PTY support;
-- `libstd`, either in `third_party/libstd` or installed system-wide.
+- POSIX threads and PTY support.
+
+The exact `libstd` revision used by Shitty is bundled in
+`third_party/libstd` and built as part of the same graph.
 
 Linux additionally requires FreeType, HarfBuzz, Wayland client headers,
 xkbcommon, `wayland-scanner`, and Vulkan headers and loader. macOS requires
@@ -63,12 +65,6 @@ windowing toolkit.
 The complete imported conformance suite additionally needs ncurses and Perl.
 
 ## Build
-
-Initialize the bundled dependencies after cloning:
-
-```sh
-git submodule update --init --recursive
-```
 
 Build the default `install` group:
 
@@ -149,9 +145,7 @@ the active icon theme.
 
 ### Nix
 
-A flake provides the `shitty` package and a development shell. Bundled
-submodules are fetched from pinned flake inputs, so a plain build works
-without `git submodule update`:
+A flake provides the `shitty` package and a development shell:
 
 ```sh
 nix build           # ./result/bin/st

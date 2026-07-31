@@ -94,29 +94,26 @@ if linux:
     build.cppflags += ["-DHAVE_VULKAN_WAYLAND=1"]
 
 
-if '-lstd' in build.ldflags:
-    libstd = dependency()
-elif os.path.isfile(os.path.join(os.path.dirname(__file__), std_build)):
-    libstd = import_build(std_build, "libstd.a", extra_cflags=["-Wno-error"])
-else:
-    libstd = dependency(ldflags=["-lstd"])
+libstd = import_build(std_build, "libstd.a", extra_cflags=["-Wno-error"])
 
 
 if "-lplt" in build.ldflags:
     plt = dependency(ldflags=["-lplt"])
 elif os.path.isfile(os.path.join(os.path.dirname(__file__), plt_build)):
-    plt_cppflags = ["-Dno_vendored_std"]
-    if os.path.isfile(os.path.join(os.path.dirname(__file__), std_build)):
-        plt_cppflags.append("-I$(S)/../libstd")
-    plt = import_build(plt_build, "libplt.a", extra_cflags=["-Wno-error"], extra_cppflags=plt_cppflags)
+    plt = import_build(
+        plt_build,
+        "libplt.a",
+        extra_cflags=["-Wno-error"],
+        extra_cppflags=["-Dno_vendored_std", "-I$(S)/../libstd"],
+    )
 else:
     plt = dependency(ldflags=["-lplt"])
 
 
-# plt ships its own test suite (unit tests plus fake-compositor
-# integration scenarios); nothing else runs it, so drive the nested build
-# from here and stamp it into the test group. The nested build compiles
-# against the vendored libstd and links the one built by this graph.
+# plt ships its own test suite (unit tests plus fake-compositor integration
+# scenarios); nothing else runs it, so drive the nested build from here and
+# stamp it into the test group. The nested build compiles against our bundled
+# libstd and links the one built by this graph.
 if linux and build.target == build.host and os.path.isfile(os.path.join(os.path.dirname(__file__), plt_build)):
     plt_tests = untimed_command(
         name="plt_tests",

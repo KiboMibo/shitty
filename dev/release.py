@@ -147,7 +147,7 @@ def create_source_archive(
     timestamp: int,
 ) -> None:
     tracked = subprocess.check_output(
-        ["git", "ls-files", "-z", "--recurse-submodules"],
+        ["git", "ls-files", "-z"],
         cwd=checkout,
     ).split(b"\0")
     paths = sorted(
@@ -250,11 +250,6 @@ def main() -> int:
             capture=True,
         )
         run(["git", "checkout", "--detach", resolved_sha], cwd=checkout)
-        run(
-            ["git", "submodule", "update", "--init", "--recursive"],
-            cwd=checkout,
-        )
-
         timestamp = int(run(
             ["git", "show", "-s", "--format=%ct", resolved_sha],
             cwd=checkout,
