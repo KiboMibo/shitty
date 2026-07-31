@@ -74,6 +74,35 @@ class KeyboardTest(unittest.TestCase):
             terminal.paste(b"\none\n\ntwo\n")
             self.assertEqual(terminal.read_input(), b"\rone\r\rtwo\r")
 
+    def test_plain_text_drop_normalizes_newlines_without_markers(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.drop(b"one\ntwo\n")
+            self.assertEqual(terminal.read_input(), b"one\rtwo\r")
+
+    def test_bracketed_paste_mode_wraps_dropped_text(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[?2004h")
+            terminal.drop(b"one\ntwo")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[200~one\rtwo\x1b[201~",
+            )
+
+    def test_dropped_text_neutralizes_control_bytes(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.drop(b"a\x1bb")
+            self.assertEqual(
+                terminal.read_input(),
+                "a␛b".encode("utf-8"),
+            )
+
+    def test_empty_drop_sends_nothing_in_bracketed_paste_mode(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[?2004h")
+            terminal.drop(b"")
+            terminal.char("x")
+            self.assertEqual(terminal.read_input(), b"x")
+
     def test_keyboard_lock_discards_user_input(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[2h")
