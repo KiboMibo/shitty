@@ -11,12 +11,12 @@ using namespace stl;
 
 namespace {
     struct ManualPoller final: Poller {
-        void arm(PollFD fd, PollCallback& callback) override {
-            armedFd = fd.fd;
-            fdCallback = &callback;
+        void arm(PollWaiter& waiter) override {
+            armedFd = waiter.fd.fd;
+            fdCallback = waiter.callback;
         }
 
-        void disarm(int) override {
+        void cancel(PollWaiter&) override {
             armedFd = -1;
             fdCallback = nullptr;
         }

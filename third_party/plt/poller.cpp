@@ -3,13 +3,12 @@
 #include "timer_queue.h"
 
 #include <std/sys/crt.h>
-#include <std/sys/throw.h>
 #include <std/str/view.h>
+#include <std/sys/throw.h>
 #include <std/alg/minmax.h>
-#include <std/sym/i_map.h>
+#include <std/lib/list.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
-#include <std/thr/poll_fd.h>
 
 #include <cerrno>
 #include <climits>
@@ -19,23 +18,11 @@ using namespace plt;
 using namespace stl;
 
 namespace {
-    struct ArmedFD {
-        PollFD fd;
-        PollCallback* callback = nullptr;
-        u64 generation = 0;
-    };
-
-    struct ReadyFD {
-        PollFD fd;
-        PollCallback* callback = nullptr;
-        u64 generation = 0;
-    };
-
     struct PollerLoopImpl final: public PollerLoop {
         explicit PollerLoopImpl(ObjPool& owner);
 
-        void arm(PollFD fd, PollCallback& callback) override;
-        void disarm(int fd) override;
+        void arm(PollWaiter& waiter) override;
+        void cancel(PollWaiter& waiter) override;
         void timeout(u64 microseconds, TimerCallback& callback) override;
         void deadline(u64 monotonicMicroseconds, TimerCallback& callback) override;
         void cancel(TimerCallback& callback) override;
@@ -44,40 +31,27 @@ namespace {
         void dispatchTimers() override;
         u64 nextDeadline() const override;
 
-        u64 allocateGeneration();
-
-        IntMap<ArmedFD> armed;
+        IntrusiveList armed;
         Vector<struct pollfd> pollFDs;
-        Vector<ReadyFD> readyFDs;
+        Vector<PollWaiter*> pending;
         TimerQueue timers;
-        u64 nextGeneration = 1;
     };
 }
 
 PollerLoopImpl::PollerLoopImpl(ObjPool& owner)
-    : armed(ObjPool::create(&owner))
-    , timers(owner)
+    : timers(owner)
 {
 }
 
-u64 PollerLoopImpl::allocateGeneration() {
-    const u64 result = nextGeneration++;
-    if (nextGeneration == 0) {
-        nextGeneration = 1;
-    }
-    return result;
+void PollerLoopImpl::arm(PollWaiter& waiter) {
+    waiter.unlink();
+    armed.pushBack(&waiter);
 }
 
-void PollerLoopImpl::arm(PollFD fd, PollCallback& callback) {
-    armed[fd.fd] = {
-        .fd = fd,
-        .callback = &callback,
-        .generation = allocateGeneration(),
-    };
-}
-
-void PollerLoopImpl::disarm(int fd) {
-    armed.erase(fd);
+void PollerLoopImpl::cancel(PollWaiter& waiter) {
+    // Works whichever list currently holds the node, including the ready
+    // list of a dispatch round in progress.
+    waiter.unlink();
 }
 
 void PollerLoopImpl::timeout(u64 microseconds, TimerCallback& callback) {
@@ -105,13 +79,16 @@ void PollerLoopImpl::dispatchTimers() {
 
 void PollerLoopImpl::wait(u64 monotonicDeadline) {
     pollFDs.clear();
-    armed.visit([this](const ArmedFD& source) {
+    pending.clear();
+    for (IntrusiveNode* node = armed.mutFront(); node != armed.mutEnd(); node = node->next) {
+        PollWaiter* const waiter = static_cast<PollWaiter*>(node);
+        pending.pushBack(waiter);
         pollFDs.pushBack({
-            .fd = source.fd.fd,
-            .events = source.fd.toPollEvents(),
+            .fd = waiter->fd.fd,
+            .events = waiter->fd.toPollEvents(),
             .revents = 0,
         });
-    });
+    }
 
     int timeoutMilliseconds = -1;
     if (monotonicDeadline != UINT64_MAX) {
@@ -127,32 +104,26 @@ void PollerLoopImpl::wait(u64 monotonicDeadline) {
         Errno(errno == 0 ? EINVAL : errno).raise(StringView(u8"poll failed"));
     }
 
-    readyFDs.clear();
-    for (size_t index = 0; index != pollFDs.length(); ++index) {
-        const struct pollfd& source = pollFDs[index];
-        ArmedFD* registration = armed.find(source.fd);
-        if (source.revents == 0 || registration == nullptr) {
+    // Detach every ready waiter before the first callback runs: a callback
+    // that cancels or re-arms another waiter simply pulls it out of this
+    // round's list.
+    IntrusiveList ready;
+    for (size_t index = 0; index != pending.length(); ++index) {
+        if (pollFDs[index].revents == 0) {
             continue;
         }
-        readyFDs.pushBack({
-            .fd =
-                {
-                    .fd = source.fd,
-                    .flags = PollFD::fromPollEvents(source.revents),
-                },
-            .callback = registration->callback,
-            .generation = registration->generation,
+        PollWaiter* const waiter = pending[index];
+        waiter->readyFlags = pollFDs[index].revents;
+        waiter->unlink();
+        ready.pushBack(waiter);
+    }
+    while (!ready.empty()) {
+        PollWaiter* const waiter = static_cast<PollWaiter*>(ready.popFront());
+        waiter->callback->ready({
+            .fd = waiter->fd.fd,
+            .flags = PollFD::fromPollEvents((short)(waiter->readyFlags)),
         });
     }
-    for (const ReadyFD& ready : readyFDs) {
-        ArmedFD* const registration = armed.find(ready.fd.fd);
-        if (registration == nullptr || registration->callback != ready.callback || registration->generation != ready.generation) {
-            continue;
-        }
-        armed.erase(ready.fd.fd);
-        ready.callback->ready(ready.fd);
-    }
-    readyFDs.clear();
 }
 
 PollerLoop* PollerLoop::create(ObjPool& owner) {

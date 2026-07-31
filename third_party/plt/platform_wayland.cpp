@@ -354,6 +354,7 @@ namespace {
         void textInputRectChanged(WindowImpl& window, bool commit);
 
         PollerLoop* poller_ = nullptr;
+        PollWaiter displayWaiter_;
         ObjPool* owner_ = nullptr;
         SmallObjAllocator* allocator_ = nullptr;
         Scheduler* scheduler_ = nullptr;
@@ -1361,7 +1362,7 @@ PlatformImpl::PlatformImpl(ObjPool& owner)
 }
 
 PlatformImpl::~PlatformImpl() {
-    poller_->disarm(wl_display_get_fd(display));
+    poller_->cancel(displayWaiter_);
     stopRepeat();
     pendingClipboardOffer.reset();
     clipboardOffer.reset();
@@ -1469,13 +1470,12 @@ Scheduler* PlatformImpl::scheduler() {
 }
 
 void PlatformImpl::armDisplay(bool write) {
-    poller_->arm(
-        {
-            .fd = wl_display_get_fd(display),
-            .flags = PollFlag::In | (write ? PollFlag::Out : 0),
-        },
-        *this
-    );
+    displayWaiter_.fd = {
+        .fd = wl_display_get_fd(display),
+        .flags = PollFlag::In | (write ? PollFlag::Out : 0),
+    };
+    displayWaiter_.callback = this;
+    poller_->arm(displayWaiter_);
 }
 
 bool PlatformImpl::flushDisplay() {
@@ -1491,7 +1491,7 @@ bool PlatformImpl::flushDisplay() {
         armDisplay(true);
         return true;
     }
-    poller_->disarm(wl_display_get_fd(display));
+    poller_->cancel(displayWaiter_);
     stop();
     return false;
 }

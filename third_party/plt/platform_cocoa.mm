@@ -457,22 +457,22 @@ namespace {
         bool finished = false;
     };
 
+    // One watched descriptor with every waiter parked on it.
     struct ArmedFD {
-        ArmedFD(PollFD fd, PollCallback* callback, CFFileDescriptorRef descriptor, CFRunLoopSourceRef source);
+        ArmedFD(CFFileDescriptorRef descriptor, CFRunLoopSourceRef source);
         ~ArmedFD();
 
-        PollFD fd;
-        PollCallback* callback = nullptr;
         CFFileDescriptorRef descriptor = nullptr;
         CFRunLoopSourceRef source = nullptr;
+        stl::IntrusiveList waiters;
     };
 
     struct PollerImpl final: public Poller {
         explicit PollerImpl(ObjPool& owner);
         ~PollerImpl();
 
-        void arm(PollFD fd, PollCallback& callback) override;
-        void disarm(int fd) override;
+        void arm(PollWaiter& waiter) override;
+        void cancel(PollWaiter& waiter) override;
         void timeout(u64 microseconds, TimerCallback& callback) override;
         void deadline(u64 monotonicMicroseconds, TimerCallback& callback) override;
         void cancel(TimerCallback& callback) override;
@@ -762,10 +762,8 @@ PollerImpl::~PollerImpl() {
     CFRelease(runLoopTimer);
 }
 
-ArmedFD::ArmedFD(PollFD fd_, PollCallback* callback_, CFFileDescriptorRef descriptor_, CFRunLoopSourceRef source_)
-    : fd(fd_)
-    , callback(callback_)
-    , descriptor(descriptor_)
+ArmedFD::ArmedFD(CFFileDescriptorRef descriptor_, CFRunLoopSourceRef source_)
+    : descriptor(descriptor_)
     , source(source_)
 {
 }
@@ -781,28 +779,50 @@ ArmedFD::~ArmedFD() {
     }
 }
 
-void PollerImpl::arm(PollFD fd, PollCallback& callback) {
-    disarm(fd.fd);
-    CFFileDescriptorContext context{};
-    context.info = this;
-    CFFileDescriptorRef descriptor = CFFileDescriptorCreate(kCFAllocatorDefault, fd.fd, false, cocoaFileDescriptorReady, &context);
-    STD_VERIFY(descriptor != nullptr);
-    CFRunLoopSourceRef source = CFFileDescriptorCreateRunLoopSource(kCFAllocatorDefault, descriptor, 0);
-    STD_VERIFY(source != nullptr);
-    armed.insert(fd.fd, fd, &callback, descriptor, source);
-    CFRunLoopAddSource(CFRunLoopGetMain(), source, kCFRunLoopCommonModes);
-    CFOptionFlags types = 0;
-    if (fd.flags & (PollFlag::In | PollFlag::Err | PollFlag::Hup)) {
-        types |= kCFFileDescriptorReadCallBack;
+namespace {
+    u32 entryFlags(const ArmedFD& entry) {
+        u32 flags = 0;
+        for (const stl::IntrusiveNode* node = entry.waiters.front(); node != entry.waiters.end(); node = node->next) {
+            flags |= static_cast<const PollWaiter*>(node)->fd.flags;
+        }
+        return flags;
     }
-    if (fd.flags & PollFlag::Out) {
-        types |= kCFFileDescriptorWriteCallBack;
+
+    void enableEntryCallbacks(const ArmedFD& entry) {
+        const u32 flags = entryFlags(entry);
+        CFOptionFlags types = 0;
+        if (flags & (PollFlag::In | PollFlag::Err | PollFlag::Hup)) {
+            types |= kCFFileDescriptorReadCallBack;
+        }
+        if (flags & PollFlag::Out) {
+            types |= kCFFileDescriptorWriteCallBack;
+        }
+        CFFileDescriptorEnableCallBacks(entry.descriptor, types);
     }
-    CFFileDescriptorEnableCallBacks(descriptor, types);
 }
 
-void PollerImpl::disarm(int fd) {
-    armed.erase(fd);
+void PollerImpl::arm(PollWaiter& waiter) {
+    waiter.unlink();
+    ArmedFD* entry = armed.find(waiter.fd.fd);
+    if (entry == nullptr) {
+        CFFileDescriptorContext context{};
+        context.info = this;
+        CFFileDescriptorRef descriptor = CFFileDescriptorCreate(kCFAllocatorDefault, waiter.fd.fd, false, cocoaFileDescriptorReady, &context);
+        STD_VERIFY(descriptor != nullptr);
+        CFRunLoopSourceRef source = CFFileDescriptorCreateRunLoopSource(kCFAllocatorDefault, descriptor, 0);
+        STD_VERIFY(source != nullptr);
+        armed.insert(waiter.fd.fd, descriptor, source);
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, kCFRunLoopCommonModes);
+        entry = armed.find(waiter.fd.fd);
+    }
+    entry->waiters.pushBack(&waiter);
+    enableEntryCallbacks(*entry);
+}
+
+void PollerImpl::cancel(PollWaiter& waiter) {
+    // Works whichever list currently holds the node; an empty entry is
+    // reclaimed on its next readiness callback.
+    waiter.unlink();
 }
 
 void PollerImpl::timeout(u64 microseconds, TimerCallback& callback) {
@@ -845,30 +865,50 @@ void PollerImpl::scheduleTimer() {
 
 void PollerImpl::descriptorReady(CFFileDescriptorRef descriptor) {
     const int fd = CFFileDescriptorGetNativeDescriptor(descriptor);
-    ArmedFD* registration = armed.find(fd);
-    if (registration == nullptr || registration->descriptor != descriptor) {
+    ArmedFD* const entry = armed.find(fd);
+    if (entry == nullptr || entry->descriptor != descriptor) {
         return;
     }
-    struct pollfd event{fd, registration->fd.toPollEvents(), 0};
+    if (entry->waiters.empty()) {
+        armed.erase(fd);
+        return;
+    }
+    struct pollfd event{fd, (short)0, 0};
+    event.events = PollFD{.fd = fd, .flags = entryFlags(*entry)}.toPollEvents();
     const int pollResult = ::poll(&event, 1, 0);
     if (pollResult <= 0 || event.revents == 0) {
-        CFOptionFlags types = 0;
-        if (registration->fd.flags & (PollFlag::In | PollFlag::Err | PollFlag::Hup)) {
-            types |= kCFFileDescriptorReadCallBack;
-        }
-        if (registration->fd.flags & PollFlag::Out) {
-            types |= kCFFileDescriptorWriteCallBack;
-        }
-        CFFileDescriptorEnableCallBacks(descriptor, types);
+        enableEntryCallbacks(*entry);
         return;
     }
-    PollCallback* const callback = registration->callback;
-    PollFD ready{
-        .fd = fd,
-        .flags = PollFD::fromPollEvents(event.revents),
-    };
-    armed.erase(fd);
-    callback->ready(ready);
+    const u32 readyFlags = PollFD::fromPollEvents(event.revents);
+    // Detach every matching waiter before the first callback runs; a
+    // callback that cancels or re-arms another waiter pulls it out of this
+    // round's list.
+    stl::IntrusiveList ready;
+    for (stl::IntrusiveNode* node = entry->waiters.mutFront(); node != entry->waiters.mutEnd();) {
+        PollWaiter* const waiter = static_cast<PollWaiter*>(node);
+        node = node->next;
+        if ((waiter->fd.flags | PollFlag::Err | PollFlag::Hup) & readyFlags) {
+            waiter->readyFlags = readyFlags;
+            waiter->unlink();
+            ready.pushBack(waiter);
+        }
+    }
+    while (!ready.empty()) {
+        PollWaiter* const waiter = static_cast<PollWaiter*>(ready.popFront());
+        waiter->callback->ready({
+            .fd = fd,
+            .flags = waiter->readyFlags,
+        });
+    }
+    ArmedFD* const remaining = armed.find(fd);
+    if (remaining != nullptr && remaining->descriptor == descriptor) {
+        if (remaining->waiters.empty()) {
+            armed.erase(fd);
+        } else {
+            enableEntryCallbacks(*remaining);
+        }
+    }
     NSEvent* wakeup = [NSEvent otherEventWithType:NSEventTypeApplicationDefined location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil subtype:0 data1:0 data2:0];
     [NSApp postEvent:wakeup atStart:NO];
 }

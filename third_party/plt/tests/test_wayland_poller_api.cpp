@@ -12,20 +12,31 @@ using namespace stl;
 namespace plt::test {
     namespace {
         struct FdCallback final: PollCallback {
-            explicit FdCallback(Platform& platform_): platform(platform_) {}
+            explicit FdCallback(Platform& platform_): platform(platform_) {
+                waiter.callback = this;
+            }
+
+            void arm(int fd, u32 flags) {
+                waiter.fd = {.fd = fd, .flags = flags};
+                platform.poller()->arm(waiter);
+            }
 
             void ready(PollFD event_) override {
                 event = event_;
                 called = true;
                 u8 byte;
                 readOk = read(event.fd, &byte, 1) == 1;
-                platform.stop();
+                if (stopOnReady) {
+                    platform.stop();
+                }
             }
 
             Platform& platform;
+            PollWaiter waiter;
             PollFD event{};
             bool called = false;
             bool readOk = false;
+            bool stopOnReady = true;
         };
 
         struct DeadlineCallback final: TimerCallback {
@@ -43,23 +54,28 @@ namespace plt::test {
         struct CrossCancelFD final: PollCallback {
             CrossCancelFD(
                 Platform& platform_,
-                int cancelled_,
                 u32& callCount_
             )
                 : platform(platform_)
-                , cancelled(cancelled_)
                 , callCount(callCount_)
             {
+                waiter.callback = this;
+            }
+
+            void arm(int fd) {
+                waiter.fd = {.fd = fd, .flags = PollFlag::In};
+                platform.poller()->arm(waiter);
             }
 
             void ready(PollFD) override {
                 ++callCount;
-                platform.poller()->disarm(cancelled);
+                platform.poller()->cancel(*cancelled);
                 platform.stop();
             }
 
             Platform& platform;
-            int cancelled;
+            PollWaiter waiter;
+            PollWaiter* cancelled = nullptr;
             u32& callCount;
         };
 
@@ -94,10 +110,7 @@ namespace plt::test {
         }
 
         FdCallback ready(*client.platform);
-        client.platform->poller()->arm(
-            {.fd = pipes[0], .flags = PollFlag::In},
-            ready
-        );
+        ready.arm(pipes[0], PollFlag::In);
         u8 byte = 1;
         if (write(pipes[1], &byte, 1) != 1) {
             close(pipes[0]);
@@ -113,12 +126,9 @@ namespace plt::test {
             return false;
         }
 
-        FdCallback disarmed(*client.platform);
-        client.platform->poller()->arm(
-            {.fd = pipes[0], .flags = PollFlag::In},
-            disarmed
-        );
-        client.platform->poller()->disarm(pipes[0]);
+        FdCallback cancelledWait(*client.platform);
+        cancelledWait.arm(pipes[0], PollFlag::In);
+        client.platform->poller()->cancel(cancelledWait.waiter);
         if (write(pipes[1], &byte, 1) != 1) {
             close(pipes[0]);
             close(pipes[1]);
@@ -130,8 +140,28 @@ namespace plt::test {
             close(pipes[1]);
             return false;
         }
-        if (disarmed.called) {
-            fprintf(stderr, "poller API: disarm failed\n");
+        if (cancelledWait.called) {
+            fprintf(stderr, "poller API: waiter cancel failed\n");
+            close(pipes[0]);
+            close(pipes[1]);
+            return false;
+        }
+
+        // Several waiters may watch one descriptor; a single readiness
+        // detaches and serves every one of them.
+        FdCallback firstOfTwo(*client.platform);
+        FdCallback secondOfTwo(*client.platform);
+        firstOfTwo.stopOnReady = false;
+        firstOfTwo.arm(pipes[0], PollFlag::In);
+        secondOfTwo.arm(pipes[0], PollFlag::In);
+        if (write(pipes[1], &byte, 1) != 1) {
+            close(pipes[0]);
+            close(pipes[1]);
+            return false;
+        }
+        client.platform->run();
+        if (!firstOfTwo.called || !secondOfTwo.called) {
+            fprintf(stderr, "poller API: shared descriptor waiters failed\n");
             close(pipes[0]);
             close(pipes[1]);
             return false;
@@ -175,24 +205,12 @@ namespace plt::test {
             return false;
         }
         u32 crossCallCount = 0;
-        CrossCancelFD first(
-            *client.platform,
-            crossPipes[1][0],
-            crossCallCount
-        );
-        CrossCancelFD second(
-            *client.platform,
-            crossPipes[0][0],
-            crossCallCount
-        );
-        client.platform->poller()->arm(
-            {.fd = crossPipes[0][0], .flags = PollFlag::In},
-            first
-        );
-        client.platform->poller()->arm(
-            {.fd = crossPipes[1][0], .flags = PollFlag::In},
-            second
-        );
+        CrossCancelFD first(*client.platform, crossCallCount);
+        CrossCancelFD second(*client.platform, crossCallCount);
+        first.cancelled = &second.waiter;
+        second.cancelled = &first.waiter;
+        first.arm(crossPipes[0][0]);
+        second.arm(crossPipes[1][0]);
         if (write(crossPipes[0][1], &byte, 1) != 1
             || write(crossPipes[1][1], &byte, 1) != 1) {
             for (auto& crossPipe : crossPipes) {

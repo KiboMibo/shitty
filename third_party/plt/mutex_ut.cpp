@@ -13,10 +13,10 @@ using namespace stl;
 
 namespace {
     struct InertPoller final: Poller {
-        void arm(PollFD, PollCallback&) override {
+        void arm(PollWaiter&) override {
         }
 
-        void disarm(int) override {
+        void cancel(PollWaiter&) override {
         }
 
         void timeout(u64, TimerCallback&) override {

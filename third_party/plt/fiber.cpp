@@ -157,15 +157,17 @@ void SchedulerImpl::spawn(Runable& entry, void* stack, size_t size) {
 
 bool SchedulerImpl::awaitFd(int fd, u32 flags, u64 timeoutUs) {
     FiberImpl& fiber = *active;
+    // The wait node lives on this frame of the fiber's own stack; any
+    // number of fibers may watch the same descriptor concurrently.
+    PollWaiter waiter;
+    waiter.fd = {
+        .fd = fd,
+        .flags = flags,
+    };
+    waiter.callback = &fiber;
     fiber.fdReady = false;
     fiber.timerFired = false;
-    poller.arm(
-        {
-            .fd = fd,
-            .flags = flags,
-        },
-        fiber
-    );
+    poller.arm(waiter);
     if (timeoutUs != 0) {
         poller.timeout(timeoutUs, fiber);
     }
@@ -176,7 +178,7 @@ bool SchedulerImpl::awaitFd(int fd, u32 flags, u64 timeoutUs) {
         }
         return true;
     }
-    poller.disarm(fd);
+    poller.cancel(waiter);
     return false;
 }
 
