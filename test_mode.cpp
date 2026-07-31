@@ -9,7 +9,6 @@
 #include "cell_extra_store.h"
 #include "clipboard.h"
 #include "composer.h"
-#include "desktop_actions.h"
 #include "grapheme.h"
 #include "font_pack.h"
 #include "hex.h"
@@ -442,15 +441,6 @@ namespace {
         size_t readChunk = 0;
     };
 
-    struct TestDesktopActions final: public DesktopActions {
-        void openUri(StringView uri) override;
-        void pointerIcon(::PointerIcon icon) override;
-
-        Buffer openedUri;
-        ::PointerIcon icon = ::PointerIcon::Text;
-        u64 openCount = 0;
-    };
-
     struct TestTerminal {
         TestTerminal(Composer& composer, Vterm& terminal, TestApi& testApi, TestPty& pty, ReferenceRenderer& renderer, plt::WindowHeadless& window);
 
@@ -781,16 +771,6 @@ void TestClipboard::writePrimary(StringView content) {
 void TestClipboard::writeClipboard(StringView content) {
     system.reset();
     system.append(content.data(), content.length());
-}
-
-void TestDesktopActions::openUri(StringView uri) {
-    openedUri.reset();
-    openedUri.append(uri.data(), uri.length());
-    ++openCount;
-}
-
-void TestDesktopActions::pointerIcon(::PointerIcon icon_) {
-    icon = icon_;
 }
 
 TestTerminal::TestTerminal(Composer& composer_, Vterm& terminal, TestApi& testApi, TestPty& pty, ReferenceRenderer& renderer_, plt::WindowHeadless& window_)
@@ -1348,9 +1328,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     composer.ptyOutputs = PtyOutputQueue::create(composer.pool, composer.smallObjects, terminalPty);
     composer.ptyOutput = composer.ptyOutputs->append();
     TestClipboard clipboard;
-    TestDesktopActions desktopActions;
     composer.clipboard = &clipboard;
-    composer.desktopActions = &desktopActions;
     composer.rendererPool = ObjPool::fromMemory();
     composer.renderer = Renderer::create(composer, *composer.rendererPool, window.renderContext());
     auto& renderer = static_cast<ReferenceRenderer&>(*composer.renderer);
@@ -2074,12 +2052,13 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
             } else if (line == "HYPERLINK_COUNT") {
                 writeAll(controlFd, "OK " + std::to_string(terminal.getHyperlinkCount()) + "\n");
             } else if (line == "DESKTOP_STATE") {
+                const unsigned linkIcon = window.pointerIcon() == plt::PointerIcon::Pointer ? 1 : 0;
                 StringBuilder output;
-                output << StringView(u8"OK ") << (unsigned)(desktopActions.icon) << StringView(u8" ") << desktopActions.openCount << StringView(u8" ") << renderer.hoveredHyperlink() << StringView(u8" ") << renderer.hoveredLinkBegin() << StringView(u8" ") << renderer.hoveredLinkEnd() << StringView(u8" ");
-                if (desktopActions.openedUri.empty()) {
+                output << StringView(u8"OK ") << linkIcon << StringView(u8" ") << window.openUriCount() << StringView(u8" ") << renderer.hoveredHyperlink() << StringView(u8" ") << renderer.hoveredLinkBegin() << StringView(u8" ") << renderer.hoveredLinkEnd() << StringView(u8" ");
+                if (window.openedUri().empty()) {
                     output << StringView(u8"-");
                 } else {
-                    appendHex(output, StringView(desktopActions.openedUri));
+                    appendHex(output, window.openedUri());
                 }
                 output << StringView(u8"\n");
                 writeAll(controlFd, StringView(output));

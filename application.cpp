@@ -16,7 +16,6 @@
 #include "application.h"
 #include "clipboard.h"
 #include "composer.h"
-#include "desktop_actions.h"
 #include "fd_redirect.h"
 #include "font_pack.h"
 #include "input_bindings.h"
@@ -475,7 +474,6 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         }
     );
     composer.clipboard = ::Clipboard::create(composer, *composer.window);
-    composer.desktopActions = DesktopActions::create(composer, *composer.window);
     contentScaleChanged();
 
     replaceFontpack(initialFontSize);

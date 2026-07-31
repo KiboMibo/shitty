@@ -24,7 +24,6 @@
 #include "clipboard.h"
 #include "color_spec.h"
 #include "composer.h"
-#include "desktop_actions.h"
 #include "input_bindings.h"
 #include "input_handler.h"
 #include "keyboard.h"
@@ -1339,7 +1338,7 @@ bool VtermInput::copy() {
 
 ScreenHyperlink VtermInput::resolveLink(int pixelX, int pixelY) {
     const ScreenHyperlink link = terminal->resolveHyperlink(pixelX, pixelY);
-    return terminal->composer.desktopActions == nullptr ? ScreenHyperlink{} : link;
+    return terminal->composer.window == nullptr ? ScreenHyperlink{} : link;
 }
 
 bool VtermInput::refreshHyperlink() {
@@ -1355,9 +1354,9 @@ bool VtermInput::refreshHyperlink() {
     hoveredLinkBegin = next.begin;
     hoveredLinkEnd = next.end;
     const bool active = hoveredHyperlink != 0 || hoveredLinkBegin < hoveredLinkEnd;
-    DesktopActions* const desktopActions = terminal->composer.desktopActions;
-    if (active != wasActive && desktopActions != nullptr) {
-        desktopActions->pointerIcon(active ? ::PointerIcon::Link : ::PointerIcon::Text);
+    plt::Window* const window = terminal->composer.window;
+    if (active != wasActive && window != nullptr) {
+        window->requestPointerIcon(active ? plt::PointerIcon::Pointer : plt::PointerIcon::Text);
     }
     return true;
 }
@@ -1926,10 +1925,10 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
         hyperlinkClick = false;
         if (input.modifiers & InputControl) {
             const ScreenHyperlink link = resolveLink(input.pixelX, input.pixelY);
-            DesktopActions* const desktopActions = terminal->composer.desktopActions;
-            if (!link.payload.empty() && desktopActions != nullptr) {
+            plt::Window* const window = terminal->composer.window;
+            if (!link.payload.empty() && window != nullptr) {
                 hyperlinkClick = true;
-                desktopActions->openUri(link.payload);
+                window->requestOpenUri(link.payload);
                 return true;
             }
         }

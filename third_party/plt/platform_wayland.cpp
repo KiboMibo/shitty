@@ -39,6 +39,7 @@
 #include <climits>
 #include <cstdlib>
 #include <fcntl.h>
+#include <spawn.h>
 #include <pthread.h>
 #include <signal.h>
 #include <unistd.h>
@@ -51,6 +52,8 @@
 
 using namespace stl;
 using namespace plt;
+
+extern char** environ;
 
 namespace {
     struct PlatformImpl;
@@ -159,6 +162,7 @@ namespace {
         Clipboard* primary() override;
         Clipboard* secondary() override;
         void requestPointerIcon(PointerIcon icon) override;
+        void requestOpenUri(StringView uri) override;
         void requestTextInputRect(i32 x, i32 y, u32 width, u32 height) override;
         RenderContext renderContext() const override;
 
@@ -2802,6 +2806,18 @@ void ClipboardImpl::cancel(ClipboardRead& read) {
 void WindowImpl::requestPointerIcon(PointerIcon icon) {
     cursor = icon;
     updateCursor();
+}
+
+void WindowImpl::requestOpenUri(StringView uri) {
+    Buffer path;
+    path.append(uri.data(), uri.length());
+    char* const arguments[] = {
+        (char*)("xdg-open"),
+        path.cStr(),
+        nullptr,
+    };
+    pid_t pid = -1;
+    posix_spawnp(&pid, arguments[0], nullptr, nullptr, arguments, environ);
 }
 
 void WindowImpl::requestTextInputRect(i32 x, i32 y, u32 width, u32 height) {
