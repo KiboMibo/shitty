@@ -594,8 +594,10 @@ namespace {
     };
 
     // Snapshot stream over one selection buffer; plain delete releases it.
+    // readChunk lets protocol tests force boundaries inside UTF-8 and
+    // bracketed-paste sequences; zero leaves reads limited only by the caller.
     struct TestClipboardInput final: public Input {
-        TestClipboardInput(SmallObjAllocator* allocator, const Buffer& content);
+        TestClipboardInput(SmallObjAllocator* allocator, const Buffer& content, size_t readChunk);
 
         void operator delete(TestClipboardInput* input, std::destroying_delete_t) noexcept;
 
@@ -604,6 +606,7 @@ namespace {
         SmallObjAllocator* allocator;
         Buffer content;
         size_t offset = 0;
+        size_t readChunk;
     };
 
     struct TestClipboardOutput final: public Output {
@@ -633,6 +636,7 @@ namespace {
         Buffer primary;
         Buffer system;
         u64 generation = 0;
+        size_t readChunk = 0;
     };
 
     struct TestTerminal {
@@ -935,8 +939,9 @@ StringView VtermTraceImpl::currentCwd() const {
     return StringView((const u8*)(cwdPath.data()), cwdPath.size());
 }
 
-TestClipboardInput::TestClipboardInput(SmallObjAllocator* allocator_, const Buffer& content_)
+TestClipboardInput::TestClipboardInput(SmallObjAllocator* allocator_, const Buffer& content_, size_t readChunk_)
     : allocator(allocator_)
+    , readChunk(readChunk_)
 {
     content.append(content_.data(), content_.length());
 }
@@ -947,6 +952,9 @@ void TestClipboardInput::operator delete(TestClipboardInput* input, std::destroy
 }
 
 size_t TestClipboardInput::readImpl(void* data, size_t len) {
+    if (readChunk != 0 && len > readChunk) {
+        len = readChunk;
+    }
     const size_t count = len < content.length() - offset ? len : content.length() - offset;
     memcpy(data, (const u8*)(content.data()) + offset, count);
     offset += count;
@@ -983,7 +991,7 @@ void TestClipboardOutput::finishImpl() {
 }
 
 Input* TestClipboardFacet::read() {
-    return owner->composer.smallObjects->make<TestClipboardInput>(owner->composer.smallObjects, primary ? owner->primary : owner->system);
+    return owner->composer.smallObjects->make<TestClipboardInput>(owner->composer.smallObjects, primary ? owner->primary : owner->system, owner->readChunk);
 }
 
 Output* TestClipboardFacet::write() {
@@ -2461,6 +2469,13 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
             } else if (line.compare(0, 11, "SET_SYSTEM ") == 0) {
                 const std::string content = decodeHex(line.substr(11));
                 clipboard.writeClipboard(StringView((const u8*)(content.data()), content.size()));
+                writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 20, "SET_CLIPBOARD_CHUNK ") == 0) {
+                const unsigned long long size = std::stoull(line.substr(20));
+                if (size > SIZE_MAX) {
+                    throw std::runtime_error("invalid clipboard chunk size");
+                }
+                clipboard.readChunk = (size_t)(size);
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 14, "GET_SELECTION ") == 0) {
                 const int primary = std::stoi(line.substr(14));
