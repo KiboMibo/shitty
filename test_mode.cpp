@@ -136,13 +136,16 @@ namespace {
 
         Input* input() override;
         Output* output() override;
+        size_t tryWrite(const u8* data, size_t len) override;
         void onListen(void*) override;
 
         ssize_t read(u8* buffer, size_t size);
         ssize_t write(const u8* buffer, size_t size);
         size_t rawWrite(const void* data, size_t size);
         void start();
-        bool flushOutput();
+        bool outputDrained() const;
+        bool scriptStalled() const;
+        void kickOutput();
         void setReadHandler(std::function<ssize_t(u8*, size_t)> handler);
         void setWriteHandler(std::function<ssize_t(const u8*, size_t)> handler);
         std::string takeReadData();
@@ -278,6 +281,24 @@ ssize_t TestPty::write(const u8* buffer, size_t size) {
     return count;
 }
 
+size_t TestPty::tryWrite(const u8* data, size_t len) {
+    size_t accepted = 0;
+    while (accepted != len) {
+        constexpr size_t maximumWrite = 64 * 1024;
+        const size_t chunk = len - accepted < maximumWrite ? len - accepted : maximumWrite;
+        const ssize_t count = write(data + accepted, chunk);
+        if (count > 0) {
+            accepted += (size_t)(count);
+            continue;
+        }
+        if (count < 0 && errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    return accepted;
+}
+
 size_t TestPty::rawWrite(const void* data, size_t size) {
     plt::Scheduler* const scheduler = composer_.platform->scheduler();
     const u8* current = (const u8*)(data);
@@ -316,16 +337,25 @@ void TestPty::onListen(void*) {
     applySize();
 }
 
-bool TestPty::flushOutput() {
+bool TestPty::outputDrained() const {
+    // A held stream mutex means a transaction is still replaying, even when
+    // it waits on real backpressure rather than a scripted kick.
+    return staged_.empty() && blockedWriter_ == nullptr && !composer_.ptyMutex->held;
+}
+
+bool TestPty::scriptStalled() const {
+    // Only a scripted stall parks the writer here; real backpressure waits
+    // on the descriptor instead.
+    return blockedWriter_ != nullptr;
+}
+
+void TestPty::kickOutput() {
     if (blockedWriter_ != nullptr) {
         blockedWriter_->wake();
     }
     if (!staged_.empty() && stagerFiber_ != nullptr) {
         stagerFiber_->wake();
     }
-    // A held stream mutex means a transaction is still replaying, even when
-    // it waits on real backpressure rather than a scripted kick.
-    return staged_.empty() && blockedWriter_ == nullptr && !composer_.ptyMutex->held;
 }
 
 void TestPty::applySize() {
@@ -692,10 +722,11 @@ namespace {
         int writePty(const u8* data, size_t size, bool userInput = false);
         int writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType event);
         int writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event);
-        bool readPty(bool flushOutput = true);
+        bool readPty();
         void drainPty();
         bool servicePty(bool readable, bool writable);
-        bool flushPtyOutput();
+        bool outputDrained();
+        void kickOutput();
         MouseTrackingState getMouseTrackingState();
         u8 getKittyKeyboardFlags();
         bool getScreenReverseVideo();
@@ -741,7 +772,7 @@ namespace {
         ReferenceRenderer& renderer;
         plt::WindowHeadless& window;
         u8 ptyInputBuffer[64 * 1024];
-        bool consumePty(bool drain, bool flushOutput);
+        bool consumePty(bool drain);
         bool present();
     };
 
@@ -1089,10 +1120,8 @@ void TestTerminal::feedPtyOutput(const std::vector<std::string>& chunks) {
 }
 
 void TestTerminal::update() {
-    flushPtyOutput();
     window.requestFrame();
     present();
-    flushPtyOutput();
 }
 
 void TestTerminal::redraw() {
@@ -1177,19 +1206,23 @@ int TestTerminal::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 
     return 1;
 }
 
-bool TestTerminal::flushPtyOutput() {
-    return pty.flushOutput();
+bool TestTerminal::outputDrained() {
+    return pty.outputDrained();
 }
 
-bool TestTerminal::readPty(bool flushOutput) {
-    return consumePty(false, flushOutput);
+void TestTerminal::kickOutput() {
+    pty.kickOutput();
+}
+
+bool TestTerminal::readPty() {
+    return consumePty(false);
 }
 
 void TestTerminal::drainPty() {
-    consumePty(true, true);
+    consumePty(true);
 }
 
-bool TestTerminal::consumePty(bool drain, bool flushOutput) {
+bool TestTerminal::consumePty(bool drain) {
     bool finished = false;
     while (true) {
         ssize_t count;
@@ -1208,22 +1241,16 @@ bool TestTerminal::consumePty(bool drain, bool flushOutput) {
         }
         break;
     }
-    if (flushOutput) {
-        flushPtyOutput();
-    }
     window.requestFrame();
     present();
-    if (flushOutput) {
-        flushPtyOutput();
-    }
     return finished;
 }
 
 bool TestTerminal::servicePty(bool readable, bool writable) {
     if (writable) {
-        flushPtyOutput();
+        kickOutput();
     }
-    return readable && readPty(!writable);
+    return readable && readPty();
 }
 
 MouseTrackingState TestTerminal::getMouseTrackingState() {
@@ -1673,12 +1700,11 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     writeAll(controlFd, "READY\n");
 
     const auto pumpChild = [&]() {
-        terminal.flushPtyOutput();
+        terminal.kickOutput();
         pollfd source{io[0], POLLIN, 0};
         if (poll(&source, 1, 0) > 0 && (source.revents & POLLIN)) {
             terminal.readPty();
         }
-        terminal.flushPtyOutput();
         int status = 0;
         if (childPid > 0 && waitpid(childPid, &status, WNOHANG) == childPid) {
             childPid = -1;
@@ -1693,6 +1719,22 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
             // not required to consume every buffered write.  Drain through
             // EAGAIN before publishing the exit status and final screen.
             terminal.drainPty();
+        }
+    };
+
+    // Blocks until every byte handed to the PTY stream has reached the
+    // kernel. The writer replays from a fiber: after each drained slave
+    // chunk it needs a poll round to see the descriptor writable again,
+    // so the wait yields through the poller instead of counting attempts.
+    // A scripted stall is left alone — the test controls every retry — and
+    // a running child owns the slave side.
+    const auto waitOutputDrained = [&]() {
+        while (!terminal.outputDrained()) {
+            if (childPid > 0 || terminalPty.scriptStalled()) {
+                break;
+            }
+            drainInput(io[1]);
+            controlScheduler->yield();
         }
     };
 
@@ -1747,9 +1789,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 drainInput(io[1]);
                 terminalPty.takeWriteData();
                 terminal.feedPtyOutput((const u8*)input.data(), input.size());
-                for (int attempt = 0; attempt < 1000 && !terminal.flushPtyOutput(); ++attempt) {
-                    drainInput(io[1]);
-                }
+                waitOutputDrained();
                 drainInput(io[1]);
                 writeAll(controlFd, "OK " + encodeHex(terminalPty.takeWriteData()) + "\n");
             } else if (line == "OPTIONS") {
@@ -2578,21 +2618,17 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 // unstick a stalled flush and to keep already-reported
                 // bytes from reaching a later spawned child; a running
                 // child owns the slave side.
-                for (int attempt = 0; attempt < 1000 && !terminal.flushPtyOutput(); ++attempt) {
-                    if (childPid > 0) {
-                        break;
-                    }
-                    drainInput(io[1]);
-                }
+                waitOutputDrained();
                 if (childPid <= 0) {
                     drainInput(io[1]);
                 }
                 writeAll(controlFd, "OK " + encodeHex(terminalPty.takeWriteData()) + "\n");
             } else if (line == "FLUSH_OUTPUT") {
-                terminal.flushPtyOutput();
+                terminal.kickOutput();
                 writeAll(controlFd, "OK\n");
             } else if (line == "FLUSH_OUTPUT_RESULT") {
-                writeAll(controlFd, "OK " + std::to_string(terminal.flushPtyOutput()) + "\n");
+                terminal.kickOutput();
+                writeAll(controlFd, "OK " + std::to_string(terminal.outputDrained()) + "\n");
             } else if (line == "READ_WRITTEN_PTY") {
                 writeAll(controlFd, "OK " + encodeHex(writtenPtyData) + "\n");
                 writtenPtyData.clear();
@@ -2627,6 +2663,10 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
         } catch (const std::exception& error) {
             writeAll(controlFd, std::string("ERR ") + error.what() + "\n");
         }
+        // A harness that keeps the next command buffered would otherwise
+        // hold this fiber runnable forever and starve the poll loop the
+        // stream transactions wait on.
+        controlScheduler->yield();
     }
 
         } catch (const std::exception& error) {

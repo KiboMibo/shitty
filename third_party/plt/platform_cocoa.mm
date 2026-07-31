@@ -476,6 +476,7 @@ namespace {
         void timeout(u64 microseconds, TimerCallback& callback) override;
         void deadline(u64 monotonicMicroseconds, TimerCallback& callback) override;
         void cancel(TimerCallback& callback) override;
+        void defer(TimerCallback& callback) override;
 
         void descriptorReady(CFFileDescriptorRef descriptor);
         void dispatchTimers();
@@ -841,6 +842,13 @@ void PollerImpl::deadline(u64 monotonicMicroseconds, TimerCallback& callback) {
 void PollerImpl::cancel(TimerCallback& callback) {
     timers.cancel(callback);
     scheduleTimer();
+}
+
+void PollerImpl::defer(TimerCallback& callback) {
+    // CFRunLoop services every ready source once per pass before firing
+    // timers, so a zero timer already gives the descriptor waiters their
+    // round here.
+    timeout(0, callback);
 }
 
 u64 PollerImpl::nextDeadline() const {

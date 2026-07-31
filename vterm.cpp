@@ -489,6 +489,7 @@ namespace {
         std::string getLocalEcho(const u8* const begin, const u8* const end);
         template <typename F>
         void spawnTransaction(F&& body);
+        void spawnPtyWrite(StringView bytes);
 
         bool processInput(const u8* input, int size, bool refresh = true);
         [[gnu::noinline]] bool processInputImpl(const u8* input, int size, bool refresh);
@@ -1297,6 +1298,28 @@ void VtermImpl::spawnTransaction(F&& body) {
     }
     FiberTask<F>* const task = composer.smallObjects->make<FiberTask<F>>(this, block, static_cast<F&&>(body));
     composer.platform->scheduler()->spawn(*task, block->stack, sizeof(block->stack));
+}
+
+void VtermImpl::spawnPtyWrite(StringView bytes) {
+    spawnTransaction([this, view = bytes] {
+        // The spawn runs this prefix synchronously, so the caller's bytes
+        // are alive exactly until the first suspension point: copy them
+        // onto this fiber's stack (or the heap for a large payload) before
+        // the lock can park us.
+        u8 local[1024];
+        Buffer owned;
+        const u8* data;
+        if (view.length() <= sizeof(local)) {
+            memcpy(local, view.data(), view.length());
+            data = local;
+        } else {
+            owned.append(view.data(), view.length());
+            data = (const u8*)(owned.data());
+        }
+        const plt::LockGuard guard(*composer.ptyMutex, *composer.platform->scheduler());
+        composer.ptyOutput->write(data, view.length());
+        composer.ptyOutput->flush();
+    });
 }
 
 VtermInput::VtermInput(VtermImpl* terminal_)
@@ -2171,9 +2194,21 @@ void VtermImpl::drop(StringView text) {
         return;
     }
     const bool bracketed = bracketedPasteMode;
-    spawnTransaction([this, bracketed, owned = Buffer(text)] {
+    spawnTransaction([this, bracketed, view = text] {
+        // Copied before the first suspension point, like spawnPtyWrite.
+        u8 local[1024];
+        Buffer owned;
+        const u8* data;
+        if (view.length() <= sizeof(local)) {
+            memcpy(local, view.data(), view.length());
+            data = local;
+        } else {
+            owned.append(view.data(), view.length());
+            data = (const u8*)(owned.data());
+        }
+        const plt::LockGuard guard(*composer.ptyMutex, *composer.platform->scheduler());
         PasteOutput paste(composer.ptyOutput, bracketed);
-        paste.write(owned.data(), owned.length());
+        paste.write(data, view.length());
     });
 }
 
@@ -8541,19 +8576,26 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
     Output* const output = composer.ptyOutput;
     const StringView bytes(ucstr, len);
     plt::Scheduler* const scheduler = composer.platform->scheduler();
-    if (!scheduler->inFiber() || !composer.ptyMutex->heldByCurrent(*scheduler)) {
-        // Never park the calling fiber on PTY backpressure: input delivery
-        // must stay live while the stream is clogged, and a frame-callback
-        // writer must not interleave into a transaction. The bytes replay
-        // from an ordered transaction of their own.
-        spawnTransaction([this, owned = Buffer(bytes)] {
-            composer.ptyOutput->write(owned.data(), owned.length());
-            composer.ptyOutput->flush();
-        });
+    if (scheduler->inFiber() && composer.ptyMutex->heldByCurrent(*scheduler)) {
+        output->write(bytes.data(), bytes.length());
+        output->flush();
         return len;
     }
-    output->write(bytes.data(), bytes.length());
-    output->flush();
+    // Never park the caller on PTY backpressure: input delivery must stay
+    // live while the stream is clogged. The fast path takes the free mutex
+    // and hands the kernel what it accepts right now; only a leftover — or
+    // a stream owned by a transaction — replays from a fiber of its own,
+    // and spawning it before unlock() hands the mutex straight over, so
+    // nothing interleaves into the middle of this write.
+    if (composer.ptyMutex->tryLock()) {
+        const size_t accepted = composer.pty->tryWrite(bytes.data(), bytes.length());
+        if (accepted != bytes.length()) {
+            spawnPtyWrite(StringView(bytes.data() + accepted, bytes.length() - accepted));
+        }
+        composer.ptyMutex->unlock();
+        return len;
+    }
+    spawnPtyWrite(bytes);
     return len;
 }
 

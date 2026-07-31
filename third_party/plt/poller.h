@@ -40,6 +40,12 @@ namespace plt {
         virtual void timeout(u64 microseconds, TimerCallback& callback) = 0;
         virtual void deadline(u64 monotonicMicroseconds, TimerCallback& callback) = 0;
         virtual void cancel(TimerCallback& callback) = 0;
+        // Runs the callback after the next poll round, once the ready
+        // descriptor waiters of that round have been dispatched. Unlike a
+        // zero timer — which fires before the descriptors are polled — a
+        // callback that defers in a loop still lets every armed waiter
+        // make progress.
+        virtual void defer(TimerCallback& callback) = 0;
     };
 
     // The portable poll(2) loop shared by the Wayland and headless

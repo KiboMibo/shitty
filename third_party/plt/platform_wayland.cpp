@@ -423,7 +423,7 @@ namespace {
         Buffer primaryContent;
         bool clipboardPending = false;
         bool primaryPending = false;
-        bool running = false;
+        bool stopped = false;
     };
 
     template <typename F>
@@ -1637,10 +1637,12 @@ void PlatformImpl::dispatch() {
 }
 
 void PlatformImpl::run() {
-    running = true;
-    while (running) {
+    // stopped is consumed on exit, not reset on entry: a fiber spawned
+    // before run() executes its prefix inline and may call stop() before
+    // the loop starts, and that stop must not be erased.
+    while (!stopped) {
         dispatch();
-        if (!running) {
+        if (stopped) {
             break;
         }
         if (!flushDisplay()) {
@@ -1648,10 +1650,11 @@ void PlatformImpl::run() {
         }
         poller_->wait(poller_->nextDeadline());
     }
+    stopped = false;
 }
 
 void PlatformImpl::stop() {
-    running = false;
+    stopped = true;
 }
 
 u16 PlatformImpl::modifiers() const {

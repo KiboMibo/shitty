@@ -198,7 +198,12 @@ void SchedulerImpl::sleep(u64 timeoutUs) {
 }
 
 void SchedulerImpl::yield() {
-    sleep(0);
+    // Not a zero timer: a deferred wake runs after the next poll round, so
+    // a fiber yielding in a hot loop cannot starve the descriptor waiters.
+    FiberImpl& fiber = *active;
+    fiber.timerFired = false;
+    poller.defer(fiber);
+    fiber.block();
 }
 
 bool SchedulerImpl::inFiber() const {

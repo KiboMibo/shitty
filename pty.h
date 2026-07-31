@@ -6,6 +6,10 @@
 
 #pragma once
 
+#include <std/sys/types.h>
+
+#include <cstddef>
+
 namespace stl {
     class Input;
     class Output;
@@ -21,6 +25,9 @@ struct LaunchCommand;
 struct Pty {
     virtual stl::Input* input() = 0;
     virtual stl::Output* output() = 0;
+    // One non-blocking attempt: accepts what the kernel takes right now
+    // and returns the count without ever parking the caller.
+    virtual size_t tryWrite(const u8* data, size_t len) = 0;
 
     // Opens the PTY, starts the child, owns the master, wires resize events,
     // and spawns the fiber that feeds terminal output into the vterm.

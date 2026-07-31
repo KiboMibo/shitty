@@ -27,6 +27,9 @@ namespace {
 
         void cancel(TimerCallback&) override {
         }
+
+        void defer(TimerCallback&) override {
+        }
     };
 }
 

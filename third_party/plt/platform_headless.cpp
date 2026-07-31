@@ -113,18 +113,22 @@ namespace {
         // through WindowHeadless::dispatchFrame. The loop serves timers and
         // descriptors only.
         void run() override {
-            running = true;
-            while (running) {
+            // stopped is consumed on exit, not reset on entry: a fiber
+            // spawned before run() executes its prefix inline and may
+            // finish the whole session — including stop() — before the
+            // loop starts, and that stop must not be erased.
+            while (!stopped) {
                 poller_->dispatchTimers();
-                if (!running) {
+                if (stopped) {
                     break;
                 }
                 poller_->wait(poller_->nextDeadline());
             }
+            stopped = false;
         }
 
         void stop() override {
-            running = false;
+            stopped = true;
         }
 
         Poller* poller() override {
@@ -146,7 +150,7 @@ namespace {
         SmallObjAllocator* allocator_ = nullptr;
         Scheduler* scheduler_ = nullptr;
         std::vector<WindowHeadlessImpl*> windows;
-        bool running = false;
+        bool stopped = false;
     };
 }
 

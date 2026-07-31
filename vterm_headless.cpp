@@ -46,6 +46,14 @@ namespace {
             return composer.ptyOutput;
         }
 
+        size_t tryWrite(const u8* data, size_t len) override {
+            // The capture sink has no kernel buffer behind it: every byte
+            // is accepted on the spot.
+            composer.ptyOutput->write(data, len);
+            composer.ptyOutput->flush();
+            return len;
+        }
+
         Composer& composer;
         HeadlessPtyInput input_;
     };

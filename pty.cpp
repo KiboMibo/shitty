@@ -84,6 +84,7 @@ namespace {
 
         Input* input() override;
         Output* output() override;
+        size_t tryWrite(const u8* data, size_t len) override;
         void onListen(void*) override;
 
         void resize();
@@ -247,6 +248,23 @@ Input* PtyImpl::input() {
 
 Output* PtyImpl::output() {
     return &output_;
+}
+
+size_t PtyImpl::tryWrite(const u8* data, size_t len) {
+    size_t accepted = 0;
+    while (accepted != len) {
+        const size_t chunk = len - accepted < maximumWrite ? len - accepted : maximumWrite;
+        const ssize_t count = ::write(writeFd_, data + accepted, chunk);
+        if (count > 0) {
+            accepted += (size_t)(count);
+            continue;
+        }
+        if (count < 0 && errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    return accepted;
 }
 
 plt::Scheduler* PtyImpl::scheduler() const {

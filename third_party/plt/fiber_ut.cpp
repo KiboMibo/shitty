@@ -33,6 +33,10 @@ namespace {
             timer = nullptr;
         }
 
+        void defer(TimerCallback& callback) override {
+            timer = &callback;
+        }
+
         void fireFd() {
             PollCallback* const callback = fdCallback;
             fdCallback = nullptr;

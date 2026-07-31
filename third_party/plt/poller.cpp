@@ -6,6 +6,7 @@
 #include <std/str/view.h>
 #include <std/sys/throw.h>
 #include <std/alg/minmax.h>
+#include <std/alg/xchg.h>
 #include <std/lib/list.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
@@ -26,6 +27,7 @@ namespace {
         void timeout(u64 microseconds, TimerCallback& callback) override;
         void deadline(u64 monotonicMicroseconds, TimerCallback& callback) override;
         void cancel(TimerCallback& callback) override;
+        void defer(TimerCallback& callback) override;
 
         void wait(u64 monotonicDeadline) override;
         void dispatchTimers() override;
@@ -34,6 +36,8 @@ namespace {
         IntrusiveList armed;
         Vector<struct pollfd> pollFDs;
         Vector<PollWaiter*> pending;
+        Vector<TimerCallback*> deferred;
+        Vector<TimerCallback*> deferredRound;
         TimerQueue timers;
     };
 }
@@ -67,10 +71,26 @@ void PollerLoopImpl::deadline(u64 monotonicMicroseconds, TimerCallback& callback
 
 void PollerLoopImpl::cancel(TimerCallback& callback) {
     timers.cancel(callback);
+    for (size_t index = 0; index != deferred.length(); ++index) {
+        if (deferred[index] == &callback) {
+            deferred.mutData()[index] = nullptr;
+        }
+    }
+    for (size_t index = 0; index != deferredRound.length(); ++index) {
+        if (deferredRound[index] == &callback) {
+            deferredRound.mutData()[index] = nullptr;
+        }
+    }
+}
+
+void PollerLoopImpl::defer(TimerCallback& callback) {
+    deferred.pushBack(&callback);
 }
 
 u64 PollerLoopImpl::nextDeadline() const {
-    return timers.nextDeadline();
+    // A pending deferred callback turns the next poll into a non-blocking
+    // round: descriptors are still polled, then the callback runs.
+    return deferred.empty() ? timers.nextDeadline() : 0;
 }
 
 void PollerLoopImpl::dispatchTimers() {
@@ -124,6 +144,17 @@ void PollerLoopImpl::wait(u64 monotonicDeadline) {
             .flags = PollFD::fromPollEvents((short)(waiter->readyFlags)),
         });
     }
+
+    // Deferred callbacks run once the round's descriptor waiters have been
+    // dispatched; a callback deferring again lands in the next round.
+    xchg(deferredRound, deferred);
+    for (size_t index = 0; index != deferredRound.length(); ++index) {
+        TimerCallback* const callback = deferredRound[index];
+        if (callback != nullptr) {
+            callback->ready();
+        }
+    }
+    deferredRound.clear();
 }
 
 PollerLoop* PollerLoop::create(ObjPool& owner) {
