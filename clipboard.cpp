@@ -7,13 +7,13 @@
 #include "clipboard.h"
 
 #include "composer.h"
-#include "small_obj_allocator.h"
 
 #include <plt/window.h>
 
 #include <std/ios/output.h>
 #include <std/lib/list.h>
 #include <std/mem/obj_pool.h>
+#include <std/mem/small_obj_allocator.h>
 
 #include <new>
 

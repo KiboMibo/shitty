@@ -3,17 +3,17 @@
     "libstd": {
       "flake": false,
       "locked": {
-        "lastModified": 1785440415,
-        "narHash": "sha256-6U6H5uWDJqJlePBwCt4Ti98l0JwxlYHAayyVMMf3PJ4=",
+        "lastModified": 1785455067,
+        "narHash": "sha256-FrpPp64KbFFYPb0g90UnvCGegnsRTT3aFvD7TJeowZY=",
         "owner": "pg83",
         "repo": "std",
-        "rev": "a8de0548ae8571771de7992e0afa70f56cd9f395",
+        "rev": "1823073b33e072568b28261b43970e9c81074d37",
         "type": "github"
       },
       "original": {
         "owner": "pg83",
         "repo": "std",
-        "rev": "a8de0548ae8571771de7992e0afa70f56cd9f395",
+        "rev": "1823073b33e072568b28261b43970e9c81074d37",
         "type": "github"
       }
     },

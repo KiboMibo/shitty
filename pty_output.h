@@ -9,15 +9,15 @@
 namespace stl {
     class Output;
     class ObjPool;
+    class SmallObjAllocator;
 }
 
 struct Pty;
-struct SmallObjAllocator;
 
 struct PtyOutputQueue {
     virtual stl::Output* append() = 0;
     // Performs at most one raw PTY write. Returns true while POLLOUT is useful.
     virtual bool flush() = 0;
 
-    static PtyOutputQueue* create(stl::ObjPool* pool, SmallObjAllocator* allocator, Pty& pty);
+    static PtyOutputQueue* create(stl::ObjPool* pool, stl::SmallObjAllocator* allocator, Pty& pty);
 };

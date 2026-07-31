@@ -14,7 +14,6 @@
 
 #include "options.h"
 #include "render_damage.h"
-#include "small_obj_allocator.h"
 #include "unicode_map.h"
 #include "utf8.h"
 #include "vterm.h"
@@ -30,6 +29,7 @@
 #include <std/lib/vector.h>
 #include <std/mem/new.h>
 #include <std/mem/obj_pool.h>
+#include <std/mem/small_obj_allocator.h>
 #include <std/rng/mix.h>
 #include <std/str/hash.h>
 #include <std/str/view.h>

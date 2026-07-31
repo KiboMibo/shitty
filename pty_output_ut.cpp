@@ -7,11 +7,11 @@
 #include "pty_output.h"
 
 #include "pty.h"
-#include "small_obj_allocator.h"
 
 #include <std/ios/output.h>
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
+#include <std/mem/small_obj_allocator.h>
 #include <std/str/view.h>
 #include <std/tst/ut.h>
 

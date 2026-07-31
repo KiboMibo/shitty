@@ -33,7 +33,6 @@
 #include "parser.h"
 #include "pty_output.h"
 #include "screen.h"
-#include "small_obj_allocator.h"
 #include "unicode_map.h"
 #include "grapheme.h"
 
@@ -50,6 +49,7 @@
 #include <std/alg/minmax.h>
 #include <std/dbg/assert.h>
 #include <std/mem/obj_pool.h>
+#include <std/mem/small_obj_allocator.h>
 #include <std/rng/split_mix_64.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>

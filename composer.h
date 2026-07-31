@@ -13,6 +13,7 @@
 namespace stl {
     class ObjPool;
     class Output;
+    class SmallObjAllocator;
 }
 
 namespace plt {
@@ -30,7 +31,6 @@ struct Font;
 struct FontMetrics;
 struct InputBindings;
 struct Renderer;
-struct SmallObjAllocator;
 struct Pty;
 struct PtyOutputQueue;
 struct Vterm;
@@ -52,7 +52,7 @@ struct Composer {
     // Owns the renderer and its listeners; dropped and rebuilt wholesale
     // when the renderer loses its surface.
     stl::ObjPool::Ref rendererPool = stl::ObjPool::fromMemory();
-    SmallObjAllocator* smallObjects = nullptr;
+    stl::SmallObjAllocator* smallObjects = nullptr;
     Application* application = nullptr;
     CellExtraStore* cellExtras = nullptr;
     Clipboard* clipboard = nullptr;

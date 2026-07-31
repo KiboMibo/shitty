@@ -9,7 +9,7 @@
 
     # Pinned to the commit recorded in .gitmodules.
     libstd = {
-      url = "github:pg83/std/a8de0548ae8571771de7992e0afa70f56cd9f395";
+      url = "github:pg83/std/1823073b33e072568b28261b43970e9c81074d37";
       flake = false;
     };
   };

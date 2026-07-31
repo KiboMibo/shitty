@@ -15,10 +15,10 @@
 #include "input_bindings.h"
 #include "input_router.h"
 #include "listener.h"
-#include "small_obj_allocator.h"
 
 #include <std/alg/minmax.h>
 #include <std/dbg/assert.h>
+#include <std/mem/small_obj_allocator.h>
 
 using namespace stl;
 

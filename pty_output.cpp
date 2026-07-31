@@ -8,13 +8,13 @@
 
 #include "fd_redirect.h"
 #include "pty.h"
-#include "small_obj_allocator.h"
 
 #include <std/dbg/assert.h>
 #include <std/ios/output.h>
 #include <std/lib/buffer.h>
 #include <std/lib/list.h>
 #include <std/mem/obj_pool.h>
+#include <std/mem/small_obj_allocator.h>
 #include <std/str/view.h>
 
 #include <cstring>

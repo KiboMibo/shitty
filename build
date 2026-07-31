@@ -27,6 +27,7 @@ import subprocess
 import sysconfig
 import tempfile
 import threading
+import time
 import types
 import uuid
 from collections import defaultdict, deque
@@ -242,9 +243,6 @@ class Target:
     root: Node | None = None
     nodes: list[Node] = dataclasses.field(default_factory=list)
     uses_cxx: bool = False
-
-    def __post_init__(self) -> None:
-        _validate_descr(self.descr)
 
     def __bool__(self) -> bool:
         return self.enabled
@@ -569,19 +567,17 @@ class BuildContext:
         return module
 
     def _invoke_graph(self, build_file: Path, target: str,
-                      env: dict[str, str], selectors: Iterable[str]) -> str:
-        command = [
-            sys.executable,
-            str(Path(__file__).resolve()),
-            "-G",
-            "--target",
-            target,
-            "--build-file",
-            str(build_file),
-        ]
-        command.extend(selectors)
+                      env: dict[str, str]) -> str:
         result = subprocess.run(
-            command,
+            [
+                sys.executable,
+                str(Path(__file__).resolve()),
+                "-G",
+                "--target",
+                target,
+                "--build-file",
+                str(build_file),
+            ],
             cwd=build_file.parent,
             env=env,
             text=True,
@@ -753,11 +749,9 @@ class BuildContext:
                              extra_cflags: Iterable[str] = (),
                              extra_cxxflags: Iterable[str] = (),
                              extra_cppflags: Iterable[str] = (),
-                             selectors: Iterable[str] = (),
                              source_prefix: str | None = None,
                              build_prefix: str | None = None,
                              index_primary: bool) -> ImportedGraph:
-        selectors = tuple(selectors)
         extras = (
             tuple(str(flag) for flag in extra_cflags),
             tuple(str(flag) for flag in extra_cxxflags),
@@ -767,7 +761,6 @@ class BuildContext:
             str(build_file),
             target,
             extras,
-            selectors,
             source_prefix,
             build_prefix,
             index_primary,
@@ -788,12 +781,7 @@ class BuildContext:
                 env[variable] = shlex.join(values)
             else:
                 env.pop(variable, None)
-        encoded = self._invoke_graph(
-            build_file,
-            target,
-            env,
-            selectors,
-        )
+        encoded = self._invoke_graph(build_file, target, env)
         if source_prefix is not None:
             assert build_prefix is not None
             encoded = encoded.replace(S, source_prefix).replace(B, build_prefix)
@@ -866,7 +854,6 @@ class BuildContext:
             extra_cflags=[*self.extra_cflags, *[str(x) for x in _items(extra_cflags)]],
             extra_cxxflags=[*self.extra_cxxflags, *[str(x) for x in _items(extra_cxxflags)]],
             extra_cppflags=[*self.extra_cppflags, *[str(x) for x in _items(extra_cppflags)]],
-            selectors=[output_name],
             source_prefix=source_prefix,
             build_prefix=build_prefix,
             index_primary=True,
@@ -991,13 +978,11 @@ class BuildContext:
             if name in self.target_names:
                 raise BuildError(f"group name conflicts with target name: {name}")
 
-    def _prepare_host_dependencies(self, targets: Iterable[Target]) -> None:
+    def _prepare_host_dependencies(self) -> None:
         referenced: list[Target] = []
-        commands: list[Target] = []
-        for target in targets:
+        for target in self.targets:
             if target.kind != "command":
                 continue
-            commands.append(target)
             host_deps = self.command_host_deps.get(target)
             if host_deps is None:
                 values = [*target.inputs]
@@ -1025,7 +1010,6 @@ class BuildContext:
             extra_cflags=self.host_cflags,
             extra_cxxflags=self.host_cxxflags,
             extra_cppflags=self.host_cppflags,
-            selectors=[program.name for program in referenced if program.name is not None],
             index_primary=False,
         )
 
@@ -1051,39 +1035,19 @@ class BuildContext:
             program.root = root
             program.nodes = [node for node in imported_nodes if node in program_closure]
             program.uses_cxx = True
-        for command in commands:
-            if command.root is None:
-                continue
-            command.root.deps = _uniq([
-                *command.root.deps,
-                *[dep.root for dep in command.host_deps if dep.root is not None],
-            ])
 
-    def build_graph(self, selected: Iterable[Target]) -> None:
-        selected = _uniq(selected)
+    def build_graph(self) -> None:
+        self._prepare_host_dependencies()
         for target in self.targets:
             if target.kind == "command":
                 self._emit_target(target, set())
-        for target in selected:
-            self._emit_target(target, set())
+        for target in self.targets:
+            if target.kind not in ("interface", "command"):
+                self._emit_target(target, set())
         scanner = IncludeScanner(self)
         for node in self.nodes:
             if node.scan_sources:
                 scanner.scan_node(node)
-        roots = _uniq(target.root for target in selected if target.root is not None)
-        closure = self._node_closure(roots)
-        commands = [
-            target for target in self.targets
-            if target.kind == "command" and target.root in closure
-        ]
-        self._prepare_host_dependencies(commands)
-        closure = self._node_closure(roots)
-        self.nodes = [node for node in self.nodes if node in closure]
-        self.output_nodes = {
-            output: node
-            for node in self.nodes
-            for output in node.outputs
-        }
         self._validate_graph()
 
     def _emit_target(self, target: Target, active: set[Target]) -> Node | None:
@@ -1120,6 +1084,8 @@ class BuildContext:
         assert target.name is not None
         global_includes = _uniq([S, *[_include_path(path) for path in self.includes]])
         include_flags = ["-I" + path for path in global_includes]
+        usage_cflags = self._usage_compile_flags(target.deps, False)
+        usage_cxxflags = self._usage_compile_flags(target.deps, True)
         objects: list[Node] = []
         uses_cxx = False
         for source in target.srcs:
@@ -1136,7 +1102,7 @@ class BuildContext:
             common = [*include_flags, *self.cppflags, *self.cflags]
             if cxx:
                 common.extend(self.cxxflags)
-            common.extend(self._usage_compile_flags(target.deps, cxx))
+            common.extend(usage_cxxflags if cxx else usage_cflags)
             common.extend(target.cppflags)
             common.extend(target.cflags)
             if cxx:
@@ -1372,7 +1338,17 @@ class BuildContext:
 
 
 class IncludeScanner:
-    directive = re.compile(r'^\s*#\s*(?:include|import)\s*([<"])([^>"]+)[>"]')
+    directive = re.compile(
+        r'^[^\S\r\n]*#[^\S\r\n]*(?:include|import)[^\S\r\n]*'
+        r'([<"])([^>"]+)[>"]',
+        re.MULTILINE,
+    )
+    comment_or_literal = re.compile(
+        r'//[^\n]*|/\*.*?(?:\*/|\Z)|'
+        r'"(?:\\(?:.|\Z)|[^"\\])*(?:"|\Z)|'
+        r"'(?:\\(?:.|\Z)|[^'\\])*(?:'|\Z)",
+        re.DOTALL,
+    )
 
     def __init__(self, context: BuildContext):
         self.context = context
@@ -1435,57 +1411,22 @@ class IncludeScanner:
         except OSError as exc:
             raise BuildError(f"cannot scan includes in {path}: {exc}") from exc
         clean = self._strip_comments(text)
-        result: list[tuple[bool, str]] = []
-        for line in clean.splitlines():
-            match = self.directive.match(line)
-            if match:
-                result.append((match.group(1) == '"', match.group(2)))
+        result = [
+            (match.group(1) == '"', match.group(2))
+            for match in self.directive.finditer(clean)
+        ]
         self.parsed[path] = result
         return result
 
-    @staticmethod
-    def _strip_comments(text: str) -> str:
-        out = list(text)
-        i = 0
-        block = False
-        quote = ""
-        while i < len(out):
-            c = out[i]
-            n = out[i + 1] if i + 1 < len(out) else ""
-            if block:
-                if c == "*" and n == "/":
-                    out[i] = out[i + 1] = " "
-                    block = False
-                    i += 2
-                else:
-                    if c != "\n":
-                        out[i] = " "
-                    i += 1
-                continue
-            if quote:
-                if c == "\\":
-                    i += 2
-                    continue
-                if c == quote:
-                    quote = ""
-                i += 1
-                continue
-            if c in ('"', "'"):
-                quote = c
-                i += 1
-                continue
-            if c == "/" and n == "*":
-                out[i] = out[i + 1] = " "
-                block = True
-                i += 2
-                continue
-            if c == "/" and n == "/":
-                while i < len(out) and out[i] != "\n":
-                    out[i] = " "
-                    i += 1
-                continue
-            i += 1
-        return "".join(out)
+    @classmethod
+    def _strip_comments(cls, text: str) -> str:
+        def replace(match: re.Match[str]) -> str:
+            value = match.group()
+            if value.startswith("/"):
+                return " " + "\n" * value.count("\n")
+            return value
+
+        return cls.comment_or_literal.sub(replace, text)
 
     def _resolve(self, includer: str, quoted: bool, target: str,
                  roots: tuple[str, ...]) -> tuple[str | None, Node | None]:
@@ -1541,13 +1482,18 @@ class IncludeScanner:
         physical_root = self.context.physical(root)
         if not physical_root.is_dir():
             return
-        for directory, _directories, filenames in os.walk(physical_root):
+        for directory, directories, filenames in os.walk(physical_root):
+            directories[:] = [
+                name for name in directories if not name.startswith(".")
+            ]
             relative_directory = os.path.relpath(directory, physical_root)
             if relative_directory == ".":
                 relative_directory = ""
             else:
                 relative_directory = relative_directory.replace(os.sep, "/")
             for filename in filenames:
+                if filename.startswith("."):
+                    continue
                 relative = "/".join(filter(None, (relative_directory, filename)))
                 symbolic = self._normal_symbolic(root + "/" + relative)
                 value = (symbolic, None)
@@ -1591,8 +1537,11 @@ class Executor:
         self.progress_total = 0
         self.progress_active = False
         self.interactive = sys.stderr.isatty()
+        self.garbage_collector_started = False
+        self.garbage_lock = threading.Lock()
 
     def run(self, roots: list[Node]) -> None:
+        self._start_garbage_collector()
         try:
             self._run(roots)
         finally:
@@ -1857,18 +1806,38 @@ class Executor:
                 child.unlink()
 
     def _discard_contents(self, path: Path) -> None:
-        if not path.exists():
+        with self.garbage_lock:
+            while True:
+                self.grb.mkdir(parents=True, exist_ok=True)
+                destination = self.grb / uuid.uuid4().hex
+                try:
+                    path.rename(destination)
+                    return
+                except OSError:
+                    try:
+                        path.lstat()
+                    except OSError:
+                        return
+
+    def _start_garbage_collector(self) -> None:
+        if self.garbage_collector_started:
             return
-        self.grb.mkdir(parents=True, exist_ok=True)
-        destination = self.grb / uuid.uuid4().hex
-        try:
-            path.rename(destination)
-        except OSError:
-            return
-        threading.Thread(
-            target=shutil.rmtree, args=(destination,),
-            kwargs={"ignore_errors": True}, daemon=True,
-        ).start()
+        self.garbage_collector_started = True
+        threading.Thread(target=self._garbage_collector, daemon=True).start()
+
+    def _garbage_collector(self) -> None:
+        while True:
+            try:
+                with self.garbage_lock:
+                    subprocess.run(
+                        ["rm", "-rf", str(self.grb)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True,
+                    )
+            except OSError:
+                pass
+            time.sleep(1)
 
     def _report(self, message: str) -> None:
         with self.print_lock:
@@ -1980,47 +1949,6 @@ def flag_help(build_file: Path, source_root: Path, build_dir: str,
     return "\n".join(out) + "\n"
 
 
-def target_outputs(target: Target) -> list[str]:
-    if target.kind == "command":
-        return target.outputs
-    if target.kind == "library":
-        return [target.output or f"{B}/lib{target.name}.a"]
-    if target.kind == "program":
-        return [target.output or f"{B}/{target.name}"]
-    return []
-
-
-def select_targets(context: BuildContext,
-                   selectors: Iterable[str]) -> tuple[list[Target], list[Target]]:
-    selected: list[Target] = []
-    publish: list[Target] = []
-    for selector in selectors:
-        target = context.target_names.get(selector)
-        if target is not None:
-            selected.append(target)
-            publish.append(target)
-            continue
-        targets = context.groups.get(selector)
-        if targets is not None:
-            selected.extend(targets)
-            continue
-        matches = [
-            target for target in context.targets
-            if any(Path(output).name == Path(selector).name for output in target_outputs(target))
-        ]
-        if len(matches) == 1:
-            selected.append(matches[0])
-            continue
-        if matches:
-            raise BuildError(f"expected one target producing {selector!r}, got {len(matches)}")
-        raise BuildError(f"unknown target, group or output: {selector}")
-    if not selected:
-        selected = context.groups.get("install", [])
-        if not selected:
-            raise BuildError("no targets requested and build.py defined no install group")
-    return _uniq(selected), publish
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = make_parser()
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
@@ -2045,15 +1973,32 @@ def main(argv: list[str] | None = None) -> int:
     )
     try:
         context.load(build_file)
+        context.build_graph()
+        if args.graph:
+            print(context.serialize_graph())
+            return 0
         if args.list:
             for name in sorted(context.target_names.keys() | context.groups.keys()):
                 print(name)
             return 0
-        selected, publish = select_targets(context, args.targets)
-        context.build_graph(selected)
-        if args.graph:
-            print(context.serialize_graph())
-            return 0
+        publish: list[Target] = []
+        if args.targets:
+            selected: list[Target] = []
+            for name in args.targets:
+                target = context.target_names.get(name)
+                if target is not None:
+                    selected.append(target)
+                    publish.append(target)
+                    continue
+                targets = context.groups.get(name)
+                if targets is None:
+                    raise BuildError(f"unknown target or group: {name}")
+                selected.extend(targets)
+        else:
+            selected = context.groups.get("install", [])
+            if not selected:
+                raise BuildError("no targets requested and build.py defined no install group")
+        selected = _uniq(selected)
         roots = _uniq(target.root for target in selected if target.root is not None)
         context.calculate_uids(roots)
         if args.clear:
