@@ -20,4 +20,16 @@ namespace plt {
         stl::IntrusiveList waiters;
         bool held = false;
     };
+
+    // Scoped ownership of a FiberMutex: locks on construction, unlocks on
+    // destruction, so a transaction releases the stream on every exit path.
+    struct LockGuard {
+        LockGuard(FiberMutex& mutex, Scheduler& scheduler);
+        ~LockGuard();
+
+        LockGuard(const LockGuard&) = delete;
+        LockGuard& operator=(const LockGuard&) = delete;
+
+        FiberMutex& mutex;
+    };
 }

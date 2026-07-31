@@ -48,3 +48,13 @@ void FiberMutex::unlock() {
     waiter->granted = true;
     waiter->fiber->wake();
 }
+
+LockGuard::LockGuard(FiberMutex& mutex_, Scheduler& scheduler)
+    : mutex(mutex_)
+{
+    mutex.lock(scheduler);
+}
+
+LockGuard::~LockGuard() {
+    mutex.unlock();
+}

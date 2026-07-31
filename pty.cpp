@@ -213,7 +213,7 @@ void PtyStager::run() {
         while (impl.staged_.empty()) {
             impl.stagerFiber_->park();
         }
-        impl.composer_.ptyMutex->lock(*scheduler);
+        const plt::LockGuard guard(*impl.composer_.ptyMutex, *scheduler);
         // Bytes staged while a replay blocks in the descriptor drain in the
         // same round, still ahead of any writer queued on the mutex.
         while (!impl.staged_.empty()) {
@@ -221,7 +221,6 @@ void PtyStager::run() {
             impl.rawWrite(local.data(), local.used());
             local.reset();
         }
-        impl.composer_.ptyMutex->unlock();
     }
 }
 

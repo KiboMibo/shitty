@@ -176,13 +176,12 @@ void TestPtyStager::run() {
         while (impl.staged_.empty()) {
             impl.stagerFiber_->park();
         }
-        impl.composer_.ptyMutex->lock(*scheduler);
+        const plt::LockGuard guard(*impl.composer_.ptyMutex, *scheduler);
         while (!impl.staged_.empty()) {
             xchg(local, impl.staged_);
             impl.rawWrite(local.data(), local.used());
             local.reset();
         }
-        impl.composer_.ptyMutex->unlock();
     }
 }
 

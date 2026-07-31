@@ -1288,13 +1288,12 @@ bool VtermInput::paste(bool primary) {
     }
     const bool bracketed = terminal->bracketedPasteMode;
     spawnFiber(composer, [&composer, primary, bracketed] {
-        composer.ptyMutex->lock(*composer.platform->scheduler());
+        const plt::LockGuard guard(*composer.ptyMutex, *composer.platform->scheduler());
         Buffer content;
         if (composer.clipboard->readAll(primary, content) && !content.empty()) {
             PasteOutput paste(composer.pty->output(), bracketed);
             paste.write(content.data(), content.used());
         }
-        composer.ptyMutex->unlock();
     });
     return true;
 }
@@ -6021,7 +6020,7 @@ void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelect
     const bool tryClipboard = primary && clipboard;
     const bool eightBit = send8BitControls;
     spawnFiber(composer, [this, primary, tryClipboard, replySelector, selectorsEmpty, eightBit] {
-        composer.ptyMutex->lock(*composer.platform->scheduler());
+        const plt::LockGuard guard(*composer.ptyMutex, *composer.platform->scheduler());
         Buffer content;
         if (!composer.clipboard->readAll(primary, content)) {
             content.reset();
@@ -6049,7 +6048,6 @@ void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelect
         const StringView suffix = eightBit ? StringView(u8"\x9c") : StringView(u8"\x1b\\");
         output.write(suffix.data(), suffix.length());
         output.flush();
-        composer.ptyMutex->unlock();
     });
 }
 
@@ -6104,7 +6102,7 @@ void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bo
     std::string mimeCopy((const char*)(mimeType.data()), mimeType.length());
     const bool eightBit = send8BitControls;
     spawnFiber(composer, [this, idCopy, mimeCopy, primary, targets, eightBit] {
-        composer.ptyMutex->lock(*composer.platform->scheduler());
+        const plt::LockGuard guard(*composer.ptyMutex, *composer.platform->scheduler());
         Buffer content;
         const bool delivered = composer.clipboard->readAll(primary, content);
         Output& output = *composer.pty->output();
@@ -6130,7 +6128,6 @@ void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bo
             writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"DONE"), idView, {}, {}, primary);
         }
         output.flush();
-        composer.ptyMutex->unlock();
     });
 }
 

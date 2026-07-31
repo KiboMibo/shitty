@@ -122,6 +122,21 @@ STD_TEST_SUITE(FiberMutexSuite) {
         mutex.unlock();
     }
 
+    STD_TEST(LockGuardReleasesOnScopeExit) {
+        ObjPool::Ref pool = ObjPool::fromMemory();
+        InertPoller poller;
+        Scheduler* const scheduler = Scheduler::create(*pool, *SmallObjAllocator::create(pool.mutPtr()), poller);
+        FiberMutex mutex;
+        bool inner = false;
+        auto body = makeRunable([&] {
+            const LockGuard guard(mutex, *scheduler);
+            inner = mutex.held;
+        });
+        scheduler->spawn(body);
+        STD_INSIST(inner);
+        STD_INSIST(!mutex.held);
+    }
+
     STD_TEST(UnrelatedWakeDoesNotGrant) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         InertPoller poller;
