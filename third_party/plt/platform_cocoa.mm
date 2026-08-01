@@ -29,21 +29,12 @@
 // @available guards the runtime, but building against an older SDK also
 // needs the declarations to exist at all; these gate every use of an API
 // newer than the SDK the build runs on.
-#if defined(MAC_OS_VERSION_14_0) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_VERSION_14_0
-#define PLT_SDK_MACOS_14 1
-#else
-#define PLT_SDK_MACOS_14 0
-#endif
-
 #if defined(MAC_OS_VERSION_15_0) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_VERSION_15_0
 #define PLT_SDK_MACOS_15 1
 #else
 #define PLT_SDK_MACOS_15 0
 #endif
 
-#if PLT_SDK_MACOS_14
-#import <QuartzCore/CADisplayLink.h>
-#endif
 
 #include <errno.h>
 #include <float.h>
@@ -402,17 +393,6 @@ void cocoaTimerReady(CFRunLoopTimerRef timer, void* owner);
 @end
 
 @implementation PltDisplayLinkTarget
-
-// CADisplayLink callback; runs on the main run loop, unlike the CVDisplayLink
-// thread callback, so it dispatches directly.
-- (void)displayLinkFired:(id)sender {
-    (void)sender;
-    void* const owner = gate.owner();
-    if (owner != nullptr) {
-        cocoaFrameImpl(owner);
-    }
-}
-
 @end
 
 namespace {
@@ -579,9 +559,6 @@ namespace {
         PltView* view = nil;
         PltWindowDelegate* delegate = nil;
         CVDisplayLinkRef displayLink = nullptr;
-#if PLT_SDK_MACOS_14
-        CADisplayLink* caDisplayLink = nil;
-#endif
         PltDisplayLinkTarget* displayLinkTarget = nil;
         void* displayLinkContext = nullptr;
         i32 textInputX = 0;
@@ -989,26 +966,13 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
     [view registerForDraggedTypes:@[ NSPasteboardTypeString, NSPasteboardTypeFileURL ]];
     requestTitle(options.title);
     requestMinimumSize(options.minimumWidth, options.minimumHeight);
-    // Prefer the view display link: it runs on the main run loop and follows
-    // the view across displays by itself. CVDisplayLink stays as the fallback
-    // for older systems and needs manual rebinding on screen changes.
-    bool viewLinkArmed = false;
-#if PLT_SDK_MACOS_14
-    if (@available(macOS 14.0, *)) {
-        displayLinkTarget = [PltDisplayLinkTarget new];
-        displayLinkTarget->gate.attach(this);
-        caDisplayLink = [view displayLinkWithTarget:displayLinkTarget selector:@selector(displayLinkFired:)];
-        if (caDisplayLink != nil) {
-            caDisplayLink.paused = YES;
-            [caDisplayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
-            viewLinkArmed = true;
-        } else {
-            displayLinkTarget->gate.detach();
-            displayLinkTarget = nil;
-        }
-    }
-#endif
-    if (!viewLinkArmed && CVDisplayLinkCreateWithActiveCGDisplays(&displayLink) == kCVReturnSuccess && displayLink != nullptr) {
+    // CVDisplayLink drives frame pacing. NSView.displayLink (CADisplayLink)
+    // was tried here but broke atomic resize: with a view-owned display link
+    // AppKit stops servicing the layer's synchronous display pass inside the
+    // resize commit, so the new-size surface lands a tick after the bounds
+    // change and the old surface flashes at the new size. screenChanged()
+    // retargets this link across displays.
+    if (CVDisplayLinkCreateWithActiveCGDisplays(&displayLink) == kCVReturnSuccess && displayLink != nullptr) {
         displayLinkTarget = [PltDisplayLinkTarget new];
         displayLinkTarget->gate.attach(this);
         displayLinkContext = (__bridge_retained void*)(displayLinkTarget);
@@ -1028,12 +992,6 @@ WindowImpl::~WindowImpl() {
         displayLinkTarget->gate.detach();
     }
     stopDisplayLink();
-#if PLT_SDK_MACOS_14
-    if (caDisplayLink != nil) {
-        [caDisplayLink invalidate];
-        caDisplayLink = nil;
-    }
-#endif
     if (displayLink != nullptr) {
         CVDisplayLinkRelease(displayLink);
     }
@@ -1063,12 +1021,6 @@ void WindowImpl::requestFrame() {
         return;
     }
     frameRequested = true;
-#if PLT_SDK_MACOS_14
-    if (caDisplayLink != nil) {
-        caDisplayLink.paused = NO;
-        return;
-    }
-#endif
     if (displayLink != nullptr) {
         if (!CVDisplayLinkIsRunning(displayLink) && CVDisplayLinkStart(displayLink) == kCVReturnSuccess) {
             return;
@@ -1102,11 +1054,6 @@ void WindowImpl::fallbackDraw() {
 }
 
 void WindowImpl::stopDisplayLink() {
-#if PLT_SDK_MACOS_14
-    if (caDisplayLink != nil) {
-        caDisplayLink.paused = YES;
-    }
-#endif
     if (displayLink != nullptr && CVDisplayLinkIsRunning(displayLink)) {
         CVDisplayLinkStop(displayLink);
     }
@@ -1409,9 +1356,8 @@ void WindowImpl::resized() {
 }
 
 void WindowImpl::screenChanged() {
-    // The CADisplayLink from NSView tracks the view's display by itself; the
-    // CVDisplayLink fallback must be retargeted or it keeps pacing frames at
-    // the previous display's refresh rate.
+    // CVDisplayLink must be retargeted to the window's new display, or it
+    // keeps pacing frames at the previous display's refresh rate.
     if (displayLink != nullptr) {
         NSScreen* const screen = window.screen;
         NSNumber* const number = screen == nil ? nil : screen.deviceDescription[@"NSScreenNumber"];
