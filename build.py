@@ -111,35 +111,43 @@ else:
 
 
 # plt ships its own test suite (unit tests plus fake-compositor integration
-# scenarios); nothing else runs it, so drive the nested build from here and
-# stamp it into the test group. The nested build compiles against our bundled
-# libstd and links the one built by this graph.
-if linux and build.target == build.host and os.path.isfile(os.path.join(os.path.dirname(__file__), plt_build)):
+# scenarios); nothing else runs it, so import its test programs into this
+# graph and stamp them into the test group. They compile against our bundled
+# libstd and link the archive built by this graph.
+if build.target == build.host and os.path.isfile(os.path.join(os.path.dirname(__file__), plt_build)):
+    plt_test_programs = [
+        import_build(
+            plt_build,
+            "plt_unit_tests",
+            extra_cflags=["-Wno-error"],
+            extra_cppflags=["-Dno_vendored_std", "-I$(S)/../libstd"],
+            deps=[libstd],
+        ),
+    ]
+    if linux:
+        plt_test_programs.append(import_build(
+            plt_build,
+            "plt_wayland_integration_tests",
+            extra_cflags=["-Wno-error"],
+            extra_cppflags=["-Dno_vendored_std", "-I$(S)/../libstd"],
+            deps=[libstd],
+        ))
     plt_tests = untimed_command(
         name="plt_tests",
-        inputs=[
-            *build.glob("$(S)/third_party/plt/*.cpp"),
-            *build.glob("$(S)/third_party/plt/*.h"),
-            "$(S)/third_party/plt/build.py",
-            *build.glob("$(S)/third_party/plt/tests/*"),
-        ],
+        inputs=["$(S)/third_party/plt/tests/run_timed.py"],
         outputs=["$(B)/plt-tests.stamp"],
-        deps=[libstd],
+        deps=plt_test_programs,
         cmd=[
-            [
-                "sh", "-c",
-                'CPPFLAGS="$CPPFLAGS -Dno_vendored_std -I$PWD/../libstd" '
-                'LDFLAGS="$LDFLAGS -L$0 -lstd" '
-                'exec python3 ./build -B "$1" test',
-                "$(B)/third_party/libstd",
-                "$(B)/plt-tests",
+            # The same hard per-invocation timeout the nested suite uses.
+            *[
+                ["python3", "$(S)/third_party/plt/tests/run_timed.py", "120", program.output]
+                for program in plt_test_programs
             ],
             [
                 "python3", "-c",
                 "from pathlib import Path; Path(r'$(B)/plt-tests.stamp').touch()",
             ],
         ],
-        cwd="$(S)/third_party/plt",
         descr="PT",
         color="green",
     )

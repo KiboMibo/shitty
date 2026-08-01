@@ -255,7 +255,7 @@ class ImportedGraph:
     exports: list[dict[str, Any]]
     index_primary: bool
     registered: set[Node] = dataclasses.field(default_factory=set)
-    selections: dict[tuple[str, bool, str | None], tuple[Node, str]] = dataclasses.field(default_factory=dict)
+    selections: dict[tuple[str, bool, str | None], tuple[Node, str, str | None]] = dataclasses.field(default_factory=dict)
 
 
 class BuildContext:
@@ -712,21 +712,21 @@ class BuildContext:
                               exports: Iterable[dict[str, Any]],
                               output_name: str, *,
                               exact: bool = False,
-                              target_name: str | None = None) -> tuple[Node, str]:
-        matches: list[tuple[Node, str]] = []
+                              target_name: str | None = None) -> tuple[Node, str, str | None]:
+        matches: list[tuple[Node, str, str | None]] = []
         for export in exports:
             output = export["output"]
             if target_name is not None and export["name"] != target_name:
                 continue
             matched = output == output_name if exact else Path(output).name == output_name
             if matched:
-                matches.append((export["node"], export["kind"]))
+                matches.append((export["node"], export["kind"], export["name"]))
         if not matches:
             for node in nodes:
                 for output in node.outputs:
                     matched = output == output_name if exact else Path(output).name == output_name
                     if matched:
-                        matches.append((node, "library"))
+                        matches.append((node, "library", None))
         matches = _uniq(matches)
         if len(matches) != 1:
             label = "output" if exact else "output named"
@@ -770,17 +770,39 @@ class BuildContext:
             return cached
 
         env = os.environ.copy()
-        for variable, values in zip(
-                (
-                    "BUILD_EXTRA_CFLAGS",
-                    "BUILD_EXTRA_CXXFLAGS",
-                    "BUILD_EXTRA_CPPFLAGS",
-                ),
-                extras):
-            if values:
-                env[variable] = shlex.join(values)
-            else:
-                env.pop(variable, None)
+        variable_groups = [(
+            "BUILD_EXTRA_CFLAGS",
+            "BUILD_EXTRA_CXXFLAGS",
+            "BUILD_EXTRA_CPPFLAGS",
+        )]
+        # When the imported graph builds for the host triple, its own build
+        # tools are target programs and its host configuration must carry the
+        # same extras. Leaving HOST_* empty makes the child treat target and
+        # host as distinct configurations and emit a second, flag-less copy
+        # of every output — duplicate producers for one object path.
+        if target == self.host:
+            variable_groups.append((
+                "HOST_CFLAGS",
+                "HOST_CXXFLAGS",
+                "HOST_CPPFLAGS",
+            ))
+        for variables in variable_groups:
+            for variable, values in zip(variables, extras):
+                if values:
+                    env[variable] = shlex.join(values)
+                else:
+                    env.pop(variable, None)
+        # BUILD_EXTRA_* are compile-only appends the child never reflects
+        # back into build.cflags/cppflags, so an imported build.py cannot
+        # branch on them (e.g. plt drops -lstd when it sees -Dno_vendored_std).
+        # Mirror them into the standard CFLAGS/CXXFLAGS/CPPFLAGS the child
+        # exposes for feature detection; the duplicate appended tokens on the
+        # compile line are harmless.
+        for variable, values in zip(("CFLAGS", "CXXFLAGS", "CPPFLAGS"), extras):
+            if not values:
+                continue
+            existing = env.get(variable, "")
+            env[variable] = f"{existing} {shlex.join(values)}".strip() if existing else shlex.join(values)
         encoded = self._invoke_graph(build_file, target, env)
         if source_prefix is not None:
             assert build_prefix is not None
@@ -796,7 +818,7 @@ class BuildContext:
 
     def _select_graph_root(self, graph: ImportedGraph, output_name: str, *,
                            exact: bool = False,
-                           target_name: str | None = None) -> tuple[Node, str]:
+                           target_name: str | None = None) -> tuple[Node, str, str | None]:
         key = (output_name, exact, target_name)
         cached = graph.selections.get(key)
         if cached is None:
@@ -826,7 +848,7 @@ class BuildContext:
 
     def import_build(self, path: str, output_name: str,
                      extra_cflags=(), extra_cxxflags=(),
-                     extra_cppflags=()) -> Target:
+                     extra_cppflags=(), deps=()) -> Target:
         path = str(path)
         if path.startswith(S + "/"):
             build_file = self.physical(path)
@@ -858,11 +880,35 @@ class BuildContext:
             build_prefix=build_prefix,
             index_primary=True,
         )
-        root, kind = self._select_graph_root(graph, output_name)
+        root, kind, exported_name = self._select_graph_root(graph, output_name)
+
+        # Link importer-built targets into the imported root. The imported
+        # graph cannot reference this graph's outputs itself: its markers are
+        # namespaced during the import, so a path smuggled in through flags
+        # would be rewritten. Injecting after the rewrite keeps paths intact.
+        dep_targets = _items(deps)
+        if dep_targets and kind != "program":
+            raise BuildError(
+                f"import_build deps apply to a program root, got {kind!r} for {output_name!r}")
+        for dep in dep_targets:
+            if not isinstance(dep, Target) or dep.root is None or not dep.output:
+                raise BuildError(
+                    f"import_build dep for {output_name!r} must be a built target with an output")
+            if dep.output in root.inputs:
+                continue
+            root.inputs.append(dep.output)
+            # Appended past the imported link line, after the archives it
+            # references; static resolution order stays correct.
+            root.commands[-1].append(dep.output)
+            root.deps.append(dep.root)
+
         imported_nodes = self._register_imported_nodes(graph, [root])
 
         target = Target(
             kind,
+            # The exported name, so an imported target held in a local can
+            # skip the global-alias naming pass.
+            name=exported_name,
             public_cppflags=["-I" + source_prefix],
             output=root.outputs[0],
             root=root,
@@ -1017,7 +1063,7 @@ class BuildContext:
         for program in referenced:
             assert program.name is not None
             output = program.output or f"{B}/{program.name}"
-            root, kind = self._select_graph_root(
+            root, kind, _ = self._select_graph_root(
                 graph,
                 output,
                 exact=True,
