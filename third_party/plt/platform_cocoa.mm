@@ -24,7 +24,7 @@
 #import <Carbon/Carbon.h>
 #import <CoreVideo/CVDisplayLink.h>
 #import <IOKit/hidsystem/IOLLEvent.h>
-#import <QuartzCore/CALayer.h>
+#import <QuartzCore/CAMetalLayer.h>
 
 // @available guards the runtime, but building against an older SDK also
 // needs the declarations to exist at all; these gate every use of an API
@@ -77,7 +77,7 @@ namespace plt::cocoa_detail {
 void cocoaCloseImpl(void* owner);
 void cocoaResizeImpl(void* owner);
 void cocoaFrameImpl(void* owner);
-void cocoaFallbackFrameImpl(void* owner);
+void cocoaDisplayLayerImpl(void* owner);
 void cocoaInvalidateImpl(void* owner);
 void cocoaScreenChangedImpl(void* owner);
 NSRect cocoaTextInputRectImpl(void* owner);
@@ -111,9 +111,6 @@ void cocoaTimerReady(CFRunLoopTimerRef timer, void* owner);
 @property(nonatomic, strong) NSTrackingArea* tracking;
 @end
 
-@interface PltRootLayer: CALayer
-@property(nonatomic, assign) void* owner;
-@end
 
 @interface PltDisplayLinkTarget: NSObject {
 @public
@@ -179,9 +176,22 @@ void cocoaTimerReady(CFRunLoopTimerRef timer, void* owner);
 @implementation PltView
 
 - (CALayer*)makeBackingLayer {
-    PltRootLayer* layer = [PltRootLayer layer];
-    layer.owner = self.owner;
+    // A CAMetalLayer the Metal renderer configures (device, pixel format,
+    // presentsWithTransaction) once created. needsDisplayOnBoundsChange makes
+    // CoreAnimation call our displayLayer: whenever the bounds change, including
+    // synchronously during a live resize, so we render the resize frame inside
+    // the same transaction as the bounds change.
+    CAMetalLayer* layer = [CAMetalLayer layer];
+    layer.needsDisplayOnBoundsChange = YES;
     return layer;
+}
+
+// CoreAnimation's synchronous display pass. During a live resize AppKit calls
+// this while assembling the resize transaction, so the frame we render here
+// commits together with the new bounds.
+- (void)displayLayer:(CALayer*)layer {
+    (void)layer;
+    cocoaDisplayLayerImpl(self.owner);
 }
 
 - (BOOL)acceptsFirstResponder {
@@ -382,16 +392,6 @@ void cocoaTimerReady(CFRunLoopTimerRef timer, void* owner);
 
 @end
 
-@implementation PltRootLayer
-
-- (void)display {
-    if (self.owner != nullptr) {
-        cocoaFallbackFrameImpl(self.owner);
-    }
-}
-
-@end
-
 @implementation PltDisplayLinkTarget
 @end
 
@@ -524,10 +524,11 @@ namespace {
 
         void close();
         void resized();
+        void resizeFrame();
+        void startDisplayLink();
         void screenChanged();
         NSRect textInputScreenRect() const;
         void draw();
-        void fallbackDraw();
         void stopDisplayLink();
         NSSize willResize(NSSize frameSize) const;
         void focused(bool value);
@@ -574,7 +575,6 @@ namespace {
         ClipboardImpl primaryPasteboard;
         ClipboardImpl generalPasteboard;
         bool frameRequested = false;
-        bool layerFrameRequested = false;
         bool preeditShown = false;
     };
 
@@ -1000,7 +1000,6 @@ WindowImpl::~WindowImpl() {
     }
     window.delegate = nil;
     view.owner = nullptr;
-    ((PltRootLayer*)(view.layer)).owner = nullptr;
     delegate.owner = nullptr;
     [window orderOut:nil];
 }
@@ -1021,16 +1020,13 @@ void WindowImpl::requestFrame() {
         return;
     }
     frameRequested = true;
-    if (displayLink != nullptr) {
-        if (!CVDisplayLinkIsRunning(displayLink) && CVDisplayLinkStart(displayLink) == kCVReturnSuccess) {
-            return;
-        }
-        if (CVDisplayLinkIsRunning(displayLink)) {
-            return;
-        }
+    startDisplayLink();
+}
+
+void WindowImpl::startDisplayLink() {
+    if (displayLink != nullptr && !CVDisplayLinkIsRunning(displayLink)) {
+        CVDisplayLinkStart(displayLink);
     }
-    layerFrameRequested = true;
-    [view.layer setNeedsDisplay];
 }
 
 void WindowImpl::draw() {
@@ -1043,14 +1039,6 @@ void WindowImpl::draw() {
     if (!frameRequested) {
         stopDisplayLink();
     }
-}
-
-void WindowImpl::fallbackDraw() {
-    if (!layerFrameRequested) {
-        return;
-    }
-    layerFrameRequested = false;
-    draw();
 }
 
 void WindowImpl::stopDisplayLink() {
@@ -1340,10 +1328,9 @@ void WindowImpl::requestOpenUri(StringView uri) {
 }
 
 RenderContext WindowImpl::renderContext() const {
-    PltRootLayer* const layer = (PltRootLayer*)(view.layer);
     return {
         .backend = RenderBackend::Cocoa,
-        .connection = (__bridge void*)(layer),
+        .connection = (__bridge void*)(view.layer),
         .window = nullptr,
     };
 }
@@ -1356,11 +1343,26 @@ void WindowImpl::close() {
 
 void WindowImpl::resized() {
     applySizeConstraints();
-    PltRootLayer* const layer = (PltRootLayer*)(view.layer);
-    layer.contentsScale = window.backingScaleFactor;
-    requestFrame();
-    layerFrameRequested = true;
+    ((CAMetalLayer*)(view.layer)).contentsScale = window.backingScaleFactor;
+    // Mark the layer for display; CoreAnimation then calls displayLayer:, which
+    // renders the frame (synchronously and in this transaction during a live
+    // resize). needsDisplayOnBoundsChange already does this for a bounds change,
+    // but a backing-property change (scale) reaches resized() too.
     [view.layer setNeedsDisplay];
+}
+
+void WindowImpl::resizeFrame() {
+    // A frame the window system asked for during layout. Render synchronously in
+    // the current (resize) transaction so bounds and contents commit together.
+    // Stop the display link for this frame: a link tick would present in its own
+    // transaction, one step out of sync with the bounds. frame() rebuilds the
+    // vterm to the new size and renders; it never re-enters (request* are async).
+    stopDisplayLink();
+    frameRequested = false;
+    if (frame != nullptr) {
+        frame->frame(info());
+    }
+    startDisplayLink();
 }
 
 void WindowImpl::screenChanged() {
@@ -1704,8 +1706,8 @@ void cocoaFrameImpl(void* owner) {
     ((WindowImpl*)(owner))->draw();
 }
 
-void cocoaFallbackFrameImpl(void* owner) {
-    ((WindowImpl*)(owner))->fallbackDraw();
+void cocoaDisplayLayerImpl(void* owner) {
+    ((WindowImpl*)(owner))->resizeFrame();
 }
 
 void cocoaInvalidateImpl(void* owner) {

@@ -30,87 +30,16 @@
 
 #import <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
-#import <IOSurface/IOSurface.h>
 #import <Metal/Metal.h>
-#import <QuartzCore/CALayer.h>
+#import <QuartzCore/CAMetalLayer.h>
 #import <QuartzCore/CATransaction.h>
 
 #undef Rect
 #undef Point
 
-#include <dispatch/dispatch.h>
 #include <stdio.h>
 
 using namespace stl;
-
-@interface ShittyMetalPresenter: NSObject {
-    CALayer* root_;
-    u64 generation_;
-}
-
-- (instancetype)initWithRoot:(CALayer*)root;
-- (u64)advance;
-- (void)publish:(IOSurfaceRef)surface generation:(u64)generation;
-- (void)invalidate;
-
-@end
-
-@implementation ShittyMetalPresenter
-
-- (instancetype)initWithRoot:(CALayer*)root {
-    self = [super init];
-    if (self != nil) {
-        root_ = [root retain];
-        generation_ = 1;
-        [CATransaction begin];
-        [CATransaction setDisableActions:YES];
-        root_.contentsGravity = kCAGravityTopLeft;
-        root_.magnificationFilter = kCAFilterNearest;
-        root_.minificationFilter = kCAFilterNearest;
-        [CATransaction commit];
-    }
-    return self;
-}
-
-- (void)dealloc {
-    [root_ release];
-    [super dealloc];
-}
-
-- (u64)advance {
-    ++generation_;
-    if (generation_ == 0) {
-        generation_ = 1;
-    }
-    return generation_;
-}
-
-- (void)publish:(IOSurfaceRef)surface generation:(u64)generation {
-    if (generation != generation_ || surface == nullptr) {
-        return;
-    }
-    const CGSize bounds = root_.bounds.size;
-    const CGFloat scale = root_.contentsScale;
-    const size_t width = (size_t)(bounds.width * scale + 0.5);
-    const size_t height = (size_t)(bounds.height * scale + 0.5);
-    if (IOSurfaceGetWidth(surface) != width || IOSurfaceGetHeight(surface) != height) {
-        return;
-    }
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    root_.contents = (id)(surface);
-    [CATransaction commit];
-}
-
-- (void)invalidate {
-    [self advance];
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    root_.contents = nil;
-    [CATransaction commit];
-}
-
-@end
 
 namespace {
     constexpr u32 gpuBold = 1u << 2;
@@ -221,8 +150,6 @@ namespace {
     };
 
     struct PresentationFrame {
-        IOSurfaceRef surface = nullptr;
-        id<MTLTexture> texture = nil;
         id<MTLCommandBuffer> commandBuffer = nil;
         // Per-frame: draw() waits only this frame's fence, so a shared
         // update buffer would be rewritten while older frames still read
@@ -250,7 +177,7 @@ namespace {
     };
 
     struct MetalRendererImpl final: public Renderer {
-        MetalRendererImpl(Composer& composer, CALayer* root);
+        MetalRendererImpl(Composer& composer, CAMetalLayer* layer);
         ~MetalRendererImpl();
 
         bool initialize();
@@ -280,13 +207,11 @@ namespace {
         static u32 packColor(Color color);
 
         Composer& composer;
-        CALayer* root;
-        ShittyMetalPresenter* presenter = nil;
+        CAMetalLayer* metalLayer;
         id<MTLDevice> device = nil;
         id<MTLCommandQueue> queue = nil;
         id<MTLComputePipelineState> pipeline = nil;
         id<MTLSamplerState> sampler = nil;
-        id<MTLTexture> output = nil;
         id<MTLTexture> atlas = nil;
         id<MTLTexture> colorAtlas = nil;
         id<MTLTexture> doubleWidthAtlas = nil;
@@ -312,7 +237,6 @@ namespace {
         u16 cellRows = 0;
         PresentationState state;
         bool stateValid = false;
-        bool synchronousFrame = false;
         bool ready = false;
     };
 
@@ -341,18 +265,15 @@ void CallMetalCellExtrasChanged::onListen(void*) {
     renderer->resetFontResources();
 }
 
-MetalRendererImpl::MetalRendererImpl(Composer& composer_, CALayer* root_)
+MetalRendererImpl::MetalRendererImpl(Composer& composer_, CAMetalLayer* layer_)
     : composer(composer_)
-    , root([root_ retain])
+    , metalLayer([layer_ retain])
     , glyphPool(ObjPool::fromMemory())
 {
 }
 
 MetalRendererImpl::~MetalRendererImpl() {
     waitFrames();
-    if (presenter != nil) {
-        [presenter invalidate];
-    }
     destroyTargets();
     destroyFontResources();
     for (PresentationFrame& frame : frames) {
@@ -366,8 +287,7 @@ MetalRendererImpl::~MetalRendererImpl() {
     [pipeline release];
     [queue release];
     [device release];
-    [presenter release];
-    [root release];
+    [metalLayer release];
 }
 
 bool MetalRendererImpl::initialize() {
@@ -426,8 +346,35 @@ bool MetalRendererImpl::initialize() {
     [emptyMask replaceRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0 slice:0 withBytes:&zeroMask bytesPerRow:1 bytesPerImage:1];
     [emptyColor replaceRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0 slice:0 withBytes:&zeroColor bytesPerRow:4 bytesPerImage:4];
 
-    presenter = [[ShittyMetalPresenter alloc] initWithRoot:root];
-    ready = presenter != nil;
+    // The compute shader writes cell pixels straight into the drawable, so the
+    // layer must not be framebuffer-only. presentsWithTransaction makes each
+    // drawable present as part of the current CoreAnimation transaction: when
+    // the frame is rendered from displayLayer: during a live resize, that is the
+    // same transaction as the bounds change, so bounds and contents commit
+    // together (no resize flicker). allowsNextDrawableTimeout=NO makes
+    // nextDrawable block for a free drawable instead of returning nil.
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    metalLayer.device = device;
+    metalLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+    metalLayer.framebufferOnly = NO;
+    metalLayer.presentsWithTransaction = YES;
+    metalLayer.maximumDrawableCount = framesInFlight;
+    metalLayer.allowsNextDrawableTimeout = NO;
+    metalLayer.contentsGravity = kCAGravityTopLeft;
+    metalLayer.magnificationFilter = kCAFilterNearest;
+    metalLayer.minificationFilter = kCAFilterNearest;
+    // The shader writes sRGB-encoded bytes into an _Unorm drawable; tag the
+    // layer sRGB so the compositor reads them as sRGB (matches the previous
+    // IOSurface colour-space tagging).
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    if (colorSpace != nullptr) {
+        metalLayer.colorspace = colorSpace;
+        CGColorSpaceRelease(colorSpace);
+    }
+    [CATransaction commit];
+
+    ready = true;
     return ready;
 }
 
@@ -793,79 +740,21 @@ void MetalRendererImpl::waitFrames() {
 
 void MetalRendererImpl::destroyTargets() {
     waitFrames();
-    for (PresentationFrame& frame : frames) {
-        [frame.texture release];
-        frame.texture = nil;
-        if (frame.surface != nullptr) {
-            CFRelease(frame.surface);
-            frame.surface = nullptr;
-        }
-    }
-    [output release];
-    output = nil;
     outputWidth = 0;
     outputHeight = 0;
 }
 
 bool MetalRendererImpl::ensureTargets(u32 width, u32 height) {
-    if (output != nil && outputWidth == width && outputHeight == height) {
+    if (outputWidth == width && outputHeight == height) {
         return true;
     }
-    destroyTargets();
-
-    MTLTextureDescriptor* outputDescriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm width:width height:height mipmapped:NO];
-    outputDescriptor.storageMode = MTLStorageModePrivate;
-    outputDescriptor.usage = MTLTextureUsageShaderWrite | MTLTextureUsageRenderTarget;
-    output = [device newTextureWithDescriptor:outputDescriptor];
-    if (output == nil) {
-        return false;
-    }
-
-    CGColorSpaceRef colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
-    if (colorSpace == nullptr) {
-        destroyTargets();
-        return false;
-    }
-    CFPropertyListRef serializedColorSpace = CGColorSpaceCopyPropertyList(colorSpace);
-    CGColorSpaceRelease(colorSpace);
-    if (serializedColorSpace == nullptr) {
-        destroyTargets();
-        return false;
-    }
-
-    const size_t bytesPerRow = ((size_t)(width) * 4 + 63) & ~(size_t)(63);
-    for (PresentationFrame& frame : frames) {
-        NSDictionary* properties = @{
-            (id)(kIOSurfaceWidth) : @(width),
-            (id)(kIOSurfaceHeight) : @(height),
-            (id)(kIOSurfaceBytesPerElement) : @4,
-            (id)(kIOSurfaceBytesPerRow) : @(bytesPerRow),
-            (id)(kIOSurfacePixelFormat) : @(0x42475241u),
-            (id)(kIOSurfaceIsGlobal) : @NO,
-        };
-        frame.surface = IOSurfaceCreate((CFDictionaryRef)(properties));
-        if (frame.surface == nullptr) {
-            CFRelease(serializedColorSpace);
-            destroyTargets();
-            return false;
-        }
-        IOSurfaceSetValue(frame.surface, kIOSurfaceColorSpace, serializedColorSpace);
-        MTLTextureDescriptor* descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm width:width height:height mipmapped:NO];
-        descriptor.storageMode = textureStorageMode;
-        descriptor.usage = MTLTextureUsageShaderRead;
-        frame.texture = [device newTextureWithDescriptor:descriptor iosurface:frame.surface plane:0];
-        if (frame.texture == nil) {
-            CFRelease(serializedColorSpace);
-            destroyTargets();
-            return false;
-        }
-    }
-    CFRelease(serializedColorSpace);
+    // Drain in-flight frames before changing the drawable size so no queued
+    // command buffer still targets a drawable of the old size.
+    waitFrames();
+    metalLayer.drawableSize = CGSizeMake(width, height);
     outputWidth = width;
     outputHeight = height;
     currentFrame = 0;
-    synchronousFrame = true;
-    [presenter advance];
     return true;
 }
 
@@ -935,6 +824,11 @@ bool MetalRendererImpl::draw() {
     if (updateCount == 0) {
         return false;
     }
+    id<CAMetalDrawable> drawable = [metalLayer nextDrawable];
+    if (drawable == nil) {
+        return false;
+    }
+    id<MTLTexture> target = drawable.texture;
     id<MTLCommandBuffer> commandBuffer = [queue commandBuffer];
     if (commandBuffer == nil) {
         return false;
@@ -943,7 +837,7 @@ bool MetalRendererImpl::draw() {
     frame.commandBuffer = commandBuffer;
 
     MTLRenderPassDescriptor* clearPass = [MTLRenderPassDescriptor renderPassDescriptor];
-    clearPass.colorAttachments[0].texture = output;
+    clearPass.colorAttachments[0].texture = target;
     clearPass.colorAttachments[0].loadAction = MTLLoadActionClear;
     clearPass.colorAttachments[0].storeAction = MTLStoreActionStore;
     clearPass.colorAttachments[0].clearColor = MTLClearColorMake(clearBackground.red / 255.0, clearBackground.green / 255.0, clearBackground.blue / 255.0, 1.0);
@@ -985,7 +879,7 @@ bool MetalRendererImpl::draw() {
     [compute setComputePipelineState:pipeline];
     [compute setBytes:&constants length:sizeof(constants) atIndex:0];
     [compute setBuffer:frame.cellBuffer offset:0 atIndex:1];
-    [compute setTexture:output atIndex:0];
+    [compute setTexture:target atIndex:0];
     [compute setTexture:colorAtlas != nil ? colorAtlas : emptyColor atIndex:1];
     [compute setTexture:doubleWidthColorAtlas != nil ? doubleWidthColorAtlas : emptyColor atIndex:2];
     [compute setTexture:atlas atIndex:3];
@@ -996,34 +890,13 @@ bool MetalRendererImpl::draw() {
     [compute dispatchThreads:MTLSizeMake(updateCount, 1, 1) threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
     [compute endEncoding];
 
-    id<MTLBlitCommandEncoder> blit = [commandBuffer blitCommandEncoder];
-    [blit copyFromTexture:output sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(outputWidth, outputHeight, 1) toTexture:frame.texture destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0, 0, 0)];
-    [blit endEncoding];
-
-    const u64 generation = [presenter advance];
-    if (synchronousFrame) {
-        synchronousFrame = false;
-        [commandBuffer commit];
-        [commandBuffer waitUntilCompleted];
-        if (commandBuffer.status == MTLCommandBufferStatusCompleted) {
-            [presenter publish:frame.surface generation:generation];
-        }
-    } else {
-        IOSurfaceRef const surface = frame.surface;
-        CFRetain(surface);
-        ShittyMetalPresenter* const target = [presenter retain];
-        [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> completed) {
-          const bool success = completed.status == MTLCommandBufferStatusCompleted;
-          dispatch_async(dispatch_get_main_queue(), ^{
-            if (success) {
-                [target publish:surface generation:generation];
-            }
-            CFRelease(surface);
-            [target release];
-          });
-        }];
-        [commandBuffer commit];
-    }
+    // presentsWithTransaction is set, so present synchronously: schedule the
+    // command buffer, then present the drawable into the current CoreAnimation
+    // transaction. draw() only ever runs on the main thread, which the layout
+    // engine requires for an in-transaction present.
+    [commandBuffer commit];
+    [commandBuffer waitUntilScheduled];
+    [drawable present];
     currentFrame = (currentFrame + 1) % framesInFlight;
     return true;
 }
@@ -1092,7 +965,7 @@ Renderer* createMetalRenderer(Composer& composer, stl::ObjPool& pool, const plt:
     if (context.backend != plt::RenderBackend::Cocoa || context.connection == nullptr) {
         return nullptr;
     }
-    auto* const renderer = pool.make<MetalRendererImpl>(composer, (CALayer*)(context.connection));
+    auto* const renderer = pool.make<MetalRendererImpl>(composer, (CAMetalLayer*)(context.connection));
     if (!renderer->initialize()) {
         return nullptr;
     }
