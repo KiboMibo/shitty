@@ -13,6 +13,7 @@
 #include <std/sym/i_map.h>
 #include <std/alg/minmax.h>
 #include <std/lib/buffer.h>
+#include <std/lib/list.h>
 #include <std/ios/input.h>
 #include <std/ios/output.h>
 #include <std/thr/poll_fd.h>
@@ -23,12 +24,31 @@
 #import <Carbon/Carbon.h>
 #import <CoreVideo/CVDisplayLink.h>
 #import <IOKit/hidsystem/IOLLEvent.h>
-#import <QuartzCore/CADisplayLink.h>
 #import <QuartzCore/CALayer.h>
+
+// @available guards the runtime, but building against an older SDK also
+// needs the declarations to exist at all; these gate every use of an API
+// newer than the SDK the build runs on.
+#if defined(MAC_OS_VERSION_14_0) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_VERSION_14_0
+#define PLT_SDK_MACOS_14 1
+#else
+#define PLT_SDK_MACOS_14 0
+#endif
+
+#if defined(MAC_OS_VERSION_15_0) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_VERSION_15_0
+#define PLT_SDK_MACOS_15 1
+#else
+#define PLT_SDK_MACOS_15 0
+#endif
+
+#if PLT_SDK_MACOS_14
+#import <QuartzCore/CADisplayLink.h>
+#endif
 
 #include <errno.h>
 #include <float.h>
 #include <limits.h>
+#include <new>
 #include <poll.h>
 
 using namespace stl;
@@ -559,7 +579,9 @@ namespace {
         PltView* view = nil;
         PltWindowDelegate* delegate = nil;
         CVDisplayLinkRef displayLink = nullptr;
+#if PLT_SDK_MACOS_14
         CADisplayLink* caDisplayLink = nil;
+#endif
         PltDisplayLinkTarget* displayLinkTarget = nil;
         void* displayLinkContext = nullptr;
         i32 textInputX = 0;
@@ -605,9 +627,13 @@ namespace {
     constexpr NSUInteger frameResizeRight = 1 << 3;
 
     NSCursor* frameResizeCursor(NSUInteger position, NSCursor* fallback) {
+#if PLT_SDK_MACOS_15
         if (@available(macOS 15.0, *)) {
             return [NSCursor frameResizeCursorFromPosition:(NSCursorFrameResizePosition)(position) inDirections:NSCursorFrameResizeDirectionsAll];
         }
+#else
+        (void)position;
+#endif
         return fallback;
     }
 
@@ -680,26 +706,34 @@ namespace {
             case PointerIcon::ResizeSouthWest:
                 return frameResizeCursor(frameResizeBottom | frameResizeLeft, [NSCursor resizeLeftRightCursor]);
             case PointerIcon::ResizeColumn:
+#if PLT_SDK_MACOS_15
                 if (@available(macOS 15.0, *)) {
                     return [NSCursor columnResizeCursor];
                 }
+#endif
                 return [NSCursor resizeLeftRightCursor];
             case PointerIcon::ResizeRow:
+#if PLT_SDK_MACOS_15
                 if (@available(macOS 15.0, *)) {
                     return [NSCursor rowResizeCursor];
                 }
+#endif
                 return [NSCursor resizeUpDownCursor];
             case PointerIcon::ZoomIn:
+#if PLT_SDK_MACOS_15
                 if (@available(macOS 15.0, *)) {
                     return [NSCursor zoomInCursor];
                 }
+#endif
                 // No magnifier before macOS 15; the crosshair at least keeps
                 // the aim-at-a-spot meaning.
                 return [NSCursor crosshairCursor];
             case PointerIcon::ZoomOut:
+#if PLT_SDK_MACOS_15
                 if (@available(macOS 15.0, *)) {
                     return [NSCursor zoomOutCursor];
                 }
+#endif
                 return [NSCursor crosshairCursor];
             case PointerIcon::DisappearingItem:
                 return [NSCursor disappearingItemCursor];
@@ -958,6 +992,8 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
     // Prefer the view display link: it runs on the main run loop and follows
     // the view across displays by itself. CVDisplayLink stays as the fallback
     // for older systems and needs manual rebinding on screen changes.
+    bool viewLinkArmed = false;
+#if PLT_SDK_MACOS_14
     if (@available(macOS 14.0, *)) {
         displayLinkTarget = [PltDisplayLinkTarget new];
         displayLinkTarget->gate.attach(this);
@@ -965,12 +1001,14 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
         if (caDisplayLink != nil) {
             caDisplayLink.paused = YES;
             [caDisplayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+            viewLinkArmed = true;
         } else {
             displayLinkTarget->gate.detach();
             displayLinkTarget = nil;
         }
     }
-    if (caDisplayLink == nil && CVDisplayLinkCreateWithActiveCGDisplays(&displayLink) == kCVReturnSuccess && displayLink != nullptr) {
+#endif
+    if (!viewLinkArmed && CVDisplayLinkCreateWithActiveCGDisplays(&displayLink) == kCVReturnSuccess && displayLink != nullptr) {
         displayLinkTarget = [PltDisplayLinkTarget new];
         displayLinkTarget->gate.attach(this);
         displayLinkContext = (__bridge_retained void*)(displayLinkTarget);
@@ -990,10 +1028,12 @@ WindowImpl::~WindowImpl() {
         displayLinkTarget->gate.detach();
     }
     stopDisplayLink();
+#if PLT_SDK_MACOS_14
     if (caDisplayLink != nil) {
         [caDisplayLink invalidate];
         caDisplayLink = nil;
     }
+#endif
     if (displayLink != nullptr) {
         CVDisplayLinkRelease(displayLink);
     }
@@ -1023,10 +1063,12 @@ void WindowImpl::requestFrame() {
         return;
     }
     frameRequested = true;
+#if PLT_SDK_MACOS_14
     if (caDisplayLink != nil) {
         caDisplayLink.paused = NO;
         return;
     }
+#endif
     if (displayLink != nullptr) {
         if (!CVDisplayLinkIsRunning(displayLink) && CVDisplayLinkStart(displayLink) == kCVReturnSuccess) {
             return;
@@ -1060,9 +1102,11 @@ void WindowImpl::fallbackDraw() {
 }
 
 void WindowImpl::stopDisplayLink() {
+#if PLT_SDK_MACOS_14
     if (caDisplayLink != nil) {
         caDisplayLink.paused = YES;
     }
+#endif
     if (displayLink != nullptr && CVDisplayLinkIsRunning(displayLink)) {
         CVDisplayLinkStop(displayLink);
     }

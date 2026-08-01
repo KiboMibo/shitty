@@ -312,7 +312,9 @@ namespace {
     }
 
     int openPtySlave(const char* name) {
-        const int slave = open(name, O_RDWR);
+        // O_NOCTTY: the descriptor is opened in the parent; the child takes
+        // the controlling terminal explicitly with TIOCSCTTY after setsid.
+        const int slave = open(name, O_RDWR | O_NOCTTY);
         if (slave < 0) {
             sysError("can't open slave pty: open()");
         }
@@ -341,10 +343,16 @@ Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
 
     char slaveName[PATH_MAX];
     const int master = openPtyMaster(slaveName, sizeof(slaveName));
+    // The slave opens before the fork and the child inherits it: the pty
+    // always has a live slave side, so the parent's nonblocking setup on
+    // the master cannot fail (macOS refuses F_SETFL until a slave exists)
+    // and closing the parent's copy cannot kill the pty under the child.
+    const int slave = openPtySlave(slaveName);
     const pid_t pid = fork();
     if (pid < 0) {
         const int error = errno;
         close(master);
+        close(slave);
         errno = error;
         sysError("fork");
     }
@@ -352,7 +360,9 @@ Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
         if (setsid() < 0) {
             sysError("setsid");
         }
-        const int slave = openPtySlave(slaveName);
+        if (ioctl(slave, TIOCSCTTY, 0) < 0) {
+            sysError("TIOCSCTTY");
+        }
         close(master);
         resizePty(slave, composer.columns, composer.rows, composer.columns * composer.glyphWidth, composer.rows * composer.glyphHeight);
         redirectFds(slave);
@@ -370,6 +380,7 @@ Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
         sysError("execvp of ", command.executable.c_str());
     }
     PtyImpl* const pty = composer.pool->make<PtyImpl>(composer, master);
+    close(slave);
     pty->start();
     return pty;
 }

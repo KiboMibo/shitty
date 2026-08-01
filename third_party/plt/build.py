@@ -118,13 +118,15 @@ elif system == "Darwin":
         "-Wno-unguarded-availability-new",
     ]
     backend_deps = [
+        # Single-token -Wl,-framework,X spellings: the graph deduplicates
+        # ldflags tokens, and separate "-framework" words collapse into one.
         dependency(ldflags=[
             *([f"-F{darwin_frameworks}"] if darwin_frameworks else []),
-            "-framework", "AppKit",
-            "-framework", "CoreGraphics",
-            "-framework", "CoreVideo",
-            "-framework", "Metal",
-            "-framework", "QuartzCore",
+            "-Wl,-framework,AppKit",
+            "-Wl,-framework,CoreGraphics",
+            "-Wl,-framework,CoreVideo",
+            "-Wl,-framework,Metal",
+            "-Wl,-framework,QuartzCore",
         ]),
     ]
 else:

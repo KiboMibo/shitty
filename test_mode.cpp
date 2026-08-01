@@ -56,6 +56,7 @@
 #include <fcntl.h>
 #include <functional>
 #include <map>
+#include <new>
 #include <poll.h>
 #include <signal.h>
 #include <sstream>
