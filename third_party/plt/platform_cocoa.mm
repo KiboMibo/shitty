@@ -1107,8 +1107,16 @@ void WindowImpl::requestFullscreen(bool value) {
 
 void WindowImpl::requestResize(u32 width, u32 height) {
     const CGFloat scale = window.backingScaleFactor;
-    NSSize size = NSMakeSize(max(1u, width) / scale, max(1u, height) / scale);
-    [window setContentSize:size];
+    const NSSize size = NSMakeSize(max(1u, width) / scale, max(1u, height) / scale);
+    NSWindow* const target = window;
+    // Asynchronous, like every request*. -setContentSize: posts windowDidResize
+    // synchronously, so applying it inline would re-enter the frame callback: a
+    // font or content-scale change resizes the window from inside frame(), and a
+    // synchronous resize path would then recurse. Defer it, so the window system
+    // delivers a fresh frame() with the new size instead of recursing.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [target setContentSize:size];
+    });
 }
 
 void WindowImpl::requestMinimumSize(u32 width, u32 height) {
