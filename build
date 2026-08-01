@@ -770,34 +770,20 @@ class BuildContext:
             return cached
 
         env = os.environ.copy()
-        variable_groups = [(
-            "BUILD_EXTRA_CFLAGS",
-            "BUILD_EXTRA_CXXFLAGS",
-            "BUILD_EXTRA_CPPFLAGS",
-        )]
-        # When the imported graph builds for the host triple, its own build
-        # tools are target programs and its host configuration must carry the
-        # same extras. Leaving HOST_* empty makes the child treat target and
-        # host as distinct configurations and emit a second, flag-less copy
-        # of every output — duplicate producers for one object path.
-        if target == self.host:
-            variable_groups.append((
-                "HOST_CFLAGS",
-                "HOST_CXXFLAGS",
-                "HOST_CPPFLAGS",
-            ))
-        for variables in variable_groups:
-            for variable, values in zip(variables, extras):
-                if values:
-                    env[variable] = shlex.join(values)
-                else:
-                    env.pop(variable, None)
-        # BUILD_EXTRA_* are compile-only appends the child never reflects
-        # back into build.cflags/cppflags, so an imported build.py cannot
-        # branch on them (e.g. plt drops -lstd when it sees -Dno_vendored_std).
-        # Mirror them into the standard CFLAGS/CXXFLAGS/CPPFLAGS the child
-        # exposes for feature detection; the duplicate appended tokens on the
-        # compile line are harmless.
+        # Extras join the child's ordinary CFLAGS/CXXFLAGS/CPPFLAGS rather
+        # than BUILD_EXTRA_*. Two reasons:
+        #   * The child exposes CFLAGS/CPPFLAGS as build.cflags/cppflags, so
+        #     an imported build.py can branch on them — e.g. plt drops -lstd
+        #     when it sees -Dno_vendored_std. BUILD_EXTRA_* stay invisible to
+        #     that logic, leaving a dangling -lstd on the link line.
+        #   * BUILD_EXTRA_* feed the child's configuration uid, so passing
+        #     them makes its target configuration differ from its host
+        #     configuration. A child with a command that runs one of its own
+        #     programs (a test runner) then treats that program as a host
+        #     tool and re-imports a whole second copy of the graph in the
+        #     host configuration — duplicate producers for every object. The
+        #     ordinary flags do not enter the uid, so both configurations
+        #     stay identical and no fork happens.
         for variable, values in zip(("CFLAGS", "CXXFLAGS", "CPPFLAGS"), extras):
             if not values:
                 continue
