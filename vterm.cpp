@@ -2027,7 +2027,11 @@ void VtermImpl::feedPty(StringView bytes) {
     if (dump != nullptr) {
         dump->write(bytes.data(), bytes.length());
     }
-    processInput(bytes.data(), (int)(bytes.length()));
+    // processInput reports whether the presentation revision moved; only a
+    // real change schedules a frame. The transport layer stays out of it.
+    if (processInput(bytes.data(), (int)(bytes.length()))) {
+        composer.window->requestFrame();
+    }
 }
 
 void VtermImpl::expose() {

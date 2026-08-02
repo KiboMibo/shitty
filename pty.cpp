@@ -200,9 +200,9 @@ void PtyFeed::run() {
             break;
         }
         impl.composer_.vterm->feedPty(StringView(buffer, count));
-        impl.composer_.window->requestFrame();
         // One chunk per loop round keeps frames and input interleaved with
-        // a flooding child.
+        // a flooding child. The vterm schedules frames itself when the fed
+        // bytes actually change the presentation.
         impl.scheduler()->yield();
     }
     impl.composer_.window->requestClose();
