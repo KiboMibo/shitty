@@ -24,7 +24,7 @@ jobs:
           fetch-depth: 0
       - name: Install the toolchain
         run: |
-          brew install llvm ragel glslang spirv-cross utf8proc librsvg
+          brew install llvm ragel glslang spirv-cross librsvg
           command -v pkg-config >/dev/null || brew install pkgconf
       - name: Let the release push tags
         run: |
