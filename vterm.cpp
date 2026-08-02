@@ -3965,19 +3965,19 @@ int VtermImpl::placeUtf8Run(const u8* input, int size) {
             break;
         }
         const u8 action = Utf8Dfa::act[state][cls];
+        if (action & Utf8Dfa::Stop) [[unlikely]] {
+            // A stray C1 in ground stays observable as a control event:
+            // the ground dispatcher owns it.
+            break;
+        }
         sequenceStart = cls >= Utf8Dfa::LeadFirst ? consumed : sequenceStart;
         codepoint = cls >= Utf8Dfa::LeadFirst ? byte & Utf8Dfa::mask[cls] : (codepoint << 6) | (byte & 0x3f);
         state = Utf8Dfa::next[state][cls];
         ++consumed;
         if ((action & Utf8Dfa::Slow) != 0 || !simpleRun) [[unlikely]] {
             // Completed sequences need their width and grapheme class; a
-            // non-simple boundary needs the full breaker.  The stray-C1
-            // reset only matters here: on the fast path it is equivalent
-            // to the plain replacement it precedes.
+            // non-simple boundary needs the full breaker.
             syncBreaker();
-            if (action & Utf8Dfa::Reset) {
-                inputGraphemeBreaker.reset();
-            }
             const unsigned count = action & Utf8Dfa::CountMask;
             if (count != 0) {
                 place((action & Utf8Dfa::FirstByte) ? byte : (action & Utf8Dfa::Slow) ? codepoint : Unicode_Replacement_Character, 0);

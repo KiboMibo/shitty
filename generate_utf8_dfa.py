@@ -19,13 +19,13 @@ COUNT_MASK = 3
 FIRST_BYTE = 4  # first emission is the input byte itself
 SECOND_BYTE = 8  # second emission is the input byte itself
 SLOW = 16  # emission is the completed codepoint: needs its properties
-RESET = 32  # stray C1 resets grapheme input before its replacement
+STOP = 32  # stray C1 in ground leaves the run for the ground dispatcher
 
 ACTIONS = {
     (): 0,
     ("byte",): 1 | FIRST_BYTE,
     ("fffd",): 1,
-    ("fffd-reset",): 1 | RESET,
+    ("stop",): STOP,
     ("cp",): 1 | SLOW,
     ("fffd", "fffd"): 2,
     ("fffd", "byte"): 2 | SECOND_BYTE,
@@ -86,10 +86,10 @@ def step(state, byte):
 
     if (byte & 0xC0) == 0x80:
         if state.remaining == 0:
-            # Stray continuation; ragelGroundHigh resets grapheme input for
-            # 0x80..0x9f before the replacement.
+            # Stray continuation. A C1 byte stays observable as a control
+            # event: the run stops so the ground dispatcher handles it.
             if byte <= 0x9F:
-                return ("fffd-reset",), GROUND
+                return ("stop",), GROUND
             return ("fffd",), GROUND
         invalid_first = (
             (state.remaining == 2 and state.accumulator_is(0) and byte < 0xA0)
@@ -282,7 +282,7 @@ def main():
         header.write(f"    constexpr u8 FirstByte = {FIRST_BYTE};\n")
         header.write(f"    constexpr u8 SecondByte = {SECOND_BYTE};\n")
         header.write(f"    constexpr u8 Slow = {SLOW};\n")
-        header.write(f"    constexpr u8 Reset = {RESET};\n\n")
+        header.write(f"    constexpr u8 Stop = {STOP};\n\n")
         header.write("    constexpr u8 Exit = 0;\n")
         header.write(f"    constexpr u8 LeadFirst = {lead_first};\n")
         header.write("    constexpr u8 Ground = 0;\n")
