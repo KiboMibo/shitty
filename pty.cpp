@@ -123,7 +123,7 @@ size_t PtyStreamInput::readImpl(void* data, size_t len) {
         }
         if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             plt::Scheduler* const scheduler = pty->scheduler();
-            if (!scheduler->inFiber()) {
+            if (scheduler->current() == nullptr) {
                 return 0;
             }
             if (!scheduler->awaitReadable(pty->readFd_, 0)) {
@@ -144,7 +144,7 @@ PtyStreamOutput::PtyStreamOutput(PtyImpl* pty_)
 size_t PtyStreamOutput::writeImpl(const void* data, size_t len) {
     plt::Scheduler* const scheduler = pty->scheduler();
     plt::FiberMutex* const mutex = pty->composer_.ptyMutex;
-    if (!scheduler->inFiber()) {
+    if (scheduler->current() == nullptr) {
         // Teardown paths outside any fiber degrade to a best-effort write.
         return pty->rawWrite(data, len);
     }
@@ -172,7 +172,7 @@ size_t PtyImpl::rawWrite(const void* data, size_t len) {
         }
         if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             plt::Scheduler* const awaiting = scheduler();
-            if (!awaiting->inFiber()) {
+            if (awaiting->current() == nullptr) {
                 break;
             }
             if (!awaiting->awaitWritable(writeFd_, 0)) {

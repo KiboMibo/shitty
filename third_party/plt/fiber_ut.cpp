@@ -83,7 +83,7 @@ STD_TEST_SUITE(FiberScheduler) {
         alignas(16) static u8 bodyStack[lightFiberStack];
         scheduler->spawn(body, bodyStack, sizeof(bodyStack));
         STD_INSIST(steps == 1);
-        STD_INSIST(!scheduler->inFiber());
+        STD_INSIST(scheduler->current() == nullptr);
     }
 
     STD_TEST(AwaitResumesOnFd) {
@@ -204,7 +204,7 @@ STD_TEST_SUITE(FiberScheduler) {
         auto outer = makeRunable([&] {
             alignas(16) static u8 innerStack[lightFiberStack];
         scheduler->spawn(inner, innerStack, sizeof(innerStack));
-            STD_INSIST(scheduler->inFiber());
+            STD_INSIST(scheduler->current() != nullptr);
             outerDone = true;
         });
         alignas(16) static u8 outerStack[lightFiberStack];

@@ -227,7 +227,7 @@ TestPtyOutput::TestPtyOutput(TestPty* pty_)
 size_t TestPtyOutput::writeImpl(const void* data, size_t size) {
     plt::Scheduler* const scheduler = pty->composer_.platform->scheduler();
     plt::FiberMutex* const mutex = pty->composer_.ptyMutex;
-    if (!scheduler->inFiber()) {
+    if (scheduler->current() == nullptr) {
         pty->staged_.append(data, size);
         return size;
     }
@@ -516,7 +516,7 @@ namespace {
                 if (errno == EINTR) {
                     continue;
                 }
-                if ((errno == EAGAIN || errno == EWOULDBLOCK) && controlScheduler != nullptr && controlScheduler->inFiber()) {
+                if ((errno == EAGAIN || errno == EWOULDBLOCK) && controlScheduler != nullptr && controlScheduler->current() != nullptr) {
                     if (!controlScheduler->awaitWritable(fd, 0)) {
                         throw std::runtime_error("test control write failed");
                     }
@@ -558,7 +558,7 @@ namespace {
                 if (errno == EINTR) {
                     continue;
                 }
-                if ((errno == EAGAIN || errno == EWOULDBLOCK) && scheduler != nullptr && scheduler->inFiber()) {
+                if ((errno == EAGAIN || errno == EWOULDBLOCK) && scheduler != nullptr && scheduler->current() != nullptr) {
                     if (!scheduler->awaitReadable(fd, 0)) {
                         return false;
                     }

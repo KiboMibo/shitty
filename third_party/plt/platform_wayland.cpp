@@ -2105,7 +2105,7 @@ size_t StreamInput::readImpl(void* data, size_t len) {
         }
         // The watchdog: a peer that stops making progress for this long
         // aborts the transfer instead of pinning the pipe.
-        if (!platform.scheduler_->inFiber() || !platform.scheduler_->awaitReadable(fd, selectionTransferTimeoutUs)) {
+        if (platform.scheduler_->current() == nullptr || !platform.scheduler_->awaitReadable(fd, selectionTransferTimeoutUs)) {
             close(fd);
             fd = -1;
             return 0;

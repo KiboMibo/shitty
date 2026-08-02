@@ -45,7 +45,7 @@ namespace plt {
         virtual bool awaitWritable(int fd, u64 timeoutUs) = 0;
         virtual void sleep(u64 timeoutUs) = 0;
         virtual void yield() = 0;
-        virtual bool inFiber() const = 0;
+        // The running fiber, nullptr outside any.
         virtual Fiber* current() = 0;
 
         static Scheduler* create(stl::ObjPool& owner, Poller& poller);

@@ -53,7 +53,6 @@ namespace {
         bool awaitWritable(int fd, u64 timeoutUs) override;
         void sleep(u64 timeoutUs) override;
         void yield() override;
-        bool inFiber() const override;
         Fiber* current() override;
 
         bool awaitFd(int fd, u32 flags, u64 timeoutUs);
@@ -204,10 +203,6 @@ void SchedulerImpl::yield() {
     fiber.timerFired = false;
     poller.defer(fiber);
     fiber.block();
-}
-
-bool SchedulerImpl::inFiber() const {
-    return active != nullptr;
 }
 
 Fiber* SchedulerImpl::current() {

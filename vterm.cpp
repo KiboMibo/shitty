@@ -8732,7 +8732,7 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
     Output* const output = composer.ptyOutput;
     const StringView bytes(ucstr, len);
     plt::Scheduler* const scheduler = composer.platform->scheduler();
-    if (scheduler->inFiber() && composer.ptyMutex->heldByCurrent(*scheduler)) {
+    if (scheduler->current() != nullptr && composer.ptyMutex->heldByCurrent(*scheduler)) {
         output->write(bytes.data(), bytes.length());
         output->flush();
         return len;
