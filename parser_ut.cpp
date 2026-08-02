@@ -186,7 +186,8 @@ namespace {
             return asciiConsumed;
         }
 
-        size_t parserPlaceUtf8Run(StringView bytes) override {
+        size_t parserPlaceUtf8Run(StringView bytes, u8& pendingTrace) override {
+            pendingTrace = 0;
             ParserCall& call = record("parserPlaceUtf8Run", utf8RunConsumed);
             saveText(call, 0, bytes);
             return utf8RunConsumed;

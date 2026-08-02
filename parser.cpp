@@ -2217,8 +2217,10 @@ void ParserImpl<traced>::feed(StringView bytes) {
                 continue;
             }
             if (parser.groundUtf8Remaining == 0 && current >= 0x80 && iface.parserUtf8BulkEligible()) {
-                const size_t consumed = iface.parserPlaceUtf8Run(StringView(p, pe - p));
+                u8 pendingTrace = 0;
+                const size_t consumed = iface.parserPlaceUtf8Run(StringView(p, pe - p), pendingTrace);
                 if (consumed > 0) {
+                    parser.groundUtf8Remaining = pendingTrace;
                     if constexpr (traced) {
                         parserTrace->text(p, consumed);
                     }

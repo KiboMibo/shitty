@@ -34,12 +34,18 @@ ACTIONS = {
 
 @dataclass(frozen=True)
 class State:
-    """A streaming-decoder state with the accumulator as an interval."""
+    """A streaming-decoder state with the accumulator as an interval.
+
+    pending mirrors the parser's dumb groundUtf8Remaining counter after the
+    decoder aborts a sequence early: the trace layer still counts the
+    aborted sequence's continuation bytes as text, so a C1 there is not a
+    stray control."""
 
     remaining: int
     low: int
     high: int
     minimum: int
+    pending: int = 0
 
     def accumulator_is(self, value):
         if self.low == value and self.high == value:
@@ -52,6 +58,10 @@ class State:
 
 
 GROUND = State(0, 0, 0, 0)
+
+
+def ground_pending(count):
+    return GROUND if count == 0 else State(0, 0, 0, 0, count)
 
 
 def is_exit(byte):
@@ -86,6 +96,10 @@ def step(state, byte):
 
     if (byte & 0xC0) == 0x80:
         if state.remaining == 0:
+            if state.pending > 0:
+                # The trace layer still owes this byte to the aborted
+                # sequence; the decoder sees a stray and replaces it.
+                return ("fffd",), ground_pending(state.pending - 1)
             # Stray continuation. A C1 byte stays observable as a control
             # event: the run stops so the ground dispatcher handles it.
             if byte <= 0x9F:
@@ -97,7 +111,7 @@ def step(state, byte):
             or (state.remaining == 3 and state.accumulator_is(0) and byte < 0x90)
             or (state.remaining == 3 and state.accumulator_is(4) and byte >= 0x90))
         if invalid_first:
-            return ("fffd", "fffd"), GROUND
+            return ("fffd", "fffd"), ground_pending(state.remaining - 1)
         low = (state.low << 6) | (byte & 0x3F)
         high = (state.high << 6) | (byte & 0x3F)
         if state.remaining > 1:
@@ -191,8 +205,19 @@ def main():
     states, transitions, bytes_all = discover()
     partition, state_count = minimize(states, transitions, bytes_all)
 
-    # Ground must be state 0; renumber blocks by first appearance from it.
+    # Ground must be state 0, and every state the decoding loop must not
+    # rewind at a run boundary — the decoder is in ground, only the trace
+    # counter is pending — numbers below the true mid-sequence states.
+    block_no_rewind = {}
+    for s in range(len(states)):
+        block_no_rewind.setdefault(partition[s], set()).add(states[s].remaining == 0)
+    assert all(len(kinds) == 1 for kinds in block_no_rewind.values())
     order = {}
+    for s in range(len(states)):
+        block = partition[s]
+        if block not in order and True in block_no_rewind[block]:
+            order[block] = len(order)
+    rewind_first = len(order)
     for s in range(len(states)):
         order.setdefault(partition[s], len(order))
     partition = [order[block] for block in partition]
@@ -269,7 +294,7 @@ def main():
             act_table[block][cls] = ACTIONS[emissions]
 
     # Sanity: the state and class counts the loop is tuned for.
-    assert state_count == 8, state_count
+    assert state_count == 10, state_count
     assert class_count == 13, class_count
 
     with open(sys.argv[1], "w") as header:
@@ -286,6 +311,7 @@ def main():
         header.write("    constexpr u8 Exit = 0;\n")
         header.write(f"    constexpr u8 LeadFirst = {lead_first};\n")
         header.write("    constexpr u8 Ground = 0;\n")
+        header.write(f"    constexpr u8 RewindFirst = {rewind_first};\n")
         header.write(f"    constexpr u8 stateCount = {state_count};\n")
         header.write(f"    constexpr u8 classCount = {class_count};\n\n")
         def emit_array(name, values, per_line):
@@ -303,6 +329,12 @@ def main():
         emit_table("next", next_table)
         emit_table("act", act_table)
         emit_array("mask", mask, 16)
+        # The trace-counter debt a run hands back to the parser when it
+        # ends in a state below RewindFirst.
+        pending = [0] * state_count
+        for s in range(len(states)):
+            pending[partition[s]] = states[s].pending
+        emit_array("pending", pending, 16)
         header.write("}\n")
 
 

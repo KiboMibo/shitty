@@ -435,7 +435,7 @@ namespace {
         void parserGroundAscii(u8 byte) override;
         bool parserUtf8BulkEligible() const override;
         size_t parserPlaceAscii(StringView bytes) override;
-        size_t parserPlaceUtf8Run(StringView bytes) override;
+        size_t parserPlaceUtf8Run(StringView bytes, u8& pendingTrace) override;
 
         void resizeGrid();
         void fontChanged();
@@ -579,7 +579,7 @@ namespace {
         template <bool insert>
         void placeAsciiRun(const u8* input, size_t size);
         size_t placeAsciiLines(const u8* input, size_t size);
-        int placeUtf8Run(const u8* input, int size);
+        int placeUtf8Run(const u8* input, int size, u8& pendingTrace);
         template <bool hasWide>
         void placePreparedRun(const u32* input, const u8* widths, size_t size);
         u8 codepointData(u32 codepoint);
@@ -3894,7 +3894,7 @@ void VtermImpl::placeRepeatedCodepoint(u32 codepoint, u32 count) {
 // become replacement characters in the same batch, mirroring the streaming
 // decoder's rules exactly; only a sequence split across the chunk boundary
 // stops the run so the streaming decoder can carry its state across feeds.
-int VtermImpl::placeUtf8Run(const u8* input, int size) {
+int VtermImpl::placeUtf8Run(const u8* input, int size, u8& pendingTrace) {
     constexpr size_t batchLimit = 64;
     u32 batch[batchLimit];
     u8 widths[batchLimit];
@@ -4002,12 +4002,15 @@ int VtermImpl::placeUtf8Run(const u8* input, int size) {
         lastBatched = count == 0 ? lastBatched : count == 2 ? second : first;
         batchedBehind |= count != 0;
     }
-    if (state != Utf8Dfa::Ground) {
+    if (state >= Utf8Dfa::RewindFirst) {
         // A control or the chunk boundary interrupted a pending sequence.
         // Rewind to its lead: controls are transparent to the streaming
-        // decoder, which owns the sequence from here.
+        // decoder, which owns the sequence from here. States below
+        // RewindFirst already emitted everything — only the trace counter
+        // of an aborted sequence is pending — and must not replay.
         consumed = sequenceStart;
     }
+    pendingTrace = Utf8Dfa::pending[state];
     syncBreaker();
     flush();
     return consumed;
@@ -8921,8 +8924,8 @@ size_t VtermImpl::parserPlaceAscii(StringView bytes) {
     return count;
 }
 
-size_t VtermImpl::parserPlaceUtf8Run(StringView bytes) {
-    const int consumed = placeUtf8Run(bytes.data(), bytes.length());
+size_t VtermImpl::parserPlaceUtf8Run(StringView bytes, u8& pendingTrace) {
+    const int consumed = placeUtf8Run(bytes.data(), bytes.length(), pendingTrace);
     return consumed > 0 ? (size_t)(consumed) : 0;
 }
 

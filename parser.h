@@ -132,7 +132,10 @@ struct ParserIface {
     virtual void parserGroundAscii(u8 byte) = 0;
     virtual bool parserUtf8BulkEligible() const = 0;
     virtual size_t parserPlaceAscii(stl::StringView bytes) = 0;
-    virtual size_t parserPlaceUtf8Run(stl::StringView bytes) = 0;
+    // pendingTrace returns the count of continuation bytes of a sequence
+    // the run aborted at its end that the ground trace layer still owes as
+    // text; the parser carries it in groundUtf8Remaining.
+    virtual size_t parserPlaceUtf8Run(stl::StringView bytes, u8& pendingTrace) = 0;
 
     virtual void unhandledInput(unsigned char byte) = 0;
     virtual void inp_CR() = 0;
