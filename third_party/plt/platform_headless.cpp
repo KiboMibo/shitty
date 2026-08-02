@@ -1,6 +1,7 @@
 #include "platform_headless.h"
 
 #include "fiber.h"
+#include "loop_wake.h"
 #include "poller_loop.h"
 
 #include <std/ios/input.h>
@@ -144,6 +145,10 @@ namespace {
             window->clipboard_.platform = this;
             windows.push_back(window);
             return window;
+        }
+
+        LoopWake* createLoopWake(ObjPool& wakeOwner, TimerCallback& callback) override {
+            return LoopWake::create(wakeOwner, *poller_, callback);
         }
 
         PollerLoop* poller_ = nullptr;

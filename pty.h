@@ -11,25 +11,24 @@
 #include <cstddef>
 
 namespace stl {
-    class Input;
     class Output;
 }
 
 struct Composer;
 struct LaunchCommand;
 
-// The terminal's PTY as a pair of blocking stream facades. Both sides run
-// on fibers: a read that would block parks the calling fiber until the
-// descriptor is readable, a write parks it until the kernel accepts the
-// remaining bytes. Writers serialize through composer.ptyMutex.
+// The terminal's PTY. The write side is a blocking stream facade on a
+// fiber: a write parks the caller until the kernel accepts the remaining
+// bytes, and writers serialize through composer.ptyMutex. The read side
+// has no stream: an eternal reader thread drains the master into a buffer
+// the feed fiber consumes.
 struct Pty {
-    virtual stl::Input* input() = 0;
     virtual stl::Output* output() = 0;
     // One non-blocking attempt: accepts what the kernel takes right now
     // and returns the count without ever parking the caller.
     virtual size_t tryWrite(const u8* data, size_t len) = 0;
 
     // Opens the PTY, starts the child, owns the master, wires resize events,
-    // and spawns the fiber that feeds terminal output into the vterm.
+    // and starts the reader thread and the fiber that feeds the vterm.
     static Pty* create(Composer& composer, const LaunchCommand& command);
 };

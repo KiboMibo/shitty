@@ -23,6 +23,7 @@ common_sources = [
     "$(S)/drop.cpp",
     "$(S)/fiber.cpp",
     "$(S)/input.cpp",
+    "$(S)/loop_wake.cpp",
     "$(S)/mutex.cpp",
     "$(S)/poller_loop.cpp",
     "$(S)/pointer_grab.cpp",

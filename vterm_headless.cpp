@@ -26,20 +26,10 @@
 using namespace stl;
 
 namespace {
-    struct HeadlessPtyInput final: Input {
-        size_t readImpl(void*, size_t) override {
-            return 0;
-        }
-    };
-
     struct HeadlessPty final: Pty {
         explicit HeadlessPty(Composer& composer_)
             : composer(composer_)
         {
-        }
-
-        Input* input() override {
-            return &input_;
         }
 
         Output* output() override {
@@ -55,7 +45,6 @@ namespace {
         }
 
         Composer& composer;
-        HeadlessPtyInput input_;
     };
 
     struct VtermHeadlessImpl final: public VtermHeadless {

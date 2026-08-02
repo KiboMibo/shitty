@@ -6,6 +6,7 @@
 #include "poller.h"
 #include "window.h"
 #include "platform.h"
+#include "loop_wake.h"
 #include "poller_loop.h"
 #include "pointer_grab.h"
 #include "xdg-shell-client-protocol.h"
@@ -302,6 +303,7 @@ namespace {
         ~PlatformImpl();
 
         Window* createWindow(ObjPool& owner, const WindowOptions& options) override;
+        LoopWake* createLoopWake(ObjPool& owner, TimerCallback& callback) override;
         Poller* poller() override;
         Scheduler* scheduler() override;
         void run() override;
@@ -1459,6 +1461,10 @@ PlatformImpl::~PlatformImpl() {
 
 Window* PlatformImpl::createWindow(ObjPool& windowOwner, const WindowOptions& options) {
     return windowOwner.make<WindowImpl>(*this, options);
+}
+
+LoopWake* PlatformImpl::createLoopWake(ObjPool& owner, TimerCallback& callback) {
+    return LoopWake::create(owner, *poller_, callback);
 }
 
 Poller* PlatformImpl::poller() {

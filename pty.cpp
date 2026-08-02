@@ -19,11 +19,12 @@
 #include "vterm.h"
 
 #include <plt/fiber.h>
+#include <plt/loop_wake.h>
 #include <plt/mutex.h>
+#include <plt/poller.h>
 #include <plt/platform.h>
 #include <plt/window.h>
 
-#include <std/ios/input.h>
 #include <std/ios/output.h>
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
@@ -32,6 +33,8 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
+#include <pthread.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,20 +50,17 @@ using namespace stl;
 
 namespace {
     constexpr size_t maximumWrite = 64 * 1024;
+    // The reader thread runs at most this far ahead of the parser; the
+    // bound caps memory and the reply latency under a flooding child.
+    constexpr size_t feedBacklogLimit = 1024 * 1024;
+    // One parser bite between yields back to the loop.
+    constexpr size_t feedSliceLimit = 256 * 1024;
 
     void resizePty(int fd, u32 columns, u32 rows, u32 pixelWidth, u32 pixelHeight);
     int openPtyMaster(char* slaveName, size_t capacity);
     int openPtySlave(const char* name);
 
     struct PtyImpl;
-
-    struct PtyStreamInput final: public Input {
-        explicit PtyStreamInput(PtyImpl* pty);
-
-        size_t readImpl(void* data, size_t len) override;
-
-        PtyImpl* pty;
-    };
 
     struct PtyStreamOutput final: public Output {
         explicit PtyStreamOutput(PtyImpl* pty);
@@ -78,62 +78,41 @@ namespace {
         PtyImpl* pty;
     };
 
-    struct PtyImpl final: public Pty, public Listener {
+    struct PtyImpl final: public Pty, public Listener, public plt::TimerCallback {
         PtyImpl(Composer& composer, int fd);
         ~PtyImpl();
 
-        Input* input() override;
         Output* output() override;
         size_t tryWrite(const u8* data, size_t len) override;
         void onListen(void*) override;
+        // The reader thread's doorbell, delivered on the platform thread.
+        void ready() override;
 
         void resize();
         void start();
         size_t rawWrite(const void* data, size_t len);
         plt::Scheduler* scheduler() const;
+        static void* readerThread(void* opaque);
 
         Composer& composer_;
         int readFd_;
         int writeFd_ = -1;
-        PtyStreamInput input_;
         PtyStreamOutput output_;
         PtyFeed feed_;
-        // The feed fiber keeps its 64K read buffer and the whole parser
-        // depth on this stack.
+        plt::LoopWake* wake_ = nullptr;
+        plt::Fiber* feedFiber_ = nullptr;
+        // The reader thread appends to fill_ under the mutex and rings the
+        // doorbell on its empty-to-nonempty edge; the feed fiber swaps
+        // fill_ for drain_ and parses without the lock. The condvar parks
+        // the reader while the parser is feedBacklogLimit behind.
+        pthread_mutex_t feedMutex_ = PTHREAD_MUTEX_INITIALIZER;
+        pthread_cond_t feedSpace_ = PTHREAD_COND_INITIALIZER;
+        Buffer fill_;
+        Buffer drain_;
+        bool feedEof_ = false;
+        // The feed fiber keeps the whole parser depth on this stack.
         alignas(16) u8 feedStack_[256 * 1024];
     };
-}
-
-PtyStreamInput::PtyStreamInput(PtyImpl* pty_)
-    : pty(pty_)
-{
-}
-
-size_t PtyStreamInput::readImpl(void* data, size_t len) {
-    for (;;) {
-        const ssize_t count = ::read(pty->readFd_, data, len);
-        if (count > 0) {
-            return (size_t)(count);
-        }
-        if (count == 0 || (count < 0 && errno == EIO)) {
-            return 0;
-        }
-        if (count < 0 && errno == EINTR) {
-            continue;
-        }
-        if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            plt::Scheduler* const scheduler = pty->scheduler();
-            if (scheduler->current() == nullptr) {
-                return 0;
-            }
-            if (!scheduler->awaitReadable(pty->readFd_, 0)) {
-                return 0;
-            }
-            continue;
-        }
-        sysWarn("pty read");
-        return 0;
-    }
 }
 
 PtyStreamOutput::PtyStreamOutput(PtyImpl* pty_)
@@ -193,25 +172,93 @@ PtyFeed::PtyFeed(PtyImpl* pty_)
 
 void PtyFeed::run() {
     PtyImpl& impl = *pty;
-    u8 buffer[64 * 1024];
+    impl.feedFiber_ = impl.scheduler()->current();
     for (;;) {
-        const size_t count = impl.input_.read(buffer, sizeof(buffer));
-        if (count == 0) {
-            break;
+        pthread_mutex_lock(&impl.feedMutex_);
+        if (impl.fill_.used() == 0) {
+            const bool finished = impl.feedEof_;
+            pthread_mutex_unlock(&impl.feedMutex_);
+            if (finished) {
+                break;
+            }
+            // The doorbell callback wakes us; a wake that raced a previous
+            // batch is remembered and re-checks the buffer at once.
+            impl.feedFiber_->park();
+            continue;
         }
-        impl.composer_.vterm->feedPty(StringView(buffer, count));
-        // One chunk per loop round keeps frames and input interleaved with
-        // a flooding child. The vterm schedules frames itself when the fed
-        // bytes actually change the presentation.
-        impl.scheduler()->yield();
+        impl.fill_.xchg(impl.drain_);
+        pthread_mutex_unlock(&impl.feedMutex_);
+        pthread_cond_signal(&impl.feedSpace_);
+
+        const u8* data = (const u8*)(impl.drain_.data());
+        size_t remaining = impl.drain_.used();
+        while (remaining != 0) {
+            const size_t slice = remaining < feedSliceLimit ? remaining : feedSliceLimit;
+            impl.composer_.vterm->feedPty(StringView(data, slice));
+            data += slice;
+            remaining -= slice;
+            // One slice per loop round keeps frames and input interleaved
+            // with a flooding child; the reader drains the pty meanwhile.
+            // The vterm schedules frames itself when the fed bytes actually
+            // change the presentation.
+            impl.scheduler()->yield();
+        }
+        impl.drain_.reset();
     }
     impl.composer_.window->requestClose();
+}
+
+// Runs forever on its own thread: the poll makes the read synchronous while
+// the master stays nonblocking for the write side, which shares the file
+// description. Draining the pty must not wait on the parser, or the child
+// blocks on a full kernel buffer whenever the parser is busy - the whole
+// point of the thread. There is no teardown: the thread dies with the
+// process.
+void* PtyImpl::readerThread(void* opaque) {
+    auto* const pty = (PtyImpl*)(opaque);
+    u8 buffer[64 * 1024];
+    for (;;) {
+        const ssize_t count = ::read(pty->readFd_, buffer, sizeof(buffer));
+        if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            // Dry: sleep in poll until the child writes. Under a flood the
+            // read almost always lands and the poll never runs.
+            struct pollfd readable{pty->readFd_, POLLIN, 0};
+            (void)!::poll(&readable, 1, -1);
+            continue;
+        }
+        if (count < 0 && errno == EINTR) {
+            continue;
+        }
+        pthread_mutex_lock(&pty->feedMutex_);
+        if (count > 0) {
+            while (pty->fill_.used() >= feedBacklogLimit) {
+                pthread_cond_wait(&pty->feedSpace_, &pty->feedMutex_);
+            }
+            const bool wasIdle = pty->fill_.used() == 0;
+            pty->fill_.append(buffer, (size_t)(count));
+            pthread_mutex_unlock(&pty->feedMutex_);
+            if (wasIdle) {
+                pty->wake_->signal();
+            }
+            continue;
+        }
+        // EOF or EIO: the feed drains what is buffered, then closes.
+        pty->feedEof_ = true;
+        pthread_mutex_unlock(&pty->feedMutex_);
+        pty->wake_->signal();
+        return nullptr;
+    }
+}
+
+void PtyImpl::ready() {
+    if (feedFiber_ != nullptr) {
+        feedFiber_->wake();
+    }
 }
 
 PtyImpl::PtyImpl(Composer& composer, int fd)
     : composer_(composer)
     , readFd_(fd)
-    , input_(this)
     , output_(this)
     , feed_(this) {
     const int flags = fcntl(readFd_, F_GETFL, 0);
@@ -240,10 +287,6 @@ PtyImpl::~PtyImpl() {
     if (writeFd_ >= 0) {
         close(writeFd_);
     }
-}
-
-Input* PtyImpl::input() {
-    return &input_;
 }
 
 Output* PtyImpl::output() {
@@ -281,7 +324,15 @@ void PtyImpl::resize() {
 
 void PtyImpl::start() {
     composer_.resizedListeners.pushBack(this);
+    wake_ = composer_.platform->createLoopWake(*composer_.pool, *this);
+    // The fiber runs first and parks on the empty buffer, so the handle is
+    // set before the reader can ring the doorbell.
     scheduler()->spawn(feed_, feedStack_, sizeof(feedStack_));
+    pthread_t reader;
+    if (pthread_create(&reader, nullptr, readerThread, this) != 0) {
+        sysError("pty reader thread");
+    }
+    pthread_detach(reader);
 }
 
 namespace {

@@ -3,6 +3,7 @@
 #include "drop.h"
 #include "fiber.h"
 #include "input.h"
+#include "loop_wake.h"
 #include "poller.h"
 #include "poller_loop.h"
 #include "window.h"
@@ -21,6 +22,7 @@
 #include <std/mem/small_obj_allocator.h>
 
 #import <AppKit/AppKit.h>
+#import <mach/mach.h>
 #import <Carbon/Carbon.h>
 #import <CoreVideo/CVDisplayLink.h>
 #import <IOKit/hidsystem/IOLLEvent.h>
@@ -97,6 +99,7 @@ void cocoaDragExitedImpl(void* owner);
 BOOL cocoaPerformDropImpl(void* owner, id<NSDraggingInfo> sender);
 void cocoaFileDescriptorReady(CFFileDescriptorRef descriptor, CFOptionFlags types, void* owner);
 void cocoaTimerReady(CFRunLoopTimerRef timer, void* owner);
+void cocoaWakeReady(CFMachPortRef port, void* message, CFIndex size, void* owner);
 
 @interface PltWindowDelegate: NSObject <NSWindowDelegate>
 @property(nonatomic, assign) void* owner;
@@ -580,10 +583,41 @@ namespace {
         bool preeditShown = false;
     };
 
+    // The run loop natively sleeps on a mach port set; a port message is
+    // its cheapest cross-thread wake. Send-once rights die with delivery,
+    // and a zero send timeout makes a full queue mean "wake already
+    // pending" instead of blocking the signalling thread.
+    struct MachLoopWake final: public LoopWake {
+        explicit MachLoopWake(TimerCallback& callback_)
+            : callback(callback_)
+        {
+            CFMachPortContext context{};
+            context.info = this;
+            port = CFMachPortCreate(kCFAllocatorDefault, cocoaWakeReady, &context, nullptr);
+            STD_VERIFY(port != nullptr);
+            CFRunLoopSourceRef source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0);
+            STD_VERIFY(source != nullptr);
+            CFRunLoopAddSource(CFRunLoopGetMain(), source, kCFRunLoopCommonModes);
+            CFRelease(source);
+        }
+
+        void signal() override {
+            mach_msg_header_t header{};
+            header.msgh_bits = MACH_MSGH_BITS(MACH_MSG_TYPE_MAKE_SEND_ONCE, 0);
+            header.msgh_remote_port = CFMachPortGetPort(port);
+            header.msgh_size = sizeof(header);
+            mach_msg(&header, MACH_SEND_MSG | MACH_SEND_TIMEOUT, sizeof(header), 0, MACH_PORT_NULL, 0, MACH_PORT_NULL);
+        }
+
+        TimerCallback& callback;
+        CFMachPortRef port = nullptr;
+    };
+
     struct PlatformImpl final: public Platform {
         explicit PlatformImpl(ObjPool& owner);
 
         Window* createWindow(ObjPool& owner, const WindowOptions& options) override;
+        LoopWake* createLoopWake(ObjPool& owner, TimerCallback& callback) override;
         Poller* poller() override;
         Scheduler* scheduler() override;
         void run() override;
@@ -750,6 +784,10 @@ PlatformImpl::PlatformImpl(ObjPool& owner)
 
 Window* PlatformImpl::createWindow(ObjPool& owner, const WindowOptions& options) {
     return owner.make<WindowImpl>(*this, options);
+}
+
+LoopWake* PlatformImpl::createLoopWake(ObjPool& owner, TimerCallback& callback) {
+    return owner.make<MachLoopWake>(callback);
 }
 
 Poller* PlatformImpl::poller() {
@@ -1783,6 +1821,10 @@ BOOL cocoaPerformDropImpl(void* owner, id<NSDraggingInfo> sender) {
 void cocoaFileDescriptorReady(CFFileDescriptorRef descriptor, CFOptionFlags types, void* owner) {
     (void)types;
     ((PollerImpl*)(owner))->descriptorReady(descriptor);
+}
+
+void cocoaWakeReady(CFMachPortRef, void*, CFIndex, void* owner) {
+    ((MachLoopWake*)(owner))->callback.ready();
 }
 
 void cocoaTimerReady(CFRunLoopTimerRef, void* owner) {

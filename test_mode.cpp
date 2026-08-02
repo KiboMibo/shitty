@@ -138,7 +138,6 @@ namespace {
     struct TestPty final: public Pty, public Listener {
         TestPty(Composer& composer, int fd);
 
-        Input* input() override;
         Output* output() override;
         size_t tryWrite(const u8* data, size_t len) override;
         void onListen(void*) override;
@@ -283,10 +282,6 @@ TestPty::TestPty(Composer& composer, int fd)
     if (flags < 0 || fcntl(fd_, F_SETFL, flags | O_NONBLOCK) < 0) {
         throw std::runtime_error("test PTY nonblocking setup failed");
     }
-}
-
-Input* TestPty::input() {
-    return nullptr;
 }
 
 Output* TestPty::output() {
