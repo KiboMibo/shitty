@@ -543,7 +543,8 @@ namespace {
         void normalizeCursorPos();
         bool isCursorInsideMargins() const;
         void activeColumns(u16& begin, u16& end) const;
-        void activeLine(u16& begin, u16& end) const;
+        void activeLine(u16& begin, u16& end);
+        u16 doubleWidthEnd(u16 normalEnd) const;
         void eraseRow(u16 pY);
         void eraseRows(u16 startY, u16 count);
         void copyRow(u16 dstY, u16 srcY);
@@ -3333,11 +3334,27 @@ void VtermImpl::activeColumns(u16& begin, u16& end) const {
     }
 }
 
-void VtermImpl::activeLine(u16& begin, u16& end) const {
+void VtermImpl::activeLine(u16& begin, u16& end) {
     activeColumns(begin, end);
-    if (cf->lineAttribute(posY)) {
-        end = begin + std::max<u16>(1, (end - begin) / 2);
+    if (!cf->lineAttribute(posY)) {
+        return;
     }
+    end = doubleWidthEnd(end);
+    if (posX >= end) {
+        posX = end - 1;
+        lastCol = false;
+        activeColumns(begin, end);
+        end = doubleWidthEnd(end);
+    }
+}
+
+u16 VtermImpl::doubleWidthEnd(u16 normalEnd) const {
+    // A line rendition doubles source cells from the left edge of the
+    // screen.  Its source coordinate space is therefore always the first
+    // half of the screen; the right margin may only shorten it.  In
+    // particular, the left margin must not shift this boundary as the cursor
+    // crosses it.
+    return std::min(normalEnd, std::max<u16>(1, composer.columns / 2));
 }
 
 void VtermImpl::eraseRow(u16 pY) {
@@ -3771,7 +3788,7 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
 
         u16 lineBegin, lineEnd;
         activeColumns(lineBegin, lineEnd);
-        const u16 doubleEnd = lineBegin + std::max<u16>(1, (lineEnd - lineBegin) / 2);
+        const u16 doubleEnd = doubleWidthEnd(lineEnd);
         const u16 requested = std::min<size_t>(size, 0xffff);
         Screen::WriteResult written;
         if constexpr (insert) {
