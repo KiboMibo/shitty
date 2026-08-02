@@ -2216,6 +2216,16 @@ void ParserImpl<traced>::feed(StringView bytes) {
                 ++p;
                 continue;
             }
+            if (parser.groundUtf8Remaining == 0 && current >= 0x80 && iface.parserUtf8BulkEligible()) {
+                const size_t consumed = iface.parserPlaceUtf8Run(StringView(p, pe - p));
+                if (consumed > 0) {
+                    if constexpr (traced) {
+                        parserTrace->text(p, consumed);
+                    }
+                    p += consumed;
+                    continue;
+                }
+            }
             if (current >= 0x80 && current <= 0x9f && iface.parserGroundUtf8Enabled()) {
                 ragelGroundHigh(current);
                 ++p;
@@ -2256,16 +2266,6 @@ void ParserImpl<traced>::feed(StringView bytes) {
                         iface.esc_IND();
                         p += 2;
                     }
-                    continue;
-                }
-            }
-            if (parser.groundUtf8Remaining == 0 && current >= 0xa0 && iface.parserUtf8BulkEligible()) {
-                const size_t consumed = iface.parserPlaceUtf8Run(StringView(p, pe - p));
-                if (consumed > 0) {
-                    if constexpr (traced) {
-                        parserTrace->text(p, consumed);
-                    }
-                    p += consumed;
                     continue;
                 }
             }

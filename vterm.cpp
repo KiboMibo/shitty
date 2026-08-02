@@ -3887,9 +3887,11 @@ void VtermImpl::placeRepeatedCodepoint(u32 codepoint, u32 count) {
     }
 }
 
-// Decodes complete UTF-8 sequences ahead and batches independent glyphs into
-// span writes.  Joining codepoints fall back to the standard cluster path;
-// invalid or split sequences stop before the streaming decoder takes over.
+// Decodes UTF-8 ahead and batches independent glyphs into span writes.
+// Joining codepoints fall back to the standard cluster path.  Invalid bytes
+// become replacement characters in the same batch, mirroring the streaming
+// decoder's rules exactly; only a sequence split across the chunk boundary
+// stops the run so the streaming decoder can carry its state across feeds.
 int VtermImpl::placeUtf8Run(const u8* input, int size) {
     constexpr size_t batchLimit = 64;
     u32 batch[batchLimit];
@@ -3912,6 +3914,31 @@ int VtermImpl::placeUtf8Run(const u8* input, int size) {
             batchWide = false;
         }
     };
+    const auto place = [&](u32 codepoint, int advance) __attribute__((always_inline)) {
+        const u8 data = codepointData(codepoint);
+        const bool boundary = inputGraphemeBreaker.breakBefore(codepoint, (data & 0x04) != 0);
+        const u8 width = data & 0x03;
+        if (!boundary || width == 0) {
+            flush();
+            utf8dec.setUnicode(codepoint);
+            placeGraphicChar(boundary, width);
+            consumed += advance;
+            return;
+        }
+        if (batchCount == batchLimit) {
+            flush();
+        }
+        batch[batchCount] = codepoint;
+        widths[batchCount++] = width;
+        batchWide |= width == 2;
+        consumed += advance;
+        // A wide glyph can be discarded after wrapping into a narrow or
+        // double-width row.  That resets grapheme state, so commit it before
+        // determining the boundary of the following codepoint.
+        if (width == 2) {
+            flush();
+        }
+    };
 
     while (consumed < size) {
         const u8 lead = input[consumed];
@@ -3922,10 +3949,19 @@ int VtermImpl::placeUtf8Run(const u8* input, int size) {
             if (lead < 0x20 || lead == 0x7f) {
                 break;
             }
-            codepoint = lead;
-            minimum = 0;
-            length = 1;
-        } else if (lead >= 0xc2 && lead <= 0xdf) {
+            place(lead, 1);
+            continue;
+        }
+        if (lead <= 0xbf) {
+            // Stray continuation.  The byte path resets grapheme input for
+            // 0x80..0x9f before its replacement character; keep that.
+            if (lead <= 0x9f) {
+                inputGraphemeBreaker.reset();
+            }
+            place(Unicode_Replacement_Character, 1);
+            continue;
+        }
+        if (lead >= 0xc2 && lead <= 0xdf) {
             codepoint = lead & 0x1f;
             minimum = 0x80;
             length = 2;
@@ -3937,52 +3973,48 @@ int VtermImpl::placeUtf8Run(const u8* input, int size) {
             codepoint = lead & 0x07;
             minimum = 0x10000;
             length = 4;
-        } else if (lead >= 0xa0) {
-            codepoint = Unicode_Replacement_Character;
-            minimum = 0;
-            length = 1;
         } else {
-            break;
+            // 0xc0, 0xc1 and 0xf5..0xff can never begin a sequence.
+            place(Unicode_Replacement_Character, 1);
+            continue;
         }
         if (consumed + length > size) {
             break;
         }
-        bool valid = true;
-        for (int k = 1; k < length; ++k) {
-            const u8 continuation = input[consumed + k];
+        const u8 first = input[consumed + 1];
+        if ((first & 0xc0) != 0x80) {
+            // A lead without its continuation is one replacement; the
+            // offender is reexamined as a fresh lead.
+            place(Unicode_Replacement_Character, 1);
+            continue;
+        }
+        if ((lead == 0xe0 && first < 0xa0) || (lead == 0xed && first >= 0xa0) || (lead == 0xf0 && first < 0x90) || (lead == 0xf4 && first >= 0x90)) {
+            // Overlong, surrogate or beyond U+10FFFF at the first
+            // continuation: the byte decoder completes a double replacement
+            // and consumes both bytes.
+            place(Unicode_Replacement_Character, 0);
+            place(Unicode_Replacement_Character, 2);
+            continue;
+        }
+        codepoint = (codepoint << 6) | (first & 0x3f);
+        int scanned = 2;
+        for (; scanned < length; ++scanned) {
+            const u8 continuation = input[consumed + scanned];
             if ((continuation & 0xc0) != 0x80) {
-                valid = false;
                 break;
             }
             codepoint = (codepoint << 6) | (continuation & 0x3f);
         }
-        if (!valid || codepoint < minimum || codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff)) {
-            break;
-        }
-
-        const u8 data = codepointData(codepoint);
-        const bool boundary = inputGraphemeBreaker.breakBefore(codepoint, (data & 0x04) != 0);
-        const u8 width = data & 0x03;
-        if (!boundary || width == 0) {
-            flush();
-            utf8dec.setUnicode(codepoint);
-            placeGraphicChar(boundary, width);
-            consumed += length;
+        if (scanned < length) {
+            // Truncated mid-sequence: one replacement for the consumed
+            // prefix; the offender is reexamined as a fresh lead.
+            place(Unicode_Replacement_Character, scanned);
             continue;
         }
-        if (batchCount == batchLimit) {
-            flush();
+        if (codepoint < minimum || codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff)) {
+            codepoint = Unicode_Replacement_Character;
         }
-        batch[batchCount] = codepoint;
-        widths[batchCount++] = width;
-        batchWide |= width == 2;
-        consumed += length;
-        // A wide glyph can be discarded after wrapping into a narrow or
-        // double-width row.  That resets grapheme state, so commit it before
-        // determining the boundary of the following codepoint.
-        if (width == 2) {
-            flush();
-        }
+        place(codepoint, length);
     }
     flush();
     return consumed;

@@ -258,4 +258,88 @@ STD_TEST_SUITE(VtermHeadless) {
 
         STD_INSIST(!pty.bytes.empty());
     }
+
+    STD_TEST(BulkUtf8DecoderMatchesByteWiseDecoder) {
+        // The whole-buffer feed decodes through placeUtf8Run, tiny feeds
+        // through Utf8Decoder::pushByte.  Screens must match cell for cell
+        // for every replacement-character rule and chunk-boundary split.
+        const u8 directed[] =
+            // Valid 2-, 3- and 4-byte sequences with edge codepoints.
+            u8"A\xc3\xa9 \xe2\x82\xac \xf0\x9f\x92\xbb "
+            u8"\xe0\xa0\x80 \xed\x9f\xbf \xf4\x8f\xbf\xbf Z\r\n"
+            // Stray continuations: the C1 range resets grapheme input.
+            u8"\x80\x9f\xa0\xbf Z\r\n"
+            // Bytes that can never begin a sequence.
+            u8"\xc0\xc1\xf5\xff Z\r\n"
+            // Overlong, surrogate and beyond-U+10FFFF first continuations.
+            u8"\xe0\x80 \xe0\x9f \xed\xa0 \xf0\x80 \xf4\x90 Z\r\n"
+            // Leads truncated at every position.
+            u8"\xc2Z \xe2Z \xe2\x82Z \xf0Z \xf0\x90Z \xf0\x90\x8fZ\r\n"
+            // Combining, wide and joined clusters against garbage.
+            u8"e\xcc\x81 \xe4\xbd\xa0 \xf0\x9f\x91\xa9\xe2\x80\x8d\xf0\x9f\x92\xbb \x80\xcc\x81 Z\r\n";
+
+        // Deterministic garbage over the full byte range except ESC: mode
+        // and charset changes are covered by directed tests elsewhere.
+        u8 garbage[4096];
+        u32 state = 0x2545f491;
+        for (size_t index = 0; index < sizeof(garbage); ++index) {
+            state = state * 747796405u + 2891336453u;
+            const u8 byte = (u8)(state >> 24);
+            garbage[index] = byte == 0x1b ? 0x20 : byte;
+        }
+
+        const auto compareScreens = [](Vterm& whole, Vterm& split) {
+            whole.expose();
+            split.expose();
+            const TerminalUpdate* const wholeUpdate = whole.output();
+            const TerminalUpdate* const splitUpdate = split.output();
+            STD_INSIST(wholeUpdate != nullptr);
+            STD_INSIST(splitUpdate != nullptr);
+            STD_INSIST(wholeUpdate->cursor.posX == splitUpdate->cursor.posX);
+            STD_INSIST(wholeUpdate->cursor.posY == splitUpdate->cursor.posY);
+            STD_INSIST(wholeUpdate->spanCount == splitUpdate->spanCount);
+            STD_INSIST(wholeUpdate->spanCount > 0);
+            for (size_t span = 0; span < wholeUpdate->spanCount; ++span) {
+                const TerminalCellSpan& wholeSpan = wholeUpdate->spans[span];
+                const TerminalCellSpan& splitSpan = splitUpdate->spans[span];
+                STD_INSIST(wholeSpan.index == splitSpan.index);
+                STD_INSIST(wholeSpan.count == splitSpan.count);
+                STD_INSIST(wholeSpan.lineAttribute == splitSpan.lineAttribute);
+                for (u32 cell = 0; cell < wholeSpan.count; ++cell) {
+                    STD_INSIST(wholeSpan.cells[cell].style == splitSpan.cells[cell].style);
+                    STD_INSIST(wholeSpan.cells[cell].content == splitSpan.cells[cell].content);
+                }
+            }
+            whole.consume();
+            split.consume();
+        };
+
+        const size_t chunkSizes[] = {1, 2, 3, 7};
+        for (const size_t chunk : chunkSizes) {
+            auto wholePool = ObjPool::fromMemory();
+            auto splitPool = ObjPool::fromMemory();
+            Composer& wholeComposer = *wholePool->make<Composer>(wholePool.mutPtr());
+            Composer& splitComposer = *splitPool->make<Composer>(splitPool.mutPtr());
+            VtermHeadless::create(wholeComposer, nullptr);
+            VtermHeadless::create(splitComposer, nullptr);
+            Vterm& whole = *wholeComposer.vterm;
+            Vterm& split = *splitComposer.vterm;
+            discardOutput(whole);
+            discardOutput(split);
+
+            whole.feedPty(StringView(directed, sizeof(directed) - 1));
+            for (size_t offset = 0; offset < sizeof(directed) - 1; offset += chunk) {
+                const size_t length = sizeof(directed) - 1 - offset < chunk ? sizeof(directed) - 1 - offset : chunk;
+                split.feedPty(StringView(directed + offset, length));
+            }
+            compareScreens(whole, split);
+
+            whole.feedPty(StringView(garbage, sizeof(garbage)));
+            for (size_t offset = 0; offset < sizeof(garbage); offset += chunk) {
+                const size_t length = sizeof(garbage) - offset < chunk ? sizeof(garbage) - offset : chunk;
+                split.feedPty(StringView(garbage + offset, length));
+            }
+            compareScreens(whole, split);
+        }
+    }
 }
