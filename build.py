@@ -351,24 +351,19 @@ if darwin:
         "src": "$(S)/render_metal.mm",
         "inputs": ["$(B)/render_msl.h"],
     })
-<<<<<<< Updated upstream
 vterm_source = "$(S)/vterm.cpp"
-=======
 font_embedded_source = "$(S)/font_embedded.cpp"
->>>>>>> Stashed changes
 libshitty_sources = [
     {
         "src": source,
         "inputs": ["$(B)/parser.rl.h"],
     } if source == parser_source else {
         "src": source,
-<<<<<<< Updated upstream
         "inputs": ["$(B)/utf8_dfa.h"],
-    } if source == vterm_source else source
-=======
+    } if source == vterm_source else {
+        "src": source,
         "inputs": ["$(B)/font_data.h"],
     } if source == font_embedded_source else source
->>>>>>> Stashed changes
     for source in all_libshitty_sources
 ]
 libshitty_test_sources = [
@@ -377,13 +372,11 @@ libshitty_test_sources = [
         "inputs": ["$(B)/parser_test.rl.h"],
     } if source == parser_source else {
         "src": source,
-<<<<<<< Updated upstream
         "inputs": ["$(B)/utf8_dfa.h"],
-    } if source == vterm_source else source
-=======
+    } if source == vterm_source else {
+        "src": source,
         "inputs": ["$(B)/font_data.h"],
     } if source == font_embedded_source else source
->>>>>>> Stashed changes
     for source in all_libshitty_sources
 ]
 libshitty_deps = [
