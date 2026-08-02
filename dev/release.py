@@ -201,16 +201,27 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Build and publish a Shitty GitHub release.",
     )
-    parser.add_argument("tag", help="numeric release tag")
-    parser.add_argument("sha", help="git commit to release")
+    parser.add_argument("tag", nargs="?", help="numeric release tag; omitted picks the next")
+    parser.add_argument("--sha", default="HEAD", help="git commit to release")
+    parser.add_argument(
+        "--builder",
+        choices=("ix", "brew"),
+        default="ix",
+        help="darwin build environment: the local ix toolchain or the CI brew one",
+    )
+    parser.add_argument(
+        "--generate-notes",
+        action="store_true",
+        help="let GitHub generate the release notes instead of reading stdin",
+    )
     arguments = parser.parse_args()
 
-    if not re.fullmatch(r"[1-9][0-9]*", arguments.tag):
+    if arguments.tag is not None and not re.fullmatch(r"[1-9][0-9]*", arguments.tag):
         parser.error("tag must be a positive decimal integer without leading zeroes")
 
     verify_tools()
-    notes = sys.stdin.read().strip()
-    if not notes:
+    notes = "" if arguments.generate_notes else sys.stdin.read().strip()
+    if not notes and not arguments.generate_notes:
         parser.error("release notes must be provided on stdin")
 
     project_root = Path(__file__).resolve().parent.parent
@@ -230,10 +241,12 @@ def main() -> int:
         capture=True,
     )
 
-    if release_exists(repository, arguments.tag):
-        raise RuntimeError(f"release {arguments.tag} already exists")
     numeric_tags = release_tags(repository)
     expected_tag = max(numeric_tags, default=0) + 1
+    if arguments.tag is None:
+        arguments.tag = str(expected_tag)
+    if release_exists(repository, arguments.tag):
+        raise RuntimeError(f"release {arguments.tag} already exists")
     if int(arguments.tag) != expected_tag:
         raise RuntimeError(f"next release tag is {expected_tag}, not {arguments.tag}")
 
@@ -258,7 +271,8 @@ def main() -> int:
         source_archive = artifacts / f"shitty-{arguments.tag}.tar.gz"
         binary_archive = artifacts / "st-darwin-arm64.tar.gz"
         notes_file = artifacts / "release-notes.md"
-        notes_file.write_text(f"{notes}\n")
+        if not arguments.generate_notes:
+            notes_file.write_text(f"{notes}\n")
 
         create_source_archive(
             checkout,
@@ -266,7 +280,8 @@ def main() -> int:
             f"shitty-{arguments.tag}",
             timestamp,
         )
-        run([os.fspath(checkout / "dev" / "build_ix_macos.sh")], cwd=checkout)
+        builder = "build_ix_macos.sh" if arguments.builder == "ix" else "build_brew_macos.sh"
+        run([os.fspath(checkout / "dev" / builder)], cwd=checkout)
         binary = checkout / ".build-darwin" / "st"
         if not binary.is_file():
             raise RuntimeError(f"Darwin build did not produce {binary}")
@@ -316,8 +331,11 @@ def main() -> int:
                 "--verify-tag",
                 "--title",
                 arguments.tag,
-                "--notes-file",
-                os.fspath(notes_file),
+                *(
+                    ["--generate-notes"]
+                    if arguments.generate_notes
+                    else ["--notes-file", os.fspath(notes_file)]
+                ),
             ],
             cwd=checkout,
         )

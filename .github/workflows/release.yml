@@ -1,0 +1,40 @@
+name: Release
+
+# The release button: publishes the next numeric tag from the current
+# master with a portable darwin-arm64 binary (static utf8proc, no
+# Homebrew dylibs - dev/build_brew_macos.sh guards that) and
+# GitHub-generated notes. The homebrew tap picks the release up on its
+# own schedule.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: release tag (empty picks the next number)
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install the toolchain
+        run: |
+          brew install llvm ragel glslang spirv-cross utf8proc librsvg
+          command -v pkg-config >/dev/null || brew install pkgconf
+      - name: Let the release push tags
+        run: |
+          git config --global user.name "shitty release bot"
+          git config --global user.email "noreply@github.com"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Build and publish
+        run: |
+          python3 dev/release.py ${{ inputs.tag }} --sha "$GITHUB_SHA" --builder brew --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
