@@ -50,10 +50,23 @@ public:
     }
 
     [[gnu::always_inline]] void setBoundaryAfter(u32 codepoint) {
+        setBoundaryAfter(codepoint, codepoint >= 0x20 && codepoint < 0x7f);
+    }
+
+    // For callers that already know the codepoint's grapheme simplicity and
+    // batch their boundary checks: equivalent to a breakBefore(codepoint,
+    // simple) that returned true.
+    [[gnu::always_inline]] void setBoundaryAfter(u32 codepoint, bool simple) {
         hasPrevious_ = true;
         previous_ = (i32)(codepoint);
-        previousSimple_ = codepoint >= 0x20 && codepoint < 0x7f;
+        previousSimple_ = simple;
         state_ = 0;
+    }
+
+    // True when the next breakBefore of a simple codepoint is guaranteed to
+    // report a boundary through the fast path.
+    [[gnu::always_inline]] bool simpleBoundary() const {
+        return !hasPrevious_ || previousSimple_;
     }
 
     [[gnu::always_inline]] void reset() {
