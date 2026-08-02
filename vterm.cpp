@@ -2243,7 +2243,7 @@ bool VtermImpl::bufferDropPayload(Input& source, Buffer& content) {
 
 void VtermImpl::dropText(Input& source) {
     plt::Scheduler* const scheduler = composer.platform->scheduler();
-    if (!scheduler->inFiber()) {
+    if (scheduler->current() == nullptr) {
         Buffer content;
         if (bufferDropPayload(source, content)) {
             dropBuffered(StringView(content));
@@ -2300,7 +2300,7 @@ void VtermImpl::buildQuotedEntry(StringView entry, StringBuilder& quoted) {
 
 void VtermImpl::dropUriList(Input& source) {
     plt::Scheduler* const scheduler = composer.platform->scheduler();
-    if (!scheduler->inFiber()) {
+    if (scheduler->current() == nullptr) {
         Buffer content;
         if (!bufferDropPayload(source, content)) {
             return;
