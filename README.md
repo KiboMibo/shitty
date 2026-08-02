@@ -10,11 +10,6 @@
 
 **Blazingly fast. Memory-unsafe and faster than yours.**
 
-Shitty is a hard fork and complete rewrite of **Zutty**. The original Zutty
-terminal emulator was created by **Tom Szilagyi**. Shitty keeps that lineage,
-but replaces the architecture, renderer, platform integration, testing
-strategy, and project identity.
-
 Shitty is built for low latency, fast startup, and predictable resource use.
 It keeps terminal state on the CPU and renders cells with native compute
 backends: Vulkan on Linux and Metal on macOS.
@@ -248,6 +243,11 @@ graphics protocols such as sixel. Some historical DEC and xterm extensions
 are intentionally outside the supported profile.
 
 ## License transition and authorship
+
+Shitty is a hard fork and complete rewrite of **Zutty**. The original Zutty
+terminal emulator was created by **Tom Szilagyi**. Shitty keeps that lineage,
+but replaces the architecture, renderer, platform integration, testing
+strategy, and project identity.
 
 Shitty is moving from the imported GPL baseline to an MIT-only codebase. It
 does not intend to retain the GPL as the final project license.
