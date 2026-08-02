@@ -332,7 +332,17 @@ void ApplicationImpl::childSignalHandler(int signal, siginfo_t*, void*) {
     // SIGCHLD does not queue: one delivery may stand for several exited
     // children (the shell plus xdg-open helpers), so reap until drained.
     if (signal == SIGCHLD) {
-        while (waitpid(-1, nullptr, WNOHANG) > 0) {
+        int status = 0;
+        pid_t pid;
+        while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+#if !defined(SHITTY_FOR_TESTS)
+            // The shell is the terminal's lifetime: exit right here with
+            // its status, no teardown by design. The test binary instead
+            // winds down through the destructors for the sanitizers.
+            if (pid == ptyChildPid()) {
+                _exit(WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status));
+            }
+#endif
         }
     }
 }
@@ -382,7 +392,12 @@ bool ApplicationImpl::presentTerminal() {
 }
 
 void ApplicationImpl::close() {
+#if defined(SHITTY_FOR_TESTS)
     composer.platform->stop();
+#else
+    // The window is the other lifetime bound; same policy as SIGCHLD.
+    _exit(0);
+#endif
 }
 
 void ApplicationImpl::updateWindowInfo(const plt::WindowInfo& info) {

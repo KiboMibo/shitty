@@ -33,6 +33,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <pthread.h>
 #include <limits.h>
 #include <stdlib.h>
@@ -453,6 +454,14 @@ namespace {
     }
 }
 
+namespace {
+    pid_t childPid = -1;
+}
+
+pid_t ptyChildPid() {
+    return childPid;
+}
+
 Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
     std::vector<char*> arguments;
     arguments.reserve(command.arguments.size() + 1);
@@ -467,6 +476,13 @@ Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
     // always has a live slave side, so closing the parent's copy cannot
     // kill the pty under the child.
     const int slave = openPtySlave(slaveName);
+    // A shell that dies instantly must not outrun the pid store: the
+    // handler compares against it. The child clears the inherited mask.
+    sigset_t childSignal;
+    sigemptyset(&childSignal);
+    sigaddset(&childSignal, SIGCHLD);
+    sigset_t previousMask;
+    sigprocmask(SIG_BLOCK, &childSignal, &previousMask);
     const pid_t pid = fork();
     if (pid < 0) {
         const int error = errno;
@@ -476,6 +492,7 @@ Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
         sysError("fork");
     }
     if (pid == 0) {
+        sigprocmask(SIG_SETMASK, &previousMask, nullptr);
         if (setsid() < 0) {
             sysError("setsid");
         }
@@ -498,6 +515,8 @@ Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
         execvp(command.executable.c_str(), arguments.data());
         sysError("execvp of ", command.executable.c_str());
     }
+    childPid = pid;
+    sigprocmask(SIG_SETMASK, &previousMask, nullptr);
     PtyImpl* const pty = composer.pool->make<PtyImpl>(composer, master);
     close(slave);
     pty->start();

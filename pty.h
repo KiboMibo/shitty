@@ -9,6 +9,7 @@
 #include <std/sys/types.h>
 
 #include <cstddef>
+#include <sys/types.h>
 
 namespace stl {
     class Output;
@@ -31,3 +32,7 @@ struct Pty {
     // and starts the reader thread and the fiber that feeds the vterm.
     static Pty* create(Composer& composer, const LaunchCommand& command);
 };
+
+// The shell's pid once Pty::create forked it, -1 before; async-signal-safe
+// to read, for the SIGCHLD handler that exits with the shell's status.
+pid_t ptyChildPid();
