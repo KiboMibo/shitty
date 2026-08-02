@@ -3965,19 +3965,28 @@ int VtermImpl::placeUtf8Run(const u8* input, int size, u8& pendingTrace) {
             break;
         }
         const u8 action = Utf8Dfa::act[state][cls];
+#if defined(SHITTY_FOR_TESTS)
+        // A stray ground C1 stays observable as a control event, so the
+        // ground dispatcher owns it. Production has no parser trace and
+        // takes the replacement emission of the same action instead of
+        // paying a run exit per byte.
         if (action & Utf8Dfa::Stop) [[unlikely]] {
-            // A stray C1 in ground stays observable as a control event:
-            // the ground dispatcher owns it.
             break;
         }
+#endif
         sequenceStart = cls >= Utf8Dfa::LeadFirst ? consumed : sequenceStart;
         codepoint = cls >= Utf8Dfa::LeadFirst ? byte & Utf8Dfa::mask[cls] : (codepoint << 6) | (byte & 0x3f);
         state = Utf8Dfa::next[state][cls];
         ++consumed;
         if ((action & Utf8Dfa::Slow) != 0 || !simpleRun) [[unlikely]] {
             // Completed sequences need their width and grapheme class; a
-            // non-simple boundary needs the full breaker.
+            // non-simple boundary needs the full breaker. The stray-C1
+            // reset only matters here: on the fast path it is equivalent
+            // to the plain replacement it precedes.
             syncBreaker();
+            if (action & Utf8Dfa::Reset) {
+                inputGraphemeBreaker.reset();
+            }
             const unsigned count = action & Utf8Dfa::CountMask;
             if (count != 0) {
                 place((action & Utf8Dfa::FirstByte) ? byte : (action & Utf8Dfa::Slow) ? codepoint : Unicode_Replacement_Character, 0);

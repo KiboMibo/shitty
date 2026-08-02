@@ -19,13 +19,17 @@ COUNT_MASK = 3
 FIRST_BYTE = 4  # first emission is the input byte itself
 SECOND_BYTE = 8  # second emission is the input byte itself
 SLOW = 16  # emission is the completed codepoint: needs its properties
-STOP = 32  # stray C1 in ground leaves the run for the ground dispatcher
+STOP = 32  # a traced build leaves the byte to the ground dispatcher
+RESET = 64  # stray C1 resets grapheme input before its replacement
 
+# A stray ground C1 is one action with two readings: a traced build stops
+# the run before the emission so the trace layer reports a control event,
+# production takes the replacement emission and stays in the run.
 ACTIONS = {
     (): 0,
     ("byte",): 1 | FIRST_BYTE,
     ("fffd",): 1,
-    ("stop",): STOP,
+    ("stop",): 1 | STOP | RESET,
     ("cp",): 1 | SLOW,
     ("fffd", "fffd"): 2,
     ("fffd", "byte"): 2 | SECOND_BYTE,
@@ -307,7 +311,8 @@ def main():
         header.write(f"    constexpr u8 FirstByte = {FIRST_BYTE};\n")
         header.write(f"    constexpr u8 SecondByte = {SECOND_BYTE};\n")
         header.write(f"    constexpr u8 Slow = {SLOW};\n")
-        header.write(f"    constexpr u8 Stop = {STOP};\n\n")
+        header.write(f"    constexpr u8 Stop = {STOP};\n")
+        header.write(f"    constexpr u8 Reset = {RESET};\n\n")
         header.write("    constexpr u8 Exit = 0;\n")
         header.write(f"    constexpr u8 LeadFirst = {lead_first};\n")
         header.write("    constexpr u8 Ground = 0;\n")
