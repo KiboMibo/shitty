@@ -2,7 +2,7 @@
 
 [![codecov](https://codecov.io/gh/pg83/shitty/branch/master/graph/badge.svg)](https://app.codecov.io/gh/pg83/shitty)
 
-**A small, fast terminal emulator for Linux and macOS.**
+**The fastest terminal emulator on Earth.**
 
 Shitty is a hard fork and complete rewrite of **Zutty**. The original Zutty
 terminal emulator was created by **Tom Szilagyi**. Shitty keeps that lineage,
@@ -12,6 +12,35 @@ strategy, and project identity.
 Shitty is built for low latency, fast startup, and predictable resource use.
 It keeps terminal state on the CPU and renders cells with native compute
 backends: Vulkan on Linux and Metal on macOS.
+
+## Performance
+
+100MB catted through the GUI on an Apple-silicon MacBook, every terminal
+equalized first: Menlo 12pt, the same 14x28px cell, an 80x24 grid, 500
+lines of scrollback. Best wall time of three runs.
+
+Printable ASCII (the scroll path):
+
+| terminal | wall | user | throughput |
+|---|---|---|---|
+| **shitty** | **0.81s** | 0.50s | **~118 MiB/s** |
+| alacritty 0.17.0 | 0.96s | 0.78s | ~99 MiB/s |
+| kitty 0.48.2 | 1.28s | 0.95s | ~75 MiB/s |
+| ghostty 1.3.1 | 1.49s | 1.60s | ~64 MiB/s |
+
+Random bytes (the parser's worst case, invalid UTF-8 throughout):
+
+| terminal | wall | user | throughput |
+|---|---|---|---|
+| **shitty** | **1.88s** | 1.79s | **~51 MiB/s** |
+| alacritty 0.17.0 | 3.07s | 2.92s | ~31 MiB/s |
+| ghostty 1.3.1 | 4.63s | ~7.0s | ~21 MiB/s |
+| kitty 0.48.2 | - | - | - |
+
+kitty sits the random payload out: it reacts to the embedded escape junk
+with title changes and bells instead of drawing. Reproduce with
+[dev/compare.py](dev/compare.py), which verifies the equalized setup from
+inside every terminal before measuring anything.
 
 ## Features
 
