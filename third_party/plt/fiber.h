@@ -43,7 +43,6 @@ namespace plt {
         // without a deadline.
         virtual bool awaitReadable(int fd, u64 timeoutUs) = 0;
         virtual bool awaitWritable(int fd, u64 timeoutUs) = 0;
-        virtual void sleep(u64 timeoutUs) = 0;
         virtual void yield() = 0;
         // The running fiber, nullptr outside any.
         virtual Fiber* current() = 0;

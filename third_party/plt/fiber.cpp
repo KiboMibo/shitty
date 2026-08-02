@@ -51,7 +51,6 @@ namespace {
         void spawn(Runable& entry, void* stack, size_t size) override;
         bool awaitReadable(int fd, u64 timeoutUs) override;
         bool awaitWritable(int fd, u64 timeoutUs) override;
-        void sleep(u64 timeoutUs) override;
         void yield() override;
         Fiber* current() override;
 
@@ -187,13 +186,6 @@ bool SchedulerImpl::awaitReadable(int fd, u64 timeoutUs) {
 
 bool SchedulerImpl::awaitWritable(int fd, u64 timeoutUs) {
     return awaitFd(fd, PollFlag::Out, timeoutUs);
-}
-
-void SchedulerImpl::sleep(u64 timeoutUs) {
-    FiberImpl& fiber = *active;
-    fiber.timerFired = false;
-    poller.timeout(timeoutUs, fiber);
-    fiber.block();
 }
 
 void SchedulerImpl::yield() {

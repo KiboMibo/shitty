@@ -125,7 +125,7 @@ STD_TEST_SUITE(FiberScheduler) {
         STD_INSIST(poller.fdCallback == nullptr);
     }
 
-    STD_TEST(SleepAndInterleave) {
+    STD_TEST(TimedParkAndInterleave) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         ManualPoller poller;
         Scheduler* const scheduler = Scheduler::create(*pool, poller);
@@ -134,12 +134,12 @@ STD_TEST_SUITE(FiberScheduler) {
         int loopAt = 0;
         auto body = makeRunable([&] {
             firstAt = ++order;
-            scheduler->sleep(1000);
+            scheduler->current()->parkFor(1000);
             firstAt = ++order;
         });
         alignas(16) static u8 bodyStack[lightFiberStack];
         scheduler->spawn(body, bodyStack, sizeof(bodyStack));
-        // The loop runs while the fiber sleeps.
+        // The loop runs while the fiber waits.
         loopAt = ++order;
         poller.fireTimer();
         STD_INSIST(loopAt == 2);
@@ -177,7 +177,9 @@ STD_TEST_SUITE(FiberScheduler) {
         bool woken = false;
         auto body = makeRunable([&] {
             handle = scheduler->current();
-            scheduler->sleep(1000);
+            // Blocked on a descriptor, not parked: the wake below must be
+            // remembered, not resume the wait.
+            scheduler->awaitReadable(0, 1000);
             scheduler->current()->park();
             woken = true;
         });
@@ -198,7 +200,7 @@ STD_TEST_SUITE(FiberScheduler) {
         bool outerDone = false;
         auto inner = makeRunable([&] {
             innerBlocked = true;
-            scheduler->sleep(1000);
+            scheduler->current()->parkFor(1000);
             innerDone = true;
         });
         auto outer = makeRunable([&] {
@@ -532,7 +534,7 @@ STD_TEST_SUITE(FiberSchedulerPlatform) {
         close(pipes[1]);
     }
 
-    STD_TEST(SleepDeadlinesResumeInOrder) {
+    STD_TEST(TimedParkDeadlinesResumeInOrder) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         Platform* const platform = systemPlatform(*pool);
         if (platform == nullptr) {
@@ -546,12 +548,12 @@ STD_TEST_SUITE(FiberSchedulerPlatform) {
         // Spawned long-sleeper first; deadlines, not spawn order, decide
         // who resumes first through the shared run-loop timer.
         auto longSleeper = makeRunable([&] {
-            scheduler->sleep(60'000);
+            scheduler->current()->parkFor(60'000);
             longAt = ++order;
             stop.done();
         });
         auto shortSleeper = makeRunable([&] {
-            scheduler->sleep(15'000);
+            scheduler->current()->parkFor(15'000);
             shortAt = ++order;
             stop.done();
         });
