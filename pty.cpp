@@ -359,9 +359,9 @@ PtyImpl::PtyImpl(Composer& composer, int fd)
 }
 
 PtyImpl::~PtyImpl() {
-    if (fd_ >= 0) {
-        close(fd_);
-    }
+    // The master stays open: on Darwin closing a tty descriptor blocks
+    // while the reader thread sleeps in read on it, and the eternal
+    // threads own the descriptor anyway. Process exit reaps all three.
 }
 
 Output* PtyImpl::output() {
