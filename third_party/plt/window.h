@@ -105,7 +105,7 @@ namespace plt {
         // Encoded image bytes (PNG) for the application icon; empty keeps
         // the platform default. Cocoa sets the Dock icon from it, Wayland
         // has no icon protocol and ignores it.
-        stl::StringView icon;
+        stl::StringView icon = {};
     };
 
     struct Window {
