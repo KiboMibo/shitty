@@ -319,18 +319,35 @@ utf8_dfa = command(
 )
 
 
+icon_png = command(
+    name="icon_png",
+    inputs=["$(S)/shitty.svg"],
+    outputs=["$(B)/shitty.png"],
+    cmd=[
+        "rsvg-convert",
+        "-w", "1024",
+        "-h", "1024",
+        "$(S)/shitty.svg",
+        "-o", "$(B)/shitty.png",
+    ],
+    descr="SV",
+    color="magenta",
+)
+
+
 icon_data = command(
     name="icon_data",
     inputs=[
         "$(S)/generate_font_data.py",
-        "$(S)/icons/shitty.png",
+        "$(B)/shitty.png",
     ],
+    deps=[icon_png],
     outputs=["$(B)/icon_data.h"],
     cmd=[
         "python3",
         "$(S)/generate_font_data.py",
         "$(B)/icon_data.h",
-        "embeddedIcon=$(S)/icons/shitty.png",
+        "embeddedIcon=$(B)/shitty.png",
     ],
     descr="IC",
     color="magenta",

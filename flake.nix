@@ -112,6 +112,7 @@
           nativeBuildInputs = with pkgs; [
             addDriverRunpath
             glslang
+            librsvg
             makeWrapper
             pkg-config
             python3

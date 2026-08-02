@@ -70,6 +70,7 @@ processes. The host must provide the corresponding terminfo entry.
 Shitty is written in C++23 and built with Clang. Every build requires:
 
 - Python 3 and `glslangValidator`;
+- librsvg (`rsvg-convert`), which renders the icon at build time;
 - pkg-config;
 - Brotli and utf8proc;
 - POSIX threads and PTY support.
