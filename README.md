@@ -8,7 +8,7 @@
 [![platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-8a8a8a)](#requirements)
 [![speed](https://img.shields.io/badge/ascii-118%20MiB%2Fs%20%C2%B7%201.2%C3%97%20alacritty-ffb000)](#performance)
 
-**The fastest terminal emulator on Earth.**
+**Blazingly fast. Memory-unsafe and faster than yours.**
 
 Shitty is a hard fork and complete rewrite of **Zutty**. The original Zutty
 terminal emulator was created by **Tom Szilagyi**. Shitty keeps that lineage,
