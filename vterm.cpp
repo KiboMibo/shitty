@@ -3973,10 +3973,10 @@ int VtermImpl::placeUtf8Run(const u8* input, int size) {
         widths[batchCount++] = width;
         batchWide |= width == 2;
         consumed += length;
-        // With DECAWM disabled a wide glyph at the right edge is discarded
-        // and resets grapheme state.  Apply that transition before looking
-        // at the following codepoint instead of speculating across it.
-        if (width == 2 && !autoWrapMode) {
+        // A wide glyph can be discarded after wrapping into a narrow or
+        // double-width row.  That resets grapheme state, so commit it before
+        // determining the boundary of the following codepoint.
+        if (width == 2) {
             flush();
         }
     }
