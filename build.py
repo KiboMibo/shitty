@@ -230,10 +230,25 @@ if darwin:
         color="magenta",
     )
 
+parser_totality = command(
+    name="parser_totality",
+    inputs=["$(S)/parser.rl", "$(S)/check_parser_totality.py"],
+    outputs=["$(B)/parser.rl.total"],
+    cmd=[
+        "python3",
+        "$(S)/check_parser_totality.py",
+        "$(S)/parser.rl",
+        "$(B)/parser.rl.total",
+    ],
+    descr="RG",
+    color="magenta",
+)
+
 parser_prod = command(
     name="parser_prod",
     inputs=["$(S)/parser.rl"],
     outputs=["$(B)/parser.rl.h"],
+    deps=[parser_totality],
     cmd=[
         "ragel",
         "-C",
@@ -251,6 +266,7 @@ parser_test = command(
     name="parser_test",
     inputs=["$(S)/parser.rl"],
     outputs=["$(B)/parser_test.rl.h"],
+    deps=[parser_totality],
     cmd=[
         "ragel",
         "-C",

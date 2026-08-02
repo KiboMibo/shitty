@@ -959,6 +959,11 @@
         fgoto csiIgnore;
     }
 
+    action csiDispatchInvalid {
+        fhold;
+        fgoto csiIgnore;
+    }
+
     action csiIgnoredFinal {
         if constexpr (traced) {
             parserTrace->escapeCancel();
@@ -1098,6 +1103,11 @@
         iface.csi_CUP(parameter(0), parameter(1));
         fnext main;
         fbreak;
+    }
+
+    action vt52CupInvalid {
+        fhold;
+        fgoto main;
     }
 
     action dcsHeaderByte {
@@ -1481,6 +1491,11 @@
         fgoto dcsCursorDoneEscape;
     }
 
+    action dcsCursorInvalid {
+        fhold;
+        fgoto dcsIgnore;
+    }
+
     action dcsUpssStart {
         if (parser.dcsUpssComplete) {
             parser.dcsUpssValid = false;
@@ -1515,6 +1530,11 @@
 
     action dcsUpssEscape {
         fgoto dcsUpssEscape;
+    }
+
+    action dcsUpssInvalid {
+        fhold;
+        fgoto dcsIgnore;
     }
 
     action dcsDecrqssInvalidStart {
@@ -4263,22 +4283,22 @@
         (0x20..0x3f | 0x80..0x9f)
     )*;
 
-    csiPlainDispatch := csiPlainFinal;
-    csiGreaterDispatch := csiGreaterFinal;
-    csiLessDispatch := csiLessFinal;
-    csiEqualDispatch := csiEqualFinal;
-    csiQuestionDispatch := csiQuestionFinal;
-    csiBangDispatch := csiBangFinal;
-    csiQuoteDispatch := csiQuoteFinal;
-    csiSpaceDispatch := csiSpaceFinal;
-    csiApostropheDispatch := csiApostropheFinal;
-    csiDollarDispatch := csiDollarFinal;
-    csiStarDispatch := csiStarFinal;
-    csiCommaDispatch := csiCommaFinal;
-    csiHashDispatch := csiHashFinal;
-    csiAmpersandDispatch := csiAmpersandFinal;
-    csiQuestionDollarDispatch := csiQuestionDollarFinal;
-    csiUnknownDispatch := csiUnknownFinal;
+    csiPlainDispatch := csiPlainFinal $err(csiDispatchInvalid);
+    csiGreaterDispatch := csiGreaterFinal $err(csiDispatchInvalid);
+    csiLessDispatch := csiLessFinal $err(csiDispatchInvalid);
+    csiEqualDispatch := csiEqualFinal $err(csiDispatchInvalid);
+    csiQuestionDispatch := csiQuestionFinal $err(csiDispatchInvalid);
+    csiBangDispatch := csiBangFinal $err(csiDispatchInvalid);
+    csiQuoteDispatch := csiQuoteFinal $err(csiDispatchInvalid);
+    csiSpaceDispatch := csiSpaceFinal $err(csiDispatchInvalid);
+    csiApostropheDispatch := csiApostropheFinal $err(csiDispatchInvalid);
+    csiDollarDispatch := csiDollarFinal $err(csiDispatchInvalid);
+    csiStarDispatch := csiStarFinal $err(csiDispatchInvalid);
+    csiCommaDispatch := csiCommaFinal $err(csiDispatchInvalid);
+    csiHashDispatch := csiHashFinal $err(csiDispatchInvalid);
+    csiAmpersandDispatch := csiAmpersandFinal $err(csiDispatchInvalid);
+    csiQuestionDollarDispatch := csiQuestionDollarFinal $err(csiDispatchInvalid);
+    csiUnknownDispatch := csiUnknownFinal $err(csiDispatchInvalid);
 
     escapeVt52 := (
         cancel |
@@ -4309,8 +4329,8 @@
                 'H' | 'I' | 'J' | 'K' | 'Y' | 'Z' | 'c')) @vt52Unhandled
     )*;
 
-    vt52CupRow := any @vt52Row;
-    vt52CupColumn := any @vt52Column;
+    vt52CupRow := any @vt52Row $err(vt52CupInvalid);
+    vt52CupColumn := any @vt52Column $err(vt52CupInvalid);
 
     dcsEntry := (
         cancel |
@@ -4592,7 +4612,7 @@
         0x9c @dcsCursorSt |
         0x1b @dcsCursorDoneEscape |
         dcsCursorPayload
-    )*;
+    )* $err(dcsCursorInvalid);
 
     dcsCursorDoneEscape := (
         cancel |
@@ -4615,7 +4635,7 @@
         0x9c @dcsUpssSt |
         0x1b @dcsUpssEscape |
         dcsUpssId
-    )*;
+    )* $err(dcsUpssInvalid);
 
     dcsUpssEscape := (
         cancel |

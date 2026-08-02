@@ -2177,6 +2177,29 @@ STD_TEST_SUITE(ParserCallbacks) {
         }
     }
 
+    STD_TEST(StringPayloadGarbageDoesNotWedgeParser) {
+        // Bytes with no grammar transition used to strand the machine in
+        // the ragel error state, which consumes nothing, so feed() spun on
+        // the same byte forever. The $err recovery reroutes them into
+        // dcsIgnore: the malformed string is dropped and parsing goes on.
+        const StringView garbage[] = {
+            StringView(u8"\x1bP0!u\xeb\x1b\\"),
+            StringView(u8"\x90!u\xeb\x9c"),
+            StringView(u8"\x1bP0!u%\x07\x1b\\"),
+            StringView(u8"\x1bP0!u \x1b\\"),
+            StringView(u8"\x1bP1$t3;4;?\x1b\\"),
+            StringView(u8"\x1bP1$tzz\x1b\\"),
+        };
+        for (const StringView& input : garbage) {
+            ParserFixture fixture;
+            fixture.feed(input);
+            STD_INSIST(!fixture.iface.called("dcs_DECAUPSS"));
+            STD_INSIST(!fixture.iface.called("dcs_DECRSTS_CURSOR"));
+            fixture.feed(StringView(u8"\x1bP1!uA\x1b\\"));
+            expectValues(fixture.iface.find("dcs_DECAUPSS"), Charset::IsoLatin1, 'A', true);
+        }
+    }
+
     STD_TEST(RestoreColorTableOmittedAndClampedValues) {
         ParserFixture fixture;
         fixture.feed(StringView(u8"\x1bP2$p6;1;;50;100/12;2;150;0\x1b\\"));
