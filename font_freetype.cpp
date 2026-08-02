@@ -6,6 +6,8 @@
 
 #include "font_freetype.h"
 
+#include "composer.h"
+#include "font_face.h"
 #include "grapheme.h"
 #include "options.h"
 #include "utf8.h"
@@ -33,7 +35,7 @@ using namespace stl;
 
 namespace {
     struct FontImpl final: public Font {
-        FontImpl(StringView filename, const void* data, size_t dataSize, i32 faceIndex, u16 size, FontKind kind, FontMetrics& metrics, FontStyle synthetic);
+        FontImpl(IntrusivePtr<FontFace> source, u16 size, FontKind kind, FontMetrics& metrics, FontStyle synthetic);
         ~FontImpl() noexcept;
 
         FontGlyph glyph(const u32* codepoints, size_t count, u16 cells) override;
@@ -65,6 +67,8 @@ namespace {
         [[noreturn]] void fail(StringView message);
         [[noreturn]] void fail(StringBuilder&& message);
 
+        // Keeps the mapped bytes alive for as long as the FT face uses them.
+        IntrusivePtr<FontFace> source_;
         FT_Library library_ = nullptr;
         FT_Face face_ = nullptr;
         hb_font_t* harfbuzz_ = nullptr;
@@ -74,17 +78,17 @@ namespace {
         FontMetrics metrics_;
         u16 canvasWidth_ = 0;
         u16 fittedSize_[3] = {0, 0, 0};
-        i32 faceIndex_ = 0;
-        const void* data_ = nullptr;
-        size_t dataSize_ = 0;
         bool syntheticBold_ = false;
         bool syntheticItalic_ = false;
         bool fitLogged_ = false;
         bool hasColor_ = false;
         bool glyphColor_ = false;
-        Buffer filename_;
         Buffer bitmap_;
-        Buffer source_;
+        Buffer sourceBitmap_;
+    };
+
+    struct FreeTypeRenderer final: public FontRenderer {
+        Font* render(ObjPool& owner, IntrusivePtr<FontFace> face, u16 pixels, FontKind kind, FontMetrics& metrics) override;
     };
 
     int absolute(int value) {
@@ -122,33 +126,22 @@ namespace {
     }
 }
 
-FontImpl::FontImpl(StringView filename, const void* data, size_t dataSize, i32 faceIndex, u16 size, FontKind kind, FontMetrics& metrics, FontStyle synthetic)
-    : size_(size)
+FontImpl::FontImpl(IntrusivePtr<FontFace> source, u16 size, FontKind kind, FontMetrics& metrics, FontStyle synthetic)
+    : source_(source)
+    , size_(size)
     , kind_(kind)
     , metrics_(metrics)
-    , faceIndex_(faceIndex)
-    , data_(data)
-    , dataSize_(dataSize)
     , syntheticBold_(synthetic == FontStyle::Bold || synthetic == FontStyle::BoldItalic)
     , syntheticItalic_(synthetic == FontStyle::Italic || synthetic == FontStyle::BoldItalic)
-    , filename_(filename)
 {
     library_ = sharedFreeType();
     if (library_ == nullptr) {
         fail(StringView(u8"could not initialize FreeType"));
     }
 
-    if (data != nullptr) {
-        if (FT_New_Memory_Face(library_, (const FT_Byte*)(data), (FT_Long)(dataSize), faceIndex, &face_)) {
-            close();
-            fail(StringView(u8"failed to open embedded font"));
-        }
-    } else {
-        Buffer filenameBuffer(filename);
-        if (FT_New_Face(library_, filenameBuffer.cStr(), faceIndex, &face_)) {
-            close();
-            fail(StringBuilder() << StringView(u8"failed to open font ") << filename << StringView(u8" face ") << faceIndex);
-        }
+    if (FT_New_Memory_Face(library_, (const FT_Byte*)(source_->data()), (FT_Long)(source_->size()), source_->faceIndex(), &face_)) {
+        close();
+        fail(StringBuilder() << StringView(u8"failed to open font face ") << source_->faceIndex());
     }
 
     try {
@@ -316,7 +309,7 @@ bool FontImpl::covers(u32 codepoint) {
 Font* FontImpl::synthesize(ObjPool& owner, FontStyle style) {
     FontMetrics metrics = metrics_;
     try {
-        return owner.make<FontImpl>(StringView((const u8*)(filename_.data()), filename_.used()), data_, dataSize_, faceIndex_, size_, FontKind::Overlay, metrics, style);
+        return owner.make<FontImpl>(source_, size_, FontKind::Overlay, metrics, style);
     } catch (Exception&) {
         return nullptr;
     }
@@ -488,7 +481,7 @@ bool FontImpl::rasterizeMask(const hb_glyph_info_t* glyphs, const hb_glyph_posit
 void FontImpl::drawColor(const FT_Bitmap& source, int destinationX, int destinationY, int sourceWidth, int sourceHeight) {
     const int pitch = source.pitch;
     const int rowStride = absolute(pitch);
-    auto* destination = (u8*)(source_.mutData());
+    auto* destination = (u8*)(sourceBitmap_.mutData());
     for (int row = 0; row < source.rows; ++row) {
         const int storedRow = pitch < 0 ? source.rows - row - 1 : row;
         const u8* sourcePixels = (const u8*)(source.buffer + storedRow * rowStride);
@@ -542,7 +535,7 @@ void FontImpl::scaleColor(int sourceWidth, int sourceHeight) {
     const int targetHeight = maximum(1, rounded(sourceHeight * scale));
     const int originX = ((int)(canvasWidth_)-targetWidth) / 2;
     const int originY = ((int)(metrics_.height) - targetHeight) / 2;
-    const auto* source = (const u8*)(source_.data());
+    const auto* source = (const u8*)(sourceBitmap_.data());
     auto* destination = (u8*)(bitmap_.mutData());
     for (int y = 0; y < targetHeight; ++y) {
         const double sourceY = (y + 0.5) / scale - 0.5;
@@ -605,7 +598,7 @@ bool FontImpl::rasterizeColor(const hb_glyph_info_t* glyphs, const hb_glyph_posi
         return false;
     }
 
-    source_.zero((size_t)(sourceWidth)*sourceHeight * 4);
+    sourceBitmap_.zero((size_t)(sourceWidth)*sourceHeight * 4);
     penX = 0;
     penY = 0;
     for (unsigned index = 0; index < count; ++index) {
@@ -674,10 +667,10 @@ FontGlyph FontImpl::glyph(const u32* codepoints, size_t count, u16 cells) {
     };
 }
 
-Font* createFreeTypeFont(ObjPool& owner, StringView filename, i32 faceIndex, u16 pixels, FontKind kind, FontMetrics& metrics) {
-    return owner.make<FontImpl>(filename, nullptr, 0, faceIndex, pixels, kind, metrics, FontStyle::Regular);
+Font* FreeTypeRenderer::render(ObjPool& owner, IntrusivePtr<FontFace> face, u16 pixels, FontKind kind, FontMetrics& metrics) {
+    return owner.make<FontImpl>(face, pixels, kind, metrics, FontStyle::Regular);
 }
 
-Font* createFreeTypeMemoryFont(ObjPool& owner, const void* data, size_t size, i32 faceIndex, u16 pixels, FontKind kind, FontMetrics& metrics) {
-    return owner.make<FontImpl>(StringView(), data, size, faceIndex, pixels, kind, metrics, FontStyle::Regular);
+FontRenderer* createFreeTypeFontRenderer(Composer& composer) {
+    return composer.pool->make<FreeTypeRenderer>();
 }

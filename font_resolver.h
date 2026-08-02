@@ -23,7 +23,14 @@ struct FontRequest {
 };
 
 struct FontResolver: stl::IntrusiveNode {
-    // The returned font belongs to owner. nullptr lets the next resolver try.
-    // Views from request are valid only for the duration of this call.
-    virtual Font* load(stl::ObjPool& owner, const FontRequest& request, FontMetrics& metrics) = 0;
+    // The returned face is born unreferenced and the caller adopts it into
+    // an IntrusivePtr. nullptr lets the next resolver try. Views from
+    // request are valid only for the duration of this call. pixels is a
+    // hint: a backend whose face choice depends on optical size may honor
+    // it, the face itself is size-independent.
+    virtual FontFace* resolve(const FontRequest& request) = 0;
+    // Enumerates the faces this resolver contributes as implicit coverage
+    // fallbacks after the configured families: index counts from zero,
+    // null ends the walk. Faces follow the resolve() ownership convention.
+    virtual FontFace* fallback(size_t index);
 };

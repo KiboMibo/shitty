@@ -27,12 +27,16 @@ struct Fontpack;
 struct Application;
 struct CellExtraStore;
 struct Font;
+struct FontFace;
 struct FontMetrics;
+struct FontRenderer;
 struct InputBindings;
 struct Renderer;
 struct Pty;
 struct Vterm;
 struct FontRequest;
+
+enum class FontKind : u8;
 
 // Application wiring. Components retain Composer itself and read dependencies
 // here when needed; they do not cache aliases of these canonical fields.
@@ -45,6 +49,9 @@ struct Composer {
     void setCellExtras(CellExtraStore* extras);
     void resize(u16 pixelWidth, u16 pixelHeight);
     Font* loadFont(stl::ObjPool& owner, const FontRequest& request, FontMetrics& metrics);
+    // Adopts a face fresh from a resolver and rasterizes it with the first
+    // renderer in fontRenderers that succeeds; null when none does.
+    Font* renderFace(stl::ObjPool& owner, FontFace* face, u16 pixels, FontKind kind, FontMetrics& metrics);
 
     stl::ObjPool* pool = nullptr;
     // Owns the renderer and its listeners; dropped and rebuilt wholesale
@@ -85,6 +92,9 @@ struct Composer {
     stl::IntrusiveList cellExtrasChangedListeners;
     // Font resolvers are tried in registration order.
     stl::IntrusiveList fontResolvers;
+    // Font renderers are tried in registration order; any renderer accepts
+    // any resolver's face.
+    stl::IntrusiveList fontRenderers;
     // Input producers call input; the router walks this list in registration
     // order and stops at the first handler which accepts the event.
     stl::IntrusiveList inputHandlers;

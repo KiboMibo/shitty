@@ -7,7 +7,7 @@
 #include "font_fontconfig.h"
 
 #include "composer.h"
-#include "font_freetype.h"
+#include "font_face.h"
 #include "font_resolver.h"
 
 #include <std/lib/buffer.h>
@@ -22,18 +22,19 @@ using namespace stl;
 #if defined(HAVE_FONTCONFIG)
 namespace {
     struct FontSource {
-        StringView filename;
+        Buffer filename;
         i32 index = 0;
+        bool valid = false;
     };
 
     struct FontconfigResolverImpl final: public FontResolver {
         FontconfigResolverImpl();
         ~FontconfigResolverImpl() noexcept;
 
-        Font* load(ObjPool& owner, const FontRequest& request, FontMetrics& metrics) override;
+        FontFace* resolve(const FontRequest& request) override;
 
         bool initialize();
-        FontSource resolve(ObjPool& owner, StringView family, FontStyle style);
+        void resolveSource(StringView family, FontStyle style, FontSource& source);
         bool matchedFamily(FcPattern* match, StringView family);
 
         FcConfig* config_ = nullptr;
@@ -44,8 +45,8 @@ namespace {
         return family == StringView(u8"monospace") || family == StringView(u8"sans-serif") || family == StringView(u8"serif") || family == StringView(u8"cursive") || family == StringView(u8"fantasy");
     }
 
-    bool sameSource(FontSource left, FontSource right) {
-        return left.index == right.index && left.filename == right.filename;
+    bool sameSource(const FontSource& left, const FontSource& right) {
+        return left.valid && right.valid && left.index == right.index && StringView(left.filename) == StringView(right.filename);
     }
 
     void fontconfigStyle(FontStyle style, int& weight, int& slant) {
@@ -85,14 +86,14 @@ bool FontconfigResolverImpl::matchedFamily(FcPattern* match, StringView family) 
     }
 }
 
-FontSource FontconfigResolverImpl::resolve(ObjPool& owner, StringView family, FontStyle style) {
+void FontconfigResolverImpl::resolveSource(StringView family, FontStyle style, FontSource& source) {
     if (!initialize()) {
-        return {};
+        return;
     }
 
     FcPattern* pattern = FcPatternCreate();
     if (pattern == nullptr) {
-        return {};
+        return;
     }
     query_.reset();
     query_.append(family.data(), family.length());
@@ -109,49 +110,52 @@ FontSource FontconfigResolverImpl::resolve(ObjPool& owner, StringView family, Fo
     FcPattern* match = FcFontMatch(config_, pattern, &result);
     FcPatternDestroy(pattern);
     if (match == nullptr) {
-        return {};
+        return;
     }
     if (!matchedFamily(match, family)) {
         FcPatternDestroy(match);
-        return {};
+        return;
     }
 
-    FontSource source;
     FcChar8* file = nullptr;
     if (FcPatternGetString(match, FC_FILE, 0, &file) == FcResultMatch) {
-        source.filename = owner.intern(StringView((const char*)(file)));
+        source.filename = Buffer(StringView((const char*)(file)));
+        source.valid = true;
         int index = 0;
         if (FcPatternGetInteger(match, FC_INDEX, 0, &index) == FcResultMatch) {
             source.index = index;
         }
     }
     FcPatternDestroy(match);
-    return source;
 }
 
-Font* FontconfigResolverImpl::load(ObjPool& owner, const FontRequest& request, FontMetrics& metrics) {
+FontFace* FontconfigResolverImpl::resolve(const FontRequest& request) {
     if (request.name.memChr('/') || request.name.memChr('\\')) {
         return nullptr;
     }
 
-    const FontSource source = resolve(owner, request.name, request.style);
-    if (source.filename.empty()) {
+    FontSource source;
+    resolveSource(request.name, request.style, source);
+    if (!source.valid) {
         return nullptr;
     }
     if (request.style != FontStyle::Regular) {
-        const FontSource regular = resolve(owner, request.name, FontStyle::Regular);
+        FontSource regular;
+        resolveSource(request.name, FontStyle::Regular, regular);
         if (sameSource(source, regular)) {
             return nullptr;
         }
     }
     if (request.style == FontStyle::BoldItalic) {
-        const FontSource bold = resolve(owner, request.name, FontStyle::Bold);
-        const FontSource italic = resolve(owner, request.name, FontStyle::Italic);
+        FontSource bold;
+        FontSource italic;
+        resolveSource(request.name, FontStyle::Bold, bold);
+        resolveSource(request.name, FontStyle::Italic, italic);
         if (sameSource(source, bold) || sameSource(source, italic)) {
             return nullptr;
         }
     }
-    return createFreeTypeFont(owner, source.filename, source.index, request.pixels, request.kind, metrics);
+    return openFontFile(StringView(source.filename), source.index);
 }
 #endif
 

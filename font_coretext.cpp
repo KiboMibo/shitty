@@ -8,6 +8,7 @@
 
 #if defined(HAVE_CORETEXT)
     #include "composer.h"
+    #include "font_face.h"
     #include "font_resolver.h"
     #include "grapheme.h"
     #include "utf8.h"
@@ -15,6 +16,7 @@
     #include <std/lib/buffer.h>
     #include <std/mem/obj_pool.h>
     #include <std/str/view.h>
+    #include <std/sys/throw.h>
 
     #include <CoreFoundation/CoreFoundation.h>
     #include <CoreGraphics/CoreGraphics.h>
@@ -47,13 +49,18 @@ namespace {
     };
 
     struct CoreTextFontResolver final: public FontResolver {
-        Font* load(ObjPool& owner, const FontRequest& request, FontMetrics& metrics) override;
+        FontFace* resolve(const FontRequest& request) override;
 
-        CTFontRef resolve(const FontRequest& request);
-        CTFontRef resolvePath(const FontRequest& request);
         CTFontRef resolveName(const FontRequest& request);
         CTFontRef applyStyle(CTFontRef font, FontStyle style, u16 pixels);
         bool matchesName(CTFontRef font, CFStringRef name);
+        FontFace* extractFace(CTFontRef font);
+    };
+
+    struct CoreTextFontRenderer final: public FontRenderer {
+        Font* render(ObjPool& owner, IntrusivePtr<FontFace> face, u16 pixels, FontKind kind, FontMetrics& metrics) override;
+
+        CTFontRef openFace(const FontFace& face, u16 pixels);
         FontMetrics measure(CTFontRef font);
     };
 
@@ -319,25 +326,6 @@ CTFontRef CoreTextFontResolver::applyStyle(CTFontRef font, FontStyle style, u16 
     return styled;
 }
 
-CTFontRef CoreTextFontResolver::resolvePath(const FontRequest& request) {
-    if (request.style != FontStyle::Regular) {
-        return nullptr;
-    }
-    Buffer path(request.name);
-    CGDataProviderRef provider = CGDataProviderCreateWithFilename(path.cStr());
-    if (provider == nullptr) {
-        return nullptr;
-    }
-    CGFontRef graphicsFont = CGFontCreateWithDataProvider(provider);
-    CGDataProviderRelease(provider);
-    if (graphicsFont == nullptr) {
-        return nullptr;
-    }
-    CTFontRef font = CTFontCreateWithGraphicsFont(graphicsFont, request.pixels, nullptr, nullptr);
-    CGFontRelease(graphicsFont);
-    return font;
-}
-
 CTFontRef CoreTextFontResolver::resolveName(const FontRequest& request) {
     if (request.name == StringView(u8"monospace")) {
         CTFontRef font = CTFontCreateUIFontForLanguage(kCTFontUIFontUserFixedPitch, request.pixels, nullptr);
@@ -357,11 +345,87 @@ CTFontRef CoreTextFontResolver::resolveName(const FontRequest& request) {
     return font == nullptr ? nullptr : applyStyle(font, request.style, request.pixels);
 }
 
-CTFontRef CoreTextFontResolver::resolve(const FontRequest& request) {
-    return pathName(request.name) ? resolvePath(request) : resolveName(request);
+// The resolved artifact is the file behind the CTFont plus the index of
+// its face inside the collection, found by PostScript name among the
+// file's descriptors. Path requests fall through to the generic mmap
+// resolver.
+FontFace* CoreTextFontResolver::extractFace(CTFontRef font) {
+    auto url = (CFURLRef)(CTFontCopyAttribute(font, kCTFontURLAttribute));
+    if (url == nullptr) {
+        return nullptr;
+    }
+    char path[4096];
+    if (!CFURLGetFileSystemRepresentation(url, true, (UInt8*)(path), sizeof(path))) {
+        CFRelease(url);
+        return nullptr;
+    }
+    i32 faceIndex = 0;
+    CFStringRef wanted = CTFontCopyPostScriptName(font);
+    CFArrayRef descriptors = CTFontManagerCreateFontDescriptorsFromURL(url);
+    CFRelease(url);
+    if (descriptors != nullptr) {
+        const CFIndex count = CFArrayGetCount(descriptors);
+        for (CFIndex index = 0; index < count; ++index) {
+            auto descriptor = (CTFontDescriptorRef)(CFArrayGetValueAtIndex(descriptors, index));
+            auto name = (CFStringRef)(CTFontDescriptorCopyAttribute(descriptor, kCTFontNameAttribute));
+            const bool matches = sameString(wanted, name);
+            if (name != nullptr) {
+                CFRelease(name);
+            }
+            if (matches) {
+                faceIndex = (i32)(index);
+                break;
+            }
+        }
+        CFRelease(descriptors);
+    }
+    if (wanted != nullptr) {
+        CFRelease(wanted);
+    }
+    return openFontFile(StringView(path), faceIndex);
 }
 
-FontMetrics CoreTextFontResolver::measure(CTFontRef font) {
+FontFace* CoreTextFontResolver::resolve(const FontRequest& request) {
+    if (pathName(request.name)) {
+        return nullptr;
+    }
+    CTFontRef font = resolveName(request);
+    if (font == nullptr) {
+        return nullptr;
+    }
+    FontFace* face = nullptr;
+    try {
+        face = extractFace(font);
+    } catch (Exception&) {
+    }
+    CFRelease(font);
+    return face;
+}
+
+CTFontRef CoreTextFontRenderer::openFace(const FontFace& face, u16 pixels) {
+    // CFData owns a copy of the bytes: a handful of faces per session is
+    // cheap, and no CoreText cache can outlive our mapping.
+    CFDataRef data = CFDataCreate(kCFAllocatorDefault, (const UInt8*)(face.data()), (CFIndex)(face.size()));
+    if (data == nullptr) {
+        return nullptr;
+    }
+    CFArrayRef descriptors = CTFontManagerCreateFontDescriptorsFromData(data);
+    CFRelease(data);
+    if (descriptors == nullptr) {
+        return nullptr;
+    }
+    CTFontRef font = nullptr;
+    const CFIndex count = CFArrayGetCount(descriptors);
+    if (count > 0) {
+        const CFIndex index = face.faceIndex() >= 0 && face.faceIndex() < count ? face.faceIndex() : 0;
+        auto descriptor = (CTFontDescriptorRef)(CFArrayGetValueAtIndex(descriptors, index));
+        font = CTFontCreateWithFontDescriptor(descriptor, pixels, nullptr);
+    }
+    CFRelease(descriptors);
+    return font;
+}
+
+FontMetrics CoreTextFontRenderer::measure(CTFontRef font) {
     const UniChar character = 'M';
     CGGlyph glyph = 0;
     CGSize advance{};
@@ -378,8 +442,8 @@ FontMetrics CoreTextFontResolver::measure(CTFontRef font) {
     };
 }
 
-Font* CoreTextFontResolver::load(ObjPool& owner, const FontRequest& request, FontMetrics& metrics) {
-    CTFontRef font = resolve(request);
+Font* CoreTextFontRenderer::render(ObjPool& owner, IntrusivePtr<FontFace> face, u16 pixels, FontKind kind, FontMetrics& metrics) {
+    CTFontRef font = openFace(*face, pixels);
     if (font == nullptr) {
         return nullptr;
     }
@@ -388,20 +452,29 @@ Font* CoreTextFontResolver::load(ObjPool& owner, const FontRequest& request, Fon
         CFRelease(font);
         return nullptr;
     }
-    if (request.kind == FontKind::Primary) {
+    if (kind == FontKind::Primary) {
         metrics = actual;
-    } else if (request.kind == FontKind::Overlay && (metrics.height != actual.height || metrics.baseline != actual.baseline)) {
+    } else if (kind == FontKind::Overlay && (metrics.height != actual.height || metrics.baseline != actual.baseline)) {
         CFRelease(font);
         return nullptr;
     }
-    return owner.make<CoreTextFont>(font, request.kind, metrics, FontStyle::Regular);
+    return owner.make<CoreTextFont>(font, kind, metrics, FontStyle::Regular);
 }
 
 FontResolver* createCoreTextFontResolver(Composer& composer) {
     return composer.pool->make<CoreTextFontResolver>();
 }
+
+FontRenderer* createCoreTextFontRenderer(Composer& composer) {
+    return composer.pool->make<CoreTextFontRenderer>();
+}
 #else
 FontResolver* createCoreTextFontResolver(Composer& composer) {
+    (void)(composer);
+    return nullptr;
+}
+
+FontRenderer* createCoreTextFontRenderer(Composer& composer) {
     (void)(composer);
     return nullptr;
 }

@@ -7,6 +7,10 @@
 #pragma once
 
 struct Composer;
+struct FontRenderer;
 struct FontResolver;
 
 FontResolver* createCoreTextFontResolver(Composer& composer);
+
+// null off macOS.
+FontRenderer* createCoreTextFontRenderer(Composer& composer);

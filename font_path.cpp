@@ -7,38 +7,31 @@
 #include "font_path.h"
 
 #include "composer.h"
-#include "font_freetype.h"
+#include "font_face.h"
 #include "font_resolver.h"
 
 #include <std/mem/obj_pool.h>
 
 using namespace stl;
 
-#if defined(HAVE_FREETYPE) && defined(HAVE_HARFBUZZ)
 namespace {
     struct PathFontResolverImpl final: public FontResolver {
         PathFontResolverImpl();
 
-        Font* load(ObjPool& owner, const FontRequest& request, FontMetrics& metrics) override;
+        FontFace* resolve(const FontRequest& request) override;
     };
 }
 
 PathFontResolverImpl::PathFontResolverImpl() {
 }
 
-Font* PathFontResolverImpl::load(ObjPool& owner, const FontRequest& request, FontMetrics& metrics) {
+FontFace* PathFontResolverImpl::resolve(const FontRequest& request) {
     if (request.style != FontStyle::Regular || (!request.name.memChr('/') && !request.name.memChr('\\'))) {
         return nullptr;
     }
-    return createFreeTypeFont(owner, request.name, 0, request.pixels, request.kind, metrics);
+    return openFontFile(request.name, 0);
 }
-#endif
 
 FontResolver* createPathFontResolver(Composer& composer) {
-#if defined(HAVE_FREETYPE) && defined(HAVE_HARFBUZZ)
     return composer.pool->make<PathFontResolverImpl>();
-#else
-    (void)(composer);
-    return nullptr;
-#endif
 }

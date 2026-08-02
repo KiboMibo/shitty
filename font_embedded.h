@@ -6,20 +6,10 @@
 
 #pragma once
 
-#include <cstddef>
-
 struct Composer;
 struct FontResolver;
 
-// A view of a font file compiled into the binary; data is null when the
-// build has no font backend.
-struct EmbeddedFontBlob {
-    const void* data = nullptr;
-    size_t size = 0;
-};
-
-EmbeddedFontBlob embeddedMonoFont();
-EmbeddedFontBlob embeddedEmojiFont();
-EmbeddedFontBlob embeddedEmojiTextFont();
-
+// Serves the fonts compiled into the binary: resolves any regular request
+// to the embedded mono face as the last resort and contributes the emoji
+// and mono faces as implicit coverage fallbacks.
 FontResolver* createEmbeddedFontResolver(Composer& composer);

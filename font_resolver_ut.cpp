@@ -7,6 +7,7 @@
 #include "font_resolver.h"
 
 #include "composer.h"
+#include "font_face.h"
 #include "font_pack.h"
 
 #include <std/mem/obj_pool.h>
@@ -24,16 +25,27 @@ namespace {
     struct RecordingResolver final: public FontResolver {
         explicit RecordingResolver(bool accepts);
 
-        Font* load(ObjPool& owner, const FontRequest& request, FontMetrics& metrics) override;
+        FontFace* resolve(const FontRequest& request) override;
 
         FontRequest requests[8]{};
         size_t calls = 0;
         bool accepts_;
     };
 
+    struct FakeRenderer final: public FontRenderer {
+        Font* render(ObjPool& owner, IntrusivePtr<FontFace> face, u16 pixels, FontKind kind, FontMetrics& metrics) override;
+
+        size_t rendered = 0;
+    };
+
+    const u8 fakeFontBytes[] = {0};
+
     void removeDefaultResolvers(Composer& composer) {
         while (!composer.fontResolvers.empty()) {
             composer.fontResolvers.popFront();
+        }
+        while (!composer.fontRenderers.empty()) {
+            composer.fontRenderers.popFront();
         }
     }
 }
@@ -55,12 +67,17 @@ RecordingResolver::RecordingResolver(bool accepts)
 {
 }
 
-Font* RecordingResolver::load(ObjPool& owner, const FontRequest& request, FontMetrics& metrics) {
+FontFace* RecordingResolver::resolve(const FontRequest& request) {
     requests[calls++] = request;
     if (!accepts_) {
         return nullptr;
     }
-    if (request.kind == FontKind::Primary) {
+    return createMemoryFontFace(fakeFontBytes, sizeof(fakeFontBytes), 0);
+}
+
+Font* FakeRenderer::render(ObjPool& owner, IntrusivePtr<FontFace>, u16, FontKind kind, FontMetrics& metrics) {
+    ++rendered;
+    if (kind == FontKind::Primary) {
         metrics = {8, 16, 12};
     }
     return owner.make<FakeFont>();
@@ -71,6 +88,8 @@ STD_TEST_SUITE(FontResolver) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         removeDefaultResolvers(composer);
+        FakeRenderer renderer;
+        composer.fontRenderers.pushBack(&renderer);
         RecordingResolver first(false);
         RecordingResolver second(true);
         RecordingResolver third(true);
@@ -96,6 +115,8 @@ STD_TEST_SUITE(FontResolver) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         removeDefaultResolvers(composer);
+        FakeRenderer renderer;
+        composer.fontRenderers.pushBack(&renderer);
         RecordingResolver first(false);
         RecordingResolver second(false);
         composer.fontResolvers.pushBack(&first);
@@ -113,6 +134,8 @@ STD_TEST_SUITE(FontResolver) {
         ObjPool::Ref composerPool = ObjPool::fromMemory();
         Composer& composer = *composerPool->make<Composer>(composerPool.mutPtr());
         removeDefaultResolvers(composer);
+        FakeRenderer renderer;
+        composer.fontRenderers.pushBack(&renderer);
         RecordingResolver resolver(true);
         composer.fontResolvers.pushBack(&resolver);
         ObjPool::Ref fontPool = ObjPool::fromMemory();

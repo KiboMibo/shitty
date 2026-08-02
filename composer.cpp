@@ -9,7 +9,9 @@
 #include "cell_extra_store.h"
 #include "font_coretext.h"
 #include "font_embedded.h"
+#include "font_face.h"
 #include "font_fontconfig.h"
+#include "font_freetype.h"
 #include "font_path.h"
 #include "options.h"
 #include "font_resolver.h"
@@ -20,6 +22,7 @@
 #include <std/alg/minmax.h>
 #include <std/dbg/assert.h>
 #include <std/mem/small_obj_allocator.h>
+#include <std/sys/throw.h>
 
 using namespace stl;
 
@@ -42,6 +45,12 @@ Composer::Composer(ObjPool* pool_)
     }
     if (FontResolver* const resolver = createEmbeddedFontResolver(*this)) {
         fontResolvers.pushBack(resolver);
+    }
+    if (FontRenderer* const renderer = createCoreTextFontRenderer(*this)) {
+        fontRenderers.pushBack(renderer);
+    }
+    if (FontRenderer* const renderer = createFreeTypeFontRenderer(*this)) {
+        fontRenderers.pushBack(renderer);
     }
 }
 
@@ -110,9 +119,26 @@ Font* Composer::loadFont(ObjPool& owner, const FontRequest& request, FontMetrics
     for (IntrusiveNode* node = fontResolvers.mutFront(); node != fontResolvers.mutEnd();) {
         FontResolver* const resolver = static_cast<FontResolver*>(node);
         node = node->next;
-        Font* const font = resolver->load(owner, request, metrics);
-        if (font != nullptr) {
-            return font;
+        FontFace* const resolved = resolver->resolve(request);
+        if (resolved != nullptr) {
+            return renderFace(owner, resolved, request.pixels, request.kind, metrics);
+        }
+    }
+    return nullptr;
+}
+
+Font* Composer::renderFace(ObjPool& owner, FontFace* face, u16 pixels, FontKind kind, FontMetrics& metrics) {
+    const IntrusivePtr<FontFace> adopted(face);
+    for (IntrusiveNode* node = fontRenderers.mutFront(); node != fontRenderers.mutEnd();) {
+        FontRenderer* const renderer = static_cast<FontRenderer*>(node);
+        node = node->next;
+        try {
+            Font* const font = renderer->render(owner, adopted, pixels, kind, metrics);
+            if (font != nullptr) {
+                return font;
+            }
+        } catch (Exception&) {
+            // A renderer that cannot open or fit the face passes it on.
         }
     }
     return nullptr;

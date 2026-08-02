@@ -6,11 +6,15 @@
 
 #pragma once
 
+#include <std/lib/node.h>
+#include <std/ptr/intrusive.h>
 #include <std/sys/types.h>
 
 namespace stl {
     class ObjPool;
 }
+
+struct FontFace;
 
 struct FontGlyph {
     const void* data = nullptr;
@@ -48,4 +52,13 @@ struct Font {
     // A new font over the same face that fakes the style (embolden/shear)
     // at render time; null when the backend cannot synthesize.
     virtual Font* synthesize(stl::ObjPool& owner, FontStyle style) = 0;
+};
+
+// Rasterizes a resolved face at a pixel size. Any renderer accepts any
+// FontFace, so the resolver and rasterizer backends combine freely;
+// renderers chain like resolvers do and the first one that renders the
+// face wins. For a Primary request metrics is an output; an Overlay must
+// match the imposed cell geometry and a mismatch throws or returns null.
+struct FontRenderer: stl::IntrusiveNode {
+    virtual Font* render(stl::ObjPool& owner, stl::IntrusivePtr<FontFace> face, u16 pixels, FontKind kind, FontMetrics& metrics) = 0;
 };

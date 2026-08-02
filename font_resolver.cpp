@@ -5,3 +5,8 @@
  */
 
 #include "font_resolver.h"
+
+FontFace* FontResolver::fallback(size_t index) {
+    (void)(index);
+    return nullptr;
+}

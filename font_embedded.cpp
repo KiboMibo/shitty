@@ -7,61 +7,93 @@
 #include "font_embedded.h"
 
 #include "composer.h"
-#include "font_freetype.h"
+#include "font_data.h"
+#include "font_face.h"
 #include "font_resolver.h"
 
 #include <std/mem/obj_pool.h>
 
-#if defined(HAVE_FREETYPE) && defined(HAVE_HARFBUZZ)
-    #include "font_data.h"
-#endif
-
 using namespace stl;
 
-#if defined(HAVE_FREETYPE) && defined(HAVE_HARFBUZZ)
 namespace {
+    // The bytes live in the binary, so a face outlives every consumer and
+    // the count is a no-op.
+    struct StaticFontFace final: public FontFace {
+        StaticFontFace(const void* data, size_t size);
+
+        const void* data() const override;
+        size_t size() const override;
+        i32 faceIndex() const override;
+
+        void ref() noexcept override;
+        i32 unref() noexcept override;
+        i32 refCount() const noexcept override;
+
+        const void* data_;
+        size_t size_;
+    };
+
     struct EmbeddedFontResolverImpl final: public FontResolver {
-        Font* load(ObjPool& owner, const FontRequest& request, FontMetrics& metrics) override;
+        FontFace* resolve(const FontRequest& request) override;
+        FontFace* fallback(size_t index) override;
     };
 }
 
-Font* EmbeddedFontResolverImpl::load(ObjPool& owner, const FontRequest& request, FontMetrics& metrics) {
+StaticFontFace::StaticFontFace(const void* data, size_t size)
+    : data_(data)
+    , size_(size)
+{
+}
+
+const void* StaticFontFace::data() const {
+    return data_;
+}
+
+size_t StaticFontFace::size() const {
+    return size_;
+}
+
+i32 StaticFontFace::faceIndex() const {
+    return 0;
+}
+
+void StaticFontFace::ref() noexcept {
+}
+
+i32 StaticFontFace::unref() noexcept {
+    return 1;
+}
+
+i32 StaticFontFace::refCount() const noexcept {
+    return 2;
+}
+
+namespace {
+    StaticFontFace embeddedMono(embeddedFontMono.data, embeddedFontMono.size);
+    StaticFontFace embeddedEmoji(embeddedFontEmoji.data, embeddedFontEmoji.size);
+    StaticFontFace embeddedEmojiText(embeddedFontEmojiText.data, embeddedFontEmojiText.size);
+}
+
+FontFace* EmbeddedFontResolverImpl::resolve(const FontRequest& request) {
     if (request.style != FontStyle::Regular) {
         return nullptr;
     }
-    return createFreeTypeMemoryFont(owner, embeddedFontMono.data, embeddedFontMono.size, 0, request.pixels, request.kind, metrics);
+    return &embeddedMono;
 }
 
-EmbeddedFontBlob embeddedMonoFont() {
-    return {embeddedFontMono.data, embeddedFontMono.size};
+FontFace* EmbeddedFontResolverImpl::fallback(size_t index) {
+    switch (index) {
+        case 0:
+            return &embeddedEmoji;
+        case 1:
+            return &embeddedMono;
+        case 2:
+            return &embeddedEmojiText;
+        default:
+            return nullptr;
+    }
 }
-
-EmbeddedFontBlob embeddedEmojiFont() {
-    return {embeddedFontEmoji.data, embeddedFontEmoji.size};
-}
-
-EmbeddedFontBlob embeddedEmojiTextFont() {
-    return {embeddedFontEmojiText.data, embeddedFontEmojiText.size};
-}
-#else
-EmbeddedFontBlob embeddedMonoFont() {
-    return {};
-}
-
-EmbeddedFontBlob embeddedEmojiFont() {
-    return {};
-}
-
-EmbeddedFontBlob embeddedEmojiTextFont() {
-    return {};
-}
-#endif
 
 FontResolver* createEmbeddedFontResolver(Composer& composer) {
-#if defined(HAVE_FREETYPE) && defined(HAVE_HARFBUZZ)
     return composer.pool->make<EmbeddedFontResolverImpl>();
-#else
-    (void)(composer);
-    return nullptr;
-#endif
 }

@@ -7,8 +7,6 @@
 #include "font_pack.h"
 
 #include "composer.h"
-#include "font_embedded.h"
-#include "font_freetype.h"
 #include "font_resolver.h"
 #include "unicode_map.h"
 #include "utf8.h"
@@ -98,23 +96,23 @@ FontpackImpl::FontpackImpl(Composer& composer, ObjPool& pool, const StringView* 
         }
     }
 
-#if defined(HAVE_FREETYPE) && defined(HAVE_HARFBUZZ)
-    const EmbeddedFontBlob embedded[] = {
-        embeddedEmojiFont(),
-        embeddedMonoFont(),
-        embeddedEmojiTextFont(),
-    };
-    for (const EmbeddedFontBlob& blob : embedded) {
-        if (blob.data == nullptr) {
-            continue;
-        }
-        try {
+    // Every resolver may contribute implicit coverage fallbacks (the
+    // embedded fonts arrive this way); they follow the configured list in
+    // chain order.
+    for (IntrusiveNode* node = composer.fontResolvers.mutFront(); node != composer.fontResolvers.mutEnd(); node = node->next) {
+        FontResolver* const resolver = static_cast<FontResolver*>(node);
+        for (size_t index = 0;; ++index) {
+            FontFace* const face = resolver->fallback(index);
+            if (face == nullptr) {
+                break;
+            }
             FontMetrics metrics = metrics_;
-            fallbacks_.pushBack(createFreeTypeMemoryFont(pool, blob.data, blob.size, 0, size, FontKind::Fallback, metrics));
-        } catch (Exception&) {
+            Font* const font = composer.renderFace(pool, face, size, FontKind::Fallback, metrics);
+            if (font != nullptr) {
+                fallbacks_.pushBack(font);
+            }
         }
     }
-#endif
 
     faceCache_ = UnicodeMap<u16>::create(pool);
 }
