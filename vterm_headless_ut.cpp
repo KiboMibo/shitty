@@ -50,6 +50,17 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(composer.vterm != nullptr);
     }
 
+    STD_TEST(KeepsFallbackTitleForTerminalReset) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtermHeadless::create(composer, nullptr);
+        const u8 reset[] = {'\x1b', 'c'};
+
+        composer.vterm->feedPty(StringView(reset, sizeof(reset)));
+
+        STD_INSIST(composer.vterm->output() != nullptr);
+    }
+
     STD_TEST(PtyAndTerminalOutputsAreConsumedIndependently) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());

@@ -94,7 +94,6 @@ VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* trac
     const u16 pixelWidth = 2 * opts.border + columns * glyphWidth;
     const u16 pixelHeight = 2 * opts.border + rows * glyphHeight;
 
-    const char* title = opts.title;
     if (opts.title == nullptr) {
         opts.title = "";
     }
@@ -116,6 +115,5 @@ VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* trac
     composer.ptyMutex = composer.pool->make<plt::FiberMutex>();
     composer.pty = composer.pool->make<HeadlessPty>(composer);
     Vterm::create(composer, traceFactory);
-    opts.title = title;
     return result;
 }
