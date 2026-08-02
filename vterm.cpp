@@ -3983,6 +3983,12 @@ int VtermImpl::placeUtf8Run(const u8* input, int size) {
         }
         const u8 first = input[consumed + 1];
         if ((first & 0xc0) != 0x80) {
+            if (first < 0x20 || first == 0x7f) {
+                // Controls are transparent to a pending sequence: leave the
+                // lead to the streaming decoder, which carries its state
+                // through them.
+                break;
+            }
             // A lead without its continuation is one replacement; the
             // offender is reexamined as a fresh lead.
             place(Unicode_Replacement_Character, 1);
@@ -4006,6 +4012,12 @@ int VtermImpl::placeUtf8Run(const u8* input, int size) {
             codepoint = (codepoint << 6) | (continuation & 0x3f);
         }
         if (scanned < length) {
+            const u8 offender = input[consumed + scanned];
+            if (offender < 0x20 || offender == 0x7f) {
+                // A control inside the sequence: hand the whole pending
+                // sequence to the streaming decoder unconsumed.
+                break;
+            }
             // Truncated mid-sequence: one replacement for the consumed
             // prefix; the offender is reexamined as a fresh lead.
             place(Unicode_Replacement_Character, scanned);

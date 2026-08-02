@@ -276,7 +276,10 @@ STD_TEST_SUITE(VtermHeadless) {
             // Leads truncated at every position.
             u8"\xc2Z \xe2Z \xe2\x82Z \xf0Z \xf0\x90Z \xf0\x90\x8fZ\r\n"
             // Combining, wide and joined clusters against garbage.
-            u8"e\xcc\x81 \xe4\xbd\xa0 \xf0\x9f\x91\xa9\xe2\x80\x8d\xf0\x9f\x92\xbb \x80\xcc\x81 Z\r\n";
+            u8"e\xcc\x81 \xe4\xbd\xa0 \xf0\x9f\x91\xa9\xe2\x80\x8d\xf0\x9f\x92\xbb \x80\xcc\x81 Z\r\n"
+            // Controls inside a pending sequence are transparent to the
+            // streaming decoder: the sequence completes around them.
+            u8"\xe2\x07\x82\xac \xc3\x07\xa9 \xe2\x82\x07\xac \xf0\x9f\x00\x92\xbb \xe2\x7f\x82\xac Z\r\n";
 
         // Deterministic garbage over the full byte range except ESC: mode
         // and charset changes are covered by directed tests elsewhere.
