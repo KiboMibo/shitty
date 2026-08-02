@@ -287,6 +287,20 @@ parser_test = command(
 )
 
 
+utf8_dfa = command(
+    name="utf8_dfa",
+    inputs=["$(S)/generate_utf8_dfa.py"],
+    outputs=["$(B)/utf8_dfa.h"],
+    cmd=[
+        "python3",
+        "$(S)/generate_utf8_dfa.py",
+        "$(B)/utf8_dfa.h",
+    ],
+    descr="DF",
+    color="magenta",
+)
+
+
 font_data = command(
     name="font_data",
     inputs=[
@@ -337,18 +351,25 @@ if darwin:
         "src": "$(S)/render_metal.mm",
         "inputs": ["$(B)/render_msl.h"],
     })
+vterm_source = "$(S)/vterm.cpp"
 libshitty_sources = [
     {
         "src": source,
         "inputs": ["$(B)/parser.rl.h"],
-    } if source == parser_source else source
+    } if source == parser_source else {
+        "src": source,
+        "inputs": ["$(B)/utf8_dfa.h"],
+    } if source == vterm_source else source
     for source in all_libshitty_sources
 ]
 libshitty_test_sources = [
     {
         "src": source,
         "inputs": ["$(B)/parser_test.rl.h"],
-    } if source == parser_source else source
+    } if source == parser_source else {
+        "src": source,
+        "inputs": ["$(B)/utf8_dfa.h"],
+    } if source == vterm_source else source
     for source in all_libshitty_sources
 ]
 libshitty_deps = [

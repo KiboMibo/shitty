@@ -17,6 +17,7 @@
 
 #include "vterm.h"
 #include "vterm_trace.h"
+
 #include "vterm_test.h"
 #include "application.h"
 #include "base64.h"
@@ -39,6 +40,7 @@
 #include "listener.h"
 #include "options.h"
 #include "utf8.h"
+#include "utf8_dfa.h"
 
 #include <plt/clipboard.h>
 #include <plt/fiber.h>
@@ -3887,168 +3889,6 @@ void VtermImpl::placeRepeatedCodepoint(u32 codepoint, u32 count) {
     }
 }
 
-namespace {
-    // Table-driven mirror of Utf8Decoder::pushByte: byte classes and the
-    // DFA over them replace a cascade of data-dependent branches, which
-    // random input turns into a mispredict per byte.
-    struct Utf8Dfa {
-        // Byte classes.
-        constexpr static u8 Exit = 0;   // C0, DEL: the state machine's turf
-        constexpr static u8 Ascii = 1;  // printable
-        constexpr static u8 C80 = 2;    // continuations 0x80..0x8f
-        constexpr static u8 C90 = 3;    // continuations 0x90..0x9f
-        constexpr static u8 Ca0 = 4;    // continuations 0xa0..0xbf
-        constexpr static u8 Bad = 5;    // 0xc0, 0xc1, 0xf5..0xff
-        constexpr static u8 L2 = 6;     // 0xc2..0xdf
-        constexpr static u8 Le0 = 7;    // 0xe0
-        constexpr static u8 L3 = 8;     // 0xe1..0xec, 0xee, 0xef
-        constexpr static u8 Led = 9;    // 0xed
-        constexpr static u8 Lf0 = 10;   // 0xf0
-        constexpr static u8 L4 = 11;    // 0xf1..0xf3
-        constexpr static u8 Lf4 = 12;   // 0xf4
-        constexpr static u8 classCount = 13;
-
-        // States: ground, N continuations left, and the four leads whose
-        // first continuation is range-restricted.
-        constexpr static u8 Ground = 0;
-        constexpr static u8 More1 = 1;
-        constexpr static u8 More2 = 2;
-        constexpr static u8 More3 = 3;
-        constexpr static u8 FirstE0 = 4;
-        constexpr static u8 FirstEd = 5;
-        constexpr static u8 FirstF0 = 6;
-        constexpr static u8 FirstF4 = 7;
-        constexpr static u8 stateCount = 8;
-
-        // Emission actions, packed so the hot loop decodes them without
-        // branching: how many codepoints this byte completes, whether each
-        // is the byte itself or a replacement character, and the two flags
-        // that leave the branchless path.
-        constexpr static u8 CountMask = 3;
-        constexpr static u8 FirstByte = 4;   // first emission is the byte
-        constexpr static u8 SecondByte = 8;  // second emission is the byte
-        constexpr static u8 Slow = 16;       // completed codepoint: needs properties
-        constexpr static u8 Reset = 32;      // stray C1 resets grapheme input
-
-        constexpr static u8 None = 0;
-        constexpr static u8 Byte = 1 | FirstByte;
-        constexpr static u8 Fffd = 1;
-        constexpr static u8 FffdReset = 1 | Reset;
-        constexpr static u8 Cp = 1 | Slow;
-        constexpr static u8 FffdFffd = 2;
-        constexpr static u8 FffdByte = 2 | SecondByte;
-
-        u8 cls[256] = {};
-        u8 next[stateCount][classCount] = {};
-        u8 emit[stateCount][classCount] = {};
-        u8 mask[classCount] = {};
-
-        consteval Utf8Dfa() {
-            for (unsigned byte = 0; byte < 256; ++byte) {
-                u8& c = cls[byte];
-                if (byte < 0x20 || byte == 0x7f) {
-                    c = Exit;
-                } else if (byte < 0x7f) {
-                    c = Ascii;
-                } else if (byte < 0x90) {
-                    c = C80;
-                } else if (byte < 0xa0) {
-                    c = C90;
-                } else if (byte < 0xc0) {
-                    c = Ca0;
-                } else if (byte < 0xc2) {
-                    c = Bad;
-                } else if (byte < 0xe0) {
-                    c = L2;
-                } else if (byte == 0xe0) {
-                    c = Le0;
-                } else if (byte < 0xf0) {
-                    c = byte == 0xed ? Led : L3;
-                } else if (byte == 0xf0) {
-                    c = Lf0;
-                } else if (byte < 0xf4) {
-                    c = L4;
-                } else if (byte == 0xf4) {
-                    c = Lf4;
-                } else {
-                    c = Bad;
-                }
-            }
-            mask[L2] = 0x1f;
-            mask[Le0] = 0x0f;
-            mask[L3] = 0x0f;
-            mask[Led] = 0x0f;
-            mask[Lf0] = 0x07;
-            mask[L4] = 0x07;
-            mask[Lf4] = 0x07;
-
-            // Where a lead sends any state (after flushing its pending
-            // sequence as one replacement outside ground).
-            constexpr u8 leadState[classCount] = {0, 0, 0, 0, 0, 0, More1, FirstE0, More2, FirstEd, FirstF0, More3, FirstF4};
-            for (u8 state = Ground; state < stateCount; ++state) {
-                for (u8 c = Ascii; c < classCount; ++c) {
-                    const bool lead = c >= L2;
-                    const bool cont = c >= C80 && c <= Ca0;
-                    if (state == Ground) {
-                        next[state][c] = lead ? leadState[c] : Ground;
-                        emit[state][c] = c == Ascii ? Byte
-                            : c == Ca0 || c == Bad  ? Fffd
-                            : cont                  ? FffdReset
-                            : None;
-                        continue;
-                    }
-                    if (lead) {
-                        next[state][c] = leadState[c];
-                        emit[state][c] = Fffd;
-                        continue;
-                    }
-                    if (!cont) {
-                        next[state][c] = Ground;
-                        emit[state][c] = c == Ascii ? FffdByte : FffdFffd;
-                        continue;
-                    }
-                    // The first continuation of E0/ED/F0/F4 is range
-                    // checked; the streaming decoder completes a double
-                    // replacement on the wrong range.
-                    bool valid = true;
-                    u8 advanced = state == More1 ? Ground : More1;
-                    switch (state) {
-                        case FirstE0:
-                            valid = c == Ca0;
-                            break;
-                        case FirstEd:
-                            valid = c != Ca0;
-                            break;
-                        case FirstF0:
-                            valid = c != C80;
-                            advanced = More2;
-                            break;
-                        case FirstF4:
-                            valid = c == C80;
-                            advanced = More2;
-                            break;
-                        case More3:
-                            advanced = More2;
-                            break;
-                        case More2:
-                            advanced = More1;
-                            break;
-                        case More1:
-                            advanced = Ground;
-                            break;
-                    }
-                    next[state][c] = valid ? advanced : Ground;
-                    emit[state][c] = !valid ? FffdFffd : advanced == Ground ? Cp : None;
-                }
-                next[state][Exit] = state;
-                emit[state][Exit] = None;
-            }
-        }
-    };
-
-    constexpr Utf8Dfa utf8Dfa{};
-}
-
 // Decodes UTF-8 ahead and batches independent glyphs into span writes.
 // Joining codepoints fall back to the standard cluster path.  Invalid bytes
 // become replacement characters in the same batch, mirroring the streaming
@@ -4120,14 +3960,14 @@ int VtermImpl::placeUtf8Run(const u8* input, int size) {
     };
     while (consumed < size) {
         const u8 byte = input[consumed];
-        const u8 cls = utf8Dfa.cls[byte];
+        const u8 cls = Utf8Dfa::cls[byte];
         if (cls == Utf8Dfa::Exit) {
             break;
         }
-        const u8 action = utf8Dfa.emit[state][cls];
-        sequenceStart = cls >= Utf8Dfa::L2 ? consumed : sequenceStart;
-        codepoint = cls >= Utf8Dfa::L2 ? byte & utf8Dfa.mask[cls] : (codepoint << 6) | (byte & 0x3f);
-        state = utf8Dfa.next[state][cls];
+        const u8 action = Utf8Dfa::act[state][cls];
+        sequenceStart = cls >= Utf8Dfa::LeadFirst ? consumed : sequenceStart;
+        codepoint = cls >= Utf8Dfa::LeadFirst ? byte & Utf8Dfa::mask[cls] : (codepoint << 6) | (byte & 0x3f);
+        state = Utf8Dfa::next[state][cls];
         ++consumed;
         if ((action & Utf8Dfa::Slow) != 0 || !simpleRun) [[unlikely]] {
             // Completed sequences need their width and grapheme class; a
