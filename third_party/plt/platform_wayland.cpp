@@ -6,7 +6,7 @@
 #include "poller.h"
 #include "window.h"
 #include "platform.h"
-#include "timer_queue.h"
+#include "poller_loop.h"
 #include "pointer_grab.h"
 #include "xdg-shell-client-protocol.h"
 #include "viewporter-client-protocol.h"

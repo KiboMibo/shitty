@@ -4,10 +4,6 @@
 #include <std/sys/types.h>
 #include <std/thr/poll_fd.h>
 
-namespace stl {
-    class ObjPool;
-}
-
 namespace plt {
     struct PollCallback {
         virtual void ready(stl::PollFD event) = 0;
@@ -46,15 +42,5 @@ namespace plt {
         // callback that defers in a loop still lets every armed waiter
         // make progress.
         virtual void defer(TimerCallback& callback) = 0;
-    };
-
-    // The portable poll(2) loop shared by the Wayland and headless
-    // platforms; a run loop drives it with dispatchTimers/wait rounds.
-    struct PollerLoop: public Poller {
-        virtual void wait(u64 monotonicDeadline) = 0;
-        virtual void dispatchTimers() = 0;
-        virtual u64 nextDeadline() const = 0;
-
-        static PollerLoop* create(stl::ObjPool& owner);
     };
 }

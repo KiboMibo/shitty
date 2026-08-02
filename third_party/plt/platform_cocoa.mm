@@ -4,9 +4,9 @@
 #include "fiber.h"
 #include "input.h"
 #include "poller.h"
+#include "poller_loop.h"
 #include "window.h"
 #include "platform.h"
-#include "timer_queue.h"
 
 #include <std/sys/crt.h>
 #include <std/dbg/verify.h>
@@ -484,7 +484,9 @@ namespace {
         u64 nextDeadline() const;
 
         IntMap<ArmedFD> armed;
-        TimerQueue timers;
+        // The portable loop poller serves as the deadline queue; its poll
+        // half is never used - CFFileDescriptor delivers readiness.
+        PollerLoop* timers = nullptr;
         CFRunLoopTimerRef runLoopTimer = nullptr;
     };
 
@@ -760,7 +762,7 @@ Scheduler* PlatformImpl::scheduler() {
 
 PollerImpl::PollerImpl(ObjPool& owner)
     : armed(ObjPool::create(&owner))
-    , timers(owner)
+    , timers(PollerLoop::create(owner))
 {
     CFRunLoopTimerContext context{};
     context.info = this;
@@ -838,20 +840,17 @@ void PollerImpl::cancel(PollWaiter& waiter) {
 }
 
 void PollerImpl::timeout(u64 microseconds, TimerCallback& callback) {
-    timers.schedule(monotonicNowUs() + microseconds, callback);
+    timers->timeout(microseconds, callback);
     scheduleTimer();
 }
 
 void PollerImpl::deadline(u64 monotonicMicroseconds, TimerCallback& callback) {
-    if (monotonicMicroseconds == 0) {
-        monotonicMicroseconds = monotonicNowUs();
-    }
-    timers.schedule(monotonicMicroseconds, callback);
+    timers->deadline(monotonicMicroseconds, callback);
     scheduleTimer();
 }
 
 void PollerImpl::cancel(TimerCallback& callback) {
-    timers.cancel(callback);
+    timers->cancel(callback);
     scheduleTimer();
 }
 
@@ -863,11 +862,11 @@ void PollerImpl::defer(TimerCallback& callback) {
 }
 
 u64 PollerImpl::nextDeadline() const {
-    return timers.nextDeadline();
+    return timers->nextDeadline();
 }
 
 void PollerImpl::dispatchTimers() {
-    timers.dispatch(monotonicNowUs());
+    timers->dispatchTimers();
     scheduleTimer();
 }
 
