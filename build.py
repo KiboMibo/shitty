@@ -95,6 +95,12 @@ if linux:
 
 
 libstd = import_build(std_build, "libstd.a", extra_cflags=["-Wno-error"])
+libstd_external_clock = import_build(
+    std_build,
+    "libstd_external_clock.a",
+    extra_cflags=["-Wno-error"],
+    extra_cppflags=["-DSTL_EXTERNAL_MONOTONIC_NOW_US=1"],
+)
 
 
 if "-lplt" in build.ldflags:
@@ -353,6 +359,10 @@ libshitty_test_deps = [
     freetype, fontconfig, harfbuzz, darwin_backend, plt, vulkan, threads, libstd,
     brotli_common, utf8proc, simdutf,
 ]
+libshitty_fuzz_deps = [
+    freetype, fontconfig, harfbuzz, darwin_backend, plt, vulkan, threads, libstd_external_clock,
+    brotli_common, utf8proc, simdutf,
+]
 
 
 libshitty = library(
@@ -405,6 +415,17 @@ libshitty_test = library(
 )
 
 
+# The fuzz target owns monotonicNowUs() so it can advance time exactly one
+# record at a time. Its libstd variant deliberately omits the default clock.
+libshitty_fuzz = library(
+    name="libshitty_fuzz",
+    srcs=libshitty_test_sources,
+    cppflags=["-DSHITTY_FOR_TESTS=1", "-DSHITTY_COMPACT_PARSER=1"],
+    deps=libshitty_fuzz_deps,
+    output="$(B)/libshitty_fuzz.a",
+)
+
+
 st_test = program(
     name="st_test",
     output="$(B)/st_test",
@@ -416,7 +437,7 @@ st_test = program(
 
 main_fuzz = program(
     srcs=[fuzz_source],
-    deps=[libshitty_test],
+    deps=[libshitty_fuzz],
 )
 
 
