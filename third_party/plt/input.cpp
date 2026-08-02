@@ -21,8 +21,6 @@ namespace {
             Key,
             Text,
             Preedit,
-            Drop,
-            DropPath,
             PointerMotion,
             PointerButton,
             Scroll,
@@ -57,8 +55,6 @@ namespace {
         void key(const KeyInput& input) override;
         void text(const TextInput& input) override;
         void preedit(StringView text, i32 cursorBegin, i32 cursorEnd) override;
-        void drop(StringView text) override;
-        void dropPath(StringView path) override;
         void pointerMotion(const PointerMotionInput& input) override;
         void pointerButton(const PointerButtonInput& input) override;
         void scroll(const ScrollInput& input) override;
@@ -127,14 +123,6 @@ void FiberSinkImpl::deliver(const SinkEvent& event) {
             target.preedit(payload, event.cursorBegin, event.cursorEnd);
             break;
         }
-        case SinkEvent::Type::Drop: {
-            target.drop(payload);
-            break;
-        }
-        case SinkEvent::Type::DropPath: {
-            target.dropPath(payload);
-            break;
-        }
         case SinkEvent::Type::PointerMotion: {
             target.pointerMotion(event.motion);
             break;
@@ -182,20 +170,6 @@ void FiberSinkImpl::preedit(StringView text, i32 cursorBegin, i32 cursorEnd) {
     event.payload.assign((const char*)(text.data()), text.length());
     event.cursorBegin = cursorBegin;
     event.cursorEnd = cursorEnd;
-    push(std::move(event));
-}
-
-void FiberSinkImpl::drop(StringView text) {
-    SinkEvent event;
-    event.type = SinkEvent::Type::Drop;
-    event.payload.assign((const char*)(text.data()), text.length());
-    push(std::move(event));
-}
-
-void FiberSinkImpl::dropPath(StringView path) {
-    SinkEvent event;
-    event.type = SinkEvent::Type::DropPath;
-    event.payload.assign((const char*)(path.data()), path.length());
     push(std::move(event));
 }
 

@@ -1,26 +1,13 @@
 #include "drop.h"
 
-#include "input.h"
-
-#include <std/ios/input.h>
-
 #include <std/lib/buffer.h>
-#include <std/ptr/scoped.h>
-#include <std/mem/obj_pool.h>
 
 using namespace plt;
 using namespace stl;
 
 namespace {
-    const StringView uriListMime(u8"text/uri-list");
-    const StringView utf8Mime(u8"text/plain;charset=utf-8");
-    const StringView utf8StringMime(u8"UTF8_STRING");
-    const StringView plainMime(u8"text/plain");
     const StringView fileScheme(u8"file://");
     const StringView localhostName(u8"localhost");
-    // The canonical target buffers one payload whole before delivery, so a
-    // hostile drag source must not be able to make it arbitrarily large.
-    constexpr size_t payloadLimit = 16u << 20;
 
     int hexValue(u8 digit) {
         if (digit >= '0' && digit <= '9') {
@@ -35,105 +22,6 @@ namespace {
         return -1;
     }
 
-    StringView preferredMime(const DropOffer& offer) {
-        bool uriList = false;
-        bool utf8 = false;
-        bool utf8String = false;
-        bool plain = false;
-        for (size_t index = 0; index != offer.formats(); ++index) {
-            const StringView mime = offer.format(index);
-            uriList = uriList || mime == uriListMime;
-            utf8 = utf8 || mime == utf8Mime;
-            utf8String = utf8String || mime == utf8StringMime;
-            plain = plain || mime == plainMime;
-        }
-        if (uriList) {
-            return uriListMime;
-        }
-        if (utf8) {
-            return utf8Mime;
-        }
-        if (utf8String) {
-            return utf8StringMime;
-        }
-        if (plain) {
-            return plainMime;
-        }
-        return {};
-    }
-
-    struct SinkDropTarget final: public DropTarget {
-        DropReply dragOver(const DropOffer& offer, i32 x, i32 y) override;
-        void dragLeft() override;
-        void dropped(Drop& drop) override;
-
-        InputSink* sink = nullptr;
-    };
-}
-
-DropReply SinkDropTarget::dragOver(const DropOffer& offer, i32, i32) {
-    return {
-        .mime = preferredMime(offer),
-        .action = DropAction::Copy,
-    };
-}
-
-void SinkDropTarget::dragLeft() {
-}
-
-void SinkDropTarget::dropped(Drop& drop) {
-    const StringView mime = preferredMime(*drop.what());
-    if (mime.empty()) {
-        return;
-    }
-    const bool uris = mime == uriListMime;
-    const ScopedPtr<Input> source{drop.read(mime)};
-    Buffer content;
-    bool overflow = false;
-    for (;;) {
-        u8 chunk[16 * 1024];
-        const size_t count = source->read(chunk, sizeof(chunk));
-        if (count == 0) {
-            break;
-        }
-        if (count > payloadLimit - content.length()) {
-            // Destruction after an overflow abandons the transfer
-            // mid-stream.
-            overflow = true;
-            break;
-        }
-        content.append(chunk, count);
-    }
-    if (overflow || content.empty()) {
-        return;
-    }
-    if (uris) {
-        StringView payload(content);
-        StringView entry;
-        Buffer path;
-        bool delivered = false;
-        while (nextUriListEntry(payload, entry)) {
-            path.reset();
-            if (fileUriToPath(entry, path)) {
-                sink->dropPath(StringView(path));
-            } else {
-                sink->dropPath(entry);
-            }
-            delivered = true;
-        }
-        if (delivered) {
-            sink->flush();
-        }
-    } else {
-        sink->drop(StringView(content));
-        sink->flush();
-    }
-}
-
-DropTarget* DropTarget::create(ObjPool& owner, InputSink& sink) {
-    SinkDropTarget* const target = owner.make<SinkDropTarget>();
-    target->sink = &sink;
-    return target;
 }
 
 bool plt::nextUriListEntry(StringView& payload, StringView& entry) {

@@ -8,6 +8,7 @@
 
 #include "cell_extra_store.h"
 #include "composer.h"
+#include "drop_target.h"
 #include "grapheme.h"
 #include "font_pack.h"
 #include "hex.h"
@@ -28,6 +29,7 @@
 #include "vterm_trace.h"
 
 #include <plt/clipboard.h>
+#include <plt/drop.h>
 #include <plt/fiber.h>
 #include <plt/mutex.h>
 #include <plt/platform_headless.h>
@@ -39,6 +41,7 @@
 #include <std/alg/xchg.h>
 #include <std/lib/buffer.h>
 #include <std/thr/runable.h>
+#include <std/ios/in_mem.h>
 #include <std/ios/input.h>
 #include <std/mem/small_obj_allocator.h>
 #include <std/lib/vector.h>
@@ -185,6 +188,34 @@ namespace {
         void onListen(void*) override;
 
         bool armed = false;
+    };
+
+    struct MemDropOffer final: public plt::DropOffer {
+        size_t formats() const override;
+        StringView format(size_t index) const override;
+
+        StringView mime;
+    };
+
+    struct MemDrop final: public plt::Drop {
+        plt::DropOffer* what() override;
+        Input* read(StringView mime) override;
+
+        MemDropOffer offer;
+        StringView payload;
+    };
+
+    // One drop delivered through the real drop target on a dedicated
+    // fiber, mirroring the platform's DnD transfer fiber.
+    struct DropDelivery final: public Runable {
+        DropDelivery(plt::DropTarget* target, StringView payload, StringView mime);
+
+        void run() override;
+
+        plt::DropTarget* target;
+        std::string payload;
+        StringView mime;
+        alignas(16) u8 stack[plt::lightFiberStack];
     };
 }
 
@@ -439,6 +470,36 @@ void FailFontChange::onListen(void*) {
     }
     armed = false;
     Errno(EIO).raise(StringView(u8"injected font replacement failure"));
+}
+
+size_t MemDropOffer::formats() const {
+    return 1;
+}
+
+StringView MemDropOffer::format(size_t) const {
+    return mime;
+}
+
+plt::DropOffer* MemDrop::what() {
+    return &offer;
+}
+
+Input* MemDrop::read(StringView) {
+    return new MemoryInput(payload.data(), payload.length());
+}
+
+DropDelivery::DropDelivery(plt::DropTarget* target_, StringView payload_, StringView mime_)
+    : target(target_)
+    , payload((const char*)(payload_.data()), payload_.length())
+    , mime(mime_)
+{
+}
+
+void DropDelivery::run() {
+    MemDrop drop;
+    drop.offer.mime = mime;
+    drop.payload = StringView((const u8*)(payload.data()), payload.size());
+    target->dropped(drop);
 }
 
 namespace {
@@ -1739,6 +1800,31 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
         }
     };
 
+    plt::DropTarget* const dropTarget = createDropTarget(*composer.pool, composer);
+    const auto spawnDrop = [&](const std::string& payload, StringView mime) {
+        DropDelivery* const delivery = composer.pool->make<DropDelivery>(dropTarget, StringView((const u8*)(payload.data()), payload.size()), mime);
+        composer.platform->scheduler()->spawn(*delivery, delivery->stack, sizeof(delivery->stack));
+    };
+    // The platform delivers file drops as text/uri-list; the test path
+    // takes the same route through a file URI.
+    const auto pathToUriList = [](const std::string& path) {
+        static const char hexDigits[] = "0123456789abcdef";
+        std::string uri = "file://";
+        for (const char ch : path) {
+            const auto byte = (unsigned char)(ch);
+            const bool plain = (byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') || (byte >= '0' && byte <= '9') || byte == '/' || byte == '.' || byte == '_' || byte == '-' || byte == '~';
+            if (plain) {
+                uri += ch;
+            } else {
+                uri += '%';
+                uri += hexDigits[byte >> 4];
+                uri += hexDigits[byte & 15];
+            }
+        }
+        uri += "\r\n";
+        return uri;
+    };
+
     std::string buffered;
     std::string line;
     // The whole control protocol runs on one fiber inside the platform
@@ -2298,12 +2384,10 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 terminal.pasteSelection(decodeHex(line.substr(6)));
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 5, "DROP ") == 0) {
-                const std::string text = decodeHex(line.substr(5));
-                composer.input->drop(StringView((const u8*)(text.data()), text.size()));
+                spawnDrop(decodeHex(line.substr(5)), StringView(u8"text/plain;charset=utf-8"));
                 writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 10, "DROP_PATH ") == 0) {
-                const std::string path = decodeHex(line.substr(10));
-                composer.input->dropPath(StringView((const u8*)(path.data()), path.size()));
+                spawnDrop(pathToUriList(decodeHex(line.substr(10))), StringView(u8"text/uri-list"));
                 writeAll(controlFd, "OK\n");
             } else if (line == "PASTE_CLIPBOARD 0" || line == "PASTE_CLIPBOARD 1") {
                 writeAll(controlFd, testApi.pasteClipboard(line.back() == '1') ? "OK 1\n" : "OK 0\n");

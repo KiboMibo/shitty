@@ -6,12 +6,9 @@
 namespace stl {
     class Buffer;
     class Input;
-    class ObjPool;
 }
 
 namespace plt {
-    struct InputSink;
-
     enum class DropAction : u8 {
         None,
         Copy,
@@ -48,11 +45,6 @@ namespace plt {
         virtual DropReply dragOver(const DropOffer& offer, i32 x, i32 y) = 0;
         virtual void dragLeft() = 0;
         virtual void dropped(Drop& drop) = 0;
-
-        // The canonical target: accepts text and uri-list drops with the
-        // copy action, buffers one payload whole and delivers it through
-        // InputSink::drop or InputSink::dropPath followed by flush().
-        static DropTarget* create(stl::ObjPool& owner, InputSink& sink);
     };
 
     // Iterates one text/uri-list payload: entry receives the next

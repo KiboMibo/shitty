@@ -160,18 +160,6 @@ namespace plt::test {
             ++preeditCount;
         }
 
-        void drop(stl::StringView text) override {
-            lastDrop.reset();
-            lastDrop.append(text.data(), text.length());
-            ++dropCount;
-        }
-
-        void dropPath(stl::StringView path) override {
-            lastPaths.append(path.data(), path.length());
-            lastPaths.append("\n", 1);
-            ++pathCount;
-        }
-
         void pointerMotion(const PointerMotionInput& input) override {
             lastMotion = input;
             ++motionCount;
@@ -218,10 +206,6 @@ namespace plt::test {
         i32 lastPreeditCursorBegin = -1;
         i32 lastPreeditCursorEnd = -1;
         u32 preeditCount = 0;
-        stl::Buffer lastDrop;
-        u32 dropCount = 0;
-        stl::Buffer lastPaths;
-        u32 pathCount = 0;
         PointerMotionInput lastMotion;
         PointerButtonInput lastButton;
         ScrollInput lastScroll;

@@ -43,6 +43,7 @@
 #include "utf8_dfa.h"
 
 #include <plt/clipboard.h>
+#include <plt/drop.h>
 #include <plt/fiber.h>
 #include <plt/mutex.h>
 #include <plt/platform.h>
@@ -50,6 +51,7 @@
 #include <plt/window.h>
 
 #include <std/alg/minmax.h>
+#include <std/alg/xchg.h>
 #include <std/dbg/assert.h>
 #include <std/mem/obj_pool.h>
 #include <std/ios/input.h>
@@ -405,8 +407,11 @@ namespace {
         bool expireSynchronizedOutput(bool force) override;
         bool advanceAnimation(bool force) override;
         void preedit(StringView text, i32 cursorBegin, i32 cursorEnd) override;
-        void drop(StringView text) override;
-        void dropPath(StringView path) override;
+        void dropText(Input& source) override;
+        void dropUriList(Input& source) override;
+        void dropBuffered(StringView text);
+        bool bufferDropPayload(Input& source, Buffer& content);
+        void buildQuotedEntry(StringView entry, StringBuilder& quoted);
         const TerminalUpdate* output() override;
         void consume() override;
         VtermState state() const override;
@@ -2196,7 +2201,7 @@ void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, const ScreenFrame& fr
     update.cursorBlink = cursorBlinkMode;
 }
 
-void VtermImpl::drop(StringView text) {
+void VtermImpl::dropBuffered(StringView text) {
     if (text.empty()) {
         return;
     }
@@ -2219,26 +2224,69 @@ void VtermImpl::drop(StringView text) {
     });
 }
 
-void VtermImpl::dropPath(StringView path) {
-    if (path.empty()) {
+bool VtermImpl::bufferDropPayload(Input& source, Buffer& content) {
+    // The buffered fallback must not balloon on a hostile drag source; the
+    // fiber path streams and needs no cap.
+    constexpr size_t payloadLimit = 16u << 20;
+    for (;;) {
+        u8 chunk[16 * 1024];
+        const size_t count = source.read(chunk, sizeof(chunk));
+        if (count == 0) {
+            return !content.empty();
+        }
+        if (count > payloadLimit - content.length()) {
+            return false;
+        }
+        content.append(chunk, count);
+    }
+}
+
+void VtermImpl::dropText(Input& source) {
+    plt::Scheduler* const scheduler = composer.platform->scheduler();
+    if (!scheduler->inFiber()) {
+        Buffer content;
+        if (bufferDropPayload(source, content)) {
+            dropBuffered(StringView(content));
+        }
         return;
     }
-    bool plain = true;
-    for (size_t index = 0; index < path.length(); ++index) {
-        const u8 byte = path.data()[index];
+    // The stream is pulled on this fiber under the mutex: backpressure
+    // propagates to the drag source instead of ballooning a buffer.
+    const plt::LockGuard guard(*composer.ptyMutex, *scheduler);
+    PasteOutput paste(composer.ptyOutput, bracketedPasteMode);
+    for (;;) {
+        u8 chunk[4096];
+        const size_t count = source.read(chunk, sizeof(chunk));
+        if (count == 0) {
+            break;
+        }
+        paste.write(chunk, count);
+    }
+}
+
+// Local files insert as percent-decoded shell-quoted paths with a
+// trailing separator, other schemes as the quoted verbatim URI.
+void VtermImpl::buildQuotedEntry(StringView entry, StringBuilder& quoted) {
+    Buffer decoded;
+    StringView value = entry;
+    if (plt::fileUriToPath(entry, decoded)) {
+        value = StringView(decoded);
+    }
+    bool plain = !value.empty();
+    for (size_t index = 0; index < value.length(); ++index) {
+        const u8 byte = value.data()[index];
         const bool alnum = (byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') || (byte >= '0' && byte <= '9');
         if (!alnum && byte != '/' && byte != '.' && byte != '_' && byte != '-' && byte != '+' && byte != ':' && byte != '@' && byte != '%' && byte != ',' && byte != '=') {
             plain = false;
             break;
         }
     }
-    StringBuilder quoted(path.length() + 4);
     if (plain) {
-        quoted << path;
+        quoted << value;
     } else {
         quoted << StringView(u8"'");
-        for (size_t index = 0; index < path.length(); ++index) {
-            const u8 byte = path.data()[index];
+        for (size_t index = 0; index < value.length(); ++index) {
+            const u8 byte = value.data()[index];
             if (byte == '\'') {
                 quoted << StringView(u8"'\\''");
             } else {
@@ -2248,7 +2296,57 @@ void VtermImpl::dropPath(StringView path) {
         quoted << StringView(u8"'");
     }
     quoted << StringView(u8" ");
-    drop(StringView(quoted));
+}
+
+void VtermImpl::dropUriList(Input& source) {
+    plt::Scheduler* const scheduler = composer.platform->scheduler();
+    if (!scheduler->inFiber()) {
+        Buffer content;
+        if (!bufferDropPayload(source, content)) {
+            return;
+        }
+        StringView payload(content);
+        StringView entry;
+        while (plt::nextUriListEntry(payload, entry)) {
+            StringBuilder quoted(entry.length() + 4);
+            buildQuotedEntry(entry, quoted);
+            dropBuffered(StringView(quoted));
+        }
+        return;
+    }
+    // One line at most this long is metadata, not a payload; a source that
+    // never ends a line is abandoned mid-stream.
+    constexpr size_t entryLimit = 64 * 1024;
+    const plt::LockGuard guard(*composer.ptyMutex, *scheduler);
+    Buffer pending;
+    for (bool complete = false; !complete;) {
+        u8 chunk[4096];
+        const size_t count = source.read(chunk, sizeof(chunk));
+        complete = count == 0;
+        pending.append(chunk, count);
+        if (pending.length() > entryLimit) {
+            return;
+        }
+        // Only complete lines are parseable mid-stream; the last one joins
+        // at end of stream.
+        size_t boundary = pending.length();
+        if (!complete) {
+            const u8* const data = (const u8*)(pending.data());
+            while (boundary > 0 && data[boundary - 1] != '\n') {
+                --boundary;
+            }
+        }
+        StringView ready((const u8*)(pending.data()), boundary);
+        StringView entry;
+        while (plt::nextUriListEntry(ready, entry)) {
+            StringBuilder quoted(entry.length() + 4);
+            buildQuotedEntry(entry, quoted);
+            PasteOutput paste(composer.ptyOutput, bracketedPasteMode);
+            paste.write(quoted.data(), quoted.used());
+        }
+        Buffer tail(StringView((const u8*)(pending.data()) + boundary, pending.length() - boundary));
+        stl::xchg(pending, tail);
+    }
 }
 
 void VtermImpl::preedit(StringView text, i32 cursorBegin, i32 cursorEnd) {

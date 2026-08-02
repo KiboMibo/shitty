@@ -17,6 +17,10 @@
 #include <cstddef>
 #include <cstdint>
 
+namespace stl {
+    class Input;
+}
+
 struct Composer;
 struct CellExtraStore;
 struct VtermTraceFactory;
@@ -119,12 +123,15 @@ struct Vterm {
     // cursorBegin/cursorEnd are byte offsets into text, or -1 when the
     // input method hides its cursor.
     virtual void preedit(stl::StringView text, i32 cursorBegin, i32 cursorEnd) = 0;
-    // Text dropped onto the window by a drag-and-drop session; applies the
-    // same sanitizing and bracketed-paste treatment as a clipboard paste.
-    virtual void drop(stl::StringView text) = 0;
-    // One entry of a dropped file list; inserted shell-quoted with a
-    // trailing separator through the same paste path as drop().
-    virtual void dropPath(stl::StringView path) = 0;
+    // Text dropped onto the window by a drag-and-drop session; the stream
+    // is pulled on the calling fiber chunk by chunk under the PTY mutex,
+    // with the same sanitizing and bracketed-paste treatment as a
+    // clipboard paste. Off fibers the payload is buffered whole (bounded)
+    // and replayed from a transaction.
+    virtual void dropText(stl::Input& source) = 0;
+    // A text/uri-list drop: every entry is inserted shell-quoted with a
+    // trailing separator through the same paste path as dropText().
+    virtual void dropUriList(stl::Input& source) = 0;
 
     virtual bool expireSynchronizedOutput(bool force) = 0;
     virtual bool advanceAnimation(bool force) = 0;

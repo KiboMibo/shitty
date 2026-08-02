@@ -54,6 +54,87 @@ namespace plt::test {
             bool abortNext = false;
         };
 
+        // The canonical consumer shape: prefers a file list over text,
+        // buffers one payload whole and splits uri lists into entries.
+        struct BufferingTarget final: DropTarget {
+            stl::StringView preferred(const DropOffer& offer) const {
+                bool uriList = false;
+                bool utf8 = false;
+                bool utf8String = false;
+                bool plain = false;
+                for (size_t index = 0; index != offer.formats(); ++index) {
+                    const stl::StringView mime = offer.format(index);
+                    uriList = uriList || mime == stl::StringView(u8"text/uri-list");
+                    utf8 = utf8 || mime == stl::StringView(u8"text/plain;charset=utf-8");
+                    utf8String = utf8String || mime == stl::StringView(u8"UTF8_STRING");
+                    plain = plain || mime == stl::StringView(u8"text/plain");
+                }
+                if (uriList) {
+                    return stl::StringView(u8"text/uri-list");
+                }
+                if (utf8) {
+                    return stl::StringView(u8"text/plain;charset=utf-8");
+                }
+                if (utf8String) {
+                    return stl::StringView(u8"UTF8_STRING");
+                }
+                if (plain) {
+                    return stl::StringView(u8"text/plain");
+                }
+                return {};
+            }
+
+            DropReply dragOver(const DropOffer& offer, i32, i32) override {
+                return {
+                    .mime = preferred(offer),
+                    .action = DropAction::Copy,
+                };
+            }
+
+            void dragLeft() override {
+            }
+
+            void dropped(Drop& drop) override {
+                const stl::StringView mime = preferred(*drop.what());
+                if (mime.empty()) {
+                    return;
+                }
+                const stl::ScopedPtr<stl::Input> stream{drop.read(mime)};
+                stl::Buffer content;
+                for (;;) {
+                    u8 chunk[4096];
+                    const size_t count = stream->read(chunk, sizeof(chunk));
+                    if (count == 0) {
+                        break;
+                    }
+                    content.append(chunk, count);
+                }
+                if (!(mime == stl::StringView(u8"text/uri-list"))) {
+                    text.append(content.data(), content.length());
+                    ++dropCount;
+                    return;
+                }
+                stl::StringView payload(content);
+                stl::StringView entry;
+                stl::Buffer path;
+                while (nextUriListEntry(payload, entry)) {
+                    path.reset();
+                    if (fileUriToPath(entry, path)) {
+                        paths.append(path.data(), path.length());
+                    } else {
+                        paths.append(entry.data(), entry.length());
+                    }
+                    paths.append("\n", 1);
+                    ++pathCount;
+                }
+            }
+
+            stl::Buffer text;
+            stl::Buffer paths;
+            u32 dropCount = 0;
+            u32 pathCount = 0;
+        };
+
         struct RejectingTarget final: DropTarget {
             DropReply dragOver(const DropOffer&, i32, i32) override {
                 ++overCount;
@@ -74,8 +155,8 @@ namespace plt::test {
 
     bool textDrop(int fd) {
         InputRecorder input;
-        stl::ObjPool::Ref pool = stl::ObjPool::fromMemory();
-        Client client(fd, 800, 1, nullptr, &input, true, nullptr, DropTarget::create(*pool, input));
+        BufferingTarget target;
+        Client client(fd, 800, 1, nullptr, &input, true, nullptr, &target);
         if (command(fd, Command::DragEnter).count != 1) {
             fprintf(stderr, "text drop: drag enter was not delivered\n");
             return false;
@@ -99,8 +180,8 @@ namespace plt::test {
         }
         pump(*client.platform);
 
-        if (input.dropCount != 1 || stl::StringView(input.lastDrop) != stl::StringView(u8"hermetic Wayland drop")) {
-            fprintf(stderr, "text drop: payload was not delivered to the input sink\n");
+        if (target.dropCount != 1 || stl::StringView(target.text) != stl::StringView(u8"hermetic Wayland drop")) {
+            fprintf(stderr, "text drop: payload was not delivered to the target\n");
             return false;
         }
         const Reply finish = command(fd, Command::QueryDragFinish);
@@ -113,8 +194,8 @@ namespace plt::test {
 
     bool utf8StringDrop(int fd) {
         InputRecorder input;
-        stl::ObjPool::Ref pool = stl::ObjPool::fromMemory();
-        Client client(fd, 800, 1, nullptr, &input, true, nullptr, DropTarget::create(*pool, input));
+        BufferingTarget target;
+        Client client(fd, 800, 1, nullptr, &input, true, nullptr, &target);
         if (command(fd, Command::DragEnterUtf8String).count != 1) {
             fprintf(stderr, "UTF8_STRING drop: drag enter was not delivered\n");
             return false;
@@ -137,8 +218,8 @@ namespace plt::test {
         }
         pump(*client.platform);
 
-        if (input.dropCount != 1 || stl::StringView(input.lastDrop) != stl::StringView(u8"hermetic Wayland drop")) {
-            fprintf(stderr, "UTF8_STRING drop: payload was not delivered to the input sink\n");
+        if (target.dropCount != 1 || stl::StringView(target.text) != stl::StringView(u8"hermetic Wayland drop")) {
+            fprintf(stderr, "UTF8_STRING drop: payload was not delivered to the target\n");
             return false;
         }
         const Reply finish = command(fd, Command::QueryDragFinish);
@@ -151,8 +232,8 @@ namespace plt::test {
 
     bool uriListDrop(int fd) {
         InputRecorder input;
-        stl::ObjPool::Ref pool = stl::ObjPool::fromMemory();
-        Client client(fd, 800, 1, nullptr, &input, true, nullptr, DropTarget::create(*pool, input));
+        BufferingTarget target;
+        Client client(fd, 800, 1, nullptr, &input, true, nullptr, &target);
         if (command(fd, Command::DragEnterUriList).count != 1) {
             fprintf(stderr, "uri-list drop: drag enter was not delivered\n");
             return false;
@@ -177,7 +258,7 @@ namespace plt::test {
 
         // The file URI decodes to a local path, the comment is skipped and
         // the foreign scheme passes through verbatim.
-        if (input.pathCount != 2 || input.dropCount != 0 || stl::StringView(input.lastPaths) != stl::StringView(u8"/tmp/plt drop.txt\nhttps://example.com/plt\n")) {
+        if (target.pathCount != 2 || target.dropCount != 0 || stl::StringView(target.paths) != stl::StringView(u8"/tmp/plt drop.txt\nhttps://example.com/plt\n")) {
             fprintf(stderr, "uri-list drop: entries were not delivered as paths\n");
             return false;
         }

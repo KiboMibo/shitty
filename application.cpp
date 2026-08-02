@@ -15,6 +15,7 @@
 
 #include "application.h"
 #include "composer.h"
+#include "drop_target.h"
 #include "fd_redirect.h"
 #include "font_pack.h"
 #include "input_bindings.h"
@@ -468,7 +469,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .input = composer.input,
             .events = this,
             .frame = this,
-            .drop = plt::DropTarget::create(*composer.pool, *composer.input),
+            .drop = createDropTarget(*composer.pool, composer),
         }
     );
     contentScaleChanged();

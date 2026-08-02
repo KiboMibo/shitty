@@ -21,8 +21,6 @@ namespace {
         void key(const plt::KeyInput& input) override;
         void text(const plt::TextInput& input) override;
         void preedit(stl::StringView text, i32 cursorBegin, i32 cursorEnd) override;
-        void drop(stl::StringView text) override;
-        void dropPath(stl::StringView path) override;
         void pointerMotion(const plt::PointerMotionInput& input) override;
         void pointerButton(const plt::PointerButtonInput& input) override;
         void scroll(const plt::ScrollInput& input) override;
@@ -61,14 +59,6 @@ void InputRouter::text(const plt::TextInput& input) {
 
 void InputRouter::preedit(stl::StringView text, i32 cursorBegin, i32 cursorEnd) {
     composer.vterm->preedit(text, cursorBegin, cursorEnd);
-}
-
-void InputRouter::drop(stl::StringView text) {
-    composer.vterm->drop(text);
-}
-
-void InputRouter::dropPath(stl::StringView path) {
-    composer.vterm->dropPath(path);
 }
 
 void InputRouter::pointerMotion(const plt::PointerMotionInput& input) {
