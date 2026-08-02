@@ -24,6 +24,8 @@
 #include "pty.h"
 #include "render.h"
 #include "startup.h"
+
+#include "icon_data.h"
 #include "test_input.h"
 #include "test_mode.h"
 #include "vterm.h"
@@ -114,6 +116,9 @@ namespace {
         ObjPool* fontpackPool = nullptr;
         u16 initialFontSize = 0;
         u16 logicalBorder = 0;
+        // True until the first frame supplies real metrics; -geometry is
+        // applied against them exactly once.
+        bool initialGeometryPending = true;
 
         int takeTestFd(int& argc, char* argv[]);
         void createRenderer();
@@ -250,8 +255,13 @@ void ApplicationImpl::replaceFontpack(u16 size) {
 }
 
 void ApplicationImpl::fontChanged() {
-    const u16 columns = composer.columns == 0 ? opts.nCols : composer.columns;
-    const u16 rows = composer.rows == 0 ? opts.nRows : composer.rows;
+    // Until the first frame reports real window metrics the requested
+    // geometry wins: the pre-show window is a guess, and the grid derived
+    // from it must not displace -geometry. Afterwards font changes keep
+    // the grid the user has.
+    const bool sized = !initialGeometryPending;
+    const u16 columns = sized && composer.columns != 0 ? composer.columns : opts.nCols;
+    const u16 rows = sized && composer.rows != 0 ? composer.rows : opts.nRows;
     const u32 border = 2u * opts.border;
     composer.window->requestMinimumSize(border + composer.glyphWidth, border + composer.glyphHeight);
     composer.window->requestResizeUnit(composer.glyphWidth, composer.glyphHeight, border, border);
@@ -405,6 +415,12 @@ void ApplicationImpl::updateWindowInfo(const plt::WindowInfo& info) {
         composer.setContentScale(info.contentScale);
     }
     composer.resize((u16)(min(info.width, (u32)(UINT16_MAX))), (u16)(min(info.height, (u32)(UINT16_MAX))));
+    if (initialGeometryPending) {
+        // The first real metrics (glyphs at the live content scale) size
+        // the window to the requested geometry exactly once.
+        fontChanged();
+        initialGeometryPending = false;
+    }
 }
 
 bool ApplicationImpl::frame(const plt::WindowInfo& info) {
@@ -485,6 +501,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .events = this,
             .frame = this,
             .drop = createDropTarget(*composer.pool, composer),
+            .icon = StringView((const u8*)(embeddedIcon.data), embeddedIcon.size),
         }
     );
     contentScaleChanged();

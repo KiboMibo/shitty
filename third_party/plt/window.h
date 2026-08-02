@@ -102,6 +102,10 @@ namespace plt {
         FrameCallback* frame = nullptr;
         // Null leaves the window rejecting every drag.
         DropTarget* drop = nullptr;
+        // Encoded image bytes (PNG) for the application icon; empty keeps
+        // the platform default. Cocoa sets the Dock icon from it, Wayland
+        // has no icon protocol and ignores it.
+        stl::StringView icon;
     };
 
     struct Window {

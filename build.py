@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -12,6 +13,23 @@ shitty_version = date.today().strftime("%Y.%m.%d")
 
 build.includes += ["$(B)", "$(S)/third_party"]
 build.cppflags += [f'-DSHITTY_VERSION="{shitty_version}"']
+# libstd needs -std=c++26, which the Apple command-line-tools clang does
+# not know; fail here with directions instead of deep inside the graph.
+cxx = os.environ.get("CXX", "c++")  # the runner's own compiler default
+if subprocess.run(
+    [cxx, "-std=c++26", "-fsyntax-only", "-x", "c++", os.devnull],
+    capture_output=True,
+).returncode != 0:
+    raise RuntimeError(
+        f"{cxx} does not accept -std=c++26 (Apple clang from the "
+        "command line tools is too old). Install a current LLVM and point "
+        "the build at it:\n"
+        "    brew install llvm\n"
+        '    export CC="$(brew --prefix llvm)/bin/clang"\n'
+        '    export CXX="$(brew --prefix llvm)/bin/clang++"\n'
+        "    ./build"
+    )
+
 build.cxxflags += [
     "-std=c++23",
     "-Og" if "-DDEBUG" in build.cppflags else "-O2",
@@ -301,6 +319,24 @@ utf8_dfa = command(
 )
 
 
+icon_data = command(
+    name="icon_data",
+    inputs=[
+        "$(S)/generate_font_data.py",
+        "$(S)/icons/shitty.png",
+    ],
+    outputs=["$(B)/icon_data.h"],
+    cmd=[
+        "python3",
+        "$(S)/generate_font_data.py",
+        "$(B)/icon_data.h",
+        "embeddedIcon=$(S)/icons/shitty.png",
+    ],
+    descr="IC",
+    color="magenta",
+)
+
+
 font_data = command(
     name="font_data",
     inputs=[
@@ -353,6 +389,7 @@ if darwin:
     })
 vterm_source = "$(S)/vterm.cpp"
 font_embedded_source = "$(S)/font_embedded.cpp"
+application_source = "$(S)/application.cpp"
 libshitty_sources = [
     {
         "src": source,
@@ -363,7 +400,10 @@ libshitty_sources = [
     } if source == vterm_source else {
         "src": source,
         "inputs": ["$(B)/font_data.h"],
-    } if source == font_embedded_source else source
+    } if source == font_embedded_source else {
+        "src": source,
+        "inputs": ["$(B)/icon_data.h"],
+    } if source == application_source else source
     for source in all_libshitty_sources
 ]
 libshitty_test_sources = [
@@ -376,7 +416,10 @@ libshitty_test_sources = [
     } if source == vterm_source else {
         "src": source,
         "inputs": ["$(B)/font_data.h"],
-    } if source == font_embedded_source else source
+    } if source == font_embedded_source else {
+        "src": source,
+        "inputs": ["$(B)/icon_data.h"],
+    } if source == application_source else source
     for source in all_libshitty_sources
 ]
 libshitty_deps = [

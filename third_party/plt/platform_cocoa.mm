@@ -989,6 +989,16 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
     primaryPasteboard.window = this;
     primaryPasteboard.primary = true;
     generalPasteboard.window = this;
+    if (options.icon.length() != 0) {
+        // The Dock icon for the whole unbundled binary: without a bundle
+        // there is no Info.plist to name an icns, so the image is applied
+        // at run time.
+        NSData* const bytes = [NSData dataWithBytes:options.icon.data() length:options.icon.length()];
+        NSImage* const image = [[NSImage alloc] initWithData:bytes];
+        if (image != nil) {
+            NSApp.applicationIconImage = image;
+        }
+    }
     const NSRect frame = NSMakeRect(0, 0, max(1u, options.width), max(1u, options.height));
     window = [[NSWindow alloc] initWithContentRect:frame styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];
     delegate = [PltWindowDelegate new];
