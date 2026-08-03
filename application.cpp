@@ -265,6 +265,13 @@ void ApplicationImpl::fontChanged() {
     const u32 border = 2u * opts.border;
     composer.window->requestMinimumSize(border + composer.glyphWidth, border + composer.glyphHeight);
     composer.window->requestResizeUnit(composer.glyphWidth, composer.glyphHeight, border, border);
+    if (composer.window->info().fullscreen) {
+        // The window is the screen and not ours to resize: keeping the
+        // grid would wedge the viewport at the largest-font grid (issue
+        // 38). Let the next frame reflow the grid over the same pixels.
+        composer.window->requestFrame();
+        return;
+    }
     composer.window->requestResize(border + (u32)(columns)*composer.glyphWidth, border + (u32)(rows)*composer.glyphHeight);
 }
 
