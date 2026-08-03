@@ -1628,6 +1628,50 @@ STD_TEST_SUITE(ScreenRowSpans) {
         STD_INSIST(spans[0].offset + (size_t)(3) * fx.composer->fonts->getPx() * fx.composer->fonts->getPy() <= fx.screen->spanMaskUsed());
     }
 
+    STD_TEST(LigatureFormsAcrossCells) {
+        ShapeFixture fx;
+        Fontpack& fonts = *fx.composer->fonts;
+        const u32 arrow[] = {'-', '>'};
+        Font* const face = fonts.resolveFace(arrow, 1);
+        STD_INSIST(face != nullptr && !face->colored());
+        const u16 width = fonts.getPx();
+        const u16 height = fonts.getPy();
+        const size_t strip = (size_t)(2) * width * height;
+        Buffer shaped;
+        shaped.grow(strip);
+        shaped.seekAbsolute(strip);
+        shaped.zero(strip);
+        face->render(arrow, 2, 2, shaped.mutData());
+
+        // The same two codepoints rendered as isolated cells: the shaped
+        // strip must differ - the arrow ligature replaced them.
+        Buffer isolated;
+        isolated.grow(strip);
+        isolated.seekAbsolute(strip);
+        isolated.zero(strip);
+        Buffer glyph;
+        glyph.grow((size_t)(width)*height);
+        for (u16 cell = 0; cell < 2; ++cell) {
+            glyph.seekAbsolute((size_t)(width)*height);
+            glyph.zero((size_t)(width)*height);
+            face->render(&arrow[cell], 1, 1, glyph.mutData());
+            for (u16 row = 0; row < height; ++row) {
+                __builtin_memcpy((u8*)(isolated.mutData()) + (size_t)(row) * 2 * width + (size_t)(cell)*width, (const u8*)(glyph.data()) + (size_t)(row)*width, width);
+            }
+        }
+        size_t shapedInk = 0;
+        size_t isolatedInk = 0;
+        bool differ = false;
+        for (size_t index = 0; index < strip; ++index) {
+            shapedInk += ((const u8*)(shaped.data()))[index] > 8;
+            isolatedInk += ((const u8*)(isolated.data()))[index] > 8;
+            differ = differ || ((const u8*)(shaped.data()))[index] != ((const u8*)(isolated.data()))[index];
+        }
+        STD_INSIST(shapedInk != 0);
+        STD_INSIST(isolatedInk != 0);
+        STD_INSIST(differ);
+    }
+
     STD_TEST(ScreensNeverShareASpanGeneration) {
         // The primary and alternate screens carry separate arenas, and a
         // resize builds a fresh screen: a renderer keying device copies

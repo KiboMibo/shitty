@@ -10,7 +10,6 @@
     #include "composer.h"
     #include "font_face.h"
     #include "font_resolver.h"
-    #include "grapheme.h"
     #include "utf8.h"
 
     #include <std/lib/buffer.h>
@@ -125,9 +124,6 @@ CoreTextFont::~CoreTextFont() noexcept {
 }
 
 void CoreTextFont::render(const u32* codepoints, size_t count, u16 cells, void* buf) {
-    // One context over the caller's buffer for the whole strip; clusters
-    // draw at their grid pen offsets. Replacing this loop with a single
-    // CTLine over the span is the shaping stage.
     const bool color = colored();
     const size_t bytesPerPixel = color ? 4 : 1;
     const size_t stride = (size_t)(cells)*metrics_.width * bytesPerPixel;
@@ -165,40 +161,22 @@ void CoreTextFont::render(const u32* codepoints, size_t count, u16 cells, void* 
     }
     CGContextSetTextMatrix(context, matrix);
 
-    size_t position = 0;
-    u16 column = 0;
-    SpanCluster cluster;
-    SpanCluster next;
-    bool haveNext = nextSpanCluster(codepoints, count, position, next);
-    while (haveNext && column < cells) {
-        cluster = next;
-        haveNext = nextSpanCluster(codepoints, count, position, next);
-        u16 width = cluster.cells;
-        const bool blank = cluster.count == 1 && codepoints[cluster.begin] == ' ';
-        if (blank) {
-            column = (u16)(column + width);
-            continue;
-        }
-        // A pictogram followed by a blank cell owns that cell's slice too.
-        const bool nextBlank = haveNext && next.count == 1 && codepoints[next.begin] == ' ';
-        if (width == 1 && cluster.count == 1 && puaSymbol(codepoints[cluster.begin]) && nextBlank && column + 1 < cells) {
-            width = 2;
-            haveNext = nextSpanCluster(codepoints, count, position, next);
-        }
-        CFStringRef string = makeString(codepoints + cluster.begin, cluster.count);
-        if (string != nullptr) {
-            CTLineRef line = makeLine(string);
-            CFRelease(string);
-            if (line != nullptr) {
-                bool lineColor = false;
-                if (inspectLine(line, lineColor) && lineColor == color) {
-                    CGContextSetTextPosition(context, (CGFloat)((size_t)(column)*metrics_.width), (CGFloat)(metrics_.height - metrics_.baseline));
-                    CTLineDraw(line, context);
-                }
-                CFRelease(line);
+    // One CTLine over the whole span at the font's natural advances -
+    // Core Text forms the ligatures. A monospace face lands on cell
+    // boundaries by construction; the grid stops dictating positions
+    // inside the span.
+    CFStringRef string = makeString(codepoints, count);
+    if (string != nullptr) {
+        CTLineRef line = makeLine(string);
+        CFRelease(string);
+        if (line != nullptr) {
+            bool lineColor = false;
+            if (inspectLine(line, lineColor) && lineColor == color) {
+                CGContextSetTextPosition(context, 0, (CGFloat)(metrics_.height - metrics_.baseline));
+                CTLineDraw(line, context);
             }
+            CFRelease(line);
         }
-        column = (u16)(column + width);
     }
     CGContextRelease(context);
 }

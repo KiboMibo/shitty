@@ -58,6 +58,8 @@ namespace {
         FitMeasure measureAt(u16 pixelSize, u32 representative);
         u16 fitCells(u16 cells);
         bool applyCells(u16 cells);
+        void renderShapedSpan(const u32* codepoints, size_t count, u16 cells, u8* out, size_t stride);
+        void drawShapedRun(const u32* codepoints, size_t begin, size_t end, i32 penOrigin, u8* out, size_t stride);
         bool renderFittedSymbol(u32 codepoint, u8* out, size_t stride);
         void restoreSize();
         bool loadGlyph(FT_UInt glyph, bool color, bool render);
@@ -65,6 +67,7 @@ namespace {
         bool rasterizeMask(const hb_glyph_info_t* glyphs, const hb_glyph_position_t* positions, unsigned count);
         bool rasterizeColor(const hb_glyph_info_t* glyphs, const hb_glyph_position_t* positions, unsigned count);
         void drawMask(const FT_Bitmap& source, int destinationX, int destinationY);
+        void drawMaskInto(u8* destination, size_t canvas, const FT_Bitmap& source, int destinationX, int destinationY);
         void drawColor(const FT_Bitmap& source, int destinationX, int destinationY, int sourceWidth, int sourceHeight);
         void scaleColor(int sourceWidth, int sourceHeight);
         void close() noexcept;
@@ -397,12 +400,77 @@ bool FontImpl::renderFittedSymbol(u32 codepoint, u8* out, size_t stride) {
     return false;
 }
 
+// One harfbuzz run over a stretch of the span text, drawn at the pen's
+// natural advances - this is where ligatures form. The grid stops
+// dictating positions inside the run; a monospace face lands on cell
+// boundaries by construction, and any drift is the font's own advance
+// disagreeing with the width tables.
+void FontImpl::drawShapedRun(const u32* codepoints, size_t begin, size_t end, i32 penOrigin, u8* out, size_t stride) {
+    if (begin >= end) {
+        return;
+    }
+    hb_buffer_clear_contents(shape_);
+    hb_buffer_add_codepoints(shape_, (const hb_codepoint_t*)(codepoints + begin), end - begin, 0, end - begin);
+    hb_buffer_guess_segment_properties(shape_);
+    hb_shape(harfbuzz_, shape_, nullptr, 0);
+    unsigned glyphCount = 0;
+    const hb_glyph_info_t* glyphs = hb_buffer_get_glyph_infos(shape_, &glyphCount);
+    const hb_glyph_position_t* positions = hb_buffer_get_glyph_positions(shape_, &glyphCount);
+    hb_position_t penX = (hb_position_t)(penOrigin) << 6;
+    hb_position_t penY = 0;
+    for (unsigned index = 0; index < glyphCount; ++index) {
+        if (glyphs[index].codepoint != 0 && loadGlyph(glyphs[index].codepoint, false, true) && (face_->glyph->bitmap.pixel_mode == FT_PIXEL_MODE_GRAY || face_->glyph->bitmap.pixel_mode == FT_PIXEL_MODE_MONO)) {
+            const int destinationX = pixels(penX + positions[index].x_offset) + face_->glyph->bitmap_left;
+            const int destinationY = metrics_.baseline - pixels(penY + positions[index].y_offset) - face_->glyph->bitmap_top;
+            drawMaskInto(out, stride, face_->glyph->bitmap, destinationX, destinationY);
+        }
+        penX += positions[index].x_advance;
+        penY += positions[index].y_advance;
+    }
+}
+
+// The whole span shapes as one text, split only at pictograms that need
+// fit-scaling (they never ligate, and they re-render at their own pixel
+// size). A pictogram with a captured blank stays in the run: its ink
+// simply overflows into the blank's cell.
+void FontImpl::renderShapedSpan(const u32* codepoints, size_t count, u16 cells, u8* out, size_t stride) {
+    size_t position = 0;
+    size_t runBegin = 0;
+    i32 runOrigin = 0;
+    u16 column = 0;
+    SpanCluster cluster;
+    SpanCluster next;
+    bool haveNext = nextSpanCluster(codepoints, count, position, next);
+    while (haveNext && column < cells) {
+        cluster = next;
+        haveNext = nextSpanCluster(codepoints, count, position, next);
+        const bool nextBlank = haveNext && next.count == 1 && codepoints[next.begin] == ' ';
+        const bool symbol = cluster.cells == 1 && cluster.count == 1 && puaSymbol(codepoints[cluster.begin]);
+        if (symbol && !(nextBlank && column + 1 < cells)) {
+            // No blank to overflow into: scale the pictogram to its cell,
+            // outside the shaped run.
+            drawShapedRun(codepoints, runBegin, cluster.begin, runOrigin, out, stride);
+            if (!renderFittedSymbol(codepoints[cluster.begin], out + (size_t)(column)*metrics_.width, stride)) {
+                drawShapedRun(codepoints, cluster.begin, cluster.begin + cluster.count, (i32)(column)*metrics_.width, out, stride);
+            }
+            runBegin = cluster.begin + cluster.count;
+            runOrigin = (i32)(column + cluster.cells) * metrics_.width;
+        }
+        column = (u16)(column + cluster.cells);
+    }
+    drawShapedRun(codepoints, runBegin, count, runOrigin, out, stride);
+}
+
 void FontImpl::render(const u32* codepoints, size_t count, u16 cells, void* buf) {
-    // Per-cluster rasterization through the internal canvas; the slice
-    // copy disappears when harfbuzz layout replaces this loop and draws
-    // into the caller's buffer directly. cells is the grid's strip width;
-    // clusters clamp to it.
     const size_t stride = (size_t)(cells)*metrics_.width;
+    if (!hasColor_ && kind_ != FontKind::Fallback) {
+        // The mask plane of a fixed-metric face draws the whole span as
+        // shaped runs; the color plane scales per cluster and fallback
+        // faces re-fit their size per cluster, so both keep the loop
+        // below.
+        renderShapedSpan(codepoints, count, cells, (u8*)(buf), stride);
+        return;
+    }
     size_t position = 0;
     u16 column = 0;
     SpanCluster cluster;
@@ -560,13 +628,17 @@ bool FontImpl::applyCells(u16 cells) {
 }
 
 void FontImpl::drawMask(const FT_Bitmap& source, int destinationX, int destinationY) {
+    drawMaskInto((u8*)(bitmap_.mutData()), canvasWidth_, source, destinationX, destinationY);
+}
+
+void FontImpl::drawMaskInto(u8* destination, size_t canvas, const FT_Bitmap& source, int destinationX, int destinationY) {
     const int sourceWidth = source.width;
     const int sourceHeight = source.rows;
     const int sourceX = maximum(0, -destinationX);
     const int sourceY = maximum(0, -destinationY);
     destinationX = maximum(0, destinationX);
     destinationY = maximum(0, destinationY);
-    const int copyWidth = minimum(sourceWidth - sourceX, (int)(canvasWidth_)-destinationX);
+    const int copyWidth = minimum(sourceWidth - sourceX, (int)(canvas)-destinationX);
     const int copyHeight = minimum(sourceHeight - sourceY, (int)(metrics_.height) - destinationY);
     if (copyWidth <= 0 || copyHeight <= 0) {
         return;
@@ -574,12 +646,11 @@ void FontImpl::drawMask(const FT_Bitmap& source, int destinationX, int destinati
 
     const int pitch = source.pitch;
     const int rowStride = absolute(pitch);
-    auto* destination = (u8*)(bitmap_.mutData());
     for (int row = 0; row < copyHeight; ++row) {
         const int sourceRow = sourceY + row;
         const int storedRow = pitch < 0 ? sourceHeight - sourceRow - 1 : sourceRow;
         const u8* sourcePixels = (const u8*)(source.buffer + storedRow * rowStride);
-        u8* destinationPixels = destination + (destinationY + row) * canvasWidth_ + destinationX;
+        u8* destinationPixels = destination + (size_t)(destinationY + row) * canvas + destinationX;
         if (source.pixel_mode == FT_PIXEL_MODE_GRAY) {
             for (int column = 0; column < copyWidth; ++column) {
                 destinationPixels[column] = maximum(destinationPixels[column], sourcePixels[sourceX + column]);
