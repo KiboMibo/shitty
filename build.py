@@ -88,6 +88,7 @@ if darwin:
         *([f"-F{darwin_frameworks}"] if darwin_frameworks else []),
         "-Wl,-ObjC",
         "-Wl,-framework,AppKit",
+        "-Wl,-framework,Carbon",
         "-Wl,-framework,CoreFoundation",
         "-Wl,-framework,CoreGraphics",
         "-Wl,-framework,CoreText",

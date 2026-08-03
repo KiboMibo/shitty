@@ -123,6 +123,7 @@ elif system == "Darwin":
         dependency(ldflags=[
             *([f"-F{darwin_frameworks}"] if darwin_frameworks else []),
             "-Wl,-framework,AppKit",
+            "-Wl,-framework,Carbon",
             "-Wl,-framework,CoreGraphics",
             "-Wl,-framework,CoreVideo",
             "-Wl,-framework,Metal",

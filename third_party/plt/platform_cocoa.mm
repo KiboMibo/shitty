@@ -1579,6 +1579,32 @@ InputKey WindowImpl::inputKey(NSEvent* event) const {
     }
 }
 
+// charactersIgnoringModifiers strips Shift and Option but not the layout:
+// on a Russian layout the V key reports CYRILLIC EM, and neither the
+// terminal bindings (Cmd+V) nor the kitty alternate-key field can match.
+// Translate the physical key through the user's ASCII-capable layout -
+// QWERTY for a Russian user, AZERTY for a French one - the way kitty and
+// iTerm2 derive their base-layout key.
+static u32 asciiBaseCodepoint(NSEvent* event) {
+    TISInputSourceRef source = TISCopyCurrentASCIICapableKeyboardLayoutInputSource();
+    if (source == nullptr) {
+        return 0;
+    }
+    u32 result = 0;
+    auto layoutData = (CFDataRef)(TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData));
+    if (layoutData != nullptr) {
+        const auto* layout = (const UCKeyboardLayout*)(CFDataGetBytePtr(layoutData));
+        UInt32 deadKeys = 0;
+        UniChar characters[4];
+        UniCharCount length = 0;
+        if (UCKeyTranslate(layout, event.keyCode, kUCKeyActionDisplay, 0, LMGetKbdType(), kUCKeyTranslateNoDeadKeysBit, &deadKeys, 4, &length, characters) == noErr && length != 0) {
+            result = characters[0];
+        }
+    }
+    CFRelease(source);
+    return result;
+}
+
 void WindowImpl::key(NSEvent* event, bool pressed) {
     if (input == nullptr) {
         return;
@@ -1590,7 +1616,13 @@ void WindowImpl::key(NSEvent* event, bool pressed) {
         mods |= InputNumLock;
     }
     const u32 layout = firstCodepoint(event.characters);
-    const u32 base = firstCodepoint(event.charactersIgnoringModifiers);
+    u32 base = firstCodepoint(event.charactersIgnoringModifiers);
+    if (key == InputKey::Printable && base >= 0x80) {
+        const u32 ascii = asciiBaseCodepoint(event);
+        if (ascii >= 0x20 && ascii < 0x7f) {
+            base = ascii;
+        }
+    }
     input->key({
         .key = key,
         .action = action,
