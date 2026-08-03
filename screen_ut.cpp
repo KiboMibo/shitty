@@ -8,6 +8,7 @@
 
 #include "cell_extra_store.h"
 #include "composer.h"
+#include "listener.h"
 #include "font_embedded.h"
 #include "font_pack.h"
 #include "font_resolver.h"
@@ -1589,6 +1590,39 @@ STD_TEST_SUITE(ScreenRowSpans) {
         ShapeFixture fx;
         ScreenRowSpan spans[16];
         STD_INSIST(fx.screen->rowSpans(0, spans) == 0);
+    }
+
+    STD_TEST(ExtrasStoreReplacementKeepsStrips) {
+        ShapeFixture fx;
+        fx.writeText(*fx.screen, 0, 0, "abc");
+        ScreenRowSpan spans[16];
+        STD_INSIST(fx.screen->rowSpans(0, spans) == 1);
+        const u32 offset = spans[0].offset;
+        const size_t used = fx.screen->spanMaskUsed();
+        // Replacing the store voids the raw-bytes cache level. Mutate the
+        // row so it reshapes: the strip must come back through the
+        // materialized level without growing the arena.
+        fx.composer->setCellExtras(CellExtraStore::create(*fx.composer, 64));
+        fx.writeText(*fx.screen, 0, 0, "abc");
+        STD_INSIST(fx.screen->rowSpans(0, spans) == 1);
+        STD_INSIST(spans[0].offset == offset);
+        STD_INSIST(fx.screen->spanMaskUsed() == used);
+    }
+
+    STD_TEST(FontChangeResetsStrips) {
+        ShapeFixture fx;
+        fx.writeText(*fx.screen, 0, 0, "abc");
+        ScreenRowSpan spans[16];
+        STD_INSIST(fx.screen->rowSpans(0, spans) == 1);
+        STD_INSIST(fx.screen->spanMaskUsed() != 0);
+        for (IntrusiveNode* node = fx.composer->fontChangedListeners.mutFront(); node != fx.composer->fontChangedListeners.mutEnd();) {
+            Listener* const listener = static_cast<Listener*>(node);
+            node = node->next;
+            listener->onListen();
+        }
+        STD_INSIST(fx.screen->spanMaskUsed() == 0);
+        STD_INSIST(fx.screen->rowSpans(0, spans) == 1);
+        STD_INSIST(fx.screen->spanMaskUsed() != 0);
     }
 
     STD_TEST(ScrollIntoHistoryDropsShapesAndReshapesOnView) {

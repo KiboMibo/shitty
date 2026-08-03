@@ -22,6 +22,7 @@
 #include "font.h"
 #include "font_face.h"
 #include "font_pack.h"
+#include "listener.h"
 #include "utf8.h"
 
 #include <std/alg/minmax.h>
@@ -30,6 +31,7 @@
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 #include <std/mem/small_obj_allocator.h>
+#include <std/str/hash.h>
 #include <std/sym/i_map.h>
 
 #include <utf8proc.h>
@@ -348,8 +350,29 @@ namespace {
 
         Damage damage;
 
+        // Two cache levels in front of the strip arenas. The first maps a
+        // fast hash of the raw cell bytes to the identity of the
+        // materialized span; extra refs die with their store, so the
+        // cellExtrasChangedListeners hook drops this whole level by
+        // epoch. The second maps the materialized identity to the
+        // rendered strip and survives collections: recovery is a
+        // re-materialization and a hit, not a re-render. A font change
+        // resets everything including the arenas.
+        struct RawSpanRef {
+            u64 materialized;
+            u32 epoch;
+        };
+
         struct StripRef {
             u32 offset;
+            u32 epoch;
+        };
+
+        struct ShapeListener final: public Listener {
+            void onListen(void* argument) override;
+
+            ScreenBase* screen = nullptr;
+            bool font = false;
         };
 
         size_t rowSpans(i32 viewRow, ScreenRowSpan* out) override;
@@ -362,11 +385,19 @@ namespace {
         void releaseRowShape(Row* row) noexcept;
         u32 cutShapeRow(const TerminalCell* cells, RowSpanEntry* out);
         size_t shapeCluster(const TerminalCell& cell, u32* codepoints) const;
-        u64 shapeSpanHash(const TerminalCell* cells, u16 begin, u16 end) const;
-        u32 renderShapeStrip(const TerminalCell* cells, u16 begin, u16 end, Font* font, bool color);
+        void registerShapeListeners();
+        void onExtrasCollected();
+        void onFontChanged();
+        void buildShapeText(const TerminalCell* cells, u16 begin, u16 end);
+        u64 materializedSpanHash(FontStyle style, u16 cells) const;
+        u32 renderShapeStrip(Font* font, bool color, u16 cells);
 
-        // Strip dedup by span content hash over the two arenas.
+        IntMap<RawSpanRef>* rawSpans_ = nullptr;
         IntMap<StripRef>* strips_ = nullptr;
+        u32 rawEpoch_ = 0;
+        u32 stripEpoch_ = 0;
+        ShapeListener extrasListener_;
+        ShapeListener fontListener_;
         Buffer shapeMask_;
         Buffer shapeColor_;
         // Reusable flat codepoint string of the span being rendered.
@@ -1001,6 +1032,7 @@ ScreenBase<Coord, Epoch>::ScreenBase(Composer& composer_, ObjPool& pool_, u16 nC
 {
     initializeRows(nCols_, nRows_, 0);
     resizeDamage(nCols, nRows);
+    registerShapeListeners();
 }
 
 template <typename Coord, typename Epoch>
@@ -1121,36 +1153,45 @@ size_t ScreenBase<Coord, Epoch>::shapeCluster(const TerminalCell& cell, u32* cod
 }
 
 template <typename Coord, typename Epoch>
-u64 ScreenBase<Coord, Epoch>::shapeSpanHash(const TerminalCell* cells, u16 begin, u16 end) const {
-    // The strip identity straight from the raw cells: no cluster
-    // materialization on the hit path. Of the content word only the
-    // codepoint, the wide pair bits and the extended flag shape the
-    // strip; an extra ref is a content identity within one extras
-    // generation, and the seed carries that generation plus the
-    // fontpack, so neither collection nor a font change can alias.
-    constexpr u32 shapingContent = 0x807fffffu;
-    u64 hash = 0xcbf29ce484222325ULL;
-    hash = shapeMixHash(hash, (u64)(uintptr_t)(composer.fonts));
-    hash = shapeMixHash(hash, composer.cellExtras == nullptr ? 0 : composer.cellExtras->generation());
-    hash = shapeMixHash(hash, (u64)(end - begin));
-    for (u16 column = begin; column < end; ++column) {
-        const TerminalCell& cell = cells[column];
-        if (shapeBlankCell(cell)) {
-            // A written space and an untouched cell render the same.
-            hash = shapeMixHash(hash, ' ');
-            continue;
-        }
-        hash = shapeMixHash(hash, cell.content & shapingContent);
-        hash = shapeMixHash(hash, ((u64)(cell.bold) << 1) | (u64)(cell.italic));
-        if (cell.hasExtra()) {
-            hash = shapeMixHash(hash, cell.extraRef());
-        }
+void ScreenBase<Coord, Epoch>::ShapeListener::onListen(void*) {
+    if (font) {
+        screen->onFontChanged();
+    } else {
+        screen->onExtrasCollected();
     }
-    return hash;
 }
 
 template <typename Coord, typename Epoch>
-u32 ScreenBase<Coord, Epoch>::renderShapeStrip(const TerminalCell* cells, u16 begin, u16 end, Font* font, bool color) {
+void ScreenBase<Coord, Epoch>::registerShapeListeners() {
+    extrasListener_.screen = this;
+    fontListener_.screen = this;
+    fontListener_.font = true;
+    composer.cellExtrasChangedListeners.pushBack(&extrasListener_);
+    composer.fontChangedListeners.pushBack(&fontListener_);
+}
+
+template <typename Coord, typename Epoch>
+void ScreenBase<Coord, Epoch>::onExtrasCollected() {
+    // Extra refs died with their store: the raw-bytes level is void. The
+    // strips and the row span arrays keep their offsets; recovery is a
+    // re-materialization and a second-level hit.
+    ++rawEpoch_;
+}
+
+template <typename Coord, typename Epoch>
+void ScreenBase<Coord, Epoch>::onFontChanged() {
+    // Different metrics, different pixels: everything restarts.
+    for (u32 index = 0; rowRing != nullptr && index < rowCapacity; ++index) {
+        releaseRowShape(rowRing[index]);
+    }
+    shapeMask_.reset();
+    shapeColor_.reset();
+    ++rawEpoch_;
+    ++stripEpoch_;
+}
+
+template <typename Coord, typename Epoch>
+void ScreenBase<Coord, Epoch>::buildShapeText(const TerminalCell* cells, u16 begin, u16 end) {
     // The flat codepoint string of the span: cluster codepoints of every
     // lead cell, a captured blank cell as a space.
     shapeText_.reset();
@@ -1168,16 +1209,26 @@ u32 ScreenBase<Coord, Epoch>::renderShapeStrip(const TerminalCell* cells, u16 be
         const size_t count = shapeCluster(cell, cluster);
         shapeText_.append(cluster, count * sizeof(u32));
     }
+}
 
-    const u16 count = (u16)(end - begin);
+template <typename Coord, typename Epoch>
+u64 ScreenBase<Coord, Epoch>::materializedSpanHash(FontStyle style, u16 cells) const {
+    u64 hash = shash64(shapeText_.data(), shapeText_.used());
+    hash = shapeMixHash(hash, (u64)(style));
+    hash = shapeMixHash(hash, cells);
+    return hash;
+}
+
+template <typename Coord, typename Epoch>
+u32 ScreenBase<Coord, Epoch>::renderShapeStrip(Font* font, bool color, u16 cells) {
     Buffer& arena = color ? shapeColor_ : shapeMask_;
     const size_t pixel = color ? sizeof(u32) : 1;
-    const size_t bytes = (size_t)(count)*composer.fonts->getPx() * composer.fonts->getPy() * pixel;
+    const size_t bytes = (size_t)(cells)*composer.fonts->getPx() * composer.fonts->getPy() * pixel;
     const size_t offset = arena.used();
     arena.grow(offset + bytes);
     arena.seekAbsolute(offset + bytes);
     __builtin_memset((u8*)(arena.mutData()) + offset, 0, bytes);
-    font->render((const u32*)(shapeText_.data()), shapeText_.used() / sizeof(u32), count, (u8*)(arena.mutData()) + offset);
+    font->render((const u32*)(shapeText_.data()), shapeText_.used() / sizeof(u32), cells, (u8*)(arena.mutData()) + offset);
     return (u32)(offset / pixel);
 }
 
@@ -1235,12 +1286,39 @@ u32 ScreenBase<Coord, Epoch>::cutShapeRow(const TerminalCell* cells, RowSpanEntr
                 entry.offset = rowSpanMissing;
             } else {
                 const bool color = font->colored();
-                entry.hash = shapeSpanHash(cells, begin, end);
-                if (const StripRef* const cached = strips_->find(entry.hash)) {
-                    entry.offset = cached->offset;
+                const u16 spanCells = (u16)(end - begin);
+                const u64 raw = shash64(cells + begin, (size_t)(spanCells) * sizeof(TerminalCell));
+                u64 materialized = 0;
+                bool haveText = false;
+                RawSpanRef* const rawRef = rawSpans_->find(raw);
+                if (rawRef != nullptr && rawRef->epoch == rawEpoch_) {
+                    materialized = rawRef->materialized;
                 } else {
-                    entry.offset = renderShapeStrip(cells, begin, end, font, color) | (color ? rowSpanColor : 0);
-                    strips_->insert(entry.hash, entry.offset);
+                    buildShapeText(cells, begin, end);
+                    haveText = true;
+                    materialized = materializedSpanHash(style, spanCells);
+                    if (rawRef != nullptr) {
+                        rawRef->materialized = materialized;
+                        rawRef->epoch = rawEpoch_;
+                    } else {
+                        rawSpans_->insert(raw, materialized, rawEpoch_);
+                    }
+                }
+                entry.hash = materialized;
+                StripRef* const strip = strips_->find(materialized);
+                if (strip != nullptr && strip->epoch == stripEpoch_) {
+                    entry.offset = strip->offset;
+                } else {
+                    if (!haveText) {
+                        buildShapeText(cells, begin, end);
+                    }
+                    entry.offset = renderShapeStrip(font, color, spanCells) | (color ? rowSpanColor : 0);
+                    if (strip != nullptr) {
+                        strip->offset = entry.offset;
+                        strip->epoch = stripEpoch_;
+                    } else {
+                        strips_->insert(materialized, entry.offset, stripEpoch_);
+                    }
                 }
             }
         }
@@ -1252,6 +1330,7 @@ u32 ScreenBase<Coord, Epoch>::cutShapeRow(const TerminalCell* cells, RowSpanEntr
 template <typename Coord, typename Epoch>
 void ScreenBase<Coord, Epoch>::shapeRow(Row& row) {
     if (strips_ == nullptr) {
+        rawSpans_ = pool.template make<IntMap<RawSpanRef>>(&pool);
         strips_ = pool.template make<IntMap<StripRef>>(&pool);
     }
     const u32 count = cutShapeRow(row.cells, nullptr);

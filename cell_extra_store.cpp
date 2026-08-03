@@ -70,10 +70,7 @@ namespace {
         size_t slotBudget() const noexcept override;
         bool shouldCollect() const noexcept override;
         bool hardLimitExceeded() const noexcept override;
-        u32 generation() const noexcept override;
         void collect(Vector<TerminalCell*>& cells, u32* const* roots, size_t rootCount) override;
-
-        u32 generation_ = 0;
 
         Composer& composer_;
         CellExtraStoreOwner& owner_;
@@ -482,12 +479,7 @@ bool CellExtraStoreImpl::hardLimitExceeded() const noexcept {
     return allocatedExtraBytes_ > byteBudget_ * 2 || slots_.length() > slotBudget_ * 2;
 }
 
-u32 CellExtraStoreImpl::generation() const noexcept {
-    return generation_;
-}
-
 void CellExtraStoreImpl::collect(Vector<TerminalCell*>& cells, u32* const* roots, size_t rootCount) {
-    ++generation_;
     STD_ASSERT(composer_.cellExtras == this);
 
     auto* next = CellExtraStoreImpl::create(composer_, cellCount_, owner_);
