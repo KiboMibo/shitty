@@ -4,6 +4,7 @@
  * See the file LICENSE.MIT for the full license.
  */
 
+#include "color_names.h"
 #include "color_spec.h"
 
 #include <std/str/view.h>

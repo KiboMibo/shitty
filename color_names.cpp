@@ -8,7 +8,7 @@
  * tests/vte/upstream/color-names-tests.hh for its permissive license.
  */
 
-#include "color_spec.h"
+#include "color_names.h"
 
 #include <std/str/view.h>
 

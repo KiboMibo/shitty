@@ -12,7 +12,6 @@ namespace stl {
     class StringView;
 }
 
-bool colorFromName(stl::StringView name, Color& color);
 bool colorFromRgbIntensity(double red, double green, double blue, Color& color);
 bool colorFromCieXyz(double x, double y, double z, Color& color);
 bool colorFromCieUvY(double u, double v, double y, Color& color);
