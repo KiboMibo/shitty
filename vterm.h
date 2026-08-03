@@ -156,9 +156,6 @@ struct Vterm {
     virtual const TerminalUpdate* output() = 0;
     virtual void consume() = 0;
     virtual VtermState state() const = 0;
-    // The number of distinct glyph ids reachable in the current screen and
-    // its scrollback; sizes the renderer's glyph atlas on overflow.
-    virtual size_t distinctGlyphs() const = 0;
 
     static Vterm* create(Composer& composer, VtermTraceFactory* traceFactory);
 };

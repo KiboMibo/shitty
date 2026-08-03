@@ -2274,8 +2274,6 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                     throw std::runtime_error("test TIOCGWINSZ failed");
                 }
                 writeAll(controlFd, "OK " + std::to_string(size.ws_col) + " " + std::to_string(size.ws_row) + " " + std::to_string(size.ws_xpixel) + " " + std::to_string(size.ws_ypixel) + "\n");
-            } else if (line == "DISTINCT_GLYPHS") {
-                writeAll(controlFd, "OK " + std::to_string(vterm.distinctGlyphs()) + "\n");
             } else if (line == "FONT_STATE") {
                 StringBuilder output;
                 output << StringView(u8"OK ") << composer.fontSize << StringView(u8" ") << composer.glyphWidth << StringView(u8" ") << composer.glyphHeight << StringView(u8" ") << composer.pixelWidth << StringView(u8" ") << composer.pixelHeight << StringView(u8" ") << composer.columns << StringView(u8" ") << composer.rows << StringView(u8" ") << (unsigned)(composer.contentScale * 1000.0f + 0.5f) << StringView(u8" ") << opts.border << StringView(u8"\n");

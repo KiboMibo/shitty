@@ -887,13 +887,6 @@ class Shitty:
         payload = encoded.hex() if encoded else "-"
         self.command(f"PREEDIT {payload} {cursor_begin} {cursor_end}")
 
-    def distinct_glyphs(self):
-        self.stream.write(b"DISTINCT_GLYPHS\n")
-        response = self._readline().split()
-        if len(response) != 2 or response[0] != "OK":
-            raise RuntimeError("invalid distinct glyphs response")
-        return int(response[1])
-
     def presented_pixel(self, x, y):
         self.stream.write(f"PRESENTED_PIXEL {x} {y}\n".encode("ascii"))
         response = self._readline().split()

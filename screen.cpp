@@ -436,10 +436,9 @@ namespace {
         void rotateRowPointersDown(u16 top, u16 bottom, u16 count);
         void clearRows(u16 begin, u16 end, const TerminalCell& attrs);
         void changeContent();
-        void damageCell(u16 row, u16 column);
-        void damageRow(u16 row, u16 begin, u16 end);
-        void damageRectangle(u16 top, u16 left, u16 bottom, u16 right);
-        void resizeDamage(u16 columns, u16 rows);
+        void damageRow(u16 row);
+        void damageRows(u16 top, u16 bottom);
+        void resizeDamage(u16 rows);
         TerminalCell* overwriteWideSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs);
         TerminalCell* prepareSpan(RowSlot& slot, u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs);
         TerminalCell* prepareSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs);
@@ -1027,7 +1026,7 @@ ScreenBase<Coord, Epoch>::ScreenBase(Composer& composer_, ObjPool& pool_, u16 nC
     , pool(pool_)
 {
     initializeRows(nCols_, nRows_, 0);
-    resizeDamage(nCols, nRows);
+    resizeDamage(nRows);
     registerShapeListeners();
 }
 
@@ -1698,7 +1697,7 @@ void ScreenBase<Coord, Epoch>::layoutPrimary(ResizeState& state, u16 nCols_, u16
     } else {
         layoutCopy<true>(state, nCols_, nRows_, cursorState);
     }
-    resizeDamage(nCols, nRows);
+    resizeDamage(nRows);
     expose();
 }
 
@@ -1709,7 +1708,7 @@ void ScreenBase<Coord, Epoch>::layoutAlternate(ResizeState& state, u16 nCols_, u
     viewOffset = 0;
     Cursor unused;
     layoutCopy<false>(state, nCols_, nRows_, unused);
-    resizeDamage(nCols, nRows);
+    resizeDamage(nRows);
     expose();
 }
 
@@ -2411,7 +2410,7 @@ void ScreenBase<Coord, Epoch>::scrollUpWithHistory(u16 top, u16 bottom, u16 coun
     if (capture && previousViewOffset) {
         expose();
     } else {
-        damageRectangle(top, 0, bottom, nCols);
+        damageRows(top, bottom);
     }
 }
 
@@ -2424,7 +2423,7 @@ void ScreenBase<Coord, Epoch>::scrollDownVisible(u16 top, u16 bottom, u16 count,
     vscrollSelection(top, bottom, count, false);
     rotateRowPointersDown(top, bottom, count);
     clearRows(top, top + count, attrs);
-    damageRectangle(top, 0, bottom, nCols);
+    damageRows(top, bottom);
 }
 
 template <typename Coord, typename Epoch>
@@ -2436,7 +2435,7 @@ void ScreenBase<Coord, Epoch>::scrollUpVisible(u16 top, u16 bottom, u16 count, c
     vscrollSelection(top, bottom, -count, false);
     rotateRowPointersUp(top, bottom, count);
     clearRows(bottom - count, bottom, attrs);
-    damageRectangle(top, 0, bottom, nCols);
+    damageRows(top, bottom);
 }
 
 template <typename Coord, typename Epoch>
@@ -2506,7 +2505,7 @@ void ScreenBase<Coord, Epoch>::fillCells(u16 ch, const TerminalCell& attrs) {
     if (!selection.empty()) {
         invalidateSelection(Rect(0, 0, nCols, nRows));
     }
-    damageRectangle(0, 0, nRows, nCols);
+    damageRows(0, nRows);
 }
 
 template <typename Coord, typename Epoch>
@@ -2522,7 +2521,7 @@ void ScreenBase<Coord, Epoch>::setLineAttribute(u16 row, u8 attribute) {
         return;
     }
     slot->metadata.lineAttribute = attribute;
-    damageRow(row, 0, nCols);
+    damageRow(row);
     if (!selection.empty()) {
         invalidateSelection(Rect(0, row, nCols, row));
     }
@@ -2568,7 +2567,7 @@ template <typename Coord, typename Epoch>
 void ScreenBase<Coord, Epoch>::setWrapped(u16 row, u16 column) {
     TerminalCell* cells_ = mutableLogicalRow(row);
     cells_[column].wrap = 1;
-    damageCell(row, column);
+    damageRow(row);
     if (!selection.empty()) {
         invalidateSelection(Rect(column, row));
     }
@@ -2583,8 +2582,8 @@ void ScreenBase<Coord, Epoch>::moveWrap(u16 row, u16 sourceColumn, u16 destinati
     TerminalCell* mutableCells = mutableLogicalRow(row);
     mutableCells[sourceColumn].wrap = 0;
     mutableCells[destinationColumn].wrap = 1;
-    damageCell(row, sourceColumn);
-    damageCell(row, destinationColumn);
+    damageRow(row);
+    damageRow(row);
     if (!selection.empty()) {
         const u16 begin = sourceColumn < destinationColumn ? sourceColumn : destinationColumn;
         const u16 end = sourceColumn > destinationColumn ? sourceColumn + 1 : destinationColumn + 1;
@@ -2601,7 +2600,7 @@ TerminalCell* ScreenBase<Coord, Epoch>::prepareSpan(u16 row, u16 start, u16 coun
 template <typename Coord, typename Epoch>
 TerminalCell* ScreenBase<Coord, Epoch>::prepareSpan(RowSlot& slot, u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs) {
     if (slot == nullptr || !slot->metadata.wide) {
-        damageRow(row, start, start + count);
+        damageRow(row);
         if (!selection.empty()) {
             invalidateSelection(Rect(start, row, start + count, row));
         }
@@ -2612,7 +2611,7 @@ TerminalCell* ScreenBase<Coord, Epoch>::prepareSpan(RowSlot& slot, u16 row, u16 
     const bool splitLeft = start > 0 && (cells_[start - 1].dwidth || cells_[start].dwidth_cont);
     const bool splitRight = end < nCols && (cells_[end - 1].dwidth || cells_[end].dwidth_cont);
     if (!splitLeft && !splitRight) {
-        damageRow(row, start, end);
+        damageRow(row);
         if (!selection.empty()) {
             invalidateSelection(Rect(start, row, end, row));
         }
@@ -2631,7 +2630,7 @@ TerminalCell& ScreenBase<Coord, Epoch>::prepareCell(u16 row, u16 column, const T
 template <typename Coord, typename Epoch>
 TerminalCell& ScreenBase<Coord, Epoch>::prepareCell(RowSlot& slot, u16 row, u16 column, const TerminalCell& eraseAttrs) {
     if (slot == nullptr || !slot->metadata.wide) {
-        damageCell(row, column);
+        damageRow(row);
         if (!selection.empty()) {
             invalidateSelection(Rect(column, row));
         }
@@ -2643,7 +2642,7 @@ TerminalCell& ScreenBase<Coord, Epoch>::prepareCell(RowSlot& slot, u16 row, u16 
     } else if (cells_[column].dwidth) {
         clearWideBoundary(slot, row, column + 1, eraseAttrs);
     }
-    damageCell(row, column);
+    damageRow(row);
     if (!selection.empty()) {
         invalidateSelection(Rect(column, row));
     }
@@ -2656,7 +2655,7 @@ template <typename Coord, typename Epoch>
         RowSlot& slot = logicalRowSlot(row);
         const TerminalCell* const previous = rowData(slot);
         if (previous == nullptr || (!previous[column].dwidth && !previous[column].dwidth_cont)) {
-            damageCell(row, column);
+            damageRow(row);
             if (!selection.empty()) {
                 invalidateSelection(Rect(column, row));
             }
@@ -2843,7 +2842,7 @@ void ScreenBase<Coord, Epoch>::writeAsciiLinesImpl(u16 row, const u8* input, con
             storeText(cells, input, count);
             slot->metadata.protection |= linkedAttrs.protected_char;
             if (!scrolls) {
-                damageRow(row, 0, count);
+                damageRow(row);
             }
         }
         input += count + 2;
@@ -2913,7 +2912,7 @@ auto ScreenBase<Coord, Epoch>::writeAsciiRunInsert(u16 row, u16 column, u16 norm
     auto* const output = reinterpret_cast<u64*>(cells + column);
     storeAsciiCells(output, input, count, linkedAttrs.style, content);
     slot->metadata.protection |= linkedAttrs.protected_char;
-    damageRow(row, column, end);
+    damageRow(row);
     if (!selection.empty()) {
         invalidateSelection(Rect(column, row, end, row));
     }
@@ -3001,7 +3000,7 @@ void ScreenBase<Coord, Epoch>::fillRectangle(u16 top, u16 left, u16 bottom, u16 
         }
         logicalRowSlot(row)->metadata.protection |= attrs.protected_char;
     }
-    damageRectangle(top, left, bottom, right);
+    damageRows(top, bottom);
     if (!selection.empty()) {
         invalidateSelection(Rect(left, top, right, bottom));
     }
@@ -3044,7 +3043,7 @@ void ScreenBase<Coord, Epoch>::copyRectangle(u16 sourceTop, u16 sourceLeft, u16 
         }
         repairWideBoundary(targetTop + row, targetLeft, eraseAttrs);
         repairWideBoundary(targetTop + row, targetLeft + rowWidth, eraseAttrs);
-        damageRow(targetTop + row, targetLeft, targetLeft + rowWidth);
+        damageRow(targetTop + row);
         if (!selection.empty()) {
             invalidateSelection(Rect(targetLeft, targetTop + row, targetLeft + rowWidth, targetTop + row));
         }
@@ -3086,7 +3085,7 @@ void ScreenBase<Coord, Epoch>::changeRectangleAttributes(u16 top, u16 left, u16 
             }
         }
     }
-    damageRectangle(top, left, bottom, right);
+    damageRows(top, bottom);
     if (!selection.empty()) {
         invalidateSelection(Rect(left, top, right, bottom));
     }
@@ -3473,7 +3472,7 @@ void ScreenBase<Coord, Epoch>::eraseInRow(RowSlot& slot, u16 pY, u16 startX, u16
         eraseRange(start, start + count, erased);
         slot->metadata.protection |= erased.protected_char;
     }
-    damageRow(pY, startX, startX + count);
+    damageRow(pY);
     if (!selection.empty()) {
         invalidateSelection(Rect(startX, pY, startX + count, pY));
     }
@@ -3524,7 +3523,7 @@ void ScreenBase<Coord, Epoch>::eraseCells(u16 pY, u16 startX, u16 count, const T
     }
     const u16 damageStart = eraseLeft ? startX - 1 : startX;
     const u16 damageEnd = eraseRight ? endX + 1 : endX;
-    damageRow(pY, damageStart, damageEnd);
+    damageRow(pY);
     if (!selection.empty()) {
         invalidateSelection(Rect(damageStart, pY, damageEnd, pY));
     }
@@ -3546,7 +3545,7 @@ TerminalCell* ScreenBase<Coord, Epoch>::overwriteWideSpan(u16 pY, u16 startX, u1
     logicalRowSlot(pY)->metadata.protection |= erased.protected_char;
     const u16 damageStart = eraseLeft ? startX - 1 : startX;
     const u16 damageEnd = eraseRight ? endX + 1 : endX;
-    damageRow(pY, damageStart, damageEnd);
+    damageRow(pY);
     if (!selection.empty()) {
         invalidateSelection(Rect(damageStart, pY, damageEnd, pY));
     }
@@ -3578,12 +3577,12 @@ template <typename Coord, typename Epoch>
 [[gnu::noinline]] void ScreenBase<Coord, Epoch>::clearWideBoundarySlow(TerminalCell* row, u16 pY, u16 boundary, const TerminalCell& attrs) {
     TerminalCell erased = attrs;
     row[boundary - 1] = erased;
-    damageCell(pY, boundary - 1);
+    damageRow(pY);
     if (!selection.empty()) {
         invalidateSelection(Rect(boundary - 1, pY));
     }
     row[boundary] = erased;
-    damageCell(pY, boundary);
+    damageRow(pY);
     if (!selection.empty()) {
         invalidateSelection(Rect(boundary, pY));
     }
@@ -3615,13 +3614,13 @@ template <typename Coord, typename Epoch>
     TerminalCell erased = attrs;
     if (eraseLeft) {
         row[boundary - 1] = erased;
-        damageCell(pY, boundary - 1);
+        damageRow(pY);
         if (!selection.empty()) {
             invalidateSelection(Rect(boundary - 1, pY));
         }
     } else {
         row[boundary] = erased;
-        damageCell(pY, boundary);
+        damageRow(pY);
         if (!selection.empty()) {
             invalidateSelection(Rect(boundary, pY));
         }
@@ -3637,7 +3636,7 @@ void ScreenBase<Coord, Epoch>::selectiveEraseCells(u16 pY, u16 startX, u16 count
     erased.protected_char = 0;
     extras.clearExtra(erased, extras.underlineColor(attrs));
     if (rawLogicalRow(pY) == nullptr && erased == TerminalCell{}) {
-        damageRow(pY, startX, startX + count);
+        damageRow(pY);
         if (!selection.empty()) {
             invalidateSelection(Rect(startX, pY, startX + count, pY));
         }
@@ -3668,7 +3667,7 @@ void ScreenBase<Coord, Epoch>::selectiveEraseCells(u16 pY, u16 startX, u16 count
     }
     if (changed) {
         logicalRowSlot(pY)->metadata.protection = rowProtection(row, nCols);
-        damageRow(pY, startX, startX + count);
+        damageRow(pY);
     }
     repairWideBoundary(pY, startX, attrs);
     repairWideBoundary(pY, startX + count, attrs);
@@ -3684,7 +3683,7 @@ void ScreenBase<Coord, Epoch>::moveInRow(u16 pY, u16 dstX, u16 srcX, u16 count) 
     if (row != nullptr) {
         moveCells(row + dstX, row + srcX, count);
     }
-    damageRow(pY, dstX, dstX + count);
+    damageRow(pY);
     if (!selection.empty()) {
         invalidateSelection(Rect(dstX, pY, dstX + count, pY));
     }
@@ -3717,7 +3716,7 @@ void ScreenBase<Coord, Epoch>::insertCells(u16 row, u16 start, u16 end, u16 coun
             eraseRange(cells + start, cells + start + count, erased);
             slot->metadata.protection |= erased.protected_char;
         }
-        damageRow(row, start, end);
+        damageRow(row);
         if (!selection.empty()) {
             invalidateSelection(Rect(start, row, end, row));
         }
@@ -3766,7 +3765,7 @@ void ScreenBase<Coord, Epoch>::deleteCells(u16 row, u16 start, u16 end, u16 coun
             eraseRange(cells + start + moved, cells + end, erased);
             slot->metadata.protection |= erased.protected_char;
         }
-        damageRow(row, start, end);
+        damageRow(row);
         if (!selection.empty()) {
             invalidateSelection(Rect(start, row, end, row));
         }
@@ -3795,7 +3794,7 @@ void ScreenBase<Coord, Epoch>::copyRow(u16 dstY, u16 srcY, u16 startX, u16 count
     const TerminalCell* const source = sourceObject->cells + startX;
     TerminalCell* destinationRow = rawLogicalRow(dstY);
     if (destinationRow == nullptr && (startX != 0 || sourceObject->metadata.lineAttribute == 0) && (sourceObject == zeroRow || emptyRow(source, count))) {
-        damageRow(dstY, startX, startX + count);
+        damageRow(dstY);
         if (!selection.empty()) {
             invalidateSelection(Rect(startX, dstY, startX + count, dstY));
         }
@@ -3822,7 +3821,7 @@ void ScreenBase<Coord, Epoch>::copyRow(u16 dstY, u16 srcY, u16 startX, u16 count
         releaseRow(slot);
         slot = nullptr;
     }
-    damageRow(dstY, startX, startX + count);
+    damageRow(dstY);
     if (!selection.empty()) {
         invalidateSelection(Rect(startX, dstY, startX + count, dstY));
     }
@@ -3867,7 +3866,7 @@ void ScreenBase<Coord, Epoch>::scrollPartialRectangleUpOne(u16 top, u16 left, u1
         object->metadata.protection |= attrs.protected_char;
     }
     restoreRowWrap(object, nCols, wrapColumn);
-    damageRectangle(top, left, bottom, right);
+    damageRows(top, bottom);
     if (!selection.empty()) {
         invalidateSelection(Rect(left, top, right, bottom));
     }
@@ -3907,7 +3906,7 @@ template <typename Coord, typename Epoch>
     bool erasedBoundary = false;
     if (eraseOutsideLeft) {
         destination[left - 1] = attrs;
-        damageCell(destinationRow, left - 1);
+        damageRow(destinationRow);
         if (!selection.empty()) {
             invalidateSelection(Rect(left - 1, destinationRow));
         }
@@ -3923,7 +3922,7 @@ template <typename Coord, typename Epoch>
     }
     if (eraseOutsideRight) {
         destination[right] = attrs;
-        damageCell(destinationRow, right);
+        damageRow(destinationRow);
         if (!selection.empty()) {
             invalidateSelection(Rect(right, destinationRow));
         }
@@ -3978,7 +3977,7 @@ void ScreenBase<Coord, Epoch>::scrollRectangleImpl(u16 top, u16 left, u16 bottom
             }
             restoreRowWrap(object, nCols, wrapColumn);
         }
-        damageRectangle(top, left, bottom, right);
+        damageRows(top, bottom);
         if (!selection.empty()) {
             invalidateSelection(Rect(left, top, right, bottom));
         }
@@ -4045,7 +4044,7 @@ void ScreenBase<Coord, Epoch>::scrollRectangleImpl(u16 top, u16 left, u16 bottom
             }
         }
     }
-    damageRectangle(top, left, bottom, right);
+    damageRows(top, bottom);
     if (!selection.empty()) {
         invalidateSelection(Rect(left, top, right, bottom));
     }
@@ -4073,7 +4072,7 @@ void ScreenBase<Coord, Epoch>::rotateRows(u16 top, u16 bottom, i32 rows) {
     for (u16 row = top; row < bottom; ++row) {
         restoreRowWrap(logicalRowSlot(row), nCols, nCols);
     }
-    damageRectangle(top, 0, bottom, nCols);
+    damageRows(top, bottom);
 }
 
 template <typename Coord, typename Epoch>
@@ -4282,7 +4281,7 @@ void ScreenBase<Coord, Epoch>::changeContent() {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenBase<Coord, Epoch>::damageCell(u16 row, u16 column) {
+void ScreenBase<Coord, Epoch>::damageRow(u16 row) {
     changeContent();
     const u32 viewRow = (u32)(row) + viewOffset;
     if (viewRow < nRows) {
@@ -4291,23 +4290,8 @@ void ScreenBase<Coord, Epoch>::damageCell(u16 row, u16 column) {
 }
 
 template <typename Coord, typename Epoch>
-void ScreenBase<Coord, Epoch>::damageRow(u16 row, u16 begin, u16 end) {
+void ScreenBase<Coord, Epoch>::damageRows(u16 top, u16 bottom) {
     changeContent();
-    if (end <= begin) {
-        return;
-    }
-    const u32 viewRow = (u32)(row) + viewOffset;
-    if (viewRow < nRows) {
-        damage.addRow(viewRow);
-    }
-}
-
-template <typename Coord, typename Epoch>
-void ScreenBase<Coord, Epoch>::damageRectangle(u16 top, u16 left, u16 bottom, u16 right) {
-    changeContent();
-    if (right <= left) {
-        return;
-    }
     const u32 viewTop = (u32)(top) + viewOffset;
     const u32 viewBottom = std::min<u32>((u32)(bottom) + viewOffset, nRows);
     for (u32 row = viewTop; row < viewBottom; ++row) {
@@ -4316,7 +4300,7 @@ void ScreenBase<Coord, Epoch>::damageRectangle(u16 top, u16 left, u16 bottom, u1
 }
 
 template <typename Coord, typename Epoch>
-void ScreenBase<Coord, Epoch>::resizeDamage(u16 columns, u16 rows) {
+void ScreenBase<Coord, Epoch>::resizeDamage(u16 rows) {
     damageStorage.grow(rows);
     damage.configure(damageStorage.mutData(), rows);
 }

@@ -80,7 +80,6 @@
 #include <map>
 #include <new>
 #include <set>
-#include <unordered_set>
 #include <sys/types.h>
 
 #if defined(__SSE2__)
@@ -415,7 +414,6 @@ namespace {
         const TerminalUpdate* output() override;
         void consume() override;
         VtermState state() const override;
-        size_t distinctGlyphs() const override;
         TestApi* createTestApi();
 
         void parserResetGraphemeInput() override;
@@ -2509,29 +2507,6 @@ VtermState VtermImpl::state() const {
     VtermState result;
     result.synchronizedOutput = synchronizedOutputMode;
     return result;
-}
-
-size_t VtermImpl::distinctGlyphs() const {
-    const ScreenInfo info = cf->info();
-    CellExtraStore& extras = *composer.cellExtras;
-    std::unordered_set<u64> ids;
-    for (i32 row = -(i32)(info.historyRows); row < (i32)(info.rows); ++row) {
-        for (u16 column = 0; column < info.columns; ++column) {
-            const TerminalCell cell = cf->testLogicalCell(row, column);
-            if (cell.dwidth_cont) {
-                continue;
-            }
-            u64 id = cell.uc_pt ? cell.uc_pt : ' ';
-            if (cell.hasExtra()) {
-                const CellExtraView extra = extras.view(cell);
-                if (!extra.grapheme.empty()) {
-                    id = 0x100000000ull | cell.extraRef();
-                }
-            }
-            ids.insert(id);
-        }
-    }
-    return ids.size();
 }
 
 TestApi* VtermImpl::createTestApi() {
