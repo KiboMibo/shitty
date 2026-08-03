@@ -4,7 +4,7 @@
 
 import unittest
 
-from harness import Shitty
+from harness import Shitty, TEST_PLATFORM
 
 
 RELEASE = 0
@@ -13,13 +13,24 @@ KEY_EQUAL = 61
 KEY_MINUS = 45
 MOD_SHIFT = 1
 MOD_CONTROL = 2
+MOD_SUPER = 8
+
+# The default bindings differ per platform: Cmd chords on macOS (which
+# deliver no text event), Ctrl chords with their typed text on Linux.
+if TEST_PLATFORM == "cocoa":
+    FONT_INC = (KEY_EQUAL, None, MOD_SUPER)
+    FONT_DEC = (KEY_MINUS, None, MOD_SUPER)
+else:
+    FONT_INC = (KEY_EQUAL, "+", MOD_CONTROL | MOD_SHIFT)
+    FONT_DEC = (KEY_MINUS, "-", MOD_CONTROL)
 
 
 class OutputScaleTest(unittest.TestCase):
     @staticmethod
     def shortcut(terminal, key, text, modifiers):
         terminal.frontend_key_event(key, PRESS, modifiers=modifiers)
-        terminal.frontend_text_event(text, modifiers=modifiers)
+        if text is not None:
+            terminal.frontend_text_event(text, modifiers=modifiers)
         terminal.frontend_key_event(key, RELEASE, modifiers=modifiers)
 
     def assert_geometry(self, terminal, state, columns, rows, scale, border):
@@ -39,18 +50,8 @@ class OutputScaleTest(unittest.TestCase):
             glyph_py=16,
             extra_arguments=("-fontsize", "16", "-border", "2"),
         ) as terminal:
-            self.shortcut(
-                terminal,
-                KEY_EQUAL,
-                "+",
-                MOD_CONTROL | MOD_SHIFT,
-            )
-            self.shortcut(
-                terminal,
-                KEY_MINUS,
-                "-",
-                MOD_CONTROL,
-            )
+            self.shortcut(terminal, *FONT_INC)
+            self.shortcut(terminal, *FONT_DEC)
             terminal.write(b"scale")
             initial = terminal.font_state()
             self.assert_geometry(terminal, initial, 40, 8, 1000, 2)

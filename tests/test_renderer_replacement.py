@@ -4,7 +4,7 @@
 
 import unittest
 
-from harness import Shitty
+from harness import Shitty, TEST_PLATFORM
 
 
 RELEASE = 0
@@ -13,13 +13,24 @@ KEY_EQUAL = 61
 KEY_MINUS = 45
 MOD_SHIFT = 1
 MOD_CONTROL = 2
+MOD_SUPER = 8
+
+# The default bindings differ per platform: Cmd chords on macOS (which
+# deliver no text event), Ctrl chords with their typed text on Linux.
+if TEST_PLATFORM == "cocoa":
+    FONT_INC = (KEY_EQUAL, None, MOD_SUPER)
+    FONT_DEC = (KEY_MINUS, None, MOD_SUPER)
+else:
+    FONT_INC = (KEY_EQUAL, "+", MOD_CONTROL | MOD_SHIFT)
+    FONT_DEC = (KEY_MINUS, "-", MOD_CONTROL)
 
 
 class RendererReplacementTest(unittest.TestCase):
     @staticmethod
     def shortcut(terminal, key, text, modifiers):
         terminal.frontend_key_event(key, PRESS, modifiers=modifiers)
-        terminal.frontend_text_event(text, modifiers=modifiers)
+        if text is not None:
+            terminal.frontend_text_event(text, modifiers=modifiers)
         terminal.frontend_key_event(key, RELEASE, modifiers=modifiers)
 
     def test_failed_font_replacement_preserves_visible_generation(self):
@@ -30,45 +41,21 @@ class RendererReplacementTest(unittest.TestCase):
             glyph_py=16,
             extra_arguments=("-fontsize", "16"),
         ) as terminal:
-            self.shortcut(
-                terminal,
-                KEY_EQUAL,
-                "+",
-                MOD_CONTROL | MOD_SHIFT,
-            )
-            self.shortcut(
-                terminal,
-                KEY_MINUS,
-                "-",
-                MOD_CONTROL,
-            )
+            self.shortcut(terminal, *FONT_INC)
+            self.shortcut(terminal, *FONT_DEC)
             terminal.write(b"before")
             before_state = terminal.font_state()
             before_frame = terminal.snapshot()
 
             terminal.fail_next_font_change()
-            terminal.frontend_key_event(
-                KEY_EQUAL,
-                PRESS,
-                modifiers=MOD_CONTROL | MOD_SHIFT,
-            )
-            terminal.frontend_key_event(
-                KEY_EQUAL,
-                RELEASE,
-                modifiers=MOD_CONTROL | MOD_SHIFT,
-            )
+            self.shortcut(terminal, FONT_INC[0], None, FONT_INC[2])
 
             self.assertEqual(terminal.font_state(), before_state)
             self.assertEqual(terminal.snapshot(), before_frame)
             terminal.write(b"+usable")
             self.assertIn("before+usable", terminal.snapshot().lines[0])
 
-            self.shortcut(
-                terminal,
-                KEY_EQUAL,
-                "+",
-                MOD_CONTROL | MOD_SHIFT,
-            )
+            self.shortcut(terminal, *FONT_INC)
             after_state = terminal.font_state()
             self.assertEqual(after_state[0], 17)
             self.assertNotEqual(after_state[1:5], before_state[1:5])

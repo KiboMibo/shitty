@@ -11,7 +11,7 @@ from pathlib import Path
 TESTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TESTS))
 
-from harness import Shitty
+from harness import Shitty, TEST_PLATFORM
 from paste_cases import (
     C0_CONTROLS,
     C1_CONTROLS,
@@ -21,12 +21,15 @@ from paste_cases import (
     control_vectors,
 )
 
+# The default paste binding is Cmd+V on macOS, Ctrl+Shift+V on Linux.
+PASTE_MODIFIERS = 8 if TEST_PLATFORM == "cocoa" else 3
+
 
 def paste(terminal, content, chunk):
     terminal.set_system_clipboard(content)
     terminal.set_clipboard_chunk(chunk)
-    terminal.frontend_key_event(ord("V"), action=1, modifiers=3)
-    terminal.frontend_key_event(ord("V"), action=0, modifiers=3)
+    terminal.frontend_key_event(ord("V"), action=1, modifiers=PASTE_MODIFIERS)
+    terminal.frontend_key_event(ord("V"), action=0, modifiers=PASTE_MODIFIERS)
     return terminal.read_input()
 
 
