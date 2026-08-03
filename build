@@ -2030,6 +2030,9 @@ def main(argv: list[str] | None = None) -> int:
             selected = context.groups.get("install", [])
             if not selected:
                 raise BuildError("no targets requested and build.py defined no install group")
+            # A bare build publishes its deliverables: the install group
+            # holds real binaries, unlike test groups full of stamps.
+            publish.extend(selected)
         selected = _uniq(selected)
         roots = _uniq(target.root for target in selected if target.root is not None)
         context.calculate_uids(roots)
