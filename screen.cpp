@@ -161,40 +161,6 @@ namespace {
         return true;
     }
 
-    struct ExactDamageCache {
-        static constexpr size_t capacity = 512;
-
-        static size_t index(u64 key) {
-            key ^= key >> 30;
-            key *= 0xbf58476d1ce4e5b9ULL;
-            key ^= key >> 27;
-            key *= 0x94d049bb133111ebULL;
-            key ^= key >> 31;
-            return key & (capacity - 1);
-        }
-
-        bool find(size_t slot, u64 key) const {
-            return epochs[slot] == epoch && keys[slot] == key;
-        }
-
-        void insert(size_t slot, u64 key) {
-            keys[slot] = key;
-            epochs[slot] = epoch;
-        }
-
-        void reset() {
-            ++epoch;
-            if (epoch == 0) {
-                memset(epochs, 0, sizeof(epochs));
-                epoch = 1;
-            }
-        }
-
-        u64 keys[capacity];
-        u16 epochs[capacity]{};
-        u16 epoch = 1;
-    };
-
     TerminalCell* rowData(RowSlot slot) {
         return slot == nullptr ? nullptr : slot->cells;
     }
@@ -293,7 +259,7 @@ namespace {
         TerminalCell testCell(u16 row, u16 column) const noexcept override;
         TerminalCell testLogicalCell(i32 row, u16 column) const noexcept override;
         u32 testMaterializedRows() const noexcept override;
-        ScreenFrame captureFrame(TerminalCellSpan* spans) const override;
+        ScreenFrame captureFrame(TerminalRow* rows) const override;
         ScreenInfo info() const noexcept override;
 
         void collectExtraCells(Vector<TerminalCell*>& cells) override;
@@ -356,28 +322,18 @@ namespace {
         mutable Buffer linkScratch;
         mutable Vector<TerminalCell> selectionScratch;
 
-        struct DamageRow {
-            Epoch* epochs = nullptr;
-            Coord count = 0;
-            Coord begin = 0;
-            Coord end = 0;
-        };
-
+        // Damage is row-granular: shaping context spreads any edit across
+        // its whole row, so a damaged row re-renders wholly.
         struct Damage {
-            DamageRow* rows = nullptr;
-            Epoch epoch = 0;
-            u16 width = 0;
+            u8* rows = nullptr;
             u16 height = 0;
-            u16 fullRows = 0;
-            ExactDamageCache exactCache;
+            u16 dirtyRows = 0;
 
-            void configure(void* storage, u16 columns, u16 rows);
+            void configure(void* storage, u16 rows);
             void reset();
             void expose();
             bool hasDamage() const noexcept;
-            void addCell(u16 row, u16 column);
-            void addRow(u16 row, u16 begin, u16 end);
-            void addRect(u16 top, u16 left, u16 bottom, u16 right);
+            void addRow(u16 row);
         };
 
         Damage damage;
@@ -531,7 +487,7 @@ namespace {
         mutable bool snappedCacheValid = false;
 
         CellExtraStore& cellExtras() const noexcept;
-        TerminalCellBatch copyDamage(TerminalCellSpan* spans) const;
+        size_t copyDamage(TerminalRow* rows) const;
         static constexpr size_t cellSize = sizeof(TerminalCell);
     };
 
@@ -1672,7 +1628,7 @@ void ScreenBase<Coord, Epoch>::collectExtraCells(Vector<TerminalCell*>& cells) {
             if (cell->hasExtra()) {
                 cells.pushBack(cell);
                 if (visibleRow >= 0 && visibleRow < nRows) {
-                    damage.addCell(visibleRow, offset / cellSize);
+                    damage.addRow((u16)(visibleRow));
                     changed = true;
                 }
             }
@@ -2107,59 +2063,26 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
 }
 
 template <typename Coord, typename Epoch>
-TerminalCellBatch ScreenBase<Coord, Epoch>::copyDamage(TerminalCellSpan* spans) const {
-    TerminalCellSpan* span = spans;
-    size_t cellCount = 0;
-
-    const auto append = [&](u16 row, u16 begin, u16 end) {
-        const Row* const source = getViewRowObject(row);
-        const u16 count = end - begin;
-        span->index = (u32)(row)*nCols + begin;
-        span->count = count;
-        span->cells = source->cells + begin;
-        span->lineAttribute = source->metadata.lineAttribute;
-        ++span;
-        cellCount += count;
-    };
-
-    if (damage.fullRows == damage.height) {
-        for (u16 row = 0; row < damage.height; ++row) {
-            append(row, 0, damage.width);
-        }
-        return {cellCount, (size_t)(span - spans)};
-    }
-
+size_t ScreenBase<Coord, Epoch>::copyDamage(TerminalRow* rows) const {
+    size_t count = 0;
     for (u16 row = 0; row < damage.height; ++row) {
-        const DamageRow& damaged = damage.rows[row];
-        if (damaged.count == 0) {
+        if (damage.rows[row] == 0) {
             continue;
         }
-        if (damaged.count == damage.width) {
-            append(row, 0, damage.width);
-            continue;
-        }
-
-        u16 column = 0;
-        u16 remaining = damaged.count;
-        while (remaining != 0) {
-            while (damaged.epochs[column] != damage.epoch) {
-                ++column;
-            }
-            const u16 begin = column;
-            do {
-                ++column;
-                --remaining;
-            } while (remaining != 0 && column < damage.width && damaged.epochs[column] == damage.epoch);
-            append(row, begin, column);
-        }
+        const Row* const source = getViewRowObject(row);
+        rows[count++] = {
+            .cells = source->cells,
+            .row = row,
+            .lineAttribute = source->metadata.lineAttribute,
+        };
     }
-    return {cellCount, (size_t)(span - spans)};
+    return count;
 }
 
 template <typename Coord, typename Epoch>
-ScreenFrame ScreenBase<Coord, Epoch>::captureFrame(TerminalCellSpan* spans) const {
+ScreenFrame ScreenBase<Coord, Epoch>::captureFrame(TerminalRow* rows) const {
     return {
-        .damage = copyDamage(spans),
+        .damagedRows = copyDamage(rows),
         .selection = selectionForView(),
         .snappedSelection = snappedSelection(),
         .historyRows = historyRows,
@@ -4363,187 +4286,76 @@ void ScreenBase<Coord, Epoch>::damageCell(u16 row, u16 column) {
     changeContent();
     const u32 viewRow = (u32)(row) + viewOffset;
     if (viewRow < nRows) {
-        damage.addCell(viewRow, column);
+        damage.addRow(viewRow);
     }
 }
 
 template <typename Coord, typename Epoch>
 void ScreenBase<Coord, Epoch>::damageRow(u16 row, u16 begin, u16 end) {
     changeContent();
+    if (end <= begin) {
+        return;
+    }
     const u32 viewRow = (u32)(row) + viewOffset;
     if (viewRow < nRows) {
-        damage.addRow(viewRow, begin, end);
+        damage.addRow(viewRow);
     }
 }
 
 template <typename Coord, typename Epoch>
 void ScreenBase<Coord, Epoch>::damageRectangle(u16 top, u16 left, u16 bottom, u16 right) {
     changeContent();
-    const u32 viewTop = (u32)(top) + viewOffset;
-    const u32 viewBottom = (u32)(bottom) + viewOffset;
-    if (viewTop >= nRows) {
+    if (right <= left) {
         return;
     }
-    damage.addRect(viewTop, left, viewBottom < nRows ? viewBottom : nRows, right);
+    const u32 viewTop = (u32)(top) + viewOffset;
+    const u32 viewBottom = std::min<u32>((u32)(bottom) + viewOffset, nRows);
+    for (u32 row = viewTop; row < viewBottom; ++row) {
+        damage.addRow(row);
+    }
 }
 
 template <typename Coord, typename Epoch>
 void ScreenBase<Coord, Epoch>::resizeDamage(u16 columns, u16 rows) {
-    damageStorage.grow((size_t)(rows) * sizeof(DamageRow) + (size_t)(columns)*rows * sizeof(Epoch));
-    damage.configure(damageStorage.mutData(), columns, rows);
+    damageStorage.grow(rows);
+    damage.configure(damageStorage.mutData(), rows);
 }
 
 template <typename Coord, typename Epoch>
-void ScreenBase<Coord, Epoch>::Damage::configure(void* storage, u16 columns, u16 rows_) {
-    width = columns;
+void ScreenBase<Coord, Epoch>::Damage::configure(void* storage, u16 rows_) {
     height = rows_;
-    fullRows = 0;
-    rows = static_cast<DamageRow*>(storage);
-    Epoch* const epochs = reinterpret_cast<Epoch*>(rows + height);
-    if (width != 0 && height != 0) {
-        memset(epochs, 0, (size_t)(width)*height * sizeof(Epoch));
+    dirtyRows = 0;
+    rows = static_cast<u8*>(storage);
+    if (height != 0) {
+        memset(rows, 0, height);
     }
-    for (u16 row = 0; row < height; ++row) {
-        rows[row].epochs = epochs + (size_t)(row)*width;
-        rows[row].count = 0;
-        rows[row].begin = (Coord)(width);
-        rows[row].end = 0;
-    }
-    epoch = 1;
-    exactCache.reset();
 }
 
 template <typename Coord, typename Epoch>
 void ScreenBase<Coord, Epoch>::Damage::reset() {
-    for (u16 row = 0; row < height; ++row) {
-        rows[row].count = 0;
-        rows[row].begin = (Coord)(width);
-        rows[row].end = 0;
+    if (dirtyRows != 0 && height != 0) {
+        memset(rows, 0, height);
     }
-    fullRows = 0;
-    ++epoch;
-    if (epoch == 0) {
-        if (width != 0 && height != 0) {
-            memset(rows[0].epochs, 0, (size_t)(width)*height * sizeof(Epoch));
-        }
-        epoch = 1;
-    }
-    exactCache.reset();
+    dirtyRows = 0;
 }
 
 template <typename Coord, typename Epoch>
 void ScreenBase<Coord, Epoch>::Damage::expose() {
-    for (u16 row = 0; row < height; ++row) {
-        rows[row].count = (Coord)(width);
-        rows[row].begin = 0;
-        rows[row].end = (Coord)(width);
+    if (height != 0) {
+        memset(rows, 1, height);
     }
-    fullRows = height;
+    dirtyRows = height;
 }
 
 template <typename Coord, typename Epoch>
 bool ScreenBase<Coord, Epoch>::Damage::hasDamage() const noexcept {
-    if (fullRows == height) {
-        return true;
-    }
-    for (u16 row = 0; row < height; ++row) {
-        if (rows[row].count != 0) {
-            return true;
-        }
-    }
-    return false;
+    return dirtyRows != 0;
 }
 
 template <typename Coord, typename Epoch>
-void ScreenBase<Coord, Epoch>::Damage::addCell(u16 row, u16 column) {
-    if (fullRows == height) {
-        return;
+void ScreenBase<Coord, Epoch>::Damage::addRow(u16 row) {
+    if (rows[row] == 0) {
+        rows[row] = 1;
+        ++dirtyRows;
     }
-    DamageRow& damaged = rows[row];
-    if (damaged.count == width) {
-        return;
-    }
-    Epoch& cellEpoch = damaged.epochs[column];
-    if (cellEpoch == epoch) {
-        return;
-    }
-    cellEpoch = epoch;
-    ++damaged.count;
-    damaged.begin = min<Coord>(damaged.begin, (Coord)(column));
-    damaged.end = max<Coord>(damaged.end, (Coord)(column + 1));
-    if (damaged.count == width) {
-        ++fullRows;
-    }
-}
-
-template <typename Coord, typename Epoch>
-void ScreenBase<Coord, Epoch>::Damage::addRow(u16 row, u16 begin, u16 end) {
-    if (fullRows == height || end <= begin) {
-        return;
-    }
-    DamageRow& damaged = rows[row];
-    if (damaged.count == width) {
-        return;
-    }
-    if (damaged.count != 0 && damaged.count == damaged.end - damaged.begin && begin >= damaged.begin && end <= damaged.end) {
-        return;
-    }
-    const u64 key = begin | ((u64)(row) << 16) | ((u64)(end) << 32) | ((u64)(row + 1) << 48);
-    const size_t slot = ExactDamageCache::index(key);
-    if (exactCache.find(slot, key)) {
-        return;
-    }
-    exactCache.insert(slot, key);
-    if (begin == 0 && end == width) {
-        damaged.count = (Coord)(width);
-        damaged.begin = 0;
-        damaged.end = (Coord)(width);
-        ++fullRows;
-        return;
-    }
-    if (damaged.count == 0) {
-        for (u16 column = begin; column < end; ++column) {
-            damaged.epochs[column] = epoch;
-        }
-        damaged.count = (Coord)(end - begin);
-        damaged.begin = (Coord)(begin);
-        damaged.end = (Coord)(end);
-        return;
-    }
-    for (u16 column = begin; column < end; ++column) {
-        Epoch& cellEpoch = damaged.epochs[column];
-        if (cellEpoch == epoch) {
-            continue;
-        }
-        cellEpoch = epoch;
-        ++damaged.count;
-        if (damaged.count == width) {
-            damaged.begin = 0;
-            damaged.end = (Coord)(width);
-            ++fullRows;
-            return;
-        }
-    }
-    damaged.begin = min<Coord>(damaged.begin, (Coord)(begin));
-    damaged.end = max<Coord>(damaged.end, (Coord)(end));
-}
-
-template <typename Coord, typename Epoch>
-void ScreenBase<Coord, Epoch>::Damage::addRect(u16 top, u16 left, u16 bottom, u16 right) {
-    if (fullRows == height || bottom <= top || right <= left) {
-        return;
-    }
-    if (top == 0 && left == 0 && bottom == height && right == width) {
-        expose();
-        return;
-    }
-    const u64 key = left | ((u64)(top) << 16) | ((u64)(right) << 32) | ((u64)(bottom) << 48);
-    const size_t slot = ExactDamageCache::index(key);
-    if (exactCache.find(slot, key)) {
-        return;
-    }
-    for (u16 row = top; row < bottom; ++row) {
-        addRow(row, left, right);
-    }
-    exactCache.insert(slot, key);
 }

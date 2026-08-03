@@ -144,7 +144,7 @@ namespace {
         std::vector<u8> modelLineAttributes_;
         std::vector<std::vector<u32>> cellGraphemes_;
         std::vector<CellColor> modelUnderlineColors_;
-        mutable Vector<TerminalCellSpan> renderSpans_;
+        mutable Vector<TerminalRow> renderRows_;
         mutable std::vector<TerminalCell> renderCells_;
         std::vector<u16> lastUpdateRows_;
         TestApi* testApi_ = nullptr;
@@ -302,14 +302,13 @@ void ReferenceRendererImpl::captureStrips(const TerminalUpdate& update) {
         stripStore_.reset();
         if (update.shapeFromCells) {
             // Retained cells re-rendered through a foreign fontpack (the
-            // RENDER_IMAGE probe): every span shapes its own cells, the
+            // RENDER_IMAGE probe): every row shapes its own cells, the
             // screen rows do not participate.
-            for (size_t index = 0; index < update.spanCount; ++index) {
-                const TerminalCellSpan& span = update.spans[index];
-                const u16 row = (u16)(span.index / composer_.columns);
-                const size_t spans = shapes.shapeCells(span.cells, span.count, (u16)(span.index % composer_.columns), spanScratch_.data());
+            for (size_t index = 0; index < update.rowCount; ++index) {
+                const TerminalRow& row = update.rows[index];
+                const size_t spans = shapes.shapeCells(row.cells, composer_.columns, 0, spanScratch_.data());
                 for (size_t entry = 0; entry < spans; ++entry) {
-                    captureSpan(shapes, row, spanScratch_[entry]);
+                    captureSpan(shapes, row.row, spanScratch_[entry]);
                 }
             }
             continue;
@@ -320,17 +319,16 @@ void ReferenceRendererImpl::captureStrips(const TerminalUpdate& update) {
                 captureSpan(shapes, row, spanScratch_[index]);
             }
         }
-        if (update.overlaySpan != (size_t)-1 && update.overlaySpan < update.spanCount) {
+        if (update.overlayCount != 0) {
             // The preedit preview covers the underlying strips wholesale:
             // its blank cells hide the text below them.
-            const TerminalCellSpan& overlay = update.spans[update.overlaySpan];
-            const u16 row = (u16)(overlay.index / composer_.columns);
-            for (u32 index = 0; index < overlay.count; ++index) {
-                cellStrips_[overlay.index + index] = {};
+            const size_t base = (size_t)(update.overlayRow) * composer_.columns + update.overlayColumn;
+            for (u16 index = 0; index < update.overlayCount; ++index) {
+                cellStrips_[base + index] = {};
             }
-            const size_t spans = shapes.shapeCells(overlay.cells, overlay.count, (u16)(overlay.index % composer_.columns), spanScratch_.data());
+            const size_t spans = shapes.shapeCells(update.overlayCells, update.overlayCount, update.overlayColumn, spanScratch_.data());
             for (size_t index = 0; index < spans; ++index) {
-                captureSpan(shapes, row, spanScratch_[index]);
+                captureSpan(shapes, update.overlayRow, spanScratch_[index]);
             }
         }
     } while (generation != shapes.spanGeneration());
@@ -581,30 +579,39 @@ bool ReferenceRendererImpl::update(const TerminalUpdate& update) {
     const size_t count = (size_t)(composer_.columns) * composer_.rows;
     const bool shapeChanged = columns_ != composer_.columns || rows_ != composer_.rows;
     if (shapeChanged) {
-        size_t covered = 0;
-        for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
-            const TerminalCellSpan& span = update.spans[spanIndex];
-            if (span.cells == nullptr || span.count == 0 || span.index != covered) {
+        // A reshaped grid needs every row before the retained cells mean
+        // anything.
+        if (update.rowCount != composer_.rows) {
+            return false;
+        }
+        for (size_t index = 0; index < update.rowCount; ++index) {
+            if (update.rows[index].cells == nullptr || update.rows[index].row != index) {
                 return false;
             }
-            covered += span.count;
         }
-        if (covered != count) {
+    }
+    for (size_t index = 0; index < update.rowCount; ++index) {
+        const TerminalRow& row = update.rows[index];
+        if (row.cells == nullptr || row.row >= composer_.rows) {
             return false;
         }
     }
-    for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
-        const TerminalCellSpan& span = update.spans[spanIndex];
-        if (span.cells == nullptr || span.count == 0 || (size_t)(span.index) + span.count > count) {
-            return false;
-        }
+    if (update.overlayCount != 0 && (update.overlayCells == nullptr || update.overlayRow >= composer_.rows || (size_t)(update.overlayColumn) + update.overlayCount > composer_.columns)) {
+        return false;
     }
 
     std::vector<ReferenceCell> next = shapeChanged ? std::vector<ReferenceCell>(count) : cells_;
-    for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
-        const TerminalCellSpan& span = update.spans[spanIndex];
-        for (u32 index = 0; index < span.count; ++index) {
-            next[span.index + index] = materialize(span.cells[index], span.lineAttribute, *update.colors);
+    for (size_t index = 0; index < update.rowCount; ++index) {
+        const TerminalRow& row = update.rows[index];
+        for (u16 column = 0; column < composer_.columns; ++column) {
+            next[(size_t)(row.row) * composer_.columns + column] = materialize(row.cells[column], row.lineAttribute, *update.colors);
+        }
+    }
+    if (update.overlayCount != 0) {
+        // The preview covers the row content beneath it.
+        const size_t base = (size_t)(update.overlayRow) * composer_.columns + update.overlayColumn;
+        for (u16 index = 0; index < update.overlayCount; ++index) {
+            next[base + index] = materialize(update.overlayCells[index], 0, *update.colors);
         }
     }
     captureStrips(update);
@@ -616,19 +623,11 @@ bool ReferenceRendererImpl::update(const TerminalUpdate& update) {
     rows_ = composer_.rows;
     cells_ = std::move(next);
     colors_ = update.colors;
-    lastUpdateCells_ = 0;
-    lastUpdateSpans_ = update.spanCount;
+    lastUpdateCells_ = update.rowCount * columns_;
+    lastUpdateSpans_ = update.rowCount;
     lastUpdateRows_.clear();
-    for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
-        const TerminalCellSpan& span = update.spans[spanIndex];
-        lastUpdateCells_ += span.count;
-        const u16 firstRow = span.index / columns_;
-        const u16 lastRow = (span.index + span.count - 1) / columns_;
-        for (u16 row = firstRow; row <= lastRow; ++row) {
-            if (std::find(lastUpdateRows_.begin(), lastUpdateRows_.end(), row) == lastUpdateRows_.end()) {
-                lastUpdateRows_.push_back(row);
-            }
-        }
+    for (size_t index = 0; index < update.rowCount; ++index) {
+        lastUpdateRows_.push_back(update.rows[index].row);
     }
     captureModel();
     captureState(update);
@@ -662,8 +661,8 @@ ReferenceImage ReferenceRendererImpl::image() const {
 }
 
 TerminalUpdate ReferenceRendererImpl::renderUpdate() const {
-    renderSpans_.clear();
-    renderSpans_.grow(rows_);
+    renderRows_.clear();
+    renderRows_.grow(rows_);
     renderCells_.resize(cells_.size());
     for (size_t index = 0; index < cells_.size(); ++index) {
         renderCells_[index] = cells_[index].source;
@@ -677,16 +676,15 @@ TerminalUpdate ReferenceRendererImpl::renderUpdate() const {
     }
     for (u16 row = 0; row < rows_; ++row) {
         const size_t offset = (size_t)(row)*columns_;
-        renderSpans_.pushBack({
-            (u32)(offset),
-            columns_,
+        renderRows_.pushBack({
             renderCells_.data() + offset,
+            row,
             cells_[offset].lineAttribute,
         });
     }
     return {
-        .spans = renderSpans_.data(),
-        .spanCount = renderSpans_.length(),
+        .rows = renderRows_.data(),
+        .rowCount = renderRows_.length(),
         .colors = colors_,
         .viewOffset = viewOffset_,
         .historyRows = historyRows_,

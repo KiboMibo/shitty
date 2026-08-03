@@ -107,7 +107,7 @@ namespace {
         TerminalColors colors;
         Composer* composer = nullptr;
         Screen* screen = nullptr;
-        Vector<TerminalCellSpan> spans;
+        Vector<TerminalRow> rows;
     };
 
     bool cellHasInk(const ReferenceImage& image, u16 glyphWidth, u16 glyphHeight, u16 cell, Color background) {
@@ -148,11 +148,11 @@ void ScreenFixture::writeText(u16 row, u16 column, const char* text, const Termi
 
 TerminalUpdate ScreenFixture::capture() {
     screen->expose();
-    spans.grow((size_t)(composer->rows) * ((composer->columns + 1u) / 2u) + 2);
-    const ScreenFrame frame = screen->captureFrame(spans.mutData());
+    rows.grow((size_t)(composer->rows));
+    const ScreenFrame frame = screen->captureFrame(rows.mutData());
     TerminalUpdate update;
-    update.spans = spans.data();
-    update.spanCount = frame.damage.spanCount;
+    update.rows = rows.data();
+    update.rowCount = frame.damagedRows;
     update.colors = &colors;
     update.shapes = screen;
     return update;
@@ -246,10 +246,10 @@ STD_TEST_SUITE(ReferenceRenderer) {
         TerminalColors colors;
         TerminalCell cell = coloredCell({255, 0, 0}, {0, 0, 255});
         cell.inverse = true;
-        TerminalCellSpan span{0, 1, &cell};
+        TerminalRow row{&cell, 0, 0};
         TerminalUpdate update;
-        update.spans = &span;
-        update.spanCount = 1;
+        update.rows = &row;
+        update.rowCount = 1;
         update.colors = &colors;
 
         // No strips reach this renderer, so the cell paints its
@@ -273,19 +273,22 @@ STD_TEST_SUITE(ReferenceRenderer) {
         TerminalCell initial[2]{};
         initial[0].setBackground(CellColor::direct({10, 20, 30}));
         initial[1].setBackground(CellColor::direct({40, 50, 60}));
-        TerminalCellSpan span{0, 2, initial};
+        TerminalRow row{initial, 0, 0};
         TerminalUpdate update;
-        update.spans = &span;
-        update.spanCount = 1;
+        update.rows = &row;
+        update.rowCount = 1;
         update.colors = &colors;
 
         ReferenceImage image = renderer->render(update);
         STD_INSIST((cellPixel(image, 0, 0) == Color{10, 20, 30}));
         STD_INSIST((cellPixel(image, 1, 0) == Color{40, 50, 60}));
 
-        TerminalCell changed = initial[1];
-        changed.setBackground(CellColor::direct({70, 80, 90}));
-        span = {1, 1, &changed};
+        // A frame with no damaged rows leaves the retained cells alone.
+        initial[1].setBackground(CellColor::direct({70, 80, 90}));
+        image = renderer->render(update);
+        STD_INSIST((cellPixel(image, 1, 0) == Color{70, 80, 90}));
+        update.rowCount = 0;
+        initial[1].setBackground(CellColor::direct({40, 50, 60}));
         image = renderer->render(update);
 
         STD_INSIST((cellPixel(image, 0, 0) == Color{10, 20, 30}));
@@ -300,10 +303,10 @@ STD_TEST_SUITE(ReferenceRenderer) {
         ReferenceFixture renderer(composer);
         TerminalColors colors;
         TerminalCell cell = coloredCell({255, 0, 0}, {0, 0, 255});
-        TerminalCellSpan span{0, 1, &cell};
+        TerminalRow row{&cell, 0, 0};
         TerminalUpdate update;
-        update.spans = &span;
-        update.spanCount = 1;
+        update.rows = &row;
+        update.rowCount = 1;
         update.colors = &colors;
         update.snappedSelection = Rect(0, 0);
         update.selectionColorMask = 3;
@@ -329,10 +332,10 @@ STD_TEST_SUITE(ReferenceRenderer) {
         };
         cells[0].dwidth = true;
         cells[1].dwidth_cont = true;
-        TerminalCellSpan span{0, 2, cells};
+        TerminalRow row{cells, 0, 0};
         TerminalUpdate update;
-        update.spans = &span;
-        update.spanCount = 1;
+        update.rows = &row;
+        update.rowCount = 1;
         update.colors = &colors;
         update.snappedSelection = Rect(1, 0, 2, 0);
         update.snappedSelection.rectangular = true;
@@ -404,16 +407,10 @@ STD_TEST_SUITE(ReferenceRenderer) {
         // covered cells fall back to their plain background.
         TerminalUpdate update = fx.capture();
         TerminalCell preedit[2]{attrs, attrs};
-        TerminalCellSpan overlay{0, 2, preedit};
-        Vector<TerminalCellSpan> spans;
-        spans.grow(update.spanCount + 1);
-        for (size_t index = 0; index < update.spanCount; ++index) {
-            spans.pushBack(update.spans[index]);
-        }
-        spans.pushBack(overlay);
-        update.spans = spans.data();
-        update.overlaySpan = update.spanCount;
-        update.spanCount = update.spanCount + 1;
+        update.overlayCells = preedit;
+        update.overlayRow = 0;
+        update.overlayColumn = 0;
+        update.overlayCount = 2;
 
         image = renderer->render(update);
         STD_INSIST(image.pixels != nullptr);

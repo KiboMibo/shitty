@@ -166,18 +166,17 @@ namespace {
         check(update.viewOffset <= update.historyRows, "view offset exceeds history", update.viewOffset, update.historyRows);
         // The palette generation wraps around but is never republished as zero.
         check(update.colors != nullptr && update.colors->generation != 0, "invalid color generation", 0, 0);
-        // Damage spans reference cells of the visible frame, row-major, and
-        // never cross a row boundary.
-        const u64 frameCells = columns * rows;
-        for (size_t i = 0; i < update.spanCount; ++i) {
-            const TerminalCellSpan& span = update.spans[i];
-            check(span.count != 0 && span.cells != nullptr, "empty damage span", i, 0);
-            check(span.count <= columns, "damage span crosses a row boundary", span.index, span.count);
-            check((u64)(span.index) + span.count <= frameCells, "damage span out of frame", span.index, span.count);
+        // Damaged rows reference whole rows of the visible frame, in
+        // ascending order.
+        u64 previousRow = 0;
+        for (size_t i = 0; i < update.rowCount; ++i) {
+            const TerminalRow& row = update.rows[i];
+            check(row.cells != nullptr, "damaged row without cells", i, 0);
+            check(row.row < rows, "damaged row out of frame", row.row, rows);
+            check(i == 0 || row.row > previousRow, "damaged rows out of order", row.row, previousRow);
+            previousRow = row.row;
             // The damage view and the random-access view must agree.
-            const u16 row = (u16)(span.index / columns);
-            const u16 column = (u16)(span.index % columns);
-            check(span.cells[0] == rig.api->cell(row, column).cell, "span disagrees with testCell", span.index, 0);
+            check(row.cells[0] == rig.api->cell(row.row, 0).cell, "row disagrees with testCell", row.row, 0);
         }
         // Selection rectangles stay inside the addressable frame.
         const Rect* rects[] = {&update.selection, &update.snappedSelection};

@@ -32,7 +32,7 @@ struct ScreenHyperlink {
 };
 
 struct ScreenFrame {
-    TerminalCellBatch damage;
+    size_t damagedRows = 0;
     Rect selection;
     Rect snappedSelection;
     u32 historyRows = 0;
@@ -140,7 +140,9 @@ struct Screen {
     virtual TerminalCell testCell(u16 row, u16 column) const noexcept = 0;
     virtual TerminalCell testLogicalCell(i32 row, u16 column) const noexcept = 0;
     virtual u32 testMaterializedRows() const noexcept = 0;
-    virtual ScreenFrame captureFrame(TerminalCellSpan* spans) const = 0;
+    // rows receives one entry per damaged view row, ascending; it must
+    // hold info().rows entries.
+    virtual ScreenFrame captureFrame(TerminalRow* rows) const = 0;
     virtual ScreenInfo info() const noexcept = 0;
 
     virtual void collectExtraCells(stl::Vector<TerminalCell*>& cells) = 0;

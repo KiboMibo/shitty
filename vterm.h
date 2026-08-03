@@ -95,19 +95,24 @@ struct VtermState {
 };
 
 struct TerminalUpdate {
-    const TerminalCellSpan* spans = nullptr;
-    size_t spanCount = 0;
+    // The damaged view rows, ascending; each re-renders wholly.
+    const TerminalRow* rows = nullptr;
+    size_t rowCount = 0;
     // The shaping canvas of this frame: a strip-consuming renderer pulls
     // Screen::rowSpans and the strip arenas through it. Null when the
     // update is synthesized without a screen (renderer-internal repaints).
     Screen* shapes = nullptr;
-    // Index into spans of the preedit overlay, or none: its cells exist
+    // The preedit preview: overlayCount cells drawn over overlayRow from
+    // overlayColumn, covering the row content beneath them. They exist
     // outside the screen model, so the renderer shapes them itself via
-    // shapes->shapeCells.
-    size_t overlaySpan = (size_t)-1;
-    // Every span carries cells foreign to the shaping screen (retained
+    // shapes->shapeCells. Zero count when no preview is active.
+    const TerminalCell* overlayCells = nullptr;
+    u16 overlayRow = 0;
+    u16 overlayColumn = 0;
+    u16 overlayCount = 0;
+    // Every row carries cells foreign to the shaping screen (retained
     // cells re-rendered through another fontpack); the renderer shapes
-    // each span via shapes->shapeCells instead of the screen rows.
+    // each row via shapes->shapeCells instead of the screen rows.
     bool shapeFromCells = false;
     const TerminalColors* colors = nullptr;
     u32 viewOffset = 0;

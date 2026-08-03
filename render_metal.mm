@@ -414,19 +414,18 @@ void MetalRendererImpl::assignRowStrips(Screen& shapes, u16 row) {
 }
 
 void MetalRendererImpl::overrideOverlayStrips(Screen& shapes, const TerminalUpdate& update) {
-    if (update.overlaySpan == (size_t)-1 || update.overlaySpan >= update.spanCount) {
+    if (update.overlayCount == 0) {
         return;
     }
     // The preedit preview covers the underlying strips wholesale: its
     // blank cells hide the text below them.
-    const TerminalCellSpan& overlay = update.spans[update.overlaySpan];
-    for (u32 index = 0; index < overlay.count; ++index) {
-        GpuCell& cell = cells.mut(overlay.index + index);
+    const u32 rowIndex = (u32)(update.overlayRow) * cellColumns;
+    for (u32 index = 0; index < update.overlayCount; ++index) {
+        GpuCell& cell = cells.mut(rowIndex + update.overlayColumn + index);
         cell.strip = stripNone;
         cell.stripStride = 0;
     }
-    const u32 rowIndex = (overlay.index / cellColumns) * cellColumns;
-    const size_t count = shapes.shapeCells(overlay.cells, (u16)(overlay.count), (u16)(overlay.index % cellColumns), spanScratch.mutData());
+    const size_t count = shapes.shapeCells(update.overlayCells, update.overlayCount, update.overlayColumn, spanScratch.mutData());
     for (size_t index = 0; index < count; ++index) {
         applySpanStrips(rowIndex, spanScratch[index]);
     }
@@ -691,28 +690,31 @@ bool MetalRendererImpl::update(const TerminalUpdate& update) {
 
     const bool shapeChanged = cellColumns != composer.columns || cellRows != composer.rows || cells.length() != cellCount;
     if (shapeChanged) {
-        size_t covered = 0;
-        for (size_t index = 0; index < update.spanCount; ++index) {
-            const TerminalCellSpan& span = update.spans[index];
-            if (span.cells == nullptr || span.index != covered) {
+        // A reshaped grid needs every row before the retained cells mean
+        // anything.
+        if (update.rowCount != composer.rows) {
+            return false;
+        }
+        for (size_t index = 0; index < update.rowCount; ++index) {
+            if (update.rows[index].cells == nullptr || update.rows[index].row != index) {
                 return false;
             }
-            covered += span.count;
-        }
-        if (covered != cellCount) {
-            return false;
         }
         cells.zero(cellCount);
         cellColumns = composer.columns;
         cellRows = composer.rows;
     }
 
-    for (size_t index = 0; index < update.spanCount; ++index) {
-        const TerminalCellSpan& span = update.spans[index];
-        if (span.cells == nullptr || (size_t)(span.index) + span.count > cellCount || span.count > UINT16_MAX) {
+    for (size_t index = 0; index < update.rowCount; ++index) {
+        const TerminalRow& row = update.rows[index];
+        if (row.cells == nullptr || row.row >= cellRows) {
             return false;
         }
-        materializeCells(span.cells, cells.mutData() + span.index, (u16)(span.count), span.lineAttribute, *update.colors);
+        materializeCells(row.cells, cells.mutData() + (size_t)(row.row) * cellColumns, cellColumns, row.lineAttribute, *update.colors);
+    }
+    if (update.overlayCount != 0 && update.overlayCells != nullptr && update.overlayRow < cellRows && (size_t)(update.overlayColumn) + update.overlayCount <= cellColumns) {
+        // The preview covers the row content beneath it.
+        materializeCells(update.overlayCells, cells.mutData() + (size_t)(update.overlayRow) * cellColumns + update.overlayColumn, update.overlayCount, 0, *update.colors);
     }
     if (update.shapes != nullptr) {
         const u32 generation = assignStrips(update);

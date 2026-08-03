@@ -282,16 +282,13 @@ static_assert(__is_standard_layout(TerminalCell), "TerminalCell must remain stan
     return resolveBackgroundSpecial(cell);
 }
 
-struct TerminalCellSpan {
-    u32 index = 0;
-    u32 count = 0;
+// A damaged view row. Damage is row-granular: shaping context - a
+// ligature, a captured blank - spreads any edit across its whole row,
+// so a damaged row re-renders wholly.
+struct TerminalRow {
     const TerminalCell* cells = nullptr;
+    u16 row = 0;
     u8 lineAttribute = 0;
-};
-
-struct TerminalCellBatch {
-    size_t cellCount = 0;
-    size_t spanCount = 0;
 };
 
 struct TerminalPen {

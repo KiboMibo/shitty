@@ -267,7 +267,6 @@ namespace {
         Vector<VkBufferCopy> maskArenaCopies;
         Vector<VkBufferCopy> colorArenaCopies;
         Vector<ScreenRowSpan> spanScratch;
-        Vector<u16> stripDamageRows;
         TerminalCursor previousCursor;
         Rect previousSelection;
         Color clearBackground = opts.bg;
@@ -328,7 +327,7 @@ namespace {
         void stageArenaCopy(ArenaBuffer& arena, Vector<VkBufferCopy>& copies, const u8* data, size_t used);
         void stageArenaTails(Screen& shapes, u32 generation);
         void applySpanStrips(u32 rowIndex, const ScreenRowSpan& span);
-        bool assignRowStrips(Screen& shapes, u16 row);
+        void assignRowStrips(Screen& shapes, u16 row);
         void overrideOverlayStrips(Screen& shapes, const TerminalUpdate& update);
         u32 assignStrips(const TerminalUpdate& update, bool allRows);
         void resetArenaStaging();
@@ -342,8 +341,8 @@ namespace {
         bool present(const TerminalUpdate& update);
         u32 materializeUpdates(FrameResources& frame, u64 appliedGeneration, bool initialized);
         void materializeCells(const TerminalCell* input, GpuCell* output, u16 count, u8 lineAttribute, const TerminalColors& colors);
-        void ensureDamageJournal(u32 cellCount);
-        void appendDamage(u32 begin, u32 count);
+        void ensureDamageJournal(u32 rowCount);
+        void appendDamage(u32 firstRow, u32 rowCount);
         void fullDamage();
         void collectDamage();
         void capturePresentationState(const TerminalUpdate& update);
@@ -1472,13 +1471,10 @@ void RendererImpl::applySpanStrips(u32 rowIndex, const ScreenRowSpan& span) {
     }
 }
 
-bool RendererImpl::assignRowStrips(Screen& shapes, u16 row) {
+void RendererImpl::assignRowStrips(Screen& shapes, u16 row) {
     const u32 rowIndex = (u32)(row)*cellColumns;
-    bool changed = false;
     GpuCell* const rowCells = cells.mutData() + rowIndex;
-    u64 before = 0;
     for (u16 column = 0; column < cellColumns; ++column) {
-        before ^= ((u64)(rowCells[column].strip) << 32 | rowCells[column].stripStride) * (column + 0x9e3779b97f4a7c15ULL);
         rowCells[column].strip = stripNone;
         rowCells[column].stripStride = 0;
     }
@@ -1486,28 +1482,21 @@ bool RendererImpl::assignRowStrips(Screen& shapes, u16 row) {
     for (size_t index = 0; index < count; ++index) {
         applySpanStrips(rowIndex, spanScratch[index]);
     }
-    u64 after = 0;
-    for (u16 column = 0; column < cellColumns; ++column) {
-        after ^= ((u64)(rowCells[column].strip) << 32 | rowCells[column].stripStride) * (column + 0x9e3779b97f4a7c15ULL);
-    }
-    changed = before != after;
-    return changed;
 }
 
 void RendererImpl::overrideOverlayStrips(Screen& shapes, const TerminalUpdate& update) {
-    if (update.overlaySpan == (size_t)-1 || update.overlaySpan >= update.spanCount) {
+    if (update.overlayCount == 0) {
         return;
     }
     // The preedit preview covers the underlying strips wholesale: its
     // blank cells hide the text below them.
-    const TerminalCellSpan& overlay = update.spans[update.overlaySpan];
-    for (u32 index = 0; index < overlay.count; ++index) {
-        GpuCell& cell = cells.mut(overlay.index + index);
+    const u32 rowIndex = (u32)(update.overlayRow) * cellColumns;
+    for (u32 index = 0; index < update.overlayCount; ++index) {
+        GpuCell& cell = cells.mut(rowIndex + update.overlayColumn + index);
         cell.strip = stripNone;
         cell.stripStride = 0;
     }
-    const u32 rowIndex = (overlay.index / cellColumns) * cellColumns;
-    const size_t count = shapes.shapeCells(overlay.cells, (u16)(overlay.count), (u16)(overlay.index % cellColumns), spanScratch.mutData());
+    const size_t count = shapes.shapeCells(update.overlayCells, update.overlayCount, update.overlayColumn, spanScratch.mutData());
     for (size_t index = 0; index < count; ++index) {
         applySpanStrips(rowIndex, spanScratch[index]);
     }
@@ -1520,31 +1509,19 @@ u32 RendererImpl::assignStrips(const TerminalUpdate& update, bool allRows) {
     while (spanScratch.length() < cellColumns) {
         spanScratch.pushBack({});
     }
-    stripDamageRows.clear();
     // A shaping pass can collect the arenas and move every strip assigned
     // so far, so redo the walk until it closes within one generation.
     bool everything = allRows || shapes.spanGeneration() != stripGeneration;
     u32 generation;
     for (;;) {
         generation = shapes.spanGeneration();
-        stripDamageRows.clear();
         if (everything) {
             for (u16 row = 0; row < cellRows; ++row) {
                 assignRowStrips(shapes, row);
             }
         } else {
-            // A row's strips can change beyond the damaged cells (a blank
-            // filled in merges its neighbouring spans), so reassign whole
-            // rows and journal the ones that moved.
-            for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
-                const TerminalCellSpan& span = update.spans[spanIndex];
-                const u32 firstRow = span.index / cellColumns;
-                const u32 lastRow = (span.index + span.count - 1) / cellColumns;
-                for (u32 row = firstRow; row <= lastRow && row < cellRows; ++row) {
-                    if (assignRowStrips(shapes, (u16)(row))) {
-                        stripDamageRows.pushBack((u16)(row));
-                    }
-                }
+            for (size_t index = 0; index < update.rowCount; ++index) {
+                assignRowStrips(shapes, (u16)(update.rows[index].row));
             }
         }
         overrideOverlayStrips(shapes, update);
@@ -1580,22 +1557,22 @@ bool RendererImpl::sameSelection(const Rect& lhs, const Rect& rhs) {
     return lhs.tl == rhs.tl && lhs.br == rhs.br && lhs.rectangular == rhs.rectangular;
 }
 
-void RendererImpl::ensureDamageJournal(u32 cellCount) {
-    if (damage.capacity >= cellCount) {
+void RendererImpl::ensureDamageJournal(u32 rowCount) {
+    if (damage.capacity >= rowCount) {
         return;
     }
     STD_ASSERT(damage.count == 0);
-    damageJournalStorage.grow((size_t)(cellCount) * sizeof(RenderDamage::Entry));
-    damage.configure((RenderDamage::Entry*)(damageJournalStorage.mutData()), cellCount);
+    damageJournalStorage.grow((size_t)(rowCount) * sizeof(RenderDamage::Entry));
+    damage.configure((RenderDamage::Entry*)(damageJournalStorage.mutData()), rowCount);
 }
 
 void RendererImpl::fullDamage() {
     damage.full();
 }
 
-void RendererImpl::appendDamage(u32 begin, u32 count) {
-    STD_ASSERT((size_t)(begin) + count <= cells.length());
-    damage.add(begin, count);
+void RendererImpl::appendDamage(u32 firstRow, u32 rowCount) {
+    STD_ASSERT((size_t)(firstRow) + rowCount <= cellRows);
+    damage.add(firstRow, rowCount);
 }
 
 void RendererImpl::collectDamage() {
@@ -1631,8 +1608,8 @@ u32 RendererImpl::materializeUpdates(FrameResources& frame, u64 appliedGeneratio
     ensureCellBuffer(frame, cellCount * sizeof(GpuCellUpdate));
     auto* const gpuUpdates = (GpuCellUpdate*)(frame.cells);
 
-    if (updateEpochs.used() < cellCount * sizeof(u32)) {
-        updateEpochs.zero(cellCount * sizeof(u32));
+    if (updateEpochs.used() < (size_t)(cellRows) * sizeof(u32)) {
+        updateEpochs.zero((size_t)(cellRows) * sizeof(u32));
     }
     if (++updateEpoch == 0) {
         updateEpochs.zero(updateEpochs.used());
@@ -1641,64 +1618,42 @@ u32 RendererImpl::materializeUpdates(FrameResources& frame, u64 appliedGeneratio
     auto* const epochs = (u32*)(updateEpochs.mutData());
     u32 gpuUpdateCount = 0;
 
-    const auto appendSource = [&](u32 sourceIndex) {
-        STD_ASSERT(sourceIndex < cellCount);
-        const u32 sourceRow = sourceIndex / cellColumns;
-        const u32 sourceColumn = sourceIndex - sourceRow * cellColumns;
-        const u32 rowIndex = sourceRow * cellColumns;
-        const u8 lineAttribute = (u8)(cells[rowIndex].lineAttribute);
-
-        u32 outputIndices[2];
-        u32 outputCount = 1;
-        if (lineAttribute == 0) {
-            outputIndices[0] = sourceIndex;
-        } else {
-            const u32 firstColumn = sourceColumn * 2;
-            if (firstColumn >= cellColumns) {
-                return;
-            }
-            outputIndices[0] = rowIndex + firstColumn;
-            if (firstColumn + 1 < cellColumns) {
-                outputIndices[1] = outputIndices[0] + 1;
-                outputCount = 2;
-            }
-        }
-
-        bool needed[2]{};
-        bool anyNeeded = false;
-        for (u32 index = 0; index < outputCount; ++index) {
-            const u32 outputIndex = outputIndices[index];
-            if (epochs[outputIndex] == updateEpoch) {
-                continue;
-            }
-            epochs[outputIndex] = updateEpoch;
-            needed[index] = true;
-            anyNeeded = true;
-        }
-        if (!anyNeeded) {
+    const auto appendRow = [&](u32 row) {
+        if (epochs[row] == updateEpoch) {
             return;
         }
-
-        GpuCell cell = cells[sourceIndex];
-        if (lineAttribute == 0 && (cell.attributes & gpuDoubleWidth) != 0 && (sourceColumn + 1 >= cellColumns || (cells[sourceIndex + 1].attributes & gpuDoubleWidthContinuation) == 0)) {
-            cell.attributes &= ~gpuDoubleWidth;
-        }
-        for (u32 index = 0; index < outputCount; ++index) {
-            if (!needed[index]) {
+        epochs[row] = updateEpoch;
+        const u32 rowIndex = row * cellColumns;
+        const u8 lineAttribute = (u8)(cells[rowIndex].lineAttribute);
+        for (u32 column = 0; column < cellColumns; ++column) {
+            const u32 sourceIndex = rowIndex + column;
+            GpuCell cell = cells[sourceIndex];
+            if (lineAttribute == 0) {
+                if ((cell.attributes & gpuDoubleWidth) != 0 && (column + 1 >= cellColumns || (cells[sourceIndex + 1].attributes & gpuDoubleWidthContinuation) == 0)) {
+                    cell.attributes &= ~gpuDoubleWidth;
+                }
+                STD_ASSERT(gpuUpdateCount < cellCount);
+                gpuUpdates[gpuUpdateCount++] = {sourceIndex, sourceIndex, cell};
                 continue;
             }
+            // A double-size line draws each source cell into two output
+            // cells; the right half of the row has no output.
+            const u32 firstColumn = column * 2;
+            if (firstColumn >= cellColumns) {
+                break;
+            }
             STD_ASSERT(gpuUpdateCount < cellCount);
-            gpuUpdates[gpuUpdateCount++] = {
-                sourceIndex,
-                outputIndices[index],
-                cell,
-            };
+            gpuUpdates[gpuUpdateCount++] = {sourceIndex, rowIndex + firstColumn, cell};
+            if (firstColumn + 1 < cellColumns) {
+                STD_ASSERT(gpuUpdateCount < cellCount);
+                gpuUpdates[gpuUpdateCount++] = {sourceIndex, rowIndex + firstColumn + 1, cell};
+            }
         }
     };
 
     if (damage.requiresFull(appliedGeneration, initialized)) {
-        for (u32 index = 0; index < cellCount; ++index) {
-            appendSource(index);
+        for (u32 row = 0; row < cellRows; ++row) {
+            appendRow(row);
         }
     } else {
         for (u32 entryIndex = 0; entryIndex < damage.count; ++entryIndex) {
@@ -1706,8 +1661,8 @@ u32 RendererImpl::materializeUpdates(FrameResources& frame, u64 appliedGeneratio
             if (entry.generation <= appliedGeneration) {
                 continue;
             }
-            for (u32 index = 0; index < entry.count; ++index) {
-                appendSource(entry.begin + index);
+            for (u32 row = 0; row < entry.count; ++row) {
+                appendRow(entry.begin + row);
             }
         }
     }
@@ -1994,16 +1949,15 @@ bool RendererImpl::present(const TerminalUpdate& update) {
 
     const bool shapeChanged = cellColumns != composer.columns || cellRows != composer.rows;
     if (shapeChanged) {
-        size_t covered = 0;
-        for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
-            const TerminalCellSpan& span = update.spans[spanIndex];
-            if (span.cells == nullptr || span.index != covered) {
+        // A reshaped grid needs every row before the retained cells mean
+        // anything.
+        if (update.rowCount != composer.rows) {
+            return false;
+        }
+        for (size_t index = 0; index < update.rowCount; ++index) {
+            if (update.rows[index].cells == nullptr || update.rows[index].row != index) {
                 return false;
             }
-            covered += span.count;
-        }
-        if (covered != cellCount) {
-            return false;
         }
     }
 
@@ -2018,7 +1972,7 @@ bool RendererImpl::present(const TerminalUpdate& update) {
     if (shapeChanged) {
         damage.begin = 0;
         damage.count = 0;
-        ensureDamageJournal(cellCount);
+        ensureDamageJournal(composer.rows);
         cells.clear();
         cells.grow(cellCount);
         const GpuCell empty;
@@ -2028,13 +1982,18 @@ bool RendererImpl::present(const TerminalUpdate& update) {
         cellColumns = composer.columns;
         cellRows = composer.rows;
     } else {
-        ensureDamageJournal(cellCount);
+        ensureDamageJournal(cellRows);
     }
-    for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
-        const TerminalCellSpan& span = update.spans[spanIndex];
-        STD_ASSERT((size_t)(span.index) + span.count <= cellCount);
-        STD_ASSERT(span.cells != nullptr);
-        materializeCells(span.cells, cells.mutData() + span.index, (u16)(span.count), span.lineAttribute, *update.colors);
+    for (size_t index = 0; index < update.rowCount; ++index) {
+        const TerminalRow& row = update.rows[index];
+        STD_ASSERT(row.cells != nullptr);
+        STD_ASSERT(row.row < cellRows);
+        materializeCells(row.cells, cells.mutData() + (size_t)(row.row) * cellColumns, cellColumns, row.lineAttribute, *update.colors);
+    }
+    const bool overlayValid = update.overlayCount != 0 && update.overlayCells != nullptr && update.overlayRow < cellRows && (size_t)(update.overlayColumn) + update.overlayCount <= cellColumns;
+    if (overlayValid) {
+        // The preview covers the row content beneath it.
+        materializeCells(update.overlayCells, cells.mutData() + (size_t)(update.overlayRow) * cellColumns + update.overlayColumn, update.overlayCount, 0, *update.colors);
     }
     u32 arenaGeneration = stripGeneration;
     if (update.shapes != nullptr) {
@@ -2072,31 +2031,30 @@ bool RendererImpl::present(const TerminalUpdate& update) {
                 if (firstRow > lastRow) {
                     return;
                 }
-                appendDamage((u32)(firstRow)*cellColumns, (u32)(lastRow - firstRow + 1) * cellColumns);
+                appendDamage((u32)(firstRow), (u32)(lastRow - firstRow + 1));
             };
             damageSelectionRows(previousSelection);
             damageSelectionRows(update.snappedSelection);
             const auto damageLinkSpan = [&](u32 begin, u32 end) {
                 if (begin < end && end <= cellCount) {
-                    appendDamage(begin, end - begin);
+                    const u32 firstRow = begin / cellColumns;
+                    const u32 lastRow = (end - 1) / cellColumns;
+                    appendDamage(firstRow, lastRow - firstRow + 1);
                 }
             };
             damageLinkSpan(previousHoveredLinkBegin, previousHoveredLinkEnd);
             damageLinkSpan(update.hoveredLinkBegin, update.hoveredLinkEnd);
         }
-        for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
-            const TerminalCellSpan& span = update.spans[spanIndex];
-            appendDamage(span.index, span.count);
+        for (size_t index = 0; index < update.rowCount; ++index) {
+            appendDamage(update.rows[index].row, 1);
         }
-        // Rows whose strips moved beyond their damaged cells (span
-        // boundaries shifted around an edit).
-        for (const u16 row : stripDamageRows) {
-            appendDamage((u32)(row)*cellColumns, cellColumns);
+        if (overlayValid) {
+            appendDamage(update.overlayRow, 1);
         }
 
         const auto appendCursor = [&](const TerminalCursor& cursor) {
             if (cursor.posX >= 0 && cursor.posY >= 0 && cursor.posX < cellColumns && cursor.posY < cellRows) {
-                appendDamage((u32)(cursor.posY) * cellColumns + cursor.posX, 1);
+                appendDamage((u32)(cursor.posY), 1);
             }
         };
         appendCursor(previousCursor);
@@ -2106,14 +2064,14 @@ bool RendererImpl::present(const TerminalUpdate& update) {
             for (u32 index = 0; index < cellCount; ++index) {
                 const u32 hyperlink = cells[index].hyperlink;
                 if (hyperlink == previousHoveredHyperlink || hyperlink == update.hoveredHyperlink) {
-                    appendDamage(index, 1);
+                    appendDamage(index / cellColumns, 1);
                 }
             }
         }
         if (presentationState.blinkVisible != update.blinkVisible) {
             for (u32 index = 0; index < cellCount; ++index) {
                 if ((cells[index].attributes & gpuBlink) != 0) {
-                    appendDamage(index, 1);
+                    appendDamage(index / cellColumns, 1);
                 }
             }
         }

@@ -80,39 +80,27 @@ namespace {
         canvas.cursorBlink = false;
     }
 
-    TerminalUpdate takeUpdate(Screen& screen, const TerminalColors& colors, Vector<TerminalCellSpan>& spans) {
+    TerminalUpdate takeUpdate(Screen& screen, const TerminalColors& colors, Vector<TerminalRow>& rows) {
         const ScreenInfo info = screen.info();
-        const size_t maximumSpans = (size_t)(info.rows) * ((info.columns + 1u) / 2u);
-        spans.grow(maximumSpans);
-        const ScreenFrame frame = screen.captureFrame(spans.mutData());
-        const TerminalCellBatch batch = frame.damage;
-        STD_INSIST(batch.spanCount <= maximumSpans);
+        rows.grow(info.rows);
+        const ScreenFrame frame = screen.captureFrame(rows.mutData());
+        STD_INSIST(frame.damagedRows <= info.rows);
 
-        size_t cellCount = 0;
-        u32 previousEnd = 0;
-        Vector<u8> touched((size_t)(info.columns) * info.rows);
-        touched.zero((size_t)(info.columns) * info.rows);
-        for (size_t index = 0; index < batch.spanCount; ++index) {
-            const TerminalCellSpan& span = spans[index];
-            STD_INSIST(span.count != 0);
-            STD_INSIST(span.cells != nullptr);
-            STD_INSIST(span.index >= previousEnd);
-            STD_INSIST(span.index + span.count <= (u32)(info.columns) * info.rows);
-            STD_INSIST(span.index / info.columns == (span.index + span.count - 1) / info.columns);
-            for (u32 offset = 0; offset < span.count; ++offset) {
-                const u32 cellIndex = span.index + offset;
-                STD_INSIST(touched[cellIndex] == 0);
-                touched.mut(cellIndex) = 1;
-                STD_INSIST(span.cells[offset] == screen.testCell(cellIndex / info.columns, cellIndex % info.columns));
+        u32 previousRow = 0;
+        for (size_t index = 0; index < frame.damagedRows; ++index) {
+            const TerminalRow& row = rows[index];
+            STD_INSIST(row.cells != nullptr);
+            STD_INSIST(row.row < info.rows);
+            STD_INSIST(index == 0 || row.row > previousRow);
+            previousRow = row.row;
+            for (u16 column = 0; column < info.columns; ++column) {
+                STD_INSIST(row.cells[column] == screen.testCell(row.row, column));
             }
-            previousEnd = span.index + span.count;
-            cellCount += span.count;
         }
-        STD_INSIST(cellCount == batch.cellCount);
 
         TerminalUpdate update{};
-        update.spans = spans.data();
-        update.spanCount = batch.spanCount;
+        update.rows = rows.data();
+        update.rowCount = frame.damagedRows;
         update.colors = &colors;
         update.viewOffset = frame.viewOffset;
         update.historyRows = frame.historyRows;
@@ -123,19 +111,18 @@ namespace {
 
     bool hasDamage(Screen& screen) {
         const ScreenInfo info = screen.info();
-        Vector<TerminalCellSpan> spans;
-        spans.grow((size_t)(info.rows) * ((info.columns + 1u) / 2u));
-        return screen.captureFrame(spans.mutData()).damage.spanCount != 0;
+        Vector<TerminalRow> rows;
+        rows.grow(info.rows);
+        return screen.captureFrame(rows.mutData()).damagedRows != 0;
     }
 
     void applyUpdate(DamageCanvas& canvas, const TerminalUpdate& update) {
         STD_INSIST(update.colors != nullptr);
-        for (size_t index = 0; index < update.spanCount; ++index) {
-            const TerminalCellSpan& span = update.spans[index];
-            STD_INSIST(span.index + span.count <= (u32)(canvas.columns) * canvas.rows);
-            const u16 row = span.index / canvas.columns;
-            memcpy(canvas.cells.mutData() + span.index, span.cells, span.count * sizeof(TerminalCell));
-            canvas.lineAttributes.mut(row) = span.lineAttribute;
+        for (size_t index = 0; index < update.rowCount; ++index) {
+            const TerminalRow& row = update.rows[index];
+            STD_INSIST(row.row < canvas.rows);
+            memcpy(canvas.cells.mutData() + (size_t)(row.row) * canvas.columns, row.cells, (size_t)(canvas.columns) * sizeof(TerminalCell));
+            canvas.lineAttributes.mut(row.row) = row.lineAttribute;
         }
         canvas.colors = update.colors;
         canvas.viewOffset = update.viewOffset;
@@ -168,8 +155,8 @@ namespace {
         const ScreenInfo info = screen.info();
         clearCanvas(canvas, info.columns, info.rows);
         screen.expose();
-        Vector<TerminalCellSpan> spans;
-        const TerminalUpdate update = takeUpdate(screen, colors, spans);
+        Vector<TerminalRow> rows;
+        const TerminalUpdate update = takeUpdate(screen, colors, rows);
         applyUpdate(canvas, update);
         screen.resetDamage();
         STD_INSIST(!hasDamage(screen));
@@ -230,9 +217,9 @@ namespace {
             clearCanvas(incremental, info.columns, info.rows);
         }
 
-        Vector<TerminalCellSpan> spans;
-        const TerminalUpdate update = takeUpdate(*screen, colors, spans);
-        STD_INSIST((update.spanCount != 0) == expectsDamage);
+        Vector<TerminalRow> damagedRows;
+        const TerminalUpdate update = takeUpdate(*screen, colors, damagedRows);
+        STD_INSIST((update.rowCount != 0) == expectsDamage);
         applyUpdate(incremental, update);
 
         DamageCanvas expected;
@@ -272,8 +259,8 @@ namespace {
         const ScreenInfo destinationInfo = destination->info();
         clearCanvas(incremental, destinationInfo.columns, destinationInfo.rows);
 
-        Vector<TerminalCellSpan> spans;
-        const TerminalUpdate update = takeUpdate(*destination, colors, spans);
+        Vector<TerminalRow> damagedRows;
+        const TerminalUpdate update = takeUpdate(*destination, colors, damagedRows);
         applyUpdate(incremental, update);
 
         DamageCanvas expected;
@@ -437,31 +424,26 @@ STD_TEST_SUITE(Screen) {
         TerminalCell attrs = attributes();
         attrs.bold = true;
         const u8 text[] = {'a', 'b'};
-        TerminalCellSpan spans[2];
+        TerminalRow rows[2];
 
         screen->expose();
-        TerminalCellBatch batch = screen->captureFrame(spans).damage;
-        STD_INSIST(batch.cellCount == 8);
-        STD_INSIST(batch.spanCount == 2);
-        STD_INSIST(spans[0].index == 0);
-        STD_INSIST(spans[0].count == 4);
-        STD_INSIST(spans[1].index == 4);
-        STD_INSIST(spans[1].count == 4);
+        size_t count = screen->captureFrame(rows).damagedRows;
+        STD_INSIST(count == 2);
+        STD_INSIST(rows[0].row == 0);
+        STD_INSIST(rows[1].row == 1);
         screen->resetDamage();
         screen->writeAsciiRun(1, 1, text, 2, attrs, 0, 3, TerminalCell{});
-        batch = screen->captureFrame(spans).damage;
+        count = screen->captureFrame(rows).damagedRows;
 
-        STD_INSIST(batch.cellCount == 2);
-        STD_INSIST(batch.spanCount == 1);
-        STD_INSIST(spans[0].index == 5);
-        STD_INSIST(spans[0].count == 2);
-        STD_INSIST(spans[0].cells[0].uc_pt == 'a');
-        STD_INSIST(spans[0].cells[1].uc_pt == 'b');
-        STD_INSIST(spans[0].cells[0].bold);
-        STD_INSIST(spans[0].cells[0].semantic == 3);
+        STD_INSIST(count == 1);
+        STD_INSIST(rows[0].row == 1);
+        STD_INSIST(rows[0].cells[1].uc_pt == 'a');
+        STD_INSIST(rows[0].cells[2].uc_pt == 'b');
+        STD_INSIST(rows[0].cells[1].bold);
+        STD_INSIST(rows[0].cells[1].semantic == 3);
     }
 
-    STD_TEST(PreservesDisjointDamageWithinOneRow) {
+    STD_TEST(DamagedRowReportsWholly) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         composer.setCellExtras(CellExtraStore::create(composer, 8));
@@ -471,28 +453,24 @@ STD_TEST_SUITE(Screen) {
         const TerminalCell attrs = attributes();
         const u8 left[] = {'L'};
         const u8 right[] = {'R'};
-        TerminalCellSpan spans[2];
+        TerminalRow rows[2];
 
         screen->writeAsciiRun(1, 6, right, 1, attrs, 0, 0, TerminalCell{});
         screen->writeAsciiRun(1, 1, left, 1, attrs, 0, 0, TerminalCell{});
         screen->writeAsciiRun(1, 6, right, 1, attrs, 0, 0, TerminalCell{});
 
-        TerminalCellBatch batch = screen->captureFrame(spans).damage;
-        STD_INSIST(batch.cellCount == 2);
-        STD_INSIST(batch.spanCount == 2);
-        STD_INSIST(spans[0].index == 9);
-        STD_INSIST(spans[0].count == 1);
-        STD_INSIST(spans[0].cells[0].uc_pt == 'L');
-        STD_INSIST(spans[1].index == 14);
-        STD_INSIST(spans[1].count == 1);
-        STD_INSIST(spans[1].cells[0].uc_pt == 'R');
+        size_t count = screen->captureFrame(rows).damagedRows;
+        STD_INSIST(count == 1);
+        STD_INSIST(rows[0].row == 1);
+        STD_INSIST(rows[0].cells[1].uc_pt == 'L');
+        STD_INSIST(rows[0].cells[6].uc_pt == 'R');
 
         screen->resetDamage();
         screen->writeAsciiRun(1, 3, left, 1, attrs, 0, 0, TerminalCell{});
-        batch = screen->captureFrame(spans).damage;
-        STD_INSIST(batch.cellCount == 1);
-        STD_INSIST(batch.spanCount == 1);
-        STD_INSIST(spans[0].index == 11);
+        count = screen->captureFrame(rows).damagedRows;
+        STD_INSIST(count == 1);
+        STD_INSIST(rows[0].row == 1);
+        STD_INSIST(rows[0].cells[3].uc_pt == 'L');
     }
 
     STD_TEST(WritesAsciiLinesAndRecyclesFullHistory) {
@@ -557,10 +535,11 @@ STD_TEST_SUITE(Screen) {
 
         screen->writeAsciiLines(0, text, lengths, 2, attrs, 0, 0, TerminalCell{});
 
-        TerminalCellSpan spans[4];
-        const TerminalCellBatch batch = screen->captureFrame(spans).damage;
-        STD_INSIST(batch.spanCount == 2);
-        STD_INSIST(batch.cellCount == 2);
+        TerminalRow rows[4];
+        const size_t count = screen->captureFrame(rows).damagedRows;
+        STD_INSIST(count == 2);
+        STD_INSIST(rows[0].row == 0);
+        STD_INSIST(rows[1].row == 1);
         STD_INSIST(screen->testCell(2, 0).uc_pt == 0);
         STD_INSIST(screen->testCell(3, 0).uc_pt == 'x');
         STD_INSIST(screen->testCell(3, 2).uc_pt == 'z');
@@ -573,13 +552,13 @@ STD_TEST_SUITE(Screen) {
         TerminalColors colors;
         configureColors(colors);
         Screen* screen = Screen::createAlternate(composer, *pool, 4, 1, &colors);
-        TerminalCellSpan spans[1];
+        TerminalRow rows[1];
 
         screen->setLineAttribute(0, 2);
         STD_INSIST(screen->lineAttribute(0) == 2);
-        const TerminalCellBatch batch = screen->captureFrame(spans).damage;
-        STD_INSIST(batch.cellCount == 4);
-        STD_INSIST(spans[0].lineAttribute == 2);
+        const size_t count = screen->captureFrame(rows).damagedRows;
+        STD_INSIST(count == 1);
+        STD_INSIST(rows[0].lineAttribute == 2);
         screen->setLineAttribute(0, 0);
         STD_INSIST(screen->lineAttribute(0) == 0);
     }
@@ -591,20 +570,18 @@ STD_TEST_SUITE(Screen) {
         TerminalColors colors;
         configureColors(colors);
         Screen* screen = Screen::createAlternate(composer, *pool, 10, 3, &colors);
-        TerminalCellSpan spans[3];
+        TerminalRow rows[3];
         STD_INSIST(screen->testMaterializedRows() == 0);
 
         screen->expose();
-        const TerminalCellBatch batch = screen->captureFrame(spans).damage;
+        const size_t count = screen->captureFrame(rows).damagedRows;
 
-        STD_INSIST(batch.cellCount == 30);
-        STD_INSIST(batch.spanCount == 3);
+        STD_INSIST(count == 3);
         STD_INSIST(screen->testMaterializedRows() == 0);
         for (u16 row = 0; row < 3; ++row) {
-            STD_INSIST(spans[row].index == (u32)(row) * 10);
-            STD_INSIST(spans[row].count == 10);
+            STD_INSIST(rows[row].row == row);
             for (u16 column = 0; column < 10; ++column) {
-                STD_INSIST(spans[row].cells[column] == TerminalCell{});
+                STD_INSIST(rows[row].cells[column] == TerminalCell{});
             }
         }
     }
@@ -1533,7 +1510,7 @@ STD_TEST_SUITE(ScreenRowSpans) {
         bool ink = false;
         for (u16 row = 0; row < height && !ink; ++row) {
             for (u16 x = 0; x < 3 * width && !ink; ++x) {
-                ink = arena[spans[0].offset + (size_t)(row)*3 * width + x] > 64;
+                ink = arena[spans[0].offset + (size_t)(row) * 3 * width + x] > 64;
             }
         }
         STD_INSIST(ink);

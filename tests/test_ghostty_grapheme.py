@@ -56,7 +56,8 @@ class GhosttyGraphemeTest(unittest.TestCase):
             for character in "👨‍👩‍👧":
                 terminal.write(character.encode())
                 cells, rows = terminal.last_update()
-                self.assertEqual((cells, rows), (2, 1))
+                # Damage is row-granular: the row re-renders wholly.
+                self.assertEqual((cells, rows), (8, 1))
                 self.assertEqual(terminal.last_update_rows(), (0,))
 
     def test_vs15_narrows_wide_cluster_and_clears_pending_wrap(self):

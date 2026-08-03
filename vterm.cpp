@@ -507,7 +507,7 @@ namespace {
         u64 presentationRevision() const;
         TerminalCursor presentationCursor(u32 viewOffset) const;
         void overlayPreedit(TerminalUpdate& update);
-        void fillTerminalUpdate(TerminalUpdate& update, const ScreenFrame& frame, const TerminalCellSpan* spans);
+        void fillTerminalUpdate(TerminalUpdate& update, const ScreenFrame& frame, const TerminalRow* rows);
 
         void writeCsiResponse(StringView payload);
         void writeDcsResponse(StringView payload);
@@ -920,7 +920,7 @@ namespace {
         Output* dump;
         UnicodeMap<u8>* const unicodeProperties;
         Buffer protocolResponseScratch;
-        Vector<TerminalCellSpan> outputSpans;
+        Vector<TerminalRow> outputRows;
         // IME composition preview: overlay cells composed into the frame
         // at output() time, foot-style. preeditWindow holds the visible
         // slice the synthetic span points at.
@@ -2197,10 +2197,10 @@ TerminalCursor VtermImpl::presentationCursor(u32 viewOffset) const {
     return result;
 }
 
-void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, const ScreenFrame& frame, const TerminalCellSpan* spans) {
+void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, const ScreenFrame& frame, const TerminalRow* rows) {
     update = {};
-    update.spans = spans;
-    update.spanCount = frame.damage.spanCount;
+    update.rows = rows;
+    update.rowCount = frame.damagedRows;
     update.colors = &colors;
     update.viewOffset = frame.viewOffset;
     update.historyRows = frame.historyRows;
@@ -2435,11 +2435,11 @@ const TerminalUpdate* VtermImpl::output() {
     }
 
     Screen* const frame = cf;
-    const ScreenFrame output = frame->captureFrame(outputSpans.mutData());
+    const ScreenFrame output = frame->captureFrame(outputRows.mutData());
 
     updateScreen = frame;
     updatingRevision = presentationRevision();
-    fillTerminalUpdate(terminalUpdate, output, outputSpans.data());
+    fillTerminalUpdate(terminalUpdate, output, outputRows.data());
     terminalUpdate.shapes = frame;
     overlayPreedit(terminalUpdate);
     return &terminalUpdate;
@@ -2478,13 +2478,10 @@ void VtermImpl::overlayPreedit(TerminalUpdate& update) {
     preeditWindow.clear();
     preeditWindow.append(preeditCells.data() + sliceBegin, (size_t)(count));
 
-    TerminalCellSpan& span = outputSpans.mut(update.spanCount);
-    span.cells = preeditWindow.data();
-    span.index = (u32)(row) * (u32)(columns) + (u32)(startColumn);
-    span.count = (u16)(count);
-    span.lineAttribute = 0;
-    update.overlaySpan = update.spanCount;
-    update.spanCount = update.spanCount + 1;
+    update.overlayCells = preeditWindow.data();
+    update.overlayRow = (u16)(row);
+    update.overlayColumn = (u16)(startColumn);
+    update.overlayCount = (u16)(count);
 
     // The regular cursor hides while composing; the anchor for the input
     // method's candidate window tracks the preview cursor cell.
@@ -8373,7 +8370,7 @@ VtermImpl::VtermImpl(Composer& composer_, VtermTraceFactory* traceFactory_, Outp
         throw;
     }
     cf = frame_pri;
-    outputSpans.grow((size_t)(composer.rows) * ((composer.columns + 1u) / 2u) + 1);
+    outputRows.grow((size_t)(composer.rows));
     makePalette256(colors.palette);
     std::copy(std::begin(colors.palette), std::end(colors.palette), std::begin(originalPalette256));
     colors.defaultForeground = opts.fg;
@@ -8472,7 +8469,7 @@ void VtermImpl::resizeGrid() {
     lastCol = pendingWrap;
     showCursor();
 
-    outputSpans.grow((size_t)(composer.rows) * ((composer.columns + 1u) / 2u) + 1);
+    outputRows.grow((size_t)(composer.rows));
     updateExtraCellCount();
     refreshBlinkingText();
     if (inBandResizeMode) {

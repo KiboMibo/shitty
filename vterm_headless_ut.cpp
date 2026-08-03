@@ -291,7 +291,7 @@ STD_TEST_SUITE(VtermHeadless) {
             garbage[index] = byte == 0x1b ? 0x20 : byte;
         }
 
-        const auto compareScreens = [](Vterm& whole, Vterm& split) {
+        const auto compareScreens = [](Vterm& whole, Vterm& split, u16 columns) {
             whole.expose();
             split.expose();
             const TerminalUpdate* const wholeUpdate = whole.output();
@@ -300,17 +300,16 @@ STD_TEST_SUITE(VtermHeadless) {
             STD_INSIST(splitUpdate != nullptr);
             STD_INSIST(wholeUpdate->cursor.posX == splitUpdate->cursor.posX);
             STD_INSIST(wholeUpdate->cursor.posY == splitUpdate->cursor.posY);
-            STD_INSIST(wholeUpdate->spanCount == splitUpdate->spanCount);
-            STD_INSIST(wholeUpdate->spanCount > 0);
-            for (size_t span = 0; span < wholeUpdate->spanCount; ++span) {
-                const TerminalCellSpan& wholeSpan = wholeUpdate->spans[span];
-                const TerminalCellSpan& splitSpan = splitUpdate->spans[span];
-                STD_INSIST(wholeSpan.index == splitSpan.index);
-                STD_INSIST(wholeSpan.count == splitSpan.count);
-                STD_INSIST(wholeSpan.lineAttribute == splitSpan.lineAttribute);
-                for (u32 cell = 0; cell < wholeSpan.count; ++cell) {
-                    STD_INSIST(wholeSpan.cells[cell].style == splitSpan.cells[cell].style);
-                    STD_INSIST(wholeSpan.cells[cell].content == splitSpan.cells[cell].content);
+            STD_INSIST(wholeUpdate->rowCount == splitUpdate->rowCount);
+            STD_INSIST(wholeUpdate->rowCount > 0);
+            for (size_t index = 0; index < wholeUpdate->rowCount; ++index) {
+                const TerminalRow& wholeRow = wholeUpdate->rows[index];
+                const TerminalRow& splitRow = splitUpdate->rows[index];
+                STD_INSIST(wholeRow.row == splitRow.row);
+                STD_INSIST(wholeRow.lineAttribute == splitRow.lineAttribute);
+                for (u16 cell = 0; cell < columns; ++cell) {
+                    STD_INSIST(wholeRow.cells[cell].style == splitRow.cells[cell].style);
+                    STD_INSIST(wholeRow.cells[cell].content == splitRow.cells[cell].content);
                 }
             }
             whole.consume();
@@ -335,14 +334,14 @@ STD_TEST_SUITE(VtermHeadless) {
                 const size_t length = sizeof(directed) - 1 - offset < chunk ? sizeof(directed) - 1 - offset : chunk;
                 split.feedPty(StringView(directed + offset, length));
             }
-            compareScreens(whole, split);
+            compareScreens(whole, split, wholeComposer.columns);
 
             whole.feedPty(StringView(garbage, sizeof(garbage)));
             for (size_t offset = 0; offset < sizeof(garbage); offset += chunk) {
                 const size_t length = sizeof(garbage) - offset < chunk ? sizeof(garbage) - offset : chunk;
                 split.feedPty(StringView(garbage + offset, length));
             }
-            compareScreens(whole, split);
+            compareScreens(whole, split, wholeComposer.columns);
         }
     }
 }
