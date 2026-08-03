@@ -1677,7 +1677,14 @@ bool VtermInput::key(const KeyInput& input) {
                 return true;
             }
             terminal->writeKittyKey(primaryKey, 0, input.baseCodepoint, kittyMods, event);
-            if (pressed && (((textMods & (2 | 8)) && !(textMods & 4)) || (kittyFlags & 0x08))) {
+            // The packet swallows the text event this press is about to
+            // deliver - but the frontends deliver text only without
+            // Control and without Super (cocoa's interpretKeyEvents and
+            // the wayland key handler gate it identically), so only an
+            // Alt-modified press has one coming. Counting a suppression
+            // for a press that never produces text eats the next typed
+            // character instead.
+            if (pressed && (textMods & 2) && !(textMods & (4 | 8))) {
                 ++suppressedTextInputs;
             }
             return true;
@@ -1729,13 +1736,23 @@ bool VtermInput::key(const KeyInput& input) {
         return true;
     }
     if (input.modifiers & InputControl) {
-        int controlKey = (int)(input.baseCodepoint);
+        // The layout's own key wins while it prints ASCII - on QWERTZ the
+        // key labeled Z must give Ctrl+Z, not the positional Ctrl+Y; the
+        // base layout is the fallback for non-Latin layouts, which have
+        // no control byte of their own (kitty's legacy rule). A key with
+        // no ASCII on either layer has nothing to encode in any mode.
+        const u32 layoutKey = input.layoutCodepoint;
+        const u32 ruleKey = layoutKey >= 0x20 && layoutKey < 0x7f ? layoutKey : input.baseCodepoint;
+        if (ruleKey < 0x20 || ruleKey >= 0x7f) {
+            return true;
+        }
+        if (terminal->modifyOtherKeys == 2 && terminal->modifyOtherKeyEncoded((u8)(ruleKey), modifiers)) {
+            terminal->writePty((u8)(ruleKey), modifiers, true);
+            return true;
+        }
+        int controlKey = (int)(ruleKey);
         if (controlKey >= 'a' && controlKey <= 'z') {
             controlKey -= 'a' - 'A';
-        }
-        if (terminal->modifyOtherKeys == 2 && input.baseCodepoint < 0x80 && terminal->modifyOtherKeyEncoded((u8)(input.baseCodepoint), modifiers)) {
-            terminal->writePty((u8)(input.baseCodepoint), modifiers, true);
-            return true;
         }
         u8 character = 0;
         if (controlCharacter(controlKey, input.modifiers & InputShift, character)) {
@@ -8555,9 +8572,16 @@ int VtermImpl::writePty(u8 ch, VtModifier modifiers, bool userInput) {
             ch = ctrlmap[ch];
         }
 
-        u8 wbuf[16] = {'\x1b', '[', '2', '7', ';', '_', ';'};
-        wbuf[5] = '0' + getModifierCode(modifiers);
-        u8 pos = 7;
+        u8 wbuf[16] = {'\x1b', '[', '2', '7', ';'};
+        u8 pos = 5;
+        // The modifier code runs up to 16 (all four modifiers): two
+        // decimal digits, not a single '0'+code byte.
+        const u8 code = getModifierCode(modifiers);
+        if (code > 9) {
+            wbuf[pos++] = '0' + code / 10;
+        }
+        wbuf[pos++] = '0' + code % 10;
+        wbuf[pos++] = ';';
 
         if (ch > 99) {
             wbuf[pos] = ch / 100;

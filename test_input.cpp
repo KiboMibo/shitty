@@ -33,6 +33,7 @@ namespace {
         explicit TestInputImpl(Composer& composer);
 
         void key(int key, int scancode, int action, int modifiers) override;
+        void layoutKey(int key, int action, int modifiers, unsigned layoutCodepoint, unsigned baseCodepoint) override;
         void text(unsigned codepoint, int modifiers) override;
         void contentScale(float xScale, float yScale) override;
 
@@ -196,6 +197,22 @@ void TestInputImpl::key(int keyCode, int, int actionCode, int rawModifiers) {
         .modifiers = translateModifiers(rawModifiers, rightAlt),
         .layoutCodepoint = codepoint,
         .baseCodepoint = codepoint,
+    });
+}
+
+void TestInputImpl::layoutKey(int keyCode, int actionCode, int rawModifiers, unsigned layoutCodepoint, unsigned base) {
+    bool valid;
+    const InputAction inputAction = translateAction(actionCode, valid);
+    const InputKey inputKey = translateKey(keyCode);
+    if (!valid || inputKey == InputKey::Unknown) {
+        return;
+    }
+    composer.input->key({
+        .key = inputKey,
+        .action = inputAction,
+        .modifiers = translateModifiers(rawModifiers, false),
+        .layoutCodepoint = layoutCodepoint,
+        .baseCodepoint = base,
     });
 }
 

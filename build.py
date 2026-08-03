@@ -3141,6 +3141,41 @@ for case in realworld_cases:
         color="cyan",
     ))
 
+# The Cartesian key-encoding matrix is ~6500 cases; ten shards keep
+# each node inside the ordinary test timeout, split by a stable hash
+# of the case id.
+keyboard_product_group_count = 10
+keyboard_product_tests = []
+for group_index in range(keyboard_product_group_count):
+    output = f"$(B)/keyboard-product/group-{group_index:02}.stamp"
+    keyboard_product_tests.append(command(
+        name=f"keyboard_product_group_{group_index:02}",
+        inputs=[
+            "$(S)/tests/harness.py",
+            "$(S)/tests/keyboard_layout_product.py",
+        ],
+        outputs=[output],
+        deps=[st_test],
+        cmd=[
+            [
+                "python3",
+                "tests/keyboard_layout_product.py",
+                f"--group={group_index}",
+                f"--group-count={keyboard_product_group_count}",
+            ],
+            touch_stamp(output),
+        ],
+        cwd="$(S)",
+        env={
+            "SHITTY_TEST_BINARY": "$(B)/st_test",
+            "SHITTY_TEST_FONTCONFIG": "1" if fontconfig else "0",
+            "SHITTY_TEST_PLATFORM": "cocoa" if darwin else "wayland",
+            "SHITTY_TEST_VERSION": shitty_version,
+        },
+        descr="KB",
+        color="cyan",
+    ))
+
 
 group("install", st)
 
@@ -3237,4 +3272,5 @@ group(
     *termless_tests,
     realworld_validation,
     *realworld_tests,
+    *keyboard_product_tests,
 )

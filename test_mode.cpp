@@ -2343,6 +2343,19 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 input.key(key, scancode, action, modifiers);
                 terminal.update();
                 writeAll(controlFd, "OK\n");
+            } else if (line.compare(0, 20, "FRONTEND_LAYOUT_KEY ") == 0) {
+                std::istringstream args(line.substr(20));
+                int key;
+                int action;
+                int modifiers;
+                unsigned layout;
+                unsigned base;
+                if (!(args >> key >> action >> modifiers >> layout >> base) || action < 0 || action > 2 || modifiers < 0 || layout > 0x10ffff || base > 0x10ffff) {
+                    throw std::runtime_error("invalid frontend layout key");
+                }
+                input.layoutKey(key, action, modifiers, layout, base);
+                terminal.update();
+                writeAll(controlFd, "OK\n");
             } else if (line.compare(0, 20, "FRONTEND_TEXT_EVENT ") == 0) {
                 std::istringstream args(line.substr(20));
                 unsigned codepoint;
