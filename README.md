@@ -68,12 +68,16 @@ processes. The host must provide the corresponding terminfo entry.
 
 ## Requirements
 
-Shitty is written in C++23 and built with Clang. Every build requires:
+Shitty is written in C++23 and built with Clang. The bundled `libstd`
+needs `-std=c++26`, which the Apple command-line-tools clang does not
+know: on macOS install LLVM from Homebrew and point the build at it
+(`export CC="$(brew --prefix llvm)/bin/clang"`, same for `CXX` with
+`clang++`). Every build requires:
 
-- Python 3 and `glslangValidator`;
+- Python 3, Ragel 6, and `glslangValidator`;
 - librsvg (`rsvg-convert`), which renders the icon at build time;
 - pkg-config;
-- Brotli and utf8proc;
+- utf8proc 2.9 or newer;
 - POSIX threads and PTY support.
 
 The exact `libstd` revision used by Shitty is bundled in
@@ -83,17 +87,20 @@ Linux additionally requires FreeType, HarfBuzz, Wayland client headers,
 xkbcommon, `wayland-scanner`, and Vulkan headers and loader. macOS requires
 SPIRV-Cross and uses CoreText, Cocoa, Metal, and IOSurface from the system SDK.
 
-A scalar Base64 implementation is always available. If simdutf 6.5 or newer
-is installed, the build uses it automatically to accelerate Base64 encoding.
-Fontconfig is also optional. When present, it enables font-family lookup;
-explicit font file paths are handled directly through FreeType.
+Brotli and simdutf are optional: Brotli only satisfies FreeType's
+static-link dependency chain where that applies, and simdutf 6.5 or
+newer accelerates Base64 over the always-available scalar
+implementation. Font families are resolved by
+CoreText on macOS and by Fontconfig (optional) on Linux; explicit font
+file paths work everywhere, whichever backend rasterizes them.
 
 Linux requires a working Vulkan driver and Wayland compositor at runtime.
 macOS uses the native Metal driver. The native window and event-loop layer is
 built from `third_party/plt`; the terminal does not depend on a generic
 windowing toolkit.
 
-The complete imported conformance suite additionally needs ncurses and Perl.
+The complete imported conformance suite additionally needs ncurses, Perl,
+and vttest.
 
 ## Build
 
@@ -135,14 +142,15 @@ Choose fonts:
 
 ```sh
 ./st -font 'DejaVu Sans Mono' -fontsize 16
-./st -font 'DejaVu Sans Mono' -dwfont 'Noto Sans Mono CJK JP'
+./st -font 'DejaVu Sans Mono' -font 'Noto Sans Mono CJK JP'
 ```
 
-`-font` and `-dwfont` accept explicit font file paths. When Fontconfig is
-available, they also accept family queries and Shitty resolves regular, bold,
-italic, and bold-italic faces automatically. An optional double-width font is
-used only when its cell is exactly twice as wide as the primary font at the
-same height.
+`-font` accepts a family name or an explicit font file path and may be
+repeated: later fonts serve as fallbacks, picked per cluster by glyph
+coverage. Regular, bold, italic, and bold-italic faces resolve
+automatically. A vendored monospace-and-emoji trio is embedded in the
+binary as the last resort, so the terminal starts even on a system with
+no fonts installed at all.
 
 Use `./st -v` to print the build version without opening a window,
 `./st -help` for the main option list, and `./st -listres` for advanced
@@ -150,15 +158,29 @@ terminal, colour, clipboard, and window-policy options. Boolean flags use
 `-flag` to enable and `+flag` to disable. `SHITTY_FONT_SIZE` sets the default
 font size; `-fontsize` takes precedence.
 
-During a session, `Ctrl+Shift++` increases the font size, `Ctrl+-` decreases
-it, and `Ctrl+0` restores the startup size. Font resizing preserves the
-terminal's rows and columns by resizing the window to the new cell dimensions.
+During a session, `Cmd+=`/`Cmd+-`/`Cmd+0` on macOS (`Ctrl+Shift+=`/
+`Ctrl+-`/`Ctrl+0` on Linux) raise, lower, and restore the font size. Font
+resizing preserves the terminal's rows and columns by resizing the window
+to the new cell dimensions.
 
 By default, applications cannot read local selections through OSC 52 and
 cannot manipulate or query the host window. These operations can be enabled
 explicitly for trusted applications.
 
 ## Install
+
+### Homebrew (macOS, Apple silicon)
+
+```sh
+brew install pg83/tap/shitty
+```
+
+The [tap](https://github.com/pg83/homebrew-tap) tracks the latest
+release automatically. The same portable binary (`st-darwin-arm64.tar.gz`,
+nothing dynamically linked outside the system) is attached to every
+[GitHub release](https://github.com/pg83/shitty/releases).
+
+### Linux
 
 The executable is named `st`; the desktop application and icon are named
 `shitty`:
