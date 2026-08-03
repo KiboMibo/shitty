@@ -46,11 +46,13 @@ class LegacyLayoutTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"\x03\x04")
 
     def test_control_shift_keeps_the_base_control_byte(self):
+        # Probed on D: Ctrl+Shift+C is the Copy binding on Linux and
+        # never reaches the encoder there.
         with Shitty(columns=8, rows=2) as terminal:
             terminal.layout_key(
-                "C", RUSSIAN["C"], "c", modifiers=CONTROL | SHIFT
+                "D", RUSSIAN["D"], "d", modifiers=CONTROL | SHIFT
             )
-            self.assertEqual(terminal.read_input(), b"\x03")
+            self.assertEqual(terminal.read_input(), b"\x04")
 
     def test_typing_sends_the_layout_text(self):
         # Plain typing is the active layout's business: the key event
