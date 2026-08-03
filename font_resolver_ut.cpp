@@ -17,7 +17,6 @@ using namespace stl;
 
 namespace {
     struct FakeFont final: public Font {
-        FontGlyph glyph(const u32* codepoints, size_t count, u16 cells) override;
         void render(const u32* codepoints, size_t count, u16 cells, void* buf) override;
         bool covers(u32 codepoint) override;
         bool colored() const override;
@@ -51,10 +50,6 @@ namespace {
             composer.fontRenderers.popFront();
         }
     }
-}
-
-FontGlyph FakeFont::glyph(const u32*, size_t, u16) {
-    return {};
 }
 
 void FakeFont::render(const u32*, size_t, u16, void*) {

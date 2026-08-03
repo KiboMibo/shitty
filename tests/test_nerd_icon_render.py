@@ -72,6 +72,33 @@ class NerdIconRenderTest(unittest.TestCase):
                 ink = (cell_width - left) + (cell_width - right)
                 self.assertGreaterEqual(ink, cell_width, "icon shrank away")
 
+    def test_icon_against_text_scales_to_fit_its_cell(self):
+        # No blank to capture: the pictogram re-renders at a smaller size
+        # until its ink fits the one cell it owns.
+        for icon in ICONS:
+            with self.subTest(icon=hex(ord(icon))):
+                with Shitty(
+                    columns=4,
+                    rows=1,
+                    extra_arguments=("-fontsize", "32"),
+                ) as terminal:
+                    terminal.write(b"\x1b[?25l " + icon.encode() + b"__")
+                    width, height, pixels = terminal.render_image(NERD_FONT)
+
+                cell_width = width // 4
+                margins = ink_margins(pixels, width, cell_width, height, 1)
+                self.assertIsNotNone(margins, "icon rendered no ink")
+                left, right = margins
+                self.assertGreaterEqual(left, 1, f"ink flush left ({margins})")
+                self.assertGreaterEqual(right, 1, f"ink clipped right ({margins})")
+                self.assertGreaterEqual(
+                    cell_width - left - right, cell_width // 2, "icon shrank away"
+                )
+                self.assertIsNone(
+                    ink_margins(pixels, width, cell_width, height, 0),
+                    "ink leaked into cell 0",
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

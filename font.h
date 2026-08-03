@@ -16,12 +16,6 @@ namespace stl {
 
 struct FontFace;
 
-struct FontGlyph {
-    const void* data = nullptr;
-    size_t len = 0;
-    bool color = false;
-};
-
 enum class FontStyle : u8 {
     Regular,
     Bold,
@@ -41,12 +35,9 @@ struct FontMetrics {
     u16 baseline = 0;
 };
 
-// A mask occupies cells * metrics.width * metrics.height bytes. A color
-// glyph occupies four times as much and contains premultiplied RGBA pixels.
-// The returned bitmap remains valid until the next glyph() call on the same
-// Font.
+// A mask slice occupies metrics.width * metrics.height bytes per cell; a
+// color slice four times as much, premultiplied RGBA.
 struct Font {
-    virtual FontGlyph glyph(const u32* codepoints, size_t count, u16 cells) = 0;
     // Rasterizes a whole span into buf, which arrives zeroed: the flat
     // codepoint string of the span's cells, a captured blank cell as a
     // space. cells is the strip width the grid dictates — the authority

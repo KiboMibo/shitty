@@ -29,7 +29,6 @@ namespace {
         CoreTextFont(IntrusivePtr<FontFace> source, CTFontRef font, FontKind kind, FontMetrics metrics, FontStyle synthetic);
         ~CoreTextFont() noexcept;
 
-        FontGlyph glyph(const u32* codepoints, size_t count, u16 cells) override;
         void render(const u32* codepoints, size_t count, u16 cells, void* buf) override;
         bool covers(u32 codepoint) override;
         bool colored() const override;
@@ -350,33 +349,6 @@ bool CoreTextFont::drawLine(CTLineRef line, bool color) {
     CTLineDraw(line, context);
     CGContextRelease(context);
     return true;
-}
-
-FontGlyph CoreTextFont::glyph(const u32* codepoints, size_t count, u16 cells) {
-    if (count == 0 || cells == 0 || codepoints[0] == Missing_Glyph_Marker) {
-        return {};
-    }
-    canvasWidth_ = (u16)((cells < 2 ? cells : 2) * metrics_.width);
-    CFStringRef string = makeString(codepoints, count);
-    if (string == nullptr) {
-        return {};
-    }
-    CTLineRef line = makeLine(string);
-    CFRelease(string);
-    if (line == nullptr) {
-        return {};
-    }
-    bool color = false;
-    const bool success = inspectLine(line, color) && drawLine(line, color);
-    CFRelease(line);
-    if (!success) {
-        return {};
-    }
-    return {
-        .data = bitmap_.data(),
-        .len = bitmap_.used(),
-        .color = color,
-    };
 }
 
 bool CoreTextFontResolver::matchesName(CTFontRef font, CFStringRef name) {

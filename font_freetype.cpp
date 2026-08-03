@@ -38,7 +38,6 @@ namespace {
         FontImpl(IntrusivePtr<FontFace> source, u16 size, FontKind kind, FontMetrics& metrics, FontStyle synthetic);
         ~FontImpl() noexcept;
 
-        FontGlyph glyph(const u32* codepoints, size_t count, u16 cells) override;
         void render(const u32* codepoints, size_t count, u16 cells, void* buf) override;
         bool covers(u32 codepoint) override;
         bool colored() const override;
@@ -59,6 +58,8 @@ namespace {
         FitMeasure measureAt(u16 pixelSize, u32 representative);
         u16 fitCells(u16 cells);
         bool applyCells(u16 cells);
+        bool renderFittedSymbol(u32 codepoint, u8* out, size_t stride);
+        void restoreSize();
         bool loadGlyph(FT_UInt glyph, bool color, bool render);
         bool rasterize(const u32* codepoints, size_t count);
         bool rasterizeMask(const hb_glyph_info_t* glyphs, const hb_glyph_position_t* positions, unsigned count);
@@ -305,6 +306,97 @@ void FontImpl::configureScaled() {
     // is chosen per cell span by fitCells.
 }
 
+namespace {
+    // Ink extent over a mask canvas; false when blank. The threshold
+    // skips antialiasing dust.
+    bool maskInk(const Buffer& bitmap, u32 canvas, u32 rows, u32& left, u32& right) {
+        const auto* const data = (const u8*)(bitmap.data());
+        left = canvas;
+        right = 0;
+        for (u32 row = 0; row < rows; ++row) {
+            const u8* const line = data + (size_t)(row)*canvas;
+            for (u32 x = 0; x < canvas; ++x) {
+                if (line[x] > 8) {
+                    left = x < left ? x : left;
+                    right = x > right ? x : right;
+                }
+            }
+        }
+        return left <= right;
+    }
+}
+
+void FontImpl::restoreSize() {
+    // A fallback face re-fits its size on every applyCells; the fixed
+    // kinds render at their configured size.
+    if (kind_ == FontKind::Fallback || face_->num_fixed_sizes > 0) {
+        return;
+    }
+    FT_Set_Pixel_Sizes(face_, size_, size_);
+    hb_ft_font_changed(harfbuzz_);
+}
+
+// A width-one private-use pictogram with no blank to capture re-renders
+// at a smaller pixel size until its unclipped ink fits its single cell,
+// then centers - eza --icons with text right next door. Returns false
+// when the ink already fits (or nothing sensible fits), leaving the
+// normal path to render the cell.
+bool FontImpl::renderFittedSymbol(u32 codepoint, u8* out, size_t stride) {
+    if (face_->num_fixed_sizes > 0) {
+        return false;
+    }
+    // The true ink extent, probed on a two-cell canvas where it is whole.
+    glyphColor_ = false;
+    canvasWidth_ = (u16)(2 * metrics_.width);
+    if (!applyCells(2) || !rasterize(&codepoint, 1) || glyphColor_) {
+        restoreSize();
+        return false;
+    }
+    u32 left = 0;
+    u32 right = 0;
+    if (!maskInk(bitmap_, canvasWidth_, metrics_.height, left, right)) {
+        restoreSize();
+        return false;
+    }
+    const u32 canvas = metrics_.width;
+    const u32 ink = right - left + 1;
+    if (ink <= canvas + 2) {
+        // Any clipping is antialiasing slop; the normal render stands.
+        restoreSize();
+        return false;
+    }
+    u16 size = (u16)(maximum(4, (int)((u64)(size_)*canvas / ink)));
+    for (; size >= 4; --size) {
+        if (FT_Set_Pixel_Sizes(face_, 0, size)) {
+            break;
+        }
+        hb_ft_font_changed(harfbuzz_);
+        if (!rasterize(&codepoint, 1) || glyphColor_) {
+            break;
+        }
+        u32 fittedLeft = 0;
+        u32 fittedRight = 0;
+        if (!maskInk(bitmap_, canvasWidth_, metrics_.height, fittedLeft, fittedRight)) {
+            break;
+        }
+        if (fittedRight + 1 >= canvasWidth_ || fittedRight - fittedLeft + 1 > canvas - 2) {
+            continue;
+        }
+        const u32 fittedInk = fittedRight - fittedLeft + 1;
+        const u32 shift = (canvas - fittedInk) / 2;
+        const auto* const source = (const u8*)(bitmap_.data());
+        for (u16 row = 0; row < metrics_.height; ++row) {
+            for (u32 x = 0; x < fittedInk; ++x) {
+                out[(size_t)(row)*stride + shift + x] = source[(size_t)(row)*canvasWidth_ + fittedLeft + x];
+            }
+        }
+        restoreSize();
+        return true;
+    }
+    restoreSize();
+    return false;
+}
+
 void FontImpl::render(const u32* codepoints, size_t count, u16 cells, void* buf) {
     // Per-cluster rasterization through the internal canvas; the slice
     // copy disappears when harfbuzz layout replaces this loop and draws
@@ -332,6 +424,10 @@ void FontImpl::render(const u32* codepoints, size_t count, u16 cells, void* buf)
             haveNext = nextSpanCluster(codepoints, count, position, next);
         }
         width = (u16)(minimum(width, cells - column));
+        if (width == 1 && cluster.count == 1 && !hasColor_ && puaSymbol(codepoints[cluster.begin]) && renderFittedSymbol(codepoints[cluster.begin], (u8*)(buf) + (size_t)(column)*metrics_.width, stride)) {
+            column = (u16)(column + width);
+            continue;
+        }
         glyphColor_ = false;
         canvasWidth_ = (u16)(minimum(width, 2) * metrics_.width);
         if (applyCells((u16)(minimum(width, 2))) && rasterize(codepoints + cluster.begin, cluster.count) && glyphColor_ == hasColor_) {
@@ -700,23 +796,6 @@ bool FontImpl::rasterize(const u32* codepoints, size_t count) {
         }
     }
     return glyphColor_ ? rasterizeColor(glyphs, positions, glyphCount) : rasterizeMask(glyphs, positions, glyphCount);
-}
-
-FontGlyph FontImpl::glyph(const u32* codepoints, size_t count, u16 cells) {
-    glyphColor_ = false;
-    if (count == 0 || cells == 0) {
-        return {};
-    }
-    cells = (u16)(minimum(cells, 2));
-    canvasWidth_ = (u16)(cells * metrics_.width);
-    if (!applyCells(cells) || !rasterize(codepoints, count)) {
-        return {};
-    }
-    return {
-        .data = bitmap_.data(),
-        .len = bitmap_.used(),
-        .color = glyphColor_,
-    };
 }
 
 Font* FreeTypeRenderer::render(ObjPool& owner, IntrusivePtr<FontFace> face, u16 pixels, FontKind kind, FontMetrics& metrics) {

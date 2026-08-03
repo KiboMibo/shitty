@@ -32,7 +32,6 @@ namespace {
         bool hasBold() const override;
         bool hasItalic() const override;
         bool hasBoldItalic() const override;
-        FontGlyph glyph(const u32* codepoints, size_t count, FontStyle style, bool doubleWidth) override;
         Font* resolveFace(const u32* codepoints, size_t count) override;
         Font* styledFace(Font* face, FontStyle style) const override;
     };
@@ -177,10 +176,6 @@ bool FakeFontpack::hasItalic() const {
 
 bool FakeFontpack::hasBoldItalic() const {
     return true;
-}
-
-FontGlyph FakeFontpack::glyph(const u32*, size_t, FontStyle, bool) {
-    return {};
 }
 
 Font* FakeFontpack::styledFace(Font* face, FontStyle) const {

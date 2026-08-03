@@ -105,14 +105,6 @@ namespace {
             return false;
         }
 
-        FontGlyph glyph(const u32*, size_t, FontStyle, bool doubleWidth) override {
-            bitmap.zero((size_t)(doubleWidth ? 2 : 1) * composer.glyphWidth * composer.glyphHeight);
-            return {
-                .data = bitmap.data(),
-                .len = bitmap.length(),
-            };
-        }
-
         Font* styledFace(Font* face, FontStyle) const override {
             return face;
         }
