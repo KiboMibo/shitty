@@ -54,7 +54,7 @@ namespace {
         FontGlyph render(Font* face, const u32* codepoints, size_t count, FontStyle style, u16 cells);
         FontGlyph fitOverflow(Font* font, const u32* codepoints, size_t count, u16 cells, FontGlyph result);
         const FittedFont* fittedFont(FontFace* face, u16 pixels);
-        FontGlyph centered(const FontGlyph& glyph, const FontMetrics& source, u32 canvas, u32 rows, u32 left, u32 right);
+        FontGlyph centered(const FontGlyph& glyph, u32 sourceCanvas, u32 sourceRows, u32 canvas, u32 rows, u32 left, u32 right);
         FontGlyph missingBox(u16 cells);
 
         Composer* composer_ = nullptr;
@@ -283,11 +283,9 @@ const FontpackImpl::FittedFont* FontpackImpl::fittedFont(FontFace* face, u16 pix
     return font != nullptr ? entry : nullptr;
 }
 
-FontGlyph FontpackImpl::centered(const FontGlyph& glyph, const FontMetrics& source, u32 canvas, u32 rows, u32 left, u32 right) {
+FontGlyph FontpackImpl::centered(const FontGlyph& glyph, u32 sourceCanvas, u32 sourceRows, u32 canvas, u32 rows, u32 left, u32 right) {
     // The candidate rendered on its own canvas; blit its ink into the
     // pack's cell, centered on both axes.
-    const u32 sourceCanvas = source.width;
-    const u32 sourceRows = source.height;
     const u32 ink = right - left + 1;
     const i32 shiftX = (i32)((canvas - ink) / 2) - (i32)(left);
     const i32 shiftY = ((i32)(rows) - (i32)(sourceRows)) / 2;
@@ -310,15 +308,22 @@ FontGlyph FontpackImpl::centered(const FontGlyph& glyph, const FontMetrics& sour
     };
 }
 
-// A width-one cluster whose ink is clipped at the cell edge - Nerd Font
-// pictograms under eza --icons - is re-rendered through the same face at
-// a smaller pixel size until it fits, then centered. Wide canvases are
-// already the roomiest the contract offers, and color glyphs scale in
-// the rasterizer.
+namespace {
+    // Nerd Fonts park their pictograms in the private-use planes; text,
+    // box drawing and italic overhangs never fit-scale.
+    bool privateUse(u32 codepoint) {
+        return (codepoint >= 0xe000 && codepoint <= 0xf8ff) || (codepoint >= 0xf0000 && codepoint <= 0xffffd) || (codepoint >= 0x100000 && codepoint <= 0x10fffd);
+    }
+}
+
+// A width-one private-use cluster whose ink is clipped at the cell edge -
+// Nerd Font pictograms under eza --icons - is re-rendered through the
+// same face at a smaller pixel size until its unclipped ink fits, then
+// centered. Color glyphs scale in the rasterizer already.
 FontGlyph FontpackImpl::fitOverflow(Font* font, const u32* codepoints, size_t count, u16 cells, FontGlyph result) {
     const u32 canvas = (u32)(cells)*metrics_.width;
     const u32 rows = metrics_.height;
-    if (result.color || result.len == 0 || cells != 1 || !touchesRightEdge(result, canvas, rows)) {
+    if (result.color || result.len == 0 || cells != 1 || !privateUse(codepoints[0]) || !touchesRightEdge(result, canvas, rows)) {
         return result;
     }
     FontFace* const face = font->face();
@@ -327,7 +332,7 @@ FontGlyph FontpackImpl::fitOverflow(Font* font, const u32* codepoints, size_t co
     }
     // The true ink extent, probed on the widest canvas the contract has.
     // The probe reuses the font's bitmap, so the original render is redone
-    // when the clip turns out acceptable.
+    // when the overshoot turns out to be antialiasing slop.
     const FontGlyph probe = font->glyph(codepoints, count, 2);
     u32 left = 0;
     u32 right = 0;
@@ -335,9 +340,7 @@ FontGlyph FontpackImpl::fitOverflow(Font* font, const u32* codepoints, size_t co
         return font->glyph(codepoints, count, cells);
     }
     const u32 ink = right - left + 1;
-    if (ink <= canvas + metrics_.width / 4u) {
-        // Within tolerance: an edge-flush glyph (box drawing, overhangs)
-        // clips by design.
+    if (ink <= canvas + 2) {
         return font->glyph(codepoints, count, cells);
     }
     u16 pixels = (u16)((u64)(size_)*canvas / ink);
@@ -346,17 +349,21 @@ FontGlyph FontpackImpl::fitOverflow(Font* font, const u32* codepoints, size_t co
         if (candidate == nullptr) {
             break;
         }
-        const FontGlyph attempt = candidate->font->glyph(codepoints, count, cells);
+        // The candidate's own cell would clip the very overflow being
+        // fixed; judge the attempt on its two-cell canvas, where the ink
+        // is whole, and require clearance from that edge too.
+        const u32 candidateCanvas = 2u * candidate->metrics.width;
+        const FontGlyph attempt = candidate->font->glyph(codepoints, count, 2);
         if (attempt.len == 0 || attempt.color) {
             break;
         }
         u32 fittedLeft = 0;
         u32 fittedRight = 0;
-        if (!maskInk(attempt, candidate->metrics.width, candidate->metrics.height, fittedLeft, fittedRight)) {
+        if (!maskInk(attempt, candidateCanvas, candidate->metrics.height, fittedLeft, fittedRight)) {
             break;
         }
-        if (fittedRight - fittedLeft + 1 <= canvas - 2 && candidate->metrics.height <= rows) {
-            return centered(attempt, candidate->metrics, canvas, rows, fittedLeft, fittedRight);
+        if (fittedRight + 1 < candidateCanvas && fittedRight - fittedLeft + 1 <= canvas - 2 && candidate->metrics.height <= rows) {
+            return centered(attempt, candidateCanvas, candidate->metrics.height, canvas, rows, fittedLeft, fittedRight);
         }
     }
     return font->glyph(codepoints, count, cells);

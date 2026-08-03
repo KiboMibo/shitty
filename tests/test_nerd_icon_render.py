@@ -14,7 +14,7 @@ NERD_FONT = ROOT / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf"
 # Wide Nerd Font pictograms behind width-one codepoints, the eza --icons
 # staple: the NixOS snowflake, the Python logo, and the C symbol from the
 # issue-32 listing.
-ICONS = ("", "", "")
+ICONS = tuple(chr(code) for code in (0xF313, 0xE606, 0xE61E, 0xE60B))
 
 
 def ink_margins(pixels, width, cell_width, height, cell):
@@ -62,6 +62,21 @@ class NerdIconRenderTest(unittest.TestCase):
                         ink_margins(pixels, width, cell_width, height, neighbour),
                         f"ink leaked into cell {neighbour}",
                     )
+                # A clipped glyph loses one side: the ink mass of the two
+                # halves of a fitted pictogram stays comparable.
+                total = 0
+                lopsided = 0
+                middle = cell_width + (left + cell_width - right) / 2
+                for column in range(cell_width, 2 * cell_width):
+                    for row in range(height):
+                        offset = (row * width + column) * 3
+                        if max(pixels[offset : offset + 3]) > 8:
+                            total += 1
+                            lopsided += 1 if column < middle else -1
+                self.assertLessEqual(
+                    abs(lopsided), total * 0.45,
+                    "ink mass is lopsided, the glyph looks clipped",
+                )
 
 
 if __name__ == "__main__":
