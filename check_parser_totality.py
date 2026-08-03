@@ -16,7 +16,65 @@ Usage: check_parser_totality.py <parser.rl> [stamp file written on success]
 
 import subprocess
 import sys
-import xml.etree.ElementTree as ET
+from html.parser import HTMLParser
+
+
+# A tiny pure-python element tree: xml.etree needs pyexpat, which homebrew
+# pythons ship linked against a libexpat newer than the system dylib and
+# fail to import.  Ragel's -x dump is machine-generated, lowercase and
+# well-formed, well within html.parser's power.
+class Node:
+    def __init__(self, tag, attrs):
+        self.tag = tag
+        self.attrib = dict(attrs)
+        self.children = []
+        self.text = ""
+
+    def find(self, path):
+        node = self
+        for part in path.split("/"):
+            node = next(
+                (child for child in node.children if child.tag == part), None
+            )
+            if node is None:
+                return None
+        return node
+
+    def get(self, key):
+        return self.attrib.get(key)
+
+    def __iter__(self):
+        return iter(self.children)
+
+
+class TreeBuilder(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.root = Node("", ())
+        self.stack = [self.root]
+
+    def handle_starttag(self, tag, attrs):
+        node = Node(tag, attrs)
+        self.stack[-1].children.append(node)
+        self.stack.append(node)
+
+    def handle_startendtag(self, tag, attrs):
+        self.stack[-1].children.append(Node(tag, attrs))
+
+    def handle_endtag(self, tag):
+        while len(self.stack) > 1:
+            if self.stack.pop().tag == tag:
+                break
+
+    def handle_data(self, data):
+        self.stack[-1].text += data
+
+
+def parse_xml(text):
+    builder = TreeBuilder()
+    builder.feed(text)
+    builder.close()
+    return builder.root.children[0]
 
 
 def main():
@@ -25,7 +83,7 @@ def main():
         ["ragel", "-x", source, "-o", "/dev/stdout"],
         check=True, capture_output=True, text=True,
     ).stdout
-    machine = ET.fromstring(xml_text).find("ragel_def/machine")
+    machine = parse_xml(xml_text).find("ragel_def/machine")
 
     # Action tables reference actions; a recovery action is one that
     # rewrites cs (<goto>/<goto_expr>/<next>/<next_expr> or <call>/<ret>).
