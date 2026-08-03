@@ -150,6 +150,7 @@ if build.target == build.host:
             "$(S)/drop_ut.cpp",
             "$(S)/fiber_ut.cpp",
             "$(S)/mutex_ut.cpp",
+            "$(S)/platform_headless_ut.cpp",
             "$(S)/pointer_grab_ut.cpp",
         ],
         deps=[libplt, libstd],

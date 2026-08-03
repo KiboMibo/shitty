@@ -1,10 +1,4 @@
-/*
- * Copyright (C) 2026 Shitty team
- * MIT licensed
- * See the file LICENSE.MIT for the full license.
- */
-
-#include <plt/platform_headless.h>
+#include "platform_headless.h"
 
 #include <std/mem/obj_pool.h>
 #include <std/tst/ut.h>

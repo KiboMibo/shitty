@@ -91,8 +91,8 @@ namespace plt {
     };
 
     struct WindowOptions {
-        stl::StringView appId;
-        stl::StringView title;
+        stl::StringView appId = {};
+        stl::StringView title = {};
         u32 width = 800;
         u32 height = 600;
         u32 minimumWidth = 1;
