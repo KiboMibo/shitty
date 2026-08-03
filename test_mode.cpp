@@ -1496,6 +1496,12 @@ namespace {
             if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                 break;
             }
+            if (count < 0 && errno == EIO) {
+                // macOS revokes the pty slave once the child session
+                // leader exits; the undelivered queue died with it and
+                // there is nothing left to drain.
+                break;
+            }
             if (count == 0) {
                 break;
             }

@@ -116,16 +116,10 @@ def command_for(root, case):
                 "0x2500", "0x754c", "0xff01", "0x1f642", "0x1f680",
             ))
         elif case == "resize.pl":
-            timeout = shutil.which("timeout")
-            if timeout is None:
-                raise RuntimeError("resize.pl requires coreutils timeout")
-            arguments = [
-                timeout,
-                "--preserve-status",
-                "--signal=TERM",
-                "1.25",
-                *arguments,
-            ]
+            # resize.pl loops forever; no watchdog is needed - the
+            # adapter observes for its fixed window and the terminal's
+            # QUIT handler SIGKILLs a still-running child on close.
+            pass
         elif case == "cursor.pl":
             # cursor.pl is a viewer: without an input file it only clears an
             # already empty screen, so the scenario has no observable oracle.
