@@ -115,6 +115,9 @@ elif system == "Darwin":
         # same headers as system headers and never sees these warnings.
         "-Wno-nullability-completeness",
         "-Wno-unguarded-availability-new",
+        # macOS 15 retired the CVDisplayLink C interface; the migration to
+        # NSView.displayLink is pending and the spam helps nobody.
+        "-Wno-deprecated-declarations",
     ]
     backend_deps = [
         # Single-token -Wl,-framework,X spellings: the graph deduplicates
