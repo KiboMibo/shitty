@@ -250,8 +250,6 @@ bool MetalRendererImpl::initialize() {
     if (queue == nil) {
         return false;
     }
-    textureStorageMode = device.hasUnifiedMemory ? MTLStorageModeShared : MTLStorageModeManaged;
-
     NSString* const source = [[NSString alloc] initWithBytes:renderMetalSource length:sizeof(renderMetalSource) - 1 encoding:NSUTF8StringEncoding];
     NSError* error = nil;
     id<MTLLibrary> library = [device newLibraryWithSource:source options:nil error:&error];
