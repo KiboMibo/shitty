@@ -222,15 +222,26 @@ CFStringRef CoreTextFont::makeString(const u32* codepoints, size_t count) {
 }
 
 CTLineRef CoreTextFont::makeLine(CFStringRef string) {
+    // Core Text turns ligatures off by default for fixed-pitch fonts;
+    // level 2 (all ligatures) is what coding fonts expect - the same
+    // opt-in iTerm2 makes.
+    const int ligatureLevel = 2;
+    CFNumberRef ligatures = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &ligatureLevel);
+    if (ligatures == nullptr) {
+        return nullptr;
+    }
     const void* keys[] = {
         kCTFontAttributeName,
         kCTForegroundColorFromContextAttributeName,
+        kCTLigatureAttributeName,
     };
     const void* values[] = {
         font_,
         kCFBooleanTrue,
+        ligatures,
     };
-    CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 3, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFRelease(ligatures);
     if (attributes == nullptr) {
         return nullptr;
     }
