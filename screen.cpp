@@ -125,6 +125,17 @@ namespace {
         return (FontStyle)((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0));
     }
 
+    // Arena generations are unique across every screen instance and
+    // lifetime: the primary and alternate screens carry separate arenas,
+    // and a resize builds a fresh screen. A renderer keying its device
+    // copies on the generation must never see two different arenas under
+    // one value.
+    u32 shapeGenerationCounter = 0;
+
+    u32 nextShapeGeneration() {
+        return ++shapeGenerationCounter;
+    }
+
     u64 shapeMixHash(u64 hash, u64 value) {
         hash ^= value;
         hash *= 0x100000001b3ULL;
@@ -423,7 +434,7 @@ namespace {
         IntMap<StripRef>* strips_ = nullptr;
         u32 rawEpoch_ = 0;
         u32 stripEpoch_ = 0;
-        u32 spanGeneration_ = 1;
+        u32 spanGeneration_ = nextShapeGeneration();
         ShapeListener extrasListener_;
         ShapeListener fontListener_;
         Buffer shapeMask_;
@@ -1221,7 +1232,7 @@ void ScreenBase<Coord, Epoch>::onFontChanged() {
     shapeColor_.reset();
     ++rawEpoch_;
     ++stripEpoch_;
-    ++spanGeneration_;
+    spanGeneration_ = nextShapeGeneration();
 }
 
 template <typename Coord, typename Epoch>
@@ -1277,7 +1288,7 @@ void ScreenBase<Coord, Epoch>::collectStrips() {
     // raw-bytes cache level stays valid: identities did not change, only
     // offsets.
     ++stripEpoch_;
-    ++spanGeneration_;
+    spanGeneration_ = nextShapeGeneration();
     Buffer oldMask;
     Buffer oldColor;
     oldMask.xchg(shapeMask_);

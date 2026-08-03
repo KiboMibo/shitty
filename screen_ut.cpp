@@ -1651,6 +1651,19 @@ STD_TEST_SUITE(ScreenRowSpans) {
         STD_INSIST(spans[0].offset + (size_t)(3) * fx.composer->fonts->getPx() * fx.composer->fonts->getPy() <= fx.screen->spanMaskUsed());
     }
 
+    STD_TEST(ScreensNeverShareASpanGeneration) {
+        // The primary and alternate screens carry separate arenas, and a
+        // resize builds a fresh screen: a renderer keying device copies
+        // on the generation must never see two arenas under one value.
+        ShapeFixture fx;
+        Screen* const other = Screen::createPrimary(*fx.composer, *fx.pool, 16, 4, &fx.colors, 8);
+        STD_INSIST(fx.screen->spanGeneration() != other->spanGeneration());
+        Screen::Cursor cursor;
+        Screen* const resized = other->resized(*fx.pool, 20, 5, cursor);
+        STD_INSIST(resized->spanGeneration() != other->spanGeneration());
+        STD_INSIST(resized->spanGeneration() != fx.screen->spanGeneration());
+    }
+
     STD_TEST(ScrollIntoHistoryDropsShapesAndReshapesOnView) {
         ShapeFixture fx;
         fx.writeText(*fx.screen, 0, 0, "abc");

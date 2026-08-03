@@ -106,8 +106,11 @@ struct Screen {
     // baseColumn-relative view columns and stay valid within the current
     // spanGeneration().
     virtual size_t shapeCells(const TerminalCell* cells, u16 count, u16 baseColumn, ScreenRowSpan* out) = 0;
-    // Bumped whenever strip offsets move wholesale (collection, font
-    // change): a renderer holding arena-derived state re-uploads then.
+    // Changes whenever the strip offsets this screen serves move
+    // wholesale (collection, font change). Values are unique across every
+    // screen instance and lifetime, so a renderer that keyed its device
+    // copies on one generation and later sees another - even from a
+    // different screen behind the same update - knows to re-upload.
     virtual u32 spanGeneration() const = 0;
     virtual const u8* spanMask() const = 0;
     virtual size_t spanMaskUsed() const = 0;
