@@ -13,7 +13,7 @@
 #include "options.h"
 #include "render.h"
 #include "render_msl.h"
-#include "unicode_map.h"
+#include "screen.h"
 #include "vterm.h"
 
 #include <plt/window.h>
@@ -59,6 +59,12 @@ namespace {
     constexpr u32 gpuDrawn = 1u << 20;
     constexpr u32 framesInFlight = 3;
 
+    // strip: the pixel offset of the cell's slice base in its plane's
+    // arena, the top bit selecting the color plane; stripNone marks a
+    // cell with no strip (blank, or coverage the shader synthesizes).
+    constexpr u32 stripNone = 0xffffffffu;
+    constexpr u32 stripColorPlane = 0x80000000u;
+
     struct GpuCell {
         u32 codepoint = ' ';
         u32 attributes = 0;
@@ -66,12 +72,13 @@ namespace {
         u32 background = 0;
         u32 underlineColor = 0;
         u32 hyperlink = 0;
-        u32 glyph = 0;
+        u32 strip = stripNone;
+        u32 stripStride = 0;
         u32 semantic = 0;
         u32 lineAttribute = 0;
     };
 
-    static_assert(sizeof(GpuCell) == 36, "Metal cell layout mismatch");
+    static_assert(sizeof(GpuCell) == 40, "Metal cell layout mismatch");
 
     struct GpuCellUpdate {
         u32 sourceIndex;
@@ -79,7 +86,7 @@ namespace {
         GpuCell cell;
     };
 
-    static_assert(sizeof(GpuCellUpdate) == 44, "Metal cell update layout mismatch");
+    static_assert(sizeof(GpuCellUpdate) == 48, "Metal cell update layout mismatch");
 
     struct PushConstants {
         u32 glyphWidth;
@@ -100,7 +107,6 @@ namespace {
         i32 selectionBottom;
         u32 rectangularSelection;
         u32 showWraps;
-        u32 hasDoubleWidth;
         u32 selectionForeground;
         u32 selectionBackground;
         u32 selectionColorMask;
@@ -112,7 +118,7 @@ namespace {
         u32 updateCount;
     };
 
-    static_assert(sizeof(PushConstants) == 112, "Metal push constant layout mismatch");
+    static_assert(sizeof(PushConstants) == 108, "Metal push constant layout mismatch");
 
     struct PresentationState {
         TerminalCursor cursor;
@@ -126,27 +132,6 @@ namespace {
         bool screenReverse = false;
         bool blinkVisible = true;
         bool cursorBlink = false;
-    };
-
-    struct GlyphSlot {
-        u32 id = 0;
-        u32 generation = 0;
-        u8 layers = 0;
-        u8 colorLayers = 0;
-        bool grapheme = false;
-    };
-
-    struct GlyphCache {
-        explicit GlyphCache(ObjPool& pool);
-
-        UnicodeMap<u16>* refs;
-        Buffer graphemeRefs;
-        Vector<GlyphSlot> slots;
-        u32 columns = 0;
-        u32 rows = 0;
-        u32 next = 1;
-        u32 eviction = 1;
-        u32 generation = 0;
     };
 
     struct PresentationFrame {
@@ -168,14 +153,6 @@ namespace {
         MetalRendererImpl* renderer;
     };
 
-    struct CallMetalCellExtrasChanged final: public Listener {
-        explicit CallMetalCellExtrasChanged(MetalRendererImpl* renderer);
-
-        void onListen(void*) override;
-
-        MetalRendererImpl* renderer;
-    };
-
     struct MetalRendererImpl final: public Renderer {
         MetalRendererImpl(Composer& composer, CAMetalLayer* layer);
         ~MetalRendererImpl();
@@ -185,16 +162,13 @@ namespace {
         bool repaint() override;
 
         void resetFontResources();
-        bool buildFontResources();
-        void growGlyphAtlas();
-        bool configureGlyphCache(GlyphCache& cache, u32 width, u32 layers, size_t byteBudget);
-        id<MTLTexture> createAtlas(MTLPixelFormat format, u32 width, u32 height, u32 layers);
-        bool ensureColorAtlas(bool doubleWidth);
-        void beginGlyphFrame();
-        void pinVisibleGlyphs();
-        u16 allocateGlyphSlot(GlyphCache& cache, u32 id, bool grapheme);
-        u32 ensureGlyph(Fontpack& fonts, const u32* codepoints, size_t count, u32 glyphId, bool grapheme, FontStyle style, bool doubleWidth);
         void materializeCells(const TerminalCell* input, GpuCell* output, u16 count, u8 lineAttribute, const TerminalColors& colors);
+        bool ensureArenaBuffer(id<MTLBuffer>& buffer, size_t& capacity, size_t& uploaded, size_t needed);
+        bool uploadArenas(Screen& shapes, u32 generation);
+        void applySpanStrips(u32 rowIndex, const ScreenRowSpan& span);
+        void assignRowStrips(Screen& shapes, u16 row);
+        void overrideOverlayStrips(Screen& shapes, const TerminalUpdate& update);
+        u32 assignStrips(const TerminalUpdate& update);
         bool ensureTargets(u32 width, u32 height);
         bool ensureCellBuffer(PresentationFrame& frame, size_t count);
         u32 buildCellUpdates(PresentationFrame& frame);
@@ -203,7 +177,6 @@ namespace {
         void destroyTargets();
         void destroyFontResources();
         void capture(const TerminalUpdate& update);
-        static bool needsFontGlyph(u32 id);
         static u32 packColor(Color color);
 
         Composer& composer;
@@ -211,28 +184,24 @@ namespace {
         id<MTLDevice> device = nil;
         id<MTLCommandQueue> queue = nil;
         id<MTLComputePipelineState> pipeline = nil;
-        id<MTLSamplerState> sampler = nil;
-        id<MTLTexture> atlas = nil;
-        id<MTLTexture> colorAtlas = nil;
-        id<MTLTexture> doubleWidthAtlas = nil;
-        id<MTLTexture> doubleWidthColorAtlas = nil;
-        id<MTLTexture> emptyMask = nil;
-        id<MTLTexture> emptyColor = nil;
-        MTLStorageMode textureStorageMode = MTLStorageModeShared;
+        // The strip arenas mirrored on the device; append-only between
+        // collections, so only the tail copies each frame.
+        id<MTLBuffer> maskArena = nil;
+        id<MTLBuffer> colorArena = nil;
+        size_t maskArenaCapacity = 0;
+        size_t colorArenaCapacity = 0;
+        size_t maskArenaUploaded = 0;
+        size_t colorArenaUploaded = 0;
+        // The arena generation the device copies mirror; a mismatch means
+        // the strips moved wholesale and everything re-uploads.
+        u32 stripGeneration = 0;
         Color clearBackground = opts.bg;
         PresentationFrame frames[framesInFlight];
         u32 currentFrame = 0;
         u32 outputWidth = 0;
         u32 outputHeight = 0;
-        ObjPool::Ref glyphPool;
-        GlyphCache* glyphs = nullptr;
-        GlyphCache* doubleWidthGlyphs = nullptr;
         Vector<GpuCell> cells;
-        Buffer emptyGlyph;
-        // Nonzero once an overflow resized the caches to the working set;
-        // overrides the byte-budget slot count from then on.
-        u32 glyphSlotTarget = 0;
-        bool atlasExhausted = false;
+        Vector<ScreenRowSpan> spanScratch;
         u16 cellColumns = 0;
         u16 cellRows = 0;
         PresentationState state;
@@ -240,11 +209,6 @@ namespace {
         bool ready = false;
     };
 
-}
-
-GlyphCache::GlyphCache(ObjPool& pool)
-    : refs(UnicodeMap<u16>::create(pool))
-{
 }
 
 CallMetalFontChanged::CallMetalFontChanged(MetalRendererImpl* renderer_)
@@ -256,19 +220,9 @@ void CallMetalFontChanged::onListen(void*) {
     renderer->resetFontResources();
 }
 
-CallMetalCellExtrasChanged::CallMetalCellExtrasChanged(MetalRendererImpl* renderer_)
-    : renderer(renderer_)
-{
-}
-
-void CallMetalCellExtrasChanged::onListen(void*) {
-    renderer->resetFontResources();
-}
-
 MetalRendererImpl::MetalRendererImpl(Composer& composer_, CAMetalLayer* layer_)
     : composer(composer_)
     , metalLayer([layer_ retain])
-    , glyphPool(ObjPool::fromMemory())
 {
 }
 
@@ -281,9 +235,6 @@ MetalRendererImpl::~MetalRendererImpl() {
         frame.cellBuffer = nil;
         frame.cellCapacity = 0;
     }
-    [emptyColor release];
-    [emptyMask release];
-    [sampler release];
     [pipeline release];
     [queue release];
     [device release];
@@ -324,27 +275,11 @@ bool MetalRendererImpl::initialize() {
         return false;
     }
 
-    MTLSamplerDescriptor* samplerDescriptor = [MTLSamplerDescriptor new];
-    samplerDescriptor.minFilter = MTLSamplerMinMagFilterNearest;
-    samplerDescriptor.magFilter = MTLSamplerMinMagFilterNearest;
-    samplerDescriptor.mipFilter = MTLSamplerMipFilterNotMipmapped;
-    samplerDescriptor.sAddressMode = MTLSamplerAddressModeClampToEdge;
-    samplerDescriptor.tAddressMode = MTLSamplerAddressModeClampToEdge;
-    sampler = [device newSamplerStateWithDescriptor:samplerDescriptor];
-    [samplerDescriptor release];
-    if (sampler == nil || !buildFontResources()) {
+    // The shader dereferences both arenas unconditionally; give them
+    // valid storage before the first strips arrive.
+    if (!ensureArenaBuffer(maskArena, maskArenaCapacity, maskArenaUploaded, 4) || !ensureArenaBuffer(colorArena, colorArenaCapacity, colorArenaUploaded, 4)) {
         return false;
     }
-
-    emptyMask = createAtlas(MTLPixelFormatR8Unorm, 1, 1, 1);
-    emptyColor = createAtlas(MTLPixelFormatRGBA8Unorm, 1, 1, 1);
-    if (emptyMask == nil || emptyColor == nil) {
-        return false;
-    }
-    const u8 zeroMask = 0;
-    const u32 zeroColor = 0;
-    [emptyMask replaceRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0 slice:0 withBytes:&zeroMask bytesPerRow:1 bytesPerImage:1];
-    [emptyColor replaceRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0 slice:0 withBytes:&zeroColor bytesPerRow:4 bytesPerImage:4];
 
     // The compute shader writes cell pixels straight into the drawable, so the
     // layer must not be framebuffer-only. presentsWithTransaction makes each
@@ -378,299 +313,149 @@ bool MetalRendererImpl::initialize() {
     return ready;
 }
 
-bool MetalRendererImpl::configureGlyphCache(GlyphCache& cache, u32 width, u32 layers, size_t byteBudget) {
-    constexpr u32 maximumSlots = 16384;
-    const size_t glyphBytes = (size_t)(width)*composer.glyphHeight * layers;
-    u32 requested = glyphBytes == 0 ? 2 : (u32)(byteBudget / glyphBytes);
-    requested = min(max(requested, 2u), maximumSlots);
-    if (glyphSlotTarget != 0) {
-        // Resized after an overflow: the working set of the screen and its
-        // scrollback dictates the capacity, not the byte budget.
-        requested = glyphSlotTarget;
-    }
-
-    constexpr u32 maximumTextureDimension = 8192;
-    u32 maximumColumns = min(maximumTextureDimension / width, 256u);
-    u32 maximumRows = min(maximumTextureDimension / composer.glyphHeight, 256u);
-    if (maximumColumns == 0 || maximumRows == 0) {
-        return false;
-    }
-    requested = min(requested, maximumColumns * maximumRows);
-
-    u32 bestColumns = 0;
-    u32 bestRows = 0;
-    u64 bestDifference = UINT64_MAX;
-    for (u32 columns = 1; columns <= maximumColumns; ++columns) {
-        const u32 rows = (requested + columns - 1) / columns;
-        if (rows > maximumRows) {
-            continue;
-        }
-        const u64 pixelWidth = (u64)(columns)*width;
-        const u64 pixelHeight = (u64)(rows)*composer.glyphHeight;
-        const u64 difference = pixelWidth > pixelHeight ? pixelWidth - pixelHeight : pixelHeight - pixelWidth;
-        if (difference < bestDifference) {
-            bestDifference = difference;
-            bestColumns = columns;
-            bestRows = rows;
-        }
-    }
-    if (bestColumns == 0 || bestRows == 0) {
-        return false;
-    }
-    cache.columns = bestColumns;
-    cache.rows = bestRows;
-    cache.slots.zero((size_t)(bestColumns)*bestRows);
-    return true;
-}
-
-id<MTLTexture> MetalRendererImpl::createAtlas(MTLPixelFormat format, u32 width, u32 height, u32 layers) {
-    MTLTextureDescriptor* descriptor = [MTLTextureDescriptor new];
-    descriptor.textureType = MTLTextureType2DArray;
-    descriptor.pixelFormat = format;
-    descriptor.width = width;
-    descriptor.height = height;
-    descriptor.arrayLength = layers;
-    descriptor.mipmapLevelCount = 1;
-    descriptor.storageMode = textureStorageMode;
-    descriptor.usage = MTLTextureUsageShaderRead;
-    id<MTLTexture> texture = [device newTextureWithDescriptor:descriptor];
-    [descriptor release];
-    return texture;
-}
-
-bool MetalRendererImpl::buildFontResources() {
-    constexpr size_t atlasByteBudget = 16 * 1024 * 1024;
-    constexpr size_t doubleWidthAtlasByteBudget = 8 * 1024 * 1024;
-    ObjPool::Ref replacement = ObjPool::fromMemory();
-    GlyphCache* const replacementGlyphs = replacement->make<GlyphCache>(*replacement);
-    GlyphCache* const replacementDoubleWidthGlyphs = replacement->make<GlyphCache>(*replacement);
-
-    if (!configureGlyphCache(*replacementGlyphs, composer.glyphWidth, 4, atlasByteBudget)) {
-        return false;
-    }
-    id<MTLTexture> replacementAtlas = createAtlas(MTLPixelFormatR8Unorm, composer.glyphWidth * replacementGlyphs->columns, composer.glyphHeight * replacementGlyphs->rows, 4);
-    if (replacementAtlas == nil) {
-        return false;
-    }
-
-    id<MTLTexture> replacementDoubleWidthAtlas = nil;
-    if (!configureGlyphCache(*replacementDoubleWidthGlyphs, 2 * composer.glyphWidth, 1, doubleWidthAtlasByteBudget)) {
-        [replacementAtlas release];
-        return false;
-    }
-    replacementDoubleWidthAtlas = createAtlas(MTLPixelFormatR8Unorm, 2 * composer.glyphWidth * replacementDoubleWidthGlyphs->columns, composer.glyphHeight * replacementDoubleWidthGlyphs->rows, 1);
-    if (replacementDoubleWidthAtlas == nil) {
-        [replacementAtlas release];
-        return false;
-    }
-
-    [atlas release];
-    [colorAtlas release];
-    [doubleWidthAtlas release];
-    [doubleWidthColorAtlas release];
-    atlas = replacementAtlas;
-    colorAtlas = nil;
-    doubleWidthAtlas = replacementDoubleWidthAtlas;
-    doubleWidthColorAtlas = nil;
-    glyphPool.xchg(replacement);
-    glyphs = replacementGlyphs;
-    doubleWidthGlyphs = replacementDoubleWidthGlyphs;
-    return true;
-}
-
 void MetalRendererImpl::destroyFontResources() {
-    [doubleWidthColorAtlas release];
-    [doubleWidthAtlas release];
-    [colorAtlas release];
-    [atlas release];
-    doubleWidthColorAtlas = nil;
-    doubleWidthAtlas = nil;
-    colorAtlas = nil;
-    atlas = nil;
+    [maskArena release];
+    [colorArena release];
+    maskArena = nil;
+    colorArena = nil;
+    maskArenaCapacity = 0;
+    colorArenaCapacity = 0;
+    maskArenaUploaded = 0;
+    colorArenaUploaded = 0;
 }
 
 void MetalRendererImpl::resetFontResources() {
     waitFrames();
-    if (!buildFontResources()) {
-        ready = false;
-        return;
-    }
+    // The screen reset its arenas with the font; generation zero never
+    // occurs there, so everything re-uploads on the next frame.
+    maskArenaUploaded = 0;
+    colorArenaUploaded = 0;
+    stripGeneration = 0;
     cells.clear();
     cellColumns = 0;
     cellRows = 0;
     stateValid = false;
 }
 
-bool MetalRendererImpl::ensureColorAtlas(bool doubleWidth) {
-    id<MTLTexture>& texture = doubleWidth ? doubleWidthColorAtlas : colorAtlas;
-    if (texture != nil) {
+bool MetalRendererImpl::ensureArenaBuffer(id<MTLBuffer>& buffer, size_t& capacity, size_t& uploaded, size_t needed) {
+    if (needed < 4) {
+        needed = 4;
+    }
+    if (buffer != nil && capacity >= needed) {
         return true;
     }
-    GlyphCache& cache = doubleWidth ? *doubleWidthGlyphs : *glyphs;
-    const u32 glyphWidth = composer.glyphWidth * (doubleWidth ? 2 : 1);
-    texture = createAtlas(MTLPixelFormatRGBA8Unorm, glyphWidth * cache.columns, composer.glyphHeight * cache.rows, doubleWidth ? 1 : 4);
-    return texture != nil;
+    size_t next = capacity < 4096 ? 4096 : capacity;
+    while (next < needed) {
+        next *= 2;
+    }
+    // Growth is rare (font or viewport change); a drain keeps the swap
+    // trivially safe against frames in flight.
+    waitFrames();
+    [buffer release];
+    buffer = [device newBufferWithLength:next options:MTLResourceStorageModeShared];
+    if (buffer == nil) {
+        capacity = 0;
+        uploaded = 0;
+        return false;
+    }
+    capacity = next;
+    uploaded = 0;
+    return true;
 }
 
-void MetalRendererImpl::beginGlyphFrame() {
-    const auto advance = [](GlyphCache& cache) {
-        ++cache.generation;
-        if (cache.generation == 0) {
-            for (GlyphSlot* slot = cache.slots.mutBegin(); slot != cache.slots.mutEnd(); ++slot) {
-                slot->generation = 0;
-            }
-            cache.generation = 1;
-        }
-    };
-    advance(*glyphs);
-    if (doubleWidthAtlas != nil) {
-        advance(*doubleWidthGlyphs);
+bool MetalRendererImpl::uploadArenas(Screen& shapes, u32 generation) {
+    const size_t maskUsed = shapes.spanMaskUsed();
+    const size_t colorUsed = shapes.spanColorUsed() * sizeof(u32);
+    if (generation != stripGeneration) {
+        // The strips moved wholesale (collection or font change): the
+        // device copies restart from the beginning, which rewrites bytes
+        // an in-flight frame may still read.
+        waitFrames();
+        maskArenaUploaded = 0;
+        colorArenaUploaded = 0;
+    }
+    if (!ensureArenaBuffer(maskArena, maskArenaCapacity, maskArenaUploaded, maskUsed) || !ensureArenaBuffer(colorArena, colorArenaCapacity, colorArenaUploaded, colorUsed)) {
+        return false;
+    }
+    if (maskUsed > maskArenaUploaded) {
+        // The tail lands beyond anything an in-flight frame reads.
+        memcpy((u8*)(maskArena.contents) + maskArenaUploaded, shapes.spanMask() + maskArenaUploaded, maskUsed - maskArenaUploaded);
+        maskArenaUploaded = maskUsed;
+    }
+    if (colorUsed > colorArenaUploaded) {
+        memcpy((u8*)(colorArena.contents) + colorArenaUploaded, (const u8*)(shapes.spanColor()) + colorArenaUploaded, colorUsed - colorArenaUploaded);
+        colorArenaUploaded = colorUsed;
+    }
+    stripGeneration = generation;
+    return true;
+}
+
+void MetalRendererImpl::applySpanStrips(u32 rowIndex, const ScreenRowSpan& span) {
+    if (span.missing || span.end <= span.begin || span.end > cellColumns) {
+        return;
+    }
+    const u32 stride = (u32)(span.end - span.begin) * composer.glyphWidth;
+    for (u16 column = span.begin; column < span.end; ++column) {
+        GpuCell& cell = cells.mut(rowIndex + column);
+        cell.strip = (span.offset + (u32)(column - span.begin) * composer.glyphWidth) | (span.color ? stripColorPlane : 0);
+        cell.stripStride = stride;
     }
 }
 
-void MetalRendererImpl::pinVisibleGlyphs() {
-    for (GpuCell* cell = cells.mutBegin(); cell != cells.mutEnd(); ++cell) {
-        if (cell->glyph == 0) {
-            continue;
-        }
-        GlyphCache& cache = cell->lineAttribute != 0 || (cell->attributes & gpuDoubleWidth) != 0 ? *doubleWidthGlyphs : *glyphs;
-        const u32 slot = (cell->glyph & 0xff) + (((cell->glyph >> 8) & 0xff) * cache.columns);
-        if (slot < cache.slots.length()) {
-            cache.slots.mut(slot).generation = cache.generation;
-        }
+void MetalRendererImpl::assignRowStrips(Screen& shapes, u16 row) {
+    const u32 rowIndex = (u32)(row)*cellColumns;
+    GpuCell* const rowCells = cells.mutData() + rowIndex;
+    for (u16 column = 0; column < cellColumns; ++column) {
+        rowCells[column].strip = stripNone;
+        rowCells[column].stripStride = 0;
+    }
+    const size_t count = shapes.rowSpans(row, spanScratch.mutData());
+    for (size_t index = 0; index < count; ++index) {
+        applySpanStrips(rowIndex, spanScratch[index]);
     }
 }
 
-u16 MetalRendererImpl::allocateGlyphSlot(GlyphCache& cache, u32 id, bool grapheme) {
-    if (cache.next < cache.slots.length()) {
-        const u16 slot = (u16)(cache.next++);
-        GlyphSlot& state = cache.slots.mut(slot);
-        state.id = id;
-        state.generation = cache.generation;
-        state.layers = 0;
-        state.colorLayers = 0;
-        state.grapheme = grapheme;
-        return slot;
+void MetalRendererImpl::overrideOverlayStrips(Screen& shapes, const TerminalUpdate& update) {
+    if (update.overlaySpan == (size_t)-1 || update.overlaySpan >= update.spanCount) {
+        return;
     }
-
-    const u32 count = cache.slots.length();
-    for (u32 checked = 1; checked < count; ++checked) {
-        if (cache.eviction == 0 || cache.eviction >= count) {
-            cache.eviction = 1;
-        }
-        const u16 slot = (u16)(cache.eviction++);
-        GlyphSlot& state = cache.slots.mut(slot);
-        if (state.generation == cache.generation) {
-            continue;
-        }
-        if (state.grapheme) {
-            const size_t offset = (size_t)(state.id) * sizeof(u16);
-            if (offset + sizeof(u16) <= cache.graphemeRefs.used()) {
-                u16* const ref = (u16*)((u8*)(cache.graphemeRefs.mutData()) + offset);
-                if (*ref == slot) {
-                    *ref = 0;
-                }
-            }
-        } else if (u16* const ref = cache.refs->find(state.id); ref != nullptr && *ref == slot) {
-            *ref = 0;
-        }
-        state.id = id;
-        state.generation = cache.generation;
-        state.layers = 0;
-        state.colorLayers = 0;
-        state.grapheme = grapheme;
-        return slot;
+    // The preedit preview covers the underlying strips wholesale: its
+    // blank cells hide the text below them.
+    const TerminalCellSpan& overlay = update.spans[update.overlaySpan];
+    for (u32 index = 0; index < overlay.count; ++index) {
+        GpuCell& cell = cells.mut(overlay.index + index);
+        cell.strip = stripNone;
+        cell.stripStride = 0;
     }
-    // Every slot is pinned by the current frame: remember to resize the
-    // caches to the working set before the next frame.
-    atlasExhausted = true;
-    return 0;
+    const u32 rowIndex = (overlay.index / cellColumns) * cellColumns;
+    const size_t count = shapes.shapeCells(overlay.cells, (u16)(overlay.count), (u16)(overlay.index % cellColumns), spanScratch.mutData());
+    for (size_t index = 0; index < count; ++index) {
+        applySpanStrips(rowIndex, spanScratch[index]);
+    }
 }
 
-void MetalRendererImpl::growGlyphAtlas() {
-    // Twice the distinct glyphs reachable on screen and in scrollback:
-    // bounded by live content rather than by a doubling history, and free
-    // to shrink back once the content simplifies.
-    u64 target = composer.vterm != nullptr ? 2 * (u64)(composer.vterm->distinctGlyphs()) : 2 * (u64)(glyphs->slots.length());
-    if (target > 65536) {
-        target = 65536;
+u32 MetalRendererImpl::assignStrips(const TerminalUpdate& update) {
+    Screen& shapes = *update.shapes;
+    spanScratch.clear();
+    spanScratch.grow(cellColumns);
+    while (spanScratch.length() < cellColumns) {
+        spanScratch.pushBack({});
     }
-    glyphSlotTarget = (u32)(target);
-    resetFontResources();
-}
-
-bool MetalRendererImpl::needsFontGlyph(u32 id) {
-    return id != 0x200d && !(id >= 0xfe00 && id <= 0xfe0f) && !(id >= 0xe0100 && id <= 0xe01ef) && !(id >= 0x2500 && id <= 0x257f) && !(id >= 0x23ba && id <= 0x23bd);
-}
-
-u32 MetalRendererImpl::ensureGlyph(Fontpack& fonts, const u32* codepoints, size_t count, u32 glyphId, bool grapheme, FontStyle style, bool doubleWidth) {
-    if (count == 0 || (!grapheme && (glyphId >= 0x110000 || !needsFontGlyph(glyphId)))) {
-        return 0;
-    }
-
-    GlyphCache& cache = doubleWidth ? *doubleWidthGlyphs : *glyphs;
-    u16* ref = nullptr;
-    if (grapheme) {
-        const size_t required = ((size_t)(glyphId) + 1) * sizeof(u16);
-        if (required > cache.graphemeRefs.used()) {
-            const size_t previous = cache.graphemeRefs.used();
-            cache.graphemeRefs.grow(required);
-            cache.graphemeRefs.seekAbsolute(required);
-            memZero((u8*)(cache.graphemeRefs.mutData()) + previous, cache.graphemeRefs.mutCurrent());
+    // A shaping pass can collect the arenas and move every strip assigned
+    // so far, so redo the walk until it closes within one generation.
+    u32 generation;
+    do {
+        generation = shapes.spanGeneration();
+        for (u16 row = 0; row < cellRows; ++row) {
+            assignRowStrips(shapes, row);
         }
-        ref = (u16*)((u8*)(cache.graphemeRefs.mutData()) + (size_t)(glyphId) * sizeof(u16));
-    } else {
-        ref = &(*cache.refs)[glyphId];
-    }
-    u16 slot = *ref;
-    if (slot != 0) {
-        const GlyphSlot& state = cache.slots[slot];
-        if (state.id != glyphId || state.grapheme != grapheme) {
-            slot = 0;
-            *ref = 0;
-        }
-    }
-    if (slot == 0) {
-        slot = allocateGlyphSlot(cache, glyphId, grapheme);
-        if (slot == 0) {
-            return 0;
-        }
-        *ref = slot;
-    }
-
-    GlyphSlot& state = cache.slots.mut(slot);
-    state.generation = cache.generation;
-    const u32 layer = doubleWidth ? 0 : (u32)(style);
-    const u8 layerMask = (u8)(1u << layer);
-    if (state.layers & layerMask) {
-        return (slot % cache.columns) | ((slot / cache.columns) << 8) | ((u32)((state.colorLayers & layerMask) != 0) << 16);
-    }
-
-    const u32 width = composer.glyphWidth * (doubleWidth ? 2 : 1);
-    const FontGlyph glyph = fonts.glyph(codepoints, count, style, doubleWidth);
-    const size_t bytesPerPixel = glyph.color ? 4 : 1;
-    const size_t bytesPerRow = (size_t)(width)*bytesPerPixel;
-    const size_t expected = bytesPerRow * composer.glyphHeight;
-    const void* data = glyph.data;
-    if (glyph.len != expected) {
-        emptyGlyph.zero(expected);
-        data = emptyGlyph.data();
-    }
-    if (glyph.color && !ensureColorAtlas(doubleWidth)) {
-        return 0;
-    }
-    id<MTLTexture> texture = glyph.color ? (doubleWidth ? doubleWidthColorAtlas : colorAtlas) : (doubleWidth ? doubleWidthAtlas : atlas);
-    [texture replaceRegion:MTLRegionMake2D((slot % cache.columns) * width, (slot / cache.columns) * composer.glyphHeight, width, composer.glyphHeight) mipmapLevel:0 slice:layer withBytes:data bytesPerRow:bytesPerRow bytesPerImage:expected];
-    state.layers |= layerMask;
-    if (glyph.color) {
-        state.colorLayers |= layerMask;
-    }
-    return (slot % cache.columns) | ((slot / cache.columns) << 8) | ((u32)(glyph.color) << 16);
+        overrideOverlayStrips(shapes, update);
+    } while (generation != shapes.spanGeneration());
+    return generation;
 }
 
 void MetalRendererImpl::materializeCells(const TerminalCell* input, GpuCell* outputCells, u16 count, u8 lineAttribute, const TerminalColors& colors) {
     CellExtraStore& extras = *composer.cellExtras;
-    Fontpack& fonts = *composer.fonts;
     const bool specialColors = colors.specialModes != 0;
     for (u16 index = 0; index < count; ++index) {
         const TerminalCell& cell = input[index];
@@ -680,13 +465,9 @@ void MetalRendererImpl::materializeCells(const TerminalCell* input, GpuCell* out
         const u32 background = specialColors ? colors.resolveBackgroundSpecial(cell).packed() : colors.resolvePacked(cell.background());
         u32 underlineColor = foreground;
         u32 hyperlink = 0;
-        u32 graphemeId = 0;
-        GraphemeView grapheme;
         if (cell.hasExtra()) {
             const CellExtraView extra = extras.view(cell);
             hyperlink = extra.hyperlinkDisplayId;
-            grapheme = extra.grapheme;
-            graphemeId = grapheme.empty() ? 0 : cell.extraRef();
             if (cell.underlined() && extra.underlineColor != cell.foreground()) {
                 underlineColor = colors.resolvePacked(extra.underlineColor);
             }
@@ -694,12 +475,8 @@ void MetalRendererImpl::materializeCells(const TerminalCell* input, GpuCell* out
             underlineColor = colors.resolvePacked(cell.inlineUnderlineColor());
         }
 
-        u32 glyph = 0;
-        const bool doubleWidth = lineAttribute != 0 || cell.dwidth;
-        if (!cell.dwidth_cont || lineAttribute != 0) {
-            const FontStyle style = (FontStyle)((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0));
-            glyph = graphemeId != 0 ? ensureGlyph(fonts, grapheme.data(), grapheme.size(), graphemeId, true, style, doubleWidth) : ensureGlyph(fonts, &codepoint, 1, codepoint, false, style, doubleWidth);
-        }
+        // The strip reference arrives in the row pass that follows the
+        // span materialization; a cell it skips has none.
         outputCells[index] = {
             codepoint,
             attributes,
@@ -707,7 +484,8 @@ void MetalRendererImpl::materializeCells(const TerminalCell* input, GpuCell* out
             background,
             underlineColor,
             hyperlink,
-            glyph,
+            stripNone,
+            0,
             cell.semantic,
             lineAttribute,
         };
@@ -863,7 +641,6 @@ bool MetalRendererImpl::draw() {
         state.selection.br.y,
         state.selection.rectangular ? 1u : 0u,
         opts.showWraps ? 1u : 0u,
-        doubleWidthAtlas != nil ? 1u : 0u,
         packColor(state.selectionForeground),
         packColor(state.selectionBackground),
         state.selectionColorMask,
@@ -875,18 +652,16 @@ bool MetalRendererImpl::draw() {
         updateCount,
     };
 
+    // The spirv-cross assignment for this shader: push constants at
+    // buffer 0, the color arena at 1, the mask arena at 2, the cell
+    // updates at 3, the drawable at texture 0.
     id<MTLComputeCommandEncoder> compute = [commandBuffer computeCommandEncoder];
     [compute setComputePipelineState:pipeline];
     [compute setBytes:&constants length:sizeof(constants) atIndex:0];
-    [compute setBuffer:frame.cellBuffer offset:0 atIndex:1];
+    [compute setBuffer:colorArena offset:0 atIndex:1];
+    [compute setBuffer:maskArena offset:0 atIndex:2];
+    [compute setBuffer:frame.cellBuffer offset:0 atIndex:3];
     [compute setTexture:target atIndex:0];
-    [compute setTexture:colorAtlas != nil ? colorAtlas : emptyColor atIndex:1];
-    [compute setTexture:doubleWidthColorAtlas != nil ? doubleWidthColorAtlas : emptyColor atIndex:2];
-    [compute setTexture:atlas atIndex:3];
-    [compute setTexture:doubleWidthAtlas != nil ? doubleWidthAtlas : emptyMask atIndex:4];
-    for (u32 index = 0; index < 4; ++index) {
-        [compute setSamplerState:sampler atIndex:index];
-    }
     [compute dispatchThreads:MTLSizeMake(updateCount, 1, 1) threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
     [compute endEncoding];
 
@@ -908,10 +683,6 @@ bool MetalRendererImpl::repaint() {
 bool MetalRendererImpl::update(const TerminalUpdate& update) {
     if (!ready || update.colors == nullptr) {
         return false;
-    }
-    if (atlasExhausted) {
-        atlasExhausted = false;
-        growGlyphAtlas();
     }
     const u32 width = composer.pixelWidth;
     const u32 height = composer.pixelHeight;
@@ -938,10 +709,6 @@ bool MetalRendererImpl::update(const TerminalUpdate& update) {
         cellRows = composer.rows;
     }
 
-    beginGlyphFrame();
-    if (!shapeChanged) {
-        pinVisibleGlyphs();
-    }
     for (size_t index = 0; index < update.spanCount; ++index) {
         const TerminalCellSpan& span = update.spans[index];
         if (span.cells == nullptr || (size_t)(span.index) + span.count > cellCount || span.count > UINT16_MAX) {
@@ -949,16 +716,16 @@ bool MetalRendererImpl::update(const TerminalUpdate& update) {
         }
         materializeCells(span.cells, cells.mutData() + span.index, (u16)(span.count), span.lineAttribute, *update.colors);
     }
+    if (update.shapes != nullptr) {
+        const u32 generation = assignStrips(update);
+        if (!uploadArenas(*update.shapes, generation)) {
+            return false;
+        }
+    }
     // The padding follows the live default background (OSC 11).
     clearBackground = update.colors->defaultBackground;
     capture(update);
-    const bool drawn = draw();
-    if (atlasExhausted && composer.vterm != nullptr) {
-        // The frame just presented is missing the glyphs that did not
-        // fit; ask for a full redraw, which lands after growGlyphAtlas.
-        composer.vterm->expose();
-    }
-    return drawn;
+    return draw();
 }
 
 Renderer* createMetalRenderer(Composer& composer, stl::ObjPool& pool, const plt::RenderContext& context) {
@@ -970,6 +737,5 @@ Renderer* createMetalRenderer(Composer& composer, stl::ObjPool& pool, const plt:
         return nullptr;
     }
     composer.fontChangedListeners.pushBack(pool.make<CallMetalFontChanged>(renderer));
-    composer.cellExtrasChangedListeners.pushBack(pool.make<CallMetalCellExtrasChanged>(renderer));
     return renderer;
 }

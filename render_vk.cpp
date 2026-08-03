@@ -14,7 +14,7 @@
 
 #include "options.h"
 #include "render_damage.h"
-#include "unicode_map.h"
+#include "screen.h"
 #include "utf8.h"
 #include "vterm.h"
 
@@ -68,13 +68,11 @@ namespace {
         RendererImpl* renderer;
     };
 
-    struct CallRendererCellExtrasChanged final: public Listener {
-        explicit CallRendererCellExtrasChanged(RendererImpl* renderer);
-
-        void onListen(void*) override;
-
-        RendererImpl* renderer;
-    };
+    // strip: the pixel offset of the cell's slice base in its plane's
+    // arena, the top bit selecting the color plane; stripNone marks a
+    // cell with no strip (blank, or coverage the shader synthesizes).
+    constexpr u32 stripNone = 0xffffffffu;
+    constexpr u32 stripColorPlane = 0x80000000u;
 
     struct GpuCell {
         u32 codepoint = ' ';
@@ -83,12 +81,13 @@ namespace {
         u32 background = 0;
         u32 underlineColor = 0;
         u32 hyperlink = 0;
-        u32 glyph = 0;
+        u32 strip = stripNone;
+        u32 stripStride = 0;
         u32 semantic = 0;
         u32 lineAttribute = 0;
     };
 
-    static_assert(sizeof(GpuCell) == 36, "Vulkan cell layout mismatch");
+    static_assert(sizeof(GpuCell) == 40, "Vulkan cell layout mismatch");
 
     constexpr u32 gpuBold = 1u << 2;
     constexpr u32 gpuItalic = 1u << 3;
@@ -106,48 +105,13 @@ namespace {
     constexpr u32 gpuProtection = 0x3u << 18;
     constexpr u32 gpuDrawn = 1u << 20;
 
-    constexpr size_t renderCacheBytes = 1000000;
-    constexpr u16 renderCacheChunkCells = 32;
-
-    struct RenderCacheBlock final: public IntrusiveNode, public Newable {
-        u64 hash = 0;
-        GpuCell cells[renderCacheChunkCells];
-    };
-
-    constexpr size_t renderCacheBlockCount = renderCacheBytes / sizeof(RenderCacheBlock);
-
-    constexpr size_t renderCacheBucketCount() {
-        size_t result = 1;
-        while (result < renderCacheBlockCount * 2) {
-            result <<= 1;
-        }
-        return result;
-    }
-
-    struct RenderCache {
-        RenderCache();
-
-        void render(RendererImpl& renderer, const TerminalCell* cells, u16 count, u8 lineAttribute, GpuCell* output, const TerminalColors& colors, u64 context);
-
-        static constexpr size_t bucketCount = renderCacheBucketCount();
-        static constexpr size_t bucketMask = bucketCount - 1;
-
-        Buffer storage;
-        Vector<RenderCacheBlock*> freeBlocks;
-        IntrusiveList lru;
-        RenderCacheBlock* buckets[bucketCount]{};
-    };
-
-    static_assert(renderCacheBlockCount != 0);
-    static_assert(stdHasTrivialDestructor(RenderCacheBlock));
-
     struct GpuCellUpdate {
         u32 sourceIndex;
         u32 outputIndex;
         GpuCell cell;
     };
 
-    static_assert(sizeof(GpuCellUpdate) == 44, "Vulkan cell update layout mismatch");
+    static_assert(sizeof(GpuCellUpdate) == 48, "Vulkan cell update layout mismatch");
 
     struct RendererImpl final: public Renderer {
         RendererImpl(Composer& composer, const plt::RenderContext& context);
@@ -200,7 +164,6 @@ namespace {
             i32 selectionBottom;
             u32 rectangularSelection;
             u32 showWraps;
-            u32 hasDoubleWidth;
             u32 selectionForeground;
             u32 selectionBackground;
             u32 selectionColorMask;
@@ -212,39 +175,20 @@ namespace {
             u32 updateCount;
         };
 
-        static_assert(sizeof(PushConstants) == 112, "Vulkan push constant layout mismatch");
+        static_assert(sizeof(PushConstants) == 108, "Vulkan push constant layout mismatch");
 
-        struct GlyphSlot {
-            u32 id = 0;
-            u32 generation = 0;
-            u8 layers = 0;
-            u8 colorLayers = 0;
-            bool grapheme = false;
-        };
-
-        struct GlyphCache {
-            explicit GlyphCache(ObjPool& pool);
-
-            UnicodeMap<u16>* refs;
-            Buffer graphemeRefs;
-            Vector<GlyphSlot> slots;
-            u32 columns = 0;
-            u32 rows = 0;
-            u32 next = 1;
-            u32 eviction = 1;
-            u32 generation = 0;
+        // The strip arenas mirrored on the device; append-only between
+        // collections, so only the tail uploads each frame.
+        struct ArenaBuffer {
+            VkBuffer buffer = VK_NULL_HANDLE;
+            VkDeviceMemory memory = VK_NULL_HANDLE;
+            VkDeviceSize capacity = 0;
+            size_t uploaded = 0;
         };
 
         struct FontResources {
-            FontResources();
-
-            ObjPool::Ref pool;
-            ImageResource atlas;
-            ImageResource colorAtlas;
-            ImageResource doubleWidthAtlas;
-            ImageResource doubleWidthColorAtlas;
-            GlyphCache glyphs;
-            GlyphCache doubleWidthGlyphs;
+            ArenaBuffer mask;
+            ArenaBuffer color;
         };
 
         struct SwapchainResources {
@@ -306,19 +250,13 @@ namespace {
         VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
         VkPipeline pipeline = VK_NULL_HANDLE;
         const GeneratedRenderShader* activeShader = nullptr;
-        VkSampler atlasSampler = VK_NULL_HANDLE;
 
-        // The live font/glyph state; never null after construction.
+        // The live arena buffers; never null after construction.
         // resetFontResources installs a replacement by pointer swap.
         FontResources* fontResources = nullptr;
-        // Nonzero once an overflow resized the caches to the working set;
-        // overrides the byte-budget slot count from then on.
-        u32 glyphSlotTarget = 0;
-        bool atlasExhausted = false;
-        bool atlasInitialized = false;
-        bool colorAtlasInitialized = false;
-        bool doubleWidthAtlasInitialized = false;
-        bool doubleWidthColorAtlasInitialized = false;
+        // The arena generation the device copies mirror; a mismatch means
+        // the strips moved wholesale and everything re-uploads.
+        u32 stripGeneration = 0;
         Buffer fontUploadData;
         Buffer updateEpochs;
         u32 updateEpoch = 0;
@@ -326,11 +264,10 @@ namespace {
         RenderDamage damage;
         u64 clearDamageGeneration = 0;
         Vector<GpuCell> cells;
-        RenderCache renderCache;
-        Vector<VkBufferImageCopy> atlasCopies;
-        Vector<VkBufferImageCopy> colorAtlasCopies;
-        Vector<VkBufferImageCopy> doubleWidthAtlasCopies;
-        Vector<VkBufferImageCopy> doubleWidthColorAtlasCopies;
+        Vector<VkBufferCopy> maskArenaCopies;
+        Vector<VkBufferCopy> colorArenaCopies;
+        Vector<ScreenRowSpan> spanScratch;
+        Vector<u16> stripDamageRows;
         TerminalCursor previousCursor;
         Rect previousSelection;
         Color clearBackground = opts.bg;
@@ -365,7 +302,6 @@ namespace {
         FontResources* buildFontResources();
         void destroyFontResources(FontResources& resources);
         void resetFontResources();
-        void cellExtrasChanged();
         void createDescriptors();
         void createPipelineLayout();
         void selectPipeline(const GeneratedRenderShader& shader);
@@ -378,7 +314,6 @@ namespace {
         void ensureCellBuffer(FrameResources& frame, size_t bytes);
         void ensureFontUploadBuffer(FrameResources& frame, size_t bytes);
         void releaseBuffer(VkBuffer& buffer, VkDeviceMemory& memory, void*& mapped);
-        void ensureColorAtlas(bool doubleWidth);
 
         ImageResource createImage(u32 width, u32 height, u32 layers, VkFormat format, VkImageUsageFlags usage, bool arrayView = false, VkFormat viewFormat = VK_FORMAT_UNDEFINED);
         void destroyImage(ImageResource& image);
@@ -388,15 +323,16 @@ namespace {
         void updateStaticDescriptors();
         void updateOutputDescriptor(FrameResources& frame, VkImageView view);
         void updateCellDescriptor(FrameResources& frame);
-        void beginGlyphFrame();
-        void pinVisibleGlyphs();
-        void configureGlyphCache(GlyphCache& cache, u32 width, u32 layers, size_t byteBudget, u32 maxImageDimension);
-        void growGlyphAtlas();
-        u16 allocateGlyphSlot(GlyphCache& cache, u32 id, bool grapheme);
-        u32 ensureGlyph(Fontpack& fonts, const u32* codepoints, size_t count, u32 id, bool grapheme, FontStyle style, bool doubleWidth);
         VkDeviceSize stageFontData(const void* data, size_t len, size_t expected);
-        void recordFontUploads(FrameResources& frame);
-        void recordImageUploads(VkCommandBuffer commandBuffer, VkBuffer stagingBuffer, const ImageResource& image, const Vector<VkBufferImageCopy>& copies, bool initialize);
+        void ensureArenaBuffer(ArenaBuffer& arena, size_t bytes);
+        void stageArenaCopy(ArenaBuffer& arena, Vector<VkBufferCopy>& copies, const u8* data, size_t used);
+        void stageArenaTails(Screen& shapes, u32 generation);
+        void applySpanStrips(u32 rowIndex, const ScreenRowSpan& span);
+        bool assignRowStrips(Screen& shapes, u16 row);
+        void overrideOverlayStrips(Screen& shapes, const TerminalUpdate& update);
+        u32 assignStrips(const TerminalUpdate& update, bool allRows);
+        void resetArenaStaging();
+        void recordArenaUploads(FrameResources& frame);
         void recordCommands(FrameResources& frame, u32 imageIndex, const PresentationState& state, u32 updateCount, bool clearOutput);
         void recordRepaintCommands(FrameResources& frame, u32 imageIndex);
         void recordBlit(FrameResources& frame, u32 imageIndex, VkAccessFlags outputSrcAccess, VkPipelineStageFlags outputSrcStage);
@@ -406,14 +342,12 @@ namespace {
         bool present(const TerminalUpdate& update);
         u32 materializeUpdates(FrameResources& frame, u64 appliedGeneration, bool initialized);
         void materializeCells(const TerminalCell* input, GpuCell* output, u16 count, u8 lineAttribute, const TerminalColors& colors);
-        bool validateCachedCells(const TerminalCell* input, const GpuCell* output, u16 count, u8 lineAttribute);
         void ensureDamageJournal(u32 cellCount);
         void appendDamage(u32 begin, u32 count);
         void fullDamage();
         void collectDamage();
         void capturePresentationState(const TerminalUpdate& update);
 
-        static bool needsFontGlyph(u32 id);
         static u32 packColor(const Color& color);
         static bool sameSelection(const Rect& lhs, const Rect& rhs);
     };
@@ -529,57 +463,6 @@ namespace {
 
 }
 
-RenderCache::RenderCache()
-    : storage(renderCacheBytes)
-{
-    storage.setCapacity(renderCacheBytes);
-    freeBlocks.grow(renderCacheBlockCount);
-    u8* const memory = (u8*)(storage.mutData());
-    for (size_t index = 0; index < renderCacheBlockCount; ++index) {
-        freeBlocks.pushBack(new (memory + index * sizeof(RenderCacheBlock)) RenderCacheBlock);
-    }
-}
-
-void RenderCache::render(RendererImpl& renderer, const TerminalCell* input, u16 count, u8 lineAttribute, GpuCell* output, const TerminalColors& colors, u64 context) {
-    constexpr u16 minimumCachedCells = 8;
-
-    if (count < minimumCachedCells) {
-        renderer.materializeCells(input, output, count, lineAttribute, colors);
-        return;
-    }
-    for (u16 offset = 0; offset < count;) {
-        const u16 chunk = count - offset < renderCacheChunkCells ? count - offset : renderCacheChunkCells;
-        u64 hash = shash64(input + offset, (size_t)(chunk) * sizeof(TerminalCell));
-        hash ^= ((u64)(lineAttribute) + 1) * 0x9e3779b97f4a7c15ULL;
-        hash ^= context;
-        RenderCacheBlock*& bucket = buckets[hash & bucketMask];
-        if (bucket != nullptr && bucket->hash == hash && renderer.validateCachedCells(input + offset, bucket->cells, chunk, lineAttribute)) {
-            bucket->remove();
-            lru.pushFront(bucket);
-            memcpy(output + offset, bucket->cells, (size_t)(chunk) * sizeof(GpuCell));
-            offset += chunk;
-            continue;
-        }
-        if (bucket != nullptr) {
-            bucket->remove();
-            freeBlocks.pushBack(bucket);
-            bucket = nullptr;
-        }
-        if (freeBlocks.empty()) {
-            auto* const evicted = static_cast<RenderCacheBlock*>(lru.popBack());
-            buckets[evicted->hash & bucketMask] = nullptr;
-            freeBlocks.pushBack(evicted);
-        }
-        RenderCacheBlock* const block = freeBlocks.popBack();
-        block->hash = hash;
-        renderer.materializeCells(input + offset, block->cells, chunk, lineAttribute, colors);
-        bucket = block;
-        lru.pushFront(block);
-        memcpy(output + offset, block->cells, (size_t)(chunk) * sizeof(GpuCell));
-        offset += chunk;
-    }
-}
-
 CallRendererFontChanged::CallRendererFontChanged(RendererImpl* renderer_)
     : renderer(renderer_)
 {
@@ -587,15 +470,6 @@ CallRendererFontChanged::CallRendererFontChanged(RendererImpl* renderer_)
 
 void CallRendererFontChanged::onListen(void*) {
     renderer->resetFontResources();
-}
-
-CallRendererCellExtrasChanged::CallRendererCellExtrasChanged(RendererImpl* renderer_)
-    : renderer(renderer_)
-{
-}
-
-void CallRendererCellExtrasChanged::onListen(void*) {
-    renderer->cellExtrasChanged();
 }
 
 RendererImpl::RendererImpl(Composer& composer_, const plt::RenderContext& context)
@@ -634,9 +508,6 @@ RendererImpl::~RendererImpl() {
     }
     if (descriptorSetLayout != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
-    }
-    if (atlasSampler != VK_NULL_HANDLE) {
-        vkDestroySampler(device, atlasSampler, nullptr);
     }
 
     destroyFontResources(*fontResources);
@@ -958,102 +829,15 @@ void RendererImpl::destroyImage(ImageResource& image) {
     image = {};
 }
 
-RendererImpl::GlyphCache::GlyphCache(ObjPool& pool)
-    : refs(UnicodeMap<u16>::create(pool))
-{
-}
-
-RendererImpl::FontResources::FontResources()
-    : pool(ObjPool::fromMemory())
-    , glyphs(*pool)
-    , doubleWidthGlyphs(*pool)
-{
-}
-
-void RendererImpl::configureGlyphCache(GlyphCache& cache, u32 width, u32 layers, size_t byteBudget, u32 maxImageDimension) {
-    constexpr u32 maximumSlots = 16384;
-    const size_t glyphBytes = (size_t)(width)*composer.glyphHeight * layers;
-    u32 requested = glyphBytes == 0 ? 2 : (u32)(byteBudget / glyphBytes);
-    if (requested < 2) {
-        requested = 2;
-    }
-    if (requested > maximumSlots) {
-        requested = maximumSlots;
-    }
-    if (glyphSlotTarget != 0) {
-        // Resized after an overflow: the working set of the screen and its
-        // scrollback dictates the capacity, not the byte budget. The slot
-        // coordinate packing caps the grid at 256x256 below.
-        requested = glyphSlotTarget;
-    }
-
-    u32 maximumColumns = maxImageDimension / width;
-    u32 maximumRows = maxImageDimension / composer.glyphHeight;
-    if (maximumColumns > 256) {
-        maximumColumns = 256;
-    }
-    if (maximumRows > 256) {
-        maximumRows = 256;
-    }
-    if (maximumColumns == 0 || maximumRows == 0) {
-        throw std::runtime_error("Font glyph does not fit a Vulkan image");
-    }
-    if (requested > maximumColumns * maximumRows) {
-        requested = maximumColumns * maximumRows;
-    }
-
-    u32 bestColumns = 0;
-    u32 bestRows = 0;
-    u64 bestDifference = UINT64_MAX;
-    for (u32 columns = 1; columns <= maximumColumns; ++columns) {
-        const u32 rows = (requested + columns - 1) / columns;
-        if (rows > maximumRows) {
-            continue;
-        }
-        const u64 pixelWidth = (u64)(columns)*width;
-        const u64 pixelHeight = (u64)(rows)*composer.glyphHeight;
-        const u64 difference = pixelWidth > pixelHeight ? pixelWidth - pixelHeight : pixelHeight - pixelWidth;
-        if (difference < bestDifference) {
-            bestDifference = difference;
-            bestColumns = columns;
-            bestRows = rows;
-        }
-    }
-    if (bestColumns == 0 || bestRows == 0) {
-        throw std::runtime_error("Could not size the Vulkan glyph cache");
-    }
-
-    cache.columns = bestColumns;
-    cache.rows = bestRows;
-    cache.slots.zero((size_t)(bestColumns)*bestRows);
-}
-
 RendererImpl::FontResources* RendererImpl::buildFontResources() {
-    constexpr size_t atlasByteBudget = 16 * 1024 * 1024;
-    constexpr size_t doubleWidthAtlasByteBudget = 8 * 1024 * 1024;
-    VkPhysicalDeviceProperties properties{};
-    vkGetPhysicalDeviceProperties(physicalDevice, &properties);
-
     FontResources* const resources = composer.smallObjects->make<FontResources>();
     try {
-        configureGlyphCache(resources->glyphs, composer.glyphWidth, 4, atlasByteBudget, properties.limits.maxImageDimension2D);
-        resources->atlas = createImage(composer.glyphWidth * resources->glyphs.columns, composer.glyphHeight * resources->glyphs.rows, 4, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
-
-        configureGlyphCache(resources->doubleWidthGlyphs, 2 * composer.glyphWidth, 1, doubleWidthAtlasByteBudget, properties.limits.maxImageDimension2D);
-        resources->doubleWidthAtlas = createImage(2 * composer.glyphWidth * resources->doubleWidthGlyphs.columns, composer.glyphHeight * resources->doubleWidthGlyphs.rows, 1, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
-
-        if (atlasSampler == VK_NULL_HANDLE) {
-            VkSamplerCreateInfo samplerInfo{};
-            samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-            samplerInfo.magFilter = VK_FILTER_NEAREST;
-            samplerInfo.minFilter = VK_FILTER_NEAREST;
-            samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-            samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-            samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-            samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-            samplerInfo.maxLod = 0.0f;
-            checkVk(vkCreateSampler(device, &samplerInfo, nullptr, &atlasSampler), "vkCreateSampler");
-        }
+        // Descriptors always need valid buffers; real capacity arrives
+        // with the first strips.
+        createBuffer(4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, resources->mask.buffer, resources->mask.memory);
+        resources->mask.capacity = 4;
+        createBuffer(4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, resources->color.buffer, resources->color.memory);
+        resources->color.capacity = 4;
     } catch (...) {
         destroyFontResources(*resources);
         composer.smallObjects->release(resources);
@@ -1063,10 +847,14 @@ RendererImpl::FontResources* RendererImpl::buildFontResources() {
 }
 
 void RendererImpl::destroyFontResources(FontResources& resources) {
-    destroyImage(resources.doubleWidthColorAtlas);
-    destroyImage(resources.doubleWidthAtlas);
-    destroyImage(resources.colorAtlas);
-    destroyImage(resources.atlas);
+    if (resources.mask.buffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device, resources.mask.buffer, nullptr);
+        vkFreeMemory(device, resources.mask.memory, nullptr);
+    }
+    if (resources.color.buffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device, resources.color.buffer, nullptr);
+        vkFreeMemory(device, resources.color.memory, nullptr);
+    }
 }
 
 void RendererImpl::createFontResources() {
@@ -1088,36 +876,22 @@ void RendererImpl::resetFontResources() {
     updateStaticDescriptors();
     destroyFontResources(*previous);
     composer.smallObjects->release(previous);
-    fontUploadData.reset();
-    atlasCopies.clear();
-    colorAtlasCopies.clear();
-    doubleWidthAtlasCopies.clear();
-    doubleWidthColorAtlasCopies.clear();
-    atlasInitialized = false;
-    colorAtlasInitialized = false;
-    doubleWidthAtlasInitialized = false;
-    doubleWidthColorAtlasInitialized = false;
+    resetArenaStaging();
+    // The screen reset its arenas with the font; generation zero never
+    // occurs there, so everything re-uploads on the next frame.
+    stripGeneration = 0;
     previousStateValid = false;
 }
 
-void RendererImpl::cellExtrasChanged() {
-    fontResources->glyphs.graphemeRefs.zero(fontResources->glyphs.graphemeRefs.used());
-    fontResources->doubleWidthGlyphs.graphemeRefs.zero(fontResources->doubleWidthGlyphs.graphemeRefs.used());
-}
-
 void RendererImpl::createDescriptors() {
-    std::array<VkDescriptorSetLayoutBinding, 6> bindings{};
+    std::array<VkDescriptorSetLayoutBinding, 4> bindings{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     bindings[0].descriptorCount = 1;
     bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    bindings[1].binding = 1;
-    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    bindings[1].descriptorCount = 1;
-    bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    for (u32 binding = 2; binding < 6; ++binding) {
+    for (u32 binding = 1; binding < 4; ++binding) {
         bindings[binding].binding = binding;
-        bindings[binding].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         bindings[binding].descriptorCount = 1;
         bindings[binding].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     }
@@ -1129,8 +903,7 @@ void RendererImpl::createDescriptors() {
 
     const VkDescriptorPoolSize poolSizes[] = {
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, framesInFlight},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, framesInFlight},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4 * framesInFlight},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3 * framesInFlight},
     };
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -1155,25 +928,19 @@ void RendererImpl::createDescriptors() {
 }
 
 void RendererImpl::updateStaticDescriptors() {
-    const ImageResource& wideAtlas = fontResources->doubleWidthAtlas.image != VK_NULL_HANDLE ? fontResources->doubleWidthAtlas : fontResources->atlas;
-    const ImageResource& primaryColor = fontResources->colorAtlas.image != VK_NULL_HANDLE ? fontResources->colorAtlas : fontResources->atlas;
-    const ImageResource& wideColor = fontResources->doubleWidthColorAtlas.image != VK_NULL_HANDLE ? fontResources->doubleWidthColorAtlas : wideAtlas;
-
     for (auto& frame : frames) {
-        const VkDescriptorImageInfo imageInfos[] = {
-            {atlasSampler, fontResources->atlas.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-            {atlasSampler, primaryColor.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-            {atlasSampler, wideAtlas.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-            {atlasSampler, wideColor.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+        const VkDescriptorBufferInfo bufferInfos[] = {
+            {fontResources->mask.buffer, 0, VK_WHOLE_SIZE},
+            {fontResources->color.buffer, 0, VK_WHOLE_SIZE},
         };
-        std::array<VkWriteDescriptorSet, 4> writes{};
+        std::array<VkWriteDescriptorSet, 2> writes{};
         for (u32 i = 0; i < writes.size(); ++i) {
             writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             writes[i].dstSet = frame.descriptorSet;
             writes[i].dstBinding = i + 2;
             writes[i].descriptorCount = 1;
-            writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[i].pImageInfo = &imageInfos[i];
+            writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            writes[i].pBufferInfo = &bufferInfos[i];
         }
         vkUpdateDescriptorSets(device, writes.size(), writes.data(), 0, nullptr);
     }
@@ -1584,118 +1351,6 @@ void RendererImpl::ensureFontUploadBuffer(FrameResources& frame, size_t bytes) {
     frame.fontUploadCapacity = bytes;
 }
 
-void RendererImpl::ensureColorAtlas(bool doubleWidth) {
-    ImageResource& image = doubleWidth ? fontResources->doubleWidthColorAtlas : fontResources->colorAtlas;
-    if (image.image != VK_NULL_HANDLE) {
-        return;
-    }
-
-    checkVk(vkDeviceWaitIdle(device), "vkDeviceWaitIdle");
-    const GlyphCache& cache = doubleWidth ? fontResources->doubleWidthGlyphs : fontResources->glyphs;
-    const u32 width = composer.glyphWidth * (doubleWidth ? 2 : 1);
-    const u32 layers = doubleWidth ? 1 : 4;
-    image = createImage(width * cache.columns, composer.glyphHeight * cache.rows, layers, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, true);
-    updateStaticDescriptors();
-}
-
-bool RendererImpl::needsFontGlyph(u32 id) {
-    return id != 0x200d && !(id >= 0xfe00 && id <= 0xfe0f) && !(id >= 0xe0100 && id <= 0xe01ef) && !(id >= 0x2500 && id <= 0x257f) && !(id >= 0x23ba && id <= 0x23bd);
-}
-
-void RendererImpl::beginGlyphFrame() {
-    fontUploadData.reset();
-    atlasCopies.clear();
-    colorAtlasCopies.clear();
-    doubleWidthAtlasCopies.clear();
-    doubleWidthColorAtlasCopies.clear();
-
-    auto advance = [](GlyphCache& cache) {
-        ++cache.generation;
-        if (cache.generation == 0) {
-            for (GlyphSlot* slot = cache.slots.mutBegin(); slot != cache.slots.mutEnd(); ++slot) {
-                slot->generation = 0;
-            }
-            cache.generation = 1;
-        }
-    };
-    advance(fontResources->glyphs);
-    if (fontResources->doubleWidthAtlas.image != VK_NULL_HANDLE) {
-        advance(fontResources->doubleWidthGlyphs);
-    }
-}
-
-void RendererImpl::pinVisibleGlyphs() {
-    for (GpuCell* cell = cells.mutBegin(); cell != cells.mutEnd(); ++cell) {
-        if (cell->glyph == 0) {
-            continue;
-        }
-        GlyphCache& cache = cell->lineAttribute != 0 || (cell->attributes & gpuDoubleWidth) != 0 ? fontResources->doubleWidthGlyphs : fontResources->glyphs;
-        const u32 slot = (cell->glyph & 0xff) + (((cell->glyph >> 8) & 0xff) * cache.columns);
-        if (slot < cache.slots.length()) {
-            cache.slots.mut(slot).generation = cache.generation;
-        }
-    }
-}
-
-u16 RendererImpl::allocateGlyphSlot(GlyphCache& cache, u32 id, bool grapheme) {
-    if (cache.next < cache.slots.length()) {
-        const u16 slot = (u16)(cache.next++);
-        GlyphSlot& state = cache.slots.mut(slot);
-        state.id = id;
-        state.generation = cache.generation;
-        state.layers = 0;
-        state.colorLayers = 0;
-        state.grapheme = grapheme;
-        return slot;
-    }
-
-    const u32 count = cache.slots.length();
-    for (u32 checked = 1; checked < count; ++checked) {
-        if (cache.eviction == 0 || cache.eviction >= count) {
-            cache.eviction = 1;
-        }
-        const u16 slot = (u16)(cache.eviction++);
-        GlyphSlot& state = cache.slots.mut(slot);
-        if (state.generation == cache.generation) {
-            continue;
-        }
-
-        if (state.grapheme) {
-            const size_t oldOffset = (size_t)(state.id) * sizeof(u16);
-            if (oldOffset + sizeof(u16) <= cache.graphemeRefs.used()) {
-                u16* oldRef = (u16*)((u8*)(cache.graphemeRefs.mutData()) + oldOffset);
-                if (*oldRef == slot) {
-                    *oldRef = 0;
-                }
-            }
-        } else if (u16* oldRef = cache.refs->find(state.id); oldRef != nullptr && *oldRef == slot) {
-            *oldRef = 0;
-        }
-        state.id = id;
-        state.generation = cache.generation;
-        state.layers = 0;
-        state.colorLayers = 0;
-        state.grapheme = grapheme;
-        return slot;
-    }
-    // Every slot is pinned by the current frame: remember to resize the
-    // caches to the working set before the next frame.
-    atlasExhausted = true;
-    return 0;
-}
-
-void RendererImpl::growGlyphAtlas() {
-    // Twice the distinct glyphs reachable on screen and in scrollback:
-    // bounded by live content rather than by a doubling history, and free
-    // to shrink back once the content simplifies.
-    u64 target = 2 * (u64)(composer.vterm->distinctGlyphs());
-    if (target > 65536) {
-        target = 65536;
-    }
-    glyphSlotTarget = (u32)(target);
-    resetFontResources();
-}
-
 VkDeviceSize RendererImpl::stageFontData(const void* data, size_t len, size_t expected) {
     const u32 zero = 0;
     const size_t padding = (4 - (fontUploadData.used() & 3)) & 3;
@@ -1712,82 +1367,8 @@ VkDeviceSize RendererImpl::stageFontData(const void* data, size_t len, size_t ex
     return offset;
 }
 
-u32 RendererImpl::ensureGlyph(Fontpack& fonts, const u32* codepoints, size_t count, u32 id, bool grapheme, FontStyle style, bool doubleWidth) {
-    if (count == 0 || (!grapheme && (id >= 0x110000 || !needsFontGlyph(id)))) {
-        return 0;
-    }
-
-    GlyphCache& cache = doubleWidth ? fontResources->doubleWidthGlyphs : fontResources->glyphs;
-    u16* ref = nullptr;
-    if (grapheme) {
-        const size_t required = ((size_t)(id) + 1) * sizeof(u16);
-        if (required > cache.graphemeRefs.used()) {
-            const size_t previous = cache.graphemeRefs.used();
-            cache.graphemeRefs.grow(required);
-            cache.graphemeRefs.seekAbsolute(required);
-            memZero((u8*)(cache.graphemeRefs.mutData()) + previous, cache.graphemeRefs.mutCurrent());
-        }
-        ref = (u16*)((u8*)(cache.graphemeRefs.mutData()) + (size_t)(id) * sizeof(u16));
-    } else {
-        ref = &(*cache.refs)[id];
-    }
-    u16 slot = *ref;
-    if (slot != 0) {
-        const GlyphSlot& state = cache.slots[slot];
-        if (state.id != id || state.grapheme != grapheme) {
-            slot = 0;
-            *ref = 0;
-        }
-    }
-    if (slot == 0) {
-        slot = allocateGlyphSlot(cache, id, grapheme);
-        if (slot == 0) {
-            return 0;
-        }
-        *ref = slot;
-    }
-
-    GlyphSlot& state = cache.slots.mut(slot);
-    state.generation = cache.generation;
-    const u32 layer = doubleWidth ? 0 : (u32)(style);
-    const u8 layerMask = (u8)(1u << layer);
-    if (state.layers & layerMask) {
-        const bool color = state.colorLayers & layerMask;
-        return (slot % cache.columns) | ((slot / cache.columns) << 8) | ((u32)(color) << 16);
-    }
-
-    const u32 width = doubleWidth ? 2 * composer.glyphWidth : composer.glyphWidth;
-    const FontGlyph glyph = fonts.glyph(codepoints, count, style, doubleWidth);
-    const size_t bytes = (size_t)(width)*composer.glyphHeight * (glyph.color ? 4 : 1);
-    if (glyph.color) {
-        ensureColorAtlas(doubleWidth);
-    }
-    VkBufferImageCopy copy{};
-    copy.bufferOffset = stageFontData(glyph.data, glyph.len, bytes);
-    copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    copy.imageSubresource.baseArrayLayer = layer;
-    copy.imageSubresource.layerCount = 1;
-    copy.imageOffset = {
-        (i32)((slot % cache.columns) * width),
-        (i32)((slot / cache.columns) * composer.glyphHeight),
-        0,
-    };
-    copy.imageExtent = {width, composer.glyphHeight, 1};
-    if (doubleWidth) {
-        (glyph.color ? doubleWidthColorAtlasCopies : doubleWidthAtlasCopies).pushBack(copy);
-    } else {
-        (glyph.color ? colorAtlasCopies : atlasCopies).pushBack(copy);
-    }
-    state.layers |= layerMask;
-    if (glyph.color) {
-        state.colorLayers |= layerMask;
-    }
-    return (slot % cache.columns) | ((slot / cache.columns) << 8) | ((u32)(glyph.color) << 16);
-}
-
 void RendererImpl::materializeCells(const TerminalCell* input, GpuCell* output, u16 count, u8 lineAttribute, const TerminalColors& colors) {
     CellExtraStore& extras = *composer.cellExtras;
-    Fontpack& fonts = *composer.fonts;
     const bool specialColors = colors.specialModes != 0;
     for (u16 index = 0; index < count; ++index) {
         const TerminalCell& cell = input[index];
@@ -1797,13 +1378,9 @@ void RendererImpl::materializeCells(const TerminalCell* input, GpuCell* output, 
         const u32 background = specialColors ? colors.resolveBackgroundSpecial(cell).packed() : colors.resolvePacked(cell.background());
         u32 underlineColor = foreground;
         u32 hyperlink = 0;
-        u32 graphemeId = 0;
-        GraphemeView grapheme;
         if (cell.hasExtra()) {
             const CellExtraView extra = extras.view(cell);
             hyperlink = extra.hyperlinkDisplayId;
-            grapheme = extra.grapheme;
-            graphemeId = grapheme.empty() ? 0 : cell.extraRef();
             if (cell.underlined() && extra.underlineColor != cell.foreground()) {
                 underlineColor = colors.resolvePacked(extra.underlineColor);
             }
@@ -1811,16 +1388,8 @@ void RendererImpl::materializeCells(const TerminalCell* input, GpuCell* output, 
             underlineColor = colors.resolvePacked(cell.inlineUnderlineColor());
         }
 
-        u32 glyph = 0;
-        const bool doubleWidth = lineAttribute != 0 || cell.dwidth;
-        if (!cell.dwidth_cont || lineAttribute != 0) {
-            const FontStyle style = (FontStyle)((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0));
-            if (graphemeId != 0) {
-                glyph = ensureGlyph(fonts, grapheme.data(), grapheme.size(), graphemeId, true, style, doubleWidth);
-            } else {
-                glyph = ensureGlyph(fonts, &codepoint, 1, codepoint, false, style, doubleWidth);
-            }
-        }
+        // The strip reference arrives in the row pass that follows the
+        // span materialization; a cell it skips has none.
         output[index] = {
             codepoint,
             attributes,
@@ -1828,104 +1397,179 @@ void RendererImpl::materializeCells(const TerminalCell* input, GpuCell* output, 
             background,
             underlineColor,
             hyperlink,
-            glyph,
+            stripNone,
+            0,
             cell.semantic,
             lineAttribute,
         };
     }
 }
 
-bool RendererImpl::validateCachedCells(const TerminalCell* input, const GpuCell* output, u16 count, u8 lineAttribute) {
-    CellExtraStore& extras = *composer.cellExtras;
-    for (u16 index = 0; index < count; ++index) {
-        const TerminalCell& cell = input[index];
-        const GpuCell& rendered = output[index];
-        const bool doubleWidth = lineAttribute != 0 || cell.dwidth;
-        if (cell.dwidth_cont && lineAttribute == 0) {
-            if (rendered.glyph != 0) {
-                return false;
-            }
-            continue;
-        }
-        u32 id = cell.uc_pt ? cell.uc_pt : ' ';
-        bool grapheme = false;
-        if (cell.hasExtra()) {
-            const CellExtraView extra = extras.view(cell);
-            if (!extra.grapheme.empty()) {
-                id = cell.extraRef();
-                grapheme = true;
-            }
-        }
-        if (!grapheme && !needsFontGlyph(id)) {
-            if (rendered.glyph != 0) {
-                return false;
-            }
-            continue;
-        }
-        if (rendered.glyph == 0) {
-            return false;
-        }
-        GlyphCache& cache = doubleWidth ? fontResources->doubleWidthGlyphs : fontResources->glyphs;
-        const u32 slot = (rendered.glyph & 0xff) + (((rendered.glyph >> 8) & 0xff) * cache.columns);
-        if (slot >= cache.slots.length()) {
-            return false;
-        }
-        GlyphSlot& state = cache.slots.mut(slot);
-        const u32 layer = doubleWidth ? 0 : ((cell.bold ? 1u : 0u) | (cell.italic ? 2u : 0u));
-        const u8 layerMask = (u8)(1u << layer);
-        if (state.id != id || state.grapheme != grapheme || (state.layers & layerMask) == 0 || ((state.colorLayers & layerMask) != 0) != ((rendered.glyph & (1u << 16)) != 0)) {
-            return false;
-        }
-        state.generation = cache.generation;
-    }
-    return true;
+void RendererImpl::resetArenaStaging() {
+    fontUploadData.reset();
+    maskArenaCopies.clear();
+    colorArenaCopies.clear();
 }
 
-void RendererImpl::recordImageUploads(VkCommandBuffer commandBuffer, VkBuffer stagingBuffer, const ImageResource& image, const Vector<VkBufferImageCopy>& copies, bool initialize) {
-    if (!initialize && copies.empty()) {
+void RendererImpl::ensureArenaBuffer(ArenaBuffer& arena, size_t bytes) {
+    const VkDeviceSize needed = bytes < 4 ? 4 : bytes;
+    if (arena.capacity >= needed) {
         return;
     }
-
-    imageBarrier(commandBuffer, image.image, image.layers, initialize ? 0 : VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, initialize ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, initialize ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT : VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-    if (initialize) {
-        const VkClearColorValue clear{};
-        const VkImageSubresourceRange range = imageRange(image.layers);
-        vkCmdClearColorImage(commandBuffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
+    VkDeviceSize capacity = arena.capacity < 4096 ? 4096 : arena.capacity;
+    while (capacity < needed) {
+        capacity *= 2;
     }
-    if (!copies.empty()) {
-        if (initialize) {
-            imageBarrier(commandBuffer, image.image, image.layers, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-        }
-        vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, copies.length(), copies.data());
-    }
-
-    imageBarrier(commandBuffer, image.image, image.layers, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    // Growth is rare (font or viewport change); a device drain keeps the
+    // swap trivially safe against frames in flight.
+    checkVk(vkDeviceWaitIdle(device), "vkDeviceWaitIdle");
+    vkDestroyBuffer(device, arena.buffer, nullptr);
+    vkFreeMemory(device, arena.memory, nullptr);
+    arena.buffer = VK_NULL_HANDLE;
+    arena.memory = VK_NULL_HANDLE;
+    createBuffer(capacity, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, arena.buffer, arena.memory);
+    arena.capacity = capacity;
+    arena.uploaded = 0;
+    updateStaticDescriptors();
 }
 
-void RendererImpl::recordFontUploads(FrameResources& frame) {
-    const bool initialize = !atlasInitialized || (fontResources->doubleWidthAtlas.image != VK_NULL_HANDLE && !doubleWidthAtlasInitialized) || (fontResources->colorAtlas.image != VK_NULL_HANDLE && !colorAtlasInitialized) || (fontResources->doubleWidthColorAtlas.image != VK_NULL_HANDLE && !doubleWidthColorAtlasInitialized);
-    if (!initialize && fontUploadData.empty()) {
+void RendererImpl::stageArenaCopy(ArenaBuffer& arena, Vector<VkBufferCopy>& copies, const u8* data, size_t used) {
+    if (used <= arena.uploaded) {
         return;
     }
+    VkBufferCopy copy{};
+    copy.srcOffset = stageFontData(data + arena.uploaded, used - arena.uploaded, used - arena.uploaded);
+    copy.dstOffset = arena.uploaded;
+    copy.size = used - arena.uploaded;
+    copies.pushBack(copy);
+    arena.uploaded = used;
+}
 
-    if (!fontUploadData.empty()) {
-        bufferBarrier(frame.commandBuffer, frame.fontUploadBuffer, fontUploadData.used(), VK_ACCESS_HOST_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+void RendererImpl::stageArenaTails(Screen& shapes, u32 generation) {
+    if (generation != stripGeneration) {
+        // The strips moved wholesale (collection or font change): the
+        // device copies restart from the beginning.
+        fontResources->mask.uploaded = 0;
+        fontResources->color.uploaded = 0;
     }
+    const size_t maskUsed = shapes.spanMaskUsed();
+    const size_t colorUsed = shapes.spanColorUsed() * sizeof(u32);
+    ensureArenaBuffer(fontResources->mask, maskUsed);
+    ensureArenaBuffer(fontResources->color, colorUsed);
+    stageArenaCopy(fontResources->mask, maskArenaCopies, shapes.spanMask(), maskUsed);
+    stageArenaCopy(fontResources->color, colorArenaCopies, (const u8*)(shapes.spanColor()), colorUsed);
+}
 
-    recordImageUploads(frame.commandBuffer, frame.fontUploadBuffer, fontResources->atlas, atlasCopies, !atlasInitialized);
-    atlasInitialized = true;
-    if (fontResources->colorAtlas.image != VK_NULL_HANDLE) {
-        recordImageUploads(frame.commandBuffer, frame.fontUploadBuffer, fontResources->colorAtlas, colorAtlasCopies, !colorAtlasInitialized);
-        colorAtlasInitialized = true;
+void RendererImpl::applySpanStrips(u32 rowIndex, const ScreenRowSpan& span) {
+    if (span.missing || span.end <= span.begin || span.end > cellColumns) {
+        return;
     }
-    if (fontResources->doubleWidthAtlas.image != VK_NULL_HANDLE) {
-        recordImageUploads(frame.commandBuffer, frame.fontUploadBuffer, fontResources->doubleWidthAtlas, doubleWidthAtlasCopies, !doubleWidthAtlasInitialized);
-        doubleWidthAtlasInitialized = true;
+    const u32 stride = (u32)(span.end - span.begin) * composer.glyphWidth;
+    for (u16 column = span.begin; column < span.end; ++column) {
+        GpuCell& cell = cells.mut(rowIndex + column);
+        cell.strip = (span.offset + (u32)(column - span.begin) * composer.glyphWidth) | (span.color ? stripColorPlane : 0);
+        cell.stripStride = stride;
     }
-    if (fontResources->doubleWidthColorAtlas.image != VK_NULL_HANDLE) {
-        recordImageUploads(frame.commandBuffer, frame.fontUploadBuffer, fontResources->doubleWidthColorAtlas, doubleWidthColorAtlasCopies, !doubleWidthColorAtlasInitialized);
-        doubleWidthColorAtlasInitialized = true;
+}
+
+bool RendererImpl::assignRowStrips(Screen& shapes, u16 row) {
+    const u32 rowIndex = (u32)(row)*cellColumns;
+    bool changed = false;
+    GpuCell* const rowCells = cells.mutData() + rowIndex;
+    u64 before = 0;
+    for (u16 column = 0; column < cellColumns; ++column) {
+        before ^= ((u64)(rowCells[column].strip) << 32 | rowCells[column].stripStride) * (column + 0x9e3779b97f4a7c15ULL);
+        rowCells[column].strip = stripNone;
+        rowCells[column].stripStride = 0;
     }
+    const size_t count = shapes.rowSpans(row, spanScratch.mutData());
+    for (size_t index = 0; index < count; ++index) {
+        applySpanStrips(rowIndex, spanScratch[index]);
+    }
+    u64 after = 0;
+    for (u16 column = 0; column < cellColumns; ++column) {
+        after ^= ((u64)(rowCells[column].strip) << 32 | rowCells[column].stripStride) * (column + 0x9e3779b97f4a7c15ULL);
+    }
+    changed = before != after;
+    return changed;
+}
+
+void RendererImpl::overrideOverlayStrips(Screen& shapes, const TerminalUpdate& update) {
+    if (update.overlaySpan == (size_t)-1 || update.overlaySpan >= update.spanCount) {
+        return;
+    }
+    // The preedit preview covers the underlying strips wholesale: its
+    // blank cells hide the text below them.
+    const TerminalCellSpan& overlay = update.spans[update.overlaySpan];
+    for (u32 index = 0; index < overlay.count; ++index) {
+        GpuCell& cell = cells.mut(overlay.index + index);
+        cell.strip = stripNone;
+        cell.stripStride = 0;
+    }
+    const u32 rowIndex = (overlay.index / cellColumns) * cellColumns;
+    const size_t count = shapes.shapeCells(overlay.cells, (u16)(overlay.count), (u16)(overlay.index % cellColumns), spanScratch.mutData());
+    for (size_t index = 0; index < count; ++index) {
+        applySpanStrips(rowIndex, spanScratch[index]);
+    }
+}
+
+u32 RendererImpl::assignStrips(const TerminalUpdate& update, bool allRows) {
+    Screen& shapes = *update.shapes;
+    spanScratch.clear();
+    spanScratch.grow(cellColumns);
+    while (spanScratch.length() < cellColumns) {
+        spanScratch.pushBack({});
+    }
+    stripDamageRows.clear();
+    // A shaping pass can collect the arenas and move every strip assigned
+    // so far, so redo the walk until it closes within one generation.
+    bool everything = allRows || shapes.spanGeneration() != stripGeneration;
+    u32 generation;
+    for (;;) {
+        generation = shapes.spanGeneration();
+        stripDamageRows.clear();
+        if (everything) {
+            for (u16 row = 0; row < cellRows; ++row) {
+                assignRowStrips(shapes, row);
+            }
+        } else {
+            // A row's strips can change beyond the damaged cells (a blank
+            // filled in merges its neighbouring spans), so reassign whole
+            // rows and journal the ones that moved.
+            for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
+                const TerminalCellSpan& span = update.spans[spanIndex];
+                const u32 firstRow = span.index / cellColumns;
+                const u32 lastRow = (span.index + span.count - 1) / cellColumns;
+                for (u32 row = firstRow; row <= lastRow && row < cellRows; ++row) {
+                    if (assignRowStrips(shapes, (u16)(row))) {
+                        stripDamageRows.pushBack((u16)(row));
+                    }
+                }
+            }
+        }
+        overrideOverlayStrips(shapes, update);
+        if (generation == shapes.spanGeneration()) {
+            return generation;
+        }
+        everything = true;
+    }
+}
+
+void RendererImpl::recordArenaUploads(FrameResources& frame) {
+    if (maskArenaCopies.empty() && colorArenaCopies.empty()) {
+        return;
+    }
+    bufferBarrier(frame.commandBuffer, frame.fontUploadBuffer, fontUploadData.used(), VK_ACCESS_HOST_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    const auto record = [&](const ArenaBuffer& arena, const Vector<VkBufferCopy>& copies) {
+        if (copies.empty()) {
+            return;
+        }
+        bufferBarrier(frame.commandBuffer, arena.buffer, arena.capacity, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        vkCmdCopyBuffer(frame.commandBuffer, frame.fontUploadBuffer, arena.buffer, copies.length(), copies.data());
+        bufferBarrier(frame.commandBuffer, arena.buffer, arena.capacity, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    };
+    record(fontResources->mask, maskArenaCopies);
+    record(fontResources->color, colorArenaCopies);
 }
 
 u32 RendererImpl::packColor(const Color& color) {
@@ -2080,7 +1724,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     checkVk(vkBeginCommandBuffer(frame.commandBuffer, &beginInfo), "vkBeginCommandBuffer");
-    recordFontUploads(frame);
+    recordArenaUploads(frame);
 
     const VkImage output = chain->direct ? chain->images[imageIndex] : chain->output.image;
     const VkImageView outputView = chain->direct ? chain->views[imageIndex] : chain->output.view;
@@ -2130,7 +1774,6 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
             state.selection.br.y,
             state.selection.rectangular ? 1u : 0u,
             opts.showWraps ? 1u : 0u,
-            fontResources->doubleWidthAtlas.image != VK_NULL_HANDLE ? 1u : 0u,
             packColor(state.selectionForeground),
             packColor(state.selectionBackground),
             state.selectionColorMask,
@@ -2298,10 +1941,6 @@ void RendererImpl::recordFrame(FrameResources& frame, u32 imageIndex) {
 }
 
 bool RendererImpl::repaintFrame() {
-    if (atlasExhausted) {
-        atlasExhausted = false;
-        growGlyphAtlas();
-    }
     const u32 width = renderExtent.width;
     const u32 height = renderExtent.height;
     if (!previousStateValid || cells.empty() || width == 0 || height == 0) {
@@ -2324,8 +1963,9 @@ bool RendererImpl::repaintFrame() {
     if (!chain->direct && chain->outputInitialized) {
         recordRepaintCommands(*frame, imageIndex);
     } else {
-        beginGlyphFrame();
-        pinVisibleGlyphs();
+        // Nothing new to upload on a repaint: the arenas on the device
+        // are current, only the output image is stale.
+        resetArenaStaging();
         recordFrame(*frame, imageIndex);
     }
     const bool presented = submitPresentFrame(width, height, *frame, imageIndex, recreateAfterPresent);
@@ -2334,10 +1974,6 @@ bool RendererImpl::repaintFrame() {
 }
 
 bool RendererImpl::present(const TerminalUpdate& update) {
-    if (atlasExhausted) {
-        atlasExhausted = false;
-        growGlyphAtlas();
-    }
     const u32 width = composer.pixelWidth;
     const u32 height = composer.pixelHeight;
     const size_t cellCount = (size_t)(composer.columns) * composer.rows;
@@ -2378,11 +2014,7 @@ bool RendererImpl::present(const TerminalUpdate& update) {
         return false;
     }
 
-    beginGlyphFrame();
-    if (previousStateValid) {
-        pinVisibleGlyphs();
-    }
-    const u64 renderContext = mix(update.colors, composer.cellExtras, composer.fonts) ^ ((u64)(update.colors->generation) * 0x9e3779b97f4a7c15ULL);
+    resetArenaStaging();
     if (shapeChanged) {
         damage.begin = 0;
         damage.count = 0;
@@ -2402,8 +2034,15 @@ bool RendererImpl::present(const TerminalUpdate& update) {
         const TerminalCellSpan& span = update.spans[spanIndex];
         STD_ASSERT((size_t)(span.index) + span.count <= cellCount);
         STD_ASSERT(span.cells != nullptr);
-        renderCache.render(*this, span.cells, (u16)(span.count), span.lineAttribute, cells.mutData() + span.index, *update.colors, renderContext);
+        materializeCells(span.cells, cells.mutData() + span.index, (u16)(span.count), span.lineAttribute, *update.colors);
     }
+    u32 arenaGeneration = stripGeneration;
+    if (update.shapes != nullptr) {
+        arenaGeneration = assignStrips(update, shapeChanged || !previousStateValid);
+        stageArenaTails(*update.shapes, arenaGeneration);
+    }
+    const bool stripsMoved = arenaGeneration != stripGeneration;
+    stripGeneration = arenaGeneration;
 
     if (damage.advance()) {
         clearDamageGeneration = damage.generation;
@@ -2418,7 +2057,7 @@ bool RendererImpl::present(const TerminalUpdate& update) {
     // needs a full clear, not just cell repaints.
     const bool backgroundChanged = !(clearBackground == update.colors->defaultBackground);
     clearBackground = update.colors->defaultBackground;
-    if (shapeChanged || !previousStateValid || globalPresentationChanged || backgroundChanged) {
+    if (shapeChanged || !previousStateValid || globalPresentationChanged || backgroundChanged || stripsMoved) {
         fullDamage();
         if (shapeChanged || backgroundChanged) {
             clearDamageGeneration = damage.generation;
@@ -2448,6 +2087,11 @@ bool RendererImpl::present(const TerminalUpdate& update) {
         for (size_t spanIndex = 0; spanIndex < update.spanCount; ++spanIndex) {
             const TerminalCellSpan& span = update.spans[spanIndex];
             appendDamage(span.index, span.count);
+        }
+        // Rows whose strips moved beyond their damaged cells (span
+        // boundaries shifted around an edit).
+        for (const u16 row : stripDamageRows) {
+            appendDamage((u32)(row)*cellColumns, cellColumns);
         }
 
         const auto appendCursor = [&](const TerminalCursor& cursor) {
@@ -2490,13 +2134,7 @@ bool RendererImpl::present(const TerminalUpdate& update) {
 
 bool RendererImpl::update(const TerminalUpdate& update) {
     try {
-        const bool presented = present(update);
-        if (atlasExhausted) {
-            // The frame just presented is missing the glyphs that did not
-            // fit; ask for a full redraw, which lands after growGlyphAtlas.
-            composer.vterm->expose();
-        }
-        return presented;
+        return present(update);
     } catch (const SurfaceLost&) {
         // See repaint(): mark dead, frame() rebuilds pool and renderer.
         composer.renderer = nullptr;
@@ -2507,6 +2145,5 @@ bool RendererImpl::update(const TerminalUpdate& update) {
 Renderer* createVulkanRenderer(Composer& composer, stl::ObjPool& pool, const plt::RenderContext& context) {
     RendererImpl* const renderer = pool.make<RendererImpl>(composer, context);
     composer.fontChangedListeners.pushBack(pool.make<CallRendererFontChanged>(renderer));
-    composer.cellExtrasChangedListeners.pushBack(pool.make<CallRendererCellExtrasChanged>(renderer));
     return renderer;
 }

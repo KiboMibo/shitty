@@ -18,7 +18,8 @@ struct Cell
    uint bg;
    uint underlineColor;
    uint hyperlink;
-   uint glyph;
+   uint strip;
+   uint stripStride;
    uint semantic;
    uint lineAttribute;
 };
@@ -35,10 +36,15 @@ layout (std430, set = 0, binding = 1) readonly buffer CellBuffer
    CellUpdate updates[];
 };
 
-layout (set = 0, binding = 2) uniform sampler2DArray atlas;
-layout (set = 0, binding = 3) uniform sampler2DArray colorAtlas;
-layout (set = 0, binding = 4) uniform sampler2DArray doubleWidthAtlas;
-layout (set = 0, binding = 5) uniform sampler2DArray doubleWidthColorAtlas;
+layout (std430, set = 0, binding = 2) readonly buffer MaskArena
+{
+   uint maskArena[];
+};
+
+layout (std430, set = 0, binding = 3) readonly buffer ColorArena
+{
+   uint colorArena[];
+};
 
 layout (push_constant) uniform PushConstants
 {
@@ -60,7 +66,6 @@ layout (push_constant) uniform PushConstants
    int selectionBottom;
    uint rectangularSelection;
    uint showWraps;
-   uint hasDoubleWidth;
    uint selectionForeground;
    uint selectionBackground;
    uint selectionColorMask;
@@ -300,53 +305,42 @@ bool nonRenderingCodepoint (uint codepoint)
           (codepoint >= 0xe0100u && codepoint <= 0xe01efu);
 }
 
-float glyphCoverage (uint codepoint, uint glyph, uint doubleWidth,
-                     uint fontIndex, ivec2 pixel, ivec2 cellSize,
+float glyphCoverage (uint codepoint, uint strip, uint stripStride,
+                     uint lineAttribute, ivec2 pixel, ivec2 cellSize,
                      out vec4 intrinsicColor)
 {
    intrinsicColor = vec4 (0.0);
-   if (glyph == 0 && nonRenderingCodepoint (codepoint))
-      return 0.0;
-   if (glyph == 0 && codepoint >= 0x2500u && codepoint <= 0x257fu)
-      return boxDrawingCoverage (codepoint, pixel, cellSize);
-   if (glyph == 0 && codepoint >= 0x23bau && codepoint <= 0x23bdu)
-      return scanLineCoverage (codepoint, pixel, cellSize);
-
-   if (doubleWidth != 0 && parameters.hasDoubleWidth == 0)
+   if (strip == 0xffffffffu)
    {
-      bool box = pixel.x == 1 || pixel.x + 2 == cellSize.x ||
-                 pixel.y == 1 || pixel.y + 2 == cellSize.y;
-      return box ? 0.7 : 0.0;
+      if (nonRenderingCodepoint (codepoint))
+         return 0.0;
+      if (codepoint >= 0x2500u && codepoint <= 0x257fu)
+         return boxDrawingCoverage (codepoint, pixel, cellSize);
+      if (codepoint >= 0x23bau && codepoint <= 0x23bdu)
+         return scanLineCoverage (codepoint, pixel, cellSize);
+      return 0.0;
    }
 
-   if (glyph == 0)
-      return 0.0;
-
-   ivec2 atlasPosition = ivec2 (
-      int (bitfieldExtract (glyph, 0, 8)),
-      int (bitfieldExtract (glyph, 8, 8)));
-   bool color = bitfieldExtract (glyph, 16, 1) != 0;
-   int glyphWidth = int (parameters.glyphWidth) *
-                    (doubleWidth != 0 ? 2 : 1);
-   int x = pixel.x - (cellSize.x - glyphWidth) / 2;
-   if (x < 0 || x >= glyphWidth)
-      return 0.0;
-   ivec2 atlasPixel = ivec2 (
-      atlasPosition.x * glyphWidth + x,
-      atlasPosition.y * int (parameters.glyphHeight) +
-         pixel.y * int (parameters.glyphHeight) / max (1, cellSize.y));
-   if (color)
+   // The strips hold single-density slices; double-size lines sample
+   // them at half rate. pixel arrives in the doubled coordinate space.
+   int sampleX = lineAttribute != 0u ? pixel.x / 2 : pixel.x;
+   int sampleY = lineAttribute == 2u || lineAttribute == 3u
+      ? pixel.y / 2 : lineAttribute == 1u && pixel.y >= int (parameters.glyphHeight)
+      ? pixel.y - int (parameters.glyphHeight) : pixel.y;
+   uint index = (strip & 0x7fffffffu) +
+                uint (sampleY) * stripStride + uint (sampleX);
+   if ((strip & 0x80000000u) != 0u)
    {
-      intrinsicColor = doubleWidth == 0
-         ? texelFetch (
-              colorAtlas, ivec3 (atlasPixel, int (fontIndex)), 0)
-         : texelFetch (
-              doubleWidthColorAtlas, ivec3 (atlasPixel, 0), 0);
+      uint texel = colorArena[index];
+      intrinsicColor = vec4 (
+         float (texel & 0xffu),
+         float ((texel >> 8u) & 0xffu),
+         float ((texel >> 16u) & 0xffu),
+         float ((texel >> 24u) & 0xffu)) / 255.0;
       return 0.0;
    }
-   return doubleWidth == 0
-      ? texelFetch (atlas, ivec3 (atlasPixel, int (fontIndex)), 0).r
-      : texelFetch (doubleWidthAtlas, ivec3 (atlasPixel, 0), 0).r;
+   uint texel = maskArena[index >> 2u];
+   return float ((texel >> (8u * (index & 3u))) & 0xffu) / 255.0;
 }
 
 void main ()
@@ -375,13 +369,6 @@ void main ()
    Cell cell = update.cell;
 
    uint doubleWidth = doubleLine ? 1u : bitfieldExtract (cell.charData, 16, 1);
-   uint doubleWidthContinuation = doubleLine ? 0u : bitfieldExtract (cell.charData, 17, 1);
-   if (doubleWidthContinuation != 0)
-      return;
-
-   uint fontIndex = doubleWidth == 0
-      ? bitfieldExtract (cell.charData, 2, 2)
-      : 0;
    uint underline = bitfieldExtract (cell.charData, 4, 1);
    uint inverse = bitfieldExtract (cell.charData, 5, 1);
    uint wrap = bitfieldExtract (cell.charData, 6, 1);
@@ -448,8 +435,7 @@ void main ()
       background = cursor;
    }
 
-   uint cellWidth = parameters.glyphWidth *
-                    (doubleWidth != 0 && !doubleLine ? 2 : 1);
+   uint cellWidth = parameters.glyphWidth;
    ivec2 outputOrigin = ivec2 (
       int (parameters.border + globalPosition.x * parameters.glyphWidth),
       int (parameters.border + globalPosition.y * parameters.glyphHeight));
@@ -468,8 +454,8 @@ void main ()
                ? parameters.glyphHeight * 2u : parameters.glyphHeight);
          vec4 intrinsicColor;
          float coverage = glyphCoverage (
-            codepoint, cell.glyph, doubleWidth, fontIndex, pixel, size,
-            intrinsicColor);
+            codepoint, cell.strip, cell.stripStride, lineAttribute,
+            pixel, size, intrinsicColor);
          vec3 color;
          if (intrinsicColor.a != 0.0 &&
              conceal == 0 &&
