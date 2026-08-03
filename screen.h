@@ -101,6 +101,9 @@ struct Screen {
     // when the composer has no fontpack. Rendered strips live in the span
     // arenas below, append-only between collections.
     virtual size_t rowSpans(i32 viewRow, ScreenRowSpan* out) = 0;
+    // Bumped whenever strip offsets move wholesale (collection, font
+    // change): a renderer holding arena-derived state re-uploads then.
+    virtual u32 spanGeneration() const = 0;
     virtual const u8* spanMask() const = 0;
     virtual size_t spanMaskUsed() const = 0;
     virtual const u32* spanColor() const = 0;

@@ -1625,6 +1625,32 @@ STD_TEST_SUITE(ScreenRowSpans) {
         STD_INSIST(fx.screen->spanMaskUsed() != 0);
     }
 
+    STD_TEST(ArenaOverflowCollectsToLiveStrips) {
+        ShapeFixture fx;
+        ScreenRowSpan spans[16];
+        const size_t budget = 3u * 16 * 4 * fx.composer->fonts->getPx() * fx.composer->fonts->getPy();
+        const u32 before = fx.screen->spanGeneration();
+        // Churn one row with unique content: every reshape appends a new
+        // strip, the previous becomes garbage. The arena must stay under
+        // its budget by collecting down to the visible strips, and the
+        // final content must render correctly from the moved offsets.
+        char text[8];
+        for (u32 round = 0; round < 400; ++round) {
+            text[0] = (char)('a' + round % 26);
+            text[1] = (char)('a' + (round / 26) % 26);
+            text[2] = (char)('0' + round % 10);
+            text[3] = 0;
+            fx.writeText(*fx.screen, 1, 0, text);
+            STD_INSIST(fx.screen->rowSpans(1, spans) >= 1);
+        }
+        STD_INSIST(fx.screen->spanMaskUsed() <= budget);
+        STD_INSIST(fx.screen->spanGeneration() > before);
+        const size_t count = fx.screen->rowSpans(1, spans);
+        STD_INSIST(count == 1);
+        STD_INSIST(spans[0].begin == 0 && spans[0].end == 3);
+        STD_INSIST(spans[0].offset + (size_t)(3) * fx.composer->fonts->getPx() * fx.composer->fonts->getPy() <= fx.screen->spanMaskUsed());
+    }
+
     STD_TEST(ScrollIntoHistoryDropsShapesAndReshapesOnView) {
         ShapeFixture fx;
         fx.writeText(*fx.screen, 0, 0, "abc");

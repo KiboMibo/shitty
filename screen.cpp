@@ -376,6 +376,7 @@ namespace {
         };
 
         size_t rowSpans(i32 viewRow, ScreenRowSpan* out) override;
+        u32 spanGeneration() const override;
         const u8* spanMask() const override;
         size_t spanMaskUsed() const override;
         const u32* spanColor() const override;
@@ -388,6 +389,8 @@ namespace {
         void registerShapeListeners();
         void onExtrasCollected();
         void onFontChanged();
+        void collectStrips();
+        [[gnu::always_inline]] inline bool rowVisible(const Row* row) const noexcept;
         void buildShapeText(const TerminalCell* cells, u16 begin, u16 end);
         u64 materializedSpanHash(FontStyle style, u16 cells) const;
         u32 renderShapeStrip(Font* font, bool color, u16 cells);
@@ -396,6 +399,7 @@ namespace {
         IntMap<StripRef>* strips_ = nullptr;
         u32 rawEpoch_ = 0;
         u32 stripEpoch_ = 0;
+        u32 spanGeneration_ = 1;
         ShapeListener extrasListener_;
         ShapeListener fontListener_;
         Buffer shapeMask_;
@@ -1188,6 +1192,7 @@ void ScreenBase<Coord, Epoch>::onFontChanged() {
     shapeColor_.reset();
     ++rawEpoch_;
     ++stripEpoch_;
+    ++spanGeneration_;
 }
 
 template <typename Coord, typename Epoch>
@@ -1220,10 +1225,87 @@ u64 ScreenBase<Coord, Epoch>::materializedSpanHash(FontStyle style, u16 cells) c
 }
 
 template <typename Coord, typename Epoch>
+u32 ScreenBase<Coord, Epoch>::spanGeneration() const {
+    return spanGeneration_;
+}
+
+template <typename Coord, typename Epoch>
+bool ScreenBase<Coord, Epoch>::rowVisible(const Row* row) const noexcept {
+    for (u16 view = 0; view < nRows; ++view) {
+        if (rawLogicalRowObject((i32)(view) - (i32)(viewOffset)) == row) {
+            return true;
+        }
+    }
+    return false;
+}
+
+template <typename Coord, typename Epoch>
+void ScreenBase<Coord, Epoch>::collectStrips() {
+    // Semi-space collection: the strips of the visible rows move into
+    // fresh arenas through the ordinary dedup path (the copy is a memcpy,
+    // never a re-render), their row entries are rewritten in place, and
+    // every off-screen shape is released — it reshapes on view. The
+    // raw-bytes cache level stays valid: identities did not change, only
+    // offsets.
+    ++stripEpoch_;
+    ++spanGeneration_;
+    Buffer oldMask;
+    Buffer oldColor;
+    oldMask.xchg(shapeMask_);
+    oldColor.xchg(shapeColor_);
+    const u16 cellWidth = composer.fonts->getPx();
+    const u16 cellHeight = composer.fonts->getPy();
+    for (u32 index = 0; rowRing != nullptr && index < rowCapacity; ++index) {
+        Row* const row = rowRing[index];
+        if (row == nullptr || row->shapeCount == 0) {
+            continue;
+        }
+        if (!rowVisible(row)) {
+            releaseRowShape(row);
+            continue;
+        }
+        const u32 count = row->shapeCount & ~rowSpanHeapShape;
+        for (u32 span = 0; span < count; ++span) {
+            RowSpanEntry& entry = row->shape[span];
+            if (entry.offset & rowSpanMissing) {
+                continue;
+            }
+            const bool color = (entry.offset & rowSpanColor) != 0;
+            StripRef* const strip = strips_->find(entry.hash);
+            if (strip != nullptr && strip->epoch == stripEpoch_) {
+                entry.offset = strip->offset;
+                continue;
+            }
+            const size_t pixel = color ? sizeof(u32) : 1;
+            const size_t bytes = (size_t)(entry.end - entry.begin) * cellWidth * cellHeight * pixel;
+            Buffer& source = color ? oldColor : oldMask;
+            Buffer& arena = color ? shapeColor_ : shapeMask_;
+            const size_t offset = arena.used();
+            arena.grow(offset + bytes);
+            arena.seekAbsolute(offset + bytes);
+            __builtin_memcpy((u8*)(arena.mutData()) + offset, (const u8*)(source.data()) + (size_t)(entry.offset & rowSpanOffsetMask) * pixel, bytes);
+            entry.offset = (u32)(offset / pixel) | (color ? rowSpanColor : 0);
+            if (strip != nullptr) {
+                strip->offset = entry.offset;
+                strip->epoch = stripEpoch_;
+            } else {
+                strips_->insert(entry.hash, entry.offset, stripEpoch_);
+            }
+        }
+    }
+}
+
+template <typename Coord, typename Epoch>
 u32 ScreenBase<Coord, Epoch>::renderShapeStrip(Font* font, bool color, u16 cells) {
     Buffer& arena = color ? shapeColor_ : shapeMask_;
     const size_t pixel = color ? sizeof(u32) : 1;
     const size_t bytes = (size_t)(cells)*composer.fonts->getPx() * composer.fonts->getPy() * pixel;
+    // The live set is bounded by the viewport, so thrice its pixel size
+    // always leaves room after a collection.
+    const size_t budget = 3u * (size_t)(nCols)*nRows * composer.fonts->getPx() * composer.fonts->getPy() * pixel;
+    if (arena.used() + bytes > budget && arena.used() != 0) {
+        collectStrips();
+    }
     const size_t offset = arena.used();
     arena.grow(offset + bytes);
     arena.seekAbsolute(offset + bytes);
