@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parent
 
 def main():
     names = (ROOT / "file_names.txt").read_text().split()
-    if len(names) != 280:
-        raise SystemExit(f"expected 280 real-world cases, found {len(names)}")
+    if len(names) != 282:
+        raise SystemExit(f"expected 282 real-world cases, found {len(names)}")
     if len(names) != len(set(names)):
         raise SystemExit("duplicate real-world case names")
     manifest = json.loads((ROOT / "cases.json").read_text())

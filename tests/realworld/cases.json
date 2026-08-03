@@ -783,6 +783,34 @@
       "TERM": "xterm-256color"
     }
   },
+  "eza_icons_columns": {
+    "checkpoint": "exit",
+    "columns": 80,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "eza --color=always --icons=always .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
+  "eza_icons_long": {
+    "checkpoint": "exit",
+    "columns": 120,
+    "expected_text": [],
+    "minimum_color_styles": 0,
+    "rows": 24,
+    "save_lines": 500,
+    "source_command": "eza --color=always --icons=always -la .",
+    "terminal_environment": {
+      "COLORTERM": "truecolor",
+      "LANG": "C.UTF-8",
+      "TERM": "xterm-256color"
+    }
+  },
   "eza_long": {
     "checkpoint": "exit",
     "columns": 120,

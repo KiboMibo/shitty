@@ -7,6 +7,8 @@ eza_columns
 eza_long
 eza_tree
 eza_sort_size
+eza_icons_columns
+eza_icons_long
 tree_color
 tree_ascii
 tree_dirs

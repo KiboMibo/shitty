@@ -62,6 +62,8 @@ SCENARIOS = {
     "eza_long": command(120, 24, "eza --color=always --icons=never -la ."),
     "eza_tree": command(120, 35, "eza --color=always --icons=never --tree --level=3 ."),
     "eza_sort_size": command(80, 24, "eza --color=always --icons=never -l --sort=size ."),
+    "eza_icons_columns": command(80, 24, "eza --color=always --icons=always ."),
+    "eza_icons_long": command(120, 24, "eza --color=always --icons=always -la ."),
     "tree_color": command(80, 24, "tree -a -C ."),
     "tree_ascii": command(120, 24, "tree -a --charset ascii ."),
     "tree_dirs": command(80, 12, "tree -d -C ."),
