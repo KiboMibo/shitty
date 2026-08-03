@@ -20,6 +20,7 @@ namespace {
         FontGlyph glyph(const u32* codepoints, size_t count, u16 cells) override;
         bool covers(u32 codepoint) override;
         Font* synthesize(ObjPool& owner, FontStyle style) override;
+        FontFace* face() override;
     };
 
     struct RecordingResolver final: public FontResolver {
@@ -59,6 +60,10 @@ bool FakeFont::covers(u32) {
 }
 
 Font* FakeFont::synthesize(ObjPool&, FontStyle) {
+    return nullptr;
+}
+
+FontFace* FakeFont::face() {
     return nullptr;
 }
 

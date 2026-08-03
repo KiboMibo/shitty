@@ -21,6 +21,7 @@ namespace {
     struct StaticFontFace final: public FontFace {
         StaticFontFace(const void* data, size_t size);
 
+        u32 id() const noexcept override;
         const void* data() const override;
         size_t size() const override;
         i32 faceIndex() const override;
@@ -29,6 +30,7 @@ namespace {
         i32 unref() noexcept override;
         i32 refCount() const noexcept override;
 
+        const u32 id_ = nextFontFaceId();
         const void* data_;
         size_t size_;
     };
@@ -43,6 +45,10 @@ StaticFontFace::StaticFontFace(const void* data, size_t size)
     : data_(data)
     , size_(size)
 {
+}
+
+u32 StaticFontFace::id() const noexcept {
+    return id_;
 }
 
 const void* StaticFontFace::data() const {

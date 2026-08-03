@@ -22,10 +22,12 @@ using namespace stl;
 
 namespace {
     struct CountedFontFace: public FontFace {
+        u32 id() const noexcept override;
         void ref() noexcept override;
         i32 unref() noexcept override;
         i32 refCount() const noexcept override;
 
+        const u32 id_ = nextFontFaceId();
         ARC arc_;
     };
 
@@ -55,7 +57,16 @@ namespace {
     };
 }
 
+u32 nextFontFaceId() noexcept {
+    static u32 counter = 0;
+    return counter++;
+}
+
 FontFace::~FontFace() noexcept {
+}
+
+u32 CountedFontFace::id() const noexcept {
+    return id_;
 }
 
 void CountedFontFace::ref() noexcept {

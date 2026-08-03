@@ -22,6 +22,10 @@ namespace stl {
 struct FontFace {
     virtual ~FontFace() noexcept;
 
+    // Dense program-wide identity, small enough to pack into hash-map
+    // keys; implementations take nextFontFaceId() at construction.
+    virtual u32 id() const noexcept = 0;
+
     virtual const void* data() const = 0;
     virtual size_t size() const = 0;
     virtual i32 faceIndex() const = 0;
@@ -30,6 +34,9 @@ struct FontFace {
     virtual i32 unref() noexcept = 0;
     virtual i32 refCount() const noexcept = 0;
 };
+
+// The auto-incremented program-wide counter behind FontFace::id().
+u32 nextFontFaceId() noexcept;
 
 // A counted face over caller-owned bytes; the bytes must outlive the face.
 FontFace* createMemoryFontFace(const void* data, size_t size, i32 faceIndex);

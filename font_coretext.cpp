@@ -26,18 +26,20 @@ using namespace stl;
 
 namespace {
     struct CoreTextFont final: public Font {
-        CoreTextFont(CTFontRef font, FontKind kind, FontMetrics metrics, FontStyle synthetic);
+        CoreTextFont(IntrusivePtr<FontFace> source, CTFontRef font, FontKind kind, FontMetrics metrics, FontStyle synthetic);
         ~CoreTextFont() noexcept;
 
         FontGlyph glyph(const u32* codepoints, size_t count, u16 cells) override;
         bool covers(u32 codepoint) override;
         Font* synthesize(ObjPool& owner, FontStyle style) override;
+        FontFace* face() override;
 
         CFStringRef makeString(const u32* codepoints, size_t count);
         CTLineRef makeLine(CFStringRef string);
         bool inspectLine(CTLineRef line, bool& color);
         bool drawLine(CTLineRef line, bool color);
 
+        IntrusivePtr<FontFace> source_;
         CTFontRef font_;
         FontKind kind_;
         FontMetrics metrics_;
@@ -98,8 +100,9 @@ namespace {
     }
 }
 
-CoreTextFont::CoreTextFont(CTFontRef font, FontKind kind, FontMetrics metrics, FontStyle synthetic)
-    : font_(font)
+CoreTextFont::CoreTextFont(IntrusivePtr<FontFace> source, CTFontRef font, FontKind kind, FontMetrics metrics, FontStyle synthetic)
+    : source_(source)
+    , font_(font)
     , kind_(kind)
     , metrics_(metrics)
     , syntheticBold_(synthetic == FontStyle::Bold || synthetic == FontStyle::BoldItalic)
@@ -107,9 +110,13 @@ CoreTextFont::CoreTextFont(CTFontRef font, FontKind kind, FontMetrics metrics, F
 {
 }
 
+FontFace* CoreTextFont::face() {
+    return source_.mutPtr();
+}
+
 Font* CoreTextFont::synthesize(ObjPool& owner, FontStyle style) {
     CFRetain(font_);
-    return owner.make<CoreTextFont>(font_, FontKind::Overlay, metrics_, style);
+    return owner.make<CoreTextFont>(source_, font_, FontKind::Overlay, metrics_, style);
 }
 
 CoreTextFont::~CoreTextFont() noexcept {
@@ -458,7 +465,7 @@ Font* CoreTextFontRenderer::render(ObjPool& owner, IntrusivePtr<FontFace> face, 
         CFRelease(font);
         return nullptr;
     }
-    return owner.make<CoreTextFont>(font, kind, metrics, FontStyle::Regular);
+    return owner.make<CoreTextFont>(face, font, kind, metrics, FontStyle::Regular);
 }
 
 FontResolver* createCoreTextFontResolver(Composer& composer) {

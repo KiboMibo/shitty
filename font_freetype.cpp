@@ -41,6 +41,7 @@ namespace {
         FontGlyph glyph(const u32* codepoints, size_t count, u16 cells) override;
         bool covers(u32 codepoint) override;
         Font* synthesize(ObjPool& owner, FontStyle style) override;
+        FontFace* face() override;
 
         struct FitMeasure {
             int advance = 0;
@@ -304,6 +305,10 @@ void FontImpl::configureScaled() {
 
 bool FontImpl::covers(u32 codepoint) {
     return FT_Get_Char_Index(face_, codepoint) != 0;
+}
+
+FontFace* FontImpl::face() {
+    return source_.mutPtr();
 }
 
 Font* FontImpl::synthesize(ObjPool& owner, FontStyle style) {

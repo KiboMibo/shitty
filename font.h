@@ -52,6 +52,10 @@ struct Font {
     // A new font over the same face that fakes the style (embolden/shear)
     // at render time; null when the backend cannot synthesize.
     virtual Font* synthesize(stl::ObjPool& owner, FontStyle style) = 0;
+    // The size-independent face behind this font, alive as long as the
+    // font: hand it to Composer::renderFace to rasterize the same face at
+    // another pixel size.
+    virtual FontFace* face() = 0;
 };
 
 // Rasterizes a resolved face at a pixel size. Any renderer accepts any
