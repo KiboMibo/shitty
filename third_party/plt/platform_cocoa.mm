@@ -1440,6 +1440,12 @@ NSRect WindowImpl::textInputScreenRect() const {
 }
 
 NSSize WindowImpl::willResize(NSSize frameSize) const {
+    if ((window.styleMask & NSWindowStyleMaskFullScreen) != 0) {
+        // A fullscreen window must fill its tile exactly; snapping the
+        // proposal down to cell increments fights the window server,
+        // visibly so with large cells.
+        return frameSize;
+    }
     const NSRect content = [window contentRectForFrameRect:NSMakeRect(0, 0, frameSize.width, frameSize.height)];
     const CGFloat scale = window.backingScaleFactor;
     u32 width = (u32)(max(1.0, content.size.width * scale) + 0.5);
