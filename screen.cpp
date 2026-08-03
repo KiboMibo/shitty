@@ -73,6 +73,7 @@ struct alignas(16) Row {
     // Entry count behind shape; the top bit marks a heap allocation too
     // large for the small-object allocator.
     u32 shapeCount = 0;
+
     union {
         // A live row: its rendered spans, allocated exactly-sized from the
         // composer's small-object allocator, null while unshaped. Content
@@ -81,6 +82,7 @@ struct alignas(16) Row {
         // A free-listed row; releaseRow frees shape before linking here.
         Row* freeNext;
     };
+
     alignas(16) TerminalCell cells[0];
 };
 
@@ -127,6 +129,25 @@ namespace {
         hash ^= value;
         hash *= 0x100000001b3ULL;
         return hash;
+    }
+
+    // Coverage a GPU renderer draws itself when no face has the cluster:
+    // box drawing and the DEC scan lines.
+    bool shapeSynthesizable(const TerminalCell* cells, u16 begin, u16 end) {
+        for (u16 column = begin; column < end; ++column) {
+            const TerminalCell& cell = cells[column];
+            if (cell.dwidth_cont || shapeBlankCell(cell)) {
+                continue;
+            }
+            if (cell.hasExtra()) {
+                return false;
+            }
+            const u32 codepoint = cell.uc_pt;
+            if (!((codepoint >= 0x2500 && codepoint <= 0x257f) || (codepoint >= 0x23ba && codepoint <= 0x23bd))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     struct ExactDamageCache {
@@ -376,6 +397,7 @@ namespace {
         };
 
         size_t rowSpans(i32 viewRow, ScreenRowSpan* out) override;
+        size_t shapeCells(const TerminalCell* cells, u16 count, u16 baseColumn, ScreenRowSpan* out) override;
         u32 spanGeneration() const override;
         const u8* spanMask() const override;
         size_t spanMaskUsed() const override;
@@ -384,7 +406,9 @@ namespace {
 
         void shapeRow(Row& row);
         void releaseRowShape(Row* row) noexcept;
-        u32 cutShapeRow(const TerminalCell* cells, RowSpanEntry* out);
+        u32 cutShapeRow(const TerminalCell* cells, u16 columns, RowSpanEntry* out);
+        void ensureShapeState();
+        void convertShapeEntries(const RowSpanEntry* entries, u32 count, u16 baseColumn, ScreenRowSpan* out) const;
         size_t shapeCluster(const TerminalCell& cell, u32* codepoints) const;
         void registerShapeListeners();
         void onExtrasCollected();
@@ -393,7 +417,7 @@ namespace {
         [[gnu::always_inline]] inline bool rowVisible(const Row* row) const noexcept;
         void buildShapeText(const TerminalCell* cells, u16 begin, u16 end);
         u64 materializedSpanHash(FontStyle style, u16 cells) const;
-        u32 renderShapeStrip(Font* font, bool color, u16 cells);
+        u32 renderShapeStrip(Font* font, bool color, const TerminalCell* cells, u16 begin, u16 end);
 
         IntMap<RawSpanRef>* rawSpans_ = nullptr;
         IntMap<StripRef>* strips_ = nullptr;
@@ -403,6 +427,7 @@ namespace {
         ShapeListener extrasListener_;
         ShapeListener fontListener_;
         Buffer shapeMask_;
+        Buffer overlayShape_;
         Buffer shapeColor_;
         // Reusable flat codepoint string of the span being rendered.
         Buffer shapeText_;
@@ -1145,15 +1170,19 @@ void ScreenBase<Coord, Epoch>::releaseRowShape(Row* row) noexcept {
 
 template <typename Coord, typename Epoch>
 size_t ScreenBase<Coord, Epoch>::shapeCluster(const TerminalCell& cell, u32* codepoints) const {
-    size_t count = 0;
-    codepoints[count++] = cell.uc_pt ? cell.uc_pt : ' ';
+    // A stored grapheme holds the whole cluster, lead codepoint included.
     if (cell.hasExtra() && composer.cellExtras != nullptr) {
         const GraphemeView grapheme = composer.cellExtras->view(cell).grapheme;
-        for (size_t index = 0; index < grapheme.size() && count < shapeClusterLimit; ++index) {
-            codepoints[count++] = grapheme.data()[index];
+        if (!grapheme.empty()) {
+            size_t count = 0;
+            for (size_t index = 0; index < grapheme.size() && count < shapeClusterLimit; ++index) {
+                codepoints[count++] = grapheme.data()[index];
+            }
+            return count;
         }
     }
-    return count;
+    codepoints[0] = cell.uc_pt ? cell.uc_pt : ' ';
+    return 1;
 }
 
 template <typename Coord, typename Epoch>
@@ -1296,29 +1325,56 @@ void ScreenBase<Coord, Epoch>::collectStrips() {
 }
 
 template <typename Coord, typename Epoch>
-u32 ScreenBase<Coord, Epoch>::renderShapeStrip(Font* font, bool color, u16 cells) {
+u32 ScreenBase<Coord, Epoch>::renderShapeStrip(Font* font, bool color, const TerminalCell* cells, u16 begin, u16 end) {
     Buffer& arena = color ? shapeColor_ : shapeMask_;
+    const u16 spanCells = (u16)(end - begin);
+    const u16 cellWidth = composer.fonts->getPx();
+    const u16 cellHeight = composer.fonts->getPy();
     const size_t pixel = color ? sizeof(u32) : 1;
-    const size_t bytes = (size_t)(cells)*composer.fonts->getPx() * composer.fonts->getPy() * pixel;
+    const size_t bytes = (size_t)(spanCells)*cellWidth * cellHeight * pixel;
     // The live set is bounded by the viewport, so thrice its pixel size
     // always leaves room after a collection.
-    const size_t budget = 3u * (size_t)(nCols)*nRows * composer.fonts->getPx() * composer.fonts->getPy() * pixel;
+    const size_t budget = 3u * (size_t)(nCols)*nRows * cellWidth * cellHeight * pixel;
     if (arena.used() + bytes > budget && arena.used() != 0) {
         collectStrips();
     }
     const size_t offset = arena.used();
     arena.grow(offset + bytes);
     arena.seekAbsolute(offset + bytes);
-    __builtin_memset((u8*)(arena.mutData()) + offset, 0, bytes);
-    font->render((const u32*)(shapeText_.data()), shapeText_.used() / sizeof(u32), cells, (u8*)(arena.mutData()) + offset);
-    return (u32)(offset / pixel);
+    u8* const out = (u8*)(arena.mutData()) + offset;
+    __builtin_memset(out, 0, bytes);
+    if (font != nullptr) {
+        font->render((const u32*)(shapeText_.data()), shapeText_.used() / sizeof(u32), spanCells, out);
+        return (u32)(offset / pixel);
+    }
+    // No face covers the span: a hollow box per cluster, the shape every
+    // renderer historically drew for lost glyphs.
+    const size_t stride = (size_t)(spanCells)*cellWidth;
+    for (u16 column = begin; column < end;) {
+        const TerminalCell& cell = cells[column];
+        if (cell.dwidth_cont || shapeBlankCell(cell)) {
+            ++column;
+            continue;
+        }
+        const u16 width = cell.dwidth && column + 1 < end && cells[column + 1].dwidth_cont ? 2 : 1;
+        const size_t x0 = (size_t)(column - begin) * cellWidth;
+        const int boxWidth = width * cellWidth;
+        for (int y = 1; y + 1 < cellHeight; ++y) {
+            for (int x = 1; x + 1 < boxWidth; ++x) {
+                if (x == 1 || x + 2 == boxWidth || y == 1 || y + 2 == cellHeight) {
+                    out[(size_t)(y)*stride + x0 + x] = 179;
+                }
+            }
+        }
+        column = (u16)(column + width);
+    }
+    return (u32)(offset);
 }
 
 template <typename Coord, typename Epoch>
-u32 ScreenBase<Coord, Epoch>::cutShapeRow(const TerminalCell* cells, RowSpanEntry* out) {
+u32 ScreenBase<Coord, Epoch>::cutShapeRow(const TerminalCell* cells, u16 columns, RowSpanEntry* out) {
     u32 spans = 0;
     u32 cluster[shapeClusterLimit];
-    const u16 columns = nCols;
     for (u16 column = 0; column < columns;) {
         if (shapeBlankCell(cells[column])) {
             ++column;
@@ -1363,11 +1419,14 @@ u32 ScreenBase<Coord, Epoch>::cutShapeRow(const TerminalCell* cells, RowSpanEntr
             RowSpanEntry& entry = out[spans];
             entry.begin = begin;
             entry.end = end;
-            if (font == nullptr) {
+            // Uncovered box-drawing and scan-line runs stay missing - a
+            // GPU renderer synthesizes their coverage from the codepoint;
+            // any other uncovered cluster gets the hollow box strip.
+            if (font == nullptr && shapeSynthesizable(cells, begin, end)) {
                 entry.hash = 0;
                 entry.offset = rowSpanMissing;
             } else {
-                const bool color = font->colored();
+                const bool color = font != nullptr && font->colored();
                 const u16 spanCells = (u16)(end - begin);
                 const u64 raw = shash64(cells + begin, (size_t)(spanCells) * sizeof(TerminalCell));
                 u64 materialized = 0;
@@ -1379,6 +1438,9 @@ u32 ScreenBase<Coord, Epoch>::cutShapeRow(const TerminalCell* cells, RowSpanEntr
                     buildShapeText(cells, begin, end);
                     haveText = true;
                     materialized = materializedSpanHash(style, spanCells);
+                    if (font == nullptr) {
+                        materialized = shapeMixHash(materialized, 0x426f78);
+                    }
                     if (rawRef != nullptr) {
                         rawRef->materialized = materialized;
                         rawRef->epoch = rawEpoch_;
@@ -1387,17 +1449,21 @@ u32 ScreenBase<Coord, Epoch>::cutShapeRow(const TerminalCell* cells, RowSpanEntr
                     }
                 }
                 entry.hash = materialized;
-                StripRef* const strip = strips_->find(materialized);
+                const StripRef* const strip = strips_->find(materialized);
                 if (strip != nullptr && strip->epoch == stripEpoch_) {
                     entry.offset = strip->offset;
                 } else {
                     if (!haveText) {
                         buildShapeText(cells, begin, end);
                     }
-                    entry.offset = renderShapeStrip(font, color, spanCells) | (color ? rowSpanColor : 0);
-                    if (strip != nullptr) {
-                        strip->offset = entry.offset;
-                        strip->epoch = stripEpoch_;
+                    Font* const styled = font != nullptr ? composer.fonts->styledFace(font, style) : nullptr;
+                    entry.offset = renderShapeStrip(styled != nullptr ? styled : font, color, cells, begin, end) | (color ? rowSpanColor : 0);
+                    // renderShapeStrip may have collected: the map was
+                    // rehashed by the sweep's inserts, so look up again.
+                    StripRef* const fresh = strips_->find(materialized);
+                    if (fresh != nullptr) {
+                        fresh->offset = entry.offset;
+                        fresh->epoch = stripEpoch_;
                     } else {
                         strips_->insert(materialized, entry.offset, stripEpoch_);
                     }
@@ -1410,12 +1476,17 @@ u32 ScreenBase<Coord, Epoch>::cutShapeRow(const TerminalCell* cells, RowSpanEntr
 }
 
 template <typename Coord, typename Epoch>
-void ScreenBase<Coord, Epoch>::shapeRow(Row& row) {
+void ScreenBase<Coord, Epoch>::ensureShapeState() {
     if (strips_ == nullptr) {
         rawSpans_ = pool.template make<IntMap<RawSpanRef>>(&pool);
         strips_ = pool.template make<IntMap<StripRef>>(&pool);
     }
-    const u32 count = cutShapeRow(row.cells, nullptr);
+}
+
+template <typename Coord, typename Epoch>
+void ScreenBase<Coord, Epoch>::shapeRow(Row& row) {
+    ensureShapeState();
+    const u32 count = cutShapeRow(row.cells, nCols, nullptr);
     if (count == 0) {
         return;
     }
@@ -1429,7 +1500,10 @@ void ScreenBase<Coord, Epoch>::shapeRow(Row& row) {
         row.shape = new RowSpanEntry[count];
         row.shapeCount = count | rowSpanHeapShape;
     }
-    cutShapeRow(row.cells, row.shape);
+    // The fill pass can trigger a collection, which walks this row through
+    // its already-published shapeCount: zeroed entries sweep as empty.
+    __builtin_memset(row.shape, 0, bytes);
+    cutShapeRow(row.cells, nCols, row.shape);
 }
 
 template <typename Coord, typename Epoch>
@@ -1449,17 +1523,50 @@ size_t ScreenBase<Coord, Epoch>::rowSpans(i32 viewRow, ScreenRowSpan* out) {
         }
     }
     const u32 count = row->shapeCount & ~rowSpanHeapShape;
+    convertShapeEntries(row->shape, count, 0, out);
+    return count;
+}
+
+template <typename Coord, typename Epoch>
+void ScreenBase<Coord, Epoch>::convertShapeEntries(const RowSpanEntry* entries, u32 count, u16 baseColumn, ScreenRowSpan* out) const {
     for (u32 index = 0; index < count; ++index) {
-        const RowSpanEntry& entry = row->shape[index];
+        const RowSpanEntry& entry = entries[index];
         out[index] = {
-            .begin = entry.begin,
-            .end = entry.end,
+            .begin = (u16)(entry.begin + baseColumn),
+            .end = (u16)(entry.end + baseColumn),
             .offset = entry.offset & rowSpanOffsetMask,
             .color = (entry.offset & rowSpanColor) != 0,
             .missing = (entry.offset & rowSpanMissing) != 0,
         };
     }
-    return count;
+}
+
+template <typename Coord, typename Epoch>
+size_t ScreenBase<Coord, Epoch>::shapeCells(const TerminalCell* cells, u16 count, u16 baseColumn, ScreenRowSpan* out) {
+    if (composer.fonts == nullptr || count == 0) {
+        return 0;
+    }
+    ensureShapeState();
+    const u32 spans = cutShapeRow(cells, count, nullptr);
+    if (spans == 0) {
+        return 0;
+    }
+    overlayShape_.reset();
+    overlayShape_.grow((size_t)(spans) * sizeof(RowSpanEntry));
+    overlayShape_.seekAbsolute((size_t)(spans) * sizeof(RowSpanEntry));
+    auto* const entries = (RowSpanEntry*)(overlayShape_.mutData());
+    // Nothing roots these strips, so a collection triggered by a later
+    // span of the same run moves the earlier ones; refill until the fill
+    // completes within one arena generation. The refill re-renders the
+    // swept strips into a collected arena, so it terminates.
+    u32 generation;
+    do {
+        generation = spanGeneration_;
+        __builtin_memset(entries, 0, (size_t)(spans) * sizeof(RowSpanEntry));
+        cutShapeRow(cells, count, entries);
+    } while (generation != spanGeneration_);
+    convertShapeEntries(entries, spans, baseColumn, out);
+    return spans;
 }
 
 template <typename Coord, typename Epoch>

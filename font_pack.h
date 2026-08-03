@@ -36,6 +36,11 @@ struct Fontpack {
     // the pack's lifetime, so its FontFace ids key span caches.
     virtual Font* resolveFace(const u32* codepoints, size_t count) = 0;
 
+    // The styled variant a resolved face renders with: the primary family
+    // swaps to its bold/italic member (or a synthetic style), fallbacks
+    // render as themselves.
+    virtual Font* styledFace(Font* face, FontStyle style) const = 0;
+
     // names[0] is the primary font and defines the cell metrics; the rest
     // are fallbacks in priority order, followed by the embedded fonts.
     static Fontpack* create(Composer& composer, stl::ObjPool& pool, const stl::StringView* names, size_t nameCount, u16 size);

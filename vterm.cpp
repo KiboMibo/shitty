@@ -2440,6 +2440,7 @@ const TerminalUpdate* VtermImpl::output() {
     updateScreen = frame;
     updatingRevision = presentationRevision();
     fillTerminalUpdate(terminalUpdate, output, outputSpans.data());
+    terminalUpdate.shapes = frame;
     overlayPreedit(terminalUpdate);
     return &terminalUpdate;
 }
@@ -2482,6 +2483,7 @@ void VtermImpl::overlayPreedit(TerminalUpdate& update) {
     span.index = (u32)(row) * (u32)(columns) + (u32)(startColumn);
     span.count = (u16)(count);
     span.lineAttribute = 0;
+    update.overlaySpan = update.spanCount;
     update.spanCount = update.spanCount + 1;
 
     // The regular cursor hides while composing; the anchor for the input
@@ -9330,7 +9332,6 @@ void VtermImpl::pasteSelection(const std::string& utf8_selection) {
 }
 
 Vterm* Vterm::create(Composer& composer, VtermTraceFactory* traceFactory) {
-
     Output* dump = nullptr;
     if (opts.dump != nullptr) {
         const int rawFd = ::open(opts.dump, O_WRONLY | O_CREAT | O_TRUNC, 0666);

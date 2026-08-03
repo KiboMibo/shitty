@@ -51,6 +51,7 @@ namespace {
         Font* faceAt(u16 index) const noexcept;
         bool coversAll(Font* font, const u32* codepoints, size_t count) const;
         Font* resolveFace(const u32* codepoints, size_t count) override;
+        Font* styledFace(Font* face, FontStyle style) const override;
         FontGlyph render(Font* face, const u32* codepoints, size_t count, FontStyle style, u16 cells);
         FontGlyph fitOverflow(Font* font, const u32* codepoints, size_t count, u16 cells, FontGlyph result);
         const FittedFont* fittedFont(FontFace* face, u16 pixels);
@@ -167,6 +168,10 @@ bool FontpackImpl::hasItalic() const {
 
 bool FontpackImpl::hasBoldItalic() const {
     return boldItalic_ != nullptr;
+}
+
+Font* FontpackImpl::styledFace(Font* face, FontStyle style) const {
+    return face == regular_ ? select(style) : face;
 }
 
 Font* FontpackImpl::select(FontStyle style) const noexcept {

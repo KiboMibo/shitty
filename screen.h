@@ -101,6 +101,11 @@ struct Screen {
     // when the composer has no fontpack. Rendered strips live in the span
     // arenas below, append-only between collections.
     virtual size_t rowSpans(i32 viewRow, ScreenRowSpan* out) = 0;
+    // Shapes a run of cells outside the screen model (the preedit
+    // overlay) through the same caches and arenas; the returned spans use
+    // baseColumn-relative view columns and stay valid within the current
+    // spanGeneration().
+    virtual size_t shapeCells(const TerminalCell* cells, u16 count, u16 baseColumn, ScreenRowSpan* out) = 0;
     // Bumped whenever strip offsets move wholesale (collection, font
     // change): a renderer holding arena-derived state re-uploads then.
     virtual u32 spanGeneration() const = 0;

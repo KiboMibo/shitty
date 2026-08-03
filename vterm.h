@@ -23,6 +23,7 @@ namespace stl {
 
 struct Composer;
 struct CellExtraStore;
+struct Screen;
 struct VtermTraceFactory;
 
 enum class VtModifier : u8 {
@@ -96,6 +97,18 @@ struct VtermState {
 struct TerminalUpdate {
     const TerminalCellSpan* spans = nullptr;
     size_t spanCount = 0;
+    // The shaping canvas of this frame: a strip-consuming renderer pulls
+    // Screen::rowSpans and the strip arenas through it. Null when the
+    // update is synthesized without a screen (renderer-internal repaints).
+    Screen* shapes = nullptr;
+    // Index into spans of the preedit overlay, or none: its cells exist
+    // outside the screen model, so the renderer shapes them itself via
+    // shapes->shapeCells.
+    size_t overlaySpan = (size_t)-1;
+    // Every span carries cells foreign to the shaping screen (retained
+    // cells re-rendered through another fontpack); the renderer shapes
+    // each span via shapes->shapeCells instead of the screen rows.
+    bool shapeFromCells = false;
     const TerminalColors* colors = nullptr;
     u32 viewOffset = 0;
     u32 historyRows = 0;

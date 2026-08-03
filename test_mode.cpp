@@ -20,6 +20,7 @@
 #include "mouse_frontend.h"
 #include "pty.h"
 #include "render_reference.h"
+#include "screen.h"
 #include "startup.h"
 #include "test_input.h"
 #include "utf8.h"
@@ -110,6 +111,10 @@ namespace {
                 .data = bitmap.data(),
                 .len = bitmap.length(),
             };
+        }
+
+        Font* styledFace(Font* face, FontStyle) const override {
+            return face;
         }
 
         Font* resolveFace(const u32*, size_t) override {
@@ -1925,7 +1930,12 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 const u16 imageHeight = 2 * opts.border + renderer.rows() * fonts->getPy();
                 renderComposer.resize(imageWidth, imageHeight);
                 renderComposer.platform = plt::createHeadlessPlatform(*renderPool);
-                const TerminalUpdate imageUpdate = renderer.renderUpdate();
+                TerminalUpdate imageUpdate = renderer.renderUpdate();
+                // The retained cells shape through a throwaway screen
+                // carrying the requested fontpack; its own rows stay
+                // blank.
+                imageUpdate.shapes = Screen::createPrimary(renderComposer, *renderPool, renderer.columns(), renderer.rows(), imageUpdate.colors, 0);
+                imageUpdate.shapeFromCells = true;
 
                 struct ImageFrame final: plt::FrameCallback {
                     bool frame(const plt::WindowInfo&) override {
