@@ -8,6 +8,9 @@
 
 #include "cell_extra_store.h"
 #include "composer.h"
+#include "font_embedded.h"
+#include "font_pack.h"
+#include "font_resolver.h"
 #include "vterm.h"
 
 #include <std/mem/obj_pool.h>
@@ -1475,3 +1478,132 @@ STD_TEST_SUITE(Screen) {
         verifyResizeDamage(true);
     }
 }
+
+#if defined(HAVE_FREETYPE) && defined(HAVE_HARFBUZZ)
+namespace {
+    // A pictogram the embedded nerd font covers.
+    constexpr u32 shapeIcon = 0xe606;
+
+    struct ShapeFixture {
+        ShapeFixture();
+
+        void writeText(Screen& screen, u16 row, u16 column, const char* text);
+
+        ObjPool::Ref pool = ObjPool::fromMemory();
+        TerminalColors colors;
+        Composer* composer = nullptr;
+        Screen* screen = nullptr;
+    };
+}
+
+ShapeFixture::ShapeFixture() {
+    configureColors(colors);
+    composer = pool->make<Composer>(pool.mutPtr());
+    // Only the embedded resolver: the tests must not depend on system
+    // fonts.
+    while (!composer->fontResolvers.empty()) {
+        composer->fontResolvers.popFront();
+    }
+    composer->fontResolvers.pushBack(createEmbeddedFontResolver(*composer));
+    composer->fonts = Fontpack::create(*composer, *pool, nullptr, 0, 16);
+    screen = Screen::createPrimary(*composer, *pool, 16, 4, &colors, 8);
+}
+
+void ShapeFixture::writeText(Screen& screen_, u16 row, u16 column, const char* text) {
+    const TerminalCell attrs = attributes();
+    for (size_t index = 0; text[index] != 0; ++index) {
+        const u32 codepoint = (u32)(u8)(text[index]);
+        screen_.writeGrapheme(row, (u16)(column + index), &codepoint, 1, false, attrs, 0, 0, attrs);
+    }
+}
+
+STD_TEST_SUITE(ScreenRowSpans) {
+    STD_TEST(PlainTextIsOneSpanWithInk) {
+        ShapeFixture fx;
+        fx.writeText(*fx.screen, 0, 0, "abc");
+        ScreenRowSpan spans[16];
+        const size_t count = fx.screen->rowSpans(0, spans);
+        STD_INSIST(count == 1);
+        STD_INSIST(spans[0].begin == 0 && spans[0].end == 3);
+        STD_INSIST(!spans[0].color && !spans[0].missing);
+        const u16 width = fx.composer->fonts->getPx();
+        const u16 height = fx.composer->fonts->getPy();
+        const u8* const arena = fx.screen->spanMask();
+        bool ink = false;
+        for (u16 row = 0; row < height && !ink; ++row) {
+            for (u16 x = 0; x < 3 * width && !ink; ++x) {
+                ink = arena[spans[0].offset + (size_t)(row)*3 * width + x] > 64;
+            }
+        }
+        STD_INSIST(ink);
+    }
+
+    STD_TEST(BlanksSplitSpansAndDedupRepeats) {
+        ShapeFixture fx;
+        fx.writeText(*fx.screen, 0, 0, "ab ab");
+        ScreenRowSpan spans[16];
+        const size_t count = fx.screen->rowSpans(0, spans);
+        STD_INSIST(count == 2);
+        STD_INSIST(spans[0].begin == 0 && spans[0].end == 2);
+        STD_INSIST(spans[1].begin == 3 && spans[1].end == 5);
+        STD_INSIST(spans[0].offset == spans[1].offset);
+    }
+
+    STD_TEST(MutationReshapesTheRow) {
+        ShapeFixture fx;
+        fx.writeText(*fx.screen, 0, 0, "ab");
+        ScreenRowSpan spans[16];
+        STD_INSIST(fx.screen->rowSpans(0, spans) == 1);
+        fx.writeText(*fx.screen, 0, 2, "c");
+        const size_t count = fx.screen->rowSpans(0, spans);
+        STD_INSIST(count == 1);
+        STD_INSIST(spans[0].end == 3);
+    }
+
+    STD_TEST(IconCapturesOneBlank) {
+        ShapeFixture fx;
+        const TerminalCell attrs = attributes();
+        const u32 icon = shapeIcon;
+        fx.screen->writeGrapheme(0, 0, &icon, 1, false, attrs, 0, 0, attrs);
+        fx.writeText(*fx.screen, 0, 2, "x");
+        ScreenRowSpan spans[16];
+        const size_t count = fx.screen->rowSpans(0, spans);
+        STD_INSIST(count == 2);
+        STD_INSIST(spans[0].begin == 0 && spans[0].end == 2);
+        STD_INSIST(spans[1].begin == 2 && spans[1].end == 3);
+    }
+
+    STD_TEST(AdjacentIconsStayAligned) {
+        ShapeFixture fx;
+        const TerminalCell attrs = attributes();
+        const u32 icon = shapeIcon;
+        fx.screen->writeGrapheme(0, 0, &icon, 1, false, attrs, 0, 0, attrs);
+        fx.screen->writeGrapheme(0, 1, &icon, 1, false, attrs, 0, 0, attrs);
+        ScreenRowSpan spans[16];
+        const size_t count = fx.screen->rowSpans(0, spans);
+        STD_INSIST(count == 1);
+        STD_INSIST(spans[0].begin == 0 && spans[0].end == 2);
+    }
+
+    STD_TEST(BlankRowHasNoSpans) {
+        ShapeFixture fx;
+        ScreenRowSpan spans[16];
+        STD_INSIST(fx.screen->rowSpans(0, spans) == 0);
+    }
+
+    STD_TEST(ScrollIntoHistoryDropsShapesAndReshapesOnView) {
+        ShapeFixture fx;
+        fx.writeText(*fx.screen, 0, 0, "abc");
+        ScreenRowSpan spans[16];
+        STD_INSIST(fx.screen->rowSpans(0, spans) == 1);
+        const TerminalCell attrs = attributes();
+        fx.screen->scrollRows(0, 4, -1, attrs);
+        // The shaped row is history now; scrolling the view back reshapes
+        // it on demand with the same strip.
+        STD_INSIST(fx.screen->scrollView(1));
+        const size_t count = fx.screen->rowSpans(0, spans);
+        STD_INSIST(count == 1);
+        STD_INSIST(spans[0].begin == 0 && spans[0].end == 3);
+    }
+}
+#endif

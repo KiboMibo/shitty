@@ -31,6 +31,11 @@ struct Fontpack {
     // covers renders as a hollow box. Never returns an empty glyph.
     virtual FontGlyph glyph(const u32* codepoints, size_t count, FontStyle style, bool doubleWidth) = 0;
 
+    // The face whose cmap covers the whole cluster, primary first then the
+    // fallback walk; null when nothing covers it. The result is stable for
+    // the pack's lifetime, so its FontFace ids key span caches.
+    virtual Font* resolveFace(const u32* codepoints, size_t count) = 0;
+
     // names[0] is the primary font and defines the cell metrics; the rest
     // are fallbacks in priority order, followed by the embedded fonts.
     static Fontpack* create(Composer& composer, stl::ObjPool& pool, const stl::StringView* names, size_t nameCount, u16 size);

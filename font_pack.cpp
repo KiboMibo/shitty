@@ -50,7 +50,7 @@ namespace {
         Font* select(FontStyle style) const noexcept;
         Font* faceAt(u16 index) const noexcept;
         bool coversAll(Font* font, const u32* codepoints, size_t count) const;
-        Font* resolveFace(const u32* codepoints, size_t count);
+        Font* resolveFace(const u32* codepoints, size_t count) override;
         FontGlyph render(Font* face, const u32* codepoints, size_t count, FontStyle style, u16 cells);
         FontGlyph fitOverflow(Font* font, const u32* codepoints, size_t count, u16 cells, FontGlyph result);
         const FittedFont* fittedFont(FontFace* face, u16 pixels);

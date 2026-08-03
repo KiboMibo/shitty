@@ -112,6 +112,10 @@ namespace {
             };
         }
 
+        Font* resolveFace(const u32*, size_t) override {
+            return nullptr;
+        }
+
         Composer& composer;
         Buffer bitmap;
     };

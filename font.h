@@ -47,8 +47,20 @@ struct FontMetrics {
 // Font.
 struct Font {
     virtual FontGlyph glyph(const u32* codepoints, size_t count, u16 cells) = 0;
+    // Rasterizes a whole span into buf, which arrives zeroed: the flat
+    // codepoint string of the span's cells, a captured blank cell as a
+    // space. cells is the strip width the grid dictates — the authority
+    // when the string's table width disagrees (an orphaned wide at the
+    // row edge) — and sizes buf: cells slices side by side, row-major
+    // with the strip width as stride, in the font's own plane and
+    // metrics. A unit may ink any of its cells: a pictogram followed by
+    // a space is free to use both slices.
+    virtual void render(const u32* codepoints, size_t count, u16 cells, void* buf) = 0;
     // A cmap lookup: whether this face has a glyph for the codepoint.
     virtual bool covers(u32 codepoint) = 0;
+    // Whether this font rasterizes color (RGBA) rather than coverage; the
+    // caller picks the span plane by it.
+    virtual bool colored() const = 0;
     // A new font over the same face that fakes the style (embolden/shear)
     // at render time; null when the backend cannot synthesize.
     virtual Font* synthesize(stl::ObjPool& owner, FontStyle style) = 0;
@@ -57,6 +69,11 @@ struct Font {
     // another pixel size.
     virtual FontFace* face() = 0;
 };
+
+// Whether the codepoint is a private-use pictogram: a span may hand such
+// a cluster the blank cell captured after it, and the font is free to ink
+// both slices.
+bool puaSymbol(u32 codepoint);
 
 // Rasterizes a resolved face at a pixel size. Any renderer accepts any
 // FontFace, so the resolver and rasterizer backends combine freely;

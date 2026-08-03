@@ -39,6 +39,18 @@ struct ScreenFrame {
     u32 viewOffset = 0;
 };
 
+// One rendered span of a row in view units: cells [begin, end) map onto
+// slices of one strip at offset in the plane's arena; slice i of cell
+// begin + i starts at offset + i * cellWidth with the strip width as the
+// row stride. missing marks an uncovered cluster with no strip.
+struct ScreenRowSpan {
+    u16 begin = 0;
+    u16 end = 0;
+    u32 offset = 0;
+    bool color = false;
+    bool missing = false;
+};
+
 struct ScreenInfo {
     u32 revision = 0;
     size_t cellCapacity = 0;
@@ -83,6 +95,16 @@ struct Screen {
     virtual Screen* resized(stl::ObjPool& pool, u16 columns, u16 rows, Cursor& cursor) = 0;
     virtual void dropHistory() = 0;
     virtual bool scrollView(i32 rows) = 0;
+
+    // Cuts, dedupes and rasterizes the row's spans through the composer's
+    // fontpack on demand; out must hold a full row of entries. Returns 0
+    // when the composer has no fontpack. Rendered strips live in the span
+    // arenas below, append-only between collections.
+    virtual size_t rowSpans(i32 viewRow, ScreenRowSpan* out) = 0;
+    virtual const u8* spanMask() const = 0;
+    virtual size_t spanMaskUsed() const = 0;
+    virtual const u32* spanColor() const = 0;
+    virtual size_t spanColorUsed() const = 0;
 
     virtual void fillCells(u16 ch, const TerminalCell& attrs) = 0;
     virtual void setLineAttribute(u16 row, u8 attribute) = 0;

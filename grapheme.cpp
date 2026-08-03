@@ -493,3 +493,36 @@ bool GraphemeBreaker::breakBeforeSlow(u32 codepoint, bool simple) {
     }
     return boundary;
 }
+
+bool nextSpanCluster(const u32* codepoints, size_t count, size_t& position, SpanCluster& cluster) {
+    if (position >= count) {
+        return false;
+    }
+    GraphemeBreaker breaker;
+    cluster.begin = position;
+    u32 previous = codepoints[position];
+    breaker.breakBefore(previous, codepointProperties(previous).simpleGrapheme);
+    int width = codepointWidth(previous);
+    ++position;
+    while (position < count) {
+        const u32 codepoint = codepoints[position];
+        if (breaker.breakBefore(codepoint, codepointProperties(codepoint).simpleGrapheme)) {
+            break;
+        }
+        switch (graphemeWidthEffect(previous, codepoint)) {
+            case GraphemeWidthEffect::Wide:
+                width = 2;
+                break;
+            case GraphemeWidthEffect::Narrow:
+                width = 1;
+                break;
+            case GraphemeWidthEffect::Unchanged:
+                break;
+        }
+        previous = codepoint;
+        ++position;
+    }
+    cluster.count = position - cluster.begin;
+    cluster.cells = (u16)(width < 1 ? 1 : width > 2 ? 2 : width);
+    return true;
+}

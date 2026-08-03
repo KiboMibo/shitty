@@ -29,6 +29,7 @@ namespace {
         bool hasItalic() const override;
         bool hasBoldItalic() const override;
         FontGlyph glyph(const u32* codepoints, size_t count, FontStyle style, bool doubleWidth) override;
+        Font* resolveFace(const u32* codepoints, size_t count) override;
 
         u8 bitmap[128]{};
         size_t bitmapLength = 0;
@@ -133,6 +134,10 @@ FontGlyph FakeFontpack::glyph(const u32* codepoints, size_t count, FontStyle sty
         .len = bitmapLength,
         .color = colorGlyph,
     };
+}
+
+Font* FakeFontpack::resolveFace(const u32*, size_t) {
+    return nullptr;
 }
 
 STD_TEST_SUITE(ReferenceRenderer) {

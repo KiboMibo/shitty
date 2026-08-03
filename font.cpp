@@ -16,3 +16,13 @@ FontRenderer* createFreeTypeFontRenderer(Composer& composer) {
     return nullptr;
 }
 #endif
+
+bool puaSymbol(u32 codepoint) {
+    if (codepoint >= 0xe000 && codepoint <= 0xf8ff) {
+        return true;
+    }
+    if (codepoint >= 0xf0000 && codepoint <= 0xffffd) {
+        return true;
+    }
+    return codepoint >= 0x100000 && codepoint <= 0x10fffd;
+}

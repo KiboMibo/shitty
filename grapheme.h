@@ -25,6 +25,19 @@ enum class GraphemeWidthEffect {
 
 GraphemeWidthEffect graphemeWidthEffect(u32 previous, u32 codepoint);
 
+// One cluster of a span's flat codepoint string: codepoints
+// [begin, begin + count) covering cells grid cells.
+struct SpanCluster {
+    size_t begin = 0;
+    size_t count = 0;
+    u16 cells = 0;
+};
+
+// Iterates the grapheme clusters of a span string with their grid widths,
+// by the same width rules the terminal used to place the cells. position
+// advances past the cluster; returns false at the end of the string.
+bool nextSpanCluster(const u32* codepoints, size_t count, size_t& position, SpanCluster& cluster);
+
 class GraphemeBreaker {
 public:
     [[gnu::always_inline]] bool breakBefore(u32 codepoint) {

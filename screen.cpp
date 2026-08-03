@@ -19,12 +19,18 @@
 
 #include "cell_extra_store.h"
 #include "composer.h"
+#include "font.h"
+#include "font_face.h"
+#include "font_pack.h"
 #include "utf8.h"
 
 #include <std/alg/minmax.h>
 #include <std/dbg/assert.h>
 #include <std/lib/buffer.h>
+#include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
+#include <std/mem/small_obj_allocator.h>
+#include <std/sym/i_map.h>
 
 #include <utf8proc.h>
 
@@ -42,9 +48,37 @@ struct RowMetadata {
     bool wide = false;
 };
 
+// One rendered span of a row: cells [begin, end) map onto slices of one
+// strip at offset in the plane's arena; slice i of cell begin + i starts
+// at offset + i * cellWidth with the strip width as the row stride. The
+// two top offset bits carry the plane and the missing-cluster mark.
+struct RowSpanEntry {
+    u64 hash = 0;
+    u32 offset = 0;
+    u16 begin = 0;
+    u16 end = 0;
+};
+
+static_assert(sizeof(RowSpanEntry) == 16, "row span entries must stay dense");
+
+constexpr u32 rowSpanColor = 0x80000000u;
+constexpr u32 rowSpanMissing = 0x40000000u;
+constexpr u32 rowSpanOffsetMask = 0x3fffffffu;
+constexpr u32 rowSpanHeapShape = 0x80000000u;
+
 struct alignas(16) Row {
     RowMetadata metadata;
-    Row* freeNext = nullptr;
+    // Entry count behind shape; the top bit marks a heap allocation too
+    // large for the small-object allocator.
+    u32 shapeCount = 0;
+    union {
+        // A live row: its rendered spans, allocated exactly-sized from the
+        // composer's small-object allocator, null while unshaped. Content
+        // mutations release it; row rotation moves it with the row.
+        RowSpanEntry* shape;
+        // A free-listed row; releaseRow frees shape before linking here.
+        Row* freeNext;
+    };
     alignas(16) TerminalCell cells[0];
 };
 
@@ -74,6 +108,25 @@ struct ResizeState {
 };
 
 namespace {
+    constexpr size_t shapeClusterLimit = 32;
+
+    bool shapeBlankCell(const TerminalCell& cell) {
+        if (cell.hasExtra()) {
+            return false;
+        }
+        return cell.uc_pt == 0 || cell.uc_pt == ' ';
+    }
+
+    FontStyle shapeCellStyle(const TerminalCell& cell) {
+        return (FontStyle)((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0));
+    }
+
+    u64 shapeMixHash(u64 hash, u64 value) {
+        hash ^= value;
+        hash *= 0x100000001b3ULL;
+        return hash;
+    }
+
     struct ExactDamageCache {
         static constexpr size_t capacity = 512;
 
@@ -179,6 +232,8 @@ namespace {
     // rebuilds convert between instantiations through ResizeState.
     template <typename Coord, typename Epoch>
     struct ScreenBase: public Screen {
+        ~ScreenBase() noexcept;
+
         ScreenBase(Composer& composer, ObjPool& pool);
         ScreenBase(Composer& composer, ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors, u16 saveLines);
 
@@ -292,6 +347,30 @@ namespace {
         };
 
         Damage damage;
+
+        struct StripRef {
+            u32 offset;
+        };
+
+        size_t rowSpans(i32 viewRow, ScreenRowSpan* out) override;
+        const u8* spanMask() const override;
+        size_t spanMaskUsed() const override;
+        const u32* spanColor() const override;
+        size_t spanColorUsed() const override;
+
+        void shapeRow(Row& row);
+        void releaseRowShape(Row* row) noexcept;
+        u32 cutShapeRow(const TerminalCell* cells, RowSpanEntry* out);
+        size_t shapeCluster(const TerminalCell& cell, u32* codepoints) const;
+        u64 shapeSpanHash(const TerminalCell* cells, u16 begin, u16 end, Font* font, FontStyle style) const;
+        u32 renderShapeStrip(const TerminalCell* cells, u16 begin, u16 end, Font* font, bool color);
+
+        // Strip dedup by span content hash over the two arenas.
+        IntMap<StripRef>* strips_ = nullptr;
+        Buffer shapeMask_;
+        Buffer shapeColor_;
+        // Reusable flat codepoint string of the span being rendered.
+        Buffer shapeText_;
 
         u32 wrapRow(i64 row) const noexcept;
         RowSlot& logicalRowSlot(int row);
@@ -986,9 +1065,233 @@ Row* ScreenBase<Coord, Epoch>::allocateRow() {
 template <typename Coord, typename Epoch>
 void ScreenBase<Coord, Epoch>::releaseRow(Row* row) {
     if (row != nullptr) {
+        // shape and freeNext share their slot; the shape must die first.
+        releaseRowShape(row);
         row->freeNext = freeRows;
         freeRows = row;
     }
+}
+
+template <typename Coord, typename Epoch>
+const u8* ScreenBase<Coord, Epoch>::spanMask() const {
+    return (const u8*)(shapeMask_.data());
+}
+
+template <typename Coord, typename Epoch>
+size_t ScreenBase<Coord, Epoch>::spanMaskUsed() const {
+    return shapeMask_.used();
+}
+
+template <typename Coord, typename Epoch>
+const u32* ScreenBase<Coord, Epoch>::spanColor() const {
+    return (const u32*)(shapeColor_.data());
+}
+
+template <typename Coord, typename Epoch>
+size_t ScreenBase<Coord, Epoch>::spanColorUsed() const {
+    return shapeColor_.used() / sizeof(u32);
+}
+
+template <typename Coord, typename Epoch>
+void ScreenBase<Coord, Epoch>::releaseRowShape(Row* row) noexcept {
+    if (row == nullptr || row->shapeCount == 0) {
+        return;
+    }
+    const u32 count = row->shapeCount & ~rowSpanHeapShape;
+    if (row->shapeCount & rowSpanHeapShape) {
+        delete[] row->shape;
+    } else {
+        composer.smallObjects->deallocate(row->shape, (size_t)(count) * sizeof(RowSpanEntry));
+    }
+    row->shapeCount = 0;
+    row->shape = nullptr;
+}
+
+template <typename Coord, typename Epoch>
+size_t ScreenBase<Coord, Epoch>::shapeCluster(const TerminalCell& cell, u32* codepoints) const {
+    size_t count = 0;
+    codepoints[count++] = cell.uc_pt ? cell.uc_pt : ' ';
+    if (cell.hasExtra() && composer.cellExtras != nullptr) {
+        const GraphemeView grapheme = composer.cellExtras->view(cell).grapheme;
+        for (size_t index = 0; index < grapheme.size() && count < shapeClusterLimit; ++index) {
+            codepoints[count++] = grapheme.data()[index];
+        }
+    }
+    return count;
+}
+
+template <typename Coord, typename Epoch>
+u64 ScreenBase<Coord, Epoch>::shapeSpanHash(const TerminalCell* cells, u16 begin, u16 end, Font* font, FontStyle style) const {
+    u64 hash = 0xcbf29ce484222325ULL;
+    hash = shapeMixHash(hash, font == nullptr ? 0xffffffffu : font->face()->id());
+    hash = shapeMixHash(hash, (u64)(style));
+    hash = shapeMixHash(hash, (u64)(end - begin));
+    u32 cluster[shapeClusterLimit];
+    for (u16 column = begin; column < end; ++column) {
+        const TerminalCell& cell = cells[column];
+        if (shapeBlankCell(cell)) {
+            hash = shapeMixHash(hash, ' ');
+            continue;
+        }
+        const size_t count = shapeCluster(cell, cluster);
+        for (size_t index = 0; index < count; ++index) {
+            hash = shapeMixHash(hash, cluster[index]);
+        }
+        hash = shapeMixHash(hash, cell.dwidth ? 0x10ffff + 2u : 0x10ffff + 1u);
+    }
+    return hash;
+}
+
+template <typename Coord, typename Epoch>
+u32 ScreenBase<Coord, Epoch>::renderShapeStrip(const TerminalCell* cells, u16 begin, u16 end, Font* font, bool color) {
+    // The flat codepoint string of the span: cluster codepoints of every
+    // lead cell, a captured blank cell as a space.
+    shapeText_.reset();
+    u32 cluster[shapeClusterLimit];
+    for (u16 column = begin; column < end; ++column) {
+        const TerminalCell& cell = cells[column];
+        if (cell.dwidth_cont) {
+            continue;
+        }
+        if (shapeBlankCell(cell)) {
+            const u32 space = ' ';
+            shapeText_.append(&space, sizeof(space));
+            continue;
+        }
+        const size_t count = shapeCluster(cell, cluster);
+        shapeText_.append(cluster, count * sizeof(u32));
+    }
+
+    const u16 count = (u16)(end - begin);
+    Buffer& arena = color ? shapeColor_ : shapeMask_;
+    const size_t pixel = color ? sizeof(u32) : 1;
+    const size_t bytes = (size_t)(count)*composer.fonts->getPx() * composer.fonts->getPy() * pixel;
+    const size_t offset = arena.used();
+    arena.grow(offset + bytes);
+    arena.seekAbsolute(offset + bytes);
+    __builtin_memset((u8*)(arena.mutData()) + offset, 0, bytes);
+    font->render((const u32*)(shapeText_.data()), shapeText_.used() / sizeof(u32), count, (u8*)(arena.mutData()) + offset);
+    return (u32)(offset / pixel);
+}
+
+template <typename Coord, typename Epoch>
+u32 ScreenBase<Coord, Epoch>::cutShapeRow(const TerminalCell* cells, RowSpanEntry* out) {
+    u32 spans = 0;
+    u32 cluster[shapeClusterLimit];
+    const u16 columns = nCols;
+    for (u16 column = 0; column < columns;) {
+        if (shapeBlankCell(cells[column])) {
+            ++column;
+            continue;
+        }
+
+        const u16 begin = column;
+        const FontStyle style = shapeCellStyle(cells[column]);
+        Font* font = nullptr;
+        bool started = false;
+        u16 lastClusterStart = column;
+        while (column < columns && !shapeBlankCell(cells[column])) {
+            if (shapeCellStyle(cells[column]) != style) {
+                break;
+            }
+            const size_t count = shapeCluster(cells[column], cluster);
+            Font* const cellFont = composer.fonts->resolveFace(cluster, count);
+            if (!started) {
+                font = cellFont;
+                started = true;
+            } else if (cellFont != font) {
+                break;
+            }
+            lastClusterStart = column;
+            const u16 width = cells[column].dwidth && column + 1 < columns && cells[column + 1].dwidth_cont ? 2 : 1;
+            column = (u16)(column + width);
+        }
+        u16 end = column;
+
+        // A pictogram at the end of its span captures one blank cell for
+        // its ink. Not at the last column, and not when the cell before
+        // the pictogram is itself one - icon columns stay aligned.
+        const TerminalCell& last = cells[lastClusterStart];
+        const bool lastIsSymbol = !last.hasExtra() && puaSymbol(last.uc_pt);
+        const bool precededBySymbol = lastClusterStart > 0 && !cells[lastClusterStart - 1].hasExtra() && puaSymbol(cells[lastClusterStart - 1].uc_pt);
+        if (lastIsSymbol && !precededBySymbol && column < columns && shapeBlankCell(cells[column])) {
+            end = (u16)(column + 1);
+            column = end;
+        }
+
+        if (out != nullptr) {
+            RowSpanEntry& entry = out[spans];
+            entry.begin = begin;
+            entry.end = end;
+            if (font == nullptr) {
+                entry.hash = 0;
+                entry.offset = rowSpanMissing;
+            } else {
+                const bool color = font->colored();
+                entry.hash = shapeSpanHash(cells, begin, end, font, style);
+                if (const StripRef* const cached = strips_->find(entry.hash)) {
+                    entry.offset = cached->offset;
+                } else {
+                    entry.offset = renderShapeStrip(cells, begin, end, font, color) | (color ? rowSpanColor : 0);
+                    strips_->insert(entry.hash, entry.offset);
+                }
+            }
+        }
+        ++spans;
+    }
+    return spans;
+}
+
+template <typename Coord, typename Epoch>
+void ScreenBase<Coord, Epoch>::shapeRow(Row& row) {
+    if (strips_ == nullptr) {
+        strips_ = pool.template make<IntMap<StripRef>>(&pool);
+    }
+    const u32 count = cutShapeRow(row.cells, nullptr);
+    if (count == 0) {
+        return;
+    }
+    const size_t bytes = (size_t)(count) * sizeof(RowSpanEntry);
+    if (bytes <= smallObjMaxSize) {
+        row.shape = (RowSpanEntry*)(composer.smallObjects->allocate(bytes));
+        row.shapeCount = count;
+    } else {
+        // A row of more spans than the small-object bound is pathological
+        // but must not corrupt it.
+        row.shape = new RowSpanEntry[count];
+        row.shapeCount = count | rowSpanHeapShape;
+    }
+    cutShapeRow(row.cells, row.shape);
+}
+
+template <typename Coord, typename Epoch>
+size_t ScreenBase<Coord, Epoch>::rowSpans(i32 viewRow, ScreenRowSpan* out) {
+    if (composer.fonts == nullptr) {
+        return 0;
+    }
+    const i32 logical = viewRow - (i32)(viewOffset);
+    Row* const row = rawLogicalRowObject(logical);
+    if (row == nullptr) {
+        return 0;
+    }
+    if (row->shape == nullptr) {
+        shapeRow(*row);
+        if (row->shape == nullptr) {
+            return 0;
+        }
+    }
+    const u32 count = row->shapeCount & ~rowSpanHeapShape;
+    for (u32 index = 0; index < count; ++index) {
+        const RowSpanEntry& entry = row->shape[index];
+        out[index] = {
+            .begin = entry.begin,
+            .end = entry.end,
+            .offset = entry.offset & rowSpanOffsetMask,
+            .color = (entry.offset & rowSpanColor) != 0,
+            .missing = (entry.offset & rowSpanMissing) != 0,
+        };
+    }
+    return count;
 }
 
 template <typename Coord, typename Epoch>
@@ -1001,6 +1304,7 @@ TerminalCell* ScreenBase<Coord, Epoch>::mutableRow(RowSlot& slot) {
     if (slot == nullptr) {
         slot = allocateRow();
     }
+    releaseRowShape(slot);
     return slot->cells;
 }
 
@@ -1098,7 +1402,22 @@ void ScreenBase<Coord, Epoch>::collectExtraCells(Vector<TerminalCell*>& cells) {
 }
 
 template <typename Coord, typename Epoch>
+ScreenBase<Coord, Epoch>::~ScreenBase() noexcept {
+    if (rowRing == nullptr) {
+        return;
+    }
+    for (u32 index = 0; index < rowCapacity; ++index) {
+        releaseRowShape(rowRing[index]);
+    }
+}
+
+template <typename Coord, typename Epoch>
 ResizeState* ScreenBase<Coord, Epoch>::moveIntoState() {
+    // The rebuilt screen reshapes from scratch; the span arrays live in
+    // the composer's allocator and must not leak with this screen.
+    for (u32 index = 0; rowRing != nullptr && index < rowCapacity; ++index) {
+        releaseRowShape(rowRing[index]);
+    }
     ResizeState* const state = pool.make<ResizeState>();
     state->columns = nCols;
     state->rows = nRows;
@@ -1857,6 +2176,9 @@ void ScreenBase<Coord, Epoch>::scrollUpWithHistory(u16 top, u16 bottom, u16 coun
             } else {
                 ++historyRows;
             }
+            // The viewport's top row becomes history; history keeps cells
+            // only.
+            releaseRowShape(rawLogicalRowObject(0));
             rowEnd = (rowEnd + 1) & (rowCapacity - 1);
             RowSlot& last = logicalRowSlot(nRows - 1);
             STD_ASSERT(last == 0);
@@ -2085,6 +2407,7 @@ TerminalCell* ScreenBase<Coord, Epoch>::prepareSpan(RowSlot& slot, u16 row, u16 
         if (!selection.empty()) {
             invalidateSelection(Rect(start, row, end, row));
         }
+        releaseRowShape(slot);
         return slot->cells + start;
     }
     return overwriteWideSpan(row, start, count, eraseAttrs);

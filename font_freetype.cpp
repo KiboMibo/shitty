@@ -39,7 +39,9 @@ namespace {
         ~FontImpl() noexcept;
 
         FontGlyph glyph(const u32* codepoints, size_t count, u16 cells) override;
+        void render(const u32* codepoints, size_t count, u16 cells, void* buf) override;
         bool covers(u32 codepoint) override;
+        bool colored() const override;
         Font* synthesize(ObjPool& owner, FontStyle style) override;
         FontFace* face() override;
 
@@ -301,6 +303,51 @@ void FontImpl::configureScaled() {
     }
     // Fallback faces impose no cell of their own: the effective pixel size
     // is chosen per cell span by fitCells.
+}
+
+void FontImpl::render(const u32* codepoints, size_t count, u16 cells, void* buf) {
+    // Per-cluster rasterization through the internal canvas; the slice
+    // copy disappears when harfbuzz layout replaces this loop and draws
+    // into the caller's buffer directly. cells is the grid's strip width;
+    // clusters clamp to it.
+    const size_t stride = (size_t)(cells)*metrics_.width;
+    size_t position = 0;
+    u16 column = 0;
+    SpanCluster cluster;
+    SpanCluster next;
+    bool haveNext = nextSpanCluster(codepoints, count, position, next);
+    while (haveNext && column < cells) {
+        cluster = next;
+        haveNext = nextSpanCluster(codepoints, count, position, next);
+        u16 width = cluster.cells;
+        const bool blank = cluster.count == 1 && codepoints[cluster.begin] == ' ';
+        if (blank) {
+            column = (u16)(column + width);
+            continue;
+        }
+        // A pictogram followed by a blank cell owns that cell's slice too.
+        const bool nextBlank = haveNext && next.count == 1 && codepoints[next.begin] == ' ';
+        if (width == 1 && cluster.count == 1 && puaSymbol(codepoints[cluster.begin]) && nextBlank && column + 1 < cells) {
+            width = 2;
+            haveNext = nextSpanCluster(codepoints, count, position, next);
+        }
+        width = (u16)(minimum(width, cells - column));
+        glyphColor_ = false;
+        canvasWidth_ = (u16)(minimum(width, 2) * metrics_.width);
+        if (applyCells((u16)(minimum(width, 2))) && rasterize(codepoints + cluster.begin, cluster.count) && glyphColor_ == hasColor_) {
+            const u8* const source = (const u8*)(bitmap_.data());
+            u8* const out = (u8*)(buf);
+            const size_t pixel = hasColor_ ? 4 : 1;
+            for (u16 row = 0; row < metrics_.height; ++row) {
+                __builtin_memcpy(out + ((size_t)(row)*stride + (size_t)(column)*metrics_.width) * pixel, source + (size_t)(row)*canvasWidth_ * pixel, (size_t)(canvasWidth_)*pixel);
+            }
+        }
+        column = (u16)(column + width);
+    }
+}
+
+bool FontImpl::colored() const {
+    return hasColor_;
 }
 
 bool FontImpl::covers(u32 codepoint) {

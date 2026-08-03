@@ -30,7 +30,9 @@ namespace {
         ~CoreTextFont() noexcept;
 
         FontGlyph glyph(const u32* codepoints, size_t count, u16 cells) override;
+        void render(const u32* codepoints, size_t count, u16 cells, void* buf) override;
         bool covers(u32 codepoint) override;
+        bool colored() const override;
         Font* synthesize(ObjPool& owner, FontStyle style) override;
         FontFace* face() override;
 
@@ -121,6 +123,89 @@ Font* CoreTextFont::synthesize(ObjPool& owner, FontStyle style) {
 
 CoreTextFont::~CoreTextFont() noexcept {
     CFRelease(font_);
+}
+
+void CoreTextFont::render(const u32* codepoints, size_t count, u16 cells, void* buf) {
+    // One context over the caller's buffer for the whole strip; clusters
+    // draw at their grid pen offsets. Replacing this loop with a single
+    // CTLine over the span is the shaping stage.
+    const bool color = colored();
+    const size_t bytesPerPixel = color ? 4 : 1;
+    const size_t stride = (size_t)(cells)*metrics_.width * bytesPerPixel;
+    CGColorSpaceRef colorSpace = color ? CGColorSpaceCreateDeviceRGB() : CGColorSpaceCreateDeviceGray();
+    if (colorSpace == nullptr) {
+        return;
+    }
+    const CGBitmapInfo bitmapInfo = color ? (CGBitmapInfo)(kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big) : (CGBitmapInfo)(kCGImageAlphaNone);
+    CGContextRef context = CGBitmapContextCreate(buf, (size_t)(cells)*metrics_.width, metrics_.height, 8, stride, colorSpace, bitmapInfo);
+    CGColorSpaceRelease(colorSpace);
+    if (context == nullptr) {
+        return;
+    }
+    CGContextSetAllowsAntialiasing(context, true);
+    CGContextSetShouldAntialias(context, true);
+    CGContextSetAllowsFontSmoothing(context, false);
+    CGContextSetShouldSmoothFonts(context, false);
+    if (color) {
+        CGContextSetRGBFillColor(context, 1, 1, 1, 1);
+    } else {
+        CGContextSetGrayFillColor(context, 1, 1);
+    }
+    if (syntheticBold_) {
+        CGContextSetTextDrawingMode(context, kCGTextFillStroke);
+        CGContextSetLineWidth(context, metrics_.height * 0.03);
+        if (color) {
+            CGContextSetRGBStrokeColor(context, 1, 1, 1, 1);
+        } else {
+            CGContextSetGrayStrokeColor(context, 1, 1);
+        }
+    }
+    CGAffineTransform matrix = CGAffineTransformIdentity;
+    if (syntheticItalic_) {
+        matrix.c = 0.25;
+    }
+    CGContextSetTextMatrix(context, matrix);
+
+    size_t position = 0;
+    u16 column = 0;
+    SpanCluster cluster;
+    SpanCluster next;
+    bool haveNext = nextSpanCluster(codepoints, count, position, next);
+    while (haveNext && column < cells) {
+        cluster = next;
+        haveNext = nextSpanCluster(codepoints, count, position, next);
+        u16 width = cluster.cells;
+        const bool blank = cluster.count == 1 && codepoints[cluster.begin] == ' ';
+        if (blank) {
+            column = (u16)(column + width);
+            continue;
+        }
+        // A pictogram followed by a blank cell owns that cell's slice too.
+        const bool nextBlank = haveNext && next.count == 1 && codepoints[next.begin] == ' ';
+        if (width == 1 && cluster.count == 1 && puaSymbol(codepoints[cluster.begin]) && nextBlank && column + 1 < cells) {
+            width = 2;
+            haveNext = nextSpanCluster(codepoints, count, position, next);
+        }
+        CFStringRef string = makeString(codepoints + cluster.begin, cluster.count);
+        if (string != nullptr) {
+            CTLineRef line = makeLine(string);
+            CFRelease(string);
+            if (line != nullptr) {
+                bool lineColor = false;
+                if (inspectLine(line, lineColor) && lineColor == color) {
+                    CGContextSetTextPosition(context, (CGFloat)((size_t)(column)*metrics_.width), (CGFloat)(metrics_.height - metrics_.baseline));
+                    CTLineDraw(line, context);
+                }
+                CFRelease(line);
+            }
+        }
+        column = (u16)(column + width);
+    }
+    CGContextRelease(context);
+}
+
+bool CoreTextFont::colored() const {
+    return (CTFontGetSymbolicTraits(font_) & kCTFontColorGlyphsTrait) != 0;
 }
 
 bool CoreTextFont::covers(u32 codepoint) {

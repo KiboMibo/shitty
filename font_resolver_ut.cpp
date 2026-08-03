@@ -18,7 +18,9 @@ using namespace stl;
 namespace {
     struct FakeFont final: public Font {
         FontGlyph glyph(const u32* codepoints, size_t count, u16 cells) override;
+        void render(const u32* codepoints, size_t count, u16 cells, void* buf) override;
         bool covers(u32 codepoint) override;
+        bool colored() const override;
         Font* synthesize(ObjPool& owner, FontStyle style) override;
         FontFace* face() override;
     };
@@ -53,6 +55,13 @@ namespace {
 
 FontGlyph FakeFont::glyph(const u32*, size_t, u16) {
     return {};
+}
+
+void FakeFont::render(const u32*, size_t, u16, void*) {
+}
+
+bool FakeFont::colored() const {
+    return false;
 }
 
 bool FakeFont::covers(u32) {
