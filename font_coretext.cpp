@@ -10,8 +10,10 @@
     #include "composer.h"
     #include "font_face.h"
     #include "font_resolver.h"
+    #include "options.h"
     #include "utf8.h"
 
+    #include <std/ios/sys.h>
     #include <std/lib/buffer.h>
     #include <std/mem/obj_pool.h>
     #include <std/str/view.h>
@@ -504,6 +506,9 @@ Font* CoreTextFontRenderer::render(ObjPool& owner, IntrusivePtr<FontFace> face, 
     if (actual.width == 0 || actual.height == 0 || actual.baseline == 0) {
         CFRelease(font);
         return nullptr;
+    }
+    if (opts.verbose) {
+        sysO << StringView(u8"coretext face: kind ") << (u64)((u8)(kind)) << StringView(u8" at ") << pixels << StringView(u8"px, cell ") << actual.width << StringView(u8"x") << actual.height << StringView(u8" baseline ") << actual.baseline << StringView(u8"\n");
     }
     if (kind == FontKind::Primary) {
         metrics = actual;

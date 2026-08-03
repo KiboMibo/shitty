@@ -870,7 +870,11 @@ bool FontImpl::rasterize(const u32* codepoints, size_t count) {
 }
 
 Font* FreeTypeRenderer::render(ObjPool& owner, IntrusivePtr<FontFace> face, u16 pixels, FontKind kind, FontMetrics& metrics) {
-    return owner.make<FontImpl>(face, pixels, kind, metrics, FontStyle::Regular);
+    Font* const font = owner.make<FontImpl>(face, pixels, kind, metrics, FontStyle::Regular);
+    if (opts.verbose) {
+        sysO << StringView(u8"freetype face: kind ") << (u64)((u8)(kind)) << StringView(u8" at ") << pixels << StringView(u8"px, cell ") << metrics.width << StringView(u8"x") << metrics.height << StringView(u8" baseline ") << metrics.baseline << StringView(u8"\n");
+    }
+    return font;
 }
 
 FontRenderer* createFreeTypeFontRenderer(Composer& composer) {
