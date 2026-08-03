@@ -43,6 +43,25 @@ with title changes and bells instead of drawing. Reproduce with
 [dev/compare.py](dev/compare.py), which verifies the equalized setup from
 inside every terminal before measuring anything.
 
+## Why
+
+- **Fast.** See the tables above; `dev/compare.py` reproduces them.
+- **Correct.** More than 5,000 tests, harvested from over a dozen
+  suites - kitty, esctest, xterm's vttests, vttest, tack, libvterm,
+  libtsm, alacritty, ghostty, contour, konsole, mosh - and driven
+  black-box through a real PTY.
+- **Flicker-free.** Resize frames render inside the same transaction
+  as the bounds change; updates are damage-driven.
+- **Indestructible.** The parser state machine is total and fuzzed
+  with committed corpora: `cat /dev/urandom` is a benchmark here, not
+  a crash report.
+- **Unicode done right.** Cells are grapheme clusters, not codepoints:
+  emoji sequences, variation selectors, combining marks, wide CJK.
+- **Self-contained.** One small binary, no windowing toolkit, fonts
+  embedded - it starts on a machine with no fonts installed at all.
+- **Locked down by default.** Applications cannot read selections or
+  drive the host window unless explicitly allowed.
+
 ## Features
 
 - VT52 through VT5xx controls and widely used xterm extensions.
