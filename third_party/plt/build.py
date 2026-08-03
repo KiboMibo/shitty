@@ -9,7 +9,6 @@ build.cxxflags += [
     "-O2",
     "-W",
     "-Wall",
-    "-Werror",
 ]
 
 libstd = dependency(
