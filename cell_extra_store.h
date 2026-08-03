@@ -67,6 +67,10 @@ struct CellExtraStore {
     virtual void clearHyperlink(TerminalCell& cell) = 0;
     virtual void clearExtra(TerminalCell& cell, CellColor underlineColor) = 0;
 
+    // Bumped by every collect: extra refs are content identities only
+    // within one generation, so caches keyed by refs seed with it.
+    virtual u32 generation() const noexcept = 0;
+
     virtual void setCellCount(size_t cellCount) noexcept = 0;
     virtual size_t slotBudget() const noexcept = 0;
     virtual bool shouldCollect() const noexcept = 0;

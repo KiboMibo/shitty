@@ -362,7 +362,7 @@ namespace {
         void releaseRowShape(Row* row) noexcept;
         u32 cutShapeRow(const TerminalCell* cells, RowSpanEntry* out);
         size_t shapeCluster(const TerminalCell& cell, u32* codepoints) const;
-        u64 shapeSpanHash(const TerminalCell* cells, u16 begin, u16 end, Font* font, FontStyle style) const;
+        u64 shapeSpanHash(const TerminalCell* cells, u16 begin, u16 end) const;
         u32 renderShapeStrip(const TerminalCell* cells, u16 begin, u16 end, Font* font, bool color);
 
         // Strip dedup by span content hash over the two arenas.
@@ -1121,23 +1121,30 @@ size_t ScreenBase<Coord, Epoch>::shapeCluster(const TerminalCell& cell, u32* cod
 }
 
 template <typename Coord, typename Epoch>
-u64 ScreenBase<Coord, Epoch>::shapeSpanHash(const TerminalCell* cells, u16 begin, u16 end, Font* font, FontStyle style) const {
+u64 ScreenBase<Coord, Epoch>::shapeSpanHash(const TerminalCell* cells, u16 begin, u16 end) const {
+    // The strip identity straight from the raw cells: no cluster
+    // materialization on the hit path. Of the content word only the
+    // codepoint, the wide pair bits and the extended flag shape the
+    // strip; an extra ref is a content identity within one extras
+    // generation, and the seed carries that generation plus the
+    // fontpack, so neither collection nor a font change can alias.
+    constexpr u32 shapingContent = 0x807fffffu;
     u64 hash = 0xcbf29ce484222325ULL;
-    hash = shapeMixHash(hash, font == nullptr ? 0xffffffffu : font->face()->id());
-    hash = shapeMixHash(hash, (u64)(style));
+    hash = shapeMixHash(hash, (u64)(uintptr_t)(composer.fonts));
+    hash = shapeMixHash(hash, composer.cellExtras == nullptr ? 0 : composer.cellExtras->generation());
     hash = shapeMixHash(hash, (u64)(end - begin));
-    u32 cluster[shapeClusterLimit];
     for (u16 column = begin; column < end; ++column) {
         const TerminalCell& cell = cells[column];
         if (shapeBlankCell(cell)) {
+            // A written space and an untouched cell render the same.
             hash = shapeMixHash(hash, ' ');
             continue;
         }
-        const size_t count = shapeCluster(cell, cluster);
-        for (size_t index = 0; index < count; ++index) {
-            hash = shapeMixHash(hash, cluster[index]);
+        hash = shapeMixHash(hash, cell.content & shapingContent);
+        hash = shapeMixHash(hash, ((u64)(cell.bold) << 1) | (u64)(cell.italic));
+        if (cell.hasExtra()) {
+            hash = shapeMixHash(hash, cell.extraRef());
         }
-        hash = shapeMixHash(hash, cell.dwidth ? 0x10ffff + 2u : 0x10ffff + 1u);
     }
     return hash;
 }
@@ -1228,7 +1235,7 @@ u32 ScreenBase<Coord, Epoch>::cutShapeRow(const TerminalCell* cells, RowSpanEntr
                 entry.offset = rowSpanMissing;
             } else {
                 const bool color = font->colored();
-                entry.hash = shapeSpanHash(cells, begin, end, font, style);
+                entry.hash = shapeSpanHash(cells, begin, end);
                 if (const StripRef* const cached = strips_->find(entry.hash)) {
                     entry.offset = cached->offset;
                 } else {
