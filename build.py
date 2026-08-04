@@ -287,6 +287,25 @@ parser_prod = command(
     color="magenta",
 )
 
+# No totality check here: unlike the VT stream, the config parser is allowed
+# to reject input, so unhandled bytes are ordinary syntax errors.
+toml_prod = command(
+    name="toml_prod",
+    inputs=["$(S)/toml.rl"],
+    outputs=["$(B)/toml.rl.h"],
+    cmd=[
+        "ragel",
+        "-C",
+        "-G1",
+        "-L",
+        "-o",
+        "$(B)/toml.rl.h",
+        "$(S)/toml.rl",
+    ],
+    descr="RG",
+    color="magenta",
+)
+
 parser_test = command(
     name="parser_test",
     inputs=["$(S)/parser.rl"],
@@ -381,6 +400,8 @@ main_source = "$(S)/main.cpp"
 fuzz_source = "$(S)/main_fuzz.cpp"
 heap_profile_source = "$(S)/heap_profile.cpp"
 parser_source = "$(S)/parser.cpp"
+toml_source = "$(S)/toml.cpp"
+toml_dump_source = "$(S)/toml_dump.cpp"
 unit_sources = sorted(build.glob("$(S)/*_ut.cpp"))
 platform_font_sources = {
     "$(S)/font_freetype.cpp",
@@ -396,7 +417,7 @@ if linux:
     enabled_renderer_sources.add("$(S)/render_vk.cpp")
 all_libshitty_sources = [
     source for source in build.glob("$(S)/*.cpp")
-    if source not in (main_source, fuzz_source, heap_profile_source, *unit_sources)
+    if source not in (main_source, fuzz_source, heap_profile_source, toml_dump_source, *unit_sources)
     and (source not in platform_font_sources or source in enabled_font_sources)
     and (source not in platform_renderer_sources or source in enabled_renderer_sources)
 ]
@@ -414,6 +435,9 @@ libshitty_sources = [
         "inputs": ["$(B)/parser.rl.h"],
     } if source == parser_source else {
         "src": source,
+        "inputs": ["$(B)/toml.rl.h"],
+    } if source == toml_source else {
+        "src": source,
         "inputs": ["$(B)/utf8_dfa.h"],
     } if source == vterm_source else {
         "src": source,
@@ -429,6 +453,9 @@ libshitty_test_sources = [
         "src": source,
         "inputs": ["$(B)/parser_test.rl.h"],
     } if source == parser_source else {
+        "src": source,
+        "inputs": ["$(B)/toml.rl.h"],
+    } if source == toml_source else {
         "src": source,
         "inputs": ["$(B)/utf8_dfa.h"],
     } if source == vterm_source else {
@@ -559,10 +586,19 @@ unit_tests = program(
 )
 
 
+toml_dump = program(
+    name="toml_dump",
+    output="$(B)/toml_dump",
+    srcs=[toml_dump_source],
+    deps=[libshitty_test, libstd],
+)
+
+
 # Each shard is an independent graph node with its own hard timeout.
 test_group_count = 20
 python_test_inputs = [
     *build.glob("$(S)/tests/*.py"),
+    *build.glob("$(S)/tests/toml/*/*/*"),
     "$(S)/tests/windows_terminal/upstream/KittyKeyboardProtocol.cpp",
     "$(S)/tests/windows_terminal/upstream/ReflowTests.cpp",
     "$(S)/tests/windows_terminal/upstream/ScreenBufferTests.cpp",
@@ -611,7 +647,7 @@ def make_python_test_groups(name, output_directory, test_binary, test_target, de
             name=f"{name}_group_{group_index:02}",
             inputs=python_test_inputs,
             outputs=[output],
-            deps=[test_target, st],
+            deps=[test_target, st, toml_dump],
             cmd=[
                 [
                     "python3",
@@ -624,6 +660,7 @@ def make_python_test_groups(name, output_directory, test_binary, test_target, de
             cwd="$(S)",
             env={
                 "SHITTY_TEST_BINARY": test_binary,
+                "SHITTY_TOML_DUMP_BINARY": "$(B)/toml_dump",
                 "SHITTY_TEST_FONTCONFIG": "1" if fontconfig else "0",
                 "SHITTY_TEST_PLATFORM": "cocoa" if darwin else "wayland",
                 "SHITTY_TEST_VERSION": shitty_version,
