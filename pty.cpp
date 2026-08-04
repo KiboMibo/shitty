@@ -42,10 +42,6 @@
 #include <termios.h>
 #include <unistd.h>
 
-#include <stdexcept>
-#include <string>
-#include <vector>
-
 using namespace stl;
 
 namespace {
@@ -429,7 +425,8 @@ PtyImpl::PtyImpl(Composer& composer, int fd)
     : composer_(composer)
     , fd_(fd)
     , output_(this)
-    , feed_(this) {
+    , feed_(this)
+{
     writeWake_.pty = this;
 }
 
@@ -542,12 +539,11 @@ pid_t ptyChildPid() {
 }
 
 Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
-    std::vector<char*> arguments;
-    arguments.reserve(command.arguments.size() + 1);
-    for (const std::string& argument : command.arguments) {
-        arguments.push_back(const_cast<char*>(argument.c_str()));
+    Vector<char*> arguments;
+    for (size_t index = 0; index < command.offsets.length(); ++index) {
+        arguments.pushBack(const_cast<char*>(command.argument(index)));
     }
-    arguments.push_back(nullptr);
+    arguments.pushBack(nullptr);
 
     char slaveName[PATH_MAX];
     const int master = openPtyMaster(slaveName, sizeof(slaveName));
@@ -591,8 +587,8 @@ Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
             sysError("tcsetattr");
         }
         configureTerminalChildEnvironment();
-        execvp(command.executable.c_str(), arguments.data());
-        sysError("execvp of ", command.executable.c_str());
+        execvp(command.executable(), arguments.mutData());
+        sysError("execvp of ", command.executable());
     }
     childPid = pid;
     sigprocmask(SIG_SETMASK, &previousMask, nullptr);

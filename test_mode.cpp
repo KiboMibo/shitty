@@ -35,6 +35,7 @@
 #include <plt/mutex.h>
 #include <plt/platform_headless.h>
 
+#include <std/alg/minmax.h>
 #include <std/dbg/assert.h>
 #include <std/ios/output.h>
 #include <std/str/builder.h>
@@ -985,10 +986,10 @@ std::string VtermTraceImpl::drain() {
     std::string result;
     size_t count = events.size();
     if (escapeEvent != noEvent) {
-        count = std::min(count, escapeEvent);
+        count = min(count, escapeEvent);
     }
     if (stringEvent != noEvent) {
-        count = std::min(count, stringEvent);
+        count = min(count, stringEvent);
     }
     for (size_t k = 0; k < count; ++k) {
         result += events[k].type + " " + encodeHex(events[k].data) + "\n";
@@ -1752,7 +1753,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 scriptedPtyReads.pop_front();
                 return (ssize_t)(-1);
             }
-            const size_t count = std::min(size, item.data.size());
+            const size_t count = min(size, item.data.size());
             std::copy_n(item.data.data(), count, buffer);
             item.data.erase(0, count);
             if (item.data.empty()) {
@@ -1898,10 +1899,10 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 writeAll(controlFd, "OK " + encodeHex(arguments) + "\n");
             } else if (line == "LAUNCH_COMMAND") {
                 const LaunchCommand command = buildLaunchCommand(argc, argv, opts.shell, opts.login);
-                std::string encoded = command.executable;
-                for (const auto& argument : command.arguments) {
+                std::string encoded = command.executable();
+                for (size_t index = 0; index < command.offsets.length(); ++index) {
                     encoded.push_back('\0');
-                    encoded += argument;
+                    encoded += command.argument(index);
                 }
                 writeAll(controlFd, "OK " + encodeHex(encoded) + "\n");
             } else if (line.compare(0, 10, "FONT_LOAD ") == 0) {
@@ -2128,7 +2129,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         errno = item.error;
                         return (ssize_t)(-1);
                     }
-                    const size_t count = std::min(size, item.count);
+                    const size_t count = min(size, item.count);
                     writtenPtyData.append((const char*)(buffer), count);
                     return (ssize_t)(count);
                 });
@@ -2159,7 +2160,9 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 writeAll(controlFd, "OK " + std::to_string(doubleWidth) + " " + std::to_string(continuation) + "\n");
             } else if (line == "POLL_CHILD") {
                 pumpChild();
-                writeAll(controlFd, "OK " + std::to_string(childPid > 0) + " " + std::to_string(childExitStatus) + " " + encodeHex(renderer.screenText()) + "\n");
+                Buffer text;
+                renderer.screenText(text);
+                writeAll(controlFd, "OK " + std::to_string(childPid > 0) + " " + std::to_string(childExitStatus) + " " + encodeHex(StringView(text)) + "\n");
             } else if (line == "CHILD_STATUS") {
                 writeAll(controlFd, "OK " + std::to_string(childPid > 0) + " " + std::to_string(childExitStatus) + "\n");
             } else if (line == "PAGE_UP") {
@@ -2285,9 +2288,13 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 output << StringView(u8"OK ") << composer.fontSize << StringView(u8" ") << composer.glyphWidth << StringView(u8" ") << composer.glyphHeight << StringView(u8" ") << composer.pixelWidth << StringView(u8" ") << composer.pixelHeight << StringView(u8" ") << composer.columns << StringView(u8" ") << composer.rows << StringView(u8" ") << (unsigned)(composer.contentScale * 1000.0f + 0.5f) << StringView(u8" ") << opts.border << StringView(u8"\n");
                 writeAll(controlFd, StringView(output));
             } else if (line == "LAST_UPDATE") {
-                writeAll(controlFd, renderer.lastUpdate());
+                Buffer response;
+                renderer.lastUpdate(response);
+                writeAll(controlFd, StringView(response));
             } else if (line == "LAST_UPDATE_ROWS") {
-                writeAll(controlFd, renderer.lastUpdateRows());
+                Buffer response;
+                renderer.lastUpdateRows(response);
+                writeAll(controlFd, StringView(response));
             } else if (line.compare(0, 15, "FRONTEND_SCALE ") == 0) {
                 unsigned xNumerator = 0;
                 unsigned xDenominator = 0;
@@ -2298,7 +2305,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                     Errno(EINVAL).raise(StringView(u8"invalid frontend scale"));
                 }
                 plt::WindowInfo info = window.info();
-                info.contentScale = std::max((float)(xNumerator) / xDenominator, (float)(yNumerator) / yDenominator);
+                info.contentScale = max((float)(xNumerator) / xDenominator, (float)(yNumerator) / yDenominator);
                 window.configure(info);
                 terminal.update();
                 writeAll(controlFd, "OK\n");
@@ -2619,9 +2626,13 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 output << StringView(u8"\n");
                 writeAll(controlFd, StringView(output));
             } else if (line == "RENDER_STATE") {
-                writeAll(controlFd, renderer.renderState());
+                Buffer response;
+                renderer.renderState(response);
+                writeAll(controlFd, StringView(response));
             } else if (line == "SELECTION_STATE") {
-                writeAll(controlFd, renderer.selectionState());
+                Buffer response;
+                renderer.selectionState(response);
+                writeAll(controlFd, StringView(response));
             } else if (line == "CHARSET_STATE") {
                 const VtermTestState state = testApi.inspect();
                 writeAll(controlFd, "OK " + std::to_string(state.charsets[0]) + " " + std::to_string(state.charsets[1]) + " " + std::to_string(state.charsets[2]) + " " + std::to_string(state.charsets[3]) + "\n");
@@ -2637,7 +2648,9 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 if (!(args >> encoding >> type >> modifiers >> motionButton >> button >> column >> row) || encoding > 4 || type > 2) {
                     throw std::runtime_error("invalid mouse event");
                 }
-                writeAll(controlFd, "OK " + encodeHex(encodeMouseProtocol((MouseTrackingEnc)(encoding), (MouseEventType)(type), modifiers, motionButton, button, column, row)) + "\n");
+                StringBuilder report;
+                encodeMouseProtocol(report, (MouseTrackingEnc)(encoding), (MouseEventType)(type), modifiers, motionButton, button, column, row);
+                writeAll(controlFd, "OK " + encodeHex(StringView(report)) + "\n");
             } else if (line.compare(0, 12, "SET_PRIMARY ") == 0) {
                 const size_t separator = line.find(' ', 12);
                 if (separator == std::string::npos) {
@@ -2700,15 +2713,25 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 const u8* const pixel = image.pixels + (size_t)(y)*image.stride + 3u * x;
                 writeAll(controlFd, "OK " + std::to_string(pixel[0]) + " " + std::to_string(pixel[1]) + " " + std::to_string(pixel[2]) + "\n");
             } else if (line == "SNAPSHOT") {
-                writeAll(controlFd, renderer.snapshot());
+                Buffer response;
+                renderer.snapshot(response);
+                writeAll(controlFd, StringView(response));
             } else if (line == "MODEL_SNAPSHOT") {
-                writeAll(controlFd, renderer.modelSnapshot());
+                Buffer response;
+                renderer.modelSnapshot(response);
+                writeAll(controlFd, StringView(response));
             } else if (line == "MODEL_DIGEST") {
-                writeAll(controlFd, renderer.modelDigest());
+                Buffer response;
+                renderer.modelDigest(response);
+                writeAll(controlFd, StringView(response));
             } else if (line == "SCROLLBACK_STATE") {
-                writeAll(controlFd, renderer.scrollbackState());
+                Buffer response;
+                renderer.scrollbackState(response);
+                writeAll(controlFd, StringView(response));
             } else if (line == "SCREEN_TEXT") {
-                writeAll(controlFd, "OK " + encodeHex(renderer.screenText()) + "\n");
+                Buffer text;
+                renderer.screenText(text);
+                writeAll(controlFd, "OK " + encodeHex(StringView(text)) + "\n");
             } else if (line == "ALL_TEXT") {
                 const Buffer contents = terminal.allText();
                 StringBuilder output;

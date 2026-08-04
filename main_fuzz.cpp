@@ -51,8 +51,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <string>
-#include <vector>
 
 using namespace stl;
 using namespace plt;
@@ -318,49 +316,58 @@ namespace {
     struct ActionResult {
         bool present = false;
         u64 value = 0;
-        std::string text;
+        Buffer text;
     };
 
     struct CellSnap {
         TerminalCell cell;
         CellColor underlineColor;
         u8 lineAttribute;
-        std::vector<u32> grapheme;
+        u32 graphemeOffset;
+        u32 graphemeSize;
     };
 
-    static std::vector<CellSnap> snapshotGrid(Rig& rig) {
+    // The grid snapshot is two flat trivially-destructible pieces: cell
+    // records and one shared grapheme codepoint arena.
+    struct GridSnapshot {
+        Vector<CellSnap> cells;
+        Vector<u32> graphemes;
+    };
+
+    static void snapshotGrid(Rig& rig, GridSnapshot& snapshot) {
         const u16 columns = rig.composer->columns;
         const u16 rows = rig.composer->rows;
-        std::vector<CellSnap> result;
-        result.reserve((size_t)(columns)*rows);
+        snapshot.cells.clear();
+        snapshot.graphemes.clear();
         for (u16 row = 0; row < rows; ++row) {
             for (u16 column = 0; column < columns; ++column) {
                 const VtermTestCell cell = rig.api->cell(row, column);
-                CellSnap snap;
+                CellSnap snap = {};
                 snap.cell = cell.cell;
                 snap.underlineColor = cell.underlineColor;
                 snap.lineAttribute = cell.lineAttribute;
-                snap.grapheme.assign(cell.grapheme, cell.grapheme + cell.graphemeSize);
-                result.push_back(std::move(snap));
+                snap.graphemeOffset = (u32)(snapshot.graphemes.length());
+                snap.graphemeSize = (u32)(cell.graphemeSize);
+                snapshot.graphemes.append(cell.grapheme, cell.graphemeSize);
+                snapshot.cells.pushBack(snap);
             }
         }
-        return result;
     }
 
-    static void compareSnapshot(const Rig& rig, const std::vector<CellSnap>& snapshot) {
+    static void compareSnapshot(const Rig& rig, const GridSnapshot& snapshot) {
         const u16 columns = rig.composer->columns;
         const u16 rows = rig.composer->rows;
-        check(snapshot.size() == (size_t)(columns)*rows, "geometry changed during probe", snapshot.size(), 0);
+        check(snapshot.cells.length() == (size_t)(columns)*rows, "geometry changed during probe", snapshot.cells.length(), 0);
         for (u16 row = 0; row < rows; ++row) {
             for (u16 column = 0; column < columns; ++column) {
-                const CellSnap& snap = snapshot[(size_t)(row)*columns + column];
+                const CellSnap& snap = snapshot.cells[(size_t)(row)*columns + column];
                 const VtermTestCell cell = rig.api->cell(row, column);
                 check(equalCell(snap.cell, cell.cell), "scroll round trip changed cells", row, column);
                 check(snap.lineAttribute == cell.lineAttribute, "scroll round trip changed attributes", row, column);
                 check(snap.underlineColor == cell.underlineColor, "scroll round trip changed underline", row, column);
-                check(snap.grapheme.size() == cell.graphemeSize, "scroll round trip changed graphemes", row, column);
-                if (!snap.grapheme.empty()) {
-                    check(memcmp(snap.grapheme.data(), cell.grapheme, snap.grapheme.size() * sizeof(u32)) == 0, "scroll round trip changed grapheme bytes", row, column);
+                check(snap.graphemeSize == cell.graphemeSize, "scroll round trip changed graphemes", row, column);
+                if (snap.graphemeSize != 0) {
+                    check(memcmp(snapshot.graphemes.data() + snap.graphemeOffset, cell.grapheme, (size_t)(snap.graphemeSize) * sizeof(u32)) == 0, "scroll round trip changed grapheme bytes", row, column);
                 }
             }
         }
@@ -377,7 +384,8 @@ namespace {
         if (rig.api->privateMode(1007) && (rig.api->privateMode(47) || rig.api->privateMode(1047))) {
             return;
         }
-        const std::vector<CellSnap> snapshot = snapshotGrid(rig);
+        GridSnapshot snapshot;
+        snapshotGrid(rig, snapshot);
         rig.api->scrollUp(0xffff);
         checkCells(rig);
         rig.api->scrollDown(0xffff);
@@ -470,7 +478,7 @@ namespace {
                 result.present = true;
                 result.value = selection.status;
                 if (selection.text.length() != 0) {
-                    result.text = std::string((const char*)(selection.text.data()), selection.text.length());
+                    result.text.append(selection.text.data(), selection.text.length());
                 }
                 break;
             }
@@ -567,7 +575,7 @@ namespace {
             return;
         }
         check(a.value == b.value, "action results diverge", a.value, b.value);
-        check(a.text == b.text, "action texts diverge", a.text.size(), b.text.size());
+        check(StringView(a.text) == StringView(b.text), "action texts diverge", a.text.used(), b.text.used());
     }
 
     static void validateRig(Rig& rig) {

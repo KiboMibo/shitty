@@ -8,6 +8,7 @@
 
 #include "utf8.h"
 
+#include <std/alg/minmax.h>
 #include <std/str/builder.h>
 #include <std/str/view.h>
 
@@ -86,8 +87,8 @@ bool encodeMouseProtocol(StringBuilder& output, MouseTrackingEnc encoding, Mouse
 
     switch (encoding) {
         case MouseTrackingEnc::Default:
-            column = std::clamp(column, 1, 223);
-            row = std::clamp(row, 1, 223);
+            column = min(max(column, 1), 223);
+            row = min(max(row, 1), 223);
             output << StringView(u8"\x1b[M");
             {
                 const u8 bytes[] = {(u8)(32 + code), (u8)(32 + column), (u8)(32 + row)};
@@ -95,8 +96,8 @@ bool encodeMouseProtocol(StringBuilder& output, MouseTrackingEnc encoding, Mouse
             }
             break;
         case MouseTrackingEnc::UTF8:
-            column = std::clamp(column, 1, 2015);
-            row = std::clamp(row, 1, 2015);
+            column = min(max(column, 1), 2015);
+            row = min(max(row, 1), 2015);
             output << StringView(u8"\x1b[M");
             Utf8Encoder::pushUnicode(32 + code, [&output](char ch) {
                 output.append(&ch, 1);
@@ -117,12 +118,4 @@ bool encodeMouseProtocol(StringBuilder& output, MouseTrackingEnc encoding, Mouse
             break;
     }
     return true;
-}
-
-std::string encodeMouseProtocol(MouseTrackingEnc encoding, MouseEventType type, unsigned modifiers, int motionButton, int button, int column, int row) {
-    StringBuilder output;
-    if (!encodeMouseProtocol(output, encoding, type, modifiers, motionButton, button, column, row)) {
-        return {};
-    }
-    return std::string((const char*)(output.data()), output.used());
 }

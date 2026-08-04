@@ -19,6 +19,7 @@
 #include <plt/window.h>
 
 #include <std/alg/minmax.h>
+#include <std/sys/atomic.h>
 #include <std/dbg/assert.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
@@ -37,7 +38,6 @@
 #undef Rect
 #undef Point
 
-#include <atomic>
 #include <sched.h>
 #include <stdio.h>
 
@@ -215,7 +215,7 @@ namespace {
         // instead of blocking in nextDrawable when the drawables are
         // busy, and teardown drains this before releasing anything a
         // completion handler touches.
-        std::atomic<u32> inflightPresents{0};
+        u32 inflightPresents = 0;
         bool transactionalPresent = true;
         bool stateValid = false;
         bool ready = false;
@@ -627,7 +627,7 @@ void MetalRendererImpl::waitFrames() {
     }
     // Completion handlers run concurrently with waitUntilCompleted
     // returning; drain them before anyone frees what they touch.
-    while (inflightPresents.load(std::memory_order_acquire) != 0) {
+    while (stdAtomicFetch(&inflightPresents, __ATOMIC_ACQUIRE) != 0) {
         sched_yield();
     }
 }
@@ -716,14 +716,14 @@ bool MetalRendererImpl::draw() {
         if (transactional) {
             // Entering a resize: let the async presents land first so
             // the transactional frame is the newest.
-            while (inflightPresents.load(std::memory_order_acquire) != 0) {
+            while (stdAtomicFetch(&inflightPresents, __ATOMIC_ACQUIRE) != 0) {
                 sched_yield();
             }
         }
         metalLayer.presentsWithTransaction = transactional ? YES : NO;
         transactionalPresent = transactional;
     }
-    if (!transactional && inflightPresents.load(std::memory_order_acquire) >= 2) {
+    if (!transactional && stdAtomicFetch(&inflightPresents, __ATOMIC_ACQUIRE) >= 2) {
         // Drawables are busy: skip without blocking. The caller retries
         // on the next frame callback and the retained cells redraw
         // everything then.
@@ -821,10 +821,10 @@ bool MetalRendererImpl::draw() {
         [commandBuffer waitUntilScheduled];
         [drawable present];
     } else {
-        inflightPresents.fetch_add(1, std::memory_order_acq_rel);
+        stdAtomicAddAndFetch(&inflightPresents, 1, __ATOMIC_ACQ_REL);
         MetalRendererImpl* const renderer = this;
         [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-            renderer->inflightPresents.fetch_sub(1, std::memory_order_acq_rel);
+            stdAtomicSubAndFetch(&renderer->inflightPresents, 1, __ATOMIC_ACQ_REL);
         }];
         [commandBuffer presentDrawable:drawable];
         [commandBuffer commit];

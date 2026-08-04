@@ -21,8 +21,6 @@
 #include <std/mem/obj_pool.h>
 #include <std/tst/ut.h>
 
-#include <vector>
-
 using namespace stl;
 
 namespace {
@@ -64,11 +62,13 @@ namespace {
     }
 
     struct ReferenceFixture {
-        explicit ReferenceFixture(Composer& composer)
-            : pixels((size_t)(composer.pixelWidth) * composer.pixelHeight * 3)
-        {
-            target.pixels = pixels.data();
-            target.length = pixels.size();
+        explicit ReferenceFixture(Composer& composer) {
+            const size_t bytes = (size_t)(composer.pixelWidth) * composer.pixelHeight * 3;
+            while (pixels.length() < bytes) {
+                pixels.pushBack(0);
+            }
+            target.pixels = pixels.mutData();
+            target.length = pixels.length();
             target.width = composer.pixelWidth;
             target.height = composer.pixelHeight;
             target.stride = composer.pixelWidth * 3;
@@ -91,7 +91,7 @@ namespace {
             return renderer->update(update) ? renderer->image() : ReferenceImage{};
         }
 
-        std::vector<u8> pixels;
+        Vector<u8> pixels;
         plt::HeadlessRenderTarget target;
         stl::ObjPool::Ref rendererPool = stl::ObjPool::fromMemory();
         ReferenceRenderer* renderer;

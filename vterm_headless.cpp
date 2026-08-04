@@ -6,6 +6,8 @@
 
 #include "vterm_headless.h"
 
+#include "fatal.h"
+
 #include "composer.h"
 #include "options.h"
 #include "pty.h"
@@ -63,7 +65,7 @@ VtermHeadlessImpl::VtermHeadlessImpl(Composer& composer_)
 
 void VtermHeadlessImpl::feed(const u8* data, size_t len) {
     if (data == nullptr && len != 0) {
-        throw std::invalid_argument("headless Vterm input is null");
+        raiseError(StringView(u8"headless Vterm input is null"));
     }
     if (len == 0) {
         return;

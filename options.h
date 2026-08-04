@@ -21,7 +21,6 @@
 #include "color.h"
 
 #include <cstdint>
-#include <string>
 
 enum class OptionSource {
     NONE,

@@ -37,11 +37,9 @@
 
 #include <utf8proc.h>
 
-#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <utility>
-#include <vector>
 
 using namespace stl;
 
@@ -284,7 +282,7 @@ namespace {
         void updateSelection(Rect selection) override;
         void cycleSelectionSnap() override;
         void clearSelection() override;
-        bool selectedText(std::string& text) const override;
+        bool selectedText(Buffer& text) const override;
         Point logicalPoint(Point point) const override;
 
         Coord nCols = 0;
@@ -300,7 +298,7 @@ namespace {
         Composer& composer;
         ObjPool& pool;
         u32 contentRevision = 1;
-        std::vector<TerminalCell> erasedRowTemplate;
+        Vector<TerminalCell> erasedRowTemplate;
         TerminalCell erasedRowCell{};
         bool erasedRowTemplateValid = false;
         Row* freeRows = nullptr;
@@ -1900,8 +1898,9 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
     // reused row buffer: the first pass measures the re-wrapped height and
     // maps the anchors, the second streams the surviving rows straight
     // into the fresh storage. Nothing materializes the whole scrollback.
-    std::vector<TerminalCell> rowBuffer(nCols_);
-    std::vector<Segment> segments;
+    Vector<TerminalCell> rowBuffer;
+    rowBuffer.zero(nCols_);
+    Vector<Segment> segments;
 
     const auto walk = [&](bool mapAnchors, auto&& emitRow) -> size_t {
         size_t globalRow = 0;
@@ -1944,12 +1943,12 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
                 for (size_t index = 0; index != anchorCount; ++index) {
                     Anchor& anchor = *anchors[index];
                     if (anchor.oldRow == oldRow) {
-                        anchor.offset = lineLength + std::min(anchor.oldColumn, (int)(state.columns));
+                        anchor.offset = lineLength + min(anchor.oldColumn, (int)(state.columns));
                         anchor.inLine = true;
-                        copyEnd = std::max(copyEnd, std::min(anchor.oldColumn, (int)(state.columns)));
+                        copyEnd = max(copyEnd, min(anchor.oldColumn, (int)(state.columns)));
                     }
                 }
-                segments.push_back({row, copyEnd});
+                segments.pushBack({row, copyEnd});
                 lineLength += copyEnd;
                 ++oldRow;
                 if (!(wrapEnd && normalWidth)) {
@@ -1968,7 +1967,7 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
                 static const TerminalCell blank{};
                 return blank;
             };
-            std::fill(rowBuffer.begin(), rowBuffer.end(), TerminalCell{});
+            memset(rowBuffer.mutData(), 0, (size_t)(nCols_) * sizeof(TerminalCell));
             int column = 0;
             size_t lineRows = 0;
             const auto flushRow = [&]() {
@@ -1976,7 +1975,7 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
                 emitRow(globalRow, rowBuffer.data(), lineAttribute, continuation ? ScreenSemanticPrompt::Continuation : prompt);
                 ++globalRow;
                 ++lineRows;
-                std::fill(rowBuffer.begin(), rowBuffer.end(), TerminalCell{});
+                memset(rowBuffer.mutData(), 0, (size_t)(nCols_) * sizeof(TerminalCell));
                 column = 0;
             };
             const auto mapAnchor = [&](size_t offset) {
@@ -2005,28 +2004,28 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
                         continue;
                     }
                     if (column + (int)(width) > nCols_) {
-                        rowBuffer[column ? column - 1 : nCols_ - 1].wrap = 1;
+                        rowBuffer.mut(column ? column - 1 : nCols_ - 1).wrap = 1;
                         flushRow();
                     }
                     for (size_t cellIndex = 0; cellIndex < width; ++cellIndex) {
                         mapAnchor(offset + cellIndex);
                         TerminalCell cell = cellAt(offset + cellIndex);
                         cell.wrap = 0;
-                        rowBuffer[column++] = cell;
+                        rowBuffer.mut(column++) = cell;
                     }
                     offset += width;
                     if (column == nCols_ && offset < lineLength) {
-                        rowBuffer[nCols_ - 1].wrap = 1;
+                        rowBuffer.mut(nCols_ - 1).wrap = 1;
                         flushRow();
                     }
                 }
             } else {
-                const size_t count = std::min<size_t>(lineLength, nCols_);
+                const size_t count = min<size_t>(lineLength, nCols_);
                 for (size_t offset = 0; offset < count; ++offset) {
                     mapAnchor(offset);
                     TerminalCell cell = cellAt(offset);
                     cell.wrap = 0;
-                    rowBuffer[column++] = cell;
+                    rowBuffer.mut(column++) = cell;
                 }
                 if (mapAnchors) {
                     for (size_t index = 0; index != anchorCount; ++index) {
@@ -2088,8 +2087,8 @@ void ScreenBase<Coord, Epoch>::layoutReflow(ResizeState& state, u16 nCols_, u16 
     }
 
     cursorState.pendingWrap = cursorAnchor.mapped.x == nCols_;
-    cursorState.position.x = cursorState.pendingWrap ? nCols_ - 1 : std::min(cursorAnchor.mapped.x, (int)(nCols_ - 1));
-    cursorState.position.y = std::max(0, std::min(cursorAnchor.mapped.y - (int)(screenStart), (int)(nRows_ - 1)));
+    cursorState.position.x = cursorState.pendingWrap ? nCols_ - 1 : min(cursorAnchor.mapped.x, (int)(nCols_ - 1));
+    cursorState.position.y = max(0, min(cursorAnchor.mapped.y - (int)(screenStart), (int)(nRows_ - 1)));
 }
 
 template <typename Coord, typename Epoch>
@@ -2271,7 +2270,7 @@ Rect ScreenBase<Coord, Epoch>::computeSnappedSelection() const {
 }
 
 template <typename Coord, typename Epoch>
-bool ScreenBase<Coord, Epoch>::selectedText(std::string& utf8_selection) const {
+bool ScreenBase<Coord, Epoch>::selectedText(Buffer& utf8_selection) const {
     Rect sel = snappedSelection();
     if (snapTo == SelectSnapTo::Char) {
         // Rendering expands a partially covered wide glyph so it is never
@@ -2285,15 +2284,19 @@ bool ScreenBase<Coord, Epoch>::selectedText(std::string& utf8_selection) const {
     sel.tl.y -= viewOffset;
     sel.br.y -= viewOffset;
 
-    using unicodeString = std::vector<u32>;
-    std::vector<unicodeString> lines;
+    utf8_selection.reset();
     CellExtraStore& extras = cellExtras();
+    Vector<u32> line;
     bool wrap = false;
+    bool first = true;
 
+    auto sinkFn = [&](char ch) {
+        utf8_selection.append(&ch, 1);
+    };
     auto addLine = [&](int y, u16 x1, u16 x2) {
-        unicodeString line;
+        line.clear();
         size_t contentEnd = 0;
-        bool wrapBack = wrap;
+        const bool wrapBack = wrap;
         wrap = false;
         const auto* cp = getLogicalRowPtr(y);
         for (u16 x = x1; x < x2; ++x) {
@@ -2301,12 +2304,12 @@ bool ScreenBase<Coord, Epoch>::selectedText(std::string& utf8_selection) const {
             if (!cell.dwidth_cont) {
                 const auto grapheme = extras.grapheme(cell);
                 if (grapheme.empty()) {
-                    line.push_back(cell.uc_pt ? cell.uc_pt : ' ');
+                    line.pushBack(cell.uc_pt ? cell.uc_pt : ' ');
                 } else {
-                    line.insert(line.end(), grapheme.begin(), grapheme.end());
+                    line.append(grapheme.begin(), grapheme.size());
                 }
                 if (cell.drawn || (cell.uc_pt != 0 && cell.uc_pt != ' ') || !grapheme.empty()) {
-                    contentEnd = line.size();
+                    contentEnd = line.length();
                 }
             }
             if (cell.wrap) {
@@ -2318,15 +2321,15 @@ bool ScreenBase<Coord, Epoch>::selectedText(std::string& utf8_selection) const {
         // Trim screen padding only when a linear selection consumes the rest
         // of the row.  Explicitly selected whitespace (word or rectangle)
         // is data and must survive copying.
-        if (!wrap && !sel.rectangular && x2 == nCols) {
-            line.resize(contentEnd);
+        const bool trimmed = !wrap && !sel.rectangular && x2 == nCols;
+        const size_t count = trimmed ? contentEnd : line.length();
+        if (!wrapBack && !first) {
+            sinkFn('\n');
         }
-
-        if (wrapBack && lines.size()) {
-            lines.back().insert(lines.back().end(), line.begin(), line.end());
-        } else {
-            lines.push_back(line);
+        for (size_t index = 0; index < count; ++index) {
+            Utf8Encoder::pushUnicode(line[index], sinkFn);
         }
+        first = false;
     };
 
     if (sel.tl.y == sel.br.y) {
@@ -2343,21 +2346,9 @@ bool ScreenBase<Coord, Epoch>::selectedText(std::string& utf8_selection) const {
         addLine(sel.br.y, 0, sel.br.x);
     }
 
-    std::vector<char> utf8_out;
-    auto sinkFn = [&](char ch) {
-        utf8_out.push_back(ch);
-    };
-    for (const auto& codepoints : lines) {
-        for (u32 cp : codepoints) {
-            Utf8Encoder::pushUnicode(cp, sinkFn);
-        }
-        utf8_out.push_back('\n');
+    while (!utf8_selection.empty() && ((const char*)(utf8_selection.data()))[utf8_selection.used() - 1] == '\n') {
+        utf8_selection.seekNegative(1);
     }
-    while (utf8_out.size() && utf8_out.back() == '\n') {
-        utf8_out.pop_back();
-    }
-
-    utf8_selection = std::string(utf8_out.data(), utf8_out.size());
 
     return true;
 }
@@ -2394,7 +2385,7 @@ bool ScreenBase<Coord, Epoch>::pageToBottomImpl() {
 
 template <typename Coord, typename Epoch>
 void ScreenBase<Coord, Epoch>::scrollUpWithHistory(u16 top, u16 bottom, u16 count, const TerminalCell& attrs) {
-    count = std::min<u16>(count, bottom - top);
+    count = min<u16>(count, bottom - top);
     if (count == 0) {
         return;
     }
@@ -2436,7 +2427,7 @@ void ScreenBase<Coord, Epoch>::scrollUpWithHistory(u16 top, u16 bottom, u16 coun
     clearRows(bottom - count, bottom, attrs);
 
     if (capture && viewOffset) {
-        viewOffset = std::min<u32>(viewOffset + count, historyRows);
+        viewOffset = min<u32>(viewOffset + count, historyRows);
     }
     if (capture && previousViewOffset) {
         expose();
@@ -2447,7 +2438,7 @@ void ScreenBase<Coord, Epoch>::scrollUpWithHistory(u16 top, u16 bottom, u16 coun
 
 template <typename Coord, typename Epoch>
 void ScreenBase<Coord, Epoch>::scrollDownVisible(u16 top, u16 bottom, u16 count, const TerminalCell& attrs) {
-    count = std::min<u16>(count, bottom - top);
+    count = min<u16>(count, bottom - top);
     if (count == 0) {
         return;
     }
@@ -3489,8 +3480,11 @@ void ScreenBase<Coord, Epoch>::eraseInRow(RowSlot& slot, u16 pY, u16 startX, u16
             releaseRow(object);
             slot = nullptr;
         } else {
-            if (!erasedRowTemplateValid || erasedRowTemplate.size() != nCols || erasedRowCell != erased) {
-                erasedRowTemplate.assign(nCols, erased);
+            if (!erasedRowTemplateValid || erasedRowTemplate.length() != nCols || erasedRowCell != erased) {
+                erasedRowTemplate.clear();
+                while (erasedRowTemplate.length() < nCols) {
+                    erasedRowTemplate.pushBack(erased);
+                }
                 erasedRowCell = erased;
                 erasedRowTemplateValid = true;
             }
@@ -3536,8 +3530,11 @@ void ScreenBase<Coord, Epoch>::eraseCells(u16 pY, u16 startX, u16 count, const T
         row[endX] = erased;
     }
     if (startX == 0 && count == nCols) {
-        if (!erasedRowTemplateValid || erasedRowTemplate.size() != nCols || erasedRowCell != erased) {
-            erasedRowTemplate.assign(nCols, erased);
+        if (!erasedRowTemplateValid || erasedRowTemplate.length() != nCols || erasedRowCell != erased) {
+            erasedRowTemplate.clear();
+            while (erasedRowTemplate.length() < nCols) {
+                erasedRowTemplate.pushBack(erased);
+            }
             erasedRowCell = erased;
             erasedRowTemplateValid = true;
         }
@@ -4088,7 +4085,7 @@ void ScreenBase<Coord, Epoch>::rotateRows(u16 top, u16 bottom, i32 rows) {
     }
     const bool down = rows > 0;
     u16 count = min<u32>(down ? rows : -(i64)(rows), 0xffff);
-    count = std::min<u16>(count, bottom - top);
+    count = min<u16>(count, bottom - top);
     if (!count) {
         return;
     }
@@ -4324,7 +4321,7 @@ template <typename Coord, typename Epoch>
 void ScreenBase<Coord, Epoch>::damageRows(u16 top, u16 bottom) {
     changeContent();
     const u32 viewTop = (u32)(top) + viewOffset;
-    const u32 viewBottom = std::min<u32>((u32)(bottom) + viewOffset, nRows);
+    const u32 viewBottom = min<u32>((u32)(bottom) + viewOffset, nRows);
     for (u32 row = viewTop; row < viewBottom; ++row) {
         damage.addRow(row);
     }

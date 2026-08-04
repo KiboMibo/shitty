@@ -8,9 +8,8 @@
 
 #include "render.h"
 
+#include <std/lib/buffer.h>
 #include <std/sys/types.h>
-
-#include <string>
 
 namespace stl {
     class ObjPool;
@@ -36,15 +35,15 @@ struct ReferenceRenderer: Renderer {
     virtual ReferenceImage image() const = 0;
     virtual TerminalUpdate renderUpdate() const = 0;
 
-    virtual std::string snapshot() const = 0;
-    virtual std::string modelSnapshot() const = 0;
-    virtual std::string modelDigest() const = 0;
-    virtual std::string renderState() const = 0;
-    virtual std::string selectionState() const = 0;
-    virtual std::string scrollbackState() const = 0;
-    virtual std::string screenText() const = 0;
-    virtual std::string lastUpdate() const = 0;
-    virtual std::string lastUpdateRows() const = 0;
+    virtual void snapshot(stl::Buffer& out) const = 0;
+    virtual void modelSnapshot(stl::Buffer& out) const = 0;
+    virtual void modelDigest(stl::Buffer& out) const = 0;
+    virtual void renderState(stl::Buffer& out) const = 0;
+    virtual void selectionState(stl::Buffer& out) const = 0;
+    virtual void scrollbackState(stl::Buffer& out) const = 0;
+    virtual void screenText(stl::Buffer& out) const = 0;
+    virtual void lastUpdate(stl::Buffer& out) const = 0;
+    virtual void lastUpdateRows(stl::Buffer& out) const = 0;
     virtual void resetUpdateStats() = 0;
 
     virtual u16 columns() const = 0;

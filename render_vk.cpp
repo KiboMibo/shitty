@@ -10,6 +10,7 @@
 #include "composer.h"
 #include "font_pack.h"
 #include "listener.h"
+#include "fatal.h"
 #include "render.h"
 
 #include "options.h"
@@ -20,6 +21,7 @@
 
 #include <plt/window.h>
 
+#include <std/alg/minmax.h>
 #include <std/dbg/assert.h>
 #include <std/alg/xchg.h>
 #include <std/sys/crt.h>
@@ -45,15 +47,9 @@
 
 #include "render_spv.h"
 
-#include <algorithm>
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <limits>
-#include <stdexcept>
-#include <string>
-#include <vector>
 
 using namespace stl;
 
@@ -290,7 +286,7 @@ namespace {
         Vector<SwapchainResources*> retiredSwapchains;
         Vector<VkPipeline> retiredPipelines;
 
-        std::array<FrameResources, framesInFlight> frames;
+        FrameResources frames[framesInFlight];
         u32 currentFrame = 0;
         void createInstance();
         void createSurface(const plt::RenderContext& context);
@@ -304,7 +300,7 @@ namespace {
         void createDescriptors();
         void createPipelineLayout();
         void selectPipeline(const GeneratedRenderShader& shader);
-        PresentTarget selectPresentTarget(const VkSurfaceCapabilitiesKHR& capabilities, const std::vector<VkSurfaceFormatKHR>& formats) const;
+        PresentTarget selectPresentTarget(const VkSurfaceCapabilitiesKHR& capabilities, const Vector<VkSurfaceFormatKHR>& formats) const;
         void createSwapchain(u32 width, u32 height);
         bool tryCreateSwapchain(u32 width, u32 height);
         void destroySwapchainResources(SwapchainResources& resources);
@@ -356,7 +352,7 @@ namespace {
     struct SurfaceLost {};
 
     [[noreturn]] static void failVk(const char* operation, VkResult result) {
-        throw std::runtime_error(std::string(operation) + " failed (VkResult " + std::to_string((int)(result)) + ")");
+        raiseError(StringView(operation), StringView(u8" failed (VkResult "), (i64)(result), StringView(u8")"));
     }
 
     static void checkVk(VkResult result, const char* operation) {
@@ -457,7 +453,7 @@ namespace {
                 return choice;
             }
         }
-        throw std::runtime_error("Vulkan surface has no composite alpha mode");
+        raiseError(StringView(u8"Vulkan surface has no composite alpha mode"));
     }
 
 }
@@ -568,7 +564,7 @@ void RendererImpl::createInstance() {
 
 void RendererImpl::createSurface(const plt::RenderContext& context) {
     if (context.backend != plt::RenderBackend::Wayland || context.connection == nullptr || context.window == nullptr) {
-        throw std::runtime_error("Vulkan renderer requires a Wayland render context");
+        raiseError(StringView(u8"Vulkan renderer requires a Wayland render context"));
     }
     VkWaylandSurfaceCreateInfoKHR surfaceInfo{};
     surfaceInfo.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
@@ -581,11 +577,14 @@ void RendererImpl::selectPhysicalDevice() {
     u32 deviceCount = 0;
     checkVk(vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr), "vkEnumeratePhysicalDevices");
     if (deviceCount == 0) {
-        throw std::runtime_error("No Vulkan physical devices found");
+        raiseError(StringView(u8"No Vulkan physical devices found"));
     }
 
-    std::vector<VkPhysicalDevice> devices(deviceCount);
-    checkVk(vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data()), "vkEnumeratePhysicalDevices");
+    Vector<VkPhysicalDevice> devices;
+    while (devices.length() < deviceCount) {
+        devices.pushBack(VK_NULL_HANDLE);
+    }
+    checkVk(vkEnumeratePhysicalDevices(instance, &deviceCount, devices.mutData()), "vkEnumeratePhysicalDevices");
 
     int bestScore = -1;
     VkPhysicalDeviceProperties bestProperties{};
@@ -596,8 +595,11 @@ void RendererImpl::selectPhysicalDevice() {
 
         u32 familyCount = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(candidate, &familyCount, nullptr);
-        std::vector<VkQueueFamilyProperties> families(familyCount);
-        vkGetPhysicalDeviceQueueFamilyProperties(candidate, &familyCount, families.data());
+        Vector<VkQueueFamilyProperties> families;
+        while (families.length() < familyCount) {
+            families.pushBack({});
+        }
+        vkGetPhysicalDeviceQueueFamilyProperties(candidate, &familyCount, families.mutData());
 
         for (u32 family = 0; family < familyCount; ++family) {
             VkBool32 presentSupported = VK_FALSE;
@@ -620,10 +622,7 @@ void RendererImpl::selectPhysicalDevice() {
     }
 
     if (physicalDevice == VK_NULL_HANDLE) {
-        throw std::runtime_error(
-            "No Vulkan device supports compute rendering and window-system "
-            "presentation"
-        );
+        raiseError(StringView(u8"No Vulkan device supports compute rendering and window-system presentation"));
     }
 
     if (opts.vulkanInfo) {
@@ -700,13 +699,13 @@ void RendererImpl::createCommandResources() {
     poolInfo.queueFamilyIndex = queueFamily;
     checkVk(vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool), "vkCreateCommandPool");
 
-    std::array<VkCommandBuffer, framesInFlight> commandBuffers{};
+    VkCommandBuffer commandBuffers[framesInFlight] = {};
     VkCommandBufferAllocateInfo allocateInfo{};
     allocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocateInfo.commandPool = commandPool;
     allocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     allocateInfo.commandBufferCount = framesInFlight;
-    checkVk(vkAllocateCommandBuffers(device, &allocateInfo, commandBuffers.data()), "vkAllocateCommandBuffers");
+    checkVk(vkAllocateCommandBuffers(device, &allocateInfo, commandBuffers), "vkAllocateCommandBuffers");
 
     VkSemaphoreCreateInfo semaphoreInfo{};
     semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -728,7 +727,7 @@ u32 RendererImpl::findMemoryType(u32 allowed, VkMemoryPropertyFlags properties) 
             return i;
         }
     }
-    throw std::runtime_error("No suitable Vulkan memory type found");
+    raiseError(StringView(u8"No suitable Vulkan memory type found"));
 }
 
 void RendererImpl::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory) const {
@@ -883,7 +882,7 @@ void RendererImpl::resetFontResources() {
 }
 
 void RendererImpl::createDescriptors() {
-    std::array<VkDescriptorSetLayoutBinding, 4> bindings{};
+    VkDescriptorSetLayoutBinding bindings[4] = {};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     bindings[0].descriptorCount = 1;
@@ -896,8 +895,8 @@ void RendererImpl::createDescriptors() {
     }
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = bindings.size();
-    layoutInfo.pBindings = bindings.data();
+    layoutInfo.bindingCount = 4;
+    layoutInfo.pBindings = bindings;
     checkVk(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &descriptorSetLayout), "vkCreateDescriptorSetLayout");
 
     const VkDescriptorPoolSize poolSizes[] = {
@@ -907,19 +906,21 @@ void RendererImpl::createDescriptors() {
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.maxSets = framesInFlight;
-    poolInfo.poolSizeCount = std::size(poolSizes);
+    poolInfo.poolSizeCount = sizeof(poolSizes) / sizeof(poolSizes[0]);
     poolInfo.pPoolSizes = poolSizes;
     checkVk(vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool), "vkCreateDescriptorPool");
 
-    std::array<VkDescriptorSetLayout, framesInFlight> layouts;
-    layouts.fill(descriptorSetLayout);
-    std::array<VkDescriptorSet, framesInFlight> sets{};
+    VkDescriptorSetLayout layouts[framesInFlight];
+    for (VkDescriptorSetLayout& layout : layouts) {
+        layout = descriptorSetLayout;
+    }
+    VkDescriptorSet sets[framesInFlight] = {};
     VkDescriptorSetAllocateInfo allocateInfo{};
     allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     allocateInfo.descriptorPool = descriptorPool;
     allocateInfo.descriptorSetCount = framesInFlight;
-    allocateInfo.pSetLayouts = layouts.data();
-    checkVk(vkAllocateDescriptorSets(device, &allocateInfo, sets.data()), "vkAllocateDescriptorSets");
+    allocateInfo.pSetLayouts = layouts;
+    checkVk(vkAllocateDescriptorSets(device, &allocateInfo, sets), "vkAllocateDescriptorSets");
     for (u32 i = 0; i < framesInFlight; ++i) {
         frames[i].descriptorSet = sets[i];
     }
@@ -932,8 +933,8 @@ void RendererImpl::updateStaticDescriptors() {
             {fontResources->mask.buffer, 0, VK_WHOLE_SIZE},
             {fontResources->color.buffer, 0, VK_WHOLE_SIZE},
         };
-        std::array<VkWriteDescriptorSet, 2> writes{};
-        for (u32 i = 0; i < writes.size(); ++i) {
+        VkWriteDescriptorSet writes[2] = {};
+        for (u32 i = 0; i < 2; ++i) {
             writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             writes[i].dstSet = frame.descriptorSet;
             writes[i].dstBinding = i + 2;
@@ -941,7 +942,7 @@ void RendererImpl::updateStaticDescriptors() {
             writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             writes[i].pBufferInfo = &bufferInfos[i];
         }
-        vkUpdateDescriptorSets(device, writes.size(), writes.data(), 0, nullptr);
+        vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
     }
 }
 
@@ -1105,7 +1106,7 @@ void RendererImpl::collectRetiredSwapchains(bool force) {
     }
 }
 
-RendererImpl::PresentTarget RendererImpl::selectPresentTarget(const VkSurfaceCapabilitiesKHR& capabilities, const std::vector<VkSurfaceFormatKHR>& formats) const {
+RendererImpl::PresentTarget RendererImpl::selectPresentTarget(const VkSurfaceCapabilitiesKHR& capabilities, const Vector<VkSurfaceFormatKHR>& formats) const {
     PresentTarget target;
     const VkImageUsageFlags directUsage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     if ((capabilities.supportedUsageFlags & directUsage) == directUsage) {
@@ -1135,7 +1136,7 @@ RendererImpl::PresentTarget RendererImpl::selectPresentTarget(const VkSurfaceCap
     target.direct = target.shader != nullptr;
     if (!target.direct) {
         if (!(capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT)) {
-            throw std::runtime_error("Vulkan surface supports neither storage output nor transfer destination");
+            raiseError(StringView(u8"Vulkan surface supports neither storage output nor transfer destination"));
         }
         const VkFormat preferredFormats[] = {
             VK_FORMAT_B8G8R8A8_UNORM,
@@ -1144,24 +1145,28 @@ RendererImpl::PresentTarget RendererImpl::selectPresentTarget(const VkSurfaceCap
             VK_FORMAT_R8G8B8A8_SRGB,
         };
         for (const auto preferred : preferredFormats) {
-            const auto found = std::find_if(formats.begin(), formats.end(), [this, preferred](const VkSurfaceFormatKHR& format) {
+            bool matched = false;
+            for (const VkSurfaceFormatKHR& format : formats) {
                 // The shader produces sRGB-encoded bytes; other color
                 // spaces would need a conversion the blit path lacks.
-                return format.format == preferred && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR && formatSupports(physicalDevice, format.format, VK_FORMAT_FEATURE_BLIT_DST_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT);
-            });
-            if (found != formats.end()) {
-                target.format = *found;
+                if (format.format == preferred && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR && formatSupports(physicalDevice, format.format, VK_FORMAT_FEATURE_BLIT_DST_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT)) {
+                    target.format = format;
+                    matched = true;
+                    break;
+                }
+            }
+            if (matched) {
                 break;
             }
         }
         if (target.format.format == VK_FORMAT_UNDEFINED) {
-            throw std::runtime_error("Vulkan surface has no usable direct or blit format");
+            raiseError(StringView(u8"Vulkan surface has no usable direct or blit format"));
         }
         target.shader = &fallbackRenderShader;
     }
 
     if (target.direct && target.format.format != target.shader->storageViewFormat && !(target.shader->flags & renderShaderMutableFormat)) {
-        throw std::runtime_error("Generated render shader requires an undeclared mutable format");
+        raiseError(StringView(u8"Generated render shader requires an undeclared mutable format"));
     }
     return target;
 }
@@ -1180,10 +1185,13 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     u32 formatCount = 0;
     checkVk(vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, nullptr), "vkGetPhysicalDeviceSurfaceFormatsKHR");
     if (formatCount == 0) {
-        throw std::runtime_error("Vulkan surface exposes no formats");
+        raiseError(StringView(u8"Vulkan surface exposes no formats"));
     }
-    std::vector<VkSurfaceFormatKHR> formats(formatCount);
-    checkVk(vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, formats.data()), "vkGetPhysicalDeviceSurfaceFormatsKHR");
+    Vector<VkSurfaceFormatKHR> formats;
+    while (formats.length() < formatCount) {
+        formats.pushBack({});
+    }
+    checkVk(vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, formats.mutData()), "vkGetPhysicalDeviceSurfaceFormatsKHR");
 
     const PresentTarget target = selectPresentTarget(capabilities, formats);
     const VkSurfaceFormatKHR surfaceFormat = target.format;
@@ -1192,24 +1200,30 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
 
     u32 presentModeCount = 0;
     checkVk(vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, nullptr), "vkGetPhysicalDeviceSurfacePresentModesKHR");
-    std::vector<VkPresentModeKHR> presentModes(presentModeCount);
-    checkVk(vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, presentModes.data()), "vkGetPhysicalDeviceSurfacePresentModesKHR");
+    Vector<VkPresentModeKHR> presentModes;
+    while (presentModes.length() < presentModeCount) {
+        presentModes.pushBack(VK_PRESENT_MODE_FIFO_KHR);
+    }
+    checkVk(vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, presentModes.mutData()), "vkGetPhysicalDeviceSurfacePresentModesKHR");
     VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
-    if (std::find(presentModes.begin(), presentModes.end(), VK_PRESENT_MODE_MAILBOX_KHR) != presentModes.end()) {
-        presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+    for (const VkPresentModeKHR mode : presentModes) {
+        if (mode == VK_PRESENT_MODE_MAILBOX_KHR) {
+            presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+            break;
+        }
     }
 
     VkExtent2D extent{};
-    if (capabilities.currentExtent.width != std::numeric_limits<u32>::max()) {
+    if (capabilities.currentExtent.width != UINT32_MAX) {
         extent = capabilities.currentExtent;
     } else {
-        extent.width = std::clamp(width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
-        extent.height = std::clamp(height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
+        extent.width = min(max(width, capabilities.minImageExtent.width), capabilities.maxImageExtent.width);
+        extent.height = min(max(height, capabilities.minImageExtent.height), capabilities.maxImageExtent.height);
     }
 
     u32 imageCount = capabilities.minImageCount + 1;
     if (capabilities.maxImageCount > 0) {
-        imageCount = std::min(imageCount, capabilities.maxImageCount);
+        imageCount = min(imageCount, capabilities.maxImageCount);
     }
 
     VkSwapchainCreateInfoKHR createInfo{};
@@ -2026,8 +2040,8 @@ bool RendererImpl::present(const TerminalUpdate& update) {
             // Repaint only the rows the old and new selections cover: a
             // drag must not repaint the whole grid every frame.
             const auto damageSelectionRows = [&](const Rect& selection) {
-                const i32 firstRow = std::max(selection.tl.y, 0);
-                const i32 lastRow = std::min<i32>(selection.br.y, (i32)(cellRows)-1);
+                const i32 firstRow = max(selection.tl.y, 0);
+                const i32 lastRow = min<i32>(selection.br.y, (i32)(cellRows)-1);
                 if (firstRow > lastRow) {
                     return;
                 }

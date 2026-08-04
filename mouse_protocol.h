@@ -8,8 +8,6 @@
 
 #include "vterm.h"
 
-#include <string>
-
 namespace stl {
     class StringBuilder;
 }
@@ -26,5 +24,4 @@ enum MouseProtocolModifier : unsigned {
     MouseControl = 4
 };
 
-std::string encodeMouseProtocol(MouseTrackingEnc encoding, MouseEventType type, unsigned modifiers, int motionButton, int button, int column, int row);
 bool encodeMouseProtocol(stl::StringBuilder& output, MouseTrackingEnc encoding, MouseEventType type, unsigned modifiers, int motionButton, int button, int column, int row);

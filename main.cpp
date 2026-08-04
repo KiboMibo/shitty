@@ -6,6 +6,7 @@
 
 #include "application.h"
 #include "composer.h"
+#include "fatal.h"
 #include "vterm_headless.h"
 
 #ifdef SHITTY_HEAP_PROFILE
@@ -20,14 +21,13 @@
 #include <std/str/builder.h>
 #include <std/str/view.h>
 #include <std/sys/fd.h>
+#include <std/sys/crt.h>
 #include <std/sys/fs.h>
 #include <std/sys/throw.h>
 
-#include <chrono>
 #include <cstring>
 #include <exception>
 #include <stdexcept>
-#include <string>
 
 #include <fcntl.h>
 
@@ -54,10 +54,10 @@ namespace {
         output << tenths / 10 << StringView(u8".") << tenths % 10;
     }
 
-    static void showPerfProgress(size_t done, size_t total, size_t bytes, std::chrono::steady_clock::time_point started) {
+    static void showPerfProgress(size_t done, size_t total, size_t bytes, u64 startedUs) {
         constexpr size_t width = 40;
         const size_t filled = total == 0 ? width : done * width / total;
-        const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+        const double elapsed = (double)(monotonicNowUs() - startedUs) / 1e6;
         const double mib = bytes / (1024.0 * 1024.0);
         const double mibPerSecond = elapsed > 0 ? mib / elapsed : 0;
         OutBuf output(stderrStream());
@@ -73,7 +73,7 @@ namespace {
 
     static int runPerf(int argc, char* argv[]) {
         if (argc < 3) {
-            throw std::invalid_argument("usage: st perf DIRECTORY...");
+            raiseError(StringView(u8"usage: st perf DIRECTORY..."));
         }
 
         Buffer paths;
@@ -101,7 +101,7 @@ namespace {
         VtermHeadless* vterm = VtermHeadless::create(composer, nullptr);
         Buffer data;
         size_t bytes = 0;
-        const auto started = std::chrono::steady_clock::now();
+        const u64 started = monotonicNowUs();
         showPerfProgress(0, files.length(), bytes, started);
         for (size_t index = 0; index < files.length(); ++index) {
             const char* path = (const char*)paths.data() + files[index].pathOffset;
@@ -140,7 +140,7 @@ int main(int argc, char* argv[]) {
 #ifdef SHITTY_HEAP_PROFILE
         initializeHeapProfile();
 #endif
-        if (argc > 1 && std::string(argv[1]) == "perf") {
+        if (argc > 1 && StringView(argv[1]) == StringView(u8"perf")) {
             status = runPerf(argc, argv);
         } else {
             ObjPool::Ref pool = ObjPool::fromMemory();
@@ -154,8 +154,6 @@ int main(int argc, char* argv[]) {
     } catch (Exception& error) {
         const StringView message = error.description();
         sysE << StringView(u8"Error: ") << message << endL;
-    } catch (const std::exception& error) {
-        sysE << StringView(u8"Error: ") << StringView(error.what()) << endL;
     }
     return status;
 }

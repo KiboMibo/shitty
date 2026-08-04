@@ -16,6 +16,7 @@
 #include "application.h"
 #include "composer.h"
 #include "drop_target.h"
+#include "fatal.h"
 #include "fd_redirect.h"
 #include "font_pack.h"
 #include "input_bindings.h"
@@ -48,6 +49,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <langinfo.h>
+#include <locale.h>
 #include <limits.h>
 #include <math.h>
 #include <signal.h>
@@ -328,16 +330,16 @@ void ApplicationImpl::createRenderer() {
 
 int ApplicationImpl::takeTestFd(int& argc, char* argv[]) {
     for (int k = 1; k < argc; ++k) {
-        if (std::strcmp(argv[k], "--test-fd") != 0) {
+        if (strcmp(argv[k], "--test-fd") != 0) {
             continue;
         }
         if (k + 1 >= argc) {
-            throw std::runtime_error("--test-fd requires a descriptor");
+            raiseError(StringView(u8"--test-fd requires a descriptor"));
         }
         char* end = nullptr;
-        const long fd = std::strtol(argv[k + 1], &end, 10);
+        const long fd = strtol(argv[k + 1], &end, 10);
         if (end == argv[k + 1] || *end || fd < 0 || fd > INT_MAX) {
-            throw std::runtime_error("invalid --test-fd descriptor");
+            raiseError(StringView(u8"invalid --test-fd descriptor"));
         }
         for (int j = k; j + 2 < argc; ++j) {
             argv[j] = argv[j + 2];
@@ -464,7 +466,7 @@ void ApplicationImpl::checkLocale() {
         sysO << StringView(u8"Warning: could not set locale; international input may be broken.") << endL;
         return;
     }
-    if (std::strcmp(nl_langinfo(CODESET), "UTF-8") != 0) {
+    if (strcmp(nl_langinfo(CODESET), "UTF-8") != 0) {
         sysO << StringView(u8"Warning: non-UTF-8 locale ") << StringView(locale) << StringView(u8"; international input may be broken.") << endL;
     }
 }
@@ -492,7 +494,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     }
 
     LaunchCommand launch = buildLaunchCommand(argc, argv, opts.shell, opts.login);
-    if (argc > 2 && std::strcmp(argv[1], "-e") == 0) {
+    if (argc > 2 && strcmp(argv[1], "-e") == 0) {
         if (opts.titleSource != OptionSource::CmdLine && opts.titleSource != OptionSource::Config) {
             opts.title = argv[2];
         }

@@ -6,6 +6,8 @@
 
 #include "heap_profile.h"
 
+#include "fatal.h"
+
 #include <std/ios/out_fd.h>
 #include <std/str/builder.h>
 #include <std/str/view.h>
@@ -33,7 +35,7 @@ namespace {
 
 void initializeHeapProfile() {
     if (IsHeapProfilerRunning() != 0) {
-        throw std::runtime_error("HEAPPROFILE cannot be combined with sampled heap profiling");
+        raiseError(StringView(u8"HEAPPROFILE cannot be combined with sampled heap profiling"));
     }
     size_t sampleInterval = defaultSampleInterval;
     if (const char* configured = getenv(sampleEnvironment); configured != nullptr) {
@@ -41,12 +43,12 @@ void initializeHeapProfile() {
         errno = 0;
         const unsigned long long parsed = strtoull(configured, &end, 10);
         if (errno != 0 || end == configured || *end != 0 || parsed == 0) {
-            throw std::invalid_argument("TCMALLOC_SAMPLE_PARAMETER must be a positive integer");
+            raiseError(StringView(u8"TCMALLOC_SAMPLE_PARAMETER must be a positive integer"));
         }
         sampleInterval = parsed;
     }
     if (!MallocExtension::instance()->SetNumericProperty("tcmalloc.sample_parameter", sampleInterval)) {
-        throw std::runtime_error("TCMalloc heap sampling is unavailable");
+        raiseError(StringView(u8"TCMalloc heap sampling is unavailable"));
     }
 }
 
@@ -56,6 +58,8 @@ void dumpHeapProfile() {
         path = defaultProfilePath;
     }
 
+    // MallocExtension only offers a std::string sink; keep the bridge in
+    // this one profiling-only translation unit.
     std::string profile;
     MallocExtension::instance()->GetHeapSample(&profile);
 

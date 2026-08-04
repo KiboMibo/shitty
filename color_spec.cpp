@@ -6,8 +6,11 @@
 
 #include "color_spec.h"
 
-#include <algorithm>
+#include <std/alg/minmax.h>
+
 #include <cmath>
+
+using namespace stl;
 
 namespace {
     struct Triple {
@@ -63,12 +66,12 @@ namespace {
     }
 
     static double yToValue(double value) {
-        return value < 0.008856 ? value * 903.29 : std::cbrt(value) * 116.0 - 16.0;
+        return value < 0.008856 ? value * 903.29 : cbrt(value) * 116.0 - 16.0;
     }
 
     static double hueOffset() {
         const Triple white = whiteUvY();
-        return std::atan((bestRedV - white.y) / (bestRedU - white.x)) * 180.0 / pi;
+        return atan((bestRedV - white.y) / (bestRedU - white.x)) * 180.0 / pi;
     }
 
     static Triple tekHvcToXyz(Triple value) {
@@ -79,8 +82,8 @@ namespace {
         }
         const double hue = (value.x + hueOffset()) * pi / 180.0;
         Triple uvY = whiteUvY();
-        uvY.x += std::cos(hue) * value.z / (value.y * chromaScale);
-        uvY.y += std::sin(hue) * value.z / (value.y * chromaScale);
+        uvY.x += cos(hue) * value.z / (value.y * chromaScale);
+        uvY.y += sin(hue) * value.z / (value.y * chromaScale);
         uvY.z = valueToY(value.y);
         return uvYToXyz(uvY);
     }
@@ -91,7 +94,7 @@ namespace {
         const double u = uvY.x - white.x;
         const double v = uvY.y - white.y;
         const double lightness = yToValue(value.y);
-        double hue = std::atan2(v, u) * 180.0 / pi - hueOffset();
+        double hue = atan2(v, u) * 180.0 / pi - hueOffset();
         while (hue < 0.0) {
             hue += 360.0;
         }
@@ -101,7 +104,7 @@ namespace {
         return {
             hue,
             lightness,
-            lightness * chromaScale * std::sqrt(u * u + v * v),
+            lightness * chromaScale * sqrt(u * u + v * v),
         };
     }
 
@@ -140,17 +143,17 @@ namespace {
     }
 
     static u8 encodeSrgb(double value) {
-        value = std::clamp(value, 0.0, 1.0);
-        value = value <= 0.0031308 ? 12.92 * value : 1.055 * std::pow(value, 1.0 / 2.4) - 0.055;
-        return (u8)std::lround(value * 255.0);
+        value = min(max(value, 0.0), 1.0);
+        value = value <= 0.0031308 ? 12.92 * value : 1.055 * pow(value, 1.0 / 2.4) - 0.055;
+        return (u8)lround(value * 255.0);
     }
 
     static bool colorFromXyz(Triple xyz, Color& color) {
-        if (!std::isfinite(xyz.x) || !std::isfinite(xyz.y) || !std::isfinite(xyz.z) || xyz.y < 0.0 || xyz.y > 1.0) {
+        if (!isfinite(xyz.x) || !isfinite(xyz.y) || !isfinite(xyz.z) || xyz.y < 0.0 || xyz.y > 1.0) {
             return false;
         }
         const Triple rgb = gamutMap(xyz);
-        if (!std::isfinite(rgb.x) || !std::isfinite(rgb.y) || !std::isfinite(rgb.z)) {
+        if (!isfinite(rgb.x) || !isfinite(rgb.y) || !isfinite(rgb.z)) {
             return false;
         }
         color = {encodeSrgb(rgb.x), encodeSrgb(rgb.y), encodeSrgb(rgb.z)};
@@ -238,7 +241,7 @@ bool colorFromTekHvc(double hue, double value, double chroma, Color& color) {
     if (value < 0.0 || value > 100.0 || chroma < 0.0) {
         return false;
     }
-    hue = std::fmod(hue, 360.0);
+    hue = fmod(hue, 360.0);
     if (hue < 0.0) {
         hue += 360.0;
     }
@@ -246,6 +249,6 @@ bool colorFromTekHvc(double hue, double value, double chroma, Color& color) {
 }
 
 bool finishColorNumber(double mantissa, bool negative, u32 exponent, bool exponentNegative, double& value) {
-    value = (negative ? -mantissa : mantissa) * std::pow(10.0, exponentNegative ? -(double)(exponent) : (double)(exponent));
-    return std::isfinite(value);
+    value = (negative ? -mantissa : mantissa) * pow(10.0, exponentNegative ? -(double)(exponent) : (double)(exponent));
+    return isfinite(value);
 }

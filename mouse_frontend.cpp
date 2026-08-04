@@ -6,32 +6,35 @@
 
 #include "mouse_frontend.h"
 
-#include <algorithm>
 #include <climits>
 #include <cmath>
 
+#include <std/alg/minmax.h>
+
+using namespace stl;
+
 int mouseFramebufferCoordinate(double logical, double scale) {
-    if (!std::isfinite(logical) || !std::isfinite(scale)) {
+    if (!isfinite(logical) || !isfinite(scale)) {
         return 0;
     }
-    const double pixel = logical * std::max(1.0, scale);
-    return (int)(std::clamp(std::round(pixel), (double)(INT_MIN), (double)(INT_MAX)));
+    const double pixel = logical * max(1.0, scale);
+    return (int)(min(max(round(pixel), (double)(INT_MIN)), (double)(INT_MAX)));
 }
 
 MouseProtocolPoint mouseProtocolPoint(MouseTrackingEnc encoding, int pixelX, int pixelY, const MouseGeometry& geometry) {
-    const int contentWidth = std::max(1, geometry.framebufferWidth - 2 * geometry.border);
-    const int contentHeight = std::max(1, geometry.framebufferHeight - 2 * geometry.border);
+    const int contentWidth = max(1, geometry.framebufferWidth - 2 * geometry.border);
+    const int contentHeight = max(1, geometry.framebufferHeight - 2 * geometry.border);
     if (encoding == MouseTrackingEnc::SGRPixels) {
         return {
-            std::clamp(pixelX - geometry.border + 1, 1, contentWidth),
-            std::clamp(pixelY - geometry.border + 1, 1, contentHeight),
+            min(max(pixelX - geometry.border + 1, 1), contentWidth),
+            min(max(pixelY - geometry.border + 1, 1), contentHeight),
         };
     }
-    const int columns = std::max(1, contentWidth / std::max(1, geometry.glyphWidth));
-    const int rows = std::max(1, contentHeight / std::max(1, geometry.glyphHeight));
+    const int columns = max(1, contentWidth / max(1, geometry.glyphWidth));
+    const int rows = max(1, contentHeight / max(1, geometry.glyphHeight));
     return {
-        std::clamp((pixelX - geometry.border) / std::max(1, geometry.glyphWidth) + 1, 1, columns),
-        std::clamp((pixelY - geometry.border) / std::max(1, geometry.glyphHeight) + 1, 1, rows),
+        min(max((pixelX - geometry.border) / max(1, geometry.glyphWidth) + 1, 1), columns),
+        min(max((pixelY - geometry.border) / max(1, geometry.glyphHeight) + 1, 1), rows),
     };
 }
 
@@ -67,12 +70,12 @@ bool mouseButtonReportAllowed(MouseTrackingMode mode, MouseEventType type, int b
 }
 
 int MouseWheelAccumulator::consumeAxis(double delta, double& remainder) {
-    if (!std::isfinite(delta)) {
+    if (!isfinite(delta)) {
         remainder = 0.0;
         return 0;
     }
-    const double total = remainder + std::clamp(delta, -100.0, 100.0);
-    const int steps = (int)(std::trunc(total));
+    const double total = remainder + min(max(delta, -100.0), 100.0);
+    const int steps = (int)(trunc(total));
     remainder = total - steps;
     return steps;
 }
@@ -135,7 +138,7 @@ bool MouseFrontendState::primaryButtonPressed() const {
 
 int MouseFrontendState::registerClick(int button, double x, double y, double time) {
     const double elapsed = time - lastClickTime_;
-    const bool repeated = button == lastButton_ && elapsed >= 0.0 && elapsed <= 0.5 && std::abs(x - lastClickX_) <= 4.0 && std::abs(y - lastClickY_) <= 4.0;
+    const bool repeated = button == lastButton_ && elapsed >= 0.0 && elapsed <= 0.5 && fabs(x - lastClickX_) <= 4.0 && fabs(y - lastClickY_) <= 4.0;
     clickCount_ = repeated ? clickCount_ + 1 : 1;
     lastButton_ = button;
     lastClickTime_ = time;

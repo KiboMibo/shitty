@@ -6,8 +6,11 @@
 
 #include "cell_extra_store.h"
 
+#include "fatal.h"
+
 #include "composer.h"
 
+#include <std/alg/minmax.h>
 #include <std/dbg/assert.h>
 #include <std/lib/list.h>
 #include <std/mem/obj_pool.h>
@@ -15,7 +18,6 @@
 
 #include <algorithm>
 #include <cstring>
-#include <new>
 
 using namespace stl;
 
@@ -199,7 +201,7 @@ void CellExtraStoreImpl::rehashHyperlinks(size_t capacity) {
 u32 CellExtraStoreImpl::append(const CellExtra& value) {
     STD_ASSERT(!value.graphemeBytes.empty() || hyperlinkOf(value) != nullptr);
     if (slots_.length() > TerminalCell::maxExtraRef) {
-        throw std::bad_alloc();
+        raiseError(StringView(u8"cell extra store slot budget exhausted"));
     }
 
     auto* extra = pool_->make<CellExtra>(value);
@@ -453,10 +455,10 @@ namespace {
 }
 
 void CellExtraStoreImpl::setCellCount(size_t cellCount) noexcept {
-    cellCount_ = std::max<size_t>(cellCount, 1);
-    slotBudget_ = std::min(std::max<size_t>(16, cellCount_ * 10), slotBudgetCeiling);
-    allocationBudget_ = std::max<size_t>(16, cellCount_ * 2);
-    byteBudget_ = std::max<size_t>(4096, cellCount_ * 64);
+    cellCount_ = max<size_t>(cellCount, 1);
+    slotBudget_ = min(max<size_t>(16, cellCount_ * 10), slotBudgetCeiling);
+    allocationBudget_ = max<size_t>(16, cellCount_ * 2);
+    byteBudget_ = max<size_t>(4096, cellCount_ * 64);
 }
 
 size_t CellExtraStoreImpl::slotBudget() const noexcept {
@@ -465,10 +467,10 @@ size_t CellExtraStoreImpl::slotBudget() const noexcept {
 
 void CellExtraStoreImpl::finishCollection() noexcept {
     allocationsSinceGc_ = 0;
-    slotBudget_ = std::min(std::max(slotBudget_, slots_.length() + cellCount_ * 2), slotBudgetCeiling);
+    slotBudget_ = min(max(slotBudget_, slots_.length() + cellCount_ * 2), slotBudgetCeiling);
     // Guarantee progress even when live extras crowd the ceiling.
-    slotBudget_ = std::max(slotBudget_, slots_.length() + 1024);
-    byteBudget_ = std::max(byteBudget_, allocatedExtraBytes_ + std::max<size_t>(1024 * 1024, cellCount_ * 16));
+    slotBudget_ = max(slotBudget_, slots_.length() + 1024);
+    byteBudget_ = max(byteBudget_, allocatedExtraBytes_ + max<size_t>(1024 * 1024, cellCount_ * 16));
 }
 
 bool CellExtraStoreImpl::shouldCollect() const noexcept {

@@ -17,20 +17,23 @@
 
 #include "options.h"
 
+#include "fatal.h"
 #include "toml.h"
 
+#include <std/alg/minmax.h>
+#include <std/alg/xchg.h>
 #include <std/ios/sys.h>
+#include <std/lib/buffer.h>
+#include <std/lib/vector.h>
+#include <std/str/builder.h>
 #include <std/str/view.h>
+#include <std/mem/obj_pool.h>
+#include <std/sym/s_map.h>
 
-#include <stdlib.h>
-
-#include <algorithm>
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
-#include <map>
-#include <sstream>
-#include <stdexcept>
-#include <vector>
+#include <stdlib.h>
 
 using namespace stl;
 
@@ -58,7 +61,7 @@ namespace {
         const char* helpDescr;
     };
 
-    static const std::vector<OptionDesc> optionsTable = {
+    static const OptionDesc optionsTable[] = {
 
         {"altScroll", OptionKind::NoArg, "true", "false", "Alternate scroll mode"},
         {"autoCopy", OptionKind::NoArg, "true", "false", "Sync primary to clipboard"},
@@ -89,7 +92,7 @@ namespace {
         {"e", OptionKind::SkipLine, nullptr, nullptr, "Command line to run"},
     };
 
-    static const std::vector<ResourceDesc> resourceTable = {
+    static const ResourceDesc resourceTable[] = {
 
         {"altSendsEscape", "true", "Encode Alt key as ESC prefix"},
         {"modifyOtherKeys", "1", "Key modifier encoding level; 0..2"},
@@ -114,22 +117,103 @@ namespace {
         {"color15", "#ffffff", "Palette color 15"},
     };
 
-    static std::map<std::string, std::string> commandLine;
-    static std::map<std::string, std::string> configFile;
-    static std::vector<std::string> configFonts;
-    static std::vector<std::string> configRemaps;
-    static std::vector<std::string> fontArguments;
-    static std::vector<const char*> fontPointers;
-    static std::vector<std::string> remapArguments;
-    static std::vector<const char*> remapPointers;
+    // A list of owned strings: NUL-terminated bytes in one arena, one
+    // offset per entry. Vector cannot hold non-trivial elements, so the
+    // strings never live in it directly.
+    struct StringList {
+        Buffer arena;
+        Vector<u32> offsets;
+
+        void clear();
+        void push(StringView value);
+        size_t count() const;
+        bool empty() const;
+        const char* at(size_t index) const;
+        void copyFrom(const StringList& other);
+    };
+
+    // Option values by name hash: the value bytes are stored NUL
+    // terminated, so a lookup hands out a plain C string.
+    struct NamedValues {
+        ObjPool::Ref pool;
+        SymbolMap<Buffer> map;
+
+        NamedValues();
+
+        void put(StringView name, StringView value);
+        const char* find(StringView name);
+    };
+
+    static StringList configFonts;
+    static StringList configRemaps;
+    static StringList fontArguments;
+    static StringList remapArguments;
+    static Vector<const char*> fontPointers;
+    static Vector<const char*> remapPointers;
+}
+
+void StringList::clear() {
+    arena.reset();
+    offsets.clear();
+}
+
+void StringList::push(StringView value) {
+    offsets.pushBack((u32)(arena.used()));
+    arena.append(value.data(), value.length());
+    arena.append("", 1);
+}
+
+size_t StringList::count() const {
+    return offsets.length();
+}
+
+bool StringList::empty() const {
+    return offsets.empty();
+}
+
+const char* StringList::at(size_t index) const {
+    return (const char*)(arena.data()) + offsets[index];
+}
+
+void StringList::copyFrom(const StringList& other) {
+    Buffer bytes(other.arena);
+    Vector<u32> where(other.offsets);
+    arena.xchg(bytes);
+    offsets.xchg(where);
+}
+
+NamedValues::NamedValues()
+    : pool(ObjPool::fromMemory())
+    , map(pool.mutPtr())
+{
+}
+
+void NamedValues::put(StringView name, StringView value) {
+    Buffer bytes(value);
+    bytes.append("", 1);
+    map.insert(name, move(bytes));
+}
+
+const char* NamedValues::find(StringView name) {
+    Buffer* const value = map.find(name);
+    if (value == nullptr) {
+        return nullptr;
+    }
+    return (const char*)(value->data());
+}
+
+namespace {
+
+    static NamedValues commandLine;
+    static NamedValues configFile;
 
     // The two list-shaped options; everything else in the config file is a
     // scalar.
-    static std::vector<std::string>* configList(const std::string& name) {
-        if (name == "font") {
+    static StringList* configList(StringView name) {
+        if (name == StringView(u8"font")) {
             return &configFonts;
         }
-        if (name == "remap") {
+        if (name == StringView(u8"remap")) {
             return &configRemaps;
         }
         return nullptr;
@@ -161,7 +245,7 @@ namespace {
                 return &option;
             }
             if (found != nullptr) {
-                throw std::runtime_error(std::string("ambiguous option: ") + prefix);
+                raiseError(StringView(u8"ambiguous option: "), StringView(prefix));
             }
             found = &option;
         }
@@ -178,19 +262,24 @@ namespace {
     }
 
     // Options that only make sense on a command line stay out of the file.
-    static bool isConfigurableOption(const std::string& name) {
+    static bool isConfigurableOption(StringView name) {
         static const char* const rejected[] = {"help", "version", "listres", "e", "config", "vulkanInfo"};
         for (const char* meta : rejected) {
-            if (name == meta) {
+            if (name == StringView(meta)) {
                 return false;
             }
         }
         for (const auto& option : optionsTable) {
-            if (name == option.option) {
+            if (name == StringView(option.option)) {
                 return true;
             }
         }
-        return isAdvancedOption(name.c_str());
+        for (const auto& resource : resourceTable) {
+            if (name == StringView(resource.resource)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // Fills configFile/configFonts from the SAX events of one TOML
@@ -199,8 +288,8 @@ namespace {
     // ignored, so no callback ever aborts the parse.
     struct ConfigSink: public TomlSink {
         const char* path;
-        std::string pending;
-        std::vector<std::string>* pendingList;
+        Buffer pending;
+        StringList* pendingList;
         bool pendingKnown;
         bool skippingTable;
         int arrayDepth;
@@ -217,7 +306,7 @@ namespace {
         bool tomlInlineTableEnd() override;
         void tomlError(size_t line, stl::StringView message) override;
 
-        void warn(const char* what, const std::string& name);
+        void warn(const char* what, StringView name);
     };
 }
 
@@ -231,13 +320,17 @@ ConfigSink::ConfigSink(const char* path)
 {
 }
 
-void ConfigSink::warn(const char* what, const std::string& name) {
-    fprintf(stderr, "shitty: %s: %s%s%s\n", path, what, name.empty() ? "" : ": ", name.c_str());
+void ConfigSink::warn(const char* what, StringView name) {
+    if (name.empty()) {
+        fprintf(stderr, "shitty: %s: %s\n", path, what);
+    } else {
+        fprintf(stderr, "shitty: %s: %s: %.*s\n", path, what, (int)(name.length()), (const char*)(name.data()));
+    }
 }
 
 bool ConfigSink::tomlTable(const StringView*, size_t, bool) {
     if (!skippingTable) {
-        warn("options are plain keys, tables are ignored", std::string());
+        warn("options are plain keys, tables are ignored", StringView());
     }
     skippingTable = true;
     return true;
@@ -247,19 +340,19 @@ bool ConfigSink::tomlKey(const StringView* segments, size_t count) {
     if (inlineDepth != 0) {
         return true;
     }
-    pending.clear();
+    pending.reset();
     pendingKnown = false;
     if (skippingTable) {
         return true;
     }
     if (count != 1) {
-        warn("dotted keys are not options", std::string((const char*)segments[0].data(), segments[0].length()));
+        warn("dotted keys are not options", segments[0]);
         return true;
     }
-    pending.assign((const char*)segments[0].data(), segments[0].length());
-    pendingKnown = isConfigurableOption(pending);
+    pending.append(segments[0].data(), segments[0].length());
+    pendingKnown = isConfigurableOption(StringView(pending));
     if (!pendingKnown) {
-        warn("unknown option", pending);
+        warn("unknown option", StringView(pending));
     }
     return true;
 }
@@ -268,37 +361,36 @@ bool ConfigSink::tomlScalar(TomlType type, StringView text) {
     if (inlineDepth != 0) {
         return true;
     }
-    std::string value((const char*)text.data(), text.length());
     if (arrayDepth != 0) {
         if (pendingList == nullptr) {
             return true;
         }
         if (type != TomlType::String) {
-            warn("list entries must be strings", value);
+            warn("list entries must be strings", text);
             return true;
         }
-        pendingList->push_back(value);
+        pendingList->push(text);
         return true;
     }
     if (!pendingKnown) {
         return true;
     }
-    if (std::vector<std::string>* const list = configList(pending)) {
+    if (StringList* const list = configList(StringView(pending))) {
         list->clear();
-        list->push_back(value);
+        list->push(text);
         return true;
     }
-    configFile[pending] = value;
+    configFile.put(StringView(pending), text);
     return true;
 }
 
 bool ConfigSink::tomlArrayBegin() {
     if (inlineDepth == 0 && arrayDepth == 0) {
-        pendingList = pendingKnown ? configList(pending) : nullptr;
+        pendingList = pendingKnown ? configList(StringView(pending)) : nullptr;
         if (pendingList != nullptr) {
             pendingList->clear();
         } else if (pendingKnown) {
-            warn("this option does not take a list", pending);
+            warn("this option does not take a list", StringView(pending));
         }
     }
     arrayDepth += 1;
@@ -315,7 +407,7 @@ bool ConfigSink::tomlArrayEnd() {
 
 bool ConfigSink::tomlInlineTableBegin() {
     if (inlineDepth == 0 && pendingKnown) {
-        warn("no option takes a table", pending);
+        warn("no option takes a table", StringView(pending));
         pendingKnown = false;
     }
     inlineDepth += 1;
@@ -328,59 +420,74 @@ bool ConfigSink::tomlInlineTableEnd() {
 }
 
 void ConfigSink::tomlError(size_t line, StringView message) {
-    fprintf(stderr, "shitty: %s:%zu: %.*s; ignoring the rest of the file\n", path, line, (int)message.length(), (const char*)message.data());
+    fprintf(stderr, "shitty: %s:%zu: %.*s; ignoring the rest of the file\n", path, line, (int)(message.length()), (const char*)(message.data()));
 }
 
 namespace {
 
     // Expands ${NAME} from the process environment anywhere in the config
     // text before parsing. Deliberately simple: one pass over the whole
-    // environment, replacing every occurrence of each variable. Skipping
-    // past the substituted value keeps a self-referential variable from
-    // looping forever.
-    static void substituteEnvironment(std::string& text) {
+    // environment, replacing every occurrence of each variable. Appending
+    // the substituted value verbatim to the output keeps a
+    // self-referential variable from looping forever.
+    static void substituteEnvironment(Buffer& text) {
         for (char** entry = environ; *entry != nullptr; ++entry) {
             const char* equals = strchr(*entry, '=');
             if (equals == nullptr || equals == *entry) {
                 continue;
             }
-            const std::string token = "${" + std::string(*entry, equals - *entry) + "}";
-            const std::string value(equals + 1);
+            StringBuilder token;
+            token << StringView(u8"${") << StringView((const u8*)(*entry), equals - *entry) << StringView(u8"}");
+            const StringView needle(token);
+            const StringView value(equals + 1);
+            const u8* base = (const u8*)(text.data());
+            const size_t used = text.used();
+            Buffer replaced;
+            bool changed = false;
             size_t at = 0;
-            while ((at = text.find(token, at)) != std::string::npos) {
-                text.replace(at, token.size(), value);
-                at += value.size();
+            while (at + needle.length() <= used) {
+                if (memcmp(base + at, needle.data(), needle.length()) == 0) {
+                    replaced.append(value.data(), value.length());
+                    at += needle.length();
+                    changed = true;
+                } else {
+                    replaced.append(base + at, 1);
+                    at += 1;
+                }
+            }
+            if (changed) {
+                replaced.append(base + at, used - at);
+                text.xchg(replaced);
             }
         }
     }
 
     static void loadConfigFile() {
-        std::string path;
+        StringBuilder path;
         bool required = false;
-        const auto chosen = commandLine.find("config");
-        if (chosen != commandLine.end()) {
-            path = chosen->second;
+        if (const char* chosen = commandLine.find(StringView(u8"config"))) {
+            path << StringView(chosen);
             required = true;
         } else {
             const char* xdg = getenv("XDG_CONFIG_HOME");
             if (xdg != nullptr && xdg[0] != '\0') {
-                path = std::string(xdg) + "/shitty/shitty.toml";
+                path << StringView(xdg) << StringView(u8"/shitty/shitty.toml");
             } else {
                 const char* home = getenv("HOME");
                 if (home == nullptr || home[0] == '\0') {
                     return;
                 }
-                path = std::string(home) + "/.config/shitty/shitty.toml";
+                path << StringView(home) << StringView(u8"/.config/shitty/shitty.toml");
             }
         }
-        FILE* file = fopen(path.c_str(), "rb");
+        FILE* file = fopen(path.cStr(), "rb");
         if (file == nullptr) {
             if (required) {
-                throw std::runtime_error("-config: cannot open " + path);
+                raiseError(StringView(u8"-config: cannot open "), StringView(path));
             }
             return;
         }
-        std::string text;
+        Buffer text;
         char chunk[4096];
         size_t got = 0;
         while ((got = fread(chunk, 1, sizeof(chunk), file)) > 0) {
@@ -388,8 +495,8 @@ namespace {
         }
         fclose(file);
         substituteEnvironment(text);
-        ConfigSink sink(path.c_str());
-        parseToml(StringView((const u8*)text.data(), text.size()), sink);
+        ConfigSink sink(path.cStr());
+        parseToml(StringView(text), sink);
     }
 
     static const char* get(const char* name, const char* fallback = nullptr, OptionSource* src = nullptr) {
@@ -400,14 +507,12 @@ namespace {
             return value;
         };
 
-        const auto parsed = commandLine.find(name);
-        if (parsed != commandLine.end()) {
-            return withSource(OptionSource::CmdLine, parsed->second.c_str());
+        if (const char* parsed = commandLine.find(StringView(name))) {
+            return withSource(OptionSource::CmdLine, parsed);
         }
 
-        const auto configured = configFile.find(name);
-        if (configured != configFile.end()) {
-            return withSource(OptionSource::Config, configured->second.c_str());
+        if (const char* configured = configFile.find(StringView(name))) {
+            return withSource(OptionSource::Config, configured);
         }
 
         for (const auto& option : optionsTable) {
@@ -425,65 +530,76 @@ namespace {
         return withSource(OptionSource::NONE, fallback);
     }
 
-    static void getBorder(u16& outBorder) {
-        const char* option = get("border");
-        std::stringstream input(option);
-        int border;
-        input >> border;
-        const bool invalid = input.fail();
-        input >> std::ws;
-        if (invalid || !input.eof() || border < 0 || border > 3000) {
-            throw std::runtime_error("-border: expected unsigned, max. 3000");
+    // The strtol shape of the old stringstream parsing: leading whitespace
+    // and a sign pass, trailing whitespace passes, anything else fails.
+    static bool parseNumber(const char* text, long& out) {
+        char* end = nullptr;
+        errno = 0;
+        out = strtol(text, &end, 10);
+        if (end == text || errno != 0) {
+            return false;
         }
-        outBorder = border;
+        while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\v' || *end == '\f' || *end == '\r') {
+            ++end;
+        }
+        return *end == '\0';
+    }
+
+    static void getBorder(u16& outBorder) {
+        long border = 0;
+        if (!parseNumber(get("border"), border) || border < 0 || border > 3000) {
+            raiseError(StringView(u8"-border: expected unsigned, max. 3000"));
+        }
+        outBorder = (u16)(border);
     }
 
     static void getSaveLines(u16& outSaveLines) {
-        const char* option = get("saveLines");
-        std::stringstream input(option);
-        int lines;
-        input >> lines;
-        const bool invalid = input.fail();
-        input >> std::ws;
-        if (invalid || !input.eof() || lines < 0 || lines > 50000) {
-            throw std::runtime_error("-saveLines: expected unsigned, max. 50000");
+        long lines = 0;
+        if (!parseNumber(get("saveLines"), lines) || lines < 0 || lines > 50000) {
+            raiseError(StringView(u8"-saveLines: expected unsigned, max. 50000"));
         }
-        outSaveLines = lines;
+        outSaveLines = (u16)(lines);
     }
 
     static void getFontsize(u8& outFontsize) {
-        const char* option = nullptr;
-        const auto parsed = commandLine.find("fontsize");
-        if (parsed != commandLine.end()) {
-            option = parsed->second.c_str();
-        } else if ((option = getenv("SHITTY_FONT_SIZE")) == nullptr) {
+        const char* option = commandLine.find(StringView(u8"fontsize"));
+        if (option == nullptr && (option = getenv("SHITTY_FONT_SIZE")) == nullptr) {
             option = get("fontsize");
         }
-        std::stringstream input(option);
-        int size;
-        input >> size;
-        const bool invalid = input.fail();
-        input >> std::ws;
-        if (invalid || !input.eof() || size < 1 || size > 255) {
-            throw std::runtime_error("-fontsize/SHITTY_FONT_SIZE: expected integer within 1..255");
+        long size = 0;
+        if (!parseNumber(option, size) || size < 1 || size > 255) {
+            raiseError(StringView(u8"-fontsize/SHITTY_FONT_SIZE: expected integer within 1..255"));
         }
-        outFontsize = size;
+        outFontsize = (u8)(size);
     }
 
     static void getGeometry(u16& outCols, u16& outRows) {
         const char* option = get("geometry");
-        std::stringstream input(option);
-        int cols;
-        int rows;
-        char separator;
-        input >> cols >> separator >> rows;
-        const bool invalid = input.fail();
-        input >> std::ws;
-        if (invalid || !input.eof() || separator != 'x' || cols < 1 || cols > UINT16_MAX || rows < 1 || rows > UINT16_MAX) {
-            throw std::runtime_error("-geometry: expected format <COLS>x<ROWS>");
+        char* end = nullptr;
+        errno = 0;
+        const long cols = strtol(option, &end, 10);
+        bool valid = end != option && errno == 0;
+        const char* rest = end;
+        while (valid && (*rest == ' ' || *rest == '\t')) {
+            ++rest;
         }
-        outCols = cols;
-        outRows = rows;
+        valid = valid && *rest == 'x';
+        long rows = 0;
+        if (valid) {
+            const char* rowText = rest + 1;
+            errno = 0;
+            rows = strtol(rowText, &end, 10);
+            valid = end != rowText && errno == 0;
+            while (valid && (*end == ' ' || *end == '\t')) {
+                ++end;
+            }
+            valid = valid && *end == '\0';
+        }
+        if (!valid || cols < 1 || cols > UINT16_MAX || rows < 1 || rows > UINT16_MAX) {
+            raiseError(StringView(u8"-geometry: expected format <COLS>x<ROWS>"));
+        }
+        outCols = (u16)(cols);
+        outRows = (u16)(rows);
     }
 
     static u8 convHexDigit(const char* name, const char ch) {
@@ -497,7 +613,7 @@ namespace {
             return ch - 'A' + 10;
         }
 
-        throw std::runtime_error(std::string("-") + name + ": illegal hex digit; expected hex RGB color");
+        raiseError(StringView(u8"-"), StringView(name), StringView(u8": illegal hex digit; expected hex RGB color"));
     }
 
     static void convColor(const char* name, const char* option, Color& outColor) {
@@ -514,8 +630,13 @@ namespace {
                 outColor.blue = (convHexDigit(name, value[4]) << 4) + convHexDigit(name, value[5]);
                 break;
             default:
-                throw std::runtime_error(std::string("-") + name + ": expected hex RGB color");
+                raiseError(StringView(u8"-"), StringView(name), StringView(u8": expected hex RGB color"));
         }
+    }
+
+    [[noreturn]] static void reportStartupError(StringView message) {
+        sysO << StringView(u8"Error: ") << message << StringView(u8"!\nTry -help for usage options.") << endL;
+        exit(-1);
     }
 
 }
@@ -545,33 +666,33 @@ void Options::initialize(int* argc, char** argv) {
         const OptionDesc* option = findOption(name);
         if (option == nullptr) {
             if (!isAdvancedOption(name)) {
-                throw std::runtime_error(std::string("unknown option: ") + argument);
+                raiseError(StringView(u8"unknown option: "), StringView(argument));
             }
 
             if (input + 1 >= *argc) {
-                throw std::runtime_error(std::string(argument) + ": missing value");
+                raiseError(StringView(argument), StringView(u8": missing value"));
             }
-            commandLine[name] = argv[++input];
+            commandLine.put(StringView(name), StringView(argv[++input]));
             continue;
         }
 
         switch (option->parseType) {
             case OptionKind::NoArg:
-                commandLine[option->option] = enabled ? option->implValue : "false";
+                commandLine.put(StringView(option->option), StringView(enabled ? option->implValue : "false"));
                 break;
             case OptionKind::SepArg:
                 if (!enabled) {
-                    throw std::runtime_error(std::string(argument) + ": '+' is invalid here");
+                    raiseError(StringView(argument), StringView(u8": '+' is invalid here"));
                 }
                 if (input + 1 >= *argc) {
-                    throw std::runtime_error(std::string(argument) + ": missing value");
+                    raiseError(StringView(argument), StringView(u8": missing value"));
                 }
-                commandLine[option->option] = argv[++input];
+                commandLine.put(StringView(option->option), StringView(argv[++input]));
                 if (strcmp(option->option, "font") == 0) {
-                    fontArguments.push_back(argv[input]);
+                    fontArguments.push(StringView(argv[input]));
                 }
                 if (strcmp(option->option, "remap") == 0) {
-                    remapArguments.push_back(argv[input]);
+                    remapArguments.push(StringView(argv[input]));
                 }
                 break;
             case OptionKind::SkipLine:
@@ -584,9 +705,8 @@ void Options::initialize(int* argc, char** argv) {
 
     try {
         loadConfigFile();
-    } catch (const std::exception& error) {
-        sysO << StringView(u8"Error: ") << StringView(error.what()) << StringView(u8"!\nTry -help for usage options.") << endL;
-        exit(-1);
+    } catch (Exception& error) {
+        reportStartupError(error.description());
     }
 }
 
@@ -601,13 +721,13 @@ bool Options::getBool(const char* name, bool defaultValue) {
     if (strcmp(option, "false") == 0) {
         return false;
     }
-    throw std::runtime_error(std::string("-") + name + ": expected true or false");
+    raiseError(StringView(u8"-"), StringView(name), StringView(u8": expected true or false"));
 }
 
 void Options::getColor(const char* name, Color& outColor) {
     const char* option = get(name);
     if (option == nullptr) {
-        throw std::runtime_error(std::string("-") + name + ": missing value");
+        raiseError(StringView(u8"-"), StringView(name), StringView(u8": missing value"));
     }
     convColor(name, option, outColor);
 }
@@ -618,15 +738,11 @@ int Options::getInteger(const char* name, int min, int max) {
         return min;
     }
 
-    std::stringstream input(option);
-    int result;
-    input >> result;
-    const bool invalid = input.fail();
-    input >> std::ws;
-    if (invalid || !input.eof()) {
-        throw std::runtime_error(std::string("-") + name + ": expected integer");
+    long result = 0;
+    if (!parseNumber(option, result)) {
+        raiseError(StringView(u8"-"), StringView(name), StringView(u8": expected integer"));
     }
-    return std::min(std::max(min, result), max);
+    return stl::min(stl::max((long)(min), result), (long)(max));
 }
 
 void Options::handlePrintOpts() {
@@ -650,26 +766,26 @@ void Options::parse() {
         getBorder(border);
         getSaveLines(saveLines);
         if (fontArguments.empty()) {
-            fontArguments = configFonts;
+            fontArguments.copyFrom(configFonts);
         }
         if (fontArguments.empty()) {
-            fontArguments.push_back(get("font"));
+            fontArguments.push(StringView(get("font")));
         }
         fontPointers.clear();
-        for (const std::string& name : fontArguments) {
-            fontPointers.push_back(name.c_str());
+        for (size_t index = 0; index < fontArguments.count(); ++index) {
+            fontPointers.pushBack(fontArguments.at(index));
         }
         fontnames = fontPointers.data();
-        fontnameCount = fontPointers.size();
+        fontnameCount = fontPointers.length();
         if (remapArguments.empty()) {
-            remapArguments = configRemaps;
+            remapArguments.copyFrom(configRemaps);
         }
         remapPointers.clear();
-        for (const std::string& rule : remapArguments) {
-            remapPointers.push_back(rule.c_str());
+        for (size_t index = 0; index < remapArguments.count(); ++index) {
+            remapPointers.pushBack(remapArguments.at(index));
         }
         remaps = remapPointers.data();
-        remapCount = remapPointers.size();
+        remapCount = remapPointers.length();
         getFontsize(fontsize);
         getGeometry(nCols, nRows);
         vulkanInfo = getBool("vulkanInfo");
@@ -683,7 +799,7 @@ void Options::parse() {
         getColor("bg", bg);
         rv = getBool("rv");
         if (rv) {
-            std::swap(fg, bg);
+            xchg(fg, bg);
         }
         if (get("cr") != nullptr) {
             getColor("cr", cr);
@@ -695,11 +811,11 @@ void Options::parse() {
         autoCopyMode = getBool("autoCopy");
         allowOsc52Read = getBool("allowOsc52Read");
         allowWindowOps = getBool("allowWindowOps");
-        const std::string osc52Select = get("osc52Select");
-        if (osc52Select != "primary" && osc52Select != "clipboard") {
-            throw std::runtime_error("-osc52Select: expected primary or clipboard");
+        const char* osc52Select = get("osc52Select");
+        if (strcmp(osc52Select, "primary") != 0 && strcmp(osc52Select, "clipboard") != 0) {
+            raiseError(StringView(u8"-osc52Select: expected primary or clipboard"));
         }
-        osc52SelectClipboard = osc52Select == "clipboard";
+        osc52SelectClipboard = strcmp(osc52Select, "clipboard") == 0;
         boldColors = getBool("boldColors");
         kittyCtrlBaseLayout = getBool("kittyCtrlBaseLayout");
         noDecorations = getBool("no-decorations");
@@ -707,9 +823,8 @@ void Options::parse() {
         showWraps = getBool("showWraps");
         verbose = getBool("verbose");
         modifyOtherKeys = getInteger("modifyOtherKeys", 0, 2);
-    } catch (const std::exception& error) {
-        sysO << StringView(u8"Error: ") << StringView(error.what()) << StringView(u8"!\nTry -help for usage options.") << endL;
-        exit(-1);
+    } catch (Exception& error) {
+        reportStartupError(error.description());
     }
 }
 
@@ -723,7 +838,7 @@ void Options::printUsage() const {
     output << StringView(u8"Usage:\n  st [-option ...] [shell]\n\nOptions:\n");
     size_t maxWidth = 0;
     for (const auto& option : optionsTable) {
-        maxWidth = std::max(maxWidth, strlen(option.option));
+        maxWidth = max(maxWidth, strlen(option.option));
     }
     for (const auto& option : optionsTable) {
         output << StringView(u8"  -") << StringView(option.option);
@@ -743,7 +858,7 @@ void Options::printResources() const {
     output << StringView(u8"Advanced options:\n");
     size_t maxWidth = 0;
     for (const auto& resource : resourceTable) {
-        maxWidth = std::max(maxWidth, strlen(resource.resource));
+        maxWidth = max(maxWidth, strlen(resource.resource));
     }
     for (const auto& resource : resourceTable) {
         output << StringView(u8"  -") << StringView(resource.resource);

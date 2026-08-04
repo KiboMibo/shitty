@@ -17,6 +17,7 @@
 #include <plt/platform_headless.h>
 #include <plt/window.h>
 
+#include <std/alg/xchg.h>
 #include <std/dbg/assert.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
@@ -24,13 +25,21 @@
 #include <std/str/builder.h>
 #include <std/str/view.h>
 
-#include <algorithm>
 #include <cstring>
-#include <vector>
 
 using namespace stl;
 
 namespace {
+    template <typename T>
+    static void resizeVector(Vector<T>& vector, size_t count) {
+        while (vector.length() > count) {
+            vector.popBack();
+        }
+        while (vector.length() < count) {
+            vector.pushBack(T{});
+        }
+    }
+
     // The slice of one arena strip a cell renders: base is a byte offset
     // into the renderer's copy of the strips, stride the strip width in
     // pixels.
@@ -86,10 +95,6 @@ namespace {
         }
     };
 
-    static std::string toString(const StringBuilder& builder) {
-        return std::string((const char*)(builder.data()), builder.used());
-    }
-
     struct ReferenceRendererImpl final: ReferenceRenderer {
         ReferenceRendererImpl(Composer& composer, const plt::RenderContext& context);
 
@@ -98,15 +103,15 @@ namespace {
         void attach(TestApi& testApi) override;
         ReferenceImage image() const override;
         TerminalUpdate renderUpdate() const override;
-        std::string snapshot() const override;
-        std::string modelSnapshot() const override;
-        std::string modelDigest() const override;
-        std::string renderState() const override;
-        std::string selectionState() const override;
-        std::string scrollbackState() const override;
-        std::string screenText() const override;
-        std::string lastUpdate() const override;
-        std::string lastUpdateRows() const override;
+        void snapshot(Buffer& out) const override;
+        void modelSnapshot(Buffer& out) const override;
+        void modelDigest(Buffer& out) const override;
+        void renderState(Buffer& out) const override;
+        void selectionState(Buffer& out) const override;
+        void scrollbackState(Buffer& out) const override;
+        void screenText(Buffer& out) const override;
+        void lastUpdate(Buffer& out) const override;
+        void lastUpdateRows(Buffer& out) const override;
         void resetUpdateStats() override;
         u16 columns() const override;
         u16 rows() const override;
@@ -128,7 +133,7 @@ namespace {
         void captureStrips(const TerminalUpdate& update);
         void captureSpan(Screen& shapes, u16 row, const ScreenRowSpan& span);
         void renderCell(const TerminalUpdate& update, const ReferenceCell& cell, u16 column, u16 row);
-        bool render(const TerminalUpdate& update, const std::vector<ReferenceCell>& cells);
+        bool render(const TerminalUpdate& update, const Vector<ReferenceCell>& cells);
         void captureModel();
         void captureState(const TerminalUpdate& update);
 
@@ -137,16 +142,25 @@ namespace {
         Buffer coverage_;
         Buffer color_;
         Buffer stripStore_;
-        std::vector<CellStrip> cellStrips_;
-        std::vector<ScreenRowSpan> spanScratch_;
-        std::vector<ReferenceCell> cells_;
-        std::vector<TerminalCell> modelCells_;
-        std::vector<u8> modelLineAttributes_;
-        std::vector<std::vector<u32>> cellGraphemes_;
-        std::vector<CellColor> modelUnderlineColors_;
+        Vector<CellStrip> cellStrips_;
+        Vector<ScreenRowSpan> spanScratch_;
+        Vector<ReferenceCell> cells_;
+        Vector<TerminalCell> modelCells_;
+        Vector<u8> modelLineAttributes_;
+
+        // Grapheme codepoints of every cell, flattened: the slice list refers
+        // into one shared store, sidestepping a vector-of-vectors.
+        struct GraphemeSlice {
+            u32 offset;
+            u32 count;
+        };
+
+        Vector<GraphemeSlice> cellGraphemes_;
+        Vector<u32> graphemeStore_;
+        Vector<CellColor> modelUnderlineColors_;
         mutable Vector<TerminalRow> renderRows_;
-        mutable std::vector<TerminalCell> renderCells_;
-        std::vector<u16> lastUpdateRows_;
+        mutable Vector<TerminalCell> renderCells_;
+        Vector<u16> lastUpdateRows_;
         TestApi* testApi_ = nullptr;
         const TerminalColors* colors_ = nullptr;
         TerminalCursor cursor_;
@@ -274,7 +288,7 @@ void ReferenceRendererImpl::captureSpan(Screen& shapes, u16 row, const ScreenRow
     const size_t base = stripStore_.used();
     stripStore_.append(source, pixels * pixel);
     for (u16 column = span.begin; column < span.end; ++column) {
-        cellStrips_[(size_t)(row)*composer_.columns + column] = {
+        cellStrips_.mut((size_t)(row)*composer_.columns + column) = {
             (u32)(base + (size_t)(column - span.begin) * width * pixel),
             (u32)(span.end - span.begin) * width,
             span.color ? stripColor : stripMask,
@@ -284,21 +298,21 @@ void ReferenceRendererImpl::captureSpan(Screen& shapes, u16 row, const ScreenRow
 
 void ReferenceRendererImpl::captureStrips(const TerminalUpdate& update) {
     const size_t count = (size_t)(composer_.columns) * composer_.rows;
-    cellStrips_.resize(count);
-    std::fill(cellStrips_.begin(), cellStrips_.end(), CellStrip{});
+    cellStrips_.clear();
+    cellStrips_.zero(count);
     stripStore_.reset();
     if (update.shapes == nullptr) {
         return;
     }
     Screen& shapes = *update.shapes;
-    spanScratch_.resize(composer_.columns);
+    resizeVector(spanScratch_, composer_.columns);
     // Shaping a row can collect the arenas and move every strip shaped so
     // far; the byte copies stay valid, the held offsets do not, so redo
     // the pass until it completes within one arena generation.
     u32 generation;
     do {
         generation = shapes.spanGeneration();
-        std::fill(cellStrips_.begin(), cellStrips_.end(), CellStrip{});
+        memset(cellStrips_.mutData(), 0, cellStrips_.length() * sizeof(CellStrip));
         stripStore_.reset();
         if (update.shapeFromCells) {
             // Retained cells re-rendered through a foreign fontpack (the
@@ -306,7 +320,7 @@ void ReferenceRendererImpl::captureStrips(const TerminalUpdate& update) {
             // screen rows do not participate.
             for (size_t index = 0; index < update.rowCount; ++index) {
                 const TerminalRow& row = update.rows[index];
-                const size_t spans = shapes.shapeCells(row.cells, composer_.columns, 0, spanScratch_.data());
+                const size_t spans = shapes.shapeCells(row.cells, composer_.columns, 0, spanScratch_.mutData());
                 for (size_t entry = 0; entry < spans; ++entry) {
                     captureSpan(shapes, row.row, spanScratch_[entry]);
                 }
@@ -314,7 +328,7 @@ void ReferenceRendererImpl::captureStrips(const TerminalUpdate& update) {
             continue;
         }
         for (u16 row = 0; row < composer_.rows; ++row) {
-            const size_t spans = shapes.rowSpans(row, spanScratch_.data());
+            const size_t spans = shapes.rowSpans(row, spanScratch_.mutData());
             for (size_t index = 0; index < spans; ++index) {
                 captureSpan(shapes, row, spanScratch_[index]);
             }
@@ -324,9 +338,9 @@ void ReferenceRendererImpl::captureStrips(const TerminalUpdate& update) {
             // its blank cells hide the text below them.
             const size_t base = (size_t)(update.overlayRow) * composer_.columns + update.overlayColumn;
             for (u16 index = 0; index < update.overlayCount; ++index) {
-                cellStrips_[base + index] = {};
+                cellStrips_.mut(base + index) = {};
             }
-            const size_t spans = shapes.shapeCells(update.overlayCells, update.overlayCount, update.overlayColumn, spanScratch_.data());
+            const size_t spans = shapes.shapeCells(update.overlayCells, update.overlayCount, update.overlayColumn, spanScratch_.mutData());
             for (size_t index = 0; index < spans; ++index) {
                 captureSpan(shapes, update.overlayRow, spanScratch_[index]);
             }
@@ -385,11 +399,11 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
     Color foreground = cell.foreground;
     Color background = cell.background;
     if ((source.inverse != 0) != update.screenReverse) {
-        std::swap(foreground, background);
+        xchg(foreground, background);
     }
     if (selected(update, source, column, row)) {
         if (update.selectionColorMask == 0) {
-            std::swap(foreground, background);
+            xchg(foreground, background);
         } else {
             if (update.selectionColorMask & 1) {
                 foreground = update.selectionForeground;
@@ -502,7 +516,7 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
     }
 }
 
-bool ReferenceRendererImpl::render(const TerminalUpdate& update, const std::vector<ReferenceCell>& cells) {
+bool ReferenceRendererImpl::render(const TerminalUpdate& update, const Vector<ReferenceCell>& cells) {
     if (!targetReady()) {
         return false;
     }
@@ -523,22 +537,20 @@ void ReferenceRendererImpl::captureModel() {
         return;
     }
     const size_t count = (size_t)(columns_)*rows_;
-    modelCells_.resize(count);
-    modelLineAttributes_.resize(count);
-    cellGraphemes_.resize(count);
-    modelUnderlineColors_.resize(count);
+    resizeVector(modelCells_, count);
+    resizeVector(modelLineAttributes_, count);
+    resizeVector(cellGraphemes_, count);
+    resizeVector(modelUnderlineColors_, count);
+    graphemeStore_.clear();
     for (u16 row = 0; row < rows_; ++row) {
         for (u16 column = 0; column < columns_; ++column) {
             const size_t index = (size_t)(row)*columns_ + column;
             const VtermTestCell inspected = testApi_->cell(row, column);
-            modelCells_[index] = inspected.cell;
-            modelLineAttributes_[index] = inspected.lineAttribute;
-            if (inspected.graphemeSize == 0) {
-                cellGraphemes_[index].clear();
-            } else {
-                cellGraphemes_[index].assign(inspected.grapheme, inspected.grapheme + inspected.graphemeSize);
-            }
-            modelUnderlineColors_[index] = inspected.underlineColor;
+            modelCells_.mut(index) = inspected.cell;
+            modelLineAttributes_.mut(index) = inspected.lineAttribute;
+            cellGraphemes_.mut(index) = {(u32)(graphemeStore_.length()), (u32)(inspected.graphemeSize)};
+            graphemeStore_.append(inspected.grapheme, inspected.graphemeSize);
+            modelUnderlineColors_.mut(index) = inspected.underlineColor;
         }
     }
 }
@@ -600,18 +612,22 @@ bool ReferenceRendererImpl::update(const TerminalUpdate& update) {
         return false;
     }
 
-    std::vector<ReferenceCell> next = shapeChanged ? std::vector<ReferenceCell>(count) : cells_;
+    Vector<ReferenceCell> next(cells_);
+    if (shapeChanged) {
+        next.clear();
+        next.zero(count);
+    }
     for (size_t index = 0; index < update.rowCount; ++index) {
         const TerminalRow& row = update.rows[index];
         for (u16 column = 0; column < composer_.columns; ++column) {
-            next[(size_t)(row.row) * composer_.columns + column] = materialize(row.cells[column], row.lineAttribute, *update.colors);
+            next.mut((size_t)(row.row) * composer_.columns + column) = materialize(row.cells[column], row.lineAttribute, *update.colors);
         }
     }
     if (update.overlayCount != 0) {
         // The preview covers the row content beneath it.
         const size_t base = (size_t)(update.overlayRow) * composer_.columns + update.overlayColumn;
         for (u16 index = 0; index < update.overlayCount; ++index) {
-            next[base + index] = materialize(update.overlayCells[index], 0, *update.colors);
+            next.mut(base + index) = materialize(update.overlayCells[index], 0, *update.colors);
         }
     }
     captureStrips(update);
@@ -621,13 +637,13 @@ bool ReferenceRendererImpl::update(const TerminalUpdate& update) {
 
     columns_ = composer_.columns;
     rows_ = composer_.rows;
-    cells_ = std::move(next);
+    cells_.xchg(next);
     colors_ = update.colors;
     lastUpdateCells_ = update.rowCount * columns_;
     lastUpdateSpans_ = update.rowCount;
     lastUpdateRows_.clear();
     for (size_t index = 0; index < update.rowCount; ++index) {
-        lastUpdateRows_.push_back(update.rows[index].row);
+        lastUpdateRows_.pushBack(update.rows[index].row);
     }
     captureModel();
     captureState(update);
@@ -663,15 +679,16 @@ ReferenceImage ReferenceRendererImpl::image() const {
 TerminalUpdate ReferenceRendererImpl::renderUpdate() const {
     renderRows_.clear();
     renderRows_.grow(rows_);
-    renderCells_.resize(cells_.size());
-    for (size_t index = 0; index < cells_.size(); ++index) {
-        renderCells_[index] = cells_[index].source;
+    resizeVector(renderCells_, cells_.length());
+    for (size_t index = 0; index < cells_.length(); ++index) {
+        renderCells_.mut(index) = cells_[index].source;
         // Extra-cell references age out with store collections; the
         // grapheme codepoints captured at update time re-materialize so a
         // shaping consumer of these retained cells resolves the full
         // cluster.
-        if (index < cellGraphemes_.size() && !cellGraphemes_[index].empty()) {
-            composer_.cellExtras->setGrapheme(renderCells_[index], cellGraphemes_[index].data(), cellGraphemes_[index].size());
+        if (index < cellGraphemes_.length() && cellGraphemes_[index].count != 0) {
+            const GraphemeSlice slice = cellGraphemes_[index];
+            composer_.cellExtras->setGrapheme(renderCells_.mut(index), graphemeStore_.data() + slice.offset, slice.count);
         }
     }
     for (u16 row = 0; row < rows_; ++row) {
@@ -703,7 +720,7 @@ TerminalUpdate ReferenceRendererImpl::renderUpdate() const {
     };
 }
 
-std::string ReferenceRendererImpl::snapshot() const {
+void ReferenceRendererImpl::snapshot(Buffer& out) const {
     StringBuilder output;
     output << StringView(u8"OK ") << columns_ << StringView(u8" ") << rows_ << StringView(u8" ") << cursor_.posX << StringView(u8" ") << cursor_.posY << StringView(u8" ") << (unsigned)(cursor_.style) << StringView(u8" ") << viewOffset_ << StringView(u8" ") << refreshCount_ << StringView(u8" ") << selection_.tl.x << StringView(u8" ") << selection_.tl.y << StringView(u8" ") << selection_.br.x << StringView(u8" ") << selection_.br.y << StringView(u8" ") << (unsigned)(selection_.rectangular) << StringView(u8" ");
     for (const ReferenceCell& cell : cells_) {
@@ -712,27 +729,27 @@ std::string ReferenceRendererImpl::snapshot() const {
         output << Hex{codepoint, 8} << Hex{flags, 8} << Hex{cell.foreground.red, 2} << Hex{cell.foreground.green, 2} << Hex{cell.foreground.blue, 2} << Hex{cell.background.red, 2} << Hex{cell.background.green, 2} << Hex{cell.background.blue, 2} << Hex{cell.underlineColor.red, 2} << Hex{cell.underlineColor.green, 2} << Hex{cell.underlineColor.blue, 2} << Hex{cell.hyperlink, 8} << Hex{cell.source.semantic, 8};
     }
     output << StringView(u8"\n");
-    return toString(output);
+    out.xchg(output);
 }
 
-std::string ReferenceRendererImpl::modelSnapshot() const {
+void ReferenceRendererImpl::modelSnapshot(Buffer& out) const {
     StringBuilder output;
     output << StringView(u8"OK ") << columns_ << StringView(u8" ") << rows_ << StringView(u8" ") << cursor_.posX << StringView(u8" ") << cursor_.posY << StringView(u8" ") << (unsigned)(cursor_.style) << StringView(u8" ") << viewOffset_ << StringView(u8" ") << refreshCount_ << StringView(u8" ") << selection_.tl.x << StringView(u8" ") << selection_.tl.y << StringView(u8" ") << selection_.br.x << StringView(u8" ") << selection_.br.y << StringView(u8" ") << (unsigned)(selection_.rectangular) << StringView(u8" ");
-    for (size_t index = 0; index < cells_.size(); ++index) {
+    for (size_t index = 0; index < cells_.length(); ++index) {
         const ReferenceCell& cell = cells_[index];
         const TerminalCell& modelCell = modelCells_[index];
         const unsigned flags = cellFlags(modelCell, modelLineAttributes_[index]);
         const u32 codepoint = cell.source.uc_pt ? cell.source.uc_pt : ' ';
-        output << Hex{codepoint, 8} << Hex{flags, 8} << Hex{cell.foreground.red, 2} << Hex{cell.foreground.green, 2} << Hex{cell.foreground.blue, 2} << Hex{cell.background.red, 2} << Hex{cell.background.green, 2} << Hex{cell.background.blue, 2} << Hex{cell.underlineColor.red, 2} << Hex{cell.underlineColor.green, 2} << Hex{cell.underlineColor.blue, 2} << Hex{cell.hyperlink, 8} << Hex{cell.source.semantic, 8} << Hex{(u32)(modelCell.foreground().legacyIndex()), 8} << Hex{(u32)(modelCell.background().legacyIndex()), 8} << Hex{(u32)(modelUnderlineColors_[index].legacyIndex()), 8} << Hex{cellGraphemes_[index].size(), 8};
-        for (const u32 codepoint_ : cellGraphemes_[index]) {
-            output << Hex{codepoint_, 8};
+        output << Hex{codepoint, 8} << Hex{flags, 8} << Hex{cell.foreground.red, 2} << Hex{cell.foreground.green, 2} << Hex{cell.foreground.blue, 2} << Hex{cell.background.red, 2} << Hex{cell.background.green, 2} << Hex{cell.background.blue, 2} << Hex{cell.underlineColor.red, 2} << Hex{cell.underlineColor.green, 2} << Hex{cell.underlineColor.blue, 2} << Hex{cell.hyperlink, 8} << Hex{cell.source.semantic, 8} << Hex{(u32)(modelCell.foreground().legacyIndex()), 8} << Hex{(u32)(modelCell.background().legacyIndex()), 8} << Hex{(u32)(modelUnderlineColors_[index].legacyIndex()), 8} << Hex{(size_t)(cellGraphemes_[index].count), 8};
+        for (u32 unit = 0; unit < cellGraphemes_[index].count; ++unit) {
+            output << Hex{graphemeStore_[cellGraphemes_[index].offset + unit], 8};
         }
     }
     output << StringView(u8"\n");
-    return toString(output);
+    out.xchg(output);
 }
 
-std::string ReferenceRendererImpl::modelDigest() const {
+void ReferenceRendererImpl::modelDigest(Buffer& out) const {
     ModelDigest digest;
     digest.add(columns_);
     digest.add(rows_);
@@ -745,8 +762,8 @@ std::string ReferenceRendererImpl::modelDigest() const {
     digest.add(selection_.br.x);
     digest.add(selection_.br.y);
     digest.add(selection_.rectangular);
-    digest.add(cells_.size());
-    for (size_t index = 0; index < cells_.size(); ++index) {
+    digest.add(cells_.length());
+    for (size_t index = 0; index < cells_.length(); ++index) {
         const ReferenceCell& cell = cells_[index];
         const TerminalCell& modelCell = modelCells_[index];
         digest.add(cell.source.uc_pt ? cell.source.uc_pt : ' ');
@@ -765,61 +782,60 @@ std::string ReferenceRendererImpl::modelDigest() const {
         digest.add((u32)(modelCell.foreground().legacyIndex()));
         digest.add((u32)(modelCell.background().legacyIndex()));
         digest.add((u32)(modelUnderlineColors_[index].legacyIndex()));
-        digest.add(cellGraphemes_[index].size());
-        for (const u32 codepoint : cellGraphemes_[index]) {
-            digest.add(codepoint);
+        digest.add(cellGraphemes_[index].count);
+        for (u32 unit = 0; unit < cellGraphemes_[index].count; ++unit) {
+            digest.add(graphemeStore_[cellGraphemes_[index].offset + unit]);
         }
     }
     StringBuilder output;
     output << StringView(u8"OK ") << Hex{digest.first, 16} << StringView(u8" ") << Hex{digest.second, 16} << StringView(u8"\n");
-    return toString(output);
+    out.xchg(output);
 }
 
-std::string ReferenceRendererImpl::renderState() const {
+void ReferenceRendererImpl::renderState(Buffer& out) const {
     StringBuilder output;
     output << StringView(u8"OK ") << (unsigned)(screenReverse_) << StringView(u8" ") << (unsigned)(blinkVisible_) << StringView(u8" ") << (unsigned)(cursorBlink_) << StringView(u8" ") << (unsigned)(selectionColorMask_) << StringView(u8" ") << (unsigned)(selectionForeground_.red) << StringView(u8" ") << (unsigned)(selectionForeground_.green) << StringView(u8" ") << (unsigned)(selectionForeground_.blue) << StringView(u8" ") << (unsigned)(selectionBackground_.red) << StringView(u8" ") << (unsigned)(selectionBackground_.green) << StringView(u8" ") << (unsigned)(selectionBackground_.blue) << StringView(u8" ") << graphemeCells_ << StringView(u8" ") << graphemeCodepoints_ << StringView(u8"\n");
-    return toString(output);
+    out.xchg(output);
 }
 
-std::string ReferenceRendererImpl::selectionState() const {
+void ReferenceRendererImpl::selectionState(Buffer& out) const {
     StringBuilder output;
     output << StringView(u8"OK ") << selection_.tl.x << StringView(u8" ") << selection_.tl.y << StringView(u8" ") << selection_.br.x << StringView(u8" ") << selection_.br.y << StringView(u8" ") << (unsigned)(selection_.rectangular) << StringView(u8" ") << snappedSelection_.tl.x << StringView(u8" ") << snappedSelection_.tl.y << StringView(u8" ") << snappedSelection_.br.x << StringView(u8" ") << snappedSelection_.br.y << StringView(u8" ") << (unsigned)(snappedSelection_.rectangular) << StringView(u8"\n");
-    return toString(output);
+    out.xchg(output);
 }
 
-std::string ReferenceRendererImpl::scrollbackState() const {
+void ReferenceRendererImpl::scrollbackState(Buffer& out) const {
     StringBuilder output;
     output << StringView(u8"OK ") << historyRows_ << StringView(u8" ") << historyRows_ + rows_ << StringView(u8" ") << rows_ << StringView(u8" ") << historyRows_ - viewOffset_ << StringView(u8"\n");
-    return toString(output);
+    out.xchg(output);
 }
 
-std::string ReferenceRendererImpl::screenText() const {
-    std::string output;
-    output.reserve(cells_.size() + rows_);
-    for (size_t index = 0; index < cells_.size(); ++index) {
+void ReferenceRendererImpl::screenText(Buffer& out) const {
+    out.reset();
+    for (size_t index = 0; index < cells_.length(); ++index) {
         const u32 codepoint = cells_[index].source.uc_pt;
-        output.push_back(codepoint >= 0x20 && codepoint <= 0x7e ? (char)(codepoint) : ' ');
+        const char printable = codepoint >= 0x20 && codepoint <= 0x7e ? (char)(codepoint) : ' ';
+        out.append(&printable, 1);
         if ((index + 1) % columns_ == 0) {
-            output.push_back('\n');
+            out.append("\n", 1);
         }
     }
-    return output;
 }
 
-std::string ReferenceRendererImpl::lastUpdate() const {
+void ReferenceRendererImpl::lastUpdate(Buffer& out) const {
     StringBuilder output;
     output << StringView(u8"OK ") << lastUpdateCells_ << StringView(u8" ") << lastUpdateSpans_ << StringView(u8"\n");
-    return toString(output);
+    out.xchg(output);
 }
 
-std::string ReferenceRendererImpl::lastUpdateRows() const {
+void ReferenceRendererImpl::lastUpdateRows(Buffer& out) const {
     StringBuilder output;
     output << StringView(u8"OK");
     for (u16 row : lastUpdateRows_) {
         output << StringView(u8" ") << row;
     }
     output << StringView(u8"\n");
-    return toString(output);
+    out.xchg(output);
 }
 
 void ReferenceRendererImpl::resetUpdateStats() {

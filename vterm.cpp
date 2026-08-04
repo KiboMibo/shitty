@@ -69,6 +69,8 @@
 #include <std/sys/crt.h>
 #include <std/sys/fd.h>
 #include <std/sys/throw.h>
+#include <std/sym/i_map.h>
+#include <std/sym/s_map.h>
 
 #include <algorithm>
 #include <array>
@@ -106,8 +108,66 @@ void MouseTrackingState::setEncoding(MouseTrackingEnc value) {
 namespace {
     static constexpr u64 selectionAutoscrollInterval = 50'000;
 
-    static StringView stringView(const std::string& value) {
-        return StringView((const u8*)(value.data()), value.size());
+    static StringView stringView(const Buffer& value) {
+        return StringView(value);
+    }
+
+    // Sorted tab-stop bookkeeping over a flat vector.
+    static size_t tabLowerBound(const Vector<u16>& tabs, u16 value) {
+        size_t low = 0;
+        size_t high = tabs.length();
+        while (low < high) {
+            const size_t middle = low + (high - low) / 2;
+            if (tabs[middle] < value) {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
+        }
+        return low;
+    }
+
+    static size_t tabUpperBound(const Vector<u16>& tabs, u16 value) {
+        size_t low = 0;
+        size_t high = tabs.length();
+        while (low < high) {
+            const size_t middle = low + (high - low) / 2;
+            if (tabs[middle] <= value) {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
+        }
+        return low;
+    }
+
+    static bool tabContains(const Vector<u16>& tabs, u16 value) {
+        const size_t at = tabLowerBound(tabs, value);
+        return at < tabs.length() && tabs[at] == value;
+    }
+
+    static void tabInsertAt(Vector<u16>& tabs, size_t at, u16 value) {
+        tabs.pushBack(value);
+        memmove(tabs.mutData() + at + 1, tabs.data() + at, (tabs.length() - at - 1) * sizeof(u16));
+        tabs.mut(at) = value;
+    }
+
+    static void tabEraseAt(Vector<u16>& tabs, size_t at) {
+        memmove(tabs.mutData() + at, tabs.data() + at + 1, (tabs.length() - at - 1) * sizeof(u16));
+        tabs.popBack();
+    }
+
+    // The hash maps have no wholesale clear; values carry their key so a
+    // sweep can collect and erase them.
+    template <typename T>
+    static void clearIntMap(IntMap<T>& map) {
+        Vector<u64> keys;
+        map.visit([&keys](T& value) {
+            keys.pushBack(value.key);
+        });
+        for (const u64 key : keys) {
+            map.erase(key);
+        }
     }
 
     static StringView semanticOption(StringView payload, StringView name) {
@@ -476,7 +536,7 @@ namespace {
         void reportLocatorButton(u8 button, bool pressed);
 
         void setHasFocus(bool);
-        std::string getHyperlink(int pX, int pY) const;
+        void getHyperlink(int pX, int pY, Buffer& out) const;
         void mouseWheelUp(u16 count = 1);
         void mouseWheelDown(u16 count = 1);
         void mouseWheelRight(u16 count = 1);
@@ -484,14 +544,14 @@ namespace {
         void selectStart(int pX, int pY, bool cycleSnapTo);
         void selectExtend(int pX, int pY, bool cycleSnapTo);
         void selectUpdate(int pX, int pY);
-        bool selectFinish(std::string& utf8_selection);
+        bool selectFinish(Buffer& utf8_selection);
         void selectClear();
         void selectRectangularModeToggle();
 
-        void pasteSelection(const std::string& utf8_selection);
+        void pasteSelection(StringView utf8_selection);
 
         Point selectionPoint(int pX, int pY) const;
-        std::string getLocalEcho(const u8* const begin, const u8* const end);
+        void getLocalEcho(const u8* const begin, const u8* const end, Buffer& out);
         template <typename F>
         void spawnTransaction(F&& body);
         void spawnPtyWrite(StringView bytes);
@@ -928,7 +988,7 @@ namespace {
         i32 preeditCursorEndCell = -1;
         TerminalUpdate terminalUpdate;
 
-        std::string inputResult;
+        Buffer inputResult;
         bool outputPending = false;
         Screen* updateScreen = nullptr;
         u64 presentedRevision = 0;
@@ -990,31 +1050,35 @@ namespace {
         SemanticClick semanticClick = SemanticClick::None;
         SemanticClick inactiveSemanticClick = SemanticClick::None;
         bool assignedDefaultColors = false;
-        std::string windowTitle;
-        std::string iconTitle;
+        Buffer windowTitle;
+        Buffer iconTitle;
         bool titleSet = false;
         u8 titleModes = 0;
 
         struct SavedTitles {
             bool hasIcon = false;
             bool hasWindow = false;
-            std::string icon;
-            std::string window;
+            Buffer icon;
+            Buffer window;
         };
 
-        std::vector<SavedTitles> titleStack;
+        // The xterm title stack is capped at ten entries; a push beyond that
+        // drops the oldest.
+        SavedTitles titleStack[10];
+        size_t titleDepth = 0;
 
         struct NotificationPart {
-            std::string text;
+            Buffer text;
             size_t encodedOffset = (size_t)-1;
         };
 
         struct Notification {
+            u64 key = 0;
             NotificationPart title;
             NotificationPart body;
         };
 
-        std::map<std::string, Notification> notifications;
+        IntMap<Notification> notifications;
         int defaultFgPalIx;
         int defaultBgPalIx;
         int fgPalIx;
@@ -1081,8 +1145,19 @@ namespace {
         u8 modifyOtherKeys = 1;
         u8 modifyKeyResources[8] = {};
         u8 initialModifyKeyResources[8] = {};
-        std::map<u32, bool> savedPrivModes;
-        std::map<InputKey, std::string> userDefinedKeys;
+
+        struct SavedMode {
+            u64 key = 0;
+            bool enabled = false;
+        };
+
+        struct UserKey {
+            u64 key = 0;
+            Buffer text;
+        };
+
+        IntMap<SavedMode> savedPrivModes;
+        IntMap<UserKey> userDefinedKeys;
         bool userDefinedKeysLocked = false;
         Buffer kittyClipboardWriteId;
         // The open write transaction; deleting it without finish() aborts.
@@ -1091,7 +1166,7 @@ namespace {
 
         struct KittyKeyboardState {
             u8 flags = 0;
-            std::vector<u8> stack;
+            Vector<u8> stack;
         };
 
         KittyKeyboardState kittyKeyboardPri;
@@ -1104,7 +1179,7 @@ namespace {
         u16 nColsEff = 0;
         u16 hMargin = 0;
 
-        std::vector<u16> tabStops;
+        Vector<u16> tabStops;
         bool tabStopsCustomized = false;
         bool tabStopsRestored = false;
 
@@ -1668,10 +1743,7 @@ bool VtermInput::key(const KeyInput& input) {
         }
         const u16 textMods = kittyMods & ~(64 | 128);
         const u32 layoutKey = input.layoutCodepoint != 0 ? input.layoutCodepoint : input.baseCodepoint;
-        const bool baseLayoutShortcut =
-            opts.kittyCtrlBaseLayout && (kittyFlags & 0x04) && (textMods & 4) && !(input.modifiers & InputAltGraph) &&
-            layoutKey >= 0x80 &&
-            input.baseCodepoint >= 0x20 && input.baseCodepoint < 0x7f;
+        const bool baseLayoutShortcut = opts.kittyCtrlBaseLayout && (kittyFlags & 0x04) && (textMods & 4) && !(input.modifiers & InputAltGraph) && layoutKey >= 0x80 && input.baseCodepoint >= 0x20 && input.baseCodepoint < 0x7f;
         // Compatibility for consumers that ignore Kitty's base-layout field.
         const u32 primaryKey = baseLayoutShortcut ? input.baseCodepoint : layoutKey;
         const bool reportEvent = (kittyFlags & 0x02) && event != VtermKeyEventType::Press;
@@ -1842,7 +1914,7 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
     u16 locatorColumn = 1;
     u16 locatorRow = 1;
     mouseProtocolCoordinates(MouseTrackingEnc::Default, input.pixelX, input.pixelY, locatorColumn, locatorRow);
-    terminal->setLocatorPosition(locatorColumn, locatorRow, std::max(1, input.pixelX + 1), std::max(1, input.pixelY + 1), 0);
+    terminal->setLocatorPosition(locatorColumn, locatorRow, max(1, input.pixelX + 1), max(1, input.pixelY + 1), 0);
     if (protocolButton >= 1 && protocolButton <= 4) {
         terminal->reportLocatorButton(protocolButton, input.pressed);
     }
@@ -1901,7 +1973,7 @@ bool VtermInput::pointerMotion(const PointerMotionInput& input) {
     u16 locatorColumn = 1;
     u16 locatorRow = 1;
     mouseProtocolCoordinates(MouseTrackingEnc::Default, input.pixelX, input.pixelY, locatorColumn, locatorRow);
-    terminal->setLocatorPosition(locatorColumn, locatorRow, std::max(1, input.pixelX + 1), std::max(1, input.pixelY + 1), 0);
+    terminal->setLocatorPosition(locatorColumn, locatorRow, max(1, input.pixelX + 1), max(1, input.pixelY + 1), 0);
     const MouseTrackingState tracking = terminal->mouseTrk;
     if (mouse.protocolActive(input.modifiers, tracking.mode)) {
         stopSelectionAutoscroll();
@@ -2148,7 +2220,7 @@ void VtermImpl::selectionUpdate(int pixelX, int pixelY) {
 }
 
 VtermTextResult VtermImpl::selectionFinish() {
-    inputResult.clear();
+    inputResult.reset();
     const bool selected = selectFinish(inputResult);
     return {stringView(inputResult), selected};
 }
@@ -2166,7 +2238,7 @@ void VtermImpl::selectionRectangular() {
 }
 
 void VtermImpl::paste(StringView text) {
-    pasteSelection(std::string((const char*)(text.data()), text.length()));
+    pasteSelection(text);
 }
 
 ScreenHyperlink VtermImpl::resolveHyperlink(int pixelX, int pixelY) const {
@@ -2184,11 +2256,8 @@ ScreenHyperlink VtermImpl::resolveHyperlink(int pixelX, int pixelY) const {
 
 StringView VtermImpl::hyperlinkAt(int pixelX, int pixelY) {
     const StringView payload = resolveHyperlink(pixelX, pixelY).payload;
-    if (payload.empty()) {
-        inputResult.clear();
-    } else {
-        inputResult.assign((const char*)(payload.data()), payload.length());
-    }
+    inputResult.reset();
+    inputResult.append(payload.data(), payload.length());
     return stringView(inputResult);
 }
 
@@ -2662,7 +2731,7 @@ bool TestApiImpl::tabStop(u16 column) const {
     if (!vterm->tabStopsCustomized) {
         return column % 8 == 0;
     }
-    return std::find(vterm->tabStops.begin(), vterm->tabStops.end(), column) != vterm->tabStops.end();
+    return tabContains(vterm->tabStops, (u16)(column));
 }
 
 void TestApiImpl::setWrapped(u16 row) {
@@ -2996,13 +3065,13 @@ bool VtermImpl::mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY
         return false;
     }
     mouseHighlight.active = false;
-    endY = std::clamp(endY, mouseHighlight.firstRow, mouseHighlight.lastRow);
+    endY = min(max(endY, mouseHighlight.firstRow), mouseHighlight.lastRow);
     StringBuilder response;
     if (mouseTrk.enc == MouseTrackingEnc::SGR || mouseTrk.enc == MouseTrackingEnc::SGRPixels) {
         response << StringView(u8"<") << mouseHighlight.startX << StringView(u8";") << mouseHighlight.startY << StringView(u8";") << endX << StringView(u8";") << endY << StringView(u8";") << mouseX << StringView(u8";") << mouseY << StringView(u8"T");
     } else {
         const auto coordinate = [](u16 value) {
-            return (u8)(32 + std::clamp<u16>(value, 1, 223));
+            return (u8)(32 + min<u16>(max<u16>(value, 1), 223));
         };
         const u8 kind = mouseHighlight.startX == endX && mouseHighlight.startY == endY ? u8't' : u8'T';
         const u8 startX = coordinate(mouseHighlight.startX);
@@ -3020,10 +3089,10 @@ bool VtermImpl::mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY
 }
 
 void VtermImpl::setLocatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons) {
-    locator.column = std::max<u16>(1, column);
-    locator.row = std::max<u16>(1, row);
-    locator.pixelX = std::max<u16>(1, pixelX);
-    locator.pixelY = std::max<u16>(1, pixelY);
+    locator.column = max<u16>(1, column);
+    locator.row = max<u16>(1, row);
+    locator.pixelX = max<u16>(1, pixelX);
+    locator.pixelY = max<u16>(1, pixelY);
     locator.buttons = buttons & 15;
     if (locator.enabled && locator.filter) {
         const u16 x = locator.pixels ? locator.pixelX : locator.column;
@@ -3172,16 +3241,18 @@ void VtermImpl::resetTerminal() {
     altScrollMode = opts.altScrollMode;
     altSendsEscape = opts.altSendsEscape;
     modifyOtherKeys = opts.modifyOtherKeys;
-    std::copy(std::begin(initialModifyKeyResources), std::end(initialModifyKeyResources), std::begin(modifyKeyResources));
-    savedPrivModes.clear();
-    userDefinedKeys.clear();
+    memcpy(modifyKeyResources, initialModifyKeyResources, sizeof(modifyKeyResources));
+    clearIntMap(savedPrivModes);
+    clearIntMap(userDefinedKeys);
     userDefinedKeysLocked = false;
     delete kittyClipboardWriteStream;
     kittyClipboardWriteStream = nullptr;
     kittyClipboardWriteLength = 0;
     kittyClipboardWriteId.reset();
-    kittyKeyboardPri = {};
-    kittyKeyboardAlt = {};
+    kittyKeyboardPri.flags = 0;
+    kittyKeyboardPri.stack.clear();
+    kittyKeyboardAlt.flags = 0;
+    kittyKeyboardAlt.stack.clear();
     savedCursorPri.isSet = false;
     savedCursorAlt.isSet = false;
     activeHyperlink = 0;
@@ -3193,14 +3264,14 @@ void VtermImpl::resetTerminal() {
     semanticClick = SemanticClick::None;
     inactiveSemanticClick = SemanticClick::None;
     titleModes = 0;
-    titleStack.clear();
-    notifications.clear();
+    titleDepth = 0;
+    clearIntMap(notifications);
 
     horizMarginMode = false;
     hMargin = 0;
     nColsEff = composer.columns;
 
-    osc_TITLE_0(StringView((const u8*)(opts.title), std::strlen(opts.title)));
+    osc_TITLE_0(StringView((const u8*)(opts.title), strlen(opts.title)));
 }
 
 void VtermImpl::resetScreen(bool resetTabStops) {
@@ -3324,7 +3395,8 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
     if (altScreenBufferMode == altScreenBufferMode_) {
         if (clearAlternate) {
             if (altScreenBufferMode_) {
-                kittyKeyboardAlt = {};
+                kittyKeyboardAlt.flags = 0;
+                kittyKeyboardAlt.stack.clear();
                 createAlternateScreen();
                 currentSemantic = 0;
                 semanticUntilEndOfLine = false;
@@ -3352,7 +3424,8 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
 
     if (altScreenBufferMode_) {
         if (clearAlternate || !altScreenInitialized) {
-            kittyKeyboardAlt = {};
+            kittyKeyboardAlt.flags = 0;
+            kittyKeyboardAlt.stack.clear();
             createAlternateScreen();
             inactiveSemantic = 0;
             inactiveSemanticUntilEndOfLine = false;
@@ -3396,9 +3469,9 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         savedCursor = &savedCursorPri;
         altScreenBufferMode = false;
     }
-    std::swap(currentSemantic, inactiveSemantic);
-    std::swap(semanticUntilEndOfLine, inactiveSemanticUntilEndOfLine);
-    std::swap(semanticClick, inactiveSemanticClick);
+    stl::xchg(currentSemantic, inactiveSemantic);
+    stl::xchg(semanticUntilEndOfLine, inactiveSemanticUntilEndOfLine);
+    stl::xchg(semanticClick, inactiveSemanticClick);
     if (!altScreenBufferMode_ && clearAlternate) {
         inactiveSemantic = 0;
         inactiveSemanticUntilEndOfLine = false;
@@ -3455,7 +3528,7 @@ u16 VtermImpl::doubleWidthEnd(u16 normalEnd) const {
     // half of the screen; the right margin may only shorten it.  In
     // particular, the left margin must not shift this boundary as the cursor
     // crosses it.
-    return std::min(normalEnd, std::max<u16>(1, composer.columns / 2));
+    return min(normalEnd, max<u16>(1, composer.columns / 2));
 }
 
 void VtermImpl::eraseRow(u16 pY) {
@@ -3581,10 +3654,10 @@ bool VtermImpl::rectangleFromParams(CsiRectangle parameters, Rectangle& rectangl
         return false;
     }
 
-    rectangle.top = rowBase + std::min(rawTop, rows) - 1;
-    rectangle.left = columnBase + std::min(rawLeft, columns) - 1;
-    rectangle.bottom = rowBase + std::min(rawBottom, rows);
-    rectangle.right = columnBase + std::min(rawRight, columns);
+    rectangle.top = rowBase + min(rawTop, rows) - 1;
+    rectangle.left = columnBase + min(rawLeft, columns) - 1;
+    rectangle.bottom = rowBase + min(rawBottom, rows);
+    rectangle.right = columnBase + min(rawRight, columns);
     return true;
 }
 
@@ -3845,7 +3918,7 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
                         const u16 survivors = min<u16>(fullLines, regionHeight);
                         const u16 firstLine = fullLines - survivors;
                         const u8* text = input + (size_t)(firstLine)*lineWidth;
-                        const u16 doubleEnd = hMargin + std::max<u16>(1, lineWidth / 2);
+                        const u16 doubleEnd = hMargin + max<u16>(1, lineWidth / 2);
                         u16 row = marginBottom - survivors;
                         for (u16 line = firstLine; line < fullLines; ++line, ++row, text += lineWidth) {
                             const Screen::WriteResult written = cf->writeAsciiRun(row, hMargin, nColsEff, doubleEnd, text, lineWidth, attrs, activeHyperlink, currentSemantic, eraseAttrs);
@@ -3890,7 +3963,7 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
         u16 lineBegin, lineEnd;
         activeColumns(lineBegin, lineEnd);
         const u16 doubleEnd = doubleWidthEnd(lineEnd);
-        const u16 requested = std::min<size_t>(size, 0xffff);
+        const u16 requested = min<size_t>(size, 0xffff);
         Screen::WriteResult written;
         if constexpr (insert) {
             written = cf->writeAsciiRunInsert(posY, posX, lineEnd, doubleEnd, input, requested, attrs, activeHyperlink, currentSemantic, eraseAttrs);
@@ -4151,7 +4224,7 @@ void VtermImpl::placePreparedRun(const u32* input, const u8* widths, size_t size
                 continue;
             }
         } else {
-            count = std::min<size_t>(size, available);
+            count = min<size_t>(size, available);
             cellCount = count;
         }
         const u16 startX = posX;
@@ -4221,10 +4294,10 @@ void VtermImpl::jumpToNextTabStop() {
         do {
             posX = ((posX / 8) + 1) * 8;
         } while (posX < left);
-        posX = std::min<int>(posX, right - 1);
+        posX = min<int>(posX, right - 1);
     } else {
-        auto ts = std::upper_bound(tabStops.begin(), tabStops.end(), posX);
-        posX = ts == tabStops.end() || *ts >= right ? right - 1 : *ts;
+        const size_t ts = tabUpperBound(tabStops, posX);
+        posX = ts == tabStops.length() || tabStops[ts] >= right ? right - 1 : tabStops[ts];
     }
     if (posX != previous) {
         lastCol = false;
@@ -4497,14 +4570,14 @@ void VtermImpl::esc_RI() {
 
 void VtermImpl::csi_ecma48_SL(u32 count) {
     if (isCursorInsideMargins()) {
-        count = std::min<u32>(count, nColsEff - hMargin);
+        count = min<u32>(count, nColsEff - hMargin);
         deleteCols(hMargin, (u16)(count));
     }
 }
 
 void VtermImpl::csi_ecma48_SR(u32 count) {
     if (isCursorInsideMargins()) {
-        count = std::min<u32>(count, nColsEff - hMargin);
+        count = min<u32>(count, nColsEff - hMargin);
         insertCols(hMargin, (u16)(count));
     }
 }
@@ -4565,13 +4638,12 @@ void VtermImpl::esc_NEL() {
 void VtermImpl::esc_HTS() {
     if (!tabStopsCustomized) {
         for (unsigned column = 8; column < composer.columns; column += 8) {
-            tabStops.push_back((u16)(column));
+            tabStops.pushBack((u16)(column));
         }
         tabStopsCustomized = true;
     }
-    if (std::find(tabStops.begin(), tabStops.end(), posX) == tabStops.end()) {
-        tabStops.push_back(posX);
-        std::sort(tabStops.begin(), tabStops.end());
+    if (!tabContains(tabStops, posX)) {
+        tabInsertAt(tabStops, tabLowerBound(tabStops, posX), posX);
     }
 }
 
@@ -4635,11 +4707,11 @@ void VtermImpl::esc_DECRC() {
     if (savedCursor->isSet) {
         originMode = savedCursor->originMode;
         if (originMode == OriginMode::ScrollingRegion) {
-            posX = hMargin + std::min<u16>(savedCursor->posX, nColsEff - hMargin - 1);
-            posY = marginTop + std::min<u16>(savedCursor->posY, marginBottom - marginTop - 1);
+            posX = hMargin + min<u16>(savedCursor->posX, nColsEff - hMargin - 1);
+            posY = marginTop + min<u16>(savedCursor->posY, marginBottom - marginTop - 1);
         } else {
-            posX = std::min<u16>(savedCursor->posX, composer.columns - 1);
-            posY = std::min<u16>(savedCursor->posY, composer.rows - 1);
+            posX = min<u16>(savedCursor->posX, composer.columns - 1);
+            posY = min<u16>(savedCursor->posY, composer.rows - 1);
         }
         lastCol = savedCursor->lastCol;
         attrs = savedCursor->attrs;
@@ -4655,14 +4727,14 @@ void VtermImpl::esc_DECRC() {
 
 void VtermImpl::csi_CUU(u32 count) {
     const u16 top = posY >= marginTop ? marginTop : 0;
-    count = std::min<u32>(count, posY - top);
+    count = min<u32>(count, posY - top);
     posY -= count;
     lastCol = false;
 }
 
 void VtermImpl::csi_CUD(u32 count) {
     const u16 bottom = posY < marginBottom ? marginBottom : composer.rows;
-    count = std::min<u32>(count, bottom - posY - 1);
+    count = min<u32>(count, bottom - posY - 1);
     posY += count;
     lastCol = false;
 }
@@ -4670,7 +4742,7 @@ void VtermImpl::csi_CUD(u32 count) {
 void VtermImpl::csi_CUF(u32 count) {
     const bool insideMargins = posX >= hMargin && posX < nColsEff;
     const u16 right = insideMargins ? nColsEff : composer.columns;
-    count = std::min<u32>(count, right - posX - 1);
+    count = min<u32>(count, right - posX - 1);
     posX += count;
     lastCol = false;
 }
@@ -4689,13 +4761,13 @@ void VtermImpl::moveCursorBackward(u32 count) {
         }
     }
     if (posX == nColsEff) {
-        count = std::min<u32>(count == UINT32_MAX ? count : count + 1, posX);
+        count = min<u32>(count == UINT32_MAX ? count : count + 1, posX);
     }
     while (count > 0) {
         const u16 leftEdge = insideMargins ? hMargin : 0;
         const u16 left = posX >= leftEdge ? posX - leftEdge : posX;
         if (left > 0) {
-            const u32 step = std::min<u32>(count, left);
+            const u32 step = min<u32>(count, left);
             posX -= step;
             count -= step;
             continue;
@@ -4732,10 +4804,10 @@ void VtermImpl::csi_CPL(u32 count) {
 
 void VtermImpl::csi_CHA(u32 column) {
     if (originMode == OriginMode::ScrollingRegion) {
-        column = std::max<u32>(1, std::min<u32>(column, nColsEff - hMargin));
+        column = max<u32>(1, min<u32>(column, nColsEff - hMargin));
         posX = hMargin + column - 1;
     } else {
-        column = std::max<u32>(1, std::min<u32>(column, composer.columns));
+        column = max<u32>(1, min<u32>(column, composer.columns));
         posX = column - 1;
     }
     lastCol = false;
@@ -4747,16 +4819,16 @@ void VtermImpl::csi_HPA(u32 column) {
 
 void VtermImpl::csi_HPR(u32 count) {
     const u16 right = originMode == OriginMode::ScrollingRegion ? nColsEff : composer.columns;
-    posX = (u16)(std::min<u64>((u64)(posX) + count, right - 1));
+    posX = (u16)(min<u64>((u64)(posX) + count, right - 1));
     lastCol = false;
 }
 
 void VtermImpl::csi_VPA(u32 row) {
     if (originMode == OriginMode::ScrollingRegion) {
-        row = std::max<u32>(1, std::min<u32>(row, marginBottom - marginTop));
+        row = max<u32>(1, min<u32>(row, marginBottom - marginTop));
         posY = marginTop + row - 1;
     } else {
-        row = std::max<u32>(1, std::min<u32>(row, composer.rows));
+        row = max<u32>(1, min<u32>(row, composer.rows));
         posY = row - 1;
     }
     lastCol = false;
@@ -4764,19 +4836,19 @@ void VtermImpl::csi_VPA(u32 row) {
 
 void VtermImpl::csi_VPR(u32 count) {
     const u16 bottom = originMode == OriginMode::ScrollingRegion ? marginBottom : composer.rows;
-    posY = (u16)(std::min<u64>((u64)(posY) + count, bottom - 1));
+    posY = (u16)(min<u64>((u64)(posY) + count, bottom - 1));
     lastCol = false;
 }
 
 void VtermImpl::csi_CUP(u32 row, u32 column) {
     switch (originMode) {
         case OriginMode::Absolute:
-            row = std::max<u32>(1, std::min<u32>(row, composer.rows)) - 1;
-            column = std::max<u32>(1, std::min<u32>(column, composer.columns)) - 1;
+            row = max<u32>(1, min<u32>(row, composer.rows)) - 1;
+            column = max<u32>(1, min<u32>(column, composer.columns)) - 1;
             break;
         case OriginMode::ScrollingRegion:
-            row = marginTop + std::max<u32>(1, std::min<u32>(row, marginBottom - marginTop)) - 1;
-            column = hMargin + std::max<u32>(1, std::min<u32>(column, nColsEff - hMargin)) - 1;
+            row = marginTop + max<u32>(1, min<u32>(row, marginBottom - marginTop)) - 1;
+            column = hMargin + max<u32>(1, min<u32>(column, nColsEff - hMargin)) - 1;
             break;
     }
 
@@ -4786,7 +4858,7 @@ void VtermImpl::csi_CUP(u32 row, u32 column) {
 }
 
 void VtermImpl::csi_SU(u32 count) {
-    count = std::min<u32>(count, marginBottom - marginTop);
+    count = min<u32>(count, marginBottom - marginTop);
     const bool pendingWrap = lastCol;
     scrollRegionUp((u16)(count));
     lastCol = pendingWrap;
@@ -4811,14 +4883,14 @@ void VtermImpl::scrollRegionDown(u16 count) {
 }
 
 void VtermImpl::csi_SD(u32 count) {
-    count = std::min<u32>(count, marginBottom - marginTop);
+    count = min<u32>(count, marginBottom - marginTop);
     const bool pendingWrap = lastCol;
     scrollRegionDown((u16)(count));
     lastCol = pendingWrap;
 }
 
 void VtermImpl::csi_CHT(u32 count) {
-    count = std::min<u32>(count, composer.columns);
+    count = min<u32>(count, composer.columns);
     if (count == 1) {
         inp_HT();
     } else {
@@ -4829,7 +4901,7 @@ void VtermImpl::csi_CHT(u32 count) {
 }
 
 void VtermImpl::csi_CBT(u32 count) {
-    count = std::min<u32>(count, composer.columns);
+    count = min<u32>(count, composer.columns);
     for (u32 k = 0; k < count; ++k) {
         const u16 left = originMode == OriginMode::ScrollingRegion ? hMargin : 0;
         if (!tabStopsCustomized) {
@@ -4838,13 +4910,13 @@ void VtermImpl::csi_CBT(u32 count) {
             } else {
                 posX = (posX / 8) * 8;
             }
-            posX = std::max(posX, left);
+            posX = max(posX, left);
         } else {
-            auto ts = std::lower_bound(tabStops.begin(), tabStops.end(), posX);
-            if (ts == tabStops.begin() || *(--ts) < left) {
+            const size_t ts = tabLowerBound(tabStops, posX);
+            if (ts == 0 || tabStops[ts - 1] < left) {
                 posX = left;
             } else {
-                posX = *ts;
+                posX = tabStops[ts - 1];
             }
         }
         lastCol = false;
@@ -5024,10 +5096,10 @@ void VtermImpl::csi_DECCRA(CsiRectangle parameters, u32 targetRow, u32 targetCol
     }
     u16 rowBase, columnBase, rowLimit, columnLimit;
     rectangleOrigin(rowBase, columnBase, rowLimit, columnLimit);
-    const u16 targetTop = rowBase + std::min<u32>(targetRow, rowLimit - rowBase) - 1;
-    const u16 targetLeft = columnBase + std::min<u32>(targetColumn, columnLimit - columnBase) - 1;
-    const u16 height = std::min<u16>(source.bottom - source.top, rowLimit - targetTop);
-    const u16 width = std::min<u16>(source.right - source.left, columnLimit - targetLeft);
+    const u16 targetTop = rowBase + min<u32>(targetRow, rowLimit - rowBase) - 1;
+    const u16 targetLeft = columnBase + min<u32>(targetColumn, columnLimit - columnBase) - 1;
+    const u16 height = min<u16>(source.bottom - source.top, rowLimit - targetTop);
+    const u16 width = min<u16>(source.right - source.left, columnLimit - targetLeft);
     cf->copyRectangle(source.top, source.left, targetTop, targetLeft, height, width, eraseAttrs);
 }
 
@@ -5071,7 +5143,7 @@ void VtermImpl::csi_DECRQCRA(u32 requestId, CsiRectangle parameters) {
 
 void VtermImpl::csi_IL(u32 count) {
     if (isCursorInsideMargins()) {
-        count = std::min<u32>(count, marginBottom - posY);
+        count = min<u32>(count, marginBottom - posY);
         insertRows(posY, (u16)(count));
         inp_CR();
     }
@@ -5079,7 +5151,7 @@ void VtermImpl::csi_IL(u32 count) {
 
 void VtermImpl::csi_DL(u32 count) {
     if (isCursorInsideMargins()) {
-        count = std::min<u32>(count, marginBottom - posY);
+        count = min<u32>(count, marginBottom - posY);
         deleteRows(posY, (u16)(count));
         inp_CR();
     }
@@ -5103,7 +5175,7 @@ void VtermImpl::csi_DCH(u32 count) {
 
 void VtermImpl::csi_ECH(u32 count) {
     const u32 len = composer.columns - posX;
-    count = std::min(count, len);
+    count = min(count, len);
     eraseEcmaRangeInRow(posY, posX, count);
     lastCol = false;
 }
@@ -5153,13 +5225,13 @@ void VtermImpl::csi_SLRM(u32 left, u32 right, bool valid) {
 void VtermImpl::clearTabStop() {
     if (!tabStopsCustomized) {
         for (unsigned column = 8; column < composer.columns; column += 8) {
-            tabStops.push_back((u16)(column));
+            tabStops.pushBack((u16)(column));
         }
         tabStopsCustomized = true;
     }
-    auto it = std::find(tabStops.begin(), tabStops.end(), posX);
-    if (it != tabStops.end()) {
-        tabStops.erase(it);
+    const size_t it = tabLowerBound(tabStops, posX);
+    if (it < tabStops.length() && tabStops[it] == posX) {
+        tabEraseAt(tabStops, it);
     }
 }
 
@@ -5407,15 +5479,17 @@ void VtermImpl::setPasteMimeNotifications(bool enabled) {
 }
 
 void VtermImpl::savePrivateMode(u32 mode, bool enabled) {
-    savedPrivModes[mode] = enabled;
+    SavedMode& saved = savedPrivModes[mode];
+    saved.key = mode;
+    saved.enabled = enabled;
 }
 
 bool VtermImpl::restorePrivateMode(u32 mode, bool& enabled) const {
-    const auto it = savedPrivModes.find(mode);
-    if (it == savedPrivModes.end()) {
+    const SavedMode* const saved = savedPrivModes.find(mode);
+    if (saved == nullptr) {
         return false;
     }
-    enabled = it->second;
+    enabled = saved->enabled;
     return true;
 }
 
@@ -5699,7 +5773,7 @@ void VtermImpl::esch_DECALN() {
 void VtermImpl::setLineAttribute(u8 attribute) {
     cf->setLineAttribute(posY, attribute);
     if (attribute) {
-        posX = std::min<u16>(posX, std::max(1, composer.columns / 2) - 1);
+        posX = min<u16>(posX, max(1, composer.columns / 2) - 1);
     }
     lastCol = false;
 }
@@ -5735,13 +5809,16 @@ void VtermImpl::dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, const Pa
         return;
     }
     if (clearDefinitions) {
-        userDefinedKeys.clear();
+        clearIntMap(userDefinedKeys);
     }
 
     for (size_t index = 0; index < definitionCount; ++index) {
         const ParserUdkDefinition& definition = definitions[index];
         const auto* value = (const char*)(values.data()) + definition.valueOffset;
-        userDefinedKeys[definition.key] = std::string(value, definition.valueLength);
+        UserKey& defined = userDefinedKeys[(u64)(definition.key)];
+        defined.key = (u64)(definition.key);
+        defined.text.reset();
+        defined.text.append(value, definition.valueLength);
     }
     userDefinedKeysLocked = lockDefinitions;
 }
@@ -5819,9 +5896,9 @@ void VtermImpl::dcs_DECRSTS_TAB(u32 column) {
         return;
     }
     const u16 zeroBased = (u16)(column - 1);
-    const auto position = std::lower_bound(tabStops.begin(), tabStops.end(), zeroBased);
-    if (position == tabStops.end() || *position != zeroBased) {
-        tabStops.insert(position, zeroBased);
+    const size_t position = tabLowerBound(tabStops, zeroBased);
+    if (position == tabStops.length() || tabStops[position] != zeroBased) {
+        tabInsertAt(tabStops, position, zeroBased);
     }
 }
 
@@ -6041,7 +6118,7 @@ u32 VtermImpl::columnsForPixelWidth(u32 width) const {
         return composer.columns;
     }
     const u32 border = 2u * opts.border;
-    return std::max(1u, (width > border ? width - border : 0u) / composer.glyphWidth);
+    return max(1u, (width > border ? width - border : 0u) / composer.glyphWidth);
 }
 
 u32 VtermImpl::rowsForPixelHeight(u32 height) const {
@@ -6049,7 +6126,7 @@ u32 VtermImpl::rowsForPixelHeight(u32 height) const {
         return composer.rows;
     }
     const u32 border = 2u * opts.border;
-    return std::max(1u, (height > border ? height - border : 0u) / composer.glyphHeight);
+    return max(1u, (height > border ? height - border : 0u) / composer.glyphHeight);
 }
 
 u32 VtermImpl::windowColumns() const {
@@ -6078,7 +6155,7 @@ void VtermImpl::windowOperation(u32 operation, u32 first, u32 second) {
             return;
         }
         window->requestResize(pixelWidth, pixelHeight);
-        composer.resize((u16)(std::min(pixelWidth, (u32)(UINT16_MAX))), (u16)(std::min(pixelHeight, (u32)(UINT16_MAX))));
+        composer.resize((u16)(min(pixelWidth, (u32)(UINT16_MAX))), (u16)(min(pixelHeight, (u32)(UINT16_MAX))));
     };
     switch (operation) {
         case 1:
@@ -6129,18 +6206,21 @@ void VtermImpl::windowOperation(u32 operation, u32 first, u32 second) {
 }
 
 void VtermImpl::osc_TITLE_0(StringView payload) {
-    iconTitle.assign((const char*)(payload.data()), payload.length());
+    iconTitle.reset();
+    iconTitle.append(payload.data(), payload.length());
     windowTitle = iconTitle;
     publishTitle(0, payload);
 }
 
 void VtermImpl::osc_TITLE_1(StringView payload) {
-    iconTitle.assign((const char*)(payload.data()), payload.length());
+    iconTitle.reset();
+    iconTitle.append(payload.data(), payload.length());
     recordOsc(1, payload);
 }
 
 void VtermImpl::osc_TITLE_2(StringView payload) {
-    windowTitle.assign((const char*)(payload.data()), payload.length());
+    windowTitle.reset();
+    windowTitle.append(payload.data(), payload.length());
     publishTitle(2, payload);
 }
 
@@ -6374,14 +6454,15 @@ void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bo
 
     Buffer cleanId;
     copyKittyClipboardId(cleanId, id);
-    std::string idCopy((const char*)(cleanId.data()), cleanId.used());
-    std::string mimeCopy((const char*)(mimeType.data()), mimeType.length());
+    Buffer idCopy(cleanId);
+    Buffer mimeCopy;
+    mimeCopy.append(mimeType.data(), mimeType.length());
     const bool eightBit = send8BitControls;
     spawnTransaction([this, idCopy, mimeCopy, primary, targets, eightBit] {
         const plt::LockGuard guard(*composer.ptyMutex, *composer.platform->scheduler());
         Output& output = *composer.pty->output();
-        const StringView idView((const u8*)(idCopy.data()), idCopy.size());
-        const StringView mimeView((const u8*)(mimeCopy.data()), mimeCopy.size());
+        const StringView idView(idCopy);
+        const StringView mimeView(mimeCopy);
         writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"OK"), idView, {}, {}, primary);
         if (targets) {
             writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"DATA"), idView, StringView(u8"."), StringView(u8"text/plain\n"), primary);
@@ -6472,7 +6553,7 @@ bool VtermImpl::pasteMimeNotification(bool primary) {
 }
 
 void VtermImpl::osc_RESET_PALETTE() {
-    std::copy(std::begin(originalPalette256), std::end(originalPalette256), std::begin(colors.palette));
+    memcpy(colors.palette, originalPalette256, sizeof(colors.palette));
     colors.changed();
     exposeFrames();
 }
@@ -6485,7 +6566,7 @@ void VtermImpl::osc_RESET_PALETTE(u32 index) {
 }
 
 void VtermImpl::osc_RESET_SPECIAL_COLOR() {
-    std::copy(std::begin(colors.originalSpecial), std::end(colors.originalSpecial), std::begin(colors.special));
+    memcpy(colors.special, colors.originalSpecial, sizeof(colors.special));
     colors.changed();
     exposeFrames();
 }
@@ -6628,15 +6709,14 @@ void VtermImpl::osc_NOTIFICATION_CAPABILITIES(StringView id) {
 }
 
 void VtermImpl::osc_NOTIFICATION_CLOSE(StringView id) {
-    const std::string key((const char*)(id.data()), id.length());
-    if (key.empty()) {
+    if (id.empty()) {
         return;
     }
     // The notification backend owns completed IDs.  Retaining them in the
     // terminal just to validate close requests makes terminal state grow
     // without bound, while forwarding an unknown close is harmless.
-    publishNotify(stringView(key), {}, {}, true);
-    notifications.erase(key);
+    publishNotify(id, {}, {}, true);
+    notifications.erase(id.hash64());
 }
 
 void VtermImpl::osc_NOTIFICATION_TITLE(StringView id, StringView payload, bool encoded, bool finalChunk) {
@@ -6648,43 +6728,44 @@ void VtermImpl::osc_NOTIFICATION_BODY(StringView id, StringView payload, bool en
 }
 
 void VtermImpl::applyNotificationPart(StringView id, StringView payload, bool encoded, bool finalChunk, bool body) {
-    const std::string key((const char*)(id.data()), id.length());
-    auto& notification = notifications[key];
+    const u64 key = id.hash64();
+    Notification& notification = notifications[key];
+    notification.key = key;
     NotificationPart& destination = body ? notification.body : notification.title;
     const auto flushEncoded = [](NotificationPart& part) {
         if (part.encodedOffset == (size_t)-1) {
             return true;
         }
-        size_t decodedSize = part.text.size() - part.encodedOffset;
-        if (!base64DecodeInPlace((u8*)(part.text.data() + part.encodedOffset), decodedSize) || part.encodedOffset + decodedSize > 8192) {
+        size_t decodedSize = part.text.used() - part.encodedOffset;
+        if (!base64DecodeInPlace((u8*)(part.text.mutData()) + part.encodedOffset, decodedSize) || part.encodedOffset + decodedSize > 8192) {
             return false;
         }
-        part.text.resize(part.encodedOffset + decodedSize);
+        part.text.seekAbsolute(part.encodedOffset + decodedSize);
         part.encodedOffset = (size_t)-1;
         return true;
     };
 
     if (encoded) {
         if (destination.encodedOffset == (size_t)-1) {
-            destination.encodedOffset = destination.text.size();
+            destination.encodedOffset = destination.text.used();
         }
         const size_t decodedCapacity = 8192 - destination.encodedOffset;
         const size_t encodedCapacity = (decodedCapacity + 2) / 3 * 4;
-        if (destination.text.size() - destination.encodedOffset + payload.length() > encodedCapacity) {
+        if (destination.text.used() - destination.encodedOffset + payload.length() > encodedCapacity) {
             notifications.erase(key);
             return;
         }
-        destination.text.append((const char*)(payload.data()), payload.length());
+        destination.text.append(payload.data(), payload.length());
         if (!payload.empty() && payload[payload.length() - 1] == '=' && !flushEncoded(destination)) {
             notifications.erase(key);
             return;
         }
     } else {
-        if (!flushEncoded(destination) || destination.text.size() + payload.length() > 8192) {
+        if (!flushEncoded(destination) || destination.text.used() + payload.length() > 8192) {
             notifications.erase(key);
             return;
         }
-        destination.text.append((const char*)(payload.data()), payload.length());
+        destination.text.append(payload.data(), payload.length());
     }
 
     if (!finalChunk) {
@@ -6695,8 +6776,9 @@ void VtermImpl::applyNotificationPart(StringView id, StringView payload, bool en
         return;
     }
 
-    const auto escapeSafeUtf8 = [](const std::string& value) {
-        for (size_t k = 0; k < value.size();) {
+    const auto escapeSafeUtf8 = [](const Buffer& text) {
+        const u8* value = (const u8*)(text.data());
+        for (size_t k = 0; k < text.used();) {
             const u8 first = value[k++];
             if (first <= 0x1f || first == 0x7f) {
                 return false;
@@ -6722,7 +6804,7 @@ void VtermImpl::applyNotificationPart(StringView id, StringView payload, bool en
             } else {
                 return false;
             }
-            if (k + continuation > value.size()) {
+            if (k + continuation > text.used()) {
                 return false;
             }
             for (size_t n = 0; n < continuation; ++n) {
@@ -6743,14 +6825,14 @@ void VtermImpl::applyNotificationPart(StringView id, StringView payload, bool en
         return;
     }
     if (notification.title.text.empty()) {
-        notification.title.text = std::move(notification.body.text);
-        notification.body.text.clear();
+        notification.title.text.xchg(notification.body.text);
+        notification.body.text.reset();
     }
     if (notification.title.text.empty()) {
         notifications.erase(key);
         return;
     }
-    publishNotify(stringView(key), stringView(notification.title.text), stringView(notification.body.text), false);
+    publishNotify(id, stringView(notification.title.text), stringView(notification.body.text), false);
     notifications.erase(key);
 }
 
@@ -6884,35 +6966,39 @@ void VtermImpl::xtReportWindowTitle() {
 }
 
 void VtermImpl::xtPushTitle(bool icon, bool window) {
-    SavedTitles saved;
+    if (titleDepth == 10) {
+        for (size_t index = 1; index < 10; ++index) {
+            stl::xchg(titleStack[index - 1], titleStack[index]);
+        }
+        titleDepth -= 1;
+    }
+    SavedTitles& saved = titleStack[titleDepth++];
+    saved.hasIcon = icon;
+    saved.hasWindow = window;
+    saved.icon.reset();
+    saved.window.reset();
     if (icon) {
-        saved.hasIcon = true;
         saved.icon = iconTitle;
     }
     if (window) {
-        saved.hasWindow = true;
         saved.window = windowTitle;
-    }
-    titleStack.push_back(std::move(saved));
-    if (titleStack.size() > 10) {
-        titleStack.erase(titleStack.begin());
     }
 }
 
 void VtermImpl::xtPopTitle(bool icon, bool window) {
-    if (titleStack.empty()) {
+    if (titleDepth == 0) {
         return;
     }
-    SavedTitles saved = std::move(titleStack.back());
-    titleStack.pop_back();
-    for (auto it = titleStack.rbegin(); it != titleStack.rend() && (!saved.hasIcon || !saved.hasWindow); ++it) {
-        if (!saved.hasIcon && it->hasIcon) {
+    titleDepth -= 1;
+    SavedTitles& saved = titleStack[titleDepth];
+    for (size_t index = titleDepth; index-- > 0 && (!saved.hasIcon || !saved.hasWindow);) {
+        if (!saved.hasIcon && titleStack[index].hasIcon) {
             saved.hasIcon = true;
-            saved.icon = it->icon;
+            saved.icon = titleStack[index].icon;
         }
-        if (!saved.hasWindow && it->hasWindow) {
+        if (!saved.hasWindow && titleStack[index].hasWindow) {
             saved.hasWindow = true;
-            saved.window = it->window;
+            saved.window = titleStack[index].window;
         }
     }
     if (icon && saved.hasIcon) {
@@ -6932,10 +7018,10 @@ void VtermImpl::xtResizeRows(u32 rows) {
 void VtermImpl::csi_XTHIMOUSE(u32 start, u32 startX, u32 startY, u32 firstRow, u32 lastRow) {
     if (mouseTrk.mode == MouseTrackingMode::VT200_Highlight && start != 0) {
         mouseHighlight.active = true;
-        mouseHighlight.startX = std::max<u32>(1, startX);
-        mouseHighlight.startY = std::max<u32>(1, startY);
-        mouseHighlight.firstRow = std::max<u32>(1, firstRow);
-        mouseHighlight.lastRow = std::max<u32>(mouseHighlight.firstRow, lastRow);
+        mouseHighlight.startX = max<u32>(1, startX);
+        mouseHighlight.startY = max<u32>(1, startY);
+        mouseHighlight.firstRow = max<u32>(1, firstRow);
+        mouseHighlight.lastRow = max<u32>(mouseHighlight.firstRow, lastRow);
     } else {
         mouseHighlight.active = false;
     }
@@ -7014,7 +7100,7 @@ void VtermImpl::csi_DECAC_FRAME_RESET() {
 }
 
 void VtermImpl::resetModifyKeyResources() {
-    std::copy(std::begin(initialModifyKeyResources), std::end(initialModifyKeyResources), std::begin(modifyKeyResources));
+    memcpy(modifyKeyResources, initialModifyKeyResources, sizeof(modifyKeyResources));
     modifyOtherKeys = modifyKeyResources[4];
 }
 
@@ -7032,10 +7118,11 @@ void VtermImpl::reportModifyKeyResource(u8 resource) {
 void VtermImpl::csi_kittyKeyboardPush(u32 flags) {
     constexpr size_t maxStackDepth = 16;
     auto& state = kittyKeyboardState();
-    if (state.stack.size() == maxStackDepth) {
-        state.stack.erase(state.stack.begin());
+    if (state.stack.length() == maxStackDepth) {
+        memmove(state.stack.mutData(), state.stack.data() + 1, (maxStackDepth - 1) * sizeof(u8));
+        state.stack.popBack();
     }
-    state.stack.push_back(state.flags);
+    state.stack.pushBack(state.flags);
     state.flags = flags & 0x1f;
 }
 
@@ -7046,8 +7133,7 @@ void VtermImpl::csi_kittyKeyboardPop(u32 count) {
             state.flags = 0;
             break;
         }
-        state.flags = state.stack.back();
-        state.stack.pop_back();
+        state.flags = state.stack.popBack();
     }
 }
 
@@ -8217,7 +8303,12 @@ u32 VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
         return ch;
     }
 
-    const auto lookup = [ch](const std::pair<u8, u16>* table, size_t size) -> u32 {
+    struct NrcMapping {
+        u8 first;
+        u16 second;
+    };
+
+    const auto lookup = [ch](const NrcMapping* table, size_t size) -> u32 {
         for (size_t index = 0; index < size; ++index) {
             if (table[index].first == ch) {
                 return table[index].second;
@@ -8225,7 +8316,7 @@ u32 VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
         }
         return ch;
     };
-#define NRC_TABLE(name, ...) static const std::pair<u8, u16> name[] = {__VA_ARGS__}
+#define NRC_TABLE(name, ...) static const NrcMapping name[] = {__VA_ARGS__}
     NRC_TABLE(dutch, {'#', 0x00a3}, {'@', 0x00be}, {'[', 0x0133}, {'\\', 0x00bd}, {']', 0x007c}, {'{', 0x00a8}, {'|', 0x0192}, {'}', 0x00bc}, {'~', 0x00b4});
     NRC_TABLE(finnish, {'[', 0x00c4}, {'\\', 0x00d6}, {']', 0x00c5}, {'^', 0x00dc}, {'`', 0x00e9}, {'{', 0x00e4}, {'|', 0x00f6}, {'}', 0x00e5}, {'~', 0x00fc});
     NRC_TABLE(french, {'#', 0x00a3}, {'@', 0x00e0}, {'[', 0x00b0}, {'\\', 0x00e7}, {']', 0x00a7}, {'{', 0x00e9}, {'|', 0x00f9}, {'}', 0x00e8}, {'~', 0x00a8});
@@ -8339,6 +8430,9 @@ VtermImpl::VtermImpl(Composer& composer_, VtermTraceFactory* traceFactory_, Outp
     , dump(dump_)
     , unicodeProperties(UnicodeMap<u8>::create(*composer.pool))
     , parser(Parser::create(composer.pool, *this, trace))
+    , notifications(composer.pool)
+    , savedPrivModes(composer.pool)
+    , userDefinedKeys(composer.pool)
     , nColsEff(composer.columns)
     , hMargin(0)
 {
@@ -8353,11 +8447,15 @@ VtermImpl::VtermImpl(Composer& composer_, VtermTraceFactory* traceFactory_, Outp
     cf = frame_pri;
     outputRows.grow((size_t)(composer.rows));
     makePalette256(colors.palette);
-    std::copy(std::begin(colors.palette), std::end(colors.palette), std::begin(originalPalette256));
+    memcpy(originalPalette256, colors.palette, sizeof(originalPalette256));
     colors.defaultForeground = opts.fg;
     colors.defaultBackground = opts.bg;
-    std::fill(std::begin(colors.special), std::end(colors.special), opts.fg);
-    std::fill(std::begin(colors.originalSpecial), std::end(colors.originalSpecial), opts.fg);
+    for (auto& special : colors.special) {
+        special = opts.fg;
+    }
+    for (auto& special : colors.originalSpecial) {
+        special = opts.fg;
+    }
     cursorColor = opts.cr;
     selectionFgColor = opts.fg;
     selectionBgColor = opts.bg;
@@ -8368,8 +8466,10 @@ VtermImpl::VtermImpl(Composer& composer_, VtermTraceFactory* traceFactory_, Outp
     initialModifyKeyResources[4] = opts.modifyOtherKeys;
     initialModifyKeyResources[6] = 0;
     initialModifyKeyResources[7] = 0;
-    windowTitle = opts.title;
-    iconTitle = opts.title;
+    windowTitle.reset();
+    windowTitle.append(opts.title, strlen(opts.title));
+    iconTitle.reset();
+    iconTitle.append(opts.title, strlen(opts.title));
 
     defaultFgPalIx = -1;
     defaultBgPalIx = -1;
@@ -8436,12 +8536,12 @@ void VtermImpl::resizeGrid() {
     hMargin = 0;
     if (tabStopsCustomized && !tabStopsRestored) {
         while (!tabStops.empty() && tabStops.back() >= composer.columns) {
-            tabStops.pop_back();
+            tabStops.popBack();
         }
         if (composer.columns > previousColumns) {
             unsigned column = ((unsigned)(previousColumns) + 7) & ~7u;
             for (; column < composer.columns; column += 8) {
-                tabStops.push_back((u16)(column));
+                tabStops.pushBack((u16)(column));
             }
         }
     }
@@ -8458,7 +8558,7 @@ void VtermImpl::resizeGrid() {
     }
 }
 
-std::string VtermImpl::getLocalEcho(const u8* const begin, const u8* const end) {
+void VtermImpl::getLocalEcho(const u8* const begin, const u8* const end, Buffer& out) {
     StringBuilder output((end - begin) * 2);
     for (const u8* p = begin; p < end; ++p) {
         if (*p == '\r' || *p >= ' ') {
@@ -8468,13 +8568,13 @@ std::string VtermImpl::getLocalEcho(const u8* const begin, const u8* const end) 
             output.append(bytes, sizeof(bytes));
         }
     }
-    return std::string((const char*)(output.data()), output.used());
+    out.xchg(output);
 }
 
 int VtermImpl::writePty(InputKey key, VtModifier modifiers_, bool userInput) {
-    const auto userDefined = userDefinedKeys.find(key);
-    if (userDefined != userDefinedKeys.end()) {
-        return writePty(userDefined->second.data(), userDefined->second.size(), userInput);
+    const UserKey* const userDefined = userDefinedKeys.find((u64)(key));
+    if (userDefined != nullptr) {
+        return writePty((const char*)(userDefined->text.data()), userDefined->text.used(), userInput);
     }
     const auto writeKey = [&](const char* data, size_t size) {
         if (!send8BitControls) {
@@ -8586,12 +8686,12 @@ int VtermImpl::writePty(u8 ch, VtModifier modifiers, bool userInput) {
             wbuf[1] = ch;
             return writePty(wbuf, 2, userInput);
         } else {
-            std::vector<char> utf8_out;
-            auto sinkFn = [&](char ch) {
-                utf8_out.push_back(ch);
+            Buffer utf8_out;
+            auto sinkFn = [&](char encoded) {
+                utf8_out.append(&encoded, 1);
             };
             Utf8Encoder::pushUnicode(ch | 0x80, sinkFn);
-            return writePty(utf8_out.data(), utf8_out.size(), userInput);
+            return writePty((const char*)(utf8_out.data()), utf8_out.used(), userInput);
         }
     } else {
         return writePty(uch, 1, userInput);
@@ -8730,8 +8830,9 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
     }
 
     if (userInput && localEcho) {
-        const std::string localEcho = getLocalEcho(ucstr, ucstr + len);
-        processInput((const u8*)localEcho.data(), (int)localEcho.size());
+        Buffer localEcho;
+        getLocalEcho(ucstr, ucstr + len, localEcho);
+        processInput((const u8*)(localEcho.data()), (int)(localEcho.used()));
     }
     Output* const output = composer.ptyOutput;
     const StringView bytes(ucstr, len);
@@ -9152,17 +9253,18 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
     return changed;
 }
 
-std::string VtermImpl::getHyperlink(int pX, int pY) const {
+void VtermImpl::getHyperlink(int pX, int pY, Buffer& out) const {
+    out.reset();
     const StringView link = resolveHyperlink(pX, pY).payload;
-    return link.empty() ? std::string{} : std::string(reinterpret_cast<const char*>(link.data()), link.length());
+    out.append(link.data(), link.length());
 }
 
 Point VtermImpl::selectionPoint(int pX, int pY) const {
-    const int contentWidth = std::max(0, (int)composer.pixelWidth - 2 * opts.border);
-    const int contentHeight = std::max(1, (int)composer.pixelHeight - 2 * opts.border);
-    pX = std::min(std::max(0, pX - opts.border), contentWidth);
-    pY = std::min(std::max(0, pY - opts.border), contentHeight - 1);
-    return cf->logicalPoint(Point(std::min(pX / composer.glyphWidth, (int)composer.columns), std::min(pY / composer.glyphHeight, (int)composer.rows - 1)));
+    const int contentWidth = max(0, (int)composer.pixelWidth - 2 * opts.border);
+    const int contentHeight = max(1, (int)composer.pixelHeight - 2 * opts.border);
+    pX = min(max(0, pX - opts.border), contentWidth);
+    pY = min(max(0, pY - opts.border), contentHeight - 1);
+    return cf->logicalPoint(Point(min(pX / composer.glyphWidth, (int)composer.columns), min(pY / composer.glyphHeight, (int)composer.rows - 1)));
 }
 
 void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
@@ -9209,18 +9311,18 @@ void VtermImpl::selectUpdate(int pX, int pY) {
 
     if (selection.rectangular) {
         if (selectUpdatesLeft && pt.x > selection.br.x) {
-            std::swap(selection.tl.x, selection.br.x);
+            stl::xchg(selection.tl.x, selection.br.x);
             selectUpdatesLeft = false;
         } else if (!selectUpdatesLeft && pt.x < selection.tl.x) {
-            std::swap(selection.tl.x, selection.br.x);
+            stl::xchg(selection.tl.x, selection.br.x);
             selectUpdatesLeft = true;
         }
 
         if (selectUpdatesTop && pt.y > selection.br.y) {
-            std::swap(selection.tl.y, selection.br.y);
+            stl::xchg(selection.tl.y, selection.br.y);
             selectUpdatesTop = false;
         } else if (!selectUpdatesTop && pt.y < selection.tl.y) {
-            std::swap(selection.tl.y, selection.br.y);
+            stl::xchg(selection.tl.y, selection.br.y);
             selectUpdatesTop = true;
         }
 
@@ -9257,7 +9359,7 @@ void VtermImpl::selectUpdate(int pX, int pY) {
     redraw();
 }
 
-bool VtermImpl::selectFinish(std::string& utf8_selection) {
+bool VtermImpl::selectFinish(Buffer& utf8_selection) {
     selectPivotFixed = false;
     changePresentation();
     showCursor();
@@ -9280,7 +9382,7 @@ void VtermImpl::selectRectangularModeToggle() {
         // its top endpoint to the right of its bottom endpoint.  Rectangular
         // selection requires independently ordered axes.  Preserve which
         // horizontal edge is being dragged while normalizing the corners.
-        std::swap(selection.tl.x, selection.br.x);
+        stl::xchg(selection.tl.x, selection.br.x);
         selectUpdatesLeft = true;
     }
     cf->updateSelection(selection);
@@ -9288,8 +9390,8 @@ void VtermImpl::selectRectangularModeToggle() {
     redraw();
 }
 
-void VtermImpl::pasteSelection(const std::string& utf8_selection) {
-    StringBuilder output(utf8_selection.size() + 12);
+void VtermImpl::pasteSelection(StringView utf8_selection) {
+    StringBuilder output(utf8_selection.length() + 12);
 
     if (bracketedPasteMode) {
         output << StringView(u8"\x1b[200~");

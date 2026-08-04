@@ -8,7 +8,6 @@
 
 #include <utf8proc.h>
 
-#include <algorithm>
 #include <iterator>
 
 // Bases registered by Unicode emoji-variation-sequences.txt.  Emoji
@@ -436,7 +435,17 @@ static constexpr u32 viramas[] = {
 
 template <size_t Size>
 static bool contains(const u32 (&values)[Size], u32 value) {
-    return std::binary_search(std::begin(values), std::end(values), value);
+    size_t low = 0;
+    size_t high = Size;
+    while (low < high) {
+        const size_t middle = low + (high - low) / 2;
+        if (values[middle] < value) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    return low < Size && values[low] == value;
 }
 
 static bool isDefaultWideCjk(u32 codepoint) {

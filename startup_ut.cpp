@@ -23,10 +23,10 @@ STD_TEST_SUITE(Startup) {
 
         const LaunchCommand command = buildLaunchCommand(4, arguments, nullptr, true);
 
-        STD_INSIST(command.executable == "relative-command");
-        STD_INSIST(command.arguments.size() == 2);
-        STD_INSIST(command.arguments[0] == "relative-command");
-        STD_INSIST(command.arguments[1] == "--flag");
+        STD_INSIST(StringView(command.executable()) == StringView(u8"relative-command"));
+        STD_INSIST(command.offsets.length() == 2);
+        STD_INSIST(StringView(command.argument(0)) == StringView(u8"relative-command"));
+        STD_INSIST(StringView(command.argument(1)) == StringView(u8"--flag"));
     }
 
     STD_TEST(UsesDefaultShellBasenameAsArgvZero) {
@@ -35,9 +35,9 @@ STD_TEST_SUITE(Startup) {
 
         const LaunchCommand command = buildLaunchCommand(1, arguments, "/bin/sh", false);
 
-        STD_INSIST(command.executable == "/bin/sh");
-        STD_INSIST(command.arguments.size() == 1);
-        STD_INSIST(command.arguments[0] == "sh");
+        STD_INSIST(StringView(command.executable()) == StringView(u8"/bin/sh"));
+        STD_INSIST(command.offsets.length() == 1);
+        STD_INSIST(StringView(command.argument(0)) == StringView(u8"sh"));
     }
 
     STD_TEST(PrefixesLoginShellArgvZero) {
@@ -46,8 +46,8 @@ STD_TEST_SUITE(Startup) {
 
         const LaunchCommand command = buildLaunchCommand(1, arguments, "/bin/sh", true);
 
-        STD_INSIST(command.arguments.size() == 1);
-        STD_INSIST(command.arguments[0] == "-sh");
+        STD_INSIST(command.offsets.length() == 1);
+        STD_INSIST(StringView(command.argument(0)) == StringView(u8"-sh"));
     }
 
     STD_TEST(CommandLineShellOverridesDefault) {
@@ -57,7 +57,7 @@ STD_TEST_SUITE(Startup) {
 
         const LaunchCommand command = buildLaunchCommand(2, arguments, "/does/not/exist", false);
 
-        STD_INSIST(command.executable == "/bin/sh");
+        STD_INSIST(StringView(command.executable()) == StringView(u8"/bin/sh"));
     }
 
     STD_TEST(RejectsMissingShell) {
