@@ -187,9 +187,10 @@ Every option can also be set in `~/.config/shitty/shitty.toml`
 (`$XDG_CONFIG_HOME` is honored), or in an explicit file passed with
 `-config path.toml`. Keys are the option names from `-help` and
 `-listres`; the file is TOML, parsed by a built-in parser that passes the
-full `toml-test` 1.0 suite. Command-line flags take precedence over the
-file, and a broken or unknown entry prints a warning to stderr without
-keeping the terminal from starting:
+full `toml-test` 1.0 suite. `${NAME}` anywhere in the file expands to the
+process environment variable before parsing. Command-line flags take
+precedence over the file, and a broken or unknown entry prints a warning
+to stderr without keeping the terminal from starting:
 
 ```toml
 fontsize = 16

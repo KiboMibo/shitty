@@ -67,6 +67,17 @@ class ConfigFileTest(unittest.TestCase):
             with Shitty(extra_environment=environment) as terminal:
                 self.assertEqual(terminal.font_state()[0], 27)
 
+    def test_environment_expands_in_the_config_body(self):
+        text = "fontsize = ${SHITTY_TEST_WANTED_SIZE}\ntitle = '${HOME} of ${NO_SUCH_VARIABLE}'\n"
+        with tempfile.TemporaryDirectory() as directory:
+            config_home(directory, text)
+            environment = {
+                "XDG_CONFIG_HOME": directory,
+                "SHITTY_TEST_WANTED_SIZE": "31",
+            }
+            with Shitty(extra_environment=environment) as terminal:
+                self.assertEqual(terminal.font_state()[0], 31)
+
     def test_font_list_is_accepted(self):
         text = 'font = ["Test Font", "Fallback Font"]\nfontsize = 21\n'
         with tempfile.TemporaryDirectory() as directory:

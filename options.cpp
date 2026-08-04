@@ -34,6 +34,8 @@
 
 using namespace stl;
 
+extern "C" char** environ;
+
 namespace {
 
     enum class OptionKind {
@@ -314,6 +316,27 @@ void ConfigSink::tomlError(size_t line, StringView message) {
 
 namespace {
 
+    // Expands ${NAME} from the process environment anywhere in the config
+    // text before parsing. Deliberately simple: one pass over the whole
+    // environment, replacing every occurrence of each variable. Skipping
+    // past the substituted value keeps a self-referential variable from
+    // looping forever.
+    void substituteEnvironment(std::string& text) {
+        for (char** entry = environ; *entry != nullptr; ++entry) {
+            const char* equals = strchr(*entry, '=');
+            if (equals == nullptr || equals == *entry) {
+                continue;
+            }
+            const std::string token = "${" + std::string(*entry, equals - *entry) + "}";
+            const std::string value(equals + 1);
+            size_t at = 0;
+            while ((at = text.find(token, at)) != std::string::npos) {
+                text.replace(at, token.size(), value);
+                at += value.size();
+            }
+        }
+    }
+
     void loadConfigFile() {
         std::string path;
         bool required = false;
@@ -347,6 +370,7 @@ namespace {
             text.append(chunk, got);
         }
         fclose(file);
+        substituteEnvironment(text);
         ConfigSink sink(path.c_str());
         parseToml(StringView((const u8*)text.data(), text.size()), sink);
     }
