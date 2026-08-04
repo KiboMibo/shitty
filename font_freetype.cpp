@@ -36,7 +36,7 @@ using namespace stl;
 
 namespace {
     struct FontImpl final: public Font {
-        FontImpl(IntrusivePtr<FontFace> source, u16 size, FontKind kind, FontMetrics& metrics, FontStyle synthetic);
+        FontImpl(Composer& composer, IntrusivePtr<FontFace> source, u16 size, FontKind kind, FontMetrics& metrics, FontStyle synthetic);
         ~FontImpl() noexcept;
 
         void render(const u32* codepoints, size_t count, u16 cells, void* buf) override;
@@ -75,6 +75,7 @@ namespace {
         [[noreturn]] void fail(StringView message);
         [[noreturn]] void fail(StringBuilder&& message);
 
+        Composer& composer_;
         // Keeps the mapped bytes alive for as long as the FT face uses them.
         IntrusivePtr<FontFace> source_;
         FT_Library library_ = nullptr;
@@ -97,7 +98,14 @@ namespace {
     };
 
     struct FreeTypeRenderer final: public FontRenderer {
+        explicit FreeTypeRenderer(Composer& composer_)
+            : composer(composer_)
+        {
+        }
+
         Font* render(ObjPool& owner, IntrusivePtr<FontFace> face, u16 pixels, FontKind kind, FontMetrics& metrics) override;
+
+        Composer& composer;
     };
 
     static int absolute(int value) {
@@ -135,8 +143,9 @@ namespace {
     }
 }
 
-FontImpl::FontImpl(IntrusivePtr<FontFace> source, u16 size, FontKind kind, FontMetrics& metrics, FontStyle synthetic)
-    : source_(source)
+FontImpl::FontImpl(Composer& composer, IntrusivePtr<FontFace> source, u16 size, FontKind kind, FontMetrics& metrics, FontStyle synthetic)
+    : composer_(composer)
+    , source_(source)
     , size_(size)
     , kind_(kind)
     , metrics_(metrics)
@@ -541,7 +550,7 @@ FontFace* FontImpl::face() {
 Font* FontImpl::synthesize(ObjPool& owner, FontStyle style) {
     FontMetrics metrics = metrics_;
     try {
-        return owner.make<FontImpl>(source_, size_, FontKind::Overlay, metrics, style);
+        return owner.make<FontImpl>(composer_, source_, size_, FontKind::Overlay, metrics, style);
     } catch (Exception&) {
         return nullptr;
     }
@@ -624,7 +633,7 @@ u16 FontImpl::fitCells(u16 cells) {
         --size;
         fit = measureAt(size, representative);
     }
-    if (opts.verbose && !fitLogged_) {
+    if (composer_.opts->verbose && !fitLogged_) {
         sysO << StringView(u8"fitted fallback font to ") << size << StringView(u8"px for ") << (u64)(cells) << StringView(u8"-cell glyphs\n");
         fitLogged_ = true;
     }
@@ -886,13 +895,13 @@ bool FontImpl::rasterize(const u32* codepoints, size_t count) {
 }
 
 Font* FreeTypeRenderer::render(ObjPool& owner, IntrusivePtr<FontFace> face, u16 pixels, FontKind kind, FontMetrics& metrics) {
-    Font* const font = owner.make<FontImpl>(face, pixels, kind, metrics, FontStyle::Regular);
-    if (opts.verbose) {
+    Font* const font = owner.make<FontImpl>(composer, face, pixels, kind, metrics, FontStyle::Regular);
+    if (composer.opts->verbose) {
         sysO << StringView(u8"freetype face: kind ") << (u64)((u8)(kind)) << StringView(u8" at ") << pixels << StringView(u8"px, cell ") << metrics.width << StringView(u8"x") << metrics.height << StringView(u8" baseline ") << metrics.baseline << StringView(u8"\n");
     }
     return font;
 }
 
 FontRenderer* createFreeTypeFontRenderer(Composer& composer) {
-    return composer.pool->make<FreeTypeRenderer>();
+    return composer.pool->make<FreeTypeRenderer>(composer);
 }

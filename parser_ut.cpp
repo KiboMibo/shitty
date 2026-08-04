@@ -1064,7 +1064,7 @@ namespace {
     struct ParserFixture {
         ParserFixture()
             : pool(ObjPool::fromMemory())
-            , parser(Parser::create(pool.mutPtr(), iface, nullptr))
+            , parser(Parser::create(pool.mutPtr(), iface, nullptr, false))
         {
         }
 

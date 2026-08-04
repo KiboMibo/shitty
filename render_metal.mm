@@ -201,7 +201,7 @@ namespace {
         // The arena generation the device copies mirror; a mismatch means
         // the strips moved wholesale and everything re-uploads.
         u32 stripGeneration = 0;
-        Color clearBackground = opts.bg;
+        Color clearBackground = composer.opts->bg;
         PresentationFrame frames[framesInFlight];
         u32 currentFrame = 0;
         u32 outputWidth = 0;
@@ -337,7 +337,7 @@ void MetalRendererImpl::destroyFontResources() {
 
 void MetalRendererImpl::resetFontResources() {
     waitFrames();
-    if (opts.verbose) {
+    if (composer.opts->verbose) {
         fprintf(stderr, "shitty: metal: font reset, dropping generation %u (mask uploaded %zu, color uploaded %zu)\n", stripGeneration, maskArenaUploaded, colorArenaUploaded);
     }
     // The screen reset its arenas with the font; generation zero never
@@ -362,7 +362,7 @@ bool MetalRendererImpl::ensureArenaBuffer(id<MTLBuffer>& buffer, size_t& capacit
     while (next < needed) {
         next *= 2;
     }
-    if (opts.verbose) {
+    if (composer.opts->verbose) {
         fprintf(stderr, "shitty: metal: arena buffer grows %zu -> %zu for %zu used\n", capacity, next, needed);
     }
     // Growth is rare (font or viewport change); a drain keeps the swap
@@ -408,7 +408,7 @@ bool MetalRendererImpl::uploadArenas(Screen& shapes, u32 generation) {
         // The strips moved wholesale (collection or font change): the
         // device copies restart from the beginning, which rewrites bytes
         // an in-flight frame may still read.
-        if (opts.verbose) {
+        if (composer.opts->verbose) {
             fprintf(
                 stderr,
                 "shitty: metal: generation %u -> %u, full reupload, mask %zu color %zu, glyph %ux%u grid %ux%u\n",
@@ -425,16 +425,16 @@ bool MetalRendererImpl::uploadArenas(Screen& shapes, u32 generation) {
         waitFrames();
         maskArenaUploaded = 0;
         colorArenaUploaded = 0;
-    } else if (opts.verbose && (maskUsed < maskArenaUploaded || colorUsed < colorArenaUploaded)) {
+    } else if (composer.opts->verbose && (maskUsed < maskArenaUploaded || colorUsed < colorArenaUploaded)) {
         fprintf(stderr, "shitty: metal: ARENA REGRESSED within generation %u: mask %zu < uploaded %zu or color %zu < uploaded %zu\n", generation, maskUsed, maskArenaUploaded, colorUsed, colorArenaUploaded);
     }
     if (!ensureArenaBuffer(maskArena, maskArenaCapacity, maskArenaUploaded, maskUsed) || !ensureArenaBuffer(colorArena, colorArenaCapacity, colorArenaUploaded, colorUsed)) {
-        if (opts.verbose) {
+        if (composer.opts->verbose) {
             fprintf(stderr, "shitty: metal: arena buffer allocation FAILED, mask %zu color %zu\n", maskUsed, colorUsed);
         }
         return false;
     }
-    if (opts.verbose && (maskUsed > maskArenaUploaded || colorUsed > colorArenaUploaded)) {
+    if (composer.opts->verbose && (maskUsed > maskArenaUploaded || colorUsed > colorArenaUploaded)) {
         fprintf(stderr, "shitty: metal: upload mask [%zu, %zu) color [%zu, %zu), generation %u\n", maskArenaUploaded, maskUsed, colorArenaUploaded, colorUsed, generation);
     }
     if (maskUsed > maskArenaUploaded) {
@@ -447,7 +447,7 @@ bool MetalRendererImpl::uploadArenas(Screen& shapes, u32 generation) {
         colorArenaUploaded = colorUsed;
     }
     stripGeneration = generation;
-    if (opts.verbose) {
+    if (composer.opts->verbose) {
         verifyArenaCopy("mask", (const u8*)(maskArena.contents), shapes.spanMask(), maskUsed, generation);
         verifyArenaCopy("color", (const u8*)(colorArena.contents), (const u8*)(shapes.spanColor()), colorUsed, generation);
     }
@@ -559,7 +559,7 @@ u32 MetalRendererImpl::assignStrips(const TerminalUpdate& update) {
         overrideOverlayStrips(shapes, update);
         ++walks;
     } while (generation != shapes.spanGeneration());
-    if (opts.verbose && walks > 1) {
+    if (composer.opts->verbose && walks > 1) {
         fprintf(stderr, "shitty: metal: strip walk restarted, %u passes, generation %u\n", walks, generation);
     }
     return generation;
@@ -727,7 +727,7 @@ bool MetalRendererImpl::draw() {
         // Drawables are busy: skip without blocking. The caller retries
         // on the next frame callback and the retained cells redraw
         // everything then.
-        if (opts.verbose) {
+        if (composer.opts->verbose) {
             fprintf(stderr, "shitty: metal: draw skipped, presents in flight\n");
         }
         return false;
@@ -741,14 +741,14 @@ bool MetalRendererImpl::draw() {
 
     const u32 updateCount = buildCellUpdates(frame);
     if (updateCount == 0) {
-        if (opts.verbose) {
+        if (composer.opts->verbose) {
             fprintf(stderr, "shitty: metal: draw skipped, no cell updates\n");
         }
         return false;
     }
     id<CAMetalDrawable> drawable = [metalLayer nextDrawable];
     if (drawable == nil) {
-        if (opts.verbose) {
+        if (composer.opts->verbose) {
             fprintf(stderr, "shitty: metal: draw skipped, no drawable\n");
         }
         return false;
@@ -776,7 +776,7 @@ bool MetalRendererImpl::draw() {
         composer.rows,
         outputWidth,
         outputHeight,
-        opts.border,
+        composer.opts->border,
         packColor(state.cursor.color),
         state.cursor.posX,
         state.cursor.posY,
@@ -787,7 +787,7 @@ bool MetalRendererImpl::draw() {
         state.selection.br.x,
         state.selection.br.y,
         state.selection.rectangular ? 1u : 0u,
-        opts.showWraps ? 1u : 0u,
+        composer.opts->showWraps ? 1u : 0u,
         packColor(state.selectionForeground),
         packColor(state.selectionBackground),
         state.selectionColorMask,
@@ -853,7 +853,7 @@ bool MetalRendererImpl::update(const TerminalUpdate& update) {
         // A reshaped grid needs every row before the retained cells mean
         // anything.
         if (update.rowCount != composer.rows) {
-            if (opts.verbose) {
+            if (composer.opts->verbose) {
                 fprintf(stderr, "shitty: metal: update dropped, grid %ux%u wants a full refresh but got %zu rows\n", composer.columns, composer.rows, update.rowCount);
             }
             return false;
@@ -880,18 +880,18 @@ bool MetalRendererImpl::update(const TerminalUpdate& update) {
         materializeCells(update.overlayCells, cells.mutData() + (size_t)(update.overlayRow) * cellColumns + update.overlayColumn, update.overlayCount, 0, *update.colors);
     }
     if (update.shapes != nullptr) {
-        if (opts.verbose && (const void*)(update.shapes) != lastShapes) {
+        if (composer.opts->verbose && (const void*)(update.shapes) != lastShapes) {
             fprintf(stderr, "shitty: metal: screen switch %p -> %p, its generation %u, mirrored %u\n", (const void*)(lastShapes), (const void*)(update.shapes), update.shapes->spanGeneration(), stripGeneration);
             lastShapes = update.shapes;
         }
         const u32 generation = assignStrips(update);
-        if (opts.verbose) {
+        if (composer.opts->verbose) {
             verifyStripBounds(*update.shapes, generation);
         }
         if (!uploadArenas(*update.shapes, generation)) {
             return false;
         }
-    } else if (opts.verbose) {
+    } else if (composer.opts->verbose) {
         fprintf(stderr, "shitty: metal: update carries no shapes, arenas not uploaded\n");
     }
     // The padding follows the live default background (OSC 11).

@@ -144,12 +144,35 @@ namespace {
         const char* find(StringView name);
     };
 
-    static StringList configFonts;
-    static StringList configRemaps;
-    static StringList fontArguments;
-    static StringList remapArguments;
-    static Vector<const char*> fontPointers;
-    static Vector<const char*> remapPointers;
+    struct OptionsParser final: public Options {
+        OptionsParser(char** argv, int argc);
+
+        void initialize(int* argc, char** argv);
+        void handlePrintOpts();
+        void parse();
+        void loadConfigFile();
+        const char* get(const char* name, const char* fallback = nullptr, OptionSource* src = nullptr);
+        void getBorder(u16& outBorder);
+        void getSaveLines(u16& outSaveLines);
+        void getFontsize(u8& outFontsize);
+        void getGeometry(u16& outCols, u16& outRows);
+        void printVersion() const;
+        void printUsage() const;
+        void printResources() const;
+        bool getBool(const char* name, bool defaultValue = false);
+        void getColor(const char* name, Color& outColor);
+        int getInteger(const char* name, int min, int max);
+        StringList* configList(StringView name);
+
+        NamedValues commandLine;
+        NamedValues configFile;
+        StringList configFonts;
+        StringList configRemaps;
+        StringList fontArguments;
+        StringList remapArguments;
+        Vector<const char*> fontPointers;
+        Vector<const char*> remapPointers;
+    };
 }
 
 void StringList::clear() {
@@ -203,13 +226,9 @@ const char* NamedValues::find(StringView name) {
 }
 
 namespace {
-
-    static NamedValues commandLine;
-    static NamedValues configFile;
-
     // The two list-shaped options; everything else in the config file is a
     // scalar.
-    static StringList* configList(StringView name) {
+    StringList* OptionsParser::configList(StringView name) {
         if (name == StringView(u8"font")) {
             return &configFonts;
         }
@@ -287,6 +306,7 @@ namespace {
     // everything suspicious is a warning on stderr and the entry is
     // ignored, so no callback ever aborts the parse.
     struct ConfigSink: public TomlSink {
+        OptionsParser& options;
         const char* path;
         Buffer pending;
         StringList* pendingList;
@@ -295,7 +315,7 @@ namespace {
         int arrayDepth;
         int inlineDepth;
 
-        ConfigSink(const char* path);
+        ConfigSink(OptionsParser& options, const char* path);
 
         bool tomlTable(const stl::StringView* segments, size_t count, bool array) override;
         bool tomlKey(const stl::StringView* segments, size_t count) override;
@@ -310,8 +330,9 @@ namespace {
     };
 }
 
-ConfigSink::ConfigSink(const char* path)
-    : path(path)
+ConfigSink::ConfigSink(OptionsParser& options_, const char* path)
+    : options(options_)
+    , path(path)
     , pendingList(nullptr)
     , pendingKnown(false)
     , skippingTable(false)
@@ -375,18 +396,18 @@ bool ConfigSink::tomlScalar(TomlType type, StringView text) {
     if (!pendingKnown) {
         return true;
     }
-    if (StringList* const list = configList(StringView(pending))) {
+    if (StringList* const list = options.configList(StringView(pending))) {
         list->clear();
         list->push(text);
         return true;
     }
-    configFile.put(StringView(pending), text);
+    options.configFile.put(StringView(pending), text);
     return true;
 }
 
 bool ConfigSink::tomlArrayBegin() {
     if (inlineDepth == 0 && arrayDepth == 0) {
-        pendingList = pendingKnown ? configList(StringView(pending)) : nullptr;
+        pendingList = pendingKnown ? options.configList(StringView(pending)) : nullptr;
         if (pendingList != nullptr) {
             pendingList->clear();
         } else if (pendingKnown) {
@@ -462,7 +483,7 @@ namespace {
         }
     }
 
-    static void loadConfigFile() {
+    void OptionsParser::loadConfigFile() {
         StringBuilder path;
         bool required = false;
         if (const char* chosen = commandLine.find(StringView(u8"config"))) {
@@ -495,11 +516,11 @@ namespace {
         }
         fclose(file);
         substituteEnvironment(text);
-        ConfigSink sink(path.cStr());
+        ConfigSink sink(*this, path.cStr());
         parseToml(StringView(text), sink);
     }
 
-    static const char* get(const char* name, const char* fallback = nullptr, OptionSource* src = nullptr) {
+    const char* OptionsParser::get(const char* name, const char* fallback, OptionSource* src) {
         auto withSource = [=](const OptionSource source, const char* value) {
             if (src != nullptr) {
                 *src = source;
@@ -545,7 +566,7 @@ namespace {
         return *end == '\0';
     }
 
-    static void getBorder(u16& outBorder) {
+    void OptionsParser::getBorder(u16& outBorder) {
         long border = 0;
         if (!parseNumber(get("border"), border) || border < 0 || border > 3000) {
             raiseError(StringView(u8"-border: expected unsigned, max. 3000"));
@@ -553,7 +574,7 @@ namespace {
         outBorder = (u16)(border);
     }
 
-    static void getSaveLines(u16& outSaveLines) {
+    void OptionsParser::getSaveLines(u16& outSaveLines) {
         long lines = 0;
         if (!parseNumber(get("saveLines"), lines) || lines < 0 || lines > 50000) {
             raiseError(StringView(u8"-saveLines: expected unsigned, max. 50000"));
@@ -561,7 +582,7 @@ namespace {
         outSaveLines = (u16)(lines);
     }
 
-    static void getFontsize(u8& outFontsize) {
+    void OptionsParser::getFontsize(u8& outFontsize) {
         const char* option = commandLine.find(StringView(u8"fontsize"));
         if (option == nullptr && (option = getenv("SHITTY_FONT_SIZE")) == nullptr) {
             option = get("fontsize");
@@ -573,7 +594,7 @@ namespace {
         outFontsize = (u8)(size);
     }
 
-    static void getGeometry(u16& outCols, u16& outRows) {
+    void OptionsParser::getGeometry(u16& outCols, u16& outRows) {
         const char* option = get("geometry");
         char* end = nullptr;
         errno = 0;
@@ -641,9 +662,19 @@ namespace {
 
 }
 
-Options opts;
+OptionsParser::OptionsParser(char** argv, int argc) {
+    initialize(&argc, argv);
+    parse();
+    if (verbose) {
+        printVersion();
+    }
+}
 
-void Options::initialize(int* argc, char** argv) {
+Options* Options::create(ObjPool& pool, char** argv, int argc) {
+    return pool.make<OptionsParser>(argv, argc);
+}
+
+void OptionsParser::initialize(int* argc, char** argv) {
     int output = 1;
 
     for (int input = 1; input < *argc; ++input) {
@@ -710,7 +741,7 @@ void Options::initialize(int* argc, char** argv) {
     }
 }
 
-bool Options::getBool(const char* name, bool defaultValue) {
+bool OptionsParser::getBool(const char* name, bool defaultValue) {
     const char* option = get(name);
     if (option == nullptr) {
         return defaultValue;
@@ -724,7 +755,7 @@ bool Options::getBool(const char* name, bool defaultValue) {
     raiseError(StringView(u8"-"), StringView(name), StringView(u8": expected true or false"));
 }
 
-void Options::getColor(const char* name, Color& outColor) {
+void OptionsParser::getColor(const char* name, Color& outColor) {
     const char* option = get(name);
     if (option == nullptr) {
         raiseError(StringView(u8"-"), StringView(name), StringView(u8": missing value"));
@@ -732,7 +763,7 @@ void Options::getColor(const char* name, Color& outColor) {
     convColor(name, option, outColor);
 }
 
-int Options::getInteger(const char* name, int min, int max) {
+int OptionsParser::getInteger(const char* name, int min, int max) {
     const char* option = get(name);
     if (option == nullptr) {
         return min;
@@ -745,7 +776,7 @@ int Options::getInteger(const char* name, int min, int max) {
     return stl::min(stl::max((long)(min), result), (long)(max));
 }
 
-void Options::handlePrintOpts() {
+void OptionsParser::handlePrintOpts() {
     if (getBool("version")) {
         printVersion();
         exit(0);
@@ -760,7 +791,7 @@ void Options::handlePrintOpts() {
     }
 }
 
-void Options::parse() {
+void OptionsParser::parse() {
     handlePrintOpts();
     try {
         getBorder(border);
@@ -797,6 +828,15 @@ void Options::parse() {
         dump = get("dump");
         getColor("fg", fg);
         getColor("bg", bg);
+        static const char* const paletteNames[] = {
+            "color0", "color1", "color2", "color3",
+            "color4", "color5", "color6", "color7",
+            "color8", "color9", "color10", "color11",
+            "color12", "color13", "color14", "color15",
+        };
+        for (size_t index = 0; index < 16; ++index) {
+            getColor(paletteNames[index], palette[index]);
+        }
         rv = getBool("rv");
         if (rv) {
             xchg(fg, bg);
@@ -828,11 +868,11 @@ void Options::parse() {
     }
 }
 
-void Options::printVersion() const {
+void OptionsParser::printVersion() const {
     sysO << StringView(u8"Shitty " SHITTY_VERSION "\nCopyright (C) 2026 Shitty team") << endL;
 }
 
-void Options::printUsage() const {
+void OptionsParser::printUsage() const {
     printVersion();
     OutBuf output(stdoutStream());
     output << StringView(u8"Usage:\n  st [-option ...] [shell]\n\nOptions:\n");
@@ -852,7 +892,7 @@ void Options::printUsage() const {
     output << endL;
 }
 
-void Options::printResources() const {
+void OptionsParser::printResources() const {
     printVersion();
     OutBuf output(stdoutStream());
     output << StringView(u8"Advanced options:\n");

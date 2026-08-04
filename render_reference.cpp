@@ -430,8 +430,8 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
         background = cursor;
     }
 
-    const int outputX = opts.border + column * composer_.glyphWidth;
-    const int outputY = opts.border + row * composer_.glyphHeight;
+    const int outputX = composer_.opts->border + column * composer_.glyphWidth;
+    const int outputY = composer_.opts->border + row * composer_.glyphHeight;
     const auto* coverage = (const u8*)(coverage_.data());
     const auto* color = (const u8*)(color_.data());
     const bool hidden = source.conceal || (source.blink && !update.blinkVisible);
@@ -485,7 +485,7 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
             putPixel(outputX + x, outputY, foreground);
         }
     }
-    if (opts.showWraps && source.wrap) {
+    if (composer_.opts->showWraps && source.wrap) {
         for (int y = 0; y < cellHeight; y += 2) {
             putPixel(outputX + cellWidth - 1, outputY + y, foreground);
         }
@@ -522,7 +522,7 @@ bool ReferenceRendererImpl::render(const TerminalUpdate& update, const Vector<Re
     }
     // The padding follows the live default background (OSC 11), matching
     // xterm, kitty, foot, and the rest.
-    clearTarget(update.colors != nullptr ? update.colors->defaultBackground : opts.bg);
+    clearTarget(update.colors != nullptr ? update.colors->defaultBackground : composer_.opts->bg);
     for (u16 row = 0; row < composer_.rows; ++row) {
         for (u16 column = 0; column < composer_.columns; ++column) {
             const ReferenceCell& cell = cells[(size_t)(row)*composer_.columns + column];

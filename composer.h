@@ -32,6 +32,7 @@ struct FontMetrics;
 struct FontRenderer;
 struct InputBindings;
 struct InputRemap;
+struct Options;
 struct Renderer;
 struct Pty;
 struct Vterm;
@@ -66,6 +67,9 @@ struct Composer {
     // Chord rewriting; created after the options are parsed, so it stays
     // null with no remap configured and for early events.
     InputRemap* inputRemap = nullptr;
+    // Runtime configuration. The constructor installs zeroed defaults for
+    // headless adapters; Application replaces them with parsed options.
+    Options* opts = nullptr;
     plt::InputSink* input = nullptr;
     stl::Output* ptyOutput = nullptr;
     // Serializes writers of the PTY stream: the pty's own staging fiber and

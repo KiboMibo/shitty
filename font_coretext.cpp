@@ -66,10 +66,16 @@ namespace {
     };
 
     struct CoreTextFontRenderer final: public FontRenderer {
+        explicit CoreTextFontRenderer(Composer& composer_)
+            : composer(composer_)
+        {
+        }
+
         Font* render(ObjPool& owner, IntrusivePtr<FontFace> face, u16 pixels, FontKind kind, FontMetrics& metrics) override;
 
         CTFontRef openFace(const FontFace& face, u16 pixels);
         FontMetrics measure(CTFontRef font);
+        Composer& composer;
     };
 
     static u16 roundPositive(CGFloat value) {
@@ -561,7 +567,7 @@ Font* CoreTextFontRenderer::render(ObjPool& owner, IntrusivePtr<FontFace> face, 
         CFRelease(font);
         return nullptr;
     }
-    if (opts.verbose) {
+    if (composer.opts->verbose) {
         sysO << StringView(u8"coretext face: kind ") << (u64)((u8)(kind)) << StringView(u8" at ") << pixels << StringView(u8"px, cell ") << actual.width << StringView(u8"x") << actual.height << StringView(u8" baseline ") << actual.baseline << StringView(u8"\n");
     }
     if (kind == FontKind::Primary) {
@@ -578,7 +584,7 @@ FontResolver* createCoreTextFontResolver(Composer& composer) {
 }
 
 FontRenderer* createCoreTextFontRenderer(Composer& composer) {
-    return composer.pool->make<CoreTextFontRenderer>();
+    return composer.pool->make<CoreTextFontRenderer>(composer);
 }
 #else
 FontResolver* createCoreTextFontResolver(Composer& composer) {

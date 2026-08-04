@@ -22,6 +22,10 @@
 
 #include <cstdint>
 
+namespace stl {
+    class ObjPool;
+}
+
 enum class OptionSource {
     NONE,
     HardDefault,
@@ -30,49 +34,38 @@ enum class OptionSource {
 };
 
 struct Options {
-    u8 fontsize;
-    u8 modifyOtherKeys;
-    u16 border;
-    u16 nCols;
-    u16 nRows;
-    u16 saveLines;
-    const char* const* fontnames;
-    size_t fontnameCount;
-    const char* const* remaps;
-    size_t remapCount;
-    const char* shell;
-    const char* title;
-    const char* dump;
+    static Options* create(stl::ObjPool& pool, char** argv, int argc);
+
+    u8 fontsize = 0;
+    u8 modifyOtherKeys = 0;
+    u16 border = 0;
+    u16 nCols = 0;
+    u16 nRows = 0;
+    u16 saveLines = 0;
+    const char* const* fontnames = nullptr;
+    size_t fontnameCount = 0;
+    const char* const* remaps = nullptr;
+    size_t remapCount = 0;
+    const char* shell = nullptr;
+    const char* title = nullptr;
+    const char* dump = nullptr;
     OptionSource titleSource = OptionSource::NONE;
-    Color bg;
-    Color cr;
-    Color fg;
-    bool altScrollMode;
-    bool altSendsEscape;
-    bool autoCopyMode;
-    bool allowOsc52Read;
-    bool allowWindowOps;
-    bool osc52SelectClipboard;
-    bool boldColors;
-    bool kittyCtrlBaseLayout;
-    bool vulkanInfo;
-    bool login;
-    bool noDecorations;
-    bool showWraps;
-    bool rv;
-    bool verbose;
-
-    void initialize(int* argc, char** argv);
-    void handlePrintOpts();
-    void parse();
-
-    void printVersion() const;
-    void printUsage() const;
-    void printResources() const;
-
-    bool getBool(const char* name, bool defaultValue = false);
-    void getColor(const char* name, Color& outColor);
-    int getInteger(const char* name, int min, int max);
+    Color bg{};
+    Color cr{};
+    Color fg{};
+    Color palette[16]{};
+    bool altScrollMode = false;
+    bool altSendsEscape = false;
+    bool autoCopyMode = false;
+    bool allowOsc52Read = false;
+    bool allowWindowOps = false;
+    bool osc52SelectClipboard = false;
+    bool boldColors = false;
+    bool kittyCtrlBaseLayout = false;
+    bool vulkanInfo = false;
+    bool login = false;
+    bool noDecorations = false;
+    bool showWraps = false;
+    bool rv = false;
+    bool verbose = false;
 };
-
-extern Options opts;

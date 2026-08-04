@@ -265,7 +265,7 @@ namespace {
         Vector<ScreenRowSpan> spanScratch;
         TerminalCursor previousCursor;
         Rect previousSelection;
-        Color clearBackground = opts.bg;
+        Color clearBackground = composer.opts->bg;
         u32 previousHoveredHyperlink = 0;
         u32 previousHoveredLinkBegin = 0;
         u32 previousHoveredLinkEnd = 0;
@@ -625,7 +625,7 @@ void RendererImpl::selectPhysicalDevice() {
         raiseError(StringView(u8"No Vulkan device supports compute rendering and window-system presentation"));
     }
 
-    if (opts.vulkanInfo) {
+    if (composer.opts->vulkanInfo) {
         sysO << StringView(u8"Vulkan device: ") << StringView(bestProperties.deviceName) << StringView(u8"\nVulkan API: ") << (u64)(VK_VERSION_MAJOR(bestProperties.apiVersion)) << StringView(u8".") << (u64)(VK_VERSION_MINOR(bestProperties.apiVersion)) << StringView(u8".") << (u64)(VK_VERSION_PATCH(bestProperties.apiVersion)) << endL;
     }
 
@@ -1309,7 +1309,7 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     SwapchainResources* const previous = chain;
     chain = replacement;
     renderExtent = {width, height};
-    if (opts.vulkanInfo) {
+    if (composer.opts->vulkanInfo) {
         sysO << StringView(u8"Vulkan presentation: ") << StringView(direct ? u8"direct storage (" : u8"offscreen blit (") << StringView(renderShader->name) << StringView(u8")") << endL;
     }
     retireSwapchain(previous);
@@ -1731,7 +1731,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
             composer.rows,
             chain->direct ? chain->extent.width : composer.pixelWidth,
             chain->direct ? chain->extent.height : composer.pixelHeight,
-            opts.border,
+            composer.opts->border,
             packColor(state.cursor.color),
             state.cursor.posX,
             state.cursor.posY,
@@ -1742,7 +1742,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
             state.selection.br.x,
             state.selection.br.y,
             state.selection.rectangular ? 1u : 0u,
-            opts.showWraps ? 1u : 0u,
+            composer.opts->showWraps ? 1u : 0u,
             packColor(state.selectionForeground),
             packColor(state.selectionBackground),
             state.selectionColorMask,

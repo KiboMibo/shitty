@@ -19,7 +19,6 @@
 #include <std/sys/types.h>
 
 #include "color.h"
-#include "options.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -298,7 +297,7 @@ struct TerminalPen {
 };
 
 struct TerminalCursor {
-    Color color = opts.cr;
+    Color color{};
     u16 posX = 0;
     u16 posY = 0;
 

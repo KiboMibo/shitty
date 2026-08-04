@@ -30,6 +30,7 @@ using namespace stl;
 Composer::Composer(ObjPool* pool_)
     : pool(pool_)
 {
+    opts = pool->make<Options>();
     cellExtras = CellExtraStore::create(*this, 0);
     smallObjects = SmallObjAllocator::create(pool);
     input = createInputRouter(*this);
@@ -94,7 +95,7 @@ void Composer::resize(u16 pixelWidth_, u16 pixelHeight_) {
     STD_ASSERT(glyphWidth != 0);
     STD_ASSERT(glyphHeight != 0);
 
-    const u32 border = 2u * opts.border;
+    const u32 border = 2u * opts->border;
     const u32 contentWidth = pixelWidth_ > border ? pixelWidth_ - border : 0;
     const u32 contentHeight = pixelHeight_ > border ? pixelHeight_ - border : 0;
     const u16 columns_ = (u16)(max<u32>(1, contentWidth / glyphWidth));

@@ -196,6 +196,7 @@ namespace {
         u8 osc52ReplySelector = 0;
         bool osc52Primary = false;
         bool osc52Clipboard = false;
+        bool osc52SelectClipboard = false;
         bool osc52SelectorSeen = false;
         bool osc52PayloadSeen = false;
         bool osc52Query = false;
@@ -239,7 +240,7 @@ namespace {
 
     template <bool traced>
     struct ParserImpl final: public Parser {
-        ParserImpl(ParserIface& iface, VtermTrace* trace);
+        ParserImpl(ParserIface& iface, VtermTrace* trace, bool osc52SelectClipboard);
 
         void feed(StringView bytes) override;
         [[gnu::always_inline]] bool consumeStringUtf8Byte(u8 ch);
@@ -327,10 +328,11 @@ namespace {
 }
 
 template <bool traced>
-ParserImpl<traced>::ParserImpl(ParserIface& iface_, VtermTrace* trace)
+ParserImpl<traced>::ParserImpl(ParserIface& iface_, VtermTrace* trace, bool osc52SelectClipboard)
     : iface(iface_)
     , parserTrace(trace)
 {
+    parser.osc52SelectClipboard = osc52SelectClipboard;
     int& cs = parser.state;
 #define SHITTY_PARSER_INIT
 #include SHITTY_PARSER_GENERATED
@@ -2280,13 +2282,13 @@ void ParserImpl<traced>::feed(StringView bytes) {
     }
 }
 
-Parser* Parser::create(ObjPool* pool, ParserIface& iface, VtermTrace* trace) {
+Parser* Parser::create(ObjPool* pool, ParserIface& iface, VtermTrace* trace, bool osc52SelectClipboard) {
 #if defined(SHITTY_FOR_TESTS)
     if (trace) {
-        return pool->make<ParserImpl<true>>(iface, trace);
+        return pool->make<ParserImpl<true>>(iface, trace, osc52SelectClipboard);
     }
 #endif
-    return pool->make<ParserImpl<false>>(iface, trace);
+    return pool->make<ParserImpl<false>>(iface, trace, osc52SelectClipboard);
 }
 
 #undef SHITTY_PARSER_GENERATED

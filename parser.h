@@ -404,7 +404,7 @@ struct ParserIface {
 };
 
 struct Parser {
-    static Parser* create(stl::ObjPool* pool, ParserIface& iface, VtermTrace* trace);
+    static Parser* create(stl::ObjPool* pool, ParserIface& iface, VtermTrace* trace, bool osc52SelectClipboard);
 
     virtual void feed(stl::StringView bytes) = 0;
 };

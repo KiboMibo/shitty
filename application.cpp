@@ -231,8 +231,8 @@ void ApplicationImpl::replaceFontpack(u16 size) {
         scaled = scaled < 1 ? 1 : scaled > 255 ? 255 : scaled;
         const u16 pixels = (u16)(scaled);
         Vector<StringView> names;
-        for (size_t index = 0; index < opts.fontnameCount; ++index) {
-            names.pushBack(StringView(opts.fontnames[index]));
+        for (size_t index = 0; index < composer.opts->fontnameCount; ++index) {
+            names.pushBack(StringView(composer.opts->fontnames[index]));
         }
         next = Fontpack::create(composer, *nextPool, names.data(), names.length(), pixels);
     } catch (...) {
@@ -264,9 +264,9 @@ void ApplicationImpl::fontChanged() {
     // from it must not displace -geometry. Afterwards font changes keep
     // the grid the user has.
     const bool sized = !initialGeometryPending;
-    const u16 columns = sized && composer.columns != 0 ? composer.columns : opts.nCols;
-    const u16 rows = sized && composer.rows != 0 ? composer.rows : opts.nRows;
-    const u32 border = 2u * opts.border;
+    const u16 columns = sized && composer.columns != 0 ? composer.columns : composer.opts->nCols;
+    const u16 rows = sized && composer.rows != 0 ? composer.rows : composer.opts->nRows;
+    const u32 border = 2u * composer.opts->border;
     composer.window->requestMinimumSize(border + composer.glyphWidth, border + composer.glyphHeight);
     composer.window->requestResizeUnit(composer.glyphWidth, composer.glyphHeight, border, border);
     const plt::WindowInfo info = composer.window->info();
@@ -309,15 +309,15 @@ void ApplicationImpl::fontReset() {
 }
 
 void ApplicationImpl::contentScaleChanged() {
-    const u16 previousBorder = opts.border;
+    const u16 previousBorder = composer.opts->border;
     int scaledBorder = (int)(logicalBorder * composer.contentScale + 0.5f);
     scaledBorder = scaledBorder < 0 ? 0 : scaledBorder > 3000 ? 3000 : scaledBorder;
-    opts.border = (u16)(scaledBorder);
+    composer.opts->border = (u16)(scaledBorder);
     if (fontpackPool != nullptr) {
         try {
             replaceFontpack(composer.fontSize);
         } catch (...) {
-            opts.border = previousBorder;
+            composer.opts->border = previousBorder;
         }
     }
 }
@@ -410,7 +410,7 @@ bool ApplicationImpl::presentTerminal() {
         return false;
     }
     // Keep the input-method candidate window anchored to the cursor cell.
-    composer.window->requestTextInputRect((i32)(opts.border + (u32)(output->cursor.posX) * composer.glyphWidth), (i32)(opts.border + (u32)(output->cursor.posY) * composer.glyphHeight), composer.glyphWidth, composer.glyphHeight);
+    composer.window->requestTextInputRect((i32)(composer.opts->border + (u32)(output->cursor.posX) * composer.glyphWidth), (i32)(composer.opts->border + (u32)(output->cursor.posY) * composer.glyphHeight), composer.glyphWidth, composer.glyphHeight);
     vterm->consume();
     return true;
 }
@@ -454,9 +454,9 @@ bool ApplicationImpl::eventLoop() {
 }
 
 void ApplicationImpl::showWindow() {
-    const u32 border = 2u * opts.border;
-    const u32 width = border + (u32)(opts.nCols) * composer.glyphWidth;
-    const u32 height = border + (u32)(opts.nRows) * composer.glyphHeight;
+    const u32 border = 2u * composer.opts->border;
+    const u32 width = border + (u32)(composer.opts->nCols) * composer.glyphWidth;
+    const u32 height = border + (u32)(composer.opts->nRows) * composer.glyphHeight;
     composer.window->requestShow();
     composer.resize((u16)(min(width, (u32)(UINT16_MAX))), (u16)(min(height, (u32)(UINT16_MAX))));
 }
@@ -478,14 +478,14 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     testFd = takeTestFd(argc, argv);
 #endif
     checkLocale();
-    opts.initialize(&argc, argv);
-    opts.parse();
-    initialFontSize = opts.fontsize;
-    logicalBorder = opts.border;
-    composer.fontSize = initialFontSize;
-    if (opts.verbose) {
-        opts.printVersion();
+    composer.opts = Options::create(*composer.pool, argv, argc);
+    argc = 0;
+    while (argv[argc] != nullptr) {
+        ++argc;
     }
+    initialFontSize = composer.opts->fontsize;
+    logicalBorder = composer.opts->border;
+    composer.fontSize = initialFontSize;
     if (setenv("SHITTY_VERSION", SHITTY_VERSION, 1) < 0) {
         Errno().raise(StringBuilder() << StringView(u8"setenv SHITTY_VERSION"));
     }
@@ -494,10 +494,10 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         return runTestMode(composer, *TestInput::create(composer), *this, *this, testFd, argc, argv);
     }
 
-    LaunchCommand launch = buildLaunchCommand(argc, argv, opts.shell, opts.login);
+    LaunchCommand launch = buildLaunchCommand(argc, argv, composer.opts->shell, composer.opts->login);
     if (argc > 2 && strcmp(argv[1], "-e") == 0) {
-        if (opts.titleSource != OptionSource::CmdLine && opts.titleSource != OptionSource::Config) {
-            opts.title = argv[2];
+        if (composer.opts->titleSource != OptionSource::CmdLine && composer.opts->titleSource != OptionSource::Config) {
+            composer.opts->title = argv[2];
         }
     }
     composer.platform = plt::Platform::create(*composer.pool);
@@ -509,10 +509,10 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         *composer.pool,
         {
             .appId = StringView(u8"shitty"),
-            .title = StringView(opts.title),
-            .width = (u32)(max(320, (int)(opts.nCols) * opts.fontsize / 2)),
-            .height = (u32)(max(200, (int)(opts.nRows) * opts.fontsize)),
-            .decorations = !opts.noDecorations,
+            .title = StringView(composer.opts->title),
+            .width = (u32)(max(320, (int)(composer.opts->nCols) * composer.opts->fontsize / 2)),
+            .height = (u32)(max(200, (int)(composer.opts->nRows) * composer.opts->fontsize)),
+            .decorations = !composer.opts->noDecorations,
             .input = composer.input,
             .events = this,
             .frame = this,

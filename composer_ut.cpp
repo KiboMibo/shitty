@@ -99,8 +99,8 @@ STD_TEST_SUITE(Composer) {
         StateListener listener(composer);
         composer.resizedListeners.pushBack(&listener);
         composer.setGlyphSize(8, 16);
-        const u16 width = 2 * opts.border + 10 * composer.glyphWidth + 3;
-        const u16 height = 2 * opts.border + 4 * composer.glyphHeight + 7;
+        const u16 width = 2 * composer.opts->border + 10 * composer.glyphWidth + 3;
+        const u16 height = 2 * composer.opts->border + 4 * composer.glyphHeight + 7;
 
         composer.resize(width, height);
 

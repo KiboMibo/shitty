@@ -38,7 +38,7 @@ namespace {
         composer.fonts = &fonts;
         composer.setGlyphSize(glyphWidth, glyphHeight);
         composer.setCellExtras(CellExtraStore::create(composer, (size_t)(columns)*rows));
-        composer.resize((u16)(columns * glyphWidth + 2 * opts.border), (u16)(rows * glyphHeight + 2 * opts.border));
+        composer.resize((u16)(columns * glyphWidth + 2 * composer.opts->border), (u16)(rows * glyphHeight + 2 * composer.opts->border));
     }
 
     static Color pixel(const ReferenceImage& image, u16 x, u16 y) {
@@ -51,7 +51,7 @@ namespace {
     }
 
     static Color cellPixel(const ReferenceImage& image, u16 x, u16 y) {
-        return pixel(image, (u16)(opts.border + x), (u16)(opts.border + y));
+        return pixel(image, x, y);
     }
 
     static TerminalCell coloredCell(Color foreground, Color background) {
@@ -135,7 +135,7 @@ ScreenFixture::ScreenFixture(u16 columns, u16 rows) {
     composer->fonts = Fontpack::create(*composer, *pool, nullptr, 0, 16);
     composer->setGlyphSize(composer->fonts->getPx(), composer->fonts->getPy());
     composer->setCellExtras(CellExtraStore::create(*composer, (size_t)(columns)*rows));
-    composer->resize((u16)(columns * composer->glyphWidth + 2 * opts.border), (u16)(rows * composer->glyphHeight + 2 * opts.border));
+    composer->resize((u16)(columns * composer->glyphWidth + 2 * composer->opts->border), (u16)(rows * composer->glyphHeight + 2 * composer->opts->border));
     screen = Screen::createPrimary(*composer, *pool, columns, rows, &colors, 8);
 }
 

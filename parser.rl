@@ -2813,10 +2813,10 @@
         if (parser.osc52ReplySelector == 0 && (fc == 's' || fc == 'p' || fc == 'c')) {
             parser.osc52ReplySelector = fc;
         }
-        if (fc == 'p' || (fc == 's' && !opts.osc52SelectClipboard)) {
+        if (fc == 'p' || (fc == 's' && !parser.osc52SelectClipboard)) {
             parser.osc52Primary = true;
         }
-        if (fc == 'c' || (fc == 's' && opts.osc52SelectClipboard)) {
+        if (fc == 'c' || (fc == 's' && parser.osc52SelectClipboard)) {
             parser.osc52Clipboard = true;
         }
     }

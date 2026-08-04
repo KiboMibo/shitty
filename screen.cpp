@@ -1189,7 +1189,7 @@ void ScreenBase<Coord, Epoch>::onFontChanged() {
     ++rawEpoch_;
     ++stripEpoch_;
     spanGeneration_ = nextShapeGeneration();
-    if (opts.verbose) {
+    if (composer.opts->verbose) {
         fprintf(stderr, "shitty: shape: font change, screen %p generation %u -> %u\n", (void*)(this), previous, spanGeneration_);
     }
 }
@@ -1295,7 +1295,7 @@ void ScreenBase<Coord, Epoch>::collectStrips() {
             }
         }
     }
-    if (opts.verbose) {
+    if (composer.opts->verbose) {
         fprintf(stderr, "shitty: shape: collection, screen %p generation %u -> %u, mask %zu -> %zu, color %zu -> %zu\n", (void*)(this), previous, spanGeneration_, oldMaskUsed, shapeMask_.used(), oldColorUsed, shapeColor_.used());
     }
 }
@@ -1480,7 +1480,7 @@ void ScreenBase<Coord, Epoch>::shapeRow(Row& row) {
     // its already-published shapeCount: zeroed entries sweep as empty.
     __builtin_memset(row.shape, 0, bytes);
     cutShapeRow(row.cells, nCols, row.shape);
-    if (opts.verbose) {
+    if (composer.opts->verbose) {
         // Diagnostic for issue 51: right after the fill every strip this
         // row references must lie inside its arena.
         const u16 cellWidth = composer.fonts->getPx();

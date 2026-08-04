@@ -80,8 +80,8 @@ InputRemapImpl::InputRemapImpl(Composer& composer)
         nameToKey_.insert(StringView(entry.name), entry.key);
         keyToName_.insert((u64)(entry.key), StringView(entry.name));
     }
-    for (size_t index = 0; index < opts.remapCount; ++index) {
-        const StringView rule(opts.remaps[index]);
+    for (size_t index = 0; index < composer.opts->remapCount; ++index) {
+        const StringView rule(composer.opts->remaps[index]);
         if (!parseRule(rule)) {
             fprintf(stderr, "shitty: remap: ignoring unparsable rule '%.*s'\n", (int)(rule.length()), (const char*)(rule.data()));
         }
@@ -217,7 +217,7 @@ bool InputRemapImpl::apply(plt::KeyInput& input) {
 }
 
 InputRemap* InputRemap::create(Composer& composer) {
-    if (opts.remapCount == 0) {
+    if (composer.opts->remapCount == 0) {
         return nullptr;
     }
     return composer.pool->make<InputRemapImpl>(composer);
