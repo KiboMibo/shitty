@@ -25,6 +25,36 @@ enum class GraphemeWidthEffect {
 
 GraphemeWidthEffect graphemeWidthEffect(u32 previous, u32 codepoint);
 
+// The codepoints of one stored grapheme cluster, viewed in place.
+struct GraphemeView {
+    const u32* values = nullptr;
+    u32 count = 0;
+
+    const u32* begin() const noexcept {
+        return values;
+    }
+
+    const u32* end() const noexcept {
+        return count == 0 ? values : values + count;
+    }
+
+    const u32* data() const noexcept {
+        return values;
+    }
+
+    size_t size() const noexcept {
+        return count;
+    }
+
+    bool empty() const noexcept {
+        return count == 0;
+    }
+
+    const u32& operator[](size_t index) const noexcept {
+        return values[index];
+    }
+};
+
 // One cluster of a span's flat codepoint string: codepoints
 // [begin, begin + count) covering cells grid cells.
 struct SpanCluster {

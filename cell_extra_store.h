@@ -6,41 +6,13 @@
 
 #pragma once
 
+#include "grapheme.h"
 #include "terminal_types.h"
 
 #include <std/lib/vector.h>
 #include <std/str/view.h>
 
 struct Composer;
-
-struct GraphemeView {
-    const u32* values = nullptr;
-    u32 count = 0;
-
-    const u32* begin() const noexcept {
-        return values;
-    }
-
-    const u32* end() const noexcept {
-        return count == 0 ? values : values + count;
-    }
-
-    const u32* data() const noexcept {
-        return values;
-    }
-
-    size_t size() const noexcept {
-        return count;
-    }
-
-    bool empty() const noexcept {
-        return count == 0;
-    }
-
-    const u32& operator[](size_t index) const noexcept {
-        return values[index];
-    }
-};
 
 struct CellExtraView {
     CellColor underlineColor;
