@@ -644,9 +644,13 @@ namespace {
         void run() override;
         void stop() override;
 
+        void ensureApplication();
+
         PollerImpl* poller_ = nullptr;
         SmallObjAllocator* allocator_ = nullptr;
         Scheduler* scheduler_ = nullptr;
+        bool applicationReady_ = false;
+        bool stopRequested_ = false;
     };
 
     NSString* stringFromView(StringView value) {
@@ -798,12 +802,20 @@ PlatformImpl::PlatformImpl(ObjPool& owner)
     , allocator_(SmallObjAllocator::create(&owner))
     , scheduler_(Scheduler::create(owner, *poller_))
 {
+}
+
+void PlatformImpl::ensureApplication() {
+    if (applicationReady_) {
+        return;
+    }
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
     [NSApp finishLaunching];
+    applicationReady_ = true;
 }
 
 Window* PlatformImpl::createWindow(ObjPool& owner, const WindowOptions& options) {
+    ensureApplication();
     return owner.make<WindowImpl>(*this, options);
 }
 
@@ -991,13 +1003,31 @@ void PollerImpl::descriptorReady(CFFileDescriptorRef descriptor) {
 }
 
 void PlatformImpl::run() {
-    [NSApp run];
+    if (stopRequested_) {
+        stopRequested_ = false;
+        return;
+    }
+    if (applicationReady_) {
+        [NSApp run];
+    } else {
+        // Descriptors and timers live directly on the main CFRunLoop. A
+        // windowless platform therefore needs no NSApplication (and no
+        // WindowServer), which keeps the poller usable by services and tests.
+        CFRunLoopRun();
+    }
+    stopRequested_ = false;
 }
 
 void PlatformImpl::stop() {
-    [NSApp stop:nil];
-    NSEvent* event = [NSEvent otherEventWithType:NSEventTypeApplicationDefined location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil subtype:0 data1:0 data2:0];
-    [NSApp postEvent:event atStart:NO];
+    stopRequested_ = true;
+    if (applicationReady_) {
+        [NSApp stop:nil];
+        NSEvent* event = [NSEvent otherEventWithType:NSEventTypeApplicationDefined location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil subtype:0 data1:0 data2:0];
+        [NSApp postEvent:event atStart:NO];
+    } else {
+        CFRunLoopStop(CFRunLoopGetMain());
+        CFRunLoopWakeUp(CFRunLoopGetMain());
+    }
 }
 
 WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)

@@ -255,10 +255,13 @@ class KeyboardTest(unittest.TestCase):
         ) as terminal:
             terminal.write(b"\x1b[>7u")
             terminal.layout_key("C", "с", "c", modifiers=4)
-            terminal.layout_key("C", "с", "c", modifiers=8)
+            # Cmd+C is the platform Copy binding on Darwin and therefore
+            # never reaches the terminal. Use another physical key while
+            # retaining the Super-only case this test exercises.
+            terminal.layout_key("B", "и", "b", modifiers=8)
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[1089::99;3u\x1b[1089::99;9u",
+                b"\x1b[1089::99;3u\x1b[1080::98;9u",
             )
 
     def test_kitty_ctrl_base_layout_preserves_alt_graph(self):

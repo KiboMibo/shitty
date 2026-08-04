@@ -42,6 +42,7 @@ namespace {
         CTLineRef makeLine(CFStringRef string);
         bool inspectLine(CTLineRef line, bool& color);
         bool drawLine(CTLineRef line, bool color);
+        bool drawFittedSymbol(CTFontRef font, CGGlyph glyph, CGFloat x, CGFloat baseline, CGContextRef context);
 
         IntrusivePtr<FontFace> source_;
         CTFontRef font_;
@@ -53,6 +54,7 @@ namespace {
         Buffer characters_;
         Buffer runScratch_;
         Buffer columns_;
+        Buffer fitted_;
         Buffer bitmap_;
     };
 
@@ -180,17 +182,28 @@ void CoreTextFont::render(const u32* codepoints, size_t count, u16 cells, void* 
     // intra-cluster offsets.
     columns_.reset();
     columns_.grow(2 * count * sizeof(u16));
+    fitted_.reset();
+    fitted_.grow(2 * count);
     auto* const utf16Columns = (u16*)(columns_.mutData());
+    auto* const utf16Fitted = (u8*)(fitted_.mutData());
     size_t utf16Length = 0;
     {
         size_t position = 0;
         u16 column = 0;
         SpanCluster cluster;
-        while (nextSpanCluster(codepoints, count, position, cluster)) {
+        SpanCluster next;
+        bool haveNext = nextSpanCluster(codepoints, count, position, next);
+        while (haveNext) {
+            cluster = next;
+            haveNext = nextSpanCluster(codepoints, count, position, next);
+            const bool nextBlank = haveNext && next.count == 1 && codepoints[next.begin] == ' ';
+            const bool capturedBlank = nextBlank && column + 1 < cells;
+            const bool fitted = cluster.cells == 1 && cluster.count == 1 && puaSymbol(codepoints[cluster.begin]) && !capturedBlank;
             for (size_t index = cluster.begin; index < cluster.begin + cluster.count; ++index) {
                 const size_t units = codepoints[index] > 0xffff ? 2 : 1;
                 for (size_t unit = 0; unit < units; ++unit) {
                     utf16Columns[utf16Length++] = column;
+                    utf16Fitted[utf16Length - 1] = fitted;
                 }
             }
             column = (u16)(column + cluster.cells);
@@ -221,8 +234,14 @@ void CoreTextFont::render(const u32* codepoints, size_t count, u16 cells, void* 
                     CTRunGetGlyphs(run, {0, glyphCount}, glyphs);
                     CTRunGetPositions(run, {0, glyphCount}, natural);
                     CTRunGetStringIndices(run, {0, glyphCount}, indices);
+                    CFDictionaryRef attributes = CTRunGetAttributes(run);
+                    auto runFont = (CTFontRef)(CFDictionaryGetValue(attributes, kCTFontAttributeName));
+                    if (runFont == nullptr) {
+                        runFont = font_;
+                    }
                     CFIndex index = 0;
                     while (index < glyphCount) {
+                        const CFIndex clusterBegin = index;
                         const CFIndex clusterIndex = indices[index];
                         const CGFloat target = clusterIndex >= 0 && (size_t)(clusterIndex) < utf16Length ? (CGFloat)((size_t)(utf16Columns[clusterIndex]) * metrics_.width) : natural[index].x;
                         const CGFloat base = natural[index].x;
@@ -231,10 +250,12 @@ void CoreTextFont::render(const u32* codepoints, size_t count, u16 cells, void* 
                             adjusted[index].y = baselineY + natural[index].y;
                             ++index;
                         }
+                        const bool fit = clusterIndex >= 0 && (size_t)(clusterIndex) < utf16Length && utf16Fitted[clusterIndex];
+                        if (fit && index == clusterBegin + 1 && drawFittedSymbol(runFont, glyphs[clusterBegin], target, adjusted[clusterBegin].y, context)) {
+                            continue;
+                        }
+                        CTFontDrawGlyphs(runFont, glyphs + clusterBegin, adjusted + clusterBegin, (size_t)(index - clusterBegin), context);
                     }
-                    CFDictionaryRef attributes = CTRunGetAttributes(run);
-                    auto runFont = (CTFontRef)(CFDictionaryGetValue(attributes, kCTFontAttributeName));
-                    CTFontDrawGlyphs(runFont != nullptr ? runFont : font_, glyphs, adjusted, (size_t)(glyphCount), context);
                 }
             }
             CFRelease(line);
@@ -400,6 +421,51 @@ bool CoreTextFont::drawLine(CTLineRef line, bool color) {
     CTLineDraw(line, context);
     CGContextRelease(context);
     return true;
+}
+
+// A one-cell private-use pictogram with no captured blank owns exactly one
+// grid cell. Core Text otherwise draws the face's natural (usually two-cell)
+// outline and lets the bitmap clip it at the cell edge. Fit the outline to an
+// inset cell and center its integral ink bounds, mirroring the FreeType path.
+bool CoreTextFont::drawFittedSymbol(CTFontRef font, CGGlyph glyph, CGFloat x, CGFloat baseline, CGContextRef context) {
+    if (metrics_.width <= 2) {
+        return false;
+    }
+    const CGFloat targetWidth = metrics_.width - 2;
+    const CGFloat originalSize = CTFontGetSize(font);
+    CGFloat size = originalSize;
+    CGRect bounds = CTFontGetBoundingRectsForGlyphs(font, kCTFontOrientationHorizontal, &glyph, nullptr, 1);
+    CGRect ink = CGRectIntegral(bounds);
+    if (CGRectIsNull(ink) || CGRectIsEmpty(ink)) {
+        return false;
+    }
+    if (ink.size.width > targetWidth) {
+        size = (CGFloat)((u16)(originalSize * targetWidth / ink.size.width));
+        if (size < 4) {
+            size = 4;
+        }
+    }
+    while (size >= 4) {
+        CTFontRef fitted = CTFontCreateCopyWithAttributes(font, size, nullptr, nullptr);
+        if (fitted == nullptr) {
+            return false;
+        }
+        bounds = CTFontGetBoundingRectsForGlyphs(fitted, kCTFontOrientationHorizontal, &glyph, nullptr, 1);
+        ink = CGRectIntegral(bounds);
+        if (!CGRectIsNull(ink) && !CGRectIsEmpty(ink) && ink.size.width <= targetWidth) {
+            const CGFloat left = (CGFloat)((u16)((metrics_.width - ink.size.width) / 2));
+            const CGPoint position = {
+                x + left - ink.origin.x,
+                baseline,
+            };
+            CTFontDrawGlyphs(fitted, &glyph, &position, 1, context);
+            CFRelease(fitted);
+            return true;
+        }
+        CFRelease(fitted);
+        size -= 1;
+    }
+    return false;
 }
 
 bool CoreTextFontResolver::matchesName(CTFontRef font, CFStringRef name) {
