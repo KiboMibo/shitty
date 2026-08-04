@@ -95,7 +95,6 @@ jobs:
 
   build-darwin:
     name: Build Darwin
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.darwin_tests }}
     needs: build
     runs-on: macos-15
     timeout-minutes: 60
@@ -112,7 +111,7 @@ jobs:
         run: |
           set -o pipefail
           nix build -L --no-link \
-            .#packages.aarch64-darwin.default \
+            .#checks.aarch64-darwin.build \
             2>&1 | tee "$RUNNER_TEMP/build-darwin.log"
 
       - name: Summarize failure
@@ -121,7 +120,7 @@ jobs:
           python3 dev/ci_report.py \
             --log "$RUNNER_TEMP/build-darwin.log" \
             --title "Build Darwin" \
-            --reproduce "nix build -L --no-link .#packages.aarch64-darwin.default"
+            --reproduce "nix build -L --no-link .#checks.aarch64-darwin.build"
 
       - name: Upload failure log
         if: failure()
@@ -172,8 +171,48 @@ jobs:
           retention-days: 7
           compression-level: 9
 
+  nix-flake-darwin:
+    name: Nix flake Darwin
+    needs: build
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+        with:
+          enable_kvm: false
+
+      - name: Build flake package
+        run: |
+          set -o pipefail
+          nix build -L --no-link \
+            .#packages.aarch64-darwin.default \
+            2>&1 | tee "$RUNNER_TEMP/nix-flake-darwin.log"
+
+      - name: Summarize failure
+        if: failure()
+        run: |
+          python3 dev/ci_report.py \
+            --log "$RUNNER_TEMP/nix-flake-darwin.log" \
+            --title "Nix flake Darwin" \
+            --reproduce "nix build -L --no-link .#packages.aarch64-darwin.default"
+
+      - name: Upload failure log
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nix-flake-darwin-log
+          path: ${{ runner.temp }}/nix-flake-darwin.log
+          if-no-files-found: ignore
+          retention-days: 7
+          compression-level: 9
+
   tests-darwin-0:
     name: Tests Darwin 0/5
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.darwin_tests }}
     needs: build-darwin
     runs-on: macos-15
     timeout-minutes: 90
@@ -213,6 +252,7 @@ jobs:
 
   tests-darwin-1:
     name: Tests Darwin 1/5
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.darwin_tests }}
     needs: build-darwin
     runs-on: macos-15
     timeout-minutes: 90
@@ -252,6 +292,7 @@ jobs:
 
   tests-darwin-2:
     name: Tests Darwin 2/5
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.darwin_tests }}
     needs: build-darwin
     runs-on: macos-15
     timeout-minutes: 90
@@ -291,6 +332,7 @@ jobs:
 
   tests-darwin-3:
     name: Tests Darwin 3/5
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.darwin_tests }}
     needs: build-darwin
     runs-on: macos-15
     timeout-minutes: 90
@@ -330,6 +372,7 @@ jobs:
 
   tests-darwin-4:
     name: Tests Darwin 4/5
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.darwin_tests }}
     needs: build-darwin
     runs-on: macos-15
     timeout-minutes: 90
