@@ -20,5 +20,6 @@ namespace plt {
     // handler, exposed so unit tests can drive it with synthesized events.
     KeyInput keyInputFromEvent(NSEvent* event, bool pressed);
     unsigned long cocoaWindowStyleMask(bool decorations);
+    bool cocoaResizeUsesExactProposal(bool fullscreen, bool viewAvailable, bool liveResize);
 #endif
 }

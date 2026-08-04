@@ -48,6 +48,15 @@ STD_TEST_SUITE(PlatformCocoaWindow) {
         STD_INSIST(inherited != nullptr);
         STD_INSIST(method_getImplementation(implementation) != method_getImplementation(inherited));
     }
+
+    STD_TEST(ResizePolicyDistinguishesLiveAndManagedProposals) {
+        STD_INSIST(cocoaResizeUsesExactProposal(true, true, true));
+        STD_INSIST(cocoaResizeUsesExactProposal(true, true, false));
+        STD_INSIST(cocoaResizeUsesExactProposal(false, true, false));
+        STD_INSIST(!cocoaResizeUsesExactProposal(false, true, true));
+        // Preserve the bootstrap fallback before the content view exists.
+        STD_INSIST(!cocoaResizeUsesExactProposal(false, false, false));
+    }
 }
 
 STD_TEST_SUITE(PlatformCocoaKey) {

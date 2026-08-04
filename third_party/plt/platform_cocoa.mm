@@ -55,6 +55,10 @@ unsigned long plt::cocoaWindowStyleMask(bool decorations) {
         | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
 }
 
+bool plt::cocoaResizeUsesExactProposal(bool fullscreen, bool viewAvailable, bool liveResize) {
+    return fullscreen || (viewAvailable && !liveResize);
+}
+
 namespace plt::cocoa_detail {
     struct DisplayLinkGate {
         void attach(void* owner) {
@@ -1461,16 +1465,11 @@ NSRect WindowImpl::textInputScreenRect() const {
 }
 
 NSSize WindowImpl::willResize(NSSize frameSize) const {
-    if ((window.styleMask & NSWindowStyleMaskFullScreen) != 0) {
-        // A fullscreen window must fill its tile exactly; snapping the
-        // proposal down to cell increments fights the window server,
-        // visibly so with large cells.
-        return frameSize;
-    }
-    if (view != nil && !view.inLiveResize) {
-        // Non-interactive proposals come from window managers (AX resize,
-        // tiling WMs) and must land exactly; snapping leaves a dead strip
-        // in the assigned tile. Cell snapping is for user drags only.
+    const bool fullscreen = (window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+    const bool viewAvailable = view != nil;
+    if (cocoaResizeUsesExactProposal(fullscreen, viewAvailable, viewAvailable && view.inLiveResize)) {
+        // Fullscreen and non-interactive proposals from window managers must
+        // land exactly. Cell snapping is only for live user drags.
         return frameSize;
     }
     const NSRect content = [window contentRectForFrameRect:NSMakeRect(0, 0, frameSize.width, frameSize.height)];
