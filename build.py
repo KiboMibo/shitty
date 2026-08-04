@@ -658,6 +658,7 @@ python_test_inputs = [
     "$(S)/tests/windows_terminal/upstream/TerminalBufferTests.cpp",
     "$(S)/application.cpp",
     "$(S)/shitty.desktop",
+    "$(S)/shitty.toml",
 ]
 
 

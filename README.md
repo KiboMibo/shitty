@@ -183,14 +183,16 @@ font size; `-fontsize` takes precedence.
 
 ### Config file
 
-Every option can also be set in `~/.config/shitty/shitty.toml`
+Every configurable option can also be set in `~/.config/shitty/shitty.toml`
 (`$XDG_CONFIG_HOME` is honored), or in an explicit file passed with
 `-config path.toml`. Keys are the option names from `-help` and
 `-listres`; the file is TOML, parsed by a built-in parser that passes the
 full `toml-test` 1.0 suite. `${NAME}` anywhere in the file expands to the
 process environment variable before parsing. Command-line flags take
 precedence over the file, and a broken or unknown entry prints a warning
-to stderr without keeping the terminal from starting:
+to stderr without keeping the terminal from starting. The repository's
+[`shitty.toml`](shitty.toml) is a working example that documents every
+option, including the command-line-only controls:
 
 ```toml
 fontsize = 16

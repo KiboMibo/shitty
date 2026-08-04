@@ -1,0 +1,148 @@
+# Shitty example configuration.
+#
+# Copy this file to $XDG_CONFIG_HOME/shitty/shitty.toml or, when
+# XDG_CONFIG_HOME is unset, to ~/.config/shitty/shitty.toml. Alternatively,
+# pass its path with `st -config /path/to/shitty.toml`.
+#
+# All settings are top-level TOML keys. Command-line values override this
+# file. Boolean command-line options use `-name` to enable and `+name` to
+# disable them. The `CLI:` lines below document every public command-line
+# option; options marked "command line only" cannot be used as TOML keys.
+
+# CLI: -altScroll / +altScroll — Send wheel input as arrow keys on the alternate screen.
+altScroll = false
+
+# CLI: -autoCopy / +autoCopy — Copy the primary selection to the clipboard automatically.
+autoCopy = false
+
+# CLI: -bg COLOR — Set the default background to a three- or six-digit RGB color.
+bg = "#2e3440"
+
+# CLI: -boldColors / +boldColors — Use bright palette colors for bold text.
+boldColors = true
+
+# CLI: -border PIXELS — Set the empty border around the terminal grid, from 0 to 3000 pixels.
+border = 2
+
+# CLI: -config PATH — Load PATH instead of the default config file; command line only.
+
+# CLI: -cr COLOR — Set the cursor RGB color; omit the key to use the foreground color.
+cr = "#88c0d0"
+
+# CLI: -dump PATH — Write raw PTY input to PATH; normally omitted.
+# dump = "/tmp/shitty.pty"
+
+# CLI: -fg COLOR — Set the default foreground to a three- or six-digit RGB color.
+fg = "#d8dee9"
+
+# CLI: -font FAMILY — Set the font family or file; repeat on the CLI or use a list for fallbacks.
+font = ["monospace"]
+
+# CLI: -fontsize SIZE — Set the font size from 1 to 255; SHITTY_FONT_SIZE is the environment fallback.
+fontsize = 15
+
+# CLI: -geometry COLSxROWS — Set the initial terminal grid size.
+geometry = "80x24"
+
+# CLI: -kittyCtrlBaseLayout / +kittyCtrlBaseLayout — Report the ASCII base key as Kitty's primary key under Ctrl.
+kittyCtrlBaseLayout = false
+
+# CLI: -vulkanInfo / +vulkanInfo — Print Vulkan device information; command line only.
+
+# CLI: -help — Print the main option list and exit; command line only.
+
+# CLI: -listres — Print the advanced option list and exit; command line only.
+
+# CLI: -login / +login — Start the selected shell as a login shell.
+login = false
+
+# CLI: -no-decorations / +no-decorations — Disable or enable native window decorations.
+no-decorations = false
+
+# CLI: -rv / +rv — Swap the foreground and background colors at startup.
+rv = false
+
+# CLI: -saveLines LINES — Keep this many scrollback lines, from 0 to 50000.
+saveLines = 500
+
+# CLI: -shell PATH — Use PATH as the shell when no command is provided; normally inherited from SHELL.
+# shell = "/bin/sh"
+
+# CLI: -showWraps / +showWraps — Show a marker at the right edge of soft-wrapped lines.
+showWraps = false
+
+# CLI: -title TEXT — Set the initial window title.
+title = "Shitty"
+
+# CLI: -verbose / +verbose — Print informational diagnostics.
+verbose = false
+
+# CLI: -version / -v — Print the version and exit; command line only.
+
+# CLI: -e COMMAND... — Stop option parsing and run COMMAND with the remaining arguments; command line only.
+
+
+# Advanced terminal, clipboard, window-policy, and palette options.
+
+# CLI: -altSendsEscape BOOL — Prefix Alt-modified keys with Escape when true.
+altSendsEscape = true
+
+# CLI: -modifyOtherKeys LEVEL — Select xterm modifyOtherKeys level 0, 1, or 2.
+modifyOtherKeys = 1
+
+# CLI: -allowOsc52Read BOOL — Allow applications to read local selections through OSC 52.
+allowOsc52Read = false
+
+# CLI: -allowWindowOps BOOL — Allow applications to manipulate and query the host window.
+allowWindowOps = false
+
+# CLI: -osc52Select NAME — Use "primary" or "clipboard" for OSC 52 selector `s`.
+osc52Select = "primary"
+
+# CLI: -color0 COLOR — Set palette color 0 (black).
+color0 = "#000000"
+
+# CLI: -color1 COLOR — Set palette color 1 (red).
+color1 = "#cd0000"
+
+# CLI: -color2 COLOR — Set palette color 2 (green).
+color2 = "#00cd00"
+
+# CLI: -color3 COLOR — Set palette color 3 (yellow).
+color3 = "#cdcd00"
+
+# CLI: -color4 COLOR — Set palette color 4 (blue).
+color4 = "#0000ee"
+
+# CLI: -color5 COLOR — Set palette color 5 (magenta).
+color5 = "#cd00cd"
+
+# CLI: -color6 COLOR — Set palette color 6 (cyan).
+color6 = "#00cdcd"
+
+# CLI: -color7 COLOR — Set palette color 7 (light gray).
+color7 = "#e5e5e5"
+
+# CLI: -color8 COLOR — Set palette color 8 (dark gray).
+color8 = "#7f7f7f"
+
+# CLI: -color9 COLOR — Set palette color 9 (bright red).
+color9 = "#ff0000"
+
+# CLI: -color10 COLOR — Set palette color 10 (bright green).
+color10 = "#00ff00"
+
+# CLI: -color11 COLOR — Set palette color 11 (bright yellow).
+color11 = "#ffff00"
+
+# CLI: -color12 COLOR — Set palette color 12 (bright blue).
+color12 = "#5c5cff"
+
+# CLI: -color13 COLOR — Set palette color 13 (bright magenta).
+color13 = "#ff00ff"
+
+# CLI: -color14 COLOR — Set palette color 14 (bright cyan).
+color14 = "#00ffff"
+
+# CLI: -color15 COLOR — Set palette color 15 (bright white).
+color15 = "#ffffff"

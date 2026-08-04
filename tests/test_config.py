@@ -2,11 +2,15 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
+import re
 import tempfile
 import unittest
 from pathlib import Path
 
-from harness import Shitty, run_startup_failure
+from harness import ROOT, Shitty, run_startup_failure
+
+
+EXAMPLE_CONFIG = ROOT / "shitty.toml"
 
 
 def config_home(directory, text):
@@ -17,6 +21,43 @@ def config_home(directory, text):
 
 
 class ConfigFileTest(unittest.TestCase):
+    def test_example_config_is_accepted_by_the_application(self):
+        result = run_startup_failure(
+            extra_arguments=("-config", EXAMPLE_CONFIG, "-version")
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, b"")
+
+        with Shitty(extra_arguments=("-config", EXAMPLE_CONFIG)) as terminal:
+            options = terminal.options()
+            self.assertEqual(options["fontsize"], 15)
+            self.assertEqual(options["fg"], 0xD8DEE9)
+            self.assertEqual(options["bg"], 0x2E3440)
+            self.assertEqual(options["cr"], 0x88C0D0)
+
+    def test_example_config_documents_every_public_cli_option(self):
+        listed = set()
+        for argument in ("-help", "-listres"):
+            result = run_startup_failure(extra_arguments=(argument,))
+            self.assertEqual(result.returncode, 0)
+            listed.update(
+                match.decode()
+                for match in re.findall(rb"^  -([^ ]+)", result.stdout, re.MULTILINE)
+            )
+
+        documented = {}
+        for line in EXAMPLE_CONFIG.read_text().splitlines():
+            if not line.startswith("# CLI: -"):
+                continue
+            syntax, separator, description = line.partition(" — ")
+            self.assertEqual(separator, " — ", line)
+            self.assertTrue(description, line)
+            name = syntax.removeprefix("# CLI: -").split()[0]
+            self.assertNotIn(name, documented, f"duplicate documentation for -{name}")
+            documented[name] = description
+
+        self.assertSetEqual(set(documented), listed)
+
     def test_option_comes_from_the_default_config_path(self):
         with tempfile.TemporaryDirectory() as directory:
             config_home(directory, "fontsize = 33\n")
