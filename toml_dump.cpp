@@ -53,8 +53,12 @@ namespace {
         Node* addTable(const std::string& name);
     };
 
+    // The frame owns its container until the closing event hands it to
+    // place(): a document that breaks off inside an array or an inline
+    // table must not leak the half-built node (LeakSanitizer aborts the
+    // process at exit otherwise, taking unflushed batch output with it).
     struct Frame {
-        Node* container;
+        NodeRef container;
         std::vector<std::string> pendingPath;
     };
 
@@ -178,23 +182,23 @@ bool DomSink::tomlScalar(TomlType type, StringView text) {
 }
 
 bool DomSink::tomlArrayBegin() {
-    stack.push_back(Frame{new Node(Node::Kind::Array), {}});
+    stack.push_back(Frame{std::make_unique<Node>(Node::Kind::Array), {}});
     return true;
 }
 
 bool DomSink::tomlArrayEnd() {
-    NodeRef node(stack.back().container);
+    NodeRef node = std::move(stack.back().container);
     stack.pop_back();
     return place(std::move(node));
 }
 
 bool DomSink::tomlInlineTableBegin() {
-    stack.push_back(Frame{new Node(Node::Kind::Table), {}});
+    stack.push_back(Frame{std::make_unique<Node>(Node::Kind::Table), {}});
     return true;
 }
 
 bool DomSink::tomlInlineTableEnd() {
-    NodeRef node(stack.back().container);
+    NodeRef node = std::move(stack.back().container);
     stack.pop_back();
     node->inlineClosed = true;
     return place(std::move(node));
@@ -209,7 +213,7 @@ bool DomSink::place(NodeRef node) {
         frame.container->items.push_back(std::move(node));
         return true;
     }
-    return attach(frame.container, frame.pendingPath, std::move(node));
+    return attach(frame.container.get(), frame.pendingPath, std::move(node));
 }
 
 bool DomSink::attach(Node* table, const std::vector<std::string>& path, NodeRef node) {
