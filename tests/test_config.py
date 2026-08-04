@@ -127,6 +127,20 @@ class ConfigFileTest(unittest.TestCase):
             with Shitty(extra_environment=environment) as terminal:
                 self.assertEqual(terminal.font_state()[0], 21)
 
+    def test_uri_scheme_list_comes_from_the_config(self):
+        text = 'uriSchemes = ["gemini"]\n'
+        control = 2
+        with tempfile.TemporaryDirectory() as directory:
+            config_home(directory, text)
+            environment = {"XDG_CONFIG_HOME": directory}
+            with Shitty(columns=64, rows=1, extra_environment=environment) as terminal:
+                uri = b"gemini://example.test"
+                terminal.write(uri + b" https://example.test")
+                terminal.pointer(2 + 4, 2, modifiers=control)
+                self.assertEqual(terminal.desktop_state()["icon"], 1)
+                terminal.pointer(2 + len(uri) + 5, 2, modifiers=control)
+                self.assertEqual(terminal.desktop_state()["icon"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

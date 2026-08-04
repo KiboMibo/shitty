@@ -2221,6 +2221,25 @@ void VtermImpl::paste(StringView text) {
     pasteSelection(text);
 }
 
+// Schemes are compared case-insensitively: both sides are ASCII by
+// construction, the detector only accepts ASCII scheme bytes.
+static bool plainUriSchemeAllowed(const Options& options, StringView scheme) {
+    const auto lower = [](u8 byte) {
+        return byte >= 'A' && byte <= 'Z' ? (u8)(byte + ('a' - 'A')) : byte;
+    };
+    for (size_t index = 0; index < options.uriSchemeCount; ++index) {
+        const char* const allowed = options.uriSchemes[index];
+        size_t at = 0;
+        while (at < scheme.length() && allowed[at] != '\0' && lower(scheme[at]) == lower((u8)(allowed[at]))) {
+            ++at;
+        }
+        if (at == scheme.length() && allowed[at] == '\0') {
+            return true;
+        }
+    }
+    return false;
+}
+
 ScreenHyperlink VtermImpl::resolveHyperlink(int pixelX, int pixelY) const {
     if (pixelX < composer.opts->border || pixelY < composer.opts->border || pixelX >= composer.pixelWidth - composer.opts->border || pixelY >= composer.pixelHeight - composer.opts->border) {
         return {};
@@ -2231,7 +2250,13 @@ ScreenHyperlink VtermImpl::resolveHyperlink(int pixelX, int pixelY) const {
     if (column >= info.columns || row >= info.rows) {
         return {};
     }
-    return cf->hyperlinkAt(row, column);
+    const ScreenHyperlink link = cf->hyperlinkAt(row, column);
+    // An explicit OSC 8 hyperlink is authoritative; a detected plain URI
+    // is only actionable when its scheme is on the configured list.
+    if (link.displayId == 0 && !link.payload.empty() && !plainUriSchemeAllowed(*composer.opts, link.scheme)) {
+        return {};
+    }
+    return link;
 }
 
 StringView VtermImpl::hyperlinkAt(int pixelX, int pixelY) {

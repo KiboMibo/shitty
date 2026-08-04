@@ -42,7 +42,7 @@ class PlainUriInputTest(unittest.TestCase):
     def test_scheme_is_case_insensitive_and_uri_is_preserved(self):
         with Shitty(columns=48, rows=2) as terminal:
             uri = b"HTTPS://Example.Test/Original"
-            terminal.write(uri + b" ftp://example.test")
+            terminal.write(uri + b" file://example.test")
 
             terminal.pointer(2 + 10, 2, modifiers=CONTROL)
             state = terminal.desktop_state()
@@ -60,7 +60,7 @@ class PlainUriInputTest(unittest.TestCase):
                 terminal,
                 len(uri) + 5,
                 0,
-                b"ftp://example.test",
+                b"file://example.test",
             )
             self.assertEqual(state["open_count"], 2)
 
@@ -209,6 +209,51 @@ class PlainUriInputTest(unittest.TestCase):
             terminal.write(b"https://" + b"a" * 4180)
             terminal.pointer(2 + 4100, 2, modifiers=CONTROL)
             self.assertEqual(terminal.desktop_state()["icon"], 0)
+
+
+class PlainUriSchemeListTest(unittest.TestCase):
+    def click(self, terminal, column, row=0):
+        terminal.button(0, True, x=2 + column, y=2 + row, modifiers=CONTROL)
+        terminal.button(0, False, x=2 + column, y=2 + row, modifiers=CONTROL)
+        return terminal.desktop_state()
+
+    def test_unlisted_scheme_stays_plain_text_by_default(self):
+        with Shitty(columns=32, rows=1) as terminal:
+            terminal.write(b"nosuch://example.test")
+            terminal.pointer(2 + 8, 2, modifiers=CONTROL)
+            state = terminal.desktop_state()
+            self.assertEqual(state["icon"], 0)
+            self.assertEqual(
+                (state["hovered_link_begin"], state["hovered_link_end"]),
+                (0, 0),
+            )
+            self.assertEqual(self.click(terminal, 8)["open_count"], 0)
+
+    def test_configured_list_replaces_the_default(self):
+        arguments = ("-uriSchemes", "NoSuch")
+        with Shitty(columns=64, rows=1, extra_arguments=arguments) as terminal:
+            uri = b"nosuch://example.test"
+            terminal.write(uri + b" https://example.test")
+
+            terminal.pointer(2 + 8, 2, modifiers=CONTROL)
+            self.assertEqual(terminal.desktop_state()["icon"], 1)
+            state = self.click(terminal, 8)
+            self.assertEqual(state["opened_uri"], uri)
+            self.assertEqual(state["open_count"], 1)
+
+            terminal.pointer(2 + len(uri) + 5, 2, modifiers=CONTROL)
+            self.assertEqual(terminal.desktop_state()["icon"], 0)
+            self.assertEqual(self.click(terminal, len(uri) + 5)["open_count"], 1)
+
+    def test_osc8_ignores_the_scheme_list(self):
+        with Shitty(columns=40, rows=1) as terminal:
+            explicit = b"nosuch://authoritative"
+            terminal.write(
+                b"\x1b]8;id=explicit;" + explicit + b"\x1b\\follow me\x1b]8;;\x1b\\"
+            )
+            terminal.pointer(2 + 4, 2, modifiers=CONTROL)
+            self.assertEqual(terminal.desktop_state()["icon"], 1)
+            self.assertEqual(self.click(terminal, 4)["opened_uri"], explicit)
 
 
 if __name__ == "__main__":

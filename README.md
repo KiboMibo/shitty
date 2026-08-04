@@ -220,6 +220,26 @@ its identity through repeat and release:
 remap = ["ctrl+b=ctrl+d", "super+t=ctrl+shift+t", "ctrl+l=none"]
 ```
 
+### Plain URIs
+
+Ctrl-hover highlights a URI detected in plain text and Ctrl-click opens
+it, but only for schemes on the `-uriSchemes` list — everything else
+stays ordinary text instead of being handed to an opener that has no
+handler for it. The default list is `http`, `https`, `file`; a
+configured list replaces it outright. Explicit OSC 8 hyperlinks are
+authoritative and ignore the list. To see which schemes your desktop
+actually registers handlers for:
+
+```sh
+grep -ho 'x-scheme-handler/[a-z0-9.+-]*' \
+  /usr/share/applications/mimeinfo.cache \
+  ~/.local/share/applications/mimeinfo.cache 2>/dev/null | sort -u | cut -d/ -f2
+```
+
+```toml
+uriSchemes = ["http", "https", "file", "mailto", "gemini"]
+```
+
 During a session, `Cmd+=`/`Cmd+-`/`Cmd+0` on macOS (`Ctrl+Shift+=`/
 `Ctrl+-`/`Ctrl+0` on Linux) raise, lower, and restore the font size. Font
 resizing preserves the terminal's rows and columns by resizing the window

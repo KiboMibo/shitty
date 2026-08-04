@@ -76,6 +76,7 @@ namespace {
         {"shell", OptionKind::SepArg, nullptr, nullptr, "Shell program to run"},
         {"showWraps", OptionKind::NoArg, "true", "false", "Show wrap marks at right margin"},
         {"title", OptionKind::SepArg, nullptr, "Shitty", "Window title"},
+        {"uriSchemes", OptionKind::SepArg, nullptr, "http,https,file", "Scheme opened as a plain URI; repeat for more"},
         {"verbose", OptionKind::NoArg, "true", "false", "Output info messages"},
         {"version", OptionKind::NoArg, "true", "false", "Print version and quit"},
         {"e", OptionKind::SkipLine, nullptr, nullptr, "Command line to run"},
@@ -157,10 +158,13 @@ namespace {
         NamedValues configFile;
         StringList configFonts;
         StringList configRemaps;
+        StringList configUriSchemes;
         StringList fontArguments;
         StringList remapArguments;
+        StringList uriSchemeArguments;
         Vector<const char*> fontPointers;
         Vector<const char*> remapPointers;
+        Vector<const char*> uriSchemePointers;
     };
 }
 
@@ -215,7 +219,7 @@ const char* NamedValues::find(StringView name) {
 }
 
 namespace {
-    // The two list-shaped options; everything else in the config file is a
+    // The list-shaped options; everything else in the config file is a
     // scalar.
     StringList* OptionsParser::configList(StringView name) {
         if (name == StringView(u8"font")) {
@@ -223,6 +227,9 @@ namespace {
         }
         if (name == StringView(u8"remap")) {
             return &configRemaps;
+        }
+        if (name == StringView(u8"uriSchemes")) {
+            return &configUriSchemes;
         }
         return nullptr;
     }
@@ -714,6 +721,9 @@ void OptionsParser::initialize(int* argc, char** argv) {
                 if (strcmp(option->option, "remap") == 0) {
                     remapArguments.push(StringView(argv[input]));
                 }
+                if (strcmp(option->option, "uriSchemes") == 0) {
+                    uriSchemeArguments.push(StringView(argv[input]));
+                }
                 break;
             case OptionKind::SkipLine:
                 break;
@@ -806,6 +816,22 @@ void OptionsParser::parse() {
         }
         remaps = remapPointers.data();
         remapCount = remapPointers.length();
+        if (uriSchemeArguments.empty()) {
+            uriSchemeArguments.copyFrom(configUriSchemes);
+        }
+        if (uriSchemeArguments.empty()) {
+            // The conservative default: schemes with a handler on any sane
+            // desktop. A configured list replaces this outright.
+            uriSchemeArguments.push(StringView(u8"http"));
+            uriSchemeArguments.push(StringView(u8"https"));
+            uriSchemeArguments.push(StringView(u8"file"));
+        }
+        uriSchemePointers.clear();
+        for (size_t index = 0; index < uriSchemeArguments.count(); ++index) {
+            uriSchemePointers.pushBack(uriSchemeArguments.at(index));
+        }
+        uriSchemes = uriSchemePointers.data();
+        uriSchemeCount = uriSchemePointers.length();
         getFontsize(fontsize);
         getGeometry(nCols, nRows);
         vulkanInfo = getBool("vulkanInfo");

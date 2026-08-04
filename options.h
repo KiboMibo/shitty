@@ -43,6 +43,8 @@ struct Options {
     size_t fontnameCount = 0;
     const char* const* remaps = nullptr;
     size_t remapCount = 0;
+    const char* const* uriSchemes = nullptr;
+    size_t uriSchemeCount = 0;
     const char* shell = nullptr;
     const char* title = nullptr;
     const char* dump = nullptr;
