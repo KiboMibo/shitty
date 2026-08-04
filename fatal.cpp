@@ -9,8 +9,7 @@
 using namespace stl;
 
 FatalError::FatalError(Buffer&& text_) noexcept
-    : text(static_cast<Buffer&&>(text_))
-{
+    : text(static_cast<Buffer&&>(text_)) {
 }
 
 FatalError::~FatalError() noexcept {

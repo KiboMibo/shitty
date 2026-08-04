@@ -6,6 +6,8 @@
 
 #include "test_mode.h"
 
+#include "fatal.h"
+
 #include "cell_extra_store.h"
 #include "composer.h"
 #include "drop_target.h"
@@ -137,6 +139,15 @@ namespace {
         TestPty* pty;
     };
 
+    // Scripted PTY endpoints; the tests install these instead of lambdas.
+    struct PtyReadHandler {
+        virtual ssize_t read(u8* buffer, size_t size) = 0;
+    };
+
+    struct PtyWriteHandler {
+        virtual ssize_t write(const u8* buffer, size_t size) = 0;
+    };
+
     struct TestPty final: public Pty, public Listener {
         TestPty(Composer& composer, int fd);
 
@@ -151,19 +162,19 @@ namespace {
         bool outputDrained() const;
         bool scriptStalled() const;
         void kickOutput();
-        void setReadHandler(std::function<ssize_t(u8*, size_t)> handler);
-        void setWriteHandler(std::function<ssize_t(const u8*, size_t)> handler);
-        std::string takeReadData();
-        std::string takeWriteData();
+        void setReadHandler(PtyReadHandler* handler);
+        void setWriteHandler(PtyWriteHandler* handler);
+        void takeReadData(Buffer& out);
+        void takeWriteData(Buffer& out);
 
         void applySize();
 
         Composer& composer_;
         int fd_;
-        std::function<ssize_t(u8*, size_t)> onRead;
-        std::function<ssize_t(const u8*, size_t)> onWrite;
-        std::string readData;
-        std::string writeData;
+        PtyReadHandler* onRead = nullptr;
+        PtyWriteHandler* onWrite = nullptr;
+        Buffer readData;
+        Buffer writeData;
         TestPtyOutput output_;
         TestPtyStager stager_;
         Buffer staged_;
@@ -176,11 +187,11 @@ namespace {
     struct TestUtf8Decoder {
         TestUtf8Decoder();
 
-        std::vector<u32> push(const std::string& input);
-        std::vector<u32> flush();
+        void push(StringView input, Vector<u32>& result);
+        void flush(Vector<u32>& result);
         void reset();
 
-        std::vector<u32> output;
+        Vector<u32> output;
         Utf8Decoder decoder;
     };
 
@@ -214,7 +225,7 @@ namespace {
         void run() override;
 
         plt::DropTarget* target;
-        std::string payload;
+        Buffer payload;
         StringView mime;
         alignas(16) u8 stack[plt::lightFiberStack];
     };
@@ -271,18 +282,12 @@ void TestPtyStager::run() {
 TestPty::TestPty(Composer& composer, int fd)
     : composer_(composer)
     , fd_(fd)
-    , onRead([this](u8* buffer, size_t size) {
-        return ::read(fd_, buffer, size);
-    })
-    , onWrite([this](const u8* buffer, size_t size) {
-        return ::write(fd_, buffer, size);
-    })
     , output_(this)
     , stager_(this)
 {
     const int flags = fcntl(fd_, F_GETFL, 0);
     if (flags < 0 || fcntl(fd_, F_SETFL, flags | O_NONBLOCK) < 0) {
-        throw std::runtime_error("test PTY nonblocking setup failed");
+        raiseError(StringView(u8"test PTY nonblocking setup failed"));
     }
 }
 
@@ -295,17 +300,17 @@ void TestPty::start() {
 }
 
 ssize_t TestPty::read(u8* buffer, size_t size) {
-    const ssize_t count = onRead(buffer, size);
+    const ssize_t count = onRead != nullptr ? onRead->read(buffer, size) : ::read(fd_, buffer, size);
     if (count > 0) {
-        readData.append((const char*)(buffer), (size_t)(count));
+        readData.append(buffer, (size_t)(count));
     }
     return count;
 }
 
 ssize_t TestPty::write(const u8* buffer, size_t size) {
-    const ssize_t count = onWrite(buffer, size);
+    const ssize_t count = onWrite != nullptr ? onWrite->write(buffer, size) : ::write(fd_, buffer, size);
     if (count > 0) {
-        writeData.append((const char*)(buffer), (size_t)(count));
+        writeData.append(buffer, (size_t)(count));
     }
     return count;
 }
@@ -394,62 +399,58 @@ void TestPty::applySize() {
     size.ws_xpixel = composer_.columns * composer_.glyphWidth;
     size.ws_ypixel = composer_.rows * composer_.glyphHeight;
     if (ioctl(fd_, TIOCSWINSZ, &size) < 0) {
-        throw std::runtime_error("test PTY resize failed");
+        raiseError(StringView(u8"test PTY resize failed"));
     }
 }
 
-void TestPty::setReadHandler(std::function<ssize_t(u8*, size_t)> handler) {
-    onRead = std::move(handler);
+void TestPty::setReadHandler(PtyReadHandler* handler) {
+    onRead = handler;
 }
 
-void TestPty::setWriteHandler(std::function<ssize_t(const u8*, size_t)> handler) {
-    onWrite = std::move(handler);
+void TestPty::setWriteHandler(PtyWriteHandler* handler) {
+    onWrite = handler;
     scriptedWrites_ = true;
     if (blockedWriter_ != nullptr) {
         blockedWriter_->wake();
     }
 }
 
-std::string TestPty::takeReadData() {
-    std::string result;
-    result.swap(readData);
-    return result;
+void TestPty::takeReadData(Buffer& out) {
+    out.reset();
+    out.xchg(readData);
 }
 
-std::string TestPty::takeWriteData() {
-    std::string result;
-    result.swap(writeData);
-    return result;
+void TestPty::takeWriteData(Buffer& out) {
+    out.reset();
+    out.xchg(writeData);
 }
 
 TestUtf8Decoder::TestUtf8Decoder() {
 }
 
-std::vector<u32> TestUtf8Decoder::push(const std::string& input) {
-    for (const unsigned char ch : input) {
+void TestUtf8Decoder::push(StringView input, Vector<u32>& result) {
+    for (const u8 ch : input) {
         if (ch < 0x80) {
             if (decoder.checkPrematureEOS()) {
-                output.push_back(decoder.getUnicode());
+                output.pushBack(decoder.getUnicode());
             }
-            output.push_back(ch);
+            output.pushBack(ch);
         } else {
             for (int completed = decoder.pushByte(ch); completed > 0; --completed) {
-                output.push_back(decoder.getUnicode());
+                output.pushBack(decoder.getUnicode());
             }
         }
     }
-    std::vector<u32> result;
-    result.swap(output);
-    return result;
+    result.clear();
+    result.xchg(output);
 }
 
-std::vector<u32> TestUtf8Decoder::flush() {
+void TestUtf8Decoder::flush(Vector<u32>& result) {
     if (decoder.checkPrematureEOS()) {
-        output.push_back(decoder.getUnicode());
+        output.pushBack(decoder.getUnicode());
     }
-    std::vector<u32> result;
-    result.swap(output);
-    return result;
+    result.clear();
+    result.xchg(output);
 }
 
 void TestUtf8Decoder::reset() {
@@ -495,7 +496,7 @@ DropDelivery::DropDelivery(plt::DropTarget* target_, StringView payload_, String
 void DropDelivery::run() {
     MemDrop drop;
     drop.offer.mime = mime;
-    drop.payload = StringView((const u8*)(payload.data()), payload.size());
+    drop.payload = StringView(payload);
     target->dropped(drop);
 }
 
@@ -515,34 +516,124 @@ namespace {
                 }
                 if ((errno == EAGAIN || errno == EWOULDBLOCK) && controlScheduler != nullptr && controlScheduler->current() != nullptr) {
                     if (!controlScheduler->awaitWritable(fd, 0)) {
-                        throw std::runtime_error("test control write failed");
+                        raiseError(StringView(u8"test control write failed"));
                     }
                     continue;
                 }
-                throw std::runtime_error("test control write failed");
+                raiseError(StringView(u8"test control write failed"));
             }
             offset += (size_t)(count);
         }
-    }
-
-    static void writeAll(int fd, const std::string& data) {
-        writeAll(fd, StringView((const u8*)(data.data()), data.size()));
     }
 
     static void writeAll(int fd, const char* data) {
         writeAll(fd, StringView(data));
     }
 
-    static std::string toString(const StringBuilder& builder) {
-        return std::string((const char*)(builder.data()), builder.used());
+    // Streams every part into one builder and writes the result; numbers
+    // print decimally, HexOut prints its bytes hex-encoded.
+    struct HexOut {
+        StringView bytes;
+    };
+
+    static StringView hexview(StringView view) {
+        return view;
     }
 
-    static bool readLine(plt::Scheduler* scheduler, int fd, std::string& buffered, std::string& line) {
+    static StringView hexview(const Buffer& buffer) {
+        return StringView(buffer);
+    }
+
+    template <typename... Part>
+    static void writeParts(int fd, const Part&... part) {
+        StringBuilder text;
+        const auto push = [&text](const auto& value) {
+            if constexpr (requires { value.bytes; }) {
+                static constexpr char digits[] = "0123456789abcdef";
+                for (const u8 byte : value.bytes) {
+                    const char pair[2] = {digits[byte >> 4], digits[byte & 15]};
+                    text.append(pair, 2);
+                }
+            } else {
+                text << value;
+            }
+        };
+        (push(part), ...);
+        writeAll(fd, StringView(text));
+    }
+
+    // Whitespace-separated argument scanning over one command line.
+    struct ArgReader {
+        const u8* at;
+        const u8* end;
+
+        explicit ArgReader(StringView text)
+            : at(text.begin())
+            , end(text.end())
+        {
+        }
+
+        void skipSpace() {
+            while (at != end && (*at == ' ' || *at == '\t')) {
+                ++at;
+            }
+        }
+
+        bool token(char* out, size_t capacity) {
+            skipSpace();
+            size_t length = 0;
+            while (at != end && *at != ' ' && *at != '\t') {
+                if (length + 1 >= capacity) {
+                    return false;
+                }
+                out[length++] = (char)(*at++);
+            }
+            out[length] = '\0';
+            return length != 0;
+        }
+
+        template <typename T>
+        bool read(T& out) {
+            char word[64];
+            if (!token(word, sizeof(word))) {
+                return false;
+            }
+            char* stop = nullptr;
+            errno = 0;
+            const long long value = strtoll(word, &stop, 10);
+            if (stop == word || *stop != '\0' || errno != 0) {
+                return false;
+            }
+            out = (T)(value);
+            return true;
+        }
+
+        bool read(double& out) {
+            char word[64];
+            if (!token(word, sizeof(word))) {
+                return false;
+            }
+            char* stop = nullptr;
+            errno = 0;
+            out = strtod(word, &stop);
+            if (stop == word || *stop != '\0' || errno != 0) {
+                return false;
+            }
+            return true;
+        }
+    };
+
+    static bool readLine(plt::Scheduler* scheduler, int fd, Buffer& buffered, Buffer& line) {
         while (true) {
-            const size_t newline = buffered.find('\n');
-            if (newline != std::string::npos) {
-                line = buffered.substr(0, newline);
-                buffered.erase(0, newline + 1);
+            const u8* const base = (const u8*)(buffered.data());
+            const void* const found = memchr(base, '\n', buffered.used());
+            if (found != nullptr) {
+                const size_t newline = (const u8*)(found)-base;
+                line.reset();
+                line.append(base, newline);
+                const size_t remaining = buffered.used() - newline - 1;
+                memmove(buffered.mutData(), base + newline + 1, remaining);
+                buffered.seekAbsolute(remaining);
                 return true;
             }
 
@@ -561,10 +652,18 @@ namespace {
                     }
                     continue;
                 }
-                throw std::runtime_error("test control read failed");
+                raiseError(StringView(u8"test control read failed"));
             }
             buffered.append(chunk, (size_t)(count));
         }
+    }
+
+    static bool startsWith(StringView text, StringView prefix) {
+        return text.length() >= prefix.length() && StringView(text.data(), prefix.length()) == prefix;
+    }
+
+    static StringView tail(StringView text, size_t offset) {
+        return StringView(text.data() + offset, text.length() - offset);
     }
 
     static u8 hexDigit(char ch) {
@@ -577,19 +676,18 @@ namespace {
         if (ch >= 'A' && ch <= 'F') {
             return ch - 'A' + 10;
         }
-        throw std::runtime_error("invalid hex input");
+        raiseError(StringView(u8"invalid hex input"));
     }
 
-    static std::string decodeHex(const std::string& input) {
-        if (input.size() % 2) {
-            throw std::runtime_error("odd-length hex input");
+    static void decodeHex(StringView input, Buffer& output) {
+        if (input.length() % 2) {
+            raiseError(StringView(u8"odd-length hex input"));
         }
-        std::string output;
-        output.reserve(input.size() / 2);
-        for (size_t k = 0; k < input.size(); k += 2) {
-            output.push_back((char)((hexDigit(input[k]) << 4) | hexDigit(input[k + 1])));
+        output.reset();
+        for (size_t k = 0; k < input.length(); k += 2) {
+            const u8 byte = (u8)((hexDigit(input[k]) << 4) | hexDigit(input[k + 1]));
+            output.append(&byte, 1);
         }
-        return output;
     }
 
     static u8 hexDigit(u8 ch) {
@@ -605,33 +703,6 @@ namespace {
         Errno(EINVAL).raise(StringView(u8"invalid hex input"));
     }
 
-    static Buffer decodeHex(StringView input) {
-        if (input.length() % 2) {
-            Errno(EINVAL).raise(StringView(u8"odd-length hex input"));
-        }
-        Buffer output(input.length() / 2);
-        for (size_t index = 0; index < input.length(); index += 2) {
-            const u8 byte = (hexDigit(input[index]) << 4) | hexDigit(input[index + 1]);
-            output.append(&byte, 1);
-        }
-        return output;
-    }
-
-    static std::string encodeHex(StringView input) {
-        static constexpr char digits[] = "0123456789abcdef";
-        std::string output;
-        output.reserve(input.length() * 2);
-        for (const u8 ch : input) {
-            output.push_back(digits[ch >> 4]);
-            output.push_back(digits[ch & 15]);
-        }
-        return output;
-    }
-
-    static std::string encodeHex(const std::string& input) {
-        return encodeHex(StringView((const u8*)(input.data()), input.size()));
-    }
-
     static void appendHex(StringBuilder& output, StringView input) {
         for (const u8 byte : input) {
             output << Hex{byte, 2};
@@ -640,28 +711,25 @@ namespace {
 
     // FONT_LOAD/RENDER_IMAGE requests carry a NUL-separated font list; the
     // views alias the request string.
-    static std::vector<StringView> splitFontNames(const std::string& request) {
-        std::vector<StringView> names;
+    static void splitFontNames(StringView request, Vector<StringView>& names) {
+        names.clear();
         size_t begin = 0;
-        while (begin <= request.size()) {
-            size_t end = request.find('\0', begin);
-            if (end == std::string::npos) {
-                end = request.size();
-            }
+        while (begin <= request.length()) {
+            const void* found = begin < request.length() ? memchr(request.data() + begin, '\0', request.length() - begin) : nullptr;
+            const size_t end = found != nullptr ? (size_t)((const u8*)(found)-request.data()) : request.length();
             if (end != begin) {
-                names.push_back(StringView((const u8*)(request.data() + begin), end - begin));
+                names.pushBack(StringView(request.data() + begin, end - begin));
             }
             begin = end + 1;
         }
         if (names.empty()) {
-            throw std::runtime_error("empty font list");
+            raiseError(StringView(u8"empty font list"));
         }
-        return names;
     }
 
     struct TraceEvent {
-        std::string type;
-        std::string data;
+        const char* type;
+        Buffer data;
     };
 
     // The trace both records parser events and, as the VtermTraceFactory
@@ -680,7 +748,7 @@ namespace {
         void stringData(const u8* data, size_t size) override;
         void stringEnd() override;
         void stringCancel() override;
-        std::string drain() override;
+        void drain(Buffer& out) override;
         void clear() override;
         void osc(u32 command, StringView payload) override;
         void bell() override;
@@ -689,25 +757,24 @@ namespace {
         void notify(StringView id, StringView title, StringView body, bool close) override;
         void progress(u32 state, u32 percent) override;
         void windowOperation(u32 operation, u32 first, u32 second) override;
-        std::string drainActions() override;
+        void drainActions(Buffer& out) override;
         StringView currentCwd() const override;
 
         static VtermTraceImpl* create(Composer& composer);
 
-        constexpr static size_t noEvent = std::numeric_limits<size_t>::max();
+        constexpr static size_t noEvent = SIZE_MAX;
 
         size_t add(const char* type);
         void erase(size_t& index);
         void appendHex(StringView input);
         static const char* stringName(VtermTraceString type);
-        static std::string encodeHex(const std::string& input);
 
         TestApi* testApi = nullptr;
-        std::vector<TraceEvent> events;
+        Vector<TraceEvent*> events;
         size_t escapeEvent = noEvent;
         size_t stringEvent = noEvent;
-        std::string actions;
-        std::string cwdPath;
+        StringBuilder actions;
+        Buffer cwdPath;
     };
 
     struct TestClipboard;
@@ -770,7 +837,7 @@ namespace {
         TestTerminal(Composer& composer, Vterm& terminal, TestApi& testApi, TestPty& pty, ReferenceRenderer& renderer, plt::WindowHeadless& window);
 
         void feedPtyOutput(const u8* data, size_t size);
-        void feedPtyOutput(const std::vector<std::string>& chunks);
+        void feedPtyOutput(const Buffer& chunkArena, const Vector<u32>& chunkEnds);
         void update();
         void redraw();
         void preedit(StringView text, i32 cursorBegin, i32 cursorEnd);
@@ -804,7 +871,7 @@ namespace {
         TerminalPen getPenState();
         RectangleOrigin getRectangleOrigin();
         size_t getHyperlinkCount();
-        std::string getHyperlink(int x, int y);
+        void getHyperlink(int x, int y, Buffer& out);
         bool mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY);
         void setLocatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons = 0);
         void reportLocatorButton(u8 button, bool pressed);
@@ -815,9 +882,9 @@ namespace {
         void selectStart(int x, int y, bool cycle);
         void selectExtend(int x, int y, bool cycle);
         void selectUpdate(int x, int y);
-        bool selectFinish(std::string& selection);
+        bool selectFinish(Buffer& selection);
         void selectRectangularModeToggle();
-        void pasteSelection(const std::string& selection);
+        void pasteSelection(StringView selection);
         void setHasFocus(bool focused);
         bool expireSynchronizedOutput(bool force = false);
         bool advanceAnimation(bool force = false);
@@ -866,15 +933,17 @@ VtermTraceImpl* VtermTraceImpl::create(Composer& composer) {
 }
 
 size_t VtermTraceImpl::add(const char* type) {
-    events.push_back(TraceEvent{type, {}});
-    return events.size() - 1;
+    events.pushBack(new TraceEvent{type, {}});
+    return events.length() - 1;
 }
 
 void VtermTraceImpl::erase(size_t& index) {
     if (index == noEvent) {
         return;
     }
-    events.erase(events.begin() + index);
+    delete events[index];
+    memmove(events.mutData() + index, events.data() + index + 1, (events.length() - index - 1) * sizeof(TraceEvent*));
+    events.popBack();
     if (escapeEvent != noEvent && escapeEvent > index) {
         --escapeEvent;
     }
@@ -900,30 +969,19 @@ const char* VtermTraceImpl::stringName(VtermTraceString type) {
     return "string";
 }
 
-std::string VtermTraceImpl::encodeHex(const std::string& input) {
-    static constexpr char digits[] = "0123456789abcdef";
-    std::string result;
-    result.reserve(input.size() * 2);
-    for (const unsigned char ch : input) {
-        result.push_back(digits[ch >> 4]);
-        result.push_back(digits[ch & 15]);
-    }
-    return result;
-}
-
 void VtermTraceImpl::text(const u8* data, size_t size) {
     if (!size) {
         return;
     }
-    if (events.empty() || events.back().type != "text") {
+    if (events.empty() || strcmp(events.back()->type, "text") != 0) {
         add("text");
     }
-    events.back().data.append((const char*)(data), size);
+    events.back()->data.append(data, size);
 }
 
 void VtermTraceImpl::control(u8 ch) {
     const size_t index = add("control");
-    events[index].data.push_back((char)(ch));
+    events[index]->data.append(&ch, 1);
 }
 
 void VtermTraceImpl::escapeBegin() {
@@ -933,7 +991,7 @@ void VtermTraceImpl::escapeBegin() {
 
 void VtermTraceImpl::escapeByte(u8 ch) {
     if (escapeEvent != noEvent) {
-        events[escapeEvent].data.push_back((char)(ch));
+        events[escapeEvent]->data.append(&ch, 1);
     }
 }
 
@@ -948,18 +1006,21 @@ void VtermTraceImpl::escapeCancel() {
 void VtermTraceImpl::csi(u8 finalByte, StringView privatePrefix, StringView intermediates, const u32* parameters, const unsigned char* separators, size_t parameterCount, bool hadParameters) {
     escapeCancel();
     const size_t index = add("csi");
-    std::string& sequence = events[index].data;
-    sequence.assign((const char*)(privatePrefix.data()), privatePrefix.length());
+    StringBuilder sequence;
+    sequence << privatePrefix;
     if (hadParameters) {
         for (size_t k = 0; k < parameterCount; ++k) {
             if (k) {
-                sequence.push_back((char)(separators[k]));
+                const char separator = (char)(separators[k]);
+                sequence.append(&separator, 1);
             }
-            sequence += std::to_string(parameters[k]);
+            sequence << parameters[k];
         }
     }
-    sequence.append((const char*)(intermediates.data()), intermediates.length());
-    sequence.push_back((char)(finalByte));
+    sequence << intermediates;
+    const char final = (char)(finalByte);
+    sequence.append(&final, 1);
+    events[index]->data.xchg(sequence);
 }
 
 void VtermTraceImpl::stringBegin(VtermTraceString type) {
@@ -970,7 +1031,7 @@ void VtermTraceImpl::stringBegin(VtermTraceString type) {
 
 void VtermTraceImpl::stringData(const u8* data, size_t size) {
     if (stringEvent != noEvent) {
-        events[stringEvent].data.append((const char*)(data), size);
+        events[stringEvent]->data.append(data, size);
     }
 }
 
@@ -982,29 +1043,42 @@ void VtermTraceImpl::stringCancel() {
     erase(stringEvent);
 }
 
-std::string VtermTraceImpl::drain() {
-    std::string result;
-    size_t count = events.size();
+void VtermTraceImpl::drain(Buffer& out) {
+    StringBuilder result;
+    size_t count = events.length();
     if (escapeEvent != noEvent) {
         count = min(count, escapeEvent);
     }
     if (stringEvent != noEvent) {
         count = min(count, stringEvent);
     }
+    static constexpr char digits[] = "0123456789abcdef";
     for (size_t k = 0; k < count; ++k) {
-        result += events[k].type + " " + encodeHex(events[k].data) + "\n";
+        result << StringView(events[k]->type) << StringView(u8" ");
+        for (const u8 byte : StringView(events[k]->data)) {
+            const char pair[2] = {digits[byte >> 4], digits[byte & 15]};
+            result.append(pair, 2);
+        }
+        result.append("\n", 1);
+        delete events[k];
     }
-    events.erase(events.begin(), events.begin() + count);
+    memmove(events.mutData(), events.data() + count, (events.length() - count) * sizeof(TraceEvent*));
+    for (size_t drained = count; drained > 0; --drained) {
+        events.popBack();
+    }
     if (escapeEvent != noEvent) {
         escapeEvent -= count;
     }
     if (stringEvent != noEvent) {
         stringEvent -= count;
     }
-    return result;
+    out.xchg(result);
 }
 
 void VtermTraceImpl::clear() {
+    for (TraceEvent* event : events) {
+        delete event;
+    }
     events.clear();
     escapeEvent = noEvent;
     stringEvent = noEvent;
@@ -1012,59 +1086,58 @@ void VtermTraceImpl::clear() {
 
 void VtermTraceImpl::appendHex(StringView input) {
     static constexpr char digits[] = "0123456789abcdef";
-    actions.reserve(actions.size() + input.length() * 2);
     for (const u8 ch : input) {
-        actions.push_back(digits[ch >> 4]);
-        actions.push_back(digits[ch & 15]);
+        const char pair[2] = {digits[ch >> 4], digits[ch & 15]};
+        actions.append(pair, 2);
     }
 }
 
 void VtermTraceImpl::osc(u32 command, StringView payload) {
-    actions += "OSC " + std::to_string(command) + " ";
+    actions << StringView(u8"OSC ") << command << StringView(u8" ");
     appendHex(payload);
-    actions += "\n";
+    actions << StringView(u8"\n");
 }
 
 void VtermTraceImpl::bell() {
-    actions += "BELL\n";
+    actions << StringView(u8"BELL\n");
 }
 
 void VtermTraceImpl::leds(u8 state) {
-    actions += "LEDS " + std::to_string(state) + "\n";
+    actions << StringView(u8"LEDS ") << (u64)(state) << StringView(u8"\n");
 }
 
 void VtermTraceImpl::cwd(StringView path) {
-    cwdPath.assign((const char*)(path.data()), path.length());
+    cwdPath.reset();
+    cwdPath.append(path.data(), path.length());
 }
 
 void VtermTraceImpl::notify(StringView id, StringView title, StringView body, bool close) {
-    actions += close ? "NOTIFY_CLOSE " : "NOTIFY ";
+    actions << (close ? StringView(u8"NOTIFY_CLOSE ") : StringView(u8"NOTIFY "));
     appendHex(id);
     if (!close) {
-        actions += " ";
+        actions << StringView(u8" ");
         appendHex(title);
-        actions += " ";
+        actions << StringView(u8" ");
         appendHex(body);
     }
-    actions += "\n";
+    actions << StringView(u8"\n");
 }
 
 void VtermTraceImpl::progress(u32 state, u32 percent) {
-    actions += "PROGRESS " + std::to_string(state) + " " + std::to_string(percent) + "\n";
+    actions << StringView(u8"PROGRESS ") << state << StringView(u8" ") << percent << StringView(u8"\n");
 }
 
 void VtermTraceImpl::windowOperation(u32 operation, u32 first, u32 second) {
-    actions += "WINDOW " + std::to_string(operation) + " " + std::to_string(first) + " " + std::to_string(second) + "\n";
+    actions << StringView(u8"WINDOW ") << operation << StringView(u8" ") << first << StringView(u8" ") << second << StringView(u8"\n");
 }
 
-std::string VtermTraceImpl::drainActions() {
-    std::string result;
-    result.swap(actions);
-    return result;
+void VtermTraceImpl::drainActions(Buffer& out) {
+    out.reset();
+    out.xchg(actions);
 }
 
 StringView VtermTraceImpl::currentCwd() const {
-    return StringView((const u8*)(cwdPath.data()), cwdPath.size());
+    return StringView(cwdPath);
 }
 
 TestClipboardInput::TestClipboardInput(SmallObjAllocator* allocator_, const Buffer& content_, size_t readChunk_)
@@ -1170,10 +1243,12 @@ void TestTerminal::feedPtyOutput(const u8* data, size_t size) {
     update();
 }
 
-void TestTerminal::feedPtyOutput(const std::vector<std::string>& chunks) {
+void TestTerminal::feedPtyOutput(const Buffer& chunkArena, const Vector<u32>& chunkEnds) {
     renderer.resetUpdateStats();
-    for (const std::string& chunk : chunks) {
-        terminal.feedPty(StringView((const u8*)(chunk.data()), chunk.size()));
+    u32 begin = 0;
+    for (const u32 end : chunkEnds) {
+        terminal.feedPty(StringView((const u8*)(chunkArena.data()) + begin, end - begin));
+        begin = end;
     }
     update();
 }
@@ -1385,9 +1460,10 @@ size_t TestTerminal::getHyperlinkCount() {
     return testApi.inspect().hyperlinkCount;
 }
 
-std::string TestTerminal::getHyperlink(int x, int y) {
+void TestTerminal::getHyperlink(int x, int y, Buffer& out) {
     const StringView result = testApi.hyperlinkAt(x, y);
-    return std::string((const char*)(result.data()), result.length());
+    out.reset();
+    out.append(result.data(), result.length());
 }
 
 bool TestTerminal::mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY) {
@@ -1441,9 +1517,10 @@ void TestTerminal::selectUpdate(int x, int y) {
     update();
 }
 
-bool TestTerminal::selectFinish(std::string& selection) {
+bool TestTerminal::selectFinish(Buffer& selection) {
     const VtermTextResult result = testApi.selectionFinish();
-    selection.assign((const char*)(result.text.data()), result.text.length());
+    selection.reset();
+    selection.append(result.text.data(), result.text.length());
     update();
     return result.status;
 }
@@ -1453,8 +1530,8 @@ void TestTerminal::selectRectangularModeToggle() {
     update();
 }
 
-void TestTerminal::pasteSelection(const std::string& selection) {
-    testApi.paste(StringView((const u8*)(selection.data()), selection.size()));
+void TestTerminal::pasteSelection(StringView selection) {
+    testApi.paste(selection);
     update();
 }
 
@@ -1483,8 +1560,8 @@ bool TestTerminal::advanceSelectionAutoscroll() {
 
 namespace {
 
-    static std::string drainInput(int fd) {
-        std::string output;
+    static void drainInput(int fd, Buffer& output) {
+        output.reset();
         char chunk[4096];
         while (true) {
             const ssize_t count = read(fd, chunk, sizeof(chunk));
@@ -1507,13 +1584,17 @@ namespace {
             if (count == 0) {
                 break;
             }
-            throw std::runtime_error("test PTY read failed");
+            raiseError(StringView(u8"test PTY read failed"));
         }
-        return output;
     }
 
-    static InputKey parseKey(const std::string& name) {
-        static const std::map<std::string, InputKey> keys = {
+    static InputKey parseKey(const char* name) {
+        struct KeyName {
+            const char* name;
+            InputKey key;
+        };
+
+        static const KeyName keys[] = {
             {"SPACE", InputKey::Space},
             {"RETURN", InputKey::Enter},
             {"BACKSPACE", InputKey::Backspace},
@@ -1627,54 +1708,64 @@ namespace {
             {"VOLUME_UP", InputKey::VolumeUp},
             {"VOLUME_MUTE", InputKey::VolumeMute},
         };
-        const auto found = keys.find(name);
-        if (found == keys.end()) {
-            throw std::runtime_error("unknown key");
+        for (const KeyName& entry : keys) {
+            if (strcmp(entry.name, name) == 0) {
+                return entry.key;
+            }
         }
-        return found->second;
+        raiseError(StringView(u8"unknown key"));
     }
 }
 
 int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events, plt::FrameCallback& frame, int controlFd, int argc, char* argv[]) {
     int io[2];
     if (openpty(&io[0], &io[1], nullptr, nullptr, nullptr) < 0) {
-        throw std::runtime_error("test openpty failed");
+        raiseError(StringView(u8"test openpty failed"));
     }
     // Terminal-side descriptors must not leak into spawned children: a child
     // holding the control socket or the pty pair alive wedges the harness
     // when st_test itself dies.
     if (fcntl(controlFd, F_SETFD, FD_CLOEXEC) < 0 || fcntl(io[0], F_SETFD, FD_CLOEXEC) < 0 || fcntl(io[1], F_SETFD, FD_CLOEXEC) < 0) {
-        throw std::runtime_error("test FD_CLOEXEC setup failed");
+        raiseError(StringView(u8"test FD_CLOEXEC setup failed"));
     }
     termios childTtyAttrs;
     if (tcgetattr(io[1], &childTtyAttrs) < 0) {
         close(io[0]);
         close(io[1]);
-        throw std::runtime_error("test tcgetattr failed");
+        raiseError(StringView(u8"test tcgetattr failed"));
     }
     termios ttyAttrs = childTtyAttrs;
     cfmakeraw(&ttyAttrs);
     if (tcsetattr(io[1], TCSANOW, &ttyAttrs) < 0) {
         close(io[0]);
         close(io[1]);
-        throw std::runtime_error("test tcsetattr failed");
+        raiseError(StringView(u8"test tcsetattr failed"));
     }
     const int flags = fcntl(io[1], F_GETFL, 0);
     if (flags < 0 || fcntl(io[1], F_SETFL, flags | O_NONBLOCK) < 0) {
         close(io[0]);
         close(io[1]);
-        throw std::runtime_error("test socket setup failed");
+        raiseError(StringView(u8"test socket setup failed"));
     }
 
     {
         unsigned glyphWidth = 1;
         unsigned glyphHeight = 1;
-        if (const char* geometry = std::getenv("SHITTY_TEST_GLYPH")) {
-            std::istringstream input(geometry);
-            char separator = 0;
-            if (!(input >> glyphWidth >> separator >> glyphHeight) || separator != 'x' || !glyphWidth || !glyphHeight || input.peek() != EOF) {
-                throw std::runtime_error("invalid test glyph geometry");
+        if (const char* geometry = getenv("SHITTY_TEST_GLYPH")) {
+            char* stop = nullptr;
+            const unsigned long width = strtoul(geometry, &stop, 10);
+            bool valid = stop != geometry && *stop == 'x';
+            unsigned long height = 0;
+            if (valid) {
+                const char* rest = stop + 1;
+                height = strtoul(rest, &stop, 10);
+                valid = stop != rest && *stop == '\0';
             }
+            if (!valid || width == 0 || height == 0) {
+                raiseError(StringView(u8"invalid test glyph geometry"));
+            }
+            glyphWidth = (unsigned)(width);
+            glyphHeight = (unsigned)(height);
         }
         composer.setGlyphSize(glyphWidth, glyphHeight);
     }
@@ -1710,7 +1801,10 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     auto& renderer = static_cast<ReferenceRenderer&>(*composer.renderer);
     VtermTraceImpl& vtermTrace = *VtermTraceImpl::create(composer);
     Vterm& vterm = *Vterm::create(composer, &vtermTrace);
-    vtermTrace.drainActions();
+    {
+        Buffer discardedActions;
+        vtermTrace.drainActions(discardedActions);
+    }
     TestApi& testApi = *vtermTrace.testApi;
     renderer.attach(testApi);
     window.requestFrame();
@@ -1721,46 +1815,120 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     pid_t childPid = -1;
     int childExitStatus = -1;
 
+    // Scripted PTY reads: byte payloads live in one arena, records index
+    // into it, and head walks forward instead of popping the front.
     struct ScriptedPtyRead {
-        std::string data;
+        u32 offset = 0;
+        u32 length = 0;
         int error = 0;
         bool eof = false;
     };
 
-    std::deque<ScriptedPtyRead> scriptedPtyReads;
+    struct ScriptedReadQueue final: public PtyReadHandler {
+        Vector<ScriptedPtyRead> items;
+        Buffer arena;
+        size_t head = 0;
+
+        bool empty() const {
+            return head == items.length();
+        }
+
+        void compact() {
+            if (empty()) {
+                items.clear();
+                arena.reset();
+                head = 0;
+            }
+        }
+
+        void push(StringView data, int error, bool eof) {
+            ScriptedPtyRead item;
+            item.offset = (u32)(arena.used());
+            item.length = (u32)(data.length());
+            item.error = error;
+            item.eof = eof;
+            arena.append(data.data(), data.length());
+            items.pushBack(item);
+        }
+
+        size_t pendingBytes() const {
+            size_t total = 0;
+            for (size_t index = head; index < items.length(); ++index) {
+                total += items[index].length;
+            }
+            return total;
+        }
+
+        ssize_t read(u8* buffer, size_t size) override {
+            if (empty()) {
+                errno = EAGAIN;
+                return (ssize_t)(-1);
+            }
+            ScriptedPtyRead& item = items.mut(head);
+            if (item.eof) {
+                ++head;
+                compact();
+                return (ssize_t)(0);
+            }
+            if (item.error) {
+                errno = item.error;
+                ++head;
+                compact();
+                return (ssize_t)(-1);
+            }
+            const size_t count = min(size, (size_t)(item.length));
+            memcpy(buffer, (const u8*)(arena.data()) + item.offset, count);
+            item.offset += (u32)(count);
+            item.length -= (u32)(count);
+            if (item.length == 0) {
+                ++head;
+                compact();
+            }
+            return (ssize_t)(count);
+        }
+    };
+
+    ScriptedReadQueue scriptedPtyReads;
 
     struct ScriptedPtyWrite {
         size_t count = 0;
         int error = 0;
     };
 
-    std::deque<ScriptedPtyWrite> scriptedPtyWrites;
-    std::string writtenPtyData;
-    TestUtf8Decoder testUtf8Decoder;
-    const auto installScriptedPtyReader = [&]() {
-        terminalPty.setReadHandler([&scriptedPtyReads](u8* buffer, size_t size) {
-            if (scriptedPtyReads.empty()) {
+    struct ScriptedWriteQueue final: public PtyWriteHandler {
+        Vector<ScriptedPtyWrite> items;
+        size_t head = 0;
+        Buffer written;
+
+        bool empty() const {
+            return head == items.length();
+        }
+
+        ssize_t write(const u8* buffer, size_t size) override {
+            if (empty()) {
                 errno = EAGAIN;
                 return (ssize_t)(-1);
             }
-            auto& item = scriptedPtyReads.front();
-            if (item.eof) {
-                scriptedPtyReads.pop_front();
-                return (ssize_t)(0);
+            const ScriptedPtyWrite item = items[head++];
+            if (empty()) {
+                items.clear();
+                head = 0;
             }
             if (item.error) {
                 errno = item.error;
-                scriptedPtyReads.pop_front();
                 return (ssize_t)(-1);
             }
-            const size_t count = min(size, item.data.size());
-            std::copy_n(item.data.data(), count, buffer);
-            item.data.erase(0, count);
-            if (item.data.empty()) {
-                scriptedPtyReads.pop_front();
-            }
+            const size_t count = min(size, item.count);
+            written.append(buffer, count);
             return (ssize_t)(count);
-        });
+        }
+    };
+
+    ScriptedWriteQueue scriptedPtyWrites;
+    Buffer& writtenPtyData = scriptedPtyWrites.written;
+    TestUtf8Decoder testUtf8Decoder;
+    const auto installScriptedPtyReader = [&]() {
+        terminalPty.setReadHandler(&scriptedPtyReads);
     };
     terminal.redraw();
     writeAll(controlFd, "READY\n");
@@ -1799,38 +1967,39 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
             if (childPid > 0 || terminalPty.scriptStalled()) {
                 break;
             }
-            drainInput(io[1]);
+            {
+                Buffer drained;
+                drainInput(io[1], drained);
+            }
             controlScheduler->yield();
         }
     };
 
     plt::DropTarget* const dropTarget = createDropTarget(*composer.pool, composer);
-    const auto spawnDrop = [&](const std::string& payload, StringView mime) {
-        DropDelivery* const delivery = composer.pool->make<DropDelivery>(dropTarget, StringView((const u8*)(payload.data()), payload.size()), mime);
+    const auto spawnDrop = [&](const Buffer& payload, StringView mime) {
+        DropDelivery* const delivery = composer.pool->make<DropDelivery>(dropTarget, StringView(payload), mime);
         composer.platform->scheduler()->spawn(*delivery, delivery->stack, sizeof(delivery->stack));
     };
     // The platform delivers file drops as text/uri-list; the test path
     // takes the same route through a file URI.
-    const auto pathToUriList = [](const std::string& path) {
+    const auto pathToUriList = [](StringView path, Buffer& uri) {
         static const char hexDigits[] = "0123456789abcdef";
-        std::string uri = "file://";
-        for (const char ch : path) {
-            const auto byte = (unsigned char)(ch);
+        uri.reset();
+        uri.append("file://", 7);
+        for (const u8 byte : path) {
             const bool plain = (byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') || (byte >= '0' && byte <= '9') || byte == '/' || byte == '.' || byte == '_' || byte == '-' || byte == '~';
             if (plain) {
-                uri += ch;
+                uri.append(&byte, 1);
             } else {
-                uri += '%';
-                uri += hexDigits[byte >> 4];
-                uri += hexDigits[byte & 15];
+                const char escaped[3] = {'%', hexDigits[byte >> 4], hexDigits[byte & 15]};
+                uri.append(escaped, 3);
             }
         }
-        uri += "\r\n";
-        return uri;
+        uri.append("\r\n", 2);
     };
 
-    std::string buffered;
-    std::string line;
+    Buffer buffered;
+    Buffer lineBytes;
     // The whole control protocol runs on one fiber inside the platform
     // loop, so a handler may block on the PTY stream or a timer while the
     // loop keeps serving fibers and frames.
@@ -1841,968 +2010,1036 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     controlScheduler = composer.platform->scheduler();
     auto controlLoop = [&] {
         try {
-            while (readLine(controlScheduler, controlFd, buffered, line)) {
-        try {
-            if (line.compare(0, 6, "WRITE ") == 0) {
-                const std::string input = decodeHex(line.substr(6));
-                terminal.feedPtyOutput((const u8*)input.data(), input.size());
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 13, "WRITE_CHUNKS ") == 0) {
-                std::istringstream args(line.substr(13));
-                std::vector<std::string> chunks;
-                std::string encoded;
-                while (args >> encoded) {
-                    chunks.push_back(decodeHex(encoded));
-                }
-                if (chunks.empty()) {
-                    throw std::runtime_error("empty PTY chunk list");
-                }
-                terminal.feedPtyOutput(chunks);
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 15, "MEASURE_WIDTHS ") == 0) {
-                std::istringstream args(line.substr(15));
-                std::string encoded;
-                std::string input;
-                size_t count = 0;
-                while (args >> encoded) {
-                    input += "\x1b"
-                             "c";
-                    input += decodeHex(encoded);
-                    input += "\x1b[6n";
-                    ++count;
-                }
-                if (!count) {
-                    throw std::runtime_error("empty width measurement");
-                }
-                // Reports are taken from the in-process write capture (see
-                // READ_INPUT): the kernel pty path is asynchronous and the
-                // reports would double-report through a later READ_INPUT.
-                drainInput(io[1]);
-                terminalPty.takeWriteData();
-                terminal.feedPtyOutput((const u8*)input.data(), input.size());
-                waitOutputDrained();
-                drainInput(io[1]);
-                writeAll(controlFd, "OK " + encodeHex(terminalPty.takeWriteData()) + "\n");
-            } else if (line == "OPTIONS") {
-                const auto packedColor = [](Color color) {
-                    return ((u32)(color.red) << 16) | ((u32)(color.green) << 8) | color.blue;
-                };
-                writeAll(controlFd, "OK fontsize=" + std::to_string(opts.fontsize) + " border=" + std::to_string(opts.border) + " columns=" + std::to_string(opts.nCols) + " rows=" + std::to_string(opts.nRows) + " save_lines=" + std::to_string(opts.saveLines) + " fg=" + std::to_string(packedColor(opts.fg)) + " bg=" + std::to_string(packedColor(opts.bg)) + " cr=" + std::to_string(packedColor(opts.cr)) + " alt_scroll=" + std::to_string(opts.altScrollMode) + " bold_colors=" + std::to_string(opts.boldColors) + " auto_copy=" + std::to_string(opts.autoCopyMode) + " allow_osc52_read=" + std::to_string(opts.allowOsc52Read) + " allow_window_ops=" + std::to_string(opts.allowWindowOps) + " no_decorations=" + std::to_string(opts.noDecorations) + "\n");
-            } else if (line == "ARGV") {
-                std::string arguments;
-                for (int index = 0; index < argc; ++index) {
-                    if (index) {
-                        arguments.push_back('\0');
-                    }
-                    arguments += argv[index];
-                }
-                writeAll(controlFd, "OK " + encodeHex(arguments) + "\n");
-            } else if (line == "LAUNCH_COMMAND") {
-                const LaunchCommand command = buildLaunchCommand(argc, argv, opts.shell, opts.login);
-                std::string encoded = command.executable();
-                for (size_t index = 0; index < command.offsets.length(); ++index) {
-                    encoded.push_back('\0');
-                    encoded += command.argument(index);
-                }
-                writeAll(controlFd, "OK " + encodeHex(encoded) + "\n");
-            } else if (line.compare(0, 10, "FONT_LOAD ") == 0) {
-                const std::string request = decodeHex(line.substr(10));
-                const std::vector<StringView> names = splitFontNames(request);
-                ObjPool::Ref fontPool = ObjPool::fromMemory();
-                Fontpack* fonts = Fontpack::create(composer, *fontPool, names.data(), names.size(), opts.fontsize);
-                writeAll(controlFd, "OK " + std::to_string(fonts->getPx()) + " " + std::to_string(fonts->getPy()) + " " + std::to_string(fonts->hasBold()) + " " + std::to_string(fonts->hasItalic()) + " " + std::to_string(fonts->hasBoldItalic()) + "\n");
-            } else if (line.compare(0, 13, "RENDER_IMAGE ") == 0) {
-                const std::string request = decodeHex(line.substr(13));
-                const std::vector<StringView> names = splitFontNames(request);
-                ObjPool::Ref renderPool = ObjPool::fromMemory();
-                Composer& renderComposer = *renderPool->make<Composer>(renderPool.mutPtr());
-                Fontpack* fonts = Fontpack::create(renderComposer, *renderPool, names.data(), names.size(), opts.fontsize);
-                renderComposer.fonts = fonts;
-                renderComposer.setCellExtras(composer.cellExtras);
-                renderComposer.setGlyphSize(fonts->getPx(), fonts->getPy());
-                const u16 imageWidth = 2 * opts.border + renderer.columns() * fonts->getPx();
-                const u16 imageHeight = 2 * opts.border + renderer.rows() * fonts->getPy();
-                renderComposer.resize(imageWidth, imageHeight);
-                renderComposer.platform = plt::createHeadlessPlatform(*renderPool);
-                TerminalUpdate imageUpdate = renderer.renderUpdate();
-                // The retained cells shape through a throwaway screen
-                // carrying the requested fontpack; its own rows stay
-                // blank.
-                imageUpdate.shapes = Screen::createPrimary(renderComposer, *renderPool, renderer.columns(), renderer.rows(), imageUpdate.colors, 0);
-                imageUpdate.shapeFromCells = true;
+            while (readLine(controlScheduler, controlFd, buffered, lineBytes)) {
+                const StringView line(lineBytes);
+                try {
+                    if (startsWith(line, StringView(u8"WRITE "))) {
+                        Buffer input;
+                        decodeHex(tail(line, 6), input);
+                        terminal.feedPtyOutput((const u8*)(input.data()), input.used());
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"WRITE_CHUNKS "))) {
+                        ArgReader args(tail(line, 13));
+                        Buffer chunkArena;
+                        Vector<u32> chunkEnds;
+                        char encoded[64 * 1024];
+                        Buffer decoded;
+                        while (args.token(encoded, sizeof(encoded))) {
+                            decodeHex(StringView(encoded), decoded);
+                            chunkArena.append(decoded.data(), decoded.used());
+                            chunkEnds.pushBack((u32)(chunkArena.used()));
+                        }
+                        if (chunkEnds.empty()) {
+                            raiseError(StringView(u8"empty PTY chunk list"));
+                        }
+                        terminal.feedPtyOutput(chunkArena, chunkEnds);
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"MEASURE_WIDTHS "))) {
+                        ArgReader args(tail(line, 15));
+                        char encoded[64 * 1024];
+                        Buffer decoded;
+                        Buffer input;
+                        size_t count = 0;
+                        while (args.token(encoded, sizeof(encoded))) {
+                            input.append(
+                                "\x1b"
+                                "c",
+                                2
+                            );
+                            decodeHex(StringView(encoded), decoded);
+                            input.append(decoded.data(), decoded.used());
+                            input.append("\x1b[6n", 4);
+                            ++count;
+                        }
+                        if (!count) {
+                            raiseError(StringView(u8"empty width measurement"));
+                        }
+                        // Reports are taken from the in-process write capture (see
+                        // READ_INPUT): the kernel pty path is asynchronous and the
+                        // reports would double-report through a later READ_INPUT.
+                        {
+                            Buffer drained;
+                            drainInput(io[1], drained);
+                        }
+                        {
+                            Buffer discarded;
+                            terminalPty.takeWriteData(discarded);
+                        }
+                        terminal.feedPtyOutput((const u8*)(input.data()), input.used());
+                        waitOutputDrained();
+                        {
+                            Buffer drained;
+                            drainInput(io[1], drained);
+                        }
+                        Buffer taken;
+                        terminalPty.takeWriteData(taken);
+                        writeParts(controlFd, StringView(u8"OK "), HexOut{StringView(taken)}, StringView(u8"\n"));
+                    } else if (line == StringView(u8"OPTIONS")) {
+                        const auto packedColor = [](Color color) {
+                            return ((u32)(color.red) << 16) | ((u32)(color.green) << 8) | color.blue;
+                        };
+                        writeParts(controlFd, StringView(u8"OK fontsize="), (i64)(opts.fontsize), StringView(u8" border="), (i64)(opts.border), StringView(u8" columns="), (i64)(opts.nCols), StringView(u8" rows="), (i64)(opts.nRows), StringView(u8" save_lines="), (i64)(opts.saveLines), StringView(u8" fg="), (i64)(packedColor(opts.fg)), StringView(u8" bg="), (i64)(packedColor(opts.bg)), StringView(u8" cr="), (i64)(packedColor(opts.cr)), StringView(u8" alt_scroll="), (i64)(opts.altScrollMode), StringView(u8" bold_colors="), (i64)(opts.boldColors), StringView(u8" auto_copy="), (i64)(opts.autoCopyMode), StringView(u8" allow_osc52_read="), (i64)(opts.allowOsc52Read), StringView(u8" allow_window_ops="), (i64)(opts.allowWindowOps), StringView(u8" no_decorations="), (i64)(opts.noDecorations), StringView(u8"\n"));
+                    } else if (line == StringView(u8"ARGV")) {
+                        Buffer arguments;
+                        for (int index = 0; index < argc; ++index) {
+                            if (index) {
+                                arguments.append("", 1);
+                            }
+                            arguments.append(argv[index], strlen(argv[index]));
+                        }
+                        writeParts(controlFd, StringView(u8"OK "), HexOut{StringView(arguments)}, StringView(u8"\n"));
+                    } else if (line == StringView(u8"LAUNCH_COMMAND")) {
+                        const LaunchCommand command = buildLaunchCommand(argc, argv, opts.shell, opts.login);
+                        Buffer encoded;
+                        encoded.append(command.executable(), strlen(command.executable()));
+                        for (size_t index = 0; index < command.offsets.length(); ++index) {
+                            encoded.append("", 1);
+                            encoded.append(command.argument(index), strlen(command.argument(index)));
+                        }
+                        writeParts(controlFd, StringView(u8"OK "), HexOut{StringView(encoded)}, StringView(u8"\n"));
+                    } else if (startsWith(line, StringView(u8"FONT_LOAD "))) {
+                        Buffer request;
+                        decodeHex(tail(line, 10), request);
+                        Vector<StringView> names;
+                        splitFontNames(StringView(request), names);
+                        ObjPool::Ref fontPool = ObjPool::fromMemory();
+                        Fontpack* fonts = Fontpack::create(composer, *fontPool, names.data(), names.length(), opts.fontsize);
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(fonts->getPx()), StringView(u8" "), (i64)(fonts->getPy()), StringView(u8" "), (i64)(fonts->hasBold()), StringView(u8" "), (i64)(fonts->hasItalic()), StringView(u8" "), (i64)(fonts->hasBoldItalic()), StringView(u8"\n"));
+                    } else if (startsWith(line, StringView(u8"RENDER_IMAGE "))) {
+                        Buffer request;
+                        decodeHex(tail(line, 13), request);
+                        Vector<StringView> names;
+                        splitFontNames(StringView(request), names);
+                        ObjPool::Ref renderPool = ObjPool::fromMemory();
+                        Composer& renderComposer = *renderPool->make<Composer>(renderPool.mutPtr());
+                        Fontpack* fonts = Fontpack::create(renderComposer, *renderPool, names.data(), names.length(), opts.fontsize);
+                        renderComposer.fonts = fonts;
+                        renderComposer.setCellExtras(composer.cellExtras);
+                        renderComposer.setGlyphSize(fonts->getPx(), fonts->getPy());
+                        const u16 imageWidth = 2 * opts.border + renderer.columns() * fonts->getPx();
+                        const u16 imageHeight = 2 * opts.border + renderer.rows() * fonts->getPy();
+                        renderComposer.resize(imageWidth, imageHeight);
+                        renderComposer.platform = plt::createHeadlessPlatform(*renderPool);
+                        TerminalUpdate imageUpdate = renderer.renderUpdate();
+                        // The retained cells shape through a throwaway screen
+                        // carrying the requested fontpack; its own rows stay
+                        // blank.
+                        imageUpdate.shapes = Screen::createPrimary(renderComposer, *renderPool, renderer.columns(), renderer.rows(), imageUpdate.colors, 0);
+                        imageUpdate.shapeFromCells = true;
 
-                struct ImageFrame final: plt::FrameCallback {
-                    bool frame(const plt::WindowInfo&) override {
-                        return renderer->update(*update);
-                    }
+                        struct ImageFrame final: plt::FrameCallback {
+                            bool frame(const plt::WindowInfo&) override {
+                                return renderer->update(*update);
+                            }
 
-                    Renderer* renderer = nullptr;
-                    const TerminalUpdate* update = nullptr;
-                } imageFrame;
+                            Renderer* renderer = nullptr;
+                            const TerminalUpdate* update = nullptr;
+                        } imageFrame;
 
-                renderComposer.window = renderComposer.platform->createWindow(
-                    *renderPool,
-                    {
-                        .width = imageWidth,
-                        .height = imageHeight,
-                        .frame = &imageFrame,
-                    }
-                );
-                auto& imageWindow = static_cast<plt::WindowHeadless&>(*renderComposer.window);
-                imageFrame.renderer = Renderer::create(renderComposer, *renderPool, imageWindow.renderContext());
-                imageFrame.update = &imageUpdate;
-                imageWindow.requestFrame();
-                if (!imageWindow.dispatchFrame()) {
-                    throw std::runtime_error("reference image presentation failed");
-                }
-                const plt::HeadlessFrame image = imageWindow.presentedFrame();
-                const std::string pixels((const char*)(image.pixels), image.length);
-                writeAll(controlFd, "OK " + std::to_string(image.width) + " " + std::to_string(image.height) + " " + encodeHex(pixels) + "\n");
-            } else if (line.compare(0, 16, "GRAPHEME_BREAKS ") == 0) {
-                std::istringstream args(line.substr(16));
-                std::string token;
-                std::string boundaries;
-                GraphemeBreaker breaker;
-                while (args >> token) {
-                    size_t consumed = 0;
-                    const unsigned long value = std::stoul(token, &consumed, 16);
-                    if (consumed != token.size() || value > 0x10ffff) {
-                        throw std::runtime_error("invalid codepoint");
-                    }
-                    boundaries += breaker.breakBefore(value) ? '1' : '0';
-                }
-                if (boundaries.empty()) {
-                    throw std::runtime_error("empty grapheme sequence");
-                }
-                writeAll(controlFd, "OK " + boundaries + "\n");
-            } else if (line.compare(0, 8, "PREEDIT ") == 0) {
-                std::istringstream args(line.substr(8));
-                std::string encoded;
-                i32 begin = -1;
-                i32 end = -1;
-                args >> encoded >> begin >> end;
-                const std::string decoded = encoded == "-" ? std::string() : decodeHex(encoded);
-                terminal.preedit(StringView((const u8*)(decoded.data()), decoded.size()), begin, end);
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 6, "INPUT ") == 0) {
-                const std::string input = decodeHex(line.substr(6));
-                const std::u8string bytes(input.begin(), input.end());
-                terminal.writePty(bytes.data(), bytes.size(), false);
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 6, "SPAWN ") == 0) {
-                if (childPid > 0) {
-                    throw std::runtime_error("child already running");
-                }
-                if (tcsetattr(io[1], TCSANOW, &childTtyAttrs) < 0) {
-                    throw std::runtime_error("test child tcsetattr failed");
-                }
-                const std::string encoded = decodeHex(line.substr(6));
-                std::vector<std::string> arguments;
-                size_t start = 0;
-                while (start < encoded.size()) {
-                    const size_t end = encoded.find('\0', start);
-                    arguments.push_back(encoded.substr(start, end == std::string::npos ? std::string::npos : end - start));
-                    if (end == std::string::npos) {
+                        renderComposer.window = renderComposer.platform->createWindow(
+                            *renderPool,
+                            {
+                                .width = imageWidth,
+                                .height = imageHeight,
+                                .frame = &imageFrame,
+                            }
+                        );
+                        auto& imageWindow = static_cast<plt::WindowHeadless&>(*renderComposer.window);
+                        imageFrame.renderer = Renderer::create(renderComposer, *renderPool, imageWindow.renderContext());
+                        imageFrame.update = &imageUpdate;
+                        imageWindow.requestFrame();
+                        if (!imageWindow.dispatchFrame()) {
+                            raiseError(StringView(u8"reference image presentation failed"));
+                        }
+                        const plt::HeadlessFrame image = imageWindow.presentedFrame();
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(image.width), StringView(u8" "), (i64)(image.height), StringView(u8" "), HexOut{StringView(image.pixels, image.length)}, StringView(u8"\n"));
+                    } else if (startsWith(line, StringView(u8"GRAPHEME_BREAKS "))) {
+                        ArgReader args(tail(line, 16));
+                        char token[32];
+                        Buffer boundaries;
+                        GraphemeBreaker breaker;
+                        while (args.token(token, sizeof(token))) {
+                            char* stop = nullptr;
+                            const unsigned long value = strtoul(token, &stop, 16);
+                            if (stop == token || *stop != '\0' || value > 0x10ffff) {
+                                raiseError(StringView(u8"invalid codepoint"));
+                            }
+                            const char mark = breaker.breakBefore(value) ? '1' : '0';
+                            boundaries.append(&mark, 1);
+                        }
+                        if (boundaries.empty()) {
+                            raiseError(StringView(u8"empty grapheme sequence"));
+                        }
+                        writeParts(controlFd, StringView(u8"OK "), StringView(boundaries), StringView(u8"\n"));
+                    } else if (startsWith(line, StringView(u8"PREEDIT "))) {
+                        ArgReader args(tail(line, 8));
+                        char encoded[4096];
+                        i32 begin = -1;
+                        i32 end = -1;
+                        if (args.token(encoded, sizeof(encoded))) {
+                            args.read(begin);
+                            args.read(end);
+                        }
+                        Buffer decoded;
+                        if (strcmp(encoded, "-") != 0) {
+                            decodeHex(StringView(encoded), decoded);
+                        }
+                        terminal.preedit(StringView(decoded), begin, end);
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"INPUT "))) {
+                        Buffer input;
+                        decodeHex(tail(line, 6), input);
+                        terminal.writePty((const u8*)(input.data()), input.used(), false);
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"SPAWN "))) {
+                        if (childPid > 0) {
+                            raiseError(StringView(u8"child already running"));
+                        }
+                        if (tcsetattr(io[1], TCSANOW, &childTtyAttrs) < 0) {
+                            raiseError(StringView(u8"test child tcsetattr failed"));
+                        }
+                        Buffer encoded;
+                        decodeHex(tail(line, 6), encoded);
+                        encoded.append("", 1);
+                        Vector<char*> argumentPointers;
+                        {
+                            char* cursor = (char*)(encoded.mutData());
+                            char* const endOfAll = cursor + encoded.used() - 1;
+                            while (cursor < endOfAll) {
+                                argumentPointers.pushBack(cursor);
+                                cursor += strlen(cursor) + 1;
+                            }
+                        }
+                        if (argumentPointers.empty() || argumentPointers[0][0] == '\0') {
+                            raiseError(StringView(u8"empty child command"));
+                        }
+                        const char* ttyPath = ttyname(io[1]);
+                        if (!ttyPath) {
+                            raiseError(StringView(u8"test child tty has no path"));
+                        }
+                        char childTtyPath[PATH_MAX];
+                        snprintf(childTtyPath, sizeof(childTtyPath), "%s", ttyPath);
+                        childExitStatus = -1;
+                        childPid = fork();
+                        if (childPid < 0) {
+                            raiseError(StringView(u8"test fork failed"));
+                        }
+                        if (childPid == 0) {
+                            setsid();
+                            close(io[1]);
+                            const int childTty = open(childTtyPath, O_RDWR);
+                            if (childTty < 0) {
+                                _exit(126);
+                            }
+                            ioctl(childTty, TIOCSCTTY, 0);
+                            dup2(childTty, STDIN_FILENO);
+                            dup2(childTty, STDOUT_FILENO);
+                            dup2(childTty, STDERR_FILENO);
+                            close(io[0]);
+                            if (childTty > STDERR_FILENO) {
+                                close(childTty);
+                            }
+                            configureTerminalChildEnvironment();
+                            argumentPointers.pushBack(nullptr);
+                            execvp(argumentPointers[0], argumentPointers.mutData());
+                            _exit(127);
+                        }
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"PUMP")) {
+                        pumpChild();
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"READ_PTY")) {
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(terminal.readPty()), StringView(u8"\n"));
+                    } else if (line == StringView(u8"READ_CHILD_OUTPUT")) {
+                        Buffer taken;
+                        terminalPty.takeReadData(taken);
+                        writeParts(controlFd, StringView(u8"OK "), HexOut{StringView(taken)}, StringView(u8"\n"));
+                    } else if (startsWith(line, StringView(u8"PTY_READ_SCRIPT "))) {
+                        scriptedPtyReads.items.clear();
+                        scriptedPtyReads.arena.reset();
+                        scriptedPtyReads.head = 0;
+                        ArgReader args(tail(line, 16));
+                        char token[64 * 1024];
+                        bool any = false;
+                        Buffer decoded;
+                        while (args.token(token, sizeof(token))) {
+                            any = true;
+                            if (strcmp(token, "z") == 0) {
+                                scriptedPtyReads.push(StringView(), 0, true);
+                            } else if (token[0] == 'd' && token[1] != '\0') {
+                                decodeHex(StringView(token + 1), decoded);
+                                scriptedPtyReads.push(StringView(decoded), 0, false);
+                            } else if (token[0] == 'e' && token[1] != '\0') {
+                                char* stop = nullptr;
+                                const long error = strtol(token + 1, &stop, 10);
+                                if (*stop != '\0' || error <= 0) {
+                                    raiseError(StringView(u8"invalid PTY errno"));
+                                }
+                                scriptedPtyReads.push(StringView(), (int)(error), false);
+                            } else {
+                                raiseError(StringView(u8"invalid PTY read script"));
+                            }
+                        }
+                        if (!any) {
+                            raiseError(StringView(u8"empty PTY read script"));
+                        }
+                        installScriptedPtyReader();
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"PTY_READ_REPEAT "))) {
+                        ArgReader args(tail(line, 16));
+                        unsigned byte;
+                        size_t count;
+                        int eof;
+                        if (!(args.read(byte) && args.read(count) && args.read(eof)) || byte > 255 || count == 0 || count > 64 * 1024 * 1024 || eof < 0 || eof > 1) {
+                            raiseError(StringView(u8"invalid repeated PTY input"));
+                        }
+                        scriptedPtyReads.items.clear();
+                        scriptedPtyReads.arena.reset();
+                        scriptedPtyReads.head = 0;
+                        {
+                            Buffer repeated;
+                            repeated.grow(count);
+                            memset(repeated.mutData(), (int)(byte), count);
+                            repeated.seekAbsolute(count);
+                            scriptedPtyReads.push(StringView(repeated), 0, false);
+                        }
+                        if (eof) {
+                            scriptedPtyReads.push(StringView(), 0, true);
+                        }
+                        installScriptedPtyReader();
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"PTY_WRITE_SCRIPT "))) {
+                        scriptedPtyWrites.items.clear();
+                        scriptedPtyWrites.head = 0;
+                        writtenPtyData.reset();
+                        ArgReader args(tail(line, 17));
+                        char token[64];
+                        bool any = false;
+                        while (args.token(token, sizeof(token))) {
+                            any = true;
+                            char* stop = nullptr;
+                            if (token[0] == 'n' && token[1] != '\0') {
+                                const unsigned long count = strtoul(token + 1, &stop, 10);
+                                if (*stop != '\0' || count == 0) {
+                                    raiseError(StringView(u8"invalid PTY write count"));
+                                }
+                                scriptedPtyWrites.items.pushBack({count, 0});
+                            } else if (token[0] == 'e' && token[1] != '\0') {
+                                const long error = strtol(token + 1, &stop, 10);
+                                if (*stop != '\0' || error <= 0) {
+                                    raiseError(StringView(u8"invalid PTY write errno"));
+                                }
+                                scriptedPtyWrites.items.pushBack({0, (int)(error)});
+                            } else {
+                                raiseError(StringView(u8"invalid PTY write script"));
+                            }
+                        }
+                        if (!any) {
+                            raiseError(StringView(u8"empty PTY write script"));
+                        }
+                        scriptedPtyWrites.written.reset();
+                        terminalPty.setWriteHandler(&scriptedPtyWrites);
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"WAIT_READ_PTY")) {
+                        const bool ready = composer.platform->scheduler()->awaitReadable(io[0], 1'000'000);
+                        if (!ready) {
+                            raiseError(StringView(u8"PTY input timeout"));
+                        }
+                        terminal.readPty();
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"FAIL_NEXT_PRESENT")) {
+                        window.failNextPresentation();
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"FAIL_NEXT_FONT_CHANGE")) {
+                        failFontChange.arm();
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"PRESENT")) {
+                        terminal.redraw();
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"GPU_ATTRIBUTE_MASKS")) {
+                        TerminalCell cell{};
+                        cell.dwidth = true;
+                        const u32 doubleWidth = Renderer::cellAttributes(cell);
+                        cell.dwidth = false;
+                        cell.dwidth_cont = true;
+                        const u32 continuation = Renderer::cellAttributes(cell);
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(doubleWidth), StringView(u8" "), (i64)(continuation), StringView(u8"\n"));
+                    } else if (line == StringView(u8"POLL_CHILD")) {
+                        pumpChild();
+                        Buffer text;
+                        renderer.screenText(text);
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(childPid > 0), StringView(u8" "), (i64)(childExitStatus), StringView(u8" "), HexOut{hexview(StringView(text))}, StringView(u8"\n"));
+                    } else if (line == StringView(u8"CHILD_STATUS")) {
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(childPid > 0), StringView(u8" "), (i64)(childExitStatus), StringView(u8"\n"));
+                    } else if (line == StringView(u8"PAGE_UP")) {
+                        terminal.pageUp();
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"PAGE_DOWN")) {
+                        terminal.pageDown();
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"WHEEL_UP")) {
+                        terminal.mouseWheelUp();
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"WHEEL_DOWN")) {
+                        terminal.mouseWheelDown();
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"SCROLL "))) {
+                        ArgReader args(tail(line, 7));
+                        double x;
+                        double y;
+                        unsigned modifiers;
+                        int pixelX;
+                        int pixelY;
+                        if (!(args.read(x) && args.read(y) && args.read(modifiers) && args.read(pixelX) && args.read(pixelY)) || modifiers > 7) {
+                            raiseError(StringView(u8"invalid scroll event"));
+                        }
+                        composer.input->scroll({x, y, pixelX, pixelY, (u16)(modifiers)});
+                        terminal.update();
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"POINTER "))) {
+                        ArgReader args(tail(line, 8));
+                        double x, y, scaleX, scaleY;
+                        unsigned modifiers;
+                        if (!(args.read(x) && args.read(y) && args.read(modifiers) && args.read(scaleX) && args.read(scaleY)) || modifiers > 7) {
+                            raiseError(StringView(u8"invalid pointer event"));
+                        }
+                        const int pixelX = mouseFramebufferCoordinate(x, scaleX);
+                        const int pixelY = mouseFramebufferCoordinate(y, scaleY);
+                        composer.input->pointerMotion({pixelX, pixelY, (u16)(modifiers)});
+                        terminal.update();
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"BUTTON "))) {
+                        ArgReader args(tail(line, 7));
+                        int button;
+                        unsigned pressed, modifiers;
+                        double x, y, time, scaleX, scaleY;
+                        if (!(args.read(button) && args.read(pressed) && args.read(x) && args.read(y) && args.read(modifiers) && args.read(time) && args.read(scaleX) && args.read(scaleY)) || button < 0 || button > 7 || pressed > 1 || modifiers > 7) {
+                            raiseError(StringView(u8"invalid button event"));
+                        }
+                        const int pixelX = mouseFramebufferCoordinate(x, scaleX);
+                        const int pixelY = mouseFramebufferCoordinate(y, scaleY);
+                        const u64 clipboardGeneration = clipboard.generation;
+                        composer.input->pointerButton({(PointerButton)(button), pressed != 0, pixelX, pixelY, (u16)(modifiers), time});
+                        terminal.update();
+                        Buffer selection;
+                        if (clipboard.generation != clipboardGeneration) {
+                            const StringView content(clipboard.primary);
+                            selection.append(content.data(), content.length());
+                        }
+                        writeParts(controlFd, StringView(u8"OK "), HexOut{StringView(selection)}, StringView(u8"\n"));
+                    } else if (startsWith(line, StringView(u8"RESIZE "))) {
+                        ArgReader args(tail(line, 7));
+                        unsigned columns;
+                        unsigned rows;
+                        if (!(args.read(columns) && args.read(rows)) || !columns || !rows) {
+                            raiseError(StringView(u8"invalid resize"));
+                        }
+                        terminal.resize(2 * opts.border + columns * composer.glyphWidth, 2 * opts.border + rows * composer.glyphHeight);
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"RESIZE_PIXELS "))) {
+                        ArgReader args(tail(line, 14));
+                        unsigned pixelWidth;
+                        unsigned pixelHeight;
+                        if (!(args.read(pixelWidth) && args.read(pixelHeight)) || pixelWidth <= 2 * opts.border || pixelHeight <= 2 * opts.border) {
+                            raiseError(StringView(u8"invalid pixel resize"));
+                        }
+                        terminal.resize(pixelWidth, pixelHeight);
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"WINDOW_INFO "))) {
+                        ArgReader args(tail(line, 12));
+                        i64 x;
+                        i64 y;
+                        u64 pixelWidth;
+                        u64 pixelHeight;
+                        u64 screenWidth;
+                        u64 screenHeight;
+                        unsigned iconified;
+                        unsigned maximized;
+                        unsigned fullscreen;
+                        unsigned tiled = 0;
+                        if (!(args.read(x) && args.read(y) && args.read(pixelWidth) && args.read(pixelHeight) && args.read(screenWidth) && args.read(screenHeight) && args.read(iconified) && args.read(maximized) && args.read(fullscreen)) || x < INT32_MIN || x > INT32_MAX || y < INT32_MIN || y > INT32_MAX || pixelWidth > UINT16_MAX || pixelHeight > UINT16_MAX || screenWidth > UINT32_MAX || screenHeight > UINT32_MAX || iconified > 1 || maximized > 1 || fullscreen > 1) {
+                            raiseError(StringView(u8"invalid window info"));
+                        }
+                        if ((args.read(tiled)) && tiled > 1) {
+                            raiseError(StringView(u8"invalid window info"));
+                        }
+                        plt::WindowInfo info = window.info();
+                        info.x = x;
+                        info.y = y;
+                        info.width = pixelWidth;
+                        info.height = pixelHeight;
+                        info.screenPixelWidth = screenWidth;
+                        info.screenPixelHeight = screenHeight;
+                        info.iconified = iconified;
+                        info.maximized = maximized;
+                        info.fullscreen = fullscreen;
+                        info.tiled = tiled;
+                        window.configure(info);
+                        terminal.update();
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"WINSIZE")) {
+                        winsize size{};
+                        if (ioctl(io[0], TIOCGWINSZ, &size) < 0) {
+                            raiseError(StringView(u8"test TIOCGWINSZ failed"));
+                        }
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(size.ws_col), StringView(u8" "), (i64)(size.ws_row), StringView(u8"\n"));
+                    } else if (line == StringView(u8"WINSIZE_FULL")) {
+                        winsize size{};
+                        if (ioctl(io[0], TIOCGWINSZ, &size) < 0) {
+                            raiseError(StringView(u8"test TIOCGWINSZ failed"));
+                        }
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(size.ws_col), StringView(u8" "), (i64)(size.ws_row), StringView(u8" "), (i64)(size.ws_xpixel), StringView(u8" "), (i64)(size.ws_ypixel), StringView(u8"\n"));
+                    } else if (line == StringView(u8"FONT_STATE")) {
+                        StringBuilder output;
+                        output << StringView(u8"OK ") << composer.fontSize << StringView(u8" ") << composer.glyphWidth << StringView(u8" ") << composer.glyphHeight << StringView(u8" ") << composer.pixelWidth << StringView(u8" ") << composer.pixelHeight << StringView(u8" ") << composer.columns << StringView(u8" ") << composer.rows << StringView(u8" ") << (unsigned)(composer.contentScale * 1000.0f + 0.5f) << StringView(u8" ") << opts.border << StringView(u8"\n");
+                        writeAll(controlFd, StringView(output));
+                    } else if (line == StringView(u8"LAST_UPDATE")) {
+                        Buffer response;
+                        renderer.lastUpdate(response);
+                        writeAll(controlFd, StringView(response));
+                    } else if (line == StringView(u8"LAST_UPDATE_ROWS")) {
+                        Buffer response;
+                        renderer.lastUpdateRows(response);
+                        writeAll(controlFd, StringView(response));
+                    } else if (startsWith(line, StringView(u8"FRONTEND_SCALE "))) {
+                        unsigned xNumerator = 0;
+                        unsigned xDenominator = 0;
+                        unsigned yNumerator = 0;
+                        unsigned yDenominator = 0;
+                        char trailing = 0;
+                        if (sscanf((const char*)(lineBytes.cStr()) + 15, "%u %u %u %u %c", &xNumerator, &xDenominator, &yNumerator, &yDenominator, &trailing) != 4 || xNumerator == 0 || xDenominator == 0 || yNumerator == 0 || yDenominator == 0 || xNumerator > 10000 || xDenominator > 10000 || yNumerator > 10000 || yDenominator > 10000) {
+                            Errno(EINVAL).raise(StringView(u8"invalid frontend scale"));
+                        }
+                        plt::WindowInfo info = window.info();
+                        info.contentScale = max((float)(xNumerator) / xDenominator, (float)(yNumerator) / yDenominator);
+                        window.configure(info);
+                        terminal.update();
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"KEY "))) {
+                        ArgReader args(tail(line, 4));
+                        char name[64];
+                        unsigned modifiers;
+                        if (!args.token(name, sizeof(name)) || !args.read(modifiers) || modifiers > 7) {
+                            raiseError(StringView(u8"invalid key"));
+                        }
+                        terminal.writePty(parseKey(name), (VtModifier)(modifiers), true);
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"CHAR "))) {
+                        ArgReader args(tail(line, 5));
+                        unsigned character;
+                        unsigned modifiers;
+                        if (!(args.read(character) && args.read(modifiers)) || character > 255 || modifiers > 7) {
+                            raiseError(StringView(u8"invalid char"));
+                        }
+                        terminal.writePty((u8)(character), (VtModifier)(modifiers), true);
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"CONTROL_CHARACTER "))) {
+                        ArgReader args(tail(line, 18));
+                        int key;
+                        unsigned shifted;
+                        u8 character = 0;
+                        if (!(args.read(key) && args.read(shifted)) || shifted > 1 || !controlCharacter(key, shifted, character)) {
+                            raiseError(StringView(u8"invalid control character"));
+                        }
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(character), StringView(u8"\n"));
+                    } else if (startsWith(line, StringView(u8"FRONTEND_CONTROL "))) {
+                        ArgReader args(tail(line, 17));
+                        int key;
+                        unsigned shifted;
+                        unsigned alt;
+                        u8 character = 0;
+                        if (!(args.read(key) && args.read(shifted) && args.read(alt)) || shifted > 1 || alt > 1 || !controlCharacter(key, shifted, character)) {
+                            raiseError(StringView(u8"invalid frontend control"));
+                        }
+                        VtModifier modifiers = VtModifier::control;
+                        if (shifted) {
+                            modifiers = modifiers | VtModifier::shift;
+                        }
+                        if (alt) {
+                            modifiers = modifiers | VtModifier::alt;
+                        }
+                        terminal.writePty(character, modifiers, true);
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"FRONTEND_KEY_EVENT "))) {
+                        ArgReader args(tail(line, 19));
+                        int key;
+                        int scancode;
+                        int action;
+                        int modifiers;
+                        if (!(args.read(key) && args.read(scancode) && args.read(action) && args.read(modifiers)) || action < 0 || action > 2 || modifiers < 0) {
+                            raiseError(StringView(u8"invalid frontend key event"));
+                        }
+                        input.key(key, scancode, action, modifiers);
+                        terminal.update();
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"FRONTEND_LAYOUT_KEY "))) {
+                        ArgReader args(tail(line, 20));
+                        int key;
+                        int action;
+                        int modifiers;
+                        unsigned layout;
+                        unsigned base;
+                        if (!(args.read(key) && args.read(action) && args.read(modifiers) && args.read(layout) && args.read(base)) || action < 0 || action > 2 || modifiers < 0 || layout > 0x10ffff || base > 0x10ffff) {
+                            raiseError(StringView(u8"invalid frontend layout key"));
+                        }
+                        input.layoutKey(key, action, modifiers, layout, base);
+                        terminal.update();
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"FRONTEND_TEXT_EVENT "))) {
+                        ArgReader args(tail(line, 20));
+                        unsigned codepoint;
+                        int modifiers;
+                        if (!(args.read(codepoint) && args.read(modifiers)) || codepoint > 0x10ffff || modifiers < 0) {
+                            raiseError(StringView(u8"invalid frontend text event"));
+                        }
+                        input.text(codepoint, modifiers);
+                        terminal.update();
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"KITTY_KEY "))) {
+                        ArgReader args(tail(line, 10));
+                        u32 key;
+                        u32 shifted;
+                        u32 base;
+                        unsigned modifiers;
+                        unsigned event;
+                        if (!(args.read(key) && args.read(shifted) && args.read(base) && args.read(modifiers) && args.read(event)) || event < 1 || event > 3) {
+                            raiseError(StringView(u8"invalid kitty key"));
+                        }
+                        terminal.writeKittyKey(key, shifted, base, modifiers, (VtermKeyEventType)(event));
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"KITTY_SPECIAL "))) {
+                        ArgReader args(tail(line, 14));
+                        char name[64];
+                        unsigned modifiers;
+                        unsigned event;
+                        if (!args.token(name, sizeof(name)) || !args.read(modifiers) || !args.read(event) || event < 1 || event > 3) {
+                            raiseError(StringView(u8"invalid kitty special key"));
+                        }
+                        terminal.writeKittyKey(parseKey(name), modifiers, (VtermKeyEventType)(event));
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"PASTE "))) {
+                        Buffer pasted;
+                        decodeHex(tail(line, 6), pasted);
+                        terminal.pasteSelection(StringView(pasted));
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"DROP "))) {
+                        Buffer dropped;
+                        decodeHex(tail(line, 5), dropped);
+                        spawnDrop(dropped, StringView(u8"text/plain;charset=utf-8"));
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"DROP_PATH "))) {
+                        Buffer path;
+                        decodeHex(tail(line, 10), path);
+                        Buffer uriList;
+                        pathToUriList(StringView(path), uriList);
+                        spawnDrop(uriList, StringView(u8"text/uri-list"));
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"PASTE_CLIPBOARD 0") || line == StringView(u8"PASTE_CLIPBOARD 1")) {
+                        writeAll(controlFd, testApi.pasteClipboard(line.back() == '1') ? "OK 1\n" : "OK 0\n");
+                    } else if (startsWith(line, StringView(u8"FOCUS "))) {
+                        terminal.setHasFocus(tail(line, 6) == "1");
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"POINTER_PRESENCE 0") || line == StringView(u8"POINTER_PRESENCE 1")) {
+                        composer.input->pointerPresence(line.back() == '1');
+                        terminal.update();
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"HIGHLIGHT_RELEASE "))) {
+                        ArgReader args(tail(line, 18));
+                        unsigned endX, endY, mouseX, mouseY;
+                        if (!(args.read(endX) && args.read(endY) && args.read(mouseX) && args.read(mouseY))) {
+                            raiseError(StringView(u8"invalid highlight release"));
+                        }
+                        terminal.mouseHighlightRelease(endX, endY, mouseX, mouseY);
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"LOCATOR_POSITION "))) {
+                        ArgReader args(tail(line, 17));
+                        unsigned column, row, pixelX, pixelY, buttons;
+                        if (!(args.read(column) && args.read(row) && args.read(pixelX) && args.read(pixelY) && args.read(buttons))) {
+                            raiseError(StringView(u8"invalid locator position"));
+                        }
+                        terminal.setLocatorPosition(column, row, pixelX, pixelY, buttons);
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"LOCATOR_BUTTON "))) {
+                        ArgReader args(tail(line, 15));
+                        unsigned button, pressed;
+                        if (!(args.read(button) && args.read(pressed))) {
+                            raiseError(StringView(u8"invalid locator button"));
+                        }
+                        terminal.reportLocatorButton(button, pressed != 0);
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"SYNC_TIMEOUT")) {
+                        terminal.expireSynchronizedOutput(true);
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"BLINK_TICK")) {
+                        if (terminal.advanceAnimation(true)) {
+                            terminal.redraw();
+                        }
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"SELECTION_AUTOSCROLL_TICK")) {
+                        terminal.advanceSelectionAutoscroll();
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"SELECT_START ")) || startsWith(line, StringView(u8"SELECT_EXTEND ")) || startsWith(line, StringView(u8"SELECT_UPDATE "))) {
+                        const bool start = startsWith(line, StringView(u8"SELECT_START "));
+                        const bool extend = startsWith(line, StringView(u8"SELECT_EXTEND "));
+                        ArgReader args(tail(line, start ? 13 : 14));
+                        int column;
+                        int row;
+                        if (!(args.read(column) && args.read(row))) {
+                            raiseError(StringView(u8"invalid selection point"));
+                        }
+                        unsigned cycle = 0;
+                        if ((start || extend) && args.read(cycle) && cycle > 1) {
+                            raiseError(StringView(u8"invalid selection cycle"));
+                        }
+                        if (start) {
+                            terminal.selectStart(opts.border + column * composer.glyphWidth, opts.border + row * composer.glyphHeight, cycle != 0);
+                        } else if (extend) {
+                            terminal.selectExtend(opts.border + column * composer.glyphWidth, opts.border + row * composer.glyphHeight, cycle != 0);
+                        } else {
+                            terminal.selectUpdate(opts.border + column * composer.glyphWidth, opts.border + row * composer.glyphHeight);
+                        }
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"SELECT_RECTANGULAR")) {
+                        terminal.selectRectangularModeToggle();
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"SELECT_FINISH")) {
+                        Buffer selection;
+                        terminal.selectFinish(selection);
+                        writeParts(controlFd, StringView(u8"OK "), HexOut{StringView(selection)}, StringView(u8"\n"));
+                    } else if (startsWith(line, StringView(u8"HYPERLINK "))) {
+                        ArgReader args(tail(line, 10));
+                        int column;
+                        int row;
+                        if (!(args.read(column) && args.read(row))) {
+                            raiseError(StringView(u8"invalid hyperlink point"));
+                        }
+                        Buffer link;
+                        terminal.getHyperlink(opts.border + column, opts.border + row, link);
+                        writeParts(controlFd, StringView(u8"OK "), HexOut{StringView(link)}, StringView(u8"\n"));
+                    } else if (line == StringView(u8"HYPERLINK_COUNT")) {
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(terminal.getHyperlinkCount()), StringView(u8"\n"));
+                    } else if (line == StringView(u8"DESKTOP_STATE")) {
+                        const unsigned linkIcon = window.pointerIcon() == plt::PointerIcon::Pointer ? 1 : 0;
+                        StringBuilder output;
+                        output << StringView(u8"OK ") << linkIcon << StringView(u8" ") << window.openUriCount() << StringView(u8" ") << renderer.hoveredHyperlink() << StringView(u8" ") << renderer.hoveredLinkBegin() << StringView(u8" ") << renderer.hoveredLinkEnd() << StringView(u8" ");
+                        if (window.openedUri().empty()) {
+                            output << StringView(u8"-");
+                        } else {
+                            appendHex(output, window.openedUri());
+                        }
+                        output << StringView(u8"\n");
+                        writeAll(controlFd, StringView(output));
+                    } else if (line == StringView(u8"READ_ACTIONS")) {
+                        Buffer actions;
+                        vtermTrace.drainActions(actions);
+                        writeParts(controlFd, StringView(u8"OK "), HexOut{StringView(actions)}, StringView(u8"\n"));
+                    } else if (line == StringView(u8"STATE")) {
+                        const auto& mouse = terminal.getMouseTrackingState();
+                        writeParts(controlFd, StringView(u8"OK "), (i64)((unsigned)(mouse.mode)), StringView(u8" "), (i64)((unsigned)(mouse.enc)), StringView(u8" "), (i64)(mouse.focusEventMode), StringView(u8" "), (i64)(terminal.getKittyKeyboardFlags()), StringView(u8"\n"));
+                    } else if (line == StringView(u8"PROTOCOL_STATE")) {
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(terminal.getScreenReverseVideo()), StringView(u8" "), (i64)(terminal.getLedState()), StringView(u8" "), (i64)(terminal.getReverseWrapMode()), StringView(u8" "), (i64)(terminal.getNationalReplacementMode()), StringView(u8" 0\n"));
+                    } else if (line == StringView(u8"CURSOR_STATE")) {
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(terminal.getPrivateMode(25)), StringView(u8" "), (i64)(terminal.getPrivateMode(12)), StringView(u8" "), (i64)((unsigned)(terminal.getCursorStyle())), StringView(u8"\n"));
+                    } else if (line == StringView(u8"CURSOR_PENDING_WRAP")) {
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(terminal.getPendingWrap()), StringView(u8"\n"));
+                    } else if (line == StringView(u8"CURSOR_AT_PROMPT")) {
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(terminal.cursorIsAtPrompt()), StringView(u8"\n"));
+                    } else if (line == StringView(u8"SEMANTIC_CLICK")) {
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(terminal.getSemanticClick()), StringView(u8"\n"));
+                    } else if (startsWith(line, StringView(u8"ROW_SEMANTIC "))) {
+                        ArgReader args(tail(line, 13));
+                        int row;
+                        if (!(args.read(row))) {
+                            raiseError(StringView(u8"invalid semantic row"));
+                        }
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(terminal.getRowSemantic(row)), StringView(u8"\n"));
+                    } else if (startsWith(line, StringView(u8"TAB_STOP "))) {
+                        ArgReader args(tail(line, 9));
+                        unsigned column;
+                        if (!(args.read(column)) || column > 65535) {
+                            raiseError(StringView(u8"invalid tab stop column"));
+                        }
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(terminal.getTabStop(column)), StringView(u8"\n"));
+                    } else if (startsWith(line, StringView(u8"TAB_STOPS "))) {
+                        ArgReader args(tail(line, 10));
+                        unsigned parsedColumns;
+                        if (!(args.read(parsedColumns)) || parsedColumns > 65535) {
+                            raiseError(StringView(u8"invalid tab stop columns"));
+                        }
+                        const u16 columns = parsedColumns;
+                        StringBuilder output;
+                        output << StringView(u8"OK ");
+                        for (u16 column = 0; column < columns; ++column) {
+                            output << (terminal.getTabStop(column) ? StringView(u8"1") : StringView(u8"0"));
+                        }
+                        output << StringView(u8"\n");
+                        writeAll(controlFd, StringView(output));
+                    } else if (startsWith(line, StringView(u8"SET_WRAPPED "))) {
+                        ArgReader args(tail(line, 12));
+                        unsigned row;
+                        if (!(args.read(row)) || row > 65535) {
+                            raiseError(StringView(u8"invalid wrapped row"));
+                        }
+                        terminal.setWrapped((u16)(row));
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"CONFORMANCE_STATE")) {
+                        StringBuilder output;
+                        output << StringView(u8"OK screen=") << (terminal.getPrivateMode(47) ? StringView(u8"Alternate") : StringView(u8"Primary")) << StringView(u8" IRM=") << (unsigned)(terminal.getAnsiMode(4)) << StringView(u8" SRM=") << (unsigned)(terminal.getAnsiMode(12)) << StringView(u8" LNM=") << (unsigned)(terminal.getAnsiMode(20)) << StringView(u8" DECCKM=") << (unsigned)(terminal.getPrivateMode(1)) << StringView(u8" DECCOLM=") << (unsigned)(terminal.getPrivateMode(3)) << StringView(u8" DECSCLM=") << (unsigned)(terminal.getPrivateMode(4)) << StringView(u8" DECSCNM=") << (unsigned)(terminal.getPrivateMode(5)) << StringView(u8" DECOM=") << (unsigned)(terminal.getPrivateMode(6)) << StringView(u8" DECAWM=") << (unsigned)(terminal.getPrivateMode(7)) << StringView(u8" DECARM=") << (unsigned)(terminal.getPrivateMode(8)) << StringView(u8" DECTCEM=") << (unsigned)(terminal.getPrivateMode(25)) << StringView(u8" DECNKM=") << (unsigned)(terminal.getPrivateMode(66)) << StringView(u8" DECBKM=") << (unsigned)(terminal.getPrivateMode(67)) << StringView(u8" DECLRMM=") << (unsigned)(terminal.getPrivateMode(69)) << StringView(u8"\n");
+                        writeAll(controlFd, StringView(output));
+                    } else if (line == StringView(u8"RECTANGLE_ORIGIN")) {
+                        const RectangleOrigin origin = terminal.getRectangleOrigin();
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(origin.rowBase), StringView(u8" "), (i64)(origin.columnBase), StringView(u8" "), (i64)(origin.rowLimit), StringView(u8" "), (i64)(origin.columnLimit), StringView(u8"\n"));
+                    } else if (line == StringView(u8"PEN_STATE")) {
+                        const TerminalPen pen = terminal.getPenState();
+                        StringBuilder output;
+                        output << StringView(u8"OK ") << cellFlags(pen.cell) << StringView(u8" ") << (unsigned)(pen.fg.red) << StringView(u8" ") << (unsigned)(pen.fg.green) << StringView(u8" ") << (unsigned)(pen.fg.blue) << StringView(u8" ") << (unsigned)(pen.bg.red) << StringView(u8" ") << (unsigned)(pen.bg.green) << StringView(u8" ") << (unsigned)(pen.bg.blue) << StringView(u8" ") << pen.cell.foreground().legacyIndex() << StringView(u8" ") << pen.cell.background().legacyIndex() << StringView(u8"\n");
+                        writeAll(controlFd, StringView(output));
+                    } else if (line == StringView(u8"PARSER_TRACE_ON")) {
+                        vtermTrace.clear();
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"PARSER_TRACE_CLEAR")) {
+                        vtermTrace.clear();
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"READ_PARSER_TRACE")) {
+                        Buffer events;
+                        vtermTrace.drain(events);
+                        writeParts(controlFd, StringView(u8"OK "), HexOut{StringView(events)}, StringView(u8"\n"));
+                    } else if (startsWith(line, StringView(u8"UTF8_PUSH "))) {
+                        Buffer pushed;
+                        decodeHex(tail(line, 10), pushed);
+                        Vector<u32> codepoints;
+                        testUtf8Decoder.push(StringView(pushed), codepoints);
+                        StringBuilder output;
+                        output << StringView(u8"OK");
+                        for (const u32 codepoint : codepoints) {
+                            output << StringView(u8" ") << Hex{codepoint};
+                        }
+                        output << StringView(u8"\n");
+                        writeAll(controlFd, StringView(output));
+                    } else if (line == StringView(u8"UTF8_FLUSH")) {
+                        Vector<u32> codepoints;
+                        testUtf8Decoder.flush(codepoints);
+                        StringBuilder output;
+                        output << StringView(u8"OK");
+                        for (const u32 codepoint : codepoints) {
+                            output << StringView(u8" ") << Hex{codepoint};
+                        }
+                        output << StringView(u8"\n");
+                        writeAll(controlFd, StringView(output));
+                    } else if (line == StringView(u8"UTF8_RESET")) {
+                        testUtf8Decoder.reset();
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"CODEPOINT_WIDTHS "))) {
+                        ArgReader args(tail(line, 17));
+                        char token[32];
+                        StringBuilder output;
+                        output << StringView(u8"OK");
+                        size_t count = 0;
+                        while (args.token(token, sizeof(token))) {
+                            char* stop = nullptr;
+                            const unsigned long codepoint = strtoul(token, &stop, 16);
+                            if (stop == token || *stop != '\0' || codepoint > 0x10ffff) {
+                                raiseError(StringView(u8"invalid codepoint"));
+                            }
+                            output << StringView(u8" ") << codepointWidth((u32)(codepoint));
+                            ++count;
+                        }
+                        if (!count) {
+                            raiseError(StringView(u8"empty codepoint width request"));
+                        }
+                        output << StringView(u8"\n");
+                        writeAll(controlFd, StringView(output));
+                    } else if (line == StringView(u8"RENDER_STATE")) {
+                        Buffer response;
+                        renderer.renderState(response);
+                        writeAll(controlFd, StringView(response));
+                    } else if (line == StringView(u8"SELECTION_STATE")) {
+                        Buffer response;
+                        renderer.selectionState(response);
+                        writeAll(controlFd, StringView(response));
+                    } else if (line == StringView(u8"CHARSET_STATE")) {
+                        const VtermTestState state = testApi.inspect();
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(state.charsets[0]), StringView(u8" "), (i64)(state.charsets[1]), StringView(u8" "), (i64)(state.charsets[2]), StringView(u8" "), (i64)(state.charsets[3]), StringView(u8"\n"));
+                    } else if (startsWith(line, StringView(u8"MOUSE_ENCODE "))) {
+                        ArgReader args(tail(line, 13));
+                        unsigned encoding;
+                        unsigned type;
+                        unsigned modifiers;
+                        int motionButton;
+                        int button;
+                        int column;
+                        int row;
+                        if (!(args.read(encoding) && args.read(type) && args.read(modifiers) && args.read(motionButton) && args.read(button) && args.read(column) && args.read(row)) || encoding > 4 || type > 2) {
+                            raiseError(StringView(u8"invalid mouse event"));
+                        }
+                        StringBuilder report;
+                        encodeMouseProtocol(report, (MouseTrackingEnc)(encoding), (MouseEventType)(type), modifiers, motionButton, button, column, row);
+                        writeParts(controlFd, StringView(u8"OK "), HexOut{hexview(StringView(report))}, StringView(u8"\n"));
+                    } else if (startsWith(line, StringView(u8"SET_PRIMARY "))) {
+                        const void* found = memchr(line.data() + 12, ' ', line.length() - 12);
+                        if (found == nullptr) {
+                            raiseError(StringView(u8"invalid primary selection"));
+                        }
+                        const size_t separator = (const u8*)(found)-line.data();
+                        char flag[8];
+                        const size_t flagLength = min(separator - 12, sizeof(flag) - 1);
+                        memcpy(flag, line.data() + 12, flagLength);
+                        flag[flagLength] = '\0';
+                        char* stop = nullptr;
+                        const long autoCopy = strtol(flag, &stop, 10);
+                        if (stop == flag || *stop != '\0' || autoCopy < 0 || autoCopy > 1) {
+                            raiseError(StringView(u8"invalid auto-copy state"));
+                        }
+                        Buffer content;
+                        decodeHex(tail(line, separator + 1), content);
+                        const StringView selection(content);
+                        clipboard.writePrimary(selection);
+                        if (autoCopy) {
+                            clipboard.writeClipboard(selection);
+                        }
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"SET_SYSTEM "))) {
+                        Buffer content;
+                        decodeHex(tail(line, 11), content);
+                        clipboard.writeClipboard(StringView(content));
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"SET_CLIPBOARD_CHUNK "))) {
+                        ArgReader args(tail(line, 20));
+                        unsigned long long size = 0;
+                        if (!args.read(size)) {
+                            raiseError(StringView(u8"invalid clipboard chunk size"));
+                        }
+                        clipboard.readChunk = (size_t)(size);
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"GET_SELECTION "))) {
+                        ArgReader args(tail(line, 14));
+                        int primary = -1;
+                        if (!args.read(primary) || primary < 0 || primary > 1) {
+                            raiseError(StringView(u8"invalid selection kind"));
+                        }
+                        const StringView content = primary ? StringView(clipboard.primary) : StringView(clipboard.system);
+                        writeParts(controlFd, StringView(u8"OK "), HexOut{content}, StringView(u8"\n"));
+                    } else if (line == StringView(u8"GET_CWD")) {
+                        StringBuilder output;
+                        output << StringView(u8"OK ");
+                        appendHex(output, vtermTrace.currentCwd());
+                        output << StringView(u8"\n");
+                        writeAll(controlFd, StringView(output));
+                    } else if (startsWith(line, StringView(u8"OSC7_CWD "))) {
+                        Buffer input;
+                        input.append("\x1b]7;", 4);
+                        Buffer cwdBytes;
+                        decodeHex(tail(line, 9), cwdBytes);
+                        input.append(cwdBytes.data(), cwdBytes.used());
+                        input.append("\x1b\\", 2);
+                        terminal.feedPtyOutput((const u8*)(input.data()), input.used());
+                        StringBuilder output;
+                        output << StringView(u8"OK ");
+                        appendHex(output, vtermTrace.currentCwd());
+                        output << StringView(u8"\n");
+                        writeAll(controlFd, StringView(output));
+                    } else if (startsWith(line, StringView(u8"PRESENTED_PIXEL "))) {
+                        ArgReader args(tail(line, 16));
+                        u32 x = 0;
+                        u32 y = 0;
+                        if (!(args.read(x) && args.read(y))) {
+                            raiseError(StringView(u8"invalid presented pixel request"));
+                        }
+                        const plt::HeadlessFrame image = window.presentedFrame();
+                        if (image.pixels == nullptr || image.format != plt::HeadlessPixelFormat::RGB8 || x >= image.width || y >= image.height) {
+                            raiseError(StringView(u8"presented pixel unavailable"));
+                        }
+                        const u8* const pixel = image.pixels + (size_t)(y)*image.stride + 3u * x;
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(pixel[0]), StringView(u8" "), (i64)(pixel[1]), StringView(u8" "), (i64)(pixel[2]), StringView(u8"\n"));
+                    } else if (line == StringView(u8"SNAPSHOT")) {
+                        Buffer response;
+                        renderer.snapshot(response);
+                        writeAll(controlFd, StringView(response));
+                    } else if (line == StringView(u8"MODEL_SNAPSHOT")) {
+                        Buffer response;
+                        renderer.modelSnapshot(response);
+                        writeAll(controlFd, StringView(response));
+                    } else if (line == StringView(u8"MODEL_DIGEST")) {
+                        Buffer response;
+                        renderer.modelDigest(response);
+                        writeAll(controlFd, StringView(response));
+                    } else if (line == StringView(u8"SCROLLBACK_STATE")) {
+                        Buffer response;
+                        renderer.scrollbackState(response);
+                        writeAll(controlFd, StringView(response));
+                    } else if (line == StringView(u8"SCREEN_TEXT")) {
+                        Buffer text;
+                        renderer.screenText(text);
+                        writeParts(controlFd, StringView(u8"OK "), HexOut{hexview(StringView(text))}, StringView(u8"\n"));
+                    } else if (line == StringView(u8"ALL_TEXT")) {
+                        const Buffer contents = terminal.allText();
+                        StringBuilder output;
+                        output << StringView(u8"OK ");
+                        appendHex(output, StringView(contents));
+                        output << StringView(u8"\n");
+                        writeAll(controlFd, StringView(output));
+                    } else if (line == StringView(u8"READ_INPUT")) {
+                        // Responses are written from this very process, so the
+                        // authoritative "what was sent to the application" stream
+                        // is the capture taken at the write call itself.  Reading
+                        // it back through the kernel pty would race the
+                        // asynchronous master→slave delivery, and responses larger
+                        // than the pty buffer would never be visible to a single
+                        // opportunistic drain.  The slave queue is drained only to
+                        // unstick a stalled flush and to keep already-reported
+                        // bytes from reaching a later spawned child; a running
+                        // child owns the slave side.
+                        waitOutputDrained();
+                        if (childPid <= 0) {
+                            {
+                                Buffer drained;
+                                drainInput(io[1], drained);
+                            }
+                        }
+                        Buffer taken;
+                        terminalPty.takeWriteData(taken);
+                        writeParts(controlFd, StringView(u8"OK "), HexOut{StringView(taken)}, StringView(u8"\n"));
+                    } else if (line == StringView(u8"FLUSH_OUTPUT")) {
+                        terminal.kickOutput();
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"FLUSH_OUTPUT_RESULT")) {
+                        terminal.kickOutput();
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(terminal.outputDrained()), StringView(u8"\n"));
+                    } else if (line == StringView(u8"READ_WRITTEN_PTY")) {
+                        writeParts(controlFd, StringView(u8"OK "), HexOut{StringView(writtenPtyData)}, StringView(u8"\n"));
+                        writtenPtyData.reset();
+                    } else if (line == StringView(u8"PENDING_SCRIPTED_PTY_READ_BYTES")) {
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(scriptedPtyReads.pendingBytes()), StringView(u8"\n"));
+                    } else if (startsWith(line, StringView(u8"SERVICE_PTY "))) {
+                        ArgReader args(tail(line, 12));
+                        int readable;
+                        int writable;
+                        if (!(args.read(readable) && args.read(writable)) || readable < 0 || readable > 1 || writable < 0 || writable > 1) {
+                            raiseError(StringView(u8"invalid PTY service event"));
+                        }
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(terminal.servicePty(readable, writable)), StringView(u8"\n"));
+                    } else if (line == StringView(u8"QUIT")) {
+                        if (childPid > 0) {
+                            kill(childPid, SIGKILL);
+                            waitpid(childPid, nullptr, 0);
+                            childPid = -1;
+                        }
+                        writeAll(controlFd, "OK\n");
                         break;
-                    }
-                    start = end + 1;
-                }
-                if (arguments.empty() || arguments[0].empty()) {
-                    throw std::runtime_error("empty child command");
-                }
-                const char* ttyPath = ttyname(io[1]);
-                if (!ttyPath) {
-                    throw std::runtime_error("test child tty has no path");
-                }
-                const std::string childTtyPath = ttyPath;
-                childExitStatus = -1;
-                childPid = fork();
-                if (childPid < 0) {
-                    throw std::runtime_error("test fork failed");
-                }
-                if (childPid == 0) {
-                    setsid();
-                    close(io[1]);
-                    const int childTty = open(childTtyPath.c_str(), O_RDWR);
-                    if (childTty < 0) {
-                        _exit(126);
-                    }
-                    ioctl(childTty, TIOCSCTTY, 0);
-                    dup2(childTty, STDIN_FILENO);
-                    dup2(childTty, STDOUT_FILENO);
-                    dup2(childTty, STDERR_FILENO);
-                    close(io[0]);
-                    if (childTty > STDERR_FILENO) {
-                        close(childTty);
-                    }
-                    configureTerminalChildEnvironment();
-                    std::vector<char*> argv;
-                    for (auto& argument : arguments) {
-                        argv.push_back(argument.data());
-                    }
-                    argv.push_back(nullptr);
-                    execvp(argv[0], argv.data());
-                    _exit(127);
-                }
-                writeAll(controlFd, "OK\n");
-            } else if (line == "PUMP") {
-                pumpChild();
-                writeAll(controlFd, "OK\n");
-            } else if (line == "READ_PTY") {
-                writeAll(controlFd, "OK " + std::to_string(terminal.readPty()) + "\n");
-            } else if (line == "READ_CHILD_OUTPUT") {
-                writeAll(controlFd, "OK " + encodeHex(terminalPty.takeReadData()) + "\n");
-            } else if (line.compare(0, 16, "PTY_READ_SCRIPT ") == 0) {
-                scriptedPtyReads.clear();
-                std::istringstream args(line.substr(16));
-                std::string token;
-                while (args >> token) {
-                    if (token == "z") {
-                        scriptedPtyReads.push_back({"", 0, true});
-                    } else if (token.size() > 1 && token[0] == 'd') {
-                        scriptedPtyReads.push_back({decodeHex(token.substr(1)), 0, false});
-                    } else if (token.size() > 1 && token[0] == 'e') {
-                        size_t consumed = 0;
-                        const int error = std::stoi(token.substr(1), &consumed);
-                        if (consumed != token.size() - 1 || error <= 0) {
-                            throw std::runtime_error("invalid PTY errno");
-                        }
-                        scriptedPtyReads.push_back({"", error, false});
                     } else {
-                        throw std::runtime_error("invalid PTY read script");
+                        writeAll(controlFd, "ERR unknown command\n");
                     }
+                } catch (Exception& error) {
+                    writeParts(controlFd, StringView(u8"ERR "), error.description(), StringView(u8"\n"));
                 }
-                if (scriptedPtyReads.empty()) {
-                    throw std::runtime_error("empty PTY read script");
-                }
-                installScriptedPtyReader();
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 16, "PTY_READ_REPEAT ") == 0) {
-                std::istringstream args(line.substr(16));
-                unsigned byte;
-                size_t count;
-                int eof;
-                if (!(args >> byte >> count >> eof) || byte > 255 || count == 0 || count > 64 * 1024 * 1024 || eof < 0 || eof > 1) {
-                    throw std::runtime_error("invalid repeated PTY input");
-                }
-                scriptedPtyReads.clear();
-                scriptedPtyReads.push_back({std::string(count, (char)(byte)), 0, false});
-                if (eof) {
-                    scriptedPtyReads.push_back({"", 0, true});
-                }
-                installScriptedPtyReader();
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 17, "PTY_WRITE_SCRIPT ") == 0) {
-                scriptedPtyWrites.clear();
-                writtenPtyData.clear();
-                std::istringstream args(line.substr(17));
-                std::string token;
-                while (args >> token) {
-                    size_t consumed = 0;
-                    if (token.size() > 1 && token[0] == 'n') {
-                        const unsigned long count = std::stoul(token.substr(1), &consumed);
-                        if (consumed != token.size() - 1 || count == 0) {
-                            throw std::runtime_error("invalid PTY write count");
-                        }
-                        scriptedPtyWrites.push_back({count, 0});
-                    } else if (token.size() > 1 && token[0] == 'e') {
-                        const int error = std::stoi(token.substr(1), &consumed);
-                        if (consumed != token.size() - 1 || error <= 0) {
-                            throw std::runtime_error("invalid PTY write errno");
-                        }
-                        scriptedPtyWrites.push_back({0, error});
-                    } else {
-                        throw std::runtime_error("invalid PTY write script");
-                    }
-                }
-                if (scriptedPtyWrites.empty()) {
-                    throw std::runtime_error("empty PTY write script");
-                }
-                terminalPty.setWriteHandler([&scriptedPtyWrites, &writtenPtyData](const u8* buffer, size_t size) {
-                    if (scriptedPtyWrites.empty()) {
-                        errno = EAGAIN;
-                        return (ssize_t)(-1);
-                    }
-                    const auto item = scriptedPtyWrites.front();
-                    scriptedPtyWrites.pop_front();
-                    if (item.error) {
-                        errno = item.error;
-                        return (ssize_t)(-1);
-                    }
-                    const size_t count = min(size, item.count);
-                    writtenPtyData.append((const char*)(buffer), count);
-                    return (ssize_t)(count);
-                });
-                writeAll(controlFd, "OK\n");
-            } else if (line == "WAIT_READ_PTY") {
-                const bool ready = composer.platform->scheduler()->awaitReadable(io[0], 1'000'000);
-                if (!ready) {
-                    throw std::runtime_error("PTY input timeout");
-                }
-                terminal.readPty();
-                writeAll(controlFd, "OK\n");
-            } else if (line == "FAIL_NEXT_PRESENT") {
-                window.failNextPresentation();
-                writeAll(controlFd, "OK\n");
-            } else if (line == "FAIL_NEXT_FONT_CHANGE") {
-                failFontChange.arm();
-                writeAll(controlFd, "OK\n");
-            } else if (line == "PRESENT") {
-                terminal.redraw();
-                writeAll(controlFd, "OK\n");
-            } else if (line == "GPU_ATTRIBUTE_MASKS") {
-                TerminalCell cell{};
-                cell.dwidth = true;
-                const u32 doubleWidth = Renderer::cellAttributes(cell);
-                cell.dwidth = false;
-                cell.dwidth_cont = true;
-                const u32 continuation = Renderer::cellAttributes(cell);
-                writeAll(controlFd, "OK " + std::to_string(doubleWidth) + " " + std::to_string(continuation) + "\n");
-            } else if (line == "POLL_CHILD") {
-                pumpChild();
-                Buffer text;
-                renderer.screenText(text);
-                writeAll(controlFd, "OK " + std::to_string(childPid > 0) + " " + std::to_string(childExitStatus) + " " + encodeHex(StringView(text)) + "\n");
-            } else if (line == "CHILD_STATUS") {
-                writeAll(controlFd, "OK " + std::to_string(childPid > 0) + " " + std::to_string(childExitStatus) + "\n");
-            } else if (line == "PAGE_UP") {
-                terminal.pageUp();
-                writeAll(controlFd, "OK\n");
-            } else if (line == "PAGE_DOWN") {
-                terminal.pageDown();
-                writeAll(controlFd, "OK\n");
-            } else if (line == "WHEEL_UP") {
-                terminal.mouseWheelUp();
-                writeAll(controlFd, "OK\n");
-            } else if (line == "WHEEL_DOWN") {
-                terminal.mouseWheelDown();
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 7, "SCROLL ") == 0) {
-                std::istringstream args(line.substr(7));
-                double x;
-                double y;
-                unsigned modifiers;
-                int pixelX;
-                int pixelY;
-                if (!(args >> x >> y >> modifiers >> pixelX >> pixelY) || modifiers > 7) {
-                    throw std::runtime_error("invalid scroll event");
-                }
-                composer.input->scroll({x, y, pixelX, pixelY, (u16)(modifiers)});
-                terminal.update();
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 8, "POINTER ") == 0) {
-                std::istringstream args(line.substr(8));
-                double x, y, scaleX, scaleY;
-                unsigned modifiers;
-                if (!(args >> x >> y >> modifiers >> scaleX >> scaleY) || modifiers > 7) {
-                    throw std::runtime_error("invalid pointer event");
-                }
-                const int pixelX = mouseFramebufferCoordinate(x, scaleX);
-                const int pixelY = mouseFramebufferCoordinate(y, scaleY);
-                composer.input->pointerMotion({pixelX, pixelY, (u16)(modifiers)});
-                terminal.update();
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 7, "BUTTON ") == 0) {
-                std::istringstream args(line.substr(7));
-                int button;
-                unsigned pressed, modifiers;
-                double x, y, time, scaleX, scaleY;
-                if (!(args >> button >> pressed >> x >> y >> modifiers >> time >> scaleX >> scaleY) || button < 0 || button > 7 || pressed > 1 || modifiers > 7) {
-                    throw std::runtime_error("invalid button event");
-                }
-                const int pixelX = mouseFramebufferCoordinate(x, scaleX);
-                const int pixelY = mouseFramebufferCoordinate(y, scaleY);
-                const u64 clipboardGeneration = clipboard.generation;
-                composer.input->pointerButton({(PointerButton)(button), pressed != 0, pixelX, pixelY, (u16)(modifiers), time});
-                terminal.update();
-                std::string selection;
-                if (clipboard.generation != clipboardGeneration) {
-                    const StringView content(clipboard.primary);
-                    selection.assign((const char*)(content.data()), content.length());
-                }
-                writeAll(controlFd, "OK " + encodeHex(selection) + "\n");
-            } else if (line.compare(0, 7, "RESIZE ") == 0) {
-                std::istringstream args(line.substr(7));
-                unsigned columns;
-                unsigned rows;
-                if (!(args >> columns >> rows) || !columns || !rows) {
-                    throw std::runtime_error("invalid resize");
-                }
-                terminal.resize(2 * opts.border + columns * composer.glyphWidth, 2 * opts.border + rows * composer.glyphHeight);
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 14, "RESIZE_PIXELS ") == 0) {
-                std::istringstream args(line.substr(14));
-                unsigned pixelWidth;
-                unsigned pixelHeight;
-                if (!(args >> pixelWidth >> pixelHeight) || pixelWidth <= 2 * opts.border || pixelHeight <= 2 * opts.border) {
-                    throw std::runtime_error("invalid pixel resize");
-                }
-                terminal.resize(pixelWidth, pixelHeight);
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 12, "WINDOW_INFO ") == 0) {
-                std::istringstream args(line.substr(12));
-                i64 x;
-                i64 y;
-                u64 pixelWidth;
-                u64 pixelHeight;
-                u64 screenWidth;
-                u64 screenHeight;
-                unsigned iconified;
-                unsigned maximized;
-                unsigned fullscreen;
-                unsigned tiled = 0;
-                if (!(args >> x >> y >> pixelWidth >> pixelHeight >> screenWidth >> screenHeight >> iconified >> maximized >> fullscreen) || x < INT32_MIN || x > INT32_MAX || y < INT32_MIN || y > INT32_MAX || pixelWidth > UINT16_MAX || pixelHeight > UINT16_MAX || screenWidth > UINT32_MAX || screenHeight > UINT32_MAX || iconified > 1 || maximized > 1 || fullscreen > 1) {
-                    throw std::runtime_error("invalid window info");
-                }
-                if ((args >> tiled) && tiled > 1) {
-                    throw std::runtime_error("invalid window info");
-                }
-                plt::WindowInfo info = window.info();
-                info.x = x;
-                info.y = y;
-                info.width = pixelWidth;
-                info.height = pixelHeight;
-                info.screenPixelWidth = screenWidth;
-                info.screenPixelHeight = screenHeight;
-                info.iconified = iconified;
-                info.maximized = maximized;
-                info.fullscreen = fullscreen;
-                info.tiled = tiled;
-                window.configure(info);
-                terminal.update();
-                writeAll(controlFd, "OK\n");
-            } else if (line == "WINSIZE") {
-                winsize size{};
-                if (ioctl(io[0], TIOCGWINSZ, &size) < 0) {
-                    throw std::runtime_error("test TIOCGWINSZ failed");
-                }
-                writeAll(controlFd, "OK " + std::to_string(size.ws_col) + " " + std::to_string(size.ws_row) + "\n");
-            } else if (line == "WINSIZE_FULL") {
-                winsize size{};
-                if (ioctl(io[0], TIOCGWINSZ, &size) < 0) {
-                    throw std::runtime_error("test TIOCGWINSZ failed");
-                }
-                writeAll(controlFd, "OK " + std::to_string(size.ws_col) + " " + std::to_string(size.ws_row) + " " + std::to_string(size.ws_xpixel) + " " + std::to_string(size.ws_ypixel) + "\n");
-            } else if (line == "FONT_STATE") {
-                StringBuilder output;
-                output << StringView(u8"OK ") << composer.fontSize << StringView(u8" ") << composer.glyphWidth << StringView(u8" ") << composer.glyphHeight << StringView(u8" ") << composer.pixelWidth << StringView(u8" ") << composer.pixelHeight << StringView(u8" ") << composer.columns << StringView(u8" ") << composer.rows << StringView(u8" ") << (unsigned)(composer.contentScale * 1000.0f + 0.5f) << StringView(u8" ") << opts.border << StringView(u8"\n");
-                writeAll(controlFd, StringView(output));
-            } else if (line == "LAST_UPDATE") {
-                Buffer response;
-                renderer.lastUpdate(response);
-                writeAll(controlFd, StringView(response));
-            } else if (line == "LAST_UPDATE_ROWS") {
-                Buffer response;
-                renderer.lastUpdateRows(response);
-                writeAll(controlFd, StringView(response));
-            } else if (line.compare(0, 15, "FRONTEND_SCALE ") == 0) {
-                unsigned xNumerator = 0;
-                unsigned xDenominator = 0;
-                unsigned yNumerator = 0;
-                unsigned yDenominator = 0;
-                char trailing = 0;
-                if (sscanf(line.c_str() + 15, "%u %u %u %u %c", &xNumerator, &xDenominator, &yNumerator, &yDenominator, &trailing) != 4 || xNumerator == 0 || xDenominator == 0 || yNumerator == 0 || yDenominator == 0 || xNumerator > 10000 || xDenominator > 10000 || yNumerator > 10000 || yDenominator > 10000) {
-                    Errno(EINVAL).raise(StringView(u8"invalid frontend scale"));
-                }
-                plt::WindowInfo info = window.info();
-                info.contentScale = max((float)(xNumerator) / xDenominator, (float)(yNumerator) / yDenominator);
-                window.configure(info);
-                terminal.update();
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 4, "KEY ") == 0) {
-                std::istringstream args(line.substr(4));
-                std::string name;
-                unsigned modifiers;
-                if (!(args >> name >> modifiers) || modifiers > 7) {
-                    throw std::runtime_error("invalid key");
-                }
-                terminal.writePty(parseKey(name), (VtModifier)(modifiers), true);
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 5, "CHAR ") == 0) {
-                std::istringstream args(line.substr(5));
-                unsigned character;
-                unsigned modifiers;
-                if (!(args >> character >> modifiers) || character > 255 || modifiers > 7) {
-                    throw std::runtime_error("invalid char");
-                }
-                terminal.writePty((u8)(character), (VtModifier)(modifiers), true);
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 18, "CONTROL_CHARACTER ") == 0) {
-                std::istringstream args(line.substr(18));
-                int key;
-                unsigned shifted;
-                u8 character = 0;
-                if (!(args >> key >> shifted) || shifted > 1 || !controlCharacter(key, shifted, character)) {
-                    throw std::runtime_error("invalid control character");
-                }
-                writeAll(controlFd, "OK " + std::to_string(character) + "\n");
-            } else if (line.compare(0, 17, "FRONTEND_CONTROL ") == 0) {
-                std::istringstream args(line.substr(17));
-                int key;
-                unsigned shifted;
-                unsigned alt;
-                u8 character = 0;
-                if (!(args >> key >> shifted >> alt) || shifted > 1 || alt > 1 || !controlCharacter(key, shifted, character)) {
-                    throw std::runtime_error("invalid frontend control");
-                }
-                VtModifier modifiers = VtModifier::control;
-                if (shifted) {
-                    modifiers = modifiers | VtModifier::shift;
-                }
-                if (alt) {
-                    modifiers = modifiers | VtModifier::alt;
-                }
-                terminal.writePty(character, modifiers, true);
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 19, "FRONTEND_KEY_EVENT ") == 0) {
-                std::istringstream args(line.substr(19));
-                int key;
-                int scancode;
-                int action;
-                int modifiers;
-                if (!(args >> key >> scancode >> action >> modifiers) || action < 0 || action > 2 || modifiers < 0) {
-                    throw std::runtime_error("invalid frontend key event");
-                }
-                input.key(key, scancode, action, modifiers);
-                terminal.update();
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 20, "FRONTEND_LAYOUT_KEY ") == 0) {
-                std::istringstream args(line.substr(20));
-                int key;
-                int action;
-                int modifiers;
-                unsigned layout;
-                unsigned base;
-                if (!(args >> key >> action >> modifiers >> layout >> base) || action < 0 || action > 2 || modifiers < 0 || layout > 0x10ffff || base > 0x10ffff) {
-                    throw std::runtime_error("invalid frontend layout key");
-                }
-                input.layoutKey(key, action, modifiers, layout, base);
-                terminal.update();
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 20, "FRONTEND_TEXT_EVENT ") == 0) {
-                std::istringstream args(line.substr(20));
-                unsigned codepoint;
-                int modifiers;
-                if (!(args >> codepoint >> modifiers) || codepoint > 0x10ffff || modifiers < 0) {
-                    throw std::runtime_error("invalid frontend text event");
-                }
-                input.text(codepoint, modifiers);
-                terminal.update();
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 10, "KITTY_KEY ") == 0) {
-                std::istringstream args(line.substr(10));
-                u32 key;
-                u32 shifted;
-                u32 base;
-                unsigned modifiers;
-                unsigned event;
-                if (!(args >> key >> shifted >> base >> modifiers >> event) || event < 1 || event > 3) {
-                    throw std::runtime_error("invalid kitty key");
-                }
-                terminal.writeKittyKey(key, shifted, base, modifiers, (VtermKeyEventType)(event));
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 14, "KITTY_SPECIAL ") == 0) {
-                std::istringstream args(line.substr(14));
-                std::string name;
-                unsigned modifiers;
-                unsigned event;
-                if (!(args >> name >> modifiers >> event) || event < 1 || event > 3) {
-                    throw std::runtime_error("invalid kitty special key");
-                }
-                terminal.writeKittyKey(parseKey(name), modifiers, (VtermKeyEventType)(event));
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 6, "PASTE ") == 0) {
-                terminal.pasteSelection(decodeHex(line.substr(6)));
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 5, "DROP ") == 0) {
-                spawnDrop(decodeHex(line.substr(5)), StringView(u8"text/plain;charset=utf-8"));
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 10, "DROP_PATH ") == 0) {
-                spawnDrop(pathToUriList(decodeHex(line.substr(10))), StringView(u8"text/uri-list"));
-                writeAll(controlFd, "OK\n");
-            } else if (line == "PASTE_CLIPBOARD 0" || line == "PASTE_CLIPBOARD 1") {
-                writeAll(controlFd, testApi.pasteClipboard(line.back() == '1') ? "OK 1\n" : "OK 0\n");
-            } else if (line.compare(0, 6, "FOCUS ") == 0) {
-                terminal.setHasFocus(line.substr(6) == "1");
-                writeAll(controlFd, "OK\n");
-            } else if (line == "POINTER_PRESENCE 0" || line == "POINTER_PRESENCE 1") {
-                composer.input->pointerPresence(line.back() == '1');
-                terminal.update();
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 18, "HIGHLIGHT_RELEASE ") == 0) {
-                std::istringstream args(line.substr(18));
-                unsigned endX, endY, mouseX, mouseY;
-                if (!(args >> endX >> endY >> mouseX >> mouseY)) {
-                    throw std::runtime_error("invalid highlight release");
-                }
-                terminal.mouseHighlightRelease(endX, endY, mouseX, mouseY);
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 17, "LOCATOR_POSITION ") == 0) {
-                std::istringstream args(line.substr(17));
-                unsigned column, row, pixelX, pixelY, buttons;
-                if (!(args >> column >> row >> pixelX >> pixelY >> buttons)) {
-                    throw std::runtime_error("invalid locator position");
-                }
-                terminal.setLocatorPosition(column, row, pixelX, pixelY, buttons);
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 15, "LOCATOR_BUTTON ") == 0) {
-                std::istringstream args(line.substr(15));
-                unsigned button, pressed;
-                if (!(args >> button >> pressed)) {
-                    throw std::runtime_error("invalid locator button");
-                }
-                terminal.reportLocatorButton(button, pressed != 0);
-                writeAll(controlFd, "OK\n");
-            } else if (line == "SYNC_TIMEOUT") {
-                terminal.expireSynchronizedOutput(true);
-                writeAll(controlFd, "OK\n");
-            } else if (line == "BLINK_TICK") {
-                if (terminal.advanceAnimation(true)) {
-                    terminal.redraw();
-                }
-                writeAll(controlFd, "OK\n");
-            } else if (line == "SELECTION_AUTOSCROLL_TICK") {
-                terminal.advanceSelectionAutoscroll();
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 13, "SELECT_START ") == 0 || line.compare(0, 14, "SELECT_EXTEND ") == 0 || line.compare(0, 14, "SELECT_UPDATE ") == 0) {
-                const bool start = line.compare(0, 13, "SELECT_START ") == 0;
-                const bool extend = line.compare(0, 14, "SELECT_EXTEND ") == 0;
-                std::istringstream args(line.substr(start ? 13 : 14));
-                int column;
-                int row;
-                if (!(args >> column >> row)) {
-                    throw std::runtime_error("invalid selection point");
-                }
-                unsigned cycle = 0;
-                if ((start || extend) && args >> cycle && cycle > 1) {
-                    throw std::runtime_error("invalid selection cycle");
-                }
-                if (start) {
-                    terminal.selectStart(opts.border + column * composer.glyphWidth, opts.border + row * composer.glyphHeight, cycle != 0);
-                } else if (extend) {
-                    terminal.selectExtend(opts.border + column * composer.glyphWidth, opts.border + row * composer.glyphHeight, cycle != 0);
-                } else {
-                    terminal.selectUpdate(opts.border + column * composer.glyphWidth, opts.border + row * composer.glyphHeight);
-                }
-                writeAll(controlFd, "OK\n");
-            } else if (line == "SELECT_RECTANGULAR") {
-                terminal.selectRectangularModeToggle();
-                writeAll(controlFd, "OK\n");
-            } else if (line == "SELECT_FINISH") {
-                std::string selection;
-                terminal.selectFinish(selection);
-                writeAll(controlFd, "OK " + encodeHex(selection) + "\n");
-            } else if (line.compare(0, 10, "HYPERLINK ") == 0) {
-                std::istringstream args(line.substr(10));
-                int column;
-                int row;
-                if (!(args >> column >> row)) {
-                    throw std::runtime_error("invalid hyperlink point");
-                }
-                writeAll(controlFd, "OK " + encodeHex(terminal.getHyperlink(opts.border + column, opts.border + row)) + "\n");
-            } else if (line == "HYPERLINK_COUNT") {
-                writeAll(controlFd, "OK " + std::to_string(terminal.getHyperlinkCount()) + "\n");
-            } else if (line == "DESKTOP_STATE") {
-                const unsigned linkIcon = window.pointerIcon() == plt::PointerIcon::Pointer ? 1 : 0;
-                StringBuilder output;
-                output << StringView(u8"OK ") << linkIcon << StringView(u8" ") << window.openUriCount() << StringView(u8" ") << renderer.hoveredHyperlink() << StringView(u8" ") << renderer.hoveredLinkBegin() << StringView(u8" ") << renderer.hoveredLinkEnd() << StringView(u8" ");
-                if (window.openedUri().empty()) {
-                    output << StringView(u8"-");
-                } else {
-                    appendHex(output, window.openedUri());
-                }
-                output << StringView(u8"\n");
-                writeAll(controlFd, StringView(output));
-            } else if (line == "READ_ACTIONS") {
-                writeAll(controlFd, "OK " + encodeHex(vtermTrace.drainActions()) + "\n");
-            } else if (line == "STATE") {
-                const auto& mouse = terminal.getMouseTrackingState();
-                writeAll(controlFd, "OK " + std::to_string((unsigned)(mouse.mode)) + " " + std::to_string((unsigned)(mouse.enc)) + " " + std::to_string(mouse.focusEventMode) + " " + std::to_string(terminal.getKittyKeyboardFlags()) + "\n");
-            } else if (line == "PROTOCOL_STATE") {
-                writeAll(controlFd, "OK " + std::to_string(terminal.getScreenReverseVideo()) + " " + std::to_string(terminal.getLedState()) + " " + std::to_string(terminal.getReverseWrapMode()) + " " + std::to_string(terminal.getNationalReplacementMode()) + " 0\n");
-            } else if (line == "CURSOR_STATE") {
-                writeAll(controlFd, "OK " + std::to_string(terminal.getPrivateMode(25)) + " " + std::to_string(terminal.getPrivateMode(12)) + " " + std::to_string((unsigned)(terminal.getCursorStyle())) + "\n");
-            } else if (line == "CURSOR_PENDING_WRAP") {
-                writeAll(controlFd, "OK " + std::to_string(terminal.getPendingWrap()) + "\n");
-            } else if (line == "CURSOR_AT_PROMPT") {
-                writeAll(controlFd, "OK " + std::to_string(terminal.cursorIsAtPrompt()) + "\n");
-            } else if (line == "SEMANTIC_CLICK") {
-                writeAll(controlFd, "OK " + std::to_string(terminal.getSemanticClick()) + "\n");
-            } else if (line.compare(0, 13, "ROW_SEMANTIC ") == 0) {
-                std::istringstream args(line.substr(13));
-                int row;
-                if (!(args >> row)) {
-                    throw std::runtime_error("invalid semantic row");
-                }
-                writeAll(controlFd, "OK " + std::to_string(terminal.getRowSemantic(row)) + "\n");
-            } else if (line.compare(0, 9, "TAB_STOP ") == 0) {
-                std::istringstream args(line.substr(9));
-                unsigned column;
-                if (!(args >> column) || column > 65535) {
-                    throw std::runtime_error("invalid tab stop column");
-                }
-                writeAll(controlFd, "OK " + std::to_string(terminal.getTabStop(column)) + "\n");
-            } else if (line.compare(0, 10, "TAB_STOPS ") == 0) {
-                std::istringstream args(line.substr(10));
-                unsigned parsedColumns;
-                if (!(args >> parsedColumns) || parsedColumns > 65535) {
-                    throw std::runtime_error("invalid tab stop columns");
-                }
-                const u16 columns = parsedColumns;
-                StringBuilder output;
-                output << StringView(u8"OK ");
-                for (u16 column = 0; column < columns; ++column) {
-                    output << (terminal.getTabStop(column) ? StringView(u8"1") : StringView(u8"0"));
-                }
-                output << StringView(u8"\n");
-                writeAll(controlFd, StringView(output));
-            } else if (line.compare(0, 12, "SET_WRAPPED ") == 0) {
-                std::istringstream args(line.substr(12));
-                unsigned row;
-                if (!(args >> row) || row > 65535) {
-                    throw std::runtime_error("invalid wrapped row");
-                }
-                terminal.setWrapped((u16)(row));
-                writeAll(controlFd, "OK\n");
-            } else if (line == "CONFORMANCE_STATE") {
-                StringBuilder output;
-                output << StringView(u8"OK screen=") << (terminal.getPrivateMode(47) ? StringView(u8"Alternate") : StringView(u8"Primary")) << StringView(u8" IRM=") << (unsigned)(terminal.getAnsiMode(4)) << StringView(u8" SRM=") << (unsigned)(terminal.getAnsiMode(12)) << StringView(u8" LNM=") << (unsigned)(terminal.getAnsiMode(20)) << StringView(u8" DECCKM=") << (unsigned)(terminal.getPrivateMode(1)) << StringView(u8" DECCOLM=") << (unsigned)(terminal.getPrivateMode(3)) << StringView(u8" DECSCLM=") << (unsigned)(terminal.getPrivateMode(4)) << StringView(u8" DECSCNM=") << (unsigned)(terminal.getPrivateMode(5)) << StringView(u8" DECOM=") << (unsigned)(terminal.getPrivateMode(6)) << StringView(u8" DECAWM=") << (unsigned)(terminal.getPrivateMode(7)) << StringView(u8" DECARM=") << (unsigned)(terminal.getPrivateMode(8)) << StringView(u8" DECTCEM=") << (unsigned)(terminal.getPrivateMode(25)) << StringView(u8" DECNKM=") << (unsigned)(terminal.getPrivateMode(66)) << StringView(u8" DECBKM=") << (unsigned)(terminal.getPrivateMode(67)) << StringView(u8" DECLRMM=") << (unsigned)(terminal.getPrivateMode(69)) << StringView(u8"\n");
-                writeAll(controlFd, StringView(output));
-            } else if (line == "RECTANGLE_ORIGIN") {
-                const RectangleOrigin origin = terminal.getRectangleOrigin();
-                writeAll(controlFd, "OK " + std::to_string(origin.rowBase) + " " + std::to_string(origin.columnBase) + " " + std::to_string(origin.rowLimit) + " " + std::to_string(origin.columnLimit) + "\n");
-            } else if (line == "PEN_STATE") {
-                const TerminalPen pen = terminal.getPenState();
-                StringBuilder output;
-                output << StringView(u8"OK ") << cellFlags(pen.cell) << StringView(u8" ") << (unsigned)(pen.fg.red) << StringView(u8" ") << (unsigned)(pen.fg.green) << StringView(u8" ") << (unsigned)(pen.fg.blue) << StringView(u8" ") << (unsigned)(pen.bg.red) << StringView(u8" ") << (unsigned)(pen.bg.green) << StringView(u8" ") << (unsigned)(pen.bg.blue) << StringView(u8" ") << pen.cell.foreground().legacyIndex() << StringView(u8" ") << pen.cell.background().legacyIndex() << StringView(u8"\n");
-                writeAll(controlFd, StringView(output));
-            } else if (line == "PARSER_TRACE_ON") {
-                vtermTrace.clear();
-                writeAll(controlFd, "OK\n");
-            } else if (line == "PARSER_TRACE_CLEAR") {
-                vtermTrace.clear();
-                writeAll(controlFd, "OK\n");
-            } else if (line == "READ_PARSER_TRACE") {
-                writeAll(controlFd, "OK " + encodeHex(vtermTrace.drain()) + "\n");
-            } else if (line.compare(0, 10, "UTF8_PUSH ") == 0) {
-                const auto codepoints = testUtf8Decoder.push(decodeHex(line.substr(10)));
-                StringBuilder output;
-                output << StringView(u8"OK");
-                for (const u32 codepoint : codepoints) {
-                    output << StringView(u8" ") << Hex{codepoint};
-                }
-                output << StringView(u8"\n");
-                writeAll(controlFd, StringView(output));
-            } else if (line == "UTF8_FLUSH") {
-                const auto codepoints = testUtf8Decoder.flush();
-                StringBuilder output;
-                output << StringView(u8"OK");
-                for (const u32 codepoint : codepoints) {
-                    output << StringView(u8" ") << Hex{codepoint};
-                }
-                output << StringView(u8"\n");
-                writeAll(controlFd, StringView(output));
-            } else if (line == "UTF8_RESET") {
-                testUtf8Decoder.reset();
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 17, "CODEPOINT_WIDTHS ") == 0) {
-                std::istringstream args(line.substr(17));
-                std::string token;
-                StringBuilder output;
-                output << StringView(u8"OK");
-                size_t count = 0;
-                while (args >> token) {
-                    size_t consumed = 0;
-                    const unsigned long codepoint = std::stoul(token, &consumed, 16);
-                    if (consumed != token.size() || codepoint > 0x10ffff) {
-                        throw std::runtime_error("invalid codepoint");
-                    }
-                    output << StringView(u8" ") << codepointWidth((u32)(codepoint));
-                    ++count;
-                }
-                if (!count) {
-                    throw std::runtime_error("empty codepoint width request");
-                }
-                output << StringView(u8"\n");
-                writeAll(controlFd, StringView(output));
-            } else if (line == "RENDER_STATE") {
-                Buffer response;
-                renderer.renderState(response);
-                writeAll(controlFd, StringView(response));
-            } else if (line == "SELECTION_STATE") {
-                Buffer response;
-                renderer.selectionState(response);
-                writeAll(controlFd, StringView(response));
-            } else if (line == "CHARSET_STATE") {
-                const VtermTestState state = testApi.inspect();
-                writeAll(controlFd, "OK " + std::to_string(state.charsets[0]) + " " + std::to_string(state.charsets[1]) + " " + std::to_string(state.charsets[2]) + " " + std::to_string(state.charsets[3]) + "\n");
-            } else if (line.compare(0, 13, "MOUSE_ENCODE ") == 0) {
-                std::istringstream args(line.substr(13));
-                unsigned encoding;
-                unsigned type;
-                unsigned modifiers;
-                int motionButton;
-                int button;
-                int column;
-                int row;
-                if (!(args >> encoding >> type >> modifiers >> motionButton >> button >> column >> row) || encoding > 4 || type > 2) {
-                    throw std::runtime_error("invalid mouse event");
-                }
-                StringBuilder report;
-                encodeMouseProtocol(report, (MouseTrackingEnc)(encoding), (MouseEventType)(type), modifiers, motionButton, button, column, row);
-                writeAll(controlFd, "OK " + encodeHex(StringView(report)) + "\n");
-            } else if (line.compare(0, 12, "SET_PRIMARY ") == 0) {
-                const size_t separator = line.find(' ', 12);
-                if (separator == std::string::npos) {
-                    throw std::runtime_error("invalid primary selection");
-                }
-                const int autoCopy = std::stoi(line.substr(12, separator - 12));
-                if (autoCopy < 0 || autoCopy > 1) {
-                    throw std::runtime_error("invalid auto-copy state");
-                }
-                const std::string content = decodeHex(line.substr(separator + 1));
-                const StringView selection((const u8*)(content.data()), content.size());
-                clipboard.writePrimary(selection);
-                if (autoCopy) {
-                    clipboard.writeClipboard(selection);
-                }
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 11, "SET_SYSTEM ") == 0) {
-                const std::string content = decodeHex(line.substr(11));
-                clipboard.writeClipboard(StringView((const u8*)(content.data()), content.size()));
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 20, "SET_CLIPBOARD_CHUNK ") == 0) {
-                const unsigned long long size = std::stoull(line.substr(20));
-                if (size > SIZE_MAX) {
-                    throw std::runtime_error("invalid clipboard chunk size");
-                }
-                clipboard.readChunk = (size_t)(size);
-                writeAll(controlFd, "OK\n");
-            } else if (line.compare(0, 14, "GET_SELECTION ") == 0) {
-                const int primary = std::stoi(line.substr(14));
-                if (primary < 0 || primary > 1) {
-                    throw std::runtime_error("invalid selection kind");
-                }
-                const StringView content = primary ? StringView(clipboard.primary) : StringView(clipboard.system);
-                writeAll(controlFd, "OK " + encodeHex(std::string((const char*)(content.data()), content.length())) + "\n");
-            } else if (line == "GET_CWD") {
-                StringBuilder output;
-                output << StringView(u8"OK ");
-                appendHex(output, vtermTrace.currentCwd());
-                output << StringView(u8"\n");
-                writeAll(controlFd, StringView(output));
-            } else if (line.compare(0, 9, "OSC7_CWD ") == 0) {
-                const std::string input = "\x1b]7;" + decodeHex(line.substr(9)) + "\x1b\\";
-                terminal.feedPtyOutput((const u8*)(input.data()), input.size());
-                StringBuilder output;
-                output << StringView(u8"OK ");
-                appendHex(output, vtermTrace.currentCwd());
-                output << StringView(u8"\n");
-                writeAll(controlFd, StringView(output));
-            } else if (line.compare(0, 16, "PRESENTED_PIXEL ") == 0) {
-                std::istringstream args(line.substr(16));
-                u32 x = 0;
-                u32 y = 0;
-                if (!(args >> x >> y)) {
-                    throw std::runtime_error("invalid presented pixel request");
-                }
-                const plt::HeadlessFrame image = window.presentedFrame();
-                if (image.pixels == nullptr || image.format != plt::HeadlessPixelFormat::RGB8 || x >= image.width || y >= image.height) {
-                    throw std::runtime_error("presented pixel unavailable");
-                }
-                const u8* const pixel = image.pixels + (size_t)(y)*image.stride + 3u * x;
-                writeAll(controlFd, "OK " + std::to_string(pixel[0]) + " " + std::to_string(pixel[1]) + " " + std::to_string(pixel[2]) + "\n");
-            } else if (line == "SNAPSHOT") {
-                Buffer response;
-                renderer.snapshot(response);
-                writeAll(controlFd, StringView(response));
-            } else if (line == "MODEL_SNAPSHOT") {
-                Buffer response;
-                renderer.modelSnapshot(response);
-                writeAll(controlFd, StringView(response));
-            } else if (line == "MODEL_DIGEST") {
-                Buffer response;
-                renderer.modelDigest(response);
-                writeAll(controlFd, StringView(response));
-            } else if (line == "SCROLLBACK_STATE") {
-                Buffer response;
-                renderer.scrollbackState(response);
-                writeAll(controlFd, StringView(response));
-            } else if (line == "SCREEN_TEXT") {
-                Buffer text;
-                renderer.screenText(text);
-                writeAll(controlFd, "OK " + encodeHex(StringView(text)) + "\n");
-            } else if (line == "ALL_TEXT") {
-                const Buffer contents = terminal.allText();
-                StringBuilder output;
-                output << StringView(u8"OK ");
-                appendHex(output, StringView(contents));
-                output << StringView(u8"\n");
-                writeAll(controlFd, StringView(output));
-            } else if (line == "READ_INPUT") {
-                // Responses are written from this very process, so the
-                // authoritative "what was sent to the application" stream
-                // is the capture taken at the write call itself.  Reading
-                // it back through the kernel pty would race the
-                // asynchronous master→slave delivery, and responses larger
-                // than the pty buffer would never be visible to a single
-                // opportunistic drain.  The slave queue is drained only to
-                // unstick a stalled flush and to keep already-reported
-                // bytes from reaching a later spawned child; a running
-                // child owns the slave side.
-                waitOutputDrained();
-                if (childPid <= 0) {
-                    drainInput(io[1]);
-                }
-                writeAll(controlFd, "OK " + encodeHex(terminalPty.takeWriteData()) + "\n");
-            } else if (line == "FLUSH_OUTPUT") {
-                terminal.kickOutput();
-                writeAll(controlFd, "OK\n");
-            } else if (line == "FLUSH_OUTPUT_RESULT") {
-                terminal.kickOutput();
-                writeAll(controlFd, "OK " + std::to_string(terminal.outputDrained()) + "\n");
-            } else if (line == "READ_WRITTEN_PTY") {
-                writeAll(controlFd, "OK " + encodeHex(writtenPtyData) + "\n");
-                writtenPtyData.clear();
-            } else if (line == "PENDING_SCRIPTED_PTY_READ_BYTES") {
-                size_t count = 0;
-                for (const auto& item : scriptedPtyReads) {
-                    count += item.data.size();
-                }
-                writeAll(controlFd, "OK " + std::to_string(count) + "\n");
-            } else if (line.compare(0, 12, "SERVICE_PTY ") == 0) {
-                std::istringstream args(line.substr(12));
-                int readable;
-                int writable;
-                if (!(args >> readable >> writable) || readable < 0 || readable > 1 || writable < 0 || writable > 1) {
-                    throw std::runtime_error("invalid PTY service event");
-                }
-                writeAll(controlFd, "OK " + std::to_string(terminal.servicePty(readable, writable)) + "\n");
-            } else if (line == "QUIT") {
-                if (childPid > 0) {
-                    kill(childPid, SIGKILL);
-                    waitpid(childPid, nullptr, 0);
-                    childPid = -1;
-                }
-                writeAll(controlFd, "OK\n");
-                break;
-            } else {
-                writeAll(controlFd, "ERR unknown command\n");
+                // A harness that keeps the next command buffered would otherwise
+                // hold this fiber runnable forever and starve the poll loop the
+                // stream transactions wait on.
+                controlScheduler->yield();
             }
-        } catch (Exception& error) {
-            const StringView message = error.description();
-            writeAll(controlFd, "ERR " + std::string((const char*)(message.data()), message.length()) + "\n");
-        } catch (const std::exception& error) {
-            writeAll(controlFd, std::string("ERR ") + error.what() + "\n");
-        }
-        // A harness that keeps the next command buffered would otherwise
-        // hold this fiber runnable forever and starve the poll loop the
-        // stream transactions wait on.
-        controlScheduler->yield();
-    }
 
-        } catch (const std::exception& error) {
-            writeAll(controlFd, std::string("ERR ") + error.what() + "\n");
+        } catch (Exception& error) {
+            writeParts(controlFd, StringView(u8"ERR "), error.description(), StringView(u8"\n"));
         }
         composer.platform->stop();
     };

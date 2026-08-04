@@ -128,6 +128,16 @@ functionCall(
 - Free functions and variables inside an anonymous namespace are also marked
   `static`, even though the namespace already gives them internal linkage.
   Types, templates and explicit specializations are not.
+- The C++ standard library is not used: no `std::` containers, strings,
+  streams or algorithms anywhere. libstd (`stl::`) provides the vocabulary
+  (`Buffer`, `Vector`, `StringView`, `StringBuilder`, the hash maps), the C
+  library provides math and parsing, and `raiseError` from fatal.h replaces
+  `std::runtime_error`. The only tolerated `std::` names are core-language
+  support with no other spelling (`std::destroying_delete_t`) and types a
+  vendored third-party API forces at its boundary, kept inside that one
+  translation unit.
+- A function does not return `stl::Buffer` (or any owning byte container)
+  by value; it fills a caller-provided reference instead.
 - Avoid non-trivial global objects. Make ownership and lifetime explicit.
 
 ## Errors and client input

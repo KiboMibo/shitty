@@ -6,11 +6,11 @@
 
 #pragma once
 
+#include <std/lib/buffer.h>
 #include <std/str/view.h>
 #include <std/sys/types.h>
 
 #include <cstddef>
-#include <string>
 
 struct TestApi;
 struct VtermTrace;
@@ -43,7 +43,7 @@ struct VtermTrace {
     virtual void stringData(const u8* data, size_t size) = 0;
     virtual void stringEnd() = 0;
     virtual void stringCancel() = 0;
-    virtual std::string drain() = 0;
+    virtual void drain(stl::Buffer& out) = 0;
     virtual void clear() = 0;
 
     virtual void osc(u32 command, stl::StringView payload) = 0;
@@ -53,6 +53,6 @@ struct VtermTrace {
     virtual void notify(stl::StringView id, stl::StringView title, stl::StringView body, bool close) = 0;
     virtual void progress(u32 state, u32 percent) = 0;
     virtual void windowOperation(u32 operation, u32 first, u32 second) = 0;
-    virtual std::string drainActions() = 0;
+    virtual void drainActions(stl::Buffer& out) = 0;
     virtual stl::StringView currentCwd() const = 0;
 };
