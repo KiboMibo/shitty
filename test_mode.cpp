@@ -889,7 +889,7 @@ namespace {
         bool expireSynchronizedOutput(bool force = false);
         bool advanceAnimation(bool force = false);
         bool advanceSelectionAutoscroll();
-        Buffer allText() const;
+        void allText(Buffer& out) const;
 
         Composer& composer;
         Vterm& terminal;
@@ -1273,8 +1273,10 @@ void TestTerminal::resize(u16 width, u16 height) {
     update();
 }
 
-Buffer TestTerminal::allText() const {
-    Buffer output((renderer.historyRows() + renderer.rows()) * ((size_t)(renderer.columns()) * 4 + 1));
+void TestTerminal::allText(Buffer& out) const {
+    Buffer& output = out;
+    output.reset();
+    output.grow((renderer.historyRows() + renderer.rows()) * ((size_t)(renderer.columns()) * 4 + 1));
     const auto appendCodepoint = [&](u32 codepoint) {
         Utf8Encoder::pushUnicode(codepoint, [&](u8 byte) {
             output.append(&byte, 1);
@@ -1303,7 +1305,6 @@ Buffer TestTerminal::allText() const {
         const u8 separator = 0;
         output.append(&separator, 1);
     }
-    return output;
 }
 
 int TestTerminal::writePty(InputKey key, VtModifier modifiers, bool) {
@@ -2972,7 +2973,8 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         renderer.screenText(text);
                         writeParts(controlFd, StringView(u8"OK "), HexOut{hexview(StringView(text))}, StringView(u8"\n"));
                     } else if (line == StringView(u8"ALL_TEXT")) {
-                        const Buffer contents = terminal.allText();
+                        Buffer contents;
+                        terminal.allText(contents);
                         StringBuilder output;
                         output << StringView(u8"OK ");
                         appendHex(output, StringView(contents));
