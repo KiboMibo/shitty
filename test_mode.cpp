@@ -61,6 +61,7 @@
 #include <cstring>
 #include <deque>
 #include <fcntl.h>
+#include <limits.h>
 #include <functional>
 #include <map>
 #include <new>
