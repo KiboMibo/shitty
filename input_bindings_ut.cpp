@@ -45,10 +45,8 @@ STD_TEST_SUITE(InputBindings) {
     STD_TEST(MatchesNormalizedModifiersAndPublishes) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        IntrusiveList listeners;
         CountBinding listener;
-        listeners.pushBack(&listener);
-        composer.inputBindings->add(InputActions::Copy, &listeners);
+        composer.copyListeners.pushBack(&listener);
 
         const bool consumed = composer.inputBindings->key({
             .key = InputKey::Printable,
@@ -66,10 +64,8 @@ STD_TEST_SUITE(InputBindings) {
     STD_TEST(DoesNotConsumeMismatchedBinding) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        IntrusiveList listeners;
         CountBinding listener;
-        listeners.pushBack(&listener);
-        composer.inputBindings->add(InputActions::Copy, &listeners);
+        composer.copyListeners.pushBack(&listener);
 
         STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Press, inactiveCopyModifiers, 0, 'c'}));
         STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Press, copyModifiers, 0, 'b'}));
@@ -128,10 +124,8 @@ STD_TEST_SUITE(InputBindings) {
     STD_TEST(ActionCanHaveMultiplePlatformBindings) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        IntrusiveList listeners;
         CountBinding listener;
-        listeners.pushBack(&listener);
-        composer.inputBindings->add(InputActions::PastePrimary, &listeners);
+        composer.pastePrimaryListeners.pushBack(&listener);
 
         STD_INSIST(composer.inputBindings->key({InputKey::Insert, InputAction::Press, InputShift}));
         STD_INSIST(composer.inputBindings->key({InputKey::Insert, InputAction::Release, InputShift}));

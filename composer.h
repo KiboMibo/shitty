@@ -109,4 +109,13 @@ struct Composer {
     // Input producers call input; the router walks this list in registration
     // order and stops at the first handler which accepts the event.
     stl::IntrusiveList inputHandlers;
+    // Terminal actions are claimed once for the window. Every terminal
+    // pushes its own node here and unlinks it when it stops being the one
+    // the window shows, so the action follows the active terminal without
+    // the binding table ever being re-registered.
+    stl::IntrusiveList copyListeners;
+    stl::IntrusiveList pasteListeners;
+    stl::IntrusiveList pastePrimaryListeners;
+    stl::IntrusiveList pageUpListeners;
+    stl::IntrusiveList pageDownListeners;
 };

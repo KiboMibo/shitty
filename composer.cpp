@@ -43,6 +43,14 @@ Composer::Composer(ObjPool* pool_, Brand& brand_)
     input = createInputRouter(*this);
     inputBindings = InputBindings::create(*this);
     inputHandlers.pushBack(inputBindings);
+    // The terminal actions belong to the window, not to a terminal: they
+    // are claimed once here so any number of terminals can contribute a
+    // listener to them, and so the lists outlive every terminal that does.
+    inputBindings->add(InputActions::Copy, &copyListeners);
+    inputBindings->add(InputActions::Paste, &pasteListeners);
+    inputBindings->add(InputActions::PastePrimary, &pastePrimaryListeners);
+    inputBindings->add(InputActions::PageUp, &pageUpListeners);
+    inputBindings->add(InputActions::PageDown, &pageDownListeners);
     if (FontResolver* const resolver = createCoreTextFontResolver(*this)) {
         fontResolvers.pushBack(resolver);
     }

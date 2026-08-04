@@ -950,11 +950,6 @@ namespace {
         alignas(16) u8 syncStack_[plt::lightFiberStack];
         alignas(16) u8 blinkStack_[plt::lightFiberStack];
         alignas(16) u8 autoscrollStack_[plt::lightFiberStack];
-        IntrusiveList copyListeners;
-        IntrusiveList pasteListeners;
-        IntrusiveList pastePrimaryListeners;
-        IntrusiveList pageUpListeners;
-        IntrusiveList pageDownListeners;
         Composer& composer;
         VtermTrace* const trace;
         Output* dump;
@@ -8458,15 +8453,17 @@ VtermImpl::VtermImpl(Composer& composer_, VtermTraceFactory* traceFactory_, Outp
 }
 
 void VtermImpl::wireInputBindings() {
+    // The action itself is claimed once by the Composer. This terminal only
+    // contributes its own node, so a second terminal is additive rather
+    // than a second registration of the same action.
     const auto add = [&](InputActions action, IntrusiveList& listeners) {
         listeners.pushBack(composer.pool->make<CallVtermInputAction>(this, action));
-        composer.inputBindings->add(action, &listeners);
     };
-    add(InputActions::Copy, copyListeners);
-    add(InputActions::Paste, pasteListeners);
-    add(InputActions::PastePrimary, pastePrimaryListeners);
-    add(InputActions::PageUp, pageUpListeners);
-    add(InputActions::PageDown, pageDownListeners);
+    add(InputActions::Copy, composer.copyListeners);
+    add(InputActions::Paste, composer.pasteListeners);
+    add(InputActions::PastePrimary, composer.pastePrimaryListeners);
+    add(InputActions::PageUp, composer.pageUpListeners);
+    add(InputActions::PageDown, composer.pageDownListeners);
 }
 
 void VtermImpl::fontChanged() {
