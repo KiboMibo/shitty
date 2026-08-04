@@ -1467,6 +1467,12 @@ NSSize WindowImpl::willResize(NSSize frameSize) const {
         // visibly so with large cells.
         return frameSize;
     }
+    if (view != nil && !view.inLiveResize) {
+        // Non-interactive proposals come from window managers (AX resize,
+        // tiling WMs) and must land exactly; snapping leaves a dead strip
+        // in the assigned tile. Cell snapping is for user drags only.
+        return frameSize;
+    }
     const NSRect content = [window contentRectForFrameRect:NSMakeRect(0, 0, frameSize.width, frameSize.height)];
     const CGFloat scale = window.backingScaleFactor;
     u32 width = (u32)(max(1.0, content.size.width * scale) + 0.5);
