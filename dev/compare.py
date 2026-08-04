@@ -173,7 +173,10 @@ def probe(terminal, work):
     script = work / "winsz.py"
     script.write_text(WINSZ_PROBE)
     try:
-        run(terminal.argv(f"python3 {script} {result}"))
+        # The trailing sleep keeps the probe alive past ghostty's
+        # abnormal-command-exit-runtime (250ms): a faster exit reads as
+        # a crashed command and holds the window on a key prompt.
+        run(terminal.argv(f"python3 {script} {result}; sleep 0.35"))
     except subprocess.TimeoutExpired:
         return None
     if not result.exists():

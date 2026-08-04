@@ -24,6 +24,7 @@ Printable ASCII (the scroll path):
 
 | terminal | wall | user | throughput |
 |---|---|---|---|
+| ghostty 1.3.2-main (nightly) | 0.56s | 0.62s | ~170 MiB/s |
 | **shitty** | **0.81s** | 0.50s | **~118 MiB/s** |
 | alacritty 0.17.0 | 0.96s | 0.78s | ~99 MiB/s |
 | kitty 0.48.2 | 1.28s | 0.95s | ~75 MiB/s |
@@ -35,13 +36,16 @@ Random bytes (the parser's worst case, invalid UTF-8 throughout):
 |---|---|---|---|
 | **shitty** | **1.88s** | 1.79s | **~51 MiB/s** |
 | alacritty 0.17.0 | 3.07s | 2.92s | ~31 MiB/s |
+| ghostty 1.3.2-main (nightly) | 3.37s | 5.22s | ~28 MiB/s |
 | ghostty 1.3.1 | 4.63s | ~7.0s | ~21 MiB/s |
 | kitty 0.48.2 | - | - | - |
 
 kitty sits the random payload out: it reacts to the embedded escape junk
-with title changes and bells instead of drawing. Reproduce with
-[dev/compare.py](dev/compare.py), which verifies the equalized setup from
-inside every terminal before measuring anything.
+with title changes and bells instead of drawing. The ghostty nightly row
+is the official tip build (1.3.2-main+1f6e26642), measured at its
+author's request - the released 1.3.1 numbers stay for comparison.
+Reproduce with [dev/compare.py](dev/compare.py), which verifies the
+equalized setup from inside every terminal before measuring anything.
 
 ## Why
 
