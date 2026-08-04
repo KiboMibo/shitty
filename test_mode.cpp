@@ -47,6 +47,7 @@
 #include <std/thr/runable.h>
 #include <std/ios/in_mem.h>
 #include <std/ios/input.h>
+#include <std/mem/obj_list.h>
 #include <std/mem/small_obj_allocator.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
@@ -734,6 +735,11 @@ namespace {
     }
 
     struct TraceEvent {
+        explicit TraceEvent(const char* type_)
+            : type(type_)
+        {
+        }
+
         const char* type;
         Buffer data;
     };
@@ -741,6 +747,13 @@ namespace {
     // The trace both records parser events and, as the VtermTraceFactory
     // handed to Vterm::create, receives the terminal's TestApi.
     struct VtermTraceImpl final: public VtermTrace, public VtermTraceFactory {
+        explicit VtermTraceImpl(ObjPool& owner)
+            : eventStore(&owner)
+        {
+        }
+
+        ~VtermTraceImpl();
+
         VtermTrace* construct(TestApi* testApi) override;
 
         void text(const u8* data, size_t size) override;
@@ -776,6 +789,7 @@ namespace {
         static const char* stringName(VtermTraceString type);
 
         TestApi* testApi = nullptr;
+        ObjList<TraceEvent> eventStore;
         Vector<TraceEvent*> events;
         size_t escapeEvent = noEvent;
         size_t stringEvent = noEvent;
@@ -929,17 +943,21 @@ namespace {
 
 }
 
+VtermTraceImpl::~VtermTraceImpl() {
+    clear();
+}
+
 VtermTrace* VtermTraceImpl::construct(TestApi* testApi_) {
     testApi = testApi_;
     return this;
 }
 
 VtermTraceImpl* VtermTraceImpl::create(Composer& composer) {
-    return composer.pool->make<VtermTraceImpl>();
+    return composer.pool->make<VtermTraceImpl>(*composer.pool);
 }
 
 size_t VtermTraceImpl::add(const char* type) {
-    events.pushBack(new TraceEvent{type, {}});
+    events.pushBack(eventStore.make(type));
     return events.length() - 1;
 }
 
@@ -947,7 +965,7 @@ void VtermTraceImpl::erase(size_t& index) {
     if (index == noEvent) {
         return;
     }
-    delete events[index];
+    eventStore.release(events[index]);
     memmove(events.mutData() + index, events.data() + index + 1, (events.length() - index - 1) * sizeof(TraceEvent*));
     events.popBack();
     if (escapeEvent != noEvent && escapeEvent > index) {
@@ -1066,7 +1084,7 @@ void VtermTraceImpl::drain(Buffer& out) {
             result.append(pair, 2);
         }
         result.append("\n", 1);
-        delete events[k];
+        eventStore.release(events[k]);
     }
     memmove(events.mutData(), events.data() + count, (events.length() - count) * sizeof(TraceEvent*));
     for (size_t drained = count; drained > 0; --drained) {
@@ -1083,7 +1101,7 @@ void VtermTraceImpl::drain(Buffer& out) {
 
 void VtermTraceImpl::clear() {
     for (TraceEvent* event : events) {
-        delete event;
+        eventStore.release(event);
     }
     events.clear();
     escapeEvent = noEvent;
@@ -3067,9 +3085,11 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
         composer.platform->stop();
     };
     auto controlBody = makeRunable(controlLoop);
-    // WRITE commands run the parser at full depth on this stack.
-    Buffer controlStack(256 * 1024);
-    composer.platform->scheduler()->spawn(controlBody, controlStack.mutData(), 256 * 1024);
+    // Control commands run the full terminal call graph here, including
+    // system font discovery and rendering, not just the protocol parser.
+    constexpr size_t controlStackSize = 1024 * 1024;
+    Buffer controlStack(controlStackSize);
+    composer.platform->scheduler()->spawn(controlBody, controlStack.mutData(), controlStackSize);
     composer.platform->run();
 
     terminalPty.unlink();
