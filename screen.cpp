@@ -23,6 +23,7 @@
 #include "font_face.h"
 #include "font_pack.h"
 #include "listener.h"
+#include "options.h"
 #include "utf8.h"
 
 #include <std/alg/minmax.h>
@@ -37,6 +38,7 @@
 #include <utf8proc.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <utility>
 #include <vector>
@@ -1183,11 +1185,15 @@ void ScreenBase<Coord, Epoch>::onFontChanged() {
     for (u32 index = 0; rowRing != nullptr && index < rowCapacity; ++index) {
         releaseRowShape(rowRing[index]);
     }
+    const u32 previous = spanGeneration_;
     shapeMask_.reset();
     shapeColor_.reset();
     ++rawEpoch_;
     ++stripEpoch_;
     spanGeneration_ = nextShapeGeneration();
+    if (opts.verbose) {
+        fprintf(stderr, "shitty: shape: font change, screen %p generation %u -> %u\n", (void*)(this), previous, spanGeneration_);
+    }
 }
 
 template <typename Coord, typename Epoch>
@@ -1243,11 +1249,14 @@ void ScreenBase<Coord, Epoch>::collectStrips() {
     // raw-bytes cache level stays valid: identities did not change, only
     // offsets.
     ++stripEpoch_;
+    const u32 previous = spanGeneration_;
     spanGeneration_ = nextShapeGeneration();
     Buffer oldMask;
     Buffer oldColor;
     oldMask.xchg(shapeMask_);
     oldColor.xchg(shapeColor_);
+    const size_t oldMaskUsed = oldMask.used();
+    const size_t oldColorUsed = oldColor.used();
     const u16 cellWidth = composer.fonts->getPx();
     const u16 cellHeight = composer.fonts->getPy();
     for (u32 index = 0; rowRing != nullptr && index < rowCapacity; ++index) {
@@ -1287,6 +1296,9 @@ void ScreenBase<Coord, Epoch>::collectStrips() {
                 strips_->insert(entry.hash, entry.offset, stripEpoch_);
             }
         }
+    }
+    if (opts.verbose) {
+        fprintf(stderr, "shitty: shape: collection, screen %p generation %u -> %u, mask %zu -> %zu, color %zu -> %zu\n", (void*)(this), previous, spanGeneration_, oldMaskUsed, shapeMask_.used(), oldColorUsed, shapeColor_.used());
     }
 }
 
@@ -1470,6 +1482,25 @@ void ScreenBase<Coord, Epoch>::shapeRow(Row& row) {
     // its already-published shapeCount: zeroed entries sweep as empty.
     __builtin_memset(row.shape, 0, bytes);
     cutShapeRow(row.cells, nCols, row.shape);
+    if (opts.verbose) {
+        // Diagnostic for issue 51: right after the fill every strip this
+        // row references must lie inside its arena.
+        const u16 cellWidth = composer.fonts->getPx();
+        const u16 cellHeight = composer.fonts->getPy();
+        for (u32 index = 0; index < count; ++index) {
+            const RowSpanEntry& entry = row.shape[index];
+            if (entry.offset & rowSpanMissing) {
+                continue;
+            }
+            const bool color = (entry.offset & rowSpanColor) != 0;
+            const size_t pixels = (size_t)(entry.end - entry.begin) * cellWidth * cellHeight;
+            const size_t last = (size_t)(entry.offset & rowSpanOffsetMask) + pixels;
+            const size_t used = color ? shapeColor_.used() / sizeof(u32) : shapeMask_.used();
+            if (last > used) {
+                fprintf(stderr, "shitty: shape: FRESH ROW references past arena, screen %p span [%u, %u) %s offset %u last %zu > used %zu, generation %u\n", (void*)(this), entry.begin, entry.end, color ? "color" : "mask", entry.offset & rowSpanOffsetMask, last, used, spanGeneration_);
+            }
+        }
+    }
 }
 
 template <typename Coord, typename Epoch>
