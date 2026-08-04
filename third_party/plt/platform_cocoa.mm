@@ -1869,7 +1869,8 @@ KeyInput plt::keyInputFromEvent(NSEvent* event, bool pressed) {
         mods |= InputNumLock;
     }
     u32 layout = firstCodepoint(event.characters);
-    u32 base = firstCodepoint(event.charactersIgnoringModifiers);
+    const u32 rawBase = firstCodepoint(event.charactersIgnoringModifiers);
+    u32 base = rawBase;
     if (key == InputKey::Printable && base >= 0x80) {
         const u32 ascii = asciiBaseCodepoint(event);
         if (ascii >= 0x20 && ascii < 0x7f) {
@@ -1879,9 +1880,13 @@ KeyInput plt::keyInputFromEvent(NSEvent* event, bool pressed) {
     // Cocoa folds Control into characters: Ctrl+B reports STX, where xkbcommon
     // reports 'b'. A C0 control is never a layout key, and the kitty key field
     // needs the layout one - reporting 2 instead of 98 kills every multiplexer
-    // prefix. The named keys carry their own codes, so only printables recover.
-    if (key == InputKey::Printable && layout < 0x20 && base >= 0x20) {
-        layout = base;
+    // prefix. The recovery restores the unfolded active-layout key - the raw
+    // charactersIgnoringModifiers, before the ASCII correction - so a Russian
+    // Ctrl+B reports the active-layout letter with the Latin key in the base
+    // field, exactly like the Wayland backend's level-zero identity. The named
+    // keys carry their own codes, so only printables recover.
+    if (key == InputKey::Printable && layout < 0x20 && rawBase >= 0x20) {
+        layout = rawBase;
     }
     return {
         .key = key,

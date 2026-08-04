@@ -68,16 +68,16 @@ STD_TEST_SUITE(PlatformCocoaKey) {
         }
     }
 
-    STD_TEST(ControlFoldedRecoveryUsesTheAsciiBase) {
+    STD_TEST(ControlFoldedRecoveryKeepsTheActiveLayout) {
         @autoreleasepool {
-            // On a Russian layout Ctrl+B reports STX with CYRILLIC VE as the
-            // base. The recovery must run after the ASCII-capable-layout
-            // correction and pick up whatever base it resolved, never the
-            // folded control.
+            // On a Russian layout Ctrl+B reports STX with CYRILLIC VE as
+            // charactersIgnoringModifiers. The recovery restores that
+            // active-layout letter - matching the Wayland level-zero
+            // identity - while the base field keeps the ASCII key.
             const KeyInput input = keyInputFromEvent(keyEvent(@"\x02", @"в", NSEventModifierFlagControl, kVK_ANSI_B), true);
             STD_INSIST(input.key == InputKey::Printable);
-            STD_INSIST(input.layoutCodepoint == input.baseCodepoint);
-            STD_INSIST(input.layoutCodepoint >= 0x20);
+            STD_INSIST(input.layoutCodepoint == 0x0432);
+            STD_INSIST(input.baseCodepoint == 'b');
         }
     }
 }
