@@ -19,6 +19,7 @@
       systems = [
         "x86_64-linux"
         "aarch64-linux"
+        "aarch64-darwin"
       ];
 
       forAllSystems = lib.genAttrs systems;
@@ -47,6 +48,7 @@
         {
           sanitizer ? null,
           coverage ? false,
+          isLinux,
         }:
         assert !(coverage && sanitizer != null);
         let
@@ -83,7 +85,7 @@
           ''}
           export LDFLAGS="${
             lib.optionalString (linkInstrumentation != "") "${linkInstrumentation} "
-          }$(pkg-config --libs wayland-client xkbcommon) -lrt"
+          }${lib.optionalString isLinux "$(pkg-config --libs wayland-client xkbcommon) -lrt"}"
         '';
 
       mkShitty =
@@ -109,36 +111,48 @@
               --replace-fail 'date.today().strftime("%Y.%m.%d")' '"${version}"'
           '';
 
-          nativeBuildInputs = with pkgs; [
-            addDriverRunpath
-            glslang
-            librsvg
-            makeWrapper
-            pkg-config
-            python3
-            ragel
-            wayland-protocols
-            wayland-scanner
-          ];
+          nativeBuildInputs =
+            with pkgs;
+            [
+              glslang
+              librsvg
+              makeWrapper
+              pkg-config
+              python3
+              ragel
+            ]
+            ++ lib.optionals stdenv.hostPlatform.isLinux [
+              addDriverRunpath
+              wayland-protocols
+              wayland-scanner
+            ]
+            ++ lib.optionals stdenv.hostPlatform.isDarwin [ spirv-cross ];
 
-          buildInputs = with pkgs; [
-            brotli
-            fontconfig
-            freetype
-            harfbuzz
-            libxkbcommon
-            simdutf
-            utf8proc
-            vulkan-headers
-            vulkan-loader
-            wayland
-          ];
+          buildInputs =
+            with pkgs;
+            [
+              brotli
+              fontconfig
+              freetype
+              harfbuzz
+              simdutf
+              utf8proc
+            ]
+            ++ lib.optionals stdenv.hostPlatform.isLinux [
+              libxkbcommon
+              vulkan-headers
+              vulkan-loader
+              wayland
+            ];
 
           # The project's runner honours the usual toolchain env vars. Keep the
           # build out of $src (read-only store path) via -B.
           buildPhase = ''
             runHook preBuild
-            ${configureBuildEnvironment { inherit sanitizer; }}
+            ${configureBuildEnvironment {
+              inherit sanitizer;
+              isLinux = stdenv.hostPlatform.isLinux;
+            }}
             python3 ./build -B ${buildDirectory} -j "$NIX_BUILD_CORES"
             runHook postBuild
           '';
@@ -155,21 +169,19 @@
 
           # Vulkan ICDs live under /run/opengl-driver on NixOS; addDriverRunpath
           # puts that directory on the binary's RUNPATH.
-          postFixup = ''
+          postFixup = lib.optionalString stdenv.hostPlatform.isLinux ''
             addDriverRunpath "$out/bin/st"
           '';
 
           meta = {
-            description = "Small, fast terminal emulator with a Linux Wayland/Vulkan frontend";
+            description = "Small, fast terminal emulator with Wayland/Vulkan and macOS/Metal frontends";
             homepage = "https://github.com/pg83/shitty";
             license = with lib.licenses; [
               gpl3Plus
               mit
             ];
             mainProgram = "st";
-            platforms = lib.platforms.linux;
-            # Wayland + Vulkan compute frontend; no X11 backend.
-            badPlatforms = lib.platforms.darwin;
+            platforms = lib.platforms.linux ++ lib.platforms.darwin;
           };
         };
 
@@ -225,7 +237,10 @@
 
           buildPhase = ''
             runHook preBuild
-            ${configureBuildEnvironment { inherit sanitizer coverage; }}
+            ${configureBuildEnvironment {
+              inherit sanitizer coverage;
+              isLinux = pkgs.stdenv.hostPlatform.isLinux;
+            }}
             ${lib.optionalString (sanitizer == "asan") ''
               export ASAN_SYMBOLIZER_PATH=${lib.getExe' pkgs.llvmPackages.llvm "llvm-symbolizer"}
             ''}
