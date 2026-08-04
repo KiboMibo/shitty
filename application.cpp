@@ -265,10 +265,13 @@ void ApplicationImpl::fontChanged() {
     const u32 border = 2u * opts.border;
     composer.window->requestMinimumSize(border + composer.glyphWidth, border + composer.glyphHeight);
     composer.window->requestResizeUnit(composer.glyphWidth, composer.glyphHeight, border, border);
-    if (composer.window->info().fullscreen) {
-        // The window is the screen and not ours to resize: keeping the
-        // grid would wedge the viewport at the largest-font grid (issue
-        // 38). Let the next frame reflow the grid over the same pixels.
+    const plt::WindowInfo info = composer.window->info();
+    if (info.fullscreen || info.maximized || info.tiled) {
+        // The window is the screen's, the compositor's tile, or the
+        // maximized frame - not ours to resize (issue 38, issue 46: a
+        // self-resize under a tiler bounces against the compositor's
+        // configure and every font step reflows twice). Let the next
+        // frame reflow the grid over the same pixels.
         composer.window->requestFrame();
         return;
     }
