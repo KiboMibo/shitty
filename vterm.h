@@ -132,6 +132,17 @@ struct TerminalUpdate {
 };
 
 struct Vterm {
+    // Becomes the terminal the window shows and types into: joins the
+    // input chain and repaints. The repaint is not optional - the
+    // renderer retains the cells of whichever terminal was there before,
+    // and only re-materializes the rows an update reports as damaged, so
+    // an undamaged row would keep the previous terminal's colors and
+    // attributes under this one's glyphs.
+    virtual void activate() = 0;
+    // Stops being that terminal. It leaves the input chain, which is
+    // first-accepts-wins: a background terminal left on it would swallow
+    // every keystroke meant for the active one.
+    virtual void deactivate() = 0;
     virtual void feedPty(stl::StringView bytes) = 0;
     virtual void expose() = 0;
     virtual void sendBytes(stl::StringView bytes, bool userInput) = 0;

@@ -413,6 +413,8 @@ namespace {
         ~VtermImpl();
 
         void feedPty(StringView bytes) override;
+        void activate() override;
+        void deactivate() override;
         void expose() override;
         void focus(bool focused) override;
         bool key(const KeyInput& input) override;
@@ -8469,6 +8471,20 @@ void VtermImpl::wireInputBindings() {
 void VtermImpl::fontChanged() {
     cf->expose();
     redraw();
+}
+
+void VtermImpl::activate() {
+    composer.vterm = this;
+    composer.inputHandlers.pushBack(this);
+    // Screen::expose, not Vterm::expose: the latter only redraws, which
+    // marks no rows, and the renderer needs every row back to shed the
+    // outgoing terminal's retained cells.
+    cf->expose();
+    redraw();
+}
+
+void VtermImpl::deactivate() {
+    InputHandler::unlink();
 }
 
 void VtermImpl::resizeGrid() {
