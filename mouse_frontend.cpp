@@ -7,7 +7,7 @@
 #include "mouse_frontend.h"
 
 #include <climits>
-#include <cmath>
+#include <math.h>
 
 #include <std/alg/minmax.h>
 

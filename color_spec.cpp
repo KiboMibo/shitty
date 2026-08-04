@@ -8,7 +8,7 @@
 
 #include <std/alg/minmax.h>
 
-#include <cmath>
+#include <math.h>
 
 using namespace stl;
 
