@@ -54,6 +54,11 @@ namespace {
     constexpr size_t feedBacklogLimit = 1024 * 1024;
     // One parser bite between yields back to the loop.
     constexpr size_t feedSliceLimit = 256 * 1024;
+    // A gather already this big amortizes the parser wake without waiting.
+    constexpr size_t feedCoalesceTarget = 64 * 1024;
+    // One kernel-queue refill window; the reader collects a couple hundred
+    // kilobytes of a bulk stream in this time.
+    constexpr useconds_t feedCoalesceDelay = 1000;
     // A stuck child bounds the outgoing queue instead of the kernel buffer;
     // fiber writers park on the bound, tryWrite reports it.
     constexpr size_t writeBacklogLimit = 256 * 1024;
@@ -97,6 +102,7 @@ namespace {
         void writeSpaceReady();
         plt::Scheduler* scheduler() const;
         static void* readerThread(void* opaque);
+        static void* coalescerThread(void* opaque);
         static void* writerThread(void* opaque);
 
         // The write-space doorbell: the writer thread rings it when a
@@ -114,16 +120,27 @@ namespace {
         PtyFeed feed_;
         plt::LoopWake* wake_ = nullptr;
         plt::Fiber* feedFiber_ = nullptr;
-        // The reader thread appends to fill_ under the mutex and rings the
+        // The coalescer appends to fill_ under the mutex and rings the
         // doorbell only when the feed fiber is parked; the fiber swaps
         // fill_ for drain_ and parses without the lock. The condvar parks
-        // the reader while the parser is feedBacklogLimit behind.
+        // the coalescer while the parser is feedBacklogLimit behind.
         pthread_mutex_t feedMutex_ = PTHREAD_MUTEX_INITIALIZER;
         pthread_cond_t feedSpace_ = PTHREAD_COND_INITIALIZER;
         Buffer fill_;
         Buffer drain_;
         bool feedEof_ = false;
         bool feedParked_ = false;
+        // The stage between the reader and the parser: the reader appends
+        // raw pty reads to gatherFill_ and never sleeps, so the child never
+        // blocks on our account; the coalescer swaps the buffer out, waits
+        // out one refill window when a stream is flowing, and delivers the
+        // sum to fill_ as one batch.
+        pthread_mutex_t gatherMutex_ = PTHREAD_MUTEX_INITIALIZER;
+        pthread_cond_t gatherData_ = PTHREAD_COND_INITIALIZER;
+        pthread_cond_t gatherSpace_ = PTHREAD_COND_INITIALIZER;
+        Buffer gatherFill_;
+        Buffer gatherDrain_;
+        bool gatherEof_ = false;
         // The mirror for the outgoing direction: producers on the platform
         // thread append to outFill_, the writer thread swaps it for
         // outDrain_ and sleeps in write. ptyMutex serializes fiber writers,
@@ -266,12 +283,66 @@ void* PtyImpl::readerThread(void* opaque) {
         if (count < 0 && errno == EINTR) {
             continue;
         }
-        pthread_mutex_lock(&pty->feedMutex_);
+        pthread_mutex_lock(&pty->gatherMutex_);
         if (count > 0) {
+            while (pty->gatherFill_.used() >= feedBacklogLimit) {
+                pthread_cond_wait(&pty->gatherSpace_, &pty->gatherMutex_);
+            }
+            const bool wasEmpty = pty->gatherFill_.used() == 0;
+            pty->gatherFill_.append(buffer, (size_t)(count));
+            pthread_mutex_unlock(&pty->gatherMutex_);
+            if (wasEmpty) {
+                pthread_cond_signal(&pty->gatherData_);
+            }
+            continue;
+        }
+        // EOF or EIO: the coalescer forwards what is buffered, then the
+        // feed closes.
+        pty->gatherEof_ = true;
+        pthread_mutex_unlock(&pty->gatherMutex_);
+        pthread_cond_signal(&pty->gatherData_);
+        return nullptr;
+    }
+}
+
+// Runs forever on its own thread between the reader and the parser. The
+// kernel hands the reader the pty queue about a kilobyte per read, so a
+// bulk stream arrives as a hundred thousand crumbs - and waking the
+// parser for every crumb costs a loop round per two kilobytes of work.
+// When a delivery finds the next crumbs already queued - a stream, not a
+// keystroke - it waits out one refill window and hands over everything
+// the reader collected meanwhile; the reader never sleeps, so the child
+// never blocks on our account. A wake from an empty queue delivers at
+// once, so a keystroke echoes without the extra millisecond.
+void* PtyImpl::coalescerThread(void* opaque) {
+    auto* const pty = (PtyImpl*)(opaque);
+    bool coalesce = false;
+    for (;;) {
+        pthread_mutex_lock(&pty->gatherMutex_);
+        if (pty->gatherFill_.used() == 0) {
+            coalesce = false;
+            while (pty->gatherFill_.used() == 0 && !pty->gatherEof_) {
+                pthread_cond_wait(&pty->gatherData_, &pty->gatherMutex_);
+            }
+        }
+        const bool eof = pty->gatherEof_;
+        if (coalesce && !eof && pty->gatherFill_.used() < feedCoalesceTarget) {
+            pthread_mutex_unlock(&pty->gatherMutex_);
+            usleep(feedCoalesceDelay);
+            pthread_mutex_lock(&pty->gatherMutex_);
+        }
+        coalesce = true;
+        pty->gatherFill_.xchg(pty->gatherDrain_);
+        pthread_mutex_unlock(&pty->gatherMutex_);
+        pthread_cond_signal(&pty->gatherSpace_);
+
+        const size_t used = pty->gatherDrain_.used();
+        if (used != 0) {
+            pthread_mutex_lock(&pty->feedMutex_);
             while (pty->fill_.used() >= feedBacklogLimit) {
                 pthread_cond_wait(&pty->feedSpace_, &pty->feedMutex_);
             }
-            pty->fill_.append(buffer, (size_t)(count));
+            pty->fill_.append(pty->gatherDrain_.data(), used);
             // The doorbell rings only for a parked fiber: a running one
             // re-checks the buffer on its own and a flood stays silent.
             const bool ring = pty->feedParked_;
@@ -279,13 +350,16 @@ void* PtyImpl::readerThread(void* opaque) {
             if (ring) {
                 pty->wake_->signal();
             }
-            continue;
+            pty->gatherDrain_.reset();
         }
-        // EOF or EIO: the feed drains what is buffered, then closes.
-        pty->feedEof_ = true;
-        pthread_mutex_unlock(&pty->feedMutex_);
-        pty->wake_->signal();
-        return nullptr;
+        if (eof) {
+            // EOF or EIO: the feed drains what is buffered, then closes.
+            pthread_mutex_lock(&pty->feedMutex_);
+            pty->feedEof_ = true;
+            pthread_mutex_unlock(&pty->feedMutex_);
+            pty->wake_->signal();
+            return nullptr;
+        }
     }
 }
 
@@ -398,6 +472,11 @@ void PtyImpl::start() {
         sysError("pty reader thread");
     }
     pthread_detach(reader);
+    pthread_t coalescer;
+    if (pthread_create(&coalescer, nullptr, coalescerThread, this) != 0) {
+        sysError("pty coalescer thread");
+    }
+    pthread_detach(coalescer);
     pthread_t writer;
     if (pthread_create(&writer, nullptr, writerThread, this) != 0) {
         sysError("pty writer thread");

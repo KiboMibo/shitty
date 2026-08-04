@@ -12,7 +12,7 @@ the terminal through TIOCGWINSZ before anything is measured; shitty's
 -geometry is calibrated automatically because the window manager may
 not honour the requested grid exactly.
 
-Payloads: 100MB of printable ASCII with newlines (the scroll path) and
+Payloads: 1GB of printable ASCII with newlines (the scroll path) and
 100MB of seeded pseudo-random bytes (the invalid-UTF-8 parser path).
 kitty skips the random payload: it reacts to the embedded escape junk
 with title changes and bells instead of drawing.
@@ -34,7 +34,11 @@ ROWS = 24
 FONT = "Menlo"
 FONT_SIZE = 12
 SCROLLBACK_LINES = 500
-PAYLOAD_BYTES = 100_000_000
+# A gigabyte of ASCII, so the app startup (~0.15s) reads as noise, not
+# as a quarter of the wall time. The random payload is CPU-bound at a
+# tenth of the throughput; 100MB already dwarfs the startup there.
+ASCII_PAYLOAD_BYTES = 1_000_000_000
+RANDOM_PAYLOAD_BYTES = 100_000_000
 RUN_TIMEOUT = 300
 
 WINSZ_PROBE = (
@@ -202,19 +206,22 @@ def ensure_payloads(work):
     ascii_payload = work / "ascii.bin"
     random_payload = work / "random.bin"
     rng = random.Random(0x5117)
-    if not ascii_payload.exists() or ascii_payload.stat().st_size != PAYLOAD_BYTES:
+    if not ascii_payload.exists() or ascii_payload.stat().st_size != ASCII_PAYLOAD_BYTES:
         printable = bytes(range(0x20, 0x7F))
         line = bytes(rng.choice(printable) for _ in range(COLUMNS)) + b"\n"
         with ascii_payload.open("wb") as out:
             written = 0
-            while written < PAYLOAD_BYTES:
-                out.write(line[: PAYLOAD_BYTES - written])
+            while written < ASCII_PAYLOAD_BYTES:
+                out.write(line[: ASCII_PAYLOAD_BYTES - written])
                 written += len(line)
-    if not random_payload.exists() or random_payload.stat().st_size != PAYLOAD_BYTES:
+    if not random_payload.exists() or random_payload.stat().st_size != RANDOM_PAYLOAD_BYTES:
         with random_payload.open("wb") as out:
-            for _ in range(PAYLOAD_BYTES // 1_000_000):
+            for _ in range(RANDOM_PAYLOAD_BYTES // 1_000_000):
                 out.write(rng.randbytes(1_000_000))
-    return [("ascii", ascii_payload), ("random", random_payload)]
+    return [
+        ("ascii", ascii_payload, ASCII_PAYLOAD_BYTES),
+        ("random", random_payload, RANDOM_PAYLOAD_BYTES),
+    ]
 
 
 def bench(terminal, payload, runs):
@@ -273,8 +280,8 @@ def main():
         print("warning: cell sizes differ, the comparison is not apples to apples")
 
     payloads = ensure_payloads(arguments.work)
-    mib = PAYLOAD_BYTES / (1 << 20)
-    for label, payload in payloads:
+    for label, payload, size in payloads:
+        mib = size / (1 << 20)
         print(f"\n{label} {mib:.0f}MiB (cat, best wall of {arguments.runs}):")
         rows = []
         for terminal in ready:
